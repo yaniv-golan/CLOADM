@@ -1,0 +1,31 @@
+name: Feature request
+description: Suggest something CLOADM should do.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check the open issues first: it may already be planned.
+        Want to offer a program for the "runs without ROMs" shelf? See CONTRIBUTING.md for the permission it needs.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What would you like to do?
+      description: The problem or use case, not only the solution.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behaviour
+      description: How it could work in CLOADM. For hardware, name the machine and device.
+  - type: textarea
+    id: reference
+    attributes:
+      label: How it could be verified
+      description: CLOADM checks hardware behaviour against MAME, datasheets or published documentation (see AGENTS.md section 5). Name the MAME driver or slot option, or the document, if you know it.
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else
+      description: Links, screenshots, other emulators that do it. No ROM files or links to them.

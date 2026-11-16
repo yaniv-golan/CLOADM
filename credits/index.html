@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en" class="reading">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- served at /credits/; relative URLs are from the site root;
+     keep it in step with CREDITS.md. Every claim here has a source (CREDITS.md says where). -->
+<base href="../">
+<title>Credits – CLOADM</title>
+<meta name="description" content="CLOADM stands on the shoulders of MAME, XRoar, VCC, DriveWire, the archivists and the magazines.">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/reading.css">
+</head>
+<body>
+<header class="page-head">
+  <a class="back" href="play/">← Emulator</a>
+  <span class="title">CREDITS</span>
+  <span class="grow"></span>
+  <a href="./">Home</a>
+  <a href="help/">Help</a>
+  <a href="roms/">ROMs</a>
+  <a href="https://github.com/yaniv-golan/cloadm/issues">Report a problem</a>
+</header>
+
+<main>
+  <section class="hero">
+    <div>
+      <div class="eyebrow">Credits</div>
+      <h1>On the shoulders of giants</h1>
+      <p>CLOADM is a newcomer. Every chip here was understood first by people who spent decades documenting, emulating
+        and preserving these machines, mostly for free. We learned from their work, we test against it, and we wouldn't
+        exist without it.</p>
+    </div>
+    <pre class="listing" aria-label="A BASIC listing that prints thank you to MAME, XRoar, VCC, the archivists and the fans">10 REM THANK YOU
+20 FOR I=1 TO 5
+30 PRINT "THANK YOU, ";
+40 READ N$:PRINT N$
+50 NEXT
+60 DATA MAMEDEV,XROAR,VCC
+70 DATA ARCHIVISTS,FANS
+RUN█</pre>
+  </section>
+
+  <section class="section" aria-labelledby="ref">
+    <h2 id="ref">The emulators that came first</h2>
+    <div class="cards" style="padding:0;max-width:none">
+      <article class="card ref">
+        <div class="head"><h3>MAME</h3><span class="pill ref">OUR REFERENCE</span></div>
+        <div class="who">The MAME team, with Nathan Woods (CoCo and Dragon drivers) and Phill Harvey-Smith (Dragon Alpha)</div>
+        <p>Every instruction CLOADM runs is compared against MAME 0.264 in lockstep, and every display mode pixel by pixel.
+          When we say "identical", MAME is what we are identical to.</p>
+        <div class="stat">1,016,661 instructions checked against it</div>
+        <a href="https://www.mamedev.org/">mamedev.org</a>
+      </article>
+      <article class="card">
+        <div class="head"><h3>XRoar</h3><span class="pill">BENCHMARK</span></div>
+        <div class="who">Ciaran Anscomb</div>
+        <p>The Dragon and CoCo emulator the community trusts. Its ROM file names are the ones we use, and it is our
+          second opinion for the SAM's fast-rate timing and picture.</p>
+        <a href="https://www.6809.org.uk/xroar/">6809.org.uk/xroar</a>
+      </article>
+      <article class="card">
+        <div class="head"><h3>VCC</h3><span class="pill">BENCHMARK</span></div>
+        <div class="who">Joseph Forgione, and the VCCE community that maintains it today</div>
+        <p>The Virtual Color Computer, a CoCo 3 emulator. Its feature set is part of what CLOADM aims to match.</p>
+        <a href="https://github.com/VCCE/VCC">github.com/VCCE/VCC</a>
+      </article>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="keep">
+    <h2 id="keep">The people who kept it all</h2>
+    <div class="cards" style="padding:0;max-width:none">
+      <div class="card"><h3>Color Computer Archive</h3><p>Software, manuals, magazines and the ROM sets XRoar uses, preserved and catalogued.</p>
+        <a href="https://colorcomputerarchive.com/">colorcomputerarchive.com</a></div>
+      <div class="card"><h3>The Dragon Archive</h3><p>The Dragon community's wiki and software archive, built on Ross Hamilton's original Dragon Software Archive.</p>
+        <a href="https://www.worldofdragon.org/">worldofdragon.org</a></div>
+      <div class="card"><h3>DriveWire</h3><p>Boisy Pitre and Aaron Wolfe: the protocol and servers that connect a CoCo to modern storage.
+        CLOADM's planned in-browser server will follow its specification.</p>
+        <a href="https://github.com/boisy/DriveWire">github.com/boisy/DriveWire</a></div>
+      <div class="card"><h3>Hardware documenters</h3><p>Everyone who measured, traced and wrote down how these machines behave. MAME's sources
+        cite, among others, the "Unravelled" ROM books (<code>trs/coco.cpp</code>), and Graham E. Kinns's DragonDOS notes and the
+        PC-Dragon emulator (<code>bus/coco/dragon_fdc.cpp</code>).</p></div>
+      <div class="card"><h3>Type</h3><p>Archivo by Omnibus-Type and JetBrains Mono by JetBrains, both under the SIL Open Font License and
+        served from this site.</p></div>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="docs">
+    <h2 id="docs">Documents the code cites</h2>
+    <div class="card">
+      <table class="plain">
+        <tbody>
+          <tr><td>Motorola MC6883 (SAM) data sheet</td><td>CPU speeds, fast address ranges, the fast-rate picture: <code>js/machines/sam.js</code></td></tr>
+          <tr><td>Motorola MC6801/MC6803 data sheet</td><td>Instruction timing: <code>js/cpu/cpu6803.js</code></td></tr>
+          <tr><td>Hitachi HD6301 documentation</td><td>The double-byte write and the undefined-opcode trap: <code>js/cpu/cpu6803.js</code></td></tr>
+          <tr><td>Darren Atkinson's notes on the CoCo's floating data bus</td><td>Reads from unmapped addresses: <code>js/machines/coco3.js</code></td></tr>
+          <tr><td>Published MC-10 documentation</td><td>The <code>POLCAT</code> and <code>CHROUT</code> entry points used when running without ROMs</td></tr>
+          <tr><td>MAME's driver sources</td><td>Memory maps, timing and ROM checksums, wherever a comment says "as in MAME"</td></tr>
+          <tr><td>MAME's <code>gime.cpp</code>, Copyright (c) Nathan Woods, used under the BSD 3-Clause licence (<a href="../licenses/MAME-gime-BSD-3-Clause.txt">notice and conditions</a>)</td><td>The CoCo 3 composite monitor's measured colours and their phase-inverted set, included in <code>js/chips/gime.js</code>: the only code or data of theirs that CLOADM contains</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="cards" aria-label="The makers and the magazines">
+    <div class="card">
+      <h2 id="made">And the people who made the machines</h2>
+      <p>The engineers at Motorola, Tandy, Dragon Data and Microsoft who designed the chips, the boards and the BASIC. Their
+        datasheets are still the final word wherever MAME and the hardware disagree.</p>
+    </div>
+    <div class="card">
+      <h2>And the magazines</h2>
+      <p>For the type-in listings, the PEEKs and POKEs, and the issues that crossed the world in suitcases to reach kids who
+        had no other way to learn: The Rainbow, Hot CoCo, Color Computer Magazine, Dragon User, INPUT, Your Computer,
+        Popular Computing Weekly, Personal Computer World, Personal Computing Today and more. And to the archivists who
+        keep them readable: the <a href="https://colorcomputerarchive.com/repo/Documents/Magazines/">Color Computer Archive</a>,
+        <a href="https://www.os9projects.com/DragonTop/DragonMag/DragonUser/DragonUser.html">os9projects.com</a>, the
+        <a href="https://www.computinghistory.org.uk/cgi/archive.pl?platform=Dragon+32&amp;type=Listing">Centre for Computing History</a>
+        and <a href="https://www.retromags.com/gallery/category/1043-input/">Retromags</a>.</p>
+    </div>
+  </section>
+</main>
+
+<footer class="page-foot">
+  <span>Missing someone? Credits are a file in the repository: <code>CREDITS.md</code>. A pull request adding a name is always welcome.</span>
+  <nav aria-label="Site"><a href="https://github.com/yaniv-golan/cloadm/blob/main/CREDITS.md">Open CREDITS.md on GitHub</a></nav>
+</footer>
+</body>
+</html>

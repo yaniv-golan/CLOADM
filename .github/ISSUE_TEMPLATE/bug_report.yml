@@ -1,0 +1,77 @@
+name: Bug report
+description: Something in CLOADM doesn't work as it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Please never attach, paste or link ROM files (BASIC, DOS, character generator or
+        any other firmware dump), even ones you own: we can't accept them. Say which ROM set you used by name
+        instead. Security problems go through the Security tab, not here (see SECURITY.md).
+  - type: dropdown
+    id: machine
+    attributes:
+      label: Machine model
+      options:
+        - Dragon 32
+        - Dragon 64
+        - Dragon 200 / 200-E
+        - Dragon Professional (Alpha)
+        - Tandy Color Computer 1 / 2
+        - Tandy Color Computer 3
+        - Tandy MC-10
+        - Matra Alice
+        - Prológica CP-400
+        - Other / not machine-specific
+    validations:
+      required: true
+  - type: input
+    id: roms
+    attributes:
+      label: ROMs
+      description: No ROMs (the built-in stub firmware), or the names of the ROM files you loaded. Names only.
+      placeholder: "e.g. none, or d32.rom"
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and OS
+      placeholder: "e.g. Chrome 131 on macOS 15, Firefox 133 on Windows 11"
+    validations:
+      required: true
+  - type: input
+    id: url
+    attributes:
+      label: URL parameters used
+      description: The page address or just the part after `?` (for example `?machine=coco3&ram=512`). Remove any ROM URLs you host privately.
+      placeholder: "/play/?machine=dragon64"
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open ...
+        2. Type ...
+        3. See ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+      description: What should happen, and how you know (real hardware, MAME, XRoar, documentation).
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+      description: What happens instead. Screenshots and console errors help.
+    validations:
+      required: true
+  - type: checkboxes
+    id: no-roms
+    attributes:
+      label: ROMs
+      options:
+        - label: I have not attached or linked any ROM files.
+          required: true

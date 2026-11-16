@@ -1,0 +1,707 @@
+{
+  "trace dragon32": {
+    "hash": "8162e95a",
+    "instructions": 305257,
+    "halted": true
+  },
+  "trace dragon64": {
+    "hash": "5c2ca8f4",
+    "instructions": 305257,
+    "halted": true
+  },
+  "trace dragon200": {
+    "hash": "5c2ca8f4",
+    "instructions": 305257,
+    "halted": true
+  },
+  "trace tanodr64": {
+    "hash": "32494525",
+    "instructions": 302011,
+    "halted": true
+  },
+  "trace coco": {
+    "hash": "5ee8a330",
+    "instructions": 302011,
+    "halted": true
+  },
+  "trace coco2b": {
+    "hash": "5ee8a330",
+    "instructions": 302011,
+    "halted": true
+  },
+  "trace mx1600": {
+    "hash": "5ee8a330",
+    "instructions": 302011,
+    "halted": true
+  },
+  "trace lzcolor64": {
+    "hash": "5ee8a330",
+    "instructions": 302011,
+    "halted": true
+  },
+  "trace cd6809": {
+    "hash": "5ee8a330",
+    "instructions": 302011,
+    "halted": true
+  },
+  "trace dragon200e": {
+    "hash": "5c2ca8f4",
+    "instructions": 305257,
+    "halted": true
+  },
+  "video dragon200e": {
+    "hash": "85e98185",
+    "frames": 680
+  },
+  "trace cp400": {
+    "hash": "5ee8a330",
+    "instructions": 302011,
+    "halted": true
+  },
+  "video cp400": {
+    "hash": "8abaaff5",
+    "frames": 680
+  },
+  "trace coco 4K": {
+    "hash": "d4bbff6d",
+    "instructions": 303631,
+    "halted": true
+  },
+  "trace coco 16K": {
+    "hash": "8c577d4f",
+    "instructions": 303127,
+    "halted": true
+  },
+  "trace coco 32K": {
+    "hash": "4f5d595f",
+    "instructions": 302011,
+    "halted": true
+  },
+  "raster coco 4K": {
+    "hash": "c65888a2",
+    "frames": 180
+  },
+  "trace coco pia1b.asm": {
+    "hash": "c18150b6",
+    "instructions": 403146,
+    "halted": true
+  },
+  "trace coco2b pia1b.asm": {
+    "hash": "c18150b6",
+    "instructions": 403146,
+    "halted": true
+  },
+  "trace cp400 pia1b.asm": {
+    "hash": "c18150b6",
+    "instructions": 403146,
+    "halted": true
+  },
+  "trace dragon32 pia1b.asm": {
+    "hash": "2ead7a43",
+    "instructions": 403032,
+    "halted": true
+  },
+  "trace dragon64 pia1b.asm": {
+    "hash": "e6a117ef",
+    "instructions": 403032,
+    "halted": true
+  },
+  "trace coco 4K pia1b.asm": {
+    "hash": "87d43ebe",
+    "instructions": 403146,
+    "halted": true
+  },
+  "trace coco 16K pia1b.asm": {
+    "hash": "b438e62a",
+    "instructions": 403146,
+    "halted": true
+  },
+  "trace coco 32K pia1b.asm": {
+    "hash": "c18150b6",
+    "instructions": 403146,
+    "halted": true
+  },
+  "trace coco3 pia1b.asm": {
+    "hash": "18d23818",
+    "instructions": 4905,
+    "halted": true
+  },
+  "trace dgnalpha pia1b.asm": {
+    "hash": "223f3a43",
+    "instructions": 403032,
+    "halted": true
+  },
+  "trace dragon32 floating.asm": {
+    "hash": "7cc04f84",
+    "instructions": 403083,
+    "halted": true
+  },
+  "trace dragon64 floating.asm": {
+    "hash": "7cc04f84",
+    "instructions": 403083,
+    "halted": true
+  },
+  "trace dragon200 floating.asm": {
+    "hash": "7cc04f84",
+    "instructions": 403083,
+    "halted": true
+  },
+  "trace tanodr64 floating.asm": {
+    "hash": "1b57d271",
+    "instructions": 403197,
+    "halted": true
+  },
+  "trace coco floating.asm": {
+    "hash": "1b57d271",
+    "instructions": 403197,
+    "halted": true
+  },
+  "trace coco3 512K": {
+    "hash": "0773b0a1",
+    "instructions": 94213,
+    "halted": true
+  },
+  "trace coco3 128K": {
+    "hash": "e36321b4",
+    "instructions": 94213,
+    "halted": true
+  },
+  "trace mc10": {
+    "hash": "210ee1e7",
+    "instructions": 201689,
+    "halted": true
+  },
+  "trace alice": {
+    "hash": "ec2fb40f",
+    "instructions": 201689,
+    "halted": true
+  },
+  "trace dragon64 6309": {
+    "hash": "eaafa8ae",
+    "instructions": 402029,
+    "halted": true
+  },
+  "trace coco3 6309": {
+    "hash": "2aae7465",
+    "instructions": 402086,
+    "halted": true
+  },
+  "video dragon64": {
+    "hash": "08d9cc65",
+    "frames": 680
+  },
+  "video coco": {
+    "hash": "8abaaff5",
+    "frames": 680
+  },
+  "video coco2b": {
+    "hash": "b782dde5",
+    "frames": 680
+  },
+  "trace dragon64 rate.asm": {
+    "hash": "3c9dbbf1",
+    "instructions": 403792,
+    "halted": true
+  },
+  "trace dragon64 rate.asm hardware": {
+    "hash": "19351d4b",
+    "instructions": 400741,
+    "halted": true
+  },
+  "trace dragon64 ops.asm": {
+    "hash": "26c49a77",
+    "instructions": 401540,
+    "halted": true
+  },
+  "trace dragon64 ops.asm hardware": {
+    "hash": "d5681e3f",
+    "instructions": 401297,
+    "halted": true
+  },
+  "video dragon64 fastvid.asm hardware": {
+    "hash": "8a7aada5",
+    "frames": 100
+  },
+  "trace coco rate.asm": {
+    "hash": "b59d863d",
+    "instructions": 404893,
+    "halted": true
+  },
+  "trace coco rate.asm hardware": {
+    "hash": "a11d304f",
+    "instructions": 402369,
+    "halted": true
+  },
+  "trace coco ops.asm": {
+    "hash": "8386d4e7",
+    "instructions": 402832,
+    "halted": true
+  },
+  "trace coco ops.asm hardware": {
+    "hash": "df26c373",
+    "instructions": 402589,
+    "halted": true
+  },
+  "video coco fastvid.asm hardware": {
+    "hash": "70c93cb5",
+    "frames": 100
+  },
+  "raster coco": {
+    "hash": "62afbce1",
+    "frames": 200
+  },
+  "raster coco2b": {
+    "hash": "85fcc4e1",
+    "frames": 200
+  },
+  "raster dragon64": {
+    "hash": "794f28d2",
+    "frames": 200
+  },
+  "raster dragon200e": {
+    "hash": "168c5212",
+    "frames": 200
+  },
+  "raster mc10": {
+    "hash": "abd14c61",
+    "frames": 135
+  },
+  "raster coco3": {
+    "hash": "40f9df8f",
+    "frames": 110
+  },
+  "samv dragon64": {
+    "hash": "a7fe7638",
+    "frames": 80
+  },
+  "samv dragon200e": {
+    "hash": "0db7bf95",
+    "frames": 80
+  },
+  "trace dragon64 fdc": {
+    "hash": "b88b6f13",
+    "instructions": 2603080,
+    "halted": true
+  },
+  "trace coco fdc": {
+    "hash": "c535c339",
+    "instructions": 2601485,
+    "halted": true
+  },
+  "trace coco3 fdc": {
+    "hash": "74934320",
+    "instructions": 2601485,
+    "halted": true
+  },
+  "trace dragon64 dragonfdc nmi": {
+    "hash": "cd9f6c88",
+    "instructions": 5999,
+    "halted": true
+  },
+  "trace dragon64 premierfdc": {
+    "hash": "c11106f6",
+    "instructions": 2902926,
+    "halted": true
+  },
+  "trace dragon64 dragonfdc write": {
+    "hash": "3ed40725",
+    "instructions": 402192,
+    "halted": true
+  },
+  "trace dragon64 premierfdc write": {
+    "hash": "a8503057",
+    "instructions": 402193,
+    "halted": true
+  },
+  "trace coco cocofdc write": {
+    "hash": "644cc513",
+    "instructions": 400749,
+    "halted": true
+  },
+  "trace coco multifdc": {
+    "hash": "70ecbcaf",
+    "instructions": 2601470,
+    "halted": true
+  },
+  "trace dgnalpha alphafdc write": {
+    "hash": "a723aabd",
+    "instructions": 400290,
+    "halted": true
+  },
+  "trace dgnalpha": {
+    "hash": "2209d527",
+    "instructions": 300346,
+    "halted": true
+  },
+  "video dgnalpha": {
+    "hash": "65ba8a35",
+    "frames": 680
+  },
+  "trace dgnalpha board": {
+    "hash": "297b1314",
+    "instructions": 62025,
+    "halted": true
+  },
+  "trace dgnalpha alphafdc": {
+    "hash": "1a04bbf4",
+    "instructions": 2604132,
+    "halted": true
+  },
+  "sound dgnalpha": {
+    "hash": "38966dfb",
+    "frames": 240,
+    "events": 3716
+  },
+  "trace coco cart banked": {
+    "hash": "1e666ba4",
+    "instructions": 8354,
+    "halted": true
+  },
+  "trace coco cart bankedshort": {
+    "hash": "9dd24e00",
+    "instructions": 8354,
+    "halted": true
+  },
+  "trace coco cart gmc": {
+    "hash": "874acdaa",
+    "instructions": 442092,
+    "halted": true
+  },
+  "trace coco cart orch90": {
+    "hash": "43c5ac2b",
+    "instructions": 204545,
+    "halted": true
+  },
+  "trace coco cart multi": {
+    "hash": "eca95237",
+    "instructions": 43838,
+    "halted": true
+  },
+  "sound coco cart gmc": {
+    "hash": "770ec276",
+    "frames": 360,
+    "events": 31568
+  },
+  "sound coco cart orch90": {
+    "hash": "cc64f70f",
+    "frames": 240,
+    "events": 1785
+  },
+  "sound coco cart multi": {
+    "hash": "443421c0",
+    "frames": 120,
+    "events": 612
+  },
+  "trace coco3 cart banked": {
+    "hash": "ff1ea29c",
+    "instructions": 8352,
+    "halted": true
+  },
+  "trace coco3 cart bankedshort": {
+    "hash": "ce879f58",
+    "instructions": 8352,
+    "halted": true
+  },
+  "trace coco3 cart gmc": {
+    "hash": "2f551182",
+    "instructions": 442090,
+    "halted": true
+  },
+  "trace coco3 cart orch90": {
+    "hash": "a20fedb4",
+    "instructions": 204544,
+    "halted": true
+  },
+  "trace coco3 cart multi": {
+    "hash": "ed08abe6",
+    "instructions": 43836,
+    "halted": true
+  },
+  "sound coco3 cart gmc": {
+    "hash": "11ec0433",
+    "frames": 360,
+    "events": 31570
+  },
+  "sound coco3 cart orch90": {
+    "hash": "2909bd31",
+    "frames": 240,
+    "events": 1785
+  },
+  "sound coco3 cart multi": {
+    "hash": "551e17f4",
+    "frames": 120,
+    "events": 612
+  },
+  "trace dragon64 cart gmc": {
+    "hash": "953a7f8f",
+    "instructions": 441294,
+    "halted": true
+  },
+  "trace dragon64 cart orch90": {
+    "hash": "ff4295d7",
+    "instructions": 200821,
+    "halted": true
+  },
+  "trace dragon64 cart multi": {
+    "hash": "44f9ea1a",
+    "instructions": 41482,
+    "halted": true
+  },
+  "sound dragon64 cart gmc": {
+    "hash": "a8a6a656",
+    "frames": 360,
+    "events": 32142
+  },
+  "sound dragon64 cart orch90": {
+    "hash": "9de4143f",
+    "frames": 240,
+    "events": 1785
+  },
+  "sound dragon64 cart multi": {
+    "hash": "0e20c69c",
+    "frames": 120,
+    "events": 612
+  },
+  "trace dragon32 cart multi": {
+    "hash": "44f9ea1a",
+    "instructions": 41482,
+    "halted": true
+  },
+  "trace coco ssc int3": {
+    "hash": "df189e5b",
+    "instructions": 7506,
+    "halted": true
+  },
+  "trace coco ssc masked": {
+    "hash": "5023fa01",
+    "instructions": 198844,
+    "halted": true
+  },
+  "trace dragon64 csave.asm": {
+    "hash": "174c43a8",
+    "instructions": 1105203,
+    "halted": true
+  },
+  "trace dragon64 cload.asm": {
+    "hash": "2e6b30e0",
+    "instructions": 1101079,
+    "halted": true
+  },
+  "trace coco csave.asm": {
+    "hash": "df7ee508",
+    "instructions": 1102695,
+    "halted": true
+  },
+  "trace coco cload.asm": {
+    "hash": "c4fd6a9c",
+    "instructions": 1103931,
+    "halted": true
+  },
+  "trace coco3 csave.asm": {
+    "hash": "0fa3ebf4",
+    "instructions": 1103270,
+    "halted": true
+  },
+  "trace coco3 cload.asm": {
+    "hash": "e00c943a",
+    "instructions": 1104404,
+    "halted": true
+  },
+  "trace mc10 csave6803.asm": {
+    "hash": "a620a095",
+    "instructions": 1404946,
+    "halted": true
+  },
+  "trace mc10 cload6803.asm": {
+    "hash": "31f2e84b",
+    "instructions": 1402136,
+    "halted": true
+  },
+  "trace alice csave6803.asm": {
+    "hash": "a620a095",
+    "instructions": 1404946,
+    "halted": true
+  },
+  "trace alice cload6803.asm": {
+    "hash": "31f2e84b",
+    "instructions": 1402136,
+    "halted": true
+  },
+  "video coco3": {
+    "hash": "8aa7c525",
+    "frames": 1500
+  },
+  "video coco3 attributes": {
+    "hash": "4e421e05",
+    "frames": 1500
+  },
+  "video coco3 artifact 1": {
+    "hash": "f2526ba9",
+    "frames": 1500
+  },
+  "video coco3 artifact 2": {
+    "hash": "7d151885",
+    "frames": 1500
+  },
+  "video coco3 composite artifact 0": {
+    "hash": "e0febdd1",
+    "frames": 2200
+  },
+  "video coco3 composite artifact 1": {
+    "hash": "6f01e87d",
+    "frames": 2200
+  },
+  "video coco3 composite artifact 2": {
+    "hash": "76deac91",
+    "frames": 2200
+  },
+  "video mc10": {
+    "hash": "94ef8f4b",
+    "frames": 800
+  },
+  "printer dragon64": {
+    "hash": "e4047f70",
+    "printed": 300,
+    "halted": true
+  },
+  "printer coco": {
+    "hash": "b72353bf",
+    "printed": 305,
+    "halted": true
+  },
+  "printer coco3": {
+    "hash": "b72353bf",
+    "printed": 305,
+    "halted": true
+  },
+  "printer mc10": {
+    "hash": "62aaea09",
+    "printed": 306,
+    "halted": true
+  },
+  "serial coco": {
+    "hash": "9ce324b3",
+    "instructions": 204969,
+    "halted": true
+  },
+  "serial coco3": {
+    "hash": "9ce324b3",
+    "instructions": 204969,
+    "halted": true
+  },
+  "serial mc10": {
+    "hash": "a0503bf7",
+    "instructions": 203803,
+    "halted": true
+  },
+  "acia dragon64": {
+    "hash": "fa17cca1",
+    "instructions": 404558,
+    "halted": true
+  },
+  "liza6803 mc10": {
+    "hash": "0629e842",
+    "instructions": 999978,
+    "halted": true
+  },
+  "liza6803 alice": {
+    "hash": "7e4b3ac0",
+    "instructions": 999978,
+    "halted": true
+  },
+  "welcome6803 mc10": {
+    "hash": "b22a29e9",
+    "instructions": 197547,
+    "events": 4
+  },
+  "welcome6803 alice": {
+    "hash": "29de8d13",
+    "instructions": 197545,
+    "events": 4
+  },
+  "drivewire coco": {
+    "hash": "cdfb7763",
+    "instructions": 1636784,
+    "halted": true
+  },
+  "drivewire coco3": {
+    "hash": "cdfb7763",
+    "instructions": 1636784,
+    "halted": true
+  },
+  "trace dragon64 dragonfdc multi": {
+    "hash": "82d735c6",
+    "instructions": 2903429,
+    "halted": true
+  },
+  "trace dragon64 premierfdc multi": {
+    "hash": "7bb629cb",
+    "instructions": 3203179,
+    "halted": true
+  },
+  "trace coco cocofdc multi": {
+    "hash": "4de857cc",
+    "instructions": 2902130,
+    "halted": true
+  },
+  "trace dragon64 dragonfdc blank vdk 40x1": {
+    "hash": "128b90b1",
+    "instructions": 9400386,
+    "halted": true
+  },
+  "trace coco cocofdc blank jvc 35x1": {
+    "hash": "9d27691f",
+    "instructions": 8304787,
+    "halted": true
+  },
+  "welcome6803 mc10 back": {
+    "hash": "6b399199",
+    "instructions": 197765,
+    "events": 5
+  },
+  "welcome6803 alice back": {
+    "hash": "6b399199",
+    "instructions": 197765,
+    "events": 5
+  },
+  "trace d64plus": {
+    "hash": "5c2ca8f4",
+    "instructions": 305257,
+    "halted": true
+  },
+  "trace d64plus plus.asm": {
+    "hash": "c114ddfd",
+    "instructions": 401106,
+    "halted": true
+  },
+  "trace dragon64 dragonfdc nmi 6309": {
+    "hash": "9a85ed8a",
+    "instructions": 6023,
+    "halted": true
+  },
+  "trace coco cocofdc-os9": {
+    "hash": "8b14f78a",
+    "instructions": 2603402,
+    "halted": true
+  },
+  "trace coco2b ssc int3": {
+    "hash": "df189e5b",
+    "instructions": 7506,
+    "halted": true
+  },
+  "trace coco2b ssc masked": {
+    "hash": "5023fa01",
+    "instructions": 198844,
+    "halted": true
+  },
+  "trace coco3 ssc masked": {
+    "hash": "876f807d",
+    "instructions": 217083,
+    "halted": true
+  },
+  "trace coco3 ssc int3 (our side; MAME differs at $0405)": {
+    "hash": "d0e204d4",
+    "instructions": 24298,
+    "halted": true
+  }
+}

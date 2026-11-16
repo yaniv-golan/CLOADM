@@ -1,0 +1,67 @@
+# Every push to main, and on demand (workflow_dispatch, to test a branch before it is merged): the full test suite and the real pages in a headless browser.
+#
+# No MAME and no ROMs: the project's hardware verification runs locally (node tools/mame-diff/run.js <profile>,
+# with a MAME install), and every suite here runs on firmware written for this project or on synthetic images.
+# Nothing in this workflow needs a copyrighted ROM, and nothing downloads one.
+#
+# Playwright is a development tool, not a runtime dependency (AGENTS.md rule 1.2): it is installed here only to
+# drive the pages, and the site itself stays plain ES modules with no build step.
+name: tests
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# A new push to the same branch cancels the run in progress: the same change tested twice is time wasted.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+# Read-only: the workflow runs the suites and uploads an artifact, and needs to write nothing else.
+permissions:
+  contents: read
+
+jobs:
+  suites:
+    name: node tests/all.js
+    # Pinned, not ubuntu-latest: the image moves under us (it went to 26.04, which Playwright 1.55 has no chromium
+    # for) and a green run should mean the code changed, not the runner. Move this deliberately, with the browsers.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Run every suite
+        run: node tests/all.js
+
+  pages:
+    name: node tools/browser-check.js
+    # Same pin, same reason - and here it matters more: Playwright's chromium is built per Ubuntu release.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      # Playwright (and the browser it drives) is not committed: there is no package.json by design, so it is
+      # installed here, pinned, with the version CI is verified against.
+      - name: Install Playwright
+        run: |
+          npm init -y >/dev/null 2>&1 || true
+          npm install --no-save --no-audit --no-fund playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Run the browser check
+        run: node tools/browser-check.js --screenshots browser-shots
+      - name: Keep the screenshots when it fails
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: browser-check-screenshots
+          path: |
+            browser-shots/
+            *.png
+          if-no-files-found: ignore

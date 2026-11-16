@@ -1,0 +1,501 @@
+/*
+ * Machine: base class for every emulated computer.
+ *
+ * Owns what is common to all models: the frame loop, a cycle-accurate event scheduler
+ * (events can fire in the middle of an instruction when the CPU touches I/O), keyboard
+ * matrix, the typist (auto-typing) and cassette deck, audio event capture, ROM slots, no-ROM stub
+ * traps and program injection.
+ *
+ * A machine family subclass must:
+ *   - be constructed as new Family(profile, config) by createMachine, with `config` resolved and
+ *     validated against profile.options (js/machines/profiles.js), and read only this.config
+ *   - call super(profile, config, { tickHz, lineCycles, lines, resetOffset, ramSize }); tickHz is the
+ *     machine's time unit in ticks per second (the CPU clock on SAM/MC-10 machines, the GIME clock on the
+ *     CoCo 3); frames, events, audio and tape timing are all in ticks
+ *   - build its CPU as new cpus[config.cpu](this)
+ *   - create this.cpu (a CPU core whose bus is the machine: read(addr) / write(addr, v);
+ *     the core exposes pc, step() -> cycles, c (cycles of the current instruction),
+ *     reset(), jump(addr), trace hook)
+ *   - implement read(addr), write(addr, v), render() -> Uint32Array of screenWidth*screenHeight
+ *   - implement resetHardware(), and startTimeline(hard) which schedules the family's first video
+ *     events (line events reschedule themselves); register event handlers with this.on(name, fn)
+ *   - set screenWidth, screenHeight, screenAspect
+ *   - create this.interrupts = new InterruptHub(this.cpu) and route every interrupt source through
+ *     setLine(source, line, level) (lines: irq, firq, nmi, halt; and cart, the cartridge port's CART line,
+ *     which the family routes in cartLineChanged(level))
+ *   - for a cartridge port: return true from hasCartridgePort, map cartPort (an Device) into
+ *     $C000-$FEFF / $FF40-$FF5F, and remap in cartridgeChanged()
+ *   - for no-ROM operation: map stub firmware (stubRom) and call installStub(); override
+ *     stubActive() when the stub ROM can be mapped out
+ *   - set Family.BASIC_POINTERS (address of BASIC's TXTTAB) for loadBasicProgram
+ *   - call this.processEvents(this.ioTime()) before any I/O access whose result depends on time
+ */
+import { BeckerPort } from './becker.js';
+import { devices } from './bus.js';
+import { keyboards } from './keyboards.js';
+import { Typist } from './typist.js';
+import { CassetteDeck } from '../media/deck.js';
+import { crc32, state } from '../util.js';
+
+class Machine {
+  constructor(profile, config, t) {
+    this.profile = profile;
+    this.config = config;     // resolved, frozen options (resolveConfig)
+    this.id = profile.id;
+    this.tickHz = t.tickHz;
+    this.lineCycles = t.lineCycles;
+    this.lines = t.lines;
+    this.frameCycles = t.lineCycles * t.lines;
+    this.fps = this.tickHz / this.frameCycles;
+    this.unitAttos = BigInt(Math.round(1e18 / this.tickHz));   // see clockUnits()
+    this.resetOffset = t.resetOffset || 0;
+    this.ram = new Uint8Array(t.ramSize || 0x10000);
+    this.roms = {};
+
+    this.keyPos = keyboards[profile.keyboard];
+    this.keyCols = new Uint8Array(8);    // per column: bitmask of pressed rows
+    this.joy = [[32, 32], [32, 32]];     // [right, left][x, y], 0..63
+    this.fire = [false, false];
+
+    this.typist = new Typist(this);
+    this.stubKeys = [];
+    this.stubKeysTaken = 0;     // keys the stub's POLCAT has handed out (a count for the Session, not machine state)
+    this.stubKeepCase = false;     // the stub's POLCAT hands over typed lower case as is (the chat firmware)
+    this.pcHooks = new Map();   // pc -> fn, run when the instruction at pc is about to execute, while stubActive()
+    this.stubConsole = null;
+
+    this.deck = new CassetteDeck(() => this.now());
+
+    this.audioEvents = [];
+    this.soundLevel = 0;
+    // a cartridge's own sound output (cartSound), mixed into audioEvents when the frame ends
+    this.cartAudio = [];
+    this.cartLevel = 0;
+
+    // Time: one absolute tick counter (CPU cycles, or GIME clocks on the CoCo 3), never rebased.
+    this.cycle = 0;           // now, in ticks
+    this.frameBase = 0;       // tick at which the current frame started
+    this.frameCount = 0;
+    this.framesSinceReset = 0;
+    // Event queue: { at (tick), pri, seq, name, arg }, ordered by (at, pri, seq). Events are plain
+    // data naming a handler registered with on(), so pending events can be saved in snapshots.
+    this.queue = [];
+    this.attoNow = null;      // the exact time of the timer an AttoClock is running (js/chips/attoclock.js), else null
+    this.seq = 0;
+    this.handlers = {};
+    this.timelineStarted = false;
+
+    this.cartPort = null;     // device in the cartridge port (families with a port)
+    // the printer: the bytes it has received (a Dragon's parallel port; a serial printer on the bit-banger
+    // output of the other machines, through this.bitBanger)
+    this.printed = [];
+    this.bitBanger = null;    // SerialPort: the device on the bit-banger serial port (families with one)
+    this.acia = null;         // Acia6551: the 6551 serial port (Dragon 64, 200, Tano), with its own SerialPort
+    // the Becker port (DriveWire), where the configuration has one (option `becker`)
+    this.becker = config.becker ? new BeckerPort(this) : null;
+    // a Promise the machine is waiting for (a DriveWire sector being read or written), or null; runFrame stops
+    // where it is and carries on from there when called again after it settles
+    this.stall = null;
+    this.frameOpen = false;
+    this.debugger = null;     // a Debugger attached to this machine (js/debugger.js), or null
+    this.mouse = null;        // the host's mouse { x, y (0..1), left, right } (js/host/input.js), or null: host input, not state
+    this.screenWidth = 0; this.screenHeight = 0; this.screenAspect = 4 / 3;
+  }
+
+  // ---------------- the serial port ----------------
+  // the device on the machine's serial port (a SerialPort: the bit-banger's, or the 6551's), or null
+  get serialPort() { return this.bitBanger || (this.acia && this.acia.port) || null; }
+  // the devices that can be plugged in: a bit-banger takes the serial printer (the Dragons print on their parallel
+  // port instead), a terminal or a loopback plug; the 6551 starts with nothing plugged in
+  get serialDevices() { return this.bitBanger ? ['printer', 'terminal', 'loopback'] : this.acia ? ['none', 'terminal', 'loopback'] : []; }
+  // plug a device in ({ baud } for a terminal). The 6551's loopback plug holds CTS, DSR and DCD asserted (RTS and
+  // DTR are not wired to the Dragon 64's port, as in MAME, so a plug that looped them back would stop the
+  // transmitter)
+  attachSerial(kind, opts = {}) {
+    if (!this.serialDevices.includes(kind)) throw new Error(`no serial device "${kind}" on the ${this.profile.name}`);
+    if (this.acia) this.acia.attachSerial(kind, kind === 'loopback' ? Object.assign({ handshake: 'asserted' }, opts) : opts);
+    else this.bitBanger.attach(kind, opts);
+  }
+
+  // ---------------- ROMs ----------------
+  setRoms(map) {
+    for (const [id, data] of Object.entries(map)) {
+      if (data) this.roms[id] = data; else delete this.roms[id];
+    }
+    this.romsChanged();
+  }
+  romsChanged() { /* subclass hook */ }
+  get hasRom() { return this.profile.roms.filter((s) => s.required).every((s) => !!this.roms[s.id]); }
+  get useStub() { return !this.hasRom; }
+  stubActive() { return this.useStub; }
+  // No-ROM stub: PC hooks at the stub firmware's entry points (symbols from stubRom):
+  // RESET runs init(), POLCAT returns a queued key (A, Z clear) or none (Z set), CHROUT prints A on
+  // the console, and the cassette/cursor routines return with carry set (error)
+  installStub(symbols, console, init) {
+    const cpu = this.cpu, { Z, C } = cpu.constructor.FLAGS, h = this.pcHooks;
+    this.stubConsole = console;
+    h.set(symbols.get('RESET'), init);
+    h.set(symbols.get('POLCAT'), () => {
+      if (this.stubKeys.length) { cpu.a = this.stubKeys.shift() & 0xFF; cpu.cc &= ~Z; this.stubKeysTaken++; }
+      else { cpu.a = 0; cpu.cc |= Z; }
+    });
+    h.set(symbols.get('CHROUT'), () => console.putChar(cpu.a));
+    for (const n of ['CSRDON', 'BLKIN', 'BLKOUT', 'WRTLDR']) if (symbols.has(n)) h.set(symbols.get(n), () => { cpu.cc |= C; });
+    // the stub's own prompt: its idle loop and (6809) its line editor, and the console calls they make
+    const span = (from, to) => (symbols.has(from) ? [[symbols.get(from), symbols.get(to)]] : []);
+    this.stubPromptAt = { spans: [...span('IDLE', 'IDLEE'), ...span('KEY', 'PROMPTE')], calls: [symbols.get('POLCAT'), symbols.get('CHROUT')] };
+  }
+  // Is the stub firmware's own prompt what runs (its idle loop or line editor, or a POLCAT/CHROUT call made from
+  // them), rather than a program? Then the screen is the stub's bare one (or the POKE lines typed at it).
+  atStubPrompt() {
+    const p = this.stubPromptAt;
+    if (!p || !this.stubActive()) return false;
+    const inside = (a) => p.spans.some(([lo, hi]) => a >= lo && a < hi);
+    const pc = this.cpu.pc;
+    if (inside(pc)) return true;
+    if (!p.calls.includes(pc)) return false;
+    // in a console call: where it returns to (the 6809 leaves S on the return address, the 6803 one byte below)
+    const s = (this.cpu.s + (this.config.cpu === '6803' ? 1 : 0)) & 0xFFFF;
+    const rd = (a) => (this.peek ? this.peek(a) : this.ram[a]);
+    return inside((rd(s) << 8) | rd((s + 1) & 0xFFFF));
+  }
+
+  // ---------------- reset ----------------
+  reset(hard) {
+    if (hard) this.ram.fill(0);
+    this.clearKeys();
+    this.typist.clear();
+    this.stubKeys = [];
+    this.resetHardware(hard);
+    this.cpu.reset();
+    if (hard) {
+      // power-on: video timing restarts at the frame origin; the CPU starts resetOffset ticks later
+      this.queue = [];
+      this.cycle = this.frameBase + this.resetOffset;
+      this.timelineStarted = true;
+      this.startTimeline(true);
+    }
+    if (this.cartPort) this.cartPort.reset(hard);   // the cartridge port carries the reset line
+    this.framesSinceReset = 0;
+  }
+
+  // ---------------- events ----------------
+  now() { return this.cycle; }
+  // tick at which the current instruction touches the bus (loads read on their last cycle)
+  ioTime() { return this.cycle + (this.cpu.c > 0 ? this.cpu.c - 1 : 0); }
+  // Exact time for devices that keep it (js/chips/attoclock.js): clockUnits() counts whole units up to the
+  // current bus access (the end of the access's cycle: MAME's 6809 counts a bus cycle before performing it), or
+  // up to now between instructions; unitAttos is a unit in attoseconds; tickAt(u) is the tick u units after
+  // that point. Here a unit is a tick; a family that follows MAME's clocks uses whole CPU cycles.
+  clockUnits() { return this.ioTime() + 1; }
+  tickAt(units) { return this.ioTime() + 1 + units; }
+  on(name, fn) { this.handlers[name] = fn; }
+  // a device going away: its handler and every event of that name still queued
+  off(name) {
+    delete this.handlers[name];
+    const q = this.queue;
+    for (let i = q.length - 1; i >= 0; i--) if (q[i].name === name) q.splice(i, 1);
+  }
+  // Schedule handler `name` at absolute tick `at`. pri orders events due at the same tick
+  // (0: video timing, 1: other devices). Returns the event, which cancel() accepts.
+  schedule(at, name, arg = null, pri = 1) {
+    const e = { at, pri, seq: this.seq++, name, arg };
+    const q = this.queue;
+    let lo = 0, hi = q.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1, x = q[mid];
+      if (x.at < at || (x.at === at && (x.pri < pri || (x.pri === pri && x.seq < e.seq)))) lo = mid + 1; else hi = mid;
+    }
+    q.splice(lo, 0, e);
+    return e;
+  }
+  cancel(e) {
+    const i = e ? this.queue.indexOf(e) : -1;
+    if (i >= 0) this.queue.splice(i, 1);
+  }
+  nextEventAt() { return this.queue.length ? this.queue[0].at : Infinity; }
+  // fire every event due at or before tick t (t may fall inside an instruction)
+  processEvents(t) {
+    const q = this.queue;
+    while (q.length && q[0].at <= t) this.fireEvent(q.shift());
+  }
+  // fire the events due strictly before tick t (an exact bound: t - epsilon rounds to t once ticks pass 2^24)
+  processEventsBefore(t) {
+    const q = this.queue;
+    while (q.length && q[0].at < t) this.fireEvent(q.shift());
+  }
+  fireEvent(e) { this.handlers[e.name](e.arg, e.at); }
+  startTimeline() { /* family hook: schedule the first video events */ }
+
+  // ---------------- frame loop ----------------
+  // run instructions until tick `end` (the last one may overshoot it)
+  // Run instructions until the tick reaches `end` (or at most `steps` instructions: the debugger's single step)
+  runCycles(end, steps = Infinity) {
+    const cpu = this.cpu, hooks = this.pcHooks;
+    const stub = this.useStub;
+    while (this.cycle < end && !this.stall && steps-- > 0) {
+      this.processEvents(this.cycle);
+      if (stub && this.stubActive()) {
+        const hook = hooks.get(cpu.pc);
+        if (hook && cpu.willExecute()) hook();
+      }
+      cpu.c = 0;
+      this.cycle += cpu.step();
+    }
+  }
+  // wait for `promise` before running on (the instruction under way finishes first)
+  waitFor(promise) {
+    const p = promise.then(() => { if (this.stall === p) this.stall = null; }, () => { if (this.stall === p) this.stall = null; });
+    this.stall = p;
+  }
+  // Run one frame. Returns false if the machine had to stop part way: this.stall (await it), or runTo(end)
+  // returned false (a debugger passes its own runTo, which stops at a breakpoint or watchpoint). The frame stays
+  // open, sound included, and the next runFrame carries on to the same end. true when the frame is done.
+  runFrame(runTo = null) {
+    if (!this.frameOpen) {
+      if (!this.timelineStarted) { this.timelineStarted = true; this.startTimeline(false); }
+      this.audioEvents.length = 0;
+      this.audioEvents.push(0, this.soundLevel);
+      this.cartAudio.length = 0;
+      this.cartAudio.push(0, this.cartLevel);
+      this.frameOpen = true;
+    }
+    const end = this.frameBase + this.frameCycles;
+    if (runTo) { if (runTo(end) === false) return false; } else this.runCycles(end);
+    if (this.stall) return false;
+    this.frameOpen = false;
+    this.processEvents(end - 1);
+    if (this.serialPort) this.serialPort.flush(end);
+    this.frameEnd(end);
+    if (this.cartPort) this.cartPort.syncAudio(end);
+    this.mixCartAudio();
+    this.deck.sync();
+    this.frameCount++;
+    this.framesSinceReset++;
+    this.typist.step();
+    this.frameBase = end;      // instruction overshoot simply continues into the next frame
+    return true;
+  }
+
+  // ---------------- keyboard ----------------
+  setKey(name, down) {
+    const pos = this.keyPos[name];
+    if (!pos) return;
+    const [r, c] = pos;
+    if (down) this.keyCols[c] |= (1 << r); else this.keyCols[c] &= ~(1 << r);
+  }
+  clearKeys() { this.keyCols.fill(0); }
+  // rows pulled low by pressed keys in the columns that are driven low (active-low column mask)
+  keyRowsForCols(colsLow) {
+    let rows = 0;
+    for (let c = 0; c < 8; c++) if (!(colsLow & (1 << c))) rows |= this.keyCols[c];
+    return rows;
+  }
+  // columns pulled low by pressed keys in the rows that are driven low
+  keyColsForRows(rowsLow) {
+    let cols = 0;
+    for (let c = 0; c < 8; c++) if (this.keyCols[c] & ~rowsLow) cols |= 1 << c;
+    return cols;
+  }
+
+  // ---------------- sound ----------------
+  setSoundLevel(level) {
+    if (level === this.soundLevel) return;
+    this.soundLevel = level;
+    this.audioEvents.push(this.cycle - this.frameBase, level);
+  }
+  // a cartridge's sound output changes to `level` at `tick` (in this frame or later; devices report in time order)
+  cartSound(tick, level) {
+    if (level === this.cartLevel) return;
+    this.cartLevel = level;
+    this.cartAudio.push(Math.max(0, tick - this.frameBase), level);
+  }
+  // audioEvents := machine level + cartridge level, both stepwise in time
+  mixCartAudio() {
+    const c = this.cartAudio;
+    if (c.length === 2 && c[1] === 0) return;
+    const a = this.audioEvents.slice(), out = this.audioEvents;
+    out.length = 0;
+    let i = 0, j = 0, la = a[1], lc = c[1];
+    out.push(0, la + lc);
+    i = 2; j = 2;
+    while (i < a.length || j < c.length) {
+      let t;
+      if (j >= c.length || (i < a.length && a[i] <= c[j])) { t = a[i]; la = a[i + 1]; i += 2; }
+      else { t = c[j]; lc = c[j + 1]; j += 2; }
+      const v = la + lc;
+      if (out[out.length - 2] === t) out[out.length - 1] = v;
+      else if (out[out.length - 1] !== v) out.push(t, v);
+    }
+  }
+  // CPU cycles a slot holds its lines back (coco.cpp machine_start: set_line_delay), counted in the slot's clock
+  get lineDelays() { return LINE_DELAYS; }
+  get slotHz() { return this.tickHz; }
+
+  // ---------------- bus ----------------
+  setLine(source, line, level) {
+    if (line === 'cart') this.cartLineChanged(!!level);
+    else this.interrupts.set(source, line, level);
+  }
+  cartLineChanged() { /* family hook: the cartridge port's CART line */ }
+  frameEnd() { /* family hook: bring sound generators up to the end of the frame */ }
+  get hasCartridgePort() { return false; }
+  insertCartridge(dev) {
+    if (!this.hasCartridgePort) throw new Error(`the ${this.profile.name} has no cartridge port`);
+    if (this.cartPort) this.cartPort.detach();
+    this.cartPort = dev;
+    dev.attach(this);
+    this.cartridgeChanged();
+  }
+  ejectCartridge() {
+    if (!this.cartPort) return;
+    this.cartPort.detach();
+    this.cartPort = null;
+    this.cartridgeChanged();
+  }
+  cartridgeChanged() { /* family hook: remap the cartridge ROM space */ }
+
+  // ---------------- state (snapshots) ----------------
+  // Families extend saveState/loadState with their chips and fields (calling super). Input
+  // state (keys held, auto-typing) is not saved: it belongs to the host, not the machine.
+  // A debugger attached to this machine is saved with it (its breakpoints and watchpoints), so a restored
+  // snapshot keeps the debugging setup; its trace and whether it was stopped are not machine state.
+  memoryArray() { return this.ram; }
+  saveState() {
+    return Object.assign(state.save(this, Machine.STATE), {
+      memory: this.memoryArray().slice(),
+      cartridge: this.cartPort ? { type: this.cartPort.type, state: this.cartPort.saveState() } : null,
+      interrupts: this.interrupts.saveState(),
+      deck: this.deck.saveState(),
+      bitBanger: this.bitBanger ? this.bitBanger.saveState() : null,
+      becker: this.becker ? this.becker.saveState() : null,
+      cpu: this.cpu.saveState(),
+      // The picture. Lines are drawn as the beam passes them, so a snapshot taken mid-frame
+      // leaves the rest of the frame undrawn: without the buffer the restored machine would show
+      // a partly blank frame until the beam came round again.
+      frame: this.snapshotPicture().data.slice(),
+      debugger: this.debugger ? this.debugger.saveState() : null,
+    });
+  }
+  loadState(s) {
+    // the cartridge in the port goes first, while its events are still the ones queued: the snapshot's queue then
+    // holds the restored device's (which has the same event names)
+    if (this.cartPort) { this.cartPort.detach(); this.cartPort = null; }
+    state.load(this, s, Machine.STATE);
+    const mem = this.memoryArray();
+    if (!s.memory || s.memory.length !== mem.length) throw new Error('snapshot: memory size does not match this configuration');
+    mem.set(s.memory);
+    this.deck.loadState(s.deck);
+    if (this.bitBanger) {
+      if (!s.bitBanger) throw new Error('snapshot: missing "bitBanger"');
+      this.bitBanger.loadState(s.bitBanger);
+    }
+    if (this.becker) {
+      if (!('becker' in s)) throw new Error('snapshot: missing "becker"');
+      this.becker.loadState(s.becker);
+    }
+    if (this.hasCartridgePort) {
+      if (s.cartridge && !devices[s.cartridge.type]) throw new Error(`snapshot: unknown cartridge ${s.cartridge.type}`);
+      if (s.cartridge) this.insertCartridge(devices[s.cartridge.type].fromState(s.cartridge.state));
+      else this.ejectCartridge();
+    }
+    // after the cartridge: what each source holds, so a source letting go of a line another still holds leaves
+    // it held
+    if (!s.interrupts) throw new Error('snapshot: missing "interrupts"');
+    this.interrupts.loadState(s.interrupts);
+    this.cpu.loadState(s.cpu);
+    // restore the picture (see saveState): the frame the snapshot was taken in the middle of
+    if (!s.frame) throw new Error('snapshot: missing "frame"');
+    const pic = this.snapshotPicture().data;
+    if (s.frame.length !== pic.length) throw new Error('snapshot: picture size does not match this machine');
+    pic.set(s.frame);
+    if (this.debugger) { if (s.debugger) this.debugger.loadState(s.debugger); else this.debugger.loadState({}); }
+    this.clearKeys();
+    this.typist.clear(); this.stubKeys = [];
+  }
+  romCrcs() {
+    const out = {};
+    for (const sl of this.profile.roms) if (this.roms[sl.id]) out[sl.id] = crc32(this.roms[sl.id]);
+    return out;
+  }
+  // A snapshot names the machine, its config and the ROMs it ran with (by CRC, never the contents). Its
+  // layout is versioned by SNAPSHOT_VERSION (below); js/media/snapshot.js writes it to and reads it from files.
+  // the picture a snapshot carries as `frame`: the screen render() shows, unless a machine with more than one screen
+  // says which (the Dragon 64 Plus: its VDG screen here, its 80-column one in its own state, whichever is shown)
+  snapshotPicture() { return this.render(); }
+  snapshot() {
+    return { format: SNAPSHOT_FORMAT, version: SNAPSHOT_VERSION, machine: this.id, config: Object.assign({}, this.config), roms: this.romCrcs(), state: this.saveState() };
+  }
+  // Restores a snapshot of this very machine: same model, config and ROM set (the same sockets filled, with
+  // the same CRCs). Anything else throws: state taken with other firmware would run differently.
+  restore(snap) {
+    if (!snap || snap.format !== SNAPSHOT_FORMAT) throw new Error('not a snapshot');
+    if (!(snap.version >= SNAPSHOT_OLDEST && snap.version <= SNAPSHOT_VERSION)) throw new Error(`snapshot format version ${snap.version}; this version reads ${SNAPSHOT_OLDEST} to ${SNAPSHOT_VERSION}`);
+    if (snap.machine !== this.id) throw new Error(`snapshot is for ${snap.machine}, not ${this.id}`);
+    const keys = new Set([...Object.keys(snap.config), ...Object.keys(this.config)]);
+    for (const k of keys) if (this.config[k] !== snap.config[k]) throw new Error(`snapshot needs ${k} = ${snap.config[k]} (this machine has ${this.config[k]})`);
+    const mine = this.romCrcs();
+    for (const slot of new Set([...Object.keys(snap.roms), ...Object.keys(mine)])) {
+      if (mine[slot] !== snap.roms[slot]) throw new Error(`snapshot was taken ${snap.roms[slot] == null ? 'without' : 'with a different'} ${slot} ROM`);
+    }
+    this.loadState(snap.state);
+  }
+
+  // ---------------- program loading ----------------
+  ensureBooted(frames = 150) {
+    // (a machine waiting for DriveWire cannot run on synchronously: it boots as far as it can)
+    while (this.framesSinceReset < frames && this.runFrame());
+  }
+  // Why a write at `addr` would not be seen if it were made, or null when it would land in memory. This
+  // exists because a read-back after a write cannot tell every case apart: an I/O register the emulation
+  // leaves unhandled may read $FF, so writing $FF there reads back as if it took. Families override it; the
+  // base class has no ROM and no I/O, so every address is plain RAM.
+  writeKind(addr) { return null; }
+  // Write a byte as a tool would (no bus cycle). Returns whether the byte landed in memory the CPU sees: the
+  // base class is plain RAM, so always true; a family with ROM or I/O returns false for an address that takes no write.
+  poke(addr, v) { this.ram[addr & 0xFFFF] = v; return true; }
+  // A side-effect-free read of memory as the CPU sees it. Each family overrides this with its own map; the
+  // base class is a plain RAM read, enough for a family with no ROM, cartridge or banked memory. Nothing here
+  // may run a scheduler event, clear a status flag or read a FIFO: the Claude read-only tools use it to look
+  // at the machine without touching it.
+  peek(addr) { return this.ram[addr & 0xFFFF]; }
+  // BASIC program in tokenised form: set BASIC's program/variable pointers (TXTTAB, VARTAB, ARYTAB,
+  // ARYEND at the family's BASIC_POINTERS) and RUN. start defaults to the current TXTTAB.
+  loadBasicProgram(data, start) {
+    this.ensureBooted();
+    const p = this.constructor.BASIC_POINTERS, ram = this.ram;
+    if (start == null) start = (ram[p] << 8) | ram[p + 1];
+    const end = (start + data.length) & 0xFFFF;
+    for (let i = 0; i < data.length; i++) this.poke(start + i, data[i]);
+    for (let i = 0; i < 8; i += 2) { const v = i ? end : start; ram[p + i] = v >> 8; ram[p + i + 1] = v & 0xFF; }
+    this.typist.type('RUN\r');
+  }
+  // write segments into memory and start executing at exec (null: don't jump)
+  injectAndRun(segments, exec) {
+    if (this.useStub) {
+      this.reset(true);
+      while (this.framesSinceReset < 2 && this.runFrame());
+    } else this.ensureBooted();
+    for (const seg of segments) for (let i = 0; i < seg.data.length; i++) this.poke((seg.addr + i) & 0xFFFF, seg.data[i]);
+    if (exec != null) this.cpu.jump(exec);
+  }
+}
+
+// The snapshot layout. Version 1 is the layout every saveState() writes today. Bump SNAPSHOT_VERSION whenever any
+// saveState() changes what it writes, and record here what changed. A page reads SNAPSHOT_OLDEST to SNAPSHOT_VERSION:
+//   * a bump that only ADDS state keeps SNAPSHOT_OLDEST. A key an older file lacks must then keep the restored
+//     machine's power-on value, so the first such bump also brings that path: restore() marks the load as one of
+//     an older file, state.load (js/util.js) then skips a missing key instead of refusing it, loaders that run
+//     later carry the mark (the Becker port replays its link state at attach()), and a test shows an older file
+//     restoring while the same file at the current version is refused;
+//   * a bump that renames, removes or changes the meaning of state sets SNAPSHOT_OLDEST to the new version.
+// Files from pre-release builds carry a different `format` identifier; js/media/snapshot.js refuses them by it.
+export const SNAPSHOT_FORMAT = 'cloadm-state';
+export const SNAPSHOT_VERSION = 1;
+export const SNAPSHOT_OLDEST = 1;
+
+Machine.BASIC_POINTERS = 0x19;   // Color BASIC / Dragon BASIC TXTTAB
+Machine.STATE = ['cycle', 'frameBase', 'frameCount', 'framesSinceReset', 'queue', 'seq', 'timelineStarted', 'soundLevel', 'printed', 'cartLevel'];
+const LINE_DELAYS = Object.freeze({ cart: 0, nmi: 12, halt: 6 });
+
+export { Machine };

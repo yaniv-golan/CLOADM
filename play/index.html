@@ -1,0 +1,1663 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- the emulator lives at /play/; every relative URL (scripts, styles, examples, docs) is from the site root -->
+<base href="../">
+<title>CLOADM: play</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0B0D0C">
+<link rel="stylesheet" href="css/tokens.css">
+<style>
+  /* The emulator: dark only. Colours, type and shape from css/tokens.css. */
+  body { font-size: var(--text-body); min-height: 100vh; display: flex; flex-direction: column; }
+  button { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: var(--r-10); padding: 9px 14px;
+    font: inherit; font-size: 15px; cursor: pointer; min-height: 40px; }
+  button:hover { border-color: var(--line-strong); }
+  button.primary { background: var(--phosphor); border-color: var(--phosphor); color: var(--on-phosphor); font-weight: 700; }
+  button.warn { background: var(--orange); border-color: var(--orange); color: var(--on-orange); font-weight: 700; }
+  button.active, button[aria-pressed="true"] { background: var(--phosphor); border-color: var(--phosphor); color: var(--on-phosphor); }
+  button.link { background: none; border: 0; padding: 0; min-height: 0; color: var(--link); text-decoration: underline; }
+  button:disabled { opacity: .55; cursor: default; }
+  label { display: inline-flex; align-items: center; gap: 8px; color: var(--text-2); user-select: none; min-height: 32px; }
+  kbd { background: var(--ground); border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; font-size: 13px; color: var(--text); }
+  code { font-size: 14px; color: var(--text); }
+  .bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .eyebrow { font-size: 14px; color: var(--muted); }
+  .muted { color: var(--muted); }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+  /* ---- header ---- */
+  .appbar { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 12px 20px;
+    border-bottom: 1px solid var(--line); }
+  .logo { display: grid; grid-template-columns: repeat(2, 10px); grid-template-rows: repeat(2, 10px); background: #003B00; flex: none; }
+  .logo span:nth-child(1), .logo span:nth-child(3), .logo span:nth-child(4) { background: var(--phosphor); }
+  #machineBtn { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; }
+  #machineBtn .spec { font: 400 14px var(--font-mono); color: var(--muted); }
+  #status { font: 14px var(--font-mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+  #status::before { content: '●'; color: var(--phosphor); margin-right: 6px; }
+  body.paused #status::before { color: var(--orange); }
+  #romPill { background: var(--orange); border-color: var(--orange); color: var(--on-orange); font-weight: 700; border-radius: var(--pill); padding: 4px 12px; min-height: 32px; font-size: 14px; }
+  .appbar .grow { flex: 1; }
+  .appbar nav { display: flex; flex-wrap: wrap; gap: 4px 18px; align-items: center; }
+  .appbar nav a, .appbar nav button.navlink { color: var(--text-2); text-decoration: none; background: none; border: 0; padding: 8px 2px; min-height: 0; }
+  .appbar nav a:hover, .appbar nav button.navlink:hover { color: var(--text); }
+  #btnMenu { display: none; }
+  #machineMenu { position: absolute; top: calc(100% - 6px); left: 20px; z-index: 20; width: min(600px, calc(100vw - 40px)); background: var(--panel);
+    border: 1px solid var(--line); border-radius: var(--r-14); padding: 14px; box-shadow: 0 20px 50px rgba(0, 0, 0, .6);
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; max-height: 80vh; overflow-y: auto; }
+  #machineMenu[hidden] { display: none; }
+  /* an empty recent list says "Nothing loaded yet": not under a "Last time" (drawer.js marks it) */
+  #lastTime:not([hidden]) ~ .recent-empty { display: none; }
+  /* more models below the fold (machine-panel.js sets it while the list can scroll further): the bottom fades */
+  #machineMenu.more-below { -webkit-mask-image: linear-gradient(#000 calc(100% - 48px), transparent); mask-image: linear-gradient(#000 calc(100% - 48px), transparent); }
+  #machineMenu .group-name { font-size: 14px; letter-spacing: .06em; color: var(--muted); padding: 2px 8px 6px; }
+  #machineMenu button { display: flex; width: 100%; justify-content: space-between; gap: 10px; text-align: left; background: transparent;
+    border: 0; border-radius: var(--r-8); padding: 8px; min-height: 40px; }
+  #machineMenu button:hover { background: var(--line); }
+  #machineMenu button[aria-current="true"] { background: var(--line); }
+  #machineMenu .tag { font-size: 14px; color: var(--muted); white-space: nowrap; }
+  #machineMenu .tag.ready { color: var(--phosphor); }
+  #machineMenu .note { grid-column: 1 / -1; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; border-top: 1px solid var(--line);
+    padding: 10px 0 0; font-size: 14px; color: var(--text-2); }
+  #switchConfirm { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; background: var(--warn-panel);
+    border-bottom: 1px solid var(--orange); padding: 12px 20px; }
+  #switchConfirm[hidden] { display: none; }
+  #switchConfirm button { border-radius: var(--pill); }
+  #btnSwitchCancel { background: transparent; border: 0; text-decoration: underline; }
+
+  /* ---- layout ---- */
+  .layout { flex: 1; display: flex; flex-wrap: wrap; gap: 20px; padding: 20px; align-items: flex-start; }
+  .layout > main { flex: 999 1 640px; min-width: 0; display: flex; flex-direction: column; gap: 16px; align-items: center; }
+  .layout > main > * { width: 100%; max-width: 900px; }
+  .layout > main > .monitor { max-width: min(900px, max(320px, calc((100vh - 200px) * 1.2))); }
+  .drawer { flex: 1 1 320px; max-width: 100%; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-18); padding: 16px;
+    display: flex; flex-direction: column; gap: 14px; }
+
+  /* ---- the monitor: bezel by family (Dragons plugged into a TV: charcoal; Tandy monitors: light) ---- */
+  .monitor { border-radius: clamp(18px, 4vw, 36px); padding: clamp(10px, 3vw, 28px); background: linear-gradient(180deg, #3A3F3D, #1C201E);
+    box-shadow: 0 30px 80px rgba(0, 0, 0, .55), inset 0 2px 0 rgba(255, 255, 255, .12); }
+  .monitor[data-family="coco"] { background: linear-gradient(180deg, #F0EEE8, #C9C5BC); }
+  .monitor[data-family="coco3"] { background: linear-gradient(180deg, #F2F0EA, #CFCBC2); }
+  .monitor[data-family="mc10"] { background: linear-gradient(180deg, #F6F4EF, #D6D1C6); }
+  .tube { position: relative; aspect-ratio: 4 / 3; border-radius: 28px / 22px; background: #000; overflow: hidden; box-shadow: inset 0 0 40px #000; }
+  #screenWrap { position: absolute; inset: 4% 5%; display: flex; align-items: center; justify-content: center; }
+  #screenWrap.drop { outline: 3px dashed var(--phosphor); outline-offset: 4px; }
+  /* embed mode (?embed=1): the screen alone, filling the frame */
+  body.embed .appbar, body.embed #switchConfirm, body.embed .drawer, body.embed .panels, body.embed footer, body.embed .controls,
+  body.embed .slots, body.embed .hint, body.embed .plate, body.embed #welcome { display: none !important; }
+  body.embed .layout { padding: 0; display: block; }
+  body.embed .layout > main { gap: 0; }
+  body.embed .layout > main > .monitor { max-width: none; border-radius: 0; padding: 0; box-shadow: none; background: #000; }
+  body.embed .tube { border-radius: 0; height: 100vh; aspect-ratio: auto; box-shadow: none; }
+  body.embed #screenWrap { inset: 0; }
+  #screen { image-rendering: pixelated; image-rendering: crisp-edges; display: block; border-radius: 4px; }
+  .crt #screen { border-radius: 10px; }
+  #screen:focus-visible { box-shadow: none; }
+  .tube:has(#screen:focus-visible) { box-shadow: inset 0 0 40px #000, 0 0 0 2px var(--phosphor); }
+  #screenWrap:fullscreen { inset: 0; background: #000; }
+  /* the screen's hints sit under it, never over what it shows: reached by keyboard, the screen says how
+     to leave it (Tab never goes to the machine); a first visit's keys; "click for sound" */
+  #screenNotes { display: flex; flex-direction: column; align-items: center; }
+  #screenNotes > div { margin-top: 10px; background: rgba(11, 13, 12, .88); color: var(--text); font-size: 14px; padding: 6px 12px;
+    border-radius: var(--r-14); text-align: center; max-width: 100%; pointer-events: none; }
+  #screenNotes > div[hidden] { display: none; }
+  /* the focus hint comes and goes with the screen's keyboard focus, so it takes no room of its own: it lies over the
+     bezel's badge strip under the screen (the badge and the LED give way), never over the picture or the page */
+  .plate { position: relative; }
+  #focusHint { display: none; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: max-content; max-width: 100%;
+    background: rgba(11, 13, 12, .88); color: var(--text); font-size: 14px; line-height: 1.3; padding: 4px 12px; border-radius: var(--r-14);
+    text-align: center; pointer-events: none; }
+  body:has(#screen:focus-visible) #focusHint { display: block; }
+  body:has(#screen:focus-visible) .plate > #badge, body:has(#screen:focus-visible) .plate > .led { visibility: hidden; }
+  @media (max-width: 700px) { #focusHint { font-size: 13px; padding: 2px 10px; } }
+  body.embed #screenNotes { display: none; }
+  .views { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .views button { padding: 12px; font-weight: 600; }
+  .views button[aria-pressed="true"] { background: var(--phosphor); color: #062A06; border-color: var(--phosphor); }
+  .slider { display: flex; flex-direction: column; gap: 6px; }
+  .slider > span { display: flex; justify-content: space-between; }
+  .slider output { color: var(--text-2); }
+  .plate { display: flex; justify-content: space-between; align-items: center; margin-top: 14px; padding: 0 6px; }
+  #badge { font-weight: 800; font-stretch: 125%; font-size: 15px; letter-spacing: .08em; color: #3A3D3C; }
+  .monitor[data-family="dragon"] #badge { color: var(--dragon-badge); }
+  .led { width: 10px; height: 10px; border-radius: 50%; background: #FF3B30; box-shadow: 0 0 10px #FF3B30; }
+  #bootHelp { position: absolute; left: 4%; right: 4%; bottom: 4%; background: var(--warn-panel); color: var(--text); border: 1px solid var(--orange);
+    border-radius: var(--r-14); padding: 12px 14px; font-size: 15px; }
+  #bootHelp strong { color: var(--orange); display: block; margin-bottom: 4px; }
+  #bootHelp .bar { margin-top: 8px; }
+
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+  /* the media slots: one row that wraps, cassette 280px, drives 260px and
+     cartridge 220px to start with, each growing to share the row */
+  .slots { display: flex; flex-wrap: wrap; gap: 12px; }
+  .slot { flex: 1 1 260px; min-width: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 14px; display: flex; gap: 14px; align-items: flex-start; }
+  .slot[hidden] { display: none; }
+  .slot.tape { flex-basis: 280px; }
+  #cartSlot { flex-basis: 220px; }
+  .slot .body { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .slot .title { font-size: 14px; color: var(--muted); }
+  .slot .name { font-weight: 700; overflow-wrap: anywhere; }
+  #mpak summary { cursor: pointer; color: var(--text-2); }
+  .mpBody { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+  .mpRow { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .mpLabel { min-width: 3.5em; color: var(--text-2); }
+  .mpRow button:not(.primary) { max-width: 12em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mpRow select { min-width: 0; max-width: 100%; text-overflow: ellipsis; }
+  /* the cartridge port's board menu: its longest label ("Speech/Sound Pak (music only; speech not yet)") is wider
+     than a phone, and a <select> is as wide as its widest option unless told otherwise, which pushed the page
+     sideways. Constrain it the way the Multi-Pak's board menus already are. */
+  #selCartBoard { min-width: 0; max-width: 100%; text-overflow: ellipsis; }
+  .deck { flex: none; width: 110px; height: 70px; display: flex; align-items: center; justify-content: center; gap: 22px; background: #1E1E1E;
+    border: 1px solid var(--line-strong); border-radius: var(--r-10); padding: 0; }
+  .reel { width: 30px; height: 30px; border-radius: 50%; border: 5px dotted #D8D8D8; }
+  .deck.turning .reel { animation: spin 1.2s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .deck.turning .reel { animation: none; } }
+  button.rec { color: var(--orange); }
+  button.rec[aria-pressed="true"] { background: var(--orange); border-color: var(--orange); color: var(--on-orange); }
+  .cart { flex: 1; border: 1px dashed var(--line-strong); background: transparent; color: var(--muted); }
+  .cart.loaded { border-style: solid; color: var(--text); background: var(--line); border-top: 3px solid var(--phosphor); }
+  .hint { text-align: center; color: var(--text-2); font-size: 15px; }
+  /* the feedback model: toasts light on dark, bottom centre (full width on a phone); attention
+     orange, over the screen on the emulator and under the header elsewhere */
+  #toastRegion { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 60; width: max-content; max-width: min(560px, calc(100vw - 32px)); }
+  #toast { background: #E8EDE6; color: #0B0D0C; border-radius: 12px; padding: 10px 10px 10px 14px; font-size: 15px; line-height: 1.4;
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; box-shadow: 0 8px 24px rgba(0, 0, 0, .45); }
+  #toast[hidden] { display: none; }
+  /* on the screen's border under its text (js/ui/feedback.js), where room is short */
+  #toast.compact { font-size: 12px; line-height: 1.25; padding: 2px 8px; gap: 2px 6px; border-radius: 8px; box-shadow: none; }
+  #toast.compact #toastAction { padding: 1px 6px; font-size: 12px; }
+  #toast.error { box-shadow: inset 4px 0 0 var(--orange), 0 8px 24px rgba(0, 0, 0, .45); padding-left: 18px; }
+  #toastText { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+  #toastAction { background: #0B0D0C; color: #E8EDE6; border: 0; border-radius: 8px; padding: 6px 10px; font-weight: 700; min-height: 0; }
+  #toastDetails { flex-basis: 100%; font-size: 14px; color: #2A302C; overflow-wrap: anywhere; }
+  @media (max-width: 700px) { #toastRegion { left: 8px; right: 8px; bottom: 8px; transform: none; width: auto; max-width: none; } }
+  #attention { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; background: var(--warn-panel);
+    color: var(--text); border: 1px solid var(--orange); border-radius: var(--r-10); padding: 10px 12px; font-size: 15px; margin: 8px 0; }
+  #attention[hidden] { display: none; }
+  #attention.over { position: absolute; left: 4%; right: 4%; top: 4%; margin: 0; z-index: 2; }
+  #attention .bar { display: flex; gap: 8px; }
+  /* the first visit: one key legend at a time; while the one-time key hint is over the
+     screen, the key line under the slots waits */
+  body:has(#keyHint:not([hidden])) .layout .hint { display: none; }
+  #lizaOffer { display: flex; flex-direction: column; gap: 6px; background: var(--panel); border: 1px solid var(--phosphor); border-radius: var(--r-14); padding: 12px 16px; font-size: 15px; }
+  #lizaOffer[hidden] { display: none; }
+  #lizaOffer .bar { margin-top: 6px; }
+  #lizaOffer button { border-radius: var(--pill); }
+  #shelf .tag { font-size: 14px; color: var(--orange); font-weight: 600; }
+  /* the returning visit: one row a program, its tag on the right */
+  #shelf { display: flex; flex-direction: column; gap: 8px; }
+  #shelf button { display: flex; justify-content: space-between; align-items: center; gap: 10px; width: 100%; text-align: left; }
+  #shelf .tag.now { color: var(--muted); font-weight: 400; }
+  #shelf [aria-current="true"] { border-color: var(--phosphor); }
+  /* the returning visit: what ran last, one click away */
+  .lasttime { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--panel-deep); border: 1px solid var(--line);
+    border-radius: var(--r-14); padding: 12px 14px; }
+  .lasttime[hidden] { display: none; }
+  .lasttime > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .lasttime strong { overflow-wrap: anywhere; }
+  .lasttime button { border-radius: var(--pill); flex: none; }
+  #welcome, #mediaOffer { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-14); padding: 12px 16px; position: relative; }
+  #welcome { background: var(--panel-deep); }
+  #mediaOffer { border-color: var(--phosphor); }
+  #welcome .lead { font-weight: 700; padding-right: 80px; }
+  #welcome .muted { margin-top: 2px; }
+  #welcome .bar, #mediaOffer .bar { margin-top: 10px; }
+  #welcome .ask { margin-top: 10px; color: var(--text-2); display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  #welcome .close { position: absolute; top: 10px; right: 10px; min-height: 32px; padding: 4px 10px; font-size: 14px; }
+
+  /* ---- drawer ---- */
+  [role="tablist"] { display: flex; gap: 2px; background: var(--panel-deep); border-radius: var(--r-14); padding: 4px; overflow-x: auto; }
+  [role="tab"] { flex: 1 0 auto; background: transparent; border: 0; color: var(--muted); padding: 8px 8px; border-radius: var(--r-10); min-height: 40px; }
+  [role="tab"][aria-selected="true"] { background: var(--line); color: var(--text); font-weight: 700; }
+  [role="tabpanel"] { display: flex; flex-direction: column; gap: 12px; color: var(--text-3); }
+  [role="tabpanel"][hidden] { display: none; }
+  .row { display: flex; justify-content: space-between; align-items: center; gap: 10px; background: var(--panel-deep); border-radius: var(--r-10); padding: 10px 12px; }
+  .row .kind { color: var(--muted); font-size: 14px; }
+  .drives { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .drive { display: flex; align-items: center; gap: 8px; text-align: left; background: #1E1E1E; color: var(--muted); border: 1px dashed var(--line-strong);
+    border-radius: 6px; padding: 10px; min-width: 0; overflow-wrap: anywhere; }
+  .drive.loaded { color: var(--text); border: 1px solid #2E2E2E; }
+  .drive.open { outline: 2px solid var(--phosphor); outline-offset: 1px; }
+  .drive .led { flex: none; width: 8px; height: 8px; border-radius: 50%; background: #4A3A28; }
+  .drive .led.on { background: var(--orange); box-shadow: 0 0 8px var(--orange); }
+  .drive { flex-wrap: wrap; column-gap: 8px; row-gap: 2px; }
+  .drive .dn { flex: 1 1 0; min-width: 0; }
+  .drive .meta { flex-basis: 100%; padding-left: 16px; font-size: 13px; color: var(--muted); }
+  .drive .flag { color: var(--orange); }
+  .drive.unsaved { border-color: var(--orange); }
+  .drive-menu p { margin: 0; font-size: 15px; line-height: 1.4; }
+  .drive-menu .error { color: var(--orange); }
+  .drive-menu .note { color: var(--text-2); }
+  .drive-menu { display: flex; flex-direction: column; gap: 8px; background: var(--ground); border-radius: var(--r-10); padding: 10px; }
+  .drive-menu[hidden] { display: none; }
+  .drive-menu .title { font-size: 15px; color: var(--text); overflow-wrap: anywhere; }
+  .drive-menu select { min-width: 0; max-width: 100%; }
+  #recentList button.row { width: 100%; border: 0; text-align: left; color: var(--text); }
+  #slotList { display: flex; flex-direction: column; gap: 6px; }
+  #slotList .row { color: var(--text); padding: 6px 6px 6px 12px; }
+  #slotList button { min-height: 36px; padding: 6px 12px; }
+  #slotList .bar { flex-wrap: nowrap; flex: none; }
+  .chip { font: 14px/1 var(--font-mono); padding: 5px 8px; border-radius: 6px; border: 1px solid var(--line-strong); color: var(--muted);
+    transition: background .25s, color .25s; }
+  .chip.lit { background: var(--phosphor); border-color: var(--phosphor); color: var(--on-phosphor); }
+  /* POKEs and Machine tabs: entries and rows on the ground colour */
+  #pokeBook { display: flex; flex-direction: column; gap: 10px; }
+  button.poke { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; text-align: left; padding: 12px;
+    background: var(--ground); border: 1px solid var(--line); border-radius: var(--r-10); }
+  button.poke code { color: var(--phosphor); font-size: 15px; }
+  button.poke span { font-size: 14px; color: var(--text-2); }
+  button.poke small { color: var(--muted); font-size: 14px; border-radius: 6px; padding: 1px 6px; margin-left: -6px; transition: background .25s, color .25s; }
+  button.poke small.lit { background: var(--phosphor); color: var(--on-phosphor); }
+  #panel-machine .row { background: var(--ground); color: var(--text); min-height: 44px; padding: 6px 12px; }
+  #panel-machine .row select { min-width: 110px; min-height: 36px; }
+  #panel-machine .row .fixed { color: var(--text-2); }
+  #panel-machine .rate { display: inline-flex; align-items: center; gap: 10px; }
+  #panel-machine .note { margin: 0; border-top: 1px solid var(--line); padding-top: 10px; line-height: 1.5; }
+
+  /* ---- below the fold: ROM sockets, assembler, self-test ---- */
+  section.card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-18); padding: 16px 18px; min-width: 0; }
+  section.card h2 { font-size: 18px; margin: 0 0 10px; }
+  #asmPanel h2, #selftestCard h2 { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  section.card p, section.card li { color: var(--text-3); font-size: 15px; }
+  section.card ul { padding-left: 18px; margin: 8px 0; }
+  #asmPanel { display: flex; flex-direction: column; }
+  #asmName { color: var(--muted); font-weight: normal; font-size: 14px; }
+  #asmSource { flex: 1; min-height: 360px; width: 100%; resize: vertical; background: var(--panel-deep); color: var(--text); margin-top: 10px;
+    border: 1px solid var(--line); border-radius: var(--r-10); padding: 10px; font: 14px/1.45 var(--font-mono); tab-size: 8; white-space: pre; }
+  #asmOut { margin-top: 8px; font: 14px/1.4 var(--font-mono); color: var(--muted); max-height: 160px; overflow: auto; white-space: pre-wrap; }
+  #asmOut.ok { color: var(--phosphor); }
+  #asmOut.error { color: #FF7A70; }      /* assembly errors in the destructive red, under the source */
+  #asmOut .linkish { background: none; border: 0; padding: 0; min-height: 0; color: inherit; text-decoration: underline; font: inherit; cursor: pointer; }
+  #selftestOut { white-space: pre-wrap; font: 14px/1.45 var(--font-mono); margin: 0; max-height: 420px; overflow: auto; color: var(--text-3); }
+  footer { padding: 0 20px 24px; font-size: 14px; color: var(--muted); }
+
+  /* ---- the Claude chat (?app=claude) ---- */
+  #claudeBar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 12px 20px; border-bottom: 1px solid var(--line); }
+  #claudeBar h1 { font-size: 18px; letter-spacing: .06em; margin: 0; }
+  #claudeBar .pill { border: 1px solid var(--line); border-radius: var(--pill); padding: 2px 10px; font-size: 14px; color: var(--muted); }
+  #claudeSpec { font: 14px var(--font-mono); color: var(--muted); }
+  #claudeBar[hidden], #claude[hidden] { display: none; }
+  body.claude-open .drawer, body.claude-open .slots, body.claude-open .hint, body.claude-open #welcomeBackBar { display: none !important; }
+  #claude { flex: 1 1 320px; max-width: 100%; display: flex; flex-direction: column; gap: 14px; }
+  #claude .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-18); padding: 16px 18px; }
+  #claude .card h2 { font-size: 18px; margin: 0 0 8px; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  #claude .card p { margin: 0 0 10px; color: var(--text-3); }
+  #claude .tag { font-size: 14px; font-weight: normal; color: var(--phosphor); }
+  #claudeKeyCard { border: 2px solid var(--phosphor); }
+  #claudeKeyCard.warn { border-color: var(--orange); }
+  #claudeKeyCard.warn .tag { color: var(--orange); }
+  #claudeKeyCard label { display: block; font-size: 14px; color: var(--muted); margin-bottom: 4px; }
+  #claudeKeyInput { width: 100%; box-sizing: border-box; background: var(--panel-deep); color: var(--text); border: 1px solid var(--line);
+    border-radius: var(--r-10); padding: 10px; font: 15px var(--font-mono); margin-bottom: 10px; }
+  #claudeKeyMsg, #claudeBasicNote { font-size: 14px; color: var(--muted); }
+  #claudeHelp { border: 1px solid var(--orange); border-radius: var(--r-14); padding: 10px 14px; color: var(--text); }
+  #claude .switch { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+
+  /* ---- snapshots: Capture & share and a snapshot that needs ROMs ---- */
+  #snapNeeds { background: var(--panel); border: 1px solid var(--phosphor); border-radius: var(--r-14); padding: 12px 16px; color: var(--text); font-size: 15px; }
+  #snapNeeds .bar { margin-top: 10px; }
+  #snapNeeds button, .share .pill-demo { border-radius: var(--pill); }
+  /* ---- the Share screen (#share): a view of /play/ ---- */
+  body.share-open .layout, body.share-open .panels, body.share-open footer, body.share-open #switchConfirm { display: none !important; }
+  #share { padding: 8px 48px 48px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 40px; row-gap: 20px; align-content: start; max-width: 1200px; }
+  #share > header { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding: 4px 0 8px; }
+  #share > header a { font-size: 15px; }
+  #share > header .back { color: var(--text-2); text-decoration: none; }
+  #share > header strong { font-weight: 800; font-stretch: 125%; font-size: 17px; }
+  #share .col { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+  #share .mono { font-family: var(--font-mono); font-size: 14px; color: var(--muted); letter-spacing: .06em; }
+  #share h1, #share h2 { margin: 0; font-size: clamp(26px, 6vw, 34px); font-weight: 800; font-stretch: 112%; line-height: 1.05; }
+  #share p { margin: 0; font-size: 16px; line-height: 1.5; color: var(--text-3); }
+  #share .preview { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-18); overflow: hidden; }
+  #share .frame { aspect-ratio: 1.91; background: #050605; position: relative; display: flex; align-items: center; justify-content: center; }
+  #share .frame canvas { height: 84%; aspect-ratio: 4 / 3; image-rendering: pixelated; box-shadow: 0 0 50px rgba(61, 245, 90, .4); }
+  #share .stripe { position: absolute; left: 0; right: 0; bottom: 0; display: flex; height: 5px; }
+  #share .stripe i { flex: 1; }
+  #share .stripe i:nth-child(1) { background: #30D82B; } #share .stripe i:nth-child(2) { background: #F2EA4A; }
+  #share .stripe i:nth-child(3) { background: #2A35E8; } #share .stripe i:nth-child(4) { background: #D8202A; }
+  #share .stripe i:nth-child(5) { background: #EDE6C8; } #share .stripe i:nth-child(6) { background: #2BD8D8; }
+  #share .stripe i:nth-child(7) { background: #D02BD8; } #share .stripe i:nth-child(8) { background: #F08A1F; }
+  #share figcaption { padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; font-size: 15px; }
+  #share figcaption span { font-size: 14px; color: var(--muted); }
+  #share .linkrow { display: flex; gap: 8px; }
+  #share .linkrow input { flex: 1; min-width: 0; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: var(--r-10);
+    padding: 12px; font: 14px var(--font-mono); }
+  #share .card2 { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-14); padding: 16px; display: flex; flex-direction: column; gap: 8px; font-size: 15px; line-height: 1.45; }
+  #share .card2 .eyebrow { font-size: 14px; }
+  #share .pill { border-radius: var(--pill); }
+  #share .fields { display: flex; flex-direction: column; gap: 10px; }
+  #share .fields label.stack { display: flex; flex-direction: column; align-items: stretch; gap: 6px; font-size: 14px; color: var(--text); }
+  #share .fields label.stack select, #share .fields label.stack input { width: 100%; box-sizing: border-box; }
+  #share .fields select, #share .fields input[type="url"] { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: var(--r-10); padding: 11px; font: inherit; }
+  #share .fields input[type="url"] { font: 14px var(--font-mono); }
+  #share .checks { display: flex; gap: 18px; flex-wrap: wrap; font-size: 14px; }
+  #share .checks label { display: flex; gap: 8px; align-items: center; }
+  #share pre { margin: 0; background: var(--panel-deep); border: 1px solid var(--line); border-radius: var(--r-12, 12px); padding: 16px; font: 14px/1.6 var(--font-mono);
+    color: var(--text-2); white-space: pre-wrap; overflow-wrap: anywhere; }
+  #share .snippet { display: flex; flex-direction: column; gap: 6px; }
+  #share .snippet .bar { justify-content: flex-end; }
+  @media (max-width: 860px) { #share { grid-template-columns: minmax(0, 1fr); padding: 8px 16px 32px; } }
+
+
+  /* ---- the Debugger, at #debugger instead of the emulator ---- */
+  /* the Debugger replaces the emulator and its app bar: one header, its own "← Emulator · DEBUGGER" bar */
+  body.debug-open .layout, body.debug-open #appbar, body.debug-open #switchConfirm { display: none; }
+  #debugView { display: flex; flex-direction: column; }
+  #debugView[hidden] { display: none; }
+  .dbghead { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 12px 20px; border-bottom: 1px solid #1D2420; }
+  .dbghead a { color: var(--text-2); text-decoration: none; font-size: 14px; }
+  .dbghead .wordmark { font-weight: 800; font-stretch: 125%; font-size: 16px; }
+  .dbghead .grow { flex: 1; }
+  #dbgStatus { font-size: 14px; color: var(--phosphor); }
+  #dbgStatus.stopped { color: var(--orange); }
+  .dbghead kbd { font-size: 13px; opacity: .8; }
+  #debugView .mono { font-family: var(--font-mono); }
+  #debugView input:not([type]), #debugView select { background-color: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; min-height: 36px; }
+  #debugView select { padding-right: 34px; }
+  .dbggrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); gap: 14px; padding: 14px; }
+  .dbggrid .pane { background: var(--panel-deep); border: 1px solid #1D2420; border-radius: var(--r-14); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .dbggrid .stack { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+  .dbggrid .wide { grid-column: 1 / -1; }
+  .panehead { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; font-size: 14px; color: var(--muted); }
+  #asmPanel h2 { font-size: 15px; margin: 0; }
+  #asmPanel #asmSource { min-height: 300px; }
+  .regs { display: grid !important; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .reg { display: flex; flex-direction: column; gap: 2px; }
+  .reg .name, .cc .name { color: var(--muted); font-size: 14px; }
+  #debugView .reg input { width: 100%; background: transparent; min-height: 0; border: 1px solid transparent; border-radius: 6px; color: var(--text); font: 17px var(--font-mono); padding: 2px 4px; }
+  .reg input:hover, .reg input:focus { border-color: var(--line-strong); }
+  .reg input.changed { color: var(--orange); }
+  .cc { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .cc .name { margin-right: 6px; }
+  .flag { min-height: 32px; min-width: 32px; padding: 2px 8px; border-radius: 4px; background: #1D2420; border: 0; font: 14px var(--font-mono); color: var(--text-2); }
+  .flag.on { background: var(--phosphor); color: var(--on-phosphor); }
+  #dbgScreen { width: 100%; aspect-ratio: 4 / 3; image-rendering: pixelated; border-radius: 4px; background: #000; }
+  .foot { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; color: var(--muted); }
+  #dbgDis { display: flex; flex-direction: column; overflow-x: auto; }
+  .dis { display: flex; gap: 10px; white-space: pre; text-align: left; background: transparent; border: 0; border-radius: 4px; padding: 1px 6px; font: 14px/1.6 var(--font-mono); color: var(--text-2); min-height: 0; }
+  .dis .addr, .dis .bytes { color: #8A968C; }
+  .dis .bp { color: var(--phosphor); width: 1ch; }
+  .dis .label { color: #2BD8D8; }
+  .dis.pc { background: var(--phosphor); color: var(--on-phosphor); }
+  .dis.pc .addr, .dis.pc .bytes, .dis.pc .bp, .dis.pc .label { color: var(--on-phosphor); }
+  .bprow { display: flex; gap: 10px; align-items: center; font-size: 14px; }
+  .bprow .mark.exec { color: var(--phosphor); } .bprow .mark.write { color: var(--orange); } .bprow .mark.read { color: #2BD8D8; }
+  .bprow .x { margin-left: auto; min-height: 28px; padding: 0 10px; }
+  #dbgAddBp input { width: 160px; }
+  .memrow { display: flex; gap: 12px; white-space: pre; font-size: 14px; line-height: 1.7; overflow-x: auto; }
+  .memrow .addr { color: #8A968C; }
+  .memrow .cells { display: flex; gap: 4px; }
+  .memrow .cells .byte:nth-child(8) { margin-right: 8px; }
+  .byte { background: transparent; border: 0; padding: 0 1px; min-height: 0; font: 14px var(--font-mono); color: var(--text-2); border-radius: 3px; }
+  .byte.sel { background: var(--orange); color: var(--on-orange); }
+  .memrow .text { color: var(--muted); }
+  #dbgByteValue { width: 56px; }
+  #dbgMemAddr { width: 80px; }
+  .trow { display: flex; gap: 12px; font-size: 14px; white-space: pre; }
+  .trow .addr, .trow .cyc { color: #8A968C; }
+  .trow .text { flex: 1; color: var(--text-2); }
+  @media (max-width: 700px) { .dbghead { padding: 10px 16px; } .dbggrid { padding: 12px 16px; } .memrow .text { display: none; } }
+  /* ---- the on-screen keyboard ---- */
+  #touchKeys[hidden] { display: none !important; }
+  #touchKeys { display: flex; flex-direction: column; gap: 5px; user-select: none; -webkit-user-select: none; touch-action: manipulation; }
+  #touchKeys .tkhalf, #touchKeys .tkhole { display: none; }
+  #touchKeys .tkcenter { order: 2; }   /* portrait: BREAK, CLEAR, Hide keys and Menu under the keys */
+  #touchKeys #touchFull { order: 1; }
+  #touchKeys .tkrow { display: flex; gap: 4px; }
+  #touchKeys .tk { flex: 1; min-width: 0; height: 48px; border: 0; border-radius: var(--r-8); background: #1E1E1E; color: #F2F2F2; font-weight: 600;
+    font-size: 17px; box-shadow: 0 3px 0 #000; padding: 0; }
+  #touchKeys .tk.wide { flex: 1.6; font-size: 12px; }
+  #touchKeys .tk.space { flex: 4; font-size: 15px; }
+  #touchKeys .tk.down { background: #3A403C; transform: translateY(2px); box-shadow: 0 1px 0 #000; }
+  #touchKeys .tk[aria-pressed="true"] { background: var(--phosphor); color: var(--on-phosphor); }
+  /* portrait: the four in one row under the keys, so they stay on screen with them below the header */
+  #touchKeys .tkbtns { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+  #touchKeys .tkbtns button { height: 48px; border-radius: var(--r-10); font-size: 15px; white-space: nowrap; padding: 0 4px; }
+  body.touch-keys #keyHint, body.touch-keys #soundHint { display: none !important; }   /* a keyboard hint and "click for sound": not on a touch screen (a key tap starts the sound) */
+  #touchKeys .tkbtns .tk { font-size: 15px; }
+  #touchKeys #tkBreak { background: #B3261E; color: #fff; border: 0; font-weight: 700; box-shadow: none; }
+  #touchKeys #tkClear { background: #263029; color: var(--text); border: 0; font-weight: 700; box-shadow: none; }
+  /* portrait, or a larger touch screen: ten columns under the screen, then BREAK, CLEAR, Hide keys and Menu */
+  #touchKeys #touchFull { display: flex; flex-direction: column; gap: 5px; }
+  /* a phone held sideways: the split thumb keyboard, the screen between its halves */
+  @media (orientation: landscape) and (max-height: 500px) {
+    body.touch-keys .appbar, body.touch-keys .drawer, body.touch-keys .panels, body.touch-keys footer, body.touch-keys .controls,
+    body.touch-keys .slots, body.touch-keys .hint, body.touch-keys #welcome, body.touch-keys .plate { display: none !important; }
+    body.touch-keys .layout { padding: 0; }
+    body.touch-keys #touchKeys { position: fixed; inset: 0; z-index: 5; flex-direction: row; gap: 8px; padding: 8px 16px; background: var(--ground); pointer-events: none; }
+    body.touch-keys #touchKeys > * { pointer-events: auto; }
+    body.touch-keys #touchKeys #touchFull { display: none; }
+    body.touch-keys #touchKeys .tkhalf { display: flex; flex: 1; flex-direction: column; gap: 5px; justify-content: flex-end; }
+    body.touch-keys #touchKeys .tkcenter { display: flex; flex: none; width: min(280px, 34vw); flex-direction: column; gap: 8px; pointer-events: none; }
+    body.touch-keys #touchKeys .tkcenter .tkhole { display: block; flex: 1; }
+    body.touch-keys #touchKeys #touchLeft { order: 0; } body.touch-keys #touchKeys .tkcenter { order: 1; } body.touch-keys #touchKeys #touchRight { order: 2; }
+    body.touch-keys #touchKeys .tkbtns { pointer-events: auto; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    body.touch-keys #touchKeys .tk { height: min(56px, calc((100vh - 40px) / 5)); }
+    body.touch-keys .layout > main > .monitor { position: fixed; z-index: 6; top: 8px; left: 50%; transform: translateX(-50%); width: min(280px, 34vw);
+      max-width: none; padding: 0; border-radius: var(--r-8); box-shadow: none; background: #000; }
+    body.touch-keys .tube { border-radius: var(--r-8); height: calc(100vh - 16px - 2 * 48px - 2 * 6px - 8px); aspect-ratio: auto; }
+    body.touch-keys #screenWrap { inset: 0; }
+  }
+  /* ---- the chat, full screen, on a phone (body.chat-phone: js/ui/claude.js, portrait up to 700 px wide or held
+     sideways up to 500 px high). The chat is the screen's text, so the screen gets the room: no app bar (the bar's
+     "← Emulator" leads back), the chat bar on one row, no bezel, and the picture without its border (page.cropBorder,
+     fitActive: scaled, never reflowed). Without a key the key card comes first, and the machine keyboard stands
+     aside while the phone's own keyboard types the key. ---- */
+  body.chat-phone .appbar, body.chat-phone #claudeSpec, body.chat-phone #claudeSame, body.chat-phone .plate { display: none !important; }
+  /* the screen's keyboard and sound hints are about a computer's keyboard and BASIC; on a phone's chat they would only
+     cover the text */
+  body.chat-phone #focusHint, body.chat-phone #keyHint, body.chat-phone #soundHint { display: none !important; }
+  body.chat-phone #claudeBar { flex-wrap: nowrap; padding: 6px 12px; gap: 8px; }
+  body.chat-phone #claudeBar h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  body.chat-phone #claudeBar .viewswitch { margin-left: auto; }
+  body.chat-phone .layout { padding: 12px 16px; gap: 12px; }
+  body.chat-phone .layout > main > .monitor { padding: 0; background: #000; box-shadow: none; border-radius: var(--r-8); }
+  body.chat-phone .tube { border-radius: var(--r-8); }
+  body.chat-phone #screenWrap { inset: 0; }
+  /* the chat bar stays at the top as the page scrolls: its "← Emulator" is the way back (the app bar is hidden) */
+  body.chat-phone #claudeBar { position: sticky; top: 0; z-index: 7; background: var(--ground); }
+  /* without a key the key card comes first wherever the page stacks the chat under the screen (a phone, a tablet:
+     under about 1020 px the layout wraps), so it is not a screen or more below */
+  body.chat-phone.claude-nokey #claude { order: -1; }
+  @media (max-width: 1019px) { body.claude-open.claude-nokey #claude { order: -1; } }
+  @media (orientation: landscape) and (max-height: 500px) {
+    /* held sideways: a wider screen between the keyboard's halves, its four buttons in one row under it */
+    body.chat-phone.touch-keys #touchKeys .tkcenter, body.chat-phone.touch-keys .layout > main > .monitor { width: min(360px, 44vw); }
+    body.chat-phone.touch-keys #touchKeys .tkbtns { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    body.chat-phone.touch-keys .tube { height: calc(100vh - 16px - 48px - 8px - 8px); }
+    /* the keyboard covers the page here: the chat bar stays under it, and the keyboard's Menu is "← Emulator" */
+    body.chat-phone.touch-keys #claudeBar { position: static; z-index: auto; }
+    /* no key yet: the key card beside the screen rather than above it, so both fit the height (the
+       screen was a screen and a half down) */
+    body.chat-phone.claude-nokey .layout { flex-wrap: nowrap; }
+    body.chat-phone.claude-nokey .layout > main { flex: 1 1 auto; }
+    body.chat-phone.claude-nokey #claude { order: 1; flex: 0 0 min(380px, 46vw); }
+    body.chat-phone .layout { padding: 8px 16px; }
+  }
+  /* the whole page is the drop target */
+  #dropOverlay { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; background: rgba(5, 6, 5, .8);
+    border: 3px dashed var(--phosphor); pointer-events: none; }
+  #dropOverlay[hidden] { display: none; }
+  #dropOverlay div { display: flex; flex-direction: column; gap: 8px; align-items: center; font-size: clamp(24px, 5vw, 40px); font-weight: 800; color: var(--phosphor); text-align: center; padding: 16px; }
+  #dropOverlay span { font-size: 16px; font-weight: 400; color: var(--text-2); }
+  /* ---- adding ROMs, at #add-roms instead of the emulator ---- */
+  /* a view replaces the emulator and its app bar: one header per screen (its own "← Emulator" bar) */
+  body.roms-open .layout, body.roms-open #appbar, body.roms-open #switchConfirm { display: none; }
+  #romCard { padding: 16px 24px 24px; }
+  #romCard .libhead { display: flex; align-items: center; gap: 14px; padding: 0 0 12px; }
+  #romCard .libhead a { color: var(--text-2); text-decoration: none; font-size: 15px; }
+  #romCard .libhead .grow { flex: 1; }
+  .romgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 40px; max-width: 1200px; margin: 0 auto; }
+  .romleft, .romright { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+  #romCard .mono { font-family: var(--font-mono); letter-spacing: .06em; }
+  #romHeading { margin: 0; font-size: clamp(28px, 6vw, 38px); line-height: 1.05; font-stretch: 112%; }
+  #romHeading:focus { outline: none; box-shadow: none; }
+  #romCard .lead { margin: 0; font-size: 17px; line-height: 1.5; color: var(--text-2); }
+  .dropzone { border: 2px dashed var(--line-strong); border-radius: var(--r-18); padding: 28px; display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; color: var(--muted); }
+  .dropzone.drop, .dropzone.good { border-color: var(--phosphor); background: rgba(61, 245, 90, .06); }
+  .dropzone .droptitle { font-size: 17px; font-weight: 600; color: var(--text); }
+  .bar.center { justify-content: center; }
+  #romCard button.pill { border-radius: var(--pill); min-height: 44px; padding: 10px 18px; }
+  #romCard button.big { font-size: 17px; padding: 14px 24px; align-self: flex-start; }
+  .romnotes p { margin: 0 0 8px; font-size: 14px; line-height: 1.5; color: var(--text-3); }
+  .romnotes strong { color: var(--text); }
+  #romSockets { display: flex; flex-direction: column; gap: 10px; }
+  .socket { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-14); padding: 16px 18px; display: flex; gap: 14px; align-items: flex-start; }
+  .socket .dot { flex: none; margin-top: 4px; width: 14px; height: 14px; border-radius: 50%; background: var(--line-strong); }
+  .socket .body { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
+  .socket .top { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+  .socket .top strong { font-size: 16px; }
+  .socket .tag { font-size: 14px; color: var(--muted); }
+  .socket .tag.req { color: var(--orange); }
+  .socket .expect { font: 14px var(--font-mono); color: var(--muted); overflow-wrap: anywhere; }
+  .socket .state { font-size: 14px; color: var(--muted); }
+  .socket[data-status="verified"] { border-color: var(--phosphor); }
+  .socket[data-status="verified"] .dot { background: var(--phosphor); }
+  .socket[data-status="verified"] .state { color: var(--phosphor); }
+  .socket[data-status="loaded-unrecognised"] { border-color: var(--orange); }
+  .socket[data-status="loaded-unrecognised"] .dot { background: var(--orange); }
+  .socket[data-status="loaded-unrecognised"] .state { color: var(--orange); }
+  #romOdd:empty { display: none; }
+  #romOdd .odd { background: var(--warn-panel); border: 1px solid var(--orange); border-radius: var(--r-14); padding: 14px 18px; font-size: 14px; line-height: 1.5; margin-bottom: 10px; }
+  #romOdd .odd strong { color: var(--orange); }
+  #romNeeds, #romStub { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-14); padding: 14px 18px; color: var(--text); font-size: 15px; }
+  #romNeeds .bar, #romStub .bar { margin-top: 10px; }
+  .found { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-14); padding: 14px 18px; display: flex; flex-direction: column; gap: 8px; font-size: 14px; }
+  #romFound ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+  #romFound .ok { color: var(--phosphor); } #romFound .warn { color: var(--orange); } #romFound .no { color: var(--muted); }
+  #romOffers .offer { border: 1px solid var(--phosphor); border-radius: var(--r-10); padding: 10px 12px; margin: 4px 0; color: var(--text); }
+  #romOffers .bar { margin-top: 8px; }
+  #romReady { color: var(--phosphor); }
+  #romCard .small { font-size: 14px; margin: 0; }
+  #romCard #selftestCard { background: var(--panel-deep); border: 1px solid var(--line); border-radius: var(--r-14); padding: 12px 14px; }
+  #romCard #selftestCard h2 { font-size: 16px; margin: 0 0 8px; }
+  @media (max-width: 700px) { #romCard { padding: 12px 16px 16px; } .romgrid { gap: 24px; } }
+
+  /* ---- the Library, at #library instead of the emulator ---- */
+  body.library-open .layout, body.library-open #appbar, body.library-open #switchConfirm { display: none; }
+  #library { padding: 16px 24px 24px; }
+  #library.drop { outline: 2px dashed var(--phosphor); outline-offset: -8px; }
+  .libhead { display: flex; align-items: center; gap: 14px; padding: 0 0 12px; }
+  .libhead a { color: var(--text-2); text-decoration: none; font-size: 15px; }
+  .libhead .wordmark { font-weight: 800; font-stretch: 125%; font-size: 17px; }
+  .libhead .grow { flex: 1; }
+  .libgrid { display: flex; flex-wrap: wrap; gap: 24px; }
+  .libgrid .shelf { flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 18px; }
+  .libtop { display: flex; flex-wrap: wrap; gap: 12px; align-items: baseline; justify-content: space-between; }
+  .libtop h1 { margin: 0; font-size: clamp(28px, 6vw, 36px); font-stretch: 112%; }
+  .pillsel { display: inline-flex; align-items: center; gap: 8px; color: var(--text-2); font-size: 15px; }
+  .pillsel select { border-radius: var(--pill); min-height: 44px; }
+  button.chip-btn, button.pill, a.pill { border-radius: var(--pill); min-height: 44px; padding: 10px 18px; }
+  button.chip-btn[aria-pressed="true"] { background: var(--phosphor); border-color: var(--phosphor); color: var(--on-phosphor); font-weight: 700; }
+  a.pill { display: inline-flex; align-items: center; text-decoration: none; border: 1px solid var(--line-strong); color: var(--text); }
+  a.pill.primary { background: var(--phosphor); border-color: var(--phosphor); color: var(--on-phosphor); font-weight: 700; }
+  #library .empty { border: 2px dashed var(--line-strong); border-radius: var(--r-18); padding: 32px; display: flex; flex-direction: column; gap: 14px; align-items: flex-start; }
+  #library .empty h2 { margin: 0; font-size: 24px; }
+  #library .empty p, #library section p { margin: 0; color: var(--text-3); font-size: 15px; line-height: 1.5; max-width: 620px; }
+  #libFilled { display: flex; flex-direction: column; gap: 18px; }
+  #libFilled > div:not([hidden]) { display: flex; flex-direction: column; gap: 8px; }
+  .spines { display: flex; gap: 10px; align-items: flex-end; padding: 0 12px; border-bottom: 10px solid #3A2A1C; overflow-x: auto; }
+  .spine { width: 54px; height: 180px; flex: none; border: 0; border-radius: 3px 3px 0 0; color: #1A1A1A; writing-mode: vertical-rl;
+    font: 800 17px/1 var(--font-ui); font-stretch: 75%; letter-spacing: .04em; padding: 12px 0; box-shadow: inset -6px 0 0 rgba(0,0,0,.15); overflow: hidden; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 14px; }
+  .tile { aspect-ratio: 1; border: 0; border-radius: 6px; background: #1C1C1C; display: flex; flex-direction: column; justify-content: space-between;
+    align-items: stretch; padding: 12px; text-align: left; box-shadow: 0 8px 20px rgba(0,0,0,.4); }
+  .tile .tag { background: #EDE6C8; color: #1A1A1A; font: 800 14px var(--font-ui); font-stretch: 75%; padding: 4px 6px; border-radius: 2px; overflow-wrap: anywhere; }
+  .tile .what { font-size: 14px; color: var(--muted); }
+  /* select mode */
+  .libbtn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 10px 16px; border-radius: var(--r-10);
+    background: transparent; color: var(--text); border: 1px solid var(--line-strong); font-size: 15px; }
+  .libbtn.primary { background: var(--phosphor); border-color: var(--phosphor); color: var(--on-phosphor); font-weight: 700; }
+  .libbtn.danger { color: #FF7A70; border-color: #6B2A25; }
+  .libbtn.done { background: var(--line); border-color: var(--line); font-weight: 700; padding: 10px 18px; }
+  #libSelBar:not([hidden]) { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; background: var(--panel); border: 1px solid var(--line-strong);
+    border-radius: var(--r-14); padding: 10px 12px 10px 16px; }
+  #libCount { font-size: 16px; min-width: 120px; }
+  #libSelHint { font-size: 15px; color: var(--text-3); flex: 1 1 220px; min-width: 0; }
+  #libSelActions:not([hidden]) { display: flex; gap: 8px; flex-wrap: wrap; }
+  #libSelBar .grow { flex: 1; }
+  #btnLibSelectAll { color: var(--text-2); text-decoration: underline; padding: 10px; min-height: 44px; }
+  #btnLibSelectAll .narrow { display: none; }
+  #btnLibLoad[hidden], #btnLibRename:disabled { display: none; }
+  #library.selecting #libFilters { display: none; }
+  .item { position: relative; min-width: 0; }
+  .spines .item { flex: none; }
+  .tile { width: 100%; position: relative; border: 1px solid #2E2E2E; border-radius: var(--r-10); }
+  .spine { position: relative; }
+  .tick { display: none; position: absolute; box-sizing: border-box; width: 24px; height: 24px; border-radius: 6px; border: 2px solid #6E7A70;
+    color: #062A06; font-size: 16px; font-weight: 800; align-items: center; justify-content: center; writing-mode: horizontal-tb; }
+  #library.selecting .tick { display: flex; }
+  .tile .tick { top: 10px; right: 10px; }
+  .spine .tick { top: 8px; left: 50%; transform: translateX(-50%); }
+  #library.selecting .tile .tag { margin-right: 34px; }
+  #library.selecting .spine { padding-top: 40px; }
+  .tile[aria-pressed="true"] { border: 2px solid var(--phosphor); background: #13240F; padding: 11px; }
+  .tile[aria-pressed="true"] .what { color: var(--text); }
+  .spine[aria-pressed="true"] { outline: 3px solid var(--phosphor); outline-offset: 3px; }
+  [aria-pressed="true"] > .tick { background: var(--phosphor); border-color: var(--phosphor); }
+  #library .rename { position: absolute; left: 10px; right: 10px; top: 10px; z-index: 2; background: #13240F; padding: 6px; border-radius: 8px; display: flex;
+    flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+  .spines .rename { right: auto; left: 0; width: 220px; }
+  #library .rename label { display: flex; flex-direction: column; align-items: stretch; gap: 4px; color: var(--text-2); font-size: 13px; }
+  #library .rename input { display: block; width: 100%; box-sizing: border-box; background: var(--ground); color: var(--text); border: 2px solid var(--phosphor);
+    border-radius: 6px; padding: 7px 8px; font: inherit; font-size: 15px; }
+  @media (max-width: 700px) {
+    #library.selecting { padding-bottom: 150px; }
+    #library.selecting .libtop h1 { display: none; }
+    #libSelBar:not([hidden]) { background: none; border: 0; padding: 0; flex-wrap: nowrap; }
+    #libCount { font-size: 26px; font-weight: 800; font-stretch: 112%; min-width: 0; white-space: nowrap; }
+    #libSelHint { display: none; }
+    #btnLibSelectAll { padding: 10px 4px; }
+    #btnLibSelectAll .wide { display: none; } #btnLibSelectAll .narrow { display: inline; }
+    #library.selecting #libTapHint { display: block; margin: -8px 0 0; font-size: 14px; }
+    #libSelActions:not([hidden]) { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; flex-wrap: wrap;
+      gap: 8px; background: var(--panel); border-top: 1px solid var(--line-strong); padding: 10px 12px 28px; }
+    #libSelActions .libbtn { height: 52px; flex: 1 1 0; min-width: 0; padding: 10px 8px; }
+    #libSelActions svg { display: none; }
+    #btnLibDelete { font-weight: 600; }
+    #btnLibRename:disabled { display: inline-flex; color: #6E7A70; border-color: var(--line); }
+    #libOneNote:not([hidden]) { flex-basis: 100%; margin: 0 0 4px; font-size: 13px; text-align: center; }
+  }
+  @media (min-width: 701px) { #libOneNote, #libTapHint { display: none; } }
+  #library .card { background: var(--panel); border: 1px solid var(--line); border-radius: 20px; padding: 22px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+  #library .card h2 { margin: 0; font-size: clamp(22px, 5vw, 28px); font-stretch: 112%; }
+  #library .mono { font-family: var(--font-mono); letter-spacing: .06em; }
+  .typein { flex: 1 1 480px; max-width: 620px; }
+  .typepair { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  #typeinSource { min-height: 220px; resize: vertical; background: #F3EEDF; color: #1A1A1A; border: 0; border-radius: 4px; padding: 14px;
+    font: 14px/1.5 var(--font-mono); box-shadow: 0 10px 30px rgba(0,0,0,.4); white-space: pre; }
+  /* sized by js/ui/typein.js to a whole number of device pixels per line */
+  #typeinScreen { display: block; justify-self: center; margin: 0 auto; image-rendering: pixelated; border-radius: 4px; background: #000; }
+  /* dragging a spine or a tile: the machine's screen takes it */
+  .screenbox { position: relative; }
+  .screenbox .drophint { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; text-align: center; padding: 16px;
+    background: rgba(11, 13, 12, .72); color: var(--phosphor); font-weight: 700; font-size: 17px; border: 2px dashed var(--phosphor); border-radius: 4px; pointer-events: none; }
+  #library.dragging .screenbox .drophint { display: flex; }
+  .screenbox.over .drophint { background: rgba(11, 13, 12, .85); border-style: solid; border-width: 3px; }
+  .spine[draggable="true"], .tile[draggable="true"] { cursor: grab; }
+  /* where the library is kept */
+  .storage { display: flex; flex-direction: column; gap: 10px; border-top: 1px solid var(--line); padding-top: 16px; }
+  .choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 10px; }
+  .choice { text-align: left; display: flex; flex-direction: column; gap: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-14);
+    padding: 12px 14px; min-height: 0; color: var(--text); font: inherit; }
+  .choice strong { font-size: 15px; }
+  .choice span { font-size: 14px; color: var(--muted); line-height: 1.4; }
+  .choice[aria-checked="true"] { border-color: var(--phosphor); box-shadow: inset 0 0 0 1px var(--phosphor); }
+  .choice[aria-checked="true"] strong::before { content: '● '; color: var(--phosphor); }
+  .choice:disabled { opacity: .55; cursor: not-allowed; }
+  .reconnect { background: var(--warn-panel); border: 1px solid var(--orange); border-radius: var(--r-14); padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; font-size: 14px; }
+  .typein .progress { height: 8px; border-radius: 4px; overflow: hidden; background: #1D2420; }
+  #typeinBar { height: 100%; width: 0; background: var(--phosphor); }
+  .bar.spread { justify-content: space-between; font-size: 14px; }
+  #typeinCheck.ok { color: var(--phosphor); } #typeinCheck.warn { color: var(--orange); }
+  #typeinNeeds { background: var(--warn-panel); border: 1px solid var(--orange); border-radius: var(--r-10); padding: 10px 12px; color: var(--text); font-size: 15px; }
+  .rack { flex: 1 1 100%; }
+  .racktop { display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; align-items: flex-end; }
+  .racktop > div { display: flex; flex-direction: column; gap: 6px; max-width: 760px; }
+  .mags { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; }
+  .mag { display: flex; flex-direction: column; gap: 10px; font-size: 14px; }
+  .mag .cover { aspect-ratio: .72; border-radius: 4px; padding: 14px; display: flex; flex-direction: column; justify-content: space-between;
+    box-shadow: 0 12px 26px rgba(0,0,0,.45), inset 6px 0 0 rgba(0,0,0,.12); }
+  .mag .title { font-weight: 800; font-stretch: 112%; font-size: 22px; line-height: 1; }
+  .mag .years { font: 13px var(--font-mono); }
+  .mag .about { color: var(--text-3); line-height: 1.45; }
+  #libHeading:focus { outline: none; box-shadow: none; }
+  @media (max-width: 700px) { #library { padding: 12px 16px 16px; } .spine { width: 46px; height: 150px; } .mags { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .mag .title { font-size: 17px; } }
+
+
+  /* ---- the cassette panel ---- */
+  #tapePanel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-18); padding: 16px;
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 20px; align-items: center; }
+  #tapePanel[hidden] { display: none; }
+  #tapePanel .cassette { aspect-ratio: 1.6; border-radius: 18px; background: linear-gradient(180deg, #2B2B2B, #161616);
+    box-shadow: 0 24px 60px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.08); padding: 18px; display: flex; flex-direction: column; gap: 14px; }
+  #tapePanel .label { background: #EDE6C8; color: #222; border-radius: 6px; padding: 10px 14px; display: flex; justify-content: space-between; align-items: center; gap: 10px;
+    font: 800 18px var(--font-ui); font-stretch: 75%; }
+  #tapePanel .label span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #tapeLength { font: 14px var(--font-mono); flex: none; }
+  #tapePanel .window { flex: 1; background: #0E0E0E; border-radius: 40px; display: flex; align-items: center; justify-content: space-around; padding: 0 6%; }
+  #tapePanel .gate { width: 30%; height: 26%; background: #1A1A1A; border-radius: 4px; border: 1px solid #333; }
+  .bigreel { --wound: 1; width: 26%; aspect-ratio: 1; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    background: radial-gradient(circle, #EEE 0 18%, #3B2A1C 19% calc(19% + 51% * var(--wound)), #1A1A1A calc(20% + 51% * var(--wound))); }
+  .bigreel i { width: 26%; aspect-ratio: 1; border-radius: 50%; border: 4px dashed #333; }
+  #tapePanel[data-state="playing"] .bigreel i { animation: spin 1.2s linear infinite; }
+  @media (prefers-reduced-motion: reduce) { #tapePanel .bigreel i { animation: none !important; } }
+  #tapePanel .deckinfo { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  #tapePanel .mono { font-family: var(--font-mono); }
+  .eyebrow-tape { font-size: 14px; color: var(--orange); letter-spacing: .06em; }
+  .eyebrow-tape.error { color: #FF6B5E; }
+  #tapeWave { width: 100%; height: 64px; border-radius: 10px; background: var(--panel-deep); }
+  .stripe-bar { height: 8px; border-radius: 4px; overflow: hidden; background: #1D2420; }
+  #tapeBar { height: 100%; width: 0; background: linear-gradient(90deg, #30D82B 0 12.5%, #F2EA4A 0 25%, #2A35E8 0 37.5%, #D8202A 0 50%, #EDE6C8 0 62.5%, #2BD8D8 0 75%, #D02BD8 0 87.5%, #F08A1F 0);
+    background-size: var(--stripe-w, 100%) 100%; }
+  #tapePanel .counter { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; font-size: 14px; color: var(--muted); }
+  #tapePanel button.pill { border-radius: var(--pill); min-height: 44px; padding: 10px 18px; }
+  #tapePanel button[aria-pressed="true"] { background: var(--phosphor); border-color: var(--phosphor); color: var(--on-phosphor); font-weight: 700; }
+  #tapePanel p { margin: 0; font-size: 14px; line-height: 1.5; }
+
+
+  /* ---- Ask Claude ---- */
+  #btnAsk { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; }
+  #btnAsk kbd { font: 13px var(--font-mono); opacity: .8; background: none; border: 0; padding: 0; color: inherit; box-shadow: none; }
+  #btnAsk[aria-pressed="true"] { background: var(--phosphor); border-color: var(--phosphor); color: var(--on-phosphor); }
+  .viewswitch { display: inline-flex; background: var(--ground); border: 1px solid var(--line); border-radius: 9px; padding: 2px; }
+  .viewswitch button { background: transparent; border: 0; border-radius: 7px; padding: 5px 9px; min-height: 30px; font-size: 13px; color: var(--muted); }
+  .viewswitch button[aria-pressed="true"] { background: var(--line); color: var(--text); font-weight: 600; }
+  button.link { background: none; border: 0; padding: 0 2px; min-height: 0; color: inherit; text-decoration: underline; font: inherit; }
+  /* the Ctrl K box */
+  #cmdBox { position: fixed; z-index: 60; top: 90px; left: 50%; transform: translateX(-50%); width: min(600px, calc(100vw - 24px)); background: var(--panel);
+    border: 1px solid var(--line-strong); border-radius: 16px; box-shadow: 0 30px 70px rgba(0,0,0,.7); overflow: hidden; }
+  #cmdBox[hidden] { display: none; }
+  .cmdhead { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--line); color: var(--muted); }
+  #cmdInput { flex: 1; min-width: 0; background: transparent; border: 0; color: var(--text); font: inherit; font-size: 17px; padding: 4px 0; outline: none; box-shadow: none; }
+  .cmdhead kbd { font: 13px var(--font-mono); color: var(--muted); }
+  #cmdList .group { padding: 8px 16px 4px; font-size: 13px; color: var(--muted); }
+  #cmdList .group + [role="option"] { }
+  #cmdList .group.claude { border-top: 1px solid var(--line); }
+  #cmdList [role="option"] { display: flex; justify-content: space-between; gap: 12px; padding: 11px 16px; font-size: 15px; cursor: pointer; }
+  #cmdList [role="option"] .hint { color: var(--muted); font-size: 14px; text-align: right; }
+  #cmdList [role="option"][aria-selected="true"] { background: var(--line); }
+  #cmdList [role="option"].ask { color: var(--green); }
+  .cmdfoot { padding: 10px 16px; border-top: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+  /* the side panel and its rail; the drawer folds away while it is open */
+  #ask { --ask-w: 420px; position: sticky; top: 12px; flex: none; width: var(--ask-w); height: calc(100vh - 110px); min-height: 480px; box-sizing: border-box;
+    border: 1px solid var(--line); border-radius: var(--r-18); background: var(--panel-deep); display: flex; flex-direction: column; overflow: hidden; }
+  #ask[hidden], #askRail[hidden] { display: none; }
+  body.ask-open .layout > .drawer { display: none; }
+  body.ask-open.ask-rail-drawer .layout > .drawer { display: flex; position: fixed; z-index: 45; right: 84px; top: 80px; width: 400px; max-height: calc(100vh - 100px); overflow: auto;
+    box-shadow: 0 30px 70px rgba(0,0,0,.7); }
+  #askGrip { position: absolute; left: 0; top: 50%; width: 12px; height: 56px; transform: translateY(-50%); display: flex; align-items: center; justify-content: center; cursor: col-resize; z-index: 2; }
+  #askGrip span { width: 4px; height: 40px; border-radius: 2px; background: var(--line-strong); }
+  #askHandle, .askpeek { display: none; }
+  .askhead { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid #1D2420; }
+  .askhead strong { font-size: 17px; white-space: nowrap; }
+  .viewswitch button { white-space: nowrap; }
+  .askhead .viewswitch { margin-left: 6px; }
+  .askhead .grow { flex: 1; }
+  #ask button.icon { width: 36px; height: 36px; min-height: 36px; padding: 0; display: inline-flex; align-items: center; justify-content: center; background: transparent;
+    border: 1px solid var(--line); border-radius: 8px; color: var(--text-2); }
+  #ask #btnAskMore { display: none; }
+  #askSee { padding: 8px 14px; border-bottom: 1px solid #1D2420; font-size: 13px; color: var(--muted); display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  #askSee .chip { border: 1px solid var(--line); border-radius: var(--pill); padding: 2px 8px; color: var(--text-2); font: inherit; letter-spacing: normal; }
+  #askBody { flex: 1; min-height: 0; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+  #askEmpty { display: flex; flex-direction: column; gap: 10px; }
+  #askEmpty[hidden] { display: none; }
+  #askEmpty p { margin: 0; font-size: 15px; line-height: 1.5; color: var(--text-2); }
+  #askSuggest { display: flex; flex-direction: column; gap: 8px; }
+  #askSuggest button, #askOpeners button { text-align: left; background: var(--ground); border: 1px solid var(--line); border-radius: var(--r-10); padding: 11px 13px; font-size: 15px; }
+  #askSuggest button.err, #btnOpenErr { background: var(--warn-panel); border-color: var(--orange); }
+  #askSuggest .mono, #askOpeners .mono { font: 13px var(--font-mono); color: var(--orange); margin-left: 6px; }
+  #askOpeners .mono { margin: 0 10px 0 0; font-size: 15px; }
+  #askOpeners[hidden], #askOpeners button[hidden] { display: none; }
+  #askOpeners button { border-radius: var(--pill); padding: 9px 16px; display: inline-flex; align-items: center; }
+  #askMessages { display: flex; flex-direction: column; gap: 12px; }
+  #askMessages .msg { max-width: 92%; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; font-size: 15px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+  #askMessages .msg[data-role="user"] { align-self: flex-end; background: var(--line); }
+  #askMessages .msg[data-role="claude"] { align-self: flex-start; background: var(--panel); }
+  #askMessages .msg.note { font: 13px var(--font-mono); color: var(--text-3); background: none; border: 0; padding: 0; }
+  #btnAskFix { align-self: flex-start; }
+  #btnAskFix[hidden], #askConsent[hidden], #askRestore[hidden], #askActivity[hidden], #askKeyMsg[hidden], #askKeyForm[hidden], #askComposer[hidden], #askPointList[hidden] { display: none; }
+  .askcard { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+  #askConsent { border-color: var(--phosphor); padding: 14px; }
+  #askConsent p { margin: 0; font-size: 14px; line-height: 1.5; color: var(--text-2); }
+  .askcard .muted { font-size: 13px; }
+  #askActivity { border-left: 2px solid var(--phosphor); padding: 4px 0 4px 10px; font: 13px/1.7 var(--font-mono); color: var(--text-3); white-space: pre-wrap; }
+  #askPointList { display: flex; flex-direction: column; gap: 4px; }
+  #askPointList button { text-align: left; background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-size: 14px; }
+  #askKeyMsg { background: var(--warn-panel); border: 1px solid var(--orange); border-radius: 12px; padding: 12px; font-size: 15px; line-height: 1.5; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+  #btnAskRetry { background: transparent; border: 1px solid #5C3A14; border-radius: 8px; padding: 8px 12px; font-size: 14px; }
+  #btnAskRetry[hidden] { display: none; }
+  #askKeyForm { border-top: 1px solid #1D2420; padding: 14px; display: flex; flex-direction: column; gap: 8px; background: var(--panel); }
+  #askKeyForm label { display: flex; flex-direction: column; align-items: stretch; text-align: left; gap: 6px; font-size: 14px; font-weight: 600; }
+  #askKeyForm .bar { justify-content: flex-start; }
+  #askKeyInput, #claudeKeyInput { background: var(--ground); color: var(--text); border: 1px solid var(--line-strong); border-radius: 8px; padding: 10px; font: 14px var(--font-mono); }
+  #askKeyForm.refused #askKeyInput, #claudeKeyCard.refused #claudeKeyInput, #claudeKeyCard.refused { border-color: #FF7A70; }
+  #askKeyForm p { margin: 0; font-size: 13px; line-height: 1.5; }
+  #askKeyForm p strong { color: var(--text-2); }
+  #askComposer { border-top: 1px solid #1D2420; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+  #askComposer .bar { flex-wrap: nowrap; }
+  #askInput { flex: 1; min-width: 0; background: var(--ground); color: var(--text); border: 1px solid var(--line-strong); border-radius: var(--r-10); padding: 11px 12px; font: inherit; font-size: 15px; }
+  .askfoot { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 14px; }
+  .askfoot label { display: flex; align-items: center; gap: 8px; color: var(--text-2); }
+  #askKeyLine { font-size: 13px; }
+  #askRail { flex: none; width: 64px; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px 0; position: sticky; top: 12px; }
+  #askRail button { width: 52px; height: 52px; min-height: 52px; padding: 0; background: transparent; border: 1px solid var(--line); border-radius: var(--r-10); color: var(--text-2); font-size: 11px; }
+  #askRail button[aria-pressed="true"] { border-color: var(--phosphor); color: var(--text); }
+  #askStrip { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; background: #13240F; border: 1px solid var(--phosphor);
+    border-radius: var(--r-14); padding: 12px 14px; font-size: 15px; text-align: left; }
+  #askStrip[hidden] { display: none; }
+  #askStrip .open { text-decoration: underline; }
+  #askStrip .dot, #askActing .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--phosphor); margin-right: 10px; }
+  /* Claude acting: the pulsing ring and the pill with Stop */
+  @keyframes cl-pulse { 0%, 100% { box-shadow: 0 0 0 3px rgba(61,245,90,.9), 0 0 36px rgba(61,245,90,.5); } 50% { box-shadow: 0 0 0 3px rgba(61,245,90,.4), 0 0 14px rgba(61,245,90,.2); } }
+  .monitor.claude-acting .tube { animation: cl-pulse 1.6s ease-in-out infinite; }
+  @media (prefers-reduced-motion: reduce) { .monitor.claude-acting .tube { animation: none; box-shadow: 0 0 0 3px var(--phosphor); } }
+  #askActing { position: absolute; z-index: 5; top: 12px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; white-space: nowrap;
+    background: var(--ground); border: 1px solid var(--phosphor); border-radius: var(--pill); padding: 6px 6px 6px 16px; font-size: 15px; box-shadow: 0 8px 24px rgba(0,0,0,.6); }
+  #askActing[hidden], #claudePipActing[hidden] { display: none; }
+  #btnAskResume { background: var(--phosphor); color: var(--on-phosphor); border: 0; border-radius: var(--pill); padding: 7px 14px; min-height: 0; font-size: 14px; font-weight: 700; }
+  #btnAskResume[hidden] { display: none; }
+  #btnAskStop, #btnPipStop { background: var(--text); color: var(--ground); border: 0; border-radius: var(--pill); padding: 7px 14px; min-height: 0; font-size: 14px; font-weight: 700; }
+  /* full screen: the view switch, the picture-in-picture, the side column */
+  #claudeBar .viewswitch button { font-size: 14px; padding: 6px 10px; }
+  .monitor { position: relative; }
+  /* full screen: the BASIC session's window, when it shows, is a strip under the screen at every width:
+     never over the chat's text (on a desktop it was a corner window over the screen) */
+  #claudePip { position: relative; margin-top: 10px; background: var(--panel); border: 2px solid var(--line); border-radius: 10px; padding: 6px 40px 6px 6px;
+    display: flex; flex-direction: column; text-align: left; }
+  #claudePip[hidden] { display: none; }
+  #claudePipSwap { display: flex; flex-direction: row; align-items: center; gap: 10px; width: 100%; padding: 0; border: 0; border-radius: 0; background: none; min-height: 0;
+    text-align: left; color: inherit; }
+  #btnPipClose { position: absolute; top: 50%; transform: translateY(-50%); right: 8px; width: 28px; height: 28px; min-height: 28px; padding: 0; border-radius: 50%;
+    border: 1px solid var(--line-strong); background: rgba(11,13,12,.85); color: var(--text); font-size: 16px; line-height: 1; z-index: 1; }
+  #claudePipCanvas { width: 64px; height: 48px; flex: none; border-radius: 6px; image-rendering: pixelated; display: block; background: #000; }
+  .piplabel { flex: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; font-size: 15px; font-weight: 700; color: var(--text); }
+  #claudePipSub { display: block; font-size: 13px; font-weight: 400; color: var(--muted); }
+  .pipdot { display: none; }
+  #claudePip.acting { border-color: var(--phosphor); box-shadow: 0 0 22px rgba(61,245,90,.5); }
+  #claudePipActing { margin-top: 8px; display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--ground);
+    border: 1px solid var(--phosphor); border-radius: var(--pill); padding: 5px 5px 5px 14px; font-size: 14px; }
+  #claudeViewRow[hidden] { display: none; }
+  #claudeViewRow { align-items: center; justify-content: center; }
+  /* the chat on screen (its firmware needs no ROM, and BASIC's keys mean nothing to it): no key hint, no
+     "No BASIC" pill and no "Running with no ROMs" card (M2) */
+  body.chat-screen #keyHint, body.chat-screen #romPill, body.chat-screen #welcome { display: none !important; }
+  #claude .card.row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  #claude .card.row[hidden], #claudeKeyCard[hidden], #claudeConsentAsk[hidden], #claudeRestore[hidden] { display: none; }
+  #claudeKeyCard { display: flex; flex-direction: column; gap: 8px; }
+  #claudeKeyCard label { font-size: 15px; font-weight: 600; color: var(--text); margin: 0; }
+  #claudeSession.asking { border-color: var(--phosphor); }
+  #claude #claudeSession h2 { font-size: 17px; font-stretch: 100%; }
+  #claudeRestore { border-top: 1px solid var(--line); padding-top: 10px; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; margin-top: 10px; }
+  /* docking: while the panel is open the machine gives up width to it, down to 480 px (the 256-pixel picture at
+     nearly 2x), so the panel never covers the screen. That needs a window of 960 px: the machine's 480, the panel's
+     420 and the gaps. From 960 to 1100 px there is no room for the rail: the drawer stays, below the machine.
+     Below 960 px docking would make the machine too small, so the panel lies over the page instead. */
+  @media (min-width: 960px) { body.ask-open .layout > main { flex: 1 1 480px; min-width: 480px; } }
+  @media (max-width: 1100px) and (min-width: 960px) {
+    #askRail { display: none; }
+    body.ask-open .layout > .drawer { display: flex; flex-basis: 100%; }
+  }
+  @media (max-width: 959px) and (min-width: 701px) {
+    #ask { position: fixed; top: 70px; right: 12px; bottom: 12px; height: auto; z-index: 40; box-shadow: 0 30px 70px rgba(0,0,0,.7); }
+    #askRail { display: none; }
+    body.ask-open .layout > .drawer { display: flex; }
+  }
+  @media (max-width: 700px) {
+    #btnAsk kbd { display: none; }
+    #btnAsk { order: 1; padding: 0 12px; min-height: 44px; }
+    #btnAsk svg { display: none; }
+    /* the bottom sheet: peek, half and full heights */
+    #ask { position: fixed; left: 0; right: 0; bottom: var(--sheet-bottom, 0px); top: var(--sheet-top, 50vh); width: auto; height: auto; min-height: 0; z-index: 40; border-radius: 16px 16px 0 0;
+      border: 0; border-top: 1px solid var(--line-strong); }
+    #ask[data-height="peek"] { top: auto; height: 76px; }
+    #askGrip, .askhead .viewswitch button#btnAskSide, #ask #btnAskMin { display: none; }
+    .askhead .viewswitch { border: 0; padding: 0; margin: 0; }
+    #btnAskFull { border: 1px solid var(--line); border-radius: 8px; color: var(--muted); }
+    #ask #btnAskMore { display: inline-flex; }
+    #askHandle { display: flex; justify-content: center; padding: 6px; min-height: 0; background: none; border: 0; width: 100%; }
+    #askHandle span { width: 40px; height: 5px; border-radius: 3px; background: var(--line-strong); }
+    .askhead { padding: 0 12px 8px; border: 0; }
+    #askSee, #askRestore, .askfoot label { display: none; }
+    #ask.more #askRestore:not([hidden]), #ask.more .askfoot label { display: flex; }
+    #askBody { padding: 0 12px 8px; gap: 8px; }
+    #askComposer { padding: 8px 12px; }
+    #askInput, #btnAskSend { height: 44px; }
+    #ask[data-height="peek"] .askhead, #ask[data-height="peek"] #askSee, #ask[data-height="peek"] #askBody, #ask[data-height="peek"] #askComposer, #ask[data-height="peek"] #askKeyForm { display: none; }
+    #ask[data-height="peek"] .askpeek { display: flex; align-items: center; gap: 8px; padding: 0 12px 8px; }
+    .askpeek span { flex: 1; font-size: 14px; color: var(--text-3); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .askpeek button { min-height: 40px; background: var(--warn-panel); border: 1px solid var(--orange); border-radius: var(--pill); padding: 0 12px; font-size: 14px; }
+    body.ask-open .layout > .drawer { display: none; }
+    body.ask-open .layout { padding-bottom: 50vh; }
+    #askActing { left: 8px; right: 8px; transform: none; justify-content: space-between; }
+    #claudeSame { display: none; }
+  }
+
+  /* ---- phone ---- */
+  @media (max-width: 700px) {
+    .appbar { padding: 10px 16px; }
+    #status, .appbar nav, #btnShare { display: none; }
+    #btnMenu { display: inline-flex; order: 2; }
+    .appbar .grow { display: none; }
+    #btnLoad { order: 1; margin-left: auto; }
+    #romPill { order: 3; }
+    .appbar nav { order: 4; }
+    #machineMenu { order: 5; }
+    .appbar.menu-open nav { display: flex; flex-basis: 100%; flex-direction: column; align-items: flex-start; gap: 0; }
+    .appbar.menu-open #btnShare { display: inline-flex; }
+    #machineMenu { left: 8px; right: 8px; width: auto; grid-template-columns: minmax(0, 1fr); max-height: 70vh; }
+    .layout { padding: 16px; }
+  }
+  /* a phone held sideways (or any window under 500 px high): the app bar on one row, the screen gets the height;
+     Capture & share and the links go behind Menu, as on a phone held upright */
+  @media (orientation: landscape) and (max-height: 500px) {
+    .appbar { padding: 8px 16px; }
+    #status, .appbar nav, #btnShare, #askKbd { display: none; }
+    #btnMenu { display: inline-flex; }
+    .appbar nav { order: 2; }
+    .appbar.menu-open nav { display: flex; flex-basis: 100%; flex-wrap: wrap; gap: 0 18px; }
+    .appbar.menu-open #btnShare { display: inline-flex; }
+    /* and the screen takes the height the bar gave back: the monitor (its padding and the 4:3 tube) fits under the
+       bar, its nameplate left out */
+    .layout > main > .monitor { max-width: calc((100vh - 96px) * 4 / 3); }
+    .plate { display: none; }
+  }
+</style>
+</head>
+<body>
+<!-- Shown when the page can't start: opened straight from disk (browsers don't load ES modules from file://)
+     or the scripts failed to load. Plain HTML and a classic script, so it works where modules don't. -->
+<div id="startError" hidden style="max-width:720px;margin:48px auto;padding:20px 24px;border:1px solid #c55;border-radius:8px;background:#2a1414;color:#fdd;font:15px/1.5 system-ui,sans-serif">
+  <h2 style="margin-top:0">The emulator needs to be opened through a web server</h2>
+  <p id="startErrorWhy">Browsers don't run this page's scripts when it is opened straight from a file.</p>
+  <p>From the folder that holds CLOADM (with <code style="color:#fff">index.html</code> and <code style="color:#fff">play/</code>), run one of these, then open
+     <a href="http://localhost:8000/play/" style="color:#fff">http://localhost:8000/play/</a>:</p>
+  <pre style="background:#000;padding:8px 12px;border-radius:4px">python3 -m http.server 8000
+npx serve -l 8000 .</pre>
+</div>
+<script>
+  // classic script: runs even from file://, where the module below is blocked
+  function showStartError(why) {
+    var box = document.getElementById('startError');
+    if (why) document.getElementById('startErrorWhy').textContent = why;
+    box.hidden = false;
+    document.querySelectorAll('body > :not(#startError):not(script)').forEach(function (el) { el.style.display = 'none'; });
+  }
+  if (location.protocol === 'file:') document.addEventListener('DOMContentLoaded', function () { showStartError(); });
+</script>
+
+<header class="appbar" id="appbar">
+  <a href="./" class="logo" aria-label="CLOADM home"><span></span><span></span><span></span><span></span></a>
+  <button id="machineBtn" aria-haspopup="true" aria-expanded="false" aria-controls="machineMenu"><span id="machineName">Dragon 64</span>
+    <span class="spec" id="machineSpec"></span>
+    <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="m3 4.5 3 3 3-3"/></svg></button>
+  <span id="status" aria-live="off"></span>
+  <button id="romPill" hidden>No BASIC · Add ROMs</button>
+  <span class="grow"></span>
+  <button id="btnLoad" class="primary" title="A program, tape, disk, cartridge or BASIC listing">Open…</button>
+  <button id="btnShare" title="A link that opens this machine as it is, a clip, a screenshot, a snapshot file; and the embed code">Share</button>
+  <button id="btnAsk" aria-pressed="false" aria-controls="ask"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/></svg>Ask Claude <kbd id="askKbd">Ctrl K</kbd></button>
+  <nav aria-label="App">
+    <a href="play/#library" id="navLibrary">Library</a>
+    <a href="play/#debugger" id="navDebugger">Debugger</a>
+    <a href="help/">Help</a>
+    <a href="https://github.com/yaniv-golan/cloadm">GitHub</a>
+  </nav>
+  <button id="btnMenu" aria-expanded="false" aria-controls="appbar">Menu</button>
+  <div id="machineMenu" role="menu" aria-label="Machines" hidden></div>
+</header>
+<div id="switchConfirm" role="alertdialog" aria-label="Switch machine" hidden>
+  <span>Switching to <strong id="switchName"></strong> resets the <span id="switchFrom"></span>. The running program will be lost.</span>
+  <div class="bar"><button id="btnSwitch" class="warn">Switch</button><button id="btnSwitchCancel">Cancel</button></div>
+</div>
+
+<!-- Ctrl+K / Cmd+K anywhere ("Ctrl K box"): matching commands first, then "Ask Claude: …" -->
+<div id="cmdBox" role="dialog" aria-label="Ask Claude or find a command" hidden>
+  <div class="cmdhead"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></svg>
+    <input id="cmdInput" role="combobox" aria-expanded="true" aria-controls="cmdList" aria-autocomplete="list" autocomplete="off" spellcheck="false"
+      placeholder="Ask Claude or find a command" aria-label="Ask Claude or find a command"><kbd>Esc</kbd></div>
+  <div id="cmdList" role="listbox" aria-label="Commands and Claude"></div>
+  <div class="cmdfoot">↑↓ to choose · Enter to run or ask · commands are never sent to Claude</div>
+</div>
+
+<div id="claudeBar" hidden>
+  <button id="btnClaudeBack">← Emulator</button>
+  <h1>CHAT WITH CLAUDE</h1>
+  <div class="viewswitch" role="group" aria-label="View"><button id="btnFullSide" aria-pressed="false">Side panel</button><button id="btnFullFull" aria-pressed="true">Full screen</button></div>
+  <span class="muted" id="claudeSame">Same conversation in both views</span>
+  <span id="claudeSpec"></span>
+</div>
+
+<!-- Share: a view of /play/ at #share -->
+<div id="share" hidden aria-labelledby="shareHeading">
+  <header><a href="#" class="back" id="shareBack">← Emulator</a><strong>SHARE</strong><span class="grow" style="flex:1"></span><a href="help/">Help</a></header>
+  <section class="col" aria-labelledby="shareHeading">
+    <div class="mono">SHARE</div>
+    <h1 id="shareHeading">A link that opens exactly here</h1>
+    <p>The link holds a snapshot: machine, RAM, CPU and media state. ROMs are never included; the person opening it uses their own, or the stub if the program allows.</p>
+    <figure class="preview">
+      <div class="frame"><canvas id="sharePicture" aria-label="The captured picture"></canvas>
+        <div class="stripe" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+      <figcaption><strong id="shareTitle"></strong><span id="shareWhen"></span></figcaption>
+    </figure>
+    <div class="linkrow"><label for="shareLink" class="sr-only">Share link</label><input id="shareLink" readonly><button id="btnShareCopy" class="primary">Copy</button></div>
+    <span id="shareCopied" class="muted" aria-live="polite"></span>
+    <div class="bar">
+      <button id="btnShareClip">Save 6-second clip (MP4)</button>
+      <button id="btnShareShot">Screenshot (PNG, true pixels)</button>
+      <button id="btnShareDownload">Download snapshot</button>
+    </div>
+    <div class="card2" id="shareRecipientCard">
+      <div class="eyebrow">What the person opening it sees, if they have no ROMs</div>
+      <div id="shareRecipient"></div>
+    </div>
+  </section>
+  <section class="col" aria-labelledby="embedHeading">
+    <div class="mono">EMBED</div>
+    <h2 id="embedHeading">Put a machine in your blog post</h2>
+    <p>For retro blogs, game archives and club sites. Every setting is a URL parameter, and the page exposes a small JavaScript API. Or host your own copy: it is static files with no build step, <a href="https://github.com/yaniv-golan/cloadm">on GitHub</a>.</p>
+    <div class="fields">
+      <label class="stack">Machine<select id="embedMachine"></select></label>
+      <label class="stack">Program<input type="url" id="embedProgram" placeholder="https://example.org/tapes/game.cas" spellcheck="false"></label>
+      <div class="checks"><label><input type="checkbox" id="embedAutorun" checked> Autorun</label><label><input type="checkbox" id="embedCrt" checked> CRT</label></div>
+    </div>
+    <div class="snippet"><pre id="embedFrame"></pre><div class="bar"><button id="btnEmbedFrameCopy">Copy</button></div></div>
+    <div class="snippet"><pre id="embedScript"></pre><div class="bar"><button id="btnEmbedScriptCopy">Copy</button></div></div>
+    <div class="card2">
+      <div class="eyebrow">Your settings</div>
+      <div>Machines and their options, the display and your choices, as a file for another browser. Never ROMs or programs.</div>
+      <div class="bar"><button id="btnSettingsExport">Export settings…</button><button id="btnSettingsImport">Import settings…</button></div>
+      <input type="file" id="fileSettings" accept=".json,application/json" hidden>
+    </div>
+  </section>
+</div>
+<div class="layout">
+  <main>
+    <div id="snapNeeds" role="alertdialog" aria-labelledby="snapNeedsText" hidden><strong id="snapNeedsText"></strong>
+      <div class="bar"><button id="btnSnapRoms" class="primary">Add ROMs</button><button id="btnSnapLook"></button>
+        <button id="btnSnapDismiss">Dismiss</button></div></div>
+    <div id="lizaOffer" role="alertdialog" aria-labelledby="lizaOfferText" hidden><strong id="lizaOfferText"></strong>
+      <span class="muted">One click switches the RAM option (the machine restarts, as with any RAM change) and starts LIZA.</span>
+      <div class="bar"><button id="btnLizaRam" class="primary"></button><button id="btnLizaRamCancel">Not now</button></div></div>
+    <div id="mediaOffer" hidden><span id="mediaOfferText"></span>
+      <div class="bar"><button id="btnMediaSwitch" class="primary"></button><button id="btnMediaAnyway">Load anyway</button></div></div>
+
+    <div class="monitor crt" id="monitor" data-family="dragon">
+      <div class="tube">
+        <div id="screenWrap"><canvas id="screen" tabindex="0" aria-label="The emulated screen. Click it, then type. Tab leaves it."></canvas></div>
+        <!-- Claude acting on the machine: a pulsing ring on the screen and this pill with Stop -->
+        <div id="askActing" role="status" hidden><span class="dot" aria-hidden="true"></span><span id="askActingText">Claude is typing…</span><button id="btnAskResume" hidden>Resume</button><button id="btnAskStop">Stop</button></div>
+        <div id="bootHelp" hidden role="status"><strong id="bootHelpTitle"></strong><span id="bootHelpText"></span>
+          <div class="bar"><button id="btnBootSockets" class="primary">Add ROMs</button>
+            <button id="btnBootStub">Run without ROMs</button><button id="btnBootDismiss">Dismiss</button></div></div>
+      </div>
+      <div class="plate"><span id="badge">DRAGON 64</span><span class="led" aria-hidden="true"></span>
+        <div id="focusHint" aria-hidden="true">Typing goes to the machine · <kbd>Tab</kbd> leaves the screen</div></div>
+      <!-- the screen's hints, under it: they never lie over what the machine shows -->
+      <div id="screenNotes">
+        <div id="soundHint" hidden>No ROMs needed · click anywhere for sound</div>
+        <div id="keyHint" hidden><kbd>Esc</kbd> = BREAK, <kbd>Home</kbd> = CLEAR, <kbd>Backspace</kbd> = ←; keys type what they say</div>
+      </div>
+      <!-- full screen chat: the other machine, live; a strip under the screen on a phone -->
+      <div id="claudePip" hidden role="group" aria-label="Your BASIC session, live">
+        <button id="claudePipSwap" aria-label="Swap the chat and your BASIC session"><canvas id="claudePipCanvas" aria-hidden="true"></canvas>
+          <span class="piplabel"><span id="claudePipLabel">Your BASIC session · live</span><span id="claudePipSub"></span><span class="pipdot" aria-hidden="true">●</span></span></button>
+        <button id="btnPipClose" aria-label="Hide your BASIC session">×</button></div>
+      <div id="claudePipActing" role="status" hidden><span id="claudePipActingText">Claude is typing in your BASIC session</span><button id="btnPipStop">Stop</button></div>
+    </div>
+    <!-- context openers: never over the screen -->
+    <div class="controls" id="askOpeners" hidden>
+      <button id="btnOpenErr" hidden><span class="mono" id="openErrText"></span>Explain this error</button>
+      <button id="btnOpenProg" hidden>Help with my program</button>
+      <span class="muted" id="askMachineNote"></span>
+    </div>
+
+    <!-- the on-screen keyboard right under the screen: in portrait its keys and BREAK, CLEAR, Hide keys and Menu
+         stay on screen with it; held sideways it is fixed around the screen instead -->
+    <div id="touchKeys" hidden aria-label="On-screen keyboard">
+      <div class="tkhalf" id="touchLeft"></div>
+      <div class="tkcenter"><span class="tkhole" aria-hidden="true"></span>
+        <div class="tkbtns"><button id="tkBreak"></button><button id="tkClear"></button><button id="tkHide" type="button">Hide keys</button><button id="tkMenu" type="button">Menu</button></div></div>
+      <div class="tkhalf" id="touchRight"></div>
+      <div id="touchFull"></div>
+    </div>
+
+    <div class="controls" id="claudeViewRow" hidden><button id="btnClaudeView">Show my BASIC session</button>
+      <span class="muted">Shortcut: Ctrl+B switches between the chat and your BASIC session.</span></div>
+    <div class="controls" id="welcomeBackBar"><button id="btnWelcomeBack" class="primary" hidden>Back to the menu</button></div>
+    <div class="controls" role="toolbar" aria-label="Machine controls">
+      <button id="btnReset">Reset</button>
+      <button id="btnHardReset" title="Clear memory, eject tape and cartridge">Switch off and on</button>
+      <button id="btnPause">Pause</button>
+      <button id="btnTurbo" title="Run as fast as possible (never changes the emulated CPU speed)">Turbo</button>
+      <button id="btnFull">Fullscreen</button>
+      <button id="btnShowKeys" hidden title="The on-screen keyboard">Keys</button>
+    </div>
+
+    <!-- the on-screen keyboard (js/ui/touch-keys.js) -->
+    <div class="slots">
+      <div class="slot tape">
+        <button class="deck" id="btnTape" aria-label="Cassette deck: insert a tape"><span class="reel"></span><span class="reel"></span></button>
+        <div class="body">
+          <div class="title">Cassette · <span id="tapeState">click the deck to insert</span></div>
+          <div class="name" id="tapeName">No tape</div>
+          <div class="bar"><button id="btnRewind">Rewind</button>
+            <button id="btnRecord" class="rec" aria-pressed="false" title="Record what the machine writes to tape (CSAVE, CSAVEM) as a .CAS file">Record</button>
+            <button id="btnTapeWav" title="Save the tape in the deck, or the last recording, as a WAV file">Save .WAV</button></div>
+        </div>
+      </div>
+      <div class="slot" id="driveSlot" hidden>
+        <div class="body" style="flex:1">
+          <div class="title">Drives · <span id="driveDos"></span> · click a drive to insert</div>
+          <div class="drives" id="drives" role="group" aria-label="Disk drives"></div>
+          <div class="drive-menu" id="driveMenu" hidden></div>
+          <input type="file" id="fileDisk" accept=".vdk,.dsk,.jvc,.dmk" hidden>
+        </div>
+      </div>
+      <div class="slot" id="cartSlot">
+        <div class="body" style="flex:1">
+          <div class="title">Cartridge port</div>
+          <div class="bar"><button class="cart" id="btnCart" aria-label="Cartridge port: insert a cartridge">Insert cartridge…</button>
+            <select id="selCartBoard" aria-label="Cartridge board for the next image" title="The board the next cartridge image goes on">
+              <option value="auto">Board: automatic</option><option value="pak">Program Pak</option><option value="banked">Banked ROM</option>
+              <option value="gmc">Games Master</option><option value="orch90">Orchestra-90</option>
+              <option value="ssc">Speech/Sound Pak (music only; speech not yet)</option></select></div>
+          <details id="mpak"><summary>Multi-Pak…</summary>
+            <div class="mpBody">
+              <div class="mpRow"><span class="mpLabel">Slot 1</span><button id="btnMpSlot1" aria-label="Multi-Pak slot 1: choose a cartridge image">Empty</button>
+                <select id="selMpBoard1" aria-label="Multi-Pak slot 1 board"><option value="auto">Board: automatic</option><option value="pak">Program Pak</option><option value="banked">Banked ROM</option><option value="gmc">Games Master</option><option value="orch90">Orchestra-90</option></select></div>
+              <div class="mpRow"><span class="mpLabel">Slot 2</span><button id="btnMpSlot2" aria-label="Multi-Pak slot 2: choose a cartridge image">Empty</button>
+                <select id="selMpBoard2" aria-label="Multi-Pak slot 2 board"><option value="auto">Board: automatic</option><option value="pak">Program Pak</option><option value="banked">Banked ROM</option><option value="gmc">Games Master</option><option value="orch90">Orchestra-90</option></select></div>
+              <div class="mpRow"><span class="mpLabel">Slot 3</span><button id="btnMpSlot3" aria-label="Multi-Pak slot 3: choose a cartridge image">Empty</button>
+                <select id="selMpBoard3" aria-label="Multi-Pak slot 3 board"><option value="auto">Board: automatic</option><option value="pak">Program Pak</option><option value="banked">Banked ROM</option><option value="gmc">Games Master</option><option value="orch90">Orchestra-90</option></select></div>
+              <div class="mpRow"><span class="mpLabel">Slot 4</span><button id="btnMpSlot4" aria-label="Multi-Pak slot 4: choose a cartridge image">Empty</button>
+                <select id="selMpBoard4" aria-label="Multi-Pak slot 4 board"><option value="auto">Board: automatic</option><option value="pak">Program Pak</option><option value="banked">Banked ROM</option><option value="gmc">Games Master</option><option value="orch90">Orchestra-90</option></select></div>
+              <div class="mpRow"><span class="mpLabel">Switch</span><select id="selMpSwitch" aria-label="Multi-Pak front-panel switch: the slot that starts">
+                <option value="1">Slot 1</option><option value="2">Slot 2</option><option value="3">Slot 3</option><option value="4" selected>Slot 4</option></select>
+                <button id="btnMpInsert" class="primary">Insert Multi-Pak</button></div>
+            </div>
+          </details>
+        </div>
+      </div>
+    </div>
+    <!-- the cassette panel: while a tape is in the deck or it records -->
+    <section id="tapePanel" aria-label="Cassette deck" hidden>
+      <div class="deckart">
+        <div class="cassette">
+          <div class="label"><span id="tapeLabel"></span><span id="tapeLength"></span></div>
+          <div class="window" aria-hidden="true"><span class="bigreel" id="reelL"><i></i></span><span class="gate"></span><span class="bigreel" id="reelR"><i></i></span></div>
+        </div>
+      </div>
+      <div class="deckinfo">
+        <div class="mono eyebrow-tape" id="tapeEyebrow" role="status"></div>
+        <canvas id="tapeWave" aria-hidden="true"></canvas>
+        <div class="stripe-bar" aria-hidden="true"><div id="tapeBar"></div></div>
+        <div class="mono counter"><span id="tapeCounter"></span><span id="tapeSpeed"></span></div>
+        <div class="bar"><button id="btnRealSpeed" class="pill" aria-pressed="false">Real speed: off</button>
+          <button id="btnSkipTape" class="pill">Skip the tape (load instantly)</button>
+          <button id="btnTapeRetry" class="pill warn" hidden>Rewind and try again</button></div>
+        <p class="muted">The screen shows BASIC's own S and F in its top-left corner while it searches and finds. Turn on real
+          speed to load at the original pace. A read error marks the block and offers a rewind, as it once taught us to adjust the volume.</p>
+      </div>
+    </section>
+    <div class="hint">Or drop any file on the screen. <kbd>Esc</kbd> is BREAK, <kbd>Home</kbd> is CLEAR, <kbd>Backspace</kbd> is ←.</div>
+  </main>
+
+  <!-- Ask Claude (a bottom sheet on a phone) -->
+  <aside id="ask" aria-label="Ask Claude" hidden data-height="half">
+    <div id="askGrip" aria-hidden="true" title="Drag to resize (320–560 px)"><span></span></div>
+    <button id="askHandle" aria-label="Change the height of Ask Claude"><span></span></button>
+    <div class="askhead">
+      <strong>Ask Claude</strong>
+      <div class="viewswitch" role="group" aria-label="View"><button id="btnAskSide" aria-pressed="true">Side panel</button><button id="btnAskFull" aria-pressed="false">Full screen</button></div>
+      <span class="grow"></span>
+      <button id="btnAskMore" class="icon" aria-label="More: restore points and the machine switch" aria-expanded="false">⋯</button>
+      <button id="btnAskMin" class="icon" aria-label="Minimise"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 10h8"/></svg></button>
+      <button id="btnAskClose" class="icon" aria-label="Close"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="m3.5 3.5 7 7m0-7-7 7"/></svg></button>
+    </div>
+    <div class="askpeek"><strong>Ask Claude</strong><span id="askPeekText">Ask about your screen or program</span><button id="btnAskPeekOpen">Open</button></div>
+    <div id="askSee"></div>
+    <div id="askBody">
+      <div id="askEmpty">
+        <p>Ask about what's on the screen or in your program. Claude reads them; it only types or changes things if you let it use the machine.</p>
+        <div class="muted">Start with</div>
+        <div id="askSuggest"></div>
+      </div>
+      <div id="askMessages" aria-live="polite"></div>
+      <button id="btnAskFix" class="primary" hidden>Fix it for me</button>
+      <div id="askConsent" class="askcard" hidden>
+        <strong>Let Claude use the machine?</strong>
+        <p id="askConsentText"></p>
+        <div class="bar"><button id="btnAskAllow" class="primary">Allow</button><button id="btnAskTell">Just tell me the fix</button></div>
+        <div class="muted">You can change this any time with the switch below.</div>
+      </div>
+      <div id="askActivity" hidden></div>
+      <div id="askRestore" class="askcard" hidden>
+        <div class="muted" id="askRestoreWhen"></div>
+        <div class="bar"><button id="btnAskRestore">Restore to before Claude's changes</button><button id="btnAskPoints" class="link" aria-expanded="false">All restore points</button></div>
+        <div id="askPointList" hidden></div>
+      </div>
+      <div id="askKeyMsg" role="status" hidden><span id="askKeyText"></span><button id="btnAskRetry" hidden>Try again</button></div>
+    </div>
+    <div id="askKeyForm" hidden>
+      <label>Your Anthropic API key<input id="askKeyInput" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-…"></label>
+      <div class="bar"><button id="btnAskKeySave" class="primary">Save key</button><span class="muted" id="askKeyErr" role="status"></span></div>
+      <p class="muted"><strong>Your key stays yours.</strong> Stored only in this browser. The emulated machine never sees it, and it's left out of snapshots, share links and exported settings.</p>
+    </div>
+    <div id="askComposer" hidden>
+      <div class="bar"><input id="askInput" aria-label="Message to Claude" autocomplete="off" placeholder="Ask about your screen or program…"><button id="btnAskSend" class="primary">Send</button></div>
+      <div class="askfoot"><label><input type="checkbox" id="chkAskMachine"> Let Claude use the machine</label>
+        <span class="muted" id="askKeyLine">API key · Saved in this browser. <button class="link" id="btnAskKeyChange">Change</button> <button class="link" id="btnAskKeyForget">Forget</button></span></div>
+    </div>
+  </aside>
+  <nav id="askRail" aria-label="Machine settings" hidden></nav>
+
+  <aside id="claude" aria-label="Chat with Claude" hidden>
+    <section class="card" id="claudeKeyCard">
+      <label for="claudeKeyInput">Your Anthropic API key</label>
+      <input id="claudeKeyInput" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-…">
+      <div class="bar"><button id="btnClaudeKeySave" class="primary">Save key</button></div>
+      <p><strong>Your key stays yours.</strong> Stored only in this browser. The emulated machine never sees it, and it's left out of snapshots, share links and exported settings.</p>
+      <div id="claudeKeyMsg" role="status"></div>
+    </section>
+    <section class="card row" id="claudeKeySaved" hidden>
+      <span><strong>Your Anthropic API key</strong><br><span class="muted" id="claudeKeyTag">Saved in this browser.</span></span>
+      <span><button class="link" id="btnClaudeKeyChange">Change</button> <button class="link" id="btnClaudeKeyForget">Forget</button></span>
+    </section>
+    <div id="claudeHelp" role="status" hidden></div>
+    <section class="card" id="claudeSession">
+      <h2>Your BASIC session</h2>
+      <p id="claudeConsentText"></p>
+      <div class="bar" id="claudeConsentAsk" hidden><button id="btnClaudeAllow" class="primary">Allow</button><button id="btnClaudeTell">Just tell me the fix</button></div>
+      <label class="switch"><input type="checkbox" id="chkClaudeTools"> Let Claude use the machine</label>
+      <div id="claudeBasicNote"></div>
+      <div id="claudeRestore" hidden><span class="muted" id="claudeRestoreWhen"></span><button id="btnClaudeUndo">Restore to before Claude's changes</button></div>
+    </section>
+  </aside>
+
+  <aside class="drawer" aria-label="Settings drawer">
+    <button id="askStrip" hidden><span><span class="dot" aria-hidden="true"></span><strong>Ask Claude</strong> · <span id="askStripText">Ready</span></span><span class="open">Open</span></button>
+    <div id="welcome" hidden></div>
+    <div role="tablist" aria-label="Settings">
+      <button role="tab" id="tab-media" aria-controls="panel-media" aria-selected="true">Media</button>
+      <button role="tab" id="tab-display" aria-controls="panel-display" aria-selected="false">Display</button>
+      <button role="tab" id="tab-input" aria-controls="panel-input" aria-selected="false">Input</button>
+      <button role="tab" id="tab-pokes" aria-controls="panel-pokes" aria-selected="false">POKEs</button>
+      <button role="tab" id="tab-machine" aria-controls="panel-machine" aria-selected="false">Machine</button>
+    </div>
+    <div role="tabpanel" id="panel-media" aria-labelledby="tab-media">
+      <div id="lastTime" class="lasttime" hidden><div><span class="eyebrow">Last time</span><strong id="lastName"></strong></div>
+        <button id="btnRunAgain" class="primary">Run again</button></div>
+      <div class="eyebrow">Runs without ROMs</div>
+      <div id="shelf"></div>
+      <div class="eyebrow" id="recentHead">Recent on this machine</div>
+      <div id="recentList"></div>
+      <div id="quickSave" hidden><div class="eyebrow">Snapshots</div>
+      <div id="slotList"></div></div>
+      <a href="play/#library" id="linkLibrary">Open your library →</a>
+      <label><input type="checkbox" id="chkFastTape" checked> Fast tape loading</label>
+      <label><input type="checkbox" id="chkFastCas"> Load .CAS straight into memory (skip the tape)</label>
+    </div>
+    <div role="tabpanel" id="panel-display" aria-labelledby="tab-display" hidden>
+      <div class="views"><button id="btnCrt" aria-pressed="true">CRT · composite</button><button id="btnSharp" aria-pressed="false">Sharp · RGB</button></div>
+      <p class="muted" style="margin:0">CRT · composite: a TV or composite monitor, with its colours (artifact colours on NTSC machines,
+        line blending on PAL Dragons, the CoCo 3's composite palette), scan lines and glow. Sharp · RGB: the pixels as they are.</p>
+      <p class="muted" id="crtNote" style="margin:0" hidden>This browser has no WebGL: the CRT look is off, its colours stay.</p>
+      <label class="slider" for="rng-curvature"><span>Curvature<output id="val-curvature">35%</output></span>
+        <input type="range" id="rng-curvature" min="0" max="100" value="35"></label>
+      <label class="slider" for="rng-glow"><span>Phosphor glow<output id="val-glow">55%</output></span>
+        <input type="range" id="rng-glow" min="0" max="100" value="55"></label>
+      <div class="field" id="lblPhase"><span>Artifact colours (NTSC)</span>
+        <select id="selPhase" aria-label="Artifact colours"><option value="2">Blue / orange</option><option value="1">Orange / blue</option></select></div>
+      <div class="field"><span>Picture shape</span>
+        <select id="selAspect" aria-label="Picture shape"><option value="4:3">4:3, as on the TV</option><option value="fill">Fill the screen area</option></select></div>
+      <label><input type="checkbox" id="chkInteger"> Integer scaling</label>
+      <div class="field" id="lblScreen" hidden><span>Screen</span>
+        <select id="selScreen" aria-label="Screen"><option value="main">Dragon video</option><option value="plus">80-column (Plus)</option></select></div>
+    </div>
+    <div role="tabpanel" id="panel-input" aria-labelledby="tab-input" hidden>
+      <div class="eyebrow">Joysticks</div>
+      <label><input type="checkbox" id="chkJoy"> Mouse = right joystick</label>
+      <label><input type="checkbox" id="chkKeyJoy"> Keyboard joystick (WASD = left, numpad = right, Space = fire)</label>
+      <p class="muted" style="margin:0">Gamepads work when plugged in: the first pad drives the right joystick, the second the left.</p>
+      <div class="eyebrow">Keyboard</div>
+      <div class="bar" role="group" aria-label="Keyboard mode">
+        <button data-mode="translated" aria-pressed="true" title="The character typed reaches the machine">Translated</button>
+        <button data-mode="positional" aria-pressed="false" title="The physical key's position decides">Positional</button>
+      </div>
+      <p style="margin:0">Translated: keys type what they say. Positional: the key's position on your keyboard is
+        used, so an AZERTY keyboard reaches the letters printed on the machine.
+        <kbd>Esc</kbd> BREAK · <kbd>Home</kbd> CLEAR · <kbd>Backspace</kbd> ← · arrows · <kbd>Enter</kbd> ENTER.
+        Pasted text types itself in.</p>
+      <div class="field"><span>On-screen keyboard</span>
+        <select id="selTouchKeys" aria-label="On-screen keyboard"><option value="auto">Automatic (touch screens)</option><option value="on">Always</option><option value="off">Never</option></select></div>
+      <p class="muted" style="margin:0">Tap the welcome menu's lines to choose. On a phone held sideways the keyboard splits for your thumbs.</p>
+      <div class="eyebrow">Sound</div>
+      <label><input type="checkbox" id="chkSound" checked> Sound</label>
+    </div>
+    <div role="tabpanel" id="panel-pokes" aria-labelledby="tab-pokes" hidden>
+      <p style="margin:0">The addresses people memorised. Type one, or click it to send it to the machine; the chip it touches
+        lights up. Nothing here can damage anything: a reset fixes it all.</p>
+      <div id="pokeBook"></div>
+      <p id="pokeNone" class="muted" style="margin:0" hidden></p>
+    </div>
+    <div role="tabpanel" id="panel-machine" aria-labelledby="tab-machine" hidden>
+      <label class="row" id="ramField"><span>RAM</span><select id="ramSel"></select><span class="fixed" id="ramFixed"></span></label>
+      <label class="row" id="cpuField"><span>CPU</span><select id="cpuSel"></select><span class="fixed" id="cpuFixed"></span></label>
+      <label class="row" id="beckerField" hidden><span>Becker port</span><span><input type="checkbox" id="chkBecker"> DriveWire at $FF41</span></label>
+      <div class="row" id="machineCard"><span>CPU speed</span><span class="rate"><span id="cpuRate"></span><span class="chip" id="chipSam">SAM</span></span></div>
+      <p class="muted" id="turboNote" style="margin:0">Turbo only runs the emulation faster; it never changes the emulated CPU speed.</p>
+      <div class="eyebrow">Printer</div>
+      <div class="row"><span id="printerKind"></span><span id="printState" class="kind"></span></div>
+      <pre id="printout" aria-label="Printer output" style="margin:0;max-height:160px;overflow:auto;white-space:pre-wrap;background:#0B0D0C;border:1px solid var(--line);border-radius:8px;padding:8px;min-height:2.5em"></pre>
+      <div class="bar"><button id="btnPrintSave" disabled>Save printout</button><button id="btnPrintClear" disabled>Clear</button></div>
+      <div id="serialSection">
+        <div class="eyebrow">Serial port</div>
+        <div class="field"><span>Device</span><span class="bar">
+          <select id="selSerial" aria-label="Serial port device"></select>
+          <select id="selBaud" aria-label="Terminal baud rate"></select></span></div>
+        <div id="terminalBox" hidden>
+          <pre id="terminal" aria-label="Serial terminal" style="margin:0 0 6px;max-height:160px;overflow:auto;white-space:pre-wrap;background:#0B0D0C;border:1px solid var(--line);border-radius:8px;padding:8px;min-height:2.5em"></pre>
+          <div class="bar"><input id="termInput" type="text" aria-label="Send to the serial port" placeholder="Type; Enter sends" style="flex:1"><button id="btnTermClear">Clear</button></div>
+        </div>
+      </div>
+      <div id="dwSection" hidden>
+        <div class="eyebrow">DriveWire</div>
+        <div id="dwDrives"></div>
+        <div class="bar"><button id="btnDwAdd">Add image…</button><input type="file" id="dwImport" accept=".dsk,.os9,.img" hidden>
+          <button id="btnDwNew">New blank</button><button id="btnDwSave" disabled>Save drive 0</button></div>
+        <div class="bar"><select id="dwChan" aria-label="DriveWire channel"></select>
+          <input id="dwUrl" type="text" aria-label="WebSocket address for the channel" placeholder="ws://…" style="flex:1"><button id="btnDwConnect">Connect</button></div>
+        <div class="muted" id="dwChanState"></div>
+        <div class="bar" id="dwSerialRow" hidden><select id="dwSerialBaud" aria-label="Serial rate for a real CoCo"></select>
+          <button id="btnDwSerial">Serve a real CoCo…</button><span class="muted" id="dwSerialState"></span></div>
+      </div>
+      <div class="row"><span>ROMs</span><span id="romState" class="kind"></span></div>
+      <button class="link" id="btnManageRoms" style="align-self:flex-start">Add ROMs →</button>
+      <p class="muted note">ROMs are copyrighted by Microsoft, Tandy, Dragon Data and others. CLOADM doesn't include them and
+        never downloads them. Verified against MAME, benchmarked against XRoar: <a href="credits/">credits</a>.</p>
+    </div>
+  </aside>
+</div>
+
+<!-- The Debugger: shown instead of the emulator at #debugger -->
+<div id="debugView" hidden>
+  <header class="dbghead">
+    <a href="play/" id="btnDbgBack">← Emulator</a><strong class="wordmark">DEBUGGER</strong>
+    <span id="dbgStatus" class="mono" role="status"></span><span class="grow"></span>
+    <div role="toolbar" aria-label="Execution" class="bar">
+      <button id="btnDbgRun" class="primary">Run <kbd>F5</kbd></button><button id="btnDbgStep">Step <kbd>F11</kbd></button>
+      <button id="btnDbgOver">Over <kbd>F10</kbd></button><button id="btnDbgOut">Out <kbd>⇧F11</kbd></button>
+    </div>
+  </header>
+  <div class="dbggrid">
+    <section class="pane" id="asmPanel" aria-label="Source">
+      <h2><span>Assembler</span><span id="asmName"></span></h2>
+      <div class="bar">
+        <button id="btnAsmLiza" title="Open the LIZA conversation program source">Open LIZA source</button>
+        <button id="btnAsmOpen">Open .asm…</button>
+        <button id="btnAsmRun" class="primary">Assemble &amp; run</button>
+        <button id="btnAsmSave" title="Download the assembled DragonDOS .BIN">Save .BIN</button>
+      </div>
+      <textarea id="asmSource" spellcheck="false" aria-label="Assembly source" placeholder="; write 6809 assembly here, then Assemble &amp; run&#10;        ORG     $3000&#10;START   ...&#10;        END     START"></textarea>
+      <div id="asmOut"></div>
+      <input type="file" id="fileAsm" hidden accept=".asm,.s,.txt">
+    </section>
+    <section class="stack" aria-label="Registers and screen">
+      <div class="pane regs" id="dbgRegs"></div>
+      <div class="pane"><canvas id="dbgScreen" aria-label="The machine's screen"></canvas>
+        <div class="foot"><span>The machine's screen</span><span>Live while running and stepping</span></div></div>
+    </section>
+    <section class="pane" aria-label="Disassembly and breakpoints">
+      <div class="panehead"><span>Disassembly · <span id="dbgCpu"></span></span><span>Click a line for a breakpoint</span></div>
+      <div id="dbgDis" class="mono"></div>
+      <div class="panehead">Breakpoints and watchpoints</div>
+      <div id="dbgBps" class="mono"></div>
+      <form id="dbgAddBp" class="bar"><input id="dbgBpAddr" class="mono" placeholder="$3000 or LABEL" aria-label="Address or label">
+        <select id="dbgBpKind" aria-label="Kind"><option value="exec">exec</option><option value="write">write</option><option value="read">read</option><option value="rw">read/write</option></select>
+        <button>Add</button></form>
+    </section>
+    <section class="pane wide" aria-label="Memory">
+      <div class="panehead"><label>Memory at <input id="dbgMemAddr" class="mono" value="$0400" aria-label="Memory address"></label><span>Click a byte to edit or watch it</span></div>
+      <div id="dbgMem" class="mono"></div>
+      <div id="dbgByte" class="bar" hidden><span class="mono" id="dbgByteAddr"></span><input id="dbgByteValue" class="mono" aria-label="Byte value (hex)" maxlength="3">
+        <button id="dbgByteSet">Set</button><button id="dbgByteWatch">Watch writes</button><button id="dbgByteWatchRead">Watch reads</button></div>
+      <div class="panehead">Trace · the last instructions the debugger ran</div>
+      <div id="dbgTrace" class="mono"></div>
+    </section>
+  </div>
+</div>
+
+<!-- Adding ROMs: shown instead of the emulator at #add-roms -->
+<div id="romCard" hidden>
+  <div class="libhead"><a href="play/" id="btnRomBack">← Emulator</a><span class="grow"></span><a href="roms/" id="romsLink">Where to get ROMs</a></div>
+  <div class="romgrid">
+    <section class="romleft" aria-labelledby="romHeading">
+      <div class="eyebrow mono">ADD ROMS · <span id="romMachine"></span></div>
+      <h1 id="romHeading" tabindex="-1">Give it a BASIC to boot</h1>
+      <p class="lead">Drop your ROM files here, a whole folder, or a ZIP. Names don't matter: CLOADM recognises each file by its
+        contents and puts it in the right place, for this machine and every other one it fits.</p>
+      <div id="romDrop" class="dropzone">
+        <svg aria-hidden="true" width="40" height="40" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6v20M12 18l8 8 8-8M8 32h24"/></svg>
+        <div class="droptitle">Drop ROMs, a folder or a ZIP</div>
+        <div class="bar center"><button id="btnRomFiles" class="primary pill" title="ROMs, ZIPs or a saved ROM pack; several at once">Choose files…</button>
+          <button id="btnRomFolder" class="pill" title="A folder of ROMs">Choose folder…</button></div>
+      </div>
+      <div class="romnotes">
+        <p><strong>Don't have them?</strong> Dump them from your own machine, or see <a href="roms/">where to get ROMs</a>.
+          ROMs are copyrighted by Microsoft, Tandy, Dragon Data and others. CLOADM doesn't include them and never downloads them.
+          Check your rights first.</p>
+        <p><strong>Just looking?</strong> <button class="link" id="btnRomJustLooking">Back to the emulator</button>: the Welcome
+          menu, LIZA and machine-code programs work without ROMs.</p>
+        <p>File names don't matter: CLOADM recognises ROMs by their contents.</p>
+      </div>
+    </section>
+    <section class="romright" aria-label="Your ROMs">
+      <div class="eyebrow">Your ROMs</div>
+      <div id="romSockets"></div>
+      <div id="romOdd"></div>
+      <div id="romNeeds" hidden><span id="romNeedsText"></span>
+        <div class="bar"><button id="btnRunStub">Run without ROMs</button></div></div>
+      <div id="romStub" hidden>Running without ROMs (machine code only).</div>
+      <div class="found">
+        <div class="eyebrow">What you dropped</div>
+        <div id="romFound" class="muted">Nothing yet. Drop a whole set and every machine it covers is set up at once.</div>
+        <div id="romOffers" hidden></div>
+        <div id="romReady"></div>
+      </div>
+      <button id="btnRomSwitchOn" class="primary pill big" hidden></button>
+      <div class="bar">
+        <button id="btnSelfTest" title="Boot the loaded ROMs on a hidden machine and check BASIC behaviour">ROM self-test</button>
+        <button id="btnRomPack" title="Save your stored ROMs as one file for another browser">Save ROM pack…</button>
+        <button id="btnRomClear" title="Forget this machine's ROMs">Remove ROMs</button>
+      </div>
+      <section class="pane" id="selftestCard" hidden>
+        <h2><span>ROM self-test</span><button id="btnCopyReport">Copy report</button></h2>
+        <p style="margin:0 0 8px">Boots the loaded ROMs on a separate, hidden emulator and drives BASIC through the keyboard.
+          The report contains no ROM data: only sizes, checksums and test results.</p>
+        <pre id="selftestOut"></pre>
+      </section>
+      <p class="muted small">ROMs stay in this browser. They are never uploaded, put in share links or exported.</p>
+    </section>
+  </div>
+</div>
+<!-- The Library: shown instead of the emulator at #library -->
+<div id="toastRegion" role="status" aria-live="polite"><div id="toast" hidden><span id="toastText"></span><button id="toastAction" type="button" hidden></button><div id="toastDetails" hidden></div></div></div>
+<div id="attention" hidden><span id="attentionText"></span><span class="bar"><button id="attentionAction" class="primary" hidden></button><button id="attentionClose">Dismiss</button></span></div>
+<div id="library" hidden>
+  <div class="libhead"><a href="play/" id="btnLibBack">← Emulator</a><strong class="wordmark">LIBRARY</strong><span class="grow"></span><a href="help/">Help</a></div>
+  <div class="libgrid">
+    <section class="shelf" aria-labelledby="libHeading">
+      <div class="libtop">
+        <h1 id="libHeading" tabindex="-1">Library</h1>
+        <div class="bar" id="libFilters">
+          <label class="pillsel">Machine <select id="libMachine"></select></label>
+          <span class="bar" id="libKinds" role="group" aria-label="Kind"></span>
+          <button id="btnLibAdd" class="chip-btn">Add files…</button>
+          <button id="btnLibSelect" class="libbtn"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="2" width="12" height="12" rx="3"/><path d="m5 8 2 2 4-4"/></svg>Select</button>
+        </div>
+      </div>
+      <div id="libEmpty" class="empty" hidden>
+        <h2>Your tapes, disks and cartridges will appear here</h2>
+        <p>Everything you load is kept, so next time it's one click. Drop files or a whole folder to start, or try the programs that run without ROMs.</p>
+        <div class="bar"><button id="btnLibAddEmpty" class="primary pill">Add files or a folder…</button><button id="btnLibFolder" class="pill">Add a folder…</button>
+          <button id="btnLibLiza" class="pill">LIZA</button><button id="btnLibDemo" class="pill">Colour demo</button></div>
+      </div>
+      <!-- select mode: replaces the filters; on a phone the actions sit along the bottom edge -->
+      <div id="libSelBar" role="toolbar" aria-label="Selection" hidden>
+        <strong id="libCount">Select items</strong>
+        <span id="libSelHint">Click tapes, disks or programs to select them. Then load, download, rename or delete.</span>
+        <div id="libSelActions" hidden>
+          <p id="libOneNote" class="muted" hidden>Load and Rename work on one item at a time.</p>
+          <button id="btnLibLoad" class="libbtn primary">Load</button>
+          <button id="btnLibDownload" class="libbtn">Download</button>
+          <button id="btnLibRename" class="libbtn">Rename</button>
+          <button id="btnLibDelete" class="libbtn danger"><svg aria-hidden="true" width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 4h10M6 4V2.5h4V4M4.5 4l.7 9.5h5.6l.7-9.5"/></svg>Delete</button>
+        </div>
+        <span class="grow"></span>
+        <button id="btnLibSelectAll" class="link"><span class="wide">Select all</span><span class="narrow">All</span></button>
+        <button id="btnLibDone" class="libbtn done">Done</button>
+      </div>
+      <p id="libTapHint" class="muted" hidden>Tap to select or clear. Done returns to tap-to-load.</p>
+      <div id="libFilled" hidden>
+        <p id="libNone" class="muted" hidden>Nothing here for this machine and kind.</p>
+        <div id="libTapesBox"><div class="eyebrow">Tapes</div><div class="spines" id="libTapes"></div></div>
+        <div id="libTilesBox"><div class="eyebrow">Disks, cartridges and programs</div><div class="tiles" id="libTiles"></div></div>
+      </div>
+      <p class="muted" style="margin:0" id="libFooter">Click a spine or a tile, or drag it onto the machine's screen, to load it. Drop files or a folder here to add them.</p>
+      <div class="storage" id="libStorage">
+        <div class="eyebrow" id="libStorageHeading">Where your library is kept</div>
+        <p class="muted" id="libWhere"></p>
+        <div id="libReconnect" class="reconnect" hidden><span id="libReconnectText"></span>
+          <div class="bar"><button id="btnLibReconnect" class="primary pill">Reconnect the folder</button><button id="btnLibStayHere" class="pill">Keep it in this browser</button></div></div>
+        <div class="choices" id="libStorageChoices" role="radiogroup" aria-labelledby="libStorageHeading"></div>
+      </div>
+    </section>
+
+    <section class="card typein" aria-labelledby="typeinHeading">
+      <div class="eyebrow mono">TYPE-IN MODE</div>
+      <h2 id="typeinHeading">The listing from the suitcase</h2>
+      <p>Paste a magazine listing, from your own copy or one of the archives below. Listings are BASIC, so this needs your
+        BASIC ROMs. CLOADM types it in at keyboard speed, line by line, so you can watch it go in the way you once did by hand.</p>
+      <div class="typepair">
+        <textarea id="typeinSource" spellcheck="false" aria-label="BASIC listing" placeholder="100 CLS&#10;110 PRINT@64,&quot;GUESS MY NUMBER&quot;&#10;120 N=RND(100)&#10;…"></textarea>
+        <div class="screenbox" id="typeinDrop"><canvas id="typeinScreen" aria-label="The machine's screen"></canvas><span class="drophint" id="typeinDropHint" aria-hidden="true"></span></div>
+      </div>
+      <div class="progress"><div id="typeinBar"></div></div>
+      <div class="bar spread"><span id="typeinProgress" class="muted"></span><span id="typeinCheck"></span></div>
+      <div id="typeinNeeds" hidden>This machine is running without its BASIC ROMs. <button id="btnTypeinRoms" class="link">Add ROMs first →</button></div>
+      <div class="bar"><button id="btnTypein" class="primary pill">Type it in</button><button id="btnTypeinFast" class="pill">Paste instantly</button></div>
+    </section>
+
+    <section class="card rack" aria-labelledby="rackHeading">
+      <div class="racktop">
+        <div><div class="eyebrow mono">THE MAGAZINE RACK</div>
+          <h2 id="rackHeading">Where the listings came from</h2>
+          <p>The magazines Dragon and CoCo owners typed programs from, on both sides of the Atlantic, and where to read them
+            today. Open an issue, find a listing, and type it in here.</p></div>
+        <a class="pill primary" href="https://www.computinghistory.org.uk/cgi/archive.pl?platform=Dragon+32&amp;type=Listing" target="_blank" rel="noopener">Browse Dragon 32 type-in listings</a>
+      </div>
+      <div class="eyebrow">From America · for the Color Computer, whose BASIC listings often ran on a Dragon with small changes</div>
+      <div class="mags" id="libMags-us"></div>
+      <div class="eyebrow">From Britain · for the Dragon</div>
+      <div class="mags" id="libMags-uk"></div>
+      <p class="muted" style="margin:0">Archives kept by the Color Computer Archive, the OS-9/CoCo archive at os9projects.com, the Centre for
+        Computing History and Retromags. The covers are drawn here, not taken from the archives.</p>
+    </section>
+  </div>
+</div>
+<!-- the Library's Undo toast ("Deleted chat.bin · Undo", 8 s) -->
+<input type="file" id="fileLib" hidden multiple>
+<input type="file" id="folderLib" hidden webkitdirectory>
+<input type="file" id="fileProgram" hidden multiple>
+
+<input type="file" id="fileTape" hidden accept=".cas,.c10,.k7,.wav">
+<input type="file" id="fileCart" hidden accept=".rom,.ccc,.dgn,.bin">
+<input type="file" id="fileMpSlot" hidden accept=".rom,.ccc,.dgn,.bin">
+<input type="file" id="fileRom" hidden multiple>
+<input type="file" id="folderRom" hidden webkitdirectory>
+<div id="dropOverlay" hidden aria-hidden="true"><div>Drop to load<span>ROMs, programs, tapes, cartridges, snapshots, ZIPs or a folder</span></div></div>
+<footer><a href="credits/">Credits</a>: CLOADM stands on the shoulders of MAME, XRoar, VCC, DriveWire and the
+  Dragon and CoCo archives. · <a href="roms/">Where to get ROMs</a></footer>
+<!-- modulepreload:start (generated by tools/gen-page-preload.js; do not edit) -->
+<link rel="modulepreload" href="js/chips/attotime.js">
+<link rel="modulepreload" href="js/chips/attoclock.js">
+<link rel="modulepreload" href="js/util.js">
+<link rel="modulepreload" href="js/chips/mos6551.js">
+<link rel="modulepreload" href="js/machines/serial.js">
+<link rel="modulepreload" href="js/machines/rs232.js">
+<link rel="modulepreload" href="js/machines/device.js">
+<link rel="modulepreload" href="js/machines/cocomax.js">
+<link rel="modulepreload" href="js/machines/bus.js">
+<link rel="modulepreload" href="js/chips/sn76489.js">
+<link rel="modulepreload" href="js/machines/carts.js">
+<link rel="modulepreload" href="js/chips/wd17xx.js">
+<link rel="modulepreload" href="js/media/disk.js">
+<link rel="modulepreload" href="js/chips/floppy.js">
+<link rel="modulepreload" href="js/machines/fdc.js">
+<link rel="modulepreload" href="js/host/media-store.js">
+<link rel="modulepreload" href="js/machines/keyqueue.js">
+<link rel="modulepreload" href="js/chips/mc6821.js">
+<link rel="modulepreload" href="js/video/frame.js">
+<link rel="modulepreload" href="js/chips/artifacter.js">
+<link rel="modulepreload" href="js/chips/mc6847.js">
+<link rel="modulepreload" href="js/chips/sam6883.js">
+<link rel="modulepreload" href="js/cpu/cpu6809.js">
+<link rel="modulepreload" href="js/cpu/cpu6309.js">
+<link rel="modulepreload" href="js/cpu/cpu6803.js">
+<link rel="modulepreload" href="js/asm/syntax.js">
+<link rel="modulepreload" href="js/asm/isa7000.js">
+<link rel="modulepreload" href="js/cpu/cpu7000.js">
+<link rel="modulepreload" href="js/cpu/cpus.js">
+<link rel="modulepreload" href="js/machines/cocopia.js">
+<link rel="modulepreload" href="js/machines/becker.js">
+<link rel="modulepreload" href="js/machines/keyboards.js">
+<link rel="modulepreload" href="js/machines/typist.js">
+<link rel="modulepreload" href="js/media/tape.js">
+<link rel="modulepreload" href="js/media/deck.js">
+<link rel="modulepreload" href="js/machines/machine.js">
+<link rel="modulepreload" href="js/asm/isa6809.js">
+<link rel="modulepreload" href="js/asm/isa6803.js">
+<link rel="modulepreload" href="js/asm/isa6309.js">
+<link rel="modulepreload" href="js/asm/assembler.js">
+<link rel="modulepreload" href="js/machines/stub.js">
+<link rel="modulepreload" href="js/machines/sam.js">
+<link rel="modulepreload" href="js/chips/mc6845.js">
+<link rel="modulepreload" href="js/machines/d64plus.js">
+<link rel="modulepreload" href="js/chips/gime.js">
+<link rel="modulepreload" href="js/machines/coco3.js">
+<link rel="modulepreload" href="js/machines/mc10.js">
+<link rel="modulepreload" href="js/chips/ay8910.js">
+<link rel="modulepreload" href="js/machines/alpha.js">
+<link rel="modulepreload" href="js/asm/dis6809.js">
+<link rel="modulepreload" href="js/asm/dis6803.js">
+<link rel="modulepreload" href="js/asm/dis7000.js">
+<link rel="modulepreload" href="js/asm/dis6309.js">
+<link rel="modulepreload" href="js/asm/disassembler.js">
+<link rel="modulepreload" href="js/errors.js">
+<link rel="modulepreload" href="js/debugger.js">
+<link rel="modulepreload" href="js/machines/profiles.js">
+<link rel="modulepreload" href="js/chips/sp0256.js">
+<link rel="modulepreload" href="js/machines/ssc.js">
+<link rel="modulepreload" href="js/media/cassette.js">
+<link rel="modulepreload" href="js/media/formats.js">
+<link rel="modulepreload" href="js/media/detect.js">
+<link rel="modulepreload" href="js/media/library.js">
+<link rel="modulepreload" href="js/drivewire/byte-queue.js">
+<link rel="modulepreload" href="js/drivewire/server.js">
+<link rel="modulepreload" href="js/host/drivewire-ws.js">
+<link rel="modulepreload" href="js/host/web-serial.js">
+<link rel="modulepreload" href="js/host/media-store-memory.js">
+<link rel="modulepreload" href="js/host/key-store.js">
+<link rel="modulepreload" href="js/media/includes.js">
+<link rel="modulepreload" href="js/claude/toolerrors.js">
+<link rel="modulepreload" href="js/claude/readtools.js">
+<link rel="modulepreload" href="js/claude/chat.js">
+<link rel="modulepreload" href="js/claude/channel.js">
+<link rel="modulepreload" href="js/roms.js">
+<link rel="modulepreload" href="js/media/zip.js">
+<link rel="modulepreload" href="js/media/snapshot.js">
+<link rel="modulepreload" href="js/media/romrefs.js">
+<link rel="modulepreload" href="js/config.js">
+<link rel="modulepreload" href="js/session.js">
+<link rel="modulepreload" href="js/host/input.js">
+<link rel="modulepreload" href="js/embed-api.js">
+<link rel="modulepreload" href="js/claude/backend.js">
+<link rel="modulepreload" href="js/claude/brief.js">
+<link rel="modulepreload" href="js/host/example-reader.js">
+<link rel="modulepreload" href="js/video/layout.js">
+<link rel="modulepreload" href="js/selftest.js">
+<link rel="modulepreload" href="js/emu.js">
+<link rel="modulepreload" href="js/host/audio.js">
+<link rel="modulepreload" href="js/host/storage.js">
+<link rel="modulepreload" href="js/host/media-store-opfs.js">
+<link rel="modulepreload" href="js/host/media-store-fsa.js">
+<link rel="modulepreload" href="js/host/media-store-fallback.js">
+<link rel="modulepreload" href="js/host/media-store-open.js">
+<link rel="modulepreload" href="js/host/folder-handle.js">
+<link rel="modulepreload" href="js/ui/feedback.js">
+<link rel="modulepreload" href="js/ui/page.js">
+<link rel="modulepreload" href="js/video/canvas.js">
+<link rel="modulepreload" href="js/host/gamepad.js">
+<link rel="modulepreload" href="js/ui/screen.js">
+<link rel="modulepreload" href="js/ui/touch-keys.js">
+<link rel="modulepreload" href="js/machines/menu.js">
+<link rel="modulepreload" href="js/ui/machine-panel.js">
+<link rel="modulepreload" href="js/ui/files.js">
+<link rel="modulepreload" href="js/ui/rom-panel.js">
+<link rel="modulepreload" href="js/ui/rom-sockets.js">
+<link rel="modulepreload" href="js/ui/boot-help.js">
+<link rel="modulepreload" href="js/ui/welcome.js">
+<link rel="modulepreload" href="js/ui/key-hint.js">
+<link rel="modulepreload" href="js/ui/media-panel.js">
+<link rel="modulepreload" href="js/ui/drives.js">
+<link rel="modulepreload" href="js/ui/assembler-panel.js">
+<link rel="modulepreload" href="js/ui/debugger-panel.js">
+<link rel="modulepreload" href="js/ui/selftest-panel.js">
+<link rel="modulepreload" href="js/ui/poke-panel.js">
+<link rel="modulepreload" href="js/ui/drawer.js">
+<link rel="modulepreload" href="js/ui/library.js">
+<link rel="modulepreload" href="js/ui/typein.js">
+<link rel="modulepreload" href="js/ui/multipak-panel.js">
+<link rel="modulepreload" href="js/ui/printer-panel.js">
+<link rel="modulepreload" href="js/ui/serial-panel.js">
+<link rel="modulepreload" href="js/ui/drivewire-panel.js">
+<link rel="modulepreload" href="js/ui/display-panel.js">
+<link rel="modulepreload" href="js/ui/snapshot-panel.js">
+<link rel="modulepreload" href="js/ui/embed.js">
+<link rel="modulepreload" href="js/ui/settings-file.js">
+<link rel="modulepreload" href="js/ui/claude.js">
+<link rel="modulepreload" href="js/ui/ask.js">
+<link rel="modulepreload" href="js/ui/command-box.js">
+<link rel="modulepreload" href="js/ui/share.js">
+<link rel="modulepreload" href="js/ui/slots-panel.js">
+<link rel="modulepreload" href="js/ui/tape-panel.js">
+<!-- modulepreload:end -->
+<script type="module" src="js/ui/main.js" onerror="if (location.protocol !== 'file:') showStartError('The emulator\'s scripts could not be loaded from this server.')"></script>
+</body>
+</html>

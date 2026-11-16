@@ -1,0 +1,159 @@
+# Development
+
+[CLOADM](../README.md) › Development
+
+## Running it locally
+
+Run it locally with any static server: `python3 -m http.server`, then open `http://localhost:8000/play/`
+(`http://localhost:8000/` is the landing page). Opening the files straight from disk shows how instead: browsers
+don't load ES modules from `file://`.
+
+## Tests and tools
+
+Contributors follow [AGENTS.md](../AGENTS.md): the rules, where code goes, and the proof required before a change
+counts as done.
+
+```
+node tests/all.js            # every suite below in a worker pool (--jobs N to cap it), one line each (exit 0 = all passed)
+node tools/browser-check.js  # the real pages in Chromium: the landing page (desktop and phone) and /play/: every model, LIZA end to end, the file:// notice, Capture & share and opening snapshots, the favicon and no missing file requested by any page; the feedback model (toasts on the page the user is on, cleared by the next action, Undo, Details, desktop and phone). `--only feedback,library` runs just those groups
+node tools/capture-images.js # recapture img/*.png (site and README pictures) from the emulator, with no ROMs
+node tests/cpu.test.js       # 6809 instruction tests, scripted (all tests load js/emu.js via tests/load.js)
+node tests/opcodes.test.js   # 126 instructions table-driven from the MC6809 data sheet: result, flags and cycles
+node tests/machine.test.js   # headless machine test with the stub firmware and demo
+node tests/asm.test.js       # assembler encodings + scripted LIZA conversation
+node tests/disasm.test.js    # disassembler: every 6809/6803 opcode against the data sheet, round-trip, data lengths
+node tests/debugger.test.js  # debugger core: breakpoints, watchpoints, stepping, trace, against a free run
+node tests/debug-session.test.js  # the debugger through the Session: lifetime, symbols, errors, snapshots
+node tests/coco3.test.js     # CoCo 3: MMU, GIME interrupts, timer, speed, video
+node tests/mc10.test.js      # MC-10: 6803 core, assembler plugin, machine
+node tests/sp0256.test.js    # SP0256 speech chip: sequencer, paging, branches, handshake, RCU, timing (GI design spec)
+node tests/liza6803.test.js  # LIZA for the 6803: same conversation as the 6809 build on mc10 and alice
+node tests/state.test.js     # snapshots: save mid-run and part-way along a swept line, restore, identical frames
+node tests/snapshot.test.js  # snapshot files: format and version, defective files, every model opened elsewhere, ROMs by CRC, switching, slots
+node tests/press-break.test.js # BREAK delivery: our own firmware scans the matrix on dragon64, coco3 and mc10
+node tests/video.test.js     # scanline video: beam position, SAM display counter, mid-line mode splits
+node tests/serial.test.js    # serial line receiver and port devices, PIA output callback, printer paths, the Session's terminal
+node tests/acia.test.js      # the 6551 alone: registers, data sheet rates, frames in every format both ways, errors, interrupts, state
+node tests/drivewire.test.js # the DriveWire server against the DW4 specification, the Becker port, the Session, a WebSocket channel
+node tests/claude-chat-drivewire.test.js # the Claude chat end to end over DriveWire channel 14 on the Becker port (mocked fetch)
+node tests/web-serial.test.js # DriveWire to a real CoCo over Web Serial, against a mocked serial port
+node tests/composite.test.js # composite colour: NTSC artifact colours per phase and PAL line blending on known patterns
+node tests/display.test.js   # Display tab settings (validated, remembered, applied per machine) and picture size
+node tests/bus.test.js       # expansion bus: cartridge ROM/I-O, CART autostart, NMI/HALT lines, interrupt hub, the floating bus
+node tests/carts.test.js     # cartridges: SN76489A, banked ROM, Orchestra-90, Multi-Pak, board choice, CART tied to Q, Session
+node tests/session.test.js   # Session: model switching, ROM sockets, loading every file kind, pacing
+node tests/config.test.js    # URL parameters: every one checked (options against each model), bad values reported, links written and read back
+node tests/embed.test.js     # the embed API through its message protocol: calls, errors, events, frames
+node tests/pwa.test.js       # the service worker keeps every file the site serves; the manifest and its icons
+node tests/settings.test.js  # settings export and import round trip; ROMs and programs never in it, ignored if added
+node tests/storage-move.test.js  # moving the library to another store: what is copied, kept, merged (ROM sockets and names), refused; reconnecting a folder copies only this visit's files
+node tests/media-store.test.js  # storage layer: the MediaStore contract, random access, quota, localStorage migration
+node tests/mame-lib.test.js    # the MAME runner: a failed start or exit status stops a comparison; the timeout only warns
+node tests/audio.test.js     # audio output stage: sound unchanged, no pop at unlock, reset, machine switch, pause and resume
+node tests/keyqueue.test.js  # fast typing: bursts read back from the keyboard matrix on every family and typed into LIZA, in order and complete
+node tests/roms.test.js      # ROM identification across machines (synthetic images only), library, offers
+node tools/gen-rom-docs.js   # regenerate docs/roms.md from the profiles (tests/romdocs.test.js checks it)
+node tools/gen-page-preload.js  # regenerate the <link rel="modulepreload"> list in play/index.html (tests/pagepreload.test.js checks it)
+node tools/page-load.js      # how long /play/ takes to start over a throttled link: modulepreload's effect (see below)
+node tests/readme.test.js    # README.md and docs/*.md: only what GitHub renders; links, anchors and pictures resolve; no private or ROM-folder links
+node tests/tape.test.js      # cassette: WAV files, decoding impaired recordings, capturing csave.asm's output on every SAM model and the MC-10, Session
+node tests/input.test.js     # input: both keyboard modes on every family, the keyboard joystick, gamepads, the CoCo Max module
+node tools/mame-diff/tape/run-tape.js [profile ...]   # MAME records our writer firmware; MAME reads our .CAS and WAVs with our reader firmware
+node tests/tokens.test.js    # design tokens: agreed values, WCAG contrast, self-hosted WOFF2 fonts and licences
+node tests/zip.test.js       # ZIP reader and inflate (hand-built archives; zlib as the oracle)
+node tests/rompack.test.js   # ROM pack round trip; ROMs never in settings export or share links
+node tests/detect.test.js    # media detection; disk fixtures made with MAME's imgtool (tests/fixtures/disks)
+node tests/disk.test.js      # disk images: VDK, JVC and DMK to and from flux, hand-derived MFM cells and CRCs, round trips
+node tests/fdc.test.js       # floppy controller cartridges register by register: commit delays, step rates, index, CRCs, NMI/HALT
+node tests/nmi-arm.test.js   # when a CPU starts taking NMI: on the 6809 LDS, LEAS and TFR r,S arm it and EXG does not; on the 6309 only LDS and LEAS do; an earlier edge is lost
+node tests/disks.test.js     # disks through the Session: stored, mounted and written back by range on the media store, write-protect, download, errors
+node tests/ay8910.test.js    # AY-3-8910/8912 against its data manual: tone, noise, the 16 envelope shapes, mixer, ports
+node tests/alpha.test.js     # the Dragon Alpha's wiring: ROM banks, PIA2, the AY as the drive latch, NMI through PIA2 CA2
+node tools/build-demo.js     # rebuild examples/demo.bin
+node tools/build-examples.js # rebuild examples/liza.bin, liza6803-{mc10,alice}.bin, welcome.bin, welcome6803-{mc10,alice}.bin from their .asm sources
+node tests/welcome.test.js   # welcome program on every 6809 model: screen, menu keys and events, the tune on the DAC
+node tests/returning.test.js # returning visits: greetings, option 5, what ran last, back to the menu from LIZA and the demo
+node tests/power-on.test.js  # without ROMs: Reset restarts what runs; power-on, a machine switch and a snapshot of the stub's prompt bring the welcome menu (6809 and 6803)
+node tests/welcome6803.test.js # the 6803 welcome on mc10 and alice: raw screen cells, per-machine subtitle, keys, the two builds differ only at the HALT
+node tests/regress.test.js                # fast gate: trace and frame hashes of the diagnostic firmware (seconds, no MAME)
+node tools/mame-diff/run.js <profile>     # lockstep trace comparison with MAME (needs mame; exit 0 = identical)
+node tools/mame-diff/run.js <profile> --video [--artifact N]   # pixel comparison of every display mode with MAME
+node tools/mame-diff/run.js coco3 --video --attr   # the GIME's text attributes, exactly (blank glyphs, so the fonts never show)
+node tools/mame-diff/run.js coco3 --video --composite [--artifact N]   # the CoCo 3 on MAME's composite monitor (BPI, MOCH, artifact colours)
+node tools/mame-diff/run.js <profile> --raster  # mid-line video changes swept across every beam position, against MAME
+node tools/mame-diff/run.js <profile> --printer # printer output byte for byte against MAME's printer file
+node tools/mame-diff/run.js <profile> --serial  # the bit-banger (or the Dragon 64's 6551) in lockstep with MAME's loopback plug
+node tools/mame-diff/drivewire/run-dw.js [profile ...] [--no-trace]  # DriveWire over the Becker port: lockstep with MAME (TCP to our server), and byte for byte
+node tools/nitros9/fetch.js && node tests/nitros9.test.js   # NitrOS-9 boot test (images fetched to a cache, never committed)
+node tools/nitros9/boot-mame.js <image> --cpu 6809 --seconds 30 --type 'dir\r' --at 15 --record tests/fixtures/nitros9/coco3-6809-becker.json   # its MAME reference (also boot.js: the same boot on ours)
+node tools/mame-diff/run.js <profile> --rate    # SAM CPU rate firmware (sam/rate.asm) in lockstep with MAME (mameCompat)
+node tools/mame-diff/run.js <profile> --ops     # every instruction class at the SAM rates (sam/ops.asm), with MAME
+node tools/mame-diff/run.js <profile> --pia1b   # PIA1 port B's input pins (RAM size sense, serial in), with MAME (SAM machines, the Alpha and CoCo 3)
+node tools/mame-diff/run.js dragon64 --fdc --images   # floppy controllers in lockstep with MAME, then the disk images byte for byte (also --fdc premierfdc, coco, coco3, dgnalpha --fdc alphafdc; --write: the mounting tests' firmware; --nmi: when the 6809 starts taking NMI; --multi: in a Multi-Pak's slot 4 with the Multi-Pak firmware; --blank vdk:40x1: a new blank disk formatted, add --no-trace for images only)
+node tools/mame-diff/run.js dgnalpha --board          # the Dragon Alpha's own hardware in lockstep (alpha/board.asm)
+node tools/mame-diff/run.js dgnalpha --sound          # the Alpha's AY-3-8912 and DAC against MAME's -wavwrite
+node tools/mame-diff/run.js <coco|coco3|dragon64|dragon32> --cart <banked|bankedshort|gmc|orch90|multi> [--audio]   # cartridges in lockstep with MAME, then their sound against MAME's -wavwrite
+node tools/mame-diff/sam/run-fastvid.js <profile>   # fast-rate video: MAME keeps the screen, ours loses it (see above)
+node tools/mame-diff/sam/run-samv.js [<profile> ...]  # SAM display counter at V=0 and V=1 (sam/samv.asm), every pixel against MAME
+node tools/mame-diff/sam/run-hires.js <profile> [max3|rat]   # Hi-Res interfaces and the CoCo 3 Rat mouse, in lockstep with MAME
+XROAR=/path/to/xroar node tools/mame-diff/sam/run-xroar.js [rate|ops|diag]   # per-instruction timing against XRoar
+node tests/buscycles.test.js # 6809 bus cycles: count for every opcode, addresses of sample sequences
+node tests/samrate.test.js   # SAM rate: instruction times per rate and address range, worked out by hand
+node tests/tape-rate.test.js # a cassette load at rate 01 succeeds or fails by the loader's own timing
+```
+
+**How /play/ starts.** The page's module graph is 100 modules and about 815 KB of plain ES modules with no
+build step, and it is six imports deep (the page → the Session → the machine families → the chips → the CPUs).
+Left to itself the browser learns about a module only when the module that imports it has arrived, so the
+deepest files are not even requested until several round trips in. `play/index.html` therefore carries a
+generated `<link rel="modulepreload">` for every module the page's static imports reach
+(`tools/gen-page-preload.js`; `tests/pagepreload.test.js` fails when it is stale). Nothing about what runs
+changes, only when each file is requested. Measured with `node tools/page-load.js` (Chromium, 200 ms
+round-trip, 100 Mbit/s, so the link is latency-bound as a phone on mobile data is): the last module was
+requested at **3,821 ms without the list and 218 ms with it**, and the page reached "started" at 4,287 ms and
+4,225 ms.
+
+The "started" figure barely moves, and the tool prints why: it breaks the time into the first module (216 ms),
+the modules in flight, and what happens after the last one (about 250 ms, mostly the emulated machine booting).
+What is left in the middle is not the waterfall any more but the transfer itself: 100 modules over HTTP/1.1's
+six connections a host is about 17 round trips, so at 200 ms of latency it costs about 3.4 s however early all
+the requests are made. Getting past that needs fewer modules or fewer bytes on the startup path (or HTTP/2),
+not a preload list. On a 1,500 kbit/s link, where bandwidth dominates, the list changes nothing (6,137 ms and
+6,154 ms to the last module), which is why the latency-bound profile is the one to measure.
+
+A module reached only through `import()` is deliberately not preloaded: that would undo the lazy import.
+
+**Testing the storage layer.** `/play/?storage=opfs|fsa|fallback` picks the media backend for that page
+load, so a browser that has OPFS can still be made to take the fallback path (and the download and import
+buttons with it). Without the parameter the page uses the best the browser offers. It is a testing and
+diagnostic switch, not a setting: it overrides the choice made in the Library for that load.
+The folder choice is tested in the browser check with a mocked picker returning a real directory handle (headless
+Chromium has no folder picker); with the real picker it was checked by hand in desktop Chrome on macOS: picking a
+folder, the link surviving a full Chrome restart, an incognito window (no crash on reload, the choice enabled), and
+dragging a spine onto the screen with a mouse. Dragging by touch is not verified; on a touch screen a tap loads.
+
+**Disks and storage.** Disk images are stored in the media store under `disks/` and used through its random
+access (`readRange` to mount, `writeRange` for what the machine writes, only the bytes that changed, when the
+drive's motor stops, on eject, and before the machine or the page goes away), never through the media index.
+A disk that comes back with a snapshot is the snapshot's own copy: it is not linked to the stored image, and
+Download saves it.
+
+## Pictures
+
+The README's pictures are PNGs in [`img/`](../img/), captured from the emulator with no ROMs loaded
+(`node tools/capture-images.js`).
+
+## Headless MAME
+
+These need MAME (`apt install mame`) and run headless. Three quirks of headless MAME are handled in the scripts:
+
+* its screen buffer is only refreshed on mode changes, so the older `run-vdg.js` scripts capture each phase one frame
+  late; the raster comparison and the MC-10 `--video` run avoid this by recording with `-aviwrite`. It keeps two
+  bitmaps and redraws only when the fetched bytes change, so a still picture can leave a capture holding the other,
+  stale one: `samv.asm` flips a byte that draws black either way every field to force a redraw
+* its display start address ignored the SAM F bits in these runs, so the video test keeps its display data at `$0000`
+* MAME's Lua API has no `read_u16be`; scripts read two bytes instead.
+
+---
+
+See also: [Architecture](architecture.md) · [Verification](verification.md) · [CONTRIBUTING.md](../CONTRIBUTING.md) · [AGENTS.md](../AGENTS.md)

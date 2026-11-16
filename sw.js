@@ -1,0 +1,218 @@
+/*
+ * The service worker: CLOADM works offline once visited. Every request goes to the network
+ * first, so an online visit always gets the current files, and each response refreshes the copy kept here;
+ * offline, the kept copy answers (a page address with a query, /play/?machine=coco, is the page itself).
+ * A network that doesn't answer within NETWORK_MS gives way to the kept copy too. Install keeps the whole site (FILES, written by tools/pwa-files.js). ROMs and programs are never fetched
+ * from here: they live in the browser's own storage.
+ */
+const CACHE = 'cloadm-v1';
+const NETWORK_MS = 4000;   // how long to wait for the network when a kept copy can answer instead
+// BEGIN FILES (tools/pwa-files.js --write)
+const FILES = [
+  './',
+  'credits/',
+  'help/',
+  'play/',
+  'roms/',
+  'credits/index.html',
+  'css/reading.css',
+  'css/tokens.css',
+  'embed/cloadm.js',
+  'examples/chat-font.inc',
+  'examples/chat.asm',
+  'examples/chat.bin',
+  'examples/demo.bin',
+  'examples/liza-data.inc',
+  'examples/liza.asm',
+  'examples/liza.bin',
+  'examples/liza6803-alice.bin',
+  'examples/liza6803-mc10.bin',
+  'examples/liza6803.asm',
+  'examples/welcome-data.inc',
+  'examples/welcome.asm',
+  'examples/welcome.bin',
+  'examples/welcome6803-alice.bin',
+  'examples/welcome6803-mc10.bin',
+  'examples/welcome6803.asm',
+  'favicon.ico',
+  'favicon.svg',
+  'fonts/archivo/OFL.txt',
+  'fonts/archivo/archivo-latin-ext-wdth-normal.woff2',
+  'fonts/archivo/archivo-latin-wdth-normal.woff2',
+  'fonts/jetbrains-mono/OFL.txt',
+  'fonts/jetbrains-mono/jetbrains-mono-latin-ext-wght-normal.woff2',
+  'fonts/jetbrains-mono/jetbrains-mono-latin-wght-normal.woff2',
+  'help/index.html',
+  'icons/icon-192.png',
+  'icons/icon-512.png',
+  'icons/icon-maskable-512.png',
+  'img/liza.png',
+  'img/welcome.png',
+  'index.html',
+  'js/asm/assembler.js',
+  'js/asm/dis6309.js',
+  'js/asm/dis6803.js',
+  'js/asm/dis6809.js',
+  'js/asm/dis7000.js',
+  'js/asm/disassembler.js',
+  'js/asm/isa6309.js',
+  'js/asm/isa6803.js',
+  'js/asm/isa6809.js',
+  'js/asm/isa7000.js',
+  'js/asm/syntax.js',
+  'js/chips/artifacter.js',
+  'js/chips/attoclock.js',
+  'js/chips/attotime.js',
+  'js/chips/ay8910.js',
+  'js/chips/floppy.js',
+  'js/chips/gime.js',
+  'js/chips/mc6821.js',
+  'js/chips/mc6845.js',
+  'js/chips/mc6847.js',
+  'js/chips/mos6551.js',
+  'js/chips/sam6883.js',
+  'js/chips/sn76489.js',
+  'js/chips/sp0256.js',
+  'js/chips/wd17xx.js',
+  'js/claude/backend.js',
+  'js/claude/brief.js',
+  'js/claude/channel.js',
+  'js/claude/chat.js',
+  'js/claude/readtools.js',
+  'js/claude/toolerrors.js',
+  'js/config.js',
+  'js/cpu/cpu6309.js',
+  'js/cpu/cpu6803.js',
+  'js/cpu/cpu6809.js',
+  'js/cpu/cpu7000.js',
+  'js/cpu/cpus.js',
+  'js/debugger.js',
+  'js/drivewire/byte-queue.js',
+  'js/drivewire/server.js',
+  'js/embed-api.js',
+  'js/emu.js',
+  'js/errors.js',
+  'js/host/audio.js',
+  'js/host/drivewire-ws.js',
+  'js/host/example-reader.js',
+  'js/host/folder-handle.js',
+  'js/host/gamepad.js',
+  'js/host/input.js',
+  'js/host/key-store.js',
+  'js/host/media-store-fallback.js',
+  'js/host/media-store-fsa.js',
+  'js/host/media-store-memory.js',
+  'js/host/media-store-open.js',
+  'js/host/media-store-opfs.js',
+  'js/host/media-store.js',
+  'js/host/storage.js',
+  'js/host/web-serial.js',
+  'js/machines/alpha.js',
+  'js/machines/becker.js',
+  'js/machines/bus.js',
+  'js/machines/carts.js',
+  'js/machines/coco3.js',
+  'js/machines/cocomax.js',
+  'js/machines/cocopia.js',
+  'js/machines/d64plus.js',
+  'js/machines/device.js',
+  'js/machines/fdc.js',
+  'js/machines/keyboards.js',
+  'js/machines/keyqueue.js',
+  'js/machines/machine.js',
+  'js/machines/mc10.js',
+  'js/machines/menu.js',
+  'js/machines/profiles.js',
+  'js/machines/rs232.js',
+  'js/machines/sam.js',
+  'js/machines/serial.js',
+  'js/machines/ssc.js',
+  'js/machines/stub.js',
+  'js/machines/typist.js',
+  'js/media/cassette.js',
+  'js/media/deck.js',
+  'js/media/detect.js',
+  'js/media/disk.js',
+  'js/media/formats.js',
+  'js/media/includes.js',
+  'js/media/library.js',
+  'js/media/romrefs.js',
+  'js/media/snapshot.js',
+  'js/media/tape.js',
+  'js/media/zip.js',
+  'js/package.json',
+  'js/roms.js',
+  'js/selftest.js',
+  'js/session.js',
+  'js/ui/ask.js',
+  'js/ui/assembler-panel.js',
+  'js/ui/boot-help.js',
+  'js/ui/claude.js',
+  'js/ui/command-box.js',
+  'js/ui/debugger-panel.js',
+  'js/ui/display-panel.js',
+  'js/ui/drawer.js',
+  'js/ui/drives.js',
+  'js/ui/drivewire-panel.js',
+  'js/ui/embed.js',
+  'js/ui/feedback.js',
+  'js/ui/files.js',
+  'js/ui/key-hint.js',
+  'js/ui/library.js',
+  'js/ui/machine-panel.js',
+  'js/ui/main.js',
+  'js/ui/media-panel.js',
+  'js/ui/multipak-panel.js',
+  'js/ui/page.js',
+  'js/ui/poke-panel.js',
+  'js/ui/printer-panel.js',
+  'js/ui/rom-panel.js',
+  'js/ui/rom-sockets.js',
+  'js/ui/screen.js',
+  'js/ui/selftest-panel.js',
+  'js/ui/serial-panel.js',
+  'js/ui/settings-file.js',
+  'js/ui/share.js',
+  'js/ui/slots-panel.js',
+  'js/ui/snapshot-panel.js',
+  'js/ui/tape-panel.js',
+  'js/ui/touch-keys.js',
+  'js/ui/typein.js',
+  'js/ui/welcome.js',
+  'js/util.js',
+  'js/video/canvas.js',
+  'js/video/frame.js',
+  'js/video/layout.js',
+  'manifest.webmanifest',
+  'play/index.html',
+  'roms/index.html'
+];
+// END FILES
+
+self.addEventListener('install', (e) => {
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES.map((f) => new Request(f, { cache: 'reload' })))).then(() => self.skipWaiting()));
+});
+self.addEventListener('activate', (e) => {
+  e.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+    .then(() => self.clients.claim()));
+});
+self.addEventListener('fetch', (e) => {
+  const req = e.request, url = new URL(req.url);
+  if (req.method !== 'GET' || url.origin !== self.location.origin) return;
+  e.respondWith((async () => {
+    const cache = await caches.open(CACHE);
+    // a network that hangs (a captive portal, one bar of signal) falls back to the kept copy after NETWORK_MS
+    const kept = await cache.match(req, { ignoreSearch: req.mode === 'navigate' }) || await cache.match(url.pathname);
+    const ctl = new AbortController(), timer = kept ? setTimeout(() => ctl.abort(), NETWORK_MS) : null;
+    try {
+      const res = await fetch(req, { signal: ctl.signal });
+      clearTimeout(timer);
+      if (res.ok && res.type === 'basic') cache.put(req.mode === 'navigate' ? url.pathname : req, res.clone());
+      return res;
+    } catch (err) {
+      clearTimeout(timer);
+      if (kept) return kept;
+      throw err;
+    }
+  })());
+});

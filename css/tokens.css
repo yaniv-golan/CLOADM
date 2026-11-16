@@ -1,0 +1,174 @@
+/*
+ * CLOADM design tokens. Every page links this file first and uses only
+ * these custom properties for colour, type and shape. No build step: plain CSS.
+ *
+ * Fonts are self-hosted (SIL Open Font License 1.1, licence next to each file), so nothing is fetched from
+ * a font service at run time and the offline app keeps its type:
+ *   Archivo        fonts/archivo/        variable, width 62-125 %, weight 100-900 (latin, latin-ext)
+ *   JetBrains Mono fonts/jetbrains-mono/ variable, weight 100-800 (latin, latin-ext)
+ * Files from the Fontsource packages @fontsource-variable/archivo 5.3.0 and
+ * @fontsource-variable/jetbrains-mono 5.3.0 (Google Fonts builds), unmodified.
+ *
+ * Contrast (WCAG 2.x relative luminance; measured by tests/tokens.test.js, which fails below the minimum):
+ *   text     on ground 16.42, on panel 15.09          text-2 on panel 11.55     text-3 on panel 9.35
+ *   muted    on panel 7.03, on ground 7.65, on panel-deep 7.33
+ *   phosphor on panel 12.29, on ground 13.38          on-phosphor on phosphor 10.74
+ *   orange   on panel 8.46, on warn-panel 7.91        on-orange on orange 8.14
+ *   text     on warn-panel 14.11                      screen-ink on screen-green 7.59
+ *   line-strong on panel 1.80: borders only where the control is also identified by its text (secondary
+ *   buttons, dashed media slots), so it is not the only cue (WCAG 1.4.11). Focus rings use phosphor.
+ *
+ * Light variant: reading pages only (<html class="reading">: landing, /roms, Help,
+ * Credits) when the system asks for light; the emulator stays dark. Same roles: light ground and panel, dark
+ * text, phosphor kept for buttons (with on-phosphor text), a darker green for green text, links and accent
+ * borders (--green), and a darker orange for warning text. Measured as above:
+ *   text     on ground 16.01, on panel 17.92            text-2 on panel 12.44, on panel-deep 10.25
+ *   text-3   on panel 9.62, on panel-deep 7.93          muted on panel 6.32, on ground 5.65, on panel-deep 5.21
+ *   green    on panel 6.70, on ground 5.98, on panel-deep 5.52    link-hover on ground 8.63
+ *   on-phosphor on phosphor 10.74                       orange on panel 5.83, on warn-panel 5.25
+ *   text     on warn-panel 16.12                        line-strong on panel 3.58 (UI parts, 3:1)
+ *   Phosphor buttons on the light ground get a --green edge (5.98 against the ground) as well as their dark
+ *   label (10.74): the fill alone is 1.4:1.
+ */
+
+@font-face {
+  font-family: 'Archivo';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  font-stretch: 62% 125%;
+  src: url(../fonts/archivo/archivo-latin-wdth-normal.woff2) format('woff2-variations'),
+       url(../fonts/archivo/archivo-latin-wdth-normal.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Archivo';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  font-stretch: 62% 125%;
+  src: url(../fonts/archivo/archivo-latin-ext-wdth-normal.woff2) format('woff2-variations'),
+       url(../fonts/archivo/archivo-latin-ext-wdth-normal.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 800;
+  src: url(../fonts/jetbrains-mono/jetbrains-mono-latin-wght-normal.woff2) format('woff2-variations'),
+       url(../fonts/jetbrains-mono/jetbrains-mono-latin-wght-normal.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 800;
+  src: url(../fonts/jetbrains-mono/jetbrains-mono-latin-ext-wght-normal.woff2) format('woff2-variations'),
+       url(../fonts/jetbrains-mono/jetbrains-mono-latin-ext-wght-normal.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+:root {
+  color-scheme: dark;
+
+  /* colour: dark, the default (and the only theme of the emulator) */
+  --ground: #0B0D0C;        /* page background */
+  --panel: #141816;         /* cards, drawers, header controls */
+  --panel-deep: #101311;    /* code and debugger panes */
+  --line: #263029;          /* borders, dividers */
+  --line-strong: #3A4540;   /* dashed slots, secondary button borders */
+  --text: #E8EDE6;          /* primary text */
+  --text-2: #C9D2C8;        /* secondary text */
+  --text-3: #B4BEB3;        /* body copy inside cards */
+  --muted: #9AA59C;         /* labels, captions */
+  --phosphor: #3DF55A;      /* primary action, verified, focus */
+  --on-phosphor: #062A06;   /* text on phosphor */
+  --green: var(--phosphor); /* green text and accent borders (darker in the light variant) */
+  --link: var(--green);     /* links */
+  --link-hover: #9BFFAA;    /* links under the pointer */
+  --orange: #FF9A2E;        /* warnings and tape only */
+  --on-orange: #2B1600;     /* text on orange */
+  --warn-panel: #2B1A08;    /* warning panel */
+  --screen-green: #39E83F;  /* stand-in for the VDG text screen, marketing only */
+  --screen-ink: #0A3D0A;
+  --dragon-badge: #F06A5F;  /* the "DRAGON 64" nameplate on the dark bezel */
+
+  /* the eight VDG semigraphics colours, in order: signature stripe, machine tags, magazine covers only */
+  --vdg-green: #30D82B;
+  --vdg-yellow: #F2EA4A;
+  --vdg-blue: #2A35E8;
+  --vdg-red: #D8202A;
+  --vdg-buff: #EDE6C8;
+  --vdg-cyan: #2BD8D8;
+  --vdg-magenta: #D02BD8;
+  --vdg-orange: #F08A1F;
+  --vdg-stripe: linear-gradient(90deg, var(--vdg-green) 0 12.5%, var(--vdg-yellow) 0 25%, var(--vdg-blue) 0 37.5%,
+    var(--vdg-red) 0 50%, var(--vdg-buff) 0 62.5%, var(--vdg-cyan) 0 75%, var(--vdg-magenta) 0 87.5%, var(--vdg-orange) 0);
+
+  /* type */
+  --font-ui: 'Archivo', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --text-min: 14px;         /* smallest text anywhere (13 px only in dense debugger tables) */
+  --text-body: 15px;
+  --heading-stretch: 118%;  /* headings: font-stretch 112-125 %, weight 800 */
+
+  /* shape */
+  --r-8: 8px;
+  --r-10: 10px;
+  --r-14: 14px;
+  --r-18: 18px;
+  --r-22: 22px;
+  --pill: 999px;
+  --touch: 44px;            /* minimum touch target */
+  --focus-ring: 0 0 0 2px var(--ground), 0 0 0 4px var(--phosphor);
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%239AA59C' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+@media (prefers-color-scheme: light) {
+  :root.reading {
+    color-scheme: light;
+    --ground: #F4F2EC;
+    --panel: #FFFFFF;
+    --panel-deep: #ECE9E0;
+    --line: #D9D5CA;
+    --line-strong: #8C877A;
+    --text: #141816;
+    --text-2: #2E3631;
+    --text-3: #3E4741;
+    --muted: #59625B;
+    --green: #0B6B1E;
+    --link-hover: #08501A;
+    --orange: #A64A00;
+    --on-orange: #FFFFFF;
+    --warn-panel: #FFF1DE;
+    --focus-ring: 0 0 0 2px var(--ground), 0 0 0 4px var(--green);
+    --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%2359625B' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  }
+  :root.reading :focus-visible { outline-color: var(--green); }
+  /* phosphor fills barely differ from the light ground (1.4:1): primary buttons and the reference pill get a
+     dark green edge, green on ground 5.98:1 (WCAG 1.4.11 asks 3:1) */
+  :root.reading .btn-primary, :root.reading .pill.ref { box-shadow: inset 0 0 0 1.5px var(--green); }
+}
+
+/* base elements shared by every page */
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--ground); color: var(--text); font: 400 var(--text-body)/1.5 var(--font-ui); }
+h1, h2, h3 { font-weight: 800; font-stretch: var(--heading-stretch); line-height: 1.1; }
+code, kbd, pre, samp { font-family: var(--font-mono); }
+a { color: var(--link); }
+input[type="checkbox"], input[type="radio"], input[type="range"], progress { accent-color: var(--phosphor); }
+select {
+  appearance: none; -webkit-appearance: none;
+  background: var(--panel) var(--chevron) no-repeat right 12px center; color: var(--text);
+  border: 1px solid var(--line); border-radius: var(--r-10); padding: 6px 34px 6px 12px; font: inherit;
+}
+:focus-visible { outline: 2px solid var(--phosphor); outline-offset: 2px; }
+button:focus-visible, select:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible,
+[tabindex]:focus-visible { outline: none; box-shadow: var(--focus-ring); }

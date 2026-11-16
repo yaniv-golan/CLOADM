@@ -1,0 +1,28 @@
+# Output MAME and the tools write, never source.
+#
+# MAME creates a directory per thing it saves: snapshots (-snapshot_directory), controller and machine
+# configuration (-cfg_directory), battery-backed RAM (-nvram_directory), save states (-state_directory), and
+# some versions write .hi high-score files. tools/mame-diff/lib/mame.js already sends these under its own
+# work directory, but a direct invocation (`mame coco -listslots`, a one-off probe) writes them next to
+# wherever it was started unless it is told otherwise.
+#
+# These are unanchored so they also catch a run started inside a subdirectory. Nothing under these names is
+# tracked, so no source file is hidden.
+snap/
+cfg/
+nvram/
+sta/
+state/
+*.hi
+
+# Development tooling, not source.
+node_modules/
+.DS_Store
+
+# Local environment files (API keys and other secrets): never committed.
+.env
+*.env
+!.env.example
+
+# Personal, machine-local instructions for coding agents: never committed.
+CLAUDE.local.md

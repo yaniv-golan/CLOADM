@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en" class="reading">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- served at /help/; relative URLs are from the site root -->
+<base href="../">
+<title>Help – CLOADM</title>
+<meta name="description" content="CLOADM help: keys, ROMs and quick fixes.">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/reading.css">
+</head>
+<body>
+<header class="page-head">
+  <a class="back" href="play/">← Emulator</a>
+  <h1 class="title" style="margin:0">HELP</h1>
+  <span class="grow"></span>
+  <a href="./">Home</a>
+  <a href="roms/">ROMs</a>
+  <a href="credits/">Credits</a>
+  <a href="https://github.com/yaniv-golan/cloadm/issues">Report a problem</a>
+</header>
+
+<main class="cards">
+  <section class="card" aria-labelledby="keys">
+    <h2 id="keys">Keys</h2>
+    <table class="plain">
+      <tbody>
+        <tr><td><kbd>Esc</kbd></td><td>BREAK</td></tr>
+        <tr><td><kbd>Home</kbd></td><td>CLEAR</td></tr>
+        <tr><td><kbd>Backspace</kbd></td><td>← (delete)</td></tr>
+        <tr><td>Arrow keys</td><td>The machine's arrow keys</td></tr>
+        <tr><td>Symbols</td><td>Type them as on your keyboard: keys type what they say</td></tr>
+        <tr><td>Pasting</td><td>Pasted text types itself in</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="card qa" aria-labelledby="roms">
+    <h2 id="roms">ROMs</h2>
+    <div><strong>Do I need them?</strong> <span>Only for BASIC and programs that use it. The Welcome menu, LIZA and the colour demo run without.</span></div>
+    <div><strong>Where do I get them?</strong> <span>Dump them from your own machine, or see <a id="romsLink" href="roms/">where to get ROMs</a>.
+      They're copyrighted by Microsoft, Tandy, Dragon Data and others; check your rights. CLOADM never downloads them.</span></div>
+    <div><strong>Which file goes where?</strong> <span>It doesn't matter. Drop them all; CLOADM recognises each by its contents.</span></div>
+    <div><strong>Can I share a snapshot that uses my ROMs?</strong> <span>Yes. A share link never holds a ROM or a cartridge: it names
+      the ones the snapshot used, and the person opening it needs their own copies of the same versions. Without them, CLOADM
+      says which ROMs to add and opens the snapshot once they're in.</span></div>
+    <a href="play/#add-roms">Add ROMs →</a>
+  </section>
+
+  <section class="card qa" aria-labelledby="fixes">
+    <h2 id="fixes">Quick fixes</h2>
+    <div><strong>Black screen, no OK.</strong> <span>A required ROM is missing or not recognised. A box on the screen says which; <strong>Add ROMs</strong> shows them.</span></div>
+    <div><strong>No sound.</strong> <span>Click the screen or press a key once; browsers keep sound off until you do.</span></div>
+    <div><strong>Tape won't load.</strong> <span>Check it's for this machine, and undo any speed POKE first: <code>POKE 65494,0</code> undoes
+      <code>POKE 65495,0</code>, and <code>POKE 65496,0</code> undoes <code>POKE 65497,0</code>.</span></div>
+    <div><strong>Disk shows nothing.</strong> <span>A disk needs the machine's disk ROM: the DragonDOS or Delta cartridge on a Dragon, Disk BASIC on a CoCo. The drives under the screen say which one is missing. Check the disk is for this machine too: DragonDOS disks are for a Dragon, RS-DOS disks for a CoCo, and CLOADM says which a disk is.</span></div>
+    <div><strong>Wrong symbols.</strong> <span>Keys type what they say, so shifted symbols follow your keyboard, not the original layout.</span></div>
+    <div><strong>ROMs gone in a new browser.</strong> <span>Use Save ROM pack in the old one and drop the file on CLOADM in the new one.</span></div>
+  </section>
+
+  <section class="card" aria-labelledby="more">
+    <h2 id="more">Still stuck?</h2>
+    <p>CLOADM is open source. Read how it works, or tell us what went wrong:</p>
+    <a href="https://github.com/yaniv-golan/cloadm/blob/main/docs/using.md">The user guide</a>
+    <a href="https://github.com/yaniv-golan/cloadm">github.com/yaniv-golan/cloadm</a>
+    <a href="https://github.com/yaniv-golan/cloadm/issues">Report a problem →</a>
+  </section>
+</main>
+</body>
+</html>

@@ -1,0 +1,809 @@
+# Verification against MAME
+
+[CLOADM](../README.md) › Verification against MAME
+
+Every chip is compared with MAME 0.264 by running diagnostic firmware written for this project in both emulators,
+in lockstep. No copyrighted ROM is used for testing.
+
+* `node tools/mame-diff/run.js dragon64` compares every instruction's registers, flags and cycle count with MAME's.
+  On the Dragon 64: 1,028,156 instructions identical, and the firmware reaches its HALT loop.
+* `node tools/mame-diff/run.js dragon64 --video` compares the screen pixel by pixel: on the Dragon 64, all 20
+  display modes are identical.
+* `node tools/mame-diff/run.js dragon64 --fdc` runs the floppy controller cartridges against MAME the same way,
+  with our firmware as the DOS ROM and four drives; `--images` also compares the disk images both write.
+* `node tools/mame-diff/run.js coco --cart gmc --audio` runs a cartridge with our firmware as its ROM, then compares
+  the sound MAME records with ours, sample by sample.
+* `node tests/regress.test.js` replays the verified traces and frames in seconds, without MAME, after every change.
+
+Where MAME and the hardware disagree, the hardware wins and the difference is documented: see
+[Deviations from MAME](#deviations-from-mame) below.
+
+## Which MAME
+
+MAME 0.264 is the reference. These areas are compared on MAME 0.289 instead, and say so where they are described:
+
+* the HD6309 core's lockstep and its regression hashes, because 0.264 is not an oracle for the 6309's divides: it
+  charges `DIVD #$02` 3 cycles where 0.289 charges 28 ([cpu6309.md](cpu6309.md));
+* the Dragon 64 Plus's `$FFE2` bank register, which 0.264 never applies to memory and 0.289 does, as Compusense's
+  notes say: its banking was probed on 0.289, and the 0.264 comparison runs with the banks held (below);
+* the Hi-Res joystick interfaces and the CoCo 3 mouse ([Input](#input), below).
+
+[mame-0289-results.md](mame-0289-results.md) records what every comparison reports under 0.289.
+
+## Results per machine
+
+What each machine's comparison with MAME 0.264 showed when it was verified (the regression gate,
+`tests/regress.test.js`, keeps these traces and frames from changing):
+
+| Machine | Instruction trace (registers and cycles) | Display modes | Mid-line changes (`--raster`) |
+|---|---|---|---|
+| Dragon 64 | 1,028,156 instructions identical, HALT reached | 20/20 identical, PAL colour blending included | 17/17 identical |
+| Dragon 64 Plus | identical, HALT reached: 1,016,256 instructions (the base machine) and 1,177,312 (the 80-column board, under `mameCompat`); the bank register from Compusense's technical notes (see below) | the 80-column screen 640 x 264 identical, but on 0.264 its video RAM is never written (see below) | – |
+| Dragon 32, Dragon 200, Tano Dragon 64 | identical | 20/20 identical, PAL colour blending included on the Dragon 32 and 200 (the Tano is NTSC) | 17/17 identical |
+| Dragon 200-E | 1,028,156 instructions identical, HALT reached | 20/20 identical, with a character generator written by this project (see below) | 17/17 identical (its own variant of cases 5 and 11, see below) |
+| Prológica CP 400 | 1,043,415 instructions identical, HALT reached | 20/20 identical | – |
+| Color Computer 1/2, 2B | identical | 20/20 identical, NTSC artifact colours included, at each artifact setting | 17/17 identical (coco, coco2b) |
+| Color Computer 1/2 at 4K, 16K and 32K | identical at every size (1,099,793 / 1,079,377 / 1,043,415 instructions) | 20/20 identical at 4K and 16K | 17/17 identical at 4K and 16K |
+| Dynacom MX-1600, LZ Color64, Codimex CD-6809 | identical | – | – |
+| Color Computer 3 (128K and 512K) | 88,787 instructions identical | 34/49 identical; the rest differ only in text glyph shapes (our own font designs); the same at each artifact setting, artifact colours included. Text attributes (`--attr`): 34/34 identical, exactly (every attribute byte; 32/40/64/80 columns; lines per row 0-6; blink off and on). Composite monitor (`--composite`): 67/67 at artifact settings 0, 1 and 2 (46 exact, 21 apart from glyph shapes), with `$FF98` BPI and MOCH | 8/8 identical, per line (MAME cannot draw part of a GIME line) |
+| Color Computer 3 (PAL) | cannot be verified against MAME: its `coco3p` keeps the CoCo 3's 262-line NTSC geometry, so it does not run a PAL field (see below) | – | – |
+| MC-10 | 908,205 instructions identical | 20/20 identical, NTSC artifact colours included, at each artifact setting | 10/10 identical |
+| Matra Alice | 908,205 instructions identical, HALT reached | – | – |
+| Dragon 64 + Dragon FDC (WD2797, `--fdc`) | 5,833,479 instructions identical, HALT reached; disk images written byte-identical (`--images`); NMI arming (`--fdc --nmi`): identical, HALT reached at instruction 799 | – | – |
+| Dragon 64 running the HD6309 (CPU option 6309) | NMI arming (`--fdc --nmi --cpu 6309`): identical registers and cycle counts, 1,197,190 instructions, HALT reached at 793; also 1,197,190 on MAME 0.264 (container) | – | – |
+| Tano Dragon 64 on the HD6309 | NMI arming (`--fdc tanodragonfdc --nmi --cpu 6309`): identical, 1,204,410 instructions, HALT reached at 793; also 1,204,410 on MAME 0.264 | – | – |
+| Dragon 64 + Premier FDC (WD2791, `--fdc premierfdc`) | 5,890,277 instructions identical, HALT reached; disk images written byte-identical (`--images`) | – | – |
+| Color Computer + CoCo FDC (WD1773, `--fdc`) | 5,851,757 instructions identical, HALT reached; disk images written byte-identical (`--images`) | – | – |
+| Blank disks (`--fdc <controller> --blank <format>:<T>x<H>`) | a blank disk formatted by our firmware: dragonfdc VDK 40 × 1, cocofdc JVC 35 × 1, premierfdc VDK 40 × 1 and dragonfdc DMK 40 × 2 identical in lockstep to HALT (8,750,860, 7,717,543, 8,750,920 and 17,534,051 instructions); formatted images byte-identical for the VDK and JVC ones and for dragonfdc VDK 40 × 2, VDK 80 × 2 and JVC 40 × 2 and cocofdc JVC 40 × 2 (`--images`; MAME cannot save DMK, so the DMK one is checked sector by sector in ours) | – | – |
+| Color Computer 3 + CoCo FDC (WD1773, `coco3 --fdc`) | 5,851,680 instructions identical, HALT reached; disk images written byte-identical (`--images`) | – | – |
+| Color Computer + Multi-Pak with the CoCo FDC in slot 4 (`--fdc multifdc`) | 5,851,742 instructions identical, HALT reached; disk images written byte-identical (`--images`) | – | – |
+| Dragon 64 + Multi-Pak with the Dragon FDC in slot 4 (`--fdc dragonfdc --multi`) | 5,831,499 instructions identical, HALT reached; disk images written byte-identical (`--images`) | – | – |
+| Dragon 64 + Multi-Pak with the Premier FDC in slot 4 (`--fdc premierfdc --multi`) | 5,882,274 instructions identical, HALT reached; disk images written byte-identical (`--images`) | – | – |
+| Color Computer + Multi-Pak with the CoCo FDC in slot 4 (`--fdc cocofdc --multi`) | 5,833,809 instructions identical, HALT reached; disk images written byte-identical (`--images`) | – | – |
+| Dragon Professional (Alpha) | 768,865 instructions identical, HALT reached (the SAM diagnostic, started by our boot ROM); its own hardware (`--board`): 1,129,123 identical; its disk interface (`--fdc alphafdc`): 5,822,674 identical, disk images byte-identical (`--images`) | 20/20 identical | – |
+| Color Computer / CoCo 3 + banked ROM cartridge (`--cart banked`, `bankedshort`) | 1,202,713 / 1,202,635 instructions identical, HALT reached (128K and 40K images) | – | – |
+| Color Computer / CoCo 3 / Dragon 64 / Dragon 32 + Games Master (`--cart gmc`) | 1,750,945 / 1,750,867 / 1,739,165 / 1,739,165 instructions identical, HALT reached; sound within 2 LSB of MAME's recording (`--audio`) | – | – |
+| Color Computer / CoCo 3 / Dragon 64 / Dragon 32 + Orchestra-90 (`--cart orch90`) | 1,179,871 / 1,179,795 / 1,172,651 / 1,172,651 instructions identical, HALT reached; sound identical to MAME's recording (`--audio`) | – | – |
+| Color Computer / CoCo 3 / Dragon 64 / Dragon 32 + Multi-Pak (`--cart multi`) | 1,198,373 / 1,198,295 / 1,179,297 / 1,179,297 instructions identical, HALT reached; sound identical to MAME's recording (`--audio`) | – | – |
+| Color Computer + Speech/Sound Pak (`--ssc`, masked-interrupt case) | 1,164,214 instructions identical, HALT reached at 195,913 (see below) | – | – |
+| CoCo 2B + Speech/Sound Pak (`--ssc`, masked-interrupt case) | 1,164,214 instructions identical, HALT reached at 195,913 — the same trace as the CoCo, because this firmware reads only the CPU and the Pak, and the 2B differs from the CoCo 1/2 in the VDG and the keyboard matrix, which it never touches | – | – |
+| CoCo 3 + Speech/Sound Pak (`--ssc`, masked-interrupt case) | 1,157,487 instructions identical, HALT reached at 213,485 | – | – |
+| Color Computer + Speech/Sound Pak (`--ssc int3`, interrupt case) | outcome comparison against MAME: 107 of 107 device-write rows identical, work RAM identical, HALT on both sides (not an instruction lockstep: the two CPUs overlap, see below). **The work-RAM match is not coverage of the sound-activity bit**: `$0405` holds a `$FF7E` status read whose bit 5 comes from an activity window this emulator does not model, and this model's pass depends on the firmware's fixed read landing outside that window (see below) | – | – |
+| CoCo 2B + Speech/Sound Pak (`--ssc int3`, interrupt case) | outcome comparison against MAME: 107 of 107 device-write rows identical, work RAM identical, HALT on both sides (this model's own `compare.js` run, not the CoCo's). As above, the work-RAM match is **not** coverage of bit 5 | – | – |
+| CoCo 3 + Speech/Sound Pak (`--ssc int3`, interrupt case) | **outcome comparison against MAME differs**, and is not claimed: the device writes still match (107 of 107 rows) and both sides reach HALT, but the final work RAM does not — MAME leaves `$0405` = `$DF` and we leave `$FF`. `$0405` holds a `$FF7E` status read and bit 5 is the sound-activity circuit: on MAME that bit dips low for a while after an allophone load, and the firmware's fixed read 18.4 ms after the load lands **inside** that dip here and outside it on the CoCo 1/2 and 2B. Our own model stubs the circuit and always reads the bit high, so we read `$FF` on every model. Why the dip sits at a different offset on the CoCo 3 is **not established**. Our side is still pinned in the gate as `trace coco3 ssc int3 (our side; MAME differs at $0405)` | – | – |
+
+**Speech/Sound Pak** (`run.js coco --ssc`, `tools/mame-diff/ssc/`). The Pak's own ROMs are the user's, so the
+comparison installs firmware written for this project on both sides: `ssc-pic.asm` for the TMS7040 and `ssc.asm`
+for the 6809 (in the BASIC socket, since the Pak presents no ROM of its own). The 6809 writes each command at
+`$FF7E` and polls the busy bit; the PIC firmware takes the interrupt, drives the SP0256 and the AY, and releases
+the busy line.
+
+*The masked-interrupt case* (`run.js coco --ssc`, the source as it ships). `ssc-pic.asm` writes `IOCNT0 = $0C`,
+which Figure 3-16 makes INT2's enable and INT2's flag, so INT3 stays masked. The card correctly refuses every
+interrupt, the busy flag never clears, and the firmware's bounded poll gives up after `POLLMAX` reads. Result:
+1,164,214 instructions identical in every register and cycle count, HALT reached at instruction 195,913, and
+both sides leave the same RAM at HALT. The time-out counter gets exactly 37, one per command, on each side;
+pinned at that number
+(`tests/ssc.test.js`) it is a regression case which fails if a core takes a masked interrupt. The firmware clears
+that counter itself rather than reading it: the two emulators disagree about a power-on RAM value and real DRAM
+has none.
+
+*The interrupt case* (`node tools/mame-diff/ssc/compare.js`, and the gate). `gen-roms.js` builds the PIC with
+`$30` (INT3 enable, bit 4, plus INT3 flag clear, bit 5) and the 6809 with an unbounded wait, so every command is
+serviced through the ISR and the firmware reaches HALT with TIMEOUTS = 0 after 37 commands and 107 device writes.
+Both emulators are compared, but not instruction by instruction: the two CPUs overlap here, and MAME
+interleaves them on its scheduler, so the number of poll reads between a command and its service differs by
+construction. The oracle is the **outcome**: the ordered sequence of device writes (each command's SP0256
+allophone load and AY-3-8913 address/data write, with value and order), plus the firmware's final work RAM, and
+HALT on both sides. MAME's rows come from tapping the PIC's peripheral writes and applying MAME's own
+`coco_ssc.cpp` decode; ours come from `writes.js` applying the same decode to this emulator's chips.
+`compare.js` takes the model as an argument (`node tools/mame-diff/ssc/compare.js coco3`, or `SSC_PROFILE`),
+because each model the page offers the Pak on needs its own run: the CoCo 2B and the CoCo 3 have their own cart
+port and sound mux, and the CoCo 3 adds the GIME. Result on 0.264:
+
+* **CoCo 1/2 and CoCo 2B**: 107 of 107 write rows identical, work RAM identical, HALT reached on both sides.
+  That includes `$0405`, but it is **not coverage of the sound-activity bit** (see the next point), so
+  this pass is weaker than it looks.
+* **CoCo 3: the work RAM does NOT match**, so this model's outcome comparison is recorded as **not passing**. The writes still match (107 of 107 rows) and both sides reach HALT, but MAME leaves `$0405` = `$DF`
+  and we leave `$FF`.
+
+*What bit 5 of `$FF7E` does, measured (read-only probes on 0.264; no code changed for this).* The
+sound-activity circuit's output is **not constant on MAME either**: after an allophone load it dips low for a
+while and then returns high, on **every** model. Measured at frame resolution, in milliseconds after the last
+allophone load:
+
+| model | bit 5 after the load |
+|---|---|
+| CoCo 2B | high at 18.2, 34.9 and 51.6 ms; **low** at 68.3 and 85.0 ms; high again from 101.7 ms |
+| CoCo 3 | **low** at 20.2, 36.9, 53.6 and 70.3 ms; high from 86.9 ms |
+
+The firmware reads `$FF7E` at a **fixed 18.384 ms** after that load, the same figure on both models to the last
+digit. So the read does not move — the **window** does: 18.4 ms is outside the CoCo 2B's window (it reads `FF`)
+and inside the CoCo 3's (it reads `DF`). This emulator's own model of the circuit is a stub (`soundActive` is
+set false at `js/machines/ssc.js:107` and never set again), so bit 5 reads high unconditionally here, which is why
+we report `$FF` on every model.
+
+Two consequences:
+
+* **The CoCo 1/2's and CoCo 2B's pass does not show that the bit is modelled; it depends on where the read lands.** Their work-RAM match depends on where the
+  firmware's fixed read lands relative to a window we do not model. Move the settle delay in `ssc.asm` and those
+  two could read `DF` as well. Their device-write sequence, which is what the card's decode determines, is genuine
+  coverage and is unaffected.
+* **Why the dip sits at a different offset on the CoCo 3 is not established.** The card's clock is derived from the
+  machine's (a 13-instruction 6809 loop costs 16 card cycles on the CoCo 1/2 and 56 on the CoCo 3, measured here),
+  which is the obvious place to look, but the mechanism was not pinned down and is not claimed.
+
+Our side is also pinned as a hash in `tests/regress.test.js`, in the same form as every other case: the full
+instruction trace (registers and cycle counts) to HALT, plus the final work RAM and the ordered write sequence —
+the gate runs our emulator only, so it records our side and never MAME output. There is no time-out count in that
+hash: this build has no time-out path, so $0410 cannot vary and hashing it would add a constant, not coverage.
+There is one such key per model the page offers the Pak on, so a change that moves one model's trace and not
+another's is visible rather than averaged away. The CoCo 3's key is named `trace coco3 ssc int3 (our side; MAME
+differs at $0405)` so that a reader of the key list cannot mistake it for a MAME-backed one.
+
+*What changed between "0 commands serviced" and a full run, measured, with the cause narrowed to one change.*
+An earlier revision of this branch
+reported "0 commands serviced, the PIC never reaches `SERVE`" on 0.264, which contradicted an even earlier
+"35 of 37". Both were measured with firmware that lacked the post-reset settle delay, so a bisect was run over
+the four combinations of settle delay and wait form, one 0.264 run each, recording the PIC image MAME actually
+executes (read back from its program space), the number of `$FF7E` commands, and the number of `SERVE` entries:
+
+| PIC image | settle | 6809 wait | commands | `SERVE` |
+|---|---|---|---|---|
+| `$30` (as read back from MAME's PIC space: `A2 30 00`) | yes | unbounded | 37 | 37 |
+| `$30` | yes | bounded | 37 | 37 |
+| `$30` | no | unbounded | 1 | **0** |
+| `$30` | no | bounded | 37 | 35 |
+| `$0C` (masked control) | yes | bounded | 37 | 0 |
+
+The image is correct in every run — the substituted byte is `$30` on disk and `$30` as the PIC executes it — so
+the image was never the cause. The difference is the settle delay. Without it the first `$FF7E` write arrives
+before the PIC has finished its reset sequence: read at that write, the PIC's `IOCNT0` is `$02` and not the `$12`
+it holds once it is listening, i.e. it has not yet executed the `$30` write that enables INT3 or the `EINT`
+after it. MAME does not service that first command, and the two wait forms diverge from there: the bounded wait
+gives up and issues the next command, whose interrupt it does service, recovering 35 of the 37; the unbounded
+wait never gives up, so no further `$FF7E` write is made, no new interrupt is raised, and the run stays at zero.
+With the settle delay the first command lands after the PIC is listening, and MAME services all 37. Which
+internal MAME step drops that early command (the input line's edge or the global interrupt flag) was not
+established, and the two commands the bounded form loses were not identified individually; neither affects this
+case now that both sides compare equal. The earlier "35 of 37" and "0" figures are superseded by the first row.
+
+*One measured timing difference in that case, and how the firmware handles it.* The SP0256 runs its own
+sequencer at its sample rate (MAME steps it once per sample, `clock/336`, about 9.3 kHz), not at the card's cycle
+rate, so after an allophone load it can take several sample periods to reach the `RET` that raises the `SBY`
+pin (status bit 6). This emulator's stage-1 model steps that sequencer once per card cycle, so it reaches `RET`
+sooner. Measured on the same firmware built with and without the wait the firmware now has: MAME leaves `$BF` at
+`$0405` (SBY low, sampled before the sequencer got there) when it reads the pin immediately, and `$FF` with the
+wait; this emulator leaves `$FF` either way. The firmware therefore waits before it samples the pin, as real code
+would. It is the emulator whose model is too fast, so the wait belongs in the firmware. That is a pacing difference in the
+speech chip's stage-1 model, not a hardware deviation, and it is why the wait is in the firmware rather than a
+`mameCompat` branch.
+
+The "0 `SERVE`" run of the earlier revision and the comparison that now passes
+(`tools/mame-diff/ssc/compare.js`) were both run with the same harness. Between them the firmware gained the
+settle delay; no harness change is involved.
+
+**Not verified for the Speech/Sound Pak: its audio.** The Speech/Sound Pak plays its AY sound, gated by the CoCo
+sound mux as in MAME (`coco.cpp:555`: the cartridge is heard when PIA1 CB2 and PIA0 CB2 are high and PIA0 CA2 is
+low; an equality test, so all three high selects another source, and a cartridge in a Multi-Pak slot is gated
+the same way, as MAME's `coco_multi.cpp` forwards `set_sound_enable` to every slot). Its comparison with MAME
+`-wavwrite` is not yet passing, and the comparison is recorded as **not verified**. What is measured: each side's
+recording holds four level plateaus (a value held for roughly 120,000 samples at 48 kHz, so they are the waveform's
+levels and not resampler edges). MAME's are **10,371, 11,110, 16,407 and 16,994 LSB**; ours are **−12,288,
+−11,329, −4,546 and −3,587 LSB**. The steps between neighbouring plateaus are **739, 5,297 and 587 LSB** in
+MAME's recording and **959, 6,783 and 959 LSB** in ours, so step for step **MAME's is 0.770, 0.781 and 0.612 of
+ours**. A single offset and scale would make those three ratios equal; they are not, so no one offset-plus-scale
+map reconciles the two sets, and no slope is claimed between them. Largest difference 29,281 LSB
+against the cartridge comparisons' 2 LSB tolerance. **The cause is not established.**
+Its speech (SP0256 synthesis) isn't implemented yet: the SP0256's model is the microsequencer
+and host interface, with no filter and no DAC, so nothing reaches the mixer from it. That part is verifiable
+without a copyrighted ROM: an SP0256 image built by our own tools can be installed in MAME and compared with
+`-wavwrite`, as AGENTS.md section 5 (Cartridges) describes — so it is a real remaining task.
+**The sound-activity circuit belongs to this same gap.** `$FF7E` bit 5 reports whether the speech chip is making
+sound, and this emulator stubs it to a constant high (`js/machines/ssc.js:107`), so the bit is wrong for as long as
+the SP0256's audio is; it is listed here rather than as a separate defect, and no work on it makes sense before
+speech audio exists.
+
+**Where the Pak is offered, and where it is not.** The cartridge port's board menu offers it on the three models
+whose Pak **instruction lockstep** (`run.js <profile> --ssc`, the masked case) has matched MAME 0.264 to HALT: CoCo
+1/2 (`coco`), CoCo 2B (`coco2b`) and CoCo 3 (`coco3`). The four other CoCo profiles (the MX-1600, LZ Color64 and
+CD-6809 clones and the PAL CoCo 3) and every Dragon do not
+offer it: MAME 0.264 does list the `ssc` slot on the Dragon drivers as well, but it is **not verified here** on
+them, so the board is not offered. The MC-10 and Alice have no cartridge port at all.
+The board is described as **music only** wherever it appears, because speech is the unimplemented half above. Its
+PIC (TMS7040) ROM is the user's, added through the ROM panel; the SP0256 allophone ROM is optional, since nothing
+plays it yet. Offering the Pak on these three models rests on the instruction lockstep above; the interrupt case
+(`compare.js`) additionally passes on the CoCo 1/2 and the CoCo 2B, and on the CoCo 3 it does not. That pass is
+weaker than it sounds: those two models' work RAM matches because the firmware's fixed read lands outside a
+sound-activity window this emulator does not model (above), so it is not evidence about bit 5 either way. The
+CoCo 3's Pak is offered on the strength of its lockstep and its identical device-write sequence, with that one
+status bit recorded as a known gap.
+
+**Deviation from MAME: the TMS7000's IOCNT0 interrupt enables.** The TMS7000 Family Data Manual (TI SPND001B,
+1986) gives each interrupt one enable bit and one flag bit, which is how `js/cpu/cpu7000.js` models it. Figure
+3-16 (p. 3-30): IOCNT0 bits 0/1 are INT1's enable/flag, bits 2/3 INT2's, bits 4/5 INT3's, bits 6-7 the memory
+mode. Page 3-32: an interrupt going active latches its flag, which "stays latched when the signal goes inactive".
+Page 3-29: the flag clears when the interrupt is acknowledged, and page 3-32 when a 1 is written to its bit (a
+write of 0 leaves it). §3.6.1 (p. 3-29): a reset clears the enables and the mode bits and "leaves the INTn flag
+bits unchanged". IOCNT1 is not modelled because this part has none: Table 3-14 (p. 3-30) gives it to the
+TMS70x2/TMS70Cx2 devices only, and Table 3-12's note (p. 3-24) says the same of INT4 and INT5.
+
+MAME 0.264's `src/devices/cpu/tms7000/tms7000.cpp` differs three ways. (1) Its flag is not a latch:
+`flag_ext_interrupt` (lines 372-382) re-derives it from the input pin's current state (`m_irq_state`), so it
+drops when the line does. (2) Its take rule is `(m_io_control[n] >> shift & 3) == 3` (`check_interrupts`, lines
+384-396): enable and flag both set, which with a level-tracking flag means "take it only while the input is still
+asserted" - so an interrupt that arrives while its level is masked and whose line then releases is lost to MAME
+and kept by the manual. (3) A write of 1 to a flag bit clears `m_io_control` but then calls
+`flag_ext_interrupt` again (`tms7000_pf_w`, lines 539-562), so writing the clear bit while the line is still
+asserted puts the flag straight back, where the manual clears it.
+
+The manual is what `js/cpu/cpu7000.js` implements (`irqEnabled`, `writeIocnt0`, and `interrupt()` latching the
+flag). A `config.mameCompat` branch is not needed for this comparison, and none is added: the three rules agree in
+every state the Pak's firmware passes through, given the settle delay after a reset. The firmware waits for the
+PIC to finish its reset before the first command, so INT3 is always enabled while the line is idle before a write
+asserts it, and each `$FF7E` write asserts it afresh while the previous one has been acknowledged; no flag is
+ever derived from a released line and no clear is ever written while the line is still asserted. (Without that
+delay the first command does land before `IOCNT0` enables INT3; the bisect above measured that outcome (MAME
+drops the command and the PIC never reaches SERVE) but it did not measure the two flag models diverging, and
+that is not claimed here.) The 1,164,214-instruction masked lockstep
+and the 107-row interrupt-case comparison are the evidence. `tests/tms7000-core.test.js`
+section 11b checks the manual's table, the latch, and the write-1/leave-on-0 rule against the pages cited above.
+
+**Dragon Alpha sound** (`run.js dgnalpha --sound`, `tools/mame-diff/alpha/sound-compare.js`): MAME records our
+firmware (`alpha/sound.asm`: a tone, two tones at other volumes, noise, a triangle and an attack-hold envelope, and
+the DAC alone) with `-wavwrite` at 48 kHz; we render our machine's sound levels at the same rate and in MAME's scale.
+Per segment: the pitch within 1% (all are equal), the RMS within 3% (5% for noise; the worst is 1.47%), the
+attack-hold envelope's shape within 3% of its range (0.52%). Not sample by sample: MAME resamples the AY's 125 kHz
+stream through its own filter and starts its sample clock elsewhere. The DC level is not compared: MAME's mix
+carries constant offsets (its DAC and single-bit sound at -1 when silent) and our audio output removes DC.
+
+
+**CoCo 3 text attributes.** The display-mode comparison above cannot see the attribute bits fully: our text glyphs
+are our own design, so a character cell that differs counts as a font difference when it shows only two colours,
+and an underline drawn on the wrong row or a blink in the wrong state would pass that way. `run.js coco3 --video
+--attr` (`coco3/vdg-attr.asm`, generated by `run-vdg.js` with `ATTR=1`) fills the screen with blank characters only
+(`$20`, and `$A0`, which the GIME draws from the same glyph), each with its cell number as the attribute byte, so
+every one of the 256 bytes appears and no glyph ever shows. It is compared exactly, with no font allowance, in 32,
+40, 64 and 80 columns at lines per row 0-6, and in 40 and 80 columns with the blink state on (one GIME timer
+expiry toggles it, then the timer is stopped so it holds; each blink picture must differ from the same mode with
+blink off). Result against MAME 0.264: 34 of 34 identical: background (bits 0-2), the underline in the foreground
+colour (bits 3-5, 6) on the row MAME's `gime.cpp` and ours pick for 8, 9-10 and 11 lines a row and nowhere else, and
+blink (bit 7) blanking the character and its underline. Lines per row 7 is not compared: MAME makes it `0xFFFF`
+lines a row and reads its font past the end of the table.
+
+The Dragon 200-E's character generator is a character ROM, and like the BASIC ROMs it is the user's to supply:
+CLOADM never ships or fetches one. Its video comparison installs, in both emulators, a 4K pattern built by
+`tools/mame-diff/sam/spec.js` (`genChargen()`), so it proves the VDG's composed address
+`(raster line << 8) | (PIA1 PB4 << 7) | byte & 0xFFF`, the PB4 bank input, the LK1 "Inverse Video" link and the
+200-E's rewired AS/INTEXT (INTEXT is /AS, so text bytes with bit 7 clear reach the generator). It does **not**
+prove the real Spanish glyphs, which depend on the user's own dump. The same applies to the Dragon 64 Plus's 8K
+character generator below.
+
+The Dragon 200-E's mid-line comparison (`--raster`) is 17 of 17 cases, with lockstep to HALT. It runs its own
+variant of the firmware (`gen-raster.js --chargen`, `raster-chargen.asm`), because two cases mean something else on
+this machine. Case 5 sweeps PB4, which is the generator's bank here, not INT/EXT; MAME draws the bank once per
+field (it calls `char_rom_r()` from `screen_update`, after the field has run, and `config.mameCompat` holds it the
+same way), so the sweep runs at SAM V=1, where each split line's reads past the visible area move the display
+counter. Case 11 writes PB1 alone; on this machine MAME splits the line there too (below), so the case must show,
+where on the other machines it must not. The "must not change" guard compares a swept field with the last lead-in
+field, not the second: the first field of a case still shows the bank the previous case left.
+
+The SAM counter probe (`tools/mame-diff/sam/samv.asm`, `run-samv.js`) puts an address-tagged byte at every
+display address and shows it at SAM V=0 and V=1: every pixel matches MAME on the Dragon 32, 64, 200, 200-E,
+Tano Dragon 64, CP 400, CoCo and CoCo 2B, so our SAM fetches the same bytes in V=1 text as MAME.
+
+**Why PAL CoCo 3 timing has no MAME oracle.** `mame coco3p -listxml` reports `vtotal 262`, `refresh 59.922748`,
+and `coco3.cpp`'s `coco3p` machine config only swaps the clock (28.475 MHz) and the GIME variant - it never calls
+`set_raw` again, so MAME drives the same 262-line, 59.92 Hz screen as `coco3`, and its PAL GIME flag changes only
+the colour encoding. This emulator models a real PAL field instead: 312 lines with 25 padding lines at the top and
+25 inside the bottom border (`js/chips/gime.js`), which is what a PAL CoCo 3 displays. That is the product
+behaviour; MAME's artefact is not reproduced. The consequence is that PAL CoCo 3 frame and interrupt timing cannot
+be compared with MAME: `node tools/mame-diff/run.js coco3p` diverges at instruction 54,860 (MAME reads VBORD `$08`
+where we read `$00`; the same divergence point is instruction 54,850 with the diagnostic firmware as it was
+before four open-bus reads were removed from it, which is where the earlier figure came from), and forcing MAME's
+262 lines only moves the divergence to 36,605 at another register,
+because the rest of the PAL geometry differs too. The NTSC CoCo 3 is verified normally.
+
+**Dragon 64 Plus.** The board's own technical notes are the primary source: Compusense, "Dragonplus Interface
+Technical Information" (4 pages, (c) Compusense Ltd; archived by the Dragon Archive at
+`archive.worldofdragon.org/browse/downloads/Software/Dragon/Compusense Ltd/Dragon Plus/DragonPlusTech.pdf`, and
+confirmed by an original owner as the document Compusense supplied). Page 1 maps `$FFE0`/`$FFE1` to the 6845 and
+`$FFE2` to the memory bank register, and adds two 32K dynamic banks (A, B) and a 2K static video RAM (C) over the
+low addresses, the video RAM "without losing the remainder of the dynamic bank". Page 2 gives the write table:
+R2 R1 = 00 standard, 01 bank A, 11 bank B; R0 = 1 the video RAM; bits 3-7 not used. Page 3 gives the read: bit 0
+is 1 while the display is on and 0 while it blanks. Page 4 gives a 6845 register table (R9 = 10) and the
+character set in a 2764, of which only the first set is used, 16 bytes a character. The machine follows these,
+and `tests/d64plus.test.js` checks each against the notes' tables. The notes contradict themselves on one point:
+page 2 calls `$FFE2` "a write only register", and page 3 then defines its read (bit 0, the display status); the
+machine follows both, as MAME does (writes set the banks, reads return the status).
+
+Not verified, by the notes or by MAME:
+* the bank switching itself against any emulator: MAME 0.264 never applies it (below), so the comparison runs
+  with the banks held on the standard RAM, and the switching is checked only by the unit tests from the notes;
+* the order of the SAM's page bit P1 and the banks: an access paged by P1 to the upper 32K misses the banks, as
+  MAME's SAM forms the address before its banks see it; the notes do not say;
+* the value `$04` (R2 R1 = 10; kept as MAME keeps it, no change);
+* the dot clock and so the cell width (8 pixels, as MAME);
+* whether the MC6847 screen sees the selected bank (as MAME: it does);
+* the real 80-column glyphs (the user's `chargen.ic22`).
+
+Against MAME 0.264: `run.js d64plus` (the Dragon 64's diagnostic) and `run.js d64plus --plus` (our 80-column
+firmware: every HD6845S register and the R12-R15 read-back, the video-RAM bank, distinct bytes in banks A and B,
+the cursor and the start address) are identical to HALT, and `d64plus/run-video.js` matches all 168,960 pixels
+of the 640×264 screen, with the 8K pattern `tools/mame-diff/d64plus/spec.js` (`genChargen()`) builds in both
+emulators. They run under `config.mameCompat`, because 0.264 does not apply the bank register to memory (below),
+so in that comparison the video RAM is never written: the picture proves the CRTC's geometry, the cell addressing
+for code 0, the start-address walk and the cursor column, not the drawing of written characters, which the unit
+tests cover from the data sheet and MAME's `crtc_update_row()`. The real 80-column glyphs need the user's own
+`chargen.ic22`.
+
+**Cassette** (`tools/mame-diff/tape/run-tape.js`, on the Dragon 32 and 64, the CoCo 1/2 and 2B and the CoCo 3): MAME
+runs our writer firmware (`tape/csave.asm`, which writes a namefile, a 255-byte data block and an end-of-file block
+through the DAC as BASIC's writer does) and records its cassette output; that WAV decodes to exactly the 669 bytes
+written, as our own capture of the same firmware does. MAME then reads, with our reader firmware
+(`tape/cload.asm`), the `.CAS` and the WAV we captured and the WAV we export from that `.CAS`: every one reads back
+3 blocks and 255 data bytes with the right sum and no bad checksum, in MAME as on our machines. The CoCo 3 runs this
+pair unchanged in its 32K BASIC socket. Tape images and WAVs are compared by the bytes they hold, not sample by
+sample: MAME pads `.CAS` playback with silence and writes its own sample timing.
+
+The MC-10 and Alice use their own 6803 pair (`tape/csave6803.asm`, `tape/cload6803.asm`), since the machine has a
+6803 and no motor relay: the writer toggles P20 a square cycle per bit and the reader times the cycles on P24,
+reporting the data bytes and their sum in registers and the block and bad-checksum counts in its internal RAM.
+The firmware keeps its state in the 6803's internal RAM because the machine may have only the base 4K, which is
+what MAME's `mc10` fits by default. On that machine MAME's recording of our writer decodes to the same 669 bytes,
+and MAME reads our captured `.cas` and both WAV exports with our reader to the same counts, on the MC-10 and on
+the Alice. That `.cas` case was skipped for a while, reported as "the file opens but no signal reaches the
+machine"; two things were wrong and both are fixed. MAME's `mc10` and `alice` load a `.cas` with the *alice32*
+variant of the CoCo format, which puts 15 s of silence before every block rather than the plain CoCo 1 s, making
+our 669-byte capture a 50.3 s tape - far longer than the 30 s the comparison allowed, so it never reached the
+data. And the halt test accepted any PC in `haltPc..haltPc+2`, where `haltPc+2` is the entry of a subroutine the
+reader calls constantly, so a run that had not finished could look like a halt and report its scratch state. The
+comparison now allows 70 s for that file (`mc10` halts at ~36 s) and requires an actual `BRA *` halt.
+
+### Input
+
+`node tools/mame-diff/sam/run-hires.js coco|coco3 [max3|rat]`, and the keyboard maps in
+`tests/input.test.js`. Every keyboard position, both Hi-Res circuits and the CoCo 3's mouse come from a
+published source:
+
+| What | Source | Checked by |
+|---|---|---|
+| Dragon keyboard matrix | MAME 0.264 `src/mame/trs/dragon.cpp`, `INPUT_PORTS_START( dragon_keyboard )` (ports `row0`-`row6`, bits PB0-PB7) | `tests/input.test.js` positional map: every one of the 55 physical keys reaches the matrix position whose legend it names |
+| CoCo 1/2 and CoCo 3 matrix | MAME 0.264 `src/mame/trs/coco3.cpp`, `INPUT_PORTS_START( coco3_keyboard )`; the CoCo 1/2 shares the shape, and `coco12.cpp` `coco_keyboard` adds no keys the CoCo 3 lacks | same test, 59 keys |
+| MC-10 and Matra Alice matrix | MAME 0.264 `src/mame/trs/mc10.cpp`, `INPUT_PORTS_START( mc10 )` and `INPUT_PORTS_START( alice )` (port 1 strobes the columns, `$BFFF` reads the rows) | same test, 48 keys each |
+| Tandy Hi-Res Joystick Interface timing | MAME 0.264 `src/mame/trs/coco.cpp`, `keyboard_changed` and `poll_hires_joystick`: started by the DAC (PIA1 PA2-PA7) falling below `$20`, fires after `535 + 5850 x position` microseconds, truncated to whole microseconds as `attotime::from_usec` does | lockstep: firmware `sam/hires.asm`, on `coco` and `coco3` |
+| CoCo Max 3 interface timing | same file: started by PIA0 PA2 (right port) or PA3 (left port), fires after `380 + 2885 x position` microseconds | lockstep: firmware `sam/hires-max3.asm`, on `coco` and `coco3` |
+| CoCo 3 "The Rat" mouse | MAME 0.264 `src/mame/trs/coco3.cpp`, `INPUT_PORTS_START( coco_rat_mouse )` (2-bit counts per axis) and `coco.cpp` `poll_joystick`: the comparator answers against `joy_rat_table = {15, 24, 42, 33}` | lockstep: firmware `sam/hires-rat.asm` sweeps the DAC and records JOYIN at every step; `tests/input.test.js` checks all four table values |
+| CoCo Max input module registers | MAME 0.264 `src/devices/bus/coco/coco_max.cpp`, `ff90_read`: each read returns the value the previous read staged, cycling Y, X, left button, right button | `tests/input.test.js`, against the mouse's position |
+
+All of these are compared in **instruction lockstep**: every register and every cycle count must be identical
+and the firmware must reach HALT. On the local MAME (0.289, not the 0.264 reference), at stick positions
+0/341/682/1023:
+
+| Machine and interface | Instructions compared | Result |
+|---|---|---|
+| `coco`, Tandy | 14,957 / 18,468 / 22,013 / 25,524 | identical, HALT reached |
+| `coco`, CoCo Max 3 | 15,056 / 14,356 / 18,601 / 17,901 | identical, HALT reached |
+| `coco3`, Tandy | 20,434 / 28,923 / 32,468 / 35,979 | identical, HALT reached |
+| `coco3`, CoCo Max 3 | 20,534 / 24,812 / 24,078 / 28,356 | identical, HALT reached |
+| `coco3`, the Rat | 18,035 at each count | identical, HALT reached |
+
+A cycle-level difference found this way and fixed: the one-shot's deadline is now MAME's own formula
+(`trunc(535 + 5850 * axis/1023)` microseconds) evaluated from the time of the write, and JOYIN is sampled at
+the read's own bus cycle rather than after it.
+
+Not verified automatically: a real gamepad and a real mouse (the browser check drives a mocked
+`navigator.getGamepads`; the Rat is driven in Node), and the feel of the touch keyboard on a real phone or tablet.
+
+## The comparisons
+
+`tools/mame-diff/` compares this emulator with MAME's `dragon64` driver. Neither tool uses the Dragon ROMs: both
+emulators run diagnostic firmware written for this project, installed in the ROM sockets.
+Each run works in a folder of its own under the system temp folder (`lib/workdir.js`), removed when it ends (also on
+Ctrl-C), so runs of the same machine can go at the same time. If MAME can't find a ROM file, the run stops at once and
+names it.
+
+* `node tools/mame-diff/run.js <profile>` compares instruction traces in lockstep. It checks every register, flag and cycle
+  count after every instruction. The diagnostic firmware covers the ALU over a grid of operands with carry/half-carry in and
+  out, all indexed addressing modes, TFR/EXG, the stack, SWI1-3, every short and long branch, PIA registers, HS/FS timing
+  and IRQ, CWAI, SYNC, SAM writes, Dragon 64 ROM bank switching, the 64K map type, page bit P1 (with and without M1 and TY), keyboard rows and the joystick comparator.
+  Current result: **1,028,156 instructions identical**, cycle counts included.
+* `node tools/mame-diff/run.js <profile> --video` compares the rendered screen pixel by pixel in all 20 display modes. All text,
+  semigraphics and graphics modes are identical on the Dragon and CoCo machines, including the CoCo 2B's MC6847T1
+  character set with lowercase. Composite colour is compared exactly as well (see below); `--artifact N` sets MAME's
+  "Artifacting" option and ours alike (0 off, 1 Standard, 2 Reverse; default 1, MAME's default).
+  Current results: dragon64, dragon32, tanodr64, coco, coco2b and mc10 **20/20 identical** (coco, coco2b and mc10 at
+  each of the three settings); coco3 49 modes, **34 identical**, 15 identical
+  apart from our own font designs, 0 different, at each of the three settings (RGB monitor, exact RGB: the
+  compatibility modes' artifact colours are mixes of exact GIME colours, 55,384 and 73,728 pixels in the two
+  256-pixel modes).
+* `node tools/mame-diff/run.js <profile> --raster` compares video changes made *part-way along a scanline*.
+  The firmware (`<family>/gen-raster.js` writes `raster.asm`; `lib/raster.js` runs it) shows, per case, plain
+  lead-in fields and then fields in which a video register is written on many lines, one CPU cycle later on each line,
+  so the writes cover every beam position. It runs in lockstep with MAME to HALT (so every write lands on the same
+  cycle), then MAME records `-aviwrite` and one swept field per case is compared pixel by pixel, border included. A case
+  also fails if its writes change nothing (or, for a write that must not show, if they change anything).
+  Current results, all with identical traces to HALT: dragon64, coco and coco2b **17/17** (VDG modes, CSS, INT/EXT,
+  SAM V0-V2 and F, a non-video PIA bit, and composite colour across a mid-line mode change); mc10 **10/10** (every latch bit); coco3 **8/8** (palette, border, resolution,
+  horizontal offset, CSS in CG2; lines per row, vertical offset and the COCO bit are latched per field
+  and must not show). **CoCo 3 limitation:** MAME's GIME records each line whole, at its end, and cannot render a
+  partial line, so the CoCo 3 comparison is per line: it proves which line each write lands in, at every cycle of the
+  line. Ours does the same. A change part-way along a GIME line (which real hardware may show) is neither modelled nor
+  verified against hardware; no source describing it has been found.
+* `node tools/mame-diff/run.js mc10 --welcome` (and `alice`) compares the 6803 welcome program with MAME. The program
+  runs at `$5000` in RAM on the page, but MAME cannot load a `.bin` there and set the PC, so `mc10/gen-welcome.js`
+  writes `welcome-load-<machine>.asm`: a loader in the ROM socket that copies the `HALTCODE=1` build (its own bytes,
+  as `FCB`) to `$5000` and jumps to it. Both emulators run that image, so the CPU executes the shipped bytes; the
+  comparison build's stop is in fixed 2-byte slots, so it is the same length as the shipping build and differs from
+  it only there (`tests/welcome6803.test.js`). `--back` has the loader set what the Session sets for a returning
+  visitor first (GREET 1, "WELCOME BACK", and option 5, "CARRY ON WITH LIZA"). On MAME 0.264 the traces run to HALT
+  with every register and cycle count identical (mc10 16,347 instructions, alice 16,344; with `--back` 17,337 on
+  both), and `mc10/run-welcome-video.js <machine> [--back]` compares the drawn screen with MAME's `-aviwrite`
+  capture, pixel by pixel: 0 of 49,152 pixels differ in all four runs. The comparison stops at the HALT, before the
+  tune: the tune keeps the latch's value in RAM because `$BFFF` reads the keyboard (`tests/welcome6803.test.js`
+  checks it writes only the sound bit and leaves the text screen).
+* **Composite colour** follows MAME 0.264's model (`mc6847.cpp`, class `artifacter`; `MC6847.finishLine`). NTSC:
+  in the 256×192 mode each pair of pixels takes one of 16 colours chosen by a six-pixel window (MAME's
+  `artifact_correction` table; 14 of the colours are fixed mixes of the background and foreground,
+  `artifact_colors`); the phase setting swaps each mix with its partner. PAL: on each odd active line in the
+  semigraphics and four-colour modes, two different colours one above the other become one blended colour
+  (`create_color_blend_table`). Both follow the mode a line begins with, as MAME's do. Besides the pixel
+  comparison, every composite pixel is checked against MAME's own colour for it, computed from MAME's palette
+  (`tools/mame-diff/lib/composite.js`), so the two phases cannot be confused with each other. This is MAME's model
+  of a composite TV, not a signal-level simulation; no hardware measurement is compared.
+  **Decision:** this model is CLOADM's composite colour, and there is no separate signal-level
+  simulation. A simulation of the composite signal (pixels modulated onto the colour subcarrier and decoded with
+  filters) gives colours of its own, which cannot be verified pixel for pixel against the reference; MAME's model
+  can be, and is. The CoCo 3 shows artifact colours in its compatibility modes' 256-pixel two-colour mode
+  through the same artifacter, as MAME's GIME does (`gime.cpp` render_scanline; `GIME.artifactLegacy`), with
+  the palette entries in use as background and foreground. MAME applies them on either monitor; CLOADM ties them
+  to CRT · composite (the composite monitor), as a real RGB monitor shows no artifact colours.
+  The CoCo 3's composite monitor shows MAME's measured composite colours (`gime.cpp` `get_composite_color()`,
+  BSD-3-Clause, copyright-holders Nathan Woods; `js/chips/gime.js`), the phase-inverted set while `$FF98` bit 5
+  (BPI) is set, and grey while bit 4 (MOCH) is ((r + g + b) / 3, `mc6847.h` `black_and_white()`); the artifact
+  colours are mixed from whichever of them is in use. Like MAME, the choice applies to the whole picture, not
+  from the line where `$FF98` was written. `run.js coco3 --video --composite [--artifact N]`
+  (`coco3/vdg-composite.asm`: every display mode, plus BPI, MOCH and both on six of them) is identical to MAME's
+  composite monitor at artifact settings 0, 1 and 2, apart from glyph shapes in text; each BPI and MOCH picture
+  must differ from its plain mode. The colours before this were an approximation of our own, which fails 62 of
+  the 67 modes.
+* **The CRT look** (the Display tab's curvature, phosphor glow and scan lines; `GlPresenter` in
+  `js/video/canvas.js`, a WebGL fragment shader) changes only how the frame is shown, never the frame, so it has
+  no automatic oracle. `tools/browser-check.js --screenshots DIR` draws a fixed 256×192 artifact-colour picture at
+  fixed settings (`display-crt-default`, `-crt-phase2`, `-crt-max`, `-crt-flat`, `-sharp`), which are reviewed by
+  eye. What the browser check does verify: the WebGL presenter is in use, each control changes the setting and the
+  machine (composite colour on or off, the phase), integer scaling gives a whole number of display pixels per
+  line, "Fill" fills the area, everything is remembered over a reload, and without WebGL (forced) the 2D
+  presenter draws the picture, the tab says the CRT look is off and the page has no errors.
+  Manual review (Chromium, 640×480 picture at device scale 1): curvature, glow, edge darkening and
+  the swap of the two artifact phases look as intended; scan-line gaps aliased into curved bands at two display
+  pixels per line, so they now fade out below three (`lineScale` in the shader); Sharp shows square pixels.
+* **Defaults:** CRT · composite with artifact phase 1 (MAME's default), curvature 35 %, glow 55 %, 4:3, no
+  integer scaling. So composite colour is on from the start, and the CoCo 3 starts on its composite monitor's
+  palette; Sharp · RGB switches it to the RGB monitor's.
+
+* `node tools/mame-diff/run.js <dragon64|coco|coco3> --fdc [dragonfdc|premierfdc|cocofdc|multifdc] [--multi] [--images]` runs the
+  floppy disk controller cartridges (`fdc/`: `-ext dragon_fdc` with a WD2797 and `-ext premier_fdc` with a WD2791 on
+  the Dragon 64, `-ext fdc` with a WD1773 on the CoCo and the CoCo 3, and `multifdc`: the same CoCo controller in slot 4 of a
+  Multi-Pak, `-ext multi`, which the front-panel switch selects at reset, so the same firmware runs while every NMI
+  and HALT reaches the CPU through the Multi-Pak) with our firmware as the DOS ROM
+  (`fdc/gen-diag.js`) and four drives: a double-sided disk, a write-protected one (MAME opens an image inside a ZIP
+  read-only), a drive without a disk and a DMK disk, all built by `fdc/images.js`. The firmware covers register commit
+  delays, the index pulse, restore/seek/step at every rate with update and verify, step-out below track 0, verify
+  failure, read address, read sector (E delay, multi-sector, the WD2797's b flag, side 1), lost data, record not
+  found, write sector and deleted data marks, read track, write track in MFM and FM, write protect, the drive without
+  a disk, force interrupt (immediate, index, during a seek), NMI on INTRQ, the Dragon's DRQ-on-CART FIRQ transfer,
+  the CoCo's HALT transfer and multi-sector write. The Premier board's WD2791 has an inverted data bus, so its
+  firmware (`premier.asm`) writes and tests the complement of every register value; it also checks the WD2791's side
+  compare (C and S flags), and as the board connects no interrupt line, it polls the status where the others wait for
+  NMI. `--images` then runs MAME untraced to the end and requires the
+  disk images it writes and ours to be byte-identical (MAME cannot save DMK; ours is checked by reading back what the
+  firmware wrote). The controller is a port of MAME's `wd_fdc.cpp` (both data separators, the bit-level live state
+  with its roll-back), `floppy.cpp` (rotation, flux, weak bits, flux writing) and the VDK/JVC/DMK flux builders,
+  in MAME's exact time (`js/chips/attotime.js`). Things MAME does that we reproduce because they are part of what is
+  compared, and which real hardware may not do: a revolution takes 0.20000000298 s (`set_rpm` divides in single
+  precision); the cartridge slot delays NMI by 12 and HALT by 6 CPU cycles (`coco.cpp`) through a pool of two
+  timers per line, so a change waiting while two newer ones arrive is lost (the Dragon board re-sends NMI on every DRQ
+  change, which can swallow a short NMI pulse; our firmware never relies on one); PIA1 CB1 (CART) starts low.
+  On the CoCo 3 the same firmware runs from `fdc/boot3.asm` in the 32K ROM, which first sets the GIME's INIT0 to
+  $04: $FF40-$FF5F reach the cartridge only while INIT0 bit 2 (SCS) is set (MAME `coco3_state::ff40_read`; CoCo 3
+  BASIC sets it), as ours does. The line delays are CPU cycles there too, not GIME clocks (`slotHz`: the slot's own clock, XTAL / 32 on the CoCo 3).
+  `--multi` puts the controller in a Multi-Pak's slot 4 (`-ext multi -ext:multi:slot4 <controller>`, slots 1-3
+  empty; MAME offers controllers in slot 4 only) and runs `<board>-multi.asm`: the whole diagnostic, then `$FF7F` read
+  back, the controller's registers out of reach (reading 00, taking no writes) while SCS selects another slot, NMI (and
+  the CoCo's HALT) passing through while it does, and the Dragon's CART (DRQ) reaching PIA1 CB1 only while CTS selects
+  slot 4 (that part runs from RAM, its ROM being switched out). In a Multi-Pak the controller's lines go through the
+  Multi-Pak's slot (no delay) and then the machine's (NMI 12, HALT 6 cycles), so the re-sent NMI no longer swallows the
+  pulse there: MAME takes that NMI, and so do we. This needed one machine-wide time: a timer armed while another
+  device's timer runs counts from that timer's exact time (`js/chips/attoclock.js`, `host.attoNow`), as in MAME.
+  `--blank <vdk|jvc|dmk>:<T>x<H>` puts a new blank disk (`js/media/disk.js` `blankDisk`, what the drives card's
+  New blank disk makes) alone in drive 0 and runs `<board>-format-<T>x<H>.asm`: it reads the blank (sector 1 of
+  track 0, sector 18 of the last track and side), then formats every track and side with a write track whose IDs
+  carry the track and side and whose data names them, reading sector 18 back and writing the track again if it is
+  not there (a write track can end early: track 73 side 1 of 80 × 2 does, in MAME as here), and reads both ends
+  back. With `--images` the formatted images must be byte-identical; `--no-trace --images` skips the lockstep for
+  the long formats. A MAME that exits with an error (an image it cannot load) fails the run. A blank DMK is
+  double-sided only: MAME 0.264 cannot load a single-sided DMK (its `dmk_format::identify` reads byte 4 bit 4 as
+  the side count, then rejects a non-zero byte 4 as reserved; later MAME checks from byte 5 and writes 0x10 itself),
+  so CLOADM makes none it could not compare.
+  `--nmi` (dragon64) runs `fdc/nmi.asm` with `fdc/nmi-boot.asm`, which never loads S at reset: when the 6809 starts
+  taking NMI. An NMI edge before S is loaded is lost; EXG with S does not arm NMI, TFR r,S does (as LDS and LEAS),
+  as MAME's `m6809.cpp` and `m6809.lst` do. The NMI is the controller's INTRQ, raised and dropped with Force
+  Interrupt. **On the HD6309 the first five edges are dropped** (`--nmi --cpu 6309`, on dragon64 and on tanodr64
+  through `--fdc tanodragonfdc`): the 6309's TFR and EXG are its own implementation and neither arms NMI (MAME
+  `hd6309.lst`, the TFR and EXG handlers), so the firmware's EXG and TFR pulses do nothing there. Its last pulse
+  loads S with LDS, which the 6309 does arm on (MAME's 6309 uses the base core's LD16 handler, which sets
+  `lds_encountered`, `base6x09.lst`), so one NMI is taken through the 6309's own frame, vector and timing: the
+  counts are 0,0,0,0,0,1 against the 6809's 0,0,0,1,2,3. All three runs are identical to MAME 0.264 (the reference;
+  the 6309 rows are also identical on 0.289) instruction for instruction: 1,197,190 (dragon64, 6309), 1,204,410
+  (tanodr64, 6309) and 1,197,166 (dragon64, 6809), HALT reached in each. The CoCo-family NMI path is not exercised: the CoCo's cartridge NMI arrives through the
+  Multi-Pak, which is a separate comparison.
+
+* `node tools/mame-diff/run.js <coco|coco3|dragon64|dragon32> --cart <setup> [--audio]` runs the cartridges
+  (`cart/`) with our own firmware as the cartridge ROM (`boot.asm` replaces the BASIC ROMs and jumps to it;
+  on the CoCo 3 `boot3.asm` replaces its 32K ROM, first checks that a `$FF40` write does not reach the cartridge
+  while the GIME's spare chip select is off (INIT0 bit 2, MAME `spare_chip_select_enabled`), then turns it on;
+  `head.asm` copies each
+  firmware's code to RAM so it can switch banks and slots): `banked` and `bankedshort` (an RPK with PCB type
+  "paged16k", which makes MAME pick `banked_16k`; 128K and 40K images), `gmc` (`-ext gmc`), `orch90` (`-ext orch90`,
+  the firmware installed as the Orchestra-90's own ROM) and `multi` (`-ext multi`: a banked cartridge, an
+  Orchestra-90, an empty slot and the Games Master with the firmware; on the Dragons, whose Multi-Pak MAME builds
+  without a banked board, slot 1 holds a Program Pak). The Dragons run `gmc`, `orch90` and `multi` (MAME 0.264's
+  Dragon cartridge list, `dragon_cart_add_basic_devices`, has no banked board). The firmware covers every bank register
+  value, the SCS range and the `$FF60-$FF7F` space, writes to the ROM window, every `$FF7F` value with what each
+  selection shows and where SCS writes land, the PSG's tone, volume, latch and data bytes, period 0, noise modes and
+  the noise register reset, every Orchestra-90 DAC code on one side and fast changes on both, and the CART line
+  (tied to Q, or clear for an empty Multi-Pak slot) through the PIA1 CB1 flag and its FIRQ. `--audio` then has MAME
+  record the sound with `-wavwrite` and builds the same recording from what our cartridge did: each PSG or DAC write
+  with its time, our chip model at MAME's stream rate, and a port of the MAME 0.264 resampler and final mix
+  (`cart/audio.js`). One constant in that port was measured, not derived from MAME's source: MAME's recording is
+  one output sample later than its resampler alone puts it (found by fitting the Games Master recording; the same
+  value serves every setup). Write times are our machine's own exact time under `mameCompat` with no adjustment
+  (on the CoCo 3, MAME's CPU clock of 894886 Hz in quarter cycles, from 4 cycles before the first instruction;
+  `js/machines/coco3.js` `clockUnits`).
+  The tolerance is 2 LSB, for the order in which MAME adds its streams' floats. The first 20 ms (MAME's first
+  sound update) are left out: there, some of the Orchestra-90's DAC writes land one 192 kHz sample earlier than the
+  model has them (28 samples), and the run reports that count.
+  Repeatability: MAME's recording is the same file run after run (12 runs of `coco3 --cart gmc --audio`, from fresh
+  and reused work directories and under CPU load: identical WAVs; our side has no randomness). The Games Master has
+  no headroom under the tolerance: on the CoCo 3, 750 of its 576,080 compared samples differ by exactly 2 LSB (6,448
+  by 1). A run is compared only when MAME ran to the end (its exit status, and a recording at least as long as the
+  comparison), and one run at a time per work directory (`<work>.lock`): two runs of the same comparison used to
+  overwrite each other's recording.
+  It is compared only when MAME built the cartridge it is about: a Lua probe lists the devices in MAME's slot, and
+  each setup names the ones it needs (`:ext:gmc:gmc_psg`, `:ext:orch90`, the Multi-Pak's slot 2 Orchestra-90 and
+  slot 4 Games Master). A review run that recorded silence (largest difference 17,462 LSB, 78,318 samples over, 0
+  with sound) is what MAME records when the image ends up on a Program Pak instead (`:ext:pak`; reproduced by
+  dropping `-ext gmc`): that run is now refused with MAME's slot, images, output and arguments instead of compared.
+  On the CoCo 3 the Orchestra-90's ROM is compared only at `$C000-$DFFF`: MAME 0.264's GIME maps the cartridge
+  through `get_cart_base()` with the default 32K `get_cart_size()`, so above `$DFFF` it reads past the end of the
+  8K region, bytes that change from run to run (two runs found 1,190 and 1,199 non-zero bytes in `$E000-$FEFF`).
+  The board decodes A0-A12 only (MAME's own `cts_read`, `offset & 0x1fff`, used on the other machines), so ours
+  mirrors the 8K there, as on the CoCo 1/2 and the Dragons, where that is compared (`cart/orch90.asm`, `multi.asm`
+  read the boot ROM's machine flag at `$BFF0`).
+  Two machine behaviours the cartridge comparison brought out, now as in MAME and the hardware: the 6809's `CLR`
+  reads its operand before writing (MAME `CLR8` `@read_operand`; the MC6809 data sheet's cycle-by-cycle table), so
+  `CLR` of a PIA data register clears its flags; and `$FF60-$FFBF` with nothing there read the floating bus on the
+  Dragon and CoCo 1/2 (the byte at `$FFFF`, or the next opcode byte for a no-offset indexed read: MAME's
+  `coco.cpp` `floating_bus_read`, after Darren A's measurements), where they used to read `$FF`.
+  One caveat on that: MAME's test masks the index postbyte with `$BF`, which makes `,X` and `,U` no-offset but
+  leaves `,Y` and `,S` reading `$FFFF`'s byte, while Darren A's description says every no-offset indexed read
+  returns the next opcode. CLOADM follows MAME (and the lockstep comparison below), so the `,Y`/`,S` case is
+  MAME's behaviour, not a hardware measurement - it is unverified against a real machine.
+* `node tools/mame-diff/run.js <profile> --printer` prints every byte value 0-255 and a line of text with firmware
+  written for this project (`sam/printer-parallel.asm` for the Dragons, `sam/printer-serial.asm` for the CoCos,
+  `mc10/printer.asm`), runs it in lockstep with MAME to HALT, and compares MAME's printer file (`-prin`) with our
+  printout byte for byte; both must also be exactly what the firmware sent. Current results: dragon32, dragon64,
+  dragon200, tanodr64 **300 bytes identical**; coco, coco2b, coco3 and the clones mx1600, lzcolor64, cd6809 **305 identical**; mc10 **306 identical**; every
+  trace identical to HALT.
+  * The Dragon prints whenever PIA1 port A is written with PA1 (the strobe) high (MAME `dragon.cpp`), including at
+    reset: the PIA's port A becomes inputs, pulled high (`6821pia.cpp` device_reset), so a reset prints PIA0 port B,
+    $FF. The Printer box's text leaves such bytes out; the saved file has them.
+  * The serial printers sample each bit at its middle, 1.5 to 9.5 bit times after the start edge, as MAME's
+    `diserial.cpp` does (`js/machines/serial.js`). Making the line an output while it holds 0 is a start bit:
+    the firmware sets the output register before the DDR.
+
+* `node tools/mame-diff/run.js <profile> --serial` runs `sam/serial-loopback.asm` (`mc10/serial-loopback.asm`) with
+  a loopback plug on the bit-banger, in lockstep with MAME's `-rs232 loopback`: the firmware sends 13 bytes as
+  8N1 frames and reads every bit back from RXD, and records the port's other inputs (PIA1 port B, the carrier
+  detect on CA1; the MC-10's CTS). Current results: coco, coco2b, coco3 (128K and 512K), mx1600, lzcolor64, cd6809, mc10 **identical to
+  HALT**, all 13 bytes read back as sent. What the device drives follows MAME's devices: the printer holds RXD,
+  DCD and CTS low (`rs232/printer.cpp`); the loopback drives DCD and CTS only from DTR and RTS, which these ports
+  lack, so they stay high (`rs232/loopback.cpp`). With the CoCo's PIA1 port B as inputs, PB2 is the RAM size sense
+  (PIA0 PB6) and PB1 reads 0 (`coco.cpp` pia1_pb_r).
+* On the Dragon 64, 200 and Tano, `--serial` runs `sam/acia.asm` on the 6551 with a loopback plug: the registers
+  after power-on and after a programmed reset; 20 bytes sent and read back at 1200, 9600 and 19200 baud in 6
+  word formats (7 and 8 bits, odd, even, mark and space parity, two stop bits), every poll counted so each status
+  change is compared to the cycle; the receive and transmit interrupts taken in CWAI; overrun; a break (framing
+  error); DTR off stopping the clock. MAME's plug is its patch box (`-rs232 patch`, set in the run's cfg file:
+  RxD from TxD, CTS, DSR and DCD held asserted), because the Dragon 64 does not wire the 6551's RTS and DTR to the
+  port, so MAME's plain loopback would leave CTS high and the transmitter off. Current results: dragon64, dragon200,
+  tanodr64 **identical to HALT**, all 20 bytes read back as sent. The chip follows MAME's `mos6551.cpp` state for
+  state, including its clock: 1.8432 MHz divided by the rate, in whole Hz, running only while DTR is on or a byte
+  is coming in. This run found that CWAI checks for an interrupt after 16 cycles (opcode, mask, two dead cycles
+  and 12 pushes; MAME `base6x09.lst`), not 20: no earlier firmware had an interrupt arrive that soon.
+* `node tools/mame-diff/drivewire/run-dw.js [profile ...]` runs `drivewire/dw.asm`, a DriveWire client that plays a
+  script of transactions over the Becker port and logs every byte the server sends: RESET, INIT, NOP, DWINIT, TIME;
+  Read, ReRead, Read Extended (a right and a wrong checksum), ReRead Extended, Write (a wrong checksum, a
+  write-protected drive, a drive not mounted, past the end of an image), ReWrite; GetStat and SetStat; named object
+  mount and create; printing; virtual serial channels (SERINIT, SERREAD in each of its forms, SERREADM including
+  asking for more than is waiting, SERWRITE, FASTWRITE, SERWRITEM, SERSETSTAT with SS.ComSt, SS.Open and SS.Close,
+  SERGETSTAT, SERTERM, a channel the host closes); an unknown op code. MAME 0.264 runs it with its Becker port on
+  (`coco_dwsock`, set in the run's cfg file), connected over TCP to the same server (`spec.js` sets up its drives,
+  named object, clock and channel host); our machine runs it with the server in-process. One MAME run gives two
+  comparisons. (1) Instruction lockstep to HALT, every register and cycle count. MAME's TCP link has real latency,
+  so left alone its polls would see an answer sooner or later from run to run (a control run without the hold
+  below diverges at instruction 52, the first poll). The server therefore writes to a file how many bytes it has
+  taken and answered, once the answer is on the socket. `dw.asm` writes SYNC before each status poll, and a Lua
+  write tap there holds MAME's CPU until that count covers every byte written to $FF42 (counted by a second tap).
+  Every poll then sees what ours sees from its in-process server, which answers at once; this relies on Linux
+  delivering loopback TCP data to the receiving socket within the sender's write. (2) The log of 2624 bytes the
+  server sent, the five images and named objects it wrote, its printout and the guest's channel bytes, byte for
+  byte. Current results: coco, coco2b and the clones mx1600, lzcolor64, cd6809 1,636,422 instructions, coco3
+  1,636,346, all **identical to HALT**, and
+  every byte identical (`--no-trace` runs the byte comparison alone). That the server follows the
+  DriveWire 4 specification is shown by `tests/drivewire.test.js`, whose expected bytes come from the
+  specification's tables. That run found that MAME's CoCo 3 passes $FF40-$FF5F through only while the GIME
+  enables its spare chip select ($FF90 bit 2, `coco3_m.cpp` ff40_read); we do the same.
+  Where the specification leaves a choice, or is not followed literally: the checksum is the 16-bit sum of all 256
+  bytes (Appendix B's C listing, `while(--count)`, would leave out the last byte, while every transaction defines it
+  as "the 16 bit checksum on the 256 bytes"); write protect answers $F2, OS-9's E$WP (Appendix A lists only $F3-$F6
+  but says the codes "mirror the same codes used in OS-9"); a sector past the end of an image reads as zeroes and
+  writing one grows the image. Virtual window channels (128-142) are served as the specification defines them:
+  they open, read and write through the same transactions as the serial channels, and SERREAD's one-byte and
+  count replies use the table's numbers (129-143 and 145-161, which evaluate to the same `channel + 1` and
+  `channel + 17` the serial channels use). They are raw byte pipes like the serial channels, because the
+  specification gives no window descriptor ("TODO: /Z window descriptor overview" is its own note) and no
+  FASTWRITE encoding for them ("- 128 + 32??? see aaw"), so window FASTWRITE is not implemented. Not implemented:
+  WireBug, the 230K rate-switch ops ($E6, $FD: a wire bit rate, which a Becker port does not have, and the
+  specification gives no layout or reply for them), OP_RFM ($D6: it appears only in Appendix C's op-code table,
+  with no transaction described anywhere in the document) and the virtual modem (a channel is a raw byte pipe),
+  and the 250 ms transaction timeouts (a Becker port loses no
+  bytes, and the machine waits for the store instead). None of this has been tried against a real DriveWire 4
+  server or a real CoCo driver (HDB-DOS, NitrOS-9): those need ROMs and software we do not ship.
+* <a id="web-serial"></a>**Web Serial (a real CoCo on a serial cable) is not verified.** `js/host/web-serial.js` serves DriveWire on a
+  serial port the browser opens (8N1, 38400-230400 baud), on the same drives as the emulated machine, through a
+  second server so the two links do not mix. `tests/web-serial.test.js` and the browser check run it against a
+  mocked `navigator.serial` (a port made of web streams): the port is opened at the chosen rate, Reads and Writes
+  are answered from and land in the shared images, stop and unplugging close it. Nothing has been run on a real
+  cable. To try it: a CoCo with a DriveWire-enabled DOS (HDB-DOS for DriveWire, or NitrOS-9 with the DriveWire
+  drivers) on its bit-banger port, a DriveWire serial cable and a USB serial adapter; Chrome or Edge on a desktop;
+  open `play/`, add a disk image in the Machine tab's DriveWire box and choose it for drive 0, pick the rate the
+  CoCo's driver uses, click "Serve a real CoCo…" and choose the adapter; then `DIR` (HDB-DOS) or `dir /x0`
+  (NitrOS-9) on the CoCo should list the image.
+* `node tools/mame-diff/run.js <profile> --pia1b` reads PIA1 port B's input pins with PIA0 PB6 high, low and an
+  input, and port B all inputs, mixed and all outputs (`sam/pia1b-body.asm`). Every Dragon and CoCo wires them as
+  MAME's `coco.cpp` `pia1_pb_r` has them: bit 2 senses the RAM size (16K reads it high; with 32K or 64K it follows
+  PIA0 PB6), bit 0 is the RS-232 port's received data (the CoCo's bit-banger, whose default printer holds it low;
+  the Dragon 64, 200 and Tano's 6551 port, idle high with nothing connected; the Dragon 32 has none, and MAME's
+  Alpha has the 6551 but no port: profile field `rs232`), the other pins read 0. Identical to MAME on dragon32,
+  dragon64, dragon200, tanodr64, dgnalpha, coco, coco2b, mx1600, lzcolor64, cd6809, cp400 (CoCo hardware, so the
+  same wiring), coco3 and coco3p, and on the CoCo at 4K, 16K and 32K (`--ram N`). On the Alpha
+  (`alpha/pia1b.asm`) the firmware runs at `$A000` from both ROM banks, since PIA1 PB2 as an output pages between
+  them. (The Dragons and the CoCo 1/2 used to read `$FA`.)
+
+## Deviations from MAME
+
+MAME artefacts reproduced only under `config.mameCompat` (the comparisons turn it on; the product does not):
+
+* Dragon 64 Plus: MAME 0.264's `$FFE2` write (`d64plus_bank_w()`) sets its two memory banks' entries, but CPU and
+  VDG accesses to `$0000-$7FFF` keep reaching the standard RAM: a Lua probe writing each documented value and
+  then `$0100` and `$1000` reads back what it wrote every time, while the `:plus_ram` and `:video_ram` shares are
+  never written. Compusense's technical notes (above) document working banks, and MAME 0.289 banks as the notes
+  say; 0.264 does not. A separate local probe of 0.289's `$FFE2` (16 cases, none differing from
+  `js/machines/d64plus.js`) found bits 2-1 select the bank, bit 0 maps the video RAM over `$0000-$07FF` only,
+  and the read's bit 0 is 1 outside blanking. Both versions' `d64plus_bank_w()` leave both banks' entries as
+  they were for the undocumented `$04`/`$05` (0.264's entries after `$03` then `$04`: plus RAM 1, video RAM 3), and
+  so do we. Without `mameCompat` the banks reach memory (`js/machines/d64plus.js`).
+
+* A cartridge that ties CART to Q (the program pak with auto-start, the banked ROM cartridge, the Games Master, the
+  Orchestra-90): MAME toggles the line five times through its slot's timers whenever a PIA1 register is written
+  (`cococart.cpp` `twiddle_q_lines`, called from `coco.cpp` `ff20_write` and on the CoCo 3 from
+  `coco3_state::ff20_write`, "something that approximates the
+  cartridge Q line behavior"). On the hardware CART follows the CPU's Q clock all the time (`coco_pak.cpp`: "normal
+  CoCo PAKs tie their CART line to Q - the system clock"); without `mameCompat`
+  ours toggles it once per scan line, so PIA1 CB1 (and on the CoCo 3 the GIME's EI0) sees edges continuously
+  (`js/machines/sam.js` `lineStart`, `js/machines/coco3.js` `hsRiseEvent`).
+
+* HALT: MAME suspends its 6809 at the scheduler check point where HALT arrives, inside an instruction, and runs the
+  rest of the instruction after HALT is released. The MC6809E data sheet (Motorola, HALT pin description) has the
+  processor stop at the end of the current instruction, as ours does without `mameCompat` (`js/machines/sam.js`
+  `haltChanged`, `js/machines/coco3.js` `fireEvent`, `js/cpu/cpu6809.js` `haltTail`).
+* CoCo 3 exact time (the disk drives' clock): MAME's machine time is reckoned in its 6809's cycles (1e18 / 894886
+  attoseconds, a GIME clock being a quarter of one at 0.89 MHz) and starts one CPU cycle later than ours; measured with
+  a Lua tap on the WD1773's registers (its first status read at 0.272549799639 s, 7 CPU cycles after MAME's CoCo on
+  the same firmware). Without `mameCompat` the GIME clock of the real 28.636363 MHz crystal is used
+  (`js/machines/coco3.js`).
+
+* m6809 `SYNC` with an interrupt already pending takes 3 cycles in MAME (`base6x09.lst`), 5 in ours: the Motorola
+  MC6809 data sheet's instruction table gives SYNC ">= 4" cycles, plus one to release (`js/cpu/cpu6809.js`;
+  both paths tested in `tests/cpu.test.js`).
+* Dragon 200-E: MAME's driver drives the VDG's INTEXT from two places, from each fetched byte (`sam_read()`, /D7)
+  and from PB4 on every PIA1 port B write (`coco12_state::pia1_pb_changed()`, inherited). When they disagree, the
+  write is a mode change to MAME's mc6847 and splits the line, so its reads run on past the visible area and, at
+  SAM V=1, move the display counter, although nothing on the 200-E's VDG changed. The 200-E's PB4 reaches only the
+  character generator (`dragon200e_state::char_rom_r()` in the same driver), so without `mameCompat` a PB write
+  that changes no VDG input changes nothing (`js/machines/sam.js` `mameIntextTrack`; both halves tested in
+  `tests/models.test.js`, raster case 11).
+* MAME's mc6847 records a line lazily: only on a mode change and at the next HS. The part of a line after a change
+  is drawn from the last sample's mode, and pixels it never draws keep the previous frame's (`MC6847.endLine`, `keepTail`).
+* MC-10: MAME's CPU clock is a whole number of Hz (894887 against the VDG's 3579545 / 4), its 6801 core performs
+  accesses at the instruction's start, the HS start is truncated one clock early, and a write before that start
+  freezes the rest of the line (`js/machines/mc10.js`).
+
+## NitrOS-9 boot test
+
+A development check, not a claim that NitrOS-9 is supported. `tests/nitros9.test.js` boots the official NitrOS-9
+v3.3.0 Level 2 CoCo 3 DriveWire images (6809 and 6309) with our own boot loader (`tools/nitros9/bootdw3.asm`) in
+place of the CoCo 3 ROM and our DriveWire server on the Becker port, types `dir` at the shell, and checks the screen
+text against the NitrOS-9 sources that print it and every DriveWire transaction (but TIME) against MAME 0.264 running
+the same image, loader and server (`tools/nitros9/boot-mame.js --record`, kept in `tests/fixtures/nitros9/`). The
+images are not in this repository: `node tools/nitros9/fetch.js` downloads them from the project's SourceForge
+release, pinned by SHA-256, into `$NITROS9_CACHE` (default: the system's temporary folder); without them the test
+skips with that reason. Both cases are full boot checks: the 6309 image clears the kernel's system page with
+TFM r0,r1+ ($113B), which this branch's core runs correctly, so it reaches the shell like the 6809 one.
+
+## SAM CPU rate (the speed POKEs)
+
+What the MC6883 data sheet says, and what we do (Motorola, Advance Information; pages of the 25-page scan):
+
+* **Rate 00** (p. 11): every cycle is crystal / 16, as before.
+* **Rate 01, address-dependent** (p. 11): crystal / 16 for `$0000-$7FFF` and `$FF00-$FF1F`, and crystal / 8 for
+  everything else, including the `$FFFF` of internal cycles. The 6809 now reports every bus cycle with its address
+  (`js/cpu/cpu6809.js`; the addresses follow hoglet67's captures of a real 6809, as in XRoar). Each cycle is timed
+  by its address.
+  * The data sheet shows the stretched cycles at a speed change (Figure 8) but not their length. We use XRoar's
+    lengths: 15 crystal clocks slow→fast, 17 fast→slow, and 25 when an odd number of fast cycles has put the SAM
+    out of step with the VDG.
+  * The data sheet doesn't say whether RAM above `$8000` in map type 1 is fast. We keep it slow, so that video
+    and refresh stay transparent as p. 11 promises for this mode (XRoar does the same).
+* **Rate 1x, fast** (p. 11; Figure 3 note 1, p. 6): every cycle is crystal / 8. The VDG's time slot carries a
+  second CPU address, and neither display nor refresh is available.
+  * The data sheet doesn't say what the VDG shows then. We take, as XRoar does, that it latches RAM at the
+    address the SAM last presented for the CPU.
+  * We apply that per video byte: each byte of a line reads RAM at the CPU's last RAM address at that byte's
+    fetch time. The active line starts 254 crystal clocks after HS falls (from XRoar's `mc6847.h`). XRoar
+    applies it per 16-byte run, so its garbage is coarser than ours.
+  * The SAM's video counter keeps advancing. Going back to slow restores the picture at once.
+* Software timing (delay loops, `SOUND`, cassette loading) changes as it does on hardware.
+  `tests/tape-rate.test.js` shows a pulse-counting loader. Run from ROM at rate 01, it fails: its loop runs
+  twice as fast. Run from RAM at rate 01, it still loads, because there the speed-change cycles cost exactly
+  what the fast cycles save. Nothing special-cases loading.
+
+How it's verified:
+
+* **XRoar, hardware model.** `tools/mame-diff/sam/run-xroar.js` runs the same firmware on XRoar 1.13 (built
+  headless) and compares every instruction's time in crystal clocks, for `rate.asm`, `ops.asm` and the
+  diagnostic firmware.
+  * `rate.asm` covers timed loops in ROM, RAM and mixed at every rate, mid-field switches, the data sheet's
+    sequence for leaving rate 01, and map type 1.
+  * `ops.asm` covers every instruction class and addressing mode at rate 01 from ROM and RAM.
+  * Result: every instruction takes the same time. XRoar's video phase after reset differs from ours, so the
+    comparison resynchronises after field-sync polls. It reports interrupt entries and `CWAI` waits that the
+    phase places differently.
+* **MAME, with `config.mameCompat`.** MAME 0.264 runs any non-zero rate at full speed everywhere
+  (`6883sam.cpp`, "dual speed ???"). It also re-times the cycles already run in its scheduler slice when the
+  clock changes. Our MAME model follows its scheduler exactly:
+  * slices end at m6809 check points;
+  * a rate change re-times the slice;
+  * MAME's whole-Hz clocks make the CoCo's CPU run 0.28 ppm slower than a quarter of its VDG clock.
+
+  `node tools/mame-diff/run.js <profile> --rate` and `--ops` must show every instruction identical in all
+  registers and cycle counts, with HALT reached. This holds on `dragon64`, `dragon32`, `coco`, `coco2b` and
+  `tanodr64`.
+
+**Deviation from MAME:** at the fast rate, MAME keeps the screen intact, while real Dragons and CoCos lose it
+([MAME bug 6774](https://mametesters.org/view.php?id=6774)). We implement the data sheet. MAME's intact screen is
+kept only under `config.mameCompat`. `tools/mame-diff/sam/run-fastvid.js` checks it: MAME's bitmap at the fast
+rate equals its slow-rate bitmap bit for bit, and so does ours under `mameCompat`. Without it, ours changes the
+picture and keeps it the same in every field. The fast-rate picture has no automatic oracle: XRoar screenshots of
+`fastvid.asm` are the second opinion. Both lose the screen and show characters from the RAM the CPU reads.
+
+**Not emulated:**
+
+* About one in five 1983 Dragons wouldn't run at the fast rates. We emulate a machine that accepts the POKEs.
+* Nothing persists past a reset or a power cycle: there is no "damage".
+
+---
+
+See also: [The HD6309 core](cpu6309.md) · [MAME 0.289 results](mame-0289-results.md) · [Development](development.md) · [Machines](machines.md)

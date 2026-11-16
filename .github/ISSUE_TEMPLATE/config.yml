@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and ideas
+    url: https://github.com/yaniv-golan/cloadm/discussions
+    about: Ask how to use CLOADM, share programs and ideas in Discussions.
+  - name: Report a security vulnerability
+    url: https://github.com/yaniv-golan/cloadm/security/advisories/new
+    about: Report privately, not in a public issue (see SECURITY.md).
