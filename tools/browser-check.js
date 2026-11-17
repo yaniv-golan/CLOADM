@@ -1015,7 +1015,9 @@ async function nitros9Checks(browser, base, check) {
   const lines = () => page.evaluate(shellText);
   for (const cpu of ['6809', '6309']) {
     const name = `nos9${cpu}l2v030300coco3_becker.dsk`, { bytes, reason } = cached(name);
-    if (!bytes) { skip(`nitros9 ${cpu}: the release image boots from the page to the NitrOS-9 shell`, reason); continue; }
+    // not cached (never fetched in CI): a SKIP. Present but not matching its pinned SHA-256: a FAIL, not a SKIP
+    if (!bytes && /not found/.test(reason)) { skip(`nitros9 ${cpu}: the release image boots from the page to the NitrOS-9 shell`, reason); continue; }
+    if (!bytes) { check(`nitros9 ${cpu}: the cached release image is the pinned one`, false, reason); continue; }
     await open('?machine=coco3&cpu=6809&ram=512');
     await page.setInputFiles('#n9File', file(name, bytes));
     const prompted = await waitForFrames(page, (s) => { const t = eval(s); return t.includes('{Term|02}/DD:'); }, shellText, 40 * 60);
@@ -1428,7 +1430,7 @@ async function powerOnChecks(browser, base, check) {
   await page.click('#pokeBook button[data-poke="POKE 65495,0"]');
   // the POKE is done; then a few frames, in which a menu key it wrongly pressed would show
   await waitFor(page, () => window.emu.machine.sam.rate === 1);
-  await emuFrames(page, 5);
+  await emuFrames(page, 60);   // longer than typing "POKE 65495,0" into the key queue would take to reach its digits
   const poked = await page.evaluate(() => ({ rate: window.emu.machine.sam.rate, keys: window.__menuKeys.join(), menu: window.emu.session.welcomeRunning, msg: document.getElementById('toast').textContent }));
   check('the POKE book on the welcome menu: POKE 65495,0 sets the SAM rate; no menu key pressed; the menu stays', poked.rate === 1 && !poked.keys && poked.menu && keysBefore === 0,
     JSON.stringify(poked));
@@ -2725,9 +2727,19 @@ async function feedbackChecks(browser, base, check) {
     await page.click('[data-kind-filter="tape"]');
     check(`feedback (${label}): the next action clears the old message`, !(await shown(page)), JSON.stringify(await ev(() => window.emu.feedback.pending)));
     // and one left alone goes after 4 s (no action on it: two files)
+    // its time up is measured in the page as it changes (page time, not the time a loaded runner takes to look): from
+    // its text going up to the toast hiding. (On the Library it is in view at once, so its 4 s start then.)
+    await page.evaluate(() => { const life = window.__life = {}, t = document.getElementById('toast');
+      new MutationObserver(() => { const now = performance.now(), up = !t.hidden && /2 files added to your Library/.test(t.textContent);
+        if (up && life.on == null) life.on = now;
+        if (!up && life.on != null && life.off == null) life.off = now; })
+        .observe(t, { attributes: true, attributeFilter: ['hidden'], childList: true, characterData: true, subtree: true }); });
     await add('WORLD.BIN', bin, 'MORE.BIN', bin);
     await shownWithin(page, /2 files added to your Library/);
-    check(`feedback (${label}): a toast left alone goes after 4 s`, await goneWithin(page, 20000) && await ev(() => !document.getElementById('toast').textContent));
+    const gone = await goneWithin(page, 20000);
+    const life = await page.evaluate(() => window.__life), shownMs = life.off - life.on;
+    // 4 s from when it is first in view; a frame either side, and a timer that fires late on a loaded page
+    check(`feedback (${label}): a toast left alone goes after 4 s`, gone && shownMs >= 3900 && shownMs <= 8000 && await ev(() => !document.getElementById('toast').textContent), `up ${Math.round(shownMs)} ms ${JSON.stringify(life)}`);
     // a single file added: the toast offers to load it
     await add('LOADME.BIN', bin);
     check(`feedback (${label}): one file added: "1 file added to your Library" with Load`, await shownWithin(page, /^1 file added to your Library/)
@@ -2776,8 +2788,8 @@ async function feedbackChecks(browser, base, check) {
       let over = null;
       // (a toast of our own, held up by hovering it: the program's load message may already have run its 4 s on a loaded
       // machine; the rule is the same for any toast. Read for up to 120 frames, not a wall-clock time)
-      await ev(() => { window.emu.feedback.clear(); window.emu.feedback.toast('Placed on the emulator'); });
-      await shownWithin(page, /Placed on the emulator/);
+      await ev(() => { window.emu.feedback.clear(); window.emu.feedback.toast('Loaded LOADME from your Library'); });
+      await shownWithin(page, /Loaded LOADME from your Library/);
       await page.hover('#toast');
       for (let i = 0; i < 60; i++) { await settle(); over = await measure(); if (placed(over)) break; }
       check('feedback (desktop): on the emulator the toast covers no control (controls, slots, drawer, header), and the screen only at its foot when the bottom edge has no free place',
@@ -2796,7 +2808,7 @@ async function feedbackChecks(browser, base, check) {
     await page.click('#btnPause'); await page.click('#btnPause');
     // (gone; or, where a message raised meanwhile was waiting for room, that one now in its place). Read at once: the
     // clearing is synchronous in the pointerdown, and a later read could see the toast's own timer end it instead.
-    const after = await ev(() => ({ up: !document.getElementById('toast').hidden, text: document.getElementById('toastText').textContent }));
+    const after = await page.evaluate(() => ({ up: !document.getElementById('toast').hidden, text: document.getElementById('toastText').textContent }));
     check(`feedback (${label}): on the emulator too, the next action clears the old message`, !!oldText && (!after.up || after.text !== oldText), JSON.stringify({ oldText, after, pendBefore, pendAfter: await ev(() => window.emu.feedback.pending) }));
 
     // the rule: a toast never covers a control. On the emulator, scrolled to the top, to the slots and to the end,
@@ -2849,7 +2861,7 @@ async function feedbackChecks(browser, base, check) {
     await page.click('#libTiles [data-name="library/WORLD.BIN"]');
     await page.click('#btnLibDelete');
     // ("at once": well inside the toast's 8 s, at whose end the delete would otherwise happen)
-    check(`feedback (${label}): Delete needs no confirm box: the tile goes at once, with "Deleted WORLD.BIN" and Undo`, await waitFor(page, () => !document.querySelector('#libTiles [data-name="library/WORLD.BIN"]'), null, 5000)
+    check(`feedback (${label}): Delete needs no confirm box: the tile goes at once, with "Deleted WORLD.BIN" and Undo`, await waitFor(page, () => !document.querySelector('#libTiles [data-name="library/WORLD.BIN"]'), null, 3000)
       && await shownWithin(page, /Deleted WORLD\.BIN/) && await ev(() => document.getElementById('toastAction').textContent === 'Undo'));
     await tryClick('#toastAction');
     check(`feedback (${label}): Undo brings it back, still stored`, await waitFor(page, () => !!document.querySelector('#libTiles [data-name="library/WORLD.BIN"]')) && /WORLD\.BIN/.test(await stored()));
@@ -3346,7 +3358,8 @@ async function libraryStorageChecks(base, check) {
   await drag('#libTapes .spine[data-name="library/HELLO.CAS"]', '#libHeading');
   // the drag has ended; then the frames in which a wrong load or add would show
   await waitFor(page, () => !document.getElementById('library').classList.contains('dragging'));
-  await ticks(page, 10);
+  await ticks(page, 30);
+  await page.evaluate(() => window.emu.session.index.settled());   // and the library's index has taken in any (wrong) add
   check('drag: a spine let go anywhere else loads nothing, adds nothing, and the hint goes', await page.isVisible('#library') && await names() === before && await msg() === msgBefore
     && await page.evaluate(() => !document.getElementById('library').classList.contains('dragging')), await msg());
   await page.click('#btnLibSelect');
@@ -5388,7 +5401,8 @@ async function askFollowupChecks(browser, base, check) {
     t = await lbTurn('10 PRINT "SEVEN"', sidePanel('Load seven'));
     check('side panel: the next card starts with the box unticked (a tick does not carry over to the next card)', await loadCard() && !(await page.isChecked('#chkAskLoadNoAsk')));
     await page.click('#btnAskLoadNo');
-    await t.settle();
+    res = await t.settle();
+    check('side panel: Don\'t load on the next card: load-declined', !!(res.out && res.out.error && res.out.error.code === 'load-declined'), JSON.stringify(res));
 
     // the full-screen card (#claudeLoad): the conversation moves to full screen, the machine in use is the BASIC session
     await page.click('#btnAskFull');
@@ -6244,7 +6258,7 @@ async function shareChecks(browser, base, site, check) {
     const ctx2 = await browser.newContext({ serviceWorkers: 'block' });
     // every message the page says, recorded from its start: a 4 s toast can end before a loaded machine reads it
     await ctx2.addInitScript(() => { window.__said = []; document.addEventListener('DOMContentLoaded', () => { const t = document.getElementById('toastText');
-      if (t) new MutationObserver(() => { if (t.textContent) window.__said.push(t.textContent); }).observe(t, { childList: true, characterData: true, subtree: true }); }); });
+      if (t) new MutationObserver(() => { if (t.textContent) window.__said.push(`${document.getElementById('toast').classList.contains('error') ? 'ERROR ' : ''}${t.textContent}`); }).observe(t, { childList: true, characterData: true, subtree: true }); }); });
     const said = (p) => p.evaluate(() => window.__said.join(' | '));
     const p2 = await ctx2.newPage();
     // waited for: the page's own "the link is in" (linkDone is set once the link's snapshot has been opened or
@@ -6253,11 +6267,13 @@ async function shareChecks(browser, base, site, check) {
     await p2.goto(link);
     await linkIn(p2);
     check('share: the link opens exactly that moment in another browser profile', await p2.evaluate(() => window.emu.machine.ram[1030] === 42 && location.hash === '')
-      && await waitFor(p2, () => window.__said.some((m) => /Snapshot opened: Dragon 64/.test(m))), `${await said(p2)} · ram[1030] ${await p2.evaluate(() => window.emu.machine.ram[1030])}`);
+      && await waitFor(p2, () => window.__said.some((m) => /^Snapshot opened: Dragon 64/.test(m))) && await p2.evaluate(() => !window.__said.some((m) => /^ERROR /.test(m))),
+      `${await said(p2)} · ram[1030] ${await p2.evaluate(() => window.emu.machine.ram[1030])}`);
     const p2b = await ctx2.newPage();   // a link that differs only after # wouldn't reload the same page
     await p2b.goto(link.slice(0, link.length - 400));
     await linkIn(p2b);
-    check('share: a cut-short link says its snapshot is damaged', await waitFor(p2b, () => window.__said.some((m) => /damaged/.test(m))), await said(p2b));
+    check('share: a cut-short link says its snapshot is damaged', await waitFor(p2b, () => window.__said.some((m) => /damaged/.test(m)))
+      && await p2b.evaluate(() => !window.__said.some((m) => /Snapshot opened/.test(m))), await said(p2b));
     await ctx2.close();
 
     // the clip

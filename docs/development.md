@@ -111,7 +111,7 @@ shard exited 0, so a separate `node tests/regress.test.js` adds nothing.
 `node tools/browser-check.js` runs its groups (`models`, `romUi`, … in the order of `GROUPS` in the file, plus a
 final `missing files` check) one at a time, each on its own (`tools/browser-check-lib.js`):
 
-* `--only g1,g2` runs those groups. A name that is no group, or an empty list, is a usage error: the valid groups
+* `--only g1,g2` (or `--only=g1,g2`) runs those groups. A name that is no group, or an empty list, is a usage error: the valid groups
   are listed, nothing runs, and the exit code is 2.
 * A group that throws is that group's `FAIL`, printed with the stack; what it left open (its pages and contexts) is
   closed, and the next group runs. A browser that went away is started again for the next group.
@@ -119,7 +119,9 @@ final `missing files` check) one at a time, each on its own (`tools/browser-chec
   machine time a step is given) that only stops a page that hangs; a wait that reaches its limit is a
   `FAIL wait timed out (limit) at browser-check.js:line: condition`, even when nothing else looks at its result.
   The one exception is `maybeWaitFor(why, …)`: a wait whose timeout is the expected outcome (a check that something
-  does not happen), with the reason in the call.
+  does not happen), with the reason in the call. A few loops poll outside these helpers (downloads arriving, requests
+  reaching a mocked API, the embed API's calls from its host page); what they wait for is asserted by the check that
+  follows them. A check given a Promise (a missing `await`) is a FAIL.
 * Fixed sleeps are gone where a condition exists. What is left is a window in which something must *not* happen, or
   a fixture: a toast's 4 s that must not run out while it waits for room (feedback model, 5 s), "Reset says nothing"
   and "a typed POKE says nothing" (0.5 and 0.8 s), the embedded page that must not show its welcome menu (1.5 s and at
@@ -129,7 +131,8 @@ final `missing files` check) one at a time, each on its own (`tools/browser-chec
   in its animation frames (`ticks`), not in wall time.
 * A check that cannot run here is a `SKIP` with its reason, counted in the summary, never silent. The NitrOS-9
   release images are the case: they are never fetched in CI, so there the two release-image checks are `SKIP`;
-  locally, after `node tools/nitros9/fetch.js`, they run.
+  locally, after `node tools/nitros9/fetch.js`, they run. A cached image that does not match its pinned SHA-256 is a
+  `FAIL`, not a `SKIP`.
 * The run ends with `FAILED group <name>: …` for each failed group, then
   `groups: N run, P passed, F failed · checks: n ok, n FAIL, n SKIP`, then `browser check passed` (with the SKIP
   count, if any) or `browser check FAILED`. Exit code: 0 only if every check, wait and group passed; 1 otherwise;

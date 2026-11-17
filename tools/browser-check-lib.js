@@ -16,11 +16,13 @@ const path = require('path');
 
 // argv -> { only: [names] | null, error: string | null }
 function parseOnly(argv, groupNames) {
-  const i = argv.indexOf('--only');
-  if (i < 0) return { only: null, error: null };
-  const raw = argv[i + 1];
-  const list = raw === undefined || raw.startsWith('--') ? [] : raw.split(',').map((s) => s.trim()).filter(Boolean);
   const valid = `valid groups: ${groupNames.join(', ')}`;
+  const at = argv.map((a, k) => (a === '--only' || a.startsWith('--only=') ? k : -1)).filter((k) => k >= 0);
+  if (!at.length) return { only: null, error: null };
+  if (at.length > 1) return { only: null, error: `--only given more than once; ${valid}` };
+  const i = at[0];
+  const raw = argv[i].startsWith('--only=') ? argv[i].slice(7) : argv[i + 1];
+  const list = raw === undefined || raw.startsWith('--') ? [] : raw.split(',').map((s) => s.trim()).filter(Boolean);
   if (!list.length) return { only: null, error: `--only needs a comma-separated list of groups; ${valid}` };
   const unknown = list.filter((n) => !groupNames.includes(n));
   if (unknown.length) return { only: null, error: `--only: no such group${unknown.length > 1 ? 's' : ''}: ${unknown.join(', ')}; ${valid}` };
@@ -32,6 +34,8 @@ function makeRun(log = console.log) {
   const run = { groups: [], current: null, ok: 0, fail: 0, skipped: 0, log };
   const failed = (g) => { run.fail++; if (g) g.fail++; };
   run.check = (name, ok, detail = '') => {
+    // a Promise is not a result: a check given one (a forgotten await) would otherwise always pass
+    if (ok && typeof ok.then === 'function') { ok = false; detail = `(given a Promise: a missing await) ${detail}`; }
     if (ok) run.ok++; else failed(run.current);
     log(`${ok ? 'ok  ' : 'FAIL'} ${name} ${detail}`);
   };

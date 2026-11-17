@@ -19,6 +19,14 @@ for (const argv of [['--only', ''], ['--only', ','], ['--only'], ['--only', '--s
   const r = parseOnly(argv, GROUPS);
   check(`--only with an empty selection (${JSON.stringify(argv.slice(1))}): an error`, r.only === null && /needs a comma-separated list/.test(r.error) && /valid groups/.test(r.error), r.error);
 }
+check('--only=a,b: those groups', JSON.stringify(parseOnly(['--only=share,embed'], GROUPS).only) === '["share","embed"]');
+check('--only=bogus: an error, not every group', /no such group: bogus/.test(parseOnly(['--only=bogus'], GROUPS).error || ''));
+check('--only twice: an error', /more than once/.test(parseOnly(['--only', 'share', '--only', 'embed'], GROUPS).error || ''));
+{
+  const lines = [], run = makeRun((l) => lines.push(l));
+  run.check('a forgotten await', Promise.resolve(true));
+  check('check(): a Promise given as the result is a FAIL, not a pass', run.fail === 1 && run.ok === 0 && /FAIL a forgotten await \(given a Promise/.test(lines.join('\n')), lines.join(' | '));
+}
 
 (async () => {
   // ---- isolation: a group that throws is that group's FAIL, the next group still runs, the exit code is 1
