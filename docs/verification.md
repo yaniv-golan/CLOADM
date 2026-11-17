@@ -14,6 +14,7 @@ in lockstep. No copyrighted ROM is used for testing.
 * `node tools/mame-diff/run.js coco --cart gmc --audio` runs a cartridge with our firmware as its ROM, then compares
   the sound MAME records with ours, sample by sample.
 * `node tests/regress.test.js` replays the verified traces and frames in seconds, without MAME, after every change.
+  `node tests/all.js` includes it, and CI runs `all.js` on every pushed commit (see AGENTS.md section 4).
 
 Where MAME and the hardware disagree, the hardware wins and the difference is documented: see
 [Deviations from MAME](#deviations-from-mame) below.

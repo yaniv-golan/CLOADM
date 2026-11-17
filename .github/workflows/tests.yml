@@ -1,28 +1,55 @@
-# Every push to main, and on demand (workflow_dispatch, to test a branch before it is merged): the full test suite and the real pages in a headless browser.
+# The gates, once per push, on the pushed head commit: every push to main and to contributor branches (claude/**,
+# ds/**), and on demand for any other branch (workflow_dispatch). A green run on a commit is the definition of done for that exact commit (AGENTS.md section 4):
+# `node tests/all.js` (which includes the regression gate) and every group of the browser check, split over parallel
+# shards. The final job, "gates", is green only if every other job passed; its summary gives the commit, its tree
+# hash and each job's pass/fail/skip counts, so a reviewer can match the run to the tree they read.
 #
 # No MAME and no ROMs: the project's hardware verification runs locally (node tools/mame-diff/run.js <profile>,
 # with a MAME install), and every suite here runs on firmware written for this project or on synthetic images.
-# Nothing in this workflow needs a copyrighted ROM, and nothing downloads one.
+# Nothing in this workflow needs a copyrighted ROM, and nothing downloads one. Nor does it fetch the NitrOS-9
+# release images (tools/nitros9/fetch.js is never run here): the browser check reports those cases as skipped.
 #
 # Playwright is a development tool, not a runtime dependency (AGENTS.md rule 1.2): it is installed here only to
 # drive the pages, and the site itself stays plain ES modules with no build step.
+#
+# This workflow deploys nothing: the published site is GitHub Pages' own build of main, outside this file.
 name: tests
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'claude/**', 'ds/**']
   workflow_dispatch:
 
-# A new push to the same branch cancels the run in progress: the same change tested twice is time wasted.
+# On a contributor branch a newer push cancels the run still in progress for an older commit of the same branch:
+# that commit is superseded, and its result would verify nothing anyone reviews. On main every commit gets its own
+# group (the SHA is in the name), so a main run is never cancelled, nor dropped from the queue by a later one.
+# A re-run (run_attempt > 1), which may be of an older commit, waits for the branch's run in progress rather than
+# cancelling it.
 concurrency:
-  group: tests-${{ github.ref }}
-  cancel-in-progress: true
+  group: tests-${{ github.ref }}${{ github.ref == 'refs/heads/main' && format('-{0}', github.sha) || '' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.run_attempt == 1 }}
 
-# Read-only: the workflow runs the suites and uploads an artifact, and needs to write nothing else.
+# Read-only: the workflow runs the suites and uploads artifacts, and needs to write nothing else.
 permissions:
   contents: read
 
 jobs:
+  shards:
+    name: browser-check shards are complete
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v7
+      # Fails if a browser-check group is in no shard, in two, or isn't a group at all; the matrix below is built
+      # from the same file, so what is checked is what runs.
+      - id: plan
+        name: Check the shards cover every group, and plan the matrix
+        run: |
+          node .github/scripts/browser-check-shards.js
+          echo "matrix=$(node .github/scripts/browser-check-shards.js --matrix)" >> "$GITHUB_OUTPUT"
+
   suites:
     name: node tests/all.js
     # Pinned, not ubuntu-latest: the image moves under us (it went to 26.04, which Playwright 1.55 has no chromium
@@ -35,13 +62,32 @@ jobs:
         with:
           node-version: '22'
       - name: Run every suite
-        run: node tests/all.js
+        run: |
+          set -o pipefail
+          node tests/all.js | tee all.log
+      - name: Count
+        if: always()
+        run: |
+          mkdir -p counts
+          printf '| suites (tests/all.js) | %s | %s | %s | %s |\n' "${{ job.status }}" \
+            "$(grep -cE '^pass  [^ ]+\.test\.js ' all.log || true)" "$(grep -cE '^FAIL  [^ ]+\.test\.js ' all.log || true)" "-" > counts/suites.md
+          cat counts/suites.md >> "$GITHUB_STEP_SUMMARY"
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: counts-suites
+          path: counts/
 
   pages:
-    name: node tools/browser-check.js
+    name: browser check ${{ matrix.shard }}
+    needs: shards
     # Same pin, same reason - and here it matters more: Playwright's chromium is built per Ubuntu release.
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    strategy:
+      # Every shard runs to the end even when another fails, so one run shows every failing group.
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.shards.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -54,14 +100,76 @@ jobs:
           npm init -y >/dev/null 2>&1 || true
           npm install --no-save --no-audit --no-fund playwright@1.55.0
           npx playwright install --with-deps chromium
-      - name: Run the browser check
-        run: node tools/browser-check.js --screenshots browser-shots
-      - name: Keep the screenshots when it fails
-        if: failure()
+      - name: Run the browser check (${{ matrix.groups }})
+        env:
+          CHECK_GROUPS: ${{ matrix.groups }}
+        run: |
+          set -o pipefail
+          node .github/scripts/browser-check-shards.js --shard '${{ matrix.shard }}' "$CHECK_GROUPS"
+          node tools/browser-check.js --only "$CHECK_GROUPS" --screenshots browser-shots | tee check.log
+      - name: Count
+        if: always()
+        env:
+          CHECK_GROUPS: ${{ matrix.groups }}
+        run: |
+          mkdir -p counts
+          touch check.log
+          printf '| browser check %s (%s) | %s | %s | %s | %s |\n' "${{ matrix.shard }}" "$CHECK_GROUPS" "${{ job.status }}" \
+            "$(grep -c '^ok  ' check.log || true)" "$(grep -c '^FAIL' check.log || true)" "$(grep -ci '^skip' check.log || true)" \
+            > "counts/pages-${{ matrix.shard }}.md"
+          cat "counts/pages-${{ matrix.shard }}.md" >> "$GITHUB_STEP_SUMMARY"
+          grep -i '^skip' check.log >> "$GITHUB_STEP_SUMMARY" || true
+      - if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: browser-check-screenshots
+          name: counts-pages-${{ matrix.shard }}
+          path: counts/
+      # Kept on every run, not only a failing one: AGENTS.md 4.7 asks for the screenshots of anything visual to be
+      # looked at, and the green run is the proof a reviewer reads.
+      - name: Keep the screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: browser-check-screenshots-${{ matrix.shard }}
+          retention-days: 14
           path: |
             browser-shots/
             *.png
           if-no-files-found: ignore
+
+  gates:
+    name: gates
+    needs: [shards, suites, pages]
+    # Runs even when a job it needs failed or was skipped, so that it reports and fails rather than being skipped
+    # itself (a skipped job would leave nothing red to look at).
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: counts-*
+          path: counts
+          merge-multiple: true
+      - name: Summary, and fail unless every gate passed
+        run: |
+          {
+            echo "## Gates"
+            echo
+            echo "- commit: \`$(git rev-parse HEAD)\`"
+            echo "- tree: \`$(git rev-parse 'HEAD^{tree}')\`"
+            echo "- jobs: shards ${{ needs.shards.result }}, suites ${{ needs.suites.result }}, browser check ${{ needs.pages.result }}"
+            echo
+            echo "| job | result | pass | fail | skip |"
+            echo "|---|---|---|---|---|"
+            cat counts/*.md 2>/dev/null || true
+          } >> "$GITHUB_STEP_SUMMARY"
+          # Every browser-check shard must have reported; a missing one is a failure, not a pass.
+          want=$(node .github/scripts/browser-check-shards.js --matrix | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).include.length))')
+          have=$(ls counts/pages-*.md 2>/dev/null | wc -l)
+          echo "browser-check shards reported: $have of $want"
+          test "$have" = "$want"
+          test "${{ needs.shards.result }}" = success
+          test "${{ needs.suites.result }}" = success
+          test "${{ needs.pages.result }}" = success
