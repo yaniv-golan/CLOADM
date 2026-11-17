@@ -6,27 +6,7 @@ All notable changes to CLOADM are recorded here. The format follows
 
 ## [Unreleased]
 
-### Fixed
-
-- "← Emulator" (and Esc, and the browser's Back) now always return to the emulator. Opened from
-  `/play/?app=claude`, the Debugger, Library and Share went back to the full-screen chat instead, and after a reload
-  on a view, Back and the chat's "← Emulator" could land on the Debugger again. The views and the full-screen chat
-  now share one history model (`page.openStep` / `page.toEmulator` in js/ui/page.js): at most one is above the
-  emulator, in one history entry marked with the page load that added it, and the views follow `popstate` as well
-  as `hashchange`. A view opened from the full-screen chat moves the conversation to the side panel, and coming back to the
-  emulator (by "← Emulator", Esc or Back) reopens the Ask panel on that conversation, so a waiting question or a reply
-  in progress is not left unseen.
-
-### After 0.1.0-pre
-
-#### Fixed
-
-- **Claude's `type_text` dropped keys** while BASIC was busy (storing a line, scrolling) and still reported
-  success. Typing is now paced by what the machine consumes: each key is held until the CPU has read its keyboard
-  column, released until it has seen the key go, and after Enter nothing more is pressed until the machine reads
-  the keyboard again. The result says what the machine took (`requested`, `consumed`, `lines_requested`,
-  `lines_delivered`); a machine that stops reading the keyboard ends the call with `not-consumed` and how far it
-  got, and a character the keyboard has no key for is `not-typable`.
+### 0.1.1-pre
 
 #### Added
 
@@ -39,17 +19,31 @@ All notable changes to CLOADM are recorded here. The format follows
   "Don't ask again this session" is offered only while "Let Claude use the machine" is on: with the switch off
   every load asks, and Stop while the card is up ends the call as `stopped` rather than `load-declined`.
 
-### After 0.1.0-pre
-
-#### Added
-
 - **Booting NitrOS-9 from the page:** on the CoCo 3 (6809 or HD6309), NitrOS-9 Level 2 boots from the user's own
   DriveWire image (the release's `_becker.dsk`) with no ROM: CLOADM's own loader (`js/machines/nitros9.js`) takes
   the internal ROM's place and boots drive 0 over the Becker port. The NitrOS-9 slot under the screen, a dropped
   image's offer, `?nitros9=` links (never carrying the image), and clear refusals for images that can't boot
   this way (`js/media/os9.js`). The loader moved from `tools/nitros9/bootdw3.asm` to the page.
 
-### After 0.1.0-pre
+#### Fixed
+
+- "← Emulator" (and Esc, and the browser's Back) now always return to the emulator. Opened from
+  `/play/?app=claude`, the Debugger, Library and Share went back to the full-screen chat instead, and after a reload
+  on a view, Back and the chat's "← Emulator" could land on the Debugger again. The views and the full-screen chat
+  now share one history model (`page.openStep` / `page.toEmulator` in js/ui/page.js): at most one is above the
+  emulator, in one history entry marked with the page load that added it, and the views follow `popstate` as well
+  as `hashchange`. A view opened from the full-screen chat moves the conversation to the side panel, and coming back to the
+  emulator (by "← Emulator", Esc or Back) reopens the Ask panel on that conversation, so a waiting question or a reply
+  in progress is not left unseen.
+
+- **Claude's `type_text` dropped keys** while BASIC was busy (storing a line, scrolling) and still reported
+  success. Typing is now paced by what the machine consumes: each key is held until the CPU has read its keyboard
+  column, released until it has seen the key go, and after Enter nothing more is pressed until the machine reads
+  the keyboard again. The result says what the machine took (`requested`, `consumed`, `lines_requested`,
+  `lines_delivered`); a machine that stops reading the keyboard ends the call with `not-consumed` and how far it
+  got, and a character the keyboard has no key for is `not-typable`.
+
+#### Changed
 
 - AGENTS.md: an item's scope comes from its brief or issue; contributors don't edit a roadmap.
 
