@@ -19,6 +19,7 @@ import { DRIVE_TYPES } from './chips/floppy.js';
 import { detectDiskFormat, diskGeometry, blankDisk, DiskFormatError } from './media/disk.js';
 import { MediaStoreError } from './host/media-store.js';
 import { KeyQueue } from './machines/keyqueue.js';
+import { charToKeys } from './machines/keyboards.js';
 import { cartridgeRoms, createMachine, profiles, resolveConfig, restoreSnapshot } from './machines/profiles.js';
 import { SpeechSoundPak, SSC_ROM_PROFILE } from './machines/ssc.js';
 import { Debugger } from './debugger.js';
@@ -37,6 +38,7 @@ import { ChatSession } from './claude/chat.js';
 import { TOOL_CODES, ToolError } from './claude/toolerrors.js';
 import { DriveWireChatChannel, CHAT_DW_CHANNEL } from './claude/channel.js';
 import { END_OF_REPLY, ACTING_TOOL_NAMES } from './claude/chat.js';
+import { loadBasic as loadBasicInto, planBasic } from './claude/basicload.js';
 
 // the machine tools that change the BASIC session: they need "Let Claude use the machine".
 // Derived from the tool schemas in js/claude/chat.js, not restated: a tool added there is gated here.
@@ -158,6 +160,8 @@ const DISPLAY_VALID = registry({
 const FLAG = (v) => v === '1';
 // how long LIZA's goodbye stays on screen before the welcome menu comes back
 const LIZA_BYE_SECONDS = 3;
+// what Stop answers a question on screen with: load_basic's card then fails with stopped, not load-declined
+const STOPPED = Symbol('stopped');
 const parseObject = (v) => { try { const o = JSON.parse(v); return o && typeof o === 'object' && !Array.isArray(o) ? o : null; } catch (e) { return null; } };
 const SETTINGS = {
   machine: (v) => Object.hasOwn(profiles, v),
@@ -194,6 +198,7 @@ export class Session {
     this.claudeView = null;         // where it is shown: 'panel' (Ask Claude, beside the machine) | 'full' (the chat machine)
     this.claudeAllowed = false;     // "Let Claude use the machine" (off until the person allows it)
     this.claudeGate = null;         // (name, input) => void: the page asks the person (answerClaude gives the answer)
+    this.claudeLoadNoAsk = false;   // "Don't ask again this session" on load_basic's card (for the visit only)
     this.claudeActing = null;       // the acting tool call in progress or last made this turn: { name, input }
     this.claudePending = null;      // the consent question waiting for an answer: { resolve }
     this.claudePointTimes = new WeakMap();   // restore point -> when it was made (ms)
@@ -1536,7 +1541,7 @@ export class Session {
   // type text in, as pasted: through the keyboard with ROMs, as key codes for the stub
   typeText(text, m = this.machine) {
     const t = text.replace(/\r\n?/g, '\n');
-    if (m.useStub) { for (const ch of t) m.stubKeys.push(ch === '\n' ? 13 : (m.stubKeepCase ? ch : ch.toUpperCase()).charCodeAt(0) & 0x7F); }
+    if (m.useStub) { for (const ch of t) m.stubKeys.push(m.stubCode(ch)); }
     else m.typist.type(t.replace(/\n/g, '\r'));
     return t.length;
   }
@@ -1548,6 +1553,20 @@ export class Session {
   // at all - it takes key codes from its own queue (Machine.stubKeys) through POLCAT, and its line editor
   // ignores every control key. There is no BREAK to deliver without BASIC, so nothing is invented here.
   pressBreak(m = this.machine) { m.typist.press('BREAK'); }
+  // Claude's typing: paced by what the machine consumes (Typist.typePaced), so a busy BASIC drops nothing.
+  // Returns the job (job.promise settles when it ends); the caller checks typableText first.
+  typeTextPaced(text, m = this.machine) { return m.typist.typePaced(String(text).replace(/\r\n?/g, '\n')); }
+  // the characters of text this machine cannot type: no key for it on this keyboard (with BASIC), or not 7-bit
+  // ASCII (the stub's key codes). [] when all of it can be typed.
+  untypable(text, m = this.machine) {
+    const bad = new Set();
+    for (const ch of String(text).replace(/\r\n?/g, '\n')) {
+      if (m.useStub) { if (ch.charCodeAt(0) > 0x7E && ch !== '\n') bad.add(ch); continue; }
+      const k = charToKeys(ch);
+      if (!k || !m.keyPos[k.key] || (k.shift && !m.keyPos.SHIFT)) bad.add(ch);
+    }
+    return [...bad];
+  }
 
   // ---------------- the Claude chat's machine tools ----------------
   // a side-effect-free byte read for the peek tool: RAM and ROM as the debugger's disassembly sees them
@@ -1642,16 +1661,28 @@ export class Session {
           const go = await new Promise((resolve) => { this.claudePaused.wake.push(resolve); });
           if (!go) throw new ToolError(TOOL_CODES.STOPPED);
         }
-        if (!this.claudeAllowed) {
-          // the page shows the question (claudeGate tells it); without a page nobody can say yes
-          const ok = !this.claudeGate ? false : await new Promise((resolve) => {
-            this.claudePending = { name, input, resolve };
-            this.claudeGate(name, input);
-            this.emit('chat');
-          });
-          this.claudePending = null;
+        // the page shows the question (claudeGate tells it); without a page nobody can say yes
+        const ask = (extra) => (!this.claudeGate ? Promise.resolve(false) : new Promise((resolve) => {
+          this.claudePending = { name, input, resolve, ...extra };
+          this.claudeGate(name, input);
           this.emit('chat');
-          if (!ok) throw new ToolError(this.claudeGate ? TOOL_CODES.CONSENT_DECLINED : TOOL_CODES.NO_CONSENT);
+        })).then((ok) => { this.claudePending = null; this.emit('chat'); return ok; });
+        if (name === 'load_basic') {
+          // load_basic replaces the program in memory, so every call has its own card, whatever the switch says,
+          // until the person ticks "Don't ask again this session" (claudeLoadNoAsk, offered only while the switch is on). The program is checked
+          // first (the same planBasic the tool runs), so the card describes a load that can happen and a load
+          // that cannot is refused with its own code without asking anyone.
+          const plan = planBasic(this.chatTarget(), input && input.program);
+          // ("Don't ask again" holds only while the switch is on: with it off every load asks)
+          if (!(this.claudeLoadNoAsk && this.claudeAllowed)) {
+            const nums = plan.lines.map((l) => l.number);
+            const ok = await ask({ kind: 'load', load: { lines: nums.length, first: nums[0], last: nums[nums.length - 1], bytes: plan.bytes.length } });
+            if (ok === STOPPED) throw new ToolError(TOOL_CODES.STOPPED);
+            if (ok !== true) throw new ToolError(this.claudeGate ? TOOL_CODES.LOAD_DECLINED : TOOL_CODES.NO_CONSENT);
+          }
+        } else if (!this.claudeAllowed) {
+          const ok = await ask({ kind: 'consent' });
+          if (ok !== true) throw new ToolError(this.claudeGate ? TOOL_CODES.CONSENT_DECLINED : TOOL_CODES.NO_CONSENT);
           this.claudeAllowed = true;
         }
         this.claudeActing = { name, input: input || {} };
@@ -1663,16 +1694,35 @@ export class Session {
       return out;
     };
   }
-  // answer the consent question (Allow / Just tell me the fix); the switch below the message box sets it too
-  answerClaude(allow) { if (this.claudePending) this.claudePending.resolve(!!allow); }
-  setClaudeAllowed(on) { this.claudeAllowed = !!on; if (!on && this.claudePending) this.claudePending.resolve(false); this.emit('chat'); }
+  // answer the question on screen: the consent card (Allow / Just tell me the fix; the switch below the message box
+  // sets it too) or load_basic's card (Load it / Don't load), whose "Don't ask again this session" is dontAsk
+  answerClaude(allow, { dontAsk = false } = {}) {
+    const p = this.claudePending;
+    if (!p) return;
+    // "Don't ask again" is offered only while the switch is on; with it off the page hides the box and it counts for nothing
+    if (p.kind === 'load' && allow && dontAsk && this.claudeAllowed) this.claudeLoadNoAsk = true;
+    p.resolve(!!allow);
+  }
+  // turning the switch off also brings load_basic's card back
+  setClaudeAllowed(on) {
+    this.claudeAllowed = !!on;
+    if (!on) { this.claudeLoadNoAsk = false; if (this.claudePending) this.claudePending.resolve(false); }
+    this.emit('chat');
+  }
+  // A BASIC program straight into the BASIC session's program memory, as a tape or disk load would: for
+  // automation and the embed API, so no card and no restore point. The same implementation as Claude's load_basic
+  // (js/claude/basicload.js); failures are ToolErrors with the same codes. -> { lines, bytes, start, end }
+  loadBasic(program) { return loadBasicInto(this.chatTarget(), program); }
   // A key the person presses on the machine pauses Claude: what Claude still had to type is held
   // back, and its next action waits; resumeClaude types the rest and lets it go on, stopClaude drops it.
   pauseClaude() {
     if (!this.claudeBusyActing || this.claudePaused) return false;
     const m = this.chatTarget().machine;
-    const held = m.useStub ? m.stubKeys.splice(0) : m.typist.queue.splice(0);
-    this.claudePaused = { held, stub: !!m.useStub, wake: [] };
+    // what is not yet typed: the typist's queue (paced keys wait there on every machine), and the stub's queued
+    // codes unless the one there is the paced key in flight (it finishes; the rest waits)
+    const pacedStub = !!(m.typist.state && m.typist.state.stub);
+    const held = { queue: m.typist.queue.splice(0), stub: pacedStub || !m.useStub ? [] : m.stubKeys.splice(0) };
+    this.claudePaused = { held, wake: [] };
     this.emit('chat');
     return true;
   }
@@ -1681,16 +1731,21 @@ export class Session {
     if (!p) return false;
     this.claudePaused = null;
     const m = this.chatTarget().machine;
-    if (p.stub) m.stubKeys.push(...p.held); else m.typist.queue.push(...p.held);
+    m.stubKeys.push(...p.held.stub); m.typist.queue.push(...p.held.queue);
     for (const w of p.wake) w(true);
     this.emit('chat');
     return true;
   }
-  // Stop: the turn ends, a waiting question is answered no, and what Claude was typing stops being typed
+  // Stop: the turn ends, a waiting question is answered STOPPED (load_basic's card: stopped; the consent card: a no), and what Claude was typing stops being typed
   stopClaude() {
     if (!this.chat) return;
-    if (this.claudePaused) { const w = this.claudePaused.wake; this.claudePaused = null; for (const f of w) f(false); }
-    if (this.claudePending) this.claudePending.resolve(false);
+    if (this.claudePaused) {
+      const { wake, held } = this.claudePaused;
+      this.claudePaused = null;
+      for (const it of held.queue) if (it && it.job) it.job.end('stopped');   // held-back typing ends with the turn
+      for (const f of wake) f(false);
+    }
+    if (this.claudePending) this.claudePending.resolve(STOPPED);   // the question ends as Stop, not as a no
     this.chat.abort();
     const m = this.chatTarget().machine;
     if (m.typist) m.typist.clear();
@@ -1831,7 +1886,8 @@ export class Session {
       // latch and the 'failed' state cannot differ between the two views of the same machine.
       bootStatus: () => this._bootStatusOf(basic()),
       pokeBytes: (addr, bytes) => this.pokeBytes(addr, bytes, basic()),
-      typeText: (text) => this.typeText(text, basic()),
+      typeText: (text) => this.typeTextPaced(text, basic()),
+      untypable: (text) => this.untypable(text, basic()),
       pressBreak: () => this.pressBreak(basic()),
       writeKind: (addr) => basic().writeKind(addr),
       writeSegments: (res) => this.injectAssembled(res, basic()),

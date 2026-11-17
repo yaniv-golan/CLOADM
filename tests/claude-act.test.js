@@ -31,6 +31,12 @@ const dead = new Emu.ClaudeBackend({ fetch: async () => { throw new Error('no ne
 const ask = (s, opts = {}) => { const chat = s.startAsk({ backend: dead, ...opts }); return chat; };
 // call a tool the way the backend does, through the gate: { ok, out | err }
 const call = (chat, name, input = {}) => Promise.resolve(chat.backend.runTool(name, input)).then((out) => ({ ok: true, out }), (err) => ({ ok: false, err }));
+// the same, with the machine running until the call settles (type_text waits for the machine to read its keys)
+const callFrames = async (s, chat, name, input = {}, max = 4000) => {
+  let done = false; const p = call(chat, name, input).then((r) => { done = true; return r; });
+  for (let i = 0; i < max && !done; i++) { frames(s, 1); await new Promise((r) => setImmediate(r)); }
+  return done ? p : { ok: false, err: { code: 'TEST-TIMEOUT', message: 'the call did not settle' } };
+};
 const turn = (chat) => { chat.snapped = false; };   // a new turn: the next change takes a restore point
 const nt = (r) => (r.ok ? JSON.stringify(r.out.not_taken) : `${r.err.code}`);   // the not_taken list as JSON
 const gap = (from, to, why) => JSON.stringify([{ from, to, why }]);
@@ -114,7 +120,7 @@ const mem = (m, addr, len) => Array.from({ length: len }, (_, i) => m.peek ? m.p
     check('consent-declined: "Just tell me the fix" throws consent-declined', !declined.ok && declined.err.code === C.CONSENT_DECLINED && s.machine.ram[0x3000] === 0);
     // a key the person pressed has paused Claude; Stop while the next action waits throws stopped
     s.setClaudeAllowed(true);
-    s.claudePaused = { held: [], stub: true, wake: [] };
+    s.claudePaused = { held: { queue: [], stub: [] }, wake: [] };
     const waiting = call(chat, 'poke', { address: 0x3000, bytes: [1] });
     await Promise.resolve();
     check('stopped: while paused the action waits, and nothing is written', s.machine.ram[0x3000] === 0 && s.claudePaused.wake.length === 1);
@@ -134,9 +140,12 @@ const mem = (m, addr, len) => Array.from({ length: len }, (_, i) => m.peek ? m.p
     const d = await call(chat, name, input);
     check(`${name}: "Just tell me the fix" is refused with consent-declined and queues nothing`, !d.ok && d.err.code === C.CONSENT_DECLINED && queued() === 0 && chat.undo.length === 0);
     s.claudeGate = () => Promise.resolve().then(() => s.answerClaude(true));
-    const ok = await call(chat, name, input);
-    check(`${name}: after Allow it acts: one restore point, keys queued, and the result is JSON`, ok.ok && queued() > 0 && chat.undo.length === 1 && s.claudeAllowed
-      && JSON.stringify(ok.out) === (name === 'type_text' ? '{"typed":8}' : '{"pressed":true}'), ok.ok ? JSON.stringify(ok.out) : ok.err.message);
+    // type_text settles once the machine (the stub here) has taken every key, so it runs with frames
+    const taken = m.stubKeysTaken;
+    const ok = name === 'type_text' ? await callFrames(s, chat, name, input) : await call(chat, name, input);
+    check(`${name}: after Allow it acts: one restore point, keys delivered or queued, and the result is JSON`, ok.ok && chat.undo.length === 1 && s.claudeAllowed
+      && (name === 'type_text' ? m.stubKeysTaken - taken === 8 : queued() > 0)
+      && JSON.stringify(ok.out) === (name === 'type_text' ? '{"requested":8,"consumed":8,"lines_requested":1,"lines_delivered":1}' : '{"pressed":true}'), ok.ok ? JSON.stringify(ok.out) : ok.err.message);
   }
 
   // ---- 3. assemble_and_load: what it writes and reports, and that it does not start the machine ----
@@ -314,7 +323,9 @@ const mem = (m, addr, len) => Array.from({ length: len }, (_, i) => m.peek ? m.p
         const c2 = ask(s2); const m2 = s2.machine;
         if (id === 'mc10' && name === 'poke') input.address = 0x4200;
         const was = Emu.state.toJSON(m2.snapshot());
-        const r = await call(c2, name, input);
+        // type_text answers once the machine has read its keys, so it runs with frames (the restore point is the
+        // machine before the first key, so Undo still returns to `was`)
+        const r = name === 'type_text' ? await callFrames(s2, c2, name, input) : await call(c2, name, input);
         check(`${id}: ${name} takes a restore point holding the machine as it was, and Undo returns to it`,
           r.ok && c2.undo.length === 1 && Emu.state.toJSON(c2.undo[0]) === was && c2.undoLast() && Emu.state.toJSON(m2.snapshot()) === was,
           r.ok ? JSON.stringify(r.out) : r.err.code);
@@ -323,7 +334,7 @@ const mem = (m, addr, len) => Array.from({ length: len }, (_, i) => m.peek ? m.p
         const c3 = ask(s3); const m3 = s3.machine;
         const inp3 = name === 'poke' && id === 'mc10' ? { ...input, address: 0x4200 } : input;
         const was3 = Emu.state.toJSON(m3.snapshot());
-        const r3 = await call(c3, name, inp3);
+        const r3 = name === 'type_text' ? await callFrames(s3, c3, name, inp3) : await call(c3, name, inp3);
         const pts = s3.claudePoints.length;
         check(`${id}: ${name}: Session.restoreClaude() puts the machine (RAM, CPU registers, everything) back exactly to before the act`,
           r3.ok && pts === 1 && s3.restoreClaude() && Emu.state.toJSON(m3.snapshot()) === was3 && s3.claudePoints.length === 0, r3.ok ? `${pts} points` : r3.err.code);
@@ -538,11 +549,11 @@ STB     FCB     $FE,$FD,$FB,$F7,$EF,$DF,$BF,$7F
       // F6, the same class for type_text: it says it typed 2 characters, and the firmware sees exactly those two keys
       turn(chat);
       const c0 = m.ram[base];
-      const tt = await call(chat, 'type_text', { text: 'UR' });
-      frames(s, 60);
+      const tt = await callFrames(s, chat, 'type_text', { text: 'UR' });
+      frames(s, 10);
       const got2 = Array.from({ length: m.ram[base] - c0 }, (_, i) => m.ram[base + 0x40 + (id === 'mc10' ? 0x10 : 0) + c0 + i]);
       const want2 = ['U', 'R'].map((k) => m.keyPos[k][1] * 8 + m.keyPos[k][0]);
-      check(`${id}: type_text says {typed:2} and firmware scanning the matrix sees exactly U, R`, tt.ok && tt.out.typed === 2 && got2.join() === want2.join(), `${tt.ok ? JSON.stringify(tt.out) : tt.err.code} got [${got2.map((g) => g.toString(16))}] want [${want2.map((g) => g.toString(16))}]`);
+      check(`${id}: type_text says the machine consumed 2 keys and firmware scanning the matrix sees exactly U, R`, tt.ok && tt.out.consumed === 2 && tt.out.requested === 2 && got2.join() === want2.join(), `${tt.ok ? JSON.stringify(tt.out) : tt.err.code} got [${got2.map((g) => g.toString(16))}] want [${want2.map((g) => g.toString(16))}]`);
     }
   }
 
@@ -604,15 +615,26 @@ STB     FCB     $FE,$FD,$FB,$F7,$EF,$DF,$BF,$7F
       const sg = boot('dragon64'); const cg = ask(sg); const before = Emu.state.toJSON(sg.machine.snapshot());
       const asked = [];
       sg.claudeGate = (name) => { asked.push(name); Promise.resolve().then(() => sg.answerClaude(false)); };
-      const inputs = { poke: { address: 0x3000, bytes: [1] }, type_text: { text: 'X' }, press_break: {}, assemble_and_load: { source: ' NOP\n', org: 0x3000 }, run: { target: 0x3000 } };
+      const inputs = { poke: { address: 0x3000, bytes: [1] }, type_text: { text: 'X' }, press_break: {}, assemble_and_load: { source: ' NOP\n', org: 0x3000 }, run: { target: 0x3000 }, load_basic: { program: '10 END' } };
+      // load_basic has its own card on every call, after its program is checked: on this machine (no BASIC ROMs)
+      // the check refuses it with no-basic before anyone is asked (its card is tested in tests/basic-load.test.js)
+      const general = Emu.ACTING_TOOL_NAMES.filter((x) => x !== 'load_basic');
       const codes = [];
       for (const name of Emu.ACTING_TOOL_NAMES) { const r = await call(cg, name, inputs[name]); codes.push(r.ok ? 'RAN' : r.err.code); }
       check('every acting tool (assemble_and_load and run included) is gated: each asks, is refused, and nothing changes',
-        Emu.ACTING_TOOL_NAMES.includes('assemble_and_load') && Emu.ACTING_TOOL_NAMES.includes('run') && asked.join() === Emu.ACTING_TOOL_NAMES.join()
-        && codes.every((c) => c === C.CONSENT_DECLINED) && Emu.state.toJSON(sg.machine.snapshot()) === before && cg.undo.length === 0, `${codes}`);
+        Emu.ACTING_TOOL_NAMES.includes('assemble_and_load') && Emu.ACTING_TOOL_NAMES.includes('run') && asked.join() === general.join()
+        && codes[Emu.ACTING_TOOL_NAMES.indexOf('load_basic')] === C.NO_BASIC && codes.filter((c) => c === C.CONSENT_DECLINED).length === general.length
+        && Emu.state.toJSON(sg.machine.snapshot()) === before && cg.undo.length === 0, `${codes}`);
     }
-    check('every acting description (actingTools()) states the consent it needs and both refusal codes', tools.length === Emu.ACTING_TOOL_NAMES.length
-      && tools.every((t) => /Needs "Let Claude use the machine"/.test(t.description) && new RegExp(C.NO_CONSENT).test(t.description) && new RegExp(C.CONSENT_DECLINED).test(t.description)), tools.map((t) => t.name).join());
+    // load_basic is not behind the consent question but has its own card on every call (js/session.js gateTools),
+    // so its description says that and names its own codes; the others state the shared consent wording
+    const general = tools.filter((t) => t.name !== 'load_basic'), lb = tools.find((t) => t.name === 'load_basic');
+    check('every acting description but load_basic (actingTools()) states the consent it needs and both refusal codes', tools.length === Emu.ACTING_TOOL_NAMES.length && general.length === tools.length - 1
+      && general.every((t) => /Needs "Let Claude use the machine": the person is asked the first time/.test(t.description) && new RegExp(C.NO_CONSENT).test(t.description) && new RegExp(C.CONSENT_DECLINED).test(t.description)), general.map((t) => t.name).join());
+    check('load_basic\'s description states its own card: asked on every call, "Don\'t ask again" only with the switch on, and the codes load-declined, no-consent and stopped (not the first-time consent wording)',
+      /asked on every call, whether or not "Let Claude use the machine" is on, unless they ticked "Don't ask again this session" \(offered only while that switch is on/.test(lb.description)
+      && new RegExp(`error ${C.LOAD_DECLINED}`).test(lb.description) && new RegExp(C.NO_CONSENT).test(lb.description) && new RegExp(`Stop ${C.STOPPED}`).test(lb.description)
+      && !/asked the first time/.test(lb.description) && !new RegExp(C.CONSENT_DECLINED).test(lb.description), lb.description.slice(-400));
     check('every acting description states its units or limits (addresses 0-65535, byte values, character limits)',
       /0-65535/.test(JSON.stringify(tools.find((t) => t.name === 'poke').input_schema)) && /0-255/.test(JSON.stringify(tools.find((t) => t.name === 'poke').input_schema))
       && /0-65535/.test(JSON.stringify(tools.find((t) => t.name === 'assemble_and_load').input_schema)) && /0-65535/.test(tools.find((t) => t.name === 'run').description)
@@ -633,8 +655,8 @@ STB     FCB     $FE,$FD,$FB,$F7,$EF,$DF,$BF,$7F
     check('poke: a byte that cannot land is not-ram', !pr.ok && pr.err.code === C.NOT_RAM, pr.ok ? JSON.stringify(pr.out) : pr.err.message);
     check('type_text: empty and too-long are coded, nothing typed', await err('type_text', { text: '' }) === C.EMPTY && await err('type_text', {}) === C.EMPTY && await err('type_text', { text: 'x'.repeat(Emu.TYPE_TEXT_MAX + 1) }) === C.TOO_LARGE);
     turn(chat);
-    const tt = await call(chat, 'type_text', { text: 'PRINT 1\n' });
-    check('type_text: the result is {typed}', tt.ok && JSON.stringify(tt.out) === '{"typed":8}', JSON.stringify(tt.out));
+    const tt = await callFrames(s, chat, 'type_text', { text: 'PRINT 1\n' });
+    check('type_text: the result is what the machine consumed', tt.ok && JSON.stringify(tt.out) === '{"requested":8,"consumed":8,"lines_requested":1,"lines_delivered":1}', JSON.stringify(tt.out));
     const pb = await call(chat, 'press_break', {});
     check('press_break: the result is {pressed:true}', pb.ok && JSON.stringify(pb.out) === '{"pressed":true}');
     check('an unknown tool is unknown-tool', await err('format_disk', {}) === C.UNKNOWN_TOOL);

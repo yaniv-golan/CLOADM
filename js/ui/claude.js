@@ -46,6 +46,7 @@ export const KEY_TEXT = Object.freeze({
 const LOG = {
   type_text: (i) => { const n = String(i.text || '').split('\n').filter((l) => l.trim()).length; return `✓ typed ${n === 1 ? `"${String(i.text).trim()}"` : `${n} lines`}`; },
   poke: (i) => `✓ poked ${(i.bytes || []).length} byte(s) at $${(i.address || 0).toString(16).toUpperCase()}`,
+  load_basic: (i) => { const n = String(i.program || '').split('\n').filter((l) => l.trim()).length; return `✓ loaded a ${n}-line BASIC program`; },
   press_break: () => '✓ pressed BREAK',
   assemble_and_load: (i) => `✓ assembled and loaded${i.org != null ? ` at $${Number(i.org).toString(16).toUpperCase()}` : ''}`,
   run: (i) => `✓ ran ${i.target == null ? 'RUN' : typeof i.target === 'number' ? `$${i.target.toString(16).toUpperCase()}` : i.target}`,
@@ -53,6 +54,12 @@ const LOG = {
   peek: (i) => `· read memory at $${(i.address || 0).toString(16).toUpperCase()}`,
   machine_info: () => '· looked at the machine',
 };
+
+// what load_basic's card says about the load it asks for (Session.claudePending.load)
+export function loadCardText(load) {
+  const span = load.lines === 1 ? `line ${load.first}` : `lines ${load.first} to ${load.last}`;
+  return `Claude wants to load a ${load.lines}-line BASIC program (${span}, ${load.bytes} bytes) into your BASIC session. It replaces the program in memory; a restore point is made first, so Undo brings yours back.`;
+}
 
 export function setupClaude(page) {
   const { session } = page;
@@ -83,7 +90,13 @@ export function setupClaude(page) {
   };
   const backend = () => new ClaudeBackend({ fetch: (url, init) => fetch(url, init), apiKey: session.keyStore.get() || '' });
   function wire(chat) {
-    chat.onChange = () => session.emit('chat');
+    // the restore point is logged when it is made, before the tool ends: a paced type_text runs until the machine
+    // has read every key, and the person should see the restore point while it types
+    const notePoint = () => {
+      if (chat.undo.length > (state.points || 0)) state.log.push('✓ restore point made');
+      state.points = chat.undo.length;
+    };
+    chat.onChange = () => { notePoint(); session.emit('chat'); };
     chat.onText = (t) => {
       if (!chat.busy || /^\r?\n\[.*\]\r?\n$/s.test(t)) return;   // status lines are the views' own
       state.text += t; notify();
@@ -91,7 +104,7 @@ export function setupClaude(page) {
     chat.onToolUse = (name, input, result, isError, value) => {
       // Claude acting in full screen shows the BASIC session's window (and it stays until the person hides it)
       if (ACTING.has(name) && session.claudeView === 'full') state.pip = true;
-      if (chat.undo.length > state.points) { state.log.push('✓ restore point made'); state.points = chat.undo.length; }
+      notePoint();
       // a coded failure shows its REMEDY, not the JSON the model received: a person reads the line on screen
       state.log.push(isError ? `✗ ${name}: ${failureText(value)}` : (LOG[name] || (() => `· ${name}`))(input || {}));
       notify();
@@ -152,7 +165,8 @@ export function setupClaude(page) {
     if (session.claudePaused) return 'Paused: you pressed a key';
     if (a.name === 'type_text') {
       const m = basicMachine(), all = String(a.input.text || '');
-      const left = m.useStub ? m.stubKeys.length : m.typist.queue.filter((c) => typeof c === 'string').length;
+      // the keys not yet pressed: Claude's typing waits in the typist's queue, one paced key at a time
+      const left = m.typist.queue.filter((c) => c && c.paced !== undefined).length;
       const at = Math.max(0, Math.min(all.length - 1, all.length - left));
       const line = all.slice(all.lastIndexOf('\n', at - 1) + 1).split('\n')[0];
       const n = /^\s*(\d+)/.exec(line);
@@ -160,7 +174,7 @@ export function setupClaude(page) {
     }
     if (a.name === 'poke') return 'Claude is changing memory…';
     if (a.name === 'press_break') return 'Claude pressed BREAK…';
-    if (a.name === 'assemble_and_load') return 'Claude is loading a program…';
+    if (a.name === 'assemble_and_load' || a.name === 'load_basic') return 'Claude is loading a program…';
     if (a.name === 'run') return 'Claude is starting a program…';
     return 'Claude is using the machine…';
   }
@@ -283,6 +297,8 @@ export function setupClaude(page) {
   $('chkClaudeTools').onchange = () => session.setClaudeAllowed($('chkClaudeTools').checked);
   $('btnClaudeAllow').onclick = () => session.answerClaude(true);
   $('btnClaudeTell').onclick = () => session.answerClaude(false);
+  $('btnClaudeLoad').onclick = () => session.answerClaude(true, { dontAsk: $('chkClaudeLoadNoAsk').checked });
+  $('btnClaudeLoadNo').onclick = () => session.answerClaude(false);
   $('btnClaudeUndo').onclick = () => { if (session.restoreClaude()) page.status('Restored: your BASIC session is as it was before Claude\'s changes.'); };
   // Ctrl+B, "Show my BASIC session" and a click on the window swap the views; swapping to the BASIC session shows the
   // window (the chat in it), swapping back hides it. Its close button hides it (and brings the chat back).
@@ -348,12 +364,20 @@ export function setupClaude(page) {
     $('claudeHelp').textContent = help;
     $('claudeHelp').hidden = !help;
     // the BASIC session card: consent, the switch, the restore point
-    const asking = !!session.claudePending;
-    $('claudeSession').classList.toggle('asking', asking);
+    const pend = session.claudePending;
+    const loading = !!(pend && pend.kind === 'load');      // load_basic's own card, on every call
+    const asking = !!pend && !loading;                     // the consent question
+    $('claudeSession').classList.toggle('asking', !!pend);
     $('claudeConsentText').textContent = asking
       ? 'Claude wants to type into your BASIC session. With permission it can type, POKE, run and press BREAK. You can watch it in the corner of the screen, Stop it, and Undo everything: a restore point is made first.'
-      : 'Claude reads it any time (screen and program). Typing, POKEs and running need your permission.';
+      : 'Claude reads it any time (screen and program). Typing, POKEs and running need your permission; loading a BASIC program asks every time (with the switch on, its card offers Don\'t ask again this session).';
     $('claudeConsentAsk').hidden = !asking;
+    $('claudeLoad').hidden = !loading;
+    if (loading) $('claudeLoadText').textContent = loadCardText(pend.load);
+    else $('chkClaudeLoadNoAsk').checked = false;
+    // "Don't ask again this session" only while the switch is on: with it off every load asks, so the box is not offered
+    $('chkClaudeLoadNoAsk').closest('label').hidden = !session.claudeAllowed;
+    if (!session.claudeAllowed) $('chkClaudeLoadNoAsk').checked = false;
     $('chkClaudeTools').checked = session.claudeAllowed;
     const points = session.claudePoints;
     $('claudeRestore').hidden = !points.length;

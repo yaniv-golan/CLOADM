@@ -91,7 +91,7 @@ class Mc10Machine extends Machine {
   read(a) {
     if (a >= 0x4000 && a < this.ramEnd) return this.ram[a];
     if (a >= 0xE000) return (this.rom || STUB.rom)[a - 0xE000];
-    if (a === 0xBFFF) { this.casReads = 0; return 0xFF & ~this.keyRowsForCols(this.strobe); }
+    if (a === 0xBFFF) { this.casReads = 0; return 0xFF & ~this.scanKeys(this.strobe); }
     return 0x00;
   }
   // Why a write at `a` would not be seen (see Machine.writeKind), for the write path the tools use

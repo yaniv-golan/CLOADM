@@ -3,7 +3,7 @@
  * js/host/claude-brief.md holds the prose the reader can edit, and this builder appends the per-call facts.
  * The brief is the system prompt sent with every request.
  */
-import { CHAT_SCREEN } from './chat.js';
+import { CHAT_SCREEN, TYPING_POLICY } from './chat.js';
 
 const SCREEN = (cols, rows) => `${cols} columns by ${rows} rows`;
 
@@ -25,7 +25,9 @@ export function machineFacts({ machine, ram, cpu, hasBasic, edition, tools }) {
 // below is used, so Node tests and an embedder need no file. The screen is the chat firmware's (CHAT_SCREEN).
 export function claudeBrief(opts = {}) {
   const fixed = (opts.base && String(opts.base).trim()) || FIXED_BRIEF;
-  return `${fixed}\n\nScreen: ${SCREEN(CHAT_SCREEN.cols, CHAT_SCREEN.rows)}, plain text only, only characters the chat font has. Keep answers short.\n\n${machineFacts(opts)}`;
+  // the typing policy is the code's (js/claude/chat.js), not the editable prose: it is said whenever tools are on
+  const policy = opts.tools ? `\n\n${TYPING_POLICY}` : '';
+  return `${fixed}\n\nScreen: ${SCREEN(CHAT_SCREEN.cols, CHAT_SCREEN.rows)}, plain text only, only characters the chat font has. Keep answers short.${policy}\n\n${machineFacts(opts)}`;
 }
 
 // The built-in brief (kept in step with js/host/claude-brief.md by tests/claude-chat.test.js)

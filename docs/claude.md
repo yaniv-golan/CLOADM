@@ -53,7 +53,8 @@ embedding page drives a plain machine, and without ROMs that is the stub's own s
 **Claude** is the same machine forty years on: press 4 on the welcome screen, or open
 [cloadm.dev/play/?app=claude](https://cloadm.dev/play/?app=claude). Firmware written for this project replaces
 BASIC and holds the conversation on the green screen, in a lowercase font drawn by the machine itself. Claude can
-work on the BASIC session kept alongside the chat: read its screen and memory, POKE, type in programs and RUN them,
+work on the BASIC session kept alongside the chat: read its screen and memory, POKE, type in short programs or load
+longer ones and RUN them,
 press BREAK, and one click undoes it all. It runs on your own Anthropic API key, kept in your browser and never
 visible to the emulated machine, snapshots, share links or exported settings. Coming: the same chat over DriveWire
 to a real CoCo or Dragon on Web Serial, and the CoCo 3's 80-column screen.
@@ -144,7 +145,7 @@ emulator.
   machine, one byte each way.
 * **Claude's tools** act on the BASIC session, never on the chat machine. They are split in two, and the split is
   the consent rule: **read-only** tools (`machine_info`, `screen_text`, `peek`, `disassemble`) always work, and
-  **acting** tools (`poke`, `type_text`, `press_break`, `assemble_and_load`, `run`) ask first (see Consent above). The acting set is derived from the tool
+  **acting** tools (`poke`, `type_text`, `load_basic`, `press_break`, `assemble_and_load`, `run`) ask first (see Consent above). The acting set is derived from the tool
   schemas in `js/claude/chat.js` (`ACTING_TOOL_NAMES`), so a tool added there is gated without a second list to
   remember; the read-only tools live in `js/claude/readtools.js`, where a test proves none of them changes the
   machine (the full saved state is byte-identical after every call, even with write-shaped arguments).
@@ -180,6 +181,60 @@ emulator.
   `node tests/press-break.test.js` covers this on all three families with our own firmware in the BASIC socket;
   the MC-10's strobe address is backed by `tools/mame-diff/mc10-strobe-probe.js`, which runs the same firmware
   in MAME 0.264 and prints `PROBE 5a ff fb bf ff a5` (BREAK visible on column 2 only).
+* **Typing (`type_text`).** Keys go in at the pace the machine takes them, not by the clock
+  (`Typist.typePaced`, `js/machines/typist.js`). Each key is held until the CPU has read its keyboard column with the
+  key down 4 times (and at least 3 frames), then released until the column has been read twice with it up (and 2
+  frames), so the next key is never pressed before the machine has seen this one go; after Enter nothing more is
+  pressed until the machine reads the keyboard again. The reads are counted on the bus (`Machine.scanKeys`: the
+  PIA's row port, the MC-10's `$BFFF`; the stub's POLCAT calls), so this needs no knowledge of any ROM. BASIC busy
+  storing a line or scrolling reads no keys, and keys pressed and released then were what went missing. A key
+  counts as consumed once the machine has read it while it was down. The result is what the machine took:
+  `{requested, consumed, lines_requested, lines_delivered}`. If a key is not read within 300 frames (5 s) the rest
+  is not typed and the call fails `not-consumed`, with that report in its detail; a character with no key on this
+  keyboard is `not-typable` before anything is typed. Stop ends the typing with `stopped`. Pasting into the
+  emulator keeps the old fixed-timing typist. `node tests/claude-typing.test.js` proves it with firmware written for
+  the test in the BASIC socket (Dragon 64, CoCo 3, MC-10) that, like BASIC, reads the keyboard with a rollover rule
+  and stops reading it for about ten frames after each Enter and every few passes: the old timing loses keys there
+  and paced typing loses none; firmware that stops reading the keyboard gets `not-consumed` with an honest count.
+* **Loading a program (`load_basic`).** The listing is tokenized for the machine's BASIC and written into program
+  memory, replacing the program there, as a load from tape or disk would (`js/media/basic.js`, `ChatSession.planBasic`
+  and `loadBasic` in `js/claude/chat.js`). Lines are crunched as Color BASIC crunches them (the keyword tables
+  searched in ROM order, first match; `?` is PRINT; `'` and ELSE get a `:` in front; DATA, REM and strings are not
+  crunched), laid out as link, line number, text, 0, with a zero link at the end, at the address BASIC's TXTTAB
+  holds; then VARTAB, ARYTAB and ARYEND point just past it (no variables, as after a load). Before writing, BASIC's
+  own pointers are checked to describe the program in memory (the links end where VARTAB says), so a machine whose
+  pointers are not where the dialect says is refused, not written over. It needs BASIC at its OK prompt, leaves 256
+  bytes below FRETOP free, and returns `{lines, bytes, start, end}`. Errors, each changing nothing:
+  `bad-line-number`, `line-too-long`, `not-typable` (a character above `$7E`: a byte of `$80` or more in program
+  text would read back as a token), `no-basic`, `not-at-prompt`, `program-too-large`, `unknown-machine`, `empty`,
+  `too-large`. Text outside strings is upper-cased, as typing it would be.
+  **Its own card, every call.** Because it replaces the program in memory, `load_basic` asks on every call, even
+  with "Let Claude use the machine" on: after its program is checked (a load that cannot happen is refused with its
+  code and no card), a card in either view says what it loads ("a 20-line BASIC program (lines 10 to 200, 313
+  bytes)") with **Load it**, **Don't load** (the code `load-declined`; Stop while the card is up is `stopped`) and,
+  only while the switch is on, **Don't ask again this session**, which stops the card for the visit until the
+  switch is turned off (`Session.claudeLoadNoAsk`). With the switch off the box is not shown and every load asks.
+  Other acting tools keep the one consent question.
+  **For automation:** `Session.loadBasic(program)` and the embed API's `loadBasic(program)` do the same load with no
+  card and no restore point, through the same implementation (`js/claude/basicload.js`: `planBasic`, `writeBasic`),
+  and fail with the same codes.
+  The oracle is published documentation, not a ROM (none may be used here): the token tables, crunch rules,
+  pointers and line format come from *Color BASIC Unravelled II* (p.7, p.A1, p.B18, pp.B40-B41), *Extended BASIC
+  Unravelled II* (pp.B2-B3), *Disk BASIC Unravelled II* (p.B3), *Super Extended BASIC Unravelled II* (p.B9), *Inside
+  the Dragon* (Appendices 7 and 8, pp.226-231), *Your Computer* October 1983 (the MC-10's keyword table) and the MCX
+  BASIC memory map (the MC-10's pointers). What they leave open is a choice of ours, said in `js/media/basic.js`:
+  the MC-10's token values are $80 plus each keyword's place in its published list (single bytes, no $FF prefix);
+  its pointers come from MCX BASIC's map, which keeps the stock ROM's direct page (not confirmed for the stock ROM,
+  hence the pointer check); its line limit (128) is a conservative guess; the Dragon's `?`, `'` and ELSE rules and
+  249-character limit are taken from Color BASIC's; and Super Extended's table is searched before Disk BASIC's so
+  that LOCATE is its own token. `node tests/basic-load.test.js` checks hand-built bytes for each family, every
+  keyword's round trip, whole-program round trips to the normalised listing, the memory layout and pointers on the
+  three families with our own firmware in the BASIC socket, every error, and the consent gate.
+  **Not checked automatically:** that a real BASIC lists and runs what `load_basic` wrote. That needs the BASIC
+  ROMs, which no test may use; the owner checks it by hand (manual test step 4 below).
+* **Which to use.** The tool descriptions and the brief (`TYPING_POLICY` in `js/claude/chat.js`) tell Claude: type a
+  program of 3 lines or fewer with `type_text`; for a longer one, ask the person whether to load it with
+  `load_basic`, and only after they agree; after either, check with LIST and `screen_text` before saying it worked.
 * **The key.** Saved only in this browser, as `cloadm.anthropicKey` (`js/host/key-store.js`); never a Session
   setting, so never in the machine, a snapshot, a share link or a settings export. The field is emptied once it
   is saved; **Forget key** removes it.
@@ -206,7 +261,9 @@ a chat with the real one needs a key, so it is done by hand. Chat with the real 
    lower case that names the Dragon 64; the tag reads *connected*.
 4. With BASIC ROMs added, ask `Write a three-line BASIC program that prints HELLO, type it in and RUN it`: the BASIC
    session comes on screen, the program is typed and runs. Click **Restore to before Claude's changes**: the
-   program is gone.
+   program is gone. Then ask for a 20-line program: Claude offers to load it rather than type it; say yes, and it
+   lists the program and checks the screen; `LIST` and `RUN` it yourself. Do this on a Dragon, a CoCo (1/2 and 3)
+   and an MC-10: this is the only check of `load_basic` against a real BASIC (not automated: no test may use ROMs).
 5. Ask for something long and press Esc while it streams: the reply stops with `[stopped]`.
 6. Save a wrong key (`sk-ant-wrong`) and send a line: the help line says the key was refused, and nothing retries.
 7. ← Emulator, then **Capture & share** → Your settings → **Export settings…**: the file holds no key. Back in the chat,

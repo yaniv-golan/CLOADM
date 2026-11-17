@@ -17,6 +17,9 @@ import { assemble } from '../asm/assembler.js';
 import { describeError, loadIncludes } from '../media/includes.js';
 import { READ_ONLY_TOOLS, readOnlyTools, runReadOnlyTool } from './readtools.js';
 import { TOOL_CODES, ToolError, checkedInt } from './toolerrors.js';
+import { PACE } from '../machines/typist.js';
+import { BASIC_LINE_MAX } from '../media/basic.js';
+import { BASIC_PROGRAM_TEXT_MAX, planBasic, writeBasic } from './basicload.js';
 
 // The acting tools' API schemas: the ones that change the BASIC session. They need "Let Claude use the
 // machine", and the Session's consent gate (gateTools) is what asks - this list only describes them. The
@@ -24,7 +27,14 @@ import { TOOL_CODES, ToolError, checkedInt } from './toolerrors.js';
 export const TYPE_TEXT_MAX = 65536;      // characters one type_text may type (a long BASIC listing is legitimate)
 export const POKE_MAX = 256;             // bytes one poke may write
 export const SOURCE_MAX = 32768;         // characters of assembler source one assemble_and_load takes
+// How Claude puts a BASIC program in (the owner's policy): typing is for short programs, and a longer one is
+// loaded only after the person agrees. Stated in the tool descriptions and in the brief (js/claude/brief.js), and
+// tests/claude-typing.test.js checks both say it.
+export const TYPE_LINES_MAX = 3;
+export const TYPING_POLICY = `Policy: type a BASIC program with type_text only when it has ${TYPE_LINES_MAX} lines or fewer; for a longer program, ask the person whether to load it with load_basic instead of typing it, and call load_basic only after they agree. After either, verify before you say it worked: type LIST and read the screen with screen_text, and compare with the program you meant.`;
 const CONSENT = ' Needs "Let Claude use the machine": the person is asked the first time; if they decline you get the error no-consent or consent-declined and nothing changes.';
+// load_basic is not behind that question: it has its own card on every call (js/session.js gateTools)
+const LOAD_CONSENT = ' The person is asked on every call, whether or not "Let Claude use the machine" is on, unless they ticked "Don\'t ask again this session" (offered only while that switch is on; turning it off asks again); if they decline you get the error load-declined, if there is nobody to ask no-consent, and if they press Stop stopped; nothing changes.';
 export function actingTools() {
   const schema = (props, required) => ({ type: 'object', properties: props, required });
   const int = (description) => ({ type: 'integer', description });
@@ -39,8 +49,13 @@ export function actingTools() {
     },
     {
       name: 'type_text',
-      description: `Type text at the BASIC session's keyboard as if typed (\\n presses Enter), at most ${TYPE_TEXT_MAX} characters. Returns {typed}.` + CONSENT,
+      description: `Type text at the BASIC session's keyboard as if typed (\\n presses Enter), at most ${TYPE_TEXT_MAX} characters. Each key is held until the machine has read it, and the next line waits until the machine is reading the keyboard again, so a busy BASIC drops nothing. Returns {requested,consumed,lines_requested,lines_delivered}: keys and Enters the machine actually read. If it stops reading the keyboard the rest is not typed and the error is not-consumed, with how far it got. ${TYPING_POLICY}` + CONSENT,
       input_schema: schema({ text: { type: 'string', minLength: 1, maxLength: TYPE_TEXT_MAX } }, ['text']),
+    },
+    {
+      name: 'load_basic',
+      description: `Load a BASIC program straight into the BASIC session's program memory, as loading it from tape or disk would: no typing. The text is tokenized for this machine's BASIC (Dragon, Color/Extended BASIC on a CoCo, Micro Color BASIC on an MC-10) and replaces the program in memory (like NEW, then the lines). One line per program line, each starting with its line number (0-${BASIC_LINE_MAX}), at most ${BASIC_PROGRAM_TEXT_MAX} characters in all. Needs the BASIC prompt (not the no-ROM stub, not a running program). Returns {lines,bytes,start,end}: the lines stored and the program's first and last byte addresses (decimal). Only characters $20-$7E. Errors: bad-line-number, line-too-long, not-typable, no-basic, not-at-prompt, program-too-large, unknown-machine; nothing is changed by a failed call. ${TYPING_POLICY}` + LOAD_CONSENT,
+      input_schema: schema({ program: { type: 'string', minLength: 1, maxLength: BASIC_PROGRAM_TEXT_MAX, description: 'The program listing: numbered lines separated by \\n.' } }, ['program']),
     },
     {
       name: 'press_break',
@@ -217,15 +232,14 @@ export class ChatSession {
         this.commitSnapshot(snap);
         return { address, length: bytes.length, written, skipped: bytes.length - written, not_taken: this.notTaken(address, bytes) };
       }
-      case 'type_text': {
-        if (typeof input.text !== 'string') throw new ToolError(TOOL_CODES.EMPTY, 'text');
-        const text = input.text;
-        if (!text) throw new ToolError(TOOL_CODES.EMPTY, 'text');
-        if (text.length > TYPE_TEXT_MAX) throw new ToolError(TOOL_CODES.TOO_LARGE, `${text.length} characters, at most ${TYPE_TEXT_MAX}`);
+      case 'type_text': return this.typeText(t, input);
+      case 'load_basic': {
+        // the same implementation as Session.loadBasic (js/claude/basicload.js); everything that can fail is
+        // checked before the restore point, so a refused load changes nothing
+        const plan = planBasic(t, input.program);
         this.takeSnapshot();
         t.show();
-        t.typeText(text);
-        return { typed: text.length };
+        return writeBasic(t, plan);
       }
       case 'press_break':
         this.takeSnapshot();
@@ -244,6 +258,35 @@ export class ChatSession {
       }
       default: throw new ToolError(TOOL_CODES.UNKNOWN_TOOL, name);
     }
+  }
+
+  // type_text: typed at the keyboard paced by what the machine consumes (Typist.typePaced), and the result says
+  // what the machine took, not what was asked: {requested, consumed, lines_requested, lines_delivered}. When the
+  // machine stops reading the keyboard the rest is not typed and the call fails not-consumed, saying how far it got.
+  async typeText(t, input) {
+    if (typeof input.text !== 'string') throw new ToolError(TOOL_CODES.EMPTY, 'text');
+    const text = input.text;
+    if (!text) throw new ToolError(TOOL_CODES.EMPTY, 'text');
+    if (text.length > TYPE_TEXT_MAX) throw new ToolError(TOOL_CODES.TOO_LARGE, `${text.length} characters, at most ${TYPE_TEXT_MAX}`);
+    const bad = t.untypable(text);
+    if (bad.length) throw new ToolError(TOOL_CODES.NOT_TYPABLE, JSON.stringify(bad.join('')));
+    this.takeSnapshot();
+    t.show();
+    const job = t.typeText(text);
+    // Stop (the abort signal) ends the typing too: what is not typed yet is dropped, and the call says stopped
+    const signal = this.controller && this.controller.signal;
+    const onAbort = () => { t.machine.typist.dropJob(job); job.end('stopped'); };
+    if (signal) { if (signal.aborted) onAbort(); else signal.addEventListener('abort', onAbort, { once: true }); }
+    await job.promise;
+    if (signal) signal.removeEventListener('abort', onAbort);
+    const report = { requested: job.requested, consumed: job.consumed, lines_requested: job.linesRequested, lines_delivered: job.linesDelivered };
+    if (job.status === 'done') return report;
+    if (job.status === 'stopped') throw new ToolError(TOOL_CODES.STOPPED, `${job.consumed} of ${job.requested} keys typed`);
+    const at = job.at;
+    const ch = at.char === '\r' ? 'Enter' : JSON.stringify(at.char);
+    const why = at.phase === 'resume' ? `the machine did not read the keyboard again after line ${job.linesDelivered}`
+      : at.phase === 'release' ? `the machine stopped reading the keyboard after key ${at.index + 1} (${ch})` : `key ${at.index + 1} (${ch}) was not read by the machine`;
+    throw new ToolError(TOOL_CODES.NOT_CONSUMED, `${why} within ${PACE.timeoutFrames} frames; ${JSON.stringify(report)}`);
   }
 
   // assemble_and_load: assemble for the target's own CPU and write the bytes, without starting anything.

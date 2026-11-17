@@ -7,12 +7,12 @@
  *   await m.load('game.cas', bytes);             // bytes: Uint8Array or array of numbers
  *   m.on('frame', (f) => ...);                   // also 'machine', 'loaded', 'reset'
  *
- * Calls: info, type, load, insertTape, reset, powerCycle, switchMachine(id, {ram}), peek(addr, n), poke(addr, bytes),
+ * Calls: info, type, loadBasic(listing), load, insertTape, reset, powerCycle, switchMachine(id, {ram}), peek(addr, n), poke(addr, bytes),
  * screenText, setDisplay({ view: 'sharp' }). Each returns a promise; errors reject with the emulator's message.
  * The protocol (js/embed-api.js): postMessage with { cloadm: 1, id, method, args } and replies by id.
  */
 (function () {
-  const METHODS = ['info', 'type', 'load', 'insertTape', 'reset', 'powerCycle', 'switchMachine', 'peek', 'poke', 'screenText', 'setDisplay'];
+  const METHODS = ['info', 'type', 'loadBasic', 'load', 'insertTape', 'reset', 'powerCycle', 'switchMachine', 'peek', 'poke', 'screenText', 'setDisplay'];
   let nextId = 1;
 
   function attach(frame, { timeout = 15000 } = {}) {

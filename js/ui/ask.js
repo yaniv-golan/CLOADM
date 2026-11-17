@@ -20,7 +20,7 @@
  *     program" (a BASIC program in memory); clicking one opens the panel and asks.
  */
 import { $, ESC } from './page.js';
-import { when } from './claude.js';
+import { loadCardText, when } from './claude.js';
 
 const WIDTH_KEY = 'cloadm.askWidth';
 const RAIL = [['Media', 'tab-media'], ['Display', 'tab-display'], ['Input', 'tab-input'], ['POKEs', 'tab-pokes'], ['Machine', 'tab-machine']];
@@ -141,6 +141,8 @@ export function setupAsk(page, claude) {
   $('btnAskRetry').onclick = () => claude.retry();
   $('btnAskAllow').onclick = () => session.answerClaude(true);
   $('btnAskTell').onclick = () => session.answerClaude(false);
+  $('btnAskLoad').onclick = () => session.answerClaude(true, { dontAsk: $('chkAskLoadNoAsk').checked });
+  $('btnAskLoadNo').onclick = () => session.answerClaude(false);
   $('chkAskMachine').onchange = () => session.setClaudeAllowed($('chkAskMachine').checked);
   $('btnAskStop').onclick = () => claude.stop();
   $('btnAskResume').onclick = () => { session.resumeClaude(); page.focus(); };
@@ -207,7 +209,14 @@ export function setupAsk(page, claude) {
     $('btnAskFix').hidden = !(chat && !chat.busy && lastUser && /^Explain this error/.test(lastUser.content) && msgs.slice(-1)[0].role === 'assistant' && !session.claudeAllowed);
     // consent
     const pending = session.claudePending;
-    $('askConsent').hidden = !pending;
+    const loading = !!(pending && pending.kind === 'load');
+    $('askLoad').hidden = !loading;
+    if (loading) $('askLoadText').textContent = loadCardText(pending.load);
+    else $('chkAskLoadNoAsk').checked = false;
+    // "Don't ask again this session" only while the switch is on: with it off every load asks, so the box is not offered
+    $('chkAskLoadNoAsk').closest('label').hidden = !session.claudeAllowed;
+    if (!session.claudeAllowed) $('chkAskLoadNoAsk').checked = false;
+    $('askConsent').hidden = !pending || loading;
     if (pending) $('askConsentText').textContent = `To do that, Claude needs to ${pending.name === 'poke' ? 'change memory' : pending.name === 'press_break' ? 'press BREAK' : pending.name === 'assemble_and_load' ? 'load a program into memory' : pending.name === 'run' ? 'start a program' : 'type into BASIC'}. With your permission it can type, POKE, run and press BREAK. You see everything happen on the screen, Stop works at any time, and a restore point is made first so Undo puts everything back.`;
     $('chkAskMachine').checked = session.claudeAllowed;
     // the activity log and the restore point

@@ -17,6 +17,28 @@ All notable changes to CLOADM are recorded here. The format follows
   emulator (by "← Emulator", Esc or Back) reopens the Ask panel on that conversation, so a waiting question or a reply
   in progress is not left unseen.
 
+### After 0.1.0-pre
+
+#### Fixed
+
+- **Claude's `type_text` dropped keys** while BASIC was busy (storing a line, scrolling) and still reported
+  success. Typing is now paced by what the machine consumes: each key is held until the CPU has read its keyboard
+  column, released until it has seen the key go, and after Enter nothing more is pressed until the machine reads
+  the keyboard again. The result says what the machine took (`requested`, `consumed`, `lines_requested`,
+  `lines_delivered`); a machine that stops reading the keyboard ends the call with `not-consumed` and how far it
+  got, and a character the keyboard has no key for is `not-typable`.
+
+#### Added
+
+- **`load_basic`**, a new acting tool for Claude: a BASIC program is tokenized for the machine's BASIC (Dragon,
+  CoCo Color/Extended/Disk/Super Extended, MC-10) and put straight into program memory, as a load from tape or disk
+  would, with coded errors. Claude types programs of 3 lines or fewer and offers `load_basic` for longer ones,
+  and checks the result (LIST and the screen) before saying it worked. Loading asks on every call with its own card
+  ("Don't ask again this session" stops it for the visit). The same load is `Session.loadBasic(program)` and the
+  embed API's `loadBasic`, for automation, with no card.
+  "Don't ask again this session" is offered only while "Let Claude use the machine" is on: with the switch off
+  every load asks, and Stop while the card is up ends the call as `stopped` rather than `load-declined`.
+
 ### 0.1.0 (first public release, not tagged yet)
 
 Everything on `main` so far. Hardware behaviour is checked against MAME 0.264 in instruction lockstep (and pixel

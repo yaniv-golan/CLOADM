@@ -4891,6 +4891,27 @@ async function consentFullscreenChecks(browser, base, check) {
     && await page.isHidden('#claudeConsentAsk') && await page.evaluate(() => !window.emu.session.claudeAllowed),
     JSON.stringify(dis && dis[0]));
 
+  // load_basic checks its program before its own card: on this machine (no BASIC ROMs) it is refused with a coded
+  // error Claude can act on, no card comes up, and nothing changes (the card itself: askFollowupChecks, section 6)
+  replies.push({ body: tools([{ name: 'load_basic', input: { program: '10 PRINT "HI"\n20 GOTO 10\n30 END\n40 REM\n' } }]) }, { body: text('No BASIC here.') });
+  const undoBefore = await page.evaluate(() => window.emu.session.chat.undo.length);
+  let lbCard = false;
+  await typeLine('load my program');
+  for (let i = 0; i < 40 && !lbCard && await page.evaluate(() => window.emu.__sent < 12); i++) {
+    lbCard = await page.evaluate(() => !document.getElementById('claudeLoad').hidden || !document.getElementById('claudeConsentAsk').hidden);
+    await emuFrames(page, 2);
+  }
+  await done(12);
+  const lb = requests[11] && requests[11].messages.slice(-1)[0].content;
+  let lbJson = null;
+  try { lbJson = JSON.parse(lb[0].content); } catch (e) { /* checked below */ }
+  check(`${L}: load_basic on a machine with no BASIC ROMs: no card, Claude gets the coded error no-basic with a remedy, and nothing changes`,
+    !lbCard && Array.isArray(lb) && lb[0].is_error && lbJson && lbJson.error && lbJson.error.code === 'no-basic' && /assemble_and_load/.test(lbJson.error.remedy)
+    && await page.evaluate((n) => window.emu.session.chat.undo.length === n, undoBefore), JSON.stringify(lb && lb[0]));
+  const offered = requests[11] && requests[11].tools && requests[11].tools.find((t) => t.name === 'load_basic');
+  check(`${L}: the request offers load_basic, and its description and the system prompt carry the typing policy`, !!offered
+    && /3 lines or fewer/.test(offered.description) && /3 lines or fewer/.test(JSON.stringify(requests[11].system)));
+
   // a new visit starts with it off
   await page.reload();
   await started(page);
@@ -4949,19 +4970,19 @@ async function askFollowupChecks(browser, base, check) {
     await page.press('#askInput', 'Enter');
     await waitFor(page, () => !document.getElementById('askConsent').hidden);
     await page.click('#btnAskAllow');
-    await waitFor(page, () => !document.getElementById('askActing').hidden && window.emu.machine.stubKeys.length > 100, null, 8000);
+    await waitFor(page, () => !document.getElementById('askActing').hidden && window.emu.machine.typist.queue.length > 100, null, 8000);
     await page.focus('#screen');
     await page.keyboard.press('x');
-    const paused = await page.evaluate(() => { const m = window.emu.machine; const before = m.stubKeys.length; return { paused: window.emu.session.claudePaused, left: before,
+    const paused = await page.evaluate(() => { const m = window.emu.machine; const before = m.typist.queue.length; return { paused: !!window.emu.session.claudePaused, left: before,
       pill: document.getElementById('askActing').textContent, resume: !document.getElementById('btnAskResume').hidden, ring: document.getElementById('monitor').classList.contains('claude-acting') }; });
     await emuFrames(page, 30);
-    const still = await page.evaluate(() => window.emu.machine.stubKeys.filter((c) => c !== 'X'.charCodeAt(0)).length);
+    const still = await page.evaluate(() => window.emu.machine.stubKeys.filter((c) => c !== 'X'.charCodeAt(0)).length + window.emu.machine.typist.queue.length);
     check('ask (keys): a key pressed on the machine while Claude types pauses Claude: the pill says Paused, with Resume and Stop; nothing more is typed',
       paused.paused && /Paused/.test(paused.pill) && paused.resume && still === 0 && await page.isVisible('#btnAskStop'), JSON.stringify(paused));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'ask-paused-desktop.png') });
     // compared in the same task as the click: the held keys are queued again, after the person's own
-    const resumed = await page.evaluate(() => { const s = window.emu.session, held = s.claudePaused.held.length, before = s.machine.stubKeys.length;
-      document.getElementById('btnAskResume').click(); return { held, queued: s.machine.stubKeys.length - before, paused: !!s.claudePaused }; });
+    const resumed = await page.evaluate(() => { const s = window.emu.session, held = s.claudePaused.held.queue.length, before = s.machine.typist.queue.length;
+      document.getElementById('btnAskResume').click(); return { held, queued: s.machine.typist.queue.length - before, paused: !!s.claudePaused }; });
     check('ask (keys): Resume carries on typing where Claude stopped', resumed.held > 50 && resumed.queued === resumed.held && !resumed.paused
       && /Claude is typing/.test(await page.textContent('#askActing')), JSON.stringify(resumed));
     await page.focus('#screen');
@@ -4969,7 +4990,7 @@ async function askFollowupChecks(browser, base, check) {
     await waitFor(page, () => window.emu.session.claudePaused);
     await page.click('#btnAskStop');
     check('ask (keys): Stop while paused ends the turn; nothing held is typed later', await waitFor(page, () => !window.emu.session.claudePaused && !window.emu.session.chat.busy
-      && document.getElementById('askActing').hidden) && (await emuFrames(page, 30), await page.evaluate(() => window.emu.machine.stubKeys.length === 0)));
+      && document.getElementById('askActing').hidden) && (await emuFrames(page, 30), await page.evaluate(() => window.emu.machine.stubKeys.length === 0 && window.emu.machine.typist.queue.length === 0)));
     if (replies.held) replies.held.release();
     check('ask (keys): no page errors', !errors.length, errors.join('; '));
     await ctx.close();
@@ -5089,6 +5110,146 @@ async function askFollowupChecks(browser, base, check) {
     check('ask (900 px): no page errors', !errors.length, errors.join('; '));
     await ctx.close();
   }
+
+  // ---- (6) load_basic's own card: on every call, even with "Let Claude use the machine" on, with "Don't ask again
+  // this session". The machine in use gets BASIC's shape without a BASIC ROM: our idle firmware in the BASIC socket,
+  // BASIC's pointers describing an empty program at $1E01 and OK on the screen (as tests/basic-load.test.js) ----
+  {
+    const { ctx, page, errors, requests, replies } = await open({ width: 1440, height: 900 });
+    const ready = await page.evaluate(() => {
+      const s = window.emu.session, m = s.machine, E = window.emu.Emu;
+      const asm = E.assemble(' ORG $8000\nSTART STA $FFC9\n CLR $FF23\n LDA #$F8\n STA $FF22\n LDA #$04\n STA $FF23\n CLR $FF22\nIDLE BRA IDLE\n', '6809');
+      const rom = new Uint8Array(0x4000).fill(0xFF); rom.set(asm.segments[0].data, 0);
+      m.setRoms({ basic: rom }); m.reset(true); m.cpu.jump(asm.exec);
+      const w = (a, v) => s.pokeBytes(a, [v >> 8, v & 0xFF], m);
+      s.pokeBytes(0x1E00, [0, 0, 0], m);
+      w(0x19, 0x1E01); w(0x1B, 0x1E03); w(0x1D, 0x1E03); w(0x1F, 0x1E03); w(0x21, 0x7E00);
+      for (let i = 0; i < 512; i++) m.ram[0x400 + i] = 0x60;
+      m.ram[0x440] = 0x0F; m.ram[0x441] = 0x0B;            // OK
+      s.setClaudeAllowed(true);
+      return m.hasRom;
+    });
+    await emuFrames(page, 3);
+    const PROG = Array.from({ length: 20 }, (_, i) => `${(i + 1) * 10} PRINT "LINE ${i + 1}"`).join('\n');
+    // (the BASIC session's memory, which is the machine in use until the conversation moves to full screen)
+    const listing = () => page.evaluate(() => window.emu.Emu.listProgram((a) => window.emu.session.chatTarget().readByte(a), 0x1E01, 'dragon'));
+    const loadCard = () => waitFor(page, () => !document.getElementById('askLoad').hidden, null, 15000);
+    const askNow = async (q) => { await page.fill('#askInput', q); await page.press('#askInput', 'Enter'); };
+    await page.click('#btnAsk');
+    replies.push({ body: tools([{ name: 'load_basic', input: { program: PROG } }]) }, { body: text('Loaded.') });
+    await askNow('Load my 20-line program');
+    check('load card: with "Let Claude use the machine" on, load_basic still asks with its own card, saying what it loads',
+      ready && await loadCard() && await page.evaluate(() => window.emu.session.claudeAllowed) && await page.isHidden('#askConsent')
+      && /20-line BASIC program \(lines 10 to 200, \d+ bytes\)/.test(await page.textContent('#askLoadText'))
+      && /Don't ask again this session/.test(await page.textContent('#askLoad')) && !(await page.isChecked('#chkAskLoadNoAsk')), await page.textContent('#askLoad'));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, 'ask-load-basic-card.png') });
+    await page.click('#btnAskLoad');
+    await waitFor(page, (n) => !window.emu.session.chat.busy && window.emu.session.chat.messages.length >= n, 2, 15000);
+    const r1 = requests[1] && requests[1].messages.slice(-1)[0].content;
+    check('load card: Load it loads the program (the tool result and the program in memory)', Array.isArray(r1) && !r1[0].is_error && JSON.parse(r1[0].content).lines === 20
+      && (await listing()).split('\n').length === 20 && await page.isHidden('#askLoad'), JSON.stringify(r1 && r1[0]).slice(0, 200));
+    // the next call asks again; this time "Don't ask again this session" is ticked
+    replies.push({ body: tools([{ name: 'load_basic', input: { program: '10 PRINT "TWO"' } }]) }, { body: text('Loaded again.') });
+    await askNow('Load another');
+    check('load card: the next load_basic asks again (every call), with the box unticked', await loadCard() && !(await page.isChecked('#chkAskLoadNoAsk')));
+    await page.check('#chkAskLoadNoAsk');
+    await page.click('#btnAskLoad');
+    await waitFor(page, (n) => !window.emu.session.chat.busy && window.emu.session.chat.messages.length >= n, 4, 15000);
+    check('load card: ticked and loaded: this session does not ask again', await page.evaluate(() => window.emu.session.claudeLoadNoAsk) && (await listing()) === '10 PRINT "TWO"');
+    // a third load goes straight in: no card
+    replies.push({ body: tools([{ name: 'load_basic', input: { program: '10 PRINT "THREE"' } }]) }, { body: text('Done.') });
+    let carded = false;
+    await askNow('And one more');
+    for (let i = 0; i < 60 && await page.evaluate(() => window.emu.session.chat.messages.length < 6); i++) {
+      carded = carded || !(await page.isHidden('#askLoad'));
+      await emuFrames(page, 2);
+    }
+    check('load card: after "Don\'t ask again this session" the next load goes in with no card', !carded && (await listing()) === '10 PRINT "THREE"');
+
+    // one turn that calls load_basic, sent by the side panel's box (or, in full screen, straight to the chat); returns
+    // once the card is up, and settle() waits for the turn to end and gives the tool result Claude got
+    const lbTurn = async (program, send) => {
+      replies.push({ body: tools([{ name: 'load_basic', input: { program } }]) }, { body: text('Ok.') });
+      const n = requests.length;
+      await send();
+      return { n, settle: async () => {
+        await waitFor(page, () => !window.emu.session.chat.busy, null, 15000);
+        for (let i = 0; i < 100 && requests.length < n + 2; i++) await page.waitForTimeout(50);
+        await waitFor(page, () => !window.emu.session.chat.busy, null, 15000);
+        const c = requests[n + 1] && requests[n + 1].messages.slice(-1)[0].content;
+        try { return { isError: !!c[0].is_error, out: JSON.parse(c[0].content) }; } catch (e) { return { isError: null, out: c }; }
+      } };
+    };
+    const sidePanel = (q) => () => askNow(q);
+    const boxShown = (id) => page.evaluate((x) => { const b = document.getElementById(x); return !b.closest('label').hidden && b.offsetParent !== null; }, id);
+
+    // the switch off from the page: it is unticked, acting is no longer allowed, and "Don't ask again" is cleared
+    await page.click('#chkAskMachine');
+    await emuFrames(page, 1);
+    check('switch off from the page (side panel): the box is unticked, acting is off and "Don\'t ask again" is cleared',
+      !(await page.isChecked('#chkAskMachine')) && await page.evaluate(() => !window.emu.session.claudeAllowed && !window.emu.session.claudeLoadNoAsk));
+    // with the switch off the card has no "Don't ask again" box, and ticking it anyway (as a script could) loads this
+    // program but does not stop the next card: no load can go in silently
+    let t = await lbTurn('10 PRINT "FOUR"', sidePanel('Load four'));
+    check('switch off: load_basic has its card, without the "Don\'t ask again this session" box', await loadCard() && !(await boxShown('chkAskLoadNoAsk')));
+    // ticked and clicked in one step, so no render between them can untick it before Load it reads it
+    const sentTicked = await page.evaluate(() => { const b = document.getElementById('chkAskLoadNoAsk'); b.checked = true; document.getElementById('btnAskLoad').click(); return b.checked; });
+    let res = await t.settle();
+    check('switch off: Load it loads, and a ticked hidden box does not turn the card off', sentTicked && res.isError === false && res.out.lines === 1 && (await listing()) === '10 PRINT "FOUR"'
+      && await page.evaluate(() => !window.emu.session.claudeLoadNoAsk), JSON.stringify(res));
+    t = await lbTurn('10 PRINT "FIVE"', sidePanel('Load five'));
+    check('switch off: the next load_basic asks again (no silent load), still without the box', await loadCard() && !(await boxShown('chkAskLoadNoAsk')));
+    // the side panel's Don't load: Claude gets load-declined, the card goes, the program in memory stays
+    await page.click('#btnAskLoadNo');
+    res = await t.settle();
+    check('side panel: Don\'t load gives Claude load-declined, closes the card and leaves the program in memory as it was',
+      res.isError === true && res.out.error && res.out.error.code === 'load-declined' && await page.isHidden('#askLoad') && (await listing()) === '10 PRINT "FOUR"', JSON.stringify(res));
+    // switch on again: the box is back, unticked; ticked and then Don't load, the next card starts unticked again
+    await page.click('#chkAskMachine');
+    t = await lbTurn('10 PRINT "SIX"', sidePanel('Load six'));
+    check('switch on: the card offers "Don\'t ask again this session", unticked', await loadCard() && await boxShown('chkAskLoadNoAsk') && !(await page.isChecked('#chkAskLoadNoAsk')));
+    await page.check('#chkAskLoadNoAsk');
+    await page.click('#btnAskLoadNo');
+    res = await t.settle();
+    check('side panel: ticked, then Don\'t load: load-declined, nothing loaded, and the session still asks', res.out.error && res.out.error.code === 'load-declined'
+      && (await listing()) === '10 PRINT "FOUR"' && await page.evaluate(() => !window.emu.session.claudeLoadNoAsk), JSON.stringify(res));
+    t = await lbTurn('10 PRINT "SEVEN"', sidePanel('Load seven'));
+    check('side panel: the next card starts with the box unticked (a tick does not carry over to the next card)', await loadCard() && !(await page.isChecked('#chkAskLoadNoAsk')));
+    await page.click('#btnAskLoadNo');
+    await t.settle();
+
+    // the full-screen card (#claudeLoad): the conversation moves to full screen, the machine in use is the BASIC session
+    await page.click('#btnAskFull');
+    await waitFor(page, () => window.emu.session.claudeView === 'full' && !!window.emu.session.chatMachines, null, 15000);
+    const fullCard = () => waitFor(page, () => !document.getElementById('claudeLoad').hidden, null, 15000);
+    const fullSend = (q) => () => page.evaluate((x) => { window.emu.session.chat.sendLine(x); }, q);
+    t = await lbTurn('10 PRINT "EIGHT"', fullSend('load eight'));
+    check('full screen: load_basic has its card with the switch on, offering the box unticked', await fullCard() && await page.isChecked('#chkClaudeTools')
+      && await boxShown('chkClaudeLoadNoAsk') && !(await page.isChecked('#chkClaudeLoadNoAsk')) && /1-line BASIC program \(line 10, \d+ bytes\)/.test(await page.textContent('#claudeLoadText')));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, 'claude-load-basic-card.png') });
+    await page.check('#chkClaudeLoadNoAsk');
+    await page.click('#btnClaudeLoadNo');
+    res = await t.settle();
+    check('full screen: ticked, then Don\'t load: Claude gets load-declined, the card goes, nothing is loaded, the session still asks',
+      res.isError === true && res.out.error && res.out.error.code === 'load-declined' && await page.isHidden('#claudeLoad') && (await listing()) === '10 PRINT "FOUR"'
+      && await page.evaluate(() => !window.emu.session.claudeLoadNoAsk), JSON.stringify(res));
+    t = await lbTurn('10 PRINT "NINE"', fullSend('load nine'));
+    check('full screen: the next card starts with the box unticked', await fullCard() && !(await page.isChecked('#chkClaudeLoadNoAsk')));
+    await page.click('#btnClaudeLoad');
+    res = await t.settle();
+    check('full screen: Load it loads the program (the tool result and the program in memory)', res.isError === false && res.out.lines === 1 && await page.isHidden('#claudeLoad')
+      && (await listing()) === '10 PRINT "NINE"', JSON.stringify(res));
+    // the full-screen switch off: acting off, and the next card has no box
+    await page.click('#chkClaudeTools');
+    t = await lbTurn('10 PRINT "TEN"', fullSend('load ten'));
+    check('full screen: switch off from the page: acting is off and the card has no "Don\'t ask again" box', await fullCard() && !(await page.isChecked('#chkClaudeTools'))
+      && await page.evaluate(() => !window.emu.session.claudeAllowed) && !(await boxShown('chkClaudeLoadNoAsk')));
+    await page.click('#btnClaudeLoadNo');
+    res = await t.settle();
+    check('full screen: Don\'t load with the switch off: load-declined, nothing loaded', res.out.error && res.out.error.code === 'load-declined' && (await listing()) === '10 PRINT "NINE"', JSON.stringify(res));
+    check('load card: no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
 }
 
 // Ask Claude against a mocked Messages API, at desktop width and on a 390 px phone: the header's "Ask Claude"
@@ -5172,7 +5333,9 @@ async function askChecks(browser, base, check) {
       && /CLOADM/.test(Array.isArray(requests[0].system) ? requests[0].system.map((b) => b.text).join('') : requests[0].system) && requests[0].tools.length >= 3
       && JSON.stringify(await msgs()) === JSON.stringify(['user:What does ?SN ERROR mean?', 'claude:A syntax error: a quote is missing.']), JSON.stringify(await msgs()));
     // ---- consent, acting, the pill and Stop, the restore point and Undo ----
-    replies.push({ body: tools([{ name: 'type_text', input: { text: LISTING } }]) }, { hold: true, body: text('Typed it.') });
+    // type_text answers once the machine has read every key, so Stop ends this turn inside the tool: no second
+    // request is made, and none is queued for it (a queued one would answer the next question instead)
+    replies.push({ body: tools([{ name: 'type_text', input: { text: LISTING } }]) });
     await ask('Type a listing in for me');
     check(`${L}: the first time Claude wants to act it asks: Allow / Just tell me the fix`, await waitFor(page, () => !document.getElementById('askConsent').hidden)
       && /Let Claude use the machine\?/.test(await page.textContent('#askConsent')) && await vis('#btnAskAllow') && await vis('#btnAskTell'));

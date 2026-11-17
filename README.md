@@ -77,7 +77,7 @@ Per-machine notes, RAM options and the chip-by-chip list: [docs/machines.md](doc
 | **Printer, serial, DriveWire** | Printer; bit-banger and the Dragon 64's 6551 with a terminal or loopback plug; a DriveWire 4 server in the browser over the CoCo's Becker port; serving a real CoCo over Web Serial (untested on hardware) | |
 | **Input** | Translated and positional keyboard, keyboard joystick, gamepads, Hi-Res interfaces, the CoCo 3 mouse; an on-screen keyboard on phones and tablets | Touch joystick |
 | **Library** | Every tape, disk, cartridge and program you load, kept for next time, in the browser or a folder on your computer; paste a magazine listing and CLOADM types it in | |
-| **Claude** | Chat with Claude full screen on the green screen (phones included), or Ask Claude in a side panel; Claude always reads your BASIC session (and says so when it can't read a screen faithfully), and acts on it (POKE, typing, BREAK) only with your permission, with undo | The chat over DriveWire to a real machine; the CoCo 3's 80-column chat screen |
+| **Claude** | Chat with Claude full screen on the green screen (phones included), or Ask Claude in a side panel; Claude always reads your BASIC session (and says so when it can't read a screen faithfully), and acts on it (POKE, typing, loading a BASIC program, BREAK) only with your permission, with undo | The chat over DriveWire to a real machine; the CoCo 3's 80-column chat screen |
 | **Tools** | 6809/6803 assembler, the Debugger screen (breakpoints, watchpoints, stepping, registers, memory, trace), POKE book, ROM self-test, snapshots (Snapshot 1–3 in the browser) | Step back (rewind) |
 | **Sharing** | Every setting as a URL parameter; a link that opens exactly this moment, a 6-second clip, a true-pixel screenshot; embed code and a JavaScript API; works offline once visited, installable | An install prompt |
 
@@ -147,7 +147,7 @@ keyword matching in 3 KB of 6809. It runs with no ROMs: press 1 on the Welcome m
 **Claude** is the same machine forty years on: press 4 on the Welcome menu, or open
 [cloadm.dev/play/?app=claude](https://cloadm.dev/play/?app=claude). Firmware written for this project replaces
 BASIC and holds the conversation on the green screen, in a lowercase font drawn by the machine itself. Claude can
-work on the BASIC session kept alongside the chat: read its screen and memory, POKE, type in programs and RUN them,
+work on the BASIC session kept alongside the chat: read its screen and memory, POKE, type in short programs or load longer ones (asking first) and RUN them,
 press BREAK, and one click undoes it all. It runs on your own Anthropic API key, kept in your browser and never
 visible to the emulated machine, snapshots, share links or exported settings. More in [docs/claude.md](docs/claude.md).
 

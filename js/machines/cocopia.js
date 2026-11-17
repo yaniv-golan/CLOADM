@@ -71,7 +71,7 @@ function wireCocoPias(m, { noTapeHigh = false, pb1Input, onChange = null, hires 
     }
   };
   p0.a.input = () => {
-    let rows = 0x7F & ~m.keyRowsForCols(p0.b.outValue());
+    let rows = 0x7F & ~m.scanKeys(p0.b.outValue());
     if (m.fire[0]) rows &= ~0x01;
     if (m.fire[1]) rows &= ~0x02;
     // joystick comparator: DAC (PIA1 PA2-7) against the selected pot (mux PIA0 CB2 side, CA2 axis).

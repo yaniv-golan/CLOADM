@@ -761,9 +761,11 @@
   #askMessages .msg[data-role="claude"] { align-self: flex-start; background: var(--panel); }
   #askMessages .msg.note { font: 13px var(--font-mono); color: var(--text-3); background: none; border: 0; padding: 0; }
   #btnAskFix { align-self: flex-start; }
-  #btnAskFix[hidden], #askConsent[hidden], #askRestore[hidden], #askActivity[hidden], #askKeyMsg[hidden], #askKeyForm[hidden], #askComposer[hidden], #askPointList[hidden] { display: none; }
+  #btnAskFix[hidden], #askConsent[hidden], #askLoad[hidden], #claudeLoad[hidden], #askRestore[hidden], #askActivity[hidden], #askKeyMsg[hidden], #askKeyForm[hidden], #askComposer[hidden], #askPointList[hidden] { display: none; }
   .askcard { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
-  #askConsent { border-color: var(--phosphor); padding: 14px; }
+  #askConsent, #askLoad { border-color: var(--phosphor); padding: 14px; }
+  #askLoad p, #claudeLoad p { margin: 0; font-size: 14px; line-height: 1.5; color: var(--text-2); }
+  .loadnoask { display: flex; gap: 8px; align-items: center; font-size: 14px; }
   #askConsent p { margin: 0; font-size: 14px; line-height: 1.5; color: var(--text-2); }
   .askcard .muted { font-size: 13px; }
   #askActivity { border-left: 2px solid var(--phosphor); padding: 4px 0 4px 10px; font: 13px/1.7 var(--font-mono); color: var(--text-3); white-space: pre-wrap; }
@@ -1176,6 +1178,12 @@ npx serve -l 8000 .</pre>
         <div class="bar"><button id="btnAskAllow" class="primary">Allow</button><button id="btnAskTell">Just tell me the fix</button></div>
         <div class="muted">You can change this any time with the switch below.</div>
       </div>
+      <div id="askLoad" class="askcard" hidden>
+        <strong>Load this BASIC program?</strong>
+        <p id="askLoadText"></p>
+        <label class="loadnoask"><input type="checkbox" id="chkAskLoadNoAsk"> Don't ask again this session</label>
+        <div class="bar"><button id="btnAskLoad" class="primary">Load it</button><button id="btnAskLoadNo">Don't load</button></div>
+      </div>
       <div id="askActivity" hidden></div>
       <div id="askRestore" class="askcard" hidden>
         <div class="muted" id="askRestoreWhen"></div>
@@ -1214,6 +1222,11 @@ npx serve -l 8000 .</pre>
       <h2>Your BASIC session</h2>
       <p id="claudeConsentText"></p>
       <div class="bar" id="claudeConsentAsk" hidden><button id="btnClaudeAllow" class="primary">Allow</button><button id="btnClaudeTell">Just tell me the fix</button></div>
+      <div id="claudeLoad" hidden>
+        <p id="claudeLoadText"></p>
+        <label class="loadnoask"><input type="checkbox" id="chkClaudeLoadNoAsk"> Don't ask again this session</label>
+        <div class="bar"><button id="btnClaudeLoad" class="primary">Load it</button><button id="btnClaudeLoadNo">Don't load</button></div>
+      </div>
       <label class="switch"><input type="checkbox" id="chkClaudeTools"> Let Claude use the machine</label>
       <div id="claudeBasicNote"></div>
       <div id="claudeRestore" hidden><span class="muted" id="claudeRestoreWhen"></span><button id="btnClaudeUndo">Restore to before Claude's changes</button></div>
@@ -1542,6 +1555,7 @@ npx serve -l 8000 .</pre>
 <link rel="modulepreload" href="js/machines/fdc.js">
 <link rel="modulepreload" href="js/host/media-store.js">
 <link rel="modulepreload" href="js/machines/keyqueue.js">
+<link rel="modulepreload" href="js/machines/keyboards.js">
 <link rel="modulepreload" href="js/chips/mc6821.js">
 <link rel="modulepreload" href="js/video/frame.js">
 <link rel="modulepreload" href="js/chips/artifacter.js">
@@ -1556,7 +1570,6 @@ npx serve -l 8000 .</pre>
 <link rel="modulepreload" href="js/cpu/cpus.js">
 <link rel="modulepreload" href="js/machines/cocopia.js">
 <link rel="modulepreload" href="js/machines/becker.js">
-<link rel="modulepreload" href="js/machines/keyboards.js">
 <link rel="modulepreload" href="js/machines/typist.js">
 <link rel="modulepreload" href="js/media/tape.js">
 <link rel="modulepreload" href="js/media/deck.js">
@@ -1597,6 +1610,8 @@ npx serve -l 8000 .</pre>
 <link rel="modulepreload" href="js/media/includes.js">
 <link rel="modulepreload" href="js/claude/toolerrors.js">
 <link rel="modulepreload" href="js/claude/readtools.js">
+<link rel="modulepreload" href="js/media/basic.js">
+<link rel="modulepreload" href="js/claude/basicload.js">
 <link rel="modulepreload" href="js/claude/chat.js">
 <link rel="modulepreload" href="js/claude/channel.js">
 <link rel="modulepreload" href="js/roms.js">

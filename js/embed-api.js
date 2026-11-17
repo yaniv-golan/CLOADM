@@ -9,8 +9,8 @@
  *   page -> host   { cloadm: 1, event, data }                  'ready', 'machine', 'loaded', 'reset', 'frame'
  * 'frame' events are sent only after the host asked for them (method 'watchFrames').
  *
- * Methods (EmbedApi.METHODS): info, type, load, insertTape, reset, powerCycle, switchMachine, peek, poke,
- * screenText, setDisplay, watchFrames. Bytes travel as arrays of numbers or Uint8Arrays.
+ * Methods (EmbedApi.METHODS): info, type, loadBasic, load, insertTape, reset, powerCycle, switchMachine, peek,
+ * poke, screenText, setDisplay, watchFrames. Bytes travel as arrays of numbers or Uint8Arrays.
  */
 import { profiles } from './machines/profiles.js';
 import { SessionError } from './session.js';
@@ -38,6 +38,12 @@ export class EmbedApi {
   type(text) {
     if (typeof text !== 'string') throw new SessionError('type: text must be a string');
     return this.session.typeText(text);
+  }
+  // a BASIC program listing into program memory, as a tape load would, without typing it (Session.loadBasic: needs
+  // BASIC at its OK prompt) -> { lines, bytes, start, end }; a refusal is the error, e.g. "no-basic: ..."
+  loadBasic(program) {
+    if (typeof program !== 'string') throw new SessionError('loadBasic: program must be a string');
+    return this.session.loadBasic(program);
   }
   // load and run a program, tape or cartridge, as a dropped file -> the status message
   load(name, bytes) {
@@ -103,4 +109,4 @@ export class EmbedApi {
     return reply;
   }
 }
-EmbedApi.METHODS = ['info', 'type', 'load', 'insertTape', 'reset', 'powerCycle', 'switchMachine', 'peek', 'poke', 'screenText', 'setDisplay', 'watchFrames'];
+EmbedApi.METHODS = ['info', 'type', 'loadBasic', 'load', 'insertTape', 'reset', 'powerCycle', 'switchMachine', 'peek', 'poke', 'screenText', 'setDisplay', 'watchFrames'];

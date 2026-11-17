@@ -39,6 +39,14 @@ export const TOOL_CODES = Object.freeze({
   ORG_CONFLICT: 'org-conflict',
   NO_BASIC: 'no-basic',
   BAD_TARGET: 'bad-target',
+  NOT_CONSUMED: 'not-consumed',
+  NOT_TYPABLE: 'not-typable',
+  BAD_LINE_NUMBER: 'bad-line-number',
+  LINE_TOO_LONG: 'line-too-long',
+  NOT_AT_PROMPT: 'not-at-prompt',
+  PROGRAM_TOO_LARGE: 'program-too-large',
+  UNKNOWN_MACHINE: 'unknown-machine',
+  LOAD_DECLINED: 'load-declined',
 });
 
 // code -> the remedy sentence the model is given. Keep each one an instruction: what to do instead.
@@ -59,8 +67,16 @@ export const TOOL_ERRORS = Object.freeze({
   'bad-byte': 'a byte is a whole number from 0 to 255',
   'assembly-failed': 'fix the errors named in detail (line numbers are those of your source) and call again; nothing was written',
   'org-conflict': 'drop the org argument, or remove the ORG line from the source',
-  'no-basic': 'RUN needs the BASIC ROMs, which this machine does not have: pass an address to jump to instead',
+  'no-basic': 'this needs the BASIC ROMs, which this machine does not have: for run, pass an address to jump to instead; for a program, write it in assembler with assemble_and_load',
   'bad-target': 'pass an address 0-65535 (a decimal integer, or hex text like "$3000") or "RUN"',
+  'not-consumed': 'the machine stopped reading the keyboard before everything was typed (detail says how far it got; the rest was not typed): read the screen with screen_text, press_break if a program is running, then type only what is missing, or offer load_basic for a long program',
+  'bad-line-number': 'start every line with a line number from 0 to 63999 (detail names the line); nothing was loaded',
+  'line-too-long': 'split the line named in detail: it is longer than this BASIC accepts (the limit is in detail); nothing was loaded',
+  'not-at-prompt': 'BASIC must be at its OK prompt: read the screen with screen_text, press_break if a program is running, and try again',
+  'program-too-large': 'the program does not fit in this BASIC session\'s free memory (detail gives the sizes): shorten it, or ask the person to free memory (for example PCLEAR 1 on a CoCo or Dragon)',
+  'unknown-machine': 'this machine\'s BASIC is not one load_basic knows: type the program with type_text instead',
+  'load-declined': 'the person chose not to load the program: do not load it; offer to type it if it has 3 lines or fewer, or give them the listing',
+  'not-typable': 'the machine cannot take the characters in detail (no key for them on this keyboard, or above $7E, which BASIC cannot store as text): leave them out or use plain ASCII it has (BASIC keywords are uppercase)',
 });
 
 export class ToolError extends SessionError {

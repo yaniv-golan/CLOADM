@@ -430,7 +430,14 @@ const json = (status, body) => () => new Response(JSON.stringify(body), { status
     const firmware = new Uint8Array(fs.readFileSync(path.join(__dirname, '../examples/chat.bin')));
     const chat = s.startChat({ backend, channel: new Emu.MemoryChannel(), firmware, tools: true });
     s.setClaudeAllowed(true);   // acting needs "Let Claude use the machine"; these turns act
-    const turn = async (...calls) => { turns.push(calls); await chat.sendLine('do it'); };
+    // a turn settles when its tools do; type_text waits for the machine to read its keys, so the machines run
+    // (frames) until the turn has ended
+    const turn = async (...calls) => {
+      turns.push(calls);
+      let done = false; const p = chat.sendLine('do it').then(() => { done = true; });
+      for (let i = 0; i < 4000 && !done; i++) { s.advance(1000 / s.machine.fps + 0.01); await new Promise((r) => setImmediate(r)); }
+      await p;
+    };
     // a poke, then undo: the byte goes back to what it was
     const before = basic.ram[0x4000];
     await turn(['poke', { address: 0x4000, bytes: [before ^ 0xFF] }]);
@@ -440,14 +447,15 @@ const json = (status, body) => () => new Response(JSON.stringify(body), { status
     check('undo restores the byte', basic.ram[0x4000] === before, `$${basic.ram[0x4000].toString(16)}`);
     check('the undo stack is empty after undoing', chat.undo.length === 0, `${chat.undo.length}`);
     check('undoLast with nothing to undo reports so', chat.undoLast() === false);
-    // typing is undoable the same way: the typed keys are part of the machine's state
-    const queued = () => (basic.useStub ? basic.stubKeys.length : basic.typist.queue.length);
-    const keysBefore = queued();
+    // typing is undoable the same way: the restore point is the machine before the first key, and undo returns to it
+    const taken = basic.stubKeysTaken;
+    const shows = () => s.screenText(basic).some((l) => l.includes('HELLO'));
+    const showedBefore = shows();
     await turn(['type_text', { text: 'HELLO' }]);
-    check('typing queues keys', queued() > keysBefore, `${queued()}`);
+    check('typing delivers the keys: the stub took all 5 and the BASIC session shows HELLO', basic.stubKeysTaken - taken === 5 && !showedBefore && shows(), `${basic.stubKeysTaken - taken} taken`);
     check('typing took a restore point too', chat.undo.length === 1, `${chat.undo.length}`);
     chat.undoLast();
-    check('undo drops the queued keys', queued() === keysBefore, `${queued()}`);
+    check('undo returns the BASIC session to before the typing: HELLO is gone, nothing queued', !shows() && !basic.typist.busy && basic.stubKeys.length === 0, s.screenText(basic).join('|'));
     // one restore point per turn, and the stack keeps at most the last 10, dropping the oldest
     for (let i = 0; i < 14; i++) await turn(['poke', { address: 0x4010, bytes: [i] }], ['poke', { address: 0x4011, bytes: [i] }]);
     check('the undo stack keeps the last 10 turns only', chat.undo.length === 10, `${chat.undo.length}`);

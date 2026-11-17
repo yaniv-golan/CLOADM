@@ -271,7 +271,10 @@ async function say(s, calls, line, want) {
     const peeked = Array.isArray(tr) ? (() => { try { return JSON.parse(tr[1].content); } catch (e) { return null; } })() : null;
     check('peek read it back from the BASIC session', peeked && JSON.stringify(peeked.bytes) === JSON.stringify([1, 2, 3]) && peeked.truncated === false, JSON.stringify(tr));
     check('type_text leaves the chat on screen (the BASIC session is beside it, live)', s.machine === chatMachine && s.chatView === 'chat' && s.besideMachine() === basic);
-    check('type_text queued the keystrokes on the BASIC session', basic.stubKeys.length === 'PRINT 7\n'.length, `${basic.stubKeys.length}`);
+    // type_text answers once the BASIC session (the stub here) has taken every key: its result says so
+    const typed = (() => { try { return JSON.parse(calls[2].body.messages.slice(-1)[0].content[0].content); } catch (e) { return null; } })();
+    check('type_text delivered every key to the BASIC session and says so', typed && typed.requested === 8 && typed.consumed === 8 && typed.lines_delivered === 1
+      && basic.stubKeys.length === 0, JSON.stringify(typed));
     // (the BASIC session runs beside the chat, so the snapshot is of the moment before the poke, not of `before`)
     const point = chat.undo.length === 1 ? Emu.state.toJSON(chat.undo[0]) : '';
     check('one snapshot for the turn, before its first change', chat.undo.length === 1 && point !== before && JSON.parse(point) && chat.undo[0] !== null);
@@ -358,8 +361,10 @@ async function say(s, calls, line, want) {
         try { await chat.backend.runTool(name, gateText[name] || {}); } catch (e) { /* declined: expected */ }
       }
       chat.runTool = inner;
-      check('every acting tool in the schemas raises the consent card before it runs',
-        JSON.stringify(askedNow) === JSON.stringify(schemas), `${askedNow.join(',')} asked of ${schemas.join(',')}`);
+      // load_basic checks its program before its own card (every call): this BASIC session has no ROMs, so it is
+      // refused no-basic before anyone is asked, and it never runs either (ranTools below)
+      check('every acting tool in the schemas raises the consent card before it runs (load_basic: refused before its own card here)',
+        JSON.stringify(askedNow) === JSON.stringify(schemas.filter((x) => x !== 'load_basic')), `${askedNow.join(',')} asked of ${schemas.join(',')}`);
       check('the gate\'s set is exactly the schemas\' names, in the same order',
         JSON.stringify([...Emu.ACTING_TOOL_NAMES]) === JSON.stringify(schemas),
         `gate ${[...Emu.ACTING_TOOL_NAMES].join(',')} vs schemas ${schemas.join(',')}`);
@@ -421,11 +426,11 @@ async function say(s, calls, line, want) {
     const chat = s.startAsk({ backend: new Emu.ClaudeBackend({ fetch, apiKey: KEY }) });
     s.setClaudeAllowed(true);
     // Claude has typing going in
-    s.typeText('10 PRINT 1\n20 PRINT 2\n', m);
+    const job = s.typeTextPaced('10 PRINT 1\n20 PRINT 2\n', m);
     s.claudeActing = { name: 'type_text', input: { text: '10 PRINT 1\n20 PRINT 2\n' } };
     chat.busy = true;
-    const queued = m.stubKeys.length;
-    check('pauseClaude holds back what Claude still had to type', s.pauseClaude() && m.stubKeys.length === 0 && s.claudePaused.held.length === queued && s.claudeBusyActing);
+    const queued = m.typist.queue.length;
+    check('pauseClaude holds back what Claude still had to type', queued === 22 && s.pauseClaude() && m.typist.queue.length === 0 && s.claudePaused.held.queue.length === queued && s.claudeBusyActing);
     check('pausing twice does nothing', s.pauseClaude() === false);
     // Claude's next action waits while paused
     let done = false;
@@ -434,7 +439,7 @@ async function say(s, calls, line, want) {
     check('an action while paused waits (nothing changed)', !done && m.ram[0x3000] !== 5);
     m.stubKeys.push(88);                          // the person's own key
     check('resumeClaude queues the held typing after the person\'s key, and the waiting action goes on', s.resumeClaude() && m.stubKeys[0] === 88
-      && m.stubKeys.length === queued + 1 && s.claudePaused === null && (await next, done) && m.ram[0x3000] === 5);
+      && m.stubKeys.length === 1 && m.typist.queue.length === queued && s.claudePaused === null && (await next, done) && m.ram[0x3000] === 5);
     // Stop while paused: the held typing is dropped and a waiting action is refused
     s.claudeActing = { name: 'type_text', input: { text: 'x' } };
     s.pauseClaude();
@@ -442,7 +447,8 @@ async function say(s, calls, line, want) {
     const blocked = chat.backend.runTool('poke', { address: 0x3001, bytes: [6] }).catch((e) => { refused = /stopped Claude/.test(e.message); });
     s.stopClaude();
     await blocked;
-    check('Stop while paused: nothing held is typed, the waiting action is refused', refused && m.stubKeys.length === 0 && m.ram[0x3001] !== 6 && s.claudePaused === null);
+    check('Stop while paused: nothing held is typed, the waiting action is refused, the typing ends stopped', refused && m.stubKeys.length === 0 && m.typist.queue.length === 0
+      && m.ram[0x3001] !== 6 && s.claudePaused === null && job.status === 'stopped');
     chat.busy = false;
     // codeAt: the code and the registers, as the Debugger would show them
     [0x86, 0x41, 0xA7, 0x80, 0x5A, 0x26, 0xFB, 0x39].forEach((b, i) => m.poke(0x3000 + i, b));

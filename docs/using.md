@@ -242,7 +242,12 @@ const m = await CLOADM.attach(document.querySelector('iframe'));
 await m.load('game.cas', bytes);          // also type, insertTape, reset, powerCycle, switchMachine,
 await m.type('PRINT 2+2\n');              // peek, poke, screenText, setDisplay, info
 m.on('frame', (f) => {});                 // and 'machine', 'loaded', 'reset'
+await m.loadBasic('10 PRINT "HI"\n20 GOTO 10');   // into program memory, no typing: needs BASIC at OK
 ```
+
+`loadBasic` is `Session.loadBasic`, the same implementation as Claude's `load_basic` tool
+([claude.md](claude.md#claude)) without its confirmation card: it resolves to `{lines, bytes, start, end}` or
+rejects with a coded message such as `no-basic: ...` or `not-at-prompt: ...`.
 
 ## Offline
 

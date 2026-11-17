@@ -60,6 +60,11 @@ class Machine {
     this.typist = new Typist(this);
     this.stubKeys = [];
     this.stubKeysTaken = 0;     // keys the stub's POLCAT has handed out (a count for the Session, not machine state)
+    // How often the CPU has read the keyboard (observations for the paced typist, not machine state): keyScans
+    // counts every read of the matrix (and every stub POLCAT call); colScans[c] counts the reads that drove
+    // column c low, so a key in column c was visible to that read. ROM-independent: it is the bus, not BASIC.
+    this.keyScans = 0;
+    this.colScans = new Uint32Array(8);
     this.stubKeepCase = false;     // the stub's POLCAT hands over typed lower case as is (the chat firmware)
     this.pcHooks = new Map();   // pc -> fn, run when the instruction at pc is about to execute, while stubActive()
     this.stubConsole = null;
@@ -136,6 +141,7 @@ class Machine {
     this.stubConsole = console;
     h.set(symbols.get('RESET'), init);
     h.set(symbols.get('POLCAT'), () => {
+      this.keyScans++;
       if (this.stubKeys.length) { cpu.a = this.stubKeys.shift() & 0xFF; cpu.cc &= ~Z; this.stubKeysTaken++; }
       else { cpu.a = 0; cpu.cc |= Z; }
     });
@@ -291,6 +297,16 @@ class Machine {
     for (let c = 0; c < 8; c++) if (!(colsLow & (1 << c))) rows |= this.keyCols[c];
     return rows;
   }
+  // The CPU reading the keyboard rows (the PIA's row port, the MC-10's $BFFF): counted for the paced typist, then
+  // answered as keyRowsForCols. Only CPU reads come here; a model (the CoCo 3's keyboard interrupt) asks
+  // keyRowsForCols directly, so it is not mistaken for the machine looking at the keyboard.
+  scanKeys(colsLow) {
+    this.keyScans++;
+    for (let c = 0; c < 8; c++) if (!(colsLow & (1 << c))) this.colScans[c]++;
+    return this.keyRowsForCols(colsLow);
+  }
+  // the code the no-ROM stub's POLCAT hands out for a typed character (Enter is 13)
+  stubCode(ch) { return ch === '\n' || ch === '\r' ? 13 : (this.stubKeepCase ? ch : ch.toUpperCase()).charCodeAt(0) & 0x7F; }
   // columns pulled low by pressed keys in the rows that are driven low
   keyColsForRows(rowsLow) {
     let cols = 0;
