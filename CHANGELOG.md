@@ -39,6 +39,16 @@ All notable changes to CLOADM are recorded here. The format follows
   "Don't ask again this session" is offered only while "Let Claude use the machine" is on: with the switch off
   every load asks, and Stop while the card is up ends the call as `stopped` rather than `load-declined`.
 
+### After 0.1.0-pre
+
+#### Added
+
+- **Booting NitrOS-9 from the page:** on the CoCo 3 (6809 or HD6309), NitrOS-9 Level 2 boots from the user's own
+  DriveWire image (the release's `_becker.dsk`) with no ROM: CLOADM's own loader (`js/machines/nitros9.js`) takes
+  the internal ROM's place and boots drive 0 over the Becker port. The NitrOS-9 slot under the screen, a dropped
+  image's offer, `?nitros9=` links (never carrying the image), and clear refusals for images that can't boot
+  this way (`js/media/os9.js`). The loader moved from `tools/nitros9/bootdw3.asm` to the page.
+
 ### 0.1.0 (first public release, not tagged yet)
 
 Everything on `main` so far. Hardware behaviour is checked against MAME 0.264 in instruction lockstep (and pixel

@@ -54,18 +54,26 @@ export function setupShare(page) {
     // the picture at true pixels, captured with the snapshot so both show the same instant
     const c = document.createElement('canvas');
     new CanvasPresenter(c).present(frame);
-    // the shared snapshot: no byte of a ROM or cartridge, only their names (Session.shareFile, AGENTS rule 1)
-    const file = await session.shareFile();
-    const link = await session.snapshotLink(location.href, file);
+    // the shared snapshot: no byte of a ROM or cartridge, only their names (Session.shareFile, AGENTS rule 1).
+    // NitrOS-9's memory is the user's own NitrOS-9: its link boots NitrOS-9 from the recipient's image instead
+    const n9 = session.nitros9Running;
+    const file = n9 ? null : await session.shareFile();
+    const link = n9 ? session.shareUrl(location.href) : await session.snapshotLink(location.href, file);
     const png = await new Promise((ok) => c.toBlob(ok, 'image/png'));
-    captured = { file, png, link, base: file.name.replace(/\.cloadm$/, '') };
+    captured = { file, png, link, base: file ? file.name.replace(/\.cloadm$/, '') : `${m.profile.name.replace(/[^A-Za-z0-9]+/g, '')}-NitrOS-9` };
+    $('btnShareDownload').disabled = !file;
     const pic = $('sharePicture');
     pic.width = c.width; pic.height = c.height;
     pic.getContext('2d').drawImage(c, 0, 0);
     $('shareTitle').textContent = `${m.profile.name.replace(/^Tandy /, '')} · CLOADM`;
     $('shareWhen').textContent = `${location.host || 'cloadm.dev'} · link preview, rendered from the real frame · captured at ${time(new Date())}`;
     $('shareLink').value = link;
-    $('shareCopied').textContent = `The link holds a ${(file.bytes.length / 1024).toFixed(0)} KB snapshot.`;
+    $('shareCopied').textContent = file ? `The link holds a ${(file.bytes.length / 1024).toFixed(0)} KB snapshot.` : 'The link boots NitrOS-9; it holds no snapshot.';
+    if (!file) {
+      $('shareRecipient').textContent = 'They need their own NitrOS-9 DriveWire image in their library: the link boots NitrOS-9 on the CoCo 3 from it, and holds no part of yours.';
+      syncEmbed(m.id);
+      return;
+    }
     // what the person opening it needs: their own copies of the ROMs and cartridge it names, or nothing
     const needs = file.needs.map((x) => x.label);
     $('shareRecipient').innerHTML = '';

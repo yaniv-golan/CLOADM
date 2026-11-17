@@ -1,6 +1,6 @@
 // NitrOS-9 boot test (development and verification only; not a statement of NitrOS-9 support). The official
 // NitrOS-9 v3.3.0 Level 2 CoCo 3 DriveWire images (6809 and 6309) boot on our CoCo 3 with our own loader
-// (tools/nitros9/bootdw3.asm) in place of the CoCo 3 ROM, served by our DriveWire server over the Becker port; the
+// (js/machines/nitros9.js, the one the page uses) in place of the CoCo 3 ROM, served by our DriveWire server over the Becker port; the
 // test types `dir` at the shell and checks:
 //  - the screen text (video memory laid out as the GIME's text mode shows it: tools/nitros9/lib.js screenText), against the
 //    NitrOS-9 v3.3.0 sources that print it (tag v3.3.0 of github.com/nitros9project/nitros9):

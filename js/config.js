@@ -2,7 +2,7 @@
  * URL configuration: every setting a link can carry, read and checked here without a browser,
  * and written back the same way (share links, the embed snippet). Every link points at /play.
  *
- *   parseUrlConfig(search, fallbackMachine) -> { machine, config, display, media, autorun, roms, start, app, embed,
+ *   parseUrlConfig(search, fallbackMachine) -> { machine, config, display, media, autorun, roms, start, app, nitros9, embed,
  *                                                sound, joy, fastTape, turbo, selftest, errors }
  *   buildUrl(base, cfg) -> the link for cfg (parseUrlConfig of it gives cfg back)
  *
@@ -10,6 +10,9 @@
  *   machine=ID              a model of profiles.js (unknown: the fallback machine, and an error)
  *   <option>=VALUE          the model's options (profile.options: ram, cpu, ...), each checked against its values
  *   start=welcome|liza      run that program (6809 machines)
+ *   nitros9=1|NAME          CoCo 3: boot NitrOS-9 over DriveWire from the user's own image in the library (1: the
+ *                           one in DriveWire drive 0, else the bootable one for the link's CPU; NAME: that image).
+ *                           The image itself is never in a link (Session.bootNitros9)
  *   app=claude              open the Claude chat: the chat firmware on a 6809 machine, and the
  *                           chat's panel (API key, machine tools) beside the screen (js/ui/claude.js)
  *   load=URL                load and run a program, tape or cartridge, as a dropped file would
@@ -28,6 +31,9 @@
  */
 import { profiles } from './machines/profiles.js';
 
+// the machines NitrOS-9 boots on from a link (the Session's Session.NITROS9_MACHINES)
+export const NITROS9_MACHINES = ['coco3'];
+
 export const DISPLAY_PARAMS = {
   display: { key: 'view', values: ['crt', 'sharp'] },
   phase: { key: 'phase', values: [1, 2] },
@@ -38,7 +44,7 @@ export const DISPLAY_PARAMS = {
 };
 const FLAGS = { sound: 'sound', fasttape: 'fastTape', turbo: 'turbo', embed: 'embed', selftest: 'selftest' };
 const MEDIA = ['load', 'tape', 'cart'];
-export const URL_PARAMS = ['machine', 'start', 'app', ...MEDIA, 'autorun', 'rom', ...Object.keys(DISPLAY_PARAMS), 'joy', ...Object.keys(FLAGS), 'storage'];
+export const URL_PARAMS = ['machine', 'start', 'app', 'nitros9', ...MEDIA, 'autorun', 'rom', ...Object.keys(DISPLAY_PARAMS), 'joy', ...Object.keys(FLAGS), 'storage'];
 const STORAGE = ['opfs', 'fsa', 'fallback'];
 const STARTS = ['welcome', 'liza'];
 const APPS = ['claude'];
@@ -49,10 +55,11 @@ const isUrl = (v) => { try { return !!new URL(v, 'https://cloadm.dev/'); } catch
 
 export function parseUrlConfig(search, fallbackMachine = 'dragon64') {
   const p = new URLSearchParams(search), errors = [];
-  const cfg = { machine: null, config: {}, display: {}, media: [], autorun: false, roms: [], start: null, app: null, joy: null, storage: null, errors };
+  const cfg = { machine: null, config: {}, display: {}, media: [], autorun: false, roms: [], start: null, app: null, nitros9: null, joy: null, storage: null, errors };
   for (const k of Object.values(FLAGS)) cfg[k] = null;
 
-  const id = p.get('machine');
+  // a NitrOS-9 link without a machine means the CoCo 3, where it boots
+  const id = p.get('machine') ?? (p.has('nitros9') ? NITROS9_MACHINES[0] : null);
   if (id !== null && !profiles[id]) errors.push(`machine=${id}: no such machine (${Object.keys(profiles).join(', ')})`);
   cfg.machine = id !== null && profiles[id] ? id : null;
   const profile = profiles[cfg.machine || fallbackMachine] || profiles.dragon64;
@@ -77,6 +84,15 @@ export function parseUrlConfig(search, fallbackMachine = 'dragon64') {
   if (start !== null) { if (STARTS.includes(start)) cfg.start = start; else errors.push(`start=${start}: welcome or liza`); }
   const app = p.get('app');
   if (app !== null) { if (APPS.includes(app)) cfg.app = app; else errors.push(`app=${app}: claude`); }
+  // nitros9: true (the image the user has) or an image's name; only where NitrOS-9 boots (the CoCo 3)
+  if (p.has('nitros9')) {
+    const v = p.get('nitros9');
+    if (!NITROS9_MACHINES.includes(profile.id)) errors.push(`nitros9: NitrOS-9 boots on the CoCo 3 (machine=coco3), not the ${profile.name}`);
+    else if (v === '' || v === '1') cfg.nitros9 = true;
+    else if (v === '0') cfg.nitros9 = null;
+    else if (/^[^\\/\x00-\x1F]{1,200}$/.test(v)) cfg.nitros9 = v;
+    else errors.push(`nitros9=${v}: 1 or the name of a DriveWire image in your library`);
+  }
   // media in the order the link gives them (the order they load in)
   for (const [kind, url] of p) {
     if (!MEDIA.includes(kind)) continue;
@@ -119,6 +135,7 @@ export function buildUrl(base, cfg) {
   }
   if (cfg.start) s.set('start', cfg.start);
   if (cfg.app) s.set('app', cfg.app);
+  if (cfg.nitros9) s.set('nitros9', cfg.nitros9 === true ? '1' : cfg.nitros9);
   for (const m of cfg.media || []) s.append(m.kind, m.url);
   if (cfg.autorun) s.set('autorun', '1');
   for (const r of cfg.roms || []) s.append('rom', r);

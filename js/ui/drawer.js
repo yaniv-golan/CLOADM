@@ -51,8 +51,8 @@ export function setupDrawer(page, { showRoms }) {
   // Machine tab: ROM summary; header pill when the machine in use has no BASIC
   function roms() {
     const r = session.machineRoms(), m = session.machine;
-    $('romState').textContent = !m.useStub ? 'BASIC ready' : r.bootable ? 'Loaded · running the stub' : 'Not added · running the stub';
-    $('romPill').hidden = r.bootable;
+    $('romState').textContent = session.nitros9Running ? 'Not used · NitrOS-9 runs on CLOADM\'s own loader' : !m.useStub ? 'BASIC ready' : r.bootable ? 'Loaded · running the stub' : 'Not added · running the stub';
+    $('romPill').hidden = r.bootable || session.nitros9Running;   // NitrOS-9 needs no ROM
   }
   $('romPill').onclick = showRoms;
   $('btnManageRoms').onclick = showRoms;

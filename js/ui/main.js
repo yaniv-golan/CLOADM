@@ -46,6 +46,7 @@ import { MemoryKeyStore, storageKeyStore } from '../host/key-store.js';
 import { setupShare } from './share.js';
 import { setupSlotsPanel } from './slots-panel.js';
 import { setupTapePanel } from './tape-panel.js';
+import { setupNitros9Panel } from './nitros9-panel.js';
 
 // Storage: small settings stay in localStorage; ROMs and recent programs live in the media store: where the
 // user chose in the Library (settings 'storage': browser storage, a folder of theirs, or download and open; the
@@ -103,7 +104,8 @@ let library = null;
 const snapshots = setupSnapshotPanel(page, { confirmSwitch: machinePanel.confirmSwitch, openRoms: () => romSockets.reveal() });
 const disks = setupDrives(page, { openRoms: () => { romSockets.reveal(); $('fileRom').click(); } });
 const slots = setupSlotsPanel(page, { snapshots });
-const media = setupMediaPanel(page, { snapshots, disks, keep: (name, bytes) => library && library.keep(name, bytes) });
+const nitros9 = setupNitros9Panel(page);
+const media = setupMediaPanel(page, { snapshots, disks, nitros9, keep: (name, bytes) => library && library.keep(name, bytes) });
 setupAssemblerPanel(page);
 setupDebuggerPanel(page);
 const selfTest = setupSelfTestPanel(page);
@@ -168,9 +170,9 @@ else if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register(new URL('sw.js', document.baseURI).href, { scope: new URL('./', document.baseURI).href })
     .catch((e) => console.warn(`Offline use is not available: ${e.message}`));
 }
-const fromLink = !!link.machine || link.roms.length > 0 || link.media.length > 0 || !!link.app;
-// ROMs, media or an app (?app=claude) decide what runs first, not the welcome menu
-const starting = welcome.start(visit, { fromLink, withMedia: link.roms.length > 0 || link.media.length > 0 || !!link.app, program: link.start });
+const fromLink = !!link.machine || link.roms.length > 0 || link.media.length > 0 || !!link.app || !!link.nitros9;
+// ROMs, media, an app (?app=claude) or NitrOS-9 (?nitros9=) decide what runs first, not the welcome menu
+const starting = welcome.start(visit, { fromLink, withMedia: link.roms.length > 0 || link.media.length > 0 || !!link.app || !!link.nitros9, program: link.start });
 (async () => {
   if (link.roms.length) {
     try { await romPanel.loadRomUrls(link.roms); if (link.selftest) selfTest.run(); }
@@ -188,6 +190,8 @@ const starting = welcome.start(visit, { fromLink, withMedia: link.roms.length > 
   await starting;
   // a share link's moment (#s=, Share screen): opened like a dropped snapshot, once the visit has started
   if (location.hash.startsWith('#s=')) await snapshots.takeLink(location.hash);
+  // ?nitros9=: NitrOS-9 boots from the user's own DriveWire image (never one in the link)
+  if (link.nitros9) await nitros9.fromLink(link.nitros9);
   // ?app=claude: the chat opens once the link's ROMs are in (the BASIC session kept beside it uses them)
   if (link.app === 'claude') await claude.open();
   // started: the visit's program (welcome, LIZA) runs and the link's ROMs, media and moment are in (window.emu.ready:

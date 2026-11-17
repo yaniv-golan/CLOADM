@@ -74,7 +74,7 @@ export class EmbedApi {
   // memory, never while ROM code can be in it (Session.romCodeIn): the page around the iframe is someone else's
   peek(addr, length = 1) {
     const why = this.session.romCodeIn();
-    if (why) throw new SessionError(`peek is not available while ${why === 'roms' ? 'the machine runs your own ROMs' : 'a cartridge is plugged in'}: its memory can hold copies of ROM code, which CLOADM never hands out.`);
+    if (why) throw new SessionError(`peek is not available while ${why === 'roms' ? 'the machine runs your own ROMs' : why === 'nitros9' ? 'NitrOS-9 runs from your own image' : 'a cartridge is plugged in'}: its memory can hold copies of ROM code, which CLOADM never hands out.`);
     addrOf(addr);
     if (!Number.isInteger(length) || length < 1 || addr + length > 0x10000) throw new SessionError('peek: length runs past 65535');
     const m = this.session.machine, out = [];

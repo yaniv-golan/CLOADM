@@ -37,6 +37,8 @@ export { AY8910 } from './chips/ay8910.js';
 export * from './media/disk.js';
 export * from './machines/machine.js';
 export * from './machines/stub.js';
+export * from './machines/nitros9.js';
+export * from './media/os9.js';
 export * from './machines/typist.js';
 export { SamMachine } from './machines/sam.js';
 export { D64PlusMachine } from './machines/d64plus.js';

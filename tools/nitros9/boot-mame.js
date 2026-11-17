@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // The reference for tools/nitros9/boot.js and tests/nitros9.test.js: the same NitrOS-9 DriveWire image booted in
-// MAME 0.264 (coco3h for the 6309, coco3 for the 6809) with our loader (bootdw3.asm) as the internal ROM, the Becker
+// MAME 0.264 (coco3h for the 6309, coco3 for the 6809) with our loader (js/machines/nitros9.js) as the internal ROM, the Becker
 // port on (cfg) and coco_dwsock connected over TCP 65504 to our DriveWire server (js/drivewire/server.js) serving
 // the image. Prints the PC and the DriveWire
 // transactions every five seconds and saves MAME's screen at the end.

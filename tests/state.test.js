@@ -593,6 +593,7 @@ for (const [id, caseNo] of [['coco', 16], ['dragon64', 17]]) {
   const cont = await finish(m, a), rest = await finish(r, b);
   check('coco: the restored machine finishes dw.asm identically (trace, log, disks)', cont.done && rest.h === cont.h && rest.log === cont.log && rest.files === cont.files);
   await sscMidCommand();
+  await nitros9MidBoot();
 
   // The DriveWire server's 30 channel records (15 serial, 15 window channels 128-142) in a machine snapshot: all
   // 30 are saved, and a snapshot with fewer is damaged and refused. The Becker port holds link state until a
@@ -811,4 +812,50 @@ async function sscMidTone() {
   if (!same) for (let i = 0; i < Math.min(ea.length, eb.length); i++) if (ea[i] !== eb[i]) { firstDiff = i; break; }
   check('ssc audio: the restored Pak plays on identically, level change for level change', same,
     same ? `${ea.length} events` : `${ea.length} vs ${eb.length} events, first difference at ${firstDiff} (${ea[firstDiff]} vs ${eb[firstDiff]})`);
+}
+
+// NitrOS-9 booted from the page (Session.bootNitros9): our loader in the CoCo 3's ROM socket, the boot disk in
+// DriveWire drive 0. A snapshot file taken while the loader is part way through a boot-track sector (the server
+// holds bytes not yet read) opens in a fresh Session that has the same image in drive 0 and no ROMs at all (the
+// loader is built in), and both run on identically: every instruction and cycle, every frame.
+// The disk is hand-built (tests/os9-image.js); its boot track's code fills the text screen in a loop.
+async function nitros9MidBoot() {
+  const { makeOs9Disk } = require('./os9-image.js');
+  const disk = makeOs9Disk(Emu, { code: `
+AGAIN   LDX     #$0400
+FILL    INC     ,X+
+        CMPX    #$0600
+        BNE     FILL
+        BRA     AGAIN` });
+  const session = async () => {
+    const s = new Emu.Session();
+    s.switchMachine('coco3', { cpu: '6809', ram: 128 }, { menu: false });
+    await s.importDriveWireImage('n9.dsk', disk);
+    return s;
+  };
+  const a = await session();
+  await a.bootNitros9('n9.dsk');
+  const m = a.machine;
+  const mid = () => a.drivewire.available > 100 && !m.stall;
+  for (let guard = 0; guard < 2000000 && !mid(); guard++) { m.runCycles(m.cycle + 1); if (m.stall) await m.stall; }
+  check('nitros9: snapshot with a boot-track sector part way to the machine', mid() && m.read(0x0100) === 0, `(${a.drivewire.available} bytes waiting)`);
+  const file = await a.snapshotFile();
+  const b = await session();
+  await b.mountDriveWire(0, 'n9.dsk');
+  let err = null;
+  try { b.openSnapshot(await b.readSnapshot(file.bytes)); } catch (e) { err = e; }
+  check('nitros9: the snapshot opens in a browser without ROMs (the loader is built in)', !err && b.nitros9Running && b.machine.roms.basic === Emu.nitros9LoaderRom(), err ? err.message : '');
+  const finish = async (mm) => {
+    let h = 0x811C9DC5, fh = 0x811C9DC5;
+    mm.cpu.trace = (c) => { for (const k of ['pc', 'a', 'b', 'x', 'y', 'u', 's', 'cc']) h = fnv(h, c[k]); h = fnv(h, c.totalCycles); };
+    for (let f = 0; f < 300; f++) {
+      while (!mm.runFrame()) await mm.stall;
+      const px = Emu.frameToRGBA(mm.render());
+      for (let i = 0; i < px.length; i += 7) fh = fnv(fh, px[i]);
+    }
+    return { h: h >>> 0, fh: fh >>> 0, booted: mm.read(0x0100) === 1, screen: mm.read(0x0400) | mm.read(0x05FF) };
+  };
+  const cont = await finish(m), rest = await finish(b.machine);
+  check('nitros9: the restored machine finishes the boot and runs on identically (trace, frames)', cont.booted && cont.screen && rest.h === cont.h && rest.fh === cont.fh,
+    JSON.stringify({ cont, rest }));
 }

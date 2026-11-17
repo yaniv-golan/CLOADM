@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Boot a NitrOS-9 DriveWire image on our CoCo 3 with our loader (bootdw3.asm) as the internal ROM (no Tandy code),
+// Boot a NitrOS-9 DriveWire image on our CoCo 3 with our loader (js/machines/nitros9.js) as the internal ROM (no Tandy code),
 // and report how far it gets: the loader's status ($0100), the PC, the DriveWire transactions and the screen's text, every five
 // seconds of emulated time.
 //   node tools/nitros9/boot.js <image.dsk> [--cpu 6309|6809] [--seconds N] [--png out.png] [--type TEXT --at S]

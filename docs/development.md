@@ -84,7 +84,8 @@ node tools/mame-diff/run.js <profile> --raster  # mid-line video changes swept a
 node tools/mame-diff/run.js <profile> --printer # printer output byte for byte against MAME's printer file
 node tools/mame-diff/run.js <profile> --serial  # the bit-banger (or the Dragon 64's 6551) in lockstep with MAME's loopback plug
 node tools/mame-diff/drivewire/run-dw.js [profile ...] [--no-trace]  # DriveWire over the Becker port: lockstep with MAME (TCP to our server), and byte for byte
-node tools/nitros9/fetch.js && node tests/nitros9.test.js   # NitrOS-9 boot test (images fetched to a cache, never committed)
+node tools/nitros9/fetch.js && node tests/nitros9.test.js   # NitrOS-9 boot test (images fetched to a cache, never committed; tests/os9.test.js, tests/nitros9-session.test.js and the browser check's nitros9 group use them too, and skip without them)
+node tools/browser-check.js --only nitros9   # Boot NitrOS-9 from the page (the release images when fetched)
 node tools/nitros9/boot-mame.js <image> --cpu 6809 --seconds 30 --type 'dir\r' --at 15 --record tests/fixtures/nitros9/coco3-6809-becker.json   # its MAME reference (also boot.js: the same boot on ours)
 node tools/mame-diff/run.js <profile> --rate    # SAM CPU rate firmware (sam/rate.asm) in lockstep with MAME (mameCompat)
 node tools/mame-diff/run.js <profile> --ops     # every instruction class at the SAM rates (sam/ops.asm), with MAME

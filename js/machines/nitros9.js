@@ -1,4 +1,20 @@
-* NitrOS-9 DriveWire boot loader for the CoCo 3 Becker port. Written for CLOADM (tools/nitros9); it replaces
+/*
+ * Booting NitrOS-9 without a ROM: our own DriveWire boot loader for the CoCo 3, kept here as assembly source and
+ * assembled with the project's assembler when it is first needed. It takes the place of the CoCo 3's internal ROM
+ * (Super Extended Color BASIC, which is never involved), reads the boot track of DriveWire drive 0 over the
+ * Becker port and jumps into it, as a DriveWire-aware Disk BASIC's DOS command does.
+ *
+ *   NITROS9_LOADER_SOURCE   the source
+ *   nitros9LoaderRom()      the 32K ROM image ($8000-$FFFF, unused bytes $FF), assembled once
+ *   nitros9LoaderCrc()      its CRC32: how a snapshot names it (Session.snapshotRoms knows it as built in)
+ *   NITROS9_STATUS          where the loader reports how far it got ($0100), and its codes
+ *
+ * Used by the page (Session.bootNitros9), tools/nitros9/ (our machine and MAME run the same image) and the tests.
+ */
+import { assemble } from '../asm/assembler.js';
+import { crc32 } from '../util.js';
+
+export const NITROS9_LOADER_SOURCE = `* NitrOS-9 DriveWire boot loader for the CoCo 3 Becker port. Written for CLOADM (js/machines/nitros9.js); it replaces
 * the CoCo 3's internal ROM in our machine and in MAME, so no Tandy or HDB-DOS code is involved.
 *
 * It does what the "DOS" command of a DriveWire-aware Disk BASIC does for NitrOS-9 (NitrOS-9
@@ -91,3 +107,18 @@ GETB    LDA     STAT
         RTS
         ORG     $FFF0
         FDB     TRAP,$FEEE,$FEF1,$FEF4,$FEF7,$FEFA,$FEFD,RESET
+`;
+
+export const NITROS9_STATUS = Object.freeze({ addr: 0x0100, running: 0x00, jumped: 0x01, dwError: 0xE1, notBootTrack: 0xE2, trap: 0xE3 });
+
+let rom = null;
+export function nitros9LoaderRom() {
+  if (rom) return rom;
+  const r = assemble(NITROS9_LOADER_SOURCE, '6809');
+  if (!r.ok) throw new Error('NitrOS-9 loader: ' + r.errors.map((e) => `line ${e.line}: ${e.message}`).join('; '));
+  const image = new Uint8Array(0x8000).fill(0xFF);
+  for (const s of r.segments) if (s.addr >= 0x8000) image.set(s.data.subarray(0, 0x10000 - s.addr), s.addr - 0x8000);
+  rom = image;
+  return rom;
+}
+export const nitros9LoaderCrc = () => crc32(nitros9LoaderRom());

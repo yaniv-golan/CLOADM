@@ -82,14 +82,54 @@ The [README](../README.md#what-works) has the short version of this table.
 | | Today | Coming |
 |---|---|---|
 | **Cassette** | `.CAS` played as a real 1200/2400 Hz signal through the cassette port, motor relay, fast loading; WAV recordings in; what `CSAVE`/`CSAVEM` write saved as `.CAS` or `.WAV` (a recording still running when the machine is switched is offered for saving first); a power cycle keeps the tape, the cartridge and its disks, as on real hardware; any tape exported as `.WAV`; the cassette panel (block, counter, motor, fast-forward or real speed, read errors, skip the tape) | the tape's sound at real speed |
-| **Floppy** | The Dragon DOS cartridge (WD2797), the Premier / Delta cartridge (WD2791) and the RS-DOS cartridge (WD1773), cycle for cycle as MAME has them; VDK, JVC (`.dsk`) and DMK images read and written, including headerless NitrOS-9 / OS-9 `.dsk` images of 18 x 256-byte sectors, whose LSN 0 states the geometry (a 40-track two-sided image used to be read as 80 single-sided, and on the CoCo's drive did not mount at all); 4 drives (the Dragon Alpha's own 2), write-protect; the drives card under the screen: click a drive to insert a file, a disk from your library or a new blank disk (the sizes the disk system uses: 40 or 80 tracks, one or two sides for DragonDOS and Delta; 35 or 40 for Disk BASIC; VDK, JVC or, double-sided, DMK), see its light while it works, write-protect, download it with what was written, eject. A drive whose changes the browser's storage refused is marked "not saved" (Download keeps them); without a disk ROM, a drive says which one it takes. Disks are written back to the stored image a sector at a time. The DOS ROM is yours, as every ROM; the Alpha needs none | Booting NitrOS-9 from your own image (its disks read and write today, and a [boot test](verification.md#nitros-9-boot-test) runs) |
+| **Floppy** | The Dragon DOS cartridge (WD2797), the Premier / Delta cartridge (WD2791) and the RS-DOS cartridge (WD1773), cycle for cycle as MAME has them; VDK, JVC (`.dsk`) and DMK images read and written, including headerless NitrOS-9 / OS-9 `.dsk` images of 18 x 256-byte sectors, whose LSN 0 states the geometry (a 40-track two-sided image used to be read as 80 single-sided, and on the CoCo's drive did not mount at all); 4 drives (the Dragon Alpha's own 2), write-protect; the drives card under the screen: click a drive to insert a file, a disk from your library or a new blank disk (the sizes the disk system uses: 40 or 80 tracks, one or two sides for DragonDOS and Delta; 35 or 40 for Disk BASIC; VDK, JVC or, double-sided, DMK), see its light while it works, write-protect, download it with what was written, eject. A drive whose changes the browser's storage refused is marked "not saved" (Download keeps them); without a disk ROM, a drive says which one it takes. Disks are written back to the stored image a sector at a time. The DOS ROM is yours, as every ROM; the Alpha needs none | Booting NitrOS-9 from a floppy image (its floppy images read and write today; it boots over DriveWire: see [Booting NitrOS-9](#booting-nitros-9)) |
 | **Cartridges** | ROM cartridges (`.ROM`, `.CCC`, `.DGN`) at `$C000`, autostarting; banked ROM cartridges (up to 128K in 16K pages); the Games Master Cartridge (SN76489A) and the Orchestra-90 (stereo DACs), sound included; the Multi-Pak with four slots; all as MAME has them on the CoCo 1/2, the CoCo 3 and the Dragons (MAME offers the banked board only on the CoCos). The cartridge port's board menu picks the board, or picks it from the image; its Multi-Pak section fills the four slots and sets the front-panel switch. The Multi-Pak also takes a disk controller (DragonDOS, Delta DOS or Disk BASIC, your ROM) on the Dragon 64 and the CoCo, compared with MAME in slot 4; a slot's board menu offers it, and the drives card uses it. The Speech/Sound Pak is offered as a board (music only; speech not yet) on the CoCo 1/2, CoCo 2B and CoCo 3 | Speech/Sound Pak: its AY `-wavwrite` comparison is not passing (cause not established), and SP0256 speech synthesis is not implemented |
-| **Printer, serial, DriveWire** | Printer (Dragon parallel, CoCo/MC-10 serial); the bit-banger and the Dragon 64's 6551 ACIA with a terminal or loopback plug; DriveWire 4 over the CoCo's Becker port, served in the browser: drives 0-3 from images in the browser's storage, printing, virtual serial channels to WebSockets; serving a real CoCo over Web Serial (untested on hardware) | the full screens |
+| **Printer, serial, DriveWire** | Printer (Dragon parallel, CoCo/MC-10 serial); the bit-banger and the Dragon 64's 6551 ACIA with a terminal or loopback plug; DriveWire 4 over the CoCo's Becker port, served in the browser: drives 0-3 from images in the browser's storage, printing, virtual serial channels to WebSockets; [booting NitrOS-9](#booting-nitros-9) Level 2 on the CoCo 3 from your own DriveWire image, with CLOADM's own loader instead of a ROM; serving a real CoCo over Web Serial (untested on hardware) | the full screens |
 | **Input** | Keyboard in two modes (translated: the character typed; positional: the physical key), keyboard joystick, gamepads (two joysticks, dead zone), the Tandy and CoCo Max 3 Hi-Res interfaces, the CoCo 3 "The Rat" mouse, the CoCo Max Hi-Res module, mouse as the right joystick; an on-screen keyboard on phones and tablets (split for the thumbs when held sideways), a tappable welcome menu | Touch joystick |
 | **Tools** | 6809/6803 assembler, POKE book with the SAM CPU speed, ROM self-test, snapshots (a `.cloadm` file to drop back in; Snapshot 1–3 in the browser), the Debugger screen (breakpoints, watchpoints, stepping, registers, memory, trace, symbols) | Step back (rewind) |
 | **Links, embedding, offline** | Every setting as a URL parameter (machine, RAM, CPU, a program, tape or cartridge to load, display, input); the Share screen: a link that opens this machine exactly as it is, a 6-second clip, a true-pixel screenshot, the snapshot file, and the embed code for a blog post; embed mode with a JavaScript API; works offline once visited, installable; settings export and import (never ROMs) | An install prompt, a touch keyboard in embeds |
 
 **Speech/Sound Pak wiring.** The Pak is a CoCo cartridge holding three devices: a TMS7040 ("PIC") microcontroller running its own firmware, a GI SP0256 speech chip, and an AY-3-8913 sound chip. The 6809 never talks to the SP0256 directly: it writes a byte at `$FF7E` and interrupts the TMS7040, whose ports drive the speech chip and the AY. In MAME's `src/devices/bus/coco/coco_ssc.cpp` the SP0256 sits on the TMS7040's port C control lines (ALD on `C_ALD`, speech-ROM clock and chip selects alongside) and the TMS7040's port D is the data bus; the SP0256's `LRQ` and `SBY` come back to the host through the status read at `$FF7E` (`0x40` is `sby_r()`, `0x20` the sound-activity circuit, `0x80` the TMS7000 busy flag), and `$FF7D` bit 0 resets the speech chip along with the PIC and the AY. Port C bit 3 (`0x08`) does two jobs: it is the static RAM's read/write line and the AY-3-8913's `BDIR`, separated by the chip-select bits 4 and 6, which the firmware never asserts together. Our `js/chips/sp0256.js` models the speech chip itself, and the cartridge needs the TMS7040 core as well. At run time the Pak's two ROMs (the TMS7040's internal ROM and the SP0256-AL2's allophone data) are supplied by the user, like BASIC and DOS. For verification the project uses its own TMS7040 firmware and hand-built SP0256 data, never the real dumps, and runs MAME through its checksum-mismatch path as for the other diagnostic firmware.
+
+## Booting NitrOS-9
+
+[NitrOS-9](https://www.nitros9.org/) is the multitasking OS-9 operating system for the 6809 and 6309. On the
+CoCo 3 CLOADM boots it over DriveWire, and needs no ROM at all: its own loader (`js/machines/nitros9.js`, written
+for this project) takes the place of the CoCo 3's internal ROM, reads the boot track from DriveWire drive 0 on the
+Becker port and starts it, as a DriveWire Disk BASIC's `DOS` command does.
+
+1. **Get the image.** CLOADM doesn't include or download NitrOS-9. Get the CoCo 3 release from the
+   [NitrOS-9 project's releases](https://github.com/nitros9project/nitros9/releases) (the v3.3.0 archives are
+   also on [its SourceForge page](https://sourceforge.net/projects/nitros9/files/releases/v3.3.0/)):
+   `nos96809l2v030300coco3.zip` for the 6809, `nos96309l2v030300coco3.zip` for the HD6309. The file you need is
+   the one ending in **`_becker.dsk`**.
+2. **Boot it.** Pick the CoCo 3, then under the screen **NitrOS-9 · Add image…** and choose the file: it goes into
+   your library (with the DriveWire images) and boots at once. Next time pick it in the list and press **Boot
+   NitrOS-9**. Dropping the file on the page (or **Open…**) offers **Boot NitrOS-9** too, from any machine.
+3. You land at NitrOS-9's shell, `{Term|02}/DD:`. Type `dir`, `mdir`, `free`… **Reset** and **Switch off and on**
+   boot it again; **Back to BASIC** puts the machine's own ROMs back (so does choosing another machine).
+
+What it does to the machine: it turns on the Becker port, puts the image in DriveWire drive 0, and for the 6309
+build switches the CPU to the HD6309 (the 6809 build runs on either). RAM stays as it is (128K or 512K). What NitrOS-9
+writes goes into the image in your library, as with any DriveWire drive (the Machine tab's DriveWire box saves it).
+
+Images it refuses, and says why: a file that isn't an OS-9 disk; a NitrOS-9 disk without a boot track (Disk 2 of
+the floppy set); the floppy images (`_40d`, `_80d`), which boot from a floppy drive; the bit-banger, Arduino and
+CoCo SDC builds (`_dw`, `_arduino`, `_cocosdc`), which talk to other hardware; and the headless builds
+(`_becker_headless`), whose console is a DriveWire terminal rather than the screen. NitrOS-9 boots on the NTSC CoCo
+3 only (the release's DriveWire images are 60 Hz builds); on another machine CLOADM says so.
+
+**Links.** `?nitros9=1` opens the CoCo 3 and boots NitrOS-9 from the image in your library (the one in DriveWire
+drive 0, else the one for the link's CPU); `?nitros9=NAME` boots that image. The link never holds the image, so
+whoever opens it needs their own; without one CLOADM says where to get it. **Share** while NitrOS-9 runs gives such a
+link: a NitrOS-9 moment is never put in a link as a snapshot, because its memory is your copy of NitrOS-9. Snapshots
+you keep (Snapshot 1–3, a `.cloadm` file) work as usual; they reopen with whatever image is in DriveWire drive 0.
+
+**What is verified.** The official v3.3.0 Level 2 CoCo 3 Becker images, 6809 and 6309, boot to the shell and list
+the root with `dir`: in Node, on the machine the page builds, with every DriveWire transaction (but the clock's)
+identical to MAME 0.264 running the same image and loader at 512K; through the Session at 512K; and in the real page in
+Chromium, with `dir` typed on the keyboard ([details](verification.md#nitros-9-boot-test)). They also boot at 128K in
+Node (not compared with MAME at that size). Other NitrOS-9 versions and other OS-9 boot disks are not tested.
 
 ## Loading programs
 
@@ -222,6 +262,7 @@ doesn't have is reported in a message (with Details) and the rest of the link st
 | `ram`, `cpu` | the machine's own options, e.g. `ram=128` or `ram=512` on the CoCo 3 | checked against the model |
 | `start` | `welcome`, `liza` | runs that program |
 | `app` | `claude` | opens the Claude chat ([claude.md](claude.md#claude)) |
+| `nitros9` | `1`, or an image's name | CoCo 3: boots NitrOS-9 from your own DriveWire image ([Booting NitrOS-9](#booting-nitros-9)); never carries the image |
 | `load` | a link to a program, tape or cartridge | loads and runs it, as a dropped file |
 | `tape` | a link to a `.cas` or `.wav` | puts it in the deck; with `autorun` it loads and runs |
 | `cart` | a link to a cartridge ROM | plugs it in; it starts |

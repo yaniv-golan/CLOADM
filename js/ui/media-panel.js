@@ -1,5 +1,6 @@
 /* Programs, tapes and the examples menu; snapshot files go to the snapshot panel. */
 import { $, ESC } from './page.js';
+import { inspectOs9Disk } from '../media/os9.js';
 
 const parseHex = (s) => {
   if (s == null) return null;
@@ -15,7 +16,7 @@ const askAddresses = (name, size) => {
 
 // snapshots: the snapshot panel (snapshot files open there); disks: the disk panel (disk images go into a drive);
 // keep(name, bytes): a file the user loaded, to keep in the Library
-export function setupMediaPanel(page, { snapshots, disks, keep }) {
+export function setupMediaPanel(page, { snapshots, disks, nitros9, keep }) {
   const { session, audio } = page;
   session.fastCas = $('chkFastCas').checked;
   $('chkFastCas').onchange = (e) => { session.fastCas = e.target.checked; };
@@ -27,6 +28,21 @@ export function setupMediaPanel(page, { snapshots, disks, keep }) {
     if (await snapshots.take(name, bytes)) return;
     const media = session.inspect(name, bytes), mm = media.mismatch;
     offer.hidden = true;
+    // a NitrOS-9 DriveWire boot disk: boot it (on the CoCo 3), or use it as a floppy all the same
+    const n9 = media.kind === 'disk' ? inspectOs9Disk(bytes) : null;
+    if (n9 && !n9.reason) {
+      $('mediaOfferText').textContent = `${name} is a NitrOS-9${n9.cpu ? '/' + n9.cpu : ''} DriveWire boot disk.` +
+        (session.constructor.NITROS9_MACHINES.includes(session.machine.id) ? '' : ' It boots on the CoCo 3.');
+      $('btnMediaSwitch').textContent = 'Boot NitrOS-9';
+      $('btnMediaSwitch').onclick = () => { offer.hidden = true; nitros9.bootFile(name, bytes); };
+      $('btnMediaAnyway').onclick = () => { offer.hidden = true; disks.insert(name, bytes); page.focus(); };
+      $('btnMediaAnyway').dataset.label = $('btnMediaAnyway').textContent;
+      $('btnMediaAnyway').textContent = 'Put it in a floppy drive';
+      offer.hidden = false;
+      $('btnMediaSwitch').focus();
+      return;
+    }
+    if ($('btnMediaAnyway').dataset.label) $('btnMediaAnyway').textContent = $('btnMediaAnyway').dataset.label;
     if (media.kind === 'disk' && !mm) { audio.start(); await disks.insert(name, bytes); return; }
     if (!mm) { doLoad(name, bytes); return; }
     const m = session.machine;

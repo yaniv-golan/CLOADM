@@ -1,11 +1,11 @@
 // Shared by the NitrOS-9 boot tools (boot.js, boot-mame.js) and tests/nitros9.test.js: our boot loader as a CoCo 3
 // ROM, the DriveWire server that serves an image to either emulator, the record of its transactions that the two
 // runs are compared on, and the text on our machine's screen. Development only; nothing here is loaded by the page.
-const path = require('path'), zlib = require('zlib');
-const { assembleFile, romImage } = require('../mame-diff/lib/firmware');
+const zlib = require('zlib');
 
-// The CoCo 3 internal ROM (32K) with our DriveWire loader (bootdw3.asm, over the Becker port)
-const loaderRom = () => romImage(assembleFile(path.join(__dirname, 'bootdw3.asm'), '6809'), 0x8000, 0x8000, 0xFF);
+// The CoCo 3 internal ROM (32K) with our DriveWire loader (js/machines/nitros9.js, over the Becker port): the one
+// the page boots with
+const loaderRom = () => require('../../js/emu.js').nitros9LoaderRom();
 
 // One DriveWire transaction as the runs are compared on it, or null for one left out. TIME is left out: NitrOS-9
 // asks for it from its clock module and from startup's `date`, and how many times depends on how long a run lasts,

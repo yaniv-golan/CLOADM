@@ -1101,6 +1101,18 @@ npx serve -l 8000 .</pre>
           <input type="file" id="fileDisk" accept=".vdk,.dsk,.jvc,.dmk" hidden>
         </div>
       </div>
+      <div class="slot" id="nitros9Slot" hidden>
+        <div class="body" style="flex:1">
+          <div class="title">NitrOS-9 · <span id="n9State">over DriveWire, no ROM needed</span></div>
+          <div class="bar"><select id="n9Image" aria-label="NitrOS-9 DriveWire image"></select>
+            <button id="btnN9Boot">Boot NitrOS-9</button><button id="btnN9Add">Add image…</button>
+            <button id="btnN9Leave" hidden>Back to BASIC</button></div>
+          <div class="muted" id="n9Note">Your own NitrOS-9 DriveWire image: the file ending in <code>_becker.dsk</code> of a
+            <a href="https://github.com/nitros9project/nitros9/releases" target="_blank" rel="noopener">NitrOS-9 release</a>
+            (CoCo 3, 6809 or 6309). It goes in DriveWire drive 0; CLOADM's own loader boots it.</div>
+          <input type="file" id="n9File" accept=".dsk,.os9,.img" hidden>
+        </div>
+      </div>
       <div class="slot" id="cartSlot">
         <div class="body" style="flex:1">
           <div class="title">Cartridge port</div>
@@ -1614,6 +1626,8 @@ npx serve -l 8000 .</pre>
 <link rel="modulepreload" href="js/claude/basicload.js">
 <link rel="modulepreload" href="js/claude/chat.js">
 <link rel="modulepreload" href="js/claude/channel.js">
+<link rel="modulepreload" href="js/machines/nitros9.js">
+<link rel="modulepreload" href="js/media/os9.js">
 <link rel="modulepreload" href="js/roms.js">
 <link rel="modulepreload" href="js/media/zip.js">
 <link rel="modulepreload" href="js/media/snapshot.js">
@@ -1672,6 +1686,7 @@ npx serve -l 8000 .</pre>
 <link rel="modulepreload" href="js/ui/share.js">
 <link rel="modulepreload" href="js/ui/slots-panel.js">
 <link rel="modulepreload" href="js/ui/tape-panel.js">
+<link rel="modulepreload" href="js/ui/nitros9-panel.js">
 <!-- modulepreload:end -->
 <script type="module" src="js/ui/main.js" onerror="if (location.protocol !== 'file:') showStartError('The emulator\'s scripts could not be loaded from this server.')"></script>
 </body>

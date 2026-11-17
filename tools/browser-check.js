@@ -25,6 +25,9 @@
 // library disk inserted after a reload, a file that is no disk image; the Dragon Alpha's own two drives (no
 // cartridge); no drives card on the MC-10.
 //
+// Then NitrOS-9 from the page (no ROM): the CoCo 3's NitrOS-9 slot, its errors, a dropped image, nitros9= links and
+// Share with hand-built boot disks, and the official images (when fetched) booted to the shell with `dir` typed.
+//
 // Then the one-time keyboard hint and the Credits link.
 //
 // Then the SAM CPU rate: each speed POKE typed through the keyboard (and one clicked in the POKE book)
@@ -920,6 +923,114 @@ async function driveWireChecks(browser, base, check) {
   check('drivewire: the option off power cycles without the port; its controls hide',
     await page.isHidden('#dwUrl') && (serialHere ? await page.isVisible('#dwSerialRow') : await page.isHidden('#dwSection')), `(Web Serial ${serialHere ? 'present' : 'absent'})`);
   check('drivewire: no page errors', !errors.length, errors.join('; '));
+  await ctx.close();
+}
+
+// NitrOS-9 from the page, without a ROM (Session.bootNitros9; js/ui/nitros9-panel.js): the slot under the screen on
+// the CoCo 3, its errors, the dropped image's offer, the link (nitros9=) and Share, with hand-built boot disks
+// (tests/os9-image.js: our own bytes); then, when tools/nitros9/fetch.js has cached them (skipped with the reason
+// otherwise), the official v3.3.0 Becker images: picked in the slot, booted to the NitrOS-9 shell, `dir` typed on
+// the keyboard and the listing read from the screen.
+async function nitros9Checks(browser, base, check) {
+  const Emu = require('../tests/load')();
+  const { makeOs9Disk } = require('../tests/os9-image.js');
+  const { cached } = require('./nitros9/fetch.js');
+  const { screenText } = require('./nitros9/lib.js');
+  const ctx = await browser.newContext({ serviceWorkers: 'block' });
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  const open = async (q) => { await page.goto(`${base}${q}`); return waitFor(page, () => window.emu && window.emu.linkDone, null, 15000); };
+  const msg = () => page.textContent('#toast');
+  const ev = (fn, arg) => page.evaluate(fn, arg);
+  const file = (name, bytes) => ({ name, mimeType: 'application/octet-stream', buffer: Buffer.from(bytes) });
+  const running = () => ev(() => window.emu.session.nitros9Running);
+
+  // ---- wrong machine, no image
+  await open('?machine=dragon64&nitros9=1');
+  check('nitros9: a link with another machine says NitrOS-9 boots on the CoCo 3; no NitrOS-9 slot there',
+    /nitros9: NitrOS-9 boots on the CoCo 3/.test(await msg()) && await ev(() => window.emu.machine.id === 'dragon64') && await page.isHidden('#nitros9Slot'), await msg());
+  await open('?nitros9=1');
+  check('nitros9: ?nitros9=1 alone opens the CoCo 3; with no image it says where to get one',
+    await ev(() => window.emu.machine.id === 'coco3') && /your library has none yet.*github\.com\/nitros9project\/nitros9\/releases/.test(await msg()) && !await running(), await msg());
+  check('nitros9: the slot under the screen, Boot disabled with no image, the release link',
+    await page.isVisible('#nitros9Slot') && await page.isDisabled('#btnN9Boot') &&
+    await page.getAttribute('#n9Note a', 'href') === 'https://github.com/nitros9project/nitros9/releases');
+  if (shotDir) await page.locator('#nitros9Slot').screenshot({ path: path.join(shotDir, 'nitros9-empty.png') });
+
+  // ---- wrong images, picked with Add image…
+  await page.setInputFiles('#n9File', file('notes.txt', Buffer.from('hello')));
+  check('nitros9: a file that is no disk image', await waitFor(page, () => /notes\.txt: It isn't a disk image of whole 256-byte sectors/.test(document.getElementById('toast').textContent)), await msg());
+  await page.setInputFiles('#n9File', file('blank.dsk', new Uint8Array(630 * 256)));
+  check('nitros9: a disk that is not OS-9', await waitFor(page, () => /blank\.dsk: It isn't an OS-9 disk/.test(document.getElementById('toast').textContent)), await msg());
+  await page.setInputFiles('#n9File', file('serial.dsk', makeOs9Disk(Emu, { port: 'bitbanger' })));
+  check('nitros9: the bit-banger build: use _becker.dsk', await waitFor(page, () => /serial\.dsk: .*bit-banger.*_becker\.dsk/.test(document.getElementById('toast').textContent)), await msg());
+  await page.setInputFiles('#n9File', file('floppy.dsk', makeOs9Disk(Emu, { bootTrack: false, driver: 'rb1773', sectors: 1440 })));
+  check('nitros9: a floppy image: boots from a floppy drive', await waitFor(page, () => /floppy\.dsk: This is a NitrOS-9 floppy disk image/.test(document.getElementById('toast').textContent)), await msg());
+  check('nitros9: none of them was kept or booted', !await running() && await ev(async () => (await window.emu.session.driveWireImages()).length === 0));
+
+  // ---- a hand-built boot disk: added, booted, no ROM, no boot-help box
+  await page.setInputFiles('#n9File', file('myboot.dsk', makeOs9Disk(Emu, { cpu: '6309' })));
+  const booted = await waitForFrames(page, () => window.emu.session.nitros9Running && window.emu.machine.read(0x0100) === 1 && window.emu.machine.read(0x0102) === 0x5A, null, 600);
+  check('nitros9: Add image… keeps it and boots it: the loader ran the boot track', booted, await msg());
+  check('nitros9: a 6309 build makes the machine a 6309 CoCo 3 with the Becker port, the image in DriveWire drive 0',
+    await ev(() => { const m = window.emu.machine, d = window.emu.session.driveWireMounts; return m.config.cpu === '6309' && m.config.becker === true && d[0].drive === 0 && d[0].name === 'myboot.dsk'; }) && /switched to the HD6309/.test(await msg()), await msg());
+  check('nitros9: the slot says it is running, offers Back to BASIC; no ROM pill, the ROMs line says they are not used',
+    /running from myboot\.dsk/.test(await page.textContent('#n9State')) && await page.isVisible('#btnN9Leave') && await page.isHidden('#romPill') && /NitrOS-9/.test(await page.textContent('#romState')));
+  await waitForFrames(page, () => false, null, 6 * 60);
+  check('nitros9: no "No OK after 5 seconds" box (BASIC isn\'t meant to start)', await page.isHidden('#bootHelp'));
+  if (shotDir) await page.locator('#nitros9Slot').screenshot({ path: path.join(shotDir, 'nitros9-running.png') });
+
+  // ---- Share: the link boots NitrOS-9 from the recipient's own image, no snapshot
+  await page.click('#btnShare');
+  await waitFor(page, () => !document.getElementById('share').hidden && !!document.getElementById('shareLink').value);
+  const link = await page.inputValue('#shareLink');
+  check('nitros9: Share gives a link with nitros9=1 and no snapshot or image name; the snapshot download is off',
+    /nitros9=1/.test(link) && /machine=coco3/.test(link) && !/#s=/.test(link) && !/myboot/.test(link) && await page.isDisabled('#btnShareDownload') &&
+    /their own NitrOS-9 DriveWire image/.test(await page.textContent('#shareRecipient')), link);
+  await page.click('#shareBack');
+
+  // ---- the link, in a new page load: the library's image boots again
+  await open(new URL(link).search);
+  check('nitros9: the share link boots NitrOS-9 from the image in the library (after a reload)',
+    await waitForFrames(page, () => window.emu.session.nitros9Running && window.emu.machine.read(0x0100) === 1 && window.emu.machine.read(0x0102) === 0x5A, null, 600), await msg());
+  await page.click('#btnN9Leave');
+  // (no ROMs in this browser: back on the built-in firmware, which starts the welcome menu as at power-on)
+  check('nitros9: Back to BASIC puts the machine\'s own firmware back',
+    await waitFor(page, () => !window.emu.session.nitros9Running && window.emu.machine.useStub && document.getElementById('btnN9Leave').hidden), await msg());
+
+  // ---- a dropped (or loaded) NitrOS-9 image on another machine: the offer boots it on the CoCo 3
+  await open('?machine=dragon32');
+  await page.setInputFiles('#fileProgram', file('dropped.dsk', makeOs9Disk(Emu, { cpu: '6809' })));
+  await waitFor(page, () => !document.getElementById('mediaOffer').hidden);
+  check('nitros9: a dropped NitrOS-9 image offers to boot it (on the CoCo 3) or use it as a floppy',
+    /dropped\.dsk is a NitrOS-9\/6809 DriveWire boot disk\. It boots on the CoCo 3\./.test(await page.textContent('#mediaOfferText')) &&
+    await page.textContent('#btnMediaSwitch') === 'Boot NitrOS-9' && await page.textContent('#btnMediaAnyway') === 'Put it in a floppy drive');
+  await page.click('#btnMediaSwitch');
+  check('nitros9: Boot NitrOS-9 switches to the CoCo 3 and boots it',
+    await waitForFrames(page, () => window.emu.machine.id === 'coco3' && window.emu.session.nitros9Running && window.emu.machine.read(0x0102) === 0x5A, null, 600), await msg());
+
+  // ---- the release images: boot to the shell, dir
+  const PROMPT = '{Term|02}/DD:';
+  const shellText = `(${screenText.toString()})(window.emu.machine)`;
+  const lines = () => page.evaluate(shellText);
+  for (const cpu of ['6809', '6309']) {
+    const name = `nos9${cpu}l2v030300coco3_becker.dsk`, { bytes, reason } = cached(name);
+    if (!bytes) { console.log(`skip nitros9 ${cpu} release image in the page: ${reason}`); continue; }
+    await open('?machine=coco3&cpu=6809&ram=512');
+    await page.setInputFiles('#n9File', file(name, bytes));
+    const prompted = await waitForFrames(page, (s) => { const t = eval(s); return t.includes('{Term|02}/DD:'); }, shellText, 40 * 60);
+    check(`nitros9 ${cpu}: the release image boots from the page to the NitrOS-9 shell`, prompted && (await lines()).includes(`NitrOS-9/${cpu} Level 2 V3.3.0`), JSON.stringify((await lines()).slice(-3)));
+    await page.click('#screen');
+    await page.keyboard.type('dir', { delay: 80 });
+    await page.keyboard.press('Enter');
+    const listed = await waitForFrames(page, (s) => { const l = eval(s), d = l.findIndex((x) => x.startsWith(' Directory of ')); return d >= 0 && l.slice(d + 1).includes('{Term|02}/DD:'); }, shellText, 20 * 60);
+    const l = await lines(), d = l.findIndex((x) => x.startsWith(' Directory of '));
+    const names = d >= 0 ? l.slice(d + 1, l.indexOf(PROMPT, d)).join(' ').split(/\s+/).filter(Boolean) : [];
+    check(`nitros9 ${cpu}: dir typed on the keyboard lists the root`, listed && l.includes(`${PROMPT}dir`) && ['OS9Boot', 'CMDS', 'SYS', 'DEFS', 'sysgo', 'startup', 'NITROS9'].every((n) => names.includes(n)), JSON.stringify(names));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `nitros9-${cpu}-dir.png`) });
+  }
+  check('nitros9: no page errors', !errors.length, errors.join('; '));
   await ctx.close();
 }
 
@@ -6536,6 +6647,7 @@ async function designChecks(browser, base, check) {
     if (want('tapePanel')) await tapePanelChecks(browser, base, check);
     if (want('printer')) await printerChecks(browser, base, check);
     if (want('driveWire')) await driveWireChecks(browser, base, check);
+    if (want('nitros9')) await nitros9Checks(browser, base, check);
     if (want('webSerial')) await webSerialChecks(browser, base, check);
     if (want('snapshot')) await snapshotChecks(browser, base, check);
     if (want('liza6803')) await liza6803Checks(browser, base, check);

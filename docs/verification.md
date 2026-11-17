@@ -733,8 +733,8 @@ MAME artefacts reproduced only under `config.mameCompat` (the comparisons turn i
 
 ## NitrOS-9 boot test
 
-A development check, not a claim that NitrOS-9 is supported. `tests/nitros9.test.js` boots the official NitrOS-9
-v3.3.0 Level 2 CoCo 3 DriveWire images (6809 and 6309) with our own boot loader (`tools/nitros9/bootdw3.asm`) in
+What the page's **Boot NitrOS-9** ([using.md](using.md#booting-nitros-9)) rests on. `tests/nitros9.test.js` boots the official NitrOS-9
+v3.3.0 Level 2 CoCo 3 DriveWire images (6809 and 6309) with our own boot loader (`js/machines/nitros9.js`, the one the page boots with) in
 place of the CoCo 3 ROM and our DriveWire server on the Becker port, types `dir` at the shell, and checks the screen
 text against the NitrOS-9 sources that print it and every DriveWire transaction (but TIME) against MAME 0.264 running
 the same image, loader and server (`tools/nitros9/boot-mame.js --record`, kept in `tests/fixtures/nitros9/`). The
@@ -742,6 +742,25 @@ images are not in this repository: `node tools/nitros9/fetch.js` downloads them 
 release, pinned by SHA-256, into `$NITROS9_CACHE` (default: the system's temporary folder); without them the test
 skips with that reason. Both cases are full boot checks: the 6309 image clears the kernel's system page with
 TFM r0,r1+ ($113B), which this branch's core runs correctly, so it reaches the shell like the 6809 one.
+
+The page's path to it, without MAME (nothing in it is hardware behaviour; the machine, loader and server are the
+ones compared above):
+
+* `tests/os9.test.js`: the image detection (`js/media/os9.js`) on hand-built OS-9 disks laid out from the NitrOS-9
+  definitions (`tests/os9-image.js`: `defs/rbf.d`, `defs/os9.d`, no NitrOS-9 bytes): the Becker boot disk, its CPU and
+  volume name, and every refusal (not whole sectors, no OS-9 LSN 0, a root that isn't a directory, no boot track, a
+  floppy, bit-banger or other boot device, a headless build). Then, with the release images fetched, all 24 images
+  of both v3.3.0 CoCo 3 archives, each classified as its file name says (only the two `_becker.dsk` boot).
+* `tests/nitros9-session.test.js`: `Session.bootNitros9` on hand-built disks (the machine it makes, the loader running
+  the boot track, reset and power cycle booting again, Back to BASIC, the CPU switch for a 6309 build, the errors for
+  another machine, a missing or wrong image, the `nitros9=` link and its parse errors, Share refusing a NitrOS-9
+  snapshot, the embed API's `peek` refusing), then the release images through the Session to the shell and `dir`, at
+  512K and 128K.
+* `tests/state.test.js`: a snapshot file taken while the loader is part way through a boot-track sector opens in a
+  fresh Session with no ROMs (the loader is built in) and runs on identically, instruction for instruction and frame
+  for frame.
+* `tools/browser-check.js` (`nitros9`): the slot under the screen in Chromium, its errors, a dropped image's offer,
+  the link and Share, and the release images booted from the page to the shell with `dir` typed on the keyboard.
 
 ## SAM CPU rate (the speed POKEs)
 

@@ -86,7 +86,7 @@ export function setupClaude(page) {
   const basicMachine = () => (session.chatMachines ? session.chatMachines.basic : session.machine);
   const brief = () => {
     const m = basicMachine();
-    return claudeBrief({ machine: m.profile.name, ram: m.config.ram, cpu: m.config.cpu, hasBasic: m.hasRom, edition: 'cloadm.dev', tools: true });
+    return claudeBrief({ machine: m.profile.name, ram: m.config.ram, cpu: m.config.cpu, hasBasic: m.hasRom && !session.nitros9On(m), edition: 'cloadm.dev', tools: true });
   };
   const backend = () => new ClaudeBackend({ fetch: (url, init) => fetch(url, init), apiKey: session.keyStore.get() || '' });
   function wire(chat) {
