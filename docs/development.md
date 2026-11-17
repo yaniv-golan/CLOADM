@@ -13,6 +13,13 @@ don't load ES modules from `file://`.
 Contributors follow [AGENTS.md](../AGENTS.md): the rules, where code goes, and the proof required before a change
 counts as done.
 
+CI (`.github/workflows/tests.yml`) runs the gates once per push, on the pushed head of `main` and of `claude/**` and
+`ds/**` branches (other branches: Actions → tests → Run workflow): `node tests/all.js`, and the browser check split into parallel shards (`--only <groups>`, listed in
+`.github/browser-check-shards.json`). `node .github/scripts/browser-check-shards.js` fails if a browser-check group
+is in no shard, in two, or isn't a group; run it after adding a group, and add the group to a shard. A green run's
+`gates` summary (commit SHA, tree hash, each job's counts) is the definition of done; see AGENTS.md section 4.
+Don't run anything else on the machine while the browser check runs: it is timing-sensitive under load.
+
 ```
 node tests/all.js            # every suite below in a worker pool (--jobs N to cap it), one line each, the regression gate included (exit 0 = all passed)
 node tools/browser-check.js  # the real pages in Chromium: the landing page (desktop and phone) and /play/: every model, LIZA end to end, the file:// notice, Capture & share and opening snapshots, the favicon and no missing file requested by any page; the feedback model (toasts on the page the user is on, cleared by the next action, Undo, Details, desktop and phone). Every "← Emulator", Esc and Back return to the emulator, from `/play/` and `?app=claude`, after a reload and from a page loaded on a view (`--only emulatorBack`). `--only feedback,library` runs just those groups (an unknown group is an error); see "What the gates' results mean" below
@@ -75,7 +82,7 @@ node tests/welcome.test.js   # welcome program on every 6809 model: screen, menu
 node tests/returning.test.js # returning visits: greetings, option 5, what ran last, back to the menu from LIZA and the demo
 node tests/power-on.test.js  # without ROMs: Reset restarts what runs; power-on, a machine switch and a snapshot of the stub's prompt bring the welcome menu (6809 and 6803)
 node tests/welcome6803.test.js # the 6803 welcome on mc10 and alice: raw screen cells, per-machine subtitle, keys, the two builds differ only at the HALT
-node tests/regress.test.js                # fast gate: trace and frame hashes of the diagnostic firmware (seconds, no MAME; part of tests/all.js; --count prints the number of cases)
+node tests/regress.test.js                # fast gate: trace and frame hashes of the diagnostic firmware (seconds, no MAME; tests/all.js runs it too; --count prints the number of cases)
 node tools/mame-diff/run.js <profile>     # lockstep trace comparison with MAME (needs mame; exit 0 = identical)
 node tools/mame-diff/run.js <profile> --video [--artifact N]   # pixel comparison of every display mode with MAME
 node tools/mame-diff/run.js coco3 --video --attr   # the GIME's text attributes, exactly (blank glyphs, so the fonts never show)

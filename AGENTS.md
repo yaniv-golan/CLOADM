@@ -56,11 +56,22 @@ Every new stateful component goes into the snapshot (`saveState` / `loadState`) 
 
 A change is done only when every applicable level below passes. Your report (section 6) shows the evidence.
 
+**The gate is a green CI run on the exact commit.** Every push to `main` and to contributor branches (`claude/**`,
+`ds/**`) runs the `tests` workflow (`.github/workflows/tests.yml`) once on the pushed head; for a branch with another
+name, run it by hand (Actions → tests → Run workflow). It runs `node tests/all.js` and every group of
+the browser check, split over parallel shards that together must cover every group. Its final job, `gates`, is
+green only if all of them passed, and its summary gives the commit SHA and tree hash (`git rev-parse HEAD^{tree}`).
+That run, on the SHA you report, is the proof for levels 4.1, 4.2 and 4.7. Run the same commands locally while you
+develop (sections 1 and 3 still apply); CI doesn't replace them, it records the final result once. CI has no MAME,
+so levels 4.4 to 4.6 are still run locally and reported.
+
 ### 4.1 All suites pass
 ```
 node tests/all.js
 ```
-This runs every `tests/*.test.js`, including the regression gate. Exit code 0 is required.
+This runs every `tests/*.test.js`, including the regression gate. Exit code 0 is required. A separate
+`node tests/regress.test.js` run isn't required on a tree `all.js` has run on; it stays the command for a quick
+check while developing and for `--update`.
 
 ### 4.2 Existing behaviour is unchanged
 `node tests/regress.test.js` hashes the full instruction traces (registers and cycle counts) and every rendered
@@ -127,7 +138,12 @@ node tools/browser-check.js [--screenshots DIR]
 This serves the repository and loads every model in Chromium, requiring no page errors and a running screen. It
 also runs LIZA end to end through the keyboard and checks the local-file notice. Extend it for every new UI feature
 (a panel opens, a disk mounts, a download is produced) so the feature is exercised through the page, not just
-through the Session. Look at the screenshots of anything visual.
+through the Session. Look at the screenshots of anything visual. `--only <group,…>` runs just those groups.
+
+The browser check is timing-sensitive under load: while it runs, nothing else runs on the same machine or
+container (no test suites, builds, MAME or a second browser check). In CI each shard has its own runner and runs
+its groups in one process, so groups in different shards never share a browser: run the whole check locally, in one
+process, before you push a change to the page.
 
 ## 5. Oracle per area
 
@@ -153,16 +169,31 @@ through the Session. Look at the screenshots of anything visual.
 Give these, and no claims beyond them:
 
 1. **What changed:** files and a one-paragraph design summary.
-2. **Commands run and their results**, pasted as short excerpts:
-   * `node tests/all.js` (the summary line);
-   * `node tests/regress.test.js`;
-   * each `node tools/mame-diff/run.js <profile> [...]` (instruction counts, "identical", HALT reached);
-   * any `--video` or byte/audio comparisons (frames or bytes compared, tolerance);
-   * `node tools/browser-check.js`.
-3. **New tests and firmware:** what each one covers.
+2. **Gate and commands run, with their results:**
+   * the green CI run: its URL, the commit SHA and the tree hash from its `gates` summary, which must be the head
+     of the branch under review (this replaces pasting local `tests/all.js`, `regress` and browser-check runs).
+     If the run's attempt (shown in the `gates` summary) is above 1, name each check that failed in the earlier
+     attempts and why you believe it is a flake; a green re-run is the gate only with that disclosure;
+   * each `node tools/mame-diff/run.js <profile> [...]` (instruction counts, "identical", HALT reached), pasted as a
+     short excerpt;
+   * any `--video` or byte/audio comparisons (frames or bytes compared, tolerance).
+3. **New tests and firmware:** what each one covers, and the mutations (deliberate breakages) that turned them red.
 4. **Deviations from MAME:** each with its source and where it is documented. Write "none" if there are none.
 5. **Not verified:** everything you couldn't check automatically, with the manual steps you did instead. Write
    "none" only if that is true.
 
 If any level fails and you can't fix it, the change is not done. Report it as blocked, with the failing output,
 rather than as done.
+
+## 7. Review
+
+1. Check that the reported CI run is green and that its SHA and tree hash are the branch head you are reviewing.
+   If its attempt is above 1, the report must name the checks that failed earlier and why they are believed to be
+   flakes; without that, the green run is not the gate.
+2. Read the diff. Replay the author's mutations (the deliberate breakages that showed their tests fail) and at
+   least two of your own; each must turn a test red.
+3. Re-run the gates locally only if the branch changes `tests/`, `tools/` or `.github/` in a way that isn't purely
+   additive (a changed or removed check, tolerance or shard list). Any change to `.github/` counts as not purely
+   additive, because the run being verified is the branch's own workflow. Otherwise the green run stands.
+4. A small fix within the change's scope may be re-reviewed by the same reviewer as a delta on the previous review.
+   Give all findings in one verdict.
