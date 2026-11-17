@@ -7,7 +7,8 @@
 //   the valid groups. Nothing runs.
 // * Each group runs on its own: an error thrown in one is that group's FAIL (with the stack), and the next group
 //   still runs.
-// * A wait that times out is a FAIL where it happened, unless the call says it is optional and why.
+// * A wait that times out is a FAIL where it happened, unless the call says it is optional and why. A wait on a page
+//   that crashed, closed or navigated away is a FAIL in every wait, optional or not.
 // * A check that cannot run here (the NitrOS-9 release images when they are not cached) is a SKIP, counted in the
 //   summary, never silent.
 // * Exit code: 0 only if every selected group ran and passed, 1 if any check, wait or group failed, 2 on a usage
@@ -48,6 +49,12 @@ function makeRun(log = console.log) {
   run.waitTimedOut = (what, limit, where) => {
     failed(run.current);
     log(`FAIL wait timed out (${limit})${where ? ` at ${where}` : ''}: ${what}`);
+  };
+  // a wait that could not go on: the page crashed, closed or navigated away (or, in an optional wait, any evaluate
+  // that threw)
+  run.waitFailed = (what, reason, where) => {
+    failed(run.current);
+    log(`FAIL wait: the page is gone or could not be read (${reason})${where ? ` at ${where}` : ''}: ${what}`);
   };
   // fn(): one group's body. after(): cleanup that runs whatever the group did (closing what it left open).
   run.group = async (name, fn, after) => {
@@ -94,50 +101,95 @@ function callSite(stack, file, skipNames) {
 
 // The condition waits. page: anything with evaluate(fn, arg) and waitForTimeout(ms) (a Playwright page).
 // waitFor: true as soon as fn holds in the page; on timeout a FAIL (run.waitTimedOut) and false.
-// maybeWaitFor(why, ...): the same wait whose timeout is an expected outcome; why says when and why, and it
+// maybeWaitFor(why, ...): the same wait whose timeout is an expected outcome; why says when and why, and its timeout
 // never fails the run. waitForFrames: a bound in the machine's frames rather than wall time.
-// An evaluate that throws is "not ready yet" (the page may still be starting), not a failure.
+// A page that is gone is a FAIL in every wait, optional or not: an evaluate that fails because the page crashed or
+// closed, or its document was replaced under it (a navigation: "Execution context was destroyed"), is reported where
+// the wait was called (run.waitFailed) and the wait returns false. Otherwise, in waitFor and waitForFrames an evaluate
+// that throws inside the page (window.emu not there yet while the page starts) is "not ready yet". maybeWaitFor is
+// stricter, since its timeout is the pass: any evaluate that throws is a FAIL (a condition that could not be read
+// observed nothing), and the page must still be the same live document when the time is up. It returns true (the
+// condition held), false (the time ran out on a live page) or null (the page went away: already a FAIL), so a
+// negative check passes only on === false.
 // The default limit is 30 s: a limit, not a delay (a wait returns as soon as its condition holds), set well above what
 // a loaded machine needs so that load slows a run down rather than failing it.
 const DEFAULT_MS = 30000;
+// Playwright's messages for a page that can no longer be evaluated in (crashed, closed, navigated away, frame gone).
+const GONE = /Target crashed|Target page, context or browser has been closed|has been closed|Execution context was destroyed|[Ff]rame (was|has been) detached|Navigation/;
+const firstLine = (e) => String(e && e.message !== undefined ? e.message : e).split('\n')[0];
+function pageGone(page, e) {
+  return (typeof page.isClosed === 'function' && page.isClosed()) || GONE.test(firstLine(e));
+}
 function makeWaits(run, file) {
-  const HELPERS = ['poll', 'waitFor', 'maybeWaitFor', 'waitForFrames', 'maybeWaitForFrames'];
+  const HELPERS = ['poll', 'waitFor', 'maybeWaitFor', 'waitForFrames', 'framesPoll', 'alive'];
   const where = () => callSite(new Error().stack, file, HELPERS);
   const describe = (fn) => String(fn).replace(/\s+/g, ' ').slice(0, 160);
-  const poll = async (page, fn, arg, ms) => {
+  // { ok } on success; { ok: false, gone } when an evaluate failed for a reason that ends the wait (strict: any
+  // evaluate error does); { ok: false } on timeout
+  const poll = async (page, fn, arg, ms, strict = false) => {
     const t = Date.now();
     while (Date.now() - t < ms) {
-      try { if (await page.evaluate(fn, arg)) return true; } catch (e) { /* not ready yet */ }
-      await page.waitForTimeout(50);
+      try { if (await page.evaluate(fn, arg)) return { ok: true }; } catch (e) {
+        if (strict || pageGone(page, e)) return { ok: false, gone: firstLine(e) };
+        /* thrown inside the page: not ready yet */
+      }
+      try { await page.waitForTimeout(50); } catch (e) { return { ok: false, gone: firstLine(e) }; }
     }
-    return false;
+    return { ok: false };
   };
   const waitFor = async (page, fn, arg, ms = DEFAULT_MS) => {
-    if (await poll(page, fn, arg, ms)) return true;
-    run.waitTimedOut(describe(fn), `${ms} ms`, where());
+    const r = await poll(page, fn, arg, ms);
+    if (r.ok) return true;
+    if (r.gone) run.waitFailed(describe(fn), r.gone, where());
+    else run.waitTimedOut(describe(fn), `${ms} ms`, where());
     return false;
   };
+  // a mark left in the page's window before an optional wait and looked for after it: gone if the page crashed,
+  // closed or navigated meanwhile
+  const alive = async (page, mark, op) => {
+    try {
+      return await page.evaluate(([m, o]) => {
+        const marks = window.__browserCheckWaitMarks || (window.__browserCheckWaitMarks = new Set());
+        if (o === 'set') { marks.add(m); return true; }
+        return marks.delete(m);
+      }, [mark, op]) === true ? null : 'the page is no longer the document the wait started on (it navigated or reloaded)';
+    } catch (e) { return firstLine(e); }
+  };
+  let marks = 0;
   const maybeWaitFor = async (why, page, fn, arg, ms = DEFAULT_MS) => {
     if (typeof why !== 'string' || !why) throw new Error('maybeWaitFor needs the reason its timeout is expected');
-    return poll(page, fn, arg, ms);
+    const mark = `${process.pid}.${++marks}`;
+    let gone = await alive(page, mark, 'set');
+    let r = { ok: false };
+    if (!gone) { r = await poll(page, fn, arg, ms, true); gone = r.gone || null; }
+    if (!gone && !r.ok) gone = await alive(page, mark, 'check');
+    if (gone) { run.waitFailed(`${describe(fn)} (optional: ${why})`, gone, where()); return null; }
+    return r.ok;
   };
   // frames: machine frames from now; wallMs only stops a page that has hung
   const framesPoll = async (page, fn, arg, frames, wallMs) => {
     const at = () => page.evaluate(() => window.emu.machine.frameCount);
-    const start = await at(), t = Date.now();
-    while (Date.now() - t < wallMs) {
-      try { if (await page.evaluate(fn, arg)) return { ok: true }; } catch (e) { /* not ready yet */ }
-      if ((await at()) - start > frames) return { ok: !!(await page.evaluate(fn, arg).catch(() => false)), why: `${frames} machine frames` };
-      await page.waitForTimeout(50);
-    }
-    return { ok: false, why: `${wallMs} ms (wall clock) before ${frames} frames ran` };
+    try {
+      const start = await at(), t = Date.now();
+      while (Date.now() - t < wallMs) {
+        const r = await poll(page, fn, arg, 1);
+        if (r.ok || r.gone) return r;
+        if ((await at()) - start > frames) {
+          const last = await poll(page, fn, arg, 1);
+          return last.gone ? last : { ok: last.ok, why: `${frames} machine frames` };
+        }
+        await page.waitForTimeout(50);
+      }
+      return { ok: false, why: `${wallMs} ms (wall clock) before ${frames} frames ran` };
+    } catch (e) { return { ok: false, gone: firstLine(e) }; }
   };
   const waitForFrames = async (page, fn, arg, frames, wallMs = 180000) => {
     const r = await framesPoll(page, fn, arg, frames, wallMs);
-    if (!r.ok) run.waitTimedOut(describe(fn), r.why, where());
+    if (r.gone) run.waitFailed(describe(fn), r.gone, where());
+    else if (!r.ok) run.waitTimedOut(describe(fn), r.why, where());
     return r.ok;
   };
-  return { waitFor, maybeWaitFor, waitForFrames, poll };
+  return { waitFor, maybeWaitFor, waitForFrames };
 }
 
-module.exports = { parseOnly, makeRun, makeWaits, callSite };
+module.exports = { parseOnly, makeRun, makeWaits, callSite, pageGone };

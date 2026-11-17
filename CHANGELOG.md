@@ -11,7 +11,8 @@ All notable changes to CLOADM are recorded here. The format follows
 - **Test gates (tooling): a green run means what it says.** `node tools/browser-check.js`: an unknown or empty
   `--only` group list is an error (exit 2) listing the valid groups, where it used to run nothing and pass; each group
   runs on its own, so one that throws is that group's FAIL with its stack and the rest still run; every wait's
-  timeout is a FAIL where it was called unless the wait is marked optional with its reason; fixed sleeps are replaced
+  timeout is a FAIL where it was called unless the wait is marked optional with its reason, and a page that crashed,
+  closed or navigated away is a FAIL in every wait, optional or not (a negative check passes only on a live page); fixed sleeps are replaced
   by condition waits wherever a condition exists (the windows that remain are listed in `docs/development.md`); the
   NitrOS-9 release-image checks are a counted `SKIP` when the images are not cached (never fetched in CI); and the
   run ends with groups run / passed / failed and the ok / FAIL / SKIP counts (`tools/browser-check-lib.js`,
@@ -19,7 +20,8 @@ All notable changes to CLOADM are recorded here. The format follows
   shards did not cover every case (`node tests/regress.test.js --count`).
 - CI runs the gates on every push to `main`, `claude/**` and `ds/**`: `node tests/all.js` and the browser check in
   4 parallel shards, then a `gates` job that fails unless all passed and reports the commit, its tree hash, the run attempt (flagging a re-run) and the
-  counts. A check fails the run if any live (not commented-out) browser-check group is missing from the shards. A newer push to a branch
+  counts. A check fails the run if any browser-check group (as `node tools/browser-check.js --list-groups` prints its
+  `GROUPS` table) is in no shard, in two, or a shard names a group that isn't one. A newer push to a branch
   cancels the older run there; runs on `main` are never cancelled.
 - AGENTS.md: a green CI run on the exact commit is the definition of done; `regress.test.js` needn't run separately
   where `all.js` ran; nothing else runs beside the browser check; a review section (verify the run's SHA and tree,

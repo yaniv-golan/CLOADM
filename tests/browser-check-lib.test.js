@@ -78,9 +78,15 @@ check('--only twice: an error', /more than once/.test(parseOnly(['--only', 'shar
   }
 
   // ---- waits: a timeout is a FAIL where it was called, unless marked optional
+  // a fake page: each evaluate of the condition returns (or throws) the next result; the optional wait's liveness mark
+  // lives in its window, which navigate() replaces
   const page = (results) => {
-    let i = 0;
-    return { evals: 0, async evaluate(fn) { this.evals++; const v = results[Math.min(i++, results.length - 1)]; if (v instanceof Error) throw v; return typeof v === 'function' ? v() : v; }, async waitForTimeout() {} };
+    let i = 0, win = {};
+    return { evals: 0, navigate() { win = {}; },
+      async evaluate(fn, arg) {
+        if (String(fn).includes('__browserCheckWaitMarks')) { const g = globalThis.window; globalThis.window = win; try { return fn(arg); } finally { globalThis.window = g; } }
+        this.evals++; const v = results[Math.min(i++, results.length - 1)]; if (v instanceof Error) throw v; return typeof v === 'function' ? v() : v; },
+      async waitForTimeout() {} };
   };
   {
     const lines = [], run = makeRun((l) => lines.push(l));
@@ -100,6 +106,53 @@ check('--only twice: an error', /more than once/.test(parseOnly(['--only', 'shar
     const w2 = makeWaits(run2, __filename);
     await run2.group('optional', async () => { r = await w2.maybeWaitFor('the toast may already be gone', page([false]), () => false, null, 60); });
     check('maybeWaitFor: a timeout is false and no FAIL', r === false && run2.summary() === 0 && !/^FAIL/m.test(lines2.join('\n')), lines2.join(' | '));
+
+    // a page that is gone is a FAIL in every wait, optional or not (Playwright's messages for a crash, a closed page,
+    // and a navigation that destroyed the context the condition ran in)
+    for (const msg of ['page.evaluate: Target crashed', 'page.evaluate: Target page, context or browser has been closed',
+      'page.evaluate: Execution context was destroyed, most likely because of a navigation']) {
+      for (const optional of [false, true]) {
+        const l = [], rn = makeRun((x) => l.push(x)), w = makeWaits(rn, __filename);
+        let v;
+        await rn.group('gone', async () => {
+          v = optional ? await w.maybeWaitFor('a check that nothing shows', page([false, new Error(msg)]), () => false, null, 1000)
+            : await w.waitFor(page([false, new Error(msg), true]), () => false, null, 1000);
+        });
+        check(`${optional ? 'maybeWaitFor' : 'waitFor'}: "${msg.slice(15)}" is a FAIL, not ${optional ? 'a pass' : '"not ready yet"'}`,
+          (optional ? v === null : v === false) && rn.summary() === 1 && /^FAIL wait: the page is gone or could not be read \(page\.evaluate: /m.test(l.join('\n')), l.join(' | '));
+      }
+    }
+    {
+      // a closed page (isClosed) is gone whatever the message says
+      const l = [], rn = makeRun((x) => l.push(x)), w = makeWaits(rn, __filename);
+      const p = page([false, new Error('something')]); p.isClosed = () => true;
+      await rn.group('closed', async () => { await w.waitFor(p, () => false, null, 1000); });
+      check('waitFor: an evaluate error on a closed page is a FAIL', rn.summary() === 1, l.join(' | '));
+    }
+    {
+      // an optional wait: any evaluate that throws is a FAIL (its condition was never read, so its timeout proves nothing)
+      const l = [], rn = makeRun((x) => l.push(x)), w = makeWaits(rn, __filename);
+      let v;
+      await rn.group('opt-throws', async () => { v = await w.maybeWaitFor('a check that nothing shows', page([new Error('TypeError: x is null')]), () => false, null, 60); });
+      check('maybeWaitFor: a condition that throws in the page is a FAIL, not a pass', v === null && rn.summary() === 1 && /could not be read \(TypeError: x is null\)/.test(l.join('\n')), l.join(' | '));
+    }
+    {
+      // an optional wait over which the page navigated (no evaluate failed, but it is a new document): a FAIL
+      const l = [], rn = makeRun((x) => l.push(x)), w = makeWaits(rn, __filename);
+      const p = page([false]);
+      const orig = p.evaluate; let n = 0;
+      p.evaluate = async function (fn, arg) { const v = await orig.call(this, fn, arg); if (!String(fn).includes('__browserCheckWaitMarks') && ++n === 2) this.navigate(); return v; };
+      let v;
+      await rn.group('navigated', async () => { v = await w.maybeWaitFor('a check that nothing shows', p, () => false, null, 60); });
+      check('maybeWaitFor: a page that navigated during the wait is a FAIL', v === null && rn.summary() === 1 && /navigated or reloaded/.test(l.join('\n')), l.join(' | '));
+    }
+    {
+      // and a frames wait: a crash is a FAIL naming it, not a timeout
+      const l = [], rn = makeRun((x) => l.push(x)), w = makeWaits(rn, __filename);
+      let f = 0; const crashed = { async evaluate(fn) { if (String(fn).includes('frameCount')) return (f += 1); throw new Error('page.evaluate: Target crashed'); }, async waitForTimeout() {} };
+      await rn.group('frames-crash', async () => { await w.waitForFrames(crashed, () => false, null, 1000, 1000); });
+      check('waitForFrames: a crash is a FAIL saying so', rn.summary() === 1 && /could not be read \(page\.evaluate: Target crashed\)/.test(l.join('\n')), l.join(' | '));
+    }
     let threw = false;
     try { await w2.maybeWaitFor(page([true]), () => true); } catch (e) { threw = /needs the reason/.test(e.message); }
     check('maybeWaitFor: refused without a reason', threw);

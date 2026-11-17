@@ -16,7 +16,8 @@ counts as done.
 CI (`.github/workflows/tests.yml`) runs the gates once per push, on the pushed head of `main` and of `claude/**` and
 `ds/**` branches (other branches: Actions → tests → Run workflow): `node tests/all.js`, and the browser check split into parallel shards (`--only <groups>`, listed in
 `.github/browser-check-shards.json`). `node .github/scripts/browser-check-shards.js` fails if a browser-check group
-is in no shard, in two, or isn't a group; run it after adding a group, and add the group to a shard. A green run's
+is in no shard, in two, or isn't a group (it reads the groups from `node tools/browser-check.js --list-groups`, the
+`GROUPS` table itself); run it after adding a group, and add the group to a shard. A green run's
 `gates` summary (commit SHA, tree hash, each job's counts) is the definition of done; see AGENTS.md section 4.
 Don't run anything else on the machine while the browser check runs: it is timing-sensitive under load.
 
@@ -119,14 +120,18 @@ shard exited 0, so a separate `node tests/regress.test.js` adds nothing.
 final `missing files` check) one at a time, each on its own (`tools/browser-check-lib.js`):
 
 * `--only g1,g2` (or `--only=g1,g2`) runs those groups. A name that is no group, or an empty list, is a usage error: the valid groups
-  are listed, nothing runs, and the exit code is 2.
+  are listed, nothing runs, and the exit code is 2. `--list-groups` prints the group names, one per line, and runs
+  nothing (no browser needed).
 * A group that throws is that group's `FAIL`, printed with the stack; what it left open (its pages and contexts) is
   closed, and the next group runs. A browser that went away is started again for the next group.
 * Every wait is checked. `waitFor` and `waitForFrames` wait on a condition, with a limit (30 s, or the frames of
   machine time a step is given) that only stops a page that hangs; a wait that reaches its limit is a
   `FAIL wait timed out (limit) at browser-check.js:line: condition`, even when nothing else looks at its result.
   The one exception is `maybeWaitFor(why, …)`: a wait whose timeout is the expected outcome (a check that something
-  does not happen), with the reason in the call. A few loops poll outside these helpers (downloads arriving, requests
+  does not happen), with the reason in the call. A page that is gone is a FAIL in every wait, optional or not: an
+  evaluate that fails because the page crashed, closed or navigated away is a `FAIL wait: the page is gone …` where
+  the wait was called. In `maybeWaitFor` any evaluate that throws is a FAIL, and the page must still be the same
+  document when its time is up; it then returns `null`, so a negative check passes only on `false`. A few loops poll outside these helpers (downloads arriving, requests
   reaching a mocked API, the embed API's calls from its host page); what they wait for is asserted by the check that
   follows them. A check given a Promise (a missing `await`) is a FAIL.
 * Fixed sleeps are gone where a condition exists. What is left is a window in which something must *not* happen, or

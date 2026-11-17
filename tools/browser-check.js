@@ -55,12 +55,14 @@
 const http = require('http'), fs = require('fs'), path = require('path'), os = require('os'), zlib = require('zlib');
 // the snapshot format this tree writes (the version checks build a newer file from it)
 const { SNAPSHOT_VERSION } = require('../tests/load')();
-const { chromium } = require('playwright');
+// Playwright is loaded once the run starts (--list-groups needs no browser, so the CI shard planner runs without it)
+let chromium;
 
 const ROOT = path.join(__dirname, '..');
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.woff2': 'font/woff2', '.png': 'image/png', '.svg': 'image/svg+xml', '.md': 'text/markdown', '.json': 'application/json', '.asm': 'text/plain', '.bin': 'application/octet-stream', '.ico': 'image/x-icon', '.webmanifest': 'application/manifest+json', '.inc': 'text/plain' };
 // --only a,b: run only those groups of checks (their function names without "Checks"); the default runs all. A name
 // that is no group is a usage error (tools/browser-check-lib.js has the rules: isolation, waits, SKIP, exit codes).
+// --list-groups prints the group names, one per line, and runs nothing.
 const lib = require('./browser-check-lib');
 const run = lib.makeRun();
 const { check, skip } = run;
@@ -344,10 +346,13 @@ const stubPrompt = async (page) => {
 // The condition waits (tools/browser-check-lib.js makeWaits). Waits are on conditions, never fixed times: on a loaded
 // machine the page and the emulation run slower than real time.
 // waitFor(page, fn, arg, ms): true as soon as fn holds in the page; after ms (a limit, not a delay; 30 s by default)
-//   it is a FAIL, printed with where it was called, and returns false. An evaluate that throws (window.emu not there
-//   yet while the page starts) is "not ready yet", not a failure.
+//   it is a FAIL, printed with where it was called, and returns false. An evaluate that throws inside the page
+//   (window.emu not there yet while the page starts) is "not ready yet"; one that fails because the page crashed,
+//   closed or navigated away is a FAIL at once, in this wait and every other.
 // maybeWaitFor(why, page, fn, arg, ms): the same wait where a timeout is an expected outcome (a check that something
-//   does NOT happen); `why` says so, and its timeout fails nothing.
+//   does NOT happen); `why` says so, and its timeout fails nothing. Its timeout counts only if the condition was read
+//   every time and the page is still the same live document at the end: any evaluate error, a crash or a navigation
+//   is a FAIL, and it returns null rather than false, so a negative check tests === false.
 // waitForFrames(page, fn, arg, frames, wallMs): a bound in the machine's own time, for what the machine itself takes
 //   time to do (a program's pause). A page slowed by load runs fewer frames a second and gets the same machine time,
 //   not the same wall time; wallMs only stops a page that has hung. Running out of either is a FAIL.
@@ -2681,8 +2686,9 @@ async function feedbackChecks(browser, base, check) {
   // shown within ms / gone within ms: condition waits, a timeout is a FAIL (the limits only stop a page that hangs)
   const shownWithin = (page, re, ms = 10000) => waitFor(page, shownIs, [re.source, true], ms);
   const goneWithin = (page, ms = 10000) => waitFor(page, shownIs, ['\\S', false], ms);
-  // a check that a message does NOT show: the window it is given to (wrongly) show in; a timeout is the pass
-  const appearsWithin = (page, re, ms) => maybeWaitFor('a check that no message shows: the timeout is the expected outcome', page, shownIs, [re.source, true], ms);
+  // a check that a message does NOT show: the window it is given to (wrongly) show in. True only if the time ran out on
+  // the same live page (maybeWaitFor's false); a message shown (true) or a page gone (null) is not quiet
+  const quietFor = async (page, re, ms) => (await maybeWaitFor('a check that no message shows: the timeout is the expected outcome', page, shownIs, [re.source, true], ms)) === false;
   const bin = Buffer.from([0x55, 2, 0x30, 0x00, 0x00, 0x04, 0x30, 0x00, 0xAA, 0x12, 0x34, 0x56, 0x78]);
   const vdk = Buffer.from(require('./mame-diff/fdc/images').vdk(40, 1));
 
@@ -2739,6 +2745,7 @@ async function feedbackChecks(browser, base, check) {
     const gone = await goneWithin(page, 20000);
     const life = await page.evaluate(() => window.__life), shownMs = life.off - life.on;
     // 4 s from when it is first in view; a frame either side, and a timer that fires late on a loaded page
+    // (bounds 3.9-8 s, was <= 6 s: 3.9 s so a toast that goes early still fails; 8 s for timers late on a loaded CI runner)
     check(`feedback (${label}): a toast left alone goes after 4 s`, gone && shownMs >= 3900 && shownMs <= 8000 && await ev(() => !document.getElementById('toast').textContent), `up ${Math.round(shownMs)} ms ${JSON.stringify(life)}`);
     // a single file added: the toast offers to load it
     await add('LOADME.BIN', bin);
@@ -2861,6 +2868,7 @@ async function feedbackChecks(browser, base, check) {
     await page.click('#libTiles [data-name="library/WORLD.BIN"]');
     await page.click('#btnLibDelete');
     // ("at once": well inside the toast's 8 s, at whose end the delete would otherwise happen)
+    // (3 s, was 2 s: the tile's redraw waits on the store's delete, slower on a loaded runner; still far below the 8 s)
     check(`feedback (${label}): Delete needs no confirm box: the tile goes at once, with "Deleted WORLD.BIN" and Undo`, await waitFor(page, () => !document.querySelector('#libTiles [data-name="library/WORLD.BIN"]'), null, 3000)
       && await shownWithin(page, /Deleted WORLD\.BIN/) && await ev(() => document.getElementById('toastAction').textContent === 'Undo'));
     await tryClick('#toastAction');
@@ -2901,10 +2909,10 @@ async function feedbackChecks(browser, base, check) {
         && /No tape · Insert tape…/.test(await page.textContent('#tapeName')));
       // what the machine shows itself is not repeated: a typed POKE, Reset
       await tryClick('#btnReset');
-      check('feedback: Reset says nothing (the screen shows it)', !(await appearsWithin(page, /\S/, 500)));
+      check('feedback: Reset says nothing (the screen shows it)', await quietFor(page, /\S/, 500));
       await openTab(page, 'POKEs');
       await tryClick('#pokeBook button');
-      check('feedback: a typed POKE says nothing (BASIC shows the typed line)', !(await appearsWithin(page, /Typed/, 800)));
+      check('feedback: a typed POKE says nothing (BASIC shows the typed line)', await quietFor(page, /Typed/, 800));
       // a snapshot taken in a slot: "Snapshot 1 taken" with Undo, which empties the slot again
       await openTab(page, 'Media');
       await tryClick('#slotList [aria-label="Take snapshot 1"]');
@@ -6766,8 +6774,11 @@ const GROUPS = (base, site) => [
 
 (async () => {
   const names = GROUPS('', '').map(([n]) => n);
+  // --list-groups: the group names, one per line, in run order (what --only takes; the CI shard check reads them)
+  if (process.argv.includes('--list-groups')) { console.log(names.join('\n')); return; }
   const sel = lib.parseOnly(process.argv, names);
   if (sel.error) { console.error(sel.error); process.exitCode = 2; return; }
+  ({ chromium } = require('playwright'));
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const site = `http://127.0.0.1:${server.address().port}/`;
   const base = `${site}play/`;

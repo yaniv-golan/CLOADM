@@ -7,46 +7,30 @@
 //   node .github/scripts/browser-check-shards.js --shard N 'a,b'   # check, and that 'a,b' is exactly shard N's groups
 //                                                                   (what a CI shard passes to --only, as it arrives)
 //
-// The group list is read from tools/browser-check.js itself: every `want('<group>')` in it is a group that
-// `--only <group>` selects (want() is the only thing --only feeds). Nothing is maintained by hand on that side.
-const fs = require('fs'), path = require('path');
+// The group list is the browser check's own: `node tools/browser-check.js --list-groups` prints the names in its
+// GROUPS table, the same list `--only` is validated against and the run iterates. Nothing is maintained by hand on
+// that side, and nothing is parsed out of the source.
+const fs = require('fs'), path = require('path'), cp = require('child_process');
 
 const ROOT = path.join(__dirname, '..', '..');
-// BROWSER_CHECK_SOURCE points the scan at another file (tests/browser-check-shards.test.js uses it for fixtures).
-const SOURCE = process.env.BROWSER_CHECK_SOURCE || path.join(ROOT, 'tools', 'browser-check.js');
-
-// Drop line and block comments (leaving strings and template text alone; a ' or " ends at its line, so a quote inside
-// a regex literal can only confuse the rest of that one line), so a commented-out
-// `// if (want('nav'))` doesn't count as a group that still runs.
-function stripComments(code) {
-  let out = '', i = 0;
-  while (i < code.length) {
-    const c = code[i], d = code[i + 1];
-    if (c === '/' && d === '/') { while (i < code.length && code[i] !== '\n') i++; }
-    else if (c === '/' && d === '*') { const e = code.indexOf('*/', i + 2); i = e < 0 ? code.length : e + 2; out += ' '; }
-    else if (c === "'" || c === '"' || c === '`') {
-      let j = i + 1;
-      while (j < code.length && code[j] !== c && (c === '`' || code[j] !== '\n')) j += code[j] === '\\' ? 2 : 1;
-      out += code.slice(i, j + 1); i = j + 1;
-    } else { out += c; i++; }
-  }
-  return out;
-}
-const source = stripComments(fs.readFileSync(SOURCE, 'utf8'));
-const known = [...new Set([...source.matchAll(/\bwant\(\s*'([^']+)'\s*\)/g)].map((m) => m[1]))];
-const { shards } = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'browser-check-shards.json'), 'utf8'));
+// For the self-test (tests/browser-check-shards.test.js): BROWSER_CHECK runs another copy of the browser check, and
+// BROWSER_CHECK_SHARDS reads another shard file.
+const CHECK = process.env.BROWSER_CHECK || path.join(ROOT, 'tools', 'browser-check.js');
+const SHARDS = process.env.BROWSER_CHECK_SHARDS || path.join(__dirname, '..', 'browser-check-shards.json');
 
 const errors = [];
-// A browser-check that no longer selects groups through want('...') can't be checked this way: fail loudly
-// rather than pass on an empty list.
-const calls = (source.match(/\bwant\(/g) || []).length, literal = [...source.matchAll(/\bwant\(\s*'([^']+)'\s*\)/g)].length;
-if (calls !== literal) errors.push(`the browser-check source has ${calls - literal} want(...) call(s) whose group isn't a single-quoted literal; this check can't see them`);
-if (known.length < 10) errors.push(`found only ${known.length} groups in the browser-check source (want('...') calls); has --only changed?`);
-if (!Array.isArray(shards) || !shards.length || shards.some((s) => !Array.isArray(s) || !s.length)) errors.push('shards must be a non-empty list of non-empty group lists');
+const listed = cp.spawnSync(process.execPath, [CHECK, '--list-groups'], { encoding: 'utf8' });
+const known = listed.status === 0 ? listed.stdout.split('\n').map((l) => l.trim()).filter(Boolean) : [];
+if (listed.status !== 0) errors.push(`node ${path.relative(ROOT, CHECK)} --list-groups failed (exit ${listed.status}): ${(listed.stderr || '').trim().split('\n').slice(-3).join(' | ')}`);
+else if (!known.length) errors.push(`node ${path.relative(ROOT, CHECK)} --list-groups printed no groups`);
+else if (known.some((g) => !/^[A-Za-z][A-Za-z0-9]*$/.test(g)) || new Set(known).size !== known.length) errors.push(`--list-groups printed something that is not a list of distinct group names: ${JSON.stringify(known)}`);
+const { shards } = JSON.parse(fs.readFileSync(SHARDS, 'utf8'));
+
+if (!known.length) { /* reported above; every shard name would be "unknown" */ }
+else if (!Array.isArray(shards) || !shards.length || shards.some((s) => !Array.isArray(s) || !s.length)) errors.push('shards must be a non-empty list of non-empty group lists');
 else {
-  const listed = shards.flat();
   const count = new Map();
-  for (const g of listed) count.set(g, (count.get(g) || 0) + 1);
+  for (const g of shards.flat()) count.set(g, (count.get(g) || 0) + 1);
   const missing = known.filter((g) => !count.has(g));
   const unknown = [...count.keys()].filter((g) => !known.includes(g));
   const twice = [...count].filter(([, n]) => n > 1).map(([g]) => g);
