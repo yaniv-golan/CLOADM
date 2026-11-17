@@ -49,6 +49,10 @@ All notable changes to CLOADM are recorded here. The format follows
   image's offer, `?nitros9=` links (never carrying the image), and clear refusals for images that can't boot
   this way (`js/media/os9.js`). The loader moved from `tools/nitros9/bootdw3.asm` to the page.
 
+### After 0.1.0-pre
+
+- AGENTS.md: an item's scope comes from its brief or issue; contributors don't edit a roadmap.
+
 ### 0.1.0 (first public release, not tagged yet)
 
 Everything on `main` so far. Hardware behaviour is checked against MAME 0.264 in instruction lockstep (and pixel
