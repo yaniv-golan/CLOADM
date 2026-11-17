@@ -184,9 +184,30 @@ async function worker() {
   }
 }
 
+// The regression gate is one of the suites (regress.test.js, sharded above), so a separate
+// `node tests/regress.test.js` run adds nothing. This makes that visible: each shard prints "<ok>/<n> regression
+// hashes ...", and the shards together must have run every case the gate has (regress.test.js --count), all
+// matching; anything else fails the run, even if every shard exited 0.
+const REGRESS = 'regress.test.js';
+function regressIncluded() {
+  if (!files.includes(REGRESS)) return { ok: false, line: `regress: ${REGRESS} not found, the regression gate did not run` };
+  let total;
+  try {
+    const out = cp.execFileSync(process.execPath, [path.join(__dirname, REGRESS), '--count'], { env: guardEnv, encoding: 'utf8' });
+    total = Number((/^(\d+) regression cases$/m.exec(out) || [])[1]);
+  } catch (e) { return { ok: false, line: `regress: ${REGRESS} --count failed: ${e.message}` }; }
+  const r = results.get(REGRESS), parts = [...r.output.matchAll(/^(\d+)\/(\d+) regression hashes/gm)];
+  const ok = parts.reduce((a, m) => a + Number(m[1]), 0), ran = parts.reduce((a, m) => a + Number(m[2]), 0);
+  const shards = SHARDS[REGRESS] || 1, whole = total > 0 && parts.length === shards && ran === total && ok === total;
+  return { ok: whole, line: `regress ${ok}/${total} included (${parts.length} of ${shards} shard${shards > 1 ? 's' : ''} reported, ${ran} cases run)${whole ? '' : ' -- INCOMPLETE'}` };
+}
+
 (async () => {
   const t0 = Date.now();
   await Promise.all(Array.from({ length: Math.min(jobs, files.length) }, worker));
-  console.log(failed ? `${failed} of ${files.length} suites FAILED` : `all ${files.length} suites passed`);
-  process.exitCode = failed ? 1 : 0;
+  const reg = regressIncluded();
+  console.log(reg.line);
+  const bad = failed + (reg.ok ? 0 : 1);
+  console.log(failed ? `${failed} of ${files.length} suites FAILED` : reg.ok ? `all ${files.length} suites passed` : `all ${files.length} suites exited 0, but the regression gate is incomplete: FAILED`);
+  process.exitCode = bad ? 1 : 0;
 })();

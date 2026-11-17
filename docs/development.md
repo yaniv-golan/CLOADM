@@ -14,8 +14,8 @@ Contributors follow [AGENTS.md](../AGENTS.md): the rules, where code goes, and t
 counts as done.
 
 ```
-node tests/all.js            # every suite below in a worker pool (--jobs N to cap it), one line each (exit 0 = all passed)
-node tools/browser-check.js  # the real pages in Chromium: the landing page (desktop and phone) and /play/: every model, LIZA end to end, the file:// notice, Capture & share and opening snapshots, the favicon and no missing file requested by any page; the feedback model (toasts on the page the user is on, cleared by the next action, Undo, Details, desktop and phone). Every "← Emulator", Esc and Back return to the emulator, from `/play/` and `?app=claude`, after a reload and from a page loaded on a view (`--only emulatorBack`). `--only feedback,library` runs just those groups
+node tests/all.js            # every suite below in a worker pool (--jobs N to cap it), one line each, the regression gate included (exit 0 = all passed)
+node tools/browser-check.js  # the real pages in Chromium: the landing page (desktop and phone) and /play/: every model, LIZA end to end, the file:// notice, Capture & share and opening snapshots, the favicon and no missing file requested by any page; the feedback model (toasts on the page the user is on, cleared by the next action, Undo, Details, desktop and phone). Every "← Emulator", Esc and Back return to the emulator, from `/play/` and `?app=claude`, after a reload and from a page loaded on a view (`--only emulatorBack`). `--only feedback,library` runs just those groups (an unknown group is an error); see "What the gates' results mean" below
 node tools/capture-images.js # recapture img/*.png (site and README pictures) from the emulator, with no ROMs
 node tests/cpu.test.js       # 6809 instruction tests, scripted (all tests load js/emu.js via tests/load.js)
 node tests/opcodes.test.js   # 126 instructions table-driven from the MC6809 data sheet: result, flags and cycles
@@ -75,7 +75,7 @@ node tests/welcome.test.js   # welcome program on every 6809 model: screen, menu
 node tests/returning.test.js # returning visits: greetings, option 5, what ran last, back to the menu from LIZA and the demo
 node tests/power-on.test.js  # without ROMs: Reset restarts what runs; power-on, a machine switch and a snapshot of the stub's prompt bring the welcome menu (6809 and 6803)
 node tests/welcome6803.test.js # the 6803 welcome on mc10 and alice: raw screen cells, per-machine subtitle, keys, the two builds differ only at the HALT
-node tests/regress.test.js                # fast gate: trace and frame hashes of the diagnostic firmware (seconds, no MAME)
+node tests/regress.test.js                # fast gate: trace and frame hashes of the diagnostic firmware (seconds, no MAME; part of tests/all.js; --count prints the number of cases)
 node tools/mame-diff/run.js <profile>     # lockstep trace comparison with MAME (needs mame; exit 0 = identical)
 node tools/mame-diff/run.js <profile> --video [--artifact N]   # pixel comparison of every display mode with MAME
 node tools/mame-diff/run.js coco3 --video --attr   # the GIME's text attributes, exactly (blank glyphs, so the fonts never show)
@@ -102,6 +102,38 @@ node tests/buscycles.test.js # 6809 bus cycles: count for every opcode, addresse
 node tests/samrate.test.js   # SAM rate: instruction times per rate and address range, worked out by hand
 node tests/tape-rate.test.js # a cassette load at rate 01 succeeds or fails by the loader's own timing
 ```
+
+**What the gates' results mean.** `node tests/all.js` includes the regression gate: `regress.test.js` is one of its
+suites (sharded on 4 or more cores), and the run prints `regress 146/146 included` from what the shards reported
+against `node tests/regress.test.js --count`. A run in which the shards did not cover every case fails, even if each
+shard exited 0, so a separate `node tests/regress.test.js` adds nothing.
+
+`node tools/browser-check.js` runs its groups (`models`, `romUi`, … in the order of `GROUPS` in the file, plus a
+final `missing files` check) one at a time, each on its own (`tools/browser-check-lib.js`):
+
+* `--only g1,g2` runs those groups. A name that is no group, or an empty list, is a usage error: the valid groups
+  are listed, nothing runs, and the exit code is 2.
+* A group that throws is that group's `FAIL`, printed with the stack; what it left open (its pages and contexts) is
+  closed, and the next group runs. A browser that went away is started again for the next group.
+* Every wait is checked. `waitFor` and `waitForFrames` wait on a condition, with a limit (30 s, or the frames of
+  machine time a step is given) that only stops a page that hangs; a wait that reaches its limit is a
+  `FAIL wait timed out (limit) at browser-check.js:line: condition`, even when nothing else looks at its result.
+  The one exception is `maybeWaitFor(why, …)`: a wait whose timeout is the expected outcome (a check that something
+  does not happen), with the reason in the call.
+* Fixed sleeps are gone where a condition exists. What is left is a window in which something must *not* happen, or
+  a fixture: a toast's 4 s that must not run out while it waits for room (feedback model, 5 s), "Reset says nothing"
+  and "a typed POKE says nothing" (0.5 and 0.8 s), the embedded page that must not show its welcome menu (1.5 s and at
+  least 60 emulated frames each), calls from a sibling frame that must be ignored (1 s), the rate-limited chat that
+  must not retry by itself (0.5 s), a network response held back 1.5 s to start the welcome program late, and the
+  page-loop group's replaced `requestAnimationFrame`. Windows where the page's own loop is what would act are counted
+  in its animation frames (`ticks`), not in wall time.
+* A check that cannot run here is a `SKIP` with its reason, counted in the summary, never silent. The NitrOS-9
+  release images are the case: they are never fetched in CI, so there the two release-image checks are `SKIP`;
+  locally, after `node tools/nitros9/fetch.js`, they run.
+* The run ends with `FAILED group <name>: …` for each failed group, then
+  `groups: N run, P passed, F failed · checks: n ok, n FAIL, n SKIP`, then `browser check passed` (with the SKIP
+  count, if any) or `browser check FAILED`. Exit code: 0 only if every check, wait and group passed; 1 otherwise;
+  2 for a usage error.
 
 **How /play/ starts.** The page's module graph is 100 modules and about 815 KB of plain ES modules with no
 build step, and it is six imports deep (the page → the Session → the machine families → the chips → the CPUs).

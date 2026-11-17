@@ -6,6 +6,18 @@ All notable changes to CLOADM are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Test gates (tooling): a green run means what it says.** `node tools/browser-check.js`: an unknown or empty
+  `--only` group list is an error (exit 2) listing the valid groups, where it used to run nothing and pass; each group
+  runs on its own, so one that throws is that group's FAIL with its stack and the rest still run; every wait's
+  timeout is a FAIL where it was called unless the wait is marked optional with its reason; fixed sleeps are replaced
+  by condition waits wherever a condition exists (the windows that remain are listed in `docs/development.md`); the
+  NitrOS-9 release-image checks are a counted `SKIP` when the images are not cached (never fetched in CI); and the
+  run ends with groups run / passed / failed and the ok / FAIL / SKIP counts (`tools/browser-check-lib.js`,
+  `tests/browser-check-lib.test.js`). `node tests/all.js` prints `regress 146/146 included` and fails if its regression
+  shards did not cover every case (`node tests/regress.test.js --count`).
+
 ### 0.1.1-pre
 
 #### Added

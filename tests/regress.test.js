@@ -10,6 +10,7 @@
 //                                         run only shard 2 of 4 (the cases are independent, so several
 //                                         processes can run the gate in parallel); tests/all.js does this
 //                                         for you on a multi-core machine.
+//   node tests/regress.test.js --count    print the number of cases, run none
 const fs = require('fs'), path = require('path');
 const Emu = require('./load')();
 const { recordText } = require('./regress-record.js');
@@ -375,6 +376,8 @@ for (const id of ['coco', 'coco3']) cases.push([`drivewire ${id}`, () => driveWi
 // are about equal in cost (tests/regress-shards.js; tests/regress-shards.test.js checks the split). Running them
 // all is the runner's business (tests/all.js decides the shard count), and a shard run on its own is a partial run
 // by design.
+// --count: print how many cases the gate has and run none (tests/all.js checks that its shards ran them all)
+if (process.argv.includes('--count')) { console.log(`${cases.length} regression cases`); return; }
 // A usage error: say what is wrong, set exitCode = 2 and record it. Each call is followed by a `return` here,
 // because usage() only records the error -- without the return the code below it would run on with a missing or
 // malformed argument. The top-level `return` after this block then stops the rest of the file (legal in a

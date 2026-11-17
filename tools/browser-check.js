@@ -59,9 +59,11 @@ const { chromium } = require('playwright');
 
 const ROOT = path.join(__dirname, '..');
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.woff2': 'font/woff2', '.png': 'image/png', '.svg': 'image/svg+xml', '.md': 'text/markdown', '.json': 'application/json', '.asm': 'text/plain', '.bin': 'application/octet-stream', '.ico': 'image/x-icon', '.webmanifest': 'application/manifest+json', '.inc': 'text/plain' };
-// --only a,b: run only those groups of checks (their function names without "Checks"); the default runs all
-const only = (() => { const i = process.argv.indexOf('--only'); return i > 0 ? process.argv[i + 1].split(',') : null; })();
-const want = (name) => !only || only.includes(name);
+// --only a,b: run only those groups of checks (their function names without "Checks"); the default runs all. A name
+// that is no group is a usage error (tools/browser-check-lib.js has the rules: isolation, waits, SKIP, exit codes).
+const lib = require('./browser-check-lib');
+const run = lib.makeRun();
+const { check, skip } = run;
 const shotDir = (() => { const i = process.argv.indexOf('--screenshots'); return i > 0 ? process.argv[i + 1] : null; })();
 
 // a static server like the real host: a folder serves its index.html, and a folder named without its
@@ -299,7 +301,8 @@ async function guardedContext(browser, archive) {
   ctx.on('request', (req) => { if (isArchive(req.url()) && !archive.includes(req.url())) archive.push(req.url()); });
   return ctx;
 }
-// drop [name, bytes] files on the screen; `folder` wraps them in a directory entry (as a dragged folder)
+// drop [name, bytes] files on the screen; `folder` wraps them in a directory entry (as a dragged folder). The page
+// takes a drop asynchronously: every caller waits for what the drop must lead to.
 const dropFiles = (page, files, folder = null, target = 'screenWrap') => page.evaluate(async ([files, folder, target]) => {
   const objs = files.map(([name, bytes]) => new File([new Uint8Array(bytes)], name));
   let dt;
@@ -311,7 +314,6 @@ const dropFiles = (page, files, folder = null, target = 'screenWrap') => page.ev
   const ev = new Event('drop', { bubbles: true, cancelable: true });
   Object.defineProperty(ev, 'dataTransfer', { value: dt });
   document.getElementById(target).dispatchEvent(ev);
-  for (let i = 0; i < 50 && !window.__dropDone; i++) await new Promise((r) => setTimeout(r, 20));
 }, [files.map(([n, b]) => [n, [...b]]), folder, target]);
 // the Add ROMs screen (#add-roms) is open, or open it
 const romsOpen = () => location.hash === '#add-roms' && !document.getElementById('romCard').hidden && document.body.classList.contains('roms-open')
@@ -325,7 +327,8 @@ async function pickMachine(page, id) {
   await page.click(`#machineMenu button[data-machine="${id}"]`);
   if (await page.isVisible('#switchConfirm')) await page.click('#btnSwitch');
   await waitFor(page, (id) => window.emu.machine.id === id, id);
-  await emuFrames(page, 2);
+  // a couple of frames of the new machine; a paused one runs none (the switch keeps the pause), so it is only drawn
+  if (await page.evaluate(() => document.body.classList.contains('paused') || window.emu.session.paused)) await painted(page); else await emuFrames(page, 2);
 }
 // the Debugger screen (#debugger), where the assembler lives
 const openDebugger = async (page) => { await page.evaluate(() => { location.hash = '#debugger'; }); await page.waitForSelector('#debugView:not([hidden])'); };
@@ -338,31 +341,17 @@ const stubPrompt = async (page) => {
   await waitFor(page, () => window.emu && window.emu.started);
   await page.evaluate(() => { const s = window.emu.session; s.endWelcome(); s.stubRun = null; s.keys.clear(); window.emu.machine.reset(true); });
 };
-// poll until fn is true. The page finishes its storage init after load, so an evaluate can throw while
-// window.emu is still undefined: that is "not ready yet", not a failure.
-// Waits are on conditions, never fixed times: on a loaded machine the page and the emulation run slower than real
-// time. waitFor is true as soon as the condition holds in the page, false after ms (a limit, not a delay).
-// wait for fn while the machine runs at most `frames` more frames: a bound in the machine's own time, for what the
-// machine itself takes time to do (a program's pause). A page slowed by load runs fewer frames a second and gets
-// the same machine time, not the same wall time; wallMs only stops a page that has hung.
-const waitForFrames = async (page, fn, arg, frames, wallMs = 180000) => {
-  const at = () => page.evaluate(() => window.emu.machine.frameCount);
-  const start = await at(), t = Date.now();
-  while (Date.now() - t < wallMs) {
-    try { if (await page.evaluate(fn, arg)) return true; } catch (e) { /* not ready yet */ }
-    if ((await at()) - start > frames) return !!(await page.evaluate(fn, arg).catch(() => false));
-    await page.waitForTimeout(50);
-  }
-  return false;
-};
-const waitFor = async (page, fn, arg, ms = 10000) => {
-  const t = Date.now();
-  while (Date.now() - t < ms) {
-    try { if (await page.evaluate(fn, arg)) return true; } catch (e) { /* not ready yet */ }
-    await page.waitForTimeout(50);
-  }
-  return false;
-};
+// The condition waits (tools/browser-check-lib.js makeWaits). Waits are on conditions, never fixed times: on a loaded
+// machine the page and the emulation run slower than real time.
+// waitFor(page, fn, arg, ms): true as soon as fn holds in the page; after ms (a limit, not a delay; 30 s by default)
+//   it is a FAIL, printed with where it was called, and returns false. An evaluate that throws (window.emu not there
+//   yet while the page starts) is "not ready yet", not a failure.
+// maybeWaitFor(why, page, fn, arg, ms): the same wait where a timeout is an expected outcome (a check that something
+//   does NOT happen); `why` says so, and its timeout fails nothing.
+// waitForFrames(page, fn, arg, frames, wallMs): a bound in the machine's own time, for what the machine itself takes
+//   time to do (a program's pause). A page slowed by load runs fewer frames a second and gets the same machine time,
+//   not the same wall time; wallMs only stops a page that has hung. Running out of either is a FAIL.
+const { waitFor, maybeWaitFor, waitForFrames } = lib.makeWaits(run, __filename);
 // the page is fully up: its storage init has run and the debug handle is there
 const ready = (page) => waitFor(page, () => !!window.emu && window.emu.ready === true);
 // the page has started: storage open, the visit's program (welcome, LIZA) running, ?rom= loaded
@@ -371,15 +360,20 @@ const ready = (page) => waitFor(page, () => !!window.emu && window.emu.ready ===
 const linkIn = (page) => page.waitForFunction(() => !!window.emu && window.emu.linkDone === true, null, { timeout: 180000, polling: 50 });
 const started = (page) => waitFor(page, () => !!window.emu && window.emu.started === true);
 // n emulated frames have run from now (the frame loop is going)
+// (the wall-clock limit only stops a page that has hung: 30 s, and longer for a long run of frames)
 const emuFrames = async (page, n) => {
   await waitFor(page, () => !!(window.emu && window.emu.machine));
   const f0 = await page.evaluate(() => window.emu.machine.frameCount);
-  return waitFor(page, ([f0, n]) => window.emu.machine.frameCount >= f0 + n, [f0, n]);
+  return waitFor(page, ([f0, n]) => window.emu.machine.frameCount >= f0 + n, [f0, n], Math.max(30000, n * 500));
 };
 // every key typed so far has been read by the machine (the no-ROM stub's key queue is empty), then a frame
 const keysTaken = async (page) => { await waitFor(page, () => window.emu.machine.stubKeys.length === 0); await emuFrames(page, 2); };
 // the browser has laid out and painted (two animation frames)
 const painted = (page) => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+// n animation frames have passed: n turns of the page's frame loop, the window a check that something does NOT happen
+// (a paused machine stays stopped, nothing is redrawn) waits for. Counted in the page's own ticks, not wall time, so
+// a page slowed by load gets the same number of chances to do the wrong thing.
+const ticks = (page, n) => page.evaluate((n) => new Promise((r) => { let k = 0; const f = () => (++k >= n ? r() : requestAnimationFrame(f)); requestAnimationFrame(f); }), n);
 // the machine has drawn new frames and the browser has shown them (after a display setting changes)
 const redrawn = async (page) => { await emuFrames(page, 2); await painted(page); };
 
@@ -507,20 +501,21 @@ async function cartridgeChecks(browser, base, check) {
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto(`${base}?machine=coco`);
-  await page.waitForTimeout(600);
-  const insert = async (board, name, buffer) => {
+  await started(page);
+  // done: the cartridge is in and its code has run (the condition the check then asserts)
+  const insert = async (board, name, buffer, done) => {
     await page.selectOption('#selCartBoard', board);
     await page.setInputFiles('#fileCart', { name, mimeType: 'application/octet-stream', buffer });
-    await page.waitForTimeout(700);
+    await waitFor(page, done);
     return page.evaluate(() => ({ type: window.emu.machine.cartPort && window.emu.machine.cartPort.type, label: document.getElementById('btnCart').textContent }));
   };
-  let r = await insert('gmc', 'tune.ccc', gmc);
+  let r = await insert('gmc', 'tune.ccc', gmc, () => { const c = window.emu.machine.cartPort; return c && c.type === 'gmc' && c.psg.volume[0] > 0; });
   const vol = await page.evaluate(() => window.emu.machine.cartPort.psg.volume[0]);
   check('cartridge board select: Games Master; the cartridge plays its PSG', r.type === 'gmc' && /Games Master/.test(r.label) && vol > 0, `${r.type} "${r.label}" volume ${vol}`);
-  r = await insert('orch90', 'orch.rom', orch);
+  r = await insert('orch90', 'orch.rom', orch, () => { const c = window.emu.machine.cartPort; return c && c.type === 'orch90' && c.left === 0xC0; });
   const left = await page.evaluate(() => window.emu.machine.cartPort.left);
   check('cartridge board select: Orchestra-90 DAC written', r.type === 'orch90' && left === 0xC0, `${r.type} left ${left}`);
-  r = await insert('auto', 'big.rom', banked);
+  r = await insert('auto', 'big.rom', banked, () => { const c = window.emu.machine.cartPort; return c && c.type === 'banked' && c.pos === 2; });
   const pos = await page.evaluate(() => window.emu.machine.cartPort.pos);
   check('automatic board: a 48K image goes on the banked board, which switches banks', r.type === 'banked' && pos === 2, `${r.type} bank ${pos}`);
   const multi = await page.evaluate(([a, b]) => {
@@ -541,7 +536,7 @@ async function cartridgeChecks(browser, base, check) {
   await page.selectOption('#selMpBoard4', 'gmc');
   await page.selectOption('#selMpSwitch', '4');
   await page.click('#btnMpInsert');
-  await page.waitForTimeout(700);
+  await waitFor(page, () => { const c = window.emu.machine.cartPort; return c && c.type === 'multi' && c.slots[3] && c.slots[3].psg.volume[0] > 0; });
   const mp = await page.evaluate(() => {
     const m = window.emu.machine, c = m.cartPort;
     return { type: c && c.type, slots: c && c.slots.map((x) => x && x.type).join(), sel: m.read(0xFF7F), vol: c && c.slots[3] && c.slots[3].psg.volume[0],
@@ -553,7 +548,7 @@ async function cartridgeChecks(browser, base, check) {
   // a board that cannot hold the image: refused with the reason on the status line, the Multi-Pak stays
   await page.selectOption('#selMpBoard1', 'orch90');
   await page.click('#btnMpInsert');
-  await page.waitForTimeout(300);
+  await waitFor(page, () => document.getElementById('toast').classList.contains('error'));
   const bad = await page.evaluate(() => ({ msg: document.getElementById('toast').textContent, err: document.getElementById('toast').className, type: window.emu.machine.cartPort.type }));
   check('Multi-Pak panel: an image too big for its board is refused with the reason', /Multi-Pak: Orchestra-90: .*up to 8K/.test(bad.msg) && /error/.test(bad.err) && bad.type === 'multi', JSON.stringify(bad));
   // the Multi-Pak section shows only on the machines it has been compared with MAME on (profiles marked multiPak:
@@ -616,13 +611,13 @@ async function sscBoardChecks(browser, base, check) {
     sockets.some((s) => s.id === 'ssc-tms7040' && s.status === 'missing-required') && sockets.some((s) => s.id === 'ssc-sp0256' && s.status === 'missing-optional'),
     JSON.stringify(sockets));
   await page.evaluate(() => { location.hash = ''; });
-  await page.waitForTimeout(200);
+  await waitFor(page, () => !document.body.classList.contains('roms-open'));
   // insert it with no ROM: refused with a clear message naming the PIC ROM
   await page.selectOption('#selCartBoard', 'ssc');
   const label = await page.textContent('#btnCart');
   check('Speech/Sound Pak: on its board the button says it inserts the Pak, not a file', /Insert the Speech\/Sound Pak/.test(label), label);
   await page.click('#btnCart');
-  await page.waitForTimeout(300);
+  await waitFor(page, () => document.getElementById('toast').classList.contains('error'));
   const noRom = await page.evaluate(() => ({ msg: document.getElementById('toast').textContent, cls: document.getElementById('toast').className, type: window.emu.machine.cartPort && window.emu.machine.cartPort.type }));
   check('Speech/Sound Pak: with no ROM it is refused, naming pic-7040-510.bin',
     /pic-7040-510\.bin/.test(noRom.msg) && /error/.test(noRom.cls) && !noRom.type, JSON.stringify(noRom));
@@ -639,7 +634,7 @@ async function sscBoardChecks(browser, base, check) {
   await waitFor(page, () => window.emu.session.sscRoms().find((s) => s.id === 'tms7040').status === 'loaded');
   await page.selectOption('#selCartBoard', 'ssc');
   await page.click('#btnCart');
-  await page.waitForTimeout(500);
+  await waitFor(page, () => { const c = window.emu.machine.cartPort; return c && c.type === 'ssc' && /Speech\/Sound Pak inserted/.test(document.getElementById('toast').textContent); });
   const ins = await page.evaluate(() => {
     const m = window.emu.machine, c = m.cartPort;
     return { msg: document.getElementById('toast').textContent, type: c && c.type, name: c && c.name,
@@ -696,13 +691,14 @@ async function audioChecks(browser, base, check) {
   const wait = async () => { const n0 = await page.evaluate(() => window.played.length); await waitFor(page, (n0) => window.played.length >= n0 + 12000, n0); };
   const steps = [
     ['load', load], ['power cycle', () => page.click('#btnHardReset')], ['load', load], ['reset', () => page.click('#btnReset')],
-    ['load', load], ['pause', () => page.click('#btnPause')], ['resume', () => page.click('#btnPause')],
+    // (paused, no sound plays: the step waits until the output has faded and the context is suspended instead)
+    ['load', load], ['pause', () => page.click('#btnPause'), () => waitFor(page, () => window.emu.audio.ctx.state === 'suspended')], ['resume', () => page.click('#btnPause')],
     ['turbo', () => page.click('#btnTurbo')], ['turbo off', () => page.click('#btnTurbo')],
     ['sound off', () => page.$eval('#chkSound', (c) => c.click())], ['sound on', () => page.$eval('#chkSound', (c) => c.click())],
     ['switch', () => page.evaluate(() => window.emu.session.switchMachine('coco'))], ['load', load], ['switch back', () => page.evaluate(() => window.emu.session.switchMachine('dragon64'))],
   ];
   const marks = [];
-  for (const [name, act] of steps) { marks.push([name, await page.evaluate(() => window.played.length)]); await act(); await wait(); }
+  for (const [name, act, until = wait] of steps) { marks.push([name, await page.evaluate(() => window.played.length)]); await act(); await until(); }
   const { jump, at, n, peak } = await page.evaluate(() => {
     const p = window.played; let jump = 0, at = 0, peak = 0;
     for (let i = 1; i < p.length; i++) { const d = Math.abs(p[i] - p[i - 1]); if (d > jump) { jump = d; at = i; } peak = Math.max(peak, Math.abs(p[i])); }
@@ -713,15 +709,18 @@ async function audioChecks(browser, base, check) {
     running && n > 48000 && jump < 0.01 && !errors.length, `${n} samples, largest step ${jump.toFixed(4)} (after "${where}"), peak ${peak.toFixed(3)}${errors.length ? ' ' + errors.join('; ') : ''}`);
   // paused or hidden, the sound context is suspended once the output has faded, and runs again after
   const state = () => page.evaluate(() => window.emu.audio.ctx.state);
-  await page.click('#btnPause'); await wait(700);
+  // (each waits for the state the check then asserts: no sound plays while suspended, so a wait for more samples
+  // could only time out)
+  const ctxIs = (s) => waitFor(page, (s) => window.emu.audio.ctx.state === s, s);
+  await page.click('#btnPause'); await ctxIs('suspended');
   const pausedState = await state();
-  await page.click('#btnPause'); await wait(300);
+  await page.click('#btnPause'); await ctxIs('running'); await wait();
   const resumedState = await state();
   await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, get: () => true }); document.dispatchEvent(new Event('visibilitychange')); });
-  await wait(700);
+  await ctxIs('suspended');
   const hiddenState = await state();
   await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, get: () => false }); document.dispatchEvent(new Event('visibilitychange')); });
-  await wait(300);
+  await ctxIs('running'); await wait();
   const shownState = await state();
   check('sound: the context is suspended while paused and while hidden, and runs again after',
     pausedState === 'suspended' && resumedState === 'running' && hiddenState === 'suspended' && shownState === 'running',
@@ -977,7 +976,7 @@ async function nitros9Checks(browser, base, check) {
     await ev(() => { const m = window.emu.machine, d = window.emu.session.driveWireMounts; return m.config.cpu === '6309' && m.config.becker === true && d[0].drive === 0 && d[0].name === 'myboot.dsk'; }) && /switched to the HD6309/.test(await msg()), await msg());
   check('nitros9: the slot says it is running, offers Back to BASIC; no ROM pill, the ROMs line says they are not used',
     /running from myboot\.dsk/.test(await page.textContent('#n9State')) && await page.isVisible('#btnN9Leave') && await page.isHidden('#romPill') && /NitrOS-9/.test(await page.textContent('#romState')));
-  await waitForFrames(page, () => false, null, 6 * 60);
+  await emuFrames(page, 6 * 60);   // 6 s of machine time, past the 5 s the box would wait for
   check('nitros9: no "No OK after 5 seconds" box (BASIC isn\'t meant to start)', await page.isHidden('#bootHelp'));
   if (shotDir) await page.locator('#nitros9Slot').screenshot({ path: path.join(shotDir, 'nitros9-running.png') });
 
@@ -1016,7 +1015,7 @@ async function nitros9Checks(browser, base, check) {
   const lines = () => page.evaluate(shellText);
   for (const cpu of ['6809', '6309']) {
     const name = `nos9${cpu}l2v030300coco3_becker.dsk`, { bytes, reason } = cached(name);
-    if (!bytes) { console.log(`skip nitros9 ${cpu} release image in the page: ${reason}`); continue; }
+    if (!bytes) { skip(`nitros9 ${cpu}: the release image boots from the page to the NitrOS-9 shell`, reason); continue; }
     await open('?machine=coco3&cpu=6809&ram=512');
     await page.setInputFiles('#n9File', file(name, bytes));
     const prompted = await waitForFrames(page, (s) => { const t = eval(s); return t.includes('{Term|02}/DD:'); }, shellText, 40 * 60);
@@ -1267,7 +1266,9 @@ async function returningChecks(browser, base, check) {
   const screen = () => page.evaluate(() => window.emu.session.screenText());
   const shot = async (name) => { if (shotDir) await page.screenshot({ path: path.join(shotDir, `returning-${name}.png`) }); };
   await page.goto(base);
-  await waitFor(page, () => window.emu && window.emu.session.welcomeRunning);
+  // started, not only welcomeRunning (which the Session can report before the machine and the page's sound unlock are
+  // there: a click then is lost, and the tune never plays)
+  await waitFor(page, () => window.emu && window.emu.started && window.emu.session.welcomeRunning && !!window.emu.machine);
   await page.mouse.click(5, 5);
   await waitFor(page, () => window.emu.machine.ram[0x6005] === 1, null, 20000);   // the tune played: keys are read
   await page.focus('#screen'); await page.keyboard.press('1');
@@ -1354,7 +1355,7 @@ async function powerOnChecks(browser, base, check) {
   await waitFor(page, () => /loop\.bin/.test(document.getElementById('toast').textContent));
   await page.evaluate(() => window.emu.machine.poke(0x3001, 0x05));
   await page.click('#btnReset');
-  await page.waitForTimeout(200);
+  await waitFor(page, () => { const m = window.emu.machine; return m.cpu.pc >= 0x3000 && m.cpu.pc <= 0x3004 && m.ram[0x3001] === 0x04; });
   const run = await page.evaluate(() => ({ pc: window.emu.machine.cpu.pc, b: window.emu.machine.ram[0x3001], menu: window.emu.session.welcomeRunning }));
   check('Reset (no ROMs) in a binary: it restarts at its exec address, its own bytes back', run.pc >= 0x3000 && run.pc <= 0x3004 && run.b === 0x04 && !run.menu, JSON.stringify(run));
   // "Run without ROMs" in Add ROMs (shown while a required ROM is missing), from the binary: the welcome menu
@@ -1416,7 +1417,7 @@ async function powerOnChecks(browser, base, check) {
   check('a snapshot taken on the stub\'s bare prompt opens on the welcome menu', await waitFor(page, () => window.emu.session.welcomeRunning
     && window.emu.session.screenText()[6].trim() === 'WELCOME BACK') && !(await bare()), await text());
   await dropFiles(page, [['loop.cloadm', loopSnap]]);
-  await page.waitForTimeout(300);
+  await waitFor(page, () => { const m = window.emu.machine; return m.cpu.pc >= 0x3000 && m.cpu.pc <= 0x3004 && !window.emu.session.welcomeRunning; });
   const inLoop = await page.evaluate(() => ({ pc: window.emu.machine.cpu.pc, menu: window.emu.session.welcomeRunning, msg: document.getElementById('toast').textContent }));
   check('a snapshot taken in a program opens in it', inLoop.pc >= 0x3000 && inLoop.pc <= 0x3004 && !inLoop.menu, JSON.stringify(inLoop));
   // the POKE book on the welcome menu: the POKE is done, not typed into the menu (its digits would be menu keys)
@@ -1425,7 +1426,9 @@ async function powerOnChecks(browser, base, check) {
   const keysBefore = await page.evaluate(() => { window.__menuKeys = []; window.emu.session.on((e) => { if (e.startsWith('welcome:')) window.__menuKeys.push(e); }); return 0; });
   await openTab(page, 'POKEs');
   await page.click('#pokeBook button[data-poke="POKE 65495,0"]');
-  await page.waitForTimeout(500);
+  // the POKE is done; then a few frames, in which a menu key it wrongly pressed would show
+  await waitFor(page, () => window.emu.machine.sam.rate === 1);
+  await emuFrames(page, 5);
   const poked = await page.evaluate(() => ({ rate: window.emu.machine.sam.rate, keys: window.__menuKeys.join(), menu: window.emu.session.welcomeRunning, msg: document.getElementById('toast').textContent }));
   check('the POKE book on the welcome menu: POKE 65495,0 sets the SAM rate; no menu key pressed; the menu stays', poked.rate === 1 && !poked.keys && poked.menu && keysBefore === 0,
     JSON.stringify(poked));
@@ -1828,7 +1831,7 @@ async function inputChecks(browser, base, check) {
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto(`${base}?machine=coco`);
-  await page.waitForTimeout(600);
+  await started(page);
   // what the browser reports for each key, so the checks can assert the layout-independent property
   await page.evaluate(() => window.addEventListener('keydown', (e) => { window.__lastKey = e.key; }, true));
   await openTab(page, 'Input');
@@ -1838,7 +1841,7 @@ async function inputChecks(browser, base, check) {
   // what the machine's matrix holds down. Held keys go through the Session's KeyQueue and land at the next
   // frame start (js/machines/keyqueue.js), so a few frames are run before reading, with the key still down.
   const heldNow = async () => {
-    await page.waitForTimeout(120);
+    await emuFrames(page, 3);
     return page.evaluate(() => Object.keys(window.emu.machine.keyPos)
       .filter((n) => window.emu.machine.keyCols[window.emu.machine.keyPos[n][1]] & (1 << window.emu.machine.keyPos[n][0])).sort());
   };
@@ -1892,16 +1895,17 @@ async function inputChecks(browser, base, check) {
     window.__setPads(1, [0, 0], [false, false, false]);
     window.dispatchEvent(new Event('gamepadconnected'));
   });
-  await page.waitForTimeout(200);
+  // the frame loop reads the pads: wait for what each check then asserts
+  await waitFor(page, () => window.emu.machine.joy[0][0] === 32 && window.emu.machine.joy[1][0] === 32);
   check('input: a pad at rest leaves both joysticks centred', (await joyOf(0))[0] === 32 && (await joyOf(1))[0] === 32);
   await page.evaluate(() => { window.__setPads(0, [1, -1], [true, false]); window.__setPads(1, [-1, 0], [false, false, true]); });
-  await page.waitForTimeout(200);
+  await waitFor(page, () => { const m = window.emu.machine; return m.joy[0][0] === 63 && m.joy[0][1] === 0 && m.fire[0] === true && m.joy[1][0] === 0 && m.fire[1] === true; });
   check('input: pad 0 drives the right joystick, full right and up', (await joyOf(0))[0] === 63 && (await joyOf(0))[1] === 0, JSON.stringify(await joyOf(0)));
   check('input: pad 0 button 0 is its fire button', await fireOf(0) === true);
   check('input: pad 1 drives the left joystick, full left', (await joyOf(1))[0] === 0, JSON.stringify(await joyOf(1)));
   check('input: pad 1 button 2 is its fire button', await fireOf(1) === true);
   await page.evaluate(() => { window.__setPads(0, [0.1, 0.1], [false, false]); window.__setPads(1, [0.1, 0.1], [false, false, false]); });
-  await page.waitForTimeout(200);
+  await waitFor(page, () => { const m = window.emu.machine; return m.joy[0][0] === 32 && m.joy[1][0] === 32 && !m.fire[0] && !m.fire[1]; });
   check('input: a stick inside the dead zone centres again', (await joyOf(0))[0] === 32 && (await joyOf(1))[0] === 32 && !(await fireOf(0)) && !(await fireOf(1)));
   check('input: no page errors', errors.length === 0, errors.join('; '));
   await ctx.close();
@@ -1943,12 +1947,12 @@ async function pokeChecks(browser, base, check) {
     d64rows.ram === '64K' && d64rows.cpu === 'select 6809E/6309 = 6809E' && await page.isVisible('#turboNote'), JSON.stringify(d64rows));
   // choosing the 6309 power-cycles the machine onto the 6309 core, and back
   await page.selectOption('#cpuSel', '6309');
-  await page.waitForTimeout(400);
+  await waitFor(page, () => window.emu.machine.config.cpu === '6309' && window.emu.machine.cpu.constructor.name === 'CPU6309');
   const cpu6309 = await page.evaluate(() => ({ cfg: window.emu.machine.config.cpu, cls: window.emu.machine.cpu.constructor.name }));
   check('choosing 6309 power-cycles the Dragon 64 onto the 6309 core',
     cpu6309.cfg === '6309' && cpu6309.cls === 'CPU6309' && (await rows()).cpu === 'select 6809E/6309 = 6309', JSON.stringify(cpu6309));
   await page.selectOption('#cpuSel', '6809');
-  await page.waitForTimeout(400);
+  await waitFor(page, () => window.emu.machine.config.cpu === '6809' && window.emu.machine.cpu.constructor.name === 'CPU6809');
   const cpu6809 = await page.evaluate(() => ({ cfg: window.emu.machine.config.cpu, cls: window.emu.machine.cpu.constructor.name }));
   check('choosing 6809E power-cycles it back to the 6809 core',
     cpu6809.cfg === '6809' && cpu6809.cls === 'CPU6809', JSON.stringify(cpu6809));
@@ -2081,6 +2085,8 @@ async function snapshotChecks(browser, base, check) {
       && (await memHash()) === held);
     // refused files say why
     const bad = async (name, bytes, re) => {
+      // (the last file's message cleared first: the wait is for this file's own message)
+      await page.evaluate(() => window.emu.feedback.clear());
       await dropFiles(page, [[name, bytes]]);
       await waitFor(page, (n) => document.getElementById('toast').textContent.startsWith(n) || /newer CLOADM|damaged/.test(document.getElementById('toast').textContent), name);
       const msg = await page.textContent('#toast');
@@ -2185,7 +2191,7 @@ async function liza6803Checks(browser, base, check) {
     const tag = await page.evaluate(() => { const b = [...document.querySelectorAll('#shelf button')].find((x) => x.textContent.startsWith('LIZA')); return b && `${b.textContent}|${b.dataset.needs}|${b.title}`; });
     check('4K MC-10: the shelf\'s LIZA says it needs 20K', tag === 'LIZA needs 20K|20|An ELIZA-style conversation program (the 6803 build; needs the 20K RAM option)', tag);
     await page.click('#shelf button[data-needs="20"]');
-    await page.waitForTimeout(200);
+    await waitFor(page, () => !document.getElementById('lizaOffer').hidden && document.activeElement.id === 'btnLizaRam');
     const card = { shown: await page.isVisible('#lizaOffer'), text: await page.textContent('#lizaOfferText'), btn: await page.textContent('#btnLizaRam'),
       focus: await page.evaluate(() => document.activeElement.id), error: await page.evaluate(() => document.getElementById('toast').classList.contains('error')) };
     check('4K MC-10: choosing LIZA offers the 20K switch above the screen (focused, not an error)', card.shown && card.text === 'LIZA needs the 20K RAM option. This MC-10 has 4K.'
@@ -2282,15 +2288,17 @@ async function debuggerScreenChecks(browser, base, check) {
     check(`debugger screen (${label}): the header's Debugger link opens it inside /play/, no page load, with one header`,
       nav.stayed && nav.path === '/play/' && nav.hash === '#debugger' && !nav.appbar && nav.head, JSON.stringify(nav));
     const layoutHidden = await page.evaluate(() => getComputedStyle(document.querySelector('.layout')).display === 'none' && location.hash === '#debugger');
-    await page.click('#btnAsmLiza'); await page.waitForTimeout(400);
-    await page.click('#btnAsmRun'); await page.waitForTimeout(800);
+    await page.click('#btnAsmLiza');
+    await waitFor(page, () => document.getElementById('asmSource').value.includes('READLN'));   // the source is fetched
+    await page.click('#btnAsmRun');
+    await waitFor(page, () => window.emu.session.labels.get('KLOOP') != null && window.emu.session.screenText().join('').includes('I AM LIZA'));
     const kloop = await page.evaluate(() => window.emu.session.labels.get('KLOOP'));
     await page.fill('#dbgBpAddr', 'KLOOP');
     await page.click('#dbgAddBp button');
     const listed = await page.textContent('#dbgBps');
     await page.evaluate(() => window.emu.session.typeText('I AM SAD\n'));
     const hit = await waitFor(page, () => window.emu.session.paused, null, 6000);
-    await page.waitForTimeout(100);
+    await waitFor(page, () => /^● Stopped at breakpoint/.test(document.getElementById('dbgStatus').textContent));
     const at = await page.evaluate(() => ({
       status: document.getElementById('dbgStatus').textContent, pc: document.querySelector('[data-reg="pc"]').value,
       line: document.querySelector('#dbgDis .dis.pc').textContent, run: document.getElementById('btnDbgRun').textContent,
@@ -2344,7 +2352,7 @@ async function debuggerScreenChecks(browser, base, check) {
     await page.evaluate(() => { const d = window.emu.session.debug; d.write(0x3FE0, [0xBD, 0x3F, 0xE5, 0x20, 0xFB, 0x20, 0xFE]); d.setRegister('pc', 0x3FE0); });
     await page.click('#btnDbgOver');
     const limitStatus = await page.textContent('#dbgStatus');
-    await page.waitForTimeout(400);
+    await ticks(page, 20);   // the window in which a machine wrongly left running would move
     check('debugger screen: Over a call that never returns stops at its limit, says so, and the machine stays stopped',
       /^● Stopped after 1,000,000 instructions without coming back · at \$3FE5/.test(limitStatus)
       && await page.evaluate(() => window.emu.session.paused && window.emu.session.debug.pc === 0x3FE5), limitStatus);
@@ -2443,7 +2451,7 @@ async function librarySelectChecks(browser, base, check) {
     const dls = [];
     page.on('download', (d) => dls.push(d));
     await page.click('#btnLibDownload');
-    for (let i = 0; i < 40 && dls.length < 2; i++) await page.waitForTimeout(50);
+    for (const t = Date.now(); dls.length < 2 && Date.now() - t < 10000;) await page.waitForTimeout(50);   // both downloads (the check names what came)
     check(`${L}: Download saves every selected item`, dls.map((d) => d.suggestedFilename()).sort().join() === 'CHAT.BIN,DEMO.BIN'
       && Buffer.compare(fs.readFileSync(await dls[0].path()), bin) === 0, dls.map((d) => d.suggestedFilename()).join());
     page.removeAllListeners('download');
@@ -2511,7 +2519,7 @@ async function librarySelectChecks(browser, base, check) {
     s = await state();
     check(`${L}: Done leaves select mode`, s.select && !s.bar && s.pressed === '' && s.ticks === 0, JSON.stringify(s));
     await page.click(tile('LIZA.BIN'));
-    await page.waitForTimeout(300);
+    await waitFor(page, () => document.getElementById('library').hidden && window.emu.machine.ram[0x3000] === 0x12);
     check(`${L}: after select mode a click loads again`, await page.isHidden('#library') && await page.evaluate(() => window.emu.machine.ram[0x3000] === 0x12));
     check(`${L}: no sideways scroll`, s.fits);
     check(`${L}: no page errors and no dialog boxes`, !errors.length, errors.join('; '));
@@ -2659,15 +2667,20 @@ async function feedbackModelChecks(browser, base, check) {
 
 async function feedbackChecks(browser, base, check) {
   // a message the user can see now: shown, inside the viewport, matching re ("" for any text)
-  const shown = (page, re = /\S/) => page.evaluate((src) => {
+  // (in the page: [source of re, true for "shown" / false for "not shown"])
+  const shownIs = ([src, want]) => {
     const re = new RegExp(src, 'i');
     const el = document.getElementById('toast');
-    if (!el || !el.checkVisibility() || !el.textContent.trim()) return false;
-    const r = el.getBoundingClientRect();
-    return r.width > 0 && r.height > 0 && r.top >= 0 && r.bottom <= innerHeight && re.test(el.textContent);
-  }, re.source);
-  const shownWithin = async (page, re, ms = 4000) => { const t = Date.now(); while (Date.now() - t < ms) { if (await shown(page, re)) return true; await page.waitForTimeout(50); } return false; };
-  const goneWithin = async (page, ms) => { const t = Date.now(); while (Date.now() - t < ms) { if (!(await shown(page))) return true; await page.waitForTimeout(50); } return false; };
+    const r = el && el.getBoundingClientRect();
+    const up = !!el && el.checkVisibility() && !!el.textContent.trim() && r.width > 0 && r.height > 0 && r.top >= 0 && r.bottom <= innerHeight && re.test(el.textContent);
+    return up === want;
+  };
+  const shown = (page, re = /\S/) => page.evaluate(shownIs, [re.source, true]);
+  // shown within ms / gone within ms: condition waits, a timeout is a FAIL (the limits only stop a page that hangs)
+  const shownWithin = (page, re, ms = 10000) => waitFor(page, shownIs, [re.source, true], ms);
+  const goneWithin = (page, ms = 10000) => waitFor(page, shownIs, ['\\S', false], ms);
+  // a check that a message does NOT show: the window it is given to (wrongly) show in; a timeout is the pass
+  const appearsWithin = (page, re, ms) => maybeWaitFor('a check that no message shows: the timeout is the expected outcome', page, shownIs, [re.source, true], ms);
   const bin = Buffer.from([0x55, 2, 0x30, 0x00, 0x00, 0x04, 0x30, 0x00, 0xAA, 0x12, 0x34, 0x56, 0x78]);
   const vdk = Buffer.from(require('./mame-diff/fdc/images').vdk(40, 1));
 
@@ -2679,9 +2692,10 @@ async function feedbackChecks(browser, base, check) {
     page.on('dialog', (d) => d.dismiss());           // a confirm box would be refused: the delete must not need one
     await page.goto(`${base}?machine=dragon64`);
     await started(page);
-    // a click on something that may not be there (on a page without the feedback model): no hang, just no click
     const ev = (fn, arg) => page.evaluate(fn, arg).catch(() => false);   // false where the page has no such element
-    const tryClick = (sel) => page.click(sel, { timeout: 1500 }).then(() => true, () => false);
+    // a click on a control every step below expects to be there: one that can't be clicked is a FAIL (a negative check
+    // after it, "Reset says nothing", would otherwise pass on a click that never happened)
+    const tryClick = (sel) => page.click(sel, { timeout: 10000 }).then(() => true, (e) => { check(`feedback (${label}): ${sel} can be clicked`, false, e.message.split('\n')[0]); return false; });
     // files through the Library's Add files… (name, buffer, name, buffer, ...)
     const add = async (...nb) => {
       // (the Add buttons' file input, as the Library's own checks fill it; the shelves render after it opens)
@@ -2704,17 +2718,24 @@ async function feedbackChecks(browser, base, check) {
       const r = await ev(() => { const e = document.getElementById('toast'); const b = e && e.getBoundingClientRect(); return b && { centre: Math.round(b.left + b.width / 2 - innerWidth / 2), bottom: innerHeight - b.bottom }; });
       check('feedback (desktop): the toast sits bottom centre of the window', !!r && Math.abs(r.centre) <= 2 && r.bottom <= 40, JSON.stringify(r));
     }
-    // the next action clears it
+    // the next action clears it. The clearing is synchronous in the action's pointerdown (feedback.js next()), so it is
+    // read as soon as the click returns: no window in which the toast's own 4 s could end it instead. (A toast not
+    // seen yet is not cleared: wait until it has been.)
+    await waitFor(page, () => window.emu.feedback.pending.some((m) => /added to (your|the) library/i.test(m.text) && m.seen));
     await page.click('[data-kind-filter="tape"]');
-    check(`feedback (${label}): the next action clears the old message`, await goneWithin(page, 300));
+    check(`feedback (${label}): the next action clears the old message`, !(await shown(page)), JSON.stringify(await ev(() => window.emu.feedback.pending)));
     // and one left alone goes after 4 s (no action on it: two files)
     await add('WORLD.BIN', bin, 'MORE.BIN', bin);
     await shownWithin(page, /2 files added to your Library/);
-    check(`feedback (${label}): a toast left alone goes after 4 s`, await goneWithin(page, 6000) && await ev(() => !document.getElementById('toast').textContent));
+    check(`feedback (${label}): a toast left alone goes after 4 s`, await goneWithin(page, 20000) && await ev(() => !document.getElementById('toast').textContent));
     // a single file added: the toast offers to load it
     await add('LOADME.BIN', bin);
     check(`feedback (${label}): one file added: "1 file added to your Library" with Load`, await shownWithin(page, /^1 file added to your Library/)
       && await ev(() => document.getElementById('toastAction').textContent === 'Load'));
+    // what the page shows in view, sampled every frame in the page itself: a 4 s toast can come and go between two
+    // polls from here on a loaded machine (seen: "Loaded LOADME" never caught, its toast already over)
+    await page.evaluate((src) => { const inView = eval(src); window.__inView = new Set();
+      const f = () => { const t = document.getElementById('toast'); if (t && inView(['\\S', true])) window.__inView.add(t.textContent); requestAnimationFrame(f); }; f(); }, `(${shownIs})`);
     await tryClick('#toastAction');
     // (on a phone the top of the emulator page has no place that covers neither a control nor the screen's text:
     // the toast waits, and shows where there is room, at the end of the page)
@@ -2726,7 +2747,7 @@ async function feedbackChecks(browser, base, check) {
       const t = document.getElementById('toast'), b = t.getBoundingClientRect();
       return !t.hidden && getComputedStyle(t.parentNode).visibility !== 'hidden' && b.bottom <= innerHeight && new RegExp(src).test(t.textContent); }, re.source, 10000); };
     check(`feedback (${label}): Load on the toast loads it and the emulator says so`, back
-      && (label === 'phone' ? await atEndUntil(/Loaded LOADME from your Library/) : await shownWithin(page, /Loaded LOADME from your Library/)),
+      && (label === 'phone' ? await atEndUntil(/Loaded LOADME from your Library/) : await waitFor(page, () => [...window.__inView].some((t) => /Loaded LOADME from your Library/.test(t)))),
       JSON.stringify(await ev(() => ({ p: window.emu.feedback.pending, y: scrollY, h: document.documentElement.scrollHeight, ih: innerHeight, vis: getComputedStyle(document.getElementById('toastRegion')).visibility, box: document.getElementById('toast').getBoundingClientRect().toJSON(), hash: location.hash }))));
     if (label === 'desktop') {
       // 1440 x 900: the slots run below the window's edge, so bottom centre would cover them; the toast goes where
@@ -2753,7 +2774,12 @@ async function feedbackChecks(browser, base, check) {
         return { met, region: [reg.left, reg.top, reg.visibility].join('|'), box: [t.left, t.top, t.right, t.bottom].map(Math.round), height: t.height, controls: controls.filter(meets).length, screen: meets(monitor), inTube, edgeFree }; });
       const placed = (o) => o && o.height > 0 && o.controls === 0 && (!o.screen || (o.inTube && !o.edgeFree));
       let over = null;
-      for (const t0 = Date.now(); Date.now() - t0 < 2000;) { await settle(); over = await measure(); if (placed(over)) break; }
+      // (a toast of our own, held up by hovering it: the program's load message may already have run its 4 s on a loaded
+      // machine; the rule is the same for any toast. Read for up to 120 frames, not a wall-clock time)
+      await ev(() => { window.emu.feedback.clear(); window.emu.feedback.toast('Placed on the emulator'); });
+      await shownWithin(page, /Placed on the emulator/);
+      await page.hover('#toast');
+      for (let i = 0; i < 60; i++) { await settle(); over = await measure(); if (placed(over)) break; }
       check('feedback (desktop): on the emulator the toast covers no control (controls, slots, drawer, header), and the screen only at its foot when the bottom edge has no free place',
         placed(over), JSON.stringify(over));
       if (shotDir) await page.screenshot({ path: path.join(shotDir, 'feedback-emulator-desktop.png') });
@@ -2762,14 +2788,15 @@ async function feedbackChecks(browser, base, check) {
     // it run out before the next action; that action must still clear it.
     await ev(() => { location.hash = ''; });
     await ev(() => { window.emu.feedback.clear(); window.emu.feedback.toast('Before the next action'); });
-    if (label === 'phone') await atEndUntil(/Before the next action/); else await shownWithin(page, /Before the next action/, 1000);
+    if (label === 'phone') await atEndUntil(/Before the next action/); else await shownWithin(page, /Before the next action/);
     await waitFor(page, () => window.emu.feedback.pending.some((m) => m.text === 'Before the next action' && m.seen));
     await page.hover('#toast');
     const oldText = await ev(() => !document.getElementById('toast').hidden && document.getElementById('toastText').textContent);
     const pendBefore = await ev(() => window.emu.feedback.pending);
     await page.click('#btnPause'); await page.click('#btnPause');
-    // (gone; or, where a message raised meanwhile was waiting for room, that one now in its place)
-    const after = await page.waitForTimeout(300).then(() => ev(() => ({ up: !document.getElementById('toast').hidden, text: document.getElementById('toastText').textContent })));
+    // (gone; or, where a message raised meanwhile was waiting for room, that one now in its place). Read at once: the
+    // clearing is synchronous in the pointerdown, and a later read could see the toast's own timer end it instead.
+    const after = await ev(() => ({ up: !document.getElementById('toast').hidden, text: document.getElementById('toastText').textContent }));
     check(`feedback (${label}): on the emulator too, the next action clears the old message`, !!oldText && (!after.up || after.text !== oldText), JSON.stringify({ oldText, after, pendBefore, pendAfter: await ev(() => window.emu.feedback.pending) }));
 
     // the rule: a toast never covers a control. On the emulator, scrolled to the top, to the slots and to the end,
@@ -2789,7 +2816,7 @@ async function feedbackChecks(browser, base, check) {
     const raiseAt = async (y) => {
       await ev((y) => { scrollTo(0, y === 'end' ? document.documentElement.scrollHeight : y === 'slots' ? scrollY + document.querySelector('.slots').getBoundingClientRect().top - 40 : y); }, y);
       await ev(() => { window.emu.feedback.toast('Placed where no control is under it'); });
-      await page.waitForTimeout(100);
+      await ticks(page, 3);   // the toast is placed again every frame (feedback.js follow)
       return placement();
     };
     const atTop = await raiseAt(0), atSlots = await raiseAt('slots'), atEnd = await raiseAt('end');
@@ -2800,9 +2827,9 @@ async function feedbackChecks(browser, base, check) {
       JSON.stringify({ atTop, atSlots, atEnd }));
     // a control that grows under a toast already shown (the drawer filling in): placed again, still clear of them
     await ev(() => { scrollTo(0, 0); window.emu.feedback.toast('Placed again when the layout changes'); });
-    await page.waitForTimeout(100);
+    await ticks(page, 3);
     await ev(() => { for (const e of document.querySelectorAll('aside.drawer, .slots')) e.style.minHeight = `${innerHeight + 200}px`; });
-    await page.waitForTimeout(200);
+    await ticks(page, 4);   // placed again in the frames after the layout changed
     const grown = await placement();
     await ev(() => { for (const e of document.querySelectorAll('aside.drawer, .slots')) e.style.minHeight = ''; });
     check(`feedback (${label}): after a control grows under it, the toast still meets no control`, grown.up && !grown.hit.length, JSON.stringify(grown));
@@ -2821,11 +2848,11 @@ async function feedbackChecks(browser, base, check) {
     await page.click('#btnLibSelect');
     await page.click('#libTiles [data-name="library/WORLD.BIN"]');
     await page.click('#btnLibDelete');
-    await page.waitForTimeout(200);
-    check(`feedback (${label}): Delete needs no confirm box: the tile goes at once, with "Deleted WORLD.BIN" and Undo`, await waitFor(page, () => !document.querySelector('#libTiles [data-name="library/WORLD.BIN"]'), null, 2000)
+    // ("at once": well inside the toast's 8 s, at whose end the delete would otherwise happen)
+    check(`feedback (${label}): Delete needs no confirm box: the tile goes at once, with "Deleted WORLD.BIN" and Undo`, await waitFor(page, () => !document.querySelector('#libTiles [data-name="library/WORLD.BIN"]'), null, 5000)
       && await shownWithin(page, /Deleted WORLD\.BIN/) && await ev(() => document.getElementById('toastAction').textContent === 'Undo'));
     await tryClick('#toastAction');
-    check(`feedback (${label}): Undo brings it back, still stored`, await waitFor(page, () => !!document.querySelector('#libTiles [data-name="library/WORLD.BIN"]'), null, 2000) && /WORLD\.BIN/.test(await stored()));
+    check(`feedback (${label}): Undo brings it back, still stored`, await waitFor(page, () => !!document.querySelector('#libTiles [data-name="library/WORLD.BIN"]')) && /WORLD\.BIN/.test(await stored()));
     await page.click('#btnLibSelect');
     await page.click('#libTiles [data-name="library/WORLD.BIN"]');
     await page.click('#btnLibDelete');
@@ -2862,16 +2889,16 @@ async function feedbackChecks(browser, base, check) {
         && /No tape · Insert tape…/.test(await page.textContent('#tapeName')));
       // what the machine shows itself is not repeated: a typed POKE, Reset
       await tryClick('#btnReset');
-      check('feedback: Reset says nothing (the screen shows it)', !(await shownWithin(page, /\S/, 500)));
+      check('feedback: Reset says nothing (the screen shows it)', !(await appearsWithin(page, /\S/, 500)));
       await openTab(page, 'POKEs');
       await tryClick('#pokeBook button');
-      check('feedback: a typed POKE says nothing (BASIC shows the typed line)', !(await shownWithin(page, /Typed/, 800)));
+      check('feedback: a typed POKE says nothing (BASIC shows the typed line)', !(await appearsWithin(page, /Typed/, 800)));
       // a snapshot taken in a slot: "Snapshot 1 taken" with Undo, which empties the slot again
       await openTab(page, 'Media');
       await tryClick('#slotList [aria-label="Take snapshot 1"]');
       check('feedback: a quick save says "Snapshot 1 taken" with Undo', await shownWithin(page, /Snapshot 1 taken/) && await ev(() => document.getElementById('toastAction').textContent === 'Undo'));
       await tryClick('#toastAction');
-      check('feedback: Undo puts the slot back as it was (empty)', await waitFor(page, () => /Snapshot 1 · empty/.test(document.querySelector('#slotList .row').textContent), null, 3000));
+      check('feedback: Undo puts the slot back as it was (empty)', await waitFor(page, () => /Snapshot 1 · empty/.test(document.querySelector('#slotList .row').textContent)));
     }
     check(`feedback (${label}): no page errors`, !errors.length, errors.join('; '));
     await ctx.close();
@@ -2897,7 +2924,7 @@ async function libraryChecks(browser, base, check) {
     page.on('pageerror', (e) => errors.push(e.message));
     await page.goto(`${base}?machine=dragon64#library`);
     await ready(page);
-    await page.waitForTimeout(300);
+    await waitFor(page, () => !document.getElementById('library').hidden && !document.getElementById('libEmpty').hidden);
     const empty = await page.evaluate(() => ({
       lib: !document.getElementById('library').hidden, emu: getComputedStyle(document.querySelector('.layout')).display === 'none',
       empty: !document.getElementById('libEmpty').hidden, filters: document.getElementById('libFilters').hidden,
@@ -2908,7 +2935,8 @@ async function libraryChecks(browser, base, check) {
       && /^Stored in this browser \(OPFS\)/.test(empty.where) && empty.fits, JSON.stringify(empty));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `library-empty-${label}.png`), fullPage: true });
     if (label === 'phone') {
-      await page.click('#btnLibLiza'); await page.waitForTimeout(600);
+      await page.click('#btnLibLiza');
+      await waitFor(page, () => document.getElementById('library').hidden && /liza/i.test(document.getElementById('toast').textContent));
       check('library (phone): the empty state\'s LIZA closes the Library and runs LIZA', await page.isHidden('#library') && /liza/i.test(await page.textContent('#toast')), await page.textContent('#toast'));
       check('library (phone): no page errors', !errors.length, errors.join('; '));
       await ctx.close();
@@ -2938,20 +2966,21 @@ async function libraryChecks(browser, base, check) {
     check('library: filters by kind (Disks) and machine (CoCo)', disks.tapes === '' && disks.tiles === 'UTILS=RS-DOS disk · CoCo'
       && coco.tapes === '' && /^UTILS=.*, GAME=/.test(coco.tiles), `${JSON.stringify(disks)} ${JSON.stringify(coco)}`);
     // a reload keeps them
-    await page.reload(); await ready(page); await page.waitForTimeout(300);
+    await page.reload(); await ready(page);
     await waitFor(page, () => document.querySelectorAll('#libTiles .tile, #libTapes .spine').length === 4);
     check('library: still there after a reload (OPFS)', JSON.stringify(await shelf()) === JSON.stringify(sh));
     // click to load: the Library closes, the program is in memory
     await page.click('#libTiles .tile[data-name="library/HELLO.BIN"]');
-    await page.waitForTimeout(300);
+    await waitFor(page, () => document.getElementById('library').hidden && window.emu.machine.ram[0x3000] === 0x12 && window.emu.machine.ram[0x3003] === 0x78);
     check('library: clicking a tile loads it and returns to the emulator', await page.isHidden('#library') && !/#library/.test(page.url())
       && await page.evaluate(() => window.emu.machine.ram[0x3000] === 0x12 && window.emu.machine.ram[0x3003] === 0x78), await page.textContent('#toast'));
     // links into the Library
-    await page.click('#navLibrary'); await page.waitForTimeout(200);
+    const libShown = (want) => waitFor(page, (want) => document.getElementById('library').hidden !== want, want);
+    await page.click('#navLibrary'); await libShown(true);
     const viaNav = await page.isVisible('#library');
-    await page.click('#btnLibBack'); await page.waitForTimeout(200);
+    await page.click('#btnLibBack'); await libShown(false);
     const back = await page.isHidden('#library') && await page.isVisible('#screen');
-    await openTab(page, 'Media'); await page.click('#linkLibrary'); await page.waitForTimeout(200);
+    await openTab(page, 'Media'); await page.click('#linkLibrary'); await libShown(true);
     check('library: the header link and the Media tab\'s "Open your library →" open it; "← Emulator" closes it', viaNav && back && await page.isVisible('#library'));
     // select mode: rename, download, delete
     await page.click('#btnLibSelect');
@@ -2992,13 +3021,13 @@ async function libraryChecks(browser, base, check) {
     await page.click('#btnLibSelect');
     await page.click('#libTiles .tile[data-name="disks/UTILS.DSK"]');
     await page.click('#btnLibRename');
-    await page.waitForTimeout(300);
+    await waitFor(page, () => /eject it before you rename it/.test(document.getElementById('toast').textContent));
     const renameMsg = await page.textContent('#toast');
     // a refused rename opens no name field and keeps the selection
     const stillSelected = !(await page.$('#library .rename')) && await page.isVisible('#libSelBar')
       && await page.getAttribute('#libTiles .tile[data-name="disks/UTILS.DSK"]', 'aria-pressed') === 'true';
     await page.click('#btnLibDelete');
-    await page.waitForTimeout(300);
+    await waitFor(page, () => /eject it before you delete it/.test(document.getElementById('toast').textContent));
     const deleteMsg = await page.textContent('#toast');
     const still = await page.evaluate(async () => (await window.emu.session.listMedia()).some((x) => x.name === 'disks/UTILS.DSK'));
     check('library: a disk in a drive can be neither renamed nor deleted, and the status says which drive holds it',
@@ -3014,16 +3043,16 @@ async function libraryChecks(browser, base, check) {
 
     // type-in: on the stub it asks for ROMs; with BASIC (the Dragon 32's synthetic ROM) the listing is typed key by key
     await page.evaluate(() => { location.hash = '#library'; });
-    await page.waitForTimeout(200);
+    await libShown(true);
     const listing = '10 CLS\n20 PRINT "HI"\n30 GOTO 20\n';
     await page.fill('#typeinSource', listing);
     check('type-in: on the stub, the card asks for the ROMs and typing is off; the line check runs', await page.isVisible('#typeinNeeds')
       && await page.isDisabled('#btnTypein') && (await page.textContent('#typeinCheck')) === 'Line check: no problems');
     await page.evaluate(() => window.emu.session.switchMachine('dragon32'));
-    await page.waitForTimeout(200);
+    await waitFor(page, () => window.emu.machine.id === 'dragon32');
     await page.evaluate(() => { const m = window.emu.machine, set = m.setKey.bind(m); window.__keys = []; m.setKey = (k, down) => { if (down && k !== 'SHIFT') window.__keys.push(k); return set(k, down); }; });
     await page.click('#btnTypein');
-    await page.waitForTimeout(400);
+    await waitFor(page, () => /^Line \d+ of 30 · typing/.test(document.getElementById('typeinProgress').textContent));
     const during = await page.textContent('#typeinProgress');
     const locked = await page.isDisabled('#btnTypeinFast') && await page.isDisabled('#btnTypein');   // no second job while typing
     const done = await waitFor(page, () => /Typed in/.test(document.getElementById('typeinProgress').textContent), null, 30000);
@@ -3075,7 +3104,7 @@ async function slotChecks(browser, base, check) {
   const after = await rows();
   check('snapshots: three empty, then Snapshot 1 holds the Dragon 64', before.join() === 'Snapshot 1 · empty|off,Snapshot 2 · empty|off,Snapshot 3 · empty|off'
     && /^Snapshot 1 · Dragon 64 · .+\|on$/.test(after[0]) && /^Snapshot 1 taken/.test(await page.textContent('#toast')), `${before} / ${after}`);
-  await page.reload(); await ready(page); await page.waitForTimeout(300);
+  await page.reload(); await ready(page);
   await openTab(page, 'Media');
   await waitFor(page, () => /Dragon 64/.test(document.querySelector('#slotList .row').textContent));
   check('slots: still there after a reload', (await rows())[0] === after[0]);
@@ -3083,9 +3112,10 @@ async function slotChecks(browser, base, check) {
   await openTab(page, 'Media');
   await page.click('#btnPause');
   await page.click('#slotList [aria-label="Restore snapshot 1"]');
-  await page.waitForTimeout(300);
+  await waitFor(page, () => !document.getElementById('switchConfirm').hidden);
   const asked = await page.isVisible('#switchConfirm') && (await page.textContent('#switchName')) === 'Dragon 64';
-  await page.click('#btnSwitch'); await page.waitForTimeout(200);
+  await page.click('#btnSwitch');
+  await waitFor(page, () => window.emu.machine.id === 'dragon64');
   check('slots: loading on another machine asks to switch, then the moment is back', asked && await page.evaluate(() => window.emu.machine.id) === 'dragon64'
     && (await memHash()) === held);
   await page.evaluate(() => { location.hash = '#library'; });
@@ -3195,7 +3225,7 @@ async function tapePanelChecks(browser, base, check) {
     await page.evaluate(() => { clearInterval(window.__sampler); window.__mo.disconnect(); });
     // real speed: the same setting as the Media tab's checkbox
     await page.click('#btnRealSpeed');
-    await page.waitForTimeout(400);
+    await waitFor(page, () => !window.emu.session.fastTape && document.getElementById('tapeSpeed').textContent === 'Real speed');
     const real = { pressed: await page.getAttribute('#btnRealSpeed', 'aria-pressed'), box: await page.isChecked('#chkFastTape'),
       fast: await page.evaluate(() => window.emu.session.fastTape), speed: await text('tapeSpeed') };
     check('tape panel: "Real speed" turns fast tape loading off (the Media tab\'s checkbox too)', real.pressed === 'true' && !real.box && !real.fast
@@ -3208,26 +3238,26 @@ async function tapePanelChecks(browser, base, check) {
       put(14, '?IO ERROR'); put(15, 'OK');
       m.deck.setMotor(false);
     });
-    await page.waitForTimeout(400);
+    await waitFor(page, () => /^READ ERROR/.test(document.getElementById('tapeEyebrow').textContent));
     const err = { eyebrow: await text('tapeEyebrow'), retry: await page.isVisible('#btnTapeRetry') };
     await page.click('#btnTapeRetry');
-    await page.waitForTimeout(400);
+    await waitFor(page, () => document.getElementById('tapeEyebrow').textContent === 'STOPPED · BLOCK 0 OF 34' && document.getElementById('btnTapeRetry').hidden);
     check('tape panel: a read error names its block and offers a rewind, which rewinds and clears it', /^READ ERROR · BLOCK \d+ OF 34$/.test(err.eyebrow) && err.retry
       && (await text('tapeEyebrow')) === 'STOPPED · BLOCK 0 OF 34' && await page.isHidden('#btnTapeRetry'), JSON.stringify(err));
     // skip the tape: the program, in memory at once
     await page.click('#btnSkipTape');
-    await page.waitForTimeout(300);
+    await waitFor(page, () => /fast-loaded/.test(document.getElementById('toast').textContent));
     check('tape panel: "Skip the tape" loads it instantly', /deck\.cas: DECK fast-loaded \$3000-\$4F3F, exec \$3000/.test(await text('toast'))
       && await page.evaluate((c) => c.every((v, i) => window.emu.machine.ram[0x3000 + i] === v), code), await text('toast'));
     // a power cycle keeps the tape, so the panel stays
     await page.click('#btnHardReset');
-    await page.waitForTimeout(300);
+    await emuFrames(page, 5);   // the power cycle has happened and the machine runs again
     check('tape panel: a power cycle keeps the tape, and the panel', await page.isVisible('#tapePanel') && await page.evaluate(() => !!window.emu.machine.deck.tape));
     // recording, with no tape in the deck (taken out through the deck: the page has no Eject control yet)
     await page.evaluate(() => window.emu.machine.deck.eject());
     const gone = await waitFor(page, () => document.getElementById('tapePanel').hidden);
     await page.click('#btnRecord');
-    await page.waitForTimeout(400);
+    await waitFor(page, () => !document.getElementById('tapePanel').hidden && /^RECORDING/.test(document.getElementById('tapeEyebrow').textContent));
     check('tape panel: gone with the tape; shown while recording', gone && await page.isVisible('#tapePanel')
       && /^RECORDING/.test(await text('tapeEyebrow')), await text('tapeEyebrow'));
     await page.click('#btnRecord');
@@ -3314,7 +3344,9 @@ async function libraryStorageChecks(base, check) {
   await openLib();
   const msgBefore = await msg();
   await drag('#libTapes .spine[data-name="library/HELLO.CAS"]', '#libHeading');
-  await page.waitForTimeout(300);
+  // the drag has ended; then the frames in which a wrong load or add would show
+  await waitFor(page, () => !document.getElementById('library').classList.contains('dragging'));
+  await ticks(page, 10);
   check('drag: a spine let go anywhere else loads nothing, adds nothing, and the hint goes', await page.isVisible('#library') && await names() === before && await msg() === msgBefore
     && await page.evaluate(() => !document.getElementById('library').classList.contains('dragging')), await msg());
   await page.click('#btnLibSelect');
@@ -3330,7 +3362,7 @@ async function libraryStorageChecks(base, check) {
   // ---- where it is kept ----
   await openLib();
   await page.click('#libStorageChoices .choice[data-storage="fallback"]');
-  await page.waitForTimeout(300);
+  await waitFor(page, () => /^Eject the disks first/.test(document.getElementById('toast').textContent));
   check('storage: refused while a stored disk is in a drive, saying which', await kind() === 'opfs' && /^Eject the disks first \(drive 0: UTILS\.DSK\)/.test(await msg()), await msg());
   await page.evaluate(() => window.emu.session.ejectDisk(0));
   await page.click('#libStorageChoices .choice[data-storage="fsa"]');
@@ -3744,7 +3776,7 @@ async function debuggerChecks(browser, base, check) {
   const page = await ctx.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  await page.goto(`${base}?machine=dragon64`); await page.waitForTimeout(400);
+  await page.goto(`${base}?machine=dragon64`); await started(page);
   // a program with a loop, a store and a subroutine, run through the assembler panel's own path
   const SRC = ` ORG $3000
 START   LDA     #$00
@@ -3761,7 +3793,9 @@ SUB     INCA
 `;
   await openDebugger(page);
   await page.fill('#asmSource', SRC);
-  await page.click('#btnAsmRun'); await page.waitForTimeout(400);
+  await page.click('#btnAsmRun');
+  // assembled, and run by the page's frame loop to its HALT loop
+  await waitFor(page, () => { const s = window.emu.session; return s.labels.get('HALT') != null && s.machine.cpu.pc === s.labels.get('HALT'); });
   // the program's symbols, from what runAssembled was given
   const info = await page.evaluate(() => {
     const s = window.emu.session;
@@ -3780,9 +3814,8 @@ SUB     INCA
   }, info);
   check('debugger: a breakpoint set through the Session stops the real page\'s machine at LOOP',
     stopped.stopped && stopped.pc === info.loop && stopped.reason.kind === 'breakpoint' && stopped.paused, JSON.stringify(stopped));
-  const stillStopped = await page.evaluate((pc) => new Promise((resolve) => setTimeout(() => resolve({
-    pc: window.emu.session.debug.pc, paused: window.emu.session.paused,
-  }), 300)));
+  await ticks(page, 20);   // turns of the frame loop, in which it would (wrongly) run the stopped machine on
+  const stillStopped = await page.evaluate(() => ({ pc: window.emu.session.debug.pc, paused: window.emu.session.paused }));
   check('debugger: the frame loop leaves the stopped machine where it is', stillStopped.pc === info.loop && stillStopped.paused, JSON.stringify(stillStopped));
   // step once from START: one instruction, and the disassembly names the assembler's symbols
   const step = await page.evaluate((start) => {
@@ -3828,9 +3861,10 @@ SUB     INCA
   const p9 = await ctx9.newPage();
   const errors9 = [];
   p9.on('pageerror', (e) => errors9.push(e.message));
-  await p9.goto(`${base}?machine=dragon64`); await p9.waitForTimeout(400);
+  await p9.goto(`${base}?machine=dragon64`); await started(p9);
   await openTab(p9, 'Machine');                 // the CPU select lives in the Machine panel, which opens on click
-  await p9.selectOption('#cpuSel', '6309'); await p9.waitForTimeout(600);
+  await p9.selectOption('#cpuSel', '6309');
+  await waitFor(p9, () => window.emu.machine.cpu.constructor.name === 'CPU6309');
   const r9 = await p9.evaluate(() => {
     const s = window.emu.session, Emu = window.emu.Emu;
     const at = 0x3000;
@@ -4034,19 +4068,23 @@ async function displayChecks(browser, base, check) {
     m.drawPlus();
   });
   const shown = () => page.evaluate(() => { const f = window.emu.machine.render(); return { view: window.emu.machine.view, w: f.width, h: f.height }; });
-  await page.selectOption('#selScreen', 'plus'); await page.waitForTimeout(300);
+  await page.selectOption('#selScreen', 'plus');
+  await waitFor(page, () => window.emu.machine.view === 'plus');
   await setUpPlus();
   check('display: the 80-column screen: the machine draws the CRTC\'s 640 x 264 picture',
     JSON.stringify(await shown()) === JSON.stringify({ view: 'plus', w: 640, h: 264 }), JSON.stringify(await shown()));
   const lit = await page.evaluate(() => { const d = window.emu.machine.render().data; let on = 0; for (const v of d) if (v) on++; return on; });
   check('display: ... with a real picture from the character generator loaded', lit > 50000 && lit < 168960 * 0.75, `${lit} of 168960 lit`);
   if (shotDir) await page.locator('#monitor').screenshot({ path: path.join(shotDir, 'display-d64plus-80col.png') });
-  await page.selectOption('#selScreen', 'main'); await page.waitForTimeout(300);
+  await page.selectOption('#selScreen', 'main');
+  await waitFor(page, () => window.emu.machine.view === 'vdg');
   check('display: back to the Dragon video: 320 x 240', JSON.stringify(await shown()) === JSON.stringify({ view: 'vdg', w: 320, h: 240 }), JSON.stringify(await shown()));
   // leave the store as this check found it, and let the removal reach OPFS before the reload
   await page.evaluate(async () => { window.emu.session.roms.clear('d64plus'); await window.emu.session.index.flush(); });
   await page.reload();
-  await waitFor(page, () => window.emu && window.emu.machine && window.emu.machine.id === 'd64plus', null, 5000);
+  // the page is up again (without its ROMs the D64 Plus is not what it reopens on, so its id is not the condition: the
+  // wait for it timed out on every run)
+  await started(page);
   check('display: the screen choice is remembered', await page.evaluate(() => window.emu.session.display.screen) === 'main'
     && await page.inputValue('#selScreen') === 'main');
   check('display: no page errors', !errors.length, errors.join('; '));
@@ -4097,25 +4135,28 @@ async function glLossChecks(browser, base, check) {
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   await page.goto(`${base}?machine=coco`);
   await waitFor(page, () => window.emu && window.emu.machine && window.emu.machine.id === 'coco', null, 5000);
-  await page.waitForTimeout(600);
-  const colours = () => page.evaluate(() => {
+  // (in the page) how many colours the screen shows
+  const coloursIn = () => {
     const s = document.getElementById('screen'), c = document.createElement('canvas');
     c.width = s.width; c.height = s.height; c.getContext('2d').drawImage(s, 0, 0);
     const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data, set = new Set();
     for (let i = 0; i < d.length; i += 4 * 97) set.add((d[i] << 16) | (d[i + 1] << 8) | d[i + 2]);
     return set.size;
-  });
+  };
+  const colours = () => page.evaluate(coloursIn);
+  await page.evaluate((src) => { window.__colours = eval(src); }, `(${coloursIn})`);
+  await waitFor(page, () => window.__colours() > 1);   // the machine's picture is up
   const before = await colours();
   const ext = await page.evaluate(() => { const gl = document.getElementById('screen').getContext('webgl'); window.__lose = gl && gl.getExtension('WEBGL_lose_context'); return !!window.__lose; });
   check('WebGL loss: the context can be lost on purpose (WEBGL_lose_context)', ext);
   await page.evaluate(() => window.__lose.loseContext());
-  await page.waitForTimeout(400);
+  await waitFor(page, () => document.getElementById('screen').getContext('webgl').isContextLost());
   const frames = await page.evaluate(() => window.emu.machine.frameCount ?? window.emu.machine.framesSinceReset);
-  await page.waitForTimeout(400);
+  await waitFor(page, (f) => (window.emu.machine.frameCount ?? window.emu.machine.framesSinceReset) > f + 10, frames);
   const framesLater = await page.evaluate(() => window.emu.machine.frameCount ?? window.emu.machine.framesSinceReset);
   check('WebGL loss: while lost the machine keeps running, no page errors', framesLater > frames && !errors.length, errors.join('; '));
   await page.evaluate(() => window.__lose.restoreContext());
-  await page.waitForTimeout(600);
+  await waitFor(page, () => !document.getElementById('screen').getContext('webgl').isContextLost() && window.__colours() > 1);
   const after = await colours();
   check('WebGL loss: restored, the screen shows the machine again', before > 1 && after > 1, `(${before} colours before, ${after} after)`);
   check('WebGL loss: no page errors', !errors.length, errors.join('; '));
@@ -4143,43 +4184,52 @@ async function pageLoopChecks(browser, base, check) {
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto(`${base}?machine=dragon64`);
   await waitFor(page, () => window.emu && window.emu.machine && window.emu.machine.id === 'dragon64', null, 5000);
-  await page.waitForTimeout(800);
+  await started(page);
   const sample = () => page.evaluate(() => ({ uploads: window.__uploads, frames: window.emu.machine.framesSinceReset }));
-  const a = await sample(); await page.waitForTimeout(1000); const b = await sample();
+  // the windows below are counted in emulated frames or in the page's animation-frame ticks, not in wall time, so a
+  // slow page measures over as many frames and ticks as a fast one
+  const a = await sample();
+  await waitFor(page, (f) => window.emu.machine.framesSinceReset >= f + 50, a.frames);
+  const b = await sample();
   const ran = b.frames - a.frames, up = b.uploads - a.uploads;
   check('page loop: one upload per emulated frame at most', ran > 30 && up <= ran + 2, `${up} uploads for ${ran} frames`);
   await page.evaluate(() => { window.__frozen = performance.now(); });
   // the first tick at the frozen time still carries the time since the last real tick, which may complete a frame:
   // that frame was due before the freeze, so the count starts after it (ticks come every 4 ms)
-  await page.waitForTimeout(50);
-  const e = await sample(); await page.waitForTimeout(500); const f = await sample();
+  await ticks(page, 3);
+  const e = await sample(); await ticks(page, 100); const f = await sample();
   await page.evaluate(() => { window.__frozen = null; });
   check('page loop: animation frames with no emulated frame upload nothing', f.frames === e.frames && f.uploads === e.uploads, `${f.uploads - e.uploads} uploads, ${f.frames - e.frames} frames`);
   await page.click('#btnPause');
-  await page.waitForTimeout(300);
-  const c = await sample(); await page.waitForTimeout(600); const d = await sample();
+  await waitFor(page, () => document.body.classList.contains('paused'));   // the page's Pause (not the debugger's stop)
+  await ticks(page, 3);
+  const c = await sample(); await ticks(page, 100); const d = await sample();
   check('page loop: paused, nothing is uploaded', d.uploads === c.uploads && d.frames === c.frames, `${d.uploads - c.uploads} uploads`);
-  const pixels = () => page.evaluate(() => {
-    const s = document.getElementById('screen'), cv = document.createElement('canvas');
-    cv.width = s.width; cv.height = s.height; cv.getContext('2d').drawImage(s, 0, 0);
-    const px = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
-    let h = 0; for (let i = 0; i < px.length; i += 61) h = (h * 31 + px[i]) >>> 0;
-    return { h, w: s.width, cssW: s.style.width };
+  await page.evaluate(() => {
+    window.__pixels = () => {
+      const s = document.getElementById('screen'), cv = document.createElement('canvas');
+      cv.width = s.width; cv.height = s.height; cv.getContext('2d').drawImage(s, 0, 0);
+      const px = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+      let h = 0; for (let i = 0; i < px.length; i += 61) h = (h * 31 + px[i]) >>> 0;
+      return { h, w: s.width, cssW: s.style.width };
+    };
   });
+  const pixels = () => page.evaluate(() => window.__pixels());
   const before = await pixels();
   await page.evaluate(() => window.emu.session.setDisplay({ view: 'sharp' }));
-  await page.waitForTimeout(300);
+  await waitFor(page, (h) => window.__pixels().h !== h, before.h);
   const sharp = await pixels();
   check('page loop: paused, a Display change is drawn', sharp.h !== before.h, `${before.h} -> ${sharp.h}`);
   await page.setViewportSize({ width: 900, height: 700 });
-  await page.waitForTimeout(400);
+  await waitFor(page, (w) => window.__pixels().cssW !== w, sharp.cssW);
+  await ticks(page, 3);   // and drawn at that size
   const small = await pixels();
   check('page loop: paused, a resize is drawn', small.cssW !== sharp.cssW, `${sharp.cssW} -> ${small.cssW}`);
   // paused, the WebGL context is lost and restored: the restored canvas is blank, so the picture is drawn again
   await page.evaluate(() => { window.__lose = document.getElementById('screen').getContext('webgl').getExtension('WEBGL_lose_context'); window.__lose.loseContext(); });
-  await page.waitForTimeout(300);
+  await waitFor(page, () => document.getElementById('screen').getContext('webgl').isContextLost());
   await page.evaluate(() => window.__lose.restoreContext());
-  await page.waitForTimeout(500);
+  await waitFor(page, (h) => !document.getElementById('screen').getContext('webgl').isContextLost() && window.__pixels().h === h, small.h);
   const restored = await pixels();
   check('page loop: paused, a WebGL context restore is drawn (not left blank)', restored.h === small.h, `${small.h} before, ${restored.h} after`);
   await page.evaluate(() => window.emu.session.setDisplay({ view: 'crt' }));
@@ -4193,7 +4243,7 @@ async function pageLoopChecks(browser, base, check) {
   const errors2 = [];
   p2.on('pageerror', (e) => errors2.push(e.message));
   await p2.goto(`${base}?machine=coco`);
-  await p2.waitForTimeout(600);
+  await started(p2);
   check('no Fullscreen API: the button is hidden, no page errors', await p2.isHidden('#btnFull') && !errors2.length, errors2.join('; '));
   await ctx2.close();
 }
@@ -4484,9 +4534,12 @@ async function inputScreenChecks(browser, base, check) {
     // while the check waits for the tune)
     await page.evaluate(() => { window.__said = []; const t = document.getElementById('toastText');
       new MutationObserver(() => { if (t.textContent) window.__said.push(t.textContent); }).observe(t, { childList: true, characterData: true, subtree: true }); });
-    await page.tap('#touchFull [data-key="2"]');                                   // the first tap unlocks sound: the tune plays first
-    await waitFor(page, () => window.emu.machine.ram[0x6005] === 1, null, 20000);
+    // The first tap unlocks sound and is also a key: the menu plays its tune first when the unlock reaches it before
+    // the key does, and otherwise takes the 2 at once (seen with a warm cache: the colour demo started on the first
+    // tap and the tune never played). Either is the menu answering; a second 2 is typed only while it is still up.
     await page.tap('#touchFull [data-key="2"]');
+    await waitFor(page, () => window.emu.machine.ram[0x6005] === 1 || !window.emu.session.welcomeRunning, null, 20000);
+    if (await page.evaluate(() => window.emu.session.welcomeRunning)) await page.tap('#touchFull [data-key="2"]');
     check('PHONE-1 (390 px): typing 2 on the on-screen keyboard answers the menu (the colour demo starts)', await waitFor(page, () => (window.__said.some((m) => /Colour demo/.test(m))
       || window.emu.feedback.pending.some((m) => /Colour demo/.test(m.text))) && !window.emu.session.welcomeRunning), JSON.stringify(await page.evaluate(() => [window.__said, window.emu.feedback.pending])));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'phone-welcome.png') });
@@ -4639,6 +4692,7 @@ async function embedChecks(browser, site, check) {
 <script src="${site}embed/cloadm.js"></script>`);
   });
   await new Promise((r) => host.listen(0, '127.0.0.1', r));
+  host.unref();   // a group that throws before host.close() must not keep the run from exiting
   const ctx = await browser.newContext({ serviceWorkers: 'block' });
   const page = await ctx.newPage();
   const errors = [];
@@ -4646,13 +4700,19 @@ async function embedChecks(browser, site, check) {
   await page.goto(`http://localhost:${host.address().port}/`);   // another origin than the emulator's
   const r = await page.evaluate(async (liza) => {
     const out = {}, events = [];
-    const m = await CLOADM.attach(document.getElementById('cl'));
+    // (the embedded page is still starting: attach asks until it answers; its 15 s default is raised for a loaded machine)
+    const m = await CLOADM.attach(document.getElementById('cl'), { timeout: 120000 });
     window.__cloadm = m;
     m.on('loaded', (d) => events.push(`loaded ${d.machine}`)).on('machine', (d) => events.push(`machine ${d.machine}`));
     out.info = await m.info();
+    // a condition wait; the limit only stops a page that hangs (a loaded machine runs the emulator slower)
+    const until = async (fn, ms = 60000) => { const t = Date.now(); while (Date.now() - t < ms) { if (await fn()) return true; await new Promise((ok) => setTimeout(ok, 50)); } return false; };
     // embedded, no welcome menu of its own: not on load, nor after reset, powerCycle or switchMachine.
-    // Each waits long enough for a menu the page might start (it fetches its bytes first) to show up.
-    const settle = () => new Promise((ok) => setTimeout(ok, 1500));
+    // Each waits long enough for a menu the page might start (it fetches its bytes first) to show up: 1.5 s, and at
+    // least 60 emulated frames, so a page slowed by load gets as many frames to (wrongly) show it as an idle one.
+    let ran = 0;
+    m.on('frame', () => ran++);
+    const settle = async () => { const t = Date.now(), f0 = ran; out.settled = (out.settled || 0) + (await until(() => Date.now() - t >= 1500 && ran - f0 >= 60) ? 1 : 0); };
     const menuShown = async () => (await m.screenText()).join('').includes('TALK TO LIZA');
     await settle();
     out.menu = { load: await menuShown() };
@@ -4662,7 +4722,6 @@ async function embedChecks(browser, site, check) {
     out.menu.stub = (await m.screenText()).join('').includes('NO ROM LOADED');
     await m.switchMachine('dragon64'); await settle();
     out.load = await m.load('liza.bin', liza);
-    const until = async (fn, ms = 10000) => { const t = Date.now(); while (Date.now() - t < ms) { if (await fn()) return true; await new Promise((ok) => setTimeout(ok, 50)); } return false; };
     out.greeted = await until(async () => (await m.screenText()).join('').includes('I AM LIZA'));
     out.typed = await m.type('I AM SAD\n');
     out.answered = await until(async () => /HOW LONG HAVE YOU BEEN SAD/.test((await m.screenText()).join('\n')));
@@ -4694,7 +4753,7 @@ async function embedChecks(browser, site, check) {
   check('embed: calls from a sibling frame or a frame nested in it are ignored (only the embedding page drives it)',
     r.others.sameFrame && JSON.stringify(r.others.mem) !== '[99,98]' && r.others.mem[0] !== 99 && r.others.mem[1] !== 98 && r.others.answered === 0, JSON.stringify(r.others));
   for (const k of ['load', 'reset', 'powerCycle', 'switchMachine']) {
-    check(`embed: no welcome menu ${k === 'load' ? 'on load' : `after ${k}()`} (the embedding page drives a plain machine)`, r.menu[k] === false, JSON.stringify(r.menu));
+    check(`embed: no welcome menu ${k === 'load' ? 'on load' : `after ${k}()`} (the embedding page drives a plain machine)`, r.menu[k] === false && r.settled === 5, JSON.stringify({ menu: r.menu, settled: r.settled }));
   }
   check('embed: without ROMs the embedded machine shows the stub\'s own screen', r.menu.stub, JSON.stringify(r.menu));
   check('embed: switchMachine, and the "loaded" and "machine" events', r.switched === 'coco3' && r.events.includes('loaded dragon64') && r.events.includes('machine coco3'), r.events.join());
@@ -4874,7 +4933,9 @@ async function chatScreenChecks(browser, base, check) {
     // a reply longer than the screen: it scrolls
     await page.keyboard.type('tell me a long story');
     await page.keyboard.press('Enter');
-    await waitFor(page, () => window.emu.session.chat && window.emu.session.chat.busy, null, 5000);
+    // the typed line has reached the chat (busy while the mocked reply streams; the reply can come and go between two
+    // polls, so "busy" alone timed out on every run)
+    await waitFor(page, () => { const c = window.emu.session.chat; return !!c && (c.busy || c.messages.some((m) => m.role === 'user' && m.content === 'tell me a long story')); });
     await idle();
     await emuFrames(page, 10);
     const after = await textOverlay(page);
@@ -5285,7 +5346,7 @@ async function askFollowupChecks(browser, base, check) {
       await send();
       return { n, settle: async () => {
         await waitFor(page, () => !window.emu.session.chat.busy, null, 15000);
-        for (let i = 0; i < 100 && requests.length < n + 2; i++) await page.waitForTimeout(50);
+        for (const t = Date.now(); requests.length < n + 2 && Date.now() - t < 30000;) await page.waitForTimeout(50);   // the tool result's request (the caller checks what came)
         await waitFor(page, () => !window.emu.session.chat.busy, null, 15000);
         const c = requests[n + 1] && requests[n + 1].messages.slice(-1)[0].content;
         try { return { isError: !!c[0].is_error, out: JSON.parse(c[0].content) }; } catch (e) { return { isError: null, out: c }; }
@@ -5944,7 +6005,7 @@ async function emulatorBackChecks(browser, base, check) {
       const shown = await waitFor(page, (id) => !document.getElementById(id).hidden, id);
       await close(back);
       const gone = await onEmulator();
-      await page.waitForTimeout(150);
+      await ticks(page, 10);   // the frames in which the panel would (wrongly) reopen
       const after = await panelState(MARK);
       check(`emulator back: plain emulator, conversation kept → ${name} → ${how}: the Ask panel stays closed`, shown && gone && !after.open && after.same, JSON.stringify(after));
     }
@@ -6155,10 +6216,10 @@ async function shareChecks(browser, base, site, check) {
     const errors = [];
     page.on('pageerror', (e) => errors.push(e.message));
     await page.goto(`${base}?machine=dragon64`);
-    await waitFor(page, () => window.emu && window.emu.linkDone);
+    await linkIn(page);
     // the moment: the welcome menu, what a visit without ROMs runs (a moment of the stub's bare prompt opens on
     // the menu instead), with a marker in memory once the menu is drawn
-    await waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[14].includes('PRESS'));
+    await waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[14].includes('PRESS'), null, 60000);
     await page.evaluate(() => window.emu.machine.poke(1030, 42));
     if (label === 'phone') await page.click('#btnMenu');
     await page.click('#btnShare');
@@ -6181,19 +6242,22 @@ async function shareChecks(browser, base, site, check) {
     const link = await page.inputValue('#shareLink');
     check('share: the link points at /play/ with this machine, the snapshot in the fragment', /\/play\/\?machine=dragon64&cpu=6809&ram=64#s=[A-Za-z0-9_-]{1000,}$/.test(link), link.slice(0, 80));
     const ctx2 = await browser.newContext({ serviceWorkers: 'block' });
+    // every message the page says, recorded from its start: a 4 s toast can end before a loaded machine reads it
+    await ctx2.addInitScript(() => { window.__said = []; document.addEventListener('DOMContentLoaded', () => { const t = document.getElementById('toastText');
+      if (t) new MutationObserver(() => { if (t.textContent) window.__said.push(t.textContent); }).observe(t, { childList: true, characterData: true, subtree: true }); }); });
+    const said = (p) => p.evaluate(() => window.__said.join(' | '));
     const p2 = await ctx2.newPage();
     // waited for: the page's own "the link is in" (linkDone is set once the link's snapshot has been opened or
     // refused), then the moment is checked once. Opening a link takes the visit's start plus the snapshot, which on
     // a loaded machine (CI) can exceed a 10 s wall clock; the limit here only stops a page that hangs.
     await p2.goto(link);
     await linkIn(p2);
-    check('share: the link opens exactly that moment in another browser profile', await p2.evaluate(() => window.emu.machine.ram[1030] === 42
-      && /Snapshot opened: Dragon 64/.test(document.getElementById('toast').textContent) && location.hash === ''), await p2.textContent('#toast'));
+    check('share: the link opens exactly that moment in another browser profile', await p2.evaluate(() => window.emu.machine.ram[1030] === 42 && location.hash === '')
+      && await waitFor(p2, () => window.__said.some((m) => /Snapshot opened: Dragon 64/.test(m))), `${await said(p2)} · ram[1030] ${await p2.evaluate(() => window.emu.machine.ram[1030])}`);
     const p2b = await ctx2.newPage();   // a link that differs only after # wouldn't reload the same page
     await p2b.goto(link.slice(0, link.length - 400));
     await linkIn(p2b);
-    check('share: a cut-short link says its snapshot is damaged', await p2b.evaluate(() => /damaged/.test(document.getElementById('toast').textContent)),
-      await p2b.textContent('#toast'));
+    check('share: a cut-short link says its snapshot is damaged', await waitFor(p2b, () => window.__said.some((m) => /damaged/.test(m))), await said(p2b));
     await ctx2.close();
 
     // the clip
@@ -6218,6 +6282,7 @@ async function shareChecks(browser, base, site, check) {
       && /CLOADM\.attach/.test(await page.textContent('#embedScript')));
     const host = http.createServer((req, res) => { res.writeHead(200, { 'Content-Type': 'text/html' }); res.end(`<!doctype html><title>blog</title>${snippet}<script src="${site}embed/cloadm.js"></script>`); });
     await new Promise((r) => host.listen(0, '127.0.0.1', r));
+    host.unref();   // a group that throws before host.close() must not keep the run from exiting
     const ctx3 = await browser.newContext({ serviceWorkers: 'block' });
     await filesHost(ctx3);
     const p3 = await ctx3.newPage();
@@ -6226,10 +6291,11 @@ async function shareChecks(browser, base, site, check) {
     const tapeFile = require('../tests/load.js')().formats.identify('game.cas', Buffer.from(require('./mame-diff/tape/spec.js').csaveStream())).files[0];
     const want = [...tapeFile.data.subarray(0, 8)];
     const got = await p3.evaluate(async ([load, want]) => {
-      const m = await CLOADM.attach(document.querySelector('iframe'));
+      const m = await CLOADM.attach(document.querySelector('iframe'), { timeout: 120000 });
       const t0 = Date.now();
       let mem = [];
-      while (Date.now() - t0 < 10000) { mem = await m.peek(load, want.length); if (JSON.stringify(mem) === JSON.stringify(want)) break; await new Promise((ok) => setTimeout(ok, 100)); }
+      // a condition wait (the embedded page starts, then loads the tape); the limit only stops a page that hangs
+      while (Date.now() - t0 < 60000) { mem = await m.peek(load, want.length); if (JSON.stringify(mem) === JSON.stringify(want)) break; await new Promise((ok) => setTimeout(ok, 100)); }
       return { info: await m.info(), mem };
     }, [tapeFile.load, want]);
     check('share: the written iframe, on another origin, runs that machine and loads the tape into memory', got.info.machine === 'coco' && tapeFile.load === 0x3000
@@ -6267,10 +6333,10 @@ async function shareChecks(browser, base, site, check) {
       const rctx = await browser.newContext({ serviceWorkers: 'block' });
       const rp = await rctx.newPage();
       await rp.goto(`${base}?machine=dragon64`);
-      await waitFor(rp, () => window.emu && window.emu.linkDone);
+      await linkIn(rp);
       if (theirs) await putRoms(rp, theirs);
       await rp.goto(shared.link);   // (another query than the page's: a new page, not a hash change)
-      await waitFor(rp, () => window.emu && window.emu.linkDone);
+      await linkIn(rp);
       const r = await rp.evaluate(() => ({ needs: !document.getElementById('snapNeeds').hidden ? document.getElementById('snapNeedsText').textContent : null,
         msg: document.getElementById('toast').textContent, mem: window.emu.Emu.state.toJSON(window.emu.machine.snapshot().state.memory) }));
       if (who === 'no ROMs') check('share link, recipient without ROMs: the needs-ROMs card names them, nothing opens', /This snapshot needs 32K-mode BASIC and 64K-mode BASIC/.test(r.needs || '') && r.mem !== held, r.needs || r.msg);
@@ -6557,136 +6623,155 @@ async function designChecks(browser, base, check) {
   await ctx.close();
 }
 
+// every model runs (its welcome menu, a screenshot), LIZA assembled and run from the Debugger and answering typed
+// input, and the file:// notice
+async function modelsChecks(browser, base, check) {
+  const page = await browser.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+  // text screen of the current machine (32x16 at its text address)
+  const screenText = () => page.evaluate(() => {
+    const m = window.emu.machine, base = m.profile.textScreen || 0x400;
+    let s = '';
+    for (let i = 0; i < 512; i++) { const c = m.ram[base + i] & 0x3F; s += String.fromCharCode(c < 32 ? c + 64 : c); }
+    return s.match(/.{32}/g).join('\n');
+  });
+  await page.goto(`${base}?machine=dragon64`);
+  await started(page);
+  await page.click('#machineBtn');
+  const ids = await page.$$eval('#machineMenu button[data-machine]', (o) => o.map((x) => x.dataset.machine));
+  await page.click('#machineBtn');
+  check('model list', ids.length >= 13, `(${ids.length} models)`);
+  for (const id of ids) {
+    errors.length = 0;
+    await pickMachine(page, id);
+    // without ROMs every model is switched on into its welcome menu, never the stub's bare screen
+    await waitFor(page, () => (window.emu.session.welcomeRunning && window.emu.session.screenText()[9].trim() === '1 TALK TO LIZA') || window.emu.machine.hasRom);
+    await redrawn(page);
+    const colours = await page.evaluate(() => {
+      // what the page drew (WebGL or 2D), copied to a 2D canvas to read it
+      const s = document.getElementById('screen'), c = document.createElement('canvas');
+      c.width = s.width; c.height = s.height; c.getContext('2d').drawImage(s, 0, 0);
+      const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+      const set = new Set();
+      for (let i = 0; i < d.length; i += 4 * 97) set.add((d[i] << 16) | (d[i + 1] << 8) | d[i + 2]);
+      return set.size;
+    });
+    const text = await screenText();
+    const banner = (/1 TALK TO LIZA/.test(text) && !/BUILT-IN STUB/.test(text)) || await page.evaluate(() => window.emu.machine.hasRom);
+    check(`${id}: runs`, !errors.length && colours > 1 && banner, errors.length ? errors.join('; ') : `(${colours} colours)`);
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `${id}.png`) });
+  }
+  // LIZA end to end: assembler panel -> run -> keyboard conversation
+  errors.length = 0;
+  await pickMachine(page, 'coco');
+  await openDebugger(page);
+  await page.click('#btnAsmLiza');
+  await waitFor(page, () => document.getElementById('asmSource').value.includes('READLN'));   // the source is fetched
+  await page.click('#btnAsmRun');
+  await waitFor(page, () => window.emu.session.screenText().join('').includes('I AM LIZA'));
+  await page.click('#btnDbgBack');
+  await page.click('#screen');
+  await page.keyboard.type('I AM SAD', { delay: 70 }); await page.keyboard.press('Enter');
+  const answered = await waitFor(page, () => /HOW LONG HAVE YOU BEEN SAD/.test(window.emu.session.screenText().join('\n')));
+  check('LIZA: assemble, run and answer typed input', answered && !errors.length, errors.length ? errors.join('; ') : await screenText());
+  // opening from disk shows the instructions instead of a broken page
+  const local = await browser.newPage();
+  await local.goto('file://' + path.join(ROOT, 'play/index.html'));
+  check('file:// open shows how to serve the page', await local.waitForSelector('#startError', { state: 'visible', timeout: 10000 }).then(() => true, () => false));
+}
+
+// The groups, in run order: [name, (browser) => the group's checks]. --only takes these names.
+const GROUPS = (base, site) => [
+  ['models', (b) => modelsChecks(b, base, check)],
+  ['romUi', (b) => romUiChecks(b, base, check)],
+  ['mediaBackend', (b) => mediaBackendChecks(b, base, check)],
+  ['audio', (b) => audioChecks(b, base, check)],
+  ['cartridge', (b) => cartridgeChecks(b, base, check)],
+  ['sscBoard', (b) => sscBoardChecks(b, base, check)],
+  ['typing', (b) => typingChecks(b, base, check)],
+  ['visit', (b) => visitChecks(b, base, check)],
+  ['returning', (b) => returningChecks(b, base, check)],
+  ['powerOn', (b) => powerOnChecks(b, base, check)],
+  ['firstVisit', (b) => firstVisitChecks(b, base, check)],
+  ['media', (b) => mediaChecks(b, base, check)],
+  ['disk', (b) => diskChecks(b, base, check)],
+  ['hint', (b) => hintChecks(b, base, check)],
+  ['input', (b) => inputChecks(b, base, check)],
+  ['poke', (b) => pokeChecks(b, base, check)],
+  ['feedback', (b) => feedbackChecks(b, base, check)],
+  ['feedbackModel', (b) => feedbackModelChecks(b, base, check)],
+  ['debuggerScreen', (b) => debuggerScreenChecks(b, base, check)],
+  ['library', (b) => libraryChecks(b, base, check)],
+  ['libraryStorage', (b) => libraryStorageChecks(base, check)],
+  ['librarySelect', (b) => librarySelectChecks(b, base, check)],
+  ['typeinScreen', (b) => typeinScreenChecks(b, base, check)],
+  ['slot', (b) => slotChecks(b, base, check)],
+  ['tapePanel', (b) => tapePanelChecks(b, base, check)],
+  ['printer', (b) => printerChecks(b, base, check)],
+  ['driveWire', (b) => driveWireChecks(b, base, check)],
+  ['nitros9', (b) => nitros9Checks(b, base, check)],
+  ['webSerial', (b) => webSerialChecks(b, base, check)],
+  ['snapshot', (b) => snapshotChecks(b, base, check)],
+  ['liza6803', (b) => liza6803Checks(b, base, check)],
+  ['romInput', (b) => romInputChecks(b, base, check)],
+  ['design', (b) => designChecks(b, base, check)],
+  ['inputScreen', (b) => inputScreenChecks(b, base, check)],
+  ['focus', (b) => focusChecks(b, base, check)],
+  ['uiQa', (b) => uiQaChecks(b, base, check)],
+  ['emulatorBack', (b) => emulatorBackChecks(b, base, check)],
+  ['debugger', (b) => debuggerChecks(b, base, check)],
+  ['tape', (b) => tapeChecks(b, base, check)],
+  ['layout', (b) => layoutChecks(b, base, check)],
+  ['display', (b) => displayChecks(b, base, check)],
+  ['glLoss', (b) => glLossChecks(b, base, check)],
+  ['pageLoop', (b) => pageLoopChecks(b, base, check)],
+  ['landing', (b) => landingChecks(b, site, check)],
+  ['glossary', (b) => glossaryChecks(b, site, check)],
+  ['state', (b) => stateChecks(b, site, check)],
+  ['nav', (b) => navChecks(b, site, check)],
+  ['reading', (b) => readingChecks(b, site, check)],
+  ['light', (b) => lightChecks(b, site, check)],
+  ['url', (b) => urlChecks(b, base, check)],
+  ['embed', (b) => embedChecks(b, site, check)],
+  ['pwa', (b) => pwaChecks(b, site, check)],
+  ['settings', (b) => settingsChecks(b, base, check)],
+  ['claude', (b) => claudeChecks(b, base, check)],
+  ['ask', (b) => askChecks(b, base, check)],
+  ['askFollowup', (b) => askFollowupChecks(b, base, check)],
+  ['consentFullscreen', (b) => consentFullscreenChecks(b, base, check)],
+  ['welcomeScreen', (b) => welcomeScreenChecks(b, base, check)],
+  ['chatScreen', (b) => chatScreenChecks(b, base, check)],
+  ['phoneChat', (b) => phoneChatChecks(b, base, check)],
+  ['share', (b) => shareChecks(b, base, site, check)],
+  ['favicon', (b) => faviconChecks(b, site, check)],
+];
+
 (async () => {
+  const names = GROUPS('', '').map(([n]) => n);
+  const sel = lib.parseOnly(process.argv, names);
+  if (sel.error) { console.error(sel.error); process.exitCode = 2; return; }
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const site = `http://127.0.0.1:${server.address().port}/`;
   const base = `${site}play/`;
-  const browser = await chromium.launch();
-  let fail = 0;
-  const check = (name, ok, detail = '') => { if (!ok) fail++; console.log(`${ok ? 'ok  ' : 'FAIL'} ${name} ${detail}`); };
+  let browser = await chromium.launch();
   try {
-    if (want('models')) {
-    const page = await browser.newPage();
-    const errors = [];
-    page.on('pageerror', (e) => errors.push(e.message));
-    page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-    // text screen of the current machine (32x16 at its text address)
-    const screenText = () => page.evaluate(() => {
-      const m = window.emu.machine, base = m.profile.textScreen || 0x400;
-      let s = '';
-      for (let i = 0; i < 512; i++) { const c = m.ram[base + i] & 0x3F; s += String.fromCharCode(c < 32 ? c + 64 : c); }
-      return s.match(/.{32}/g).join('\n');
-    });
-    await page.goto(`${base}?machine=dragon64`);
-    await started(page);
-    await page.click('#machineBtn');
-    const ids = await page.$$eval('#machineMenu button[data-machine]', (o) => o.map((x) => x.dataset.machine));
-    await page.click('#machineBtn');
-    check('model list', ids.length >= 13, `(${ids.length} models)`);
-    for (const id of ids) {
-      errors.length = 0;
-      await pickMachine(page, id);
-      // without ROMs every model is switched on into its welcome menu, never the stub's bare screen
-      await waitFor(page, () => (window.emu.session.welcomeRunning && window.emu.session.screenText()[9].trim() === '1 TALK TO LIZA') || window.emu.machine.hasRom);
-      await redrawn(page);
-      const colours = await page.evaluate(() => {
-        // what the page drew (WebGL or 2D), copied to a 2D canvas to read it
-        const s = document.getElementById('screen'), c = document.createElement('canvas');
-        c.width = s.width; c.height = s.height; c.getContext('2d').drawImage(s, 0, 0);
-        const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
-        const set = new Set();
-        for (let i = 0; i < d.length; i += 4 * 97) set.add((d[i] << 16) | (d[i + 1] << 8) | d[i + 2]);
-        return set.size;
+    for (const [name, fn] of GROUPS(base, site)) {
+      if (sel.only && !sel.only.includes(name)) continue;
+      const before = new Set(browser.contexts());
+      await run.group(name, () => fn(browser), async () => {
+        // what the group left open (all of it, when it threw part-way) is closed, so it can't run on into the next
+        // group; a browser that went away is started again for the next group
+        if (!browser.isConnected()) { browser = await chromium.launch(); return; }
+        for (const c of browser.contexts()) if (!before.has(c)) await c.close();
       });
-      const text = await screenText();
-      const banner = (/1 TALK TO LIZA/.test(text) && !/BUILT-IN STUB/.test(text)) || await page.evaluate(() => window.emu.machine.hasRom);
-      check(`${id}: runs`, !errors.length && colours > 1 && banner, errors.length ? errors.join('; ') : `(${colours} colours)`);
-      if (shotDir) await page.screenshot({ path: path.join(shotDir, `${id}.png`) });
     }
-    // LIZA end to end: assembler panel -> run -> keyboard conversation
-    errors.length = 0;
-    await pickMachine(page, 'coco');
-    await openDebugger(page);
-    await page.click('#btnAsmLiza');
-    await waitFor(page, () => document.getElementById('asmSource').value.includes('READLN'));   // the source is fetched
-    await page.click('#btnAsmRun');
-    await waitFor(page, () => window.emu.session.screenText().join('').includes('I AM LIZA'));
-    await page.click('#btnDbgBack');
-    await page.click('#screen');
-    await page.keyboard.type('I AM SAD', { delay: 70 }); await page.keyboard.press('Enter');
-    const answered = await waitFor(page, () => /HOW LONG HAVE YOU BEEN SAD/.test(window.emu.session.screenText().join('\n')));
-    check('LIZA: assemble, run and answer typed input', answered && !errors.length, errors.length ? errors.join('; ') : await screenText());
-    // opening from disk shows the instructions instead of a broken page
-    const local = await browser.newPage();
-    await local.goto('file://' + path.join(ROOT, 'play/index.html'));
-    check('file:// open shows how to serve the page', await local.waitForSelector('#startError', { state: 'visible', timeout: 10000 }).then(() => true, () => false));
-    }
-    if (want('romUi')) await romUiChecks(browser, base, check);
-    if (want('mediaBackend')) await mediaBackendChecks(browser, base, check);
-    if (want('audio')) await audioChecks(browser, base, check);
-    if (want('cartridge')) await cartridgeChecks(browser, base, check);
-    if (want('sscBoard')) await sscBoardChecks(browser, base, check);
-    if (want('typing')) await typingChecks(browser, base, check);
-    if (want('visit')) await visitChecks(browser, base, check);
-    if (want('returning')) await returningChecks(browser, base, check);
-    if (want('powerOn')) await powerOnChecks(browser, base, check);
-    if (want('firstVisit')) await firstVisitChecks(browser, base, check);
-    if (want('media')) await mediaChecks(browser, base, check);
-    if (want('disk')) await diskChecks(browser, base, check);
-    if (want('hint')) await hintChecks(browser, base, check);
-    if (want('input')) await inputChecks(browser, base, check);
-    if (want('poke')) await pokeChecks(browser, base, check);
-    if (want('feedback')) await feedbackChecks(browser, base, check);
-    if (want('feedbackModel')) await feedbackModelChecks(browser, base, check);
-    if (want('debuggerScreen')) await debuggerScreenChecks(browser, base, check);
-    if (want('library')) await libraryChecks(browser, base, check);
-    if (want('libraryStorage')) await libraryStorageChecks(base, check);
-    if (want('librarySelect')) await librarySelectChecks(browser, base, check);
-    if (want('typeinScreen')) await typeinScreenChecks(browser, base, check);
-    if (want('slot')) await slotChecks(browser, base, check);
-    if (want('tapePanel')) await tapePanelChecks(browser, base, check);
-    if (want('printer')) await printerChecks(browser, base, check);
-    if (want('driveWire')) await driveWireChecks(browser, base, check);
-    if (want('nitros9')) await nitros9Checks(browser, base, check);
-    if (want('webSerial')) await webSerialChecks(browser, base, check);
-    if (want('snapshot')) await snapshotChecks(browser, base, check);
-    if (want('liza6803')) await liza6803Checks(browser, base, check);
-    if (want('romInput')) await romInputChecks(browser, base, check);
-    if (want('design')) await designChecks(browser, base, check);
-    if (want('inputScreen')) await inputScreenChecks(browser, base, check);
-    if (want('focus')) await focusChecks(browser, base, check);
-    if (want('uiQa')) await uiQaChecks(browser, base, check);
-    if (want('emulatorBack')) await emulatorBackChecks(browser, base, check);
-    if (want('debugger')) await debuggerChecks(browser, base, check);
-    if (want('tape')) await tapeChecks(browser, base, check);
-    if (want('layout')) await layoutChecks(browser, base, check);
-    if (want('display')) await displayChecks(browser, base, check);
-    if (want('glLoss')) await glLossChecks(browser, base, check);
-    if (want('pageLoop')) await pageLoopChecks(browser, base, check);
-    if (want('landing')) await landingChecks(browser, site, check);
-    if (want('glossary')) await glossaryChecks(browser, site, check);
-    if (want('state')) await stateChecks(browser, site, check);
-    if (want('nav')) await navChecks(browser, site, check);
-    if (want('reading')) await readingChecks(browser, site, check);
-    if (want('light')) await lightChecks(browser, site, check);
-    if (want('url')) await urlChecks(browser, base, check);
-    if (want('embed')) await embedChecks(browser, site, check);
-    if (want('pwa')) await pwaChecks(browser, site, check);
-    if (want('settings')) await settingsChecks(browser, base, check);
-    if (want('claude')) await claudeChecks(browser, base, check);
-    if (want('ask')) await askChecks(browser, base, check);
-    if (want('askFollowup')) await askFollowupChecks(browser, base, check);
-    if (want('consentFullscreen')) await consentFullscreenChecks(browser, base, check);
-    if (want('welcomeScreen')) await welcomeScreenChecks(browser, base, check);
-    if (want('chatScreen')) await chatScreenChecks(browser, base, check);
-    if (want('phoneChat')) await phoneChatChecks(browser, base, check);
-    if (want('share')) await shareChecks(browser, base, site, check);
-    if (want('favicon')) await faviconChecks(browser, site, check);
-    check('no request in the whole run asked for a missing file', !missing.size, [...missing].join(', '));
+    await run.group('missing files', async () => check('no request in the whole run asked for a missing file', !missing.size, [...missing].join(', ')));
   } finally {
     await browser.close();
     server.close();
+    server.closeAllConnections();   // (kept-alive connections would hold the run open after its summary)
   }
-  console.log(fail ? `${fail} FAILED` : 'browser check passed');
-  process.exitCode = fail ? 1 : 0;
+  process.exitCode = run.summary();
 })();
