@@ -171,7 +171,9 @@ Give these, and no claims beyond them:
 1. **What changed:** files and a one-paragraph design summary.
 2. **Gate and commands run, with their results:**
    * the green CI run: its URL, the commit SHA and the tree hash from its `gates` summary, which must be the head
-     of the branch under review (this replaces pasting local `tests/all.js`, `regress` and browser-check runs);
+     of the branch under review (this replaces pasting local `tests/all.js`, `regress` and browser-check runs).
+     If the run's attempt (shown in the `gates` summary) is above 1, name each check that failed in the earlier
+     attempts and why you believe it is a flake; a green re-run is the gate only with that disclosure;
    * each `node tools/mame-diff/run.js <profile> [...]` (instruction counts, "identical", HALT reached), pasted as a
      short excerpt;
    * any `--video` or byte/audio comparisons (frames or bytes compared, tolerance).
@@ -186,6 +188,8 @@ rather than as done.
 ## 7. Review
 
 1. Check that the reported CI run is green and that its SHA and tree hash are the branch head you are reviewing.
+   If its attempt is above 1, the report must name the checks that failed earlier and why they are believed to be
+   flakes; without that, the green run is not the gate.
 2. Read the diff. Replay the author's mutations (the deliberate breakages that showed their tests fail) and at
    least two of your own; each must turn a test red.
 3. Re-run the gates locally only if the branch changes `tests/`, `tools/` or `.github/` in a way that isn't purely

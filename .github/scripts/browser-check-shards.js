@@ -12,7 +12,27 @@
 const fs = require('fs'), path = require('path');
 
 const ROOT = path.join(__dirname, '..', '..');
-const source = fs.readFileSync(path.join(ROOT, 'tools', 'browser-check.js'), 'utf8');
+// BROWSER_CHECK_SOURCE points the scan at another file (tests/browser-check-shards.test.js uses it for fixtures).
+const SOURCE = process.env.BROWSER_CHECK_SOURCE || path.join(ROOT, 'tools', 'browser-check.js');
+
+// Drop line and block comments (leaving strings and template text alone; a ' or " ends at its line, so a quote inside
+// a regex literal can only confuse the rest of that one line), so a commented-out
+// `// if (want('nav'))` doesn't count as a group that still runs.
+function stripComments(code) {
+  let out = '', i = 0;
+  while (i < code.length) {
+    const c = code[i], d = code[i + 1];
+    if (c === '/' && d === '/') { while (i < code.length && code[i] !== '\n') i++; }
+    else if (c === '/' && d === '*') { const e = code.indexOf('*/', i + 2); i = e < 0 ? code.length : e + 2; out += ' '; }
+    else if (c === "'" || c === '"' || c === '`') {
+      let j = i + 1;
+      while (j < code.length && code[j] !== c && (c === '`' || code[j] !== '\n')) j += code[j] === '\\' ? 2 : 1;
+      out += code.slice(i, j + 1); i = j + 1;
+    } else { out += c; i++; }
+  }
+  return out;
+}
+const source = stripComments(fs.readFileSync(SOURCE, 'utf8'));
 const known = [...new Set([...source.matchAll(/\bwant\(\s*'([^']+)'\s*\)/g)].map((m) => m[1]))];
 const { shards } = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'browser-check-shards.json'), 'utf8'));
 
@@ -20,8 +40,8 @@ const errors = [];
 // A browser-check that no longer selects groups through want('...') can't be checked this way: fail loudly
 // rather than pass on an empty list.
 const calls = (source.match(/\bwant\(/g) || []).length, literal = [...source.matchAll(/\bwant\(\s*'([^']+)'\s*\)/g)].length;
-if (calls !== literal) errors.push(`tools/browser-check.js has ${calls - literal} want(...) call(s) whose group isn't a single-quoted literal; this check can't see them`);
-if (known.length < 10) errors.push(`found only ${known.length} groups in tools/browser-check.js (want('...') calls); has --only changed?`);
+if (calls !== literal) errors.push(`the browser-check source has ${calls - literal} want(...) call(s) whose group isn't a single-quoted literal; this check can't see them`);
+if (known.length < 10) errors.push(`found only ${known.length} groups in the browser-check source (want('...') calls); has --only changed?`);
 if (!Array.isArray(shards) || !shards.length || shards.some((s) => !Array.isArray(s) || !s.length)) errors.push('shards must be a non-empty list of non-empty group lists');
 else {
   const listed = shards.flat();

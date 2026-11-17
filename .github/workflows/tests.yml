@@ -159,6 +159,10 @@ jobs:
             echo
             echo "- commit: \`$(git rev-parse HEAD)\`"
             echo "- tree: \`$(git rev-parse 'HEAD^{tree}')\`"
+            echo "- run attempt: ${{ github.run_attempt }}"
+            if [ "${{ github.run_attempt }}" != "1" ]; then
+              echo "- **re-run: attempt ${{ github.run_attempt }}; earlier attempts did not all pass.** Not a first-run pass: see AGENTS.md section 6."
+            fi
             echo "- jobs: shards ${{ needs.shards.result }}, suites ${{ needs.suites.result }}, browser check ${{ needs.pages.result }}"
             echo
             echo "| job | result | pass | fail | skip |"

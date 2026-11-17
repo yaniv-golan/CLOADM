@@ -9,8 +9,8 @@ All notable changes to CLOADM are recorded here. The format follows
 ### Changed
 
 - CI runs the gates on every push to `main`, `claude/**` and `ds/**`: `node tests/all.js` and the browser check in
-  4 parallel shards, then a `gates` job that fails unless all passed and reports the commit, its tree hash and the
-  counts. A check fails the run if any browser-check group is missing from the shards. A newer push to a branch
+  4 parallel shards, then a `gates` job that fails unless all passed and reports the commit, its tree hash, the run attempt (flagging a re-run) and the
+  counts. A check fails the run if any live (not commented-out) browser-check group is missing from the shards. A newer push to a branch
   cancels the older run there; runs on `main` are never cancelled.
 - AGENTS.md: a green CI run on the exact commit is the definition of done; `regress.test.js` needn't run separately
   where `all.js` ran; nothing else runs beside the browser check; a review section (verify the run's SHA and tree,
