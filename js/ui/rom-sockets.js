@@ -39,7 +39,7 @@ export function setupRomSockets(page, romInput) {
     view.hidden = !open;
     if (open) { render(); $('romHeading').focus(); }
   }
-  addEventListener('hashchange', show);
+  page.onView(show);
   const close = () => page.closeView();
   $('btnRomBack').onclick = (e) => { e.preventDefault(); close(); };
   $('btnRomJustLooking').onclick = close;

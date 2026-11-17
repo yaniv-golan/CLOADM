@@ -5526,6 +5526,159 @@ async function phoneChatChecks(browser, base, check) {
   }
 }
 
+// Every "← Emulator" returns to the emulator, whatever the address and the history under it (the owner's report:
+// on /play/?app=claude, the Debugger's "← Emulator" did not leave it). Each view, opened the way a person opens it,
+// is closed by its "← Emulator", by Esc and by the browser's Back, from a plain /play/ and from ?app=claude (where the
+// full-screen chat is open under the header); then the same after a reload on the view, after a page loaded on the
+// view, and for the full-screen chat itself.
+async function emulatorBackChecks(browser, base, check) {
+  const ctx = await browser.newContext({ serviceWorkers: 'block', viewport: { width: 1440, height: 900 } });
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  const VIEWS = [
+    ['Debugger', 'debugView', '#btnDbgBack', () => page.click('#navDebugger')],
+    ['Library', 'library', '#btnLibBack', () => page.click('#navLibrary')],
+    ['Share', 'share', '#shareBack', () => page.click('#btnShare')],
+    ['Add ROMs', 'romCard', '#btnRomBack', () => page.click('#romPill')],
+  ];
+  // the emulator is shown: no view, no full-screen chat, the address neither (a reload would open what is shown)
+  const onEmulator = () => waitFor(page, () => location.hash === '' && !/app=claude/.test(location.search)
+    && ['debugView', 'library', 'share', 'romCard', 'claude'].every((id) => document.getElementById(id).hidden)
+    && !document.body.classList.contains('claude-open') && window.emu.session.claudeView !== 'full'
+    && getComputedStyle(document.querySelector('.layout')).display !== 'none' && getComputedStyle(document.getElementById('appbar')).display !== 'none');
+  const where = () => page.evaluate(() => JSON.stringify({ url: location.pathname + location.search + location.hash, state: history.state,
+    shown: ['debugView', 'library', 'share', 'romCard', 'claude'].filter((id) => !document.getElementById(id).hidden), body: document.body.className }));
+  const load = async (query) => {
+    await page.goto(`${base}${query}`);
+    await started(page);
+    if (/app=claude/.test(query)) await waitFor(page, () => window.emu.session.claudeView === 'full' && document.body.classList.contains('claude-open'));
+  };
+  // the full-screen chat as a person opens it once the welcome is over: Ask Claude, then the panel's full screen
+  const openChat = async () => {
+    // (the Ask button closes an open panel: after a view opened from the full-screen chat the panel is already open)
+    if (await page.evaluate(() => document.getElementById('ask').hidden)) await page.click('#btnAsk');
+    await waitFor(page, () => window.emu.session.claudeView === 'full' || !document.getElementById('btnAskFull').hidden);
+    if (await page.evaluate(() => window.emu.session.claudeView !== 'full')) await page.click('#btnAskFull');
+    return waitFor(page, () => window.emu.session.claudeView === 'full' && document.body.classList.contains('claude-open'));
+  };
+  const closeBy = {
+    '← Emulator': (back) => page.click(back),
+    Esc: async () => { await page.evaluate(() => document.activeElement && document.activeElement.blur()); await page.keyboard.press('Escape'); },
+    'browser Back': () => page.goBack(),
+  };
+  for (const query of ['?machine=dragon64', '?machine=dragon64&app=claude', '?app=claude']) {
+    // (Add ROMs has no way in from the full-screen chat: its pill is the emulator's, and the chat machine needs no ROM)
+    for (const [name, id, back, open] of VIEWS.filter(([name]) => !(/app=claude/.test(query) && name === 'Add ROMs'))) {
+      for (const [how, close] of Object.entries(closeBy)) {
+        await load(query);
+        await open();
+        const shown = await waitFor(page, (id) => !document.getElementById(id).hidden, id);
+        await close(back);
+        check(`emulator back: /play/${query} → ${name} → ${how} shows the emulator`, shown && await onEmulator(), await where());
+      }
+    }
+    // deeper history: the Debugger, closed and opened again, then a reload on it; its "← Emulator", then the
+    // browser's Back, never land on the Debugger (or the chat) again
+    await load(query);
+    await page.click('#navDebugger'); await waitFor(page, () => !document.getElementById('debugView').hidden);
+    await page.click('#btnDbgBack'); await onEmulator();
+    await page.click('#navDebugger'); await waitFor(page, () => !document.getElementById('debugView').hidden);
+    await page.reload(); await started(page);
+    const reloaded = await waitFor(page, () => !document.getElementById('debugView').hidden);
+    await page.click('#btnDbgBack');
+    check(`emulator back: /play/${query} → Debugger → reload → "← Emulator" shows the emulator`, reloaded && await onEmulator(), await where());
+  }
+  // a page loaded on the view (a link to it), with and without app=claude: its "← Emulator" stays on the page
+  for (const query of ['#debugger', '?app=claude#debugger', '#library']) {
+    await page.goto(`${base}${query}`); await started(page);
+    const shown = await page.evaluate(() => [...document.querySelectorAll('#debugView, #library')].some((v) => !v.hidden) || !document.getElementById('claude').hidden);
+    await page.click(await page.evaluate(() => (!document.getElementById('library').hidden ? '#btnLibBack' : !document.getElementById('debugView').hidden ? '#btnDbgBack' : '#btnClaudeBack')));
+    check(`emulator back: a page loaded on /play/${query}: "← Emulator" shows the emulator, on the same page`, shown && await onEmulator()
+      && await page.evaluate(() => !!window.emu), await where());
+  }
+  // the full-screen chat's own "← Emulator", Esc and Back, after a reload on it and after a view opened and closed
+  for (const [how, close] of Object.entries(closeBy)) {
+    await load('?app=claude');
+    await page.reload(); await started(page);
+    await waitFor(page, () => window.emu.session.claudeView === 'full');
+    await close('#btnClaudeBack');
+    check(`emulator back: ?app=claude → reload → chat ${how} shows the emulator`, await onEmulator(), await where());
+    await openChat();
+    await page.click('#navDebugger'); await waitFor(page, () => !document.getElementById('debugView').hidden);
+    await page.click('#btnDbgBack'); await onEmulator();
+    await openChat();
+    await close('#btnClaudeBack');
+    check(`emulator back: chat → Debugger → "← Emulator" → chat again → ${how} shows the emulator`, await onEmulator(), await where());
+  }
+  // R2: a view opened from the full-screen chat moves the conversation to the side panel, closed while the view is up;
+  // coming back to the emulator, by "← Emulator", Esc or Back, reopens the Ask panel on the same conversation. A view
+  // opened from the plain emulator leaves the panel closed. Wide (the app bar's links open the views) and narrow (under
+  // 700 px the full-screen chat hides the app bar, so Ctrl K is the way to a view; Add ROMs has none there).
+  const MARK = 'R2-MARK-conversation';
+  const panelState = (mark) => page.evaluate((mark) => {
+    const s = window.emu.session, ask = document.getElementById('ask');
+    return { open: !ask.hidden && document.body.classList.contains('ask-open'), view: s.claudeView, same: s.chat === window.__r2chat,
+      shows: document.getElementById('askMessages').textContent.includes(mark), url: location.pathname + location.search + location.hash };
+  }, mark);
+  const panelBack = (mark) => waitFor(page, (mark) => { const s = window.emu.session, ask = document.getElementById('ask');
+    return !ask.hidden && document.body.classList.contains('ask-open') && s.claudeView === 'panel' && s.chat === window.__r2chat
+      && document.getElementById('askMessages').textContent.includes(mark); }, mark);
+  const tag = () => page.evaluate((mark) => { const s = window.emu.session; window.__r2chat = s.chat; s.chat.messages.push({ role: 'user', content: mark }); s.emit('chat'); }, MARK);
+  // a view by Ctrl K, as a person on a narrow window does
+  const byCtrlK = async (words) => {
+    await page.evaluate(() => document.activeElement && document.activeElement.blur());
+    await page.keyboard.press('Control+k');
+    await page.fill('#cmdInput', words);
+    await page.keyboard.press('Enter');
+  };
+  for (const [label, viewport] of [['wide', { width: 1440, height: 900 }], ['narrow', { width: 600, height: 900 }]]) {
+    await page.setViewportSize(viewport);
+    for (const [name, id, back, open, words] of [
+      ['Debugger', 'debugView', '#btnDbgBack', () => page.click('#navDebugger'), 'Open the Debugger'],
+      ['Library', 'library', '#btnLibBack', () => page.click('#navLibrary'), 'Open the Library'],
+      ['Share', 'share', '#shareBack', () => page.click('#btnShare'), 'Share']]) {
+      for (const [how, close] of Object.entries(closeBy)) {
+        await load('?machine=dragon64&app=claude');
+        const phone = await page.evaluate(() => ({ phone: document.body.classList.contains('chat-phone'), bar: getComputedStyle(document.getElementById('appbar')).display }));
+        if (label === 'narrow' && how === '← Emulator' && name === 'Debugger') check('emulator back (narrow): at 600 px the full-screen chat is the phone layout with the app bar hidden', phone.phone && phone.bar === 'none', JSON.stringify(phone));
+        await tag();
+        await (label === 'narrow' ? byCtrlK(words) : open());
+        const shown = await waitFor(page, (id) => !document.getElementById(id).hidden, id);
+        const during = await panelState(MARK);
+        await close(back);
+        const reopened = await onEmulator() && await panelBack(MARK);
+        if (shotDir && how === '← Emulator' && name === 'Debugger') await page.screenshot({ path: path.join(shotDir, `emulator-back-panel-${label}.png`) });
+        check(`emulator back (${label}): chat → ${name} (${label === 'narrow' ? 'Ctrl K' : 'app bar'}) → ${how}: the Ask panel reopens on the same conversation`,
+          shown && !during.open && reopened, JSON.stringify({ during, after: await panelState(MARK) }));
+      }
+    }
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+  for (const [name, id, back, open] of VIEWS) {
+    for (const [how, close] of Object.entries(closeBy)) {
+      await load('?machine=dragon64');
+      // a conversation exists (the panel opened, then closed with its ✕), so only the rule keeps the panel closed
+      await page.click('#btnAsk');
+      await waitFor(page, () => window.emu.session.chat && (window.emu.session.claudeView === 'full' || !document.getElementById('ask').hidden));
+      if (await page.evaluate(() => window.emu.session.claudeView === 'full')) await page.click('#btnFullSide');   // the welcome menu opens it full screen
+      await waitFor(page, () => !document.getElementById('ask').hidden && window.emu.session.claudeView !== 'full');
+      await tag();
+      await page.click('#btnAskClose');
+      await waitFor(page, () => document.getElementById('ask').hidden);
+      await open();
+      const shown = await waitFor(page, (id) => !document.getElementById(id).hidden, id);
+      await close(back);
+      const gone = await onEmulator();
+      await page.waitForTimeout(150);
+      const after = await panelState(MARK);
+      check(`emulator back: plain emulator, conversation kept → ${name} → ${how}: the Ask panel stays closed`, shown && gone && !after.open && after.same, JSON.stringify(after));
+    }
+  }
+  check('emulator back: no page errors', !errors.length, errors.join('; '));
+  await ctx.close();
+}
+
 async function claudeChecks(browser, base, check) {
   // the system prompt goes as text blocks (the last one carries the cache breakpoint): their text
   const sysText = (body) => (Array.isArray(body.system) ? body.system.map((b) => b.text).join('') : '');
@@ -6228,6 +6381,7 @@ async function designChecks(browser, base, check) {
     if (want('inputScreen')) await inputScreenChecks(browser, base, check);
     if (want('focus')) await focusChecks(browser, base, check);
     if (want('uiQa')) await uiQaChecks(browser, base, check);
+    if (want('emulatorBack')) await emulatorBackChecks(browser, base, check);
     if (want('debugger')) await debuggerChecks(browser, base, check);
     if (want('tape')) await tapeChecks(browser, base, check);
     if (want('layout')) await layoutChecks(browser, base, check);

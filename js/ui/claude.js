@@ -19,7 +19,7 @@ import { MemoryChannel } from '../claude/channel.js';
 import { exampleReader } from '../host/example-reader.js';
 import { ACTING_TOOL_NAMES } from '../claude/chat.js';
 import { CanvasPresenter } from '../video/canvas.js';
-import { $, ESC } from './page.js';
+import { $, ESC, VIEWS, viewOpen } from './page.js';
 
 const FIRMWARE_URL = 'examples/chat.bin';
 // the tools that change the BASIC session (the rest only read), from the one list in js/claude/chat.js
@@ -177,6 +177,7 @@ export function setupClaude(page) {
   // Chat with Claude, full screen: the chat machine on screen, the conversation (if any) moved to it
   let opening = null;
   async function openFull() {
+    panelOnReturn = false;
     if (session.claudeView === 'full') { session.showChat('chat'); show(true); return session.chat; }
     if (opening) return opening;
     opening = (async () => {
@@ -224,26 +225,39 @@ export function setupClaude(page) {
     $('claude').hidden = !on;
     $('claudeBar').hidden = !on;
     $('claudeViewRow').hidden = !on;
-    // the address says what is open, so a reload or a copied link opens the same. Opening the chat adds one step to
-    // the history, so the browser's Back closes it (the app bar is hidden in a phone's chat)
+    // the address says what is open, so a reload or a copied link opens the same. Opening the chat is one step in
+    // the page's history (page.openStep): the browser's Back closes it (the app bar is hidden in the phone layout; Ctrl K still reaches the views), and
+    // a view it replaces (a link to ?app=claude#debugger) closes
     const u = new URL(location.href);
-    if (on) u.searchParams.set('app', 'claude'); else u.searchParams.delete('app');
-    if (on && !stepped) { history.pushState({ claudeChat: STEP }, '', u.href); stepped = true; }
+    if (on) { u.searchParams.set('app', 'claude'); if (VIEWS.includes(u.hash)) u.hash = ''; } else u.searchParams.delete('app');
+    if (on) opened = true;
+    if (on && !page.onStep('claudeChat')) page.openStep({ claudeChat: true }, u.href);
     else if (u.href !== location.href) history.replaceState(history.state, '', u.href);
     render();
   }
-  // the chat's history step: Back leaves the chat; "← Emulator" (and the ways to it) takes that same step back, so
-  // no stale step is left behind
-  // (the step is marked with this page load's own token: after a reload the entry it reloaded keeps an older mark,
-  // and stepping back onto that entry must still leave the chat)
-  let stepped = false;
-  const STEP = `${Date.now()}-${Math.random()}`;
-  addEventListener('popstate', (e) => {
-    if (!stepped || (e.state && e.state.claudeChat === STEP) || location.hash) return;   // (a hash view's own steps are theirs)
-    stepped = false;
-    if (document.body.classList.contains('claude-open')) close();
+  // the chat's history step: when it is no longer the current entry (Back, a view opened over the chat replacing it,
+  // "← Emulator"), the full-screen chat closes. An entry an earlier load of the page left (history.state outlives a
+  // reload) is not this load's step, so stepping back onto it leaves the chat too.
+  // Landing off the step (Back to the entry the page was loaded on, still ?app=claude), the address drops app=claude
+  // too, so a reload there opens what is shown; before the chat has first opened the link's app=claude is still to come.
+  let opened = false;
+  // A view opened over the full-screen chat moves the conversation to the side panel, which stays closed while the view
+  // is up (the view has the page). Coming back to the emulator reopens the panel on the same conversation, however the
+  // view closes ("← Emulator", Esc, Back), so a pending question, a streaming reply or Claude acting is there to see.
+  // A view opened from the plain emulator never sets this.
+  let panelOnReturn = false;
+  page.onView(() => {
+    if (page.onStep('claudeChat')) return;
+    if (document.body.classList.contains('claude-open')) { const byView = viewOpen(); close(); if (byView) panelOnReturn = true; }
+    else if (opened && new URL(location.href).searchParams.get('app') === 'claude') show(false);
+  }, { every: true });
+  page.onView(() => {
+    if (viewOpen() || !panelOnReturn) return;
+    panelOnReturn = false;
+    if (session.chat && session.claudeView !== 'full') openPanel();
   });
-  function leave() { if (stepped) history.back(); else close(); }
+  // "← Emulator" (and Esc) take the chat's step back, so no stale step is left behind
+  const leave = () => page.toEmulator();
   $('btnClaudeBack').onclick = () => leave();
   // Esc off the screen leaves the full-screen chat the way "← Emulator" does, taking the history step back (the page's
   // one Esc path, page.onEscape); on the screen Esc is the machine's BREAK and stops a reply

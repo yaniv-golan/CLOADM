@@ -200,8 +200,9 @@ export function createFeedback() {
   for (const ev of ['click', 'change', 'drop']) document.addEventListener(ev, next, true);
   // leaving the page ends the toast, so what it was holding back happens (a Library delete is committed)
   addEventListener('pagehide', () => end('closed'));
-  // another page: the toast goes with the page it was about; one raised for the page now shown appears
-  addEventListener('hashchange', () => {
+  // another page (page.onView calls it on every change of view): the toast goes with the page it was about; one
+  // raised for the page now shown appears
+  function viewChanged() {
     const v = currentView();
     if (cur && cur.view !== v) end('cleared');
     const w = waiting.get(v);
@@ -210,7 +211,7 @@ export function createFeedback() {
       if (Date.now() - w.raised <= WAIT) show(w); else if (w.onEnd) w.onEnd('dropped');
     }
     renderAttention();
-  });
+  }
 
   // ---------------- attention: one per page, until resolved or dismissed
   function renderAttention() {
@@ -235,7 +236,7 @@ export function createFeedback() {
   $('attentionClose').onclick = () => resolve();
 
   return {
-    toast, attention, resolve,
+    toast, attention, resolve, viewChanged,
     clear: () => { queue.length = 0; end('cleared'); },   // (all of them: the one up and those waiting)
     get current() { return cur ? { text: cur.text, error: cur.error, view: cur.view } : null; },
     // the toast up (seen or waiting for room) and those queued behind it, in the order they will show

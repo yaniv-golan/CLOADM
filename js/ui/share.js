@@ -41,7 +41,7 @@ export function setupShare(page) {
     if (open && !captured) capture().catch((e) => page.status(e.message, true));
     if (open) window.scrollTo(0, 0);
   }
-  addEventListener('hashchange', show);
+  page.onView(show);
   $('shareBack').onclick = (e) => { e.preventDefault(); page.closeView(); };
   $('btnShare').onclick = async () => {
     try { await capture(); } catch (e) { page.status(e.message, true); return; }

@@ -145,9 +145,11 @@ thing that is open: a confirmation, a menu (the machine menu, a drive's menu, Ct
 screen), and focus goes back to the screen. In the full-screen chat the screen is the chat: with focus on it `Esc`
 is BREAK and stops a reply as it streams; with focus on its bar (or anywhere off the screen) `Esc` returns to the
 emulator and the reply goes on. Controls that use `Esc` themselves keep it: a rename in the Library cancels, select
-mode ends, the Ask panel's drawer rail closes. Each view adds one entry to the browser's history, so Back returns to
-the emulator; a view opened from another view replaces it, and a view the page was opened on (a link to `#library`)
-closes to the emulator rather than leaving the page.
+mode ends, the Ask panel's drawer rail closes. Each view, and the full-screen chat, adds one entry to the browser's
+history, so Back returns to the emulator; one opened from another replaces it (a view opened from the full-screen
+chat takes its place; the conversation moves to the side panel, which reopens when you return to the emulator), and one the page was opened on (a link to
+`#library`, or a reload on it) closes to the emulator rather than leaving the page. Every "← Emulator" returns to
+the emulator, whatever the address (`?app=claude` included) and the history behind it.
 
 On a phone or tablet an on-screen keyboard appears under the screen; held sideways it splits for your thumbs with
 the screen between its halves (BREAK, CLEAR, Hide keys and Menu under it). `SHIFT` shifts the next key. Input tab →

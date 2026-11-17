@@ -39,7 +39,7 @@ export function setupDebuggerPanel(page) {
     view.hidden = !open;
     if (open) refresh();
   }
-  addEventListener('hashchange', show);
+  page.onView(show);
   const close = () => page.closeView();
   $('btnDbgBack').onclick = (e) => { e.preventDefault(); close(); };
   $('navDebugger').onclick = (e) => { e.preventDefault(); page.openView('#debugger'); };

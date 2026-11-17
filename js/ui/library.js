@@ -90,9 +90,9 @@ export function setupLibrary(page, { loadProgram, runShelf, changed, reconnect =
     view.hidden = !open;
     if (open) { refresh(); $('libHeading').focus(); }
   }
-  addEventListener('hashchange', show);
+  page.onView(show);
   const close = () => {
-    setSelecting(false);                  // (leaving ends the Undo toast, and so the delete: js/ui/feedback.js on the hashchange)
+    setSelecting(false);                  // (leaving ends the Undo toast, and so the delete: js/ui/feedback.js on the view change)
     page.closeView();
   };
   $('btnLibBack').onclick = (e) => { e.preventDefault(); close(); };
@@ -323,7 +323,7 @@ export function setupLibrary(page, { loadProgram, runShelf, changed, reconnect =
     if (errors.length) { say(text ? `${text}. ${errors.join(' · ')}` : errors.join(' · '), true, text ? { details: errors.join(' · ') } : {}); return; }
     if (!text) { say('Nothing added: no files in what you gave'); return; }
     const one = kept === 1 && items.find((i) => base(i.name) === added[0]);
-    say(text, false, { action: !isOpen() ? { label: 'Show', run: () => { location.hash = '#library'; } } : one ? { label: 'Load', run: () => load(one.name) } : null });
+    say(text, false, { action: !isOpen() ? { label: 'Show', run: () => page.openView('#library') } : one ? { label: 'Load', run: () => load(one.name) } : null });
   }
   const pick = () => $('fileLib').click();
   $('btnLibAdd').onclick = pick;

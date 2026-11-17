@@ -6,6 +6,17 @@ All notable changes to CLOADM are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- "← Emulator" (and Esc, and the browser's Back) now always return to the emulator. Opened from
+  `/play/?app=claude`, the Debugger, Library and Share went back to the full-screen chat instead, and after a reload
+  on a view, Back and the chat's "← Emulator" could land on the Debugger again. The views and the full-screen chat
+  now share one history model (`page.openStep` / `page.toEmulator` in js/ui/page.js): at most one is above the
+  emulator, in one history entry marked with the page load that added it, and the views follow `popstate` as well
+  as `hashchange`. A view opened from the full-screen chat moves the conversation to the side panel, and coming back to the
+  emulator (by "← Emulator", Esc or Back) reopens the Ask panel on that conversation, so a waiting question or a reply
+  in progress is not left unseen.
+
 ### 0.1.0 (first public release, not tagged yet)
 
 Everything on `main` so far. Hardware behaviour is checked against MAME 0.264 in instruction lockstep (and pixel
