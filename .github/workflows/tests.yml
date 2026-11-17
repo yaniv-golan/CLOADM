@@ -42,6 +42,11 @@ jobs:
       matrix: ${{ steps.plan.outputs.matrix }}
     steps:
       - uses: actions/checkout@v7
+      # The same pinned Node as the suites: the check runs `tools/browser-check.js --list-groups`, which loads the
+      # emulator's ES modules through require().
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
       # Fails if a browser-check group is in no shard, in two, or isn't a group at all; the matrix below is built
       # from the same file, so what is checked is what runs.
       - id: plan
@@ -147,6 +152,10 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
+      # pinned like the others: the shard count below comes from `tools/browser-check.js --list-groups`
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
       - uses: actions/download-artifact@v7
         with:
           pattern: counts-*

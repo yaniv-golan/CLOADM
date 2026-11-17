@@ -127,15 +127,15 @@ function makeWaits(run, file) {
   // { ok } on success; { ok: false, gone } when an evaluate failed for a reason that ends the wait (strict: any
   // evaluate error does); { ok: false } on timeout
   const poll = async (page, fn, arg, ms, strict = false) => {
-    const t = Date.now();
-    while (Date.now() - t < ms) {
+    // the condition is read at least once, however short ms is
+    for (const t = Date.now(); ;) {
       try { if (await page.evaluate(fn, arg)) return { ok: true }; } catch (e) {
         if (strict || pageGone(page, e)) return { ok: false, gone: firstLine(e) };
         /* thrown inside the page: not ready yet */
       }
+      if (Date.now() - t >= ms) return { ok: false };
       try { await page.waitForTimeout(50); } catch (e) { return { ok: false, gone: firstLine(e) }; }
     }
-    return { ok: false };
   };
   const waitFor = async (page, fn, arg, ms = DEFAULT_MS) => {
     const r = await poll(page, fn, arg, ms);
