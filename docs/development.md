@@ -22,7 +22,7 @@ is in no shard, in two, or isn't a group (it reads the groups from `node tools/b
 Don't run anything else on the machine while the browser check runs: it is timing-sensitive under load.
 
 ```
-node tests/all.js            # every suite below in a worker pool (--jobs N to cap it), one line each, the regression gate included (exit 0 = all passed)
+node tests/all.js            # every suite below in a worker pool (--jobs N to cap it), one line each, the regression gate included (exit 0 = all passed, and every suite must also have printed its summary line: one that exits 0 half done is a failure)
 node tools/browser-check.js  # the real pages in Chromium: the landing page (desktop and phone) and /play/: every model, LIZA end to end, the file:// notice, Capture & share and opening snapshots, the favicon and no missing file requested by any page; the feedback model (toasts on the page the user is on, cleared by the next action, Undo, Details, desktop and phone). Every "← Emulator", Esc and Back return to the emulator, from `/play/` and `?app=claude`, after a reload and from a page loaded on a view (`--only emulatorBack`). `--only feedback,library` runs just those groups (an unknown group is an error); see "What the gates' results mean" below
 node tools/capture-images.js # recapture img/*.png (site and README pictures) from the emulator, with no ROMs
 node tests/cpu.test.js       # 6809 instruction tests, scripted (all tests load js/emu.js via tests/load.js)
@@ -84,6 +84,10 @@ node tests/returning.test.js # returning visits: greetings, option 5, what ran l
 node tests/power-on.test.js  # without ROMs: Reset restarts what runs; power-on, a machine switch and a snapshot of the stub's prompt bring the welcome menu (6809 and 6803)
 node tests/welcome6803.test.js # the 6803 welcome on mc10 and alice: raw screen cells, per-machine subtitle, keys, the two builds differ only at the HALT
 node tests/regress.test.js                # fast gate: trace and frame hashes of the diagnostic firmware (seconds, no MAME; tests/all.js runs it too; --count prints the number of cases)
+node tests/allsummary.test.js             # the gate itself: a suite that exits 0 without printing its summary (a pending promise) fails; normal suites pass; fixtures stay out
+node tests/allsignal.test.js              # a signal to the gate stops every suite and exits 128+n; nothing survives
+node tests/exitcode.test.js               # no suite or tool forces process.exit() (the Node 25 deadlock), by static scan
+node tests/exitguard.test.js              # the same rule at run time, against every spelling a static scan cannot see
 node tools/mame-diff/run.js <profile>     # lockstep trace comparison with MAME (needs mame; exit 0 = identical)
 node tools/mame-diff/run.js <profile> --video [--artifact N]   # pixel comparison of every display mode with MAME
 node tools/mame-diff/run.js coco3 --video --attr   # the GIME's text attributes, exactly (blank glyphs, so the fonts never show)

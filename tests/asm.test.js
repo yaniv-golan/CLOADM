@@ -123,7 +123,10 @@ for (const [src, want] of cases) {
   const last = listed.listing[listed.listing.length - 1] || {};
   if (!listed.ok || last.line !== 3 || last.file !== null) { fail++; console.log('FAIL INCLUDE listing', listed.listing); }
 }
-console.log(`${n - fail}/${n} assembler checks passed`);
+// NOT a summary line: this file ends with exactly one summary line (below), because tests/all.js reads a suite's
+// last line as its summary -- a summary-shaped line here would let a truncation of this file pass the gate, since a
+// suite that stops right after one looks finished. Its count is carried into the final line instead, so a failure
+// still says which half failed.
 
 // ---- assemble LIZA and hold a conversation on the stub firmware ----
 // liza.asm INCLUDEs the conversation data both LIZA builds share (examples/liza-data.inc)
@@ -265,5 +268,19 @@ console.log(screen());
   }
 }
 
-console.log(ok ? 'LIZA conversation OK' : 'LIZA conversation FAILED');
+// The file's ONE summary line, and its last output: every check above (the assembler table, the LIZA conversation
+// and the defines/IF section) is counted in n and fail. It names the half that failed, so a failure still says
+// where to look; on a pass it is a full tally the gate accepts. Written as one line on purpose: a second
+// summary-shaped line earlier in the file would let the gate pass a truncation of this suite.
+//
+// The failure wording counts the FAILURES first ("3/109 assembler checks failed"), never the passes: the other way
+// round read as "the 108 checks failed". No failure line here matches a summary pattern -- "failed" is not "passed",
+// and the gate also fails the suite on its exit code -- which tests/allsummary.test.js pins by running this very
+// branch and checking the gate's verdict.
+if (fail || !ok) {
+  const parts = [];
+  if (fail) parts.push(`${fail}/${n} assembler checks failed`);
+  if (!ok) parts.push('LIZA conversation FAILED');
+  console.log(parts.join('; '));
+} else console.log(`${n}/${n} checks passed (assembler and LIZA)`);
 process.exitCode = fail || !ok ? 1 : 0;

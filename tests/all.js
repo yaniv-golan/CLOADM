@@ -2,6 +2,10 @@
 // lines, in the same order, as a serial run -- while still printing a suite as soon as it is the next one due.
 // Exit code 0 only if all pass.
 //
+// A suite passes only if it exits 0 AND its last printed line is its summary ("all passed", "127/127 checks
+// passed", ...): a suite that stops halfway -- the usual cause is a promise that never settles, which does not
+// hang but lets Node drain the event loop and exit 0 -- prints no summary and is failed by name.
+//
 //   node tests/all.js [--jobs N]
 //
 // Each suite is its own Node process, as before: the suites share no state, write no files, and a crash in one
@@ -11,13 +15,24 @@
 // The pool size defaults to the machine's usable parallelism (capped at 8: more suites than that are dominated
 // by the two long ones, and oversubscribing a loaded machine makes every suite slower).
 const fs = require('fs'), path = require('path'), cp = require('child_process'), os = require('os');
+const { verdict } = require('./suite-verdict.js');
 
 const argJobs = (() => { const i = process.argv.indexOf('--jobs'); return i > 0 ? Number(process.argv[i + 1]) : 0; })();
 const usable = typeof os.availableParallelism === 'function' ? os.availableParallelism() : os.cpus().length;
 const jobs = Math.max(1, Math.min(8, argJobs || usable));
 
-const files = fs.readdirSync(__dirname).filter((f) => f.endsWith('.test.js')).sort();
+// A fixture suite is a deliberately broken or deliberately silent suite that a guard test runs (tests/
+// fixture-stops-early.test.js and friends). It lives under tests/ so the static scans reach it, and this keeps it
+// out of the gate: a fixture that always fails must not make every run fail.
+function isFixture(name) { return name.startsWith('fixture-'); }
+
+const files = fs.readdirSync(__dirname).filter((f) => f.endsWith('.test.js') && !isFixture(f)).sort();
 const results = new Map();   // file -> { ok, seconds, output }
+
+// The summary rule itself (what a suite's last line must be, and whether a finished suite passed) lives in
+// tests/suite-verdict.js: a pure function, so every case -- including a timeout that fires in the race between a
+// suite exiting 0 and its 'close' arriving -- is tested without spawning anything. tests/allsummary.test.js holds
+// every suite's real output to those patterns.
 
 // Every suite runs with tests/no-exit.js preloaded, so a suite that reaches process.exit() by any spelling is
 // failed by name instead of bringing back the Node 25 deadlock (see that file, and tests/exitcode.test.js for
@@ -152,7 +167,7 @@ function spawnSuite(f, argv, done) {
   // and each regress shard alike, since both come through here. Installing it at the call sites instead is how a
   // shard went unguarded: runSharded spawns with ['--shard', i/n] and the plain path spawned its own way.
   const p = cp.spawn(process.execPath, [path.join(__dirname, f), ...argv], { stdio: ['ignore', 'pipe', 'pipe'], detached: true, env: guardEnv });
-  let out = '', timedOut = false;
+  let out = '', sout = '', timedOut = false;
   live.add(p);
   const killer = setTimeout(() => {
     timedOut = true;
@@ -160,7 +175,10 @@ function spawnSuite(f, argv, done) {
     try { process.kill(-p.pid, 'SIGKILL'); }      // the whole group
     catch (e) { p.kill('SIGKILL'); }              // ...or at least the suite itself
   }, TIMEOUT_MS(f));
-  p.stdout.on('data', (d) => { out += d; });
+  // stdout is kept apart from stderr because the summary is read from it: a suite prints its summary with
+  // console.log, and a warning Node emits on stderr around the same moment must not hide it. The combined `out` is
+  // what the failure tail shows, so nothing a suite wrote is lost from the run's output.
+  p.stdout.on('data', (d) => { out += d; sout += d; });
   p.stderr.on('data', (d) => { out += d; });
   p.on('error', (e) => { out += `\n${e.message}`; });
   p.on('close', (code) => {
@@ -170,7 +188,15 @@ function spawnSuite(f, argv, done) {
     // line and sets exitCode = 1 -- but the suite can still exit 0, because an 'exit' listener it registered runs
     // after the guard's and can reassign exitCode. It cannot take back what it wrote to stdout.
     const guardFailed = /^FAIL .*: process\.exit\(\) called at /m.test(out);
-    done(code === 0 && !timedOut && !guardFailed, out);
+    // The rule itself is in tests/suite-verdict.js. A suite that exited 0 without printing its summary stopped
+    // part-way and must not count as a pass -- the usual cause is a promise that never settles: Node then has
+    // nothing left to wait for, drains the event loop and exits 0 with the suite half done. Only a missing summary
+    // gets that explanation, so an ordinary failure is not misdescribed as one that stopped early.
+    const v = verdict({ code, timedOut, guardFailed, stdout: sout });
+    if (v === 'no-summary') out += `\n${f}: exited 0 without printing its summary line: a suite that stops early`
+      + ' (a promise that never settles is the usual cause) exits 0 with its work half done, so exit code alone'
+      + ' is not enough';
+    done(v === 'passed', out);
   });
 }
 

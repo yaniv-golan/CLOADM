@@ -153,4 +153,7 @@ for (const id of ['dragon64', 'coco3', 'mc10']) {
   mm.runCycles(mm.cycle + 2000);
   check(`${id}: an interrupt at a hooked address runs the hook once (${prints.length} print${prints.length === 1 ? '' : 's'})`, prints.length === 1 && prints[0] === 0x41);
 }
+// The summary every suite ends with: tests/all.js reads it to tell a suite that finished from one that stopped
+// part-way and exited 0 anyway.
+console.log(fail ? `${fail} FAILED` : 'all passed');
 process.exitCode = fail ? 1 : 0;

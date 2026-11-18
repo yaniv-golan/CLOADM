@@ -62,5 +62,5 @@ try {
   fails(run({ args: ['--shard', '1', ''] }), /shard 1 would run --only ""/, 'a shard given an empty --only');
   fails(run({ args: ['--shard', '1', realShards.shards[1].join(',')] }), /shard 1 would run --only/, 'a shard given another shard\'s list');
   fails(run({ args: ['--shard', '9', first] }), /no shard 9/, 'a shard number that does not exist');
-  console.log('browser-check-shards self-test: ok');
+  console.log('all browser-check-shards self-test checks passed');
 } finally { fs.rmSync(dir, { recursive: true, force: true }); }

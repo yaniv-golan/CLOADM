@@ -116,6 +116,7 @@ console.log('all passed');`);
   fs.mkdirSync(gateTests, { recursive: true });
   fs.copyFileSync(path.join(__dirname, 'all.js'), path.join(gateTests, 'all.js'));
   fs.copyFileSync(path.join(__dirname, 'no-exit.js'), path.join(gateTests, 'no-exit.js'));
+  fs.copyFileSync(path.join(__dirname, 'suite-verdict.js'), path.join(gateTests, 'suite-verdict.js'));
 
   const probes = [
     ['an aliased exit swallowed by try/catch', "const { exit } = process;\ntry { exit(0); } catch (e) {}\nconsole.log('all passed');"],
@@ -144,6 +145,7 @@ console.log('all passed');`);
   fs.copyFileSync(path.join(__dirname, 'no-exit.js'), path.join(shardTests, 'no-exit.js'));
   // the runner, with SHARDS extended so the probe suite really is spawned as two shards
   let runner = fs.readFileSync(path.join(__dirname, 'all.js'), 'utf8');
+  fs.copyFileSync(path.join(__dirname, 'suite-verdict.js'), path.join(shardTests, 'suite-verdict.js'));
   runner = runner.replace("const SHARDS = { 'regress.test.js':",
     "const SHARDS = { 'zz-shardprobe.test.js': 2, 'regress.test.js':");
   fs.writeFileSync(path.join(shardTests, 'all.js'), runner);

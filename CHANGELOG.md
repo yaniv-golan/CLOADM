@@ -114,4 +114,7 @@ comparison and every known difference. No ROMs are included: users supply their 
 - **Site:** the landing page at `/`, the emulator at `/play`, the `/roms` page, Help and Credits, with a light
   variant for reading pages and a phone layout.
 - **Development:** the MAME lockstep, video, raster, byte and audio comparison tools in `tools/mame-diff/`, the
-  regression hash gate, the headless browser check, and a CI workflow running both on every push.
+  regression hash gate, the headless browser check, and a CI workflow running both on every push. The test gate
+  (`tests/all.js`) fails a suite that exits 0 without printing its summary, so a suite that stops part-way on a
+  promise that never settles can no longer count as a pass (found by this: `tests/allsignal.test.js` had been
+  exiting silently), and `tests/machine.test.js` now ends with the summary line every suite prints.
