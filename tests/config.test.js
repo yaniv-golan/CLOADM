@@ -89,6 +89,25 @@ check('a failed fetch of a link\'s file: a network or CORS failure (TypeError) g
   check('a fraction is not a whole number', /curvature=3\.5/.test(parse('?curvature=3.5').errors[0]));
 }
 
+// ?touch=: the on-screen panel's mode, both values, a bad one, and an embed (which has no panel of its own)
+{
+  const j = parse('?machine=dragon64&touch=joystick'), k = parse('?touch=keys');
+  check('touch=joystick and touch=keys parse', j.touch === 'joystick' && !j.errors.length && k.touch === 'keys' && !k.errors.length,
+    JSON.stringify({ j: j.touch, jerr: j.errors, k: k.touch }));
+  const bad = parse('?touch=joypad');
+  check('a bad touch value: an error, and nothing set', bad.touch === null && /touch=joypad: joystick or keys/.test(bad.errors[0]), bad.errors.join());
+  // an embedded page has no panel of its own (the page around it drives the machine): the link says so rather
+  // than carry a setting nothing reads
+  const emb = parse('?embed=1&touch=joystick');
+  check('touch= with embed=1: reported as not applying, and nothing set', emb.touch === null && /touch=joystick: an embedded page has no on-screen panel/.test(emb.errors[0]),
+    emb.errors.join());
+  check('buildUrl writes touch=, and it reads back', (() => {
+    const url = Emu.buildUrl('https://cloadm.dev/play/', { machine: 'coco', config: {}, touch: 'joystick' });
+    const back = parse(new URL(url).search);
+    return /[?&]touch=joystick/.test(url) && back.touch === 'joystick' && !back.errors.length;
+  })());
+}
+
 // parameters that aren't settings
 {
   const c = parse('?machine=dragon64&utm_source=x&ram=64');

@@ -414,46 +414,130 @@
   .trow .addr, .trow .cyc { color: #8A968C; }
   .trow .text { flex: 1; color: var(--text-2); }
   @media (max-width: 700px) { .dbghead { padding: 10px 16px; } .dbggrid { padding: 12px 16px; } .memrow .text { display: none; } }
-  /* ---- the on-screen keyboard ---- */
+  /* ---- the on-screen panel (keys, or the joystick: js/ui/touch-keys.js) ---- */
   #touchKeys[hidden] { display: none !important; }
-  #touchKeys { display: flex; flex-direction: column; gap: 5px; user-select: none; -webkit-user-select: none; touch-action: manipulation; }
-  #touchKeys .tkhalf, #touchKeys .tkhole { display: none; }
-  #touchKeys .tkcenter { order: 2; }   /* portrait: BREAK, CLEAR, Hide keys and Menu under the keys */
-  #touchKeys #touchFull { order: 1; }
+  /* A grid of ten columns, so each mode puts its pieces in named places and nothing lies over anything else:
+     keys             the 10-column keyboard, then BREAK, CLEAR, the mode switch and Menu
+     keys, sideways   the split keyboard either side of the screen, the switch and those buttons under it
+     stick            the mode switch, the key strip, then the stick (left) and FIRE (right)
+     stick, sideways  the stick's zone left, the strip, FIRE, the switch and the buttons right, the screen between */
+  #touchKeys { display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 4px;
+    user-select: none; -webkit-user-select: none; touch-action: manipulation; }
+  #touchKeys > #touchFull { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 5px; }
+  #touchKeys > .tkhalf { display: none; }
+  #touchKeys > #touchStrip, #touchKeys > .tkcenter { grid-column: 1 / -1; }
+  #touchKeys > #touchStick { grid-column: 1 / span 6; }
+  #touchKeys > #touchFire { grid-column: 7 / -1; }
+  /* each mode shows only its own pieces */
+  #touchKeys:not(.joystick) > #touchStrip, #touchKeys:not(.joystick) > #touchStick, #touchKeys:not(.joystick) > #touchFire { display: none; }
+  #touchKeys.joystick > #touchFull, #touchKeys.joystick > .tkhalf { display: none; }
+  /* ABC in joystick mode: the full keyboard for one press, in the strip's and the stick's own rows -- and those
+     pieces are hidden while it is up, or the strip (same row) would lie over the keyboard and take its taps */
+  #touchKeys.keysonce.joystick > #touchFull { display: flex; }
+  #touchKeys.keysonce.joystick > #touchStrip,
+  #touchKeys.keysonce.joystick > #touchStick,
+  #touchKeys.keysonce.joystick > #touchFire { display: none; }
   #touchKeys .tkrow { display: flex; gap: 4px; }
-  #touchKeys .tk { flex: 1; min-width: 0; height: 48px; border: 0; border-radius: var(--r-8); background: #1E1E1E; color: #F2F2F2; font-weight: 600;
+  #touchKeys .tk { flex: 1; min-width: 0; height: 44px; border: 0; border-radius: var(--r-8); background: #1E1E1E; color: #F2F2F2; font-weight: 600;
     font-size: 17px; box-shadow: 0 3px 0 #000; padding: 0; }
   #touchKeys .tk.wide { flex: 1.6; font-size: 12px; }
   #touchKeys .tk.space { flex: 4; font-size: 15px; }
   #touchKeys .tk.down { background: #3A403C; transform: translateY(2px); box-shadow: 0 1px 0 #000; }
   #touchKeys .tk[aria-pressed="true"] { background: var(--phosphor); color: var(--on-phosphor); }
-  /* portrait: the four in one row under the keys, so they stay on screen with them below the header */
-  #touchKeys .tkbtns { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
-  #touchKeys .tkbtns button { height: 48px; border-radius: var(--r-10); font-size: 15px; white-space: nowrap; padding: 0 4px; }
+  /* the switch above the keys, BREAK, CLEAR and Menu in a row under them (so all of it stays on screen with
+     them, below the header); sideways the media query below places them down the middle instead */
+  #touchKeys .tkcenter { display: contents; }
+  #touchKeys .tkmode, #touchKeys .tkbtns { grid-column: 1 / -1; }
+  #touchKeys > .tkcenter > .tkmode { grid-row: 1; }
+  #touchKeys > #touchFull, #touchKeys > #touchStrip { grid-row: 2; }
+  #touchKeys > #touchStick, #touchKeys > #touchFire { grid-row: 3; }
+  #touchKeys > .tkcenter > .tkbtns { grid-row: 4; }
+  #touchKeys .tkbtns { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+  #touchKeys .tkbtns button { height: 44px; min-height: 44px; border-radius: var(--r-10); font-size: 15px; white-space: nowrap; padding: 0 4px; }
   body.touch-keys #keyHint, body.touch-keys #soundHint { display: none !important; }   /* a keyboard hint and "click for sound": not on a touch screen (a key tap starts the sound) */
   #touchKeys .tkbtns .tk { font-size: 15px; }
   #touchKeys #tkBreak { background: #B3261E; color: #fff; border: 0; font-weight: 700; box-shadow: none; }
   #touchKeys #tkClear { background: #263029; color: var(--text); border: 0; font-weight: 700; box-shadow: none; }
-  /* portrait, or a larger touch screen: ten columns under the screen, then BREAK, CLEAR, Hide keys and Menu */
-  #touchKeys #touchFull { display: flex; flex-direction: column; gap: 5px; }
-  /* a phone held sideways: the split thumb keyboard, the screen between its halves */
+  /* the Keys | Joystick switch: a segmented control over the panel */
+  #touchKeys .tkmode { display: flex; gap: 2px; padding: 0; border: 1px solid var(--line); border-radius: 9px; background: var(--ground); }
+  #touchKeys .tkmode[hidden] { display: none; }
+  #touchKeys .tkmode button { flex: 1; height: 100%; min-height: 42px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font-size: 14px; font-weight: 600; }
+  #touchKeys .tkmode button[aria-pressed="true"] { background: var(--line); color: var(--text); }
+  /* joystick mode: the key strip across the top, then the stick and FIRE side by side */
+  #touchKeys #touchStrip { display: flex; flex-wrap: wrap; gap: 4px; }
+  #touchKeys #touchStrip .tk { flex: 0 0 46px; height: 44px; font-size: 13px; }
+  #touchKeys #touchStrip .tk.space { flex: 1 1 60px; }
+  #touchKeys #touchStick { position: relative; height: 168px; border-radius: var(--r-10); border: 2px dashed #2C322D; background: #131513; touch-action: none; overflow: hidden; }
+  #touchKeys #touchKnob { position: absolute; left: 50%; top: 50%; width: 56px; height: 56px; margin-left: -28px; margin-top: -28px; border-radius: 50%;
+    background: #30352F; border: 2px solid #4A5148; pointer-events: none; }
+  #touchKeys #touchKnob.live { background: #3A403C; border-color: var(--phosphor); }
+  #touchKeys #touchFire { height: 168px; border: 0; border-radius: var(--r-10); background: #B3261E; color: #fff; font-size: 24px; font-weight: 800; box-shadow: 0 3px 0 #000; }
+  #touchKeys #touchFire.down { background: #7A1B14; transform: translateY(2px); box-shadow: 0 1px 0 #000; }
+  /* the panel's Menu: a short list over the page, never over the screen (its options are about the panel) */
+  #tkMenuSheet { position: fixed; z-index: 8; right: 16px; bottom: 64px; min-width: 180px; padding: 6px; border: 1px solid var(--line); border-radius: var(--r-10);
+    background: #1C201D; box-shadow: 0 8px 24px #000A; }
+  #tkMenuSheet[hidden] { display: none; }
+  #tkMenuSheet button { display: block; width: 100%; min-height: 44px; margin: 0; border: 0; border-radius: 7px; background: transparent; color: var(--text); text-align: left; font-size: 15px; padding: 0 12px; }
+  #tkMenuSheet button:hover { background: #2A302B; }
+  /* ---- a phone held sideways (or any window under 500 px high) ----
+     Keys: the split thumb keyboard, the screen between its halves, and one row under it with BREAK, CLEAR, the
+     switch and Menu. Joystick: the stick's zone left, the strip, FIRE and that row right, the screen between. */
   @media (orientation: landscape) and (max-height: 500px) {
     body.touch-keys .appbar, body.touch-keys .drawer, body.touch-keys .panels, body.touch-keys footer, body.touch-keys .controls,
     body.touch-keys .slots, body.touch-keys .hint, body.touch-keys #welcome, body.touch-keys .plate { display: none !important; }
     body.touch-keys .layout { padding: 0; }
-    body.touch-keys #touchKeys { position: fixed; inset: 0; z-index: 5; flex-direction: row; gap: 8px; padding: 8px 16px; background: var(--ground); pointer-events: none; }
-    body.touch-keys #touchKeys > * { pointer-events: auto; }
-    body.touch-keys #touchKeys #touchFull { display: none; }
-    body.touch-keys #touchKeys .tkhalf { display: flex; flex: 1; flex-direction: column; gap: 5px; justify-content: flex-end; }
-    body.touch-keys #touchKeys .tkcenter { display: flex; flex: none; width: min(280px, 34vw); flex-direction: column; gap: 8px; pointer-events: none; }
-    body.touch-keys #touchKeys .tkcenter .tkhole { display: block; flex: 1; }
-    body.touch-keys #touchKeys #touchLeft { order: 0; } body.touch-keys #touchKeys .tkcenter { order: 1; } body.touch-keys #touchKeys #touchRight { order: 2; }
-    body.touch-keys #touchKeys .tkbtns { pointer-events: auto; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    body.touch-keys #touchKeys .tk { height: min(56px, calc((100vh - 40px) / 5)); }
     body.touch-keys .layout > main > .monitor { position: fixed; z-index: 6; top: 8px; left: 50%; transform: translateX(-50%); width: min(280px, 34vw);
       max-width: none; padding: 0; border-radius: var(--r-8); box-shadow: none; background: #000; }
-    body.touch-keys .tube { border-radius: var(--r-8); height: calc(100vh - 16px - 2 * 48px - 2 * 6px - 8px); aspect-ratio: auto; }
+    /* the tube stops above the control strip under it (a 48 px row and the gaps: the switch shares the row
+       sideways, so there is one row there, not two) */
+    body.touch-keys .tube { border-radius: var(--r-8); height: calc(100vh - 16px - 56px - 2 * 8px); aspect-ratio: auto; }
     body.touch-keys #screenWrap { inset: 0; }
+    body.touch-keys #touchKeys { position: fixed; inset: 0; z-index: 5; display: grid; grid-template-columns: 1fr minmax(0, min(280px, 34vw)) 1fr;
+      grid-template-rows: auto auto 1fr auto; gap: 8px; padding: 8px 16px; background: var(--ground); pointer-events: none; }
+    body.touch-keys #touchKeys > * { pointer-events: auto; }
+    body.touch-keys #touchKeys > #touchFull { display: none; }
+    /* ABC from joystick mode: sideways the screen keeps the whole height, so there is no room under it for a
+       keyboard; the split keyboard's halves come back instead, down the two side columns where the stick and
+       FIRE were, clear of the screen between them. One tap on either half types its key and the stick returns. */
+    body.touch-keys #touchKeys.keysonce.joystick > #touchFull { display: none; }
+    body.touch-keys #touchKeys.keysonce.joystick > .tkhalf { display: flex; }
+    body.touch-keys #touchKeys.keysonce.joystick > #touchStick,
+    body.touch-keys #touchKeys.keysonce.joystick > #touchFire,
+    body.touch-keys #touchKeys.keysonce.joystick > #touchStrip { display: none; }
+    /* the control row keeps the whole width under the halves, so BREAK, CLEAR, the switch and Menu stay tappable */
+    body.touch-keys #touchKeys.keysonce.joystick > .tkcenter { grid-column: 1 / -1; grid-row: 4; }
+    /* the split keyboard's two halves down the page's sides, between the top and the buttons under the screen;
+       joystick mode has no keyboard halves at all */
+    body.touch-keys #touchKeys > .tkhalf { display: flex; flex-direction: column; gap: 5px; justify-content: flex-end; grid-row: 1 / span 3; align-self: stretch; }
+    body.touch-stick #touchKeys > .tkhalf { display: none; }
+    body.touch-keys #touchKeys > #touchLeft { grid-column: 1; }
+    body.touch-keys #touchKeys > #touchRight { grid-column: 3; }
+    body.touch-keys #touchKeys .tk { height: min(56px, calc((100vh - 40px) / 5)); }
+    /* the control strip in one row under the screen, in the brief's order: BREAK, CLEAR, Keys|Joystick, Menu
+       (hide keys is in Menu). The buttons box is unpacked so the four can order themselves; the switch takes a
+       little more of the row, as it carries two words. */
+    body.touch-keys #touchKeys > .tkcenter { display: flex; flex-direction: row; gap: 4px; grid-column: 2; grid-row: 4;
+      align-self: stretch; pointer-events: auto; height: auto; }
+    body.touch-keys #touchKeys > .tkcenter > *, body.touch-keys #touchKeys > .tkcenter #tkBreak,
+    body.touch-keys #touchKeys > .tkcenter #tkClear, body.touch-keys #touchKeys > .tkcenter #tkMenu { height: 44px; }
+    body.touch-keys #touchKeys > .tkcenter > .tkbtns { display: contents; }
+    body.touch-keys #touchKeys > .tkcenter > .tkmode { order: 3; flex: 2 1 0; }
+    body.touch-keys #touchKeys > .tkcenter #tkBreak { order: 1; flex: 1 1 0; }
+    body.touch-keys #touchKeys > .tkcenter #tkClear { order: 2; flex: 1 1 0; }
+    body.touch-keys #touchKeys > .tkcenter #tkMenu { order: 4; flex: 1 1 0; }
+    /* joystick mode, sideways: the screen keeps the column the tube is given; the stick's zone is the left of it
+       and the strip, FIRE and the controls the right, each as wide as the other (the brief: the left half the
+       stick, the right half FIRE and the key strip) */
+    body.touch-stick #touchKeys { grid-template-columns: minmax(0, 1fr) minmax(0, min(360px, 44vw)) minmax(0, 1fr);
+      grid-template-rows: auto 1fr auto auto; }
+    body.touch-stick #touchKeys > #touchStick { grid-column: 1; grid-row: 1 / span 4; height: auto; align-self: stretch; }
+    body.touch-stick #touchKeys > #touchStrip { grid-column: 3; grid-row: 1; align-self: start; }
+    body.touch-stick #touchKeys > #touchStrip .tk { flex: 1 1 0; min-width: 0; }
+    body.touch-stick #touchKeys > #touchFire { grid-column: 3; grid-row: 2; height: auto; align-self: stretch; }
+    body.touch-stick #touchKeys > .tkcenter { grid-column: 3; grid-row: 3 / span 2; align-self: end; }
+    /* the screen keeps its own column, and the tube fits the height the strip, switch and buttons leave */
+    body.touch-stick .layout > main > .monitor { width: min(360px, 44vw); }
+    body.touch-stick .tube { width: min(360px, 44vw); height: calc(100vh - 16px - 44px - 40px - 2 * 48px - 5 * 8px); }
   }
   /* ---- the chat, full screen, on a phone (body.chat-phone: js/ui/claude.js, portrait up to 700 px wide or held
      sideways up to 500 px high). The chat is the screen's text, so the screen gets the room: no app bar (the bar's
@@ -478,9 +562,14 @@
   body.chat-phone.claude-nokey #claude { order: -1; }
   @media (max-width: 1019px) { body.claude-open.claude-nokey #claude { order: -1; } }
   @media (orientation: landscape) and (max-height: 500px) {
-    /* held sideways: a wider screen between the keyboard's halves, its four buttons in one row under it */
-    body.chat-phone.touch-keys #touchKeys .tkcenter, body.chat-phone.touch-keys .layout > main > .monitor { width: min(360px, 44vw); }
-    body.chat-phone.touch-keys #touchKeys .tkbtns { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    /* held sideways: a wider screen between the keyboard's halves, its buttons in one row under it (the switch is
+       not offered in the chat: there is no BASIC machine's joystick to drive there) */
+    /* the chat's screen is wider than the panel's usual middle column (its text gets the room), so the grid's
+       middle column takes that width too: the keyboard's halves either side stay clear of the screen */
+    body.chat-phone.touch-keys #touchKeys { grid-template-columns: minmax(0, 1fr) minmax(0, min(360px, 44vw)) minmax(0, 1fr); }
+    body.chat-phone.touch-keys #touchKeys > .tkcenter, body.chat-phone.touch-keys .layout > main > .monitor { width: min(360px, 44vw); }
+    body.chat-phone.touch-keys #touchKeys > .tkcenter { grid-row: 4; }
+    body.chat-phone.touch-keys #touchKeys > .tkcenter > .tkbtns { grid-template-columns: repeat(4, minmax(0, 1fr)); }
     body.chat-phone.touch-keys .tube { height: calc(100vh - 16px - 48px - 8px - 8px); }
     /* the keyboard covers the page here: the chat bar stays under it, and the keyboard's Menu is "← Emulator" */
     body.chat-phone.touch-keys #claudeBar { position: static; z-index: auto; }
@@ -1074,14 +1163,23 @@ npx serve -l 8000 .</pre>
       <span class="muted" id="askMachineNote"></span>
     </div>
 
-    <!-- the on-screen keyboard right under the screen: in portrait its keys and BREAK, CLEAR, Hide keys and Menu
-         stay on screen with it; held sideways it is fixed around the screen instead -->
-    <div id="touchKeys" hidden aria-label="On-screen keyboard">
-      <div class="tkhalf" id="touchLeft"></div>
-      <div class="tkcenter"><span class="tkhole" aria-hidden="true"></span>
-        <div class="tkbtns"><button id="tkBreak"></button><button id="tkClear"></button><button id="tkHide" type="button">Hide keys</button><button id="tkMenu" type="button">Menu</button></div></div>
-      <div class="tkhalf" id="touchRight"></div>
+    <!-- the on-screen panel right under the screen: in portrait its keys and BREAK, CLEAR and Menu stay on
+         screen with it; held sideways it is fixed around the screen instead. Joystick mode puts the stick left
+         and the key strip and FIRE right; upright (and on a tablet) the switch, the key strip, the stick and
+         FIRE, then the buttons, all under the screen. Nothing ever lies over #screen (js/ui/touch-keys.js) -->
+    <div id="touchKeys" hidden aria-label="On-screen panel">
       <div id="touchFull"></div>
+      <div class="tkhalf" id="touchLeft"></div>
+      <div class="tkhalf" id="touchRight"></div>
+      <div id="touchStrip" aria-label="Joystick keys"></div>
+      <div id="touchStick" role="group" aria-label="Joystick"><span id="touchKnob" aria-hidden="true"></span></div>
+      <button id="touchFire" type="button" aria-label="Fire">FIRE</button>
+      <div class="tkcenter">
+        <div class="tkmode" id="tkModeSwitch" role="group" aria-label="Panel mode" hidden>
+          <button type="button" data-touchmode="keys" aria-pressed="true">Keys</button>
+          <button type="button" data-touchmode="joystick" aria-pressed="false">Joystick</button></div>
+        <div class="tkbtns"><button id="tkBreak"></button><button id="tkClear"></button><button id="tkMenu" type="button" aria-expanded="false">Menu</button></div></div>
+      <div id="tkMenuSheet" role="menu" aria-label="Menu" hidden></div>
     </div>
 
     <div class="controls" id="claudeViewRow" hidden><button id="btnClaudeView">Show my BASIC session</button>

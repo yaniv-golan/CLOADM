@@ -3036,7 +3036,8 @@ async function feedbackModelChecks(browser, base, check) {
     if (!k.seen) {
       await page.waitForTimeout(5000);
       const waiting = await state(page);
-      await page.click('#tkHide');
+      await page.click('#tkMenu');
+      await page.click('#tkMenuSheet [data-item="hide"]');
       await page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight));
       await frames(page);
       after = { waiting, shown: await state(page) };
@@ -5007,6 +5008,446 @@ async function tapeChecks(browser, base, check) {
   await ctx.close();
 }
 
+// Touch joystick: the on-screen panel's Joystick mode (js/ui/touch-keys.js, js/host/input.js) on a phone held
+// sideways, upright and on a tablet. It drives the right joystick (the machine's joy[0]) and its FIRE the
+// button bit; the mode is remembered per machine; ?touch= sets it for the visit; a gamepad arriving stands it
+// down; the MC-10 has no switch; nothing lies over #screen at any of the three sizes; and the welcome menu's
+// taps never reach it while the stick is up.
+async function touchJoystickChecks(browser, base, check) {
+  // the panel's geometry and mode, as the page sees it
+  const state = (page) => page.evaluate(() => {
+    const r = (id) => { const e = document.getElementById(id); const b = e.getBoundingClientRect(); return { x: b.left, y: b.top, w: b.width, h: b.height, r: b.right, b: b.bottom }; };
+    const box = document.getElementById('touchKeys'), screen = r('screen');
+    const overlaps = (b) => b.w > 0 && b.h > 0 && !(b.b <= screen.y || b.y >= screen.b || b.r <= screen.x || b.x >= screen.r);
+    const parts = ['touchStick', 'touchFire', 'touchStrip', 'tkModeSwitch', 'tkBreak', 'tkClear', 'tkMenu', 'touchFull', 'touchLeft', 'touchRight'].map((id) => [id, r(id), overlaps(r(id))]);
+    return {
+      // "stick up": joystick mode with the stick's pieces showing (not its ABC press, when the keyboard is)
+      shown: !box.hidden, mode: box.dataset.mode,
+      stick: box.classList.contains('joystick') && !box.classList.contains('keysonce'), body: document.body.classList.contains('touch-stick'),
+      keysOnce: box.classList.contains('keysonce'),
+      switchShown: !document.getElementById('tkModeSwitch').hidden, joy: window.emu.machine.joy[0].slice(), fire: window.emu.machine.fire[0],
+      clipped: parts.filter(([, , o]) => o).map(([id]) => id), at: Object.fromEntries(parts.map(([id, b]) => [id, [Math.round(b.x), Math.round(b.y), Math.round(b.w), Math.round(b.h)]])),
+      screen: [Math.round(screen.x), Math.round(screen.y), Math.round(screen.w), Math.round(screen.h)],
+      docFits: document.documentElement.scrollWidth <= innerWidth && document.documentElement.scrollHeight <= innerHeight + 1,
+      noSideScroll: document.documentElement.scrollWidth <= innerWidth,
+    };
+  });
+  // a touch drag on the stick zone, of (dx, dy) px from the point it goes down at: real touch events (one CDP
+  // session per page: CDP tracks a touch's state per session, so a second session cannot lift the first's)
+  const down = async (cdp, page, id, sel, dx = 0, dy = 0) => {
+    const b = await page.evaluate((sel) => { const r = document.querySelector(sel).getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }, sel);
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: b.x, y: b.y, id, radiusX: 8, radiusY: 8, force: 1 }] });
+    if (dx || dy) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: b.x + dx, y: b.y + dy, id, radiusX: 8, radiusY: 8, force: 1 }] });
+    await page.waitForTimeout(80);
+  };
+  const moveTo = async (cdp, page, points) => {
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: points.map(([id, x, y]) => ({ x, y, id, radiusX: 8, radiusY: 8, force: 1 })) });
+    await page.waitForTimeout(80);
+  };
+  const endTouch = async (cdp, page, points = []) => {
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: points.map(([id, x, y]) => ({ x, y, id, radiusX: 8, radiusY: 8, force: 1 })) });
+    await page.waitForTimeout(80);
+  };
+  const centre = (page, sel) => page.evaluate((sel) => { const r = document.querySelector(sel).getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; }, sel);
+  const drag = async (cdp, page, dx, dy) => { await down(cdp, page, 1, '#touchStick', dx, dy); return page.evaluate(() => window.emu.machine.joy[0].slice()); };
+  const lift = (cdp, page) => endTouch(cdp, page);
+  const tapSel = async (cdp, page, sel) => { await down(cdp, page, 2, sel); await endTouch(cdp, page); };
+  const setJoy = async (cdp, page) => { await tapSel(cdp, page, '#tkModeSwitch [data-touchmode="joystick"]'); };
+
+  // ---- phone held sideways: the split keyboard in Keys, the stick left / FIRE and strip right in Joystick ----
+  {
+    const ctx = await browser.newContext({ viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}?machine=dragon64`);
+    await started(page);
+    await waitFor(page, () => window.emu.machine && !document.getElementById('touchKeys').hidden && document.body.classList.contains('touch-keys'));
+    const cdp = await page.context().newCDPSession(page);
+    const keys = await state(page);
+    check('touch joystick (sideways): Keys mode shows the split keyboard and the Keys | Joystick switch',
+      keys.shown && !keys.stick && keys.switchShown && ['touchStick', 'touchFire', 'touchStrip'].every((id) => !keys.at[id][2]),
+      JSON.stringify({ mode: keys.mode, switchShown: keys.switchShown, at: keys.at }));
+    await setJoy(cdp, page);
+    const joy = await state(page);
+    check('touch joystick (sideways): Joystick mode puts the stick in the left half and FIRE with the strip on the right',
+      joy.stick && joy.body && joy.mode === 'joystick' && joy.at.touchStick[2] > 0 && joy.at.touchStick[0] < joy.screen[0]
+      && joy.at.touchFire[2] > 0 && joy.at.touchFire[0] > joy.screen[0] + joy.screen[2] && joy.at.touchStrip[2] > 0,
+      JSON.stringify({ at: joy.at, screen: joy.screen }));
+    check('touch joystick (sideways): nothing of the panel lies over #screen', joy.clipped.length === 0 && joy.docFits, JSON.stringify({ clipped: joy.clipped, screen: joy.screen }));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, 'touch-joystick-landscape.png') });
+    // a drag of the full travel radius, and one of half it: the pad formula's values, hand-worked
+    const right = await drag(cdp, page, 56, 0);
+    check('touch joystick: a drag of the travel radius drives the right end', right[0] === 63 && right[1] === 32, `${right}`);
+    await lift(cdp, page);
+    const up = await drag(cdp, page, 0, -56);
+    check('touch joystick: up the screen is the machine\'s up', up[1] === 0 && up[0] === 32, `${up}`);
+    await lift(cdp, page);
+    const half = await drag(cdp, page, 28, 0);
+    check('touch joystick: half the travel radius is the axis\'s half', half[0] === 47, `${half}`);   // (0.5+1)/2*63 = 47.25 -> 47
+    await lift(cdp, page);
+    const centred = await page.evaluate(() => window.emu.machine.joy[0].slice());
+    check('touch joystick: lifting the finger centres the stick', centred[0] === 32 && centred[1] === 32, `${centred}`);
+    // the small drag stays in the dead zone
+    const dead = await drag(cdp, page, 10, 0);
+    check('touch joystick: a small drag stays inside the dead zone', dead[0] === 32 && dead[1] === 32, `${dead}`);
+    await lift(cdp, page);
+    // FIRE held down, and the stick and FIRE at the same time: two fingers, held
+    await down(cdp, page, 3, '#touchFire');
+    check('touch joystick: FIRE sets the button bit', await page.evaluate(() => window.emu.machine.fire[0]) === true);
+    // a second finger on the stick, while FIRE is still down
+    const [sx, sy] = await centre(page, '#touchStick');
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: sx, y: sy, id: 4, radiusX: 8, radiusY: 8, force: 1 }] });
+    await moveTo(cdp, page, [[3, sx, sy], [4, sx, sy + 56]]);
+    const both = await page.evaluate(() => ({ joy: window.emu.machine.joy[0].slice(), fire: window.emu.machine.fire[0] }));
+    check('touch joystick: the stick and FIRE are held at the same time', both.fire === true && both.joy[1] === 63, JSON.stringify(both));
+    // lifting the stick's finger alone leaves FIRE down (the two are separate pointers)
+    await endTouch(cdp, page, [[4, sx, sy + 56]]);
+    check('touch joystick: letting go of the stick leaves FIRE pressed', await page.evaluate(() => window.emu.machine.fire[0]) === true);
+    await endTouch(cdp, page);
+    check('touch joystick: lifting both centres and drops FIRE', await page.evaluate(() => window.emu.machine.joy[0][0] === 32 && !window.emu.machine.fire[0]));
+    // the key strip: Y reaches the matrix, pressed and released
+    await page.evaluate(() => { const m = window.emu.machine, set = m.setKey.bind(m); window.pressed = []; m.setKey = (k, d) => { window.pressed.push(`${k}${d ? '+' : '-'}`); return set(k, d); }; });
+    await tapSel(cdp, page, '#touchStrip [data-key="Y"]');
+    check('touch joystick: the strip\'s Y reaches the machine\'s matrix', await waitFor(page, () => window.pressed.includes('Y+') && window.pressed.includes('Y-')),
+      await page.evaluate(() => window.pressed.join()));
+    // ABC, ONE FINGER (H1): tap ABC, then tap one key, then the stick comes back -- a touch is implicitly captured
+    // by the button it lands on, so the ABC finger's own lift must not end the keyboard before the key is pressed.
+    // Sideways the screen has the whole height, so ABC brings back the SPLIT keyboard's halves, down the side
+    // columns where the stick and FIRE were -- never a keyboard over the screen.
+    await page.evaluate(() => { window.pressed = []; });   // (setKey is already recorded above)
+    await tapSel(cdp, page, '#tkAbc');
+    const atAbc = await state(page);
+    check('touch joystick: ABC brings the split keyboard back, the stick away',
+      atAbc.mode === 'joystick' && atAbc.at.touchLeft[2] > 0 && atAbc.at.touchRight[2] > 0
+      && atAbc.at.touchStick[2] === 0 && atAbc.at.touchFire[2] === 0 && atAbc.at.touchFull[2] === 0,
+      JSON.stringify({ mode: atAbc.mode, stick: atAbc.stick, at: atAbc.at }));
+    check('touch joystick: ABC\'s halves lie clear of #screen', atAbc.clipped.length === 0, JSON.stringify({ clipped: atAbc.clipped, screen: atAbc.screen }));
+    check('touch joystick: ABC stays after its own tap lifts (one finger can then type a key)', atAbc.keysOnce, JSON.stringify({ keysOnce: atAbc.keysOnce }));
+    await tapSel(cdp, page, '#touchLeft [data-key="Q"]');
+    check('touch joystick: one finger: the key after ABC reaches the machine',
+      await waitFor(page, () => window.pressed.includes('Q+') && window.pressed.includes('Q-')), await page.evaluate(() => window.pressed.join()));
+    const back = await state(page);
+    check('touch joystick: one finger: after that key the stick is back', back.stick && back.at.touchStick[2] > 0 && !back.keysOnce,
+      JSON.stringify({ mode: back.mode, stick: back.stick, keysOnce: back.keysOnce }));
+    // the welcome menu's taps never reach it: with the menu on screen and the stick up, a tap on one of the menu's
+    // lines must not choose it. The same tap with the keys showing DOES choose (2: the colour demo), so the check
+    // below cannot pass on a page whose tap handler is simply broken.
+    // the tap the welcome menu listens for; expectLeave waits (in the machine's frames) for the program the key
+    // starts to take the menu's place, which is the machine's own pace, not wall time. On the stick page the tap
+    // must be ignored, so there is nothing to wait for there: the menu is still up when the check reads it.
+    const tapMenuLine = async (page, { expectLeave = false } = {}) => {
+      const state = await page.evaluate(() => {
+        const s = window.emu.session, r = document.getElementById('screen').getBoundingClientRect();
+        document.getElementById('screen').dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true,
+          clientX: r.left + r.width / 2, clientY: r.top + (24 + 10 * 12 + 6) / 240 * r.height, pointerType: 'touch' }));
+        return { stick: document.getElementById('touchKeys').classList.contains('joystick'), before: s.welcomeRunning };
+      });
+      if (expectLeave) await waitForFrames(page, () => !window.emu.session.welcomeRunning, null, 400);
+      else await emuFrames(page, 30);   // a few frames in which a tap wrongly taken would begin its program
+      return Object.assign(state, { after: await page.evaluate(() => window.emu.session.welcomeRunning) });
+    };
+    await page.goto(`${base}?machine=dragon64&touch=joystick`);
+    await started(page);
+    await waitFor(page, () => window.emu.machine && window.emu.session.welcomeRunning && document.getElementById('touchKeys').classList.contains('joystick'));
+    const welcomeTap = await tapMenuLine(page);
+    // (with the stick up, the tap is not a menu choice: the menu is still running)
+    check('touch joystick: a tap on the welcome menu\'s lines does not choose while the stick is up', welcomeTap.stick && welcomeTap.before && welcomeTap.after === true,
+      JSON.stringify(welcomeTap));
+    // the control: the same page with the panel on the keys (?touch=keys: the switch was used above, so this
+    // machine's remembered mode is joystick), the same tap, and the menu answers it
+    await page.goto(`${base}?machine=dragon64&touch=keys`);
+    await started(page);
+    await waitFor(page, () => window.emu.machine && window.emu.session.welcomeRunning && !document.getElementById('touchKeys').hidden && !document.getElementById('touchKeys').classList.contains('joystick'));
+    const controlTap = await tapMenuLine(page, { expectLeave: true });
+    check('touch joystick: the same tap on the keys does choose (the check above is not blind)', !controlTap.stick && controlTap.before && controlTap.after === false,
+      JSON.stringify(controlTap));
+    // the mode is remembered per machine (the switch was used above): a plain visit, reloaded, brings the stick
+    // back. Not a reload of the control page: that link's ?touch=keys is for its visit, and a reload is a new one.
+    await page.goto(`${base}?machine=dragon64`);
+    await started(page);
+    await waitFor(page, () => window.emu.machine && !document.getElementById('touchKeys').hidden);
+    await page.reload();
+    await started(page);
+    await waitFor(page, () => !document.getElementById('touchKeys').hidden && document.body.classList.contains('touch-keys'));
+    check('touch joystick: the mode survives a reload', await page.evaluate(() => document.getElementById('touchKeys').dataset.mode) === 'joystick'
+      && await page.evaluate(() => document.body.classList.contains('touch-stick')));
+    // a gamepad arriving: the stick steps down, and says so; disconnecting brings it back
+    await page.evaluate(() => {
+      const pad = { index: 0, id: 'Mock pad', connected: true, axes: [0, 0], buttons: [{ pressed: false, value: 0 }] };
+      navigator.getGamepads = () => [pad, null, null, null];
+      window.__padGone = () => { pad.connected = false; navigator.getGamepads = () => [null, null, null, null]; };
+      window.dispatchEvent(new Event('gamepadconnected'));
+    });
+    await page.waitForTimeout(250);
+    const g = await state(page);
+    check('touch joystick: a gamepad arriving shows the keys (the stick stands down)', !g.stick && g.mode === 'keys', JSON.stringify({ mode: g.mode, stick: g.stick }));
+    // one toast, not two: screen.js's "Gamepad connected" is the page's word on it, and the panel adds none of
+    // its own (a second, different wording here would be the panel's own toast, and is what this fails on)
+    check('touch joystick: one gamepad toast, not two',
+      await page.evaluate(() => /^Gamepad connected\.?$/.test(document.getElementById('toastText').textContent.trim())),
+      await page.evaluate(() => document.getElementById('toastText').textContent));
+    // TWO PADS (M2): one leaving must not bring the stick back while the other is still connected -- that pad
+    // overwrites joy[0]/fire[0] every frame, so the stick would be lying about who has the joystick
+    await page.evaluate(() => {
+      const mk = (index) => ({ index, id: `Mock pad ${index}`, connected: true, axes: [0, 0], buttons: [{ pressed: false, value: 0 }] });
+      const padsA = mk(0), padsB = mk(1);
+      navigator.getGamepads = () => [padsA, padsB, null, null];
+      window.__dropPad0 = () => { padsA.connected = false; navigator.getGamepads = () => [null, padsB, null, null]; };
+      window.dispatchEvent(new Event('gamepadconnected'));
+    });
+    await page.waitForTimeout(200);
+    // (the state before the second pad goes: down, and the remembered mode still joystick -- so the check below is
+    // about what the disconnect does, not about a stick that was never up)
+    const beforeDrop = await page.evaluate(() => ({
+      stick: document.getElementById('touchKeys').classList.contains('joystick') && !document.getElementById('touchKeys').classList.contains('keysonce'),
+      remembered: window.emu.session.store.get('touchMode.dragon64'),
+    }));
+    check('touch joystick: two pads: the stick is down and the choice is still joystick',
+      !beforeDrop.stick && beforeDrop.remembered === 'joystick', JSON.stringify(beforeDrop));
+    await page.evaluate(() => { window.__dropPad0(); window.dispatchEvent(new Event('gamepaddisconnected')); });
+    await page.waitForTimeout(200);
+    check('touch joystick: one of two pads going leaves the stick down (the other still drives the joystick)',
+      !(await state(page)).stick, JSON.stringify({ mode: (await state(page)).mode }));
+    // and with the last one gone, the stick comes back (the remembered mode was never overwritten)
+    await page.evaluate(() => { window.__padGone(); window.dispatchEvent(new Event('gamepaddisconnected')); });
+    await page.waitForTimeout(200);
+    check('touch joystick: the last pad going brings the stick back (the mode was not overwritten)',
+      await page.evaluate(() => document.getElementById('touchKeys').dataset.mode) === 'joystick');
+    // the mouse set as the right joystick must not move the stick while the touch stick is up: a mousemove over
+    // the screen (a touch screen with a stylus reports one) leaves the joystick where the finger holds it
+    await page.evaluate(() => { document.getElementById('chkJoy').checked = true; document.getElementById('chkJoy').dispatchEvent(new Event('change')); });
+    await down(cdp, page, 6, '#touchStick', 56, 0);
+    await page.mouse.move(40, 40);
+    await page.waitForTimeout(80);
+    check('touch joystick: the mouse as the right joystick leaves the stick alone while it is held',
+      await page.evaluate(() => window.emu.machine.joy[0][0]) === 63, await page.evaluate(() => `${window.emu.machine.joy[0]}`));
+    await endTouch(cdp, page);
+    await page.evaluate(() => { document.getElementById('chkJoy').checked = false; document.getElementById('chkJoy').dispatchEvent(new Event('change')); });
+    check('touch joystick (sideways): no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- upright: the switch, then the strip, the stick and FIRE, then the buttons, all under the screen ----
+  {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}?machine=dragon64&touch=joystick`);
+    await started(page);
+    await waitFor(page, () => !document.getElementById('touchKeys').hidden && document.getElementById('touchKeys').dataset.mode === 'joystick');
+    const s = await state(page);
+    check('touch joystick (upright): ?touch=joystick opens in Joystick mode', s.stick && s.mode === 'joystick', JSON.stringify({ mode: s.mode, stick: s.stick }));
+    // the link's mode is for this visit: the choice the switch remembers is untouched, so the next plain visit
+    // to this machine starts on the keys
+    check('touch joystick: ?touch= is not written to the remembered mode', await page.evaluate(() => window.emu.session.store.get('touchMode.dragon64')) === null,
+      await page.evaluate(() => String(window.emu.session.store.get('touchMode.dragon64'))));
+    check('touch joystick (upright): the stick and FIRE are under the screen, side by side, the strip above them',
+      s.at.touchStick[2] > 0 && s.at.touchStick[1] >= s.screen[1] + s.screen[3] && s.at.touchFire[2] > 0 && s.at.touchFire[0] >= s.at.touchStick[0] + s.at.touchStick[2] - 1
+      && s.at.touchStrip[1] <= s.at.touchStick[1], JSON.stringify({ at: s.at, screen: s.screen }));
+    check('touch joystick (upright): nothing lies over #screen', s.clipped.length === 0, JSON.stringify({ clipped: s.clipped, screen: s.screen }));
+    check('touch joystick (upright): the panel fits the width without sideways scrolling', s.noSideScroll, JSON.stringify({ noSideScroll: s.noSideScroll }));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, 'touch-joystick-portrait.png'), fullPage: true });
+    const cdp = await page.context().newCDPSession(page);
+    const d = await drag(cdp, page, 0, 56);
+    check('touch joystick (upright): a drag down the screen drives 63 on Y', d[1] === 63, `${d}`);
+    await lift(cdp, page);
+    // ABC upright (H2): the strip shares the keyboard's grid row in this mode, so while ABC is up the strip, the
+    // stick and FIRE are hidden; every key must be the element at its own centre, and a tap must type it. One
+    // finger throughout: tap ABC, then tap keys.
+    await page.evaluate(() => { const m = window.emu.machine, f = m.setKey.bind(m); window.pressed = []; m.setKey = (k, d) => { window.pressed.push(`${k}${d ? '+' : '-'}`); return f(k, d); }; });
+    await tapSel(cdp, page, '#tkAbc');
+    // the switch ends ABC: tapping Joystick while the keyboard is up must leave the panel showing what the
+    // switch says (a panel in ABC's keyboard with its switch hidden is the mismatch this guards)
+    await tapSel(cdp, page, '#tkModeSwitch [data-touchmode="joystick"]');
+    const afterSwitch = await state(page);
+    check('touch joystick (upright): the switch tapped during ABC ends it and shows the stick',
+      afterSwitch.stick && !afterSwitch.keysOnce, JSON.stringify({ stick: afterSwitch.stick, keysOnce: afterSwitch.keysOnce }));
+    await tapSel(cdp, page, '#tkAbc');
+    const upAbc = await page.evaluate(() => {
+      const keys = [...document.querySelectorAll('#touchFull .tk')];
+      const hidden = (id) => { const e = document.getElementById(id); return e.getBoundingClientRect().width === 0; };
+      const covered = keys.filter((k) => { const r = k.getBoundingClientRect(); const at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return !(at === k || k.contains(at)); })
+        .map((k) => k.dataset.key);
+      return { keys: keys.length, covered, strip: hidden('touchStrip'), stick: hidden('touchStick'), fire: hidden('touchFire'), keyboard: keys.filter((k) => k.getBoundingClientRect().width > 0).length };
+    });
+    check('touch joystick (upright): with ABC up the strip, the stick and FIRE are hidden and no key is covered',
+      upAbc.keyboard === 49 && upAbc.covered.length === 0 && upAbc.strip && upAbc.stick && upAbc.fire, JSON.stringify(upAbc));
+    await tapSel(cdp, page, '#touchFull [data-key="Q"]');
+    check('touch joystick (upright): one finger: a key tapped after ABC reaches the machine, and the stick returns',
+      await waitFor(page, () => window.pressed.includes('Q+') && window.pressed.includes('Q-')) && (await state(page)).stick,
+      await page.evaluate(() => window.pressed.join()));
+    check('touch joystick (upright): no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- a tablet: the same arrangement, the switch offered, nothing over the screen ----
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1024, height: 768 }, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    await page.goto(`${base}?machine=coco3&touch=joystick`);
+    await started(page);
+    await waitFor(page, () => !document.getElementById('touchKeys').hidden && document.getElementById('touchKeys').dataset.mode === 'joystick');
+    const s = await state(page);
+    check('touch joystick (tablet): the switch is offered and the stick shows', s.switchShown && s.stick && s.at.touchStick[2] > 0, JSON.stringify({ switchShown: s.switchShown, stick: s.stick }));
+    // LOW: while the stick is not up the joystick is the mouse's (or the keyboard joystick's): an apply() that
+    // changes nothing about the stick must leave both joy[0] and fire[0] as they are, not recentre them
+    // (the panel is the page's own object, not on window.emu: the Input tab's setting calls its apply(), so a
+    // change event on that select is the way to make it apply() with the stick in whatever state is set here)
+    // The Keys switch first: the stick must really be DOWN (the check this replaces ran with it up, so the
+    // stickWas guard could be deleted and it stayed green).
+    await page.locator('#tkModeSwitch [data-touchmode="keys"]').click();
+    await waitFor(page, () => !document.getElementById('touchKeys').classList.contains('joystick'));
+    const kept = await page.evaluate(() => {
+      const m = window.emu.machine;
+      const sel = document.getElementById('selTouchKeys'), was = sel.value;
+      const stickUp = document.getElementById('touchKeys').classList.contains('joystick');
+      sel.value = was === 'on' ? 'auto' : 'on';
+      m.joy[0][0] = 5; m.joy[0][1] = 60; m.fire[0] = true;
+      sel.dispatchEvent(new Event('change'));
+      sel.value = was; sel.dispatchEvent(new Event('change'));
+      const after = { stickUp, joy: m.joy[0].slice(), fire: m.fire[0] };
+      sel.value = was;
+      return after;
+    });
+    check('touch joystick: with the stick down, apply() leaves a joystick held elsewhere alone',
+      kept.stickUp === false && kept.joy[0] === 5 && kept.joy[1] === 60 && kept.fire === true, JSON.stringify(kept));
+    // The complement of that: when the stick IS up and goes down through apply() alone, it does let go. Hide keys
+    // is the vehicle -- apply(), not setMode (which releases directly) and not a gamepad (whose frames recentre
+    // joy[0] by themselves). This is a release-happens check; the guard itself is what the case above kills.
+    await page.locator('#tkModeSwitch [data-touchmode="joystick"]').click();
+    await waitFor(page, () => document.getElementById('touchKeys').classList.contains('joystick'));
+    const released = await page.evaluate(() => {
+      const m = window.emu.machine;
+      m.joy[0][0] = 5; m.joy[0][1] = 60; m.fire[0] = true;
+      document.getElementById('tkMenu').click();
+      document.querySelector('#tkMenuSheet [data-item="hide"]').click();
+      return { joy: m.joy[0].slice(), fire: m.fire[0], hidden: document.getElementById('touchKeys').hidden };
+    });
+    check('touch joystick: hiding the panel with the stick up lets go of what it was holding',
+      released.hidden === true && released.joy[0] === 32 && released.joy[1] === 32 && released.fire === false, JSON.stringify(released));
+    await page.locator('#btnShowKeys').click();
+    check('touch joystick (tablet): nothing lies over #screen', s.clipped.length === 0, JSON.stringify({ clipped: s.clipped, screen: s.screen }));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, 'touch-joystick-tablet.png'), fullPage: true });
+    await ctx.close();
+  }
+
+  // ---- a mouse and ABC (MED): a mouse is ALWAYS pointer id 1, so an ABC guard that remembers the ABC press's
+  // id for the whole of ABC swallows every click after it and ABC never ends. Keys mode -> Joystick, click ABC,
+  // then click a key with the same mouse: it must type, and the stick must come back.
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, hasTouch: true });
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}?machine=dragon64`);
+    await started(page);
+    await waitFor(page, () => window.emu.machine && !document.getElementById('touchKeys').hidden);
+    await openTab(page, 'Input');
+    await page.selectOption('#selTouchKeys', 'on');
+    await page.locator('#tkModeSwitch [data-touchmode="joystick"]').click();
+    await waitFor(page, () => document.getElementById('touchKeys').classList.contains('joystick'));
+    await page.evaluate(() => { const m = window.emu.machine, f = m.setKey.bind(m); window.pressed = []; m.setKey = (k, d) => { window.pressed.push(`${k}${d ? '+' : '-'}`); return f(k, d); }; });
+    await page.click('#tkAbc');
+    const abcUp = await page.evaluate(() => document.getElementById('touchKeys').classList.contains('keysonce'));
+    await page.click('#touchFull [data-key="Q"]');
+    // the key goes through the KeyQueue, which applies it at a frame start: wait for it, don't read at once
+    await waitFor(page, () => window.pressed.includes('Q+') && window.pressed.includes('Q-'));
+    const mouse = await page.evaluate(() => ({ pressed: window.pressed.join(), keysOnce: document.getElementById('touchKeys').classList.contains('keysonce'),
+      stick: document.getElementById('touchKeys').classList.contains('joystick') }));
+    check('touch joystick (mouse): ABC from the mouse, then a key clicked with the same pointer types it and ends ABC',
+      abcUp && mouse.pressed.includes('Q+') && mouse.pressed.includes('Q-') && mouse.keysOnce === false && mouse.stick === true,
+      JSON.stringify({ abcUp, mouse }));
+    check('touch joystick (mouse): no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+  // ---- the machine-swap release (LOW): only a stick the panel was showing is let go of; a joystick the mouse or
+  // the keyboard joystick drives is the host's and must not be recentred by a switch ----
+  {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    await page.goto(`${base}?machine=dragon64&touch=joystick`);
+    await started(page);
+    await waitFor(page, () => !document.getElementById('touchKeys').hidden && document.getElementById('touchKeys').classList.contains('joystick'));
+    // A real switchMachine builds a NEW machine (its joystick starts centred whichever path runs), so the panel's
+    // handler is driven the way a switch drives it -- the session's 'machine' event -- with the same machine, so
+    // what is observed is only what the handler does.
+    // keys mode: a joystick held elsewhere must survive the event
+    await page.locator('#tkModeSwitch [data-touchmode="keys"]').click();
+    await waitFor(page, () => !document.getElementById('touchKeys').classList.contains('joystick'));
+    const keptSwap = await page.evaluate(() => {
+      const s = window.emu.session;
+      s.machine.joy[0][0] = 5; s.machine.joy[0][1] = 60; s.machine.fire[0] = true;
+      s.emit('machine');
+      return { joy: s.machine.joy[0].slice(), fire: s.machine.fire[0] };
+    });
+    check('touch joystick: a machine event leaves a joystick the panel was not driving alone',
+      keptSwap.joy[0] === 5 && keptSwap.joy[1] === 60 && keptSwap.fire === true, JSON.stringify(keptSwap));
+    // and the inverse: the panel's stick up, the same event -> let go of
+    await page.locator('#tkModeSwitch [data-touchmode="joystick"]').click();
+    await waitFor(page, () => document.getElementById('touchKeys').classList.contains('joystick'));
+    const releasedSwap = await page.evaluate(() => {
+      const s = window.emu.session;
+      s.machine.joy[0][0] = 5; s.machine.joy[0][1] = 60; s.machine.fire[0] = true;
+      s.emit('machine');
+      return { joy: s.machine.joy[0].slice(), fire: s.machine.fire[0] };
+    });
+    check('touch joystick: a machine event with the stick up lets go of it',
+      releasedSwap.joy[0] === 32 && releasedSwap.joy[1] === 32 && releasedSwap.fire === false, JSON.stringify(releasedSwap));
+    await ctx.close();
+  }
+  // ---- FIRE's window fallback (LOW): if the capture is refused and the finger lifts outside the button, no
+  // pointerup reaches FIRE; the window's own release is the way out, and only FIRE's pointer may use it ----
+  {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    await page.goto(`${base}?machine=dragon64&touch=joystick`);
+    await started(page);
+    await waitFor(page, () => !document.getElementById('touchKeys').hidden && document.getElementById('touchKeys').classList.contains('joystick'));
+    // A touch has IMPLICIT capture whatever setPointerCapture does, so its pointerup always reaches FIRE and would
+    // not exercise the fallback. A MOUSE has none: with explicit capture refused, a press on FIRE and a release
+    // over the screen sends the pointerup to the screen, and only the window's own listener can let go.
+    await page.evaluate(() => { Element.prototype.setPointerCapture = function () { throw new Error('no capture'); }; });
+    const fb = await page.evaluate(() => { const r = document.getElementById('touchFire').getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; });
+    await page.mouse.move(fb[0], fb[1]);
+    await page.mouse.down();
+    await page.waitForTimeout(80);
+    const down = await page.evaluate(() => window.emu.machine.fire[0]);
+    await page.mouse.move(5, 5);     // off FIRE, onto the page
+    await page.mouse.up();
+    await page.waitForTimeout(120);
+    const up = await page.evaluate(() => window.emu.machine.fire[0]);
+    check('touch joystick: FIRE lets go when its capture is refused and the button is released away from it', down === true && up === false, JSON.stringify({ down, up }));
+    await ctx.close();
+  }
+  // ---- the MC-10: no switch (no joystick port), and Keys mode only ----
+  {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    await page.goto(`${base}?machine=mc10&touch=joystick`);
+    await started(page);
+    await waitFor(page, () => !document.getElementById('touchKeys').hidden && document.body.classList.contains('touch-keys'));
+    const s = await state(page);
+    check('touch joystick: the MC-10 has no switch and no stick (no joystick port)', !s.switchShown && !s.stick && s.at.touchStick[2] === 0,
+      JSON.stringify({ switchShown: s.switchShown, stick: s.stick }));
+    await ctx.close();
+  }
+  // and ?touch= is not for embeds (js/config.js): an embedded page has no panel to set
+  {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    const said = [];
+    await page.goto(`${base}?embed=1&machine=dragon64&touch=joystick`);
+    await started(page);
+    await waitFor(page, () => window.emu.linkDone);
+    const msg = await page.evaluate(() => window.emu.feedback.pending.map((m) => m.text).join('\n') + '\n' + document.getElementById('toastText').textContent);
+    said.push(msg);
+    check('touch joystick: an embed is told touch= does not apply', /touch=joystick: an embedded page has no on-screen panel/.test(said.join('\n')), said.join('|').slice(0, 300));
+    await ctx.close();
+  }
+}
+
 // the phone screen and its touch behaviour: the on-screen keyboard shows by
 // itself on a touch screen (split for the thumbs on a phone held sideways, ten columns in portrait) and types
 // into the machine, SHIFT included; the Input tab's setting; Hide keys; the welcome menu's lines answer taps;
@@ -5044,8 +5485,9 @@ async function inputScreenChecks(browser, base, check) {
     await page.tap('#tkBreak');
     check('touch keys: ENTER and BREAK reach the matrix, pressed and released', await waitFor(page, () => ['ENTER+', 'ENTER-', 'BREAK+', 'BREAK-'].every((k) => window.pressed.includes(k))),
       await page.evaluate(() => window.pressed.join()));
-    await page.tap('#tkHide');
-    check('touch keys: Hide keys hides them and offers Keys to bring them back', await page.isHidden('#touchKeys') && await page.isVisible('#btnShowKeys'));
+    await page.tap('#tkMenu');
+    await page.tap('#tkMenuSheet [data-item="hide"]');
+    check('touch keys: Hide keys (Menu) hides them and offers Keys to bring them back', await page.isHidden('#touchKeys') && await page.isVisible('#btnShowKeys'));
     await page.tap('#btnShowKeys');
     check('touch keys: Keys brings them back', await page.isVisible('#touchKeys'));
     check('touch keys (sideways): no page errors', !errors.length, errors.join('; '));
@@ -5062,9 +5504,13 @@ async function inputScreenChecks(browser, base, check) {
     const lay = await page.evaluate(() => {
       const r = (id) => document.getElementById(id).getBoundingClientRect();
       return { full: r('touchFull').height > 0 && r('touchLeft').width === 0, below: r('touchFull').top >= r('screen').bottom, fits: document.documentElement.scrollWidth <= innerWidth,
-        cols: document.querySelector('#touchFull .tkrow').children.length, buttons: ['tkBreak', 'tkClear', 'tkHide', 'tkMenu'].every((id) => r(id).height >= 44 && r(id).top >= r('touchFull').bottom) };
+        cols: document.querySelector('#touchFull .tkrow').children.length, buttons: ['tkBreak', 'tkClear', 'tkMenu'].every((id) => r(id).height >= 44 && r(id).top >= r('touchFull').bottom),
+        // the brief: in portrait the Keys | Joystick switch sits ABOVE the keys (the brief's "above the keys";
+        // sideways it is in the strip with BREAK, CLEAR and Menu)
+        switchShown: r('tkModeSwitch').height > 0 && r('tkModeSwitch').bottom <= r('touchFull').top && r('tkModeSwitch').top >= r('screen').bottom };
     });
-    check('touch keys (phone, portrait): ten columns under the screen, no sideways scrolling', lay.full && lay.below && lay.fits && lay.cols === 10 && lay.buttons, JSON.stringify(lay));
+    check('touch keys (phone, portrait): ten columns under the screen, the Keys | Joystick switch above the keys, no sideways scrolling',
+      lay.full && lay.below && lay.fits && lay.cols === 10 && lay.buttons && lay.switchShown, JSON.stringify(lay));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'touch-keys-portrait.png'), fullPage: true });
     for (const ch of 'I AM SAD') await page.tap(`#touchFull [data-key="${ch === ' ' ? 'SPACE' : ch}"]`);
     await page.tap('#touchFull [data-key="ENTER"]');
@@ -6478,6 +6924,45 @@ async function phoneChatChecks(browser, base, check) {
     check(`phone chat (${label}): no page errors`, !errors.length, errors.join('; '));
     await ctx.close();
   }
+  // M1: the phone's full-screen chat is not a BASIC machine's screen, so a remembered Joystick mode must not put
+  // the stick, FIRE or the switch there. The path that shows it needs no machine event: the full-screen chat on a
+  // tablet (chat-phone false), then the window narrowing across the phone breakpoint (chat-phone true) -- the class
+  // flips with no session event, so only claude.js's own apply() hides the panel. Fails without that call.
+  {
+    const ctx = await browser.newContext({ viewport: { width: 820, height: 1180 }, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    const widths = () => page.evaluate(() => {
+      const r = (id) => document.getElementById(id).getBoundingClientRect().width;
+      return { chat: document.body.classList.contains('chat-phone'), stick: r('touchStick'), fire: r('touchFire'), sw: r('tkModeSwitch'), mode: document.getElementById('touchKeys').dataset.mode };
+    });
+    await page.goto(`${base}?machine=dragon64`);
+    await started(page);
+    await page.evaluate(() => { localStorage.setItem('cloadm.anthropicKey', 'sk-ant-M1-CHECK'); window.emu.session.store.set('touchMode.dragon64', 'joystick'); });
+    await page.reload();
+    await started(page);
+    await waitFor(page, () => !document.getElementById('touchKeys').hidden && document.getElementById('touchKeys').dataset.mode === 'joystick');
+    // into the full-screen chat at tablet width (not a phone chat yet), then narrow to a phone
+    await page.click('#btnAsk');
+    await page.click('#btnFullFull');
+    await waitFor(page, () => window.emu.session.claudeView === 'full' && document.body.classList.contains('claude-open'));
+    const tablet = await widths();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await waitFor(page, () => document.body.classList.contains('chat-phone'));
+    const phoneChat = await widths();
+    check('phone chat (joystick mode remembered): narrowing into the phone chat hides the stick, FIRE and the switch',
+      tablet.chat === false && tablet.stick > 0 && phoneChat.chat === true && phoneChat.stick === 0 && phoneChat.fire === 0 && phoneChat.sw === 0,
+      JSON.stringify({ tablet, phoneChat }));
+    // and back out of the phone breakpoint: the tablet layout is not a phone chat, so the machine's stick is back
+    await page.setViewportSize({ width: 820, height: 1180 });
+    await waitFor(page, () => !document.body.classList.contains('chat-phone'));
+    const back = await widths();
+    check('phone chat (joystick mode remembered): leaving the phone breakpoint gives the stick back',
+      back.stick > 0 && back.fire > 0 && back.sw > 0 && back.mode === 'joystick', JSON.stringify(back));
+    check('phone chat (joystick mode remembered): no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
   // PC-M1: the browser's Back leaves the chat, and so does Esc from the chat bar (on the screen Esc is BREAK)
   {
     const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
@@ -7720,6 +8205,7 @@ const GROUPS = (base, site) => [
   ['romInput', (b) => romInputChecks(b, base, check)],
   ['design', (b) => designChecks(b, base, check)],
   ['inputScreen', (b) => inputScreenChecks(b, base, check)],
+  ['touchJoystick', (b) => touchJoystickChecks(b, base, check)],
   ['focus', (b) => focusChecks(b, base, check)],
   ['uiQa', (b) => uiQaChecks(b, base, check)],
   ['emulatorBack', (b) => emulatorBackChecks(b, base, check)],

@@ -111,6 +111,9 @@ setupAssemblerPanel(page);
 setupDebuggerPanel(page);
 const selfTest = setupSelfTestPanel(page);
 const screen = setupScreen(page, { loadPrograms: media.loadPrograms, roms: romPanel });
+// ?touch=joystick|keys (js/config.js): the on-screen panel's mode for this visit, taken up when the machine
+// arrives (the link's machine switches in below, after this)
+page.linkTouch = link.touch;
 page.touchKeys = setupTouchKeys(page, { input: screen.input });
 setupDisplayPanel(page);
 setupKeyHint(page);

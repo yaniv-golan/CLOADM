@@ -443,8 +443,22 @@ A cycle-level difference found this way and fixed: the one-shot's deadline is no
 (`trunc(535 + 5850 * axis/1023)` microseconds) evaluated from the time of the write, and JOYIN is sampled at
 the read's own bus cycle rather than after it.
 
+The touch joystick (the on-screen panel's Joystick mode) has no MAME counterpart: MAME's fire buttons are live
+inputs set from Lua, and there is no touch panel to compare with. The port it drives is the one above, already
+MAME-verified, and the host path is checked on its own: `tests/touch-joystick.test.js` runs our own firmware
+(`tools/mame-diff/sam/fire-scan.asm`) in the BASIC socket on a Dragon 64 and a CoCo 3, which sets PIA0 up as the
+machine's keyboard scan does and records the row byte with nothing down and again once a button shows, so the
+touch stick's FIRE and a gamepad's button must leave the firmware the same byte; the same test pins the vector
+to axis mapping (centre, ends, the dead zone at its edges, clamping) with values worked out by hand. The browser
+check's `touchJoystick` group drives real touch events through Chromium (CDP) at 390x844, 844x390 and 1024x768:
+drags of the travel radius and of half it read the machine's own axes, FIRE and the button bit, the stick and
+FIRE held at once, ABC's one keypress, the strip's Y on the matrix, `?touch=`, the remembered mode across a
+reload, a mocked gamepad standing the stick down, the mouse-as-right-joystick yielding to the stick, the welcome
+menu ignoring taps under the stick, and no part of the panel over `#screen`.
+
 Not verified automatically: a real gamepad and a real mouse (the browser check drives a mocked
-`navigator.getGamepads`; the Rat is driven in Node), and the feel of the touch keyboard on a real phone or tablet.
+`navigator.getGamepads`; the Rat is driven in Node), and the feel of the touch keyboard and the touch stick on a
+real phone or tablet.
 
 ### Sound output (the page's audio path)
 

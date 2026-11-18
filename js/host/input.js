@@ -33,7 +33,26 @@ const isModifier = (key) => key === 'Shift' || key === 'Control' || key === 'Alt
 // a stick position in -1..1 -> the machines' 0..63 axis (one end is 0, the other 63; centre is 32)
 export const axisValue = (v) => Math.round((Math.max(-1, Math.min(1, v)) + 1) / 2 * 63);
 export const DEAD_ZONE = 0.25;
+// One axis of a stick in -1..1 as the machines' 0..63: inside the dead zone (strictly, so exactly DEAD_ZONE
+// deflects) the axis is centred; otherwise it goes through axisValue. The gamepad and the touch stick both
+// come through here, so neither can drift from the other.
+export const stickAxis = (v) => (Math.abs(v) < DEAD_ZONE ? 32 : axisValue(v));
 export const BUTTON_MAP = [0, 2];   // joystick 0's button is the pad's first button, joystick 1's the third
+// The touch stick's travel radius: how far (CSS px) from where the finger went down a full deflection is.
+// A touch drag is the same vector a pad reports, so this only scales pixels; the dead zone and the axis
+// mapping below are the pads' own, not a touch variant.
+export const STICK_RADIUS = 56;
+// An offset from the stick's base (px) as the -1..1 vector a pad reports: each axis scaled by the travel radius
+// and clamped at its own end. A pad's axes are independent (a corner is 1 on both, as a square stick's range
+// is), so the touch stick is given the same range and no touch-only rescale: the same vector goes through the
+// same dead zone and the same axis formula on both paths.
+export const stickVector = (dx, dy, radius = STICK_RADIUS) => [
+  Math.max(-1, Math.min(1, dx / radius)), Math.max(-1, Math.min(1, dy / radius)),
+];
+// Whether the on-screen touch panel offers its joystick: the machine has a joystick port, and the stick's own
+// port (the right one, joystick 0) is not taken by a Hi-Res interface or the Rat (js/machines/cocopia.js).
+export const touchJoystickOffered = (machine) => !!machine && !!machine.hasJoystick
+  && !(machine.config && typeof machine.config.hires === 'string' && machine.config.hires.endsWith('-right'));
 
 // The keyboard joystick's key sets, by KeyboardEvent.code. The arrows are the right joystick only while the
 // keyboard joystick is on (otherwise they are the machine's arrow keys).
@@ -163,8 +182,8 @@ class HostInput {
   setGamepad(joy, frame) {
     this.pads[joy] = frame;
     const [x, y] = frame.axes || [0, 0];
-    this.m.joy[joy][0] = Math.abs(x) < DEAD_ZONE ? 32 : axisValue(x);
-    this.m.joy[joy][1] = Math.abs(y) < DEAD_ZONE ? 32 : axisValue(y);
+    this.m.joy[joy][0] = stickAxis(x);
+    this.m.joy[joy][1] = stickAxis(y);
     this.m.fire[joy] = !!(frame.buttons && frame.buttons[BUTTON_MAP[joy]]);
   }
   clearGamepad(joy) {
@@ -172,6 +191,22 @@ class HostInput {
     this.m.joy[joy][0] = 32; this.m.joy[joy][1] = 32;
     this.m.fire[joy] = false;
   }
+
+  // ---------------- touch stick ----------------
+  // The on-screen joystick (js/ui/touch-keys.js): one stick on the right joystick, joystick 0 - the one the
+  // first gamepad drives (js/host/gamepad.js) - and its fire is fire[0] (PIA0 PA0, as the gamepad's is; see
+  // cocopia.js, coco3.js). The vector is the pads' own, so the dead zone and the axis mapping are theirs;
+  // lifting the finger centres it.
+  // Nothing here is stored for snapshots: like a pad or a key, it is the host's, not the machine's.
+  touchStick(dx, dy) {
+    if (!this.m) return;
+    const [x, y] = stickVector(dx, dy);
+    this.m.joy[0][0] = stickAxis(x);
+    this.m.joy[0][1] = stickAxis(y);
+  }
+  touchStickRelease() { this.touchStick(0, 0); }
+  // the stick's FIRE: the joystick's button bit (PA0 for joystick 0), through the same state a pad sets
+  touchFire(down) { if (this.m) this.m.fire[0] = !!down; }
 
   // ---------------- mouse ----------------
   // an absolute position, 0..1 across the picture; Y grows downwards

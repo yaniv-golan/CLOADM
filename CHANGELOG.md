@@ -20,6 +20,16 @@ All notable changes to CLOADM are recorded here. The format follows
   of the registers it sent; both come from one helper now (`codeDisassembly`, also used by the Claude
   `disassemble` tool), so the debugger, the trace and Ask cannot disagree.
 
+### Added
+
+- **A touch joystick in the on-screen panel.** A **Keys | Joystick** switch (on machines with a joystick port, so
+  not the MC-10 or Alice, and not with a Hi-Res interface or The Rat in that port) turns the phone or tablet panel
+  into an analogue stick on the right joystick — the one the first gamepad drives — with the pads' own dead zone,
+  a floating base and about 56 px of travel, plus a large FIRE on the same button bit a stick's fire button uses,
+  a key strip (SPACE, ENTER, BREAK, 1, 2, Y, N, ABC) and one-press ABC for the full keyboard. The stick and FIRE can
+  be held at once; a gamepad connecting stands the stick down; the mode is remembered per machine and
+  `?touch=joystick|keys` sets it for the visit. Keys mode is unchanged, with Hide keys moved into the panel's Menu.
+
 ### Changed
 
 - **Claude's acting tools follow the read tools' contract.** `poke`, `type_text`, `load_basic`, `press_break`,

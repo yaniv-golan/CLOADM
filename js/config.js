@@ -24,6 +24,8 @@
  *   display=crt|sharp, phase=1|2, aspect=4:3|fill, integer=1|0, curvature=0..100, glow=0..100
  *                           the Display tab's settings, for this visit only (never stored)
  *   joy=mouse|off           the mouse as the right joystick
+ *   touch=joystick|keys     the on-screen panel's mode on a touch screen (joystick: the touch stick, keys: the
+ *                           keyboard alone); not for embeds (a page the site puts in an iframe has no touch panel)
  *   sound=1|0, fasttape=1|0, turbo=1|0
  *   embed=1                 embed mode: the screen only, driven by the page around it (js/embed-api.js)
  *   storage=opfs|fsa|fallback  where ROMs and programs are kept (js/host/media-store-open.js)
@@ -44,10 +46,11 @@ export const DISPLAY_PARAMS = {
 };
 const FLAGS = { sound: 'sound', fasttape: 'fastTape', turbo: 'turbo', embed: 'embed', selftest: 'selftest' };
 const MEDIA = ['load', 'tape', 'cart'];
-export const URL_PARAMS = ['machine', 'start', 'app', 'nitros9', ...MEDIA, 'autorun', 'rom', ...Object.keys(DISPLAY_PARAMS), 'joy', ...Object.keys(FLAGS), 'storage'];
+export const URL_PARAMS = ['machine', 'start', 'app', 'nitros9', ...MEDIA, 'autorun', 'rom', ...Object.keys(DISPLAY_PARAMS), 'joy', 'touch', ...Object.keys(FLAGS), 'storage'];
 const STORAGE = ['opfs', 'fsa', 'fallback'];
 const STARTS = ['welcome', 'liza'];
 const APPS = ['claude'];
+const TOUCH_MODES = ['joystick', 'keys'];
 
 // '' (present without a value), 1/0, true/false -> boolean; anything else -> null
 const flag = (v) => (v === '' || v === '1' || v === 'true' ? true : v === '0' || v === 'false' ? false : null);
@@ -55,7 +58,7 @@ const isUrl = (v) => { try { return !!new URL(v, 'https://cloadm.dev/'); } catch
 
 export function parseUrlConfig(search, fallbackMachine = 'dragon64') {
   const p = new URLSearchParams(search), errors = [];
-  const cfg = { machine: null, config: {}, display: {}, media: [], autorun: false, roms: [], start: null, app: null, nitros9: null, joy: null, storage: null, errors };
+  const cfg = { machine: null, config: {}, display: {}, media: [], autorun: false, roms: [], start: null, app: null, nitros9: null, joy: null, touch: null, storage: null, errors };
   for (const k of Object.values(FLAGS)) cfg[k] = null;
 
   // a NitrOS-9 link without a machine means the CoCo 3, where it boots
@@ -114,6 +117,14 @@ export function parseUrlConfig(search, fallbackMachine = 'dragon64') {
     else cfg.display[d.key] = v;
   }
   if (p.has('joy')) { const j = p.get('joy'); if (j === 'mouse' || j === 'off') cfg.joy = j; else errors.push(`joy=${j}: mouse or off`); }
+  // touch: the on-screen panel's mode. An embed has no touch panel of its own (the page around it drives the
+  // machine), so a link that embeds is told it does not apply rather than silently carrying a setting nothing reads.
+  if (p.has('touch')) {
+    const t = p.get('touch');
+    if (!TOUCH_MODES.includes(t)) errors.push(`touch=${t}: joystick or keys`);
+    else if (flag(p.get('embed')) === true) errors.push(`touch=${t}: an embedded page has no on-screen panel`);
+    else cfg.touch = t;
+  }
   if (p.has('storage')) { const st = p.get('storage'); if (STORAGE.includes(st)) cfg.storage = st; else errors.push(`storage=${st}: ${STORAGE.join(', ')}`); }
   for (const [name, key] of Object.entries(FLAGS)) {
     if (!p.has(name)) continue;
@@ -151,6 +162,7 @@ export function buildUrl(base, cfg) {
     if (v !== undefined) s.set(name, d.flag ? (v ? '1' : '0') : String(v));
   }
   if (cfg.joy) s.set('joy', cfg.joy);
+  if (cfg.touch) s.set('touch', cfg.touch);
   for (const [name, key] of Object.entries(FLAGS)) if (cfg[key] === true || cfg[key] === false) s.set(name, cfg[key] ? '1' : '0');
   if (cfg.storage) s.set('storage', cfg.storage);
   return u.toString();

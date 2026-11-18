@@ -365,8 +365,12 @@ export function setupClaude(page) {
     document.body.classList.toggle('claude-nokey', full && form);
     page.cropBorder = phoneChat && session.chatView === 'chat';
     if (page.touchKeys) page.touchKeys.standAside(phoneChat && form);
+    // the panel's offer depends on body.chat-phone (touch-keys.js: a full-screen chat on a phone is not a BASIC
+    // machine's screen, and the joystick is not offered there), so a change of it must be applied, not just the
+    // class toggled: the stick, FIRE and the switch come and go with it
+    if (page.touchKeys) page.touchKeys.apply();
     // the on-screen keyboard's Menu leads out of the chat there (the app bar and its menu give way to the chat bar,
-    // which the keyboard covers when the phone is held sideways)
+    // which the keyboard covers when the phone is held sideways); touch-keys.js leaves in one tap with this label
     $('tkMenu').textContent = phoneChat ? '← Emulator' : 'Menu';
     // the help line: the key state's text (in brackets on the chat screen too, from the firmware)
     const help = chat && chat.busy ? 'Claude is thinking (it can take a minute). BREAK stops the reply.' : k === 'none' ? `[No API key yet: add one ${whereKey()}.]` : keyText(k);

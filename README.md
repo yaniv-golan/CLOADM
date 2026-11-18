@@ -75,7 +75,7 @@ Per-machine notes, RAM options and the chip-by-chip list: [docs/machines.md](doc
 | **Floppy** | DragonDOS (WD2797), Premier / Delta (WD2791) and RS-DOS (WD1773) cartridges; VDK, JVC (`.dsk`) and DMK images read and written, headerless NitrOS-9 / OS-9 `.dsk` images included; new blank disks; 4 drives, write-protect; booting NitrOS-9 Level 2 on the CoCo 3 from your own floppy image, no ROM needed ([how](docs/using.md#booting-nitros-9)) | Booting NitrOS-9 from 80-track floppies |
 | **Cartridges** | ROM cartridges, banked ROM cartridges up to 128K, Games Master, Orchestra-90, Multi-Pak (with a disk controller in slot 4); the Speech/Sound Pak on the CoCo 1/2, CoCo 2B, CoCo 3 and the Dragon 64, music only (its sound is not yet verified against MAME) | Speech/Sound Pak speech |
 | **Printer, serial, DriveWire** | Printer; bit-banger and the Dragon 64's 6551 with a terminal or loopback plug; a DriveWire 4 server in the browser over the CoCo's Becker port; booting NitrOS-9 Level 2 on the CoCo 3 from your own DriveWire image, no ROM needed ([how](docs/using.md#booting-nitros-9)); serving a real CoCo over Web Serial (untested on hardware) | |
-| **Input** | Translated and positional keyboard, keyboard joystick, gamepads, Hi-Res interfaces, the CoCo 3 mouse; an on-screen keyboard on phones and tablets | Touch joystick |
+| **Input** | Translated and positional keyboard, keyboard joystick, gamepads, Hi-Res interfaces, the CoCo 3 mouse; an on-screen keyboard and joystick on phones and tablets | |
 | **Library** | Every tape, disk, cartridge and program you load, kept for next time, in the browser or a folder on your computer; paste a magazine listing and CLOADM types it in | |
 | **Claude** | Chat with Claude full screen on the green screen (phones included), or Ask Claude in a side panel; Claude reads only the emulated machine (its screen text and memory, never anything else on your computer; it says so when it can't read a screen), and acts on it (POKE, typing, loading a BASIC program, BREAK) only with your permission, with undo | The chat over DriveWire to a real machine; the CoCo 3's 80-column chat screen |
 | **Tools** | 6809/6803 assembler, the Debugger screen (breakpoints, watchpoints, stepping, registers, memory, trace), POKE book, ROM self-test, snapshots (Snapshot 1–3 in the browser) | Step back (rewind) |
@@ -179,7 +179,8 @@ EXEC
 
 * **Why do I need ROMs?** BASIC and the DOS are copyrighted; CLOADM can't ship them. Without them it still runs
   machine-code programs, LIZA and the welcome program.
-* **Does it work on a phone?** Yes: an on-screen keyboard appears, split for the thumbs when held sideways.
+* **Does it work on a phone?** Yes: an on-screen keyboard appears, split for the thumbs when held sideways,
+  and a switch turns it into a touch joystick (stick and FIRE) for games.
 * **Does it work offline?** Yes, after one visit, and browsers offer to install it.
 * **Where are my ROMs and programs kept?** In your browser's private storage, or a folder you choose. Nothing is
   uploaded.

@@ -138,22 +138,27 @@ export function setupScreen(page, { loadPrograms, roms }) {
 
 
   // the mouse: the right joystick's position while "Mouse = right joystick" is on, and the CoCo Max module's
-  // own position (0..1 across the picture) whenever one is fitted
+  // own position (0..1 across the picture) whenever one is fitted. While the touch stick is showing it has the
+  // joystick, so the mouse leaves it alone (the stick is what the person is holding).
+  const touchStickUp = () => !!(page.touchKeys && page.touchKeys.stickActive && page.touchKeys.stickActive());
+  // the mouse's own button: its press is remembered, so the release happens even if "Mouse = right joystick" was
+  // turned off (or the touch stick came up) between the two, rather than leaving fire[0] held by nobody
+  let mouseFire = false;
   canvas.addEventListener('mousemove', (e) => {
     const r = canvas.getBoundingClientRect();
     const x = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
     const y = Math.max(0, Math.min(1, (e.clientY - r.top) / r.height));
     input.setMouse({ x, y, left: input.mouse.left, right: input.mouse.right });
-    if ($('chkJoy').checked) { const joy = session.machine.joy[0]; joy[0] = Math.round(x * 63); joy[1] = Math.round(y * 63); }
+    if ($('chkJoy').checked && !touchStickUp()) { const joy = session.machine.joy[0]; joy[0] = Math.round(x * 63); joy[1] = Math.round(y * 63); }
   });
   canvas.addEventListener('mousedown', (e) => {
     input.setMouse({ x: input.mouse.x, y: input.mouse.y, left: true, right: input.mouse.right });
-    if ($('chkJoy').checked) { session.machine.fire[0] = true; e.preventDefault(); }
+    if ($('chkJoy').checked && !touchStickUp()) { session.machine.fire[0] = true; mouseFire = true; e.preventDefault(); }
     audio.start();
   });
   window.addEventListener('mouseup', () => {
     input.setMouse({ x: input.mouse.x, y: input.mouse.y, left: false, right: input.mouse.right });
-    session.machine.fire[0] = false;
+    if (mouseFire) { mouseFire = false; session.machine.fire[0] = false; }
   });
   canvas.addEventListener('contextmenu', (e) => {
     if (!session.machine.cartPort || session.machine.cartPort.type !== 'cocomax') return;
@@ -195,9 +200,11 @@ export function setupScreen(page, { loadPrograms, roms }) {
   });
 
   // ---- the welcome menu by touch or click: a tap on one of its four lines presses that line's number ----
-  // (text row r of the 32x16 screen is lines 24 + 12r .. 35 + 12r of every 240-line frame)
+  // (text row r of the 32x16 screen is lines 24 + 12r .. 35 + 12r of every 240-line frame). While the touch
+  // stick is showing, the person is playing a game, not choosing a menu line: no tap goes to the menu then.
   canvas.addEventListener('pointerup', (e) => {
     if (!session.welcomeRunning) return;
+    if (touchStickUp()) return;
     const r = canvas.getBoundingClientRect(), f = session.machine.render();
     const row = Math.floor(((e.clientY - r.top) / r.height * f.height - 24) / 12);
     if (row >= 9 && row <= 12) { audio.start(); session.typeText(String(row - 8)); }

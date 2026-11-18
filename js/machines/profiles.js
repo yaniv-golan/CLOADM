@@ -5,6 +5,10 @@
  * ROM slot: { id, label, size, at (CPU address), bank, required, files (usual names, as dumped / used by
  * MAME), aliases (other names in common ROM sets, e.g. XRoar's), crcs (CRC32 of known-good dumps, used only
  * to recognise files) }. Names only help when a file's contents aren't recognised; sizes must still match.
+ *
+ * `joystick: false` marks a model with no joystick port at all (the MC-10 and its clones): the page's touch
+ * panel offers no stick there, and no Hi-Res interface or The Rat either (js/host/input.js
+ * touchJoystickOffered). Every other model has the two the Dragons and CoCos share (js/machines/cocopia.js).
  */
 import { SamMachine } from './sam.js';
 import { D64PlusMachine } from './d64plus.js';
@@ -156,14 +160,14 @@ const P = registry({
   // ---- MC-10 family: 6803 + MC6847 ----
   mc10: {
     options: opts(cpu('6803'), ram([4, 20])),
-    name: 'MC-10', family: 'mc10', textScreen: 0x4000, keyboard: 'mc10', video: 'ntsc', mame: 'mc10',
+    name: 'MC-10', family: 'mc10', textScreen: 0x4000, keyboard: 'mc10', video: 'ntsc', mame: 'mc10', joystick: false,
     tape: { zeroHz: 1200, oneHz: 2400 }, basicFeatures: { timer: false, joystk: false, pmode: false },
     roms: [slot('basic', 'Micro Color BASIC', 0x2000, 0xE000, ['mc10.rom'], ['11FDA97E'], { required: true })],
   },
   alice: {
     options: opts(cpu('6803'), ram([4, 20])),
     // MAME's alice uses the MC-10 machine configuration unchanged (MC6847 NTSC, 3.58 MHz / 4)
-    name: 'Matra Alice', family: 'mc10', textScreen: 0x4000, keyboard: 'alice', video: 'ntsc', mame: 'alice',
+    name: 'Matra Alice', family: 'mc10', textScreen: 0x4000, keyboard: 'alice', video: 'ntsc', mame: 'alice', joystick: false,
     tape: { zeroHz: 1200, oneHz: 2400 }, basicFeatures: { timer: false, joystk: false, pmode: false },
     roms: [slot('basic', 'BASIC', 0x2000, 0xE000, ['alice.rom'], ['F876ABE9'], { required: true })],
   },

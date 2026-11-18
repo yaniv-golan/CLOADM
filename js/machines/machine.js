@@ -56,6 +56,9 @@ class Machine {
     this.keyCols = new Uint8Array(8);    // per column: bitmask of pressed rows
     this.joy = [[32, 32], [32, 32]];     // [right, left][x, y], 0..63
     this.fire = [false, false];
+    // whether the model has a joystick port at all (profiles.js `joystick: false`: the MC-10 and the Alice);
+    // the page's touch joystick reads it (js/host/input.js touchJoystickOffered)
+    this.hasJoystick = profile.joystick !== false;
 
     this.typist = new Typist(this);
     this.stubKeys = [];

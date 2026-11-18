@@ -1,14 +1,29 @@
 /*
- * The on-screen keyboard: phones and tablets
- * can't type otherwise. In landscape on a phone it is the design's split thumb keyboard, the screen between its
- * halves with BREAK, CLEAR, Hide keys and Menu under it; in portrait (or on a larger touch screen) a ten-column
- * keyboard under the screen. Keys go to the machine through HostInput.touch (the KeyQueue holds each press long
- * enough for the machine to see it; the no-ROM stub gets the character). SHIFT is sticky: it shifts the next key.
+ * The on-screen panel: phones and tablets can't type otherwise. Two modes, chosen with a Keys | Joystick switch
+ * when the machine has a joystick port of its own to offer:
  *
- * Shown by itself on touch screens (a coarse pointer, touch points without hover, or a first touch); the Input tab's "On-screen keyboard" setting says
- * Automatic, Always or Never, and "Hide keys" hides it for the visit (a Keys button brings it back).
+ * Keys: in landscape on a phone it is the design's split thumb keyboard, the screen between its halves with
+ * BREAK, CLEAR, the switch and Menu under it; in portrait (or on a larger touch screen) a ten-column keyboard
+ * under the screen. Keys go to the machine through HostInput.touch (the KeyQueue holds each press long enough
+ * for the machine to see it; the no-ROM stub gets the character). SHIFT is sticky: it shifts the next key.
+ *
+ * Joystick: one stick drives the right joystick (joystick 0, the same one the first gamepad drives): analogue
+ * 0..63, the pads' own dead zone (js/host/input.js), no 8-way snap, the base where the finger goes down and a
+ * full deflection at about 56 px of travel. FIRE is the joystick's button bit - on real hardware it shares its
+ * row line with the keyboard's leftmost column, so FIRE plus a key can read as a key, exactly as a stick's fire
+ * button does; on the CoCo 3 it also raises the GIME's keyboard interrupt (js/machines/cocopia.js, coco3.js).
+ * The key strip (SPACE, ENTER, BREAK, 1, 2, Y, N and ABC) types one press into the machine; ABC brings the
+ * keyboard back for one keypress and returns to the stick (upright the whole keyboard, under the screen; sideways
+ * the split keyboard's halves, which are the two side columns there, as the screen has the height). Two fingers
+ * work at once: the stick and FIRE are separate pointers, and each captures its own.
+ *
+ * Shown by itself on touch screens (a coarse pointer, touch points without hover, or a first touch); the Input
+ * tab's "On-screen keyboard" setting says Automatic, Always or Never, and "Hide keys" (in Menu) hides it for the
+ * visit (a Keys button brings it back). The mode is remembered per machine (touchMode.<id>), and ?touch= sets it
+ * for the visit (js/config.js; never for an embed, which has no panel of its own).
  */
 import { charToKeys } from '../machines/keyboards.js';
+import { touchJoystickOffered, STICK_RADIUS } from '../host/input.js';
 import { $ } from './page.js';
 
 // label -> machine key name, and the code the stub reads (ASCII; the arrows as BASIC's codes)
@@ -25,6 +40,9 @@ const SPLIT = {
   right: ['7 8 9 0 : -', 'Y U I O P @', 'H J K L ; ENTER', 'N M , . / ←', '_ SHIFT'],
 };
 const FULL = ['1 2 3 4 5 6 7 8 9 0', 'Q W E R T Y U I O P', 'A S D F G H J K L ;', 'Z X C V B N M , . /', 'SHIFT ↑ ↓ ← _ : - @ ENTER'];
+// joystick mode's key strip: the keys a game that asks "PRESS Y OR N" wants, and the space bar most use to
+// start; ABC opens the full keyboard for one key, then back to the stick
+const STRIP = ['SPACE', 'ENTER', 'BREAK', '1', '2', 'Y', 'N', 'ABC'];
 
 export function setupTouchKeys(page, { input }) {
   const { session } = page;
@@ -68,6 +86,143 @@ export function setupTouchKeys(page, { input }) {
   $('touchFull').append(...rows(FULL));
   for (const [id, label] of [['tkBreak', 'BREAK'], ['tkClear', 'CLEAR']]) $(id).replaceWith(Object.assign(key(label), { id }));
 
+  // ---- joystick mode: the stick, FIRE and the key strip ----
+  const strip = $('touchStrip');
+  for (const label of STRIP) {
+    if (label !== 'ABC') { strip.append(key(label)); continue; }
+    const b = document.createElement('button');
+    b.type = 'button'; b.id = 'tkAbc'; b.className = 'tk wide'; b.textContent = 'ABC';
+    b.addEventListener('pointerdown', (e) => { e.preventDefault(); page.audio.start(); showKeysOnce(); });
+    b.addEventListener('contextmenu', (e) => e.preventDefault());
+    strip.append(b);
+  }
+  // ABC: the keyboard comes back for one keypress, then the stick does. A touch has IMPLICIT pointer capture on
+  // the button it landed on, so the finger that pressed ABC lifts inside ABC itself: that pointerup says nothing
+  // about the key the person still means to press. ABC is therefore ARMED by its own press and ended by the next
+  // press (a tap of one finger, ABC then a key), or by a press anywhere else on the panel that is not a key;
+  // pointercancel ends it too (the page took the touch away).
+  // No pointer id is remembered for ABC's own press. A mouse is always pointer id 1 (a pen keeps its id), so an
+  // id check would swallow every key after ABC for those devices. The arming press cannot end ABC by itself, for
+  // two reasons: these listeners are added with capture on #touchKeys, and the capture phase past #touchKeys has
+  // already run when ABC's own handler executes; and if the press did reach leaveOnKey later (bubble phase, or
+  // these listeners changed to bubble), ABC is the target, and a press on ABC is left to its own handler below.
+  let keysOnce = false;
+  function showKeysOnce() {
+    if (!keysOnce) {
+      box.addEventListener('pointerdown', leaveOnKey, true);
+      box.addEventListener('pointercancel', leaveOnCancel, true);
+    }
+    keysOnce = true;
+    apply();
+  }
+  function leaveOnCancel() { if (keysOnce) leave(); }
+  function leaveOnKey(e) {
+    if (!keysOnce) return;
+    const t = e.target;
+    if (t.id === 'tkAbc') return;                     // ABC again: the keyboard it shows is already up
+    const isKey = !!(t.closest && t.closest('.tk'));
+    // the key's own handler runs after this capture listener: leaving is queued so the key types first
+    if (isKey) { queueMicrotask(leave); return; }
+    // Menu and the mode switch are the panel's own controls: leaving them to their handler (the switch ends ABC
+    // through setMode, so the panel never shows ABC's keyboard in a mode whose switch is hidden)
+    if (!(t.closest && (t.closest('.tkmode') || t.id === 'tkMenu'))) leave();
+  }
+  function leave() {
+    keysOnce = false;
+    box.removeEventListener('pointerdown', leaveOnKey, true);
+    box.removeEventListener('pointercancel', leaveOnCancel, true);
+    apply();
+  }
+
+  const zone = $('touchStick'), knob = $('touchKnob');
+  let stickId = null, baseX = 0, baseY = 0;
+  const stickAt = (e) => {
+    const dx = e.clientX - baseX, dy = e.clientY - baseY;
+    input.touchStick(dx, dy);
+    const r = Math.hypot(dx, dy), k = r > STICK_RADIUS ? STICK_RADIUS / r : 1;
+    knob.style.transform = `translate(${dx * k}px, ${dy * k}px)`;
+  };
+  zone.addEventListener('pointerdown', (e) => {
+    if (stickId !== null || keysOnce) return;   // (hidden for ABC's press, but a capture can outlive the style)
+    e.preventDefault();
+    try { zone.setPointerCapture(e.pointerId); } catch (err) { /* not a pointer we can capture */ }
+    stickId = e.pointerId;
+    baseX = e.clientX; baseY = e.clientY;
+    const r = zone.getBoundingClientRect();
+    knob.classList.add('live');
+    knob.style.left = `${baseX - r.left}px`;
+    knob.style.top = `${baseY - r.top}px`;
+    page.audio.start();
+    stickAt(e);
+  });
+  zone.addEventListener('pointermove', (e) => { if (e.pointerId === stickId) { e.preventDefault(); stickAt(e); } });
+  // let go of the stick wherever the release comes from: this zone's own pointer events, or the panel's apply()
+  // when the stick goes away. The knob returns to its rest state with it.
+  function releaseStick() {
+    stickId = null;
+    input.touchStickRelease();
+    knob.classList.remove('live');
+    knob.style.transform = ''; knob.style.left = ''; knob.style.top = '';
+  }
+  const stickEnd = (e) => { if (e.pointerId === stickId) releaseStick(); };
+  for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) zone.addEventListener(ev, stickEnd);
+  // the capture can be refused (the code above allows for it): without it a finger lifted outside the zone
+  // sends no pointerup here, so the window's own release is the way out
+  addEventListener('pointerup', (e) => { if (e.pointerId === stickId) releaseStick(); }, true);
+  addEventListener('pointercancel', (e) => { if (e.pointerId === stickId) releaseStick(); }, true);
+  zone.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  // FIRE: a pointer of its own, so the stick and FIRE are held at the same time
+  const fire = $('touchFire');
+  let fireId = null;   // FIRE's own pointer: another finger lifting must not let go of it
+  const fireDown = (e) => {
+    if (keysOnce || fireId !== null) return;   // (hidden for ABC's press, but a capture can outlive the style)
+    e.preventDefault();
+    try { fire.setPointerCapture(e.pointerId); } catch (err) { /* not a pointer we can capture */ }
+    fireId = e.pointerId;
+    fire.classList.add('down'); input.touchFire(true); page.audio.start();
+  };
+  const fireUp = () => { if (fireId === null) return; fireId = null; fire.classList.remove('down'); input.touchFire(false); };
+  fire.addEventListener('pointerdown', fireDown);
+  for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) fire.addEventListener(ev, fireUp);
+  // the same way out as the stick's: if FIRE's capture is refused and the finger lifts outside it, no pointerup
+  // reaches the button -- but only FIRE's own pointer ends it (the stick's finger is a different one)
+  const fireEnd = (e) => { if (e.pointerId === fireId) fireUp(); };
+  addEventListener('pointerup', fireEnd, true);
+  addEventListener('pointercancel', fireEnd, true);
+  fire.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  // ---- the Keys | Joystick switch: remembered per machine ----
+  // offered only where the panel is the machine's: not in the phone's full-screen chat (body.chat-phone,
+  // js/ui/claude.js), whose keys type into the chat and where a BASIC machine's joystick has no meaning
+  const offer = () => touchJoystickOffered(session.machine) && !document.body.classList.contains('chat-phone');
+  // a gamepad takes the joystick while it is connected (screen.js reads it every frame): the panel shows the
+  // keys then, without overwriting the mode the person chose, and the stick comes back when the pad goes.
+  // ?touch= (js/config.js) is the visit's own mode for every machine the visit shows: in force until the switch
+  // is used, it never writes what the switch remembers for a machine.
+  // how many gamepads are connected (0 when none): one leaving does not bring the stick back while another is
+  // still driving joy[0]/fire[0] every frame
+  const padCount = () => { try { return (navigator.getGamepads ? [...navigator.getGamepads()] : []).filter((p) => p && p.connected !== false).length; } catch (e) { return 0; } };
+  let padHere = padCount() > 0, visitMode = null;
+  const wanted = () => visitMode || (session.store.get(`touchMode.${session.machine.id}`) === 'joystick' ? 'joystick' : 'keys');
+  const modus = () => (padHere || !offer() || wanted() !== 'joystick' ? 'keys' : 'joystick');
+  function setMode(mode, { remember = true } = {}) {
+    if (!session.machine) return;
+    if (keysOnce) leave();   // the switch's own tap ends ABC: the mode it chooses is the one to show
+    // using the switch takes the panel out of the link's mode: from here it is the person's choice
+    visitMode = null;
+    if (remember) session.store.set(`touchMode.${session.machine.id}`, mode);
+    for (const b of box.querySelectorAll('[data-touchmode]')) b.setAttribute('aria-pressed', String(b.dataset.touchmode === mode));
+    box.dataset.mode = mode;
+    // leaving the stick: nothing stays held on the joystick it drove
+    if (mode !== 'joystick') { input.touchStickRelease(); input.touchFire(false); }
+    apply();
+  }
+  for (const b of box.querySelectorAll('[data-touchmode]')) b.addEventListener('click', () => setMode(b.dataset.touchmode));
+  // a link's ?touch= (js/config.js): this visit's mode. Taken up when the machine arrives (the link's machine
+  // switches in after this panel is set up), and dropped for good when the switch is used.
+  visitMode = page.linkTouch || null;
+
   // shown: Automatic (touch screens), Always or Never; "Hide keys" for this visit
   // a touch screen: a coarse pointer, or touch points and no hover, or a touch seen on the page
   const coarse = matchMedia('(pointer: coarse)'), noHover = matchMedia('(hover: none)');
@@ -80,22 +235,78 @@ export function setupTouchKeys(page, { input }) {
   // key form), so the machine keyboard steps out of its way until the field is gone
   let aside = false;
   const mode = () => session.store.get('touchKeys') || 'auto';
+  // is the panel showing the stick now (the page's tap handling and the mouse-as-joystick ask: js/ui/screen.js)
+  const stickActive = () => !box.hidden && !keysOnce && modus() === 'joystick' && offer();
+
+  let stickWas = false;   // the stick's pieces were showing at the last apply()
   function apply() {
     const on = !hidden && !aside && (mode() === 'on' || (mode() === 'auto' && touchScreen()));
+    const joy = on && offer();
+    // joystick mode (the classes follow joyMode, not stick): ABC's one keypress takes the stick's pieces away
+    // and brings the keyboard into the joystick mode's grid, never the keys mode's -- whose rows the screen
+    // occupies sideways, and which would put the keyboard over it.
+    const joyMode = joy && modus() === 'joystick';
+    const stick = joyMode && !keysOnce;
     box.hidden = !on;
+    box.classList.toggle('joystick', !!joyMode);
+    box.classList.toggle('keysonce', keysOnce);
+    box.dataset.mode = modus();
     document.body.classList.toggle('touch-keys', on);
+    document.body.classList.toggle('touch-stick', !!joyMode);
+    // the switch where the panel is, for a machine that has a joystick port
+    $('tkModeSwitch').hidden = !joy;
+    for (const b of box.querySelectorAll('[data-touchmode]')) b.setAttribute('aria-pressed', String(b.dataset.touchmode === modus()));
     $('btnShowKeys').hidden = !hidden;   // only after Hide keys (the Input tab has the setting)
     $('selTouchKeys').value = mode();
+    // losing the stick for ANY reason (hidden, Keys, a gamepad, ABC) lets go of it here: the pointer handlers
+    // are not the only way out, and one that never fires must not leave the joystick held. Only on the transition:
+    // while the stick is NOT up the joystick is someone else's (the mouse, the keyboard joystick) and must be left
+    // as it is.
+    if (stickWas && !stick) { releaseStick(); input.touchFire(false); }
+    stickWas = stick;
   }
   coarse.addEventListener('change', apply);
   noHover.addEventListener('change', apply);
   $('selTouchKeys').onchange = (e) => { session.store.set('touchKeys', e.target.value); hidden = false; apply(); };
-  $('tkHide').onclick = () => { hidden = true; apply(); };
   $('btnShowKeys').onclick = () => { hidden = false; apply(); };
-  // Menu opens the app bar's menu; in a phone's chat (body.chat-phone, js/ui/claude.js) the app bar gives way to the
-  // chat bar, and the button is its "← Emulator"
-  $('tkMenu').onclick = () => { $(document.body.classList.contains('chat-phone') ? 'btnClaudeBack' : 'btnMenu').click(); };
+  // Menu: the machine menu the app bar's Menu opens, plus "Hide keys" (which lives in Menu, so the strip has
+  // the Keys | Joystick switch instead). In a phone's chat (body.chat-phone, js/ui/claude.js) the app bar gives
+  // way to the chat bar, so Menu is "← Emulator" and leaves the chat in one tap, as it always has: the way out
+  // must not need a second tap.
+  const sheet = $('tkMenuSheet');
+  sheet.innerHTML = '<button type="button" data-item="menu">Machine menu</button><button type="button" data-item="hide">Hide keys</button>';
+  const closeSheet = () => { sheet.hidden = true; $('tkMenu').setAttribute('aria-expanded', 'false'); };
+  $('tkMenu').onclick = () => {
+    if (document.body.classList.contains('chat-phone')) { $('btnClaudeBack').click(); return; }
+    sheet.hidden = !sheet.hidden;
+    $('tkMenu').setAttribute('aria-expanded', String(!sheet.hidden));
+  };
+  sheet.onclick = (e) => {
+    const b = e.target.closest('[data-item]');
+    if (!b) return;
+    closeSheet();
+    if (b.dataset.item === 'menu') $('btnMenu').click();
+    else if (b.dataset.item === 'hide') { hidden = true; apply(); }
+  };
+  // a tap anywhere else closes it (the panel's own keys still type: the sheet is above the panel)
+  addEventListener('pointerdown', (e) => { if (!sheet.hidden && !sheet.contains(e.target) && e.target !== $('tkMenu')) closeSheet(); }, true);
+  addEventListener('keydown', (e) => { if (e.key === 'Escape' && !sheet.hidden) { e.preventDefault(); closeSheet(); } }, true);
+  // a machine switch: the mode is that machine's own; a machine without a joystick port goes back to the keys
+  session.on((ev) => {
+    if (ev !== 'machine') return;
+    // a stick the OLD machine's panel was driving is let go of, so nothing carries over. Only then: a machine whose
+    // joystick the mouse or the keyboard joystick drives is the host's, and this panel must not recentre it.
+    if (stickWas) { releaseStick(); input.touchFire(false); }
+    stickWas = false;
+    apply();
+  });
+  // a gamepad arriving: it drives the right joystick every frame, so the stick shows the keys while it is
+  // connected, and the mode comes back when the pad disconnects (screen.js reports both)
+  // (screen.js's own gamepadconnected toast says "Gamepad connected"; the panel's stand-down needs no second
+  // toast of its own)
+  addEventListener('gamepadconnected', () => { padHere = true; apply(); });
+  addEventListener('gamepaddisconnected', () => { padHere = padCount() > 0; apply(); });
   apply();
   const standAside = (on) => { if (aside !== !!on) { aside = !!on; apply(); } };
-  return { apply, standAside };
+  return { apply, standAside, setMode, stickActive };
 }

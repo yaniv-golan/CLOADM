@@ -88,7 +88,7 @@ The [README](../README.md#what-works) has the short version of this table.
 | **Floppy** | The Dragon DOS cartridge (WD2797), the Premier / Delta cartridge (WD2791) and the RS-DOS cartridge (WD1773), cycle for cycle as MAME has them; VDK, JVC (`.dsk`) and DMK images read and written, including headerless NitrOS-9 / OS-9 `.dsk` images of 18 x 256-byte sectors, whose LSN 0 states the geometry (a 40-track two-sided image used to be read as 80 single-sided, and on the CoCo's drive did not mount at all); 4 drives (the Dragon Alpha's own 2), write-protect; the drives card under the screen: click a drive to insert a file, a disk from your library or a new blank disk (the sizes the disk system uses: 40 or 80 tracks, one or two sides for DragonDOS and Delta; 35 or 40 for Disk BASIC; VDK, JVC or, double-sided, DMK), see its light while it works, write-protect, download it with what was written, eject. A drive whose changes the browser's storage refused is marked "not saved" (Download keeps them); without a disk ROM, a drive says which one it takes. Disks are written back to the stored image a sector at a time. The DOS ROM is yours, as every ROM; the Alpha needs none; [booting NitrOS-9](#booting-nitros-9) Level 2 on the CoCo 3 from your own 40-track floppy image, with CLOADM's own loader instead of a ROM | Booting NitrOS-9 from 80-track floppies |
 | **Cartridges** | ROM cartridges (`.ROM`, `.CCC`, `.DGN`) at `$C000`, autostarting; banked ROM cartridges (up to 128K in 16K pages); the Games Master Cartridge (SN76489A) and the Orchestra-90 (stereo DACs), sound included; the Multi-Pak with four slots; all as MAME has them on the CoCo 1/2, the CoCo 3 and the Dragons (MAME offers the banked board only on the CoCos). The cartridge port's board menu picks the board, or picks it from the image; its Multi-Pak section fills the four slots and sets the front-panel switch. The Multi-Pak also takes a disk controller (DragonDOS, Delta DOS or Disk BASIC, your ROM) on the Dragon 64 and the CoCo, compared with MAME in slot 4; a slot's board menu offers it, and the drives card uses it. The Speech/Sound Pak is offered as a board (music only; speech not yet) on the CoCo 1/2, CoCo 2B, CoCo 3 and the Dragon 64 | Speech/Sound Pak: its AY `-wavwrite` comparison is not passing (cause not established), and SP0256 speech synthesis is not implemented |
 | **Printer, serial, DriveWire** | Printer (Dragon parallel, CoCo/MC-10 serial); the bit-banger and the Dragon 64's 6551 ACIA with a terminal or loopback plug; DriveWire 4 over the CoCo's Becker port, served in the browser: drives 0-3 from images in the browser's storage, printing, virtual serial channels to WebSockets; [booting NitrOS-9](#booting-nitros-9) Level 2 on the CoCo 3 from your own DriveWire image, with CLOADM's own loader instead of a ROM; serving a real CoCo over Web Serial (untested on hardware) | the full screens |
-| **Input** | Keyboard in two modes (translated: the character typed; positional: the physical key), keyboard joystick, gamepads (two joysticks, dead zone), the Tandy and CoCo Max 3 Hi-Res interfaces, the CoCo 3 "The Rat" mouse, the CoCo Max Hi-Res module, mouse as the right joystick; an on-screen keyboard on phones and tablets (split for the thumbs when held sideways), a tappable welcome menu | Touch joystick |
+| **Input** | Keyboard in two modes (translated: the character typed; positional: the physical key), keyboard joystick, gamepads (two joysticks, dead zone), the Tandy and CoCo Max 3 Hi-Res interfaces, the CoCo 3 "The Rat" mouse, the CoCo Max Hi-Res module, mouse as the right joystick; an on-screen keyboard on phones and tablets (split for the thumbs when held sideways) and a touch joystick with FIRE, a tappable welcome menu | |
 | **Tools** | 6809/6803 assembler, POKE book with the SAM CPU speed, ROM self-test, snapshots (a `.cloadm` file to drop back in; Snapshot 1–3 in the browser), the Debugger screen (breakpoints, watchpoints, stepping, registers, memory, trace, symbols) | Step back (rewind) |
 | **Links, embedding, offline** | Every setting as a URL parameter (machine, RAM, CPU, a program, tape or cartridge to load, display, input); the Share screen: a link that opens this machine exactly as it is, a 6-second clip, a true-pixel screenshot, the snapshot file, and the embed code for a blog post; embed mode with a JavaScript API; works offline once visited, installable; settings export and import (never ROMs) | An install prompt, a touch keyboard in embeds |
 
@@ -211,10 +211,25 @@ chat takes its place; the conversation moves to the side panel, which reopens wh
 `#library`, or a reload on it) closes to the emulator rather than leaving the page. Every "← Emulator" returns to
 the emulator, whatever the address (`?app=claude` included) and the history behind it.
 
-On a phone or tablet an on-screen keyboard appears under the screen; held sideways it splits for your thumbs with
-the screen between its halves (BREAK, CLEAR, Hide keys and Menu under it). `SHIFT` shifts the next key. Input tab →
-On-screen keyboard: Automatic, Always or Never. The welcome menu's lines can be tapped. Files can be dropped
-anywhere on the page, and after the first ROMs are added CLOADM asks the browser to keep them, saying if it may not.
+On a phone or tablet an on-screen panel appears under the screen; held sideways it is fixed around the screen.
+The **Keys | Joystick** switch (shown when the machine has a joystick port of its own — not the MC-10 or Alice, and
+not when the right port holds a Hi-Res interface or The Rat) turns it into a **touch joystick**:
+
+* One stick, on the **right** joystick (the one the first gamepad drives), analogue over the machines' 0–63 with a
+  small dead zone, no eight-way snap. Touch down anywhere in the zone to set its centre; about 56 px of travel is
+  full deflection. In Keys mode held sideways the panel is the split thumb keyboard; in Joystick mode the stick fills
+  the left, and the key strip (SPACE, ENTER, BREAK, 1, 2, Y, N, ABC) and a large FIRE the right. Upright the switch,
+  the key strip, the stick and FIRE come under the screen. ABC shows the keyboard for one keypress — the whole
+  keyboard upright, the split keyboard's two halves sideways, where the screen has the height — then the stick
+  returns. The stick and FIRE can be held at once.
+* FIRE is the joystick's button bit, so it shares a keyboard row line as a real stick's fire button does, and on the
+  CoCo 3 it raises the keyboard interrupt. A gamepad connecting stands the touch stick down until it disconnects.
+  The mode is remembered per machine, and `?touch=joystick` or `?touch=keys` sets it for the visit.
+* Keys mode: the keyboard splits for your thumbs, BREAK, CLEAR, the switch and Menu sit under it. `SHIFT` shifts the
+  next key. **Hide keys** is in the panel's Menu. Input tab → On-screen keyboard: Automatic, Always or Never.
+  The welcome menu's lines can be tapped (in Joystick mode a tap on the screen never reaches the menu).
+  Files can be dropped anywhere on the page, and after the first ROMs are added CLOADM asks the browser to keep
+  them, saying if it may not.
 
 ## Display
 
@@ -292,6 +307,7 @@ doesn't have is reported in a message (with Details) and the rest of the link st
 | `rom` | a link to a ROM image (repeatable), never the Color Computer Archive | with `selftest=1`, the ROM self-test |
 | `display`, `phase`, `aspect`, `integer`, `curvature`, `glow` | `crt`/`sharp`, `1`/`2`, `4:3`/`fill`, `1`/`0`, `0`-`100` | for that visit only, never stored |
 | `joy` | `mouse`, `off` | the mouse as the right joystick |
+| `touch` | `joystick`, `keys` | the on-screen panel's mode on a touch screen: the touch joystick, or the keyboard alone (not for embeds) |
 | `sound`, `fasttape`, `turbo` | `1`, `0` | |
 | `embed` | `1` | the screen alone, for an iframe |
 | `storage` | `opfs`, `fsa`, `fallback` | where ROMs and programs are kept |

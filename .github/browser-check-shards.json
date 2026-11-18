@@ -70,6 +70,7 @@
       "typeinScreen",
       "driveWire",
       "inputScreen",
+      "touchJoystick",
       "tape",
       "state",
       "light",
