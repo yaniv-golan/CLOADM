@@ -957,6 +957,26 @@ Found and not fixed: at power-on the WD1773 starts a restore on its own (`wd_fdc
 INTRQ reaches our CPU about 8 cycles later than MAME's. The diagnostics and both NitrOS-9 boots send Force Interrupt
 first (as `boot_1773.asm`'s HWInit does), so nothing compared depends on it.
 
+## The HD6309 running the 6809 builds
+
+Not hardware behaviour: the 6309 core is compared with MAME per instruction already ([cpu6309.md](cpu6309.md)); this
+is the page's and Session's choice of *which* build to run. The 6309 executes every 6809 instruction in emulation mode
+(where a reset leaves it), so the welcome menu, LIZA, the colour demo and the Claude chat firmware are the 6809
+builds on it too. The oracle is parity: the same bytes on a 6309 and on a 6809 must end in the same CPU state and the
+same screen.
+
+* `tests/cpu6309-session.test.js`: on every model with a 6309 option (`dragon64`, `tanodr64`, `coco`, `coco3`; the
+  CoCo 2B has no CPU option, so a case there would resolve to 6809 and prove nothing) the Session's `welcomeFile`,
+  `lizaFile`, `lizaNeeds`, `carryOn`, `startWelcome`, `startLiza` and `startChat` behave as on the 6809; each build
+  (welcome, LIZA, demo, chat firmware) ends in the same CPU state and screen on the 6309 as on the 6809; a 4K MC-10 and
+  its 6803 rules are unchanged; and the 6309 choice survives a visit. It fails 62 checks on the commit before the fix,
+  so it is not vacuous.
+* `tools/browser-check.js` (`cpu6309`, in the full run): `?machine=dragon64&cpu=6309` opens on the menu with no error
+  toast and no `undefined` (the bug's `examples/undefined: HTTP 404`), key 1 runs LIZA without leaving the 6309, BYE
+  returns to the menu, key 2 runs the demo (sampling its program counter and the 6309 trap bit), key 4 opens the chat
+  on the 6309, a new visit with no query parameters keeps the choice from storage, and the Machine tab's CPU row
+  switches a CoCo 1/2 to the 6309 into its menu.
+
 ## SAM CPU rate (the speed POKEs)
 
 What the MC6883 data sheet says, and what we do (Motorola, Advance Information; pages of the 25-page scan):

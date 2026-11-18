@@ -78,6 +78,15 @@ All notable changes to CLOADM are recorded here. The format follows
   offering it rests on; the other Dragon-family models (Dragon 32, Dragon 200, Dragon 200-E, Tano Dragon 64, Dragon Professional (Alpha)
   and Dragon 64 Plus) have not been run, so they do not offer it.
 
+### Fixed
+
+- **The HD6309 now runs the 6809 programs.** Choosing the 6309 (Machine tab, or `?machine=dragon64&cpu=6309`)
+  opened on "Welcome: examples/undefined: HTTP 404": the Session's welcome-menu, LIZA, colour-demo and Claude-chat
+  lookups were keyed by the literal CPU and had no 6309 entry, so the page fetched a missing file, the screen kept
+  the bare stub, the Media tab lost the colour demo, and the choice stuck for later visits. The lookups now go by
+  CPU family (`js/cpu/cpus.js`), and the 6309 — which runs every 6809 instruction in emulation mode — gets the 6809
+  welcome build, LIZA and demo, and the 6809 chat firmware. The stored 6309 choice is unchanged.
+
 ### 0.1.1-pre
 
 #### Added

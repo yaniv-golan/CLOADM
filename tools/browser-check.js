@@ -1400,6 +1400,147 @@ async function returningChecks(browser, base, check) {
   await ctx.close();
 }
 
+// The HD6309 runs the 6809 programs. `?machine=dragon64&cpu=6309` (the Machine tab's choice, or a link)
+// must open exactly as the 6809 does: the welcome menu fetched and running, no error toast, key 1 to LIZA,
+// BYE back to the menu, key 2 the colour demo, key 4 the chat, and the same after a reload with no
+// parameters (the choice is stored, and the Session's lookups are by CPU family, not by the literal CPU).
+// The bug was that the lookups were keyed by `config.cpu` with no 6309 entry, so the page fetched
+// examples/undefined (HTTP 404), the stub stayed blank and the Media tab lost the colour demo.
+async function cpu6309Checks(browser, base, check) {
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 1060 } });
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  // every toast the page shows, recorded as it appears: the error toast lives 4 s and the page clears both its
+  // text and its error class when it ends, so sampling after a wait misses the bug's own symptom
+  await page.addInitScript(() => {
+    window.__toasts = [];
+    const watch = () => {
+      const box = document.getElementById('toast');
+      if (!box) return setTimeout(watch, 0);
+      new MutationObserver(() => { if (!box.hidden) window.__toasts.push({ text: document.getElementById('toastText').textContent, error: box.classList.contains('error') }); })
+        .observe(box, { attributes: true, childList: true, subtree: true, characterData: true });
+    };
+    watch();
+  });
+  const open = async (q, within = 15000) => {
+    await page.goto(`${base}${q}`);
+    return waitFor(page, () => window.emu && window.emu.session && window.emu.session.machine
+      && window.emu.session.machine.config.cpu === '6309' && window.emu.machine && window.emu.machine.config.cpu === '6309', null, within);
+  };
+  const msg = () => page.textContent('#toast');
+  const ev = (fn) => page.evaluate(fn);
+  const isError = () => page.evaluate(() => document.getElementById('toast').classList.contains('error'));
+  // the menu is on screen and says PRESS 1 TO 4 or TO 5 (option 5 appears only when something ran last)
+  const menu = () => waitFor(page, () => window.emu.session.welcomeRunning && /PRESS 1 TO [45]/.test(window.emu.session.screenText()[14]), null, 15000);
+  const screenText = async () => (await ev(() => window.emu.session.screenText())).join('\n');
+  const key = async (k) => { await page.focus('#screen'); await page.keyboard.press(k); };
+
+  // the free-standing case: no missing file, no error toast, the menu, and the shelf offers LIZA and the demo
+  const opened = await open('?machine=dragon64&cpu=6309');
+  check('cpu=6309: the link opens on the 6309, welcome menu fetched and running', opened && await menu(), await msg());
+  // the bug's symptom was a toast naming examples/undefined (an error). Recorded as it appeared, not sampled
+  // after the wait: the toast clears itself after 4 s, so a sample taken after `menu()`'s 15 s wait would miss
+  // it and this check would be unable to fail.
+  const seen0 = await page.evaluate(() => window.__toasts || null);
+  check('cpu=6309: no error toast and no "undefined" (the bug showed "Welcome: examples/undefined: HTTP 404")',
+    Array.isArray(seen0) && !seen0.some((t) => t.error || /undefined/i.test(t.text)) && !(await isError()),
+    JSON.stringify(seen0));
+  const t0 = await screenText();
+  check('cpu=6309: the menu is the 6809 build\'s, key 1 TO 4 and LIZA', /1 TALK TO LIZA/.test(t0) && /PRESS 1 TO 4/.test(t0), t0.split('\n')[9]);
+  check('cpu=6309: "Colour demo" is still on the "Runs without ROMs" shelf (the Media tab keeps it)', /Colour demo/.test(await page.$$eval('#shelf button', (b) => b.map((x) => x.textContent).join('|'))),
+    await page.$$eval('#shelf button', (b) => b.map((x) => x.textContent).join('|')));
+
+  // keys 1 and BYE round-trip, all on the 6309
+  await key('1');
+  check('cpu=6309: key 1 runs LIZA', await waitFor(page, () => window.emu.session.screenText().join('').includes('I AM LIZA'), null, 20000));
+  // running LIZA must not have switched the machine (the old path switched a 6309 to a 6809 Dragon 64)
+  // (a precondition, not evidence that the bug is fixed: on the base commit LIZA never starts, so "the machine is
+  // still the 6309" is trivially true. The discriminating check here is "key 1 runs LIZA" above.)
+  check('cpu=6309: LIZA runs without leaving the 6309 (no switch to a 6809 machine)',
+    await ev(() => window.emu.machine.config.cpu === '6309' && window.emu.machine.id === 'dragon64'), await ev(() => `${window.emu.machine.id} ${window.emu.machine.config.cpu}`));
+  await page.focus('#screen'); await page.keyboard.type('BYE', { delay: 60 }); await page.keyboard.press('Enter');
+  // the goodbye lasts LIZA_BYE_SECONDS of MACHINE time, so this is bounded in machine frames (400, 8 s at 50 Hz),
+  // as returningChecks does: a page running slowly under load must not be cut short by a wall-clock limit
+  check('cpu=6309: BYE returns to the welcome menu', await waitForFrames(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[7].trim() === 'BYE FOR NOW. PICK ANOTHER?', null, 400), await screenText());
+  // the menu is started by the page after `menu` arrives (a fetch of welcome.bin plus the program's frames), so
+  // bound it in machine frames like the BYE wait above, not in wall time
+  check('cpu=6309: the menu says "PRESS 1 TO 4" again',
+    await waitForFrames(page, () => window.emu.session.welcomeRunning && /PRESS 1 TO [45]/.test(window.emu.session.screenText()[14]), null, 400), await screenText());
+
+  // keys 2 and 4 (demo, chat) come up on the 6309 as on the 6809
+  await key('2');
+  check('cpu=6309: key 2 runs the colour demo', await waitFor(page, () => /Colour demo: press a key/.test(document.getElementById('toast').textContent) && window.emu.machine.cpu.pc >= 0x4000 && window.emu.machine.cpu.pc < 0x4200, null, 20000), await msg());
+  // the demo is really executing on the 6309: over a short window its program counter is seen in the demo's own
+  // code ($4000-$41FF, where demo.bin loads), the 6309's illegal-opcode trap flag (MD bit 6) is never set, and the
+  // welcome program is no longer in charge. (A single sample is not enough: the demo calls the stub's POLCAT at
+  // $B100 between frames. The trap bit, not a PC at $FFF0, is the signal: a 6309 trap jumps to the vector's
+  // CONTENTS in one instruction, so the PC is never $FFF0 itself.)
+  {
+    const seen = await ev(async () => {
+      const out = { inDemo: false, trapped: false, welcome: false };
+      for (let i = 0; i < 40; i++) {
+        const m = window.emu.machine, pc = m.cpu.pc;
+        if (pc >= 0x4000 && pc < 0x4200) out.inDemo = true;
+        if ((m.cpu.md & 0x40) !== 0) out.trapped = true;   // illegal-opcode trap taken
+        out.welcome = out.welcome || window.emu.session.welcomeRunning;
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      return out;
+    });
+    check('cpu=6309: the demo executes its own code and takes no illegal-opcode trap', seen.inDemo && !seen.trapped && !seen.welcome, JSON.stringify(seen));
+  }
+  // "Back to the menu" starts the menu afresh (greeting 'first', no option 5): the same on 6809 and 6309
+  await page.click('#btnWelcomeBack');
+  check('cpu=6309: "Back to the menu" returns to the menu', await menu() && !(await isError()), await screenText());
+  check('cpu=6309: "Back to the menu" starts it afresh, no option 5 (as on the 6809)', await ev(() => window.emu.session.screenText()[14].includes('PRESS 1 TO 4') && !window.emu.session.screenText().join('').includes('CARRY ON')), await screenText());
+  await key('4');
+  check('cpu=6309: key 4 opens the Claude chat (no switch to a 6809)', await waitFor(page, () => document.body.classList.contains('claude-open') && window.emu.session.chatView === 'chat', null, 15000), await msg());
+  // the chat machine is the second machine startChat makes; session.machine alone is not evidence (with the bug,
+  // startChat throws and session.machine is still the BASIC machine, which is a 6309 from the URL either way)
+  check('cpu=6309: the chat machine is the 6309 the visitor chose',
+    await ev(() => !!window.emu.session.chatMachines && window.emu.session.chatMachines.chat.config.cpu === '6309'),
+    await ev(() => window.emu.session.chatMachines ? window.emu.session.chatMachines.chat.config.cpu : 'no chat machine'));
+  await page.click('#btnClaudeBack');
+  check('cpu=6309: "← Emulator" comes back to the welcome menu on the 6309', await waitFor(page, () => !document.body.classList.contains('claude-open') && window.emu.session.welcomeRunning && window.emu.machine.config.cpu === '6309'), await msg());
+
+  // a new visit with NO parameters: the 6309 choice must come from storage, not from the link (reloading the
+  // current URL would keep `?cpu=6309` in the address and prove nothing). The demo ran, so the menu offers it as
+  // option 5 ("PRESS 1 TO 5"), exactly as the 6809 would.
+  // (persistence is a precondition, not evidence: the base commit stores the choice too. The checks that fail
+  // there are the menu, option 5 and the shelf below, which all need the lookups to work.)
+  await page.goto(base);
+  await waitFor(page, () => window.emu && window.emu.ready === true);
+  check('cpu=6309: a visit with no parameters at all keeps the 6309 choice (from storage)', await waitFor(page, () => window.emu.machine && window.emu.machine.config.cpu === '6309')
+    && await ev(() => location.search === ''), await ev(() => location.search));
+  check('cpu=6309: the new visit opens on the welcome menu, no error', await menu() && !(await isError()), await msg());
+  check('cpu=6309: the new visit offers what ran last (the demo) as option 5, as on the 6809',
+    await waitFor(page, () => window.emu.session.screenText()[12].includes('CARRY ON WITH COLOUR') && window.emu.session.screenText()[14].includes('PRESS 1 TO 5')), await screenText());
+  check('cpu=6309: "Colour demo" is still on the shelf (the new visit\'s Media tab keeps it)', /Colour demo/.test(await page.$$eval('#shelf button', (b) => b.map((x) => x.textContent).join('|'))),
+    await page.$$eval('#shelf button', (b) => b.map((x) => x.textContent).join('|')));
+  check('cpu=6309: no page errors in the whole case', !errors.length, errors.join('; '));
+  await ctx.close();
+
+  // one more model, by keyboard on the Machine tab: the CoCo 1/2 switches to the 6309 and the menu starts
+  const ctx2 = await browser.newContext({ viewport: { width: 1440, height: 1060 } });
+  const p2 = await ctx2.newPage();
+  const errors2 = [];
+  p2.on('pageerror', (e) => errors2.push(e.message));
+  await p2.goto(`${base}?machine=coco`);
+  await waitFor(p2, () => window.emu && window.emu.ready === true);
+  await p2.evaluate(() => {
+    const s = window.emu.session, sel = document.getElementById('cpuSel');
+    sel.value = '6309'; sel.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  // (a precondition: the base commit accepts cpu=6309 in the profiles too, so this is not evidence by itself;
+  // the discriminating check is that the welcome menu then starts, below)
+  check('cpu=6309 (Machine tab, CoCo 1/2): the machine is a 6309', await waitFor(p2, () => window.emu.machine.config.cpu === '6309' && window.emu.machine.id === 'coco'));
+  check('cpu=6309 (Machine tab, CoCo 1/2): the welcome menu starts', await waitFor(p2, () => window.emu.session.welcomeRunning && /PRESS 1 TO [45]/.test(window.emu.session.screenText()[14]), null, 15000),
+    await p2.evaluate(() => window.emu.session.screenText().join('\n')));
+  check('cpu=6309 (Machine tab, CoCo 1/2): no page errors', !errors2.length, errors2.join('; '));
+  await ctx2.close();
+}
+
 // Reset and power without ROMs (like a real computer, never a dead end), through
 // the page's buttons on a Dragon 64 without ROMs: Reset restarts what runs (the welcome menu stays the menu, LIZA
 // restarts LIZA, a binary restarts at its exec address); "Switch off and on" and "Run without ROMs" turn the machine
@@ -6837,6 +6978,7 @@ const GROUPS = (base, site) => [
   ['visit', (b) => visitChecks(b, base, check)],
   ['returning', (b) => returningChecks(b, base, check)],
   ['powerOn', (b) => powerOnChecks(b, base, check)],
+  ['cpu6309', (b) => cpu6309Checks(b, base, check)],
   ['firstVisit', (b) => firstVisitChecks(b, base, check)],
   ['media', (b) => mediaChecks(b, base, check)],
   ['disk', (b) => diskChecks(b, base, check)],

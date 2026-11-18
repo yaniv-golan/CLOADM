@@ -21,6 +21,7 @@ import { MediaStoreError } from './host/media-store.js';
 import { KeyQueue } from './machines/keyqueue.js';
 import { charToKeys } from './machines/keyboards.js';
 import { cartridgeRoms, createMachine, profiles, resolveConfig, restoreSnapshot } from './machines/profiles.js';
+import { cpuFamily } from './cpu/cpus.js';
 import { SpeechSoundPak, SSC_ROM_PROFILE } from './machines/ssc.js';
 import { Debugger } from './debugger.js';
 import { disassembleBlock } from './asm/disassembler.js';
@@ -68,10 +69,11 @@ const describeSegments = (segs, exec) =>
 // used, so profiles added at run time count)
 const romOwners = () => Object.assign({}, profiles, cartridgeRoms, { ssc: SSC_ROM_PROFILE });
 
-// The welcome program: its fixed addresses, one entry per CPU. Keys 1-4 are posted in the `event`
+// The welcome program: its fixed addresses, one entry per CPU family. Keys 1-4 are posted in the `event`
 // mailbox, which the Session reads and clears after every frame (a mailbox rather than PC hooks: the
 // CoCo 3 runs hooks only in its ROM area); `soundOk` is set once the page has unlocked audio. The 6809
-// build sits at $6000 and covers eleven models; the 6803 build (the MC-10 and the Matra Alice) sits at
+// build sits at $6000 and covers eleven models (the HD6309 included: it runs the 6809 build in emulation
+// mode, like any 6809 program); the 6803 build (the MC-10 and the Matra Alice) sits at
 // $5000 and is built once per machine, so its subtitle names the one it runs on.
 export const WELCOME = Object.freeze({
   '6809': Object.freeze({ file: 'welcome.bin', start: 0x6000, event: 0x6003, soundOk: 0x6004, greet: 0x6006, carry: 0x6007 }),
@@ -776,7 +778,7 @@ export class Session {
   // no ROMs, nothing running: the welcome menu, greeting the visitor back (the page has its bytes)
   offerMenu() {
     const m = this.machine;
-    if (this.welcomeMenu && m.useStub && WELCOME[m.config.cpu]) this.emit('menu', 'back');
+    if (this.welcomeMenu && m.useStub && WELCOME[cpuFamily(m.config.cpu)]) this.emit('menu', 'back');
   }
   // run segments at exec (Machine.injectAndRun), remembering them as the stub's program to restart on Reset
   inject(segments, exec) {
@@ -1133,13 +1135,13 @@ export class Session {
   }
   setLastRun(kind, name) { this.store.set('lastRun', JSON.stringify({ kind, name })); }
   // What the welcome menu's option 5 offers on the machine in use: what ran last, if it runs here. A file only on
-  // the machine it was loaded on (and only while its bytes are kept), the colour demo only on a 6809, LIZA on
-  // every machine (its 6809 or 6803 build). null: no option 5.
+  // the machine it was loaded on (and only while its bytes are kept), the colour demo only on a 6809-family CPU,
+  // LIZA on every machine (its 6809 or 6803 build). null: no option 5.
   get carryOn() {
     const last = this.lastRun, m = this.machine;
     if (!last || !m) return null;
     if (last.kind === 'recent') { const r = this.recentMedia()[0]; return r && r.stored && r.name === last.name && r.machine === m.id ? last : null; }
-    if (last.kind === 'demo') return m.config.cpu === '6809' ? last : null;
+    if (last.kind === 'demo') return cpuFamily(m.config.cpu) === '6809' ? last : null;
     return last;
   }
   // the machine picker is asked once, then remembered
@@ -2135,12 +2137,13 @@ export class Session {
   // showChat('basic') puts the BASIC session on screen (the person: Show my BASIC session, Ctrl+B), showChat('chat')
   // brings the chat back. Both machines run (the one off screen is the live picture-in-picture), so Claude's
   // typing goes in while the chat is on screen, and a reply reaches the firmware while BASIC is.
-  // Only 6809 machines run the chat firmware for now.
+  // Only 6809-family machines (the 6809 and the 6309, which runs the 6809 firmware in emulation mode) run the
+  // chat firmware for now.
   startChat({ backend, channel, firmware, brief = '', tools = true, drivewire = false, include = null } = {}) {
     const basic = this.machine;
     if (!backend) throw new SessionError('The chat needs a backend.');
     if (!firmware) throw new SessionError('The chat needs its firmware (examples/chat.bin).');
-    if (basic.config.cpu !== '6809') throw new SessionError(`The chat firmware needs a 6809; the ${basic.profile.name} has a ${basic.config.cpu}.`);
+    if (cpuFamily(basic.config.cpu) !== '6809') throw new SessionError(`The chat firmware needs a 6809; the ${basic.profile.name} has a ${basic.config.cpu}.`);
     if (drivewire && !basic.profile.options.becker) throw new SessionError(`The ${basic.profile.name} has no Becker port, so the chat cannot use DriveWire there.`);
     const kept = this.chat && !this.chatMachines ? this.chat : null;   // the side panel's conversation moves here
     if (!kept) this.dropChat();
@@ -2244,18 +2247,18 @@ export class Session {
   // ---------------- LIZA on every machine ----------------
   // One way to start the conversation program. The 6803 build is for the MC-10 family (it uses that
   // machine's ROM entry points and its $4000 text screen) and sits at $5000, so it needs the 20K RAM
-  // option; every 6809 machine runs the 6809 build. The 6803 build's title names the machine, so it is
-  // built once per machine (its two images differ only in the title). The page fetches the file; startLiza
-  // is given the bytes because the emulator library has no file access of its own.
+  // option; every 6809-family machine (the 6809 and the 6309) runs the 6809 build. The 6803 build's title
+  // names the machine, so it is built once per machine (its two images differ only in the title). The page
+  // fetches the file; startLiza is given the bytes because the emulator library has no file access of its own.
   // done: each build's DONE loop, where it stops after BYE (tests/returning.test.js assembles the sources and
   // checks these)
   static LIZA = { '6809': 'liza.bin', ram: 20, '6803': Object.freeze({ mc10: 'liza6803-mc10.bin', alice: 'liza6803-alice.bin' }),
     done: Object.freeze({ '6809': 0x303F, '6803': 0x5048 }) };
-  get lizaFile() { return this.machine.config.cpu === '6809' ? Session.LIZA['6809'] : Session.LIZA['6803'][this.machine.id]; }
+  get lizaFile() { return cpuFamily(this.machine.config.cpu) === '6809' ? Session.LIZA['6809'] : Session.LIZA['6803'][this.machine.id]; }
   // what a machine needs before it can run LIZA -> { ram, have } when the RAM option is too small, else null
   lizaNeeds() {
     const m = this.machine, need = Session.LIZA.ram;
-    if (m.config.cpu !== '6803' || m.config.ram >= need) return null;
+    if (cpuFamily(m.config.cpu) !== '6803' || m.config.ram >= need) return null;
     return { ram: need, have: m.config.ram };
   }
   // startLiza(fetch) -> the load message. fetch(name) gives the file's bytes, or a promise of them
@@ -2273,12 +2276,12 @@ export class Session {
   // Leaving a program goes back to the welcome menu: BYE in LIZA (it stops at its DONE
   // loop; the goodbye stays readable for LIZA_BYE_SECONDS), any key once the colour demo is drawing (it has taken
   // its "press any key" from the stub and reads no keys after that, so one waiting in the stub's queue is the
-  // visitor's asking to leave). Only on a 6809 machine on the stub firmware,
+  // visitor's asking to leave). Only on a 6809-family machine on the stub firmware,
   // where the welcome menu runs; the Session emits 'menu' and the page starts the menu again (it has its bytes).
   // A load, a switch, a reset or a power cycle ends the watch.
   watchForMenu(kind) {
     const m = this.machine;
-    this.menuWatch = this.welcomeMenu && WELCOME[m.config.cpu] && m.useStub ? { kind, m, since: null, taken: m.stubKeysTaken, drawing: false } : null;
+    this.menuWatch = this.welcomeMenu && WELCOME[cpuFamily(m.config.cpu)] && m.useStub ? { kind, m, since: null, taken: m.stubKeysTaken, drawing: false } : null;
     if (this.stubRun && this.stubRun.m === m) this.stubRun.watch = kind;   // a Reset restarts the watch too
   }
   checkMenuReturn() {
@@ -2289,7 +2292,7 @@ export class Session {
     if (w.kind === 'liza') {
       // the goodbye's time is the machine's: its frames since LIZA reached DONE (this runs once per advance(),
       // which can run several frames, or none)
-      if (m.cpu.pc !== Session.LIZA.done[m.config.cpu]) { w.since = null; return; }
+      if (m.cpu.pc !== Session.LIZA.done[cpuFamily(m.config.cpu)]) { w.since = null; return; }
       if (w.since === null) w.since = m.frameCount;
       if (m.frameCount - w.since < LIZA_BYE_SECONDS * m.fps) return;
     } else {
@@ -2404,7 +2407,7 @@ export class Session {
   // greeting: 'first', 'back' (a returning visitor) or 'bye' (back from a program); carryOn: a name for option 5,
   // "CARRY ON WITH <name>" (key 5 then emits 'welcome:carryon'), or null
   startWelcome(bytes, { greeting = 'first', carryOn = null } = {}) {
-    const m = this.machine, w = WELCOME[m.config.cpu];
+    const m = this.machine, w = WELCOME[cpuFamily(m.config.cpu)];
     if (!w) throw new SessionError(`There is no Welcome menu for the ${m.profile.name}'s ${m.config.cpu}.`);
     const g = WELCOME.greetings.indexOf(greeting);
     if (g < 0) throw new SessionError(`unknown welcome greeting "${greeting}"`);
@@ -2426,10 +2429,10 @@ export class Session {
     return carry ? 'Welcome: press 1 to 5' : 'Welcome: press 1 to 4';
   }
   get welcomeRunning() { return this.welcome === this.machine; }
-  // the welcome build this machine runs: the 6809 file for every 6809 model, the machine's own 6803 build
-  // on the MC-10 and the Alice (their subtitles differ). The page fetches it by this name.
+  // the welcome build this machine runs: the 6809 file for every 6809-family model (the 6309 included), the
+  // machine's own 6803 build on the MC-10 and the Alice (their subtitles differ). The page fetches it by this name.
   get welcomeFile() {
-    const m = this.machine, w = WELCOME[m.config.cpu];
+    const m = this.machine, w = WELCOME[cpuFamily(m.config.cpu)];
     return (w && w.file) || WELCOME6803[m.id];
   }
   // the page unlocked audio: the welcome program plays its tune (once per start)

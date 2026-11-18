@@ -29,7 +29,9 @@ from its Hitachi HD6845S CRT controller), and the Display tab switches between t
 from a user-supplied character generator.
 
 The Dragon 64, the Tano Dragon 64, the CoCo 1/2 and the CoCo 3 can run the Hitachi 6309 in place of the 6809
-(Machine tab, CPU). The core and its sources are described in [cpu6309.md](cpu6309.md).
+(Machine tab, CPU). The core and its sources are described in [cpu6309.md](cpu6309.md). The 6309 runs the 6809
+instruction set in emulation mode, so the programs that run without ROMs — the welcome menu, LIZA and the colour
+demo — and the Claude chat firmware run on it unchanged.
 
 ## What is emulated
 

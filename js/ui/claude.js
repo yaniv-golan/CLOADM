@@ -19,6 +19,7 @@ import { MemoryChannel } from '../claude/channel.js';
 import { exampleReader } from '../host/example-reader.js';
 import { ACTING_TOOL_NAMES } from '../claude/chat.js';
 import { CanvasPresenter } from '../video/canvas.js';
+import { cpuFamily } from '../cpu/cpus.js';
 import { $, ESC, VIEWS, viewOpen } from './page.js';
 
 const FIRMWARE_URL = 'examples/chat.bin';
@@ -195,7 +196,7 @@ export function setupClaude(page) {
     if (session.claudeView === 'full') { session.showChat('chat'); show(true); return session.chat; }
     if (opening) return opening;
     opening = (async () => {
-      if (session.machine.config.cpu !== '6809') {
+      if (cpuFamily(session.machine.config.cpu) !== '6809') {
         if (session.chat) session.endChat();
         page.status(`The chat firmware needs a 6809, so the chat opens on a Dragon 64 (the ${session.machine.profile.name} has a ${session.machine.config.cpu}).`);
         session.switchMachine('dragon64');

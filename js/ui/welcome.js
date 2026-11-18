@@ -21,6 +21,7 @@
  */
 import { $, ESC } from './page.js';
 import { profiles } from '../machines/profiles.js';
+import { cpuFamily } from '../cpu/cpus.js';
 
 // Programs that run without ROMs: our own only. Third-party homebrew is not bundled: the stub provides only
 // POLCAT and CHROUT, so most homebrew (which calls other ROM routines) wouldn't run, and anything listed here
@@ -28,7 +29,8 @@ import { profiles } from '../machines/profiles.js';
 // could join only with its author's written permission, recorded in CREDITS.md, and only if it runs on the
 // stub. The Claude chat terminal joins when it lands.
 // LIZA is one entry for every machine: the Session picks the 6809 or 6803 build by CPU and, on a 4K
-// MC-10 or Alice, offers the 20K switch the 6803 build needs.
+// MC-10 or Alice, offers the 20K switch the 6803 build needs. `cpu` is an instruction-set family: the 6309
+// runs the 6809 build, so the demo is offered on it too.
 export const SHELF = [
   { name: 'LIZA', liza: true, title: 'An ELIZA-style conversation program' },
   { name: 'Colour demo', url: 'examples/demo.bin', cpu: '6809', title: 'Graphics and colour demo' },
@@ -124,7 +126,8 @@ export function setupWelcome(page, { showRoms, openClaude }) {
     const row = $('shelf');
     row.replaceChildren();
     // every machine gets the welcome menu and LIZA (the 6809 or 6803 builds); the colour demo is a 6809 program
-    const cpu = session.machine.config.cpu, need = session.lizaNeeds();
+    // (the 6309 runs it too: it is in the 6809 instruction-set family)
+    const cpu = session.machine.config.cpu, family = cpuFamily(cpu), need = session.lizaNeeds();
     {
       const w = el('button', 'Welcome menu'); w.dataset.shelf = 'welcome';
       w.title = 'The Welcome menu: LIZA, colour and sound, adding ROMs, Claude';
@@ -132,9 +135,10 @@ export function setupWelcome(page, { showRoms, openClaude }) {
       if (session.welcomeRunning) { w.append(' ', el('span', 'on screen now', 'tag now')); w.setAttribute('aria-current', 'true'); }
       row.append(w);
     }
-    for (const item of SHELF.filter((x) => !x.cpu || x.cpu === cpu)) {
+    for (const item of SHELF.filter((x) => !x.cpu || x.cpu === family)) {
       const b = el('button', item.name); b.onclick = () => run(item);
-      b.title = item.liza ? `${item.title} (the ${cpu} build${need ? `; needs the ${need.ram}K RAM option` : ''})` : item.title;
+      // the LIZA title names the build the machine actually runs (the 6309 runs the 6809 build)
+      b.title = item.liza ? `${item.title} (the ${family} build${need ? `; needs the ${need.ram}K RAM option` : ''})` : item.title;
       if (item.liza && need) { const t = el('span', `needs ${need.ram}K`, 'tag'); b.append(' ', t); b.dataset.needs = String(need.ram); }
       row.append(b);
     }
@@ -218,7 +222,7 @@ export function setupWelcome(page, { showRoms, openClaude }) {
   // a program of the no-ROM shelf by name (the Library's empty state)
   function runShelf(name) {
     const item = SHELF.find((x) => x.name === name);
-    if (item.cpu && session.machine.config.cpu !== item.cpu) { page.status(`${name} needs a Dragon or a CoCo; pick one from the machine menu.`, true); return; }
+    if (item.cpu && cpuFamily(session.machine.config.cpu) !== item.cpu) { page.status(`${name} needs a Dragon or a CoCo; pick one from the machine menu.`, true); return; }
     run(item);
   }
   return { start, runShelf };

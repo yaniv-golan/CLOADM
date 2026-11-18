@@ -30,12 +30,14 @@ same length, so the two images have the same layout and differ only in the name.
 `examples/welcome.asm` is the first program a visitor sees: the eight VDG colours build up as a stripe, then
 CLOADM in block letters and a menu. The keys 1 to 4 reach the page through a mailbox byte the Session reads after
 every frame (`Session.startWelcome`, events `welcome:liza`, `welcome:demo`, `welcome:roms`, `welcome:claude`),
-and a short original tune plays on the DAC once the browser allows sound. It runs on the 6809 machines (the
-CoCo 3 in its CoCo 2-compatible text mode); the MC-10 and Alice get a 6803 version with LIZA's.
+and a short original tune plays on the DAC once the browser allows sound. It runs on the 6809-family machines
+(the HD6309 included, which runs the 6809 build in emulation mode, and the CoCo 3 in its CoCo 2-compatible text
+mode); the MC-10 and Alice get a 6803 version with LIZA's.
 Without ROMs every visit opens on it: a returning visitor reads
 "WELCOME BACK" and, if something ran last time, option 5 "CARRY ON WITH ..." (`welcome:carryon`; the Session
 sets the greeting and the line before the program starts). Option 5 offers only what runs on the machine in use
-(`Session.carryOn`): a file on the machine it was loaded on, the colour demo on a 6809, LIZA everywhere. Leaving a program brings the menu back, "BYE FOR NOW.
+(`Session.carryOn`): a file on the machine it was loaded on, the colour demo on a 6809-family CPU (the 6309 runs it
+too), LIZA everywhere. Leaving a program brings the menu back, "BYE FOR NOW.
 PICK ANOTHER?": BYE in LIZA, or a key once the colour demo is drawing (the Session watches and emits `menu`).
 With ROMs the machine boots them as before; the Media tab's "Last time" runs the last item again, and the
 welcome menu is the first entry of "Runs without ROMs".
@@ -135,8 +137,9 @@ emulator.
 * **Two machines.** `Session.startChat` keeps the machine in use as your BASIC session and runs the chat firmware
   (`examples/chat.asm`) on a second machine of the same model, on the built-in stub (no ROM needed), which goes on
   screen and gets the keyboard. Both machines run, the one off screen in the picture-in-picture, so Claude's typing
-  goes in while you watch the chat. The chat needs a 6809 with 32K or more (the chat opens on a Dragon 64 from an
-  MC-10 or Alice).
+  goes in while you watch the chat. The chat needs a 6809-family CPU (the 6309 runs the firmware unchanged) and
+  32K or more: the firmware uses $0400-$7FFF. On a machine with less the chat opens and the screen stays the stub's,
+  so pick a 32K model (the Dragon 64, a 32K CoCo); the chat opens on a Dragon 64 from an MC-10 or Alice.
 * **Typing.** A line can be up to 255 characters. It wraps as you type the way replies wrap: a word that doesn't fit
   moves to the next line, a word with no space in it breaks at the character, and a space that falls at the end of a
   full line ends it without being drawn. BACKSPACE goes back across the wraps. A key past the 255th is refused visibly: the screen flashes (the VDG's colour

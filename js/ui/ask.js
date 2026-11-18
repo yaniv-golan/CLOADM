@@ -21,6 +21,7 @@
  */
 import { $, ESC } from './page.js';
 import { loadCardText, when } from './claude.js';
+import { cpuFamily } from '../cpu/cpus.js';
 
 const WIDTH_KEY = 'cloadm.askWidth';
 const RAIL = [['Media', 'tab-media'], ['Display', 'tab-display'], ['Input', 'tab-input'], ['POKEs', 'tab-pokes'], ['Machine', 'tab-machine']];
@@ -36,7 +37,7 @@ export function machineContext(session, m) {
   let text = [];
   try { text = session.screenText(m); } catch (e) { /* not a text screen */ }
   for (const l of text) { const e = /\?([A-Z/]{2}) ERROR(?: IN (\d+))?/.exec(l); if (e) out.error = e[0]; }
-  if (m.config.cpu === '6809' && m.hasRom && !m.useStub && !session.nitros9On(m)) {
+  if (cpuFamily(m.config.cpu) === '6809' && m.hasRom && !m.useStub && !session.nitros9On(m)) {
     const rd = (a) => (typeof m.peek === 'function' ? m.peek(a) : m.ram[a]);
     const w = (a) => (rd(a) << 8) | rd(a + 1);
     let p = w(0x19); const end = w(0x1B);
