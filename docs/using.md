@@ -82,7 +82,7 @@ The [README](../README.md#what-works) has the short version of this table.
 | | Today | Coming |
 |---|---|---|
 | **Cassette** | `.CAS` played as a real 1200/2400 Hz signal through the cassette port, motor relay, fast loading; WAV recordings in; what `CSAVE`/`CSAVEM` write saved as `.CAS` or `.WAV` (a recording still running when the machine is switched is offered for saving first); a power cycle keeps the tape, the cartridge and its disks, as on real hardware; any tape exported as `.WAV`; the cassette panel (block, counter, motor, fast-forward or real speed, read errors, skip the tape) | the tape's sound at real speed |
-| **Floppy** | The Dragon DOS cartridge (WD2797), the Premier / Delta cartridge (WD2791) and the RS-DOS cartridge (WD1773), cycle for cycle as MAME has them; VDK, JVC (`.dsk`) and DMK images read and written, including headerless NitrOS-9 / OS-9 `.dsk` images of 18 x 256-byte sectors, whose LSN 0 states the geometry (a 40-track two-sided image used to be read as 80 single-sided, and on the CoCo's drive did not mount at all); 4 drives (the Dragon Alpha's own 2), write-protect; the drives card under the screen: click a drive to insert a file, a disk from your library or a new blank disk (the sizes the disk system uses: 40 or 80 tracks, one or two sides for DragonDOS and Delta; 35 or 40 for Disk BASIC; VDK, JVC or, double-sided, DMK), see its light while it works, write-protect, download it with what was written, eject. A drive whose changes the browser's storage refused is marked "not saved" (Download keeps them); without a disk ROM, a drive says which one it takes. Disks are written back to the stored image a sector at a time. The DOS ROM is yours, as every ROM; the Alpha needs none | Booting NitrOS-9 from a floppy image (its floppy images read and write today; it boots over DriveWire: see [Booting NitrOS-9](#booting-nitros-9)) |
+| **Floppy** | The Dragon DOS cartridge (WD2797), the Premier / Delta cartridge (WD2791) and the RS-DOS cartridge (WD1773), cycle for cycle as MAME has them; VDK, JVC (`.dsk`) and DMK images read and written, including headerless NitrOS-9 / OS-9 `.dsk` images of 18 x 256-byte sectors, whose LSN 0 states the geometry (a 40-track two-sided image used to be read as 80 single-sided, and on the CoCo's drive did not mount at all); 4 drives (the Dragon Alpha's own 2), write-protect; the drives card under the screen: click a drive to insert a file, a disk from your library or a new blank disk (the sizes the disk system uses: 40 or 80 tracks, one or two sides for DragonDOS and Delta; 35 or 40 for Disk BASIC; VDK, JVC or, double-sided, DMK), see its light while it works, write-protect, download it with what was written, eject. A drive whose changes the browser's storage refused is marked "not saved" (Download keeps them); without a disk ROM, a drive says which one it takes. Disks are written back to the stored image a sector at a time. The DOS ROM is yours, as every ROM; the Alpha needs none; [booting NitrOS-9](#booting-nitros-9) Level 2 on the CoCo 3 from your own 40-track floppy image, with CLOADM's own loader instead of a ROM | Booting NitrOS-9 from 80-track floppies |
 | **Cartridges** | ROM cartridges (`.ROM`, `.CCC`, `.DGN`) at `$C000`, autostarting; banked ROM cartridges (up to 128K in 16K pages); the Games Master Cartridge (SN76489A) and the Orchestra-90 (stereo DACs), sound included; the Multi-Pak with four slots; all as MAME has them on the CoCo 1/2, the CoCo 3 and the Dragons (MAME offers the banked board only on the CoCos). The cartridge port's board menu picks the board, or picks it from the image; its Multi-Pak section fills the four slots and sets the front-panel switch. The Multi-Pak also takes a disk controller (DragonDOS, Delta DOS or Disk BASIC, your ROM) on the Dragon 64 and the CoCo, compared with MAME in slot 4; a slot's board menu offers it, and the drives card uses it. The Speech/Sound Pak is offered as a board (music only; speech not yet) on the CoCo 1/2, CoCo 2B and CoCo 3 | Speech/Sound Pak: its AY `-wavwrite` comparison is not passing (cause not established), and SP0256 speech synthesis is not implemented |
 | **Printer, serial, DriveWire** | Printer (Dragon parallel, CoCo/MC-10 serial); the bit-banger and the Dragon 64's 6551 ACIA with a terminal or loopback plug; DriveWire 4 over the CoCo's Becker port, served in the browser: drives 0-3 from images in the browser's storage, printing, virtual serial channels to WebSockets; [booting NitrOS-9](#booting-nitros-9) Level 2 on the CoCo 3 from your own DriveWire image, with CLOADM's own loader instead of a ROM; serving a real CoCo over Web Serial (untested on hardware) | the full screens |
 | **Input** | Keyboard in two modes (translated: the character typed; positional: the physical key), keyboard joystick, gamepads (two joysticks, dead zone), the Tandy and CoCo Max 3 Hi-Res interfaces, the CoCo 3 "The Rat" mouse, the CoCo Max Hi-Res module, mouse as the right joystick; an on-screen keyboard on phones and tablets (split for the thumbs when held sideways), a tappable welcome menu | Touch joystick |
@@ -94,42 +94,58 @@ The [README](../README.md#what-works) has the short version of this table.
 ## Booting NitrOS-9
 
 [NitrOS-9](https://www.nitros9.org/) is the multitasking OS-9 operating system for the 6809 and 6309. On the
-CoCo 3 CLOADM boots it over DriveWire, and needs no ROM at all: its own loader (`js/machines/nitros9.js`, written
-for this project) takes the place of the CoCo 3's internal ROM, reads the boot track from DriveWire drive 0 on the
-Becker port and starts it, as a DriveWire Disk BASIC's `DOS` command does.
+CoCo 3 CLOADM boots it from your own disk image, over DriveWire or from the floppy drive, and needs no ROM at all:
+its own loaders (`js/machines/nitros9.js`, written for this project) take the place of the CoCo 3's internal ROM,
+read the boot track from drive 0 and start it, as Disk BASIC's `DOS` command does.
 
 1. **Get the image.** CLOADM doesn't include or download NitrOS-9. Get the CoCo 3 release from the
    [NitrOS-9 project's releases](https://github.com/nitros9project/nitros9/releases) (the v3.3.0 archives are
    also on [its SourceForge page](https://sourceforge.net/projects/nitros9/files/releases/v3.3.0/)):
-   `nos96809l2v030300coco3.zip` for the 6809, `nos96309l2v030300coco3.zip` for the HD6309. The file you need is
-   the one ending in **`_becker.dsk`**.
+   `nos96809l2v030300coco3.zip` for the 6809, `nos96309l2v030300coco3.zip` for the HD6309. Take the file ending in
+   **`_becker.dsk`** to boot over DriveWire, or **`_40d_1.dsk`** (Disk 1 of the 40-track floppy set) to boot from
+   the floppy drive.
 2. **Boot it.** Pick the CoCo 3, then under the screen **NitrOS-9 · Add image…** and choose the file: it goes into
-   your library (with the DriveWire images) and boots at once. Next time pick it in the list and press **Boot
-   NitrOS-9**. Dropping the file on the page (or **Open…**) offers **Boot NitrOS-9** too, from any machine.
-3. You land at NitrOS-9's shell, `{Term|02}/DD:`. Type `dir`, `mdir`, `free`… **Reset** and **Switch off and on**
+   your library (a DriveWire image with the DriveWire images, a floppy with the disks) and boots at once. Next time
+   pick it in the list and press **Boot NitrOS-9**. Dropping the file on the page (or **Open…**) offers **Boot
+   NitrOS-9** too, from any machine.
+3. You land at NitrOS-9's shell, `{Term|02}/DD:`. The floppy's startup first asks for the time (`Time ?`): press
+   Enter, or type it as `yyyy/mm/dd hh:mm:ss`. Then type `dir`, `mdir`, `free`… **Reset** and **Switch off and on**
    boot it again; **Back to BASIC** puts the machine's own ROMs back (so does choosing another machine).
 
-What it does to the machine: it turns on the Becker port, puts the image in DriveWire drive 0, and for the 6309
-build switches the CPU to the HD6309 (the 6809 build runs on either). RAM stays as it is (128K or 512K). What NitrOS-9
-writes goes into the image in your library, as with any DriveWire drive (the Machine tab's DriveWire box saves it).
+What it does to the machine: for the 6309 build it switches the CPU to the HD6309 (the 6809 build runs on either);
+RAM stays as it is (128K or 512K). A DriveWire image goes in DriveWire drive 0 with the Becker port turned on. A
+floppy goes in drive 0 of the CoCo disk controller (Disk BASIC's WD1773 cartridge): the one in the cartridge port, or
+one plugged in without a ROM (the loader drives it; Disk BASIC is never needed), which Back to BASIC takes out again.
+What NitrOS-9 writes goes into the image in your library, as with any DriveWire drive or floppy.
 
 Images it refuses, and says why: a file that isn't an OS-9 disk; a NitrOS-9 disk without a boot track (Disk 2 of
-the floppy set); the floppy images (`_40d`, `_80d`), which boot from a floppy drive; the bit-banger, Arduino and
-CoCo SDC builds (`_dw`, `_arduino`, `_cocosdc`), which talk to other hardware; and the headless builds
-(`_becker_headless`), whose console is a DriveWire terminal rather than the screen. NitrOS-9 boots on the NTSC CoCo
-3 only (the release's DriveWire images are 60 Hz builds); on another machine CLOADM says so.
+the floppy set); the 80-track floppies (`_80d`), as the CoCo's drives here have 40 tracks; the bit-banger, Arduino
+and CoCo SDC builds (`_dw`, `_arduino`, `_cocosdc`), which talk to other hardware; and the headless builds
+(`_becker_headless`), whose console is a DriveWire terminal rather than the screen. A floppy boot through a
+Multi-Pak is refused (take it out first). NitrOS-9 boots on the NTSC CoCo 3 only; on another machine CLOADM says so.
 
 **Links.** `?nitros9=1` opens the CoCo 3 and boots NitrOS-9 from the image in your library (the one in DriveWire
-drive 0, else the one for the link's CPU); `?nitros9=NAME` boots that image. The link never holds the image, so
-whoever opens it needs their own; without one CLOADM says where to get it. **Share** while NitrOS-9 runs gives such a
-link: a NitrOS-9 moment is never put in a link as a snapshot, because its memory is your copy of NitrOS-9. Snapshots
-you keep (Snapshot 1–3, a `.cloadm` file) work as usual; they reopen with whatever image is in DriveWire drive 0.
+drive 0, else the one in floppy drive 0, else one for the link's CPU); `?nitros9=NAME` boots that image. The link
+never holds the image, so whoever opens it needs their own; without one CLOADM says where to get it. **Share** while
+NitrOS-9 runs gives such a link: a NitrOS-9 moment is never put in a link as a snapshot, because its memory is your
+copy of NitrOS-9. Snapshots you keep (Snapshot 1–3, a `.cloadm` file) work as usual; a DriveWire one reopens with
+whatever image is in DriveWire drive 0 then.
 
-**What is verified.** The official v3.3.0 Level 2 CoCo 3 Becker images, 6809 and 6309, boot to the shell and list
-the root with `dir`: in Node, on the machine the page builds, with every DriveWire transaction (but the clock's)
-identical to MAME 0.264 running the same image and loader at 512K; through the Session at 512K; and in the real page in
-Chromium, with `dir` typed on the keyboard ([details](verification.md#nitros-9-boot-test)). They also boot at 128K in
-Node (not compared with MAME at that size). Other NitrOS-9 versions and other OS-9 boot disks are not tested.
+**What is verified** ([details](verification.md#nitros-9-boot-test)):
+
+* **DriveWire:** the official v3.3.0 Level 2 CoCo 3 `_becker.dsk` images, 6809 and 6309, boot to the shell and list
+  the root with `dir`: in Node, with every DriveWire transaction (but the clock's) identical to MAME 0.264 running the
+  same image and loader at 512K; through the Session at 512K and 128K; and in the real page in Chromium, `dir` typed
+  on the keyboard.
+* **Floppy:** the v3.3.0 `_40d_1.dsk` images, 6809 and 6309, boot to the shell, take Return at the time prompt and
+  list the root with `dir`: in Node at 512K, with every write to the disk controller's registers identical, in order,
+  to MAME 0.264 running the same image and loader; through the Session at 512K and 128K (at 128K the 6809 build's
+  startup skips the time prompt, as it does in MAME); and in the real page, Return and `dir` typed on the keyboard.
+  The floppy loader itself runs in instruction lockstep with MAME on both CPUs, and the controller's HALT and NMI
+  during halted sector reads at both CPU rates are compared with MAME instruction for instruction (the fix this
+  needed is in [verification.md](verification.md#nitros-9-boot-test)).
+* **Not tested:** other NitrOS-9 versions and other OS-9 boot disks; the `_40d_1_50hz` floppies (they boot, but they
+  are PAL builds and their clock runs fast on the NTSC CoCo 3); 128K against MAME.
 
 ## Loading programs
 
@@ -262,7 +278,7 @@ doesn't have is reported in a message (with Details) and the rest of the link st
 | `ram`, `cpu` | the machine's own options, e.g. `ram=128` or `ram=512` on the CoCo 3 | checked against the model |
 | `start` | `welcome`, `liza` | runs that program |
 | `app` | `claude` | opens the Claude chat ([claude.md](claude.md#claude)) |
-| `nitros9` | `1`, or an image's name | CoCo 3: boots NitrOS-9 from your own DriveWire image ([Booting NitrOS-9](#booting-nitros-9)); never carries the image |
+| `nitros9` | `1`, or an image's name | CoCo 3: boots NitrOS-9 from your own DriveWire or floppy image ([Booting NitrOS-9](#booting-nitros-9)); never carries the image |
 | `load` | a link to a program, tape or cartridge | loads and runs it, as a dropped file |
 | `tape` | a link to a `.cas` or `.wav` | puts it in the deck; with `autorun` it loads and runs |
 | `cart` | a link to a cartridge ROM | plugs it in; it starts |

@@ -703,5 +703,25 @@
     "hash": "d0e204d4",
     "instructions": 24298,
     "halted": true
+  },
+  "trace coco3 cocofdc halt": {
+    "hash": "8355fac7",
+    "instructions": 400915,
+    "halted": true
+  },
+  "trace coco3 cocofdc nitros9": {
+    "hash": "7686948b",
+    "instructions": 403805,
+    "halted": true
+  },
+  "trace coco3 cocofdc nitros9 6309": {
+    "hash": "7686948b",
+    "instructions": 403805,
+    "halted": true
+  },
+  "trace coco3 cocofdc halt empty": {
+    "hash": "5db73032",
+    "instructions": 2506,
+    "held": true
   }
 }

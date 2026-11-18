@@ -49,7 +49,20 @@ SETUPS.tanodragonfdc = Object.assign({}, SETUPS.dragonfdc, { profiles: ['tanodr6
 // cpu: '6809' (default) or '6309'. The NMI firmware is the one thing here that is about the CPU rather
 // than the controller, so it is assembled for whichever core it runs on; the diagnostics are 6809 code
 // and only ever run on the 6809.
-function firmware(board, regenerate, profile, write = false, nmi = false, multi = false, format = null, cpu = '6809') {
+function firmware(board, regenerate, profile, write = false, nmi = false, multi = false, format = null, cpu = '6809', halt = false, nitros9 = null, empty = false) {
+  if (nitros9) {
+    // the page's NitrOS-9 floppy loader as the CoCo 3's internal ROM; the controller's ROM socket holds RTS, never
+    // run (the loader keeps the 32K internal ROM mapped). It ends in the hand-built boot track's loop.
+    return { boot: loadEmu().nitros9LoaderRom('floppy'), dos: new Uint8Array(0x2000).fill(0x39), haltPc: nitros9.haltPc };
+  }
+  if (halt) {
+    // coco-halt.asm is written by hand (not generated): the HALT and NMI reads at both CoCo 3 rates; with empty,
+    // coco-halt-empty.asm: a halted read on a drive with no disk, which holds the CPU inside EMPTY's LDA for good
+    const boot = assembleFile(path.join(__dirname, 'boot3.asm'), '6809');
+    const diag = assembleFile(path.join(__dirname, empty ? 'coco-halt-empty.asm' : 'coco-halt.asm'), '6809');
+    return { boot: romImage(boot, 0x8000, 0x8000, 0x12), dos: romImage(diag, 0xC000, 0x2000, 0x00), haltPc: diag.symbols.get('HALT'),
+      stuckPc: empty ? diag.symbols.get('EMPTY') : undefined };
+  }
   if (nmi) {
     const boot = assembleFile(path.join(__dirname, 'nmi-boot.asm'), cpu);
     const diag = assembleFile(path.join(__dirname, 'nmi.asm'), cpu);
@@ -122,10 +135,10 @@ module.exports = {
     // trace() with no such option and came back as a 6809 run with no error. Reject unknown keys by name, whatever
     // their value. A KNOWN key whose value is undefined or null is still fine: run.js passes `controller: undefined`
     // when no controller is named and `blank: null` when --blank is absent.
-    const KNOWN = new Set(['controller', 'regenerate', 'write', 'nmi', 'multi', 'blank', 'cpu']);
+    const KNOWN = new Set(['controller', 'regenerate', 'write', 'nmi', 'multi', 'blank', 'cpu', 'halt', 'nitros9', 'empty']);
     const unknown = Object.keys(opts).filter((k) => !KNOWN.has(k));
     if (unknown.length) throw new Error(`fdc.trace: unknown option ${unknown.map((k) => `'${k}'`).join(', ')} (known: ${[...KNOWN].join(', ')})`);
-    const { controller, regenerate = true, write = false, nmi = false, multi = false, blank = null, cpu = '6809' } = opts;
+    const { controller, regenerate = true, write = false, nmi = false, multi = false, blank = null, cpu = '6809', halt = false, nitros9 = false, empty = false } = opts;
     // `blank` is an object of its own, read field by field, so it needs the same check one level down: a
     // misspelt nested key (run.js's --blank parser writes heads, not sides) would otherwise be ignored and the
     // trace would come back for a different disk than the caller asked for.
@@ -139,15 +152,21 @@ module.exports = {
     const id = controller || Object.keys(SETUPS).find((k) => !SETUPS[k].byName && SETUPS[k].profiles.includes(profileId));   // multifdc and tanodragonfdc only by name
     let setup = SETUPS[id];
     if (!setup || !setup.profiles.includes(profileId)) throw new Error(`no floppy controller comparison ${controller || ''} for ${profileId} (have: ${Object.entries(SETUPS).map(([k, v]) => `${k} on ${v.profiles.join(' and ')}`).join(', ')})`);
+    if ((halt || nitros9) && (id !== 'cocofdc' || profileId !== 'coco3' || write || nmi || multi || blank || (halt && nitros9))) throw new Error(`--${halt ? 'halt' : 'nitros9'}: for cocofdc on coco3 alone, by itself`);
+    if (empty && !halt) throw new Error('--empty: with --halt (the halted read on a drive with no disk)');
     if (nmi && setup.board !== 'dragon') throw new Error('--nmi: the NMI firmware is for dragonfdc on dragon64');
-    if (cpu === '6309' && !nmi) throw new Error('--cpu 6309: only the NMI firmware runs on the 6309 here');
+    if (cpu === '6309' && !nmi && !nitros9) throw new Error('--cpu 6309: only the NMI and NitrOS-9 floppy loader firmware run on the 6309 here');
     if (cpu === '6309' && !profile.mame6309) throw new Error(`${profileId}: no HD6309 sibling in MAME`);
     // byName setups exist for one mode alone -- tanodragonfdc is the Tano Dragon's entry for the NMI
     // comparison, and the full diagnostic has no setup that runs on that model -- so --multi, which runs
     // <board>-multi.asm, must not select them.
     if (multi && (setup.builtin || setup.multiSlot || setup.byName || write || nmi || blank)) throw new Error(`--multi: a cartridge controller's diagnostic only (not ${id}${write ? ' --write' : nmi ? ' --nmi' : blank ? ' --blank' : ''})`);
     if (multi) setup = Object.assign({}, setup, { multiSlot: 4 });
-    let format = null, seconds = write || nmi ? 4 : 20, instructions = nmi ? 3000 : write ? 400000 : setup.instructions + (multi ? 300000 : 0);
+    // --nitros9: drive 0 holds a hand-built NitrOS-9 floppy (tools/nitros9/os9-image.js: 40 tracks, two sides) whose
+    // boot track, once the loader has read it, ends in a loop
+    const n9disk = nitros9 ? require('../../nitros9/os9-image.js').makeOs9Disk(Emu, { driver: 'rb1773', port: 'floppy', sides: 2, sectors: 1440, cpu: null }) : null;
+    if (n9disk) setup = Object.assign({}, setup, { disks: () => [{ name: 'd0.dsk', bytes: n9disk.slice() }] });
+    let format = null, seconds = write || nmi || halt || nitros9 ? 4 : 20, instructions = nmi ? 3000 : write || halt || nitros9 ? 400000 : setup.instructions + (multi ? 300000 : 0);
     if (blank) {
       format = `${blank.tracks}x${blank.heads}`;
       const have = (require('./gen-diag').FORMATS[setup.board] || []).map(([t, h]) => `${t}x${h}`);
@@ -159,14 +178,16 @@ module.exports = {
       seconds = Math.ceil(10 + blank.tracks * blank.heads * 0.95);
       instructions = blank.tracks * blank.heads * 220000 + 600000;   // past HALT (dragonfdc 40 x 1: 8,750,860; cocofdc 35 x 1: 7,717,543)
     }
-    const work = workDir(`${profileId}-${id}${write ? '-write' : ''}${nmi ? '-nmi' : ''}${multi ? '-multi' : ''}${blank ? `-blank-${blank.format}-${format}` : ''}${cpu === '6309' ? '-6309' : ''}`);
-    const fw = firmware(setup.board, regenerate, profile, write, nmi, multi, format, cpu);
+    const work = workDir(`${profileId}-${id}${write ? '-write' : ''}${halt ? '-halt' : ''}${empty ? '-empty' : ''}${nitros9 ? '-nitros9' : ''}${nmi ? '-nmi' : ''}${multi ? '-multi' : ''}${blank ? `-blank-${blank.format}-${format}` : ''}${cpu === '6309' ? '-6309' : ''}`);
+    const fw = firmware(setup.board, regenerate, profile, write, nmi, multi, format, cpu, halt, n9disk, empty);
     const slots = fw.slots || slotData(profile, fw.boot);
     const system = cpu === '6309' ? profile.mame6309 : profile.mame;
     return {
-      label: `${profileId} ${id}${write ? ' write' : ''}${nmi ? ' nmi' : ''}${multi ? ' multi' : ''}${blank ? ` blank ${blank.format} ${format}` : ''}${cpu === '6309' ? ' (6309)' : ''}`,
+      label: `${profileId} ${id}${write ? ' write' : ''}${halt ? ' halt' : ''}${empty ? ' empty' : ''}${nitros9 ? ' nitros9' : ''}${nmi ? ' nmi' : ''}${multi ? ' multi' : ''}${blank ? ` blank ${blank.format} ${format}` : ''}${cpu === '6309' ? ' (6309)' : ''}`,
       system, work, seconds, write, multi, blank,
       regs: REGS, waitOps: ['CWAI', 'SYNC'], haltPc: fw.haltPc, setup, fw,
+      // --empty: the CPU held inside this instruction for good (lib/lockstep.js: the trace stops there on both sides)
+      stuck: fw.stuckPc !== undefined ? { pc: fw.stuckPc } : null,
       instructions,             // past HALT (dragonfdc 2,402,179; cocofdc 2,529,837; premierfdc 2,811,924)
       install: () => {
         fs.mkdirSync(work, { recursive: true });

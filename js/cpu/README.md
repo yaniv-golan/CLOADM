@@ -38,4 +38,7 @@ stop where MAME's scheduler would.
 | `nmi()` | an NMI edge; ignored until S has been loaded (`nmiArmed`) |
 | `haltLine` | the HALT input: while set, `step()` runs one idle cycle and nothing else |
 | `haltTail` | idle cycles still to run after HALT is released (the machines' `mameCompat` model of MAME suspending an instruction) |
+| `stepHalted` | the last `step()` was one of those idle cycles: no instruction ran (the debugger doesn't count it) |
+| `executing` | the step is running an instruction, not taking an interrupt |
+| `mark()` / `rewind()` / `rerun()` | keep the registers at the start of a step, put them back, and run the instruction at PC again without taking an interrupt or calling `trace` (the CoCo 3's instruction suspended by HALT) |
 | `mameCompat` | set by the machine: reproduce MAME's bookkeeping where it differs from the data sheet |

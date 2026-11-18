@@ -1103,13 +1103,14 @@ npx serve -l 8000 .</pre>
       </div>
       <div class="slot" id="nitros9Slot" hidden>
         <div class="body" style="flex:1">
-          <div class="title">NitrOS-9 · <span id="n9State">over DriveWire, no ROM needed</span></div>
+          <div class="title">NitrOS-9 · <span id="n9State">DriveWire or floppy, no ROM needed</span></div>
           <div class="bar"><select id="n9Image" aria-label="NitrOS-9 DriveWire image"></select>
             <button id="btnN9Boot">Boot NitrOS-9</button><button id="btnN9Add">Add image…</button>
             <button id="btnN9Leave" hidden>Back to BASIC</button></div>
-          <div class="muted" id="n9Note">Your own NitrOS-9 DriveWire image: the file ending in <code>_becker.dsk</code> of a
+          <div class="muted" id="n9Note">Your own NitrOS-9 disk image from a
             <a href="https://github.com/nitros9project/nitros9/releases" target="_blank" rel="noopener">NitrOS-9 release</a>
-            (CoCo 3, 6809 or 6309). It goes in DriveWire drive 0; CLOADM's own loader boots it.</div>
+            (CoCo 3, 6809 or 6309): the file ending in <code>_becker.dsk</code> boots over DriveWire, <code>_40d_1.dsk</code>
+            from the floppy drive. CLOADM's own loader boots it.</div>
           <input type="file" id="n9File" accept=".dsk,.os9,.img" hidden>
         </div>
       </div>

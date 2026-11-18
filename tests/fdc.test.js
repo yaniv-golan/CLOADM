@@ -370,5 +370,159 @@ function transfer(h, f, write = null) {
   check('Multi-Pak eject: the machine runs on', m.cpu.totalCycles > before);
 }
 
+// CoCo 3: a read sector with HALT on DRQ whose DRQ doesn't come (drive 1 empty, after a read on drive 0 left the
+// control latch's DRQ input low). HALT arrives inside the LDA of the data register, after a check point, so the access
+// waits for HALT's release (Coco3Machine.haltWait). The wait stops at the end of each frame and the instruction stays
+// suspended (haltSuspend): frames go on, the machine's time and video with them, and the CPU stays halted until a
+// disk in drive 1 brings the DRQ, or a Force Interrupt the INTRQ that drops HALT. Both timing models.
+function emptyDriveRead(config) {
+  const m = Emu.createMachine('coco3', config);
+  const f = new Emu.devices.cocofdc({ rom: new Uint8Array(0x2000) });
+  m.insertCartridge(f);
+  m.reset(true);
+  f.mount(0, { bytes: images.jvc(40, 1), format: 'jvc', name: 'a.dsk' });
+  for (let i = 0; i < 3; i++) m.runFrame();
+  // the sector, READ SECTOR, then the control latch (drive, motor, DDEN, HALT enable), a NOP, and the DOS loop
+  const DOS = [0x12, 0xB6, 0xFF, 0x4B, 0xA7, 0x80, 0x20, 0xF9];
+  const prog = (dsk, sector, loop, pre) => [...pre, 0xC6, sector, 0xF7, 0xFF, 0x4A, 0xC6, 0x80, 0xF7, 0xFF, 0x48, 0xC6, dsk, 0xF7, 0xFF, 0x40, ...loop];
+  // (interrupts masked, as a DOS reads; pre: code before, at $3000)
+  const start = (dsk, sector = 1, loop = DOS, pre = []) => { prog(dsk, sector, loop, pre).forEach((b, i) => m.poke(0x3000 + i, b)); m.cpu.x = 0x4000; m.cpu.pc = 0x3000; m.cpu.cc |= 0x50; };
+  m.write(0xFF40, 0x29);
+  for (let i = 0; i < 30; i++) m.runFrame();   // spin up
+  start(0xA9);                                 // drive 0: a whole sector, then the loop runs on after INTRQ
+  for (let i = 0; i < 30; i++) m.runFrame();
+  return { m, f, start };
+}
+const LDA_PC = 0x3010;
+for (const [label, config] of [['hardware timing', undefined], ['MAME timing', { mameCompat: true }]]) {
+  for (const release of ['disk', 'force interrupt']) {
+    const { m, f, start } = emptyDriveRead(config);
+    check(`coco3 empty drive (${label}): the read on drive 0 left DRQ low`, !f.drq && !m.cpu.haltLine);
+    start(0xAA);                               // drive 1: empty
+    // (a disk goes in after 20 frames: the controller's own count of index pulses, which start with the disk, is not
+    // what this is about; a Force Interrupt after 120)
+    const wait = release === 'disk' ? 20 : 120;
+    const t0 = Date.now(), frame0 = m.frameCount, cycle0 = m.cycle;
+    for (let i = 0; i < wait && Date.now() - t0 < 20000; i++) m.runFrame();
+    let hs = 0;
+    const rise = m.handlers.rise;
+    m.handlers.rise = (arg, at) => { hs++; rise(arg, at); };
+    for (let i = 0; i < 3; i++) m.runFrame();
+    m.handlers.rise = rise;
+    check(`coco3 empty drive (${label}): frames keep completing while the CPU waits`, m.frameCount - frame0 === wait + 3 && m.cycle - cycle0 >= (wait + 2) * m.frameCycles,
+      `${m.frameCount - frame0} frames in ${Date.now() - t0} ms`);
+    check(`coco3 empty drive (${label}): halted inside the LDA of the data register, suspended (not between instructions)`,
+      m.cpu.haltLine && m.haltDefer !== null && m.cpu.pc === LDA_PC && m.cpu.x === 0x4000,
+      `pc ${m.cpu.pc.toString(16)} x ${m.cpu.x.toString(16)} halt ${m.cpu.haltLine} defer ${!!m.haltDefer}`);
+    check(`coco3 empty drive (${label}): the video runs on (every line's HS)`, hs >= 3 * 262 - 1 && hs <= 3 * 262 + 1, `${hs} HS rises in 3 frames`);
+    let loops = 0;
+    m.cpu.trace = (c) => { if (c.pc === LDA_PC) loops++; };
+    if (release === 'disk') {
+      f.mount(1, { bytes: images.jvc(40, 1), format: 'jvc', name: 'b.dsk' });
+      for (let i = 0; i < 40 && m.cpu.x < 0x4100; i++) m.runFrame();
+      const got = [...m.ram.subarray(0x4000, 0x4100)], want = Array.from({ length: 256 }, (_, i) => images.sectorByte(0, 0, 1, i));
+      check(`coco3 empty drive (${label}): a disk put in drive 1 brings DRQ: the held LDA reads the sector's first byte, the loop the whole sector`,
+        got.every((v, i) => v === want[i]) && m.haltDefer === null, `first ${got.slice(0, 4)} want ${want.slice(0, 4)}`);
+    } else {
+      m.write(0xFF48, 0xD8);                   // Force Interrupt, immediate: INTRQ clears HALT enable
+      for (let i = 0; i < 3; i++) m.runFrame();
+      // (the held LDA's run after the release isn't traced: it was, when it started)
+      check(`coco3 empty drive (${label}): a Force Interrupt's INTRQ releases HALT: the held LDA completes and the loop runs on`,
+        !m.cpu.haltLine && m.haltDefer === null && loops > 3000 && loops < 3300 && m.cpu.x === 0x4000 + loops + 1, `halt ${m.cpu.haltLine} loops ${loops} x ${m.cpu.x}`);
+    }
+    m.cpu.trace = null;
+  }
+}
+
+// the same wait, released by an event (a disk in drive 1, sector 4: its DRQ comes when the sector passes the head, 11
+// frames later), is the same instruction by instruction whether the run is one slice past the release, frames (the
+// wait suspended at each frame's end and resumed) or slices of a few cycles. Two held accesses: the LDA of the DOS
+// loop, and the write of INC $FF4B (its read, made before HALT, replayed when the instruction runs again).
+// The HD6309 in native mode too (LDMD #1), its loop's LDA $FF4B,Y with a 16-bit offset: the native saving its post
+// byte adds as the instruction goes must not be counted twice when the instruction runs again.
+const INC_LOOP = [0x7C, 0xFF, 0x4B, 0x20, 0xFB];
+const NATIVE_LOOP = [0x12, 0xA6, 0xA9, 0xFF, 0x4B, 0xA7, 0x80, 0x20, 0xF8], LDMD1 = [0x11, 0x3D, 0x01];
+for (const [label, config, kind] of [['hardware timing', undefined, 'read'], ['MAME timing', { mameCompat: true }, 'read'],
+  ['hardware timing', undefined, 'inc'], ['MAME timing', { mameCompat: true }, 'inc'],
+  ['6309 native, hardware timing', { cpu: '6309' }, 'native'], ['6309 native, MAME timing', { cpu: '6309', mameCompat: true }, 'native']]) {
+  const inc = kind === 'inc', runs = {};
+  for (const how of ['one slice', 'frames', 'small slices']) {
+    const { m, f, start } = emptyDriveRead(config);
+    f.mount(1, { bytes: images.jvc(40, 1), format: 'jvc', name: 'b.dsk' });
+    if (inc) start(0xAA, 4, INC_LOOP);
+    else if (kind === 'native') { start(0xAA, 4, NATIVE_LOOP, LDMD1); m.cpu.y = 0; }
+    else start(0xAA, 4);
+    // the data register's accesses as the controller sees them (a replayed one is not made again)
+    let reads = 0, writes = 0;
+    const rd = f.readIO.bind(f), wr = f.writeIO.bind(f);
+    f.readIO = (addr) => { if (addr === 0xFF4B && m.cycle < end) reads++; return rd(addr); };
+    f.writeIO = (addr, v) => { if (addr === 0xFF4B && m.cycle < end) writes++; wr(addr, v); };
+    let h = 0x811C9DC5, n = 0, suspended = 0;
+    const fnv = (v) => { h = Math.imul(h ^ v, 16777619) >>> 0; };
+    const end = m.cycle + 20 * m.frameCycles;
+    // (the instructions that start before the end: a run in slices may start one or two more)
+    m.cpu.trace = (c) => { if (m.cycle >= end) return; n++; for (const r of ['pc', 'a', 'b', 'x', 'y', 'u', 's', 'cc', 'dp', 'totalCycles']) fnv(c[r]); };
+    if (how === 'one slice') m.runCycles(end);
+    else if (how === 'frames') while (m.cycle < end) { m.runFrame(); if (m.haltDefer) suspended++; }
+    else while (m.cycle < end) { m.runCycles(m.cycle + 37); if (m.haltDefer) suspended++; }
+    m.cpu.trace = null;
+    if (kind === 'native') runs.native = m.cpu.native;
+    runs[how] = { h, n, suspended, x: m.cpu.x, io: `${reads}/${writes}/${f.wd.status}`, ram: [...m.ram.subarray(0x4000, 0x4100)].join() };
+  }
+  const a = runs['one slice'], b = runs.frames, c = runs['small slices'];
+  const sector4 = Array.from({ length: 256 }, (_, i) => images.sectorByte(0, 0, 4, i)).join();
+  check(`coco3 halted ${inc ? 'INC $FF4B' : kind === 'native' ? 'LDA $FF4B,Y' : 'read'} released by DRQ (${label}): suspended at frame ends and in small slices, the same trace${inc ? '' : ' and data'} as one slice`,
+    a.n > 1000 && (inc || (a.x >= 0x4100 && a.ram === sector4)) && (kind !== 'native' || runs.native) && a.suspended === 0 && b.suspended >= 9 && a.io === b.io && a.io === c.io && b.suspended > 0 && c.suspended > 0 && a.h === b.h && a.h === c.h && a.ram === b.ram && a.ram === c.ram,
+    JSON.stringify(runs, (k, v) => (k === 'ram' ? undefined : v)));
+}
+
+// the controller taken out of the slot while an instruction is suspended (its HALT goes at once, not through an
+// event): released where the time has got to. The machine's time never goes back, and the next frame is one frame.
+for (const [label, config] of [['hardware timing', undefined], ['MAME timing', { mameCompat: true }]]) {
+  const { m, start } = emptyDriveRead(config);
+  start(0xAA);
+  for (let i = 0; i < 600; i++) m.runFrame();
+  const suspended = !!m.haltDefer, cycle0 = m.cycle, total0 = m.cpu.totalCycles;
+  m.ejectCartridge();
+  const t0 = Date.now();
+  m.runFrame();
+  const ms = Date.now() - t0;
+  check(`coco3 suspended by HALT for 600 frames, then the controller taken out (${label}): released, the time goes on from where it was`,
+    suspended && !m.cpu.haltLine && m.haltDefer === null && m.cycle >= cycle0 + m.frameCycles - 64 && m.cycle < cycle0 + 2 * m.frameCycles && ms < 200,
+    `suspended ${suspended}, frame ${m.cycle - cycle0} ticks in ${ms} ms, ${m.cpu.totalCycles - total0} CPU cycles`);
+}
+
+// under the debugger (a breakpoint set, so frames run through Debugger.runTo, one step at a time): released after
+// 600 suspended frames, the rest of the wait goes at once, and the next frame is one frame; a reset then starts the
+// CPU at once (none of the wait is left)
+for (const [label, config] of [['hardware timing', undefined], ['MAME timing', { mameCompat: true }]]) {
+  const { m, start } = emptyDriveRead(config);
+  start(0xAA);
+  const dbg = new Emu.Debugger(m);
+  dbg.addBreakpoint(0x0000);
+  for (let i = 0; i < 600; i++) dbg.runFrame();
+  const suspended = !!m.haltDefer, cycle0 = m.cycle;
+  m.write(0xFF48, 0xD8);                       // Force Interrupt, immediate: INTRQ clears HALT enable
+  const t0 = Date.now();
+  dbg.runFrame();
+  const ms = Date.now() - t0;
+  check(`coco3 under the debugger, released after 600 suspended frames (${label}): the next frame is one frame, at once`,
+    suspended && !m.cpu.haltLine && m.haltDefer === null && m.cycle >= cycle0 + m.frameCycles - 64 && m.cycle < cycle0 + 2 * m.frameCycles && ms < 1000,
+    `suspended ${suspended}, frame ${m.cycle - cycle0} ticks in ${ms} ms`);
+  dbg.detach();
+}
+// a reset with the rest of a halted wait still to run (cpu.haltTail, set here: the wait's charge above leaves none
+// in a run) leaves none of it: the CPU runs at once
+{
+  const { m } = emptyDriveRead();
+  m.cpu.haltTail = 1000000; m.haltS = 5; m.haltAt = 7;
+  m.reset(true);
+  let ran = 0;
+  m.cpu.trace = () => { ran++; };
+  m.runFrame();
+  m.cpu.trace = null;
+  check('coco3: a reset in the rest of a halted wait leaves none of it: the CPU runs at once', m.cpu.haltTail === 0 && m.haltS === -1 && m.haltAt === -1 && ran > 1000, `${ran} instructions`);
+}
+
 console.log(fail ? `${fail} failed` : 'all passed');
 process.exitCode = fail ? 1 : 0;

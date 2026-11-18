@@ -28,6 +28,28 @@ All notable changes to CLOADM are recorded here. The format follows
   where `all.js` ran; nothing else runs beside the browser check; a review section (verify the run's SHA and tree,
   replay mutations, re-run gates only for non-additive changes to tests, tools or CI); the report gives the CI run.
 
+#### Added
+
+- **NitrOS-9 from a floppy:** the release's `_40d_1.dsk` (35/40-track NitrOS-9 floppies) boots the same way with
+  CLOADM's own floppy loader and the CoCo disk controller, no Disk BASIC ROM needed.
+
+#### Fixed
+
+- **CoCo 3 disk controller HALT:** a sector read with the CPU halted could read the data register before its byte
+  (NitrOS-9's floppy booter read LSN 0 one byte off, and every byte twice at 1.78 MHz). HALT now suspends the CPU
+  inside an instruction as MAME's does, and the cartridge slot's line delays follow the CPU rate. A halted read whose
+  DRQ never comes (an empty drive) holds the CPU across frames instead of the page: the screen and timers run on, and
+  a disk in the drive or a Force Interrupt releases it. Changing the CPU's registers while it is held (a program
+  loaded and started, a jump, the debugger) drops the held instruction, as does writing over its code: the CPU
+  goes on from the new state when HALT is released. A held instruction runs again with exactly the bytes it had
+  read (a 6309 TFM whose source overlaps its destination copied its own new bytes), however long it is. The debugger counts no instruction while the CPU is halted: Step waits a frame and reports
+  "Halted", Over/Out/Run-to wait two seconds, and Run keeps the frames going without stopping.
+
+#### Changed
+
+- **Snapshots are format version 2:** a CoCo 3 instruction held by the disk controller's HALT is saved with the
+  machine. Version 1 files still open; a page from before this change refuses version 2 files as newer.
+
 ### 0.1.1-pre
 
 #### Added

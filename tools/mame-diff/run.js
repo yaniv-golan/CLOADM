@@ -2,7 +2,7 @@
 // Compare one machine against MAME. Needs MAME (e.g. `apt install mame`); uses only our own firmware.
 //
 //   node tools/mame-diff/run.js <profile> [--ram <K>] [--video [--artifact N] [--attr] [--composite]] [--raster [--no-trace] [--keep]] [--printer [--no-trace]] [--serial] [--rate|--ops] [--plus] [--keep-firmware]
-//   node tools/mame-diff/run.js <dragon64|coco|coco3|dgnalpha> --fdc [dragonfdc|premierfdc|cocofdc|multifdc|alphafdc] [--images|--write|--nmi|--multi|--blank <fmt>:<T>x<H>] [--keep-firmware]
+//   node tools/mame-diff/run.js <dragon64|coco|coco3|dgnalpha> --fdc [dragonfdc|premierfdc|cocofdc|multifdc|alphafdc] [--images|--write|--nmi|--multi|--blank <fmt>:<T>x<H>|--halt [--empty]|--nitros9] [--keep-firmware]
 //   node tools/mame-diff/run.js <coco|coco3|dragon64|dragon32> --cart <setup> [--audio]
 //
 // Trace mode (default): lockstep instruction trace, registers and cycle counts.
@@ -23,6 +23,8 @@
 // --blank <vdk|jvc|dmk>:<T>x<H> puts a blank disk (js/media/disk.js blankDisk) in drive 0 and runs
 // <board>-format-<T>x<H>.asm, which formats every track (with --images: the formatted images byte for byte;
 // --no-trace --images compares the images only, for the long ones);
+// --halt (coco3, cocofdc) runs fdc/coco-halt.asm, the halted sector reads; --halt --empty fdc/coco-halt-empty.asm, a
+// halted read on a drive with no disk, which holds the CPU for good (the trace must stop at the same instruction);
 // --write runs the short <board>-write.asm of the disk mounting tests instead of the diagnostic; --nmi (dragon64)
 // runs fdc/nmi.asm, when the 6809 starts taking NMI (NMI from the controller's INTRQ). --nmi with --cpu 6309 runs
 // the same firmware on the HD6309 (dragon64 and tanodr64; the 6309 follows MAME and does not arm NMI on TFR/EXG).
@@ -100,7 +102,7 @@ async function main() {
   }
   if (args.includes('--fdc')) {
     const fdc = require('./fdc/spec.js');
-    const t = fdc.trace(profileId, { controller, regenerate: !args.includes('--keep-firmware'), write: args.includes('--write'), nmi: args.includes('--nmi'), multi: args.includes('--multi'), blank: blankOpt(), cpu: cpuOpt || '6809' });
+    const t = fdc.trace(profileId, { controller, regenerate: !args.includes('--keep-firmware'), write: args.includes('--write'), halt: args.includes('--halt'), empty: args.includes('--empty'), nitros9: args.includes('--nitros9'), nmi: args.includes('--nmi'), multi: args.includes('--multi'), blank: blankOpt(), cpu: cpuOpt || '6809' });
     t.install();
     // --no-trace with --images: the images alone (MAME untraced; for the long formats of --blank)
     let code = args.includes('--no-trace') && args.includes('--images') ? 0 : await lockstep(Object.assign({}, t, { machine: t.machine() }));

@@ -1,14 +1,14 @@
-// NitrOS-9 boot disks: js/media/os9.js (inspectOs9Disk, checkNitros9DriveWire) on hand-built images
-// (tests/os9-image.js, laid out from the NitrOS-9 definitions, no NitrOS-9 bytes) and, when tools/nitros9/fetch.js
+// NitrOS-9 boot disks: js/media/os9.js (inspectOs9Disk, checkNitros9Boot) on hand-built images
+// (tools/nitros9/os9-image.js, laid out from the NitrOS-9 definitions, no NitrOS-9 bytes) and, when tools/nitros9/fetch.js
 // has put them in its cache, on the official v3.3.0 CoCo 3 release images (every image in both archives; skipped
 // with the reason otherwise).
 const Emu = require('./load')();
-const { makeOs9Disk } = require('./os9-image.js');
+const { makeOs9Disk } = require('../tools/nitros9/os9-image.js');
 const { cached, cacheDir, IMAGES } = require('../tools/nitros9/fetch.js');
 
 let fail = 0;
 const check = (name, cond, detail = '') => { if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log(`ok   ${name} ${detail}`); };
-const { inspectOs9Disk, checkNitros9DriveWire, Os9ImageError } = Emu;
+const { inspectOs9Disk, checkNitros9Boot, Os9ImageError } = Emu;
 const throwsWith = (f, re) => { try { f(); return false; } catch (e) { return e instanceof Os9ImageError && re.test(e.message); } };
 
 // ---- hand-built images
@@ -18,14 +18,20 @@ const throwsWith = (f, re) => { try { f(); return false; } catch (e) { return e 
   check('its volume name and CPU', r.label === 'MY BOOT' && r.cpu === '6309');
   check('the 6809 build', inspectOs9Disk(makeOs9Disk(Emu, { cpu: '6809' })).cpu === '6809');
   check('no CPU named: null', inspectOs9Disk(makeOs9Disk(Emu, { cpu: null })).cpu === null && !inspectOs9Disk(makeOs9Disk(Emu, { cpu: null })).reason);
-  check('checkNitros9DriveWire passes it', checkNitros9DriveWire(makeOs9Disk(Emu)).boot === 'becker');
+  check('checkNitros9Boot passes it', checkNitros9Boot(makeOs9Disk(Emu)).boot === 'becker');
   check('a bigger image (DD.TOT past the file, as the release images have)', !inspectOs9Disk(makeOs9Disk(Emu, { sectors: 2467 })).reason);
 }
 {
   const r = inspectOs9Disk(makeOs9Disk(Emu, { port: 'bitbanger' }));
   check('bit-banger DriveWire: refused, says to use _becker.dsk', r.boot === 'drivewire' && /bit-banger/.test(r.reason) && /_becker\.dsk/.test(r.reason), r.reason);
-  const f = inspectOs9Disk(makeOs9Disk(Emu, { bootTrack: false, driver: 'rb1773', sectors: 1440 }));
-  check('a floppy boot disk (no boot track at LSN 612, DD on rb1773): refused as a floppy image', f.boot === 'floppy' && /floppy/.test(f.reason), f.reason);
+  const f = inspectOs9Disk(makeOs9Disk(Emu, { driver: 'rb1773', port: 'floppy', sides: 2, sectors: 1440, cpu: '6309' }));
+  check('a 40-track double-sided floppy boot disk (boot track at LSN 1224, DD on rb1773) boots', f.boot === 'floppy' && !f.reason && f.cpu === '6309', JSON.stringify(f));
+  const f35 = inspectOs9Disk(makeOs9Disk(Emu, { driver: 'rb1773', port: 'floppy', sides: 1, sectors: 630 }));
+  check('a 35-track single-sided one (boot track at LSN 612) boots', f35.boot === 'floppy' && !f35.reason, JSON.stringify(f35));
+  const f80 = inspectOs9Disk(makeOs9Disk(Emu, { driver: 'rb1773', port: 'floppy', sides: 2, sectors: 2880 }));
+  check('an 80-track floppy: refused, the drives have 40', f80.boot === 'floppy' && /80 tracks.*40.*_40d_1\.dsk/.test(f80.reason), f80.reason);
+  const ds = makeOs9Disk(Emu, { driver: 'rb1773', port: 'floppy', sides: 2, sectors: 1440 }); ds[0x10] = 0x02;
+  check('the same disk with DD.FMT saying single-sided: no boot track at LSN 612', /no boot track/.test(inspectOs9Disk(ds).reason));
   const o = inspectOs9Disk(makeOs9Disk(Emu, { port: 'bitbanger', driver: 'rbsuper' }));
   check('another boot device (CoCo SDC, DD on rbsuper): refused', o.boot === 'other' && /another device/.test(o.reason), o.reason);
   const d = inspectOs9Disk(makeOs9Disk(Emu, { bootTrack: false }));
@@ -47,7 +53,7 @@ const throwsWith = (f, re) => { try { f(); return false; } catch (e) { return e 
   check('a cluster size that is not a power of two: not OS-9', !inspectOs9Disk(badBit).os9);
   const outside = makeOs9Disk(Emu); outside[0x08] = 0x10;
   check('a root directory past the end of the image: not OS-9', !inspectOs9Disk(outside).os9);
-  check('checkNitros9DriveWire throws Os9ImageError with the reason', throwsWith(() => checkNitros9DriveWire(new Uint8Array(512)), /isn't an OS-9 disk/));
+  check('checkNitros9Boot throws Os9ImageError with the reason', throwsWith(() => checkNitros9Boot(new Uint8Array(512)), /isn't an OS-9 disk/));
   const short = makeOs9Disk(Emu).subarray(0, 620 * 256);
   check('an image too short for the boot track', /no boot track/.test(inspectOs9Disk(short).reason));
   check('an ArrayBuffer is read as bytes', !inspectOs9Disk(makeOs9Disk(Emu).buffer).reason);
@@ -63,14 +69,15 @@ const throwsWith = (f, re) => { try { f(); return false; } catch (e) { return e 
 // ---- the release images (every image of both archives; fetch.js pins them)
 {
   const expect = (n) => /_becker\.dsk$/.test(n) ? 'becker' : /_becker_headless/.test(n) ? 'headless' : /_(dw|arduino)/.test(n) ? 'drivewire'
-    : /_cocosdc/.test(n) ? 'other' : /_40d_2/.test(n) ? 'data' : 'floppy';
+    : /_cocosdc/.test(n) ? 'other' : /_40d_2/.test(n) ? 'data' : /_40d_1/.test(n) ? 'floppy' : 'floppy80';
   let seen = 0;
   for (const n of Object.keys(IMAGES).sort()) {
     const { bytes, reason } = cached(n);
     if (!bytes) { console.log(`skip ${n}: ${reason}`); continue; }
     seen++;
     const r = inspectOs9Disk(bytes), want = expect(n), cpu = /nos96309/.test(n) ? '6309' : '6809';
-    const ok = want === 'becker' ? r.boot === 'becker' && !r.reason
+    const ok = want === 'becker' || want === 'floppy' ? r.boot === want && !r.reason
+      : want === 'floppy80' ? r.boot === 'floppy' && /80 tracks/.test(r.reason)
       : want === 'headless' ? r.boot === 'becker' && /headless/.test(r.reason)
         : want === 'data' ? r.boot === null && /no boot track/.test(r.reason) : r.boot === want && !!r.reason;
     check(`${n}: ${want}${want === 'data' ? '' : `, ${cpu}`}`, ok && r.os9 && (want === 'data' || r.cpu === cpu), JSON.stringify({ boot: r.boot, cpu: r.cpu, reason: r.reason && r.reason.slice(0, 50) }));

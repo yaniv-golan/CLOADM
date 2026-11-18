@@ -78,6 +78,7 @@ class CPU6309 extends CPU6809 {
     this._ownSave = 0;           // the native saving a 6309-only handler set for itself
     this._postSave = 0;          // the native saving the indexed post byte added
     this._mameDivZero = 0;       // the divide just trapped (mameCompat: its delta depends on it)
+    this._pre6309 = [0, 0, 0, '', ''];   // those below at the start of the step (mark/rewind)
   }
 
   // ---- the new registers ----
@@ -94,6 +95,21 @@ class CPU6309 extends CPU6809 {
     // V is documented as unchanged by a reset (reference guide p. 2), so its power-on value is not
     // specified. MAME's m6309 powers up with $FFFF and nothing can rely on another value; match it.
     this.v = 0xFFFF;
+  }
+
+  // (CPU6809.mark) the 6309's own registers too, the divide-by-zero mark its trap timing reads, and the native-mode
+  // savings an instruction adds up as it goes (postInstruction clears them, which a step taken back never reached)
+  mark() {
+    super.mark();
+    const p = this.pre;
+    p[12] = this.e; p[13] = this.f; p[14] = this.v; p[15] = this.md;
+    this._pre6309 = [this._mameDivZero, this._postSave, this._ownSave, this._key, this._opKey];
+  }
+  rewind() {
+    super.rewind();
+    const p = this.pre;
+    this.e = p[12]; this.f = p[13]; this.v = p[14]; this.md = p[15];
+    [this._mameDivZero, this._postSave, this._ownSave, this._key, this._opKey] = this._pre6309;
   }
 
   saveState() { return Object.assign(super.saveState(), state.save(this, CPU6309.EXTRA_STATE)); }
@@ -742,6 +758,7 @@ class CPU6309 extends CPU6809 {
     let dst = this.getReg6309(dstCode) & 0xFFFF;
     const count = this.w;
     this.c = 6 + 3 * count; this.ownTiming();   // [S 6+3n both modes]
+    this.reserveLog(this.c + 8);                // (its cycles, and the native-mode adjustment's slack)
     for (let i = 0; i < count; i++) {
       this.write8(dst, this.read8(src));
       if (srcMoves) src = dec ? (src - 1) & 0xFFFF : (src + 1) & 0xFFFF;

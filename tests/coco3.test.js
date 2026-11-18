@@ -295,8 +295,13 @@ LOOP    NOP
   const want = 12n * (10n ** 18n / 894886n);
   check(`CoCo 3: NMI follows INTRQ by 12 CPU cycles (13.41 us; got ${nmiAt !== null && intrqAt !== null ? (Number(nmiAt - intrqAt) / 1e12).toFixed(2) : '-'} us)`,
     intrqAt !== null && nmiAt !== null && nmiAt - intrqAt === want);
+  // the slot's clock is derived from the driver's (coco3.cpp COCOCART_SLOT DERIVED_CLOCK(1, 1)), which the SAM's speed
+  // change sets (6883sam.cpp update_cpu_clock: m_cpu->owner()->set_unscaled_clock), so it follows the CPU rate: the
+  // line delays are 6 and 12 cycles of whichever rate runs (run.js coco3 --fdc cocofdc --halt compares this with MAME)
   m.write(0xFFD9, 0);                                 // 1.79 MHz
-  check('CoCo 3: the slot clock stays at 0.89 MHz at the fast CPU rate', Math.floor(m.slotHz) === 894886);
+  check('CoCo 3: the slot clock follows the CPU to 1.79 MHz', Math.floor(m.slotHz) === 1789772, String(m.slotHz));
+  m.write(0xFFD8, 0);                                 // 0.89 MHz
+  check('CoCo 3: and back to 0.89 MHz', Math.floor(m.slotHz) === 894886, String(m.slotHz));
   check('SAM machines: the slot clock is the machine tick (CoCo 894886 Hz, Dragon 888625 Hz)',
     Math.floor(Emu.createMachine('coco').slotHz) === 894886 && Math.floor(Emu.createMachine('dragon64').slotHz) === 888625);
 }

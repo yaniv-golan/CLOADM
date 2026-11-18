@@ -141,6 +141,30 @@ cases.push(['trace dragon64 dragonfdc nmi', () => traceHash(spec('fdc').trace('d
 // the same firmware on the HD6309 (run.js dragon64 --fdc --nmi --cpu 6309): the arming rule differs, so this is a
 // different trace, not a duplicate of the case above
 cases.push(['trace dragon64 dragonfdc nmi 6309', () => traceHash(spec('fdc').trace('dragon64', { nmi: true, cpu: '6309' }))]);
+// the controller's HALT and NMI during halted sector reads at the CoCo 3's two CPU rates (fdc/coco-halt.asm, run.js
+// coco3 --fdc cocofdc --halt): the read loops of NitrOS-9's floppy booter, Disk BASIC's style and a polled first byte
+cases.push(['trace coco3 cocofdc halt', () => traceHash(spec('fdc').trace('coco3', { halt: true }))]);
+// a halted read on a drive with no disk (fdc/coco-halt-empty.asm, run.js coco3 --fdc cocofdc --halt --empty): the
+// CPU held inside EMPTY's LDA for good while the frames go on (4 s, as MAME runs it), the instruction suspended
+cases.push(['trace coco3 cocofdc halt empty', () => {
+  const t = spec('fdc').trace('coco3', { halt: true, empty: true });
+  const m = t.machine();
+  const names = t.regs.map((r) => r.name);
+  let h = 0x811C9DC5, n = 0, c0 = null, last = -1;
+  m.cpu.trace = (c) => {
+    if (c0 === null) c0 = c.totalCycles;
+    for (const r of names) h = fnv(h, c[r]);
+    h = fnv(h, c.totalCycles - c0);
+    last = c.pc;
+    n++;
+  };
+  while (m.cycle < t.seconds * m.tickHz) m.runFrame();
+  m.cpu.trace = null;
+  return { hash: h.toString(16).padStart(8, '0'), instructions: n, held: last === t.stuck.pc && m.cpu.haltLine && m.haltDefer !== null && m.cpu.pc === t.stuck.pc };
+}]);
+// the page's NitrOS-9 floppy loader (js/machines/nitros9.js) reading a hand-built boot track, on both CPUs (run.js
+// coco3 --fdc cocofdc --nitros9 [--cpu 6309])
+for (const cpu of ['6809', '6309']) cases.push([`trace coco3 cocofdc nitros9${cpu === '6309' ? ' 6309' : ''}`, () => traceHash(spec('fdc').trace('coco3', { nitros9: true, cpu }))]);
 cases.push(['trace dragon64 premierfdc', () => traceHash(spec('fdc').trace('dragon64', { controller: 'premierfdc', regenerate: false }))]);
 // the same controllers in a Multi-Pak's slot 4 (<board>-multi.asm, run.js <profile> --fdc [controller] --multi)
 for (const [id, controller] of [['dragon64', 'dragonfdc'], ['dragon64', 'premierfdc'], ['coco', 'cocofdc']]) {

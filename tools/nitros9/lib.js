@@ -1,11 +1,33 @@
-// Shared by the NitrOS-9 boot tools (boot.js, boot-mame.js) and tests/nitros9.test.js: our boot loader as a CoCo 3
-// ROM, the DriveWire server that serves an image to either emulator, the record of its transactions that the two
-// runs are compared on, and the text on our machine's screen. Development only; nothing here is loaded by the page.
+// Shared by the NitrOS-9 boot tools (boot.js, boot-mame.js, boot-floppy-mame.js) and tests/nitros9.test.js: our boot
+// loaders as CoCo 3 ROMs, the DriveWire server that serves an image to either emulator, the records the two runs are
+// compared on (DriveWire transactions; the floppy controller's register writes), and the text on our machine's screen. Development only; nothing here is loaded by the page.
 const zlib = require('zlib');
 
-// The CoCo 3 internal ROM (32K) with our DriveWire loader (js/machines/nitros9.js, over the Becker port): the one
-// the page boots with
-const loaderRom = () => require('../../js/emu.js').nitros9LoaderRom();
+// The CoCo 3 internal ROM (32K) with one of our loaders (js/machines/nitros9.js): 'drivewire' (over the Becker
+// port, the default) or 'floppy' (the CoCo disk controller's drive 0): the ones the page boots with
+const loaderRom = (kind = 'drivewire') => require('../../js/emu.js').nitros9LoaderRom(kind);
+
+// The floppy boot's comparison: every CPU write to the disk controller's registers ($FF40 control latch, $FF48-$FF4B
+// WD1773), in order, as "ff4a=01". MAME records them with a Lua write tap (boot-floppy-mame.js), ours by wrapping the
+// machine's write (fdcWrites). Only register numbers and values: no disk data is read this way.
+const FLOPPY = Object.freeze({ seconds: 50, typed: [{ at: 35, text: '\r' }, { at: 40, text: 'dir\r' }] });
+const fdcWrite = (a, v) => `${a.toString(16)}=${v.toString(16).padStart(2, '0')}`;
+function fdcWrites(m) {
+  const out = [], write = m.write.bind(m);
+  m.write = (a, v) => { if (a >= 0xFF40 && a <= 0xFF4F) out.push(fdcWrite(a, v)); return write(a, v); };
+  return out;
+}
+// Our CoCo 3 (512K) with the floppy loader as its ROM and the CoCo disk controller (no ROM of its own) holding
+// `bytes` in drive 0, reset
+function coco3Floppy(Emu, cpu, bytes) {
+  const m = Emu.createMachine('coco3', { cpu, ram: 512 });
+  m.setRoms({ basic: loaderRom('floppy') });
+  const fdc = new Emu.devices.cocofdc({});
+  m.insertCartridge(fdc);
+  fdc.mount(0, { bytes: bytes.slice(), format: Emu.detectDiskFormat(bytes, 'n9.dsk'), name: 'n9.dsk' });
+  m.reset(true);
+  return m;
+}
 
 // One DriveWire transaction as the runs are compared on it, or null for one left out. TIME is left out: NitrOS-9
 // asks for it from its clock module and from startup's `date`, and how many times depends on how long a run lasts,
@@ -74,4 +96,4 @@ function png(w, h, rgba) {
   return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]);
 }
 
-module.exports = { loaderRom, record, driveWire, coco3, screenText, png };
+module.exports = { loaderRom, record, driveWire, coco3, FLOPPY, fdcWrites, coco3Floppy, screenText, png };

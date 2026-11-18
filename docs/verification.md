@@ -748,10 +748,12 @@ The page's path to it, without MAME (nothing in it is hardware behaviour; the ma
 ones compared above):
 
 * `tests/os9.test.js`: the image detection (`js/media/os9.js`) on hand-built OS-9 disks laid out from the NitrOS-9
-  definitions (`tests/os9-image.js`: `defs/rbf.d`, `defs/os9.d`, no NitrOS-9 bytes): the Becker boot disk, its CPU and
+  definitions (`tools/nitros9/os9-image.js`: `defs/rbf.d`, `defs/os9.d`, no NitrOS-9 bytes): the Becker boot disk, its CPU and
   volume name, and every refusal (not whole sectors, no OS-9 LSN 0, a root that isn't a directory, no boot track, a
-  floppy, bit-banger or other boot device, a headless build). Then, with the release images fetched, all 24 images
-  of both v3.3.0 CoCo 3 archives, each classified as its file name says (only the two `_becker.dsk` boot).
+  floppy of more than 40 tracks, the bit-banger or another boot device, a headless build), and the floppy layouts that
+  boot (35 tracks single-sided, 40 double-sided: the boot track at track 34 of side 0). Then, with the release images
+  fetched, all 24 images of both v3.3.0 CoCo 3 archives, each classified as its file name says (the `_becker.dsk` and
+  `_40d_1` images boot).
 * `tests/nitros9-session.test.js`: `Session.bootNitros9` on hand-built disks (the machine it makes, the loader running
   the boot track, reset and power cycle booting again, Back to BASIC, the CPU switch for a 6309 build, the errors for
   another machine, a missing or wrong image, the `nitros9=` link and its parse errors, Share refusing a NitrOS-9
@@ -762,6 +764,148 @@ ones compared above):
   for frame.
 * `tools/browser-check.js` (`nitros9`): the slot under the screen in Chromium, its errors, a dropped image's offer,
   the link and Share, and the release images booted from the page to the shell with `dir` typed on the keyboard.
+
+### From a floppy
+
+`tests/nitros9.test.js` also boots the v3.3.0 `_40d_1.dsk` images (6809 and 6309) with our floppy loader
+(`js/machines/nitros9.js`: restore, seek to track 34, its 18 sectors read with the controller's HALT and NMI as Disk
+BASIC's DSKCON reads them, then into $2602) in place of the CoCo 3 ROM and the CoCo disk controller (no ROM) holding
+the image in drive 0. It presses Return at `setime`'s prompt and types `dir`, checks the screen against the sources
+that print it (`level2/coco3/startup`, `level1/cmds/setime.asm`, the makefile's `$(DSK360K_1)` for the root), and
+compares every CPU write to the controller's registers ($FF40-$FF4F, in order) with MAME 0.264 running the same image
+and loader (`tools/nitros9/boot-floppy-mame.js --record`, a Lua write tap; `tests/fixtures/nitros9/coco3-*-floppy.json`
+hold register numbers and values only): 2,227 writes identical on the 6809, 2,199 on the 6309. The loader itself runs
+in lockstep with MAME on a hand-built boot floppy (`run.js coco3 --fdc cocofdc --nitros9 [--cpu 6309]`: 1,110,244
+instructions identical in registers and cycles, the boot track's loop reached at 323,191), in the regression gate.
+
+**What this needed: HALT as MAME has it.** The CoCo disk controller holds the CPU with HALT while it waits for each
+byte (`coco_fdc.cpp`: HALT = !DRQ while the control latch's bit 7 is set), and the cartridge slot delays the line by 6
+of its cycles (`coco.cpp` `set_line_delay`). Two things differed from MAME, and NitrOS-9's floppy booter
+(`boot_1773.asm`, a loop of `LDA DATAREG,Y / STA ,X+ / NOP / BRA`) failed on them: LSN 0 read one byte off at 0.89
+MHz, every byte read twice at 1.78 MHz.
+
+* HALT that reaches the 6809 inside an instruction suspends MAME's CPU at the next check point; the instruction's
+  remaining bus cycles, its read of the data register included, happen after the release. Our 6809 ran the whole
+  instruction first and only charged the halted cycles afterwards, so the LDA read the data register before its
+  DRQ. Now an I/O access after the stop point waits for the release (`js/machines/coco3.js` `haltWait`): the machine's
+  events run on until HALT is released, the rest of the instruction is placed at its real time (`ioShift`) and
+  charged from the release as before. This applies in both modes, not only under `mameCompat`: MAME's slot delay
+  with a CPU that finishes the instruction first (the MC6809E data sheet's HALT) is neither MAME nor the hardware,
+  and is what broke NitrOS-9; MAME's pair is the one compared.
+* The slot's clock follows the CPU rate. MAME derives it from the driver's clock (`coco3.cpp`, `DERIVED_CLOCK(1, 1)`),
+  and the SAM's speed change sets the driver's clock (`6883sam.cpp` `update_cpu_clock`:
+  `m_cpu->owner()->set_unscaled_clock`), so at 1.78 MHz the HALT and NMI delays are 6 and 12 cycles of the fast
+  clock. Ours kept XTAL / 32. The SAM machines (CoCo 1/2, Dragons) are unchanged: nothing compared there runs a halted
+  transfer at a fast rate.
+
+`tools/mame-diff/fdc/coco-halt.asm` (`run.js coco3 --fdc cocofdc --halt`) reads sectors with three loops, NitrOS-9's,
+Disk BASIC's style (HALT enabled straight after the command) and one that polls the first DRQ, at 0.89 and 1.78 MHz:
+918,190 instructions identical in registers and cycles, HALT reached at 197,899; in the regression gate. Every N9 and
+polled read stores its sector's 256 bytes; a DOS-style read stores 257, the first one stale (the control latch's DRQ
+input only follows the WD1773 from its first DRQ, so HALT can't hold the read before it), in MAME and here alike. The
+146 hashes recorded before this change are unchanged.
+
+The wait for HALT's release inside an instruction (`js/machines/coco3.js` `haltWait`) goes no further than the run it
+is in: the frame, or the slice `runCycles` was given. A read whose DRQ never comes (a read sector on an empty drive)
+would otherwise hold the frame forever. Past that point the instruction is suspended (`haltSuspend`): the CPU's
+registers go back to its start (`cpu.mark` / `cpu.rewind`), every bus access it made before the held one is kept in
+order, address and byte (code fetches, RAM and I/O, reads and writes: `busLogged`), and frames go on with the CPU
+halted. When HALT is released the instruction runs again from its start (`cpu.rerun`: no interrupt taken first, not
+traced twice) with those accesses replayed, not made again: each read returns the byte it returned then, each write
+is not repeated (`replayRead`, `replayWrite`), so the bytes it reads are the ones it read, not memory as it has itself
+changed it since (a 6309 TFM whose source overlaps its destination), and an I/O write that remapped memory (the MMU)
+doesn't change what it fetched. The held access is made at the release, so it ends where the uninterrupted wait would have. The suspended instruction is in the snapshot
+(`haltDefer`, snapshot version 2). `tests/fdc.test.js`: on an empty drive, in both timing models, frames keep
+completing with the CPU halted inside the LDA, and a disk put in the drive (the sector's bytes read) or a Force
+Interrupt (the loop runs on) releases it; a release by DRQ 11 frames later gives the same trace, the same data and the
+same data-register accesses run as one slice, as frames and as 37-tick slices, for the LDA and for an INC of the data
+register (its read replayed), and for the HD6309 in native mode (`LDA $FF4B,Y`, whose post byte's native saving is
+added as the instruction goes; `cpu.mark` keeps those savings too); taking the controller out after 600 suspended
+frames releases the CPU where the time has got to, and the next frame is one frame long. A long wait's halted cycles
+(`cpu.haltTail`) are charged at once up to the next event, not one step each. `tests/state.test.js`: snapshots taken
+while suspended (6809, and 6309 native), restored into a fresh machine, run on identically (trace, frames). The MAME runs above are unchanged by it. MAME holds the CPU the same way:
+`tools/mame-diff/fdc/coco-halt-empty.asm` (`run.js coco3 --fdc cocofdc --halt --empty`) reads a sector on drive 0, then
+issues a read on drive 2, which has no disk, in Disk BASIC's order: 2,506 instructions identical in registers and
+cycles, MAME's trace stops inside the LDA of the data register (`EMPTY`) and so does ours, which then runs no
+instruction for the rest of MAME's 4 seconds, its CPU still held; in the regression gate. (The disk going in after a longer wait,
+120 frames, ends that read with Record Not Found: the controller's own handling of a disk arriving mid-command, not
+HALT, and not compared with MAME.)
+
+The replay is checked as it goes: each access must be at the logged address (a write of the logged byte), and the
+first one past the log must be an I/O access in the bus cycle the held one was in. Only a snapshot whose log doesn't
+belong to its instruction fails that; the instruction is then dropped (`replayDropped`, as for a redirect below),
+before any access reaches the bus. `tests/halt-replay.test.js`: a 6309 TFM held on an empty drive for three frames, in
+its four forms (`r0+,r1+` with 17 and 65 bytes, `r0-,r1-` through the vectors into the I/O page, `r0+,r1`, `r0,r1+`),
+ends with the memory and registers of the same program with HALT disabled in the drive select latch, and for the two
+forms that move both pointers with the bytes derived from the TFM's definition (the build before this change copied
+the bytes it had itself written); a malformed `haltDefer.log` or `.mem` in a snapshot is refused with a message, and so are times out of range
+(`haltDeferTimes`: the start after the machine's time or not a whole tick, the held access far past its log or before
+it, the stop point, the release, the speed change; they would put the machine's time or the CPU's count far off); a
+well-formed log that doesn't match the instruction (an address, a written byte, one access too few or too many, the
+held access in another cycle, every access logged so that the replay completes it) is dropped when it runs again,
+with the CPU's cycle count keeping up with the time as in any drop, then the TFM runs afresh to the right bytes. Between runs
+no instruction is under way, so the CPU's cycle count is 0 (`haltPark`, and on a restore): an access from outside
+while it is held (the debugger's memory view) is timed at the machine's time, not hundreds of cycles ahead at the held
+access's, and a restored machine releases it on the same cycle as the one saved; a TFM held with the debugger writing
+I/O after every slice gives snapshots that all load, and a held `PSHU` that changed the speed ends identically after
+one and three save-and-restore round trips.
+
+The CPU redirected from outside while an instruction is suspended (`Machine.jump`, `injectAndRun` with a start
+address, the debugger setting a register to a new value, any other write to the CPU's registers, a write to memory
+the instruction had fetched, read or written before its held access, a snapshot taken after such a write) drops the
+suspended instruction (`haltCancel`): the CPU is then between instructions with the state it was given, runs nothing
+while HALT is asserted, and runs from that state once HALT is released. The rule is the MC6809E data sheet's (Motorola, signal
+descriptions, HALT: the processor halts "at the end of the present instruction" and stays halted "without loss of
+data"; the page is not cited: no copy of the data sheet could be reached from the environment this was written in,
+and the two phrases are the ones this project already cited), so an outside change can only meet it between instructions, and our suspended instruction
+has changed no register yet. The bus accesses it made before its held one stay made (the debugger reports none of
+them, not even a RAM write a watchpoint covers: it reports an instruction's accesses when it completes, and this one
+never does; `cpu.trace`, called as an instruction starts, has it once). Every path is caught by one
+check (`cpuCheck`): the registers the instruction was suspended with (`cpu.mark`) and the bytes below the I/O page of
+every bus access it made (its log, not its idle cycles, which present an address and read nothing;
+in the snapshot as `haltDefer.mem`) are kept and compared before it runs again, before the debugger checks a
+breakpoint and before a snapshot is saved (the bytes come from the access log, which grows with the instruction: a
+6309 TFM's are all there however long it is, `tests/halt-replay.test.js`; the CPU's cycle log grows the same way,
+`cpu.reserveLog`); `Machine.cpuRedirected` drops it at once for a jump and the debugger. A
+write that changes nothing (a register set to its value, memory it didn't use) keeps it. The CPU's cycle count gets
+the time it was halted, as a kept instruction's `haltTail` gives it: after a speed change the instruction made before
+its held access, at the old rate up to that write and the new rate after it (as `clockChanged` places it). Not covered: a dropped instruction that had
+changed the CPU speed sets the new clock division but not MAME's slice adjustment (`clockChanged`, `mameCompat`), and
+no MAME run drops an instruction. MAME
+0.264's debugger, writing PC, only sets `m_pc` (`m6809.cpp` `state_import`): its 6809 goes on through the rest of the
+old instruction's microcode from the new address, an emulator artefact with no hardware counterpart, not
+reproduced. `tests/halt-held.test.js`: an INC of the data register held on an empty drive, the CPU sent to
+`LDA $FF03` by a write to PC, `Machine.jump`, the debugger and `injectAndRun`, and by a snapshot taken after the write
+(which holds no suspended instruction), and by the LDA written over the INC's code (debugger, `poke`): nothing runs
+until a Force Interrupt releases HALT, then the LDA reads PIA0 itself and the INC's write never happens (6809 in both
+timing models, and 6309); with A set instead, the INC runs from its start and reads the data register again; a write
+elsewhere or PC set to its own value keeps the INC, which completes with its read replayed; a breakpoint on the INC,
+which is then dropped by a direct register write or a jump to its own address, stops before it runs again; an
+`INC ,X`'s idle-cycle byte written keeps it (the run is the unwritten run); after a snapshot round trip, a change to
+an `INC [,X]`'s pointer drops it and a change past its code keeps it, as without the round trip, with the same trace;
+a dropped instruction's CPU cycles keep up with the machine's time, also one that slowed the CPU (`STD ,X` on
+`$FFD8`) before its held access; a snapshot loaded over a suspended instruction
+runs on as its source.
+
+Under the debugger a suspended step is not an instruction (`js/debugger.js`): no trace entry, no step counted, no
+watchpoint hit until the instruction completes; the breakpoint check is made once, at its start, and never while it
+is held (also after a snapshot is loaded, or with a debugger first made while it is held). A command that must
+return waits for a halted CPU a frame (a single step) or two seconds (step over, run to return, run to an address:
+longer than a sector not found, which a WD279x ends after 5 index pulses, 1 s) and
+then stops with kind `halted`, the PC unchanged; Run goes on frame by frame. `tests/halt-held.test.js`, compared with
+the CPU's own trace and a free run, both timing models: 40 single steps across a held LDA equal 40 traced
+instructions with the free run's registers and cycles, each step taken while held stops `halted` after one frame
+with no trace entry; a breakpoint on the held LDA stops once per execution, at the traced registers; Run on an empty
+drive goes 100 frames without a stop or a counted step (breakpoint elsewhere, or on the held LDA after its one stop,
+also after a snapshot round trip or with the debugger made while it is held);
+a read watchpoint on a held `INC $FF4B` stops once per read the controller saw, with its value; run to return on an
+empty drive stops `halted` after two seconds with no instruction counted, and with the disk returns having counted the
+traced instructions; a run to an address counts completed instructions only. Unchanged by this: the debugger counts
+an interrupt's entry, and each cycle of a CWAI or SYNC wait, as a step, as it always has.
+
+Found and not fixed: at power-on the WD1773 starts a restore on its own (`wd_fdc.cpp` `mr_w`); with NMI enabled, its
+INTRQ reaches our CPU about 8 cycles later than MAME's. The diagnostics and both NitrOS-9 boots send Force Interrupt
+first (as `boot_1773.asm`'s HWInit does), so nothing compared depends on it.
 
 ## SAM CPU rate (the speed POKEs)
 

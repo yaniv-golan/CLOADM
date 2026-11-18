@@ -13,6 +13,16 @@
  * reads), and the access that matched is reported with its value. Instruction fetches are reads, so a read
  * watchpoint on a code address also sees the opcode fetch; that is what the bus did.
  *
+ * A step in which no instruction runs is not an instruction here: a halted cycle (the HALT line, or the rest of a
+ * halted wait), or the CoCo 3's instruction suspended by HALT past the end of a run (js/machines/coco3.js
+ * haltSuspend), which runs again from its start when HALT is released. Such a step makes no trace entry, counts
+ * toward no step or instruction limit, and reports no watchpoint hit: the instruction's accesses are reported once,
+ * from the run that completes it (its accesses before the held one are replayed there, as the bus made them once).
+ * A breakpoint or arrival address is checked once per instruction, at its start, not again while it waits. A command
+ * that must return (step, step over, run to return, run to an address) waits for a halted CPU for a while
+ * (HELD_FRAMES of machine time) and then stops with kind 'halted', the PC where it was; the page's Run (runTo, frame
+ * by frame) just goes on, the machine halted and its frames running, until HALT is released.
+ *
  * The 6809 and 6803 are covered now. The 6309 is a new name in the machine's config, and
  * its disassembly arrives with it (js/asm/disassembler.js); everything else here is CPU-independent.
  */
@@ -49,6 +59,11 @@ const TRACE_REGS = {
   '6309': ['a', 'b', 'e', 'f', 'x', 'y', 'u', 's', 'dp', 'cc', 'md'],
 };
 
+// how long a command that must return waits for a halted CPU before it stops with kind 'halted', in frames of
+// machine time: a single step one frame; step over, run to return and run to an address two seconds (a disk's DRQ
+// comes within a revolution, 0.2 s, once the motor runs; a sector not found ends the command after 5 revolutions, 1 s)
+const HELD_FRAMES = { step: 1, run: 120 };
+
 const isAddr = (v) => Number.isInteger(v) && v >= 0 && v <= 0xFFFF;
 
 export class Debugger {
@@ -73,6 +88,8 @@ export class Debugger {
     this.untilPc = null;           // a one-shot arrival address (step over, run to, run to return)
     this.untilS = null;            // ...reached only with the stack pointer at or above this (not in a deeper call)
     this.hit = null;               // the watchpoint hit of the instruction just executed
+    this.checkedPc = null;         // the PC whose instruction has had its breakpoint check and hasn't run yet (_go)
+    this.checkedAt = 0;            // ...and the machine's redirect count then (an outside change makes it a new one)
     // the unwrapped read, for the debugger's own view (taken before _attach replaces the bus read)
     this._peekMap = this._peekMapFor(machine, machine.read.bind(machine));
     this._attach();
@@ -140,7 +157,10 @@ export class Debugger {
   // ---------------- breakpoints ----------------
   addBreakpoint(addr) {
     if (!isAddr(addr)) throw new SessionError(`breakpoint address must be a whole number from 0 to $FFFF (got ${addr})`);
-    this.bps.add(addr); return addr;
+    this.bps.add(addr);
+    // the instruction at the PC, halted before it starts, is checked again (one under way, held by HALT, never is: _go)
+    this.checkedPc = null;
+    return addr;
   }
   removeBreakpoint(addr) { return this.bps.delete(addr); }
   clearBreakpoints() { this.bps.clear(); }
@@ -168,19 +188,33 @@ export class Debugger {
     this.skipBp = this.machine.cpu.pc;   // continuing from here must not stop on the same breakpoint again
     this.stopReason = Object.assign({ kind }, info);
   }
-  // One CPU step through the machine's own timing, with the trace entry the step produced.
+  // One CPU step through the machine's own timing, with the trace entry the step produced -> its cycles, or null
+  // when no instruction ran: a halted cycle, or an instruction HALT suspended (it runs again, from its start, in a
+  // later step: that one is the instruction). Its watchpoint hits are dropped with it.
   _stepOnce() {
     const m = this.machine, cpu = m.cpu;
     const before = { pc: cpu.pc };
     for (const r of TRACE_REGS[this.cpu]) before[r] = cpu[r];
-    const t0 = cpu.totalCycles;
+    const t0 = cpu.totalCycles, c0 = m.cycle;
     // exactly one instruction through the family's own runCycles (the SAM rate, the CoCo 3 clock change, the
     // MC-10 latch timing and the stub hooks stay in charge, so a step costs what the instruction costs)
     m.runCycles(Infinity, 1);
+    if (m.cpuHeld || cpu.stepHalted || (m.cycle === c0 && cpu.totalCycles === t0)) { this.hit = null; return null; }
     const cycles = cpu.totalCycles - t0;
     this.steps++;
+    this.checkedPc = null;         // the next instruction gets its own breakpoint check
     this._record(before, cycles);
     return cycles;
+  }
+  // the CPU waits for HALT's release: the line is asserted, or an instruction is suspended. (The rest of a halted
+  // wait after the release, cpu.haltTail, is not a wait: the time it charges has passed, and it goes at once.)
+  _waiting() { return this.machine.cpuHeld || !!this.machine.cpu.haltLine; }
+  // a command that must return has waited `frames` of machine time since `since` with no instruction: it stops
+  _heldTooLong(since, frames) {
+    const m = this.machine;
+    if (m.cycle - since < frames * m.frameCycles) return false;
+    this._stop('halted', { pc: m.cpu.pc });
+    return true;
   }
   _record(before, cycles) {
     if (this.traceSize === 0) return;
@@ -206,13 +240,13 @@ export class Debugger {
   // Run up to `max` instructions, stopping at a breakpoint (before it runs), at an arrival address
   // (step over / run to / run to return) or after an instruction a watchpoint saw.
   // Continuing from a stop does not stop on the same breakpoint again, so Run moves on from a breakpoint.
-  run(max = 1000000) { return this._go((i) => i < max, max); }
+  run(max = 1000000) { return this._go((i) => i < max, max, HELD_FRAMES.run); }
   // Run until the machine's tick reaches `end` (a frame's end: Machine.runFrame(runTo) passes it), stopping as
   // run() does -> true when it got there, false when it stopped first. A machine waiting for the store
   // (m.stall) gives way too, without a stop: Machine.runFrame sees the stall and keeps the frame open.
   runTo(end) {
     const m = this.machine;
-    this._go(() => m.cycle < end && !m.stall, -1);
+    this._go(() => m.cycle < end && !m.stall, -1, 0);
     return !this.stopped;
   }
   // a whole frame of the machine under the debugger -> false when it stopped part way (the frame stays open)
@@ -221,34 +255,65 @@ export class Debugger {
   get armed() { return this.bps.size > 0 || this.wps.length > 0; }
   // stop the machine where it is, at the next instruction (the front end's Pause)
   halt() { this._stop('halt', { pc: this.machine.cpu.pc }); }
-  _go(more, max) {
+  // i counts the instructions run (_stepOnce); heldFrames: how long a halted CPU is waited for (0: as long as `more`)
+  _go(more, max, heldFrames) {
     const m = this.machine, cpu = m.cpu;
     const skip = this.skipBp;
     this.skipBp = null;
     this.stopped = false; this.stopReason = null; this.hit = null;
-    for (let i = 0; more(i); i++) {
-      if (this.untilPc !== null && cpu.pc === this.untilPc && (this.untilS === null || cpu.s >= this.untilS)) {
-        const at = this.untilPc; this.untilPc = null; this.untilS = null;
-        this._stop('until', { address: at, pc: cpu.pc });
-        return i;
+    let i = 0, first = true, since = -1;
+    while (more(i)) {
+      // once per instruction, at its start: not again while it waits for HALT's release (it is under way)
+      // (an outside change drops an instruction held by HALT: the one at PC is new). An instruction still held is under
+      // way: it had its check when it started, or started with no debugger running it, and gets none now
+      m.cpuCheck();
+      if (m.cpuHeld) { this.checkedPc = cpu.pc; this.checkedAt = m.redirects; }
+      else if (this.checkedPc !== cpu.pc || this.checkedAt !== m.redirects) {
+        if (this.untilPc !== null && cpu.pc === this.untilPc && (this.untilS === null || cpu.s >= this.untilS)) {
+          const at = this.untilPc; this.untilPc = null; this.untilS = null;
+          this._stop('until', { address: at, pc: cpu.pc });
+          return i;
+        }
+        if (!(first && skip === cpu.pc) && this.bps.has(cpu.pc)) {
+          this._stop('breakpoint', { address: cpu.pc, pc: cpu.pc });
+          return i;
+        }
+        this.checkedPc = cpu.pc; this.checkedAt = m.redirects;
       }
-      if (!(i === 0 && skip === cpu.pc) && this.bps.has(cpu.pc)) {
-        this._stop('breakpoint', { address: cpu.pc, pc: cpu.pc });
-        return i;
-      }
+      first = false;
       this.hit = null;
-      this._stepOnce();
-      if (this.hit) { const h = this.hit; this.hit = null; this._stop('watchpoint', h); return i + 1; }
+      const at = m.cycle;
+      if (this._stepOnce() === null) {
+        if (m.stall) break;        // waiting for the store: no time passes (Machine.runFrame keeps the frame open)
+        if (heldFrames && this._waiting()) { if (since < 0) since = at; if (this._heldTooLong(since, heldFrames)) return i; }
+        continue;
+      }
+      since = -1;
+      i++;
+      if (this.hit) { const h = this.hit; this.hit = null; this._stop('watchpoint', h); return i; }
     }
     this.skipBp = null;
-    return max;
+    return max < 0 ? max : i;
   }
-  // execute exactly one instruction (a step ignores breakpoints and arrival addresses)
+  // execute exactly one instruction (a step ignores breakpoints and arrival addresses) -> its cycles. With the CPU
+  // halted, it waits a frame of machine time (HELD_FRAMES.step) for an instruction to run, then stops with kind
+  // 'halted' and returns 0, the PC unchanged (an instruction HALT suspended is still to run from its start).
   step() {
     this.stopped = false; this.stopReason = null; this.hit = null;
-    const cycles = this._stepOnce();
-    if (this.hit) { const h = this.hit; this.hit = null; this._stop('watchpoint', h); }
-    return cycles;
+    let since = -1;
+    for (;;) {
+      const at = this.machine.cycle;
+      const cycles = this._stepOnce();
+      if (cycles === null) {
+        if (this.machine.stall) return 0;
+        if (!this._waiting()) continue;
+        if (since < 0) since = at;
+        if (this._heldTooLong(since, HELD_FRAMES.step)) return 0;
+        continue;
+      }
+      if (this.hit) { const h = this.hit; this.hit = null; this._stop('watchpoint', h); }
+      return cycles;
+    }
   }
   // Run to an arrival address (and stack level), at most `max` instructions. A breakpoint or watchpoint may stop
   // it first. If neither happens within `max`, it stops anyway with kind 'limit': a command that was asked to
@@ -256,6 +321,8 @@ export class Debugger {
   _runToArrival(pc, s, max) {
     this.stopped = false; this.stopReason = null;
     this.untilPc = pc; this.untilS = s;
+    // (a CPU halted before the instruction at its PC starts is at that address: it counts as arrived)
+    if (!this.machine.cpuHeld) this.checkedPc = null;
     const ran = this.run(max);
     this.untilPc = null; this.untilS = null;
     if (!this.stopped) this._stop('limit', { pc: this.machine.cpu.pc, instructions: ran });
@@ -311,8 +378,12 @@ export class Debugger {
     if (!Number.isInteger(value)) throw new SessionError(`register ${name} needs a whole number (got ${value})`);
     const cpu = this.machine.cpu;
     const BYTE = new Set(['a', 'b', 'e', 'f', 'dp', 'cc', 'md']);
+    const was = cpu[name];
     if (name === 'q') cpu.q = value >>> 0;
     else cpu[name] = BYTE.has(name) ? value & 0xFF : value & 0xFFFF;
+    // a change drops an instruction under way (held by HALT): the CPU goes on from the state it was given (the same
+    // value written back changes nothing)
+    if (cpu[name] !== was) this.machine.cpuRedirected();
   }
   // memory as the machine sees it, without a bus cycle; writing goes through the bus, so a poke lands where
   // the machine's memory map puts it (including the CoCo 3's MMU)
@@ -332,6 +403,7 @@ export class Debugger {
     this.bps = new Set((s.breakpoints || []).map((a) => a & 0xFFFF));
     this.wps = (s.watchpoints || []).map((w) => ({ start: w.start & 0xFFFF, size: w.size, read: !!w.read, write: !!w.write }));
     this.stopped = false; this.stopReason = null; this.skipBp = null; this.untilPc = null; this.untilS = null; this.hit = null;
+    this.checkedPc = null;
     this.log.length = 0;
   }
 }

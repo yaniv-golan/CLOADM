@@ -37,7 +37,7 @@ import { MemoryKeyStore } from './host/key-store.js';
 import { ChatSession } from './claude/chat.js';
 import { TOOL_CODES, ToolError } from './claude/toolerrors.js';
 import { DriveWireChatChannel, CHAT_DW_CHANNEL } from './claude/channel.js';
-import { nitros9LoaderRom, nitros9LoaderCrc } from './machines/nitros9.js';
+import { nitros9LoaderRom, nitros9LoaderKind, nitros9LoaderByCrc } from './machines/nitros9.js';
 import { inspectOs9Disk, NITROS9_RELEASES } from './media/os9.js';
 import { END_OF_REPLY, ACTING_TOOL_NAMES } from './claude/chat.js';
 import { loadBasic as loadBasicInto, planBasic } from './claude/basicload.js';
@@ -504,69 +504,105 @@ export class Session {
     this.emit('drivewire');
     return s;
   }
-  // ---------------- NitrOS-9 over DriveWire (no ROM) ----------------
-  // The CoCo 3 boots NitrOS-9 from the user's own DriveWire image with our loader (js/machines/nitros9.js) in
-  // place of its internal ROM: the image goes in DriveWire drive 0, the Becker port is switched on, and the loader
-  // reads the boot track and jumps into it. Reset and power cycle boot it again (the loader stays in the socket);
-  // leaveNitros9, a ROM change or another machine puts the ROMs back.
-  // the machines it boots on (the NTSC CoCo 3: the release's DriveWire images are 60 Hz builds)
+  // ---------------- NitrOS-9 without a ROM (DriveWire or floppy) ----------------
+  // The CoCo 3 boots NitrOS-9 from the user's own image with one of our loaders (js/machines/nitros9.js) in place
+  // of its internal ROM: a DriveWire image (the release's _becker.dsk) goes in DriveWire drive 0 with the Becker
+  // port on; a floppy image (_40d_1.dsk) goes in floppy drive 0 of the CoCo disk controller, plugged in without a
+  // ROM if none is in the port. The loader reads the boot track and jumps into it. Reset and power cycle boot it
+  // again (the loader stays in the socket); leaveNitros9, a ROM change or another machine puts the ROMs back.
+  // Images are kept where their kind lives: DriveWire images under DW_PREFIX, floppies under DISK_PREFIX
+  // (store 'drivewire' or 'disk').
+  // the machines it boots on (the NTSC CoCo 3: the release's images are 60 Hz builds, but for the _50hz floppies)
   static NITROS9_MACHINES = NITROS9_MACHINES;
-  // is NitrOS-9's loader the ROM of machine m?
-  nitros9On(m = this.machine) { return !!m && !!m.roms && m.roms.basic === nitros9LoaderRom(); }
+  // which of our loaders is the ROM of machine m: 'drivewire', 'floppy' or null
+  nitros9Loader(m = this.machine) { return m && m.roms ? nitros9LoaderKind(m.roms.basic) : null; }
+  nitros9On(m = this.machine) { return !!this.nitros9Loader(m); }
   get nitros9Running() { return this.nitros9On(); }
-  // the DriveWire images with what they are: [{ name, size, os9, label, cpu, boot, reason }] (reason null: it boots)
+  // the stored images with what they are: [{ name, size, store, os9, label, cpu, boot, reason }] (reason null: it
+  // boots); the DriveWire images, then the floppy images that are OS-9 disks
   async nitros9Images() {
     const out = [];
-    for (const im of await this.driveWireImages()) {
-      let bytes;
-      try { bytes = await this.media.read(DW_PREFIX + im.name); } catch (e) { continue; }
-      out.push(Object.assign({ name: im.name, size: im.size }, inspectOs9Disk(bytes)));
+    for (const [store, prefix] of [['drivewire', DW_PREFIX], ['disk', DISK_PREFIX]]) {
+      for (const e of await this.media.list(prefix)) {
+        let bytes;
+        try { bytes = await this.media.read(e.name); } catch (err) { continue; }
+        const r = inspectOs9Disk(bytes);
+        if (store === 'disk' && !r.os9) continue;     // (the library's other disks are no concern of NitrOS-9's)
+        out.push(Object.assign({ name: e.name.slice(prefix.length), size: e.size, store }, r));
+      }
     }
     return out;
   }
-  // which image a link's nitros9=1 boots: the one in DriveWire drive 0 if it boots, else the bootable one for
-  // the link's CPU, else any bootable one; null when there is none
+  // which image a link's nitros9=1 boots: the one in DriveWire drive 0 if it boots, else the one in floppy drive 0,
+  // else the bootable one for the link's CPU, else any bootable one; null when there is none
   async pickNitros9Image(cpu = null) {
     const ok = (await this.nitros9Images()).filter((x) => !x.reason);
-    const d0 = this.driveWireMounts.find((d) => d.drive === 0);
-    return (d0 && ok.find((x) => x.name === d0.name)) || ok.find((x) => cpu && x.cpu === cpu) || ok[0] || null;
+    const dw0 = this.driveWireMounts.find((d) => d.drive === 0);
+    const fd0 = this.machine && this.diskController ? this.diskStatus().drives.find((d) => d.drive === 0 && d.name) : null;
+    return (dw0 && ok.find((x) => x.store === 'drivewire' && x.name === dw0.name)) ||
+      (fd0 && ok.find((x) => x.store === 'disk' && DISK_PREFIX + x.name === fd0.name)) ||
+      ok.find((x) => cpu && x.cpu === cpu) || ok[0] || null;
   }
-  // put a NitrOS-9 DriveWire image (a file the user picked or dropped) in the library and boot it -> message
+  // put a NitrOS-9 image (a file the user picked or dropped) in the library and boot it -> message
   async addAndBootNitros9(name, bytes) {
     const r = inspectOs9Disk(bytes);
     if (r.reason) throw new SessionError(`${name}: ${r.reason}`);
-    return this.bootNitros9(await this.importDriveWireImage(name, bytes));
+    if (r.boot === 'floppy') {
+      const full = this.diskStoreName(name);
+      try { await this.media.write(full, bytes); } catch (e) { throw this.mediaError(e, full.slice(DISK_PREFIX.length)); }
+      return this.bootNitros9(full.slice(DISK_PREFIX.length), 'disk');
+    }
+    return this.bootNitros9(await this.importDriveWireImage(name, bytes), 'drivewire');
   }
-  // Boot NitrOS-9 from the stored DriveWire image `name` -> message. The machine in use must be a CoCo 3; it is
-  // remade with the Becker port on, and with the HD6309 for a 6309 build (a 6809 build runs on either CPU).
-  async bootNitros9(name) {
+  // Boot NitrOS-9 from the stored image `name` in `store` ('drivewire' or 'disk'; null: whichever has it,
+  // DriveWire first) -> message. The machine in use must be a CoCo 3; it is remade with the HD6309 for a 6309
+  // build (a 6809 build runs on either CPU), and with the Becker port on for a DriveWire image.
+  async bootNitros9(name, store = null) {
     const m = this.machine;
-    if (!Session.NITROS9_MACHINES.includes(m.id)) throw new SessionError(`NitrOS-9 boots here on the CoCo 3 (over DriveWire on its Becker port), not the ${m.profile.name}. Switch to the CoCo 3 first.`);
-    if (!name) throw new SessionError(`No NitrOS-9 image: add your NitrOS-9 DriveWire disk image (the release's file ending in _becker.dsk, from ${NITROS9_RELEASES}).`);
-    let bytes;
-    try { bytes = await this.media.read(DW_PREFIX + name); } catch (e) { throw new SessionError(`There is no DriveWire image called ${name} in your library.`); }
+    if (!Session.NITROS9_MACHINES.includes(m.id)) throw new SessionError(`NitrOS-9 boots here on the CoCo 3, not the ${m.profile.name}. Switch to the CoCo 3 first.`);
+    if (!name) throw new SessionError(`No NitrOS-9 image: add your NitrOS-9 disk image (from ${NITROS9_RELEASES}: the release's file ending in _becker.dsk for DriveWire, or _40d_1.dsk for the floppy drive).`);
+    const where = store ? [store] : ['drivewire', 'disk'];
+    let bytes = null, found = null;
+    for (const st of where) {
+      try { bytes = await this.media.read((st === 'disk' ? DISK_PREFIX : DW_PREFIX) + name); found = st; break; } catch (e) { /* not there */ }
+    }
+    if (!found) throw new SessionError(`There is no image called ${name} in your library.`);
     const r = inspectOs9Disk(bytes);
     if (r.reason) throw new SessionError(`${name}: ${r.reason}`);
+    const floppy = r.boot === 'floppy';
+    if (floppy !== (found === 'disk')) throw new SessionError(`${name}: ${floppy ? 'a floppy image kept with the DriveWire images' : 'a DriveWire image kept with the floppy disks'}; add it again (NitrOS-9 · Add image…).`);
     const cpu = r.cpu === '6309' ? '6309' : m.config.cpu;
     let mm = m;
-    if (!m.config.becker || m.config.cpu !== cpu) mm = this.switchMachine(m.id, Object.assign({}, m.config, { becker: true, cpu }), { menu: false });
-    await this.mountDriveWire(0, name);
+    if (m.config.cpu !== cpu || (!floppy && !m.config.becker)) mm = this.switchMachine(m.id, Object.assign({}, m.config, { cpu }, floppy ? {} : { becker: true }), { menu: false });
+    if (floppy) {
+      // the CoCo disk controller: the one in the port, else one without a ROM (our loader drives it)
+      const fdc = this.diskController;
+      if (mm.cartPort instanceof MultiPak) throw new SessionError('NitrOS-9 boots from a floppy with the disk controller in the cartridge port: take the Multi-Pak out first.');
+      if (!fdc) mm.insertCartridge(new devices.cocofdc({}));
+      else if (fdc.type !== 'cocofdc') throw new SessionError(`NitrOS-9 boots from the CoCo disk controller, not the ${fdc.name}.`);
+      await this.mountDisk(0, DISK_PREFIX + name);
+    } else await this.mountDriveWire(0, name);
     this.endWelcome();
     this.stubRun = null;
     this.keys.clear();
-    mm.setRoms(Object.fromEntries(mm.profile.roms.map((x) => [x.id, x.id === 'basic' ? nitros9LoaderRom() : null])));
+    const kind = floppy ? 'floppy' : 'drivewire';
+    mm.setRoms(Object.fromEntries(mm.profile.roms.map((x) => [x.id, x.id === 'basic' ? nitros9LoaderRom(kind) : null])));
     mm.reset(true);
     this.acc = 0;
     this.poweredOn();
     this.emit('roms');
     this.emit('nitros9');
+    this.emit('disks');
     const switched = cpu !== m.config.cpu ? ' (switched to the HD6309: this is the 6309 build)' : '';
-    return `Booting NitrOS-9${r.cpu ? '/' + r.cpu : ''} from ${name} over DriveWire${switched}`;
+    return `Booting NitrOS-9${r.cpu ? '/' + r.cpu : ''} from ${name} ${floppy ? 'in floppy drive 0' : 'over DriveWire'}${switched}`;
   }
-  // back to the machine's own ROMs (BASIC), from the start
+  // back to the machine's own ROMs (BASIC), from the start; a disk controller plugged in without a ROM for the
+  // floppy boot comes out (its disks are kept in the library)
   leaveNitros9() {
+    const m = this.machine;
     if (!this.nitros9Running) return;
-    if (this.stubChosen.has(this.machine.id)) this.machine.setRoms(Object.fromEntries(this.machine.profile.roms.map((x) => [x.id, null])));
+    if (m.cartPort instanceof DiskController && !m.cartPort.romBytes) { this.flushDisks(); m.ejectCartridge(); this.emit('disks'); }
+    if (this.stubChosen.has(m.id)) m.setRoms(Object.fromEntries(m.profile.roms.map((x) => [x.id, null])));
     else this.loadSavedRoms();
     this.powerCycle();
     this.emit('roms');
@@ -980,7 +1016,8 @@ export class Session {
       const slot = p.roms.find((r) => r.id === socket);
       if (!slot) throw new SessionError(`This snapshot names a ROM the ${p.name} doesn't take (${socket}).`);
       // our NitrOS-9 loader (bootNitros9) is built in: every browser has it
-      if (socket === 'basic' && Session.NITROS9_MACHINES.includes(snap.machine) && crc === nitros9LoaderCrc()) { out[socket] = nitros9LoaderRom(); continue; }
+      const loader = socket === 'basic' && Session.NITROS9_MACHINES.includes(snap.machine) ? nitros9LoaderByCrc(crc) : null;
+      if (loader) { out[socket] = nitros9LoaderRom(loader); continue; }
       if (!stored[socket]) missing.push(slot.label);
       else if (crc32(stored[socket]) !== crc) other.push(`${slot.label} (it ran with CRC ${crc.toString(16).toUpperCase().padStart(8, '0')}, yours is ${crc32(stored[socket]).toString(16).toUpperCase().padStart(8, '0')})`);
       else out[socket] = stored[socket];
@@ -1024,7 +1061,8 @@ export class Session {
     if (m.atStubPrompt()) this.offerMenu();
     this.emit('disks');
     this.emit('nitros9');
-    return `Snapshot opened: ${m.profile.name}${this.nitros9On(m) ? ', NitrOS-9 (DriveWire drive 0 is as you left it)' : Object.keys(roms).length ? '' : ', without ROMs'}`;
+    const n9 = this.nitros9Loader(m);
+    return `Snapshot opened: ${m.profile.name}${n9 === 'drivewire' ? ', NitrOS-9 (on the image in DriveWire drive 0 now)' : n9 ? ', NitrOS-9' : Object.keys(roms).length ? '' : ', without ROMs'}`;
   }
   // quick-save slots 1..SNAPSHOT_SLOTS in the media store: [{ n, empty } | { n, machine, name, taken, size } | { n, error, size }]
   async listSlots() {
@@ -1701,7 +1739,7 @@ export class Session {
       this.typeText('RUN\n', m);
       return 'RUN typed at the keyboard.';
     }
-    m.cpu.jump(value);
+    m.jump(value);
     return `Running at $${value.toString(16).toUpperCase()}`;
   }
 

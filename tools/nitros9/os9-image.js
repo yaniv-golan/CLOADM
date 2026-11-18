@@ -1,13 +1,16 @@
 // Hand-built OS-9 disk images for the NitrOS-9 tests (no NitrOS-9 bytes): laid out from the NitrOS-9 v3.3.0
 // definitions themselves, not from js/media/os9.js, so the detection is tested against an independent layout.
 //   defs/rbf.d   LSN 0: DD.TOT $00 (3), DD.TKS $03, DD.MAP $04 (2), DD.BIT $06 (2), DD.DIR $08 (3), DD.FMT $10,
-//                DD.SPT $11 (2), DD.BT $15 (3), DD.BSZ $18 (2), DD.NAM $1F; FD.ATT $00 of a directory has $80
+//                DD.SPT $11 (2), DD.BT $15 (3), DD.BSZ $18 (2), DD.NAM $1F, DD.OPT $3F (the PD.* path options);
+//                FD.ATT $00 of a directory has $80
 //   defs/os9.d   module: $87 $CD, M$Size (2), M$Name (2), M$Type, M$Revs, M$Parity; a descriptor's M$FMgr $09 (2),
 //                M$PDev $0B (2)
 //   rel.asm      the boot track (LSN 612-629) starts "OS" and is entered at $2602
-// makeOs9Disk(Emu, opts) -> Uint8Array
+// makeOs9Disk(Emu, opts) -> Uint8Array (with haltPc: the address of the default boot code's loop)
 //   cpu: '6809' | '6309' | null (no CPU in Init)   driver: DD's driver ('rbdw', 'rb1773', 'rbsuper')
-//   bootTrack: true | false   port: 'becker' | 'bitbanger' (what the boot track's Boot module touches)
+//   bootTrack: true | false   port: 'becker' | 'bitbanger' | 'floppy' (the registers the boot track's Boot module
+//   touches: $FF41/$FF42, $FF20/$FF22, the WD1773's $FF48/$FF4B)   sides: 1 | 2 (DD.FMT bit 0; the boot track is
+//   track 34 of side 0: LSN 612, or 1224 double-sided)
 //   vtio: true (false: a headless build)   sectors: 630 (at least)   label: the volume name
 //   code: 6809 source run at the boot track's entry (after the modules); default: STATUS2 ($0102) := $5A, then loop
 const SECTOR = 256;
@@ -33,7 +36,7 @@ function descriptor(nm, fmgr, driver) {
 }
 const text = (s) => [...s].map((c) => c.charCodeAt(0));
 
-function makeOs9Disk(Emu, { cpu = '6809', driver = 'rbdw', bootTrack = true, port = 'becker', vtio = true, sectors = 630, label = 'TEST DISK', code = null } = {}) {
+function makeOs9Disk(Emu, { cpu = '6809', driver = 'rbdw', bootTrack = true, port = 'becker', vtio = true, sectors = 630, sides = 1, label = 'TEST DISK', code = null } = {}) {
   const b = new Uint8Array(sectors * SECTOR);
   // the boot file at LSN 2: Init (the CPU in its text, as init.asm:96 writes it), the DD descriptor, VTIO
   const boot = [].concat(
@@ -47,16 +50,20 @@ function makeOs9Disk(Emu, { cpu = '6809', driver = 'rbdw', bootTrack = true, por
   b[0x04] = 0; b[0x05] = 0x4F;   // DD.MAP
   b[0x06] = 0; b[0x07] = 1;      // DD.BIT
   put24(0x08, 1);                // DD.DIR: the root's descriptor at LSN 1
-  b[0x10] = 0x02;                // DD.FMT
+  b[0x10] = sides === 2 ? 0x03 : 0x02;   // DD.FMT: double density, bit 0 double-sided
   b[0x11] = 0; b[0x12] = 18;     // DD.SPT
   put24(0x15, 2);                // DD.BT
   b[0x18] = boot.length >> 8; b[0x19] = boot.length & 0xFF;   // DD.BSZ
   b.set(name(label), 0x1F);      // DD.NAM
+  // DD.OPT ($3F): the path options of a CoCo floppy, as os9format writes them (PD.DTP 1 RBF, PD.TYP $20, PD.DNS 1
+  // double density, PD.CYL, PD.SID, PD.SCT and PD.T0S 18, PD.ILV 3); a headerless image is read as OS-9 by them
+  const cyl = Math.floor(sectors / (18 * sides));
+  b.set([1, 0, 0, 0x20, 1, cyl >> 8, cyl & 0xFF, sides, 0, 0, 18, 0, 18, 3], 0x3F);
   b[1 * SECTOR] = 0xBF;          // FD.ATT: a directory, every permission
   if (bootTrack) {
     // the boot track: "OS", a branch over the Boot module to the code. The module's code reads the port's
     // registers as dwread.asm does (Becker $FF41/$FF42; the bit-banger $FF20/$FF22)
-    const regs = port === 'becker' ? ['$FF41', '$FF42'] : ['$FF20', '$FF22'];
+    const regs = port === 'becker' ? ['$FF41', '$FF42'] : port === 'floppy' ? ['$FF48', '$FF4B'] : ['$FF20', '$FF22'];
     const src = `
         ORG     $2600
         FCC     "OS"
@@ -78,7 +85,9 @@ LOOP    BRA     LOOP`}
 `;
     const r = Emu.assemble(src, '6809');
     if (!r.ok) throw new Error('boot track: ' + r.errors.map((e) => `line ${e.line}: ${e.message}`).join('; '));
-    for (const s of r.segments) b.set(s.data, 612 * SECTOR + (s.addr - 0x2600));
+    for (const s of r.segments) b.set(s.data, 34 * 18 * sides * SECTOR + (s.addr - 0x2600));
+    // where the default code's loop is (a lockstep run's HALT: tools/mame-diff/fdc/spec.js --nitros9)
+    Object.defineProperty(b, 'haltPc', { value: r.symbols.get('LOOP'), enumerable: false });
   }
   return b;
 }

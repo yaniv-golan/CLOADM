@@ -32,6 +32,8 @@ node tests/asm.test.js       # assembler encodings + scripted LIZA conversation
 node tests/disasm.test.js    # disassembler: every 6809/6803 opcode against the data sheet, round-trip, data lengths
 node tests/debugger.test.js  # debugger core: breakpoints, watchpoints, stepping, trace, against a free run
 node tests/debug-session.test.js  # the debugger through the Session: lifetime, symbols, errors, snapshots
+node tests/halt-held.test.js # CoCo 3 instruction held by HALT: CPU redirected while held; debugger steps, stops, counts
+node tests/halt-replay.test.js # CoCo 3 held instruction run again: exact reads (6309 TFM, all forms), malformed snapshot state
 node tests/coco3.test.js     # CoCo 3: MMU, GIME interrupts, timer, speed, video
 node tests/mc10.test.js      # MC-10: 6803 core, assembler plugin, machine
 node tests/sp0256.test.js    # SP0256 speech chip: sequencer, paging, branches, handshake, RCU, timing (GI design spec)
@@ -97,6 +99,10 @@ node tools/mame-diff/run.js <profile> --printer # printer output byte for byte a
 node tools/mame-diff/run.js <profile> --serial  # the bit-banger (or the Dragon 64's 6551) in lockstep with MAME's loopback plug
 node tools/mame-diff/drivewire/run-dw.js [profile ...] [--no-trace]  # DriveWire over the Becker port: lockstep with MAME (TCP to our server), and byte for byte
 node tools/nitros9/fetch.js && node tests/nitros9.test.js   # NitrOS-9 boot test (images fetched to a cache, never committed; tests/os9.test.js, tests/nitros9-session.test.js and the browser check's nitros9 group use them too, and skip without them)
+node tools/nitros9/boot-floppy-mame.js <_40d_1.dsk> --cpu 6809 --record tests/fixtures/nitros9/coco3-6809-floppy.json   # the floppy boot's MAME reference (controller register writes)
+node tools/mame-diff/run.js coco3 --fdc cocofdc --halt   # the controller's HALT and NMI in halted sector reads at 0.89 and 1.78 MHz, with MAME
+node tools/mame-diff/run.js coco3 --fdc cocofdc --halt --empty   # a halted read on a drive with no disk: the CPU held for good, as in MAME
+node tools/mame-diff/run.js coco3 --fdc cocofdc --nitros9 [--cpu 6309]   # the NitrOS-9 floppy loader on a hand-built boot floppy, with MAME
 node tools/browser-check.js --only nitros9   # Boot NitrOS-9 from the page (the release images when fetched)
 node tools/nitros9/boot-mame.js <image> --cpu 6809 --seconds 30 --type 'dir\r' --at 15 --record tests/fixtures/nitros9/coco3-6809-becker.json   # its MAME reference (also boot.js: the same boot on ours)
 node tools/mame-diff/run.js <profile> --rate    # SAM CPU rate firmware (sam/rate.asm) in lockstep with MAME (mameCompat)

@@ -105,6 +105,7 @@ const snapshots = setupSnapshotPanel(page, { confirmSwitch: machinePanel.confirm
 const disks = setupDrives(page, { openRoms: () => { romSockets.reveal(); $('fileRom').click(); } });
 const slots = setupSlotsPanel(page, { snapshots });
 const nitros9 = setupNitros9Panel(page);
+window.emu.nitros9Shown = () => nitros9.shown();   // (the browser check: the panel shows the session's latest state)
 const media = setupMediaPanel(page, { snapshots, disks, nitros9, keep: (name, bytes) => library && library.keep(name, bytes) });
 setupAssemblerPanel(page);
 setupDebuggerPanel(page);

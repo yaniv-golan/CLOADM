@@ -85,6 +85,16 @@ frame stays open with the sound it had made so far, and that sound is played whe
 resume; while the machine is stopped the speaker is silent, so a stop can be heard as a short gap or click
 (`tests/debug-session.test.js`). The machine's state and timing are unaffected.
 
+A step in which no instruction runs is not an instruction for the debugger: a halted cycle (HALT asserted), or the
+CoCo 3's instruction held by the disk controller's HALT and suspended at the end of a run (it runs again from its
+start once HALT is released). It makes no trace entry, counts toward no limit and reports no watchpoint hit; the
+instruction's accesses are reported once, when it completes, and a breakpoint is checked once, at its start. With
+the CPU halted, Step waits one frame of machine time for an instruction, then stops with kind `halted` ("Halted at
+..." on the Debugger screen) and the PC unchanged; Over, Out and run to an address wait two seconds, then stop the
+same way. Run goes on: the machine stays halted, its frames run, and the program goes on when HALT is released.
+Setting a register to a new value, or writing over the memory it used, while an instruction is held drops it: the CPU goes on from the state you gave it once HALT is
+released (`docs/verification.md`, CoCo 3 floppy HALT).
+
 The **Debugger** screen (`/play/#debugger`) shows the assembler's source, the registers (click to edit) and
 condition codes, the machine's screen, the disassembly around the program counter (click a line for a
 breakpoint), the breakpoints and watchpoints (add one by address or label), memory (click a byte to edit it or
@@ -98,7 +108,7 @@ The file is gzip-compressed JSON (`js/media/snapshot.js`; an unpacked file is re
 component's `saveState()` wrote, byte arrays as base64). A shared moment also has `share` (the ROM and cartridge images
 it names). The layout is `SNAPSHOT_VERSION` in `js/machines/machine.js`.
 
-A page reads `SNAPSHOT_OLDEST` to `SNAPSHOT_VERSION` (now 1 to 1) and says so when a file is newer or older. Files from
+A page reads `SNAPSHOT_OLDEST` to `SNAPSHOT_VERSION` (now 1 to 2) and says so when a file is newer or older. Files from
 pre-release builds carry the identifier `"cloadm-snapshot"` and another layout; a page recognises them and says it does
 not read them. `SNAPSHOT_VERSION` goes up whenever a `saveState()` changes what it writes, and `js/machines/machine.js`
 records what changed. A version that only adds state keeps `SNAPSHOT_OLDEST`, so older files stay readable: a key an

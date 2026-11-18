@@ -28,10 +28,10 @@ export function setupMediaPanel(page, { snapshots, disks, nitros9, keep }) {
     if (await snapshots.take(name, bytes)) return;
     const media = session.inspect(name, bytes), mm = media.mismatch;
     offer.hidden = true;
-    // a NitrOS-9 DriveWire boot disk: boot it (on the CoCo 3), or use it as a floppy all the same
+    // a NitrOS-9 boot disk (DriveWire or floppy): boot it (on the CoCo 3), or put it in a floppy drive all the same
     const n9 = media.kind === 'disk' ? inspectOs9Disk(bytes) : null;
     if (n9 && !n9.reason) {
-      $('mediaOfferText').textContent = `${name} is a NitrOS-9${n9.cpu ? '/' + n9.cpu : ''} DriveWire boot disk.` +
+      $('mediaOfferText').textContent = `${name} is a NitrOS-9${n9.cpu ? '/' + n9.cpu : ''} ${n9.boot === 'floppy' ? 'floppy' : 'DriveWire'} boot disk.` +
         (session.constructor.NITROS9_MACHINES.includes(session.machine.id) ? '' : ' It boots on the CoCo 3.');
       $('btnMediaSwitch').textContent = 'Boot NitrOS-9';
       $('btnMediaSwitch').onclick = () => { offer.hidden = true; nitros9.bootFile(name, bytes); };

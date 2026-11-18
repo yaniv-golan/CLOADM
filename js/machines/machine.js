@@ -101,8 +101,10 @@ class Machine {
     // a Promise the machine is waiting for (a DriveWire sector being read or written), or null; runFrame stops
     // where it is and carries on from there when called again after it settles
     this.stall = null;
+    this.restoringVersion = SNAPSHOT_VERSION;   // the layout loadState() reads: restore() sets that of the file
     this.frameOpen = false;
     this.debugger = null;     // a Debugger attached to this machine (js/debugger.js), or null
+    this.redirects = 0;       // how many times the CPU was redirected from outside (cpuRedirected): the debugger's check
     this.mouse = null;        // the host's mouse { x, y (0..1), left, right } (js/host/input.js), or null: host input, not state
     this.screenWidth = 0; this.screenHeight = 0; this.screenAspect = 4 / 3;
   }
@@ -454,7 +456,9 @@ class Machine {
     for (const slot of new Set([...Object.keys(snap.roms), ...Object.keys(mine)])) {
       if (mine[slot] !== snap.roms[slot]) throw new Error(`snapshot was taken ${snap.roms[slot] == null ? 'without' : 'with a different'} ${slot} ROM`);
     }
-    this.loadState(snap.state);
+    // (a loader that reads a key newer files have can tell an older file's absence of it by this)
+    this.restoringVersion = snap.version;
+    try { this.loadState(snap.state); } finally { this.restoringVersion = SNAPSHOT_VERSION; }
   }
 
   // ---------------- program loading ----------------
@@ -493,21 +497,36 @@ class Machine {
       while (this.framesSinceReset < 2 && this.runFrame());
     } else this.ensureBooted();
     for (const seg of segments) for (let i = 0; i < seg.data.length; i++) this.poke((seg.addr + i) & 0xFFFF, seg.data[i]);
-    if (exec != null) this.cpu.jump(exec);
+    if (exec != null) this.jump(exec);
   }
+  // start executing at addr, from outside the program (a tool, a loader)
+  jump(addr) { this.cpu.jump(addr); this.cpuRedirected(); }
+  // The CPU's registers were changed from outside: by a jump or the debugger. A family that keeps an instruction under
+  // way between steps drops it here (the CoCo 3's instruction held by HALT, js/machines/coco3.js haltCancel); the base
+  // class keeps none. The count tells the debugger that the instruction at the PC is a new one (js/debugger.js).
+  cpuRedirected() { this.redirects++; }
+  // an outside change made without cpuRedirected (a register written directly, memory the instruction under way had
+  // read or fetched): the family notices it here (CoCo 3: haltCheck) and redirects; the base class keeps nothing
+  cpuCheck() {}
+  // an instruction is under way between steps, waiting for HALT's release (the CoCo 3's haltDefer): the debugger
+  // doesn't count a step that leaves one (js/debugger.js)
+  get cpuHeld() { return false; }
 }
 
-// The snapshot layout. Version 1 is the layout every saveState() writes today. Bump SNAPSHOT_VERSION whenever any
-// saveState() changes what it writes, and record here what changed. A page reads SNAPSHOT_OLDEST to SNAPSHOT_VERSION:
+// The snapshot layout. Bump SNAPSHOT_VERSION whenever any saveState() changes what it writes, and record here what
+// changed. A page reads SNAPSHOT_OLDEST to SNAPSHOT_VERSION:
 //   * a bump that only ADDS state keeps SNAPSHOT_OLDEST. A key an older file lacks must then keep the restored
-//     machine's power-on value, so the first such bump also brings that path: restore() marks the load as one of
-//     an older file, state.load (js/util.js) then skips a missing key instead of refusing it, loaders that run
-//     later carry the mark (the Becker port replays its link state at attach()), and a test shows an older file
-//     restoring while the same file at the current version is refused;
+//     machine's power-on value: restore() records the file's version (restoringVersion), the loader of the new key
+//     takes its absence in an older file as that value, and a test shows an older file restoring while the same
+//     file at the current version is refused;
 //   * a bump that renames, removes or changes the meaning of state sets SNAPSHOT_OLDEST to the new version.
 // Files from pre-release builds carry a different `format` identifier; js/media/snapshot.js refuses them by it.
+//   1: the first layout.
+//   2: the CoCo 3 adds `haltDefer`, an instruction HALT suspended (js/machines/coco3.js haltSuspend, with its bus
+//      accesses so far, `log`, and the memory they touched, `mem`), or null; a version 1 file has none, and its machine restores with no instruction
+//      suspended (none was, in version 1).
 export const SNAPSHOT_FORMAT = 'cloadm-state';
-export const SNAPSHOT_VERSION = 1;
+export const SNAPSHOT_VERSION = 2;
 export const SNAPSHOT_OLDEST = 1;
 
 Machine.BASIC_POINTERS = 0x19;   // Color BASIC / Dragon BASIC TXTTAB

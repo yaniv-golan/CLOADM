@@ -1,6 +1,9 @@
 // Lockstep comparison of MAME's streamed trace with our emulator, instruction by instruction:
 // registers must be identical and elapsed cycle counts (relative to the first instruction) equal.
 // Exit codes: 0 identical and firmware reached HALT; 1 divergence, cycle mismatch or no HALT.
+// A spec with `stuck: { pc }` instead expects the CPU to stop for good inside the instruction at pc (HALT held by a
+// disk controller whose DRQ never comes): 0 when MAME's trace ends there, identical, and ours runs no further
+// instruction for as long as MAME ran (spec.seconds), its CPU still held; HALT must not be reached.
 const { streamTrace } = require('./mame');
 
 const hx = (v, n) => v.toString(16).toUpperCase().padStart(n, '0');
@@ -27,7 +30,7 @@ async function lockstep(spec) {
     return ours[oi++];
   });
 
-  let n = 0, base = null, regsOk = true, cycOk = true, firstCyc = -1, halted = -1;
+  let n = 0, base = null, regsOk = true, cycOk = true, firstCyc = -1, halted = -1, lastPc = -1;
   let prev = null;
   const hist = [];
   const report = (what) => {
@@ -49,6 +52,7 @@ async function lockstep(spec) {
       hist.push([e.regs, or, e.dis, mc, occ]);
       if (hist.length > 10) hist.shift();
       if (halted < 0 && e.pc === spec.haltPc) halted = n;
+      lastPc = e.pc;
       // per instruction, on the delta from the previous one
       let mcDelta = mc, occDelta = occ;
       if (prev) { mcDelta -= prev[0]; occDelta -= prev[1]; }
@@ -66,6 +70,20 @@ async function lockstep(spec) {
       return !(spec.stopAtHalt && halted >= 0);
     },
   }));
+  if (spec.stuck) {
+    // MAME has stopped tracing: our machine runs on to MAME's time, and must trace nothing more
+    while (m.cycle < spec.seconds * m.tickHz) m.runFrame();
+    const more = ours.length - oi, held = m.cpu.haltLine;
+    m.cpu.trace = null;
+    const at = lastPc === spec.stuck.pc;
+    console.log(`[${spec.label || spec.system}] compared ${n} instructions: ` +
+      `${regsOk ? 'registers identical' : 'registers diverged'}; ` +
+      `${cycOk ? 'cycle counts identical' : `cycles first differ at instruction ${firstCyc}`}; ` +
+      `MAME's trace stops ${at ? 'at' : 'NOT at'} the held instruction ($${hx(spec.stuck.pc, 4)}${at ? '' : `; it stops at $${hx(lastPc & 0xFFFF, 4)}`}); ` +
+      `ours: ${more} more instruction${more === 1 ? '' : 's'} in ${spec.seconds} s, CPU ${held ? 'still held by HALT' : 'NOT held'}` +
+      `${halted >= 0 ? '; firmware reached HALT (it must not)' : ''}`);
+    return regsOk && cycOk && n > 0 && at && more === 0 && held && halted < 0 ? 0 : 1;
+  }
   if (m) m.cpu.trace = null;
   console.log(`[${spec.label || spec.system}] compared ${n} instructions: ` +
     `${regsOk ? 'registers identical' : 'registers diverged'}; ` +

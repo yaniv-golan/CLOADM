@@ -432,6 +432,7 @@ class SamMachine extends Machine {
       } else if (!this.rateTimed) this.cycle += n;              // slow throughout: one tick per cycle
       else {
         const steal = (this.stepReg | this.regReach()) & R1_BIT;
+        if (steal && 2 * n > this.cycleStarts.length) this.cycleStarts = new Float64Array(2 * n);   // (a long 6309 TFM)
         this.cycle = this.stepStart + this.stepTime(n, true, steal ? this.cycleStarts : null);
         if (steal || this.vlog.length) this.logVideoSlots(n, steal);
       }

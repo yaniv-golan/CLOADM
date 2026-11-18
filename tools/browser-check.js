@@ -931,13 +931,14 @@ async function driveWireChecks(browser, base, check) {
 }
 
 // NitrOS-9 from the page, without a ROM (Session.bootNitros9; js/ui/nitros9-panel.js): the slot under the screen on
-// the CoCo 3, its errors, the dropped image's offer, the link (nitros9=) and Share, with hand-built boot disks
-// (tests/os9-image.js: our own bytes); then, when tools/nitros9/fetch.js has cached them (skipped with the reason
-// otherwise), the official v3.3.0 Becker images: picked in the slot, booted to the NitrOS-9 shell, `dir` typed on
-// the keyboard and the listing read from the screen.
+// the CoCo 3, its errors, the dropped image's offer, the link (nitros9=) and Share, with hand-built boot disks (a
+// DriveWire one and a floppy)
+// (tools/nitros9/os9-image.js: our own bytes); then, when tools/nitros9/fetch.js has cached them (skipped with the reason
+// otherwise), the official v3.3.0 Becker and _40d_1 floppy images: picked in the slot, booted to the NitrOS-9 shell
+// (the floppy's setime prompt answered with Return), `dir` typed on the keyboard and the listing read from the screen.
 async function nitros9Checks(browser, base, check) {
   const Emu = require('../tests/load')();
-  const { makeOs9Disk } = require('../tests/os9-image.js');
+  const { makeOs9Disk } = require('./nitros9/os9-image.js');
   const { cached } = require('./nitros9/fetch.js');
   const { screenText } = require('./nitros9/lib.js');
   const ctx = await browser.newContext({ serviceWorkers: 'block' });
@@ -969,9 +970,10 @@ async function nitros9Checks(browser, base, check) {
   check('nitros9: a disk that is not OS-9', await waitFor(page, () => /blank\.dsk: It isn't an OS-9 disk/.test(document.getElementById('toast').textContent)), await msg());
   await page.setInputFiles('#n9File', file('serial.dsk', makeOs9Disk(Emu, { port: 'bitbanger' })));
   check('nitros9: the bit-banger build: use _becker.dsk', await waitFor(page, () => /serial\.dsk: .*bit-banger.*_becker\.dsk/.test(document.getElementById('toast').textContent)), await msg());
-  await page.setInputFiles('#n9File', file('floppy.dsk', makeOs9Disk(Emu, { bootTrack: false, driver: 'rb1773', sectors: 1440 })));
-  check('nitros9: a floppy image: boots from a floppy drive', await waitFor(page, () => /floppy\.dsk: This is a NitrOS-9 floppy disk image/.test(document.getElementById('toast').textContent)), await msg());
-  check('nitros9: none of them was kept or booted', !await running() && await ev(async () => (await window.emu.session.driveWireImages()).length === 0));
+  await page.setInputFiles('#n9File', file('floppy80.dsk', makeOs9Disk(Emu, { driver: 'rb1773', port: 'floppy', sides: 2, sectors: 2880 })));
+  check('nitros9: an 80-track floppy: the drives have 40', await waitFor(page, () => /floppy80\.dsk: This NitrOS-9 floppy image has 80 tracks/.test(document.getElementById('toast').textContent)), await msg());
+  check('nitros9: none of them was kept or booted', !await running() && await ev(async () => (await window.emu.session.driveWireImages()).length === 0 &&
+    !(await window.emu.session.media.list('disks/')).length));
 
   // ---- a hand-built boot disk: added, booted, no ROM, no boot-help box
   await page.setInputFiles('#n9File', file('myboot.dsk', makeOs9Disk(Emu, { cpu: '6309' })));
@@ -979,6 +981,7 @@ async function nitros9Checks(browser, base, check) {
   check('nitros9: Add image… keeps it and boots it: the loader ran the boot track', booted, await msg());
   check('nitros9: a 6309 build makes the machine a 6309 CoCo 3 with the Becker port, the image in DriveWire drive 0',
     await ev(() => { const m = window.emu.machine, d = window.emu.session.driveWireMounts; return m.config.cpu === '6309' && m.config.becker === true && d[0].drive === 0 && d[0].name === 'myboot.dsk'; }) && /switched to the HD6309/.test(await msg()), await msg());
+  await ev(() => window.emu.nitros9Shown());   // (the panel's update after the boot's session events)
   check('nitros9: the slot says it is running, offers Back to BASIC; no ROM pill, the ROMs line says they are not used',
     /running from myboot\.dsk/.test(await page.textContent('#n9State')) && await page.isVisible('#btnN9Leave') && await page.isHidden('#romPill') && /NitrOS-9/.test(await page.textContent('#romState')));
   await emuFrames(page, 6 * 60);   // 6 s of machine time, past the 5 s the box would wait for
@@ -1035,6 +1038,37 @@ async function nitros9Checks(browser, base, check) {
     const names = d >= 0 ? l.slice(d + 1, l.indexOf(PROMPT, d)).join(' ').split(/\s+/).filter(Boolean) : [];
     check(`nitros9 ${cpu}: dir typed on the keyboard lists the root`, listed && l.includes(`${PROMPT}dir`) && ['OS9Boot', 'CMDS', 'SYS', 'DEFS', 'sysgo', 'startup', 'NITROS9'].every((n) => names.includes(n)), JSON.stringify(names));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `nitros9-${cpu}-dir.png`) });
+  }
+  // ---- floppies: a hand-built one, then the release's _40d_1 (Return at setime's prompt, then dir)
+  await open('?machine=coco3&cpu=6809&ram=128');
+  await page.setInputFiles('#n9File', file('myfloppy.dsk', makeOs9Disk(Emu, { driver: 'rb1773', port: 'floppy', sides: 2, sectors: 1440 })));
+  check('nitros9 floppy: Add image… keeps a floppy image with the disks and boots it with the floppy loader: its boot track ran',
+    await waitForFrames(page, () => window.emu.session.nitros9Loader() === 'floppy' && window.emu.machine.read(0x0100) === 1 && window.emu.machine.read(0x0102) === 0x5A, null, 900) &&
+    /from myfloppy\.dsk in floppy drive 0/.test(await msg()), await msg());
+  await ev(() => window.emu.nitros9Shown());
+  check('nitros9 floppy: the CoCo disk controller (no ROM) is in the port, the disk in drive 0, listed as a floppy in the slot',
+    await ev(() => { const s = window.emu.session, c = s.machine.cartPort; return !!c && c.type === 'cocofdc' && !c.romBytes && s.diskStatus().drives.some((d) => d.drive === 0 && d.name === 'disks/myfloppy.dsk'); }) &&
+    /myfloppy\.dsk \(6809, floppy\)/.test(await page.textContent('#n9Image')) && /running from myfloppy\.dsk/.test(await page.textContent('#n9State')), `${await page.textContent('#n9Image')} | ${await page.textContent('#n9State')}`);
+  await page.click('#btnN9Leave');
+  check('nitros9 floppy: Back to BASIC takes the ROM-less controller out', await waitFor(page, () => !window.emu.session.nitros9Running && !window.emu.machine.cartPort));
+  for (const cpu of ['6809', '6309']) {
+    const name = `nos9${cpu}l2v030300coco3_40d_1.dsk`, { bytes, reason } = cached(name);
+    if (!bytes) { console.log(`skip nitros9 ${cpu} release floppy in the page: ${reason}`); continue; }
+    await open('?machine=coco3&cpu=6809&ram=512');
+    await page.setInputFiles('#n9File', file(name, bytes));
+    const asked = await waitForFrames(page, (s) => eval(s).some((x) => x.startsWith('Time ?')), shellText, 60 * 60);
+    check(`nitros9 ${cpu} floppy: the release floppy boots from the page to setime's prompt`, asked && (await lines()).includes(`NitrOS-9/${cpu} Level 2 V3.3.0`), JSON.stringify((await lines()).slice(-3)));
+    await page.click('#screen');
+    await page.keyboard.press('Enter');
+    const prompted = await waitForFrames(page, (s) => { const t = eval(s); return t[t.length - 1] === '{Term|02}/DD:'; }, shellText, 30 * 60);
+    await page.keyboard.type('dir', { delay: 80 });
+    await page.keyboard.press('Enter');
+    const listed = await waitForFrames(page, (s) => { const l = eval(s), d = l.findIndex((x) => x.startsWith(' Directory of ')); return d >= 0 && l.slice(d + 1).includes('{Term|02}/DD:'); }, shellText, 20 * 60);
+    const l = await lines(), d = l.findIndex((x) => x.startsWith(' Directory of '));
+    const names = d >= 0 ? l.slice(d + 1, l.indexOf(PROMPT, d)).join(' ').split(/\s+/).filter(Boolean) : [];
+    check(`nitros9 ${cpu} floppy: Return, then dir typed on the keyboard lists the root`, prompted && listed && l.includes(`${PROMPT}dir`) &&
+      ['OS9Boot', 'CMDS', 'SYS', 'DEFS', 'sysgo', 'startup'].every((n) => names.includes(n)) && names.length === 6, JSON.stringify(names));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `nitros9-${cpu}-floppy-dir.png`) });
   }
   check('nitros9: no page errors', !errors.length, errors.join('; '));
   await ctx.close();
@@ -2368,6 +2402,22 @@ async function debuggerScreenChecks(browser, base, check) {
     const running = await page.evaluate(() => !window.emu.session.paused && document.getElementById('btnDbgRun').textContent === 'Pause F5');
     await page.keyboard.press('F5');
     check('debugger screen: F5 runs and pauses', running && await page.evaluate(() => window.emu.session.paused && /^● Paused at/.test(document.getElementById('dbgStatus').textContent)));
+    // Step with the CPU halted (HALT asserted, as a disk controller does): no instruction runs in the frame it waits,
+    // the screen says so, the PC and the trace stay as they were; with HALT released, Step runs one instruction again
+    const held = await page.evaluate(() => {
+      const s = window.emu.session, m = s.machine, d = s.debug;
+      m.setLine('test', 'halt', true);
+      return { pc: d.pc, steps: d.steps, trace: d.log.length };
+    });
+    await page.click('#btnDbgStep');
+    const heldAfter = await page.evaluate(() => { const d = window.emu.session.debug; return { pc: d.pc, steps: d.steps, trace: d.log.length, kind: d.stopReason && d.stopReason.kind, status: document.getElementById('dbgStatus').textContent }; });
+    await page.evaluate(() => window.emu.session.machine.setLine('test', 'halt', false));
+    await page.click('#btnDbgStep');
+    const freed = await page.evaluate(() => window.emu.session.debug.steps);
+    check('debugger screen: Step with HALT asserted waits a frame and says "Halted", PC and trace unchanged; released, Step runs one instruction',
+      heldAfter.kind === 'halted' && /^● Halted at .*: the CPU waits for HALT's release \(no instruction ran in a frame\) · cycle/.test(heldAfter.status)
+      && heldAfter.pc === held.pc && heldAfter.steps === held.steps && heldAfter.trace === held.trace && freed === held.steps + 1,
+      JSON.stringify({ held, heldAfter, freed }));
     await page.click('#btnDbgBack');
     const closed = await waitFor(page, () => document.getElementById('debugView').hidden && document.getElementById('screen').getClientRects().length > 0
       && getComputedStyle(document.getElementById('appbar')).display !== 'none');

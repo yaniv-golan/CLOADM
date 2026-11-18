@@ -6,18 +6,18 @@
  *     label  the volume name (DD.NAM)
  *     cpu    '6309' | '6809' | null: the CPU the boot file's Init module names ("NitrOS-9/6309 Level 2", printed by
  *            level1/modules/init.asm:96, which writes "NitrOS-9/" followed by the CPU), null when the image doesn't say
- *     boot   'becker' | 'drivewire' (another DriveWire link: the bit-banger, an Arduino) | 'floppy' | 'other' | null
- *            how its boot track's Boot module reaches the disk (null: no boot track at LSN 612)
- *     reason null when it boots over the Becker port, else why not, for the user
- *   checkNitros9DriveWire(bytes) -> the inspectOs9Disk result, or throws Os9ImageError with that reason
+ *     boot   'becker' | 'floppy' (both boot here) | 'drivewire' (another DriveWire link: the bit-banger, an Arduino) |
+ *            'other' | null: how its boot track's Boot module reaches the disk (null: no boot track)
+ *     reason null when it boots (over the Becker port, or from a 35/40-track floppy), else why not, for the user
+ *   checkNitros9Boot(bytes) -> the inspectOs9Disk result, or throws Os9ImageError with that reason
  *
  * Sources (tag v3.3.0 of github.com/nitros9project/nitros9):
  *   defs/rbf.d                LSN 0: DD.TOT $00 (3), DD.MAP $04 (2), DD.BIT $06 (2), DD.DIR $08 (3), DD.FMT $10,
  *                             DD.SPT $11 (2), DD.BT $15 (3), DD.BSZ $18 (2), DD.NAM $1F (32, last char | $80);
  *                             a file descriptor's FD.ATT $00 has DIR. = $80 for a directory
  *   defs/os9.d                module header: M$ID $87CD, M$Size $02, M$Name $04; a device descriptor's M$PDev $0B
- *   level1/coco1/modules/rel.asm   the boot track (track 34, LSN 612-629 on a DriveWire disk) starts "OS" and is
- *                             entered at $2602
+ *   level1/coco1/modules/rel.asm   the boot track (track 34, side 0: LSN 612-629 on a single-sided disk, from 1224 on a
+ *                             double-sided one) starts "OS" and is entered at $2602
  *   level1/modules/dwread.asm:76, 79   the Becker build's DriveWire reads poll $FF41 and read $FF42 (the boot track's
  *                             Boot module includes it); the bit-banger and Arduino builds don't touch them (their DD
  *                             still names the DriveWire driver, rbdw)
@@ -27,8 +27,8 @@
 
 export class Os9ImageError extends Error {}
 
-export const BOOT_LSN = 612;            // track 34 of 18-sector tracks: where REL, Boot and Krn live
-export const BOOT_SECTORS = 18;
+const BOOT_TRACK = 34;                  // where REL, Boot and Krn live (side 0)
+const FLOPPY_TRACKS = 42;               // the most a CoCo disk drive here reads (FLOPPY_525_DD)
 const SECTOR = 256;
 
 // where to get the official images (the NitrOS-9 project's releases; CLOADM never hosts or fetches them)
@@ -92,28 +92,31 @@ export function inspectOs9Disk(bytes) {
   }
   const dd = mods.find((m) => m.name === 'DD');
   const ddDriver = dd ? os9Name(b, dd.at + u16(b, dd.at + 0x0B), dd.at + dd.size) : null;
-  // the boot track: "OS" at LSN 612, then REL, Boot and Krn
-  if (sectors < BOOT_LSN + BOOT_SECTORS || b[BOOT_LSN * SECTOR] !== 0x4F || b[BOOT_LSN * SECTOR + 1] !== 0x53) {
-    if (ddDriver && ddDriver.toLowerCase() === 'rb1773') { out.boot = 'floppy'; return not('This is a NitrOS-9 floppy disk image: it boots from a floppy drive, not over DriveWire. Use the DriveWire image of the release (its name ends in _becker.dsk).'); }
+  // the boot track: track 34, side 0 (LSN 612 on a single-sided disk of 18-sector tracks, 1224 on a double-sided
+  // one), "OS" then REL, Boot and Krn
+  const sides = b[0x10] & 1 ? 2 : 1, bootLsn = BOOT_TRACK * spt * sides;
+  const driver = (ddDriver || '').toLowerCase();
+  if (sectors < bootLsn + spt || b[bootLsn * SECTOR] !== 0x4F || b[bootLsn * SECTOR + 1] !== 0x53) {
     return not('This OS-9 disk has no boot track, so it can\'t be booted (it may be a data disk).');
   }
-  const track = BOOT_LSN * SECTOR, trackEnd = track + BOOT_SECTORS * SECTOR;
+  const track = bootLsn * SECTOR, trackEnd = track + spt * SECTOR;
   let first = track + 2;
   while (first < trackEnd - 1 && !(b[first] === 0x87 && b[first + 1] === 0xCD)) first++;
   const boot = os9Modules(b, first, trackEnd).find((m) => m.name === 'Boot');
   if (!boot) { out.boot = 'other'; return not('This disk\'s boot track has no NitrOS-9 Boot module.'); }
-  const driver = (ddDriver || '').toLowerCase();
   out.boot = touches(b, boot.at, boot.size, BECKER) ? 'becker' : driver === 'rbdw' ? 'drivewire' : driver === 'rb1773' ? 'floppy' : 'other';
   if (out.boot === 'drivewire') return not('This NitrOS-9 image talks DriveWire over a serial cable (the bit-banger or an Arduino), not the Becker port CLOADM serves. Use the image whose name ends in _becker.dsk.');
-  if (out.boot === 'floppy') return not('This is a NitrOS-9 floppy disk image: it boots from a floppy drive, not over DriveWire. Use the DriveWire image of the release (its name ends in _becker.dsk).');
-  if (out.boot === 'other') return not('This NitrOS-9 image boots from another device (not DriveWire on the Becker port). Use the image whose name ends in _becker.dsk.');
+  if (out.boot === 'other') return not('This NitrOS-9 image boots from another device (not DriveWire on the Becker port or the floppy drive). Use the image whose name ends in _becker.dsk or _40d_1.dsk.');
+  // the CoCo disk controller's drives have 40 tracks (42 at most: MAME's FLOPPY_525_DD, js/chips/floppy.js)
+  if (out.boot === 'floppy' && sectors > FLOPPY_TRACKS * spt * sides) return not(`This NitrOS-9 floppy image has ${Math.round(sectors / (spt * sides))} tracks; the CoCo disk drives here have 40. Use the image whose name ends in _40d_1.dsk.`);
   // a "headless" build has no VTIO (the screen and keyboard driver): its console is a DriveWire virtual window
   if (!mods.some((m) => m.name === 'VTIO')) return not('This is a headless NitrOS-9 build: its console is a DriveWire terminal, not the CoCo 3\'s screen and keyboard. Use the image whose name ends in _becker.dsk (not _becker_headless.dsk).');
   return out;
 }
 
-// the inspection of an image that boots over the Becker port, or Os9ImageError with the reason
-export function checkNitros9DriveWire(bytes) {
+// the inspection of an image that boots (over the Becker port, or from the floppy drive), or Os9ImageError with
+// the reason
+export function checkNitros9Boot(bytes) {
   const r = inspectOs9Disk(bytes);
   if (r.reason) throw new Os9ImageError(r.reason);
   return r;

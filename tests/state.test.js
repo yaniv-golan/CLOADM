@@ -133,6 +133,62 @@ for (const [name, t, at] of cases) {
   check(`coco cocofdc with the CPU halted (frame ${f}): restored in place, runs identically`, f < 2000 && run(a, t.regs, 40) === continued);
 }
 
+// CoCo 3: a snapshot taken while HALT holds an instruction past the end of the frame (Coco3Machine.haltSuspend: a read
+// sector with HALT on DRQ, drive 1's sector 4 coming round 11 frames later). Two held accesses: the LDA of the data
+// register (nothing before it in the instruction), and the write of an INC of it (its read made before, kept in the
+// snapshot and replayed). Restored into a fresh machine, the trace and frames go on as on the machine that ran on.
+function cocoHaltSuspended(config, prog, label) {
+  const images = require('../tools/mame-diff/fdc/images');
+  const machine = () => { const m = Emu.createMachine('coco3', config); m.insertCartridge(new Emu.devices.cocofdc({ rom: new Uint8Array(0x2000) })); return m; };
+  const a = machine(), f = a.cartPort;
+  a.reset(true);
+  f.mount(0, { bytes: images.jvc(40, 1), format: 'jvc', name: 'a.dsk' });
+  f.mount(1, { bytes: images.jvc(40, 1), format: 'jvc', name: 'b.dsk' });
+  for (let i = 0; i < 3; i++) a.runFrame();
+  // the sector, READ SECTOR, then the control latch (drive, motor, DDEN, HALT enable); interrupts masked
+  const start = (dsk, sector, loop, pre = []) => {
+    [...pre, 0xC6, sector, 0xF7, 0xFF, 0x4A, 0xC6, 0x80, 0xF7, 0xFF, 0x48, 0xC6, dsk, 0xF7, 0xFF, 0x40, ...loop].forEach((b, i) => a.poke(0x3000 + i, b));
+    a.cpu.x = 0x4000; a.cpu.pc = 0x3000; a.cpu.cc |= 0x50;
+  };
+  a.write(0xFF40, 0x29);
+  for (let i = 0; i < 30; i++) a.runFrame();   // spin up
+  start(0xA9, 1, [0x12, 0xB6, 0xFF, 0x4B, 0xA7, 0x80, 0x20, 0xF9]);   // drive 0: leaves the latch's DRQ input low
+  for (let i = 0; i < 30; i++) a.runFrame();
+  start(0xAA, 4, prog.loop, prog.pre);
+  if (prog.pre) a.cpu.y = 0;
+  for (let i = 0; i < 3; i++) a.runFrame();
+  const d = a.haltDefer;
+  check(`coco3 (${label}) ${prog.name}: suspended by HALT at the end of a frame, the held access's earlier I/O kept`,
+    !!d && d.rel < 0 && a.cpu.pc === prog.pc && d.log.filter((v, i) => i % 2 === 0 && v >= 0xFF00).length === prog.log,
+    d ? `pc ${a.cpu.pc.toString(16)} log ${d.log}` : 'not suspended');
+  const text = Emu.state.toJSON(a.snapshot());
+  const regs = ['pc', 'a', 'b', 'x', 'y', 'u', 's', 'cc', 'dp'].map((name) => ({ name }));
+  const continued = run(a, regs, 20);
+  const b = machine();
+  b.restore(Emu.state.fromJSON(text));
+  const restored = run(b, regs, 20);
+  check(`coco3 (${label}) ${prog.name}: restored into a fresh machine while suspended, runs on identically (trace, frames)`,
+    restored === continued && a.haltDefer === null && b.haltDefer === null, `${restored} vs ${continued}`);
+  // a version 1 file has no haltDefer: it restores, with nothing suspended (no version 1 build suspended an
+  // instruction); the same file at the current version is refused as damaged
+  const old = Emu.state.fromJSON(Emu.state.toJSON(b.snapshot()));
+  delete old.state.haltDefer;
+  let err = null;
+  try { b.restore(Object.assign({}, old, { version: 1 })); } catch (e) { err = e; }
+  check(`coco3 (${label}) ${prog.name}: a version 1 snapshot (no haltDefer) restores`, !err && b.haltDefer === null, err ? err.message : '');
+  err = null;
+  try { b.restore(old); } catch (e) { err = e; }
+  check(`coco3 (${label}) ${prog.name}: a version ${Emu.SNAPSHOT_VERSION} snapshot without haltDefer is refused`, !!err && /missing "haltDefer"/.test(err.message), err ? err.message : 'restored');
+}
+for (const [label, config] of [['hardware timing', undefined], ['MAME timing', { mameCompat: true }]]) {
+  cocoHaltSuspended(config, { name: 'LDA $FF4B', loop: [0x12, 0xB6, 0xFF, 0x4B, 0xA7, 0x80, 0x20, 0xF9], pc: 0x3010, log: 0 }, label);
+  cocoHaltSuspended(config, { name: 'INC $FF4B', loop: [0x7C, 0xFF, 0x4B, 0x20, 0xFB], pc: 0x300F, log: 1 }, label);
+}
+// the HD6309 in native mode (LDMD #1): LDA $FF4B,Y, whose post byte's native saving is added as the instruction goes
+for (const [label, config] of [['6309 native, hardware timing', { cpu: '6309' }], ['6309 native, MAME timing', { cpu: '6309', mameCompat: true }]]) {
+  cocoHaltSuspended(config, { name: 'LDA $FF4B,Y', pre: [0x11, 0x3D, 0x01], loop: [0x12, 0xA6, 0xA9, 0xFF, 0x4B, 0xA7, 0x80, 0x20, 0xF8], pc: 0x3013, log: 0 }, label);
+}
+
 // The interrupt hub's levels survive a snapshot: two sources hold IRQ, then one lets go after the restore, and
 // IRQ stays asserted because the other still holds it (a fresh hub knowing only the CPU's line would release it);
 // the same with a source holding two lines (a disk controller's NMI and HALT)
@@ -594,6 +650,7 @@ for (const [id, caseNo] of [['coco', 16], ['dragon64', 17]]) {
   check('coco: the restored machine finishes dw.asm identically (trace, log, disks)', cont.done && rest.h === cont.h && rest.log === cont.log && rest.files === cont.files);
   await sscMidCommand();
   await nitros9MidBoot();
+  await nitros9FloppyMidRead();
 
   // The DriveWire server's 30 channel records (15 serial, 15 window channels 128-142) in a machine snapshot: all
   // 30 are saved, and a snapshot with fewer is damaged and refused. The Becker port holds link state until a
@@ -818,9 +875,9 @@ async function sscMidTone() {
 // DriveWire drive 0. A snapshot file taken while the loader is part way through a boot-track sector (the server
 // holds bytes not yet read) opens in a fresh Session that has the same image in drive 0 and no ROMs at all (the
 // loader is built in), and both run on identically: every instruction and cycle, every frame.
-// The disk is hand-built (tests/os9-image.js); its boot track's code fills the text screen in a loop.
+// The disk is hand-built (tools/nitros9/os9-image.js); its boot track's code fills the text screen in a loop.
 async function nitros9MidBoot() {
-  const { makeOs9Disk } = require('./os9-image.js');
+  const { makeOs9Disk } = require('../tools/nitros9/os9-image.js');
   const disk = makeOs9Disk(Emu, { code: `
 AGAIN   LDX     #$0400
 FILL    INC     ,X+
@@ -844,7 +901,7 @@ FILL    INC     ,X+
   await b.mountDriveWire(0, 'n9.dsk');
   let err = null;
   try { b.openSnapshot(await b.readSnapshot(file.bytes)); } catch (e) { err = e; }
-  check('nitros9: the snapshot opens in a browser without ROMs (the loader is built in)', !err && b.nitros9Running && b.machine.roms.basic === Emu.nitros9LoaderRom(), err ? err.message : '');
+  check('nitros9: the snapshot opens in a browser without ROMs (the loader is built in)', !err && b.nitros9Running && b.machine.roms.basic === Emu.nitros9LoaderRom('drivewire'), err ? err.message : '');
   const finish = async (mm) => {
     let h = 0x811C9DC5, fh = 0x811C9DC5;
     mm.cpu.trace = (c) => { for (const k of ['pc', 'a', 'b', 'x', 'y', 'u', 's', 'cc']) h = fnv(h, c[k]); h = fnv(h, c.totalCycles); };
@@ -858,4 +915,57 @@ FILL    INC     ,X+
   const cont = await finish(m), rest = await finish(b.machine);
   check('nitros9: the restored machine finishes the boot and runs on identically (trace, frames)', cont.booted && cont.screen && rest.h === cont.h && rest.fh === cont.fh,
     JSON.stringify({ cont, rest }));
+}
+
+// NitrOS-9 from a floppy (Session.bootNitros9 with a floppy image): our floppy loader in the ROM socket, the CoCo disk
+// controller with no ROM of its own, the disk in drive 0. A snapshot file taken in the middle of a halted sector read
+// (the CPU held by the controller's HALT, part of the sector in memory) opens in a fresh Session that has the same
+// disk in its library and no ROMs, and both run on identically: every instruction and cycle, every frame, and the
+// boot track ends up the same. In the page's mode (not mameCompat), where HALT now suspends as MAME's does.
+async function nitros9FloppyMidRead() {
+  const { makeOs9Disk } = require('../tools/nitros9/os9-image.js');
+  const disk = makeOs9Disk(Emu, { driver: 'rb1773', port: 'floppy', sides: 2, sectors: 1440, code: `
+AGAIN   LDX     #$0400
+FILL    INC     ,X+
+        CMPX    #$0600
+        BNE     FILL
+        BRA     AGAIN` });
+  const session = async () => {
+    const s = new Emu.Session();
+    s.switchMachine('coco3', { cpu: '6809', ram: 128 }, { menu: false });
+    await s.media.write('disks/n9floppy.dsk', disk);
+    return s;
+  };
+  const a = await session();
+  await a.bootNitros9('n9floppy.dsk', 'disk');
+  const m = a.machine;
+  // halted inside a sector of the boot track, after its first bytes and before its last
+  const mid = () => m.cpu.haltLine && !m.stall && m.cpu.x > 0x2680 && (m.cpu.x & 0xFF) > 0x10 && (m.cpu.x & 0xFF) < 0xF0;
+  for (let guard = 0; guard < 4000000 && !mid(); guard++) { m.runCycles(m.cycle + 1); if (m.stall) await m.stall; }
+  check('nitros9 floppy: snapshot with the CPU halted part way through a boot-track sector', mid() && m.read(0x0100) === 0 && !m.config.mameCompat,
+    `(X $${m.cpu.x.toString(16)})`);
+  const file = await a.snapshotFile();
+  const b = await session();
+  let err = null;
+  try { b.openSnapshot(await b.readSnapshot(file.bytes)); } catch (e) { err = e; }
+  check('nitros9 floppy: the snapshot opens without ROMs (the loader is built in, the controller needs none)',
+    !err && b.nitros9Loader() === 'floppy' && b.machine.roms.basic === Emu.nitros9LoaderRom('floppy') && b.machine.cartPort instanceof Emu.DiskController, err ? err.message : '');
+  const finish = async (mm) => {
+    let h = 0x811C9DC5, fh = 0x811C9DC5;
+    mm.cpu.trace = (c) => { for (const k of ['pc', 'a', 'b', 'x', 'y', 'u', 's', 'cc']) h = fnv(h, c[k]); h = fnv(h, c.totalCycles); };
+    for (let f = 0; f < 300; f++) {
+      while (!mm.runFrame()) await mm.stall;
+      const px = Emu.frameToRGBA(mm.render());
+      for (let i = 0; i < px.length; i += 7) fh = fnv(fh, px[i]);
+    }
+    const track = [];
+    for (let i = 0; i < 18 * 256; i += 97) track.push(mm.read(0x2600 + i));
+    return { h: h >>> 0, fh: fh >>> 0, booted: mm.read(0x0100) === 1, track: track.join(), screen: mm.read(0x0400) | mm.read(0x05FF) };
+  };
+  const cont = await finish(m), rest = await finish(b.machine);
+  const want = [];
+  for (let i = 0; i < 18 * 256; i += 97) want.push(disk[(34 * 36) * 256 + i]);
+  check('nitros9 floppy: the restored machine finishes the read and the boot identically (trace, frames, the boot track as on the disk)',
+    cont.booted && cont.screen && cont.track === want.join() && rest.h === cont.h && rest.fh === cont.fh && rest.track === cont.track,
+    JSON.stringify({ cont: { h: cont.h, fh: cont.fh, booted: cont.booted }, rest: { h: rest.h, fh: rest.fh, booted: rest.booted } }));
 }

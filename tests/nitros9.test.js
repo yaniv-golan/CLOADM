@@ -14,6 +14,15 @@
 //  - every DriveWire transaction but TIME (tools/nitros9/lib.js record()), in order, against the run of the same
 //    image and loader in MAME 0.264 with the same server (tools/nitros9/boot-mame.js --record, kept in
 //    tests/fixtures/nitros9/: sector numbers and status codes only, no NitrOS-9 data).
+// The floppy images (the release's _40d_1.dsk, 6809 and 6309) boot the same way with our floppy loader (js/machines/
+// nitros9.js) in place of the CoCo 3 ROM and the CoCo disk controller (no ROM of its own) holding the image in drive 0.
+// Return is typed at the startup's time prompt, then `dir` (tools/nitros9/lib.js FLOPPY), and the test checks:
+//  - the screen text, against the sources: init.asm and sysgo.asm as above; level2/coco3/startup (the two echo lines,
+//    then `setime </1`); level1/cmds/setime.asm:75, 77 "yyyy/mm/dd hh:mm:ss", "Time ? "; Shell+ and dir as above;
+//    level2/coco3/makefile, target $(DSK360K_1): the root holds OS9Boot, CMDS, SYS, DEFS, sysgo and startup
+//  - every CPU write to the controller's registers ($FF40-$FF4F), in order, against the run of the same image and
+//    loader in MAME 0.264 (tools/nitros9/boot-floppy-mame.js --record, in tests/fixtures/nitros9/: register numbers
+//    and values only, no NitrOS-9 data).
 // The images are not in this repository: node tools/nitros9/fetch.js puts them in a cache ($NITROS9_CACHE or the
 // system's temporary folder), pinned by SHA-256. Without them every case is skipped with the reason, so
 // tests/all.js never needs the network.
@@ -85,7 +94,42 @@ function checkBoot(cpu, image, r, ref) {
     first < 0 ? `(${r.transactions.length})` : `(first difference at ${first}: ours ${r.transactions[first]}, MAME ${ref.transactions[first]})`);
 }
 
+// the floppy boot: the FLOPPY schedule (Return at the time prompt, then dir), recording the controller's writes
+async function bootFloppy(cpu, bytes) {
+  const m = lib.coco3Floppy(Emu, cpu, bytes), writes = lib.fdcWrites(m);
+  for (let f = 1; f <= lib.FLOPPY.seconds * 60 - 2; f++) {
+    while (!m.runFrame()) await m.stall;
+    for (const t of lib.FLOPPY.typed) if (f === t.at * 60) m.typist.type(t.text);
+  }
+  return { lines: lib.screenText(m), writes };
+}
+const FLOPPY_ROOT = ['OS9Boot', 'CMDS', 'SYS', 'DEFS', 'sysgo', 'startup'];
+function checkFloppy(cpu, image, r, ref) {
+  const L = r.lines, has = (x) => L.includes(x);
+  check(`${cpu} floppy: init's and sysgo's banners`, has(`NitrOS-9/${cpu} Level 2 V3.3.0`) && has('Tandy Color Computer 3') && has('(C) 2014 The NitrOS-9 Project'), JSON.stringify(L.slice(0, 4)));
+  check(`${cpu} floppy: startup's echo lines (level2/coco3/startup)`, has('* Welcome to NitrOS-9 Level 2 *') && has('*   on the Color Computer 3   *'));
+  check(`${cpu} floppy: setime's prompt, answered (setime.asm:75, 77)`, has('       yyyy/mm/dd hh:mm:ss') && L.some((x) => x.startsWith('Time ?')));
+  check(`${cpu} floppy: Shell+ signs on and dir is typed at its prompt`, L.some((x) => x.startsWith('Shell+ v2.2a ')) && has(`${PROMPT}dir`));
+  const d = L.findIndex((x) => x.startsWith(' Directory of '));
+  const listing = d >= 0 ? L.slice(d + 1, L.indexOf(PROMPT, d)).join(' ').split(/\s+/).filter(Boolean) : [];
+  check(`${cpu} floppy: dir lists the root (makefile $(DSK360K_1)), and the prompt is back`, d >= 0 && L[L.length - 1] === PROMPT &&
+    FLOPPY_ROOT.every((n) => listing.includes(n)) && listing.length === FLOPPY_ROOT.length, JSON.stringify(listing));
+  check(`${cpu} floppy: the MAME reference is for this image and schedule`, ref.sha256 === IMAGES[image] && ref.mame.startsWith('0.264') && ref.seconds === lib.FLOPPY.seconds &&
+    JSON.stringify(ref.typed) === JSON.stringify(lib.FLOPPY.typed), ref.mame);
+  const n = Math.min(r.writes.length, ref.writes.length);
+  let first = -1;
+  for (let i = 0; i < n && first < 0; i++) if (r.writes[i] !== ref.writes[i]) first = i;
+  if (first < 0 && r.writes.length !== ref.writes.length) first = n;
+  check(`${cpu} floppy: every write to the controller's registers as in MAME 0.264, in order`, first < 0,
+    first < 0 ? `(${r.writes.length})` : `(first difference at ${first}: ours ${r.writes[first]}, MAME ${ref.writes[first]})`);
+}
+
 (async () => {
+  for (const cpu of ['6809', '6309']) {
+    const image = `nos9${cpu}l2v030300coco3_40d_1.dsk`, { bytes, reason } = cached(image);
+    if (!bytes) { console.log(`skip ${cpu} floppy: ${reason}`); continue; }
+    checkFloppy(cpu, image, await bootFloppy(cpu, bytes), JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'nitros9', `coco3-${cpu}-floppy.json`), 'utf8')));
+  }
   const cases = [{ cpu: '6809', image: 'nos96809l2v030300coco3_becker.dsk' }, { cpu: '6309', image: 'nos96309l2v030300coco3_becker.dsk' }];
   for (const { cpu, image } of cases) {
     const { bytes, reason } = cached(image);

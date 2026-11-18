@@ -16,7 +16,7 @@
 import { state } from '../util.js';
 
 const CWAI_ENTRY = 4; // registers already stacked by CWAI: only the vector fetch remains (calibrated against MAME)
-const CYCLE_LOG = 96;  // capacity of one step's bus-cycle log (the longest instruction, TFM, logs 4 per byte)
+const CYCLE_LOG = 96;  // starting capacity of one step's bus-cycle log: every instruction fits but the 6309's TFM (reserveLog)
 const E = 0x80, F = 0x40, H = 0x20, I = 0x10, N = 0x08, Z = 0x04, V = 0x02, C = 0x01;
 // Cycle counts per addressing mode (0 immediate, 1 direct, 2 indexed, 3 extended), by operation. These were
 // array literals written at each instruction; they are constants, so they live here once. (The review called
@@ -62,6 +62,9 @@ class CPU6809 {
     this.trace = null;      // optional hook called before each instruction (tests, debugger)
     this.mameCompat = false; // reproduce MAME's m6809 where it differs (comparisons only; set by the machine)
     this.totalCycles = 0;
+    this.pre = new Int32Array(16);   // the registers at the start of the step (mark/rewind)
+    this.executing = false;          // the step is running an instruction (execute), not taking an interrupt
+    this.stepHalted = false;         // the step was a halted cycle (HALT, or the rest of a halted wait): no instruction
   }
 
   reset() {
@@ -86,6 +89,17 @@ class CPU6809 {
   // ---- memory helpers ----
   read8(a) { this.cycleNoStop[this.cycleCount] = 0; this.cycleInternal[this.cycleCount] = 0; this.cycleAddr[this.cycleCount++] = a & 0xFFFF; return this.bus.read(a & 0xFFFF); }
   write8(a, v) { this.cycleNoStop[this.cycleCount] = 0; this.cycleInternal[this.cycleCount] = 0; this.cycleAddr[this.cycleCount++] = a & 0xFFFF; this.bus.write(a & 0xFFFF, v & 0xFF); }
+  // room in the cycle log for `n` cycles: the 6309's TFM, 3 cycles a byte for up to 65535 bytes, is the one instruction
+  // without a fixed length; it reserves its cycles before it runs (the log's arrays grow, keeping what they hold)
+  reserveLog(n) {
+    if (n <= this.cycleAddr.length) return;
+    const size = Math.max(n, this.cycleAddr.length * 2);
+    const grow = (A, old) => { const a = new A(size); a.set(old); return a; };
+    this.cycleAddr = grow(Int32Array, this.cycleAddr);
+    this.cycleNoStop = grow(Uint8Array, this.cycleNoStop);
+    this.cycleInternal = grow(Uint8Array, this.cycleInternal);
+    this.cycleDrop = grow(Uint8Array, this.cycleDrop);
+  }
   // a cycle that presents address `a` without a transfer here (dummy reads, the read before CLR's write)
   addr(a) { this.cycleNoStop[this.cycleCount] = 0; this.cycleInternal[this.cycleCount] = 1; this.cycleAddr[this.cycleCount++] = a & 0xFFFF; }
   dpc(off = 0) { this.addr(this.pc + off); }                    // dummy read of the byte at PC
@@ -344,6 +358,21 @@ class CPU6809 {
     return 0;
   }
 
+  // The registers an instruction changes, kept at the start of a step (mark) so that the machine can take the step
+  // back (rewind) and run the instruction again from its start: the CoCo 3 does so for an instruction that HALT
+  // suspends past the end of a run (js/machines/coco3.js haltWait). Lines and pending interrupts are not kept: they
+  // change at their own times, not by the instruction. haltTail and totalCycles change only between instructions.
+  mark() {
+    const p = this.pre;
+    p[0] = this.a; p[1] = this.b; p[2] = this.x; p[3] = this.y; p[4] = this.u; p[5] = this.s; p[6] = this.pc;
+    p[7] = this.dp; p[8] = this.cc; p[9] = this.nmiArmed ? 1 : 0; p[10] = this.cwai ? 1 : 0; p[11] = this.syncing ? 1 : 0;
+  }
+  rewind() {
+    const p = this.pre;
+    this.a = p[0]; this.b = p[1]; this.x = p[2]; this.y = p[3]; this.u = p[4]; this.s = p[5]; this.pc = p[6];
+    this.dp = p[7]; this.cc = p[8]; this.nmiArmed = p[9] === 1; this.cwai = p[10] === 1; this.syncing = p[11] === 1;
+  }
+
   // will the next step() execute the instruction at pc (rather than halt, wait, or take an interrupt)?
   // The machine runs PC hooks only then, so an interrupt arriving at a hooked address doesn't run the
   // hook twice (once now, once after the RTI).
@@ -354,7 +383,10 @@ class CPU6809 {
   step() {
     this.cycleCount = 0;
     this.droppedInternal = 0;
+    this.executing = false;
+    this.stepHalted = false;
     if (this.haltLine || this.haltTail) {                                   // halted: no instruction, no interrupt
+      this.stepHalted = true;
       if (!this.haltLine) this.haltTail--;
       this.vma(1); this.totalCycles += 1; return 1;
     }
@@ -365,12 +397,25 @@ class CPU6809 {
     }
     if (this.cwai || this.syncing) { this.vma(1); this.totalCycles += 1; return 1; }
     if (this.trace) this.trace(this);
+    return this.execute();
+  }
+  // the instruction at pc: the end of step(), with `executing` set while it runs (not while an interrupt is taken)
+  execute() {
     this.c = 0;
     this.opPc = this.pc;          // where the instruction being executed starts (MAME's pcbase())
+    this.executing = true;
     this.exec(this.fetch8());
     this.postInstruction();       // the CPU's own adjustment to the step (the 6309's native-mode timing)
     this.totalCycles += this.c;
     return this.c;
+  }
+  // the instruction at pc run again from its start after rewind() (js/machines/coco3.js haltResume): it was under way
+  // when it was suspended, so no interrupt is taken first, and the trace, which logged it then, isn't called again
+  rerun() {
+    this.cycleCount = 0;
+    this.droppedInternal = 0;
+    this.stepHalted = false;
+    return this.execute();
   }
   // called once per executed instruction, after its handler: the 6809 has nothing to add
   postInstruction() {}
