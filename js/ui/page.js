@@ -43,6 +43,15 @@ export function createPage(session, audio) {
       return (msg, isError = false, opts = {}) => feedback.toast(msg, Object.assign({ error: isError, view }, opts));
     },
     focus() { canvas.focus(); },
+    // Does this key or paste event go to the machine? Only with the focus on the screen (or on nothing: the page's
+    // body, a first visit before any click) and no dialog open. Tab always moves focus; F5 and F12 are the browser's;
+    // Esc closes what is open instead (page.escape, main.js): off the screen anything, on it a confirmation or a card.
+    // js/ui/screen.js sends what passes to the machine; js/ui/ask.js pauses Claude for the same keys.
+    toMachine(e) {
+      return (e.target === canvas || e.target === document.body || e.target === document.documentElement)
+        && e.key !== 'Tab' && e.key !== 'F12' && e.key !== 'F5' && !document.querySelector('dialog[open]')
+        && !(e.key === 'Escape' && (e.defaultPrevented || page.escapable(e.target === canvas)));
+    },
     // run fn, showing its message (or the error) as a toast
     attempt(fn) {
       try { const msg = fn(); if (msg) page.status(msg); return true; }
@@ -144,18 +153,20 @@ export function createPage(session, audio) {
     // Every surface that can be closed registers here: rank (lower is on top: a confirmation over a menu over a
     // card over a view over the chat), whether it is open, and how it closes. Esc closes the topmost open one
     // (main.js). With the focus on the screen only a question waiting for an answer takes it (a confirmation, a card
-    // above the screen: they answer "no"); otherwise Esc there is the machine's BREAK. The one exception is the
-    // full-screen chat (opts.onScreen, a function): its screen is the chat firmware's prompt, where BREAK drops the
-    // typed line and stops a streaming reply, so Esc there leaves the chat only when there is nothing for BREAK to
-    // do (an idle, empty prompt). A control that uses Esc itself (a rename, the command box, the machine menu, the
-    // Ask rail) takes it first and prevents the default.
+    // above the screen: they answer "no") or Claude paused by the person's key (Esc is Stop then, in every view,
+    // and is not BREAK); otherwise Esc there is the machine's BREAK. The one exception is the full-screen chat
+    // (opts.onScreen, a function): its screen is the chat firmware's prompt, where BREAK drops the typed line and
+    // stops a streaming reply, so Esc there leaves the chat only when there is nothing for BREAK to do (an idle,
+    // empty prompt). A control that uses Esc itself (a rename, the command box, the machine menu, the Ask rail) takes
+    // it first and prevents the default.
     escapes: [],
     onEscape(rank, isOpen, close, opts = {}) { page.escapes.push({ rank, isOpen, close, onScreen: opts.onScreen || null }); page.escapes.sort((a, b) => a.rank - b.rank); },
-    topEscape(fromScreen) { return page.escapes.find((x) => (!fromScreen || x.rank <= ESC.card || (x.onScreen && x.onScreen())) && x.isOpen()); },
+    topEscape(fromScreen) { return page.escapes.find((x) => (!fromScreen || x.rank <= ESC.claude || (x.onScreen && x.onScreen())) && x.isOpen()); },
     escapable(fromScreen = false) { return !!page.topEscape(fromScreen); },
     escape(fromScreen = false) { const top = page.topEscape(fromScreen); if (top) top.close(); return !!top; },
   };
   return page;
 }
 // the ranks of page.onEscape, top first
-export const ESC = Object.freeze({ confirm: 10, menu: 20, card: 30, view: 40, chat: 50 });
+// (claude: Claude paused by a key, which Esc stops; under the questions on screen, over the views and the chat)
+export const ESC = Object.freeze({ confirm: 10, menu: 20, card: 30, claude: 35, view: 40, chat: 50 });

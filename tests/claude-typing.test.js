@@ -270,12 +270,12 @@ const PROGRAM = '10 PRINT "HELLO"\n20 GOTO 10\n30 REM AAAAAAAA\n';
     }
   }
 
-  // ---- the policy Claude is given: type 3 lines or fewer, offer load_basic for more, verify after either ----
+  // ---- the policy Claude is given: type 3 lines or fewer, call load_basic for more (its card asks, not Claude), verify after either ----
   {
     const tools = Emu.actingTools();
     const desc = (name) => (tools.find((t) => t.name === name) || {}).description || '';
-    const says = (text) => /3 lines or fewer/.test(text) && /type_text/.test(text) && /ask the person whether to load it with load_basic/.test(text)
-      && /only after they agree/.test(text) && /verify/.test(text) && /LIST/.test(text) && /screen_text/.test(text);
+    const says = (text) => /3 lines or fewer/.test(text) && /type_text/.test(text) && /call load_basic instead of typing it/.test(text)
+      && /Do not ask in prose first/.test(text) && /card for each load_basic call \(unless they chose not to be asked again\)/.test(text) && !/ask the person whether/.test(text) && /verify/.test(text) && /LIST/.test(text) && /screen_text/.test(text);
     check('policy: TYPE_LINES_MAX is 3 and TYPING_POLICY states all three rules', Emu.TYPE_LINES_MAX === 3 && says(Emu.TYPING_POLICY), Emu.TYPING_POLICY);
     check('policy: the type_text and load_basic descriptions state it', says(desc('type_text')) && says(desc('load_basic')));
     const brief = Emu.claudeBrief({ machine: 'Dragon 64', ram: 64, cpu: '6809', hasBasic: true, edition: 'test', tools: true });

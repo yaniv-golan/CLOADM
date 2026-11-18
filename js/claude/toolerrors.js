@@ -47,6 +47,7 @@ export const TOOL_CODES = Object.freeze({
   PROGRAM_TOO_LARGE: 'program-too-large',
   UNKNOWN_MACHINE: 'unknown-machine',
   LOAD_DECLINED: 'load-declined',
+  INCLUDE_UNREADABLE: 'include-unreadable',
   TOOL_FAILED: 'tool-failed',
 });
 
@@ -77,6 +78,7 @@ export const TOOL_ERRORS = Object.freeze({
   'program-too-large': 'the program does not fit in this BASIC session\'s free memory (detail gives the sizes): shorten it, or ask the person to free memory (for example PCLEAR 1 on a CoCo or Dragon)',
   'unknown-machine': 'this machine\'s BASIC is not one load_basic knows: type the program with type_text instead',
   'load-declined': 'the person chose not to load the program: do not load it; offer to type it if it has 3 lines or fewer, or give them the listing',
+  'include-unreadable': 'an INCLUDE file could not be read (detail names it and why); nothing was written: put the code it holds into the source itself and call again',
   'tool-failed': 'the tool failed inside the emulator (detail says how), not because of what you sent: read the machine with machine_info or screen_text before going on, and tell the person; do not repeat the call unchanged',
   'not-typable': 'the machine cannot take the characters in detail (no key for them on this keyboard, or above $7E, which BASIC cannot store as text): leave them out or use plain ASCII it has (BASIC keywords are uppercase)',
 });

@@ -188,6 +188,9 @@ class Machine {
     }
     if (this.cartPort) this.cartPort.reset(hard);   // the cartridge port carries the reset line
     this.framesSinceReset = 0;
+    // whoever drives the machine is told it started over (the Session stops Claude acting on it); a host hook,
+    // not machine state, so not in the snapshot
+    if (this.onReset) this.onReset(hard);
   }
 
   // ---------------- events ----------------

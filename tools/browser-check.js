@@ -6185,8 +6185,8 @@ async function askFollowupChecks(browser, base, check) {
   const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'POST, OPTIONS' };
   // long enough to still be going in when the test presses its key (the no-ROM stub takes typed keys fast)
   const LISTING = Array.from({ length: 1500 }, (_, i) => `${(i + 1) * 10} PRINT "LINE ${i + 1}"`).join('\n') + '\n';
-  async function open(viewport, init) {
-    const ctx = await browser.newContext({ viewport, serviceWorkers: 'block' });
+  async function open(viewport, init, opts = {}) {
+    const ctx = await browser.newContext({ viewport, serviceWorkers: 'block', ...opts });
     if (init) await ctx.addInitScript(init);
     const page = await ctx.newPage();
     const errors = [], requests = [], replies = [];
@@ -6238,6 +6238,248 @@ async function askFollowupChecks(browser, base, check) {
       && document.getElementById('askActing').hidden) && (await emuFrames(page, 30), await page.evaluate(() => window.emu.machine.stubKeys.length === 0 && window.emu.machine.typist.queue.length === 0)));
     if (replies.held) replies.held.release();
     check('ask (keys): no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- (1b) a pause belongs to its turn: a key pressed while Claude thinks after acting pauses it; the reply
+  // finishes; the next turn is not paused (no "Paused" status, no Resume needed) and its action runs ----
+  {
+    const { ctx, page, errors, replies, requests } = await open({ width: 1440, height: 900 });
+    await page.click('#btnAsk');
+    await page.click('#chkAskMachine');
+    replies.push({ body: tools([{ name: 'poke', input: { address: 0x3000, bytes: [0x11] } }]) }, { hold: true, body: text('Poked it.') });
+    await page.fill('#askInput', 'Poke 3000 for me');
+    await page.press('#askInput', 'Enter');
+    await waitFor(page, () => window.emu.session.claudeActing && window.emu.machine.ram[0x3000] === 0x11 && window.emu.session.chat.busy, null, 8000);
+    await page.focus('#screen');
+    await page.keyboard.press('x');
+    const during = await page.evaluate(() => ({ paused: !!window.emu.session.claudePaused, status: document.getElementById('askStatusText').textContent }));
+    replies.held.release();
+    await waitFor(page, () => !window.emu.session.chat.busy, null, 8000);
+    const after = await page.evaluate(() => ({ paused: !!window.emu.session.claudePaused, resume: !document.getElementById('btnAskResume').hidden, status: !document.getElementById('askStatus').hidden }));
+    check('ask (pause scope): a key while Claude thinks after acting pauses it; when the reply finishes the pause is gone (no Resume, no status)',
+      during.paused && /Paused/.test(during.status) && !after.paused && !after.resume && !after.status, JSON.stringify({ during, after }));
+    replies.push({ hold: true, body: tools([{ name: 'poke', input: { address: 0x3001, bytes: [0x22] } }]) }, { body: text('Poked again.') });
+    await page.fill('#askInput', 'Poke 3001 too');
+    await page.press('#askInput', 'Enter');
+    await waitFor(page, () => window.emu.session.chat.busy && !document.getElementById('askStatus').hidden, null, 8000);
+    const next = await page.evaluate(() => ({ paused: !!window.emu.session.claudePaused, status: document.getElementById('askStatusText').textContent }));
+    replies.held.release();
+    const ran = await waitFor(page, () => window.emu.machine.ram[0x3001] === 0x22 && !window.emu.session.chat.busy, null, 8000);
+    check('ask (pause scope): the next turn starts as Thinking…, not Paused, and its poke runs without a Resume',
+      !next.paused && next.status === 'Thinking…' && ran && /Poked again\./.test(await page.textContent('#askMessages')) && requests.length === 4, JSON.stringify(next));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, 'ask-pause-scope.png') });
+    // a later turn that only answers in text is not Claude acting: a key pressed on the machine during it is the
+    // person's own key (no pause, no Resume, no pill), and the reply comes
+    replies.push({ hold: true, body: text('Just words.') });
+    await page.fill('#askInput', 'What did you change?');
+    await page.press('#askInput', 'Enter');
+    await waitFor(page, () => window.emu.session.chat.busy && !document.getElementById('askStatus').hidden, null, 8000);
+    await page.focus('#screen');
+    await page.keyboard.press('z');
+    const textOnly = await page.evaluate(() => ({ paused: !!window.emu.session.claudePaused, acting: window.emu.session.claudeBusyActing, status: document.getElementById('askStatusText').textContent,
+      resume: !document.getElementById('btnAskResume').hidden, pill: !document.getElementById('askActing').hidden }));
+    replies.held.release();
+    const replied = await waitFor(page, () => !window.emu.session.chat.busy && /Just words\./.test(document.getElementById('askMessages').textContent), null, 8000);
+    check('ask (pause scope): a later text-only turn is not paused by a key: Thinking…, no Resume, no pill, and the reply comes',
+      !textOnly.paused && !textOnly.acting && textOnly.status === 'Thinking…' && !textOnly.resume && !textOnly.pill && replied, JSON.stringify(textOnly));
+    check('ask (pause scope): no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- (1d) a pause in the full-screen chat has its Resume beside Stop in the bar (the side panel's Resume is on
+  // the screen, which full screen does not show); a later text-only turn is not paused; on the phone too, and the
+  // phone's side-panel sheet keeps its Resume on the screen ----
+  for (const [vp, tag] of [[{ width: 1440, height: 900 }, 'desktop'], [{ width: 390, height: 844 }, 'phone']]) {
+    const { ctx, page, errors, replies } = await open(vp);
+    const L = `ask (full-screen pause, ${tag})`;
+    await page.click('#btnAsk');
+    if (tag === 'phone') {
+      // the phone's sheet (side panel): a pause shows Resume and Stop on the screen, and Resume carries on
+      // (the switch is below the sheet's fold; its click is covered elsewhere)
+      await page.evaluate(() => window.emu.session.setClaudeAllowed(true));
+      replies.push({ body: tools([{ name: 'type_text', input: { text: LISTING } }]) }, { hold: true, body: text('Typed.') });
+      await page.fill('#askInput', 'Type a long listing for me');
+      await page.press('#askInput', 'Enter');
+      await waitFor(page, () => !document.getElementById('askActing').hidden && window.emu.machine.typist.queue.length > 100, null, 8000);
+      await page.focus('#screen');
+      await page.keyboard.press('x');
+      const sheet = await page.evaluate(() => ({ paused: !!window.emu.session.claudePaused, resume: !document.getElementById('btnAskResume').hidden }));
+      // each button whole inside the screen (the pill is in the screen, which clips what overflows it) and on top
+      const sheetVis = (await page.evaluate(() => { const t = document.querySelector('.tube').getBoundingClientRect();
+        return ['btnAskResume', 'btnAskStop'].map((id) => { const b = document.getElementById(id), r = b.getBoundingClientRect();
+          return r.width > 0 && r.left >= t.left && r.right <= t.right && r.top >= t.top && r.bottom <= t.bottom && b.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)); }); })).every(Boolean);
+      if (shotDir) await page.screenshot({ path: path.join(shotDir, 'ask-paused-phone-sheet.png') });
+      await page.click('#btnAskResume');
+      const back = await page.evaluate(() => !window.emu.session.claudePaused && window.emu.machine.typist.queue.length > 50);
+      check('ask (phone sheet): a pause shows Resume and Stop on the screen, and Resume carries on typing', sheet.paused && sheet.resume && sheetVis && back, JSON.stringify(sheet));
+      await page.click('#btnAskStop');
+      await waitFor(page, () => !window.emu.session.chat.busy, null, 8000);
+      // (Stop during the tool: the turn's second reply was never asked for)
+      if (replies.held) { replies.held.release(); replies.held = null; }
+      replies.length = 0;
+    } else await page.click('#chkAskMachine');
+    // full screen, showing the BASIC session (the machine Claude types into, where the person's key goes)
+    await page.click('#btnAskFull');
+    await waitFor(page, () => window.emu.session.claudeView === 'full' && !!window.emu.session.chatMachines, null, 15000);
+    await page.click('#btnClaudeView');
+    await waitFor(page, () => window.emu.session.chatView === 'basic');
+    const basic = () => window.emu.session.chatTarget().machine;
+    replies.push({ body: tools([{ name: 'type_text', input: { text: LISTING } }]) }, { hold: true, body: text('Typed it.') });
+    await page.evaluate(() => { window.emu.session.chat.sendLine('Type a long listing for me'); });
+    await waitFor(page, `(${basic})().typist.queue.length > 100 && window.emu.session.claudeBusyActing`, null, 8000);
+    await page.focus('#screen');
+    await page.keyboard.press('x');
+    const paused = await page.evaluate(() => ({ paused: !!window.emu.session.claudePaused, status: document.getElementById('claudeStatusText').textContent,
+      resume: !document.getElementById('btnClaudeResume').hidden }));
+    const shown = await page.isVisible('#btnClaudeResume') && await page.isVisible('#btnClaudeStop');
+    check(`${L}: a key on the BASIC session pauses Claude; the bar says Paused with Resume and Stop, both on screen`, paused.paused && /Paused/.test(paused.status) && paused.resume && shown, JSON.stringify(paused));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `ask-paused-full-${tag}.png`) });
+    const resumed = await page.evaluate((b) => { const s = window.emu.session, held = s.claudePaused.held.queue.length, m = (0, eval)(b)(), before = m.typist.queue.length;
+      document.getElementById('btnClaudeResume').click(); return { held, queued: m.typist.queue.length - before, paused: !!s.claudePaused, hidden: document.getElementById('btnClaudeResume').hidden }; }, `(${basic})`);
+    check(`${L}: Resume in the bar carries on typing where Claude stopped, and goes away`, resumed.held > 50 && resumed.queued === resumed.held && !resumed.paused && resumed.hidden, JSON.stringify(resumed));
+    // paused again: Stop in the bar ends the turn and nothing held is typed later
+    await page.focus('#screen');
+    await page.keyboard.press('y');
+    await waitFor(page, () => window.emu.session.claudePaused);
+    await page.click('#btnClaudeStop');
+    const stopped = await waitFor(page, () => !window.emu.session.claudePaused && !window.emu.session.chat.busy && document.getElementById('claudeStatus').hidden, null, 8000);
+    await emuFrames(page, 30);
+    check(`${L}: Stop in the bar while paused ends the turn; nothing held is typed later`, stopped && await page.evaluate((b) => { const m = (0, eval)(b)(); return m.stubKeys.length === 0 && m.typist.queue.length === 0; }, `(${basic})`));
+    if (replies.held) { replies.held.release(); replies.held = null; }
+    // a turn that acts and finishes, then a text-only turn: a key during it is the person's own
+    replies.length = 0;
+    replies.push({ body: tools([{ name: 'poke', input: { address: 0x3000, bytes: [0x33] } }]) }, { body: text('Poked.') });
+    await page.evaluate(() => { window.emu.session.chat.sendLine('Poke 3000'); });
+    await waitFor(page, `(${basic})().ram[0x3000] === 0x33 && !window.emu.session.chat.busy`, null, 8000);
+    replies.push({ hold: true, body: text('Just words.') });
+    await page.evaluate(() => { window.emu.session.chat.sendLine('What did you change?'); });
+    await waitFor(page, () => window.emu.session.chat.busy && !document.getElementById('claudeStatus').hidden, null, 8000);
+    await page.focus('#screen');
+    await page.keyboard.press('z');
+    const textOnly = await page.evaluate(() => ({ paused: !!window.emu.session.claudePaused, status: document.getElementById('claudeStatusText').textContent, resume: !document.getElementById('btnClaudeResume').hidden }));
+    replies.held.release();
+    const done = await waitFor(page, () => !window.emu.session.chat.busy, null, 8000);
+    check(`${L}: a later text-only turn is not paused by a key (Thinking…, no Resume) and ends`, !textOnly.paused && textOnly.status === 'Thinking…' && !textOnly.resume && done, JSON.stringify(textOnly));
+    check(`${L}: no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- (1f) where the open side panel lies over the screen (701-959 px wide) it covers the pill: the panel's own
+  // status line has Resume beside Stop; and the pill fits a 360 px phone ----
+  for (const [vp, tag, opts] of [[{ width: 800, height: 800 }, '800 px'], [{ width: 360, height: 740 }, '360 px phone'],
+    [{ width: 844, height: 390 }, 'phone sideways with its keyboard', { hasTouch: true, isMobile: true }]]) {
+    const { ctx, page, errors, replies } = await open(vp, null, opts);
+    const L = `ask (pause, ${tag})`;
+    await page.evaluate(() => document.getElementById('btnAsk').click());
+    await page.evaluate(() => window.emu.session.setClaudeAllowed(true));
+    replies.push({ body: tools([{ name: 'type_text', input: { text: LISTING } }]) }, { hold: true, body: text('Typed.') });
+    await page.evaluate(() => { window.emu.session.chat ? window.emu.session.chat.sendLine('Type a long listing for me') : null; });
+    if (!(await page.evaluate(() => !!window.emu.session.chat))) { await page.fill('#askInput', 'Type a long listing for me'); await page.press('#askInput', 'Enter'); }
+    await waitFor(page, () => window.emu.machine.typist.queue.length > 100 && window.emu.session.claudeBusyActing, null, 8000);
+    await page.focus('#screen');
+    await page.keyboard.press('x');
+    await waitFor(page, () => !!window.emu.session.claudePaused);
+    const where = await page.evaluate(() => { const t = document.querySelector('.tube').getBoundingClientRect();
+      const on = (id) => { const b = document.getElementById(id), r = b.getBoundingClientRect(); return !b.hidden && r.width > 0 && r.top >= 0 && r.bottom <= innerHeight && b.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)); };
+      const inTube = (id) => { const r = document.getElementById(id).getBoundingClientRect(); return r.left >= t.left && r.right <= t.right; };
+      const at = (id) => { const r = document.getElementById(id).getBoundingClientRect(); return [Math.round(r.left), Math.round(r.top), Math.round(r.right), Math.round(r.bottom)]; };
+      return { statusResume: on('btnAskStatusResume'), statusStop: on('btnAskStatusStop'), pillResume: on('btnAskResume') && inTube('btnAskResume'), pillStop: on('btnAskStop') && inTube('btnAskStop'),
+        at: [at('btnAskStatusResume'), at('btnAskStatusStop'), at('btnAskStop'), innerHeight] }; });
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `ask-paused-${tag.replace(/ /g, '-')}.png`) });
+    // the 800 px panel covers the pill but its status has Resume and Stop; the phone's pill shows both whole
+    // (sideways, the open panel covers part of the pill too: its status line has both)
+    const ok = tag === '360 px phone' ? where.pillResume && where.pillStop : where.statusResume && where.statusStop;
+    check(`${L}: Resume and Stop are on screen and uncovered while paused`, ok, JSON.stringify(where));
+    if (opts) check(`${L}: (the touch keyboard is up)`, await page.evaluate(() => document.body.classList.contains('touch-keys')));
+    await page.click(tag === '360 px phone' ? '#btnAskResume' : '#btnAskStatusResume');
+    const resumed = await page.evaluate(() => !window.emu.session.claudePaused && window.emu.machine.typist.queue.length > 50);
+    await page.focus('#screen');
+    await page.keyboard.press('y');
+    await waitFor(page, () => !!window.emu.session.claudePaused);
+    await page.click(tag === '360 px phone' ? '#btnAskStop' : '#btnAskStatusStop');
+    const stopped = await waitFor(page, () => !window.emu.session.claudePaused && !window.emu.session.chat.busy, null, 8000);
+    check(`${L}: Resume carries on, and Stop ends the turn`, resumed && stopped);
+    if (replies.held) replies.held.release();
+    check(`${L}: no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- (1e) a phone held sideways with its keyboard, full-screen chat: the keyboard covers the page, but the
+  // turn's status with Resume and Stop stays above it, uncovered, and both work ----
+  {
+    const { ctx, page, errors, replies } = await open({ width: 844, height: 390 }, null, { hasTouch: true, isMobile: true });
+    const L = 'ask (full-screen pause, sideways with the keyboard)';
+    await page.evaluate(() => document.getElementById('btnAsk').click());
+    await page.evaluate(() => window.emu.session.setClaudeAllowed(true));
+    await page.evaluate(() => document.getElementById('btnAskFull').click());
+    await waitFor(page, () => window.emu.session.claudeView === 'full' && !!window.emu.session.chatMachines && document.body.classList.contains('touch-keys')
+      && document.body.classList.contains('chat-phone'), null, 15000);
+    await page.evaluate(() => document.getElementById('btnClaudeView').click());
+    await waitFor(page, () => window.emu.session.chatView === 'basic');
+    replies.push({ body: tools([{ name: 'type_text', input: { text: LISTING } }]) }, { hold: true, body: text('Typed it.') });
+    await page.evaluate(() => { window.emu.session.chat.sendLine('Type a long listing for me'); });
+    await waitFor(page, () => window.emu.session.chatTarget().machine.typist.queue.length > 100 && window.emu.session.claudeBusyActing, null, 8000);
+    await page.focus('#screen');
+    await page.keyboard.press('x');
+    await waitFor(page, () => !!window.emu.session.claudePaused && !document.getElementById('btnClaudeResume').hidden);
+    // each button is on top where it is drawn (nothing covers it) and inside the window (the keyboard lets taps
+    // through its gaps, pointer-events: none, which elementFromPoint skips: it is made hit-testable while measuring)
+    const uncovered = await page.evaluate(() => { const tk = document.getElementById('touchKeys'), was = tk.style.pointerEvents; tk.style.pointerEvents = 'auto';
+      const out = ['btnClaudeResume', 'btnClaudeStop'].map((id) => { const b = document.getElementById(id), r = b.getBoundingClientRect();
+        return r.width > 0 && r.top >= 0 && r.bottom <= innerHeight && r.left >= 0 && r.right <= innerWidth && b.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)); });
+      tk.style.pointerEvents = was; return out; });
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, 'ask-paused-full-sideways.png') });
+    check(`${L}: paused, Resume and Stop are on screen above the keyboard`, uncovered.every(Boolean), JSON.stringify(uncovered));
+    await page.click('#btnClaudeResume');
+    const resumed = await page.evaluate(() => !window.emu.session.claudePaused && window.emu.session.chatTarget().machine.typist.queue.length > 50);
+    await page.focus('#screen');
+    await page.keyboard.press('y');
+    await waitFor(page, () => !!window.emu.session.claudePaused);
+    await page.click('#btnClaudeStop');
+    const stopped = await waitFor(page, () => !window.emu.session.claudePaused && !window.emu.session.chat.busy, null, 8000);
+    check(`${L}: Resume carries on, and Stop ends the turn`, resumed && stopped);
+    if (replies.held) replies.held.release();
+    check(`${L}: no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- (1c) Stop while assemble_and_load waits for an INCLUDE file that never arrives (side panel) ----
+  {
+    const { ctx, page, errors, replies, requests } = await open({ width: 1440, height: 900 });
+    let includeAsked = 0;
+    await ctx.route('**/examples/hang-forever.asm', () => { includeAsked++; /* never answered */ });
+    await page.click('#btnAsk');
+    await page.click('#chkAskMachine');
+    const before = await page.evaluate(() => window.emu.machine.ram[0x3000]);
+    replies.push({ body: tools([{ name: 'assemble_and_load', input: { source: ' INCLUDE "hang-forever.asm"\n FCB 9\n', org: 0x3000 } }]) }, { body: text('should not be asked') });
+    await page.fill('#askInput', 'Assemble with the include');
+    await page.press('#askInput', 'Enter');
+    const shown = await waitFor(page, () => !document.getElementById('askStatus').hidden && document.getElementById('askStatusText').textContent === 'Using assemble_and_load…', null, 8000);
+    for (let i = 0; i < 100 && !includeAsked; i++) await new Promise((r) => setTimeout(r, 50));
+    check('ask (include): while the INCLUDE file hangs, the status says Using assemble_and_load… with Stop', shown && includeAsked === 1 && await page.isVisible('#btnAskStatusStop'), `asked ${includeAsked}`);
+    await page.click('#btnAskStatusStop');
+    const ended = await waitFor(page, () => !window.emu.session.chat.busy && document.getElementById('askStatus').hidden, null, 5000);
+    check('ask (include): Stop ends the turn: no status, [stopped] shown, nothing written, no further request',
+      ended && /\[stopped\]/.test(await page.textContent('#askMessages')) && await page.evaluate((b) => window.emu.machine.ram[0x3000] === b, before) && requests.length === 1, `requests ${requests.length}`);
+    replies.length = 0;
+    replies.push({ body: text('Still here.') });
+    await page.fill('#askInput', 'Are you there?');
+    await page.press('#askInput', 'Enter');
+    check('ask (include): the next line is answered', await waitFor(page, () => /Still here\./.test(document.getElementById('askMessages').textContent) && !window.emu.session.chat.busy, null, 8000));
+    // a refusal is not silent and not kept: the question and a note show; the next line is not glued to it
+    replies.push({ body: sse([msgStart, { type: 'message_delta', delta: { stop_reason: 'refusal' }, usage: {} }, { type: 'message_stop' }]) }, { body: text('Sure.') });
+    await page.fill('#askInput', 'Something refused');
+    await page.press('#askInput', 'Enter');
+    const declined = await waitFor(page, () => !window.emu.session.chat.busy && /Something refused\s*\[Claude declined to answer this one\.\]/.test(document.getElementById('askMessages').textContent), null, 8000);
+    await page.fill('#askInput', 'Something else');
+    await page.press('#askInput', 'Enter');
+    await waitFor(page, () => /Sure\./.test(document.getElementById('askMessages').textContent), null, 8000);
+    const last = requests[requests.length - 1].messages;
+    check('ask (refusal): the question shows with "Claude declined", no empty bubble, and the refused question is not sent again',
+      declined && !JSON.stringify(last).includes('Something refused') && last[last.length - 1].content === 'Something else'
+      && await page.evaluate(() => [...document.querySelectorAll('#askMessages .msg')].every((m) => m.textContent.trim())), JSON.stringify(last));
+    check('ask (include): no page errors', !errors.length, errors.join('; '));
     await ctx.close();
   }
 
@@ -6521,6 +6763,1476 @@ async function askFollowupChecks(browser, base, check) {
     res = await t.settle();
     check('full screen: Don\'t load with the switch off: load-declined, nothing loaded', res.out.error && res.out.error.code === 'load-declined' && (await listing()) === '10 PRINT "NINE"', JSON.stringify(res));
     check('load card: no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+}
+
+// Ask Claude's turn status (the live bug of 0.1.1-pre: "yes" sent in the side panel, then nothing at all while
+// Claude thought, streamed a long load_basic call or waited on its card). Every state of a turn shows a status with
+// Stop, in the side panel, the full-screen chat and the phone sheet: "Thinking…" while the reply streams or the model
+// thinks, "Waiting for your OK" with the card in view, "Using <tool>…" while a tool runs. Errors (HTTP, network, an
+// SSE error event, an exception in the tool loop) and a stalled stream end the turn with a message, and the input
+// works again. The API is a mocked fetch in the page (a stream the check controls, so it can be slow or stall), never
+// the real API, and the key never shows in a log or on the page.
+// R10 and the pause's reach: while Claude is paused (a key pressed while it acted), Esc stops Claude in every view
+// and is not also BREAK; a confirmation, menu or card open during the pause takes the first Esc; the browser's
+// Fullscreen shows Claude's status with Stop (and Resume while paused); a Reset, a power cycle, a snapshot load or
+// a machine switch during a pause stops Claude. Every case ends with resumeClaude(): it must type nothing.
+async function askEscChecks(browser, base, check) {
+  const KEY = 'sk-ant-ESC-CHECK-KEY-0123456789';
+  const sse = (events) => events.map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join('');
+  const msgStart = { type: 'message_start', message: { id: 'msg', type: 'message', role: 'assistant', model: 'claude-opus-5-5', content: [] } };
+  const text = (t) => sse([msgStart, { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+    { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: t } }, { type: 'content_block_stop', index: 0 },
+    { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: {} }, { type: 'message_stop' }]);
+  const tools = (uses) => sse([msgStart, ...uses.flatMap((u, i) => [
+    { type: 'content_block_start', index: i, content_block: { type: 'tool_use', id: `toolu_${i}`, name: u.name, input: {} } },
+    { type: 'content_block_delta', index: i, delta: { type: 'input_json_delta', partial_json: JSON.stringify(u.input) } },
+    { type: 'content_block_stop', index: i }]), { type: 'message_delta', delta: { stop_reason: 'tool_use' }, usage: {} }, { type: 'message_stop' }]);
+  const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'POST, OPTIONS' };
+  const LISTING = Array.from({ length: 1500 }, (_, i) => `${(i + 1) * 10} PRINT "LINE ${i + 1}"`).join('\n') + '\n';
+  async function open(viewport, opts = {}) {
+    const ctx = await browser.newContext({ viewport, serviceWorkers: 'block', ...opts });
+    const page = await ctx.newPage();
+    const errors = [], replies = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await ctx.route('https://api.anthropic.com/**', async (route) => {
+      const req = route.request();
+      if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
+      const r = replies.shift() || { body: text('ok') };
+      if (r.hold) await new Promise((res) => { r.release = res; replies.held = r; });
+      try { await route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'text/event-stream' }, body: r.body }); } catch (e) { /* stopped */ }
+    });
+    await page.goto(`${base}?machine=dragon64`);
+    await started(page);
+    await stubPrompt(page);
+    await page.evaluate((k) => localStorage.setItem('cloadm.anthropicKey', k), KEY);
+    // every code the page puts into a machine's stub key queue from now on (a BREAK from Esc is code 3)
+    await page.evaluate(() => {
+      window.__pushed = [];
+      const tap = (m) => { if (!m || m.__tapped) return; m.__tapped = true; const push = m.stubKeys.push.bind(m.stubKeys); m.stubKeys.push = (...c) => { window.__pushed.push(...c); return push(...c); }; };
+      tap(window.emu.machine);
+      window.emu.session.on(() => { tap(window.emu.session.machine); if (window.emu.session.chatMachines) { tap(window.emu.session.chatMachines.basic); tap(window.emu.session.chatMachines.chat); } });
+    });
+    return { ctx, page, errors, replies };
+  }
+  // the side panel (or the full-screen chat), the switch on, Claude typing a long listing into the BASIC session
+  async function typing(page, replies, { full = false, basicView = true } = {}) {
+    await page.evaluate(() => document.getElementById('btnAsk').click());
+    await page.evaluate(() => window.emu.session.setClaudeAllowed(true));
+    if (full) {
+      await page.evaluate(() => document.getElementById('btnAskFull').click());
+      await waitFor(page, () => window.emu.session.claudeView === 'full' && !!window.emu.session.chatMachines, null, 15000);
+      if (basicView) { await page.evaluate(() => document.getElementById('btnClaudeView').click()); await waitFor(page, () => window.emu.session.chatView === 'basic'); }
+    }
+    replies.push({ body: tools([{ name: 'type_text', input: { text: LISTING } }]) }, { hold: true, body: text('Typed.') });
+    await page.evaluate(() => { window.emu.session.chat.sendLine('Type a long listing for me'); });
+    return waitFor(page, () => window.emu.session.chatTarget().machine.typist.queue.length > 100 && window.emu.session.claudeBusyActing, null, 8000);
+  }
+  // the page's Fullscreen button, under a real click (Fullscreen needs the person's gesture; where the layout hides
+  // the button, a test button clicks it)
+  async function goFull(page) {
+    await page.evaluate(() => { const b = document.createElement('button'); b.id = 'testFull'; b.textContent = 'F';
+      Object.assign(b.style, { position: 'fixed', left: '0', bottom: '0', zIndex: 99999 }); b.onclick = () => document.getElementById('btnFull').click(); document.body.append(b); });
+    await page.click('#testFull');
+    await page.evaluate(() => document.getElementById('testFull').remove());
+  }
+  async function pause(page) {
+    await page.focus('#screen');
+    await page.keyboard.press('x');
+    return waitFor(page, () => !!window.emu.session.claudePaused);
+  }
+  // stopped: not paused, the turn over; then Resume (as the page's buttons call it) types nothing, now or later
+  async function stoppedForGood(page) {
+    const ended = await waitFor(page, () => !window.emu.session.claudePaused && !(window.emu.session.chat && window.emu.session.chat.busy), null, 8000);
+    const r = await page.evaluate(() => { const s = window.emu.session, m = s.chatTarget().machine; window.__pushed.length = 0;
+      return { paused: !!s.claudePaused, busy: !!(s.chat && s.chat.busy), resumed: s.resumeClaude(), queued: m.typist.queue.length + m.stubKeys.length }; });
+    await emuFrames(page, 30);
+    const later = await page.evaluate(() => { const m = window.emu.session.chatTarget().machine; return m.typist.queue.length + m.stubKeys.length + window.__pushed.length; });
+    return { ok: ended && !r.paused && !r.busy && r.resumed === false && r.queued === 0 && later === 0, ...r, later };
+  }
+
+  // ---- (1) R10: Esc during a pause stops Claude in every view, and is not BREAK ----
+  const views = [
+    ['side panel, 1440', { width: 1440, height: 900 }],
+    ['side panel over the screen, 800', { width: 800, height: 800 }],
+    ['phone sheet', { width: 390, height: 844 }, { hasTouch: true, isMobile: true }],
+    ['minimised', { width: 1440, height: 900 }, null, { min: true }],
+    ['side panel sideways with the touch keyboard', { width: 844, height: 390 }, { hasTouch: true, isMobile: true }],
+    ['full-screen chat, BASIC view', { width: 1440, height: 900 }, null, { full: true }],
+    ['full-screen chat, chat view', { width: 1440, height: 900 }, null, { full: true, back: true }],
+    ['full-screen chat sideways with the touch keyboard, BASIC view', { width: 844, height: 390 }, { hasTouch: true, isMobile: true }, { full: true }],
+    ['full-screen chat sideways with the touch keyboard, chat view', { width: 844, height: 390 }, { hasTouch: true, isMobile: true }, { full: true, back: true }],
+  ];
+  for (const [tag, vp, opts, how = {}] of views) {
+    const { ctx, page, errors, replies } = await open(vp, opts || {});
+    const L = `askEsc (Esc while paused, ${tag})`;
+    const going = await typing(page, replies, { full: how.full });
+    if (how.min) await page.evaluate(() => document.getElementById('btnAskMin').click());
+    const paused = await pause(page);
+    const status = await page.evaluate(() => window.emu.session.claudeStatus && window.emu.session.claudeStatus.text);
+    // (the chat view: back to the chat after the pause, by Ctrl+B)
+    if (how.back) { await page.keyboard.press('Control+b'); await waitFor(page, () => window.emu.session.chatView === 'chat'); }
+    if (opts) check(`${L}: (the touch keyboard is up)`, await page.evaluate(() => document.body.classList.contains('touch-keys') || !matchMedia('(orientation: landscape)').matches));
+    await page.focus('#screen');
+    await page.evaluate(() => { window.__pushed.length = 0; });
+    await page.keyboard.press('Escape');
+    const breakSent = await page.evaluate(() => window.__pushed.includes(3));
+    const after = await stoppedForGood(page);
+    check(`${L}: Esc ends the pause and the turn, sends no BREAK, and a Resume afterwards types nothing`,
+      going && paused && /Esc stops Claude/.test(status) && !breakSent && after.ok, JSON.stringify({ going, paused, status, breakSent, after }));
+    if (replies.held) replies.held.release();
+    check(`${L}: no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- (1a) the pausing key and the Esc in one task (a busy page: no timer has run between them): Esc still stops ----
+  for (const [tag, vp, opts] of [['1440', { width: 1440, height: 900 }], ['phone sheet', { width: 390, height: 844 }, { hasTouch: true, isMobile: true }]]) {
+    const { ctx, page, errors, replies } = await open(vp, opts || {});
+    await typing(page, replies);
+    const r = await page.evaluate(() => { const c = document.getElementById('screen'); c.focus(); window.__pushed.length = 0;
+      const key = (type, key, code) => c.dispatchEvent(new KeyboardEvent(type, { key, code, bubbles: true, cancelable: true }));
+      key('keydown', 'x', 'KeyX'); key('keyup', 'x', 'KeyX');
+      const paused = !!window.emu.session.claudePaused;
+      key('keydown', 'Escape', 'Escape'); key('keyup', 'Escape', 'Escape');
+      return { paused, breakSent: window.__pushed.includes(3) }; });
+    const after = await stoppedForGood(page);
+    check(`askEsc (Esc right after the pausing key, ${tag}): Esc stops Claude, no BREAK, Resume afterwards types nothing`, r.paused && !r.breakSent && after.ok, JSON.stringify({ r, after }));
+    if (replies.held) replies.held.release();
+    check(`askEsc (Esc right after the pausing key, ${tag}): no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- (1b) Esc when not paused is unchanged: an Esc that pauses Claude is the person's BREAK (the pause goes on) ----
+  {
+    const { ctx, page, errors, replies } = await open({ width: 1440, height: 900 });
+    await typing(page, replies);
+    await page.focus('#screen');
+    await page.evaluate(() => { window.__pushed.length = 0; });
+    await page.keyboard.press('Escape');
+    const r = await page.evaluate(() => ({ paused: !!window.emu.session.claudePaused, busy: window.emu.session.chat.busy, breakSent: window.__pushed.includes(3) }));
+    check('askEsc (Esc not paused): Esc while Claude types pauses Claude and is BREAK, as before (the turn goes on)', r.paused && r.busy && r.breakSent, JSON.stringify(r));
+    await page.click('#btnAskStop');
+    check('askEsc (Esc not paused): Stop then ends it', (await stoppedForGood(page)).ok);
+    if (replies.held) replies.held.release();
+    check('askEsc (Esc not paused): no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- (1b') Esc held down (autorepeat) while Claude types: the first press pauses and is BREAK; its repeats are the
+  // same press, so they do not stop Claude ----
+  {
+    const { ctx, page, errors, replies } = await open({ width: 1440, height: 900 });
+    await typing(page, replies);
+    await page.focus('#screen');
+    await page.keyboard.down('Escape');
+    await page.keyboard.down('Escape');
+    await page.keyboard.down('Escape');
+    await page.keyboard.up('Escape');
+    const r = await page.evaluate(() => ({ paused: !!window.emu.session.claudePaused, busy: window.emu.session.chat.busy }));
+    check('askEsc (Esc held): an Esc held down while Claude types pauses Claude and its repeats do not stop it', r.paused && r.busy, JSON.stringify(r));
+    await page.keyboard.press('Escape');
+    check('askEsc (Esc held): the next Esc press stops Claude', (await stoppedForGood(page)).ok);
+    if (replies.held) replies.held.release();
+    check('askEsc (Esc held): no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // a modifier let go while Esc is held does not end the press: Shift down, Esc down, Shift up, Esc repeats
+  {
+    const { ctx, page, errors, replies } = await open({ width: 1440, height: 900 });
+    await typing(page, replies);
+    await page.focus('#screen');
+    await page.keyboard.down('Shift');
+    await page.keyboard.down('Escape');
+    await page.keyboard.up('Shift');
+    await page.keyboard.down('Escape');
+    await page.keyboard.up('Escape');
+    const r = await page.evaluate(() => ({ paused: !!window.emu.session.claudePaused, busy: window.emu.session.chat.busy }));
+    check('askEsc (Esc held, Shift let go): the repeat after letting go of Shift is the same press, not a Stop', r.paused && r.busy, JSON.stringify(r));
+    await page.keyboard.press('Escape');
+    check('askEsc (Esc held, Shift let go): the next Esc press stops Claude', (await stoppedForGood(page)).ok);
+    if (replies.held) replies.held.release();
+    check('askEsc (Esc held, Shift let go): no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // and a modifier pressed while Esc is held: Esc down, Shift down, Esc repeats
+  {
+    const { ctx, page, errors, replies } = await open({ width: 1440, height: 900 });
+    await typing(page, replies);
+    await page.focus('#screen');
+    await page.keyboard.down('Escape');
+    await page.keyboard.down('Shift');
+    await page.keyboard.down('Escape');
+    await page.keyboard.up('Escape');
+    await page.keyboard.up('Shift');
+    const r = await page.evaluate(() => ({ paused: !!window.emu.session.claudePaused, busy: window.emu.session.chat.busy }));
+    check('askEsc (Esc held, Shift pressed): the repeat after pressing Shift is the same press, not a Stop', r.paused && r.busy, JSON.stringify(r));
+    await page.keyboard.press('Escape');
+    check('askEsc (Esc held, Shift pressed): the next Esc press stops Claude', (await stoppedForGood(page)).ok);
+    if (replies.held) replies.held.release();
+    check('askEsc (Esc held, Shift pressed): no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // AltGr (AltGraph) and CapsLock pressed and let go while Esc is held: the same press
+  for (const key of ['AltGraph', 'CapsLock']) {
+    const { ctx, page, errors, replies } = await open({ width: 1440, height: 900 });
+    await typing(page, replies);
+    await page.focus('#screen');
+    await page.keyboard.down('Escape');
+    await page.keyboard.down(key);
+    await page.keyboard.up(key);
+    await page.keyboard.down('Escape');
+    await page.keyboard.up('Escape');
+    const r = await page.evaluate(() => ({ paused: !!window.emu.session.claudePaused, busy: window.emu.session.chat.busy }));
+    check(`askEsc (Esc held, ${key} pressed): the repeat is the same press, not a Stop`, r.paused && r.busy, JSON.stringify(r));
+    await page.click('#btnAskStop');
+    if (replies.held) replies.held.release();
+    check(`askEsc (Esc held, ${key}): no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+  // an Esc that only closes a card above the screen while Claude types (not paused) is not a key on the machine:
+  // no BREAK, and it does not pause Claude
+  {
+    const { ctx, page, errors, replies } = await open({ width: 1440, height: 900 });
+    await typing(page, replies);
+    await page.evaluate(() => { document.getElementById('mediaOfferText').textContent = 'A test offer'; document.getElementById('mediaOffer').hidden = false; window.__pushed.length = 0; });
+    await page.focus('#screen');
+    await page.keyboard.press('Escape');
+    const r = await page.evaluate(() => ({ closed: document.getElementById('mediaOffer').hidden, paused: !!window.emu.session.claudePaused, busy: window.emu.session.chat.busy, breakSent: window.__pushed.includes(3) }));
+    check('askEsc (card, not paused): Esc closes the card above the screen, sends no BREAK and does not pause Claude', r.closed && !r.paused && r.busy && !r.breakSent, JSON.stringify(r));
+    await page.click('#btnAskStop');
+    if (replies.held) replies.held.release();
+    check('askEsc (card, not paused): no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- (1c) Esc order: a menu (the command box) or a card open during the pause takes the first Esc; the next stops ----
+  {
+    const { ctx, page, errors, replies } = await open({ width: 1440, height: 900 });
+    await typing(page, replies);
+    await pause(page);
+    await page.keyboard.press('Control+k');
+    const boxOpen = await waitFor(page, () => !document.getElementById('cmdBox').hidden);
+    await page.keyboard.press('Escape');
+    const first = await page.evaluate(() => ({ paused: !!window.emu.session.claudePaused, closed: document.getElementById('cmdBox').hidden }));
+    await page.keyboard.press('Escape');
+    const after = await stoppedForGood(page);
+    check('askEsc (order): with the command box open during a pause, the first Esc closes it (still paused), the next stops Claude',
+      boxOpen && first.closed && first.paused && after.ok, JSON.stringify({ boxOpen, first, after }));
+    if (replies.held) replies.held.release();
+    check('askEsc (order): no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // a card above the screen (the media offer, page.onEscape rank card) with the focus on the screen: the same order
+  {
+    const { ctx, page, errors, replies } = await open({ width: 1440, height: 900 });
+    await typing(page, replies);
+    await pause(page);
+    await page.evaluate(() => { document.getElementById('mediaOfferText').textContent = 'A test offer'; document.getElementById('mediaOffer').hidden = false; });
+    await page.focus('#screen');
+    await page.keyboard.press('Escape');
+    const first = await page.evaluate(() => ({ paused: !!window.emu.session.claudePaused, closed: document.getElementById('mediaOffer').hidden, breakSent: window.__pushed.includes(3) }));
+    await page.focus('#screen');
+    await page.keyboard.press('Escape');
+    const after = await stoppedForGood(page);
+    check('askEsc (order): with a card above the screen during a pause, Esc on the screen closes the card first (still paused, no BREAK), the next stops Claude',
+      first.closed && first.paused && !first.breakSent && after.ok, JSON.stringify({ first, after }));
+    if (replies.held) replies.held.release();
+    check('askEsc (order, card): no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- (2) the browser's Fullscreen: Claude's status with Stop (and Resume while paused) inside it ----
+  for (const [tag, vp, opts] of [['1440', { width: 1440, height: 900 }], ['800', { width: 800, height: 800 }],
+    ['390 touch', { width: 390, height: 844 }, { hasTouch: true, isMobile: true }], ['844×390 touch', { width: 844, height: 390 }, { hasTouch: true, isMobile: true }]]) {
+    const { ctx, page, errors, replies } = await open(vp, opts || {});
+    const L = `askEsc (browser Fullscreen, ${tag})`;
+    await typing(page, replies);
+    await goFull(page);
+    const isFull = await waitFor(page, () => document.fullscreenElement === document.getElementById('screenWrap'));
+    const hit = (ids) => page.evaluate((ids) => ids.map((id) => { const b = document.getElementById(id), r = b.getBoundingClientRect();
+      return !b.hidden && r.width > 0 && r.top >= 0 && r.bottom <= innerHeight && r.left >= 0 && r.right <= innerWidth && b.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)); }), ids);
+    await waitFor(page, () => !document.getElementById('fsClaude').hidden);
+    const acting = { stop: (await hit(['btnFsStop']))[0], resumeHidden: await page.evaluate(() => document.getElementById('btnFsResume').hidden), text: await page.textContent('#fsClaudeText') };
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `ask-fullscreen-acting-${tag.replace(/[ ×]/g, '-')}.png`) });
+    check(`${L}: acting, unpaused: the status with Stop is on the fullscreen screen and clickable`, isFull && acting.stop && acting.resumeHidden && /Claude is typing/.test(acting.text), JSON.stringify(acting));
+    await page.focus('#screen');
+    await page.keyboard.press('x');
+    await waitFor(page, () => !!window.emu.session.claudePaused && !document.getElementById('btnFsResume').hidden);
+    const paused = { both: await hit(['btnFsResume', 'btnFsStop']), text: await page.textContent('#fsClaudeText'), still: await page.evaluate(() => document.fullscreenElement === document.getElementById('screenWrap')) };
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `ask-fullscreen-paused-${tag.replace(/[ ×]/g, '-')}.png`) });
+    check(`${L}: paused: Resume and Stop are on the fullscreen screen and clickable, the status says Esc stops Claude`, paused.both.every(Boolean) && /Esc stops Claude/.test(paused.text) && paused.still, JSON.stringify(paused));
+    await page.click('#btnFsResume');
+    const resumed = await page.evaluate(() => !window.emu.session.claudePaused && window.emu.machine.typist.queue.length > 50);
+    await page.focus('#screen');
+    await page.keyboard.press('y');
+    await waitFor(page, () => !!window.emu.session.claudePaused);
+    await page.click('#btnFsStop');
+    const after = await stoppedForGood(page);
+    check(`${L}: Resume carries on; Stop ends the turn and nothing is typed later`, resumed && after.ok, JSON.stringify({ resumed, after }));
+    if (replies.held) replies.held.release();
+    check(`${L}: no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+  // leaving Fullscreen while paused (the browser's Esc there) stops Claude
+  {
+    const { ctx, page, errors, replies } = await open({ width: 1440, height: 900 });
+    await typing(page, replies);
+    await goFull(page);
+    await waitFor(page, () => document.fullscreenElement === document.getElementById('screenWrap'));
+    await pause(page);
+    await page.evaluate(() => document.exitFullscreen());
+    const after = await stoppedForGood(page);
+    check('askEsc (browser Fullscreen): leaving it while paused (Esc there) stops Claude; Resume afterwards types nothing', after.ok, JSON.stringify(after));
+    if (replies.held) replies.held.release();
+    check('askEsc (browser Fullscreen, leave): no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- (2b) what the program on the machine asks for itself is not the person's doing: Claude typing 1 on the
+  // welcome menu starts LIZA through the page's handler, and Claude's turn goes on ----
+  {
+    const { ctx, page, errors, replies } = await open({ width: 1440, height: 900 });
+    await page.evaluate(() => document.getElementById('btnAsk').click());
+    await page.evaluate(async () => { const s = window.emu.session; s.setClaudeAllowed(true);
+      const r = await fetch(`examples/${s.welcomeFile}`); s.startWelcome(new Uint8Array(await r.arrayBuffer())); });
+    await emuFrames(page, 120);
+    replies.push({ body: tools([{ name: 'type_text', input: { text: '1' } }]) }, { hold: true, body: text('LIZA is up.') });
+    await page.evaluate(() => { window.emu.session.chat.sendLine('Start LIZA for me'); });
+    const up = await waitFor(page, () => !!window.emu.session.lastRun && window.emu.session.lastRun.kind === 'liza', null, 15000);
+    await emuFrames(page, 30);
+    const r = await page.evaluate(() => ({ busy: window.emu.session.chat.busy, err: window.emu.session.chat.error && window.emu.session.chat.error.code, note: document.getElementById('askMessages').textContent }));
+    check('askEsc (welcome menu): Claude choosing LIZA with its own key starts LIZA, and Claude\'s turn goes on (not stopped, no note)',
+      up && r.busy && !r.err && !/stopped/.test(r.note), JSON.stringify({ up, ...r, note: r.note.slice(-80) }));
+    if (replies.held) replies.held.release();
+    check('askEsc (welcome menu): no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ... but only the start itself is the machine's: the person's Reset while the page fetches what the machine
+  // asked for (LIZA's bytes held back here) stops Claude, and nothing stays exempt afterwards
+  {
+    const { ctx, page, errors, replies } = await open({ width: 1440, height: 900 });
+    let release = null;
+    await ctx.route('**/examples/liza.bin', async (route) => { await new Promise((r) => { release = r; }); await route.continue(); });
+    await typing(page, replies);
+    await page.evaluate(() => { window.emu.session.emit('welcome:liza'); });
+    for (let i = 0; i < 100 && !release; i++) await new Promise((r) => setTimeout(r, 50));
+    await page.evaluate(() => document.getElementById('btnReset').click());
+    const stopped = await waitFor(page, () => !window.emu.session.chat.busy && !window.emu.session.claudeBusyActing, null, 8000);
+    const note = await page.textContent('#askMessages');
+    if (release) release();
+    const after = await waitFor(page, () => !!window.emu.session.lastRun && window.emu.session.lastRun.kind === 'liza', null, 15000);
+    const driven = await page.evaluate(() => window.emu.session.machineDriven);
+    check('askEsc (welcome menu): the person\'s Reset while the machine\'s LIZA is fetched stops Claude ("you reset the machine"); the exemption covers only the start',
+      !!release && stopped && /\[stopped: you reset the machine\]/.test(note) && after && driven === null, JSON.stringify({ fetched: !!release, stopped, after, driven, note: note.slice(-60) }));
+    if (replies.held) replies.held.release();
+    check('askEsc (welcome menu, Reset meanwhile): no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- (3) a Reset, a power cycle, a snapshot load or a machine switch during a pause stops Claude ----
+  for (const [tag, act, full] of [
+    ['Reset', (page) => page.evaluate(() => document.getElementById('btnReset').click())],
+    ['power cycle', (page) => page.evaluate(() => document.getElementById('btnHardReset').click())],
+    ['Reset, full-screen chat', (page) => page.evaluate(() => document.getElementById('btnReset').click()), true],
+    ['snapshot load', async (page) => page.evaluate(async () => { const s = window.emu.session; await s.saveSlot(1); s.openSnapshot(await s.readSlot(1)); s.emit('chat'); })],
+    ['machine switch', (page) => page.evaluate(() => { window.emu.session.chooseMachine('coco2'); })],
+    // (any other restart of the machine, here a program file opened from the page: it starts on a reset)
+    // (a DECB .bin: the page offers a CoCo first, and Load anyway loads it here)
+    ['program load', async (page) => {
+      await page.setInputFiles('#fileCart', { name: 'loop.bin', mimeType: 'application/octet-stream',
+        buffer: Buffer.from([0x00, 0x00, 0x02, 0x40, 0x00, 0x20, 0xFE, 0xFF, 0x00, 0x00, 0x40, 0x00]) });
+      await waitFor(page, () => !document.getElementById('mediaOffer').hidden);
+      await page.click('#btnMediaAnyway');
+    }],
+  ]) {
+    const { ctx, page, errors, replies } = await open({ width: 1440, height: 900 });
+    const L = `askEsc (${tag} while paused)`;
+    await typing(page, replies, { full });
+    await pause(page);
+    await act(page);
+    const after = await stoppedForGood(page);
+    const note = await page.evaluate(() => [document.getElementById('askMessages').textContent, window.emu.session.chat ? 'open' : 'closed']);
+    const keeps = /Reset|power/.test(tag);
+    check(`${L}: Claude stops (the pause ends, the turn ends, held keys dropped) and a Resume afterwards types nothing`, after.ok, JSON.stringify(after));
+    if (keeps && !full) check(`${L}: the conversation says why`, /\[stopped: you (reset|power cycled) the machine\]/.test(note[0]), note[0].slice(-120));
+    if (replies.held) replies.held.release();
+    check(`${L}: no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- (4) F1: the page views (Share, the Library, Add ROMs, the Debugger) hide the emulator and the panel: Claude's
+  // status pill (#viewClaude, outside .layout) shows there with Stop, and Resume while paused; both can be clicked
+  // (nothing lies over them), the view's own "← Emulator" is not covered, and Stop ends the turn ----
+  const VIEW_BACK = { '#share': '#shareBack', '#library': '#btnLibBack', '#add-roms': '#romCard .libhead a', '#debugger': '#debugView .dbghead a' };
+  // what is at the centre of an element: itself (or inside it), so a click there reaches it
+  const clickable = (page, sel) => page.evaluate((q) => { const e = document.querySelector(q); if (!e) return 'missing';
+    const r = e.getBoundingClientRect(); if (!r.width || !r.height) return 'not shown';
+    if (r.bottom > innerHeight || r.right > innerWidth || r.left < 0 || r.top < 0) return 'off screen';
+    const at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return at && (at === e || e.contains(at)) ? 'ok' : `covered by ${at && (at.id || at.tagName)}`; }, sel);
+  for (const [tag, vp, opts] of [['1440', { width: 1440, height: 900 }], ['phone', { width: 390, height: 844 }, { hasTouch: true, isMobile: true }]]) {
+    for (const view of ['#share', '#library', '#add-roms', '#debugger']) {
+      for (const paused of [false, true]) {
+        const { ctx, page, errors, replies } = await open(vp, opts || {});
+        const L = `askEsc (F1 ${view}, ${tag}, ${paused ? 'paused' : 'Claude typing'})`;
+        await typing(page, replies);
+        if (paused) await pause(page);
+        await page.evaluate((h) => { location.hash = h; }, view);
+        const shown = await waitFor(page, (h) => location.hash === h && !document.getElementById('viewClaude').hidden, view, 8000);
+        const r = await page.evaluate(() => ({ text: document.getElementById('viewClaudeText').textContent, resume: !document.getElementById('btnViewResume').hidden,
+          inLayout: !!document.getElementById('viewClaude').closest('.layout'), status: window.emu.session.claudeStatus && window.emu.session.claudeStatus.text }));
+        const stop = await clickable(page, '#btnViewStop'), resume = paused ? await clickable(page, '#btnViewResume') : 'n/a', back = await clickable(page, VIEW_BACK[view]);
+        const textOk = paused ? /^Paused.*Esc stops Claude/.test(r.text) : /^(Using type_text…|Thinking…)$/.test(r.text);
+        check(`${L}: the pill shows the state with Stop${paused ? ' and Resume' : ''}, both clickable, and "← Emulator" is not covered`,
+          shown && !r.inLayout && textOk && r.text === r.status && r.resume === paused && stop === 'ok' && (!paused || resume === 'ok') && back === 'ok', JSON.stringify({ shown, ...r, stop, resume, back }));
+        if (paused) {
+          if (resume === 'ok') await page.click('#btnViewResume');
+          const resumed = await waitFor(page, () => !window.emu.session.claudePaused && window.emu.session.claudeBusyActing && document.getElementById('btnViewResume').hidden, null, 5000);
+          check(`${L}: Resume lets Claude go on, and the pill stays`, resumed && await page.evaluate(() => !document.getElementById('viewClaude').hidden));
+        }
+        if (stop === 'ok') await page.click('#btnViewStop'); else await page.evaluate(() => document.getElementById('btnAskStop').click());
+        const after = await stoppedForGood(page);
+        const gone = await waitFor(page, () => document.getElementById('viewClaude').hidden, null, 5000);
+        check(`${L}: Stop ends the turn (nothing typed afterwards) and the pill goes`, after.ok && gone, JSON.stringify(after));
+        if (replies.held) replies.held.release();
+        check(`${L}: no page errors`, !errors.length, errors.join('; '));
+        await ctx.close();
+      }
+    }
+  }
+  // Claude's own "3" at the welcome menu opens Add ROMs: the pill is there, and Claude's turn goes on
+  for (const [tag, vp, opts] of [['1440', { width: 1440, height: 900 }], ['phone', { width: 390, height: 844 }, { hasTouch: true, isMobile: true }]]) {
+    const { ctx, page, errors, replies } = await open(vp, opts || {});
+    await page.evaluate(() => document.getElementById('btnAsk').click());
+    await page.evaluate(async () => { const s = window.emu.session; s.setClaudeAllowed(true);
+      const r = await fetch(`examples/${s.welcomeFile}`); s.startWelcome(new Uint8Array(await r.arrayBuffer())); });
+    await emuFrames(page, 120);
+    replies.push({ body: tools([{ name: 'type_text', input: { text: '3' } }]) }, { hold: true, body: text('Add ROMs is open.') });
+    await page.evaluate(() => { window.emu.session.chat.sendLine('Show me how to add ROMs'); });
+    const up = await waitFor(page, () => location.hash === '#add-roms' && !document.getElementById('viewClaude').hidden, null, 15000);
+    const r = await page.evaluate(() => ({ busy: window.emu.session.chat.busy, text: document.getElementById('viewClaudeText').textContent }));
+    const stop = await clickable(page, '#btnViewStop');
+    if (stop === 'ok') await page.click('#btnViewStop');
+    const after = await waitFor(page, () => !window.emu.session.chat.busy, null, 5000);
+    check(`askEsc (F1 Claude's own 3 at the welcome menu, ${tag}): Add ROMs opens with the pill (status, Stop clickable), and Stop ends the turn`,
+      up && r.busy && !!r.text && stop === 'ok' && after, JSON.stringify({ up, ...r, stop, after }));
+    if (replies.held) replies.held.release();
+    check(`askEsc (F1 Claude's own 3, ${tag}): no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+  // a card raised while a view is up closes the view (back to the emulator, the panel open on the card), where it is
+  // seen and answered; a card already waiting when the person opens a view: the pill says so, and Answer goes to it
+  for (const [tag, vp, opts] of [['1440', { width: 1440, height: 900 }], ['phone', { width: 390, height: 844 }, { hasTouch: true, isMobile: true }]]) {
+    for (const view of ['#library', '#debugger']) {
+      const { ctx, page, errors, replies } = await open(vp, opts || {});
+      const L = `askEsc (F1 card under ${view}, ${tag})`;
+      await page.evaluate(() => document.getElementById('btnAsk').click());
+      const first = { hold: true, body: tools([{ name: 'type_text', input: { text: 'PRINT 1' } }]) };
+      replies.push(first, { hold: true, body: text('Done.') });
+      await page.evaluate(() => { window.emu.session.chat.sendLine('Type PRINT 1'); });
+      for (let i = 0; i < 100 && !replies.held; i++) await new Promise((res) => setTimeout(res, 20));
+      await page.evaluate((h) => { location.hash = h; }, view);
+      await waitFor(page, (h) => location.hash === h && !document.getElementById('viewClaude').hidden, view, 5000);
+      const thinking = await page.evaluate(() => document.getElementById('viewClaudeText').textContent);
+      const held = replies.held; replies.held = null; held.release();
+      const back = await waitFor(page, () => !!window.emu.session.claudePending && location.hash === '' && !document.getElementById('askConsent').hidden, null, 8000);
+      await new Promise((res) => setTimeout(res, 300));
+      const allow = await clickable(page, '#btnAskAllow');
+      if (allow === 'ok') await page.click('#btnAskAllow');
+      const typed = await waitFor(page, () => !window.emu.session.claudePending && window.emu.session.claudeAllowed, null, 5000);
+      check(`${L}: the pill says Thinking… under the view; the card closes the view and shows on the emulator, and Allow answers it`,
+        thinking === 'Thinking…' && back && allow === 'ok' && typed, JSON.stringify({ thinking, back, allow, typed }));
+      for (let i = 0; i < 400 && !replies.held; i++) await new Promise((res) => setTimeout(res, 20));
+      if (replies.held) { replies.held.release(); replies.held = null; }
+      const ended = await waitFor(page, () => !window.emu.session.chat.busy, null, 8000);
+      check(`${L}: (the first turn ended)`, ended);
+      // a card already up, then the person opens a view: the pill shows "Waiting for your OK" with Answer
+      await page.evaluate(() => window.emu.session.setClaudeAllowed(false));
+      replies.push({ body: tools([{ name: 'type_text', input: { text: 'PRINT 2' } }]) }, { hold: true, body: text('Done.') });
+      await page.evaluate(() => { window.emu.session.chat.sendLine('Type PRINT 2'); });
+      const pending = await waitFor(page, () => !!window.emu.session.claudePending, null, 8000);
+      check(`${L}: (the second turn's card is up)`, pending);
+      await page.evaluate((h) => { location.hash = h; }, view);
+      const waiting = await waitFor(page, (h) => location.hash === h && document.getElementById('viewClaudeText').textContent === 'Waiting for your OK' && !document.getElementById('btnViewAnswer').hidden, view, 5000);
+      const answer = await clickable(page, '#btnViewAnswer');
+      if (answer === 'ok') await page.click('#btnViewAnswer');
+      const shownCard = await waitFor(page, () => location.hash === '' && !document.getElementById('askConsent').hidden && document.getElementById('askConsent').getClientRects().length > 0, null, 5000);
+      await new Promise((res) => setTimeout(res, 300));
+      const tell = await clickable(page, '#btnAskTell');
+      if (tell === 'ok') await page.click('#btnAskTell');
+      const answered = await waitFor(page, () => !window.emu.session.claudePending, null, 5000);
+      check(`${L}: a card already waiting shows "Waiting for your OK" with Answer in the view; Answer brings the card into view and it is answered`,
+        waiting && answer === 'ok' && shownCard && tell === 'ok' && answered, JSON.stringify({ waiting, answer, shownCard, tell, answered }));
+      if (replies.held) replies.held.release();
+      check(`${L}: no page errors`, !errors.length, errors.join('; '));
+      await ctx.close();
+    }
+  }
+
+  // Stop from the pill while an acting call waits at its gate (the merged Ask + acting-tools contract): (i) a card
+  // already up when the person opens a view: Stop on the pill ends the call stopped, the card goes, nothing is typed;
+  // (ii) the person's key on the screen while the card is up pauses Claude (the card stays, unanswered); in a view the
+  // pill says Paused with Answer (the card), Resume and Stop (R11), and Stop ends it, the card answered stopped,
+  // nothing typed. (Allow while paused is "Allow and resume" since R11: section (7) covers it.)
+  for (const [tag, vp, opts] of [['1440', { width: 1440, height: 900 }], ['phone', { width: 390, height: 844 }, { hasTouch: true, isMobile: true }]]) {
+    for (const keyFirst of [false, true]) {
+      const { ctx, page, errors, replies } = await open(vp, opts || {});
+      const L = `askEsc (F1 Stop on the pill during a gate wait, ${keyFirst ? 'the person\'s key while the card waits' : 'the card waiting'}, ${tag})`;
+      await page.evaluate(() => document.getElementById('btnAsk').click());
+      await page.evaluate(() => window.emu.session.setClaudeAllowed(false));
+      replies.push({ body: tools([{ name: 'type_text', input: { text: 'PRINT 2' } }]) }, { hold: true, body: text('Done.') });
+      await page.evaluate(() => { window.emu.session.chat.sendLine('Type PRINT 2'); });
+      const pending = await waitFor(page, () => !!window.emu.session.claudePending && !document.getElementById('askConsent').hidden, null, 8000);
+      let paused = 'n/a';
+      if (keyFirst) {
+        await page.focus('#screen');
+        await page.keyboard.press('x');
+        paused = await waitFor(page, () => !!window.emu.session.claudePaused && !!window.emu.session.claudePending, null, 5000);
+        await page.evaluate(() => { window.__pushed.length = 0; });
+        await emuFrames(page, 30);
+      }
+      const held = await page.evaluate(() => { const s = window.emu.session, m = s.chatTarget().machine;
+        return { pushed: window.__pushed.length, queued: m.typist.queue.length + m.stubKeys.length, undo: s.chat.undo.length, busy: s.chat.busy }; });
+      await page.evaluate(() => { location.hash = '#library'; });
+      const want = keyFirst ? /^Paused.*Esc stops Claude$/ : /^Waiting for your OK$/;
+      const shown = await waitFor(page, (w) => location.hash === '#library' && !document.getElementById('viewClaude').hidden && new RegExp(w).test(document.getElementById('viewClaudeText').textContent), want.source, 8000);
+      const r = await page.evaluate(() => ({ text: document.getElementById('viewClaudeText').textContent, answer: !document.getElementById('btnViewAnswer').hidden, resume: !document.getElementById('btnViewResume').hidden }));
+      const stop = await clickable(page, '#btnViewStop');
+      check(`${L}: the card is up${keyFirst ? '; the key pauses Claude, nothing of Claude\'s is typed, no restore point' : ''}; the pill shows ${keyFirst ? 'Paused with Answer and Resume' : '"Waiting for your OK" with Answer'} and a clickable Stop`,
+        pending && (!keyFirst || (paused && held.pushed === 0 && held.queued === 0 && held.undo === 0 && held.busy)) && shown
+          && r.answer && r.resume === keyFirst && stop === 'ok', JSON.stringify({ pending, paused, held, shown, ...r, stop }));
+      if (stop === 'ok') await page.click('#btnViewStop'); else await page.evaluate(() => document.getElementById('btnAskStop').click());
+      const after = await stoppedForGood(page);
+      const res = await page.evaluate(() => { const s = window.emu.session; return { pending: !!s.claudePending, call: s.claudeCall, undo: s.chat.undo.length, msgs: document.getElementById('askMessages').textContent.slice(-200) }; });
+      const gone = await waitFor(page, () => document.getElementById('viewClaude').hidden, null, 5000);
+      check(`${L}: Stop on the pill ends the call (stopped) and the turn: no card left, nothing typed then or later, no restore point, the pill goes`,
+        after.ok && !res.pending && res.call === null && res.undo === 0 && gone, JSON.stringify({ after, ...res, gone }));
+      if (replies.held) replies.held.release();
+      check(`${L}: no page errors`, !errors.length, errors.join('; '));
+      await ctx.close();
+    }
+  }
+
+  // ---- (5) F2: every way the person's input reaches the machine Claude acts on pauses Claude, as a key on the screen
+  // does: an on-screen key, a paste, a key with the focus on the page's body, the type-in panel, a tap on the welcome
+  // menu; and the person's "1" at the welcome menu while Claude acts no longer runs under Claude's ticket ----
+  const inputs = [
+    ['an on-screen key', { width: 390, height: 844 }, { hasTouch: true, isMobile: true }, (page) => page.evaluate(() => {
+      const b = [...document.querySelectorAll('#touchKeys .tk')].find((x) => x.dataset.key === 'Q' && x.getClientRects().length);
+      b.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerId: 7, pointerType: 'touch' }));
+      b.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, pointerId: 7, pointerType: 'touch' })); })],
+    ['a paste on the screen', { width: 1440, height: 900 }, null, (page) => page.evaluate(() => { const c = document.getElementById('screen'); c.focus();
+      const dt = new DataTransfer(); dt.setData('text/plain', 'HELLO'); c.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true })); })],
+    ['a key with the focus on the page\'s body', { width: 1440, height: 900 }, null, async (page) => { await page.evaluate(() => { document.activeElement.blur(); });
+      await page.keyboard.press('x'); }],
+    ['the type-in panel', { width: 1440, height: 900 }, null, (page) => page.evaluate(() => { document.getElementById('typeinSource').value = '10 PRINT "HI"';
+      document.getElementById('btnTypein').onclick(); })],
+  ];
+  for (const [tag, vp, opts, act] of inputs) {
+    const { ctx, page, errors, replies } = await open(vp, opts || {});
+    const L = `askEsc (F2 ${tag})`;
+    const going = await typing(page, replies);
+    await act(page);
+    const r = await page.evaluate(() => ({ paused: !!window.emu.session.claudePaused, busy: window.emu.session.chat.busy,
+      status: window.emu.session.claudeStatus && window.emu.session.claudeStatus.phase }));
+    check(`${L}: pauses Claude while it types (as a key on the screen does)`, going && r.paused && r.busy && r.status === 'paused', JSON.stringify({ going, ...r }));
+    await page.evaluate(() => document.getElementById('btnAskStop').click());
+    check(`${L}: Stop then ends it`, (await stoppedForGood(page)).ok);
+    if (replies.held) replies.held.release();
+    check(`${L}: no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+  // the repro: Claude acting at the welcome menu (it has poked, its next reply is on the way), the person types "1"
+  // (on the page's body, an on-screen key, a tap on the menu line): LIZA starts and Claude's turn stops, not Claude's
+  for (const [tag, vp, opts, act] of [
+    ['a key on the page\'s body', { width: 1440, height: 900 }, null, async (page) => { await page.evaluate(() => document.activeElement.blur()); await page.keyboard.press('1'); }],
+    ['an on-screen key', { width: 390, height: 844 }, { hasTouch: true, isMobile: true }, (page) => page.evaluate(() => {
+      const b = [...document.querySelectorAll('#touchKeys .tk')].find((x) => x.dataset.key === '1' && x.getClientRects().length);
+      b.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerId: 7, pointerType: 'touch' }));
+      setTimeout(() => b.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, pointerId: 7, pointerType: 'touch' })), 120); })],
+    ['a tap on the menu line', { width: 1440, height: 900 }, null, (page) => page.evaluate(() => { const c = document.getElementById('screen'), r = c.getBoundingClientRect(), f = window.emu.session.machine.render();
+      c.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: r.left + r.width / 2, clientY: r.top + (24 + 12 * 9 + 6) / f.height * r.height })); })],
+  ]) {
+    const { ctx, page, errors, replies } = await open(vp, opts || {});
+    await page.evaluate(() => document.getElementById('btnAsk').click());
+    await page.evaluate(async () => { const s = window.emu.session; s.setClaudeAllowed(true);
+      const r = await fetch(`examples/${s.welcomeFile}`); s.startWelcome(new Uint8Array(await r.arrayBuffer())); });
+    await emuFrames(page, 120);
+    replies.push({ body: tools([{ name: 'poke', input: { address: 0x3000, bytes: [7] } }]) }, { hold: true, body: text('ok') });
+    await page.evaluate(() => { window.emu.session.chat.sendLine('Poke for me'); });
+    const acting = await waitFor(page, () => window.emu.session.claudeBusyActing && window.emu.session.claudeStatus.phase === 'thinking', null, 8000);
+    await act(page);
+    const up = await waitFor(page, () => !!window.emu.session.lastRun && window.emu.session.lastRun.kind === 'liza', null, 15000);
+    const stopped = await waitFor(page, () => !window.emu.session.chat.busy && window.emu.session.chat.error && window.emu.session.chat.error.code === 'aborted', null, 8000);
+    check(`askEsc (F2 the welcome-menu repro, ${tag}): the person's "1" while Claude acts pauses Claude, and LIZA it starts stops Claude's turn`, acting && up && stopped, JSON.stringify({ acting, up, stopped }));
+    if (replies.held) replies.held.release();
+    check(`askEsc (F2 the welcome-menu repro, ${tag}): no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- (5b) the Ask rail's open tab is a menu: Esc on the screen closes it and is neither BREAK nor a pause; Shift
+  // alone (a key on the machine) pauses Claude ----
+  {
+    const { ctx, page, errors, replies } = await open({ width: 1440, height: 900 });
+    await typing(page, replies);
+    await page.evaluate(() => document.querySelector('#askRail button').click());
+    await page.focus('#screen');
+    await page.evaluate(() => { window.__pushed.length = 0; });
+    await page.keyboard.press('Escape');
+    const r = await page.evaluate(() => ({ rail: document.body.classList.contains('ask-rail-drawer'), paused: !!window.emu.session.claudePaused, breakSent: window.__pushed.includes(3) }));
+    check('askEsc (rail): with a rail tab open, Esc on the screen closes the tab, sends no BREAK and does not pause Claude', !r.rail && !r.paused && !r.breakSent, JSON.stringify(r));
+    await page.keyboard.press('Escape');
+    const r2 = await page.evaluate(() => ({ paused: !!window.emu.session.claudePaused, breakSent: window.__pushed.includes(3) }));
+    check('askEsc (rail): the next Esc is BREAK and pauses Claude, as before', r2.paused && r2.breakSent, JSON.stringify(r2));
+    await page.click('#btnAskStop');
+    check('askEsc (rail): Stop then ends it', (await stoppedForGood(page)).ok);
+    if (replies.held) replies.held.release();
+    check('askEsc (rail): no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+  {
+    const { ctx, page, errors, replies } = await open({ width: 1440, height: 900 });
+    await typing(page, replies);
+    await page.focus('#screen');
+    await page.keyboard.down('Shift');
+    const paused = await page.evaluate(() => !!window.emu.session.claudePaused);
+    await page.keyboard.up('Shift');
+    check('askEsc (Shift): Shift alone, the machine\'s SHIFT key, pauses Claude while it types', paused);
+    await page.click('#btnAskStop');
+    check('askEsc (Shift): Stop then ends it', (await stoppedForGood(page)).ok);
+    if (replies.held) replies.held.release();
+    check('askEsc (Shift): no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- (5c) where no other Stop can be reached: a phone held sideways with its touch keyboard (the drawer's strip is
+  // hidden under it), the side panel closed or minimised while Claude only thinks: #viewClaude, over the screen ----
+  for (const how of ['closed', 'minimised']) {
+    const { ctx, page, errors, replies } = await open({ width: 844, height: 390 }, { hasTouch: true, isMobile: true });
+    const L = `askEsc (sideways with touch keys, panel ${how})`;
+    await page.evaluate(() => document.getElementById('btnAsk').click());
+    replies.push({ hold: true, body: text('ok') });
+    await page.evaluate(() => { window.emu.session.chat.sendLine('hello'); });
+    await page.evaluate((h) => document.getElementById(h === 'closed' ? 'btnAskClose' : 'btnAskMin').click(), how);
+    const shown = await waitFor(page, () => !document.getElementById('viewClaude').hidden && document.getElementById('viewClaudeText').textContent === 'Thinking…', null, 5000);
+    const keys = await page.evaluate(() => document.body.classList.contains('touch-keys'));
+    const stop = await clickable(page, '#btnViewStop');
+    if (stop === 'ok') await page.click('#btnViewStop');
+    const ended = await waitFor(page, () => !window.emu.session.chat.busy && document.getElementById('viewClaude').hidden, null, 5000);
+    check(`${L}: Claude's status with a clickable Stop shows, and Stop ends the turn`, keys && shown && stop === 'ok' && ended, JSON.stringify({ keys, shown, stop, ended }));
+    if (replies.held) replies.held.release();
+    check(`${L}: no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+  // ... and in the full-screen chat held sideways, a card is not left under the touch keyboard: it stands aside
+  {
+    const { ctx, page, errors, replies } = await open({ width: 844, height: 390 }, { hasTouch: true, isMobile: true });
+    const L = 'askEsc (full-screen chat sideways, a card)';
+    await page.evaluate(() => document.getElementById('btnAsk').click());
+    await page.evaluate(() => document.getElementById('btnAskFull').click());
+    await waitFor(page, () => window.emu.session.claudeView === 'full' && !!window.emu.session.chatMachines, null, 15000);
+    replies.push({ body: tools([{ name: 'type_text', input: { text: 'PRINT 1' } }]) }, { hold: true, body: text('Done.') });
+    await page.evaluate(() => { window.emu.session.chat.sendLine('Type PRINT 1'); });
+    const pending = await waitFor(page, () => !!window.emu.session.claudePending && document.getElementById('touchKeys').hidden, null, 8000);
+    await page.evaluate(() => document.getElementById('btnClaudeAllow').scrollIntoView({ block: 'center' }));
+    const allow = await clickable(page, '#btnClaudeAllow');
+    if (allow === 'ok') await page.click('#btnClaudeAllow');
+    const back = await waitFor(page, () => !window.emu.session.claudePending && !document.getElementById('touchKeys').hidden, null, 5000);
+    check(`${L}: the touch keyboard stands aside while the card waits, Allow can be clicked, and the keyboard comes back`, pending && allow === 'ok' && back, JSON.stringify({ pending, allow, back }));
+    if (replies.held) replies.held.release();
+    check(`${L}: no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- (5d) from a second review: a toast over the bottom of a phone while only the sheet's Stop shows does not make the
+  // pill come and go (#viewClaude moves the toasts up); a modifier let go in another window leaves no mark (the next Esc stops); the rail's tab closes with a page
+  // view; held sideways at 1100 px or more with the touch keyboard on, a Stop can be clicked, and a card makes the
+  // keyboard stand aside ----
+  {
+    const { ctx, page, errors, replies } = await open({ width: 390, height: 844 });
+    const L = 'askEsc (a toast over the sheet\'s Stop)';
+    await page.evaluate(() => document.getElementById('btnAsk').click());
+    replies.push({ hold: true, body: text('ok') });
+    await page.evaluate(() => { window.emu.session.chat.sendLine('hello'); });
+    await page.evaluate(() => document.getElementById('btnAskClose').click());   // (during a turn the sheet goes to peek)
+    await waitFor(page, () => document.getElementById('ask').dataset.height === 'peek' && !document.getElementById('btnAskPeekStop').hidden, null, 5000);
+    await page.evaluate(() => { window.__flips = 0; let was = document.getElementById('viewClaude').hidden;
+      window.__obs = new MutationObserver(() => { const h = document.getElementById('viewClaude').hidden; if (h !== was) { window.__flips++; was = h; } });
+      window.__obs.observe(document.getElementById('viewClaude'), { attributes: true }); window.emu.feedback.toast('A toast over the bottom of the window, long enough to wrap onto several lines on a phone, so that it lies over the sheet\'s Stop button at the bottom edge of the window for as long as it shows'); });
+    await emuFrames(page, 90);
+    const flips = await page.evaluate(() => window.__flips);
+    check(`${L}: the pill does not come and go while the toast shows`, flips <= 1, `flips ${flips}`);
+    await page.evaluate(() => window.emu.session.stopClaude());
+    if (replies.held) replies.held.release();
+    check(`${L}: no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+  // the pill at the bottom of a portrait phone with the touch keyboard (no other Stop in the window): a toast goes above
+  // it, so its Stop stays clickable
+  {
+    const { ctx, page, errors, replies } = await open({ width: 390, height: 844 }, { hasTouch: true, isMobile: true });
+    const L = 'askEsc (a toast and the pill, portrait with touch keys)';
+    await page.evaluate(() => document.getElementById('btnAsk').click());
+    replies.push({ hold: true, body: text('ok') });
+    await page.evaluate(() => { window.emu.session.chat.sendLine('hello'); });
+    await page.evaluate(() => document.getElementById('btnAskMin').click());   // (the strip's Stop: under the keys, scrolled out)
+    await page.evaluate(() => { document.getElementById('askStrip').hidden = true; window.scrollTo(0, 0); });
+    const shown = await waitFor(page, () => !document.getElementById('viewClaude').hidden && document.body.classList.contains('touch-keys'), null, 5000);
+    await page.evaluate(() => window.emu.feedback.toast('A toast while the pill is up, long enough to wrap onto two lines on a phone'));
+    await emuFrames(page, 10);
+    // (the toast lets clicks through, so it is its picture over the pill that matters: the boxes must not meet)
+    const stop = await clickable(page, '#btnViewStop');
+    const apart = await page.evaluate(() => { const a = document.getElementById('toast').getBoundingClientRect(), b = document.getElementById('btnViewStop').getBoundingClientRect();
+      return document.getElementById('toast').hidden || a.bottom <= b.top || b.bottom <= a.top || a.right <= b.left || b.right <= a.left; });
+    check(`${L}: the pill's Stop is not under the toast`, shown && stop === 'ok' && apart, JSON.stringify({ shown, stop, apart }));
+    await page.evaluate(() => window.emu.session.stopClaude());
+    if (replies.held) replies.held.release();
+    check(`${L}: no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+  {
+    const { ctx, page, errors, replies } = await open({ width: 1440, height: 900 });
+    await typing(page, replies);
+    await page.focus('#screen');
+    await page.keyboard.down('Shift');                                   // pauses Claude: the mark is Shift's
+    const paused = await page.evaluate(() => !!window.emu.session.claudePaused);
+    await page.evaluate(() => window.dispatchEvent(new Event('blur')));  // its keyup goes to another window
+    await page.evaluate(() => document.getElementById('screen').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true })));
+    const after = await stoppedForGood(page);
+    await page.keyboard.up('Shift');
+    check('askEsc (a modifier let go in another window): the next Esc stops Claude', paused && after.ok, JSON.stringify({ paused, after }));
+    if (replies.held) replies.held.release();
+    check('askEsc (a modifier let go in another window): no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+  {
+    const { ctx, page, errors } = await open({ width: 1440, height: 900 });
+    await page.evaluate(() => document.getElementById('btnAsk').click());
+    await page.evaluate(() => document.querySelector('#askRail button').click());
+    const was = await page.evaluate(() => document.body.classList.contains('ask-rail-drawer'));
+    await page.evaluate(() => { location.hash = '#library'; });
+    const closed = await waitFor(page, () => location.hash === '#library' && !document.body.classList.contains('ask-rail-drawer'), null, 5000);
+    check('askEsc (rail and a page view): the rail\'s tab closes when a page view opens', was && closed);
+    check('askEsc (rail and a page view): no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+  {
+    const { ctx, page, errors, replies } = await open({ width: 1200, height: 450 }, { hasTouch: true });
+    const L = 'askEsc (sideways at 1200 px, touch keyboard on)';
+    await page.evaluate(() => { const sel = document.getElementById('selTouchKeys'); sel.value = 'on'; sel.dispatchEvent(new Event('change')); });
+    await page.evaluate(() => document.getElementById('btnAsk').click());
+    replies.push({ hold: true, body: tools([{ name: 'type_text', input: { text: 'PRINT 1' } }]) }, { hold: true, body: text('Done.') });
+    await page.evaluate(() => { window.emu.session.chat.sendLine('Type PRINT 1'); });
+    const keys = await page.evaluate(() => document.body.classList.contains('touch-keys') && !document.getElementById('touchKeys').hidden);
+    await waitFor(page, () => !!window.emu.session.claudeStatus, null, 5000);
+    await emuFrames(page, 20);
+    // (a Stop the person can click: the panel's own beside the keyboard, else the pill; never neither)
+    const panelStop = await clickable(page, '#btnAskStatusStop'), pill = await page.evaluate(() => !document.getElementById('viewClaude').hidden);
+    const shown = panelStop === 'ok' || pill, stop = panelStop === 'ok' ? 'panel' : await clickable(page, '#btnViewStop');
+    for (let i = 0; i < 200 && !replies.held; i++) await new Promise((res) => setTimeout(res, 20));
+    const held = replies.held; replies.held = null; if (held) held.release();
+    const aside = await waitFor(page, () => !!window.emu.session.claudePending && document.getElementById('touchKeys').hidden, null, 8000);
+    // (no scroll of its own: the page must bring the card's Allow into view, js/ui/ask.js)
+    const allow = await clickable(page, '#btnAskAllow');
+    if (allow === 'ok') await page.click('#btnAskAllow');
+    const back = await waitFor(page, () => !window.emu.session.claudePending && !document.getElementById('touchKeys').hidden, null, 5000);
+    check(`${L}: a Stop can be clicked (the panel's beside the keyboard, or else the pill, not both), and a card makes the keyboard stand aside so Allow can be clicked`,
+      keys && shown && (stop === 'panel' || stop === 'ok') && pill === (panelStop !== 'ok') && aside && allow === 'ok' && back, JSON.stringify({ keys, panelStop, pill, stop, aside, allow, back }));
+    await page.evaluate(() => window.emu.session.stopClaude());
+    if (replies.held) replies.held.release();
+    check(`${L}: no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- (6) M2: a "[stopped]" note is the stopped turn's: a turn the full-screen chat starts (its own line, through
+  // the firmware's channel, not the panel's box) clears it ----
+  {
+    const { ctx, page, errors, replies } = await open({ width: 1440, height: 900 });
+    await typing(page, replies);
+    await page.click('#btnAskStop');
+    await waitFor(page, () => !window.emu.session.chat.busy && /\[stopped\]/.test(document.getElementById('askMessages').textContent), null, 5000);
+    if (replies.held) replies.held.release();
+    replies.length = 0;
+    replies.push({ body: text('Hello again.') });
+    await page.evaluate(() => { window.emu.session.chat.sendLine('hello'); });
+    const cleared = await waitFor(page, () => !window.emu.session.chat.busy && /Hello again\./.test(document.getElementById('askMessages').textContent), null, 8000);
+    const note = await page.textContent('#askMessages');
+    check('askEsc (M2): a turn started outside the panel\'s box clears the last turn\'s "[stopped]" note', cleared && !/\[stopped/.test(note), note.slice(-80));
+    check('askEsc (M2): no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- (7) R11: while Claude is paused a card's accept button is "Allow and resume" (one click: consent and Resume);
+  // a no never resumes; the switch off while a call waits paused refuses it; Esc while paused with a card up is Stop.
+  // Each in the side panel and in the full-screen chat (its BASIC session view, where a key reaches that machine) ----
+  const UI = {
+    panel: { allow: '#btnAskAllow', tell: '#btnAskTell', paused: '#askConsentPaused', status: '#askStatusText', resume: '#btnAskStatusResume', sw: '#chkAskMachine' },
+    full: { allow: '#btnClaudeAllow', tell: '#btnClaudeTell', paused: '#claudeConsentPaused', status: '#claudeStatusText', resume: '#btnClaudeResume', sw: '#chkClaudeTools' },
+  };
+  // the Ask panel (or the full-screen chat on its BASIC session), the switch off, and one acting call whose consent
+  // card comes up; an INCLUDE file (examples/r11.inc) the test holds until it says
+  async function r11(vp, full, use, then = null) {
+    const o = await open(vp);
+    const { ctx, page, replies } = o;
+    o.inc = null;
+    await ctx.route('**/examples/r11.inc', async (route) => { await new Promise((res) => { o.inc = res; }); await route.fulfill({ status: 200, body: ' FCB $55,$AA\n' }); });
+    await page.evaluate(() => document.getElementById('btnAsk').click());
+    await page.evaluate(() => window.emu.session.setClaudeAllowed(false));
+    if (full) {
+      await page.evaluate(() => document.getElementById('btnAskFull').click());
+      await waitFor(page, () => window.emu.session.claudeView === 'full' && !!window.emu.session.chatMachines, null, 15000);
+      await page.evaluate(() => document.getElementById('btnClaudeView').click());
+      await waitFor(page, () => window.emu.session.chatView === 'basic');
+    }
+    replies.push({ body: tools([use]) }, ...(then ? [{ hold: true, body: tools([then]) }] : []), { hold: true, body: text('Done.') });
+    await page.evaluate(() => { window.emu.session.chat.sendLine('Do it'); });
+    o.carded = await waitFor(page, () => !!window.emu.session.claudePending, null, 8000);
+    return o;
+  }
+  const key = async (page) => { await page.focus('#screen'); await page.keyboard.press('x'); return waitFor(page, () => !!window.emu.session.claudePaused, null, 5000); };
+  const at = (page, a, k) => page.evaluate(([a2, k2]) => Array.from(window.emu.session.chatTarget().machine.ram.slice(a2, a2 + k2)).join(), [a, k]);
+  const POKE = { name: 'poke', input: { address: 0x3000, bytes: [0x55] } };
+  const ASM = { name: 'assemble_and_load', input: { source: ' INCLUDE "r11.inc"\n', org: 0x3000 } };
+  for (const full of [false, true]) {
+    const u = UI[full ? 'full' : 'panel'], where = full ? 'full-screen chat' : 'side panel', vp = { width: 1440, height: 900 };
+    // (a) a key while the card waits: "Allow and resume", the line saying why, the paused status; (b) one click acts once
+    {
+      const { ctx, page, errors, replies, carded } = await r11(vp, full, POKE);
+      const L = `askEsc (R11 ${where})`;
+      const plain = await page.textContent(u.allow);
+      const paused = await key(page);
+      const shown = await waitFor(page, (q) => document.querySelector(q.allow).textContent === 'Allow and resume' && !document.querySelector(q.paused).hidden, u, 5000);
+      const r = await page.evaluate((q) => ({ line: document.querySelector(q.paused).textContent, status: document.querySelector(q.status).textContent, tell: document.querySelector(q.tell).textContent }), u);
+      check(`${L}: a key while the card waits: the button reads "Allow and resume" (was "${plain}"), the card says why, the status is the pause's, the decline label is unchanged`,
+        carded && plain === 'Allow' && paused && shown && /^Paused because you pressed a key\. Allow and resume lets Claude/.test(r.line) && /^Paused: you pressed a key · Claude's next action waits · Esc stops Claude$/.test(r.status) && r.tell === 'Just tell me the fix', JSON.stringify({ carded, plain, paused, shown, ...r }));
+      await page.click(u.allow);
+      const resumedAtOnce = await page.evaluate(() => !window.emu.session.claudePaused);
+      for (let i = 0; i < 200 && !replies.held; i++) await new Promise((res) => setTimeout(res, 20));
+      const res = await page.evaluate(() => ({ undo: window.emu.session.chat.undo.length, allowed: window.emu.session.claudeAllowed }));
+      check(`${L}: one click on "Allow and resume" gives consent and resumes; the poke acts exactly once (one restore point), the switch is on`,
+        resumedAtOnce && !!replies.held && await at(page, 0x3000, 1) === '85' && res.undo === 1 && res.allowed, JSON.stringify({ resumedAtOnce, ...res }));
+      const label = await page.textContent(u.allow);
+      check(`${L}: no longer paused: the button is plain "Allow" again`, label === 'Allow', label);
+      if (replies.held) replies.held.release();
+      check(`${L}: no page errors`, !errors.length, errors.join('; '));
+      await ctx.close();
+    }
+    // (c) decline while paused: nothing acts, the pause stays
+    {
+      const { ctx, page, errors, replies } = await r11(vp, full, POKE);
+      const L = `askEsc (R11 ${where}, decline)`;
+      await key(page);
+      await page.click(u.tell);
+      await waitFor(page, () => !window.emu.session.claudePending, null, 5000);
+      for (let i = 0; i < 200 && !replies.held; i++) await new Promise((res) => setTimeout(res, 20));
+      const r = await page.evaluate((q) => ({ paused: !!window.emu.session.claudePaused, undo: window.emu.session.chat.undo.length, resume: !document.querySelector(q.resume).hidden }), u);
+      check(`${L}: "Just tell me the fix" while paused acts on nothing (no restore point) and Claude stays paused, with Resume`,
+        r.paused && r.undo === 0 && r.resume && await at(page, 0x3000, 1) === '0', JSON.stringify(r));
+      await page.evaluate(() => window.emu.session.stopClaude());
+      if (replies.held) replies.held.release();
+      check(`${L}: no page errors`, !errors.length, errors.join('; '));
+      await ctx.close();
+    }
+    // (d) a key after the click and before the act (during the INCLUDE read): it waits at the re-check, Resume shown;
+    // (e) the same with the switch turned off while paused: Resume then refuses the call
+    const ASM2 = { name: 'assemble_and_load', input: { source: ' INCLUDE "r11.inc"\n', org: 0x3040 } };
+    for (const off of [false, true]) {
+      const o = await r11(vp, full, ASM, off ? ASM2 : null);
+      const { ctx, page, errors, replies } = o;
+      const L = `askEsc (R11 ${where}, a key after the click${off ? ', then the switch off' : ''})`;
+      await key(page);
+      await page.click(u.allow);
+      const resumed = await waitFor(page, () => !window.emu.session.claudePaused && !window.emu.session.claudePending, null, 5000);
+      // the check is reading the INCLUDE file (held): the person presses a key now
+      for (let i = 0; i < 250 && !o.inc; i++) await new Promise((res) => setTimeout(res, 20));
+      const reading = !!o.inc;
+      const again = await key(page);
+      if (off) await page.click(u.sw);
+      if (o.inc) o.inc();
+      await emuFrames(page, 10);
+      const r = await page.evaluate((q) => ({ paused: !!window.emu.session.claudePaused, busy: window.emu.session.chat.busy, undo: window.emu.session.chat.undo.length, resume: !document.querySelector(q.resume).hidden }), u);
+      check(`${L}: the call waits at the re-check: nothing written, no restore point, Resume shown`,
+        resumed && reading && again && r.paused && r.busy && r.undo === 0 && r.resume && await at(page, 0x3000, 2) === '0,0', JSON.stringify({ resumed, reading, again, ...r }));
+      await page.click(u.resume);
+      for (let i = 0; i < 200 && !replies.held; i++) await new Promise((res) => setTimeout(res, 20));
+      const after = await page.evaluate(() => ({ undo: window.emu.session.chat.undo.length }));
+      const bytes = await at(page, 0x3000, 2);
+      check(off ? `${L}: Resume: the call is refused (the switch went off while it waited), nothing written, no restore point`
+        : `${L}: Resume: the call acts once`, off ? bytes === '0,0' && after.undo === 0 : bytes === '85,170' && after.undo === 1, JSON.stringify({ bytes, ...after }));
+      if (off) {
+        // F3: the refusal was that pause's: the switch back on, the turn's next acting call (held reply released),
+        // paused by a key during its INCLUDE read and resumed, acts once (one restore point)
+        await page.click(u.sw);
+        const sw = await page.evaluate(() => window.emu.session.claudeAllowed);
+        o.inc = null;
+        const held2 = replies.held; replies.held = null; if (held2) held2.release();
+        for (let i = 0; i < 250 && !o.inc; i++) await new Promise((res) => setTimeout(res, 20));
+        const reading2 = !!o.inc;
+        const paused2 = await key(page);
+        if (o.inc) o.inc();
+        await emuFrames(page, 10);
+        const waits = await at(page, 0x3040, 2);
+        await page.click(u.resume);
+        for (let i = 0; i < 200 && !replies.held; i++) await new Promise((res) => setTimeout(res, 20));
+        const r2 = await page.evaluate(() => ({ undo: window.emu.session.chat.undo.length, paused: !!window.emu.session.claudePaused }));
+        const bytes2 = await at(page, 0x3040, 2);
+        check(`${L}: the switch back on in the same turn: the next acting call, paused during its check and resumed, acts once (one restore point)`,
+          sw && reading2 && paused2 && waits === '0,0' && bytes2 === '85,170' && r2.undo === 1 && !r2.paused, JSON.stringify({ sw, reading2, paused2, waits, bytes2, ...r2 }));
+      }
+      if (replies.held) replies.held.release();
+      check(`${L}: no page errors`, !errors.length, errors.join('; '));
+      await ctx.close();
+    }
+    // (g) a card ends the browser's Fullscreen by itself; a key that pauses Claude before the browser reports the leave
+    // must not turn the page's own leave into Stop (only a leave the person makes stops Claude). The leave is held
+    // until the key has paused Claude, so the order is certain.
+    if (!full) {
+      const { ctx, page, errors, replies } = await open(vp);
+      const L = 'askEsc (R11 the page leaves Fullscreen for a card, a key first)';
+      await page.evaluate(() => document.getElementById('btnAsk').click());
+      await page.evaluate(() => window.emu.session.setClaudeAllowed(false));
+      await goFull(page);
+      const isFull = await waitFor(page, () => document.fullscreenElement === document.getElementById('screenWrap'));
+      await page.evaluate(() => { const orig = document.exitFullscreen.bind(document); window.__leaves = 0;
+        document.exitFullscreen = () => { window.__leaves++; return new Promise((res, rej) => { window.__leave = () => orig().then(res, rej); }); }; });
+      replies.push({ body: tools([POKE]) }, { hold: true, body: text('Done.') });
+      await page.evaluate(() => { window.emu.session.chat.sendLine('Do it'); });
+      const asked = await waitFor(page, () => !!window.emu.session.claudePending && window.__leaves > 0, null, 8000);
+      const paused = await key(page);
+      await page.evaluate(() => window.__leave());
+      const left = await waitFor(page, () => !document.fullscreenElement, null, 5000);
+      await emuFrames(page, 5);
+      const r = await page.evaluate(() => ({ paused: !!window.emu.session.claudePaused, card: !!window.emu.session.claudePending, busy: window.emu.session.chat.busy, leaves: window.__leaves }));
+      check(`${L}: Claude stays paused with the card up (the leave was the page's, not the person's), and the page asked to leave once`,
+        isFull && asked && paused && left && r.paused && r.card && r.busy && r.leaves === 1, JSON.stringify({ isFull, asked, paused, left, ...r }));
+      await page.evaluate(() => window.emu.session.stopClaude());
+      if (replies.held) { replies.held.release(); replies.held = null; }
+      // F2: that page leave is over; a later leave the person makes while Claude is paused stops Claude as before
+      await waitFor(page, () => !window.emu.session.chat.busy, null, 5000);
+      await page.evaluate(() => { delete document.exitFullscreen; window.emu.session.setClaudeAllowed(true); });
+      replies.length = 0;   // (the stopped turn never asked for its last reply)
+      await typing(page, replies);
+      await goFull(page);
+      const full2 = await waitFor(page, () => document.fullscreenElement === document.getElementById('screenWrap'));
+      const paused2 = await pause(page);
+      await page.evaluate(() => document.exitFullscreen());
+      const after = await stoppedForGood(page);
+      check(`${L}: afterwards, a Fullscreen leave the person makes while Claude is paused stops Claude`, full2 && paused2 && after.ok, JSON.stringify({ full2, paused2, after }));
+      if (replies.held) replies.held.release();
+      check(`${L}: no page errors`, !errors.length, errors.join('; '));
+      await ctx.close();
+    }
+    // (f) Esc while paused with a card up: Stop (the card answered stopped, the turn ends), not a no
+    {
+      const { ctx, page, errors, replies } = await r11(vp, full, POKE);
+      const L = `askEsc (R11 ${where}, Esc)`;
+      await key(page);
+      await page.focus('#screen');
+      await page.keyboard.press('Escape');
+      const ended = await waitFor(page, () => !window.emu.session.chat.busy && !window.emu.session.claudePending && !window.emu.session.claudePaused, null, 5000);
+      const r = await page.evaluate(() => ({ err: window.emu.session.chat.error && window.emu.session.chat.error.code, undo: window.emu.session.chat.undo.length }));
+      check(`${L}: Esc while paused with the card up stops Claude: the card goes, the turn ends stopped (no further request), nothing acts`,
+        ended && r.err === 'aborted' && r.undo === 0 && !replies.held && await at(page, 0x3000, 1) === '0', JSON.stringify({ ended, ...r, held: !!replies.held }));
+      if (replies.held) replies.held.release();
+      check(`${L}: no page errors`, !errors.length, errors.join('; '));
+      await ctx.close();
+    }
+    // (h) F1: the click does what the button said when it was drawn: a stale plain "Allow" (data-resume empty) clicked
+    // while paused answers yes only (no resume: nothing acts, still paused); a stale "Allow and resume" clicked after
+    // a Resume the page has not redrawn is harmless (one act, no error)
+    for (const stale of ['plain', 'resume']) {
+      const { ctx, page, errors, replies } = await r11(vp, full, POKE);
+      const L = `askEsc (R11 ${where}, a stale ${stale === 'plain' ? '"Allow"' : '"Allow and resume"'} clicked)`;
+      await key(page);
+      await waitFor(page, (q) => document.querySelector(q.allow).dataset.resume === '1', u, 5000);
+      if (stale === 'plain') await page.evaluate((q) => { const b = document.querySelector(q.allow); b.dataset.resume = ''; }, u);
+      else await page.evaluate((q) => { window.emu.session.resumeClaude(); const b = document.querySelector(q.allow); b.textContent = 'Allow and resume'; b.dataset.resume = '1'; }, u);
+      await page.click(u.allow);
+      await waitFor(page, () => !window.emu.session.claudePending, null, 5000);
+      for (let i = 0; i < 100 && !replies.held; i++) await new Promise((res) => setTimeout(res, 20));
+      const r = await page.evaluate(() => ({ paused: !!window.emu.session.claudePaused, undo: window.emu.session.chat.undo.length }));
+      const poked = await at(page, 0x3000, 1);
+      check(stale === 'plain' ? `${L}: answers yes without resuming: nothing acts, no restore point, still paused`
+        : `${L}: no error, the poke acts exactly once`, stale === 'plain' ? poked === '0' && r.undo === 0 && r.paused : poked === '85' && r.undo === 1 && !r.paused && !!replies.held, JSON.stringify({ poked, ...r }));
+      await page.evaluate(() => window.emu.session.stopClaude());
+      if (replies.held) replies.held.release();
+      check(`${L}: no page errors`, !errors.length, errors.join('; '));
+      await ctx.close();
+    }
+  }
+
+  // ---- (8) F2: the Debugger's edits and a gamepad are the person's input too: while Claude's acting call waits at
+  // its card, a byte set in the Debugger and a gamepad's fire press each pause Claude; a pad resting with noise
+  // inside the dead zone does not ----
+  for (const how of ['debugger', 'gamepad']) {
+    const { ctx, page, errors, replies } = await open({ width: 1440, height: 900 });
+    const L = `askEsc (F2 ${how === 'debugger' ? 'the Debugger\'s byte set' : 'a gamepad\'s fire press'})`;
+    if (how === 'gamepad') {
+      await page.evaluate(() => {
+        const pad = (index, axes, buttons) => ({ index, id: `Mock pad ${index}`, connected: true, axes: [...axes], buttons: buttons.map((pressed) => ({ pressed, value: pressed ? 1 : 0 })) });
+        window.__pads = [];
+        navigator.getGamepads = () => [window.__pads[0] || null, null, null, null];
+        window.__setPad = (axes, buttons) => { window.__pads[0] = pad(0, axes, buttons); };
+        window.__setPad([0, 0], [false, false]);
+        window.dispatchEvent(new Event('gamepadconnected'));
+      });
+    }
+    await page.evaluate(() => document.getElementById('btnAsk').click());
+    await page.evaluate(() => window.emu.session.setClaudeAllowed(false));
+    replies.push({ body: tools([{ name: 'poke', input: { address: 0x3000, bytes: [0x55] } }]) }, { hold: true, body: text('Done.') });
+    await page.evaluate(() => { window.emu.session.chat.sendLine('Do it'); });
+    const carded = await waitFor(page, () => !!window.emu.session.claudePending, null, 8000);
+    let quiet = 'n/a';
+    if (how === 'debugger') {
+      await page.evaluate(() => { location.hash = '#debugger'; });
+      await waitFor(page, () => location.hash === '#debugger' && !document.getElementById('debugView').hidden, null, 8000);
+      await page.fill('#dbgMemAddr', '$3100'); await page.press('#dbgMemAddr', 'Enter');
+      await page.click('#dbgMem .byte[data-addr="12544"]');
+      await page.fill('#dbgByteValue', '42'); await page.click('#dbgByteSet');
+    } else {
+      // resting with noise inside the dead zone, polled for a while: not the person's input
+      for (let i = 0; i < 20; i++) { await page.evaluate((k) => window.__setPad([(k % 3 - 1) * 0.1, (k % 2) * 0.1], [false, false]), i); await emuFrames(page, 2); }
+      quiet = await page.evaluate(() => !window.emu.session.claudePaused);
+      await page.evaluate(() => window.__setPad([0, 0], [true, false]));
+    }
+    const paused = await waitFor(page, () => !!window.emu.session.claudePaused, null, 5000);
+    const r = await page.evaluate(() => ({ card: !!window.emu.session.claudePending, byte: window.emu.session.chatTarget().machine.ram[0x3100] }));
+    check(`${L}: while Claude's call waits at its card, it pauses Claude${how === 'gamepad' ? ' (a pad resting with noise did not)' : ', and the byte is set'}`,
+      carded && paused && r.card && (how === 'gamepad' ? quiet === true : r.byte === 0x42), JSON.stringify({ carded, paused, quiet, ...r }));
+    await page.evaluate(() => window.emu.session.stopClaude());
+    if (replies.held) replies.held.release();
+    check(`${L}: no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- (9) F5: the joystick hook per source, with hysteresis. The mouse as joystick pauses Claude once per deflection
+  // out of the dead zone, not once per mousemove; a pad resting at the dead zone's edge with jitter pauses once ----
+  for (const how of ['mouse', 'pad']) {
+    const { ctx, page, errors, replies } = await open({ width: 1440, height: 900 });
+    const L = `askEsc (F5 ${how === 'mouse' ? 'the mouse as joystick' : 'a pad resting at the dead zone\'s edge'})`;
+    if (how === 'pad') {
+      await page.evaluate(() => {
+        const pad = (index, axes) => ({ index, id: `Mock pad ${index}`, connected: true, axes: [...axes], buttons: [false, false, false].map((p) => ({ pressed: p, value: 0 })) });
+        window.__pads = [];
+        navigator.getGamepads = () => [window.__pads[0] || null, null, null, null];
+        window.__setPad = (axes) => { window.__pads[0] = pad(0, axes); };
+        window.__setPad([0, 0]);
+        window.dispatchEvent(new Event('gamepadconnected'));
+      });
+    } else await page.evaluate(() => { document.getElementById('chkJoy').checked = true; });
+    await page.evaluate(() => document.getElementById('btnAsk').click());
+    await page.evaluate(() => window.emu.session.setClaudeAllowed(false));
+    replies.push({ body: tools([{ name: 'poke', input: { address: 0x3000, bytes: [0x55] } }]) }, { hold: true, body: text('Done.') });
+    await page.evaluate(() => { window.emu.session.chat.sendLine('Do it'); });
+    const carded = await waitFor(page, () => !!window.emu.session.claudePending, null, 8000);
+    const pauses = () => page.evaluate(() => window.emu.session.claudePauses);
+    const resume = () => page.evaluate(() => window.emu.session.resumeClaude());
+    const p0 = await pauses();
+    let counts;
+    if (how === 'mouse') {
+      const box = await page.evaluate(() => { const r = document.getElementById('screen').getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; });
+      const at = (fx, fy) => page.mouse.move(box.x + box.w * fx, box.y + box.h * fy);
+      await at(0.5, 0.5); await at(0.52, 0.5);                     // moves inside the dead zone: nothing
+      const inside = (await pauses()) - p0;
+      for (const fx of [0.6, 0.7, 0.8, 0.9]) await at(fx, 0.5);    // out: once
+      const first = (await pauses()) - p0;
+      await resume();
+      for (const fx of [0.92, 0.95, 0.85, 0.9, 0.97]) await at(fx, 0.55);   // still out, many moves: nothing new
+      const stays = (await pauses()) - p0;
+      await at(0.5, 0.5); await at(0.1, 0.5);                      // back in, then out again: a new deflection
+      const again = (await pauses()) - p0;
+      counts = { inside, first, stays, again };
+    } else {
+      await page.evaluate(() => window.__setPad([0.26, 0])); await emuFrames(page, 3);
+      const first = (await pauses()) - p0;
+      await resume();
+      for (let i = 0; i < 20; i++) { await page.evaluate((k) => window.__setPad([k % 2 ? 0.26 : 0.24, 0]), i); await emuFrames(page, 2); }
+      const stays = (await pauses()) - p0;
+      await page.evaluate(() => window.__setPad([0, 0])); await emuFrames(page, 3);
+      await page.evaluate(() => window.__setPad([0.3, 0])); await emuFrames(page, 3);
+      const again = (await pauses()) - p0;
+      counts = { inside: 0, first, stays, again };
+    }
+    check(`${L}: while Claude's call waits at its card: one pause per deflection out of the dead zone, none for moves inside it or jitter at its edge, a new one after coming back in`,
+      carded && counts.inside === 0 && counts.first === 1 && counts.stays === 1 && counts.again === 2, JSON.stringify({ carded, ...counts }));
+    await page.evaluate(() => window.emu.session.stopClaude());
+    if (replies.held) replies.held.release();
+    check(`${L}: no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- (10) the touch stick and its FIRE (js/ui/touch-keys.js) go through the joystick hook as the source 'touch':
+  // while Claude types into the machine, a drag out of the dead zone pauses Claude once, a FIRE press once; a finger
+  // resting near the centre, or jittering at the dead zone's edge, does not. Real touch events (CDP). (Claude types
+  // rather than waits at a card: the touch keyboard steps aside while a card waits.)
+  {
+    const { ctx, page, errors, replies } = await open({ width: 844, height: 390 }, { hasTouch: true, isMobile: true });
+    const L = 'askEsc (touch stick and FIRE)';
+    const cdp = await page.context().newCDPSession(page);
+    const touch = async (type, id, x, y) => { await cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y, id, radiusX: 8, radiusY: 8, force: 1 }] }); await page.waitForTimeout(60); };
+    const centreOf = (sel) => page.evaluate((q) => { const r = document.querySelector(q).getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; }, sel);
+    const [mx, my] = await centreOf('#tkModeSwitch [data-touchmode="joystick"]');
+    await touch('touchStart', 2, mx, my); await touch('touchEnd', 2);
+    const stickUp = await waitFor(page, () => document.getElementById('touchKeys').classList.contains('joystick') && document.getElementById('touchStick').getBoundingClientRect().width > 0, null, 5000);
+    // Claude types a long listing; the panel is closed again so the stick is not covered
+    const carded = await typing(page, replies);
+    await page.evaluate(() => { if (!document.getElementById('ask').hidden) document.getElementById('btnAskClose').click(); });
+    await waitFor(page, () => document.getElementById('touchStick').getBoundingClientRect().width > 0, null, 5000);
+    const pauses = () => page.evaluate(() => window.emu.session.claudePauses);
+    const resume = () => page.evaluate(() => window.emu.session.resumeClaude());
+    const R = 56;   // STICK_RADIUS (js/host/input.js)
+    const p0 = await pauses();
+    const [sx, sy] = await centreOf('#touchStick');
+    // resting near the centre, with a little wobble: nothing
+    await touch('touchStart', 1, sx, sy);
+    for (const dx of [3, -4, 5, -2, 4]) await touch('touchMove', 1, sx + dx, sy);
+    const rest = (await pauses()) - p0;
+    // dragged out: once
+    await touch('touchMove', 1, sx + R * 0.8, sy);
+    const out = (await pauses()) - p0;
+    await resume();
+    // jitter at the dead zone's edge (0.24 / 0.26 of the radius), finger down throughout: nothing new
+    for (let i = 0; i < 10; i++) await touch('touchMove', 1, sx + R * (i % 2 ? 0.26 : 0.24), sy);
+    const jitter = (await pauses()) - p0;
+    await touch('touchEnd', 1);
+    // FIRE: once
+    const [fx, fy] = await centreOf('#touchFire');
+    await touch('touchStart', 3, fx, fy);
+    const fire = (await pauses()) - p0;
+    await touch('touchEnd', 3);
+    const still = await page.evaluate(() => window.emu.session.claudeBusyActing);
+    check(`${L}: while Claude types: resting and jitter at the dead zone's edge do not pause it; a drag out pauses it once, a FIRE press once`,
+      stickUp && carded && still && rest === 0 && out === 1 && jitter === 1 && fire === 2, JSON.stringify({ stickUp, carded, still, rest, out, jitter, fire }));
+    await page.evaluate(() => window.emu.session.stopClaude());
+    if (replies.held) replies.held.release();
+    check(`${L}: no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+}
+
+async function askStatusChecks(browser, base, check) {
+  const KEY = 'sk-ant-STATUS-CHECK-KEY-0123456789abcdef';
+  const sse = (events) => events.map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join('');
+  const msgStart = { type: 'message_start', message: { id: 'msg', type: 'message', role: 'assistant', model: 'claude-opus-5-5', content: [] } };
+  const end = (why) => [{ type: 'message_delta', delta: { stop_reason: why }, usage: {} }, { type: 'message_stop' }];
+  const text = (t) => sse([msgStart, { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+    { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: t } }, { type: 'content_block_stop', index: 0 }, ...end('end_turn')]);
+  const toolEvents = (uses, at = 0) => uses.flatMap((u, i) => [
+    { type: 'content_block_start', index: at + i, content_block: { type: 'tool_use', id: `toolu_${at + i}`, name: u.name, input: {} } },
+    { type: 'content_block_delta', index: at + i, delta: { type: 'input_json_delta', partial_json: JSON.stringify(u.input) } },
+    { type: 'content_block_stop', index: at + i }]);
+  const tools = (uses) => sse([msgStart, ...toolEvents(uses), ...end('tool_use')]);
+  // a long thinking block, then the tool call: one chunk per event, so the stream takes a while
+  const thinkingThen = (uses, n = 16) => [sse([msgStart, { type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '' } }]),
+    ...Array.from({ length: n }, (_, i) => sse([{ type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: `step ${i}. ` } }])),
+    sse([{ type: 'content_block_delta', index: 0, delta: { type: 'signature_delta', signature: 'sig' } }, { type: 'content_block_stop', index: 0 }, ...toolEvents(uses, 1), ...end('tool_use')])];
+  const slowText = (words) => [sse([msgStart, { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }]),
+    ...words.map((w) => sse([{ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: `${w} ` } }])),
+    sse([{ type: 'content_block_stop', index: 0 }, ...end('end_turn')])];
+  const PROG = Array.from({ length: 30 }, (_, i) => `${(i + 1) * 10} PRINT "BREAKOUT ${i + 1}"`).join('\n');
+  // the page's fetch toward the API: scripted replies from window.__api.queue, each a whole body, a stream of chunks
+  // (gapMs apart), held before its headers (holdMs), left open (stall), an HTTP error (status) or a network error.
+  // Stop's abort ends it as the browser's fetch would (an AbortError)
+  const MOCK = () => {
+    const real = window.fetch.bind(window);
+    const api = window.__api = { queue: [], requests: 0 };
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    window.fetch = (url, init = {}) => {
+      if (!String(url).startsWith('https://api.anthropic.com/')) return real(url, init);
+      api.requests++;
+      const r = api.queue.shift() || { chunks: [] }, signal = init.signal;
+      const abortErr = () => new DOMException('The operation was aborted.', 'AbortError');
+      return new Promise((resolve, reject) => {
+        if (signal) signal.addEventListener('abort', () => reject(abortErr()), { once: true });
+        if (r.network) { reject(new TypeError('Failed to fetch')); return; }
+        if (r.status) { resolve(new Response(JSON.stringify(r.json || {}), { status: r.status, headers: { 'content-type': 'application/json' } })); return; }
+        let ctl = null;
+        const body = new ReadableStream({ start(c) { ctl = c; } });
+        if (signal) signal.addEventListener('abort', () => { try { ctl.error(abortErr()); } catch (e) { /* closed */ } }, { once: true });
+        (async () => {
+          if (r.holdMs) await sleep(r.holdMs);
+          if (signal && signal.aborted) return;
+          resolve(new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } }));
+          for (const c of r.chunks) {
+            if (signal && signal.aborted) return;
+            try { ctl.enqueue(new TextEncoder().encode(c)); } catch (e) { return; }
+            if (r.gapMs) await sleep(r.gapMs);
+          }
+          if (!r.stall) try { ctl.close(); } catch (e) { /* aborted */ }
+        })();
+      });
+    };
+  };
+  const views = {
+    side: { status: 'askStatus', text: 'askStatusText', stop: 'btnAskStatusStop', load: 'askLoad', loadYes: 'btnAskLoad', loadNo: 'btnAskLoadNo', consent: 'askConsent', allow: 'btnAskAllow', msg: 'askKeyMsg' },
+    full: { status: 'claudeStatus', text: 'claudeStatusText', stop: 'btnClaudeStop', load: 'claudeLoad', loadYes: 'btnClaudeLoad', loadNo: 'btnClaudeLoadNo', consent: 'claudeConsentAsk', allow: 'btnClaudeAllow', msg: 'claudeHelp' },
+  };
+  async function open(viewport) {
+    const ctx = await browser.newContext({ viewport, serviceWorkers: 'block' });
+    await ctx.addInitScript(MOCK);
+    const page = await ctx.newPage();
+    const errors = [], logs = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    page.on('console', (m) => logs.push(m.text()));
+    await page.goto(`${base}?machine=dragon64`);
+    await started(page);
+    await stubPrompt(page);
+    await page.evaluate((k) => localStorage.setItem('cloadm.anthropicKey', k), KEY);
+    // BASIC's shape without a BASIC ROM, as askFollowupChecks (6): our idle firmware in the BASIC socket, an empty
+    // program at $1E01 and OK on the screen. "Let Claude use the machine" stays off, as in the report
+    await page.evaluate(() => {
+      const s = window.emu.session, m = s.machine, E = window.emu.Emu;
+      const asm = E.assemble(' ORG $8000\nSTART STA $FFC9\n CLR $FF23\n LDA #$F8\n STA $FF22\n LDA #$04\n STA $FF23\n CLR $FF22\nIDLE BRA IDLE\n', '6809');
+      const rom = new Uint8Array(0x4000).fill(0xFF); rom.set(asm.segments[0].data, 0);
+      m.setRoms({ basic: rom }); m.reset(true); m.cpu.jump(asm.exec);
+      const w = (a, v) => s.pokeBytes(a, [v >> 8, v & 0xFF], m);
+      s.pokeBytes(0x1E00, [0, 0, 0], m);
+      w(0x19, 0x1E01); w(0x1B, 0x1E03); w(0x1D, 0x1E03); w(0x1F, 0x1E03); w(0x21, 0x7E00);
+      for (let i = 0; i < 512; i++) m.ram[0x400 + i] = 0x60;
+      m.ram[0x440] = 0x0F; m.ram[0x441] = 0x0B;
+    });
+    await emuFrames(page, 3);
+    return { ctx, page, errors, logs };
+  }
+  const reply = (page, r) => page.evaluate((x) => window.__api.queue.push(x), r);
+  // a turn ended by Stop leaves its later replies unasked: a new turn starts from an empty script
+  const fresh = (page) => page.evaluate(() => { window.__api.queue.length = 0; });
+  // the view's status: shown (laid out, inside the window), its text, and Stop shown and enabled
+  const status = (page, v) => page.evaluate((v) => {
+    const s = document.getElementById(v.status), t = document.getElementById(v.text), b = document.getElementById(v.stop);
+    const shown = (e) => { if (!e || e.closest('[hidden]') || !e.offsetParent) return false; const r = e.getBoundingClientRect(); return r.width > 0 && r.bottom > 0 && r.top < innerHeight && r.right > 0 && r.left < innerWidth; };
+    return { shown: shown(s), text: t ? t.textContent : null, stop: shown(b) && !b.disabled };
+  }, v);
+  // an element is wholly in view: laid out, inside the window and inside every scrolling box around it
+  const inView = (page, id) => page.evaluate((id) => {
+    const e = document.getElementById(id);
+    if (!e || e.closest('[hidden]') || !e.offsetParent) return false;
+    const r = e.getBoundingClientRect();
+    if (r.top < -1 || r.bottom > innerHeight + 1 || r.left < -1 || r.right > innerWidth + 1) return false;
+    for (let p = e.parentElement; p; p = p.parentElement) {
+      const cs = getComputedStyle(p);
+      if (!/(auto|scroll|hidden)/.test(cs.overflowY)) continue;
+      const pr = p.getBoundingClientRect();
+      if (p.scrollHeight > p.clientHeight + 1 && (r.top < pr.top - 1 || r.bottom > pr.bottom + 1)) return false;
+    }
+    return true;
+  }, id);
+  const statusIs = (page, v, re, ms = 15000) => waitFor(page, ([v, src]) => {
+    const s = document.getElementById(v.status), t = document.getElementById(v.text), b = document.getElementById(v.stop);
+    return !!(s && t && b && !s.closest('[hidden]') && s.offsetParent && new RegExp(src).test(t.textContent) && b.offsetParent && !b.disabled);
+  }, [v, re.source], ms);
+  const idle = (page) => waitFor(page, () => !window.emu.session.chat.busy, null, 20000);
+  // the turn has ended and the person can go on: no status, the box (side panel) or the chat (full screen) takes a line
+  const usable = (page, v, full) => page.evaluate(([v, full]) => {
+    const s = document.getElementById(v.status);
+    const free = !window.emu.session.chat.busy && !window.emu.session.claudePending && (!s || !!s.closest('[hidden]') || !s.offsetParent);
+    if (full) return free;
+    const i = document.getElementById('askInput'), b = document.getElementById('btnAskSend');
+    return free && !!i.offsetParent && !i.disabled && !b.disabled;
+  }, [v, full]);
+
+  // one view's variants. send(q) sends a line from the view; shot(name) takes a screenshot
+  async function variants(page, v, send, label, full, shot, set = 'all') {
+    const all = set === 'all';
+    // the report's turn: Claude calls load_basic (its request held a while first, as a long tool call streams no text)
+    await reply(page, { holdMs: 6000, chunks: [tools([{ name: 'load_basic', input: { program: PROG } }])] });
+    await send('yes');
+    check(`${label}: while Claude thinks (no text yet) the status says Thinking…, with Stop`, await statusIs(page, v, /Thinking…/, 4000), JSON.stringify(await status(page, v)));
+    await shot('thinking');
+    check(`${label}: load_basic's card: the status says Waiting for your OK, with Stop, and the card is in view`,
+      await statusIs(page, v, /Waiting for your OK/) && await waitFor(page, (id) => !document.getElementById(id).hidden, v.load) && await inView(page, v.load), JSON.stringify(await status(page, v)));
+    await shot('consent');
+    let n = await page.evaluate(() => window.__api.requests);
+    await page.click(`#${v.stop}`);
+    check(`${label}: Stop at the card ends the turn: the card goes, nothing more is asked, and the input works again`,
+      await idle(page) && await usable(page, v, full) && await page.isHidden(`#${v.load}`) && (await page.evaluate(() => window.__api.requests)) === n);
+    if (!all) {
+      // the phone sheet lowered to peek while Claude thinks: its peek line keeps the status and a Stop
+      if (full) return;
+      await fresh(page);
+      await reply(page, { holdMs: 30000, chunks: [text('late')] });
+      await send('and now?');
+      await statusIs(page, v, /Thinking…/);
+      for (let i = 0; i < 3 && await page.evaluate(() => document.getElementById('ask').dataset.height !== 'peek'); i++) await page.click('#askHandle');
+      const peek = await page.evaluate(() => ({ h: document.getElementById('ask').dataset.height, text: document.getElementById('askPeekText').textContent, stop: !!document.getElementById('btnAskPeekStop').offsetParent }));
+      check(`${label}: lowered to peek while Claude thinks, the peek line says Thinking… with a Stop`, peek.h === 'peek' && /Thinking…/.test(peek.text) && peek.stop, JSON.stringify(peek));
+      await page.click('#btnAskPeekStop');
+      check(`${label}: the peek line's Stop ends the turn`, await idle(page));
+      await page.click('#btnAskPeekOpen');
+      // the sheet closed (✕) while Claude thinks lowers to peek: the status and its Stop stay in view
+      await fresh(page);
+      await reply(page, { holdMs: 30000, chunks: [text('late')] });
+      await send('and then?');
+      await statusIs(page, v, /Thinking…/);
+      await page.click('#btnAskClose');
+      const shut = await page.evaluate(() => ({ h: document.getElementById('ask').dataset.height, open: !document.getElementById('ask').hidden, text: document.getElementById('askPeekText').textContent }));
+      check(`${label}: closed while Claude thinks, the sheet lowers to peek with Thinking… and its Stop in view`, shut.open && shut.h === 'peek' && /Thinking…/.test(shut.text) && await inView(page, 'btnAskPeekStop'), JSON.stringify(shut));
+      await page.click('#btnAskPeekStop');
+      check(`${label}: and that Stop ends the turn, and the sheet the person closed then closes`, await idle(page)
+        && await waitFor(page, () => document.getElementById('ask').hidden && !document.body.classList.contains('ask-open')));
+      // lowered by ✕, then raised again by the person: it stays open when the turn ends
+      await page.click('#btnAsk');
+      await fresh(page);
+      await reply(page, { holdMs: 30000, chunks: [text('late')] });
+      await send('still here?');
+      await statusIs(page, v, /Thinking…/);
+      await page.click('#btnAskClose');
+      await page.click('#btnAskPeekOpen');
+      await page.click('#btnAskStatusStop');
+      check(`${label}: closed, then raised again during the turn: the sheet stays open when the turn ends`, await idle(page)
+        && (await emuFrames(page, 5), await page.evaluate(() => !document.getElementById('ask').hidden && document.getElementById('ask').dataset.height !== 'peek')));
+      // to full screen in the middle of a turn: the sheet goes, the full screen's status and Stop take over
+      await fresh(page);
+      await reply(page, { holdMs: 30000, chunks: [text('late')] });
+      await send('one more');
+      await statusIs(page, v, /Thinking…/);
+      await page.click('#btnAskFull');
+      await waitFor(page, () => window.emu.session.claudeView === 'full', null, 15000);
+      const fv = views.full;
+      check(`${label}: to full screen mid-turn, the sheet is gone and the full screen shows Thinking… with Stop`, await statusIs(page, fv, /Thinking…/)
+        && await page.evaluate(() => document.getElementById('ask').hidden && !document.body.classList.contains('ask-open')));
+      await page.click(`#${fv.stop}`);
+      check(`${label}: and its Stop ends the turn`, await idle(page));
+      await page.click('#btnFullSide');
+      await waitFor(page, () => window.emu.session.claudeView === 'panel' && !document.getElementById('ask').hidden, null, 15000);
+      return;
+    }
+    await fresh(page);
+    if (!full) {
+      // minimised while Claude thinks: the strip says Thinking… and has its own Stop
+      await reply(page, { holdMs: 30000, chunks: [text('late')] });
+      await send('and you?');
+      await statusIs(page, v, /Thinking…/);
+      await page.click('#btnAskMin');
+      const strip = await page.evaluate(() => ({ text: document.getElementById('askStripText').textContent, stop: !!document.getElementById('btnAskStripStop').offsetParent }));
+      check(`${label}: minimised while Claude thinks, the strip says Thinking… with a Stop`, /Thinking…/.test(strip.text) && strip.stop, JSON.stringify(strip));
+      await page.click('#btnAskStripStop');
+      check(`${label}: the strip's Stop ends the turn`, await idle(page) && await page.isHidden('#btnAskStripStop'));
+      // closed (✕) while Claude thinks: the strip stays with the status and Stop, and the card, when it comes, opens the panel
+      await page.click('#btnAsk');
+      await fresh(page);
+      await reply(page, { holdMs: 1500, chunks: [tools([{ name: 'load_basic', input: { program: PROG } }])] });
+      await send('load it');
+      await statusIs(page, v, /Thinking…/);
+      await page.click('#btnAskClose');
+      const closed = await page.evaluate(() => ({ text: document.getElementById('askStripText').textContent, stop: !!document.getElementById('btnAskStripStop').offsetParent }));
+      check(`${label}: closed while Claude thinks, the strip keeps Thinking… and a Stop`, /Thinking…/.test(closed.text) && closed.stop, JSON.stringify(closed));
+      check(`${label}: then the card opens the panel, in view, with Waiting for your OK`, await statusIs(page, v, /Waiting for your OK/) && await inView(page, v.load));
+      await page.click(`#${v.loadNo}`);
+      await idle(page);
+      // a card that comes while a page view (the Library) covers the emulator: the panel opens on it, in view, when
+      // the person comes back
+      await fresh(page);
+      await reply(page, { holdMs: 1500, chunks: [tools([{ name: 'load_basic', input: { program: PROG } }])] });
+      await send('load it again');
+      await page.evaluate(() => { location.hash = '#library'; });
+      await waitFor(page, () => !!window.emu.session.claudePending, null, 15000);
+      await page.evaluate(() => { location.hash = ''; });
+      const back = await statusIs(page, v, /Waiting for your OK/) && await inView(page, v.load);
+      check(`${label}: a card that came under a page view is in view with Waiting for your OK on coming back`, back, JSON.stringify(await page.evaluate(() => ({ hidden: document.getElementById('ask').hidden, rects: document.getElementById('ask').getClientRects().length, hash: location.hash, card: !document.getElementById('askLoad').hidden, st: document.getElementById('askStatusText').textContent, body: document.getElementById('askBody').scrollTop + '/' + document.getElementById('askBody').scrollHeight }))));
+      await page.click(`#${v.loadNo}`);
+      await idle(page);
+      await fresh(page);
+    }
+    // a long thinking block streamed before the tool call; then Load it, and Claude's reply ends the turn
+    await reply(page, { gapMs: 120, chunks: thinkingThen([{ name: 'load_basic', input: { program: PROG } }]) });
+    await reply(page, { chunks: [text('Loaded. LIST shows all 30 lines.')] });
+    await send('yes, load it');
+    check(`${label}: a long thinking block streams: Thinking…, with Stop`, await statusIs(page, v, /Thinking…/, 3000), JSON.stringify(await status(page, v)));
+    check(`${label}: then the card, with Waiting for your OK`, await statusIs(page, v, /Waiting for your OK/) && await inView(page, v.load));
+    await page.click(`#${v.loadYes}`);
+    check(`${label}: Load it: the turn ends with Claude's reply, and the input works again`, await idle(page) && await usable(page, v, full)
+      && await page.evaluate(() => window.emu.session.chat.messages.slice(-1)[0].content === 'Loaded. LIST shows all 30 lines.'));
+    // a tool that runs a while: type_text, after the consent card (the switch is off: an earlier Allow turned it on)
+    await page.evaluate(() => window.emu.session.setClaudeAllowed(false));
+    await reply(page, { chunks: [tools([{ name: 'type_text', input: { text: Array.from({ length: 30 }, (_, i) => `${i + 1}0 REM LINE ${i + 1}`).join('\n') + '\n' } }])] });
+    await reply(page, { chunks: [text('Typed.')] });
+    await send('type it instead');
+    check(`${label}: the consent card: Waiting for your OK, with Stop, the card in view`, await statusIs(page, v, /Waiting for your OK/) && await inView(page, v.consent));
+    await page.click(`#${v.allow}`);
+    check(`${label}: while a tool runs the status says Using type_text…, with Stop`, await statusIs(page, v, /Using type_text…/), JSON.stringify(await status(page, v)));
+    await shot('using');
+    await page.click(`#${v.stop}`);
+    check(`${label}: Stop while the tool runs ends the turn and the typing, nothing more is asked, and the input works again`, await idle(page) && await usable(page, v, full)
+      && await page.evaluate(() => window.emu.session.chatTarget().machine.typist.queue.length === 0 && window.__api.queue.length === 1));
+    // a slow reply: text streams in a word at a time; Stop mid-way
+    await fresh(page);
+    // (what has streamed so far, as the chat hands it to the view: in full screen it is drawn on the machine's screen)
+    await page.evaluate(() => { const c = window.emu.session.chat, f = c.onText; window.__seen = ''; c.onText = (t) => { window.__seen += t; if (f) f(t); }; });
+    await reply(page, { gapMs: 400, chunks: slowText('Here is the program as text instead so you can read it first and then decide'.split(' ')) });
+    await send('show me');
+    check(`${label}: a reply streaming slowly: Thinking…, with Stop, while its text comes in`, await statusIs(page, v, /Thinking…/) && await waitFor(page, () => /Here is/.test(window.__seen)));
+    await page.click(`#${v.stop}`);
+    check(`${label}: Stop mid-stream ends the turn before the reply is complete, and the input works again`, await idle(page) && await usable(page, v, full)
+      && await page.evaluate(() => !/decide/.test(window.__seen)));
+    // a stream that stalls: Stop before the limit works
+    await fresh(page);
+    await reply(page, { stall: true, chunks: [sse([msgStart])] });
+    await send('again');
+    check(`${label}: a stalled stream: Thinking…, with Stop`, await statusIs(page, v, /Thinking…/));
+    await page.click(`#${v.stop}`);
+    check(`${label}: Stop on a stalled stream ends the turn`, await idle(page) && await usable(page, v, full));
+  }
+  // the failures: each ends the turn with its message in the conversation, and the input works again
+  async function failures(page, v, send, label, full, shot, set = 'all') {
+    const cases = [
+      ['an HTTP error (529 overloaded)', { status: 529, json: { type: 'error', error: { type: 'overloaded_error', message: 'Overloaded' } } }, /overloaded/i],
+      ['a network error', { network: true }, /Could not reach Claude/],
+      ['an SSE error event mid-stream', { chunks: [sse([msgStart, { type: 'error', error: { type: 'overloaded_error', message: 'Overloaded' } }])] }, /overloaded/i],
+      ['a stalled stream past the limit', { stall: true, chunks: [sse([msgStart])] }, /stopped answering/i],
+    ];
+    await fresh(page);
+    for (const [what, r, re] of set === 'all' ? cases : cases.slice(0, 1)) {
+      if (/stalled/.test(what)) await page.evaluate(() => { const b = window.emu.session.chat.backend; window.__stallMs = b.stallMs; b.stallMs = 1500; });
+      await reply(page, r);
+      await send('try');
+      const ok = await idle(page) && await waitFor(page, ([id, src]) => { const e = document.getElementById(id); return !!e && !e.closest('[hidden]') && new RegExp(src).test(e.textContent); }, [v.msg, re.source]);
+      const free = await usable(page, v, full);
+      check(`${label}: ${what} ends the turn with its message shown, and the input works again`, ok && free,
+        `${ok} ${free} ${await page.evaluate((id) => document.getElementById(id).textContent, v.msg)}`);
+      if (what === cases[0][0]) await shot('error');
+      if (/stalled/.test(what)) await page.evaluate(() => { window.emu.session.chat.backend.stallMs = window.__stallMs; });
+    }
+    if (set !== 'all') return;
+    // an exception in the tool loop (the page's own handler throws): the turn ends with a message
+    await page.evaluate(() => { const c = window.emu.session.chat, f = c.onToolUse; c.onToolUse = () => { c.onToolUse = f; throw new Error('the tool loop broke'); }; });
+    await reply(page, { chunks: [tools([{ name: 'machine_info', input: {} }])] });
+    await send('what machine?');
+    check(`${label}: an exception in the tool loop ends the turn with its message, and the input works again`, await idle(page) && await usable(page, v, full)
+      && await waitFor(page, (id) => /the tool loop broke/.test(document.getElementById(id).textContent), v.msg));
+    // and the conversation goes on
+    await reply(page, { chunks: [text('Still here.')] });
+    await send('still there?');
+    check(`${label}: after the failures a new question is answered`, await idle(page) && await page.evaluate(() => window.emu.session.chat.messages.slice(-1)[0].content === 'Still here.'));
+  }
+
+  for (const [vp, tag] of [[{ width: 1440, height: 900 }, 'desktop'], [{ width: 390, height: 844 }, 'phone']]) {
+    const phone = tag === 'phone', set = phone ? 'some' : 'all';
+    const { ctx, page, errors, logs } = await open(vp);
+    const shotter = (view) => async (name) => { if (shotDir) await page.screenshot({ path: path.join(shotDir, `ask-status-${view}-${tag}-${name}.png`) }); };
+    // the report's first turn: a question, and Claude asking in prose
+    await page.click('#btnAsk');
+    // (a long answer, so the conversation fills the panel and a card that comes up later starts below its fold)
+    await reply(page, { chunks: [text(`It is about 30 lines. I can load it straight into memory for you.\n${Array.from({ length: 24 }, (_, i) => `${(i + 1) * 10} REM PART ${i + 1}`).join('\n')}`)] });
+    const askNow = async (q) => { await page.fill('#askInput', q); await page.press('#askInput', 'Enter'); };
+    await askNow('can you write a breakout game?');
+    await idle(page);
+    await variants(page, views.side, askNow, `ask status (side panel, ${tag})`, false, shotter('side'), set);
+    await failures(page, views.side, askNow, `ask status (side panel, ${tag})`, false, shotter('side'), set);
+    // the same conversation in full screen; lines go to the chat as the firmware sends them
+    await page.click('#btnAskFull');
+    await waitFor(page, () => window.emu.session.claudeView === 'full' && !!window.emu.session.chatMachines, null, 15000);
+    const fullSend = (q) => page.evaluate((x) => { window.emu.session.chat.sendLine(x); }, q);
+    await variants(page, views.full, fullSend, `ask status (full screen, ${tag})`, true, shotter('full'), set);
+    await failures(page, views.full, fullSend, `ask status (full screen, ${tag})`, true, shotter('full'), set);
+    const shown = await page.evaluate(() => document.body.innerText);
+    check(`ask status (${tag}): the API key is in no console log and nowhere on the page`, !logs.some((l) => l.includes(KEY)) && !shown.includes(KEY));
+    check(`ask status (${tag}): no page errors`, !errors.length, errors.join('; '));
     await ctx.close();
   }
 }
@@ -8232,6 +9944,8 @@ const GROUPS = (base, site) => [
   ['claude', (b) => claudeChecks(b, base, check)],
   ['ask', (b) => askChecks(b, base, check)],
   ['askFollowup', (b) => askFollowupChecks(b, base, check)],
+  ['askStatus', (b) => askStatusChecks(b, base, check)],
+  ['askEsc', (b) => askEscChecks(b, base, check)],
   ['consentFullscreen', (b) => consentFullscreenChecks(b, base, check)],
   ['welcomeScreen', (b) => welcomeScreenChecks(b, base, check)],
   ['chatScreen', (b) => chatScreenChecks(b, base, check)],

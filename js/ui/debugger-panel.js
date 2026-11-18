@@ -103,8 +103,8 @@ export function setupDebuggerPanel(page) {
       if (lastRegs && lastRegs[r] !== regs[r]) input.classList.add('changed');
       // Every register but Q takes the same input it always has: an address, or a label of the assembled
       // program (parseAddr). Q, the 6309's 32-bit accumulator, is not an address, so it takes a plain 8-digit
-      // value instead.
-      input.onchange = () => { page.attempt(() => { d.setRegister(r, r === 'q' ? parseHex(input.value, 8) : parseAddr(input.value)); }); refresh(); };
+      // value instead. (An edit in the Debugger is the person's input to the machine: Claude acting on it pauses first.)
+      input.onchange = () => { page.attempt(() => { const v = r === 'q' ? parseHex(input.value, 8) : parseAddr(input.value); session.personInput(); d.setRegister(r, v); }); refresh(); };
       cell.append(name, input);
       box.append(cell);
     }
@@ -114,7 +114,7 @@ export function setupDebuggerPanel(page) {
       const bit = flags.length - 1 - i, on = !!((regs.cc >> bit) & 1);
       const b = el('button', f, on ? 'flag on' : 'flag'); b.setAttribute('aria-pressed', String(on)); b.dataset.flag = f;
       b.title = `${f}: ${on ? 'set' : 'clear'} (click to ${on ? 'clear' : 'set'})`;
-      b.onclick = () => { d.setRegister('cc', regs.cc ^ (1 << bit)); refresh(); };
+      b.onclick = () => { session.personInput(); d.setRegister('cc', regs.cc ^ (1 << bit)); refresh(); };
       cc.append(b);
     });
     box.append(cc);
@@ -238,6 +238,7 @@ export function setupDebuggerPanel(page) {
     try {
       const v = parseInt($('dbgByteValue').value.replace(/^\$/, ''), 16);
       if (!(v >= 0 && v <= 0xFF)) throw new Error('A byte is $00 to $FF');
+      session.personInput();
       d().write(selected, [v]);
     } catch (err) { page.status(err.message, true); }
     refresh();

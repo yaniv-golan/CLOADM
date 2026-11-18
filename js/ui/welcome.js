@@ -49,12 +49,17 @@ export function setupWelcome(page, { showRoms, openClaude }) {
   // greeting: 'first', 'back' or 'bye'; on a returning visit the menu offers what ran last as option 5
   // ifIdle: only if nothing else started while the menu's bytes were fetched (the Session asked for it, then a
   // program was loaded or a snapshot opened: that wins)
-  async function runWelcome({ greeting = 'first', carryOn = null } = {}, { ifIdle = false } = {}) {
+  // byMachine: the program on the machine asked for it (the 'welcome:*' events, 'menu' after LIZA's BYE or the
+  // demo): the start itself runs in Session.asMachine, so keys Claude typed that asked for it do not stop Claude
+  // (the fetch before it is outside: what the person does meanwhile still stops Claude)
+  // (byMachine: the ticket the Session gave when the program asked, Session.machineTicket; null: the person asked)
+  const startAs = (byMachine, fn) => (byMachine ? session.asMachine(fn, byMachine) : fn());
+  async function runWelcome({ greeting = 'first', carryOn = null } = {}, { ifIdle = false, byMachine = null } = {}) {
     const m = session.machine, running = session.stubRun;
     try {
       const bytes = await page.fetchBytes(`examples/${session.welcomeFile}`);   // this machine's build (6809, or its own 6803 one)
       if (ifIdle && (session.machine !== m || !m.useStub || session.stubRun !== running || session.welcomeRunning)) return;
-      session.startWelcome(bytes, { greeting, carryOn: carryOn && carryOn.name });   // (the menu says "PRESS 1 TO 4" itself: not repeated)
+      startAs(byMachine, () => session.startWelcome(bytes, { greeting, carryOn: carryOn && carryOn.name }));   // (the menu says "PRESS 1 TO 4" itself: not repeated)
     } catch (e) { page.status(`Welcome: ${e.message}`, true); }
     page.focus();
     shelf();
@@ -62,24 +67,26 @@ export function setupWelcome(page, { showRoms, openClaude }) {
   }
   session.on(async (ev, arg) => {
     if (ev === 'machine' || ev === 'loaded') { showBack(false); lastTime(); return; }
-    if (ev === 'welcome:liza') await run(SHELF[0]);
+    // (what the menu or a program asks for: byMachine, so a key Claude typed does not stop Claude)
+    const asked = session.machineTicket();   // (taken now, when the program asks: whose keys they were)
+    if (ev === 'welcome:liza') await run(SHELF[0], { byMachine: asked });
     else if (ev === 'welcome:demo') {
-      await run(SHELF[1]);
+      await run(SHELF[1], { byMachine: asked });
       showBack(true);
       page.status('Colour demo: press a key to start it; another key goes back to the menu');
     } else if (ev === 'welcome:roms') showRoms();
     else if (ev === 'welcome:claude') await openClaude();
-    else if (ev === 'welcome:carryon') await runAgain();
+    else if (ev === 'welcome:carryon') await runAgain({ byMachine: asked });
     // back from a program ('bye'), or the machine turned on, or reset with nothing to restart, without ROMs ('back')
-    else if (ev === 'menu') { showBack(false); await runWelcome(arg === 'back' ? { greeting: 'back', carryOn: session.carryOn } : { greeting: 'bye' }, { ifIdle: true }); }
+    else if (ev === 'menu') { showBack(false); await runWelcome(arg === 'back' ? { greeting: 'back', carryOn: session.carryOn } : { greeting: 'bye' }, { ifIdle: true, byMachine: arg !== 'back' ? session.menuTicket || asked : null }); }
   });
   // what ran last, again: LIZA, the demo, or the file (from the recent list)
-  async function runAgain() {
+  async function runAgain({ byMachine = null } = {}) {
     const last = session.lastRun;
     if (!last) return;
-    if (last.kind === 'liza') await run(SHELF[0]);
-    else if (last.kind === 'demo') await run(SHELF[1]);
-    else { page.attempt(() => session.loadRecent(0)); page.focus(); }
+    if (last.kind === 'liza') await run(SHELF[0], { byMachine });
+    else if (last.kind === 'demo') await run(SHELF[1], { byMachine });
+    else { page.attempt(() => startAs(byMachine, () => session.loadRecent(0))); page.focus(); }
   }
   // the Media tab's "Last time": the name (and the machine, for a file) and "Run again"
   function lastTime() {
@@ -92,14 +99,18 @@ export function setupWelcome(page, { showRoms, openClaude }) {
   }
   $('btnRunAgain').onclick = () => runAgain();
 
-  async function run(item) {
+  async function run(item, { byMachine = null } = {}) {
     // LIZA has a build per CPU; the Session chooses it and checks the RAM the 6803 build needs
     if (item.liza && session.lizaNeeds()) return offerLizaRam(item);
     try {
-      // startLiza is asynchronous: await it, or the status line shows a Promise and a rejection escapes
-      if (item.liza) page.status(await session.startLiza((name) => page.fetchBytes(`examples/${name}`)));
-      else {
-        page.status(session.load(item.url.split('/').pop(), await page.fetchBytes(item.url), { remember: false }));
+      // (the bytes first, then LIZA at once: the start is synchronous, so byMachine covers only it)
+      if (item.liza) {
+        session.checkLiza();
+        const bytes = await page.fetchBytes(`examples/${session.lizaFile}`);
+        page.status(startAs(byMachine, () => session.runLiza(bytes)));
+      } else {
+        const bytes = await page.fetchBytes(item.url);
+        page.status(startAs(byMachine, () => session.load(item.url.split('/').pop(), bytes, { remember: false })));
         session.setLastRun('demo', item.name);
         session.watchForMenu('demo');
       }

@@ -49,11 +49,13 @@ export class EmbedApi {
   load(name, bytes) {
     const b = bytesOf(bytes);
     if (typeof name !== 'string' || !b) throw new SessionError('load: give a file name and its bytes');
+    this.session.personInput();
     return this.session.load(name, b, { remember: false });
   }
   insertTape(name, bytes) {
     const b = bytesOf(bytes);
     if (typeof name !== 'string' || !b) throw new SessionError('insertTape: give a file name and its bytes');
+    this.session.personInput();
     return this.session.insertTape(name, b);
   }
   reset() { this.session.reset(); return this.info(); }
@@ -86,6 +88,8 @@ export class EmbedApi {
     addrOf(addr);
     const b = bytesOf(typeof bytes === 'number' ? [bytes] : bytes);
     if (!b || addr + b.length > 0x10000) throw new SessionError('poke: give bytes that fit below 65536');
+    // (the embedding page's calls are the person's input: Claude acting on the machine pauses first, Session.personInput)
+    this.session.personInput();
     for (let i = 0; i < b.length; i++) this.session.machine.poke(addr + i, b[i] & 0xFF);
     return b.length;
   }

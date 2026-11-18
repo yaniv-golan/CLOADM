@@ -55,7 +55,8 @@
       "ask",
       "askFollowup",
       "share",
-      "favicon"
+      "favicon",
+      "askStatus"
     ],
     [
       "audio",
@@ -75,7 +76,8 @@
       "state",
       "light",
       "consentFullscreen",
-      "phoneChat"
+      "phoneChat",
+      "askEsc"
     ]
   ]
 }

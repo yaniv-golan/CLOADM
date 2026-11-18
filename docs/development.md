@@ -48,6 +48,7 @@ node tests/drivewire.test.js # the DriveWire server against the DW4 specificatio
 node tests/claude-chat-drivewire.test.js # the Claude chat end to end over DriveWire channel 14 on the Becker port (mocked fetch)
 node tests/restore-points.test.js # Ask Claude's restore points: one path for every acting tool, exact restores on 6809/6803/CoCo 3, a failed restore keeps everything, a disk rolls back only for the same mount and only when written
 node tests/claude-acting-contract.test.js # Claude's acting tools: every tool x every outcome as the model receives it (mocked fetch), schemas vs constants, the consent gate and restore point for every tool
+node tests/claude-ask-acting.test.js     # the person's input pauses an acting call at its gate (a card, an INCLUDE read): nothing acts, no restore point; Resume, Stop and the turn's end
 node tests/web-serial.test.js # DriveWire to a real CoCo over Web Serial, against a mocked serial port
 node tests/composite.test.js # composite colour: NTSC artifact colours per phase and PAL line blending on known patterns
 node tests/display.test.js   # Display tab settings (validated, remembered, applied per machine) and picture size

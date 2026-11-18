@@ -33,6 +33,7 @@ const isModifier = (key) => key === 'Shift' || key === 'Control' || key === 'Alt
 // a stick position in -1..1 -> the machines' 0..63 axis (one end is 0, the other 63; centre is 32)
 export const axisValue = (v) => Math.round((Math.max(-1, Math.min(1, v)) + 1) / 2 * 63);
 export const DEAD_ZONE = 0.25;
+export const PLAYER_BACK_IN = 0.8;   // a deflection ends below this fraction of DEAD_ZONE (HostInput.player)
 // One axis of a stick in -1..1 as the machines' 0..63: inside the dead zone (strictly, so exactly DEAD_ZONE
 // deflects) the axis is centred; otherwise it goes through axisValue. The gamepad and the touch stick both
 // come through here, so neither can drift from the other.
@@ -77,10 +78,26 @@ class HostInput {
     this.mouse = { x: 0.5, y: 0.5, left: false, right: false };
     this.mouseDx = 0; this.mouseDy = 0;
     if (machine) machine.mouse = this.mouse;
+    this.onPlayer = null;                   // () => void: the person moved a joystick or pressed fire (player)
+    this.players = new Map();               // source -> { out, fire }: each source's own state (player)
+    this.touchState = { x: 0, y: 0, fire: false };   // the touch stick's last vector and FIRE (touchStick, touchFire)
+  }
+  // The one hook for the person's hand on a joystick, whatever drives it: source names it ('pad0', 'pad1', 'mouse',
+  // 'touch': the on-screen stick and its FIRE), each with its own state, so one source's samples never reset another's. A fire press, or a
+  // deflection out of the dead zone, calls onPlayer once (the page: Session.personInput, which pauses Claude acting on
+  // the machine). Holding fire or staying deflected is the same press; idle polling and noise inside the dead zone are
+  // nothing. Hysteresis: out at DEAD_ZONE or more, back in only below PLAYER_BACK_IN x DEAD_ZONE, so a stick resting at
+  // the edge does not fire again on jitter. x, y in -1..1.
+  player(source, x, y, fire) {
+    const was = this.players.get(source) || { out: false, fire: false };
+    const r = Math.max(Math.abs(x), Math.abs(y));
+    const out = was.out ? r >= PLAYER_BACK_IN * DEAD_ZONE : r >= DEAD_ZONE;
+    this.players.set(source, { out, fire: !!fire });
+    if (((fire && !was.fire) || (out && !was.out)) && this.onPlayer) this.onPlayer();
   }
   // the machine in use changed: its matrix is new, so nothing is held on it (keys, keyboard joystick, pads start
   // over); the mouse is handed to it
-  setMachine(machine) { this.m = machine; if (machine) machine.mouse = this.mouse; this.heldKeys.clear(); this.keyJoy = [new Set(), new Set()]; this.pads = [null, null]; this.hostShift = false; }
+  setMachine(machine) { this.m = machine; if (machine) machine.mouse = this.mouse; this.heldKeys.clear(); this.keyJoy = [new Set(), new Set()]; this.pads = [null, null]; this.hostShift = false; this.players.clear(); this.touchState = { x: 0, y: 0, fire: false }; }
   // a key map the machine does not have leaves setKey a no-op, so an ALT on a CoCo 1/2 types nothing
   get layout() { return positionalKeys[this.m.profile.keyboard] || {}; }
 
@@ -182,12 +199,14 @@ class HostInput {
   setGamepad(joy, frame) {
     this.pads[joy] = frame;
     const [x, y] = frame.axes || [0, 0];
+    this.player(`pad${joy}`, x, y, !!(frame.buttons && frame.buttons[BUTTON_MAP[joy]]));
     this.m.joy[joy][0] = stickAxis(x);
     this.m.joy[joy][1] = stickAxis(y);
     this.m.fire[joy] = !!(frame.buttons && frame.buttons[BUTTON_MAP[joy]]);
   }
   clearGamepad(joy) {
     this.pads[joy] = null;
+    this.players.delete(`pad${joy}`);
     this.m.joy[joy][0] = 32; this.m.joy[joy][1] = 32;
     this.m.fire[joy] = false;
   }
@@ -198,15 +217,24 @@ class HostInput {
   // cocopia.js, coco3.js). The vector is the pads' own, so the dead zone and the axis mapping are theirs;
   // lifting the finger centres it.
   // Nothing here is stored for snapshots: like a pad or a key, it is the host's, not the machine's.
+  // Both go through the joystick hook (player) as the source 'touch': a push out of the dead zone or a FIRE press is
+  // the person's input, once each, with the same hysteresis as a pad.
   touchStick(dx, dy) {
     if (!this.m) return;
     const [x, y] = stickVector(dx, dy);
+    this.touchState.x = x; this.touchState.y = y;
+    this.player('touch', x, y, this.touchState.fire);
     this.m.joy[0][0] = stickAxis(x);
     this.m.joy[0][1] = stickAxis(y);
   }
   touchStickRelease() { this.touchStick(0, 0); }
   // the stick's FIRE: the joystick's button bit (PA0 for joystick 0), through the same state a pad sets
-  touchFire(down) { if (this.m) this.m.fire[0] = !!down; }
+  touchFire(down) {
+    if (!this.m) return;
+    this.touchState.fire = !!down;
+    this.player('touch', this.touchState.x, this.touchState.y, this.touchState.fire);
+    this.m.fire[0] = !!down;
+  }
 
   // ---------------- mouse ----------------
   // an absolute position, 0..1 across the picture; Y grows downwards

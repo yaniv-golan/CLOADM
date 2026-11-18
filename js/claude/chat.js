@@ -36,10 +36,12 @@ export const SOURCE_MAX = 32768;         // characters of assembler source one a
 export const ASSEMBLE_DEFAULT_ORG = 0;
 export const RUN_DEFAULT_TARGET = 'RUN';  // run with no target types RUN
 // How Claude puts a BASIC program in (the owner's policy): typing is for short programs, and a longer one is
-// loaded only after the person agrees. Stated in the tool descriptions and in the brief (js/claude/brief.js), and
+// loaded with load_basic, whose card asks the person. Stated in the tool descriptions and in the brief (js/claude/brief.js), and
 // tests/claude-typing.test.js checks both say it.
 export const TYPE_LINES_MAX = 3;
-export const TYPING_POLICY = `Policy: type a BASIC program with type_text only when it has ${TYPE_LINES_MAX} lines or fewer; for a longer program, ask the person whether to load it with load_basic instead of typing it, and call load_basic only after they agree. After either, verify before you say it worked: type LIST and read the screen with screen_text, and compare with the program you meant.`;
+// The page's cards are the permission: load_basic's card asks before anything is loaded, so Claude calls the tool
+// rather than asking in prose first (a prose question and then the card is asking twice).
+export const TYPING_POLICY = `Policy: type a BASIC program with type_text only when it has ${TYPE_LINES_MAX} lines or fewer; for a longer program, call load_basic instead of typing it. Do not ask in prose first: the page shows the person a card for each load_basic call (unless they chose not to be asked again) and nothing is loaded without their agreement. After either, verify before you say it worked: type LIST and read the screen with screen_text, and compare with the program you meant.`;
 // The consent each acting tool states, as js/session.js (gateTools) implements it. Every acting tool can also
 // fail tool-failed (an uncoded failure inside the emulator), so every description names it.
 const CONSENT = ' Needs "Let Claude use the emulator": the person is asked the first time, unless that switch is already on (Allow turns it on for the visit; turning it off asks again); if they decline you get the error consent-declined, if there is nobody to ask no-consent, and if they press Stop stopped (also while Claude is paused, and for any later call in a turn they stopped); nothing changes then. Any other failure inside the emulator is tool-failed.';
@@ -105,7 +107,7 @@ const ACTING = {
     act(chat, t) { t.show(); t.pressBreak(); return { pressed: true }; },
   },
   assemble_and_load: {
-    description: `Assemble source for the BASIC session's own CPU and write it into memory; does not start it (use run). Returns {bytes,written,skipped,ranges:[{from,to}],start,symbols:{NAME:address},not_taken:[{from,to,why}]} with every address a decimal integer: bytes assembled, how many landed (written) and did not (skipped); not_taken lists bytes that did not land (why: rom, io, latch, undecoded, absent-ram, lost). Errors: empty, too-large, bad-address, not-a-number, assembly-failed (with the line numbers of your source), org-conflict, past-end, not-ram (no byte landed), each refused with nothing written.` + CONSENT,
+    description: `Assemble source for the BASIC session's own CPU and write it into memory; does not start it (use run). Returns {bytes,written,skipped,ranges:[{from,to}],start,symbols:{NAME:address},not_taken:[{from,to,why}]} with every address a decimal integer: bytes assembled, how many landed (written) and did not (skipped); not_taken lists bytes that did not land (why: rom, io, latch, undecoded, absent-ram, lost). Errors: empty, too-large, bad-address, not-a-number, assembly-failed (with the line numbers of your source), include-unreadable (an INCLUDE file could not be read), org-conflict, past-end, not-ram (no byte landed), each refused with nothing written.` + CONSENT,
     input_schema: schema({
       source: { type: 'string', minLength: 1, maxLength: SOURCE_MAX, description: `Assembler source text, 1 to ${SOURCE_MAX} characters.` },
       org: int(`Load address, decimal ${ADDR}. Omit it if the source has its own ORG; with neither, the code is assembled at ${ASSEMBLE_DEFAULT_ORG}.`, ADDRESS_MIN, ADDRESS_MAX),
@@ -174,7 +176,8 @@ const NO_GATE = () => { throw new ToolError(TOOL_CODES.NO_CONSENT); };
 
 export class ChatSession {
   // deps: { backend, channel, brief, tools (bool), target (the BASIC session), onText, onToolUse,
-  //         include (name => text | null: the page's INCLUDE reader for assemble_and_load; none = no INCLUDE),
+  //         include ((name, { signal }) => text | null, may throw an Error with a string code: the page's INCLUDE
+  //         reader for assemble_and_load, js/host/example-reader.js; none = no INCLUDE),
   //         gate ((name, input, call) => nothing, or a promise: the consent gate every acting tool passes; it throws
   //         or rejects to refuse. The default refuses (no-consent): whoever builds a ChatSession says who consents.
   //         Session.gateTools sets the person's) }
@@ -195,6 +198,7 @@ export class ChatSession {
     this.onText = onText;        // (delta) => void
     this.onToolUse = onToolUse;  // (name, input, text, isError, value) => void
     this.onChange = null;        // () => void: busy, undo or tools changed (the page's panel)
+    this.onTurnEnd = null;       // () => void: a turn has ended, however it ended (the Session's gateTools)
     this.undo = [];              // snapshots of the target before Claude's changes, newest last (the last 10)
     this.snapped = false;        // this turn has its snapshot already
     this.busy = false;
@@ -221,19 +225,32 @@ export class ChatSession {
 
   // one user line -> the backend -> the reply. Errors are recorded in this.error and said on the screen.
   async sendLine(text) {
-    if (this.busy) return null;
+    // a blank line asks nothing (the API would refuse it): no turn, and nothing recorded
+    if (this.busy || typeof text !== 'string' || !text.trim()) return null;
     this.busy = true; this.error = null; this.snapped = false;
-    this.controller = new AbortController();
+    this.controller = new AbortController(); this.abortReason = null;
     this.trim();
     this.messages.push({ role: 'user', content: text });
     this.changed();
+    const used = [];             // the tools this turn called, in order
     try {
       const res = await this.backend.send({
         system: this.brief, messages: this.messages.slice(), tools: this.tools,
-        onText: (t) => { this.emitText(t); }, onToolUse: (n, i, r, e, v) => this.emitTool(n, i, r, e, v),
+        onText: (t) => { this.emitText(t); }, onToolUse: (n, i, r, e, v) => { used.push(n); this.emitTool(n, i, r, e, v); },
         signal: this.controller.signal,
       });
-      this.messages.push({ role: 'assistant', content: res.text });
+      // A reply with no text is never recorded as an empty assistant message: the API would refuse every later
+      // request of this chat, and the views would show an empty bubble (js/claude/history.js keeps the request
+      // valid in any case). A turn of tool calls only is recorded as a note of what was used, so the next question
+      // is not glued to this one and Claude knows it acted (a refusal after tool calls too); a refusal, or a reply of
+      // nothing, with no tool calls drops the question,
+      // so it is not sent again inside every later one.
+      const said = res.text && res.text.trim();
+      if (said) this.messages.push({ role: 'assistant', content: res.text });
+      // (worded as a note about the turn, not as something Claude said, and marked so the views do not show it)
+      else if (used.length) this.messages.push({ role: 'assistant', note: true, content: `(Note from the page, not a reply: in this turn Claude called ${[...new Set(used)].join(', ')} and wrote no text.)` });
+      else this.messages.pop();
+      if (!said && res.stopReason !== 'refusal' && !used.length) this.emitText('\r\n[Claude gave no reply.]\r\n');
       // the reply ends its line: the firmware draws a line when it ends (it wraps at word boundaries), so the
       // last line of a reply without a newline would wait unseen
       if (res.text && !/[\r\n]$/.test(res.text)) this.emitText('\r\n');
@@ -245,18 +262,21 @@ export class ChatSession {
       this.error = e;
       this.messages.pop();                       // drop the unanswered user turn
       // a status line of its own, so what is typed next starts on a fresh line
-      if (e && e.code === 'aborted') this.emitText('\r\n[stopped]\r\n');
+      if (e && e.code === 'aborted') this.emitText(`\r\n[stopped${this.abortReason ? `: ${this.abortReason}` : ''}]\r\n`);
       else this.emitText(`\r\n[${e && e.message ? e.message : 'error'}]\r\n`);
       return null;
     } finally {
       this.busy = false; this.controller = null;
+      // whatever the turn left behind that belongs to it alone (the Session's pause) ends with it
+      if (this.onTurnEnd) this.onTurnEnd();
       // the turn has ended: the firmware lays out the last line and gives a fresh prompt (examples/chat.asm)
       if (this.channel) this.channel.send(Uint8Array.of(END_OF_REPLY));
       this.changed();
     }
   }
-  // BREAK aborts the request in flight (a new AbortController per call)
-  abort() { if (this.controller) this.controller.abort(); }
+  // BREAK aborts the request in flight (a new AbortController per call); reason, when the page stopped it (a
+  // Reset), goes into the status line: "[stopped: you reset the machine]"
+  abort(reason = null) { if (this.controller) { this.abortReason = reason; this.controller.abort(); } }
   // drop the oldest turns when the conversation nears 64 KiB
   trim(limit = 64 * 1024) {
     let size = JSON.stringify(this.messages).length;
@@ -358,6 +378,8 @@ export class ChatSession {
     const report = { requested: job.requested, consumed: job.consumed, lines_requested: job.linesRequested, lines_delivered: job.linesDelivered };
     if (job.status === 'done') return report;
     if (job.status === 'stopped') throw new ToolError(TOOL_CODES.STOPPED, `${job.consumed} of ${job.requested} keys typed`);
+    // the person turned the switch off while the typing was held by a pause: the rest was dropped
+    if (job.status === 'no-consent') throw new ToolError(TOOL_CODES.NO_CONSENT, `${job.consumed} of ${job.requested} keys typed`);
     const at = job.at;
     const ch = at.char === '\r' ? 'Enter' : JSON.stringify(at.char);
     const why = at.phase === 'resume' ? `the machine did not read the keyboard again after line ${job.linesDelivered}`
@@ -376,8 +398,11 @@ export class ChatSession {
     const text = prepended ? ` ORG ${hex(org)}\n${input.source}` : input.source;
     // The assembler is synchronous and has no file system, so INCLUDE texts are gathered first by the injected
     // reader (the page reads examples/; a Node test passes a map). With no reader an INCLUDE is an assembler
-    // error; nothing is fetched by the tool itself.
-    const include = this.include ? await loadIncludes(text, (name) => this.include(name)) : null;
+    // error; nothing is fetched by the tool itself. The reader gets the turn's signal, and the wait races it too, so
+    // Stop ends the call even while a read hangs (a reader that ignores the signal included); a read that fails
+    // with a code (the page's reader: 'timeout') fails the call with include-unreadable rather than reading as a
+    // missing file.
+    const include = this.include ? await this.readIncludes(text) : null;
     // the person may have stopped Claude, or the chat may have moved, while INCLUDEs were being read
     if (t.machine !== m || (this.controller && this.controller.signal.aborted)) throw new ToolError(TOOL_CODES.STOPPED, 'changed while assembling');
     const res = assemble(text, m.config.cpu, include ? { include } : {});
@@ -390,6 +415,31 @@ export class ChatSession {
     if (!res.segments.length) throw new ToolError(TOOL_CODES.EMPTY, 'the source assembled to no bytes');
     if (res.segments.some((sg) => sg.addr + sg.data.length > ADDRESS_MAX + 1)) throw new ToolError(TOOL_CODES.PAST_END, 'the program runs past $FFFF; nothing was written');
     return res;
+  }
+  async readIncludes(text) {
+    const signal = this.controller ? this.controller.signal : null;
+    const stopped = () => new ToolError(TOOL_CODES.STOPPED, 'while reading INCLUDE files');
+    if (signal && signal.aborted) throw stopped();
+    let failed = null;
+    const read = async (name) => {
+      // once one read has failed with a code (a server not answering), the rest are not waited for one by one
+      if (failed) return null;
+      try { return await this.include(name, { signal }); } catch (e) {
+        if (e && typeof e.code === 'string' && e.code !== 'aborted' && !failed) failed = { name, e };
+        throw e;
+      }
+    };
+    let onAbort = null;
+    const aborted = new Promise((resolve, reject) => { onAbort = () => reject(stopped()); if (signal) signal.addEventListener('abort', onAbort, { once: true }); });
+    aborted.catch(() => {});
+    try {
+      const include = await Promise.race([loadIncludes(text, read), aborted]);
+      if (signal && signal.aborted) throw stopped();
+      if (failed) throw new ToolError(TOOL_CODES.INCLUDE_UNREADABLE, `${failed.name}: ${failed.e.message || failed.e.code}`);
+      return include;
+    } finally {
+      if (signal) signal.removeEventListener('abort', onAbort);
+    }
   }
   // withRestorePoint's halves: capture (null when this turn already has its restore point), then commit. onRestorePoint(snap) hears of each one kept (the Session stamps its time).
   captureSnapshot() { return this.snapped ? null : this.target.snapshot(); }

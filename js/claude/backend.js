@@ -12,32 +12,47 @@
  *
  * Errors: every failure becomes one ClaudeError with a `code` and a message fit to show the user, and nothing
  * is retried (no automatic retry loops). Codes: 'no-key', 'invalid-key', 'forbidden',
- * 'rate-limited', 'server-error', 'network', 'aborted', 'bad-response'.
+ * 'rate-limited', 'server-error', 'network', 'aborted', 'bad-response', 'stalled'.
+ *
+ * A stall: when nothing arrives for `stallMs` (STALL_MS, 60 s) - no response to the request, or no bytes of its
+ * stream - the request is aborted and the turn fails with 'stalled', so a reply that silently stops can't hold a
+ * turn open forever. The timer runs only while a request is out, never while a tool runs or a card waits for the
+ * person. 60 s because a working stream is not silent that long: the model's thinking streams as thinking deltas
+ * and the API sends ping events while it works, so a minute with no byte at all is a broken connection, not a slow
+ * answer; and a minute is about as long as a person waits before deciding something is wrong (Stop works before).
  *
  * Tools: `tools` is the API tool array; `runTool(name, input)` runs one and returns a string (or throws, which
  * is reported to the model as is_error). The loop runs tool calls until the model stops asking.
  */
 import { SessionError } from '../errors.js';
 import { asToolError, toolErrorJson } from './toolerrors.js';
+import { apiMessages } from './history.js';
 
 const API_URL = 'https://api.anthropic.com/v1/messages';
 const API_VERSION = '2026-10-21';
 export const DEFAULT_MODEL = 'claude-opus-5-5';
 const MAX_TOOL_ROUNDS = 8;          // a runaway tool loop stops rather than spending without bound
+export const STALL_MS = 60000;      // no bytes for this long ends the request as 'stalled' (see above)
 
 export class ClaudeError extends SessionError {
   constructor(code, message) { super(message); this.code = code; }
 }
 
+// the conversation as the API accepts it, or the turn fails with 'bad-history' (nothing invalid is ever sent)
+function sendable(convo) {
+  try { return apiMessages(convo); } catch (e) { throw new ClaudeError(e.code || 'bad-history', e.message); }
+}
+
 export class ClaudeBackend {
-  // deps: { fetch, apiKey, model, runTool, maxTokens }
-  constructor({ fetch, apiKey = '', model = DEFAULT_MODEL, runTool = null, maxTokens = 4096 } = {}) {
+  // deps: { fetch, apiKey, model, runTool, maxTokens, stallMs }
+  constructor({ fetch, apiKey = '', model = DEFAULT_MODEL, runTool = null, maxTokens = 4096, stallMs = STALL_MS } = {}) {
     if (typeof fetch !== 'function') throw new Error('ClaudeBackend needs a fetch function');
     this.fetch = fetch;
     this.apiKey = apiKey;
     this.model = model;
     this.runTool = runTool;
     this.maxTokens = maxTokens;
+    this.stallMs = stallMs;
   }
   setKey(key) { this.apiKey = key || ''; }
   get hasKey() { return !!this.apiKey; }
@@ -53,9 +68,13 @@ export class ClaudeBackend {
     const convo = messages.map((m) => Object.assign({}, m));
     let toolCalls = 0, text = '', stopReason = null, usage = null;
     for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
+      // stopped while a tool ran (a card's Stop): the turn ends here, without another request
+      if (signal && signal.aborted) throw new ClaudeError('aborted', 'Stopped.');
       const body = {
         model: this.model, max_tokens: this.maxTokens, stream: true,
-        messages: convo,
+        // always a conversation the API accepts (js/claude/history.js): no empty assistant message, every
+        // tool_use answered, so one bad turn cannot make every later request of the chat fail
+        messages: sendable(convo),
       };
       // Prompt caching. Caches are a prefix match over the rendered order tools -> system -> messages, so a
       // breakpoint on the last system block caches the tools and the whole brief together: that prefix is
@@ -78,6 +97,8 @@ export class ClaudeBackend {
       const results = [];
       for (const b of res.content) {
         if (b.type !== 'tool_use') continue;
+        // stopped during an earlier tool of this reply: the rest are not run (nor asked about)
+        if (signal && signal.aborted) throw new ClaudeError('aborted', 'Stopped.');
         let out, isError = false, value = null;
         try {
           out = this.runTool ? await this.runTool(b.name, b.input) : 'No tools are available.';
@@ -106,11 +127,42 @@ export class ClaudeBackend {
     throw new ClaudeError('bad-response', 'Claude kept calling tools without finishing; stopped.');
   }
 
-  // One HTTP request, streaming the response -> { text, content, stopReason }
+  // One HTTP request, streaming the response -> { text, content, stopReason }. The request has its own abort
+  // signal, aborted by the caller's (Stop) or by the stall timer; every wait races it, so a fetch or a stream that
+  // ignores the signal still ends.
   async _request(body, { onText, signal }) {
+    const inner = new AbortController();
+    let stalled = false, timer = null;
+    const ms = this.stallMs;
+    const arm = () => { clearTimeout(timer); if (ms > 0) timer = setTimeout(() => { stalled = true; inner.abort(); }, ms); };
+    const outer = () => inner.abort();
+    if (signal) { if (signal.aborted) inner.abort(); else signal.addEventListener('abort', outer, { once: true }); }
+    const ended = new Promise((resolve, reject) => {
+      const fail = () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+      if (inner.signal.aborted) fail(); else inner.signal.addEventListener('abort', fail, { once: true });
+    });
+    ended.catch(() => {});
+    const guard = (p) => Promise.race([p, ended]);
+    const stallError = () => new ClaudeError('stalled', `Claude stopped answering: nothing came for ${ms >= 1000 ? `${Math.round(ms / 1000)} seconds` : `${ms} ms`}. Try again.`);
+    arm();
+    try {
+      return await this._stream(body, { onText, signal: inner.signal, guard, arm });
+    } catch (e) {
+      if (stalled) throw stallError();
+      if (inner.signal.aborted && !(e instanceof ClaudeError)) throw new ClaudeError('aborted', 'Stopped.');
+      throw e;
+    } finally {
+      clearTimeout(timer);
+      // whatever ended the request (an error event, a refused request, the reply done), its stream is let go
+      inner.abort();
+      if (signal) signal.removeEventListener('abort', outer);
+    }
+  }
+
+  async _stream(body, { onText, signal, guard, arm }) {
     let res;
     try {
-      res = await this.fetch(API_URL, {
+      res = await guard(this.fetch(API_URL, {
         method: 'POST', signal,
         headers: {
           'content-type': 'application/json', 'x-api-key': this.apiKey, 'anthropic-version': API_VERSION,
@@ -121,12 +173,13 @@ export class ClaudeBackend {
           'anthropic-dangerous-direct-browser-access': 'true',
         },
         body: JSON.stringify(body),
-      });
+      }));
     } catch (e) {
       if (e && (e.name === 'AbortError' || (signal && signal.aborted))) throw new ClaudeError('aborted', 'Stopped.');
       throw new ClaudeError('network', `Could not reach Claude: ${e && e.message ? e.message : 'network error'}. Check your connection.`);
     }
-    if (!res.ok) throw await this._httpError(res);
+    arm();
+    if (!res.ok) throw await guard(this._httpError(res));
     // SSE: read the body line by line, accumulating each event's data until a blank line
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
@@ -134,11 +187,13 @@ export class ClaudeBackend {
     const blocks = [];        // content blocks in index order
     for (;;) {
       let chunk;
-      try { chunk = await reader.read(); } catch (e) {
-        if (e && (e.name === 'AbortError' || (signal && signal.aborted))) throw new ClaudeError('aborted', 'Stopped.');
+      try { chunk = await guard(reader.read()); } catch (e) {
+        if (signal.aborted) reader.cancel().catch(() => {});
+        if (e && (e.name === 'AbortError' || signal.aborted)) throw new ClaudeError('aborted', 'Stopped.');
         throw new ClaudeError('network', 'The reply was cut off: network error.');
       }
       if (chunk.done) break;
+      arm();
       buf += decoder.decode(chunk.value, { stream: true });
       let nl;
       while ((nl = buf.indexOf('\n')) >= 0) {
@@ -224,9 +279,12 @@ export class ClaudeBackend {
       default: return null;
     }
   }
+  // an error event inside a 200 stream: classified as the HTTP status its type stands for, so it reads the same
+  // as that error would before the stream (an overloaded API says so, not just "Overloaded")
   _streamError(ev) {
     const t = (ev.error && ev.error.type) || '';
-    return this._classify(t, 200, (ev.error && ev.error.message) || 'The reply failed.');
+    const status = { authentication_error: 401, permission_error: 403, rate_limit_error: 429, api_error: 500, overloaded_error: 529 }[t] || 0;
+    return this._classify(t, status, (ev.error && ev.error.message) || 'The reply failed.');
   }
   async _httpError(res) {
     let type = '', message = '';

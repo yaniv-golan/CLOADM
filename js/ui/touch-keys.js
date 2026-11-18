@@ -63,6 +63,8 @@ export function setupTouchKeys(page, { input }) {
       const sp = SPECIAL[t], name = sp ? sp[0] : t;
       let code = sp ? sp[1] : t.charCodeAt(0);
       if (shift && !sp && SHIFTED[name]) code = SHIFTED[name].charCodeAt(0);
+      // (the person's key: Claude acting on this machine pauses first, as for a key on the keyboard)
+      session.personInput();
       input.touch(id, shift ? ['SHIFT', name] : [name], code, true);
       b.classList.add('down');
       try { b.setPointerCapture(e.pointerId); } catch (err) { /* not a pointer we can capture */ }

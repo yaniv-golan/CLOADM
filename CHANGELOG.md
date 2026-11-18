@@ -6,6 +6,78 @@ All notable changes to CLOADM are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **"Allow and resume".** While Claude is paused by your key, a card waiting for your answer says so, and its
+  accept button reads **Allow and resume** (**Load and resume** on the load card): one click gives consent and lets
+  Claude go on. The decline button never resumes. The status shows the pause (with Resume) rather than *Waiting for
+  your OK*. Turning "Let Claude use the emulator" off while Claude is paused now withdraws consent for what the pause
+  holds: on Resume the waiting action is refused, even one you had allowed on its card (before, it still ran), and
+  typing held back is dropped instead of typed. Turning the switch on while paused does not resume.
+  Esc while paused with a card up stops Claude. A card that ends the browser's Fullscreen is no longer taken for your
+  Esc (which stops Claude) when a key paused Claude just before the browser reported it.
+- **More of your input pauses Claude.** An edit in the Debugger (a byte, a register, a flag), the embed API's `poke`,
+  `loadBasic`, `load` and `insertTape`, and a gamepad, the mouse as joystick or the on-screen touch stick and its
+  FIRE (a fire press, or a push out of the dead zone; not a stick resting with noise or jittering at the dead zone's
+  edge) now pause Claude acting on that machine, as a key does. On a phone, a card taller than the room the sheet
+  leaves it now scrolls so its buttons show (with the key and privacy lines below the message box, Allow was hidden
+  under the status line). Paused at a card you then decline, Claude is no longer shown as acting while it only writes
+  its reply; every paused state says "Paused: you pressed a key · Claude's next action waits · Esc stops Claude".
+- **The Ask panel's pause and the acting tools' gate are one mechanism.** The pause made by your input
+  (`Session.personInput`) is the one the acting tools' gate and pre-act re-check wait on, and it ends with its turn
+  (`endClaudePause`), refusing the waiting call. Your input pauses an acting call from its gate onwards (a card
+  waiting, its `INCLUDE` read), even before Claude's first change of the turn; nothing is written and no restore point
+  is taken while paused. `include-unreadable` is in `assemble_and_load`'s description and in the codes table of
+  `docs/claude.md`. New `tests/claude-ask-acting.test.js`, and the browser check's `askEsc` group covers Stop on the
+  page views' pill while a call waits at its gate.
+
+### Fixed
+
+- **Ask Claude no longer goes silent during a turn.** While Claude thought or wrote a long tool call (a `load_basic`
+  program streams no text), the side panel showed nothing and had no Stop until Claude acted on the machine. Every
+  view (the side panel, the phone sheet, the full-screen chat, and the page views: Share, the Library, Add ROMs and
+  the Debugger) now shows the turn's status with **Stop**:
+  *Thinking…*, *Using <tool>…* or *Waiting for your OK*, with the card scrolled into view. Stop at a card or while
+  a tool runs ends the turn without another request. A stream that sends nothing for 60 seconds ends the turn
+  with "Claude stopped answering", and an error event in the stream reads as the error it stands for (an
+  overloaded API says so).
+  Stop now also ends a turn while `assemble_and_load` waits for an `INCLUDE` file that never arrives (the read is
+  aborted, and on its own gives up after 15 seconds with the new tool error `include-unreadable`). A pause made by
+  pressing a key on the machine ends with its turn, so the next turn no longer starts paused with no Resume; the
+  full-screen chat now has **Resume** beside Stop while paused (on a phone held sideways too, above its keyboard),
+  the side panel's status line has Resume too (where the open panel covers the screen), the pill on the screen
+  fits a phone's screen (its buttons were cut off), a later turn that only answers in text is no longer paused by a
+  key, and a key pressed while a card waits for your answer pauses Claude without hiding the card (see "Allow and
+  resume"). While Claude is
+  paused, **Esc stops Claude** in every view (the side panel at any width, the phone sheet, minimised, the
+  full-screen chat in its chat and BASIC views, a phone held sideways with its keyboard); it is Stop only, not
+  also BREAK to BASIC, and a confirmation, menu or card open during the pause takes the first Esc. The pause's
+  status says so ("Paused: you pressed a key · Claude's next action waits · Esc stops Claude"); before, Esc there was BREAK, Claude stayed
+  paused and a later Resume typed everything it held. The browser's Fullscreen hid every Stop and Resume: the
+  fullscreen screen now shows Claude's status with Stop (and Resume while paused), leaving Fullscreen while paused
+  (Esc there) stops Claude, and a card waiting for your answer ends Fullscreen. A Reset or a power cycle while
+  Claude acts on that machine or is paused stops Claude ("[stopped: you reset the machine]"), and so does any other
+  restart of it (a program or cartridge that starts, the welcome menu, LIZA, ROMs cleared) and any program you
+  load or run on it; a snapshot load or a
+  machine switch closes the conversation; a later Resume never types held keys or runs a stopped action. The page
+  views hid every Stop (Claude's own "3" at the welcome menu opens Add ROMs): they now show Claude's status at the
+  bottom of the window with Stop, Resume while paused and Answer while a card waits, and a card raised while a view
+  is open closes the view so the card shows. Wherever no other Stop can be reached (a phone held sideways with its
+  touch keyboard and the panel closed or minimised), the same status with Stop shows over the screen. Every way you send input to
+  the machine Claude is using now pauses Claude as a key on the screen does: a key with the focus on the page,
+  Shift (and Ctrl or Alt on a CoCo 3), an on-screen key, a paste, the type-in panel, a tap on the welcome menu
+  and a POKE from the book (before, those went in unpaused and counted as
+  Claude's, so your "1" at the welcome menu started LIZA as if Claude had chosen it). A "[stopped]" note no longer
+  stays in the side panel after a turn the full-screen chat starts. With a drawer tab open from the Ask panel's
+  rail, Esc closes the tab first (as a menu) and is no longer also BREAK; a page view closes the tab. A card waiting
+  for your answer makes the touch keyboard step aside in every layout. A reply
+  with no text is no longer kept as an empty message, which made the API refuse every later request of the chat: a
+  turn of tool calls only is kept as a note of the tools used (for the model, not shown), a refused question is dropped (and shown with
+  "Claude declined to answer this one."), and requests are always sent as a conversation the API accepts (one that cannot be made valid fails the turn with
+  an error instead of being sent; a blank line starts no turn).
+- Claude no longer asks in prose before loading a long program and then has the page ask again: the policy now
+  tells it to call `load_basic`, whose card is the question.
+
 ### 0.1.2-pre
 
 #### Added

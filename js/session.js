@@ -43,6 +43,12 @@ import { inspectOs9Disk, NITROS9_RELEASES } from './media/os9.js';
 import { END_OF_REPLY } from './claude/chat.js';
 import { loadBasic as loadBasicInto, planBasic } from './claude/basicload.js';
 
+// the status of a turn paused by the person's key, in every view that shows it with Resume and Stop (Esc is Stop then)
+// (one text for every paused state, UX R11b: whether a call waits, typing is held, or Claude only writes its reply,
+// its next action waits; "Esc stops Claude" is never dropped)
+export const CLAUDE_PAUSED_TEXT = 'Paused: you pressed a key · Claude\'s next action waits · Esc stops Claude';
+// the same where it must fit one line (the browser Fullscreen's pill)
+export const CLAUDE_PAUSED_SHORT = 'Paused: you pressed a key · Esc stops Claude';
 // a message's text: a string, or the text blocks of a content array
 const textOf = (c) => (typeof c === 'string' ? c : Array.isArray(c) ? c.filter((b) => b && b.type === 'text').map((b) => b.text).join('') : '');
 import { RomLibrary, identifyRoms, isBootable, isRomPack, looksLikeRom, makeRomPack, restoreRomPack, socketStatus } from './roms.js';
@@ -200,9 +206,14 @@ export class Session {
     this.claudeAllowed = false;     // "Let Claude use the emulator" (off until the person allows it)
     this.claudeGate = null;         // (name, input) => void: the page asks the person (answerClaude gives the answer)
     this.claudeLoadNoAsk = false;   // "Don't ask again this session" on load_basic's card (for the visit only)
-    this.claudeActing = null;       // the acting tool call in progress or last made this turn: { name, input }
+    this.claudeActing = null;       // the acting tool call in progress or last made this turn (cleared when it ends): { name, input }
     this.claudePending = null;      // the consent question waiting for an answer: { resolve }
+    this.claudeTool = null;         // the tool running now (claudeStatus)
+    this.claudeCall = null;         // the acting tool call between its gate and its act (a card or a check may wait): { name }
     this.claudePointInfo = new WeakMap();    // restore point -> { at (ms), disks: the drives linked to the store then (storedDisks) }
+    this.machineDriven = null;      // asMachine: the ticket of what the program on the machine asked for, while it starts
+    this.menuTicket = null;         // the ticket of the menu LIZA's BYE asked for (checkMenuReturn)
+    this.claudePauses = 0;          // pauses made so far (a ticket taken before a pause no longer holds)
     this.claudePaused = null;       // a key the person pressed paused Claude: { held (keys not yet typed), wake }
     this.chatMachines = null;       // while a chat is open: { chat, basic } (startChat)
     this.chatServer = null;         // the chat machine's own DriveWire server (startChat with drivewire)
@@ -389,6 +400,10 @@ export class Session {
   // DriveWire server and a fresh link; one that has a server (the chat machine's own, or a machine coming back on
   // screen) keeps it and its link. The caller emits 'machine'.
   install(m) {
+    // a restart of the machine Claude acts on, by any path (Reset, a power cycle, a program or cartridge that
+    // starts, the welcome menu, LIZA, ROMs cleared), stops Claude: nothing it held or still had to type goes into
+    // the machine that starts over, and its next action does not run there
+    m.onReset = () => this.stopClaudeFor('the machine restarted', m);
     this.keys.clear();
     if (this.debugger && this.debugger.machine !== m) { this.debugger.detach(); this.debugger = null; }
     this.machine = m;
@@ -729,7 +744,7 @@ export class Session {
     // On the stub with a program running (the welcome menu, LIZA), the typed line would be that program's keys
     // (a digit is a menu choice): do what the stub's prompt does with the line, the store, at once.
     const m = this.machine, poke = m.useStub && !m.atStubPrompt() && /^POKE (\d+),(\d+)$/.exec(p.text);
-    if (poke) { m.write(+poke[1] & 0xFFFF, +poke[2] & 0xFF); this.checkRate(); return `Done: ${p.text}`; }
+    if (poke) { this.personInput(m); m.write(+poke[1] & 0xFFFF, +poke[2] & 0xFF); this.checkRate(); return `Done: ${p.text}`; }
     this.typeText(p.text + '\n');
     return `Typed ${p.text}`;
   }
@@ -746,6 +761,7 @@ export class Session {
   // reset and power-on are BASIC's.
   // Reset and power cycle drop any frames owed to real time (no catch-up burst after them); 'reset' event
   reset() {
+    this.stopClaudeFor('you reset the machine');
     const m = this.machine, again = this.stubRun && this.stubRun.m === m && m.useStub ? this.stubRun : null;
     this.endWelcome();
     this.keys.clear();
@@ -758,7 +774,10 @@ export class Session {
   // A power cycle keeps what is inserted, as on real hardware: the cartridge (and so a disk controller's disks)
   // and the tape where it was; only RAM, the chips and the CPU start over. menu: false when the caller starts a
   // program next (startWelcome).
-  powerCycle({ menu = true } = {}) {
+  // reason: the note when this stops Claude (the Power cycle button says the person did it; ROMs added, Run without
+  // ROMs and the like restart the machine without being asked to power cycle it)
+  powerCycle({ menu = true, reason = 'the machine restarted' } = {}) {
+    this.stopClaudeFor(reason);
     const m = this.machine;
     this.endWelcome();
     this.stubRun = null;
@@ -780,6 +799,7 @@ export class Session {
   // run segments at exec (Machine.injectAndRun), remembering them as the stub's program to restart on Reset
   inject(segments, exec) {
     const m = this.machine;
+    this.stopClaudeFor('you started a program', m);   // (as loadMedia: a program run with ROMs is not a reset)
     m.injectAndRun(segments, exec);
     this.stubRun = m.useStub && exec != null
       ? { m, segments: segments.map((s) => ({ addr: s.addr, data: s.data.slice() })), exec, watch: null, welcome: null } : null;
@@ -1703,6 +1723,10 @@ export class Session {
   }
   loadMedia(name, bytes, askAddresses) {
     const m = this.machine;
+    // a program the person loads takes over the machine Claude acts on (with ROMs it starts without a reset, so
+    // the machine's onReset does not say so): Claude stops just before it does (inject does too), and nothing it
+    // held is typed into the program; a load that is refused or cancelled leaves Claude alone
+    const takeOver = () => this.stopClaudeFor('you loaded a program', m);
     this.endWelcome();
     this.stubRun = null;
     const media = detectMedia(name, bytes);
@@ -1714,6 +1738,7 @@ export class Session {
       case 'binary':
         if (d.basic) {
           if (!m.hasRom) throw this.needsRom('A BASIC program');
+          takeOver();
           m.loadBasicProgram(d.segments[0].data, d.segments[0].addr);
           return `${name}: ${d.format}, ${d.segments[0].data.length} bytes – RUN`;
         }
@@ -1738,6 +1763,7 @@ export class Session {
         const ascii = first.fileType === 0 && first.ascii;
         if (ascii && !m.hasRom) throw this.needsRom('An ASCII BASIC tape');
         if (m.hasRom && (!this.fastCas || ascii)) {
+          takeOver();
           m.ensureBooted();
           m.deck.insert(tape);
           if (first.fileType === 2) m.typist.type('CLOADM:EXEC\r');
@@ -1747,6 +1773,7 @@ export class Session {
         let msg;
         if (first.fileType === 0) {
           if (!m.hasRom) throw this.needsRom('A BASIC tape');
+          takeOver();
           m.loadBasicProgram(first.data);
           msg = `${name}: ${first.name} (BASIC) fast-loaded – RUN`;
         } else {
@@ -1769,6 +1796,7 @@ export class Session {
 
       case 'basictext':
         if (!m.hasRom) throw this.needsRom('A BASIC listing');
+        takeOver();
         m.ensureBooted();
         m.typist.type('NEW\r' + d.text.replace(/\r\n?/g, '\n').split('\n').filter((l) => l.trim()).join('\r') + '\rRUN\r');
         return `${name}: typing BASIC listing…`;
@@ -1840,8 +1868,25 @@ export class Session {
     const suggest = (ready || profiles[{ dragon: 'dragon64', coco: 'coco', mc10: 'mc10' }[family]]).id;
     return Object.assign(media, { mismatch: { family, familyName: FAMILY_NAMES[family], suggest, suggestName: profiles[suggest].name } });
   }
-  // type text in, as pasted: through the keyboard with ROMs, as key codes for the stub
+  // the person types text in (a paste, the type-in panel, a POKE from the book, a tap on the welcome menu, the embed
+  // API): it is the person's input, so Claude acting on that machine pauses first (personInput), and the text goes in
   typeText(text, m = this.machine) {
+    this.personInput(m);
+    return this.queueText(text, m);
+  }
+  // A key or text the person sends to machine m (a key on the screen or the page, an on-screen key, typed text):
+  // when Claude is acting on m, Claude pauses before the person's input is queued (pauseClaude), so what Claude still
+  // had to type is held back and the person's input goes in. Every way the person's input reaches the machine comes
+  // here, so the ticket (machineTicket) only ever counts Claude's own typing. true when it paused Claude now.
+  // (also while an acting call waits at its gate - a card, an INCLUDE read - before it acts: runTool's re-check then
+  // holds the call until Resume)
+  personInput(m = this.machine) {
+    if (!this.chat || !(this.claudeBusyActing || this.claudeCall) || this.claudePaused || m !== this.chatTarget().machine) return false;
+    return this.pauseClaude();
+  }
+  // text into the machine with nothing else: through the keyboard with ROMs, as key codes for the stub (Claude's run
+  // tool types RUN this way; the person's text goes through typeText)
+  queueText(text, m = this.machine) {
     const t = text.replace(/\r\n?/g, '\n');
     if (m.useStub) { for (const ch of t) m.stubKeys.push(m.stubCode(ch)); }
     else m.typist.type(t.replace(/\n/g, '\r'));
@@ -1919,7 +1964,7 @@ export class Session {
   runAt(target, m = this.machine) {
     const value = this.checkRunTarget(target, m);
     if (value == null) {
-      this.typeText('RUN\n', m);
+      this.queueText('RUN\n', m);
       return 'RUN typed at the keyboard.';
     }
     m.jump(value);
@@ -1965,28 +2010,66 @@ export class Session {
   gateTools(chat) {
     // the point's disks were recorded when it was taken (chatTarget's snapshot); it is stamped when it is kept
     chat.onRestorePoint = (snap) => { const info = this.claudePointInfo.get(snap); if (info) info.at = Date.now(); };
+    // a pause belongs to the turn it was made in: when the turn ends (finished, failed, stalled or stopped) it ends
+    // too, so the next turn never starts paused; so does what the turn was doing on the machine, so a later turn
+    // that only answers in text is not taken for acting (a key the person presses then is just their key)
+    // and any abort of the turn (Stop, BREAK on the chat screen) ends a pause first: the action waiting on it
+    // (pauseWait, in the gate or the re-check) is refused and the held typing dropped, so a later Resume cannot run
+    // what was aborted
+    const abort = chat.abort.bind(chat);
+    chat.abort = (reason) => { if (this.chat === chat) this.endClaudePause(); abort(reason); };
+    chat.onTurnEnd = () => {
+      if (this.chat !== chat) return;
+      this.endClaudePause();
+      this.claudeCall = null;
+      if (this.claudeActing) { this.claudeActing = null; this.emit('chat'); }
+    };
+    // the tool running now, for the turn's status ("Using type_text…"), and the acting call between its gate and its
+    // act (claudeCall), which the person's input pauses (personInput) as it pauses Claude's acting
+    const run = chat.backend.runTool;
+    chat.backend.runTool = async (name, input) => {
+      this.claudeTool = name;
+      this.emit('chat');
+      try { return await run(name, input); } finally {
+        // (a call of a conversation that has since ended does not clear the new one's)
+        if (this.chat === chat) {
+          this.claudeCall = null;
+          if (this.claudeTool === name) this.claudeTool = null;
+          this.emit('chat');
+        }
+      }
+    };
     // It answers synchronously when nobody has to be asked, so the restore point is the machine at the call itself
     // (no frame runs in between); a question or a pause makes it a promise.
     chat.gate = (name, input, call = {}) => {
+      this.claudeCall = { name };
       // paused by the person's key: the next action waits for Resume (Stop refuses it)
       if (this.claudePaused) return pauseWait().then(() => consent(name, input, call));
       return consent(name, input, call);
     };
-    // The pre-act re-check, synchronous with the change (ChatSession.runTool): the person may have paused Claude or
-    // turned the switch off while the card waited or the tool's check ran (an INCLUDE read). Paused: wait for
-    // Resume as the gate does, then this runs again. A call that relied on the switch (call.consent 'switch') is
+    // The pre-act re-check, synchronous with the change (ChatSession.runTool): the person may have paused Claude
+    // (their input while the card waited or the tool's check ran, an INCLUDE read: personInput) or turned the switch
+    // off. Paused: wait for Resume as the gate does, then this runs again; the turn's end or abort ends the pause and
+    // the call is stopped, with no restore point. A call that relied on the switch (call.consent 'switch') is
     // refused no-consent once it is off; a card answered for this very call ('card') still holds for it.
     chat.recheck = (name, input, call = {}) => {
       if (this.claudePaused) return pauseWait();
       if (call.consent === 'switch' && !(this.claudeAllowed && (name !== 'load_basic' || this.claudeLoadNoAsk))) throw new ToolError(TOOL_CODES.NO_CONSENT);
       return null;
     };
-    // Resume goes on; Stop, or the turn's abort (Esc/BREAK while paused), is stopped
-    const pauseWait = () => new Promise((resolve) => { this.claudePaused.wake.push(resolve); onAbort(() => resolve(false)); }).then((go) => {
-      if (!go) throw new ToolError(TOOL_CODES.STOPPED);
-    });
-    // the turn's abort (Stop, or Esc/BREAK, which abort the request without stopClaude) also ends a wait: a card or
-    // a pause left waiting would hold the turn until someone answered it
+    // the pause's own wait: resumeClaude wakes it to go on; endClaudePause (Stop, the turn's abort or end) wakes it
+    // refused, and the call fails stopped. The switch turned off during the pause (setClaudeAllowed marks the pause
+    // revoked) refuses the waiting call no-consent on Resume, whatever consent it relied on (a card answered for it
+    // included): the person withdrew it while the call could not act.
+    const pauseWait = () => {
+      const p = this.claudePaused;
+      return new Promise((resolve) => { p.wake.push(resolve); }).then((go) => {
+        if (!go) throw new ToolError(TOOL_CODES.STOPPED);
+        if (p.revoked) throw new ToolError(TOOL_CODES.NO_CONSENT);
+      });
+    };
+    // the turn's abort (Stop, or Esc/BREAK, which abort the request without stopClaude) also ends a waiting card:
+    // left waiting it would hold the turn until someone answered it
     const onAbort = (f) => {
       const sig = chat.controller && chat.controller.signal;
       if (sig) { if (sig.aborted) f(); else sig.addEventListener('abort', f, { once: true }); }
@@ -2026,35 +2109,59 @@ export class Session {
       return null;
     };
   }
+  // What the turn in progress is doing, for the status every view shows with Stop: null when no turn is in
+  // progress, else { phase, text, tool }. A card waiting for the person comes first, then a pause by the person's
+  // key, then a tool running; otherwise the reply is on its way (the model thinking or streaming).
+  get claudeStatus() {
+    if (!this.chat || !this.chat.busy) return null;
+    // (paused while a card waits: the pause is what the person must know; the card says "Allow and resume")
+    if (this.claudePaused) return { phase: 'paused', text: CLAUDE_PAUSED_TEXT, tool: this.claudeTool };
+    if (this.claudePending) return { phase: 'consent', text: 'Waiting for your OK', tool: this.claudePending.name };
+    if (this.claudeTool) return { phase: 'tool', text: `Using ${this.claudeTool}…`, tool: this.claudeTool };
+    return { phase: 'thinking', text: 'Thinking…', tool: null };
+  }
   // answer the question on screen: the consent card (Allow / Just tell me the fix; the switch below the message box
-  // sets it too) or load_basic's card (Load it / Don't load), whose "Don't ask again this session" is dontAsk
-  answerClaude(allow, { dontAsk = false } = {}) {
+  // sets it too) or load_basic's card (Load it / Don't load), whose "Don't ask again this session" is dontAsk.
+  // resume: the card's accept button read "Allow and resume" / "Load and resume" (Claude paused when the card was
+  // drawn; the page passes what it drew, never claudePaused at click time, so a key pressed just before a click on
+  // plain Allow is not resumed unseen): yes and Resume in one synchronous step. A no never resumes: the pause stays
+  // until Resume, Stop or the turn's end.
+  answerClaude(allow, { dontAsk = false, resume = false } = {}) {
     const p = this.claudePending;
     if (!p) return;
     // "Don't ask again" is offered only while the switch is on; with it off the page hides the box and it counts for nothing
     if (p.kind === 'load' && allow && dontAsk && this.claudeAllowed) this.claudeLoadNoAsk = true;
     p.resolve(!!allow);
+    if (allow && resume) this.resumeClaude();
   }
   // turning the switch off also brings load_basic's card back
+  // (on never resumes a pause: it gives consent only. Off during a pause refuses the call waiting on it: pauseWait)
   setClaudeAllowed(on) {
     this.claudeAllowed = !!on;
+    if (!on && this.claudePaused) this.claudePaused.revoked = true;
     if (!on) { this.claudeLoadNoAsk = false; if (this.claudePending) this.claudePending.resolve(false); }
     this.emit('chat');
   }
   // A BASIC program straight into the BASIC session's program memory, as a tape or disk load would: for
   // automation and the embed API, so no card and no restore point. The same implementation as Claude's load_basic
   // (js/claude/basicload.js); failures are ToolErrors with the same codes. -> { lines, bytes, start, end }
-  loadBasic(program) { return loadBasicInto(this.chatTarget(), program); }
+  // (the person's input: Claude acting on that machine pauses first, personInput)
+  loadBasic(program) { const t = this.chatTarget(); this.personInput(t.machine); return loadBasicInto(t, program); }
   // A key the person presses on the machine pauses Claude: what Claude still had to type is held
   // back, and its next action waits; resumeClaude types the rest and lets it go on, stopClaude drops it.
+  // Only during a turn: a pause outside one would have no turn to resume and would carry into the next.
+  // Also while an acting call waits at its gate (a card for the person, or its check): the card stays theirs to
+  // answer, and Allow does not let the call act past the pause - runTool's re-check (gateTools: chat.recheck) holds
+  // it until Resume, and Stop or the turn's end refuses it (stopped) with no restore point taken.
   pauseClaude() {
-    if (!this.claudeBusyActing || this.claudePaused) return false;
+    if (!this.chat || !this.chat.busy || !(this.claudeBusyActing || this.claudeCall) || this.claudePaused) return false;
     const m = this.chatTarget().machine;
     // what is not yet typed: the typist's queue (paced keys wait there on every machine), and the stub's queued
     // codes unless the one there is the paced key in flight (it finishes; the rest waits)
     const pacedStub = !!(m.typist.state && m.typist.state.stub);
     const held = { queue: m.typist.queue.splice(0), stub: pacedStub || !m.useStub ? [] : m.stubKeys.splice(0) };
     this.claudePaused = { held, wake: [] };
+    this.claudePauses++;
     this.emit('chat');
     return true;
   }
@@ -2063,32 +2170,90 @@ export class Session {
     if (!p) return false;
     this.claudePaused = null;
     const m = this.chatTarget().machine;
-    m.stubKeys.push(...p.held.stub); m.typist.queue.push(...p.held.queue);
+    // the switch turned off during the pause withdrew consent: nothing held goes in (its typing ends no-consent, as
+    // stopClaude drops it), and the call waiting on the pause is refused no-consent (pauseWait)
+    // (held.stub is dropped with no job to end: it holds raw stub codes, and Claude's own typing is paced through the
+    // typist queue (held.queue, whose jobs end above), never left in stubKeys. Only queueText puts unpaced codes there
+    // for Claude - run's typed RUN, which needs the BASIC ROMs and so never runs on the stub - so a Claude job in
+    // held.stub is unreachable today; were one added, it would need ending here too.)
+    if (p.revoked) { for (const it of p.held.queue) if (it && it.job) it.job.end('no-consent'); }
+    else { m.stubKeys.push(...p.held.stub); m.typist.queue.push(...p.held.queue); }
     for (const w of p.wake) w(true);
     this.emit('chat');
     return true;
   }
-  // Stop: the turn ends, a waiting question is answered STOPPED (either card: the tool fails stopped), and what Claude was typing stops being typed
-  stopClaude() {
+  // Stop: the turn ends, a waiting question is answered STOPPED (either card: the tool fails stopped), and what Claude was typing stops being typed.
+  // reason: why the page stopped Claude (a Reset, a power cycle), for the note in the conversation; 'claude-stopped' event
+  stopClaude(reason = null) {
     if (!this.chat) return;
-    if (this.claudePaused) {
-      const { wake, held } = this.claudePaused;
-      this.claudePaused = null;
-      for (const it of held.queue) if (it && it.job) it.job.end('stopped');   // held-back typing ends with the turn
-      for (const f of wake) f(false);
-    }
+    this.endClaudePause();
     if (this.claudePending) this.claudePending.resolve(STOPPED);   // the question ends as Stop, not as a no
-    this.chat.abort();
+    this.chat.abort(reason);
     const m = this.chatTarget().machine;
     if (m.typist) m.typist.clear();
     if (m.stubKeys) m.stubKeys.length = 0;
     this.claudeActing = null;
     this.emit('chat');
+    if (reason) this.emit('claude-stopped', reason);
   }
-  // is Claude acting on the BASIC session now: an acting tool this turn, or its typing still going in
+  // A restart of the machine Claude acts on while Claude acts on it (or is paused) stops Claude first: what it held
+  // back or still had to type must never go into the machine that starts over, and the action it was on is
+  // refused. Reset and power cycle say so in their own words; every other restart reaches here through the
+  // machine's onReset (install). A restart of the chat machine (the full-screen chat's own screen) leaves Claude
+  // alone. (A machine switch or a snapshot load replaces the machine and closes the conversation: adopt -> dropChat.)
+  stopClaudeFor(reason, m = this.machine) {
+    // (what the program on the machine asks for itself, asMachine: when the keys that asked were Claude's, Claude
+    // goes on; when they may have been the person's, it stops)
+    if (this.machineTicketHolds(this.machineDriven)) return;
+    if (this.chat && m === this.chatTarget().machine && (this.claudeBusyActing || this.claudePaused)) this.stopClaude(reason);
+  }
+  // What the program on the machine asks for itself (the welcome menu's choices: LIZA, the colour demo, carry on;
+  // the menu coming back after LIZA's BYE or the demo: the 'welcome:*' and 'menu' events) was asked by keys typed
+  // into the machine. The page takes a ticket when the event comes (machineTicket), fetches what it needs, then
+  // starts it in asMachine(fn, ticket). The start does not stop Claude only if the keys were Claude's: Claude was
+  // acting and not paused when the event came, and since then the same turn goes on with no pause (a pause, even
+  // one resumed, means the person pressed a key; a key pressed while Claude only thought is the person's too).
+  machineTicket() {
+    // (not while a card waits: nothing of Claude's is typed then, so the key is the person's)
+    return { claude: !!this.chat && this.claudeBusyActing && !this.claudePaused && !this.claudePending, chat: this.chat, controller: this.chat && this.chat.controller, pauses: this.claudePauses };
+  }
+  machineTicketHolds(t) {
+    return !!t && t.claude && !this.claudePaused && t.pauses === this.claudePauses && t.chat === this.chat && t.controller === (this.chat && this.chat.controller);
+  }
+  // fn: synchronous only, so the exemption covers exactly that start and nothing the person does meanwhile (the
+  // page fetches the bytes first): a function that returns a promise is refused
+  asMachine(fn, ticket) {
+    const was = this.machineDriven;
+    this.machineDriven = ticket || null;
+    try {
+      const out = fn();
+      if (out && typeof out.then === 'function') throw new SessionError('asMachine runs synchronous work only.');
+      return out;
+    } finally { this.machineDriven = was; }
+  }
+  // does the pause hold something of Claude's: an acting call waiting (at its gate, its card or its re-check, or its
+  // typing in flight), or typing held back
+  get claudeHeld() {
+    const p = this.claudePaused;
+    return !!p && !!(this.claudeCall || p.held.queue.length || p.held.stub.length);
+  }
+  // the pause ends with its turn: nothing held is typed later, and an action waiting on it is refused (stopped)
+  endClaudePause() {
+    const p = this.claudePaused;
+    if (!p) return false;
+    this.claudePaused = null;
+    for (const it of p.held.queue) if (it && it.job) it.job.end('stopped');   // held-back typing ends with the turn
+    for (const f of p.wake) f(false);
+    this.emit('chat');
+    return true;
+  }
+  // is Claude acting on the BASIC session now: an acting tool this turn (claudeActing ends with the turn), paused,
+  // or its typing still going in
+  // (paused: only while something of Claude's is held by the pause, claudeHeld; a pause after a declined card while
+  // Claude only writes text is not acting)
   get claudeBusyActing() {
     if (!this.chat || !this.claudeActing) return false;
-    if (this.claudePaused) return true;
+    if (this.claudePaused) return this.claudeHeld;
     const m = this.chatTarget().machine;
     return this.chat.busy || (m.typist && m.typist.busy) || (m.stubKeys && m.stubKeys.length > 0);
   }
@@ -2205,7 +2370,7 @@ export class Session {
       kept.channel = channel;
       channel.onReceive = (bytes) => { if (bytes) kept.receive(bytes); };
       // what was said so far, as the firmware would have shown it; a reply still streaming goes on after it
-      const said = kept.messages.map((m) => (m.role === 'user' ? `> ${textOf(m.content)}\r\n` : `${textOf(m.content)}\r\n`)).join('');
+      const said = kept.messages.filter((m) => !m.note).map((m) => (m.role === 'user' ? `> ${textOf(m.content)}\r\n` : `${textOf(m.content)}\r\n`)).join('');
       if (said) channel.send(new TextEncoder().encode(said.replace(/\r?\n/g, '\r\n').replace(/\r\r\n/g, '\r\n')));
       if (!kept.busy) channel.send(Uint8Array.of(END_OF_REPLY));
     } else {
@@ -2265,8 +2430,8 @@ export class Session {
     if (this.claudePending) this.claudePending.resolve(false);
     this.chat.abort();
     this.chat = null; this.chatMachines = null; this.chatView = null; this.chatServer = null;
-    if (this.claudePaused) { for (const f of this.claudePaused.wake) f(false); }
-    this.claudeView = null; this.claudeActing = null; this.claudePending = null; this.claudePaused = null;
+    this.endClaudePause();
+    this.claudeView = null; this.claudeActing = null; this.claudePending = null; this.claudePaused = null; this.claudeTool = null; this.claudeCall = null;
   }
 
   // assembled program (Emu.assemble result) -> message
@@ -2300,10 +2465,17 @@ export class Session {
   // (the page fetches it). On a machine with too little RAM it refuses and says what to do; switchLiza
   // switches.
   async startLiza(fetch) {
+    this.checkLiza();
+    return this.runLiza(await fetch(this.lizaFile));
+  }
+  checkLiza() {
     const need = this.lizaNeeds();
     if (need) throw new SessionError(`LIZA needs ${need.ram}K RAM on this machine, which has ${need.have}K. Switch the RAM option to ${need.ram}K to run it.`);
-    const file = this.lizaFile;
-    const msg = this.load(file, await fetch(file), { remember: false });
+  }
+  // LIZA from its bytes (this.lizaFile's), at once -> the load message
+  runLiza(bytes) {
+    this.checkLiza();
+    const msg = this.load(this.lizaFile, bytes, { remember: false });
     this.setLastRun('liza', 'LIZA');
     this.watchForMenu('liza');
     return msg;
@@ -2328,7 +2500,8 @@ export class Session {
       // the goodbye's time is the machine's: its frames since LIZA reached DONE (this runs once per advance(),
       // which can run several frames, or none)
       if (m.cpu.pc !== Session.LIZA.done[cpuFamily(m.config.cpu)]) { w.since = null; return; }
-      if (w.since === null) w.since = m.frameCount;
+      // (whose keys asked for the menu is decided now, when LIZA has its BYE, not when the goodbye ends)
+      if (w.since === null) { w.since = m.frameCount; w.ticket = this.machineTicket(); }
       if (m.frameCount - w.since < LIZA_BYE_SECONDS * m.fps) return;
     } else {
       if (!w.drawing) { w.drawing = m.stubKeysTaken > w.taken; return; }   // its "press any key" taken
@@ -2336,6 +2509,8 @@ export class Session {
       m.stubKeys.length = 0;
     }
     this.menuWatch = null;
+    // the page starts the menu in asMachine with this ticket (machineTicket): the keys that asked for it
+    this.menuTicket = w.ticket || this.machineTicket();
     this.emit('menu');
   }
   // the one-step switch: fit the RAM option LIZA needs, keeping the other options

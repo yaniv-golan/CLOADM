@@ -551,6 +551,9 @@
   body.chat-phone #claudeBar { flex-wrap: nowrap; padding: 6px 12px; gap: 8px; }
   body.chat-phone #claudeBar h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
   body.chat-phone #claudeBar .viewswitch { margin-left: auto; }
+  /* the turn's status takes a line of its own under the bar's buttons */
+  body.chat-phone #claudeBar:has(#claudeStatus:not([hidden])) { flex-wrap: wrap; }
+  body.chat-phone #claudeStatus { order: 9; flex-basis: 100%; }
   body.chat-phone .layout { padding: 12px 16px; gap: 12px; }
   body.chat-phone .layout > main > .monitor { padding: 0; background: #000; box-shadow: none; border-radius: var(--r-8); }
   body.chat-phone .tube { border-radius: var(--r-8); }
@@ -573,6 +576,9 @@
     body.chat-phone.touch-keys .tube { height: calc(100vh - 16px - 48px - 8px - 8px); }
     /* the keyboard covers the page here: the chat bar stays under it, and the keyboard's Menu is "← Emulator" */
     body.chat-phone.touch-keys #claudeBar { position: static; z-index: auto; }
+    /* ...but the turn's status (Stop, and Resume while paused) stays above it, at the top beside the screen */
+    body.chat-phone.touch-keys #claudeStatus:not([hidden]) { position: fixed; z-index: 7; top: 8px; left: 16px; max-width: calc((100vw - min(360px, 44vw)) / 2 - 32px);
+      flex-wrap: wrap; gap: 6px 8px; padding: 6px 8px; background: var(--ground); border: 1px solid var(--line); border-radius: 8px; }
     /* no key yet: the key card beside the screen rather than above it, so both fit the height (the
        screen was a screen and a half down) */
     body.chat-phone.claude-nokey .layout { flex-wrap: nowrap; }
@@ -874,6 +880,17 @@
   .pointnote { font-size: 12px; margin-top: 4px; }
   #askPointList { display: flex; flex-direction: column; gap: 4px; }
   #askPointList button { text-align: left; background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-size: 14px; }
+  /* the turn's status with Stop (side panel and full screen) */
+  #askStatus { flex: none; display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-top: 1px solid #1D2420; font-size: 14px; color: var(--text-2); }
+  #askStatusText { flex: 1; min-width: 0; }
+  #claudeStatus { display: inline-flex; align-items: center; gap: 10px; font-size: 14px; color: var(--text-2); }
+  #askStatus[hidden], #claudeStatus[hidden], #btnAskPeekStop[hidden], #btnAskStripStop[hidden], #btnClaudeResume[hidden], #btnAskStatusResume[hidden] { display: none; }
+  #btnClaudeResume, #btnAskStatusResume { background: var(--phosphor); color: var(--on-phosphor); border: 0; border-radius: 8px; padding: 4px 12px; font-size: 14px; font-weight: 700; }
+  #btnAskStripStop { align-self: flex-start; background: transparent; border: 1px solid var(--line-strong); border-radius: 8px; padding: 6px 14px; font-size: 14px; }
+  #askStatus .dot, #claudeStatus .dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--phosphor); animation: cl-blink 1.2s ease-in-out infinite; }
+  #btnAskStatusStop, #btnClaudeStop { background: transparent; border: 1px solid var(--line-strong); border-radius: 8px; padding: 4px 12px; font-size: 14px; }
+  @keyframes cl-blink { 50% { opacity: .3; } }
+  @media (prefers-reduced-motion: reduce) { #askStatus .dot, #claudeStatus .dot { animation: none; } }
   #askKeyMsg { background: var(--warn-panel); border: 1px solid var(--orange); border-radius: 12px; padding: 12px; font-size: 15px; line-height: 1.5; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
   #btnAskRetry { background: transparent; border: 1px solid #5C3A14; border-radius: 8px; padding: 8px 12px; font-size: 14px; }
   #btnAskRetry[hidden] { display: none; }
@@ -903,9 +920,42 @@
   @keyframes cl-pulse { 0%, 100% { box-shadow: 0 0 0 3px rgba(61,245,90,.9), 0 0 36px rgba(61,245,90,.5); } 50% { box-shadow: 0 0 0 3px rgba(61,245,90,.4), 0 0 14px rgba(61,245,90,.2); } }
   .monitor.claude-acting .tube { animation: cl-pulse 1.6s ease-in-out infinite; }
   @media (prefers-reduced-motion: reduce) { .monitor.claude-acting .tube { animation: none; box-shadow: 0 0 0 3px var(--phosphor); } }
-  #askActing { position: absolute; z-index: 5; top: 12px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; white-space: nowrap;
-    background: var(--ground); border: 1px solid var(--phosphor); border-radius: var(--pill); padding: 6px 6px 6px 16px; font-size: 15px; box-shadow: 0 8px 24px rgba(0,0,0,.6); }
+  /* (centred, as wide as it needs and never wider than the screen: on a narrow screen its buttons wrap under the
+     text rather than being cut off by the screen's edge) */
+  #askActing { position: absolute; z-index: 5; top: 12px; left: 8px; right: 8px; width: fit-content; margin: 0 auto; display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px 12px;
+    background: var(--ground); border: 1px solid var(--phosphor); border-radius: 20px; padding: 6px 6px 6px 16px; font-size: 15px; box-shadow: 0 8px 24px rgba(0,0,0,.6); }
+  #askActing button { flex: none; white-space: nowrap; }
   #askActing[hidden], #claudePipActing[hidden] { display: none; }
+  /* the browser's Fullscreen (#screenWrap alone on screen): Claude's status with Stop and Resume, as the pill */
+  #fsClaude { display: none; }
+  #screenWrap:fullscreen #fsClaude:not([hidden]) { position: absolute; z-index: 5; top: 12px; left: 8px; right: 8px; width: fit-content; margin: 0 auto; display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px 12px;
+    background: var(--ground); color: var(--text); border: 1px solid var(--phosphor); border-radius: 20px; padding: 6px 6px 6px 16px; font-size: 15px; box-shadow: 0 8px 24px rgba(0,0,0,.6); }
+  #fsClaude .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--phosphor); }
+  #fsClaude button { flex: none; white-space: nowrap; border: 0; border-radius: var(--pill); padding: 7px 14px; min-height: 0; font-size: 14px; font-weight: 700; }
+  #btnFsResume { background: var(--phosphor); color: var(--on-phosphor); }
+  #btnFsResume[hidden] { display: none; }
+  #btnFsStop { background: var(--text); color: var(--ground); }
+  /* a page view (body.view-claude): the same pill, fixed at the bottom of the window (each view's own header and
+     "← Emulator" are at its top); the page leaves room under the view for it and the toasts go above it */
+  #viewClaude { position: fixed; z-index: 55; left: 50%; bottom: 16px; transform: translateX(-50%); width: max-content; max-width: calc(100vw - 32px); box-sizing: border-box;
+    display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px 12px; background: var(--ground); color: var(--text);
+    border: 1px solid var(--phosphor); border-radius: 20px; padding: 6px 6px 6px 16px; font-size: 15px; box-shadow: 0 8px 24px rgba(0,0,0,.6); }
+  #viewClaude[hidden] { display: none; }
+  #viewClaude .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--phosphor); }
+  #viewClaude button { flex: none; white-space: nowrap; border: 0; border-radius: var(--pill); padding: 7px 14px; min-height: 0; font-size: 14px; font-weight: 700; }
+  #btnViewAnswer, #btnViewResume { background: var(--phosphor); color: var(--on-phosphor); }
+  #btnViewAnswer[hidden], #btnViewResume[hidden] { display: none; }
+  #btnViewStop { background: var(--text); color: var(--ground); }
+  body.view-claude { padding-bottom: 96px; }
+  body.view-claude #toastRegion, body.claude-float #toastRegion { bottom: 96px; }
+  /* (held sideways with the touch keyboard, which then fills the window: at the top over the screen, as the screen's
+     pill; the toasts stay at the bottom there) */
+  @media (orientation: landscape) and (max-height: 500px) {
+    #viewClaude.top { top: 8px; bottom: auto; }
+    body.claude-float.touch-keys #toastRegion { bottom: 8px; }
+  }
+  /* the Library's selection bar, fixed at a phone's bottom edge, moves up above it */
+  @media (max-width: 700px) { body.view-claude #libSelActions:not([hidden]) { bottom: 100px; } }
   #btnAskResume { background: var(--phosphor); color: var(--on-phosphor); border: 0; border-radius: var(--pill); padding: 7px 14px; min-height: 0; font-size: 14px; font-weight: 700; }
   #btnAskResume[hidden] { display: none; }
   #btnAskStop, #btnPipStop { background: var(--text); color: var(--ground); border: 0; border-radius: var(--pill); padding: 7px 14px; min-height: 0; font-size: 14px; font-weight: 700; }
@@ -950,7 +1000,9 @@
     body.ask-open .layout > .drawer { display: flex; flex-basis: 100%; }
   }
   @media (max-width: 959px) and (min-width: 701px) {
-    #ask { position: fixed; top: 70px; right: 12px; bottom: 12px; height: auto; z-index: 40; box-shadow: 0 30px 70px rgba(0,0,0,.7); }
+    /* (no minimum height: on a phone held sideways the window is lower than one, and the panel's status line, with
+       Stop and Resume, must stay inside it) */
+    #ask { position: fixed; top: 70px; right: 12px; bottom: 12px; height: auto; min-height: 0; z-index: 40; box-shadow: 0 30px 70px rgba(0,0,0,.7); }
     #askRail { display: none; }
     body.ask-open .layout > .drawer { display: flex; }
   }
@@ -974,13 +1026,13 @@
     #askBody { padding: 0 12px 8px; gap: 8px; }
     #askComposer { padding: 8px 12px; }
     #askInput, #btnAskSend { height: 44px; }
-    #ask[data-height="peek"] .askhead, #ask[data-height="peek"] #askSee, #ask[data-height="peek"] #askBody, #ask[data-height="peek"] #askComposer, #ask[data-height="peek"] #askKeyForm { display: none; }
+    #ask[data-height="peek"] .askhead, #ask[data-height="peek"] #askSee, #ask[data-height="peek"] #askBody, #ask[data-height="peek"] #askStatus, #ask[data-height="peek"] #askComposer, #ask[data-height="peek"] #askKeyForm { display: none; }
     #ask[data-height="peek"] .askpeek { display: flex; align-items: center; gap: 8px; padding: 0 12px 8px; }
     .askpeek span { flex: 1; font-size: 14px; color: var(--text-3); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
     .askpeek button { min-height: 40px; background: var(--warn-panel); border: 1px solid var(--orange); border-radius: var(--pill); padding: 0 12px; font-size: 14px; }
     body.ask-open .layout > .drawer { display: none; }
     body.ask-open .layout { padding-bottom: 50vh; }
-    #askActing { left: 8px; right: 8px; transform: none; justify-content: space-between; }
+    #askActing { width: auto; justify-content: space-between; }
     #claudeSame { display: none; }
   }
 
@@ -1074,6 +1126,7 @@ npx serve -l 8000 .</pre>
 <div id="claudeBar" hidden>
   <button id="btnClaudeBack">← Emulator</button>
   <h1>CHAT WITH CLAUDE</h1>
+  <span id="claudeStatus" role="status" hidden><span class="dot" aria-hidden="true"></span><span id="claudeStatusText">Thinking…</span><button id="btnClaudeResume" hidden>Resume</button><button id="btnClaudeStop">Stop</button></span>
   <div class="viewswitch" role="group" aria-label="View"><button id="btnFullSide" aria-pressed="false">Side panel</button><button id="btnFullFull" aria-pressed="true">Full screen</button></div>
   <span class="muted" id="claudeSame">Same conversation in both views</span>
   <span id="claudeSpec"></span>
@@ -1135,7 +1188,9 @@ npx serve -l 8000 .</pre>
 
     <div class="monitor crt" id="monitor" data-family="dragon">
       <div class="tube">
-        <div id="screenWrap"><canvas id="screen" tabindex="0" aria-label="The emulated screen. Click it, then type. Tab leaves it."></canvas></div>
+        <div id="screenWrap"><canvas id="screen" tabindex="0" aria-label="The emulated screen. Click it, then type. Tab leaves it."></canvas>
+          <!-- the browser's Fullscreen shows only this wrapper: Claude's status with Stop (and Resume) is in it -->
+          <div id="fsClaude" role="status" hidden><span class="dot" aria-hidden="true"></span><span id="fsClaudeText"></span><button id="btnFsResume" hidden>Resume</button><button id="btnFsStop">Stop</button></div></div>
         <!-- Claude acting on the machine: a pulsing ring on the screen and this pill with Stop -->
         <div id="askActing" role="status" hidden><span class="dot" aria-hidden="true"></span><span id="askActingText">Claude is typing…</span><button id="btnAskResume" hidden>Resume</button><button id="btnAskStop">Stop</button></div>
         <div id="bootHelp" hidden role="status"><strong id="bootHelpTitle"></strong><span id="bootHelpText"></span>
@@ -1288,7 +1343,7 @@ npx serve -l 8000 .</pre>
       <button id="btnAskMin" class="icon" aria-label="Minimise"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 10h8"/></svg></button>
       <button id="btnAskClose" class="icon" aria-label="Close"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="m3.5 3.5 7 7m0-7-7 7"/></svg></button>
     </div>
-    <div class="askpeek"><strong>Ask Claude</strong><span id="askPeekText">Ask about this machine</span><button id="btnAskPeekOpen">Open</button></div>
+    <div class="askpeek"><strong>Ask Claude</strong><span id="askPeekText">Ask about this machine</span><button id="btnAskPeekStop" hidden>Stop</button><button id="btnAskPeekOpen">Open</button></div>
     <div id="askSee"></div>
     <div id="askBody">
       <div id="askEmpty">
@@ -1301,12 +1356,14 @@ npx serve -l 8000 .</pre>
       <div id="askConsent" class="askcard" hidden>
         <strong>Let Claude use the emulator?</strong>
         <p id="askConsentText"></p>
+        <p id="askConsentPaused" class="paused" hidden></p>
         <div class="bar"><button id="btnAskAllow" class="primary">Allow</button><button id="btnAskTell">Just tell me the fix</button></div>
         <div class="muted">You can change this any time with the switch below.</div>
       </div>
       <div id="askLoad" class="askcard" hidden>
         <strong>Load this BASIC program?</strong>
         <p id="askLoadText"></p>
+        <p id="askLoadPaused" class="paused" hidden></p>
         <label class="loadnoask"><input type="checkbox" id="chkAskLoadNoAsk"> Don't ask again this session</label>
         <div class="bar"><button id="btnAskLoad" class="primary">Load it</button><button id="btnAskLoadNo">Don't load</button></div>
       </div>
@@ -1319,6 +1376,7 @@ npx serve -l 8000 .</pre>
       </div>
       <div id="askKeyMsg" role="status" hidden><span id="askKeyText"></span><button id="btnAskRetry" hidden>Try again</button></div>
     </div>
+    <div id="askStatus" role="status" hidden><span class="dot" aria-hidden="true"></span><span id="askStatusText">Thinking…</span><button id="btnAskStatusResume" hidden>Resume</button><button id="btnAskStatusStop">Stop</button></div>
     <div id="askKeyForm" hidden>
       <label>Your Anthropic API key<input id="askKeyInput" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-…"></label>
       <div class="bar"><button id="btnAskKeySave" class="primary">Save key</button><span class="muted" id="askKeyErr" role="status"></span></div>
@@ -1349,6 +1407,7 @@ npx serve -l 8000 .</pre>
     <section class="card" id="claudeSession">
       <h2>Your BASIC session</h2>
       <p id="claudeConsentText"></p>
+      <p id="claudeConsentPaused" class="paused" hidden></p>
       <div class="bar" id="claudeConsentAsk" hidden><button id="btnClaudeAllow" class="primary">Allow</button><button id="btnClaudeTell">Just tell me the fix</button></div>
       <div id="claudeLoad" hidden>
         <p id="claudeLoadText"></p>
@@ -1363,6 +1422,7 @@ npx serve -l 8000 .</pre>
 
   <aside class="drawer" aria-label="Settings drawer">
     <button id="askStrip" hidden><span><span class="dot" aria-hidden="true"></span><strong>Ask Claude</strong> · <span id="askStripText">Ready</span></span><span class="open">Open</span></button>
+    <button id="btnAskStripStop" hidden>Stop Claude</button>
     <div id="welcome" hidden></div>
     <div role="tablist" aria-label="Settings">
       <button role="tab" id="tab-media" aria-controls="panel-media" aria-selected="true">Media</button>
@@ -1568,6 +1628,8 @@ npx serve -l 8000 .</pre>
   </div>
 </div>
 <!-- The Library: shown instead of the emulator at #library -->
+<!-- Claude's status with Stop (and Resume while paused, Answer while a card waits) on the page views (Share, the Library, Add ROMs, the Debugger), which hide the emulator: outside .layout so every view shows it -->
+<div id="viewClaude" role="status" hidden><span class="dot" aria-hidden="true"></span><span id="viewClaudeText"></span><button id="btnViewAnswer" hidden>Answer</button><button id="btnViewResume" hidden>Resume</button><button id="btnViewStop">Stop</button></div>
 <div id="toastRegion" role="status" aria-live="polite"><div id="toast" hidden><span id="toastText"></span><button id="toastAction" type="button" hidden></button><div id="toastDetails" hidden></div></div></div>
 <div id="attention" hidden><span id="attentionText"></span><span class="bar"><button id="attentionAction" class="primary" hidden></button><button id="attentionClose">Dismiss</button></span></div>
 <div id="library" hidden>
@@ -1752,6 +1814,7 @@ npx serve -l 8000 .</pre>
 <link rel="modulepreload" href="js/session.js">
 <link rel="modulepreload" href="js/host/input.js">
 <link rel="modulepreload" href="js/embed-api.js">
+<link rel="modulepreload" href="js/claude/history.js">
 <link rel="modulepreload" href="js/claude/backend.js">
 <link rel="modulepreload" href="js/claude/brief.js">
 <link rel="modulepreload" href="js/host/example-reader.js">

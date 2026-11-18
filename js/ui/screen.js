@@ -63,6 +63,8 @@ export function setupScreen(page, { loadPrograms, roms }) {
 
   // gamepads: read once a frame while any is connected (the first pad is the right joystick, the second
   // the left one), so a pad plugged in mid-session just starts working
+  // a gamepad, or the mouse as joystick, moved out of its dead zone or fire pressed: the person's input
+  input.onPlayer = () => session.personInput();
   window.addEventListener('gamepadconnected', () => { havePads = true; page.status('Gamepad connected'); });
   const readPads = () => {
     if (!havePads && !(navigator.getGamepads && [...navigator.getGamepads()].some(Boolean))) return;
@@ -114,13 +116,9 @@ export function setupScreen(page, { loadPrograms, roms }) {
   // machine key stays down, and leaving the screen releases them all. Tab and Shift+Tab never reach the machine:
   // they always move focus, so a keyboard user can leave the screen (and reach the page from a first visit, when
   // nothing has focus yet); no machine key needs Tab (CLEAR is Home or Delete).
-  const toMachine = (e) => (e.target === canvas || e.target === document.body || e.target === document.documentElement)
-    && e.key !== 'Tab' && !document.querySelector('dialog[open]')
-    // Esc closes what is open (page.escape, main.js) rather than being BREAK: off the screen anything, on it a
-    // confirmation or a card
-    && !(e.key === 'Escape' && (e.defaultPrevented || page.escapable(e.target === canvas)));
+  // (page.toMachine says which events go to the machine; js/ui/ask.js pauses Claude for the same ones, first)
   window.addEventListener('keydown', (e) => {
-    if (!toMachine(e) || e.key === 'F12' || e.key === 'F5') return;
+    if (!page.toMachine(e)) return;
     audio.start();
     if (input.keydown(e)) e.preventDefault();
   });
@@ -129,7 +127,7 @@ export function setupScreen(page, { loadPrograms, roms }) {
   canvas.addEventListener('blur', () => input.releaseAll());
   // pasting text on the screen types it in
   window.addEventListener('paste', (e) => {
-    if (!toMachine(e)) return;
+    if (!page.toMachine(e)) return;
     const text = e.clipboardData && e.clipboardData.getData('text');
     if (!text) return;
     e.preventDefault();
@@ -149,16 +147,16 @@ export function setupScreen(page, { loadPrograms, roms }) {
     const x = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
     const y = Math.max(0, Math.min(1, (e.clientY - r.top) / r.height));
     input.setMouse({ x, y, left: input.mouse.left, right: input.mouse.right });
-    if ($('chkJoy').checked && !touchStickUp()) { const joy = session.machine.joy[0]; joy[0] = Math.round(x * 63); joy[1] = Math.round(y * 63); }
+    if ($('chkJoy').checked && !touchStickUp()) { input.player('mouse', x * 2 - 1, y * 2 - 1, input.mouse.left); const joy = session.machine.joy[0]; joy[0] = Math.round(x * 63); joy[1] = Math.round(y * 63); }
   });
   canvas.addEventListener('mousedown', (e) => {
     input.setMouse({ x: input.mouse.x, y: input.mouse.y, left: true, right: input.mouse.right });
-    if ($('chkJoy').checked && !touchStickUp()) { session.machine.fire[0] = true; mouseFire = true; e.preventDefault(); }
+    if ($('chkJoy').checked && !touchStickUp()) { input.player('mouse', input.mouse.x * 2 - 1, input.mouse.y * 2 - 1, true); session.machine.fire[0] = true; mouseFire = true; e.preventDefault(); }
     audio.start();
   });
   window.addEventListener('mouseup', () => {
     input.setMouse({ x: input.mouse.x, y: input.mouse.y, left: false, right: input.mouse.right });
-    if (mouseFire) { mouseFire = false; session.machine.fire[0] = false; }
+    if (mouseFire) { mouseFire = false; session.machine.fire[0] = false; input.player('mouse', input.mouse.x * 2 - 1, input.mouse.y * 2 - 1, false); }
   });
   canvas.addEventListener('contextmenu', (e) => {
     if (!session.machine.cartPort || session.machine.cartPort.type !== 'cocomax') return;
@@ -213,7 +211,7 @@ export function setupScreen(page, { loadPrograms, roms }) {
   // ---- run controls ----
   // the screen shows a reset: no message
   $('btnReset').onclick = () => { session.reset(); page.focus(); };
-  $('btnHardReset').onclick = () => { session.powerCycle(); page.focus(); };
+  $('btnHardReset').onclick = () => { session.powerCycle({ reason: 'you power cycled the machine' }); page.focus(); };
   $('btnPause').onclick = () => {
     paused = !paused;
     document.body.classList.toggle('paused', paused);

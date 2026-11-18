@@ -66,12 +66,17 @@ async function modelCall(s, name, input, setup = null, run = false) {
   s.setClaudeKey(KEY);
   const chat = s.startAsk({ backend: new Emu.ClaudeBackend({ fetch, apiKey: KEY }) });
   if (setup) await setup(s, chat);
+  // what the backend hands the model for the call (onToolUse's text is exactly the tool_result's content): a turn the
+  // person stopped sends no further request (js/claude/backend.js), so that is where a stopped call's result is read
+  let seen = null;
+  const emit = chat.emitTool.bind(chat);
+  chat.emitTool = (n, i, text, isError, v) => { seen = { content: text, is_error: isError }; emit(n, i, text, isError, v); };
   let done = false;
   const p = chat.sendLine('go').then(() => { done = true; });
   for (let i = 0; i < 2000 && !done; i++) { if (run) frames(s, 1); await new Promise((r) => setImmediate(r)); }
   if (!done) return { isError: null, json: null, raw: 'the call did not settle', chat };
   await p;
-  const res = sent[1] && sent[1].messages.slice(-1)[0].content[0];
+  const res = sent[1] ? sent[1].messages.slice(-1)[0].content[0] : chat.error && chat.error.code === 'aborted' ? seen : null;
   if (!res) return { isError: null, json: null, raw: 'no tool_result was sent', chat };
   let json = null; try { json = JSON.parse(res.content); } catch (e) { /* not JSON: the check below fails */ }
   return { isError: res.is_error === true, json, raw: res.content, chat };
@@ -169,6 +174,8 @@ const OUTCOMES = {
     ['org as text', stub, { source: ' NOP\n', org: '$3000' }, allow, C.NOT_A_NUMBER],
     ['bad source', stub, { source: ' LDQ #1\n', org: 0x3000 }, allow, C.ASSEMBLY_FAILED],
     ['org and ORG disagree', stub, { source: ' ORG $4000\n NOP\n', org: 0x3000 }, allow, C.ORG_CONFLICT],
+    ['an INCLUDE that cannot be read', stub, { source: ' INCLUDE "x.inc"\n', org: 0x3000 },
+      (s, chat) => { s.setClaudeAllowed(true); chat.include = async () => { throw Object.assign(new Error('timed out'), { code: 'timeout' }); }; }, C.INCLUDE_UNREADABLE],
     ['past $FFFF', stub, { source: ' FCB 1,2\n', org: 0xFFFF }, allow, C.PAST_END],
     ['ROM only', stub, { source: ' FCB 1\n', org: 0xFFF0 }, allow, C.NOT_RAM],
     ['nobody to ask', stub, { source: ' NOP\n', org: 0x3000 }, nobody, C.NO_CONSENT],

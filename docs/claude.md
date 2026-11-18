@@ -91,6 +91,99 @@ Two ways to talk to Claude, one conversation:
   which Claude is told as `consent-declined` and which changes nothing; Stop while it asks is `stopped`). While Claude acts the screen has a pulsing green ring and
   "Claude is typing line 120… **Stop**" at its top, and the panel shows a live log. A key you press on the machine
   pauses Claude: what it still had to type is held back and its next action waits, until **Resume** (or **Stop**).
+  That includes an action still waiting at its gate: a key while a card asks pauses Claude too, and so does a key
+  while the action's own check runs (an `INCLUDE` read), before anything is written; Stop refuses it with nothing
+  changed and no restore point. A card that waits while Claude is paused says so ("Paused because you pressed a
+  key…") and its accept button reads **Allow and resume** (**Load and resume** on the load card): one click gives
+  consent and resumes (`Session.answerClaude(true, { resume: true })`, one synchronous step; the card says "Allow and
+  resume lets Claude go on and act on the machine for the rest of this session" / "Load and resume loads the program
+  and lets Claude go on"; the page passes what the
+  button said when it was drawn, never the pause at click time, so a key pressed just before a click on plain
+  **Allow** is not resumed unseen). The decline button is unchanged and never resumes: the pause stays until
+  Resume, Stop or the turn's end. A Resume with no card answered works as before, and the button goes back to
+  **Allow**. Turning "Let Claude use the emulator" off while Claude is paused withdraws consent for everything the
+  pause holds: on Resume the action waiting on it is refused (`no-consent`), whatever consent it relied on, even a
+  card answered for it, and typing it held back is dropped, not typed (the `type_text` call fails `no-consent`), as
+  Stop drops it. The refusal belongs to that pause: with the switch back on, the next action (in the same turn or
+  the next) goes on as usual. Turning the switch on while paused gives consent only and does not resume. Paused at a card that you then decline, the pause lasts the rest of the turn
+  while Claude only writes its reply: the page does not show Claude as acting, and its next acting call still waits
+  for Resume. Every paused state has the one status "Paused: you pressed a key · Claude's next action waits · Esc
+  stops Claude" (`CLAUDE_PAUSED_TEXT`); the browser Fullscreen's one-line pill shortens it to "Paused: you pressed a
+  key · Esc stops Claude". **Esc** while paused with a card up is Stop (the card is answered `stopped`);
+  a menu or a confirmation open over it closes first. The page's own leave of the browser's Fullscreen for a card is
+  not taken for the person's Esc, even when a key pauses Claude before the browser reports it.
+  Every way your input reaches the machine Claude is using counts as such a key (`Session.personInput`): a key on
+  the screen or with the focus on the page itself (Shift too, and Ctrl or Alt on a machine that has them: the CoCo
+  3; a modifier held then a key is one press, so Shift+Esc is BREAK), an on-screen key, a paste, the type-in panel, a tap on the
+  welcome menu, a POKE from the book, an edit in the Debugger (a byte set, a register or a flag), the embed API's
+  `typeText`, `poke`, `loadBasic`, `load` and `insertTape`, and a joystick in your hand: a gamepad, the mouse as
+  joystick, or the on-screen touch stick and its FIRE, on a fire press or a push out of the dead zone (one hook,
+  `HostInput.player`, sources `pad0`, `pad1`, `mouse` and `touch`: each source keeps its own state, a pad resting with noise inside the dead zone is nothing, and a push
+  counts once until the stick is back below 0.8 of the dead zone, so jitter at its edge is not a new push). Only Claude's own typing is Claude's, so
+  what the program then asks for (the welcome menu's choices) is yours. The page views (Share, the Library, Add
+  ROMs, the Debugger) hide the emulator and the panel: while a turn is in progress, or Claude's typing is still
+  going in, they show Claude's status at the bottom of the window with **Stop**, **Resume** while paused and
+  **Answer** while a card waits (it goes back to the emulator, where the card is); a card that comes up while a
+  view is open closes the view, so it is seen. The same status shows, over the screen, in any layout where no
+  other Stop can be clicked (a phone held sideways with its touch keyboard and the panel closed or minimised: the
+  drawer's strip is hidden there), and the touch keyboard steps aside while a card waits (held sideways it covers the
+  page). A page view closes the rail's tab. With a drawer tab open from the Ask panel's rail, the first Esc closes the tab (as a menu, on the
+  screen too, so it is not also BREAK), during a pause too; the next stops Claude.
+  A pause belongs to its turn: a key pressed outside a turn pauses nothing, and when the turn ends (finished, failed
+  or stopped) the pause ends with it, what it held back is never typed, and the next turn does not start paused.
+  While paused the status reads "Paused: you pressed a key · Claude's next action waits · Esc stops Claude" (the one
+  paused text, above): **Esc** stops Claude in every view
+  (the side panel at any width, the phone sheet, minimised, the full-screen chat in its chat and BASIC views, a
+  phone held sideways with its keyboard). It is Stop only: it does not also send BREAK to BASIC. A confirmation,
+  a menu or a card open during the pause takes the first Esc (the page's usual order); the next stops Claude.
+  When Claude is not paused, Esc is as before (BREAK on the BASIC screen, which pauses Claude like any key). In the
+  browser's **Fullscreen** the screen itself shows Claude's status with Stop (and Resume while paused); the browser
+  takes Esc there to leave Fullscreen, so leaving it while paused stops Claude, and a card waiting for your answer
+  ends Fullscreen so it can be answered. A **Reset** or a **power cycle** of the machine Claude acts on, while Claude
+  acts or is paused, stops Claude first ("[stopped: you reset the machine]" in the conversation); so does any other
+  restart of that machine (a program or cartridge that starts, the welcome menu, LIZA, ROMs cleared: the machine's
+  `onReset`), and any program you load or run on it (with ROMs a program starts without a reset). A Reset of the full-screen chat's own screen leaves Claude's work on the BASIC session alone. A
+  snapshot load or a machine switch replaces the machine and closes the conversation. An Esc held down is one
+  press: its autorepeat does not stop Claude, whatever modifier (Shift, AltGr, Caps Lock…) is pressed meanwhile; an
+  Esc that only closes a card or a confirmation above the screen is not a key on the machine and pauses nothing.
+  The note names the cause: "you reset the machine", "you power cycled the machine" (the buttons), "you loaded a
+  program", "you started a program" or "the machine restarted" (ROMs added, Run without ROMs and the like).
+  What the program on the machine asks for itself (the welcome menu's choices, the menu coming back after LIZA's
+  BYE or the colour demo: `Session.asMachine`) was asked by keys typed into the machine: Claude's own while it acts,
+  so its turn goes on. Whose keys they were is decided when the program asks (`Session.machineTicket`): Claude's
+  only if Claude was acting and not paused then, and the same turn went on with no pause until the start; else
+  they were yours (a key pressed while Claude paused, or only thought), and Claude stops. Only the start itself is exempt
+  (asMachine is synchronous; the page fetches the bytes first), so what you do while they are fetched still stops
+  Claude. In every case a later Resume types nothing and runs nothing.
+  `node tests/claude-turn-scope.test.js` (R10 cases) and the browser check's `askEscChecks` cover these.
+* **The turn's status.** While a turn is in progress every view shows what it is doing, with **Stop** beside it
+  (`Session.claudeStatus`): *Thinking…* while the reply comes (the model thinking, or streaming text or a long tool
+  call that shows no text yet), *Using <tool>…* while a tool runs, *Waiting for your OK* while a card asks (or,
+  while Claude is paused with the card up, the pause's own status, with Resume; on a page view Answer stays next to
+  it) (the card is scrolled into view; on a phone the sheet leaves peek for it). It sits above the message box in the side
+  panel and the phone sheet (in the sheet's peek line, with its own Stop, when it is lowered; the minimised strip
+  has a Stop too), and in the bar of the full-screen chat. Stop ends the whole turn: another tool call in the same
+  reply is neither asked about nor run.
+  A turn that fails (HTTP, network, an error event in the stream, an exception in the tool loop) ends with its
+  message in the conversation and the box usable again. A stream that sends nothing for 60 s (`STALL_MS`,
+  `js/claude/backend.js`) is aborted and the turn ends with "Claude stopped answering": a working stream is not that
+  quiet (thinking streams as deltas and the API sends pings while it works), and a minute is about as long as a
+  person waits before deciding something is wrong. The timer runs only while a request is out, never while a tool
+  runs or a card waits. `node tests/claude-turn-status.test.js` and `tools/browser-check.js` (`askStatusChecks`:
+  side panel and full screen at 1440 x 900 and 390 x 844, with a mocked fetch whose streams can be slow, stall or
+  fail) check every state, Stop in each, and every failure.
+  Stop also ends `assemble_and_load` while it reads an `INCLUDE` file: the page's reader
+  (`js/host/example-reader.js`) passes the turn's signal to `fetch` and gives up after 15 s
+  (`INCLUDE_TIMEOUT_MS`), when the tool fails with `include-unreadable` and the turn goes on (one read times out,
+  the rest are not waited for). A reply with no text is never kept as an empty message: a turn of tool calls only is
+  kept as a note of the tools it used (for the model only: the views do not show it), and a refusal or a reply of nothing with no tool calls drops the question (the panel shows it
+  with "Claude declined to answer this one." or "Claude gave no reply."), so it is not sent again inside every later
+  question. Every request goes through
+  `apiMessages` (`js/claude/history.js`): no empty assistant message, no blank text block, every `tool_use` with
+  its `tool_result`, so no turn can leave a history that makes every later request fail.
+  `node tests/claude-turn-scope.test.js` checks these with a mocked API that refuses what the Messages API refuses
+  (400), and `askFollowupChecks` in the browser check covers Stop during a hanging `INCLUDE` and the pause ending
+  with its turn.
 * **What is this code doing?** in the Ctrl+K box asks about the code at the program counter: the disassembly and
   the registers go with the question (`Session.codeAt`), and the panel says Claude can read the code and the
   registers. A restore point is made before
@@ -249,8 +342,9 @@ emulator.
   **Not checked automatically:** that a real BASIC lists and runs what `load_basic` wrote. That needs the BASIC
   ROMs, which no test may use; the owner checks it by hand (manual test step 4 below).
 * **Which to use.** The tool descriptions and the brief (`TYPING_POLICY` in `js/claude/chat.js`) tell Claude: type a
-  program of 3 lines or fewer with `type_text`; for a longer one, ask the person whether to load it with
-  `load_basic`, and only after they agree; after either, check with LIST and `screen_text` before saying it worked.
+  program of 3 lines or fewer with `type_text`; for a longer one, call `load_basic` without asking in prose first
+  (its card is the question: nothing loads unless the person agrees there); after either, check with LIST and
+  `screen_text` before saying it worked.
 * **The key.** Saved only in this browser, as `cloadm.anthropicKey` (`js/host/key-store.js`); never a Session
   setting, so never in the machine, a snapshot, a share link or a settings export. The field is emptied once it
   is saved; **Forget key** removes it.
@@ -270,7 +364,11 @@ emulator.
   (`ChatSession.recheck`, set in `gateTools`) runs synchronously with the change, after any wait for a card or an
   async check (an INCLUDE read): a stopped turn is `stopped`; Claude paused waits for Resume, as the gate's own pause
   wait does (Resume goes on and the re-check runs again; Stop, or Esc/BREAK while paused, is `stopped`), so nothing
-  changes while paused; and consent is re-validated. Each call records the consent it relied on: **the card** when
+  changes while paused; and consent is re-validated. The pause is the Ask panel's turn-scoped one (`Session.personInput`,
+  `pauseClaude`, `resumeClaude`, `endClaudePause`): the gate and the re-check wait on it (`pauseWait`), and the turn's
+  end or abort ends it (`endClaudePause`), which refuses the waiting call. An acting call counts as Claude acting from
+  its gate to its act (`Session.claudeCall`), so the person's input pauses it there even before Claude's first change
+  of the turn; `node tests/claude-ask-acting.test.js` covers the two together. Each call records the consent it relied on: **the card** when
   the person answered a card for this call (Allow on the consent card, or Load it on `load_basic`'s card), which
   holds for that call even if the switch is turned off before the change lands; **the switch** otherwise (the
   "Let Claude use the emulator" switch already on, and for `load_basic` also "Don't ask again this session"), which
@@ -320,6 +418,7 @@ emulator.
   | `program-too-large` | the program does not fit in this BASIC session's free memory (detail gives the sizes): shorten it, or ask the person to free memory (for example PCLEAR 1 on a CoCo or Dragon) |
   | `unknown-machine` | this machine's BASIC is not one load_basic knows: type the program with type_text instead |
   | `load-declined` | the person chose not to load the program: do not load it; offer to type it if it has 3 lines or fewer, or give them the listing |
+  | `include-unreadable` | an INCLUDE file could not be read (detail names it and why); nothing was written: put the code it holds into the source itself and call again |
   | `tool-failed` | the tool failed inside the emulator (detail says how), not because of what you sent: read the machine with machine_info or screen_text before going on, and tell the person; do not repeat the call unchanged |
   | `not-typable` | the machine cannot take the characters in detail (no key for them on this keyboard, or above $7E, which BASIC cannot store as text): leave them out or use plain ASCII it has (BASIC keywords are uppercase) |
 * **Not yet:** the chat on a real machine over a serial cable (the firmware's DriveWire is the Becker port's; a
@@ -336,8 +435,9 @@ a chat with the real one needs a key, so it is done by hand. Chat with the real 
    lower case that names the Dragon 64; the tag reads *connected*.
 4. With BASIC ROMs added, ask `Write a three-line BASIC program that prints HELLO, type it in and RUN it`: the BASIC
    session comes on screen, the program is typed and runs. Click **Restore to before Claude's changes**: the
-   program is gone. Then ask for a 20-line program: Claude offers to load it rather than type it; say yes, and it
-   lists the program and checks the screen; `LIST` and `RUN` it yourself. Do this on a Dragon, a CoCo (1/2 and 3)
+   program is gone. Then ask for a 20-line program: Claude calls `load_basic` without asking in prose, the panel
+   says *Thinking…* with Stop while it writes the call, and the load card asks (*Waiting for your OK*); click
+   **Load it**, and it lists the program and checks the screen; `LIST` and `RUN` it yourself. Do this on a Dragon, a CoCo (1/2 and 3)
    and an MC-10: this is the only check of `load_basic` against a real BASIC (not automated: no test may use ROMs).
 5. Ask for something long and press Esc while it streams: the reply stops with `[stopped]` and the chat stays. Type
    a few characters and press Esc: the line goes and the chat stays. Press Esc once more on the empty prompt: the chat
