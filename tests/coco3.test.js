@@ -205,6 +205,76 @@ LOOP    NOP
   check(`0.89 MHz: ${slow} cycles per field`, Math.abs(slow - 14934) <= 4);
   check(`1.79 MHz: ${fast} cycles per field`, Math.abs(fast - 2 * 14934) <= 4);
 }
+{
+  // A write to the SAM rate bits from outside the CPU (the debugger's memory write; anything else that reaches
+  // machine.write() between instructions) sets the CPU clock divider as well as gime.fast: no instruction is in
+  // flight, so the next one runs at the new rate. (A program's own write keeps the mid-instruction model measured
+  // above; the regression hashes and the MAME lockstep cover that path.)
+  for (const mameCompat of [false, true]) {
+    const tag = mameCompat ? ' (mameCompat)' : '';
+    // a tight loop that waits on $0FFE, so a frame's cycle count depends on the divider alone (the stub's own
+    // polling jitters); when the flag is set the loop stores $FFD9 (the rate the GIME already holds, see below)
+    const m = run(' ORG $1000\n ORCC #$50\nW LDA $0FFE\n CMPA #1\n BNE W\n LDA #$5A\n STA $1002\n STA $FFD9\nL NOP\n BRA L\n', 0, { mameCompat });
+    m.ram[0x0FFE] = 0;
+    const dbg = new Emu.Debugger(m);
+    for (let i = 0; i < 3; i++) m.runFrame();
+    const per = () => { const c0 = m.cpu.totalCycles; m.runFrame(); return m.cpu.totalCycles - c0; };
+    const slow0 = per();
+    check(`outside write${tag}: 0.89 MHz first (${slow0} cycles per field)`, Math.abs(slow0 - 14934) <= 4);
+    dbg.write(0xFFD9, [0]);
+    check(`outside $FFD9${tag}: gime.fast and the divider at 2`, m.gime.fast && m.div === 2);
+    m.runFrame();                                   // the frame the change landed in is only partly at the new rate
+    const fast = per();
+    check(`outside $FFD9${tag}: ${fast} cycles per field (1.79 MHz)`, Math.abs(fast - 2 * 14934) <= 4);
+    // a program write of the rate the GIME already holds changes nothing in the GIME, so on the old code it left
+    // the divider at 4 (the GIME said "no change", so nothing re-timed); it must not undo the outside write.
+    // The loop must actually have run its store, so it leaves a witness byte ($1002 gets $5A just before the STA)
+    m.ram[0x0FFE] = 1;                              // the loop at $1001 waits for this, then STA $FFD9
+    for (let i = 0; i < 3; i++) m.runFrame();
+    check(`outside $FFD9${tag}: the program ran its store`, m.ram[0x1002] === 0x5A);
+    const same = per();
+    check(`outside $FFD9${tag}: a program write of the same rate leaves ${same} cycles per field`,
+      m.gime.fast && m.div === 2 && Math.abs(same - 2 * 14934) <= 4);
+    // a snapshot taken while the outside write is in force restores at the same rate (div is in the state)
+    const snap = Emu.state.fromJSON(Emu.state.toJSON(m.snapshot()));
+    const r = Emu.restoreSnapshot(snap, m.roms);
+    for (let i = 0; i < 2; i++) r.runFrame();
+    const rc = r.cpu.totalCycles;
+    r.runFrame();
+    check(`outside $FFD9${tag}: a restored machine still runs at ${r.cpu.totalCycles - rc} cycles per field`,
+      r.gime.fast && r.div === 2 && Math.abs((r.cpu.totalCycles - rc) - 2 * 14934) <= 4);
+    dbg.write(0xFFD8, [0]);
+    check(`outside $FFD8${tag}: the divider back at 4`, !m.gime.fast && m.div === 4);
+    m.runFrame();
+    const slow = per();
+    check(`outside $FFD8${tag}: ${slow} cycles per field (0.89 MHz)`, Math.abs(slow - 14934) <= 4);
+
+    // SAM R1 alone is fast too, and clearing R1 with R0 still set must leave it fast: a divider derived from
+    // the register's parity rather than from gime.fast passes everything above and fails here
+    dbg.write(0xFFD9, [0]);                        // R1 set
+    dbg.write(0xFFD7, [0]);                        // R0 set as well
+    check(`outside $FFD7${tag}: R0 or R1 is fast`, m.gime.fast && m.div === 2);
+    dbg.write(0xFFD8, [0]);                        // R1 cleared, R0 remains: still fast
+    check(`outside $FFD8 with R0 set${tag}: still fast`, m.gime.fast && m.div === 2);
+    m.runFrame();
+    check(`outside $FFD8 with R0 set${tag}: ${per()} cycles per field`, Math.abs(per() - 2 * 14934) <= 4);
+    dbg.write(0xFFD6, [0]);                        // R0 cleared: slow again
+    check(`outside $FFD6${tag}: back to 0.89 MHz`, !m.gime.fast && m.div === 4);
+
+    // a snapshot saved while the bug was live holds gime.fast with the divider still at 4. Loading it must
+    // re-derive the divider, or the machine stays at the slow rate for good (a later write of the same rate
+    // does not re-time: gime.js reports no change)
+    dbg.write(0xFFD9, [0]);                        // fast, divider 2
+    m.div = 4;                                      // as an old snapshot of the bug would hold it
+    const old = Emu.state.fromJSON(Emu.state.toJSON(m.snapshot()));
+    const r2 = Emu.restoreSnapshot(old, m.roms);
+    check(`restore mid-rate${tag}: the divider follows gime.fast`, r2.gime.fast && r2.div === 2);
+    for (let i = 0; i < 2; i++) r2.runFrame();
+    const c2 = r2.cpu.totalCycles;
+    r2.runFrame();
+    check(`restore mid-rate${tag}: ${r2.cpu.totalCycles - c2} cycles per field`, Math.abs((r2.cpu.totalCycles - c2) - 2 * 14934) <= 4);
+  }
+}
 
 // ---------------- GIME video ----------------
 {

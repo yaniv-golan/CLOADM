@@ -300,7 +300,18 @@ class Coco3Machine extends Machine {
       return;
     }
     if (a < 0xFF90) { if (this.cartPort) this.cartPort.writeIO(a, v); return; }
-    this.syncIo(() => { if (this.gime.writeReg(a, v, t)) this.speedChange = this.cpu.cycleCount; }, true);
+    this.syncIo(() => {
+      if (!this.gime.writeReg(a, v, t)) return;
+      // A program's write is timed by clockChanged (the instruction's remaining cycles run at the new rate, with
+      // MAME's slice model under mameCompat). A write from outside the CPU (the debugger's memory write) has no
+      // instruction in flight: no cycle count to convert, so the divider takes the new rate directly and the next
+      // instruction starts at it. (A tool poke goes through machine.poke, which skips the I/O page.)
+      // An instruction HALT suspended (haltDefer) is timed on the old rate's grid; it is dropped first (haltCancel, as
+      // for any change from outside while it waits: its halted time counts at the old rate), so the CPU, between
+      // instructions, then runs at the new one.
+      if (this.inStep) this.speedChange = this.cpu.cycleCount;
+      else { this.haltCancel(!this.gime.fast); this.div = this.gime.fast ? 2 : 4; }   // (the rate before this write)
+    }, true);
   }
 
   // ---------------- time line ----------------
@@ -575,7 +586,8 @@ class Coco3Machine extends Machine {
   // bus accesses it made before its held one were made, and stay made. (MAME 0.264's debugger, writing PC, only sets
   // m_pc: its 6809 carries on through the rest of the old instruction's microcode from the new address,
   // m6809.cpp state_import; an artefact of the emulator with no hardware counterpart, not reproduced.)
-  haltCancel() {
+  // (`fast`: the GIME's rate while the instruction waited; an outside speed write that drops it passes the rate before it)
+  haltCancel(fast = this.gime.fast) {
     const d = this.haltDefer;
     if (!d || this.inStep) return;
     this.haltDefer = null; this.busN = 0; this.replayN = -1; this.ioShift = 0; this.haltS = -1;
@@ -583,7 +595,7 @@ class Coco3Machine extends Machine {
     // instruction that is kept), at the rate it ran, and after a speed change it made before its held access (in the
     // GIME already: the clock follows it) at the new rate from the end of that write's cycle (as clockChanged)
     let t = d.s, n = 0;
-    if (d.speedChange >= 0) { n = d.speedChange; t = d.s + n * this.div; this.div = this.gime.fast ? 2 : 4; }
+    if (d.speedChange >= 0) { n = d.speedChange; t = d.s + n * this.div; this.div = fast ? 2 : 4; }
     this.cpu.totalCycles += n + Math.max(0, Math.round((this.cycle - t) / this.div));
     this.redirects++;
   }
@@ -691,6 +703,12 @@ class Coco3Machine extends Machine {
     this.haltDefer = d && haltDeferState(d);
     if (this.haltDefer) { haltDeferTimes(this.haltDefer, this.cycle); this.cpu.cycleCount = 0; }   // (as haltPark)
     if (this.haltDefer) this.haltKeep(this.haltDefer, false);   // (the file's CPU; its memory came with haltDefer)
+    // Between instructions the divider follows gime.fast, so derive it here: a snapshot saved while an outside write
+    // left the divider at 4 restores at the rate the GIME says, instead of staying slow for good (a later write of the
+    // same rate does not re-time). The one exception is an instruction HALT suspended after it changed the speed
+    // (haltDefer.speedChange): it runs on at the saved, old divider and clockChanged moves to the new one, so the
+    // file's divider stands.
+    if (!(this.haltDefer && this.haltDefer.speedChange >= 0)) this.div = this.gime.fast ? 2 : 4;
     this.busN = 0; this.replayN = -1;
     this.ioShift = 0;
     this.gime.updateMemory();

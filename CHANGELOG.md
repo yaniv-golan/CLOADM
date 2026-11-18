@@ -6,6 +6,21 @@ All notable changes to CLOADM are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **CoCo 3: a memory write from outside the CPU left the CPU at the old clock.** The Debugger's memory write
+  (which goes through the bus) to `$FFD8`/`$FFD9` set the GIME's fast bit but not the machine's clock divider,
+  which only a following instruction could update: the GIME was at 1.79 MHz while the CPU still spent 4 clocks per
+  cycle (about 14,934 instead of 29,867 cycles per frame). Writing the rate the GIME already held never corrected
+  it (`js/chips/gime.js` reports no change then) and only a later write that changed the bits did. An outside write
+  now takes the new divider at once; a program's own write keeps the instruction-timed path unchanged
+  (`js/machines/coco3.js`, `tests/coco3.test.js`). A snapshot taken while the bug was live (a quick slot, a saved
+  file) holds the GIME fast with the divider at 4; restoring it now derives the divider from the GIME, so the
+  machine runs at the rate it reports instead of staying slow for good. An outside rate write while the disk
+  controller's HALT holds an instruction drops that instruction (as any outside change does: its halted time counts
+  at the old rate) so the CPU runs on at the new one; a snapshot of an instruction held after its own speed change
+  keeps its saved divider.
+
 ### Changed
 
 - **"Allow and resume".** While Claude is paused by your key, a card waiting for your answer says so, and its
