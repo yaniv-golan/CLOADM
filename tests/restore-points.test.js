@@ -166,6 +166,11 @@ const ACT = {
       check(`${op}: the machine is exactly as it was, and Claude was not stopped`, json(m) === was && !aborted && s.claudeActing === acting);
       const e0 = throwsMsg(() => s.restoreClaude(0));
       check(`${op}: the older point is refused the same way`, e0 instanceof Emu.SessionError && chat.undo.length === 2 && json(m) === was);
+      // "Restore to before Claude's changes" (the chat's undoLast) is the same guarded path: a restore that throws keeps the point
+      const eu = throwsMsg(() => chat.undoLast());
+      check(`${op}: undoLast with a refused point throws the same SessionError and keeps every point`,
+        eu instanceof Emu.SessionError && /different basic ROM/.test(eu.message) && chat.undo.length === 2 && chat.undo.every((p, i) => p === undo[i]) && json(m) === was && JSON.stringify(s.claudePoints) === points,
+        eu ? `${eu.message} (${chat.undo.length} points)` : 'no error');
       delete chat.abort;
       // the ROMs back as they were: the same point now restores
       s.roms.put('dragon64', 'basic', romFor(), 'idle.rom'); s.stubChosen.delete('dragon64'); s.loadSavedRoms();

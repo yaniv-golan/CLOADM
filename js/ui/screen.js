@@ -105,7 +105,7 @@ export function setupScreen(page, { loadPrograms, roms }) {
     if (paused) return;
     if (now - fpsTime >= 1000) { fps = fpsFrames * 1000 / (now - fpsTime); fpsFrames = 0; fpsTime = now; }
     const s = session.statusLine(fps);
-    if (s !== lastStatus) { $('status').textContent = s; lastStatus = s; }
+    if (s !== lastStatus) { const el = $('status'); el.textContent = s; el.title = s; lastStatus = s; }   // the title carries what a narrow bar clips
   }
   requestAnimationFrame(tick);
 

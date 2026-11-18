@@ -44,6 +44,16 @@
   .appbar nav { display: flex; flex-wrap: wrap; gap: 4px 18px; align-items: center; }
   .appbar nav a, .appbar nav button.navlink { color: var(--text-2); text-decoration: none; background: none; border: 0; padding: 8px 2px; min-height: 0; }
   .appbar nav a:hover, .appbar nav button.navlink:hover { color: var(--text); }
+  /* One row from 1200 px up, whatever the system font: the status text (the one flexible item) gives way with an
+     ellipsis before anything wraps (its title holds the whole text), where a wide fallback font used to push the
+     links onto a second row. Below 1200 px the bar wraps as it always has. */
+  @media (min-width: 1200px) {
+    .appbar { flex-wrap: nowrap; }
+    .appbar > * { flex: none; }
+    .appbar > #status { flex: 0 1 auto; min-width: 1.2em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .appbar > .grow { flex: 1 1 0; min-width: 0; }
+    .appbar nav { flex-wrap: nowrap; white-space: nowrap; }
+  }
   #btnMenu { display: none; }
   #machineMenu { position: absolute; top: calc(100% - 6px); left: 20px; z-index: 20; width: min(600px, calc(100vw - 40px)); background: var(--panel);
     border: 1px solid var(--line); border-radius: var(--r-14); padding: 14px; box-shadow: 0 20px 50px rgba(0, 0, 0, .6);

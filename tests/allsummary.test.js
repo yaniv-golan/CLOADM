@@ -31,14 +31,15 @@ const standInRegress = (tests) => fs.writeFileSync(path.join(tests, 'regress.tes
 // Copy the runner and the no-exit guard into a scratch tests/ directory, add `body` as zz-probe.test.js, run it,
 // and hand back the exit status and merged output. `timeoutMs` shortens the per-suite kill so a probe that hangs
 // is caught quickly rather than after the real 4 minutes; it also checks that a killed suite reads as a failure.
-function gate(body, { name = 'zz-probe.test.js', timeoutMs = 60000 } = {}) {
+function gate(body, { name = 'zz-probe.test.js', timeoutMs = 60000, regress } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'allsummary-'));
   const tests = path.join(dir, 'tests');
   fs.mkdirSync(tests, { recursive: true });
   fs.copyFileSync(path.join(TESTS, 'all.js'), path.join(tests, 'all.js'));
   fs.copyFileSync(path.join(TESTS, 'no-exit.js'), path.join(tests, 'no-exit.js'));
   fs.copyFileSync(path.join(TESTS, 'suite-verdict.js'), path.join(tests, 'suite-verdict.js'));
-  standInRegress(tests);
+  if (regress === null) { /* no regress.test.js at all */ } else if (regress === undefined) standInRegress(tests);
+  else fs.writeFileSync(path.join(tests, 'regress.test.js'), regress);
   if (body !== null) fs.writeFileSync(path.join(tests, name), body);
   const r = cp.spawnSync(process.execPath, [path.join(tests, 'all.js'), '--jobs', '1'],
     { encoding: 'utf8', timeout: 120000, env: Object.assign({}, process.env, { CLOADM_SUITE_TIMEOUT_MS: String(timeoutMs) }) });
@@ -60,6 +61,25 @@ const failedAs = (r, name) => r.status !== 0 && new RegExp(`FAIL  ${name.replace
   // the missing summary and not the fixture's content, the scratch tree, or the forced timeout.
   const ok = gate(body.replace('await new Promise(() => {});', 'await Promise.resolve();'));
   check('the same suite passes once it reaches its summary', ok.status === 0, `exit ${ok.status}`);
+}
+
+// 1b. The regression-gate rule itself: every suite below passes and exits 0, yet a run whose regression gate is
+// incomplete must fail, whichever way it is incomplete. Each probe is paired with the complete stand-in (the control
+// every other case here runs with), so the failure is the gate's completeness and nothing else.
+{
+  const pass = "console.log('ok   first');\nconsole.log('all passed');\n";
+  const INCOMPLETE = /all \d+ suites exited 0, but the regression gate is incomplete: FAILED/;
+  // its shards report fewer cases than its own --count (12 each time, 11 run)
+  const fewer = gate(pass, { regress: STAND_IN_REGRESS.replace("k = T / (s ? Number(s.split('/')[1]) : 1);", "k = T / (s ? Number(s.split('/')[1]) : 1) - 1;") });
+  check('a regression gate whose shards ran fewer cases than --count fails the run', fewer.status !== 0 && /-- INCOMPLETE/.test(fewer.out) && INCOMPLETE.test(fewer.out),
+    `exit ${fewer.status}: ${(fewer.out.match(/^regress .*/m) || [''])[0]}`);
+  // no regress.test.js at all
+  const none = gate(pass, { regress: null });
+  check('a run with no regress.test.js fails, saying the regression gate did not run', none.status !== 0 && /regression gate did not run/.test(none.out) && INCOMPLETE.test(none.out),
+    `exit ${none.status}: ${(none.out.match(/^regress.*/m) || [''])[0]}`);
+  // the control: the same passing suite beside the complete stand-in passes, so the two failures above are the gate
+  const whole = gate(pass);
+  check('the same suite beside a complete regression gate passes', whole.status === 0 && /regress 12\/12 included/.test(whole.out), `exit ${whole.status}`);
 }
 
 // 2. A suite that finishes normally still passes, in every summary shape the real suites print. The regress shard

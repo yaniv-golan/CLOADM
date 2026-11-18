@@ -255,6 +255,10 @@ process.exitCode = 1;
       && T.type_text.description.includes(`1 to ${Emu.TYPE_TEXT_MAX} characters`) && p('type_text', 'text').description.includes(`${Emu.TYPE_TEXT_MAX}`)
       && T.load_basic.description.includes(`1 to ${Emu.BASIC_PROGRAM_TEXT_MAX} characters`) && T.load_basic.description.includes(`(0-${Emu.BASIC_LINE_MAX})`)
       && p('assemble_and_load', 'source').description.includes(`1 to ${Emu.SOURCE_MAX} characters`));
+    // the switch is called by one name, the page's: every acting tool's description sent to the model says so
+    check('every acting tool description names "Let Claude use the emulator" and none says "use the machine"',
+      Object.values(T).length === Emu.ACTING_TOOL_NAMES.length && Object.values(T).every((t) => t.description.includes('"Let Claude use the emulator"') && !/use the machine/i.test(t.description)),
+      Object.values(T).filter((t) => !t.description.includes('"Let Claude use the emulator"') || /use the machine/i.test(t.description)).map((t) => t.name).join());
     check('the optional parameters state their defaults from the constants', p('run', 'target').description.includes(`omit for "${Emu.RUN_DEFAULT_TARGET}"`)
       && p('assemble_and_load', 'org').description.includes(`assembled at ${Emu.ASSEMBLE_DEFAULT_ORG}`));
     // and the code applies those defaults: run with no target types RUN (no BASIC here: no-basic, as "RUN" is);

@@ -4484,6 +4484,45 @@ SUB     INCA
 // the emulator layout at desktop and phone width: header, grouped
 // machine menu with a confirmation, monitor bezel per family, controls and slots, the drawer's tabs
 async function layoutChecks(browser, base, check) {
+  // The app bar stays ONE row at 1280 x 720 (first visit: the "No BASIC" pill is showing, the widest the bar gets),
+  // in the runner's own system font and again in a deliberately wide one, so a runner whose fallback font is wider
+  // than this machine's cannot push the links onto a second row (they did: 116 px in CI, 68 locally).
+  // Measured with getBoundingClientRect: every item sits in one band the height of the tallest, the four links share a top.
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+    const page = await ctx.newPage();
+    await page.goto(base);
+    await started(page);
+    await page.evaluate(() => document.fonts.ready);
+    const measure = () => page.evaluate(() => {
+      const bar = document.getElementById('appbar'), b = bar.getBoundingClientRect();
+      const items = [...bar.children].filter((e) => e.offsetParent !== null && e.getBoundingClientRect().width > 0);
+      const tops = items.map((e) => e.getBoundingClientRect().top), bottoms = items.map((e) => e.getBoundingClientRect().bottom);
+      const links = [...bar.querySelectorAll('nav a')].map((a) => a.getBoundingClientRect());
+      const nav = bar.querySelector('nav').getBoundingClientRect();
+      return { h: Math.round(b.height), band: Math.round(Math.max(...bottoms) - Math.min(...tops)), links: links.length,
+        linkSpread: links.length ? Math.round(Math.max(...links.map((r) => r.top)) - Math.min(...links.map((r) => r.top))) : -1,
+        navInside: nav.right <= b.right + 0.5, romPill: !!document.getElementById('romPill').offsetParent, scroll: document.documentElement.scrollWidth <= innerWidth,
+        font: getComputedStyle(document.body).fontFamily.slice(0, 40) };
+    });
+    const oneRow = (m) => m.links === 4 && m.romPill && m.linkSpread <= 2 && m.band <= 50 && m.h <= 80 && m.navInside && m.scroll;
+    const m1 = await measure();
+    check('layout (1280 x 720): the app bar is one row, the four links on one line, in the page font', oneRow(m1), JSON.stringify(m1));
+    await page.addStyleTag({ content: 'body, button, a, input, select { font-family: "DejaVu Sans", Verdana, sans-serif !important; }' });
+    await page.evaluate(() => document.fonts.ready);
+    const m2 = await measure();
+    check('layout (1280 x 720): ...and in a wide font too', oneRow(m2), JSON.stringify(m2));
+    // what the bar clips is still readable: the status text is also its title (non-empty: the tick has run)
+    const statusTitle = () => page.evaluate(() => { const e = document.getElementById('status'); return { text: e.textContent, title: e.title }; });
+    const t1 = await statusTitle();
+    check('layout (1280 x 720): the status text is also its title, so a clipped status can be read on hover', t1.text.length > 0 && t1.title === t1.text, JSON.stringify(t1));
+    // at 1200 in a wide font the status is squeezed the most: something of it still shows, and the bar is still one row
+    await page.setViewportSize({ width: 1200, height: 720 });
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+    const m3 = await measure(), w3 = await page.evaluate(() => document.getElementById('status').getBoundingClientRect().width);
+    check('layout (1200 x 720, wide font): one row, and the status keeps room to show something', oneRow(m3) && w3 >= 16, `${JSON.stringify(m3)} status ${Math.round(w3)}px`);
+    await ctx.close();
+  }
   for (const [label, viewport] of [['desktop', { width: 1440, height: 1000 }], ['phone', { width: 390, height: 844 }]]) {
     const ctx = await browser.newContext({ viewport });
     const page = await ctx.newPage();

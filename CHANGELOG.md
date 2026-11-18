@@ -166,6 +166,12 @@ All notable changes to CLOADM are recorded here. The format follows
 - "What is this code doing?" asked from the full screen chat (Ctrl+K) disassembled the chat firmware and its
   registers; it now reads the BASIC session, as the read tools do (`Session.codeAt`).
 
+- **The app bar stays one row from 1200 px wide up, in any system font.** On a machine whose fallback font is wider
+  than the developer's (CI's: Library, Debugger, Help and GitHub wrapped onto a second row, 116 px against 68 at
+  1280 x 720) the status text now gives way with an ellipsis before anything wraps; below 1200 px the bar wraps as
+  before. The browser check measures it with `getBoundingClientRect` at 1280 x 720, in the page's font and in a wide one. The status text's `title` holds the whole text, so what the bar clips
+  can be read on hover.
+
 #### Changed
 
 - **Claude's acting tools follow the read tools' contract.** `poke`, `type_text`, `load_basic`, `press_break`,
@@ -182,7 +188,7 @@ All notable changes to CLOADM are recorded here. The format follows
   with a mocked API, the schemas against the constants, and the gate and restore point for every tool. Just before
   the change a synchronous re-check (`ChatSession.recheck`, set by the Session) catches what happened while a card
   waited or a check ran (an INCLUDE read): Claude paused waits for Resume (Stop or Esc: `stopped`), and a call that
-  relied on the "Let Claude use the machine" switch is `no-consent` once it is off; nothing lands while paused. A
+  relied on the "Let Claude use the emulator" switch is `no-consent` once it is off; nothing lands while paused. A
   `ChatSession` built without a gate now refuses every acting tool (`no-consent`) instead of allowing it. `run.target`'s
   schema is `anyOf` an integer `ADDRESS_MIN`-`ADDRESS_MAX` or a string.
 - **Sound plays through an AudioWorkletNode** (`js/host/audio-worklet.js`) instead of the deprecated
@@ -238,6 +244,13 @@ All notable changes to CLOADM are recorded here. The format follows
   computer" and follows a machine switch, on phones too; a new footer line says "Your messages and what Claude
   reads go to Anthropic with your key." The full screen card names the BASIC session's model. The switch is "Let
   Claude use the emulator" everywhere (page, docs, README).
+- The test gate (`tests/all.js`) fails a suite that exits 0 without printing its summary, so a suite that stops
+  part-way on a promise that never settles can no longer count as a pass (found by this: `tests/allsignal.test.js`
+  had been exiting silently), and `tests/machine.test.js` now ends with the summary line every suite prints.
+- Test follow-ups: `tests/restore-points.test.js` proves the chat's "Restore to before Claude's changes" keeps the
+  point when the restore throws; `tests/allsummary.test.js` proves `tests/all.js` fails a run whose regression gate
+  is missing or ran fewer cases than `--count`; `tests/claude-acting-contract.test.js` proves every acting tool's
+  description names "Let Claude use the emulator".
 
 ### 0.1.1-pre
 
@@ -325,7 +338,4 @@ comparison and every known difference. No ROMs are included: users supply their 
 - **Site:** the landing page at `/`, the emulator at `/play`, the `/roms` page, Help and Credits, with a light
   variant for reading pages and a phone layout.
 - **Development:** the MAME lockstep, video, raster, byte and audio comparison tools in `tools/mame-diff/`, the
-  regression hash gate, the headless browser check, and a CI workflow running both on every push. The test gate
-  (`tests/all.js`) fails a suite that exits 0 without printing its summary, so a suite that stops part-way on a
-  promise that never settles can no longer count as a pass (found by this: `tests/allsignal.test.js` had been
-  exiting silently), and `tests/machine.test.js` now ends with the summary line every suite prints.
+  regression hash gate, the headless browser check, and a CI workflow running both on every push.
