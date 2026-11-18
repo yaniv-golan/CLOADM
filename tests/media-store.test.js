@@ -346,6 +346,102 @@ const bytes = (n, seed = 0) => { const b = new Uint8Array(n); let x = seed >>> 0
     check('the last write wins, in order', list.length === 1 && list[0].name === 'b', JSON.stringify(list));
   }
 
+  // ---- MediaIndex.settled(): the point at which the queued writes are durable ----
+  {
+    // A store like OPFS: asynchronous, and a named write can be held open until the test releases it. A
+    // correct settled() waits on the write queue, so it is still pending while the LAST queued write is
+    // held, with the queue drained up to it, so nothing but waiting lets it finish; and at the moment it
+    // resolves every write the store was given has finished. It covers the writes queued before it: like
+    // flush(), it appends a marker at call time, so a write queued after the call is deliberately not
+    // waited for.
+    //
+    // "Waits on the queue" is separated from "waits a while" without freezing or patching anything, so the
+    // argument holds for any delay API (a bare setTimeout, setInterval, AbortSignal.timeout, a platform
+    // sleep, a Date.now spin): while the last write is held NOTHING correct can resolve, however loaded the
+    // machine is, so any settled() that resolves inside HELD_MS is wrong whatever it waited on. No promise
+    // about how fast a CORRECT one resolves is made beyond the liveness deadline: a tight time window after
+    // the release would wrongly fail correct bodies (a post-flush setImmediate) on a loaded machine, where one
+    // turn's latency can exceed it.
+    // Limits: a wrong settled() that simply waits longer than HELD_MS, unrelated to the release, is not
+    // caught; nor is one that blocks the thread synchronously.
+    class GatedStore extends store.MemoryMediaStore {
+      constructor() { super(); this.started = []; this.finished = 0; this.holds = new Map(); this.fail = null; }
+      get synchronous() { return false; }   // like OPFS: the index queues its writes
+      hold(name) { let r; const p = new Promise((res) => { r = res; }); this.holds.set(name, p); return () => { this.holds.delete(name); r(); }; }
+      async write(name, bytes) {
+        this.started.push(name);
+        const held = this.holds.get(name);
+        if (held) await held;
+        if (name === this.fail) throw new iface.MediaStoreError('quota', 'no space (forced)');
+        const done = await super.write(name, bytes);
+        this.finished++;
+        return done;
+      }
+    }
+    const gated = new GatedStore();
+    const idx = new ifaceIndex(gated);
+    await idx.load();
+    // a settled() that never resolves parks the suite, and a parked Node process exits 0, which the gate
+    // would report as a pass: every wait on a settling promise here is given a deadline instead, and the
+    // deadline timer is cleared so a passing run does not sit on it for the rest of its timeout
+    const deadline = (p, ms) => {
+      let t;
+      const timer = new Promise((r) => { t = setTimeout(() => r('timeout'), ms); });
+      return Promise.race([p, timer]).finally(() => clearTimeout(t));
+    };
+    // long enough that a settled() which waits instead of watching cannot plausibly resolve inside it, and
+    // that a correct one is never timed at all: it cannot resolve while the write is held, at any speed
+    const HELD_MS = 500;
+    const releaseLast = gated.hold('recent/BBBB0002.bin');
+    // these three are queued on the store; the last one is held, so the queue can drain up to it and no
+    // further. Holding the LAST write is what makes the wait observable: if the queue were free to finish,
+    // a settled() that simply slept would find it drained and look correct.
+    idx.putSocket('dragon64', 'bas', 'AAAA0001');
+    idx.setRecent([{ name: 'game.bin', crc: 'BBBB0002', stored: true }]);
+    idx.putRecent('BBBB0002', new Uint8Array([1, 2, 3]));
+    let done = false, failed = null, finishedAtResolve = null, startedAtResolve = null;
+    const settling = idx.settled().then(() => {
+      // read the store's counters as settled() resolves, before anything else can run
+      finishedAtResolve = gated.finished; startedAtResolve = gated.started.length; done = true;
+    }, (e) => { failed = e; done = true; });
+    // give any implementation that resolves on its own every chance to do so, for HELD_MS of real time. A
+    // correct one cannot, because the last write is still held.
+    // (do/while: the hold is entered at least once, so a stall between computing the end time and the first
+    // check cannot skip it)
+    const heldUntil = Date.now() + HELD_MS;
+    do { await new Promise((r) => setImmediate(r)); } while (!done && Date.now() < heldUntil);
+    check('settled(): is still pending while the store holds a queued write',
+      gated.started.length >= 3 && gated.finished === gated.started.length - 1 && !done,
+      `started=${gated.started.length} finished=${gated.finished} done=${done}${failed ? ` failed=${failed.message}` : ''}`);
+    releaseLast();
+    // from here only liveness is required: a correct settled() has everything it needs and resolves; one
+    // that never resolves is caught by the deadline rather than parking the suite
+    const outcome = await deadline(settling, 5000);
+    check('settled(): resolves (does not reject) once the held write is released',
+      outcome !== 'timeout' && failed === null,
+      outcome === 'timeout' ? 'never settled' : (failed ? `rejected: ${failed.message}` : 'resolved'));
+    check('settled(): every write the store was given has finished by the time it resolves',
+      outcome !== 'timeout' && done && failed === null && startedAtResolve >= 3 && finishedAtResolve === startedAtResolve,
+      `started=${startedAtResolve} finished=${finishedAtResolve}`);
+
+    // a queued write that fails is reported through writeError, and settled() does not reject for it
+    gated.fail = 'recent/CCCC0003.bin';
+    const seen = [];
+    idx.writeError = (name, e) => seen.push(`${name}:${e.code}`);
+    idx.putRecent('CCCC0003', new Uint8Array([4]));
+    idx.putRecent('DDDD0004', new Uint8Array([5]));
+    const before = gated.finished;
+    // read the counter at the instant this call resolves, as for the first call: a settled() that hands
+    // back an earlier flush (memoised, or correct only once) resolves before this queue has drained
+    let rejected = null, second = 'pending', secondFinished = null;
+    await deadline(idx.settled().then(() => { secondFinished = gated.finished; second = 'resolved'; },
+      (e) => { rejected = e; secondFinished = gated.finished; second = 'resolved'; }), 5000);
+    // the failed write does not finish; the one after it does, so the queue went on
+    check('settled(): a failed queued write is reported through writeError, it does not reject, and the queue goes on',
+      second === 'resolved' && rejected === null && seen.join() === 'recent/CCCC0003.bin:quota' && secondFinished === before + 1,
+      `${second === 'pending' ? 'never resolved' : (rejected ? rejected.message : seen.join())}; ${secondFinished === null ? 'n/a' : secondFinished - before} finished by then`);
+  }
+
   console.log(fail ? `${fail} FAILED` : 'all passed');
   process.exitCode = fail ? 1 : 0;
 })().catch((e) => { console.error(e); process.exitCode = 1; });
