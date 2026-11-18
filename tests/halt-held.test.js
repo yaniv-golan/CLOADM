@@ -277,31 +277,36 @@ for (const how of ['snapshot round trip', 'debugger made while held']) {
 // grid, is dropped as for any change from outside (haltCancel): its halted time counts at the old rate (to the end of
 // its own speed-changing write, if it made one, then at that write's rate) and the CPU runs on at the new rate, before
 // and after HALT's release
-for (const [label, prog, fast] of [
-  ['INC held at 0.89 MHz', null, false],
-  // STA $FFD9 (1.78 MHz); READ SECTOR on drive 1 (empty) with HALT; NOP; STD ,X (X = $FFD8: slows, then $FFD9 held)
-  ['STD ,X held after it slowed the CPU', [0xB7, 0xFF, 0xD9, 0xC6, 0x01, 0xF7, 0xFF, 0x4A, 0xC6, 0x80, 0xF7, 0xFF, 0x48,
-    0xC6, 0xAA, 0xF7, 0xFF, 0x40, 0x12, 0xED, 0x84, 0x20, 0xFE], true],
+// STA <rate> ; READ SECTOR on drive 1 (empty) with HALT; NOP; STD ,X; BRA *
+const STD_HELD = (rate) => [0xB7, 0xFF, rate, 0xC6, 0x01, 0xF7, 0xFF, 0x4A, 0xC6, 0x80, 0xF7, 0xFF, 0x48,
+  0xC6, 0xAA, 0xF7, 0xFF, 0x40, 0x12, 0xED, 0x84, 0x20, 0xFE];
+for (const [label, prog, x, fast, outside] of [
+  ['INC held at 0.89 MHz', null, 0, false, 0xFFD9],
+  // at 1.78 MHz, X = $FFD8: the STD slows the CPU, then its write to $FFD9 is held
+  ['STD ,X held after it slowed the CPU', STD_HELD(0xD9), 0xFFD8, true, 0xFFD9],
+  // at 0.89 MHz, X = $FFD9: the STD speeds the CPU up (R1), its write to $FFDA is held; the outside write then sets R0,
+  // which the GIME reports but which leaves the rate fast: the halted time after the STD's write counts at 1.78 MHz
+  ['STD ,X held after it sped the CPU up, then R0 set from outside', STD_HELD(0xD8), 0xFFD9, true, 0xFFD7],
 ]) {
   const { m, start } = machine();
-  if (prog) { prog.forEach((b, i) => m.poke(0x3000 + i, b)); m.cpu.x = 0xFFD8; m.cpu.pc = 0x3000; m.cpu.cc |= 0x50; } else start(0xAA, 1, INC_LOOP);
+  if (prog) { prog.forEach((b, i) => m.poke(0x3000 + i, b)); m.cpu.x = x; m.cpu.pc = 0x3000; m.cpu.cc |= 0x50; } else start(0xAA, 1, INC_LOOP);
   for (let i = 0; i < 5; i++) m.runFrame();
   const d = m.haltDefer, sc = d ? d.speedChange : -1, s0 = d ? d.s : 0, oldDiv = m.div, c0 = m.cycle, t0 = m.cpu.totalCycles;
   const midDiv = sc >= 0 ? (m.gime.fast ? 2 : 4) : oldDiv;   // the rate the instruction's own write set
   const dbg = new Emu.Debugger(m);
-  dbg.write(0xFFD9, [0]);
+  dbg.write(outside, [0]);
   dbg.detach();
   const added = m.cpu.totalCycles - t0, t = s0 + Math.max(0, sc) * oldDiv, want = Math.max(0, sc) + Math.round((c0 - t) / midDiv);
   const t1 = m.cpu.totalCycles, c1 = m.cycle;
   for (let i = 0; i < 2; i++) m.runFrame();
-  check(`an outside $FFD9 while an instruction is suspended (${label}): dropped, its halted time counted, the CPU at 1.78 MHz`,
+  check(`an outside ${hex(outside)} while an instruction is suspended (${label}): dropped, its halted time counted, the CPU at 1.78 MHz`,
     !!d && (sc >= 0) === fast && m.haltDefer === null && m.gime.fast && m.div === 2 && added === want && (m.cpu.totalCycles - t1) * 2 === m.cycle - c1,
     `held ${!!d} speedChange ${sc} div ${oldDiv}->${m.div} added ${added} want ${want}, after: ${m.cpu.totalCycles - t1} cycles in ${m.cycle - c1} ticks`);
   FORCE_INTERRUPT(m);
   for (let i = 0; i < 2; i++) m.runFrame();
   const t2 = m.cpu.totalCycles, c2 = m.cycle;
   m.runFrame();
-  check(`an outside $FFD9 while an instruction is suspended (${label}): after the release still 1.78 MHz`,
+  check(`an outside ${hex(outside)} while an instruction is suspended (${label}): after the release still 1.78 MHz`,
     !m.cpu.haltLine && m.div === 2 && m.cpu.totalCycles - t2 > 20000 && (m.cpu.totalCycles - t2) * 2 === m.cycle - c2,
     `halt ${m.cpu.haltLine} div ${m.div}: ${m.cpu.totalCycles - t2} cycles in ${m.cycle - c2} ticks`);
 }

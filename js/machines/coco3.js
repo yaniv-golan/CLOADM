@@ -301,6 +301,7 @@ class Coco3Machine extends Machine {
     }
     if (a < 0xFF90) { if (this.cartPort) this.cartPort.writeIO(a, v); return; }
     this.syncIo(() => {
+      const was = this.gime.fast;   // (a write to R0 with R1 set, or the reverse, is reported but leaves the rate)
       if (!this.gime.writeReg(a, v, t)) return;
       // A program's write is timed by clockChanged (the instruction's remaining cycles run at the new rate, with
       // MAME's slice model under mameCompat). A write from outside the CPU (the debugger's memory write) has no
@@ -308,9 +309,12 @@ class Coco3Machine extends Machine {
       // instruction starts at it. (A tool poke goes through machine.poke, which skips the I/O page.)
       // An instruction HALT suspended (haltDefer) is timed on the old rate's grid; it is dropped first (haltCancel, as
       // for any change from outside while it waits: its halted time counts at the old rate), so the CPU, between
-      // instructions, then runs at the new one.
+      // instructions, then runs at the new one. Deviation from MAME (docs/verification.md, "Deviations from MAME"):
+      // MAME 0.264 carries the held instruction on at the new clock, while ours runs it again from its start, its bus
+      // accesses before the held one made again; only the debugger can write while an instruction is held, so no
+      // firmware can observe it.
       if (this.inStep) this.speedChange = this.cpu.cycleCount;
-      else { this.haltCancel(!this.gime.fast); this.div = this.gime.fast ? 2 : 4; }   // (the rate before this write)
+      else { this.haltCancel(was); this.div = this.gime.fast ? 2 : 4; }
     }, true);
   }
 
@@ -586,7 +590,8 @@ class Coco3Machine extends Machine {
   // bus accesses it made before its held one were made, and stay made. (MAME 0.264's debugger, writing PC, only sets
   // m_pc: its 6809 carries on through the rest of the old instruction's microcode from the new address,
   // m6809.cpp state_import; an artefact of the emulator with no hardware counterpart, not reproduced.)
-  // (`fast`: the GIME's rate while the instruction waited; an outside speed write that drops it passes the rate before it)
+  // (`fast`: the GIME's rate while the instruction waited; an outside speed write that drops it passes the rate before
+  // it. That drop is a deviation from MAME, which continues the instruction at the new clock: see writeIO.)
   haltCancel(fast = this.gime.fast) {
     const d = this.haltDefer;
     if (!d || this.inStep) return;

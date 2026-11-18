@@ -798,6 +798,15 @@ MAME artefacts reproduced only under `config.mameCompat` (the comparisons turn i
 * m6809 `SYNC` with an interrupt already pending takes 3 cycles in MAME (`base6x09.lst`), 5 in ours: the Motorola
   MC6809 data sheet's instruction table gives SYNC ">= 4" cycles, plus one to release (`js/cpu/cpu6809.js`;
   both paths tested in `tests/cpu.test.js`).
+
+* CoCo 3, a write to the SAM rate bits (`$FFD6`-`$FFD9`) from outside the CPU while the disk controller's HALT holds
+  an instruction: MAME 0.264 carries the held instruction on at the new clock once HALT is released. Ours drops it
+  (`js/machines/coco3.js` `writeIO`, `haltCancel`): the project's rule for any change from outside while an instruction
+  is held (the MC6809E data sheet's HALT description: an outside change meets the CPU between instructions; see
+  `haltCancel`), so its halted time is charged at the rate before the write and it runs again from its start, its bus
+  accesses before the held one made again, at the new rate. Only the debugger's memory write reaches this (a
+  program's own write is made by the instruction in flight, and a tool's poke skips the I/O page), so no firmware can
+  observe it and the MAME comparisons do not cover it; `tests/halt-held.test.js` does.
 * Dragon 200-E: MAME's driver drives the VDG's INTEXT from two places, from each fetched byte (`sam_read()`, /D7)
   and from PB4 on every PIA1 port B write (`coco12_state::pia1_pb_changed()`, inherited). When they disagree, the
   write is a mode change to MAME's mc6847 and splits the line, so its reads run on past the visible area and, at
