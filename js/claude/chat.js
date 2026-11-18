@@ -91,6 +91,10 @@ export const ACTING_TOOL_NAMES = Object.freeze(actingTools().map((t) => t.name))
 
 // The chat firmware's channel mailbox (examples/chat.asm): two status/data pairs, one each way.
 export const CHAT_CHANNEL = Object.freeze({ rx: 0x7000, tx: 0x7002 });
+// Two of the firmware's variables, read by the page to tell whether BREAK would do anything (Esc on an empty, idle
+// prompt leaves the chat instead): BLEN, the characters on the typed line, and WAIT, set from ENTER until the reply
+// ends. tests/chat-firmware.test.js ties these addresses to the assembled source.
+export const CHAT_STATE = Object.freeze({ blen: 0x6013, wait: 0x6037 });
 // The chat firmware's screen (examples/chat.asm, COLS and ROWS): 42 columns of the 6x8 font in 256x192 graphics,
 // 24 rows, on every machine (there is no 80-column CoCo 3 mode yet). tests/chat-firmware.test.js ties these to
 // the source, so the brief can't tell Claude a width the screen doesn't have.

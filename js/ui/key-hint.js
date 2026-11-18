@@ -1,7 +1,7 @@
 /*
  * One-time keyboard hint over the screen. It goes after the first BREAK (Esc) or 30 seconds after the
- * first key typed into the machine, and never comes back (remembered in the Session store). The keyboard
- * stays in translated mode: keys type what they say.
+ * first key typed into the machine, and never comes back (remembered in the Session store). It reads
+ * "Esc = BREAK · Home = CLEAR · Backspace = ←": those three mean the same in translated and positional mode.
  */
 import { $ } from './page.js';
 

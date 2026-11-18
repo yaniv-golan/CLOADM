@@ -101,6 +101,33 @@ All notable changes to CLOADM are recorded here. The format follows
   CPU family (`js/cpu/cpus.js`), and the 6309 — which runs every 6809 instruction in emulation mode — gets the 6809
   welcome build, LIZA and demo, and the 6809 chat firmware. The stored 6309 choice is unchanged.
 
+### Changed
+
+- **Esc in the full-screen chat escalates.** On the chat screen Esc is BREAK while a reply streams (it stops the reply)
+  or while a line is typed (the firmware drops it); on an empty, idle prompt it leaves the chat, exactly as
+  "← Emulator" does. The focus pill there reads "Esc stops a reply, clears the line, then leaves the chat".
+- **The hints under the screen are one line of fixed height**, one note at a time: "No ROMs needed · click anywhere
+  for sound" until sound starts, then the key hint until it is done, then an empty line that keeps its height. The
+  monitor leaves a little more room (100vh − 260px), so on a first visit the Reset row is inside a 1280 × 720 window
+  and nothing under the screen moves. The key hint now reads "Esc = BREAK · Home = CLEAR · Backspace = ←" (it no longer
+  says "keys type what they say", which is wrong in positional mode) and always fits: one line when the column is at least
+  360 px wide, otherwise a fixed two-line box.
+- **Link errors say what to do:** `app=bogus isn't something CLOADM has (try app=claude)` (likewise `start=`), the
+  unknown-`machine=` error lists the machine picker's names rather than ids, and a `load=`, `tape=` or `cart=` the
+  other site won't let CLOADM fetch says "Couldn't download it: the site may not allow other sites to load its files."
+  instead of "Failed to fetch".
+- In the BASIC-session view (Ctrl+B from the chat) the corner label reads "The chat · live", so it is no longer a
+  second "Back to the chat" beside the button.
+
+### Fixed
+
+- Opening the full-screen chat from a view no longer forgets that the Ask panel reopens when the view closes if the
+  chat fails to open (for example, its firmware does not load).
+- The browser's Back from a view leaves the focus on the screen, as "← Emulator" and Esc do (it landed on the page or on
+  the opener's button), also when the Ask panel reopens over the conversation.
+- After a reload while a view was open over the chat, Back no longer leaves `?app=claude` in the emulator's address: a
+  page loaded on `?app=claude` now keeps the emulator's own entry, without the parameter, under the chat.
+
 ### 0.1.1-pre
 
 #### Added

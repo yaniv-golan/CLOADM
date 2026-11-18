@@ -72,7 +72,7 @@
   .layout { flex: 1; display: flex; flex-wrap: wrap; gap: 20px; padding: 20px; align-items: flex-start; }
   .layout > main { flex: 999 1 640px; min-width: 0; display: flex; flex-direction: column; gap: 16px; align-items: center; }
   .layout > main > * { width: 100%; max-width: 900px; }
-  .layout > main > .monitor { max-width: min(900px, max(320px, calc((100vh - 200px) * 1.2))); }
+  .layout > main > .monitor { max-width: min(900px, max(320px, calc((100vh - 260px) * 1.2))); }
   .drawer { flex: 1 1 320px; max-width: 100%; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-18); padding: 16px;
     display: flex; flex-direction: column; gap: 14px; }
 
@@ -100,10 +100,21 @@
   #screenWrap:fullscreen { inset: 0; background: #000; }
   /* the screen's hints sit under it, never over what it shows: reached by keyboard, the screen says how
      to leave it (Tab never goes to the machine); a first visit's keys; "click for sound" */
-  #screenNotes { display: flex; flex-direction: column; align-items: center; }
-  #screenNotes > div { margin-top: 10px; background: rgba(11, 13, 12, .88); color: var(--text); font-size: 14px; padding: 6px 12px;
-    border-radius: var(--r-14); text-align: center; max-width: 100%; pointer-events: none; }
-  #screenNotes > div[hidden] { display: none; }
+  /* One line of fixed height, one note at a time: "click for sound" until sound starts, then the key hint until it is
+     done, then an empty line that keeps its height. Nothing under the screen ever moves when a note comes or goes. */
+  #screenNotesBox { container-type: inline-size; }
+  #screenNotes { display: flex; justify-content: center; align-items: flex-start; height: 44px; overflow: hidden; }
+  #screenNotes > div { margin-top: 10px; background: rgba(11, 13, 12, .88); color: var(--text); font-size: 14px; line-height: 20px; padding: 6px 12px;
+    border-radius: var(--r-14); text-align: center; max-width: 100%; box-sizing: border-box; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
+  #screenNotes > div[hidden], #screenNotes:has(#soundHint:not([hidden])) > #keyHint { display: none; }
+  body.touch-keys #screenNotes, body.chat-phone #screenNotes { display: none; }
+  /* Narrow notes column: the widest note on one line is the key hint, 358 px wide (14 px text, padding included), so a column
+     of 360 px or more holds every note on one line (44 px). Under 360 px the box is a fixed two lines (64 px, wrapping, at most
+     two lines: the sound note and the key hint are 268 px wide at 320 px, which is the narrowest page). The query sits on
+     #screenNotesBox, the container around #screenNotes: an element can't respond to its own container query. The page keeps
+     its scrollbar gutter, so the 20 px step at the threshold can never toggle the scrollbar and move the column. */
+  @media (min-width: 700px) { html:not(:has(body.embed, body.library-open)) { scrollbar-gutter: stable; } }   /* only the emulator page has the notes line, and only where there is room: on a phone-width window the 15 px would narrow every fixed element; an embed is exactly its frame; the Library hides the emulator */
+  @container (max-width: 359.98px) { #screenNotes { height: 64px; } #screenNotes > div { white-space: normal; } }
   /* the focus hint comes and goes with the screen's keyboard focus, so it takes no room of its own: it lies over the
      bezel's badge strip under the screen (the badge and the LED give way), never over the picture or the page */
   .plate { position: relative; }
@@ -112,6 +123,8 @@
     text-align: center; pointer-events: none; }
   body:has(#screen:focus-visible) #focusHint { display: block; }
   body:has(#screen:focus-visible) .plate > #badge, body:has(#screen:focus-visible) .plate > .led { visibility: hidden; }
+  #focusHint .fh-chat, body.chat-screen #focusHint .fh-emu { display: none; }
+  body.chat-screen #focusHint .fh-chat { display: inline; }
   @media (max-width: 700px) { #focusHint { font-size: 13px; padding: 2px 10px; } }
   body.embed #screenNotes { display: none; }
   .views { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
@@ -1040,12 +1053,12 @@ npx serve -l 8000 .</pre>
             <button id="btnBootStub">Run without ROMs</button><button id="btnBootDismiss">Dismiss</button></div></div>
       </div>
       <div class="plate"><span id="badge">DRAGON 64</span><span class="led" aria-hidden="true"></span>
-        <div id="focusHint" aria-hidden="true">Typing goes to the machine · <kbd>Tab</kbd> leaves the screen</div></div>
+        <div id="focusHint" aria-hidden="true"><span class="fh-emu">Typing goes to the machine · <kbd>Tab</kbd> leaves the screen</span><span class="fh-chat"><kbd>Esc</kbd> stops a reply, clears the line, then leaves the chat</span></div></div>
       <!-- the screen's hints, under it: they never lie over what the machine shows -->
-      <div id="screenNotes">
+      <div id="screenNotesBox"><div id="screenNotes">
         <div id="soundHint" hidden>No ROMs needed · click anywhere for sound</div>
-        <div id="keyHint" hidden><kbd>Esc</kbd> = BREAK, <kbd>Home</kbd> = CLEAR, <kbd>Backspace</kbd> = ←; keys type what they say</div>
-      </div>
+        <div id="keyHint" hidden><kbd>Esc</kbd> = BREAK · <kbd>Home</kbd> = CLEAR · <kbd>Backspace</kbd> = ←</div>
+      </div></div>
       <!-- full screen chat: the other machine, live; a strip under the screen on a phone -->
       <div id="claudePip" hidden role="group" aria-label="Your BASIC session, live">
         <button id="claudePipSwap" aria-label="Swap the chat and your BASIC session"><canvas id="claudePipCanvas" aria-hidden="true"></canvas>

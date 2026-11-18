@@ -207,6 +207,28 @@ async function say(s, calls, line, want) {
     check('the chat screen shows the line and the whole reply (a reply ends its line)', shown.includes('> Hello, Claude: 1+1?') && shown.includes('Hello from Claude.'),
       JSON.stringify(shown.filter(Boolean)));
   }
+  // Session.chatPromptEmpty: whether BREAK has nothing to do on the chat screen (nothing typed, no line waiting for its
+  // reply, no reply streaming), which is when Esc on the screen leaves the chat (js/ui/claude.js). The expected values are
+  // what the person did, read through the firmware's own variables.
+  {
+    const { s, chat, calls } = open([textReply('Hello from Claude.')]);
+    const key = (code) => { s.machine.stubKeys.push(code); frames(s, 3); };
+    frames(s, 10);
+    check('chatPromptEmpty: a fresh prompt is empty and idle', s.chatPromptEmpty === true);
+    key('a'.charCodeAt(0)); key('b'.charCodeAt(0));
+    check('chatPromptEmpty: with two characters typed it is not (BLEN = 2)', s.chatPromptEmpty === false && s.readByte(Emu.CHAT_STATE.blen, s.machine) === 2);
+    key(0x03);
+    check('chatPromptEmpty: BREAK drops the typed line, and the prompt is empty again', s.chatPromptEmpty === true && s.readByte(Emu.CHAT_STATE.blen, s.machine) === 0);
+    s.typeText('hi\n');
+    for (let i = 0; i < 40 && !chat.busy && calls.length < 1; i++) { frames(s, 1); await settle(); }
+    check('chatPromptEmpty: with the line sent and its reply on the way it is not (WAIT set, or the reply streaming)', s.chatPromptEmpty === false, `wait ${s.readByte(Emu.CHAT_STATE.wait, s.machine)} busy ${chat.busy}`);
+    for (let i = 0; i < 400 && (chat.busy || s.chatPromptEmpty === false); i++) { frames(s, 1); await settle(); }
+    check('chatPromptEmpty: once the reply has ended it is empty and idle again', s.chatPromptEmpty === true);
+    s.showChat('basic');
+    check('chatPromptEmpty: not while the BASIC session is on screen (its Esc is BREAK)', s.chatPromptEmpty === false);
+    s.endChat();
+    check('chatPromptEmpty: not without a chat', s.chatPromptEmpty === false);
+  }
   // A wrapped error, a line typed while it was still arriving, then a new prompt: checked on the rendered frame
   // (what the person sees), not only in memory. The early line must not be taken (the firmware waits for the
   // end-of-reply byte), the wrapped error keeps both its lines whole, and the next prompt starts its own line.

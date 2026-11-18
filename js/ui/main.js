@@ -36,7 +36,7 @@ import { setupSerialPanel } from './serial-panel.js';
 import { setupDriveWirePanel } from './drivewire-panel.js';
 import { setupDisplayPanel } from './display-panel.js';
 import { setupSnapshotPanel } from './snapshot-panel.js';
-import { parseUrlConfig } from '../config.js';
+import { parseUrlConfig, linkFetchError } from '../config.js';
 import { setupEmbed } from './embed.js';
 import { setupSettingsFile } from './settings-file.js';
 import { setupClaude } from './claude.js';
@@ -186,7 +186,7 @@ const starting = welcome.start(visit, { fromLink, withMedia: link.roms.length > 
       const bytes = await page.fetchBytes(url);
       if (kind === 'tape' && !link.autorun) page.attempt(() => session.insertTape(name, bytes));
       else { await media.loadProgram(name, bytes); if (kind === 'cart') drawer.cartridge(name); }
-    } catch (e) { page.status(`Could not load ${kind}=${url}: ${e.message}`, true); }
+    } catch (e) { page.status(`Could not load ${kind}=${url}: ${linkFetchError(e)}`, true); }
   }
   await starting;
   // a share link's moment (#s=, Share screen): opened like a dropped snapshot, once the visit has started

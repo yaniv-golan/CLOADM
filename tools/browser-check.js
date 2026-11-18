@@ -2022,9 +2022,13 @@ async function hintChecks(browser, base, check) {
   let ctx = await browser.newContext();
   let page = await ctx.newPage();
   await page.goto(`${base}?machine=dragon64`); await started(page);
-  check('key hint: shown on a first visit', await page.isVisible('#keyHint') && /Esc = BREAK, Home = CLEAR, Backspace = ←; keys type what they say/.test(await page.textContent('#keyHint')));
+  // one note under the screen at a time: the sound note first, the key hint once sound has started (the first click)
+  check('key hint: on a first visit the sound note has the line, the key hint waits', await page.isVisible('#soundHint') && !(await page.isVisible('#keyHint')));
+  await page.click('#screen');
+  check('key hint: shown on a first visit once sound has started', await waitFor(page, () => !document.getElementById('keyHint').hidden && getComputedStyle(document.getElementById('keyHint')).display !== 'none')
+    && /^Esc = BREAK · Home = CLEAR · Backspace = ←$/.test(await page.textContent('#keyHint')));
   if (shotDir) await page.locator('#screenWrap').screenshot({ path: path.join(shotDir, 'key-hint.png') });
-  await page.click('#screen'); await page.keyboard.press('A'); await keysTaken(page);
+  await page.keyboard.press('A'); await keysTaken(page);
   check('key hint: stays while typing', await page.isVisible('#keyHint'));
   await page.keyboard.press('Escape');
   check('key hint: gone after the first BREAK', await waitFor(page, () => document.getElementById('keyHint').hidden));
@@ -3709,11 +3713,17 @@ async function firstVisitChecks(browser, base, check) {
       const calls = [document.getElementById('romPill'), ...[...document.querySelectorAll('#welcome button')].filter((x) => /ROM/.test(x.textContent))];
       return { romCalls: calls.filter(shown).map((x) => x.id || x.textContent),
         legends: [['keyHint', document.getElementById('keyHint')], ['hint', document.querySelector('.layout .hint')]].filter(([, el]) => shown(el)).map(([n]) => n),
-        quickSave: shown(document.getElementById('quickSave')) };
+        sound: shown(document.getElementById('soundHint')), quickSave: shown(document.getElementById('quickSave')) };
     });
     const first = await seen();
-    check(`first visit (${label}): one call to add ROMs outside the screen, one key legend, no quick-save slots yet`,
-      JSON.stringify(first.romCalls) === '["romPill"]' && JSON.stringify(first.legends) === '["keyHint"]' && !first.quickSave, JSON.stringify(first));
+    // the line under the screen holds one note at a time: "click for sound" first, so no key legend yet; sound starts on the
+    // first click, and the key hint takes the line
+    check(`first visit (${label}): one call to add ROMs outside the screen, the sound note on the line under the screen (no key legend yet), no quick-save slots yet`,
+      JSON.stringify(first.romCalls) === '["romPill"]' && JSON.stringify(first.legends) === '[]' && first.sound && !first.quickSave, JSON.stringify(first));
+    await page.mouse.click(5, 5);
+    await waitFor(page, () => document.getElementById('soundHint').hidden, null, 5000);
+    const unlocked = await seen();
+    check(`first visit (${label}): once sound has started, one key legend (the hint under the screen)`, JSON.stringify(unlocked.legends) === '["keyHint"]' && !unlocked.sound, JSON.stringify(unlocked));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `first-visit-${label}.png`) });
     if (label === 'phone') {
       // the welcome program's file arriving after the slots were first listed (a slow network or a busy machine): the
@@ -4994,6 +5004,23 @@ async function urlChecks(browser, base, check) {
   check('link: becker=0 turns it off', await ev(() => window.emu.machine.config.becker === false), await msg());
   await open('?machine=zx81');
   check('link: an unknown machine is reported, the page still runs', /machine=zx81: no such machine/.test(await msg()) && await ev(() => !!window.emu.machine.id), await msg());
+  // R8: the error names the machines as the picker shows them (never their ids), and app= / start= say what to try
+  {
+    const m = await msg();
+    await page.click('#machineBtn');
+    const names = await ev(() => [...document.querySelectorAll('#machineMenu button[data-machine] > span:first-child')].map((n) => n.textContent));
+    await page.keyboard.press('Escape');
+    check('link: the unknown-machine error lists the machine picker\'s display names, not ids', names.length > 5 && names.every((n) => m.includes(n)) && !/dragon64|coco3|mc10/.test(m), JSON.stringify({ names, m }));
+  }
+  await open('?app=bogus');
+  check('link: app=bogus: "isn\'t something CLOADM has (try app=claude)"', (await msg()).includes("app=bogus isn't something CLOADM has (try app=claude)") && await ev(() => !!window.emu.machine.id), await msg());
+  await open('?start=bogus');
+  check('link: start=bogus says what to try', (await msg()).includes("start=bogus isn't something CLOADM has (try start=welcome or start=liza)"), await msg());
+  // a file at a host that doesn't allow other sites (no CORS header) fails in fetch with a TypeError: plain words, not "Failed to fetch"
+  await ctx.route('https://nocors.example/**', (route) => route.abort('failed'));   // what the browser's fetch gives for a cross-origin refusal (Playwright's fulfill adds CORS headers itself, so abort stands in): a TypeError
+  await open('?machine=dragon64&load=https://nocors.example/demo.bin');
+  check('link: a cross-origin load= the site doesn\'t allow says so in plain words (not "Failed to fetch")',
+    /Could not load load=https:\/\/nocors\.example\/demo\.bin: Couldn't download it: the site may not allow other sites to load its files\./.test(await msg()) && !/Failed to fetch/.test(await msg()), await msg());
 
   await open('?machine=dragon64&load=https://files.example/demo.bin');
   check('link: load= fetches a program and runs it', await waitFor(page, () => /demo\.bin/.test(document.getElementById('toast').textContent) && window.emu.machine.cpu.pc >= 0x4000), await msg());
@@ -5242,17 +5269,19 @@ async function welcomeScreenChecks(browser, base, check) {
     await started(page);
     await waitFor(page, () => window.emu.session.welcomeRunning && !document.getElementById('keyHint').hidden && !document.getElementById('soundHint').hidden, null, 15000);
     await emuFrames(page, 3);
-    // before any key (a key unlocks the sound, and its hint goes): the key and sound hints; then reached by
-    // keyboard: the focus hint too
+    // before any key (a key unlocks the sound, and its hint goes): the sound note, alone on the line under the screen; then
+    // reached by keyboard: the focus hint, and the key hint in the sound note's place
     const w = await textOverlay(page);
     await focusScreenByKey(page);
+    // (the keys unlock the sound, and the sound note leaves the line a moment later: showHint runs 100 ms after the unlock)
+    await waitFor(page, () => document.getElementById('soundHint').hidden, null, 5000);
     await emuFrames(page, 3);
     const wf = await textOverlay(page);
     // the focus hint lies over the nameplate under the screen; a short window leaves the nameplate out, and with it
     // the hint (the tube's focus ring still shows the keyboard is on the screen)
     const plate = await page.evaluate(() => document.querySelector('.plate').checkVisibility());
-    check(`welcome screen (${label}): on a first visit the key and sound hints, then the focus hint (where the nameplate shows), show, and none lies over the menu's text`,
-      w.hints.keys && w.hints.sound && w.lit > 0 && !w.over.length && wf.focused === 'screen' && wf.hints.focus === plate && wf.hints.keys && !wf.over.length, JSON.stringify({ plate, w, wf }));
+    check(`welcome screen (${label}): on a first visit the sound note shows alone, then the focus hint (where the nameplate shows) and the key hint, and none lies over the menu's text`,
+      !w.hints.keys && w.hints.sound && w.lit > 0 && !w.over.length && wf.focused === 'screen' && wf.hints.focus === plate && wf.hints.keys && !wf.over.length, JSON.stringify({ plate, w, wf }));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `welcome-screen-${label}.png`) });
     check(`welcome screen (${label}): no page errors`, !errors.length, errors.join('; '));
     await ctx.close();
@@ -6406,6 +6435,293 @@ async function emulatorBackChecks(browser, base, check) {
   await ctx.close();
 }
 
+// R7: the controls under the screen stay put on a first visit. #screenNotes is one line of fixed height with one note
+// in it at a time ("click for sound", then the key hint, then nothing), and the monitor leaves room for it, so Reset is
+// inside the window and does not move when a note comes or goes (sound starts, the key hint finishes, the boot help
+// shows and hides).
+async function foldChecks(browser, base, check) {
+  const NOTE_TEXT = { sound: 'No ROMs needed · click anywhere for sound', keys: 'Esc = BREAK · Home = CLEAR · Backspace = ←' };
+  const probe = (page) => page.evaluate(() => {
+    const vis = (id) => { const e = document.getElementById(id); return !!e && !e.hidden && getComputedStyle(e).display !== 'none' && getComputedStyle(e).visibility !== 'hidden'; };
+    const notes = document.getElementById('screenNotes'), r = document.getElementById('btnReset').getBoundingClientRect(), n = notes.getBoundingClientRect(), s = getComputedStyle(notes);
+    return { resetY: r.y, resetBottom: r.bottom, vh: innerHeight, notesH: n.height, notesY: n.y, notesShown: s.display !== 'none' && s.visibility !== 'hidden' && n.height > 0,
+      sound: vis('soundHint'), keys: vis('keyHint'), text: [...notes.children].filter((c) => vis(c.id)).map((c) => c.textContent.trim()), boot: vis('bootHelp'),
+      monitorBottom: document.getElementById('monitor').getBoundingClientRect().bottom };
+  });
+  const run = async (label, viewport, query) => {
+    const L = `fold (${label})`;
+    const ctx = await browser.newContext({ viewport, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}${query}`); await started(page);
+    await waitFor(page, () => !document.getElementById('soundHint').hidden);
+    const at = {};
+    at.load = await probe(page);
+    check(`${L}: first visit: Reset is inside the window (bottom ≤ innerHeight)`, at.load.resetBottom <= at.load.vh, JSON.stringify(at.load));
+    check(`${L}: first visit, before sound: one note under the screen, the sound note`, at.load.notesShown && at.load.text.length === 1 && at.load.text[0] === NOTE_TEXT.sound, JSON.stringify(at.load));
+    // the boot help shows (the key hint, if it were up, yields to it) and hides again
+    const bootToggle = async (on) => { await page.evaluate((on) => { document.getElementById('bootHelp').hidden = !on; }, on); await emuFrames(page, 2); };
+    await bootToggle(true); at.bootOn1 = await probe(page); await bootToggle(false); at.bootOff1 = await probe(page);
+    // sound unlocks on the first click anywhere
+    await page.mouse.click(5, 5);
+    await waitFor(page, () => document.getElementById('soundHint').hidden, null, 5000);
+    await emuFrames(page, 2);
+    at.sound = await probe(page);
+    check(`${L}: sound started: the key hint takes the line (one note, the sound note is gone)`, at.sound.notesShown && at.sound.text.length === 1 && at.sound.text[0] === NOTE_TEXT.keys, JSON.stringify(at.sound));
+    await bootToggle(true); at.bootOn2 = await probe(page);
+    check(`${L}: the boot help showing takes the key hint's place (the line stays, empty)`, at.bootOn2.boot && at.bootOn2.notesShown && at.bootOn2.text.length === 0, JSON.stringify(at.bootOn2));
+    await bootToggle(false); at.bootOff2 = await probe(page);
+    await waitFor(page, () => !document.getElementById('keyHint').hidden);
+    at.keys = await probe(page);
+    // the key hint finishes (Esc on the screen ends it for good)
+    await page.focus('#screen'); await page.keyboard.press('Escape');
+    await waitFor(page, () => document.getElementById('keyHint').hidden);
+    await emuFrames(page, 2);
+    at.done = await probe(page);
+    check(`${L}: the hints done: an empty line that keeps its height (still laid out, nothing in it)`, at.done.notesShown && at.done.text.length === 0 && at.done.notesH === at.load.notesH, JSON.stringify(at.done));
+    const ys = Object.entries(at).map(([k, v]) => [k, v.resetY]), heights = new Set(Object.values(at).map((v) => v.notesH)), tops = new Set(Object.values(at).map((v) => v.notesY));
+    check(`${L}: Reset's y is identical (0 px) across load, sound starting, the key hint, the boot help showing and hiding, and the hint finishing`,
+      new Set(ys.map(([, y]) => y)).size === 1 && heights.size === 1 && tops.size === 1, JSON.stringify(ys));
+    check(`${L}: Reset's bottom edge stays inside the window throughout`, Object.values(at).every((v) => v.resetBottom <= v.vh), JSON.stringify(Object.values(at).map((v) => v.resetBottom)));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `fold-${label}.png`) });
+    // a returning visit (the key hint is done): the sound note still appears, and nothing moves
+    await page.goto(`${base}${query}`); await started(page);
+    await waitFor(page, () => !document.getElementById('soundHint').hidden);
+    const r0 = await probe(page);
+    await page.mouse.click(5, 5);
+    await waitFor(page, () => document.getElementById('soundHint').hidden, null, 5000);
+    await emuFrames(page, 2);
+    const r1 = await probe(page);
+    check(`${L}: a returning visit: the sound note appears, then the empty line; Reset does not move and stays inside the window`,
+      r0.sound && r0.text.length === 1 && r0.text[0] === NOTE_TEXT.sound && r1.text.length === 0 && r1.notesShown && r0.resetY === r1.resetY && r0.resetBottom <= r0.vh, JSON.stringify({ r0, r1 }));
+    check(`${L}: no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  };
+  for (const [w, h] of [[1280, 720], [1366, 768], [1440, 900]]) await run(`${w}x${h}`, { width: w, height: h }, '');
+  // any model: the same on each family at one size
+  for (const id of ['dragon32', 'coco2', 'coco3', 'mc10']) await run(`1366x768 ${id}`, { width: 1366, height: 768 }, `?machine=${id}`);
+}
+
+// R7b: every note under the screen is shown whole. The notes line is one line (44 px) when its container is at least
+// 360 px wide, otherwise a fixed two-line box (64 px); in both, nothing is cut off, nothing leaves the box, and Reset
+// stays where it is for both notes. A touch screen has no notes line at all.
+async function noteFitChecks(browser, base, check) {
+  const probe = (page) => page.evaluate(() => {
+    const vis = (id) => { const e = document.getElementById(id); return !!e && !e.hidden && getComputedStyle(e).display !== 'none'; };
+    const box = document.getElementById('screenNotes'), bb = box.getBoundingClientRect();
+    const el = [...box.children].find((c) => vis(c.id));
+    if (!el) return { none: true };
+    const cs = getComputedStyle(el), pad = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom), r = el.getBoundingClientRect();
+    return { id: el.id, text: el.textContent.trim(), sw: el.scrollWidth, cw: el.clientWidth, sh: el.scrollHeight, ch: el.clientHeight, lines: (el.clientHeight - pad) / 20,
+      bottom: r.bottom, boxBottom: bb.bottom, boxW: box.clientWidth, resetY: document.getElementById('btnReset').getBoundingClientRect().y };
+  });
+  for (const [w, h] of [[1280, 720], [1366, 657], [1440, 900], [600, 800], [390, 844], [320, 568]]) {
+    const L = `note fit (${w}x${h})`;
+    const ctx = await browser.newContext({ viewport: { width: w, height: h }, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(base); await started(page);
+    await waitFor(page, () => !document.getElementById('soundHint').hidden);
+    const a = await probe(page);
+    await page.mouse.click(5, 5);
+    await waitFor(page, () => document.getElementById('soundHint').hidden && !document.getElementById('keyHint').hidden, null, 8000);
+    await emuFrames(page, 2);
+    const b = await probe(page);
+    for (const n of [a, b]) {
+      const max = n.boxW >= 360 ? 1 : 2;
+      check(`${L}: the ${n.id} is shown whole (no clipping, inside the notes box, at most ${max} line${max > 1 ? 's' : ''})`,
+        !n.none && n.sw <= n.cw && n.sh <= n.ch && n.bottom <= n.boxBottom && n.lines <= max, JSON.stringify(n));
+    }
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `note-fit-${w}x${h}.png`) });
+    check(`${L}: Reset's y is the same for both notes`, a.resetY === b.resetY, `${a.resetY} vs ${b.resetY}`);
+    check(`${L}: no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+  // the chat's focus pill fits on its line at the desktop sizes
+  for (const [w, h] of [[1280, 720], [1366, 657], [1440, 900]]) {
+    const ctx = await browser.newContext({ viewport: { width: w, height: h }, serviceWorkers: 'block' });
+    await ctx.addInitScript(() => { try { localStorage.setItem('cloadm.anthropicKey', 'sk-ant-FIT-CHECK-KEY-0123456789'); } catch (e) { /* none */ } });
+    const page = await ctx.newPage();
+    await page.goto(`${base}?machine=dragon64&app=claude`); await started(page);
+    await waitFor(page, () => window.emu.session.claudeView === 'full' && document.body.classList.contains('chat-screen'), null, 15000);
+    await page.focus('#screen');
+    const p = await page.evaluate(() => { const e = document.getElementById('focusHint'); return { shown: getComputedStyle(e).display !== 'none', sw: e.scrollWidth, cw: e.clientWidth, sh: e.scrollHeight, ch: e.clientHeight }; });
+    check(`note fit (${w}x${h}): the chat focus pill fits whole`, p.shown && p.sw <= p.cw && p.sh <= p.ch && p.ch <= 28, JSON.stringify(p));
+    await ctx.close();
+  }
+  // a touch screen: no notes line
+  const tctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+  const tpage = await tctx.newPage();
+  await tpage.goto(base); await started(tpage);
+  await emuFrames(tpage, 3);
+  const th = await tpage.evaluate(() => ({ display: getComputedStyle(document.getElementById('screenNotes')).display, h: document.getElementById('screenNotes').getBoundingClientRect().height }));
+  check('note fit (390x844 touch): #screenNotes is hidden', th.display === 'none' && th.h === 0, JSON.stringify(th));
+  await tctx.close();
+}
+
+// R6: Esc in the full-screen chat escalates. On the chat screen it is BREAK while a reply streams (it stops the reply)
+// or while a line is typed (the firmware drops it); on an empty, idle prompt it leaves the chat as "← Emulator" does.
+// The API is mocked (page.route); a reply is "streaming" while the route holds the request open.
+async function escChatChecks(browser, base, check) {
+  const KEY = 'sk-ant-ESC-CHECK-KEY-0123456789';
+  const sse = (events) => events.map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join('');
+  const msgStart = { type: 'message_start', message: { id: 'msg', type: 'message', role: 'assistant', model: 'claude-opus-5-5', content: [] } };
+  const text = (t) => sse([msgStart, { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+    { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: t } }, { type: 'content_block_stop', index: 0 },
+    { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: {} }, { type: 'message_stop' }]);
+  const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'POST, OPTIONS' };
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, serviceWorkers: 'block' });
+  await ctx.addInitScript((k) => { try { localStorage.setItem('cloadm.anthropicKey', k); } catch (e) { /* none */ } }, KEY);
+  const page = await ctx.newPage();
+  const errors = [], requests = [];
+  let release = null;
+  page.on('pageerror', (e) => errors.push(e.message));
+  await ctx.route('https://api.anthropic.com/**', async (route) => {
+    const req = route.request();
+    if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
+    requests.push(JSON.parse(req.postData()));
+    await new Promise((res) => { release = res; });            // the reply is still on its way until the page stops it (or the test lets it go)
+    try { await route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'text/event-stream' }, body: text('A long answer.') }); } catch (e) { /* the page stopped the request */ }
+  });
+  const L = 'chat Esc';
+  const where = () => page.evaluate(() => ({ full: window.emu.session.claudeView === 'full', open: document.body.classList.contains('claude-open'), url: location.pathname + location.search + location.hash,
+    focus: document.activeElement && (document.activeElement.id || document.activeElement.tagName), busy: !!(window.emu.session.chat && window.emu.session.chat.busy),
+    blen: window.emu.session.chatMachines ? window.emu.session.readByte(0x6013, window.emu.session.chatMachines.chat) : null }));
+  const idle = () => waitFor(page, () => window.emu.session.chatPromptEmpty === true, null, 15000);
+  const left = () => waitFor(page, () => window.emu.session.claudeView !== 'full' && document.getElementById('claude').hidden && !/app=claude/.test(location.search), null, 5000);
+  const openChat = async () => {
+    if (await page.evaluate(() => document.getElementById('ask').hidden)) await page.click('#btnAsk');
+    await waitFor(page, () => window.emu.session.claudeView === 'full' || !document.getElementById('btnAskFull').hidden);
+    if (await page.evaluate(() => window.emu.session.claudeView !== 'full')) await page.click('#btnAskFull');
+    await waitFor(page, () => window.emu.session.claudeView === 'full' && document.body.classList.contains('claude-open'));
+    await idle(); await emuFrames(page, 3);
+  };
+  await page.goto(`${base}?machine=dragon64&app=claude`); await started(page);
+  await idle(); await emuFrames(page, 3);
+  let w = await where();
+  check(`${L}: the chat opens with the focus on the screen`, w.full && w.focus === 'screen', JSON.stringify(w));
+  // the focus pill says what Esc does here, and the emulator's pill is back once the chat is left
+  const pill = () => page.evaluate(() => { const h = document.getElementById('focusHint'); return { shown: getComputedStyle(h).display !== 'none', text: h.innerText.replace(/\s+/g, ' ').trim() }; });
+  const p1 = await pill();
+  check(`${L}: the focus pill in the chat reads "Esc stops a reply, clears the line, then leaves the chat"`, p1.shown && p1.text === 'Esc stops a reply, clears the line, then leaves the chat', JSON.stringify(p1));
+  if (shotDir) await page.screenshot({ path: path.join(shotDir, 'chat-esc-pill.png') });
+
+  // 1. an idle, empty prompt: Esc leaves, exactly as "← Emulator" does (the emulator's address, the focus on the screen)
+  await page.keyboard.press('Escape');
+  check(`${L}: an idle, empty prompt: Esc leaves the chat for the emulator (no app=claude, focus on the screen)`, await left() && (await where()).focus === 'screen', JSON.stringify(await where()));
+  const p2 = await pill();
+  check(`${L}: back on the emulator the focus pill is the emulator's`, /^Typing goes to the machine · Tab leaves the screen$/.test(p2.text), JSON.stringify(p2));
+
+  // 2. a typed line: the first Esc drops it (BREAK) and the chat stays; the second leaves
+  await openChat();
+  await page.focus('#screen'); await page.keyboard.type('half a thought'); await emuFrames(page, 3);
+  w = await where();
+  check(`${L}: a typed line is in the firmware's buffer (BLEN = 14)`, w.blen === 14 && w.full, JSON.stringify(w));
+  await page.keyboard.press('Escape'); await emuFrames(page, 3);
+  w = await where();
+  check(`${L}: a typed line: the first Esc clears it and stays in the chat`, w.full && w.open && w.blen === 0 && /app=claude/.test(w.url), JSON.stringify(w));
+  await page.keyboard.press('Escape');
+  check(`${L}: a typed line: the second Esc (empty prompt) leaves`, await left(), JSON.stringify(await where()));
+
+  // 3. a streaming reply: Esc stops it and stays; the second leaves
+  await openChat();
+  await page.focus('#screen'); await page.keyboard.type('tell me a story'); await page.keyboard.press('Enter');
+  const streaming = await waitFor(page, () => window.emu.session.chat.busy && window.emu.session.chatView === 'chat', null, 10000);
+  await waitFor(page, () => true); await emuFrames(page, 3);
+  check(`${L}: a reply is streaming (the request is held open by the mock)`, streaming && requests.length >= 1, JSON.stringify(await where()));
+  await page.keyboard.press('Escape');
+  const stopped = await waitFor(page, () => !window.emu.session.chat.busy, null, 5000);
+  w = await where();
+  check(`${L}: streaming reply: Esc aborts it and stays in the chat`, stopped && w.full && w.open && /app=claude/.test(w.url), JSON.stringify(w));
+  if (release) release();
+  await idle(); await emuFrames(page, 2);
+  check(`${L}: the prompt is idle and empty again after the stop`, await page.evaluate(() => window.emu.session.chatPromptEmpty === true));
+  await page.keyboard.press('Escape');
+  check(`${L}: streaming reply: the second Esc leaves`, await left(), JSON.stringify(await where()));
+
+  // 4. the keys reach the machine the way they did: Esc is still BREAK for the BASIC session on the emulator
+  await page.focus('#screen');
+  await page.evaluate(() => { const m = window.emu.machine, push = m.stubKeys.push.bind(m.stubKeys); window.__reached = []; m.stubKeys.push = (...v) => { window.__reached.push(...v); return push(...v); }; });
+  await page.keyboard.press('Escape');
+  check(`${L}: on the emulator, Esc on the screen is still the machine's BREAK`, await waitFor(page, () => window.__reached.length > 0));
+  check(`${L}: no page errors`, !errors.length, errors.join('; '));
+  await ctx.close();
+}
+
+// The browser's Back from a view is the same as "← Emulator" and Esc: the focus lands on the screen (also when the Ask
+// panel reopens over a conversation, which stays visible), and the emulator's address never keeps app=claude, also after
+// a reload while a view was open. Opening the full-screen chat from a view that fails (the firmware does not load) keeps
+// the Ask panel to reopen when that view closes.
+async function backFocusChecks(browser, base, check) {
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, serviceWorkers: 'block' });
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  const VIEWS = [['Debugger', 'debugView', '#btnDbgBack', '#navDebugger'], ['Library', 'library', '#btnLibBack', '#navLibrary'], ['Share', 'share', '#shareBack', '#btnShare']];
+  const focusId = () => page.evaluate(() => document.activeElement && (document.activeElement.id || document.activeElement.tagName));
+  const onEmulator = () => waitFor(page, () => location.hash === '' && !/app=claude/.test(location.search) && ['debugView', 'library', 'share', 'romCard', 'claude'].every((id) => document.getElementById(id).hidden)
+    && window.emu.session.claudeView !== 'full', null, 5000);
+  const MARK = 'D2-MARK-conversation';
+  const load = async (query) => { await page.goto(`${base}${query}`); await started(page); };
+  // the full-screen chat as a person opens it from the emulator: Ctrl K, "Chat with Claude, full screen"
+  const openChat = async () => {
+    await page.evaluate(() => document.activeElement && document.activeElement.blur());
+    await page.keyboard.press('Control+k'); await page.fill('#cmdInput', 'Chat with Claude, full screen'); await page.keyboard.press('Enter');
+    await waitFor(page, () => window.emu.session.claudeView === 'full' && document.body.classList.contains('claude-open'));
+  };
+  const tag = () => page.evaluate((mark) => { const s = window.emu.session; window.__d2chat = s.chat; s.chat.messages.push({ role: 'user', content: mark }); s.emit('chat'); }, MARK);
+  const closeBy = {
+    '← Emulator': (back) => page.click(back),
+    Esc: async () => { await page.evaluate(() => document.activeElement && document.activeElement.blur()); await page.keyboard.press('Escape'); },
+    'browser Back': () => page.goBack(),
+  };
+  // D2: focus after the view closes, from the plain emulator and from the full-screen chat (the Ask panel reopens)
+  for (const [name, id, back, open] of VIEWS) {
+    for (const [how, close] of Object.entries(closeBy)) {
+      await load('?machine=dragon64');
+      await page.click(open); await waitFor(page, (id) => !document.getElementById(id).hidden, id);
+      await close(back);
+      check(`back focus: emulator → ${name} → ${how}: the focus is on the screen`, await onEmulator() && await waitFor(page, () => document.activeElement.id === 'screen'), await focusId());
+      await load('?machine=dragon64');
+      await openChat(); await tag();
+      await page.click(open); await waitFor(page, (id) => !document.getElementById(id).hidden, id);
+      await close(back);
+      const shown = await onEmulator() && await waitFor(page, (mark) => { const a = document.getElementById('ask'); return !a.hidden && document.body.classList.contains('ask-open') && window.emu.session.chat === window.__d2chat
+        && document.getElementById('askMessages').textContent.includes(mark); }, MARK);
+      check(`back focus: full-screen chat → ${name} → ${how}: the Ask panel reopens on the conversation and the screen keeps the focus`, shown && await waitFor(page, () => document.activeElement.id === 'screen'), await focusId());
+    }
+  }
+  // D3: a reload while a view is open (the full-screen chat under it), then Back: the emulator's address has no app=claude
+  for (const [name, id, back, open] of VIEWS) {
+    for (const query of ['?machine=dragon64', '?machine=dragon64&app=claude']) {
+      await load(query);
+      if (!/app=claude/.test(query)) await openChat();
+      await page.click(open); await waitFor(page, (id) => !document.getElementById(id).hidden, id);
+      await page.reload(); await started(page);
+      const reloaded = await waitFor(page, (id) => !document.getElementById(id).hidden, id);
+      await page.goBack();
+      const w = await page.evaluate(() => ({ url: location.pathname + location.search + location.hash, claude: window.emu && window.emu.session.claudeView }));
+      check(`back address: ${query} → chat → ${name} → reload → Back: the address has no app=claude`, reloaded && await waitFor(page, () => !/app=claude/.test(location.search) && location.hash === ''), JSON.stringify(w));
+    }
+  }
+  // D1: from a view, the full-screen chat fails to open (the firmware does not load): the view's close still reopens the panel
+  await load('?machine=dragon64');
+  await openChat(); await tag();
+  await page.click('#navDebugger'); await waitFor(page, () => !document.getElementById('debugView').hidden);
+  await ctx.route('**/examples/chat.bin', (route) => route.abort('failed'));
+  await page.keyboard.press('Control+k'); await page.fill('#cmdInput', 'Chat with Claude, full screen'); await page.keyboard.press('Enter');
+  const failed = await waitFor(page, () => /Chat:/.test(document.getElementById('toast').textContent) && document.getElementById('toast').classList.contains('error'), null, 8000);
+  await ctx.unroute('**/examples/chat.bin');
+  check('back focus: opening the full-screen chat from a view fails (the firmware did not load): the view stays open', failed && await page.evaluate(() => !document.getElementById('debugView').hidden));
+  await page.click('#btnDbgBack');
+  check('back focus: …and closing the view still reopens the Ask panel on the conversation (the pending reopen was kept)', await onEmulator() && await waitFor(page, (mark) => { const a = document.getElementById('ask'); return !a.hidden
+    && window.emu.session.claudeView === 'panel' && document.getElementById('askMessages').textContent.includes(mark); }, MARK), await focusId());
+  check('back focus: no page errors', !errors.length, errors.join('; '));
+  await ctx.close();
+}
+
 async function claudeChecks(browser, base, check) {
   // the system prompt goes as text blocks (the last one carries the cache breakpoint): their text
   const sysText = (body) => (Array.isArray(body.system) ? body.system.map((b) => b.text).join('') : '');
@@ -6500,6 +6816,8 @@ async function claudeChecks(browser, base, check) {
   await page.click('#btnClaudeView');
   check('claude: "Show my BASIC session" swaps the big screen to it', await waitFor(page, () => window.emu.session.chatView === 'basic'
     && document.getElementById('btnClaudeView').textContent === 'Back to the chat'));
+  check('claude: in the BASIC-session view the corner label is "The chat · live" and only the button says "Back to the chat"', await page.evaluate(() =>
+    document.getElementById('claudePipLabel').textContent === 'The chat · live' && document.getElementById('btnClaudeView').textContent === 'Back to the chat'));
   await page.click('#btnClaudeView');
   check('claude: "Back to the chat" shows the chat, and the reply reaches its firmware', await waitFor(page, () => window.emu.session.chatView === 'chat'
     && window.emu.session.chat.channel.queued === 0, null, 20000));
@@ -6957,7 +7275,7 @@ async function uiQaChecks(browser, base, check) {
   await waitFor(page, () => !document.getElementById('mediaOffer').hidden);
   await page.keyboard.press('Escape');
   check('Esc dismisses the "made for another machine" offer, loading nothing', await waitFor(page, () => document.getElementById('mediaOffer').hidden) && await page.evaluate(() => window.emu.machine.id) === 'dragon64');
-  // the full-screen chat: Esc off the screen leaves it (as "← Emulator"); on the screen it is the chat machine's BREAK
+  // the full-screen chat: Esc off the screen leaves it (as "← Emulator"); on the screen it is the chat machine's BREAK while it has something to do
   await page.goto(`${base}?machine=dragon64`); await ready(page);
   await waitFor(page, () => window.emu.session.welcomeRunning);
   // a marked entry of our own under the chat's history step, to see where Esc leaves history
@@ -6965,8 +7283,12 @@ async function uiQaChecks(browser, base, check) {
   await page.click('#btnAsk');
   await waitFor(page, () => window.emu.session.claudeView === 'full');
   const stepped = await page.evaluate(() => !!(history.state && history.state.claudeChat));
-  await page.focus('#screen'); await page.keyboard.press('Escape'); await emuFrames(page, 2);
-  check('in the full-screen chat, Esc on the screen is BREAK and keeps the chat open', await page.evaluate(() => window.emu.session.claudeView === 'full'));
+  // (with a line typed, BREAK has something to do: the firmware drops the line; the empty, idle prompt is leave-the-chat, in escChatChecks)
+  await page.focus('#screen'); await emuFrames(page, 3); await page.keyboard.type('x');
+  const typed = await waitFor(page, () => window.emu.session.readByte(0x6013, window.emu.session.chatMachines.chat) === 1);
+  await page.keyboard.press('Escape'); await emuFrames(page, 3);
+  check('in the full-screen chat, Esc on the screen with a line typed is BREAK (the line is dropped) and keeps the chat open', typed
+    && await page.evaluate(() => window.emu.session.claudeView === 'full' && window.emu.session.readByte(0x6013, window.emu.session.chatMachines.chat) === 0));
   await page.focus('#btnFullSide'); await page.keyboard.press('Escape');
   check('in the full-screen chat, Esc off the screen closes it', await waitFor(page, () => window.emu.session.claudeView !== 'full' && document.getElementById('claude').hidden));
   // and takes the chat's history step back, as "← Emulator" and the browser's Back do (phone-chat's leave()): the
@@ -7137,6 +7459,10 @@ const GROUPS = (base, site) => [
   ['embed', (b) => embedChecks(b, site, check)],
   ['pwa', (b) => pwaChecks(b, site, check)],
   ['settings', (b) => settingsChecks(b, base, check)],
+  ['backFocus', (b) => backFocusChecks(b, base, check)],
+  ['fold', (b) => foldChecks(b, base, check)],
+  ['noteFit', (b) => noteFitChecks(b, base, check)],
+  ['escChat', (b) => escChatChecks(b, base, check)],
   ['claude', (b) => claudeChecks(b, base, check)],
   ['ask', (b) => askChecks(b, base, check)],
   ['askFollowup', (b) => askFollowupChecks(b, base, check)],

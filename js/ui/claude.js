@@ -192,8 +192,7 @@ export function setupClaude(page) {
   // Chat with Claude, full screen: the chat machine on screen, the conversation (if any) moved to it
   let opening = null;
   async function openFull() {
-    panelOnReturn = false;
-    if (session.claudeView === 'full') { session.showChat('chat'); show(true); return session.chat; }
+    if (session.claudeView === 'full') { panelOnReturn = false; session.showChat('chat'); show(true); return session.chat; }
     if (opening) return opening;
     opening = (async () => {
       if (cpuFamily(session.machine.config.cpu) !== '6809') {
@@ -208,6 +207,10 @@ export function setupClaude(page) {
       const had = session.chat;
       const chat = session.startChat({ backend: had ? had.backend : backend(), channel: drivewire ? undefined : new MemoryChannel(), firmware, brief: brief(), drivewire, include });
       if (chat !== had) { wire(chat); state.log = []; }
+      // only now, with the chat really starting: if opening it failed above (the firmware did not load), the view the person
+      // came from still reopens the Ask panel when it closes. Before show(true): the history step it takes runs the
+      // view-closed callbacks, which would reopen the panel under the chat.
+      panelOnReturn = false;
       state.view = 'full';
       state.pip = false;                  // the chat screen is the chat only, until Claude acts or Ctrl+B
       if (panel) panel.close({ keep: true });
@@ -274,9 +277,11 @@ export function setupClaude(page) {
   // "← Emulator" (and Esc) take the chat's step back, so no stale step is left behind
   const leave = () => page.toEmulator();
   $('btnClaudeBack').onclick = () => leave();
-  // Esc off the screen leaves the full-screen chat the way "← Emulator" does, taking the history step back (the page's
-  // one Esc path, page.onEscape); on the screen Esc is the machine's BREAK and stops a reply
-  page.onEscape(ESC.chat, () => session.claudeView === 'full', leave);
+  // Esc in the full-screen chat is BREAK while BREAK has something to do (a reply streaming: it stops; a typed line:
+  // the firmware drops it) and otherwise leaves the chat the way "← Emulator" does, taking the history step back (the
+  // page's one Esc path, page.onEscape): on the screen only with an idle, empty prompt (Session.chatPromptEmpty), off
+  // the screen always
+  page.onEscape(ESC.chat, () => session.claudeView === 'full', leave, { onScreen: () => session.chatPromptEmpty });
   $('btnFullSide').onclick = () => closeFull({ toPanel: true });
   $('btnFullFull').onclick = () => {};
 
@@ -317,7 +322,8 @@ export function setupClaude(page) {
     // Ctrl+B swaps the chat and the BASIC session
     if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 'b' || e.key === 'B') && session.chatMachines) { e.preventDefault(); e.stopPropagation(); swap(); return; }
     // BREAK (Esc on the screen) while a reply streams stops it; the firmware gets its BREAK too and gives a fresh
-    // prompt. Off the screen Esc leaves the full screen instead (page.onEscape) and the reply goes on.
+    // prompt. A typed line is dropped by the firmware's BREAK. Only on an idle, empty prompt, or off the screen, does
+    // Esc leave the full screen instead (page.onEscape); a reply goes on when Esc is pressed off the screen.
     if (e.key === 'Escape' && e.target === $('screen') && !page.escapable(true) && session.chat && session.chat.busy && session.chatView === 'chat') session.chat.abort();
   }, true);
   // a machine switch from the menu closes the chat
@@ -392,7 +398,7 @@ export function setupClaude(page) {
     $('claudePip').hidden = !full || !state.pip;
     // a strip under the screen at every width, never over the chat's text
     const tap = matchMedia('(max-width: 700px)').matches ? 'tap' : 'click';
-    $('claudePipLabel').textContent = peeking ? 'Back to the chat' : 'Your BASIC session';
+    $('claudePipLabel').textContent = peeking ? 'The chat · live' : 'Your BASIC session';
     $('claudePipSub').textContent = session.claudeBusyActing ? 'Claude is typing…' : peeking ? `Live chat · ${tap} to swap back` : `Live · ${tap} to show it`;
     $('btnClaudeView').textContent = peeking ? 'Back to the chat' : 'Show my BASIC session';
     $('btnClaudeView').classList.toggle('primary', peeking);

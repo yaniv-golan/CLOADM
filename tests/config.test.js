@@ -25,6 +25,10 @@ const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   const unknown = parse('?machine=zx81&ram=64');
   check('an unknown machine: error, and options checked against the fallback machine', unknown.machine === null
     && /machine=zx81: no such machine/.test(unknown.errors[0]) && unknown.config.ram === 64, unknown.errors.join());
+  // the message lists the names the machine picker shows (profile.name), never the raw ids a link uses
+  const names = Object.values(Emu.profiles).map((p) => p.name);
+  check('an unknown machine: the error lists the picker\'s display names, not the ids', names.length > 5 && names.every((n) => unknown.errors[0].includes(n))
+    && !/\bcoco3\b|\bdragon64\b|\bmc10\b/.test(unknown.errors[0].replace(/^machine=zx81/, '')), unknown.errors[0]);
   const fb = parse('?ram=512', 'coco3');
   const bk = parse('?machine=coco&becker=1');
   check('a yes/no option: 1/0 or true/false', bk.config.becker === true && parse('?machine=coco&becker=true').config.becker === true
@@ -54,9 +58,13 @@ const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   check('autorun=maybe: error', /autorun=maybe: 1 or 0/.test(parse('?autorun=maybe').errors[0]));
   check('an empty media link: error', /tape=: not a link/.test(parse('?tape=').errors[0]));
   check('start=welcome and liza; anything else is an error', parse('?start=welcome').start === 'welcome' && parse('?start=liza').start === 'liza'
-    && parse('?start=game').start === null && /start=game/.test(parse('?start=game').errors[0]));
+    && parse('?start=game').start === null && parse('?start=game').errors[0] === "start=game isn't something CLOADM has (try start=welcome or start=liza)", parse('?start=game').errors[0]);
   check('app=claude; anything else is an error', parse('?app=claude').app === 'claude' && !parse('?app=claude').errors.length
-    && parse('?app=chat').app === null && /app=chat: claude/.test(parse('?app=chat').errors[0]));
+    && parse('?app=bogus').app === null && parse('?app=bogus').errors[0] === "app=bogus isn't something CLOADM has (try app=claude)", parse('?app=bogus').errors[0]);
+check('a failed fetch of a link\'s file: a network or CORS failure (TypeError) gets a plain sentence, an HTTP status keeps its words',
+  Emu.linkFetchError(new TypeError('Failed to fetch')) === "Couldn't download it: the site may not allow other sites to load its files."
+  && Emu.linkFetchError(new TypeError('Load failed')) === "Couldn't download it: the site may not allow other sites to load its files."
+  && Emu.linkFetchError(new Error('https://x.example/a.bin: HTTP 404')) === 'https://x.example/a.bin: HTTP 404');
 }
 
 // display, input, sound, speed, embed, storage

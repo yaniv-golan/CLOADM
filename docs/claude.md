@@ -129,8 +129,10 @@ emulator.
   saved the screen has the focus. The key card comes first wherever the page stacks the chat under the screen (a
   tablet too, under about 1020 px). The way out is always there: the chat bar stays at the top as the page scrolls,
   the on-screen keyboard's Menu becomes **← Emulator** (held sideways the keyboard covers the bar), the browser's
-  Back leaves the chat (opening it adds one history step), and so does Esc from the chat bar or its cards (on the
-  screen Esc stays the machine's BREAK).
+  Back leaves the chat (opening it adds one history step), and so does Esc from the chat bar or its cards. On the
+  screen Esc escalates: it is BREAK while a reply streams (it stops the reply) or while a line is typed (the firmware
+  drops it), and on an empty, idle prompt it leaves the chat like **← Emulator** (the focus pill reads "Esc stops a
+  reply, clears the line, then leaves the chat"; the page reads the firmware's `BLEN` and `WAIT` bytes to tell).
   `tools/browser-check.js` (`phoneChatChecks`) checks all of it at 390 x 844 and 844 x 390, including a line typed
   on the on-screen keys and the mocked reply drawn on the screen.
 
@@ -259,7 +261,7 @@ emulator.
   `content-type,x-api-key,anthropic-version` → 400 with no allow-origin; the same plus that header → 200 with
   `access-control-allow-origin: *`). Anthropic's own TypeScript SDK sends the header when `dangerouslyAllowBrowser`
   is set (`anthropics/anthropic-sdk-typescript`, `src/client.ts`, `buildHeaders`); the API overview page lists no
-  such header. **BREAK** (Esc) stops a reply; errors (no key, a refused key, rate limits, network) are said once,
+  such header. **BREAK** (Esc on the chat screen) stops a reply, and Esc on an empty, idle prompt leaves the chat; errors (no key, a refused key, rate limits, network) are said once,
   on the screen and under the key card, and nothing retries in the background.
 * **Not yet:** the chat on a real machine over a serial cable (the firmware's DriveWire is the Becker port's; a
   bit-banger DriveWire driver is not written), the CoCo 3's 80-column screen (the CoCo 3 runs the same 256×192
@@ -278,7 +280,9 @@ a chat with the real one needs a key, so it is done by hand. Chat with the real 
    program is gone. Then ask for a 20-line program: Claude offers to load it rather than type it; say yes, and it
    lists the program and checks the screen; `LIST` and `RUN` it yourself. Do this on a Dragon, a CoCo (1/2 and 3)
    and an MC-10: this is the only check of `load_basic` against a real BASIC (not automated: no test may use ROMs).
-5. Ask for something long and press Esc while it streams: the reply stops with `[stopped]`.
+5. Ask for something long and press Esc while it streams: the reply stops with `[stopped]` and the chat stays. Type
+   a few characters and press Esc: the line goes and the chat stays. Press Esc once more on the empty prompt: the chat
+   closes and the emulator is back, as with **← Emulator**.
 6. Save a wrong key (`sk-ant-wrong`) and send a line: the help line says the key was refused, and nothing retries.
 7. ← Emulator, then **Capture & share** → Your settings → **Export settings…**: the file holds no key. Back in the chat,
    **Forget key**.

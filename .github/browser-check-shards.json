@@ -16,7 +16,9 @@
       "reading",
       "embed",
       "welcomeScreen",
-      "cpu6309"
+      "cpu6309",
+      "backFocus",
+      "fold"
     ],
     [
       "models",
@@ -33,7 +35,9 @@
       "design",
       "debugger",
       "settings",
-      "chatScreen"
+      "chatScreen",
+      "noteFit",
+      "escChat"
     ],
     [
       "firstVisit",

@@ -35,7 +35,7 @@ import { DriveWireSocket } from './host/drivewire-ws.js';
 import { SerialDriveWireLink, webSerialAvailable } from './host/web-serial.js';
 import { MemoryMediaStore } from './host/media-store-memory.js';
 import { MemoryKeyStore } from './host/key-store.js';
-import { ChatSession } from './claude/chat.js';
+import { ChatSession, CHAT_STATE } from './claude/chat.js';
 import { TOOL_CODES, ToolError } from './claude/toolerrors.js';
 import { DriveWireChatChannel, CHAT_DW_CHANNEL } from './claude/channel.js';
 import { nitros9LoaderRom, nitros9LoaderKind, nitros9LoaderByCrc } from './machines/nitros9.js';
@@ -1940,6 +1940,13 @@ export class Session {
     return !!k;
   }
   clearClaudeKey() { this.keyStore.clear(); if (this.chat) this.chat.backend.setKey(''); }
+  // Whether the full-screen chat's prompt is idle and empty: nothing typed (the firmware's BLEN), no line waiting for
+  // its reply (WAIT) and no reply streaming. Then BREAK has nothing to do, and Esc on the screen leaves the chat.
+  get chatPromptEmpty() {
+    const cm = this.chatMachines && this.chatView === 'chat' && this.chatMachines.chat;
+    if (!cm || !this.chat || this.chat.busy) return false;
+    return this.readByte(CHAT_STATE.blen, cm) === 0 && this.readByte(CHAT_STATE.wait, cm) === 0;
+  }
   get hasClaudeKey() { return !!this.keyStore.get(); }
   // Ask Claude: the conversation without the chat machine, shown in the side
   // panel beside the machine in use, which is the BASIC session Claude's tools act on. The same ChatSession moves

@@ -17,7 +17,15 @@ export function createPage(session, audio) {
   let shown = viewOpen() ? location.hash : '';
   function route() {
     const v = viewOpen() ? location.hash : '';
-    if (v !== shown) { shown = v; for (const fn of viewFns.slice()) fn(); }
+    if (v !== shown) {
+      const closed = shown !== '' && v === '';
+      shown = v;
+      for (const fn of viewFns.slice()) fn();
+      // A view that closes leaves the focus on the screen, whichever way it closed ("← Emulator", Esc, the browser's Back):
+      // Back has no control of ours to take the focus (it stays on the page or on the opener's button), and the Ask panel
+      // reopening over a conversation (js/ui/claude.js) takes it for its box; the screen is where typing goes.
+      if (closed) canvas.focus();
+    }
     for (const fn of stepFns.slice()) fn();
   }
   addEventListener('hashchange', route);
@@ -97,7 +105,14 @@ export function createPage(session, audio) {
     openStep(state, url) {
       const s = history.state, own = !!(s && s.cloadm === LOAD);
       if (viewOpen() || page.onStep('claudeChat')) history.replaceState(Object.assign({}, state, { cloadm: LOAD, above: own && !!s.above }), '', url);
-      else history.pushState(Object.assign({}, state, { cloadm: LOAD, above: true }), '', url);
+      else {
+        // The entry under the new one is the emulator. A page loaded on ?app=claude has that in its address, and the
+        // emulator entry must not: Back from the chat, or from a view after a reload (which can land on this entry in a
+        // new load of the page), would open the chat again.
+        const here = new URL(location.href);
+        if (here.searchParams.has('app')) { here.searchParams.delete('app'); history.replaceState(history.state, '', here.href); }
+        history.pushState(Object.assign({}, state, { cloadm: LOAD, above: true }), '', url);
+      }
       route();
     },
     openView(hash) {
@@ -129,12 +144,14 @@ export function createPage(session, audio) {
     // Every surface that can be closed registers here: rank (lower is on top: a confirmation over a menu over a
     // card over a view over the chat), whether it is open, and how it closes. Esc closes the topmost open one
     // (main.js). With the focus on the screen only a question waiting for an answer takes it (a confirmation, a card
-    // above the screen: they answer "no"); otherwise Esc there is the machine's BREAK, the full-screen chat
-    // included (BREAK stops a streaming reply). A control that uses Esc itself (a rename, the command box, the
-    // machine menu, the Ask rail) takes it first and prevents the default.
+    // above the screen: they answer "no"); otherwise Esc there is the machine's BREAK. The one exception is the
+    // full-screen chat (opts.onScreen, a function): its screen is the chat firmware's prompt, where BREAK drops the
+    // typed line and stops a streaming reply, so Esc there leaves the chat only when there is nothing for BREAK to
+    // do (an idle, empty prompt). A control that uses Esc itself (a rename, the command box, the machine menu, the
+    // Ask rail) takes it first and prevents the default.
     escapes: [],
-    onEscape(rank, isOpen, close) { page.escapes.push({ rank, isOpen, close }); page.escapes.sort((a, b) => a.rank - b.rank); },
-    topEscape(fromScreen) { return page.escapes.find((x) => (!fromScreen || x.rank <= ESC.card) && x.isOpen()); },
+    onEscape(rank, isOpen, close, opts = {}) { page.escapes.push({ rank, isOpen, close, onScreen: opts.onScreen || null }); page.escapes.sort((a, b) => a.rank - b.rank); },
+    topEscape(fromScreen) { return page.escapes.find((x) => (!fromScreen || x.rank <= ESC.card || (x.onScreen && x.onScreen())) && x.isOpen()); },
     escapable(fromScreen = false) { return !!page.topEscape(fromScreen); },
     escape(fromScreen = false) { const top = page.topEscape(fromScreen); if (top) top.close(); return !!top; },
   };

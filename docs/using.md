@@ -198,9 +198,10 @@ reached by keyboard it shows a ring and "Tab leaves the screen" (CLEAR is `Home`
 wherever the focus is. Otherwise it is BREAK while the screen has focus, and anywhere else it closes the topmost
 thing that is open: a confirmation, a menu (the machine menu, a drive's menu, Ctrl+K), a card above the screen (an offer, a snapshot's
 "needs ROMs"), a view (Share, the Library, Add ROMs, the Debugger), then the Claude chat (the Ask panel or the full
-screen), and focus goes back to the screen. In the full-screen chat the screen is the chat: with focus on it `Esc`
-is BREAK and stops a reply as it streams; with focus on its bar (or anywhere off the screen) `Esc` returns to the
-emulator and the reply goes on. Controls that use `Esc` themselves keep it: a rename in the Library cancels, select
+screen), and focus goes back to the screen. In the full-screen chat the screen is the chat, and `Esc` there escalates:
+while a reply streams it is BREAK and stops the reply; while a line is typed it is BREAK and drops the line; on an
+empty, idle prompt it leaves the chat, exactly as **← Emulator** does. With focus on the chat's bar (or anywhere off
+the screen) `Esc` returns to the emulator and the reply goes on. Controls that use `Esc` themselves keep it: a rename in the Library cancels, select
 mode ends, the Ask panel's drawer rail closes. Each view, and the full-screen chat, adds one entry to the browser's
 history, so Back returns to the emulator; one opened from another replaces it (a view opened from the full-screen
 chat takes its place; the conversation moves to the side panel, which reopens when you return to the emulator), and one the page was opened on (a link to

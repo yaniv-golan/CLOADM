@@ -43,6 +43,9 @@ check('the chat tells Claude the screen size the firmware has (CHAT_SCREEN = COL
   && Emu.CHAT_SCREEN.cols === COLS && Emu.CHAT_SCREEN.rows === ROWS
   && Emu.claudeBrief({ machine: 'Dragon 64', ram: 64, cpu: '6809', hasBasic: false, edition: 'cloadm.dev', tools: true }).includes(`${COLS} columns by ${ROWS} rows`),
   `firmware ${COLS}x${ROWS}, CHAT_SCREEN ${Emu.CHAT_SCREEN.cols}x${Emu.CHAT_SCREEN.rows}`);
+// the two variables the page reads (Session.chatPromptEmpty) sit where CHAT_STATE says, in the assembled source
+check('CHAT_STATE is where the firmware keeps BLEN and WAIT', asm.ok && asm.symbols.get('BLEN') === Emu.CHAT_STATE.blen && asm.symbols.get('WAIT') === Emu.CHAT_STATE.wait,
+  `BLEN $${(asm.symbols.get('BLEN') || 0).toString(16)}, WAIT $${(asm.symbols.get('WAIT') || 0).toString(16)}`);
 const SCREEN = 0x400;
 
 // Decode the GM7 bitmap into text, using the same font table the firmware draws with: for each cell

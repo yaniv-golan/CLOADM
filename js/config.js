@@ -60,7 +60,8 @@ export function parseUrlConfig(search, fallbackMachine = 'dragon64') {
 
   // a NitrOS-9 link without a machine means the CoCo 3, where it boots
   const id = p.get('machine') ?? (p.has('nitros9') ? NITROS9_MACHINES[0] : null);
-  if (id !== null && !profiles[id]) errors.push(`machine=${id}: no such machine (${Object.keys(profiles).join(', ')})`);
+  // (the names the machine picker shows, not the ids a link uses: a person reads the message, and typed an id)
+  if (id !== null && !profiles[id]) errors.push(`machine=${id}: no such machine (the machines are ${Object.values(profiles).map((p) => p.name).join(', ')})`);
   cfg.machine = id !== null && profiles[id] ? id : null;
   const profile = profiles[cfg.machine || fallbackMachine] || profiles.dragon64;
 
@@ -81,9 +82,9 @@ export function parseUrlConfig(search, fallbackMachine = 'dragon64') {
   }
 
   const start = p.get('start');
-  if (start !== null) { if (STARTS.includes(start)) cfg.start = start; else errors.push(`start=${start}: welcome or liza`); }
+  if (start !== null) { if (STARTS.includes(start)) cfg.start = start; else errors.push(`start=${start} isn't something CLOADM has (try start=${STARTS.join(' or start=')})`); }
   const app = p.get('app');
-  if (app !== null) { if (APPS.includes(app)) cfg.app = app; else errors.push(`app=${app}: claude`); }
+  if (app !== null) { if (APPS.includes(app)) cfg.app = app; else errors.push(`app=${app} isn't something CLOADM has (try app=${APPS.join(' or app=')})`); }
   // nitros9: true (the image the user has) or an image's name; only where NitrOS-9 boots (the CoCo 3)
   if (p.has('nitros9')) {
     const v = p.get('nitros9');
@@ -121,6 +122,12 @@ export function parseUrlConfig(search, fallbackMachine = 'dragon64') {
   }
   return cfg;
 }
+
+// What a failed fetch of a link's file (load=, tape=, cart=, rom=) says. The browser reports a network failure and a
+// cross-origin refusal alike as a TypeError ("Failed to fetch", "Load failed"), which tells a person nothing; the usual
+// cause for a link to another site is that the site doesn't allow other sites to load its files (CORS). An HTTP error
+// status is not a TypeError and keeps its own words.
+export const linkFetchError = (e) => (e instanceof TypeError ? "Couldn't download it: the site may not allow other sites to load its files." : e.message);
 
 // the link for cfg (the shape parseUrlConfig returns; missing parts are left out), parameters in a fixed order
 export function buildUrl(base, cfg) {
