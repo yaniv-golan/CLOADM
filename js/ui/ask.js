@@ -152,7 +152,10 @@ export function setupAsk(page, claude) {
     if (e.target !== $('screen') || e.ctrlKey || e.metaKey || e.altKey || ['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) return;
     if (session.claudeBusyActing && !session.claudePaused && session.machine === session.chatTarget().machine) session.pauseClaude();
   }, true);
-  $('btnAskRestore').onclick = () => { if (session.restoreClaude()) page.status('Restored: the machine is as it was before Claude\'s changes.'); };
+  // a point that can't be restored says why as an error toast; nothing changes and every point is kept
+  // a disk that comes back unlinked from the Library says so after the restore's message (Session.restorePoint)
+  const restore = (index) => page.attempt(() => { const r = session.restoreClaude(index); return r ? ['Restored: the machine is as it was before Claude\'s changes.', ...r.notices].join(' ') : null; });
+  $('btnAskRestore').onclick = () => restore();
   $('btnAskPoints').onclick = () => { const l = $('askPointList'); l.hidden = !l.hidden; $('btnAskPoints').setAttribute('aria-expanded', String(!l.hidden)); render(); };
   // the key
   $('btnAskKeySave').onclick = () => {
@@ -226,7 +229,7 @@ export function setupAsk(page, claude) {
     $('askRestore').hidden = !points.length || !!(chat && chat.busy);
     if (points.length) {
       $('askRestoreWhen').textContent = `Restore point · ${when(points[0].at)}, before Claude's changes`;
-      $('askPointList').replaceChildren(...points.map((pt) => { const b = el('button', `Restore point · ${when(pt.at)}`); b.onclick = () => session.restoreClaude(pt.index); return b; }));
+      $('askPointList').replaceChildren(...points.map((pt) => { const b = el('button', `Restore point · ${when(pt.at)}`); b.onclick = () => restore(pt.index); return b; }));
     }
     // the key states
     const msg = k === 'refused' || k === 'rate-limited' || k === 'offline' || k === 'error';

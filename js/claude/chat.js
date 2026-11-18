@@ -9,8 +9,8 @@
  * The machine tools act on `target`, the BASIC session kept alongside the chat (Session.chatTarget
  * builds it): { machine, show(), screenText(), readByte(addr), pokeBytes(addr, bytes), typeText(text),
  * pressBreak(), snapshot(), restore(snap) }. Typing and BREAK need the BASIC session running, so they put it on
- * screen (show). Before Claude's first change in a turn the target is snapshotted; undoLast() restores the newest
- * snapshot (the last 10 are kept) and shows the BASIC session.
+ * screen (show). Before Claude's first change in a turn the target is snapshotted, always through withRestorePoint; undoLast()
+ * restores the newest snapshot (the last 10 are kept) and shows the BASIC session.
  */
 import { hex } from '../util.js';
 import { assemble } from '../asm/assembler.js';
@@ -20,6 +20,9 @@ import { TOOL_CODES, ToolError, checkedInt } from './toolerrors.js';
 import { PACE } from '../machines/typist.js';
 import { BASIC_LINE_MAX } from '../media/basic.js';
 import { BASIC_PROGRAM_TEXT_MAX, planBasic, writeBasic } from './basicload.js';
+
+// An acting tool's failure that changed nothing (no byte landed): withRestorePoint keeps no restore point for it
+const unchanged = (err) => Object.assign(err, { unchanged: true });
 
 // The acting tools' API schemas: the ones that change the BASIC session. They need "Let Claude use the
 // machine", and the Session's consent gate (gateTools) is what asks - this list only describes them. The
@@ -218,6 +221,31 @@ export class ChatSession {
     input = input || {};
     // dispatch on the declared read-only set, so this file does not keep a second copy of those names
     if (READ_ONLY_TOOLS.includes(name)) return runReadOnlyTool(t, name, input);
+    if (!ACTING_TOOL_NAMES.includes(name)) throw new ToolError(TOOL_CODES.UNKNOWN_TOOL, name);
+    // every acting tool: checked first (nothing changes), then its change runs through the one restore-point path
+    // (awaited only when the checks are asynchronous, assemble_and_load's INCLUDEs: otherwise the point is taken in
+    // the same step as the call, with no frame run in between)
+    const act = this.prepareAction(t, name, input);
+    return this.withRestorePoint(act instanceof Promise ? await act : act);
+  }
+  // The one path every acting tool's change takes: the turn's restore point is captured before act() runs and kept
+  // once it has run, also when it fails part way (typing that stopped, a program that did not read back). Only a
+  // failure marked `unchanged` (nothing landed) keeps no point, so it neither adds a useless one nor pushes a
+  // real one out of the last 10. act() runs synchronously; what it returns (a value or a promise) is the result.
+  withRestorePoint(act) {
+    const snap = this.captureSnapshot();
+    let out;
+    try { out = act(); } catch (e) {
+      if (!(e && e.unchanged)) this.commitSnapshot(snap);
+      throw e;
+    }
+    this.commitSnapshot(snap);
+    return out;
+  }
+  // An acting tool's checks, which change nothing and may refuse; -> act, the change itself (for withRestorePoint),
+  // or a promise of it. A tool in ACTING_TOOL_NAMES with no case here is refused as unknown: it can never act
+  // without the restore point.
+  prepareAction(t, name, input) {
     switch (name) {
       case 'poke': {
         const address = checkedInt(input.address, { min: 0, max: 0xFFFF, code: TOOL_CODES.BAD_ADDRESS });
@@ -226,35 +254,31 @@ export class ChatSession {
         if (bytes.length > POKE_MAX) throw new ToolError(TOOL_CODES.TOO_LARGE, `${bytes.length} bytes, at most ${POKE_MAX}`);
         for (const b of bytes) checkedInt(b, { min: 0, max: 255, code: TOOL_CODES.BAD_BYTE });
         if (address + bytes.length - 1 > 0xFFFF) throw new ToolError(TOOL_CODES.PAST_END, `${address}+${bytes.length}`);
-        const snap = this.captureSnapshot();
-        const written = t.pokeBytes(address, bytes);       // how many landed, as the machine says
-        if (written === 0) throw new ToolError(TOOL_CODES.NOT_RAM, `$${address.toString(16).toUpperCase()}`);
-        this.commitSnapshot(snap);
-        return { address, length: bytes.length, written, skipped: bytes.length - written, not_taken: this.notTaken(address, bytes) };
+        return () => {
+          const written = t.pokeBytes(address, bytes);       // how many landed, as the machine says
+          if (written === 0) throw unchanged(new ToolError(TOOL_CODES.NOT_RAM, `$${address.toString(16).toUpperCase()}`));
+          return { address, length: bytes.length, written, skipped: bytes.length - written, not_taken: this.notTaken(address, bytes) };
+        };
       }
-      case 'type_text': return this.typeText(t, input);
+      case 'type_text': return this.prepareTyping(t, input);
       case 'load_basic': {
-        // the same implementation as Session.loadBasic (js/claude/basicload.js); everything that can fail is
-        // checked before the restore point, so a refused load changes nothing
+        // the same implementation as Session.loadBasic (js/claude/basicload.js); everything that can fail before
+        // writing is checked here, so a refused load changes nothing
         const plan = planBasic(t, input.program);
-        this.takeSnapshot();
-        t.show();
-        return writeBasic(t, plan);
+        return () => { t.show(); return writeBasic(t, plan); };
       }
       case 'press_break':
-        this.takeSnapshot();
-        t.show();
-        t.pressBreak();
-        return { pressed: true };
-      case 'assemble_and_load': return this.assembleAndLoad(t, input);
+        return () => { t.show(); t.pressBreak(); return { pressed: true }; };
+      case 'assemble_and_load': return this.prepareAssembly(t, input);
       case 'run': {
-        // validated before the restore point: a run that throws changes nothing and must not evict a real one
+        // validated here: a run that throws changes nothing and must not evict a real restore point
         const raw = input.target == null ? 'RUN' : input.target;
         const parsed = t.checkRun(raw);
-        this.takeSnapshot();
-        t.show();
-        t.run(raw);
-        return parsed == null ? { started: true, how: 'typed', target: 'RUN' } : { started: true, how: 'jump', target: parsed };
+        return () => {
+          t.show();
+          t.run(raw);
+          return parsed == null ? { started: true, how: 'typed', target: 'RUN' } : { started: true, how: 'jump', target: parsed };
+        };
       }
       default: throw new ToolError(TOOL_CODES.UNKNOWN_TOOL, name);
     }
@@ -263,16 +287,16 @@ export class ChatSession {
   // type_text: typed at the keyboard paced by what the machine consumes (Typist.typePaced), and the result says
   // what the machine took, not what was asked: {requested, consumed, lines_requested, lines_delivered}. When the
   // machine stops reading the keyboard the rest is not typed and the call fails not-consumed, saying how far it got.
-  async typeText(t, input) {
+  prepareTyping(t, input) {
     if (typeof input.text !== 'string') throw new ToolError(TOOL_CODES.EMPTY, 'text');
     const text = input.text;
     if (!text) throw new ToolError(TOOL_CODES.EMPTY, 'text');
     if (text.length > TYPE_TEXT_MAX) throw new ToolError(TOOL_CODES.TOO_LARGE, `${text.length} characters, at most ${TYPE_TEXT_MAX}`);
     const bad = t.untypable(text);
     if (bad.length) throw new ToolError(TOOL_CODES.NOT_TYPABLE, JSON.stringify(bad.join('')));
-    this.takeSnapshot();
-    t.show();
-    const job = t.typeText(text);
+    return () => { t.show(); return this.awaitTyping(t, t.typeText(text)); };
+  }
+  async awaitTyping(t, job) {
     // Stop (the abort signal) ends the typing too: what is not typed yet is dropped, and the call says stopped
     const signal = this.controller && this.controller.signal;
     const onAbort = () => { t.machine.typist.dropJob(job); job.end('stopped'); };
@@ -290,7 +314,7 @@ export class ChatSession {
   }
 
   // assemble_and_load: assemble for the target's own CPU and write the bytes, without starting anything.
-  async assembleAndLoad(t, input) {
+  async prepareAssembly(t, input) {
     const m = t.machine;
     if (typeof input.source !== 'string' || !input.source.trim()) throw new ToolError(TOOL_CODES.EMPTY, 'source');
     if (input.source.length > SOURCE_MAX) throw new ToolError(TOOL_CODES.TOO_LARGE, `${input.source.length} characters, at most ${SOURCE_MAX}`);
@@ -313,14 +337,15 @@ export class ChatSession {
     if (org != null && res.segments.length && res.segments[0].addr !== org) throw new ToolError(TOOL_CODES.ORG_CONFLICT, `assembled at ${res.segments[0].addr}, org is ${org}`);
     if (!res.segments.length) throw new ToolError(TOOL_CODES.EMPTY, 'the source assembled to no bytes');
     if (res.segments.some((sg) => sg.addr + sg.data.length > 0x10000)) throw new ToolError(TOOL_CODES.PAST_END, 'the program runs past $FFFF; nothing was written');
-    const snap = this.captureSnapshot();
+    return () => this.loadAssembled(t, res);
+  }
+  loadAssembled(t, res) {
     const written = t.writeSegments(res);       // writes only (no reset: a ROM-less machine would lose its RAM; no jump); how many landed
     const total = res.segments.reduce((n, sg) => n + sg.data.length, 0);
     if (written === 0) {
       const last = res.segments[res.segments.length - 1];
-      throw new ToolError(TOOL_CODES.NOT_RAM, `${hex(res.segments[0].addr)}-${hex(last.addr + last.data.length - 1)}`);
+      throw unchanged(new ToolError(TOOL_CODES.NOT_RAM, `${hex(res.segments[0].addr)}-${hex(last.addr + last.data.length - 1)}`));
     }
-    this.commitSnapshot(snap);
     // every segment is read back: a program aimed at ROM or I/O assembles and then is not there
     const not_taken = res.segments.flatMap((sg) => this.notTaken(sg.addr, sg.data));
     return {
@@ -331,11 +356,8 @@ export class ChatSession {
       not_taken,
     };
   }
-  // the snapshot before Claude's first change in a turn; the last 10 are kept
-  takeSnapshot() { this.commitSnapshot(this.captureSnapshot()); }
-  // The two halves, for a tool that finds out only after writing whether it changed anything: capture before the
-  // write (null when this turn already has its restore point), commit once something landed. A write that landed
-  // nothing commits nothing, so it neither adds a useless restore point nor pushes a real one out of the last 10.
+  // The restore point's two halves (withRestorePoint is their only caller): capture before the change (null when
+  // this turn already has its restore point), commit once it is made; the last 10 are kept.
   captureSnapshot() { return this.snapped ? null : this.target.snapshot(); }
   commitSnapshot(snap) {
     if (!snap) return;
@@ -370,7 +392,8 @@ export class ChatSession {
   // "Restore to before Claude's changes\": the BASIC session as it was before the newest turn's changes, on screen
   undoLast() {
     if (!this.undo.length) return false;
-    this.target.restore(this.undo.pop());
+    this.target.restore(this.undo[this.undo.length - 1]);   // the Session's guarded path (restorePoint); a restore that throws keeps the point
+    this.undo.pop();
     this.target.show();
     this.changed();
     return true;

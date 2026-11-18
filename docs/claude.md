@@ -93,6 +93,16 @@ Two ways to talk to Claude, one conversation:
   the registers go with the question (`Session.codeAt`), and the panel says Claude can see the code and the
   registers. A restore point is made before
   Claude's first change in each turn: **Restore to before Claude's changes**, and **All restore points** (the last 10).
+  Restore points are kept in memory only, while the chat is open: reloading the page, ending the chat or switching
+  machine loses them. Saved files (the Library, DriveWire) are not rolled back, except a disk that has stayed in
+  the same drive since the point (`Session.restorePoint`, also behind the chat's undo): if the machine wrote to it
+  since, its stored image is put back to the image the drive holds after the restore, and it goes on saving its
+  writes. A disk changed since the point (ejected, replaced or changed in the Library, mounted again or in another
+  drive), or one written since and now write-protected or a file that can't be written, is not rolled back: the
+  Library's file is left as it is, and the restore says "Drive N was changed since this point; the restored disk
+  isn't saved to the Library. Download it to keep it." (or why). If putting a stored image back fails, the error
+  says so and that drive is no longer saved to the Library. A point that can't be restored (the ROMs changed since it was taken,
+  with Forget ROMs or Run without ROMs) says so and changes nothing: every point is kept.
 * **The key states** read the same in both views: no key (the key form replaces the message box), refused
   ("[The API key was refused: check it and try again.]", the form reopens with a red border), rate limited and
   offline (with **Try again**; nothing retries by itself).
@@ -167,8 +177,9 @@ emulator.
   answer from the same rule in the same module, so a model can skip `screen_text` when it cannot help; `kind`
   stays `text` when a text mode merely goes unread by this reader. On such a screen `atPrompt` is
   `null` ("cannot be told"), not inferred from a page that is not visible. Before
-  Claude's first change in a turn the BASIC session is snapshotted; **Restore to before Claude's changes** restores
-  it exactly (the last 10 turns are kept).
+  Claude's first change in a turn the BASIC session is snapshotted, by every acting tool through the one path
+  (`ChatSession.withRestorePoint`); **Restore to before Claude's changes** restores it exactly (the last 10 turns are
+  kept, in memory only).
   Every integer parameter is declared `"type":"integer"` with the range the code enforces, derived from one set of
   constants, so the schema cannot drift from what the tool accepts; an optional parameter's description states
   the default that omitting it gives (`peek` 16 bytes, `disassemble` 8 instructions), from the constant the code

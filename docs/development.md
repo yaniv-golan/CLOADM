@@ -46,6 +46,7 @@ node tests/serial.test.js    # serial line receiver and port devices, PIA output
 node tests/acia.test.js      # the 6551 alone: registers, data sheet rates, frames in every format both ways, errors, interrupts, state
 node tests/drivewire.test.js # the DriveWire server against the DW4 specification, the Becker port, the Session, a WebSocket channel
 node tests/claude-chat-drivewire.test.js # the Claude chat end to end over DriveWire channel 14 on the Becker port (mocked fetch)
+node tests/restore-points.test.js # Ask Claude's restore points: one path for every acting tool, exact restores on 6809/6803/CoCo 3, a failed restore keeps everything, a disk rolls back only for the same mount and only when written
 node tests/web-serial.test.js # DriveWire to a real CoCo over Web Serial, against a mocked serial port
 node tests/composite.test.js # composite colour: NTSC artifact colours per phase and PAL line blending on known patterns
 node tests/display.test.js   # Display tab settings (validated, remembered, applied per machine) and picture size

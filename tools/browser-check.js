@@ -5596,11 +5596,32 @@ async function askChecks(browser, base, check) {
     if (release) { release(); release = null; }
     check(`${L}: after Claude's changes the restore card offers "Restore to before Claude's changes"`, await waitFor(page, () => !document.getElementById('askRestore').hidden)
       && /Restore to before Claude's changes/.test(await page.textContent('#askRestore')));
-    check(`${L}: Restore puts the machine back exactly to the restore point`, await ev(() => {
+    // (on a phone the card itself sits in the ⋯ menu, so there the note is checked as part of the card, like the card above)
+    check(`${L}: the restore card says the points are kept in memory only`, (phone || await vis('#askPointNote'))
+      && await ev(() => { const n = document.getElementById('askPointNote'); return !!n && document.getElementById('askRestore').contains(n) && !n.hidden; })
+      && /kept only while this chat is open: reloading the page, ending the chat or switching machine loses them/.test(await page.textContent('#askPointNote')));
+    // a restore that fails (mocked: the machine refuses the point, as after Forget ROMs): an error toast, nothing changed, the points kept
+    check(`${L}: a restore that fails shows why as an error, and changes nothing: machine, points and the card stay`, await ev(() => {
+      const s = window.emu.session, m = s.machine, before = window.emu.Emu.state.toJSON(m.snapshot()), n = s.chat.undo.length;
+      m.checkSnapshot = () => { throw new Error('snapshot was taken with a different basic ROM'); };
+      try { document.getElementById('btnAskRestore').click(); } finally { delete m.checkSnapshot; }
+      const t = document.getElementById('toast');
+      // one sentence, so all of it is in the toast's first line (the toast keeps later sentences under Details)
+      return t.classList.contains('error') && document.getElementById('toastText').textContent === "Can't restore that point (snapshot was taken with a different basic ROM): nothing was changed, and your restore points are kept."
+        && window.emu.Emu.state.toJSON(m.snapshot()) === before && s.chat.undo.length === n && n > 0;
+    }) && !(await ev(() => document.getElementById('askRestore').hidden)), await page.textContent('#toast'));
+    // (mocked: Session.restorePoint, the one restore path, reports a disk the Library has changed since the point, as
+    // tests/restore-points.test.js shows it does; no disk system here, since that needs a DOS ROM)
+    const NOTICE = "Drive 0 was changed since this point; the restored disk isn't saved to the Library. Download it to keep it.";
+    check(`${L}: Restore puts the machine back exactly to the restore point, and the panel shows the disk notice with it`, await ev((notice) => {
       const s = window.emu.session, want = window.emu.Emu.state.toJSON(s.chat.undo[s.chat.undo.length - 1]);
-      document.getElementById('btnAskRestore').click();
-      return window.emu.Emu.state.toJSON(s.machine.snapshot()) === want && s.chat.undo.length === 0;
-    }));
+      const real = s.restorePoint.bind(s);
+      s.restorePoint = (m, snap) => [...real(m, snap), notice];
+      try { document.getElementById('btnAskRestore').click(); } finally { delete s.restorePoint; }
+      const t = document.getElementById('toast');
+      return window.emu.Emu.state.toJSON(s.machine.snapshot()) === want && s.chat.undo.length === 0
+        && !t.classList.contains('error') && document.getElementById('toastText').textContent === `Restored: the machine is as it was before Claude's changes. ${notice}`;
+    }, NOTICE), await page.textContent('#toast'));
     // ---- assemble_and_load and run: consent off means no change; Allow, then the round trip; Restore undoes it ----
     const PROG = ' ORG $3000\nSTART LDA #$41\n STA $4000\n BRA START\n';
     await ev(() => window.emu.session.setClaudeAllowed(false));   // the switch's own effect (on a phone it sits under the sheet)
@@ -6169,6 +6190,8 @@ async function claudeChecks(browser, base, check) {
       && !document.getElementById('claudePip').hidden; }));
   check('claude: the BASIC session card offers "Restore to before Claude\'s changes"', await page.evaluate(() => !document.getElementById('claudeRestore').hidden
     && /Restore point · .*before Claude's changes/.test(document.getElementById('claudeRestoreWhen').textContent)));
+  check('claude: the BASIC session card says the points are kept in memory only', await page.evaluate(() => /kept only while this chat is open: reloading the page, ending the chat or switching machine loses them/
+    .test(document.getElementById('claudePointNote').textContent)) && await page.isVisible('#claudePointNote'));
   // compared in the same task as the click: the BASIC session runs on from the restored state
   check('claude: Restore puts the BASIC session back exactly to the restore point', await page.evaluate(() => {
     const s = window.emu.session, want = window.emu.Emu.state.toJSON(s.chat.undo[s.chat.undo.length - 1]);

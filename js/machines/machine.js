@@ -447,6 +447,17 @@ class Machine {
   // Restores a snapshot of this very machine: same model, config and ROM set (the same sockets filled, with
   // the same CRCs). Anything else throws: state taken with other firmware would run differently.
   restore(snap) {
+    this.checkSnapshot(snap);
+    this.loadSnapshotState(snap);
+  }
+  // loads a snapshot's state in the layout of the file's version, without restore()'s checks (call checkSnapshot
+  // first); a loader that reads a key newer files have can tell an older file's absence of it by restoringVersion
+  loadSnapshotState(snap) {
+    this.restoringVersion = snap.version;
+    try { this.loadState(snap.state); } finally { this.restoringVersion = SNAPSHOT_VERSION; }
+  }
+  // restore()'s checks alone: throws why `snap` can't be restored here, and changes nothing
+  checkSnapshot(snap) {
     if (!snap || snap.format !== SNAPSHOT_FORMAT) throw new Error('not a snapshot');
     if (!(snap.version >= SNAPSHOT_OLDEST && snap.version <= SNAPSHOT_VERSION)) throw new Error(`snapshot format version ${snap.version}; this version reads ${SNAPSHOT_OLDEST} to ${SNAPSHOT_VERSION}`);
     if (snap.machine !== this.id) throw new Error(`snapshot is for ${snap.machine}, not ${this.id}`);
@@ -456,9 +467,6 @@ class Machine {
     for (const slot of new Set([...Object.keys(snap.roms), ...Object.keys(mine)])) {
       if (mine[slot] !== snap.roms[slot]) throw new Error(`snapshot was taken ${snap.roms[slot] == null ? 'without' : 'with a different'} ${slot} ROM`);
     }
-    // (a loader that reads a key newer files have can tell an older file's absence of it by this)
-    this.restoringVersion = snap.version;
-    try { this.loadState(snap.state); } finally { this.restoringVersion = SNAPSHOT_VERSION; }
   }
 
   // ---------------- program loading ----------------

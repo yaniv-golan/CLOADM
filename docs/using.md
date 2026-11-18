@@ -229,6 +229,9 @@ POKE book that types them in, and lights the chip line of the entry that makes t
 
 ## Snapshots and sharing
 
+(Ask Claude's restore points are a different thing: kept in memory only while the chat is open, and lost on a
+reload, when the chat ends or when you switch machine. See [claude.md](claude.md#claude).)
+
 **Share** in the header takes a snapshot: the machine, its RAM, CPU, chips, the tape in the deck and
 the cartridge, and the picture. **Download snapshot** saves it as a `.cloadm` file; drop the file on the screen
 (or pick it with **Open…**) to restore it. **Screenshot** saves the picture at the machine's true

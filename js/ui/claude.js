@@ -299,7 +299,7 @@ export function setupClaude(page) {
   $('btnClaudeTell').onclick = () => session.answerClaude(false);
   $('btnClaudeLoad').onclick = () => session.answerClaude(true, { dontAsk: $('chkClaudeLoadNoAsk').checked });
   $('btnClaudeLoadNo').onclick = () => session.answerClaude(false);
-  $('btnClaudeUndo').onclick = () => { if (session.restoreClaude()) page.status('Restored: your BASIC session is as it was before Claude\'s changes.'); };
+  $('btnClaudeUndo').onclick = () => page.attempt(() => { const r = session.restoreClaude(); return r ? ['Restored: your BASIC session is as it was before Claude\'s changes.', ...r.notices].join(' ') : null; });
   // Ctrl+B, "Show my BASIC session" and a click on the window swap the views; swapping to the BASIC session shows the
   // window (the chat in it), swapping back hides it. Its close button hides it (and brings the chat back).
   function swap() {

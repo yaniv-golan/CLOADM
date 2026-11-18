@@ -769,6 +769,7 @@
   #askConsent p { margin: 0; font-size: 14px; line-height: 1.5; color: var(--text-2); }
   .askcard .muted { font-size: 13px; }
   #askActivity { border-left: 2px solid var(--phosphor); padding: 4px 0 4px 10px; font: 13px/1.7 var(--font-mono); color: var(--text-3); white-space: pre-wrap; }
+  .pointnote { font-size: 12px; margin-top: 4px; }
   #askPointList { display: flex; flex-direction: column; gap: 4px; }
   #askPointList button { text-align: left; background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-size: 14px; }
   #askKeyMsg { background: var(--warn-panel); border: 1px solid var(--orange); border-radius: 12px; padding: 12px; font-size: 15px; line-height: 1.5; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
@@ -1202,6 +1203,7 @@ npx serve -l 8000 .</pre>
         <div class="muted" id="askRestoreWhen"></div>
         <div class="bar"><button id="btnAskRestore">Restore to before Claude's changes</button><button id="btnAskPoints" class="link" aria-expanded="false">All restore points</button></div>
         <div id="askPointList" hidden></div>
+        <div class="muted pointnote" id="askPointNote">Restore points are kept only while this chat is open: reloading the page, ending the chat or switching machine loses them. Saved files (Library, DriveWire) are not rolled back, except a disk left in its drive since the point.</div>
       </div>
       <div id="askKeyMsg" role="status" hidden><span id="askKeyText"></span><button id="btnAskRetry" hidden>Try again</button></div>
     </div>
@@ -1242,7 +1244,7 @@ npx serve -l 8000 .</pre>
       </div>
       <label class="switch"><input type="checkbox" id="chkClaudeTools"> Let Claude use the machine</label>
       <div id="claudeBasicNote"></div>
-      <div id="claudeRestore" hidden><span class="muted" id="claudeRestoreWhen"></span><button id="btnClaudeUndo">Restore to before Claude's changes</button></div>
+      <div id="claudeRestore" hidden><span class="muted" id="claudeRestoreWhen"></span><button id="btnClaudeUndo">Restore to before Claude's changes</button><div class="muted pointnote" id="claudePointNote">Restore points are kept only while this chat is open: reloading the page, ending the chat or switching machine loses them. Saved files (Library, DriveWire) are not rolled back, except a disk left in its drive since the point.</div></div>
     </section>
   </aside>
 

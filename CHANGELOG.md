@@ -50,6 +50,26 @@ All notable changes to CLOADM are recorded here. The format follows
 - **Snapshots are format version 2:** a CoCo 3 instruction held by the disk controller's HALT is saved with the
   machine. Version 1 files still open; a page from before this change refuses version 2 files as newer.
 
+### Fixed
+
+- **Ask Claude's restore points:** a restore that can't happen (the ROMs changed since the point was taken: Forget
+  ROMs, Run without ROMs) no longer throws the points away and stops Claude first: it says why, changes nothing and
+  keeps every point. After a restore, a disk still in the same drive since the point (the same mount, not ejected
+  or changed in the Library) goes on saving its writes to the Library (before, later writes were silently not
+  saved), and if the machine wrote to it since the point its stored image is first put back to the image the drive
+  holds, so the undone turn's writes are not left mixed in; a disk not written since is not rewritten. Any other
+  disk (ejected, replaced, mounted again or moved since the point, write-protected, or a file that can't be written)
+  is not rolled back: the Library's file is left alone and the restore says the restored disk isn't saved. In the
+  full-screen chat the Library now also refuses to replace, rename or delete a disk in the BASIC session's drives, and
+  the BASIC session's drives are saved when the page is hidden. A disk mounted again in the drive it is in is read
+  only once no write to the Library is in flight (a restore's put-back, an import, another drive's write), so a
+  drive and its file no longer end up as two versions, and two mounts of one image at once can't both go in.
+  Moving the library waits for the disks' last writes, and while it moves no disk goes in and the Library
+  changes nothing (an import, rename or delete then would have been lost from the moved library).
+  Every acting tool, `load_basic` included, takes the turn's restore point through
+  one shared path, so a new tool can't miss it. The restore control now says that points live in memory only (a
+  reload, ending the chat or switching machine loses them) and that other saved files are not rolled back.
+
 ### 0.1.1-pre
 
 #### Added

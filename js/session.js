@@ -203,7 +203,7 @@ export class Session {
     this.claudeLoadNoAsk = false;   // "Don't ask again this session" on load_basic's card (for the visit only)
     this.claudeActing = null;       // the acting tool call in progress or last made this turn: { name, input }
     this.claudePending = null;      // the consent question waiting for an answer: { resolve }
-    this.claudePointTimes = new WeakMap();   // restore point -> when it was made (ms)
+    this.claudePointInfo = new WeakMap();    // restore point -> { at (ms), disks: the drives linked to the store then (storedDisks) }
     this.claudePaused = null;       // a key the person pressed paused Claude: { held (keys not yet typed), wake }
     this.chatMachines = null;       // while a chat is open: { chat, basic } (startChat)
     this.chatServer = null;         // the chat machine's own DriveWire server (startChat with drivewire)
@@ -244,6 +244,10 @@ export class Session {
     this.drivewire.onChannelOpen = (ch) => { const s = this.dwSockets.get(ch); if (s) s.deliver(); };
     this.drivewire.onChannelRead = (ch) => { const s = this.dwSockets.get(ch); if (s) s.deliver(); };
     this.diskWriting = Promise.resolve();   // the chain of disk image writes to the media store
+    this.movingMedia = false;       // moveMedia is copying the library to another place
+    this.diskMounts = 0;            // mounts made so far: each mount's link carries the next number (diskLink)
+    this.diskQueued = 0;            // changes to stored disk images queued so far (queueDiskWrite, diskStoreChange)
+    this.diskLanded = 0;            // of those, the ones finished (done or refused)
     this.diskError = null;          // a disk write the store refused, reported by diskWritesDone()
     this.diskUnsaved = new Map();   // stored image name -> why its last write was refused (until one succeeds)
     this.debugger = null;           // created on first use by `debug` (js/debugger.js)
@@ -283,11 +287,21 @@ export class Session {
   // session on the old store.
   // -> { copied, kept }: how many files were copied, and how many the new place already had
   async moveMedia(store, { reconnecting = false } = {}) {
-    const busy = this.diskStatus().drives.filter((d) => d.stored).map((d) => `drive ${d.drive}: ${d.file}`)
+    const busy = this.diskMachines().flatMap(({ machine, where }) => this.storedDisks(machine).map((d) => `drive ${d.drive}${where}: ${d.name.split('/').pop()}`))
       .concat(this.driveWireMounts.map((d) => `DriveWire drive ${d.drive}: ${d.name}`));
     if (busy.length) throw new SessionError(`Eject the disks first (${busy.join(', ')}): they are read and written where the library is kept now.`);
     let copied = 0, kept = 0;
     if (store === this.media) return { copied, kept };
+    if (this.movingMedia) throw new SessionError('The library is being moved already.');
+    // while it moves no disk goes in (mountDisk and importDisk refuse), and the disks' last writes are in first
+    this.movingMedia = true;
+    try {
+      await this.diskWritesSettled();   // (an earlier write's error is the drives' to report, not the move's)
+      return await this.copyMedia(store, reconnecting);
+    } finally { this.movingMedia = false; }
+  }
+  async copyMedia(store, reconnecting) {
+    let copied = 0, kept = 0;
     await this.index.flush();
     const files = [];
     for (const prefix of STORE_PREFIXES) files.push(...await this.media.list(prefix));
@@ -1185,30 +1199,56 @@ export class Session {
   // A disk image in a drive is the drive's: the drive reads it and writes back to it under that name, so it is not
   // renamed, deleted or replaced while it is there -> refuses with the drive it is in
   checkNotInDrive(name, what) {
-    const held = this.machine && this.diskStatus().drives.find((d) => d.name === name);
-    if (held) throw new SessionError(`${name.slice(DISK_PREFIX.length)} is in drive ${held.drive}; eject it before you ${what} it.`);
+    const held = this.diskHolder(name);
+    if (held) throw new SessionError(`${name.slice(DISK_PREFIX.length)} is in drive ${held.drive}${held.where}; eject it before you ${what} it.`);
+  }
+  // The machines whose drives can hold a stored disk now: the one in use and, in a full-screen chat, the BASIC
+  // session beside the chat machine (it keeps its drives, and the Library's guards must see them while the chat is
+  // on screen) -> [{ machine, where }], where: '' for the machine on screen, else how a message names it
+  diskMachines() {
+    const out = this.machine ? [{ machine: this.machine, where: '' }] : [];
+    const c = this.chatMachines;
+    if (c) for (const m of [c.basic, c.chat]) if (m && m !== this.machine) out.push({ machine: m, where: m === c.basic ? ' of your BASIC session' : ' of the chat machine' });
+    return out;
+  }
+  // the drive that holds the disk image `name`, on any of those machines -> { drive, where, machine } | null;
+  // skip: { machine, drive } not to count (the drive a mount is about to replace)
+  diskHolder(name, skip = null) {
+    for (const { machine, where } of this.diskMachines()) {
+      const fdc = this.diskControllerOf(machine);
+      if (!fdc) continue;
+      const drive = fdc.drives.findIndex((d, i) => d.loaded && d.media.name === name && !(skip && skip.machine === machine && skip.drive === i));
+      if (drive >= 0) return { drive, where, machine };
+    }
+    return null;
   }
   async renameMedia(from, to) {
     const src = this.libName(from), prefix = src.startsWith(DISK_PREFIX) ? DISK_PREFIX : LIBRARY_PREFIX;
+    this.checkNotMoving();
     this.checkNotInDrive(src, 'rename');
     const dst = this.libName(to.startsWith(DISK_PREFIX) || to.startsWith(LIBRARY_PREFIX) ? to : prefix + to);
     if (!dst.startsWith(prefix)) throw new SessionError(`${to}: a ${prefix === DISK_PREFIX ? 'disk image' : 'library item'} stays where it is`);
-    try { return await this.media.rename(src, dst); } catch (e) { throw this.mediaError(e, from); }
+    const op = () => this.media.rename(src, dst);
+    try { return await (src.startsWith(DISK_PREFIX) ? this.diskStoreChange(op) : op()); } catch (e) { throw this.mediaError(e, from); }
   }
   async deleteMedia(name) {
     const full = this.libName(name);
+    this.checkNotMoving();
     this.checkNotInDrive(full, 'delete');
-    try { return await this.media.remove(full); } catch (e) { throw this.mediaError(e, name); }
+    const op = () => this.media.remove(full);
+    try { return await (full.startsWith(DISK_PREFIX) ? this.diskStoreChange(op) : op()); } catch (e) { throw this.mediaError(e, name); }
   }
   // take a file the user picked into the library under `name`; ROM images go through identification, so
   // they land in the index's own sockets rather than being written as an opaque blob; disk images go under
   // DISK_PREFIX, where the drives find them
   async importMedia(name, bytes) {
+    this.checkNotMoving();
     if (Session.isRom(name, bytes)) return { roms: this.addRoms([{ name, bytes }]) };
     const base = name.split(/[\\/]/).pop();
     const target = detectMedia(base, bytes).kind === 'disk' ? DISK_PREFIX + base : this.libName(name);
     this.checkNotInDrive(target, 'replace');
-    try { return { stored: await this.media.write(target, bytes) }; } catch (e) { throw this.mediaError(e, name); }
+    const write = target.startsWith(DISK_PREFIX) ? this.diskStoreChange(() => this.media.write(target, bytes)) : this.media.write(target, bytes);
+    try { return { stored: await write }; } catch (e) { throw this.mediaError(e, name); }
   }
   mediaError(e, name) {
     if (e instanceof SessionError) return e;
@@ -1238,8 +1278,8 @@ export class Session {
   }
   // the disk controller: the machine's own (the Dragon Alpha's), else the one in the cartridge port or in one of
   // its Multi-Pak's slots, or null
-  get diskController() {
-    const m = this.machine;
+  get diskController() { return this.diskControllerOf(this.machine); }
+  diskControllerOf(m) {
     if (m.fdc instanceof DiskController) return m.fdc;
     if (m.cartPort instanceof MultiPak) return m.cartPort.slots.find((c) => c instanceof DiskController) || null;
     return m.cartPort instanceof DiskController ? m.cartPort : null;
@@ -1398,23 +1438,30 @@ export class Session {
   // and mounted -> message
   async importDisk(name, bytes, drive = 0, { writeProtected = false } = {}) {
     this.checkDrive(drive);
+    this.checkNotMoving();
     const full = this.diskStoreName(name), base = full.slice(DISK_PREFIX.length);
     const format = detectDiskFormat(bytes, base);
     if (!format) throw new SessionError(`${base}: not a disk image CLOADM can read (VDK, JVC/DSK or DMK).`);
     try { diskGeometry(bytes, format); } catch (e) { throw new SessionError(`${base}: ${e.message}`); }
-    const holder = this.diskStatus().drives.find((d) => d.name === full && d.drive !== drive);
-    if (holder) throw new SessionError(`${base} is in drive ${holder.drive}; eject it there first.`);
+    const holder = this.diskHolder(full, { machine: this.machine, drive });
+    if (holder) throw new SessionError(`${base} is in drive ${holder.drive}${holder.where}; eject it there first.`);
     if (this.diskStatus().drives.some((d) => d.name === full)) await this.ejectDisk(drive);
     await this.diskWritesDone();
-    try { await this.media.write(full, bytes); } catch (e) { throw this.mediaError(e, base); }
-    return this.mountDisk(drive, full, { writeProtected });
+    // checked again with nothing left to wait for: a mount of this name that went in meanwhile keeps its file
+    const again = this.diskHolder(full);
+    if (again) throw new SessionError(`${base} is in drive ${again.drive}${again.where}; eject it there first.`);
+    this.checkNotMoving();
+    try { await this.diskStoreChange(() => this.media.write(full, bytes)); } catch (e) { throw this.mediaError(e, base); }
+    // stored by now: a mount that fails says so, rather than that the import did not happen
+    try { return await this.mountDisk(drive, full, { writeProtected }); } catch (e) { throw new SessionError(`${base} was saved to your Library but not put in drive ${drive}: ${e.message}`); }
   }
   // a stored disk image into a drive (plugging in the disk cartridge if none is) -> message
   async mountDisk(drive, name, { writeProtected = false } = {}) {
     this.checkDrive(drive);
+    this.checkNotMoving();
     const full = this.diskStoreName(name), base = full.slice(DISK_PREFIX.length);
-    const holder = this.diskStatus().drives.find((d) => d.name === full && d.drive !== drive);
-    if (holder) throw new SessionError(`${base} is already in drive ${holder.drive}.`);
+    const holder = this.diskHolder(full, { machine: this.machine, drive });
+    if (holder) throw new SessionError(`${base} is already in drive ${holder.drive}${holder.where}.`);
     let fdc = this.diskController;
     if (!fdc && this.machine.cartPort instanceof MultiPak) throw new SessionError('The Multi-Pak has no disk controller: put one in one of its slots first (Multi-Pak…).');
     const dos = fdc ? null : this.preferredDiskDos();
@@ -1423,41 +1470,177 @@ export class Session {
       if (!c.length) throw new SessionError(`The ${this.machine.profile.name} has no disk drives in CLOADM.`);
       throw new SessionError(`Disks need a disk cartridge ROM: ${c.map((x) => `${x.name} (${cartridgeRoms[x.id].roms[0].files[0]})`).join(' or ')}. Load the ROM file first.`);
     }
+    // The image is read once every write is in the store: the drive's own (a disk mounted again in the drive it is
+    // in must be the image that drive wrote) and every one queued, a restore's put-back included. The machine runs
+    // while the store is read, so the read is taken only if the drive has handed nothing more to the store by then
+    // (no change to a stored disk queued since before the wait - a write, an import, a rename or a delete - with the
+    // drive flushed again); otherwise it is read again.
     let bytes;
-    try {
-      const st = await this.media.stat(full);
-      if (!st) throw new MediaStoreError('not-found', full);
-      bytes = await this.media.readRange(full, 0, st.size);
-    } catch (e) { throw this.mediaError(e, base); }
+    for (let tries = 0; ; tries++) {
+      const flush = () => { const f = this.diskController; if (f && f.drives[drive].loaded) f.drives[drive].flush(); };
+      flush();
+      // counted before the wait: a change queued from here on (even in the step after the wait) means read again
+      const queued = this.diskQueued;
+      await this.diskWritesDone();
+      try {
+        const st = await this.media.stat(full);
+        if (!st) throw new MediaStoreError('not-found', full);
+        bytes = await this.media.readRange(full, 0, st.size);
+      } catch (e) { throw this.mediaError(e, base); }
+      flush();
+      if (queued === this.diskQueued) break;
+      if (tries >= 3) throw new SessionError(`${base}: the drives kept writing while it was read; try again.`);
+    }
+    // from here on nothing waits, so what is checked is what the mount finds: another mount that went in meanwhile
+    // (into another drive, or into this one) is seen
+    const again = this.diskHolder(full, { machine: this.machine, drive });
+    if (again) throw new SessionError(`${base} is already in drive ${again.drive}${again.where}.`);
+    this.checkNotMoving();
     const format = detectDiskFormat(bytes, base);
     if (!format) throw new SessionError(`${base}: not a disk image CLOADM can read (VDK, JVC/DSK or DMK).`);
-    if (!fdc) { this.insertDiskDos(dos.id); fdc = this.diskController; }
-    if (fdc.drives[drive].loaded) await this.ejectDisk(drive);
+    fdc = this.diskController;
+    if (!fdc) {
+      if (!dos) throw new SessionError(`${base}: the disk cartridge was taken out; mount it again.`);
+      this.insertDiskDos(dos.id); fdc = this.diskController;
+    }
+    if (fdc.drives[drive].loaded) fdc.eject(drive);   // flushed above: nothing more to write
     try {
       this.diskUnsaved.delete(full);        // read afresh from the store: nothing is outstanding
-      fdc.mount(drive, { bytes, format, name: full, writeProtected, onWrite: (offset, data, size) => this.queueDiskWrite(full, offset, data, size) });
+      fdc.mount(drive, { bytes, format, name: full, writeProtected, onWrite: this.diskLink(full) });
     } catch (e) { throw new SessionError(`${base}: ${e.message}`); }
     this.emit('disks');
     return `${base} in drive ${drive}${writeProtected ? ' (write-protected)' : ''}`;
   }
-  // the drive's changes, in order, to the stored image: in place, or the whole file when its size changed
-  queueDiskWrite(name, offset, data, size) {
-    this.diskWriting = this.diskWriting.then(async () => {
-      if (offset === 0 && data.length === size) await this.media.write(name, data);
-      else await this.media.writeRange(name, offset, data);
-      if (this.diskUnsaved.delete(name)) this.emit('disks');
-    }).catch((e) => {
-      this.diskError = this.mediaError(e, name.slice(DISK_PREFIX.length));
-      this.diskUnsaved.set(name, this.diskError.message);
-      this.emit('diskerror');
-      this.emit('disks');
-    });
+  // no disk goes in while the library is being moved (moveMedia): it would be read from one place and written to the other
+  // (nor does the Library change anything: the copy would miss it, and the library moved to would not have it)
+  checkNotMoving() { if (this.movingMedia) throw new SessionError('The library is being moved: try again once it is done.'); }
+  // A mounted disk's link to its stored image (media.onWrite). Each mount gets a link of its own, and the link is
+  // the identity of that continuous mount of that stored image: link.mount = { id, name, writes (how many changes
+  // the drive has handed to the store through it), failed (a write through it was refused and no whole image has
+  // been written since: the stored image may lack it), readOnly (the store refused a write as not allowed), broken (the
+  // stored image could not be put back after a restore: nothing more is written through it) }. A link is not part
+  // of a snapshot: a restore point records the links (storedDisks) and the restore relinks only the same mount.
+  diskLink(name) {
+    const mount = { id: ++this.diskMounts, name, writes: 0, failed: false, readOnly: false, broken: false };
+    const link = (offset, data, size) => { mount.writes++; this.queueDiskWrite(name, offset, data, size, mount); };
+    link.mount = mount;
+    return link;
   }
+  // the drives of machine m linked to the media store: [{ drive, name, link, writes (link.mount.writes now), wpt }]
+  storedDisks(m) {
+    const fdc = this.diskControllerOf(m);
+    return fdc ? fdc.drives.flatMap((d, i) => (d.loaded && d.media.onWrite && d.media.onWrite.mount
+      ? [{ drive: i, name: d.media.name, link: d.media.onWrite, writes: d.media.onWrite.mount.writes, wpt: !!d.wpt }] : [])) : [];
+  }
+  // A restore point put back on machine m (Session.restoreClaude and the chat's undoLast both come here) -> the
+  // notices for the person: [string], one per drive whose restored disk is not linked to the Library.
+  // The point is checked first (a SessionError, nothing changed); the drives' changes go to the store first (the
+  // restore replaces the drives, dirty tracks and all); a load that fails part way is rolled back to the machine as
+  // it was, with its links. Then each drive the point holds linked to the store (pointDisks) is linked again ONLY if
+  // the same mount (the same link) is still in that drive, i.e. the same continuous mount since the point: anything
+  // else (ejected, replaced or changed in the Library, mounted again, in another drive) leaves the store alone and the
+  // drive unlinked, with a notice. The same mount keeps the write protection the person has set now. A linked disk the machine wrote to since the point has the store image put back to
+  // the image the drive holds now (whole, so the undone writes are not left mixed in), unless it is write-protected
+  // or its stored file refused writes: then it is not written and comes back unlinked, with a notice. A disk not
+  // written to since the point is not written at all.
+  restorePoint(m, snap) {
+    try { m.checkSnapshot(snap); } catch (e) { throw new SessionError(`Can't restore that point (${e.message}): nothing was changed, and your restore points are kept.`); }
+    const fdc = this.diskControllerOf(m);
+    if (fdc) fdc.flush();
+    const before = m.snapshot(), linked = this.storedDisks(m);
+    try { m.loadSnapshotState(snap); } catch (e) {
+      m.loadSnapshotState(before);
+      const back = this.diskControllerOf(m);
+      for (const x of linked) back.drives[x.drive].media.onWrite = x.link;
+      throw new SessionError(`Can't restore that point (${e.message}): the machine was put back as it was, and your restore points are kept.`);
+    }
+    const notices = this.relinkPoint(m, (this.claudePointInfo.get(snap) || {}).disks || [], linked);
+    this.emit('disks');
+    return notices;
+  }
+  relinkPoint(m, pointDisks, linked) {
+    const fdc = this.diskControllerOf(m), notices = [];
+    const unsaved = (drive, why) => notices.push(`Drive ${drive} ${why}; the restored disk isn't saved to the Library. Download it to keep it.`);
+    for (const was of pointDisks) {
+      const d = fdc && fdc.drives[was.drive];
+      if (!(d && d.loaded && d.media.name === was.name)) continue;
+      const now = linked.find((x) => x.drive === was.drive), mount = was.link.mount;
+      if (!now || now.link !== was.link || mount.broken) { unsaved(was.drive, 'was changed since this point'); continue; }
+      // the same mount: write protection is the person's setting for it, not the machine's, so it stays as it is now
+      d.setWriteProtect(now.wpt);
+      if (mount.writes === was.writes && !mount.failed) { d.media.onWrite = was.link; continue; }
+      if (now.wpt) { unsaved(was.drive, 'is write-protected'); continue; }
+      if (mount.readOnly) { unsaved(was.drive, 'is a read-only file'); continue; }
+      d.media.onWrite = was.link;
+      this.queueDiskWrite(was.name, 0, d.media.bytes.slice(), d.media.bytes.length, mount, { drive: was.drive, machine: m });
+    }
+    return notices;
+  }
+  // The drive's changes, in order, to the stored image: in place, or the whole file when its size changed. mount: the
+  // link's mount (a refused write marks it failed until a whole image is written; writes through a broken one are dropped: the stored image is no longer the drive's). rollback:
+  // { drive, machine } for the whole image a restore puts back; if the store refuses it, the stored image is a mix
+  // of two versions, so the mount is broken and the drive unlinked, and the error says the disk isn't saved.
+  queueDiskWrite(name, offset, data, size, mount = null, rollback = null) {
+    this.diskQueued++;
+    // the write's own outcome only: a listener's error is not the write's, and every write is counted as landed
+    this.diskWriting = this.diskWriting.then(async () => {
+      let cleared = false;
+      try {
+        if (!(mount && mount.broken)) {
+          if (offset === 0 && data.length === size) await this.media.write(name, data);
+          else await this.media.writeRange(name, offset, data);
+          if (mount && offset === 0 && data.length === size) mount.failed = false;
+          cleared = this.diskUnsaved.delete(name);
+        }
+      } catch (e) { this.diskWriteFailed(e, name, mount, rollback); } finally { this.diskLanded++; }
+      if (cleared) this.emitApart('disks');
+    }).catch(() => {});
+  }
+  // a listener that throws is reported on its own (as an uncaught error), apart from the disk write chain
+  emitApart(event) { try { this.emit(event); } catch (e) { queueMicrotask(() => { throw e; }); } }
+  // what a refused disk write leaves: the mount marked, the error to report, the drive unlinked for a put-back
+  diskWriteFailed(e, name, mount, rollback) {
+    if (mount) mount.failed = true;
+    if (mount && e && e.code === 'unsupported') mount.readOnly = true;
+    const base = name.slice(DISK_PREFIX.length);
+    if (rollback) {
+      mount.broken = true;
+      const fdc = this.diskControllerOf(rollback.machine), d = fdc && fdc.drives[rollback.drive];
+      if (d && d.loaded && d.media.onWrite && d.media.onWrite.mount === mount) d.media.onWrite = null;
+      this.diskUnsaved.delete(name);
+      const why = this.mediaError(e, base).message.replace(/[.\s]+$/, '');
+      this.addDiskError(new SessionError(`Drive ${rollback.drive}: the Library's ${base} couldn't be put back to the restored disk (${why}); the restored disk isn't saved to the Library. Download it to keep it.`));
+    } else {
+      const err = this.mediaError(e, base);
+      this.addDiskError(err);
+      this.diskUnsaved.set(name, err.message);
+    }
+    this.emitApart('diskerror');
+    this.emitApart('disks');
+  }
+  // A change the Library makes to the stored disk images (op: an import's write, a rename, a delete), run in the
+  // same chain as the drives' writes, so a mount waiting for the chain reads after it lands, and one reading
+  // meanwhile reads again (diskQueued). Its failure goes to the caller only. -> what op returns
+  diskStoreChange(op) {
+    this.diskQueued++;
+    const p = this.diskWriting.then(op);
+    this.diskWriting = p.then(() => {}, () => {}).then(() => { this.diskLanded++; });
+    return p;
+  }
+  // the disk changes queued now have landed (written or refused), without reporting a refusal
+  async diskWritesSettled() {
+    const upTo = this.diskQueued;
+    while (this.diskLanded < upTo) await this.diskWriting;
+  }
+  // a refused disk write, reported once by diskWritesDone: several pending are reported together, none dropped
+  addDiskError(err) { this.diskError = this.diskError ? new SessionError(`${this.diskError.message} ${err.message}`) : err; }
   // every drive's changes handed to the store now (they are written in the background)
-  flushDisks() { const fdc = this.machine && this.diskController; if (fdc) fdc.flush(); }
+  // (every machine with drives: in a full-screen chat the BASIC session beside the chat machine too)
+  flushDisks() { for (const { machine } of this.diskMachines()) { const fdc = this.diskControllerOf(machine); if (fdc) fdc.flush(); } }
   // wait until the store has every change handed to it; a failed write is reported once, here
+  // (the writes queued when it is called: one queued later is not waited for, so it always ends)
   async diskWritesDone() {
-    await this.diskWriting;
+    await this.diskWritesSettled();
     const e = this.diskError;
     this.diskError = null;
     if (e) throw e;
@@ -1807,10 +1990,7 @@ export class Session {
         this.claudeActing = { name, input: input || {} };
         this.emit('chat');
       }
-      const points = chat.undo.length;
-      const out = await run(name, input);
-      if (chat.undo.length > points) this.claudePointTimes.set(chat.undo[chat.undo.length - 1], Date.now());
-      return out;
+      return run(name, input);
     };
   }
   // answer the question on screen: the consent card (Allow / Just tell me the fix; the switch below the message box
@@ -1905,18 +2085,26 @@ export class Session {
   // (undo[i]) and drops the newer ones
   get claudePoints() {
     if (!this.chat) return [];
-    return this.chat.undo.map((snap, index) => ({ index, at: this.claudePointTimes.get(snap) || null })).reverse();
+    return this.chat.undo.map((snap, index) => ({ index, at: (this.claudePointInfo.get(snap) || {}).at || null })).reverse();
   }
+  // The point is checked first; only once it can be restored does Claude stop, and the newer points go only once it
+  // has been. A point that can't be restored (the ROMs changed since it was taken: Forget ROMs, Run without ROMs)
+  // throws a SessionError and changes nothing: the machine, Claude and every point stay as they were (a load that
+  // fails part way is rolled back). The disks go back to the store only as restorePoint says.
+  // -> false (no such point) or { notices }: restorePoint's notices, for the person
   restoreClaude(index = this.chat ? this.chat.undo.length - 1 : -1) {
     const chat = this.chat;
     if (!chat || index < 0 || index >= chat.undo.length) return false;
-    const snap = chat.undo[index];
-    chat.undo.length = index;
+    const snap = chat.undo[index], m = this.chatTarget().machine;
+    // one sentence: the page's toast shows the first one and keeps the rest under Details
+    try { m.checkSnapshot(snap); } catch (e) { throw new SessionError(`Can't restore that point (${e.message}): nothing was changed, and your restore points are kept.`); }
+    // Claude stops first, so what it was typing is let go on the machine as it is now, not on the restored one
     this.stopClaude();
-    this.chatTarget().restore(snap);
+    const notices = this.restorePoint(m, snap);
+    chat.undo.length = index;
     chat.changed();
     this.emit('chat');
-    return true;
+    return { notices };
   }
   // full screen -> the side panel: the BASIC session back on screen, the chat machine gone, the conversation kept
   toSidePanel() {
@@ -2012,8 +2200,10 @@ export class Session {
       writeSegments: (res) => this.injectAssembled(res, basic()),
       checkRun: (t) => this.checkRunTarget(t, basic()),
       run: (t) => this.runAt(t, basic()),
-      snapshot: () => basic().snapshot(),
-      restore: (snap) => { basic().restore(snap); },
+      // a restore point: when it was taken and the drives linked to the media store at that moment (their links)
+      snapshot: () => { const snap = basic().snapshot(); this.claudePointInfo.set(snap, { at: Date.now(), disks: this.storedDisks(basic()) }); return snap; },
+      // the same guarded path as restoreClaude -> restorePoint's notices
+      restore: (snap) => this.restorePoint(basic(), snap),
     };
   }
   // 'chat' or 'basic' on screen; 'chat' event
