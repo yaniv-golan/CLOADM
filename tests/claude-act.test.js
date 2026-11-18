@@ -1,7 +1,7 @@
 // Run: node tests/claude-act.test.js
 //
 // assemble_and_load and run (the acting tools), browser-free, no network. Both go through the
-// same consent as poke, type_text and press_break: the "Let Claude use the machine" gate in Session.gateTools.
+// same consent as poke, type_text and press_break: the "Let Claude use the emulator" gate in Session.gateTools.
 //
 // What is proved:
 //  * both are acting tools, offered with the others, the tool count stays within 16;
@@ -630,9 +630,9 @@ STB     FCB     $FE,$FD,$FB,$F7,$EF,$DF,$BF,$7F
     // so its description says that and names its own codes; the others state the shared consent wording
     const general = tools.filter((t) => t.name !== 'load_basic'), lb = tools.find((t) => t.name === 'load_basic');
     check('every acting description but load_basic (actingTools()) states the consent it needs and both refusal codes', tools.length === Emu.ACTING_TOOL_NAMES.length && general.length === tools.length - 1
-      && general.every((t) => /Needs "Let Claude use the machine": the person is asked the first time/.test(t.description) && new RegExp(C.NO_CONSENT).test(t.description) && new RegExp(C.CONSENT_DECLINED).test(t.description)), general.map((t) => t.name).join());
+      && general.every((t) => /Needs "Let Claude use the emulator": the person is asked the first time/.test(t.description) && new RegExp(C.NO_CONSENT).test(t.description) && new RegExp(C.CONSENT_DECLINED).test(t.description)), general.map((t) => t.name).join());
     check('load_basic\'s description states its own card: asked on every call, "Don\'t ask again" only with the switch on, and the codes load-declined, no-consent and stopped (not the first-time consent wording)',
-      /asked on every call, whether or not "Let Claude use the machine" is on, unless they ticked "Don't ask again this session" \(offered only while that switch is on/.test(lb.description)
+      /asked on every call, whether or not "Let Claude use the emulator" is on, unless they ticked "Don't ask again this session" \(offered only while that switch is on/.test(lb.description)
       && new RegExp(`error ${C.LOAD_DECLINED}`).test(lb.description) && new RegExp(C.NO_CONSENT).test(lb.description) && new RegExp(`Stop ${C.STOPPED}`).test(lb.description)
       && !/asked the first time/.test(lb.description) && !new RegExp(C.CONSENT_DECLINED).test(lb.description), lb.description.slice(-400));
     check('every acting description states its units or limits (addresses 0-65535, byte values, character limits)',

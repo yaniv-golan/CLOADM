@@ -372,12 +372,13 @@ export function setupClaude(page) {
     $('claudeHelp').hidden = !help;
     // the BASIC session card: consent, the switch, the restore point
     const pend = session.claudePending;
+    const modelName = () => { const m = session.chatMachines ? session.chatMachines.basic : session.machine; return m ? m.profile.name : ''; };
     const loading = !!(pend && pend.kind === 'load');      // load_basic's own card, on every call
     const asking = !!pend && !loading;                     // the consent question
     $('claudeSession').classList.toggle('asking', !!pend);
     $('claudeConsentText').textContent = asking
       ? 'Claude wants to type into your BASIC session. With permission it can type, POKE, run and press BREAK. You can watch it in the corner of the screen, Stop it, and Undo everything: a restore point is made first.'
-      : 'Claude reads it any time (screen and program). Typing, POKEs and running need your permission; loading a BASIC program asks every time (with the switch on, its card offers Don\'t ask again this session).';
+      : `Claude can read this ${modelName()}'s screen text and memory at any time, nothing outside the emulator. Typing, POKEs and running need your permission; loading a BASIC program asks every time (with the switch on, its card offers Don\'t ask again this session).`;
     $('claudeConsentAsk').hidden = !asking;
     $('claudeLoad').hidden = !loading;
     if (loading) $('claudeLoadText').textContent = loadCardText(pend.load);
@@ -390,9 +391,9 @@ export function setupClaude(page) {
     $('claudeRestore').hidden = !points.length;
     if (points.length) $('claudeRestoreWhen').textContent = `Restore point · ${when(points[0].at)}, before Claude's changes`;
     const basic = session.chatMachines && session.chatMachines.basic;
-    $('claudeSpec').textContent = basic ? `${basic.profile.name.replace(/^Tandy /, '')} · chat firmware, no ROM needed` : '';
+    $('claudeSpec').textContent = basic ? `${basic.profile.name} · chat firmware, no ROM needed` : '';
     $('claudeBasicNote').textContent = basic && !basic.hasRom
-      ? 'Your BASIC session has no BASIC ROMs, so it runs without ROMs: Claude can read and change memory, but BASIC programs need your ROMs.' : '';
+      ? 'Your BASIC session has no BASIC ROMs, so it runs without ROMs: Claude can read and change its memory, but BASIC programs need your ROMs.' : '';
     // the swap and the picture-in-picture
     const peeking = session.chatView === 'basic';
     $('claudePip').hidden = !full || !state.pip;

@@ -429,7 +429,7 @@ const json = (status, body) => () => new Response(JSON.stringify(body), { status
     const backend = { send: async () => { for (const [name, input] of turns.shift() || []) await backend.runTool(name, input); return { text: 'Done.', stopReason: 'end_turn' }; } };
     const firmware = new Uint8Array(fs.readFileSync(path.join(__dirname, '../examples/chat.bin')));
     const chat = s.startChat({ backend, channel: new Emu.MemoryChannel(), firmware, tools: true });
-    s.setClaudeAllowed(true);   // acting needs "Let Claude use the machine"; these turns act
+    s.setClaudeAllowed(true);   // acting needs "Let Claude use the emulator"; these turns act
     // a turn settles when its tools do; type_text waits for the machine to read its keys, so the machines run
     // (frames) until the turn has ended
     const turn = async (...calls) => {

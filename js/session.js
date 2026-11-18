@@ -43,7 +43,7 @@ import { inspectOs9Disk, NITROS9_RELEASES } from './media/os9.js';
 import { END_OF_REPLY, ACTING_TOOL_NAMES } from './claude/chat.js';
 import { loadBasic as loadBasicInto, planBasic } from './claude/basicload.js';
 
-// the machine tools that change the BASIC session: they need "Let Claude use the machine".
+// the machine tools that change the BASIC session: they need "Let Claude use the emulator".
 // Derived from the tool schemas in js/claude/chat.js, not restated: a tool added there is gated here.
 const ACTING_TOOLS = new Set(ACTING_TOOL_NAMES);
 // a message's text: a string, or the text blocks of a content array
@@ -200,7 +200,7 @@ export class Session {
     this.keyStore = keyStore || new MemoryKeyStore();
     this.chat = null;               // the Claude chat, once started (js/claude/chat.js): one conversation for both views
     this.claudeView = null;         // where it is shown: 'panel' (Ask Claude, beside the machine) | 'full' (the chat machine)
-    this.claudeAllowed = false;     // "Let Claude use the machine" (off until the person allows it)
+    this.claudeAllowed = false;     // "Let Claude use the emulator" (off until the person allows it)
     this.claudeGate = null;         // (name, input) => void: the page asks the person (answerClaude gives the answer)
     this.claudeLoadNoAsk = false;   // "Don't ask again this session" on load_basic's card (for the visit only)
     this.claudeActing = null;       // the acting tool call in progress or last made this turn: { name, input }
@@ -2071,8 +2071,10 @@ export class Session {
   }
   // the code at addr (the program counter by default), as the Debugger would show it, for "What is this code
   // doing?": { from, to, text } with one "ADDR  BYTES  INSTRUCTION" line per instruction and the registers
-  codeAt(addr = this.machine.cpu.pc, count = 8) {
-    const m = this.machine, { cpu, dp } = codeDisassembly(m);
+  // It reads the BASIC session, the machine the read tools use: in the full screen chat this.machine is the chat firmware.
+  codeAt(addr, count = 8) {
+    const m = this.chatMachines ? this.chatMachines.basic : this.machine, { cpu, dp } = codeDisassembly(m);
+    if (addr === undefined) addr = m.cpu.pc;
     const peek = (a) => this.readByte(a & 0xFFFF, m);
     const labels = new Map();
     if (this.labels) for (const [name, at] of this.labels) if (!labels.has(at)) labels.set(at, name);

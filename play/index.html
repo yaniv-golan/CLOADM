@@ -801,6 +801,7 @@
   .askfoot { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 14px; }
   .askfoot label { display: flex; align-items: center; gap: 8px; color: var(--text-2); }
   #askKeyLine { font-size: 13px; }
+  #askSendNote { margin: 6px 0 0; font-size: 12px; }
   #askRail { flex: none; width: 64px; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px 0; position: sticky; top: 12px; }
   #askRail button { width: 52px; height: 52px; min-height: 52px; padding: 0; background: transparent; border: 1px solid var(--line); border-radius: var(--r-10); color: var(--text-2); font-size: 11px; }
   #askRail button[aria-pressed="true"] { border-color: var(--phosphor); color: var(--text); }
@@ -1185,22 +1186,22 @@ npx serve -l 8000 .</pre>
       <strong>Ask Claude</strong>
       <div class="viewswitch" role="group" aria-label="View"><button id="btnAskSide" aria-pressed="true">Side panel</button><button id="btnAskFull" aria-pressed="false">Full screen</button></div>
       <span class="grow"></span>
-      <button id="btnAskMore" class="icon" aria-label="More: restore points and the machine switch" aria-expanded="false">⋯</button>
+      <button id="btnAskMore" class="icon" aria-label="More: restore points and the emulator switch" aria-expanded="false">⋯</button>
       <button id="btnAskMin" class="icon" aria-label="Minimise"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 10h8"/></svg></button>
       <button id="btnAskClose" class="icon" aria-label="Close"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="m3.5 3.5 7 7m0-7-7 7"/></svg></button>
     </div>
-    <div class="askpeek"><strong>Ask Claude</strong><span id="askPeekText">Ask about your screen or program</span><button id="btnAskPeekOpen">Open</button></div>
+    <div class="askpeek"><strong>Ask Claude</strong><span id="askPeekText">Ask about this machine</span><button id="btnAskPeekOpen">Open</button></div>
     <div id="askSee"></div>
     <div id="askBody">
       <div id="askEmpty">
-        <p>Ask about what's on the screen or in your program. Claude reads them; it only types or changes things if you let it use the machine.</p>
+        <p id="askEmptyText">Claude reads only this emulated <span id="askEmptyModel"></span> (its screen text and memory), never your computer. It types or changes things only if you allow it.</p>
         <div class="muted">Start with</div>
         <div id="askSuggest"></div>
       </div>
       <div id="askMessages" aria-live="polite"></div>
       <button id="btnAskFix" class="primary" hidden>Fix it for me</button>
       <div id="askConsent" class="askcard" hidden>
-        <strong>Let Claude use the machine?</strong>
+        <strong>Let Claude use the emulator?</strong>
         <p id="askConsentText"></p>
         <div class="bar"><button id="btnAskAllow" class="primary">Allow</button><button id="btnAskTell">Just tell me the fix</button></div>
         <div class="muted">You can change this any time with the switch below.</div>
@@ -1226,9 +1227,10 @@ npx serve -l 8000 .</pre>
       <p class="muted"><strong>Your key stays yours.</strong> Stored only in this browser. The emulated machine never sees it, and it's left out of snapshots, share links and exported settings.</p>
     </div>
     <div id="askComposer" hidden>
-      <div class="bar"><input id="askInput" aria-label="Message to Claude" autocomplete="off" placeholder="Ask about your screen or program…"><button id="btnAskSend" class="primary">Send</button></div>
-      <div class="askfoot"><label><input type="checkbox" id="chkAskMachine"> Let Claude use the machine</label>
+      <div class="bar"><input id="askInput" aria-label="Message to Claude" autocomplete="off" placeholder="Ask about this machine…"><button id="btnAskSend" class="primary">Send</button></div>
+      <div class="askfoot"><label><input type="checkbox" id="chkAskMachine"> Let Claude use the emulator</label>
         <span class="muted" id="askKeyLine">API key · Saved in this browser. <button class="link" id="btnAskKeyChange">Change</button> <button class="link" id="btnAskKeyForget">Forget</button></span></div>
+      <p class="muted" id="askSendNote">Your messages and what Claude reads go to Anthropic with your key.</p>
     </div>
   </aside>
   <nav id="askRail" aria-label="Machine settings" hidden></nav>
@@ -1255,7 +1257,7 @@ npx serve -l 8000 .</pre>
         <label class="loadnoask"><input type="checkbox" id="chkClaudeLoadNoAsk"> Don't ask again this session</label>
         <div class="bar"><button id="btnClaudeLoad" class="primary">Load it</button><button id="btnClaudeLoadNo">Don't load</button></div>
       </div>
-      <label class="switch"><input type="checkbox" id="chkClaudeTools"> Let Claude use the machine</label>
+      <label class="switch"><input type="checkbox" id="chkClaudeTools"> Let Claude use the emulator</label>
       <div id="claudeBasicNote"></div>
       <div id="claudeRestore" hidden><span class="muted" id="claudeRestoreWhen"></span><button id="btnClaudeUndo">Restore to before Claude's changes</button><div class="muted pointnote" id="claudePointNote">Restore points are kept only while this chat is open: reloading the page, ending the chat or switching machine loses them. Saved files (Library, DriveWire) are not rolled back, except a disk left in its drive since the point.</div></div>
     </section>

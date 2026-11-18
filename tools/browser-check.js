@@ -5195,7 +5195,7 @@ async function pwaChecks(browser, site, check) {
   await ctx.close();
 }
 
-// Consent in the full screen chat (?app=claude): "Let Claude use the machine"
+// Consent in the full screen chat (?app=claude): "Let Claude use the emulator"
 // starts off; the first time Claude wants to act, the BASIC session card asks (Allow / Just tell me the fix); "Just
 // tell me the fix" refuses the tool, Claude is told why, and nothing changes; Allow lets it act and turns the switch
 // on for the visit, so the next action does not ask; a reload starts with it off again. Lines are typed on the
@@ -5399,7 +5399,7 @@ async function consentFullscreenChecks(browser, base, check) {
   await started(page);
   await waitFor(page, () => window.emu.session.claudeView === 'full', null, 15000);
   await page.evaluate(() => { const b = window.emu.session.chat.backend, f = b.fetch; window.emu.__sent = 0; b.fetch = (...a) => { window.emu.__sent++; return f(...a); }; });
-  check(`${L}: "Let Claude use the machine" starts off`, !(await page.isChecked('#chkClaudeTools')) && await page.evaluate(() => !window.emu.session.claudeAllowed));
+  check(`${L}: "Let Claude use the emulator" starts off`, !(await page.isChecked('#chkClaudeTools')) && await page.evaluate(() => !window.emu.session.claudeAllowed));
 
   // the first acting tool asks; "Just tell me the fix" refuses it
   replies.push({ body: tools([{ name: 'type_text', input: { text: 'PRINT 1\n' } }]) }, { body: text('Type PRINT 1 yourself.') });
@@ -5584,7 +5584,8 @@ async function askFollowupChecks(browser, base, check) {
     check('ask (debugger): "What is this code doing?" is a command; it opens the panel and asks with the code at the program counter',
       /^What is this code doing\?/.test(opts[0]) && /^What is this code doing\? \(3000/.test(q || '') && /LDA\s+#\$41/.test(q) && /STA\s+,X\+/.test(q) && /RTS/.test(q) && /PC=3000/.test(q),
       `${JSON.stringify(opts)} ${JSON.stringify(q)}`);
-    check('ask (debugger): the panel says Claude can see the code and the registers', /The code at \$3000/.test(await page.textContent('#askSee')) && /Registers/.test(await page.textContent('#askSee')));
+    check('ask (debugger): the panel says Claude can read (emulator only) the code and the registers', /^Claude can read \(emulator only\):The code at \$3000Registers and symbols$/.test(await page.textContent('#askSee')));
+    check('ask (debugger): none of the old wording is on the page', !(await oldCopy(page)).length, (await oldCopy(page)).join());
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'ask-debugger-desktop.png') });
     check('ask (debugger): no page errors', !errors.length, errors.join('; '));
     await ctx.close();
@@ -5637,6 +5638,11 @@ async function askFollowupChecks(browser, base, check) {
       await page.click('#btnClaudeView');
       check(`${L}: "Back to the chat" swaps back and hides it`, await waitFor(page, () => document.getElementById('claudePip').hidden && window.emu.session.chatView === 'chat'));
     }
+    // the copy: the BASIC session's model in the card, nothing about "your screen" or "the machine switch"
+    check(`${L}: the card says Claude reads this Dragon 64's screen text and memory, nothing outside the emulator`,
+      (await page.textContent('#claudeConsentText')) === "Claude can read this Dragon 64's screen text and memory at any time, nothing outside the emulator. Typing, POKEs and running need your permission; loading a BASIC program asks every time (with the switch on, its card offers Don't ask again this session).", await page.textContent('#claudeConsentText'));
+    check(`${L}: the switch is "Let Claude use the emulator"`, (await page.textContent('#claudeSession label.switch')).trim() === 'Let Claude use the emulator');
+    check(`${L}: none of the old wording is on the page`, !(await oldCopy(page)).length, (await oldCopy(page)).join());
     // Claude acts: the window appears and stays after the turn
     await page.check('#chkClaudeTools');
     replies.push({ body: tools([{ name: 'type_text', input: { text: 'PRINT 1\n' } }]) }, { body: text('Typed it.') });
@@ -5648,6 +5654,27 @@ async function askFollowupChecks(browser, base, check) {
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `full-after-acting-${label}.png`) });
     await page.click('#btnPipClose');
     check(`${L}: its close button hides it again`, JSON.stringify(await pip()) === JSON.stringify({ shown: false, view: 'chat' }));
+    if (label === 'desktop') {
+      // "What is this code doing?" from Ctrl+K while the chat is full screen: the code is the BASIC session's, not the chat firmware's
+      // the BASIC session keeps running (so its program counter moves): the question names an address and the bytes there;
+      // they must be the BASIC session's, and differ from the chat machine's at the same address
+      // (asking opens the side panel and ends the full screen chat, so the chat machine's memory is copied first)
+      await page.evaluate(() => { const c = window.emu.session.chatMachines.chat; window.__chatRam = Uint8Array.from(c.ram); });
+      replies.push({ body: text('It stores A at X and counts B down.') });
+      await page.focus('#screen');
+      await page.keyboard.press('Control+k');
+      await page.keyboard.type('what is this code');
+      await page.keyboard.press('Enter');
+      await waitFor(page, () => window.emu.session.chat.messages.some((m) => typeof m.content === 'string' && /^What is this code doing\?/.test(m.content)), null, 10000);
+      await waitFor(page, () => !window.emu.session.chat.busy, null, 10000);
+      const q = await page.evaluate(() => window.emu.session.chat.messages.filter((m) => typeof m.content === 'string' && /^What is this code doing\?/.test(m.content)).map((m) => m.content)[0] || '');
+      const asked = await page.evaluate((qq) => { const s = window.emu.session, mm = /^What is this code doing\? \(([0-9A-F]{4})/.exec(qq), line = /\n\n([0-9A-F]{4}) {2}((?:[0-9A-F]{2} ?)+)/.exec(qq);
+        if (!mm || !line) return null;
+        const at = parseInt(line[1], 16), bytes = line[2].trim().split(' ').map((h) => parseInt(h, 16));
+        return { at, basic: bytes.every((b, i) => s.readByte(at + i, s.machine) === b), chat: bytes.every((b, i) => window.__chatRam[at + i] === b), pcLine: /PC=([0-9A-F]{4})/.exec(qq)[1] }; }, q);
+      check(`${L}: "What is this code doing?" in the full screen chat sends the BASIC session's code and registers, not the chat firmware's`,
+        !!asked && asked.basic && !asked.chat && asked.pcLine === q.match(/\(([0-9A-F]{4})–/)[1], JSON.stringify([asked, q.slice(0, 120)]));
+    }
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
     await ctx.close();
   }
@@ -5682,7 +5709,7 @@ async function askFollowupChecks(browser, base, check) {
     await ctx.close();
   }
 
-  // ---- (6) load_basic's own card: on every call, even with "Let Claude use the machine" on, with "Don't ask again
+  // ---- (6) load_basic's own card: on every call, even with "Let Claude use the emulator" on, with "Don't ask again
   // this session". The machine in use gets BASIC's shape without a BASIC ROM: our idle firmware in the BASIC socket,
   // BASIC's pointers describing an empty program at $1E01 and OK on the screen (as tests/basic-load.test.js) ----
   {
@@ -5709,7 +5736,7 @@ async function askFollowupChecks(browser, base, check) {
     await page.click('#btnAsk');
     replies.push({ body: tools([{ name: 'load_basic', input: { program: PROG } }]) }, { body: text('Loaded.') });
     await askNow('Load my 20-line program');
-    check('load card: with "Let Claude use the machine" on, load_basic still asks with its own card, saying what it loads',
+    check('load card: with "Let Claude use the emulator" on, load_basic still asks with its own card, saying what it loads',
       ready && await loadCard() && await page.evaluate(() => window.emu.session.claudeAllowed) && await page.isHidden('#askConsent')
       && /20-line BASIC program \(lines 10 to 200, \d+ bytes\)/.test(await page.textContent('#askLoadText'))
       && /Don't ask again this session/.test(await page.textContent('#askLoad')) && !(await page.isChecked('#chkAskLoadNoAsk')), await page.textContent('#askLoad'));
@@ -5829,6 +5856,10 @@ async function askFollowupChecks(browser, base, check) {
 // refused, rate limited, offline, each with its text, and Try again), a question and its streamed answer, consent
 // the first time Claude wants to act (Allow), the activity pill and Stop, the restore point and Undo, and the move
 // to full screen and back with the same conversation.
+// the strings the Ask Claude copy fix removed: none may be anywhere in the page text (hidden elements included)
+const OLD_COPY = ['Your screen', 'Your memory', 'your screen or program', 'Claude can see', 'use the machine'];
+const oldCopy = (page) => page.evaluate((list) => { const t = document.body.textContent + ' ' + [...document.querySelectorAll('[aria-label],[placeholder]')].map((e) => (e.getAttribute('aria-label') || '') + ' ' + (e.getAttribute('placeholder') || '')).join(' '); return list.filter((x) => t.includes(x)); }, OLD_COPY);
+
 async function askChecks(browser, base, check) {
   const KEY = 'sk-ant-ASK-CHECK-KEY-0123456789';
   const sse = (events) => events.map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join('');
@@ -5893,8 +5924,29 @@ async function askChecks(browser, base, check) {
     await page.click('#btnAskKeySave');
     check(`${L}: Save key: the message box comes back, and the key is saved in this browser`, await vis('#askComposer') && !(await vis('#askKeyForm'))
       && await ev((k) => localStorage.getItem('cloadm.anthropicKey') === k, KEY) && /Saved in this browser/.test(await page.textContent('#ask')));
-    check(`${L}: the panel says what Claude can see, and the switch "Let Claude use the machine" is off`, /Claude can see:/.test(await page.textContent('#askSee'))
-      && /your screen/i.test(await page.textContent('#askSee')) && !(await page.isChecked('#chkAskMachine')));
+    check(`${L}: the panel says what Claude can read (emulator only), and the switch "Let Claude use the emulator" is off`, await page.textContent('#askSee') === 'Claude can read (emulator only):Screen textMemory'
+      && await page.getAttribute('#askInput', 'placeholder') === 'Ask about this machine…' && await page.textContent('#askPeekText') === 'Ask about this machine'
+      && !(await page.isChecked('#chkAskMachine')));
+    check(`${L}: the empty state says Claude reads only this emulated machine, visible${phone ? ' on the phone sheet (where "Claude can read" is hidden)' : ''}, and names it`, await vis('#askEmpty') && !(await vis('#askSee')) === phone
+      && (await page.textContent('#askEmptyText')) === 'Claude reads only this emulated Dragon 64 (its screen text and memory), never your computer. It types or changes things only if you allow it.', await page.textContent('#askEmptyText'));
+    check(`${L}: the footer line about Anthropic is visible`, await vis('#askSendNote') && await page.textContent('#askSendNote') === 'Your messages and what Claude reads go to Anthropic with your key.');
+    // the empty state follows a machine switch (the panel text updates whether or not the panel is showing)
+    await page.evaluate(() => window.emu.session.switchMachine('coco'));
+    const named = await waitFor(page, () => /CoCo 1\/2/.test(document.getElementById('askEmptyText').textContent), null, 5000);
+    check(`${L}: switching machines updates the name in the empty state`, named && /emulated CoCo 1\/2 \(/.test(await page.textContent('#askEmptyText')), await page.textContent('#askEmptyText'));
+    await page.evaluate(() => window.emu.session.switchMachine('dragon64'));
+    check(`${L}: and back`, await waitFor(page, () => /Dragon 64/.test(document.getElementById('askEmptyText').textContent), null, 5000));
+    // a machine switch shows the welcome menu (where "Ask Claude" opens the full screen chat) and can leave the panel up:
+    // back on the live machine, close whatever is open and open the side panel, checking each step
+    await stubPrompt(page);
+    if (await vis('#ask')) {
+      await page.click('#btnAsk');
+      check(`${L}: (setup) the panel left up by the switch closes`, await waitFor(page, () => document.getElementById('ask').hidden, null, 5000));
+    }
+    await page.click('#btnAsk');
+    check(`${L}: (setup) "Ask Claude" opens the side panel again, not the full screen chat`, await waitFor(page, () => window.emu.session.claudeView === 'panel' && !document.getElementById('ask').hidden, null, 5000),
+      await page.evaluate(() => String(window.emu.session.claudeView)));
+    check(`${L}: none of the old wording is on the page`, !(await oldCopy(page)).length, (await oldCopy(page)).join());
     await shot('open-ready');
     // ---- a question and its streamed answer ----
     replies.push({ body: text('A syntax error: a quote is missing.') });
@@ -5910,7 +5962,7 @@ async function askChecks(browser, base, check) {
     replies.push({ body: tools([{ name: 'type_text', input: { text: LISTING } }]) });
     await ask('Type a listing in for me');
     check(`${L}: the first time Claude wants to act it asks: Allow / Just tell me the fix`, await waitFor(page, () => !document.getElementById('askConsent').hidden)
-      && /Let Claude use the machine\?/.test(await page.textContent('#askConsent')) && await vis('#btnAskAllow') && await vis('#btnAskTell'));
+      && /Let Claude use the emulator\?/.test(await page.textContent('#askConsent')) && await vis('#btnAskAllow') && await vis('#btnAskTell'));
     await shot('consent');
     await page.click('#btnAskAllow');
     const acting = await waitFor(page, () => { const p = document.getElementById('askActing'); return p && !p.hidden && /Claude is typing line \d+/.test(p.textContent); }, null, 8000);
@@ -6787,7 +6839,7 @@ async function claudeChecks(browser, base, check) {
   if (shotDir) await page.screenshot({ path: path.join(shotDir, 'claude-ready.png') });
 
   // a scripted turn: Claude POKEs and types RUN on the BASIC session, then answers (the switch allows it first)
-  check('claude: "Let Claude use the machine" starts off', !(await page.isChecked('#chkClaudeTools')));
+  check('claude: "Let Claude use the emulator" starts off', !(await page.isChecked('#chkClaudeTools')));
   await page.check('#chkClaudeTools');
   replies.push({ body: tools([{ name: 'poke', input: { address: 0x3000, bytes: [1, 2, 3] } }, { name: 'type_text', input: { text: 'RUN\n' } }]) }, { body: text('Done: it ran.') });
   await say('Poke it, then run it.', 2);
@@ -6828,7 +6880,7 @@ async function claudeChecks(browser, base, check) {
   await page.uncheck('#chkClaudeTools');
   replies.push({ body: text('Only reading now.') });
   await say('can you still read?', 3);
-  check('claude: with "Let Claude use the machine" off the tools still go (reading always works; acting asks first)', requests.length === 3 && requests[2].body.tools.length === TOOL_COUNT
+  check('claude: with "Let Claude use the emulator" off the tools still go (reading always works; acting asks first)', requests.length === 3 && requests[2].body.tools.length === TOOL_COUNT
     && await page.evaluate(() => !window.emu.session.claudeAllowed));
   replies.push({ status: 429, body: JSON.stringify({ type: 'error', error: { type: 'rate_limit_error', message: 'slow down' } }) });
   await say('again', 4);

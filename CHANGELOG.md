@@ -128,6 +128,20 @@ All notable changes to CLOADM are recorded here. The format follows
 - After a reload while a view was open over the chat, Back no longer leaves `?app=claude` in the emulator's address: a
   page loaded on `?app=claude` now keeps the emulator's own entry, without the parameter, under the chat.
 
+### Changed
+
+- **Ask Claude says what it reads, and that it is only the emulator.** The panel's header is "Claude can read
+  (emulator only):" with the chips "Screen text" and "Memory"; the placeholder and the phone peek say "Ask about this
+  machine"; the empty state says "Claude reads only this emulated <model> (its screen text and memory), never your
+  computer" and follows a machine switch, on phones too; a new footer line says "Your messages and what Claude
+  reads go to Anthropic with your key." The full screen card names the BASIC session's model. The switch is "Let
+  Claude use the emulator" everywhere (page, docs, README).
+
+### Fixed
+
+- "What is this code doing?" asked from the full screen chat (Ctrl+K) disassembled the chat firmware and its
+  registers; it now reads the BASIC session, as the read tools do (`Session.codeAt`).
+
 ### 0.1.1-pre
 
 #### Added
@@ -138,7 +152,7 @@ All notable changes to CLOADM are recorded here. The format follows
   and checks the result (LIST and the screen) before saying it worked. Loading asks on every call with its own card
   ("Don't ask again this session" stops it for the visit). The same load is `Session.loadBasic(program)` and the
   embed API's `loadBasic`, for automation, with no card.
-  "Don't ask again this session" is offered only while "Let Claude use the machine" is on: with the switch off
+  "Don't ask again this session" is offered only while "Let Claude use the emulator" is on: with the switch off
   every load asks, and Stop while the card is up ends the call as `stopped` rather than `load-declined`.
 
 - **Booting NitrOS-9 from the page:** on the CoCo 3 (6809 or HD6309), NitrOS-9 Level 2 boots from the user's own

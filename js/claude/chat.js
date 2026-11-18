@@ -35,9 +35,9 @@ export const SOURCE_MAX = 32768;         // characters of assembler source one a
 // tests/claude-typing.test.js checks both say it.
 export const TYPE_LINES_MAX = 3;
 export const TYPING_POLICY = `Policy: type a BASIC program with type_text only when it has ${TYPE_LINES_MAX} lines or fewer; for a longer program, ask the person whether to load it with load_basic instead of typing it, and call load_basic only after they agree. After either, verify before you say it worked: type LIST and read the screen with screen_text, and compare with the program you meant.`;
-const CONSENT = ' Needs "Let Claude use the machine": the person is asked the first time; if they decline you get the error no-consent or consent-declined and nothing changes.';
+const CONSENT = ' Needs "Let Claude use the emulator": the person is asked the first time; if they decline you get the error no-consent or consent-declined and nothing changes.';
 // load_basic is not behind that question: it has its own card on every call (js/session.js gateTools)
-const LOAD_CONSENT = ' The person is asked on every call, whether or not "Let Claude use the machine" is on, unless they ticked "Don\'t ask again this session" (offered only while that switch is on; turning it off asks again); if they decline you get the error load-declined, if there is nobody to ask no-consent, and if they press Stop stopped; nothing changes.';
+const LOAD_CONSENT = ' The person is asked on every call, whether or not "Let Claude use the emulator" is on, unless they ticked "Don\'t ask again this session" (offered only while that switch is on; turning it off asks again); if they decline you get the error load-declined, if there is nobody to ask no-consent, and if they press Stop stopped; nothing changes.';
 export function actingTools() {
   const schema = (props, required) => ({ type: 'object', properties: props, required });
   const int = (description) => ({ type: 'integer', description });

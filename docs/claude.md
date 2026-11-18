@@ -85,14 +85,14 @@ Two ways to talk to Claude, one conversation:
   type come first (each presses the page's own button and is never sent to Claude), **Ask Claude: "…"** is always
   last. Enter runs the command or asks; asking opens the side panel, or full screen while the welcome menu is on
   screen.
-* **Consent.** Claude can always read (the screen, memory, the machine); the panel says what it can see. Acting
-  (POKE, typing, BREAK) needs **Let Claude use the machine**, off until you allow it: the first time Claude wants to
+* **Consent.** Claude can always read the emulated machine (screen text, memory, model and program counter), and nothing outside the emulator; the panel names what it reads. What it reads goes to Anthropic with the conversation, using your key. Acting
+  (POKE, typing, BREAK) needs **Let Claude use the emulator**, off until you allow it: the first time Claude wants to
   act it asks in the conversation (**Allow**, which turns the switch on for the visit, or **Just tell me the fix**,
   which Claude is told and which changes nothing). While Claude acts the screen has a pulsing green ring and
   "Claude is typing line 120… **Stop**" at its top, and the panel shows a live log. A key you press on the machine
   pauses Claude: what it still had to type is held back and its next action waits, until **Resume** (or **Stop**).
 * **What is this code doing?** in the Ctrl+K box asks about the code at the program counter: the disassembly and
-  the registers go with the question (`Session.codeAt`), and the panel says Claude can see the code and the
+  the registers go with the question (`Session.codeAt`), and the panel says Claude can read the code and the
   registers. A restore point is made before
   Claude's first change in each turn: **Restore to before Claude's changes**, and **All restore points** (the last 10).
   Restore points are kept in memory only, while the chat is open: reloading the page, ending the chat or switching
@@ -225,7 +225,7 @@ emulator.
   text would read back as a token), `no-basic`, `not-at-prompt`, `program-too-large`, `unknown-machine`, `empty`,
   `too-large`. Text outside strings is upper-cased, as typing it would be.
   **Its own card, every call.** Because it replaces the program in memory, `load_basic` asks on every call, even
-  with "Let Claude use the machine" on: after its program is checked (a load that cannot happen is refused with its
+  with "Let Claude use the emulator" on: after its program is checked (a load that cannot happen is refused with its
   code and no card), a card in either view says what it loads ("a 20-line BASIC program (lines 10 to 200, 313
   bytes)") with **Load it**, **Don't load** (the code `load-declined`; Stop while the card is up is `stopped`) and,
   only while the switch is on, **Don't ask again this session**, which stops the card for the visit until the

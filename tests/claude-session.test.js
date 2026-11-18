@@ -94,9 +94,9 @@ const settle = () => new Promise((r) => setTimeout(r, 10));
 const frames = (s, k) => { for (let i = 0; i < k; i++) s.advance(1000 / s.machine.fps + 0.01); };
 const snapText = (m) => Emu.state.toJSON(m.snapshot());
 
-function open(bodies, { machine = 'dragon64', tools = true } = {}) {
+function open(bodies, { machine = 'dragon64', cpu = null, tools = true } = {}) {
   const s = new Emu.Session({ store: Emu.memoryStore() });
-  s.switchMachine(machine);
+  if (cpu) s.switchMachine(machine, { cpu }); else s.switchMachine(machine);
   s.setClaudeKey(KEY);
   const { fetch, calls } = scripted(bodies);
   const backend = new Emu.ClaudeBackend({ fetch, apiKey: s.keyStore.get() });
@@ -306,7 +306,7 @@ async function say(s, calls, line, want) {
     check('nothing left to undo', chat.undoLast() === false);
   }
 
-  // ---- "Let Claude use the machine" off ----
+  // ---- "Let Claude use the emulator" off ----
   {
     const { s, chat, calls, basic } = open([textReply('No tools.')], { tools: true });
     chat.setTools(false);
@@ -495,6 +495,44 @@ async function say(s, calls, line, want) {
       check('codeAt: the 6803 line carries no E, Q or MD', !/\b(E|Q|MD)=/.test(c3.registers), c3.registers);
       check('codeAt: the 6803 disassembles its own code', /LDAA >\$4200/.test(c3.text), JSON.stringify(c3.text));
     }
+    s.endChat();
+  }
+
+  // ---- codeAt in the full screen chat reads the BASIC session, not the chat firmware ----
+  {
+    const { s, basic } = open([textReply('x')]);
+    const chatM = s.chatMachines.chat;
+    check('full screen: this.machine is the chat machine, not the BASIC session (the premise)', s.machine === chatM && chatM !== basic);
+    [0x86, 0x41, 0xA7, 0x80, 0x5A, 0x26, 0xFB, 0x39].forEach((b, i) => basic.poke(0x3000 + i, b));
+    [0x4F, 0x5F, 0x39, 0x12].forEach((b, i) => chatM.poke(0x3000 + i, b));   // CLRA CLRB RTS NOP: not what the BASIC session holds
+    basic.cpu.pc = 0x3000; chatM.cpu.pc = 0x3002;
+    const at = s.codeAt(0x3000, 2);
+    check('full screen: codeAt(addr) disassembles the BASIC session\'s memory', at.text === '3000  86 41        LDA #$41\n3002  A7 80        STA ,X+', JSON.stringify(at));
+    const dflt = s.codeAt(undefined, 1);
+    check('full screen: codeAt() defaults to the BASIC session\'s program counter and registers', dflt.from === 0x3000 && /^PC=3000 /.test(dflt.registers), JSON.stringify(dflt));
+    s.endChat();
+    const back = s.codeAt(0x3000, 1);
+    check('after the chat ends codeAt reads the machine in use (the BASIC session)', back.text === '3000  86 41        LDA #$41', JSON.stringify(back));
+  }
+
+  // ---- codeAt in the full screen chat on an HD6309: the BASIC session's 6309 code, register set and DP ----
+  {
+    const { s, basic } = open([textReply('x')], { machine: 'coco3', cpu: '6309' });
+    const chatM = s.chatMachines.chat;
+    check('full screen 6309: the BASIC session is a 6309 and is not this.machine (the premise)',
+      basic.config.cpu === '6309' && s.machine === chatM && chatM !== basic);
+    const r = Emu.assemble(' ORG $3000\n LDA <$10\n LDQ #$11223344\n', '6309');
+    if (!r.ok) throw new Error(JSON.stringify(r.errors));
+    [...r.segments[0].data].forEach((b, i) => basic.poke(0x3000 + i, b));
+    [0x4F, 0x5F, 0x39, 0x12, 0x12, 0x12, 0x12, 0x12].forEach((b, i) => chatM.poke(0x3000 + i, b));
+    basic.cpu.pc = 0x3000; basic.cpu.dp = 0x40; basic.cpu.q = 0x11223344;
+    chatM.cpu.pc = 0x3002; chatM.cpu.dp = 0x00;
+    s.labels = new Map([['VAR', 0x4010]]);   // named only through the BASIC session's DP ($40), not the chat machine's ($00)
+    const c = s.codeAt(undefined, 2);
+    check('full screen 6309: codeAt() disassembles the BASIC session\'s 6309 code at its PC, with its DP',
+      c.from === 0x3000 && /LDA <VAR\b/.test(c.text) && /LDQ #\$11223344/.test(c.text) && !/FCB/.test(c.text), JSON.stringify(c.text));
+    check('full screen 6309: the registers are the BASIC session\'s 6309 set (Q, DP $40)',
+      /^PC=3000 /.test(c.registers) && /\bQ=11223344\b/.test(c.registers) && /\bDP=40\b/.test(c.registers) && /\bMD=/.test(c.registers), c.registers);
     s.endChat();
   }
 

@@ -1,5 +1,5 @@
 /*
- * Ask Claude, the side panel (a bottom sheet on a phone). The machine stays live beside it: clicking the screen gives the machine the keyboard,
+ * Ask Claude, the side panel (a bottom sheet on a phone). The emulator keeps running beside it: clicking the screen gives the machine the keyboard,
  * clicking the message box gives Claude the keyboard. The conversation, the backend and the state are the
  * controller's (js/ui/claude.js), shared with the full screen chat.
  *   - desktop: 420 px on the right, the left edge drags it between 320 and 560 px (remembered); the drawer's tabs
@@ -8,7 +8,7 @@
  *   - phone: a bottom sheet with peek, half and full heights (the handle or the header button changes it; the
  *     message box focused makes it full; while Claude acts it drops to peek); restore points and the switch sit
  *     in its ⋯ menu;
- *   - "Claude can see": your screen, your BASIC program; reading always works, acting asks first (the consent
+ *   - "Claude can read (emulator only)": screen text, memory; reading always works, acting asks first (the consent
  *     card: Allow / Just tell me the fix; Allow turns the switch on for the visit);
  *   - while Claude acts: a pulsing ring on the screen and "Claude is typing line 120… Stop" at its top, a live
  *     log in the panel; Stop ends the turn (a key pressed on the machine does not pause Claude yet: the rules
@@ -169,6 +169,8 @@ export function setupAsk(page, claude) {
   $('btnAskKeyChange').onclick = () => { editingKey = true; render(); $('askKeyInput').focus(); };
   $('btnAskKeyForget').onclick = () => claude.forgetKey();
   // the openers
+  // the emulated machine's name ("Dragon 64", "CoCo 1/2"), as the full screen card says it
+  const modelName = () => { const m = session.chatMachines ? session.chatMachines.basic : session.machine; return m ? m.profile.name : ''; };
   const context = () => machineContext(session, session.chatMachines ? session.chatMachines.basic : session.machine);
   $('btnOpenErr').onclick = () => claude.openPanel(`Explain this error: ${context().error}`);
   $('btnOpenProg').onclick = () => claude.openPanel('Help with my program');
@@ -181,12 +183,14 @@ export function setupAsk(page, claude) {
     $('btnAsk').setAttribute('aria-pressed', String(open || session.claudeView === 'full'));
     $('btnAskSide').setAttribute('aria-pressed', 'true');
     $('askStrip').hidden = !(minimised && !open && session.chat);
-    // what Claude can see: the code and the registers for the Debugger's question, else the screen and the program
+    // what Claude can read: the code and the registers for the Debugger's question, else the screen and the program
     const code = st.context && st.context.code != null;
-    $('askSee').replaceChildren(el('span', 'Claude can see:'),
-      el('span', code ? `The code at $${st.context.code.toString(16).toUpperCase().padStart(4, '0')}` : 'Your screen', 'chip'),
-      el('span', code ? 'Registers and symbols' : ctx.lines ? `Your BASIC program (${ctx.lines} line${ctx.lines === 1 ? '' : 's'})` : 'Your memory', 'chip'));
-    $('askInput').placeholder = code ? 'Ask about this code…' : 'Ask about your screen or program…';
+    $('askSee').replaceChildren(el('span', 'Claude can read (emulator only):'),
+      el('span', code ? `The code at $${st.context.code.toString(16).toUpperCase().padStart(4, '0')}` : 'Screen text', 'chip'),
+      el('span', code ? 'Registers and symbols' : 'Memory', 'chip'));
+    $('askInput').placeholder = code ? 'Ask about this code…' : 'Ask about this machine…';
+    // the empty state names the emulated machine (the BASIC session's, while the full screen chat is open)
+    $('askEmptyModel').textContent = modelName();
     // the conversation
     const msgs = chat ? chat.messages.filter((m) => typeof m.content === 'string') : [];
     const items = msgs.map((m) => [m.role === 'user' ? 'user' : 'claude', m.content]);
@@ -255,7 +259,7 @@ export function setupAsk(page, claude) {
     $('monitor').classList.toggle('claude-acting', !!busy);
     if (busy && phone() && open && ask.dataset.height !== 'peek') { ask.dataset.restore = ask.dataset.height; setHeight('peek'); }
     if (!busy && phone() && open && ask.dataset.restore) { setHeight(ask.dataset.restore); delete ask.dataset.restore; }
-    $('askPeekText').textContent = busy ? (text || 'Claude is acting…') : 'Ask about your screen or program';
+    $('askPeekText').textContent = busy ? (text || 'Claude is acting…') : 'Ask about this machine';
     const chatBusy = session.chat && session.chat.busy;
     $('askStripText').textContent = busy ? (text || 'Claude is acting…') : chatBusy ? 'Claude is thinking…' : 'Ready';
     // openers: not while acting, not in full screen
@@ -264,7 +268,7 @@ export function setupAsk(page, claude) {
     $('btnOpenErr').hidden = !ctx.error || busy;
     if (ctx.error) $('openErrText').textContent = ctx.error;
     $('btnOpenProg').hidden = !ctx.lines || busy;
-    $('askMachineNote').textContent = busy ? 'Stop on the screen ends Claude\'s turn.' : open ? 'The machine stays live while you ask.' : '';
+    $('askMachineNote').textContent = busy ? 'Stop on the screen ends Claude\'s turn.' : open ? 'The emulator keeps running while you ask.' : '';
     $('askOpeners').hidden = $('btnOpenErr').hidden && $('btnOpenProg').hidden && !$('askMachineNote').textContent;
   }
   claude.onChange(render);
