@@ -6,7 +6,9 @@ All notable changes to CLOADM are recorded here. The format follows
 
 ## [Unreleased]
 
-### Fixed
+### 0.1.3-pre
+
+#### Fixed
 
 - **CoCo 3: a memory write from outside the CPU left the CPU at the old clock.** The Debugger's memory write
   (which goes through the bus) to `$FFD8`/`$FFD9` set the GIME's fast bit but not the machine's clock divider,
@@ -20,34 +22,6 @@ All notable changes to CLOADM are recorded here. The format follows
   controller's HALT holds an instruction drops that instruction (as any outside change does: its halted time counts
   at the old rate) so the CPU runs on at the new one; a snapshot of an instruction held after its own speed change
   keeps its saved divider.
-
-### Changed
-
-- **"Allow and resume".** While Claude is paused by your key, a card waiting for your answer says so, and its
-  accept button reads **Allow and resume** (**Load and resume** on the load card): one click gives consent and lets
-  Claude go on. The decline button never resumes. The status shows the pause (with Resume) rather than *Waiting for
-  your OK*. Turning "Let Claude use the emulator" off while Claude is paused now withdraws consent for what the pause
-  holds: on Resume the waiting action is refused, even one you had allowed on its card (before, it still ran), and
-  typing held back is dropped instead of typed. Turning the switch on while paused does not resume.
-  Esc while paused with a card up stops Claude. A card that ends the browser's Fullscreen is no longer taken for your
-  Esc (which stops Claude) when a key paused Claude just before the browser reported it.
-- **More of your input pauses Claude.** An edit in the Debugger (a byte, a register, a flag), the embed API's `poke`,
-  `loadBasic`, `load` and `insertTape`, and a gamepad, the mouse as joystick or the on-screen touch stick and its
-  FIRE (a fire press, or a push out of the dead zone; not a stick resting with noise or jittering at the dead zone's
-  edge) now pause Claude acting on that machine, as a key does. On a phone, a card taller than the room the sheet
-  leaves it now scrolls so its buttons show (with the key and privacy lines below the message box, Allow was hidden
-  under the status line). Paused at a card you then decline, Claude is no longer shown as acting while it only writes
-  its reply; every paused state says "Paused: you pressed a key · Claude's next action waits · Esc stops Claude".
-- **The Ask panel's pause and the acting tools' gate are one mechanism.** The pause made by your input
-  (`Session.personInput`) is the one the acting tools' gate and pre-act re-check wait on, and it ends with its turn
-  (`endClaudePause`), refusing the waiting call. Your input pauses an acting call from its gate onwards (a card
-  waiting, its `INCLUDE` read), even before Claude's first change of the turn; nothing is written and no restore point
-  is taken while paused. `include-unreadable` is in `assemble_and_load`'s description and in the codes table of
-  `docs/claude.md`. New `tests/claude-ask-acting.test.js`, and the browser check's `askEsc` group covers Stop on the
-  page views' pill while a call waits at its gate.
-
-### Fixed
-
 - **Ask Claude no longer goes silent during a turn.** While Claude thought or wrote a long tool call (a `load_basic`
   program streams no text), the side panel showed nothing and had no Stop until Claude acted on the machine. Every
   view (the side panel, the phone sheet, the full-screen chat, and the page views: Share, the Library, Add ROMs and
@@ -92,6 +66,31 @@ All notable changes to CLOADM are recorded here. The format follows
   an error instead of being sent; a blank line starts no turn).
 - Claude no longer asks in prose before loading a long program and then has the page ask again: the policy now
   tells it to call `load_basic`, whose card is the question.
+
+#### Changed
+
+- **"Allow and resume".** While Claude is paused by your key, a card waiting for your answer says so, and its
+  accept button reads **Allow and resume** (**Load and resume** on the load card): one click gives consent and lets
+  Claude go on. The decline button never resumes. The status shows the pause (with Resume) rather than *Waiting for
+  your OK*. Turning "Let Claude use the emulator" off while Claude is paused now withdraws consent for what the pause
+  holds: on Resume the waiting action is refused, even one you had allowed on its card (before, it still ran), and
+  typing held back is dropped instead of typed. Turning the switch on while paused does not resume.
+  Esc while paused with a card up stops Claude. A card that ends the browser's Fullscreen is no longer taken for your
+  Esc (which stops Claude) when a key paused Claude just before the browser reported it.
+- **More of your input pauses Claude.** An edit in the Debugger (a byte, a register, a flag), the embed API's `poke`,
+  `loadBasic`, `load` and `insertTape`, and a gamepad, the mouse as joystick or the on-screen touch stick and its
+  FIRE (a fire press, or a push out of the dead zone; not a stick resting with noise or jittering at the dead zone's
+  edge) now pause Claude acting on that machine, as a key does. On a phone, a card taller than the room the sheet
+  leaves it now scrolls so its buttons show (with the key and privacy lines below the message box, Allow was hidden
+  under the status line). Paused at a card you then decline, Claude is no longer shown as acting while it only writes
+  its reply; every paused state says "Paused: you pressed a key · Claude's next action waits · Esc stops Claude".
+- **The Ask panel's pause and the acting tools' gate are one mechanism.** The pause made by your input
+  (`Session.personInput`) is the one the acting tools' gate and pre-act re-check wait on, and it ends with its turn
+  (`endClaudePause`), refusing the waiting call. Your input pauses an acting call from its gate onwards (a card
+  waiting, its `INCLUDE` read), even before Claude's first change of the turn; nothing is written and no restore point
+  is taken while paused. `include-unreadable` is in `assemble_and_load`'s description and in the codes table of
+  `docs/claude.md`. New `tests/claude-ask-acting.test.js`, and the browser check's `askEsc` group covers Stop on the
+  page views' pill while a call waits at its gate.
 
 ### 0.1.2-pre
 
