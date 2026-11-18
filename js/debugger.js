@@ -44,6 +44,32 @@ const REGS = {
   '6803': ['a', 'b', 'd', 'x', 's', 'pc', 'cc'],
   '6309': ['a', 'b', 'd', 'e', 'f', 'w', 'v', 'q', 'x', 'y', 'u', 's', 'pc', 'dp', 'cc', 'md'],
 };
+// How a screen lays the registers out, per CPU: the program counter first, then the accumulators, then the
+// index and stack pointers, MD and DP. CC is not here - it is shown as its condition-code buttons (FLAGS)
+// rather than a hex field. The panel reads these tables from here rather than keeping its own copy, so a new
+// CPU has one place to be added and cannot be missing from the screen.
+export const REGISTER_ORDER = {
+  '6809': ['pc', 'a', 'b', 'dp', 'x', 'y', 'u', 's'],
+  '6803': ['pc', 'a', 'b', 'd', 'x', 's'],
+  // the 6809's set plus E F W Q V MD, grouped as the core has them: A/B/E/F, then D/W/Q (each the pair
+  // above it, so Q is D:W), then V and the mode/error register; X Y U S and DP follow as on the 6809
+  '6309': ['pc', 'a', 'b', 'e', 'f', 'd', 'w', 'q', 'v', 'md', 'x', 'y', 'u', 's', 'dp'],
+};
+// How many hex digits a register's field shows, by register: two for a byte, four for a word, eight for the
+// 6309's 32-bit Q. A screen reads a register's width from here rather than testing names itself. CC is not
+// here: it is not a hex field (a screen draws it as its condition-code buttons), so it has no width.
+export const REGISTER_DIGITS = Object.freeze({
+  a: 2, b: 2, e: 2, f: 2, dp: 2, md: 2,
+  d: 4, w: 4, x: 4, y: 4, u: 4, s: 4, pc: 4, v: 4,
+  q: 8,
+});
+// the condition codes a screen shows, most significant bit first. The 6309 shares the 6809's CC layout
+// (CPU6309.FLAGS is CPU6809.FLAGS).
+export const FLAGS = {
+  '6809': ['E', 'F', 'H', 'I', 'N', 'Z', 'V', 'C'],
+  '6803': ['H', 'I', 'N', 'Z', 'V', 'C'],
+  '6309': ['E', 'F', 'H', 'I', 'N', 'Z', 'V', 'C'],
+};
 // the registers copied into every trace entry
 // the longest 6809 encoding, which is what this trace holds: LDY [$1234,X] is 10, the opcode, the postbyte and
 // two address bytes. The 6309 gets its own disassembler and table (see js/asm/disassembler.js),
@@ -65,6 +91,21 @@ const TRACE_REGS = {
 const HELD_FRAMES = { step: 1, run: 120 };
 
 const isAddr = (v) => Number.isInteger(v) && v >= 0 && v <= 0xFFFF;
+
+// The disassembler to read a machine's code with, and the direct page to resolve a direct operand against.
+// A machine's config.cpu names the core it runs (6809, 6309, 6803), and the 6309 has its own instruction
+// table - reading its code with the 6809's shows its own instructions (LDQ, AIM, TFM, ...) as data, since
+// the 6809 decodes those opcodes differently or not at all. The DP is the CPU's own on the 6809 and the 6309
+// (they share the direct mode); the 6803 has none. Every place that shows a machine's code uses this, so the
+// debugger, the trace and "what is this code doing?" cannot disagree.
+export function codeDisassembly(machine) {
+  // a machine mid-construction (or a stub) may have no config or no CPU yet: 6809 with no direct page, which is
+  // what an unset machine reads as, and what the tool this replaced assumed
+  const cpu = (machine.config && machine.config.cpu) || '6809', core = machine.cpu;
+  // the 6803 has no direct mode and no DP register; say so here rather than infer it from the core's shape, so a
+  // 6803 core that ever gains a `dp` field cannot start feeding it to the disassembler unnoticed
+  return { cpu, dp: cpu === '6803' || !core || !('dp' in core) ? 0 : core.dp };
+}
 
 export class Debugger {
   // machine: a Machine (or a family subclass) that has been reset and has its CPU
@@ -150,7 +191,10 @@ export class Debugger {
     if (typeof m.peek === 'function') return (a) => m.peek(a);   // every family: through its own map
     return (a) => (a === 0xBFFF ? 0xFF : read(a));   // no peek: the machine's read, never the $BFFF latch
   }
-  _disOpts() { const labels = this._labelsNow(); return { peek: (a) => this.peek(a), dp: this.cpu === '6809' ? this.machine.cpu.dp : 0, labelOf: (a) => labels.get(a) || null }; }
+  // The direct page the disassembly resolves a direct operand against: the CPU's own DP, on the 6809 and the
+  // 6309 alike (the 6309 shares the 6809's direct mode and has the register). The 6803 has no DP, so a direct
+  // operand there is the absolute address the byte names - which is what it passes for.
+  _disOpts() { const labels = this._labelsNow(); return { peek: (a) => this.peek(a), dp: codeDisassembly(this.machine).dp, labelOf: (a) => labels.get(a) || null }; }
   // disassemble `count` instructions from addr -> the disassembler's instruction records
   disassemble(addr, count = 1) { return disassembleBlock(this.cpu, addr & 0xFFFF, count, this._disOpts()); }
 

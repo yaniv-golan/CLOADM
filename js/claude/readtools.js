@@ -20,6 +20,7 @@
  */
 import { TOOL_CODES, ToolError, checkedInt } from './toolerrors.js';
 import { disassemble } from '../asm/disassembler.js';
+import { codeDisassembly } from '../debugger.js';
 
 // The names of the tools that only read. The Session's consent gate keys on the ACTING set
 // (ACTING_TOOL_NAMES), not on this one: this is the split's other half, and the two must together name every
@@ -295,7 +296,7 @@ export const DISASSEMBLE_MAX = 64;
 export function disassembleTool(target, input) {
   const m = target.machine;
   if (!m) throw new ToolError(TOOL_CODES.NO_MACHINE);
-  const cpu = (m.config && m.config.cpu) || '6809';
+  const { cpu, dp } = codeDisassembly(m);
   const addr = checkedInt(input ? input.address : undefined, { min: ADDRESS_MIN, max: ADDRESS_MAX, code: TOOL_CODES.BAD_ADDRESS });
   // the cap is the bound checkedInt enforces, so there is ONE rejection path and one detail format: a count of 0
   // or above the cap is bad-count, and asking for more is refused rather than silently truncated to the cap
@@ -307,7 +308,7 @@ export function disassembleTool(target, input) {
     // disassemble() throws only for a CPU with no decoder, and the CPU here comes from the machine, which has
     // one; illegal bytes decode with illegal:true rather than throwing, so there is no per-instruction failure
     // path to guard.
-    const ins = disassemble(cpu, at, { peek: (a) => target.readByte(a), dp: cpu !== '6803' && m.cpu ? m.cpu.dp : 0 });
+    const ins = disassemble(cpu, at, { peek: (a) => target.readByte(a), dp });
     list.push({
       address: ins.addr, bytes: ins.bytes, text: ins.text, size: ins.size,
       // where a direct-page, extended, indexed or branch operand actually points, resolved with this machine's

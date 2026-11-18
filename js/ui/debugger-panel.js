@@ -12,15 +12,15 @@
  * the per-frame IRQ chart (the trace here is the instruction trace the debugger keeps).
  */
 import { CanvasPresenter } from '../video/canvas.js';
+import { REGISTER_ORDER, REGISTER_DIGITS, FLAGS } from '../debugger.js';
 import { $ } from './page.js';
 
 const hex2 = (v) => '$' + (v & 0xFF).toString(16).toUpperCase().padStart(2, '0');
 const hex4 = (v) => '$' + (v & 0xFFFF).toString(16).toUpperCase().padStart(4, '0');
+// v in `digits` hex digits with a $ (a register field: 2 for a byte, 4 for a word, 8 for the 6309's Q)
+const hexOf = (v, digits) => '$' + (digits === 8 ? (v >>> 0) : (v & ((1 << (digits * 4)) - 1))).toString(16).toUpperCase().padStart(digits, '0');
 const bare4 = (v) => (v & 0xFFFF).toString(16).toUpperCase().padStart(4, '0');
 const bare2 = (v) => (v & 0xFF).toString(16).toUpperCase().padStart(2, '0');
-const WIDE = new Set(['d', 'x', 'y', 'u', 's', 'pc']);
-const ORDER = { '6809': ['pc', 'a', 'b', 'dp', 'x', 'y', 'u', 's'], '6803': ['pc', 'a', 'b', 'd', 'x', 's'] };
-const FLAGS = { '6809': ['E', 'F', 'H', 'I', 'N', 'Z', 'V', 'C'], '6803': ['H', 'I', 'N', 'Z', 'V', 'C'] };
 const DIS_LINES = 16, MEM_ROWS = 8, TRACE_LINES = 12;
 // a byte as the VDG shows it on the text screen (the memory view's right-hand column)
 const vdgChar = (v) => { if (v & 0x80) return '▒'; const c = v & 0x3F; return String.fromCharCode(c < 32 ? c + 64 : c); };
@@ -46,13 +46,20 @@ export function setupDebuggerPanel(page) {
 
   // ---------------- addresses: $3000, 3000, 0x3000, &H3000 or a label of the assembled program ----------------
   const labels = () => session.labels || new Map();
+  // a hex value the field can hold: an address elsewhere, but up to 8 digits for a register (the 6309's Q is 32
+  // bits). The register field passes its own width; everything else is an address.
+  function parseHex(text, digits = 4) {
+    const t = String(text).trim();
+    const re = digits === 8 ? /^(?:\$|0x|&h)?([0-9a-f]{1,8})$/i : /^(?:\$|0x|&h)?([0-9a-f]{1,4})$/i;
+    const m = re.exec(t);
+    if (!m) throw new Error(digits === 8 ? `"${t}" is not a 32-bit hex value` : `"${t}" is not an address ($0000 to $FFFF) or a label of the assembled program`);
+    return parseInt(m[1], 16) >>> 0;
+  }
   function parseAddr(text) {
     const t = String(text).trim();
     if (labels().has(t.toUpperCase())) return labels().get(t.toUpperCase());
     if (labels().has(t)) return labels().get(t);
-    const m = /^(?:\$|0x|&h)?([0-9a-f]{1,4})$/i.exec(t);
-    if (!m) throw new Error(`"${t}" is not an address ($0000 to $FFFF) or a label of the assembled program`);
-    return parseInt(m[1], 16);
+    return parseHex(t, 4);
   }
   // LABEL or LABEL+$06 for an address near a label (within 256 bytes after it), else $3006
   function where(addr) {
@@ -83,14 +90,21 @@ export function setupDebuggerPanel(page) {
   function registers() {
     const d = session.debug, cpu = session.machine.config.cpu, regs = d.registers(), box = $('dbgRegs');
     box.replaceChildren();
-    for (const r of ORDER[cpu]) {
+    for (const r of REGISTER_ORDER[cpu]) {
       const cell = el('label', null, 'reg');
       const name = el('span', r.toUpperCase(), 'name');
       const input = el('input'); input.dataset.reg = r; input.spellcheck = false;
-      input.value = WIDE.has(r) ? hex4(regs[r]) : hex2(regs[r]);
+      // the field's width comes from the register table: 2 digits for a byte, 4 for a word, 8 for Q. A
+      // register with no entry is a wiring error, not a four-digit field by default.
+      const digits = REGISTER_DIGITS[r];
+      if (!digits) throw new Error(`the Debugger has no field width for register ${r}; add it to REGISTER_DIGITS`);
+      input.value = hexOf(regs[r], digits);
       input.setAttribute('aria-label', `Register ${r.toUpperCase()}`);
       if (lastRegs && lastRegs[r] !== regs[r]) input.classList.add('changed');
-      input.onchange = () => { page.attempt(() => { d.setRegister(r, parseAddr(input.value)); }); refresh(); };
+      // Every register but Q takes the same input it always has: an address, or a label of the assembled
+      // program (parseAddr). Q, the 6309's 32-bit accumulator, is not an address, so it takes a plain 8-digit
+      // value instead.
+      input.onchange = () => { page.attempt(() => { d.setRegister(r, r === 'q' ? parseHex(input.value, 8) : parseAddr(input.value)); }); refresh(); };
       cell.append(name, input);
       box.append(cell);
     }

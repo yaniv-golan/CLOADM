@@ -187,6 +187,18 @@ const stateOf = (s) => JSON.stringify(s.machine.saveState());
     check('a 6809 machine given cpu:"6309" in the request still decodes as a 6809',
       as6309.cpu === '6809' && as6309.instructions[0].text === 'LDA #$12',
       JSON.stringify({ cpu: as6309.cpu, first: as6309.instructions[0] && as6309.instructions[0].text }));
+    // A direct-mode operand is resolved against the MACHINE's own DP, on a 6309 as on a 6809 - the tool uses the
+    // same helper the debugger does (codeDisassembly). With DP $40, `LDA <$10` names $4010, not $0010; a tool that
+    // worked the DP out itself, or passed 0, would report the wrong address.
+    const sDp = boot('dragon64', { cpu: '6309' });
+    const rDp = Emu.assemble(' ORG $3000\nSTART LDA <$10\n RTS\n', '6309');
+    if (!rDp.ok) throw new Error(`assembling the 6309 DP fixture failed: ${JSON.stringify(rDp.errors)}`);
+    for (const seg of rDp.segments) for (const [i, b] of [...seg.data].entries()) sDp.machine.poke(seg.addr + i, b);
+    sDp.machine.cpu.dp = 0x40;
+    const dpOut = await Emu.runReadOnlyTool(targetOf(sDp), 'disassemble', { address: 0x3000, count: 1 });
+    check('disassemble resolves a direct operand against the machine\'s own DP on a 6309',
+      dpOut.instructions[0] && dpOut.instructions[0].target === 0x4010,
+      JSON.stringify(dpOut.instructions[0]));
   }
 
   // ---- 2c. disassemble: the cap, and a count of zero ----

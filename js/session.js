@@ -23,7 +23,7 @@ import { charToKeys } from './machines/keyboards.js';
 import { cartridgeRoms, createMachine, profiles, resolveConfig, restoreSnapshot } from './machines/profiles.js';
 import { cpuFamily } from './cpu/cpus.js';
 import { SpeechSoundPak, SSC_ROM_PROFILE } from './machines/ssc.js';
-import { Debugger } from './debugger.js';
+import { Debugger, codeDisassembly } from './debugger.js';
 import { disassembleBlock } from './asm/disassembler.js';
 import { formats } from './media/formats.js';
 import { Tape } from './media/tape.js';
@@ -2065,11 +2065,11 @@ export class Session {
   // the code at addr (the program counter by default), as the Debugger would show it, for "What is this code
   // doing?": { from, to, text } with one "ADDR  BYTES  INSTRUCTION" line per instruction and the registers
   codeAt(addr = this.machine.cpu.pc, count = 8) {
-    const m = this.machine, cpu = m.config.cpu === '6803' ? '6803' : '6809';
+    const m = this.machine, { cpu, dp } = codeDisassembly(m);
     const peek = (a) => this.readByte(a & 0xFFFF, m);
     const labels = new Map();
     if (this.labels) for (const [name, at] of this.labels) if (!labels.has(at)) labels.set(at, name);
-    const list = disassembleBlock(cpu, addr & 0xFFFF, count, { peek, dp: cpu === '6809' ? m.cpu.dp : 0, labelOf: (a) => labels.get(a) || null });
+    const list = disassembleBlock(cpu, addr & 0xFFFF, count, { peek, dp, labelOf: (a) => labels.get(a) || null });
     const hex = (v, n) => v.toString(16).toUpperCase().padStart(n, '0');
     let at = addr & 0xFFFF;
     const lines = list.map((ins) => {
@@ -2079,9 +2079,12 @@ export class Session {
       return line;
     });
     const c = m.cpu;
-    const regs = cpu === '6809'
-      ? `PC=${hex(c.pc, 4)} A=${hex(c.a, 2)} B=${hex(c.b, 2)} X=${hex(c.x, 4)} Y=${hex(c.y, 4)} U=${hex(c.u, 4)} S=${hex(c.s, 4)} DP=${hex(c.dp, 2)} CC=${hex(c.cc, 2)}`
-      : `PC=${hex(c.pc, 4)} A=${hex(c.a, 2)} B=${hex(c.b, 2)} X=${hex(c.x, 4)} S=${hex(c.s, 4)} CC=${hex(c.cc, 2)}`;
+    // the same register set the Debugger shows: the 6309's E F W Q V MD are part of what the code did
+    const regs = cpu === '6803'
+      ? `PC=${hex(c.pc, 4)} A=${hex(c.a, 2)} B=${hex(c.b, 2)} X=${hex(c.x, 4)} S=${hex(c.s, 4)} CC=${hex(c.cc, 2)}`
+      : cpu === '6309'
+        ? `PC=${hex(c.pc, 4)} A=${hex(c.a, 2)} B=${hex(c.b, 2)} E=${hex(c.e, 2)} F=${hex(c.f, 2)} D=${hex(c.d, 4)} W=${hex(c.w, 4)} Q=${hex(c.q, 8)} V=${hex(c.v, 4)} MD=${hex(c.md, 2)} X=${hex(c.x, 4)} Y=${hex(c.y, 4)} U=${hex(c.u, 4)} S=${hex(c.s, 4)} DP=${hex(c.dp, 2)} CC=${hex(c.cc, 2)}`
+        : `PC=${hex(c.pc, 4)} A=${hex(c.a, 2)} B=${hex(c.b, 2)} X=${hex(c.x, 4)} Y=${hex(c.y, 4)} U=${hex(c.u, 4)} S=${hex(c.s, 4)} DP=${hex(c.dp, 2)} CC=${hex(c.cc, 2)}`;
     return { from: addr & 0xFFFF, to: (at - 1) & 0xFFFF, text: lines.join('\n'), registers: regs };
   }
   // the restore points, newest first: [{ at (ms), index }]; restoreClaude(i) puts the BASIC session back to point i

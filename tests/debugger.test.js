@@ -476,5 +476,100 @@ HALT    BRA     HALT
   check('6803 step counts one instruction', (() => { const c = d2.step(); return Number.isInteger(c) && c > 0; })());
 }
 
+// ---- 11. the 6309 machine: its own registers, its own mnemonics, and the real direct page ----
+// A 6309 runs the 6809's direct mode with its own DP register, and adds E F W Q V MD. Both are what the
+// Debugger screen shows and what a disassembly of its code must use; before this, a screen had no register
+// set for a 6309 at all (ORDER[cpu] was undefined) and a direct operand was resolved against DP 0.
+// Every check here fails on the base commit except the trace one, which base already passed (the trace path
+// carried the DP before this change); that one is kept as a guard and is mutation-checked. The tables are read
+// defensively, so a missing one fails its check instead of throwing the suite away.
+{
+  for (const [id, opts] of [['coco3', { cpu: '6309' }], ['dragon64', { cpu: '6309' }]]) {
+    const m = Emu.createMachine(id, opts);
+    m.injectAndRun(P.segments, P.exec);
+    const dbg = new Emu.Debugger(m);
+    const order = Emu.REGISTER_ORDER && Emu.REGISTER_ORDER['6309'];
+    const regs = dbg.registers();
+    // the set is complete: every register the core can read and write is on the screen, except CC (the
+    // flags) - a register added to the core and left off the screen fails here
+    check(`${id} 6309: the screen shows every register the core has`, !!order && Object.keys(regs).filter((r) => r !== 'cc').every((r) => order.includes(r)),
+      order ? Object.keys(regs).filter((r) => r !== 'cc' && !order.includes(r)).join() || 'complete' : 'no 6309 register set');
+    check(`${id} 6309: CC is not a hex field (it is shown as its flags)`, !!order && !order.includes('cc') && !!Emu.FLAGS && !!Emu.FLAGS['6309'] && Emu.FLAGS['6309'].length === 8,
+      order ? order.join() : 'no 6309 register set');
+    check(`${id} 6309: the field widths come from the register table (Q eight digits, MD two)`,
+      !!Emu.REGISTER_DIGITS && Emu.REGISTER_DIGITS.q === 8 && Emu.REGISTER_DIGITS.md === 2 && Emu.REGISTER_DIGITS.d === 4 && Emu.REGISTER_DIGITS.a === 2,
+      Emu.REGISTER_DIGITS ? JSON.stringify(Emu.REGISTER_DIGITS) : 'no width table');
+    // a direct operand is resolved against the real DP
+    m.cpu.dp = 0x40;
+    dbg.write(0x3000, [0x96, 0x10]);            // LDA $10 -> DP:offset = $4010
+    const ins = dbg.disassemble(0x3000, 1)[0];
+    check(`${id} 6309: a direct operand resolves against the real DP`, ins.target === 0x4010, `${ins.text} target=${ins.target === null ? 'null' : h(ins.target)}`);
+  }
+  // Every register on every screen has a width, and it is the right one: a missing entry is a wiring error the
+  // panel throws on now, so an incomplete table must fail here.
+  {
+    const want = { a: 2, b: 2, e: 2, f: 2, d: 4, w: 4, q: 8, v: 4, md: 2, x: 4, y: 4, u: 4, s: 4, pc: 4, dp: 2 };
+    for (const cpu of ['6809', '6803', '6309']) {
+      const missing = Emu.REGISTER_ORDER[cpu].filter((r) => !Emu.REGISTER_DIGITS[r]);
+      const wrong = Emu.REGISTER_ORDER[cpu].filter((r) => Emu.REGISTER_DIGITS[r] && want[r] !== undefined && Emu.REGISTER_DIGITS[r] !== want[r]);
+      check(`every ${cpu} screen register has the right field width`, !missing.length && !wrong.length,
+        `missing ${missing.join() || 'none'} wrong ${wrong.map((r) => `${r}=${Emu.REGISTER_DIGITS[r]} want ${want[r]}`).join() || 'none'}`);
+    }
+    check('CC has no field width (it is drawn as its flag buttons)', !('cc' in Emu.REGISTER_DIGITS), String(Emu.REGISTER_DIGITS.cc));
+  }
+  // codeDisassembly tolerates a machine with no config or CPU (mid-construction), and always gives the 6803 a
+  // direct page of 0 even if its core were ever to grow a `dp` field.
+  {
+    const bare = Emu.codeDisassembly({ config: null, cpu: null });
+    check('codeDisassembly with no config or CPU reads as a 6809 with DP 0', bare.cpu === '6809' && bare.dp === 0, JSON.stringify(bare));
+    const zero = Emu.createMachine('mc10');
+    zero.cpu.dp = 0x40;                        // a dp the 6803 does not really have: it must still be ignored
+    const d3 = Emu.codeDisassembly(zero);
+    check('codeDisassembly gives a 6803 DP 0 even if its core had one', d3.cpu === '6803' && d3.dp === 0, JSON.stringify(d3));
+  }
+  // A run that really executes: with DP $40, `STA <$10` stores to $4010 and not $0010 (the CPU is the
+  // oracle), and the trace names the symbol there only if the entry is disassembled against the DP it ran
+  // with. A disassembly at DP 0 would print the symbol as data, or the bytes of another instruction.
+  {
+    const r = Emu.assemble(' ORG $3000\nSTART LDA #$80\n STA <$10\nDONE BRA DONE\n', '6309');
+    if (!r.ok) throw new Error('6309 DP firmware does not assemble: ' + JSON.stringify(r.errors));
+    const m = Emu.createMachine('coco3', { cpu: '6309' });
+    m.injectAndRun(r.segments, r.exec);
+    const dbg = new Emu.Debugger(m);
+    dbg.setSymbols(new Map([['VAR', 0x4010]]));
+    m.cpu.dp = 0x40;
+    m.cpu.jump(sym('START', r));
+    dbg.clearTrace();
+    dbg.addBreakpoint(sym('DONE', r));
+    dbg.run(100);
+    const store = dbg.trace().find((e) => e.pc === sym('START', r) + 2);
+    // the CPU is the oracle for what ran
+    check('6309: a run with DP $40 stores to $4010, not $0010', m.ram[0x4010] === 0x80 && m.ram[0x0010] !== 0x80,
+      `${h(0x4010)}=$${m.ram[0x4010].toString(16)} ${h(0x10)}=$${m.ram[0x10].toString(16)}`);
+    // and the trace of that run is disassembled against the DP it ran with (the entry carries it)
+    check('6309: the trace names its direct operand against DP $40', !!store && /^STA <VAR$/.test(store.text) && store.dp === 0x40,
+      JSON.stringify(store && { text: store.text, dp: store.dp }));
+  }
+  // codeAt ("what is this code doing?") reads 6309 code with the 6309's own instruction set and register set
+  {
+    const s = new Emu.Session({ store: Emu.memoryStore() });
+    s.switchMachine('coco3', { cpu: '6309' });
+    const r = Emu.assemble(' ORG $3000\nSTART LDA <$10\n LDQ #$11223344\n', '6309');
+    if (!r.ok) throw new Error('6309 codeAt firmware does not assemble: ' + JSON.stringify(r.errors));
+    for (const [i, b] of [...r.segments[0].data].entries()) s.debug.write(0x3000 + i, [b]);
+    s.machine.cpu.dp = 0x40;
+    s.machine.cpu.jump(0x3000);
+    // distinct values in every 6309-only register, so a line that prints the wrong one (or masks Q to 16 bits)
+    // shows: Q = $11223344 splits as D = $1122 and W = $3344, and W splits as E = $33, F = $44
+    s.machine.cpu.q = 0x11223344; s.machine.cpu.v = 0x5566;
+    const c = s.codeAt(0x3000, 2);
+    check('6309: codeAt disassembles LDQ as LDQ, not as data', /LDQ #\$11223344/.test(c.text) && !/FCB/.test(c.text), JSON.stringify(c.text));
+    check('6309: codeAt shows all 32 bits of Q', /\bQ=11223344\b/.test(c.registers), c.registers);
+    check('6309: codeAt shows E, F, W and V with their own values', /\bE=33\b/.test(c.registers) && /\bF=44\b/.test(c.registers)
+      && /\bW=3344\b/.test(c.registers) && /\bV=5566\b/.test(c.registers), c.registers);
+    check('6309: codeAt shows MD and the real DP', /\bMD=[0-9A-F]{2}\b/.test(c.registers) && /\bDP=40\b/.test(c.registers), c.registers);
+  }
+}
+
 console.log(`${n - fail}/${n} debugger checks passed`);
 process.exitCode = fail ? 1 : 0;

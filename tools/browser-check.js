@@ -4137,6 +4137,121 @@ SUB     INCA
   check('debugger: the 6309 registers are in the page', r9.regs);
   check('debugger: no page errors on the 6309', !errors9.length, errors9.join('; '));
   await ctx9.close();
+
+  // The Debugger SCREEN on a 6309: opening it must not throw (a screen used to have no register set for a 6309
+  // and threw "ORDER[cpu] is not iterable"), it must show the full 6309 set, and an edit through a register field
+  // must reach the core. The CPU is switched in the Machine panel rather than linked: a ?cpu=6309 link reaches
+  // the same screen, but it also starts the welcome menu, which looks its build up by CPU and has no 6309 entry
+  // yet - the link would fail here on a missing examples/ file that has nothing to do with the Debugger.
+  const ctxS = await browser.newContext();
+  const pS = await ctxS.newPage();
+  const errorsS = [];
+  pS.on('pageerror', (e) => errorsS.push(e.message));
+  await pS.goto(`${base}?machine=coco3`);
+  await ready(pS);
+  await openTab(pS, 'Machine');
+  await pS.selectOption('#cpuSel', '6309');
+  await waitFor(pS, () => window.emu.machine.cpu.constructor.name === 'CPU6309');
+  await pS.click('#navDebugger');
+  await pS.waitForSelector('#debugView:not([hidden])');
+  await waitFor(pS, () => document.querySelectorAll('#dbgRegs [data-reg]').length > 0);
+  const s9 = await pS.evaluate(() => ({
+    cls: window.emu.session.machine.cpu.constructor.name,
+    fields: [...document.querySelectorAll('#dbgRegs [data-reg]')].map((e) => e.dataset.reg),
+    flags: [...document.querySelectorAll('#dbgRegs .cc .flag, #dbgRegs .cc .flag.on')].map((e) => e.textContent),
+    qValue: (document.querySelector('[data-reg="q"]') || {}).value,
+    mdValue: (document.querySelector('[data-reg="md"]') || {}).value,
+  }));
+  check('debugger screen 6309: opening it on a machine switched to the 6309 shows its register set',
+    s9.cls === 'CPU6309' && ['pc', 'a', 'b', 'e', 'f', 'd', 'w', 'q', 'v', 'md', 'x', 'y', 'u', 's', 'dp'].every((r) => s9.fields.includes(r)),
+    `${s9.cls} ${s9.fields.join()}`);
+  check('debugger screen 6309: the condition codes are the 6809 set', s9.flags.join('') === 'EFHINZVC', s9.flags.join());
+  check('debugger screen 6309: Q is four bytes wide and MD one', /^\$[0-9A-F]{8}$/.test(s9.qValue || '') && /^\$[0-9A-F]{2}$/.test(s9.mdValue || ''),
+    `Q=${s9.qValue} MD=${s9.mdValue}`);
+  // An edit through the field reaches the core. The machine is stopped first: a running welcome program would
+  // overwrite the register between the edit and the read (the existing desktop case stops at a breakpoint first).
+  // Each edit goes through the field's own change handler, and the field is read back after the refresh redraws
+  // it - so a display that masks Q to 16 bits, or a W field that writes D, is caught here.
+  const setField = (reg, value) => pS.evaluate(([reg, value]) => {
+    const el = document.querySelector(`[data-reg="${reg}"]`);
+    el.value = value;
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  }, [reg, value]);
+  await pS.evaluate(() => { const d = window.emu.session.debug; if (!d.stopped) d.halt(); });
+  await setField('q', '$DEADBEEF');
+  // the panel redraws the fields from the core on refresh; poll for the redrawn field
+  await waitFor(pS, () => document.querySelector('[data-reg="q"]').value === '$DEADBEEF');
+  const qAfter = await pS.evaluate(() => ({
+    field: document.querySelector('[data-reg="q"]').value,
+    q: window.emu.session.machine.cpu.q >>> 0,
+  }));
+  check('debugger screen 6309: an edit through the Q field sets it, and the field reads back all four bytes',
+    qAfter.q === 0xDEADBEEF && qAfter.field === '$DEADBEEF', JSON.stringify(qAfter));
+  // W and V: each writes its own register, and D and X are left alone
+  const before = await pS.evaluate(() => { const c = window.emu.session.machine.cpu; return { d: c.d, x: c.x }; });
+  await setField('w', '$1234');
+  await setField('v', '$5678');
+  await waitFor(pS, () => window.emu.session.machine.cpu.w === 0x1234 && window.emu.session.machine.cpu.v === 0x5678);
+  const wv = await pS.evaluate(() => {
+    const c = window.emu.session.machine.cpu;
+    return { w: c.w, v: c.v, d: c.d, x: c.x, wField: document.querySelector('[data-reg="w"]').value, vField: document.querySelector('[data-reg="v"]').value };
+  });
+  check('debugger screen 6309: the W and V fields write W and V, leaving D and X alone',
+    wv.w === 0x1234 && wv.v === 0x5678 && wv.d === before.d && wv.x === before.x && wv.wField === '$1234' && wv.vField === '$5678',
+    JSON.stringify({ wv, before }));
+  // An address register still takes a label: typing START into PC sets it from the assembled program's symbol,
+  // on a 6309 as on any CPU (the field used to fall through to a plain hex parse, which rejects a label).
+  const labelSet = await pS.evaluate(async () => {
+    const s = window.emu.session, Emu = window.emu.Emu, d = s.debug;
+    const r = Emu.assemble(' ORG $3000\nSTART LDA #$01\nHERE BRA HERE\n', '6309');
+    for (const [i, b] of [...r.segments[0].data].entries()) d.write(0x3000 + i, [b]);
+    s.labels = r.symbols;                          // what Assemble & run gives the Session (its own labels map)
+    if (!d.stopped) d.halt();
+    const el = document.querySelector('[data-reg="pc"]');
+    el.value = 'START';
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+    return { start: r.symbols.get('START'), pc: s.machine.cpu.pc };
+  });
+  check('debugger screen 6309: typing a label into PC sets it from the program\'s symbols',
+    labelSet.pc === labelSet.start && labelSet.start === 0x3000, JSON.stringify(labelSet));
+  // A byte register takes a label too (it always has: an edit went through the address parser). DP holds a page
+  // NUMBER, so the label's address is masked to a byte like any other byte register: a label at $0046 gives DP $46.
+  const dpLabel = await pS.evaluate(async () => {
+    const s = window.emu.session, d = s.debug;
+    s.labels = new Map([['PAGE', 0x0046]]);
+    if (!d.stopped) d.halt();
+    const el = document.querySelector('[data-reg="dp"]');
+    el.value = 'PAGE';
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+    return s.machine.cpu.dp;
+  });
+  check('debugger screen 6309: typing a label into a byte register (DP) sets it', dpLabel === 0x46, '$' + Number(dpLabel).toString(16));
+  check('debugger screen 6309: no page errors', !errorsS.length, errorsS.join('; '));
+  await ctxS.close();
+
+  // The same label entry on a 6809, so the rule is not only exercised on the 6309 path.
+  const ctx8 = await browser.newContext();
+  const p8 = await ctx8.newPage();
+  const errors8 = [];
+  p8.on('pageerror', (e) => errors8.push(e.message));
+  await p8.goto(`${base}?machine=dragon64`);
+  await ready(p8);
+  await p8.click('#navDebugger');
+  await p8.waitForSelector('#debugView:not([hidden])');
+  await waitFor(p8, () => document.querySelectorAll('#dbgRegs [data-reg]').length > 0);
+  const label6809 = await p8.evaluate(async () => {
+    const s = window.emu.session, Emu = window.emu.Emu, d = s.debug;
+    s.labels = new Map([['START', 0x3000]]);
+    if (!d.stopped) d.halt();
+    const el = document.querySelector('[data-reg="pc"]');
+    el.value = 'START';
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+    return { cpu: s.machine.config.cpu, pc: s.machine.cpu.pc };
+  });
+  check('debugger screen 6809: typing a label into PC sets it from the symbols too',
+    label6809.cpu === '6809' && label6809.pc === 0x3000, JSON.stringify(label6809));
+  check('debugger screen 6809: no page errors', !errors8.length, errors8.join('; '));
+  await ctx8.close();
 }
 
 // the emulator layout at desktop and phone width: header, grouped

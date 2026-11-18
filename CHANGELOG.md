@@ -6,6 +6,20 @@ All notable changes to CLOADM are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **The Debugger works on an HD6309.** On a machine with the CPU option set to 6309 the Debugger screen threw
+  `ORDER[cpu] is not iterable`: its register order and flag tables had no 6309 entry. It now shows the full 6309
+  register set (PC A B E F D W Q V MD X Y U S DP, with the condition codes as on the 6809) in the order the core
+  has them, and the fields edit the core as the 6809's do; Q, the 32-bit accumulator, is shown and edited as eight
+  hex digits. The tables live in `js/debugger.js` (`REGISTER_ORDER`, `REGISTER_DIGITS`, `FLAGS`) and the panel
+  reads them, so a CPU is added, and a register's width set, in one place. A register field still takes a label
+  (a program's `START`) as it does on the 6809. A direct operand is now disassembled against the CPU's real DP on a
+  6309, where it used DP 0 (`js/debugger.js`). `Session.codeAt` (Ask's "What is this code doing?") had the same two
+  faults on a 6309 - it read 6309-only opcodes with the 6809's table (LDQ shown as data) and left E F W Q V MD out
+  of the registers it sent; both come from one helper now (`codeDisassembly`, also used by the Claude
+  `disassemble` tool), so the debugger, the trace and Ask cannot disagree.
+
 ### Changed
 
 - **Test gates (tooling): a green run means what it says.** `node tools/browser-check.js`: an unknown or empty

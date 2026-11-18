@@ -453,9 +453,26 @@ async function say(s, calls, line, want) {
     // codeAt: the code and the registers, as the Debugger would show them
     [0x86, 0x41, 0xA7, 0x80, 0x5A, 0x26, 0xFB, 0x39].forEach((b, i) => m.poke(0x3000 + i, b));
     const code = s.codeAt(0x3000, 5);
+    // the WHOLE 6809 register line, so dropping a register (DP) fails here rather than passing on a prefix match
+    const nine = /^PC=[0-9A-F]{4} A=[0-9A-F]{2} B=[0-9A-F]{2} X=[0-9A-F]{4} Y=[0-9A-F]{4} U=[0-9A-F]{4} S=[0-9A-F]{4} DP=[0-9A-F]{2} CC=[0-9A-F]{2}$/;
     check('codeAt: one line per instruction with its address and bytes, then the registers', code.from === 0x3000 && code.to === 0x3007
       && code.text === '3000  86 41        LDA #$41\n3002  A7 80        STA ,X+\n3004  5A           DECB\n3005  26 FB        BNE $3002\n3007  39           RTS'
-      && /^PC=[0-9A-F]{4} A=/.test(code.registers), JSON.stringify(code));
+      && nine.test(code.registers), JSON.stringify(code));
+    // a 6809 has none of the 6309's registers on its line
+    check('codeAt: the 6809 line carries no E, Q or MD', !/\b(E|Q|MD)=/.test(code.registers), code.registers);
+    // the 6803: its own line, with no Y, U, DP (it has no such registers) and no 6309 registers either.
+    // The MC-10's poke only lands in its on-chip RAM and above $4000, so the code goes at $4000.
+    {
+      const s3 = new Emu.Session({ store: Emu.memoryStore() });
+      s3.switchMachine('mc10');
+      [0xB6, 0x42, 0x00, 0x39].forEach((b, i) => s3.machine.poke(0x4000 + i, b));   // LDAA $4200; RTS
+      s3.machine.cpu.jump(0x4000);
+      const c3 = s3.codeAt(0x4000, 2);
+      check('codeAt: the 6803 line has X and S but no Y, U or DP', /^PC=[0-9A-F]{4} A=[0-9A-F]{2} B=[0-9A-F]{2} X=[0-9A-F]{4} S=[0-9A-F]{4} CC=[0-9A-F]{2}$/.test(c3.registers)
+        && !/\b(Y|U|DP)=/.test(c3.registers), c3.registers);
+      check('codeAt: the 6803 line carries no E, Q or MD', !/\b(E|Q|MD)=/.test(c3.registers), c3.registers);
+      check('codeAt: the 6803 disassembles its own code', /LDAA >\$4200/.test(c3.text), JSON.stringify(c3.text));
+    }
     s.endChat();
   }
 
