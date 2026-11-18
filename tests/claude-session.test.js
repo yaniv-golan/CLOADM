@@ -322,7 +322,9 @@ async function say(s, calls, line, want) {
 
   // ---- tool errors ----
   {
-    const { chat, basic } = open([textReply('x')]);
+    const { s, chat, basic } = open([textReply('x')]);
+    // the acting tools pass the consent gate before their own checks (ChatSession.runTool), so it is given here
+    s.setClaudeAllowed(true);
     const err = async (name, input, re) => { try { await chat.runTool(name, input); return false; } catch (e) { return re.test(e.message); } };
     const code = async (name, input) => { try { await chat.runTool(name, input); return null; } catch (e) { return e.code; } };
     check('peek: address checked, with codes', await code('peek', { address: 70000 }) === Emu.TOOL_CODES.BAD_ADDRESS
@@ -369,20 +371,22 @@ async function say(s, calls, line, want) {
     // if the two ever disagree, this fails rather than agreeing with itself.
     {
       const askedNow = [];
-      const ranTools = [];                 // the tools that actually reached ChatSession.runTool
+      const ranTools = [];                 // the tools that actually reached their act (inside withRestorePoint)
       s.claudeAllowed = false;
       s.claudeGate = (name) => { askedNow.push(name); Promise.resolve().then(() => s.answerClaude(false)); };
       const gateText = { poke: { address: 0x3000, bytes: [1] }, type_text: { text: 'X' }, press_break: {} };
       const schemas = Emu.actingTools().map((t) => t.name);
-      // chat.backend.runTool is the Session's gate wrapper; chat.runTool is the real dispatcher. Watching the
-      // LATTER is what lets the check below tell "the gate refused it" from "it ran and happened to change
-      // nothing" - the distinction that made the old assertion unable to fail.
-      const inner = chat.runTool.bind(chat);
-      chat.runTool = (name, input) => { ranTools.push(name); return inner(name, input); };
+      // chat.runTool runs the gate (chat.gate, set by Session.gateTools) and then the act, inside
+      // chat.withRestorePoint. Watching the LATTER is what lets the check below tell "the gate refused it" from
+      // "it ran and happened to change nothing" - the distinction that made the old assertion unable to fail.
+      const inner = chat.withRestorePoint.bind(chat);
+      let current = null;
+      chat.withRestorePoint = (act) => { ranTools.push(current); return inner(act); };
       for (const name of schemas) {
+        current = name;
         try { await chat.backend.runTool(name, gateText[name] || {}); } catch (e) { /* declined: expected */ }
       }
-      chat.runTool = inner;
+      chat.withRestorePoint = inner;
       // load_basic checks its program before its own card (every call): this BASIC session has no ROMs, so it is
       // refused no-basic before anyone is asked, and it never runs either (ranTools below)
       check('every acting tool in the schemas raises the consent card before it runs (load_basic: refused before its own card here)',
@@ -392,13 +396,13 @@ async function say(s, calls, line, want) {
         `gate ${[...Emu.ACTING_TOOL_NAMES].join(',')} vs schemas ${schemas.join(',')}`);
       // The point of a refusal is that the tool never RAN: no poke reached memory and no restore point was
       // pushed. Asserting the world afterwards (ram unchanged, undo empty) is weak on its own, because in the
-      // real path the gate returns before runTool is even called, so those are true for reasons unrelated to
-      // the refusal. So also count the runTool calls: each acting name must have been refused BEFORE dispatch.
+      // real path the gate refuses before the act is reached, so those are true for reasons unrelated to
+      // the refusal. So also count the acts run: each acting name must have been refused BEFORE its act.
       // Mutation that must fail this: make the gate answer true (allow) - then the tools run, the poke lands
       // and a snapshot is pushed, and this fails on both counts.
-      check('a refused acting tool never reached runTool: nothing was poked and no restore point was pushed',
+      check('a refused acting tool never reached its act: nothing was poked and no restore point was pushed',
         ranTools.length === 0 && basic.ram[0x3000] !== 1 && chat.undo.length === 0,
-        `runTool calls: ${ranTools.join(',') || 'none'} | ram[0x3000]=${basic.ram[0x3000]} | undo=${chat.undo.length}`);
+        `acts run: ${ranTools.join(',') || 'none'} | ram[0x3000]=${basic.ram[0x3000]} | undo=${chat.undo.length}`);
     }
     check('"Just tell me the fix": the poke is refused with the reason Claude is given, and nothing changes', results[1].is_error && /Just tell me the fix/.test(results[1].content)
       && snapText(basic) === before && chat.undo.length === 0 && !s.claudeAllowed && r1 && r1.text === 'Change $3000 to 7 yourself.', JSON.stringify(results[1]));

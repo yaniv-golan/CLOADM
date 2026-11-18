@@ -88,7 +88,7 @@ Two ways to talk to Claude, one conversation:
 * **Consent.** Claude can always read the emulated machine (screen text, memory, model and program counter), and nothing outside the emulator; the panel names what it reads. What it reads goes to Anthropic with the conversation, using your key. Acting
   (POKE, typing, BREAK) needs **Let Claude use the emulator**, off until you allow it: the first time Claude wants to
   act it asks in the conversation (**Allow**, which turns the switch on for the visit, or **Just tell me the fix**,
-  which Claude is told and which changes nothing). While Claude acts the screen has a pulsing green ring and
+  which Claude is told as `consent-declined` and which changes nothing; Stop while it asks is `stopped`). While Claude acts the screen has a pulsing green ring and
   "Claude is typing line 120… **Stop**" at its top, and the panel shows a live log. A key you press on the machine
   pauses Claude: what it still had to type is held back and its next action waits, until **Resume** (or **Stop**).
 * **What is this code doing?** in the Ctrl+K box asks about the code at the program counter: the disassembly and
@@ -213,8 +213,8 @@ emulator.
   and stops reading it for about ten frames after each Enter and every few passes: the old timing loses keys there
   and paced typing loses none; firmware that stops reading the keyboard gets `not-consumed` with an honest count.
 * **Loading a program (`load_basic`).** The listing is tokenized for the machine's BASIC and written into program
-  memory, replacing the program there, as a load from tape or disk would (`js/media/basic.js`, `ChatSession.planBasic`
-  and `loadBasic` in `js/claude/chat.js`). Lines are crunched as Color BASIC crunches them (the keyword tables
+  memory, replacing the program there, as a load from tape or disk would (`js/media/basic.js`, `planBasic`
+  and `writeBasic` in `js/claude/basicload.js`). Lines are crunched as Color BASIC crunches them (the keyword tables
   searched in ROM order, first match; `?` is PRINT; `'` and ELSE get a `:` in front; DATA, REM and strings are not
   crunched), laid out as link, line number, text, 0, with a zero link at the end, at the address BASIC's TXTTAB
   holds; then VARTAB, ARYTAB and ARYEND point just past it (no variables, as after a load). Before writing, BASIC's
@@ -263,6 +263,65 @@ emulator.
   is set (`anthropics/anthropic-sdk-typescript`, `src/client.ts`, `buildHeaders`); the API overview page lists no
   such header. **BREAK** (Esc on the chat screen) stops a reply, and Esc on an empty, idle prompt leaves the chat; errors (no key, a refused key, rate limits, network) are said once,
   on the screen and under the key card, and nothing retries in the background.
+* **The acting tools' contract.** Every acting tool runs one way (`ChatSession.runTool`, `js/claude/chat.js`):
+  the consent gate (`ChatSession.gate`; the Session sets it in `gateTools`), then the tool's own checks, which only
+  read, then the pre-act re-check, then the change inside the turn's restore point (`ChatSession.withRestorePoint`).
+  A `ChatSession` built without a gate refuses every acting tool (`no-consent`). The pre-act re-check
+  (`ChatSession.recheck`, set in `gateTools`) runs synchronously with the change, after any wait for a card or an
+  async check (an INCLUDE read): a stopped turn is `stopped`; Claude paused waits for Resume, as the gate's own pause
+  wait does (Resume goes on and the re-check runs again; Stop, or Esc/BREAK while paused, is `stopped`), so nothing
+  changes while paused; and consent is re-validated. Each call records the consent it relied on: **the card** when
+  the person answered a card for this call (Allow on the consent card, or Load it on `load_basic`'s card), which
+  holds for that call even if the switch is turned off before the change lands; **the switch** otherwise (the
+  "Let Claude use the emulator" switch already on, and for `load_basic` also "Don't ask again this session"), which
+  must still be on at the re-check or the call is `no-consent` and nothing changes. The
+  tools are entries of one table (`ACTING`) whose schemas the model is offered and whose names are the gated set
+  (`ACTING_TOOL_NAMES`), so a tool cannot be offered without passing the gate and the restore point. A refusal
+  changes nothing and keeps no restore point; a failure once the change has begun (typing stopped or not consumed, or `tool-failed` inside it) keeps
+  it. Stop while either card is up is `stopped`, and so is an abort (Esc, BREAK) while a card or a pause waits; once a turn
+  is stopped, a later call in the same response is `stopped` without asking. Nothing leaves a tool as a raw exception: anything uncoded is
+  `tool-failed` (`asToolError`), in `runTool` and again in the backend. Each description names the codes the tool can
+  return and states every range and default from the constants the code applies (`POKE_MIN`/`POKE_MAX`,
+  `BYTE_MIN`/`BYTE_MAX`, `TYPE_TEXT_MAX`, `SOURCE_MAX`, `ASSEMBLE_DEFAULT_ORG`, `RUN_DEFAULT_TARGET`,
+  `BASIC_PROGRAM_TEXT_MAX`, and `ADDRESS_MIN`/`ADDRESS_MAX` from `js/claude/readtools.js`). The results:
+  `poke` `{address, length, written, skipped, not_taken}`; `type_text` `{requested, consumed, lines_requested,
+  lines_delivered}`; `load_basic` `{lines, bytes, start, end}`; `press_break` `{pressed:true}`; `assemble_and_load`
+  `{bytes, written, skipped, ranges, start, symbols, not_taken}`; `run` `{started:true, how:"jump"|"typed", target}`.
+  The brief says the same in short (`TOOL_CONTRACT` in `js/claude/brief.js`). `node tests/claude-acting-contract.test.js`
+  checks every acting tool against every outcome through the backend with a mocked API, the schemas against the
+  constants, and the gate and restore point for every tool in the schemas.
+  **The codes** (`js/claude/toolerrors.js`), each sent as `{"error":{"code":…,"remedy":…,"detail":…}}` with
+  `is_error:true`:
+
+  | Code | Remedy the model is given |
+  |---|---|
+  | `bad-address` | use an address from 0 to 65535 |
+  | `not-ram` | that address is ROM or I/O on this machine's memory map: write to RAM |
+  | `too-large` | send less: the limit for this parameter is given in detail |
+  | `bad-length` | use a length from 1 to 65536 bytes: 65536 is the whole address space, and a read over 256 bytes is truncated |
+  | `bad-count` | ask for at least 1 instruction, and at most 64 |
+  | `past-end` | start at a lower address: the bytes read (at most 256) or written must end at or before 65535 ($FFFF); addresses do not wrap |
+  | `not-a-number` | pass a whole number, not a string or a fraction |
+  | `unknown-tool` | use one of the tool names offered in this request |
+  | `no-machine` | open a machine first; there is none in this chat |
+  | `no-consent` | the person has not allowed acting on the machine: explain the change instead of making it |
+  | `consent-declined` | the person chose "Just tell me the fix": explain the change so they can make it |
+  | `stopped` | the person stopped Claude: do not change the machine |
+  | `empty` | send a non-empty value for the parameter named in detail |
+  | `bad-byte` | a byte is a whole number from 0 to 255 |
+  | `assembly-failed` | fix the errors named in detail (line numbers are those of your source) and call again; nothing was written |
+  | `org-conflict` | drop the org argument, or remove the ORG line from the source |
+  | `no-basic` | this needs the BASIC ROMs, which this machine does not have: for run, pass an address to jump to instead; for a program, write it in assembler with assemble_and_load |
+  | `bad-target` | pass an address 0-65535 (a decimal integer, or hex text like "$3000") or "RUN" |
+  | `not-consumed` | the machine stopped reading the keyboard before everything was typed (detail says how far it got; the rest was not typed): read the screen with screen_text, press_break if a program is running, then type only what is missing, or offer load_basic for a long program |
+  | `bad-line-number` | start every line with a line number from 0 to 63999 (detail names the line); nothing was loaded |
+  | `line-too-long` | split the line named in detail: it is longer than this BASIC accepts (the limit is in detail); nothing was loaded |
+  | `not-at-prompt` | BASIC must be at its OK prompt: read the screen with screen_text, press_break if a program is running, and try again |
+  | `program-too-large` | the program does not fit in this BASIC session's free memory (detail gives the sizes): shorten it, or ask the person to free memory (for example PCLEAR 1 on a CoCo or Dragon) |
+  | `unknown-machine` | this machine's BASIC is not one load_basic knows: type the program with type_text instead |
+  | `load-declined` | the person chose not to load the program: do not load it; offer to type it if it has 3 lines or fewer, or give them the listing |
+  | `tool-failed` | the tool failed inside the emulator (detail says how), not because of what you sent: read the machine with machine_info or screen_text before going on, and tell the person; do not repeat the call unchanged |
+  | `not-typable` | the machine cannot take the characters in detail (no key for them on this keyboard, or above $7E, which BASIC cannot store as text): leave them out or use plain ASCII it has (BASIC keywords are uppercase) |
 * **Not yet:** the chat on a real machine over a serial cable (the firmware's DriveWire is the Becker port's; a
   bit-banger DriveWire driver is not written), the CoCo 3's 80-column screen (the CoCo 3 runs the same 256×192
   screen), the `read_program` tool and the "Type this listing into BASIC" button.

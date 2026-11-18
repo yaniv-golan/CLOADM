@@ -190,7 +190,7 @@ const trial = (id, press) => {
       typeText: (t) => s.typeText(t), pressBreak: () => s.pressBreak(),
       snapshot: () => { snaps++; return basic.snapshot(); }, restore: (x) => { restores++; basic.restore(x); },
     };
-    const chat = new Emu.ChatSession({ backend: new Emu.ClaudeBackend({ fetch: async () => ({}), apiKey: 'k' }), target });
+    const chat = new Emu.ChatSession({ backend: new Emu.ClaudeBackend({ fetch: async () => ({}), apiKey: 'k' }), target, gate: () => null });   // an explicit allow gate: a ChatSession without one refuses
     chat.toolsOn = true;
     chat.snapped = false;                     // a new turn
     await chat.runTool('press_break', {});

@@ -44,6 +44,10 @@ const plain = failureText(new Error('poke needs at least one byte'));
 check('a plain error shows its message', plain === 'poke needs at least one byte', JSON.stringify(plain));
 check('and no braces either', !plain.includes('{'), JSON.stringify(plain));
 
+// 4b. tool-failed (an uncoded failure, wrapped for the model): the person sees what went wrong, not the model's remedy
+const wrapped = failureText(Emu.asToolError(new Error('boom inside the emulator')));
+check('tool-failed shows the failure, not the remedy meant for the model', wrapped === 'failed: boom inside the emulator', JSON.stringify(wrapped));
+
 // 5. long messages are cut, so one tool cannot fill the activity log
 check('a long message is cut to 80 characters', failureText(new Error('x'.repeat(300))).length === 80);
 

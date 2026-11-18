@@ -47,6 +47,7 @@ export const TOOL_CODES = Object.freeze({
   PROGRAM_TOO_LARGE: 'program-too-large',
   UNKNOWN_MACHINE: 'unknown-machine',
   LOAD_DECLINED: 'load-declined',
+  TOOL_FAILED: 'tool-failed',
 });
 
 // code -> the remedy sentence the model is given. Keep each one an instruction: what to do instead.
@@ -56,7 +57,7 @@ export const TOOL_ERRORS = Object.freeze({
   'too-large': 'send less: the limit for this parameter is given in detail',
   'bad-length': 'use a length from 1 to 65536 bytes: 65536 is the whole address space, and a read over 256 bytes is truncated',
   'bad-count': 'ask for at least 1 instruction, and at most 64',
-  'past-end': 'start at a lower address: the bytes read (at most 256) must end at or before 65535 ($FFFF); reads do not wrap',
+  'past-end': 'start at a lower address: the bytes read (at most 256) or written must end at or before 65535 ($FFFF); addresses do not wrap',
   'not-a-number': 'pass a whole number, not a string or a fraction',
   'unknown-tool': 'use one of the tool names offered in this request',
   'no-machine': 'open a machine first; there is none in this chat',
@@ -76,6 +77,7 @@ export const TOOL_ERRORS = Object.freeze({
   'program-too-large': 'the program does not fit in this BASIC session\'s free memory (detail gives the sizes): shorten it, or ask the person to free memory (for example PCLEAR 1 on a CoCo or Dragon)',
   'unknown-machine': 'this machine\'s BASIC is not one load_basic knows: type the program with type_text instead',
   'load-declined': 'the person chose not to load the program: do not load it; offer to type it if it has 3 lines or fewer, or give them the listing',
+  'tool-failed': 'the tool failed inside the emulator (detail says how), not because of what you sent: read the machine with machine_info or screen_text before going on, and tell the person; do not repeat the call unchanged',
   'not-typable': 'the machine cannot take the characters in detail (no key for them on this keyboard, or above $7E, which BASIC cannot store as text): leave them out or use plain ASCII it has (BASIC keywords are uppercase)',
 });
 
@@ -93,6 +95,10 @@ export class ToolError extends SessionError {
 
 // What the model is given for a failure: the JSON the backend sends as an is_error tool_result.
 export const toolErrorJson = (e) => JSON.stringify({ error: e.tool });
+
+// Any failure as a ToolError: a ToolError as it is, anything else (a bug, an exception from below) as tool-failed
+// with its message, so no tool hands the model a bare sentence or a stack trace.
+export const asToolError = (e) => (e instanceof ToolError ? e : new ToolError(TOOL_CODES.TOOL_FAILED, e && e.message ? e.message : String(e)));
 
 // A whole number in range, or the ToolError naming which bound failed. Shared by every tool that takes an
 // address, a length or a count, so the codes cannot drift between them.

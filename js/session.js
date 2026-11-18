@@ -40,12 +40,9 @@ import { TOOL_CODES, ToolError } from './claude/toolerrors.js';
 import { DriveWireChatChannel, CHAT_DW_CHANNEL } from './claude/channel.js';
 import { nitros9LoaderRom, nitros9LoaderKind, nitros9LoaderByCrc } from './machines/nitros9.js';
 import { inspectOs9Disk, NITROS9_RELEASES } from './media/os9.js';
-import { END_OF_REPLY, ACTING_TOOL_NAMES } from './claude/chat.js';
+import { END_OF_REPLY } from './claude/chat.js';
 import { loadBasic as loadBasicInto, planBasic } from './claude/basicload.js';
 
-// the machine tools that change the BASIC session: they need "Let Claude use the emulator".
-// Derived from the tool schemas in js/claude/chat.js, not restated: a tool added there is gated here.
-const ACTING_TOOLS = new Set(ACTING_TOOL_NAMES);
 // a message's text: a string, or the text blocks of a content array
 const textOf = (c) => (typeof c === 'string' ? c : Array.isArray(c) ? c.filter((b) => b && b.type === 'text').map((b) => b.text).join('') : '');
 import { RomLibrary, identifyRoms, isBootable, isRomPack, looksLikeRom, makeRomPack, restoreRomPack, socketStatus } from './roms.js';
@@ -1963,44 +1960,70 @@ export class Session {
     return this.chat;
   }
   // Claude's acting tools ask first (the consent card), record what is being done (the activity pill and log),
-  // and stamp the restore point the turn makes before its first change
+  // and stamp the restore point the turn makes before its first change. ChatSession.runTool calls this gate for
+  // every acting tool (ACTING_TOOL_NAMES) and for nothing else; a refusal is a ToolError and changes nothing.
   gateTools(chat) {
-    const run = chat.backend.runTool;
-    chat.backend.runTool = async (name, input) => {
-      if (ACTING_TOOLS.has(name)) {
-        // paused by the person's key: the next action waits for Resume (Stop refuses it)
-        if (this.claudePaused) {
-          const go = await new Promise((resolve) => { this.claudePaused.wake.push(resolve); });
-          if (!go) throw new ToolError(TOOL_CODES.STOPPED);
+    // the point's disks were recorded when it was taken (chatTarget's snapshot); it is stamped when it is kept
+    chat.onRestorePoint = (snap) => { const info = this.claudePointInfo.get(snap); if (info) info.at = Date.now(); };
+    // It answers synchronously when nobody has to be asked, so the restore point is the machine at the call itself
+    // (no frame runs in between); a question or a pause makes it a promise.
+    chat.gate = (name, input, call = {}) => {
+      // paused by the person's key: the next action waits for Resume (Stop refuses it)
+      if (this.claudePaused) return pauseWait().then(() => consent(name, input, call));
+      return consent(name, input, call);
+    };
+    // The pre-act re-check, synchronous with the change (ChatSession.runTool): the person may have paused Claude or
+    // turned the switch off while the card waited or the tool's check ran (an INCLUDE read). Paused: wait for
+    // Resume as the gate does, then this runs again. A call that relied on the switch (call.consent 'switch') is
+    // refused no-consent once it is off; a card answered for this very call ('card') still holds for it.
+    chat.recheck = (name, input, call = {}) => {
+      if (this.claudePaused) return pauseWait();
+      if (call.consent === 'switch' && !(this.claudeAllowed && (name !== 'load_basic' || this.claudeLoadNoAsk))) throw new ToolError(TOOL_CODES.NO_CONSENT);
+      return null;
+    };
+    // Resume goes on; Stop, or the turn's abort (Esc/BREAK while paused), is stopped
+    const pauseWait = () => new Promise((resolve) => { this.claudePaused.wake.push(resolve); onAbort(() => resolve(false)); }).then((go) => {
+      if (!go) throw new ToolError(TOOL_CODES.STOPPED);
+    });
+    // the turn's abort (Stop, or Esc/BREAK, which abort the request without stopClaude) also ends a wait: a card or
+    // a pause left waiting would hold the turn until someone answered it
+    const onAbort = (f) => {
+      const sig = chat.controller && chat.controller.signal;
+      if (sig) { if (sig.aborted) f(); else sig.addEventListener('abort', f, { once: true }); }
+    };
+    // the page shows the question (claudeGate tells it); without a page nobody can say yes
+    const ask = (name, input, extra) => (!this.claudeGate ? Promise.resolve(false) : new Promise((resolve) => {
+      onAbort(() => resolve(STOPPED));
+      this.claudePending = { name, input, resolve, ...extra };
+      this.claudeGate(name, input);
+      this.emit('chat');
+    })).then((ok) => { this.claudePending = null; this.emit('chat'); return ok; });
+    // the answer as the code the tool fails with: Stop is stopped; no (or nobody to ask) is the card's own code
+    const refuse = (ok, declined) => {
+      if (ok === STOPPED) throw new ToolError(TOOL_CODES.STOPPED);
+      if (ok !== true) throw new ToolError(this.claudeGate ? declined : TOOL_CODES.NO_CONSENT);
+    };
+    const acting = (name, input) => { this.claudeActing = { name, input: input || {} }; this.emit('chat'); };
+    // call.consent records what this call relied on: 'card' (the person answered a card for it) or 'switch'
+    const consent = (name, input, call) => {
+      if (name === 'load_basic') {
+        // load_basic replaces the program in memory, so every call has its own card, whatever the switch says,
+        // until the person ticks "Don't ask again this session" (claudeLoadNoAsk, offered only while the switch is on). The program is checked
+        // first (the same planBasic the tool runs), so the card describes a load that can happen and a load
+        // that cannot is refused with its own code without asking anyone.
+        const plan = planBasic(this.chatTarget(), input && input.program);
+        // ("Don't ask again" holds only while the switch is on: with it off every load asks)
+        if (!(this.claudeLoadNoAsk && this.claudeAllowed)) {
+          const nums = plan.lines.map((l) => l.number);
+          return ask(name, input, { kind: 'load', load: { lines: nums.length, first: nums[0], last: nums[nums.length - 1], bytes: plan.bytes.length } })
+            .then((ok) => { refuse(ok, TOOL_CODES.LOAD_DECLINED); call.consent = 'card'; acting(name, input); });
         }
-        // the page shows the question (claudeGate tells it); without a page nobody can say yes
-        const ask = (extra) => (!this.claudeGate ? Promise.resolve(false) : new Promise((resolve) => {
-          this.claudePending = { name, input, resolve, ...extra };
-          this.claudeGate(name, input);
-          this.emit('chat');
-        })).then((ok) => { this.claudePending = null; this.emit('chat'); return ok; });
-        if (name === 'load_basic') {
-          // load_basic replaces the program in memory, so every call has its own card, whatever the switch says,
-          // until the person ticks "Don't ask again this session" (claudeLoadNoAsk, offered only while the switch is on). The program is checked
-          // first (the same planBasic the tool runs), so the card describes a load that can happen and a load
-          // that cannot is refused with its own code without asking anyone.
-          const plan = planBasic(this.chatTarget(), input && input.program);
-          // ("Don't ask again" holds only while the switch is on: with it off every load asks)
-          if (!(this.claudeLoadNoAsk && this.claudeAllowed)) {
-            const nums = plan.lines.map((l) => l.number);
-            const ok = await ask({ kind: 'load', load: { lines: nums.length, first: nums[0], last: nums[nums.length - 1], bytes: plan.bytes.length } });
-            if (ok === STOPPED) throw new ToolError(TOOL_CODES.STOPPED);
-            if (ok !== true) throw new ToolError(this.claudeGate ? TOOL_CODES.LOAD_DECLINED : TOOL_CODES.NO_CONSENT);
-          }
-        } else if (!this.claudeAllowed) {
-          const ok = await ask({ kind: 'consent' });
-          if (ok !== true) throw new ToolError(this.claudeGate ? TOOL_CODES.CONSENT_DECLINED : TOOL_CODES.NO_CONSENT);
-          this.claudeAllowed = true;
-        }
-        this.claudeActing = { name, input: input || {} };
-        this.emit('chat');
+      } else if (!this.claudeAllowed) {
+        return ask(name, input, { kind: 'consent' }).then((ok) => { refuse(ok, TOOL_CODES.CONSENT_DECLINED); this.claudeAllowed = true; call.consent = 'card'; acting(name, input); });
       }
-      return run(name, input);
+      call.consent = 'switch';
+      acting(name, input);
+      return null;
     };
   }
   // answer the question on screen: the consent card (Allow / Just tell me the fix; the switch below the message box
@@ -2045,7 +2068,7 @@ export class Session {
     this.emit('chat');
     return true;
   }
-  // Stop: the turn ends, a waiting question is answered STOPPED (load_basic's card: stopped; the consent card: a no), and what Claude was typing stops being typed
+  // Stop: the turn ends, a waiting question is answered STOPPED (either card: the tool fails stopped), and what Claude was typing stops being typed
   stopClaude() {
     if (!this.chat) return;
     if (this.claudePaused) {

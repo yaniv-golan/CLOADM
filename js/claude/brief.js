@@ -3,7 +3,11 @@
  * js/host/claude-brief.md holds the prose the reader can edit, and this builder appends the per-call facts.
  * The brief is the system prompt sent with every request.
  */
-import { CHAT_SCREEN, TYPING_POLICY } from './chat.js';
+import { ACTING_TOOL_NAMES, CHAT_SCREEN, TYPING_POLICY } from './chat.js';
+import { READ_ONLY_TOOLS } from './readtools.js';
+
+// How the tools answer (js/claude/toolerrors.js, js/claude/chat.js), said whenever tools are on
+export const TOOL_CONTRACT = `Tools: results are JSON. A failed call is {"error":{"code","remedy","detail"}}: do what the remedy says. ${READ_ONLY_TOOLS.join(', ')} only read and need no permission. ${ACTING_TOOL_NAMES.join(', ')} change the machine and need the person's permission (they are asked when needed); consent-declined, load-declined and no-consent mean nothing changed: explain the change instead of making it; stopped means the person stopped you: do not change the machine further. A restore point is made before the first change of each turn.`;
 
 const SCREEN = (cols, rows) => `${cols} columns by ${rows} rows`;
 
@@ -25,8 +29,8 @@ export function machineFacts({ machine, ram, cpu, hasBasic, edition, tools }) {
 // below is used, so Node tests and an embedder need no file. The screen is the chat firmware's (CHAT_SCREEN).
 export function claudeBrief(opts = {}) {
   const fixed = (opts.base && String(opts.base).trim()) || FIXED_BRIEF;
-  // the typing policy is the code's (js/claude/chat.js), not the editable prose: it is said whenever tools are on
-  const policy = opts.tools ? `\n\n${TYPING_POLICY}` : '';
+  // the tool contract and the typing policy are the code's, not the editable prose: said whenever tools are on
+  const policy = opts.tools ? `\n\n${TOOL_CONTRACT}\n\n${TYPING_POLICY}` : '';
   return `${fixed}\n\nScreen: ${SCREEN(CHAT_SCREEN.cols, CHAT_SCREEN.rows)}, plain text only, only characters the chat font has. Keep answers short.${policy}\n\n${machineFacts(opts)}`;
 }
 

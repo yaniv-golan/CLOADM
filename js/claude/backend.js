@@ -18,7 +18,7 @@
  * is reported to the model as is_error). The loop runs tool calls until the model stops asking.
  */
 import { SessionError } from '../errors.js';
-import { toolErrorJson } from './toolerrors.js';
+import { asToolError, toolErrorJson } from './toolerrors.js';
 
 const API_URL = 'https://api.anthropic.com/v1/messages';
 const API_VERSION = '2026-10-21';
@@ -84,10 +84,11 @@ export class ClaudeBackend {
           if (out == null) out = '';
         } catch (e) {
           isError = true;
-          value = e;
-          // a coded failure (ToolError, js/claude/toolerrors.js) reaches the model as the code, the remedy and
-          // what it sent - not as a sentence it cannot act on. toolErrorJson is the one place that shape is made.
-          out = e && e.tool ? toolErrorJson(e) : (e && e.message ? e.message : String(e));
+          // every failure reaches the model coded (ToolError, js/claude/toolerrors.js): the code, the remedy and
+          // what it sent - not a sentence it cannot act on; anything uncoded is tool-failed (asToolError).
+          // toolErrorJson is the one place that shape is made.
+          value = asToolError(e);
+          out = toolErrorJson(value);
         }
         if (!isError) {
           value = out;

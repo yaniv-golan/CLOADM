@@ -33,6 +33,8 @@ const include = exampleReader();
 // blob. At module scope so a test can pin that, including that a String() regression fails it.
 export function failureText(value) {
   const tool = value && value.tool;
+  // tool-failed's remedy is for the model; the person is shown what went wrong
+  if (tool && tool.code === 'tool-failed' && tool.detail) return `failed: ${tool.detail}`.slice(0, 80);
   if (tool && tool.remedy) return tool.remedy;
   return String((value && value.message) || value || 'failed').slice(0, 80);
 }

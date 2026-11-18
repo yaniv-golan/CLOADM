@@ -3,7 +3,7 @@
 // The read-only machine tools: machine_info, screen_text, peek. What this
 // proves, and why each check is here:
 //  * they are the read-only half of the split, and they run WITHOUT consent - the Session's gate asks only
-//    for names in ACTING_TOOLS, and none of these is one;
+//    for names in ACTING_TOOL_NAMES, and none of these is one;
 //  * they cannot change the machine, including when handed write-shaped arguments ({address, bytes} to a
 //    read tool): the machine's full saved state is byte-identical before and after every call;
 //  * peek reads the machine's own memory map (ROM and cartridge as the CPU fetches them), side-effect-free;

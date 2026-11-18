@@ -11,7 +11,7 @@
  *
  * They live here rather than in js/claude/chat.js so the read-only surface can be tested on its own, and so
  * the split between read-only and acting has one place to name it (READ_ONLY_TOOLS below). The Session's
- * consent gate keys on the ACTING set (Session.ACTING_TOOLS, derived from chat.js's ACTING_TOOL_NAMES): it asks
+ * consent gate keys on the ACTING set (ChatSession.runTool gates chat.js's ACTING_TOOL_NAMES): it asks
  * for anything in that set, so a name is gated by being acting, not by being absent from here. The test that the
  * two sets together name every tool, exactly once, is what keeps them from drifting.
  *

@@ -22,6 +22,23 @@ All notable changes to CLOADM are recorded here. The format follows
 
 ### Changed
 
+- **Claude's acting tools follow the read tools' contract.** `poke`, `type_text`, `load_basic`, `press_break`,
+  `assemble_and_load` and `run` are entries of one table in `js/claude/chat.js`, and `ChatSession.runTool` runs each
+  the same way: the consent gate (`ChatSession.gate`, which the Session now sets instead of wrapping the backend),
+  the tool's read-only checks, a Stop check, then the change inside the turn's restore point
+  (`ChatSession.withRestorePoint`); the offered schemas and the gated names both come from that table. Anything
+  uncoded inside a tool is the new code `tool-failed`, never a raw exception (`asToolError`, applied in `runTool` and
+  in the backend). Stop while the consent card is up is `stopped` (it was `consent-declined`). Every schema states
+  its ranges and defaults from the constants the code applies (`POKE_MIN`, `BYTE_MIN`/`BYTE_MAX`,
+  `ASSEMBLE_DEFAULT_ORG`, `RUN_DEFAULT_TARGET` are new) and every description names the codes the tool returns and
+  its whole result. The brief states the contract (`TOOL_CONTRACT`), and `docs/claude.md` lists every code with its
+  remedy. New `tests/claude-acting-contract.test.js`: every acting tool against every outcome through the backend
+  with a mocked API, the schemas against the constants, and the gate and restore point for every tool. Just before
+  the change a synchronous re-check (`ChatSession.recheck`, set by the Session) catches what happened while a card
+  waited or a check ran (an INCLUDE read): Claude paused waits for Resume (Stop or Esc: `stopped`), and a call that
+  relied on the "Let Claude use the machine" switch is `no-consent` once it is off; nothing lands while paused. A
+  `ChatSession` built without a gate now refuses every acting tool (`no-consent`) instead of allowing it. `run.target`'s
+  schema is `anyOf` an integer `ADDRESS_MIN`-`ADDRESS_MAX` or a string.
 - **Test gates (tooling): a green run means what it says.** `node tools/browser-check.js`: an unknown or empty
   `--only` group list is an error (exit 2) listing the valid groups, where it used to run nothing and pass; each group
   runs on its own, so one that throws is that group's FAIL with its stack and the rest still run; every wait's

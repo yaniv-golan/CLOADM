@@ -638,8 +638,8 @@ STB     FCB     $FE,$FD,$FB,$F7,$EF,$DF,$BF,$7F
     check('every acting description states its units or limits (addresses 0-65535, byte values, character limits)',
       /0-65535/.test(JSON.stringify(tools.find((t) => t.name === 'poke').input_schema)) && /0-255/.test(JSON.stringify(tools.find((t) => t.name === 'poke').input_schema))
       && /0-65535/.test(JSON.stringify(tools.find((t) => t.name === 'assemble_and_load').input_schema)) && /0-65535/.test(tools.find((t) => t.name === 'run').description)
-      && /at most \d+ characters/.test(tools.find((t) => t.name === 'type_text').description) && /at most \d+/.test(tools.find((t) => t.name === 'poke').description + JSON.stringify(tools.find((t) => t.name === 'poke').input_schema)));
-    check('every acting parameter is typed and described with its unit or limits', tools.every((t) => Object.values(t.input_schema.properties).every((pr) => pr.type && (pr.description || pr.maxLength || pr.items))), '');
+      && /1 to \d+ characters/.test(tools.find((t) => t.name === 'type_text').description) && /\d+ to \d+ of them/.test(tools.find((t) => t.name === 'poke').description + JSON.stringify(tools.find((t) => t.name === 'poke').input_schema)));
+    check('every acting parameter is typed and described with its unit or limits', tools.every((t) => Object.values(t.input_schema.properties).every((pr) => (pr.type || (pr.anyOf && pr.anyOf.every((alt) => alt.type))) && (pr.description || pr.maxLength || pr.items))), '');
     check('addresses are integers 0-65535 and say decimal', ['poke', 'assemble_and_load'].every((nm) => /[Dd]ecimal/.test(JSON.stringify(tools.find((t) => t.name === nm).input_schema))));
     const s = boot('dragon64'); s.setClaudeAllowed(true);
     const chat = ask(s); const m = s.machine;
