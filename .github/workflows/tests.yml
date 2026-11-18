@@ -57,8 +57,9 @@ jobs:
 
   suites:
     name: node tests/all.js
-    # Pinned, not ubuntu-latest: the image moves under us (it went to 26.04, which Playwright 1.55 has no chromium
-    # for) and a green run should mean the code changed, not the runner. Move this deliberately, with the browsers.
+    # Pinned, not ubuntu-latest: the image moves under us (it once went to 26.04, which the Playwright then pinned,
+    # 1.55, had no chromium for) and a green run should mean the code changed, not the runner. Move this
+    # deliberately, with the browsers.
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -103,14 +104,14 @@ jobs:
       - name: Install Playwright
         run: |
           npm init -y >/dev/null 2>&1 || true
-          npm install --no-save --no-audit --no-fund playwright@1.55.0
+          npm install --no-save --no-audit --no-fund playwright@1.63.0
       # The browser download is cached on the Playwright version and the runner image (chromium is built per Ubuntu
       # release); a miss downloads it below, a hit makes that step a no-op.
       - name: Cache the Playwright browser
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-1.55.0-ubuntu-24.04-chromium
+          key: playwright-1.63.0-ubuntu-24.04-chromium
       - name: Install the browser and its OS packages
         run: |
           npx playwright install chromium

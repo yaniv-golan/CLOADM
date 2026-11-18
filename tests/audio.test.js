@@ -1,4 +1,4 @@
-// The audio output stage (js/host/audio.js AudioOutput, browser-free): no pop the machine didn't play.
+// The audio output stage (js/host/audio.js AudioOutput and its SampleQueue, browser-free): no pop the machine didn't play.
 // A pop is a large jump between two consecutive output samples. Where the machine's level is constant, the
 // output may only move by the high-pass filter's own decay (at most 0.5% of its value a sample) or by the fade
 // (1/(FADE_MS of samples) of the held value a sample), so the bound used is BOUND = 0.01 (1% of full scale) for
@@ -7,6 +7,9 @@
 // (the old stage: no re-seed, 0 on underrun) to show the case does pop there. While samples flow, the output
 // is exactly the high-pass of the machine's levels, as before.
 const { AudioOutput, FADE_MS } = require('../js/host/audio.js');
+// the stage as the page plays it: AudioOutput writing into a SampleQueue (its default sink), which the audio
+// thread pulls (js/host/audio-worklet.js)
+class Stage extends AudioOutput { pull(b) { this.sink.pull(b); } }
 
 let fail = 0;
 const check = (name, cond, detail = '') => { if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log(`ok   ${name} ${detail}`); };
@@ -93,7 +96,7 @@ for (const rate of [44100, 48000]) {
   // machine's levels averaged over each sample (BoxReference), to 1e-6 (the two sum in different orders)
   {
     const script = steady(rate, (i) => (i < 60 ? square(400 + 7 * i, i) : null));
-    const a = play(new AudioOutput(rate), script), b = play(new BoxReference(rate), script);
+    const a = play(new Stage(rate), script), b = play(new BoxReference(rate), script);
     let worst = a.length === b.length ? 0 : Infinity;
     for (let i = n + 1; i < a.length && worst < Infinity; i++) worst = Math.max(worst, Math.abs(a[i] - b[i]));
     const loud = Math.max(...a.slice(n + 1).map(Math.abs));
@@ -107,7 +110,7 @@ for (const rate of [44100, 48000]) {
   {
     const period = CYCLES * FPS / 30000;
     const pulses = () => { const ev = [0, 1]; for (let c = 0; c < CYCLES; c += period) { if (c) ev.push(c, 1); if (c + period / 4 < CYCLES) ev.push(c + period / 4, 0); } return ev; };
-    const a = play(new AudioOutput(rate), steady(rate, (i) => (i < 30 ? pulses(i) : null)));
+    const a = play(new Stage(rate), steady(rate, (i) => (i < 30 ? pulses(i) : null)));
     const b = play(new OldOutput(rate, true), steady(rate, (i) => (i < 30 ? pulses(i) : null)));
     const tail = (x) => x.slice(10 * n, 25 * n), rms = (x) => Math.sqrt(tail(x).reduce((t, v) => t + v * v, 0) / tail(x).length);
     check(`${rate} Hz: a 30 kHz pulse train aliases at most half as loud as point sampling`, rms(a) < rms(b) / 2 && rms(b) > 0.1, `rms ${rms(a).toFixed(4)} (point sampling ${rms(b).toFixed(3)})`);
@@ -116,21 +119,21 @@ for (const rate of [44100, 48000]) {
   // sound unlocked while the DAC sits at a high level: the first frame doesn't step from 0 to it
   {
     const script = steady(rate, (i) => (i < 20 ? flat(0.8) : null));
-    const a = maxJump(play(new AudioOutput(rate), script)), b = maxJump(play(new OldOutput(rate), script));
+    const a = maxJump(play(new Stage(rate), script)), b = maxJump(play(new OldOutput(rate), script));
     check(`${rate} Hz: unlock at a DC level makes no pop`, a < BOUND && b > 0.3, `max step ${a.toFixed(4)} (old ${b.toFixed(3)})`);
   }
 
   // reset / machine switch moving the level from 0 to 1 (the Session events call discontinuity())
   {
     const script = [...steady(rate, (i) => (i < 20 ? flat(0) : null)), ['cut'], ...steady(rate, (i) => (i < 20 ? flat(1) : null), 0)];
-    const a = maxJump(play(new AudioOutput(rate), script)), b = maxJump(play(new OldOutput(rate), script));
+    const a = maxJump(play(new Stage(rate), script)), b = maxJump(play(new OldOutput(rate), script));
     check(`${rate} Hz: a level jump at a reset makes no pop`, a < BOUND && b > 0.3, `max step ${a.toFixed(4)} (old ${b.toFixed(3)})`);
   }
 
   // a reset's own settling: the level drops and comes back a few cycles into the first frame after it
   {
     const script = [...steady(rate, (i) => (i < 20 ? flat(0.98) : null)), ['cut'], ...steady(rate, (i) => (i === 0 ? [0, 0, 4, 0.51] : i < 20 ? flat(0.51) : null), 0)];
-    const a = maxJump(play(new AudioOutput(rate), script)), b = maxJump(play(new OldOutput(rate), script));
+    const a = maxJump(play(new Stage(rate), script)), b = maxJump(play(new OldOutput(rate), script));
     check(`${rate} Hz: a reset settling in its first frame makes no pop`, a < BOUND && b > 0.2, `max step ${a.toFixed(4)} (old ${b.toFixed(3)})`);
   }
 
@@ -141,7 +144,7 @@ for (const rate of [44100, 48000]) {
     const pause = [['pull', 1024], ['pull', 1024], ['pull', 1024], ['pull', 1024]];
     const resume = steady(rate, (i) => (i < 10 ? flat(1) : null), 0);
     const script = [...before, ...pause, ...resume];
-    const a = play(new AudioOutput(rate), script), b = play(new OldOutput(rate), script);
+    const a = play(new Stage(rate), script), b = play(new OldOutput(rate), script);
     const k = 1 + 11 * n;     // the first sample after the ring ran dry
     check(`${rate} Hz: the output is high when the ring runs dry`, Math.abs(a[k - 1]) > 0.3, a[k - 1].toFixed(3));
     check(`${rate} Hz: running dry and resuming make no pop`, maxJump(a, k) < BOUND && maxJump(b, k) > 0.3,
@@ -153,8 +156,8 @@ for (const rate of [44100, 48000]) {
   {
     const tone = (i) => square(300, i);
     const script = [...steady(rate, (i) => (i < 10 ? tone(i) : null)), ['pull', 4096], ...steady(rate, (i) => (i < 10 ? tone(i) : null), 0)];
-    const a = play(new AudioOutput(rate), script);
-    const toneStep = maxJump(play(new AudioOutput(rate), steady(rate, (i) => (i < 30 ? tone(i) : null))), fade + 2);
+    const a = play(new Stage(rate), script);
+    const toneStep = maxJump(play(new Stage(rate), steady(rate, (i) => (i < 30 ? tone(i) : null))), fade + 2);
     check(`${rate} Hz: pausing a tone never steps more than the tone itself`, maxJump(a, fade + 2) <= toneStep + 1e-6, `${maxJump(a, fade + 2).toFixed(3)} <= ${toneStep.toFixed(3)}`);
   }
 
@@ -178,13 +181,13 @@ for (const rate of [44100, 48000]) {
       }
       return all;
     };
-    const a = run(new AudioOutput(rate)), k = 1 + 4 * n + 2 * n;   // from the pulls after the fill
+    const a = run(new Stage(rate)), k = 1 + 4 * n + 2 * n;   // from the pulls after the fill
     check(`${rate} Hz: a dropped frame leaves no step`, a.length > k + 10000 && maxJump(a, k) < BOUND, `max step ${maxJump(a, k).toFixed(4)}`);
   }
 
   // latency stays bounded when frames come faster than they are played
   {
-    const out = new AudioOutput(rate);
+    const out = new Stage(rate);
     for (let i = 0; i < 100; i++) out.push(flat(0.5), CYCLES, FPS);
     check(`${rate} Hz: at most 0.15 s and a frame buffered`, out.buffered() <= rate * 0.15 + n, `${out.buffered()} samples`);
   }
@@ -200,7 +203,7 @@ for (const rate of [44100, 48000]) {
 for (const [label, fps, cycles] of [['PAL Dragon', 49.96766756635178, 17784], ['NTSC CoCo', 59.92274340431231, 14934]]) {
   for (const rate of [44100, 48000]) {
     for (const skew of [1, 1.0001, 0.9999]) {
-      const out = new AudioOutput(rate);             // the stage resamples for `rate`; the card plays at rate * skew
+      const out = new Stage(rate);             // the stage resamples for `rate`; the card plays at rate * skew
       const block = new Float32Array(1024), seconds = 900;
       let pushed = 0, maxLate = 0, underruns = 0;
       const frameDt = 1 / fps, blockDt = 1024 / (rate * skew);
@@ -218,7 +221,7 @@ for (const [label, fps, cycles] of [['PAL Dragon', 49.96766756635178, 17784], ['
 }
 // the fraction is carried: at 44.1 kHz a 49.968 Hz machine gives 882 or 883 samples a frame, 882.571 on average
 {
-  const out = new AudioOutput(44100), fps = 49.96766756635178;
+  const out = new Stage(44100), fps = 49.96766756635178;
   const sizes = new Set();
   let total = 0;
   for (let i = 0; i < 1000; i++) {

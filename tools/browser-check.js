@@ -717,24 +717,109 @@ async function sscBoardChecks(browser, base, check) {
   await ctx.close();
 }
 
+// the same set-up as DAC_HIGH, then a square wave on the DAC (two levels, a delay loop each): a steady tone
+const DAC_SQUARE = DAC_HIGH.replace(/ CLRB\n[\s\S]*$/, ` LDA #$FC
+L STA $FF20
+ LDX #120
+D1 LEAX -1,X
+ BNE D1
+ EORA #$7C
+ BRA L
+ END`);
+// Counted in the page from before its own scripts run: every AudioWorkletNode made and every createScriptProcessor
+// call. `noWorklet` takes AudioWorklet away (an insecure context or an old browser); `badModule` makes its module
+// fail to load; `hangModule` makes it never load; `slowModule` makes it load only after 4 s, past the page's 3 s
+// wait; `processorError` has the running processor fail: each must fall back to the ScriptProcessorNode. The worklet
+// nodes' connect and disconnect calls are counted too.
+const audioNodeCounter = ({ noWorklet = false, badModule = false, hangModule = false, slowModule = false, processorError = false } = {}) => {
+  window.audioNodes = { worklet: 0, script: 0, connected: 0, disconnected: 0 };
+  if (noWorklet) Object.defineProperty(AudioContext.prototype, 'audioWorklet', { configurable: true, get: () => undefined });
+  if (badModule) AudioWorklet.prototype.addModule = () => Promise.reject(new Error('module failed to load (test)'));
+  if (hangModule) AudioWorklet.prototype.addModule = () => new Promise(() => {});
+  if (slowModule) {
+    const add = AudioWorklet.prototype.addModule;
+    AudioWorklet.prototype.addModule = function (...a) {
+      return new Promise((res) => setTimeout(res, 4000)).then(() => add.apply(this, a)).then((r) => { window.slowLoaded = true; return r; });
+    };
+  }
+  const W = window.AudioWorkletNode;
+  window.AudioWorkletNode = class extends W {
+    constructor(...a) {
+      super(...a); window.audioNodes.worklet++;
+      // the processor failing once running (as a throw in its process() would): the node fires processorerror
+      if (processorError) setTimeout(() => this.dispatchEvent(new Event('processorerror')), 300);
+    }
+    connect(...a) { window.audioNodes.connected++; return super.connect(...a); }
+    disconnect(...a) { window.audioNodes.disconnected++; return super.disconnect(...a); }
+  };
+  const csp = BaseAudioContext.prototype.createScriptProcessor;
+  BaseAudioContext.prototype.createScriptProcessor = function (...a) { window.audioNodes.script++; return csp.apply(this, a); };
+};
+
+// Sound through the AudioWorkletNode (js/host/audio.js, js/host/audio-worklet.js). The worklet's test hook ({ tap:
+// true }) posts back a copy of every block it plays; the page records every chunk the output stage makes. So:
+// - no pop (DAC_HIGH, the steps below) is checked on what the worklet really played;
+// - what it played EQUALS what the emulator made, value for value (tolerance 0): every block of queued samples at
+//   full gain, at the index it reports, across all the steps; the blocks' indices run on without a gap or repeat;
+// - the tone of DAC_SQUARE comes out at the frequency the machine plays it (the core's own events give it);
+// - mute fades to exact silence and back; volume scales the output; pause, turbo, a hidden tab and machine
+//   switches keep the one context and the one node (no leak); no ScriptProcessorNode and no deprecation warning.
 async function audioChecks(browser, base, check) {
   const Emu = require('../tests/load')();
   const bin = [...Emu.toBinary(Emu.assemble(DAC_HIGH, '6809'))];
+  const square = [...Emu.toBinary(Emu.assemble(DAC_SQUARE, '6809'))];
   const ctx = await browser.newContext();
+  await ctx.addInitScript(audioNodeCounter);
   const page = await ctx.newPage();
-  const errors = [];
+  const errors = [], warnings = [];
   page.on('pageerror', (e) => errors.push(e.message));
+  page.on('console', (m) => { if (/ScriptProcessor|deprecat/i.test(m.text())) warnings.push(m.text()); });
   await page.goto(`${base}?machine=dragon64`);
   await started(page);
   await stubPrompt(page);
+  check('sound: no audio node before the unlock gesture', await page.evaluate(() => !window.emu.audio.ctx && window.audioNodes.worklet === 0 && window.audioNodes.script === 0));
   await page.mouse.click(5, 5);                       // unlocks sound
-  const running = await waitFor(page, () => window.emu.audioRunning());
-  await page.evaluate(() => {
-    const out = window.emu.audio.out, pull = out.pull.bind(out);
-    window.played = [];
-    out.pull = (b) => { pull(b); for (const v of b) window.played.push(v); };
+  const running = await maybeWaitFor('if it never comes, the next check FAILs with what the page has instead, and the group stops there',
+    page, () => window.emu.audioRunning() && window.emu.audio.path === 'worklet', null, 15000);
+  const audioState = () => page.evaluate(() => {
+    const a = window.emu.audio, r = performance.getEntriesByType('resource').filter((e) => /audio-worklet/.test(e.name));
+    return { path: a.path, fallback: a.fallback, state: a.ctx && a.ctx.state, time: a.ctx && a.ctx.currentTime, ua: navigator.userAgent,
+      fetched: r.map((e) => `${e.initiatorType} ${Math.round(e.duration)} ms`) };
   });
-  const load = () => page.evaluate((b) => window.emu.session.load('dac.bin', new Uint8Array(b), { remember: false }), bin);
+  if (!running) {
+    // which part fails: addModule of a one-line processor (a Blob) and of ours, each on a fresh context, realtime and
+    // offline, each given 5 s
+    const probe = await page.evaluate(async () => {
+      const blob = URL.createObjectURL(new Blob(['registerProcessor("p", class extends AudioWorkletProcessor { process() { return true; } });'], { type: 'text/javascript' }));
+      const ours = new URL('js/host/audio-worklet.js', document.baseURI).href;
+      const tryIt = async (make, url) => {
+        const c = make(), t0 = performance.now();
+        const r = await Promise.race([c.audioWorklet.addModule(url).then(() => 'loaded', (e) => `rejected: ${e.message}`), new Promise((res) => setTimeout(() => res('pending after 5 s'), 5000))]);
+        return `${r} (${Math.round(performance.now() - t0)} ms, ${c.state})`;
+      };
+      const rt = () => new AudioContext(), off = () => new OfflineAudioContext(1, 128, 44100);
+      return { blobRealtime: await tryIt(rt, blob), oursRealtime: await tryIt(rt, ours), blobOffline: await tryIt(off, blob), oursOffline: await tryIt(off, ours) };
+    });
+    check('sound: after the unlock an AudioWorkletNode plays it', false, JSON.stringify({ ...await audioState(), probe }));
+    await ctx.close();
+    return;
+  }
+  const made = await page.evaluate(() => {
+    const a = window.emu.audio;
+    window.firstAudio = { ctx: a.ctx, node: a.node, out: a.out };
+    return { nodes: window.audioNodes, isWorklet: a.node instanceof AudioWorkletNode, sink: a.out.sink.constructor.name };
+  });
+  check('sound: after the unlock an AudioWorkletNode plays it, and no ScriptProcessorNode is made',
+    running && made.isWorklet && made.nodes.worklet === 1 && made.nodes.script === 0 && made.sink === 'PortSink', JSON.stringify(made));
+  await page.evaluate(() => {
+    const a = window.emu.audio, sink = a.out.sink, write = sink.write.bind(sink);
+    window.made = [];                                  // [index of its first sample, a copy of the chunk]
+    sink.write = (c) => { window.made.push([sink.written, c.slice()]); write(c); };
+    window.played = []; window.blocks = [];
+    a.node.port.addEventListener('message', (e) => { const t = e.data.tap; if (!t) return; window.blocks.push(t); for (const v of t.out) window.played.push(v); });
+    a.node.port.postMessage({ tap: true });
+  });
+  const load = (b = bin) => page.evaluate((b) => window.emu.session.load('dac.bin', new Uint8Array(b), { remember: false }), b);
   // after each step, a quarter of a second of sound played (however long the page takes)
   const wait = async () => { const n0 = await page.evaluate(() => window.played.length); await waitFor(page, (n0) => window.played.length >= n0 + 12000, n0); };
   const steps = [
@@ -744,6 +829,9 @@ async function audioChecks(browser, base, check) {
     ['turbo', () => page.click('#btnTurbo')], ['turbo off', () => page.click('#btnTurbo')],
     ['sound off', () => page.$eval('#chkSound', (c) => c.click())], ['sound on', () => page.$eval('#chkSound', (c) => c.click())],
     ['switch', () => page.evaluate(() => window.emu.session.switchMachine('coco'))], ['load', load], ['switch back', () => page.evaluate(() => window.emu.session.switchMachine('dragon64'))],
+    // the page's thread busy for 200 ms (no frames, no messages): the audio thread plays on from its queue, and
+    // when that runs dry fades to silence instead of glitching
+    ['busy page', () => page.evaluate(() => { window.busyAt = window.emu.audio.ctx.currentTime; const t = performance.now(); while (performance.now() - t < 200); })],
   ];
   const marks = [];
   for (const [name, act, until = wait] of steps) { marks.push([name, await page.evaluate(() => window.played.length)]); await act(); await until(); }
@@ -753,8 +841,15 @@ async function audioChecks(browser, base, check) {
     return { jump, at, n: p.length, peak };
   });
   const where = (marks.filter((m) => m[1] <= at).pop() || ['start'])[0];
-  check('sound: no pop across power cycle, reset, load, pause, turbo, sound off/on and machine switch',
+  check('sound: no pop across power cycle, reset, load, pause, turbo, sound off/on, machine switch and a busy page',
     running && n > 48000 && jump < 0.01 && !errors.length, `${n} samples, largest step ${jump.toFixed(4)} (after "${where}"), peak ${peak.toFixed(3)}${errors.length ? ' ' + errors.join('; ') : ''}`);
+  const busy = await page.evaluate(() => {
+    const t0 = window.busyAt, rate = window.emu.audio.ctx.sampleRate;
+    const during = window.blocks.filter((b) => b.time >= t0 && b.time < t0 + 0.15);
+    return { blocks: during.length, expected: Math.floor(0.15 * rate / 128), queued: during.filter((b) => b.n > 0).length };
+  });
+  check('sound: with the page\'s thread busy for 200 ms the audio thread keeps rendering, playing what was queued first',
+    busy.blocks >= busy.expected - 2 && busy.queued > 0, JSON.stringify(busy));
   // paused or hidden, the sound context is suspended once the output has faded, and runs again after
   const state = () => page.evaluate(() => window.emu.audio.ctx.state);
   // (each waits for the state the check then asserts: no sound plays while suspended, so a wait for more samples
@@ -773,7 +868,128 @@ async function audioChecks(browser, base, check) {
   check('sound: the context is suspended while paused and while hidden, and runs again after',
     pausedState === 'suspended' && resumedState === 'running' && hiddenState === 'suspended' && shownState === 'running',
     `paused ${pausedState}, resumed ${resumedState}, hidden ${hiddenState}, shown ${shownState}`);
+
+  // the tone: the machine's own events give its period in cycles; the played samples' rising zero crossings over
+  // a second of full blocks give its frequency (to the resampler's steering, at most 0.5%, and one crossing)
+  await load(square);
+  await wait(); await wait();
+  const tone = await page.evaluate(() => {
+    const m = window.emu.machine, ev = m.audioEvents, ts = [];
+    for (let i = 2; i < ev.length; i += 2) if (ev[i + 1] !== ev[i - 1]) ts.push(ev[i]);
+    const period = 2 * (ts[ts.length - 1] - ts[0]) / (ts.length - 1), expected = m.frameCycles * m.fps / period;
+    const rate = window.emu.audio.ctx.sampleRate, from = window.blocks.length;
+    return new Promise((res) => {
+      const done = () => {
+        const bs = window.blocks.slice(from).filter((b) => b.full).slice(0, Math.ceil(rate / 128));
+        let up = 0, prev = 0, nS = 0;
+        for (const b of bs) for (const v of b.out) { if (prev < 0 && v >= 0) up++; prev = v; nS++; }
+        // the queue running dry while the tone plays steadily: blocks that took fewer than 128 queued samples
+        const all = window.blocks.slice(from), dry = all.filter((b) => b.n < b.out.length).length;
+        res({ expected, heard: up * rate / nS, nS, edges: ts.length, rate, dry, blocks: all.length });
+      };
+      const t = setInterval(() => { if (window.blocks.slice(from).filter((b) => b.full).length >= rate / 128) { clearInterval(t); done(); } }, 20);
+    });
+  });
+  check('sound: the square wave plays at the frequency the machine makes it',
+    tone.edges > 4 && tone.nS >= tone.rate * 0.99 && Math.abs(tone.heard - tone.expected) <= tone.expected * 0.006 + 2,
+    `machine ${tone.expected.toFixed(2)} Hz, played ${tone.heard.toFixed(2)} Hz over ${tone.nS} samples`);
+  // headroom: with the page running normally the worklet's queue (kept 10 to 80 ms full by the steering, on the
+  // processor's reported count) doesn't run dry; a stall longer than what is queued would, so the bound is 2% of
+  // the blocks rather than none (each is a 5 ms fade to silence and back, not a click)
+  check('sound: while a tone plays steadily the worklet\'s queue doesn\'t run dry (at most 2% of blocks)', tone.blocks > 300 && tone.dry <= tone.blocks * 0.02,
+    `${tone.dry} of ${tone.blocks} blocks short`);
+  // volume: the output stage's volume scales what the worklet plays (the page has no volume control; Audio.volume
+  // is 0.5): at 0.25, the tone's peak is half what it was
+  const peakNow = () => page.evaluate(() => new Promise((res) => {
+    const from = window.blocks.length;
+    const t = setInterval(() => {
+      const bs = window.blocks.slice(from + 40).filter((b) => b.full);   // (after what was queued at the old volume)
+      if (bs.length >= 200) { clearInterval(t); res(Math.max(...bs.map((b) => Math.max(...b.out.map(Math.abs))))); }
+    }, 20);
+  }));
+  const loud = await peakNow();
+  await page.evaluate(() => { window.emu.audio.out.volume = 0.25; });
+  const soft = await peakNow();
+  await page.evaluate(() => { window.emu.audio.out.volume = window.emu.audio.volume; });
+  check('sound: the volume scales the output (0.25 plays the tone at half the peak of 0.5)', loud > 0.1 && Math.abs(soft / loud - 0.5) < 0.02,
+    `peak ${loud.toFixed(4)} at 0.5, ${soft.toFixed(4)} at 0.25`);
+  // mute: the output fades to exact silence (no frames are sent), and the tone comes back when sound is on again
+  await page.$eval('#chkSound', (c) => c.click());
+  const silent = await waitFor(page, () => window.played.length > 8192 && window.played.slice(-8192).every((v) => v === 0));
+  const writesMuted = await page.evaluate(() => { const n = window.made.length; return new Promise((res) => setTimeout(() => res(window.made.length - n), 300)); });
+  await page.$eval('#chkSound', (c) => c.click());
+  const back = await waitFor(page, () => window.played.slice(-4096).some((v) => Math.abs(v) > 0.05));
+  check('sound: sound off fades to exact silence with nothing sent, and sound on plays again', silent && writesMuted === 0 && back, `${writesMuted} chunks sent while off`);
+
+  // what the worklet played equals what the emulator made, over everything above
+  const eq = await page.evaluate(() => {
+    const made = window.made, blocks = window.blocks, base = made[0][0];
+    const last = made[made.length - 1], all = new Float32Array(last[0] + last[1].length - base);
+    let gaps = 0;
+    for (let i = 0; i < made.length; i++) { all.set(made[i][1], made[i][0] - base); if (i && made[i][0] !== made[i - 1][0] + made[i - 1][1].length) gaps++; }
+    let order = 0, compared = 0, differ = 0, first = null, full = 0;
+    for (let i = 0; i < blocks.length; i++) {
+      const b = blocks[i];
+      if (i && b.start !== blocks[i - 1].start + blocks[i - 1].n) order++;
+      if (!b.full || b.start < base) continue;
+      full++;
+      for (let k = 0; k < b.out.length; k++) {
+        compared++;
+        if (!Object.is(b.out[k], all[b.start - base + k])) { differ++; if (!first) first = [b.start + k, b.out[k], all[b.start - base + k]]; }
+      }
+    }
+    return { gaps, order, compared, differ, first, full, blocks: blocks.length, rate: window.emu.audio.ctx.sampleRate };
+  });
+  check('sound: every sample the worklet played at full gain equals the one the emulator made (tolerance 0), in order',
+    eq.gaps === 0 && eq.order === 0 && eq.differ === 0 && eq.compared > 5 * eq.rate, JSON.stringify(eq));   // (at least 5 s of it)
+  // one context, one node, one output stage through all of it; no ScriptProcessorNode; no deprecation warning
+  const kept = await page.evaluate(() => {
+    const a = window.emu.audio, f = window.firstAudio;
+    return { same: a.ctx === f.ctx && a.node === f.node && a.out === f.out, nodes: window.audioNodes, dropped: a.out.dropped };
+  });
+  check('sound: pause, turbo, sound off, hiding and machine switches keep one context and one node (nothing leaks)',
+    kept.same && kept.nodes.worklet === 1 && kept.nodes.script === 0, JSON.stringify(kept));
+  check('sound: no ScriptProcessorNode deprecation warning in the console', warnings.length === 0, warnings.join(' | '));
+  check('sound: no page errors', !errors.length, errors.join('; '));
   await ctx.close();
+
+  // Fallback: without AudioWorklet (or when its module fails to load) the ScriptProcessorNode plays the same
+  // output stage on the page's thread: sound still works, and the program's tone is in the samples it plays
+  for (const [label, opts] of [['no AudioWorklet', { noWorklet: true }], ['the worklet module fails to load', { badModule: true }], ['the worklet module never loads', { hangModule: true }], ['the worklet module loads only after the wait', { slowModule: true }], ['the processor fails', { processorError: true }]]) {
+    const fctx = await browser.newContext();
+    await fctx.addInitScript(audioNodeCounter, opts);
+    const fp = await fctx.newPage();
+    const ferr = [];
+    fp.on('pageerror', (e) => ferr.push(e.message));
+    await fp.goto(`${base}?machine=dragon64`);
+    await started(fp);
+    await stubPrompt(fp);
+    await fp.mouse.click(5, 5);
+    const ok = await waitFor(fp, () => window.emu.audioRunning() && window.emu.audio.path === 'script');
+    await fp.evaluate(() => {
+      const a = window.emu.audio, h = a.node.onaudioprocess;
+      window.played = [];
+      a.node.onaudioprocess = (e) => { h(e); for (const v of e.outputBuffer.getChannelData(0)) window.played.push(v); };
+    });
+    await fp.evaluate((b) => window.emu.session.load('sq.bin', new Uint8Array(b), { remember: false }), square);
+    const sounds = await waitFor(fp, () => window.played.length > 24000 && window.played.slice(-8192).some((v) => Math.abs(v) > 0.05));
+    const r = await fp.evaluate(() => ({ nodes: window.audioNodes, isScript: window.emu.audio.node instanceof ScriptProcessorNode, sink: window.emu.audio.out.sink.constructor.name, n: window.played.length, why: window.emu.audio.fallback }));
+    check(`sound fallback (${label}): a ScriptProcessorNode plays the output stage, and the tone sounds`,
+      ok && sounds && r.isScript && r.nodes.script === 1 && r.nodes.worklet === (opts.processorError ? 1 : 0) && r.sink === 'SampleQueue' && typeof r.why === 'string' && !ferr.length, JSON.stringify(r) + ferr.join('; '));
+    if (opts.processorError) {
+      check('sound fallback (the processor fails): the failed worklet node is disconnected, once',
+        r.nodes.connected === 1 && r.nodes.disconnected === 1, JSON.stringify(r.nodes));
+    }
+    if (opts.slowModule) {
+      // the module loads at last (4 s), after the fallback took over (3 s): the late load is ignored, no worklet node
+      await waitFor(fp, () => window.slowLoaded === true, null, 15000);
+      await fp.evaluate(() => new Promise((res) => requestAnimationFrame(() => setTimeout(res, 0))));   // (its .then has run)
+      const late = await fp.evaluate(() => ({ nodes: window.audioNodes, path: window.emu.audio.path, isScript: window.emu.audio.node instanceof ScriptProcessorNode }));
+      check('sound fallback: a worklet module that loads after the fallback took over is ignored (no worklet node, the fallback plays on)',
+        late.nodes.worklet === 0 && late.nodes.script === 1 && late.path === 'script' && late.isScript, JSON.stringify(late));
+    }
+    await fctx.close();
+  }
 }
 
 // fast typing through real keyboard events: a burst with the next key pressed before the previous is released,
@@ -5185,6 +5401,18 @@ async function pwaChecks(browser, site, check) {
   await ctx.setOffline(true);
   await page.goto(`${site}play/?machine=dragon64&start=welcome`);
   check('PWA offline: /play/ reloads and runs the welcome program', await waitFor(page, () => window.emu && window.emu.session.welcomeRunning && window.emu.session.screenText()[14].includes('PRESS 1 TO 4'), null, 10000));
+  // sound offline: the worklet's module comes from the kept copy, so a click starts the AudioWorkletNode and it
+  // plays (the welcome tune: the processor reports samples taken, and its output is not silent)
+  await page.mouse.click(5, 5);
+  const offlineSound = await waitFor(page, () => window.emu.audio.path === 'worklet' && window.emu.audio.out.sink.removed > 0, null, 10000)
+    && await page.evaluate(() => new Promise((res) => {
+      const port = window.emu.audio.node.port; let loud = 0;
+      port.addEventListener('message', (e) => { if (e.data.tap) for (const v of e.data.tap.out) loud = Math.max(loud, Math.abs(v)); });
+      port.postMessage({ tap: true });
+      const t0 = performance.now(), t = setInterval(() => { if (loud > 0.01 || performance.now() - t0 > 8000) { clearInterval(t); port.postMessage({ tap: false }); res(loud > 0.01); } }, 20);
+    }));
+  check('PWA offline: sound plays through the AudioWorkletNode (its module kept for offline use)', offlineSound,
+    await page.evaluate(() => JSON.stringify({ path: window.emu.audio.path, fallback: window.emu.audio.fallback, removed: window.emu.audio.out && window.emu.audio.out.sink.removed, state: window.emu.audio.ctx && window.emu.audio.ctx.state, ua: navigator.userAgent })));
   check('PWA offline: the fonts came from the kept copy', await page.evaluate(async () => { await document.fonts.ready; return [...document.fonts].some((f) => f.family.replace(/"/g, '') === 'Archivo' && f.status === 'loaded'); }));
   for (const p of ['', 'help/', 'roms/']) {
     const res = await page.goto(site + p);

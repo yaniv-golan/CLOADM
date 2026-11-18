@@ -446,6 +446,21 @@ the read's own bus cycle rather than after it.
 Not verified automatically: a real gamepad and a real mouse (the browser check drives a mocked
 `navigator.getGamepads`; the Rat is driven in Node), and the feel of the touch keyboard on a real phone or tablet.
 
+### Sound output (the page's audio path)
+
+The machines' sound is compared with MAME's `-wavwrite` recordings (above); the way the page plays it has no MAME
+oracle (AGENTS.md 4.6). The output stage's samples are checked in Node (`tests/audio.test.js`: the high-pass of each
+sample's average level, no pop at unlock, reset, switch, pause; latency steering over 15 simulated minutes), the
+AudioWorklet's queue and processor with hand-derived values (`tests/audio-worklet.test.js`: order, underrun to exact
+silence, bounded drop-oldest, the MessagePort sink), and the real page in Chromium (browser check, group `audio`):
+after the unlock an AudioWorkletNode plays and no ScriptProcessorNode is made (no deprecation warning); through
+loads, resets, pause, turbo, sound off, machine switches and a 200 ms busy page, every sample the worklet plays at
+full gain equals the one the output stage made (tolerance 0) and no step exceeds 0.01; the tone of a square-wave
+program plays at the frequency the machine makes it (within the 0.5% steering) and the queue doesn't run dry while
+it plays (at most 2% of blocks); volume and mute; the four fallbacks to the ScriptProcessorNode (no AudioWorklet,
+its module failing to load or never loading, the processor failing); and (group `pwa`) offline. Not verified automatically: how it sounds on real devices and
+other browsers (Safari and iOS, Firefox).
+
 ## The comparisons
 
 `tools/mame-diff/` compares this emulator with MAME's `dragon64` driver. Neither tool uses the Dragon ROMs: both

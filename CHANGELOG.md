@@ -39,6 +39,19 @@ All notable changes to CLOADM are recorded here. The format follows
   relied on the "Let Claude use the machine" switch is `no-consent` once it is off; nothing lands while paused. A
   `ChatSession` built without a gate now refuses every acting tool (`no-consent`) instead of allowing it. `run.target`'s
   schema is `anyOf` an integer `ADDRESS_MIN`-`ADDRESS_MAX` or a string.
+
+- **Sound plays through an AudioWorkletNode** (`js/host/audio-worklet.js`) instead of the deprecated
+  ScriptProcessorNode, so the console no longer warns on every page load and sound is played on the audio thread,
+  away from the page's work. The samples are unchanged (the emulation core is untouched): the output stage makes
+  them on the page as before and sends each frame through the worklet's MessagePort as a transferred chunk (no
+  SharedArrayBuffer, which GitHub Pages can't enable). The worklet's queue is bounded (300 ms, the oldest dropped on
+  overrun) and runs dry into silence, faded over 5 ms, never repeating old samples. The latency targets are
+  unchanged (10 to 80 ms queued, frames dropped past 150 ms); measured from a frame's samples being made to their
+  being rendered (Chromium, headless, five runs each) the median latency went from 80 to 144 ms to 33 to 67 ms.
+  Where AudioWorklet is missing (an old browser, plain `http://` other than `localhost`), its module can't load (or
+  hasn't loaded within 3 s) or its processor fails, a ScriptProcessorNode plays the same queue, so sound keeps working; with AudioWorklet working none is created.
+  The worklet is in the service worker's list, so offline sound works too.
+
 - **Test gates (tooling): a green run means what it says.** `node tools/browser-check.js`: an unknown or empty
   `--only` group list is an error (exit 2) listing the valid groups, where it used to run nothing and pass; each group
   runs on its own, so one that throws is that group's FAIL with its stack and the rest still run; every wait's

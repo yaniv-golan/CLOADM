@@ -93,6 +93,7 @@ const FILES = [
   'js/embed-api.js',
   'js/emu.js',
   'js/errors.js',
+  'js/host/audio-worklet.js',
   'js/host/audio.js',
   'js/host/drivewire-ws.js',
   'js/host/example-reader.js',
