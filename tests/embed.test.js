@@ -19,7 +19,7 @@ const frames = (n) => { for (let i = 0; i < n; i++) s.advance(1000 / s.machine.f
 {
   const r = call('info');
   check('info: machine, name, options, ROMs, frame', r.id === id && r.result.machine === 'dragon64' && r.result.name === 'Dragon 64'
-    && JSON.stringify(r.result.config) === '{"cpu":"6809","ram":64,"hires":"none"}' && r.result.roms === false && Number.isInteger(r.result.frame), JSON.stringify(r));
+    && JSON.stringify(r.result.config) === '{"cpu":"6809","ram":64,"hires":"none","ssc":"none"}' && r.result.roms === false && Number.isInteger(r.result.frame), JSON.stringify(r));
   check('the reply is also sent to the host', sent[sent.length - 1] === r);
   check('not a CLOADM call: no reply', api.handle({ hello: 1 }) === null && api.handle({ cloadm: 1, method: 'info' }) === null && api.handle(null) === null);
   const bad = call('format');

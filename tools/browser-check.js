@@ -590,9 +590,9 @@ async function cartridgeChecks(browser, base, check) {
   await ctx.close();
 }
 
-// The Speech/Sound Pak as a BOARD on the page (stage 3): the board menu offers it on the three
-// models whose lockstep with MAME matched, the Insert button runs OUR tone firmware as the PIC, and the machine's
-// music path runs. Every ROM here is built by our own tools (tools/mame-diff/ssc/), never a real dump.
+// The Speech/Sound Pak as a BOARD on the page (stage 3): the board menu offers it on the four models whose
+// lockstep with MAME matched (CoCo 1/2, CoCo 2B, CoCo 3, Dragon 64), the Insert button runs OUR tone firmware as
+// the PIC, and the machine's music path runs. Every ROM here is built by our own tools (tools/mame-diff/ssc/), never a real dump.
 async function sscBoardChecks(browser, base, check) {
   const { toneFirmware } = require('../tools/mame-diff/ssc/audio.js');
   const ctx = await browser.newContext();
@@ -660,16 +660,59 @@ async function sscBoardChecks(browser, base, check) {
   await emuFrames(page, 5);
   const after = await page.evaluate(() => ({ btn: document.getElementById('btnCart').textContent, frames: window.emu.machine.frameCount }));
   check('Speech/Sound Pak: the cartridge button shows it, and the machine runs', /Speech\/Sound Pak/.test(after.btn) && after.frames > 0, JSON.stringify(after));
-  // not offered on a Dragon: its board-menu option is hidden, and the Session refuses it
+  // offered on the Dragon 64 too, which is what its `--ssc` lockstep and outcome comparison establish. The
+  // machine is switched rather than reloaded, so the board menu has to update with it.
   await page.evaluate(() => window.emu.session.switchMachine('dragon64'));
   await page.waitForFunction(() => window.emu.machine && window.emu.machine.profile.id === 'dragon64', null, { timeout: 15000 });
-  const dragon = await page.evaluate(() => {
+  const onDragon = await page.evaluate(() => {
+    const o = document.querySelector('#selCartBoard option[value="ssc"]');
+    return { hidden: o && o.hidden, offers: window.emu.session.offersSsc, port: !!window.emu.machine.hasCartridgePort };
+  });
+  check('Speech/Sound Pak: offered on the Dragon 64 (its board-menu option is shown)',
+    onDragon.hidden === false && onDragon.offers === true && onDragon.port === true, JSON.stringify(onDragon));
+  // ...but a machine the Pak is NOT verified on still refuses it, so the offer is per model and not per family
+  await page.evaluate(() => window.emu.session.switchMachine('dragon32'));
+  await page.waitForFunction(() => window.emu.machine && window.emu.machine.profile.id === 'dragon32', null, { timeout: 15000 });
+  const dragon32 = await page.evaluate(() => {
     const o = document.querySelector('#selCartBoard option[value="ssc"]');
     let msg = null; try { window.emu.session.insertSsc(); } catch (e) { msg = e.message; }
     return { hidden: o && o.hidden, msg };
   });
-  check('Speech/Sound Pak: not offered on a Dragon, and the Session refuses it with a clear message',
-    dragon.hidden === true && /can't take the Speech\/Sound Pak/.test(dragon.msg), JSON.stringify(dragon));
+  check('Speech/Sound Pak: not offered on a Dragon 32, and the Session refuses it with a clear message',
+    dragon32.hidden === true && /can't take the Speech\/Sound Pak/.test(dragon32.msg), JSON.stringify(dragon32));
+  // back to the 64: it goes in with the same PIC ROM and the card's AY takes the tone firmware's programming, so
+  // the Pak inserts and its PIC runs on this machine too (the offer itself rests on the `--ssc` lockstep and
+  // `compare.js` runs, not on this case: the same firmware programs the AY on any model forced to take it).
+  //
+  // The 6809 side needs the Dragon's own ROM layout. `ssc.asm` is `ORG $A000` with its vectors at $BFF2, and the
+  // Dragon 64's BASIC is one 16K chip at $8000 in either of two banks (PIA1 PB2), so the SAME assembled code is
+  // laid into a 16K image covering $8000-$BFFF (`romImage(asm, 0x8000, 0x4000)`: the code stays at $A000, the
+  // bytes below it are the $12 fill) and loaded under the 32K-mode name. The vectors at $BFF2 are the real
+  // build's, so the machine starts where it should - but this check does not PROVE the vector: measured, with
+  // $BFFE patched to $1234 the AY is still programmed (mixer 56, volA 12), so the assertion would pass on a
+  // machine whose reset vector was wrong. The vector is covered by `run.js dragon64 --ssc`, which compares the
+  // trace from reset.
+  await page.evaluate(() => window.emu.session.switchMachine('dragon64'));
+  await page.waitForFunction(() => window.emu.machine && window.emu.machine.profile.id === 'dragon64', null, { timeout: 15000 });
+  await page.setInputFiles('#fileRom', [
+    { name: 'd64_1.rom', mimeType: 'application/octet-stream', buffer: Buffer.from(romImage(buildAsm({ mux: true }), 0x8000, 0x4000, 0x12)) },
+  ]);
+  const bootable = await waitFor(page, () => window.emu.session.machineRoms('dragon64').bootable, null, 8000);
+  await page.selectOption('#selCartBoard', 'ssc');
+  await page.click('#btnCart');
+  await page.waitForTimeout(500);
+  const dragonPak = await page.evaluate(() => {
+    const m = window.emu.machine, c = m.cartPort;
+    return { type: c && c.type, msg: document.getElementById('toast').textContent, btn: document.getElementById('btnCart').textContent };
+  });
+  const dragonPlays = await waitFor(page, () => {
+    const c = window.emu.machine.cartPort;
+    return !!(c && c.ay && c.ay.regs && c.ay.regs[7] !== 0);
+  }, null, 8000);
+  const dragonRegs = await page.evaluate(() => { const a = window.emu.machine.cartPort.ay; return { mixer: a.regs[7], volA: a.regs[8] }; });
+  check('Speech/Sound Pak: inserts on the Dragon 64 and its PIC programs the AY there',
+    bootable && dragonPak.type === 'ssc' && /Speech\/Sound Pak/.test(dragonPak.btn) && dragonPlays && dragonRegs.mixer !== 0 && dragonRegs.volA > 0,
+    JSON.stringify({ bootable, pak: dragonPak, regs: dragonRegs }));
   check('Speech/Sound Pak: no page errors', errors.length === 0, errors.join('; '));
   await ctx.close();
 }
@@ -6333,9 +6376,12 @@ async function shareChecks(browser, base, site, check) {
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `share-screen-${label}.png`), fullPage: true });
     if (label === 'phone') { check('share (phone): no page errors', !errors.length, errors.join('; ')); await ctx.close(); continue; }
 
-    // the link carries the moment: a fresh profile opens it, POKE included, and the fragment is cleared
+    // the link carries the moment: a fresh profile opens it, POKE included, and the fragment is cleared. The
+    // options are matched as a group rather than pinned one by one (`ssc=none` included): shareUrl (js/session.js)
+    // emits every non-LOCAL profile option, so a list here would drift with the next option or default. The
+    // machine is pinned; the rest is "whatever options this model has".
     const link = await page.inputValue('#shareLink');
-    check('share: the link points at /play/ with this machine, the snapshot in the fragment', /\/play\/\?machine=dragon64&cpu=6809&ram=64#s=[A-Za-z0-9_-]{1000,}$/.test(link), link.slice(0, 80));
+    check('share: the link points at /play/ with this machine, the snapshot in the fragment', /\/play\/\?machine=dragon64(&[a-z]+=[^&#]*)*#s=[A-Za-z0-9_-]{1000,}$/.test(link), link.slice(0, 80));
     const ctx2 = await browser.newContext({ serviceWorkers: 'block' });
     // every message the page says, recorded from its start: a 4 s toast can end before a loaded machine reads it
     await ctx2.addInitScript(() => { window.__said = []; document.addEventListener('DOMContentLoaded', () => { const t = document.getElementById('toastText');

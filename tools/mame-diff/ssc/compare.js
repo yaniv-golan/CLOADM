@@ -26,9 +26,33 @@ const { mameWritesLua } = require('./writes.js');
 const { runInt3 } = require('./outcome.js');
 
 // MAME's side of the case, in one run. The Lua records the same rows writes.js does (mameWritesLua), plus the
-// firmware's work RAM and whether the 6809 ever sat on its HALT loop. HALT is `BRA HALT`, so its two bytes are
-// fetched on every pass; sampling the PC once a frame catches it as long as the loop runs for a frame, which it
-// does (the firmware stops there for the rest of the run).
+// firmware's work RAM and whether the 6809 reached its HALT loop. HALT is `BRA HALT`, so its two bytes are
+// fetched on every pass, and the loop is where the firmware stays.
+//
+// Reaching HALT is detected on the FETCH, not on a sampled PC. MAME's Lua `state["PC"]` is sampled at a frame
+// boundary, and that sample is not the instruction the CPU is executing: once the loop below is entered the CPU
+// fetches HALT on every pass and HALT + 2 not once, yet the sample still reads HALT + 2. Measured on 0.264 with
+// this firmware (12 emulated seconds, plain mode), the split below reproduced in repeat runs, so it is the part
+// quoted:
+//
+//   model      frames   sample on HALT/HALT+1   sample on HALT+2   elsewhere
+//   coco          720                     240               478           2
+//   dragon64      600                       0               599           1
+//
+// So the sample reads `HALT + 2` in 2/3 of CoCo frames as well, not only on the Dragon. Neither address is a
+// fetch this firmware makes while it is in the loop: the loop is `20 FE` at HALT (`BRA HALT`), so `HALT + 1` is
+// its operand byte and `HALT + 2` is SSCRESET's first byte (`86`, `LDA #$01`), which the firmware executes twice -
+// from its two `JSR SSCRESET` calls, both before HALT. Both are mid-instruction artefacts of MAME's PC register,
+// not observations. The old code compared the sample against `{HALT, HALT + 1}` and so passed on the CoCo by
+// sampling phase alone: none of its frames sampled HALT, but a third sampled the loop's operand byte, which
+// happened to be in the accept set. On the Dragon it never did, so that run reported "HALT NOT reached" for a CPU
+// that never left its loop. Counting the loop's opcode fetch instead is the observation that cannot be missed: the
+// loop fetches it on every pass, and `leftAfterHalt` counts reads of `HALT + 2` (a read tap, so in practice
+// fetches: this firmware never reads that byte as data) once the loop has started: a non-zero count means the CPU
+// ran on past the loop's `BRA`. That is all it detects; a CPU that left the loop by another route (a jump, an
+// interrupt vector) without ever reading `HALT + 2` would not be counted. This firmware
+// has no such path, and `leftAfterHalt` was 0 in every run measured. Same trap as tests/regress.test.js's `r.halted` note: a sampled PC
+// is not a trace.
 function mameInt3({ seconds = 12, profileId = 'coco' } = {}) {
   const t = spec.trace(profileId, 'int3');
   t.install();
@@ -37,18 +61,18 @@ function mameInt3({ seconds = 12, profileId = 'coco' } = {}) {
 local m = manager.machine
 local cpu9 = m.devices[":maincpu"]
 local s9 = cpu9.spaces["program"]
-local sawHalt, lastPc = false, -1
 local HALT = ${t.haltPc}
-emu.register_frame_done(function()
-  local pc = cpu9.state["PC"].value
-  -- HALT is a BRA to itself. MAME samples the PC at a frame boundary, which can fall on the opcode byte or
-  -- the operand byte, so both count; the address comes from the firmware assembled for this run, never a
-  -- constant here, because any change before HALT moves it.
-  if pc == HALT or pc == HALT + 1 then sawHalt = true end
-  lastPc = pc
-end)
+local halts, lastPc = 0, -1
+-- the HALT loop's own opcode fetch: every pass through the loop reads this address
+s9:install_read_tap(HALT, HALT, "halt", function() halts = halts + 1 end)
+-- a fetch of the byte after the loop's BRA (SSCRESET's first byte) after the loop has started would mean the
+-- CPU ran on past the loop's BRA; counted so a run that fell through cannot pass as a HALT
+local left = 0
+s9:install_read_tap(HALT + 2, HALT + 2, "left", function() if halts > 0 then left = left + 1 end end)
+emu.register_frame_done(function() lastPc = cpu9.state["PC"].value end)
 emu.register_stop(function()
-  print(string.format("HALTED %s lastPc=%04X", tostring(sawHalt), lastPc))
+  print(string.format("HALTED %s lastPc=%04X halts=%d leftAfterHalt=%d",
+    tostring(halts > 0), lastPc, halts, left))
   print(string.format("RAM %02X %02X %02X %02X %02X %02X",
     s9:read_u8(0x400), s9:read_u8(0x401), s9:read_u8(0x402),
     s9:read_u8(0x403), s9:read_u8(0x404), s9:read_u8(0x405)))
@@ -63,8 +87,13 @@ end)
   const ramLine = out.split('\n').find((l) => /^RAM /.test(l));
   const haltLine = out.split('\n').find((l) => /^HALTED /.test(l));
   const halted = !!haltLine && /^HALTED true/.test(haltLine);
+  // the loop was entered and no fetch of the byte after its BRA followed: a run that reached HALT and then fell
+  // through is not a HALT
+  const left = haltLine && /leftAfterHalt=(\d+)/.exec(haltLine);
+  const halts = haltLine && /halts=(\d+)/.exec(haltLine);
+  const leftAfterHalt = left ? Number(left[1]) : null;
   const ram = ramLine ? ramLine.slice(4).trim().split(/\s+/).map((h) => parseInt(h, 16)) : [];
-  return { rows, ram, halted };
+  return { rows, ram, halted: halted && leftAfterHalt === 0, halts: halts ? Number(halts[1]) : 0, leftAfterHalt };
 }
 
 // the same two things from our side, in the flat row shape MAME prints ("<command> <device>:<op>=<value>")
@@ -88,6 +117,10 @@ function compareInt3({ seconds = 12, profileId = 'coco' } = {}) {
   if (mame.ram.length !== 6) missing.push(`MAME reported ${mame.ram.length} work-RAM bytes, expected 6`);
   if (ours.ram.length !== 6) missing.push(`this emulator reported ${ours.ram.length} work-RAM bytes, expected 6`);
   if (!ourRows.length) missing.push('this emulator wrote no device rows');
+  // the HALT observation itself must have produced a value; a tap that never fired is a harness failure, not
+  // "the firmware did not reach HALT"
+  if (mame.leftAfterHalt === null) missing.push('MAME reported no leftAfterHalt count');
+  if (mame.halts === 0) missing.push('MAME fetched the HALT opcode 0 times');
   const writeDiffs = [];
   for (let i = 0; i < Math.max(mame.rows.length, ourRows.length); i++) {
     if (mame.rows[i] !== ourRows[i]) writeDiffs.push({ row: i, mame: mame.rows[i] ?? null, ours: ourRows[i] ?? null });
@@ -98,7 +131,8 @@ function compareInt3({ seconds = 12, profileId = 'coco' } = {}) {
   }
   // No time-out check: this build has no time-out path (gen-roms.js substitutes `INC TIMEOUTS` out), so $0410
   // cannot vary. Reaching HALT IS the proof that every command was answered, because the unbounded poll would
-  // otherwise never return.
+  // otherwise never return. "Reached HALT" is the fetch count: the loop was entered (checked as missing above)
+  // and the byte after its BRA was never fetched afterwards (leftAfterHalt = 0).
   const ok = !missing.length && !writeDiffs.length && !ramDiffs.length && mame.halted && ours.halted;
   return { ok, seconds, mame, ours, ourRows, writeDiffs, ramDiffs, missing };
 }

@@ -70,6 +70,14 @@ All notable changes to CLOADM are recorded here. The format follows
   one shared path, so a new tool can't miss it. The restore control now says that points live in memory only (a
   reload, ending the chat or switching machine loses them) and that other saved files are not rolled back.
 
+### Added
+
+- **The Speech/Sound Pak on the Dragon 64.** The cartridge port's board menu now offers the Pak on the Dragon 64
+  as it does on the CoCo 1/2, CoCo 2B and CoCo 3, music only (speech is still not implemented). The Dragon 64's
+  run of this project's diagnostic firmware matches MAME 0.264 instruction for instruction to HALT, which is what
+  offering it rests on; the other Dragon-family models (Dragon 32, Dragon 200, Dragon 200-E, Tano Dragon 64, Dragon Professional (Alpha)
+  and Dragon 64 Plus) have not been run, so they do not offer it.
+
 ### 0.1.1-pre
 
 #### Added

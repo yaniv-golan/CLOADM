@@ -110,7 +110,7 @@ async function main() {
     return code;
   }
   if (args.includes('--ssc')) {
-    // the Speech/Sound Pak (stage 2). Wired, not yet in lockstep: see ssc/spec.js.
+    // the Speech/Sound Pak, in instruction lockstep (masked case): see ssc/spec.js.
     const t = require('./ssc/spec.js').trace(profileId);
     t.install();
     // exitCode, not process.exit: see tests/exitcode.test.js (main) and the note in tests/all.js

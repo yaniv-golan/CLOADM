@@ -69,9 +69,11 @@ What each machine's comparison with MAME 0.264 showed when it was verified (the 
 | Color Computer + Speech/Sound Pak (`--ssc`, masked-interrupt case) | 1,164,214 instructions identical, HALT reached at 195,913 (see below) | – | – |
 | CoCo 2B + Speech/Sound Pak (`--ssc`, masked-interrupt case) | 1,164,214 instructions identical, HALT reached at 195,913 — the same trace as the CoCo, because this firmware reads only the CPU and the Pak, and the 2B differs from the CoCo 1/2 in the VDG and the keyboard matrix, which it never touches | – | – |
 | CoCo 3 + Speech/Sound Pak (`--ssc`, masked-interrupt case) | 1,157,487 instructions identical, HALT reached at 213,485 | – | – |
+| Dragon 64 + Speech/Sound Pak (`--ssc`, masked-interrupt case) | 1,156,994 instructions compared (a 4-second run: the count of instructions the comparison covers, not of the firmware's work), HALT reached at 195,913 — the **same trace** as the CoCo's, instruction for instruction: measured, both reach HALT after 195,913 instructions and 708,037 cycles, and the trace hash to HALT is the same (`7b896afc`) on both. The compared count differs from the CoCo's (1,164,214) only because the run is bounded by emulated seconds and the two models' clocks differ slightly (888,625 vs 894,886 Hz, 0.7 %), not because the PAL frame is longer: a longer frame holds proportionally more instructions, so the rate per emulated second is nearly the same | – | – |
 | Color Computer + Speech/Sound Pak (`--ssc int3`, interrupt case) | outcome comparison against MAME: 107 of 107 device-write rows identical, work RAM identical, HALT on both sides (not an instruction lockstep: the two CPUs overlap, see below). **The work-RAM match is not coverage of the sound-activity bit**: `$0405` holds a `$FF7E` status read whose bit 5 comes from an activity window this emulator does not model, and this model's pass depends on the firmware's fixed read landing outside that window (see below) | – | – |
 | CoCo 2B + Speech/Sound Pak (`--ssc int3`, interrupt case) | outcome comparison against MAME: 107 of 107 device-write rows identical, work RAM identical, HALT on both sides (this model's own `compare.js` run, not the CoCo's). As above, the work-RAM match is **not** coverage of bit 5 | – | – |
 | CoCo 3 + Speech/Sound Pak (`--ssc int3`, interrupt case) | **outcome comparison against MAME differs**, and is not claimed: the device writes still match (107 of 107 rows) and both sides reach HALT, but the final work RAM does not — MAME leaves `$0405` = `$DF` and we leave `$FF`. `$0405` holds a `$FF7E` status read and bit 5 is the sound-activity circuit: on MAME that bit dips low for a while after an allophone load, and the firmware's fixed read 18.4 ms after the load lands **inside** that dip here and outside it on the CoCo 1/2 and 2B. Our own model stubs the circuit and always reads the bit high, so we read `$FF` on every model. Why the dip sits at a different offset on the CoCo 3 is **not established**. Our side is still pinned in the gate as `trace coco3 ssc int3 (our side; MAME differs at $0405)` | – | – |
+| Dragon 64 + Speech/Sound Pak (`--ssc int3`, interrupt case) | outcome comparison against MAME: 107 of 107 device-write rows identical, work RAM identical, HALT on both sides. As on the CoCo 1/2 and 2B, the work-RAM match is **not coverage of the sound-activity bit** (below), so that half is weaker than it looks; the write sequence is genuine | – | – |
 
 **Speech/Sound Pak** (`run.js coco --ssc`, `tools/mame-diff/ssc/`). The Pak's own ROMs are the user's, so the
 comparison installs firmware written for this project on both sides: `ssc-pic.asm` for the TMS7040 and `ssc.asm`
@@ -89,6 +91,20 @@ pinned at that number
 that counter itself rather than reading it: the two emulators disagree about a power-on RAM value and real DRAM
 has none.
 
+*On the Dragon 64* the same two cases run with the firmware in the Dragon's BASIC socket (`run.js dragon64
+--ssc`), and the masked one is identical in every register and cycle count: HALT reached at instruction 195,913
+after 708,037 cycles. That is the **same trace** as the CoCo's - measured, the trace hash to HALT is identical on
+both (`7b896afc`) - which is what the Pak's decode being the CoCo's `$FF7D`/`$FF7E` on the Dragon predicts. Only
+the number of instructions the comparison covers differs (1,156,994 here, 1,164,214 on the CoCo), and only because
+the run is bounded by emulated seconds while the two models' clocks differ slightly (888,625 vs 894,886 Hz, 0.7 %).
+The Dragon's PAL frame is longer (312 lines, 17,784 cycles at 49.97 Hz, against 262 lines, 14,934 cycles at
+59.92 Hz), but a longer frame holds proportionally more instructions, so the rate per emulated second is nearly
+the same: measured over four seconds, 1,145,500 instructions on the Dragon and 1,154,619 on the CoCo (0.8 % fewer,
+tracking the clock rather than the 17 % lower frame rate). The Dragon's 16K BASIC exists in two banks selected by
+PIA1 PB2, and the reset vector comes from whichever is selected, so the harness lays our image into both. Only the
+bank selected at reset is needed to reach HALT (measured, below); the second keeps the run from depending on which
+bank a machine powers on in. That is a harness detail, not a hardware difference.
+
 *The interrupt case* (`node tools/mame-diff/ssc/compare.js`, and the gate). `gen-roms.js` builds the PIC with
 `$30` (INT3 enable, bit 4, plus INT3 flag clear, bit 5) and the 6809 with an unbounded wait, so every command is
 serviced through the ISR and the firmware reaches HALT with TIMEOUTS = 0 after 37 commands and 107 device writes.
@@ -102,8 +118,8 @@ HALT on both sides. MAME's rows come from tapping the PIC's peripheral writes an
 because each model the page offers the Pak on needs its own run: the CoCo 2B and the CoCo 3 have their own cart
 port and sound mux, and the CoCo 3 adds the GIME. Result on 0.264:
 
-* **CoCo 1/2 and CoCo 2B**: 107 of 107 write rows identical, work RAM identical, HALT reached on both sides.
-  That includes `$0405`, but it is **not coverage of the sound-activity bit** (see the next point), so
+* **CoCo 1/2, CoCo 2B and the Dragon 64**: 107 of 107 write rows identical, work RAM identical, HALT reached on
+  both sides. That includes `$0405`, but it is **not coverage of the sound-activity bit** (see the next point), so
   this pass is weaker than it looks.
 * **CoCo 3: the work RAM does NOT match**, so this model's outcome comparison is recorded as **not passing**. The writes still match (107 of 107 rows) and both sides reach HALT, but MAME leaves `$0405` = `$DF`
   and we leave `$FF`.
@@ -205,20 +221,54 @@ sound, and this emulator stubs it to a constant high (`js/machines/ssc.js:107`),
 the SP0256's audio is; it is listed here rather than as a separate defect, and no work on it makes sense before
 speech audio exists.
 
-**Where the Pak is offered, and where it is not.** The cartridge port's board menu offers it on the three models
+**Where the Pak is offered, and where it is not.** The cartridge port's board menu offers it on the four models
 whose Pak **instruction lockstep** (`run.js <profile> --ssc`, the masked case) has matched MAME 0.264 to HALT: CoCo
-1/2 (`coco`), CoCo 2B (`coco2b`) and CoCo 3 (`coco3`). The four other CoCo profiles (the MX-1600, LZ Color64 and
-CD-6809 clones and the PAL CoCo 3) and every Dragon do not
-offer it: MAME 0.264 does list the `ssc` slot on the Dragon drivers as well, but it is **not verified here** on
-them, so the board is not offered. The MC-10 and Alice have no cartridge port at all.
+1/2 (`coco`), CoCo 2B (`coco2b`), CoCo 3 (`coco3`) and the Dragon 64 (`dragon64`). The five other CoCo profiles
+(the MX-1600, LZ Color64 and CD-6809 clones, the PAL CoCo 3 and the Prológica CP-400) and the other Dragons do not
+offer it. MAME 0.264
+lists the `ssc` slot on every Dragon driver, but only the Dragon 64 has been run here, so only the 64 is offered;
+the Dragon 32, 200, 200-E, Tano Dragon 64, Dragon Professional (Alpha) and Dragon 64 Plus would each need their own `run.js <profile> --ssc` first. The MC-10 and Alice have no
+cartridge port at all.
+The Dragon 64's lockstep needed one harness change before it could pass, not a product change. The masked run is
+the same firmware at the same address (`ssc.asm` at `$A000`, the Dragon 64's BASIC socket): the Pak's decode is
+the CoCo's `$FF7D`/`$FF7E` on that machine too, which is why the same firmware reaches HALT there at the same
+instruction. `ssc/spec.js` also lays the image into every ROM socket at its own base and size
+(`romImage(fw.asm, r.at, r.size)`), which produces the same images for the CoCo profiles as the old layout did;
+for the Dragon 64 that means
+the 64K-mode BASIC bank is filled as well, though that is belt-and-braces rather than a requirement (as said above
+for the Dragon's two banks): measured, filling only the 32K-mode bank reaches HALT in the same 195,913 (masked) and 7,506 (INT3) instructions, because PB2
+is high at reset so the first bank is the one that runs and this firmware never flips it.
+The interrupt case then read "HALT NOT reached" on the Dragon for a CPU that had never left its loop. MAME's Lua
+`state["PC"]`, sampled at a frame boundary, is not the instruction the CPU is executing: once the loop is entered
+the CPU fetches the `BRA` at `$A06E` on every pass and never fetches `$A070` again, yet the sample reads `$A070`
+(`SSCRESET`'s first byte - a real code address, executed twice before HALT) in **478 of 720 CoCo frames and 599 of
+600 Dragon frames**, and `$A06F`, the loop's operand byte, in 240 of the CoCo's frames, with 2 samples elsewhere;
+the 12-second figures are the ones quoted (at 4 seconds the CoCo's split is different again, so run length matters
+too). That is why the old code passed on the CoCo by luck and failed on the Dragon: its accept set was
+`{HALT, HALT+1}`, and while no CoCo frame sampled `HALT` itself, the loop's operand byte is in that set and a third
+of them sampled it - neither address is a fetch the firmware makes in the loop. `compare.js` now counts
+fetches of the HALT opcode itself and counts reads of the byte after the loop (a read tap, in practice fetches) once it has started (`leftAfterHalt`;
+a CPU that ran on past the `BRA`, not a general detector of leaving the loop by another route, which this firmware
+does not have); a run that reports
+neither fails as a harness fault rather than passing. That harness-fault branch (`halts` = 0, or no `leftAfterHalt`
+count) is exercised only by these manual MAME runs: `compare.js` needs MAME, so the fast gate covers the masked
+lockstep (the two regress keys) and not the interrupt-case comparison or its detector.
+**What the Dragon 64's runs cover, and what they do not.** They cover the Pak on that machine: its decode at
+`$FF7D`/`$FF7E`, the PIC driving the AY and the SP0256, and the outcome of every command. They do not cover the
+Dragon's own glue, because this firmware never touches it. Measured by mutation: inverting PIA1 PB2's bank-select
+polarity, or forcing bank 1 at all times, leaves **both** Dragon SSC traces (masked and INT3) unchanged, and the
+firmware never writes the 6551's `$FF04-$FF07`. Those parts are covered by keys that do reach them - `trace
+dragon64` (the SAM diagnostic's phase 4 reads BANKID at `$BF00` with PB2 both ways, and fails on the PB2 mutation)
+and `acia dragon64`. The comparable earlier statement for the CoCos' SSC keys is the same: they cover the Pak, and
+the models' own differences are covered by their own keys.
 The board is described as **music only** wherever it appears, because speech is the unimplemented half above. Its
 PIC (TMS7040) ROM is the user's, added through the ROM panel; the SP0256 allophone ROM is optional, since nothing
-plays it yet. Offering the Pak on these three models rests on the instruction lockstep above; the interrupt case
-(`compare.js`) additionally passes on the CoCo 1/2 and the CoCo 2B, and on the CoCo 3 it does not. That pass is
-weaker than it sounds: those two models' work RAM matches because the firmware's fixed read lands outside a
-sound-activity window this emulator does not model (above), so it is not evidence about bit 5 either way. The
-CoCo 3's Pak is offered on the strength of its lockstep and its identical device-write sequence, with that one
-status bit recorded as a known gap.
+plays it yet. Offering the Pak on these four models rests on the instruction lockstep above; the interrupt case
+(`compare.js`) additionally passes on the CoCo 1/2, the CoCo 2B and the Dragon 64, and on the CoCo 3 it does not.
+That pass is weaker than it sounds: those three models' work RAM matches because the firmware's fixed read lands
+outside a sound-activity window this emulator does not model (above), so it is not evidence about bit 5 either
+way. The CoCo 3's Pak is offered on the strength of its lockstep and its identical device-write sequence, with that
+one status bit recorded as a known gap.
 
 **Deviation from MAME: the TMS7000's IOCNT0 interrupt enables.** The TMS7000 Family Data Manual (TI SPND001B,
 1986) gives each interrupt one enable bit and one flag bit, which is how `js/cpu/cpu7000.js` models it. Figure

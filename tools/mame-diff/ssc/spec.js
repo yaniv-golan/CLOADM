@@ -1,8 +1,8 @@
 /*
- * The Speech/Sound Pak comparison (stage 2): MAME's `coco -ext ssc` against our
- * emulator, driven by our own firmware on both sides.
+ * The Speech/Sound Pak comparison (stage 2): MAME's `<system> -ext ssc` (`coco`, `coco2b`, `coco3`, `dragon64`)
+ * against our emulator, driven by our own firmware on both sides.
  *
- *   node tools/mame-diff/run.js coco --ssc
+ *   node tools/mame-diff/run.js coco --ssc        (or coco2b, coco3, dragon64)
  *
  * WHAT GOES INTO MAME, AND WHY IT IS OURS
  * MAME's coco_ssc device takes two ROMs from its own romset, coco_ssc: the TMS7040's internal ROM
@@ -11,8 +11,9 @@
  * names, through MAME's checksum-mismatch path (AGENTS.md hard rule 1, tools/mame-diff/lib/). The names are
  * identical in MAME 0.264 and 0.289.
  *
- * The 6809 firmware is installed as the CoCo's BASIC: the Pak presents no ROM at $C000 (its rom() is null),
- * so the only place for our 6809 code is the ROM socket BASIC occupies. It assembles at $A000 with its
+ * The 6809 firmware is installed as the machine's BASIC: the Pak presents no ROM at $C000 (its rom() is null),
+ * so the only place for our 6809 code is the ROM socket BASIC occupies (the CoCo's, or both 16K BASIC sockets of
+ * the Dragon 64). It assembles at $A000 with its
  * vectors at $BFF2, and reaches the card only through $FF7D/$FF7E.
  *
  * STATUS: this run is in lockstep to HALT. With IOCNT0 = $0C the card correctly refuses INT3 and neither side
@@ -20,15 +21,13 @@
  * for a core that takes a masked interrupt (tests/ssc.test.js section 8 pins the count). The firmware clears
  * TIMEOUTS at START rather than relying on a power-on RAM value, which the two emulators do not share.
  */
-const fs = require('fs'), path = require('path');
+const fs = require('fs');
 const { loadEmu, romImage, writeRoms } = require('../lib/firmware.js');
 const { REGS } = require('../sam/spec.js');
-const { buildPic, buildSp0256, buildAsm, OUT: SSC_ROM_OUT, IOCNT0_MASKED, IOCNT0_INT3_ENABLED } = require('../ssc/gen-roms.js');
+const { buildPic, buildSp0256, buildAsm, IOCNT0_MASKED, IOCNT0_INT3_ENABLED } = require('../ssc/gen-roms.js');
 
-const HERE = __dirname;
-
-// Our 6809 firmware as the two BASIC slots. The vectors at $BFF2 live in the `bas` slot (at $A000); the
-// `extbas` slot at $8000 is not reached by this firmware but MAME wants a file of the right size.
+// Our 6809 firmware, one assembled image laid into each of the machine's ROM sockets at that socket's own base
+// and size (see the comment on machineRoms below). The vectors at $BFF2 come from the `bas`/`basic` socket.
 // Two cases:
 //   masked - the source as it ships: the PIC leaves INT3 masked and WAITBUS gives up after POLLMAX reads. This
 //            is the existing regression case that fails if a core takes a masked interrupt.
@@ -38,17 +37,18 @@ const HERE = __dirname;
 //            not.
 function firmware(caseId = 'masked') {
   const asm = buildAsm({ unbounded: caseId === 'int3' });
-  const rom = romImage(asm, 0xA000, 0x2000, 0x12);
-  return { asm, rom, haltPc: asm.symbols.get('HALT') };
+  return { asm, haltPc: asm.symbols.get('HALT') };
 }
 
 module.exports = {
   // the same shape cart/spec.js's setups use, so run.js can drive it the same way.
-  // WHICH MACHINES. The Pak is a Color Computer cartridge. This comparison runs on the Color Computer profiles;
-  // a model is only OFFERED the Pak on the page once this run has matched to HALT for it (the `ssc` option in
-  // js/machines/profiles.js). Measured with MAME 0.264: coco, coco2b and coco3 match; mx1600, lzcolor64, cd6809
-  // and coco3p have not been run (offer nothing for them until they are).
-  profiles: ['coco', 'coco2b', 'coco3', 'mx1600', 'lzcolor64', 'cd6809', 'coco3p'],
+  // WHICH MACHINES. A model is only OFFERED the Pak on the page once this run has matched to HALT for it (the
+  // `ssc` option in js/machines/profiles.js). Measured with MAME 0.264: coco, coco2b and coco3 match, and so
+  // does dragon64 (MAME lists the `ssc` slot on the Dragon drivers too, and ours matched its run to HALT);
+  // mx1600, lzcolor64, cd6809 and coco3p are listed so they can be run, but have not been (offer nothing for them
+  // until they have). The other Dragon-family profiles (dragon32, dragon200, dragon200e, tanodr64, dgnalpha and
+  // d64plus) are not listed here at all.
+  profiles: ['coco', 'coco2b', 'coco3', 'dragon64', 'mx1600', 'lzcolor64', 'cd6809', 'coco3p'],
   trace(profileId, caseId = 'masked') {
     if (!this.profiles.includes(profileId)) throw new Error(`the Speech/Sound Pak comparison does not cover ${profileId}`);
     if (caseId !== 'masked' && caseId !== 'int3') throw new Error(`unknown SSC case: ${caseId}`);
@@ -58,19 +58,25 @@ module.exports = {
     const fw = firmware(caseId);
     const pic = buildPic({ iocnt0: caseId === 'int3' ? IOCNT0_INT3_ENABLED : IOCNT0_MASKED });
     const sp = buildSp0256();
-    // The machine's own ROM image, under the names MAME's driver for THAT profile takes. The CoCo 3 loads one
-    // 32K ROM at $8000; the SAM-family CoCos load Color BASIC at $A000 and Extended Color BASIC at $8000. Our
-    // firmware goes in the lowest socket, and every other socket gets a filler of its size.
-    const bas = profile.roms.find((r) => r.id === 'bas' || r.id === 'basic');
-    const wide = bas.size === 0x8000;
+    // The machine's own ROM image, under the names MAME's driver for THAT profile takes. Our firmware is
+    // assembled at $A000 with its vectors at $BFF2, and each socket gets an image of its own size with those
+    // segments laid at their own addresses: the CoCo 3's one 32K ROM at $8000; the SAM-family CoCos' Color BASIC
+    // at $A000 (Extended Color BASIC at $8000 gets the filler, as its vectors at $BFF2 are the firmware's).
+    //
+    // The Dragon 64 fills EVERY socket this way, and that is belt-and-braces rather than a requirement of this
+    // run: measured, filling only the first socket (the 32K-mode bank at $8000) reaches HALT just the same, in
+    // 195,913 instructions (masked) and 7,506 (INT3), because PB2 is high at reset so the first bank is the one
+    // that runs and this firmware never flips it. Filling the 64K-mode bank too costs nothing and means the
+    // comparison does not depend on which bank a machine's power-on state selects. On every profile, each socket
+    // gets the firmware's segments over its own range: on the CoCos that leaves the sockets whose ranges the
+    // firmware does not reach filled with the filler byte, and on the Dragon 64 it means both of its 16K sockets
+    // hold the code.
     const machineRoms = {};
-    for (const r of profile.roms) {
-      machineRoms[r.id] = r === bas ? (wide ? romImage(fw.asm, 0x8000, 0x8000, 0x12) : fw.rom) : new Uint8Array(r.size).fill(0x12);
-    }
+    for (const r of profile.roms) machineRoms[r.id] = romImage(fw.asm, r.at, r.size, 0x12);
     return {
       caseId, work,
       label: `${profileId} ssc${caseId === 'int3' ? ' (INT3)' : ''}`, system: profile.mame, seconds: 4,
-      regs: REGS, waitOps: ['CWAI', 'SYNC'], haltPc: fw.haltPc, fw,
+      regs: REGS, waitOps: ['CWAI', 'SYNC'], haltPc: fw.haltPc,
       instructions: 100000,
       install: () => {
         fs.mkdirSync(work, { recursive: true });
@@ -89,5 +95,4 @@ module.exports = {
       },
     };
   },
-  firmware, SSC_ROM_OUT,
 };

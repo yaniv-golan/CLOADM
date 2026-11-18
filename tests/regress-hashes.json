@@ -723,5 +723,15 @@
     "hash": "5db73032",
     "instructions": 2506,
     "held": true
+  },
+  "trace dragon64 ssc int3": {
+    "hash": "df189e5b",
+    "instructions": 7506,
+    "halted": true
+  },
+  "trace dragon64 ssc masked": {
+    "hash": "87ece521",
+    "instructions": 197020,
+    "halted": true
   }
 }

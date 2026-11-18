@@ -29,10 +29,11 @@ const opts = (...parts) => Object.assign({}, ...parts);
 // the Becker port for DriveWire at $FF41-$FF42 (MAME's "Becker Port" setting on its CoCo drivers)
 const becker = { becker: { values: [false, true], default: false } };
 // The Speech/Sound Pak in the cartridge port (MAME's `-ext ssc`). Only the models this project has run
-// the Pak's lockstep on offer it: CoCo 1/2 (`coco`), CoCo 2B (`coco2b`) and CoCo 3 (`coco3`), each compared with
-// MAME 0.264 to HALT (`tools/mame-diff/run.js <profile> --ssc`). A model without this option refuses `ssc` at
-// resolveConfig with the usual unknown-option message, and the page does not offer the board. 'music' inserts the
-// Pak with its AY-8913 routed; its speech side needs the SP0256, which is not implemented yet (README).
+// the Pak's lockstep on offer it: CoCo 1/2 (`coco`), CoCo 2B (`coco2b`) and CoCo 3 (`coco3`), and the Dragon 64
+// (`dragon64`, whose MAME driver lists the `ssc` slot too), each compared with MAME 0.264 to HALT
+// (`tools/mame-diff/run.js <profile> --ssc`). A model without this option refuses `ssc` at resolveConfig with the
+// usual unknown-option message, and the page does not offer the board. 'music' inserts the Pak with its AY-8913
+// routed; its speech side needs the SP0256, which is not implemented yet (README).
 const ssc = { ssc: { values: ['none', 'music'], default: 'none' } };
 
 const slot = (id, label, size, at, files, crcs, opts = {}) => Object.assign({ id, label, size, at, files, crcs, aliases: [], bank: 0, required: false }, opts);
@@ -56,7 +57,7 @@ const P = registry({
     roms: [slot('basic', 'Dragon 32 BASIC', 0x4000, 0x8000, ['d32.rom'], ['E3879310'], { required: true })],
   },
   dragon64: {
-    options: opts(cpu('6809', '6309'), ram([64]), hires()),
+    options: opts(cpu('6809', '6309'), ram([64]), hires(), ssc),
     name: 'Dragon 64', family: 'sam', keyboard: 'dragon', video: 'pal', acia: true, rs232: true, bankSelect: true, multiPak: true, mame: 'dragon64', mame6309: 'dragon64h',
     roms: d64Roms('d64_1.rom', '60A4634C', 'd64_2.rom', '17893A42', ['d64rom1.rom', 'd64tano.rom'], ['d64rom2.rom', 'd64tano2.rom']),
   },

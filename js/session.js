@@ -1348,9 +1348,10 @@ export class Session {
     return `${choice.name} inserted`;
   }
   // ---------------- the Speech/Sound Pak ----------------
-  // The Pak is a cartridge-port board, offered where the machine's profile has the `ssc` option: the Color
-  // Computer family. The PIC (TMS7040) ROM is the user's, like BASIC and DOS; the board's speech half is not
-  // implemented yet, so it is described as music only everywhere it is offered.
+  // The Pak is a cartridge-port board, offered where the machine's profile has the `ssc` option: the CoCo 1/2,
+  // CoCo 2B, CoCo 3 and the Dragon 64 (each with its own `--ssc` lockstep against MAME). The PIC (TMS7040) ROM is
+  // the user's, like BASIC and DOS; the board's speech half is not implemented yet, so it is described as music
+  // only everywhere it is offered.
   get offersSsc() { return !!(this.machine && this.machine.profile.options && this.machine.profile.options.ssc); }
   // is the Pak in the cartridge port? (also when it arrived through a restored snapshot)
   get sscInserted() { return !!this.machine && this.machine.cartPort instanceof SpeechSoundPak; }
@@ -1366,7 +1367,7 @@ export class Session {
   insertSsc() {
     const m = this.machine;
     if (!m) throw new SessionError('There is no machine to put the Speech/Sound Pak in.');
-    if (!this.offersSsc) throw new SessionError(`The ${m.profile.name} can't take the Speech/Sound Pak: CLOADM offers it only on the Color Computer models its Pak is verified on.`);
+    if (!this.offersSsc) throw new SessionError(`The ${m.profile.name} can't take the Speech/Sound Pak: CLOADM offers it only on the models its Pak is verified on.`);
     const missing = this.sscRoms().filter((s) => s.required && s.status !== 'loaded');
     if (missing.length) {
       throw new SessionError(`The Speech/Sound Pak needs its PIC ROM: ${missing.map((s) => `${s.label} (${s.files[0]}, ${Math.round(s.size / 1024)}K)`).join(' and ')}. Load the ROM file first.`);

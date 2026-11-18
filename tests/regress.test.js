@@ -255,6 +255,31 @@ cases.push(['trace coco ssc int3', () => sscInt3Hash()]);
 // own card's behaviour on that model; it just does not claim MAME agrees with it.
 cases.push(['trace coco2b ssc int3', () => sscInt3Hash('coco2b')]);
 cases.push(['trace coco3 ssc int3 (our side; MAME differs at $0405)', () => sscInt3Hash('coco3')]);
+// The Pak on the Dragon 64. Its masked case is MAME-backed like the CoCos' (`run.js dragon64 --ssc`: 1,156,994
+// instructions identical, HALT reached); its interrupt case is too (`compare.js dragon64`: 107 of 107 write rows
+// identical, work RAM identical, HALT on both sides).
+//
+// WHAT THESE TWO KEYS DO AND DO NOT COVER, measured. They cover the Pak's decode ($FF7D/$FF7E, the PIC driving the
+// AY and the SP0256) on the Dragon's cartridge port, and they do not cover the Dragon's own glue, because the
+// firmware never touches it. Measured by mutation: inverting PIA1 PB2's bank-select polarity, and forcing bank 1
+// at all times, both leave BOTH of these keys unchanged. That is a coverage fact, not a defect - `trace dragon64`
+// (sam/diag.asm, whose phase 4 reads BANKID at $BF00 with PB2 both ways) is the key that fails on the PB2 mutation,
+// and it is the one that should. The same holds for the 6551 ACIA: `acia dragon64` covers it, and `ssc.asm` never
+// writes $FF04-$FF07.
+//
+// The interrupt key is the same number as the CoCo's (df189e5b, 7,506 instructions) because that run's firmware is
+// the same and touches no Dragon-specific I/O; the masked key differs from the CoCo's RECORDED hash (87ece521
+// against 5023fa01) only because sscMaskedHash runs on to the end of the frame in which HALT is first seen, and a
+// 49.97 Hz PAL frame folds in a different number of trailing HALT-loop passes than a 59.92 Hz NTSC one - fewer,
+// measured: 197,020 - 195,913 = 1,107 trailing instructions on the Dragon against 198,844 - 195,913 = 2,931 on
+// the CoCo. The trace TO HALT is identical on both models: same hash (7b896afc), 195,913 instructions, 708,037
+// cycles. The keys are kept per model anyway, as on the CoCos, so a change that moves one model's run is visible
+// in its own key rather than averaged away.
+//
+// What these keys do NOT gate: the OFFER. `spec.trace` builds the machine and the Pak directly, so removing the
+// `ssc` option from js/machines/profiles.js leaves both Dragon keys green (measured). The gate for the offer is
+// tests/ssc-board.test.js, whose `dragon64 offers it` check fails on that mutation.
+cases.push(['trace dragon64 ssc int3', () => sscInt3Hash('dragon64')]);
 // The MASKED case (the source as it ships: IOCNT0 = $0C, so INT3 stays masked and every command times out). Its
 // 37 time-outs are pinned in tests/ssc.test.js, but the gate needs this run's full trace too: AGENTS 4.4.7 asks
 // for every diagnostic firmware run to be in the fast gate, and a core that started taking a masked interrupt
@@ -277,7 +302,7 @@ function sscMaskedHash(profileId = 'coco') {
   m.cpu.trace = null;
   return { hash: (h >>> 0).toString(16).padStart(8, '0'), instructions: n, halted };
 }
-for (const id of ['coco', 'coco2b', 'coco3']) cases.push([`trace ${id} ssc masked`, () => sscMaskedHash(id)]);
+for (const id of ['coco', 'coco2b', 'coco3', 'dragon64']) cases.push([`trace ${id} ssc masked`, () => sscMaskedHash(id)]);
 // cassette: our writer and reader firmware, compared with MAME by outcome (tools/mame-diff/tape/run-tape.js:
 // MAME's recording of the writer, and MAME reading our files with the reader). The 6809 pair
 // (tape/csave.asm, cload.asm) on the Dragon, CoCo and CoCo 3; the 6803 pair (csave6803.asm, cload6803.asm) on

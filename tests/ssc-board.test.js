@@ -39,19 +39,21 @@ const storeSscRoms = (s, { pic = PIC, sp = SP_ROM } = {}) => {
 {
   const s = await session();
   check('coco offers the Speech/Sound Pak', s.offersSsc === true);
-  for (const id of ['coco2b', 'coco3']) {
+  for (const id of ['coco2b', 'coco3', 'dragon64']) {
     const t = new Emu.Session({ store: kv(), welcomeMenu: false });
     t.switchMachine(id);
     check(`${id} offers it: its --ssc lockstep matched to HALT`, t.offersSsc === true);
   }
-  // a Dragon and the MC-10: the Pak is a Color Computer cartridge, and neither is verified for it
-  for (const [id, name] of [['dragon64', 'Dragon 64'], ['dragon32', 'Dragon 32'], ['mc10', 'MC-10'], ['alice', 'Alice']]) {
+  // a sample of the models that must refuse: the other Dragons (the 32 here, and also the 200-E, Tano 64, 64 Plus
+  // and Alpha), the MC-10/Alice, and the MX-1600 below (the CP-400, LZ Color64 and CD-6809 covered by the same
+  // `ssc` option check). The Dragon 64's `--ssc` run is what makes the 64 different from them here.
+  for (const [id, name] of [['dragon32', 'Dragon 32'], ['dragon200', 'Dragon 200'], ['mc10', 'MC-10'], ['alice', 'Alice']]) {
     const t = new Emu.Session({ store: kv(), welcomeMenu: false });
     t.switchMachine(id);
     check(`${name}: offersSsc is false`, t.offersSsc === false);
     const e = throws(() => t.insertSsc());
     check(`${name}: inserting it is refused with a clear message`,
-      e instanceof Emu.SessionError && /can't take the Speech\/Sound Pak/.test(e.message) && /only on the Color Computer models/.test(e.message),
+      e instanceof Emu.SessionError && /can't take the Speech\/Sound Pak/.test(e.message) && /only on the models its Pak is verified on/.test(e.message),
       e ? e.message : 'did not throw');
     // and the option itself is refused, so no config or URL can force it on
     const e2 = throws(() => Emu.resolveConfig(id, { ssc: 'music' }));
