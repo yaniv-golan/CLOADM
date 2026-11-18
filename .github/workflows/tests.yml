@@ -104,7 +104,22 @@ jobs:
         run: |
           npm init -y >/dev/null 2>&1 || true
           npm install --no-save --no-audit --no-fund playwright@1.55.0
-          npx playwright install --with-deps chromium
+      # The browser download is cached on the Playwright version and the runner image (chromium is built per Ubuntu
+      # release); a miss downloads it below, a hit makes that step a no-op.
+      - name: Cache the Playwright browser
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-1.55.0-ubuntu-24.04-chromium
+      - name: Install the browser and its OS packages
+        run: |
+          npx playwright install chromium
+          # apt on a fresh runner sometimes cannot find a package (a mirror mid-update): refresh and try again.
+          for try in 1 2 3; do
+            sudo apt-get update && npx playwright install-deps chromium && exit 0
+            echo "OS packages: try $try failed"; sleep $((try * 10))
+          done
+          exit 1
       - name: Run the browser check (${{ matrix.groups }})
         env:
           CHECK_GROUPS: ${{ matrix.groups }}

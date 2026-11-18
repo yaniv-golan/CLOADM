@@ -23,6 +23,7 @@ All notable changes to CLOADM are recorded here. The format follows
   counts. A check fails the run if any browser-check group (as `node tools/browser-check.js --list-groups` prints its
   `GROUPS` table) is in no shard, in two, or a shard names a group that isn't one. A newer push to a branch
   cancels the older run there; runs on `main` are never cancelled.
+- CI installs Playwright more robustly: the chromium download is cached on the Playwright version and runner image, and the OS packages install with up to 3 tries with `apt-get update` between (a flaky apt mirror no longer fails a browser-check shard before any test runs).
 - AGENTS.md: a green CI run on the exact commit is the definition of done; `regress.test.js` needn't run separately
   where `all.js` ran; nothing else runs beside the browser check; a review section (verify the run's SHA and tree,
   replay mutations, re-run gates only for non-additive changes to tests, tools or CI); the report gives the CI run.
