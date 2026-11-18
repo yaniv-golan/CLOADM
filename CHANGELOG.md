@@ -6,7 +6,26 @@ All notable changes to CLOADM are recorded here. The format follows
 
 ## [Unreleased]
 
-### Fixed
+### 0.1.2-pre
+
+#### Added
+
+- **A touch joystick in the on-screen panel.** A **Keys | Joystick** switch (on machines with a joystick port, so
+  not the MC-10 or Alice, and not with a Hi-Res interface or The Rat in that port) turns the phone or tablet panel
+  into an analogue stick on the right joystick — the one the first gamepad drives — with the pads' own dead zone,
+  a floating base and about 56 px of travel, plus a large FIRE on the same button bit a stick's fire button uses,
+  a key strip (SPACE, ENTER, BREAK, 1, 2, Y, N, ABC) and one-press ABC for the full keyboard. The stick and FIRE can
+  be held at once; a gamepad connecting stands the stick down; the mode is remembered per machine and
+  `?touch=joystick|keys` sets it for the visit. Keys mode is unchanged, with Hide keys moved into the panel's Menu.
+- **NitrOS-9 from a floppy:** the release's `_40d_1.dsk` (35/40-track NitrOS-9 floppies) boots the same way with
+  CLOADM's own floppy loader and the CoCo disk controller, no Disk BASIC ROM needed.
+- **The Speech/Sound Pak on the Dragon 64.** The cartridge port's board menu now offers the Pak on the Dragon 64
+  as it does on the CoCo 1/2, CoCo 2B and CoCo 3, music only (speech is still not implemented). The Dragon 64's
+  run of this project's diagnostic firmware matches MAME 0.264 instruction for instruction to HALT, which is what
+  offering it rests on; the other Dragon-family models (Dragon 32, Dragon 200, Dragon 200-E, Tano Dragon 64, Dragon Professional (Alpha)
+  and Dragon 64 Plus) have not been run, so they do not offer it.
+
+#### Fixed
 
 - **The Debugger works on an HD6309.** On a machine with the CPU option set to 6309 the Debugger screen threw
   `ORDER[cpu] is not iterable`: its register order and flag tables had no 6309 entry. It now shows the full 6309
@@ -19,18 +38,48 @@ All notable changes to CLOADM are recorded here. The format follows
   faults on a 6309 - it read 6309-only opcodes with the 6809's table (LDQ shown as data) and left E F W Q V MD out
   of the registers it sent; both come from one helper now (`codeDisassembly`, also used by the Claude
   `disassemble` tool), so the debugger, the trace and Ask cannot disagree.
+- **CoCo 3 disk controller HALT:** a sector read with the CPU halted could read the data register before its byte
+  (NitrOS-9's floppy booter read LSN 0 one byte off, and every byte twice at 1.78 MHz). HALT now suspends the CPU
+  inside an instruction as MAME's does, and the cartridge slot's line delays follow the CPU rate. A halted read whose
+  DRQ never comes (an empty drive) holds the CPU across frames instead of the page: the screen and timers run on, and
+  a disk in the drive or a Force Interrupt releases it. Changing the CPU's registers while it is held (a program
+  loaded and started, a jump, the debugger) drops the held instruction, as does writing over its code: the CPU
+  goes on from the new state when HALT is released. A held instruction runs again with exactly the bytes it had
+  read (a 6309 TFM whose source overlaps its destination copied its own new bytes), however long it is. The debugger counts no instruction while the CPU is halted: Step waits a frame and reports
+  "Halted", Over/Out/Run-to wait two seconds, and Run keeps the frames going without stopping.
+- **Ask Claude's restore points:** a restore that can't happen (the ROMs changed since the point was taken: Forget
+  ROMs, Run without ROMs) no longer throws the points away and stops Claude first: it says why, changes nothing and
+  keeps every point. After a restore, a disk still in the same drive since the point (the same mount, not ejected
+  or changed in the Library) goes on saving its writes to the Library (before, later writes were silently not
+  saved), and if the machine wrote to it since the point its stored image is first put back to the image the drive
+  holds, so the undone turn's writes are not left mixed in; a disk not written since is not rewritten. Any other
+  disk (ejected, replaced, mounted again or moved since the point, write-protected, or a file that can't be written)
+  is not rolled back: the Library's file is left alone and the restore says the restored disk isn't saved. In the
+  full-screen chat the Library now also refuses to replace, rename or delete a disk in the BASIC session's drives, and
+  the BASIC session's drives are saved when the page is hidden. A disk mounted again in the drive it is in is read
+  only once no write to the Library is in flight (a restore's put-back, an import, another drive's write), so a
+  drive and its file no longer end up as two versions, and two mounts of one image at once can't both go in.
+  Moving the library waits for the disks' last writes, and while it moves no disk goes in and the Library
+  changes nothing (an import, rename or delete then would have been lost from the moved library).
+  Every acting tool, `load_basic` included, takes the turn's restore point through
+  one shared path, so a new tool can't miss it. The restore control now says that points live in memory only (a
+  reload, ending the chat or switching machine loses them) and that other saved files are not rolled back.
+- **The HD6309 now runs the 6809 programs.** Choosing the 6309 (Machine tab, or `?machine=dragon64&cpu=6309`)
+  opened on "Welcome: examples/undefined: HTTP 404": the Session's welcome-menu, LIZA, colour-demo and Claude-chat
+  lookups were keyed by the literal CPU and had no 6309 entry, so the page fetched a missing file, the screen kept
+  the bare stub, the Media tab lost the colour demo, and the choice stuck for later visits. The lookups now go by
+  CPU family (`js/cpu/cpus.js`), and the 6309 — which runs every 6809 instruction in emulation mode — gets the 6809
+  welcome build, LIZA and demo, and the 6809 chat firmware. The stored 6309 choice is unchanged.
+- Opening the full-screen chat from a view no longer forgets that the Ask panel reopens when the view closes if the
+  chat fails to open (for example, its firmware does not load).
+- The browser's Back from a view leaves the focus on the screen, as "← Emulator" and Esc do (it landed on the page or on
+  the opener's button), also when the Ask panel reopens over the conversation.
+- After a reload while a view was open over the chat, Back no longer leaves `?app=claude` in the emulator's address: a
+  page loaded on `?app=claude` now keeps the emulator's own entry, without the parameter, under the chat.
+- "What is this code doing?" asked from the full screen chat (Ctrl+K) disassembled the chat firmware and its
+  registers; it now reads the BASIC session, as the read tools do (`Session.codeAt`).
 
-### Added
-
-- **A touch joystick in the on-screen panel.** A **Keys | Joystick** switch (on machines with a joystick port, so
-  not the MC-10 or Alice, and not with a Hi-Res interface or The Rat in that port) turns the phone or tablet panel
-  into an analogue stick on the right joystick — the one the first gamepad drives — with the pads' own dead zone,
-  a floating base and about 56 px of travel, plus a large FIRE on the same button bit a stick's fire button uses,
-  a key strip (SPACE, ENTER, BREAK, 1, 2, Y, N, ABC) and one-press ABC for the full keyboard. The stick and FIRE can
-  be held at once; a gamepad connecting stands the stick down; the mode is remembered per machine and
-  `?touch=joystick|keys` sets it for the visit. Keys mode is unchanged, with Hide keys moved into the panel's Menu.
-
-### Changed
+#### Changed
 
 - **Claude's acting tools follow the read tools' contract.** `poke`, `type_text`, `load_basic`, `press_break`,
   `assemble_and_load` and `run` are entries of one table in `js/claude/chat.js`, and `ChatSession.runTool` runs each
@@ -49,7 +98,6 @@ All notable changes to CLOADM are recorded here. The format follows
   relied on the "Let Claude use the machine" switch is `no-consent` once it is off; nothing lands while paused. A
   `ChatSession` built without a gate now refuses every acting tool (`no-consent`) instead of allowing it. `run.target`'s
   schema is `anyOf` an integer `ADDRESS_MIN`-`ADDRESS_MAX` or a string.
-
 - **Sound plays through an AudioWorkletNode** (`js/host/audio-worklet.js`) instead of the deprecated
   ScriptProcessorNode, so the console no longer warns on every page load and sound is played on the audio thread,
   away from the page's work. The samples are unchanged (the emulation core is untouched): the output stage makes
@@ -61,7 +109,6 @@ All notable changes to CLOADM are recorded here. The format follows
   Where AudioWorklet is missing (an old browser, plain `http://` other than `localhost`), its module can't load (or
   hasn't loaded within 3 s) or its processor fails, a ScriptProcessorNode plays the same queue, so sound keeps working; with AudioWorklet working none is created.
   The worklet is in the service worker's list, so offline sound works too.
-
 - **Test gates (tooling): a green run means what it says.** `node tools/browser-check.js`: an unknown or empty
   `--only` group list is an error (exit 2) listing the valid groups, where it used to run nothing and pass; each group
   runs on its own, so one that throws is that group's FAIL with its stack and the rest still run; every wait's
@@ -81,68 +128,8 @@ All notable changes to CLOADM are recorded here. The format follows
 - AGENTS.md: a green CI run on the exact commit is the definition of done; `regress.test.js` needn't run separately
   where `all.js` ran; nothing else runs beside the browser check; a review section (verify the run's SHA and tree,
   replay mutations, re-run gates only for non-additive changes to tests, tools or CI); the report gives the CI run.
-
-#### Added
-
-- **NitrOS-9 from a floppy:** the release's `_40d_1.dsk` (35/40-track NitrOS-9 floppies) boots the same way with
-  CLOADM's own floppy loader and the CoCo disk controller, no Disk BASIC ROM needed.
-
-#### Fixed
-
-- **CoCo 3 disk controller HALT:** a sector read with the CPU halted could read the data register before its byte
-  (NitrOS-9's floppy booter read LSN 0 one byte off, and every byte twice at 1.78 MHz). HALT now suspends the CPU
-  inside an instruction as MAME's does, and the cartridge slot's line delays follow the CPU rate. A halted read whose
-  DRQ never comes (an empty drive) holds the CPU across frames instead of the page: the screen and timers run on, and
-  a disk in the drive or a Force Interrupt releases it. Changing the CPU's registers while it is held (a program
-  loaded and started, a jump, the debugger) drops the held instruction, as does writing over its code: the CPU
-  goes on from the new state when HALT is released. A held instruction runs again with exactly the bytes it had
-  read (a 6309 TFM whose source overlaps its destination copied its own new bytes), however long it is. The debugger counts no instruction while the CPU is halted: Step waits a frame and reports
-  "Halted", Over/Out/Run-to wait two seconds, and Run keeps the frames going without stopping.
-
-#### Changed
-
 - **Snapshots are format version 2:** a CoCo 3 instruction held by the disk controller's HALT is saved with the
   machine. Version 1 files still open; a page from before this change refuses version 2 files as newer.
-
-### Fixed
-
-- **Ask Claude's restore points:** a restore that can't happen (the ROMs changed since the point was taken: Forget
-  ROMs, Run without ROMs) no longer throws the points away and stops Claude first: it says why, changes nothing and
-  keeps every point. After a restore, a disk still in the same drive since the point (the same mount, not ejected
-  or changed in the Library) goes on saving its writes to the Library (before, later writes were silently not
-  saved), and if the machine wrote to it since the point its stored image is first put back to the image the drive
-  holds, so the undone turn's writes are not left mixed in; a disk not written since is not rewritten. Any other
-  disk (ejected, replaced, mounted again or moved since the point, write-protected, or a file that can't be written)
-  is not rolled back: the Library's file is left alone and the restore says the restored disk isn't saved. In the
-  full-screen chat the Library now also refuses to replace, rename or delete a disk in the BASIC session's drives, and
-  the BASIC session's drives are saved when the page is hidden. A disk mounted again in the drive it is in is read
-  only once no write to the Library is in flight (a restore's put-back, an import, another drive's write), so a
-  drive and its file no longer end up as two versions, and two mounts of one image at once can't both go in.
-  Moving the library waits for the disks' last writes, and while it moves no disk goes in and the Library
-  changes nothing (an import, rename or delete then would have been lost from the moved library).
-  Every acting tool, `load_basic` included, takes the turn's restore point through
-  one shared path, so a new tool can't miss it. The restore control now says that points live in memory only (a
-  reload, ending the chat or switching machine loses them) and that other saved files are not rolled back.
-
-### Added
-
-- **The Speech/Sound Pak on the Dragon 64.** The cartridge port's board menu now offers the Pak on the Dragon 64
-  as it does on the CoCo 1/2, CoCo 2B and CoCo 3, music only (speech is still not implemented). The Dragon 64's
-  run of this project's diagnostic firmware matches MAME 0.264 instruction for instruction to HALT, which is what
-  offering it rests on; the other Dragon-family models (Dragon 32, Dragon 200, Dragon 200-E, Tano Dragon 64, Dragon Professional (Alpha)
-  and Dragon 64 Plus) have not been run, so they do not offer it.
-
-### Fixed
-
-- **The HD6309 now runs the 6809 programs.** Choosing the 6309 (Machine tab, or `?machine=dragon64&cpu=6309`)
-  opened on "Welcome: examples/undefined: HTTP 404": the Session's welcome-menu, LIZA, colour-demo and Claude-chat
-  lookups were keyed by the literal CPU and had no 6309 entry, so the page fetched a missing file, the screen kept
-  the bare stub, the Media tab lost the colour demo, and the choice stuck for later visits. The lookups now go by
-  CPU family (`js/cpu/cpus.js`), and the 6309 — which runs every 6809 instruction in emulation mode — gets the 6809
-  welcome build, LIZA and demo, and the 6809 chat firmware. The stored 6309 choice is unchanged.
-
-### Changed
-
 - **Esc in the full-screen chat escalates.** On the chat screen Esc is BREAK while a reply streams (it stops the reply)
   or while a line is typed (the firmware drops it); on an empty, idle prompt it leaves the chat, exactly as
   "← Emulator" does. The focus pill there reads "Esc stops a reply, clears the line, then leaves the chat".
@@ -158,29 +145,12 @@ All notable changes to CLOADM are recorded here. The format follows
   instead of "Failed to fetch".
 - In the BASIC-session view (Ctrl+B from the chat) the corner label reads "The chat · live", so it is no longer a
   second "Back to the chat" beside the button.
-
-### Fixed
-
-- Opening the full-screen chat from a view no longer forgets that the Ask panel reopens when the view closes if the
-  chat fails to open (for example, its firmware does not load).
-- The browser's Back from a view leaves the focus on the screen, as "← Emulator" and Esc do (it landed on the page or on
-  the opener's button), also when the Ask panel reopens over the conversation.
-- After a reload while a view was open over the chat, Back no longer leaves `?app=claude` in the emulator's address: a
-  page loaded on `?app=claude` now keeps the emulator's own entry, without the parameter, under the chat.
-
-### Changed
-
 - **Ask Claude says what it reads, and that it is only the emulator.** The panel's header is "Claude can read
   (emulator only):" with the chips "Screen text" and "Memory"; the placeholder and the phone peek say "Ask about this
   machine"; the empty state says "Claude reads only this emulated <model> (its screen text and memory), never your
   computer" and follows a machine switch, on phones too; a new footer line says "Your messages and what Claude
   reads go to Anthropic with your key." The full screen card names the BASIC session's model. The switch is "Let
   Claude use the emulator" everywhere (page, docs, README).
-
-### Fixed
-
-- "What is this code doing?" asked from the full screen chat (Ctrl+K) disassembled the chat firmware and its
-  registers; it now reads the BASIC session, as the read tools do (`Session.codeAt`).
 
 ### 0.1.1-pre
 
