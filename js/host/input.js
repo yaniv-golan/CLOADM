@@ -10,6 +10,14 @@
  *               positionalKeys), so an AZERTY user's Q types the machine's A, the key their fingers mean
  * A key is held as a machine key plus SHIFT where the character needs it, which is what the matrix has. A
  * release removes exactly what its press added, so chords and rollover work.
+ * In translated mode the character, not the host's Shift, decides the machine's SHIFT: the host types ':' as
+ * Shift+; but the Dragon, CoCo and MC-10 have ':' as a key of its own and SHIFT+: is '*', so the host's Shift is
+ * held off the matrix while ':' is down, and SHIFT is pressed for '=' though the host types it unshifted. Keys
+ * whose character does not fix SHIFT (letters, whose case is the machine's own mode, SPACE, and the named keys
+ * such as BREAK, CLEAR and the arrows) take the host's Shift as it is. The most recent key held decides SHIFT; an older
+ * held key whose SHIFT the new one contradicts leaves the matrix, since the machine has already read it and
+ * would otherwise read it again as the other character. Positional mode has no such rule: there the
+ * host's Shift is the key at its position (SHIFT, or the MC-10's CONTROL for the left one).
  *
  * The keyboard joystick (joyKeys) gives one joystick to the keys: W/A/S/D the left one, the numeric pad the
  * right one, F or the numpad 0 the button. Keys the joystick owns do not type.
@@ -71,8 +79,8 @@ class HostInput {
     this.keys = keys;
     this.mode = 'translated';
     this.joyKeys = false;
-    this.heldKeys = new Map();              // event.code -> the machine keys its press added
-    this.hostShift = false;
+    this.heldKeys = new Map();              // event.code -> { keys: machine keys its press added, shift }
+    this.hostShift = false;                 // translated mode: the host's Shift is down
     this.keyJoy = [new Set(), new Set()];   // per joystick: the keys held
     this.pads = [null, null];               // per joystick: the last gamepad frame
     this.mouse = { x: 0.5, y: 0.5, left: false, right: false };
@@ -104,43 +112,51 @@ class HostInput {
   // ---------------- keyboard ----------------
   // a browser keydown: { key, code, shiftKey, repeat }; true when the machine took the key
   keydown(e) {
-    if (e.key === 'Shift') { this.hostShift = true; this.setMatrix(e.code, ['SHIFT']); return true; }
+    if (e.key === 'Shift' && this.mode !== 'positional') { this.hostShift = true; this.publish(); return true; }
     if (this.joyKeys && this.joyKey(e, true)) return true;
-    if (e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta') return this.modifier(e, true);
+    if (isModifier(e.key)) return this.modifier(e, true);
     if (e.ctrlKey || e.metaKey || e.altKey) return false;   // a browser shortcut, not ours to take
-    const keys = this.machineKeys(e);
-    if (!keys) return false;
+    const entry = this.machineKeys(e);
+    if (!entry) return false;
     if (this.m.useStub && !e.repeat) this.pushStub(e);
-    this.setMatrix(e.code, keys);
+    const shift = entry.shift ?? this.hostShift;
+    for (const [code, held] of this.heldKeys) if (code !== e.code && held.shift === !shift) this.heldKeys.delete(code);
+    this.setMatrix(e.code, entry);
     return true;
   }
   keyup(e) {
-    if (e.key === 'Shift') { this.hostShift = false; this.clearMatrix(e.code); return true; }
-    if (this.joyKeys) this.joyKey(e, false);
+    // any Shift release ends the host's Shift, whichever mode it went down in (a mode change while it is held must
+    // not leave it stuck), and clears what a positional press of it holds
+    if (e.key === 'Shift') this.hostShift = false;
+    else if (this.joyKeys) this.joyKey(e, false);
     this.clearMatrix(e.code);
     return true;
   }
-  // the machine keys one event types, SHIFT first when the character needs it
+  // what one event holds on the machine: { keys, shift }, where shift is true or false when the character
+  // decides the machine's SHIFT, and null when the host's Shift (or a SHIFT in keys) does
   machineKeys(e) {
     if (this.mode === 'positional') {
       const name = this.layout[e.code];
-      return name ? [name] : null;
+      return name ? { keys: [name], shift: null } : null;
     }
-    if (SPECIAL[e.key]) return [SPECIAL[e.key]];
+    if (SPECIAL[e.key]) return { keys: [SPECIAL[e.key]], shift: null };
     if (e.key.length !== 1) return null;
     const k = charToKeys(e.key);
-    return k ? (k.shift ? ['SHIFT', k.key] : [k.key]) : null;
+    if (!k) return null;
+    // letters and SPACE leave SHIFT to the host: a letter's case is the machine's own mode, and SPACE is the same
+    // character either way, so a game's held Shift (with an arrow, say) stays down when SPACE fires
+    return { keys: [k.key], shift: /^[A-Za-z ]$/.test(e.key) ? null : k.shift };
   }
   modifier(e, down) {
     if (this.mode === 'positional') {
       const name = this.layout[e.code];
       if (!name) return false;
-      if (down) this.setMatrix(e.code, [name]); else this.clearMatrix(e.code);
+      if (down) this.setMatrix(e.code, { keys: [name], shift: null }); else this.clearMatrix(e.code);
       return true;
     }
     const name = SPECIAL[e.key];
     if (!name) return false;
-    if (down) this.setMatrix(e.code, [name]); else this.clearMatrix(e.code);
+    if (down) this.setMatrix(e.code, { keys: [name], shift: null }); else this.clearMatrix(e.code);
     return true;
   }
   pushStub(e) {
@@ -155,16 +171,22 @@ class HostInput {
   touch(id, keys, stubCode, down) {
     if (!down) { this.clearMatrix(`touch:${id}`); return; }
     if (this.m.useStub && stubCode) this.m.stubKeys.push(stubCode);
-    this.setMatrix(`touch:${id}`, keys);
+    this.setMatrix(`touch:${id}`, { keys, shift: null });
   }
-  setMatrix(code, keys) { this.heldKeys.set(code, keys); this.publish(); }
+  setMatrix(code, entry) { this.heldKeys.set(code, entry); this.publish(); }
   clearMatrix(code) { this.heldKeys.delete(code); this.publish(); }
   // hand the set of keys held now to the KeyQueue; it applies them at the next frame start, in order, so a
   // key pressed and released between two scans is not lost (js/machines/keyqueue.js)
+  // SHIFT is the most recent held key's when its character fixes it; otherwise the host's Shift or a key that
+  // holds SHIFT (an on-screen SHIFT, a positional Shift) decides
   publish() {
     const held = new Set();
-    for (const keys of this.heldKeys.values()) for (const k of keys) if (k !== 'SHIFT') held.add(k);
-    if (this.hostShift || [...this.heldKeys.values()].some((keys) => keys.includes('SHIFT'))) held.add('SHIFT');
+    let shift = null, anyShift = this.hostShift;
+    for (const { keys, shift: s } of this.heldKeys.values()) {
+      for (const k of keys) { if (k === 'SHIFT') anyShift = true; else held.add(k); }
+      shift = s;
+    }
+    if (shift === null ? anyShift : shift) held.add('SHIFT');
     this.keys.set(held);
   }
   releaseAll() {

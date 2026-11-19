@@ -35,6 +35,17 @@ All notable changes to CLOADM are recorded here. The format follows
   was early, but only the CoCo 3's step lengths are multiplied by `div`, so only there did the early answer
   cross a card instruction (counted on the card, the CoCo 1/2 and 2B run it 3,932 steps either way and the
   CoCo 3 56,541 before, 56,545 after). Its device-write rows and work RAM are identical.
+- **Symbols typed on the keyboard are the ones you typed.** In translated mode (the default) the host's Shift went
+  through to the machine, so a character the host types with Shift but the machine has unshifted came out
+  SHIFTed: `:` typed `*` on every machine, `@` typed SHIFT+@ (a pause in Color BASIC) and `^` SHIFT+UP; on a
+  layout that shifts other characters (the digits on AZERTY, for one) many more were wrong. The character now
+  decides the machine's SHIFT, whatever the host's Shift is doing; letters and the named keys (BREAK, CLEAR, the
+  arrows) still take the host's Shift. Typing fast also lost SHIFT: when the keys queued up behind the host,
+  letting go of Shift could reach the machine before the shifted keys typed with it (`!"#` typed `!23`).
+  Positional mode keeps the host's Shift as the key at its position, so the MC-10's and Alice's left Shift is
+  CONTROL there, as the positional map always said.
+- **The Mac's CLEAR is documented.** The Keys help and `docs/using.md` now say that on a Mac keyboard without
+  `Home` or forward `Delete`, CLEAR is `Fn`+`←` or `Fn`+`Delete`, and that `Option` and `Cmd` stay with the Mac.
 
 ### 0.1.3-pre
 

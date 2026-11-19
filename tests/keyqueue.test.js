@@ -47,6 +47,18 @@ const check = (name, cond, detail = '') => { if (!cond) { fail++; console.log(`F
   for (let i = 0; i < 20; i++) q4.step({ setKey: (k, d) => log.push(`${q4.frame}:${k}${d ? '+' : '-'}`) });
   check('SHIFT goes down before its key and up after it, before the next key', log.join() === '1:SHIFT+,2:1+,4:SHIFT-,5:1-,5:2+,8:2-' || log.join() === '1:SHIFT+,2:1+,5:1-,5:SHIFT-,5:2+,8:2-', log.join());
 
+  // a modifier let go in the frame right after a press made with it held stays down until that press has been
+  // down `hold` frames: Shift held for a while, '2' pressed (") and Shift released straight after
+  log.length = 0;
+  const q6 = new Emu.KeyQueue({ hold: 3, gap: 2 });
+  q6.set(['SHIFT']);
+  for (let i = 0; i < 5; i++) q6.step({ setKey: (k, d) => log.push(`${q6.frame}:${k}${d ? '+' : '-'}`) });
+  q6.set(['SHIFT', '2']);
+  q6.step({ setKey: (k, d) => log.push(`${q6.frame}:${k}${d ? '+' : '-'}`) });
+  q6.set(['2']);
+  for (let i = 0; i < 10; i++) q6.step({ setKey: (k, d) => log.push(`${q6.frame}:${k}${d ? '+' : '-'}`) });
+  check('SHIFT released right after a press made with it stays down `hold` frames after that press', log.join() === '1:SHIFT+,6:2+,9:SHIFT-', log.join());
+
   const q5 = new Emu.KeyQueue();
   q5.set(['A']); q5.step({ setKey() {} }); q5.set([]); q5.set(['B']);
   q5.clear();

@@ -5052,6 +5052,49 @@ async function tapeChecks(browser, base, check) {
 // button bit; the mode is remembered per machine; ?touch= sets it for the visit; a gamepad arriving stands it
 // down; the MC-10 has no switch; nothing lies over #screen at any of the three sizes; and the welcome menu's
 // taps never reach it while the stick is up.
+// Every printable character, typed through real key events on a US layout (Playwright's keyboard: Shift held
+// down for the characters the US layout shifts, as a person does), on one machine of each keyboard family. Our
+// key-echo firmware (tools/keyecho/gen-keyecho.js) scans the matrix as BASIC does and writes what it decodes to
+// the text screen, which must hold exactly the characters typed. Translated mode is the page's default; the bug
+// this guards was the host's Shift reaching the matrix, so ':' (Shift+; on the host) typed '*'.
+async function keyboardSymbolsChecks(browser, base, check) {
+  const Emu = require('../tests/load')();
+  const { US } = require('../tests/us-layout.js');
+  const { keyechoBinary, expectedCodes, printable } = require('./keyecho/gen-keyecho.js');
+  for (const [id, cpu] of [['dragon64'], ['dragon200e'], ['coco'], ['coco3', '6309'], ['mc10']]) {
+    const tag = cpu ? `${id} ${cpu}` : id;
+    const ctx = await browser.newContext();
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}?machine=${id}${cpu ? `&cpu=${cpu}` : ''}`);
+    await ready(page);
+    // the welcome menu would take the typed digits (and could start after the load): end it first, as stubPrompt does
+    await waitFor(page, () => window.emu && window.emu.started);
+    await page.evaluate(() => window.emu.session.endWelcome());
+    await page.evaluate((bin) => window.emu.session.load('keyecho.bin', new Uint8Array(bin), { remember: false }), [...keyechoBinary(Emu, id)]);
+    await waitFor(page, () => window.emu.machine.ram[(window.emu.machine.profile.textScreen || 0x400)] === 0x60);
+    const text = printable(Emu, id);
+    await page.focus('#screen');
+    let shift = false;
+    for (const ch of text) {
+      if (US[ch].shift !== shift) { shift = US[ch].shift; await (shift ? page.keyboard.down('Shift') : page.keyboard.up('Shift')); }
+      await page.keyboard.press(US[ch].code);
+    }
+    if (shift) await page.keyboard.up('Shift');
+    const want = expectedCodes(text);
+    const screen = () => page.evaluate((n) => { const m = window.emu.machine; return [...m.ram.slice(m.profile.textScreen || 0x400, (m.profile.textScreen || 0x400) + n)]; }, want.length + 1);
+    await waitFor(page, (n) => window.emu.session.keys.pending === 0 && window.emu.machine.ram[(window.emu.machine.profile.textScreen || 0x400) + n - 1] !== 0x60, want.length);
+    const got = await screen();
+    const show = (codes) => codes.map((v) => { const c = v & 0x3F, t = String.fromCharCode(c < 32 ? c + 64 : c); return v & 0x40 ? t : `[${t}]`; }).join('');
+    check(`keyboard symbols (${tag}): ${text.length} characters typed with real key events appear on the screen exactly`,
+      got.join() === [...want, 0x60].join(), `got ${show(got)}`);
+    if (shotDir && id === 'coco3') await page.screenshot({ path: path.join(shotDir, 'keyboard-symbols-coco3.png') });
+    check(`keyboard symbols (${tag}): no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+}
+
 async function touchJoystickChecks(browser, base, check) {
   // the panel's geometry and mode, as the page sees it
   const state = (page) => page.evaluate(() => {
@@ -10024,6 +10067,7 @@ const GROUPS = (base, site) => [
   ['design', (b) => designChecks(b, base, check)],
   ['inputScreen', (b) => inputScreenChecks(b, base, check)],
   ['touchJoystick', (b) => touchJoystickChecks(b, base, check)],
+  ['keyboardSymbols', (b) => keyboardSymbolsChecks(b, base, check)],
   ['focus', (b) => focusChecks(b, base, check)],
   ['uiQa', (b) => uiQaChecks(b, base, check)],
   ['emulatorBack', (b) => emulatorBackChecks(b, base, check)],

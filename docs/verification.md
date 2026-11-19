@@ -437,6 +437,14 @@ comparison now allows 70 s for that file (`mc10` halts at ~36 s) and requires an
 `tests/input.test.js`. Every keyboard position, both Hi-Res circuits and the CoCo 3's mouse come from a
 published source:
 
+Translated typing of every printable character (`tests/keyboard-symbols.test.js`, browser-check group
+`keyboardSymbols`) has no MAME oracle (MAME has no host-keyboard translation to compare with): its oracle is the
+machines' key legends, written into our key-echo firmware (`tools/keyecho/gen-keyecho.js`: MAME 0.264's
+`PORT_CHAR` pairs and Color BASIC's control-key table). That firmware scans the matrix as BASIC does and writes
+what it decodes to the screen, so the characters typed through US-layout key events (Shift held as a person
+holds it), Claude's typing and pasted text are read back from video RAM on the Dragon 64, Dragon 200-E, CoCo,
+CoCo 3 (6809 and 6309), MC-10 and Alice.
+
 | What | Source | Checked by |
 |---|---|---|
 | Dragon keyboard matrix | MAME 0.264 `src/mame/trs/dragon.cpp`, `INPUT_PORTS_START( dragon_keyboard )` (ports `row0`-`row6`, bits PB0-PB7) | `tests/input.test.js` positional map: every one of the 55 physical keys reaches the matrix position whose legend it names |

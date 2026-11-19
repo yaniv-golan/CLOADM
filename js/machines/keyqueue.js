@@ -10,7 +10,10 @@
  *   - a key pressed again is pressed only after it has been up for `gap` frames, so a double letter is two;
  *   - a press never overtakes an earlier change: keys overlap in the matrix only if they overlapped on the host
  *     (SHIFT is up before the next letter, a letter released before the next is pressed stays released);
- *     a release waits only for that key's own earlier changes.
+ *     a release waits only for that key's own earlier changes, except a modifier's (SHIFT, CTRL, ALT): it waits
+ *     until every earlier press has been down for `hold` frames, because those keys were pressed with it held
+ *     (Shift held across "*+" and let go for the next ":" must not leave the "+" unshifted when the queue is
+ *     behind the host).
  * The no-ROM stub reads key codes from its own queue (Machine.stubKeys), not the matrix.
  * Not in snapshots: queued keys are host-side input, not machine state.
  */
@@ -25,6 +28,7 @@ export class KeyQueue {
     this.down = new Map();     // key -> frame it went down in the matrix
     this.up = new Map();       // key -> frame it went up
     this.frame = 0;
+    this.lastPress = -Infinity;   // the frame the latest press went into the matrix
   }
   // the host now holds exactly these keys (matrix names, SHIFT included)
   // (when several change at once: other keys go up before modifiers, and modifiers go down before other keys)
@@ -45,10 +49,13 @@ export class KeyQueue {
       const [k, down] = e;
       let ok;
       if (down) ok = !pressBlocked && !pressed && !blocked.has(k) && !this.down.has(k) && !(this.frame - (this.up.get(k) ?? -Infinity) < this.gap);
-      else ok = !blocked.has(k) && this.down.has(k) && this.frame - this.down.get(k) >= this.hold;
+      else {
+        ok = !blocked.has(k) && this.down.has(k) && this.frame - this.down.get(k) >= this.hold
+          && (!MODIFIERS.has(k) || (!pressBlocked && !pressed && this.frame - this.lastPress >= this.hold));
+      }
       if (ok) {
         m.setKey(k, down);
-        if (down) { this.down.set(k, this.frame); pressed = true; } else { this.down.delete(k); this.up.set(k, this.frame); }
+        if (down) { this.down.set(k, this.frame); this.lastPress = this.frame; pressed = true; } else { this.down.delete(k); this.up.set(k, this.frame); }
       } else if (down || this.down.has(k) || blocked.has(k)) {
         keep.push(e);
         blocked.add(k);
@@ -58,5 +65,5 @@ export class KeyQueue {
     this.events = keep;
   }
   // forget everything (machine reset or switch): the matrix is cleared by the machine
-  clear() { this.want.clear(); this.events = []; this.down.clear(); this.up.clear(); }
+  clear() { this.want.clear(); this.events = []; this.down.clear(); this.up.clear(); this.lastPress = -Infinity; }
 }

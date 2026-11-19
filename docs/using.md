@@ -22,9 +22,12 @@ How to load programs, tapes, disks and cartridges, the keys, snapshots, sharing 
   machine it is for. A disk needs the machine's disk ROM (the DragonDOS or Delta cartridge, or Disk BASIC); the
   drives under the screen say which one is missing.
 * **Wrong symbols when typing:** the keyboard has two modes (Input tab). **Translated** types what you type, so
-  the shifted symbols follow your PC keyboard: `Esc` is BREAK, `Home` is CLEAR, `Backspace` is ←. **Positional**
+  the shifted symbols follow your PC keyboard (`:` is `:` though your keyboard needs Shift for it and the
+  machine does not; the machine's SHIFT follows the character, and your Shift still shifts letters and the
+  arrows): `Esc` is BREAK, `Home` is CLEAR, `Backspace` is ←. **Positional**
   sends each key's position instead, so the letters printed on the machine are the ones your fingers find, even
-  on an AZERTY keyboard.
+  on an AZERTY keyboard. In translated mode a digit or symbol held before Shift still types that character
+  (unshifted), so a game that chords digits or symbols with SHIFT wants positional mode.
 * **ROMs gone in a new browser:** ROMs are kept per browser. Use **Save ROM pack…** in the old one and drop the
   file on CLOADM in the new one.
 
@@ -190,7 +193,11 @@ loading on click. On a phone the actions sit in a bar along the bottom edge.
 
 ## Keys
 
-`Esc` = BREAK, `Home` = CLEAR, `Backspace`/arrows = arrow keys, `Enter` = ENTER. Shifted symbols are mapped to the Dragon layout.
+`Esc` = BREAK, `Home` = CLEAR, `Backspace`/arrows = arrow keys, `Enter` = ENTER. Symbols type what your keyboard
+says (translated mode): `:` is `:` and `*` is `*`, whichever of them needs Shift on your keyboard or the machine's.
+
+On a Mac keyboard without `Home` or forward `Delete`, CLEAR is `Fn`+`←` (Home) or `Fn`+`Delete`. `Option` and `Cmd`
+stay with the Mac (on the CoCo 3, `Option` alone is ALT).
 
 The machine gets the keyboard while its screen has focus (click it, or just start typing on a fresh page). Anywhere
 else the page keeps the keys: `Tab` moves between controls, `Enter` and `Space` press buttons, arrows move sliders
