@@ -6,6 +6,8 @@ All notable changes to CLOADM are recorded here. The format follows
 
 ## [Unreleased]
 
+### 0.1.4-pre
+
 #### Added
 
 - **Claude reads the CoCo 3's GIME text screens.** `screen_text` now reads every GIME text mode on the CoCo 3
