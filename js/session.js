@@ -251,7 +251,7 @@ export class Session {
     this.terminalBytes = [];        // what the machine has sent to the serial terminal
     // DriveWire: one server for the session, on its media store (images under DW_PREFIX); attached to the
     // machine's Becker port when it has one. Channels: WebSockets (DriveWireSocket) by channel number.
-    this.drivewire = new DriveWireServer({ store: media, namePrefix: DW_PREFIX });
+    this.drivewire = new DriveWireServer({ store: media, namePrefix: DW_PREFIX, sameName: (a, b) => this.sameName(a, b) });
     this.dwSockets = new Map();
     this.WebSocket = globalThis.WebSocket;
     this.serial = globalThis.navigator && globalThis.navigator.serial;   // Web Serial (a mock in tests)
@@ -521,8 +521,8 @@ export class Session {
     this.drivewire.store = this.media;
     // One stored image, one drive (see DriveWireServer.mount). Only DriveWire drives can collide with each other:
     // an image here is always drivewire/... and a floppy is always disks/..., so a stored file is never both and no
-    // floppy drive can be holding this one. The name folding that will matter on a case-insensitive store lives in
-    // DriveWireServer.sameStoredName - one call site.
+    // floppy drive can be holding this one. Names are compared by this.sameName (the store's case rule), which
+    // the server was given at construction (DriveWireServer.sameStoredName).
     try { await this.drivewire.mount(drive, DW_PREFIX + name, { writeProtected }); } catch (e) { throw new SessionError(e.message.replace(DW_PREFIX, '')); }
     this.emit('drivewire');
   }
@@ -662,7 +662,7 @@ export class Session {
   get webSerialAvailable() { return webSerialAvailable(this.serial); }
   async serveRealCoco(baud) {
     if (this.serialLink && this.serialLink.state === 'open') throw new SessionError('A real CoCo is already being served.');
-    const server = new DriveWireServer({ store: this.media, namePrefix: DW_PREFIX, clock: this.drivewire.clock });
+    const server = new DriveWireServer({ store: this.media, namePrefix: DW_PREFIX, clock: this.drivewire.clock, sameName: (a, b) => this.sameName(a, b) });
     server.drives = this.drivewire.drives;
     const link = new SerialDriveWireLink(server, { serial: this.serial, onState: () => this.emit('drivewire') });
     try { await link.open(baud); } catch (e) { throw new SessionError(e.name === 'NotFoundError' ? 'No serial port chosen.' : e.message); }
@@ -2423,7 +2423,7 @@ export class Session {
     // the welcome program, if it runs, stays on the BASIC session: closing the chat comes back to its menu
     const chatMachine = createMachine(basic.id, drivewire ? Object.assign({}, basic.config, { becker: true }) : basic.config);
     if (drivewire) {
-      this.chatServer = new DriveWireServer({ store: this.media, namePrefix: DW_PREFIX, clock: this.drivewire.clock });
+      this.chatServer = new DriveWireServer({ store: this.media, namePrefix: DW_PREFIX, clock: this.drivewire.clock, sameName: (a, b) => this.sameName(a, b) });
       this.chatServer.drives = this.drivewire.drives;
       chatMachine.becker.attach(this.chatServer);
       if (!channel) channel = new DriveWireChatChannel(this.chatServer, CHAT_DW_CHANNEL);

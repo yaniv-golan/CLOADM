@@ -83,8 +83,11 @@ function packetLength(pkt) {
 
 export class DriveWireServer {
   // store: a MediaStore; clock(): a Date for TIME; namePrefix: where named objects live in the store
-  constructor({ store = null, clock = () => new Date(), namePrefix = 'drivewire/' } = {}) {
+  // sameName(a, b): whether two stored names are one file, by the store's rule (the Session passes its own
+  // Session.sameName, which follows the store's measured case rule); exact when the server has no store rule.
+  constructor({ store = null, clock = () => new Date(), namePrefix = 'drivewire/', sameName = (a, b) => a === b } = {}) {
     this.store = store;
+    this.sameName = sameName;
     this.clock = clock;
     this.namePrefix = namePrefix;
     this.drives = new Map();          // drive number -> { name, writeProtected, named }
@@ -112,11 +115,9 @@ export class DriveWireServer {
   // ---------------- drives ----------------
   // The name an image has in the store, as this server compares it. One place, so the guard, the mount and the
   // page's list cannot drift apart: a backend behind this server may be a folder on a case-insensitive volume,
-  // where GAME.DSK and game.dsk are one file, so the comparison is the STORE's rule when the store has one.
-  // TODO(once ds/disk-name-case lands): use the store's measured answer here - this is the one call site.
-  // Until then the comparison is exact, which is what every store did before that change.
+  // where GAME.DSK and game.dsk are one file, so the comparison is the store's rule (the `sameName` it was given).
   sameStoredName(a, b) {
-    return a === b;
+    return this.sameName(a, b);
   }
   // mount the store's `name` in `drive` (0-255); it must exist. The same image may not be in two drives: the
   // drives write the store in place, so two of them on one file would overwrite each other's sectors. Re-mounting
