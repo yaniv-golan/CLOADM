@@ -119,6 +119,61 @@ async function xfer(s, bytes) {
     check('mount: drives are 0-255', /0-255/.test(refused), refused);
     try { await u.mount(3, 'nothere'); refused = ''; } catch (e) { refused = e.message; }
     check('mount: the image must be in the store', /not in the store/.test(refused), refused);
+    // One stored image, one drive: the drives write the store in place, so two of them on one file would overwrite
+    // each other's sectors. Re-mounting in the drive that already holds it stays allowed (the page re-mounts when
+    // the write-protect box changes, and that must not fail).
+    let dup = 'allowed';
+    try { await u.mount(1, 'd0'); } catch (e) { dup = e.message; }
+    check('mount: the same image on another drive is refused, naming the drive that has it and what to do',
+      /already in DriveWire drive 0: eject it there first/.test(dup), dup);
+    check('... and the other drive kept what it had', u.mounts.find((m) => m.drive === 1).name === 'd1', JSON.stringify(u.mounts));
+    let again = 'refused';
+    try { await u.mount(0, 'd0', { writeProtected: true }); again = 'allowed'; } catch (e) { again = e.message; }
+    check('mount: re-mounting in the same drive is an idempotent re-mount, not a duplicate', again === 'allowed', again);
+    check('... and it takes the new write-protect setting', u.mounts.find((m) => m.drive === 0).writeProtected === true, JSON.stringify(u.mounts));
+    // after an eject the image is free to mount elsewhere
+    u.eject(0);
+    let moved = 'refused';
+    try { await u.mount(0, 'd0'); moved = 'allowed'; } catch (e) { moved = e.message; }
+    check('mount: after an eject the image mounts again', moved === 'allowed', moved);
+    // The one place the name comparison lives. On a case-insensitive store GAME.DSK and game.dsk are one file, so
+    // the answer here must follow the store's rule; ds/disk-name-case supplies that rule and this is the single
+    // method to change. Pinned so the follow-up cannot accidentally be two changes in two files.
+    {
+      const v = await setup(new MemoryMediaStore());
+      check('sameStoredName is the one name comparison: exact for now (a store that tells cases apart)',
+        v.sameStoredName('d0', 'd0') === true && v.sameStoredName('D0', 'd0') === false);
+      // 'D0' is a genuinely different name to an exact store, so today it mounts; with the store's rule folding, it
+      // is the image in drive 0 and is refused. That difference is exactly what the follow-up will make conditional,
+      // and it is asserted through the mount guard rather than by calling the method twice.
+      await v.store.write('D0', new Uint8Array(256));
+      let exact = 'refused';
+      try { await v.mount(5, 'D0'); exact = 'allowed'; } catch (e) { exact = e.message; }
+      check('... an image whose name differs only in case is a different image to an exact store', exact === 'allowed', exact);
+      v.sameStoredName = () => true;   // what the 026 follow-up will make conditional
+      let folded = 'allowed';
+      try { await v.mount(6, 'D0'); } catch (e) { folded = e.message; }
+      // drive 0, not 5: 5 is where the exact mount just put it, so accepting 5 would pass whether or not the rule
+      // folded at all. With folding the FIRST match is drive 0, and that is the evidence the comparison is shared.
+      check('... and once it folds, that same mount is the duplicate the guard refuses - the one line to change',
+        /already in DriveWire drive 0: eject it there first/.test(folded), folded);
+      // named-object lookup is the OTHER reader of that comparison (DriveWireServer.namedObject). Without it wired
+      // through sameStoredName, a guest asking for an object whose name folds onto a mounted one would be given a
+      // second drive on the same file, which is the bug this branch is about.
+      //
+      // The names must be comparable, which the obvious version of this test got wrong: namedObject prepends
+      // namePrefix, so a server mounting 'd0' is never asked about 'drivewire/D0' - neither an exact nor a folding
+      // comparison matches, the reply is 0 either way, and the check passes with the wiring removed. Here the
+      // prefix is '' so the drive's name and the object's name are the same string under either rule.
+      const prefixless = new DriveWireServer({ store: v.store, namePrefix: '', clock: () => new Date(2026, 0, 2, 3, 4, 5) });
+      await prefixless.store.write('D0', new Uint8Array(256));
+      await prefixless.mount(3, 'd0');            // drive 3 holds the lower-case spelling
+      prefixless.sameStoredName = (a, b) => a.toLowerCase() === b.toLowerCase();   // what the 026 follow-up will do
+      const before = prefixless.drives.size;
+      const answered = await xfer(prefixless, [0x01, 2, ...str('D0')]);   // NAMEOBJ_MOUNT 'D0'
+      check('namedObject reads the same comparison: a folding name resolves to the drive that holds it',
+        answered.length === 1 && answered[0] === 3 && prefixless.drives.size === before, `reply=${answered} drives=${prefixless.drives.size}/${before}`);
+    }
   }
 
   // ---------------- Named Objects ----------------
@@ -399,6 +454,15 @@ async function xfer(s, bytes) {
     msg = '';
     try { await s.mountDriveWire(2, 'nothere.dsk'); } catch (e) { msg = e instanceof Emu.SessionError ? e.message : 'wrong error'; }
     check('Session: mounting an image not in the store is refused', /"nothere.dsk" is not in the store/.test(msg), msg);
+    // the same rule through the Session: one stored image, one drive, and re-mounting in the same drive is allowed
+    msg = '';
+    try { await s.mountDriveWire(2, 'boot.dsk'); } catch (e) { msg = e instanceof Emu.SessionError ? e.message : 'wrong error'; }
+    check('Session: the same DriveWire image on another drive is refused', /already in DriveWire drive 0/.test(msg), msg);
+    let remount = 'refused';
+    try { await s.mountDriveWire(0, 'boot.dsk', { writeProtected: true }); remount = 'allowed'; } catch (e) { remount = e.message; }
+    check('Session: re-mounting it in the same drive is allowed (the page re-mounts on a write-protect change)', remount === 'allowed', remount);
+    check('Session: ... with the new setting in what is mounted', s.driveWireMounts.find((d) => d.drive === 0).writeProtected === true, JSON.stringify(s.driveWireMounts));
+    await s.mountDriveWire(0, 'boot.dsk');   // (back to writable for the reads below)
     check('Session: what is mounted', JSON.stringify(s.driveWireMounts) === JSON.stringify([{ drive: 0, name: 'boot.dsk', writeProtected: false }, { drive: 1, name: 'blank.dsk', writeProtected: true }]));
     // the guest reads drive 0 LSN 1 through the port; while the store works, advance runs nothing
     for (const b of [0x52, 0, 0, 0, 1]) m.write(0xFF42, b);

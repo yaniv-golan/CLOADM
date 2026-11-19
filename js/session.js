@@ -519,6 +519,10 @@ export class Session {
   newDriveWireImage(name, sectors = 630) { return this.importDriveWireImage(name, new Uint8Array(sectors * 256)); }
   async mountDriveWire(drive, name, { writeProtected = false } = {}) {
     this.drivewire.store = this.media;
+    // One stored image, one drive (see DriveWireServer.mount). Only DriveWire drives can collide with each other:
+    // an image here is always drivewire/... and a floppy is always disks/..., so a stored file is never both and no
+    // floppy drive can be holding this one. The name folding that will matter on a case-insensitive store lives in
+    // DriveWireServer.sameStoredName - one call site.
     try { await this.drivewire.mount(drive, DW_PREFIX + name, { writeProtected }); } catch (e) { throw new SessionError(e.message.replace(DW_PREFIX, '')); }
     this.emit('drivewire');
   }
@@ -610,6 +614,13 @@ export class Session {
     const floppy = r.boot === 'floppy';
     if (floppy !== (found === 'disk')) throw new SessionError(`${name}: ${floppy ? 'a floppy image kept with the DriveWire images' : 'a DriveWire image kept with the floppy disks'}; add it again (NitrOS-9 · Add image…).`);
     const cpu = r.cpu === '6309' ? '6309' : m.config.cpu;
+    // Drive 0 must be free before anything is switched: this mount goes into DriveWire drive 0, so an image another
+    // drive already holds is refused, and the machine must be left as it was. Checked here, with the other refusals,
+    // because switchMachine below has already changed the machine by the time the mount would fail.
+    if (!floppy) {
+      const held = this.drivewire.holderOf(DW_PREFIX + name, 0);
+      if (held !== null) throw new SessionError(`${name} is already in DriveWire drive ${held}: eject it there first.`);
+    }
     let mm = m;
     if (m.config.cpu !== cpu || (!floppy && !m.config.becker)) mm = this.switchMachine(m.id, Object.assign({}, m.config, { cpu }, floppy ? {} : { becker: true }), { menu: false });
     if (floppy) {

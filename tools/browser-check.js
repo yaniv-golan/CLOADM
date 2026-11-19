@@ -1139,6 +1139,20 @@ async function driveWireChecks(browser, base, check) {
   await page.selectOption('#dwDrive0', 'test.dsk');
   await waitFor(page, () => window.emu.session.driveWireMounts.length === 1, null, 3000);
   check('drivewire: an added image mounts on drive 0', await page.evaluate(() => JSON.stringify(window.emu.session.driveWireMounts)) === JSON.stringify([{ drive: 0, name: 'test.dsk', writeProtected: false }]));
+  // One stored image, one drive: drive 1's list must not offer what drive 0 holds, and a mount asked for anyway is
+  // refused with the drive named. The drive that holds it keeps it in its own list (a re-mount is allowed).
+  await page.selectOption('#dwDrive1', '');
+  const offered = await page.evaluate(() => ({
+    d0: [...document.querySelectorAll('#dwDrive0 option')].map((o) => o.value),
+    d1: [...document.querySelectorAll('#dwDrive1 option')].map((o) => o.value),
+  }));
+  check('drivewire: another drive is not offered the image a drive holds',
+    offered.d0.includes('test.dsk') && !offered.d1.includes('test.dsk'), JSON.stringify(offered));
+  check('... the drive holding it still lists it (a re-mount is allowed)',
+    await page.evaluate(() => [...document.querySelectorAll('#dwDrive0 option')].some((o) => o.value === 'test.dsk')));
+  const refusedByPage = await page.evaluate(() => window.emu.session.mountDriveWire(1, 'test.dsk').then(() => null, (e) => e.message));
+  check('drivewire: mounting it on another drive is refused, naming the holder', /already in DriveWire drive 0/.test(refusedByPage || ''), refusedByPage);
+  check('... and the refusal left drive 1 empty', await page.evaluate(() => window.emu.session.driveWireMounts.length === 1));
   // the guest: Read drive 0 LSN 1, then Write LSN 0, through the Becker port
   const io = await page.evaluate(async () => {
     const m = window.emu.machine;

@@ -45,6 +45,14 @@ const status = (m) => m.read(NITROS9_STATUS.addr);
   check('an image not in the library', await rejects(s.bootNitros9('gone.dsk'), /no image called gone\.dsk in your library/));
   check('a blank (not OS-9) image', await rejects(s.bootNitros9('blank.dsk'), /blank\.dsk: It isn't an OS-9 disk/));
   check('the bit-banger build', await rejects(s.bootNitros9('bitbanger.dsk'), /bit-banger.*_becker\.dsk/));
+  // bootNitros9 always mounts into DriveWire drive 0, so an image another drive already holds is refused there.
+  // The message has to say what to do: the plain refusal ("already in DriveWire drive 1") leaves the person with
+  // no next step, and this path (Boot NitrOS-9 from the slot) has no eject button of its own.
+  await s.mountDriveWire(1, 'boot6809.dsk');
+  check('bootNitros-9: an image another DriveWire drive holds is refused, saying to eject it there first',
+    await rejects(s.bootNitros9('boot6809.dsk'), /boot6809\.dsk.*already in DriveWire drive 1: eject it there first/));
+  check('... and the failed boot changed nothing (drive 1 still has it, drive 0 empty)', s.driveWireMounts.length === 1 && s.driveWireMounts[0].drive === 1 && !s.nitros9Running);
+  s.ejectDriveWire(1);
   check('a failed boot leaves the machine as it was (BASIC socket, Becker port off)', !s.nitros9Running && s.machine.config.becker === false && !s.driveWireMounts.length);
   check('addAndBootNitros9 refuses a bad file before keeping it', await rejects(s.addAndBootNitros9('x.dsk', new Uint8Array(300)), /x\.dsk: It isn't a disk image of whole 256-byte sectors/) &&
     !(await s.driveWireImages()).some((x) => x.name === 'x.dsk'));

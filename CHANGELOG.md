@@ -67,6 +67,12 @@ All notable changes to CLOADM are recorded here. The format follows
   (case-insensitive) APFS or NTFS volume does not.) A store with no name to ask about yet is treated as
   case-insensitive until it has one. A case-only rename (`GAME.DSK` to `game.dsk`) is refused where it would replace
   the file and then delete it. A store that does tell cases apart keeps behaving exactly as before.
+- **DriveWire: one image in two drives.** The same disk image could be mounted on two DriveWire drives, or put
+  there while a drive already had it; both drives read and write the stored image in place, a sector at a time, so
+  they overwrote each other's sectors. Mounting an image a DriveWire drive already holds is now refused, naming
+  that drive, and the drives panel no longer offers it for another drive. Mounting it again in the drive that
+  already has it still works, as changing its write-protect box does. A DriveWire image and a floppy cannot be the
+  same stored file, so nothing changes between the two kinds.
 
 ### 0.1.4-pre
 

@@ -38,6 +38,13 @@ export function setupDriveWirePanel(page) {
       for (const im of images) { const o = document.createElement('option'); o.value = im.name; o.textContent = `${im.name} (${Math.round(im.size / 1024)}K)`; sel.append(o); }
       const cur = mounts.get(d);
       sel.value = cur ? cur.name : '';
+      // An image another DriveWire drive holds is not offered: picking it there would be refused, so the list does
+      // not invite it. The drive's own image stays (re-mounting it is allowed), and ejecting one puts it back.
+      const heldBy = new Map(session.driveWireMounts.map((m) => [m.name, m.drive]));
+      for (const o of [...sel.options]) {
+        if (!o.value || o.value === (cur && cur.name)) continue;
+        if (heldBy.has(o.value) && heldBy.get(o.value) !== d) o.remove();
+      }
       const wp = document.createElement('label');
       const chk = document.createElement('input'); chk.type = 'checkbox'; chk.id = `dwWp${d}`; chk.checked = !!(cur && cur.writeProtected);
       wp.append(chk, ' WP'); wp.title = 'Write protect'; wp.style.whiteSpace = 'nowrap';

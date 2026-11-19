@@ -110,14 +110,34 @@ export class DriveWireServer {
   }
 
   // ---------------- drives ----------------
-  // mount the store's `name` in `drive` (0-255); it must exist
+  // The name an image has in the store, as this server compares it. One place, so the guard, the mount and the
+  // page's list cannot drift apart: a backend behind this server may be a folder on a case-insensitive volume,
+  // where GAME.DSK and game.dsk are one file, so the comparison is the STORE's rule when the store has one.
+  // TODO(once ds/disk-name-case lands): use the store's measured answer here - this is the one call site.
+  // Until then the comparison is exact, which is what every store did before that change.
+  sameStoredName(a, b) {
+    return a === b;
+  }
+  // mount the store's `name` in `drive` (0-255); it must exist. The same image may not be in two drives: the
+  // drives write the store in place, so two of them on one file would overwrite each other's sectors. Re-mounting
+  // it in the drive that already holds it is allowed (an idempotent re-mount; the page re-mounts on a checkbox).
   async mount(drive, name, { writeProtected = false } = {}) {
     if (!(drive >= 0 && drive <= 255 && Number.isInteger(drive))) throw new RangeError(`drive ${drive}: DriveWire drives are 0-255`);
     if (!this.store) throw new Error('no store to mount from');
     const st = await this.store.stat(name);
     if (!st) throw new Error(`"${name}" is not in the store`);
+    const holder = this.holderOf(name, drive);
+    if (holder !== null) throw new Error(`"${name}" is already in DriveWire drive ${holder}: eject it there first.`);
     this.drives.set(drive, { name, writeProtected, named: false });
     return { drive, name, size: st.size };
+  }
+  // the drive other than `except` that already holds `name` -> drive number, or null
+  holderOf(name, except = null) {
+    for (const [drive, d] of this.drives) {
+      if (drive === except) continue;
+      if (this.sameStoredName(d.name, name)) return drive;
+    }
+    return null;
   }
   eject(drive) { if (this.lease === drive) this.lease = null; return this.drives.delete(drive); }
   get mounts() { return [...this.drives.entries()].sort((a, b) => a[0] - b[0]).map(([drive, d]) => ({ drive, name: d.name, writeProtected: d.writeProtected })); }
@@ -254,7 +274,7 @@ export class DriveWireServer {
     if (!this.store) return reply(0);
     this.wait((async () => {
       try {
-        for (const [n, d] of this.drives) if (d.name === name) { if (create) return reply(0); return reply(n); }
+        for (const [n, d] of this.drives) if (this.sameStoredName(d.name, name)) { if (create) return reply(0); return reply(n); }
         const st = await this.store.stat(name);
         if (create ? st : !st) return reply(0);
         let free = 0;
