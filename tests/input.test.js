@@ -96,6 +96,47 @@ for (const [id, layout] of [['dragon64', 'dragon'], ['coco', 'coco'], ['coco3', 
   check(`${id} positional: all ${n} mapped keys reach their legend's matrix position`, bad.length === 0 && n >= 40, bad.slice(0, 3).join('; '));
 }
 
+// Dragon 200-E positional mode. Expected cells are NOT read from keyboards.js: they are MAME 0.264's own
+// dragon200e ports, dumped from a running `mame dragon200e` (Lua: manager.machine.ioport.ports[":rowN"].fields,
+// each field's mask = the column bit and input_seq("standard") = the key it is bound to). Port rowN bit b is
+// matrix row N, column b. [browser KeyboardEvent.code, MAME row, MAME bit] for every binding, one per
+// KEYCODE_ in the dump (LEFT is bound to LEFT or BACKSPACE, BREAK to END or ESC, SHIFT to LSHIFT or RSHIFT).
+{
+  const MAME_200E = [
+    ['Digit0', 0, 0], ['Digit1', 0, 1], ['Digit2', 0, 2], ['Digit3', 0, 3], ['Digit4', 0, 4], ['Digit5', 0, 5], ['Digit6', 0, 6], ['Digit7', 0, 7],
+    ['Digit8', 1, 0], ['Digit9', 1, 1], ['Minus', 1, 2], ['Semicolon', 1, 3] /* KEYCODE_COLON, legend N-tilde */, ['Comma', 1, 4], ['Equal', 1, 5], ['Period', 1, 6], ['Slash', 1, 7],
+    ['BracketLeft', 2, 0] /* KEYCODE_OPENBRACE, legend ';' + */, ['KeyA', 2, 1], ['KeyB', 2, 2], ['KeyC', 2, 3], ['KeyD', 2, 4], ['KeyE', 2, 5], ['KeyF', 2, 6], ['KeyG', 2, 7],
+    ['KeyH', 3, 0], ['KeyI', 3, 1], ['KeyJ', 3, 2], ['KeyK', 3, 3], ['KeyL', 3, 4], ['KeyM', 3, 5], ['KeyN', 3, 6], ['KeyO', 3, 7],
+    ['KeyP', 4, 0], ['KeyQ', 4, 1], ['KeyR', 4, 2], ['KeyS', 4, 3], ['KeyT', 4, 4], ['KeyU', 4, 5], ['KeyV', 4, 6], ['KeyW', 4, 7],
+    ['KeyX', 5, 0], ['KeyY', 5, 1], ['KeyZ', 5, 2], ['ArrowUp', 5, 3], ['ArrowDown', 5, 4], ['ArrowLeft', 5, 5], ['Backspace', 5, 5], ['ArrowRight', 5, 6], ['Space', 5, 7],
+    ['Enter', 6, 0], ['Home', 6, 1], ['End', 6, 2], ['Escape', 6, 2], ['ShiftLeft', 6, 7], ['ShiftRight', 6, 7],
+  ];
+  const m = machine('dragon200e'), q = new Emu.KeyQueue(), input = new Emu.HostInput(m, q);
+  input.mode = 'positional';
+  const cells = () => {      // every (row, bit) the matrix holds down: m.keyCols[column] has a bit per row
+    for (let i = 0; i < 6; i++) q.step(m);
+    const down = [];
+    m.keyCols.forEach((bits, col) => { for (let row = 0; row < 8; row++) if (bits & (1 << row)) down.push(`${row},${col}`); });
+    return down;
+  };
+  const bad = [];
+  for (const [code, row, bit] of MAME_200E) {
+    input.keydown({ key: '', code });
+    const got = cells();
+    if (got.length !== 1 || got[0] !== `${row},${bit}`) bad.push(`${code}->${got.join('+') || '-'} want ${row},${bit}`);
+    input.keyup({ key: '', code });
+    if (cells().length) bad.push(`${code} stays down after keyup`);
+  }
+  check(`dragon200e positional: all ${MAME_200E.length} physical keys of MAME's dragon200e ports reach their matrix cell`, bad.length === 0, bad.slice(0, 4).join('; '));
+  check('dragon200e positional: the layout covers exactly those keys (no extra, none missing)',
+    Object.keys(Emu.positionalKeys.dragon200e).sort().join() === MAME_200E.map((k) => k[0]).sort().join(),
+    Object.keys(Emu.positionalKeys.dragon200e).filter((c) => !MAME_200E.some((k) => k[0] === c)).join());
+  // an unmapped physical key (F5, a numpad key) still types nothing
+  input.keydown({ key: '', code: 'F5' });
+  check('dragon200e positional: a key with no binding types nothing', cells().length === 0);
+  input.keyup({ key: '', code: 'F5' });
+}
+
 // ---------------- keyboard joystick ----------------
 // The chosen keys drive one joystick at a time, both axes and the button, through the machine's own joystick
 // state (m.joy / m.fire), so any ROM sees it however it reads the comparator.

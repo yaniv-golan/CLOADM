@@ -2383,6 +2383,26 @@ async function inputChecks(browser, base, check) {
   check('input: a stick inside the dead zone centres again', (await joyOf(0))[0] === 32 && (await joyOf(1))[0] === 32 && !(await fireOf(0)) && !(await fireOf(1)));
   check('input: no page errors', errors.length === 0, errors.join('; '));
   await ctx.close();
+
+  // positional mode on the Dragon 200-E, through the Input tab and the real key events: its layout is the Dragon's with
+  // the N-tilde key at the physical ; (MAME's dragon200e ports, tests/input.test.js). Without a layout every physical
+  // key was dropped and nothing was typed. LIZA echoes the matrix keys on the screen (her own Dragon table prints the
+  // N-tilde position as ';').
+  const c2 = await browser.newContext();
+  const p2 = await c2.newPage();
+  const errs2 = [];
+  p2.on('pageerror', (e) => errs2.push(e.message));
+  await p2.goto(`${base}?machine=dragon200e&start=liza`);
+  await started(p2);
+  await waitFor(p2, () => window.emu.session.screenText().join('').includes('I AM LIZA'));
+  await openTab(p2, 'Input');
+  await p2.click('#panel-input [data-mode="positional"]');
+  await p2.focus('#screen');
+  for (const code of ['KeyH', 'KeyI', 'Space', 'Semicolon', 'Digit1']) { await p2.keyboard.press(code); await emuFrames(p2, 4); }
+  const typed200 = await waitFor(p2, () => window.emu.session.screenText().some((l) => l.startsWith('> HI ;1')), null, 5000);
+  const line200 = await p2.evaluate(() => window.emu.session.screenText().find((l) => l.startsWith('>')) || '');
+  check('input: positional mode types on the Dragon 200-E (physical H I Space ; 1 -> "HI ;1" in LIZA)', typed200 && !errs2.length, `${JSON.stringify(line200.trim())} ${errs2.join('; ')}`);
+  await c2.close();
 }
 
 async function pokeChecks(browser, base, check) {

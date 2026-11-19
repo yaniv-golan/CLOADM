@@ -104,6 +104,8 @@ export const keyboards = registry({
  *   coco    src/mame/trs/coco3.cpp    INPUT_PORTS_START( coco3_keyboard )  (CoCo 1/2 and 3 share the shape)
  *   mc10    src/mame/trs/mc10.cpp     INPUT_PORTS_START( mc10 )
  *   alice   src/mame/trs/mc10.cpp     INPUT_PORTS_START( alice )
+ *   dragon200e  src/mame/trs/dragon.cpp  INPUT_PORTS_START( dragon200e_keyboard ), read from a running dragon200e
+ *               (its ports :row0..:row6 and the KEYCODE_ each is bound to; see the block after this table)
  * MAME binds a physical key to every position that has a legend in these matrices, and to no others, so an
  * entry naming a key that is not at that position is a mistake; tests/input.test.js checks every entry.
  */
@@ -327,3 +329,11 @@ export const positionalKeys = registry({
     ShiftRight: 'SHIFT',
   },
 });
+
+// Dragon 200-E: the same physical keys as the Dragon, bound to the same positions. MAME's dragon200e_keyboard
+// is dragon_keyboard with new legends, and the one binding that differs is the key the Dragon calls ';'
+// (row 1, bit 3, KEYCODE_COLON, the browser's Semicolon): on the 200-E it is N-tilde (legend "Ñ"). The key
+// the Dragon calls '@' (row 2, bit 0, KEYCODE_OPENBRACE, BracketLeft) is the 200-E's ';' and keeps its
+// position, and the 200-E's other new legends (Ç, ¡, ¿, §, ü) are shifted legends of keys it already has. So
+// the layout is the Dragon's with that one key renamed, not a second copy of the table.
+positionalKeys.dragon200e = { ...positionalKeys.dragon, Semicolon: 'N_TILDE' };

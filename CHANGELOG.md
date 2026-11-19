@@ -63,6 +63,11 @@ All notable changes to CLOADM are recorded here. The format follows
   shows the whole name). A long file name in a Drives tile now stays on one line with the ellipsis in the middle, so
   the ending (`coco3_40d_1.dsk`) stays visible, and the full name is the tile's title. The browser check measures
   both at 1280, 1440, 1920 and 390 px wide.
+- **Dragon 200-E: positional keyboard mode typed nothing.** `positionalKeys` had no layout for the 200-E's keyboard,
+  so every physical key was dropped. The layout is the Dragon's with one binding changed, as in MAME 0.264's
+  `dragon200e` ports (read from a running MAME): the physical `;` key is the 200-E's N-tilde. `tests/input.test.js`
+  checks all 55 physical keys against MAME's rows and bits, and the browser check types in positional mode on a
+  200-E.
 
 ### 0.1.3-pre
 

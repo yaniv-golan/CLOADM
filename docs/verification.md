@@ -448,6 +448,7 @@ CoCo 3 (6809 and 6309), MC-10 and Alice.
 | What | Source | Checked by |
 |---|---|---|
 | Dragon keyboard matrix | MAME 0.264 `src/mame/trs/dragon.cpp`, `INPUT_PORTS_START( dragon_keyboard )` (ports `row0`-`row6`, bits PB0-PB7) | `tests/input.test.js` positional map: every one of the 55 physical keys reaches the matrix position whose legend it names |
+| Dragon 200-E keyboard | MAME 0.264 `src/mame/trs/dragon.cpp`, `dragon200e_keyboard` (ports `row0`-`row6`: the Dragon's keys and bindings, with N-tilde on `KEYCODE_COLON`, row 1 bit 3), dumped from a running `mame dragon200e` | `tests/input.test.js`: all 55 physical keys reach the cell MAME names (expected cells copied from the dump, not from `keyboards.js`); `browser-check` `input` types in positional mode on a 200-E |
 | CoCo 1/2 and CoCo 3 matrix | MAME 0.264 `src/mame/trs/coco3.cpp`, `INPUT_PORTS_START( coco3_keyboard )`; the CoCo 1/2 shares the shape, and `coco12.cpp` `coco_keyboard` adds no keys the CoCo 3 lacks | same test, 59 keys |
 | MC-10 and Matra Alice matrix | MAME 0.264 `src/mame/trs/mc10.cpp`, `INPUT_PORTS_START( mc10 )` and `INPUT_PORTS_START( alice )` (port 1 strobes the columns, `$BFFF` reads the rows) | same test, 48 keys each |
 | Tandy Hi-Res Joystick Interface timing | MAME 0.264 `src/mame/trs/coco.cpp`, `keyboard_changed` and `poll_hires_joystick`: started by the DAC (PIA1 PA2-PA7) falling below `$20`, fires after `535 + 5850 x position` microseconds, truncated to whole microseconds as `attotime::from_usec` does | lockstep: firmware `sam/hires.asm`, on `coco` and `coco3` |
