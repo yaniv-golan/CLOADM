@@ -311,10 +311,13 @@ function askSession({ include = null, stallMs } = {}) {
       // the next request: 'second' is never glued to 'third' (a turn of tool calls is a note of what it used; a
       // refusal or nothing drops the question, so a refused question is not sent again inside every later one)
       const sent = api.calls[at].body.messages;
-      const tooly = /tool calls/.test(what);   // (a refusal after tool calls keeps the question and the note)
+      // (a refusal after tool calls keeps the question, its tool round - the tool_use and its tool_result - and the note)
+      const tooly = /tool calls/.test(what);
       const shape = tooly
-        ? sent.length === 5 && sent[3].role === 'assistant' && sent[3].content === '(Note from the page, not a reply: in this turn Claude called machine_info and wrote no text.)'
-          && chat.messages.filter((m) => m.note).length === 1 && !('note' in sent[3]) && sent[4].content === 'third'
+        ? sent.length === 7 && sent[2].content === 'second' && sent[3].role === 'assistant' && sent[3].content.some((b) => b.type === 'tool_use' && b.name === 'machine_info')
+          && sent[4].content[0].type === 'tool_result' && sent[4].content[0].tool_use_id === sent[3].content.find((b) => b.type === 'tool_use').id
+          && sent[5].role === 'assistant' && sent[5].content === '(Note from the page, not a reply: in this turn Claude called machine_info and wrote no text.)'
+          && chat.messages.filter((m) => m.note).length === 1 && !('note' in sent[5]) && sent[6].content === 'third'
         : sent.length === 3 && sent[2].content === 'third' && !JSON.stringify(sent).includes('second');
       check(`E ${what}: no blank assistant message is kept, every request is valid, the question is not glued to the next, and the next line is answered`,
         r !== 'timeout' && r3 !== 'timeout' && noBlank(chat) && !api.refused.length && valid(api, at) && shape && !chat.error && chat.messages.slice(-1)[0].content === 'Third answer.',
@@ -346,7 +349,12 @@ function askSession({ include = null, stallMs } = {}) {
       await within(chat.sendLine('next'));
       check(`E ${what}: the turn ends (${failed}), the history has no blank message, and the next request is valid and answered`,
         r !== 'timeout' && failed && noBlank(chat) && valid(api, at) && !api.refused.length && chat.messages.slice(-1)[0].content === 'Next answer.'
-        && chat.messages.filter((m) => m.role === 'user').map((m) => m.content).join() === 'first,next', `${api.refused.join('; ')} ${JSON.stringify(chat.messages)}`);
+        // the person's lines: a turn in which a tool result came back keeps its line (marked ended) and the result
+        // with the page's note; a turn in which none did is dropped
+        && chat.messages.filter((m) => m.role === 'user' && typeof m.content === 'string').map((m) => m.content).join() === (/during a tool/.test(what) ? 'first,second,next' : 'first,next')
+        && (!/during a tool/.test(what) || (chat.messages.find((m) => m.content === 'second').ended === 'aborted'
+          && JSON.stringify(api.calls[at].body.messages).includes('(Note from the page: this turn ended with aborted after these tool results.)'))),
+        `${api.refused.join('; ')} ${JSON.stringify(chat.messages)}`);
       s.endChat();
     }
   }

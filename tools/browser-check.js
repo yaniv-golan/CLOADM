@@ -6942,7 +6942,10 @@ async function askFollowupChecks(browser, base, check) {
       && /Don't ask again this session/.test(await page.textContent('#askLoad')) && !(await page.isChecked('#chkAskLoadNoAsk')), await page.textContent('#askLoad'));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'ask-load-basic-card.png') });
     await page.click('#btnAskLoad');
-    await waitFor(page, (n) => !window.emu.session.chat.busy && window.emu.session.chat.messages.length >= n, 2, 15000);
+    // (turns counted by the person's lines: a turn with a tool round is recorded whole, line, tool_use, tool_result and
+    // reply, so the number of messages says nothing about how many turns have ended)
+    const turnsDone = (n) => waitFor(page, (k) => !window.emu.session.chat.busy && window.emu.Emu.chatTurns(window.emu.session.chat.messages).length >= k, n, 15000);
+    await turnsDone(1);
     const r1 = requests[1] && requests[1].messages.slice(-1)[0].content;
     check('load card: Load it loads the program (the tool result and the program in memory)', Array.isArray(r1) && !r1[0].is_error && JSON.parse(r1[0].content).lines === 20
       && (await listing()).split('\n').length === 20 && await page.isHidden('#askLoad'), JSON.stringify(r1 && r1[0]).slice(0, 200));
@@ -6952,13 +6955,13 @@ async function askFollowupChecks(browser, base, check) {
     check('load card: the next load_basic asks again (every call), with the box unticked', await loadCard() && !(await page.isChecked('#chkAskLoadNoAsk')));
     await page.check('#chkAskLoadNoAsk');
     await page.click('#btnAskLoad');
-    await waitFor(page, (n) => !window.emu.session.chat.busy && window.emu.session.chat.messages.length >= n, 4, 15000);
+    await turnsDone(2);
     check('load card: ticked and loaded: this session does not ask again', await page.evaluate(() => window.emu.session.claudeLoadNoAsk) && (await listing()) === '10 PRINT "TWO"');
     // a third load goes straight in: no card
     replies.push({ body: tools([{ name: 'load_basic', input: { program: '10 PRINT "THREE"' } }]) }, { body: text('Done.') });
     let carded = false;
     await askNow('And one more');
-    for (let i = 0; i < 60 && await page.evaluate(() => window.emu.session.chat.messages.length < 6); i++) {
+    for (let i = 0; i < 60 && await page.evaluate(() => { const c = window.emu.session.chat; return c.busy || window.emu.Emu.chatTurns(c.messages).length < 3; }); i++) {
       carded = carded || !(await page.isHidden('#askLoad'));
       await emuFrames(page, 2);
     }
@@ -7389,6 +7392,8 @@ async function askEscChecks(browser, base, check) {
     await page.evaluate(() => { window.emu.session.chat.sendLine('Start LIZA for me'); });
     const up = await waitFor(page, () => !!window.emu.session.lastRun && window.emu.session.lastRun.kind === 'liza', null, 15000);
     await emuFrames(page, 30);
+    // (the whole conversation: no "[stopped…]" note, and the call's own line is no stop either - the key was read
+    // before LIZA's start reset the machine, so the typing ended done, not stopped)
     const r = await page.evaluate(() => ({ busy: window.emu.session.chat.busy, err: window.emu.session.chat.error && window.emu.session.chat.error.code, note: document.getElementById('askMessages').textContent }));
     check('askEsc (welcome menu): Claude choosing LIZA with its own key starts LIZA, and Claude\'s turn goes on (not stopped, no note)',
       up && r.busy && !r.err && !/stopped/.test(r.note), JSON.stringify({ up, ...r, note: r.note.slice(-80) }));
@@ -8638,28 +8643,55 @@ async function askChecks(browser, base, check) {
     const acting = await waitFor(page, () => { const p = document.getElementById('askActing'); return p && !p.hidden && /Claude is typing line \d+/.test(p.textContent); }, null, 8000);
     check(`${L}: Allow: Claude types into the machine; the screen shows "Claude is typing line …" with Stop, and the switch is now on`, acting && await vis('#btnAskStop')
       && await page.isChecked('#chkAskMachine') && await ev(() => document.getElementById('monitor').classList.contains('claude-acting')), await page.textContent('#askActing'));
-    check(`${L}: the panel's log says a restore point was made`, /restore point made/.test(await page.textContent('#askActivity')));
+    // R12: while the turn runs, the restore line is there with its button disabled; no "restore point made" log line
+    check(`${L}: while Claude acts, the restore line says "Restore point at HH:MM · Stop first to restore", its button disabled, and no log line`,
+      await waitFor(page, () => { const l = document.querySelector('#askMessages .restoreline'); return !!l && !l.hidden && l.querySelector('.rl-go').disabled; }, null, 5000)
+      && await ev(() => { const l = document.querySelector('#askMessages .restoreline'), go = l.querySelector('.rl-go');
+        return /^Restore point at \d\d:\d\d$/.test(go.textContent.trim()) && /Stop first to restore/.test(l.textContent) && !/restore point made/.test(document.body.textContent) && !document.getElementById('askActivity'); }),
+      await ev(() => (document.querySelector('#askMessages .restoreline') || {}).textContent));
     await shot('acting');
     await page.click('#btnAskStop');
     check(`${L}: Stop ends the turn and the typing; the pill goes`, await waitFor(page, () => { const s = window.emu.session, m = s.machine;
       return !s.chat.busy && m.stubKeys.length === 0 && document.getElementById('askActing').hidden && !document.getElementById('monitor').classList.contains('claude-acting'); }));
     if (release) { release(); release = null; }
-    check(`${L}: after Claude's changes the restore card offers "Restore to before Claude's changes"`, await waitFor(page, () => !document.getElementById('askRestore').hidden)
-      && /Restore to before Claude's changes/.test(await page.textContent('#askRestore')));
-    // (on a phone the card itself sits in the ⋯ menu, so there the note is checked as part of the card, like the card above)
-    check(`${L}: the restore card says the points are kept in memory only`, (phone || await vis('#askPointNote'))
-      && await ev(() => { const n = document.getElementById('askPointNote'); return !!n && document.getElementById('askRestore').contains(n) && !n.hidden; })
-      && /kept only while this chat is open: reloading the page, ending the chat or switching machine loses them/.test(await page.textContent('#askPointNote')));
+    // R12: one small line under the turn that changed the machine (its action lines above it), in the tab order
+    const rl = () => ev(() => { const l = document.querySelector('#askMessages .restoreline'), go = l && l.querySelector('.rl-go'), more = l && l.querySelector('.rl-more');
+      const t = (go && go.textContent.trim().replace(/^↶ /, '')) || '';
+      return l && { hidden: l.hidden, go: go.textContent, label: go.getAttribute('aria-label'), disabled: go.disabled, glyphHidden: go.querySelector('.glyph').getAttribute('aria-hidden') === 'true',
+        more: more.textContent, expanded: more.getAttribute('aria-expanded'), controls: more.getAttribute('aria-controls'), time: t.slice(-5),
+        after: l.parentElement.previousElementSibling && l.parentElement.previousElementSibling.className, tabbable: go.tabIndex === 0 && more.tabIndex === 0,
+        // (the controls' own words; the note's "Restoring also undoes your own typing" is the ruling's)
+        undo: /undo/i.test(go.textContent + go.getAttribute('aria-label') + more.textContent + more.getAttribute('aria-label')) }; });
+    check(`${L}: after the turn: "↶ Restore to HH:MM · Restore points…" under the turn's action lines; the glyph is hidden from screen readers; never "Undo"`,
+      await waitFor(page, () => { const l = document.querySelector('#askMessages .restoreline'); return !!l && !l.hidden && !l.querySelector('.rl-go').disabled; }, null, 5000)
+      && await (async () => { const r = await rl(); return /^↶ Restore to \d\d:\d\d$/.test(r.go) && r.label === `Restore the machine to ${r.time}, before Claude's last changes` && r.glyphHidden
+        && r.more === 'Restore points…' && r.expanded === 'false' && r.after === 'actions' && r.tabbable && !r.undo && (phone || await vis('#askMessages .restoreline .rl-go')); })(), JSON.stringify(await rl()));
+    // R13: the stopped typing is one action line, its glyph hidden from screen readers
+    check(`${L}: the turn's action line: "– stopped while typing 40 lines"`, await ev(() => { const a = [...document.querySelectorAll('#askMessages .actions .act')];
+      return a.length === 1 && a[0].textContent === '– stopped while typing 40 lines' && a[0].querySelector('.glyph').getAttribute('aria-hidden') === 'true'; }),
+      await ev(() => [...document.querySelectorAll('#askMessages .actions .act')].map((a) => a.textContent).join('|')));
+    // "Restore points…" is a disclosure: the list and the note, and the focus stays on it across a re-render
+    await page.focus('#askMessages .restoreline .rl-more');
+    await page.keyboard.press('Enter');
+    await ev(() => window.emu.session.emit('chat'));
+    check(`${L}: "Restore points…" opens the list and the note (aria-expanded, aria-controls), and keeps the focus across re-renders`, await ev(() => {
+      const l = document.querySelector('#askMessages .restoreline'), more = l.querySelector('.rl-more'), list = document.getElementById(more.getAttribute('aria-controls'));
+      return more.getAttribute('aria-expanded') === 'true' && list && !list.hidden && l.contains(list) && document.activeElement === more
+        && list.querySelectorAll('.rl-items button').length === window.emu.session.claudePoints.length
+        && list.querySelector('.pointnote').textContent === 'Restore points are kept only while this chat is open, and only the last 10: reloading the page, ending the chat or switching machine loses them. Restoring also undoes your own typing since that point. Saved files (Library, DriveWire) are not rolled back, except a disk left in its drive since the point.';
+    }));
+    await page.keyboard.press('Enter');
+    check(`${L}: and closes it again`, await ev(() => { const more = document.querySelector('#askMessages .restoreline .rl-more'); return more.getAttribute('aria-expanded') === 'false' && document.getElementById(more.getAttribute('aria-controls')).hidden; }));
     // a restore that fails (mocked: the machine refuses the point, as after Forget ROMs): an error toast, nothing changed, the points kept
     check(`${L}: a restore that fails shows why as an error, and changes nothing: machine, points and the card stay`, await ev(() => {
       const s = window.emu.session, m = s.machine, before = window.emu.Emu.state.toJSON(m.snapshot()), n = s.chat.undo.length;
       m.checkSnapshot = () => { throw new Error('snapshot was taken with a different basic ROM'); };
-      try { document.getElementById('btnAskRestore').click(); } finally { delete m.checkSnapshot; }
+      try { document.querySelector('#askMessages .restoreline .rl-go').click(); } finally { delete m.checkSnapshot; }
       const t = document.getElementById('toast');
       // one sentence, so all of it is in the toast's first line (the toast keeps later sentences under Details)
       return t.classList.contains('error') && document.getElementById('toastText').textContent === "Can't restore that point (snapshot was taken with a different basic ROM): nothing was changed, and your restore points are kept."
         && window.emu.Emu.state.toJSON(m.snapshot()) === before && s.chat.undo.length === n && n > 0;
-    }) && !(await ev(() => document.getElementById('askRestore').hidden)), await page.textContent('#toast'));
+    }) && !(await ev(() => document.querySelector('#askMessages .restoreline').hidden)), await page.textContent('#toast'));
     // (mocked: Session.restorePoint, the one restore path, reports a disk the Library has changed since the point, as
     // tests/restore-points.test.js shows it does; no disk system here, since that needs a DOS ROM)
     const NOTICE = "Drive 0 was changed since this point; the restored disk isn't saved to the Library. Download it to keep it.";
@@ -8667,11 +8699,15 @@ async function askChecks(browser, base, check) {
       const s = window.emu.session, want = window.emu.Emu.state.toJSON(s.chat.undo[s.chat.undo.length - 1]);
       const real = s.restorePoint.bind(s);
       s.restorePoint = (m, snap) => [...real(m, snap), notice];
-      try { document.getElementById('btnAskRestore').click(); } finally { delete s.restorePoint; }
+      try { document.querySelector('#askMessages .restoreline .rl-go').click(); } finally { delete s.restorePoint; }
       const t = document.getElementById('toast');
       return window.emu.Emu.state.toJSON(s.machine.snapshot()) === want && s.chat.undo.length === 0
         && !t.classList.contains('error') && document.getElementById('toastText').textContent === `Restored: the machine is as it was before Claude's changes. ${notice}`;
     }, NOTICE), await page.textContent('#toast'));
+    check(`${L}: after the restore the action line says "· undone at HH:MM", and with no point left the restore line goes`, await ev(() => {
+      const a = document.querySelector('#askMessages .actions .act'), l = document.querySelector('#askMessages .restoreline');
+      return !!a && /^– stopped while typing 40 lines · undone at \d\d:\d\d$/.test(a.textContent) && (!l || l.hidden);
+    }), await ev(() => (document.querySelector('#askMessages .actions .act') || {}).textContent));
     // ---- assemble_and_load and run: consent off means no change; Allow, then the round trip; Restore undoes it ----
     const PROG = ' ORG $3000\nSTART LDA #$41\n STA $4000\n BRA START\n';
     await ev(() => window.emu.session.setClaudeAllowed(false));   // the switch's own effect (on a phone it sits under the sheet)
@@ -8694,10 +8730,57 @@ async function askChecks(browser, base, check) {
       && await ev(() => [0x86, 0x41, 0xB7, 0x40, 0x00, 0x20, 0xF9].every((b, i) => window.emu.session.machine.ram[0x3000 + i] === b) && window.emu.session.chat.undo.length === 1)
       && /\\"bytes\\":7/.test(JSON.stringify(requests[requests.length - 2].messages.slice(-1)[0].content)));
     check(`${L}: Restore puts the machine back: the program and what it wrote are gone`, await ev(() => {
-      document.getElementById('btnAskRestore').click();
+      document.querySelector('#askMessages .restoreline .rl-go').click();
       const m = window.emu.session.machine;
       return m.ram[0x3000] === 0 && m.ram[0x4000] === 0 && window.emu.session.chat.undo.length === 0;
     }));
+    // ---- R13: a busy turn folds its ✓ lines; reads only as counts; R12: the line moves back a point on a restore ----
+    // (rows are appended to the live region, never all replaced: the first message's node is the same one throughout)
+    await ev(() => { window.firstRow = document.querySelector('#askMessages .msg'); });
+    await ev(() => window.emu.session.setClaudeAllowed(true));
+    replies.push({ body: tools([{ name: 'poke', input: { address: 0x3000, bytes: [1] } }]) }, { body: text('One.') });
+    await ask('Poke one byte');
+    await idle();
+    replies.push({ body: tools([{ name: 'poke', input: { address: 0x3001, bytes: [1] } }, { name: 'poke', input: { address: 0x3002, bytes: [1, 2] } }, { name: 'screen_text', input: {} },
+      { name: 'poke', input: { address: 0x7FFF, bytes: [1, 2] } }, { name: 'poke', input: { address: 70000, bytes: [1] } }, { name: 'press_break', input: {} }, { name: 'screen_text', input: {} },
+      { name: 'run', input: { target: 0x3000 } }]) }, { body: text('Lots.') });
+    await ask('Do lots');
+    await idle();
+    const block = () => ev(() => { const b = [...document.querySelectorAll('#askMessages .actions')].pop(), sum = b.querySelector('.act-sum');
+      return { sum: sum && sum.textContent, expanded: sum && sum.getAttribute('aria-expanded'), glyph: sum && sum.querySelector('.glyph').getAttribute('aria-hidden'),
+        lines: [...b.querySelectorAll('.act')].map((a) => a.textContent) }; });
+    const folded = await block();
+    check(`${L}: more than 3 actions: the ✓ lines fold into "3 actions · read the screen 2× ▸" (aria-expanded false); partial, – and ✗ lines stay; no read is a line`,
+      folded.sum === '3 actions · read the screen 2× ▸' && folded.expanded === 'false' && folded.glyph === 'true'
+      && JSON.stringify(folded.lines) === JSON.stringify(['✓ poked 1 of 2 bytes at $7FFF', `✗ couldn't poke 1 byte at 70000: ${await ev(() => window.emu.Emu.TOOL_ERRORS['bad-address'])}`, '– pressed BREAK, but the machine didn\'t read the key']), JSON.stringify(folded));
+    await ev(() => [...document.querySelectorAll('#askMessages .actions')].pop().querySelector('.act-sum').click());
+    const opened2 = await block();
+    check(`${L}: the summary button opens them all, in order`, opened2.expanded === 'true' && opened2.sum === '3 actions · read the screen 2× ▾' && opened2.lines.length === 6
+      && opened2.lines[0] === '✓ poked 1 byte at $3001' && opened2.lines[5] === '✓ started $3000', JSON.stringify(opened2));
+    check(`${L}: the transcript's rows were appended, not replaced (the first message is the same node), and #askMessages is a live region`,
+      await ev(() => window.firstRow === document.querySelector('#askMessages .msg') && document.getElementById('askMessages').getAttribute('aria-live') === 'polite'));
+    const under = () => ev(() => { const l = document.querySelector('#askMessages .restoreline'); if (!l || l.hidden) return null; const acts = [...document.querySelectorAll('#askMessages .actions')];
+      return acts.indexOf(l.parentElement.previousElementSibling); });
+    const nActs = await ev(() => document.querySelectorAll('#askMessages .actions').length);
+    check(`${L}: the restore line sits under the newest point's turn (the last)`, await under() === nActs - 1 && await ev(() => window.emu.session.claudePoints.length === 2));
+    await page.click('#askMessages .restoreline .rl-go');
+    check(`${L}: Restore: the line moves to the previous point's turn, and the restored turn's lines say undone`, await under() === nActs - 2
+      && await ev(() => [...document.querySelectorAll('#askMessages .actions')].pop().querySelectorAll('.act').length > 0
+        && [...[...document.querySelectorAll('#askMessages .actions')].pop().querySelectorAll('.act')].filter((a) => a.textContent.startsWith('✓')).every((a) => / · undone at \d\d:\d\d$/.test(a.textContent))
+        // (a call that changed nothing is not marked: BREAK the machine never read, the poke refused)
+        && [...[...document.querySelectorAll('#askMessages .actions')].pop().querySelectorAll('.act')].filter((a) => !a.textContent.startsWith('✓')).every((a) => !/undone/.test(a.textContent))));
+    await page.click('#askMessages .restoreline .rl-go');
+    check(`${L}: Restore again: no point left, no restore line`, await under() === null && await ev(() => window.emu.session.claudePoints.length === 0));
+    // reads are never invisible: a turn that only read shows a plain muted line counting them (text, not a button),
+    // and a read that failed is a ✗ line of its own
+    replies.push({ body: tools([{ name: 'screen_text', input: {} }, { name: 'peek', input: { address: 70000, length: 1 } }]) }, { body: text('Looked.') });
+    await ask('Just look');
+    await idle();
+    const reads = await ev(() => { const b = [...document.querySelectorAll('#askMessages .actions')].pop(), r = b.querySelector('.act-reads');
+      return { reads: r && r.textContent, tag: r && r.tagName, sum: !!b.querySelector('.act-sum'), lines: [...b.querySelectorAll('.act')].map((a) => a.textContent), shown: !b.hidden }; });
+    check(`${L}: a turn of reads: "read the screen 1×" as plain text, and the failed read "✗ couldn't read memory: …"`, reads.shown && reads.reads === 'read the screen 1×' && reads.tag === 'DIV' && !reads.sum
+      && JSON.stringify(reads.lines) === JSON.stringify([`✗ couldn't read memory: ${await ev(() => window.emu.Emu.TOOL_ERRORS['bad-address'])}`]), JSON.stringify(reads));
+    await shot('actions');
     if (!phone) {
       // the rail: a drawer tab over the panel, Esc closes it; minimised: the strip at the top of the drawer, Open
       await page.click('#askRail button[aria-label="Display"]');
@@ -9617,6 +9700,10 @@ async function claudeChecks(browser, base, check) {
   // a scripted turn: Claude POKEs and types RUN on the BASIC session, then answers (the switch allows it first)
   check('claude: "Let Claude use the emulator" starts off', !(await page.isChecked('#chkClaudeTools')));
   await page.check('#chkClaudeTools');
+  // (what the page sends the chat firmware, kept to show no action line or restore line ever reaches its screen)
+  const chatSaid = [];
+  await page.exposeFunction('chatSaidBytes', (t) => { chatSaid.push(t); });
+  await page.evaluate(() => { const ch = window.emu.session.chat.channel, send = ch.send.bind(ch); ch.send = (b) => { window.chatSaidBytes(new TextDecoder().decode(b)); return send(b); }; });
   replies.push({ body: tools([{ name: 'poke', input: { address: 0x3000, bytes: [1, 2, 3] } }, { name: 'type_text', input: { text: 'RUN\n' } }]) }, { body: text('Done: it ran.') });
   await say('Poke it, then run it.', 2);
   const r0 = requests[0] || { headers: {}, body: {} };
@@ -9631,16 +9718,31 @@ async function claudeChecks(browser, base, check) {
   check('claude: poke wrote the BASIC session; the chat stays on screen, the BASIC session live in the picture-in-picture', await page.evaluate(() => { const s = window.emu.session, b = s.chatMachines.basic;
     return b.ram[0x3000] === 1 && b.ram[0x3001] === 2 && b.ram[0x3002] === 3 && s.chatView === 'chat' && s.machine === s.chatMachines.chat
       && !document.getElementById('claudePip').hidden; }));
-  check('claude: the BASIC session card offers "Restore to before Claude\'s changes"', await page.evaluate(() => !document.getElementById('claudeRestore').hidden
-    && /Restore point · .*before Claude's changes/.test(document.getElementById('claudeRestoreWhen').textContent)));
-  check('claude: the BASIC session card says the points are kept in memory only', await page.evaluate(() => /kept only while this chat is open: reloading the page, ending the chat or switching machine loses them/
-    .test(document.getElementById('claudePointNote').textContent)) && await page.isVisible('#claudePointNote'));
+  // R12/R13 in full screen: the card's strip holds the turn's action lines and the restore line; neither is ever
+  // printed on the chat screen (its frames are the chat firmware's: the channel carried no such text)
+  check('claude: the BASIC session card shows the turn\'s action lines, glyphs hidden from screen readers', await page.evaluate(() => {
+    const a = [...document.querySelectorAll('#claudeActions .act')];
+    return !document.getElementById('claudeRestore').hidden && !document.getElementById('claudeActions').hidden
+      && a.map((x) => x.textContent).join('|') === '✓ poked 3 bytes at $3000|✓ typed "RUN"' && a.every((x) => x.querySelector('.glyph').getAttribute('aria-hidden') === 'true');
+  }), await page.evaluate(() => [...document.querySelectorAll('#claudeActions .act')].map((x) => x.textContent).join('|')));
+  check('claude: and the restore line "↶ Restore to HH:MM · Restore points…", never "Undo"', await page.evaluate(() => {
+    const l = document.querySelector('#claudeRestore .restoreline'), go = l && l.querySelector('.rl-go'), t = go && go.textContent.trim().slice(-5);
+    return !!l && !l.hidden && /^↶ Restore to \d\d:\d\d$/.test(go.textContent) && go.getAttribute('aria-label') === `Restore the machine to ${t}, before Claude's last changes`
+      && l.querySelector('.rl-more').textContent === 'Restore points…' && !/undo/i.test(go.textContent + go.getAttribute('aria-label') + l.querySelector('.rl-more').textContent);
+  }));
+  check('claude: the action lines and the restore line never reach the chat screen', /Done: it ran/.test(chatSaid.join('')) && !/poked|typed "RUN"|Restore to|✓/.test(chatSaid.join('')), JSON.stringify(chatSaid.join('').slice(-200)));
+  await page.click('#claudeRestore .rl-more');
+  check('claude: "Restore points…" opens the list and the note, which says the points are kept in memory only', await page.evaluate(() => {
+    const more = document.querySelector('#claudeRestore .rl-more'), list = document.getElementById(more.getAttribute('aria-controls'));
+    return more.getAttribute('aria-expanded') === 'true' && !list.hidden && /kept only while this chat is open, and only the last 10: reloading the page, ending the chat or switching machine loses them/.test(list.textContent);
+  }) && await page.isVisible('#claudeRestore .pointnote'));
   // compared in the same task as the click: the BASIC session runs on from the restored state
-  check('claude: Restore puts the BASIC session back exactly to the restore point', await page.evaluate(() => {
+  check('claude: Restore puts the BASIC session back exactly to the restore point; the lines say undone and the restore line goes', await page.evaluate(() => {
     const s = window.emu.session, want = window.emu.Emu.state.toJSON(s.chat.undo[s.chat.undo.length - 1]);
-    document.getElementById('btnClaudeUndo').click();
-    return window.emu.Emu.state.toJSON(s.chatMachines.basic.snapshot()) === want && s.machine === s.chatMachines.chat;
-  }) && await page.isHidden('#claudeRestore'));
+    document.querySelector('#claudeRestore .rl-go').click();
+    return window.emu.Emu.state.toJSON(s.chatMachines.basic.snapshot()) === want && s.machine === s.chatMachines.chat
+      && [...document.querySelectorAll('#claudeActions .act')].every((x) => / · undone at \d\d:\d\d$/.test(x.textContent)) && document.querySelector('#claudeRestore .restoreline').hidden;
+  }));
   await page.click('#btnClaudeView');
   check('claude: "Show my BASIC session" swaps the big screen to it', await waitFor(page, () => window.emu.session.chatView === 'basic'
     && document.getElementById('btnClaudeView').textContent === 'Back to the chat'));

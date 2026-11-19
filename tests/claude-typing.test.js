@@ -278,9 +278,9 @@ const PROGRAM = '10 PRINT "HELLO"\n20 GOTO 10\n30 REM AAAAAAAA\n';
       && /Do not ask in prose first/.test(text) && /card for each load_basic call \(unless they chose not to be asked again\)/.test(text) && !/ask the person whether/.test(text) && /verify/.test(text) && /LIST/.test(text) && /screen_text/.test(text);
     check('policy: TYPE_LINES_MAX is 3 and TYPING_POLICY states all three rules', Emu.TYPE_LINES_MAX === 3 && says(Emu.TYPING_POLICY), Emu.TYPING_POLICY);
     check('policy: the type_text and load_basic descriptions state it', says(desc('type_text')) && says(desc('load_basic')));
-    const brief = Emu.claudeBrief({ machine: 'Dragon 64', ram: 64, cpu: '6809', hasBasic: true, edition: 'test', tools: true });
+    const brief = Emu.claudeBrief({ machine: 'Dragon 64', ram: 64, cpu: '6809', software: 'basic', family: 'dragon', view: 'full', edition: 'test', tools: true });
     check('policy: the system prompt states it when Claude has the machine tools', says(brief), brief.slice(-600));
-    check('policy: and leaves it out when there are no tools to follow it with', !/load_basic/.test(Emu.claudeBrief({ machine: 'Dragon 64', ram: 64, cpu: '6809', hasBasic: true, edition: 'test', tools: false })));
+    check('policy: and leaves it out when there are no tools to follow it with', !/load_basic/.test(Emu.claudeBrief({ machine: 'Dragon 64', ram: 64, cpu: '6809', software: 'basic', family: 'dragon', view: 'full', edition: 'test', tools: false })));
   }
 
   console.log(`\n${n - fail}/${n} paced typing checks passed`);

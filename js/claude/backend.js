@@ -59,7 +59,9 @@ export class ClaudeBackend {
 
   // One user turn through the Messages API, with the tool loop.
   //   send({ system, messages, tools, onText, onToolUse, signal })
-  //   -> { text, stopReason, toolCalls, messages, usage }  (messages: the conversation including tool turns)
+  //   -> { text, lastText, stopReason, toolCalls, messages, usage }  (messages: the conversation including tool
+  //      turns, without the final reply; text: every request's text; lastText: the final request's alone)
+  // A failure throws a ClaudeError; once a tool has run, it carries e.partial (the conversation up to the failure).
   // onText(delta) is called for each streamed text piece; onToolUse(name, input, text, isError, value) for each
   // tool call, where text is exactly what the model receives and value is the raw result or the ToolError.
   // usage: the last request's usage object, so the caller can read cache_read_input_tokens / cache_creation_*.
@@ -67,64 +69,77 @@ export class ClaudeBackend {
     if (!this.apiKey) throw new ClaudeError('no-key', 'No API key: add your Anthropic API key to chat.');
     const convo = messages.map((m) => Object.assign({}, m));
     let toolCalls = 0, text = '', stopReason = null, usage = null;
-    for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
-      // stopped while a tool ran (a card's Stop): the turn ends here, without another request
-      if (signal && signal.aborted) throw new ClaudeError('aborted', 'Stopped.');
-      const body = {
-        model: this.model, max_tokens: this.maxTokens, stream: true,
-        // always a conversation the API accepts (js/claude/history.js): no empty assistant message, every
-        // tool_use answered, so one bad turn cannot make every later request of the chat fail
-        messages: sendable(convo),
-      };
-      // Prompt caching. Caches are a prefix match over the rendered order tools -> system -> messages, so a
-      // breakpoint on the last system block caches the tools and the whole brief together: that prefix is
-      // byte-identical on every request of the conversation and every conversation with the same brief (the
-      // brief carries only per-machine facts, no time or request id), so it is paid for once and read after.
-      // The top-level cache_control then lets the system place one more breakpoint on the last cacheable
-      // block, which walks forward as the conversation grows: each request reads everything accumulated so
-      // far and writes only what the new turn added. Automatic + one explicit breakpoint is the shape the
-      // prompt-caching guide recommends for an agent loop whose tail grows every round.
-      if (system) body.system = withCacheBreakpoint(system);
-      if (tools.length) body.tools = tools;
-      if (system || tools.length) body.cache_control = { type: 'ephemeral' };
-      const res = await this._request(body, { onText: (t) => { text += t; if (onText) onText(t); }, signal });
-      // the last request of the turn is the one whose usage covers the whole conversation
-      if (res.usage) usage = res.usage;
-      stopReason = res.stopReason;
-      if (res.stopReason !== 'tool_use') return { text, stopReason, toolCalls, messages: convo, usage };
-      // run each tool_use block, append the assistant turn and one user turn of tool_results
-      convo.push({ role: 'assistant', content: res.content });
-      const results = [];
-      for (const b of res.content) {
-        if (b.type !== 'tool_use') continue;
-        // stopped during an earlier tool of this reply: the rest are not run (nor asked about)
+    // A turn that fails after a tool has run has still changed things: the error carries the conversation built so
+    // far (e.partial: the messages sent, then each completed round's tool_use and its tool_results), so the caller
+    // can keep the evidence of what was done (ChatSession.sendLine) instead of forgetting it.
+    try {
+      for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
+        // stopped while a tool ran (a card's Stop): the turn ends here, without another request
         if (signal && signal.aborted) throw new ClaudeError('aborted', 'Stopped.');
-        let out, isError = false, value = null;
-        try {
-          out = this.runTool ? await this.runTool(b.name, b.input) : 'No tools are available.';
-          if (out == null) out = '';
-        } catch (e) {
-          isError = true;
-          // every failure reaches the model coded (ToolError, js/claude/toolerrors.js): the code, the remedy and
-          // what it sent - not a sentence it cannot act on; anything uncoded is tool-failed (asToolError).
-          // toolErrorJson is the one place that shape is made.
-          value = asToolError(e);
-          out = toolErrorJson(value);
+        const body = {
+          model: this.model, max_tokens: this.maxTokens, stream: true,
+          // always a conversation the API accepts (js/claude/history.js): no empty assistant message, every
+          // tool_use answered, so one bad turn cannot make every later request of the chat fail
+          messages: sendable(convo),
+        };
+        // Prompt caching. Caches are a prefix match over the rendered order tools -> system -> messages, so a
+        // breakpoint on the last system block caches the tools and the whole brief together: that prefix is
+        // byte-identical on every request of the conversation and every conversation with the same brief (the
+        // brief carries only per-machine facts, no time or request id), so it is paid for once and read after.
+        // The top-level cache_control then lets the system place one more breakpoint on the last cacheable
+        // block, which walks forward as the conversation grows: each request reads everything accumulated so
+        // far and writes only what the new turn added. Automatic + one explicit breakpoint is the shape the
+        // prompt-caching guide recommends for an agent loop whose tail grows every round.
+        if (system) body.system = withCacheBreakpoint(system);
+        if (tools.length) body.tools = tools;
+        if (system || tools.length) body.cache_control = { type: 'ephemeral' };
+        const res = await this._request(body, { onText: (t) => { text += t; if (onText) onText(t); }, signal });
+        // the last request of the turn is the one whose usage covers the whole conversation
+        if (res.usage) usage = res.usage;
+        stopReason = res.stopReason;
+        // lastText: the last request's text alone (text is every request's): the reply after the last tool_result
+        if (res.stopReason !== 'tool_use') return { text, lastText: res.text, stopReason, toolCalls, messages: convo, usage };
+        // run each tool_use block, append the assistant turn and one user turn of tool_results
+        convo.push({ role: 'assistant', content: res.content });
+        const results = [];
+        for (const b of res.content) {
+          if (b.type !== 'tool_use') continue;
+          // stopped during an earlier tool of this reply: the rest are not run (nor asked about); the results of the
+          // ones that ran go into the conversation, so e.partial has them (the unanswered tool_use is dropped later)
+          if (signal && signal.aborted) {
+            if (results.length) convo.push({ role: 'user', content: results });
+            throw new ClaudeError('aborted', 'Stopped.');
+          }
+          let out, isError = false, value = null;
+          try {
+            out = this.runTool ? await this.runTool(b.name, b.input) : 'No tools are available.';
+            if (out == null) out = '';
+          } catch (e) {
+            isError = true;
+            // every failure reaches the model coded (ToolError, js/claude/toolerrors.js): the code, the remedy and
+            // what it sent - not a sentence it cannot act on; anything uncoded is tool-failed (asToolError).
+            // toolErrorJson is the one place that shape is made.
+            value = asToolError(e);
+            out = toolErrorJson(value);
+          }
+          if (!isError) {
+            value = out;
+            // a tool that returns an object hands the model JSON, not "[object Object]"
+            if (typeof out !== 'string') out = JSON.stringify(out);
+          }
+          toolCalls++;
+          // text is exactly what the model receives; value is the raw result or the error, so the page and the
+          // model never disagree about what was sent
+          if (onToolUse) onToolUse(b.name, b.input, out, isError, value);
+          results.push({ type: 'tool_result', tool_use_id: b.id, content: String(out), ...(isError ? { is_error: true } : {}) });
         }
-        if (!isError) {
-          value = out;
-          // a tool that returns an object hands the model JSON, not "[object Object]"
-          if (typeof out !== 'string') out = JSON.stringify(out);
-        }
-        toolCalls++;
-        // text is exactly what the model receives; value is the raw result or the error, so the page and the
-        // model never disagree about what was sent
-        if (onToolUse) onToolUse(b.name, b.input, out, isError, value);
-        results.push({ type: 'tool_result', tool_use_id: b.id, content: String(out), ...(isError ? { is_error: true } : {}) });
+        convo.push({ role: 'user', content: results });
       }
-      convo.push({ role: 'user', content: results });
+      throw new ClaudeError('bad-response', 'Claude kept calling tools without finishing; stopped.');
+    } catch (e) {
+      if (toolCalls && e && typeof e === 'object') e.partial = convo.slice();
+      throw e;
     }
-    throw new ClaudeError('bad-response', 'Claude kept calling tools without finishing; stopped.');
   }
 
   // One HTTP request, streaming the response -> { text, content, stopReason }. The request has its own abort

@@ -177,7 +177,9 @@ const trial = (id, press) => {
   // ---- the chat tool takes a restore point, and on main's model that is the turn's one snapshot ----
   // The snapshot is taken BEFORE the press, so it holds everything except the queued key: undoing it takes
   // the BREAK back (the typist queue is cleared by loadState). That is what makes the entry meaningful now -
-  // before the fix the entry was pure waste, because the press changed nothing at all.
+  // before the fix the entry was pure waste, because the press changed nothing at all. The press is paced: the
+  // call answers once the machine has read BREAK (or not), so here, with the machine standing still, the calls are
+  // not awaited; Stop (the turn's abort) ends what is still held.
   {
     const s = new Emu.Session();
     s.switchMachine('dragon64');
@@ -193,17 +195,25 @@ const trial = (id, press) => {
     const chat = new Emu.ChatSession({ backend: new Emu.ClaudeBackend({ fetch: async () => ({}), apiKey: 'k' }), target, gate: () => null });   // an explicit allow gate: a ChatSession without one refuses
     chat.toolsOn = true;
     chat.snapped = false;                     // a new turn
-    await chat.runTool('press_break', {});
+    chat.controller = new AbortController();
+    const settled = (p) => p.then(() => 'ok', (e) => e.code);
+    const first = settled(chat.runTool('press_break', {}));
+    await new Promise((r) => setImmediate(r));
     check('press_break takes the turn restore point', snaps === 1 && chat.undo.length === 1, `snaps ${snaps}, stack ${chat.undo.length}`);
     check('the press is queued for the CPU', basic.typist.busy, JSON.stringify(basic.typist.queue));
     const undid = chat.undoLast();
     check('undo takes the queued BREAK back', undid && restores === 1 && !basic.typist.busy,
       `restores ${restores}, busy ${basic.typist.busy}`);
+    chat.abort();
+    check('and the call it took back ends stopped', await first === 'stopped');
     // the per-turn rule: a second acting call in the same turn takes no second snapshot
     chat.snapped = false;
-    await chat.runTool('press_break', {});
-    await chat.runTool('press_break', {});
+    chat.controller = new AbortController();
+    const two = [settled(chat.runTool('press_break', {})), settled(chat.runTool('press_break', {}))];
+    await new Promise((r) => setImmediate(r));
     check('two presses in one turn take one snapshot', snaps === 2, `snaps ${snaps}`);
+    chat.abort();
+    check('and Stop ends both', (await Promise.all(two)).join() === 'stopped,stopped');
   }
 
   console.log(`\n${n - fail}/${n} press_break checks passed`);

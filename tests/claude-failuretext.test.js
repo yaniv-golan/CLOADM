@@ -1,6 +1,6 @@
 // Run: node tests/claude-failuretext.test.js
 //
-// ui/claude.js's failureText: the line a PERSON sees for a failed tool call. The model gets the JSON
+// js/claude/actions.js's failureText: the line a PERSON sees for a failed tool call. The model gets the JSON
 // ({"error":{code,remedy,detail}}); the page must show the remedy instead - a person reading the activity log
 // should not be shown an error object, and above all not "[object Object]".
 //
@@ -10,7 +10,7 @@
 const fs = require('fs');
 const path = require('path');
 const Emu = require('./load')();
-const { failureText } = require('../js/ui/claude.js');
+const { failureText } = Emu;
 
 let fail = 0, n = 0;
 const check = (name, cond, detail = '') => { n++; if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log(`ok   ${name} ${detail}`); };
@@ -48,15 +48,18 @@ check('and no braces either', !plain.includes('{'), JSON.stringify(plain));
 const wrapped = failureText(Emu.asToolError(new Error('boom inside the emulator')));
 check('tool-failed shows the failure, not the remedy meant for the model', wrapped === 'failed: boom inside the emulator', JSON.stringify(wrapped));
 
-// 5. long messages are cut, so one tool cannot fill the activity log
+// 5. long messages are cut, so one tool cannot fill a whole action line
 check('a long message is cut to 80 characters', failureText(new Error('x'.repeat(300))).length === 80);
 
 // 6. nothing at all does not throw and does not print "undefined"/"null" as the word
 check('a missing value gives a plain word', failureText(null) === 'failed' && failureText(undefined) === 'failed');
 
-// 7. the page's own call site must still use it (a regression that deletes the call is caught here)
-const ui = fs.readFileSync(path.join(__dirname, '..', 'js', 'ui', 'claude.js'), 'utf8');
-check('the activity log calls failureText for a failed tool', /✗ \$\{name\}: \$\{failureText\(value\)\}/.test(ui));
+// 7. the page's own use of it: a failed acting call's line (js/claude/actions.js, the line the panel draws) is
+// failureText's line, and never the JSON (a regression that drops the call is caught here)
+const rec = Emu.actionRecord('poke', { address: 0x0400, bytes: [1] }, { err: Emu.asToolError(new Error('boom inside the emulator')) });
+const line = Emu.actionLine(rec);
+check('a failed action\'s line is ✗ couldn\'t …: failureText', rec.failure === failureText(Emu.asToolError(new Error('boom inside the emulator')))
+  && line.full === `✗ couldn't poke 1 byte at $0400: ${rec.failure}` && !line.full.includes('{'), line.full);
 
 console.log(`\n${n - fail}/${n} failureText checks passed`);
 process.exitCode = fail ? 1 : 0;

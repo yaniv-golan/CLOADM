@@ -26,13 +26,16 @@ const check = (name, cond, detail = '') => { n++; if (!cond) { fail++; console.l
 const frames = (s, k) => { for (let i = 0; i < k; i++) s.advance(1000 / s.machine.fps + 0.01); };
 const KEY = 'sk-ant-CONTRACT-TEST-KEY-0123456789';
 
-// a ROM-less machine (the stub reads typed keys) and a machine with "BASIC" (our idle firmware) at its OK prompt
+// a ROM-less machine (the stub reads typed keys) and a machine with "BASIC" (our idle firmware) at its OK prompt.
+// The idle firmware never reads the keyboard; with scan: true it reads it without end (PIA0 port B drives every
+// column low, port A is read: every column is scanned on every read), as a program waiting for a key does.
 const stub = () => { const s = new Emu.Session({ store: Emu.memoryStore() }); s.switchMachine('dragon64'); frames(s, 40); return s; };
 const START = 0x1E01, FRETOP = 0x7E00, P = 0x19;   // the Dragon's TXTTAB.. pointers at $19 [ITD App.8]
-function basic({ ok = true } = {}) {
+const SCAN = ' CLR $FF03\n LDA #$FF\n STA $FF02\n LDA #$04\n STA $FF03\n CLR $FF02\n CLR $FF01\n CLR $FF00\n LDA #$04\n STA $FF01\nIDLE LDA $FF00\n BRA IDLE\n';
+function basic({ ok = true, scan = false } = {}) {
   const s = new Emu.Session({ store: Emu.memoryStore() }); s.switchMachine('dragon64');
   const m = s.machine;
-  const asm = Emu.assemble(' ORG $8000\nSTART STA $FFC9\n CLR $FF23\n LDA #$F8\n STA $FF22\n LDA #$04\n STA $FF23\n CLR $FF22\nIDLE BRA IDLE\n', '6809');
+  const asm = Emu.assemble(` ORG $8000\nSTART STA $FFC9\n CLR $FF23\n LDA #$F8\n STA $FF22\n LDA #$04\n STA $FF23\n CLR $FF22\n${scan ? SCAN : 'IDLE BRA IDLE\n'}`, '6809');
   const rom = new Uint8Array(0x4000).fill(0xFF); rom.set(asm.segments[0].data, 0);
   m.setRoms({ basic: rom }); m.reset(true); m.cpu.jump(asm.exec);
   const w = (a, v) => s.pokeBytes(a, [v >> 8, v & 0xFF], m);
@@ -43,6 +46,7 @@ function basic({ ok = true } = {}) {
   frames(s, 3);
   return s;
 }
+const scanning = () => basic({ scan: true });
 
 // The model's side: a scripted API. Request 1 answers with one tool_use, request 2 ends the turn; what request 2
 // sends back is the tool_result the model receives. The mock never looks at the abort signal, so a turn the person
@@ -103,6 +107,12 @@ const job = (status, extra = {}) => (s, chat) => {
   s.setClaudeAllowed(true);
   chat.target.typeText = (text) => Object.assign({ promise: Promise.resolve(), status, requested: text.length, consumed: 0, linesRequested: 0, linesDelivered: 0, end() {} }, extra);
 };
+// a keyboard job the machine's reset ended part-way (Machine.reset clears the typist with 'machine-restarted'), from
+// the target method that starts it
+const restarted = (method) => (s, chat) => {
+  s.setClaudeAllowed(true);
+  chat.target[method] = () => ({ promise: Promise.resolve(), status: 'machine-restarted', key: method === 'pressBreak' ? 'BREAK' : undefined, requested: 4, consumed: 1, linesRequested: 1, linesDelivered: 0, end() {} });
+};
 const big = (k) => 'x'.repeat(k);
 const longProgram = Array.from({ length: 250 }, (_, i) => `${i + 1} REM ${'X'.repeat(230)}`).join('\n');   // ~60000 characters, over 24K of program
 
@@ -130,6 +140,7 @@ const OUTCOMES = {
     ['no key for it', stub, { text: 'café' }, allow, C.NOT_TYPABLE],
     ['the machine stops reading', stub, { text: 'AB' }, job('timeout', { at: { phase: 'press', index: 0, char: 'A' } }), C.NOT_CONSUMED],
     ['Stop while typing', stub, { text: 'AB' }, job('stopped'), C.STOPPED],
+    ['the machine restarts while typing', stub, { text: 'AB' }, restarted('typeText'), C.MACHINE_RESTARTED],
     ['Stop on the consent card', stub, { text: 'AB' }, stopOnCard, C.STOPPED],
     ['nobody to ask', stub, { text: 'AB' }, nobody, C.NO_CONSENT],
     ['"Just tell me the fix"', stub, { text: 'AB' }, decline, C.CONSENT_DECLINED],
@@ -159,7 +170,10 @@ const OUTCOMES = {
     ['an uncoded failure inside', basic, { program: '10 END' }, (s, chat) => { loadYes(s); chat.target.pokeBytes = () => { throw new Error('boom inside the emulator'); }; }, C.TOOL_FAILED],
   ],
   press_break: [
-    ['presses', stub, {}, allow, OK((j) => JSON.stringify(j) === '{"pressed":true}')],
+    ['read by a program scanning the keyboard', scanning, {}, allow, OK((j) => JSON.stringify(j) === '{"requested":1,"consumed":1}')],
+    ['a program that never reads the keyboard', basic, {}, allow, C.NOT_CONSUMED],
+    ['no ROMs: the stub reads no BREAK', stub, {}, allow, C.NOT_CONSUMED],
+    ['the machine restarts while BREAK is held', stub, {}, restarted('pressBreak'), C.MACHINE_RESTARTED],
     ['nobody to ask', stub, {}, nobody, C.NO_CONSENT],
     ['"Just tell me the fix"', stub, {}, decline, C.CONSENT_DECLINED],
     ['Stop while paused', stub, {}, pausedThenStop, C.STOPPED],
@@ -184,8 +198,11 @@ const OUTCOMES = {
     ['an uncoded failure inside', stub, { source: ' NOP\n', org: 0x3000 }, raw('writeSegments'), C.TOOL_FAILED],
   ],
   run: [
-    ['jumps', stub, { target: 0x3000 }, allow, OK((j) => JSON.stringify(j) === '{"started":true,"how":"jump","target":12288}')],
-    ['types RUN (the default)', basic, {}, allow, OK((j) => JSON.stringify(j) === '{"started":true,"how":"typed","target":"RUN"}')],
+    ['jumps', stub, { target: 0x3000 }, allow, OK((j) => JSON.stringify(j) === '{"how":"jump","target":12288}')],
+    ['types RUN (the default), read by a program scanning the keyboard', scanning, {}, allow,
+      OK((j) => JSON.stringify(j) === '{"how":"typed","target":"RUN","requested":4,"consumed":4,"lines_requested":1,"lines_delivered":1}')],
+    ['RUN on a program that never reads the keyboard', basic, {}, allow, C.NOT_CONSUMED],
+    ['the machine restarts while RUN is typed', basic, {}, restarted('run'), C.MACHINE_RESTARTED],
     ['not an address', stub, { target: 'banana' }, allow, C.BAD_TARGET],
     ['RUN without BASIC', stub, { target: 'RUN' }, allow, C.NO_BASIC],
     ['nobody to ask', stub, { target: 0x3000 }, nobody, C.NO_CONSENT],
@@ -208,7 +225,8 @@ process.exitCode = 1;
     for (const [label, machine, input, setup, want] of OUTCOMES[name] || []) {
       const s = machine();
       const before = Emu.state.toJSON(s.machine.snapshot());
-      const r = await modelCall(s, name, input, setup, name === 'type_text' && typeof want === 'object');
+      // the keyboard tools wait for the machine to read their keys, so the machine runs while they are in flight
+      const r = await modelCall(s, name, input, setup, ['type_text', 'press_break', 'run'].includes(name) && (typeof want === 'object' || want === C.NOT_CONSUMED));
       if (typeof want === 'object') {
         check(`${name}: ${label}: a JSON result, not is_error`, r.isError === false && r.json && want.ok(r.json), r.raw);
         continue;
@@ -219,7 +237,7 @@ process.exitCode = 1;
         r.isError === true && JSON.stringify(Object.keys(r.json || {})) === '["error"]' && e.code === want && e.remedy === Emu.TOOL_ERRORS[want]
         && Object.keys(e).every((k) => ['code', 'remedy', 'detail'].includes(k)) && (e.detail === undefined || typeof e.detail === 'string'), r.raw);
       // a refusal before the act changes nothing; tool-failed, not-consumed and stopped-while-typing are after it
-      if (![C.TOOL_FAILED, C.NOT_CONSUMED].includes(want) && !['Stop while typing', 'written but did not read back'].includes(label)) {
+      if (![C.TOOL_FAILED, C.NOT_CONSUMED, C.MACHINE_RESTARTED].includes(want) && !['Stop while typing', 'written but did not read back'].includes(label)) {
         check(`${name}: ${label}: nothing changed and no restore point`, Emu.state.toJSON(s.machine.snapshot()) === before && r.chat.undo.length === 0, `${r.chat.undo.length} points`);
       }
     }
@@ -292,8 +310,10 @@ process.exitCode = 1;
       const s = basic(); const log = [];
       const real = s.chatTarget();
       const target = Object.create(real);
-      for (const k of ['pokeBytes', 'writeSegments', 'pressBreak', 'run']) target[k] = (...a) => { log.push(`change:${k}`); return real[k](...a); };
+      for (const k of ['pokeBytes', 'writeSegments', 'run']) target[k] = (...a) => { log.push(`change:${k}`); return real[k](...a); };
+      // the keyboard jobs end at once here (the machine is not run): the order is what is checked
       target.typeText = (text) => { log.push('change:typeText'); return { promise: Promise.resolve(), status: 'done', requested: text.length, consumed: text.length, linesRequested: 0, linesDelivered: 0 }; };
+      target.pressBreak = () => { log.push('change:pressBreak'); return { promise: Promise.resolve(), status: 'done', key: 'BREAK', requested: 1, consumed: 1, linesRequested: 0, linesDelivered: 0 }; };
       target.snapshot = () => { log.push('restore-point'); return real.snapshot(); };
       Object.defineProperty(target, 'machine', { get: () => real.machine });
       const chat = new Emu.ChatSession({ backend: { send() {} }, target, gate: (name, input) => { log.push(`gate:${name}`); return gate(name, input); } });
@@ -465,12 +485,12 @@ process.exitCode = 1;
 
   // ---- 4. the brief states the contract, from the code's own names ----
   {
-    const on = Emu.claudeBrief({ machine: 'Dragon 64', ram: 64, cpu: '6809', hasBasic: true, edition: 'x', tools: true });
-    const off = Emu.claudeBrief({ machine: 'Dragon 64', ram: 64, cpu: '6809', hasBasic: true, edition: 'x', tools: false });
+    const on = Emu.claudeBrief({ machine: 'Dragon 64', ram: 64, cpu: '6809', software: 'basic', family: 'dragon', view: 'full', edition: 'x', tools: true });
+    const off = Emu.claudeBrief({ machine: 'Dragon 64', ram: 64, cpu: '6809', software: 'basic', family: 'dragon', view: 'full', edition: 'x', tools: false });
     check('the brief states the tool contract when tools are on, and not when they are off', on.includes(Emu.TOOL_CONTRACT) && !off.includes(Emu.TOOL_CONTRACT));
     check('the contract names every acting and every read-only tool, the error shape, and only codes the table has',
       Emu.ACTING_TOOL_NAMES.every((x) => Emu.TOOL_CONTRACT.includes(x)) && Emu.READ_ONLY_TOOLS.every((x) => Emu.TOOL_CONTRACT.includes(x)) && Emu.TOOL_CONTRACT.includes('{"error":{"code","remedy","detail"}}')
-      && JSON.stringify(named(Emu.TOOL_CONTRACT)) === JSON.stringify([C.CONSENT_DECLINED, C.LOAD_DECLINED, C.NO_CONSENT, C.STOPPED].sort()), named(Emu.TOOL_CONTRACT).join());
+      && JSON.stringify(named(Emu.TOOL_CONTRACT)) === JSON.stringify([C.CONSENT_DECLINED, C.LOAD_DECLINED, C.NO_CONSENT, C.STOPPED, C.MACHINE_RESTARTED].sort()), named(Emu.TOOL_CONTRACT).join());
   }
 
   // ---- 5. docs/claude.md lists every code with the remedy the model is given ----

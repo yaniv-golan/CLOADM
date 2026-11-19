@@ -424,7 +424,9 @@ async function say(s, calls, line, want) {
     const same = s.startChat({ backend, channel, firmware: FIRMWARE, brief: 'BRIEF' });
     const told = new TextDecoder().decode(Uint8Array.from(channel.rx));
     check('to full screen: the same ChatSession, now on the chat machine, with the BASIC session beside it', same === chat && s.claudeView === 'full' && s.chatMachines.basic === basic
-      && s.machine === s.chatMachines.chat && s.besideMachine() === basic && chat.channel === channel && chat.messages.length === 4);
+      // two turns, each recorded whole (the line, its tool round - tool_use and tool_result - and the reply): 8
+      // messages, of which the views show the 4 lines and replies
+      && s.machine === s.chatMachines.chat && s.besideMachine() === basic && chat.channel === channel && chat.messages.length === 8 && Emu.transcript(chat.messages).length === 4);
     check('the firmware is given what was said so far, each turn on its own line, then a prompt', /^> What is on the screen\? Fix it\.\r\nChange \$3000 to 7 yourself\.\r\n> Do it for me\.\r\nPoked\.\r\n\x04$/.test(told), JSON.stringify(told));
     const pc0 = basic.cpu.totalCycles;
     frames(s, 5);
@@ -432,12 +434,12 @@ async function say(s, calls, line, want) {
     for (let i = 0; i < 400 && channel.queued; i++) frames(s, 1);
     await say(s, calls, 'still there?', 5);
     for (let i = 0; i < 20 && chat.busy; i++) await settle();
-    check('a line typed on the chat machine goes on in the same conversation', calls.length === 5 && calls[4].body.messages.length === 5
-      && calls[4].body.messages[4].content === 'still there?' && chat.messages.slice(-1)[0].content === 'Still here, full screen.', JSON.stringify(calls[4] && calls[4].body.messages.map((m) => m.content)));
+    check('a line typed on the chat machine goes on in the same conversation', calls.length === 5 && calls[4].body.messages.length === 9
+      && calls[4].body.messages[8].content === 'still there?' && chat.messages.slice(-1)[0].content === 'Still here, full screen.', JSON.stringify(calls[4] && calls[4].body.messages.map((m) => m.content)));
     // back to the side panel: the BASIC session on screen, the chat machine gone, the conversation kept
     s.toSidePanel();
     check('back to the side panel: the BASIC session on screen, no chat machine, the conversation kept', s.claudeView === 'panel' && !s.chatMachines && s.machine === basic
-      && s.chat === chat && chat.channel === null && channel.closed && chat.messages.length === 6);
+      && s.chat === chat && chat.channel === null && channel.closed && chat.messages.length === 10 && Emu.transcript(chat.messages).length === 6);
     s.endChat();
     check('closing ends the conversation', s.chat === null && s.claudeView === null && s.machine === basic);
   }

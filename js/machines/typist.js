@@ -3,7 +3,7 @@
  * person would (works with any ROM). A queued tape wait pauses typing until a cassette load has
  * finished (the motor ran and has stayed off for a second).
  *
- * Paced typing (typePaced, for Claude's type_text) goes by what the machine CONSUMES rather than by the clock.
+ * Paced typing (typePaced, for Claude's type_text and the RUN its run tool types; holdPaced for its BREAK) goes by what the machine CONSUMES rather than by the clock.
  * A key is held until the CPU has read its keyboard column, with the key down, PACE.holdScans times (and at
  * least PACE.holdFrames frames), then released and held up until the column has been read PACE.releaseScans
  * times with the key up (and at least PACE.gapFrames frames), so the next key is never pressed before the
@@ -27,7 +27,7 @@ class PacedJob {
     this.consumed = 0;                  // keys the machine read while they were held (stub: took from its queue)
     this.linesRequested = chars.filter((c) => c === '\r').length;
     this.linesDelivered = 0;            // Enters consumed
-    this.status = 'typing';             // 'typing' | 'done' | 'not-consumed' | 'stopped' | 'no-consent' (consent withdrawn while held)
+    this.status = 'typing';             // 'typing' | 'done' | 'not-consumed' | 'stopped' | 'machine-restarted' | 'no-consent' (consent withdrawn while held)
     this.at = null;                     // where it failed: { index, char, phase }
     this.promise = new Promise((resolve) => { this.resolve = resolve; });
   }
@@ -56,18 +56,28 @@ class Typist {
     if (!chars.length) job.end('done');
     return job;
   }
+  // Hold a key that is not a character (BREAK) the paced way: down until the machine has read it, as a paced typed
+  // key is, so the job says whether the machine read it (consumed) or not (not-consumed). Returns the job.
+  holdPaced(key) {
+    const job = Object.assign(new PacedJob([key]), { key });
+    this.queue.push({ paced: key, key, index: 0, job, last: true });
+    return job;
+  }
   waitTape() { this.queue.push({ waitTape: true }); }
   // press a key that is not a character (BREAK): queued like typing, so it goes down and comes back up
   // across frames exactly as a typed key does. A key set down and up inside one call is invisible - the CPU
   // reads the PIA, it is not sampled by the machine - so the press has to span frames to be seen at all.
   press(key) { this.queue.push({ press: key }); }
   get busy() { return this.queue.length > 0 || this.state !== null; }
-  clear() {
+  // Drop every key. why: how the paced jobs end - 'stopped' (Claude was stopped: Session.stopClaude) or
+  // 'machine-restarted' (the machine reset under them: Machine.reset). A job whose keys the machine had all read
+  // ends 'done' either way: it was typed, only its last key's release was cut short.
+  clear(why = 'stopped') {
     const jobs = new Set(this.queue.filter((it) => it && it.job).map((it) => it.job));
     if (this.state && this.state.job) jobs.add(this.state.job);
     if (this.state && this.state.keys) for (const k of this.state.keys) this.m.setKey(k, false);
     this.queue = []; this.state = null;
-    for (const j of jobs) j.end('stopped');
+    for (const j of jobs) j.end(j.consumed === j.requested ? 'done' : why);
   }
   // drop a job's keys still waiting (it has ended: nothing of it is typed later)
   dropJob(job) { this.queue = this.queue.filter((it) => !(it && it.job === job)); }
@@ -126,11 +136,13 @@ class Typist {
   pressPaced(item) {
     const m = this.m, job = item.job;
     if (m.useStub) {
+      // the stub takes key codes, never the matrix: a key that is no character (BREAK) cannot reach it
+      if (item.key) { this.fail({ job, item, keys: [] }, 'down'); return; }
       m.stubKeys.push(m.stubCode(item.paced));
       this.state = { job, item, phase: 'down', frames: 0, stub: true, base: m.stubKeysTaken, keys: [] };
       return;
     }
-    const map = charToKeys(item.paced);
+    const map = item.key ? { key: item.key } : charToKeys(item.paced);
     const keys = map.shift ? ['SHIFT', map.key] : [map.key];
     const col = m.keyPos[map.key] ? m.keyPos[map.key][1] : null;
     for (const k of keys) m.setKey(k, true);

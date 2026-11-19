@@ -20,17 +20,20 @@
  *     paused, Esc is Stop in every view (not also BREAK); in the browser's Fullscreen the status, Stop and Resume
  *     are on the screen itself, and leaving Fullscreen while paused (Esc there) stops Claude; on the page views (Share,
      the Library, Add ROMs, the Debugger) the status with Stop, Resume and Answer is at the bottom of the window
-     (#viewClaude); every input of the person's to the machine pauses Claude (Session.personInput); a restore point is made before the first change ("Restore to
- *     before Claude's changes", "All restore points": the last 10);
+     (#viewClaude); every input of the person's to the machine pauses Claude (Session.personInput);
+ *   - under each turn's reply, one small line per thing Claude did on the machine, and under the latest turn that
+ *     changed it the restore line (js/ui/claude-lines.js: UX rulings R12 and R13; the last 10 points);
  *   - the API key states with the same texts as full screen: no key (the key form replaces the message box),
  *     refused (the form reopens, red), rate limited and offline (Try again; nothing retries by itself);
  *   - context openers under the machine: "Explain this error" (a BASIC error on screen, orange) and "Help with my
  *     program" (a BASIC program in memory); clicking one opens the panel and asks.
  */
 import { $, ESC, viewOpen } from './page.js';
-import { PAUSED_CARD_TEXT, acceptClick, drawAccept, loadCardText, when } from './claude.js';
+import { PAUSED_CARD_TEXT, acceptClick, drawAccept, loadCardText } from './claude.js';
 import { CLAUDE_PAUSED_SHORT } from '../session.js';
 import { cpuFamily } from '../cpu/cpus.js';
+import { chatTurns } from '../claude/history.js';
+import { actionLines, restoreLine, syncRows } from './claude-lines.js';
 
 const WIDTH_KEY = 'cloadm.askWidth';
 const RAIL = [['Media', 'tab-media'], ['Display', 'tab-display'], ['Input', 'tab-input'], ['POKEs', 'tab-pokes'], ['Machine', 'tab-machine']];
@@ -237,8 +240,8 @@ export function setupAsk(page, claude) {
   // a point that can't be restored says why as an error toast; nothing changes and every point is kept
   // a disk that comes back unlinked from the Library says so after the restore's message (Session.restorePoint)
   const restore = (index) => page.attempt(() => { const r = session.restoreClaude(index); return r ? ['Restored: the machine is as it was before Claude\'s changes.', ...r.notices].join(' ') : null; });
-  $('btnAskRestore').onclick = () => restore();
-  $('btnAskPoints').onclick = () => { const l = $('askPointList'); l.hidden = !l.hidden; $('btnAskPoints').setAttribute('aria-expanded', String(!l.hidden)); render(); };
+  // the turns whose folded action lines the person opened (by turn number)
+  const openTurns = new Set();
   // the key
   $('btnAskKeySave').onclick = () => {
     try { claude.saveKey($('askKeyInput').value); $('askKeyInput').value = ''; $('askKeyErr').textContent = ''; editingKey = false; }
@@ -273,20 +276,43 @@ export function setupAsk(page, claude) {
     $('askInput').placeholder = code ? 'Ask about this code…' : 'Ask about this machine…';
     // the empty state names the emulated machine (the BASIC session's, while the full screen chat is open)
     $('askEmptyModel').textContent = modelName();
-    // the conversation
+    // the conversation, turn by turn: the line, the reply, the turn's action lines, and the restore line under the
+    // turn its newest point was taken in. Rows are kept by key and appended, never all replaced: #askMessages is a
+    // live region, and a focused button in it keeps its focus.
     // (never an empty bubble: a message or a reply so far with no text shows nothing)
-    const msgs = chat ? chat.messages.filter((m) => !m.note && typeof m.content === 'string' && m.content.trim()) : [];
-    const items = msgs.map((m) => [m.role === 'user' ? 'user' : 'claude', m.content]);
-    if (chat && chat.busy && st.text.trim()) items.push(['claude', st.text]);
-    if (st.failed) items.push(['user', st.failed]);
-    if (st.stopped) items.push(['note', typeof st.stopped === 'string' ? `[stopped: ${st.stopped}]` : '[stopped]']);
-    if (st.unanswered) { if (st.unanswered.asked) items.push(['user', st.unanswered.asked]); items.push(['note', st.unanswered.note]); }
+    const turns = chat ? chatTurns(chat.messages) : [];
+    const points = session.claudePoints, busy = !!(chat && chat.busy);
+    const current = busy && chat.line ? chat.line.turn : null;
+    const rows = [], msgs = [];
+    const bubble = (key, role, text) => {
+      msgs.push({ role: role === 'user' ? 'user' : 'assistant', content: text });
+      rows.push({ key, make: () => { const d = el('div', null, role === 'note' ? 'msg note' : 'msg'); d.dataset.role = role; return d; }, update: (d) => { if (d.textContent !== text) d.textContent = text; } });
+    };
+    const restoreRow = () => rows.push({ key: 'restore', make: () => el('div', null, 'restorebox'), update: (d) => restoreLine(d, { points, busy, restore, id: 'ask' }) });
+    let failedShown = false, restoreShown = false;
+    turns.forEach((t, i) => {
+      const last = i === turns.length - 1, key = t.turn == null ? `i${i}` : `t${t.turn}`;
+      // a turn that failed shows its line only as the failed line (st.failed), and only while it is the last
+      if (!t.ended) { if (t.line.trim()) bubble(`${key}u`, 'user', t.line); } else if (last && st.failed) { bubble(`${key}u`, 'user', st.failed); failedShown = true; }
+      const reply = t.turn === current ? st.text : t.reply;
+      if (reply.trim()) bubble(`${key}a`, 'claude', reply);
+      if (t.actions.length || Object.keys(t.reads).length) {
+        rows.push({ key: `${key}x`, make: () => el('div', null, 'actions'), update: (d) => actionLines(d, {
+          actions: t.actions, reads: t.reads, open: openTurns.has(key),
+          toggle: () => { if (openTurns.has(key)) openTurns.delete(key); else openTurns.add(key); render(); },
+        }) });
+      }
+      if (points.length && points[0].turn === t.turn) { restoreRow(); restoreShown = true; }
+    });
+    if (points.length && !restoreShown) restoreRow();
+    if (st.failed && !failedShown) bubble('failed', 'user', st.failed);
+    if (st.stopped) bubble('stopped', 'note', typeof st.stopped === 'string' ? `[stopped: ${st.stopped}]` : '[stopped]');
+    if (st.unanswered) { if (st.unanswered.asked) bubble('unansweredq', 'user', st.unanswered.asked); bubble('unansweredn', 'note', st.unanswered.note); }
     const box = $('askMessages');
-    if (box.children.length !== items.length || items.some(([r, t], i) => box.children[i].dataset.role !== r || box.children[i].textContent !== t)) {
-      box.replaceChildren(...items.map(([r, t]) => { const d = el('div', t, r === 'note' ? 'msg note' : 'msg'); d.dataset.role = r; return d; }));
-      $('askBody').scrollTop = $('askBody').scrollHeight;
-    }
-    const empty = !items.length && !(chat && chat.busy) && k !== 'none';
+    const before = [...box.children].map((n) => `${n.dataset.key}:${n.textContent}`).join('\n');
+    syncRows(box, rows);
+    if ([...box.children].map((n) => `${n.dataset.key}:${n.textContent}`).join('\n') !== before) $('askBody').scrollTop = $('askBody').scrollHeight;
+    const empty = !rows.length && !busy && k !== 'none';
     $('askEmpty').hidden = !empty;
     const sug = JSON.stringify(ctx);
     if (empty && sug !== lastCtx) {
@@ -298,7 +324,7 @@ export function setupAsk(page, claude) {
       $('askSuggest').replaceChildren(...list);
     }
     const lastUser = msgs.filter((m) => m.role === 'user').slice(-1)[0];
-    $('btnAskFix').hidden = !(chat && !chat.busy && lastUser && /^Explain this error/.test(lastUser.content) && msgs.slice(-1)[0].role === 'assistant' && !session.claudeAllowed);
+    $('btnAskFix').hidden = !(chat && !chat.busy && lastUser && /^Explain this error/.test(lastUser.content) && msgs.length && msgs.slice(-1)[0].role === 'assistant' && !session.claudeAllowed);
     // consent
     const pending = session.claudePending;
     const loading = !!(pending && pending.kind === 'load');
@@ -309,7 +335,7 @@ export function setupAsk(page, claude) {
     $('chkAskLoadNoAsk').closest('label').hidden = !session.claudeAllowed;
     if (!session.claudeAllowed) $('chkAskLoadNoAsk').checked = false;
     $('askConsent').hidden = !pending || loading;
-    if (pending) $('askConsentText').textContent = `To do that, Claude needs to ${pending.name === 'poke' ? 'change memory' : pending.name === 'press_break' ? 'press BREAK' : pending.name === 'assemble_and_load' ? 'load a program into memory' : pending.name === 'run' ? 'start a program' : 'type into BASIC'}. With your permission it can type, POKE, run and press BREAK. You see everything happen on the screen, Stop works at any time, and a restore point is made first so Undo puts everything back.`;
+    if (pending) $('askConsentText').textContent = `To do that, Claude needs to ${pending.name === 'poke' ? 'change memory' : pending.name === 'press_break' ? 'press BREAK' : pending.name === 'assemble_and_load' ? 'load a program into memory' : pending.name === 'run' ? 'start a program' : 'type into BASIC'}. With your permission it can type, POKE, run and press BREAK. You see everything happen on the screen, Stop works at any time, and a restore point is made first so restoring it puts everything back.`;
     // R11: paused while the card waits: "Allow and resume" / "Load and resume", and the line that says why
     const pausedCard = !!pending && !!session.claudePaused;
     drawAccept($('btnAskAllow'), pausedCard, 'Allow', 'Allow and resume');
@@ -338,15 +364,6 @@ export function setupAsk(page, claude) {
     $('askStatus').hidden = !status;
     if (status) $('askStatusText').textContent = status.text;
     $('btnAskStatusResume').hidden = !(status && session.claudePaused);
-    // the activity log and the restore point
-    $('askActivity').hidden = !st.log.length;
-    $('askActivity').textContent = st.log.join('\n');
-    const points = session.claudePoints;
-    $('askRestore').hidden = !points.length || !!(chat && chat.busy);
-    if (points.length) {
-      $('askRestoreWhen').textContent = `Restore point · ${when(points[0].at)}, before Claude's changes`;
-      $('askPointList').replaceChildren(...points.map((pt) => { const b = el('button', `Restore point · ${when(pt.at)}`); b.onclick = () => restore(pt.index); return b; }));
-    }
     // the key states
     const msg = k === 'refused' || k === 'rate-limited' || k === 'offline' || k === 'error';
     $('askKeyMsg').hidden = !msg || !!(chat && chat.busy);

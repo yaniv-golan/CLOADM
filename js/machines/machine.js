@@ -176,7 +176,7 @@ class Machine {
   reset(hard) {
     if (hard) this.ram.fill(0);
     this.clearKeys();
-    this.typist.clear();
+    this.typist.clear('machine-restarted');   // Claude's typing ends: the machine restarted under it (not a Stop)
     this.stubKeys = [];
     this.resetHardware(hard);
     this.cpu.reset();

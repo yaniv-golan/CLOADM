@@ -35,6 +35,60 @@ const isThinking = (b) => b.type === 'thinking' || b.type === 'redacted_thinking
 const ids = (m, type, key) => new Set(typeof m.content === 'string' ? [] : m.content.filter((b) => b.type === type).map((b) => b[key]));
 
 export function apiMessages(messages) {
+  const list = settle(messages);
+  const problem = apiShapeProblem(list);
+  if (problem) throw Object.assign(new Error(`The conversation could not be sent (${problem}).`), { code: 'bad-history' });
+  return list;
+}
+
+// One turn as the chat records it (js/claude/chat.js): the person's line, then each tool round as the API saw it
+// (the assistant's tool_use, the user's tool_results), then the reply. The same passes as apiMessages, and the same
+// check, except that a turn may end with the reply (the next question comes later). Throws 'bad-history' when what
+// is left is not such a turn.
+export function wholeTurn(messages) {
+  const list = settle(messages);
+  const problem = apiShapeProblem(list, { open: true });
+  if (problem) throw Object.assign(new Error(`The turn could not be recorded (${problem}).`), { code: 'bad-history' });
+  return list;
+}
+
+// The message that opens a turn: the person's line (a user message of text alone; a user message of tool_results,
+// or of tool_results and a page note, is inside a turn). The chat drops whole turns from the front, never half a
+// tool pair.
+export const opensTurn = (m) => !!m && m.role === 'user' && typeof m.content === 'string';
+
+// The conversation turn by turn, as the views draw it: [{ turn, line, reply, ended, actions, reads }] - the
+// person's line, the reply's text (every text block of the turn's assistant messages, in order: what streamed), and
+// what the line carries (ChatSession: its number, `ended` for a turn that failed, the action records and the read
+// counts). Tool rounds and notes from the page are never text here.
+export function chatTurns(messages) {
+  const out = [];
+  let cur = null;
+  for (const m of messages || []) {
+    if (!m || m.note) continue;
+    if (opensTurn(m)) {
+      cur = { turn: m.turn == null ? null : m.turn, line: m.content, reply: '', ended: m.ended || null, actions: m.actions || [], reads: m.reads || {} };
+      out.push(cur);
+      continue;
+    }
+    if (!cur || m.role !== 'assistant') continue;
+    cur.reply += blocksOf(m.content).filter((b) => b && b.type === 'text' && typeof b.text === 'string').map((b) => b.text).join('');
+  }
+  return out;
+}
+
+// What the views show as text: per turn, the person's line and the reply. Turns that ended in an error show
+// nothing (the views say so on their own).
+//   transcript(messages) -> [{ role: 'user' | 'assistant', content: string, turn }]
+export function transcript(messages) {
+  return chatTurns(messages).filter((t) => !t.ended).flatMap((t) => [
+    { role: 'user', content: t.line, turn: t.turn },
+    ...(t.reply ? [{ role: 'assistant', content: t.reply, turn: t.turn }] : []),
+  ]);
+}
+
+// the passes of apiMessages, until nothing changes (the check is the caller's)
+function settle(messages) {
   // blank text out, empty messages out
   let list = [];
   for (const m of messages || []) {
@@ -57,8 +111,6 @@ export function apiMessages(messages) {
     before = now;
     list = tidy(list);
   }
-  const problem = apiShapeProblem(list);
-  if (problem) throw Object.assign(new Error(`The conversation could not be sent (${problem}).`), { code: 'bad-history' });
   return list;
 }
 
@@ -105,11 +157,12 @@ function resultsFirst(content) {
 
 // what the Messages API would refuse in this conversation (a message for the error), or null: none at all, not
 // starting with the person's question or ending without one, blank text, an empty message, a tool_use not answered
-// in the next message, a tool_result not asked in the one before or after other content
-export function apiShapeProblem(list) {
+// in the next message, a tool_result not asked in the one before or after other content. { open: true }: a turn
+// being recorded, which may end with the reply (wholeTurn)
+export function apiShapeProblem(list, { open = false } = {}) {
   if (!Array.isArray(list) || !list.length) return 'no messages';
   if (list[0].role !== 'user') return 'it does not start with a question';
-  if (list[list.length - 1].role !== 'user') return 'it does not end with a question';
+  if (!open && list[list.length - 1].role !== 'user') return 'it does not end with a question';
   for (let i = 0; i < list.length; i++) {
     const m = list[i];
     if (m.role !== 'user' && m.role !== 'assistant') return `message ${i} has role ${m.role}`;

@@ -54,16 +54,19 @@ const CHANGED = (drive) => `Drive ${drive} was changed since this point; the res
 
 // A session whose BASIC socket holds our own idle firmware, with BASIC's program pointers describing an empty
 // program and OK on the screen, so load_basic can act (the layout of tests/basic-load.test.js); acting allowed,
-// load_basic's own card answered yes.
+// load_basic's own card answered yes. With scan: true the firmware reads the keyboard without end (every column
+// driven low, the rows read), as a program waiting for a key does, so a paced key (press_break) is consumed.
 const SLOT = { dragon64: 0x4000, coco3: 0x8000, mc10: 0x2000 };
 const LAYOUT = { dragon64: { start: 0x1E01, fretop: 0x7E00, p: 0x19 }, coco3: { start: 0x2601, fretop: 0x7E00, p: 0x19 }, mc10: { start: 0x4346, fretop: 0x4E00, p: 0x93 } };
-function basicSession(id) {
+function basicSession(id, { scan = false } = {}) {
   const s = new Emu.Session({ store: Emu.memoryStore() });
   s.switchMachine(id);
   const m = s.machine, six = id === 'mc10' ? '6803' : '6809';
   const coco3 = id === 'coco3' ? ' LDX #$FFA0\n LDA #$38\nMMU STA ,X+\n INCA\n CMPX #$FFA8\n BNE MMU\n LDA #$CE\n STA $FF90\n LDD #$E000\n STD $FF9D\n' : '';
-  const asm = Emu.assemble(six === '6803' ? ' ORG $E000\nSTART BRA START\n'
-    : ` ORG $8000\nSTART\n${coco3} STA $FFC9\n CLR $FF23\n LDA #$F8\n STA $FF22\n LDA #$04\n STA $FF23\n CLR $FF22\nIDLE BRA IDLE\n`, six);
+  const idle6809 = scan ? ' CLR $FF03\n LDA #$FF\n STA $FF02\n LDA #$04\n STA $FF03\n CLR $FF02\n CLR $FF01\n CLR $FF00\n LDA #$04\n STA $FF01\nIDLE LDA $FF00\n BRA IDLE\n' : 'IDLE BRA IDLE\n';
+  const idle6803 = scan ? ' LDAA #$FF\n STAA $00\n CLRA\n STAA $02\nIDLE LDAA $BFFF\n BRA IDLE\n' : 'IDLE BRA IDLE\n';
+  const asm = Emu.assemble(six === '6803' ? ` ORG $E000\nSTART EQU *\n${idle6803}`
+    : ` ORG $8000\nSTART\n${coco3} STA $FFC9\n CLR $FF23\n LDA #$F8\n STA $FF22\n LDA #$04\n STA $FF23\n CLR $FF22\n${idle6809}`, six);
   if (!asm.ok) throw new Error(JSON.stringify(asm.errors));
   const rom = new Uint8Array(SLOT[id]).fill(0xFF); rom.set(asm.segments[0].data, 0);
   m.setRoms({ basic: rom }); m.reset(true); m.cpu.jump(asm.exec);
@@ -90,7 +93,8 @@ function stubSession(id) {
 const ACT = {
   poke: { on: stubSession, input: (id) => ({ address: id === 'mc10' ? 0x4200 : 0x3000, bytes: [1, 2] }) },
   type_text: { on: stubSession, input: () => ({ text: 'AB' }), frames: true },
-  press_break: { on: stubSession, input: () => ({}) },
+  // (BREAK is a matrix key: the stub reads none, so press_break acts on firmware that scans the keyboard)
+  press_break: { on: (id) => basicSession(id, { scan: true }), input: () => ({}), frames: true },
   assemble_and_load: { on: stubSession, input: () => ({ source: ' FCB 7\n', org: 0x4100 }) },
   run: { on: stubSession, input: () => ({ target: 0x4100 }) },
   load_basic: { on: basicSession, input: () => ({ program: '10 PRINT "HI"\n20 GOTO 10\n' }) },

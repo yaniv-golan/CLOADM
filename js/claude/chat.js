@@ -20,6 +20,8 @@ import { TOOL_CODES, ToolError, asToolError, checkedInt } from './toolerrors.js'
 import { PACE } from '../machines/typist.js';
 import { BASIC_LINE_MAX } from '../media/basic.js';
 import { BASIC_PROGRAM_TEXT_MAX, planBasic, writeBasic } from './basicload.js';
+import { opensTurn, wholeTurn } from './history.js';
+import { actionRecord, readKind } from './actions.js';
 
 // The acting tools: the ones that change the BASIC session. Each is one entry of ACTING below - its schema, a
 // `check` that refuses with nothing changed, and an `act` that makes the change - and ChatSession.runTool runs
@@ -48,6 +50,8 @@ const CONSENT = ' Needs "Let Claude use the emulator": the person is asked the f
 // load_basic is not behind that question: it has its own card on every call (js/session.js gateTools)
 const LOAD_CONSENT = ' The person is asked on every call, whether or not "Let Claude use the emulator" is on, unless they ticked "Don\'t ask again this session" (offered only while that switch is on; turning it off asks again); if they decline you get the error load-declined, if there is nobody to ask no-consent, and if they press Stop stopped (also while Claude is paused, and for any later call in a turn they stopped); nothing changes then. Any other failure inside the emulator is tool-failed.';
 const ADDR = `${ADDRESS_MIN}-${ADDRESS_MAX}`;
+// What a keyboard tool's success means, said in each of their descriptions: the machine read the keys, nothing more
+export const CONSUMED_MEANS = 'consumed means the keyboard was scanned with the key down, not proof the program acted on it: check the effect with screen_text, peek or machine_info before you say it happened.';
 const schema = (props, required) => ({ type: 'object', properties: props, required });
 const int = (description, min, max) => ({ type: 'integer', minimum: min, maximum: max, description });
 
@@ -81,7 +85,7 @@ const ACTING = {
     },
   },
   type_text: {
-    description: `Type text at the BASIC session's keyboard as if typed (\\n presses Enter), 1 to ${TYPE_TEXT_MAX} characters. Each key is held until the machine has read it, and the next line waits until the machine is reading the keyboard again, so a busy BASIC drops nothing. Returns {requested,consumed,lines_requested,lines_delivered}: keys and Enters the machine actually read. Errors: empty, too-large, not-typable (nothing typed); not-consumed if the machine stops reading the keyboard (the rest is not typed; detail says how far it got); stopped if the person presses Stop while it types (the keys before it were typed; detail says how many). ${TYPING_POLICY}` + CONSENT,
+    description: `Type text at the machine's keyboard as if typed (\\n presses Enter), 1 to ${TYPE_TEXT_MAX} characters, into whatever program is reading it. Each key is held until the machine has read it, and the next line waits until the machine is reading the keyboard again, so a busy program drops nothing. Returns {requested,consumed,lines_requested,lines_delivered}: keys and Enters the machine read; ${CONSUMED_MEANS} Errors: empty, too-large, not-typable (nothing typed); not-consumed if the machine stops reading the keyboard (the rest is not typed; detail says how far it got); stopped if the person presses Stop while it types (the keys before it were typed; detail says how many); machine-restarted if the machine restarts while the keys go in (detail says how many went in); this is not a Stop: read the screen before typing again. ${TYPING_POLICY}` + CONSENT,
     input_schema: schema({ text: { type: 'string', minLength: 1, maxLength: TYPE_TEXT_MAX, description: `The keys to type, 1 to ${TYPE_TEXT_MAX} characters; \\n is Enter.` } }, ['text']),
     check(chat, t, input) {
       const text = input.text;
@@ -91,23 +95,23 @@ const ACTING = {
       if (bad.length) throw new ToolError(TOOL_CODES.NOT_TYPABLE, JSON.stringify(bad.join('')));
       return text;
     },
-    act: (chat, t, text) => chat.typeText(t, text),
+    act(chat, t, text) { t.show(); return chat.keys(t, t.typeText(text)); },
   },
   load_basic: {
-    description: `Load a BASIC program straight into the BASIC session's program memory, as loading it from tape or disk would: no typing. The text is tokenized for this machine's BASIC (Dragon, Color/Extended BASIC on a CoCo, Micro Color BASIC on an MC-10) and replaces the program in memory (like NEW, then the lines). One line per program line, each starting with its line number (0-${BASIC_LINE_MAX}), 1 to ${BASIC_PROGRAM_TEXT_MAX} characters in all. Needs the BASIC prompt (not the no-ROM stub, not a running program). Returns {lines,bytes,start,end}: the lines stored, the program's size in bytes, and its first and last byte addresses (decimal). Only characters $20-$7E. Errors: empty, too-large, bad-line-number, line-too-long, not-typable, no-basic, not-at-prompt, program-too-large, unknown-machine, each refused with nothing changed; not-ram if the program did not read back once written. ${TYPING_POLICY}` + LOAD_CONSENT,
+    description: `Load a BASIC program straight into the program memory of the machine's BASIC, as loading it from tape or disk would: no typing. The text is tokenized for this machine's BASIC (Dragon, Color/Extended BASIC on a CoCo, Micro Color BASIC on an MC-10) and replaces the program in memory (like NEW, then the lines). One line per program line, each starting with its line number (0-${BASIC_LINE_MAX}), 1 to ${BASIC_PROGRAM_TEXT_MAX} characters in all. Needs the BASIC prompt (not the no-ROM stub, not a running program). Returns {lines,bytes,start,end}: the lines stored, the program's size in bytes, and its first and last byte addresses (decimal). Only characters $20-$7E. Errors: empty, too-large, bad-line-number, line-too-long, not-typable, no-basic, not-at-prompt, program-too-large, unknown-machine, each refused with nothing changed; not-ram if the program did not read back once written. ${TYPING_POLICY}` + LOAD_CONSENT,
     input_schema: schema({ program: { type: 'string', minLength: 1, maxLength: BASIC_PROGRAM_TEXT_MAX, description: `The program listing: numbered lines separated by \\n, 1 to ${BASIC_PROGRAM_TEXT_MAX} characters.` } }, ['program']),
     // the same implementation as Session.loadBasic (js/claude/basicload.js)
     check: (chat, t, input) => planBasic(t, input.program),
     act(chat, t, plan) { t.show(); return writeBasic(t, plan); },
   },
   press_break: {
-    description: 'Press BREAK on the BASIC session (held for a few frames, as a typed key is). Takes no parameters. Returns {pressed:true}.' + CONSENT,
+    description: `Press BREAK on the machine's keyboard, held until the machine has read it down, as type_text holds a key. Takes no parameters. Returns {requested:1,consumed:1}; ${CONSUMED_MEANS} Errors: not-consumed if the machine does not read the keyboard while BREAK is held (a program that never scans it; a machine without ROMs, whose stub reads no BREAK); stopped if the person presses Stop while it is held; machine-restarted if the machine restarts while the keys go in (detail says how many went in); this is not a Stop: read the screen before typing again.` + CONSENT,
     input_schema: schema({}, []),
     check: () => null,
-    act(chat, t) { t.show(); t.pressBreak(); return { pressed: true }; },
+    act(chat, t) { t.show(); return chat.keys(t, t.pressBreak(), { read: true }); },
   },
   assemble_and_load: {
-    description: `Assemble source for the BASIC session's own CPU and write it into memory; does not start it (use run). Returns {bytes,written,skipped,ranges:[{from,to}],start,symbols:{NAME:address},not_taken:[{from,to,why}]} with every address a decimal integer: bytes assembled, how many landed (written) and did not (skipped); not_taken lists bytes that did not land (why: rom, io, latch, undecoded, absent-ram, lost). Errors: empty, too-large, bad-address, not-a-number, assembly-failed (with the line numbers of your source), include-unreadable (an INCLUDE file could not be read), org-conflict, past-end, not-ram (no byte landed), each refused with nothing written.` + CONSENT,
+    description: `Assemble source for the machine's own CPU and write it into memory; does not start it (use run). Returns {bytes,written,skipped,ranges:[{from,to}],start,symbols:{NAME:address},not_taken:[{from,to,why}]} with every address a decimal integer: bytes assembled, how many landed (written) and did not (skipped); not_taken lists bytes that did not land (why: rom, io, latch, undecoded, absent-ram, lost). Errors: empty, too-large, bad-address, not-a-number, assembly-failed (with the line numbers of your source), include-unreadable (an INCLUDE file could not be read), org-conflict, past-end, not-ram (no byte landed), each refused with nothing written.` + CONSENT,
     input_schema: schema({
       source: { type: 'string', minLength: 1, maxLength: SOURCE_MAX, description: `Assembler source text, 1 to ${SOURCE_MAX} characters.` },
       org: int(`Load address, decimal ${ADDR}. Omit it if the source has its own ORG; with neither, the code is assembled at ${ASSEMBLE_DEFAULT_ORG}.`, ADDRESS_MIN, ADDRESS_MAX),
@@ -132,7 +136,7 @@ const ACTING = {
     },
   },
   run: {
-    description: `Start the code in memory. \`target\` is an address to jump to: a decimal integer ${ADDR}, or text in hex ("$3000", "0x3000", "3000"); or the text "RUN" to type RUN so BASIC runs its program, which needs the BASIC ROMs. Returns {started:true, how:"jump"|"typed", target}: the address jumped to, or "RUN". Errors: bad-target, no-basic.` + CONSENT,
+    description: `Start the code in memory. \`target\` is an address to jump to: a decimal integer ${ADDR}, or text in hex ("$3000", "0x3000", "3000"); or the text "RUN" to type RUN and Enter at the keyboard, as type_text types, so BASIC runs its program (needs the BASIC ROMs, and BASIC at its prompt). Returns {how:"jump", target} with the address the CPU was sent to, or {how:"typed", target:"RUN", requested, consumed, lines_requested, lines_delivered}; for "RUN", ${CONSUMED_MEANS} Errors: bad-target, no-basic; for "RUN" also not-consumed (the machine did not read the keys), stopped (the person pressed Stop while it typed) and machine-restarted if the machine restarts while the keys go in (detail says how many went in); this is not a Stop: read the screen before typing again.` + CONSENT,
     input_schema: schema({ target: { anyOf: [{ type: 'integer', minimum: ADDRESS_MIN, maximum: ADDRESS_MAX }, { type: 'string' }], description: `Address (decimal integer ${ADDR}, or hex text) or "RUN"; omit for "${RUN_DEFAULT_TARGET}".` } }, []),
     check(chat, t, input) {
       const raw = input.target == null ? RUN_DEFAULT_TARGET : input.target;
@@ -140,8 +144,9 @@ const ACTING = {
     },
     act(chat, t, { raw, parsed }) {
       t.show();
-      t.run(raw);
-      return parsed == null ? { started: true, how: 'typed', target: RUN_DEFAULT_TARGET } : { started: true, how: 'jump', target: parsed };
+      const job = t.run(raw);
+      if (parsed != null) return { how: 'jump', target: parsed };
+      return chat.keys(t, job, { read: true }).then((report) => ({ how: 'typed', target: RUN_DEFAULT_TARGET, ...report }));
     },
   },
 };
@@ -199,6 +204,12 @@ export class ChatSession {
     this.onToolUse = onToolUse;  // (name, input, text, isError, value) => void
     this.onChange = null;        // () => void: busy, undo or tools changed (the page's panel)
     this.onTurnEnd = null;       // () => void: a turn has ended, however it ended (the Session's gateTools)
+    // Each turn's line carries what the views show besides the text (UX ruling R13): `turn` (a number that stays the
+    // turn's when older turns are trimmed away), `actions` (one record per acting call, js/claude/actions.js) and
+    // `reads` ({ tool: count } for the read-only calls). apiMessages sends none of them.
+    this.turns = 0;              // the last turn's number
+    this.actionSeq = 0;          // the next action record's number (restore points remember it: Session.restoreClaude)
+    this.line = null;            // the turn in progress: its line (the person's message)
     this.undo = [];              // snapshots of the target before Claude's changes, newest last (the last 10)
     this.snapped = false;        // this turn has its snapshot already
     this.busy = false;
@@ -230,7 +241,9 @@ export class ChatSession {
     this.busy = true; this.error = null; this.snapped = false;
     this.controller = new AbortController(); this.abortReason = null;
     this.trim();
-    this.messages.push({ role: 'user', content: text });
+    const at = this.messages.length;             // where this turn starts in the conversation
+    this.line = { role: 'user', content: text, turn: ++this.turns, actions: [], reads: {} };
+    this.messages.push(this.line);
     this.changed();
     const used = [];             // the tools this turn called, in order
     try {
@@ -239,16 +252,20 @@ export class ChatSession {
         onText: (t) => { this.emitText(t); }, onToolUse: (n, i, r, e, v) => { used.push(n); this.emitTool(n, i, r, e, v); },
         signal: this.controller.signal,
       });
+      // The whole turn is recorded, not just its text: the person's line, each tool round as the API saw it (the
+      // tool_use with its input, the tool_result exactly as sent) and the reply. A reply that says "I typed DIR"
+      // then carries its evidence into every later request; with the text alone, Claude later finds its own claims
+      // and nothing behind them. The views show only the line and the reply's text (transcript, js/claude/history.js).
       // A reply with no text is never recorded as an empty assistant message: the API would refuse every later
-      // request of this chat, and the views would show an empty bubble (js/claude/history.js keeps the request
-      // valid in any case). A turn of tool calls only is recorded as a note of what was used, so the next question
-      // is not glued to this one and Claude knows it acted (a refusal after tool calls too); a refusal, or a reply of
-      // nothing, with no tool calls drops the question,
-      // so it is not sent again inside every later one.
+      // request of this chat (js/claude/history.js keeps the request valid in any case). A turn of tool calls only
+      // ends with a note of what was used (a refusal after tool calls too); a refusal, or a reply of nothing, with no
+      // tool calls drops the question, so it is not sent again inside every later one.
       const said = res.text && res.text.trim();
-      if (said) this.messages.push({ role: 'assistant', content: res.text });
+      const turn = res.messages.slice(at);
+      if (res.lastText && res.lastText.trim()) turn.push({ role: 'assistant', content: res.lastText });
       // (worded as a note about the turn, not as something Claude said, and marked so the views do not show it)
-      else if (used.length) this.messages.push({ role: 'assistant', note: true, content: `(Note from the page, not a reply: in this turn Claude called ${[...new Set(used)].join(', ')} and wrote no text.)` });
+      const note = !said && used.length ? { role: 'assistant', note: true, content: `(Note from the page, not a reply: in this turn Claude called ${[...new Set(used)].join(', ')} and wrote no text.)` } : null;
+      if (said || used.length) this.record(at, turn, note);
       else this.messages.pop();
       if (!said && res.stopReason !== 'refusal' && !used.length) this.emitText('\r\n[Claude gave no reply.]\r\n');
       // the reply ends its line: the firmware draws a line when it ends (it wraps at word boundaries), so the
@@ -260,13 +277,16 @@ export class ChatSession {
       return res;
     } catch (e) {
       this.error = e;
-      this.messages.pop();                       // drop the unanswered user turn
+      // A turn that failed after a tool ran changed the machine (or tried to): what ran stays in the conversation,
+      // with a note from the page saying how the turn ended, so the next turn knows what was done. With no tool
+      // result the unanswered line is dropped, as before.
+      if (!this.keepFailed(at, e)) this.messages.pop();
       // a status line of its own, so what is typed next starts on a fresh line
       if (e && e.code === 'aborted') this.emitText(`\r\n[stopped${this.abortReason ? `: ${this.abortReason}` : ''}]\r\n`);
       else this.emitText(`\r\n[${e && e.message ? e.message : 'error'}]\r\n`);
       return null;
     } finally {
-      this.busy = false; this.controller = null;
+      this.busy = false; this.controller = null; this.line = null;
       // whatever the turn left behind that belongs to it alone (the Session's pause) ends with it
       if (this.onTurnEnd) this.onTurnEnd();
       // the turn has ended: the firmware lays out the last line and gives a fresh prompt (examples/chat.asm)
@@ -274,13 +294,55 @@ export class ChatSession {
       this.changed();
     }
   }
+  // Replace the turn's line (at `at`) with the whole turn, checked the way every request is (wholeTurn: tool_use and
+  // tool_result paired, nothing blank). A turn that does not check out is recorded as its line and its text only,
+  // so a bad round can never wedge the chat. `note` (a page note) ends it. -> the turn's messages as recorded
+  record(at, turn, note = null) {
+    let list;
+    try { list = wholeTurn(turn); } catch (e) {
+      const text = turn.slice(1).filter((m) => m.role === 'assistant').map((m) => (typeof m.content === 'string' ? m.content : m.content.filter((b) => b.type === 'text').map((b) => b.text).join(''))).join('');
+      list = [turn[0], ...(text.trim() ? [{ role: 'assistant', content: text }] : [])];
+    }
+    if (note) list.push(note);
+    this.keepLine(list);
+    this.messages.splice(at, this.messages.length - at, ...list);
+    return list;
+  }
+  // the recorded turn's first message is a new object (wholeTurn): the line's turn number and records go with it
+  keepLine(list) {
+    if (this.line) for (const k of ['turn', 'actions', 'reads']) list[0][k] = this.line[k];
+    this.line = list[0];
+  }
+  // A failed turn: kept when a tool result reached the conversation (e.partial, js/claude/backend.js), ending with
+  // the page's note after those results, and marked `ended` so the views show it as the failed line they already
+  // show. -> whether it was kept
+  keepFailed(at, e) {
+    const partial = e && Array.isArray(e.partial) ? e.partial.slice(at) : null;
+    if (!partial || !partial.length) return false;
+    let list;
+    try { list = wholeTurn(partial); } catch (err) { return false; }
+    const last = list[list.length - 1];
+    if (!list.some((m) => m.role === 'user' && Array.isArray(m.content) && m.content.some((b) => b.type === 'tool_result')) || last.role !== 'user') return false;
+    const code = (e && e.code) || 'error';
+    // (with why the page stopped it, when it did: "aborted (you reset the machine)")
+    const why = code === 'aborted' && this.abortReason ? ` (${this.abortReason})` : '';
+    last.content = [...last.content, { type: 'text', text: `(Note from the page: this turn ended with ${code}${why} after these tool results.)` }];
+    list[0].ended = code;
+    this.keepLine(list);
+    this.messages.splice(at, this.messages.length - at, ...list);
+    return true;
+  }
   // BREAK aborts the request in flight (a new AbortController per call); reason, when the page stopped it (a
   // Reset), goes into the status line: "[stopped: you reset the machine]"
   abort(reason = null) { if (this.controller) { this.abortReason = reason; this.controller.abort(); } }
-  // drop the oldest turns when the conversation nears 64 KiB
+  // drop the oldest turns when the conversation nears 64 KiB: whole turns (a person's line up to the next), so a
+  // tool_use never loses its tool_result; the newest turn always stays
   trim(limit = 64 * 1024) {
-    let size = JSON.stringify(this.messages).length;
-    while (size > limit && this.messages.length > 2) { this.messages.shift(); size = JSON.stringify(this.messages).length; }
+    while (JSON.stringify(this.messages).length > limit) {
+      const next = this.messages.findIndex((m, i) => i > 0 && opensTurn(m));
+      if (next < 0) break;
+      this.messages.splice(0, next);
+    }
   }
   reset() { this.messages = []; this.error = null; this.changed(); }
 
@@ -319,6 +381,37 @@ export class ChatSession {
   // refuses), then its check (refusals, nothing changed), then the pre-act re-check (Stop, a pause, consent
   // withdrawn: this.recheck), then its act inside withRestorePoint. Every failure leaves as a ToolError (asToolError), never as a raw exception.
   async runTool(name, input) {
+    try {
+      const out = await this.callTool(name, input);
+      this.noteAction(name, input, { result: out });
+      return out;
+    } catch (e) { this.noteAction(name, input, { err: e }); throw e; }
+  }
+  // A call's record on the turn in progress (R13): an acting call's outcome from what it returned or threw (never
+  // guessed: js/claude/actions.js), a read-only call counted. Nothing for a call outside a turn or an unknown tool.
+  noteAction(name, input, how) {
+    const line = this.line;
+    if (!line) return;
+    if (Object.hasOwn(ACTING, name)) { line.actions.push(actionRecord(name, input || {}, { ...how, seq: this.actionSeq++, time: Date.now() })); this.changed(); return; }
+    if (!readKind(name)) return;
+    // a read that worked is counted; one that failed is a line of its own (the person sees why it could not read)
+    if (how.err) line.actions.push(actionRecord(name, input || {}, { ...how, seq: this.actionSeq++, time: Date.now() }));
+    else line.reads[name] = (line.reads[name] || 0) + 1;
+    this.changed();
+  }
+  // After a restore to the point taken before action `fromSeq`: the records it took back are marked undone (`at`, the
+  // restore's time), the ones that changed something: done, partial, and a stop or keys not read after some keys went
+  // in (delivered). A call that changed nothing (declined, an error, nothing typed) is not marked.
+  markUndone(fromSeq, at = Date.now()) {
+    for (const m of this.messages) {
+      for (const rec of (m && m.actions) || []) {
+        const changed = rec.outcome === 'done' || rec.outcome === 'partial' || (['stopped', 'not-read', 'restarted'].includes(rec.outcome) && rec.delivered > 0);
+        if (rec.seq >= fromSeq && !rec.undoneAt && changed) rec.undoneAt = at;
+      }
+    }
+    this.changed();
+  }
+  async callTool(name, input) {
     const t = this.target;
     if (!t || !this.toolsOn) throw new ToolError(TOOL_CODES.NO_CONSENT);
     input = input || {};
@@ -363,28 +456,33 @@ export class ChatSession {
     return await pending;
   }
 
-  // type_text: typed at the keyboard paced by what the machine consumes (Typist.typePaced), and the result says
-  // what the machine took, not what was asked: {requested, consumed, lines_requested, lines_delivered}. When the
-  // machine stops reading the keyboard the rest is not typed and the call fails not-consumed, saying how far it got.
-  async typeText(t, text) {
-    t.show();
-    const job = t.typeText(text);
+  // The keyboard tools (type_text, press_break, run "RUN"): a paced job (Typist.typePaced / holdPaced) waited for, and
+  // the result says what the machine took, not what was asked: {requested, consumed, lines_requested,
+  // lines_delivered} (press_break: {requested, consumed}). When the machine stops reading the keyboard the rest is
+  // not typed and the call fails not-consumed, saying how far it got. { read: true }: every key was read down at
+  // least once is success, even if the machine then stopped reading the keyboard (BREAK, or the Enter of RUN, ends
+  // what was reading it: a program halted, or a program started that never scans the keyboard).
+  async keys(t, job, { read = false } = {}) {
     // Stop (the abort signal) ends the typing too: what is not typed yet is dropped, and the call says stopped
     const signal = this.controller && this.controller.signal;
     const onAbort = () => { t.machine.typist.dropJob(job); job.end('stopped'); };
     if (signal) { if (signal.aborted) onAbort(); else signal.addEventListener('abort', onAbort, { once: true }); }
     await job.promise;
     if (signal) signal.removeEventListener('abort', onAbort);
-    const report = { requested: job.requested, consumed: job.consumed, lines_requested: job.linesRequested, lines_delivered: job.linesDelivered };
-    if (job.status === 'done') return report;
-    if (job.status === 'stopped') throw new ToolError(TOOL_CODES.STOPPED, `${job.consumed} of ${job.requested} keys typed`);
+    const report = job.key ? { requested: job.requested, consumed: job.consumed }
+      : { requested: job.requested, consumed: job.consumed, lines_requested: job.linesRequested, lines_delivered: job.linesDelivered };
+    if (job.status === 'done' || (read && job.status === 'not-consumed' && job.consumed === job.requested)) return report;
+    // (delivered: how many keys went in before the stop, so the page can tell "stopped before" from "while")
+    if (job.status === 'stopped') throw Object.assign(new ToolError(TOOL_CODES.STOPPED, `${job.consumed} of ${job.requested} keys typed`), { delivered: job.consumed });
+    // the machine reset under the typing (Machine.reset): not a Stop, so the model is not told the person stopped it
+    if (job.status === 'machine-restarted') throw Object.assign(new ToolError(TOOL_CODES.MACHINE_RESTARTED, `${job.consumed} of ${job.requested} keys typed`), { delivered: job.consumed });
     // the person turned the switch off while the typing was held by a pause: the rest was dropped
     if (job.status === 'no-consent') throw new ToolError(TOOL_CODES.NO_CONSENT, `${job.consumed} of ${job.requested} keys typed`);
     const at = job.at;
-    const ch = at.char === '\r' ? 'Enter' : JSON.stringify(at.char);
+    const ch = at.char === '\r' ? 'Enter' : job.key ? job.key : JSON.stringify(at.char);
     const why = at.phase === 'resume' ? `the machine did not read the keyboard again after line ${job.linesDelivered}`
       : at.phase === 'release' ? `the machine stopped reading the keyboard after key ${at.index + 1} (${ch})` : `key ${at.index + 1} (${ch}) was not read by the machine`;
-    throw new ToolError(TOOL_CODES.NOT_CONSUMED, `${why} within ${PACE.timeoutFrames} frames; ${JSON.stringify(report)}`);
+    throw Object.assign(new ToolError(TOOL_CODES.NOT_CONSUMED, `${why} within ${PACE.timeoutFrames} frames; ${JSON.stringify(report)}`), { delivered: job.consumed });
   }
 
   // assemble_and_load's check: assemble for the target's own CPU, without writing anything. -> the assembler's result

@@ -172,10 +172,12 @@ function scripted(replies) {
     replies.push({ body: toolReply([{ name: 'machine_info' }]) });
     const handler = chat.onToolUse;
     chat.onToolUse = () => { throw new Error('the tool loop broke'); };
+    const kept = JSON.stringify(chat.messages);
     const res = await chat.sendLine('break it');
     chat.onToolUse = handler;
+    // (no tool result reached the conversation, so the history is as it was: the line is not kept)
     check('an exception in the tool loop ends the turn with its message, and the line is not kept', res === null && chat.error && /the tool loop broke/.test(chat.error.message)
-      && !chat.busy && s.claudeStatus === null && s.claudeTool === null && chat.messages.slice(-1)[0].content === 'A Dragon 64.');
+      && !chat.busy && s.claudeStatus === null && s.claudeTool === null && JSON.stringify(chat.messages) === kept);
     replies.push({ body: textReply('Back.') });
     await chat.sendLine('hello?');
     check('then the next line is answered', chat.messages.slice(-1)[0].content === 'Back.' && !chat.error);

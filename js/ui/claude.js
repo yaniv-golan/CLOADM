@@ -8,8 +8,9 @@
  * The Side panel / Full screen switch moves the same conversation between them (Session.startChat and
  * Session.toSidePanel). This module is the controller both views use: the backend (js/claude/backend.js on the
  * browser's fetch, with the key from the host key store), the brief, the key, the consent question
- * (Session.claudeGate), Stop, the restore points, and the state the views draw: the reply streaming in, the
- * activity log, and the API key state with its text (the same texts in both views).
+ * (Session.claudeGate), Stop, the restore points, and the state the views draw: the reply streaming in, and the
+ * API key state with its text (the same texts in both views). What Claude did and the restore line are drawn from
+ * the conversation itself (js/ui/claude-lines.js).
  * The key is saved only in this browser (cloadm.anthropicKey, js/host/key-store.js), never in the machine, a
  * snapshot, a share link or a settings export.
  */
@@ -22,6 +23,8 @@ import { CLAUDE_PAUSED_TEXT } from '../session.js';
 import { CanvasPresenter } from '../video/canvas.js';
 import { cpuFamily } from '../cpu/cpus.js';
 import { $, ESC, VIEWS, viewOpen } from './page.js';
+import { chatTurns } from '../claude/history.js';
+import { actionLines, restoreLine } from './claude-lines.js';
 
 const FIRMWARE_URL = 'examples/chat.bin';
 // the tools that change the BASIC session (the rest only read), from the one list in js/claude/chat.js
@@ -29,35 +32,12 @@ const ACTING = new Set(ACTING_TOOL_NAMES);
 // Claude's INCLUDE lines read from the same-origin examples/ folder only (js/host/example-reader.js)
 const include = exampleReader();
 
-// The line a person sees for a failed tool: the remedy for a coded error (its .tool.remedy), else its short
-// message. Never the JSON the model received and never String(result) - a person reads a line on screen, not a
-// blob. At module scope so a test can pin that, including that a String() regression fails it.
-export function failureText(value) {
-  const tool = value && value.tool;
-  // tool-failed's remedy is for the model; the person is shown what went wrong
-  if (tool && tool.code === 'tool-failed' && tool.detail) return `failed: ${tool.detail}`.slice(0, 80);
-  if (tool && tool.remedy) return tool.remedy;
-  return String((value && value.message) || value || 'failed').slice(0, 80);
-}
-
 // the API key states and their texts ("API key states")
 export const KEY_TEXT = Object.freeze({
   refused: '[The API key was refused: check it and try again.]',
   'rate-limited': 'Your API account is rate limited. Nothing retries in the background; send again when you\'re ready.',
   offline: 'Could not reach Claude. Check your connection.',
 });
-// what the activity log says for a tool call
-const LOG = {
-  type_text: (i) => { const n = String(i.text || '').split('\n').filter((l) => l.trim()).length; return `✓ typed ${n === 1 ? `"${String(i.text).trim()}"` : `${n} lines`}`; },
-  poke: (i) => `✓ poked ${(i.bytes || []).length} byte(s) at $${(i.address || 0).toString(16).toUpperCase()}`,
-  load_basic: (i) => { const n = String(i.program || '').split('\n').filter((l) => l.trim()).length; return `✓ loaded a ${n}-line BASIC program`; },
-  press_break: () => '✓ pressed BREAK',
-  assemble_and_load: (i) => `✓ assembled and loaded${i.org != null ? ` at $${Number(i.org).toString(16).toUpperCase()}` : ''}`,
-  run: (i) => `✓ ran ${i.target == null ? 'RUN' : typeof i.target === 'number' ? `$${i.target.toString(16).toUpperCase()}` : i.target}`,
-  screen_text: () => '· read the screen',
-  peek: (i) => `· read memory at $${(i.address || 0).toString(16).toUpperCase()}`,
-  machine_info: () => '· looked at the machine',
-};
 
 // UX ruling R11: while Claude is paused (the person's key), a card's accept button gives consent and resumes in one
 // click. The card says so in a line of its own; the decline button is unchanged and never resumes.
@@ -77,7 +57,7 @@ export const acceptClick = (session, button, opts = {}) => session.answerClaude(
 // what load_basic's card says about the load it asks for (Session.claudePending.load)
 export function loadCardText(load) {
   const span = load.lines === 1 ? `line ${load.first}` : `lines ${load.first} to ${load.last}`;
-  return `Claude wants to load a ${load.lines}-line BASIC program (${span}, ${load.bytes} bytes) into your BASIC session. It replaces the program in memory; a restore point is made first, so Undo brings yours back.`;
+  return `Claude wants to load a ${load.lines}-line BASIC program (${span}, ${load.bytes} bytes) into your BASIC session. It replaces the program in memory; a restore point is made first, so restoring it brings yours back.`;
 }
 
 export function setupClaude(page) {
@@ -85,7 +65,6 @@ export function setupClaude(page) {
   // what the views draw besides the conversation itself
   const state = {
     text: '',          // the reply streaming in
-    log: [],           // this turn's activity
     asked: null,       // the last line asked (Try again sends it once more)
     context: null,     // what the question is about: null (the screen and the program) | { code: address } (the Debugger)
     failed: null,      // a line whose turn ended in an error (shown with the error until the next one)
@@ -116,43 +95,36 @@ export function setupClaude(page) {
   };
 
   const basicMachine = () => (session.chatMachines ? session.chatMachines.basic : session.machine);
-  const brief = () => {
+  // the brief for the view the replies are read in (the full-screen chat's screen, or this panel), from the BASIC
+  // session's real state: what runs on it, and its own screen
+  const brief = (view) => {
     const m = basicMachine();
-    return claudeBrief({ machine: m.profile.name, ram: m.config.ram, cpu: m.config.cpu, hasBasic: m.hasRom && !session.nitros9On(m), edition: 'cloadm.dev', tools: true });
+    const software = session.nitros9On(m) ? 'nitros9' : m.hasRom ? 'basic' : 'none';
+    return claudeBrief({ machine: m.profile.name, ram: m.config.ram, cpu: m.config.cpu, software, family: m.profile.family, edition: 'cloadm.dev', tools: true, view });
   };
   const backend = () => new ClaudeBackend({ fetch: (url, init) => fetch(url, init), apiKey: session.keyStore.get() || '' });
   function wire(chat) {
-    // the restore point is logged when it is made, before the tool ends: a paced type_text runs until the machine
-    // has read every key, and the person should see the restore point while it types
-    const notePoint = () => {
-      if (chat.undo.length > (state.points || 0)) state.log.push('✓ restore point made');
-      state.points = chat.undo.length;
-    };
     // a turn starting, from either view's box or the full-screen chat's own lines (the firmware's channel): what the
     // panel said about the last turn ("[stopped: …]", a failed question, no reply) is that turn's, not this one's
     let wasBusy = chat.busy;
     chat.onChange = () => {
       if (chat.busy && !wasBusy) Object.assign(state, { stopped: false, failed: null, unanswered: null });
       wasBusy = chat.busy;
-      notePoint(); session.emit('chat');
+      session.emit('chat');
     };
     chat.onText = (t) => {
       if (!chat.busy || /^\r?\n\[.*\]\r?\n$/s.test(t)) return;   // status lines are the views' own
       state.text += t; notify();
     };
-    chat.onToolUse = (name, input, result, isError, value) => {
+    chat.onToolUse = (name) => {
       // Claude acting in full screen shows the BASIC session's window (and it stays until the person hides it)
       if (ACTING.has(name) && session.claudeView === 'full') state.pip = true;
-      notePoint();
-      // a coded failure shows its REMEDY, not the JSON the model received: a person reads the line on screen
-      state.log.push(isError ? `✗ ${name}: ${failureText(value)}` : (LOG[name] || (() => `· ${name}`))(input || {}));
       notify();
     };
   }
-  // the line a person sees for a failed tool is failureText at module scope (pure, and a test pins it)
   // the conversation, started in the side panel if there is none yet
   function ensure() {
-    if (!session.chat) { wire(session.startAsk({ backend: backend(), brief: brief(), include })); state.log = []; }
+    if (!session.chat) wire(session.startAsk({ backend: backend(), brief: brief('panel'), include }));
     return session.chat;
   }
   // one line to Claude from either view's box (the firmware's own lines come through its channel)
@@ -160,8 +132,8 @@ export function setupClaude(page) {
     const chat = ensure();
     text = String(text || '').trim();
     if (!text || chat.busy) return null;
-    chat.brief = brief();
-    Object.assign(state, { text: '', log: [], asked: text, failed: null, stopped: false, unanswered: null, points: chat.undo.length, context });
+    chat.brief = brief(session.claudeView === 'full' ? 'full' : 'panel');
+    Object.assign(state, { text: '', asked: text, failed: null, stopped: false, unanswered: null, context });
     session.claudeActing = null;
     notify();
     const res = await chat.sendLine(text);
@@ -249,8 +221,8 @@ export function setupClaude(page) {
       // firmware's mailbox carries it
       const drivewire = !!session.machine.config.becker;
       const had = session.chat;
-      const chat = session.startChat({ backend: had ? had.backend : backend(), channel: drivewire ? undefined : new MemoryChannel(), firmware, brief: brief(), drivewire, include });
-      if (chat !== had) { wire(chat); state.log = []; }
+      const chat = session.startChat({ backend: had ? had.backend : backend(), channel: drivewire ? undefined : new MemoryChannel(), firmware, brief: brief('full'), drivewire, include });
+      if (chat !== had) wire(chat);
       // only now, with the chat really starting: if opening it failed above (the firmware did not load), the view the person
       // came from still reopens the Ask panel when it closes. Before show(true): the history step it takes runs the
       // view-closed callbacks, which would reopen the panel under the chat.
@@ -350,7 +322,9 @@ export function setupClaude(page) {
   $('btnClaudeTell').onclick = () => session.answerClaude(false);
   $('btnClaudeLoad').onclick = () => acceptClick(session, $('btnClaudeLoad'), { dontAsk: $('chkClaudeLoadNoAsk').checked });
   $('btnClaudeLoadNo').onclick = () => session.answerClaude(false);
-  $('btnClaudeUndo').onclick = () => page.attempt(() => { const r = session.restoreClaude(); return r ? ['Restored: your BASIC session is as it was before Claude\'s changes.', ...r.notices].join(' ') : null; });
+  const restore = (index) => page.attempt(() => { const r = session.restoreClaude(index); return r ? ['Restored: your BASIC session is as it was before Claude\'s changes.', ...r.notices].join(' ') : null; });
+  // the folded action lines the person opened in the card's strip (by turn number)
+  const openTurns = new Set();
   // Ctrl+B, "Show my BASIC session" and a click on the window swap the views; swapping to the BASIC session shows the
   // window (the chat in it), swapping back hides it. Its close button hides it (and brings the chat back).
   function swap() {
@@ -432,7 +406,7 @@ export function setupClaude(page) {
     const asking = !!pend && !loading;                     // the consent question
     $('claudeSession').classList.toggle('asking', !!pend);
     $('claudeConsentText').textContent = asking
-      ? 'Claude wants to type into your BASIC session. With permission it can type, POKE, run and press BREAK. You can watch it in the corner of the screen, Stop it, and Undo everything: a restore point is made first.'
+      ? 'Claude wants to type into your BASIC session. With permission it can type, POKE, run and press BREAK. You can watch it in the corner of the screen, Stop it, and restore everything: a restore point is made first.'
       : `Claude can read this ${modelName()}'s screen text and memory at any time, nothing outside the emulator. Typing, POKEs and running need your permission; loading a BASIC program asks every time (with the switch on, its card offers Don\'t ask again this session).`;
     $('claudeConsentAsk').hidden = !asking;
     $('claudeLoad').hidden = !loading;
@@ -457,9 +431,15 @@ export function setupClaude(page) {
     $('btnClaudeResume').hidden = !(status && session.claudePaused);
     if (!pend || !full) shownPending = null;
     else if (pend !== shownPending) { shownPending = pend; $('claudeSession').scrollIntoView({ block: 'center' }); }
-    const points = session.claudePoints;
-    $('claudeRestore').hidden = !points.length;
-    if (points.length) $('claudeRestoreWhen').textContent = `Restore point · ${when(points[0].at)}, before Claude's changes`;
+    // the card's strip: the latest turn's action lines, then the restore line (R12, R13). Never printed on the chat
+    // screen itself: its frames are the chat firmware's alone.
+    const points = session.claudePoints, last = chat ? chatTurns(chat.messages).filter((t) => t.actions.length || Object.keys(t.reads).length).pop() : null;
+    if (last) {
+      const key = String(last.turn);
+      actionLines($('claudeActions'), { actions: last.actions, reads: last.reads, open: openTurns.has(key), toggle: () => { if (openTurns.has(key)) openTurns.delete(key); else openTurns.add(key); render(); } });
+    } else $('claudeActions').hidden = true;
+    restoreLine($('claudeRestore'), { points, busy: !!(chat && chat.busy), restore, id: 'claude' });
+    $('claudeRestore').hidden = !points.length && !last;
     const basic = session.chatMachines && session.chatMachines.basic;
     $('claudeSpec').textContent = basic ? `${basic.profile.name} · chat firmware, no ROM needed` : '';
     $('claudeBasicNote').textContent = basic && !basic.hasRom
@@ -501,4 +481,3 @@ export function setupClaude(page) {
 }
 
 // "14:02"
-export const when = (ms) => (ms ? new Date(ms).toTimeString().slice(0, 5) : 'earlier');

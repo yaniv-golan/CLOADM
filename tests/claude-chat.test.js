@@ -321,19 +321,34 @@ const json = (status, body) => () => new Response(JSON.stringify(body), { status
 
   // ---- 5. the brief builder ----
   {
-    const brief = Emu.claudeBrief({ machine: 'Tandy Color Computer 1/2', ram: 64, cpu: '6809', hasBasic: false, edition: 'cloadm.dev', tools: true });
-    check('the brief names the chat screen\'s real size and plain text', brief.includes(`${Emu.CHAT_SCREEN.cols} columns by ${Emu.CHAT_SCREEN.rows} rows`)
-      && !/48 columns|80 columns/.test(brief) && /plain text/i.test(brief), brief.match(/Screen: [^,]*/)[0]);
+    const brief = Emu.claudeBrief({ machine: 'Tandy Color Computer 1/2', ram: 64, cpu: '6809', software: 'none', family: 'dragon', view: 'full', edition: 'cloadm.dev', tools: true });
+    check('the full-screen brief names the chat screen\'s real size for the replies, and plain text', brief.includes(`full-screen chat: ${Emu.CHAT_SCREEN.cols} columns by ${Emu.CHAT_SCREEN.rows} rows`)
+      && !/48 columns|80 columns/.test(brief) && /plain text/i.test(brief), brief.match(/Your replies[^.]*/)[0]);
     check('the brief carries the per-call facts', brief.includes('Tandy Color Computer 1/2') && brief.includes('6809') && /64\s?K|64/.test(brief));
     // the Glossary's words, as on the page: without ROMs, never "the stub"
     check('the brief says the machine runs without ROMs, not "the stub"', /runs without ROMs/.test(brief) && !/\bstub\b/i.test(brief), brief.match(/[^.]*ROMs[^.]*\./g));
     check('the brief says everything is emulated and undoable', /emulated/i.test(brief) && /undo/i.test(brief));
     check('the brief says it is not LIZA', /LIZA/.test(brief));
     check('the brief explains BASIC line numbers and uppercase keywords', /line number/i.test(brief) && /uppercase/i.test(brief));
-    const noTools = Emu.claudeBrief({ machine: 'X', ram: 32, cpu: '6809', hasBasic: true, edition: 'cloadm.dev', tools: false });
+    const noTools = Emu.claudeBrief({ machine: 'X', ram: 32, cpu: '6809', software: 'basic', family: 'dragon', view: 'full', edition: 'cloadm.dev', tools: false });
     check('the brief leaves the tools out when they are off', !/can use the machine|machine tools/i.test(noTools) || /cannot|no access|aren't available/i.test(noTools));
-    const c3 = Emu.claudeBrief({ machine: 'CoCo 3', ram: 512, cpu: '6809', hasBasic: true, edition: 'cloadm.dev', tools: true });
-    check('the CoCo 3 brief gives the same 42 columns (the firmware has no 80-column mode yet)', c3.includes('42 columns by 24 rows') && !/80 columns/.test(c3), c3.match(/Screen: [^,]*/)[0]);
+    const c3 = Emu.claudeBrief({ machine: 'CoCo 3', ram: 512, cpu: '6809', software: 'basic', family: 'dragon', view: 'full', edition: 'cloadm.dev', tools: true });
+    check('the CoCo 3 full-screen brief gives the same 42 columns for the replies (the firmware has no 80-column mode yet)', c3.includes('full-screen chat: 42 columns by 24 rows'), c3.match(/Your replies[^.]*/)[0]);
+
+    // D: the brief does not assume BASIC, gives the machine's own screen, and says how far a tool's success goes
+    const facts = (o) => Emu.claudeBrief({ machine: 'Dragon 64', ram: 64, cpu: '6809', edition: 'test', tools: true, view: 'panel', family: 'dragon', software: 'basic', ...o });
+    const rule = 'An acting tool\'s success means the keys or bytes reached the machine, not that the program did what you wanted. Check the effect with screen_text, peek or machine_info before you say it happened. If you can\'t read the result, say it is unverified.';
+    check('D the brief states the verify rule whenever tools are on (and the contract carries it)', facts({}).includes(rule) && Emu.TOOL_CONTRACT.includes(rule) && !facts({ tools: false }).includes(rule));
+    const none = facts({ software: 'none' }), nos9 = facts({ software: 'nitros9' }), withBasic = facts({});
+    check('D a machine without BASIC ROMs: the brief does not claim BASIC', /No BASIC ROMs are loaded/.test(none) && !/BASIC ROMs are loaded;|BASIC is available|BASIC\'s prompt/.test(none), none.slice(-400));
+    check('D NitrOS-9 running: the brief says so and that BASIC does not apply, not that BASIC is available', /NitrOS-9 is running/.test(nos9) && /BASIC commands and BASIC programs do not apply/.test(nos9) && !/BASIC ROMs are loaded;|BASIC is available/.test(nos9), nos9.slice(-400));
+    check('D BASIC ROMs in: the brief says a program may be running rather than assuming BASIC\'s prompt', /BASIC ROMs are loaded; what runs now may be BASIC's prompt or a program, so do not assume either\./.test(withBasic) && !/BASIC is available/.test(withBasic));
+    check('D an unknown software state is refused (the page must say what runs)', (() => { try { facts({ software: undefined }); return false; } catch (e) { return /software must be one of/.test(e.message); } })());
+    check('D the brief gives the machine\'s own screen (32 by 16 on the MC6847 machines), and the panel brief does not give the chat firmware\'s',
+      withBasic.includes('Its screen: 32 columns by 16 rows of text (MC6847).') && !/42 columns|24 rows/.test(withBasic) && facts({ family: 'mc10' }).includes('Its screen: 32 columns by 16 rows of text (MC6847).'), withBasic.match(/Its screen[^.]*\./)[0]);
+    check('D the CoCo 3 and the Dragon 64 Plus: their wider screens are named', /GIME can also show 40, 64 or 80 columns/.test(facts({ family: 'coco3' })) && /80-column display/.test(facts({ family: 'd64plus' })));
+    check('D a brief with no view is refused (the replies are read somewhere)', (() => { try { facts({ view: undefined }); return false; } catch (e) { return /view must be/.test(e.message); } })());
+    check('D the fixed prose no longer puts the person on the chat firmware\'s screen', !/small green screen|chat font/.test(Emu.FIXED_BRIEF) && /chat font/.test(facts({ view: 'full' })) && !/chat font/.test(withBasic));
 
     // js/host/claude-brief.md is the prose a reader can edit; the page reads it and passes it as `base`.
     // The built-in copy is what Node tests and an embedder get without a file, so the two must not drift.

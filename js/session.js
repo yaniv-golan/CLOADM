@@ -42,6 +42,7 @@ import { nitros9LoaderRom, nitros9LoaderKind, nitros9LoaderByCrc } from './machi
 import { inspectOs9Disk, NITROS9_IMAGES_URL } from './media/os9.js';
 import { END_OF_REPLY } from './claude/chat.js';
 import { loadBasic as loadBasicInto, planBasic } from './claude/basicload.js';
+import { transcript } from './claude/history.js';
 
 // the status of a turn paused by the person's key, in every view that shows it with Resume and Stop (Esc is Stop then)
 // (one text for every paused state, UX R11b: whether a call waits, typing is held, or Claude only writes its reply,
@@ -50,7 +51,6 @@ export const CLAUDE_PAUSED_TEXT = 'Paused: you pressed a key · Claude\'s next a
 // the same where it must fit one line (the browser Fullscreen's pill)
 export const CLAUDE_PAUSED_SHORT = 'Paused: you pressed a key · Esc stops Claude';
 // a message's text: a string, or the text blocks of a content array
-const textOf = (c) => (typeof c === 'string' ? c : Array.isArray(c) ? c.filter((b) => b && b.type === 'text').map((b) => b.text).join('') : '');
 import { RomLibrary, identifyRoms, isBootable, isRomPack, looksLikeRom, makeRomPack, restoreRomPack, socketStatus } from './roms.js';
 import { writeZip } from './media/zip.js';
 import { SNAPSHOT_EXT, SnapshotError, decodeSnapshot, encodeSnapshot } from './media/snapshot.js';
@@ -210,7 +210,9 @@ export class Session {
     this.claudePending = null;      // the consent question waiting for an answer: { resolve }
     this.claudeTool = null;         // the tool running now (claudeStatus)
     this.claudeCall = null;         // the acting tool call between its gate and its act (a card or a check may wait): { name }
-    this.claudePointInfo = new WeakMap();    // restore point -> { at (ms), disks: the drives linked to the store then (storedDisks) }
+    // restore point -> { at (ms), disks: the drives linked to the store then (storedDisks), turn: the turn it was
+    // taken in (its line's number, ChatSession.line.turn), fromAction: the first action record it covers }
+    this.claudePointInfo = new WeakMap();
     this.machineDriven = null;      // asMachine: the ticket of what the program on the machine asked for, while it starts
     this.menuTicket = null;         // the ticket of the menu LIZA's BYE asked for (checkMenuReturn)
     this.claudePauses = 0;          // pauses made so far (a ticket taken before a pause no longer holds)
@@ -1884,22 +1886,22 @@ export class Session {
     if (!this.chat || !(this.claudeBusyActing || this.claudeCall) || this.claudePaused || m !== this.chatTarget().machine) return false;
     return this.pauseClaude();
   }
-  // text into the machine with nothing else: through the keyboard with ROMs, as key codes for the stub (Claude's run
-  // tool types RUN this way; the person's text goes through typeText)
+  // text into the machine with nothing else: through the keyboard with ROMs, as key codes for the stub (the person's
+  // text goes through typeText, which pauses Claude first)
   queueText(text, m = this.machine) {
     const t = text.replace(/\r\n?/g, '\n');
     if (m.useStub) { for (const ch of t) m.stubKeys.push(m.stubCode(ch)); }
     else m.typist.type(t.replace(/\n/g, '\r'));
     return t.length;
   }
-  // Press BREAK (the Esc key). It has to be held for a few frames: the CPU reads the keyboard matrix through
-  // the PIA, and the machine does not sample it, so a key set down and up inside one call is never seen (the
-  // matrix is only read when the CPU reads the port). The typist holds it for the same few frames it holds a
-  // typed key, so BREAK reaches the CPU exactly as typing does.
-  // On a ROM-less machine this has no effect, and that is not a regression: the stub does not scan the matrix
-  // at all - it takes key codes from its own queue (Machine.stubKeys) through POLCAT, and its line editor
-  // ignores every control key. There is no BREAK to deliver without BASIC, so nothing is invented here.
-  pressBreak(m = this.machine) { m.typist.press('BREAK'); }
+  // Press BREAK for Claude's press_break. It has to be held for a few frames: the CPU reads the keyboard matrix
+  // through the PIA, and the machine does not sample it, so a key set down and up inside one call is never seen (the
+  // matrix is only read when the CPU reads the port). It is held the paced way (Typist.holdPaced), until the machine
+  // has read it down, so the result says whether it was read. Returns the job.
+  // On a ROM-less machine nothing reads it: the stub does not scan the matrix at all - it takes key codes from its
+  // own queue (Machine.stubKeys) through POLCAT, and its line editor ignores every control key. The job fails
+  // not-consumed at once, so the tool says so instead of claiming a press.
+  pressBreak(m = this.machine) { return m.typist.holdPaced('BREAK'); }
   // Claude's typing: paced by what the machine consumes (Typist.typePaced), so a busy BASIC drops nothing.
   // Returns the job (job.promise settles when it ends); the caller checks typableText first.
   typeTextPaced(text, m = this.machine) { return m.typist.typePaced(String(text).replace(/\r\n?/g, '\n')); }
@@ -1960,15 +1962,13 @@ export class Session {
     if (!Number.isInteger(value) || value < 0 || value > 0xFFFF) throw new ToolError(TOOL_CODES.BAD_TARGET, typeof target === 'string' ? target : JSON.stringify(target));
     return value;
   }
-  // start what is in m's memory: an address jumps there; "RUN" (or nothing) is typed at the keyboard
+  // start what is in m's memory for Claude's run tool: an address jumps there (-> null); "RUN" (or nothing) is typed
+  // at the keyboard the paced way, as type_text types (-> the job, which says whether the machine read the keys)
   runAt(target, m = this.machine) {
     const value = this.checkRunTarget(target, m);
-    if (value == null) {
-      this.queueText('RUN\n', m);
-      return 'RUN typed at the keyboard.';
-    }
+    if (value == null) return this.typeTextPaced('RUN\n', m);
     m.jump(value);
-    return `Running at $${value.toString(16).toUpperCase()}`;
+    return null;
   }
 
   // ---------------- the Claude chat ----------------
@@ -2009,7 +2009,12 @@ export class Session {
   // every acting tool (ACTING_TOOL_NAMES) and for nothing else; a refusal is a ToolError and changes nothing.
   gateTools(chat) {
     // the point's disks were recorded when it was taken (chatTarget's snapshot); it is stamped when it is kept
-    chat.onRestorePoint = (snap) => { const info = this.claudePointInfo.get(snap); if (info) info.at = Date.now(); };
+    // (with the turn it belongs to and the first action it covers: the views put the restore line under that turn,
+    // and a restore marks the actions it took back, UX rulings R12 and R13)
+    chat.onRestorePoint = (snap) => {
+      const info = this.claudePointInfo.get(snap);
+      if (info) Object.assign(info, { at: Date.now(), turn: chat.line ? chat.line.turn : null, fromAction: chat.actionSeq });
+    };
     // a pause belongs to the turn it was made in: when the turn ends (finished, failed, stalled or stopped) it ends
     // too, so the next turn never starts paused; so does what the turn was doing on the machine, so a later turn
     // that only answers in text is not taken for acting (a key the person presses then is just their key)
@@ -2172,10 +2177,10 @@ export class Session {
     const m = this.chatTarget().machine;
     // the switch turned off during the pause withdrew consent: nothing held goes in (its typing ends no-consent, as
     // stopClaude drops it), and the call waiting on the pause is refused no-consent (pauseWait)
-    // (held.stub is dropped with no job to end: it holds raw stub codes, and Claude's own typing is paced through the
-    // typist queue (held.queue, whose jobs end above), never left in stubKeys. Only queueText puts unpaced codes there
-    // for Claude - run's typed RUN, which needs the BASIC ROMs and so never runs on the stub - so a Claude job in
-    // held.stub is unreachable today; were one added, it would need ending here too.)
+    // (held.stub is dropped with no job to end: it holds raw stub codes, and all of Claude's typing - type_text, run's
+    // RUN (typeTextPaced) and press_break's BREAK (holdPaced) - is paced through the typist queue (held.queue, whose
+    // jobs end above), never left in stubKeys. Only the person's text goes there through queueText, so a Claude job in
+    // held.stub is unreachable; were one added, it would need ending here too.)
     if (p.revoked) { for (const it of p.held.queue) if (it && it.job) it.job.end('no-consent'); }
     else { m.stubKeys.push(...p.held.stub); m.typist.queue.push(...p.held.queue); }
     for (const w of p.wake) w(true);
@@ -2284,11 +2289,11 @@ export class Session {
         : `PC=${hex(c.pc, 4)} A=${hex(c.a, 2)} B=${hex(c.b, 2)} X=${hex(c.x, 4)} Y=${hex(c.y, 4)} U=${hex(c.u, 4)} S=${hex(c.s, 4)} DP=${hex(c.dp, 2)} CC=${hex(c.cc, 2)}`;
     return { from: addr & 0xFFFF, to: (at - 1) & 0xFFFF, text: lines.join('\n'), registers: regs };
   }
-  // the restore points, newest first: [{ at (ms), index }]; restoreClaude(i) puts the BASIC session back to point i
-  // (undo[i]) and drops the newer ones
+  // the restore points, newest first: [{ at (ms), index, turn }]; restoreClaude(i) puts the BASIC session back to point
+  // i (undo[i]) and drops the newer ones. `turn` is the number of the turn the point was taken in (null if unknown).
   get claudePoints() {
     if (!this.chat) return [];
-    return this.chat.undo.map((snap, index) => ({ index, at: (this.claudePointInfo.get(snap) || {}).at || null })).reverse();
+    return this.chat.undo.map((snap, index) => { const info = this.claudePointInfo.get(snap) || {}; return { index, at: info.at || null, turn: info.turn == null ? null : info.turn }; }).reverse();
   }
   // The point is checked first; only once it can be restored does Claude stop, and the newer points go only once it
   // has been. A point that can't be restored (the ROMs changed since it was taken: Forget ROMs, Run without ROMs)
@@ -2305,6 +2310,9 @@ export class Session {
     this.stopClaude();
     const notices = this.restorePoint(m, snap);
     chat.undo.length = index;
+    // the actions the point took back are marked undone, with the restore's time (R13)
+    const info = this.claudePointInfo.get(snap);
+    if (info && info.fromAction != null) chat.markUndone(info.fromAction);
     chat.changed();
     this.emit('chat');
     return { notices };
@@ -2368,9 +2376,10 @@ export class Session {
     Object.assign(this, { welcome, welcomeBuild });
     if (kept) {
       kept.channel = channel;
+      kept.brief = brief;              // its replies are now read on the chat screen
       channel.onReceive = (bytes) => { if (bytes) kept.receive(bytes); };
       // what was said so far, as the firmware would have shown it; a reply still streaming goes on after it
-      const said = kept.messages.filter((m) => !m.note).map((m) => (m.role === 'user' ? `> ${textOf(m.content)}\r\n` : `${textOf(m.content)}\r\n`)).join('');
+      const said = transcript(kept.messages).map((m) => (m.role === 'user' ? `> ${m.content}\r\n` : `${m.content}\r\n`)).join('');
       if (said) channel.send(new TextEncoder().encode(said.replace(/\r?\n/g, '\r\n').replace(/\r\r\n/g, '\r\n')));
       if (!kept.busy) channel.send(Uint8Array.of(END_OF_REPLY));
     } else {

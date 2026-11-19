@@ -89,7 +89,8 @@ Two ways to talk to Claude, one conversation:
   (POKE, typing, BREAK) needs **Let Claude use the emulator**, off until you allow it: the first time Claude wants to
   act it asks in the conversation (**Allow**, which turns the switch on for the visit, or **Just tell me the fix**,
   which Claude is told as `consent-declined` and which changes nothing; Stop while it asks is `stopped`). While Claude acts the screen has a pulsing green ring and
-  "Claude is typing line 120… **Stop**" at its top, and the panel shows a live log. A key you press on the machine
+  "Claude is typing line 120… **Stop**" at its top, and each thing it does appears as a small line under the turn (see
+  **What Claude did** below). A key you press on the machine
   pauses Claude: what it still had to type is held back and its next action waits, until **Resume** (or **Stop**).
   That includes an action still waiting at its gate: a key while a card asks pauses Claude too, and so does a key
   while the action's own check runs (an `INCLUDE` read), before anything is written; Stop refuses it with nothing
@@ -181,15 +182,57 @@ Two ways to talk to Claude, one conversation:
   question. Every request goes through
   `apiMessages` (`js/claude/history.js`): no empty assistant message, no blank text block, every `tool_use` with
   its `tool_result`, so no turn can leave a history that makes every later request fail.
+  **What a turn leaves in the history.** A turn is recorded whole: the person's line, each tool round as the API saw
+  it (the `tool_use` with its input, the `tool_result` exactly as sent) and the reply's last text, checked by
+  `wholeTurn` (`js/claude/history.js`, the same pairing and validation as `apiMessages`). A reply that says "I typed
+  DIR" carries its evidence into every later request; with the text alone (as before), Claude found its own claims
+  and nothing behind them, and retracted them. A turn that fails after a tool result came back (Stop, a network
+  error, a stall, a refused request) keeps its completed rounds (the backend hands them back as `e.partial`) and ends
+  with the page's note "(Note from the page: this turn ended with `<code>` after these tool results.)"; a turn that
+  fails before any tool result is dropped, as before. The oldest turns go first when the history nears 64 KiB, whole
+  (`ChatSession.trim`), so a `tool_use` never loses its `tool_result`. The views show only the conversation's text
+  (`transcript`): the line and the reply as it streamed, never a tool round or a note, and a failed turn as before
+  (the panel shows the failed line itself). The history holds only what the tools read from the emulated machine:
+  the key is in no tool result, as it is in no machine memory. `node tests/claude-history.test.js` covers this.
   `node tests/claude-turn-scope.test.js` checks these with a mocked API that refuses what the Messages API refuses
   (400), and `askFollowupChecks` in the browser check covers Stop during a hanging `INCLUDE` and the pause ending
   with its turn.
 * **What is this code doing?** in the Ctrl+K box asks about the code at the program counter: the disassembly and
   the registers go with the question (`Session.codeAt`), and the panel says Claude can read the code and the
   registers. A restore point is made before
-  Claude's first change in each turn: **Restore to before Claude's changes**, and **All restore points** (the last 10).
-  Restore points are kept in memory only, while the chat is open: reloading the page, ending the chat or switching
-  machine loses them. Saved files (the Library, DriveWire) are not rolled back, except a disk that has stayed in
+  Claude's first change in each turn. **The restore line** (UX ruling R12, `js/ui/claude-lines.js`): one small, muted
+  line under the latest turn that changed the machine, "↶ Restore to 23:58 · Restore points…", in the side panel,
+  the phone sheet and the full-screen chat's card alike. The first button restores the newest point (its label for
+  screen readers: "Restore the machine to 23:58, before Claude's last changes"; never "Undo"); **Restore points…** is
+  a disclosure with every point (the last 10) and the note "Restore points are kept only while this chat is open, and
+  only the last 10: reloading the page, ending the chat or switching machine loses them. Restoring also undoes your
+  own typing since that point. Saved files (Library, DriveWire) are not rolled back, except a disk left in its drive
+  since the point." While a turn runs the line reads "Restore point at 23:58 · Stop first to restore", its button
+  disabled. Each point records the turn it was taken in (`Session.claudePoints[].turn`), so after a restore the line
+  moves to the previous point's turn, or goes when none is left.
+  **What Claude did** (UX ruling R13, `js/claude/actions.js`): under each turn's reply, one small, muted line per
+  acting call, in order, made from what the call returned or threw, never guessed: "✓ typed "DIR"", "✓ typed 3
+  lines", "✓ pressed BREAK", "✓ poked 3 bytes at $0400", "✓ loaded a 12-line BASIC program", "✓ assembled and loaded
+  128 bytes at $3000", "✓ ran RUN", "✓ started $3000"; partly done "✓ loaded 120 of 128 bytes at $3000 (8 not
+  taken)", "✓ poked 2 of 3 bytes at $0400"; not done "– didn't type "DIR": you said no", "– stopped before typing
+  "DIR"", "– stopped while typing "DIR"" (the `stopped` error's delivered count tells the two apart); keys not read
+  "– typed "DIR", but the machine didn't read the keys" (`not-consumed`); an error "✗ couldn't type "DIR": …" with
+  the line a person reads for it (`failureText`). The glyphs are hidden from screen readers. The records stay with
+  their turn (`ChatSession.noteAction`; never sent to the API). After a restore, the lines it took back (the calls
+  that changed something) end " · undone at 00:02". A turn of more than 3 acting calls folds its plain ✓ lines into
+  one button, "7 actions · read the screen 2× ▸" (`aria-expanded`); partial, – and ✗ lines always stay, and the
+  summary never starts with ✓. A read that worked is never a line of its own, but reads are never invisible: they are
+  counted in that summary, or, when nothing folds, on a plain muted line (text, not a button) such as "read the
+  screen 2×, memory 1×". A read that failed is a ✗ line: "✗ couldn't read memory: …". When the machine resets under
+  Claude's typing (a key of Claude's starting a program that resets it), the call ends `machine-restarted`, not
+  `stopped` (it is not a Stop; the restart may still come from a key the person pressed): "– typed "1", then the machine restarted"; a job whose keys were all read
+  first ends done (`Typist.clear(why)`, called by `Machine.reset`). The page's note on a failed turn carries the
+  reason the page stopped it: "(Note from the page: this turn ended with aborted (you reset the machine) after these
+  tool results.)". The side panel's conversation is a
+  live region whose rows are appended, never all replaced. In the full-screen chat the latest turn's lines sit in its
+  card beside the restore line, and are never printed on the chat screen itself (its frames are the chat firmware's).
+  `node tests/claude-actions.test.js` covers the records and the copy; the browser check's `ask` and `claude` groups
+  cover the lines in the three views. Saved files (the Library, DriveWire) are not rolled back, except a disk that has stayed in
   the same drive since the point (`Session.restorePoint`, also behind the chat's undo): if the machine wrote to it
   since, its stored image is put back to the image the drive holds after the restore, and it goes on saving its
   writes. A disk changed since the point (ejected, replaced or changed in the Library, mounted again or in another
@@ -303,7 +346,7 @@ emulator.
   stays `text` when a text mode merely goes unread. On such a screen `atPrompt` is
   `null` ("cannot be told"), not inferred from a page that is not visible. Before
   Claude's first change in a turn the BASIC session is snapshotted, by every acting tool through the one path
-  (`ChatSession.withRestorePoint`); **Restore to before Claude's changes** restores it exactly (the last 10 turns are
+  (`ChatSession.withRestorePoint`); **↶ Restore to …** on the restore line restores it exactly (the last 10 points are
   kept, in memory only).
   Every integer parameter is declared `"type":"integer"` with the range the code enforces, derived from one set of
   constants, so the schema cannot drift from what the tool accepts; an optional parameter's description states
@@ -410,9 +453,22 @@ emulator.
   `BYTE_MIN`/`BYTE_MAX`, `TYPE_TEXT_MAX`, `SOURCE_MAX`, `ASSEMBLE_DEFAULT_ORG`, `RUN_DEFAULT_TARGET`,
   `BASIC_PROGRAM_TEXT_MAX`, and `ADDRESS_MIN`/`ADDRESS_MAX` from `js/claude/readtools.js`). The results:
   `poke` `{address, length, written, skipped, not_taken}`; `type_text` `{requested, consumed, lines_requested,
-  lines_delivered}`; `load_basic` `{lines, bytes, start, end}`; `press_break` `{pressed:true}`; `assemble_and_load`
-  `{bytes, written, skipped, ranges, start, symbols, not_taken}`; `run` `{started:true, how:"jump"|"typed", target}`.
-  The brief says the same in short (`TOOL_CONTRACT` in `js/claude/brief.js`). `node tests/claude-acting-contract.test.js`
+  lines_delivered}`; `load_basic` `{lines, bytes, start, end}`; `press_break` `{requested, consumed}`;
+  `assemble_and_load` `{bytes, written, skipped, ranges, start, symbols, not_taken}`; `run` `{how:"jump", target}`,
+  or for `"RUN"` `{how:"typed", target:"RUN", requested, consumed, lines_requested, lines_delivered}`.
+  The keyboard tools (`type_text`, `press_break`, `run "RUN"`) all go through the paced typist (`Typist.typePaced`,
+  `Typist.holdPaced` for BREAK) and say what the machine read: *consumed* means the keyboard was scanned with the
+  key down, not proof the program acted on it. A machine that never reads the keyboard while a key is held (a
+  program that does not scan it; no ROMs, whose stub reads no BREAK) is `not-consumed`, where `press_break` used to
+  answer `{pressed:true}` at once and `run` `{started:true}` with RUN only queued. For BREAK and the Enter of RUN, a
+  key read once down is enough: what they start or stop may never read the keyboard again.
+  The brief says the same in short (`TOOL_CONTRACT` in `js/claude/brief.js`), and adds the rule a success is read by:
+  "An acting tool's success means the keys or bytes reached the machine, not that the program did what you wanted.
+  Check the effect with screen_text, peek or machine_info before you say it happened. If you can't read the result,
+  say it is unverified." The brief's facts come from the machine's real state: BASIC ROMs in (and then that a
+  program may be running, not BASIC's prompt), NitrOS-9 running, or no ROMs (`software`), and the machine's own text
+  screen by family (32 by 16 on the MC6847 machines; the CoCo 3's and the Dragon 64 Plus's wider ones named). The
+  chat firmware's 42 by 24 is said only to the full-screen chat, where the replies are read on it. `node tests/claude-acting-contract.test.js`
   checks every acting tool against every outcome through the backend with a mocked API, the schemas against the
   constants, and the gate and restore point for every tool in the schemas.
   **The codes** (`js/claude/toolerrors.js`), each sent as `{"error":{"code":…,"remedy":…,"detail":…}}` with
@@ -432,13 +488,14 @@ emulator.
   | `no-consent` | the person has not allowed acting on the machine: explain the change instead of making it |
   | `consent-declined` | the person chose "Just tell me the fix": explain the change so they can make it |
   | `stopped` | the person stopped Claude: do not change the machine |
+  | `machine-restarted` | the machine restarted while your keys went in (detail says how many went in; the rest were not typed); this is not a Stop. Read the screen with screen_text and machine_info before you type again |
   | `empty` | send a non-empty value for the parameter named in detail |
   | `bad-byte` | a byte is a whole number from 0 to 255 |
   | `assembly-failed` | fix the errors named in detail (line numbers are those of your source) and call again; nothing was written |
   | `org-conflict` | drop the org argument, or remove the ORG line from the source |
   | `no-basic` | this needs the BASIC ROMs, which this machine does not have: for run, pass an address to jump to instead; for a program, write it in assembler with assemble_and_load |
   | `bad-target` | pass an address 0-65535 (a decimal integer, or hex text like "$3000") or "RUN" |
-  | `not-consumed` | the machine stopped reading the keyboard before everything was typed (detail says how far it got; the rest was not typed): read the screen with screen_text, press_break if a program is running, then type only what is missing, or offer load_basic for a long program |
+  | `not-consumed` | the machine did not read the keyboard while the keys were held (detail says how far it got; the rest was not typed or pressed): read the screen with screen_text and machine_info to see what is running; if a program is running that reads the keyboard, press_break may stop it; a program that never reads it ignores keys, so say so. Then type only what is missing, or offer load_basic for a long program |
   | `bad-line-number` | start every line with a line number from 0 to 63999 (detail names the line); nothing was loaded |
   | `line-too-long` | split the line named in detail: it is longer than this BASIC accepts (the limit is in detail); nothing was loaded |
   | `not-at-prompt` | BASIC must be at its OK prompt: read the screen with screen_text, press_break if a program is running, and try again |
@@ -461,8 +518,8 @@ a chat with the real one needs a key, so it is done by hand. Chat with the real 
 3. Click the screen, type `Hello, what machine is this?` and press ENTER: *Thinking...*, then a reply in upper and
    lower case that names the Dragon 64; the tag reads *connected*.
 4. With BASIC ROMs added, ask `Write a three-line BASIC program that prints HELLO, type it in and RUN it`: the BASIC
-   session comes on screen, the program is typed and runs. Click **Restore to before Claude's changes**: the
-   program is gone. Then ask for a 20-line program: Claude calls `load_basic` without asking in prose, the panel
+   session comes on screen, the program is typed and runs, and the turn's lines say what was typed. Click
+   **↶ Restore to …** on the restore line: the program is gone and the lines say *undone at*. Then ask for a 20-line program: Claude calls `load_basic` without asking in prose, the panel
    says *Thinking…* with Stop while it writes the call, and the load card asks (*Waiting for your OK*); click
    **Load it**, and it lists the program and checks the screen; `LIST` and `RUN` it yourself. Do this on a Dragon, a CoCo (1/2 and 3)
    and an MC-10: this is the only check of `load_basic` against a real BASIC (not automated: no test may use ROMs).

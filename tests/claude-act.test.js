@@ -42,6 +42,8 @@ const nt = (r) => (r.ok ? JSON.stringify(r.out.not_taken) : `${r.err.code}`);   
 const gap = (from, to, why) => JSON.stringify([{ from, to, why }]);
 const mem = (m, addr, len) => Array.from({ length: len }, (_, i) => m.peek ? m.peek(addr + i) : m.ram[addr + i]);
 
+// a run that never reaches its summary (a call that never settles empties the event loop) must not pass
+process.exitCode = 1;
 (async () => {
   // ---- 1. the tool sets ----
   {
@@ -140,12 +142,17 @@ const mem = (m, addr, len) => Array.from({ length: len }, (_, i) => m.peek ? m.p
     const d = await call(chat, name, input);
     check(`${name}: "Just tell me the fix" is refused with consent-declined and queues nothing`, !d.ok && d.err.code === C.CONSENT_DECLINED && queued() === 0 && chat.undo.length === 0);
     s.claudeGate = () => Promise.resolve().then(() => s.answerClaude(true));
-    // type_text settles once the machine (the stub here) has taken every key, so it runs with frames
+    // both settle once the machine has read the keys (or not), so they run with frames. The stub here takes typed
+    // key codes but reads no matrix key, so BREAK is not read: press_break says so rather than claiming a press
     const taken = m.stubKeysTaken;
-    const ok = name === 'type_text' ? await callFrames(s, chat, name, input) : await call(chat, name, input);
-    check(`${name}: after Allow it acts: one restore point, keys delivered or queued, and the result is JSON`, ok.ok && chat.undo.length === 1 && s.claudeAllowed
-      && (name === 'type_text' ? m.stubKeysTaken - taken === 8 : queued() > 0)
-      && JSON.stringify(ok.out) === (name === 'type_text' ? '{"requested":8,"consumed":8,"lines_requested":1,"lines_delivered":1}' : '{"pressed":true}'), ok.ok ? JSON.stringify(ok.out) : ok.err.message);
+    const ok = await callFrames(s, chat, name, input);
+    if (name === 'type_text') {
+      check(`${name}: after Allow it acts: one restore point, keys delivered, and the result is JSON`, ok.ok && chat.undo.length === 1 && s.claudeAllowed
+        && m.stubKeysTaken - taken === 8 && JSON.stringify(ok.out) === '{"requested":8,"consumed":8,"lines_requested":1,"lines_delivered":1}', ok.ok ? JSON.stringify(ok.out) : ok.err.message);
+    } else {
+      check(`${name}: after Allow it acts (one restore point) and says the stub did not read BREAK: not-consumed, nothing left queued`, !ok.ok && ok.err.code === C.NOT_CONSUMED
+        && /key 1 \(BREAK\) was not read by the machine/.test(ok.err.message) && /"consumed":0/.test(ok.err.message) && chat.undo.length === 1 && s.claudeAllowed && queued() === 0, ok.ok ? JSON.stringify(ok.out) : ok.err.message);
+    }
   }
 
   // ---- 3. assemble_and_load: what it writes and reports, and that it does not start the machine ----
@@ -323,21 +330,24 @@ const mem = (m, addr, len) => Array.from({ length: len }, (_, i) => m.peek ? m.p
         const c2 = ask(s2); const m2 = s2.machine;
         if (id === 'mc10' && name === 'poke') input.address = 0x4200;
         const was = Emu.state.toJSON(m2.snapshot());
-        // type_text answers once the machine has read its keys, so it runs with frames (the restore point is the
-        // machine before the first key, so Undo still returns to `was`)
-        const r = name === 'type_text' ? await callFrames(s2, c2, name, input) : await call(c2, name, input);
+        // type_text and press_break answer once the machine has read their keys (or not), so they run with frames (the
+        // restore point is the machine before the first key, so Undo still returns to `was`). These machines have no
+        // ROM: the stub reads typed key codes but no BREAK, so press_break acts and then says not-consumed
+        const keyed = name === 'type_text' || name === 'press_break';
+        const acted = (x) => (name === 'press_break' ? !x.ok && x.err.code === C.NOT_CONSUMED : x.ok);
+        const r = keyed ? await callFrames(s2, c2, name, input) : await call(c2, name, input);
         check(`${id}: ${name} takes a restore point holding the machine as it was, and Undo returns to it`,
-          r.ok && c2.undo.length === 1 && Emu.state.toJSON(c2.undo[0]) === was && c2.undoLast() && Emu.state.toJSON(m2.snapshot()) === was,
+          acted(r) && c2.undo.length === 1 && Emu.state.toJSON(c2.undo[0]) === was && c2.undoLast() && Emu.state.toJSON(m2.snapshot()) === was,
           r.ok ? JSON.stringify(r.out) : r.err.code);
         // and through the Session's own mechanism the page uses (restoreClaude, the "Restore to before Claude's changes" button)
         const s3 = boot(id); s3.setClaudeAllowed(true);
         const c3 = ask(s3); const m3 = s3.machine;
         const inp3 = name === 'poke' && id === 'mc10' ? { ...input, address: 0x4200 } : input;
         const was3 = Emu.state.toJSON(m3.snapshot());
-        const r3 = name === 'type_text' ? await callFrames(s3, c3, name, inp3) : await call(c3, name, inp3);
+        const r3 = keyed ? await callFrames(s3, c3, name, inp3) : await call(c3, name, inp3);
         const pts = s3.claudePoints.length;
         check(`${id}: ${name}: Session.restoreClaude() puts the machine (RAM, CPU registers, everything) back exactly to before the act`,
-          r3.ok && pts === 1 && s3.restoreClaude() && Emu.state.toJSON(m3.snapshot()) === was3 && s3.claudePoints.length === 0, r3.ok ? `${pts} points` : r3.err.code);
+          acted(r3) && pts === 1 && s3.restoreClaude() && Emu.state.toJSON(m3.snapshot()) === was3 && s3.claudePoints.length === 0, r3.ok ? `${pts} points` : r3.err.code);
       }
     }
   }
@@ -537,13 +547,15 @@ STB     FCB     $FE,$FD,$FB,$F7,$EF,$DF,$BF,$7F
       check(`${id}: our firmware is the BASIC ROM and it ran`, m.hasRom && m.ram[base + 1] === 0x5A && m.ram[base] === 0, `marker $${m.ram[base + 1].toString(16)}`);
       s.setClaudeAllowed(true);
       const chat = ask(s);
-      const r = await call(chat, 'run', { target: 'RUN' });
-      frames(s, 80);
+      // RUN is typed the paced way, so the call settles once the firmware has read every key (it runs with frames)
+      const r = await callFrames(s, chat, 'run', { target: 'RUN' });
+      frames(s, 10);
       const count = m.ram[base];
       const got = Array.from({ length: count }, (_, i) => m.ram[base + 0x40 + i + (id === 'mc10' ? 0x10 : 0)]);
       // expected: the matrix position of each key, [row, column] -> column*8+row, from the machine's own layout
       const want = ['R', 'U', 'N', 'ENTER'].map((k) => m.keyPos[k][1] * 8 + m.keyPos[k][0]);
-      check(`${id}: run("RUN") delivers R, U, N, ENTER to firmware scanning the matrix, in order`, r.ok && r.out.how === 'typed' && r.out.target === 'RUN' && got.join() === want.join(),
+      check(`${id}: run("RUN") delivers R, U, N, ENTER to firmware scanning the matrix, in order, and reports them consumed`, r.ok && r.out.how === 'typed' && r.out.target === 'RUN' && got.join() === want.join()
+        && JSON.stringify(r.out) === '{"how":"typed","target":"RUN","requested":4,"consumed":4,"lines_requested":1,"lines_delivered":1}',
         `${r.ok ? '' : r.err.message} got [${got.map((g) => g.toString(16))}] want [${want.map((g) => g.toString(16))}]`);
       check(`${id}: RUN took one restore point and undo clears what was still queued`, chat.undo.length === 1);
       // F6, the same class for type_text: it says it typed 2 characters, and the firmware sees exactly those two keys
@@ -554,6 +566,15 @@ STB     FCB     $FE,$FD,$FB,$F7,$EF,$DF,$BF,$7F
       const got2 = Array.from({ length: m.ram[base] - c0 }, (_, i) => m.ram[base + 0x40 + (id === 'mc10' ? 0x10 : 0) + c0 + i]);
       const want2 = ['U', 'R'].map((k) => m.keyPos[k][1] * 8 + m.keyPos[k][0]);
       check(`${id}: type_text says the machine consumed 2 keys and firmware scanning the matrix sees exactly U, R`, tt.ok && tt.out.consumed === 2 && tt.out.requested === 2 && got2.join() === want2.join(), `${tt.ok ? JSON.stringify(tt.out) : tt.err.code} got [${got2.map((g) => g.toString(16))}] want [${want2.map((g) => g.toString(16))}]`);
+      // press_break, held the paced way: consumed, and the firmware logs BREAK as the one new key
+      turn(chat);
+      const c1 = m.ram[base];
+      const pb = await callFrames(s, chat, 'press_break', {});
+      frames(s, 10);
+      const got3 = Array.from({ length: m.ram[base] - c1 }, (_, i) => m.ram[base + 0x40 + c1 + i + (id === 'mc10' ? 0x10 : 0)]);
+      const want3 = [m.keyPos.BREAK[1] * 8 + m.keyPos.BREAK[0]];
+      check(`${id}: press_break on firmware scanning the matrix: consumed, and the firmware saw exactly BREAK`, pb.ok && JSON.stringify(pb.out) === '{"requested":1,"consumed":1}' && got3.join() === want3.join(),
+        `${pb.ok ? JSON.stringify(pb.out) : pb.err.message} got [${got3.map((g) => g.toString(16))}] want [${want3.map((g) => g.toString(16))}]`);
     }
   }
 
@@ -657,8 +678,8 @@ STB     FCB     $FE,$FD,$FB,$F7,$EF,$DF,$BF,$7F
     turn(chat);
     const tt = await callFrames(s, chat, 'type_text', { text: 'PRINT 1\n' });
     check('type_text: the result is what the machine consumed', tt.ok && JSON.stringify(tt.out) === '{"requested":8,"consumed":8,"lines_requested":1,"lines_delivered":1}', JSON.stringify(tt.out));
-    const pb = await call(chat, 'press_break', {});
-    check('press_break: the result is {pressed:true}', pb.ok && JSON.stringify(pb.out) === '{"pressed":true}');
+    const pb = await callFrames(s, chat, 'press_break', {});
+    check('press_break: no ROMs, so nothing reads BREAK: not-consumed, coded', !pb.ok && pb.err.code === C.NOT_CONSUMED, pb.ok ? JSON.stringify(pb.out) : pb.err.message);
     check('an unknown tool is unknown-tool', await err('format_disk', {}) === C.UNKNOWN_TOOL);
     // every code a tool throws is in the shared table, with a remedy
     const thrown = [C.NO_CONSENT, C.CONSENT_DECLINED, C.STOPPED, C.EMPTY, C.BAD_BYTE, C.ASSEMBLY_FAILED, C.ORG_CONFLICT, C.NO_BASIC, C.BAD_TARGET, C.PAST_END, C.TOO_LARGE, C.BAD_ADDRESS, C.NOT_A_NUMBER, C.UNKNOWN_TOOL];

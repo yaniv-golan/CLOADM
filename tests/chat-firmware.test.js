@@ -41,7 +41,7 @@ const equ = (name) => Number((new RegExp(`^${name}\\s+EQU\\s+(\\d+)`, 'm').exec(
 const COLS = equ('COLS'), ROWS = equ('ROWS'), GLYPH_W = 6, GLYPH_H = 8;
 check('the chat tells Claude the screen size the firmware has (CHAT_SCREEN = COLS and ROWS in chat.asm)', COLS === 42 && ROWS === 24
   && Emu.CHAT_SCREEN.cols === COLS && Emu.CHAT_SCREEN.rows === ROWS
-  && Emu.claudeBrief({ machine: 'Dragon 64', ram: 64, cpu: '6809', hasBasic: false, edition: 'cloadm.dev', tools: true }).includes(`${COLS} columns by ${ROWS} rows`),
+  && Emu.claudeBrief({ machine: 'Dragon 64', ram: 64, cpu: '6809', software: 'none', family: 'dragon', view: 'full', edition: 'cloadm.dev', tools: true }).includes(`${COLS} columns by ${ROWS} rows`),
   `firmware ${COLS}x${ROWS}, CHAT_SCREEN ${Emu.CHAT_SCREEN.cols}x${Emu.CHAT_SCREEN.rows}`);
 // the two variables the page reads (Session.chatPromptEmpty) sit where CHAT_STATE says, in the assembled source
 check('CHAT_STATE is where the firmware keeps BLEN and WAIT', asm.ok && asm.symbols.get('BLEN') === Emu.CHAT_STATE.blen && asm.symbols.get('WAIT') === Emu.CHAT_STATE.wait,

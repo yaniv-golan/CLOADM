@@ -898,17 +898,24 @@
   #askMessages .msg[data-role="claude"] { align-self: flex-start; background: var(--panel); }
   #askMessages .msg.note { font: 13px var(--font-mono); color: var(--text-3); background: none; border: 0; padding: 0; }
   #btnAskFix { align-self: flex-start; }
-  #btnAskFix[hidden], #askConsent[hidden], #askLoad[hidden], #claudeLoad[hidden], #askRestore[hidden], #askActivity[hidden], #askKeyMsg[hidden], #askKeyForm[hidden], #askComposer[hidden], #askPointList[hidden] { display: none; }
+  #btnAskFix[hidden], #askConsent[hidden], #askLoad[hidden], #claudeLoad[hidden], #askKeyMsg[hidden], #askKeyForm[hidden], #askComposer[hidden] { display: none; }
   .askcard { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
   #askConsent, #askLoad { border-color: var(--phosphor); padding: 14px; }
   #askLoad p, #claudeLoad p { margin: 0; font-size: 14px; line-height: 1.5; color: var(--text-2); }
   .loadnoask { display: flex; gap: 8px; align-items: center; font-size: 14px; }
   #askConsent p { margin: 0; font-size: 14px; line-height: 1.5; color: var(--text-2); }
   .askcard .muted { font-size: 13px; }
-  #askActivity { border-left: 2px solid var(--phosphor); padding: 4px 0 4px 10px; font: 13px/1.7 var(--font-mono); color: var(--text-3); white-space: pre-wrap; }
   .pointnote { font-size: 12px; margin-top: 4px; }
-  #askPointList { display: flex; flex-direction: column; gap: 4px; }
-  #askPointList button { text-align: left; background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-size: 14px; }
+  /* R12/R13: the small muted lines under a turn (js/ui/claude-lines.js) */
+  .actions { display: flex; flex-direction: column; gap: 2px; margin: -6px 0 0 12px; font-size: var(--text-min); line-height: 1.5; color: var(--muted); }
+  .actions[hidden], .restoreline[hidden], .rl-list[hidden], .rl-wait[hidden], .rl-more[hidden], .restoreline .rl-go .glyph:empty { display: none; }
+  .actions .act, .actions .act-reads { overflow-wrap: anywhere; }
+  .actions .act-sum, .restoreline .rl-more, .restoreline .rl-go { align-self: flex-start; background: none; border: 0; padding: 0; font: inherit; color: var(--muted); text-decoration: underline; cursor: pointer; }
+  .restoreline { margin: -6px 0 0 12px; font-size: var(--text-min); color: var(--muted); }
+  .restoreline .rl-go:disabled { text-decoration: none; cursor: default; }
+  .restoreline .rl-list { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+  .restoreline .rl-items { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+  .restoreline .rl-items button { text-align: left; background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 4px 10px; font: inherit; color: var(--text-3); }
   /* the turn's status with Stop (side panel and full screen) */
   #askStatus { flex: none; display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-top: 1px solid #1D2420; font-size: 14px; color: var(--text-2); }
   #askStatusText { flex: 1; min-width: 0; }
@@ -1019,6 +1026,7 @@
   #claudeSession.asking { border-color: var(--phosphor); }
   #claude #claudeSession h2 { font-size: 17px; font-stretch: 100%; }
   #claudeRestore { border-top: 1px solid var(--line); padding-top: 10px; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; margin-top: 10px; }
+  #claudeRestore .actions, #claudeRestore .restoreline { margin: 0; }
   /* docking: while the panel is open the machine gives up width to it, down to 480 px (the 256-pixel picture at
      nearly 2x), so the panel never covers the screen. That needs a window of 960 px: the machine's 480, the panel's
      420 and the gaps. From 960 to 1100 px there is no room for the rail: the drawer stays, below the machine.
@@ -1050,8 +1058,8 @@
     #askHandle { display: flex; justify-content: center; padding: 6px; min-height: 0; background: none; border: 0; width: 100%; }
     #askHandle span { width: 40px; height: 5px; border-radius: 3px; background: var(--line-strong); }
     .askhead { padding: 0 12px 8px; border: 0; }
-    #askSee, #askRestore, .askfoot label { display: none; }
-    #ask.more #askRestore:not([hidden]), #ask.more .askfoot label { display: flex; }
+    #askSee, .askfoot label { display: none; }
+    #ask.more .askfoot label { display: flex; }
     #askBody { padding: 0 12px 8px; gap: 8px; }
     #askComposer { padding: 8px 12px; }
     #askInput, #btnAskSend { height: 44px; }
@@ -1370,7 +1378,7 @@ npx serve -l 8000 .</pre>
       <strong>Ask Claude</strong>
       <div class="viewswitch" role="group" aria-label="View"><button id="btnAskSide" aria-pressed="true">Side panel</button><button id="btnAskFull" aria-pressed="false">Full screen</button></div>
       <span class="grow"></span>
-      <button id="btnAskMore" class="icon" aria-label="More: restore points and the emulator switch" aria-expanded="false">⋯</button>
+      <button id="btnAskMore" class="icon" aria-label="More: the emulator switch" aria-expanded="false">⋯</button>
       <button id="btnAskMin" class="icon" aria-label="Minimise"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 10h8"/></svg></button>
       <button id="btnAskClose" class="icon" aria-label="Close"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="m3.5 3.5 7 7m0-7-7 7"/></svg></button>
     </div>
@@ -1398,13 +1406,6 @@ npx serve -l 8000 .</pre>
         <p id="askLoadPaused" class="paused" hidden></p>
         <label class="loadnoask"><input type="checkbox" id="chkAskLoadNoAsk"> Don't ask again this session</label>
         <div class="bar"><button id="btnAskLoad" class="primary">Load it</button><button id="btnAskLoadNo">Don't load</button></div>
-      </div>
-      <div id="askActivity" hidden></div>
-      <div id="askRestore" class="askcard" hidden>
-        <div class="muted" id="askRestoreWhen"></div>
-        <div class="bar"><button id="btnAskRestore">Restore to before Claude's changes</button><button id="btnAskPoints" class="link" aria-expanded="false">All restore points</button></div>
-        <div id="askPointList" hidden></div>
-        <div class="muted pointnote" id="askPointNote">Restore points are kept only while this chat is open: reloading the page, ending the chat or switching machine loses them. Saved files (Library, DriveWire) are not rolled back, except a disk left in its drive since the point.</div>
       </div>
       <div id="askKeyMsg" role="status" hidden><span id="askKeyText"></span><button id="btnAskRetry" hidden>Try again</button></div>
     </div>
@@ -1448,7 +1449,7 @@ npx serve -l 8000 .</pre>
       </div>
       <label class="switch"><input type="checkbox" id="chkClaudeTools"> Let Claude use the emulator</label>
       <div id="claudeBasicNote"></div>
-      <div id="claudeRestore" hidden><span class="muted" id="claudeRestoreWhen"></span><button id="btnClaudeUndo">Restore to before Claude's changes</button><div class="muted pointnote" id="claudePointNote">Restore points are kept only while this chat is open: reloading the page, ending the chat or switching machine loses them. Saved files (Library, DriveWire) are not rolled back, except a disk left in its drive since the point.</div></div>
+      <div id="claudeRestore" hidden><div id="claudeActions" class="actions" hidden></div></div>
     </section>
   </aside>
 
@@ -1834,6 +1835,8 @@ npx serve -l 8000 .</pre>
 <link rel="modulepreload" href="js/claude/readtools.js">
 <link rel="modulepreload" href="js/media/basic.js">
 <link rel="modulepreload" href="js/claude/basicload.js">
+<link rel="modulepreload" href="js/claude/history.js">
+<link rel="modulepreload" href="js/claude/actions.js">
 <link rel="modulepreload" href="js/claude/chat.js">
 <link rel="modulepreload" href="js/claude/channel.js">
 <link rel="modulepreload" href="js/machines/nitros9.js">
@@ -1846,7 +1849,6 @@ npx serve -l 8000 .</pre>
 <link rel="modulepreload" href="js/session.js">
 <link rel="modulepreload" href="js/host/input.js">
 <link rel="modulepreload" href="js/embed-api.js">
-<link rel="modulepreload" href="js/claude/history.js">
 <link rel="modulepreload" href="js/claude/backend.js">
 <link rel="modulepreload" href="js/claude/brief.js">
 <link rel="modulepreload" href="js/host/example-reader.js">
@@ -1892,6 +1894,7 @@ npx serve -l 8000 .</pre>
 <link rel="modulepreload" href="js/ui/snapshot-panel.js">
 <link rel="modulepreload" href="js/ui/embed.js">
 <link rel="modulepreload" href="js/ui/settings-file.js">
+<link rel="modulepreload" href="js/ui/claude-lines.js">
 <link rel="modulepreload" href="js/ui/claude.js">
 <link rel="modulepreload" href="js/ui/ask.js">
 <link rel="modulepreload" href="js/ui/command-box.js">

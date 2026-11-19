@@ -6,6 +6,40 @@ All notable changes to CLOADM are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Restore points: one small line instead of a card after every message** (UX ruling R12). Under the latest turn
+  that changed the machine: "↶ Restore to 23:58 · Restore points…", the second opening every point (the last 10)
+  and what restoring does and doesn't roll back; while a turn runs, "Restore point at 23:58 · Stop first to restore".
+  The same line in the side panel, the phone sheet and the full-screen chat; after a restore it moves to the
+  previous point's turn. The "✓ restore point made" log line is gone, and nothing calls it Undo.
+- **What Claude did, one line per action under each turn** (UX ruling R13), replacing the activity log: "✓ typed
+  "DIR"", "– didn't type "DIR": you said no", "– typed "DIR", but the machine didn't read the keys", "✗ couldn't
+  …", partial pokes and loads, " · undone at 00:02" after a restore; a turn of more than 3 actions folds its ✓ lines
+  into one button with the reads counted; a turn that only read says so on a plain line ("read the screen 2×,
+  memory 1×") and a read that failed is a ✗ line. A reset of the machine under Claude's typing is reported as
+  `machine-restarted` ("– typed "1", then the machine restarted"), not as a Stop. Never printed on
+  the full-screen chat's own screen
+  (`js/claude/actions.js`, `js/ui/claude-lines.js`, `tests/claude-actions.test.js`).
+
+### Fixed
+
+- **Claude no longer forgets what it did, and no longer claims more than the machine shows.** Claude in the Ask
+  panel said it had typed DIR and PROCS, and later that it could find no record of doing so. The chat kept only
+  each reply's text, so the next request held Claude's claims without the tool calls and results behind them; a
+  turn that failed after its tools ran (Stop, a network error, a stall) was dropped whole although the machine had
+  changed. A turn is now recorded whole (the line, every `tool_use` with its `tool_result` as sent, the reply); a
+  failed turn keeps the rounds that completed, with a note from the page saying how it ended; the oldest turns are
+  dropped whole, never half a tool pair. What the views show is unchanged. `press_break` and `run "RUN"` now go
+  through the paced typist and say whether the machine read the keys (`press_break` answered `{pressed:true}` at
+  once, and `run` `{started:true}` with RUN only queued); every keyboard tool's description says that *consumed*
+  means the keyboard was scanned with the key down, not that the program acted on it. The brief tells Claude to
+  check a change with `screen_text`, `peek` or `machine_info` before saying it happened, and to call it unverified
+  when it can't; it no longer assumes BASIC (a machine with NitrOS-9 running, or without ROMs, is described as it
+  is) and gives the machine's own screen size rather than the chat firmware's, which only the full-screen chat is
+  told (`js/claude/chat.js`, `js/claude/backend.js`, `js/claude/history.js`, `js/claude/brief.js`,
+  `js/machines/typist.js`, `tests/claude-history.test.js`).
+
 ### 0.1.4-pre
 
 #### Added
