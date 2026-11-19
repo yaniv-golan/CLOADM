@@ -700,8 +700,8 @@
     "halted": true
   },
   "trace coco3 ssc int3 (our side; MAME differs at $0405)": {
-    "hash": "d0e204d4",
-    "instructions": 24298,
+    "hash": "d30d676a",
+    "instructions": 24301,
     "halted": true
   },
   "trace coco3 cocofdc halt": {

@@ -206,6 +206,27 @@ cases.push(['trace dragon32 cart multi', () => traceHash(spec('cart').trace('dra
 // The gate itself runs our emulator only, so it records our side in the same form as every other case - the
 // full instruction trace's registers and cycle counts - and adds the final work RAM ($0400-$0405) and the
 // ordered device-write sequence, so any change to what the card does to its chips shows up here.
+//
+// WHY THIS KEY MOVED ONCE, and why that was intended (AGENTS 4.2). The CoCo 3 case's trace hash changed with the
+// fix that made ioTime() answer now() between instructions (it had used the last step's cycle count). The access
+// whose timing moves is the SSC card's own clock, not the 6809's status read: runCycles calls processEventsMame
+// BEFORE cpu.step() (js/machines/coco3.js), the card's attoclock timer fires there, and catchUp() asks the host
+// what time it is - so inStep is rightly false and no instruction is running. Measured at that frame around the
+// divergence: pc $A053 (the instruction not yet executed), cycle 331,884, cpu.cycleCount 2 (the PREVIOUS step's
+// length), so the old code answered 331,891 - 7 ticks ahead - and now answers 331,884. (The other such frame
+// measured is cycle 307,408 with cycleCount 8: 31 ticks ahead before.) Because the card is caught up to the
+// machine's real time instead of a time ahead of it, the busy bit is sampled at a different moment and one poll
+// pass is added: the 3 instructions $A082/$A085/$A087 at step 20,197, giving 24,301 instructions instead of
+// 24,298.
+// The 6809's own read of $FF7E is IN STEP and unchanged: watching the bus, that read happens at step 20,198 with
+// inStep true, and the fix leaves every in-step answer alone - the first 12,859 in-step ioTime() answers of the
+// two runs are identical element for element, and the first that differs is the poll iteration at step 20,197
+// itself, downstream of the between-step card timer.
+// Checked against MAME 0.264 (compare.js, and run.js --ssc, on both trees): the device-write rows are 107 of 107
+// identical, the lockstep run is 1,157,487 instructions with HALT at 213,485 on both, and the outcome comparison
+// differs in exactly the documented way and nowhere else ($0405 = $DF on MAME, $FF here). The MAME verdict did
+// not change; only our instruction count did, in the direction the fix describes (the card had been run ahead of
+// the machine between instructions).
 // WHICH KEYS ARE MAME-BACKED, and the answer differs by model, so it is stated per model rather than for the case:
 //   coco   - compare.js on 0.264: 107 of 107 device-write rows identical, work RAM identical, HALT both sides.
 //   coco2b - the same, verified for this model: 107 of 107 identical, work RAM identical.

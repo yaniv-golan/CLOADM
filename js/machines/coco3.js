@@ -83,6 +83,10 @@ class Coco3Machine extends Machine {
     this.haltDefer = null;   // an I/O access waiting for HALT to be released (haltWait); between steps, the suspended
                              // instruction (haltSuspend)
     this.ioShift = 0;        // ticks the rest of a step runs later than its start says (the wait in haltWait)
+    // true while a suspended instruction's events run between steps (haltResume): ioTime() must then report the
+    // held access's time, not the machine's. An explicit flag rather than a test on ioShift, which is legitimately
+    // 0 for an access held at the instruction's own start - the guard must not depend on that.
+    this.heldIo = false;
     // every bus access of the step so far, in order (busLogged): its address and the byte read or written. A step run
     // again after HALT suspended it gets its first replayN accesses from here (replayRead), not from the bus.
     this.busA = new Int32Array(256); this.busV = new Uint8Array(256); this.busN = 0;
@@ -321,11 +325,17 @@ class Coco3Machine extends Machine {
   // ---------------- time line ----------------
   // Visibility rule (as in MAME's cycle-stepped 6809): an event at time T is seen by a bus
   // access whose cycle starts at a if T < a + (clocks per cycle); interrupts are sampled at
-  // the start of an instruction by the same rule.
-  ioTime() { return this.cycle + this.ioShift + Math.max(1, this.cpu.cycleCount) * this.div - 1; }
+  // the start of an instruction by the same rule. Between instructions there is no access, and cycleCount holds
+  // the last step's (see Machine.ioTime), so the answer is now(). heldIo is the one between-step state that keeps
+  // the in-step form: a suspended instruction's events run with the held access's time (haltResume). A parked
+  // instruction has cycleCount 0 and is not held, so it takes now() - note that the in-step form would NOT give
+  // now() there, since Math.max(1, 0) * div - 1 is div - 1 clocks, not 0.
+  ioTime() { return this.inStep || this.heldIo ? this.cycle + this.ioShift + Math.max(1, this.cpu.cycleCount) * this.div - 1 : this.cycle; }
   clockUnits() { return super.clockUnits() - (this.config.mameCompat ? MAME_TIME_LAG : 0); }
-  // Start of the current access cycle (the CPU counts the cycles of the instruction so far).
-  accessStart() { return this.cycle + this.ioShift + Math.max(0, this.cpu.cycleCount - 1) * this.div; }
+  // Start of the current access cycle (the CPU counts the cycles of the instruction so far). Between instructions
+  // there is no cycle in progress, and cycleCount holds the last step's, so it is now (see Machine.ioTime): an
+  // outside write through syncIoMame would otherwise end a slice a whole instruction past its access.
+  accessStart() { return this.inStep || this.heldIo ? this.cycle + this.ioShift + Math.max(0, this.cpu.cycleCount - 1) * this.div : this.cycle; }
 
   // MAME runs the CPU in scheduler slices; where a slice starts matters when the CPU clock rate
   // changes (see runCycles). A slice starts at every timer event (on the CPU's cycle grid) and
@@ -557,12 +567,15 @@ class Coco3Machine extends Machine {
   }
   // a suspended instruction's wait goes on -> true when it can run again (HALT released, or nothing left to run).
   // While its events run, ioTime() is the held access's, as in haltWait (the CPU's cycleCount at the access, ioShift
-  // back to the instruction's start); between runs it is the machine's time, for an access from outside the CPU.
+  // back to the instruction's start) - heldIo says so, since ioShift itself may be 0 for an access at the
+  // instruction's start; between runs it is the machine's time, for an access from outside the CPU.
   haltResume() {
     const d = this.haltDefer;
     if (d.rel < 0) {
       this.cpu.cycleCount = d.n; this.ioShift = d.s - this.cycle;
-      const go = this.haltRun(d);
+      this.heldIo = true;
+      let go;
+      try { go = this.haltRun(d); } finally { this.heldIo = false; }
       this.ioShift = 0;
       if (!go) { this.haltPark(d); return false; }
       // HALT dropped outside an event (the cartridge taken out: its lines go at once, js/machines/bus.js detach):

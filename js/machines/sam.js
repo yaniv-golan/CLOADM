@@ -421,9 +421,14 @@ class SamMachine extends Machine {
       this.stepStart = this.cycle; this.stepReg = this.sam.reg; this.regLog.length = 0;
       this.stepCycles = cpu.totalCycles;     // the CPU's count at the step's start (it moves on when the step ends)
       this.inStep = true;
-      const n = cpu.step();
-      if (this.config.mameCompat) this.processEventsMame();   // check points after the step's last access
-      this.inStep = false;
+      let n;
+      // processEventsMame() reads inStep (it is MAME's check points after the step's last access), so it runs
+      // inside the flag; the failure path clears the flag itself, or a throwing step would leave the machine
+      // timing every later access as mid-instruction.
+      try {
+        n = cpu.step();
+        if (this.config.mameCompat) this.processEventsMame();   // check points after the step's last access
+      } finally { this.inStep = false; }
       if (this.config.mameCompat) {
         this.sliceBase += n;
         this.cycle = this.sliceStart + this.sliceBase * this.periodAfter(n);
@@ -508,8 +513,10 @@ class SamMachine extends Machine {
     return this.inStep ? this.stepStart + (this.cpu.cycleCount + units) * p : this.cycle + units * p;
   }
   // tick at which the current bus access happens: at the slow rate, the start of the instruction's last cycle
-  // (as verified against MAME); otherwise the start of the access's own cycle
+  // (as verified against MAME); otherwise the start of the access's own cycle. Between instructions there is no
+  // access, and cycleCount still holds the last step's (see Machine.ioTime), so the answer is now().
   ioTime() {
+    if (!this.inStep) return this.cycle;
     if (!this.rateTimed) return this.cycle + (this.cpu.c > 0 ? this.cpu.c - 1 : 0);
     return this.stepStart + this.stepTime(this.cpu.cycleCount - 1, false);
   }

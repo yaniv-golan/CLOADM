@@ -6,6 +6,24 @@ All notable changes to CLOADM are recorded here. The format follows
 
 ## [Unreleased]
 
+#### Fixed
+
+- **Time between instructions: an outside I/O access no longer runs the machine ahead.** `ioTime()` answers "the
+  tick at which the current instruction touches the bus", but between instructions it returned the end of the
+  *last* step, because the CPU keeps its cycle count after a step. A tool that looked at the machine between
+  steps — a debugger's write, a stub hook — therefore fired scheduler events up to a whole instruction early
+  (a 6309 `TFM` is tens of thousands of cycles, ~3.3 frames on the CoCo 3), and a machine restored from a
+  snapshot answered differently from the original for the same access. The same fault in the CoCo 3's
+  `accessStart()`, reachable between steps through the MAME-compat interrupt sync. Between instructions both now
+  answer `now()`, which also moves the exact-time clock (`clockUnits()`/`tickAt()`) back to the machine's own
+  time for every family. A CoCo 3 instruction suspended by the disk controller's HALT is the one between-step
+  state that keeps the held access's time while its events run, and takes `now()` again once parked. Inside an
+  instruction nothing changed (`tests/iotime.test.js`). One regression hash moved — the CoCo 3's SSC trace, from
+  24,298 to 24,301 instructions — because its card is caught up between steps: on all three models the catch-up
+  was early, but only the CoCo 3's step lengths are multiplied by `div`, so only there did the early answer
+  cross a card instruction (counted on the card, the CoCo 1/2 and 2B run it 3,932 steps either way and the
+  CoCo 3 56,541 before, 56,545 after). Its device-write rows and work RAM are identical.
+
 ### 0.1.3-pre
 
 #### Fixed

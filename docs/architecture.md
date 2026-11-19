@@ -85,6 +85,18 @@ frame stays open with the sound it had made so far, and that sound is played whe
 resume; while the machine is stopped the speaker is silent, so a stop can be heard as a short gap or click
 (`tests/debug-session.test.js`). The machine's state and timing are unaffected.
 
+**Time between instructions.** A family's `ioTime()` is "the tick at which the current instruction touches the
+bus"; between instructions there is no such access, and it answers `now()` (`Machine.ioTime`, and the CoCo 3's
+`accessStart`, which ends a MAME-compat scheduler slice). That matters because the CPU keeps its cycle count after
+a step — the trace and the debugger read it — so an answer taken from it between steps would fire scheduler events
+up to a whole instruction early for a tool that looks at the machine between steps (a debugger's write, a stub
+hook), and a restored machine, whose CPU comes back with a count of its own, would answer differently from the
+original for the same access. Inside an instruction nothing changes, which is what the regression hashes pin
+(`tests/iotime.test.js`). On the CoCo 3 a pre-step event handler may see `ioTime()` up to `div - 1` clocks before
+its own `e.at`: `runCycles` fires events due before `justUnder(cycle + div)`, so an event lands in the step it
+precedes while the machine's time is still the end of that window (the `justUnder` note in
+`js/machines/coco3.js`), which is what MAME's scheduler does too.
+
 A step in which no instruction runs is not an instruction for the debugger: a halted cycle (HALT asserted), or the
 CoCo 3's instruction held by the disk controller's HALT and suspended at the end of a run (it runs again from its
 start once HALT is released). It makes no trace entry, counts toward no limit and reports no watchpoint hit; the

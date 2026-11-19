@@ -82,6 +82,7 @@ class Machine {
 
     // Time: one absolute tick counter (CPU cycles, or GIME clocks on the CoCo 3), never rebased.
     this.cycle = 0;           // now, in ticks
+    this.inStep = false;      // an instruction is running: between cycles of runCycles, false (see ioTime)
     this.frameBase = 0;       // tick at which the current frame started
     this.frameCount = 0;
     this.framesSinceReset = 0;
@@ -195,8 +196,13 @@ class Machine {
 
   // ---------------- events ----------------
   now() { return this.cycle; }
-  // tick at which the current instruction touches the bus (loads read on their last cycle)
-  ioTime() { return this.cycle + (this.cpu.c > 0 ? this.cpu.c - 1 : 0); }
+  // tick at which the current instruction touches the bus (loads read on their last cycle).
+  // Between instructions there is no instruction touching the bus, and the CPU's cycle count still holds the
+  // last instruction's (it is kept after the step: the trace and the debugger read it), so the answer is then
+  // now(): anything past `cycle` would run the scheduler ahead of the machine for a tool that looks at it
+  // between steps (a debugger's I/O write, a stub hook), and a restored machine, whose CPU comes back with no
+  // cycle count, would answer differently from the original for the same access.
+  ioTime() { return this.inStep && this.cpu.c > 0 ? this.cycle + this.cpu.c - 1 : this.cycle; }
   // Exact time for devices that keep it (js/chips/attoclock.js): clockUnits() counts whole units up to the
   // current bus access (the end of the access's cycle: MAME's 6809 counts a bus cycle before performing it), or
   // up to now between instructions; unitAttos is a unit in attoseconds; tickAt(u) is the tick u units after
@@ -254,7 +260,10 @@ class Machine {
         if (hook && cpu.willExecute()) hook();
       }
       cpu.c = 0;
-      this.cycle += cpu.step();
+      let n;
+      this.inStep = true;
+      try { n = cpu.step(); } finally { this.inStep = false; }
+      this.cycle += n;
     }
   }
   // wait for `promise` before running on (the instruction under way finishes first)
