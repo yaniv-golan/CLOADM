@@ -17,7 +17,7 @@ import { devices } from './machines/bus.js';
 import { DiskController, FDC_BOARDS } from './machines/fdc.js';
 import { DRIVE_TYPES } from './chips/floppy.js';
 import { detectDiskFormat, diskGeometry, blankDisk, DiskFormatError } from './media/disk.js';
-import { MediaStoreError } from './host/media-store.js';
+import { MediaStoreError, detectCaseSync, flipCase, measureOnce } from './host/media-store.js';
 import { KeyQueue } from './machines/keyqueue.js';
 import { charToKeys } from './machines/keyboards.js';
 import { cartridgeRoms, createMachine, profiles, resolveConfig, restoreSnapshot } from './machines/profiles.js';
@@ -197,6 +197,11 @@ export class Session {
     this.welcomeMenu = welcomeMenu;
     this.store = store;
     this.media = media;
+    // Does the store tell GAME.DSK from game.dsk? A store whose bytes are already in memory answers now (its
+    // class declares the fact, or a listing settles it); an asynchronous one is measured by ready(), so this
+    // starts at the safe answer (see CASE in js/host/media-store.js) and the guards below never compare names
+    // with === without it.
+    this._caseInsensitive = media.synchronous ? detectCaseSync(media) : (typeof media.caseInsensitive === 'boolean' ? media.caseInsensitive : true);
     this.mediaSince = Date.now();   // when this visit started using the store: reconnecting copies what it wrote since
     // where the Claude API key lives: host-side only (js/host/key-store.js), never in `store`, the machine or a
     // snapshot. Default is memory-only, so Node tests and an embedder never need browser storage.
@@ -276,6 +281,7 @@ export class Session {
     const migrated = await migrateLocalStorage(this.store, this.media);
     if (migrated.migrated) await this.index.load();   // what the migration wrote, now in memory
     await this.index.flush();
+    await this.measureCase();
     return this;
   }
   // Keep media in another store from now on, starting with an empty library there (the page does this with an
@@ -283,6 +289,7 @@ export class Session {
   useMediaStore(media) {
     const writeError = this.index.writeError;
     this.media = media;
+    this._caseInsensitive = media.synchronous ? detectCaseSync(media) : (typeof media.caseInsensitive === 'boolean' ? media.caseInsensitive : true);
     this.mediaSince = Date.now();   // when this visit started using the store: reconnecting copies what it wrote since
     this.index = new MediaIndex(media);
     this.index.writeError = writeError;
@@ -333,6 +340,7 @@ export class Session {
     try { copied += await this.index.mergeInto(store, { ours: reconnecting ? 'changed' : 'all' }); } catch (e) { throw this.mediaError(e, 'the ROM and recent lists'); }
     this.useMediaStore(store);
     await this.index.load();
+    await this.measureCase();   // the new store's own answer: another file system can tell cases apart where this one did not
     this.drivewire.store = store;
     this.emit('roms');
     this.emit('storage');
@@ -1219,9 +1227,42 @@ export class Session {
   // a rename keeps the item under its prefix: `to` is a bare name or a name under the same prefix
   // A disk image in a drive is the drive's: the drive reads it and writes back to it under that name, so it is not
   // renamed, deleted or replaced while it is there -> refuses with the drive it is in
+  // Name comparisons here follow the store: on a store that does not tell upper from lower case (see CASE in
+  // js/host/media-store.js) GAME.DSK and game.dsk are one file, so they are one name to every guard below.
+  sameName(a, b) { return this.caseInsensitive ? String(a).toLowerCase() === String(b).toLowerCase() : a === b; }
+  // Does this library treat GAME.DSK and game.dsk as one name? The store's own settled answer wins: a real
+  // backend measures itself inside every list() (js/host/media-store-fsa.js _case), so the store can be settled by
+  // a route this Session did not take. Answering from the store whenever it has been measured is what keeps the
+  // two from drifting; the Session's own value is only the fallback while the store has no answer yet.
+  get caseInsensitive() {
+    const store = this.media;
+    if (typeof store.caseInsensitive === 'boolean' && store.caseMeasured) return store.caseInsensitive;
+    return this._caseInsensitive;
+  }
+  set caseInsensitive(v) { this._caseInsensitive = v; }
+  // Measure the store's rule now. Read-only (nothing is written to the user's folder). An empty store has nothing
+  // to put the question with: the measurement leaves it unmeasured (safe answer), and the question is put again when
+  // the store first gains a name (refreshCase).
+  async measureCase(store = this.media) {
+    // one path: measureOnce shares a measurement already in flight, so the Session and a listing that is measuring
+    // the same store wait on the same answer rather than starting a second one
+    if (store.synchronous) detectCaseSync(store); else await measureOnce(store);
+    return this.caseInsensitive;
+  }
+  // The same, when the store has just gained a name: an empty store's safe answer (case-insensitive) can be
+  // measured properly now there is a name to put the question with. Once measured it is not measured again (a
+  // store's answer is a property of the file system, not of what is in it).
+  async refreshCase() {
+    // one question, asked the one way it is asked anywhere (js/host/media-store.js detectCase): an empty store
+    // comes out unmeasured, and the next write asks again. Nothing here resolves a name through a path, so a
+    // folder whose directory spelling differs from what was asked for cannot decide it.
+    const store = this.media;
+    await (store.synchronous ? detectCaseSync(store) : measureOnce(store));
+    return this.caseInsensitive;
+  }
   checkNotInDrive(name, what) {
     const held = this.diskHolder(name);
-    if (held) throw new SessionError(`${name.slice(DISK_PREFIX.length)} is in drive ${held.drive}${held.where}; eject it before you ${what} it.`);
+    if (held) throw new SessionError(`${name.slice(DISK_PREFIX.length)}${held.name !== name ? ` (stored as ${held.name.slice(DISK_PREFIX.length)})` : ''} is in drive ${held.drive}${held.where}; eject it before you ${what} it.`);
   }
   // The machines whose drives can hold a stored disk now: the one in use and, in a full-screen chat, the BASIC
   // session beside the chat machine (it keeps its drives, and the Library's guards must see them while the chat is
@@ -1232,14 +1273,15 @@ export class Session {
     if (c) for (const m of [c.basic, c.chat]) if (m && m !== this.machine) out.push({ machine: m, where: m === c.basic ? ' of your BASIC session' : ' of the chat machine' });
     return out;
   }
-  // the drive that holds the disk image `name`, on any of those machines -> { drive, where, machine } | null;
-  // skip: { machine, drive } not to count (the drive a mount is about to replace)
+  // the drive that holds the disk image `name`, on any of those machines -> { drive, where, machine, name } | null;
+  // skip: { machine, drive } not to count (the drive a mount is about to replace). On a store that does not tell
+  // upper from lower case, `name` and what a drive holds are compared that way (see CASE, js/host/media-store.js).
   diskHolder(name, skip = null) {
     for (const { machine, where } of this.diskMachines()) {
       const fdc = this.diskControllerOf(machine);
       if (!fdc) continue;
-      const drive = fdc.drives.findIndex((d, i) => d.loaded && d.media.name === name && !(skip && skip.machine === machine && skip.drive === i));
-      if (drive >= 0) return { drive, where, machine };
+      const drive = fdc.drives.findIndex((d, i) => d.loaded && this.sameName(d.media.name, name) && !(skip && skip.machine === machine && skip.drive === i));
+      if (drive >= 0) return { drive, where, machine, name: fdc.drives[drive].media.name };
     }
     return null;
   }
@@ -1249,6 +1291,11 @@ export class Session {
     this.checkNotInDrive(src, 'rename');
     const dst = this.libName(to.startsWith(DISK_PREFIX) || to.startsWith(LIBRARY_PREFIX) ? to : prefix + to);
     if (!dst.startsWith(prefix)) throw new SessionError(`${to}: a ${prefix === DISK_PREFIX ? 'disk image' : 'library item'} stays where it is`);
+    // A case-only rename on a store that does not tell cases apart cannot be done: it is one file, and the
+    // store's write-then-remove would replace it and then delete it. (The name is the name it already has.)
+    if (this.caseInsensitive && dst !== src && dst.toLowerCase() === src.toLowerCase()) {
+      throw new SessionError(`${to}: this ${this.media.kind === 'fsa' ? 'folder' : 'storage'} does not tell upper from lower case, so ${src.slice(prefix.length)} and ${to} are the same name.`);
+    }
     const op = () => this.media.rename(src, dst);
     try { return await (src.startsWith(DISK_PREFIX) ? this.diskStoreChange(op) : op()); } catch (e) { throw this.mediaError(e, from); }
   }
@@ -1269,7 +1316,8 @@ export class Session {
     const target = detectMedia(base, bytes).kind === 'disk' ? DISK_PREFIX + base : this.libName(name);
     this.checkNotInDrive(target, 'replace');
     const write = target.startsWith(DISK_PREFIX) ? this.diskStoreChange(() => this.media.write(target, bytes)) : this.media.write(target, bytes);
-    try { return { stored: await write }; } catch (e) { throw this.mediaError(e, name); }
+    // the store has a name now: on an empty store that is the first chance to put its case rule to the test
+    try { const r = await write; await this.refreshCase(); return { stored: r }; } catch (e) { throw this.mediaError(e, name); }
   }
   mediaError(e, name) {
     if (e instanceof SessionError) return e;
@@ -1339,15 +1387,20 @@ export class Session {
     let bytes;
     try { bytes = blankDisk(format, tracks, heads); } catch (e) { throw new SessionError(e instanceof DiskFormatError ? e.message : String(e)); }
     const stored = new Set((await this.listDisks()).map((d) => d.name));
+    // on a store that does not tell cases apart, a name already there in another case is that same disk
+    const taken = (n) => stored.has(n) || (this.caseInsensitive && [...stored].some((s) => s.toLowerCase() === n.toLowerCase()));
     let full;
     if (name) {
       full = this.diskStoreName(name);
       const base = full.slice(DISK_PREFIX.length);
       if (detectDiskFormat(bytes, base) !== format) throw new SessionError(`${base}: a ${format.toUpperCase()} image needs a name ending .${format === 'jvc' ? 'dsk' : format}.`);
-      if (stored.has(full)) throw new SessionError(`There is already a disk named ${base} in your library: choose another name.`);
+      if (taken(full)) {
+        const same = [...stored].find((s) => s === full || (this.caseInsensitive && s.toLowerCase() === full.toLowerCase()));
+        throw new SessionError(`There is already a disk named ${same ? same.slice(DISK_PREFIX.length) : base} in your library: choose another name.`);
+      }
     } else {
       const ext = format === 'jvc' ? 'dsk' : format;
-      for (let n = 1; !full || stored.has(full); n++) full = `${DISK_PREFIX}disk-${n}.${ext}`;
+      for (let n = 1; !full || taken(full); n++) full = `${DISK_PREFIX}disk-${n}.${ext}`;
     }
     const msg = await this.importDisk(full, bytes, drive, { writeProtected });
     return `New blank disk: ${msg}`;
@@ -1466,14 +1519,15 @@ export class Session {
     if (!format) throw new SessionError(`${base}: not a disk image CLOADM can read (VDK, JVC/DSK or DMK).`);
     try { diskGeometry(bytes, format); } catch (e) { throw new SessionError(`${base}: ${e.message}`); }
     const holder = this.diskHolder(full, { machine: this.machine, drive });
-    if (holder) throw new SessionError(`${base} is in drive ${holder.drive}${holder.where}; eject it there first.`);
-    if (this.diskStatus().drives.some((d) => d.name === full)) await this.ejectDisk(drive);
+    if (holder) throw new SessionError(`${holder.name} is in drive ${holder.drive}${holder.where}; eject it there first.`);
+    if (this.diskStatus().drives.some((d) => this.sameName(d.name, full))) await this.ejectDisk(drive);
     await this.diskWritesDone();
     // checked again with nothing left to wait for: a mount of this name that went in meanwhile keeps its file
     const again = this.diskHolder(full);
-    if (again) throw new SessionError(`${base} is in drive ${again.drive}${again.where}; eject it there first.`);
+    if (again) throw new SessionError(`${again.name} is in drive ${again.drive}${again.where}; eject it there first.`);
     this.checkNotMoving();
     try { await this.diskStoreChange(() => this.media.write(full, bytes)); } catch (e) { throw this.mediaError(e, base); }
+    await this.refreshCase();   // the store has a name now: it can put its case rule to the test
     // stored by now: a mount that fails says so, rather than that the import did not happen
     try { return await this.mountDisk(drive, full, { writeProtected }); } catch (e) { throw new SessionError(`${base} was saved to your Library but not put in drive ${drive}: ${e.message}`); }
   }
@@ -1483,7 +1537,7 @@ export class Session {
     this.checkNotMoving();
     const full = this.diskStoreName(name), base = full.slice(DISK_PREFIX.length);
     const holder = this.diskHolder(full, { machine: this.machine, drive });
-    if (holder) throw new SessionError(`${base} is already in drive ${holder.drive}${holder.where}.`);
+    if (holder) throw new SessionError(`${holder.name} is already in drive ${holder.drive}${holder.where}.`);
     let fdc = this.diskController;
     if (!fdc && this.machine.cartPort instanceof MultiPak) throw new SessionError('The Multi-Pak has no disk controller: put one in one of its slots first (Multi-Pak…).');
     const dos = fdc ? null : this.preferredDiskDos();

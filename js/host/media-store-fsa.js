@@ -11,7 +11,7 @@
  *
  * Uploading is never involved: a File System Access handle is local to the machine.
  */
-import { MediaStoreError, checkName, checkRange } from './media-store.js';
+import { MediaStoreError, checkName, checkRange, measureOnce } from './media-store.js';
 
 export const fsaAvailable = () => typeof window !== 'undefined' && typeof window.showDirectoryPicker === 'function';
 
@@ -26,6 +26,16 @@ export class FsaMediaStore {
     const opts = { mode };
     if ((await directory.queryPermission(opts)) === 'granted') return true;
     return (await directory.requestPermission(opts)) === 'granted';
+  }
+
+  // the store's own case rule decides how its names are compared: measure it (read-only, js/host/media-store.js
+  // CASE), then fold names and prefixes when the file system does not tell them apart. Every caller shares the one
+  // in-flight measurement (measureOnce), so a listing started while another measures waits for the real answer
+  // instead of taking a guess. Nothing here answers on the side: the measurement itself lists through _listing,
+  // which never asks this question, so there is no re-entrant call to answer.
+  async _case() {
+    await measureOnce(this);
+    return this.caseInsensitive;
   }
 
   async _dir(name, create = false) {
@@ -45,13 +55,24 @@ export class FsaMediaStore {
   }
 
   async list(prefix = '') {
+    return this._listing(prefix, await this._case());
+  }
+  // the listing itself, with the store's case rule given to it rather than asked for: detectCase() lists a store to
+  // measure it, and a listing that asked for the rule from inside the measurement would wait on itself. Every
+  // caller from outside goes through list(), which asks once and shares the answer.
+  async _listing(prefix, ci) {
     const out = [];
     const base = prefix.endsWith('/') ? prefix.slice(0, -1) : prefix;
-    // start at the deepest directory the prefix names that exists, under its own path (as the OPFS store does)
+    // Start at the deepest directory the prefix names that exists, under ITS OWN path (as the OPFS store does):
+    // each step takes the entry's real spelling from its parent's listing rather than the prefix's spelling, so a
+    // folder that does not tell cases apart lists GAME.DSK under library/ when it was asked for LIBRARY/.
     let start = this.directory, at = '';
     if (base) {
       for (const p of base.split('/')) {
-        try { start = await start.getDirectoryHandle(p, { create: false }); at = at ? `${at}/${p}` : p; }
+        let real = null;
+        try { for await (const [n, h] of start.entries()) if (h.kind === 'directory' && (ci ? n.toLowerCase() === p.toLowerCase() : n === p)) { real = n; break; } } catch (e) { break; }
+        if (real === null) break;
+        try { start = await start.getDirectoryHandle(real, { create: false }); at = at ? `${at}/${real}` : real; }
         catch (e) { break; }
       }
     }
@@ -59,13 +80,18 @@ export class FsaMediaStore {
       for await (const [name, h] of dir.entries()) {
         const full = path ? `${path}/${name}` : name;
         if (h.kind === 'directory') { await walk(h, full); continue; }
-        if (!full.startsWith(prefix)) continue;
+        if (!(ci ? full.toLowerCase().startsWith(prefix.toLowerCase()) : full.startsWith(prefix))) continue;
         const f = await h.getFile();
         out.push({ name: full, size: f.size, mtime: f.lastModified });
       }
     };
-    await walk(start, at);
-    return out.filter((x) => x.name.startsWith(prefix)).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    // Every method here answers with a MediaStoreError (the contract's FAILURES section), and a listing is no
+    // exception: a lapsed permission (NotAllowedError), a security refusal or a quota error from the directory
+    // walk is wrapped, not let out raw.
+    try { await walk(start, at); } catch (e) { throw wrap(e, prefix || 'the store'); }
+    // the walk kept only the names under `prefix`, by the store's rule: a second, identical filter here was dead
+    // code (the walk's predicate is the same one on the same array)
+    return out.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   }
 
   async read(name) {
@@ -134,6 +160,9 @@ export class FsaMediaStore {
   async rename(from, to) {
     checkName(from); checkName(to);
     if (from === to) return this.stat(from);
+    // A case-only rename is not refused here: that needs FileSystemHandle.move() to be done without losing the
+    // file, which this store does not have. The Session refuses one (Session.renameMedia); a direct caller that
+    // makes one on a folder that does not tell cases apart loses the file. Reported, not fixed here.
     if (await this.stat(to)) throw new MediaStoreError('exists', `${to} is already in this store`);
     await this.write(to, await this.read(from));
     await this.remove(from);
@@ -160,6 +189,6 @@ const toBytes = (b) => (b instanceof Uint8Array ? b : new Uint8Array(b));
 function wrap(e, name) {
   if (e instanceof MediaStoreError) return e;
   if (e && (e.name === 'QuotaExceededError' || e.code === 22)) return new MediaStoreError('quota', `No space left for ${name}`, e);
-  if (e && (e.name === 'NotAllowedError' || e.name === 'SecurityError')) return new MediaStoreError('unsupported', `${name}: permission to write was refused`, e);
+  if (e && (e.name === 'NotAllowedError' || e.name === 'SecurityError')) return new MediaStoreError('unsupported', `${name}: permission was refused`, e);
   return new MediaStoreError('io', `${name}: ${e && e.message ? e.message : 'storage error'}`, e);
 }

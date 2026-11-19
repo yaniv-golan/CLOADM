@@ -91,7 +91,9 @@ export function setupDrives(page, { openRoms = null } = {}) {
       let disks = [];
       try { disks = await session.listDisks(); } catch (e) { /* the store says nothing: no list */ }
       const held = new Set(st.drives.map((x) => x.name));
-      const free = disks.filter((x) => !held.has(x.name));
+      // a store that does not tell upper from lower case has one entry for both spellings, so the list must too
+      const isHeld = (n) => held.has(n) || (session.caseInsensitive && [...held].some((h) => h.toLowerCase() === n.toLowerCase()));
+      const free = disks.filter((x) => !isHeld(x.name));
       if ($('driveStored')) {
         $('driveStored').innerHTML = free.map((x) => `<option value="${esc(x.name)}">${esc(x.name.split('/').pop())} (${Math.round(x.size / 1024)}K)</option>`).join('');
         $('driveStoredRow').hidden = !free.length;

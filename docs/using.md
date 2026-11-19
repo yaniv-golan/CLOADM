@@ -177,7 +177,9 @@ add your ROMs first; then open the **Library** (in the header), paste a listing 
 types it in for you at keyboard speed, line by line, with the machine's screen beside it. The Library also keeps
 every tape, disk, cartridge and program you load (disk images under `disks/` in the store, where the drives find them:
 clicking one mounts it; one in a drive can't be renamed or deleted until it is ejected), so next time it's one click:
-click a spine or a tile, or drag it onto the machine's screen in the type-in card. Its magazine rack links the
+click a spine or a tile, or drag it onto the machine's screen in the type-in card. A library kept in a folder on macOS
+or Windows treats `GAME.DSK` and `game.dsk` as one file, so CLOADM does too: the two cannot be in two drives at once,
+and a name that differs from a stored one only in case is the same name to every guard here. Its magazine rack links the
 archives below. **Select** (beside "Add files…") turns clicks into a selection: load or rename one item (the name is
 edited on the item: Enter saves, Esc cancels), download several, or delete them. Delete asks nothing; the items
 leave the shelf at once and an Undo toast stays for 8 seconds before they are really removed. Done or Esc goes back to

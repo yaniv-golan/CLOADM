@@ -2090,7 +2090,8 @@ async function mediaBackendChecks(browser, base, check) {
     const fsaCtx = await browser.newContext();
     const fsa = await fsaCtx.newPage();
     fsa.on('pageerror', (e) => errors.push(e.message));
-    await fsa.addInitScript(mockDirectoryInit);
+    // this folder behaves as one on ext4 does (names differ by case), which is what OPFS keeps today
+    await fsa.addInitScript(mockDirectoryInit, { fold: false });
     await fsa.goto(`${base}?machine=coco`); await started(fsa);
     const mockOk = await fsa.evaluate(async () => {
       const store = new (await import('/js/host/media-store-fsa.js')).FsaMediaStore(window.__mockDirectory());
@@ -2117,6 +2118,101 @@ async function mediaBackendChecks(browser, base, check) {
     });
     check('File System Access (mocked handle): a Session lists and opens its media', sessionOk.listed.includes('library/mine.bin') && sessionOk.opened.join() === '66,66', JSON.stringify(sessionOk));
     await fsaCtx.close();
+
+    // ---- disk names that differ only in case, through a folder that does not tell them apart ----
+    // The mock is the folder here (stated as mocked: a real APFS folder is what it imitates), and it is the only
+    // thing that says whether the names are one file. The check that matters is that the Session's guard agrees
+    // with the STORE's own stat of the other-case name, and refuses exactly then: a constant on either side, or
+    // both sides programmed to agree, would let one of the two branches pass for the wrong reason.
+    for (const fold of [true, false]) {
+      const c = await browser.newContext();
+      const page2 = await c.newPage();
+      page2.on('pageerror', (e) => errors.push(e.message));
+      await page2.addInitScript(mockDirectoryInit, { fold });
+      await page2.goto(`${base}?machine=coco`); await started(page2);
+      const r = await page2.evaluate(async () => {
+        const { FsaMediaStore } = await import('/js/host/media-store-fsa.js');
+        const { Session } = await import('/js/session.js');
+        const media = new FsaMediaStore(window.__mockDirectory());
+        const s = new Session({ store: { get: () => null, set() {}, remove() {}, keys: () => [] }, media });
+        // ready() loads the index from the store, so the stub ROM goes in after it
+        await s.ready();
+        s.switchMachine('coco');
+        s.roms.put('rsdos', 'rom', new Uint8Array(0x2000).fill(0x39), 'disk11.rom');
+        // a blank 40-track single-sided VDK, from the format's layout (no ROM and no sector read needed)
+        const vdk = () => { const b = new Uint8Array(12 + 40 * 18 * 256); b[0] = 0x64; b[1] = 0x6B; b[2] = 12; b[8] = 40; b[9] = 1; return b; };
+        await s.importDisk('GAME.DSK', vdk(), 0);
+        // what the FOLDER says, asked of the store itself: is GAME.DSK and game.dsk one entry?
+        const alias = !!(await media.stat('disks/game.dsk'));
+        const mounted = await s.mountDisk(1, 'game.dsk').then(() => null, (e) => e.message);
+        const del = await s.deleteMedia('disks/game.dsk').then(() => null, (e) => e.message);
+        const renamed = await s.renameMedia('disks/game.dsk', 'other.dsk').then((x) => 'ok', (e) => e.message);
+        // and the guard's answer must be the folder's, both ways round
+        const refused = [mounted, del, renamed].every((m) => m && /drive 0/.test(m));
+        const allowed = [mounted, del, renamed].every((m) => m === null || m === 'ok' || !/drive 0/.test(m));
+        return { alias, measured: s.caseInsensitive, refused, allowed, mounted, del, renamed };
+      });
+      check(`disk names (${fold ? 'a folder that does not tell case' : 'a folder that does'}): the store's answer is measured from the folder, not assumed`,
+        r.measured === fold, JSON.stringify(r));
+      check(`disk names (${fold ? 'case-insensitive' : 'case-sensitive'} folder): the guard agrees with the FOLDER's own stat of the other-case name`,
+        r.alias === fold && (fold ? r.refused : r.allowed), JSON.stringify(r));
+      // a list() asked for a prefix in another case must show the entry under the name the folder has for it (not
+      // under the spelling that was asked for), and must not spin: measure and list both answer
+      const names = await page2.evaluate(async () => {
+        const { FsaMediaStore } = await import('/js/host/media-store-fsa.js');
+        const media = new FsaMediaStore(window.__mockDirectory());
+        const plain = (await media.list('disks/')).map((f) => f.name).join();
+        const flipped = (await media.list('DISKS/')).map((f) => f.name).join();
+        return { plain, flipped, measured: media.caseInsensitive };
+      });
+      // both modes store the first spelling, so both list disks/GAME.DSK under its own name; the prefix in the
+      // other case only finds it on a folder that does not tell cases apart
+      const want = 'disks/GAME.DSK';
+      check(`disk names (${fold ? 'case-insensitive' : 'case-sensitive'} folder): list() of a prefix in another case shows the folder's name`,
+        names.plain === want && names.flipped === (fold ? want : ''), JSON.stringify(names));
+      await c.close();
+    }
+
+    // ---- the drives card's own list ("Disks in your library"), through the page, on a store that folds names ----
+    // The card is js/ui/drives.js: it offers the stored disks a drive could take, and must not offer one that is
+    // already in a drive under another spelling (a second click would be refused, but the list should not lie).
+    // The page runs on a case-insensitive in-memory store here, which is the same code path a folder takes.
+    for (const fold of [true, false]) {
+      const c = await browser.newContext();
+      const page3 = await c.newPage();
+      page3.on('pageerror', (e) => errors.push(e.message));
+      await page3.goto(`${base}?machine=coco`); await started(page3);
+      const r = await page3.evaluate(async (fold) => {
+        const { MemoryMediaStore } = await import('/js/host/media-store-memory.js');
+        const s = window.emu.session;
+        s.useMediaStore(new MemoryMediaStore({ caseInsensitive: fold }));
+        s.switchMachine('coco');
+        s.roms.put('rsdos', 'rom', new Uint8Array(0x2000).fill(0x39), 'disk11.rom');
+        // A blank VDK from the format's layout. Two imports of the one name in two cases: on a store that folds
+        // them that is one file (the first spelling kept), on one that does not it is two.
+        const vdk = () => { const b = new Uint8Array(12 + 40 * 18 * 256); b[0] = 0x64; b[1] = 0x6B; b[2] = 12; b[8] = 40; b[9] = 1; return b; };
+        await s.importMedia('GAME.DSK', vdk());
+        await s.importMedia('game.DSK', vdk());
+        await s.importMedia('OTHER.DSK', vdk());
+        // The drive holds the OTHER spelling: on a folding store mountDisk's stat finds the one stored file, so the
+        // drive says game.dsk while the library lists GAME.DSK. A card that compares names with === would then
+        // offer a disk that is already in a drive. On a plain store the other spelling is a separate file.
+        await s.mountDisk(0, fold ? 'disks/game.dsk' : 'disks/GAME.DSK');
+        s.emit('disks');
+        // open drive 1's menu through the card and read what it offers
+        document.querySelector('#drives [data-drive="1"]').click();
+        await new Promise((r) => setTimeout(r, 50));
+        const offered = [...document.querySelectorAll('#driveStored option')].map((o) => o.value);
+        return { fold, offered, held: s.diskStatus().drives.map((d) => d.name), listed: (await s.listDisks()).map((d) => d.name), measured: s.caseInsensitive };
+      }, fold);
+      // folding: GAME.DSK and game.DSK are one stored file and that file is in drive 0, so only OTHER.DSK is on
+      // offer; plain: they are two files, the drive holds one of them, so the other and OTHER.DSK are
+      const want = fold ? ['disks/OTHER.DSK'] : ['disks/OTHER.DSK', 'disks/game.DSK'];
+      check(`drives card (${fold ? 'case-insensitive' : 'case-sensitive'} store): the library never offers a disk a drive already holds`,
+        r.measured === fold && r.offered.slice().sort().join() === want.slice().sort().join(),
+        JSON.stringify(r));
+      await c.close();
+    }
   }
 
   // ---- a store that cannot be opened: the page still starts, on an in-memory library, and says why ----
@@ -2195,8 +2291,15 @@ async function mediaBackendChecks(browser, base, check) {
 }
 // a stand-in for a File System Access directory handle: enough of the API for FsaMediaStore, backed by a
 // Map. Installed into the page by addInitScript, because the mock has to live where the store runs.
-function mockDirectoryInit() {
-  const files = new Map();
+// fold: true makes it behave as a folder on APFS or NTFS does (GAME.DSK and game.dsk are one entry), false as
+// one on ext4 does. The directory listing in `entries()` reports the spelling an entry was first written with,
+// as a real one does, and that is what the store measures its case rule from (js/host/media-store.js CASE).
+function mockDirectoryInit({ fold = false } = {}) {
+  const files = new Map();   // folding: lower-cased key -> { name (first spelling), bytes }
+  const key = (p) => (fold ? p.toLowerCase() : p);
+  const put = (p, bytes) => { const k = key(p); files.set(k, { name: (files.get(k) || {}).name || p, bytes }); };
+  const has = (p) => files.has(key(p));
+  const under = (prefix) => [...files.keys()].some((k) => k.startsWith(key(prefix)));
   const stamp = 1700000000000;
   const mkFile = (bytes, name) => new File([bytes], name, { lastModified: stamp });
   const dir = (prefix) => ({
@@ -2205,17 +2308,17 @@ function mockDirectoryInit() {
     async queryPermission() { return 'granted'; },
     async requestPermission() { return 'granted'; },
     async getDirectoryHandle(name, { create } = {}) {
-      const key = (prefix ? `${prefix}/${name}` : name) + '/';
-      if (!create && ![...files.keys()].some((k) => k.startsWith(key))) { const e = new Error('not found'); e.name = 'NotFoundError'; throw e; }
-      return dir(key.slice(0, -1));
+      const at = prefix ? `${prefix}/${name}` : name;
+      if (!create && !under(at + '/')) { const e = new Error('not found'); e.name = 'NotFoundError'; throw e; }
+      return dir(at);
     },
     async getFileHandle(name, { create } = {}) {
       const p = prefix ? `${prefix}/${name}` : name;
-      if (!create && !files.has(p)) { const e = new Error('not found'); e.name = 'NotFoundError'; throw e; }
+      if (!create && !has(p)) { const e = new Error('not found'); e.name = 'NotFoundError'; throw e; }
       return {
-        async getFile() { return mkFile(files.get(p) || new Uint8Array(0), name); },
+        async getFile() { return mkFile((files.get(key(p)) || {}).bytes || new Uint8Array(0), (files.get(key(p)) || {}).name || name); },
         async createWritable(opts = {}) {
-          let buf = opts.keepExistingData ? (files.get(p) || new Uint8Array(0)).slice() : new Uint8Array(0);
+          let buf = opts.keepExistingData ? ((files.get(key(p)) || {}).bytes || new Uint8Array(0)).slice() : new Uint8Array(0);
           return {
             write(d) {
               if (d && d.type === 'write') {
@@ -2227,24 +2330,26 @@ function mockDirectoryInit() {
               return Promise.resolve();
             },
             truncate(n) { buf = buf.slice(0, n); return Promise.resolve(); },
-            close() { files.set(p, buf); return Promise.resolve(); },
+            close() { put(p, buf); return Promise.resolve(); },
           };
         },
       };
     },
     async removeEntry(name) {
       const p = prefix ? `${prefix}/${name}` : name;
-      if (!files.has(p)) { const e = new Error('not found'); e.name = 'NotFoundError'; throw e; }
-      files.delete(p);
+      if (!has(p)) { const e = new Error('not found'); e.name = 'NotFoundError'; throw e; }
+      files.delete(key(p));
     },
     entries() {
-      const key = prefix ? prefix + '/' : '';
+      const base = prefix ? prefix + '/' : '';
       const kids = new Map();
-      for (const full of files.keys()) {
-        if (!full.startsWith(key)) continue;
-        const rest = full.slice(key.length), slash = rest.indexOf('/');
-        const leaf = slash < 0 ? rest : rest.slice(0, slash);
-        kids.set(leaf, slash < 0 ? 'file' : 'directory');
+      for (const [k, e] of files) {
+        if (!k.startsWith(key(base))) continue;   // (base is the directory's real path; compare folded)
+        // The entry's real path keeps the spelling it was first written with, and slicing by the directory's own
+        // path (same length under either case) gives its leaf as the folder holds it — a real folder lists that.
+        const rest = e.name.slice(base.length), slash = rest.indexOf('/');
+        if (slash < 0) { kids.set(rest, 'file'); continue; }
+        kids.set(rest.slice(0, slash), 'directory');
       }
       return {
         [Symbol.asyncIterator]() {
@@ -2252,14 +2357,16 @@ function mockDirectoryInit() {
           return { next() {
             const r = it.next();
             if (r.done) return Promise.resolve({ done: true });
-            const [n, kind] = r.value, p = key + n;
-            return Promise.resolve({ done: false, value: [n, kind === 'file' ? { kind: 'file', async getFile() { return mkFile(files.get(p) || new Uint8Array(0), n); } } : dir(p)] });
+            const [n, kind] = r.value, p = base + n;
+            const e = files.get(key(p));
+            return Promise.resolve({ done: false, value: [n, kind === 'file' ? { kind: 'file', async getFile() { return mkFile((e || {}).bytes || new Uint8Array(0), (e || {}).name || n); } } : dir(p)] });
           } };
         },
       };
     },
   });
   window.__mockDirectory = () => dir('');
+  window.__mockIsFolderFileSystem = fold;
 }
 
 async function hintChecks(browser, base, check) {

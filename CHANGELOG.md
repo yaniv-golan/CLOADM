@@ -39,6 +39,16 @@ All notable changes to CLOADM are recorded here. The format follows
   is) and gives the machine's own screen size rather than the chat firmware's, which only the full-screen chat is
   told (`js/claude/chat.js`, `js/claude/backend.js`, `js/claude/history.js`, `js/claude/brief.js`,
   `js/machines/typist.js`, `tests/claude-history.test.js`).
+- **Disk names that differ only in case on a folder that does not tell them apart.** In a library kept in a folder on
+  macOS or Windows, `GAME.DSK` and `game.dsk` are one file, so putting both in drives (or importing one over the
+  other) had two drives writing one file. Every Library and drive guard — mount, import, rename, delete, new blank
+  disk and its first-free name, and the drives card's "Disks in your library" list — now compares names the way the
+  store does, and the shown name stays the one the disk was stored with. The store's rule is measured, not assumed,
+  from a listing and one stat: nothing is written to the user's folder. (It differs by file system, not by backend:
+  for example, Chromium's Origin Private File System tells `GAME.DSK` from `game.dsk`, while a folder on a default
+  (case-insensitive) APFS or NTFS volume does not.) A store with no name to ask about yet is treated as
+  case-insensitive until it has one. A case-only rename (`GAME.DSK` to `game.dsk`) is refused where it would replace
+  the file and then delete it. A store that does tell cases apart keeps behaving exactly as before.
 
 ### 0.1.4-pre
 

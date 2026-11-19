@@ -11,7 +11,7 @@
  * That is honest and correct; the interface leaves the door open for a worker-backed handle later, and
  * disk images and DriveWire can move to one without changing the contract or any caller.
  */
-import { MediaStoreError, checkName, checkRange } from './media-store.js';
+import { MediaStoreError, checkName, checkRange, measureOnce } from './media-store.js';
 
 export const opfsAvailable = () => typeof navigator !== 'undefined' && !!navigator.storage && typeof navigator.storage.getDirectory === 'function';
 
@@ -45,15 +45,26 @@ export class OpfsMediaStore {
 
   // walk the tree under `prefix`; a prefix ending in "/" restricts to that directory
   async list(prefix = '') {
+    return this._listing(prefix, await this._case());
+  }
+  // the listing itself, with the store's case rule given to it rather than asked for: detectCase() lists a store to
+  // measure it, and a listing that asked for the rule from inside the measurement would wait on itself. Every
+  // caller from outside goes through list(), which asks once and shares the answer.
+  async _listing(prefix, ci) {
     await this.ready;
     const out = [];
     const base = prefix.endsWith('/') ? prefix.slice(0, -1) : prefix;
-    // start at the deepest directory the prefix names that exists, under its own path, and filter by name
-    // (a prefix whose directory doesn't exist must not walk the root as if it were that directory)
+    // start at the deepest directory the prefix names that exists, under ITS OWN path, and filter by name
+    // (a prefix whose directory doesn't exist must not walk the root as if it were that directory). Each step
+    // takes the entry's real spelling from its parent's listing, so a store that does not tell cases apart lists
+    // GAME.DSK under library/ when it was asked for LIBRARY/, rather than under a path it does not have.
     let start = this.root, at = '';
     if (base) {
       for (const p of base.split('/')) {
-        try { start = await start.getDirectoryHandle(p, { create: false }); at = at ? `${at}/${p}` : p; }
+        let real = null;
+        try { for await (const [n, h] of start.entries()) if (h.kind === 'directory' && (ci ? n.toLowerCase() === p.toLowerCase() : n === p)) { real = n; break; } } catch (e) { break; }
+        if (real === null) break;
+        try { start = await start.getDirectoryHandle(real, { create: false }); at = at ? `${at}/${real}` : real; }
         catch (e) { break; }
       }
     }
@@ -61,7 +72,7 @@ export class OpfsMediaStore {
       for await (const [name, handle] of dir.entries()) {
         const full = path ? `${path}/${name}` : name;
         if (handle.kind === 'directory') { await walk(handle, full); continue; }
-        if (!full.startsWith(prefix)) continue;
+        if (!(ci ? full.toLowerCase().startsWith(prefix.toLowerCase()) : full.startsWith(prefix))) continue;
         // a file removed between the directory listing and this read (a delete or a rename in flight, as the
         // Library does while it lists) is no longer there: left out of the list, not an error for the whole of it
         let f;
@@ -69,8 +80,21 @@ export class OpfsMediaStore {
         out.push({ name: full, size: f.size, mtime: f.lastModified });
       }
     };
-    await walk(start, at);
-    return out.filter((x) => x.name.startsWith(prefix)).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    // every method here answers with a MediaStoreError, a listing included: wrap what the walk throws
+    try { await walk(start, at); } catch (e) { throw wrap(e, prefix || 'the store'); }
+    // the walk kept only the names under `prefix`, by the store's rule: a second, identical filter here was dead
+    // code (the walk's predicate is the same one on the same array)
+    return out.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  }
+
+  // the store's own case rule decides how its names are compared: measure it (read-only, js/host/media-store.js
+  // CASE), then fold names and prefixes when the file system does not tell them apart. Every caller shares the one
+  // in-flight measurement (measureOnce), so a listing started while another measures waits for the real answer
+  // instead of taking a guess. Nothing here answers on the side: the measurement itself lists through _listing,
+  // which never asks this question, so there is no re-entrant call to answer.
+  async _case() {
+    await measureOnce(this);
+    return this.caseInsensitive;
   }
 
   async _file(name, create = false) {

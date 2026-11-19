@@ -346,6 +346,486 @@ const bytes = (n, seed = 0) => { const b = new Uint8Array(n); let x = seed >>> 0
     check('the last write wins, in order', list.length === 1 && list[0].name === 'b', JSON.stringify(list));
   }
 
+  // ---- case: the store's own rule, and how it is measured (js/host/media-store.js CASE) ----
+  {
+    const st = new store.MemoryMediaStore({ caseInsensitive: true });
+    await st.write('disks/GAME.DSK', bytes(10, 1));
+    check('case-insensitive store: a name is found in any case', (await st.stat('disks/game.dsk')).name === 'disks/GAME.DSK');
+    check('case-insensitive store: the entry keeps the spelling it was written with', (await st.list()).map((x) => x.name).join() === 'disks/GAME.DSK');
+    await st.write('DISKS/game.dsk', bytes(4, 2));
+    check('case-insensitive store: writing the same name in another case replaces the entry, spelling and size of the first kept',
+      (await st.list()).map((x) => `${x.name}:${x.size}`).join() === 'disks/GAME.DSK:4' && eq(await st.read('disks/GAME.DSK'), bytes(4, 2)));
+    check('case-insensitive store: list(prefix) is prefix-matched without case', (await st.list('DISKS/')).length === 1 && (await st.list('disks/')).length === 1);
+    check('case-insensitive store: rename onto the same entry in another case is allowed (from === to after folding)',
+      (await st.rename('disks/GAME.DSK', 'disks/game.dsk')).name === 'disks/game.dsk');
+    check('case-insensitive store: rename onto a DIFFERENT entry in another case is refused as exists',
+      await (async () => { await st.write('disks/OTHER.DSK', bytes(1)); return rejects(() => st.rename('disks/game.dsk', 'disks/OTHER.dsk'), 'exists'); })());
+    check('case-insensitive store: remove in another case removes it', await st.remove('DISKS/GAME.DSK') === true && (await st.stat('disks/GAME.DSK')) === null);
+    check('case-insensitive store: writeRange in another case writes the entry there', await (async () => { const t = new store.MemoryMediaStore({ caseInsensitive: true }); await t.write('a/B.bin', bytes(8, 5)); await t.writeRange('A/b.BIN', 0, Uint8Array.of(9)); return (await t.read('a/B.bin'))[0] === 9 && (await t.stat('a/b.bin')).name === 'a/B.bin'; })());
+    check('case-insensitive store: clear(prefix) in another case clears it', await (async () => { const t = new store.MemoryMediaStore({ caseInsensitive: true }); await t.write('a/B.bin', bytes(1)); return await t.clear('A/') === 1 && (await t.list()).length === 0; })());
+    const sens = new store.MemoryMediaStore();
+    await sens.write('disks/GAME.DSK', bytes(3));
+    check('case-sensitive store: the other case is another name (missing, not an alias)', (await sens.stat('disks/game.dsk')) === null);
+  }
+
+  // ---- measuring it: read-only, cached, and the safe answer while there is nothing to ask about ----
+  {
+    // A backend with no declared answer: a Map store that folds names when `fold` is set and knows nothing about
+    // `caseInsensitive`. It is not a MemoryMediaStore, because that one declares the fact by design; this stands
+    // in for OPFS and FSA, whose answer only a listing can supply.
+    class Raw {
+      constructor(fold) { this.fold = fold; this.m = new Map(); }
+      k(n) { return this.fold ? n.toLowerCase() : n; }
+      async write(n, b) { this.m.set(this.k(n), { name: n, b }); return { name: n, size: b.length, mtime: 1 }; }
+      async stat(n) { const e = this.m.get(this.k(n)); return e ? { name: e.name, size: e.b.length, mtime: 1 } : null; }
+      async list() { return [...this.m.values()].map((e) => ({ name: e.name, size: e.b.length, mtime: 1 })); }
+      async read(n) { return this.m.get(this.k(n)).b.slice(); }
+      listSync() { return this.m.values().map ? [] : [...this.m.values()].map((e) => ({ name: e.name })); }   // never used
+      async remove(n) { return this.m.delete(this.k(n)); }
+      statSync(n) { const e = this.m.get(this.k(n)); return e ? { name: e.name, size: e.b.length } : null; }
+    }
+    const empty = new Raw(true);
+    check('an empty store: the safe answer is case-insensitive, and it is NOT a measurement',
+      await iface.detectCase(empty) === true && !empty.caseMeasured);
+    const s = new Raw(true);
+    await s.write('names/HOLDER.BIN', bytes(1));
+    const w0 = s.m.size;
+    check('a store with a name: measured from the listing and a stat, writing nothing',
+      await iface.detectCase(s) === true && s.caseMeasured && s.m.size === w0);
+    check('and leaves no probe behind: exactly the name the test wrote', (await s.list()).map((x) => x.name).join() === 'names/HOLDER.BIN');
+    check('it does not measure again once measured', await iface.detectCase(s) === true && s.caseInsensitive === true);
+    // a store is measured once: a second call answers from its own record without listing again
+    const sens2 = new Raw(false); await sens2.write('names/HOLDER.BIN', bytes(1));
+    let listings = 0; const origList = sens2.list.bind(sens2); sens2.list = (...x) => { listings++; return origList(...x); };
+    check('a store already measured is answered from its record, with no second listing',
+      await iface.detectCase(sens2) === false && await iface.detectCase(sens2) === false && listings === 1, `listings=${listings}`);
+    const sens = new Raw(false); await sens.write('names/HOLDER.BIN', bytes(1));
+    check('it says case-sensitive where the flip of a stored name is missing', await iface.detectCase(sens) === false);
+    // digits-only names cannot put the question: the safe answer, and no measurement
+    const digits = new Raw(true); await digits.write('12345678', bytes(1));
+    check('a store whose only names have no letters: the safe answer, not a measurement', await iface.detectCase(digits) === true && !digits.caseMeasured);
+    // a synchronous store DECLARES its rule (the fact is the instance's own): detectCaseSync reads it and lists
+    // nothing. A synchronous store that does not declare is a bug in the store, and is refused rather than guessed
+    // at — guessing without a listing cannot be right, and a silent wrong answer here is the unsafe direction.
+    const sync = new store.MemoryMediaStore({ caseInsensitive: true });
+    check('detectCaseSync takes a declaring store\'s answer and lists nothing',
+      iface.detectCaseSync(sync) === true && sync.caseMeasured);
+    const syncSens = new store.MemoryMediaStore();
+    check('detectCaseSync takes the other answer too', iface.detectCaseSync(syncSens) === false && syncSens.caseMeasured);
+    class Undeclared extends store.MemoryMediaStore { constructor() { super(); this.declaresCase = false; } }
+    let threw = null; try { iface.detectCaseSync(new Undeclared()); } catch (e) { threw = e; }
+    check('detectCaseSync refuses a synchronous store that does not declare, rather than guessing',
+      threw instanceof Error && /must declare/.test(threw.message), threw && threw.message);
+    // a store that refuses to be listed or stat'ed: fail safe, and say so once
+    // A lapsed folder permission (NotAllowedError) is what the browser throws after a reload. It must not break
+    // the measurement, and a listing must not let it out raw: every method here answers with a MediaStoreError
+    // (the contract's FAILURES section), and the case rule falls back to the safe answer.
+    {
+      const { FsaMediaStore } = require('../js/host/media-store-fsa.js');
+      const perm = () => { const e = new Error('permission denied'); e.name = 'NotAllowedError'; return e; };
+      const folder = { name: 'm', kind: 'directory',
+        async queryPermission() { return 'granted'; },
+        async getDirectoryHandle() { throw perm(); },
+        async getFileHandle() { throw perm(); },
+        async removeEntry() { throw perm(); },
+        entries() { return { [Symbol.asyncIterator]() { return { next() { throw perm(); } }; } }; } };
+      const store = new FsaMediaStore(folder);
+      let measured = null, threw = null;
+      try { measured = await iface.detectCase(store); } catch (e) { threw = e; }
+      check('a folder whose permission lapsed measures the safe answer instead of throwing',
+        threw === null && measured === true && store.caseMeasured === true, `threw=${threw && threw.name} measured=${measured}`);
+      let listErr = null;
+      try { await store.list('roms/'); } catch (e) { listErr = e; }
+      check('and a listing answers with a MediaStoreError, not the raw DOMException',
+        listErr instanceof iface.MediaStoreError && listErr.code === 'unsupported', listErr && `${listErr.name}/${listErr.code}`);
+      // a DOMException that reaches detectCase from any backend is still a refusal, not a measurement
+      const raw = new Raw(false);
+      raw.list = async () => { const e = new Error('denied'); e.name = 'NotAllowedError'; throw e; };
+      let rawThrew = null, rawAnswer = null;
+      try { rawAnswer = await iface.detectCase(raw); } catch (e) { rawThrew = e; }
+      check('a raw DOMException from any backend is taken as a refusal, not a measurement',
+        rawThrew === null && rawAnswer === true && raw.caseMeasured === true,
+        `threw=${rawThrew && rawThrew.name} answer=${rawAnswer}`);
+      // and a genuine bug is NOT: it is let out so a later call can retry
+      const buggy = new Raw(false);
+      buggy.list = async () => { throw new TypeError('a real bug'); };
+      let bugThrew = null; try { await iface.detectCase(buggy); } catch (e) { bugThrew = e; }
+      check('an ordinary TypeError is still let out (a bug is not a refusal)',
+        bugThrew instanceof TypeError && !buggy.caseMeasured, bugThrew && bugThrew.message);
+    }
+
+    // a store that refuses the way backends do: a MediaStoreError, which detectCase records as the safe answer
+    class Broken extends Raw { async list() { throw new iface.MediaStoreError('io', 'permission denied (test)'); } }
+    const warnings = []; const origWarn = console.warn; console.warn = (m) => warnings.push(m);
+    const broken2 = new Broken(false);
+    check('a store that cannot be read fails safe: names treated as case-insensitive', await iface.detectCase(broken2) === true);
+    await iface.detectCase(broken2);   // measured now: answered from its record, no second warning
+    console.warn = origWarn;
+    check('and it says so once, because the failed measurement is recorded (not retried on every call)',
+      warnings.length === 1 && /case sensitivity/.test(warnings[0]), warnings.join(' | '));
+    check('flipCase swaps every ASCII letter and nothing else', iface.flipCase('GAME.dsk') === 'game.DSK' && iface.flipCase('a1-_ Z') === 'A1-_ z');
+    // F1: a store may hold a name this project does not write (a non-ASCII file in the user's own folder, say),
+    // and stat() refuses to ask about it. Such a name must not be the one the question is put with: it is passed
+    // over, and the next usable name answers. (Before this, one such file settled "folding" for good on an exact
+    // folder, so two genuinely different disks could be refused forever.)
+    const odd = new Raw(false);
+    await odd.write('\u00dc.txt', bytes(1));              // the invalid name, and the shortest, so picked first
+    await odd.write('disks/GAME.DSK', bytes(1));
+    await odd.write('disks/game.DSK', bytes(1));
+    check('a non-ASCII name in the folder is skipped, and the folder still measures case-SENSITIVE',
+      await iface.detectCase(odd) === false && odd.caseMeasured === true,
+      `ci=${odd.caseInsensitive} measured=${odd.caseMeasured}`);
+    check('probeName skips a name checkName refuses', iface.probeName([{ name: '\u00dc.txt' }, { name: 'a.bin' }]) === 'a.bin');
+    // and the same on a folding folder: the invalid name must not hide the answer either
+    const oddFold = new Raw(true);
+    await oddFold.write('\u00dc.txt', bytes(1));
+    await oddFold.write('disks/GAME.DSK', bytes(1));
+    check('a non-ASCII name on a folding folder still measures case-INSENSITIVE',
+      await iface.detectCase(oddFold) === true && oddFold.caseMeasured === true, `ci=${oddFold.caseInsensitive}`);
+    // every name invalid: there is nothing to put the question with, so the store stays UNMEASURED and a later
+    // name asks again — it must not settle "folding" for good (the same rule as an empty store)
+    const allOdd = new Raw(false);
+    await allOdd.write('\u00dc.txt', bytes(1));
+    await allOdd.write('\u00e9.bin', bytes(1));
+    check('a folder whose only names this project cannot ask about stays unmeasured, at the safe answer',
+      await iface.detectCase(allOdd) === true && !allOdd.caseMeasured, `measured=${allOdd.caseMeasured}`);
+    await allOdd.write('NEW.DSK', bytes(1));   // a name it can ask about arrives
+    check('and the next measurement, now that there is a name, answers properly',
+      await iface.detectCase(allOdd) === false && allOdd.caseMeasured === true, `ci=${allOdd.caseInsensitive}`);
+    // A flip the store fails to stat on ONE candidate is passed over for the next, and that one answers: the
+    // first name's failure is not the store's answer.
+    const flaky = new Raw(false);
+    await flaky.write('aa/GAME.DSK', bytes(1));
+    await flaky.write('aa/game.DSK', bytes(1));
+    await flaky.write('b/OTHER.DSK', bytes(1));          // the next candidate, short enough to be tried second
+    const realStat = flaky.stat.bind(flaky);
+    flaky.stat = async (n) => { if (n === 'AA/game.dsk') throw Object.assign(new Error('transient'), { code: 'io' }); return realStat(n); };
+    check('a flip the store fails to stat on one name does not decide: the next candidate answers',
+      await iface.detectCase(flaky) === false && flaky.caseMeasured === true, `ci=${flaky.caseInsensitive} measured=${flaky.caseMeasured}`);
+    // and if EVERY candidate's flip fails that way, nothing decides it: the safe answer, unmeasured, re-asked later
+    const allFlaky = new Raw(false);
+    await allFlaky.write('d/GAME.DSK', bytes(1));
+    allFlaky.stat = async (n) => { if (/^D\//.test(n)) throw Object.assign(new Error('transient'), { code: 'io' }); return null; };
+    check('a store whose every flip fails stays unmeasured, at the safe answer',
+      await iface.detectCase(allFlaky) === true && !allFlaky.caseMeasured, `measured=${allFlaky.caseMeasured}`);
+    check('probeName takes the shortest name with a letter, and null when none has one',
+      iface.probeName([{ name: '123' }, { name: 'ABCD' }, { name: 'Zs' }]) === 'Zs' && iface.probeName([{ name: '123' }]) === null);
+  }
+
+// A faithful File System Access folder for Node: files keyed by (folded) full path, each carrying the real path.
+// fold: true = one entry for both spellings (APFS/NTFS), false = distinct entries (ext4). The folder decides, as a
+// real one does; the store and the measurement must follow it.
+function fsaFolder({ fold }) {
+  const files = new Map();
+  const key = (p) => (fold ? p.toLowerCase() : p);
+  const put = (p, bytes) => { const k = key(p); files.set(k, { name: (files.get(k) || {}).name || p, bytes }); };
+  const has = (p) => files.has(key(p));
+  const under = (prefix) => [...files.keys()].some((k) => k.startsWith(key(prefix)));
+  const mkFile = (bytes, name) => new File([bytes], name, { lastModified: 1700000000000 });
+  const dir = (prefix) => ({
+    name: prefix || 'mock', kind: 'directory',
+    async queryPermission() { return 'granted'; },
+    async requestPermission() { return 'granted'; },
+    async getDirectoryHandle(name, { create } = {}) {
+      const at = prefix ? `${prefix}/${name}` : name;
+      if (!create && !under(at + '/')) { const e = new Error('not found'); e.name = 'NotFoundError'; throw e; }
+      return dir(at);
+    },
+    async getFileHandle(name, { create } = {}) {
+      const p = prefix ? `${prefix}/${name}` : name;
+      if (!create && !has(p)) { const e = new Error('not found'); e.name = 'NotFoundError'; throw e; }
+      return {
+        async getFile() { return mkFile((files.get(key(p)) || {}).bytes || new Uint8Array(0), (files.get(key(p)) || {}).name || name); },
+        async createWritable(opts = {}) {
+          let buf = opts.keepExistingData ? ((files.get(key(p)) || {}).bytes || new Uint8Array(0)).slice() : new Uint8Array(0);
+          return {
+            write(d) {
+              if (d && d.type === 'write') { const end = d.position + d.data.length; if (end > buf.length) { const n = new Uint8Array(end); n.set(buf); buf = n; } buf.set(d.data, d.position); }
+              else if (d == null) buf = new Uint8Array(0);
+              else buf = d instanceof Uint8Array ? d : new Uint8Array(d);
+              return Promise.resolve();
+            },
+            truncate(n) { buf = buf.slice(0, n); return Promise.resolve(); },
+            close() { put(p, buf); return Promise.resolve(); },
+          };
+        },
+      };
+    },
+    async removeEntry(name) {
+      const p = prefix ? `${prefix}/${name}` : name;
+      if (!has(p)) { const e = new Error('not found'); e.name = 'NotFoundError'; throw e; }
+      files.delete(key(p));
+    },
+    entries() {
+      const base = prefix ? prefix + '/' : '';
+      const kids = new Map();
+      for (const [k, e] of files) {
+        if (!k.startsWith(key(base))) continue;
+        const rest = e.name.slice(base.length), slash = rest.indexOf('/');
+        if (slash < 0) { kids.set(rest, 'file'); continue; }
+        kids.set(rest.slice(0, slash), 'directory');
+      }
+      return {
+        [Symbol.asyncIterator]() {
+          const it = kids.entries();
+          return { next() {
+            const r = it.next();
+            if (r.done) return Promise.resolve({ done: true });
+            const [n, kind] = r.value, p = base + n;
+            const e = files.get(key(p));
+            return Promise.resolve({ done: false, value: [n, kind === 'file' ? { kind: 'file', async getFile() { return mkFile((e || {}).bytes || new Uint8Array(0), (e || {}).name || n); } } : dir(p)] });
+          } };
+        },
+      };
+    },
+  });
+  return { root: dir(''), put, files };
+}
+
+// The same for the Origin Private File System, which walks differently: entries() yields [name, handle] where a
+// handle IS the directory or the file (no separate getFileHandle for a child already listed), and files are
+// written through a writable on the file handle. `fold` is the volume's own rule, as in fsaFolder.
+function opfsRoot({ fold }) {
+  const files = new Map();
+  const key = (p) => (fold ? p.toLowerCase() : p);
+  const put = (p, bytes) => { const k = key(p); files.set(k, { name: (files.get(k) || {}).name || p, bytes }); };
+  const has = (p) => files.has(key(p));
+  const under = (prefix) => [...files.keys()].some((k) => k.startsWith(key(prefix)));
+  const mk = (bytes, name) => ({ size: bytes.length, lastModified: 1700000000000, name, async arrayBuffer() { return bytes.slice().buffer; } });
+  const dir = (prefix) => ({
+    name: prefix ? prefix.split('/').pop() : 'opfs', kind: 'directory',
+    async getDirectoryHandle(name, { create } = {}) {
+      const at = prefix ? `${prefix}/${name}` : name;
+      if (!create && !under(at + '/')) { const e = new Error('not found'); e.name = 'NotFoundError'; throw e; }
+      return dir(at);
+    },
+    async getFileHandle(name, { create } = {}) {
+      const p = prefix ? `${prefix}/${name}` : name;
+      if (!create && !has(p)) { const e = new Error('not found'); e.name = 'NotFoundError'; throw e; }
+      return {
+        async getFile() { return mk((files.get(key(p)) || {}).bytes || new Uint8Array(0), (files.get(key(p)) || {}).name || name); },
+        async createWritable() {
+          let buf = new Uint8Array(0);
+          return {
+            async write(d) { buf = d instanceof Uint8Array ? d.slice() : new Uint8Array(d); },
+            async close() { put(p, buf); },
+          };
+        },
+      };
+    },
+    async removeEntry(name) {
+      const p = prefix ? `${prefix}/${name}` : name;
+      if (!has(p)) { const e = new Error('not found'); e.name = 'NotFoundError'; throw e; }
+      files.delete(key(p));
+    },
+    // what a walk sees: each child as [name, handle], the handle itself being the directory or the file
+    entries() {
+      const base = prefix ? prefix + '/' : '';
+      const kids = new Map();
+      for (const [k, e] of files) {
+        if (!k.startsWith(key(base))) continue;
+        const rest = e.name.slice(base.length), slash = rest.indexOf('/');
+        if (slash < 0) { kids.set(rest, 'file'); continue; }
+        kids.set(rest.slice(0, slash), 'directory');
+      }
+      return {
+        [Symbol.asyncIterator]() {
+          const it = kids.entries();
+          return { next() {
+            const r = it.next();
+            if (r.done) return Promise.resolve({ done: true });
+            const [n, kind] = r.value, p = base + n, e = files.get(key(p));
+            return Promise.resolve({ done: false, value: [n, kind === 'file' ? { kind: 'file', async getFile() { return mk((e || {}).bytes || new Uint8Array(0), (e || {}).name || n); } } : dir(p)] });
+          } };
+        },
+      };
+    },
+  });
+  return { root: dir(''), put };
+}
+
+  // ---- the real backends, measured against a folder that decides for itself ----
+  // The probe tests above use Map doubles whose stat echoes what was asked, which is why two review rounds found
+  // shape after shape of wrong probe. These drive the REAL backends over a folder whose folding is its own fact, in
+  // every arrangement that matters: one file, two genuinely different files that are each other's case (including
+  // a directory whose own spelling differs), and nothing at all.
+  {
+    const { FsaMediaStore } = require('../js/host/media-store-fsa.js');
+    const { OpfsMediaStore } = require('../js/host/media-store-opfs.js');
+    const cases = [
+      // [fold, files, expected caseInsensitive]
+      [true, ['disks/GAME.DSK'], true],
+      [true, ['disks/GAME.DSK', 'disks/game.dsk'], true],           // one folder directory, still one entry
+      [true, ['disks/GAME.DSK', 'DISKS/game.dsk'], true],           // and a second directory spelling is that folder too
+      [false, ['disks/GAME.DSK'], false],
+      [false, ['disks/GAME.DSK', 'DISKS/game.dsk'], false],         // two genuinely different files, different dirs
+      [false, ['disks/GAME.DSK', 'disks/game.DSK'], false],         // two genuinely different files, one dir
+      [true, [], true],                                              // nothing to ask with: the safe answer
+    ];
+    // A measurement must not list through its own question: if it does, detectCase either recurses until the stack
+    // goes or waits on itself. Either way this check names the defect, and it runs early in the block so that a
+    // broken split is reported by it rather than by whichever check happens to hit the recursion first.
+    {
+      const folder = fsaFolder({ fold: false }); folder.put('disks/GAME.DSK', new Uint8Array(1));
+      const of = opfsRoot({ fold: false }); of.put('disks/GAME.DSK', new Uint8Array(1));
+      for (const [what, store] of [['FsaMediaStore', new FsaMediaStore(folder.root)], ['OpfsMediaStore', new OpfsMediaStore({ root: of.root })]]) {
+        let answer;
+        try { answer = await Promise.race([iface.measureOnce(store), new Promise((r) => setTimeout(() => r('TIMEOUT'), 2000))]); }
+        catch (e) { answer = `threw ${e && e.name}`; }
+        // `false` is the right answer AND evidence the measurement ran: the folder tells cases apart. A store that
+        // merely did not hang would still have to give this answer.
+        check(`${what}: the first measurement completes (no deadlock through its own listing)`, answer === false, `answer=${answer}`);
+      }
+    }
+    for (const [fold, layout, want] of cases) {
+      const folder = fsaFolder({ fold });
+      for (const p of layout) folder.put(p, new Uint8Array(1));
+      const store = new FsaMediaStore(folder.root);
+      const got = await iface.detectCase(store);
+      check(`FsaMediaStore over a ${fold ? 'folding' : 'exact'} folder, ${JSON.stringify(layout)}: measured ${want}`,
+        got === want, `got ${got}`);
+      // the same arrangements through the other backend: its walk is its own code, so a rule that holds for one
+      // walk is not evidence for the other
+      const of = opfsRoot({ fold });
+      for (const p of layout) of.put(p, new Uint8Array(1));
+      const opfsStore = new OpfsMediaStore({ root: of.root });
+      const gotOpfs = await iface.detectCase(opfsStore);
+      check(`OpfsMediaStore over a ${fold ? 'folding' : 'exact'} store, ${JSON.stringify(layout)}: measured ${want}`,
+        gotOpfs === want, `got ${gotOpfs}`);
+    }
+    // Two things make this a real test, and the first version got both wrong. The prefix: with 'disks/' a listing
+    // that folded still walked the same directory and found the same files, so it passed for the wrong reason - a
+    // prefix that names an entry ('disks/G') is filtered for real. And the fixture has to make the GUESS wrong:
+    //   - a folder that tells cases apart, holding both spellings: the right answer is case-sensitive, so a caller
+    //     that guessed case-insensitive returns 'disks/game.DSK' as well, one name too many;
+    //   - a folder that does not, holding ONE file spelled in lower case: it can only hold one, and 'disks/game.dsk'
+    //     matches the prefix 'disks/G' only where the listing folds, so a caller that guessed case-sensitive
+    //     returns nothing at all.
+    // One folder rule cannot do both (on an exact folder a guess of exact is right, on a folding one a guess of
+    // folding is), so the first version proved only half of it.
+    {
+      const fixtures = [
+        { fold: false, put: ['disks/GAME.DSK', 'disks/game.DSK'], want: 'disks/GAME.DSK', why: 'catches a guess of case-insensitive' },
+        { fold: true, put: ['disks/game.dsk'], want: 'disks/game.dsk', why: 'catches a guess of case-sensitive' },
+      ];
+      for (const { fold, put, want, why } of fixtures) {
+        const folder = fsaFolder({ fold }); for (const p of put) folder.put(p, new Uint8Array(1));
+        const opfs = opfsRoot({ fold }); for (const p of put) opfs.put(p, new Uint8Array(1));
+        for (const [what, store] of [['FsaMediaStore', new FsaMediaStore(folder.root)], ['OpfsMediaStore', new OpfsMediaStore({ root: opfs.root })]]) {
+          const [a, b] = await Promise.all([store.list('disks/G'), store.list('disks/G')]);
+          check(`${what} over a ${fold ? 'folding' : 'exact'} folder (${why}): a second concurrent listing sees the measured answer`,
+            store.caseInsensitive === fold && a.map((x) => x.name).join() === want && b.map((x) => x.name).join() === want,
+            `ci=${store.caseInsensitive} a=[${a.map((x) => x.name)}] b=[${b.map((x) => x.name)}]`);
+        }
+      }
+    }
+    // A store that KEEPS the first answer it gave is wrong, and only this shape shows it: an empty store's safe
+    // answer is case-insensitive and UNMEASURED, so once a name arrives the question is put again and the answer
+    // may change. Caching the first answer would leave a case-sensitive folder answering case-insensitive for good
+    // - the same class of bug this commit is about - and every test above would still pass, because they all
+    // measure a store that is already populated.
+    {
+      for (const [what, make] of [
+        ['FsaMediaStore', () => { const f = fsaFolder({ fold: false }); return [new FsaMediaStore(f.root), f]; }],
+        ['OpfsMediaStore', () => { const f = opfsRoot({ fold: false }); return [new OpfsMediaStore({ root: f.root }), f]; }],
+      ]) {
+        const [store, folder] = make();
+        // the empty store listed through _case() FIRST, so a backend that stores the answer it first gave has one
+        // to be stale with; an empty store has nothing to ask, so the safe answer is folding and nothing is measured
+        const emptyListed = await store.list('disks/G');
+        const emptyAnswer = await iface.measureOnce(store);
+        const wasMeasured = store.caseMeasured;
+        folder.put('disks/game.dsk', new Uint8Array(1));
+        // this prefix matches 'disks/game.dsk' only where the listing folds. A store that re-measures finds this
+        // folder exact and returns nothing; one that kept its first (folding) answer returns the file.
+        const listed = await store.list('disks/G');
+        const after = await iface.measureOnce(store);
+        check(`${what}: an empty store's safe answer is not a measurement, so the rule is measured once it has a name`,
+          emptyListed.length === 0 && emptyAnswer === true && wasMeasured !== true && listed.length === 0 && after === false,
+          `empty=${emptyAnswer} measuredThen=${wasMeasured} listed=[${listed.map((x) => x.name)}] after=${after}`);
+        check(`${what}: ... and that second call is a real measurement (caseMeasured is true) and is kept`,
+          store.caseMeasured === true && store.caseInsensitive === false && (await iface.measureOnce(store)) === false,
+          `measured=${store.caseMeasured} ci=${store.caseInsensitive}`);
+      }
+    }
+    // A self-measuring backend's _listing must be its own walk, not a call back into list(): the measurement lists
+    // through _listing, so a _listing that awaits measureOnce (directly or through list()) asks the measurement for
+    // its own answer and never settles. The two real backends are shaped that way and are covered above; this case
+    // pins WHAT the contract requires rather than tolerating the cyclic shape. It must terminate: the recursion
+    // runs out of stack, which is a loud failure the suite can report, not a hang.
+    {
+      class Cyclic extends require('../js/host/media-store-memory.js').MemoryMediaStore {
+        get synchronous() { return false; }
+        constructor() { super(); this.declaresCase = false; this.caseInsensitive = null; }
+        async _listing(prefix) { return this.list(prefix); }          // the forbidden shape: back into measureOnce
+        async list(prefix = '') { await iface.measureOnce(this); return super.listSync(prefix); }
+      }
+      const s = new Cyclic(); await s.write('GAME.DSK', new Uint8Array(1));
+      let answer;
+      try { answer = await Promise.race([iface.measureOnce(s), new Promise((r) => setTimeout(() => r('TIMEOUT'), 2000))]); }
+      catch (e) { answer = `threw ${e && e.name}`; }
+      check('a cyclic _listing is not supported, and says so by failing rather than by silently measuring nothing',
+        typeof answer === 'string' && /threw/.test(answer) && !s.caseMeasured, `answer=${answer} measured=${s.caseMeasured}`);
+    }
+    // and the measurement only ever lists the WHOLE store. That is what makes the rule it passes inert (at the
+    // empty prefix both walks match every name either way), so it is asserted rather than assumed: the store below
+    // records what it was asked for, and a prefixed measurement would be visible here.
+    {
+      const s = new (require('../js/host/media-store-memory.js').MemoryMediaStore)();
+      await s.write('a/GAME.DSK', new Uint8Array(1));
+      const seen = [];
+      const store = { caseMeasured: false, caseInsensitive: null, list: (p) => s.listSync(p), _listing: (p, ci) => { seen.push([p, ci]); return s.listSync(p); } };
+      await iface.detectCase(store);
+      check('detectCase lists the whole store, so the rule it passes cannot decide the probe',
+        seen.length === 1 && seen[0][0] === '', JSON.stringify(seen));
+    }
+    // What a failure does, decided rather than accidental, and tested both ways:
+    //  - a measurement that THROWS (not a store refusal: a bug or an unexpected error) is not cached, so the next
+    //    call tries again — a rejected promise left in place would freeze the safe answer for the whole visit;
+    //  - a store that REFUSES (detectCase's own catch) is different on purpose: it records the safe answer so it is
+    //    not asked on every call (round 2's rule, tested above as "says so once").
+    {
+      const folder = fsaFolder({ fold: false });
+      folder.put('disks/GAME.DSK', new Uint8Array(1));
+      const store = new FsaMediaStore(folder.root);
+      let broken = true;
+      // the seam the measurement actually uses: patching list() would no longer test anything, because the
+      // measurement lists through _listing (it must not ask for the answer it is computing)
+      const realList = store._listing.bind(store);
+      // a throw with no code is an unexpected error: detectCase lets that shape out (see its catch)
+      store._listing = async (pr, ci) => { if (broken) throw new Error('the test broke the store'); return realList(pr, ci); };
+      let firstThrew = null;
+      try { await iface.measureOnce(store); } catch (e) { firstThrew = e; }
+      broken = false;
+      let after = null;
+      try { after = await store._case(); } catch (e) { after = `threw again: ${e.message}`; }
+      check('an unexpected measurement failure is not cached: the next call tries again and answers',
+        firstThrew instanceof Error && after === false && store.caseInsensitive === false && !store._measuring,
+        `firstThrew=${firstThrew && firstThrew.message} after=${after} ci=${store.caseInsensitive}`);
+    }
+    // measureOnce itself shares one in-flight measurement, whatever the caller (not only through _case)
+    {
+      class Slow extends (require('../js/host/media-store-memory.js').MemoryMediaStore) {
+        get synchronous() { return false; }
+        constructor() { super(); this.declaresCase = false; this.caseInsensitive = null; this.listCalls = 0; }
+        async list(p = '') { this.listCalls++; await new Promise((r) => setTimeout(r, 5)); return super.listSync(p); }
+      }
+      const s2 = new Slow(); await s2.write('disks/GAME.DSK', new Uint8Array(1));
+      const [x, y, z] = await Promise.all([iface.measureOnce(s2), iface.measureOnce(s2), iface.measureOnce(s2)]);
+      check('three concurrent callers share one measurement, and all see the same answer',
+        x === false && y === false && z === false && s2.listCalls === 1 && s2.caseMeasured === true,
+        `x=${x} y=${y} z=${z} listings=${s2.listCalls}`);
+    }
+    // and a second measurement costs no listing (the answer is the store's own record)
+    const folder = fsaFolder({ fold: false });
+    folder.put('disks/GAME.DSK', new Uint8Array(1));
+    const store = new FsaMediaStore(folder.root);
+    await iface.detectCase(store);
+    let listed = 0; const orig = store.list.bind(store); store.list = (...a) => { listed++; return orig(...a); };
+    await iface.detectCase(store);
+    check('FsaMediaStore: a measured store answers without listing again', listed === 0, `listings=${listed}`);
+  }
+
   // ---- MediaIndex.settled(): the point at which the queued writes are durable ----
   {
     // A store like OPFS: asynchronous, and a named write can be held open until the test releases it. A

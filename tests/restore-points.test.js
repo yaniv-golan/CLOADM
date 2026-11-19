@@ -277,7 +277,7 @@ const ACT = {
       const writes = [], refuse = { range: new Set(), whole: new Set(), code: 'unsupported' };
       const w = media.write.bind(media), wr = media.writeRange.bind(media);
       media.write = async (name, bytes) => { writes.push(name); if (refuse.whole.has(name)) throw new MediaStoreError(refuse.code, `${name}: refused`); return w(name, bytes); };
-      media.writeRange = async (name, o, bytes) => { writes.push(name); if (refuse.range.has(name)) throw new MediaStoreError(refuse.code, `${name}: permission to write was refused`); return wr(name, o, bytes); };
+      media.writeRange = async (name, o, bytes) => { writes.push(name); if (refuse.range.has(name)) throw new MediaStoreError(refuse.code, `${name}: permission was refused`); return wr(name, o, bytes); };
       const s = new Emu.Session({ media });
       s.switchMachine('dragon64');
       for (const sl of Emu.profiles.dragon64.roms) s.roms.put('dragon64', sl.id, boot.slice(sl.at - 0x8000, sl.at - 0x8000 + sl.size), 'boot.rom');
@@ -452,7 +452,7 @@ const ACT = {
       const r = await rig(), { s } = r;
       r.refuse.range.add('disks/work.vdk'); r.refuse.whole.add('disks/work.vdk');
       await r.point(); await r.write();
-      check('read-only file: the machine\'s write was refused and reported', r.err instanceof Emu.SessionError && /permission to write was refused/.test(r.err.message));
+      check('read-only file: the machine\'s write was refused and reported', r.err instanceof Emu.SessionError && /permission was refused/.test(r.err.message));
       const from = r.writes.length;
       const res = s.restoreClaude();
       const e = await s.diskWritesDone().then(() => null, (x) => x);
