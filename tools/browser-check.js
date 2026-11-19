@@ -1331,6 +1331,35 @@ async function nitros9Checks(browser, base, check) {
   }
   check('nitros9: no page errors', !errors.length, errors.join('; '));
   await ctx.close();
+
+  // ---- a release file name is long (33 characters): the image list stays inside its card, the drive tile stays short,
+  // at every width. Measured with getBoundingClientRect. The old CSS let the list stick out of the card (400 px wide) and
+  // the tile break the name over four lines.
+  const LONG = 'nos96309l2v030300coco3_40d_1.dsk';
+  for (const [w, h] of [[1280, 720], [1440, 900], [1920, 1080], [390, 844]]) {
+    const c2 = await browser.newContext({ viewport: { width: w, height: h }, serviceWorkers: 'block' });
+    const p2 = await c2.newPage();
+    const errs = [];
+    p2.on('pageerror', (e) => errs.push(e.message));
+    await p2.goto(`${base}?machine=coco3&cpu=6809&ram=128`);
+    await waitFor(p2, () => window.emu && window.emu.linkDone, null, 15000);
+    await p2.setInputFiles('#n9File', file(LONG, makeOs9Disk(Emu, { cpu: '6309', driver: 'rb1773', port: 'floppy', sides: 2, sectors: 1440 })));
+    const up = await waitForFrames(p2, () => window.emu.session.nitros9Loader() === 'floppy' && window.emu.session.diskStatus().drives.some((d) => d.drive === 0 && d.file === 'nos96309l2v030300coco3_40d_1.dsk'), null, 900);
+    await p2.evaluate(() => window.emu.nitros9Shown());
+    const m = await p2.evaluate(() => {
+      const r = (e) => e.getBoundingClientRect(), sel = document.getElementById('n9Image'), card = document.getElementById('nitros9Slot'), t = document.querySelector('#drives .drive.loaded');
+      return { sel: [Math.round(r(sel).left), Math.round(r(sel).right)], cardRight: Math.round(r(card).right), cardLeft: Math.round(r(card).left), tileH: Math.round(r(t).height), tileText: t.textContent,
+        tileTitle: t.title, selTitle: sel.title, selText: sel.selectedOptions[0].textContent, hscroll: document.documentElement.scrollWidth > innerWidth, tileRight: Math.round(r(t).right), tailRight: Math.round(r(t.querySelector('.dt')).right), tailClipped: t.querySelector('.dt').scrollWidth > t.querySelector('.dt').clientWidth, tailText: t.querySelector('.dt').textContent, driveRight: Math.round(r(document.getElementById('drives')).right) };
+    });
+    check(`nitros9 layout ${w}x${h}: the image list is inside its card, nothing scrolls sideways`, up && m.sel[1] <= m.cardRight && m.sel[0] >= m.cardLeft && !m.hscroll, JSON.stringify(m));
+    check(`nitros9 layout ${w}x${h}: the drive tile is short (at most two lines), inside its card, and the whole name is its text and title`,
+      m.tileH <= 56 && m.tileRight <= m.driveRight && m.tileText === `0 \u00b7 ${LONG}` && m.tileTitle.endsWith(LONG), JSON.stringify(m));
+    check(`nitros9 layout ${w}x${h}: the tail of the name (the last 15 characters) is shown whole, inside the tile`,
+      m.tailText === LONG.slice(-15) && m.tailRight <= m.tileRight && !m.tailClipped, JSON.stringify(m));
+    check(`nitros9 layout ${w}x${h}: the closed list's title is the whole name`, m.selTitle === m.selText && m.selText.startsWith(LONG), JSON.stringify(m));
+    check(`nitros9 layout ${w}x${h}: no page errors`, !errs.length, errs.join('; '));
+    await c2.close();
+  }
 }
 
 // DriveWire to a real CoCo over Web Serial, with navigator.serial MOCKED (a port of web streams in the page): the

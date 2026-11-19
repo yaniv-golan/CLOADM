@@ -20,6 +20,8 @@ export function setupNitros9Panel(page) {
     pending = p.catch(() => {});
     return p;
   }
+  // the closed list can clip a long name: the whole name is its title
+  const nameTitle = () => { const sel = $('n9Image'); sel.title = sel.selectedOptions[0] ? sel.selectedOptions[0].textContent : ''; };
   async function shown() { let p; do { p = pending; await p; } while (p !== pending); }
   async function render(seq) {
     const m = session.machine, on = !!m && session.constructor.NITROS9_MACHINES.includes(m.id);   // (no machine before the page starts)
@@ -42,6 +44,7 @@ export function setupNitros9Panel(page) {
     const nowValue = now ? `${now.store}:${now.name}` : null;
     sel.value = values.includes(keep) ? keep : nowValue && values.includes(nowValue) ? nowValue : sel.options[0].value;
     sel.disabled = !images.length;
+    nameTitle();
     $('btnN9Boot').disabled = !images.length;
     $('btnN9Boot').textContent = running ? 'Boot again' : 'Boot NitrOS-9';
     $('btnN9Leave').hidden = !running;
@@ -62,6 +65,7 @@ export function setupNitros9Panel(page) {
     if (!pick || !pick.name) return fail(new Error(`This link boots NitrOS-9 from your own image, and your library has none yet. Download the NitrOS-9 v3.3.0 CoCo 3 archive (${NITROS9_IMAGES_URL}), unzip it, and add its _becker.dsk or _40d_1.dsk under the screen (NitrOS-9 · Add image…); the link then boots it.`));
     return boot(session.bootNitros9(pick.name, pick.store));
   }
+  $('n9Image').onchange = nameTitle;
   $('btnN9Boot').onclick = () => {
     page.audio.start();
     const v = $('n9Image').value, i = v.indexOf(':');

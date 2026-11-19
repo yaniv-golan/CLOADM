@@ -166,6 +166,10 @@
   .slot .body { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
   .slot .title { font-size: 14px; color: var(--muted); }
   .slot .name { font-weight: 700; overflow-wrap: anywhere; }
+  /* The NitrOS-9 image list: one full-width row in the card, never wider than it (a long release file name would
+     push it out past the card's edge); the closed list clips the end with an ellipsis, the open list and the
+     title (set with the choice) show the whole name. */
+  #n9Image { flex: 1 1 100%; min-width: 0; max-width: 100%; text-overflow: ellipsis; }
   #mpak summary { cursor: pointer; color: var(--text-2); }
   .mpBody { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
   .mpRow { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
@@ -244,6 +248,8 @@
   .row { display: flex; justify-content: space-between; align-items: center; gap: 10px; background: var(--panel-deep); border-radius: var(--r-10); padding: 10px 12px; }
   .row .kind { color: var(--muted); font-size: 14px; }
   .drives { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  /* a long file name does not fit in a half-width tile: the drives go one to a row, so the name has the card's width */
+  .drives.long { grid-template-columns: minmax(0, 1fr); }
   .drive { display: flex; align-items: center; gap: 8px; text-align: left; background: #1E1E1E; color: var(--muted); border: 1px dashed var(--line-strong);
     border-radius: 6px; padding: 10px; min-width: 0; overflow-wrap: anywhere; }
   .drive.loaded { color: var(--text); border: 1px solid #2E2E2E; }
@@ -251,7 +257,13 @@
   .drive .led { flex: none; width: 8px; height: 8px; border-radius: 50%; background: #4A3A28; }
   .drive .led.on { background: var(--orange); box-shadow: 0 0 8px var(--orange); }
   .drive { flex-wrap: wrap; column-gap: 8px; row-gap: 2px; }
-  .drive .dn { flex: 1 1 0; min-width: 0; }
+  /* A long file name stays on ONE line and loses its middle, never its end (the extension and the _40d_1 / _becker
+     suffix say what the disk is): the head (the drive number and the start of the name) takes the room that is
+     left and ends in an ellipsis, the tail (the last 15 characters) is always shown. The whole name is the
+     button's title, and in the text for a screen reader. */
+  .drive .dn { flex: 1 1 0; min-width: 0; display: flex; }
+  .drive .dn .dh { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .drive .dn .dt { flex: none; white-space: nowrap; }
   .drive .meta { flex-basis: 100%; padding-left: 16px; font-size: 13px; color: var(--muted); }
   .drive .flag { color: var(--orange); }
   .drive.unsaved { border-color: var(--orange); }

@@ -16,6 +16,11 @@ import { SessionError } from '../session.js';
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 // the card's short label for the disk system
 const dosLabel = (name) => name.replace(/ cartridge$/, '');
+// a loaded drive's label: "n · file", the file split so the page can shorten the middle of a long name and keep its end
+const TAIL = 15, LONG = 14;   // a name longer than LONG does not fit a half-width tile: the card goes one drive to a row
+const driveLabel = (n, file) => file.length > TAIL + 4
+  ? `<span class="dh">${n} · ${esc(file.slice(0, -TAIL))}</span><span class="dt">${esc(file.slice(-TAIL))}</span>`
+  : `<span class="dh">${n} · ${esc(file)}</span>`;
 
 export function setupDrives(page, { openRoms = null } = {}) {
   const { session } = page;
@@ -41,11 +46,12 @@ export function setupDrives(page, { openRoms = null } = {}) {
     for (let n = 0; n < st.count; n++) {
       const d = st.drives.find((x) => x.drive === n);
       html.push(d
-        ? `<button class="drive loaded${d.unsaved ? ' unsaved' : ''}${open === n ? ' open' : ''}" data-drive="${n}" aria-expanded="${open === n}" title="${esc(d.name)}"><span class="led${act[n] ? ' on' : ''}" aria-hidden="true"></span><span class="dn">${n} · ${esc(d.file)}</span>` +
+        ? `<button class="drive loaded${d.unsaved ? ' unsaved' : ''}${open === n ? ' open' : ''}" data-drive="${n}" aria-expanded="${open === n}" title="${esc(d.name)}"><span class="led${act[n] ? ' on' : ''}" aria-hidden="true"></span><span class="dn">${driveLabel(n, d.file)}</span>` +
           `${d.unsaved || !d.stored || d.writeProtected ? `<span class="meta">${[d.unsaved ? '<span class="flag">not saved</span>' : '', !d.stored ? '<span class="tag">snapshot</span>' : '', d.writeProtected ? '<span class="wp">write-protected</span>' : ''].filter(Boolean).join(' · ')}</span>` : ''}</button>`
         : `<button class="drive${open === n ? ' open' : ''}" data-drive="${n}" aria-expanded="${open === n}">${n} · Insert disk…</button>`);
     }
     $('drives').innerHTML = html.join('');
+    $('drives').classList.toggle('long', st.drives.some((d) => d.file.length > LONG));
     menu(st, choices);
   }
   async function menu(st, choices) {

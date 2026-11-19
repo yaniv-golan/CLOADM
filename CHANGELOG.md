@@ -59,6 +59,10 @@ All notable changes to CLOADM are recorded here. The format follows
   SourceForge page, the two archives (`nos96809l2v030300coco3.zip`, `nos96309l2v030300coco3.zip`) and the file inside
   each to use (`..._becker.dsk` for DriveWire, `..._40d_1.dsk` for the floppy drive). The pins in
   `tools/nitros9/fetch.js` are unchanged (checked: both archives download from that page and the images match their SHA-256).
+- NitrOS-9 card: the image list no longer sticks out past the card (it is capped to the card's width, and its title
+  shows the whole name). A long file name in a Drives tile now stays on one line with the ellipsis in the middle, so
+  the ending (`coco3_40d_1.dsk`) stays visible, and the full name is the tile's title. The browser check measures
+  both at 1280, 1440, 1920 and 390 px wide.
 
 ### 0.1.3-pre
 
