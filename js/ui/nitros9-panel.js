@@ -6,7 +6,7 @@
  * back. A dropped NitrOS-9 image comes here too (bootFile), and a link's nitros9= (fromLink).
  */
 import { $ } from './page.js';
-import { NITROS9_RELEASES } from '../media/os9.js';
+import { NITROS9_IMAGES_URL } from '../media/os9.js';
 
 export function setupNitros9Panel(page) {
   const { session } = page;
@@ -59,7 +59,7 @@ export function setupNitros9Panel(page) {
   async function fromLink(which) {
     const cpu = session.machine.config.cpu;
     const pick = which === true ? await session.pickNitros9Image(cpu) : { name: which, store: null };
-    if (!pick || !pick.name) return fail(new Error(`This link boots NitrOS-9 from your own image, and your library has none yet. Get a NitrOS-9 release (${NITROS9_RELEASES}) and add its _becker.dsk or _40d_1.dsk under the screen (NitrOS-9 · Add image…); the link then boots it.`));
+    if (!pick || !pick.name) return fail(new Error(`This link boots NitrOS-9 from your own image, and your library has none yet. Download the NitrOS-9 v3.3.0 CoCo 3 archive (${NITROS9_IMAGES_URL}), unzip it, and add its _becker.dsk or _40d_1.dsk under the screen (NitrOS-9 · Add image…); the link then boots it.`));
     return boot(session.bootNitros9(pick.name, pick.store));
   }
   $('btnN9Boot').onclick = () => {

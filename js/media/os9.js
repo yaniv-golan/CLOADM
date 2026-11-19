@@ -31,8 +31,9 @@ const BOOT_TRACK = 34;                  // where REL, Boot and Krn live (side 0)
 const FLOPPY_TRACKS = 42;               // the most a CoCo disk drive here reads (FLOPPY_525_DD)
 const SECTOR = 256;
 
-// where to get the official images (the NitrOS-9 project's releases; CLOADM never hosts or fetches them)
-export const NITROS9_RELEASES = 'https://github.com/nitros9project/nitros9/releases';
+// where to get the official images: the v3.3.0 CoCo 3 disk-image archives are on the project's SourceForge page, not
+// attached to its GitHub release (that has only the source code); CLOADM never hosts or fetches them
+export const NITROS9_IMAGES_URL = 'https://sourceforge.net/projects/nitros9/files/releases/v3.3.0/';
 
 const u16 = (b, a) => (b[a] << 8) | b[a + 1];
 const u24 = (b, a) => (b[a] << 16) | (b[a + 1] << 8) | b[a + 2];

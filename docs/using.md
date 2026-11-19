@@ -104,12 +104,15 @@ CoCo 3 CLOADM boots it from your own disk image, over DriveWire or from the flop
 its own loaders (`js/machines/nitros9.js`, written for this project) take the place of the CoCo 3's internal ROM,
 read the boot track from drive 0 and start it, as Disk BASIC's `DOS` command does.
 
-1. **Get the image.** CLOADM doesn't include or download NitrOS-9. Get the CoCo 3 release from the
-   [NitrOS-9 project's releases](https://github.com/nitros9project/nitros9/releases) (the v3.3.0 archives are
-   also on [its SourceForge page](https://sourceforge.net/projects/nitros9/files/releases/v3.3.0/)):
-   `nos96809l2v030300coco3.zip` for the 6809, `nos96309l2v030300coco3.zip` for the HD6309. Take the file ending in
-   **`_becker.dsk`** to boot over DriveWire, or **`_40d_1.dsk`** (Disk 1 of the 40-track floppy set) to boot from
-   the floppy drive.
+1. **Get the image.** CLOADM doesn't include or download NitrOS-9. The disk images are **not** on the project's
+   GitHub releases page (a release there has only the "Source code" archives); they are the v3.3.0 files on
+   [its SourceForge page](https://sourceforge.net/projects/nitros9/files/releases/v3.3.0/) (that page shows a
+   "this project can be found here" banner pointing to GitHub, but the disk
+   images are only on SourceForge). Download
+   `nos96809l2v030300coco3.zip` for the 6809, or `nos96309l2v030300coco3.zip` for the HD6309, and unzip it. Of the
+   `.dsk` files inside, take **`nos96809l2v030300coco3_becker.dsk`** (or `nos96309l2v030300coco3_becker.dsk`) to boot
+   over DriveWire, or **`..._40d_1.dsk`** (Disk 1 of the 40-track floppy set) to boot from the floppy drive. The
+   other files (`_80d`, `_arduino`, `_cocosdc`, `_dw`, `_headless`, `_50hz`) are for other hardware, or are refused.
 2. **Boot it.** Pick the CoCo 3, then under the screen **NitrOS-9 · Add image…** and choose the file: it goes into
    your library (a DriveWire image with the DriveWire images, a floppy with the disks) and boots at once. Next time
    pick it in the list and press **Boot NitrOS-9**. Dropping the file on the page (or **Open…**) offers **Boot

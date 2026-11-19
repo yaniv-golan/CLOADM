@@ -53,6 +53,12 @@ All notable changes to CLOADM are recorded here. The format follows
   CONTROL there, as the positional map always said.
 - **The Mac's CLEAR is documented.** The Keys help and `docs/using.md` now say that on a Mac keyboard without
   `Home` or forward `Delete`, CLEAR is `Fn`+`←` or `Fn`+`Delete`, and that `Option` and `Cmd` stay with the Mac.
+- **The docs, the page and two messages sent NitrOS-9 users to the wrong place.** The project's GitHub releases page
+  has only "Source code" archives, no disk images. Everything that said to get a NitrOS-9 release there
+  (`docs/using.md`, the NitrOS-9 slot's note under the screen, the "no image" messages) now names the v3.3.0
+  SourceForge page, the two archives (`nos96809l2v030300coco3.zip`, `nos96309l2v030300coco3.zip`) and the file inside
+  each to use (`..._becker.dsk` for DriveWire, `..._40d_1.dsk` for the floppy drive). The pins in
+  `tools/nitros9/fetch.js` are unchanged (checked: both archives download from that page and the images match their SHA-256).
 
 ### 0.1.3-pre
 

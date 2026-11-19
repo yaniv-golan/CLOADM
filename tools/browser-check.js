@@ -1216,10 +1216,10 @@ async function nitros9Checks(browser, base, check) {
     /nitros9: NitrOS-9 boots on the CoCo 3/.test(await msg()) && await ev(() => window.emu.machine.id === 'dragon64') && await page.isHidden('#nitros9Slot'), await msg());
   await open('?nitros9=1');
   check('nitros9: ?nitros9=1 alone opens the CoCo 3; with no image it says where to get one',
-    await ev(() => window.emu.machine.id === 'coco3') && /your library has none yet.*github\.com\/nitros9project\/nitros9\/releases/.test(await msg()) && !await running(), await msg());
+    await ev(() => window.emu.machine.id === 'coco3') && /your library has none yet.*sourceforge\.net\/projects\/nitros9\/files\/releases\/v3\.3\.0\//.test(await msg()) && !await running(), await msg());
   check('nitros9: the slot under the screen, Boot disabled with no image, the release link',
     await page.isVisible('#nitros9Slot') && await page.isDisabled('#btnN9Boot') &&
-    await page.getAttribute('#n9Note a', 'href') === 'https://github.com/nitros9project/nitros9/releases');
+    await page.getAttribute('#n9Note a', 'href') === 'https://sourceforge.net/projects/nitros9/files/releases/v3.3.0/');
   if (shotDir) await page.locator('#nitros9Slot').screenshot({ path: path.join(shotDir, 'nitros9-empty.png') });
 
   // ---- wrong images, picked with Add image…

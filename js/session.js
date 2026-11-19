@@ -39,7 +39,7 @@ import { ChatSession, CHAT_STATE } from './claude/chat.js';
 import { TOOL_CODES, ToolError } from './claude/toolerrors.js';
 import { DriveWireChatChannel, CHAT_DW_CHANNEL } from './claude/channel.js';
 import { nitros9LoaderRom, nitros9LoaderKind, nitros9LoaderByCrc } from './machines/nitros9.js';
-import { inspectOs9Disk, NITROS9_RELEASES } from './media/os9.js';
+import { inspectOs9Disk, NITROS9_IMAGES_URL } from './media/os9.js';
 import { END_OF_REPLY } from './claude/chat.js';
 import { loadBasic as loadBasicInto, planBasic } from './claude/basicload.js';
 
@@ -588,7 +588,7 @@ export class Session {
   async bootNitros9(name, store = null) {
     const m = this.machine;
     if (!Session.NITROS9_MACHINES.includes(m.id)) throw new SessionError(`NitrOS-9 boots here on the CoCo 3, not the ${m.profile.name}. Switch to the CoCo 3 first.`);
-    if (!name) throw new SessionError(`No NitrOS-9 image: add your NitrOS-9 disk image (from ${NITROS9_RELEASES}: the release's file ending in _becker.dsk for DriveWire, or _40d_1.dsk for the floppy drive).`);
+    if (!name) throw new SessionError(`No NitrOS-9 image: add your NitrOS-9 disk image (download nos96809l2v030300coco3.zip, or nos96309l2v030300coco3.zip for the HD6309, from ${NITROS9_IMAGES_URL}, unzip it, and use the file ending in _becker.dsk for DriveWire, or _40d_1.dsk for the floppy drive).`);
     const where = store ? [store] : ['drivewire', 'disk'];
     let bytes = null, found = null;
     for (const st of where) {

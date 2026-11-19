@@ -41,7 +41,7 @@ const status = (m) => m.read(NITROS9_STATUS.addr);
   await s.importDriveWireImage('bitbanger.dsk', makeOs9Disk(Emu, { port: 'bitbanger' }));
 
   // ---- errors
-  check('no image: says where to get one', await rejects(s.bootNitros9(''), /No NitrOS-9 image.*github\.com\/nitros9project\/nitros9\/releases.*_becker\.dsk.*_40d_1\.dsk/));
+  check('no image: says where to get one', await rejects(s.bootNitros9(''), /No NitrOS-9 image.*nos96809l2v030300coco3\.zip.*nos96309l2v030300coco3\.zip.*sourceforge\.net\/projects\/nitros9\/files\/releases\/v3\.3\.0\/.*_becker\.dsk.*_40d_1\.dsk/));
   check('an image not in the library', await rejects(s.bootNitros9('gone.dsk'), /no image called gone\.dsk in your library/));
   check('a blank (not OS-9) image', await rejects(s.bootNitros9('blank.dsk'), /blank\.dsk: It isn't an OS-9 disk/));
   check('the bit-banger build', await rejects(s.bootNitros9('bitbanger.dsk'), /bit-banger.*_becker\.dsk/));
