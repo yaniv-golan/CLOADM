@@ -93,7 +93,7 @@ The [README](../README.md#what-works) has the short version of this table.
 | **Printer, serial, DriveWire** | Printer (Dragon parallel, CoCo/MC-10 serial); the bit-banger and the Dragon 64's 6551 ACIA with a terminal or loopback plug; DriveWire 4 over the CoCo's Becker port, served in the browser: drives 0-3 from images in the browser's storage, printing, virtual serial channels to WebSockets; [booting NitrOS-9](#booting-nitros-9) Level 2 on the CoCo 3 from your own DriveWire image, with CLOADM's own loader instead of a ROM; serving a real CoCo over Web Serial (untested on hardware) | the full screens |
 | **Input** | Keyboard in two modes (translated: the character typed; positional: the physical key), keyboard joystick, gamepads (two joysticks, dead zone), the Tandy and CoCo Max 3 Hi-Res interfaces, the CoCo 3 "The Rat" mouse, the CoCo Max Hi-Res module, mouse as the right joystick; an on-screen keyboard on phones and tablets (split for the thumbs when held sideways) and a touch joystick with FIRE, a tappable welcome menu | |
 | **Tools** | 6809/6803 assembler, POKE book with the SAM CPU speed, ROM self-test, snapshots (a `.cloadm` file to drop back in; Snapshot 1–3 in the browser), the Debugger screen (breakpoints, watchpoints, stepping, registers, memory, trace, symbols) | Step back (rewind) |
-| **Links, embedding, offline** | Every setting as a URL parameter (machine, RAM, CPU, a program, tape or cartridge to load, display, input); the Share screen: a link that opens this machine exactly as it is, a 6-second clip, a true-pixel screenshot, the snapshot file, and the embed code for a blog post; embed mode with a JavaScript API; works offline once visited, installable; settings export and import (never ROMs) | An install prompt, a touch keyboard in embeds |
+| **Links, embedding, offline** | Every setting as a URL parameter (machine, RAM, CPU, a program, tape or cartridge to load, display, input); the Share screen: a link that opens this machine exactly as it is, a 6-second clip, a true-pixel screenshot, the snapshot file, and the embed code for a blog post; embed mode with a JavaScript API; works offline once visited; **Install CLOADM…** at the foot of the **machine menu** (the machine-name button, top left) runs the browser's own prompt where there is one and shows the steps elsewhere, with a one-time offer once a program has run a minute; settings export and import (never ROMs) | A touch keyboard in embeds |
 
 **Speech/Sound Pak wiring.** The Pak is a CoCo cartridge holding three devices: a TMS7040 ("PIC") microcontroller running its own firmware, a GI SP0256 speech chip, and an AY-3-8913 sound chip. The 6809 never talks to the SP0256 directly: it writes a byte at `$FF7E` and interrupts the TMS7040, whose ports drive the speech chip and the AY. In MAME's `src/devices/bus/coco/coco_ssc.cpp` the SP0256 sits on the TMS7040's port C control lines (ALD on `C_ALD`, speech-ROM clock and chip selects alongside) and the TMS7040's port D is the data bus; the SP0256's `LRQ` and `SBY` come back to the host through the status read at `$FF7E` (`0x40` is `sby_r()`, `0x20` the sound-activity circuit, `0x80` the TMS7000 busy flag), and `$FF7D` bit 0 resets the speech chip along with the PIC and the AY. Port C bit 3 (`0x08`) does two jobs: it is the static RAM's read/write line and the AY-3-8913's `BDIR`, separated by the chip-select bits 4 and 6, which the firmware never asserts together. Our `js/chips/sp0256.js` models the speech chip itself, and the cartridge needs the TMS7040 core as well. At run time the Pak's two ROMs (the TMS7040's internal ROM and the SP0256-AL2's allophone data) are supplied by the user, like BASIC and DOS. For verification the project uses its own TMS7040 firmware and hand-built SP0256 data, never the real dumps, and runs MAME through its checksum-mismatch path as for the other diagnostic firmware.
 
@@ -351,8 +351,28 @@ rejects with a coded message such as `no-basic: ...` or `not-at-prompt: ...`.
 ## Offline
 
 After one visit CLOADM works without a network (`sw.js`, a service worker that always asks the
-network first and keeps a copy of the whole site), and browsers offer to install it as an app
-(`manifest.webmanifest`). ROMs and programs stay in the browser's own storage either way.
+network first and keeps a copy of the whole site). ROMs and programs stay in the browser's own storage
+either way.
+
+**Install it as an app** (`manifest.webmanifest`, `js/ui/install.js`). **Install CLOADM…**, at the foot of the **machine menu** (the machine-name button, top left) runs the browser's own install prompt where there is one and shows the steps
+otherwise; the Help page's **Install as an app** has them for Chrome and Edge on a computer, Chrome on Android,
+Samsung Internet, Firefox on Android, iOS Safari and Chrome or Edge on iOS. Installed, it opens in its own window,
+without the browser's tabs and address bar, and still works offline.
+
+Once a program has run for a minute on a visit, the page offers it in a card of its own, floating over the page
+where it covers nothing you look at or press: the bottom-right corner, else beside the screen, else (a phone held
+upright, with the on-screen keyboard) a one-line strip between the screen and the keys. It never covers the
+screen, Reset and the machine controls, the app bar or an on-screen key, and never moves the page. Where there is no such room (a phone held sideways with the keyboard, a small window) the offer is deferred:
+nothing is spent, and it comes when the window is resized or turned and there is room. It is never a modal, never
+takes the keyboard from the machine and never a step in the browser's Back history. A menu or a screen such as the
+Library opening takes it away without answering it; it comes back when they close.
+**Not now** (or `Esc`, anywhere but the screen: there `Esc` stays the machine's BREAK) offers again in 14 days,
+and a second **Not now** stops the offers;
+**Don't ask again** stops them at once. Once it is installed, or the browser reports the install, CLOADM says so
+and never offers again. With the browser's storage switched off, nothing is remembered and the card is not
+offered; the Menu item still works. The Menu item's own card (where the browser has no prompt of its own) is
+never held back, since you asked for it: at a size with no clear place, such as a phone held sideways with the
+on-screen keyboard, it may sit over some keys until you close it.
 
 ## Assembler
 

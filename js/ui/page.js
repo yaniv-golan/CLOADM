@@ -153,7 +153,8 @@ export function createPage(session, audio) {
     // Every surface that can be closed registers here: rank (lower is on top: a confirmation over a menu over a
     // card over a view over the chat), whether it is open, and how it closes. Esc closes the topmost open one
     // (main.js). With the focus on the screen only a question waiting for an answer takes it (a confirmation, a card
-    // above the screen: they answer "no") or Claude paused by the person's key (Esc is Stop then, in every view,
+    // above the screen: they answer "no"; not an offer nobody asked for, ESC.offer, which leaves the screen's Esc to
+    // the machine) or Claude paused by the person's key (Esc is Stop then, in every view,
     // and is not BREAK); otherwise Esc there is the machine's BREAK. The one exception is the full-screen chat
     // (opts.onScreen, a function): its screen is the chat firmware's prompt, where BREAK drops the typed line and
     // stops a streaming reply, so Esc there leaves the chat only when there is nothing for BREAK to do (an idle,
@@ -169,4 +170,6 @@ export function createPage(session, audio) {
 }
 // the ranks of page.onEscape, top first
 // (claude: Claude paused by a key, which Esc stops; under the questions on screen, over the views and the chat)
-export const ESC = Object.freeze({ confirm: 10, menu: 20, card: 30, claude: 35, view: 40, chat: 50 });
+// (offer: a card nobody asked for, js/ui/install.js's automatic install offer. Below claude, so the screen's Esc
+// never reaches it and stays the machine's BREAK; off the screen it is closed like any card, over the views.)
+export const ESC = Object.freeze({ confirm: 10, menu: 20, card: 30, claude: 35, offer: 36, view: 40, chat: 50 });

@@ -504,6 +504,31 @@ it plays (at most 2% of blocks); volume and mute; the four fallbacks to the Scri
 its module failing to load or never loading, the processor failing); and (group `pwa`) offline. Not verified automatically: how it sounds on real devices and
 other browsers (Safari and iOS, Firefox).
 
+### Install as an app (the PWA offer)
+
+The **Install CLOADM…** item and the one-time offer card (`js/ui/install.js`) have no MAME oracle (AGENTS.md
+4.6): they are page behaviour. The oracle is the brief's own rules, checked two ways. In Node,
+`tests/install.test.js` pins the pure rules: what each stored answer means, the first **Not now** waiting 14 days
+and a second ending the offers, a dismissed browser dialog waiting without spending that budget, every condition of
+the card one at a time, the program clock, and which steps each browser's user agent gets. In Chromium, the browser
+check's group `install` drives the real page with a synthetic `beforeinstallprompt` (mocked `prompt()` and
+`userChoice`), an iOS user agent and a standalone display mode: every condition broken alone, the answers across
+reloads, a background tab not counting, Esc, focus (the offer never takes it; typing into LIZA while it appears
+loses no key), a menu or a view taking the card away without an answer (the offer returns when they close, and Esc
+still closes the menu), and the placement. For the placement the check measures for itself, never through
+`install.js`: the real boxes of the screen, Reset and the machine controls, every app-bar control, the machine menu
+and every visible on-screen key, plus `elementFromPoint` over each of them, over a sweep of 56 window sizes (with
+and without the touch keyboard, phones upright and sideways), three live resizes measured once the screen has
+settled, a resize back to a roomy size bringing a deferred offer within two frames with the retry throttle held,
+and the once-a-second re-check putting right a card moved under it. At every size the card is clear of all of
+them or not up with the offer still owed and nothing stored.
+
+Not verified automatically: a real install prompt (Chromium's dialog cannot be driven, so `prompt()` is mocked),
+and iOS's Add to Home Screen. Manually: in Chrome on a computer, run a program for a minute and choose **Install**
+on the card, then **Install CLOADM…** in the machine menu; on an iPhone in Safari, wait for the card, follow
+Share → Add to Home Screen, and open CLOADM from the home screen (it starts without the browser's bars and the
+Menu item is gone).
+
 ## The comparisons
 
 `tools/mame-diff/` compares this emulator with MAME's `dragon64` driver. Neither tool uses the Dragon ROMs: both

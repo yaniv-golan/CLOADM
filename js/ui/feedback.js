@@ -89,7 +89,8 @@ export function createFeedback() {
   // again every frame while it is up (follow), so a control that moves or grows under it (the drawer filling in after
   // the toast appeared) never ends up covered. Elsewhere (the Library, Your ROMs, Share) the stylesheet's place holds.
   const region = box.parentNode;
-  const CONTROLS = 'header, .controls, .slots, aside.drawer, #attention, #touchKeys button, #claudeBar';
+  // (the install offer too: a toast must never cover it, in any of its layouts)
+  const CONTROLS = 'header, .controls, .slots, aside.drawer, #attention, #touchKeys button, #claudeBar, #installOffer';
   const boxes = (sel) => [...document.querySelectorAll(sel)].map((e) => e.getBoundingClientRect()).filter((o) => o.width && o.height);
   const hits = (r, o) => !(r.bottom <= o.top || r.top >= o.bottom || r.right <= o.left || r.left >= o.right);
   function place() {

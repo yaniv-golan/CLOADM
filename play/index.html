@@ -58,6 +58,12 @@
     .appbar.tight #machineSpec, .appbar.tight #askKbd, .appbar.tight #navCmdKbd { display: none; }
   }
   #btnMenu { display: none; }
+  /* the machine menu's own row for Install CLOADM… (authored inside #machineMenu; js/ui/machine-panel.js's buildMenu
+     keeps it last across rebuilds. The menu floats over the page, so the app bar is the same with or without it) */
+  #navInstall { display: flex; justify-content: space-between; grid-column: 1 / -1; width: 100%; background: transparent; border: 0;
+    border-top: 1px solid var(--line); border-radius: 0; padding: 12px 8px 4px; margin-top: 4px; text-align: left; color: var(--text-2); }
+  /* (an author display rule outranks the hidden attribute's, so it is stated: once installed, the row goes) */
+  #navInstall[hidden] { display: none; }
   #machineMenu { position: absolute; top: calc(100% - 6px); left: 20px; z-index: 20; width: min(600px, calc(100vw - 40px)); background: var(--panel);
     border: 1px solid var(--line); border-radius: var(--r-14); padding: 14px; box-shadow: 0 20px 50px rgba(0, 0, 0, .6);
     display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; max-height: 80vh; overflow-y: auto; }
@@ -238,6 +244,64 @@
   #welcome .bar, #mediaOffer .bar { margin-top: 10px; }
   #welcome .ask { margin-top: 10px; color: var(--text-2); display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   #welcome .close { position: absolute; top: 10px; right: 10px; min-height: 32px; padding: 4px 10px; font-size: 14px; }
+
+  /* ---- install as an app (js/ui/install.js): an offer, floating over the page ---- */
+  /* desktop and tablet: the bottom-right corner, where the toasts live, above them and never moving the page.
+     js/ui/install.js tries each place below in turn (the class applied, the real box read back) and keeps the first
+     that covers none of the screen, the machine controls, the app bar or a visible on-screen key;
+     with none clear, the offer waits (unspent) for a layout that has room. */
+  #installOffer { position: fixed; z-index: 61; right: 16px; bottom: calc(16px + var(--install-lift, 0px)); width: min(360px, calc(100vw - 32px));
+    background: var(--panel); border: 1px solid var(--phosphor); border-radius: var(--r-14); padding: 14px 16px;
+    box-shadow: 0 18px 44px rgba(0, 0, 0, .55); display: flex; flex-direction: column; gap: 8px; }
+  #installOffer[hidden] { display: none; }
+  #installOffer strong { font-weight: 600; line-height: 1.4; }
+  /* the sentence in two lengths: the strip (below) has one line for it */
+  #installText .short { display: none; }
+  #installOffer ol { margin: 0; padding-left: 20px; color: var(--text-2); display: flex; flex-direction: column; gap: 4px; }
+  #installOffer .bar { margin-top: 2px; flex-wrap: wrap; gap: 8px 12px; }
+  #installOffer .bar button { border-radius: var(--pill); }
+  #installOffer .link { border: 0; background: none; text-decoration: underline; color: var(--link); padding: 0; min-height: 0; }
+  /* the gutter beside the screen (js/ui/install.js picks the side and reads the box back). Above the phone width
+     only: at 700 px and under the card is the full-width strip below, and these would outrank that rule. The
+     body:not(.touch-keys) prefix keeps them level with the short-landscape rule below (which otherwise wins on
+     specificity and leaves the gutter doing nothing exactly where it is needed); with the on-screen keyboard up the
+     keyboard's own layout owns the card. */
+  @media (min-width: 701px) {
+    body:not(.touch-keys) #installOffer.gutter { left: auto; right: 8px; bottom: 16px; width: min(260px, 34vw); }
+    body:not(.touch-keys) #installOffer.gutter-left { right: auto; left: 8px; bottom: 16px; width: min(260px, 34vw); }
+  }
+  /* a narrow window: a full-width card at the bottom (with the on-screen keyboard up, that is over the keys, so
+     js/ui/install.js finds it unclear and tries the strip under the screen instead) */
+  @media (max-width: 700px) { #installOffer { left: 8px; right: 8px; width: auto; bottom: calc(8px + var(--install-lift, 0px)); } }
+  /* held sideways it floats too (008: showing or dismissing it must never move the page) */
+  @media (orientation: landscape) and (max-height: 500px) {
+    /* without the on-screen keyboard too, the card floats (008: showing or dismissing it must not move the page).
+       js/ui/install.js places it: the corner lifted clear of the screen, else a narrower card in the gutter beside
+       the screen (.gutter), else it is not shown (the offer waits for a layout with room). */
+    body:not(.touch-keys) #installOffer { position: fixed; z-index: 61; right: 16px; bottom: calc(16px + var(--install-lift, 0px));
+      left: auto; width: min(360px, calc(100vw - 32px)); padding: 10px 14px; }
+    /* with the on-screen keyboard up (a phone) the card's place is the screen's centre column at the bottom, which is
+       the keyboard's own button row (BREAK, CLEAR, the switch, Menu). Those buttons are never hidden for it: the
+       placement finds the place unclear and the offer waits for a layout with room. */
+    .touch-keys #installOffer { position: fixed; z-index: 7; left: 50%; right: auto; bottom: 8px; transform: translateX(-50%);
+      width: min(280px, 34vw); padding: 8px 10px; gap: 4px; box-shadow: none; }
+    #installOffer strong { font-size: 13px; line-height: 1.3; }
+    #installOffer ol { display: none; }
+    #installOffer .bar { margin: 0; flex-wrap: nowrap; }
+    #installOffer .bar button { min-height: 32px; padding: 4px 12px; font-size: 14px; }
+  }
+  /* the strip under the screen: a phone held upright with the on-screen keyboard, whose keys fill the page below the
+     screen. One line of words and the buttons, in the band between the screen's bottom and the first key's top;
+     js/ui/install.js sets --install-top from the screen's measured bottom and keeps the strip only if the box it
+     reads back is clear of the keys. (Last in the sheet and with the body prefix, so it outranks the rules above.) */
+  body #installOffer.strip { top: var(--install-top, 0px); bottom: auto; left: 8px; right: 8px; width: auto; transform: none;
+    padding: 6px 10px; gap: 4px; box-shadow: none; }
+  /* (the words wrap if they must: a strip grown taller than the band is then not clear, and the offer waits) */
+  body #installOffer.strip strong { font-size: 13px; line-height: 1.3; }
+  body #installOffer.strip #installText .long, body #installOffer.strip ol { display: none; }
+  body #installOffer.strip #installText .short { display: inline; }
+  body #installOffer.strip .bar { margin: 0; flex-wrap: nowrap; }
+  body #installOffer.strip .bar button { min-height: 32px; padding: 4px 12px; font-size: 14px; }
 
   /* ---- drawer ---- */
   [role="tablist"] { display: flex; gap: 2px; background: var(--panel-deep); border-radius: var(--r-14); padding: 4px; overflow-x: auto; }
@@ -1145,7 +1209,11 @@ npx serve -l 8000 .</pre>
     <a href="https://github.com/yaniv-golan/cloadm">GitHub</a>
   </nav>
   <button id="btnMenu" aria-expanded="false" aria-controls="appbar">Menu</button>
-  <div id="machineMenu" role="menu" aria-label="Machines" hidden></div>
+  <div id="machineMenu" role="menu" aria-label="Machines" hidden>
+    <!-- js/ui/install.js: the browser's own install prompt, or the steps that install it (hidden once installed).
+         The menu floats over the page, so the app bar stays the height it was; buildMenu keeps this row last. -->
+    <button type="button" id="navInstall" role="menuitem">Install CLOADM…</button>
+  </div>
 </header>
 <div id="switchConfirm" role="alertdialog" aria-label="Switch machine" hidden>
   <span>Switching to <strong id="switchName"></strong> resets the <span id="switchFrom"></span>. The running program will be lost.</span>
@@ -1285,6 +1353,14 @@ npx serve -l 8000 .</pre>
       <button id="btnTurbo" title="Run as fast as possible (never changes the emulated CPU speed)">Turbo</button>
       <button id="btnFull">Fullscreen</button>
       <button id="btnShowKeys" hidden title="The on-screen keyboard">Keys</button>
+    </div>
+    <!-- js/ui/install.js: install CLOADM as an app. Fixed over the page where it covers nothing (the page
+         never moves under it): the bottom-right corner, a gutter beside the screen, or a strip under the screen -->
+    <div id="installOffer" role="dialog" aria-labelledby="installText" hidden>
+      <strong id="installText"><span class="long"></span><span class="short" aria-hidden="true"></span></strong>
+      <ol id="installSteps" hidden></ol>
+      <div class="bar"><button id="btnInstallGo" class="primary">Install</button><button id="btnInstallNotNow">Not now</button>
+        <button id="btnInstallNever" class="link">Don't ask again</button></div>
     </div>
 
     <!-- the on-screen keyboard (js/ui/touch-keys.js) -->
@@ -1902,6 +1978,7 @@ npx serve -l 8000 .</pre>
 <link rel="modulepreload" href="js/ui/slots-panel.js">
 <link rel="modulepreload" href="js/ui/tape-panel.js">
 <link rel="modulepreload" href="js/ui/nitros9-panel.js">
+<link rel="modulepreload" href="js/ui/install.js">
 <!-- modulepreload:end -->
 <script type="module" src="js/ui/main.js" onerror="if (location.protocol !== 'file:') showStartError('The emulator\'s scripts could not be loaded from this server.')"></script>
 </body>

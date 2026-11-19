@@ -47,6 +47,7 @@ import { setupShare } from './share.js';
 import { setupSlotsPanel } from './slots-panel.js';
 import { setupTapePanel } from './tape-panel.js';
 import { setupNitros9Panel } from './nitros9-panel.js';
+import { setupInstall } from './install.js';
 
 // Storage: small settings stay in localStorage; ROMs and recent programs live in the media store: where the
 // user chose in the Library (settings 'storage': browser storage, a folder of theirs, or download and open; the
@@ -190,6 +191,9 @@ else if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register(new URL('sw.js', document.baseURI).href, { scope: new URL('./', document.baseURI).href })
     .catch((e) => console.warn(`Offline use is not available: ${e.message}`));
 }
+// the Menu's "Install CLOADM…" and the offer card (over a running program, once a visit); the steps stand in for the
+// browser's prompt wherever it has none. In an embed there is no Menu and no offer.
+window.emu.install = link.embed ? null : setupInstall(page, { started: () => window.emu.started, machineMenu: machinePanel });
 const fromLink = !!link.machine || link.roms.length > 0 || link.media.length > 0 || !!link.app || !!link.nitros9;
 // ROMs, media, an app (?app=claude) or NitrOS-9 (?nitros9=) decide what runs first, not the welcome menu
 const starting = welcome.start(visit, { fromLink, withMedia: link.roms.length > 0 || link.media.length > 0 || !!link.app || !!link.nitros9, program: link.start });

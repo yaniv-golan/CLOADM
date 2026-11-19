@@ -165,6 +165,7 @@ const FILES = [
   'js/ui/embed.js',
   'js/ui/feedback.js',
   'js/ui/files.js',
+  'js/ui/install.js',
   'js/ui/key-hint.js',
   'js/ui/library.js',
   'js/ui/machine-panel.js',

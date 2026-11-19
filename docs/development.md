@@ -58,6 +58,7 @@ node tests/session.test.js   # Session: model switching, ROM sockets, loading ev
 node tests/config.test.js    # URL parameters: every one checked (options against each model), bad values reported, links written and read back
 node tests/embed.test.js     # the embed API through its message protocol: calls, errors, events, frames
 node tests/pwa.test.js       # the service worker keeps every file the site serves; the manifest and its icons
+node tests/install.test.js   # the install offer's rules: stored answers, Not now twice, a dismissed prompt, who is offered, the 60 s clock, each browser's steps
 node tests/settings.test.js  # settings export and import round trip; ROMs and programs never in it, ignored if added
 node tests/storage-move.test.js  # moving the library to another store: what is copied, kept, merged (ROM sockets and names), refused; reconnecting a folder copies only this visit's files
 node tests/media-store.test.js  # storage layer: the MediaStore contract, random access, quota, localStorage migration

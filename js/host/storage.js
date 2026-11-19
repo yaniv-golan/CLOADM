@@ -1,4 +1,5 @@
-/* Session store backed by the browser's localStorage (silently non-persistent when storage is unavailable). */
+/* Session store backed by the browser's localStorage (silently non-persistent when storage is unavailable: a
+ * refused write reads back as nothing, which is how js/ui/install.js tells the two apart). */
 export function localStore(prefix = 'cloadm.') {
   const tryDo = (fn, fallback = null) => { try { return fn(); } catch (e) { return fallback; } };
   return {

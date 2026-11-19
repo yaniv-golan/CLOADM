@@ -6,6 +6,21 @@ All notable changes to CLOADM are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Install CLOADM as an app.** **Install CLOADM…**, at the foot of the **machine menu**, runs the browser's own install prompt where there
+  is one (Chromium, with its mini-infobar suppressed and the page's own card asked instead) and shows the steps
+  that install it elsewhere (Firefox Android, Samsung Internet) and on iOS, which has no install event (Share →
+  Add to Home Screen). Once a program has run for a minute on a visit, the page offers it in a card that
+  covers nothing you look at or press (the screen, the machine controls, the app bar, any on-screen key):
+  bottom-right over the page, beside the screen, or a one-line strip between the screen and the keys on a phone
+  held upright. With no such room it is deferred unspent and comes when a resize makes room; a menu or a view
+  opening takes it away unanswered and it returns when they close. It never takes the keyboard from the machine
+  (Esc on the screen stays BREAK); Esc elsewhere or **Not now** to wait 14 days (a
+  second **Not now** ends the offers), **Don't ask again** to end them at once, and the browser's `appinstalled`
+  shows "Installed." and stops asking. The card, the Menu item and their state are `js/ui/install.js` (the rules
+  are pure functions, pinned in `tests/install.test.js`); the Help page has the steps for every browser.
+
 ### Changed
 
 - **Restore points: one small line instead of a card after every message** (UX ruling R12). Under the latest turn

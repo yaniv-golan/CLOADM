@@ -32,11 +32,13 @@ export function setupMachinePanel(page) {
   const btn = $('machineBtn'), menu = $('machineMenu'), confirm = $('switchConfirm');
   let pending = null;   // what Switch does
 
+  // the rows of buildMenu, kept so it can clear them without the rows that are not its own (js/ui/install.js keeps
+  // its Install CLOADM… row in the menu, last, across builds)
   function buildMenu() {
-    menu.replaceChildren();
+    menu.querySelectorAll(':scope > .machines').forEach((g) => g.remove());
     // every profile is in exactly one section (groupProfiles is exhaustive; a new model cannot go missing)
     for (const [name, list] of groupProfiles(availableProfiles())) {
-      const g = document.createElement('div');
+      const g = document.createElement('div'); g.className = 'machines';
       const h = document.createElement('div'); h.className = 'group-name'; h.textContent = name;
       g.append(h);
       for (const p of list) {
@@ -54,13 +56,15 @@ export function setupMachinePanel(page) {
       }
       menu.append(g);
     }
-    const note = document.createElement('div'); note.className = 'note';
+    const note = document.createElement('div'); note.className = 'note machines';
     const left = document.createElement('span'); left.textContent = 'RAM, CPU and the CPU speed are in the Machine tab.';
     const right = document.createElement('span'), tick = document.createElement('span');
     tick.className = 'tag ready'; tick.textContent = '✓';
     right.append(tick, ' = BASIC ready');
     note.append(left, right);
     menu.append(note);
+    // the rows that are not buildMenu's own go after its own (js/ui/install.js's Install CLOADM… row, kept last)
+    for (const el of [...menu.children].filter((e) => !e.classList.contains('machines'))) menu.append(el);
   }
   function openMenu(open) {
     if (open) buildMenu();
@@ -136,5 +140,7 @@ export function setupMachinePanel(page) {
   $('ramSel').onchange = change('ram', Number, (v) => `${v}K RAM`);
   $('cpuSel').onchange = change('cpu', String, (v) => `${cpuName(v)} CPU`);
   $('chkBecker').onchange = (e) => change('becker', () => e.target.checked, (v) => `Becker port ${v ? 'on' : 'off'}`)(e);
-  return { confirmSwitch };
+  // `close` is openMenu(false): the item js/ui/install.js keeps in the menu closes it through this, rather than
+  // setting the same two attributes a second time
+  return { confirmSwitch, close: () => openMenu(false) };
 }

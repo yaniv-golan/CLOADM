@@ -343,6 +343,10 @@ const stubPrompt = async (page) => {
   await waitFor(page, () => window.emu && window.emu.started);
   await page.evaluate(() => { const s = window.emu.session; s.endWelcome(); s.stubRun = null; s.keys.clear(); window.emu.machine.reset(true); });
 };
+// Do two page rectangles (getBoundingClientRect shapes) meet? Vertical separation OR horizontal separation means
+// they do not; otherwise they overlap. One definition, used by every overlap check, so a sign cannot flip.
+const rectsMeet = (a, b) => !(a.bottom <= b.top || a.top >= b.bottom || a.right <= b.left || a.left >= b.right);
+
 // The condition waits (tools/browser-check-lib.js makeWaits). Waits are on conditions, never fixed times: on a loaded
 // machine the page and the emulation run slower than real time.
 // waitFor(page, fn, arg, ms): true as soon as fn holds in the page; after ms (a limit, not a delay; 30 s by default)
@@ -10495,6 +10499,1319 @@ async function modelsChecks(browser, base, check) {
 }
 
 // The groups, in run order: [name, (browser) => the group's checks]. --only takes these names.
+// The install offer (js/ui/install.js): the Menu item and the card, on a synthetic beforeinstallprompt (Chromium's
+// event, with a mocked prompt() and userChoice; no real install can be automated), an iOS user agent, and a
+// standalone display mode. Each condition of the card is shown to be needed by breaking it alone; "Not now" and
+// "Don't ask again" are shown to persist across reloads, with the 14 days moved in storage.
+async function installChecks(browser, base, check) {
+  // the card waits for a program to have run 60 s: the page's own clock is moved instead of waiting (the same
+  // clock the page makes its decision with), then a frame runs so the offer's turn comes.
+  const skipTo = async (page, seconds) => {
+    await page.evaluate((s) => { if (window.emu.install) window.emu.install.clock.skip(s); }, seconds);
+    await emuFrames(page, 2);
+  };
+  const cardUp = (page) => page.evaluate(() => { const c = document.getElementById('installOffer'); return !!c && !c.hidden; });
+  // the item is inside #machineMenu, which is hidden most of the time: isHidden() is true for anything under a
+  // display:none ancestor, so it cannot say whether the item was hidden. Its own attribute can.
+  const itemHidden = (page) => page.evaluate(() => document.getElementById('navInstall').hidden);
+  const buttons = (page) => page.evaluate(() => [...document.querySelectorAll('#installOffer button')].filter((b) => !b.hidden).map((b) => b.textContent.trim()));
+  // Chromium's event, as the browser fires it: prompt() is ours to mock (a real install cannot be automated) and
+  // userChoice answers with what window.__choice says (the default: dismissed)
+  const firePrompt = (page) => page.evaluate(() => {
+    const e = new Event('beforeinstallprompt', { cancelable: true });   // (as the browser fires it: cancellable)
+    e.prompt = () => { window.__prompted = (window.__prompted || 0) + 1; };
+    e.userChoice = Promise.resolve({ outcome: window.__choice || 'dismissed' });
+    window.dispatchEvent(e);
+    // both facts the feature needs: it held the event (preventDefault, so no Android mini-infobar) and it has it
+    return !!(window.emu.install && window.emu.install.prompt) && e.defaultPrevented;
+  });
+  // LIZA running, with the first visit's "Running with no ROMs" box dismissed and its toast gone: the page as it is
+  // when the offer has a free hand (the conditions are checked on their own in section 2)
+  // the item lives in the machine menu, which floats: open it and choose the item
+  const chooseInstall = async (page) => { await page.click('#machineBtn'); await page.click('#navInstall'); };
+  const liza = async (page) => {
+    await waitFor(page, () => window.emu.session.screenText().join('').includes('LIZA'));
+    await page.evaluate(() => { const w = document.getElementById('welcome'); if (w) w.hidden = true; window.emu.feedback.clear(); });
+    await emuFrames(page, 2);
+  };
+  // What the card covers, measured here and not taken from install.js: the real boxes of everything it must keep
+  // clear of (the screen, Reset and the machine controls, every app-bar control, the machine menu, every visible
+  // on-screen key, the stick and the panel's menu), and, as the user sees it, points over each of those that land on
+  // the card (elementFromPoint). With the card not up, whether the offer is still owed (pending, nothing stored).
+  const clearReport = (page) => page.evaluate(() => {
+    const el = document.getElementById('installOffer');
+    const shown = !el.hidden, r = el.getBoundingClientRect();
+    const hits = (a, b) => b.width > 0 && b.height > 0 && !(a.bottom <= b.top || a.top >= b.bottom || a.right <= b.left || a.left >= b.right);
+    const guarded = [document.getElementById('screen'), document.getElementById('btnReset'), ...document.querySelectorAll('.controls'),
+      ...document.querySelectorAll('#appbar > *'), document.getElementById('machineMenu'),
+      ...document.querySelectorAll('#touchKeys button, #touchStick, #tkMenuSheet')].filter((e) => e && e.checkVisibility({ visibilityProperty: true }));
+    const name = (e) => e.id || e.textContent.trim().slice(0, 10) || e.className || e.tagName;
+    const covered = shown ? guarded.filter((e) => hits(r, e.getBoundingClientRect())).map(name) : [];
+    const occluded = [];
+    if (shown) {
+      for (const e of guarded) {
+        const o = e.getBoundingClientRect();
+        const x0 = Math.max(0, o.left), x1 = Math.min(innerWidth, o.right), y0 = Math.max(0, o.top), y1 = Math.min(innerHeight, o.bottom);
+        if (x1 - x0 < 1 || y1 - y0 < 1) continue;
+        for (const [fx, fy] of [[0.5, 0.5], [0.05, 0.05], [0.95, 0.05], [0.05, 0.95], [0.95, 0.95]]) {
+          const t = document.elementFromPoint(x0 + (x1 - x0) * fx, y0 + (y1 - y0) * fy);
+          if (t && t.closest('#installOffer')) { occluded.push(name(e)); break; }
+        }
+      }
+    }
+    const st = window.emu.install.state();
+    return { shown, where: shown ? st.placement().where : null, rect: [r.left, r.top, r.right, r.bottom].map(Math.round), vw: innerWidth, vh: innerHeight,
+      covered, occluded, guarded: guarded.length, inWin: !shown || (r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight),
+      stored: localStorage.getItem('cloadm.installAsk'), pending: st.pending };
+  });
+  // the oracle: up and clear of all of it (by box and by what the user sees), or not up with the offer still owed
+  const clearOrOwed = (L) => (L.shown ? L.covered.length === 0 && L.occluded.length === 0 && L.inWin : L.stored === null && L.pending === true);
+  const open = async (browser, url, opts = {}) => {
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, serviceWorkers: 'block', ...opts });
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(url);
+    await started(page);
+    return { ctx, page, errors };
+  };
+
+  // ---- 1. no event, no iOS: no automatic offer; the Menu item shows this browser's steps ----
+  {
+    const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64&start=liza`);
+    await liza(page);
+    // (the item lives in the machine menu, which is built when it opens: it is in the page, not hidden by its own rule)
+    check('install: the Menu item is on the page (in the machine menu)',
+      await page.evaluate(() => { const b = document.getElementById('navInstall'); return !!b && b.closest('#machineMenu') === document.getElementById('machineMenu'); }));
+    await skipTo(page, 90);
+    check('install: no beforeinstallprompt and no iOS: no card, however long the program ran', !(await cardUp(page)));
+    await page.click('#machineBtn'); await page.click('#navInstall');   // (the item is in the machine menu)
+    await painted(page);
+    check('install: the Menu item shows the steps for this browser', await cardUp(page) && /browser’s menu/.test(await page.textContent('#installText')));
+    check('install: the Menu item\'s card has one button (the user asked; no "Not now")', (await buttons(page)).join('|') === 'Got it', (await buttons(page)).join('|'));
+    await page.click('#btnInstallGo');
+    check('install: "Got it" closes it, and stores no answer', await waitFor(page, () => document.getElementById('installOffer').hidden)
+      && await page.evaluate(() => localStorage.getItem('cloadm.installAsk')) === null);
+    check('install: no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- 2. the offer with a held prompt: every condition, broken one at a time ----
+  {
+    const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64&start=liza`);
+    await liza(page);
+    check('install: the prompt event is held with preventDefault (so the Android mini-infobar does not stand in)', await firePrompt(page)
+      && await page.evaluate(() => !!window.emu.install.prompt));
+    check('install: no card under 60 s of program', !(await cardUp(page)), JSON.stringify(await page.evaluate(() => window.emu.install.state())));
+    await skipTo(page, 90);
+    check('install: the program clock counts past 60 s', (await page.evaluate(() => window.emu.install.clock.seconds())) >= 90);
+    check('install: every condition met: the Chromium card, its words and buttons', await waitFor(page, () => !document.getElementById('installOffer').hidden)
+      && /opens in its own window and works offline/.test(await page.textContent('#installText'))
+      && (await buttons(page)).join('|') === 'Install|Not now|Don\'t ask again', (await buttons(page)).join('|'));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, 'install-offer.png') });
+    await page.click('#btnInstallNotNow');
+    await skipTo(page, 200);
+    check('install: "Not now" stores the 14-day answer', await page.evaluate(() => JSON.parse(localStorage.getItem('cloadm.installAsk')).until > Date.now())
+      && !(await cardUp(page)));
+    // the once-a-visit rule itself: with the stored answer wiped and everything else right, no second card this visit
+    await page.evaluate(() => localStorage.removeItem('cloadm.installAsk'));
+    await skipTo(page, 200);
+    check('install: at most once a visit (the stored answer wiped, still no second card in this visit)', !(await cardUp(page)));
+    check('install: no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+  // Each condition, broken alone, on its own page: the card's turn comes after 90 s of LIZA, and the one thing
+  // that is wrong is set just before. (A condition set after the card is up would prove nothing.)
+  for (const [name, breakIt] of [
+    ['a view (the Library) is open', (page) => page.evaluate(() => { history.replaceState(history.state, '', `${location.pathname}${location.search}#library`); })],
+    ['the full-screen chat is up', (page) => page.evaluate(() => { window.emu.session.claudeView = 'full'; })],
+    ['the Menu is open', (page) => page.evaluate(() => { const b = document.getElementById('btnMenu'); b.click(); })],
+    ['another card (the media offer) is up', (page) => page.evaluate(() => { document.getElementById('mediaOffer').hidden = false; })],
+    ['a toast about something else is up', (page) => page.evaluate(() => window.emu.feedback.toast('Something to see first'))],
+  ]) {
+    const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64&start=liza`);
+    await liza(page);
+    await firePrompt(page);
+    // the clock is moved in steps, the condition set before the card's turn can come
+    await page.evaluate(() => window.emu.install.clock.skip(30));
+    await breakIt(page);
+    await page.evaluate(() => window.emu.install.clock.skip(60));
+    await emuFrames(page, 3);
+    check(`install: no card when ${name}`, !(await cardUp(page)), JSON.stringify(await page.evaluate(() => window.emu.install.state())));
+    // and with the condition cleared, the card comes (the same page, so it is the condition that held it)
+    await page.evaluate(() => {
+      history.replaceState(history.state, '', `${location.pathname}${location.search}`);
+      window.emu.session.claudeView = null;
+      const b = document.getElementById('btnMenu'); if (document.getElementById('appbar').classList.contains('menu-open')) b.click();
+      for (const id of ['welcome', 'mediaOffer', 'lizaOffer', 'snapNeeds', 'bootHelp']) { const e = document.getElementById(id); if (e && id !== 'welcome') e.hidden = true; }
+      window.emu.feedback.clear();
+    });
+    await emuFrames(page, 3);
+    check(`install: with ${name} cleared, the card comes`, await waitFor(page, () => !document.getElementById('installOffer').hidden));
+    check('install: no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+  // the welcome menu is never offered over: a visit that only opens it never gets the card, however long
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    await page.goto(`${base}?machine=dragon64`);
+    await started(page);
+    await waitFor(page, () => window.emu.session.welcomeRunning);
+    await page.evaluate(() => { const e = new Event('beforeinstallprompt'); e.prompt = () => {}; e.userChoice = Promise.resolve({ outcome: 'dismissed' }); window.dispatchEvent(e); });
+    await skipTo(page, 200);
+    check('install: no card over the welcome menu (the program clock does not run on it)', !(await cardUp(page))
+      && (await page.evaluate(() => window.emu.install.clock.seconds())) === 0, String(await page.evaluate(() => window.emu.install.clock.seconds())));
+    await ctx.close();
+  }
+  // ---- 2a. a background tab runs no program: the clock settles when the page is hidden ----
+  {
+    const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64&start=liza`);
+    await liza(page);
+    await firePrompt(page);
+    // LIZA really runs, so the clock is counting before the tab goes away
+    await emuFrames(page, 5);
+    const before = await page.evaluate(() => window.emu.install.clock.seconds());
+    check('install: the program clock is counting while LIZA runs', before > 0, String(before));
+    // Hidden: the page runs no frames at all (js/ui/screen.js returns early), so nothing here may wait on one. The
+    // clock has to be settled by the event alone, which is the whole point of the listener.
+    const hidden = await page.evaluate(() => {
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+      document.dispatchEvent(new Event('visibilitychange'));
+      window.emu.install.clock.skip(300);       // five minutes of wall time while hidden
+      return window.emu.install.clock.seconds();
+    });
+    check('install: a background tab does not count as program time (300 s away add nothing)',
+      hidden < 60 && hidden >= before, `${before} -> ${hidden}`);
+    // Visible again, and TWO frames run before the question is asked: while hidden no frame runs at all, so asking
+    // there would be true whatever the clock says (a check that cannot fail).
+    await page.evaluate(() => {
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    await emuFrames(page, 2);
+    const resumed = await page.evaluate(() => window.emu.install.clock.seconds());
+    check('install: visible again, the clock is still under 60 s (the hidden stretch added nothing) and no card has come',
+      resumed < 60 && !(await cardUp(page)), `${before} -> ${hidden} -> ${resumed}`);
+    await skipTo(page, 90);
+    check('install: after the real minute, the card comes', await waitFor(page, () => !document.getElementById('installOffer').hidden));
+    check('install: no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- 2b. Esc is "Not now" on the Chromium offer and on the iOS one, and the card is never a history entry ----
+  for (const [label, opts] of [['Chromium', {}], ['iOS', { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true,
+    userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1' }]]) {
+    const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64&start=liza`, opts);
+    await liza(page);
+    if (label === 'Chromium') await firePrompt(page);
+    // never a history entry: the entries and the URL are the same before the card and with it up
+    const hist0 = await page.evaluate(() => ({ len: history.length, url: location.href }));
+    await skipTo(page, 90);
+    await waitFor(page, () => !document.getElementById('installOffer').hidden);
+    const hist1 = await page.evaluate(() => ({ len: history.length, url: location.href }));
+    check(`install (${label}): the card is not a history entry and does not touch the address`,
+      hist1.len === hist0.len && hist1.url === hist0.url, JSON.stringify({ hist0, hist1 }));
+    // Esc on the card answers it as "Not now": the card goes, and the 14-day answer is stored (focus on one of the
+    // card's own buttons: the screen's Esc is the machine's, 2b' below)
+    await page.focus('#installOffer .bar button:not([hidden])');
+    await page.keyboard.press('Escape');
+    check(`install (${label}): Esc on the card is "Not now" (the card goes, the 14-day answer is stored)`,
+      await waitFor(page, () => document.getElementById('installOffer').hidden)
+      && await page.evaluate(() => { const v = JSON.parse(localStorage.getItem('cloadm.installAsk') || 'null'); return !!v && v.until > Date.now(); }));
+    check(`install (${label}): no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- 2b''. Esc with the focus on nothing (the page's body: a first visit before any click) is "Not now": the
+  //      screen's exemption is for the screen alone, so the card need not hold the focus to take Esc ----
+  {
+    const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64&start=liza`);
+    await liza(page);
+    await firePrompt(page);
+    await skipTo(page, 90);
+    await waitFor(page, () => !document.getElementById('installOffer').hidden);
+    const active = await page.evaluate(() => { document.activeElement.blur(); return document.activeElement === document.body; });
+    await page.keyboard.press('Escape');
+    check('install (Esc on the body): with the focus on nothing, Esc is "Not now" (the card goes, the 14-day answer is stored)',
+      active && await waitFor(page, () => document.getElementById('installOffer').hidden)
+      && await page.evaluate(() => { const v = JSON.parse(localStorage.getItem('cloadm.installAsk') || 'null'); return !!v && v.n === 1 && v.until > Date.now(); }),
+      String(active));
+    check('install (Esc on the body): no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- 2b'. Esc with the focus on the screen is the machine's BREAK, even with the offer up: someone typing at the
+  //      machine did not ask for the card, so it neither swallows the key nor spends a "Not now" on it. The page's
+  //      BREAK reaches a stub machine as key code 3 in its queue (the same tap as the askEsc group's). ----
+  {
+    const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64&start=liza`);
+    await liza(page);
+    await firePrompt(page);
+    await page.evaluate(() => {
+      window.__pushed = [];
+      const m = window.emu.machine, push = m.stubKeys.push.bind(m.stubKeys);
+      m.stubKeys.push = (...c) => { window.__pushed.push(...c); return push(...c); };
+    });
+    await page.evaluate(() => document.getElementById('screen').focus());
+    await skipTo(page, 90);
+    check('install (Esc on the screen): the offer is up and the screen has the focus',
+      await waitFor(page, () => !document.getElementById('installOffer').hidden)
+      && await page.evaluate(() => document.activeElement === document.getElementById('screen')));
+    await page.keyboard.press('Escape');
+    await emuFrames(page, 3);
+    const after = await page.evaluate(() => ({ breakSent: window.__pushed.includes(3), card: !document.getElementById('installOffer').hidden,
+      stored: localStorage.getItem('cloadm.installAsk') }));
+    check('install (Esc on the screen): Esc is the machine\'s BREAK; the card stays up and nothing is stored',
+      after.breakSent && after.card && after.stored === null, JSON.stringify(after));
+    check('install (Esc on the screen): no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- 2c. the automatic offer does not take the keyboard from the machine ----
+  {
+    const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64&start=liza`);
+    await liza(page);
+    await firePrompt(page);
+    await page.evaluate(() => document.getElementById('screen').focus());
+    await skipTo(page, 90);
+    await waitFor(page, () => !document.getElementById('installOffer').hidden);
+    check('install: the automatic offer leaves the keyboard on the machine (focus stays on the screen)',
+      await page.evaluate(() => document.activeElement === document.getElementById('screen')),
+      await page.evaluate(() => document.activeElement.id || document.activeElement.tagName));
+    await page.evaluate(() => window.emu.feedback.clear());
+    check('install: no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- 2c'. typing at the machine while the card appears loses no key: half a line typed, the minute passed, the
+  //      rest typed while the card comes up (at 1440x900, and on an upright phone where it is the strip), and LIZA
+  //      has the whole line ----
+  for (const [label, opts] of [['desktop', {}], ['phone', { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }]]) {
+    const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64&start=liza`, opts);
+    await liza(page);
+    await firePrompt(page);
+    await page.evaluate(() => document.getElementById('screen').focus());
+    const typeKeys = async (text) => { for (const ch of text) { const k = ch === ' ' ? 'Space' : ch; await page.keyboard.down(k); await page.keyboard.up(k); } };
+    await typeKeys('WHAT IS ');
+    await page.evaluate(() => window.emu.install.clock.skip(90));
+    await typeKeys('MY NAME');
+    check(`install (typing, ${label}): the card came up while the line was being typed`, await waitFor(page, () => !document.getElementById('installOffer').hidden));
+    await typeKeys(' TODAY');
+    await page.keyboard.press('Enter');
+    await waitFor(page, () => window.emu.session.keys.pending === 0);
+    check(`install (typing, ${label}): every key reached the machine (LIZA has the whole line)`,
+      await waitFor(page, () => window.emu.session.screenText().some((l) => l.startsWith('> WHAT IS MY NAME TODAY'))),
+      JSON.stringify(await page.evaluate(() => window.emu.session.screenText().filter((l) => l.startsWith('>')))));
+    check(`install (typing, ${label}): the screen kept the focus`, await page.evaluate(() => document.activeElement === document.getElementById('screen')));
+    check(`install (typing, ${label}): no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- 2d. A view open under the card: the card closes and stores nothing; Esc there closes the view ----
+  {
+    // Case A: the card is up, then a view opens: the card closes, and nothing is stored (it was not answered)
+    const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64&start=liza`);
+    await liza(page);
+    await firePrompt(page);
+    await skipTo(page, 90);
+    check('install: the card is up before a view opens', await waitFor(page, () => !document.getElementById('installOffer').hidden));
+    await page.evaluate(() => { location.hash = '#library'; });
+    await emuFrames(page, 2);
+    check('install: opening a view closes the card, and closing it that way stores no answer',
+      !(await cardUp(page)) && await page.evaluate(() => localStorage.getItem('cloadm.installAsk')) === null);
+    // not answered, so owed again: no card while the view is up, and it comes back once the view closes
+    await ticks(page, 90);
+    check('install: while the view is up the owed offer stays away', !(await cardUp(page)));
+    await page.evaluate(() => { location.hash = ''; });
+    check('install: with the view closed, the owed offer comes back, nothing stored',
+      await waitFor(page, () => !document.getElementById('installOffer').hidden, null, 5000)
+      && await page.evaluate(() => localStorage.getItem('cloadm.installAsk')) === null);
+    check('install: no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+  {
+    // Case B: with the card up, a view is opened and Esc is pressed. Esc belongs to the view (the card closed with
+    // the layout), so the view closes; the card stays shut and no answer is written.
+    const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64&start=liza`);
+    await liza(page);
+    await firePrompt(page);
+    await skipTo(page, 90);
+    check('install (case B): the card is up before the view opens', await waitFor(page, () => !document.getElementById('installOffer').hidden));
+    await page.evaluate(() => { location.hash = '#library'; });
+    await emuFrames(page, 2);
+    await painted(page);
+    // Esc dispatched on the view itself: the page's one keydown handler reads e.target (the screen or not) and the
+    // view's rank applies whatever holds focus, so the case does not rest on focus order
+    await page.evaluate(() => {
+      const view = document.getElementById('library');
+      view.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    });
+    await emuFrames(page, 2);
+    const after = await page.evaluate(() => ({ hash: location.hash,
+      card: !document.getElementById('installOffer').hidden, ask: localStorage.getItem('cloadm.installAsk') }));
+    // (Esc was the view's: it answered nothing, so the owed offer may come back once the view is gone)
+    check('install: Esc in a view closes the view and writes no answer (it was the view\'s Esc, not the card\'s "Not now")',
+      after.hash === '' && after.ask === null, JSON.stringify(after));
+    check('install: no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- 2e. focus after the card: back to the screen with no view; left alone with one ----
+  {
+    // "never refocus" must fail: card up with the screen focused, Not now, the screen has it again
+    const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64&start=liza`);
+    await liza(page);
+    await firePrompt(page);
+    await page.evaluate(() => document.getElementById('screen').focus());
+    await skipTo(page, 90);
+    await waitFor(page, () => !document.getElementById('installOffer').hidden);
+    await page.click('#btnInstallNotNow');
+    check('install: after Not now the screen has the focus again (not left nowhere)',
+      await page.evaluate(() => document.activeElement === document.getElementById('screen')),
+      await page.evaluate(() => document.activeElement.id || document.activeElement.tagName));
+    check('install: no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+  {
+    // "always refocus" must fail: with a view open, the card's close() must not run page.focus() at all. The view's
+    // own focus comes later, so the order-independent oracle is whether the close called page.focus(): spy on it.
+    const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64&start=liza`);
+    await liza(page);
+    await firePrompt(page);
+    await skipTo(page, 90);
+    await waitFor(page, () => !document.getElementById('installOffer').hidden);
+    // the card is set up to close when a view opens; count the page.focus() calls its close makes
+    await page.evaluate(() => {
+      window.__focusCalls = 0;
+      const canvas = document.getElementById('screen');
+      const real = canvas.focus.bind(canvas);
+      canvas.focus = (...a) => { window.__focusCalls++; return real(...a); };
+    });
+    await page.evaluate(() => { location.hash = '#add-roms'; });
+    await emuFrames(page, 2);
+    await painted(page);
+    const after = await page.evaluate(() => ({ calls: window.__focusCalls, card: !document.getElementById('installOffer').hidden,
+      active: document.activeElement.id || document.activeElement.tagName }));
+    check('install: closing the card for a view does not focus the screen (the view is what is shown)',
+      after.calls === 0 && !after.card, JSON.stringify(after));
+    check('install: no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- 3. "Not now" twice, the 14 days, and "Don't ask again" across reloads ----
+  {
+    const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64&start=liza`);
+    await liza(page);
+    await firePrompt(page);
+    await skipTo(page, 90);
+    await waitFor(page, () => !document.getElementById('installOffer').hidden);
+    await page.click('#btnInstallNotNow');
+    const days = await page.evaluate(() => Math.round((JSON.parse(localStorage.getItem('cloadm.installAsk')).until - Date.now()) / 86400000));
+    check('install: the first "Not now" waits 14 days', days === 14, `${days} days`);
+    await page.reload();
+    await started(page);
+    await liza(page);
+    await firePrompt(page);
+    await skipTo(page, 90);
+    await skipTo(page, 90);
+    check('install: inside the 14 days, a new visit offers nothing', !(await cardUp(page)));
+    // the 14 days pass
+    await page.evaluate(() => { const v = JSON.parse(localStorage.getItem('cloadm.installAsk')); v.until = Date.now() - 1000; localStorage.setItem('cloadm.installAsk', JSON.stringify(v)); });
+    await page.reload();
+    await started(page);
+    await liza(page);
+    await firePrompt(page);
+    await skipTo(page, 90);
+    check('install: after the 14 days, the offer comes back', await waitFor(page, () => !document.getElementById('installOffer').hidden));
+    await page.click('#btnInstallNotNow');
+    check('install: a second "Not now" is stored as never again', await page.evaluate(() => JSON.parse(localStorage.getItem('cloadm.installAsk')).no === true));
+    await page.reload();
+    await started(page);
+    await liza(page);
+    await firePrompt(page);
+    await skipTo(page, 200);
+    check('install: after a second "Not now" nothing comes, across reloads', !(await cardUp(page)));
+    // "Don't ask again" from a fresh state, across a reload
+    await page.evaluate(() => localStorage.removeItem('cloadm.installAsk'));
+    await page.reload();
+    await started(page);
+    await liza(page);
+    await firePrompt(page);
+    await skipTo(page, 90);
+    await waitFor(page, () => !document.getElementById('installOffer').hidden);
+    await page.click('#btnInstallNever');
+    check('install: "Don\'t ask again" is stored as never', await page.evaluate(() => JSON.parse(localStorage.getItem('cloadm.installAsk')).no === true));
+    await page.reload();
+    await started(page);
+    await liza(page);
+    await firePrompt(page);
+    await skipTo(page, 200);
+    check('install: "Don\'t ask again" persists across a reload', !(await cardUp(page)));
+    await chooseInstall(page);
+    check('install: "Don\'t ask again" ends the offers, not the Menu item (which runs the browser\'s prompt)', await waitFor(page, () => window.__prompted === 1) && !(await cardUp(page)));
+    check('install: no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- 4. Install accepted: the prompt runs once, appinstalled says so and ends the offers ----
+  {
+    const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64&start=liza`);
+    await liza(page);
+    await firePrompt(page);
+    await page.evaluate(() => { window.__choice = 'accepted'; });
+    await skipTo(page, 90);
+    await waitFor(page, () => !document.getElementById('installOffer').hidden);
+    await page.click('#btnInstallGo');
+    check('install: [Install] runs the held prompt exactly once and closes the card', await waitFor(page, () => window.__prompted === 1) && !(await cardUp(page)));
+    await page.evaluate(() => window.dispatchEvent(new Event('appinstalled')));
+    check('install: appinstalled shows the toast and hides the Menu item', await waitFor(page, () => /Installed\. Open CLOADM from your home screen or apps\./.test(document.getElementById('toast').textContent))
+      && await itemHidden(page));
+    await page.reload();
+    await started(page);
+    await liza(page);
+    await firePrompt(page);
+    await skipTo(page, 200);
+    check('install: what appinstalled stored ends the offers after a reload (a tab cannot report itself standalone, so the answer carries it)',
+      await page.evaluate(() => !!(window.emu.install.answer() && window.emu.install.answer().no === true)) && !(await cardUp(page)));
+    check('install: no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- 5. a dismissed prompt waits 14 days but is not a Not now ----
+  {
+    const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64&start=liza`);
+    await liza(page);
+    await firePrompt(page);
+    await skipTo(page, 90);
+    await waitFor(page, () => !document.getElementById('installOffer').hidden);
+    await page.click('#btnInstallGo');
+    check('install: a dismissed prompt is remembered (it waits 14 days, and is not a "Not now")', await waitFor(page, () => window.__prompted === 1)
+      && await page.evaluate(() => { const v = JSON.parse(localStorage.getItem('cloadm.installAsk') || 'null');
+        return !!v && v.until > Date.now() && v.no !== true && v.n === undefined; }),
+      await page.evaluate(() => localStorage.getItem('cloadm.installAsk')));
+    check('install: no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- 6. standalone (an installed app): no card and no Menu item ----
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    // display-mode: standalone, as an installed app reports it
+    await page.addInitScript(() => {
+      const mm = window.matchMedia.bind(window);
+      window.matchMedia = (q) => (q === '(display-mode: standalone)' ? { matches: true, media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} } : mm(q));
+    });
+    await page.goto(`${base}?machine=dragon64&start=liza`);
+    await started(page);
+    await liza(page);
+    await firePrompt(page);
+    await skipTo(page, 90);
+    check('install (standalone): read from the display mode: the Menu item is hidden and no card comes',
+      await page.evaluate(() => window.emu.install.installed) && await itemHidden(page) && !(await cardUp(page)));
+    check('install (standalone): no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- 7. iOS: no event at all, and the card is the Share steps ----
+  {
+    const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64&start=liza`, {
+      viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true,
+      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+    });
+    await liza(page);
+    await skipTo(page, 90);
+    check('install (iOS): the Share steps, [Got it] [Don\'t ask again], and no prompt event needed',
+      await waitFor(page, () => !document.getElementById('installOffer').hidden)
+      && /tap Share, then Add to Home Screen/.test(await page.textContent('#installText'))
+      && (await buttons(page)).join('|') === 'Got it|Don\'t ask again', (await buttons(page)).join('|'));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, 'install-ios.png') });
+    await page.click('#btnInstallGo');
+    await skipTo(page, 90);
+    check('install (iOS): "Got it" is its "Not now", stored, and nothing returns this visit', !(await cardUp(page))
+      && await page.evaluate(() => JSON.parse(localStorage.getItem('cloadm.installAsk')).until > Date.now()));
+    check('install (iOS): the Help section has every browser\'s steps', await page.evaluate(async () => {
+      const html = await (await fetch('/help/')).text();
+      return /Install as an app/.test(html) && ['Chrome or Edge on a computer', 'Chrome on Android', 'Samsung Internet', 'Firefox on Android', 'iOS Safari', 'Chrome or Edge on iOS 16.4'].every((t) => html.includes(t));
+    }));
+    check('install (iOS): no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- 8. embed=1: no card ----
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    await page.goto(`${base}?machine=dragon64&embed=1`);
+    await started(page);
+    await firePrompt(page);
+    await skipTo(page, 120);
+    check('install: no card in an embed (?embed=1), and no Menu item shown', !(await cardUp(page))
+      && await page.evaluate(() => { const b = document.getElementById('navInstall'); return !b || !b.checkVisibility(); }));
+    await ctx.close();
+  }
+
+  // The Install CLOADM… item adds no row to the app bar. It lives in the machine menu, which floats; in the nav it
+  // wrapped the bar onto a second row at 1280 on the reviewer's machine (68 -> 116 px, the screen 49 px lower).
+  // The invariant is 008's own: the bar is exactly as tall with the item as without it, at each width. That holds
+  // whether or not the bar already wraps for its existing links (on CI's fonts the nav wraps at 1280 on its own,
+  // and the item moved into it can fit on that second row), so it cannot depend on font metrics — and it fails if
+  // the item's placement ever costs the bar a row. Proved by moving the item into the nav: on this machine that is
+  // 164 px against 68 at 1280 (and 112 against 68 at 1440), so the mutation fails it; the check itself never
+  // requires the item to be the thing that wraps.
+  for (const [label, viewport] of [['laptop', { width: 1280, height: 720 }], ['desktop', { width: 1440, height: 900 }]]) {
+    const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64&start=liza`, { viewport });
+    await page.evaluate(() => document.fonts.ready);
+    await emuFrames(page, 2);
+    await painted(page);
+    const bar = await page.evaluate(() => {
+      const appbar = document.getElementById('appbar'), item = document.getElementById('navInstall');
+      const h = () => Math.round(appbar.getBoundingClientRect().height);
+      const screenTop = () => document.getElementById('screen').getBoundingClientRect().top;
+      const withItem = { h: h(), screen: screenTop(), where: item.closest('#machineMenu') === document.getElementById('machineMenu') };
+      item.style.display = 'none';                 // (removed from the layout, not from where it lives)
+      const without = { h: h(), screen: screenTop() };
+      item.style.display = '';
+      return { withItem, without };
+    });
+    check(`install (${label} ${viewport.width}x${viewport.height}): the item costs the app bar no row (${bar.withItem.h} px with it, ${bar.without.h} px without) and sits in the floating machine menu`,
+      bar.withItem.where && bar.withItem.h === bar.without.h && Math.abs(bar.withItem.screen - bar.without.screen) < 0.5, JSON.stringify(bar));
+    check(`install (${label}): no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- 9. the placement (correction 008): the card does not move the page, and covers neither the screen nor Reset ----
+  for (const [label, viewport] of [['laptop', { width: 1280, height: 720 }], ['desktop', { width: 1440, height: 900 }], ['tablet', { width: 820, height: 1180 }]]) {
+    const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64&start=liza`, { viewport });
+    await liza(page);
+    await firePrompt(page);
+    // 008 is about what the CARD does. Everything that can reflow the page on its own is settled before the first
+    // measurement, so the only change between them is the card:
+    //   - the fonts land after start=liza and move text by tens of pixels (the browser check's other groups await
+    //     this too);
+    //   - the first pointer or key anywhere unlocks audio, which hides the 43 px "click anywhere for sound" hint
+    //     (js/ui/welcome.js). Dismissing the card is a click, so without this the dismissal measurement would see
+    //     the hint go, not the card.
+    await page.evaluate(() => document.fonts.ready);
+    // the same thing a click does to the page's audio: start it, and let the hint follow (welcome.js's showHint)
+    await page.evaluate(() => { window.emu.audio.start(); });
+    await waitFor(page, () => document.getElementById('soundHint').hidden);
+    await emuFrames(page, 2);
+    await painted(page);
+    const before = await page.evaluate(() => ({ reset: document.getElementById('btnReset').getBoundingClientRect().top,
+      screen: document.getElementById('screen').getBoundingClientRect().top, pageH: document.documentElement.scrollHeight,
+      card: !document.getElementById('installOffer').hidden }));
+    // the automatic offer, the only thing that changes from here
+    await skipTo(page, 90);
+    await waitFor(page, () => !document.getElementById('installOffer').hidden);
+    await painted(page);
+    const withCard = await page.evaluate(() => ({ reset: document.getElementById('btnReset').getBoundingClientRect().top,
+      screen: document.getElementById('screen').getBoundingClientRect().top, pageH: document.documentElement.scrollHeight,
+      card: !document.getElementById('installOffer').hidden, position: getComputedStyle(document.getElementById('installOffer')).position }));
+    check(`install (${label} ${viewport.width}x${viewport.height}): the card appears and moves neither #btnReset nor #screen nor the page (008)`,
+      !before.card && withCard.card && withCard.position === 'fixed'
+      && Math.abs(withCard.reset - before.reset) < 0.5 && Math.abs(withCard.screen - before.screen) < 0.5 && withCard.pageH === before.pageH,
+      JSON.stringify({ before, withCard }));
+    const meet = await page.evaluate(() => {
+      const c = document.getElementById('installOffer').getBoundingClientRect();
+      const hits = (id) => { const o = document.getElementById(id).getBoundingClientRect(); return !(c.bottom <= o.top || c.top >= o.bottom || c.right <= o.left || c.left >= o.right); };
+      // The card is fixed with right/bottom: 16px. Its containing block is the viewport MINUS the reserved scrollbar
+      // gutter (play/index.html sets scrollbar-gutter: stable, a deliberate 15 px on a platform with classic
+      // scrollbars, as CI's Linux has), and neither innerWidth nor clientWidth reports that reduced box. So measure
+      // the box itself with a probe: a bare fixed element at inset 0. (The bottom has no gutter, so innerHeight is
+      // the box's bottom.)
+      const probe = Object.assign(document.createElement('div'),
+        { style: 'position:fixed;inset:0;width:auto;height:auto;margin:0;padding:0;border:0;visibility:hidden' });
+      document.body.appendChild(probe);
+      const box = probe.getBoundingClientRect();
+      probe.remove();
+      return { screen: hits('screen'), reset: hits('btnReset'), fixed: getComputedStyle(document.getElementById('installOffer')).position === 'fixed',
+        right: box.right - c.right, bottom: innerHeight - c.bottom };
+    });
+    check(`install (${label}): the card floats in the bottom-right corner, over neither the screen nor Reset`,
+      meet.fixed && meet.right <= 24 && meet.bottom <= 24 && !meet.screen && !meet.reset, JSON.stringify(meet));
+    // A toast at the same time: the two never overlap. The toast does the moving — feedback.js places it each frame
+    // and keeps it off #installOffer (it is in its CONTROLS list) — so the card stays where its placement put it.
+    const asIs = await page.evaluate(async () => {
+      const b = (r) => ({ left: r.left, top: r.top, right: r.right, bottom: r.bottom });
+      const shape = () => ({ reset: document.getElementById('btnReset').getBoundingClientRect().top,
+        screen: document.getElementById('screen').getBoundingClientRect().top, pageH: document.documentElement.scrollHeight });
+      const layoutWithCard = shape();
+      window.emu.feedback.toast('A toast for the install card');
+      for (let i = 0; i < 4; i++) await new Promise((r) => requestAnimationFrame(r));
+      const t = document.getElementById('toast').getBoundingClientRect(), c = document.getElementById('installOffer').getBoundingClientRect();
+      return { toast: b(t), card: b(c), layoutWithCard, layoutWithToast: shape(),
+        lift: document.getElementById('installOffer').style.getPropertyValue('--install-lift') };
+    });
+    check(`install (${label}): a toast and the card shown together do not overlap`, !rectsMeet(asIs.card, asIs.toast), JSON.stringify(asIs));
+    check(`install (${label}): a toast up with the card does not move #btnReset, #screen or the page either`,
+      Math.abs(asIs.layoutWithToast.reset - asIs.layoutWithCard.reset) < 0.5
+      && Math.abs(asIs.layoutWithToast.screen - asIs.layoutWithCard.screen) < 0.5
+      && asIs.layoutWithToast.pageH === asIs.layoutWithCard.pageH, JSON.stringify({ a: asIs.layoutWithCard, b: asIs.layoutWithToast }));
+    await page.evaluate(() => window.emu.feedback.clear());
+    await emuFrames(page, 2);
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `install-placement-${label}.png`) });
+    // and the card going changes nothing either
+    await page.click('#btnInstallNotNow');
+    await painted(page);
+    const after = await page.evaluate(() => ({ reset: document.getElementById('btnReset').getBoundingClientRect().top,
+      screen: document.getElementById('screen').getBoundingClientRect().top, pageH: document.documentElement.scrollHeight,
+      card: !document.getElementById('installOffer').hidden }));
+    check(`install (${label}): the card going moves neither #btnReset nor #screen nor the page (008)`,
+      !after.card && Math.abs(after.reset - before.reset) < 0.5 && Math.abs(after.screen - before.screen) < 0.5 && after.pageH === before.pageH,
+      JSON.stringify({ before, after }));
+    check(`install (${label}): no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- 10. a phone held sideways with the on-screen keyboard: the card's only place there is the keyboard's own
+  //      button row (BREAK, CLEAR, the switch, Menu), and those are never hidden for it. No place is clear, so the
+  //      offer waits, unspent, with every key still there; turned upright, the phone has the strip under its screen,
+  //      and the offer comes there, clear of every key. ----
+  {
+    const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64&start=liza`, { viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true });
+    await liza(page);
+    await firePrompt(page);
+    await skipTo(page, 90);
+    await emuFrames(page, 3);
+    await painted(page);
+    const side = await clearReport(page);
+    const btns = await page.evaluate(() => ['tkBreak', 'tkClear', 'tkMenu'].filter((id) => {
+      const b = document.getElementById(id); return b.checkVisibility({ visibilityProperty: true }) && b.getBoundingClientRect().width > 0; }));
+    check('install (phone, held sideways, keys): no clear place, so the offer is deferred: not up, still owed, nothing stored',
+      !side.shown && side.pending === true && side.stored === null, JSON.stringify(side));
+    check('install (phone, held sideways, keys): BREAK, CLEAR and Menu stay on the screen (never hidden for the card)',
+      btns.length === 3, btns.join(','));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, 'install-landscape.png') });
+    // upright: the strip under the screen, above the keyboard
+    await page.setViewportSize({ width: 390, height: 844 });
+    check('install (phone, turned upright): the deferred offer comes', await waitFor(page, () => !document.getElementById('installOffer').hidden, null, 10000));
+    await emuFrames(page, 2);
+    await painted(page);
+    const up = await clearReport(page);
+    check('install (phone, turned upright): the card is the strip under the screen, clear of the screen and of every key (real boxes and what is seen)',
+      up.shown && up.where === 'strip' && clearOrOwed(up), JSON.stringify(up));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, 'install-portrait.png') });
+    check('install (phone): no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- 10b. short landscape windows, with and without the on-screen keyboard: the card is clear of the screen,
+  //      every app-bar button and every machine control — or it is not shown at all (and the offer stays pending) ----
+  for (const [w, h, touch] of [[900, 480, false], [800, 400, false], [1000, 420, false], [960, 500, false], [740, 360, false], [844, 390, true]]) {
+    const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64&start=liza`, { viewport: { width: w, height: h }, hasTouch: touch, isMobile: touch });
+    await liza(page);
+    await firePrompt(page);
+    await page.evaluate(() => document.fonts.ready);
+    await page.evaluate(() => { window.emu.audio.start(); });
+    await waitFor(page, () => document.getElementById('soundHint').hidden);
+    await emuFrames(page, 2);
+    await painted(page);
+    const before = await page.evaluate(() => ({ card: !document.getElementById('installOffer').hidden,
+      screen: document.getElementById('screen').getBoundingClientRect().top, pageH: document.documentElement.scrollHeight }));
+    await skipTo(page, 90);
+    await emuFrames(page, 2);
+    await painted(page);
+    const lay = await page.evaluate(() => {
+      const c = document.getElementById('installOffer').getBoundingClientRect();
+      const shown = !document.getElementById('installOffer').hidden;
+      const hits = (a, b) => !!a && !!b && b.width > 0 && !(a.bottom <= b.top || a.top >= b.bottom || a.right <= b.left || a.left >= b.right);
+      // visible only (a thing the user cannot see is not something the card covers); every on-screen key counts
+      const boxes = (sel) => [...document.querySelectorAll(sel)].filter((e) => e.checkVisibility({ visibilityProperty: true }))
+        .map((e) => e.getBoundingClientRect()).filter((r) => r.width && r.height);
+      const guarded = [...boxes('#appbar > *'), ...boxes('.controls'), ...boxes('#touchKeys button, #touchStick')]
+        .map((r) => ({ r, hit: hits(c, r) })).filter((x) => x.hit).length;
+      return { shown, cls: document.getElementById('installOffer').className, position: getComputedStyle(document.getElementById('installOffer')).position,
+        overScreen: hits(c, document.getElementById('screen').getBoundingClientRect()), guarded,
+        inView: !shown || (c.top >= 0 && c.bottom <= innerHeight && c.left >= 0 && c.right <= innerWidth),
+        screen: document.getElementById('screen').getBoundingClientRect().top, pageH: document.documentElement.scrollHeight };
+    });
+    // the oracle: either it is up and covers nothing it must not, or it is not up
+    check(`install (${w}x${h}${touch ? ' touch' : ''}): the card is clear of the screen, every app-bar button and every control — or not shown`,
+      !before.card && (!lay.shown || (!lay.overScreen && lay.guarded === 0 && lay.inView)), JSON.stringify(lay));
+    check(`install (${w}x${h}${touch ? ' touch' : ''}): showing it moved neither #screen nor the page (008)`,
+      Math.abs(lay.screen - before.screen) < 0.5 && lay.pageH === before.pageH, JSON.stringify({ before, lay }));
+    // the app bar's buttons are among the things the placement consults: with the card up, none of them is covered
+    // (mutation: dropping them from OBSTACLES lets the lifted corner reach them, and this reads the app bar's ids)
+    // the app bar's buttons are among the things the card must keep clear of (in every layout: they are above the
+    // card, and a lift tall enough to reach them would put the card over the bar). Named here by id, so dropping
+    // them from the list (the mutation) fails this by construction rather than by lucky geometry.
+    // (not where the layout hides the app bar altogether: a phone held sideways with the on-screen keyboard)
+    const bar = await page.evaluate(() => ({ shown: document.getElementById('appbar').checkVisibility(), obstacles: window.emu.install.state().obstacles() }));
+    check(`install (${w}x${h}${touch ? ' touch' : ''}): the app bar's own controls are among the things the card keeps clear of`,
+      !bar.shown || ['btnLoad', 'btnAsk', 'btnMenu'].every((id) => bar.obstacles.includes(id)), JSON.stringify(bar.obstacles.slice(0, 8)));
+    // deferred, not spent: a layout with no room leaves the offer pending, and a roomier window brings it
+    if (!lay.shown) {
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await emuFrames(page, 3);
+      check(`install (${w}x${h}): the offer was deferred, not spent — a roomier window brings the card`, await waitFor(page, () => !document.getElementById('installOffer').hidden, null, 10000));
+    }
+    check(`install (${w}x${h}${touch ? ' touch' : ''}): no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- 10c. the sweep: at every size the card is fully clear of everything, or not shown and the offer still owed ----
+  // One page per size (the card's offer is a once-a-visit moment, so a size cannot reuse another's page), which is
+  // why the grid is sampled rather than exhaustive: six widths x seven heights without the on-screen keyboard, the
+  // phone held sideways (844x390; 700x390, a narrow window sideways with the keyboard up), and the upright touch
+  // layouts the reviewer found the card over keys in. The keys always count, in every layout.
+  {
+    const WIDTHS = [480, 700, 900, 1060, 1280, 1500], HEIGHTS = [360, 420, 480, 540, 600, 800, 1000];
+    const PORTRAIT_TOUCH = [[390, 844], [412, 915], [360, 740], [390, 768], [480, 768], [600, 900], [360, 900], [700, 1100],
+      [360, 600], [412, 600], [600, 600], [700, 768]];
+    const sizes = [...WIDTHS.flatMap((w) => HEIGHTS.map((h) => [w, h, false])), [844, 390, true], [700, 390, true],
+      ...PORTRAIT_TOUCH.map(([w, h]) => [w, h, true])];
+    const shownSomewhere = [], shownTouchUpright = [];
+    for (const [w, h, touch] of sizes) {
+      const ctx = await browser.newContext({ viewport: { width: w, height: h }, hasTouch: touch, isMobile: touch, serviceWorkers: 'block' });
+      const page = await ctx.newPage();
+      const errors = [];
+      page.on('pageerror', (e) => errors.push(e.message));
+      await page.goto(`${base}?machine=dragon64&start=liza`);
+      await started(page);
+      await liza(page);
+      await firePrompt(page);
+      await page.evaluate(() => document.fonts.ready);
+      await page.evaluate(() => { window.emu.audio.start(); });
+      await waitFor(page, () => document.getElementById('soundHint').hidden);
+      await emuFrames(page, 2);
+      await page.evaluate(() => window.emu.install.clock.skip(90));
+      await emuFrames(page, 4);
+      // the first try can fall in a layout still settling; the once-a-second retry gets its turn before the measure
+      await maybeWaitFor('a size without room keeps the offer pending', page, () => !document.getElementById('installOffer').hidden, null, 2500);
+      await painted(page);
+      const lay = await clearReport(page);
+      check(`install sweep (${w}x${h}${touch ? ' touch' : ''}): the card is clear of everything (boxes and what is seen), or not shown and still owed`,
+        !errors.length && clearOrOwed(lay), errors.length ? errors.join('; ') : JSON.stringify(lay));
+      if (lay.shown) shownSomewhere.push(`${w}x${h}`);
+      if (lay.shown && touch && h >= w) shownTouchUpright.push(`${w}x${h}`);
+      await ctx.close();
+    }
+    // The "not shown" branch above is a legitimate answer at a size with no room, but by itself it would let a
+    // regression that NEVER shows the card pass every size. Most of the grid has room, so most of it must show.
+    // 48 of 56 show today; the eight that do not are the genuinely cramped sizes (480x360, 480x420, 700x360,
+    // 700x420, 700x480, 900x480, and the two windows held sideways with the keyboard up). A margin of two leaves
+    // room for a layout tweak and still fails any regression that stops placing at a whole class of sizes. Every
+    // upright (or square) touch layout has the strip under its screen, so every one must show.
+    check('install sweep: the card is shown at nearly every size (a regression that stops placing would fail here)',
+      shownSomewhere.length >= sizes.length - 10, `${shownSomewhere.length} of ${sizes.length} shown`);
+    check('install sweep: every upright touch layout shows the card (in the strip, clear of the keys)',
+      shownTouchUpright.length === PORTRAIT_TOUCH.length, `${shownTouchUpright.length} of ${PORTRAIT_TOUCH.length}: ${shownTouchUpright.join(' ')}`);
+  }
+
+  // ---- 10d. a live resize with the card up: it hides where it cannot fit (keeping the offer) and returns ----
+  {
+    const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64&start=liza`, { viewport: { width: 1440, height: 900 } });
+    await liza(page);
+    await firePrompt(page);
+    await page.evaluate(() => document.fonts.ready);
+    await emuFrames(page, 2);
+    await skipTo(page, 90);
+    check('install resize: the card is up at 1440x900', await waitFor(page, () => !document.getElementById('installOffer').hidden));
+    await page.setViewportSize({ width: 900, height: 480 });
+    await emuFrames(page, 3);
+    const small = await page.evaluate(() => ({ card: !document.getElementById('installOffer').hidden, ask: localStorage.getItem('cloadm.installAsk') }));
+    check('install resize: at 900x480 it hides and stores nothing (the offer is not spent)', !small.card && small.ask === null, JSON.stringify(small));
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await emuFrames(page, 3);
+    check('install resize: back at 1440x900 the card returns', await waitFor(page, () => !document.getElementById('installOffer').hidden, null, 5000));
+    check('install resize: no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- 10m. a live resize, measured once the layout has settled: the screen is re-sized after the resize event (its
+  //      canvas follows the frame loop), so a card placed in the event itself could end over the new screen. Each
+  //      path: the card up at the first size, the window resized, the screen's size awaited until it holds still,
+  //      and then the real boxes: clear, or not up and still owed. ----
+  for (const [[w0, h0], [w1, h1]] of [[[1024, 600], [900, 480]], [[1440, 900], [768, 480]], [[1440, 900], [1024, 600]]]) {
+    const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64&start=liza`, { viewport: { width: w0, height: h0 } });
+    await liza(page);
+    await firePrompt(page);
+    await page.evaluate(() => document.fonts.ready);
+    await emuFrames(page, 2);
+    await skipTo(page, 90);
+    check(`install resize ${w0}x${h0}: the card is up first`, await waitFor(page, () => !document.getElementById('installOffer').hidden));
+    await page.setViewportSize({ width: w1, height: h1 });
+    // settled: the screen's box the same over three frames running
+    await page.evaluate(() => new Promise((done) => {
+      let last = '', same = 0;
+      const f = () => { const r = document.getElementById('screen').getBoundingClientRect(), k = [r.left, r.top, r.width, r.height].join();
+        same = k === last ? same + 1 : 0; last = k; if (same >= 3) done(); else requestAnimationFrame(f); };
+      requestAnimationFrame(f);
+    }));
+    await painted(page);
+    const L = await clearReport(page);
+    check(`install resize ${w0}x${h0} -> ${w1}x${h1}: on the settled layout the card is clear of the screen and everything else, or not up and still owed`,
+      clearOrOwed(L), JSON.stringify(L));
+    check(`install resize ${w0}x${h0} -> ${w1}x${h1}: no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- 10n. a deferred offer comes back on the resize itself, not on the once-a-second retry: the throttle's clock
+  //      is held still, so the only way the card can come is the forced retry a resize makes. It must be up within
+  //      the two frames the layout takes to settle (a third for the check's own timing). ----
+  {
+    const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64&start=liza`, { viewport: { width: 900, height: 480 } });
+    await liza(page);
+    await firePrompt(page);
+    await page.evaluate(() => document.fonts.ready);
+    await emuFrames(page, 2);
+    await skipTo(page, 90);
+    await emuFrames(page, 3);
+    const before = await clearReport(page);
+    check('install (forced retry): at 900x480 the offer is deferred and owed', !before.shown && before.pending === true && before.stored === null, JSON.stringify(before));
+    await page.evaluate(() => window.emu.install.holdRetryClock(true));
+    // held: many frames at this size bring nothing (the throttled retry cannot fire)
+    await ticks(page, 90);
+    check('install (forced retry): with the retry clock held, nothing brings the card at a size without room',
+      await page.evaluate(() => document.getElementById('installOffer').hidden));
+    // from the resize event, count the animation frames until the card is up (in the page, so the count is exact)
+    await page.evaluate(() => {
+      window.__framesToCard = null;
+      addEventListener('resize', () => {
+        let n = 0;
+        const f = () => { n++; if (!document.getElementById('installOffer').hidden) window.__framesToCard = n;
+          else if (n < 60) requestAnimationFrame(f); else window.__framesToCard = -1; };
+        requestAnimationFrame(f);
+      }, { once: true });
+    });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await waitFor(page, () => window.__framesToCard !== null);
+    const n = await page.evaluate(() => window.__framesToCard);
+    check('install (forced retry): a resize to a roomy size brings the card within 2 frames, with the throttle clock held',
+      n >= 1 && n <= 2, `${n} frames (-1: never)`);
+    await painted(page);
+    const L = await clearReport(page);
+    check('install (forced retry): and it is clear of everything', L.shown && clearOrOwed(L), JSON.stringify(L));
+    await page.evaluate(() => window.emu.install.holdRetryClock(false));
+    check('install (forced retry): no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- 10p. a layout change with no resize: on an upright phone the card is the strip above the keys; "Hide keys"
+  //      (and then Keys again) changes the page under it without any resize event. The ResizeObserver on the keys
+  //      and the screen is what re-places it, so the throttle's clock is held (no once-a-second re-check can do it):
+  //      after each change, on the settled layout, the card is clear of everything or deferred unspent. ----
+  {
+    const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64&start=liza`, { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+    await liza(page);
+    await firePrompt(page);
+    await page.evaluate(() => document.fonts.ready);
+    await emuFrames(page, 2);
+    await skipTo(page, 90);
+    check('install (keys toggled): the card is up, in the strip', await waitFor(page, () => !document.getElementById('installOffer').hidden)
+      && (await clearReport(page)).where === 'strip');
+    await page.evaluate(() => window.emu.install.holdRetryClock(true));
+    const settledAfter = async (act) => {
+      await page.evaluate(act);
+      await page.evaluate(() => new Promise((done) => {
+        let last = '', same = 0;
+        const f = () => { const r = document.getElementById('screen').getBoundingClientRect(), k = [r.left, r.top, r.width, r.height].join();
+          same = k === last ? same + 1 : 0; last = k; if (same >= 3) done(); else requestAnimationFrame(f); };
+        requestAnimationFrame(f);
+      }));
+      await painted(page);
+      return clearReport(page);
+    };
+    const hidden = await settledAfter(() => { document.getElementById('tkMenu').click(); document.querySelector('#tkMenuSheet [data-item="hide"]').click(); });
+    const hiddenKeys = await page.evaluate(() => document.getElementById('touchKeys').hidden);
+    check('install (keys toggled): with the keys hidden (no resize), the card is clear of everything or deferred unspent',
+      hiddenKeys && clearOrOwed(hidden) && (!hidden.shown || hidden.where !== 'strip'), JSON.stringify({ hiddenKeys, hidden }));
+    const shown = await settledAfter(() => document.getElementById('btnShowKeys').click());
+    check('install (keys toggled): with the keys back (no resize), the card is clear of every key, or deferred unspent',
+      clearOrOwed(shown), JSON.stringify(shown));
+    await page.evaluate(() => window.emu.install.holdRetryClock(false));
+    check('install (keys toggled): no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- 10o. the card that is up is re-checked from the frame loop, at most once a second: a change under it that
+  //      no event reports (here its own lift, set by hand so that it sits over the screen) is put right — the card
+  //      re-placed clear, or deferred unspent. With the throttle's clock held it is not re-checked at all (so the
+  //      check is the frame loop's, not something else's). ----
+  {
+    const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64&start=liza`, { viewport: { width: 1440, height: 900 } });
+    await liza(page);
+    await firePrompt(page);
+    await page.evaluate(() => document.fonts.ready);
+    await emuFrames(page, 2);
+    await skipTo(page, 90);
+    check('install (frame re-check): the card is up and clear', await waitFor(page, () => !document.getElementById('installOffer').hidden)
+      && clearOrOwed(await clearReport(page)));
+    // the strip's class with its top set inside the screen: a full-width card across the picture
+    const push = () => page.evaluate(() => {
+      const c = document.getElementById('installOffer'), s = document.getElementById('screen').getBoundingClientRect();
+      c.style.setProperty('--install-top', `${Math.round(s.top + 40)}px`);
+      c.classList.add('strip');
+    });
+    await page.evaluate(() => window.emu.install.holdRetryClock(true));
+    await push();
+    await ticks(page, 90);
+    const held = await clearReport(page);
+    check('install (frame re-check): the precondition: pushed over the screen, and with the clock held it stays there',
+      held.shown && held.covered.includes('screen'), JSON.stringify(held));
+    await page.evaluate(() => window.emu.install.holdRetryClock(false));
+    check('install (frame re-check): within a second or two the frame loop re-places it clear of the screen',
+      await waitFor(page, () => { const c = document.getElementById('installOffer').getBoundingClientRect(), s = document.getElementById('screen').getBoundingClientRect();
+        return c.width > 0 && (c.bottom <= s.top || c.top >= s.bottom || c.right <= s.left || c.left >= s.right); }, null, 5000));
+    const L = await clearReport(page);
+    check('install (frame re-check): and it is clear of everything, nothing stored', clearOrOwed(L) && L.stored === null, JSON.stringify(L));
+    check('install (frame re-check): no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- 10e. a size where the gutter is the answer ----
+  {
+    const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64&start=liza`, { viewport: { width: 1000, height: 420 } });
+    await liza(page);
+    await firePrompt(page);
+    await page.evaluate(() => document.fonts.ready);
+    await emuFrames(page, 2);
+    await skipTo(page, 90);
+    await emuFrames(page, 3);
+    const g = await page.evaluate(() => ({ up: !document.getElementById('installOffer').hidden, ...window.emu.install.state().placement() }));
+    check('install (1000x420): the card is up, in the gutter, clear of everything',
+      g.up && g.where === 'gutter' && g.covered.length === 0, JSON.stringify(g));
+    check('install (1000x420): no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- 10f. a pending offer is not re-tried on every frame ----
+  {
+    const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64&start=liza`, { viewport: { width: 900, height: 480 } });
+    await liza(page);
+    await firePrompt(page);
+    await page.evaluate(() => document.fonts.ready);
+    await emuFrames(page, 2);
+    await skipTo(page, 90);
+    await emuFrames(page, 3);
+    // the precondition this check means to test: the offer really is PENDING (deferred and hidden at this size). If
+    // the card were up, retryPending would return at once and "at most one retry" would pass without testing anything.
+    const pending = await page.evaluate(() => ({ card: !document.getElementById('installOffer').hidden, stored: localStorage.getItem('cloadm.installAsk') }));
+    check('install (pending): the 900x480 layout defers the offer (the card is not up and nothing is stored)',
+      !pending.card && pending.stored === null, JSON.stringify(pending));
+    // count place() calls (the product counts them) over a run of frames with no resize
+    const before = await page.evaluate(() => window.emu.install.state().placements());
+    await emuFrames(page, 30);
+    const calls = await page.evaluate(() => window.emu.install.state().placements()) - before;
+    check('install: a pending offer is not re-placed on every frame (30 frames, at most one retry)', calls <= 1, String(calls));
+    check('install (pending): no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- 10g. the Menu's own card at a size with no clear place: it stays up (the user asked for it) but must still
+  //      keep off the screen and controls — the corner's lift is what does that, and a failed placement must not drop
+  //      it. And a toast raising the card is only allowed when the raised card still covers nothing. ----
+  {
+    const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64&start=liza`, { viewport: { width: 900, height: 480 } });
+    await liza(page);
+    await page.evaluate(() => document.fonts.ready);
+    await emuFrames(page, 2);
+    await chooseInstall(page);                       // no prompt: the card is the steps, and the user asked for it
+    await painted(page);
+    const menu = await page.evaluate(() => {
+      const c = document.getElementById('installOffer');
+      const r = c.getBoundingClientRect();
+      const hits = (id) => { const o = document.getElementById(id).getBoundingClientRect(); return o.width > 0 && !(r.bottom <= o.top || r.top >= o.bottom || r.right <= o.left || r.left >= o.right); };
+      const appbar = [...document.querySelectorAll('#appbar > *')].filter((e) => e.checkVisibility({ visibilityProperty: true }))
+        .filter((e) => { const o = e.getBoundingClientRect(); return o.width > 0 && !(r.bottom <= o.top || r.top >= o.bottom || r.right <= o.left || r.left >= o.right); }).map((e) => e.id || e.className);
+      return { up: !c.hidden, rect: [Math.round(r.left), Math.round(r.top), Math.round(r.right), Math.round(r.bottom)],
+        inWin: r.top >= 0 && r.left >= 0 && r.right <= innerWidth && r.bottom <= innerHeight,
+        overScreen: hits('screen'), overReset: hits('btnReset'), appbar,
+        controls: [...document.querySelectorAll('.controls')].filter((e) => e.checkVisibility({ visibilityProperty: true }))
+          .filter((e) => { const o = e.getBoundingClientRect(); return o.width > 0 && !(r.bottom <= o.top || r.top >= o.bottom || r.right <= o.left || r.left >= o.right); }).length,
+        lift: c.style.getPropertyValue('--install-lift'), cls: c.className };
+    });
+    // The card stays up (the user asked) but must not leave the window or sit on the app bar: at this size no place
+    // is clear of the screen, and the lift stops under the bar rather than being dropped (which used to put the card
+    // over the bar's buttons). It may cover the screen here — that is the honest trade when the user asked for it.
+    check('install (900x480, Menu card): it stays up, inside the window, and off every app-bar control',
+      menu.up && menu.inWin && menu.appbar.length === 0, JSON.stringify(menu));
+    await page.click('#btnInstallGo');
+    await painted(page);
+    check('install (900x480, Menu card): "Got it" closes it', await waitFor(page, () => document.getElementById('installOffer').hidden));
+    check('install (900x480, Menu card): no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+  // ---- 10l. a menu opening over the card: the card is an offer over the emulator, never over a menu the user is
+  //      reading (and the machine menu holds this very Install item, while the card sits above it at z-index 61 vs 20).
+  //      So it closes — at a size where the two would overlap. ----
+  {
+    const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64&start=liza`, { viewport: { width: 900, height: 720 } });
+    await liza(page);
+    await firePrompt(page);
+    await page.evaluate(() => document.fonts.ready);
+    await emuFrames(page, 2);
+    await skipTo(page, 90);
+    check('install (menu opens): the card is up first', await waitFor(page, () => !document.getElementById('installOffer').hidden));
+    // The menu's box while open is what the precondition needs, and opening it is also the action under test. So
+    // record the card's box first, then open the menu and measure both: the menu must really be where the card was
+    // (otherwise the check would pass at a size where they never meet), the card must be gone, and be gone because
+    // of the menu rather than by having been deferred.
+    const cardBefore = await page.evaluate(() => { const r = document.getElementById('installOffer').getBoundingClientRect();
+      return { left: r.left, top: r.top, right: r.right, bottom: r.bottom }; });
+    await page.click('#machineBtn');
+    await painted(page);
+    const after = await page.evaluate((c) => {
+      const m = document.getElementById('machineMenu').getBoundingClientRect();
+      const overlapsCard = m.width > 0 && !(c.bottom <= m.top || c.top >= m.bottom || c.right <= m.left || c.left >= m.right);
+      return { card: !document.getElementById('installOffer').hidden, menu: !document.getElementById('machineMenu').hidden,
+        menuOverCardBox: overlapsCard, stored: localStorage.getItem('cloadm.installAsk') };
+    }, cardBefore);
+    check('install (menu opens): the menu covers where the card was, the card closes and the menu is open',
+      after.menuOverCardBox && after.menu && !after.card, JSON.stringify({ cardBefore, ...after }));
+    check('install (menu opens): the offer is not spent by it (nothing stored)', after.stored === null, String(after.stored));
+    // the card going does not take focus from the menu's button: Esc must still close the menu
+    const active = await page.evaluate(() => document.activeElement && (document.activeElement.id || document.activeElement.tagName));
+    check('install (menu opens): focus is left where the click put it, not moved to the screen', active !== 'screen', String(active));
+    await page.keyboard.press('Escape');
+    check('install (menu opens): Esc closes the menu', await waitFor(page, () => document.getElementById('machineMenu').hidden));
+    // the offer was owed again, not answered: with the menu closed it comes back, and nothing was stored
+    check('install (menu opens): with the menu closed, the owed offer comes back, nothing stored',
+      await waitFor(page, () => !document.getElementById('installOffer').hidden, null, 5000)
+      && await page.evaluate(() => localStorage.getItem('cloadm.installAsk')) === null);
+    const back = await clearReport(page);
+    check('install (menu opens): back, it is clear of everything', clearOrOwed(back), JSON.stringify(back));
+    check('install (menu opens): no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+  // ---- 10h. a toast while the card is up: the two never overlap, and neither the card nor the page moves for it.
+  //      (The toast does the moving: feedback.js keeps it off #installOffer — it is in its CONTROLS list.) ----
+  {
+    const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64&start=liza`);
+    await liza(page);
+    await firePrompt(page);
+    await page.evaluate(() => document.fonts.ready);
+    await emuFrames(page, 2);
+    await skipTo(page, 90);
+    await waitFor(page, () => !document.getElementById('installOffer').hidden);
+    const before = await page.evaluate(() => ({ card: document.getElementById('installOffer').getBoundingClientRect().bottom,
+      reset: document.getElementById('btnReset').getBoundingClientRect().top,
+      screen: document.getElementById('screen').getBoundingClientRect().top, pageH: document.documentElement.scrollHeight }));
+    await page.evaluate(() => window.emu.feedback.toast('A toast while the offer is up, near the card', { details: 'x'.repeat(120) }));
+    await emuFrames(page, 3);
+    const after = await page.evaluate(() => {
+      const c = document.getElementById('installOffer').getBoundingClientRect();
+      const t = document.getElementById('toast').getBoundingClientRect();
+      const hits = (a, b) => a.width > 0 && b.width > 0 && !(a.bottom <= b.top || a.top >= b.bottom || a.right <= b.left || a.left >= b.right);
+      return { card: c.bottom, toastUp: t.width > 0 && !document.getElementById('toast').hidden, overCard: hits(c, t),
+        reset: document.getElementById('btnReset').getBoundingClientRect().top,
+        screen: document.getElementById('screen').getBoundingClientRect().top, pageH: document.documentElement.scrollHeight };
+    });
+    check('install (toast up): the toast is up and covers neither the card nor a thing the card is clear of',
+      after.toastUp && !after.overCard, JSON.stringify(after));
+    check('install (toast up): the card and the page stayed exactly where they were',
+      after.card === before.card && Math.abs(after.reset - before.reset) < 0.5
+      && Math.abs(after.screen - before.screen) < 0.5 && after.pageH === before.pageH, JSON.stringify({ before, after }));
+    await page.evaluate(() => window.emu.feedback.clear());
+    await emuFrames(page, 3);
+    const gone = await page.evaluate(() => document.getElementById('installOffer').getBoundingClientRect().bottom);
+    check('install (toast gone): the card is where it always was', gone === before.card, String(gone));
+    check('install (toast up): no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+  // ---- 10i. the wide gutter rules belong to widths above the phone layout: at 700 px the .gutter class must not
+  //      shrink the card into a 260 px column (an unguarded gutter rule outranks the phone's full-width strip). The
+  //      product only adds .gutter when the corner has no room, so the rule is probed directly: the class on, the
+  //      box read back, the class off. ----
+  {
+    const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64&start=liza`, { viewport: { width: 700, height: 800 } });
+    await liza(page);
+    await firePrompt(page);
+    await page.evaluate(() => document.fonts.ready);
+    await emuFrames(page, 2);
+    await skipTo(page, 90);
+    await emuFrames(page, 3);
+    const strip = await page.evaluate(() => {
+      const el = document.getElementById('installOffer');
+      const plain = el.getBoundingClientRect();
+      // the fixed containing block, measured (the viewport minus the reserved scrollbar gutter the page sets)
+      const probe = Object.assign(document.createElement('div'),
+        { style: 'position:fixed;inset:0;width:auto;height:auto;margin:0;padding:0;border:0;visibility:hidden' });
+      document.body.appendChild(probe);
+      const vw = Math.round(probe.getBoundingClientRect().width);
+      probe.remove();
+      const out = { up: !el.hidden, width: Math.round(plain.width), vw, left: Math.round(plain.left), right: Math.round(plain.right), cls: el.className };
+      el.classList.add('gutter'); out.gutter = Math.round(el.getBoundingClientRect().width);
+      el.classList.remove('gutter'); el.classList.add('gutter-left'); out.gutterLeft = Math.round(el.getBoundingClientRect().width);
+      el.classList.remove('gutter-left');
+      return out;
+    });
+    check('install (700x800, no touch keys): the card as placed is the full-width strip, not a gutter column',
+      strip.up && strip.width > strip.vw * 0.9 && strip.left <= 8 && strip.right >= strip.vw - 8 && !/gutter/.test(strip.cls), JSON.stringify(strip));
+    check('install (700x800, no touch keys): the gutter classes do not apply at the phone width (neither shrinks the card)',
+      strip.gutter === strip.width && strip.gutterLeft === strip.width, JSON.stringify(strip));
+    check('install (700x800, no touch keys): no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+  // ---- 10j. the card through state changes and input types: rotate, open/close a view, hide/show the tab and
+  //      reload, with the card up or pending; then dismiss it with touch, mouse, pen and the keyboard (Enter/Space on
+  //      a focused button, Esc for "not now"). Every button really receives each pointer type. ----
+  {
+    const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64&start=liza`, { viewport: { width: 1440, height: 900 }, hasTouch: true });
+    await liza(page);
+    await firePrompt(page);
+    await page.evaluate(() => document.fonts.ready);
+    await emuFrames(page, 2);
+    await skipTo(page, 90);
+    check('install (states): the card is up at 1440x900', await waitFor(page, () => !document.getElementById('installOffer').hidden));
+    // rotate: a phone-sized portrait -> landscape and back, with the card up
+    await page.setViewportSize({ width: 390, height: 844 });
+    await emuFrames(page, 3);
+    const portrait = await page.evaluate(() => { const r = document.getElementById('installOffer').getBoundingClientRect();
+      return { up: !document.getElementById('installOffer').hidden, inWin: r.left >= 0 && r.right <= innerWidth && r.top >= 0 && r.bottom <= innerHeight }; });
+    check('install (states): rotated to portrait, the card is still in the window (or not up)', !portrait.up || portrait.inWin, JSON.stringify(portrait));
+    await page.setViewportSize({ width: 844, height: 390 });
+    await emuFrames(page, 3);
+    const land = await page.evaluate(() => { const r = document.getElementById('installOffer').getBoundingClientRect();
+      return { up: !document.getElementById('installOffer').hidden, inWin: r.left >= 0 && r.right <= innerWidth && r.top >= 0 && r.bottom <= innerHeight }; });
+    check('install (states): rotated to landscape, the card is still in the window (or not up)', !land.up || land.inWin, JSON.stringify(land));
+    // a view opening closes the card; closing the view does not bring it back this visit
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await emuFrames(page, 3);
+    await page.evaluate(() => { location.hash = '#library'; });
+    await emuFrames(page, 3);
+    check('install (states): opening the Library closes the card rather than leave it under the view',
+      await page.evaluate(() => document.getElementById('installOffer').hidden));
+    await page.evaluate(() => { location.hash = ''; });
+    check('install (states): closing the view brings the owed card back (the view was no answer)',
+      await waitFor(page, () => !document.getElementById('installOffer').hidden, null, 5000));
+    // hide/show the tab: the clock settles, and the card is neither answered nor duplicated by it
+    await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, get: () => true }); document.dispatchEvent(new Event('visibilitychange')); });
+    await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, get: () => false }); document.dispatchEvent(new Event('visibilitychange')); });
+    await emuFrames(page, 2);
+    check('install (states): hidden then shown again, the one card is as it was and nothing is stored',
+      await page.evaluate(() => !document.getElementById('installOffer').hidden && document.querySelectorAll('#installOffer').length === 1
+        && localStorage.getItem('cloadm.installAsk') === null));
+    // reload: the card is a once-a-visit offer; with nothing stored the visit starts again and it can come back
+    await page.reload();
+    await started(page);
+    await liza(page);
+    await firePrompt(page);
+    await skipTo(page, 90);
+    check('install (states): after a reload the offer can come again (nothing was stored)', await waitFor(page, () => !document.getElementById('installOffer').hidden));
+    // dismiss with a pen: a real PointerEvent of type pen on the Not now button
+    const pen = await page.evaluate(() => {
+      const b = document.getElementById('btnInstallNotNow');
+      const r = b.getBoundingClientRect();
+      const init = { bubbles: true, cancelable: true, pointerType: 'pen', pointerId: 7, isPrimary: true, clientX: r.left + 4, clientY: r.top + 4 };
+      b.dispatchEvent(new PointerEvent('pointerdown', init)); b.dispatchEvent(new PointerEvent('pointerup', init));
+      b.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: r.left + 4, clientY: r.top + 4 }));
+      return { hidden: document.getElementById('installOffer').hidden, stored: !!localStorage.getItem('cloadm.installAsk') };
+    });
+    check('install (states): a pen pointer dismisses the card with "Not now" and stores the answer', pen.hidden && pen.stored, JSON.stringify(pen));
+    check('install (states): no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+  // ---- 10k. input types on the card's buttons: mouse, touch and keyboard each really reach it. The card is the
+  //      Menu item's (the user asked), so no prompt is needed and it is not a once-a-visit offer. ----
+  for (const [label, fire] of [
+    ['mouse', async (page) => { const b = await page.$('#btnInstallGo'); const box = await b.boundingBox(); await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2); }],
+    ['touch', async (page) => { const b = await page.$('#btnInstallGo'); const box = await b.boundingBox(); await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2); }],
+  ]) {
+    const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64&start=liza`, { viewport: { width: 1440, height: 900 }, hasTouch: true });
+    await liza(page);
+    await page.evaluate(() => document.fonts.ready);
+    await emuFrames(page, 2);
+    await chooseInstall(page);
+    await painted(page);
+    check(`install (${label}): the Menu card is up before the input`, await page.evaluate(() => !document.getElementById('installOffer').hidden));
+    await fire(page);
+    check(`install (${label}): the click closes the Menu card`, await waitFor(page, () => document.getElementById('installOffer').hidden));
+    check(`install (${label}): no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+  {
+    // keyboard: the Menu card focuses its button; Enter and then (a fresh card) Space dismiss it. Esc is "not now" on
+    // an offer, which is checked in 2b; here it is the Menu card's own Esc (just closes).
+    const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64&start=liza`);
+    await liza(page);
+    await page.evaluate(() => document.fonts.ready);
+    await emuFrames(page, 2);
+    await chooseInstall(page);
+    await painted(page);
+    check('install (keyboard): the Menu card puts focus on its button', await page.evaluate(() => document.activeElement && document.activeElement.id === 'btnInstallGo'));
+    await page.keyboard.press('Enter');
+    check('install (keyboard): Enter closes the Menu card', await waitFor(page, () => document.getElementById('installOffer').hidden));
+    await chooseInstall(page);
+    await painted(page);
+    await page.keyboard.press('Escape');
+    check('install (keyboard): Esc closes the Menu card too', await waitFor(page, () => document.getElementById('installOffer').hidden));
+    check('install (keyboard): no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- 11. localStorage unavailable: no card, the Menu item still works ----
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.addInitScript(() => { Object.defineProperty(window, 'localStorage', { configurable: true, get() { throw new Error('storage is off'); } }); });
+    await page.goto(`${base}?machine=dragon64&start=liza`);
+    await started(page);
+    await liza(page);
+    await firePrompt(page);
+    await skipTo(page, 120);
+    check('install: with localStorage unavailable, no card is offered', !(await cardUp(page)));
+    // the Menu item still works: with a prompt held it runs it (nothing has to be stored for that)
+    await chooseInstall(page);
+    check('install: with localStorage unavailable, the Menu item still runs the prompt',
+      await waitFor(page, () => window.__prompted === 1) && !(await cardUp(page)));
+    check('install: no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- 12. the item in the machine menu, on a phone and on a desktop, and that opening the menu moves nothing ----
+  for (const [label, opts] of [['phone', { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }], ['desktop', { viewport: { width: 1280, height: 720 } }]]) {
+    const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64`, opts);
+    await page.click('#machineBtn');
+    check(`install (${label}): the item is in the machine menu, last, over the page`, await page.isVisible('#navInstall')
+      && await page.evaluate(() => document.getElementById('machineMenu').lastElementChild.id === 'navInstall'));
+    // the menu is built again on every open; the item must still be there, and only once
+    await page.click('#machineBtn');
+    await page.click('#machineBtn');
+    check(`install (${label}): it survives the menu being built again (one item)`,
+      await page.evaluate(() => document.querySelectorAll('#navInstall').length === 1 && document.getElementById('machineMenu').lastElementChild.id === 'navInstall'));
+    // 008's question is what the CARD does, with nothing else changing. So: show it (the menu closes as it opens, as
+    // it must), then measure with the card up, dismiss it, and measure again — the menu is closed on both sides.
+    await page.click('#navInstall');
+    await painted(page);
+    check(`install (${label}): choosing it closes the menu and shows the steps`, await cardUp(page)
+      && await page.evaluate(() => document.getElementById('machineMenu').hidden));
+    const withCard = await page.evaluate(() => ({ h: Math.round(document.getElementById('appbar').getBoundingClientRect().height),
+      reset: document.getElementById('btnReset').getBoundingClientRect().top, screen: document.getElementById('screen').getBoundingClientRect().top,
+      pageH: document.documentElement.scrollHeight, card: !document.getElementById('installOffer').hidden }));
+    await page.click('#btnInstallGo');
+    await painted(page);
+    const without = await page.evaluate(() => ({ h: Math.round(document.getElementById('appbar').getBoundingClientRect().height),
+      reset: document.getElementById('btnReset').getBoundingClientRect().top, screen: document.getElementById('screen').getBoundingClientRect().top,
+      pageH: document.documentElement.scrollHeight, card: !document.getElementById('installOffer').hidden }));
+    check(`install (${label}): the card moves neither the app bar (${withCard.h} px) nor #btnReset nor #screen nor the page (008)`,
+      withCard.card && !without.card && withCard.h === without.h && withCard.pageH === without.pageH
+      && Math.abs(withCard.screen - without.screen) < 0.5 && Math.abs(withCard.reset - without.reset) < 0.5,
+      JSON.stringify({ withCard, without }));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `install-menu-${label}.png`) });
+    check(`install (${label}): no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- 13. the Menu item on Chromium runs the deferred prompt ----
+  {
+    const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64`);
+    await firePrompt(page);
+    await page.click('#machineBtn');
+    check('install: the Menu item is there with a held prompt', await page.isVisible('#navInstall'));
+    await page.click('#navInstall');
+    check('install: the Menu item runs the browser\'s own prompt (no card in its way)', await waitFor(page, () => window.__prompted === 1) && !(await cardUp(page)));
+    check('install: no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+}
+
 const GROUPS = (base, site) => [
   ['models', (b) => modelsChecks(b, base, check)],
   ['romUi', (b) => romUiChecks(b, base, check)],
@@ -10551,6 +11868,7 @@ const GROUPS = (base, site) => [
   ['url', (b) => urlChecks(b, base, check)],
   ['embed', (b) => embedChecks(b, site, check)],
   ['pwa', (b) => pwaChecks(b, site, check)],
+  ['install', (b) => installChecks(b, base, check)],
   ['settings', (b) => settingsChecks(b, base, check)],
   ['backFocus', (b) => backFocusChecks(b, base, check)],
   ['fold', (b) => foldChecks(b, base, check)],

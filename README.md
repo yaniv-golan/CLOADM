@@ -79,7 +79,7 @@ Per-machine notes, RAM options and the chip-by-chip list: [docs/machines.md](doc
 | **Library** | Every tape, disk, cartridge and program you load, kept for next time, in the browser or a folder on your computer; paste a magazine listing and CLOADM types it in | |
 | **Claude** | Chat with Claude full screen on the green screen (phones included), or Ask Claude in a side panel; Claude reads only the emulated machine (its screen text and memory, never anything else on your computer; it says so when it can't read a screen), and acts on it (POKE, typing, loading a BASIC program, BREAK) only with your permission, with undo | The chat over DriveWire to a real machine; the CoCo 3's 80-column chat screen |
 | **Tools** | 6809/6803 assembler, the Debugger screen (breakpoints, watchpoints, stepping, registers, memory, trace), POKE book, ROM self-test, snapshots (Snapshot 1–3 in the browser) | Step back (rewind) |
-| **Sharing** | Every setting as a URL parameter; a link that opens exactly this moment, a 6-second clip, a true-pixel screenshot; embed code and a JavaScript API; works offline once visited, installable | An install prompt |
+| **Sharing** | Every setting as a URL parameter; a link that opens exactly this moment, a 6-second clip, a true-pixel screenshot; embed code and a JavaScript API; works offline once visited; **Install CLOADM…** at the foot of the **machine menu** (the machine-name button, top left), and a one-time offer once a program has run a minute (its own window, offline) | |
 
 How to load each kind of file, the keys, snapshots, sharing and embedding: [docs/using.md](docs/using.md).
 
@@ -181,7 +181,9 @@ EXEC
   machine-code programs, LIZA and the welcome program.
 * **Does it work on a phone?** Yes: an on-screen keyboard appears, split for the thumbs when held sideways,
   and a switch turns it into a touch joystick (stick and FIRE) for games.
-* **Does it work offline?** Yes, after one visit, and browsers offer to install it.
+* **Does it work offline?** Yes, after one visit. Browsers offer to install it, and **Install CLOADM…** at the foot
+  of the **machine menu** (the machine-name button, top left) makes it an app of its own (its own window, offline);
+  the page offers it once a program has run for a minute.
 * **Where are my ROMs and programs kept?** In your browser's private storage, or a folder you choose. Nothing is
   uploaded.
 * **Where does my Anthropic API key go?** It stays in this browser and goes only to Anthropic's API, never into the
