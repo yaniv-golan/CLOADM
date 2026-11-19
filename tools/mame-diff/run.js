@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 // Compare one machine against MAME. Needs MAME (e.g. `apt install mame`); uses only our own firmware.
 //
-//   node tools/mame-diff/run.js <profile> [--ram <K>] [--video [--artifact N] [--attr] [--composite]] [--raster [--no-trace] [--keep]] [--printer [--no-trace]] [--serial] [--rate|--ops] [--plus] [--keep-firmware]
+//   node tools/mame-diff/run.js <profile> [--ram <K>] [--video [--artifact N] [--attr] [--composite] [--text]] [--raster [--no-trace] [--keep]] [--printer [--no-trace]] [--serial] [--rate|--ops] [--plus] [--keep-firmware]
 //   node tools/mame-diff/run.js <dragon64|coco|coco3|dgnalpha> --fdc [dragonfdc|premierfdc|cocofdc|multifdc|alphafdc] [--images|--write|--nmi|--multi|--blank <fmt>:<T>x<H>|--halt [--empty]|--nitros9] [--keep-firmware]
 //   node tools/mame-diff/run.js <coco|coco3|dragon64|dragon32> --cart <setup> [--audio]
 //
 // Trace mode (default): lockstep instruction trace, registers and cycle counts.
 // --video: the family's pixel comparison of every display mode; --artifact N sets MAME's and our composite
-// colour option (0 off, 1 Standard, 2 Reverse; default 1, MAME's default).
+// colour option (0 off, 1 Standard, 2 Reverse; default 1, MAME's default). --video --text (coco3, --cpu 6309 for
+// coco3h): the GIME text screens of coco3/text-screens.js, pixels and MAME's glyphs, and the screen-text reader.
 // --raster: mid-line video changes swept across every beam position (<family>/raster.asm, lib/raster.js):
 // lockstep to HALT, then every pixel of a swept field per case; --no-trace skips the lockstep part,
 // --keep leaves MAME's movie and the difference images in the work directory.
@@ -93,6 +94,12 @@ const spec = cpuOpt === '6309'
 // lets the loop drain, so anything still open (a child, a FIFO) has to be closed on the way out - see
 // lib/mame.js, whose streamTrace already kills MAME and unlinks the pipe before it resolves.
 async function main() {
+  if (args.includes('--video') && args.includes('--text')) {
+    // the CoCo 3 GIME text screens and the screen-text reader (coco3/run-text.js)
+    if (profile.family !== 'coco3') { console.error('--text: the GIME text screens are a CoCo 3 comparison'); return 2; }
+    const r = cp.spawnSync('node', [path.join(__dirname, 'coco3', 'run-text.js'), cpuOpt || '6809'], { stdio: 'inherit' });
+    return r.status === null ? 1 : r.status;
+  }
   if (args.includes('--video')) {
     const script = path.join(__dirname, profile.family, 'run-vdg.js');
     const ram = opt('--ram') ? ['--ram', opt('--ram')] : [];

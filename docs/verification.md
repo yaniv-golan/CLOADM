@@ -46,7 +46,7 @@ What each machine's comparison with MAME 0.264 showed when it was verified (the 
 | Color Computer 1/2, 2B | identical | 20/20 identical, NTSC artifact colours included, at each artifact setting | 17/17 identical (coco, coco2b) |
 | Color Computer 1/2 at 4K, 16K and 32K | identical at every size (1,099,793 / 1,079,377 / 1,043,415 instructions) | 20/20 identical at 4K and 16K | 17/17 identical at 4K and 16K |
 | Dynacom MX-1600, LZ Color64, Codimex CD-6809 | identical | – | – |
-| Color Computer 3 (128K and 512K) | 88,787 instructions identical | 34/49 identical; the rest differ only in text glyph shapes (our own font designs); the same at each artifact setting, artifact colours included. Text attributes (`--attr`): 34/34 identical, exactly (every attribute byte; 32/40/64/80 columns; lines per row 0-6; blink off and on). Composite monitor (`--composite`): 67/67 at artifact settings 0, 1 and 2 (46 exact, 21 apart from glyph shapes), with `$FF98` BPI and MOCH | 8/8 identical, per line (MAME cannot draw part of a GIME line) |
+| Color Computer 3 (128K and 512K) | 88,787 instructions identical | 34/49 identical; the rest differ only in text glyph shapes (our own font designs); the same at each artifact setting, artifact colours included. Text attributes (`--attr`): 34/34 identical, exactly (every attribute byte; 32/40/64/80 columns; lines per row 0-6; blink off and on). GIME text screens and the screen reader (`--text`, 6809 and 6309): 14/14, apart from glyph shapes, with MAME's glyphs and ours where the expected text says. Composite monitor (`--composite`): 67/67 at artifact settings 0, 1 and 2 (46 exact, 21 apart from glyph shapes), with `$FF98` BPI and MOCH | 8/8 identical, per line (MAME cannot draw part of a GIME line) |
 | Color Computer 3 (PAL) | cannot be verified against MAME: its `coco3p` keeps the CoCo 3's 262-line NTSC geometry, so it does not run a PAL field (see below) | – | – |
 | MC-10 | 908,205 instructions identical | 20/20 identical, NTSC artifact colours included, at each artifact setting | 10/10 identical |
 | Matra Alice | 908,205 instructions identical, HALT reached | – | – |
@@ -321,6 +321,26 @@ blink off). Result against MAME 0.264: 34 of 34 identical: background (bits 0-2)
 colour (bits 3-5, 6) on the row MAME's `gime.cpp` and ours pick for 8, 9-10 and 11 lines a row and nowhere else, and
 blink (bit 7) blanking the character and its underline. Lines per row 7 is not compared: MAME makes it `0xFFFF`
 lines a row and reads its font past the end of the table.
+
+**CoCo 3 GIME text screens and Claude's screen reader.** `run.js coco3 --video --text [--cpu 6309]`
+(`coco3/run-text.js`; the screens and their expected text in `coco3/text-screens.js`, the firmware it generates in
+`coco3/vdg-text.asm`) puts up 14 GIME text screens: 32, 40, 64 and 80 columns with and without attributes, every
+character code ($00-$FF), a video start of `$72348` with a decoy in the row before it, a start scrolled six rows
+into 30 rows of text with `$FF9C` set, 9 and 11 lines per row, 200 and 225 lines (rows cut short included), 256-byte
+virtual rows with a horizontal offset, and an offset that wraps within a row. The expected rows are literals,
+written from the GIME's layout and never produced by the reader. For each screen it checks (1) every pixel against
+MAME, a cell allowed to differ only in glyph shape (our font is our own design; the cell must show only its two
+colours in both pictures); (2) MAME's own picture against the expected text, character by character: every cell
+expected blank is blank in MAME, cells expected to hold the same character show the same MAME glyph, and cells
+expected to hold different characters show different ones (in rows shown whole; the 128 codes of the charset
+screen give 127 distinct glyphs, and the codes with bit 7 set the same glyphs as without); (2b) our own picture
+against the same text, exactly: every cell our font's glyph for the expected character, underlined on the row the
+GIME documents for the lines per row (with (1) and (2) this closes the glyph allowance: an underline a row early or
+a horizontal offset ignored in our renderer fails here); (3) `screen_text` on our
+machine at that moment returns exactly the expected rows, row count, base and attribute runs. Result against MAME
+0.264: 14 of 14 on `coco3` and 14 of 14 on `coco3h` (6309). `tests/coco3-screen-text.test.js` runs the same
+firmware without MAME on both CPUs, plus the cases that need no picture (graphics and short rows declined, the
+attribute bytes never read as text, `$FF9C` changing neither picture nor reading, the VDG machines unchanged).
 
 The Dragon 200-E's character generator is a character ROM, and like the BASIC ROMs it is the user's to supply:
 CLOADM never ships or fetches one. Its video comparison installs, in both emulators, a 4K pattern built by

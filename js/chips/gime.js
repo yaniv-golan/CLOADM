@@ -128,6 +128,11 @@ const LOWRES_FONT = new Uint8Array(96 * 12);
   put(HIRES_FONT, 0x5F, 0, rows('0000000000001F00'));        // _
   for (let c = 0; c < 32; c++) put(HIRES_FONT, 0x60 + c, 0, rows(LOWER[c]));
 }
+// What each hi-res text character code ($00-$7F; the GIME ignores bit 7) is, as readable text, for screen readers.
+// $20-$7E are ASCII. $00-$1F are the GIME's international set, given as the Unicode letters the glyphs above draw
+// (INTL); $7F, a checkerboard block, is U+2592.
+const TEXT_CHARS = Object.freeze([...'ÇüéâäàåçêëèïîßÄÅóæÆôöøûùØÖÜ§£±°ƒ',
+  ...Array.from({ length: 0x5F }, (_, i) => String.fromCharCode(0x20 + i)), '\u2592']);
 // Semigraphics 4: bit 3 top-left, 2 top-right, 1 bottom-left, 0 bottom-right (rows 0-5 / 6-11)
 const SG4_FONT = new Uint8Array(16 * 12);
 for (let c = 0; c < 16; c++) for (let r = 0; r < 12; r++) {
@@ -140,6 +145,8 @@ const COMPAT_TEXT_LPR = [11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 4, 3, 2, 1, 12];
 // $FF98 bits 0-2 -> lines per row in GIME modes (7: the row never ends)
 const GIME_LPR = [1, 1, 2, 8, 9, 10, 11, 0x10000];
 const HRES_BYTES = [16, 20, 32, 40, 64, 80, 128, 160];
+// $FF99 -> characters per row in GIME text modes: bit 4 (H50) and bit 2 select 32, 40, 64 or 80
+const textCols = (ff99) => ((ff99 & 0x10) ? ((ff99 & 0x04) ? 80 : 64) : ((ff99 & 0x04) ? 40 : 32));
 
 class GIME {
   // opts: { ram: Uint8Array (128K or 512K), pal: bool, rom: () => 32K Uint8Array, cart: () => Uint8Array|null }
@@ -391,7 +398,47 @@ class GIME {
   videoBase() {
     const r = this.regs;
     if (this.legacy) return ((((this.sam >> 3) & 0x7F) << 9) + (r[14] & 0x3F) * 8 + (r[13] & 0xE0) * 0x800) & this.ramMask;
+    return this.nativeVideoBase();
+  }
+  // the GIME-mode video start: $FF9B bits 0-3, $FF9D, $FF9E (x 8 bytes)
+  nativeVideoBase() {
+    const r = this.regs;
     return ((r[14] * 8) | (r[13] * 0x800) | ((r[11] & 0x0F) * 0x80000)) & this.ramMask;
+  }
+
+  // ---------------- the text screen, for readers ----------------
+  // The GIME-mode text screen as the next frame will draw it, from the registers: null when the GIME is not in a
+  // GIME text mode (compatibility mode, or HRES set: a bitmap). Reads only: no register, counter or memory changes.
+  // It follows recordBody() and drawText() line for line:
+  //  * the rows start at the video start ($FF9B/$FF9D/$FF9E) and are `pitch` bytes apart: the characters (and
+  //    attribute bytes) of a row, or 256 with $FF9F bit 7 (HVEN);
+  //  * a row's cells start ($FF9F & $7F) x 2 bytes in, wrapping within the row's 256 bytes;
+  //  * every row is `lpr` scanlines ($FF98 bits 0-2); the body shows topBorder..min(body end, retrace, the picture's
+  //    last line) scanlines ($FF99 bits 5-6), so the screen has ceil(lines / lpr) rows, the last perhaps cut short;
+  //  * the vertical scroll ($FF9C) is loaded into the line counter at the frame start, but every top-border line
+  //    sets the counter to 0 again (hsRise, as MAME 0.264's record_border_scanline), so in this model (and MAME's)
+  //    it never moves a GIME-mode text row: the body always starts on line 0 of its first row.
+  // Returns { cols, attr, lpr, rows, base, pitch, hoff, hven, chars: [Uint8Array(cols)], attrs: [Uint8Array(cols)]
+  // | null }, the character codes as stored (bit 7 included; the font ignores it).
+  textScreen() {
+    const r = this.regs;
+    if ((r[0] & 0x80) || (r[8] & 0x80)) return null;
+    const cols = textCols(r[9]), attr = !!(r[9] & 0x01);
+    const pitch = (r[15] & 0x80) ? 256 : cols * (attr ? 2 : 1);
+    const hoff = (r[15] & 0x7F) * 2, lpr = GIME_LPR[r[8] & 7], base = this.nativeVideoBase();
+    const lines = Math.max(0, Math.min(this.topBorder + this.body, this.untilRetrace, HEIGHT + 1 + this.pad) - this.topBorder);
+    const rows = Math.ceil(lines / lpr);
+    const chars = [], attrs = attr ? [] : null;
+    for (let row = 0; row < rows; row++) {
+      const at = base + row * pitch, c = new Uint8Array(cols), a = attr ? new Uint8Array(cols) : null;
+      for (let i = 0, off = 0; i < cols; i++, off += attr ? 2 : 1) {
+        const p = at + ((hoff + off) & 0xFF);
+        c[i] = this.mem(p);
+        if (a) a[i] = this.mem(p + 1);
+      }
+      chars.push(c); if (a) attrs.push(a);
+    }
+    return { cols, attr, lpr, rows, base, pitch, hoff, hven: !!(r[15] & 0x80), chars, attrs };
   }
   // HS rising edge: record the line that just ended and advance the scanline counter.
   // Returns true if HS is seen by the PIA (not on PAL padding lines).
@@ -495,7 +542,7 @@ class GIME {
         pitch = bytes;
         if (draw) this.drawGraphics(px, o + x0, pal, bytes, width, ff99 & 3);
       } else {
-        const cols = (ff99 & 0x10) ? ((ff99 & 0x04) ? 80 : 64) : ((ff99 & 0x04) ? 40 : 32);
+        const cols = textCols(ff99);
         const attr = !!(ff99 & 0x01);
         pitch = cols * (attr ? 2 : 1);
         if (draw) this.drawText(px, o + x0, pal, cols, attr, width / (cols * 8), ff98 & 7);
@@ -609,7 +656,7 @@ class GIME {
 
 GIME.WIDTH = WIDTH; GIME.HEIGHT = HEIGHT; GIME.LINE = LINE; GIME.HS_FALL = HS_FALL;
 GIME.RGB_PALETTE = RGB_PALETTE; GIME.COMPOSITE_PALETTE = COMPOSITE_PALETTE; GIME.COMPOSITE_PALETTE_180 = COMPOSITE_PALETTE_180;
-GIME.HIRES_FONT = HIRES_FONT; GIME.LOWRES_FONT = LOWRES_FONT;
+GIME.HIRES_FONT = HIRES_FONT; GIME.LOWRES_FONT = LOWRES_FONT; GIME.TEXT_CHARS = TEXT_CHARS;
 GIME.INT = { TMR: INT_TMR, HBORD: INT_HBORD, VBORD: INT_VBORD, EI2: INT_EI2, EI1: INT_EI1, EI0: INT_EI0 };
 GIME.STATE = ['regs', 'mmu', 'palette', 'linePal', 'sam', 'zone', 'logical', 'physical', 'topBorder', 'body', 'lineInRow', 'mixKeys',
   'videoPos', 'timerDue', 'timerValue', 'legacy', 'irq', 'firq', 'intValue', 'fs', 'fsNext', 'fsFall', 'ff22', 'ff23', 'blink',

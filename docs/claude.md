@@ -263,17 +263,44 @@ emulator.
   bytes would run past `$FFFF` is a `past-end` error, because reads do not wrap. `disassemble` decodes up to 64
   instructions in the machine's own instruction set (6809, 6803 or 6309, taken from the machine, never from the
   request) through the same side-effect-free peek, and returns each instruction's bytes with its text.
-  `screen_text` reads the 32-column text screen from the page the display uses, when the machine's memory map
-  still routes the CPU to it. On a CoCo 3 that page is the GIME's own video base, not a fixed `$400`, masked to
-  the 16 bits a CPU address holds; the reader reads through the CPU's map while the display reads physical
-  memory, and the two are the same page only while the map agrees. When the MMU has moved that page elsewhere
-  (or onto ROM), the tool DECLINES rather than showing a screen nobody is looking at, and the reason names both
-  addresses. It also DECLINES a mode it cannot read faithfully: a graphics mode, a 40/64/80-column GIME text
-  mode, GIME native text (it holds ASCII, not the VDG codes this reader decodes), or
-  the d64plus's HD6845S screen each answer `text:false` with the mode named and a reason, rather than returning
-  rows that repeat or belong to a screen nobody is looking at. `machine_info`'s `video.readable` is that same
+  `screen_text` returns the screen's rows as text, trailing spaces trimmed and trailing blank rows left out. It
+  reads two kinds of text screen:
+  * **the MC6847 VDG's 32x16 page** (MC-10, Dragon 32/64/200, CoCo 1/2, and the CoCo 3 in its CoCo-compatible
+    mode), from the page the display uses, when the machine's memory map still routes the CPU to it. On a CoCo 3
+    that page is the GIME's own video base, not a fixed `$400`, masked to the 16 bits a CPU address holds; the
+    reader reads through the CPU's map while the display reads physical memory, and the two are the same page only
+    while the map agrees. When the MMU has moved that page elsewhere (or onto ROM), the tool DECLINES rather than
+    showing a screen nobody is looking at, and the reason names both addresses.
+  * **every CoCo 3 GIME text mode** (6809 or 6309): 32, 40, 64 or 80 columns, with or without attribute bytes, as
+    NitrOS-9 and BASIC's `WIDTH 40`/`WIDTH 80` use. The GIME walks the screen itself (`GIME.textScreen()` in
+    `js/chips/gime.js`, beside the renderer it follows): the video start (`$FF9B`/`$FF9D`/`$FF9E`), the row pitch
+    (doubled by attributes, 256 bytes with `$FF9F` HVEN), the horizontal offset (`$FF9F`, wrapping within a row's
+    256 bytes), the lines per row (`$FF98`) and the number of rows the body shows (`$FF99`: 192, 200 or 225 lines;
+    a last row cut short is included). All of it comes from the emulator's GIME state, never from the CPU-readable
+    registers, which a program cannot read back; the page is read from physical RAM, so no MMU mapping can hide
+    it. The result names the mode with its columns and rows (`GIME native text, 80 columns with attributes, 24
+    rows`) and gives `screenRows` (the rows the screen shows; `rows`, as on the VDG, counts the rows returned,
+    after trailing blank rows are left out), `physicalBase` (the physical address) and `base`: the CPU address of
+    the whole screen, given only when the memory map shows every byte the GIME reads for it to the CPU in one
+    contiguous run (each 8K slot the screen crosses into holding the next physical block), otherwise `null` (an
+    MMU that splits or hides it, or 256-byte virtual rows, where the screen is a window on a wider page). Characters `$20`-`$7E` are ASCII; the GIME's international characters
+    `$00`-`$1F` come back as the Unicode letters they show (`Ç ü é â ä à å ç ê ë è ï î ß Ä Å ó æ Æ ô ö ø û ù Ø Ö Ü
+    § £ ± ° ƒ`) and `$7F` (a checkerboard) as `▒`; bit 7 is ignored, as the GIME's font ignores it. Attribute
+    bytes are never shown as characters: `attributes` gives each row's runs of equal attributes (`from`, `to`,
+    `fg`, `bg`, `underline`, `blink`), where `fg` and `bg` are palette slots 0-7, not colours: the foreground is
+    palette register 8+`fg`, the background palette register `bg`. The vertical scroll register `$FF9C` does not move GIME text rows in
+    this emulator, as in MAME 0.264 (the top border resets the row's line counter), so the reader does not apply
+    it either: it reads what the display draws.
+
+    **Known limitation:** GIME `$FF9C` does not move text rows in this emulator or in MAME 0.264, while real
+    hardware smooth-scrolls them.
+
+  The tool DECLINES, with `text:false`, the mode named and a reason, anything it cannot read faithfully: a
+  graphics mode (VDG or GIME bitmap), a GIME text mode whose rows are 1 or 2 lines tall (no glyph is shown whole)
+  or that shows no rows (`$FF99` lines per field 2), and the d64plus's HD6845S screen - rather than returning rows
+  that are garbage or belong to a screen nobody is looking at. `machine_info`'s `video.readable` is that same
   answer from the same rule in the same module, so a model can skip `screen_text` when it cannot help; `kind`
-  stays `text` when a text mode merely goes unread by this reader. On such a screen `atPrompt` is
+  stays `text` when a text mode merely goes unread. On such a screen `atPrompt` is
   `null` ("cannot be told"), not inferred from a page that is not visible. Before
   Claude's first change in a turn the BASIC session is snapshotted, by every acting tool through the one path
   (`ChatSession.withRestorePoint`); **Restore to before Claude's changes** restores it exactly (the last 10 turns are

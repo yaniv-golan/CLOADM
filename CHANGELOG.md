@@ -6,6 +6,18 @@ All notable changes to CLOADM are recorded here. The format follows
 
 ## [Unreleased]
 
+#### Added
+
+- **Claude reads the CoCo 3's GIME text screens.** `screen_text` now reads every GIME text mode on the CoCo 3
+  (6809 or 6309): 32, 40, 64 and 80 columns, with or without attribute bytes - NitrOS-9's 80-column screen and
+  BASIC's `WIDTH 40`/`WIDTH 80` included - where it used to answer that it only handled the 32-column VDG screen.
+  The GIME itself walks the screen from the emulator's own state (video start, row pitch, horizontal offset, lines
+  per row and the rows shown), never the registers a program can't read back. Attribute bytes come back as runs
+  of colour, underline and blink, never as characters; the GIME's international characters as the letters they
+  show (`Ç ü é …`). A GIME bitmap, or rows too short to show a character, is still declined with a reason. Checked
+  against MAME 0.264 on `coco3` and `coco3h` with new firmware (`run.js coco3 --video --text`): 14 screens, every
+  pixel outside the glyph shapes of our own font identical, and MAME's glyphs where the expected text says.
+
 #### Fixed
 
 - **Time between instructions: an outside I/O access no longer runs the machine ahead.** `ioTime()` answers "the

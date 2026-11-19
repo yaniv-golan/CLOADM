@@ -334,8 +334,9 @@ const stateOf = (s) => JSON.stringify(s.machine.saveState());
     const t = targetOf(s);
     const g = s.machine.gime;
     const cases = [
-      ['GIME native text, 32 columns', { 0: 0x00, 8: 0x00, 9: 0x00 }, null],
-      ['GIME native text, 80 columns', { 0: 0x00, 8: 0x00, 9: 0x14 }, null],
+      ['GIME native text, 32 columns, 1 line per row', { 0: 0x00, 8: 0x00, 9: 0x00 }, null],
+      ['GIME native text, 32 columns', { 0: 0x00, 8: 0x03, 9: 0x00 }, null],
+      ['GIME native text, 80 columns', { 0: 0x00, 8: 0x03, 9: 0x14 }, null],
       ['GIME native bitmap', { 0: 0x00, 8: 0x80, 9: 0x00 }, null],
       ['GIME legacy text', { 0: 0x80 }, 0x00],
       ['GIME legacy graphics', { 0: 0x80 }, 0x80],
@@ -349,10 +350,10 @@ const stateOf = (s) => JSON.stringify(s.machine.saveState());
         JSON.stringify({ readable: info.video.readable, kind: info.video.kind, screenText: scr.text }));
     }
     // and a text mode that cannot be read is still reported as a TEXT mode: the model must not be told there are
-    // no characters, only that this reader cannot decode them
+    // no characters, only that they cannot be read ($FF98 = 0: one scanline per text row, no glyph shown whole)
     Object.assign(g.regs, { 0: 0x00, 8: 0x00, 9: 0x00 });
     const nativeText = await Emu.runReadOnlyTool(t, 'machine_info', {});
-    check('GIME native text: kind is still "text" while readable is false',
+    check('GIME native text at 1 line per row: kind is still "text" while readable is false',
       nativeText.video.kind === 'text' && nativeText.video.readable === false, JSON.stringify(nativeText.video));
   }
 
@@ -365,43 +366,41 @@ const stateOf = (s) => JSON.stringify(s.machine.saveState());
     check('screen_text reports no text screen in a graphics mode', out.text === false && out.rows === 0 && out.lines.length === 0 && /bitmap/.test(out.mode), JSON.stringify(out));
   }
 
-  // ---- 7. a wide text mode is refused, not misread ----
-  // The reader walks a fixed 32-byte row stride (the VDG's own geometry). A CoCo 3 GIME text mode can be 40, 64
-  // or 80 columns, where the real stride is wider - so a fixed-stride walk returns ROW 0 again as every later
-  // row. Rather than hand back a screen that repeats row 0, the tool declines and names the mode, the same shape
-  // and meaning as a graphics mode. The test writes DISTINCT A/B/C rows at the TRUE stride, so a fixed-stride
-  // reader would visibly repeat row 0.
+  // ---- 7. a wide GIME text mode is read at its own stride, not misread ----
+  // The VDG reader walks a fixed 32-byte row stride. A CoCo 3 GIME text mode can be 40, 64 or 80 columns, where the
+  // real stride is wider, so a fixed-stride walk would return ROW 0 again as every later row. The GIME text modes
+  // are read by the GIME's own walk (gime.textScreen). The test writes DISTINCT A/B/C rows at the TRUE stride, so a
+  // fixed-stride reader would visibly repeat row 0. (tests/coco3-screen-text.test.js covers every mode.)
   {
     const s = boot('coco3');
     const t = targetOf(s);
     const g = s.machine.gime;
-    g.regs[0] = 0x00; g.regs[8] = 0x00; g.regs[9] = 0x14;   // native text, 80 columns
-    const base = s.machine.profile.textScreen || 0x400;
-    for (let i = 0; i < 80; i++) s.machine.ram[(base + i) & 0xFFFF] = 0x41;        // row 0 'A'
-    for (let i = 0; i < 80; i++) s.machine.ram[(base + 80 + i) & 0xFFFF] = 0x42;   // row 1 'B'
-    for (let i = 0; i < 80; i++) s.machine.ram[(base + 160 + i) & 0xFFFF] = 0x43;  // row 2 'C'
+    g.regs[0] = 0x00; g.regs[8] = 0x03; g.regs[9] = 0x14;   // native text, 80 columns, 8 lines per row
+    const base = g.nativeVideoBase();
+    for (let i = 0; i < 240; i++) g.ram[base + i] = 0x41 + Math.floor(i / 80);     // rows 'A', 'B', 'C'
+    for (let i = 240; i < 80 * 24; i++) g.ram[base + i] = 0x20;
     const wide = await Emu.runReadOnlyTool(t, 'screen_text', {});
-    check('80 columns: the answer declines (no repeated row 0), names the mode and says why',
-      wide.text === false && wide.rows === 0 && wide.lines.length === 0 && /80 columns/.test(wide.mode)
-      && /cannot be read faithfully/.test(wide.reason || ''),
+    check('80 columns: three distinct rows read at the 80-byte stride, no repeated row 0',
+      wide.text === true && wide.cols === 80 && wide.rows === 3 && JSON.stringify(wide.lines) === JSON.stringify(['A', 'B', 'C'].map((c) => c.repeat(80))),
       JSON.stringify(wide));
-    g.regs[9] = 0x00;                                        // 32 columns: still GIME native text, still declined
+    g.regs[9] = 0x00;                                         // 32 columns: GIME text holds ASCII, read as ASCII
+    const ascii = 'hello, world! 1234567890';
+    for (let i = 0; i < 32 * 24; i++) g.ram[base + i] = i < ascii.length ? ascii.charCodeAt(i) : 0x20;
     const narrow = await Emu.runReadOnlyTool(t, 'screen_text', {});
-    check('32 columns in GIME native text: also declined, because that page holds ASCII, not VDG codes',
-      narrow.text === false && narrow.rows === 0 && /32 columns/.test(narrow.mode) && /ASCII/.test(narrow.reason || ''),
-      JSON.stringify(narrow));
-    // atPrompt obeys the SAME readability rule, not merely "is it a text mode": GIME native text IS a text mode,
-    // so a guard written as `mode.text === false` would run the OK-line test against rows this reader decodes
-    // wrongly and could answer true. The OK row here is in the page AS THIS READER SEES IT (VDG codes), which is
-    // exactly the trap: the bytes are not what is on the screen. A booted machine must still answer null.
+    check('32 columns in GIME native text: the ASCII row reads back as written (not as VDG codes)',
+      narrow.text === true && narrow.cols === 32 && JSON.stringify(narrow.lines) === JSON.stringify([ascii]), JSON.stringify(narrow));
+    // atPrompt obeys the SAME readability rule, not merely "is it a text mode": with 1 line per row ($FF98 = 0) GIME
+    // native text IS a text mode but shows no whole glyph, so a guard written as `mode.text === false` would run
+    // the OK-line test against rows nobody can read and could answer true. A booted machine must answer null.
     {
+      g.regs[8] = 0x00;
       const okNative = {
         get machine() { return s.machine; }, show: () => {},
         screenText: () => { const l = new Array(16).fill(' '.repeat(32)); l[0] = 'OK' + ' '.repeat(30); return l; },
         readByte: (a) => s.readByte(a), bootStatus: () => ({ state: 'ok' }),
       };
       const nativeOk = await Emu.runReadOnlyTool(okNative, 'machine_info', {});
-      check('GIME native 32-column text: even with OK in the page, atPrompt is null because this reader cannot decode it',
+      check('GIME native text at 1 line per row: even with OK in the VDG page, atPrompt is null because it cannot be read',
         nativeOk.atPrompt === null && nativeOk.video.kind === 'text' && nativeOk.video.readable === false,
         JSON.stringify({ atPrompt: nativeOk.atPrompt, video: nativeOk.video }));
       check('that same answer never says readable with atPrompt true: the fields of ONE answer agree',
@@ -412,23 +411,26 @@ const stateOf = (s) => JSON.stringify(s.machine.saveState());
   // ---- 7b. the readability rule itself: every way a mode can be unreadable ----
   // screenReadable is exported and is the ONE rule both tools use, so its contract is tested directly rather than
   // only through the modes videoMode happens to produce today. Each case is a mode shape the rule must refuse, and
-  // the last is the only shape it must accept, so deleting any single branch fails here. The width case is the one
-  // no current machine reaches - every wide mode today is GIME native, refused a branch earlier - but the rule
-  // states the stride limit, and a future readable wide mode must still meet it.
+  // the last two are the shapes it must accept, so deleting any single branch fails here. The width case is the one
+  // no current machine reaches - every wide mode today is GIME native text, walked by the GIME itself - but the rule
+  // states the VDG reader's stride limit, and a future wide mode it would walk must still meet it.
   {
     const R = Emu.screenReadable;
     const gfx = R({ text: false, name: 'MC6847 graphics, 256x192 4-colour' });
     check('screenReadable: a graphics mode is not readable, and the reason says there are no character cells',
       gfx.readable === false && /character cells/.test(gfx.reason || ''), JSON.stringify(gfx));
-    const ascii = R({ text: true, readable: false, name: 'GIME native text', reason: 'holds ASCII' });
+    const short = R({ text: true, readable: false, name: 'GIME native text', reason: 'rows too short' });
     check('screenReadable: a text mode flagged unreadable is refused and keeps its own reason',
-      ascii.readable === false && ascii.reason === 'holds ASCII', JSON.stringify(ascii));
+      short.readable === false && short.reason === 'rows too short', JSON.stringify(short));
     const wide = R({ text: true, cols: 40, name: 'wide' });
     check('screenReadable: a text mode wider than the reader can walk is refused, naming both widths',
       wide.readable === false && /40/.test(wide.reason || '') && /32/.test(wide.reason || ''), JSON.stringify(wide));
     const vdg = R({ text: true, cols: 32, name: 'MC6847 text' });
-    check('screenReadable: a 32-column text mode IS readable (the one accept, so the rule cannot be "always no")',
+    check('screenReadable: a 32-column text mode IS readable (an accept, so the rule cannot be "always no")',
       vdg.readable === true, JSON.stringify(vdg));
+    const gime = R({ text: true, cols: 80, name: 'GIME native text, 80 columns', gimeText: { cols: 80 } });
+    check('screenReadable: an 80-column GIME text mode IS readable: the GIME walks its own rows, not the 32-byte stride',
+      gime.readable === true, JSON.stringify(gime));
   }
 
   // ---- 8. the d64plus Plus display: named, and not read as the VDG page ----

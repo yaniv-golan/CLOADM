@@ -21,6 +21,7 @@
 import { TOOL_CODES, ToolError, checkedInt } from './toolerrors.js';
 import { disassemble } from '../asm/disassembler.js';
 import { codeDisassembly } from '../debugger.js';
+import { GIME } from '../chips/gime.js';
 
 // The names of the tools that only read. The Session's consent gate keys on the ACTING set
 // (ACTING_TOOL_NAMES), not on this one: this is the split's other half, and the two must together name every
@@ -47,7 +48,7 @@ export function readOnlyTools() {
   const int = (description, min, max) => ({ type: 'integer', minimum: min, maximum: max, description });
   return [
     { name: 'machine_info', description: "The machine: model, RAM in KB, CPU (6809, 6803 or 6309), the video mode, whether it is at the BASIC prompt (null when it cannot be told), and the program counter as a decimal address in the 0-65535 range. Takes no parameters.", input_schema: schema({}, []) },
-    { name: 'screen_text', description: "The text on the machine's screen: 16 rows of 32 characters, read from the page the display actually uses. Returned with the mode's name and `base`, the address that page was read from. A mode this reader cannot read faithfully (graphics, a wider GIME text mode, or GIME native text) is declined with a reason. Takes no parameters.", input_schema: schema({}, []) },
+    { name: 'screen_text', description: SCREEN_TEXT_DESCRIPTION, input_schema: schema({}, []) },
     {
       name: 'peek',
       description: 'Read bytes of memory, as the machine sees them (RAM, ROM, cartridge). Reads only; nothing is changed.',
@@ -68,14 +69,19 @@ export function readOnlyTools() {
 }
 
 // ---- screen_text ----
-// The text on the machine's screen, one line per row.
-// The reader (Session.screenText) walks a fixed 32-byte row stride from a fixed base, which is right for the
-// VDG's 32-column screen and wrong for a GIME text mode: at 40/64/80 columns the real stride is wider, so a
-// fixed-stride walk returns row 0 again as every later row. Rather than hand back a screen that repeats row 0,
-// a mode whose row stride is wider than the reader's is DECLINED, the same way a graphics mode is: the answer
-// says there is no readable text screen and names the mode. That is honest and it cannot be acted on wrongly.
-// The mode's own width and base are therefore the test of readability, not the reader's habits.
+// The text on the machine's screen, one line per row. There are two readers, one per kind of text screen:
+//  * the MC6847 VDG's 32x16 page (the MC-10, the Dragons, the CoCo 1/2, and the CoCo 3 in its compatibility mode),
+//    walked at a fixed 32-byte stride from the page the display uses, VDG codes decoded;
+//  * the CoCo 3's GIME text modes (32, 40, 64 or 80 columns, with or without attribute bytes), walked by the GIME
+//    itself (gime.textScreen(): the video start, row pitch, horizontal offset, lines per row and the number of rows
+//    the body shows, all from the emulator's own GIME state, never from the CPU-readable registers, which a
+//    program cannot read back) and decoded through the GIME character set (GIME.TEXT_CHARS).
+// Anything else - a graphics mode, the Dragon Plus's HD6845S display, a GIME text mode whose rows are too short to
+// show a character - is DECLINED with the mode's name and a reason: no guessing.
 const CELL_COLS = 32;
+// The description Claude sees. It names the machines and modes the reader covers, and how non-ASCII characters and
+// attributes come back, so a model knows what to expect before it calls.
+export const SCREEN_TEXT_DESCRIPTION = "The text on the machine's screen, one string per row with trailing spaces trimmed (trailing blank rows are left out, so `rows` counts the rows returned, not the rows the screen has). Reads the MC6847 VDG 32x16 text screen (MC-10, Dragon 32/64/200, CoCo 1/2, and the CoCo 3 in its CoCo-compatible mode) and every CoCo 3 GIME text mode, 6809 or 6309: 32, 40, 64 or 80 columns, with or without attribute bytes (as NitrOS-9 and BASIC's WIDTH 40/80 use); on a GIME text mode `screenRows` is how many rows the screen shows. GIME characters $20-$7E are ASCII; the GIME's international characters $00-$1F come back as the Unicode letters they show (Ç ü é â ä à å ç ê ë è ï î ß Ä Å ó æ Æ ô ö ø û ù Ø Ö Ü § £ ± ° ƒ) and $7F as ▒. Attribute bytes are never shown as characters: with attributes on, `attributes` gives each row's runs of fg, bg, underline and blink, where fg and bg are palette slots, not colours (the foreground is palette register 8+fg, the background palette register bg). Returned with the mode's name, `cols`, and where the screen was read from: `base`, the CPU address of the whole screen, given only when the memory map shows all of it to the CPU in one contiguous run (otherwise null: an MMU that splits or hides it, or 256-byte virtual rows), and on a GIME text mode `physicalBase`, its address in the CoCo 3's physical RAM. Declined with text:false and a reason: a graphics mode; a GIME text mode whose rows are too short to show a character (1 or 2 scanlines per row) or that shows no rows ($FF99 lines per field 2); a VDG page the memory map (MMU) has moved away from where the display reads it; and a display it cannot read (the Dragon Plus's HD6845S screen). Takes no parameters.";
 
 // Whether screen_text can read the screen faithfully, and if not, why. ONE rule, used by screen_text to decide
 // what to answer and by machine_info to report `video.readable`, so the two cannot disagree: `readable === false`
@@ -84,6 +90,7 @@ const CELL_COLS = 32;
 export function screenReadable(mode) {
   if (!mode.text) return { readable: false, reason: mode.reason || `${mode.name} has no character cells to read` };
   if (mode.readable === false) return { readable: false, reason: mode.reason || `${mode.name} cannot be read faithfully` };
+  if (mode.gimeText) return { readable: true };      // the GIME walks its own rows, at its own width
   if (mode.cols && mode.cols > CELL_COLS) {
     return { readable: false, reason: `the machine's text rows are ${mode.cols} characters wide and this reader can only walk ${CELL_COLS}, so the rows cannot be read faithfully` };
   }
@@ -96,6 +103,7 @@ export function screenTextTool(target) {
   const mode = videoMode(m);
   const read = screenReadable(mode);
   if (!read.readable) return { text: false, mode: mode.name, lines: [], rows: 0, reason: read.reason };
+  if (mode.gimeText) return gimeText(m, mode);
   // the base: a machine may put its text screen elsewhere than the profile's default (the CoCo 3's GIME video
   // base moves with $FF9D-$FF9F). Read from where the display really is, not from a fixed $400.
   const base = textBase(m, mode);
@@ -112,10 +120,61 @@ export function screenTextTool(target) {
     }
     lines.push(line);
   }
+  const shown = trimmed(lines);
+  return { text: true, mode: mode.name, cols: CELL_COLS, base, lines: shown, rows: shown.length };
+}
+
+// the rows as a model reads them: trailing spaces trimmed, trailing blank rows left out (both readers)
+function trimmed(lines) {
   let last = lines.length - 1;
   while (last >= 0 && !lines[last].trim()) last--;
-  const shown = lines.slice(0, last + 1).map((l) => l.replace(/\s+$/, ''));
-  return { text: true, mode: mode.name, cols: CELL_COLS, base, lines: shown, rows: shown.length };
+  return lines.slice(0, last + 1).map((l) => l.replace(/\s+$/, ''));
+}
+
+// A GIME text mode, from the GIME's own walk of it (mode.gimeText = gime.textScreen(), taken once by videoMode so
+// the mode named and the rows read are the same state). Characters go through GIME.TEXT_CHARS (bit 7 ignored, as
+// the GIME's font does); attribute bytes are decoded into runs per row, never printed. The page is physical RAM,
+// read through the GIME's own side-effect-free mem(); `base` is the CPU address of the whole screen when the memory
+// map shows it to the CPU contiguously (contiguousCpuBase), else null. `rows` counts the rows returned (trailing blank
+// rows left out, as on the VDG); `screenRows` is how many the screen shows.
+function gimeText(m, mode) {
+  const t = mode.gimeText, chars = GIME.TEXT_CHARS;
+  const rows = t.chars.map((c) => Array.from(c, (v) => chars[v & 0x7F]).join(''));
+  const lines = trimmed(rows);
+  const out = { text: true, mode: mode.name, cols: t.cols, base: contiguousCpuBase(m.gime, t), physicalBase: t.base, lines, rows: lines.length, screenRows: t.rows };
+  if (t.attrs) out.attributes = t.attrs.slice(0, lines.length).map(attributeRuns);
+  return out;
+}
+// One row's attribute bytes as runs of equal attributes. GIME attribute byte (js/chips/gime.js drawText, MAME
+// gime.cpp): bit 7 blink, bit 6 underline, bits 3-5 foreground (palette 8-15), bits 0-2 background (palette 0-7).
+function attributeRuns(a) {
+  const runs = [];
+  for (let i = 0; i < a.length;) {
+    let j = i + 1;
+    while (j < a.length && a[j] === a[i]) j++;
+    const v = a[i];
+    runs.push({ from: i, to: j - 1, fg: (v >> 3) & 7, bg: v & 7, underline: !!(v & 0x40), blink: !!(v & 0x80) });
+    i = j;
+  }
+  return runs;
+}
+// The CPU address of the whole screen, or null. It is given only when the bytes the GIME reads - from the video start
+// to the end of the last row, [base, base + rows x pitch), or to that row's 256th byte when a horizontal offset
+// wraps the cells within it - all reach the CPU as one contiguous run under the current memory map: the 8K slot
+// holding the start, and each following slot the run crosses into, must map the physical blocks that follow. With
+// 256-byte virtual rows (HVEN) the screen is a window on a wider page, so there is no one address for it: null.
+function contiguousCpuBase(gime, t) {
+  if (t.hven || !t.rows) return null;
+  const len = t.hoff ? (t.rows - 1) * t.pitch + 256 : t.rows * t.pitch;
+  for (let s = 0; s < 8; s++) {
+    const cpu = s * 0x2000 + (t.base & 0x1FFF);
+    if (cpu + len > 0xFE00 || gime.physAddr(cpu) !== t.base) continue;
+    let whole = true;
+    // every 8K block the run crosses into, from the next block boundary on
+    for (let k = 0x2000 - (t.base & 0x1FFF); whole && k < len; k += 0x2000) whole = gime.physAddr(cpu + k) === ((t.base + k) & gime.ramMask);
+    if (whole) return cpu;
+  }
+  return null;
 }
 
 // Where the machine's text screen actually starts. The profile's `textScreen` is the VDG family's fixed page; a
@@ -164,11 +223,12 @@ export function machineInfoTool(target) {
 // js/chips/gime.js, which implements them:
 //   $FF90 (regs[0]) bit 7 = LCOM: SET means legacy MC6847 emulation, CLEAR means native mode
 //   native mode:  $FF98 (regs[8]) bit 7 = HRES: SET is a high-res BITMAP, CLEAR is text
-//   native text:  $FF99 (regs[9]) bit 4 = H50 (80 vs 64/40/32 columns), bit 2 = the wide (40/80) layout,
-//                 bit 0 = attribute bytes
 //   bitmap size:  $FF99 bits 2-4 are an INDEX into HRES_BYTES, 16/20/32/40/64/80/128/160 bytes per row;
 //                 CRES = ff99 & 3 picks the depth (0 = 1bpp, 1 = 2bpp, else 4bpp)
-// Read the live registers for the mode. The BASE comes from gime.videoBase(), which branches on the frame's
+//   native text:  everything about it (columns, attributes, start, pitch, rows) comes from gime.textScreen(),
+//                 the GIME's own walk, so there is one copy of that arithmetic
+// Read the emulator's register state for the mode (never the CPU-readable registers: most GIME registers cannot be
+// read back by a program). In legacy mode the BASE comes from gime.videoBase(), which branches on the frame's
 // latched legacy bit; the two can disagree for the moment between a register write and the next frame start, so
 // the mode and the base are taken to describe the SAME thing by asking videoBase() for its own branch (below).
 function videoMode(m) {
@@ -187,19 +247,15 @@ function videoMode(m) {
         const depth = cres === 0 ? '1 bit/pixel' : cres === 1 ? '2 bits/pixel' : '4 bits/pixel';
         return { text: false, name: `GIME native bitmap, ${bytesPerRow} bytes per row, ${depth}` };
       }
-      const cols = (r[9] & 0x10) ? ((r[9] & 0x04) ? 80 : 64) : ((r[9] & 0x04) ? 40 : 32);
-      // No base is computed here: native text is declined just below, so no address is ever read from this page
-      // and there is no field to report one in. (A `gimeBase` local was computed and discarded here until
-      // 14b-tools-followup; the decline in aef90fe is what orphaned it.)
-      // GIME native text holds ASCII (with an optional attribute byte per cell), NOT VDG codes: this reader
-      // decodes VDG codes, so it cannot read it faithfully. Measured: a row of "hello, world! 1234567890"
-      // came back as "(%,,/, 7/2,$! 1234567890" - the alphabet round-trips by accident, everything else does
-      // not. It IS a text mode (machine_info says so), but NOT one this reader can read.
-      return {
-        text: true, readable: false, cols,
-        name: `GIME native text, ${cols} columns${(r[9] & 0x01) ? ' with attributes' : ''}`,
-        reason: 'GIME native text stores ASCII (not the VDG character codes this reader decodes), so the rows cannot be read faithfully',
-      };
+      // GIME text: the GIME's own walk of the screen (gime.textScreen), from the emulator's state - the video start,
+      // pitch, offset, lines per row and rows - so what is read is what the display draws
+      const t = gime.textScreen();
+      const name = `GIME native text, ${t.cols} columns${t.attr ? ' with attributes' : ''}, ${t.rows} rows`;
+      // rows shorter than a glyph show only its top line or two ($FF98 lines per row 1 or 2), and a vertical
+      // resolution with no body lines ($FF99 LPF 2) shows no rows at all: a text mode, but no characters to read
+      if (t.lpr < 8) return { text: true, readable: false, cols: t.cols, name, reason: `the GIME draws ${t.lpr} scanline${t.lpr === 1 ? '' : 's'} per text row ($FF98 lines per row), so no character is shown whole` };
+      if (!t.rows) return { text: true, readable: false, cols: t.cols, name, reason: 'the GIME shows no text rows in this vertical resolution ($FF99 lines per field)' };
+      return { text: true, cols: t.cols, name, gimeText: t };
     }
     // legacy: the GIME emulates the VDG, and follows the mode byte the machine writes to its VDG-mode
     // register (gime.js keeps it in `ff22`, as MAME's ff22_write does). Bit 7 is A/G: clear = text.
@@ -259,7 +315,9 @@ function atBasicPrompt(target, mode) {
   const st = target.bootStatus ? target.bootStatus() : null;
   if (!st || st.state === 'stub' || st.state === 'booting') return null;
   if (st.state !== 'ok') return false;
-  return target.screenText().some((l) => l.trim() === 'OK');
+  // a GIME text mode is read by the GIME's own walk, not the VDG page Session.screenText decodes
+  const lines = mode.gimeText ? gimeText(target.machine, mode).lines : target.screenText();
+  return lines.some((l) => l.trim() === 'OK');
 }
 
 // ---- peek ----

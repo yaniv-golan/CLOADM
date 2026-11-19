@@ -8558,6 +8558,73 @@ async function askChecks(browser, base, check) {
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
     await ctx.close();
   }
+  await askGimeTextChecks(browser, base, check);
+}
+
+// Ask Claude on a CoCo 3 in an 80-column GIME text mode with attributes (as NitrOS-9 uses): Claude's screen_text
+// (the mocked API asks for it) reads the GIME's rows, attributes decoded, not the old 32-column VDG page. The
+// screen is set up through the machine's own bus writes to the GIME ($FF90, $FF98, $FF99, $FF9D, $FF9E) and text
+// in physical RAM at $74000 (the CPU's $4000, away from the built-in stub's own page); the expected rows are
+// literals. tests/coco3-screen-text.test.js and run.js coco3 --video --text cover every mode.
+async function askGimeTextChecks(browser, base, check) {
+  const L = 'ask (CoCo 3, 80 columns)';
+  const sse = (events) => events.map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join('');
+  const msgStart = { type: 'message_start', message: { id: 'msg', type: 'message', role: 'assistant', model: 'claude-opus-5-5', content: [] } };
+  const text = (t) => sse([msgStart, { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+    { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: t } }, { type: 'content_block_stop', index: 0 },
+    { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: {} }, { type: 'message_stop' }]);
+  const tool = (name) => sse([msgStart, { type: 'content_block_start', index: 0, content_block: { type: 'tool_use', id: 'toolu_0', name, input: {} } },
+    { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: '{}' } }, { type: 'content_block_stop', index: 0 },
+    { type: 'message_delta', delta: { stop_reason: 'tool_use' }, usage: {} }, { type: 'message_stop' }]);
+  const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'POST, OPTIONS' };
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, serviceWorkers: 'block' });
+  const requests = [], replies = [tool('screen_text'), text('Your directory listing.')];
+  await ctx.route('https://api.anthropic.com/**', (route) => {
+    const req = route.request();
+    if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
+    requests.push(JSON.parse(req.postData()));
+    return route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'text/event-stream' }, body: replies.shift() || text('ok') });
+  });
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.addInitScript(() => localStorage.setItem('cloadm.anthropicKey', 'sk-ant-GIME-TEXT-CHECK-KEY-0123456789'));
+  await page.goto(`${base}?machine=coco3`);
+  await started(page);
+  await stubPrompt(page);
+  await emuFrames(page, 10);   // the stub has set up its own screen after stubPrompt's reset, so it does not undo ours
+  // the rows as written: [row, column, bytes, attribute]; $00 and $01 are the GIME's C-cedilla and u-umlaut
+  const ROWS = [[0, 0, 'CLOADM 80 COLUMNS - GIME TEXT FOR CLAUDE', 0x08], [1, 0, 'Directory of /DD  2026/11/18', 0x08],
+    [2, 4, '\x00a va? \x01ber', 0x48], [23, 70, 'BOTTOM ROW', 0x08]];
+  const WANT = ['CLOADM 80 COLUMNS - GIME TEXT FOR CLAUDE', 'Directory of /DD  2026/11/18', '    \u00c7a va? \u00fcber', ...new Array(20).fill(''), ' '.repeat(70) + 'BOTTOM ROW'];
+  await page.evaluate((rows) => {
+    const m = window.emu.machine, ram = m.gime.ram;
+    for (let i = 0; i < 160 * 24; i += 2) { ram[0x74000 + i] = 0x20; ram[0x74001 + i] = 0x08; }
+    for (const [r, c, t, a] of rows) for (let i = 0; i < t.length; i++) { ram[0x74000 + r * 160 + (c + i) * 2] = t.charCodeAt(i); ram[0x74001 + r * 160 + (c + i) * 2] = a; }
+    for (const [a, v] of [[0xFF90, 0x4E], [0xFF98, 0x03], [0xFF99, 0x15], [0xFF9D, 0xE8], [0xFF9E, 0x00], [0xFF9F, 0x00], [0xFFB0, 0], [0xFFB9, 63]]) m.write(a, v);   // palette: black, white text
+  }, ROWS);
+  await emuFrames(page, 3);
+  if (shotDir) await page.screenshot({ path: path.join(shotDir, 'ask-coco3-80-columns.png') });
+  await page.click('#btnAsk');
+  await waitFor(page, () => !document.getElementById('ask').hidden && !document.getElementById('askComposer').hidden, null, 5000);
+  await page.fill('#askInput', 'What is on my screen?');
+  await page.press('#askInput', 'Enter');
+  await waitFor(page, () => window.emu.session.chat && !window.emu.session.chat.busy && document.querySelectorAll('#askMessages .msg[data-role="claude"]').length > 0, null, 15000);
+  const sent = requests[1] && requests[1].messages.slice(-1)[0];
+  const block = sent && Array.isArray(sent.content) && sent.content.find((b) => b.type === 'tool_result');
+  let res = null;
+  try { res = JSON.parse(typeof block.content === 'string' ? block.content : block.content.map((c) => c.text).join('')); } catch (e) { res = null; }
+  check(`${L}: Claude's screen_text reads the GIME's 80-column rows, exactly`, !!res && res.text === true && JSON.stringify(res.lines) === JSON.stringify(WANT),
+    JSON.stringify(res || block || sent));
+  check(`${L}: the mode, columns, rows and where it was read from`, !!res && res.mode === 'GIME native text, 80 columns with attributes, 24 rows'
+    && res.cols === 80 && res.rows === 24 && res.physicalBase === 0x74000 && res.base === 0x4000, JSON.stringify(res && { mode: res.mode, base: res.base, physicalBase: res.physicalBase }));
+  check(`${L}: the attribute bytes are decoded into runs (row 2: underlined from column 4), not shown as characters`, !!res && Array.isArray(res.attributes)
+    && JSON.stringify(res.attributes[2]) === JSON.stringify([{ from: 0, to: 3, fg: 1, bg: 0, underline: false, blink: false },
+      { from: 4, to: 14, fg: 1, bg: 0, underline: true, blink: false }, { from: 15, to: 79, fg: 1, bg: 0, underline: false, blink: false }]),
+    JSON.stringify(res && res.attributes && res.attributes[2]));
+  check(`${L}: Claude's answer shows in the panel`, /Your directory listing\./.test(await page.textContent('#askMessages')));
+  check(`${L}: no page errors`, !errors.length, errors.join('; '));
+  await ctx.close();
 }
 
 // settings to a file and back into another browser profile; ROMs never go along
