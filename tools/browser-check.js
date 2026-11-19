@@ -8719,7 +8719,11 @@ async function askChecks(browser, base, check) {
     await page.evaluate(() => window.emu.session.switchMachine('dragon64'));
     check(`${L}: and back`, await waitFor(page, () => /Dragon 64/.test(document.getElementById('askEmptyText').textContent), null, 5000));
     // a machine switch shows the welcome menu (where "Ask Claude" opens the full screen chat) and can leave the panel up:
-    // back on the live machine, close whatever is open and open the side panel, checking each step
+    // back on the live machine, close whatever is open and open the side panel, checking each step.
+    // The menu is not on the screen when switchMachine returns: the page fetches its program and starts it when the bytes
+    // arrive. stubPrompt ends the menu, so it has to come after the menu started: a start that landed after it (the fetch
+    // is slower under load) ran the menu again, and "Ask Claude" then opened the full screen chat, not the side panel.
+    check(`${L}: (setup) the welcome menu has started on the machine switched back to`, await waitFor(page, () => window.emu.session.welcomeRunning, null, 15000));
     await stubPrompt(page);
     if (await vis('#ask')) {
       await page.click('#btnAsk');

@@ -27,6 +27,11 @@ All notable changes to CLOADM are recorded here. The format follows
   go under `## [Unreleased]`. It also fails if the newest tagged heading has no `## [Unreleased]` above it. CI's
   suites job now checks out with `fetch-depth: 0` so the tags are there; a checkout without them prints a SKIP
   line naming each missing tag and does not claim a comparison.
+- **The browser check's `ask` group no longer fails now and then on "Ask Claude opens the side panel again".** The race
+  was in the test: a machine switch fetches the welcome menu's program and starts it when the bytes arrive, and the
+  test's `stubPrompt` (which ends the menu) could run first, so the menu started after it and the Ask button, which
+  opens the full screen chat while the menu runs, did not open the side panel. The test now waits for the menu to
+  start before ending it. The product behaves as designed (the menu starts, then the button follows it).
 
 ### Fixed
 
