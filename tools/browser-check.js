@@ -4183,6 +4183,159 @@ async function navChecks(browser, site, check) {
   await ctx.close();
 }
 
+// the command box (Ctrl/Cmd+K) lists every command, grouped, when nothing is typed; its other doors; the Help page; the Ask hint
+async function commandsChecks(browser, site, check) {
+  // R14's labels and order, written out here rather than read from COMMANDS (the page's own list is checked against them)
+  const WANT = [
+    ['Claude', ['Chat with Claude, full screen', 'What is this code doing?']],
+    ['Files', ['Take snapshot', 'Open a program, tape, disk or cartridge…', 'Save the tape as .WAV', 'Record to tape', 'Share']],
+    ['Views', ['Open the Library', 'Open the Debugger']],
+    ['Settings', ['Display settings', 'Input settings', 'POKEs', 'Machine settings']],
+    ['Machine', ['Pause or resume', 'Turbo', 'Fullscreen', 'Reset', 'Switch off and on']],
+  ];
+  const LABELS = WANT.flatMap(([, l]) => l);
+  const CLAUDE_NOTE = "Claude reads this emulated machine's screen text and memory, and acts on it only with your permission.";
+  const FOOT = 'Type to filter, or type a question for Claude. Commands run here and are never sent to Claude.';
+  const errors = [];
+  const open = async (opts, init) => {
+    const ctx = await browser.newContext({ serviceWorkers: 'block', ...opts });
+    // a key saved, so the Ask panel shows its empty state (with no key it shows the key form)
+    await ctx.addInitScript(() => { try { localStorage.setItem('cloadm.anthropicKey', 'sk-ant-COMMANDS-CHECK-KEY-0123456789'); } catch (e) { /* none */ } });
+    if (init) await ctx.addInitScript(init);
+    const page = await ctx.newPage();
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${site}play/?machine=dragon64`);
+    await started(page);
+    await stubPrompt(page);   // the live machine, not the welcome menu (with the menu on screen Ask Claude opens full screen)
+    return { ctx, page };
+  };
+  const box = (page) => page.evaluate(() => {
+    const b = document.getElementById('cmdBox'), l = document.getElementById('cmdList');
+    return { open: !b.hidden, sel: [...l.querySelectorAll('[role="option"][aria-selected="true"]')].map((o) => o.firstChild.textContent),
+      active: document.getElementById('cmdInput').getAttribute('aria-activedescendant') };
+  });
+  for (const [label, viewport] of [['1280x720', { width: 1280, height: 720 }], ['phone', { width: 390, height: 844 }]]) {
+    const L = `commands (${label})`;
+    const { ctx, page } = await open({ viewport });
+    if (label === 'phone') { await page.click('#btnMenu'); await page.click('#navCommands'); } else await page.keyboard.press('Control+k');
+    await waitFor(page, () => !document.getElementById('cmdBox').hidden);
+    const r = await page.evaluate(() => {
+      const l = document.getElementById('cmdList');
+      return { groups: [...l.querySelectorAll('[role="group"]')].map((g) => ({ name: g.getAttribute('aria-labelledby') && document.getElementById(g.getAttribute('aria-labelledby')).textContent,
+          rows: [...g.querySelectorAll('[role="option"]')].map((o) => o.firstChild.textContent), note: !!g.querySelector('.cmdnote') && g.querySelector('.cmdnote').textContent })),
+        stray: [...l.children].filter((c) => c.getAttribute('role') !== 'group').length, foot: (() => { const f = document.querySelector('#cmdBox [role="note"]'); return f && f.textContent; })(),
+        input: document.getElementById('cmdInput').value };
+    });
+    check(`${L}: the empty box lists every command, grouped, in R14's order (Reset and Switch off and on last)`,
+      JSON.stringify(r.groups.map((g) => [g.name, g.rows])) === JSON.stringify(WANT) && r.stray === 0 && r.input === '', JSON.stringify(r.groups));
+    check(`${L}: the Claude group says what Claude reads; the footer is a note`, r.groups[0].note === CLAUDE_NOTE && r.groups.slice(1).every((g) => !g.note) && r.foot === FOOT, JSON.stringify([r.groups[0].note, r.foot]));
+    const b0 = await box(page), paused = await page.evaluate(() => window.emu.session.paused);
+    await page.keyboard.press('Enter');
+    const b1 = await box(page);
+    check(`${L}: no row is selected, and Enter on the empty query does nothing`, b0.sel.length === 0 && b0.active === '' && b1.open && b1.sel.length === 0
+      && await page.evaluate(() => window.emu.session.paused) === paused && await page.isHidden('#ask') && await page.evaluate(() => window.emu.session.claudeView !== 'full'), JSON.stringify([b0, b1]));
+    await page.keyboard.press('ArrowDown');
+    const first = await box(page);
+    check(`${L}: the first ↓ selects the first row`, first.sel.length === 1 && first.sel[0] === LABELS[0] && first.active === 'cmdOpt0', JSON.stringify(first));
+    const dim = await page.evaluate(() => { const l = document.getElementById('cmdList'), b = document.getElementById('cmdBox').getBoundingClientRect(), lr = l.getBoundingClientRect();
+      return { overflow: getComputedStyle(l).overflowY, scroll: l.scrollHeight, client: l.clientHeight, boxBottom: b.bottom, listBottom: lr.bottom, vh: innerHeight }; });
+    check(`${L}: the list is bounded to the viewport and scrolls`, dim.overflow === 'auto' && dim.scroll > dim.client && dim.boxBottom <= dim.vh && dim.listBottom <= dim.vh, JSON.stringify(dim));
+    for (let i = 1; i < LABELS.length; i++) await page.keyboard.press('ArrowDown');
+    const end = await page.evaluate(() => { const l = document.getElementById('cmdList'), lr = l.getBoundingClientRect(), o = document.querySelector('#cmdList [role="option"][aria-selected="true"]'), r = o.getBoundingClientRect();
+      return { text: o.firstChild.textContent, top: r.top, bottom: r.bottom, lTop: lr.top, lBottom: lr.bottom, scrolled: l.scrollTop }; });
+    check(`${L}: ↓ to the last row scrolls it into view`, end.text === 'Switch off and on' && end.scrolled > 0 && end.top >= end.lTop - 1 && end.bottom <= end.lBottom + 1, JSON.stringify(end));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `commands-${label}.png`) });
+    await page.keyboard.press('Escape');
+    // typing still filters, the first match selected and "Ask Claude" last
+    await page.keyboard.press('Control+k');
+    await page.keyboard.type('turbo');
+    const typed = await page.evaluate(() => [...document.querySelectorAll('#cmdList [role="option"]')].map((o) => [o.firstChild.textContent, o.getAttribute('aria-selected')]));
+    check(`${L}: typing filters the list, selects the first match and puts "Ask Claude" last`, typed[0][0] === 'Turbo' && typed[0][1] === 'true' && /^Ask Claude: "turbo"/.test(typed[typed.length - 1][0]), JSON.stringify(typed));
+    await ctx.close();
+  }
+  // the app bar's "Commands…": desktop, a Mac, a phone behind Menu, and the touch keys' Menu
+  {
+    const { ctx, page } = await open({ viewport: { width: 1280, height: 720 } });
+    // (whether the key hint shows depends on the fonts: the bar's "tight" mode hides it when the links would run past the bar)
+    const nav = await page.evaluate(() => { const b = document.getElementById('navCommands'), k = document.getElementById('navCmdKbd');
+      return { text: b.textContent.replace(/\s+/g, ' ').trim(), shown: b.getClientRects().length > 0, inNav: !!b.closest('.appbar nav'),
+        tight: document.getElementById('appbar').classList.contains('tight'), kbdShown: k.getClientRects().length > 0 }; });
+    await page.click('#navCommands');
+    check('commands (desktop): the app bar has "Commands… Ctrl K" (the key shown unless the bar is tight); it opens the box, focused', nav.text === 'Commands… Ctrl K' && nav.shown && nav.inNav && nav.kbdShown === !nav.tight
+      && await waitFor(page, () => !document.getElementById('cmdBox').hidden && document.activeElement === document.getElementById('cmdInput')), JSON.stringify(nav));
+    await page.keyboard.press('Escape');
+    await page.click('#btnAsk');
+    await waitFor(page, () => !document.getElementById('ask').hidden && document.getElementById('askEmpty').getClientRects().length > 0);
+    const ask = await page.evaluate(() => { const e = document.getElementById('askEmptyCmd'); return { shown: e.getClientRects().length > 0 && getComputedStyle(e).display !== 'none', text: e.innerText.trim(), emptyShown: !document.getElementById('askEmpty').hidden }; });
+    check('commands (desktop): the Ask panel\'s empty state says "Ctrl K: find a command or ask"', ask.emptyShown && ask.shown && ask.text === 'Ctrl K: find a command or ask', JSON.stringify(ask));
+    await ctx.close();
+  }
+  // tight mode hides the RAM size: the machine button's title and aria-label still name the machine and its RAM
+  {
+    const { ctx, page } = await open({ viewport: { width: 1280, height: 720 } });
+    const read = () => page.evaluate(() => { const b = document.getElementById('machineBtn'), sp = document.getElementById('machineSpec');
+      return { title: b.title, aria: b.getAttribute('aria-label'), want: `${document.getElementById('machineName').textContent} ${sp.textContent}`.trim(),
+        tight: document.getElementById('appbar').classList.contains('tight'), specShown: sp.getClientRects().length > 0 }; });
+    const plain = await read();
+    await page.addStyleTag({ content: 'body, button, a, input, select { font-family: "DejaVu Sans", Verdana, sans-serif !important; }' });
+    await waitFor(page, () => document.getElementById('appbar').classList.contains('tight'));
+    const tight = await read();
+    check('commands (app bar): the machine button\'s title and aria-label are "<name> <ram>K" (e.g. "Dragon 64 64K"), also in tight mode where the RAM size is hidden',
+      plain.title === plain.want && plain.aria === plain.want && /\d+K$/.test(plain.want)
+      && tight.tight && !tight.specShown && tight.title === tight.want && tight.aria === tight.want, JSON.stringify({ plain, tight }));
+    await ctx.close();
+  }
+  {
+    const { ctx, page } = await open({ viewport: { width: 1280, height: 720 } }, () => Object.defineProperty(navigator, 'platform', { get: () => 'MacIntel' }));
+    const mac = await page.evaluate(() => [document.getElementById('navCommands').textContent.replace(/\s+/g, ' ').trim(), document.getElementById('askKbd').textContent, document.getElementById('askEmptyKbd').textContent]);
+    check('commands (Mac): ⌘K in the app bar, the Ask button and the empty state', JSON.stringify(mac) === JSON.stringify(['Commands… ⌘K', '⌘K', '⌘K']), JSON.stringify(mac));
+    await ctx.close();
+  }
+  {
+    const { ctx, page } = await open({ viewport: { width: 390, height: 844 } });
+    const before = await page.evaluate(() => document.getElementById('navCommands').getClientRects().length === 0);
+    await page.click('#btnMenu');
+    const nav = await page.evaluate(() => { const b = document.getElementById('navCommands'); return { text: b.innerText.replace(/\s+/g, ' ').trim(), shown: b.getClientRects().length > 0 }; });
+    await page.click('#navCommands');
+    check('commands (phone): "Commands…" (no key) sits behind Menu and opens the box, focused; the menu closes',
+      before && nav.shown && nav.text === 'Commands…' && await waitFor(page, () => !document.getElementById('cmdBox').hidden && document.activeElement === document.getElementById('cmdInput')
+        && !document.getElementById('appbar').classList.contains('menu-open')), JSON.stringify(nav));
+    await page.keyboard.press('Escape');
+    await page.click('#btnAsk');
+    await waitFor(page, () => !document.getElementById('ask').hidden && document.getElementById('askEmpty').getClientRects().length > 0);
+    const ask = await page.evaluate(() => { const e = document.getElementById('askEmptyCmd'); return { shown: e.getClientRects().length > 0, emptyShown: !document.getElementById('askEmpty').hidden }; });
+    check('commands (phone): the Ask empty-state key hint is hidden on a narrow screen', ask.emptyShown && !ask.shown, JSON.stringify(ask));
+    await ctx.close();
+  }
+  {
+    const { ctx, page } = await open({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+    await waitFor(page, () => !document.getElementById('touchKeys').hidden && document.body.classList.contains('touch-keys'));
+    await page.tap('#tkMenu');
+    const item = await page.evaluate(() => { const b = document.querySelector('#tkMenuSheet [data-item="commands"]'); return b && b.textContent; });
+    await page.tap('#tkMenuSheet [data-item="commands"]', { timeout: 3000 }).catch(() => {});   // (a missing item is a FAIL below, not a throw)
+    check('commands (touch keys): the keys\' Menu has "Commands…", which opens the box', item === 'Commands…'
+      && await waitFor(page, () => !document.getElementById('cmdBox').hidden && document.activeElement === document.getElementById('cmdInput') && document.getElementById('tkMenuSheet').hidden), String(item));
+    await ctx.close();
+  }
+  // Help: every command's label, verbatim, and the two sections
+  {
+    const { ctx, page } = await open({ viewport: { width: 1280, height: 720 } });
+    const labels = await page.evaluate(async () => (await import(new URL('js/ui/command-box.js', document.baseURI))).COMMANDS.map((c) => c[0]));
+    await page.goto(`${site}help/`);
+    const help = await page.evaluate(() => ({ text: document.body.innerText.replace(/\s+/g, ' '), h2: [...document.querySelectorAll('h2')].map((h) => h.textContent) }));
+    const missing = labels.filter((l) => !help.text.includes(l));
+    check('commands: every COMMANDS label appears verbatim in Help, and COMMANDS is the R14 set', !missing.length && JSON.stringify(labels.slice().sort()) === JSON.stringify(LABELS.slice().sort()), JSON.stringify({ missing, labels }));
+    check('commands: Help has "Commands and shortcuts" and "What Claude can do" with the shortcuts and the permission wording',
+      help.h2.includes('Commands and shortcuts') && help.h2.includes('What Claude can do')
+      && ['Ctrl B', '= BREAK', '= CLEAR', 'Fn', 'Esc in the full-screen chat:', 'Esc while Claude is paused:', 'Reads (always):', 'Acts (only with your permission):',
+        'A restore point is made first.', 'What Claude reads goes to Anthropic with your key.'].every((t) => help.text.includes(t)) && !/Every action is listed in the chat/.test(help.text),
+      help.h2.join('|'));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, 'help-commands.png'), fullPage: true });
+    await ctx.close();
+  }
+  check('commands: no page errors', !errors.length, errors.join('; '));
+}
+
 // the landing page at / at desktop and phone width, and its links into /play/
 async function landingChecks(browser, site, check) {
   for (const [label, viewport] of [['desktop', { width: 1440, height: 900 }], ['phone', { width: 390, height: 844 }]]) {
@@ -10093,6 +10246,7 @@ const GROUPS = (base, site) => [
   ['escChat', (b) => escChatChecks(b, base, check)],
   ['claude', (b) => claudeChecks(b, base, check)],
   ['ask', (b) => askChecks(b, base, check)],
+  ['commands', (b) => commandsChecks(b, site, check)],
   ['askFollowup', (b) => askFollowupChecks(b, base, check)],
   ['askStatus', (b) => askStatusChecks(b, base, check)],
   ['askEsc', (b) => askEscChecks(b, base, check)],

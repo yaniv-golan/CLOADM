@@ -145,6 +145,22 @@ $('btnMenu').onclick = () => {
   $('btnMenu').setAttribute('aria-expanded', String(open));
 };
 
+// the one-row app bar (1200 px and up, play/index.html) when its items do not all fit, in a wide fallback font: the key
+// hints and the machine's RAM size give way (class "tight") before anything wraps. Measured, not guessed: it is taken
+// off, then put on if the links still run past the bar
+{
+  const bar = $('appbar'), nav = bar.querySelector('nav'), wide = matchMedia('(min-width: 1200px)');
+  const fit = () => {
+    bar.classList.remove('tight');
+    if (wide.matches && nav.getBoundingClientRect().right > bar.getBoundingClientRect().right + 0.5) bar.classList.add('tight');
+  };
+  const ro = new ResizeObserver(fit);
+  ro.observe(bar); ro.observe(nav);   // the links change width with the font
+  if (document.fonts) document.fonts.ready.then(fit);
+  session.on((ev) => { if (ev === 'machine') fit(); });
+  fit();
+}
+
 // Esc closes the topmost surface that is open (page.onEscape: confirmations, menus, cards, the views, the chat)
 //; on the screen only a confirmation or a card takes it, and otherwise it is the machine's BREAK; a control
 // that took it first (it prevents the default) and an open <dialog> (the browser closes it) keep it

@@ -17,6 +17,13 @@ All notable changes to CLOADM are recorded here. The format follows
   show (`Ç ü é …`). A GIME bitmap, or rows too short to show a character, is still declined with a reason. Checked
   against MAME 0.264 on `coco3` and `coco3h` with new firmware (`run.js coco3 --video --text`): 14 screens, every
   pixel outside the glyph shapes of our own font identical, and MAME's glyphs where the expected text says.
+- **The Ctrl/⌘K command box is discoverable.** With nothing typed it lists every command, grouped (Claude, Files, Views,
+  Settings, Machine), with no row chosen until the first ↓ (so Enter on the empty box does nothing); the list scrolls
+  inside the window and keeps the chosen row in view. A **Commands…** link in the app bar (behind Menu on a phone,
+  and in the touch keys' Menu) opens it on every screen size, the Ask panel's empty state mentions the key on
+  desktop, and Help has a **Commands and shortcuts** section and a **What Claude can do** section. When the
+  one-row app bar (1200 px and up) would not fit in a wide fallback font, the key hints and the RAM size give way
+  before anything wraps (the machine button's title and accessible name still say the RAM size).
 
 #### Fixed
 

@@ -276,7 +276,7 @@ export function setupTouchKeys(page, { input }) {
   // way to the chat bar, so Menu is "← Emulator" and leaves the chat in one tap, as it always has: the way out
   // must not need a second tap.
   const sheet = $('tkMenuSheet');
-  sheet.innerHTML = '<button type="button" data-item="menu">Machine menu</button><button type="button" data-item="hide">Hide keys</button>';
+  sheet.innerHTML = '<button type="button" data-item="menu">Machine menu</button><button type="button" data-item="commands">Commands…</button><button type="button" data-item="hide">Hide keys</button>';
   const closeSheet = () => { sheet.hidden = true; $('tkMenu').setAttribute('aria-expanded', 'false'); };
   $('tkMenu').onclick = () => {
     if (document.body.classList.contains('chat-phone')) { $('btnClaudeBack').click(); return; }
@@ -288,6 +288,7 @@ export function setupTouchKeys(page, { input }) {
     if (!b) return;
     closeSheet();
     if (b.dataset.item === 'menu') $('btnMenu').click();
+    else if (b.dataset.item === 'commands') $('navCommands').click();
     else if (b.dataset.item === 'hide') { hidden = true; apply(); }
   };
   // a tap anywhere else closes it (the panel's own keys still type: the sheet is above the panel)

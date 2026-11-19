@@ -117,6 +117,10 @@ export function setupMachinePanel(page) {
     $('chkBecker').checked = !!m.config.becker;
     $('machineName').textContent = m.profile.name;
     $('machineSpec').textContent = m.config.ram ? `${m.config.ram}K` : '';
+    // the app bar's tight mode hides the RAM size (js/ui/main.js): the button's name still says it
+    const label = `${m.profile.name}${m.config.ram ? ` ${m.config.ram}K` : ''}`;
+    btn.title = label;
+    btn.setAttribute('aria-label', label);
     $('monitor').dataset.family = caseOf(m.profile);
     $('badge').textContent = m.profile.name.replace(/ \(.*\)$/, '').toUpperCase();   // the case badge: no (PAL) or (Alpha)
     document.title = `${m.profile.name} – CLOADM`;

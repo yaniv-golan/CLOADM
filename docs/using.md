@@ -238,6 +238,13 @@ not when the right port holds a Hi-Res interface or The Rat) turns it into a **t
   Files can be dropped anywhere on the page, and after the first ROMs are added CLOADM asks the browser to keep
   them, saying if it may not.
 
+## Commands
+
+`Ctrl+K` (`⌘K` on a Mac), or **Commands…** in the app bar (behind **Menu** on a phone, and in the touch keys' Menu), opens the
+command box. With nothing typed it lists every command by group (Claude, Files, Views, Settings, Machine); `↓` chooses one, `Enter`
+runs it. Type to filter, or type a question for Claude. Commands run on the page and are never sent to Claude. The
+[Help page](../help/) lists the commands, the shortcuts and what Claude can read and do.
+
 ## Display
 
 The Display tab: CRT · composite (composite colour, a WebGL CRT look with curvature, phosphor glow and

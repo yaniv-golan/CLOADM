@@ -53,6 +53,9 @@
     .appbar > #status { flex: 0 1 auto; min-width: 1.2em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .appbar > .grow { flex: 1 1 0; min-width: 0; }
     .appbar nav { flex-wrap: nowrap; white-space: nowrap; }
+    .appbar.tight { gap: 10px 8px; }
+    .appbar.tight nav { gap: 4px 12px; }
+    .appbar.tight #machineSpec, .appbar.tight #askKbd, .appbar.tight #navCmdKbd { display: none; }
   }
   #btnMenu { display: none; }
   #machineMenu { position: absolute; top: calc(100% - 6px); left: 20px; z-index: 20; width: min(600px, calc(100vw - 40px)); background: var(--panel);
@@ -828,12 +831,15 @@
   .viewswitch button[aria-pressed="true"] { background: var(--line); color: var(--text); font-weight: 600; }
   button.link { background: none; border: 0; padding: 0 2px; min-height: 0; color: inherit; text-decoration: underline; font: inherit; }
   /* the Ctrl K box */
-  #cmdBox { position: fixed; z-index: 60; top: 90px; left: 50%; transform: translateX(-50%); width: min(600px, calc(100vw - 24px)); background: var(--panel);
+  #cmdBox { display: flex; flex-direction: column; max-height: calc(100vh - var(--cmd-top, 90px) - 12px); position: fixed; z-index: 60; top: 90px; left: 50%; transform: translateX(-50%); width: min(600px, calc(100vw - 24px)); background: var(--panel);
     border: 1px solid var(--line-strong); border-radius: 16px; box-shadow: 0 30px 70px rgba(0,0,0,.7); overflow: hidden; }
   #cmdBox[hidden] { display: none; }
+  .appbar nav kbd, #askEmptyCmd kbd { font: 13px var(--font-mono); opacity: .8; background: none; border: 0; padding: 0; color: inherit; box-shadow: none; }
   .cmdhead { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--line); color: var(--muted); }
   #cmdInput { flex: 1; min-width: 0; background: transparent; border: 0; color: var(--text); font: inherit; font-size: 17px; padding: 4px 0; outline: none; box-shadow: none; }
   .cmdhead kbd { font: 13px var(--font-mono); color: var(--muted); }
+  #cmdList { flex: 1 1 auto; min-height: 0; max-height: 100%; overflow: auto; overscroll-behavior: contain; }
+  #cmdList .cmdnote { padding: 0 16px 6px; font-size: 13px; color: var(--muted); }
   #cmdList .group { padding: 8px 16px 4px; font-size: 13px; color: var(--muted); }
   #cmdList .group + [role="option"] { }
   #cmdList .group.claude { border-top: 1px solid var(--line); }
@@ -841,6 +847,7 @@
   #cmdList [role="option"] .hint { color: var(--muted); font-size: 14px; text-align: right; }
   #cmdList [role="option"][aria-selected="true"] { background: var(--line); }
   #cmdList [role="option"].ask { color: var(--green); }
+  #cmdList .cmdgroup + .cmdgroup { border-top: 1px solid var(--line); }
   .cmdfoot { padding: 10px 16px; border-top: 1px solid var(--line); font-size: 13px; color: var(--muted); }
   /* the side panel and its rail; the drawer folds away while it is open */
   #ask { --ask-w: 420px; position: sticky; top: 12px; flex: none; width: var(--ask-w); height: calc(100vh - 110px); min-height: 480px; box-sizing: border-box;
@@ -1017,7 +1024,7 @@
     body.ask-open .layout > .drawer { display: flex; }
   }
   @media (max-width: 700px) {
-    #btnAsk kbd { display: none; }
+    #btnAsk kbd, #navCmdKbd, #askEmptyCmd { display: none; }
     #btnAsk { order: 1; padding: 0 12px; min-height: 44px; }
     #btnAsk svg { display: none; }
     /* the bottom sheet: peek, half and full heights */
@@ -1065,7 +1072,7 @@
      Capture & share and the links go behind Menu, as on a phone held upright */
   @media (orientation: landscape) and (max-height: 500px) {
     .appbar { padding: 8px 16px; }
-    #status, .appbar nav, #btnShare, #askKbd { display: none; }
+    #status, .appbar nav, #btnShare, #askKbd, #navCmdKbd, #askEmptyCmd { display: none; }
     #btnMenu { display: inline-flex; }
     .appbar nav { order: 2; }
     .appbar.menu-open nav { display: flex; flex-basis: 100%; flex-wrap: wrap; gap: 0 18px; }
@@ -1113,6 +1120,7 @@ npx serve -l 8000 .</pre>
   <nav aria-label="App">
     <a href="play/#library" id="navLibrary">Library</a>
     <a href="play/#debugger" id="navDebugger">Debugger</a>
+    <button id="navCommands" class="navlink" type="button">Commands… <kbd id="navCmdKbd">Ctrl K</kbd></button>
     <a href="help/">Help</a>
     <a href="https://github.com/yaniv-golan/cloadm">GitHub</a>
   </nav>
@@ -1130,7 +1138,7 @@ npx serve -l 8000 .</pre>
     <input id="cmdInput" role="combobox" aria-expanded="true" aria-controls="cmdList" aria-autocomplete="list" autocomplete="off" spellcheck="false"
       placeholder="Ask Claude or find a command" aria-label="Ask Claude or find a command"><kbd>Esc</kbd></div>
   <div id="cmdList" role="listbox" aria-label="Commands and Claude"></div>
-  <div class="cmdfoot">↑↓ to choose · Enter to run or ask · commands are never sent to Claude</div>
+  <div class="cmdfoot" role="note">Type to filter, or type a question for Claude. Commands run here and are never sent to Claude.</div>
 </div>
 
 <div id="claudeBar" hidden>
@@ -1360,6 +1368,7 @@ npx serve -l 8000 .</pre>
         <p id="askEmptyText">Claude reads only this emulated <span id="askEmptyModel"></span> (its screen text and memory), never your computer. It types or changes things only if you allow it.</p>
         <div class="muted">Start with</div>
         <div id="askSuggest"></div>
+        <p id="askEmptyCmd" class="muted"><kbd id="askEmptyKbd">Ctrl K</kbd>: find a command or ask</p>
       </div>
       <div id="askMessages" aria-live="polite"></div>
       <button id="btnAskFix" class="primary" hidden>Fix it for me</button>

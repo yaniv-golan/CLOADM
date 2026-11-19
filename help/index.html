@@ -6,7 +6,7 @@
 <!-- served at /help/; relative URLs are from the site root -->
 <base href="../">
 <title>Help – CLOADM</title>
-<meta name="description" content="CLOADM help: keys, ROMs and quick fixes.">
+<meta name="description" content="CLOADM help: keys, commands and shortcuts, what Claude can do, ROMs and quick fixes.">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="css/tokens.css">
 <link rel="stylesheet" href="css/reading.css">
@@ -35,6 +35,60 @@
         <tr><td>Pasting</td><td>Pasted text types itself in</td></tr>
       </tbody>
     </table>
+  </section>
+
+  <section class="card" aria-labelledby="commands">
+    <h2 id="commands">Commands and shortcuts</h2>
+    <p>Press <kbd>Ctrl</kbd> <kbd>K</kbd> (<kbd>⌘</kbd> <kbd>K</kbd> on a Mac) anywhere, or choose <strong>Commands…</strong> in the app bar's links (behind <strong>Menu</strong> on a phone), to open the command box.
+      With nothing typed it lists every command; type to filter them, or type a question for Claude. Commands run in the page and are never sent to Claude.</p>
+    <h3>Claude</h3>
+    <ul>
+      <li>Chat with Claude, full screen</li>
+      <li>What is this code doing?</li>
+    </ul>
+    <h3>Files</h3>
+    <ul>
+      <li>Take snapshot</li>
+      <li>Open a program, tape, disk or cartridge…</li>
+      <li>Save the tape as .WAV</li>
+      <li>Record to tape</li>
+      <li>Share</li>
+    </ul>
+    <h3>Views</h3>
+    <ul>
+      <li>Open the Library</li>
+      <li>Open the Debugger</li>
+    </ul>
+    <h3>Settings</h3>
+    <ul>
+      <li>Display settings</li>
+      <li>Input settings</li>
+      <li>POKEs</li>
+      <li>Machine settings</li>
+    </ul>
+    <h3>Machine</h3>
+    <ul>
+      <li>Pause or resume</li>
+      <li>Turbo</li>
+      <li>Fullscreen</li>
+      <li>Reset</li>
+      <li>Switch off and on</li>
+    </ul>
+    <h3>Shortcuts</h3>
+    <ul>
+      <li><kbd>Ctrl</kbd> <kbd>K</kbd> (<kbd>⌘</kbd> <kbd>K</kbd> on a Mac): the command box</li>
+      <li><kbd>Ctrl</kbd> <kbd>B</kbd>: switches between the Claude chat and your BASIC session</li>
+      <li><kbd>Esc</kbd> = BREAK · <kbd>Home</kbd> = CLEAR · <kbd>Backspace</kbd> = ← (on a Mac without Home: <kbd>Fn</kbd>+<kbd>←</kbd> or <kbd>Fn</kbd>+<kbd>Delete</kbd>, as under Keys)</li>
+      <li><kbd>Esc</kbd> in the full-screen chat: while a reply streams it stops the reply; with a line typed it drops the line; on an empty, idle prompt it leaves the chat</li>
+      <li><kbd>Esc</kbd> while Claude is paused: stops Claude</li>
+    </ul>
+  </section>
+
+  <section class="card qa" aria-labelledby="claude-can">
+    <h2 id="claude-can">What Claude can do</h2>
+    <div><strong>Reads (always):</strong> <span>the machine's model and settings, the screen's text (not graphics), memory, and disassembly.</span></div>
+    <div><strong>Acts (only with your permission):</strong> <span>types, presses BREAK, POKEs memory, loads BASIC programs, assembles and loads machine code, and runs programs. A restore point is made first.</span></div>
+    <div>What Claude reads goes to Anthropic with your key.</div>
   </section>
 
   <section class="card qa" aria-labelledby="roms">
