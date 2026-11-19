@@ -6,7 +6,9 @@ All notable changes to CLOADM are recorded here. The format follows
 
 ## [Unreleased]
 
-### Added
+### 0.1.5-pre
+
+#### Added
 
 - **Install CLOADM as an app.** **Install CLOADM…**, at the foot of the **machine menu**, runs the browser's own install prompt where there
   is one (Chromium, with its mini-infobar suppressed and the page's own card asked instead) and shows the steps
@@ -21,7 +23,7 @@ All notable changes to CLOADM are recorded here. The format follows
   shows "Installed." and stops asking. The card, the Menu item and their state are `js/ui/install.js` (the rules
   are pure functions, pinned in `tests/install.test.js`); the Help page has the steps for every browser.
 
-### Changed
+#### Changed
 
 - **Restore points: one small line instead of a card after every message** (UX ruling R12). Under the latest turn
   that changed the machine: "↶ Restore to 23:58 · Restore points…", the second opening every point (the last 10)
@@ -55,7 +57,7 @@ All notable changes to CLOADM are recorded here. The format follows
   shows E, F, W, Q, V and MD. Each check turns red when the lookups go back to the CPU name instead of its family
   (the old "Welcome: examples/undefined: HTTP 404"), or when the link's `cpu` is dropped.
 
-### Fixed
+#### Fixed
 
 - **Claude no longer forgets what it did, and no longer claims more than the machine shows.** Claude in the Ask
   panel said it had typed DIR and PROCS, and later that it could find no record of doing so. The chat kept only
