@@ -1784,6 +1784,43 @@ async function cpu6309Checks(browser, base, check) {
     await p2.evaluate(() => window.emu.session.screenText().join('\n')));
   check('cpu=6309 (Machine tab, CoCo 1/2): no page errors', !errors2.length, errors2.join('; '));
   await ctx2.close();
+
+  // the literal link `?machine=coco3&cpu=6309` (the link that once ended on "Welcome: examples/undefined: HTTP 404"): the
+  // menu is offered and runs, nothing is missing, nothing throws, and the Debugger of that machine shows the 6309's
+  // registers. The toasts are recorded as they appear (the error toast clears itself after 4 s), failed requests as they happen.
+  const ctx3 = await browser.newContext({ viewport: { width: 1440, height: 1060 } });
+  const p3 = await ctx3.newPage();
+  const errors3 = [], missing3 = [];
+  p3.on('pageerror', (e) => errors3.push(e.message));
+  p3.on('response', (r) => { if (r.status() >= 400) missing3.push(`${r.status()} ${r.url()}`); });
+  await p3.addInitScript(() => {
+    window.__toasts = [];
+    const watch = () => {
+      const box = document.getElementById('toast');
+      if (!box) return setTimeout(watch, 0);
+      new MutationObserver(() => { if (!box.hidden) window.__toasts.push({ text: document.getElementById('toastText').textContent, error: box.classList.contains('error') }); })
+        .observe(box, { attributes: true, childList: true, subtree: true, characterData: true });
+    };
+    watch();
+  });
+  await p3.goto(`${base}?machine=coco3&cpu=6309`);
+  const on6309 = await waitFor(p3, () => window.emu && window.emu.session && window.emu.session.machine && window.emu.session.machine.id === 'coco3'
+    && window.emu.session.machine.config.cpu === '6309' && window.emu.machine && window.emu.machine.config.cpu === '6309', null, 15000);
+  check('?machine=coco3&cpu=6309: the link opens a CoCo 3 with the HD6309', on6309, await p3.evaluate(() => (window.emu && window.emu.machine ? `${window.emu.machine.id} ${window.emu.machine.config.cpu}` : 'no machine')));
+  const menu3 = await waitFor(p3, () => window.emu.session.welcomeRunning && /PRESS 1 TO [45]/.test(window.emu.session.screenText()[14]), null, 15000);
+  check('?machine=coco3&cpu=6309: the welcome menu is offered and on screen', menu3, (await p3.evaluate(() => window.emu.session.screenText())).join('\n'));
+  const toasts3 = await p3.evaluate(() => window.__toasts || null);
+  check('?machine=coco3&cpu=6309: no error toast, nothing "undefined", no file missing (404)',
+    Array.isArray(toasts3) && !toasts3.some((t) => t.error || /undefined/i.test(t.text)) && !missing3.length, JSON.stringify({ toasts3, missing3 }));
+  await p3.click('#navDebugger');
+  await p3.waitForSelector('#debugView:not([hidden])');
+  await waitFor(p3, () => document.querySelectorAll('#dbgRegs [data-reg]').length > 0, null, 15000);
+  const dbg3 = await p3.evaluate(() => ({ cls: window.emu.session.machine.cpu.constructor.name, fields: [...document.querySelectorAll('#dbgRegs [data-reg]')].map((e) => e.dataset.reg),
+    names: [...document.querySelectorAll('#dbgRegs')].map((e) => e.textContent).join(' ') }));
+  check('?machine=coco3&cpu=6309: the Debugger shows the 6309 registers (E, F, W, Q, V, MD) of that machine',
+    dbg3.cls === 'CPU6309' && ['e', 'f', 'w', 'q', 'v', 'md'].every((r) => dbg3.fields.includes(r)), `${dbg3.cls} ${dbg3.fields.join()}`);
+  check('?machine=coco3&cpu=6309: no page errors', !errors3.length, errors3.join('; '));
+  await ctx3.close();
 }
 
 // Reset and power without ROMs (like a real computer, never a dead end), through
@@ -4677,8 +4714,7 @@ SUB     INCA
   // The Debugger SCREEN on a 6309: opening it must not throw (a screen used to have no register set for a 6309
   // and threw "ORDER[cpu] is not iterable"), it must show the full 6309 set, and an edit through a register field
   // must reach the core. The CPU is switched in the Machine panel rather than linked: a ?cpu=6309 link reaches
-  // the same screen, but it also starts the welcome menu, which looks its build up by CPU and has no 6309 entry
-  // yet - the link would fail here on a missing examples/ file that has nothing to do with the Debugger.
+  // the same screen (cpu6309 group: the literal ?machine=coco3&cpu=6309 link and its Debugger).
   const ctxS = await browser.newContext();
   const pS = await ctxS.newPage();
   const errorsS = [];

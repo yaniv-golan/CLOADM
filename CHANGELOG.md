@@ -32,6 +32,13 @@ All notable changes to CLOADM are recorded here. The format follows
   test's `stubPrompt` (which ends the menu) could run first, so the menu started after it and the Ask button, which
   opens the full screen chat while the menu runs, did not open the side panel. The test now waits for the menu to
   start before ending it. The product behaves as designed (the menu starts, then the button follows it).
+- **Tests for the welcome menu's offer on a 6309.** `tests/cpu6309-offer.test.js`: on every model with a 6309 option,
+  switching to it offers the menu (`'menu', 'back'`), `offerMenu()` offers it after a link's `menu: false` switch, the
+  file it fetches is `examples/welcome.bin` (the 6809 build, the same one the 6809 gets, and it exists), and an
+  embedded session or a machine with ROMs is not offered it. The browser check's `cpu6309` group opens the literal
+  `?machine=coco3&cpu=6309` link: the menu is on screen, no error toast, no 404, no page error, and the Debugger
+  shows E, F, W, Q, V and MD. Each check turns red when the lookups go back to the CPU name instead of its family
+  (the old "Welcome: examples/undefined: HTTP 404"), or when the link's `cpu` is dropped.
 
 ### Fixed
 
