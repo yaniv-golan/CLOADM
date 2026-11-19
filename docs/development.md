@@ -93,6 +93,7 @@ node tests/welcome6803.test.js # the 6803 welcome on mc10 and alice: raw screen 
 node tests/regress.test.js                # fast gate: trace and frame hashes of the diagnostic firmware (seconds, no MAME; tests/all.js runs it too; --count prints the number of cases)
 node tests/allsummary.test.js             # the gate itself: a suite that exits 0 without printing its summary (a pending promise) fails; normal suites pass; fixtures stay out
 node tests/allsignal.test.js              # a signal to the gate stops every suite and exits 128+n; nothing survives
+node tests/changelog.test.js              # a released CHANGELOG section equals the same section in its git tag (named corrections aside); needs the tags (CI fetches them, `git fetch --tags` locally: without them it prints a SKIP line per tag)
 node tests/exitcode.test.js               # no suite or tool forces process.exit() (the Node 25 deadlock), by static scan
 node tests/exitguard.test.js              # the same rule at run time, against every spelling a static scan cannot see
 node tools/mame-diff/run.js <profile>     # lockstep trace comparison with MAME (needs mame; exit 0 = identical)

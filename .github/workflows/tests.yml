@@ -63,7 +63,11 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
+      # The whole history, with its tags: tests/changelog.test.js compares each released section of CHANGELOG.md with
+      # the same section in its release tag, and a shallow checkout has no tags (the test fails on CI without them).
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v7
         with:
           node-version: '22'

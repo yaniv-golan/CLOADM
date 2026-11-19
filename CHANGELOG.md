@@ -21,6 +21,12 @@ All notable changes to CLOADM are recorded here. The format follows
   `machine-restarted` ("– typed "1", then the machine restarted"), not as a Stop. Never printed on
   the full-screen chat's own screen
   (`js/claude/actions.js`, `js/ui/claude-lines.js`, `tests/claude-actions.test.js`).
+- **A released CHANGELOG section can no longer be edited by accident.** `tests/changelog.test.js` compares each
+  `### <version>` section with the same section in its release tag (`git show v<version>:CHANGELOG.md`), byte for
+  byte, except for three named copy corrections kept in `tests/changelog-guard.js` with a reason each; new entries
+  go under `## [Unreleased]`. It also fails if the newest tagged heading has no `## [Unreleased]` above it. CI's
+  suites job now checks out with `fetch-depth: 0` so the tags are there; a checkout without them prints a SKIP
+  line naming each missing tag and does not claim a comparison.
 
 ### Fixed
 
