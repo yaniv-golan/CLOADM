@@ -246,6 +246,142 @@ const bytes = (n, seed = 0) => { const b = new Uint8Array(n); let x = seed >>> 0
     check('a failed remove is reported through writeError', seen.some((x) => x === 'roms/AAAA0001.rom:io'), seen.join(' '));
   }
 
+  // ---- the queue survives a writeError listener that throws: the failing write is still reported
+  // ---- (by the index itself, not by the listener that threw) and every later write still reaches the store ----
+  {
+    class AlwaysFailingStore extends store.MemoryMediaStore {
+      get synchronous() { return false; }
+      async write(name, bytes) { if (name === 'roms/sockets.json') throw new iface.MediaStoreError('quota', 'no space (forced)'); return super.write(name, bytes); }
+    }
+    const st = new AlwaysFailingStore();
+    const idx = new ifaceIndex(st);
+    await idx.load();
+    // the page's listener (js/ui/main.js) draws the status line; a listener bug must not stop the queue
+    const seen = [];
+    idx.writeError = (name) => { seen.push(name); throw new Error('listener bug (forced)'); };
+    const logged = [], realError = console.error;
+    console.error = (...a) => logged.push(a);
+    try {
+      idx.putImage('AAAA0001', new Uint8Array([1]));
+      idx.putSocket('m', 's', 'AAAA0001');          // its store write throws 'quota'
+      idx.putRecent('BBBB0002', new Uint8Array([2]));  // queued after the failure and the throwing listener
+      let settled = 'pending';
+      await Promise.race([idx.settled().then(() => { settled = 'resolved'; }, (e) => { settled = `rejected: ${e.message}`; }),
+        new Promise((r) => setTimeout(() => r('timeout'), 2000)).then(() => { if (settled === 'pending') settled = 'timeout'; })]);
+      check('a throwing writeError listener: settled() still resolves (the queue does not stall)', settled === 'resolved', settled);
+      check('... the listener was called with the failed write\'s name', seen.includes('roms/sockets.json'), seen.join(' '));
+      check('... and the failure is reported by the index as well, not only through the listener that threw',
+        logged.some((a) => typeof a[0] === 'string' && /MediaIndex: roms\/sockets\.json could not be written/.test(a[0])
+          && /listener failed too/.test(a[0]) && a.some((x) => x instanceof iface.MediaStoreError && x.code === 'quota') && a.some((x) => x instanceof Error && x.message === 'listener bug (forced)')),
+        logged.map((a) => a.map((x) => (x && x.message) || String(x)).join(' ')).join(' | '));
+      check('... every write after it still reaches the store (the image from before and the recent file from after)',
+        (await st.stat('roms/AAAA0001.rom')) !== null && (await st.stat('recent/BBBB0002.bin')) !== null);
+      // a listener that throws does not make the failure report itself into an unhandled rejection
+      check('... settled() then resolves again for later writes', await idx.settled().then(() => true, () => false));
+    } finally { console.error = realError; }
+    // with no listener at all (an embedder that never sets one) the failure is still reported, not dropped
+    const st2 = new AlwaysFailingStore();
+    const idx2 = new ifaceIndex(st2);
+    await idx2.load();
+    const logged2 = [], realError2 = console.error;
+    console.error = (...a) => logged2.push(a);
+    try {
+      idx2.putSocket('m', 's', 'AAAA0001');
+      await idx2.settled();
+      check('with no writeError listener, a failed write is still reported (console.error) and the queue goes on',
+        logged2.some((a) => typeof a[0] === 'string' && /MediaIndex: roms\/sockets\.json could not be written/.test(a[0]) && !/listener/.test(a[0]))
+        && await idx2.settled().then(() => true, () => false),
+        logged2.map((a) => a.map((x) => (x && x.message) || String(x)).join(' ')).join(' | '));
+    } finally { console.error = realError2; }
+    // the synchronous store's remove path (a separate branch: it does not go through the tail at all). A remove
+    // that throws where it is called, with a listener that throws, must be reported, not escape as an unhandled
+    // rejection -- which is fatal in Node.
+    const st3 = new store.MemoryMediaStore();   // synchronous
+    const idx3 = new ifaceIndex(st3);
+    st3.remove = () => { throw new iface.MediaStoreError('io', 'remove threw (forced)'); };
+    const logged3 = [], realError3 = console.error;
+    console.error = (...a) => logged3.push(a);
+    let rejected = null;
+    const onRejection = (e) => { rejected = e; };
+    process.on('unhandledRejection', onRejection);
+    try {
+      idx3.writeError = () => { throw new Error('listener bug on remove (forced)'); };
+      idx3.putImage('AAAA0001', new Uint8Array([1]));
+      idx3.sockets = {};                    // nothing refers to it, so collect() removes it (through _remove)
+      idx3.collect();
+      await new Promise((res) => setImmediate(res));
+      await new Promise((res) => setImmediate(res));
+      check('a synchronous store whose remove throws, with a listener that throws: reported (both errors), and no unhandled rejection',
+        logged3.some((a) => typeof a[0] === 'string' && /MediaIndex: roms\/AAAA0001\.rom could not be written/.test(a[0]) && /listener failed too/.test(a[0])
+          && a.some((x) => x instanceof iface.MediaStoreError && x.code === 'io') && a.some((x) => x instanceof Error && x.message === 'listener bug on remove (forced)'))
+        && rejected === null, `${rejected ? `unhandled: ${rejected.message}` : 'none'} | ${logged3.map((a) => a.map((x) => (x && x.message) || String(x)).join(' ')).join(' | ')}`);
+    } finally { process.removeListener('unhandledRejection', onRejection); console.error = realError3; }
+    // a reporter that throws must not take the queue with it either: console.error itself replaced by a throwing
+    // function (as an instrumentation or a test might)
+    {
+      class FailingStore4 extends store.MemoryMediaStore {
+        get synchronous() { return false; }
+        async write(name, bytes) { if (name === 'roms/sockets.json') throw new iface.MediaStoreError('quota', 'no space (forced)'); return super.write(name, bytes); }
+      }
+      const st4 = new FailingStore4();
+      const idx4 = new ifaceIndex(st4);
+      await idx4.load();
+      const realError4 = console.error;
+      console.error = () => { throw new Error('console.error replaced (forced)'); };
+      let settled4 = 'pending';
+      try {
+        idx4.putSocket('m', 's', 'AAAA0001');
+        idx4.putRecent('EEEE0005', new Uint8Array([5]));      // queued after the failure: must still reach the store
+        await Promise.race([idx4.settled().then(() => { settled4 = 'resolved'; }, (e) => { settled4 = `rejected: ${e.message}`; }),
+          new Promise((r) => setTimeout(() => r('timeout'), 2000)).then(() => { if (settled4 === 'pending') settled4 = 'timeout'; })]);
+      } finally { console.error = realError4; }
+      // (this pins the queue surviving a throwing reporter; it does not prove a fallback report exists -- on
+      // pre-fix code the fallback is never called here and this still passes. The falsy-throw test below is the
+      // one that pins the report itself.)
+      check('a console.error that throws: the queue still resolves and later writes still land (the reporter cannot stop it)',
+        settled4 === 'resolved' && (await st4.stat('recent/EEEE0005.bin')) !== null, settled4);
+    }
+    // a listener that throws a falsy value has still thrown: the failure is reported, not taken as success
+    {
+      const st5 = new AlwaysFailingStore();
+      const idx5 = new ifaceIndex(st5);
+      await idx5.load();
+      idx5.writeError = () => { throw undefined; };
+      const logged5 = [], realError5 = console.error;
+      console.error = (...a) => logged5.push(a);
+      try { idx5.putSocket('m', 's', 'AAAA0001'); await idx5.settled(); } finally { console.error = realError5; }
+      check('a listener that throws a falsy value counts as throwing: the failure is still reported',
+        logged5.some((a) => typeof a[0] === 'string' && /could not be written/.test(a[0]) && /listener failed too/.test(a[0])),
+        logged5.map((a) => a.map((x) => String(x && x.message !== undefined ? x.message : x)).join(' ')).join(' | ') || 'nothing logged');
+    }
+  }
+
+  // ---- an asynchronous store whose write throws SYNCHRONOUSLY (not a rejected promise): the throw is reported
+  // ---- and the queue goes on, exactly as for a rejection. Without _op's try around run(), the throw would reject
+  // ---- the tail and every later write would be lost.
+  {
+    class SyncThrowStore extends store.MemoryMediaStore {
+      get synchronous() { return false; }               // queued, like OPFS
+      write(name, bytes) {                              // NOT async: a synchronous throw, not a rejection
+        if (name === 'roms/sockets.json') throw new iface.MediaStoreError('quota', 'no space (thrown)');
+        return super.write(name, bytes);
+      }
+    }
+    const st = new SyncThrowStore();
+    const idx = new ifaceIndex(st);
+    await idx.load();
+    const reported = [];
+    idx.writeError = (name, e) => reported.push(`${name}:${e.code}`);
+    idx.putSocket('m', 's', 'AAAA0001');            // its store write throws synchronously
+    idx.putRecent('BBBB0002', new Uint8Array([2]));   // queued after the failure
+    let settled = 'pending';
+    await Promise.race([idx.settled().then(() => { settled = 'resolved'; }, (e) => { settled = `rejected: ${e.message}`; }),
+      new Promise((r) => setTimeout(() => r('timeout'), 2000)).then(() => { if (settled === 'pending') settled = 'timeout'; })]);
+    check('a store whose write throws synchronously: settled() resolves (the throw does not reject the tail)', settled === 'resolved', settled);
+    check('... it is reported once, through the same path as a rejection', reported.join() === 'roms/sockets.json:quota', reported.join() || 'nothing reported');
+    check('... and the write queued after it still reaches the store', (await st.stat('recent/BBBB0002.bin')) !== null);
+  }
+
   // ---- writes to one blob are chained: the last write wins, whatever the store's latency ----
   {
     // a store whose latency varies per call, the way OPFS's does; without chaining, the write that

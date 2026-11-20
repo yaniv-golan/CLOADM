@@ -32,6 +32,29 @@ All notable changes to CLOADM are recorded here. The format follows
 
 ### Fixed
 
+- **A background save that fails can no longer stop the media library saving anything again.** The page's
+  handler for a failed background write (a full browser, a permission that went away) draws the status line; if
+  that handler itself threw, the media index's write queue took the exception and every later write was dropped
+  for the rest of the session (the ROM images of a program loaded afterwards, the recent list, the name map), and
+  waiting for the queue rejected with the handler's error. The index now catches its handler's error and reports
+  the failed write itself (`console.error`: always when no handler is set, as an embedder may leave it, and when
+  the handler threw), and the queue goes on (`js/media/library.js`).
+- **A disk image no longer fails to go into a drive when another drive is writing.** Mounting a stored disk reads
+  it once every queued change has reached storage; when a change was queued while it read, it read again, and after
+  four reads it gave up with "the drives kept writing while it was read". The check counted every change to every
+  stored disk, so writes on another drive (or a long transfer to a slow store) could use the four up and make a
+  perfectly good mount fail with no data lost. The mount now reads again only for changes to the image it is
+  mounting, and which names are that image follows the store's case rule (the same measured rule the Library's
+  guards use): on a store that keeps `A.VDK` and `a.vdk` apart only its exact name counts, and on one that holds
+  them as one file either spelling does. A store whose rule is not measured yet is taken as case-insensitive, so
+  the mount reads again rather than keep bytes that may be stale. An image that really keeps changing under the
+  read still ends with the same message after four reads (`js/session.js`).
+- **A NitrOS-9 floppy image added to the Library is written through the disk queue.** Picking or dropping a
+  NitrOS-9 floppy image stored it with a direct write, outside the queue the drives and the Library's disk changes
+  use, so a mount of the same name reading at that moment could take the bytes from before the write without
+  reading again (a torn read). The write is now queued like every other change to a stored disk, so such a mount
+  waits for it or reads again (`js/session.js`).
+
 - **The browser check drives Stop in both orders, and reads the translated key as the exact set.** The ask check
   clicked **Stop** as soon as the pill said "Claude is typing line …", and the pill takes its line number from
   the typist queue before any key has been read (`js/ui/claude.js`). Stop could then land with nothing typed,

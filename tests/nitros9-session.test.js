@@ -184,6 +184,53 @@ const status = (m) => m.read(NITROS9_STATUS.addr);
     const big = makeOs9Disk(Emu, { driver: 'rb1773', port: 'floppy', sides: 2, sectors: 2880 });
     check('floppy: an 80-track one is refused before it is kept', await rejects(f.addAndBootNitros9('big.dsk', big), /big\.dsk: .*80 tracks/) && !(await f.media.list('disks/')).some((e) => e.name === 'disks/big.dsk'));
   }
+  // ---- a floppy image the Session is given goes through the disk write queue (diskStoreChange), like every other
+  // stored image: a mount reading that name meanwhile waits for it, so a torn read is impossible, and the drives'
+  // writes are ordered against it. (Pins this half of the v0.1.5 train's session.js conflict: if a resolution drops
+  // the reroute and writes media directly, this goes red.)
+  {
+    const q = new Session();
+    q.switchMachine('coco3', { cpu: '6809', ram: 128, becker: false }, { menu: false });
+    const disk = makeOs9Disk(Emu, { driver: 'rb1773', port: 'floppy', sides: 2, sectors: 1440 });
+    const calls = [];
+    const realChange = q.diskStoreChange.bind(q);
+    q.diskStoreChange = (op, name) => { calls.push({ name, queuedBefore: q.diskQueued }); return realChange(op, name); };
+    const said = await q.addAndBootNitros9('queued9.dsk', disk);
+    check('floppy image: the write is queued through diskStoreChange under disks/<name> (not a direct media write)',
+      calls.length === 1 && calls[0].name === 'disks/queued9.dsk', `${JSON.stringify(calls)} | ${said}`);
+    // and the queue really waits for it: hold the store's write of that image open, start the boot, and the write
+    // must not have finished while the queue was being waited on
+    const q2 = new Session();
+    q2.switchMachine('coco3', { cpu: '6809', ram: 128, becker: false }, { menu: false });
+    const realWrite = q2.media.write.bind(q2.media);
+    let held = false, release = null;
+    // resolved from inside the stub, so the test waits for the write to actually arrive rather than for a delay
+    let arrived = null;
+    const reached = new Promise((res) => { arrived = res; });
+    q2.media.write = async (name, bytes) => {
+      if (name === 'disks/held9.dsk' && !held) { held = true; arrived(); await new Promise((r) => { release = r; }); }
+      return realWrite(name, bytes);
+    };
+    const booting = q2.addAndBootNitros9('held9.dsk', makeOs9Disk(Emu, { driver: 'rb1773', port: 'floppy', sides: 2, sectors: 1440 })).then((m) => m, (e) => e);
+    // the write is in the chain, and the queue is waiting on it. Bounded: if the write never reaches media.write the
+    // test reports that instead of waiting for it forever
+    let bound = null;
+    const arrivedIn = await Promise.race([reached.then(() => true), new Promise((res) => { bound = setTimeout(() => res(false), 5000); })]);
+    clearTimeout(bound);
+    check('floppy image: the store write arrives (the chain reaches it)', arrivedIn, arrivedIn ? '' : 'media.write was never called for disks/held9.dsk');
+    // it never arrived: fail here rather than wait on `booting`, which could only be released by the write
+    if (!arrivedIn) throw new Error('the stubbed store write for disks/held9.dsk never arrived');
+    // the oracle for the reroute is the next check: `settledWhileHeld` goes red if the write is not in the chain.
+    // This one can only fail if the stub stops matching, and it exists so that such a change fails in 5 s instead
+    // of hanging on `booting` forever.
+    let settledWhileHeld = 'resolved';
+    await Promise.race([q2.diskWritesSettled().then(() => {}, () => {}), new Promise((r) => setTimeout(() => { settledWhileHeld = 'waiting'; r(); }, 50))]);
+    check('floppy image: the disk queue does not settle while that write is held (it is in the chain, not alongside it)',
+      held && settledWhileHeld === 'waiting', `${held ? '' : 'write not held; '}${settledWhileHeld}`);
+    if (release) release();
+    const out = await booting;
+    check('floppy image: once released, it boots', typeof out === 'string' && /in floppy drive 0/.test(out), typeof out === 'string' ? out : (out && out.message));
+  }
   // the release floppies, through the Session: boot, Return at setime's prompt, dir
   for (const [cpu, ram] of [['6809', 512], ['6309', 512], ['6809', 128], ['6309', 128]]) {
     const image = `nos9${cpu}l2v030300coco3_40d_1.dsk`, { bytes, reason } = cached(image);

@@ -111,6 +111,10 @@ export class SnapshotRomsError extends SessionError {
 }
 // floppy disk images live in the media store under this prefix (never in the media index)
 export const DISK_PREFIX = 'disks/';
+// how many times mountDisk reads an image again when the image moved under its read (its own stored name, or
+// another spelling of the same file on a store that folds case): the image is read four times at most before the
+// mount gives up. A write to a DIFFERENT stored file never spends this.
+const MOUNT_READ_RETRIES = 3;
 // everything CLOADM keeps in a media store (what moving the library copies)
 const STORE_PREFIXES = [LIBRARY_PREFIX, DISK_PREFIX, DW_PREFIX, ...INDEX_PREFIXES];
 // the disk cartridges each family can take (js/machines/profiles.js cartridgeRoms), the usual one first
@@ -265,6 +269,7 @@ export class Session {
     this.diskMounts = 0;            // mounts made so far: each mount's link carries the next number (diskLink)
     this.diskQueued = 0;            // changes to stored disk images queued so far (queueDiskWrite, diskStoreChange)
     this.diskLanded = 0;            // of those, the ones finished (done or refused)
+    this.diskChanges = new Map();   // stored image name (exact spelling) -> how many of those changes were to it
     this.diskError = null;          // a disk write the store refused, reported by diskWritesDone()
     this.diskUnsaved = new Map();   // stored image name -> why its last write was refused (until one succeeds)
     this.debugger = null;           // created on first use by `debug` (js/debugger.js)
@@ -591,7 +596,9 @@ export class Session {
     if (r.reason) throw new SessionError(`${name}: ${r.reason}`);
     if (r.boot === 'floppy') {
       const full = this.diskStoreName(name);
-      try { await this.media.write(full, bytes); } catch (e) { throw this.mediaError(e, full.slice(DISK_PREFIX.length)); }
+      // through the disk queue, like every other write to a stored image: a mount reading this name meanwhile
+      // re-reads for it, and the drives' writes are ordered against it
+      try { await this.diskStoreChange(() => this.media.write(full, bytes), full); } catch (e) { throw this.mediaError(e, full.slice(DISK_PREFIX.length)); }
       return this.bootNitros9(full.slice(DISK_PREFIX.length), 'disk');
     }
     return this.bootNitros9(await this.importDriveWireImage(name, bytes), 'drivewire');
@@ -1240,7 +1247,8 @@ export class Session {
   // renamed, deleted or replaced while it is there -> refuses with the drive it is in
   // Name comparisons here follow the store: on a store that does not tell upper from lower case (see CASE in
   // js/host/media-store.js) GAME.DSK and game.dsk are one file, so they are one name to every guard below.
-  sameName(a, b) { return this.caseInsensitive ? String(a).toLowerCase() === String(b).toLowerCase() : a === b; }
+  // ci: the rule to compare by (default: the store's rule now); a caller that must compare twice by one rule passes it
+  sameName(a, b, ci = this.caseInsensitive) { return ci ? String(a).toLowerCase() === String(b).toLowerCase() : a === b; }
   // Does this library treat GAME.DSK and game.dsk as one name? The store's own settled answer wins: a real
   // backend measures itself inside every list() (js/host/media-store-fsa.js _case), so the store can be settled by
   // a route this Session did not take. Answering from the store whenever it has been measured is what keeps the
@@ -1308,14 +1316,14 @@ export class Session {
       throw new SessionError(`${to}: this ${this.media.kind === 'fsa' ? 'folder' : 'storage'} does not tell upper from lower case, so ${src.slice(prefix.length)} and ${to} are the same name.`);
     }
     const op = () => this.media.rename(src, dst);
-    try { return await (src.startsWith(DISK_PREFIX) ? this.diskStoreChange(op) : op()); } catch (e) { throw this.mediaError(e, from); }
+    try { return await (src.startsWith(DISK_PREFIX) ? this.diskStoreChange(op, [src, dst]) : op()); } catch (e) { throw this.mediaError(e, from); }
   }
   async deleteMedia(name) {
     const full = this.libName(name);
     this.checkNotMoving();
     this.checkNotInDrive(full, 'delete');
     const op = () => this.media.remove(full);
-    try { return await (full.startsWith(DISK_PREFIX) ? this.diskStoreChange(op) : op()); } catch (e) { throw this.mediaError(e, name); }
+    try { return await (full.startsWith(DISK_PREFIX) ? this.diskStoreChange(op, full) : op()); } catch (e) { throw this.mediaError(e, name); }
   }
   // take a file the user picked into the library under `name`; ROM images go through identification, so
   // they land in the index's own sockets rather than being written as an opaque blob; disk images go under
@@ -1326,7 +1334,7 @@ export class Session {
     const base = name.split(/[\\/]/).pop();
     const target = detectMedia(base, bytes).kind === 'disk' ? DISK_PREFIX + base : this.libName(name);
     this.checkNotInDrive(target, 'replace');
-    const write = target.startsWith(DISK_PREFIX) ? this.diskStoreChange(() => this.media.write(target, bytes)) : this.media.write(target, bytes);
+    const write = target.startsWith(DISK_PREFIX) ? this.diskStoreChange(() => this.media.write(target, bytes), target) : this.media.write(target, bytes);
     // the store has a name now: on an empty store that is the first chance to put its case rule to the test
     try { const r = await write; await this.refreshCase(); return { stored: r }; } catch (e) { throw this.mediaError(e, name); }
   }
@@ -1537,7 +1545,7 @@ export class Session {
     const again = this.diskHolder(full);
     if (again) throw new SessionError(`${again.name} is in drive ${again.drive}${again.where}; eject it there first.`);
     this.checkNotMoving();
-    try { await this.diskStoreChange(() => this.media.write(full, bytes)); } catch (e) { throw this.mediaError(e, base); }
+    try { await this.diskStoreChange(() => this.media.write(full, bytes), full); } catch (e) { throw this.mediaError(e, base); }
     await this.refreshCase();   // the store has a name now: it can put its case rule to the test
     // stored by now: a mount that fails says so, rather than that the import did not happen
     try { return await this.mountDisk(drive, full, { writeProtected }); } catch (e) { throw new SessionError(`${base} was saved to your Library but not put in drive ${drive}: ${e.message}`); }
@@ -1559,15 +1567,23 @@ export class Session {
     }
     // The image is read once every write is in the store: the drive's own (a disk mounted again in the drive it is
     // in must be the image that drive wrote) and every one queued, a restore's put-back included. The machine runs
-    // while the store is read, so the read is taken only if the drive has handed nothing more to the store by then
-    // (no change to a stored disk queued since before the wait - a write, an import, a rename or a delete - with the
-    // drive flushed again); otherwise it is read again.
-    let bytes;
-    for (let tries = 0; ; tries++) {
+    // while the store is read, so the read is taken only if nothing has been queued for THIS image since before the
+    // wait (a write, an import, a rename or a delete of it, with the drive flushed again); otherwise it is read
+    // again. "This image" follows the store's own case rule (sameName): on a store that holds 'disks/A.vdk' and
+    // 'disks/a.vdk' as one file a change under either spelling is a change to it, and on one that keeps them apart
+    // only its exact name is. A store whose rule is not measured yet is taken as case-insensitive, so the mount
+    // reads again rather than keep bytes that may be stale. Nothing here waits between the count and the check, so
+    // a change queued while the store is read cannot slip past it. Every change to this image, under any spelling
+    // it shares, spends the four-read budget; another file's changes never do. The rule is taken once per pass, so
+    // the count before and after a read are summed over the same names even if the store is measured meanwhile.
+    const changesTo = (ci) => { let c = 0; for (const [n, k] of this.diskChanges) if (this.sameName(n, full, ci)) c += k; return c; };
+    let bytes, reads = 0;
+    for (;;) {
       const flush = () => { const f = this.diskController; if (f && f.drives[drive].loaded) f.drives[drive].flush(); };
       flush();
-      // counted before the wait: a change queued from here on (even in the step after the wait) means read again
-      const queued = this.diskQueued;
+      // counted before the wait: a change to this image queued from here on (even in the step after the wait)
+      // means read again
+      const ci = this.caseInsensitive, before = changesTo(ci);
       await this.diskWritesDone();
       try {
         const st = await this.media.stat(full);
@@ -1575,8 +1591,9 @@ export class Session {
         bytes = await this.media.readRange(full, 0, st.size);
       } catch (e) { throw this.mediaError(e, base); }
       flush();
-      if (queued === this.diskQueued) break;
-      if (tries >= 3) throw new SessionError(`${base}: the drives kept writing while it was read; try again.`);
+      const moved = changesTo(ci) !== before;
+      if (!moved) break;
+      if (++reads > MOUNT_READ_RETRIES) throw new SessionError(`${base}: the drives kept writing while it was read; try again.`);
     }
     // from here on nothing waits, so what is checked is what the mount finds: another mount that went in meanwhile
     // (into another drive, or into this one) is seen
@@ -1668,7 +1685,7 @@ export class Session {
   // { drive, machine } for the whole image a restore puts back; if the store refuses it, the stored image is a mix
   // of two versions, so the mount is broken and the drive unlinked, and the error says the disk isn't saved.
   queueDiskWrite(name, offset, data, size, mount = null, rollback = null) {
-    this.diskQueued++;
+    this.noteDiskChange(name);
     // the write's own outcome only: a listener's error is not the write's, and every write is counted as landed
     this.diskWriting = this.diskWriting.then(async () => {
       let cleared = false;
@@ -1707,12 +1724,20 @@ export class Session {
   }
   // A change the Library makes to the stored disk images (op: an import's write, a rename, a delete), run in the
   // same chain as the drives' writes, so a mount waiting for the chain reads after it lands, and one reading
-  // meanwhile reads again (diskQueued). Its failure goes to the caller only. -> what op returns
-  diskStoreChange(op) {
-    this.diskQueued++;
+  // meanwhile reads again (diskChanges, for the names the change is to). Its failure goes to the caller only.
+  // name: the stored name the change is to (for a rename, both the old and the new one). -> what op returns
+  diskStoreChange(op, name = null) {
+    this.noteDiskChange(name);
     const p = this.diskWriting.then(op);
     this.diskWriting = p.then(() => {}, () => {}).then(() => { this.diskLanded++; });
     return p;
+  }
+  // A change to a stored disk image is queued: count it everywhere (diskWritesSettled waits on that), and under
+  // the exact names it is to, which a mount sums by the store's case rule to see whether its own image moved under
+  // its read. (The map grows by distinct spelling, not by change; a session writes to finitely many names.)
+  noteDiskChange(name) {
+    this.diskQueued++;
+    for (const n of [].concat(name || [])) if (n) this.diskChanges.set(n, (this.diskChanges.get(n) || 0) + 1);
   }
   // the disk changes queued now have landed (written or refused), without reporting a refusal
   async diskWritesSettled() {

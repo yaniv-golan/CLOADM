@@ -198,14 +198,43 @@ export class MediaIndex {
     this._op(name, () => this.store.write(name, bytes));
   }
   _remove(name) {
-    if (this.synchronous) { this.store.remove(name).catch((e) => this._failed(name, e)); return; }
+    // called now, as it always was (a synchronous store's remove must have happened when this returns); a throw
+    // where it is called is reported like a rejection, rather than escaping as an unhandled rejection
+    if (this.synchronous) {
+      try {
+        const p = this.store.remove(name);
+        if (p && typeof p.catch === 'function') p.catch((e) => this._failed(name, e));
+      } catch (e) { this._failed(name, e); }
+      return;
+    }
     this._op(name, () => this.store.remove(name));
   }
   _op(name, run) {
-    this.tail = this.tail.then(() => run().catch((e) => this._failed(name, e)));
+    // run() is called when this step starts, as before; a store whose write throws synchronously (every
+    // asynchronous store here is `async`, which turns a throw into a rejection, but one need not) is reported
+    // through the same path instead of rejecting the tail and stalling every later write.
+    this.tail = this.tail.then(() => {
+      try { return Promise.resolve(run()).catch((e) => this._failed(name, e)); } catch (e) { this._failed(name, e); }
+    });
   }
-  // a background write failed: report it, do not let it reject where nothing is listening
-  _failed(name, e) { if (this.writeError) this.writeError(name, e); }
+  // a background write failed: report it, do not let it reject where nothing is listening.
+  // It goes to writeError (the page's listener, js/ui/main.js: a status message) when one is set and does not
+  // throw; otherwise (no listener: an embedder or Node; or the listener threw) it goes to console.error, so a
+  // failure is reported unless both reporters fail. Nothing in here may throw: a reporter that throws (the
+  // listener, or console.error itself if something replaced it) must not take the write queue with it, since a
+  // rejecting tail drops every later write. So both calls are guarded, and a listener that throws anything at
+  // all, falsy included, counts as having thrown. The listener is read once: one that clears writeError while
+  // handling has still taken the report, rather than having it logged as well.
+  _failed(name, e) {
+    const listener = this.writeError;
+    let threw = false, listenerError;
+    if (listener) { try { listener(name, e); } catch (x) { threw = true; listenerError = x; } }
+    if (listener && !threw) return;   // the listener took it: nothing more to report
+    try {
+      if (threw) console.error(`MediaIndex: ${name} could not be written, and the write-error listener failed too`, e, listenerError);
+      else console.error(`MediaIndex: ${name} could not be written`, e);
+    } catch (x) { /* nowhere left to report it: at least do not stop the queue */ }
+  }
   putSocket(machine, socket, crc) {
     (this.sockets[machine] = this.sockets[machine] || {})[socket] = crc;
     this.changed.sockets.add(machine);
