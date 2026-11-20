@@ -6,7 +6,9 @@ All notable changes to CLOADM are recorded here. The format follows
 
 ## [Unreleased]
 
-### Added
+### 0.1.6-pre
+
+#### Added
 
 - **Claude reads the Dragon 64 Plus's 80-column screen.** `screen_text` (and `machine_info`'s `video.readable`) used
   to decline the HD6845S screen; now, while the Display tab shows it, it reads the board's 2K video RAM as the CRTC
@@ -18,7 +20,7 @@ All notable changes to CLOADM are recorded here. The format follows
   with MAME 0.264 to HALT, and six screens identical to MAME's pixel for pixel (`run.js d64plus --plustext
   [--video]`); `tests/d64plus-screen-text.test.js` and the browser check's Ask Claude on a d64plus.
 
-### Changed
+#### Changed
 
 - **The welcome demo's sound is one short clean tone.** "2 COLOUR AND SOUND" used to write one DAC value per frame, a
   staircase that ticked at the field rate and popped from full scale to zero about once a second. It now plays a
@@ -42,7 +44,7 @@ All notable changes to CLOADM are recorded here. The format follows
   wiring was already right, just untested (on the commit before this one, with both non-Becker wirings removed, the
   three suites that cover those servers still passed).
 
-### Fixed
+#### Fixed
 
 - **A new blank disk and an import of its name racing each other.** Both check the library for the name and then
   write it, with a listing and the wait for the drives' writes in between, so two of them could both pass the
