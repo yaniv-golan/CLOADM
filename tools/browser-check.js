@@ -240,7 +240,7 @@ async function diskChecks(browser, base, check) {
   // (asynchronous, unlike the Node memory store). This calls the Session rather than the drive menu's buttons: the
   // two menu actions are one click apart and cannot be issued in one tick, so this is not a race driven through the
   // page -- it proves the ordering holds on a real asynchronous store, and that the losing side is refused rather
-  // than overwriting. The race itself, with a held window, is tests/disks.test.js cases 1-3b and 7.
+  // than overwriting. The race itself, with a held window, is tests/disks-newdisk.test.js cases 1-3b and 7.
   await openDrive(1);
   if (await page.evaluate(() => !!document.getElementById('driveEject'))) { await page.click('#driveEject'); await openDrive(1); }
   const race = await page.evaluate(async () => {

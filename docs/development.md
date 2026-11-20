@@ -83,6 +83,9 @@ node tests/disk.test.js      # disk images: VDK, JVC and DMK to and from flux, h
 node tests/fdc.test.js       # floppy controller cartridges register by register: commit delays, step rates, index, CRCs, NMI/HALT
 node tests/nmi-arm.test.js   # when a CPU starts taking NMI: on the 6809 LDS, LEAS and TFR r,S arm it and EXG does not; on the 6309 only LDS and LEAS do; an earlier edge is lost
 node tests/disks.test.js     # disks through the Session: stored, mounted and written back by range on the media store, write-protect, download, errors
+node tests/disks-mount-race.test.js   # a Library rename, import or delete of the image a mount is reading: it reads again or fails clearly
+node tests/disks-mount-case.test.js   # writes to the image being mounted under its own name or another case spelling, on case-sensitive, case-insensitive and unmeasured stores
+node tests/disks-newdisk.test.js      # a new blank disk formatted by our firmware; newDisk against an import of the same name
 node tests/ay8910.test.js    # AY-3-8910/8912 against its data manual: tone, noise, the 16 envelope shapes, mixer, ports
 node tests/alpha.test.js     # the Dragon Alpha's wiring: ROM banks, PIA2, the AY as the drive latch, NMI through PIA2 CA2
 node tools/build-demo.js     # rebuild examples/demo.bin

@@ -6,6 +6,15 @@ All notable changes to CLOADM are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **The floppy-disk suite is split in four.** `tests/disks.test.js` had grown to about 150 s (v0.1.6 added about 900
+  lines of mount-race and new-disk-race cases, each importing and mounting 40-track images, and a mount is about
+  1.3 s of flux encoding, as it was in v0.1.5), close to and on CI over `tests/all.js`'s 240 s per-suite cap. Its cases, unchanged, now run in
+  `disks.test.js`, `disks-mount-race.test.js`, `disks-mount-case.test.js` and `disks-newdisk.test.js`, with the shared
+  firmware and store fixtures in `tests/disks-common.js`. No check was removed or loosened (206 passing checks before
+  and after); the disk code itself is unchanged.
+
 ### 0.1.6-pre
 
 #### Added
