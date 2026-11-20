@@ -2499,11 +2499,16 @@ async function inputChecks(browser, base, check) {
   await page.keyboard.down('Shift'); await page.keyboard.down('Digit2');
   const typedChar = await page.evaluate(() => window.__lastKey || null);
   const held = await heldNow();
-  // the machine key the character needs: '"' is SHIFT+2 on the CoCos, '@' is a key of its own, and the
-  // host's own Shift is held down in both cases (it is a matrix key on every machine)
-  const want = { '"': '2', '@': '@' }[typedChar];
-  const ok = typedChar === '"' ? held.includes('2') : held.includes(want);
-  check('input: translated mode types the character that was typed (Shift+2)', !!want && ok, `${typedChar} -> ${held.join('+')}`);
+  // The whole set of matrix keys held, not just "the character's key is among them": a product bug that left
+  // SHIFT down as well would type '@' and still pass a membership test. The sets come from the matrix
+  // (js/machines/keyboards.js), not from this run's output: SHIFTED maps '"' to key '2' with shift, so typed with
+  // the host's Shift down it is SHIFT+'2'; '@' is in PLAIN, so the character alone decides the machine's SHIFT and
+  // no SHIFT is held (HostInput.machineKeys: only a letter or SPACE leaves SHIFT to the host). Which branch runs
+  // depends on the host: Playwright sends the US shifted legend, so Chromium here reports '@' and this check
+  // asserts '@' alone; the '"' -> '2, SHIFT' branch needs a browser whose layout reports '"' on Shift+2. (',' + ' '
+  // names: heldNow returns the matrix keys sorted.) Both sets are the literals in `want` below.
+  const want = { '"': '2, SHIFT', '@': '@' }[typedChar];
+  check('input: translated mode types the character that was typed (Shift+2)', !!want && held.join(', ') === want, `${typedChar} -> ${held.join(', ')}`);
   await page.keyboard.up('Digit2'); await page.keyboard.up('Shift');
 
   // positional mode: the same physical key reaches its matrix position, and the choice is remembered
@@ -8844,8 +8849,32 @@ async function askChecks(browser, base, check) {
         return /^Restore point at \d\d:\d\d$/.test(go.textContent.trim()) && /Stop first to restore/.test(l.textContent) && !/restore point made/.test(document.body.textContent) && !document.getElementById('askActivity'); }),
       await ev(() => (document.querySelector('#askMessages .restoreline') || {}).textContent));
     await shot('acting');
-    await page.click('#btnAskStop');
-    check(`${L}: Stop ends the turn and the typing; the pill goes`, await waitFor(page, () => { const s = window.emu.session, m = s.machine;
+    // Stop, deterministically, in the order that gives "while": the action line says "stopped while typing" only when
+    // the machine read at least one key before Stop (js/claude/actions.js: delivered > 0; the keys go in through the
+    // typist, js/machines/typist.js, and its job counts what the machine READ). So wait, fail-closed, until the
+    // typing job has consumed at least one key and is still 'typing', and read that state just before the click. The job is
+    // read in one evaluate, not by comparing two reads across a frame boundary: the frame loop runs between any two
+    // page.evaluate calls. (The probe on base clicked with 0 keys read and the line still said "while": on a loaded
+    // capsule the frame that reads the first key can land between the click and the end of the typing - the race
+    // this removes. If the whole listing had finished, the line would be a ✓ line, not a stop.)
+    // The job is in the typist's state, or the queue's first paced item (state is null in the gap between two keys).
+    const typingJob = () => {
+      const m = window.emu.session.machine;
+      const j = (m.typist.state && m.typist.state.job) || (m.typist.queue[0] && m.typist.queue[0].job) || null;
+      return j ? { status: j.status, consumed: j.consumed, requested: j.requested, left: m.typist.queue.length, acting: (window.emu.session.claudeActing || {}).name } : null;
+    };
+    const armed = await waitFor(page, () => {
+      const m = window.emu.session.machine;
+      const j = (m.typist.state && m.typist.state.job) || (m.typist.queue[0] && m.typist.queue[0].job);
+      return !!j && j.status === 'typing' && j.consumed >= 1 && m.typist.queue.length > 0 && (window.emu.session.claudeActing || {}).name === 'type_text';
+    }, null, 15000);
+    const atStop = armed ? await ev(typingJob) : null;
+    check(`${L}: by the Stop the machine has read keys of the listing and the typing is still going (Stop lands mid-typing)`, armed && !!atStop
+      && atStop.status === 'typing' && atStop.consumed > 0 && atStop.left > 0, JSON.stringify(atStop));
+    if (armed) await page.click('#btnAskStop');
+    // (armed on the left: with no click the listing finishes on its own and this predicate would hold, so a skipped
+    // click must fail here, not read as "Stop ended the turn")
+    check(`${L}: Stop ends the turn and the typing; the pill goes`, armed && await waitFor(page, () => { const s = window.emu.session, m = s.machine;
       return !s.chat.busy && m.stubKeys.length === 0 && document.getElementById('askActing').hidden && !document.getElementById('monitor').classList.contains('claude-acting'); }));
     if (release) { release(); release = null; }
     // R12: one small line under the turn that changed the machine (its action lines above it), in the tab order
@@ -9076,6 +9105,53 @@ async function askChecks(browser, base, check) {
     check(`${L}: Side panel: back beside the machine, the same conversation, nothing lost`, await waitFor(page, () => !document.getElementById('ask').hidden && window.emu.session.claudeView === 'panel'
       && window.emu.session.chat === window.__chat && !document.body.classList.contains('claude-open'))
       && (await msgs()).length === count, JSON.stringify(await msgs()));
+    // ---- the other order, deliberately: Stop before the machine has read a key, so the line says "before" ----
+    // (last in the group: the turn makes a restore point, and the checks above count this turn's.)
+    // The machine is held with the page's Pause (js/ui/screen.js: the frame loop runs no frame while paused), so
+    // nothing of the typing can be read: the job stays 'typing' with 0 read and the whole listing queued. Pause is
+    // not the person's input (HostInput.onPlayer is, and that pauses CLAUDE): the ask, the consent card and the
+    // tool run exactly as above, only through a machine that runs no frames. Read that state just before the click, then
+    // that the line is exactly the other one. If the state is not what this case needs, it FAILs rather than pass.
+    // (The toggle is unconditional, so the machine must be running first; and the frame count is taken at the
+    // Pause so the state check can prove no frame ran between, which is what makes "nothing was read" a fact
+    // about frames rather than an inference from consumed === 0.)
+    check(`${L}: the machine is running before the zero-key case holds it`, await ev(() => !document.body.classList.contains('paused')));
+    await ev(() => document.getElementById('btnPause').click());   // (its handler, not a hit test: the drawer is folded away with the panel open on a phone)
+    await waitFor(page, () => document.body.classList.contains('paused'));
+    const framesAtPause = await ev(() => window.emu.session.machine.frameCount);
+    await ev(() => window.emu.session.setClaudeAllowed(true));    // (Allow turned it on for the visit; the second turn needs it again)
+    replies.push({ body: tools([{ name: 'type_text', input: { text: LISTING } }]) });
+    await ask('Type the listing in again');
+    const askedAgain = await waitFor(page, () => !document.getElementById('askActing').hidden
+      && (window.emu.session.claudeActing || {}).name === 'type_text', null, 8000);
+    const zeroKey = askedAgain && await waitFor(page, () => {
+      const m = window.emu.session.machine;
+      const j = (m.typist.queue[0] && m.typist.queue[0].job) || (m.typist.state && m.typist.state.job);
+      return !!j && j.status === 'typing' && j.consumed === 0 && m.typist.queue.length === j.requested;
+    }, null, 8000);
+    const atStop2 = zeroKey ? await ev(() => {
+      const m = window.emu.session.machine;
+      const j = (m.typist.queue[0] && m.typist.queue[0].job) || (m.typist.state && m.typist.state.job);
+      return { status: j && j.status, consumed: j && j.consumed, requested: j && j.requested, left: m.typist.queue.length,
+        paused: document.body.classList.contains('paused'), frames: m.frameCount };
+    }) : null;
+    check(`${L}: with the machine paused nothing of the typing is read: no frame ran since the Pause, the job is still typing with 0 of 40 lines' keys read, and every key is queued`,
+      zeroKey && !!atStop2 && atStop2.paused && atStop2.status === 'typing' && atStop2.consumed === 0 && atStop2.left === atStop2.requested
+      && atStop2.frames === framesAtPause, JSON.stringify({ ...atStop2, framesAtPause }));
+    if (zeroKey) await page.click('#btnAskStop');
+    // the LAST turn's action lines only: the first turn's "– stopped while typing 40 lines" is still in the panel
+    // (a restore only appends "· undone at …"), so a query over every .act would find it at once and observe
+    // nothing about this turn; and the wait accepts either word, so the exact set is left to the check below.
+    const line2 = await waitFor(page, () => { const a = document.querySelectorAll('#askMessages .actions'); const last = a.length && a[a.length - 1];
+      return !!last && [...last.querySelectorAll('.act')].some((x) => /^– stopped (before|while) typing/.test(x.textContent)); }, null, 5000)
+      && await ev(() => { const a = document.querySelectorAll('#askMessages .actions'), last = a[a.length - 1];
+        return last ? [...last.querySelectorAll('.act')].map((x) => x.textContent).join('|') : null; });
+    check(`${L}: Stop before any key was read: the turn's action line is exactly "– stopped before typing 40 lines"`, line2 === '– stopped before typing 40 lines', String(line2));
+    await ev(() => document.getElementById('btnPause').click());  // (the machine runs again)
+    await waitFor(page, () => !document.body.classList.contains('paused'));
+    check(`${L}: and the keys never typed are dropped, not typed later`, await waitFor(page, () => !window.emu.session.chat.busy
+      && window.emu.session.machine.typist.queue.length === 0 && window.emu.session.machine.stubKeys.length === 0)
+      && (await emuFrames(page, 30), await ev(() => { const m = window.emu.session.machine; return m.typist.queue.length === 0 && m.stubKeys.length === 0 && !window.emu.session.chat.busy; })));
     check(`${L}: no sideways scroll`, await ev(() => document.documentElement.scrollWidth <= innerWidth));
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
     await ctx.close();

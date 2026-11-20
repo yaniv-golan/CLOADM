@@ -8,6 +8,22 @@ All notable changes to CLOADM are recorded here. The format follows
 
 ### Fixed
 
+- **The browser check drives Stop in both orders, and reads the translated key as the exact set.** The ask check
+  clicked **Stop** as soon as the pill said "Claude is typing line …", and the pill takes its line number from
+  the typist queue before any key has been read (`js/ui/claude.js`). Stop could then land with nothing typed,
+  and the page correctly said "– stopped before typing" (`js/claude/actions.js`: it says "while" only when keys
+  were delivered) while the check demanded "while": a one-frame race. Measured on a Mac with a probe in a copy:
+  Stop was clicked with 0 keys read and the line still said "while" in 6 of 6 runs, and the same code failed the
+  phone case on a loaded full run. The check now waits, fail-closed, until the typing job has read a key and is
+  still typing, asserts that state at the click, and then asserts "– stopped while typing 40 lines" exactly. A
+  new case holds the machine with the page **Pause** (which pauses the machine, not Claude), asserts the job is
+  typing with 0 keys read, and asserts "– stopped before typing 40 lines" exactly; it runs last because its turn
+  makes a restore point. The translated Shift+2 check asserted that the character's key was among those held, so
+  a page bug leaving SHIFT down with `@` would pass; it now asserts the whole held set from the matrix
+  (`js/machines/keyboards.js`): `2, SHIFT` for `"` and `@` for `@` (this host's Chromium reports `@` for
+  Shift+2, so only that branch runs; the `"` case is asserted but unexercised here). `tools/browser-check.js`
+  only; no page behaviour changed.
+
 - **The browser check is host-independent, and its keyboard checks no longer race the machine.** Several of
   its checks only passed on a PC or on an idle machine. The desktop "Commands…" check expected `Ctrl K`, but
   the page chooses that hint when `navigator.platform` is not a Mac or an iOS device (`js/ui/command-box.js`)
