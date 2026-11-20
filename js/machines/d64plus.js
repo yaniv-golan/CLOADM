@@ -227,6 +227,29 @@ class D64PlusMachine extends SamMachine {
   }
 
   // ---------------- the plus screen ----------------
+  // The character cells the CRTC walks, as MAME's d64plus crtc_update_row reads them: row `row` starts at
+  // MA = (R12/R13 + row x R1) & $3FFF (the 6845's 14-bit address), and the video RAM decodes only MA's low 11 bits,
+  // so the 2K wraps and mirrors. ONE copy of that arithmetic: drawPlus() paints from it and the screen reader
+  // (textScreen() below, js/claude/readtools.js) reads from it.
+  rowAddress(row) { return (this.crtc.dispStartAddress + row * this.crtc.reg[1]) & 0x3FFF; }
+  cellCode(ma, col) { return this.videoRam[(ma + col) & (VIDEO_RAM - 1)]; }
+
+  // The screen as character codes, for the screen reader: the registers and the video RAM as they stand now, which
+  // is what the next CRTC frame draws (drawPlus() paints the whole picture at each frame restart). No ROM is
+  // needed: the codes are the video RAM's, not glyph pixels. Side-effect free.
+  //   cols, rows  R1 and R6 as programmed; perRow R9 + 1 raster lines; start R12/R13; codes[row][col]
+  textScreen() {
+    const c = this.crtc, cols = c.reg[1], rows = c.reg[6];
+    const codes = [];
+    for (let row = 0; row < rows; row++) {
+      const ma = this.rowAddress(row), line = new Array(cols);
+      for (let col = 0; col < cols; col++) line[col] = this.cellCode(ma, col);
+      codes.push(line);
+    }
+    return { cols, rows, perRow: c.reg[9] + 1, start: c.dispStartAddress, codes,
+      width: PLUS_WIDTH, height: PLUS_HEIGHT, cellWidth: PLUS_WIDTH / 80, videoRam: VIDEO_RAM };
+  }
+
   // crtc_update_row for the whole visible picture, from the registers as they stand now. MAME draws the
   // bitmap at the start of the screen's frame with m_current_disp_addr reset to R12/R13 there, so this
   // runs at each CRTC frame restart.
@@ -234,13 +257,12 @@ class D64PlusMachine extends SamMachine {
     const c = this.crtc, px = this.plusFrame.data, gen = this.charGen;
     const cols = Math.min(80, c.reg[1]), rows = c.reg[6];   // as many rows as R6 displays; the bitmap's 264 lines bound them
     const perRow = c.reg[9] + 1;
-    const start = c.dispStartAddress;
     const cur = ((c.reg[14] & 0x3F) << 8) | c.reg[15];
     const startRas = c.reg[10] & 0x1F, endRas = c.reg[11] & 0x1F;
     px.fill(0);
     if (!gen) return;
     for (let row = 0; row < rows && row * perRow < PLUS_HEIGHT; row++) {
-      const ma = (start + row * c.reg[1]) & 0x3FFF;
+      const ma = this.rowAddress(row);
       // the cursor's column in this row, or -1 (mc6845.cpp check_cursor_visible, HD6845S variant: no
       // cursor when the start raster is past the end raster; the blink state gates it)
       const cursorX = c.cursorState && startRas <= endRas && cur >= ma && cur < ma + c.reg[1] ? cur - ma : -1;
@@ -248,7 +270,7 @@ class D64PlusMachine extends SamMachine {
         const y = row * perRow + ra;
         if (y >= PLUS_HEIGHT) break;
         for (let col = 0; col < cols; col++) {
-          const code = this.videoRam[(ma + col) & (VIDEO_RAM - 1)];
+          const code = this.cellCode(ma, col);
           let data = gen[((code << 4) | (ra & 0x0F)) & 0xFFF];
           if (col === cursorX) data = 0xFF;             // the cursor column is forced to $FF
           const o = y * PLUS_WIDTH + col * 8;

@@ -76,12 +76,16 @@ export function readOnlyTools() {
 //    itself (gime.textScreen(): the video start, row pitch, horizontal offset, lines per row and the number of rows
 //    the body shows, all from the emulator's own GIME state, never from the CPU-readable registers, which a
 //    program cannot read back) and decoded through the GIME character set (GIME.TEXT_CHARS).
-// Anything else - a graphics mode, the Dragon Plus's HD6845S display, a GIME text mode whose rows are too short to
-// show a character - is DECLINED with the mode's name and a reason: no guessing.
+//  * the Dragon 64 Plus's 80-column board (its HD6845S CRTC), when the Plus screen is the one shown, walked by the
+//    machine's own textScreen() (the same row walk its picture is drawn from: R12/R13, R1, R6, the 2K video RAM's
+//    wrap) and decoded through PLUS_CHARS.
+// Anything else - a graphics mode, a GIME text mode whose rows are too short to show a character, a 6845 set-up the
+// board cannot show whole or a code with no known character - is DECLINED with the mode's name and a reason: no
+// guessing.
 const CELL_COLS = 32;
 // The description Claude sees. It names the machines and modes the reader covers, and how non-ASCII characters and
 // attributes come back, so a model knows what to expect before it calls.
-export const SCREEN_TEXT_DESCRIPTION = "The text on the machine's screen, one string per row with trailing spaces trimmed (trailing blank rows are left out, so `rows` counts the rows returned, not the rows the screen has). Reads the MC6847 VDG 32x16 text screen (MC-10, Dragon 32/64/200, CoCo 1/2, and the CoCo 3 in its CoCo-compatible mode) and every CoCo 3 GIME text mode, 6809 or 6309: 32, 40, 64 or 80 columns, with or without attribute bytes (as NitrOS-9 and BASIC's WIDTH 40/80 use); on a GIME text mode `screenRows` is how many rows the screen shows. GIME characters $20-$7E are ASCII; the GIME's international characters $00-$1F come back as the Unicode letters they show (Ç ü é â ä à å ç ê ë è ï î ß Ä Å ó æ Æ ô ö ø û ù Ø Ö Ü § £ ± ° ƒ) and $7F as ▒. Attribute bytes are never shown as characters: with attributes on, `attributes` gives each row's runs of fg, bg, underline and blink, where fg and bg are palette slots, not colours (the foreground is palette register 8+fg, the background palette register bg). Returned with the mode's name, `cols`, and where the screen was read from: `base`, the CPU address of the whole screen, given only when the memory map shows all of it to the CPU in one contiguous run (otherwise null: an MMU that splits or hides it, or 256-byte virtual rows), and on a GIME text mode `physicalBase`, its address in the CoCo 3's physical RAM. Declined with text:false and a reason: a graphics mode; a GIME text mode whose rows are too short to show a character (1 or 2 scanlines per row) or that shows no rows ($FF99 lines per field 2); a VDG page the memory map (MMU) has moved away from where the display reads it; and a display it cannot read (the Dragon Plus's HD6845S screen). Takes no parameters.";
+export const SCREEN_TEXT_DESCRIPTION = "The text on the machine's screen, one string per row with trailing spaces trimmed (trailing blank rows are left out, so `rows` counts the rows returned, not the rows the screen has). Reads the MC6847 VDG 32x16 text screen (MC-10, Dragon 32/64/200, CoCo 1/2, and the CoCo 3 in its CoCo-compatible mode) and every CoCo 3 GIME text mode, 6809 or 6309: 32, 40, 64 or 80 columns, with or without attribute bytes (as NitrOS-9 and BASIC's WIDTH 40/80 use); on a GIME text mode `screenRows` is how many rows the screen shows. GIME characters $20-$7E are ASCII; the GIME's international characters $00-$1F come back as the Unicode letters they show (Ç ü é â ä à å ç ê ë è ï î ß Ä Å ó æ Æ ô ö ø û ù Ø Ö Ü § £ ± ° ƒ) and $7F as ▒. Attribute bytes are never shown as characters: with attributes on, `attributes` gives each row's runs of fg, bg, underline and blink, where fg and bg are palette slots, not colours (the foreground is palette register 8+fg, the background palette register bg). Returned with the mode's name, `cols`, and where the screen was read from: `base`, the CPU address of the whole screen, given only when the memory map shows all of it to the CPU in one contiguous run (otherwise null: an MMU that splits or hides it, or 256-byte virtual rows), and on a GIME text mode `physicalBase`, its address in the CoCo 3's physical RAM. Declined with text:false and a reason: a graphics mode; a GIME text mode whose rows are too short to show a character (1 or 2 scanlines per row) or that shows no rows ($FF99 lines per field 2); a VDG page the memory map (MMU) has moved away from where the display reads it; and, on the Dragon 64 Plus's 80-column screen, a 6845 set-up the board cannot show whole (no rows or columns, R1 or R6 not less than the totals R0+1 or R4+1, wider than 80 columns or taller than the 264-line picture, fewer than 10 raster lines a row, an interlace mode, R8's display skew set to non-output) or a code outside $20-$7E. The Dragon 64 Plus's 80-column screen (its HD6845S, while the Display tab shows it) is read from the board's 2K video RAM as the CRTC walks it (start address R12/R13 as `startAddress`, R1 columns, R6 rows as `screenRows`, the 2K wrapping), as the next frame draws it; codes $20-$7E are read as ASCII (an assumption: no source documents the board's character layout); `base` is its CPU address only while $FFE2 maps the video RAM over $0000-$07FF and the screen does not wrap. Takes no parameters.";
 
 // Whether screen_text can read the screen faithfully, and if not, why. ONE rule, used by screen_text to decide
 // what to answer and by machine_info to report `video.readable`, so the two cannot disagree: `readable === false`
@@ -90,7 +94,7 @@ export const SCREEN_TEXT_DESCRIPTION = "The text on the machine's screen, one st
 export function screenReadable(mode) {
   if (!mode.text) return { readable: false, reason: mode.reason || `${mode.name} has no character cells to read` };
   if (mode.readable === false) return { readable: false, reason: mode.reason || `${mode.name} cannot be read faithfully` };
-  if (mode.gimeText) return { readable: true };      // the GIME walks its own rows, at its own width
+  if (mode.gimeText || mode.plusText) return { readable: true };   // the GIME and the 6845 walk their own rows
   if (mode.cols && mode.cols > CELL_COLS) {
     return { readable: false, reason: `the machine's text rows are ${mode.cols} characters wide and this reader can only walk ${CELL_COLS}, so the rows cannot be read faithfully` };
   }
@@ -104,6 +108,7 @@ export function screenTextTool(target) {
   const read = screenReadable(mode);
   if (!read.readable) return { text: false, mode: mode.name, lines: [], rows: 0, reason: read.reason };
   if (mode.gimeText) return gimeText(m, mode);
+  if (mode.plusText) return plusText(m, mode);
   // the base: a machine may put its text screen elsewhere than the profile's default (the CoCo 3's GIME video
   // base moves with $FF9D-$FF9F). Read from where the display really is, not from a fixed $400.
   const base = textBase(m, mode);
@@ -129,6 +134,79 @@ function trimmed(lines) {
   let last = lines.length - 1;
   while (last >= 0 && !lines[last].trim()) last--;
   return lines.slice(0, last + 1).map((l) => l.replace(/\s+$/, ''));
+}
+
+// The Dragon 64 Plus's 80-column screen, from the machine's own walk of it (mode.plusText = m.textScreen(), taken once
+// by videoMode so the mode named, the checks made and the rows read are the same state), decoded through PLUS_CHARS
+// (videoMode has declined any code without an entry). `base` is the CPU address of the whole screen when the CPU sees
+// all of it in one run: only while $FFE2 bit 0 maps the video RAM over $0000-$07FF (and the banks reach memory: not
+// under config.mameCompat, where MAME 0.264 never maps them), the SAM leaves $0000-$07FF where it is (page bit P1
+// can move it), and the screen's cells do not wrap round the 2K.
+function plusText(m, mode) {
+  const t = mode.plusText;
+  const lines = trimmed(t.codes.map((row) => row.map((c) => PLUS_CHARS[c]).join('')));
+  const out = { text: true, mode: mode.name, cols: t.cols, base: plusCpuBase(m, t), startAddress: t.start, lines, rows: lines.length, screenRows: t.rows };
+  // without the user's character generator the board draws nothing: say so, rather than let the text suggest a picture
+  if (!m.charGen) out.note = 'no character generator ROM is loaded, so the 80-column picture is blank; these are the characters its video RAM holds';
+  return out;
+}
+function plusCpuBase(m, t) {
+  if (!m.banksReachMemory || m.vramBank !== 3) return null;
+  const first = t.start & (t.videoRam - 1), len = t.rows * t.cols;
+  if (first + len > t.videoRam) return null;
+  if (m.ramAddr(first, m.sam.reg) !== first || m.ramAddr(first + len - 1, m.sam.reg) !== first + len - 1) return null;
+  return first;
+}
+
+// The Dragon 64 Plus board's character mapping: video RAM code -> the character it shows. NOT VERIFIED: no primary
+// source for the layout could be found. Compusense's "Dragonplus Interface Technical Information" p. 4 says only that
+// the 2764 holds 256 characters of 16 bytes (a 7 x 9 matrix under a blank row), not which code is which; the board's
+// character generator is the user's ROM and is never read here. Codes $20-$7E are ASSUMED to be ASCII, as on 6845
+// boards of the period whose software writes ASCII to screen RAM; any other code has no character here, and a screen
+// showing one is declined rather than guessed. (docs/claude.md and docs/verification.md say the same.)
+export const PLUS_CHARS = Object.freeze(Array.from({ length: 256 }, (_, c) => (c >= 0x20 && c <= 0x7E ? String.fromCharCode(c) : null)));
+
+// The 80-column screen as videoMode reports it, or the reason it cannot be read. The checks are on the CRTC's
+// registers as they stand (the machine's own state, never a CPU read of $FFE1, which on the HD6845S answers only
+// R12-R17), in this order:
+//   * R8 bit 0 set selects an interlace mode (MC6845 data sheet, R8 bits 1-0: x0 non-interlace, 01 interlace sync,
+//     11 interlace sync and video), which changes the rows' raster addressing; the emulator draws without interlace,
+//     so what the board shows is not known here. Compusense's own set-up writes R8 = $A2 (bits 1-0 = 10:
+//     non-interlace; technical notes p. 4), which is read;
+//   * R8 bits 5-4 = 11: the HD6845S's display skew "non-output" (from the HD6845S data sheet's R8 table as recalled;
+//     the data sheet was not available to check (no page reference). As recalled: DISPTMG skew 00 none, 01 one
+//     character, 10 two, 11 non-output); declining it fails safe. So the display timing is inhibited and
+//     the screen is blank. Neither our renderer nor MAME 0.264 (mc6845.cpp defines MODE_DISPLAY_ENABLE_SKEW and
+//     never uses it) models skew, so a skew of 1 or 2 characters, which only moves the picture (Compusense's own
+//     $A2 is display and cursor skew 2), is read;
+//   * R1 or R6 0: the CRTC displays no characters;
+//   * R1 >= R0 + 1 or R6 >= R4 + 1: the data sheet's constraints Nhd < Nht and Nvd < Nvt are broken, and the chip's
+//     output is not a screen of rows;
+//   * R1 over 80 or R6 x (R9 + 1) over 264: the board's picture is 80 cells of 8 by 264 lines (MAME's plus_screen,
+//     640 x 264), so part of what the registers address is never shown;
+//   * fewer than 10 raster lines a row (R9 < 9): the board's characters are a 7 x 9 matrix below a blank row
+//     (Compusense's technical notes, p. 4, "Character ROM"), 10 lines, so a shorter row cuts them;
+//   * a code PLUS_CHARS has no character for.
+function plusMode(m) {
+  const reg = m.crtc.reg, t = m.textScreen();
+  const name = `HD6845S text (the Dragon Plus), ${t.cols} columns, ${t.rows} rows`;
+  const no = (reason) => ({ text: true, readable: false, cols: t.cols, name, reason });
+  const h2 = (v) => `$${v.toString(16).toUpperCase().padStart(2, '0')}`;
+  if (reg[8] & 1) return no(`R8 = ${h2(reg[8])} selects an interlace mode, which this emulator does not model, so the rows shown are not known`);
+  if ((reg[8] & 0x30) === 0x30) return no(`R8 = ${h2(reg[8])} sets the display skew to non-output (bits 5-4 = 11), so the board shows nothing`);
+  if (!t.cols || !t.rows) return no(`the CRTC displays no characters (R1 = ${t.cols}, R6 = ${t.rows})`);
+  if (t.cols > reg[0]) return no(`R1 = ${t.cols} displayed characters is not less than the ${reg[0] + 1} of a line (R0 + 1), as the 6845 requires`);
+  if (t.rows > reg[4]) return no(`R6 = ${t.rows} displayed rows is not less than the ${reg[4] + 1} of a frame (R4 + 1), as the 6845 requires`);
+  if (t.cols > 80) return no(`R1 = ${t.cols} columns is wider than the board's picture, which shows 80`);
+  if (t.rows * t.perRow > t.height) return no(`${t.rows} rows of ${t.perRow} lines (R6, R9) are taller than the board's ${t.height}-line picture`);
+  if (t.perRow < 10) return no(`${t.perRow} raster lines a row (R9 = ${reg[9]}) is shorter than the board's 10-line character (a 7 x 9 matrix below a blank row), so no character is shown whole`);
+  for (let r = 0; r < t.rows; r++) {
+    for (let c = 0; c < t.cols; c++) {
+      const code = t.codes[r][c];
+      if (PLUS_CHARS[code] == null) return no(`row ${r}, column ${c} holds code ${h2(code)}: only codes $20-$7E are read (as ASCII), and no source gives the character the board shows for any other`);
+    }
+  }
+  return { text: true, cols: t.cols, name, plusText: t };
 }
 
 // A GIME text mode, from the GIME's own walk of it (mode.gimeText = gime.textScreen(), taken once by videoMode so
@@ -233,10 +311,9 @@ export function machineInfoTool(target) {
 // the mode and the base are taken to describe the SAME thing by asking videoBase() for its own branch (below).
 function videoMode(m) {
   // The d64plus can show the Hitachi HD6845S display instead of the VDG (`view === 'plus'`, which picks the
-  // picture render() returns). Nothing in this repo reads 6845 text: there is no character-cell view of that
-  // screen, so it is reported as graphics-shaped - the honest answer to "is there a text screen to read" -
-  // and screen_text says so rather than handing back the VDG page, which is not what is on the screen.
-  if (m.view === 'plus') return { text: false, name: 'HD6845S 80-column display (the Dragon Plus)', reason: 'this build has no character-cell reader for the Plus board\'s HD6845S display' };
+  // picture render() returns; the board has no register that picks one: MAME shows two screens, the page's
+  // Display tab one). While it does, the 80-column board's screen is the one read, never the VDG page behind it.
+  if (m.view === 'plus') return plusMode(m);
   const gime = m.gime;
   if (gime && gime.regs) {
     const r = gime.regs;
@@ -305,18 +382,19 @@ function videoMode(m) {
 // BASIC prompt (null); otherwise `atPrompt` is whether the screen still shows OK, which the target's
 // bootStatus has already established, and null when it cannot be told.
 //
-// When the machine is showing a screen this tool cannot read (the d64plus on its HD6845S display), the OK test
-// would be run against a page nobody is looking at. That is not "yes" and not "no": it is unknowable from here,
+// When the machine is showing a screen this tool cannot read (a graphics mode, a declined GIME or 6845 set-up), the
+// OK test would be run against rows it cannot decode. That is not "yes" and not "no": it is unknowable from here,
 // so it is null - the same "cannot be told" answer as a machine that has not booted yet.
 function atBasicPrompt(target, mode) {
   // the SAME readability rule screen_text answers with: an OK test run against rows this reader cannot decode
-  // (the Plus's hidden VDG page, GIME native text's ASCII) is not "yes" and not "no" - it is unknowable here
+  // is not "yes" and not "no" - it is unknowable here; a readable 80-column screen is searched itself, never the
+  // VDG page behind it
   if (!screenReadable(mode).readable) return null;
   const st = target.bootStatus ? target.bootStatus() : null;
   if (!st || st.state === 'stub' || st.state === 'booting') return null;
   if (st.state !== 'ok') return false;
   // a GIME text mode is read by the GIME's own walk, not the VDG page Session.screenText decodes
-  const lines = mode.gimeText ? gimeText(target.machine, mode).lines : target.screenText();
+  const lines = mode.gimeText ? gimeText(target.machine, mode).lines : mode.plusText ? plusText(target.machine, mode).lines : target.screenText();
   return lines.some((l) => l.trim() === 'OK');
 }
 

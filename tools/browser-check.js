@@ -9218,6 +9218,7 @@ async function askChecks(browser, base, check) {
     await ctx.close();
   }
   await askGimeTextChecks(browser, base, check);
+  await askPlusTextChecks(browser, base, check);
 }
 
 // Ask Claude on a CoCo 3 in an 80-column GIME text mode with attributes (as NitrOS-9 uses): Claude's screen_text
@@ -9282,6 +9283,72 @@ async function askGimeTextChecks(browser, base, check) {
       { from: 4, to: 14, fg: 1, bg: 0, underline: true, blink: false }, { from: 15, to: 79, fg: 1, bg: 0, underline: false, blink: false }]),
     JSON.stringify(res && res.attributes && res.attributes[2]));
   check(`${L}: Claude's answer shows in the panel`, /Your directory listing\./.test(await page.textContent('#askMessages')));
+  check(`${L}: no page errors`, !errors.length, errors.join('; '));
+  await ctx.close();
+}
+
+// Ask Claude on a Dragon 64 Plus showing its 80-column board (the Display tab's Plus screen): Claude's screen_text (the
+// mocked API asks for it) reads the HD6845S's rows from the board's video RAM, not the VDG page behind it. The CRTC is
+// programmed through the machine's own bus writes ($FFE0/$FFE1: the board's 80 x 22 of 12 lines, the start address
+// $0050) and the codes are put in the 2K video RAM; the expected rows are literals. No character generator is loaded
+// (the user's ROM), so the answer says the picture is blank. tests/d64plus-screen-text.test.js and run.js d64plus
+// --plustext [--video] cover the reader against MAME's addressing.
+async function askPlusTextChecks(browser, base, check) {
+  const L = 'ask (Dragon 64 Plus, 80 columns)';
+  const sse = (events) => events.map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join('');
+  const msgStart = { type: 'message_start', message: { id: 'msg', type: 'message', role: 'assistant', model: 'claude-opus-5-5', content: [] } };
+  const text = (t) => sse([msgStart, { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+    { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: t } }, { type: 'content_block_stop', index: 0 },
+    { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: {} }, { type: 'message_stop' }]);
+  const tool = (name) => sse([msgStart, { type: 'content_block_start', index: 0, content_block: { type: 'tool_use', id: 'toolu_0', name, input: {} } },
+    { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: '{}' } }, { type: 'content_block_stop', index: 0 },
+    { type: 'message_delta', delta: { stop_reason: 'tool_use' }, usage: {} }, { type: 'message_stop' }]);
+  const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'POST, OPTIONS' };
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, serviceWorkers: 'block' });
+  const requests = [], replies = [tool('screen_text'), text('Your 80-column screen.')];
+  await ctx.route('https://api.anthropic.com/**', (route) => {
+    const req = route.request();
+    if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
+    requests.push(JSON.parse(req.postData()));
+    return route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'text/event-stream' }, body: replies.shift() || text('ok') });
+  });
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.addInitScript(() => localStorage.setItem('cloadm.anthropicKey', 'sk-ant-PLUS-TEXT-CHECK-KEY-0123456789'));
+  await page.goto(`${base}?machine=d64plus`);
+  await started(page);
+  await stubPrompt(page);
+  await emuFrames(page, 10);
+  // [video RAM offset, text]: the start is $0050, so row r is at $0050 + 80r; the text at $0000 is before the start
+  const CELLS = [[0x000, 'NOT ON THE SCREEN'], [0x050, 'DRAGON 64 PLUS - 80 COLUMNS FOR CLAUDE'], [0x050 + 80 + 4, 'lower case too: {|}~'],
+    [0x050 + 21 * 80 + 70, 'BOTTOM ROW']];
+  const WANT = ['DRAGON 64 PLUS - 80 COLUMNS FOR CLAUDE', '    lower case too: {|}~', ...new Array(19).fill(''), ' '.repeat(70) + 'BOTTOM ROW'];
+  await page.evaluate((cells) => {
+    window.emu.session.setDisplay({ screen: 'plus' });
+    const m = window.emu.machine;
+    m.videoRam.fill(0x20);
+    for (const [at, t] of cells) for (let i = 0; i < t.length; i++) m.videoRam[at + i] = t.charCodeAt(i);
+    // R0 113, R1 80, R2 96, R3 $0F, R4 25, R5 4, R6 22, R7 24, R8 0, R9 11, R10 $20 (no cursor), R11 11, R12/R13 $0050
+    [0x71, 0x50, 0x60, 0x0F, 0x19, 0x04, 0x16, 0x18, 0x00, 0x0B, 0x20, 0x0B, 0x00, 0x50].forEach((v, r) => { m.write(0xFFE0, r); m.write(0xFFE1, v); });
+  }, CELLS);
+  await emuFrames(page, 3);
+  check(`${L}: the Display tab shows the 80-column board`, await page.evaluate(() => window.emu.machine.view === 'plus'));
+  await page.click('#btnAsk');
+  await waitFor(page, () => !document.getElementById('ask').hidden && !document.getElementById('askComposer').hidden, null, 5000);
+  await page.fill('#askInput', 'What is on my screen?');
+  await page.press('#askInput', 'Enter');
+  await waitFor(page, () => window.emu.session.chat && !window.emu.session.chat.busy && document.querySelectorAll('#askMessages .msg[data-role="claude"]').length > 0, null, 15000);
+  const sent = requests[1] && requests[1].messages.slice(-1)[0];
+  const block = sent && Array.isArray(sent.content) && sent.content.find((b) => b.type === 'tool_result');
+  let res = null;
+  try { res = JSON.parse(typeof block.content === 'string' ? block.content : block.content.map((c) => c.text).join('')); } catch (e) { res = null; }
+  check(`${L}: Claude's screen_text reads the board's 80-column rows, exactly`, !!res && res.text === true && JSON.stringify(res.lines) === JSON.stringify(WANT),
+    JSON.stringify(res || block || sent));
+  check(`${L}: the mode, columns, rows, the start address and the note that the picture is blank without the ROM`,
+    !!res && res.mode === 'HD6845S text (the Dragon Plus), 80 columns, 22 rows' && res.cols === 80 && res.rows === 22 && res.screenRows === 22
+    && res.startAddress === 0x50 && res.base === null && /no character generator/.test(res.note || ''), JSON.stringify(res && { mode: res.mode, base: res.base, startAddress: res.startAddress, note: res.note }));
+  check(`${L}: Claude's answer shows in the panel`, /Your 80-column screen\./.test(await page.textContent('#askMessages')));
   check(`${L}: no page errors`, !errors.length, errors.join('; '));
   await ctx.close();
 }

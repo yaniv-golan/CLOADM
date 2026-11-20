@@ -434,9 +434,10 @@ const stateOf = (s) => JSON.stringify(s.machine.saveState());
   }
 
   // ---- 8. the d64plus Plus display: named, and not read as the VDG page ----
-  // The Dragon Plus shows a Hitachi HD6845S display when the person picks it, and this repo has no character-cell
-  // reader for it. The tool must name that display and decline, not hand back the VDG text page - which would be
-  // a screen the person is not looking at. The screen is switched through the Session's own setter
+  // The Dragon Plus shows a Hitachi HD6845S display when the person picks it. The tool must name that display and
+  // answer for IT, never hand back the VDG text page - which would be a screen the person is not looking at. At
+  // power-on the CRTC holds its power-on registers (8 raster lines a row), which the board cannot show whole, so the
+  // answer is a decline (tests/d64plus-screen-text.test.js covers the screens it reads, and every decline). The screen is switched through the Session's own setter
   // (setDisplay({screen:'plus'}) -> applyScreen -> machine.view), the path the page uses, not by assigning
   // machine.view directly: a test that bypassed the setter would not prove the answer follows what the person did.
   {
@@ -453,8 +454,8 @@ const stateOf = (s) => JSON.stringify(s.machine.saveState());
     const scr = await Emu.runReadOnlyTool(t, 'screen_text', {});
     check('d64plus (screen plus): machine_info names the HD6845S display',
       /HD6845S/.test(info.video.mode) && /Dragon Plus/.test(info.video.mode), JSON.stringify(info.video));
-    check('d64plus (screen plus): screen_text declines with the graphics shape, naming the display',
-      scr.text === false && scr.rows === 0 && scr.lines.length === 0 && /HD6845S/.test(scr.mode), JSON.stringify(scr));
+    check('d64plus (screen plus, power-on CRTC): screen_text declines, naming the display and the reason, not the VDG page',
+      scr.text === false && scr.rows === 0 && scr.lines.length === 0 && /HD6845S/.test(scr.mode) && /raster lines a row/.test(scr.reason || ''), JSON.stringify(scr));
     s.setDisplay({ screen: 'main' });
     const back = await Emu.runReadOnlyTool(t, 'screen_text', {});
     check('d64plus back on the main screen: the text screen is read again (the answer follows the screen, not a one-way latch)',

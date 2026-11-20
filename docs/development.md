@@ -104,6 +104,7 @@ node tools/mame-diff/run.js <profile>     # lockstep trace comparison with MAME 
 node tools/mame-diff/run.js <profile> --video [--artifact N]   # pixel comparison of every display mode with MAME
 node tools/mame-diff/run.js coco3 --video --attr   # the GIME's text attributes, exactly (blank glyphs, so the fonts never show)
 node tools/mame-diff/run.js coco3 --video --text [--cpu 6309]   # the GIME text screens, and Claude's screen_text on them
+node tools/mame-diff/run.js d64plus --plustext [--video]   # the Dragon 64 Plus's 80-column text screens (lockstep; --video: every pixel)
 node tools/mame-diff/run.js coco3 --video --composite [--artifact N]   # the CoCo 3 on MAME's composite monitor (BPI, MOCH, artifact colours)
 node tools/mame-diff/run.js <profile> --raster  # mid-line video changes swept across every beam position, against MAME
 node tools/mame-diff/run.js <profile> --printer # printer output byte for byte against MAME's printer file

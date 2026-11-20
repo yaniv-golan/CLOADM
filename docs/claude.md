@@ -307,7 +307,7 @@ emulator.
   instructions in the machine's own instruction set (6809, 6803 or 6309, taken from the machine, never from the
   request) through the same side-effect-free peek, and returns each instruction's bytes with its text.
   `screen_text` returns the screen's rows as text, trailing spaces trimmed and trailing blank rows left out. It
-  reads two kinds of text screen:
+  reads three kinds of text screen:
   * **the MC6847 VDG's 32x16 page** (MC-10, Dragon 32/64/200, CoCo 1/2, and the CoCo 3 in its CoCo-compatible
     mode), from the page the display uses, when the machine's memory map still routes the CPU to it. On a CoCo 3
     that page is the GIME's own video base, not a fixed `$400`, masked to the 16 bits a CPU address holds; the
@@ -337,10 +337,47 @@ emulator.
 
     **Known limitation:** GIME `$FF9C` does not move text rows in this emulator or in MAME 0.264, while real
     hardware smooth-scrolls them.
+  * **the Dragon 64 Plus's 80-column screen** (its Hitachi HD6845S), while the Display tab shows it. The board has
+    no register that picks a screen (MAME shows both, as two screens): the screen read is the one the page shows,
+    and on the main screen the VDG page is read as on a Dragon 64. The machine walks the board's own screen
+    (`D64PlusMachine.textScreen()` in `js/machines/d64plus.js`, the same row walk the picture is drawn from): row
+    *r* starts at the address `R12/R13 + r x R1` (fourteen bits) and holds R1 codes, R6 rows are shown, and the
+    2K video RAM decodes the address's low 11 bits, so a screen wraps round it and a start above `$07FF` mirrors.
+    It reads the registers and the video RAM as they stand, which is what the next frame draws (the board's picture
+    is drawn whole at each CRTC frame start, as MAME draws it, so a register written mid-frame shows from the next
+    frame). It works from the codes, not from glyph pixels, so no character generator is needed; without one the
+    picture is blank and the answer's `note` says so. The result is named `HD6845S text (the Dragon Plus), 80
+    columns, 22 rows`, with `screenRows` (R6), `startAddress` (R12/R13) and `base`: the CPU address of the screen
+    only while `$FFE2` bit 0 maps the video RAM over `$0000-$07FF`, the SAM leaves that window in place and the
+    screen does not wrap (never under `mameCompat`, where MAME 0.264 does not map it), otherwise `null`. The
+    cursor (R14/R15, R10/R11) is not reported: `screen_text` has no cursor field on any machine.
+
+    **The character mapping is not verified.** Codes `$20`-`$7E` are read as ASCII, an assumption from standard
+    6845 board practice: no primary source for the board's code layout could be found. Compusense's "Dragonplus
+    Interface Technical Information" (p. 4, "Character ROM") says only that the 2764 holds 256 characters of 16
+    bytes, a 7 x 9 matrix below a blank row, not which code is which; MAME's driver indexes the user's ROM by code
+    and says nothing either; the board's own manual was not reachable for this change. Any other code has no
+    character here: a screen that shows one is declined, naming the row, the column and the code. The
+    character generator itself is the user's ROM and is never needed or read.
+
+    It DECLINES, rather than guess, a set-up the board cannot show whole, checked on the CRTC's registers in this
+    order: R8 bit 0 selecting an interlace mode (not modelled; Compusense's own `$A2` is non-interlace and read);
+    R8 bits 5-4 = 11, the HD6845S's display skew "non-output", which blanks the screen (from the HD6845S data
+    sheet's R8 table as recalled; the data sheet was not available to check, no page reference; declining it fails
+    safe) (a skew of 1 or 2
+    characters only moves the picture and is read; neither our renderer nor MAME 0.264 models skew, so the
+    80-column picture is not moved or blanked by it here);
+    R1 or R6 0 (no characters); R1 not less than R0 + 1 or R6 not less than R4 + 1 (the MC6845 data sheet's
+    Nhd < Nht and Nvd < Nvt); more than 80 columns or rows taller than the board's 264-line picture (MAME's
+    `plus_screen`, 640 x 264); fewer than 10 raster lines a row (the board's characters are a 7 x 9 matrix below a
+    blank row, Compusense's notes p. 4, so a shorter row cuts them); and a code outside `$20`-`$7E`. The CRTC's
+    power-on registers (8 lines a row) are declined that way until a program sets the board up; Compusense's own
+    set-up (p. 4: 80 x 24 rows of 11 lines) is read.
 
   The tool DECLINES, with `text:false`, the mode named and a reason, anything it cannot read faithfully: a
   graphics mode (VDG or GIME bitmap), a GIME text mode whose rows are 1 or 2 lines tall (no glyph is shown whole)
-  or that shows no rows (`$FF99` lines per field 2), and the d64plus's HD6845S screen - rather than returning rows
+  or that shows no rows (`$FF99` lines per field 2), and an 80-column Dragon 64 Plus set-up or code it cannot read
+  (above) - rather than returning rows
   that are garbage or belong to a screen nobody is looking at. `machine_info`'s `video.readable` is that same
   answer from the same rule in the same module, so a model can skip `screen_text` when it cannot help; `kind`
   stays `text` when a text mode merely goes unread. On such a screen `atPrompt` is

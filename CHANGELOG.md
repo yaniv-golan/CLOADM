@@ -6,6 +6,18 @@ All notable changes to CLOADM are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Claude reads the Dragon 64 Plus's 80-column screen.** `screen_text` (and `machine_info`'s `video.readable`) used
+  to decline the HD6845S screen; now, while the Display tab shows it, it reads the board's 2K video RAM as the CRTC
+  walks it (start address R12/R13, R1 columns, R6 rows, the 2K wrapping), the same walk the picture is drawn from,
+  with `screenRows`, `startAddress` and `base`. Codes `$20`-`$7E` are read as ASCII, an assumption no source could
+  confirm; it declines, rather than guess, an interlace mode, inconsistent or oversized registers, rows under the
+  board's 10-line character and any other code. No character
+  generator ROM is needed. Verified with our own firmware (`tools/mame-diff/d64plus/plustext.asm`): in lockstep
+  with MAME 0.264 to HALT, and six screens identical to MAME's pixel for pixel (`run.js d64plus --plustext
+  [--video]`); `tests/d64plus-screen-text.test.js` and the browser check's Ask Claude on a d64plus.
+
 ### Changed
 
 - **The welcome demo's sound is one short clean tone.** "2 COLOUR AND SOUND" used to write one DAC value per frame, a

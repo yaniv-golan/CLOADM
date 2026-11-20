@@ -39,7 +39,7 @@ function slotData(profile, bank0, bank1) {
 function romFiles(profile, slots) {
   const files = {};
   for (const sl of profile.roms) for (const f of sl.files) {
-    files[f] = sl.chip ? (sl.id === 'chargen' ? genChargen() : new Uint8Array(sl.size)) : slots[sl.id];
+    files[f] = sl.chip ? (sl.id === 'chargen' ? slots.chargen : new Uint8Array(sl.size)) : slots[sl.id];
   }
   return files;
 }
@@ -57,11 +57,12 @@ function images(file, generator) {
   const bank1 = bank0.slice(); bank1[0x3F00] = 0x22;
   return { asm, bank0, bank1 };
 }
-function run(profileId, file, { regenerate = false, config = {}, work, seconds, instructions, generator }) {
+// chargen: the 8K character generator both emulators get (genChargen() unless a comparison needs another of our own)
+function run(profileId, file, { regenerate = false, config = {}, work, seconds, instructions, generator, chargen = genChargen() }) {
   const Emu = loadEmu(), profile = Emu.profiles[profileId];
   const resolved = Emu.resolveConfig(profileId, Object.assign({ mameCompat: true }, config));
   const { asm, bank0, bank1 } = images(file, regenerate && generator);
-  const slots = Object.assign(slotData(profile, bank0, bank1), { chargen: genChargen(), prom: new Uint8Array(0x200) });
+  const slots = Object.assign(slotData(profile, bank0, bank1), { chargen, prom: new Uint8Array(0x200) });
   const files = romFiles(profile, slots);
   return {
     label: `${profileId} ${path.basename(file)}`, system: profile.mame, work, seconds, args: ['-ext', '', ...mameConfigArgs(resolved)],
@@ -85,6 +86,11 @@ module.exports = {
   // the 80-column board: plus.asm programs the CRTC, the video RAM bank and the 32K banks
   plus(profileId, { config = {}, work = `/tmp/mame-diff/${profileId}-plus` } = {}) {
     return run(profileId, 'plus.asm', { config, work, seconds: 4, instructions: 400000 });
+  },
+  // the 80-column text screens for the screen-text reader: plustext.asm (written by text-screens.js) clears and
+  // writes the video RAM and sets R1, R6, R9 and R12/R13 for each screen, then puts text on the MC6847 screen
+  plusText(profileId, { regenerate = true, config = {}, work = `/tmp/mame-diff/${profileId}-plustext`, chargen } = {}) {
+    return run(profileId, 'plustext.asm', { regenerate, config, work, seconds: 12, instructions: 500000, generator: path.join(__dirname, 'text-screens.js'), chargen });
   },
   REGS,
 };

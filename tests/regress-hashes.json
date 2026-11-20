@@ -733,5 +733,10 @@
     "hash": "87ece521",
     "instructions": 197020,
     "halted": true
+  },
+  "trace d64plus plustext.asm": {
+    "hash": "630c8fee",
+    "instructions": 500676,
+    "halted": true
   }
 }

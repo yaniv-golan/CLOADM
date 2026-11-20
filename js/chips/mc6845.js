@@ -23,7 +23,12 @@
  *   R5  vertical total adjust       extra scanlines added after the last character row
  *   R6  vertical displayed          character rows of active display
  *   R7  vertical sync position      character row at which VS goes low
- *   R8  mode control                interlace/skew: not modelled (the Dragon 64 Plus does not use it)
+ *   R8  mode control                interlace and skew: not modelled. Bits 1-0 interlace; on the HD6845S bits 5-4
+ *                                   display skew and 7-6 cursor skew (0-2 characters, 3 = non-output: from the
+ *                                   HD6845S data sheet's R8 table as recalled; the data sheet was not available to
+ *                                   check, no page reference). The Dragon
+ *                                   64 Plus's own set-up (Compusense, R8 = $A2) is non-interlace with display and
+ *                                   cursor skew 2, which here, as in MAME 0.264, does not move the picture
  *   R9  maximum raster address      the last raster line of a character row
  *   R10 cursor start raster         bits 5-6: blink mode; bits 0-4: the cursor's first raster line
  *   R11 cursor end raster           the cursor's last raster line

@@ -39,7 +39,7 @@ What each machine's comparison with MAME 0.264 showed when it was verified (the 
 | Machine | Instruction trace (registers and cycles) | Display modes | Mid-line changes (`--raster`) |
 |---|---|---|---|
 | Dragon 64 | 1,028,156 instructions identical, HALT reached | 20/20 identical, PAL colour blending included | 17/17 identical |
-| Dragon 64 Plus | identical, HALT reached: 1,016,256 instructions (the base machine) and 1,177,312 (the 80-column board, under `mameCompat`); the bank register from Compusense's technical notes (see below) | the 80-column screen 640 x 264 identical, but on 0.264 its video RAM is never written (see below) | – |
+| Dragon 64 Plus | identical, HALT reached: 1,016,256 instructions (the base machine), 1,177,312 (the 80-column board) and 334,449 (the 80-column text screens), under `mameCompat`; the bank register from Compusense's technical notes (see below) | the 80-column screen 640 x 264 identical, but on 0.264 its video RAM is never written (see below); the six 80-column text screens identical, every pixel, with the video RAM put into MAME's share by the harness | – |
 | Dragon 32, Dragon 200, Tano Dragon 64 | identical | 20/20 identical, PAL colour blending included on the Dragon 32 and 200 (the Tano is NTSC) | 17/17 identical |
 | Dragon 200-E | 1,028,156 instructions identical, HALT reached | 20/20 identical, with a character generator written by this project (see below) | 17/17 identical (its own variant of cases 5 and 11, see below) |
 | Prológica CP 400 | 1,043,415 instructions identical, HALT reached | 20/20 identical | – |
@@ -407,6 +407,31 @@ so in that comparison the video RAM is never written: the picture proves the CRT
 for code 0, the start-address walk and the cursor column, not the drawing of written characters, which the unit
 tests cover from the data sheet and MAME's `crtc_update_row()`. The real 80-column glyphs need the user's own
 `chargen.ic22`.
+
+**Dragon 64 Plus 80-column text and Claude's screen reader.** `run.js d64plus --plustext` runs our firmware
+`d64plus/plustext.asm` (written by `d64plus/text-screens.js`), which puts up six screens: 80 columns from `$0000`,
+40 columns from `$0100`, a start scrolled three rows, a start at `$07C0` that wraps round the 2K video RAM, a 14-bit
+start `$2850` that mirrors `$0050`, and 64 columns of 20 rows of 13 lines; each clears the video RAM, writes its
+text (some of it where the start skips it), sets R1, R6, R9 and R12/R13 and holds for ten fields; then text goes
+on the MC6847 page. Against 0.264 under `mameCompat`: 334,449 instructions to HALT, registers and cycle counts
+identical (`trace d64plus plustext.asm` in the regression gate). `run.js d64plus --plustext --video` compares each
+screen's picture with MAME's, every pixel (MAME sizes its screen to R1 x 8 by R6 x (R9 + 1); ours must be dark
+outside that): 6 of 6 identical, 0 pixels differing, with a character generator of our own in both
+(`run-text.js` `TEXTGEN`) that draws each cell's whole 8-bit code on its even raster lines, so a match proves each
+cell's code, row and column (a drawing that turned code c into c ^ `$40` fails it; with `genChargen()`, which keeps
+only a code's low four bits, it had passed). Since 0.264 never lets the CPU write the
+video RAM (below), the Lua script puts each screen's 2K, built from the screen's own writes, into MAME's
+`:video_ram` share when the screen begins; our machine runs without `mameCompat`, so its own firmware writes fill
+the video RAM, and the match shows they put exactly those bytes there. `tests/d64plus-screen-text.test.js` reads
+every screen with `screen_text` against literal rows in `text-screens.js`, decodes our picture (drawn with a
+generator that shows each code as its byte) back to the same rows, and covers the declines, `base`, a read
+mid-frame, snapshots, the VDG screen and Compusense's own register table (p. 4). Not verified: the board's
+character mapping. No primary source for it could be found (Compusense's notes p. 4 give only the 2764's format: 256
+characters of 16 bytes, a 7 x 9 matrix below a blank row); the reader assumes ASCII for `$20`-`$7E`, from standard
+6845 board practice, and declines any other code. Nor the HD6845S R8 skew table behind the "display skew
+non-output" decline (bits 5-4 = 11): it is from the HD6845S data sheet's R8 table as recalled; the data sheet was
+not available to check (no page reference), and the decline is kept because it fails safe. Nor the real glyphs
+(the user's ROM).
 
 **Cassette** (`tools/mame-diff/tape/run-tape.js`, on the Dragon 32 and 64, the CoCo 1/2 and 2B and the CoCo 3): MAME
 runs our writer firmware (`tape/csave.asm`, which writes a namefile, a 255-byte data block and an end-of-file block

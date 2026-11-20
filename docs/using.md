@@ -264,6 +264,10 @@ scan lines) or Sharp · RGB (the pixels as they are); NTSC artifact phase; integ
 * **Defaults:** CRT · composite with artifact phase 1 (MAME's default), curvature 35 %, glow 55 %, 4:3, no
   integer scaling. So composite colour is on from the start, and the CoCo 3 starts on its composite monitor's
   palette; Sharp · RGB switches it to the RGB monitor's.
+* **Dragon 64 Plus:** the Display tab also picks which of its two screens you see, the Dragon's own (MC6847) or
+  the 80-column board's (HD6845S). Claude's `screen_text` reads the one shown: the 80-column screen's text comes
+  from the board's video RAM, so Claude can read it even without the character generator ROM, which only draws
+  it ([claude.md](claude.md#claude) says what it reads and when it declines).
 
 ## The speed POKEs
 

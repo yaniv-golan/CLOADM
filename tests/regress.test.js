@@ -116,6 +116,9 @@ for (const id of ['dragon64', 'coco3']) cases.push([`trace ${id} 6309`, () => tr
 // is tested in tests/d64plus.test.js.
 cases.push(['trace d64plus', () => traceHash(spec('d64plus').trace('d64plus', { regenerate: false }))]);
 cases.push(['trace d64plus plus.asm', () => traceHash(spec('d64plus').plus('d64plus'))]);
+// the 80-column text screens of the screen-text reader (plustext.asm, run.js d64plus --plustext; its pictures with
+// --plustext --video), also under mameCompat; the reader itself is tested in tests/d64plus-screen-text.test.js
+cases.push(['trace d64plus plustext.asm', () => traceHash(spec('d64plus').plusText('d64plus', { regenerate: false }))]);
 for (const id of ['dragon64', 'coco', 'coco2b']) cases.push([`video ${id}`, () => videoHash(spec('sam').video(id))]);
 // SAM CPU rate: MAME-verified with config.mameCompat (run.js --rate / --ops), XRoar-verified without it
 // (sam/run-xroar.js); fast-rate video without it (sam/run-fastvid.js, data sheet model)
