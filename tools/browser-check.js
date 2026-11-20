@@ -2475,9 +2475,19 @@ async function inputChecks(browser, base, check) {
   const joyOf = (n) => page.evaluate((n) => window.emu.machine.joy[n].slice(), n);
   const fireOf = (n) => page.evaluate((n) => window.emu.machine.fire[n], n);
   // what the machine's matrix holds down. Held keys go through the Session's KeyQueue and land at the next
-  // frame start (js/machines/keyqueue.js), so a few frames are run before reading, with the key still down.
+  // frame start (js/machines/keyqueue.js), so the check waits for the QUEUE ITSELF to drain and then for a frame:
+  // a fixed frame count was a race. The queue applies at most one press a frame, holds a key `hold` (3) frames and
+  // keeps `gap` (2) frames between a release and the next press of that key, so on a loaded machine (the host's
+  // frames are what is slow) 3 frames could read the matrix before the release of the previous step and the press
+  // had landed. Two checks read through here (translated Shift+2, positional Q): they failed in 2 of 3 runs on base
+  // and 0 of 3 with this wait. A third check in this group, "a joystick key does not type", reads the matrix with no
+  // wait at all; it failed 1 of 3 on base and now drains first too (see its call).
+  // The 12-frame floor keeps the old behaviour's timing for a queue already empty at the call, so a key cannot be
+  // read as down before it has been down long enough.
   const heldNow = async () => {
-    await emuFrames(page, 3);
+    await waitFor(page, () => window.emu.session.keys.pending === 0);
+    await emuFrames(page, 12);
+    await waitFor(page, () => window.emu.session.keys.pending === 0);
     return page.evaluate(() => Object.keys(window.emu.machine.keyPos)
       .filter((n) => window.emu.machine.keyCols[window.emu.machine.keyPos[n][1]] & (1 << window.emu.machine.keyPos[n][0])).sort());
   };
@@ -2510,9 +2520,15 @@ async function inputChecks(browser, base, check) {
   // the keyboard joystick: WASD drives the left joystick and Space fires it, and W does not type
   await page.check('#chkKeyJoy');
   await page.focus('#screen'); await page.keyboard.down('KeyW');
-  check('input: keyboard joystick moves the left joystick up', (await joyOf(1))[1] === 0, JSON.stringify(await joyOf(1)));
-  check('input: a joystick key does not type', !(await page.evaluate(() => Object.keys(window.emu.machine.keyPos)
-    .some((n) => window.emu.machine.keyCols[window.emu.machine.keyPos[n][1]] & (1 << window.emu.machine.keyPos[n][0])))));
+  // this read had NO wait at all, so it carried the same race in a harder form: the release of the previous step's
+  // KeyQ was still on the matrix often enough to fail it (1 of 3 runs on base). It drains the queue, and waits until
+  // the matrix is empty, before reading -- the same idea as heldNow, for an assertion of emptiness.
+  const typedNothing = await (async () => {
+    if (!await waitFor(page, () => window.emu.session.keys.pending === 0 && !window.emu.machine.keyCols.some((c) => c))) return null;
+    return page.evaluate(() => Object.keys(window.emu.machine.keyPos)
+      .some((n) => window.emu.machine.keyCols[window.emu.machine.keyPos[n][1]] & (1 << window.emu.machine.keyPos[n][0])));
+  })();
+  check('input: a joystick key does not type', typedNothing === false, typedNothing === null ? 'the matrix never emptied' : '');
   await page.keyboard.up('KeyW');
   await page.keyboard.down('Space');
   check('input: Space fires the left joystick', await fireOf(1) === true);
@@ -4408,11 +4424,11 @@ async function commandsChecks(browser, site, check) {
   const CLAUDE_NOTE = "Claude reads this emulated machine's screen text and memory, and acts on it only with your permission.";
   const FOOT = 'Type to filter, or type a question for Claude. Commands run here and are never sent to Claude.';
   const errors = [];
-  const open = async (opts, init) => {
+  const open = async (opts, init, arg) => {
     const ctx = await browser.newContext({ serviceWorkers: 'block', ...opts });
     // a key saved, so the Ask panel shows its empty state (with no key it shows the key form)
     await ctx.addInitScript(() => { try { localStorage.setItem('cloadm.anthropicKey', 'sk-ant-COMMANDS-CHECK-KEY-0123456789'); } catch (e) { /* none */ } });
-    if (init) await ctx.addInitScript(init);
+    if (init) await ctx.addInitScript(init, arg);   // arg: passed to init as its parameter (addInitScript's own)
     const page = await ctx.newPage();
     page.on('pageerror', (e) => errors.push(e.message));
     await page.goto(`${site}play/?machine=dragon64`);
@@ -4466,7 +4482,10 @@ async function commandsChecks(browser, site, check) {
   }
   // the app bar's "Commands…": desktop, a Mac, a phone behind Menu, and the touch keys' Menu
   {
-    const { ctx, page } = await open({ viewport: { width: 1280, height: 720 } });
+    // A PC's platform, set before the page loads, so this block asserts the PC hint whatever host runs it: the
+    // expectation below is the literal "Ctrl K", not a copy of the page's own platform test. The Mac case has its
+    // own block; the platform -> hint mapping is held as a table in the controlled-platforms block after it.
+    const { ctx, page } = await open({ viewport: { width: 1280, height: 720 } }, () => Object.defineProperty(navigator, 'platform', { get: () => 'Linux x86_64' }));
     // (whether the key hint shows depends on the fonts: the bar's "tight" mode hides it when the links would run past the bar)
     const nav = await page.evaluate(() => { const b = document.getElementById('navCommands'), k = document.getElementById('navCmdKbd');
       return { text: b.textContent.replace(/\s+/g, ' ').trim(), shown: b.getClientRects().length > 0, inNav: !!b.closest('.appbar nav'),
@@ -4500,6 +4519,16 @@ async function commandsChecks(browser, site, check) {
     const { ctx, page } = await open({ viewport: { width: 1280, height: 720 } }, () => Object.defineProperty(navigator, 'platform', { get: () => 'MacIntel' }));
     const mac = await page.evaluate(() => [document.getElementById('navCommands').textContent.replace(/\s+/g, ' ').trim(), document.getElementById('askKbd').textContent, document.getElementById('askEmptyKbd').textContent]);
     check('commands (Mac): ⌘K in the app bar, the Ask button and the empty state', JSON.stringify(mac) === JSON.stringify(['Commands… ⌘K', '⌘K', '⌘K']), JSON.stringify(mac));
+    await ctx.close();
+  }
+  // the platform -> hint mapping itself, each platform pinned before the page loads and asserted against the literal
+  // hint: the page's own test (js/ui/command-box.js: /Mac|iPhone|iPad/) is exercised on every branch it has, iPhone and
+  // iPad included, which no real browser here would reach. A page whose test dropped a branch fails its row.
+  for (const [platform, K] of [['MacIntel', '⌘K'], ['iPhone', '⌘K'], ['iPad', '⌘K'], ['Win32', 'Ctrl K'], ['Linux x86_64', 'Ctrl K']]) {
+    const { ctx, page } = await open({ viewport: { width: 1280, height: 720 } }, (p) => Object.defineProperty(navigator, 'platform', { get: () => p }), platform);
+    const got = await page.evaluate(() => [document.getElementById('navCmdKbd').textContent, document.getElementById('askKbd').textContent, document.getElementById('askEmptyKbd').textContent]);
+    check(`commands: navigator.platform "${platform}" shows the ${K} hint in the app bar, the Ask button and the empty state`,
+      JSON.stringify(got) === JSON.stringify([K, K, K]), JSON.stringify(got));
     await ctx.close();
   }
   {

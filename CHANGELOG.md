@@ -8,6 +8,21 @@ All notable changes to CLOADM are recorded here. The format follows
 
 ### Fixed
 
+- **The browser check is host-independent, and its keyboard checks no longer race the machine.** Several of
+  its checks only passed on a PC or on an idle machine. The desktop "Commands…" check expected `Ctrl K`, but
+  the page chooses that hint when `navigator.platform` is not a Mac or an iOS device (`js/ui/command-box.js`)
+  and a Mac renders `⌘K`. That block now pins the platform to a PC before the page loads and asserts the
+  literal `Ctrl K`, the Mac block keeps its own, and a new table pins Mac, iPhone, iPad, Windows and Linux and
+  asserts each one's literal hint, so the page's own platform test is exercised on every branch and a wrong or
+  missing hint fails. The input checks read the keyboard matrix at fixed moments: `heldNow` ran a fixed 3
+  emulated frames (translated Shift+2 and positional Q), and the joystick "does not type" check read it with
+  no wait at all. A held key goes through `KeyQueue`, which applies one change a frame and holds a key 3
+  frames, so on a loaded machine the read could see the previous step's release and not yet the new state. The
+  two `heldNow` checks now wait for the queue itself to drain (`session.keys.pending`), and the joystick check
+  drains the queue and the matrix before reading. Measured on a Mac with `--only input,commands`: the old
+  checks failed `input` in 2 of 3 runs, and this code passed all 45 checks in 3 of 3. `tools/browser-check.js`
+  only; no page behaviour changed.
+
 - **The test gate's summary check, closed where it could still pass a suite that failed** (the follow-ups from that
   change's review). A suite that stopped part-way could still print its summary from a `beforeExit` or `exit`
   handler, and the gate read that as a pass; every write made while the process is shutting down is now marked and
