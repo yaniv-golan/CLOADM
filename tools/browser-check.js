@@ -236,6 +236,24 @@ async function diskChecks(browser, base, check) {
   const blank = Buffer.concat([Buffer.from([0x64, 0x6b, 12, 0, 0x10, 0x10, 0x4d, 0x01, 40, 1, 0, 0]), Buffer.alloc(40 * 18 * 256, 0xe5)]);
   check('disks: the new disk downloads as the blank VDK, byte for byte', nd.suggestedFilename() === 'disk-1.vdk' && fs.readFileSync(saved).equals(blank));
   fs.unlinkSync(saved);
+  // A new blank disk and an import of its name, both started in the same tick, on the page's OWN OPFS store
+  // (asynchronous, unlike the Node memory store). This calls the Session rather than the drive menu's buttons: the
+  // two menu actions are one click apart and cannot be issued in one tick, so this is not a race driven through the
+  // page -- it proves the ordering holds on a real asynchronous store, and that the losing side is refused rather
+  // than overwriting. The race itself, with a held window, is tests/disks.test.js cases 1-3b and 7.
+  await openDrive(1);
+  if (await page.evaluate(() => !!document.getElementById('driveEject'))) { await page.click('#driveEject'); await openDrive(1); }
+  const race = await page.evaluate(async () => {
+    const s = window.emu.session, name = 'race.vdk';
+    const p1 = s.newDisk(1, { format: 'vdk', tracks: 40, heads: 1 }, { name }).then((m) => ({ ok: true, m }), (e) => ({ ok: false, m: e.message }));
+    const p2 = s.importDisk(name, window.emu.Emu.blankDisk('vdk', 40, 2), 2).then((m) => ({ ok: true, m }), (e) => ({ ok: false, m: e.message }));
+    const [a, b] = await Promise.all([p1, p2]);
+    const after = (await s.listDisks()).filter((d) => d.name === 'disks/race.vdk');
+    return { a, b, added: after.length, size: after[0] && after[0].size, drives: s.diskStatus().drives.map((d) => `${d.drive}:${d.file}`) };
+  }).catch((e) => ({ error: e.message }));
+  check('disks (Session on the real OPFS store): a new blank disk and an import of its name started together: one stored (the blank), one refused',
+    !race.error && race.a.ok && !race.b.ok && race.b.m === 'There is already a disk named race.vdk in your library: choose another name.'
+    && race.added === 1 && race.size === 12 + 40 * 18 * 256, JSON.stringify(race));
 
   // ---- a Multi-Pak with the DragonDOS controller in slot 4, chosen in the Multi-Pak panel's board menu (no image:
   // the controller's ROM is the DOS ROM stored above); the drives card then uses it and the firmware runs from slot 4

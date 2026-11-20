@@ -292,6 +292,10 @@ export class Session {
     this.diskChanges = new Map();   // stored image name (exact spelling) -> how many of those changes were to it
     this.diskError = null;          // a disk write the store refused, reported by diskWritesDone()
     this.diskUnsaved = new Map();   // stored image name -> why its last write was refused (until one succeeds)
+    this.creating = Promise.resolve();   // the creation of a library name in flight (createExclusive: newDisk, imports)
+    this.creationsAsked = [];       // askedAt of each creation asked and not yet finished, oldest first (createExclusive)
+    this.landing = 0;               // names creations have landed so far (each creation notes it when asked: createExclusive)
+    this.pendingLands = [];         // { name, at }: names landed that a creation still queued may have to refuse
     this.debugger = null;           // created on first use by `debug` (js/debugger.js)
     this.labels = null;             // symbols of the program in use (the assembler's Map name -> address)
     this.displayCache = null;       // Session.display, once read from the store
@@ -1403,6 +1407,70 @@ export class Session {
   // js/host/media-store.js) GAME.DSK and game.dsk are one file, so they are one name to every guard below.
   // ci: the rule to compare by (default: the store's rule now); a caller that must compare twice by one rule passes it
   sameName(a, b, ci = this.caseInsensitive) { return ci ? String(a).toLowerCase() === String(b).toLowerCase() : a === b; }
+  // A new disk (newDisk) and an import (importDisk, importMedia) make a name that did not exist, and each checks
+  // the library before it writes. The check and the write are apart by awaits -- the listing of what is stored,
+  // the wait for the drives' writes -- so two creations can both pass the check, and the later write replaces the
+  // earlier one's bytes under the same name: a blank disk held at its read-back was replaced by an import of its
+  // name, and the mount that then read it back had nothing to mount. (Choosing the first free name can await a
+  // listing of its own, so even a name reserved straight after the check could be taken before it was written.)
+  // Creations therefore run one at a time (createExclusive): the second waits for the first to have written -- or
+  // failed -- and then checks again, so it is refused with the library's "already exists" as it would have been
+  // had it come second, and never takes the name or its bytes. Files, slots and DriveWire images are made by
+  // writes that replace (a file is imported again as a newer version of itself), so only these creations are
+  // serialised.
+  // -> what op returns
+  // The creation in flight runs op, then the next one runs. newDisk does not come back through here: it holds the
+  // turn already and calls the stored half (importDiskStored) directly, because re-entering would wait on its own
+  // turn and never finish.
+  //
+  // Two creations of one name must not both pass their check: the later write replaces the earlier one's bytes
+  // under the same name. Serialising them is not enough -- the second must know it is a SECOND creation and not a
+  // deliberate replace -- and the fact that tells them apart is the order of asking:
+  //   * a creation asked while a creation of that name was in flight is a second creation of it: if that one lands
+  //     the name, this one refuses;
+  //   * an import asked after the name is already in the library is a replace (a disk in a drive taking a newer
+  //     copy of itself), which is what importDisk has always done, and stays allowed.
+  // Names are compared with this.sameName -- the store's own rule (CASE in js/host/media-store.js) -- never with a
+  // key computed once: the store's rule can be learned (refreshCase) between asking and landing, and a key made
+  // under one rule then compared under another reopens the hole. The names in flight are kept as the raw strings
+  // they were asked with; a creation waiting for a name is tested against them with sameName at the moment it is
+  // asked, and again when its turn comes (so a name a new disk picks inside its turn is seen too).
+  // `askedAt`: how many names creations had LANDED when this one was asked for. A name landed after that is one
+  // this creation was waiting behind.
+  // There is no deadline on a turn. A creation whose store write never answers holds every later creation, as a
+  // hung store write already holds a mount or a library move: giving up on the wait would not stop the write, which
+  // could then land, mount and claim the name alongside the creations let in after it. An honest wait keeps the
+  // one-at-a-time guarantee; a store that never answers is the store backend's to fix.
+  createExclusive(op) {
+    const askedAt = this.landing;
+    this.creationsAsked.push(askedAt);
+    const run = this.creating.then(() => op(askedAt), () => op(askedAt));   // after the one in flight, however it ended
+    this.creating = run.then(() => this.creationFinished(), () => this.creationFinished());
+    return run;
+  }
+  // the oldest creation (they run in the order asked) is done: drop the landings no creation still queued can be
+  // behind -- one only refuses a landing after its own askedAt, and the oldest queued one has the smallest askedAt
+  // (landing only grows) -- so pendingLands holds at most the landings made while some creation was queued
+  creationFinished() {
+    this.creationsAsked.shift();
+    const oldest = this.creationsAsked[0];
+    this.pendingLands = oldest === undefined ? [] : this.pendingLands.filter((p) => p.at > oldest);
+  }
+  // has a creation in flight that this one was waiting behind already landed this name? -> the spelling it was
+  // stored with by the latest such landing (for the refusal's message), or null
+  landedRace(full, askedAt) {
+    for (let i = this.pendingLands.length - 1; i >= 0; i--) {
+      const p = this.pendingLands[i];
+      if (p.at <= askedAt) break;
+      if (this.sameName(p.name, full)) return p.name;
+    }
+    return null;
+  }
+  // a creation has stored `full` and finished: count it, so a creation waiting behind it refuses (createExclusive)
+  creationLanded(full) {
+    this.landing++;
+    this.pendingLands.push({ name: full, at: this.landing });
+  }
   // Does this library treat GAME.DSK and game.dsk as one name? The store's own settled answer wins: a real
   // backend measures itself inside every list() (js/host/media-store-fsa.js _case), so the store can be settled by
   // a route this Session did not take. Answering from the store whenever it has been measured is what keeps the
@@ -1491,16 +1559,28 @@ export class Session {
     if (Session.isRom(name, bytes)) return { roms: this.addRoms([{ name, bytes }]) };
     const base = name.split(/[\\/]/).pop();
     const target = detectMedia(base, bytes).kind === 'disk' ? DISK_PREFIX + base : this.libName(name);
-    this.checkNotInDrive(target, 'replace');
-    // the store has a name now: on an empty store that is the first chance to put its case rule to the test (a
-    // read of the store it was written to, so inside the same Library operation)
-    try {
-      return { stored: await this.libraryOp(async () => {
-        const r = await (target.startsWith(DISK_PREFIX) ? this.diskStoreChange(() => this.media.write(target, bytes), target) : this.media.write(target, bytes));
-        await this.refreshCase();
-        return r;
-      }) };
-    } catch (e) { throw this.mediaError(e, name); }
+    this.checkNotInDrive(target, 'replace');   // synchronous, so it needs no creation's turn: a disk in a drive is not replaced
+    // non-disk media (programs, ROMs) are made by writes that replace, so they take no creation's turn; a disk
+    // image may replace one of its name, but not take a name a new disk (or another import) is making: it runs as
+    // one creation, ordered behind that one, and checks again (createExclusive)
+    const disk = target.startsWith(DISK_PREFIX);
+    // this runs when the creation's turn comes, which may be long after the caller was let in: a library move may
+    // have started meanwhile, and writing now would put the image in the folder it is moving away from. It runs as a
+    // Library operation, whose own check refuses it then (and which the move waits for once it has started).
+    const write = (askedAt) => this.libraryOp(async () => {
+      // a creation of this name landed after this one was asked for: a second creation of one name, refused rather
+      // than replacing it
+      const raced = this.landedRace(target, askedAt);
+      if (raced) throw new SessionError(`There is already a disk named ${raced.slice(DISK_PREFIX.length)} in your library: choose another name.`);
+      this.checkNotInDrive(target, 'replace');   // again, now no creation of the name is in flight
+      const r = await (disk ? this.diskStoreChange(() => this.media.write(target, bytes), target) : this.media.write(target, bytes));
+      // stored: landed however the rest ends, and only at the end (as importDiskStored)
+      // the store has a name now: on an empty store that is the first chance to put its case rule to the test (a
+      // read of the store it was written to, so inside the same Library operation)
+      try { await this.refreshCase(); } finally { if (disk) this.creationLanded(target); }
+      return { stored: r };
+    });
+    try { return disk ? await this.createExclusive(write) : await write(0); } catch (e) { throw this.mediaError(e, name); }
   }
   mediaError(e, name) {
     if (e instanceof SessionError) return e;
@@ -1569,24 +1649,28 @@ export class Session {
     if (heads !== 1 && heads !== 2) throw new SessionError(`A disk has 1 or 2 sides, not ${heads}.`);
     let bytes;
     try { bytes = blankDisk(format, tracks, heads); } catch (e) { throw new SessionError(e instanceof DiskFormatError ? e.message : String(e)); }
-    const stored = new Set((await this.listDisks()).map((d) => d.name));
-    // on a store that does not tell cases apart, a name already there in another case is that same disk
-    const taken = (n) => stored.has(n) || (this.caseInsensitive && [...stored].some((s) => s.toLowerCase() === n.toLowerCase()));
-    let full;
-    if (name) {
-      full = this.diskStoreName(name);
-      const base = full.slice(DISK_PREFIX.length);
-      if (detectDiskFormat(bytes, base) !== format) throw new SessionError(`${base}: a ${format.toUpperCase()} image needs a name ending .${format === 'jvc' ? 'dsk' : format}.`);
-      if (taken(full)) {
-        const same = [...stored].find((s) => s === full || (this.caseInsensitive && s.toLowerCase() === full.toLowerCase()));
-        throw new SessionError(`There is already a disk named ${same ? same.slice(DISK_PREFIX.length) : base} in your library: choose another name.`);
+    // one creation at a time (createExclusive): the name is chosen and checked, written and mounted before another
+    // creation looks, so a second one sees this disk and is refused rather than replacing its bytes
+    return this.createExclusive(async (askedAt) => {
+      const stored = new Set((await this.listDisks()).map((d) => d.name));
+      // on a store that does not tell cases apart, a name already there in another case is that same disk
+      const taken = (n) => stored.has(n) || [...stored].some((s) => this.sameName(s, n));
+      let full;
+      if (name) {
+        full = this.diskStoreName(name);
+        const base = full.slice(DISK_PREFIX.length);
+        if (detectDiskFormat(bytes, base) !== format) throw new SessionError(`${base}: a ${format.toUpperCase()} image needs a name ending .${format === 'jvc' ? 'dsk' : format}.`);
+        if (taken(full)) {
+          const same = [...stored].find((s) => this.sameName(s, full));
+          throw new SessionError(`There is already a disk named ${same.slice(DISK_PREFIX.length)} in your library: choose another name.`);
+        }
+      } else {
+        const ext = format === 'jvc' ? 'dsk' : format;
+        for (let n = 1; !full || taken(full); n++) full = `${DISK_PREFIX}disk-${n}.${ext}`;
       }
-    } else {
-      const ext = format === 'jvc' ? 'dsk' : format;
-      for (let n = 1; !full || taken(full); n++) full = `${DISK_PREFIX}disk-${n}.${ext}`;
-    }
-    const msg = await this.importDisk(full, bytes, drive, { writeProtected });
-    return `New blank disk: ${msg}`;
+      const msg = await this.importDiskStored(full, full.slice(DISK_PREFIX.length), bytes, drive, writeProtected, askedAt);
+      return `New blank disk: ${msg}`;
+    });
   }
   insertDiskDos(id) {
     const m = this.machine, choice = this.diskDosChoices().find((c) => c.id === id);
@@ -1694,6 +1778,8 @@ export class Session {
   async listDisks() { return this.media.list(DISK_PREFIX); }
   // a disk image from the user: checked, stored (replacing a stored image of that name that no drive holds)
   // and mounted -> message
+  // The whole check-and-mount is one creation, so an import of a name a new disk is making waits for that disk and
+  // then meets it in its drive instead of replacing its bytes.
   async importDisk(name, bytes, drive = 0, { writeProtected = false } = {}) {
     this.checkDrive(drive);
     this.checkNotMoving();
@@ -1701,6 +1787,18 @@ export class Session {
     const format = detectDiskFormat(bytes, base);
     if (!format) throw new SessionError(`${base}: not a disk image CLOADM can read (VDK, JVC/DSK or DMK).`);
     try { diskGeometry(bytes, format); } catch (e) { throw new SessionError(`${base}: ${e.message}`); }
+    return this.createExclusive((askedAt) => this.importDiskStored(full, base, bytes, drive, writeProtected, askedAt));
+  }
+  // the stored part of importDisk, run as one creation. askedAt: the landing count when this creation was asked
+  // for (see createExclusive), which tells a second creation of one name from a deliberate replace.
+  async importDiskStored(full, base, bytes, drive, writeProtected, askedAt = 0) {
+    this.checkNotMoving();
+    // a creation of this name landed after this one was asked for: it is a second creation of one name, and must
+    // refuse rather than replace. This is also the same-drive case the diskHolder checks below cannot see -- they
+    // look for the image in a drive, and a creation's image may have been put in this very drive (the eject below
+    // would remove it) or be about to be mounted after this operation read the drive as empty.
+    const raced = this.landedRace(full, askedAt);
+    if (raced) throw new SessionError(`There is already a disk named ${raced.slice(DISK_PREFIX.length)} in your library: choose another name.`);
     const holder = this.diskHolder(full, { machine: this.machine, drive });
     if (holder) throw new SessionError(`${holder.name} is in drive ${holder.drive}${holder.where}; eject it there first.`);
     if (this.diskStatus().drives.some((d) => this.sameName(d.name, full))) await this.ejectDisk(drive);
@@ -1710,9 +1808,17 @@ export class Session {
     if (again) throw new SessionError(`${again.name} is in drive ${again.drive}${again.where}; eject it there first.`);
     this.checkNotMoving();
     try { await this.diskStoreChange(() => this.media.write(full, bytes), full); } catch (e) { throw this.mediaError(e, base); }
-    await this.refreshCase();   // the store has a name now: it can put its case rule to the test
-    // stored by now: a mount that fails says so, rather than that the import did not happen
-    try { return await this.mountDisk(drive, full, { writeProtected }); } catch (e) { throw new SessionError(`${base} was saved to your Library but not put in drive ${drive}: ${e.message}`); }
+    // The name is stored, so from here on this creation lands it however it ends -- mounted, a mount that fails, or a
+    // case probe that throws -- and it lands it only at the end: a creation asked at any point while this one runs
+    // (askedAt below this landing) is waiting behind it and refuses, while one asked after it finished is a
+    // deliberate replace. Landing straight after the write would let an import asked between the write and the end
+    // count as a replace and take the name.
+    try {
+      await this.refreshCase();   // the store has a name now: it can put its case rule to the test
+      // stored by now: a mount that fails says so, rather than that the import did not happen
+      try { return await this.mountDisk(drive, full, { writeProtected }); }
+      catch (e) { throw new SessionError(`${base} was saved to your Library but not put in drive ${drive}: ${e.message}`); }
+    } finally { this.creationLanded(full); }
   }
   // a stored disk image into a drive (plugging in the disk cartridge if none is) -> message
   // opts[HELD]: as for mountDriveWire (the caller's Library operation is what the move waits for)

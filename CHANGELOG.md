@@ -32,6 +32,23 @@ All notable changes to CLOADM are recorded here. The format follows
 
 ### Fixed
 
+- **A new blank disk and an import of its name racing each other.** Both check the library for the name and then
+  write it, with a listing and the wait for the drives' writes in between, so two of them could both pass the
+  check: the later write replaced the earlier image under its own name, and the drive then read back the other
+  image's bytes (a new blank disk could end up holding the imported image's bytes, and the imported bytes were
+  gone with no error at all). A new disk, a drive import and a Library import are now made one at a time: a
+  second one waits for the first to have written and then checks again, so it is refused as it would have been
+  had it come second -- the second new disk with "There is already a disk named … in your library", an import of
+  the name with the drive it is in, and a new disk's first free name skips a disk a queued import has just made.
+  Names compare the way the store does, so `GAME.DSK` and `game.dsk` are one name on a case-insensitive store and
+  two on a case-sensitive one. A second creation of a name -- in another drive or the same one, under the same
+  spelling or another case, and including a name a new disk picks for itself -- is refused and the first one's
+  bytes are kept; a disk already in the library is replaced only by an import asked for after its creation
+  finished, which is how a disk in a drive takes a newer copy of itself (and if the first creation fails, nothing
+  is refused). A Library import waiting its turn when the library starts moving is refused rather than written
+  into the folder it is leaving. There is no deadline: a creation whose store write never answers holds the later
+  ones until it does, as a hung store write already holds a mount or a library move, so nothing runs alongside it.
+
 - **Moving your library no longer loses (or strands) what was being saved.** **Where your library is kept** copies
   every file to the new place, and it could copy the library out from under a Library operation already under way:
   an import, a rename, a delete, a quick-save slot or a DriveWire image started just before the move landed in the
