@@ -8,6 +8,7 @@
  */
 import { $ } from './page.js';
 import { SERIAL_DW_BAUDS } from '../host/web-serial.js';
+import { SessionError } from '../session.js';
 
 const DRIVES = 4;
 
@@ -27,7 +28,11 @@ export function setupDriveWirePanel(page) {
     const real = session.realCoco;
     $('btnDwSerial').textContent = real && real.state === 'open' ? 'Stop serving' : 'Serve a real CoCo…';
     $('dwSerialState').textContent = real ? `${real.state}, ${real.bytesIn} in / ${real.bytesOut} out` : '';
-    const images = await session.driveWireImages();
+    // the listing can be refused (a folder's permission gone, a store that won't answer): say so on the status
+    // line, as the Library does, and show no images rather than leave a promise nothing waits for
+    let images;
+    try { images = await session.driveWireImages(); }
+    catch (e) { images = []; fail(session.mediaError(e, 'the DriveWire images')); }
     const mounts = new Map(session.driveWireMounts.map((d) => [d.drive, d]));
     box.replaceChildren();
     for (let d = 0; d < DRIVES; d++) {
@@ -73,8 +78,18 @@ export function setupDriveWirePanel(page) {
     try { const name = await session.newDriveWireImage(`blank-${Date.now().toString(36)}.dsk`); page.status(`Added ${name} (157K, blank)`); } catch (err) { fail(err); }
   };
   $('btnDwSave').onclick = async () => {
-    const name = $('dwDrive0').value || (await session.driveWireImages())[0].name;
-    try { const f = await session.driveWireFile(name); page.download(f.name, f.bytes); } catch (err) { fail(err); }
+    try {
+      // no drive chosen: the first image; with none at all (a store that refused the listing), say so rather
+      // than read a name off an empty list
+      const chosen = $('dwDrive0').value;
+      // (a refused listing is said as the box says it: session.mediaError, not the store's raw error)
+      let first = null;
+      if (!chosen) {
+        try { first = (await session.driveWireImages())[0]; } catch (e) { throw session.mediaError(e, 'the DriveWire images'); }
+      }
+      if (!chosen && !first) throw new SessionError('No DriveWire image to save: add one first.');
+      const f = await session.driveWireFile(chosen || first.name); page.download(f.name, f.bytes);
+    } catch (err) { fail(err); }
   };
   $('btnDwConnect').onclick = () => page.attempt(() => {
     const ch = session.driveWireChannels[0];

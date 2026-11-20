@@ -32,6 +32,35 @@ All notable changes to CLOADM are recorded here. The format follows
 
 ### Fixed
 
+- **Moving your library no longer loses (or strands) what was being saved.** **Where your library is kept** copies
+  every file to the new place, and it could copy the library out from under a Library operation already under way:
+  an import, a rename, a delete, a quick-save slot or a DriveWire image started just before the move landed in the
+  old place after it began, so it was either dropped or missing from the moved library. The move now waits for
+  those operations to finish first (theirs or their failure, which stays theirs to report), and refuses a new one
+  while it copies, saying "The library is being moved: try again once it is done" - the same answer the Library's
+  own changes already gave. The wait is bounded: an operation that never ends (a folder whose permission went, a
+  store that stopped answering) does not hang the move for good - after 30 seconds in all, the drives' last writes
+  and the Library's operations waiting together under the one limit, it stops with a message and your library stays
+  where it was. The Undo of a save, a ROM drop or ROM pack restore (which write the library's own index), and a
+  DriveWire mount or named-object create on the emulated machine's Becker port (a mount hands the drives the store
+  they then write in, and so did a NitrOS-9 boot) are covered too. A mount begun while the copy runs is
+  refused. A guest's create (the stat, the write of the new object and handing the guest its drive) is one Library
+  operation: begun while the move copies it is refused (answered 0); under way when the move starts, the move waits
+  for it, then finds the guest's new drive mounted and is refused itself ("Eject the disks first"), with nothing
+  copied and the session on the place that drive writes to. A NitrOS-9 boot is refused before it changes the machine
+  if a move began during its reads; past them, a move that begins during its mount waits for it and is refused the
+  same way, so a boot is never left half done; an image added in the NitrOS-9 slot whose boot a move then refuses
+  says it was kept ("… was saved to your Library but not booted: …"). This covers the Becker-port server; serving a
+  real CoCo over Web Serial and the Claude chat's own DriveWire server are not covered here (`js/session.js`,
+  `js/drivewire/server.js`, `tests/move-inflight.test.js`).
+- **DriveWire's Save drive 0 threw when its image list could not be read.** With no drive chosen, **Save drive 0**
+  asks the store for the first image; a refused listing (a folder whose permission was revoked, a store that would
+  not answer) made that a promise nothing handled, and with no image at all it read a name off an empty list
+  ("Cannot read properties of undefined"). It now says what the Library says, on the status line ("the DriveWire
+  images: the folder's permission was revoked", or "No DriveWire image to save: add one first."), and the box
+  renders empty rather than aborting (`js/ui/drivewire-panel.js`; the browser check refuses the listing and clicks Save with no drive chosen,
+  counting unhandled rejections).
+
 - **A background save that fails can no longer stop the media library saving anything again.** The page's
   handler for a failed background write (a full browser, a permission that went away) draws the status line; if
   that handler itself threw, the media index's write queue took the exception and every later write was dropped

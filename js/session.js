@@ -117,6 +117,15 @@ export const DISK_PREFIX = 'disks/';
 const MOUNT_READ_RETRIES = 3;
 // everything CLOADM keeps in a media store (what moving the library copies)
 const STORE_PREFIXES = [LIBRARY_PREFIX, DISK_PREFIX, DW_PREFIX, ...INDEX_PREFIXES];
+// how long moveMedia waits for the Library operations under way before it gives up on them. A move never copies
+// the library out from under an import, a rename, a delete or a save it could not settle (see libraryOp); a store
+// that stopped answering would otherwise hang the move for good, so the wait ends with an error and the session
+// stays on the old store, with its library as it was.
+export const MEDIA_MOVE_WAIT_MS = 30000;
+// The key bootNitros9 sets on a mount's options when the mount runs inside its own Library operation (see
+// mountDriveWire). Module-private, so only this module can pass it: an embedder calling mountDisk or
+// mountDriveWire cannot skip their move checks.
+const HELD = Symbol('held');
 // the disk cartridges each family can take (js/machines/profiles.js cartridgeRoms), the usual one first
 const DISK_DOS = { dragon: ['dragondos', 'deltados'], coco: ['rsdos'] };
 // quick-save slots: how many, and where they live in the media store (in the library, so the Library lists them
@@ -197,8 +206,11 @@ export class Session {
   // embedders need no setup. keyStore: where the Claude API key lives (js/host/key-store.js), never `store`.
   // welcomeMenu: false for a page embedded in someone else's (?embed=1): the host drives a plain machine, so the
   // Session never asks for the welcome menu (power-on, reset, a switch, leaving LIZA); the bare stub stays
-  constructor({ store = memoryStore(), media = new MemoryMediaStore(), keyStore = null, welcomeMenu = true } = {}) {
+  // mediaMoveWaitMs: how long moveMedia waits for the Library operations under way (MEDIA_MOVE_WAIT_MS); a test
+  // sets it short to prove the wait is bounded
+  constructor({ store = memoryStore(), media = new MemoryMediaStore(), keyStore = null, welcomeMenu = true, mediaMoveWaitMs = MEDIA_MOVE_WAIT_MS } = {}) {
     this.welcomeMenu = welcomeMenu;
+    this.mediaMoveWaitMs = mediaMoveWaitMs;
     this.store = store;
     this.media = media;
     // Does the store tell GAME.DSK from game.dsk? A store whose bytes are already in memory answers now (its
@@ -256,6 +268,12 @@ export class Session {
     // DriveWire: one server for the session, on its media store (images under DW_PREFIX); attached to the
     // machine's Becker port when it has one. Channels: WebSockets (DriveWireSocket) by channel number.
     this.drivewire = new DriveWireServer({ store: media, namePrefix: DW_PREFIX, sameName: (a, b) => this.sameName(a, b) });
+    // a guest's named-object call reaches the store: a create writes it, and a mount hands the guest a drive it
+    // then writes through - refused while the library is being copied, so neither can be lost to the move (the
+    // reply is the protocol's "no such object")
+    this.drivewire.mayWrite = () => !this.movingMedia;
+    // ...and a create's write runs as a Library operation, so the move waits for it and it cannot begin mid-copy
+    this.drivewire.openLibraryOp = (run) => this.libraryOp(run);
     this.dwSockets = new Map();
     this.WebSocket = globalThis.WebSocket;
     this.serial = globalThis.navigator && globalThis.navigator.serial;   // Web Serial (a mock in tests)
@@ -266,6 +284,8 @@ export class Session {
     this.drivewire.onChannelRead = (ch) => { const s = this.dwSockets.get(ch); if (s) s.deliver(); };
     this.diskWriting = Promise.resolve();   // the chain of disk image writes to the media store
     this.movingMedia = false;       // moveMedia is copying the library to another place
+    this.movingOps = new Set();     // Library operations under way that the move waits for (libraryOp)
+    this.moveDone = null;           // a promise resolved when the move under way ends (afterMove)
     this.diskMounts = 0;            // mounts made so far: each mount's link carries the next number (diskLink)
     this.diskQueued = 0;            // changes to stored disk images queued so far (queueDiskWrite, diskStoreChange)
     this.diskLanded = 0;            // of those, the ones finished (done or refused)
@@ -307,22 +327,89 @@ export class Session {
   // lists (ROM sockets and names, the recent list) change in place, so they are merged (MediaIndex.mergeInto):
   // this library's entries win, and with `reconnecting` (a folder that holds the library, reconnected after this
   // visit kept it in the browser) the folder's win except what changed in this visit. Refused while a stored
-  // disk is in a drive, since the drives read and write it where it is kept now. A copy that fails leaves the
-  // session on the old store.
+  // disk is in a drive, since the drives read and write it where it is kept now (checked at the start, and again
+  // after the waits below, right before the copy: checkNoStoredMounts).
+  // A copy that fails leaves the session on the old store.
+  // The library must not change while it is copied, and it must not be copied out from under what is already
+  // writing to it: the move waits for the Library operations under way (libraryOp: imports, renames, deletes,
+  // saves) to settle first - whichever way each one ends (a failure is its caller's to report) - and while it
+  // copies every new one is refused (checkNotMoving: "try again once it is done"). The wait is bounded
+  // (MEDIA_MOVE_WAIT_MS): a store that stops answering ends it with an error, and nothing is moved.
   // -> { copied, kept }: how many files were copied, and how many the new place already had
   async moveMedia(store, { reconnecting = false } = {}) {
-    const busy = this.diskMachines().flatMap(({ machine, where }) => this.storedDisks(machine).map((d) => `drive ${d.drive}${where}: ${d.name.split('/').pop()}`))
-      .concat(this.driveWireMounts.map((d) => `DriveWire drive ${d.drive}: ${d.name}`));
-    if (busy.length) throw new SessionError(`Eject the disks first (${busy.join(', ')}): they are read and written where the library is kept now.`);
+    this.checkNoStoredMounts();
     let copied = 0, kept = 0;
     if (store === this.media) return { copied, kept };
     if (this.movingMedia) throw new SessionError('The library is being moved already.');
-    // while it moves no disk goes in (mountDisk and importDisk refuse), and the disks' last writes are in first
+    // The operations under way are taken now, in the same step as both checks, so nothing starts between them; the
+    // marker is set now too, so nothing that starts from here on can slip past either (its own guard refuses it).
+    const waiting = [...this.movingOps];
     this.movingMedia = true;
+    let done;
+    this.moveDone = new Promise((resolve) => { done = resolve; });
+    this.moveDone.then(() => {}, () => {});
     try {
-      await this.diskWritesSettled();   // (an earlier write's error is the drives' to report, not the move's)
+      // the disks' last writes, and the Library operations, under the one bound: either can be stuck on a store
+      // that stopped answering (a disks/ rename or import runs in the disks' chain too), and neither may hang the
+      // move for good. One deadline for both: the whole wait is bounded by mediaMoveWaitMs, not twice it
+      const deadline = Date.now() + this.mediaMoveWaitMs;
+      await this.boundedWait(this.diskWritesSettled(), 'The drives are still writing to the library', deadline);
+      await this.libraryWritesSettled(waiting, deadline);
+      // ...and checked again now that they have: an operation the move waited for can have left a drive mounted
+      // on the old store (the guest's DriveWire create hands out its drive inside its Library operation). Copying
+      // now would leave that drive writing to the store the session is about to leave, so the move is refused
+      // instead, with nothing copied and the session where it was.
+      this.checkNoStoredMounts();
       return await this.copyMedia(store, reconnecting);
-    } finally { this.movingMedia = false; }
+    } finally { this.movingMedia = false; this.moveDone = null; done(); }
+  }
+  // a move is refused while a drive reads and writes a stored image where the library is kept now: a disk in a
+  // floppy drive, or a DriveWire drive (the user's mount, or the guest's named object)
+  checkNoStoredMounts() {
+    const busy = this.diskMachines().flatMap(({ machine, where }) => this.storedDisks(machine).map((d) => `drive ${d.drive}${where}: ${d.name.split('/').pop()}`))
+      .concat(this.driveWireMounts.map((d) => `DriveWire drive ${d.drive}: ${d.name}`));
+    if (busy.length) throw new SessionError(`Eject the disks first (${busy.join(', ')}): they are read and written where the library is kept now.`);
+  }
+  // `work` done, or `deadline` (a Date.now() value) reached: what it waits on never ended (a store that stopped
+  // answering). The first wait is given the deadline itself, so the two together stay within the one bound.
+  // A deadline already reached (the first wait used it all) is not a failure on its own: work that is settled when
+  // the race is set up wins over the 0 ms expiry, so a second wait with nothing outstanding does not fail a move
+  // that was in time; a wait still pending then is expired. It returns nothing: the work's value is the caller's.
+  async boundedWait(work, what, deadline) {
+    let timer = null;
+    const left = Math.max(0, deadline - Date.now());
+    const tooLong = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new SessionError(`${what} and did not finish: the move was stopped and your library is where it was. Try again once it is done.`)), left);
+      // (not unref'd: while it waits this timer is what ends the wait, so it must keep the process alive)
+    });
+    try { await Promise.race([work, tooLong]); } finally { clearTimeout(timer); }
+  }
+  // the Library operations in `waiting` have settled (finished or failed; their entry is gone from movingOps),
+  // or the move's deadline has passed and the move gives up: an operation that never ends (a store that stopped
+  // answering) fails the move with a message and leaves the session on its old store
+  async libraryWritesSettled(waiting, deadline) {
+    if (!waiting.length) return;
+    await this.boundedWait(Promise.all(waiting), `The library is still being written to (${waiting.length} operation${waiting.length === 1 ? '' : 's'})`, deadline);
+  }
+  // A Library operation that writes, renames or deletes in the store, run so that the move waits for it and it
+  // does not start while the move is copying. -> run()'s value; run's failure is the caller's (a move that waited
+  // for it keeps going: the operation says what went wrong to its own caller, and the move copies what is there).
+  // The caller has checked the move is not on (checkNotMoving) and taken whatever else it needs to read from the
+  // store BEFORE this call: once it is async, a move may begin before its first await, and then its store is the
+  // old one while the session uses the new one. Between the check and this call nothing awaits, so neither can a
+  // move begin.
+  async libraryOp(run) {
+    if (this.movingMedia) throw new SessionError('The library is being moved: try again once it is done.');
+    // registered synchronously, and only then started: a move that begins now (it cannot, this step runs to its
+    // first await) or already began (checked above) sees this, and its guard is the one that refuses.
+    let settle;
+    const settled = new Promise((resolve) => { settle = resolve; });
+    this.movingOps.add(settled);
+    try {
+      const p = (async () => run())();
+      p.then(() => {}, () => {});   // its failure is the caller's (below), not a rejection nothing listens to
+      return await p;
+    } finally { this.movingOps.delete(settled); settle(); }
   }
   async copyMedia(store, reconnecting) {
     let copied = 0, kept = 0;
@@ -516,19 +603,31 @@ export class Session {
     const clean = String(name).replace(/[\\/\x00-\x1F]/g, '_');
     if (!clean) throw new SessionError('The image needs a name.');
     if (bytes.length % 256) throw new SessionError(`${name}: ${bytes.length} bytes is not a whole number of 256-byte sectors.`);
-    try { await this.media.write(DW_PREFIX + clean, bytes); } catch (e) { throw this.mediaError(e, clean); }
+    this.checkNotMoving();
+    try { await this.libraryOp(() => this.media.write(DW_PREFIX + clean, bytes)); } catch (e) { throw this.mediaError(e, clean); }
     this.emit('drivewire');
     return clean;
   }
   // a blank image of `sectors` sectors (zeroes)
   newDriveWireImage(name, sectors = 630) { return this.importDriveWireImage(name, new Uint8Array(sectors * 256)); }
-  async mountDriveWire(drive, name, { writeProtected = false } = {}) {
+  // opts[HELD] (module-private, bootNitros9 only): the caller runs this mount inside its own Library operation,
+  // which the move waits for: a move that begins in the mount's await then finds the drive mounted after its wait
+  // and is refused itself, so the mount goes on rather than being refused halfway through the caller's work
+  async mountDriveWire(drive, name, opts = {}) {
+    const { writeProtected = false } = opts, held = opts[HELD] === true;
+    // the mount hands the drive the store it reads and writes in: not while the library moves, or the guest's
+    // writes would land in the old place mid-copy
+    if (!held) this.checkNotMoving();
     this.drivewire.store = this.media;
     // One stored image, one drive (see DriveWireServer.mount). Only DriveWire drives can collide with each other:
     // an image here is always drivewire/... and a floppy is always disks/..., so a stored file is never both and no
     // floppy drive can be holding this one. Names are compared by this.sameName (the store's case rule), which
     // the server was given at construction (DriveWireServer.sameStoredName).
     try { await this.drivewire.mount(drive, DW_PREFIX + name, { writeProtected }); } catch (e) { throw new SessionError(e.message.replace(DW_PREFIX, '')); }
+    // The mount awaits a stat of the image, and a move can begin in that gap: its busy check found no mounts yet, so
+    // it is not refused there. Checked again with nothing left to await, as mountDisk does: a drive must not come
+    // out of the mount onto a store the move has just left.
+    if (this.movingMedia && !held) { this.drivewire.eject(drive); throw new SessionError('The library is being moved: try again once it is done.'); }
     this.emit('drivewire');
   }
   ejectDriveWire(drive) { this.drivewire.eject(drive); this.emit('drivewire'); }
@@ -598,15 +697,24 @@ export class Session {
       const full = this.diskStoreName(name);
       // through the disk queue, like every other write to a stored image: a mount reading this name meanwhile
       // re-reads for it, and the drives' writes are ordered against it
-      try { await this.diskStoreChange(() => this.media.write(full, bytes), full); } catch (e) { throw this.mediaError(e, full.slice(DISK_PREFIX.length)); }
-      return this.bootNitros9(full.slice(DISK_PREFIX.length), 'disk');
+      this.checkNotMoving();
+      const base = full.slice(DISK_PREFIX.length);
+      try { await this.libraryOp(() => this.diskStoreChange(() => this.media.write(full, bytes), full)); } catch (e) { throw this.mediaError(e, base); }
+      return this.bootSaved(base, 'disk');
     }
-    return this.bootNitros9(await this.importDriveWireImage(name, bytes), 'drivewire');
+    return this.bootSaved(await this.importDriveWireImage(name, bytes), 'drivewire');
+  }
+  // the boot of an image addAndBootNitros9 has just stored: a refusal from here on (a move begun since the save,
+  // a drive in use) leaves the image in the Library, and says so, as importDisk does for its mount
+  async bootSaved(name, store) {
+    try { return await this.bootNitros9(name, store); } catch (e) { throw new SessionError(`${name} was saved to your Library but not booted: ${e.message}`); }
   }
   // Boot NitrOS-9 from the stored image `name` in `store` ('drivewire' or 'disk'; null: whichever has it,
   // DriveWire first) -> message. The machine in use must be a CoCo 3; it is remade with the HD6309 for a 6309
   // build (a 6809 build runs on either CPU), and with the Becker port on for a DriveWire image.
   async bootNitros9(name, store = null) {
+    // it reads the image from the store and mounts it: not while the library moves (nor does it then)
+    this.checkNotMoving();
     const m = this.machine;
     if (!Session.NITROS9_MACHINES.includes(m.id)) throw new SessionError(`NitrOS-9 boots here on the CoCo 3, not the ${m.profile.name}. Switch to the CoCo 3 first.`);
     if (!name) throw new SessionError(`No NitrOS-9 image: add your NitrOS-9 disk image (download nos96809l2v030300coco3.zip, or nos96309l2v030300coco3.zip for the HD6309, from ${NITROS9_IMAGES_URL}, unzip it, and use the file ending in _becker.dsk for DriveWire, or _40d_1.dsk for the floppy drive).`);
@@ -620,6 +728,12 @@ export class Session {
     if (r.reason) throw new SessionError(`${name}: ${r.reason}`);
     const floppy = r.boot === 'floppy';
     if (floppy !== (found === 'disk')) throw new SessionError(`${name}: ${floppy ? 'a floppy image kept with the DriveWire images' : 'a DriveWire image kept with the floppy disks'}; add it again (NitrOS-9 · Add image…).`);
+    // Everything above only read. From here the boot changes the machine (a switch, a cartridge, the drives, the
+    // ROMs) and awaits again in its mount, so the rest of it is ONE Library operation: refused now, with nothing
+    // left to await and nothing changed, if a move began during the reads; and once it has begun, a move that
+    // starts during the mount waits for the boot to finish, then finds drive 0 mounted (its re-check after the
+    // wait) and is refused itself. The boot is never refused halfway, so there is no half-rebuilt machine to put
+    // back (the mounts run with HELD: their own move checks would refuse what the move is waiting for).
     const cpu = r.cpu === '6309' ? '6309' : m.config.cpu;
     // Drive 0 must be free before anything is switched: this mount goes into DriveWire drive 0, so an image another
     // drive already holds is refused, and the machine must be left as it was. Checked here, with the other refusals,
@@ -628,24 +742,26 @@ export class Session {
       const held = this.drivewire.holderOf(DW_PREFIX + name, 0);
       if (held !== null) throw new SessionError(`${name} is already in DriveWire drive ${held}: eject it there first.`);
     }
-    let mm = m;
-    if (m.config.cpu !== cpu || (!floppy && !m.config.becker)) mm = this.switchMachine(m.id, Object.assign({}, m.config, { cpu }, floppy ? {} : { becker: true }), { menu: false });
-    if (floppy) {
-      // the CoCo disk controller: the one in the port, else one without a ROM (our loader drives it)
-      const fdc = this.diskController;
-      if (mm.cartPort instanceof MultiPak) throw new SessionError('NitrOS-9 boots from a floppy with the disk controller in the cartridge port: take the Multi-Pak out first.');
-      if (!fdc) mm.insertCartridge(new devices.cocofdc({}));
-      else if (fdc.type !== 'cocofdc') throw new SessionError(`NitrOS-9 boots from the CoCo disk controller, not the ${fdc.name}.`);
-      await this.mountDisk(0, DISK_PREFIX + name);
-    } else await this.mountDriveWire(0, name);
-    this.endWelcome();
-    this.stubRun = null;
-    this.keys.clear();
-    const kind = floppy ? 'floppy' : 'drivewire';
-    mm.setRoms(Object.fromEntries(mm.profile.roms.map((x) => [x.id, x.id === 'basic' ? nitros9LoaderRom(kind) : null])));
-    mm.reset(true);
-    this.acc = 0;
-    this.poweredOn();
+    await this.libraryOp(async () => {
+      let mm = m;
+      if (m.config.cpu !== cpu || (!floppy && !m.config.becker)) mm = this.switchMachine(m.id, Object.assign({}, m.config, { cpu }, floppy ? {} : { becker: true }), { menu: false });
+      if (floppy) {
+        // the CoCo disk controller: the one in the port, else one without a ROM (our loader drives it)
+        const fdc = this.diskController;
+        if (mm.cartPort instanceof MultiPak) throw new SessionError('NitrOS-9 boots from a floppy with the disk controller in the cartridge port: take the Multi-Pak out first.');
+        if (!fdc) mm.insertCartridge(new devices.cocofdc({}));
+        else if (fdc.type !== 'cocofdc') throw new SessionError(`NitrOS-9 boots from the CoCo disk controller, not the ${fdc.name}.`);
+        await this.mountDisk(0, DISK_PREFIX + name, { [HELD]: true });
+      } else await this.mountDriveWire(0, name, { [HELD]: true });
+      this.endWelcome();
+      this.stubRun = null;
+      this.keys.clear();
+      const kind = floppy ? 'floppy' : 'drivewire';
+      mm.setRoms(Object.fromEntries(mm.profile.roms.map((x) => [x.id, x.id === 'basic' ? nitros9LoaderRom(kind) : null])));
+      mm.reset(true);
+      this.acc = 0;
+      this.poweredOn();
+    });
     this.emit('roms');
     this.emit('nitros9');
     this.emit('disks');
@@ -855,6 +971,8 @@ export class Session {
   // drop made ready (a ROM for another machine is an offer to switch, not an error). The machine in use is
   // power cycled if its ROMs changed.
   addRoms(files) {
+    // the index's writes go to the store, which the move is copying: a drop may not land in the old one after it
+    this.checkNotMoving();
     const m = this.machine, owners = romOwners();
     const { files: results } = identifyRoms(files, owners, m.id);
     const touched = new Map();   // owner id -> file names
@@ -891,8 +1009,9 @@ export class Session {
     if (!r.bootable) return `No BASIC ROM: running without ROMs, machine code only. Needs ${r.sockets.filter((s) => s.status === 'missing-required').map((s) => s.label).join(', ')}.`;
     return r.sockets.map((s) => `${s.label}: ${s.status.replace('-', ' ')}`).join(' · ');
   }
-  // forget the ROMs of the machine in use
+  // forget the ROMs of the machine in use (the index's writes: not while the library moves, as addRoms)
   clearRoms() {
+    this.checkNotMoving();
     this.roms.clear(this.machine.id);
     this.loadSavedRoms();
     this.stubRun = null;
@@ -916,7 +1035,9 @@ export class Session {
   }
   static isRomPack(zipEntries) { return isRomPack(zipEntries); }
   // restore a ROM pack (its ZIP entries) -> { machines, skipped }; the machine in use reloads its ROMs
+  // ROM pack: restored into the index, which writes to the store (not while the library moves, as addRoms)
   importRomPack(zipEntries) {
+    this.checkNotMoving();
     const { restored, skipped } = restoreRomPack(zipEntries, this.roms, romOwners());
     const ids = [...new Set(restored.map((r) => r.machine))];
     for (const id of ids) this.stubChosen.delete(id);
@@ -1140,16 +1261,25 @@ export class Session {
   }
   async saveSlot(n) {
     slotName(n);
-    const { bytes } = await this.snapshotFile();
-    try { await this.media.write(slotName(n), bytes); } catch (e) { throw this.mediaError(e, `snapshot ${n}`); }
-    return `Took snapshot ${n}`;
+    // the snapshot is made from the machine and the slot written in one operation: a move waits for both, and the
+    // write can never go to a store the session has left behind
+    try {
+      return await this.libraryOp(async () => {
+        const { bytes } = await this.snapshotFile();
+        await this.media.write(slotName(n), bytes);
+        return `Took snapshot ${n}`;
+      });
+    } catch (e) { throw this.mediaError(e, `snapshot ${n}`); }
   }
   // a slot's snapshot (then snapshotSwitch / openSnapshot as for a file)
   async readSlot(n) {
     if (!(await this.media.stat(slotName(n)))) throw new SessionError(`Snapshot ${n} is empty.`);
     return this.readSnapshot(await this.media.read(slotName(n)));
   }
-  async clearSlot(n) { return this.media.remove(slotName(n)); }
+  async clearSlot(n) {
+    this.checkNotMoving();
+    return this.libraryOp(() => this.media.remove(slotName(n)));
+  }
   // what a slot holds, as stored (null when empty), and putting that back: the Undo of a save
   async slotBytes(n) {
     slotName(n);
@@ -1157,8 +1287,13 @@ export class Session {
   }
   async restoreSlot(n, bytes) {
     slotName(n);
-    try { if (bytes) await this.media.write(slotName(n), bytes); else if (await this.media.stat(slotName(n))) await this.media.remove(slotName(n)); }
-    catch (e) { throw this.mediaError(e, `slot ${n}`); }
+    this.checkNotMoving();
+    try {
+      return await this.libraryOp(async () => {
+        if (bytes) await this.media.write(slotName(n), bytes);
+        else if (await this.media.stat(slotName(n))) await this.media.remove(slotName(n));
+      });
+    } catch (e) { throw this.mediaError(e, `slot ${n}`); }
   }
 
   // a file that is a ROM image rather than a program, tape or cartridge (known contents or usual name)
@@ -1195,16 +1330,35 @@ export class Session {
   // the last few programs, tapes and cartridges loaded (bytes kept for items up to 1 MB)
   recentMedia() { return this.index.recentMedia(); }
   // A full store is not an error here: the program is loaded already, and the entry says its bytes were not kept.
+  // While the library moves, the index's two writes wait for it (afterMove): made against the old place now they
+  // would be the ones the move leaves behind, and they go to the index's store, which is the new place by then.
+  // The list is this visit's at once (the program ran), so the Media tab and "Last time" see it.
   rememberMedia(name, bytes) {
     const crc = crc32(bytes);
-    let stored = bytes.length <= 1 << 20;
     const list = this.recentMedia().filter((r) => r.crc !== crc);
-    for (const old of list.splice(RECENT_LENGTH - 1)) this.index.dropRecent(old.crc);
-    if (stored) {
-      try { this.index.putRecent(crc, bytes); } catch (e) { if (!(e && e.code === 'quota')) throw e; stored = false; }
-    }
-    list.unshift({ name, crc, size: bytes.length, machine: this.machine.id, stored });
-    try { this.index.setRecent(list); } catch (e) { if (!(e && e.code === 'quota')) throw e; }
+    const dropped = list.splice(RECENT_LENGTH - 1);
+    list.unshift({ name, crc, size: bytes.length, machine: this.machine.id, stored: bytes.length <= 1 << 20 });
+    const entry = list[0];
+    // the two writes that go to the store. Made now, against the old place, while the library is moving, they are
+    // the ones the move leaves behind: then they are made once it is done, and if the new place is full the entry
+    // says so (the bytes are not kept), as the immediate path does.
+    const write = (entry) => {
+      for (const old of dropped) this.index.dropRecent(old.crc);
+      try { if (entry.stored) this.index.putRecent(crc, bytes); }
+      catch (e) { if (!(e && e.code === 'quota')) throw e; entry.stored = false; this.index.recentBytes.delete(crc); }
+      this.index.setRecent(list);
+    };
+    if (this.movingMedia) {
+      this.index.recentBytes.set(crc, bytes); this.index.recent = list;   // this visit's list at once
+      this.afterMove(() => write(entry)).catch(() => {});
+    } else try { write(entry); } catch (e) { if (!(e && e.code === 'quota')) throw e; }
+  }
+  // run() once the move in progress, if any, is done: for an index write that can wait (the in-memory list already
+  // changed), so it reaches the store the session uses then, never the old one after the move began. A failed move
+  // changes nothing, so the write is still the right one.
+  async afterMove(run) {
+    while (this.movingMedia) await this.moveDone;
+    return run();
   }
   // load a recent item again (on the machine it was loaded on) -> message
   loadRecent(i = 0) {
@@ -1316,14 +1470,18 @@ export class Session {
       throw new SessionError(`${to}: this ${this.media.kind === 'fsa' ? 'folder' : 'storage'} does not tell upper from lower case, so ${src.slice(prefix.length)} and ${to} are the same name.`);
     }
     const op = () => this.media.rename(src, dst);
-    try { return await (src.startsWith(DISK_PREFIX) ? this.diskStoreChange(op, [src, dst]) : op()); } catch (e) { throw this.mediaError(e, from); }
+    try {
+      return await this.libraryOp(() => (src.startsWith(DISK_PREFIX) ? this.diskStoreChange(op, [src, dst]) : op()));
+    } catch (e) { throw this.mediaError(e, from); }
   }
   async deleteMedia(name) {
     const full = this.libName(name);
     this.checkNotMoving();
     this.checkNotInDrive(full, 'delete');
     const op = () => this.media.remove(full);
-    try { return await (full.startsWith(DISK_PREFIX) ? this.diskStoreChange(op, full) : op()); } catch (e) { throw this.mediaError(e, name); }
+    try {
+      return await this.libraryOp(() => (full.startsWith(DISK_PREFIX) ? this.diskStoreChange(op, full) : op()));
+    } catch (e) { throw this.mediaError(e, name); }
   }
   // take a file the user picked into the library under `name`; ROM images go through identification, so
   // they land in the index's own sockets rather than being written as an opaque blob; disk images go under
@@ -1334,9 +1492,15 @@ export class Session {
     const base = name.split(/[\\/]/).pop();
     const target = detectMedia(base, bytes).kind === 'disk' ? DISK_PREFIX + base : this.libName(name);
     this.checkNotInDrive(target, 'replace');
-    const write = target.startsWith(DISK_PREFIX) ? this.diskStoreChange(() => this.media.write(target, bytes), target) : this.media.write(target, bytes);
-    // the store has a name now: on an empty store that is the first chance to put its case rule to the test
-    try { const r = await write; await this.refreshCase(); return { stored: r }; } catch (e) { throw this.mediaError(e, name); }
+    // the store has a name now: on an empty store that is the first chance to put its case rule to the test (a
+    // read of the store it was written to, so inside the same Library operation)
+    try {
+      return { stored: await this.libraryOp(async () => {
+        const r = await (target.startsWith(DISK_PREFIX) ? this.diskStoreChange(() => this.media.write(target, bytes), target) : this.media.write(target, bytes));
+        await this.refreshCase();
+        return r;
+      }) };
+    } catch (e) { throw this.mediaError(e, name); }
   }
   mediaError(e, name) {
     if (e instanceof SessionError) return e;
@@ -1551,9 +1715,11 @@ export class Session {
     try { return await this.mountDisk(drive, full, { writeProtected }); } catch (e) { throw new SessionError(`${base} was saved to your Library but not put in drive ${drive}: ${e.message}`); }
   }
   // a stored disk image into a drive (plugging in the disk cartridge if none is) -> message
-  async mountDisk(drive, name, { writeProtected = false } = {}) {
+  // opts[HELD]: as for mountDriveWire (the caller's Library operation is what the move waits for)
+  async mountDisk(drive, name, opts = {}) {
+    const { writeProtected = false } = opts, held = opts[HELD] === true;
     this.checkDrive(drive);
-    this.checkNotMoving();
+    if (!held) this.checkNotMoving();
     const full = this.diskStoreName(name), base = full.slice(DISK_PREFIX.length);
     const holder = this.diskHolder(full, { machine: this.machine, drive });
     if (holder) throw new SessionError(`${holder.name} is already in drive ${holder.drive}${holder.where}.`);
@@ -1599,7 +1765,7 @@ export class Session {
     // (into another drive, or into this one) is seen
     const again = this.diskHolder(full, { machine: this.machine, drive });
     if (again) throw new SessionError(`${base} is already in drive ${again.drive}${again.where}.`);
-    this.checkNotMoving();
+    if (!held) this.checkNotMoving();
     const format = detectDiskFormat(bytes, base);
     if (!format) throw new SessionError(`${base}: not a disk image CLOADM can read (VDK, JVC/DSK or DMK).`);
     fdc = this.diskController;

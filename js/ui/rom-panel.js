@@ -61,9 +61,13 @@ export function setupRomPanel(page) {
     const roms = [], other = [];
     for (const f of files) ((all && !f.from) || Session.isRom(f.name, f.bytes) ? roms : other).push(f);
     if (roms.length) {
-      const res = session.addRoms(roms);
-      report.files = res.files; report.machines.push(...res.machines); report.offers = res.offers;
-      report.ignored.push(...res.files.filter((f) => f.result === 'ignored').map((f) => f.name));
+      // the Session refuses a drop while the library moves (it writes the library's index): say so as a report, so
+      // the drop's other files are still handled and nothing is left as a rejection nothing waits for
+      let res;
+      try { res = session.addRoms(roms); }
+      catch (e) { report.errors.push(e.message); }
+      if (res) { report.files = res.files; report.machines.push(...res.machines); report.offers = res.offers;
+        report.ignored.push(...res.files.filter((f) => f.result === 'ignored').map((f) => f.name)); }
     }
     report.ignored.push(...other.filter((f) => f.from).map((f) => f.from + f.name));
     const loose = other.filter((f) => !f.from);
@@ -92,7 +96,7 @@ export function setupRomPanel(page) {
   $('folderRom').onchange = async (e) => { const l = pickedFiles(e.target); e.target.value = ''; await take(l); };
   $('btnRomFolder').onclick = () => $('folderRom').click();
   $('btnRomPack').onclick = saveRomPack;
-  $('btnRomClear').onclick = () => { session.clearRoms(); page.status(`${session.machine.profile.name}: ROMs removed – running without ROMs`); changed(null); };
+  $('btnRomClear').onclick = () => page.attempt(() => { session.clearRoms(); changed(null); return `${session.machine.profile.name}: ROMs removed – running without ROMs`; });
 
   // ?rom=URL: ROMs the user hosts (CORS required). The ROM archive is never requested.
   async function loadRomUrls(urls) {
@@ -105,6 +109,7 @@ export function setupRomPanel(page) {
       catch (e) { throw new Error(`${url}: could not be fetched (a ROM URL that redirects is not followed: give its final address)`); }
       named.push({ name: decodeURIComponent(url.split('/').pop().split('?')[0]), bytes });
     }
+    // an addRoms refusal (the library is being moved) reaches the link's caller, which says so on the status line
     const res = session.addRoms(named);
     const report = { files: res.files, machines: res.machines, offers: res.offers, ignored: [], errors: [], skipped: [], restored: 0 };
     summarise(report); changed(report);

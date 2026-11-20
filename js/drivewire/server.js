@@ -97,6 +97,8 @@ export class DriveWireServer {
     this.onChannelRead = null;        // (channel) => void: the guest took bytes (room in the channel's queue again)
     this.onChannelClose = null;       // (channel) => void: the guest closed it
     this.onTransaction = null;        // (op, info) => void: every transaction, for a log
+    this.mayWrite = null;             // () => boolean: false while the host's store must not be reached (a move)
+    this.openLibraryOp = null;        // (run) => Promise: the host runs this store write as a Library operation
     this.busy = null;                 // Promise while a sector is being read or written
     this.resetLink();
   }
@@ -168,6 +170,11 @@ export class DriveWireServer {
     this.busy = promise.then(() => { this.busy = null; this.pump(); });
     return this.busy;
   }
+  // a store write that must not be lost to a library move: the host's Library operation (libraryOp) when it wires
+  // one, so the move waits for this and this cannot start while the move copies; run directly when it does not (a
+  // server outside a Session, e.g. the protocol tests). The host's op refuses a move in progress by rejecting,
+  // which the caller turns into reply(0).
+  storeOp(run) { return this.openLibraryOp ? this.openLibraryOp(run) : run(); }
   log(op, info) { if (this.onTransaction) this.onTransaction(op, info); }
 
   transaction(p) {
@@ -273,15 +280,43 @@ export class DriveWireServer {
     const reply = (drive) => { this.output.push(drive); this.log(create ? 'NAMEOBJ_CREATE' : 'NAMEOBJ_MOUNT', { name, drive }); };
     if (this.lease !== null) { const d = this.drives.get(this.lease); if (d && d.named) this.drives.delete(this.lease); this.lease = null; }
     if (!this.store) return reply(0);
+    // the host can say the store must not be written now (the library is being copied): the guest is answered
+    // "no such object" (0), the protocol's way of refusing, rather than a drive mounted on a store the copy has left
+    if (this.mayWrite && !this.mayWrite()) return reply(0);
     this.wait((async () => {
       try {
         for (const [n, d] of this.drives) if (this.sameStoredName(d.name, name)) { if (create) return reply(0); return reply(n); }
+        if (create) {
+          // A create writes the store, so the whole of it - the stat that decides the name is new, the write, and
+          // handing the guest its drive - runs as ONE Library operation, registered before its first await. The
+          // move waits for it to settle before it copies, and a create cannot begin once a move has begun (the
+          // host's op refuses while it copies). The drive is handed out inside the operation, with nothing awaited
+          // after the write, so by the time the operation has settled the drive is in `drives`: a move that waited
+          // for it then finds the drive mounted (its re-check after the wait) and is refused, rather than copying
+          // while the guest writes through a drive on the store it is leaving. A check after each await cannot do
+          // this: between a check and the write, a move can still start, and the write then lands in the store it
+          // is copying.
+          await this.storeOp(async () => {
+            if (await this.store.stat(name)) return reply(0);   // it exists: a create is refused (the mount arm answers it instead)
+            let free = 0;
+            for (let n = 255; n >= 1 && !free; n--) if (!this.drives.has(n)) free = n;
+            if (!free) return reply(0);
+            await this.store.write(name, new Uint8Array(0));
+            this.drives.set(free, { name, writeProtected: false, named: true });
+            this.lease = free;
+            reply(free);
+          });
+          return;
+        }
         const st = await this.store.stat(name);
-        if (create ? st : !st) return reply(0);
+        // the stat awaited: a move can have begun since. A mount hands the guest a drive it then writes through
+        // (Write, SetStat), so it must not come out of here onto a store the copy has left. Refused now, with the
+        // same reply(0). (A create needs no check here: it ran as one Library operation, which the move waits for.)
+        if (this.mayWrite && !this.mayWrite()) return reply(0);
+        if (!st) return reply(0);
         let free = 0;
         for (let n = 255; n >= 1 && !free; n--) if (!this.drives.has(n)) free = n;
         if (!free) return reply(0);
-        if (create) await this.store.write(name, new Uint8Array(0));
         this.drives.set(free, { name, writeProtected: false, named: true });
         this.lease = free;
         reply(free);

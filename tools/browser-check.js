@@ -1203,6 +1203,49 @@ async function driveWireChecks(browser, base, check) {
   const serialHere = await page.evaluate(() => window.emu.session.webSerialAvailable);
   check('drivewire: the option off power cycles without the port; its controls hide',
     await page.isHidden('#dwUrl') && (serialHere ? await page.isVisible('#dwSerialRow') : await page.isHidden('#dwSection')), `(Web Serial ${serialHere ? 'present' : 'absent'})`);
+  // A store that refuses the listing (a folder whose permission went, an OPFS store that won't answer). The box's
+  // own refresh is caught by its event handler, so a panel that renders empty proves nothing: the path that had
+  // no handler is **Save drive 0** with no drive chosen, which asks the store for the first image and used to
+  // read a name off an empty list. The page counts every unhandled rejection it sees; that count is the evidence.
+  errors.length = 0;
+  await page.evaluate(() => {
+    window.__unhandled = 0;
+    window.addEventListener('unhandledrejection', () => { window.__unhandled++; });
+  });
+  await page.check('#chkBecker');
+  await waitFor(page, () => window.emu.machine && !!window.emu.machine.becker, null, 3000);
+  // an image the box offers, so Save is enabled; the drive stays empty so Save has to ask the store for it
+  await page.evaluate(async () => { await window.emu.session.importDriveWireImage('save-me.dsk', new Uint8Array(256)); });
+  await page.evaluate(() => window.emu.session.emit('drivewire'));
+  await waitFor(page, () => [...document.querySelectorAll('#dwDrive0 option')].some((o) => o.value === 'save-me.dsk'), null, 5000);
+  await page.selectOption('#dwDrive0', '');
+  // now the store refuses the listing: the mounted name is still offered, but Save with no drive chosen must ask
+  await page.evaluate(() => {
+    const st = window.emu.session.media; st.__list = st.list;
+    st.list = () => Promise.reject(Object.assign(new Error('the folder’s permission was revoked'), { code: 'unsupported' }));
+  });
+  // the panel disables Save when its listing is empty, so the click is made on an enabled button that then meets a
+  // store that will not answer: this is a stale panel, not a button the person could not reach
+  await page.evaluate(() => { const b = document.getElementById('btnDwSave'); b.disabled = false; b.click(); });
+  // in the Library's words (session.mediaError: what failed, then why), not the store's raw error
+  check('drivewire: Save drive 0 with the listing refused says so on the status line',
+    await waitFor(page, () => /the DriveWire images: the folder’s permission was revoked/.test(document.getElementById('toast').textContent) && document.getElementById('toast').classList.contains('error'), null, 5000),
+    await page.textContent('#toast'));
+  // no completion event exists for unhandledrejection: give the page a turn to report any before counting
+  const unhandled = await page.evaluate(async () => {
+    await new Promise((r) => setTimeout(r, 300));
+    const n = window.__unhandled; const st = window.emu.session.media; st.list = st.__list; return n;
+  });
+  check('drivewire: a refused listing leaves no unhandled rejection', unhandled === 0 && !errors.length, `${unhandled} unhandled; ${errors.join('; ')}`);
+  // and with no image at all, Save drive 0 says what to do (it used to read a name off an empty list)
+  await page.evaluate(async () => { const s = window.emu.session; for (const f of await s.media.list('drivewire/')) await s.media.remove(f.name); });
+  await page.evaluate(() => window.emu.session.emit('drivewire'));
+  await waitFor(page, () => document.getElementById('btnDwSave').disabled, null, 3000);
+  // (same: Save's own "nothing to save" message is checked on an enabled click, as the panel would show it if the
+  // listing came back empty between the render and the click)
+  await page.evaluate(() => { const b = document.getElementById('btnDwSave'); b.disabled = false; b.click(); });
+  check('drivewire: Save drive 0 with no image says to add one first',
+    await waitFor(page, () => /No DriveWire image to save: add one first\./.test(document.getElementById('toast').textContent), null, 3000), await page.textContent('#toast'));
   check('drivewire: no page errors', !errors.length, errors.join('; '));
   await ctx.close();
 }

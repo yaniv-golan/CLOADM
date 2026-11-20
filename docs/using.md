@@ -71,7 +71,13 @@ to keeping them for the visit, with a download and an import button for the file
 **Where your library is kept** changes this: inside this browser, a folder on your computer (File System Access,
 Chrome and Edge: ordinary files, and disk writes go straight back to the image file), or download and open. Choosing
 another place copies what CLOADM keeps there (the library, disk images, ROMs, recent programs; nothing else in your
-folder) and leaves the old copies where they were; it is refused while a stored disk is in a drive. Which ROM is in
+folder) and leaves the old copies where they were; it is refused while a stored disk is in a drive (a DriveWire
+drive too, including one a NitrOS-9 boot or the guest's create mounted while the move waited). An import, a
+rename, a delete or a save already under way when you choose a new place finishes first, and the move copies what
+it wrote; one started while the move copies is refused ("The library is being moved: try again once it is done").
+An operation that never finishes (a folder whose permission went) does not hold the move for good: after 30 seconds
+in all — the drives' last writes and the Library's operations wait together under that one limit — it stops and
+your library stays where it was. Which ROM is in
 which socket and the ROMs' file names are merged with what the new place already has, so moving back to a folder
 keeps the ROMs you set up in the meantime; the recent list is the library's own. The choice is remembered, and so is the folder (its handle in
 IndexedDB); if the browser asks for the folder's permission again after a reload, the Library offers **Reconnect the
