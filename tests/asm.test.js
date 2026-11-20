@@ -165,12 +165,12 @@ say('i think you are a good listener');
 let ok = true;
 const flat = transcript.join(' ').replace(/\n/g, ' ').replace(/ +/g, ' ');
 for (const want of ['HELLO. WHAT WOULD YOU LIKE', 'WHY DO YOU NEED A HOLIDAY?', 'WHY DO YOU SAY YOUR BOSS SAYS YOU WORK TOO MUCH?', 'DO YOU REALLY THINK I AM A GOOD LISTENER?']) {
-  if (!flat.includes(want)) { ok = false; console.log('MISSING:', want); }
+  if (!flat.includes(want)) { ok = false; console.log(`FAIL LIZA: no "${want}" in the conversation`); }
 }
 say('i think you are a good listener');
-if (!screen().replace(/\n/g, ' ').replace(/ +/g, ' ').includes("DON'T REPEAT")) { ok = false; console.log('no repeat detection'); }
+if (!screen().replace(/\n/g, ' ').replace(/ +/g, ' ').includes("DON'T REPEAT")) { ok = false; console.log('FAIL LIZA: no repeat detection'); }
 say('bye');
-if (!screen().includes('GOODBYE')) { ok = false; console.log('no goodbye'); }
+if (!screen().includes('GOODBYE')) { ok = false; console.log('FAIL LIZA: no goodbye'); }
 console.log(screen());
 
 // ---------------- assemble-time defines and IF/ENDIF ----------------
@@ -268,15 +268,19 @@ console.log(screen());
   }
 }
 
-// The file's ONE summary line, and its last output: every check above (the assembler table, the LIZA conversation
-// and the defines/IF section) is counted in n and fail. It names the half that failed, so a failure still says
-// where to look; on a pass it is a full tally the gate accepts. Written as one line on purpose: a second
-// summary-shaped line earlier in the file would let the gate pass a truncation of this suite.
+// The file's ONE summary line, and its last output. Every ASSEMBLER check above is counted in n and fail, and the
+// LIZA conversation beside it is not: it is a handful of screen checks with a single ok flag, and folding them into
+// a count that says "assembler checks" would misdescribe them. So the summary names both halves and says which
+// failed, and a LIZA failure prints its own "FAIL LIZA: ..." line in the gate's one failure shape rather than
+// leaving a reader to work it out from the summary's last word.
+//
+// Written as one line on purpose: a second summary-shaped line earlier in the file would let the gate pass a
+// truncation of this suite.
 //
 // The failure wording counts the FAILURES first ("3/109 assembler checks failed"), never the passes: the other way
 // round read as "the 108 checks failed". No failure line here matches a summary pattern -- "failed" is not "passed",
-// and the gate also fails the suite on its exit code -- which tests/allsummary.test.js pins by running this very
-// branch and checking the gate's verdict.
+// and the gate also fails the suite on its exit code and on any "FAIL " line, whatever it exits with -- which
+// tests/allsummary.test.js pins by running this very branch and checking the gate's verdict.
 if (fail || !ok) {
   const parts = [];
   if (fail) parts.push(`${fail}/${n} assembler checks failed`);

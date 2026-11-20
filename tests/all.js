@@ -15,7 +15,7 @@
 // The pool size defaults to the machine's usable parallelism (capped at 8: more suites than that are dominated
 // by the two long ones, and oversubscribing a loaded machine makes every suite slower).
 const fs = require('fs'), path = require('path'), cp = require('child_process'), os = require('os');
-const { verdict } = require('./suite-verdict.js');
+const { verdict, tail } = require('./suite-verdict.js');
 
 const argJobs = (() => { const i = process.argv.indexOf('--jobs'); return i > 0 ? Number(process.argv[i + 1]) : 0; })();
 const usable = typeof os.availableParallelism === 'function' ? os.availableParallelism() : os.cpus().length;
@@ -56,7 +56,7 @@ function flush() {
 function report(f) {
   const r = results.get(f);
   console.log(`${r.ok ? 'pass' : 'FAIL'}  ${f.padEnd(22)} ${r.seconds.toFixed(1)} s`);
-  if (!r.ok) console.log(r.output.split('\n').filter((l) => !l.startsWith('ok ')).slice(-25).join('\n'));
+  if (!r.ok) console.log(tail(r.output).split('\n').filter((l) => !l.startsWith('ok ')).slice(-25).join('\n'));
 }
 
 // A suite may declare shards: regress.test.js accepts --shard i/n and its cases share no state, so running
@@ -187,15 +187,24 @@ function spawnSuite(f, argv, done) {
     // each regress shard. A suite that reaches process.exit() is failed by tests/no-exit.js, which prints a FAIL
     // line and sets exitCode = 1 -- but the suite can still exit 0, because an 'exit' listener it registered runs
     // after the guard's and can reassign exitCode. It cannot take back what it wrote to stdout.
-    const guardFailed = /^FAIL .*: process\.exit\(\) called at /m.test(out);
-    // The rule itself is in tests/suite-verdict.js. A suite that exited 0 without printing its summary stopped
-    // part-way and must not count as a pass -- the usual cause is a promise that never settles: Node then has
-    // nothing left to wait for, drains the event loop and exits 0 with the suite half done. Only a missing summary
-    // gets that explanation, so an ordinary failure is not misdescribed as one that stopped early.
+    //
+    // Read from `tail`, not the live output: the guard can raise its FAIL from a shutdown event (a suite that calls
+    // process.exit() from a beforeExit handler), and that line is written after the marker. Reading the live output
+    // hid exactly that failure and reported it as a printed FAIL instead (review round 2). The guard's line is
+    // distinctive enough that a suite's own lookalike is not a concern: if one prints it at shutdown, hasFailureLine
+    // fails the suite anyway, which is the right verdict for a printed "FAIL " line.
+    const guardFailed = /^FAIL .*: process\.exit\(\) called at /m.test(tail(out));
+    // The rule itself is in tests/suite-verdict.js. A suite that exited 0 without printing its summary (while it
+    // was still running) must not count as a pass. Only a missing summary gets this explanation, so an ordinary
+    // failure is not misdescribed as one that stopped early. What CAUSED it is not asserted: a pending promise is
+    // the common case, but so is a summary printed from an exit handler, or work it scheduled from beforeExit.
     const v = verdict({ code, timedOut, guardFailed, stdout: sout });
-    if (v === 'no-summary') out += `\n${f}: exited 0 without printing its summary line: a suite that stops early`
-      + ' (a promise that never settles is the usual cause) exits 0 with its work half done, so exit code alone'
+    if (v === 'no-summary') out += `\n${f}: exited 0 without printing its summary line while it was running: the`
+      + ' suite either stopped early or reached its summary only after it had begun shutting down, so exit code alone'
       + ' is not enough';
+    else if (v === 'failed') out += `\n${f}: printed a FAIL line and exited ${code}: a suite fails by what it`
+      + ' printed, not only by its exit code (an exit handler that resets exitCode cannot take back the line it'
+      + ' wrote)';
     done(v === 'passed', out);
   });
 }
@@ -215,13 +224,58 @@ async function worker() {
 // hashes ...", and the shards together must have run every case the gate has (regress.test.js --count), all
 // matching; anything else fails the run, even if every shard exited 0.
 const REGRESS = 'regress.test.js';
-function regressIncluded() {
+// `--count` is one number printed in about 55 ms (measured); this cap only catches a child that hangs, and it must
+// not be mistaken for a slow one. 10 s is ~180x the measured time, and the env var exists so the timeout itself can
+// be exercised in a test without waiting for it. A child that does not exit is KILLED and the gate FAILS naming it --
+// it never passes silently.
+//
+// Why spawn and not execFileSync: execFileSync's own `timeout` kills the child it started and nothing else, so a
+// `--count` that had spawned its own child left that grandchild spinning after the gate moved on (measured: three
+// such orphans from one mutation run). The child is spawned DETACHED, so it is a process-group leader, and the kill
+// goes to `-pid` -- the whole group, so anything it spawned in that group dies with it. The output is collected by
+// hand because spawn is async.
+// What a group kill cannot reach, stated: a descendant that itself called setsid or spawned `detached: true` is in a
+// DIFFERENT process group, and no signal to the leader's group touches it. `--count` has no reason to do that, and
+// the test's grandchild deliberately stays in the group; a `--count` that detaches its own children is out of reach
+// of any in-process cleanup, which is why the test also asserts that nothing the probe started survives.
+const REGRESS_COUNT_TIMEOUT_MS = Number(process.env.CLOADM_REGRESS_COUNT_TIMEOUT_MS) || 10000;
+function countCases() {
+  return new Promise((resolve) => {
+    const child = cp.spawn(process.execPath, [path.join(__dirname, REGRESS), '--count'], {
+      env: guardEnv, detached: true, stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    // In `live`, so a signal to the gate kills the count child and its descendants like every suite: without this a
+    // SIGINT while it counts reported "stopping 0 running suite(s)" and left the child running (review, 054 item 1).
+    live.add(child);
+    let out = '', done = false;
+    const finish = (err) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      live.delete(child);
+      resolve({ err, out });
+    };
+    const timer = setTimeout(() => {
+      try { process.kill(-child.pid, 'SIGKILL'); }            // the whole group
+      catch (e) { try { child.kill('SIGKILL'); } catch (e2) {} }
+      finish({ timedOut: true });
+    }, REGRESS_COUNT_TIMEOUT_MS);
+    child.stdout.on('data', (d) => { out += d; });
+    child.on('error', (e) => finish({ message: e.message }));
+    child.on('close', (code, signal) => finish(code === 0 ? null : { message: `exited ${code}${signal ? ` (${signal})` : ''}` }));
+  });
+}
+async function regressIncluded() {
   if (!files.includes(REGRESS)) return { ok: false, line: `regress: ${REGRESS} not found, the regression gate did not run` };
   let total;
-  try {
-    const out = cp.execFileSync(process.execPath, [path.join(__dirname, REGRESS), '--count'], { env: guardEnv, encoding: 'utf8' });
-    total = Number((/^(\d+) regression cases$/m.exec(out) || [])[1]);
-  } catch (e) { return { ok: false, line: `regress: ${REGRESS} --count failed: ${e.message}` }; }
+  const { err, out } = await countCases();
+  if (err) {
+    // A child that did not answer is reported as such, by name: the failure must say the count did not answer, not
+    // read as "no regression cases".
+    const why = err.timedOut ? `did not answer within ${REGRESS_COUNT_TIMEOUT_MS} ms and was killed with its process group` : `failed: ${err.message}`;
+    return { ok: false, line: `regress: ${REGRESS} --count ${why}; the regression gate cannot be checked, so this run FAILS` };
+  }
+  total = Number((/^(\d+) regression cases$/m.exec(out) || [])[1]);
   const r = results.get(REGRESS), parts = [...r.output.matchAll(/^(\d+)\/(\d+) regression hashes/gm)];
   const ok = parts.reduce((a, m) => a + Number(m[1]), 0), ran = parts.reduce((a, m) => a + Number(m[2]), 0);
   const shards = SHARDS[REGRESS] || 1, whole = total > 0 && parts.length === shards && ran === total && ok === total;
@@ -231,7 +285,7 @@ function regressIncluded() {
 (async () => {
   const t0 = Date.now();
   await Promise.all(Array.from({ length: Math.min(jobs, files.length) }, worker));
-  const reg = regressIncluded();
+  const reg = await regressIncluded();
   console.log(reg.line);
   const bad = failed + (reg.ok ? 0 : 1);
   console.log(failed ? `${failed} of ${files.length} suites FAILED` : reg.ok ? `all ${files.length} suites passed` : `all ${files.length} suites exited 0, but the regression gate is incomplete: FAILED`);

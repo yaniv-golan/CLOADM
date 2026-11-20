@@ -79,3 +79,54 @@ process.kill = function (pid, sig) {
   if (pid === process.pid || pid === -process.pid) { fail(undefined, `process.kill(${pid}, ${JSON.stringify(sig)})`); return true; }
   return originalKill.apply(this, arguments);
 };
+
+// A summary printed while the process is shutting down is not the suite reaching its summary.
+//
+// The gate fails a suite that stops part-way by looking for its summary line (tests/suite-verdict.js). But a suite
+// that stops part-way still drains the event loop, so it can print "all passed" from a beforeExit or an exit
+// handler -- and then the line the gate reads is one printed by a process that already gave up. On main that passed:
+// `process.on('exit', () => console.log('all passed')); (async () => { await new Promise(() => {}); })();` was a
+// green suite. The same shape from 'beforeExit' passed too.
+//
+// The shutdown flag travels to the runner in-band as a NUL in the stdout stream: the first write made after the
+// first shutdown event is prefixed with one, and the runner cuts the suite's output at the first NUL before judging
+// its summary (liveOutput in tests/suite-verdict.js). The marker is unforgeable in the direction that matters: it is
+// written by THIS process only, and only into its own stdout, so a NUL anywhere in a suite's stream means this
+// process reached shutdown before that byte. Two cases must not cut, and both did in earlier versions (round 2 of
+// review, and a probe here):
+//  * the live writes end WITHOUT a newline (`process.stdout.write('working')`), so the marker lands mid-line. Cutting
+//    only at a line-initial marker let a shutdown-time "all passed" read as live -- the gate passed a suite that
+//    stopped part-way. So the cut is at ANY NUL this process wrote.
+//  * a suite echoes a guarded CHILD's captured stdout. The child has its own stdout, so its marker never reaches this
+//    process's stream -- unless the child shares fd 1 (stdio 'inherit'), or the parent itself was the one shutting
+//    down. The first of those is not fixed by this scheme; it is stated in tests/suite-verdict.js as the limit it is.
+//
+// The failure tail still shows the marked text (with the NUL removed): a real suite's "FAIL the test did not finish"
+// from an exit handler must stay visible.
+//
+// Both events are marked. Most probes in tests/allsummary.test.js drain the event loop, so Node emits `beforeExit`
+// and the latch is already set; the `exit` listener exists for the CRASH path -- an uncaught throw skips `beforeExit`
+// but still runs `exit` handlers -- and the crash probe in 1c is the case that reaches it, so removing this listener
+// turns that probe red (review, 054 item 3).
+// Writes that bypass process.stdout.write (fs.writeSync(1, ...)) are not marked; no suite here writes that way.
+let shuttingDown = false;
+const originalWrite = process.stdout.write;
+process.stdout.write = function (chunk, ...rest) {
+  if (!shuttingDown) return originalWrite.call(this, chunk, ...rest);
+  // A non-string chunk is marked on the BYTES, not by stringifying it. String(chunk) turns a Buffer into "233,65"; a
+  // latin1 string written back as a string is re-encoded (0xE9 leaves as 0xC3 0xA9). Both spellings change what a
+  // binary write meant. Prefixing the Buffer keeps every byte (review, 054 item 5; probes in allsummary 1c).
+  if (typeof chunk === 'string') return originalWrite.call(this, '\u0000' + chunk, ...rest);
+  return originalWrite.call(this, Buffer.concat([Buffer.from([0]), chunk]), ...rest);
+};
+// Registered at preload time, so before any handler the suite adds: the marker must be on before the first
+// shutdown-time write, and Node calls listeners in the order they were added.
+//
+// The latch is NOT cleared on a later turn. A beforeExit listener that schedules work makes Node go round the loop
+// again, and clearing the latch with a setImmediate was tried and is much worse than the problem: the pending
+// setImmediate itself keeps the loop alive, 'beforeExit' fires again, and the process never exits -- every suite in
+// the gate hung until its timeout. So a suite that continues from beforeExit has its continued prints marked, and
+// reads as having printed no summary while running (a NIT from review round 2, kept as a stated limit rather than
+// traded for a hang). No suite here does that.
+process.on('beforeExit', () => { shuttingDown = true; });
+process.on('exit', () => { shuttingDown = true; });

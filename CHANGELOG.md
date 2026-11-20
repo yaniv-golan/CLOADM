@@ -6,6 +6,27 @@ All notable changes to CLOADM are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **The test gate's summary check, closed where it could still pass a suite that failed** (the follow-ups from that
+  change's review). A suite that stopped part-way could still print its summary from a `beforeExit` or `exit`
+  handler, and the gate read that as a pass; every write made while the process is shutting down is now marked and
+  not read as a summary (`tests/no-exit.js`, `tests/suite-verdict.js`). A suite whose summary it reached while
+  running and which then printed a line at exit was FAILED on main; that healthy suite now passes. A suite that
+  printed `FAIL <what>` to stdout and then a passing summary, or reset its own exit code, passed; any line starting
+  `FAIL ` now fails it whatever it exits with (no suite here prints one on a passing run: they were all run and
+  scanned, and `tests/allsummary.test.js` holds that). The static check that every suite prints exactly one readable
+  summary now reads double-quoted strings, `console.info`/`console.debug`, `%d` formats and a concatenation of
+  three or more literals, which it missed before. Every summary pattern's `^` and `$` is held by a rejected line
+  only that anchor rejects, so no anchor is unpinned. `tests/asm.test.js`'s
+  comment claimed the LIZA conversation was counted in its tally; it is not, and its failures now print in the
+  gate's one `FAIL ` shape rather than only in the summary's last word.
+- **A regression count that never answers fails the gate instead of hanging it.** `tests/all.js` asks the
+  regression suite for its case count with `--count`; that call had no timeout, so a child that never exited left the
+  gate waiting for ever. It now runs under a 10 s cap (about 180x the measured 55 ms, so a slow machine is never
+  mistaken for a hang), kills the whole process group on timeout, and fails the run naming the child. The test's own
+  bound is a hard one with the group kill, so a regression there hangs nothing.
+
 ### 0.1.5-pre
 
 #### Added

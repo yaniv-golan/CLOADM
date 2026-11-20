@@ -112,6 +112,75 @@ process.on('beforeExit', () => { if (!finished) { finished = true; console.log('
 
   fs.rmSync(dir, { recursive: true, force: true });
   sweep();
+
+  // A SIGINT while the gate is waiting for `regress.test.js --count` must kill the count child too. The count child
+  // is spawned detached for its own group kill, so before it was in `live` a signal reported "stopping 0 running
+  // suite(s)" and left it (and its children) running (review, 054 item 1). Bounded end to end: the gate gets 4 s
+  // before the signal and is SIGKILLed at 12 s; the sweep runs on BOTH paths, so a red run here cannot leave a
+  // process behind either.
+  {
+    const tok = `allsignal-count-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
+    const d2 = fs.mkdtempSync(path.join(os.tmpdir(), 'allsignal-count-'));
+    const t2 = path.join(d2, 'tests'); fs.mkdirSync(t2, { recursive: true });
+    for (const f of ['all.js', 'no-exit.js', 'suite-verdict.js']) fs.copyFileSync(path.join(__dirname, f), path.join(t2, f));
+    // a --count that never answers, with a child of its own; the grandchild carries `tok` in its argv
+    fs.writeFileSync(path.join(t2, 'regress.test.js'), [
+      "const cp = require('child_process');",
+      "if (process.argv.includes('--count')) {",
+      `  cp.spawn(process.execPath, ['-e', 'setInterval(()=>{},1000)', ${JSON.stringify(tok)}], { stdio: 'ignore' });`,
+      '  setInterval(() => {}, 1000);',
+      // not a "<n>/<n> regression hashes match" line: the static summary scan reads every literal in this file, and
+      // a summary-shaped one here would be counted as a second summary of THIS suite
+      "} else console.log('stand-in regress: a run, not a count');",
+    ].join('\n') + '\n');
+    // the stand-in suite's summary is written via a variable, so this file holds no second summary-shaped literal
+    // (the static scan reads literals line by line and would count the call text as one of this suite's summaries)
+    fs.writeFileSync(path.join(t2, 'zz-a.test.js'), 'console' + ".log('all " + "passed');\n");
+    // Two patterns, because the two survivors have different command lines: the COUNT CHILD's is
+    // "node <tmpdir>/tests/regress.test.js --count" (found by the temp dir's name), and its grandchild carries `tok`
+    // in its argv. `process.title`/`argv.push` do NOT change a process's OS command line, so sweeping by TOKEN alone
+    // would miss the count child itself -- the very process this case exists for.
+    const PATS = [tok, path.basename(d2)];
+    // Fail closed: a pgrep that cannot run (rc 1 means "no match", which is a real answer) must not read as
+    // "nothing survived". Only rc 1 is a clean empty answer; anything else returns a sentinel the check fails on
+    // (review of 054: the catch-only version passed when pgrep was unavailable).
+    const survivorsOf = () => {
+      const found = new Set();
+      for (const pat of PATS) {
+        let r;
+        try { r = cp.execFileSync('pgrep', ['-f', pat], { encoding: 'utf8', timeout: 5000 }); }
+        catch (e) {
+          if (e.status === 1 && !e.stdout) continue;               // rc 1, no output: no match
+          if (typeof e.stdout === 'string' && e.stdout.trim()) { for (const pid of e.stdout.trim().split('\n')) found.add(pid); continue; }
+          return `pgrep could not be run (${e.status === undefined ? e.message : `rc ${e.status}`})`;
+        }
+        for (const pid of r.trim().split('\n').filter(Boolean)) found.add(pid);
+      }
+      return [...found].join('\n');
+    };
+    const sweepTok = () => { for (const pat of PATS) { try { cp.execFileSync('pkill', ['-9', '-f', pat], { timeout: 5000 }); } catch (e) {} } };
+    const r = await new Promise((done) => {
+      // runnerEnv, not raw process.env: this file runs under NODE_OPTIONS=--require .../no-exit.js, and that guard
+      // would block the runner's own re-raise of the signal (process.kill(process.pid, sig)), so the gate would exit
+      // 1 instead of 130. runnerEnv drops only that one --require; the copied runner puts it back for its suites.
+      const p = cp.spawn(process.execPath, [path.join(t2, 'all.js'), '--jobs', '1'],
+        { stdio: 'ignore', env: Object.assign({}, runnerEnv, { CLOADM_REGRESS_COUNT_TIMEOUT_MS: '60000' }) });
+      // let the count child start, then signal the gate
+      setTimeout(() => { try { p.kill('SIGINT'); } catch (e) {} }, 4000);
+      const giveUp = setTimeout(() => { try { p.kill('SIGKILL'); } catch (e) {} }, 12000);
+      p.on('exit', (code, signal) => { clearTimeout(giveUp); done({ code: code === null && signal ? 128 + SIG_NO[signal] : code, signal }); });
+      // a spawn that fails never emits 'exit'; without this the await would hang until the gate killed the suite
+      // (loud, but a 4-minute kill for what should be a fast, named failure). run() above handles the same case.
+      p.on('error', (e) => { clearTimeout(giveUp); done({ code: null, signal: null, error: e.message }); });
+    });
+    const left = survivorsOf();
+    sweepTok();
+    fs.rmSync(d2, { recursive: true, force: true });
+    check('SIGINT while the gate waits for regress --count leaves no count child behind', left === '',
+      left ? `survivors: ${left.split('\n').slice(0, 4).join(' ')}` : '');
+    check('...and the gate still exits as the signal says', r.code === 130, r.error ? `spawn failed: ${r.error}` : `code ${r.code}`);
+  }
+
   finished = true;
   console.log(fail ? `${fail} FAILED` : 'all passed');
   process.exitCode = fail ? 1 : 0;

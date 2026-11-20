@@ -82,6 +82,159 @@ const failedAs = (r, name) => r.status !== 0 && new RegExp(`FAIL  ${name.replace
   check('the same suite beside a complete regression gate passes', whole.status === 0 && /regress 12\/12 included/.test(whole.out), `exit ${whole.status}`);
 }
 
+// 1d. `regress.test.js --count` that never answers must FAIL the run, not hang it. `regressIncluded()` used to call
+// execFileSync with no timeout, so a child that never exited left the gate waiting forever (the whole machine's gate
+// queue was held by one such child). The gate now kills it and fails, naming the child.
+//
+// The probe's own bound is the point: the stand-in never exits, so a regression here would hang THIS suite. The
+// runner is therefore spawned with a hard timeout AND its own process group (so the kill reaches every descendant),
+// and the test asserts the gate reported the kill -- "did not answer within N ms and was killed" -- rather than
+// merely that something failed. N comes from CLOADM_REGRESS_COUNT_TIMEOUT_MS, set low here (1500 ms; the real
+// --count answers in about 55 ms, see tests/all.js).
+{
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'allsummary-count-'));
+  const t = path.join(dir, 'tests'); fs.mkdirSync(t, { recursive: true });
+  for (const f of ['all.js', 'no-exit.js', 'suite-verdict.js']) fs.copyFileSync(path.join(TESTS, f), path.join(t, f));
+  // A stand-in whose --count never answers, and which spawns its own child, to prove the kill reaches descendants.
+  // The token reaches every process this probe can start: it is set in the environment below, all.js copies its
+  // environment into every child it spawns (guardEnv), the stand-in reads it from there, and it puts it in ITS
+  // child's argv -- so an orphaned --count child (ppid 1) is found by `pgrep -f TOKEN` even though its own argv is
+  // only the file path. The temp dir's name is swept too, for anything that lost the token.
+  const TOKEN = `allsummary-count-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
+  fs.writeFileSync(path.join(t, 'regress.test.js'), [
+    "const cp = require('child_process');",
+    "const TOKEN = process.env.CLOADM_REGRESS_COUNT_TOKEN || 'no-token';",
+    "if (process.argv.includes('--count')) {",
+    "  cp.spawn(process.execPath, ['-e', 'setInterval(()=>{},1000)', TOKEN], { stdio: 'ignore' });",
+    '  setInterval(() => {}, 1000);',
+    "} else console.log('12/12 regression hashes match (0.0 s)');",
+  ].join('\n') + '\n');
+  fs.writeFileSync(path.join(t, 'zz-ok.test.js'), "console.log('all passed');\n");
+  const r = cp.spawnSync(process.execPath, [path.join(t, 'all.js'), '--jobs', '1'], {
+    encoding: 'utf8', timeout: 30000, killSignal: 'SIGKILL', detached: true,
+    env: Object.assign({}, process.env, {
+      CLOADM_REGRESS_COUNT_TIMEOUT_MS: '1500', CLOADM_SUITE_TIMEOUT_MS: '8000',
+      CLOADM_REGRESS_COUNT_TOKEN: TOKEN,   // inherited by all.js, then by the --count child (guardEnv copies env)
+    }),
+  });
+  const out = (r.stdout || '') + (r.stderr || '');
+  // Nothing this probe started may survive. Two paths must be swept, and the review found the second was not:
+  //  * the GREEN path -- all.js kills its own --count group; nothing should be left;
+  //  * the MUTATION path -- spawnSync's timeout SIGKILLs all.js alone, so the --count child is orphaned to pid 1 and
+  //    its own child with it, and no in-process cleanup of all.js can run. The sweep below is what catches them, and
+  //    the group kill of the spawnSync leader covers the case where all.js itself is still alive.
+  try { process.kill(-r.pid, 'SIGKILL'); } catch (e) {}   // the leader's group, if it outlived the timeout
+  // Fail closed: rc 1 is pgrep's "no match" and a clean empty answer; anything else (pgrep missing, permission,
+  // timeout) must NOT read as "nothing survived". The same shape is in tests/allsignal.test.js (review of 054).
+  const survivorsOf = () => {
+    const found = new Set();
+    for (const pat of [TOKEN, path.basename(dir)]) {
+      let r;
+      try { r = cp.execFileSync('pgrep', ['-f', pat], { encoding: 'utf8', timeout: 5000 }); }
+      catch (e) {
+        if (e.status === 1 && !e.stdout) continue;                 // rc 1, no output: no match
+        if (typeof e.stdout === 'string' && e.stdout.trim()) { for (const pid of e.stdout.trim().split('\n')) found.add(pid); continue; }
+        return `pgrep could not be run (${e.status === undefined ? e.message : `rc ${e.status}`})`;
+      }
+      for (const pid of r.trim().split('\n').filter(Boolean)) found.add(pid);
+    }
+    return [...found].join('\n');
+  };
+  let survivors = survivorsOf();
+  fs.rmSync(dir, { recursive: true, force: true });
+  if (survivors) { for (const pat of [TOKEN, path.basename(dir)]) { try { cp.execFileSync('pkill', ['-9', '-f', pat], { timeout: 5000 }); } catch (e) {} } }
+  // after the sweep nothing may remain either: a sweep that failed would otherwise look like a clean run
+  if (survivors && survivorsOf()) survivors += ' (STILL ALIVE after pkill)';
+  check('a regress --count that never answers fails the run, naming the kill', r.status !== 0
+    && /regress: regress\.test\.js --count did not answer within 1500 ms and was killed with its process group/.test(out)
+    && /regression gate cannot be checked, so this run FAILS/.test(out),
+    `exit ${r.status}: ${(out.match(/^regress: .*/m) || [''])[0].slice(0, 160)}`);
+  check('...and it still exits promptly rather than hanging the gate', r.signal !== 'SIGKILL' && (r.status === 1),
+    r.signal ? `the probe had to be SIGKILLed (${r.signal})` : `exit ${r.status}`);
+  check('...and leaves no process of the hung child behind', !survivors.trim(), survivors.trim().split('\n').slice(0, 3).join(' '));
+}
+
+// 1c. A summary printed while the process is SHUTTING DOWN is not the suite reaching its summary. A suite that
+// stops part-way still drains the event loop, so it can print "all passed" from a beforeExit or exit handler --
+// and on main the gate read that as a pass. tests/no-exit.js now marks every write made from the first shutdown
+// event (a NUL), and the verdict reads the live output only. Both events below run through the real runner; note
+// that both stop at a promise that never settles, so `beforeExit` is the event that fires in each and no case here
+// reaches the `exit`-only path (a crash) -- the reason is in tests/no-exit.js.
+{
+  const stopping = (event) => `process.on('${event}', () => { console.log('all passed'); });\n`
+    + "(async () => { await new Promise(() => {}); })();\n";        // a promise that never settles
+  const missed = [];
+  for (const event of ['exit', 'beforeExit']) {
+    const r = gate(stopping(event));
+    if (r.status === 0) missed.push(`${event}: the gate exited 0`);
+    else if (!failedAs(r, 'zz-probe.test.js')) missed.push(`${event}: the suite was not named as failing`);
+    else if (!/without printing its summary line/.test(r.out)) missed.push(`${event}: not reported as a missing summary`);
+  }
+  check('a summary printed only from an exit or beforeExit handler does not pass', missed.length === 0, missed.join(' | '));
+  // the control: the same summary, printed by the suite while it runs, reaches the gate
+  const ok = gate("console.log('ok   first');\nconsole.log('all passed');\n");
+  check('...and the same line printed while running still passes', ok.status === 0, `exit ${ok.status}`);
+  // ...and a suite that reaches its summary WHILE RUNNING and then prints something at exit still passes -- which
+  // it did NOT on main: the reader took the last line, so that healthy suite was failed there. Reading the live
+  // output is what fixes it. (This is a fix, not a preserved behaviour; a review caught the earlier wording.)
+  const trailing = gate("console.log('all passed');\nprocess.on('exit', () => { console.log('cleanup note printed at exit'); });\n");
+  check('...and a line printed at exit after a live summary does not fail a healthy suite', trailing.status === 0,
+    trailing.status === 0 ? '' : trailing.out.split('\n').filter((l) => /zz-probe/.test(l)).slice(0, 2).join(' | '));
+  // the tail a reader sees keeps a shutdown-time line: a suite's own FAIL there is visible in the run's output,
+  // and (2d) fails it. Both, so dropping the marked lines from the tail would show up here.
+  const late = gate("process.on('exit', () => console.log('FAIL the exit handler saw something wrong'));\n");
+  check('...and a shutdown-time line is still shown in the failure tail', /FAIL the exit handler saw something wrong/.test(late.out),
+    late.status === 0 ? 'the gate exited 0' : '');
+  // The marker cuts at ANY NUL, not only a line-initial one: a live write with no trailing newline puts the marker
+  // mid-line, and a line-initial-only rule then read the shutdown-time summary as live and PASSED a suite that
+  // stopped part-way. That was the one MAJOR finding of review round 2; this probe is it.
+  const partial = gate("process.stdout.write('working');\n"
+    + "process.on('exit', () => process.stdout.write('\\nall passed\\n'));\n"
+    + "(async () => { await new Promise(() => {}); })();\n");
+  check('a summary printed at exit after a partial live line does not pass', partial.status !== 0 && failedAs(partial, 'zz-probe.test.js'),
+    partial.status === 0 ? 'the gate exited 0' : '');
+  // ...and a suite that finishes its work and prints its summary live still passes, with a partial line before it:
+  const partialOk = gate("process.stdout.write('working');\nconsole.log('\\nall passed');\n");
+  check('...and the same shape with the summary printed live still passes', partialOk.status === 0, `exit ${partialOk.status}`);
+  // A guard failure raised DURING shutdown must still be reported as the guard's, not as a printed FAIL: the guard
+  // writes its line after the marker, so the regex has to read the tail (review round 2, finding 3). The suite calls
+  // process.exit() from a beforeExit handler, which the guard blocks; it also resets exitCode at exit.
+  const guarded = gate("process.on('beforeExit', () => { try { process.exit(0); } catch (e) {} });\n"
+    + "process.on('exit', () => { process.exitCode = 0; });\n");
+  check('a process.exit() called during shutdown is reported as the guard\'s failure', guarded.status !== 0
+    && /process\.exit\(\) called at/.test(guarded.out) && !/printed a FAIL line and exited/.test(guarded.out),
+    guarded.status === 0 ? 'the gate exited 0' : (guarded.out.match(/zz-probe\.test\.js: .*/) || [''])[0]);
+  // Stated limit (tests/no-exit.js): a suite that does its work, then schedules more from a beforeExit handler and
+  // prints its summary there, reads as having printed no summary while running. Pinned as the known behaviour: the
+  // obvious fix (clearing the latch on the next turn) kept the loop alive forever and hung every suite, so this is a
+  // deliberate trade, not an oversight. No suite here does it.
+  const continued = gate("let first = true;\n"
+    + "process.on('beforeExit', () => { if (first) { first = false; setTimeout(() => console.log('all passed'), 0); } });\n");
+  check('a suite that continues from beforeExit after its work is failed -- the stated limit', continued.status !== 0,
+    continued.status === 0 ? 'it passed: the limit is gone, update the comment' : '');
+  // The exit-only path: an uncaught throw skips beforeExit but still runs exit handlers, so a suite that crashes
+  // AFTER scheduling a throw and prints its summary from an exit handler must be failed. This is the only case that
+  // reaches the `exit` listener in tests/no-exit.js -- removing that listener must turn it red (review, 054 item 3).
+  const crashed = gate("process.on('exit', () => { console.log('all passed'); process.exitCode = 0; });\n"
+    + "setTimeout(() => { throw new Error('boom'); }, 10);\n");
+  check('a summary printed from an exit handler after a crash does not pass', crashed.status !== 0 && failedAs(crashed, 'zz-probe.test.js'),
+    crashed.status === 0 ? 'the gate exited 0' : '');
+  // A chunk that is not a string keeps its bytes when the marker is put in front of it. A helper suite must not be
+  // corrupted by the guard: String(Buffer.from([0xE9,0x41])) is "233,65" and a latin1 string written back is
+  // re-encoded as UTF-8 (0xC3 0xA9), so both old spellings changed a binary write. Read here as raw bytes, which the
+  // spawn must therefore NOT decode; a mutation to either spelling turns this red.
+  const bdir = fs.mkdtempSync(path.join(os.tmpdir(), 'allsummary-bytes-'));
+  const bscript = path.join(bdir, 'w.js');
+  fs.writeFileSync(bscript, "process.on('exit', () => { process.stdout.write(Buffer.from([0xE9, 0x41])); });\n");
+  // a minimal env: the guard is preloaded explicitly, and inheriting NODE_OPTIONS would load a second copy of it
+  const br = cp.spawnSync(process.execPath, ['--require', path.join(TESTS, 'no-exit.js'), bscript],
+    { encoding: 'buffer', env: { PATH: process.env.PATH || '/usr/bin:/bin' } });
+  fs.rmSync(bdir, { recursive: true, force: true });
+  const got = br.stdout ? [...br.stdout] : [];
+  check('a binary write at shutdown keeps its bytes behind the marker', got.length === 3 && got[0] === 0 && got[1] === 0xE9 && got[2] === 0x41,
+    `bytes ${got.map((b) => b.toString(16).padStart(2, '0')).join(' ')}`);
+}
+
 // 2. A suite that finishes normally still passes, in every summary shape the real suites print. The regress shard
 // form is one of them: all.js runs regress as four shards on a multi-core machine, and each shard's line carries
 // its shard label, so a pattern that only accepted the unsharded line failed the gate on every machine with 4+
@@ -135,10 +288,36 @@ const failedAs = (r, name) => r.status !== 0 && new RegExp(`FAIL  ${name.replace
 // counted the checks that PASSED ("108/109 assembler checks failed" for one failure) -- the wrong number where a
 // reader looks for the failures.
 //
+// asm has two halves: its assembler checks are counted (n, fail) and its LIZA conversation is a handful of screen
+// checks behind one `ok` flag. A LIZA failure used to print only "MISSING: <text>" / "no repeat detection", with no
+// "FAIL " and nothing in the tally but the summary's last word "LIZA conversation FAILED" -- a reader had to know to
+// look there. It prints in the gate's one failure shape now, which is also what makes it fail a suite that (were it
+// to) exit 0. This runs asm's REAL LIZA expectations, with one of them broken, in a scratch copy: the copy must print
+// a line starting "FAIL ", name it LIZA, and fail.
+//
 // This runs asm's REAL failure branch, not a copy of its strings: the source is read, its failure branch is lifted
 // out, and it is evaluated with fail/n/ok set to what a one-check failure gives. A hardcoded list of the strings
 // would pass no matter what the branch did -- the first version of this check did exactly that and survived both
 // mutations (wrong count restored; the line rewritten to read as a pass).
+{
+  // a scratch copy of the tree, asm.test.js with one LIZA greeting broken, run for real
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'asm-liza-'));
+  for (const d of ['tests', 'examples', 'js']) {
+    fs.cpSync(path.join(TESTS, '..', d), path.join(dir, d), { recursive: true });
+  }
+  const asmCopy = path.join(dir, 'tests', 'asm.test.js');
+  const real = fs.readFileSync(asmCopy, 'utf8');
+  const broken = real.replace("'HELLO. WHAT WOULD YOU LIKE'", "'NO SUCH GREETING FROM LIZA'");
+  fs.writeFileSync(asmCopy, broken);
+  const r = cp.spawnSync(process.execPath, [asmCopy], { cwd: dir, encoding: 'utf8', timeout: 120000 });
+  fs.rmSync(dir, { recursive: true, force: true });
+  const out = (r.stdout || '') + (r.stderr || '');
+  check('a broken LIZA check prints a "FAIL " line naming LIZA, and asm fails',
+    broken !== real && r.status !== 0 && /^FAIL LIZA: /m.test(out) && /LIZA conversation FAILED/.test(out),
+    r.status === 0 ? 'asm exited 0 with a broken LIZA check' : (out.match(/^FAIL .*/m) || [''])[0]);
+}
+
+// 2c-branch. asm's counted failure line: the count is the FAILURES, and the line cannot read as a summary.
 {
   const src = fs.readFileSync(path.join(TESTS, 'asm.test.js'), 'utf8');
   const branch = /\n(if \(fail \|\| !ok\) \{[\s\S]*?\n\} else console\.log\([^\n]*\);)/.exec(src);
@@ -166,6 +345,86 @@ const failedAs = (r, name) => r.status !== 0 && new RegExp(`FAIL  ${name.replace
   const r = gate(`console.log(${JSON.stringify(oneFail)});\n`);
   check('...and a suite whose last line is that failure line is failed by the gate', r.status !== 0,
     r.status === 0 ? 'the gate exited 0' : '');
+}
+
+// 2d. A "FAIL " line fails a suite even when it exits 0. The gate read only the exit code and the summary, so a
+// suite whose last line was a summary-shaped pass and which printed "FAIL ..." earlier exited green: a check that
+// failed and then let a later "all passed" stand was a pass. One shape is used by every suite and both guards
+// ("FAIL <what>"), and a real suite never prints it on a passing run -- measured on every suite, section 7c holds
+// it -- so the gate can read it as a failure unconditionally.
+//
+// What it does not catch, and no reader can: a failure worded any other way ("12/12 checks failed; all passed").
+// That is pinned below so the limit is stated, not implied.
+{
+  const bodies = [
+    ['a FAIL line before a passing summary', "console.log('FAIL a check');\nconsole.log('all passed');\n"],
+    ['a FAIL line first, a tally after it', "console.log('FAIL a check');\nconsole.log('12/12 checks passed');\n"],
+  ];
+  const missed = [];
+  for (const [what, body] of bodies) {
+    const r = gate(body);
+    if (r.status === 0) missed.push(what);
+    else if (!/printed a FAIL line and exited \d+/.test(r.out)) missed.push(`${what}: no reason given`);
+  }
+  check('a suite that prints a FAIL line and exits 0 is failed, and the run says why', missed.length === 0, missed.join(' | '));
+  // the control: the same suite without the FAIL line passes, so the FAIL line is what fails it
+  const ok = gate("console.log('all passed');\n");
+  check('...and the same suite without the FAIL line passes', ok.status === 0, `exit ${ok.status}`);
+  // the limit, stated: a failure not spelled "FAIL " at the start of a line is still read by the summary rules
+  const other = gate("console.log('12/12 checks failed; all passed');\n");
+  check('a failure worded any other way is a known limit, not a check', other.status === 0,
+    other.status === 0 ? 'accepted, as the comment states' : 'the gate now catches it -- tighten the comment');
+  // and a FAIL line during shutdown fails the suite for THAT reason, not because it happened to have no summary:
+  // the suite here prints its live summary and only the FAIL while shutting down, and the run must say a FAIL line
+  // failed it. Reading the whole output (not the live one) for FAIL is what this holds: with shutdown lines cut,
+  // this healthy-looking suite would pass.
+  const late = gate("console.log('all passed');\nprocess.on('exit', () => console.log('FAIL the test did not finish'));\n");
+  check('a FAIL line printed while shutting down fails the suite, and for that reason',
+    late.status !== 0 && /printed a FAIL line and exited \d+/.test(late.out) && !/without printing its summary line/.test(late.out),
+    late.status === 0 ? 'the gate exited 0' : (late.out.match(/zz-probe\.test\.js: .*/) || [''])[0]);
+}
+
+// 2e. Every summary pattern must be anchored at BOTH ends, and the anchor must be what rejects the line, not the
+// end of the string. A pattern is only as good as its rejected cases: this drops each pattern's leading '^' and
+// trailing '$' in turn, and for every mutation asserts that some line this gate must reject is now accepted (or a
+// line it must accept is now rejected). A mutation nothing notices is an anchor no test holds -- exactly the
+// "unpinned anchor" this exists for. The cases are the runner's own: the truncated and suffixed summaries 2b
+// rejects, and the real summaries 2 it accepts.
+{
+  const { SUMMARY: pats } = require('./suite-verdict.js');
+  const reject = [
+    'A summary line lead-in: all passed',                 // whatever comes BEFORE a summary is not a summary
+    'SUMMARY ok 512 checks', 'SUMMARY 127/127 SSC checks passed',   // a '^' with no text before the line
+    'SUMMARY 146/146 regression hashes match (1.2 s)', 'SUMMARY 35/35 regression hashes, shard 0/4 match (1.0 s)',
+    'x/12 checks passed', 'all 3/12 checks passed', '12/12 checks passed, 5 FAILED',
+    'ok 512 checks and 900 were skipped', 'all passed and then some',
+    '146/146 regression hashes match (1.2 s) and more', '35/35 regression hashes, shard 0/4 match (1.0 s) done',
+  ];
+  const accept = ['all passed', 'ok 512 checks', '127/127 SSC checks passed',
+    '146/146 regression hashes match (12.3 s)', '35/35 regression hashes, shard 0/4 match (1.0 s)'];
+  const matches = (set, line) => set.some((re) => re.test(line));
+  const notices = [];
+  for (let i = 0; i < pats.length; i++) {
+    for (const end of ['start', 'end']) {
+      const src = pats[i].source;
+      let mutated;
+      // Dropping the '^' or the '$' of a pattern that is not anchored there would be a no-op; skip that pattern for
+      // that end, since the check is about anchors each pattern has, not anchors it never had.
+      if (end === 'start') { if (!src.startsWith('^')) continue; mutated = new RegExp(src.slice(1)); }
+      else { if (!src.endsWith('$')) continue; mutated = new RegExp(src.slice(0, -1)); }
+      const set = pats.slice(); set[i] = mutated;
+      // a mutation is PINNED when a line the runner must REJECT is now accepted. Only the reject side can pin: an
+      // anchor can only NARROW what a pattern matches, so dropping one can never make an accepted line fail, and an
+      // accept-side case is unreachable (a review measured that the first version's accept half never fired).
+      const newlyAccepted = reject.filter((l) => !matches(pats, l) && matches(set, l));
+      if (newlyAccepted.length === 0) notices.push(`pattern ${i} ('${src.slice(0, 24)}…') without its ${end} anchor changes no rejected line`);
+    }
+  }
+  check('every summary pattern is anchored at both ends, and the anchor is load-bearing', notices.length === 0, notices.join(' | '));
+  // the control: with the anchors in place, the runner rejects every rejected line and accepts every accepted one --
+  // so the mutations above were the only reason those lines changed verdict
+  const wrong = reject.filter((l) => matches(pats, l)).concat(accept.filter((l) => !matches(pats, l)));
+  check('...and the unmutated patterns reject and accept exactly those lines', wrong.length === 0, wrong.join(' | '));
 }
 
 // 3. A summary printed EARLY and then buried by a crash is not a pass: the runner reads the last line, so a suite
@@ -206,6 +465,10 @@ const failedAs = (r, name) => r.status !== 0 && new RegExp(`FAIL  ${name.replace
     ['a kill that fires after the child exited 0 is not a pass', { code: 0, timedOut: true, guardFailed: false, stdout: 'all passed\n' }, 'killed'],
     ['a kill of a suite with no summary is a kill, not a stopped-early pass', { code: 0, timedOut: true, guardFailed: false, stdout: '' }, 'killed'],
     ['a signal death has no code and is a failure', { code: null, timedOut: false, guardFailed: false, stdout: '' }, 'exit'],
+    // the guard is decided BEFORE the exit code: a suite that called process.exit() and also exited 1 is reported as
+    // the guard's failure, so a reader is not told the wrong reason. (Review, 054 item 4: removing the reorder kept
+    // every case green, so this is the case that pins it.)
+    ['a guard failure with a non-zero exit is the guard\'s failure, not a plain exit', { code: 1, timedOut: false, guardFailed: true, stdout: 'FAIL x: process.exit() called at 1: process.exit()\n' }, 'guard'],
   ];
   const wrong = [];
   for (const [name, input, want] of cases) {
@@ -232,7 +495,7 @@ const failedAs = (r, name) => r.status !== 0 && new RegExp(`FAIL  ${name.replace
   const r = gate(body);
   check('a mid-run summary-shaped line does not let a suite that stops early pass', failedAs(r, 'zz-probe.test.js'),
     r.status === 0 ? 'the gate exited 0' : '');
-  check('...and it is reported as a stopped-early suite', /without printing its summary line/.test(r.out));
+  check('...and it is reported as having printed no summary while running', /without printing its summary line/.test(r.out));
   // the control: the same suite with the summary LAST passes, so what fails it above is the order, not the content
   const ok = gate("console.log('working...');\nconsole.log('7/7 assembler checks passed');\n");
   check('...and the same line as the LAST line passes', ok.status === 0, `exit ${ok.status}`);
@@ -311,15 +574,25 @@ const failedAs = (r, name) => r.status !== 0 && new RegExp(`FAIL  ${name.replace
 // 7. The summary list is not vacuous for the real suites: every suite in this repo prints ONE summary line the
 // runner accepts, and no second summary-shaped line anywhere.
 //
-// Read from each file rather than by running them (that is the gate's job). The reader is deliberately blunt about
-// what "prints a summary" means: it takes the STRINGS AND TEMPLATES in every console.log / process.stdout.write call,
-// joins a call's arguments with a space (console.log(a, b) prints "a b"), fills each ${...} with the number a PASSING
-// run gives it ("7", and both halves of a `${X}/${X}` tally get the same 7, so the numerator equals the denominator
-// the way a pass prints it), and asks whether the result matches a summary pattern. That covers the two writers a
-// suite could use and any number of arguments -- an earlier version looked only at single-quoted strings inside
-// console.log( lines, so a summary printed with stdout.write, or as a second console.log argument, was invisible
-// while the gate accepted it: a blind spot the check's own comment denied. Both were reproduced before this was
-// rewritten.
+// Read from each file rather than by running them (that is the gate's job). What "prints a summary" means here: a
+// call to a writer (console.log, console.info, console.debug, process.stdout.write -- console.warn and console.error
+// go to stderr, which the runner never reads as a summary) contributes the text its arguments can produce, and the
+// text is asked whether it matches a summary pattern. For each argument the reader takes
+//
+//  * the string literals it is built from, in both quote styles, joined as a concatenation would print them
+//    ("7/7" + " checks passed" -> "7/7 checks passed"), with a '+ variable' or a template's ${...} filled with the
+//    number a PASSING run gives it ("7"; both halves of a ${X}/${X} tally get the same 7, so the numerator equals
+//    the denominator the way a pass prints it);
+//  * for a printf-style call (console.log('%d/%d checks passed', 7, 7)) the format string with each %d/%i/%s/%f
+//    replaced by that same 7, since a matching summary is exactly what a passing run's numbers print;
+//  * arguments printed in order, a space between them (console.log('all', 'passed') -> "all passed"), while the
+//    literals of one argument join with no space (a concatenation). A summary written either way is read.
+//
+// Every earlier version of this reader had a blind spot that made a real summary invisible while the gate accepted
+// it: single quotes only (a double-quoted summary), console.log only (stdout.write, then console.info), a join of
+// THREE OR MORE literals (the two-literal form happened to read as one, by luck -- a review measured both), and %d
+// formats. The first three, double quotes and console.info were reproduced as reading ZERO summaries on base; the
+// multi-literal one is pinned as a shape the reader must read. Section 7b pins all of them through this same reader.
 //
 // Why ONE matters: a summary-shaped line partway through a suite is what let a truncation pass the gate once
 // (asm.test.js printed a tally at line 126 and the file stopped there -- it passed on eb06896). So a suite may have
@@ -327,9 +600,14 @@ const failedAs = (r, name) => r.status !== 0 && new RegExp(`FAIL  ${name.replace
 // crash handler line (eleven of them log from it), and those print only on a crash: they are not summaries, and the
 // reader treats them as the non-summaries they are.
 //
+// The reader does not evaluate code: a summary assembled at run time from pieces it cannot see (`[a, b].join(' ')`,
+// a summary kept in a variable that a helper fills) is not read. That is why regress.test.js is exempt below.
+//
 // Exemptions, each with what still holds it:
-//  * regress.test.js builds its line from a label variable, so a static read sees "7/7 7 7 (7 s)": no word in the
-//    source it can see. Its shape is pinned by the runner's last pattern and exercised by every gate run, sharded.
+//  * regress.test.js builds its line from a label variable, so a static read sees "7/7 7 7 (7 s)": the words
+//    "regression hashes" and "match" are not in the console.log call the reader can see. Its shape is pinned by the
+//    runner's last pattern and exercised by every gate run, sharded -- with its real output, section 2's shard
+//    shape and the live gate.
 //  * allsummary.test.js and exitguard.test.js hold whole SUITE BODIES in strings to feed the runner, so a static read
 //    of the FILE cannot tell what the suite prints from what it feeds a probe. They are held by the gate's own run
 //    and by their own checks; and they are held here to the one thing that is readable: their own final summary.
@@ -343,36 +621,85 @@ const failedAs = (r, name) => r.status !== 0 && new RegExp(`FAIL  ${name.replace
   check('the runner\'s summary patterns are readable', Array.isArray(pats) && pats.length >= 4 && pats.every((p) => p instanceof RegExp),
     `${pats.length} pattern(s)`);
 
-  // One call per LINE: every line that makes a console.log / process.stdout.write call contributes what that
-  // call can print. Line-scoped on purpose -- a call's whole span matched with [\s\S] can swallow the lines
-  // between two calls and lose them, which an earlier version of this reader did (every suite read as having no
-  // summary). Every call in this repo is written on one line; a call split across lines is not seen, which is
-  // stated here rather than pretended away.
-  const PRINT = /\b(?:console\.log|process\.stdout\.write)\s*\(/;
-  const prints = (src) => {
-    const out = [];
-    for (const line of src.split('\n')) {
-      if (!PRINT.test(line)) continue;
-      // the arguments' string and template literals, joined by a space (console.log(a, b) prints "a b"); a bare
-      // identifier contributes nothing readable and is left out
-      const parts = [...line.matchAll(/'([^']*)'|`([^`]*)`/g)]
-        .map((x) => (x[1] ?? x[2]).replace(/\$\{[^}]*\}/g, '7').replace(/\\n/g, '\n'));
-      if (parts.length) out.push(parts);
-    }
-    return out;
-  };
-  // a call prints its arguments in order, so "what it can print" is any ONE of them (console.log(a ? x : y, b)
-  // prints one of the branches and then b) and also their join (console.log(a, b) prints "a b"). Either may be
-  // the summary; matching on both is what makes a multi-argument summary visible instead of invisible.
   const norm = (t) => t.replace(/^\s+/, '').replace(/\s+$/, '');
-  const isSummaryArgs = (parts) => pats.some((re) => parts.some((t) => re.test(norm(t))) || re.test(norm(parts.join(' '))));
+  const isSummary = (t) => pats.some((re) => re.test(norm(t)));
+
+  // One call per LINE, for the calls this repo writes: every writer call is on one line, and line scoping is what
+  // keeps a misread to that line instead of swallowing the file (an earlier reader matched a call's whole span
+  // with [\s\S] and lost every call after an unbalanced quote). A call split across lines is not seen, which is
+  // stated here rather than pretended away.
+  const PRINT = /\b(?:console\.(?:log|info|debug)|process\.stdout\.write)\s*\(/;
+  // A line that is entirely a comment prints nothing; a call named there must not be counted as output. (A call
+  // commented out at the END of a live line is not handled -- no suite here writes that, and a block comment is
+  // not either: no suite here comments out a summary, and both are stated rather than pretended away.)
+  const isComment = (line) => /^\s*\/\//.test(line);
+  const printerLines = (src) => src.split('\n').filter((l) => !isComment(l) && PRINT.test(l));
+  // The string and template literals on the line, both quote styles. `\\.` skips an escaped character so a quote
+  // inside a string ("it's") does not end it early.
+  const literals = (line) => [...line.matchAll(/"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|`((?:\\.|[^`\\])*)`/g)]
+    .map((x) => (x[1] ?? x[2] ?? x[3]));
+  // What a run of literals prints: templates' ${...} and concatenated variables are numbers a passing run gives 7.
+  const fill = (s) => s.replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\$\{[^}]*\}/g, '7');
+  // A printf format with its specifiers filled the way a passing run fills them. Only the seven-number placeholder
+  // is used, as everywhere else here: the reader is asking whether the SHAPE can be a summary.
+  const fmt = (s) => fill(s).replace(/%[disf]/g, '7').replace(/%%/g, '%');
+
+  // The texts a line's writer call can print, as the reader understands it. A call's arguments are what separate
+  // them: `console.log('all', 'passed')` prints "all passed" (a space between arguments), while
+  // `console.log('7/7' + ' checks passed')` prints "7/7 checks passed" (a concatenation, no space). Only the
+  // literals of ONE argument are joined without a separator; the arguments' own texts are joined with a space.
+  // Splitting on commas that are not inside a literal is the closest this reader gets to the argument list; a
+  // comma inside a nested call would split an argument, which for a summary call never changes whether one is
+  // found (the pieces are joined again either way).
+  const splitArgs = (line) => {
+    // the WRITER CALL's opening paren, not the first paren on the line: `if (ok) console.log('all passed')` has an
+    // earlier one, and starting there made the call's own text invisible (the review found it; base read that line)
+    const m = PRINT.exec(line);
+    const open = m ? m.index + m[0].length - 1 : -1;
+    if (open < 0) return [];
+    const args = [];
+    let cur = '', quote = null, depth = 0;
+    for (let i = open + 1; i < line.length; i++) {
+      const c = line[i], prev = line[i - 1];
+      if (quote) { cur += c; if (c === quote && prev !== '\\') quote = null; continue; }
+      if (c === '"' || c === "'" || c === '`') { quote = c; cur += c; continue; }
+      if (c === '(' || c === '[' || c === '{') depth++;
+      else if (c === ')' || c === ']' || c === '}') { if (depth === 0) break; depth--; }
+      else if (c === ',' && depth === 0) { args.push(cur); cur = ''; continue; }
+      cur += c;
+    }
+    if (cur.trim()) args.push(cur);
+    return args;
+  };
+  const textsOf = (arg) => {
+    const lits = literals(arg).map(fill);
+    if (!lits.length) return [];
+    return [...lits, lits.join(''), fmt(lits[0])];
+  };
+  const printsOf = (line) => {
+    const args = splitArgs(line);
+    if (!args.length) return [];
+    const per = args.map(textsOf).filter((t) => t.length);
+    if (!per.length) return [];
+    const out = new Set(per.flat());
+    // the arguments printed in order, a space between them: console.log(a, b) prints "a b". Each argument
+    // contributes any one of its texts, so the space join is taken over every combination the reader can name.
+    let joined = [''];
+    for (const t of per) joined = joined.flatMap((a) => t.map((b) => (a ? a + ' ' + b : b)));
+    for (const j of joined) out.add(j);
+    // a printf call: the first argument's format with the next numbers filled, as a passing run fills them
+    if (per.length > 1) out.add(fmt(literals(args[0])[0] || '').replace(/%[disf]/g, '7'));
+    return [...out];
+  };
+  // a call prints its arguments in order, so "what it can print" is any ONE of them and also their join; matching
+  // on both is what makes a multi-argument summary visible instead of invisible.
+  const shapedOf = (src) => printerLines(src).flatMap(printsOf).filter(isSummary);
 
   const suites = fs.readdirSync(TESTS).filter((f) => f.endsWith('.test.js') && !f.startsWith('fixture-'));
   const missing = [], ambiguous = [], exemptBad = [];
   for (const f of suites) {
     const src = fs.readFileSync(path.join(TESTS, f), 'utf8');
-    const all = prints(src);
-    const shaped = all.filter(isSummaryArgs);
+    const shaped = shapedOf(src);
     if (STATIC_EXEMPT[f]) {
       // not skipped: an exempt file is still held to its own final summary, which is readable for the two guards.
       // What this does NOT give them is the "exactly one" rule above -- their bodies hold probe suites that print
@@ -381,8 +708,9 @@ const failedAs = (r, name) => r.status !== 0 && new RegExp(`FAIL  ${name.replace
       // every commit, so that is the cover they have; it is not the same guarantee as the rule above, and the
       // comment says so rather than implying it.
       if (f === 'regress.test.js') continue;         // its own line is unreadable here (see the exemption)
-      const last = all[all.length - 1];
-      if (!last || !isSummaryArgs(last)) exemptBad.push(`${f}: its last printed text is not a summary`);
+      // its LAST printed call: the literals of the last line that prints anything, read the same way
+      const printer = printerLines(src).pop() || '';
+      if (!printsOf(printer).some(isSummary)) exemptBad.push(`${f}: its last printed text is not a summary`);
       continue;
     }
     if (shaped.length === 0) missing.push(`${f}: no summary-shaped output`);
@@ -391,6 +719,95 @@ const failedAs = (r, name) => r.status !== 0 && new RegExp(`FAIL  ${name.replace
   check('every suite has exactly one summary-shaped output', ambiguous.length === 0, ambiguous.join(' | '));
   check('every suite prints a line the runner accepts as its summary', missing.length === 0, missing.join(' | '));
   check('every exempt suite still ends with a summary line', exemptBad.length === 0, exemptBad.join(' | '));
+
+  // 7b. The reader's own blind spots, each the shape that once made a real summary invisible. Read through the
+  // SAME shapedOf/isSummary the loop above uses, so a reader that regresses fails here rather than only on the
+  // first suite that happens to print that way. Every case is a summary a passing suite really could print.
+  {
+    const forms = [
+      ['a double-quoted summary', 'console.log("all passed");', 1],
+      ['a single-quoted summary', "console.log('all passed');", 1],
+      ['console.info', "console.info('all passed');", 1],
+      ['console.debug', "console.debug('all passed');", 1],
+      ['process.stdout.write', "process.stdout.write('all passed\\n');", 1],
+      // a join that MATTERS: three literals, and the space-join spelling of them ("ok  512  checks") is not a
+      // summary, so a reader that joined a concatenation with spaces instead of none is caught here (the review
+      // found the first version of this table could not tell the two apart)
+      ['a three-literal concatenated summary', "console.log('ok ' + '512' + ' checks');", 1],
+      ['a concatenated summary', "console.log('7/7' + ' checks passed');", 1],
+      ['a summary split across arguments', "console.log('all', 'passed');", 1],
+      ['a summary after an earlier call on the same line', "if (ok) console.log('all passed');", 1],
+      ['a printf-tally summary', "console.log('%d/%d checks passed', 7, 7);", 1],
+      ['a printf summary with a label', "console.log('ok %d checks', 512);", 1],
+      ['a double-quoted template tally', 'console.log(`${n}/${n} checks passed`);', 1],
+      ['a summary written to stderr is not read', "console.error('all passed');", 0],
+      ['a non-summary line', "console.log('working...');", 0],
+      ['a commented-out summary', "// console.log('all passed');", 0],
+    ];
+    const blind = [];
+    for (const [what, src, want] of forms) {
+      const got = shapedOf(src).length;
+      if (got !== want) blind.push(`${what}: read ${got}, want ${want}`);
+    }
+    check('the summary reader sees every way a suite here prints one, and nothing else', blind.length === 0, blind.join(' | '));
+    // What the reader cannot see, stated rather than left as a surprise: a summary assembled at run time from
+    // pieces it does not evaluate (a variable filled elsewhere). It does not report one, which is the safe
+    // direction -- a suite with such a summary is reported as having none until it is exempted by name, as
+    // regress.test.js is.
+    check('a summary a reader cannot evaluate is reported as none, not guessed', shapedOf(
+      "const t = '7/7' + ' checks passed';\nconsole.log(t);").length === 0);
+    // and a real suite with a double-quoted summary is counted, not read as having none: the exact hole, on a
+    // whole file rather than a snippet
+    check('a suite whose only summary is double-quoted reads as one summary', shapedOf(
+      'let fail = 0;\nconst check = (c) => { if (!c) fail++; };\ncheck(true);\nconsole.log(fail ? `${fail} FAILED` : "all passed");\n').length === 1);
+  }
+}
+
+// 7c. No real suite prints a line starting "FAIL " on a passing run. The gate now fails any suite that does
+// (section 2d), so this is what keeps that rule from failing a healthy run: a suite that prints FAIL as DATA would
+// be failed by its own successful output. The answer was MEASURED, not guessed: every suite here was run to
+// completion and its stdout scanned for a line matching /^FAIL /; none printed one. That measurement, plus the
+// shape below, is why the runtime rule needs no exemption list.
+//
+// The static shape here is the only one a lexical reader can decide: a writer call whose sole argument is a string
+// literal starting "FAIL ". Every real suite prints its failures from inside a failure branch (`fail++;` or a
+// `check()` helper's arm, or a ternary's failure arm), which this skips -- and that is stated as the limit rather
+// than papered over: a FAIL printed from a branch this reader cannot see is caught by the gate's own run on every
+// commit, which is what executes the suites for real.
+{
+  // The two guard suites hold whole suite bodies in strings, some of which print FAIL on purpose; they are held by
+  // their own checks and by the gate's run, as the summary exemption above says.
+  const GUARD = new Set(['allsummary.test.js', 'exitguard.test.js']);
+  const PRINT = /\b(?:console\.(?:log|info|debug)|process\.stdout\.write)\s*\(/;
+  // a line that is inside a failure branch, or a ternary's arm, or an else: the FAIL there prints only when
+  // something failed. A template with ${...} is filled at run time and is not decided here either.
+  const BRANCHED = /fail\+\+|\bfail\s*\+=|\?\s*[^:]*:|\bif\s*\(|^\s*\}|\belse\b|\$\{/;
+  const offenders = [];
+  for (const f of fs.readdirSync(TESTS).filter((n) => n.endsWith('.test.js') && !n.startsWith('fixture-') && !GUARD.has(n))) {
+    for (const line of fs.readFileSync(path.join(TESTS, f), 'utf8').split('\n')) {
+      if (!PRINT.test(line) || /^\s*\/\//.test(line) || BRANCHED.test(line)) continue;
+      const m = /\(([^)]*)\)/.exec(line);
+      const first = m && /^\s*(["'`])((?:\\.|(?!\1)[^\\])*)\1\s*$/.exec(m[1]);
+      if (first && /^FAIL /.test(first[2])) offenders.push(`${f}: ${line.trim().slice(0, 90)}`);
+    }
+  }
+  check('no suite prints a literal "FAIL " line unconditionally', offenders.length === 0, offenders.join(' | '));
+  // not vacuous: the reader flags the plain shape and leaves every shape a real suite uses alone
+  const probe = (src) => {
+    const line = src.split('\n').find((l) => PRINT.test(l) && !/^\s*\/\//.test(l)) || '';
+    if (BRANCHED.test(line)) return false;
+    const m = /\(([^)]*)\)/.exec(line);
+    const first = m && /^\s*(["'`])((?:\\.|(?!\1)[^\\])*)\1\s*$/.exec(m[1]);
+    return !!(first && /^FAIL /.test(first[2]));
+  };
+  check('the FAIL-line reader flags a plain FAIL print, and only that',
+    probe("console.log('FAIL a check');") === true
+    && probe('console.log("FAIL a check");') === true
+    && probe("console.log(`FAIL ${name}`);") === false          // a template, filled at run time -- not decidable here
+    && probe("console.log(fail ? `${fail} FAILED` : 'all passed');") === false
+    && probe("if (!ok) console.log('FAIL x');") === false
+    && probe("} else console.log('FAIL x');") === false
+    && probe("// console.log('FAIL out');") === false);
 }
 
 console.log(fail ? `${fail} FAILED` : 'all passed');
