@@ -6,6 +6,21 @@ All notable changes to CLOADM are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Every DriveWire server the Session builds reads the store's case rule, and now each one is pinned.** The
+  Session creates three servers on the same media: the Becker port's, the one a real CoCo is served from over Web
+  Serial (`serveRealCoco`), and the chat's. Each is given the store's name comparison at construction (GAME.DSK and
+  game.dsk are one file on a folder that does not tell cases apart), but only the Becker one was tested, so
+  dropping that wiring from either of the other two left every suite green. `tests/drivewire-samename-servers.test.js`
+  checks all three: on a case-insensitive store a named-object mount of the other spelling resolves to the drive
+  that already holds the file and adds no drive, and a second drive on that file is refused naming the first; on a
+  case-sensitive store the same calls are two files, so the mount takes a free drive with its own bytes and the
+  second drive is allowed (the control that stops these checks passing on a server which refuses everything). The
+  real CoCo is served over a stub serial port, not Web Serial. No product change: `js/` is untouched, and the
+  wiring was already right, just untested (on the commit before this one, with both non-Becker wirings removed, the
+  three suites that cover those servers still passed).
+
 ### Fixed
 
 - **The browser check drives Stop in both orders, and reads the translated key as the exact set.** The ask check
