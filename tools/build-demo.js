@@ -37,8 +37,28 @@ const prog = [
   'key',
   [0xAD, 0x9F, 0xA0, 0x00],              // JSR [$A000]  (POLCAT)
   br(BEQ, 'key'),
+  [0x1A, 0x50],                          // ORCC #$50   (no interrupt may stretch the tone's timing)
+  // The demo's one sound: a short clean tone before the colour bars start (the bars' loop writes no DAC value at all,
+  // so after the tone it is silent: no steps, no clicks). A square wave on the 6-bit DAC (PIA1 port A, $FF20, bits 7-2)
+  // around the centre $80: high $B0, low $50, that is $80 +/- $30, about 37 % of the half range, not full scale. The
+  // first and the last write are the centre $80, and the DAC stays there.
+  //   One period is two writes. Cycle counts are the 6809's (LDA #imm 2, STA ext 5, LDB #imm 2, DECB 2, BNE 3, LEAX -1,X 5):
+  //     high half: STA(5) + LDB(2) + 134 x (DECB 2 + BNE 3 = 5) + LDA(2)                      = 9 + 5 x 134  = 679 cycles
+  //     low half:  STA(5) + LDB(2) + 132 x 5 + LEAX(5) + BNE(3) + LDA(2)                       = 17 + 5 x 132 = 677 cycles
+  //     period 1356 cycles = 894886 Hz / 1356 = 659.9 Hz  (E5 is 659.26 Hz); the halves differ by 2 cycles (0.3 %)
+  //   264 periods = 264 x 1356 = 357984 cycles = 0.4000 s at 894886 cycles/s (0.402 s at a Dragon's 890625).
+  [0x86, 0x80], ext(0xB7, 0xFF20),       // LDA #$80 ; STA $FF20   centre
+  [0x8E, 264 >> 8, 264 & 0xFF],          // LDX #264   periods
+  'tn',
+  [0x86, 0xB0], ext(0xB7, 0xFF20),       // LDA #$B0 ; STA $FF20   high
+  [0xC6, 134],                           // LDB #134
+  'th', [0x5A], br(BNE, 'th'),           // DECB ; BNE th
+  [0x86, 0x50], ext(0xB7, 0xFF20),       // LDA #$50 ; STA $FF20   low
+  [0xC6, 132],                           // LDB #132
+  'tl', [0x5A], br(BNE, 'tl'),           // DECB ; BNE tl
+  [0x30, 0x1F], br(BNE, 'tn'),           // LEAX -1,X ; BNE tn
+  [0x86, 0x80], ext(0xB7, 0xFF20),       // LDA #$80 ; STA $FF20   centre again, and it stays
   // graphics: CG6 128x192 4-colour at $0E00
-  [0x1A, 0x50],                          // ORCC #$50
   ext(0xB7, 0xFFC0), ext(0xB7, 0xFFC3), ext(0xB7, 0xFFC5),           // SAM V = 110
   ext(0xB7, 0xFFC7), ext(0xB7, 0xFFC9), ext(0xB7, 0xFFCB),           // SAM F = 7 -> $0E00
   ext(0xB7, 0xFFCC), ext(0xB7, 0xFFCE), ext(0xB7, 0xFFD0), ext(0xB7, 0xFFD2),
@@ -49,8 +69,8 @@ const prog = [
   'vs',
   ext(0xB6, 0xFF03),                     // LDA $FF03
   br(BPL, 'vs'),
-  // tone: DAC follows frame counter
-  ext(0xB6, FRAME), [0x48, 0x48], [0x84, 0xFC], ext(0xB7, 0xFF20),   // LDA FRAME; ASLA; ASLA; ANDA #$FC; STA $FF20
+  // (No DAC write here any more: the loop used to follow the frame counter with one, a staircase that buzzed at the field
+  // rate and jumped from full scale to zero about once a second.)
   [0x8E, 0x0E, 0x00],                    // LDX #$0E00
   ext(0x7F, ROW),                        // CLR ROW
   'row',
@@ -83,9 +103,18 @@ const prog = [
   'msg', str('DRAGON 64 EMULATOR DEMO\r\rTHIS 6809 PROGRAM PRINTS VIA\rTHE CHROUT VECTOR, THEN DRAWS\rCOLOUR BARS IN 128X192 MODE.\r\rPRESS ANY KEY...'), [0],
 ];
 
-const code = assemble(prog);
-const hdr = [0x55, 0x02, ORG >> 8, ORG & 0xFF, code.length >> 8, code.length & 0xFF, ORG >> 8, ORG & 0xFF, 0xAA];
-const out = path.join(__dirname, '../examples/demo.bin');
-fs.mkdirSync(path.dirname(out), { recursive: true });
-fs.writeFileSync(out, Buffer.from([...hdr, ...code]));
-console.log(`wrote ${out} (${code.length} bytes at $${ORG.toString(16)})`);
+// the DragonDOS binary: header (type $55, load address, length, exec address, $AA) and the code
+function build() {
+  const code = assemble(prog);
+  const hdr = [0x55, 0x02, ORG >> 8, ORG & 0xFF, code.length >> 8, code.length & 0xFF, ORG >> 8, ORG & 0xFF, 0xAA];
+  return { bytes: Buffer.from([...hdr, ...code]), length: code.length };
+}
+module.exports = { build };   // (tests/demo-tone.test.js checks the committed binary is exactly this build)
+
+if (require.main === module) {
+  const built = build();
+  const out = path.join(__dirname, '../examples/demo.bin');
+  fs.mkdirSync(path.dirname(out), { recursive: true });
+  fs.writeFileSync(out, built.bytes);
+  console.log(`wrote ${out} (${built.length} bytes at $${ORG.toString(16)})`);
+}

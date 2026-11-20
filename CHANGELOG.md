@@ -8,6 +8,15 @@ All notable changes to CLOADM are recorded here. The format follows
 
 ### Changed
 
+- **The welcome demo's sound is one short clean tone.** "2 COLOUR AND SOUND" used to write one DAC value per frame, a
+  staircase that ticked at the field rate and popped from full scale to zero about once a second. It now plays a
+  single tone as the colour bars start: a square wave around the DAC's centre `$80` (high `$B0`, low `$50`, about 37 %
+  of full scale), 659.9 Hz (a cycle-counted loop: 1356 cycles a period at 0.894886 MHz) for 264 periods, 0.40 s, ending
+  on `$80`, and then nothing more is written to the DAC. The bars, their scrolling, the colour-set flip and the key
+  that returns are unchanged; the first bar frame comes 0.4 s later. `tests/demo-tone.test.js` runs the demo on the
+  Dragon 64, CoCo and CoCo 3 and checks pitch, length, amplitude, the first and last value, the largest step, 200+
+  silent frames afterwards and the picture against the bars' definition.
+
 - **Every DriveWire server the Session builds reads the store's case rule, and now each one is pinned.** The
   Session creates three servers on the same media: the Becker port's, the one a real CoCo is served from over Web
   Serial (`serveRealCoco`), and the chat's. Each is given the store's name comparison at construction (GAME.DSK and
