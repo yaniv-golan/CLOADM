@@ -455,4 +455,4 @@ The report contains no ROM data, only sizes, CRC32s (matched against known-good 
 
 ---
 
-See also: [Machines](machines.md) · [LIZA and Claude](claude.md) · [ROM list](roms.md) · [Verification](verification.md)
+See also: [Machines](machines.md) · [LIZA and Claude](claude.md) · [ROM list](roms.md) · [Verification](verification.md) · [Comparison with XRoar, MAME and VCC](comparison.md)
