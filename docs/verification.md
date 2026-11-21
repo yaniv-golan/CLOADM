@@ -1289,6 +1289,27 @@ independently in `tests/games.test.js`:
   opening flagged squares (testing OPEN only), the title page ignoring BREAK, the SAM's M not put back, no reset at
   `DONE` with ROMs, and no RAM check.
 
+## The side-panel connector (claude.ai)
+
+Not hardware behaviour, so MAME is not its oracle (AGENTS.md section 4.6). The emulator in the view is the same
+`js/`; what is new is the connector around it, checked against the MCP Apps specification (ext-apps
+`specification/2026-01-26/apps.mdx`) and the local MCP server:
+
+* the folded emulator of the self-contained view runs LIZA identically to the plain modules: screen, frame count and
+  every pixel (`tests/connector.test.js`);
+* the panel's tools are the local server's, name, schema and annotations byte for byte, with the file tools left out;
+  results keep the `untrusted` wrapping; over 100,000 characters is `too-long`;
+* the bridge's protocol, in a vm and in Chromium: `ui/initialize` before the emulator's module runs, `tools/list`
+  answered at once, `notifications/tools/list_changed` when the emulator is ready, early calls held, a failed start
+  `not-started`, a different `PANEL_API` `out-of-step`;
+* both views nested as Claude nests them (host → sandbox proxy → `srcdoc` view, `allow-scripts allow-same-origin
+  allow-forms`) under the CSP the specification builds from the declared `_meta.ui.csp`, with and without CORS on the
+  site: typing into LIZA, a game and its screenshot, real keys, storage, ROMs kept in the view's storage and memory
+  reads refused while they run (the browser check's `connector` group, `tools/connector-check.js`).
+
+What only claude.ai can show (its side panel, its approval prompts, what it grants a custom connector) is a manual
+test: [deploy-connector.md](deploy-connector.md), "Verify".
+
 ## The HD6309 running the 6809 builds
 
 Not hardware behaviour: the 6309 core is compared with MAME per instruction already ([cpu6309.md](cpu6309.md)); this

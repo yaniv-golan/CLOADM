@@ -39,6 +39,7 @@ names contain one of the parts, and `node tools/browser-check.js --only <group>[
 | `js/session.js`, snapshots | `session,snapshot,state,restore-points` | `snapshot,state` |
 | The Claude chat and Ask Claude | `claude,chat-firmware` | `claude,ask,commands,chatScreen` |
 | `cli/` (the command line and the MCP server) | `cli,mcp,game-guide,starter-game` | none |
+| `connector/` (the side-panel connector) | `connector,mcp,skill` | `connector` |
 | `examples/` (a program or game) | `pwa,starter-game,game-guide,welcome` and the example's own suite | `pwa` (and the group that offers it) |
 | `js/ui/`, `play/`, `css/`, `index.html` | `session,readme` | the panel's groups, then the whole check |
 | Docs (`README.md`, `docs/`) | `readme,romdocs,game-guide` | none |
@@ -114,6 +115,9 @@ node tests/skill.test.js     # the agent skill: the .agents copy identical, fron
 node tests/skill-evals/run.js # the skill's evals with and without it: real, billed Claude runs (needs the claude CLI), not in tests/all.js
 node tests/plugin.test.js    # the plugin, marketplace and Claude Desktop extension manifests: one version, paths, placeholders, the tool list, the server starting as each starts it
 node tests/mcp.test.js       # the MCP server over stdio: both protocol eras, every tool's results and errors against the in-page tools, handles, --read-only, the media root, cancellation, --serve
+node tests/connector.test.js # the side-panel connector (connector/): the Worker over HTTP, both views and their CSP, the folded emulator identical to the plain modules, the panel's tools equal to the server's, the 100k limit, the bridge's protocol in a vm
+node tools/connector-check.js # the connector's two views in Chromium, nested as Claude nests them under the spec's CSP, with a host stub: handshake first, list_changed, the tools, keys, storage, ROMs kept and refused to memory reads, no CORS, out of step (the browser check's `connector` group)
+node connector/build.js      # build the connector's views into connector/worker/src/views.gen.js (wrangler deploy runs it; docs/deploy-connector.md)
 node tests/cli-agent.test.js # cli/cloadm.js beyond the basics: --describe, error codes, the debugger steps against the Session's debugger, DriveWire stalls, special keys, script quoting, --view
 node tests/cli-wav.test.js   # --wav: a known DAC pattern's levels and timing, determinism, snapshots mid-sound, the box filter of the level events
 node tests/cli-screenshot.test.js  # --expect-screenshot (tolerance, diff, PNG layouts, errors) and --hold

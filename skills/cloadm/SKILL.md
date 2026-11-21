@@ -38,7 +38,7 @@ Names below are the server's base names; your host may prefix them.
 | put a BASIC listing into memory (with ROMs) | `load_basic` |
 | assemble 6809/6309/6803 source into memory | `assemble_and_load` |
 | start code at an address, or type RUN | `run` |
-| load and start a file or a bundled program (`liza`, `demo`, `welcome`) | `load` |
+| load and start a file or a bundled program (`liza`, `demo`, `welcome`, `2048`, `minesweeper`) | `load` |
 | put a tape or disk in without starting it | `insert_tape`, `insert_disk` |
 | read / write memory | `peek`, `poke` |
 | search memory for bytes | `find_bytes` |
@@ -80,7 +80,7 @@ CLOADM ships no ROMs; the user may have given the server their own (its `--roms`
 
 - **Without ROMs** every model boots CLOADM's built-in firmware. It runs machine code: `assemble_and_load` + `run`,
   `.bin` and `.cas` machine-code files, cartridges, and the bundled programs (`load` with `program: "liza"` - a
-  small therapist chatbot - `"demo"` or `"welcome"`). Its keyboard routine (POLCAT, `JSR [$A000]`) returns what
+  small therapist chatbot - `"demo"`, `"welcome"`, or the games `"2048"` and `"minesweeper"`). Its keyboard routine (POLCAT, `JSR [$A000]`) returns what
   `type_text` types, and CHROUT (`JSR [$A002]`) prints A at the cursor. There is no BASIC: `load_basic`,
   `run "RUN"` and `.bas` files are refused with `no-basic`.
 - **With ROMs** the machine boots BASIC. Type short commands with `type_text`; put a program longer than about three
@@ -106,7 +106,8 @@ with the start address (`"$3000"`), then `run_frames` until the effect, then che
 the SAM at 4K, so a picture above `$0FFF` needs the SAM's memory size set. Take values from that table, not from
 memory: one wrong bit gives another mode with plausible-looking colours.
 
-**Games.** Load the game (`load` a `.bin`, `.cas` or cartridge), then wait for the title with
+**Games.** Load the game (`load` a `.bin`, `.cas` or cartridge, or a bundled one: `program: "2048"` or
+`"minesweeper"`, 6809 machines with 32K or more), then wait for the title with
 `until: {screen: "changed"}` or for its text. Games read the keyboard matrix directly, so use `press_keys` (key
 names as on the keyboard: `LEFT`, `RIGHT`, `UP`, `DOWN`, `SPACE`, `ENTER`, letters; `frames` to hold them; a
 `joystick` with x/y 0-63 and `fire`). Take a screenshot to see what happened. To find which keys a program reads,

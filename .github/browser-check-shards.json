@@ -83,7 +83,8 @@
       "consentFullscreen",
       "phoneChat",
       "askEsc",
-      "uiModel"
+      "uiModel",
+      "connector"
     ]
   ]
 }

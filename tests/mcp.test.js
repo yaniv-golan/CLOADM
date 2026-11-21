@@ -735,27 +735,64 @@ fs.writeFileSync(tmp('media', 'plain.bas'), '10 PRINT "HI"\n');
   check('--serve: errors in the tools\' shape', sv.replies[4].error.code === 'bad-address' && sv.replies[5].error.code === 'bad-argument' && sv.replies[6].error.code === 'bad-argument' && /no tool "nope"/.test(sv.replies[6].error.detail)
     && sv.replies[7].error.code === 'bad-argument' && sv.replies[8].ok, J(sv.replies.slice(4)));
 
-  // ---------------- the seam for a host that has its own Session (the page, later) ----------------
+  // ---------------- a host that has its own machine (Claude's side panel, connector/view/) ----------------
   {
     const T = await import(require('url').pathToFileURL(path.join(ROOT, 'js/mcp/tools.js')).href);
-    const host = { roms: () => [], png: () => new Uint8Array(0), program: () => new Uint8Array(0), now: () => 0, date: () => new Date(0), yield: () => new Promise(setImmediate),
+    const programs = (f) => new Uint8Array(fs.readFileSync(path.join(ROOT, 'examples', path.basename(f))));
+    const host = { roms: () => [], png: () => new Uint8Array(0), program: programs, now: () => 0, date: () => new Date(0), yield: () => new Promise(setImmediate),
       readMedia() { throw new T.McpToolError('no-media-root'); }, writeMedia() { throw new T.McpToolError('no-media-root'); } };
-    const tb = T.createToolbox(host);
     const own = new Emu.Session({ welcomeMenu: false });
     own.switchMachine('coco3', {}, { menu: false });
-    own.startWelcome(new Uint8Array(fs.readFileSync(path.join(ROOT, 'examples', own.welcomeFile))));
+    own.startWelcome(programs(own.welcomeFile));
     own.runFrames(40);
-    const id = tb.adopt(own);
-    const r = await tb.call('screen_text', { machine_id: id });
-    check('adopt: a Session the host already has gets a machine_id; the tools read it as the page does', id === 'm1' && r.ok && J(r.data.machine_output) === J(Emu.runReadOnlyTool(own.chatTarget(), 'screen_text', {})), J(r).slice(0, 200));
-    const typed2 = await tb.call('poke', { machine_id: id, address: 0x3F00, bytes: [7] });
-    check('adopt: the tools act on the adopted Session itself', typed2.ok && own.readByte(0x3F00) === 7);
-    for (let i = 0; i < 7; i++) tb.adopt(own);
-    let capped = null;
-    try { tb.adopt(own); } catch (e) { capped = e.code; }
+    const tb = T.createToolbox(host, { session: own, refuseRomReads: true });
+    const names = tb.tools().map((t) => t.name);
+    check('own session: the host\'s machine is m1 at once; close_machine is not offered', !names.includes('close_machine') && names.includes('boot')
+      && J((await tb.call('list_machines', {})).data.machines.map((m) => m.machine_id)) === '["m1"]', names.join(','));
+    const r = await tb.call('screen_text', { machine_id: 'm1' });
+    check('own session: the tools read the host\'s Session as the page does', r.ok && J(r.data.machine_output) === J(Emu.runReadOnlyTool(own.chatTarget(), 'screen_text', {})), J(r).slice(0, 200));
+    const poked = await tb.call('poke', { machine_id: 'm1', address: 0x3F00, bytes: [7] });
+    check('own session: the tools act on the host\'s Session itself', poked.ok && own.readByte(0x3F00) === 7);
+    const booted = await tb.call('boot', { model: 'dragon32' });
+    check('own session: boot switches the host\'s machine in place and returns m1', booted.ok && booted.data.machine.machine_id === 'm1' && own.machine.id === 'dragon32'
+      && /already on/.test(tb.tools().find((t) => t.name === 'boot').description), J(booted).slice(0, 200));
+    const sw = await tb.call('switch_machine', { machine_id: 'm1', model: 'coco', options: { ram: 64 } });
+    check('own session: switch_machine changes the same Session', sw.ok && own.machine.id === 'coco' && own.machine.config.ram === 64, J(sw).slice(0, 200));
     let notSession = null;
-    try { tb.adopt({ machine: {} }); } catch (e) { notSession = e.message; }
-    check('adopt: within the same cap of 8; only a Session', capped === 'too-many-machines' && /adopt takes a Session/.test(notSession), `${capped} ${notSession}`);
+    try { T.createToolbox(host, { session: { machine: {} } }); } catch (e) { notSession = e.message; }
+    check('own session: only a Session', /session must be a Session/.test(notSession), notSession);
+    // the games, by name, as on the page (Session.runGame); refused where the page refuses them
+    const game = await tb.call('load', { machine_id: 'm1', program: '2048' });
+    const ran = await tb.call('run_frames', { machine_id: 'm1', frames: 100 });
+    const graphics = await tb.call('screen_text', { machine_id: 'm1' });
+    check('load: the bundled game 2048 runs (its board is in a graphics mode)', game.ok && game.data.loaded === '2048' && ran.ok && own.machine.cpu.pc >= 0x3000 && own.machine.cpu.pc < 0x3C00
+      && graphics.ok && graphics.data.machine_output.text === false, J([game, graphics]).slice(0, 300));
+    const mines = await tb.call('load', { machine_id: 'm1', program: 'minesweeper' });
+    check('load: minesweeper too', mines.ok && own.machine.cpu.pc >= 0x3000, J(mines).slice(0, 200));
+    await tb.call('boot', { model: 'mc10' });
+    const no6809 = await tb.call('load', { machine_id: 'm1', program: '2048' });
+    check('load: a game on a machine that cannot run it is refused as the page refuses it', !no6809.ok && no6809.error.code === 'rejected' && /6809 code/.test(no6809.error.detail), J(no6809));
+    const badProg = await tb.call('load', { machine_id: 'm1', program: 'tetris' });
+    check('load: an unknown program names the bundled ones', !badProg.ok && /welcome, liza, demo, 2048 or minesweeper/.test(badProg.error.detail), J(badProg));
+    // no ROM byte leaves a host that refuses ROM reads: with the user's ROMs (here bytes standing in for them) peek,
+    // find_bytes and disassemble are refused; without ROMs they read
+    await tb.call('boot', { model: 'dragon32', roms: false });
+    const free = await tb.call('peek', { machine_id: 'm1', address: 0xA000, length: 4 });
+    own.addRoms([{ name: 'd32.rom', bytes: Uint8Array.from({ length: 16384 }, (_, k) => (k * 7 + 3) & 255) }]);
+    const withRoms = own.romCodeIn();
+    const refused = await Promise.all([tb.call('peek', { machine_id: 'm1', address: 0xA000, length: 4 }), tb.call('find_bytes', { machine_id: 'm1', pattern: '03 0A' }), tb.call('disassemble', { machine_id: 'm1', address: 0x8000, count: 4 })]);
+    const shown = await tb.call('screen_text', { machine_id: 'm1' });
+    check('refuseRomReads: peek, find_bytes and disassemble are refused while the user\'s ROMs run; the screen still reads', free.ok && withRoms === 'roms'
+      && refused.every((x) => !x.ok && x.error.code === 'rejected' && /never leave this host/.test(x.error.detail)) && shown.ok, J(refused).slice(0, 400));
+    const stdio = T.createToolbox(host);
+    const boot2 = await stdio.call('boot', { model: 'dragon32' });
+    stdio.call('poke', { machine_id: boot2.data.machine.machine_id, address: 0x3000, bytes: [1] });
+    check('refuseRomReads is off by default (the stdio server reads any memory of a machine it booted)', (await stdio.call('find_bytes', { machine_id: boot2.data.machine.machine_id, pattern: '01', from: 0x3000, to: 0x3000 })).ok);
+    // mcpResult: one shape for both hosts
+    const shot = T.mcpResult({ ok: true, data: { width: 1 }, image: Uint8Array.of(1, 2) }, (b) => Buffer.from(b).toString('base64'));
+    const err = T.mcpResult({ ok: false, error: { code: 'rejected', remedy: 'x' } }, null);
+    check('mcpResult: text JSON, structuredContent, an image block; errors as isError', shot.content[1].data === 'AQI=' && shot.content[1].mimeType === 'image/png' && J(shot.structuredContent) === '{"width":1}'
+      && err.isError && JSON.parse(err.content[0].text).error.code === 'rejected', J([shot, err]));
   }
 
   // ---------------- the guide (docs/mcp.md) cannot drift from the server ----------------

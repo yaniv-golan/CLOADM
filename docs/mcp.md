@@ -54,7 +54,7 @@ Minesweeper run; BASIC does not). The agent skill that teaches an agent to use t
 | Claude Desktop (chat) | the `.mcpb` extension from the GitHub Releases page |
 | Cursor | an MCP server entry pointing at a checkout, plus the skill folder (supported); this repository's marketplace may also install as it is (untested: see below) |
 | Codex (CLI and app), Gemini CLI, other MCP clients | an MCP server entry pointing at a checkout, plus the skill folder; in the Codex app the marketplace is untested (see below) |
-| claude.ai on the web | not supported yet: it cannot start a local server |
+| claude.ai on the web | the remote connector `https://mcp.cloadm.dev/mcp`, in Claude's side panel (see [Claude on the web: side panel](#claude-on-the-web-side-panel)) |
 
 ### Claude Code
 
@@ -190,7 +190,7 @@ are open at once.
 | `screenshot` | the screen as a PNG image, always a whole frame (`mid_frame` says when the machine stopped inside one and this is the last complete frame; the next frame began before the stop, so `run_frames 2` shows one drawn entirely after it); `scale` 1 to 3 enlarges it | yes |
 | `reset`, `power_cycle` | the reset button; off and on (RAM cleared) | |
 | `set_display` | which of the Dragon 64 Plus's screens is shown (`main` or `plus`) | allowed |
-| `load` | run a file from the media root (binary, tape, cartridge, BASIC listing, disk into drive 0) or a bundled program (`welcome`, `liza`, `demo`). A listing is typed as NEW, its lines and RUN (`run: false` leaves out RUN), and the result says what the keyboard typed differently (`changed`) or could not type (`dropped`) | |
+| `load` | run a file from the media root (binary, tape, cartridge, BASIC listing, disk into drive 0) or a bundled program (`welcome`, `liza`, `demo`, or the games `2048` and `minesweeper`). A listing is typed as NEW, its lines and RUN (`run: false` leaves out RUN), and the result says what the keyboard typed differently (`changed`) or could not type (`dropped`) | |
 | `insert_tape`, `insert_disk` | a tape in the deck, a disk in a drive (a disk needs your disk ROM) | |
 | `save_snapshot`, `restore_snapshot` | the whole machine to a file under the media root, and back. `save_snapshot` writes only names ending `.cloadm-state`, replaces an existing file only if it is a snapshot, and never writes the server's config file | |
 
@@ -251,7 +251,8 @@ which only the server has. The others use these:
 An unknown tool name is the protocol's error `-32602`, as the specification says; everything else is a tool result,
 so the agent can read the remedy and try again.
 
-**ROMs.** The server reads your ROMs; it never returns them as files. Reads of memory follow the page's rule: like the
+**ROMs.** The server reads your ROMs; it never returns them as files. (In Claude's [side panel](#claude-on-the-web-side-panel)
+the rule is stricter: memory reads are refused while your ROMs run.) Reads of memory follow the page's rule: like the
 in-page Claude, `peek`, `disassemble` and `screenshot` show what the machine holds, which with your ROMs includes ROM
 code, so treat what an agent reads as you would treat your ROMs.
 
@@ -268,8 +269,71 @@ one line of at most 4 MB (a longer line is refused with `-32600` and not read); 
 messages) is refused with `-32600` too, as no revision it speaks has batches. A cancellation also reaches a call still
 waiting behind another: it is then never run, and never answered.
 
-MCP Apps (a `ui://` view of the machine in the client) is not served yet: the tools are built so that one can be added
-without changing them.
+On stdio the server serves no MCP Apps view (`ui://`); the [side panel](#claude-on-the-web-side-panel) is where the
+same tools run in one.
+
+## Claude on the web: side panel
+
+On claude.ai the emulator runs in Claude's side panel, in your browser, through a remote connector at
+`https://mcp.cloadm.dev/mcp` (a small stateless server with no sign-in: it serves the view and keeps nothing). Claude
+then uses the same machine tools as above on the machine you see.
+
+**Add it** (once): in claude.ai, **Plugins → Add → "Add custom connector"**, name `CLOADM`, URL
+`https://mcp.cloadm.dev/mcp`, choose **No sign-in**, then **Add**. On a Team or Enterprise plan an owner may have to add it
+under Organization settings → Connectors. Interactive views and app tools are a claude.ai feature that not every
+account or organization has yet.
+
+**Use it:**
+
+1. In a chat with the connector enabled, ask Claude to open the emulator (for example "Open CLOADM"). It calls
+   `open_emulator` and the view appears: a Dragon 64 talking as LIZA, or BASIC if you have added ROMs there.
+2. Open the view in the side panel (Claude's expand control, or the view's **Open in side panel** button). Click the
+   screen to type on it yourself.
+3. In your **next** message, ask for what you want ("type I AM HAPPY and tell me what LIZA says", "play 2048",
+   "write a 6809 program that fills the screen and run it"). The view registers its tools after it has loaded, so
+   Claude can use them from the next turn, not in the one that opened it. Claude asks you to approve each call.
+
+**The tools in the panel** are the ones in [The tools](#the-tools), with the same names, arguments and results
+(`machine_output` with its `untrusted` note included), run by the view on the machine on screen:
+
+* There is one machine, `machine_id` `"m1"`, already on. `boot` and `switch_machine` change it to another model or
+  options; `close_machine` is not offered.
+* `load` runs the bundled programs by name (`welcome`, `liza`, `demo`, `2048`, `minesweeper`). The panel has no files:
+  a `path` is refused with `no-media-root`, and `insert_tape`, `insert_disk`, `save_snapshot` and `restore_snapshot`
+  are not offered. Claude's views cannot download, so nothing is saved out of the panel either.
+* Your ROMs stay in the panel. Add them with **Add ROMs…** or by dropping the files on the view; they are kept in that
+  view's own browser storage, never sent anywhere, and no tool takes or returns them. While they run, `peek`,
+  `find_bytes` and `disassemble` are refused (`rejected`): memory can then hold ROM code. Claude gives each
+  conversation's view its own origin, so a new conversation starts without them; reopening the same conversation keeps
+  them (in that browser).
+* Claude's limits for app tools: a call may run 45 s, and a result may hold 100,000 characters. A tool that runs the
+  machine stops after about 25 s of real time, `run_frames` after 3000 frames (call it again to wait longer, as
+  everywhere), and a result that would be longer is refused with `too-long`.
+
+Errors the panel adds to the [ones above](#results-and-errors):
+
+| Code | Meaning |
+|---|---|
+| `too-long` | the result is over 100,000 characters: ask for less (a shorter `peek` or `disassemble`, a narrower `find_bytes`, a smaller screenshot `scale`) |
+| `not-started` | the emulator in the view could not start (`detail` says why: cloadm.dev unreachable, for example) |
+| `not-ready` | a call came before the emulator had started, and it did not start within 15 s: call again |
+| `out-of-step` | the connector and the cloadm.dev site are from different releases (see below) |
+
+**Two views.** `open_emulator` (the default) is a small view whose emulator code comes from cloadm.dev
+(`_meta.ui.csp` declares `https://cloadm.dev` and nothing else, and the site sends `Access-Control-Allow-Origin: *`).
+`open_emulator_inline` carries all of the emulator's code, about 1 MiB, and loads nothing from anywhere: Claude uses
+it when the first view stays at "loading" or says `error`.
+
+**Releases.** The first view loads `connector/view/panel.js` from cloadm.dev, which loads `js/` from beside it, so the
+glue between the view and the emulator always comes from the same release of the site as the emulator itself. What
+the connector itself carries (the bridge that talks to Claude, and the tool list Claude sees before the emulator has
+loaded) is checked against the site's with a version number, `PANEL_API` (`connector/view/tools.js`): when they
+differ, the tools answer `out-of-step` rather than half working, and the emulator's own tool list replaces the
+connector's as soon as it has loaded. The self-contained view has no such dependency. The connector's server and its
+deployment: [deploy-connector.md](deploy-connector.md).
+
+**Privacy.** The connector's server receives Claude's requests for its tool list and its views, nothing more: what you
+type, the screen and your ROMs stay in the view in your browser. It stores nothing and logs nothing.
 
 ## Serving JSON lines
 

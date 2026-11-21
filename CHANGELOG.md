@@ -128,6 +128,27 @@ Next version: 0.1.7-pre (the plugin and extension manifests carry it; `tests/plu
   JSON, one version everywhere (this file's "Next version"), every path resolves, no placeholder but the ones each
   host defines, the extension's tool list is the server's, and the server starts as each manifest starts it.
 
+- **CLOADM in Claude's side panel on claude.ai: a remote connector.** Add `https://mcp.cloadm.dev/mcp` as a custom
+  connector (no sign-in) and ask Claude to open CLOADM: the emulator runs in an MCP Apps view, in your browser, which
+  you can open in the side panel and type on; from the next message Claude uses the machine tools the MCP server has
+  (the same names, arguments, results and `untrusted` wrapping) on the machine on screen, each call approved by you.
+  The view is `connector/view/`: a bridge that shakes hands with Claude before the emulator loads and tells it when
+  the tools are ready, and the toolbox on the panel's own machine. One machine (`m1`); `load` runs the bundled
+  programs; no files, tapes, disks or snapshots (the panel has neither files nor downloads). ROMs are added in the
+  panel and stay in its browser storage; while they run, `peek`, `find_bytes` and `disassemble` are refused, so no ROM
+  byte leaves the panel. Results over Claude's 100,000 characters are refused with `too-long`. Two views: the default
+  loads the emulator from cloadm.dev (its CSP declares that origin only), and a self-contained one (about 1 MiB) loads
+  nothing; the glue the default view loads comes from the same release of the site as `js/`, and a version number
+  (`PANEL_API`) makes a connector out of step with the site say so (`out-of-step`) instead of half working. The server
+  (`connector/worker/`, a Cloudflare Worker) is stateless and stores and logs nothing; deploying it:
+  `docs/deploy-connector.md`. Tested in `tests/connector.test.js` (the server, the views, the folded emulator against
+  the plain modules, the bridge's protocol) and the browser check's `connector` group (both views nested as Claude
+  nests them, under the spec's CSP, with and without CORS, and out of step). Guide: `docs/mcp.md`, "Claude on the web:
+  side panel".
+
+- **The MCP server's `load` runs the games too:** `program` takes `2048` and `minesweeper` as well as `welcome`,
+  `liza` and `demo` (refused, as on the page, where the machine cannot run them).
+
 #### Changed
 
 - **The CoCo 3 keeps its bus log only while a device that can assert HALT is attached.** The log (the accesses of
