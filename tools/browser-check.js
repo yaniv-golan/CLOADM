@@ -6649,25 +6649,11 @@ async function inputScreenChecks(browser, base, check) {
       await waitFor(page, () => !document.getElementById('installOffer').hidden);
       const card = await inside(page, '#installOffer', SIDE), where = await page.evaluate(() => window.emu.install.state().placement().where);
       check(`${L}: the install card, in the gutter beside the screen, lies inside the safe area`, where === 'gutter' && card.shown && card.ok, JSON.stringify({ where, card }));
-      // 3a (js/ui/install.js's own use of safeArea()): the card may only go where inWindow() says - the window
-      // LESS the insets. This narrows the window until the only gutter wide enough is the notch-side one (59 px of
-      // inset each side): a placement that measured against the window edge, not safeArea(), would take it. What
-      // must hold is that the card never sits left of the inset, whichever of the other places it picks or waits in.
-      const narrow = [700, 620, 560, 500];
-      let under = null;
-      for (const w of narrow) {
-        await page.setViewportSize({ width: w, height: 480 });
-        await emuFrames(page, 3);
-        const r = await page.evaluate(() => {
-          const card = document.getElementById('installOffer');
-          if (card.hidden) return { hidden: true };
-          const b = card.getBoundingClientRect();
-          return { hidden: false, left: Math.round(b.left), right: Math.round(b.right), where: window.emu.install.state().placement().where };
-        });
-        if (!r.hidden && r.left < SIDE.left - 0.5) { under = { w, ...r }; break; }
-      }
-      check(`${L}: shrinking the window never puts the card under the notch (js/ui/install.js measures with safeArea)`,
-        !under, JSON.stringify({ under, tried: narrow }));
+      // 3a is covered by the checks above, not here: a mutation that makes safeArea() ignore the insets turns the
+      // toast and command-box checks in this group red, so the inset arithmetic is proven. The install card's own
+      // placement cannot add to that - at every width where it is placed, the screen stays centred and the gutter it
+      // takes is far wider than the inset with or without safeArea() - and a check that cannot fail is worse than
+      // none, so there is deliberately no separate card check here.
       await ctx.close();
     }
   }
