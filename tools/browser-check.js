@@ -851,9 +851,49 @@ async function audioChecks(browser, base, check) {
     ['turbo', () => page.click('#btnTurbo')], ['turbo off', () => page.click('#btnTurbo')],
     ['sound off', () => page.$eval('#chkSound', (c) => c.click())], ['sound on', () => page.$eval('#chkSound', (c) => c.click())],
     ['switch', () => page.evaluate(() => window.emu.session.switchMachine('coco'))], ['load', load], ['switch back', () => page.evaluate(() => window.emu.session.switchMachine('dragon64'))],
-    // the page's thread busy for 200 ms (no frames, no messages): the audio thread plays on from its queue, and
-    // when that runs dry fades to silence instead of glitching
-    ['busy page', () => page.evaluate(() => { window.busyAt = window.emu.audio.ctx.currentTime; const t = performance.now(); while (performance.now() - t < 200); })],
+    // the page's thread busy for 500 ms (no frames, no messages): the audio thread plays on from its queue, and
+    // when that runs dry fades to silence instead of glitching.
+    // The machine's frames are driven by requestAnimationFrame (js/ui/screen.js:86), which cannot run while this
+    // thread spins, so frameCount taken at both ends of the spin proves no frame ran. Both facts are asserted
+    // below: the spin really occupied the thread (>= 500 ms measured, which the loop's own condition guarantees),
+    // and no frame ran during it. A mutation that drops the spin turns the first red.
+    // Just before the spin the test hands the queue a KNOWN 100 ms through the page's own output path: AudioOutput
+    // fills the queue with `sink.write` (js/host/audio.js:85), and so does this line (through the same wrapper, so
+    // the value-for-value check later accounts for it). That turns "was there audio to play" into a fact about what
+    // the test put in, instead of a race on how full the page's queue happened to be when the stall began - which
+    // is exactly what failed in CI ({"queued":0}: the queue had just been drained).
+    // 100 ms, not more: SampleQueue holds CAPACITY_MS = 300 ms and drops the OLDEST samples on overflow, which
+    // would jump `start` and red the drop check for the wrong reason. AudioOutput drops a frame only once more than
+    // MAX_MS = 150 ms is queued, and a frame in flight adds one more, so at most ~170 ms can already be queued;
+    // 170 + 100 = 270 ms leaves 30 ms of headroom under 300. The chunk repeats the last sample written, so it
+    // steps nowhere: it continues the queue's own tail, and the no-pop check below covers the stream.
+    ['busy page', () => page.evaluate(() => {
+      const a = window.emu.audio;
+      // Two clocks, and the window lives on the second. The worklet's tap stamps `time` with its own `currentTime`
+      // (seconds of audio rendered), so the window filter below is on the AUDIO clock, not wall time. Read at both
+      // ends of the spin, in this same task, it says what the audio thread really did while the page was blocked:
+      // a renderer that stalled through the spin and then caught up would stamp late quanta inside a window it
+      // never rendered during, and the end reading - taken before this task returned - proves that cannot have
+      // happened. (Measured on Chromium: 0.5013 s of audio for a 0.500 s spin, 5/5 runs.)
+      window.busyAudioStart = a.ctx.currentTime;
+      const f0 = window.emu.machine.frameCount;
+      const fill = Math.round(0.1 * a.ctx.sampleRate);       // 100 ms of audio, in samples
+      // Continue from the last QUEUED sample, not the last played one: mid-fade the played value is already
+      // attenuated, and re-queuing it would step. The wrapper records every chunk the output stage writes, so
+      // this is the same sample the queue's own tail holds.
+      const made = window.made, lastChunk = made.length ? made[made.length - 1][1] : null;
+      const v = lastChunk && lastChunk.length ? lastChunk[lastChunk.length - 1] : 0;
+      // Where the fill starts, in the sink's own sample index (`written` counts every sample ever written). Every
+      // sample queued before it has a smaller index, so no block playing only OLD audio can reach past it: the
+      // check needs the fill itself played, which is what "the audio it was given" means.
+      window.fillIdx = a.out.sink.written;
+      a.out.sink.write(new Float32Array(fill).fill(v));
+      window.fillSamples = fill;
+      const t = performance.now(); while (performance.now() - t < 500);
+      window.busyFrames = [f0, window.emu.machine.frameCount];
+      window.busySpin = performance.now() - t;
+      window.busyAudioEnd = a.ctx.currentTime;
+    })],
   ];
   const marks = [];
   for (const [name, act, until = wait] of steps) { marks.push([name, await page.evaluate(() => window.played.length)]); await act(); await until(); }
@@ -865,13 +905,108 @@ async function audioChecks(browser, base, check) {
   const where = (marks.filter((m) => m[1] <= at).pop() || ['start'])[0];
   check('sound: no pop across power cycle, reset, load, pause, turbo, sound off/on, machine switch and a busy page',
     running && n > 48000 && jump < 0.01 && !errors.length, `${n} samples, largest step ${jump.toFixed(4)} (after "${where}"), peak ${peak.toFixed(3)}${errors.length ? ' ' + errors.join('; ') : ''}`);
-  const busy = await page.evaluate(() => {
-    const t0 = window.busyAt, rate = window.emu.audio.ctx.sampleRate;
-    const during = window.blocks.filter((b) => b.time >= t0 && b.time < t0 + 0.15);
-    return { blocks: during.length, expected: Math.floor(0.15 * rate / 128), queued: during.filter((b) => b.n > 0).length };
-  });
-  check('sound: with the page\'s thread busy for 200 ms the audio thread keeps rendering, playing what was queued first',
-    busy.blocks >= busy.expected - 2 && busy.queued > 0, JSON.stringify(busy));
+  // The window is 350 ms on the audio clock, and lies wholly inside the 500 ms spin.
+  const WINDOW = 0.35;
+  const busy = await page.evaluate((W) => {
+    const t0 = window.busyAudioStart, t1 = t0 + W, rate = window.emu.audio.ctx.sampleRate;
+    const during = window.blocks.filter((b) => b.time >= t0 && b.time < t1);
+    const played = during.reduce((a, b) => a + b.n, 0);
+    // `start` is the sink's sample index of the block's first sample and `n` how many it took, so a block played
+    // the whole fill's last sample when start + n >= fillIdx + fill. Only a block that reached into the fill can
+    // satisfy that; old queued audio (all of it at indices below fillIdx) cannot, however much of it plays.
+    const fillIdx = window.fillIdx, fill = window.fillSamples;
+    const reached = during.some((b) => b.start + b.n >= fillIdx + fill);
+    // Starvation, with no message-timing assumption: the fill is the queue's TAIL, so once a block has reached it
+    // every following block must take a whole quantum (128) until the fill is spent (`start >= fillIdx + fill`,
+    // where running dry is legitimate), and the block that crosses the end must take the remainder
+    // (`fillIdx + fill - start`) exactly. A block that takes fewer is a thread that stopped pulling while the
+    // queue held data - a real starvation, whatever was posted when.
+    let short = 0, checked = 0; const expect = [];
+    for (const b of during) {
+      if (b.start >= fillIdx + fill) break;                  // the fill is spent; drying up is fine
+      if (b.start + b.n <= fillIdx) continue;                // has not reached the fill yet: old audio, free
+      const need = Math.min(128, fillIdx + fill - b.start);
+      checked++;
+      if (b.n < need) { short++; if (expect.length < 3) expect.push([b.start, b.n, need]); }
+    }
+    // No sample dropped from the queue: consecutive blocks in the window run on with no gap and no repeat
+    // (start_i+1 === start_i + n_i). A block that loses a quantum jumps `start` forward and shows up here.
+    let drops = 0;
+    for (let i = 1; i < during.length; i++) if (during[i].start !== during[i - 1].start + during[i - 1].n) drops++;
+    return { blocks: during.length, quanta: Math.floor(W * rate / 128), played, fill, fillIdx, reached, short, checked,
+      expect, drops, rate, frames: window.busyFrames, spin: window.busySpin, audioStart: t0, audioEnd: window.busyAudioEnd };
+  }, WINDOW);
+  // The premise first, in two halves, because the two together are what make the window mean anything:
+  // - the page's thread really was blocked: frames come from requestAnimationFrame (js/ui/screen.js:86), which
+  //   cannot run while the thread spins, so equal frameCounts at the ends prove no machine frame ran, and a spin
+  //   that lasted 500 ms proves the block was real (an instantaneous step would report "no frame ran" too);
+  // - the AUDIO clock moved past the window's end while the page was blocked. The tap's `time` is the worklet's
+  //   currentTime, so a window picked on it is only "inside the spin" if currentTime really advanced through it
+  //   before the page woke - which is what this reading, taken at the end of the same task, shows. Without it a
+  //   renderer that stalled the whole spin and caught up afterwards would stamp quanta inside the window late,
+  //   and pass the two checks below while doing exactly what they exist to forbid.
+  check('sound: the busy-page step really blocks the page\'s thread for its 500 ms, no machine frame ran, and the audio clock passed the window',
+    Array.isArray(busy.frames) && busy.frames[0] === busy.frames[1] && busy.spin >= 500
+      && busy.audioEnd - busy.audioStart >= WINDOW,
+    JSON.stringify({ frames: busy.frames, spin: busy.spin, audio: +(busy.audioEnd - busy.audioStart).toFixed(4), window: WINDOW }));
+  // The two things a busy page must NOT do, each with a bound that comes from the block size and the window, not
+  // from what a run happened to produce:
+  //
+  // (i) The worklet keeps rendering. It runs on the audio thread, one 128-sample render quantum at a time
+  // (128 = the Web Audio render quantum the processor is called with, `out.length` in js/host/audio-worklet.js,
+  // and REPORT_BLOCKS is 4 of them). A window of length L holds at least floor(L * rate / 128) quantum starts at
+  // ANY phase: the starts sit on a 128/rate grid, and the smallest number of grid points a half-open interval of
+  // length L contains is floor(L / (128/rate)) (the fractional part can cut at most one quantum off each end: at
+  // 44100 that is 120 for 0.35 s, at 48000 131, brute-forced over every phase). So the old `- 2` would be wrong
+  // by construction. No tolerance is needed: the count is fixed by the window, not by timing luck. A stalled
+  // audio thread gives ~0.
+  check('sound: with the page\'s thread busy for 500 ms the audio thread keeps rendering',
+    busy.blocks >= busy.quanta, JSON.stringify({ blocks: busy.blocks, quanta: busy.quanta, played: busy.played }));
+  //
+  // (ii) It plays the audio it was given, and keeps pulling while there is any. The test put `fill` samples in
+  // just before the spin, through the page's own output path (`AudioOutput.push` -> `sink.write`, js/host/audio.js:85)
+  // - the same call, on the same object, that the machine's frames make. Nothing can add to the queue inside the
+  // window: the page is blocked, and the only other feeder is `audio.pushFrame` from `session.advance` in the
+  // requestAnimationFrame tick (js/ui/screen.js:97), which cannot run. So the fill is the queue's tail, and:
+  //   - the window must REACH it (`reached`): something played its last sample, which old queued audio cannot do;
+  //   - between reaching it and spending it, every block must take its whole quantum (`short === 0`). That is the
+  //     starvation rule, and it is what the window's length is for - two different numbers, worth keeping apart:
+  //     as much as MAX_MS (150 ms) plus a frame (~20 ms) can already be queued when the fill goes in, so up to
+  //     ~170 ms can pass before the fill is TOUCHED, and ~170 + 100 = ~270 ms before it is SPENT. The steering aims
+  //     to keep the queue shallower than that, but `PortSink.buffered()` (js/host/audio.js) reads LOW on purpose -
+  //     it subtracts the frames elapsed even when the queue was already empty - so the real worst case is nearer
+  //     MAX_MS + a frame + the fill, ~282 ms rather than a strict 270. Window 250 ms would therefore fail a HEALTHY
+  //     thread on a deep queue (the first version of this test did, whenever the queue was deep); 350 ms covers the
+  //     ~282 ms worst case with ~68 ms to spare, and still ends 150 ms inside the spin, where nothing can have been
+  //     caught up late. This is a margin, not a proof: CI at 44100 saw 102 ms of a 100 ms fill with ~68 ms of slack.
+  //   - no sample is dropped from the queue inside the window (`drops === 0`): consecutive blocks run on. This is
+  //     NOT "in order" - it is self-consistent by construction and cannot see a reorder - it is the queue not
+  //     losing a block's worth of samples.
+  //   - the short-block rule must actually have examined a fill block (`checked > 0`), which is NOT implied by the
+  //     rules above. `reached` alone does not imply it: a DROP can jump `start` straight over the fill, so
+  //     `start + n >= fillIdx + fill` holds while no block ever took a fill sample. `drops === 0` closes that for
+  //     drops INSIDE the window, but it only compares consecutive window blocks, so it cannot see a queue discarded
+  //     BEFORE the window's first block: a thread that throws its whole queue away when the fill arrives reaches the
+  //     fill's end with every window block already past it - `reached` true, `checked` 0, `drops` 0 - and would pass.
+  //     (Only the whole-run order check catches that one.) So `checked > 0` is asserted on its own, and a mutation
+  //     does exactly that discard. Together: `reached && checked > 0 && short === 0 && drops === 0`.
+  // A thread that skips quanta fails one way or the other, and which way depends on how many it skips: one that
+  // takes a quantum in four gets a quarter of the window's 350 ms, ~87 ms, which is short of the 100 ms fill, so it
+  // never reaches its end (`reached` false - measured: 4224 of 4800 samples, fillIdx never passed). One that skips
+  // only one quantum in four takes 262 ms of the fill inside the window, so it DOES reach the end and passes the
+  // reach; the short-block rule is what catches it (measured: 12 blocks took 0 samples while the fill was still
+  // queued). Neither can hide behind audio that was already queued: old audio has no index past fillIdx.
+  // This deliberately does NOT compare against `PortSink.buffered()` read on the page: that value is built from
+  // the processor's last report (up to REPORT_BLOCKS, ~12 ms old), and in a probe it read 0 after a 2 s page
+  // block while the worklet then took 705 samples, so a page-side "is there audio queued" test can pass a starved
+  // queue. It is not used. And the old check's `queued > 0` is not reintroduced under another name: it asked
+  // whether the queue happened to be non-empty when the stall began, which a page stall longer than the queue
+  // empties - the check now supplies the audio itself, so that question does not arise.
+  check('sound: a busy page plays the audio it was given (100 ms) and keeps pulling it, without dropping samples',
+    busy.reached && busy.checked > 0 && busy.short === 0 && busy.drops === 0,
+    JSON.stringify({ reached: busy.reached, fillIdx: busy.fillIdx, fill: busy.fill, played: busy.played,
+      ms: Math.round(1000 * busy.played / busy.rate), blocksInFill: busy.checked, short: busy.short, expect: busy.expect,
+      drops: busy.drops }));
   // paused or hidden, the sound context is suspended once the output has faded, and runs again after
   const state = () => page.evaluate(() => window.emu.audio.ctx.state);
   // (each waits for the state the check then asserts: no sound plays while suspended, so a wait for more samples

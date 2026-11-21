@@ -127,6 +127,38 @@ All notable changes to CLOADM are recorded here. The format follows
   name to use yet). `tests/importmedia-finally.test.js` cases 4, 9, 10, 11 and 12 hold the red-first copy, the second
   caller's copy, the exact-wording rule, the pre-write listing, and the unnamed, empty-label and path-bearing shapes.
 
+- **The browser check's busy-page audio test supplies the audio it tests for, instead of racing a queue that a
+  stall empties, and the Help says what a busy page really does.** The check demanded that some block played during
+  a page stall take queued samples (`queued > 0`). That is not a property of the audio thread: measured, it is the
+  queue's depth divided into blocks (`blocks with samples >= floor(buffered / 128)` in every case), so it is whether
+  the queue happened to be non-empty when the stall began. A page stall longer than the queue empties it, and a
+  loaded machine failed the check (`{"queued":0}`). The test now puts a known 100 ms into the queue itself, through
+  the page's own output path (`AudioOutput.push` -> `sink.write`), in the same task as a 500 ms block of the page's
+  thread - and nothing can add to the queue while the page is blocked. It then asserts three things, each derived
+  or fail-closed: that the page really was blocked (no machine frame ran, the spin lasted its 500 ms, and the
+  AUDIO clock - which the window is measured on, because the worklet stamps its blocks with `currentTime`, not wall
+  time - advanced past the window's end before the page woke, so nothing can have been rendered late and counted);
+  that the worklet kept rendering, at least `floor(0.35 s * rate / 128)` blocks, the number a half-open window of
+  that length holds at any phase (the old `- 2` allowed two quanta the window cannot miss); and that the fill was
+  really played and kept being pulled - the window reaches the fill's own last sample, which old audio alone cannot
+  do, and from there every block takes its whole 128-sample quantum until the fill is spent; the short-block rule
+  must also have examined a fill block at all (`blocksInFill > 0`), which the reach does not imply - a thread that
+  threw its queue away before the window's first block would reach the fill's end with nothing to check. So a thread
+  that skips quanta fails either way: one that skips three in four never reaches the fill's end inside the window,
+  and one that skips one in four reaches it but takes short blocks while the fill is still queued. Neither can hide
+  behind audio that was already queued. Consecutive blocks must also run on with no gap, so
+  no sample is dropped: this is not an in-order check (it is self-consistent by construction and cannot see a
+  reorder). The window is 350 ms: as much as `MAX_MS` (150 ms) plus a frame (~20 ms) can already be queued when the
+  fill goes in, so ~170 ms can pass before the fill is touched and ~270 ms before it is spent (nearer ~282 ms in
+  practice, because the page's own lateness estimate reads low by design) - 350 ms covers that with ~68 ms to spare
+  while still ending 150 ms inside the spin. It is a margin, not a proof. The fill
+  is 100 ms and no more because the queue holds 300 ms (`CAPACITY_MS`) and drops the oldest samples on overflow.
+  A page-side `buffered()` comparison was written and then rejected: it reads the processor's last report, up to
+  ~12 ms stale, and in a probe it read 0 while the worklet then played 705 samples, so it can pass a starved queue.
+  The Help's "a busy page doesn't make it stutter" is corrected to what happens: sound keeps playing for as long as
+  its queue lasts (a few tens of milliseconds), then fades to silence. `tools/browser-check.js` and `docs/using.md`
+  only; no page behaviour changed.
+
 ### 0.1.6-pre
 
 #### Added

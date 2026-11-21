@@ -14,7 +14,8 @@ How to load programs, tapes, disks and cartridges, the keys, snapshots, sharing 
   gives a clean BASIC.
 * **No sound:** browsers only allow sound after a click or a key press. Click the screen, and check **Sound** is
   ticked (Input tab). Sound plays on the browser's audio thread (an AudioWorklet), so a busy page doesn't make it
-  stutter; a browser without AudioWorklet, or a copy served over plain `http://` from an address other than
+  crackle: it keeps playing what is already queued (usually 10-80 ms) and then fades to silence until the
+  page runs again. A browser without AudioWorklet, or a copy served over plain `http://` from an address other than
   `localhost`, falls back to the older ScriptProcessorNode, which still plays. So does a browser whose AudioWorklet
   module hasn't loaded within 3 s (seen with Chromium 140 in automated testing): the fallback starts the sound then.
 * **A tape won't load:** loading through `CLOAD`/`CLOADM` needs the machine's BASIC ROM; watch the tape counter
