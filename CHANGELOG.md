@@ -8,13 +8,16 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.1.7-pre (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
-### 0.1.7-pre
-
-#### Added
+### Added
 
 - **A comparison with XRoar, MAME and VCC/OVCC** ([docs/comparison.md](docs/comparison.md)), dated November 2026, with a
   source for every claim about the other projects, where each is stronger, and "see the project" wherever a claim
   could not be checked in a primary source. Linked from the README FAQ and the "See also" line of `docs/using.md`.
+
+### 0.1.7-pre
+
+#### Added
+
 - **A command-line tool and a Node API guide, for CI and coding agents.** `node cli/cloadm.js` runs any model
   headless: choose the machine and its options, give your own ROMs (a file, a ROM pack or a directory; without them
   the built-in firmware runs machine code), load a program, tape, disk, cartridge, snapshot or assembler source, type
