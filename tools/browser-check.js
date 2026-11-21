@@ -1828,15 +1828,13 @@ async function romUiChecks(browser, base, check) {
   await page.click('#btnRomBack');
   await page.click('#btnBootStub');
   check('watchdog: "Run without ROMs" runs the stub and the box goes', await waitFor(page, () => !window.emu.machine.hasRom && document.getElementById('bootHelp').hidden));
-  // a restore closes a stale box: put the failing ROMs back so the box is up, take a restore point, then undo.
-  // An undo is announced as 'restored' (not 'reset'), which boot-help re-checks on, so the box goes with the run it
-  // belonged to. Driven through the page's Session, the same call the restore line makes.
+  // a restore closes a stale box: put the failing stored ROMs back in (they are still in the library; the box went
+  // only because "Run without ROMs" chose the stub), so the box is up, take a restore point, then undo. An undo is
+  // announced as 'restored' (not 'reset'), which boot-help re-checks on, so the box goes with the run it belonged to.
+  // Driven through the page's Session, the same call the restore line makes. The block leaves the page as it found it
+  // (the stub running, the stored ROMs untouched), which the reload check below depends on.
   {
-    await page.evaluate(() => {
-      const S = window.emu.session;
-      S.addRoms([{ name: 'd32.rom', bytes: new Uint8Array(16384).fill(0x12) }]);
-      S.powerCycle();
-    });
+    await page.evaluate(() => { const S = window.emu.session; S.useStoredRoms(S.machine); S.powerCycle(); });
     const shown2 = await waitFor(page, () => !document.getElementById('bootHelp').hidden, null, 30000);
     check('restore: the box is up again for the failing ROMs', shown2 && /No OK after|isn't recognised|problem in CLOADM/.test(await page.textContent('#bootHelp')));
     const went = await page.evaluate(() => {
@@ -1849,7 +1847,7 @@ async function romUiChecks(browser, base, check) {
     });
     check('restore: an undo takes down the box the run it replaced raised', went.before.shown && !went.after.shown
       && went.after.state === 'restored', JSON.stringify(went));
-    await page.evaluate(() => { const S = window.emu.session; S.endChat(); S.clearRoms(); S.runWithoutRoms({ menu: false }); });
+    await page.evaluate(() => { const S = window.emu.session; S.endChat(); S.runWithoutRoms({ menu: false }); });
     await waitFor(page, () => document.getElementById('bootHelp').hidden && !window.emu.machine.hasRom);
   }
   // everything survives a reload (re-inject the test CRCs, which live in page memory only)

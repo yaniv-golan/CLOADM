@@ -19,10 +19,8 @@ const Emu = require('./load')();
 
 let fail = 0, n = 0;
 const check = (name, cond, detail = '') => { n++; if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log(`ok   ${name} ${detail}`); };
-const throws = (fn, re) => { try { fn(); return false; } catch (e) { return re.test(e.message); } };
 
 const ROOT = path.join(__dirname, '..');
-const FONT = null; // not needed here
 const FIRMWARE = new Uint8Array(fs.readFileSync(path.join(ROOT, 'examples/chat.bin')));
 const { build } = require('./fixtures/reset-firmware');
 const { basic, basic64, game } = build(Emu);
