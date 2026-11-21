@@ -43,6 +43,13 @@ const status = (m) => m.read(NITROS9_STATUS.addr);
   // ---- errors
   check('no image: says where to get one', await rejects(s.bootNitros9(''), /No NitrOS-9 image.*nos96809l2v030300coco3\.zip.*nos96309l2v030300coco3\.zip.*sourceforge\.net\/projects\/nitros9\/files\/releases\/v3\.3\.0\/.*_becker\.dsk.*_40d_1\.dsk/));
   check('an image not in the library', await rejects(s.bootNitros9('gone.dsk'), /no image called gone\.dsk in your library/));
+  {
+    // a store that fails with something other than not-found must be reported as that, not as a missing image
+    const real = s.media;
+    s.media = { read: async (n) => { if (n.endsWith('broken.dsk')) throw new Emu.MediaStoreError('io', 'the disk is on fire'); return real.read(n); } };
+    check('a storage error is reported as one, not as "no image"', await rejects(s.bootNitros9('broken.dsk'), /^broken\.dsk: the disk is on fire$/));
+    s.media = real;
+  }
   check('a blank (not OS-9) image', await rejects(s.bootNitros9('blank.dsk'), /blank\.dsk: It isn't an OS-9 disk/));
   check('the bit-banger build', await rejects(s.bootNitros9('bitbanger.dsk'), /bit-banger.*_becker\.dsk/));
   // bootNitros9 always mounts into DriveWire drive 0, so an image another drive already holds is refused there.

@@ -8,6 +8,10 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.1.7-pre (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
+### Fixed
+
+- Booting NitrOS-9 from a Library image whose storage fails (not just a missing image) now reports the storage error instead of "There is no image called ...".
+
 ### 0.1.7-pre
 
 #### Added

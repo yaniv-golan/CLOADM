@@ -794,11 +794,13 @@ export class Session {
     if (!Session.NITROS9_MACHINES.includes(m.id)) throw new SessionError(`NitrOS-9 boots here on the CoCo 3, not the ${m.profile.name}. Switch to the CoCo 3 first.`);
     if (!name) throw new SessionError(`No NitrOS-9 image: add your NitrOS-9 disk image (download nos96809l2v030300coco3.zip, or nos96309l2v030300coco3.zip for the HD6309, from ${NITROS9_IMAGES_URL}, unzip it, and use the file ending in _becker.dsk for DriveWire, or _40d_1.dsk for the floppy drive).`);
     const where = store ? [store] : ['drivewire', 'disk'];
-    let bytes = null, found = null;
+    let bytes = null, found = null, failure = null;
     for (const st of where) {
-      try { bytes = await this.media.read((st === 'disk' ? DISK_PREFIX : DW_PREFIX) + name); found = st; break; } catch (e) { /* not there */ }
+      try { bytes = await this.media.read((st === 'disk' ? DISK_PREFIX : DW_PREFIX) + name); found = st; break; } catch (e) {
+        if (!e || e.code !== 'not-found') failure = failure || e;   // a real storage error, not an absent image: say so
+      }
     }
-    if (!found) throw new SessionError(`There is no image called ${name} in your library.`);
+    if (!found) throw failure ? this.mediaError(failure, name) : new SessionError(`There is no image called ${name} in your library.`);
     const r = inspectOs9Disk(bytes);
     if (r.reason) throw new SessionError(`${name}: ${r.reason}`);
     const floppy = r.boot === 'floppy';
