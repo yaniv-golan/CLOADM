@@ -269,7 +269,7 @@ const queueAndStall = (m, a, v) => {
   m.stall = null;
   b.runCycles(b.cycle);                            // no step: the flush after the loop still makes it
   m.runCycles(m.cycle);
-  // (the queue is an optional key, not a version of its own: the file's version is the tape layout's, 3 - machine.js)
+  // (version 3 carries the queue as `outsideWrites`: machine.js's version note, "3:")
   check('held window: a snapshot carries the queued write, and the restore makes it as the original does',
     owed === 1 && bOwed === 1 && Array.isArray(snap.state.outsideWrites) && snap.state.outsideWrites.length === 1 && snap.version === 3
       && b.gime.palette[0] === 0x05 && m.gime.palette[0] === 0x05,

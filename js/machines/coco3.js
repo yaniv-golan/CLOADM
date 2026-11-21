@@ -860,9 +860,8 @@ class Coco3Machine extends Machine {
     this.haltDefer = d && haltDeferState(d);
     if (this.haltDefer) { haltDeferTimes(this.haltDefer, this.cycle); this.cpu.cycleCount = 0; }   // (as haltPark)
     if (this.haltDefer) this.haltKeep(this.haltDefer, false);   // (the file's CPU; its memory came with haltDefer)
-    // (an older file has no key: no write from outside was queued while an instruction was held then, as none could
-    // be queued until this build held them. The key is OPTIONAL at version 2 - see machine.js's version note - so a
-    // file without it restores owing none, and an older build ignores it rather than refusing the file.)
+    // (a version 1 or 2 file has no key: no write from outside was queued while an instruction was held then, as none
+    // could be queued until this build held them, so it restores owing none - machine.js's version note, "3:")
     const q = s.outsideWrites === undefined ? [] : s.outsideWrites;
     if (!Array.isArray(q) || q.some((w) => !w || !Number.isInteger(w.a) || w.a < 0 || w.a > 0xFFFF || !Number.isInteger(w.v) || w.v < 0 || w.v > 0xFF || (w.poke !== undefined && typeof w.poke !== 'boolean')
       || (w.poke === true && w.a >= 0xFF00))) {   // (poke() refuses the I/O page: pokeNow would write the image beneath it)

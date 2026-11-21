@@ -141,7 +141,7 @@ export function setupRomSockets(page, romInput, { confirmSwitch }) {
       const bar = el('div', null, 'bar');
       bar.append(button(`Switch to ${o.name}`, () => {
         close();   // (back on the emulator, where the confirmation shows)
-        confirmSwitch({ name: o.name, id: o.machine }, (taken, said) => { session.chooseMachine(o.machine); page.status(`Switched to ${o.name}${said ? `.${said}` : ''}`); });
+        confirmSwitch({ name: o.name, id: o.machine }, (taken, said) => { session.chooseMachine(o.machine); page.status(`Switched to ${o.name}.${said || ''}`); });
       }, true),
         button(`Stay on ${m.profile.name}`, () => { offers = offers.filter((x) => x !== o); render(); }));
       d.append(bar);

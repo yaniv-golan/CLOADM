@@ -114,8 +114,8 @@ machine at the held access's time (`heldIo`, above). A write from outside the CP
 in a state no instruction may see: a rate write (`$FFD6`-`$FFD9`) would drop the suspended instruction from inside
 its own event, before its halted cycles were charged. Such a write is queued (`Coco3Machine.outsideWrite`) and made at the machine's own
 time - usually by the same run's after-loop flush, or `runCycles`' next top if a stall held it - where one made while
-parked lands, so the machine ends identically either way. The queue is carried in the machine's snapshot as an optional key at the same format version (an
-older build ignores it; a file without it restores owing none), and a run that throws on its way out of the window
+parked lands, so the machine ends identically either way. The queue is carried in the machine's snapshot as `outsideWrites` (snapshot version 3; a version 1 or
+2 file has none and restores owing none), and a run that throws on its way out of the window
 still makes it. `poke` writes the memory image with no
 bus cycle, at once - unless a queued write is still waiting (after a stall), which it then follows, so the later
 call's value is final; a UI POKE or a debugger write made while the machine is paused then waits with the queue,

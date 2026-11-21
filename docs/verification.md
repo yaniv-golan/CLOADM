@@ -1179,8 +1179,8 @@ frame at commit 570d3fc, before this change; made one tick inside the window it 
 `!inStep` branch and dropped the suspended instruction from inside its own event. Now the two charge the same
 number, and leave the machine at the same cycle, trace, registers and time (`tests/held-writeio.test.js`: the held
 instruction stays, the write lands once in order, the parked machine and the run after it are identical either way).
-The queue is in the snapshot, as an optional key at the same format version (a file without it restores owing none;
-an older build ignores it), is made by a run that throws out of the window, and a reset drops it (a reset drops
+The queue is in the snapshot, as `outsideWrites` (snapshot version 3; a version 1 or 2 file has none and restores
+owing none), is made by a run that throws out of the window, and a reset drops it (a reset drops
 every access made while an instruction was held, and the same write made while parked is wiped by one too). Only an
 event handler is ever in the window (it is open only inside the machine's own event run); a UI POKE or a
 debugger-panel write arrives between frames, and while a queue is still waiting it joins that queue instead.

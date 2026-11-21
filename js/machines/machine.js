@@ -582,13 +582,10 @@ class Machine {
 //      suspended (none was, in version 1).
 //   3: a tape in the deck adds `layout` (2): its position counts the entries of the signal js/media/tape.js plays,
 //      silence and made-up leaders included. A version 1 or 2 file has none; its position counted a 128-byte leader
-//      and then the image's bytes, and the tape restores at the same byte of the image (Tape.fromState).
-// The CoCo 3's `outsideWrites` (writes from outside the CPU queued while an instruction was held,
-//      js/machines/coco3.js outsideWrite) is an OPTIONAL key at version 2, not a new version: a loader that does not
-//      know it ignores it (measured on 570d3fc: an unknown state key loads), while a version bump would make every
-//      older build refuse every new file. An older file has no key and restores owing no outside write (none could
-//      be queued before this build held them); a newer file has one, and an older build would drop it on restore -
-//      the one case a bump would have refused instead, and a debugger write while an instruction is held is rare.
+//      and then the image's bytes, and the tape restores at the same byte of the image (Tape.fromState). And the
+//      CoCo 3 adds `outsideWrites`, the writes from outside the CPU queued while an instruction was held
+//      (js/machines/coco3.js outsideWrite); a version 1 or 2 file has none and restores owing none (none could be
+//      queued before this build held them).
 export const SNAPSHOT_FORMAT = 'cloadm-state';
 export const SNAPSHOT_VERSION = 3;
 export const SNAPSHOT_OLDEST = 1;
