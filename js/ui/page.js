@@ -18,6 +18,25 @@ export function safeArea() {
   return { left: px('--safe-l'), top: px('--safe-t'), right: innerWidth - px('--safe-r'), bottom: innerHeight - px('--safe-b') };
 }
 
+// What the stylesheet hides without the element's own hidden attribute: the emulator's layout, the app bar, the
+// footer and the switch confirmation behind a view (body.share-open, .library-open, .roms-open, .debug-open), the
+// app bar's links folded behind a phone's Menu, and the settings drawer and the ports under the screen while the
+// touch keys or the full-screen chat take their place (body.touch-keys, .claude-open; the Ask rail shows the drawer). display: none already keeps them out of the tab order and the
+// accessibility tree, but a reader view that works from the markup (Chrome's reading mode, Readability) does not
+// see the stylesheet: each is also made inert and aria-hidden while it is not drawn, and given back when it is.
+// An element hidden by its own hidden attribute is left to that attribute. The class changes that show or hide them
+// call this at once, so a focus() that follows finds the element no longer inert; a MutationObserver (createPage)
+// covers the rest.
+const UNDRAWN = '.layout, #appbar, #appbar > nav, body > footer, #switchConfirm, .layout > .drawer, .slots';
+export function markUndrawn() {
+  for (const el of document.querySelectorAll(UNDRAWN)) {
+    const off = !el.hidden && getComputedStyle(el).display === 'none';
+    if (el.inert === off) continue;
+    el.inert = off;
+    if (off) el.setAttribute('aria-hidden', 'true'); else el.removeAttribute('aria-hidden');
+  }
+}
+
 export function createPage(session, audio) {
   const canvas = $('screen');
   const feedback = createFeedback();
@@ -30,6 +49,7 @@ export function createPage(session, audio) {
       const closed = shown !== '' && v === '';
       shown = v;
       for (const fn of viewFns.slice()) fn();
+      markUndrawn();   // (now, not on the class change's mutation: the focus below must find the emulator no longer inert)
       // A view that closes leaves the focus on the screen, whichever way it closed ("← Emulator", Esc, the browser's Back):
       // Back has no control of ours to take the focus (it stays on the page or on the opener's button), and the Ask panel
       // reopening over a conversation (js/ui/claude.js) takes it for its box; the screen is where typing goes.
@@ -39,6 +59,11 @@ export function createPage(session, audio) {
   }
   addEventListener('hashchange', route);
   addEventListener('popstate', route);
+  // the other ways what is drawn changes: a class on the body or the app bar (a view, the phone's Menu, the touch
+  // keys' machine menu) and the layout the window's size picks
+  new MutationObserver(markUndrawn).observe(document.body, { attributes: true, attributeFilter: ['class'] });
+  new MutationObserver(markUndrawn).observe($('appbar'), { attributes: true, attributeFilter: ['class'] });
+  addEventListener('resize', markUndrawn);
   const page = {
     session, audio, canvas, feedback,
     get machine() { return session.machine; },

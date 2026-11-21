@@ -29,6 +29,20 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   source for every claim about the other projects, where each is stronger, and "see the project" wherever a claim
   could not be checked in a primary source. Linked from the README FAQ and the "See also" line of `docs/using.md`.
 
+### Added
+
+- **The play page reads as a document: for screen readers and a browser's reading mode.** On a phone, Chrome's
+  reading mode showed every panel's text in a jumble. The emulator is now the one `<main>`, with a heading naming the
+  machine; the app bar, the ports under the screen, the settings drawer and the footer are landmarks; each view
+  (Library, Share, the Debugger, Add ROMs) is the main landmark while it is open, with one h1; and what is not drawn
+  is hidden for real, not only by the stylesheet: the emulator behind a view, the phone's folded Menu links, the drawer
+  and ports in the touch layout are `inert` and `aria-hidden`, and the Multi-Pak's slots are `hidden` while it is
+  folded. The screen canvas is an application with a text alternative: the screen's text, as Claude's `screen_text`
+  reads it, refreshed at most once a second (`Session.screenAlternative()`). The landing page gains its `<header>` and
+  `<main>`. Nothing looks different. The browser check's new group `semantics` checks all of it at desktop, phone
+  (portrait and landscape) and tablet size, with Mozilla's Readability (an unmodified copy in `tools/vendor/`,
+  development only) as the stand-in for a reading mode.
+
 ### 0.1.7-pre
 
 #### Added

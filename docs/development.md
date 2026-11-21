@@ -40,7 +40,7 @@ names contain one of the parts, and `node tools/browser-check.js --only <group>[
 | The Claude chat and Ask Claude | `claude,chat-firmware` | `claude,ask,commands,chatScreen` |
 | `cli/` (the command line and the MCP server) | `cli,mcp,game-guide,starter-game` | none |
 | `examples/` (a program or game) | `pwa,starter-game,game-guide,welcome` and the example's own suite | `pwa` (and the group that offers it) |
-| `js/ui/`, `play/`, `css/`, `index.html` | `session,readme` | the panel's groups, then the whole check |
+| `js/ui/`, `play/`, `css/`, `index.html` | `session,readme,screen-alternative` | the panel's groups and `semantics`, then the whole check |
 | Docs (`README.md`, `docs/`) | `readme,romdocs,game-guide` | none |
 | `CHANGELOG.md` | `changelog` | none |
 | The test runner (`tests/all.js`, `suite-verdict.js`, `no-exit.js`) | `allsummary,allsignal,exitguard,exitcode` | none |
@@ -171,6 +171,7 @@ node tests/allsignal.test.js              # a signal to the gate stops every sui
 node tests/changelog.test.js              # a released CHANGELOG section equals the same section in its git tag (named corrections aside); needs the tags (CI fetches them, `git fetch --tags` locally: without them it prints a SKIP line per tag)
 node tests/exitcode.test.js               # no suite or tool forces process.exit() (the Node 25 deadlock), by static scan
 node tests/exitguard.test.js              # the same rule at run time, against every spelling a static scan cannot see
+node tests/screen-alternative.test.js     # the screen canvas's text alternative: screen_text's rows, blank and block screens, a graphics mode, 80-column GIME
 node tools/mame-diff/run.js <profile>     # lockstep trace comparison with MAME (needs mame; exit 0 = identical)
 node tools/mame-diff/run.js <profile> --video [--artifact N]   # pixel comparison of every display mode with MAME
 node tools/mame-diff/run.js coco3 --video --attr   # the GIME's text attributes, exactly (blank glyphs, so the fonts never show)
@@ -188,6 +189,7 @@ node tools/mame-diff/run.js coco3 --fdc cocofdc --halt   # the controller's HALT
 node tools/mame-diff/run.js coco3 --fdc cocofdc --halt --empty   # a halted read on a drive with no disk: the CPU held for good, as in MAME
 node tools/mame-diff/run.js coco3 --fdc cocofdc --nitros9 [--cpu 6309]   # the NitrOS-9 floppy loader on a hand-built boot floppy, with MAME
 node tools/browser-check.js --only nitros9   # Boot NitrOS-9 from the page (the release images when fetched)
+node tools/browser-check.js --only semantics # landmarks, headings, closed surfaces hidden for real, the screen's text alternative, a reading mode (Readability)
 node tools/nitros9/boot-mame.js <image> --cpu 6809 --seconds 30 --type 'dir\r' --at 15 --record tests/fixtures/nitros9/coco3-6809-becker.json   # its MAME reference (also boot.js: the same boot on ours)
 node tools/mame-diff/run.js <profile> --rate    # SAM CPU rate firmware (sam/rate.asm) in lockstep with MAME (mameCompat)
 node tools/mame-diff/run.js <profile> --ops     # every instruction class at the SAM rates (sam/ops.asm), with MAME

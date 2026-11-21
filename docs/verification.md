@@ -665,6 +665,29 @@ written exactly twice (a `MutationObserver` counts the writes).
 Not verified automatically: what a real screen reader says (the live regions' text and politeness are checked,
 not the speech).
 
+### Document semantics: landmarks, headings and what a reading mode extracts
+
+The play page as a document has no MAME oracle (AGENTS.md 4.6): the oracle is HTML and WAI-ARIA's landmark and
+heading model, Chromium's accessibility tree (Playwright's accessibility snapshot, and the full tree over the DevTools
+protocol for the canvas's subtree), and Mozilla's Readability 0.6.0 (`tools/vendor/readability`, an unmodified copy,
+development only) standing in for a browser's reading mode, which works from the markup, not the stylesheet. The
+browser check's group `semantics` runs at 1440x900, a Pixel 7 in portrait and landscape and an iPad, and checks:
+exactly one `<main>` (the emulator's) and one main landmark in every view (each view is its own while open); the
+landmark set; one h1 and no heading level skipped, in the emulator, every view and the full-screen chat; every
+surface that is not drawn (dialogs, menus, tab panels, asides, navs, views, the folded Multi-Pak, the emulator behind a
+view, the app bar's links folded behind a phone's Menu, the drawer and the ports in the touch layout) hidden by its
+`hidden` attribute or by `inert` and `aria-hidden`, out of the accessibility snapshot and unable to take the focus,
+as the page starts and after each was opened and closed; every dialog named and none claiming `aria-modal`, because
+none is modal (Tab leaves the open command box); the screen canvas an `application` with its name and, in its
+subtree, the text of `Session.screenAlternative()` (Claude's `screen_text` reader; `tests/screen-alternative.test.js`
+checks it in Node), following the screen; and Readability's article: the screen's text, at most 400 characters, none
+of the panels' text, and in a view the view's text, not the emulator's. The landing page: banner, the site
+navigation, one main, contentinfo, headings in order.
+
+Not verified automatically: what Chrome's own reading mode (Android or desktop) and a real screen reader present;
+Readability is the stand-in. Mutations that turn the group red: no `inert` on what a view or a layout hides (20
+checks), a second `<main>` (16), the ports under the screen a `<div>` instead of an `<aside>` (6).
+
 ### The machine and its ROMs: toasts, switches, the disk ROM, the menu, the Library, the copy
 
 UX rulings R24-R28 and R19 A+ have no MAME oracle (AGENTS.md 4.6): the oracle is the rulings themselves, and the

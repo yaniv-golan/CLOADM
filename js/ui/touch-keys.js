@@ -24,7 +24,7 @@
  */
 import { charToKeys } from '../machines/keyboards.js';
 import { touchJoystickOffered, STICK_RADIUS } from '../host/input.js';
-import { $, ESC } from './page.js';
+import { $, ESC, markUndrawn } from './page.js';
 
 // label -> machine key name, and the code the stub reads (ASCII; the arrows as BASIC's codes)
 const SPECIAL = {
@@ -270,6 +270,7 @@ export function setupTouchKeys(page, { input }) {
     box.dataset.mode = modus();
     document.body.classList.toggle('touch-keys', on);
     document.body.classList.toggle('touch-stick', !!joyMode);
+    markUndrawn();   // (the touch layout hides the app bar, the drawer and the ports: page.js)
     // the switch where the panel is, for a machine that has a joystick port
     $('tkModeSwitch').hidden = !joy;
     for (const b of box.querySelectorAll('[data-touchmode]')) b.setAttribute('aria-pressed', String(b.dataset.touchmode === modus()));

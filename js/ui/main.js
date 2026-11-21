@@ -12,7 +12,7 @@ import { localStore } from '../host/storage.js';
 import { openChosenStore, availableChoices } from '../host/media-store-open.js';
 import { loadFolder } from '../host/folder-handle.js';
 import { MemoryMediaStore } from '../host/media-store-memory.js';
-import { $, createPage, viewOpen, ESC } from './page.js';
+import { $, createPage, viewOpen, ESC, markUndrawn } from './page.js';
 import { setupScreen } from './screen.js';
 import { setupTouchKeys } from './touch-keys.js';
 import { setupMachinePanel } from './machine-panel.js';
@@ -131,6 +131,8 @@ library = setupLibrary(page, { loadProgram: media.loadProgram, runShelf: welcome
 setupTypein(page, { openRoms, isVisible: () => !$('library').hidden });
 setupTapePanel(page);
 setupMultiPakPanel(page, { cartridge: (name) => drawer.cartridge(name) });
+// a view the page opened on (play/#library) has hidden the emulator: mark it so (page.js keeps it so from now on)
+markUndrawn();
 
 // the cartridge slot under the screen
 $('fileCart').onchange = async (e) => {
