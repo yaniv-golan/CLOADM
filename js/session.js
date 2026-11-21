@@ -8,6 +8,7 @@
  *   s.addRoms([{ name, bytes }]);               // identified across all models; see addRoms
  *   s.load(name, bytes)                         // binary / cassette / cartridge / BASIC text -> message
  *   s.advance(ms)                               // run the frames that are due; s.machine.render() is the picture
+ *   s.runFrames(n)                              // n frames of emulated time, no clock (scripts, tests, bin/cloadm.js)
  *   s.startWelcome(bytes)                       // examples/welcome.bin; then events 'welcome:liza' and so on
  *   await s.snapshotFile() / s.readSnapshot(bytes) / s.openSnapshot(snap)   // snapshots; see 'snapshots' below
  *   await s.importDisk(name, bytes, drive) / s.mountDisk(drive, name) / s.downloadDisk(drive)   // floppy disks
@@ -3224,18 +3225,10 @@ export class Session {
     // with a breakpoint or watchpoint set, frames run through the debugger, which can stop part way; a stop
     // emits 'debug' and leaves the machine where it stopped
     const d = this.debugger && this.debugger.armed ? this.debugger : null;
-    // a frame -> false when it stopped part way: a debugger stop (emits 'debug'), or the machine waiting for
-    // the store (m.stall: the same frame finishes on a later call)
-    const frame = () => {
-      if (d ? d.runFrame() !== false : m.runFrame()) return true;
-      this.acc = 0;
-      if (!m.stall) this.emit('debug');
-      return false;
-    };
     if (this.turbo || this.tapeRunning) {
       const t0 = now();
       let n = 0;
-      while (now() - t0 < budgetMs && n < 60) { this.keys.step(m); n++; if (!frame()) break; this.pumpChat(m); this.runBeside(m); }
+      while (now() - t0 < budgetMs && n < 60) { n++; if (!this.oneFrame(m, d)) break; }
       this.acc = 0;
       this.checkRate();
       this.checkPrinter();
@@ -3247,10 +3240,7 @@ export class Session {
     this.acc += Math.min(ms, 200);
     let n = 0;
     while (this.acc >= frameMs && n < 4) {
-      this.keys.step(m);
-      if (!frame()) break;   // a debugger stop, or a frame that finishes when the store answers
-      this.pumpChat(m);      // the chat machine's bytes, after each whole frame
-      this.runBeside(m);
+      if (!this.oneFrame(m, d)) break;   // a debugger stop, or a frame that finishes when the store answers
       if (onFrame) onFrame(m);
       this.acc -= frameMs; n++;
     }
@@ -3258,6 +3248,38 @@ export class Session {
     if (n) { this.checkRate(); this.checkPrinter(); }
     this.flushWelcome();
     this.checkMenuReturn();
+    return n;
+  }
+  // One frame of machine m (d: the armed debugger, or null) with what every frame brings: the host's keys first, the
+  // chat machine's bytes and the machine beside it after -> false when it stopped part way: a debugger stop (emits
+  // 'debug'), or the machine waiting for the store (m.stall: the same frame finishes on a later call).
+  oneFrame(m, d) {
+    this.keys.step(m);
+    if (!(d ? d.runFrame() !== false : m.runFrame())) {
+      this.acc = 0;
+      if (!m.stall) this.emit('debug');
+      return false;
+    }
+    this.pumpChat(m);
+    this.runBeside(m);
+    return true;
+  }
+  // Run `count` frames of emulated time, with no clock: for Node scripts, tests and the command line
+  // (bin/cloadm.js), where the same calls must give the same frames on every run. Turbo and fast tape, which are
+  // about wall-clock time, play no part. Each frame is followed by the checks advance() makes. Returns the frames
+  // run: fewer when a debugger breakpoint or watchpoint stopped the machine (s.paused), or the machine waits for
+  // the store (s.machine.stall, a DriveWire read: let the event loop run, then call again).
+  runFrames(count) {
+    const m = this.machine;
+    let n = 0;
+    while (n < count && !m.stall && !this.paused) {
+      if (!this.oneFrame(m, this.debugger && this.debugger.armed ? this.debugger : null)) break;
+      n++;
+      this.checkRate();
+      this.checkPrinter();
+      this.flushWelcome();
+      this.checkMenuReturn();
+    }
     return n;
   }
   // after a frame of the chat machine: bytes cross between its firmware and the chat

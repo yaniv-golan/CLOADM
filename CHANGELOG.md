@@ -6,6 +6,26 @@ All notable changes to CLOADM are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **A command-line tool and a Node API guide, for CI and coding agents.** `node bin/cloadm.js` runs any model
+  headless: choose the machine and its options, give your own ROMs (a file, a ROM pack or a directory; without them
+  the built-in firmware runs machine code), load a program, tape, disk, cartridge, snapshot or assembler source, type
+  (with BREAK, CLEAR and the arrows), run frames or emulated seconds, wait until text is on the screen, a byte holds a
+  value or the PC reaches an address, read the screen (Claude's `screen_text` readers), peek and poke, save a PNG of
+  the frame and snapshots. Steps run in order from the command line or a script file; `--json` gives one object with
+  every step's result; exit codes 0 success, 1 a condition failed, 2 usage, 3 media or ROM, 4 internal. It runs in
+  emulated time with no clock, so the same inputs give the same frames. `Session.runFrames(n)` is that frame loop for
+  your own scripts. The guide, with the stable API, a GitHub Actions example and the ROM situation in CI:
+  `docs/automation.md`; its examples run in `tests/cli.test.js`, with the tool as a child process.
+
+- **The command-line tool for coding agents: the interface as data, error codes and debugger steps.** `--describe`
+  prints every step, exit code and error code as JSON; every error has a stable `code` (`timeout`, `missing-roms`,
+  `untypable`, …). New steps: `registers`, `set-register`, `disasm`, `step` (exact instructions), `reset`,
+  `power-cycle`, and `view` (the Dragon 64 Plus's 80-column screen, read as text); `asm` reports the program's symbols.
+  The frame loops wait for the media store when a DriveWire read stalls the machine. `tests/cli-agent.test.js` checks
+  the debugger steps against the Session's debugger, the special keys on both input paths and the script quoting rule.
+
 ### Changed
 
 - **The CoCo 3 keeps its bus log only while a device that can assert HALT is attached.** The log (the accesses of

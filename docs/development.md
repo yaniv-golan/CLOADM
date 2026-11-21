@@ -8,6 +8,13 @@ Run it locally with any static server: `python3 -m http.server`, then open `http
 (`http://localhost:8000/` is the landing page). Opening the files straight from disk shows how instead: browsers
 don't load ES modules from `file://`.
 
+## The command line and the Node API
+
+`node bin/cloadm.js` runs any model headless from a script or CI: load a program, type, wait for text on the screen,
+a byte or the PC, read the screen, memory and registers, step and disassemble, save PNGs and snapshots, with `--json`
+output, exit codes and error codes; `--describe` gives the whole interface as JSON.
+[automation.md](automation.md) is the guide, with the Node API under it and what of it is stable.
+
 ## Tests and tools
 
 Contributors follow [AGENTS.md](../AGENTS.md): the rules, where code goes, and the proof required before a change
@@ -60,6 +67,8 @@ node tests/carts.test.js     # cartridges: SN76489A, banked ROM, Orchestra-90, M
 node tests/session.test.js   # Session: model switching, ROM sockets, loading every file kind, pacing
 node tests/reset.test.js     # Reset: never changes the machine, keeps RAM for a program's warm start, the boot watchdog arms only on a power-on, ROM-drop offers
 node tests/snapshot-boot.test.js   # a snapshot opened is not a power-on: no boot failure after it, while a real power-on still has one
+node tests/cli.test.js       # bin/cloadm.js as a child process: exit codes, --json, wait-for, typing, screen text, PNG pixels, snapshots, scripts, the guide's examples
+node tests/cli-agent.test.js # bin/cloadm.js beyond the basics: --describe, error codes, the debugger steps against the Session's debugger, DriveWire stalls, special keys, script quoting, --view
 node tests/config.test.js    # URL parameters: every one checked (options against each model), bad values reported, links written and read back
 node tests/embed.test.js     # the embed API through its message protocol: calls, errors, events, frames
 node tests/pwa.test.js       # the service worker keeps every file the site serves; the manifest and its icons
