@@ -8,9 +8,7 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
-### 0.1.8-pre
-
-#### Changed
+### Changed
 
 - The README opens with "Try it" and has a short "Use it from code or an agent" section; the Games and Tools
   cells of the feature tables are one line each; the MAME instruction counts are refreshed (Dragon 64 1,028,112,
