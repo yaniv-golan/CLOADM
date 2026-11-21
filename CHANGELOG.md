@@ -8,6 +8,24 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
+### Fixed
+
+- **Whichever machine the screen shows, everything you do acts on the machine that is yours.** With the Claude chat
+  full screen the page runs a second machine for the chat firmware, and a few things still reached that one: the
+  welcome program's tune was played into the chat's memory (so your own menu stayed silent) and its keypresses were
+  read from there; and the ROM self-test and the NitrOS-9 panel asked the chat machine about your ROMs and your
+  image. Every use of a machine in the emulator now says which it means - the one on screen (the picture, the
+  keyboard, the running frames, the debugger) or the one you work on (files, tapes, cartridges, ROMs, the POKE book,
+  the welcome menu, LIZA, disks) - and a test fails on any use that does not say. Nothing changes on the screen with
+  no chat open.
+
+- **Opening a view over the full-screen chat closes the chat before the view builds on the machine**, so the debugger
+  a view opens is built on your machine and not on the chat's (it was built there and thrown away a moment later).
+
+- **Leaving the full-screen chat works again with the browser's Back, Esc off the screen and "← Emulator"** in every
+  case, including a page opened straight on the chat or on a view over it. (A first cut of the change above could
+  leave the chat open with those three routes, where the screen's keys go to the chat firmware.)
+
 ### 0.1.8-pre
 
 #### Added
