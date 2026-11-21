@@ -403,8 +403,9 @@ the top border and in the body, cleared again in the bottom border). The screen 
 different attribute byte in every cell, so no font shows and every pixel is compared exactly. The cases are split
 over five parts, each run from reset, because MAME 0.264's 6809 runs on a whole-Hz clock (894886 Hz), 0.38 ppm slower
 than its GIME's video timing: an HS edge reaches its CPU one cycle earlier every 2,603,190 cycles, which our CoCo 3
-`mameCompat` does not model (a single run of all 60 cases showed exactly that, twice: one `SYNC` one cycle shorter
-in MAME at instructions 356003 and 540577, nothing else); each part halts by cycle 2,030,115. For each part: (1)
+`mameCompat` does not model (an earlier single-firmware build of these cases, about 6.3 million cycles long, showed
+exactly that: a `SYNC` one cycle shorter in MAME at about cycle 2,603,182 after reset, and again 2,603,190 cycles
+later, nothing else); each part halts by cycle 2,030,115. For each part: (1)
 lockstep with MAME to HALT; (2) a field of every case against MAME's, pixel by pixel, and no case may change the
 picture from its lead-in field (MAME never scrolls); (3) the same firmware on our machine as shipped: each case's
 picture must be MAME's picture of the same field moved up by the scroll the sources give (worked out in `spec.js`

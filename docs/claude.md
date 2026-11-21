@@ -342,7 +342,8 @@ emulator.
     (VSC) moves the text up by VSC scanlines when VSC is less than the rows' height (8, 9, 10 or 11 lines), as on
     real hardware: the first row then shows only its lower part, and the next row of the buffer comes in at the
     bottom, so the reader counts it too (`screenRows` 25 instead of 24 on a 192-line screen of 8-line rows), and reads
-    every row whole, as it stands in memory. MAME 0.264 does not scroll (the machine's `mameCompat` option, for the
+    every row whole, as it stands in memory. A write to `$FF9C` takes effect at the next field's start, for the
+    picture and the reader alike. MAME 0.264 does not scroll (the machine's `mameCompat` option, for the
     MAME comparisons, reproduces that, and the reader follows it there).
   * **the Dragon 64 Plus's 80-column screen** (its Hitachi HD6845S), while the Display tab shows it. The board has
     no register that picks a screen (MAME shows both, as two screens): the screen read is the one the page shows,

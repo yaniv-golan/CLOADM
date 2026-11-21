@@ -437,8 +437,10 @@ class GIME {
   //  * every row is `lpr` scanlines ($FF98 bits 0-2); the body shows topBorder..min(body end, retrace, the picture's
   //    last line) scanlines ($FF99 bits 5-6), so the screen has ceil(lines / lpr) rows, the last perhaps cut short;
   //  * the vertical fine scroll ($FF9C, vscLine) starts the body `vsc` scanlines into its first row, so that row
-  //    shows only its lower part and ceil((lines + vsc) / lpr) rows show, the last perhaps cut short. The next frame
-  //    latches $FF9C as it stands. Under config.mameCompat (MAME 0.264) the body always starts on line 0: vsc = 0.
+  //    shows only its lower part and ceil((lines + vsc) / lpr) rows show, the last perhaps cut short. The scroll is
+  //    the one latched for the field on the screen (`this.vsc`), not $FF9C as it stands: a write takes effect at the
+  //    next field's start, so the rows read agree with the picture until then. Under config.mameCompat (MAME 0.264)
+  //    the body always starts on line 0: vsc = 0.
   // Returns { cols, attr, lpr, vsc, rows, base, pitch, hoff, hven, chars: [Uint8Array(cols)], attrs:
   // [Uint8Array(cols)] | null }, the character codes as stored (bit 7 included; the font ignores it).
   textScreen() {
@@ -448,7 +450,7 @@ class GIME {
     const pitch = (r[15] & 0x80) ? 256 : cols * (attr ? 2 : 1);
     const hoff = (r[15] & 0x7F) * 2, lpr = GIME_LPR[r[8] & 7], base = this.nativeVideoBase();
     const lines = Math.max(0, Math.min(this.topBorder + this.body, this.untilRetrace, HEIGHT + 1 + this.pad) - this.topBorder);
-    const vsc = this.mameCompat ? 0 : vscLine(r[12] & 0x0F, r[8] & 7);
+    const vsc = this.mameCompat ? 0 : vscLine(this.vsc, r[8] & 7);
     const rows = lines ? Math.ceil((lines + vsc) / lpr) : 0;
     const chars = [], attrs = attr ? [] : null;
     for (let row = 0; row < rows; row++) {

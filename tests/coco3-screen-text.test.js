@@ -132,7 +132,8 @@ function onScreen(name, cpu = '6809') {
 }
 // ---- 3b. ... and on the machine as shipped it scrolls them (js/chips/gime.js vscLine): with 8-line rows, VSC v < 8
 // starts the screen v lines into its first row, so 192 lines show ceil((192 + v) / 8) rows, the last one the
-// buffer's row 24, which the reader then reads too (its top part is on the screen); VSC 8 and up do not scroll ----
+// buffer's row 24, which the reader then reads too (its top part is on the screen), from the field that latches the
+// write on, as the picture does; VSC 8 and up do not scroll ----
 {
   const m = Emu.createMachine('coco3');            // the built-in firmware: it sets the GIME up once, at reset
   const g = m.gime;
@@ -147,12 +148,14 @@ function onScreen(name, cpu = '6809') {
   check('shipped, $FF9C = 0: 24 rows, the last the buffer\'s row 23', got.screenRows === 24 && got.lines[23] === 'ROW 23' && !got.lines.includes('ROW 24'), JSON.stringify(got.lines.slice(-2)));
   g.regs[12] = 3;
   got = read(m);
-  check('shipped, $FF9C = 3: 25 rows, the 25th the buffer\'s row 24', got.screenRows === 25 && got.lines[24] === 'ROW 24' && /, 25 rows$/.test(got.mode), JSON.stringify({ mode: got.mode, last: got.lines.slice(-2) }));
+  check('shipped, $FF9C = 3 just written: still 24 rows until a field latches it, as the picture', got.screenRows === 24);
   m.runFrame(); m.runFrame();
+  got = read(m);
+  check('shipped, $FF9C = 3: 25 rows, the 25th the buffer\'s row 24', got.screenRows === 25 && got.lines[24] === 'ROW 24' && /, 25 rows$/.test(got.mode), JSON.stringify({ mode: got.mode, last: got.lines.slice(-2) }));
   const scrolled = frameHash(m);
   g.regs[12] = 8;
-  got = read(m);
   m.runFrame(); m.runFrame();
+  got = read(m);
   check('shipped, $FF9C = 8 (the row height): not scrolled, 24 rows, and the picture differs from VSC 3\'s', got.screenRows === 24 && frameHash(m) !== scrolled);
 }
 

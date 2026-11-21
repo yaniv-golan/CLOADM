@@ -177,6 +177,21 @@ for (const v of [0, 1, 3, 7, 8]) {
   field(g, 2); field(h, 2);
   check('compatibility mode graphics: VSC changes nothing', g.frame.data.every((c, i) => c === h.frame.data[i]));
 }
+// ... and with $FF98 holding a native 8-line setting ($03) and VSC 3, which would scroll a GIME mode: compatibility
+// text, $FF9C 3 = 8 lines a row (the table; Marentes's SG modes), each row of 32 cells a solid semigraphics-4 block
+// ($8F | colour << 4) in colour (row & 7), so body line k shows palette entry floor(k / 8) & 7: no scroll
+{
+  const g = gime();
+  g.regs[0] = 0x80; g.ff22 = 0x00; g.sam = 0; g.regs[8] = 0x03; g.regs[12] = 0x03;
+  for (let r = 0; r < 26; r++) g.ram.fill(0x8F | ((r & 7) << 4), BASE + r * 32, BASE + (r + 1) * 32);
+  field(g, 2);
+  let ok = true, first = null;
+  for (let k = 0; k < 192; k++) {
+    const want = (Math.floor(k / 8) & 7) + 16, got = px(g, 100, Y0 + k);
+    if (got !== want) { ok = false; if (first === null) first = `line ${k}: ${got} not ${want}`; }
+  }
+  check('compatibility text, $FF98 $03 and $FF9C 3: 8-line rows from the top, not scrolled', ok, first || '');
+}
 
 // ---- 10. config.mameCompat (MAME 0.264): never scrolled ----
 for (const [f98, v] of [[0x83, 3], [0x82, 1], [0x86, 10]]) {
@@ -187,23 +202,45 @@ for (const [f98, v] of [[0x83, 3], [0x82, 1], [0x86, 10]]) {
   check(`mameCompat: LPR ${f98 & 7}, VSC ${v} is the same picture as VSC 0`, g.frame.data.every((c, i) => c === h.frame.data[i]));
 }
 
-// ---- 11. the text screen as the next field draws it (textScreen, which screen_text reads) ----
+// ---- 11. the text screen as the field on the screen draws it (textScreen, which screen_text reads) ----
 {
   const g = gime();
   g.regs[8] = 0x03; g.regs[9] = 0x05; g.updateGeometry();
   const text = (s, at) => [...s].forEach((ch, i) => { g.ram[BASE + at * 80 + i * 2] = ch.charCodeAt(0); g.ram[BASE + at * 80 + i * 2 + 1] = 0; });
   for (let r = 0; r < 26; r++) text(`ROW ${String(r).padStart(2, '0')}`, r);
+  field(g, 2);
   let t = g.textScreen();
   check('VSC 0: 24 rows of 8 lines', t.vsc === 0 && t.rows === 24);
   g.regs[12] = 3;
+  field(g, 2);
   t = g.textScreen();
   const lines = t.chars.map((c) => String.fromCharCode(...c.slice(0, 6)));
   check('VSC 3: 25 rows (192 + 3 lines), the 25th the buffer\'s row 24, shown in part', t.vsc === 3 && t.rows === 25 && lines[24] === 'ROW 24' && lines[0] === 'ROW 00');
   g.regs[12] = 8;
+  field(g, 2);
   check('VSC 8 (not below the row height): 24 rows, vsc 0', g.textScreen().vsc === 0 && g.textScreen().rows === 24);
   const c = gime({ mameCompat: true });
   c.regs[8] = 0x03; c.regs[9] = 0x05; c.regs[12] = 3; c.updateGeometry();
+  field(c, 2);
   check('mameCompat: VSC 3 reads 24 rows, vsc 0', c.textScreen().vsc === 0 && c.textScreen().rows === 24);
+  // written mid-field: the field being drawn keeps its latched scroll, and so does the reading, until the next
+  // field starts with the new value. h is the same screen left at VSC 0 throughout.
+  const h = gime();
+  h.regs[8] = 0x03; h.regs[9] = 0x05; h.updateGeometry(); h.ram.set(g.ram);
+  g.regs[12] = 0; field(g, 2); field(h, 2);
+  let guard = 0;
+  while (!(g.zone === 1 && g.logical === 100) && guard++ < 400) { g.hsRise(); g.hsFall(); }
+  g.regs[12] = 3;
+  guard = 0;
+  while (!(g.zone === 1 && g.logical === 150) && guard++ < 400) { g.hsRise(); g.hsFall(); }
+  const drawn = g.frame.data.subarray(0, (Y0 + 150) * W), ref = h.frame.data.subarray(0, (Y0 + 150) * W);
+  t = g.textScreen();
+  check('VSC 3 written mid-field: the lines drawn so far are not scrolled, and textScreen agrees (vsc 0, 24 rows)',
+    drawn.every((v, i) => v === ref[i]) && t.vsc === 0 && t.rows === 24, JSON.stringify({ vsc: t.vsc, rows: t.rows }));
+  field(g, 2);
+  t = g.textScreen();
+  check('... and from the next field both are scrolled (vsc 3, 25 rows; the picture differs)', t.vsc === 3 && t.rows === 25
+    && !g.frame.data.every((v, i) => v === h.frame.data[i]));
 }
 
 // ---- 12. through a machine: the snapshot carries the latched VSC (vsc), and an older file restores as 0 ----
