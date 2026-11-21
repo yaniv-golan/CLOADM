@@ -1,0 +1,65 @@
+<!doctype html><html><head><meta charset="utf-8"><title>CLOADM</title>
+<!-- SPIKE: the local server's live view (cli/panel.js). A mirror: it shows a machine that runs in the server and sends
+     the person's typing to it, through two app-only server tools (view_frame, view_keys) called via the host
+     (ext-apps specification 2026-01-26: ui/initialize, then tools/call from the view). It fetches nothing. -->
+<style>html,body{margin:0;background:#0b0d0c;color:#cfd8cf;font:13px system-ui}
+#screen{display:block;width:100%;max-width:640px;aspect-ratio:4/3;margin:0 auto;image-rendering:pixelated;background:#000;outline:none}
+#screen:focus{box-shadow:0 0 0 2px #4c4}#st{padding:2px 8px;font:12px ui-monospace,monospace;color:#9aa59c}</style></head><body>
+<canvas id="screen" tabindex="0" width="320" height="240"></canvas>
+<div id="st">connecting…</div>
+<script>
+(() => {
+  const host = window.parent, st = document.getElementById('st'), canvas = document.getElementById('screen'), g = canvas.getContext('2d');
+  let rid = 1, machine = null, frames = 0, t0 = Date.now(), pending = '', keys = [];
+  const waiting = new Map();
+  const send = (m) => host.postMessage(Object.assign({ jsonrpc: '2.0' }, m), '*');
+  const rpc = (method, params) => new Promise((ok, no) => { const id = rid++; waiting.set(id, { ok, no }); send({ id, method, params }); });
+  addEventListener('message', (e) => {
+    const d = e.data;
+    if (e.source !== host || !d || d.jsonrpc !== '2.0') return;
+    if (d.id !== undefined && !d.method) { const w = waiting.get(d.id); if (w) { waiting.delete(d.id); d.error ? w.no(d.error) : w.ok(d.result); } return; }
+    if (d.method === 'ping') send({ id: d.id, result: {} });
+    else if (d.id !== undefined) send({ id: d.id, error: { code: -32601, message: 'not supported' } });
+  });
+  const call = (name, args) => rpc('tools/call', { name, arguments: args });
+  async function draw(result) {
+    const img = (result.content || []).find((c) => c.type === 'image');
+    if (!img) return;
+    const bmp = await createImageBitmap(await (await fetch(`data:image/png;base64,${img.data}`)).blob());
+    if (canvas.width !== bmp.width || canvas.height !== bmp.height) { canvas.width = bmp.width; canvas.height = bmp.height; }
+    g.drawImage(bmp, 0, 0);
+  }
+  async function loop() {
+    for (;;) {
+      try {
+        if (pending || keys.length) {
+          const a = { machine_id: machine || undefined };
+          if (pending) a.text = pending;
+          if (keys.length) a.keys = keys;
+          pending = ''; keys = [];
+          await call('view_keys', a);
+        }
+        const r = await call('view_frame', machine ? { machine_id: machine } : {});
+        if (r.isError) { st.textContent = `error: ${(r.content[0] || {}).text}`; machine = null; await new Promise((ok) => setTimeout(ok, 1000)); continue; }
+        machine = r.structuredContent.machine_id;
+        await draw(r);
+        frames++;
+        st.textContent = `${machine} · ${(frames * 1000 / (Date.now() - t0)).toFixed(1)} view frames/s · click the screen, then type`;
+      } catch (e) { st.textContent = `error: ${(e && e.message) || JSON.stringify(e)}`; await new Promise((ok) => setTimeout(ok, 1000)); }
+    }
+  }
+  const NAMED = { ArrowLeft: 'LEFT', ArrowRight: 'RIGHT', ArrowUp: 'UP', ArrowDown: 'DOWN', Escape: 'BREAK', Home: 'CLEAR' };
+  canvas.addEventListener('keydown', (e) => {
+    if (NAMED[e.key]) keys.push(NAMED[e.key]);
+    else if (e.key === 'Enter') pending += '\n';
+    else if (e.key === 'Backspace') keys.push('LEFT');
+    else if (e.key.length === 1) pending += e.key.toUpperCase();
+    else return;
+    e.preventDefault();
+  });
+  canvas.addEventListener('pointerdown', () => canvas.focus());
+  rpc('ui/initialize', { protocolVersion: '2026-01-26', appInfo: { name: 'cloadm-live', version: '0' }, appCapabilities: {} })
+    .then(() => { send({ method: 'ui/notifications/initialized', params: {} }); st.textContent = 'connected'; loop(); },
+      (er) => { st.textContent = `ui/initialize failed: ${(er && er.message) || er}`; });
+})();
+</script></body></html>

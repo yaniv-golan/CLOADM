@@ -897,7 +897,7 @@ const asCliError = (e) => (e instanceof CliError ? e : new CliError('internal', 
 // pass unset settings through as written, or as "")
 const unset = (v) => v === '' || /\$\{[^}]*\}/.test(v);
 function parseServerArgs(argv) {
-  const o = { mode: null, roms: [], mediaRoot: null, readOnly: false };
+  const o = { mode: null, roms: [], mediaRoot: null, readOnly: false, panel: false };
   for (let i = 0; i < argv.length; i++) {
     const m = /^--([a-z-]+)(?:=([\s\S]*))?$/.exec(argv[i]);
     // --roms=VALUE or --roms VALUE; a value that says nothing counts as not given; --roms with nothing after it is an error
@@ -906,6 +906,7 @@ function parseServerArgs(argv) {
     else if (name === 'roms') { const v = value(); if (v) o.roms.push(v); }
     else if (name === 'media-root') { const v = value(); if (v) { if (o.mediaRoot) throw usage('one --media-root'); o.mediaRoot = v; } }
     else if (name === 'read-only') o.readOnly = true;
+    else if (name === 'panel') o.panel = true;   // SPIKE: the live view (cli/panel.js)
     else throw usage(`--${o.mode || 'mcp'} takes --roms PATH, --media-root DIR and --read-only, not ${argv[i]}`, 'unknown-step');
   }
   return o;
@@ -958,7 +959,8 @@ async function server(argv, { input, out, err }) {
   const toolbox = T.createToolbox(host, { readOnly: o.readOnly });
   const kept = host.roms().length - roms.length;
   err(`cloadm ${o.mode}: ${toolbox.tools().length} tools${o.readOnly ? ' (read-only)' : ''}, ${roms.length} ROM file(s)${from.roms ? ` (${from.roms})` : ''}${kept ? `, ${kept} stored (${store.dir})` : ''}, media root ${createRoot ? o.mediaRoot : fs.realpathSync(o.mediaRoot)} (${from.mediaRoot}); config file ${file}`);
-  return o.mode === 'mcp' ? M.mcp({ toolbox, input, out }) : M.serve({ toolbox, input, out });
+  const panel = o.panel && o.mode === 'mcp' && !o.readOnly ? require('./panel.js').createPanel({ toolbox }) : null;
+  return o.mode === 'mcp' ? M.mcp({ toolbox, input, out, panel }) : M.serve({ toolbox, input, out });
 }
 
 // ---------------- main ----------------

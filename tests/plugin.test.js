@@ -71,8 +71,8 @@ for (const p of J.market.plugins || []) {
 }
 
 const server = (J.plugin.mcpServers || {}).cloadm || {};
-check('plugin.json: mcpServers.cloadm is node cli/cloadm.js --mcp from the plugin root',
-  server.command === 'node' && JSON.stringify(server.args) === JSON.stringify(['${CLAUDE_PLUGIN_ROOT}/cli/cloadm.js', '--mcp']), JSON.stringify(server));
+check('plugin.json: mcpServers.cloadm is node cli/cloadm.js --mcp --panel from the plugin root (SPIKE: the live view)',
+  server.command === 'node' && JSON.stringify(server.args) === JSON.stringify(['${CLAUDE_PLUGIN_ROOT}/cli/cloadm.js', '--mcp', '--panel']), JSON.stringify(server));
 const pluginRoot = (s) => s.replace(/\$\{CLAUDE_PLUGIN_ROOT\}/g, ROOT);
 check('plugin.json: the server script resolves', fs.existsSync(pluginRoot(server.args[0])));
 check('plugin.json: the icon resolves', !J.plugin.icon || (J.plugin.icon.startsWith('./') && fs.existsSync(rel(J.plugin.icon))), J.plugin.icon);
@@ -149,8 +149,9 @@ function launch(command, args, home) {
     child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' }) + '\n');
   });
 }
-const answered = (r) => r.msgs.length >= 2 && r.msgs[0] && r.msgs[0].id === 1 && r.msgs[0].result && r.msgs[0].result.serverInfo.name === 'cloadm' &&
-  r.msgs[1] && r.msgs[1].id === 2 && r.msgs[1].result && r.msgs[1].result.tools.length === serverTools.length;
+// SPIKE: plugin.json's server runs with --panel, which adds open_emulator, view_frame and view_keys (cli/panel.js)
+const answered = (r, extra = 0) => r.msgs.length >= 2 && r.msgs[0] && r.msgs[0].id === 1 && r.msgs[0].result && r.msgs[0].result.serverInfo.name === 'cloadm' &&
+  r.msgs[1] && r.msgs[1].id === 2 && r.msgs[1].result && r.msgs[1].result.tools.length === serverTools.length + extra;
 
 (async () => {
   const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'cloadm-plugin-'));
@@ -160,7 +161,7 @@ const answered = (r) => r.msgs.length >= 2 && r.msgs[0] && r.msgs[0].id === 1 &&
     {
       const r = await launch(server.command, server.args.map(pluginRoot), empty);
       check('plugin.json\'s server starts with no configuration, lists its tools, and takes ~/CLOADM as its media folder without making it',
-        answered(r) && r.err.includes(`media root ${path.join(empty, 'CLOADM')} (default)`) && !fs.existsSync(path.join(empty, 'CLOADM')), `exit ${r.code} ${r.err.trim()}`);
+        answered(r, 3) && r.err.includes(`media root ${path.join(empty, 'CLOADM')} (default)`) && !fs.existsSync(path.join(empty, 'CLOADM')), `exit ${r.code} ${r.err.trim()}`);
     }
     {
       // the plugin passes no paths; the config file gives them (docs/mcp.md, "Your ROMs and media folder")
@@ -168,7 +169,7 @@ const answered = (r) => r.msgs.length >= 2 && r.msgs[0] && r.msgs[0].id === 1 &&
       fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ mediaRoot: media, roms: [roms] }));
       const r = await launch(server.command, server.args.map(pluginRoot), home);
-      check('plugin.json\'s server takes the media root from the config file', answered(r) && r.err.includes(fs.realpathSync(media)), `exit ${r.code} ${r.err.trim()}`);
+      check('plugin.json\'s server takes the media root from the config file', answered(r, 3) && r.err.includes(fs.realpathSync(media)), `exit ${r.code} ${r.err.trim()}`);
     }
     const sub = (cfg) => mc.args.map((a) => a.replace(/\$\{__dirname\}/g, ROOT).replace(/\$\{user_config\.(\w+)\}/g, (m, k) => (k in cfg ? cfg[k] : m)));
     {

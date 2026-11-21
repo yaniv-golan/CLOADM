@@ -252,14 +252,15 @@ function queued(keyOf) {
 }
 
 // ---------------- --mcp ----------------
-async function mcp({ toolbox, input, out }) {
+async function mcp({ toolbox, input, out, panel = null }) {
   const send = (msg) => out(JSON.stringify(Object.assign({ jsonrpc: '2.0' }, msg)));
   const running = new Map();   // request id -> AbortController
   const keyOf = (id) => JSON.stringify(id);
   const waiting = queued(keyOf);
   // the tool's result as MCP content (the toolbox's mcpResult, which the side panel's view sends too)
   const result = (r) => T.mcpResult(r, (bytes) => Buffer.from(bytes).toString('base64'));
-  const capabilities = { tools: { listChanged: false } };
+  // SPIKE: the live view (cli/panel.js, --panel): the MCP Apps extension and the view's resource
+  const capabilities = panel ? { tools: { listChanged: false }, resources: { listChanged: false }, extensions: panel.extension } : { tools: { listChanged: false } };
   // Asking the person (add_roms' consent): an elicitation/create request to a client that said at initialize it takes
   // them (the handshake revisions, 2025-06-18 on; a stateless request carries no such promise, so it is not asked).
   // Its reply is taken at once (immediate), not queued behind the call that waits for it.
@@ -326,9 +327,10 @@ async function mcp({ toolbox, input, out }) {
         });
         return;
       case 'ping': answer({}); return;   // the handshake revisions' liveness check (gone from 2026-07-28)
-      case 'tools/list': answer({ tools: toolbox.tools(), ...(modern ? { ttlMs: LIST_TTL_MS, cacheScope: 'private' } : {}) }); return;
+      case 'tools/list': answer({ tools: panel ? panel.tools().concat(toolbox.tools()) : toolbox.tools(), ...(modern ? { ttlMs: LIST_TTL_MS, cacheScope: 'private' } : {}) }); return;
       case 'tools/call': {
         if (typeof p.name !== 'string') { error(-32602, 'tools/call needs params.name'); return; }
+        if (panel && panel.has(p.name)) { answer(await panel.call(p.name, p.arguments)); return; }
         if (!toolbox.has(p.name) && !toolbox.refusedReadOnly(p.name)) { error(-32602, `unknown tool: ${p.name}`); return; }
         const ctl = new AbortController();
         if (!note) running.set(keyOf(msg.id), ctl);
@@ -338,6 +340,17 @@ async function mcp({ toolbox, input, out }) {
         running.delete(keyOf(msg.id));
         if (ctl.signal.aborted) return;   // cancelled: no further message for it (stdio binding: MUST NOT)
         answer(result(r));
+        return;
+      }
+      case 'resources/list':
+        if (!panel) { error(-32601, `method not found: ${msg.method}`); return; }
+        answer({ resources: panel.resources() });
+        return;
+      case 'resources/read': {
+        const r = panel && panel.read(p.uri);
+        if (!panel) { error(-32601, `method not found: ${msg.method}`); return; }
+        if (!r) { error(-32602, `unknown resource: ${p.uri}`); return; }
+        answer(r);
         return;
       }
       default:
