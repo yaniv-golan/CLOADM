@@ -681,10 +681,11 @@ STYLES  FCB     $00,$00,$00,$00         ; empty: green
         FCB     $55,$55,$FF,$AA         ; 32768
         FCB     $77,$DD,$AA,$FF         ; 65536
         FCB     $EE,$BB,$FF,$55         ; 131072
-; sounds: delay, half periods
-SND_WIN FCB     110,90,88,110,73,130,55,240,0
+; sounds: delay, half periods. The win is a rising C major pentatonic arpeggio (C5 E5 G5 A5 C6) and the loss the
+; same run falling; the open-halves are the move cues in PENTA, above.
+SND_WIN FCB     167,40,131,40,110,40,97,40,81,40,0
 SND_OVER
-        FCB     90,60,110,50,140,40,190,60,0
+        FCB     81,40,110,40,131,40,167,40,0
 ; text
 T_NAME  FCN     "2048"
 T_JOIN  FCN     "JOIN THE TILES TO MAKE 2048"
