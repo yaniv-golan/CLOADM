@@ -575,6 +575,12 @@ class Machine {
 //   2: the CoCo 3 adds `haltDefer`, an instruction HALT suspended (js/machines/coco3.js haltSuspend, with its bus
 //      accesses so far, `log`, and the memory they touched, `mem`), or null; a version 1 file has none, and its machine restores with no instruction
 //      suspended (none was, in version 1).
+// The CoCo 3's `outsideWrites` (writes from outside the CPU queued while an instruction was held,
+//      js/machines/coco3.js outsideWrite) is an OPTIONAL key at version 2, not a new version: a loader that does not
+//      know it ignores it (measured on 570d3fc: an unknown state key loads), while a version bump would make every
+//      older build refuse every new file. An older file has no key and restores owing no outside write (none could
+//      be queued before this build held them); a newer file has one, and an older build would drop it on restore -
+//      the one case a bump would have refused instead, and a debugger write while an instruction is held is rare.
 export const SNAPSHOT_FORMAT = 'cloadm-state';
 export const SNAPSHOT_VERSION = 2;
 export const SNAPSHOT_OLDEST = 1;

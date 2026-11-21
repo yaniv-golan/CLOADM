@@ -1064,6 +1064,31 @@ access's, and a restored machine releases it on the same cycle as the one saved;
 I/O after every slice gives snapshots that all load, and a held `PSHU` that changed the speed ends identically after
 one and three save-and-restore round trips.
 
+A WRITE from outside made while the suspended instruction's events run (between runs, `heldIo`) is queued and made
+between instructions, at the machine's own time (`Coco3Machine.outsideWrite`, `flushOutsideWrites`): the same write
+made while parked, with `$FFD9` (measured in `tests/held-writeio.test.js`), charged 34,724 CPU cycles over the
+frame at commit 570d3fc, before this change; made one tick inside the window it charged 4,856, because the rate-write path took its
+`!inStep` branch and dropped the suspended instruction from inside its own event. Now the two charge the same
+number, and leave the machine at the same cycle, trace, registers and time (`tests/held-writeio.test.js`: the held
+instruction stays, the write lands once in order, the parked machine and the run after it are identical either way).
+The queue is in the snapshot, as an optional key at the same format version (a file without it restores owing none;
+an older build ignores it), is made by a run that throws out of the window, and a reset drops it (a reset drops
+every access made while an instruction was held, and the same write made while parked is wiped by one too). Only an
+event handler is ever in the window (it is open only inside the machine's own event run); a UI POKE or a
+debugger-panel write arrives between frames, and while a queue is still waiting it joins that queue instead.
+`poke` (no bus cycle) is not queued unless a queued write is still waiting, which it follows, so the later call's
+value is final. A read is not deferred: it is serviced in the window at the held access's time, with its device
+side effects there - a status or data read clears the FDC's INTRQ/DRQ, and a read that releases HALT is what a
+halted loop waits for. The flush makes a queued write through `busWrite`, below the debugger's wrapper and `write()`'s
+queueing branch, so no watchpoint fires for a write the debugger made. The entry being made stays at the head of the
+queue until it has landed, so a write an event handler makes during it (its I/O sync pumps events) queues behind it,
+the last entry included; a flushed write that stalls the machine ends the run before any instruction runs. A
+snapshot whose queue holds a poke at `$FF00` or above is refused, as `poke` itself refuses the I/O page. A
+queued poke's return value (whether the CPU will see the byte) is worked out when `poke` is called, under the mapping
+at that time; an MMU or ROM-mode write queued ahead of it can change the mapping before it lands, so the answer can
+be stale. The byte itself is placed under the mapping the earlier queued writes leave, in order. Making the answer
+exact would need `poke` to wait for the queue, which is outside this change.
+
 The CPU redirected from outside while an instruction is suspended (`Machine.jump`, `injectAndRun` with a start
 address, the debugger setting a register to a new value, any other write to the CPU's registers, a write to memory
 the instruction had fetched, read or written before its held access, a snapshot taken after such a write) drops the

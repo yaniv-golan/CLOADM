@@ -19,6 +19,7 @@ All notable changes to CLOADM are recorded here. The format follows
   it at once (the page's own path; there is no other). Nothing changes for machines with the controller, for the
   disk interface built into the Dragon Alpha, or for any snapshot: a held instruction keeps its own log and
   restores with it.
+
 - **The log is kept honest.** A device that drives HALT without declaring `Device.canHalt` is refused at the first
   HALT, naming it, rather than suspending an instruction against a log that is not carried; and a cartridge asked
   to go in or come out from inside an instruction is refused the same way. Both are programmer errors, not states a
@@ -27,6 +28,7 @@ All notable changes to CLOADM are recorded here. The format follows
   halts the CPU between instructions instead of suspending one it could not replay. A snapshot loaded over a machine
   holding a different cartridge announces the port either way, so the log follows the file.
   `tests/coco3-buslog.test.js`, and the CoCo 3, FDC, halt-replay, halt-held and state suites.
+
 - **The floppy-disk suite is split in four.** `tests/disks.test.js` had grown to about 150 s (v0.1.6 added about 900
   lines of mount-race and new-disk-race cases, each importing and mounting 40-track images, and a mount is about
   1.3 s of flux encoding, as it was in v0.1.5), close to and on CI over `tests/all.js`'s 240 s per-suite cap. Its cases, unchanged, now run in
@@ -52,6 +54,26 @@ All notable changes to CLOADM are recorded here. The format follows
   mapping now cites its sources; the wording change is all).
 
 ### Fixed
+
+- **A write from outside the CPU no longer runs in the middle of a held I/O access.** On the CoCo 3 an instruction
+  the disk controller's HALT suspended asks the scheduler to pump its events at the held access's time; the
+  debugger's memory write made from a host handler reaching the bus in that window ran in a machine state no instruction
+  may see. A write to `$FFD6`-`$FFD9` there ended the suspended instruction from inside its own event, before its
+  cycle count was charged: the same write made while the CPU was parked charged 34,724 CPU cycles over a frame,
+  and made one tick inside the window charged 4,856. An outside write made in the window is now queued and made between
+  instructions, at the machine's own time, exactly where one made while parked lands - the same write, the same run
+  afterwards, cycle for cycle. Only an event handler is ever in the window (it is open only inside the machine's
+  own event run); a UI POKE or a debugger-panel write, which arrive between frames, never finds it - though while a
+  queue is still waiting (after a stall) such a write joins it and lands when the machine next runs.
+  `poke` (no bus cycle) is not queued - unless a queued write is still waiting, which it follows, so the later call's
+  value is final; a read is serviced in the window at the held access's time, side effects included - a read that
+  releases HALT is what a halted loop waits for. A save taken while one waits carries it, so a
+  restore does not drop a debugger's write; it is an optional key in the snapshot at the same format version, so a
+  file from this build still opens in an older one, and a file from before it restores owing no such write, and a
+  file whose queue holds a poke at `$FF00` or above is refused, as `poke` itself refuses the I/O page. The queue is
+  made in order: the entry being made stays at its head until it has landed, so a write an event handler makes
+  meanwhile (its I/O sync pumps events) lands after it, and a flushed write that stalls the machine (a DriveWire
+  write) ends the run before any instruction runs under the stall. `tests/held-writeio.test.js`.
 
 - **Reset after a game no longer says CLOADM failed.** Many machine-code games set BASIC's warm-start flag and
   vector ($71 = $55, $72-$73 pointing at a NOP of their own), so **Reset** goes back into the game with RAM kept,

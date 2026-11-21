@@ -35,6 +35,7 @@ node tests/debug-session.test.js  # the debugger through the Session: lifetime, 
 node tests/halt-held.test.js # CoCo 3 instruction held by HALT: CPU redirected while held; debugger steps, stops, counts
 node tests/halt-replay.test.js # CoCo 3 held instruction run again: exact reads (6309 TFM, all forms), malformed snapshot state
 node tests/coco3-buslog.test.js # CoCo 3 bus log: carried only with a HALT-capable device (logBus), hot-plug, snapshots, the guards
+node tests/held-writeio.test.js # a write from outside during a held access: queued, made between instructions, same machine either way
 node tests/coco3.test.js     # CoCo 3: MMU, GIME interrupts, timer, speed, video
 node tests/mc10.test.js      # MC-10: 6803 core, assembler plugin, machine
 node tests/sp0256.test.js    # SP0256 speech chip: sequencer, paging, branches, handshake, RCU, timing (GI design spec)

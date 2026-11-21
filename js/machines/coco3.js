@@ -87,6 +87,12 @@ class Coco3Machine extends Machine {
     // held access's time, not the machine's. An explicit flag rather than a test on ioShift, which is legitimately
     // 0 for an access held at the instruction's own start - the guard must not depend on that.
     this.heldIo = false;
+    // writes from outside the CPU that must wait for the machine's own time before they land (write, outsideWrite):
+    // made in a held access's window, or behind a write already waiting. They are owed to the machine, so they
+    // travel in its snapshot (a restore would otherwise drop a debugger's write made while an instruction was
+    // held); a reset drops them (a reset drops every access made while an instruction was held, and the same write
+    // made while parked is wiped by one too).
+    this.outsideWrites = [];
     // every bus access of an instruction that may be suspended by HALT, in order (busLogged): its address and the
     // byte read or written. A step run again after HALT suspended it gets its first accesses from here (replayRead),
     // not from the bus. Kept only while a device that can assert HALT is attached (logBus): carrying it was worth
@@ -321,7 +327,56 @@ class Coco3Machine extends Machine {
       if (this.replayN >= 0 && this.replayWrite(a, v)) return;   // made before the step was suspended (read())
       this.busWrite(a, v);
       if (this.busHalt || this.haltDefer !== null) this.busLogged(a, v & 0xFF);
-    } else this.busWrite(a, v);
+      return;
+    }
+    // (while an access waits, a later one waits behind it: in order, never landing ahead of it and then being
+    // overwritten by it)
+    if (this.heldIo || this.outsideWrites.length) { this.outsideWrite(a, v); return; }
+    this.busWrite(a, v);
+  }
+  // A write from outside the CPU made while a suspended instruction's events run (heldIo, haltResume): it must not
+  // land there. ioWrite would pump the scheduler at the held access's time, which is behind the machine's own time,
+  // and a rate write would take its !inStep branch and call haltCancel, ending the instruction from inside the run of
+  // that instruction's own events (haltResume then parks with a stale local d). So it is queued, and runCycles makes
+  // it between instructions, at the machine's time - where an outside access lands anyway (docs/verification.md:
+  // a parked CPU's cycle count is 0 and an access from outside is timed at the machine's time).
+  //
+  // Only an event handler is ever IN the window (heldIo is true only synchronously, inside haltRun): a UI POKE or
+  // a debugger-panel write, which arrive between frames, never finds it. While a queue is still waiting (after a
+  // stall, say) such a write is queued too, by the rule in write()/poke() - behind what is already owed, and
+  // flushed when the machine next runs, so a paused machine shows it after the next frame, not at once.
+  // A read is NOT deferred: ioRead services it in the window, at the held access's time, and its device side
+  // effects happen there (see the note on reads below).
+  outsideWrite(a, v) { this.outsideWrites.push({ a: a & 0xFFFF, v: v & 0xFF, poke: false }); }
+  // Make the queued writes, in order, at the machine's own time: each through busWrite (below the debugger's
+  // wrapper and write()'s queueing branch), so it lands and is timed as one made between instructions is - the
+  // machine's own time, its device side effects at once.
+  //
+  // runCycles calls it at the top of its loop and after it: before an instruction starts, and once the run has
+  // ended, so a frame (or slice) that ends while the CPU is parked still makes them in the same run, with no
+  // future instruction to wait for; haltResume's catch does the same for a run that throws out of the window. A
+  // write can outlive its run in exactly one way - a stall (a DriveWire write sets m.stall through
+  // Machine.waitFor) - and the queue then goes with the run the stall ends in; runCycles stops at once when a
+  // flushed write sets one, before any instruction runs under it.
+  //
+  // The debugger's access hook is bypassed: when a debugger is attached, this.write is its wrapper, which reports
+  // every write as a watchpoint access. The flush goes through busWrite, below it, so a queued write - the
+  // debugger's own, which Debugger.write also makes without reporting - fires no watchpoint for it.
+  flushOutsideWrites() {
+    if (!this.outsideWrites.length || this.stall || this.inStep || this.heldIo) return;   // (never mid-access)
+    // ONE entry at a time, off the queue itself: a write's device side effects can pump events, and a handler that
+    // writes or pokes from one must queue BEHIND the entry being made and those still waiting, not land ahead of them
+    // in an empty queue. So the head stays on the queue while it is made, and is taken off only once it has landed
+    // (the last entry too: shifted first, its own ioSync would find the queue empty).
+    // Each goes through busWrite(), which is exactly what an outside write between instructions does (write()'s
+    // !inStep branch is a bare busWrite) - so it is timed and lands as one made here would, and it passes neither
+    // the debugger's wrapper (no watchpoint fires for a write the debugger made) nor write()'s queueing branch, which
+    // would see a non-empty queue and put it back. A poke keeps poke's semantics: the memory image, even under ROM.
+    while (this.outsideWrites.length && !this.stall && !this.inStep && !this.heldIo) {
+      const w = this.outsideWrites[0];
+      if (w.poke) this.pokeNow(w.a, w.v); else this.busWrite(w.a, w.v);
+      this.outsideWrites.shift();
+    }
   }
   busWrite(a, v) {
     if (a < 0xFF00) { this.gime.write(a, v); return; }
@@ -413,6 +468,14 @@ class Coco3Machine extends Machine {
   poke(addr, v) {
     addr &= 0xFFFF;
     if (addr >= 0xFF00) return false;
+    // A poke writes the memory image with no bus cycle and no timing, so it lands at once - unless an outside
+    // write is still waiting to land: then it waits behind it, so the order the tool made them in is the order
+    // the machine sees, and the later call's value is the final one (a poke made after a queued write to the same
+    // byte must not be overwritten by it). A poke made while the machine is stalled waits with the queue.
+    if (this.outsideWrites.length) { this.outsideWrites.push({ a: addr, v: v & 0xFF, poke: true }); return this.writeKind(addr) === null; }
+    return this.pokeNow(addr, v);
+  }
+  pokeNow(addr, v) {
     let p = this.gime.physAddr(addr);
     if (p < 0) p = ((this.gime.blockFor(addr >> 13) * 0x2000) + (addr & 0x1FFF)) & (this.mem.length - 1);
     this.mem[p] = v;
@@ -447,6 +510,10 @@ class Coco3Machine extends Machine {
     const cpu = this.cpu, hooks = this.pcHooks, g = this.gime;
     const stub = this.useStub;
     while (this.cycle < end && !this.stall && steps-- > 0) {
+      // a write from outside made while an instruction was held (outsideWrite): between instructions, at the
+      // machine's own time, where an outside access lands
+      this.flushOutsideWrites();
+      if (this.stall) break;                      // a flushed write stalled the machine: nothing runs under it
       // the wait of an instruction HALT suspended (haltSuspend): no further than this run goes, or else a frame
       this.waitLimit = Number.isFinite(end) ? end : Math.max(this.frameBase + this.frameCycles, this.cycle + this.div);
       // (the CPU's registers changed from outside since the instruction was suspended: it is dropped, haltCancel)
@@ -504,6 +571,9 @@ class Coco3Machine extends Machine {
       // an access in this step waited for HALT's release (haltWait): the rest of the instruction runs from there
       if (defer) { this.haltS = defer.s; this.haltK = defer.k; this.haltN = n; this.haltReleased(defer.rel); }
     }
+    // a queued outside write is owed even to a run that ends here: the CPU is parked (no instruction to wait for),
+    // and the next runCycles may be a long way off, or never
+    this.flushOutsideWrites();
   }
   // The CPU clock rate changed during the instruction that started at `start` (n cycles; the
   // write was in cycle speedChange). On real hardware the remaining cycles simply run at the
@@ -627,7 +697,16 @@ class Coco3Machine extends Machine {
       this.cpu.cycleCount = d.n; this.ioShift = d.s - this.cycle;
       this.heldIo = true;
       let go;
-      try { go = this.haltRun(d); } finally { this.heldIo = false; }
+      try { go = this.haltRun(d); } catch (e) {
+        // a held event that threw on its way out of the frame: the window is over, and what the bus was told in it
+        // is still owed - this run is not coming back to drain the queue. Made now, in the parked machine, exactly
+        // as one made while parked is (write(): an outside change drops the suspended instruction).
+        this.heldIo = false;
+        this.ioShift = 0;
+        if (this.outsideWrites.length) this.flushOutsideWrites();
+        throw e;
+      }
+      this.heldIo = false;
       this.ioShift = 0;
       if (!go) { this.haltPark(d); return false; }
       // HALT dropped outside an event (the cartridge taken out: its lines go at once, js/machines/bus.js detach):
@@ -741,6 +820,10 @@ class Coco3Machine extends Machine {
     this.haltDefer = null; this.ioShift = 0; this.busN = 0; this.replayN = -1;
     this.haltAt = -1; this.haltS = -1; this.cpu.haltTail = 0;
     if (hard) this.holdUntil = -Infinity;
+    // a write from outside that was waiting to land goes too: the reset drops every access made while an
+    // instruction was held, and the same write made while parked is wiped by a reset as well (haltCancel, from
+    // resetHardware's memory and GIME reset). A snapshot carries the queue; a restore puts it back.
+    this.outsideWrites = [];
   }
 
   // ---------------- state ----------------
@@ -752,6 +835,9 @@ class Coco3Machine extends Machine {
       hires: Object.assign({}, this.hires.jet),   // the Hi-Res interface's one-shot (js/machines/cocopia.js)
       stepNoStop: Array.from(this.cpu.cycleNoStop.subarray(0, this.stepN)),   // the last step's check points (haltArrived)
       haltDefer: this.haltDefer && haltDeferState(this.haltDefer),   // the instruction HALT suspended (haltSuspend), or null
+      // writes from outside queued while it was held (outsideWrite): of the machine, not only the tool, so they are
+      // saved with it and a restore makes them as a run would, restoring into a machine that would have taken them
+      outsideWrites: this.outsideWrites.map((w) => ({ a: w.a, v: w.v, poke: w.poke })),
     });
   }
   loadState(s) {
@@ -773,6 +859,15 @@ class Coco3Machine extends Machine {
     this.haltDefer = d && haltDeferState(d);
     if (this.haltDefer) { haltDeferTimes(this.haltDefer, this.cycle); this.cpu.cycleCount = 0; }   // (as haltPark)
     if (this.haltDefer) this.haltKeep(this.haltDefer, false);   // (the file's CPU; its memory came with haltDefer)
+    // (an older file has no key: no write from outside was queued while an instruction was held then, as none could
+    // be queued until this build held them. The key is OPTIONAL at version 2 - see machine.js's version note - so a
+    // file without it restores owing none, and an older build ignores it rather than refusing the file.)
+    const q = s.outsideWrites === undefined ? [] : s.outsideWrites;
+    if (!Array.isArray(q) || q.some((w) => !w || !Number.isInteger(w.a) || w.a < 0 || w.a > 0xFFFF || !Number.isInteger(w.v) || w.v < 0 || w.v > 0xFF || (w.poke !== undefined && typeof w.poke !== 'boolean')
+      || (w.poke === true && w.a >= 0xFF00))) {   // (poke() refuses the I/O page: pokeNow would write the image beneath it)
+      throw new Error('snapshot: "outsideWrites" is not a list of address, byte pairs (a poke below $FF00)');
+    }
+    this.outsideWrites = q.map((w) => ({ a: w.a, v: w.v, poke: w.poke === true }));
     // Between instructions the divider follows gime.fast, so derive it here: a snapshot saved while an outside write
     // left the divider at 4 restores at the rate the GIME says, instead of staying slow for good (a later write of the
     // same rate does not re-time). The one exception is an instruction HALT suspended after it changed the speed

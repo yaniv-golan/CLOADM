@@ -107,6 +107,19 @@ same way. Run goes on: the machine stays halted, its frames run, and the program
 Setting a register to a new value, or writing over the memory it used, while an instruction is held drops it: the CPU goes on from the state you gave it once HALT is
 released (`docs/verification.md`, CoCo 3 floppy HALT).
 
+**Writes from outside during a held access.** While that suspended instruction's events run, the CoCo 3 holds the
+machine at the held access's time (`heldIo`, above). A write from outside the CPU reaching the bus there would land
+in a state no instruction may see: a rate write (`$FFD6`-`$FFD9`) would drop the suspended instruction from inside
+its own event, before its halted cycles were charged. Such a write is queued (`Coco3Machine.outsideWrite`) and made at the machine's own
+time - usually by the same run's after-loop flush, or `runCycles`' next top if a stall held it - where one made while
+parked lands, so the machine ends identically either way. The queue is carried in the machine's snapshot as an optional key at the same format version (an
+older build ignores it; a file without it restores owing none), and a run that throws on its way out of the window
+still makes it. `poke` writes the memory image with no
+bus cycle, at once - unless a queued write is still waiting (after a stall), which it then follows, so the later
+call's value is final; a UI POKE or a debugger write made while the machine is paused then waits with the queue,
+and the byte reads as it was until the machine next runs. A read is not deferred: it is serviced in the window, at the held access's time, with its device side effects
+there - a read that releases HALT is what a halted loop waits for (`tests/held-writeio.test.js`).
+
 The **Debugger** screen (`/play/#debugger`) shows the assembler's source, the registers (click to edit) and
 condition codes, the machine's screen, the disassembly around the program counter (click a line for a
 breakpoint), the breakpoints and watchpoints (add one by address or label), memory (click a byte to edit it or

@@ -179,6 +179,14 @@ function cocoHaltSuspended(config, prog, label) {
   err = null;
   try { b.restore(old); } catch (e) { err = e; }
   check(`coco3 (${label}) ${prog.name}: a version ${Emu.SNAPSHOT_VERSION} snapshot without haltDefer is refused`, !!err && /missing "haltDefer"/.test(err.message), err ? err.message : 'restored');
+  // ...and a file without the optional outsideWrites key (any file from before this build, and one this build writes
+  // with nothing queued) restores owing no outside write
+  const optional = Emu.state.fromJSON(Emu.state.toJSON(b.snapshot()));
+  delete optional.state.outsideWrites;
+  err = null;
+  try { b.restore(optional); } catch (e) { err = e; }
+  check(`coco3 (${label}) ${prog.name}: a snapshot without outsideWrites (the optional key) restores owing no outside write`,
+    !err && Array.isArray(b.outsideWrites) && b.outsideWrites.length === 0, err ? err.message : `${b.outsideWrites.length} owed`);
 }
 for (const [label, config] of [['hardware timing', undefined], ['MAME timing', { mameCompat: true }]]) {
   cocoHaltSuspended(config, { name: 'LDA $FF4B', loop: [0x12, 0xB6, 0xFF, 0x4B, 0xA7, 0x80, 0x20, 0xF9], pc: 0x3010, log: 0 }, label);
