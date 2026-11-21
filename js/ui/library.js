@@ -79,6 +79,7 @@ export function setupLibrary(page, { loadProgram, runShelf, changed, reconnect =
   let items = [], kind = 'all', family = '', keeping = false;
   // select mode: the selected names, the one being renamed, and a delete waiting for its Undo toast to end
   let selecting = false, renaming = null, pending = null;
+  let announced = 0;   // the count #libCountLive last said: it is written only when the count changes
   const selected = new Set();
   let loading = null;              // the item being opened ("Loading…" on its tile)
 
@@ -151,6 +152,7 @@ export function setupLibrary(page, { loadProgram, runShelf, changed, reconnect =
     $('libSelBar').hidden = !selecting;
     $('libTapHint').hidden = !selecting;
     $('libCount').textContent = n ? `${n} selected` : 'Select items';
+    if (n !== announced) { announced = n; $('libCountLive').textContent = n ? `${n} selected` : ''; }
     $('libSelHint').hidden = n > 0;
     $('libSelActions').hidden = n === 0;
     $('btnLibLoad').hidden = n !== 1;

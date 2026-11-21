@@ -12302,6 +12302,296 @@ async function installChecks(browser, base, check) {
   }
 }
 
+// R15-R18: the menus and boxes that float over the page (the machine menu, the phone's Menu links, a drive's menu, the
+// Ctrl+K box, the touch keys' Menu sheet) close by Esc wherever the focus is, by Tab, and by a press outside, and give
+// the focus back to the control that opened them; the Ctrl+K box and the Library's selection count are said politely.
+// Real mouse, touch and keyboard events throughout; the focus and what shows are read after each step.
+async function menuFocusChecks(browser, base, check) {
+  // a point of the page, outside `away` (the open surface and its opener), where a press lands on nothing that takes
+  // the focus (the layout's margins, the drawer's blank space)
+  const blankPoint = (page, away) => page.evaluate((away) => {
+    const SEL = 'a[href], button, input, select, textarea, label, summary, [tabindex], [contenteditable]';
+    const out = away.map((id) => document.getElementById(id)).filter(Boolean);
+    for (let y = innerHeight - 6; y > 60; y -= 23) for (let x = 6; x < innerWidth - 6; x += 31) {
+      const e = document.elementFromPoint(x, y);
+      if (e && e !== document.documentElement && !e.closest(SEL) && !out.some((o) => o.contains(e))) return { x, y, el: e.id || e.className || e.tagName };
+    }
+    return null;
+  }, away);
+  const active = (page) => page.evaluate(() => { const a = document.activeElement; return a ? a.id || (a.dataset && a.dataset.drive !== undefined ? `drive${a.dataset.drive}` : a.tagName) : 'none'; });
+  const shown = (page, id) => page.evaluate((id) => { const e = document.getElementById(id); return !!e && !e.hidden && e.checkVisibility(); }, id);
+  // what reaches the machine (focusChecks' count): the stub's key codes and BREAK
+  const watch = (page) => page.evaluate(() => { const m = window.emu.machine, push = m.stubKeys.push.bind(m.stubKeys), set = m.setKey.bind(m); window.reached = [];
+    m.stubKeys.push = (...v) => { window.reached.push(...v); return push(...v); };
+    m.setKey = (k, d) => { if (d) window.reached.push(k); return set(k, d); }; });
+  const broke = (page) => page.evaluate(() => window.reached.includes('BREAK'));
+  const openPage = async (opts, url = `${base}?machine=dragon64`) => {
+    const ctx = await browser.newContext(Object.assign({ acceptDownloads: true }, opts));
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(url); await ready(page);
+    await stubPrompt(page); await watch(page);
+    return { ctx, page, errors };
+  };
+
+  // ---- desktop, 1280 x 720 ----
+  {
+    const L = 'menu focus (desktop)';
+    const { ctx, page, errors } = await openPage({ viewport: { width: 1280, height: 720 } });
+    // R16 (b): Tab out of the machine menu closes it
+    await page.click('#machineBtn');
+    await waitFor(page, () => !document.getElementById('machineMenu').hidden && document.getElementById('machineMenu').contains(document.activeElement));
+    await page.keyboard.press('Tab');
+    const tabbed = { menu: await shown(page, 'machineMenu'), focus: await active(page) };
+    check(`${L}: Tab out of the machine menu closes it, and the focus moves on`, !tabbed.menu && !['BODY', 'none'].includes(tabbed.focus)
+      && await page.evaluate(() => !document.getElementById('machineMenu').contains(document.activeElement)), JSON.stringify(tabbed));
+    // R16 (a): the menu open and the focus on the screen: Esc closes the menu, gives the focus to its button, no BREAK
+    await page.click('#machineBtn');
+    await waitFor(page, () => !document.getElementById('machineMenu').hidden);
+    await page.evaluate(() => { window.reached.length = 0; document.getElementById('screen').focus(); });
+    await page.keyboard.press('Escape');
+    await emuFrames(page, 3);
+    const esc = { menu: await shown(page, 'machineMenu'), focus: await active(page), expanded: await page.getAttribute('#machineBtn', 'aria-expanded'), broke: await broke(page) };
+    check(`${L}: Esc with the focus on the screen closes the machine menu, focus on its button, no BREAK`, !esc.menu && esc.focus === 'machineBtn' && esc.expanded === 'false' && !esc.broke, JSON.stringify(esc));
+    // R16 (c): a real click outside, on nothing focusable: closed, focus back on the button
+    await page.click('#machineBtn');
+    await waitFor(page, () => !document.getElementById('machineMenu').hidden);
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, 'focus-machine-menu-desktop.png') });
+    let pt = await blankPoint(page, ['machineMenu', 'machineBtn']);
+    if (pt) await page.mouse.click(pt.x, pt.y);
+    const out = { pt, menu: await shown(page, 'machineMenu'), focus: await active(page) };
+    check(`${L}: a click outside the machine menu closes it, focus on its button`, !!pt && !out.menu && out.focus === 'machineBtn', JSON.stringify(out));
+    // ... and a click on something that takes the focus leaves the focus there
+    await page.click('#machineBtn');
+    await waitFor(page, () => !document.getElementById('machineMenu').hidden);
+    await page.click('#tab-display');
+    const onBtn = { menu: await shown(page, 'machineMenu'), focus: await active(page) };
+    check(`${L}: a click on a control outside the machine menu (the Display tab) closes it, focus on that control`, !onBtn.menu && onBtn.focus === 'tab-display', JSON.stringify(onBtn));
+
+    // R17 (b): at this width Menu and its links are not on the page: a .menu-open left on the bar (the touch keys'
+    // "Machine menu" sets it at any width) does not take the screen's Esc, which stays the machine's BREAK
+    await page.evaluate(() => { document.getElementById('appbar').classList.add('menu-open'); });
+    await page.focus('#screen');
+    await page.keyboard.press('Escape');
+    check(`${L}: with .menu-open left on the bar, Esc on the screen is still the machine's BREAK`, await waitFor(page, () => window.reached.includes('BREAK')),
+      await page.evaluate(() => JSON.stringify(window.reached)));
+    await page.evaluate(() => { document.getElementById('appbar').classList.remove('menu-open'); window.reached.length = 0; });
+
+    // R17 (c): a drive's menu keeps the focus on its drive's button, gives it back on Esc, closes on a press outside
+    await page.click('#drives [data-drive="0"]');
+    await waitFor(page, () => !document.getElementById('driveMenu').hidden);
+    const opened = { focus: await active(page), controls: await page.getAttribute('#drives [data-drive="0"]', 'aria-controls'),
+      expanded: await page.getAttribute('#drives [data-drive="0"]', 'aria-expanded') };
+    check(`${L}: clicking a drive opens its menu with the focus still on that drive's button (aria-controls the menu)`,
+      opened.focus === 'drive0' && opened.controls === 'driveMenu' && opened.expanded === 'true', JSON.stringify(opened));
+    await page.keyboard.press('Escape');
+    const driveEsc = { menu: await shown(page, 'driveMenu'), focus: await active(page) };
+    check(`${L}: Esc closes the drive menu, focus back on that drive's button`, !driveEsc.menu && driveEsc.focus === 'drive0', JSON.stringify(driveEsc));
+    await page.click('#drives [data-drive="1"]');
+    await waitFor(page, () => !document.getElementById('driveMenu').hidden);
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, 'focus-drive-menu-desktop.png') });
+    pt = await blankPoint(page, ['driveMenu', 'drives']);
+    if (pt) await page.mouse.click(pt.x, pt.y);
+    const driveOut = { pt, menu: await shown(page, 'driveMenu'), focus: await active(page) };
+    check(`${L}: a click outside the drive menu closes it, focus on that drive's button`, !!pt && !driveOut.menu && driveOut.focus === 'drive1', JSON.stringify(driveOut));
+
+    // R15 (a): the Ctrl+K box closes on a click outside and gives the focus back to what had it
+    await page.focus('#btnPause');
+    await page.keyboard.press('Control+k');
+    await waitFor(page, () => !document.getElementById('cmdBox').hidden && document.activeElement.id === 'cmdInput');
+    pt = await blankPoint(page, ['cmdBox']);
+    if (pt) await page.mouse.click(pt.x, pt.y);
+    const boxOut = { pt, box: await shown(page, 'cmdBox'), focus: await active(page) };
+    check(`${L}: a click outside the Ctrl+K box closes it, focus back on its opener`, !!pt && !boxOut.box && boxOut.focus === 'btnPause', JSON.stringify(boxOut));
+    await page.focus('#btnPause');
+    await page.keyboard.press('Control+k');
+    await waitFor(page, () => !document.getElementById('cmdBox').hidden);
+    // (the box floats over the screen's middle: a point of the screen it does not cover)
+    const onScreen = await page.evaluate(() => { const r = document.getElementById('screen').getBoundingClientRect();
+      for (let y = r.bottom - 4; y > r.top; y -= 10) if (document.elementFromPoint(r.left + 20, y) === document.getElementById('screen')) return { x: r.left + 20, y };
+      return null; });
+    if (onScreen) await page.mouse.click(onScreen.x, onScreen.y);
+    const boxScreen = { box: await shown(page, 'cmdBox'), focus: await active(page) };
+    check(`${L}: a click on the screen closes the Ctrl+K box, focus on the screen`, !boxScreen.box && boxScreen.focus === 'screen', JSON.stringify(boxScreen));
+
+    // A menu counts as open only while it shows: the Debugger, opened by keyboard (Ctrl+K) over an open machine menu
+    // or drive menu, hides the app bar and the drives with the rest of the page, and one Esc then closes the Debugger
+    const debuggerByKeys = async () => {
+      await page.keyboard.press('Control+k');
+      await waitFor(page, () => !document.getElementById('cmdBox').hidden);
+      await page.keyboard.type('open the debugger'); await page.keyboard.press('Enter');
+      return waitFor(page, () => location.hash === '#debugger' && !document.getElementById('debugView').hidden);
+    };
+    for (const [name, id, open] of [['machine menu', 'machineMenu', () => page.click('#machineBtn')], ['drive menu', 'driveMenu', () => page.click('#drives [data-drive="0"]')]]) {
+      await open();
+      await waitFor(page, (id) => !document.getElementById(id).hidden, id);
+      const inDebugger = await debuggerByKeys();
+      const under = await page.evaluate((id) => { const m = document.getElementById(id); return { open: !m.hidden, shows: m.checkVisibility() }; }, id);
+      await page.keyboard.press('Escape');
+      const after = { inDebugger, under, hash: await page.evaluate(() => location.hash), debug: await shown(page, 'debugView') };
+      check(`${L}: the ${name} open, the Debugger opened by keyboard over it: one Esc closes the Debugger`, inDebugger && under.open && !under.shows && after.hash === '' && !after.debug,
+        JSON.stringify(after));
+      // back on the emulator the menu shows again, still open, and Esc closes it
+      await page.keyboard.press('Escape');
+      await waitFor(page, (id) => document.getElementById(id).hidden, id);
+    }
+
+    // R15 (b): the box's polite live region says the count once the typing pauses
+    await page.focus('#btnPause');
+    await page.keyboard.press('Control+k');
+    await waitFor(page, () => !document.getElementById('cmdBox').hidden);
+    const region = await page.evaluate(() => { const r = document.getElementById('cmdLive'); return { polite: r && r.getAttribute('aria-live'), inBox: !!r && document.getElementById('cmdBox').contains(r) }; });
+    await page.keyboard.type('res');
+    const early = await page.textContent('#cmdLive');
+    // "res" starts a word of three commands: "Pause or resume" (resume), "Reset" (reset, restart) and "Switch off and
+    // on" (its other words: hard reset)
+    const said = await waitFor(page, () => document.getElementById('cmdLive').textContent === '3 commands');
+    const listed = await page.evaluate(() => [...document.querySelectorAll('#cmdList [role="option"]:not(.ask)')].map((o) => o.firstChild.textContent));
+    check(`${L}: typing "res" says "3 commands" politely, after the typing pauses`, region.polite === 'polite' && region.inBox && early === '' && said
+      && listed.length === 3, `${JSON.stringify(region)} early "${early}" now "${await page.textContent('#cmdLive')}" ${JSON.stringify(listed)}`);
+    // one match is said in the singular: "turbo" is only Turbo's
+    await page.fill('#cmdInput', '');
+    await page.keyboard.type('turbo');
+    check(`${L}: typing "turbo" says "1 command"`, await waitFor(page, () => document.getElementById('cmdLive').textContent === '1 command'), await page.textContent('#cmdLive'));
+    await page.fill('#cmdInput', '');
+    await page.keyboard.type('zzz');
+    check(`${L}: typing "zzz" says "No command matches. Enter asks Claude."`, await waitFor(page, () => document.getElementById('cmdLive').textContent === 'No command matches. Enter asks Claude.'),
+      await page.textContent('#cmdLive'));
+    await page.keyboard.press('Escape');
+    if (shotDir) {
+      await page.keyboard.press('Control+k'); await page.keyboard.type('res'); await waitFor(page, () => document.getElementById('cmdLive').textContent !== '');
+      await page.screenshot({ path: path.join(shotDir, 'focus-palette-desktop.png') });
+      await page.keyboard.press('Escape');
+    }
+
+    // the Esc that must not change: on the screen with nothing open it is BREAK
+    await page.evaluate(() => { window.reached.length = 0; });
+    await page.focus('#screen');
+    await page.keyboard.press('Escape');
+    check(`${L}: Esc on the screen with nothing open is still BREAK`, await waitFor(page, () => window.reached.includes('BREAK')));
+    check(`${L}: no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- phone, 390 x 844, touch ----
+  {
+    const L = 'menu focus (phone)';
+    const { ctx, page, errors } = await openPage({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+    const navShown = () => page.evaluate(() => document.querySelector('#appbar nav').checkVisibility());
+    // R17 (b): Menu's links: Esc closes them, focus back on Menu
+    await page.tap('#btnMenu');
+    await waitFor(page, () => document.getElementById('appbar').classList.contains('menu-open'));
+    const opened = await navShown();
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, 'focus-menu-phone.png') });
+    await page.evaluate(() => { window.reached.length = 0; document.getElementById('screen').focus(); });
+    await page.keyboard.press('Escape');
+    await emuFrames(page, 3);
+    const navEsc = { opened, nav: await navShown(), focus: await active(page), expanded: await page.getAttribute('#btnMenu', 'aria-expanded'), broke: await broke(page) };
+    check(`${L}: Esc (focus on the screen) closes Menu's links, focus on Menu, no BREAK`, navEsc.opened && !navEsc.nav && navEsc.focus === 'btnMenu' && navEsc.expanded === 'false' && !navEsc.broke, JSON.stringify(navEsc));
+    // ... and a tap outside
+    await page.tap('#btnMenu');
+    await waitFor(page, () => document.getElementById('appbar').classList.contains('menu-open'));
+    const pt = await blankPoint(page, ['btnMenu', 'appbar']);
+    if (pt) await page.touchscreen.tap(pt.x, pt.y);
+    const navOut = { pt, nav: await navShown(), cls: await page.evaluate(() => document.getElementById('appbar').classList.contains('menu-open')), focus: await active(page) };
+    check(`${L}: a tap outside closes Menu's links, focus on Menu`, !!pt && !navOut.nav && !navOut.cls && navOut.focus === 'btnMenu', JSON.stringify(navOut));
+
+    // R17 (a): the touch keys' Menu is a disclosure for a labelled group of buttons
+    await waitFor(page, () => !document.getElementById('touchKeys').hidden && document.body.classList.contains('touch-keys'));
+    const roles = await page.evaluate(() => { const s = document.getElementById('tkMenuSheet'), m = document.getElementById('tkMenu');
+      return { role: s.getAttribute('role'), label: s.getAttribute('aria-label'), items: s.querySelectorAll('[role="menuitem"]').length, controls: m.getAttribute('aria-controls') }; });
+    check(`${L}: the keys' Menu sheet is a group labelled "Keys menu" (no menu role), and Menu controls it`,
+      roles.role === 'group' && roles.label === 'Keys menu' && roles.items === 0 && roles.controls === 'tkMenuSheet', JSON.stringify(roles));
+    await page.tap('#tkMenu');
+    const sheet = { shown: await waitFor(page, () => !document.getElementById('tkMenuSheet').hidden), focus: await page.evaluate(() => document.activeElement === document.querySelector('#tkMenuSheet button')),
+      expanded: await page.getAttribute('#tkMenu', 'aria-expanded') };
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, 'focus-keys-menu-phone.png') });
+    check(`${L}: opening the keys' Menu puts the focus on its first button`, sheet.shown && sheet.focus && sheet.expanded === 'true', JSON.stringify(sheet));
+    await page.keyboard.press('Escape');
+    const sheetEsc = { shown: await shown(page, 'tkMenuSheet'), focus: await active(page), expanded: await page.getAttribute('#tkMenu', 'aria-expanded') };
+    check(`${L}: Esc closes the keys' Menu, focus back on Menu`, !sheetEsc.shown && sheetEsc.focus === 'tkMenu' && sheetEsc.expanded === 'false', JSON.stringify(sheetEsc));
+
+    // ... and a tap outside closes it, the focus back on Menu
+    await page.tap('#tkMenu');
+    await waitFor(page, () => !document.getElementById('tkMenuSheet').hidden);
+    let tap = await blankPoint(page, ['tkMenuSheet', 'tkMenu']);
+    if (tap) await page.touchscreen.tap(tap.x, tap.y);
+    const sheetOut = { tap, shown: await shown(page, 'tkMenuSheet'), focus: await active(page) };
+    check(`${L}: a tap outside the keys' Menu closes it, focus back on Menu`, !!tap && !sheetOut.shown && sheetOut.focus === 'tkMenu', JSON.stringify(sheetOut));
+
+    // A menu counts as open only while it shows. Claude's full-screen chat, opened by keyboard (Ctrl+K), takes the app
+    // bar's place on a phone and puts the machine keyboard aside: a machine menu or keys' Menu left open under it does
+    // not take the screen's Esc, which on the chat's empty prompt leaves the chat
+    for (const [name, id, open] of [['machine menu', 'machineMenu', () => page.tap('#machineBtn')], ['keys\' Menu', 'tkMenuSheet', () => page.tap('#tkMenu')]]) {
+      await open();
+      await waitFor(page, (id) => !document.getElementById(id).hidden, id);
+      await page.focus('#btnLoad');
+      await page.keyboard.press('Control+k');
+      await waitFor(page, () => !document.getElementById('cmdBox').hidden);
+      await page.keyboard.type('chat full'); await page.keyboard.press('Enter');
+      const inChat = await waitFor(page, () => window.emu.session.claudeView === 'full' && document.body.classList.contains('chat-phone'));
+      const under = await page.evaluate((id) => { const m = document.getElementById(id); return { open: !m.hidden, shows: m.checkVisibility() }; }, id);
+      await page.focus('#screen');
+      await page.keyboard.press('Escape');
+      const left = await waitFor(page, () => window.emu.session.claudeView !== 'full');
+      check(`${L}: the ${name} open, Claude's chat opened by keyboard over it: one Esc on the screen leaves the chat`, inChat && under.open && !under.shows && left,
+        JSON.stringify({ inChat, under, view: await page.evaluate(() => window.emu.session.claudeView) }));
+      await page.evaluate((id) => { if (!document.getElementById(id).hidden) document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); }, id);
+      await waitFor(page, (id) => document.getElementById(id).hidden, id);
+      await stubPrompt(page); await watch(page);
+    }
+
+    // the palette and the machine menu at this size, for the screenshots
+    if (shotDir) {
+      await page.tap('#machineBtn'); await waitFor(page, () => !document.getElementById('machineMenu').hidden);
+      await page.screenshot({ path: path.join(shotDir, 'focus-machine-menu-phone.png') });
+      await page.keyboard.press('Escape');
+      await page.focus('#btnLoad'); await page.keyboard.press('Control+k'); await page.keyboard.type('res');
+      await waitFor(page, () => document.getElementById('cmdLive').textContent !== '');
+      await page.screenshot({ path: path.join(shotDir, 'focus-palette-phone.png') });
+      await page.keyboard.press('Escape');
+    }
+    check(`${L}: no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- R18: the Library's selection count, said politely and written only when it changes ----
+  const bin = Buffer.from([0x55, 2, 0x30, 0x00, 0x00, 0x04, 0x30, 0x00, 0xAA, 0x12, 0x34, 0x56, 0x78]);
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cloadm-libcount-'));
+  for (const n of ['ONE.BIN', 'TWO.BIN', 'THREE.BIN', 'FOUR.BIN']) fs.writeFileSync(path.join(tmp, n), bin);
+  for (const [label, opts] of [['desktop', { viewport: { width: 1280, height: 720 } }], ['phone', { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }]]) {
+    const L = `menu focus (Library, ${label})`;
+    const ctx = await browser.newContext(Object.assign({ acceptDownloads: true }, opts));
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}?machine=dragon64#library`); await ready(page);
+    await page.setInputFiles('#fileLib', ['ONE.BIN', 'TWO.BIN', 'THREE.BIN'].map((n) => path.join(tmp, n)));
+    await waitFor(page, () => document.querySelectorAll('#libTiles .tile').length === 3);
+    const region = await page.evaluate(() => { const r = document.getElementById('libCountLive');
+      window.writes = 0;
+      if (r) new MutationObserver((list) => { window.writes += list.length; }).observe(r, { childList: true, characterData: true, subtree: true });
+      return { polite: r && r.getAttribute('aria-live'), outside: !!r && !document.getElementById('libSelBar').contains(r), text: r && r.textContent }; });
+    await page.click('#btnLibSelect');
+    await waitFor(page, () => !document.getElementById('libSelBar').hidden);
+    await page.click('#library [data-name="library/ONE.BIN"]');
+    await page.click('#library [data-name="library/TWO.BIN"]');
+    await waitFor(page, () => document.getElementById('libCount').textContent === '2 selected');
+    // the shelf drawn again with the count unchanged (a file added in select mode) writes nothing
+    await page.setInputFiles('#fileLib', [path.join(tmp, 'FOUR.BIN')]);
+    await waitFor(page, () => document.querySelectorAll('#libTiles .tile').length === 4);
+    await ticks(page, 5);
+    const after = await page.evaluate(() => ({ text: document.getElementById('libCountLive').textContent, writes: window.writes }));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `focus-library-${label}.png`) });
+    check(`${L}: select mode, two items toggled, then the shelf redrawn: the polite region (outside the selection bar) says "2 selected", written only twice`,
+      region.polite === 'polite' && region.outside && region.text === '' && after.text === '2 selected' && after.writes === 2, `${JSON.stringify(region)} ${JSON.stringify(after)}`);
+    check(`${L}: no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+  fs.rmSync(tmp, { recursive: true, force: true });
+}
+
 const GROUPS = (base, site) => [
   ['models', (b) => modelsChecks(b, base, check)],
   ['reset', (b) => resetChecks(b, base, check)],
@@ -12342,6 +12632,7 @@ const GROUPS = (base, site) => [
   ['touchJoystick', (b) => touchJoystickChecks(b, base, check)],
   ['keyboardSymbols', (b) => keyboardSymbolsChecks(b, base, check)],
   ['focus', (b) => focusChecks(b, base, check)],
+  ['menuFocus', (b) => menuFocusChecks(b, base, check)],
   ['uiQa', (b) => uiQaChecks(b, base, check)],
   ['emulatorBack', (b) => emulatorBackChecks(b, base, check)],
   ['debugger', (b) => debuggerChecks(b, base, check)],

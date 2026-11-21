@@ -220,10 +220,14 @@ and `Esc` closes a dialog. `Tab` and `Shift+Tab` never go to the machine, so the
 reached by keyboard it shows a ring and "Tab leaves the screen" (CLEAR is `Home` or `Delete`).
 
 `Esc` answers "no" to a question waiting above the screen (a confirmation, an offer, a snapshot's "needs ROMs")
-wherever the focus is. Otherwise it is BREAK while the screen has focus, and anywhere else it closes the topmost
-thing that is open: a confirmation, a menu (the machine menu, a drive's menu, Ctrl+K), a card above the screen (an offer, a snapshot's
+and closes an open menu (the machine menu, Menu's links on a phone, a drive's menu, Ctrl+K, the touch keys' Menu)
+wherever the focus is; a menu gives the focus back to the button that opened it (Ctrl+K to what had it). A menu
+also closes when `Tab` leaves it (the machine menu) or on a press outside it, and the focus goes back to its
+button unless the press landed on something that takes the focus. Otherwise `Esc` is BREAK while the screen has
+focus, and anywhere else it closes the topmost thing that is open: a card above the screen (an offer, a snapshot's
 "needs ROMs"), a view (Share, the Library, Add ROMs, the Debugger), then the Claude chat (the Ask panel or the full
-screen), and focus goes back to the screen. In the full-screen chat the screen is the chat, and `Esc` there escalates:
+screen), and focus goes back to the screen. Screen readers hear Ctrl+K's match count ("3 commands", or "No command
+matches. Enter asks Claude.") when the typing pauses, and the Library's "N selected" when the count changes. In the full-screen chat the screen is the chat, and `Esc` there escalates:
 while a reply streams it is BREAK and stops the reply; while a line is typed it is BREAK and drops the line; on an
 empty, idle prompt it leaves the chat, exactly as **← Emulator** does. With focus on the chat's bar (or anywhere off
 the screen) `Esc` returns to the emulator and the reply goes on. Controls that use `Esc` themselves keep it: a rename in the Library cancels, select

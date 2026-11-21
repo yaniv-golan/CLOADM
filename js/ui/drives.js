@@ -42,15 +42,18 @@ export function setupDrives(page, { openRoms = null } = {}) {
     const dos = st.dos || session.preferredDiskDos();
     $('driveDos').textContent = !dos ? 'no disk ROM yet' : dos.id === 'builtin' || dos.builtin ? 'built-in' : dosLabel(dos.name);
     const act = session.diskActivity();
+    // the drive whose button has the focus keeps it across the rebuild below
+    const a = document.activeElement, had = a && $('drives').contains(a) && a.dataset.drive !== undefined ? a.dataset.drive : null;
     const html = [];
     for (let n = 0; n < st.count; n++) {
       const d = st.drives.find((x) => x.drive === n);
       html.push(d
-        ? `<button class="drive loaded${d.unsaved ? ' unsaved' : ''}${open === n ? ' open' : ''}" data-drive="${n}" aria-expanded="${open === n}" title="${esc(d.name)}"><span class="led${act[n] ? ' on' : ''}" aria-hidden="true"></span><span class="dn">${driveLabel(n, d.file)}</span>` +
+        ? `<button class="drive loaded${d.unsaved ? ' unsaved' : ''}${open === n ? ' open' : ''}" data-drive="${n}" aria-expanded="${open === n}" aria-controls="driveMenu" title="${esc(d.name)}"><span class="led${act[n] ? ' on' : ''}" aria-hidden="true"></span><span class="dn">${driveLabel(n, d.file)}</span>` +
           `${d.unsaved || !d.stored || d.writeProtected ? `<span class="meta">${[d.unsaved ? '<span class="flag">not saved</span>' : '', !d.stored ? '<span class="tag">snapshot</span>' : '', d.writeProtected ? '<span class="wp">write-protected</span>' : ''].filter(Boolean).join(' · ')}</span>` : ''}</button>`
-        : `<button class="drive${open === n ? ' open' : ''}" data-drive="${n}" aria-expanded="${open === n}">${n} · Insert disk…</button>`);
+        : `<button class="drive${open === n ? ' open' : ''}" data-drive="${n}" aria-expanded="${open === n}" aria-controls="driveMenu">${n} · Insert disk…</button>`);
     }
     $('drives').innerHTML = html.join('');
+    if (had !== null) { const b = $('drives').querySelector(`[data-drive="${had}"]`); if (b) b.focus(); }
     $('drives').classList.toggle('long', st.drives.some((d) => d.file.length > LONG));
     menu(st, choices);
   }
@@ -133,8 +136,17 @@ export function setupDrives(page, { openRoms = null } = {}) {
       run(async () => { chooseDos(); const msg = await session.newDisk(n, { format: $('driveNewFormat').value, tracks: b.tracks, heads: b.heads }, { writeProtected: $('driveNewWp').checked }); open = null; return msg; });
     } else if (id === 'driveMount') run(async () => { chooseDos(); const msg = await session.mountDisk(n, $('driveStored').value, { writeProtected: $('driveNewWp').checked }); open = null; return msg; });
   };
-  function closeMenu() { open = null; menuError = null; render(); page.focus(); }
-  page.onEscape(ESC.menu, () => !$('driveMenu').hidden, closeMenu);
+  // closed, with the focus back on the drive's own button (refocus), or left where an outside press put it
+  function closeMenu(refocus = true) {
+    const n = open;
+    open = null; menuError = null; render();
+    const b = n === null ? null : $('drives').querySelector(`[data-drive="${n}"]`);
+    if (refocus) { if (b) b.focus(); else page.focus(); }
+  }
+  // open only while it shows (a view in the emulator's place hides it with the rest of the page)
+  const menuOpen = () => !$('driveMenu').hidden && $('driveMenu').checkVisibility();
+  page.onEscape(ESC.menu, menuOpen, () => closeMenu());
+  page.outsidePress(menuOpen, (t) => $('driveMenu').contains(t) || $('drives').contains(t), closeMenu);
   $('driveMenu').onchange = (e) => {
     if (e.target.id === 'driveNewSize') newSize(Number(e.target.value));
     if (e.target.id === 'driveWp') { const n = open; run(() => { session.setDiskWriteProtect(n, e.target.checked); return `Drive ${n} ${e.target.checked ? 'write-protected' : 'writable'}`; }); }

@@ -8,6 +8,8 @@ export const $ = (id) => document.getElementById(id);
 // closed through page.openView / page.closeView (the history model is page.openStep)
 export const VIEWS = Object.freeze(['#share', '#library', '#add-roms', '#debugger']);
 export const viewOpen = () => VIEWS.includes(location.hash);
+// what a press can give the focus to: a press there takes it, so a surface that the press closes leaves it there
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), label, summary, [tabindex], [contenteditable="true"], [contenteditable=""]';
 
 export function createPage(session, audio) {
   const canvas = $('screen');
@@ -165,6 +167,22 @@ export function createPage(session, audio) {
     topEscape(fromScreen) { return page.escapes.find((x) => (!fromScreen || x.rank <= ESC.claude || (x.onScreen && x.onScreen())) && x.isOpen()); },
     escapable(fromScreen = false) { return !!page.topEscape(fromScreen); },
     escape(fromScreen = false) { const top = page.topEscape(fromScreen); if (top) top.close(); return !!top; },
+    // A press outside a menu or a box that is open closes it: close(refocus). refocus is true when the press landed on
+    // nothing that takes the focus, and close then gives it back to the surface's opener. The browser's own mousedown,
+    // which comes after the pointerdown, would move the focus to the page's body: it is prevented then, so the focus
+    // stays where close put it. That press, the one that closes the surface, therefore starts no text selection and
+    // no drag; the next one does. (A touch's mousedown comes after the finger lifts. Every pointerdown sets keep
+    // afresh, so a press that never sends a mousedown, a touch that scrolls, leaves nothing for a later one.)
+    outsidePress(isOpen, inside, close) {
+      let keep = false;
+      addEventListener('pointerdown', (e) => {
+        keep = false;
+        if (!isOpen() || inside(e.target)) return;
+        keep = !(e.target.closest && e.target.closest(FOCUSABLE));
+        close(keep);
+      }, true);
+      addEventListener('mousedown', (e) => { if (keep) { keep = false; e.preventDefault(); } }, true);
+    },
   };
   return page;
 }

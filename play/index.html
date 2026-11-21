@@ -1226,6 +1226,7 @@ npx serve -l 8000 .</pre>
     <input id="cmdInput" role="combobox" aria-expanded="true" aria-controls="cmdList" aria-autocomplete="list" autocomplete="off" spellcheck="false"
       placeholder="Ask Claude or find a command" aria-label="Ask Claude or find a command"><kbd>Esc</kbd></div>
   <div id="cmdList" role="listbox" aria-label="Commands and Claude"></div>
+  <div id="cmdLive" class="sr-only" aria-live="polite"></div>
   <div class="cmdfoot" role="note">Type to filter, or type a question for Claude. Commands run here and are never sent to Claude.</div>
 </div>
 
@@ -1339,8 +1340,8 @@ npx serve -l 8000 .</pre>
         <div class="tkmode" id="tkModeSwitch" role="group" aria-label="Panel mode" hidden>
           <button type="button" data-touchmode="keys" aria-pressed="true">Keys</button>
           <button type="button" data-touchmode="joystick" aria-pressed="false">Joystick</button></div>
-        <div class="tkbtns"><button id="tkBreak"></button><button id="tkClear"></button><button id="tkMenu" type="button" aria-expanded="false">Menu</button></div></div>
-      <div id="tkMenuSheet" role="menu" aria-label="Menu" hidden></div>
+        <div class="tkbtns"><button id="tkBreak"></button><button id="tkClear"></button><button id="tkMenu" type="button" aria-expanded="false" aria-controls="tkMenuSheet">Menu</button></div></div>
+      <div id="tkMenuSheet" role="group" aria-label="Keys menu" hidden></div>
     </div>
 
     <div class="controls" id="claudeViewRow" hidden><button id="btnClaudeView">Show my BASIC session</button>
@@ -1761,6 +1762,7 @@ npx serve -l 8000 .</pre>
           <button id="btnLibLiza" class="pill">LIZA</button><button id="btnLibDemo" class="pill">Colour demo</button></div>
       </div>
       <!-- select mode: replaces the filters; on a phone the actions sit along the bottom edge -->
+      <p id="libCountLive" class="sr-only" aria-live="polite"></p>
       <div id="libSelBar" role="toolbar" aria-label="Selection" hidden>
         <strong id="libCount">Select items</strong>
         <span id="libSelHint">Click tapes, disks or programs to select them. Then load, download, rename or delete.</span>

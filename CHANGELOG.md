@@ -62,6 +62,20 @@ All notable changes to CLOADM are recorded here. The format follows
   the name lands at the END rather than straight after the write: a landing made after the write would let that
   second creation count as a replace and take the name. No product change.
 
+- **Menus and boxes give the focus back** (UX rulings R15–R18). The machine menu closes on `Esc` wherever the focus
+  is (on the screen too, where it used to stay open and `Esc` went to the machine as BREAK), on `Tab` out of it,
+  and on a press outside it, and the focus goes back to its button unless the press landed on something that
+  takes the focus. The same for the phone's **Menu** links (`Esc` and a tap outside, back to **Menu**; open only
+  while they show, so a leftover open state at desktop width no longer swallows BREAK), a drive's menu (the focus
+  stays on the drive's button while the menu opens and comes back to it on `Esc` or a press outside, not to the
+  screen) and Ctrl+K (a press outside gives the focus back to what had it, not to the page). The touch keys' Menu
+  is a disclosure button for a labelled group ("Keys menu") instead of a menu with no items: it opens with the
+  focus on its first button, and `Esc` or a tap outside gives it back to **Menu**. A menu counts as open only while
+  it shows: one hidden with the app bar or the machine keyboard (under the Debugger, Add ROMs or a phone's chat)
+  no longer takes the `Esc` meant for what is on top. Ctrl+K says politely how many commands match
+  once the typing pauses, and the Library's "N selected" is a polite live region written only when the count
+  changes. `js/ui/page.js` `outsidePress` is the one press-outside rule.
+
 ### Fixed
 
 - **A write from outside the CPU no longer runs in the middle of a held I/O access.** On the CoCo 3 an instruction

@@ -24,7 +24,7 @@
  */
 import { charToKeys } from '../machines/keyboards.js';
 import { touchJoystickOffered, STICK_RADIUS } from '../host/input.js';
-import { $ } from './page.js';
+import { $, ESC } from './page.js';
 
 // label -> machine key name, and the code the stub reads (ASCII; the arrows as BASIC's codes)
 const SPECIAL = {
@@ -278,10 +278,12 @@ export function setupTouchKeys(page, { input }) {
   const sheet = $('tkMenuSheet');
   sheet.innerHTML = '<button type="button" data-item="menu">Machine menu</button><button type="button" data-item="commands">Commands…</button><button type="button" data-item="hide">Hide keys</button>';
   const closeSheet = () => { sheet.hidden = true; $('tkMenu').setAttribute('aria-expanded', 'false'); };
+  // a disclosure: it opens with the focus on its first button, and Esc gives the focus back to Menu
   $('tkMenu').onclick = () => {
     if (document.body.classList.contains('chat-phone')) { $('btnClaudeBack').click(); return; }
     sheet.hidden = !sheet.hidden;
     $('tkMenu').setAttribute('aria-expanded', String(!sheet.hidden));
+    if (!sheet.hidden) sheet.querySelector('button').focus();
   };
   sheet.onclick = (e) => {
     const b = e.target.closest('[data-item]');
@@ -291,9 +293,12 @@ export function setupTouchKeys(page, { input }) {
     else if (b.dataset.item === 'commands') $('navCommands').click();
     else if (b.dataset.item === 'hide') { hidden = true; apply(); }
   };
-  // a tap anywhere else closes it (the panel's own keys still type: the sheet is above the panel)
-  addEventListener('pointerdown', (e) => { if (!sheet.hidden && !sheet.contains(e.target) && e.target !== $('tkMenu')) closeSheet(); }, true);
-  addEventListener('keydown', (e) => { if (e.key === 'Escape' && !sheet.hidden) { e.preventDefault(); closeSheet(); } }, true);
+  // (open only while it shows: a panel that went away with it open must not take the screen's Esc)
+  const sheetOpen = () => !sheet.hidden && sheet.checkVisibility();
+  page.onEscape(ESC.menu, sheetOpen, () => { closeSheet(); $('tkMenu').focus(); });
+  // a tap anywhere else closes it, the focus back on Menu unless the tap gave it to something (the panel's own keys
+  // still type: the sheet is above the panel)
+  page.outsidePress(sheetOpen, (t) => sheet.contains(t) || $('tkMenu').contains(t), (refocus) => { closeSheet(); if (refocus) $('tkMenu').focus(); });
   // a machine switch: the mode is that machine's own; a machine without a joystick port goes back to the keys
   session.on((ev) => {
     if (ev !== 'machine') return;

@@ -145,6 +145,16 @@ $('btnMenu').onclick = () => {
   const open = $('appbar').classList.toggle('menu-open');
   $('btnMenu').setAttribute('aria-expanded', String(open));
 };
+// Open only where it shows: .menu-open matters only while Menu and the links behind it are on the page (the phone and
+// short-landscape layouts); the touch keys' "Machine menu" sets it at any width, and a class left over there must not
+// take the screen's Esc, which is the machine's BREAK
+{
+  const bar = $('appbar'), nav = bar.querySelector('nav'), menuBtn = $('btnMenu');
+  const navOpen = () => bar.classList.contains('menu-open') && menuBtn.checkVisibility() && nav.checkVisibility();
+  const closeNav = (refocus) => { bar.classList.remove('menu-open'); menuBtn.setAttribute('aria-expanded', 'false'); if (refocus) menuBtn.focus(); };
+  page.onEscape(ESC.menu, navOpen, () => closeNav(true));
+  page.outsidePress(navOpen, (t) => nav.contains(t) || menuBtn.contains(t) || $('btnShare').contains(t), closeNav);
+}
 
 // the one-row app bar (1200 px and up, play/index.html) when its items do not all fit, in a wide fallback font: the key
 // hints and the machine's RAM size give way (class "tight") before anything wraps. Measured, not guessed: it is taken

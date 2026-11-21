@@ -105,12 +105,20 @@ export function setupMachinePanel(page) {
   $('btnSwitchCancel').onclick = () => { confirm.hidden = true; pending = null; page.focus(); };
   page.onEscape(ESC.confirm, () => !confirm.hidden, () => $('btnSwitchCancel').click());
   btn.onclick = () => openMenu(menu.hidden);
+  // closed, with the focus back on the button (refocus) or left where something else took it
+  const closeMenu = (refocus) => { openMenu(false); if (refocus) btn.focus(); };
+  // open only while it shows: the app bar it sits in gives way to the Debugger, Add ROMs and a phone's chat, and a
+  // menu left open under them must not take their Esc (or the screen's BREAK)
+  const menuOpen = () => !menu.hidden && menu.checkVisibility();
+  // Esc wherever the focus is (on the screen too: the menu takes it before the machine's BREAK)
+  page.onEscape(ESC.menu, menuOpen, () => closeMenu(true));
+  page.outsidePress(menuOpen, (t) => menu.contains(t) || btn.contains(t), closeMenu);
   menu.addEventListener('keydown', (e) => {
     const items = [...menu.querySelectorAll('button')], i = items.indexOf(document.activeElement);
-    if (e.key === 'Escape') { e.stopPropagation(); openMenu(false); btn.focus(); }
+    // Tab leaves the menu: it closes, and the Tab moves on from its button
+    if (e.key === 'Tab') closeMenu(true);
     else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); items[(i + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length].focus(); }
   });
-  document.addEventListener('pointerdown', (e) => { if (!menu.hidden && !menu.contains(e.target) && !btn.contains(e.target)) openMenu(false); });
 
   session.on((ev) => {
     if (ev !== 'machine') return;

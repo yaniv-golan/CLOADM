@@ -127,8 +127,19 @@ export function setupCommandBox(page, claude) {
     box.style.top = phone.matches ? `${top}px` : '';
     box.style.setProperty('--cmd-top', `${top}px`);
   }
+  // the polite count under the box (R15b): said once the typing has paused, not at every key
+  const live = $('cmdLive');
+  let liveTimer = null;
+  const announce = () => {
+    clearTimeout(liveTimer);
+    liveTimer = setTimeout(() => {
+      const n = options.filter((o) => o.kind === 'cmd').length;
+      live.textContent = n ? `${n} command${n === 1 ? '' : 's'}` : 'No command matches. Enter asks Claude.';
+    }, 300);
+  };
   function openBox() {
     back = document.activeElement;
+    live.textContent = '';
     place();
     box.hidden = false;
     input.value = '';
@@ -141,7 +152,13 @@ export function setupCommandBox(page, claude) {
   page.onEscape(ESC.menu, () => !box.hidden, () => closeBox());
   function closeBox({ refocus = true } = {}) {
     box.hidden = true;
-    if (refocus && back && back.isConnected) back.focus();
+    clearTimeout(liveTimer);
+    // back to the opener; one that can no longer take the focus (a link behind the phone's Menu, which closed) gives
+    // it to the screen
+    if (refocus) {
+      if (back && back.isConnected) back.focus();
+      if (document.activeElement !== back || back === document.body) page.focus();
+    }
     back = null;
   }
   function run() {
@@ -165,7 +182,7 @@ export function setupCommandBox(page, claude) {
     $('btnMenu').setAttribute('aria-expanded', 'false');
     openBox();
   };
-  input.addEventListener('input', () => { selected = input.value.trim() ? 0 : -1; draw(); });
+  input.addEventListener('input', () => { selected = input.value.trim() ? 0 : -1; draw(); announce(); });
   input.addEventListener('keydown', (e) => {
     if (e.key === 'ArrowDown') { e.preventDefault(); selected = Math.min(options.length - 1, selected + 1); draw(); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); selected = Math.max(options.length ? 0 : -1, selected - 1); draw(); }
@@ -179,6 +196,7 @@ export function setupCommandBox(page, claude) {
       if (box.hidden) openBox(); else closeBox();
     }
   }, true);
-  addEventListener('pointerdown', (e) => { if (!box.hidden && !box.contains(e.target)) closeBox({ refocus: false }); }, true);
+  // a press outside closes it, and the focus goes back to the opener unless the press gave it to something
+  page.outsidePress(() => !box.hidden, (t) => box.contains(t), (refocus) => closeBox({ refocus }));
   return { open: openBox, close: closeBox };
 }

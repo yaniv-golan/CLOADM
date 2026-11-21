@@ -572,6 +572,28 @@ on the card, then **Install CLOADM…** in the machine menu; on an iPhone in Saf
 Share → Add to Home Screen, and open CLOADM from the home screen (it starts without the browser's bars and the
 Menu item is gone).
 
+### Menus, focus and what screen readers hear
+
+The page's menus and boxes (the machine menu, the phone's Menu links, a drive's menu, the Ctrl+K box, the touch
+keys' Menu sheet) and the polite live regions (Ctrl+K's match count, the Library's "N selected") have no MAME
+oracle (AGENTS.md 4.6): the oracle is the UX rulings R15-R18. The browser check's group `menuFocus` drives them with
+real mouse, touch and keyboard events at 1280x720 and at 390x844 with touch, and after every step reads
+`document.activeElement` and whether the surface shows: Tab out of the machine menu closes it; Esc with the focus
+on the screen closes the machine menu (or Menu's links) and gives the focus to its button with no BREAK reaching
+the machine; a press outside on nothing focusable closes the surface and gives the focus back to its opener, a
+press on a control leaves it there; a `.menu-open` left on the bar at desktop width leaves Esc on the screen as
+BREAK; a drive's button keeps the focus while its menu opens and gets it back on Esc or a press outside; the keys'
+Menu sheet is a labelled group, opens with the focus on its first button and gives it back to Menu on Esc and on a
+tap outside; a machine menu or drive menu left open under the Debugger (opened by keyboard, Ctrl+K) does not take
+its Esc, and neither does a machine menu or keys' Menu left open under Claude's full-screen chat on a phone (one Esc
+on the screen leaves the chat); Ctrl+K
+says "3 commands" for "res" (counted by hand from the command table) and the no-match line for "zzz", only after the
+typing pauses; the Library's region is outside the selection bar, says "2 selected" after two toggles and was
+written exactly twice (a `MutationObserver` counts the writes).
+
+Not verified automatically: what a real screen reader says (the live regions' text and politeness are checked,
+not the speech).
+
 ## The comparisons
 
 `tools/mame-diff/` compares this emulator with MAME's `dragon64` driver. Neither tool uses the Dragon ROMs: both
