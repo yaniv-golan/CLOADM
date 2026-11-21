@@ -14,10 +14,13 @@ Next version: 0.1.7-pre (the plugin and extension manifests carry it; `tests/plu
   compact line on the screen's border, under the picture's text and never on it, at every size from a phone held
   sideways to the desktop: the tape's name, BASIC's S (searching) or F (found), the block, the progress, playing or
   stopped, End of tape, a Tape sound switch and **Deck**, which brings the cassette panel into view. It goes a few
-  seconds after the tape stops or ends. The cassette panel can be folded (**Hide the deck**).
+  seconds after the tape stops or ends, and is not shown where there is no room off the text (the phone's Claude
+  chat). Screen readers hear once when a tape starts and when it ends. The cassette panel can be folded (**Hide the
+  deck**).
 - **Tape sound.** The tape heard as it plays, as a cassette recorder's own speaker plays it: the tape's signal mixed
   on the page's side, rounded off (a low-pass at 3.2 kHz, not the raw square), at a modest level, silent as soon as the
-  tape stops. On by default; its switch is in the tape line and the Media tab, and it is remembered. With fast loading
+  tape stops. On by default; its switch is in the tape line and the Media tab, and it is remembered; the page's
+  **Sound** switch silences it too. With fast loading
   you hear what passes the head at its real pitch, in real time (played 30-60 times faster the tones would be far
   above hearing). It is not the machine's sound: it is not in the machine's audio state or in snapshots, and
   "Load .CAS straight into memory" plays no tape, so there is nothing to hear.

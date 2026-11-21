@@ -166,6 +166,30 @@ const frames = (fn, n) => { const out = []; for (let f = 0; f < n; f++) out.push
   check('output: pushTape plays the real time that went by (10 x 16 ms)', Math.abs(total - RATE * 0.16) <= 1, `${total} samples`);
 }
 
+// ---- the page's Sound switch is the master (js/host/audio.js Audio): off, nothing is sent, the tape included
+{
+  const { Audio } = require('../js/host/audio.js');
+  const a = new Audio(), sent = [];
+  a.out = { push: (...x) => sent.push(['frame', x[3]]), pushTape: (...x) => sent.push(['tape', x[1]]), discontinuity: () => {} };
+  const tape = { events: [0, 1], cycles: FRAME };
+  a.enabled = false;
+  a.pushFrame([0, 0], FRAME, 60, tape); a.pushTape(16, tape);
+  const whileOff = sent.length;
+  a.enabled = true; a.tapeSound = false;
+  a.pushFrame([0, 0], FRAME, 60, tape); a.pushTape(16, tape);
+  const noTape = sent.slice();
+  a.tapeSound = true;
+  a.pushFrame([0, 0], FRAME, 60, tape); a.pushTape(16, tape);
+  check('audio: Sound off sends nothing (the tape included); Tape sound off sends the frame without the tape; both on send both',
+    whileOff === 0 && noTape.length === 1 && noTape[0][1] === null && sent.length === 3 && sent[1][1] === tape && sent[2][1] === tape, JSON.stringify(sent));
+}
+// ---- a settled voice with nothing to play is skipped: silence, its output untouched
+{
+  const v = new TapeVoice(RATE), n = 800, o = new Float64Array(n).fill(0.25);
+  v.mix(null, FRAME, n, o, 1);
+  check('voice: nothing to play and settled: the output untouched, silent', o.every((x) => x === 0.25) && v.rms === 0);
+}
+
 // ---- not machine state: the same snapshot with or without the tape heard
 {
   const run = (listen) => {

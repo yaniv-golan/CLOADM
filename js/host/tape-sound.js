@@ -99,6 +99,11 @@ class TapeVoice {
   }
   // events over `cycles` (null: the tape did not move, its last level held) -> n samples added to out, times volume
   mix(events, cycles, n, out, volume) {
+    // nothing moving and the filters settled on the held level: silence, without running them
+    if (!(events && events.length) && Math.abs(this.prevOut) < 1e-9 && Math.abs(this.lp1 - this.held) < 1e-9 && Math.abs(this.lp2 - this.held) < 1e-9) {
+      this.lp1 = this.lp2 = this.prevIn = this.held; this.prevOut = 0; this.rms = 0;
+      return;
+    }
     const x = events && events.length ? boxAverage(events, cycles, n, new Float64Array(n)) : null;
     if (events && events.length) this.held = events[events.length - 1];
     let sq = 0;

@@ -208,16 +208,15 @@ class Audio {
   buffered() { return this.out ? this.out.buffered() : 0; }
   discontinuity() { if (this.out) this.out.discontinuity(); }
   // one machine frame; tape: the tape's signal over it ({ events, cycles }: js/host/tape-sound.js TapeListener), or
-  // null. The machine's sound switched off, the tape is still heard when Tape sound is on, and the other way round.
+  // null. The page's Sound switch (enabled) is the master: off, nothing is sent, the tape's voice included; Tape sound
+  // only says whether the tape is mixed in.
   pushFrame(events, frameCycles, fps, tape = null) {
-    if (!this.out) return;
-    // the machine's sound off: something is sent only while the tape is heard (or its voice still fading out)
-    if (!this._enabled && !(this.tapeSound && (tape || this.tapeLevel > 1e-6))) return;
-    this.out.push(this._enabled ? events : null, frameCycles, fps, this.tapeSound ? tape : null);
+    if (!this.out || !this._enabled) return;
+    this.out.push(events, frameCycles, fps, this.tapeSound ? tape : null);
   }
-  // fast tape loading: `ms` of real time of the tape's voice (see js/ui/screen.js)
+  // fast tape loading: `ms` of real time of the tape's voice (see js/ui/screen.js); nothing with Sound off
   pushTape(ms, tape) {
-    if (!this.out || !this.tapeSound) return;
+    if (!this.out || !this._enabled || !this.tapeSound) return;
     this.out.pushTape(ms, tape);
   }
   // how loud the tape's voice was in the last block played (0: silent); the page's tests read it

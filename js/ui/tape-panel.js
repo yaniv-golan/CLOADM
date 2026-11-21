@@ -15,7 +15,8 @@
  * it is inserted, stops or ends) a compact line on the screen's border says what it is doing: the name, S (BASIC
  * searching) or F (found, from BASIC's own report in the screen's top-left corner), the block and the progress,
  * playing or stopped, End of tape; with the Tape sound switch and "Deck", which opens the panel. It lies under the
- * picture's text area (or over it, if there is no room under it), never on it: placeHud.
+ * picture's text area (or above it), never on it, and is not shown where there is no such place: placeHud. A
+ * polite live region says once when a tape starts playing and once when it ends.
  *
  * Tape sound (js/host/tape-sound.js): the tape heard as a recorder's speaker plays it, on the page's side. On by
  * default, remembered (tapeSound), in the HUD and the Media tab.
@@ -68,41 +69,53 @@ export function setupTapePanel(page) {
     return /^S(\s|$)/.test(top) ? 'S' : /^F\s/.test(top) ? 'F' : '';
   }
 
-  // the HUD on the screen's border under the picture's text, down to the tube's edge (the band the toasts use,
-  // js/ui/feedback.js), else above the text, compact if it has to be; with no room either side, compact at the
-  // bottom of the tube
+  // The HUD where it can be seen and covers none of the picture's text: in the band between the text and the bottom
+  // of what shows of the screen (the tube, or the wrapper alone in the browser's Fullscreen, cut to the viewport), else
+  // in the band above the text, compact if it has to be. It must be on top where it lies (nothing else, such as touch
+  // keys laid over the tube, covers it). With no such place (the phone chat shows the text edge to edge) it is not
+  // shown: the cassette panel still says it all. -> whether it was placed
   function placeHud() {
     const wrap = $('screenWrap'), cv = $('screen'), w = wrap.getBoundingClientRect(), c = cv.getBoundingClientRect();
-    if (!c.width || !w.width) return;
+    hud.classList.remove('noroom');
+    if (!c.width || !w.width) { hud.classList.add('noroom'); return false; }
     const f = (cv.dataset.active || '0,0,1,1').split(',').map(Number);
     const textTop = c.top + f[1] * c.height, textBottom = c.top + f[3] * c.height;
-    // what shows of the screen: the tube, black around the picture (only the wrapper in the browser's Fullscreen)
-    const tube = document.fullscreenElement === wrap ? w : wrap.parentElement.getBoundingClientRect();
-    const top = tube.top, bottom = tube.bottom;
+    const shown = document.fullscreenElement === wrap ? w : wrap.parentElement.getBoundingClientRect();
+    const top = Math.max(shown.top, 0), bottom = Math.min(shown.bottom, innerHeight);
     const bands = [[textBottom + 2, bottom - 2], [top + 2, textTop - 2]];
-    // measured from the left edge (an absolute box shrinks to the room right of where it was left)
-    hud.style.left = '0px';
-    hud.style.maxWidth = `${Math.max(120, Math.round(c.width - 12))}px`;
-    let at = null;
     const name = $('hudName');
+    // on top at its centre and near both ends (elementFromPoint: null outside the viewport)
+    const onTop = () => {
+      const r = hud.getBoundingClientRect(), y = r.top + r.height / 2;
+      return [r.left + 6, r.left + r.width / 2, r.right - 6].every((x) => { const e = document.elementFromPoint(x, y); return !!e && hud.contains(e); });
+    };
     for (const compact of [false, true]) {
       hud.classList.toggle('compact', compact);
+      // measured from the left edge (an absolute box shrinks to the room right of where it was left)
+      hud.style.left = '0px';
+      hud.style.maxWidth = `${Math.max(120, Math.round(c.width - 12))}px`;
       // the progress bar gives way to the name where the two don't both fit
       hud.classList.remove('nobar');
       if (name.scrollWidth > name.clientWidth) hud.classList.add('nobar');
-      const h = hud.offsetHeight;
-      const band = bands.find(([a, b]) => b - a >= h);
-      if (band) { at = (band[0] + band[1] - h) / 2; break; }
+      const h = hud.offsetHeight, x = c.left + (c.width - hud.offsetWidth) / 2;
+      for (const [a, b] of bands) {
+        if (b - a < h) continue;
+        hud.style.left = `${Math.round(x - w.left)}px`;
+        hud.style.top = `${Math.round((a + b - h) / 2 - w.top)}px`;
+        if (onTop()) return true;
+      }
     }
-    if (at === null) at = bottom - hud.offsetHeight - 2;
-    const x = c.left + (c.width - hud.offsetWidth) / 2;
-    hud.style.left = `${Math.round(x - w.left)}px`;
-    hud.style.top = `${Math.round(at - w.top)}px`;
+    hud.classList.add('noroom');
+    return false;
   }
+
+  // one polite announcement when a tape starts and when it ends (the HUD's own text changes four times a second)
+  let said = '';
+  const announce = (key, text) => { if (key !== said) { said = key; $('hudSay').textContent = text; } };
 
   function updateHud(st, moving) {
     const now = performance.now();
-    if (!st) { hud.hidden = true; wasMotor = false; hudTape = null; return; }
+    if (!st) { hud.hidden = true; wasMotor = false; hudTape = null; said = ''; return; }
     // a tape going in (dropped, opened, from a link) shows the HUD for a moment, before (or without) the motor
     if (session.machine.deck.tape !== hudTape) { hudTape = session.machine.deck.tape; hudUntil = now + HUD_HOLD_MS; }
     // the HUD shows while the tape plays and HUD_HOLD_MS after it stops or ends (or goes in: hudUntil); at the end
@@ -111,6 +124,8 @@ export function setupTapePanel(page) {
     if (running || (wasMotor && !running)) hudUntil = now + HUD_HOLD_MS;
     wasMotor = running;
     const show = running || now < hudUntil;
+    if (running) announce(`play:${st.name}`, `Tape ${st.name} playing`);
+    else if (st.progress >= 1) announce(`end:${st.name}`, `End of tape ${st.name}`);
     if (!show) { hud.hidden = true; return; }
     const state = st.error ? 'error' : st.progress >= 1 ? 'end' : moving ? 'playing' : st.motor ? 'waiting' : st.block ? 'stopped' : 'ready';
     hud.dataset.state = state;
@@ -200,7 +215,12 @@ export function setupTapePanel(page) {
     panel.scrollIntoView({ block: 'nearest', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
     $('btnDeckFold').focus({ preventScroll: true });
   };
-  window.addEventListener('resize', () => { if (!hud.hidden) placeHud(); });
+  // placed again as soon as the screen changes size (a window resize, Fullscreen, the chat), not at the next update:
+  // the canvas is refitted after the window, and a HUD left where it was would lie on the grown picture's text
+  const replace = () => { if (!hud.hidden) placeHud(); };
+  new ResizeObserver(replace).observe($('screen'));
+  new ResizeObserver(replace).observe($('screenWrap'));
+  window.addEventListener('resize', replace);
 
   // real speed is the Media tab's "Fast tape loading" turned round: one setting, two places
   $('btnRealSpeed').onclick = () => {

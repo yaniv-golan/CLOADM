@@ -621,8 +621,9 @@ end; it reads ahead for fast loading without moving the tape; a playing tape is 
 RMS within 6 frames with no step larger than while it played, and its largest sample step is under a third of the raw
 square's (the low-pass); at volume 0 the output is the machine's exactly; a machine whose tape is heard saves the same
 snapshot. The page (browser check, group `tapeHud`, desktop and phone): on by default, heard while the tape plays
-(the output stage's RMS over 0.01), below 1e-4 once the motor stops and while it is switched off. How it sounds is
-a matter of ear, not checked automatically.
+(the output stage's RMS over 0.01), below 1e-4 once the motor stops and while it is switched off; with the page's
+Sound switched off nothing at all is sent to the output while the tape plays (`tests/tape-sound.test.js` checks the
+same gate in Node). How it sounds is a matter of ear, not checked automatically.
 
 ### The tape HUD and the cassette panel
 
@@ -631,8 +632,12 @@ a tape dropped on the screen loads through our BASIC stand-in (`tools/mame-diff/
 comes up wholly in the viewport with the page unscrolled, on top at its centre, never meeting the picture's text area,
 with the name and block; exactly one animation runs on the page while the tape moves (the cassette panel's window);
 **Deck** brings the panel into view (not held sideways, where the touch keys cover the page and it is not offered). At
-the end of the tape, with the motor still on: "End of tape", the stamp, no animation running, and the line goes. The
-panel's own checks (`tapePanel`) also find no reel turning at the end of the tape.
+the end of the tape, with the motor still on: "End of tape", the stamp, no animation running, and the line goes; a
+polite live region has said "Tape … playing" and "End of tape …" once each. In the Claude chat view and the browser's
+Fullscreen at 1440x900 and 390x844, the line is either in view, on top and off the text, or not shown at all (the
+phone chat, whose text fills the screen); in Fullscreen at both sizes it is shown. Only geometry relationships are
+asserted, no coordinates. The line is placed again whenever the canvas or the screen area changes size. The panel's
+own checks (`tapePanel`) also find no reel turning at the end of the tape.
 
 ### Install as an app (the PWA offer)
 

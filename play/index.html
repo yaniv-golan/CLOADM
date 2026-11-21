@@ -958,7 +958,7 @@
   #tapeHud { position: absolute; z-index: 4; left: 0; top: 0; display: flex; align-items: center; gap: 8px; max-width: calc(100% - 8px); box-sizing: border-box;
     height: 34px; padding: 0 4px 0 10px; border-radius: var(--pill); background: rgba(11, 13, 12, .9); color: var(--text); border: 1px solid #FF9A2E66;
     font-size: 13px; line-height: 1; white-space: nowrap; }
-  #tapeHud[hidden] { display: none; }
+  #tapeHud[hidden], #tapeHud.noroom { display: none; }
   #tapeHud .hudplay { flex: none; width: 0; height: 0; border-style: solid; border-width: 5px 0 5px 9px; border-color: transparent transparent transparent var(--orange); }
   #tapeHud[data-state="stopped"] .hudplay, #tapeHud[data-state="end"] .hudplay, #tapeHud[data-state="error"] .hudplay, #tapeHud[data-state="ready"] .hudplay {
     width: 9px; height: 9px; border: 0; background: var(--muted); border-radius: 1px; }
@@ -1517,6 +1517,8 @@ npx serve -l 8000 .</pre>
         </div>
       </div>
     </div>
+    <!-- the tape HUD's announcements (js/ui/tape-panel.js): off the screen, so nothing lies over its picture -->
+    <span id="hudSay" class="sr-only" role="status" aria-live="polite"></span>
     <!-- the cassette panel: while a tape is in the deck or it records -->
     <section id="tapePanel" aria-label="Cassette deck" hidden>
       <div class="deckhead"><h2>Cassette deck</h2><button id="btnDeckFold" class="pill" aria-expanded="true">Hide the deck</button></div>

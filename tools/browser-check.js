@@ -4446,6 +4446,7 @@ async function tapeHudChecks(browser, base, check) {
       hiddenFirst && playing && hud.r.left >= 0 && hud.r.top >= 0 && hud.r.right <= hud.vw && hud.r.bottom <= hud.vh && hud.scrollY === 0 && hud.onTop
       && hud.name === 'Space Game.cas' && /\d+\/14$/.test(hud.state), JSON.stringify(hud));
     check(`tape HUD (${label}): never over the picture's text`, !rectsMeet(hud.r, hud.text), JSON.stringify([hud.r, hud.text]));
+    const sayPlay = await page.textContent('#hudSay');
     check(`tape HUD (${label}): one animation runs while the tape plays: the cassette panel's reels`, hud.anims.length === 1 && hud.anims[0] === 'window', hud.anims.join());
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `tape-hud-${label.replace(' ', '-')}.png`) });
     if (sound) {
@@ -4465,6 +4466,17 @@ async function tapeHudChecks(browser, base, check) {
         off && await page.getAttribute('#btnHudSound', 'aria-pressed') === 'false' && !await page.isChecked('#chkTapeSound')
         && await page.evaluate(() => window.emu.machine.deck.playing && window.emu.session.store.get('tapeSound') === '0'), String(await page.evaluate(() => window.emu.audio.tapeLevel)));
       await page.click('#btnHudSound');
+      await waitFor(page, () => window.emu.audio.tapeSound && window.emu.audio.tapeLevel > 0.01, null, 10000);
+      // the page's Sound switch is the master: off, nothing is sent at all, the tape's voice included
+      await page.evaluate(() => { const a = window.emu.audio, sink = a.out.sink, w = sink.write.bind(sink); window.__sent = 0; sink.write = (c) => { window.__sent++; return w(c); }; });
+      await page.$eval('#chkSound', (c) => c.click());
+      await page.evaluate(() => { window.__sent = 0; });
+      const framesAt = await page.evaluate(() => window.emu.machine.frameCount);
+      await waitFor(page, (f) => window.emu.machine.frameCount > f + 30, framesAt, 10000);
+      const muted = await page.evaluate(() => ({ sent: window.__sent, playing: window.emu.machine.deck.playing, tapeSound: window.emu.audio.tapeSound }));
+      check(`tape sound (${label}): with the page's Sound switched off, nothing is sent, the tape's voice included (Tape sound still on)`,
+        muted.sent === 0 && muted.playing && muted.tapeSound, JSON.stringify(muted));
+      await page.$eval('#chkSound', (c) => c.click());
       await page.evaluate(() => clearInterval(window.__motor));
     }
     if (label !== 'phone sideways') {
@@ -4477,12 +4489,62 @@ async function tapeHudChecks(browser, base, check) {
     const ended = await waitFor(page, () => document.getElementById('tapeHud').dataset.state === 'end' && document.getElementById('hudState').textContent === 'End of tape', null, 10000);
     const end = await page.evaluate(() => ({ motor: window.emu.machine.deck.motor, stamp: !document.getElementById('tapeEnd').hidden, moving: document.getElementById('tapePanel').hasAttribute('data-moving'),
       anims: document.getAnimations().filter((a) => a.playState === 'running').length, eyebrow: document.getElementById('tapeEyebrow').textContent }));
+    check(`tape HUD (${label}): one polite announcement each when the tape plays and when it ends`, await page.evaluate(() => {
+      const s = document.getElementById('hudSay'); return s.getAttribute('aria-live') === 'polite' && s.textContent === 'End of tape Space Game.cas'; }) && sayPlay === 'Tape Space Game.cas playing', sayPlay);
     check(`tape HUD (${label}): at the end of the tape (motor still on): "End of tape", the stamp on the cassette, nothing animating`,
       ended && end.motor && end.stamp && !end.moving && end.anims === 0 && /^END OF TAPE/.test(end.eyebrow), JSON.stringify(end));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `tape-hud-${label.replace(' ', '-')}-end.png`) });
     const gone = await waitFor(page, () => document.getElementById('tapeHud').hidden, null, 15000);
     check(`tape HUD (${label}): it goes a few seconds after the end`, gone);
     check(`tape HUD (${label}): no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+  // The Claude chat view and the browser's Fullscreen, at the phone and desktop sizes: wherever the HUD shows it is in
+  // view, on top and off the picture's text; where there is no such place (the phone chat shows its text edge to edge)
+  // it is not shown at all. Geometry relationships only, no fixed coordinates.
+  const hudPlace = (page) => page.evaluate(() => {
+    const h = document.getElementById('tapeHud'), cv = document.getElementById('screen'), c = cv.getBoundingClientRect();
+    const f = (cv.dataset.active || '0,0,1,1').split(',').map(Number);
+    const text = { left: c.left + f[0] * c.width, top: c.top + f[1] * c.height, right: c.left + f[2] * c.width, bottom: c.top + f[3] * c.height };
+    const r = h.getBoundingClientRect(), shown = !h.hidden && getComputedStyle(h).display !== 'none' && r.width > 0;
+    const top = shown && document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return { shown, noroom: h.classList.contains('noroom'), r: { left: r.left, top: r.top, right: r.right, bottom: r.bottom }, text, vw: innerWidth, vh: innerHeight,
+      onTop: !!top && h.contains(top), fs: !!document.fullscreenElement, playing: window.emu.machine.deck.playing };
+  });
+  const placedWell = (p) => (p.shown ? p.r.left >= 0 && p.r.top >= 0 && p.r.right <= p.vw && p.r.bottom <= p.vh && p.onTop && !rectsMeet(p.r, p.text) : p.noroom);
+  const tapeIn = (page) => page.evaluate((b) => { window.emu.session.fastTape = false; window.emu.session.insertTape('Space Game.cas', new Uint8Array(b)); window.__motor = setInterval(() => window.emu.machine.deck.setMotor(true), 20); }, bytes);
+  for (const [label, opts] of [['desktop', { viewport: { width: 1440, height: 900 } }], ['phone', { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }]]) {
+    const errors = [];
+    const ctx = await browser.newContext({ ...opts, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}?machine=coco&app=claude`);
+    await started(page);
+    await waitFor(page, () => window.emu.session.chatView === 'chat' || (window.emu.session.showChat('chat'), false), null, 15000);
+    await tapeIn(page);
+    await waitFor(page, () => window.emu.machine.deck.playing && document.getElementById('tapeHud').dataset.state === 'playing', null, 15000);
+    await emuFrames(page, 30);   // the HUD has been placed a few times (four times a second)
+    const chat = await hudPlace(page);
+    check(`tape HUD (${label}, Claude chat): ${chat.shown ? 'in view, on top, off the chat\'s text' : 'not shown: no place off the chat\'s text'}`, chat.playing && placedWell(chat), JSON.stringify(chat));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `tape-hud-${label}-chat.png`) });
+    await page.evaluate(() => clearInterval(window.__motor));
+    // the browser's Fullscreen (the page's own button: a real click)
+    await page.goto(`${base}?machine=coco`);
+    await started(page);
+    await tapeIn(page);
+    await waitFor(page, () => window.emu.machine.deck.playing && !document.getElementById('tapeHud').hidden, null, 15000);
+    const btn = await page.$('#btnFull');
+    if (btn && await btn.isVisible()) await btn.click();
+    else await page.evaluate(() => document.querySelector('[data-cmd="btnFull"], #btnFull').click());
+    const full = await waitFor(page, () => document.fullscreenElement === document.getElementById('screenWrap'), null, 10000);
+    // a 4:3 picture in the whole window leaves the border free at both sizes: shown, once the window has settled
+    const settled = await waitFor(page, () => { const h = document.getElementById('tapeHud'); return !h.hidden && !h.classList.contains('noroom'); }, null, 5000);
+    await emuFrames(page, 10);
+    const fs = await hudPlace(page);
+    check(`tape HUD (${label}, Fullscreen): shown, in view, on top, off the picture's text`, full && settled && fs.fs && fs.shown && placedWell(fs), JSON.stringify(fs));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `tape-hud-${label}-fullscreen.png`) });
+    await page.evaluate(() => { clearInterval(window.__motor); return document.exitFullscreen && document.fullscreenElement ? document.exitFullscreen() : null; });
+    check(`tape HUD (${label}, chat and Fullscreen): no page errors`, !errors.length, errors.join('; '));
     await ctx.close();
   }
 }
