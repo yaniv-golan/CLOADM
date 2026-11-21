@@ -265,6 +265,19 @@ Next version: 0.1.7-pre (the plugin and extension manifests carry it; `tests/plu
 
 #### Fixed
 
+- **A refused file is named once, not twice.** The two real media backends word a failure with the stored path in
+  front of it (`disks/work.vdk: permission was refused`), and the Session put the disk's name in front of that, so a
+  refused import or save read `work.vdk: disks/work.vdk: permission was refused`. A reason that leads with the name,
+  or with the stored spelling of the same file, now has that part dropped before the name goes in front; any other
+  reason is kept whole behind it. One rule, in `Session.mediaError`, so the library import, a new blank disk, a mount
+  and the DriveWire box all say the same thing. The quota and not-found messages already wrote their own sentence and
+  are unchanged. `tests/store-error-names.test.js`.
+
+- **A disk name with nothing after the prefix is refused.** `disks/` (and `disks//`) passed every check and was
+  stored as a blob literally named `disks/`: the Library listed it with no file name, and the drive said " in drive 0".
+  Every door - a library import, a new blank disk, a mount of a stored name - refuses it as `A disk image needs a
+  name.` Names with a base are unchanged. `tests/store-error-names.test.js`.
+
 - **A write from outside the CPU no longer runs in the middle of a held I/O access.** On the CoCo 3 an instruction
   the disk controller's HALT suspended asks the scheduler to pump its events at the held access's time; the
   debugger's memory write made from a host handler reaching the bus in that window ran in a machine state no instruction

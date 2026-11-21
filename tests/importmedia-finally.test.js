@@ -312,10 +312,9 @@ const REFUSAL = `There is already a disk named ${NAME} in your library: choose a
   // (c) No name asked, FAILING store: the name is CHOSEN FROM THE LISTING, so the listing can fail before any name
   //     exists -- the one case where the creation has no name to report under. It must still say something useful
   //     rather than the bare store text (which is the gap this branch exists to close).
-  // (d) A name that leaves an empty label ("disks/" keeps nothing after the prefix): on the LISTING path this test
-  //     covers, the label falls back to the unnamed one rather than producing a message that begins ": ". (The name
-  //     is still accepted, and written, on a healthy store -- see the question raised with the PM about refusing
-  //     names with nothing after the prefix; it is a behaviour change, not this branch's.)
+  // (d) A name that leaves an empty label ("disks/" keeps nothing after the prefix) is now REFUSED by every disk
+  //     door (diskStoreName), so the label question below is answered before any listing: the refusal is the
+  //     creation's own message and is handed on unchanged. (Names with a base still take the old path.)
   // (b) A store message that itself names the file: mediaError adds the name to whatever the store said, so the
   //     result repeats it. That is the existing behaviour of importMedia (the reference form), so the test pins
   //     PARITY rather than blessing the repetition: the creation must say exactly what importMedia says about the
@@ -336,12 +335,12 @@ const REFUSAL = `There is already a disk named ${NAME} in your library: choose a
       !r.ok && r.m === 'A new disk: test: the store cannot list', r.m);
   }
   {
-    // a name that survives diskStoreName but leaves nothing after the prefix
+    // a name with nothing after the prefix is refused before any store work: the listing is never asked
     const media = new UnmeasuredStore(), s = await session(media);
     media.unmeasure();
     const r = await q(s.newDisk(0, { format: 'vdk', tracks: 40, heads: 1 }, { name: 'disks/' }));
-    check('newDisk: a name that leaves an empty label never starts the message with ": "',
-      !r.ok && r.m === 'A new disk: test: the store cannot list', r.m);
+    check('newDisk: a name that leaves an empty label is refused as a name, whatever the store is doing',
+      !r.ok && r.m === 'A disk image needs a name.', r.m);
   }
   {
     // A store failure with the shape a real backend uses for a refused operation: its message already carries the
@@ -360,8 +359,10 @@ const REFUSAL = `There is already a disk named ${NAME} in your library: choose a
     const viaMedia = await q(s2.importMedia(NAME, A()));
     check('the creation reports a store failure exactly as importMedia does (one rule for the name)',
       !viaDisk.ok && !viaMedia.ok && viaDisk.m === viaMedia.m, `${viaDisk.m} | ${viaMedia.m}`);
-    check('... and that failure is the named form, so this is not two bare messages matching each other',
-      !viaDisk.ok && viaDisk.m === `${NAME}: ${FULL}: permission was refused`, viaDisk.m);
+    // the store leads its message with the stored path; because that is this same file, its copy is dropped and
+    // the disk is named once (the store's reason follows)
+    check('... and that failure names the disk once, not twice',
+      !viaDisk.ok && viaDisk.m === `${NAME}: permission was refused`, viaDisk.m);
   }
 
   // The gate's count form (tests/suite-verdict.js): numerator and denominator equal, at least one check. The

@@ -1655,7 +1655,10 @@ export class Session {
   async importMedia(name, bytes) {
     this.checkNotMoving();
     if (Session.isRom(name, bytes)) return { roms: this.addRoms([{ name, bytes }]) };
+    // the file's own name is the last segment; a path that ends in a separator ('disks/', 'dir/') leaves nothing,
+    // which is what the person who picked a folder-like name asked for and what diskStoreName refuses
     const base = name.split(/[\\/]/).pop();
+    if (!base) throw new SessionError('A disk image needs a name.');
     const target = detectMedia(base, bytes).kind === 'disk' ? DISK_PREFIX + base : this.libName(name);
     this.checkNotInDrive(target, 'replace');   // synchronous, so it needs no creation's turn: a disk in a drive is not replaced
     // non-disk media (programs, ROMs) are made by writes that replace, so they take no creation's turn; a disk
@@ -1680,11 +1683,29 @@ export class Session {
     });
     try { return disk ? await this.createExclusive(write) : await write(0); } catch (e) { throw this.mediaError(e, name); }
   }
+  // A store failure as the user should read it, named once. The name is the caller's: what the person asked for,
+  // where that is a person's name ('work.vdk'), and the stored name where it is not (the library's own one-file
+  // actions pass 'programs/better.bin', and a folder's paths here are CLOADM's naming, not the person's).
+  //   not-found, quota: said in the session's own words, with the name (what failed, then what to do); the store's
+  //     message is not used, so the several ways the backends word it (js/host/media-store-{fsa,opfs,memory}.js)
+  //     cannot make the sentence read differently.
+  //   everything else: the name, then the store's reason. The two real backends lead their messages with the stored
+  //     path (`disks/work.vdk: permission was refused`), so a reason that starts by naming this same file -- its
+  //     first part is the name, or a stored spelling of it -- has that part dropped before the name goes in front:
+  //     it is one file, and the user reads its name once. Any other reason is kept whole behind the name.
+  // A SessionError is the session's own message already: it is handed on unchanged, so nothing above is said twice.
   mediaError(e, name) {
     if (e instanceof SessionError) return e;
     if (e && e.code === 'not-found') return new SessionError(`${name} is no longer stored in this browser; load it again.`);
     if (e && e.code === 'quota') return new SessionError(`No space left in this browser's storage for ${name}. Delete something, or save your media as files.`);
-    return new SessionError(`${name}: ${e && e.message ? e.message : 'storage error'}`);
+    const said = e && e.message ? e.message : 'storage error';
+    // the store's leading "<path>: " when that path is this file -- equal to the name, the name with the prefix it
+    // is stored under, or the name without it (the library's own actions pass a stored name, a backend may lead with
+    // the bare one) -- is the reason's copy of the name, not part of the reason
+    const lead = said.match(/^(\S+): ([\s\S]*)$/);
+    const p = lead && lead[1];
+    const sameFile = !!(p && (p === name || p.endsWith(`/${name}`) || name.endsWith(`/${p}`)));
+    return new SessionError(`${name}: ${sameFile ? lead[2] : said}`);
   }
 
   // ---------------- programs and media ----------------
@@ -1873,9 +1894,16 @@ export class Session {
     const choices = this.diskDosChoices(), saved = this.store.get(`diskDos.${machineFamily(this.machine.profile)}`);
     return choices.find((c) => c.id === saved && c.ready) || choices.find((c) => c.ready) || null;
   }
+  // The stored name for a disk the user asked for. What follows the prefix is what names it -- in the drives, in
+  // the Library, and in every message -- so a name with nothing after the prefix ('disks/', 'disks//') is not a
+  // name at all. It is refused here because every door (importDisk, newDisk, mountDisk, importMedia) goes through
+  // this, and a store that let it through would hold a blob called 'disks/' and say " in drive 0".
   diskStoreName(name) {
     if (typeof name !== 'string' || !name) throw new SessionError('A disk image needs a name.');
-    return name.startsWith(DISK_PREFIX) ? name : DISK_PREFIX + name.split(/[\\/]/).pop();
+    const full = name.startsWith(DISK_PREFIX) ? name : DISK_PREFIX + name.split(/[\\/]/).pop();
+    const base = full.slice(DISK_PREFIX.length);
+    if (!base || base.startsWith('/') || base.startsWith('\\')) throw new SessionError('A disk image needs a name.');
+    return full;
   }
   // drives this machine's controller has (the Alpha fits 2; a disk cartridge 4)
   get driveCount() { const fdc = this.machine && this.diskController; return fdc ? fdc.fitted : 4; }
