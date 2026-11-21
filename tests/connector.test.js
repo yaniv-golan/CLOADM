@@ -331,6 +331,16 @@ const J = JSON.stringify;
   check('no file claims that no ROM byte leaves the panel; the guide says a determined agent can infer ROM contents through execution', !overclaims.length
     && /a\s+determined agent can infer ROM contents through execution/.test(fs.readFileSync(path.join(ROOT, 'docs/mcp.md'), 'utf8')), overclaims.join(', '));
 
+  // the lead: "Use the connector" comes before any plugin heading, and the table has its 7 rows
+  for (const f of ['README.md', 'docs/mcp.md']) {
+    const t = fs.readFileSync(path.join(ROOT, f), 'utf8');
+    const lead = t.indexOf('**Use the connector.**'), plug = t.indexOf('**For developers and your own files: the plugin.**'), tab = t.indexOf('| You want to… | Use |');
+    const rows = tab < 0 ? [] : t.slice(tab).split('\n').slice(2).filter((l) => /^\|/.test(l)).slice(0, 7);
+    const firstPlugin = t.search(/^#{1,3} .*[Pp]lugin/m);
+    check(`${f}: "Use the connector" leads, before the plugin and before any plugin heading; the Which-one table has 7 rows`,
+      lead >= 0 && plug > lead && tab > plug && (firstPlugin < 0 || firstPlugin > lead) && rows.length === 7 && /\| \.mcpb extension \|$/.test(rows[6]) && /not yet tested on phones/.test(rows[1]), `${lead} ${plug} ${tab} ${rows.length}`);
+    check(`${f}: says web and the desktop app, and that phones are not yet tested`, /side panel on the web and in the desktop app \(phones not yet tested\)/.test(t));
+  }
   console.log(`${n - fail}/${n} connector checks passed`);
   process.exitCode = fail ? 1 : 0;
 // (straight to stdout: a failure while the Worker is probed comes while console is stubbed)

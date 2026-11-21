@@ -56,19 +56,33 @@ hardware; the exceptions are listed under [How we know it's right](#how-we-know-
 </tr>
 </table>
 
-**With Claude:** two ways, both [compared here](docs/mcp.md#which-way-should-i-install-cloadm-for-claude).
-* **Connector** (most people): add `https://mcp.cloadm.dev/mcp` as a custom connector (no sign-in). The emulator runs
-  in Claude's side panel, live, with nothing to install; ROMs are added in the panel.
-* **Plugin** (your own files, Claude Code): add the marketplace `yaniv-golan/CLOADM`. It runs on your computer, with
-  your ROM files and the `~/CLOADM` folder; Claude sees text and screenshots.
+**Use the connector.** Add `https://mcp.cloadm.dev/mcp` as a custom connector (no sign-in). CLOADM opens in Claude's side panel on the web and in the desktop app (phones not yet tested): you watch, type along, and Claude plays it with you. Nothing to install.
+
+**For developers and your own files: the plugin.** Runs CLOADM on your computer with your ROM files and the ~/CLOADM folder of tapes, disks and snapshots; Claude sees text and screenshots, with no live panel. Needs the Claude desktop app open (Claude Code runs it itself). Add the marketplace `yaniv-golan/CLOADM`.
+
+**Which one?**
+
+| You want to… | Use |
+|---|---|
+| Play or watch a machine with Claude, live | Connector |
+| Use Claude on a phone or a computer that isn't yours (not yet tested on phones) | Connector |
+| Install nothing | Connector |
+| Open your own tapes, disks or snapshot files | Plugin |
+| Keep results as files (screenshots, saved tapes, disk images) | Plugin |
+| Script it from Claude Code, or run tests | Plugin |
+| Your organisation blocks plugins (desktop) | .mcpb extension |
+
+**Both on?** That's fine. Say "in the side panel" for the connector or "use my files" for the plugin; for play, Claude is told to prefer the side panel.
+
+The four routes, in full: [docs/mcp.md](docs/mcp.md#which-way-should-i-install-cloadm-for-claude).
 
 Something not working? The [quick fixes](https://cloadm.dev/help/#fixes) cover a black screen, no sound, a tape
 that won't load, a disk that shows nothing and the keyboard.
 
 ## Use it with AI coding agents and Claude
 
-* **Claude:** the connector and the plugin above; the install steps and a comparison are in
-  [docs/mcp.md](docs/mcp.md#which-way-should-i-install-cloadm-for-claude).
+* **Claude:** the connector and the plugin above; the install steps are in
+  [docs/mcp.md](docs/mcp.md#use-with-claude).
 * **Any MCP client** (Claude Code, Cursor, Claude Desktop, Codex, Gemini CLI, …): `node cli/cloadm.js --mcp` is a
   stdio server that boots machines, runs programs, types, reads the screen and memory, steps the CPU and takes
   screenshots ([docs/mcp.md](docs/mcp.md)). It needs Node 22.12 or later and a checkout, and nothing to install.

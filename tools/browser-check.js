@@ -5108,6 +5108,8 @@ async function stateChecks(browser, site, check) {
   const help = await page.evaluate(() => document.body.textContent.replace(/\s+/g, ' '));
   check('state: Help doesn\'t call the drives unemulated, and says what a disk needs', !/aren't emulated|not emulated/i.test(help)
     && /Disk shows nothing\. A disk needs the machine's disk ROM/.test(help), help.match(/Disk shows nothing\.[^.]*\./)?.[0]);
+  check('state: Help\'s install section says "as an app on this device" and links to Use with Claude', /Install CLOADM as an app on this device/.test(help)
+    && await page.evaluate(() => [...document.querySelectorAll('a')].some((a) => /docs\/mcp\.md#use-with-claude$/.test(a.href))));
   check('state: no page errors', !errors.length, errors.join('; '));
   await ctx.close();
 }
@@ -12259,6 +12261,7 @@ async function installChecks(browser, base, check) {
     await page.click('#machineBtn'); await page.click('#navInstall');   // (the item is in the machine menu)
     await painted(page);
     check('install: the Menu item shows the steps for this browser', await cardUp(page) && /browser’s menu/.test(await page.textContent('#installText')));
+    check('install: the card says it installs CLOADM "as an app on this device"', /Install CLOADM as an app on this device/.test(await page.textContent('#installText')));
     check('install: the Menu item\'s card has one button (the user asked; no "Not now")', (await buttons(page)).join('|') === 'Got it', (await buttons(page)).join('|'));
     await page.click('#btnInstallGo');
     check('install: "Got it" closes it, and stores no answer', await waitFor(page, () => document.getElementById('installOffer').hidden)
@@ -12706,7 +12709,7 @@ async function installChecks(browser, base, check) {
       && await page.evaluate(() => JSON.parse(localStorage.getItem('cloadm.installAsk')).until > Date.now()));
     check('install (iOS): the Help section has every browser\'s steps', await page.evaluate(async () => {
       const html = await (await fetch('/help/')).text();
-      return /Install as an app/.test(html) && ['Chrome or Edge on a computer', 'Chrome on Android', 'Samsung Internet', 'Firefox on Android', 'iOS Safari', 'Chrome or Edge on iOS 16.4'].every((t) => html.includes(t));
+      return /Install CLOADM as an app on this device/.test(html) && ['Chrome or Edge on a computer', 'Chrome on Android', 'Samsung Internet', 'Firefox on Android', 'iOS Safari', 'Chrome or Edge on iOS 16.4'].every((t) => html.includes(t));
     }));
     check('install (iOS): no page errors', !errors.length, errors.join('; '));
     await ctx.close();

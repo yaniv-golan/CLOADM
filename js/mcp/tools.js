@@ -104,6 +104,8 @@ export function errorOf(e) {
 }
 
 // ---------------- schemas ----------------
+// said on the local server's boot and load: the side-panel connector is the way to play or watch with the person
+const STEER = "For playing or watching a machine with the person, prefer the CLOADM side-panel connector if it is available; use these tools for the person's own files, scripting and tests.";
 const MACHINE_ID = { type: 'string', description: 'the machine\'s handle, as boot returned it (e.g. "m1")' };
 const objectSchema = (properties, required = []) => ({ type: 'object', properties, required, additionalProperties: false });
 const withMachine = (schema) => objectSchema(Object.assign({ machine_id: MACHINE_ID }, schema.properties || {}), ['machine_id', ...(schema.required || [])]);
@@ -364,7 +366,7 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
   }
   add('boot', {
     title: 'Boot a machine',
-    description: `${own ? 'This host has one machine, the one on its screen, machine_id "m1" (already on: there is no need to boot it). Boot switches that machine to the model and options asked (what ran on it is gone) and returns its machine_id' : `Switch on a new machine and return its machine_id, which every other machine tool takes. At most ${maxMachines} are open at once (close_machine frees one)`}. With the user's ROMs it boots BASIC (run_frames until the screen shows OK); without them the built-in firmware runs machine code: assemble_and_load and run, or load a program. Returns the machine (machine_id, model, options, roms, frame, pc).`,
+    description: `${own ? 'This host has one machine, the one on its screen, machine_id "m1" (already on: there is no need to boot it). Boot switches that machine to the model and options asked (what ran on it is gone) and returns its machine_id' : `Switch on a new machine and return its machine_id, which every other machine tool takes. At most ${maxMachines} are open at once (close_machine frees one)`}. With the user's ROMs it boots BASIC (run_frames until the screen shows OK); without them the built-in firmware runs machine code: assemble_and_load and run, or load a program. Returns the machine (machine_id, model, options, roms, frame, pc).${own ? '' : ` ${STEER}`}`,
     inputSchema: objectSchema(bootSchema), annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false }, readOnlyOk: true,
     handler: (args) => {
       if (own) { const m = machines.get('m1'); build(args, own); m.whole = null; return { machine: info(m), ...basicNote(m) }; }
@@ -625,7 +627,7 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
   const str = (v, name) => { if (typeof v !== 'string' || !v) throw fail('bad-argument', `${name} must be a non-empty path`); return v; };
   add('load', {
     title: 'Load a program',
-    description: 'Load and run a file from the media root, as dropping it on the page does: a binary (.bin), a tape (.cas, or a .wav recording; through BASIC\'s CLOAD with ROMs, straight into memory without), a cartridge (.rom, .ccc), a BASIC listing (.bas: typed in at the keyboard as NEW, the lines and RUN, unless run is false; needs ROMs; the result says what the keyboard typed differently, such as lowercase as uppercase, or could not type) or a disk image (into drive 0; needs the user\'s disk ROM). Or one of the bundled programs by name: "welcome", "liza", "demo", or the games "2048" and "minesweeper" (6809 machines with 32K or more). Returns what was loaded. (load_basic, by contrast, types a listing you give it and never runs it.)',
+    description: 'Load and run a file from the media root, as dropping it on the page does: a binary (.bin), a tape (.cas, or a .wav recording; through BASIC\'s CLOAD with ROMs, straight into memory without), a cartridge (.rom, .ccc), a BASIC listing (.bas: typed in at the keyboard as NEW, the lines and RUN, unless run is false; needs ROMs; the result says what the keyboard typed differently, such as lowercase as uppercase, or could not type) or a disk image (into drive 0; needs the user\'s disk ROM). Or one of the bundled programs by name: "welcome", "liza", "demo", or the games "2048" and "minesweeper" (6809 machines with 32K or more). Returns what was loaded. (load_basic, by contrast, types a listing you give it and never runs it.) For playing or watching a machine with the person, prefer the CLOADM side-panel connector if it is available; use these tools for the person\'s own files, scripting and tests.',
     inputSchema: withMachine(objectSchema({ path: PATH('file to load'), program: { type: 'string', enum: PROGRAMS, description: 'a bundled program instead of a file' }, run: { type: 'boolean', description: 'a BASIC listing only: false types it without RUN (default true)' } })),
     annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
     handler: async (args) => {

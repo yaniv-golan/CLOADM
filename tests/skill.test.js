@@ -143,7 +143,9 @@ check('the skill\'s tool table names no tool the server does not have', extra.le
   } catch (e) {
     check('the skill\'s claims run on the server', false, e.message);
   }
-  console.log(fail ? `${fail} FAILED` : `${n}/${n} skill checks passed`);
+  check('SKILL.md says to prefer the CLOADM side-panel connector for playing or watching, and not to refuse files or scripts', /prefer the CLOADM side-panel connector if it is available; use these tools for the person's own files, scripting and tests/.test(text) && /Description only, not a rule/.test(text));
+check('an eval covers the steering (prefer-side-panel)', fs.existsSync(path.join(__dirname, 'skill-evals/prefer-side-panel/case.yaml')) && fs.readdirSync(path.join(__dirname, 'skill-evals/prefer-side-panel/graders')).length >= 2);
+console.log(fail ? `${fail} FAILED` : `${n}/${n} skill checks passed`);
   process.exitCode = fail ? 1 : 0;
 })();
 

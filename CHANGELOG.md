@@ -17,6 +17,14 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Changed
 
+- Using CLOADM with Claude leads with one default: "Use the connector" (a live side panel on the web and in the desktop
+  app, verified by the owner; phones not yet tested), then the plugin for developers and your own files, a "Which one?"
+  table and a "Both on?" note, in the README and at the top of docs/mcp.md. The local server's `boot` and `load`
+  descriptions and the skill (both copies) say to prefer the CLOADM side-panel connector for playing or watching with
+  the person, and to use the local tools for files, scripting and tests (a description, not a refusal); a new eval,
+  `prefer-side-panel`, covers it.
+- The install offer card and Help's install section say "Install CLOADM as an app on this device"; Help points to
+  "Use with Claude" for the Claude routes. The menu item is still "Install CLOADM…".
 - The README's top picture is the GIF; the static `img/readme-liza.png` is gone and `tools/capture-images.js` no
   longer writes it. `tests/readme.test.js` now checks GIF pictures too (a real GIF, 4:3, captured by a tool in `tools/`).
 

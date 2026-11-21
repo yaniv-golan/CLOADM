@@ -162,9 +162,9 @@ export function setupInstall(page, { started = () => true, machineMenu = null } 
   // fill the card: the browser's prompt where there is one, else the steps that do it
   function fill({ offer }) {
     const p = platform();
-    textLong.textContent = deferred ? 'Install CLOADM: opens in its own window and works offline.'
-      : ios ? 'Install CLOADM: tap Share, then Add to Home Screen.'
-        : 'CLOADM installs from your browser’s menu: it opens in its own window and works offline.';
+    textLong.textContent = deferred ? 'Install CLOADM as an app on this device: it opens in its own window and works offline.'
+      : ios ? 'Install CLOADM as an app on this device: tap Share, then Add to Home Screen.'
+        : 'Install CLOADM as an app on this device, from your browser’s menu: it opens in its own window and works offline.';
     // the strip's one line (a phone held upright: the band between the screen and the keys has room for one)
     textShort.textContent = deferred ? 'Install CLOADM as an app?' : ios ? 'Install: Share, Add to Home Screen.' : 'Install from the browser menu.';
     // the steps below the sentence, for a browser that installs from its own menu (iOS's sentence is the step, so

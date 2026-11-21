@@ -188,6 +188,8 @@ fs.writeFileSync(tmp('media', 'plain.bas'), '10 PRINT "HI"\n');
   check('readOnlyHint on exactly the tools that change nothing', J(ro) === J(['list_models', 'list_machines', 'machine_info', 'screen_text', 'peek', 'disassemble', 'find_bytes', 'registers', 'screenshot']), J(ro));
   check('destructiveHint on what types, writes, loads or replaces', ['poke', 'type_text', 'load', 'reset', 'power_cycle', 'restore_snapshot', 'switch_machine', 'save_snapshot'].every((nm) => list.find((t) => t.name === nm).annotations.destructiveHint === true)
     && list.find((t) => t.name === 'run_frames').annotations.destructiveHint === false);
+  check('boot and load (the local server) say to prefer the CLOADM side-panel connector for playing or watching, and keep these tools for files, scripting and tests',
+    ['boot', 'load'].every((n) => /prefer the CLOADM side-panel connector if it is available; use these tools for the person's own files, scripting and tests/.test(list.find((t) => t.name === n).description)));
   check('page tool descriptions leave out the page\'s consent text', !list.some((t) => /Let Claude use the emulator|The person is asked on every call/.test(t.description)) && /Write bytes of memory/.test(list.find((t) => t.name === 'poke').description));
 
   // ---- the machine lifecycle ----
@@ -747,6 +749,10 @@ fs.writeFileSync(tmp('media', 'plain.bas'), '10 PRINT "HI"\n');
     own.runFrames(40);
     const tb = T.createToolbox(host, { session: own, refuseRomReads: true });
     const names = tb.tools().map((t) => t.name);
+    {
+      const d = (t, n) => t.tools().find((x) => x.name === n).description;
+      check('own session: boot (the panel itself) does not send the person elsewhere', !/side-panel connector/.test(d(tb, 'boot')));
+    }
     check('own session: the host\'s machine is m1 at once; close_machine is not offered', !names.includes('close_machine') && names.includes('boot')
       && J((await tb.call('list_machines', {})).data.machines.map((m) => m.machine_id)) === '["m1"]', names.join(','));
     const r = await tb.call('screen_text', { machine_id: 'm1' });
