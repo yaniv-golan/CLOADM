@@ -167,5 +167,36 @@ const progB = Emu.toBinary(Emu.assemble(' ORG $3000\n FCB $BB,$BB,$BB,$BB,$BB\nL
   check('recent: the healed entry still loads (its bytes are found under the normalised CRC)', /2048\.bin/.test(s.loadRecent(0)) && s.machine.ram[0x3000] === 0xAA);
 }
 
+// ---- 10. the copy label is per MACHINE: the drawer shows one machine's rows, so two of one name on different
+// machines must not label each other (a lone Dragon row would read "2nd" with nothing to be second to) ----
+{
+  const s = session();
+  s.load('2048.bin', progA);
+  s.switchMachine('coco');
+  s.load('2048.bin', progB);
+  const r = s.recentMedia();
+  check('recent: two of one name on different machines are not labelled as copies of each other',
+    r.length === 2 && r.every((x) => x.copy === null), JSON.stringify(r.map((x) => [x.name, x.machine, x.copy])));
+  s.switchMachine('dragon64');
+  check('recent: and the Dragon row alone is unlabelled on the Dragon', s.recentMedia().filter((x) => x.machine === 'dragon64').every((x) => x.copy === null)
+    && s.recentMedia().filter((x) => x.machine === 'dragon64').length === 1, JSON.stringify(s.recentMedia().map((x) => [x.machine, x.copy])));
+}
+
+// ---- 11. junk entries (no name or no crc, from a hand-edited or older list) are dropped on read, not grouped ----
+{
+  const media = new MemoryMediaStore();
+  media.writeSync('recent/list.json', bytes(JSON.stringify([
+    { name: 'good.bin', crc: crc32(progA), size: progA.length, machine: 'dragon64', stored: true },
+    { crc: 'AAAA0001', size: 3, machine: 'dragon64', stored: true },          // no name
+    { name: 'nocrc.bin', size: 3, machine: 'dragon64', stored: true },        // no crc
+    null,
+    'junk',
+  ])));
+  media.writeSync(`recent/${crc32(progA)}.bin`, progA);
+  const s = session({ media });
+  const r = s.recentMedia();
+  check('recent: entries with no name or no CRC are dropped on read', r.length === 1 && r[0].name === 'good.bin', JSON.stringify(r));
+}
+
 console.log(fail ? `${fail} FAILED` : 'all recent checks passed');
 process.exitCode = fail ? 1 : 0;   // (suites never call process.exit: tests/no-exit.js guards it)

@@ -1449,10 +1449,12 @@ export class Session {
     const list = this.index.recentMedia();
     // sameName is a folding rule, not an equivalence-key function (on a case-sensitive store it is ===), so
     // entries are grouped by comparing against the names already seen rather than by a lower-cased key.
-    const groups = [];   // [{ name, members: [] }]
+    // Grouped by NAME and MACHINE: the drawer shows one machine's rows (drawer.js filters by machine), so two of
+    // one name on different machines are not copies of each other -- a lone Dragon row must not read "2nd".
+    const groups = [];   // [{ name, machine, members: [] }]
     for (const r of list) {
-      let g = groups.find((x) => this.sameName(x.name, r.name));
-      if (!g) { g = { name: r.name, members: [] }; groups.push(g); }
+      let g = groups.find((x) => x.machine === r.machine && this.sameName(x.name, r.name));
+      if (!g) { g = { name: r.name, machine: r.machine, members: [] }; groups.push(g); }
       g.members.push(r);
     }
     const label = new Map();
