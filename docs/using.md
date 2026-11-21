@@ -272,7 +272,8 @@ not when the right port holds a Hi-Res interface or The Rat) turns it into a **t
   the switch, BREAK, CLEAR and Menu share one row between the screen and the keys, and the screen takes the height
   that is left. A key types when your finger lifts, or once it has rested on the key a moment (so a held key works in
   games); a finger that slides off it first types nothing, so a drag or a scroll that starts on the keyboard never
-  presses a key.
+  presses a key. The joystick strip's keys (SPC, ENT, BRK, 1, 2, Y, N) work the same way, so held
+  they register after about 100 ms; the stick and FIRE act at once.
   The welcome menu's lines can be tapped (in Joystick mode a tap on the screen never reaches the menu).
   Files can be dropped anywhere on the page, and after the first ROMs are added CLOADM asks the browser to keep
   them, saying if it may not.

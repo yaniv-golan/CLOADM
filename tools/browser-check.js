@@ -6665,6 +6665,9 @@ async function inputScreenChecks(browser, base, check) {
       // Safari 26+: the page runs under its floating toolbar, which no viewport unit or inset counts; the panel must
       // end above it (84 px from the bottom edge, play/index.html --tk-bar)
       ['iPhone 15, Safari 26 floating toolbar', { width: 393, height: 852 }, { top: 59, bottom: 34, left: 0, right: 0 },
+        { userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1', bar: 84 }],
+      // (the SE is where the band decides: the screen is cut by the height, so without the band ENTER's row is under it)
+      ['iPhone SE, Safari 26 floating toolbar', { width: 375, height: 667 }, null,
         { userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1', bar: 84 }]];
     for (const [label, viewport, inset, ios] of PORTRAIT) {
       for (const mode of ['keys', 'joystick']) {
@@ -6726,7 +6729,7 @@ async function inputScreenChecks(browser, base, check) {
       m.stubKeys.push = (...c) => { window.stubbed.push(...c); return push(...c); };
       // when the finger's events reach the key (the drag's moves must come within HOLD_MS to be a drag at all)
       window.seen = [];
-      for (const ev of ['pointerdown', 'pointermove', 'pointerup', 'pointercancel']) document.getElementById('touchKeys').addEventListener(ev, (e) => window.seen.push([e.type, Math.round(performance.now())]), true);
+      for (const ev of ['pointerdown', 'pointermove', 'pointerup', 'pointercancel']) document.getElementById('touchKeys').addEventListener(ev, (e) => window.seen.push([e.type, Math.round(performance.now()), e.target.dataset && e.target.dataset.key]), true);
     });
     const at = (sel) => page.evaluate((sel) => { const r = document.querySelector(sel).getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }, sel);
     const touch = (type, x, y) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y, id: 1, radiusX: 8, radiusY: 8, force: 1 }] });
@@ -6741,7 +6744,8 @@ async function inputScreenChecks(browser, base, check) {
         await reset();
         const p = await at(sel);
         await touch('touchStart', p.x, p.y);
-        for (let k = 1; k <= 4; k++) await touch('touchMove', p.x, p.y - 10 * k);
+        // (12 px steps: the first move is already past MOVE_PX, so it is the one that must cancel, and the one timed)
+        for (const dy of [12, 24, 36, 40]) await touch('touchMove', p.x, p.y - dy);
         await page.waitForTimeout(250);
         await touch('touchEnd');
         await emuFrames(page, 6);
@@ -6751,6 +6755,34 @@ async function inputScreenChecks(browser, base, check) {
       }
       check(`touch keys (portrait): a touch drag of 40 px starting on ${name} types nothing (the matrix and the stub never see a key${name === 'SHIFT' ? ', SHIFT stays off' : ''}) and scrolls nothing`,
         !!res && res.pressed === '' && res.stubbed === '' && res.shift === 'false' && res.scrolled === 0, JSON.stringify(res));
+    }
+    // a chord: SHIFT held, Q tapped before SHIFT's own HOLD_MS -- Q goes in shifted (SHIFT down in the matrix before Q,
+    // and up after it), and SHIFT is not left latched for the next key. Two fingers, real touches; a try counts only if
+    // Q's lift reached the page within HOLD_MS of SHIFT's touch (else SHIFT committed by its own timer: no chord to test)
+    {
+      let res = null;
+      const touches = (type, pts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map(([id, x, y]) => ({ x, y, id, radiusX: 8, radiusY: 8, force: 1 })) });
+      for (let attempt = 0; attempt < 3 && !res; attempt++) {
+        await keysTaken(page);
+        await reset();
+        const sh = await at('#touchFull [data-key="SHIFT"]'), q = await at('#touchFull [data-key="Q"]');
+        await touches('touchStart', [[1, sh.x, sh.y]]);
+        await touches('touchStart', [[1, sh.x, sh.y], [2, q.x, q.y]]);
+        await touches('touchEnd', [[2, q.x, q.y]]);   // (the points listed are the ones that lift) Q lifts, SHIFT still down
+        await page.waitForTimeout(150);
+        await touches('touchEnd', [[1, sh.x, sh.y]]);
+        await emuFrames(page, 10);
+        const seen = await page.evaluate(() => window.seen);
+        const downs = seen.filter((e) => e[0] === 'pointerdown'), up = seen.find((e) => e[0] === 'pointerup' && e[2] === 'Q');
+        if (downs.length === 2 && downs[0][2] === 'SHIFT' && up && up[1] - downs[0][1] < HOLD_MS && !seen.some((e) => e[0] === 'pointerup' && e[2] === 'SHIFT' && e[1] < up[1])) {
+          const pressed = await page.evaluate(() => window.pressed);
+          const at_ = (k) => pressed.indexOf(k);
+          res = { pressed: pressed.join(), qUpMs: up[1] - downs[0][1], shifted: at_('SHIFT+') >= 0 && at_('Q+') > at_('SHIFT+') && at_('SHIFT-') > at_('Q+'),
+            latched: (await typed()).shift };
+        }
+      }
+      check('touch keys (portrait): a chord (SHIFT held, Q tapped within HOLD_MS) types Q shifted and leaves SHIFT off',
+        !!res && res.shifted && res.latched === 'false', JSON.stringify(res));
     }
     // a tap types (pressed and let go)
     await reset();

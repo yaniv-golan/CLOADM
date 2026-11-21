@@ -1246,6 +1246,8 @@
     /* room for the install offer's strip under the screen, when it is up (js/ui/install.js): the monitor narrows by
        4/3 of it (above), so its height drops by exactly the gap and nothing under it moves */
     body.touch-keys:not(.chat-phone) .layout > main > .monitor { margin-bottom: var(--install-room, 0px); }
+    /* (40 px: under Apple's 44 pt guideline, which the room upright does not allow with five rows and the screen;
+       well over WCAG 2.5.8's 24 px minimum target) */
     body.touch-keys:not(.chat-phone) #touchKeys .tk, body.touch-keys:not(.chat-phone) #touchKeys .tkbtns button { height: 40px; min-height: 40px; }
     body.touch-keys:not(.chat-phone) #touchKeys .tkmode button { min-height: 38px; }
     body.touch-keys:not(.chat-phone) #touchKeys > #touchFull { gap: 4px; }

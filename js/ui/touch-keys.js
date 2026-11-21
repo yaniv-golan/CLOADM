@@ -51,6 +51,8 @@ export function setupTouchKeys(page, { input }) {
   const { session } = page;
   const box = $('touchKeys');
   let shift = false, n = 0;
+  // SHIFT keys armed (a finger on them) but not yet committed: a key that commits under them commits them first
+  const shiftArmed = new Set();
 
   function key(label) {
     const t = label === '_' ? 'SPACE' : label;
@@ -72,12 +74,15 @@ export function setupTouchKeys(page, { input }) {
     // moves more than MOVE_PX first, or a touch the browser takes away (pointercancel: it scrolled), cancels it,
     // and the machine never sees the key -- a drag or a scroll that starts on the keyboard types nothing. Once
     // committed the key is held until the finger lifts, however it wobbles. SHIFT commits the same way (its
-    // toggle), so a drag over it changes nothing either.
+    // toggle), so a drag over it changes nothing either -- unless another key commits while it is armed (a chord:
+    // SHIFT held, a key tapped), which commits SHIFT first.
     let armed = null;   // { pointerId, x, y, timer, committed }
     const commit = () => {
       clearTimeout(armed.timer);
       armed.committed = true;
-      if (t === 'SHIFT') { shift = !shift; for (const s of box.querySelectorAll('[data-key="SHIFT"]')) s.setAttribute('aria-pressed', String(shift)); return; }
+      if (t === 'SHIFT') { shiftArmed.delete(commit); shift = !shift; for (const s of box.querySelectorAll('[data-key="SHIFT"]')) s.setAttribute('aria-pressed', String(shift)); return; }
+      // a chord: SHIFT held down, then a key tapped before SHIFT's own HOLD_MS -- the key is shifted, as it always was
+      for (const c of [...shiftArmed]) c();
       const sp = SPECIAL[t], name = sp ? sp[0] : t;
       let code = sp ? sp[1] : t.charCodeAt(0);
       if (shift && !sp && SHIFTED[name]) code = SHIFTED[name].charCodeAt(0);
@@ -92,6 +97,7 @@ export function setupTouchKeys(page, { input }) {
       if (armed) return;   // a second finger on a key already down
       try { b.setPointerCapture(e.pointerId); } catch (err) { /* not a pointer we can capture */ }
       armed = { pointerId: e.pointerId, x: e.clientX, y: e.clientY, committed: false, timer: setTimeout(commit, HOLD_MS) };
+      if (t === 'SHIFT') shiftArmed.add(commit);
       b.classList.add('down');
       page.audio.start();
     };
@@ -99,6 +105,7 @@ export function setupTouchKeys(page, { input }) {
       const was = armed;
       armed = null;
       clearTimeout(was.timer);
+      shiftArmed.delete(commit);
       b.classList.remove('down');
       if (t === 'SHIFT' || !was.committed) return;
       input.touch(id, null, 0, false);
