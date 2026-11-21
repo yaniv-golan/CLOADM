@@ -4768,6 +4768,16 @@ async function landingChecks(browser, site, check) {
     check(`landing (${label}): served at /`, res.ok() && await page.title() === 'CLOADM' && /Still says OK after forty years\./.test(await page.textContent('h1')));
     check(`landing (${label}): no sideways scrolling`, await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), String(await page.evaluate(() => document.documentElement.scrollWidth)));
     check(`landing (${label}): the hero screen is the emulator's own picture, loaded`, await page.evaluate(() => { const i = document.querySelector('img[src="img/welcome.png"]'); return !!i && i.complete && i.naturalWidth === 320; }));
+    // the Dragon 64 drawn under the monitor and on its machine card: decorative, hidden from assistive technology, and
+    // drawn (the badge reads DRAGON 64, the keyboard has its keys and the space bar)
+    check(`landing (${label}): the Dragon 64 art is drawn, inside the page width and aria-hidden`, await page.evaluate(() => {
+      const hero = document.querySelector('svg.d64-art'), card = document.querySelector('a[data-machine="dragon64"] svg');
+      const r = hero && hero.getBoundingClientRect();
+      return !!hero && !!card && hero.getAttribute('aria-hidden') === 'true' && card.getAttribute('aria-hidden') === 'true'
+        && r.width > 200 && r.right <= innerWidth && /DRAGON\s*64/.test(hero.textContent) && /DRAGON\s*64/.test(card.textContent)
+        && ['BREAK', 'ENTER', 'CLEAR', 'SHIFT', 'Q', 'Z'].every((k) => [...hero.querySelectorAll('text')].some((t) => t.textContent === k))
+        && hero.querySelectorAll('polygon').length > 100;
+    }));
     // the Claude chat ships: the landing page links it and marks nothing as coming (drives, real-speed tape, Library and
     // type-ins are in /play/: stateChecks)
     // ROMs are easy to find: a Get ROMs button beside the main call to action, and a line naming the archive and

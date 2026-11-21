@@ -15,6 +15,14 @@ All notable changes to CLOADM are recorded here. The format follows
   firmware and store fixtures in `tests/disks-common.js`. No check was removed or loosened (206 passing checks before
   and after); the disk code itself is unchanged.
 
+- **The home page's Dragon 64 looks like the real one.** The hero and the machine card draw it in inline SVG from a
+  3D model of the real case's side contour, seen from the front left: the low front, the sloping keyboard deck, the
+  raised rear plateau with its ventilation grooves (cut through the side edges, as on the real case) and the rear
+  chamfer. On it are the black badge with a red dragon
+  glyph, rainbow DRAGON and a white 64, the red power LED, and the black keyboard in its real layout with legends
+  (shifted symbols hidden at phone width). The browser check makes sure the art is drawn, fits the page and is
+  aria-hidden.
+
 ### Fixed
 
 - **Reset after a game no longer says CLOADM failed.** Many machine-code games set BASIC's warm-start flag and
