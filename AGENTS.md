@@ -108,7 +108,7 @@ A program under `examples/` (a demo, a game, a tool that runs on the built-in fi
    each machine it supports (`--expect-screen`, `--expect-mem`, `--expect-screenshot`, `--wav`), and mutants of the
    program that must fail it ([docs/game-development.md](docs/game-development.md) and
    `tests/starter-game.test.js` show how).
-4. Documentation: a line in `docs/development.md` for the new test and in its `build-examples.js` line; the
+4. Documentation: a mention in the `build-examples.js` line of `docs/development.md` (every `tests/*.test.js` runs on its own, and `node tests/all.js --only <name>` takes the names, so a new test needs no list entry); the
    feature tables in `README.md` and `docs/using.md` if users see it; `CHANGELOG.md` under `[Unreleased]`.
 5. Proof: 4.1, 4.2 (hashes unchanged: an example changes no emulation), 4.3, and 4.7 with `--only pwa` plus any
    group that offers it on the page; 4.4 and 4.5 are "not applicable" in the report (see "Which levels apply").

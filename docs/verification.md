@@ -6,7 +6,7 @@ Every chip is compared with MAME 0.264 by running diagnostic firmware written fo
 in lockstep. No copyrighted ROM is used for testing.
 
 * `node tools/mame-diff/run.js dragon64` compares every instruction's registers, flags and cycle count with MAME's.
-  On the Dragon 64: 1,028,156 instructions identical, and the firmware reaches its HALT loop.
+  On the Dragon 64: 1,028,112 instructions identical, and the firmware reaches its HALT loop.
 * `node tools/mame-diff/run.js dragon64 --video` compares the screen pixel by pixel: on the Dragon 64, all 20
   display modes are identical.
 * `node tools/mame-diff/run.js dragon64 --fdc` runs the floppy controller cartridges against MAME the same way,
@@ -38,15 +38,15 @@ What each machine's comparison with MAME 0.264 showed when it was verified (the 
 
 | Machine | Instruction trace (registers and cycles) | Display modes | Mid-line changes (`--raster`) |
 |---|---|---|---|
-| Dragon 64 | 1,028,156 instructions identical, HALT reached | 20/20 identical, PAL colour blending included | 17/17 identical |
+| Dragon 64 | 1,028,112 instructions identical, HALT reached | 20/20 identical, PAL colour blending included | 17/17 identical |
 | Dragon 64 Plus | identical, HALT reached: 1,016,256 instructions (the base machine), 1,177,312 (the 80-column board) and 334,449 (the 80-column text screens), under `mameCompat`; the bank register from Compusense's technical notes (see below) | the 80-column screen 640 x 264 identical, but on 0.264 its video RAM is never written (see below); the six 80-column text screens identical, every pixel, with the video RAM put into MAME's share by the harness | – |
 | Dragon 32, Dragon 200, Tano Dragon 64 | identical | 20/20 identical, PAL colour blending included on the Dragon 32 and 200 (the Tano is NTSC) | 17/17 identical |
-| Dragon 200-E | 1,028,156 instructions identical, HALT reached | 20/20 identical, with a character generator written by this project (see below) | 17/17 identical (its own variant of cases 5 and 11, see below) |
-| Prológica CP 400 | 1,043,415 instructions identical, HALT reached | 20/20 identical | – |
+| Dragon 200-E | 1,028,112 instructions identical, HALT reached | 20/20 identical, with a character generator written by this project (see below) | 17/17 identical (its own variant of cases 5 and 11, see below) |
+| Prológica CP 400 | 1,043,371 instructions identical, HALT reached | 20/20 identical | – |
 | Color Computer 1/2, 2B | identical | 20/20 identical, NTSC artifact colours included, at each artifact setting | 17/17 identical (coco, coco2b) |
-| Color Computer 1/2 at 4K, 16K and 32K | identical at every size (1,099,793 / 1,079,377 / 1,043,415 instructions) | 20/20 identical at 4K and 16K | 17/17 identical at 4K and 16K |
+| Color Computer 1/2 at 4K, 16K and 32K | identical at every size (1,099,793 / 1,079,377 / 1,043,371 instructions) | 20/20 identical at 4K and 16K | 17/17 identical at 4K and 16K |
 | Dynacom MX-1600, LZ Color64, Codimex CD-6809 | identical | – | – |
-| Color Computer 3 (128K and 512K) | 88,787 instructions identical | 34/49 identical; the rest differ only in text glyph shapes (our own font designs); the same at each artifact setting, artifact colours included. Text attributes (`--attr`): 34/34 identical, exactly (every attribute byte; 32/40/64/80 columns; lines per row 0-6; blink off and on). GIME text screens and the screen reader (`--text`, 6809 and 6309): 14/14, apart from glyph shapes, with MAME's glyphs and ours where the expected text says. Composite monitor (`--composite`): 67/67 at artifact settings 0, 1 and 2 (46 exact, 21 apart from glyph shapes), with `$FF98` BPI and MOCH | 8/8 identical, per line (MAME cannot draw part of a GIME line) |
+| Color Computer 3 (128K and 512K) | 88,797 instructions identical | 34/49 identical; the rest differ only in text glyph shapes (our own font designs); the same at each artifact setting, artifact colours included. Text attributes (`--attr`): 34/34 identical, exactly (every attribute byte; 32/40/64/80 columns; lines per row 0-6; blink off and on). GIME text screens and the screen reader (`--text`, 6809 and 6309): 14/14, apart from glyph shapes, with MAME's glyphs and ours where the expected text says. Composite monitor (`--composite`): 67/67 at artifact settings 0, 1 and 2 (46 exact, 21 apart from glyph shapes), with `$FF98` BPI and MOCH | 8/8 identical, per line (MAME cannot draw part of a GIME line) |
 | Color Computer 3 (PAL) | cannot be verified against MAME: its `coco3p` keeps the CoCo 3's 262-line NTSC geometry, so it does not run a PAL field (see below) | – | – |
 | MC-10 | 908,205 instructions identical | 20/20 identical, NTSC artifact colours included, at each artifact setting | 10/10 identical |
 | Matra Alice | 908,205 instructions identical, HALT reached | – | – |
@@ -684,7 +684,7 @@ names it.
   count after every instruction. The diagnostic firmware covers the ALU over a grid of operands with carry/half-carry in and
   out, all indexed addressing modes, TFR/EXG, the stack, SWI1-3, every short and long branch, PIA registers, HS/FS timing
   and IRQ, CWAI, SYNC, SAM writes, Dragon 64 ROM bank switching, the 64K map type, page bit P1 (with and without M1 and TY), keyboard rows and the joystick comparator.
-  Current result: **1,028,156 instructions identical**, cycle counts included.
+  Current result: **1,028,112 instructions identical**, cycle counts included.
 * `node tools/mame-diff/run.js <profile> --video` compares the rendered screen pixel by pixel in all 20 display modes. All text,
   semigraphics and graphics modes are identical on the Dragon and CoCo machines, including the CoCo 2B's MC6847T1
   character set with lowercase. Composite colour is compared exactly as well (see below); `--artifact N` sets MAME's
