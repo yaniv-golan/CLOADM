@@ -52,10 +52,12 @@ const UNDAMAGED = new WeakSet();
 // Does this image survive a round trip through its own format? Decode it, write it back with saveDisk(), decode
 // again, and compare the flux track for track. True for VDK, JVC and double-density DMK; false for single-density
 // DMK, whose FM bytes come back as a different but equivalent encoding. Two decodes and one encode of the image,
-// about three times the cost of the mount itself, so the drive does it once per mount and only when the answer is
-// needed - the first snapshot of the drive, or a read of drive.mountBytes - never at mount or restore. It cannot
-// throw, so deferring it moves no error: a bad image still fails at mount, in loadDisk. The caller keeps the
-// mounted bytes only when this says the committed image cannot be trusted to rebuild the drive.
+// about three times the cost of the mount itself, so mount() does not do it: the drive works it out once per mount,
+// the first time drive.mountBytes is read. The Session reads it in the background after a mount
+// (Session.checkDiskLater), so the work is normally done before the first snapshot; a snapshot taken sooner gets
+// the same answer by doing it then. It cannot throw, so deferring it moves no error: a bad image still fails at
+// mount, in loadDisk. The caller keeps the mounted bytes only when this says the committed image cannot be trusted
+// to rebuild the drive.
 function roundTrips(bytes, format, tracks, heads) {
   let again;
   try {

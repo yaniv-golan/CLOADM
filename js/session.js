@@ -341,6 +341,7 @@ export class Session {
     this.movingOps = new Set();     // Library operations under way that the move waits for (libraryOp)
     this.moveDone = null;           // a promise resolved when the move under way ends (afterMove)
     this.diskMounts = 0;            // mounts made so far: each mount's link carries the next number (diskLink)
+    this.diskChecks = new Set();    // background round-trip checks not yet run (checkDiskLater)
     this.diskQueued = 0;            // changes to stored disk images queued so far (queueDiskWrite, diskStoreChange)
     this.diskLanded = 0;            // of those, the ones finished (done or refused)
     this.diskChanges = new Map();   // stored image name (exact spelling) -> how many of those changes were to it
@@ -2001,9 +2002,27 @@ export class Session {
       this.diskUnsaved.delete(full);        // read afresh from the store: nothing is outstanding
       fdc.mount(drive, { bytes, format, name: full, writeProtected, onWrite: this.diskLink(full) });
     } catch (e) { throw new SessionError(`${base}: ${e.message}`); }
+    this.checkDiskLater(fdc.drives[drive]);
     this.emit('disks');
     return `${base} in drive ${drive}${writeProtected ? ' (write-protected)' : ''}`;
   }
+  // A mounted drive works out whether a snapshot must carry its image as mounted (js/chips/floppy.js, get
+  // mountBytes: a round trip through the disk format, about three times the cost of the mount) only when first
+  // asked. Ask it here, in a task of its own once the mount has returned (setTimeout, so the Session stays
+  // DOM-free), so that neither the mount nor the first snapshot after it (a restore point at the start of a Claude
+  // turn, a share) pays for it. Outside emulation: it changes no machine state and no emulated time, and a
+  // snapshot taken before it runs gets the same answer through the getter. A drive whose disk was changed or taken
+  // out by then is left alone: its new mount has its own check. disksChecked() resolves once every check asked for
+  // so far has run.
+  checkDiskLater(drive) {
+    const media = drive.media;
+    const p = new Promise((resolve) => setTimeout(() => {
+      try { if (drive.media === media) void drive.mountBytes; } finally { resolve(); }
+    }, 0));
+    this.diskChecks.add(p);
+    p.then(() => this.diskChecks.delete(p));
+  }
+  disksChecked() { return Promise.all([...this.diskChecks]); }
   // no disk goes in while the library is being moved (moveMedia): it would be read from one place and written to the other
   // (nor does the Library change anything: the copy would miss it, and the library moved to would not have it)
   checkNotMoving() { if (this.movingMedia) throw new SessionError('The library is being moved: try again once it is done.'); }
