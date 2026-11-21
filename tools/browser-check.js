@@ -1951,6 +1951,10 @@ async function visitChecks(browser, base, check) {
     && !(await page.$('#askMachine')));
   check('machine question: the menu is started exactly once (no second start from the page)',
     await page.evaluate(() => window.__starts) === 1, String(await page.evaluate(() => window.__starts)));
+  // a first-time visitor is greeted as one: the title row, not "WELCOME BACK" (the question is asked only first time)
+  check('machine question: a first-time visitor gets the first-visit menu, not WELCOME BACK',
+    await page.evaluate(() => window.emu.session.screenText()[6].trim()) === 'DRAGON AND COLOR COMPUTER',
+    await page.evaluate(() => window.emu.session.screenText()[6].trim()));
   // a program of the user's own, then a return visit
   await page.setInputFiles('#fileProgram', { name: 'mine.bin', mimeType: 'application/octet-stream', buffer: fs.readFileSync(path.join(ROOT, 'examples/demo.bin')) });
   await waitFor(page, () => !document.getElementById('mediaOffer').hidden);

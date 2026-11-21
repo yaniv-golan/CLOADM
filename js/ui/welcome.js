@@ -97,8 +97,10 @@ export function setupWelcome(page, { showRoms, openClaude }) {
     else if (ev === 'menu') {
       showBack(false);
       // 'none': the machine question's switch, which starts the menu without a carry-on -- the person chose the
-      // machine, not what ran on the old one. 'back'/'bye' as before.
-      if (arg === 'none') await runWelcome({ greeting: 'back', carryOn: null }, { ifIdle: true, byMachine: null });
+      // machine, not what ran on the old one. The question is asked on a FIRST visit only, so the menu greets a
+      // first-time visitor: greeting 'first' (the title screen), as main's handler did with runWelcome's default.
+      // 'back'/'bye' as before.
+      if (arg === 'none') await runWelcome({ greeting: 'first', carryOn: null }, { ifIdle: true, byMachine: null });
       else await runWelcome(arg === 'back' ? { greeting: 'back', carryOn: session.carryOn } : { greeting: 'bye' }, { ifIdle: true, byMachine: arg !== 'back' ? session.menuTicket || asked : null });
     }
   });

@@ -21,7 +21,7 @@ s.switchMachine('dragon64');
 // what the menu shows after a start: the prompt row says the count of options, so 6 means a carry-on line was
 // drawn and 5 means none
 // the prompt is drawn when the welcome program next runs: run it on to a frame boundary first
-const prompt = (sess = s) => { sess.runFrames(60); return (sess.screenText()[14] || "").trim(); };   // the stub reaches the menu in ~40
+const prompt = (sess = s, frames = 60, row = 14) => { sess.runFrames(frames); return (sess.screenText()[row] || "").trim(); };   // the stub reaches the menu in ~40
 
 // 1. a plain start with no carry-on: PRESS 1 TO 5
 {
@@ -46,6 +46,16 @@ const prompt = (sess = s) => { sess.runFrames(60); return (sess.screenText()[14]
   s2.chooseMachine('coco', { offer: 'none' });   // the machine QUESTION's call (js/ui/welcome.js)
   check('welcome: the machine question offers the menu ONCE, and without a carry-on',
     offered.length === 1 && offered[0] === 'none', JSON.stringify(offered));
+  // the machine question appears on a FIRST visit only, so the menu it starts greets a first-time visitor: the
+  // title row, not "WELCOME BACK". (main's handler started the menu with runWelcome()'s default greeting, 'first'.)
+  // The greeting is the PAGE's choice, so this reads it out of the page's source: the 'none' branch must pass
+  // greeting 'first'. (Starting the Session with 'first' here would only test this file's own argument.)
+  const pageSrc = fs.readFileSync(path.join(ROOT, 'js/ui/welcome.js'), 'utf8');
+  const noneBranch = /if \(arg === 'none'\)[^\n]*/.exec(pageSrc);
+  check('welcome: the machine question\'s menu greets a first-time visitor (the page passes greeting "first")',
+    !!noneBranch && /greeting: 'first'/.test(noneBranch[0]), noneBranch ? noneBranch[0].trim() : 'branch not found');
+  s2.startWelcome(welcome, { greeting: 'first', carryOn: null });
+  check('welcome: and the first-time greeting is the title screen', prompt(s2, 60, 6) === 'DRAGON AND COLOR COMPUTER', prompt(s2, 60, 6));
   // what the page does from that one offer
   s2.startWelcome(welcome, { greeting: 'back', carryOn: null });
   check('welcome: and the menu it starts says PRESS 1 TO 5 (no carry-on line)', prompt(s2) === 'PRESS 1 TO 5', prompt(s2));
