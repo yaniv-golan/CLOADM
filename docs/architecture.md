@@ -135,7 +135,7 @@ The file is gzip-compressed JSON (`js/media/snapshot.js`; an unpacked file is re
 component's `saveState()` wrote, byte arrays as base64). A shared moment also has `share` (the ROM and cartridge images
 it names). The layout is `SNAPSHOT_VERSION` in `js/machines/machine.js`.
 
-A page reads `SNAPSHOT_OLDEST` to `SNAPSHOT_VERSION` (now 1 to 3) and says so when a file is newer or older. Files from
+A page reads `SNAPSHOT_OLDEST` to `SNAPSHOT_VERSION` (now 1 to 4) and says so when a file is newer or older. Files from
 pre-release builds carry the identifier `"cloadm-snapshot"` and another layout; a page recognises them and says it does
 not read them. `SNAPSHOT_VERSION` goes up whenever a `saveState()` changes what it writes, and `js/machines/machine.js`
 records what changed. A version that only adds state keeps `SNAPSHOT_OLDEST`, so older files stay readable: a key an

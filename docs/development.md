@@ -27,7 +27,7 @@ names contain one of the parts, and `node tools/browser-check.js --only <group>[
 | You changed | Suites (`tests/all.js --only ...`) | Browser-check groups (`--only ...`) |
 |---|---|---|
 | `js/cpu/` (6809, 6309, 6803) | `cpu,opcodes,disasm,asm,nmi-arm,regress` | `models,cpu6309` |
-| Video: `js/chips/` VDG, SAM, GIME, 6845, `js/video/` | `video,mc6847,mc6845,coco3,composite,sammem,samrate,regress,state` | `models,display,glLoss` |
+| Video: `js/chips/` VDG, SAM, GIME, 6845, `js/video/` | `video,mc6847,mc6845,coco3,gime-vsc,composite,sammem,samrate,regress,state` | `models,display,glLoss` |
 | Machines and profiles (`js/machines/`) | `machine,models,bus,coco3,mc10,alpha,d64plus,stub-sam,state,snapshot,regress` | `models,powerOn` |
 | Floppy disks, `js/media/` | `fdc,disk,detect,state` (`disk` also selects the `disks*` suites) | `disk,media` |
 | Cassette | `tape` | `tape,tapePanel` |
@@ -86,6 +86,7 @@ node tests/halt-replay.test.js # CoCo 3 held instruction run again: exact reads 
 node tests/coco3-buslog.test.js # CoCo 3 bus log: carried only with a HALT-capable device (logBus), hot-plug, snapshots, the guards
 node tests/held-writeio.test.js # a write from outside during a held access: queued, made between instructions, same machine either way
 node tests/coco3.test.js     # CoCo 3: MMU, GIME interrupts, timer, speed, video
+node tests/gime-vsc.test.js  # CoCo 3: the GIME's vertical fine scroll ($FF9C), line by line against rows worked out from the sources
 node tests/mc10.test.js      # MC-10: 6803 core, assembler plugin, machine
 node tests/sp0256.test.js    # SP0256 speech chip: sequencer, paging, branches, handshake, RCU, timing (GI design spec)
 node tests/liza6803.test.js  # LIZA for the 6803: same conversation as the 6809 build on mc10 and alice; BREAK, CLEAR, backspace
@@ -181,6 +182,7 @@ node tools/mame-diff/run.js d64plus --plustext [--video]   # the Dragon 64 Plus'
 node tools/mame-diff/run.js d64plus --paging [--video]   # the Dragon 64 Plus's $FFE2 paging: $04 is the motherboard RAM, the VDG never sees a bank (lockstep; --video: every pixel)
 node tools/mame-diff/run.js coco3 --video --composite [--artifact N]   # the CoCo 3 on MAME's composite monitor (BPI, MOCH, artifact colours)
 node tools/mame-diff/run.js <profile> --raster  # mid-line video changes swept across every beam position, against MAME
+node tools/mame-diff/run.js coco3 --vsc   # the GIME's vertical fine scroll ($FF9C): lockstep, every case's pixels, our scroll against MAME's pictures
 node tools/mame-diff/run.js <profile> --printer # printer output byte for byte against MAME's printer file
 node tools/mame-diff/run.js <profile> --serial  # the bit-banger (or the Dragon 64's 6551) in lockstep with MAME's loopback plug
 node tools/mame-diff/drivewire/run-dw.js [profile ...] [--no-trace]  # DriveWire over the Becker port: lockstep with MAME (TCP to our server), and byte for byte

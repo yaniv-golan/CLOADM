@@ -100,8 +100,9 @@ const SCREENS = [
     expect: { lines: ['START OFFSET $72348 (CPU $2348)', ...blank(22), 'LAST ROW OF THE MOVED SCREEN'], base: 0x2348 },
   },
   {
-    // scrolled by moving the video start 6 rows into 30 rows of text, with $FF9C (vertical scroll) at 5: the top
-    // border resets the GIME's row-line counter, so (in MAME 0.264 and here) it does not move the rows
+    // scrolled by moving the video start 6 rows into 30 rows of text, with $FF9C (vertical scroll) at 5: MAME 0.264's
+    // top border resets the GIME's row-line counter, so there (and here under mameCompat, which runOurs uses) it does
+    // not move the rows; the machine as shipped scrolls them (tests/gime-vsc.test.js, tools/mame-diff/coco3/gen-vsc.js)
     name: 'text 80 attr scrolled', f98: 0x03, f99: 0x15, f9c: 0x05, base: 0x733C0, clear: { from: -6 * 160, bytes: 160 * 30, fill: [0x20, 0x08] },
     writes: range(0, 30).map((r) => [(r - 6) * 160, withAttr(`LINE ${two(r)} OF THE SCROLLBACK`, 0x08)]),
     expect: { lines: range(6, 24).map((r) => `LINE ${two(r)} OF THE SCROLLBACK`), base: 0x33C0 },

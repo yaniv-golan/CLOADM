@@ -13,6 +13,50 @@ function machine(profileId, rom, config = {}) {
   return m;
 }
 
+// The scroll the sources give a case (independently of js/chips/gime.js): in a GIME mode whose $FF98 lines per row
+// (bits 0-2) is 2, 3, 4, 5 or 6 - rows of 2, 8, 9, 10 or 11 scanlines - a VSC below the row height starts the body
+// VSC lines into its first row (Sock Master's GIME reference, "FF9C Vertical scroll register - VSC"; Tepolt (1987)
+// pp29-30). Anything else is not scrolled in our model (docs/verification.md, "Deviations from MAME"). VSC written
+// part-way through a field and cleared in the bottom border is never seen: it is latched at the field's start.
+function scrollOf(c) {
+  const lines = { 2: 2, 3: 8, 4: 9, 5: 10, 6: 11 }[c.f98 & 7];
+  return c.when === 'border' && lines && c.vsc < lines ? c.vsc : 0;
+}
+// the body's first row in the picture and its height, from $FF99 bits 5-6 (192, 200 or 225 lines; the picture's
+// row 0 is the field's line 1)
+function bodyOf(f99) { return { 0x00: [24, 192], 0x20: [22, 200], 0x60: [7, 225] }[f99 & 0x60]; }
+function vscHardwareCheck(t, { mame, map, M, O, W, rows, cols, ignore }) {
+  const { captureOurs } = require('../lib/raster');
+  const hw = captureOurs(t, t.hardware());
+  let passed = 0;
+  for (const c of t.cases) {
+    const mc = mame[c.phase], hc = hw.ours[c.phase], hp = hw.plain[c.phase];
+    if (!mc || !hc || !hp) { console.log(`MISSING hardware ${c.name}`); continue; }
+    const s = scrollOf(c), [y0, body] = bodyOf(c.f99);
+    let diff = 0, changed = 0;
+    for (let y = 0; y < rows; y++) {
+      const inBody = y >= y0 && y < y0 + body;
+      if (inBody && y >= y0 + body - s) {               // the next row of the buffer: not in MAME's picture
+        for (let x = 0; x < cols; x++) if (O(hc, x, y) !== O(hp, x, y)) changed++;
+        continue;
+      }
+      const from = inBody ? y + s : y;
+      for (let x = 0; x < cols; x++) {
+        if (ignore(x, y) || ignore(x, from)) continue;
+        if (map.get(M(mc, x, from)) !== O(hc, x, y)) diff++;
+        if (O(hc, x, y) !== O(hp, x, y)) changed++;
+      }
+    }
+    // a scroll must change the picture from the case's lead-in field, and no scroll must leave it alone
+    const ok = !diff && (s ? changed > 0 : changed === 0);
+    if (ok) passed++;
+    console.log(`${ok ? 'SAME' : 'DIFF'}  ${String(c.phase).padStart(2)} hardware model ${c.name.padEnd(52)} scrolled ${s} line${s === 1 ? '' : 's'}: `
+      + `${diff} px differ from MAME's picture moved up ${s}; ${changed} px changed from the lead-in field`);
+  }
+  console.log(`[${t.label}] ${passed}/${t.cases.length} vertical scroll cases: the hardware model is MAME's picture moved up by the sources' scroll`);
+  return passed === t.cases.length && W > 0;
+}
+
 module.exports = {
   family: 'coco3',
   trace(profileId, { regenerate = true, config = {}, work } = {}) {
@@ -68,6 +112,39 @@ end)`,
       geometry: { offset: () => ({ ox: 0, oy: 0 }), ignore: (x, y) => x < 32 && y >= 16 && y < 48, origin: [0, 0] },
     };
   },
+  // the vertical fine scroll $FF9C in the GIME modes (vsc-<part>.asm, from gen-vsc.js; run.js coco3 --vsc runs every
+  // part): lockstep to HALT, then a field of every case against MAME's, pixel by pixel (lib/raster.js). MAME 0.264
+  // never scrolls (its top border resets the row's line counter: gime.cpp record_border_scanline), and our machine
+  // under mameCompat must show the same, so no case may change the picture. Then `check` runs the firmware on our
+  // machine as shipped (no mameCompat), which follows the sources (js/chips/gime.js vscLine), and requires, for
+  // every case, that its picture is MAME's picture of the same field moved up by the scroll the sources give
+  // (scrollOf), the bottom lines of the body excepted (they show the next row of the buffer), and the borders
+  // unchanged; and that a case with no scroll is MAME's picture exactly.
+  vsc(profileId, { part = 1, regenerate = true, config = {}, work = workDir(`${profileId}-vsc-${part}`) } = {}) {
+    const Emu = loadEmu(), profile = Emu.profiles[profileId];
+    const resolved = Emu.resolveConfig(profileId, Object.assign({ mameCompat: true }, config));
+    const gen = require('./gen-vsc');
+    if (regenerate) gen.write();
+    const file = gen.file(part);
+    const asm = assembleFile(path.join(__dirname, file), '6809');
+    const rom = romImage(asm, 0x8000, 0x8000, 0x12);
+    const t = {
+      label: `${profileId} ${resolved.ram}K vsc part ${part}/${gen.PARTS}`, system: profile.mame, work, seconds: 4,
+      args: ['-ext', '', ...mameConfigArgs(resolved)],
+      regs: REGS, waitOps: ['CWAI', 'SYNC'], haltPc: asm.symbols.get('HALT'),
+      install: () => writeRoms(work, profile.mame, { [profile.roms[0].files[0]]: rom }),
+      machine: () => machine(profileId, rom, config),
+      hardware: () => machine(profileId, rom, Object.assign({}, config, { mameCompat: false })),
+      instructions: 210000,       // (tests/regress.test.js: past HALT, at instruction 203408 at most)
+      phaseAddr: 0x7F00, fieldAddr: 0x7F01, file, cases: gen.partCases(part), fields: gen.FIELDS, plain: gen.PLAIN,
+      what: 'vertical scroll cases',
+      // the lead-in fields change the first cell's attribute, at the top left of the active area
+      geometry: { offset: () => ({ ox: 0, oy: 0 }), ignore: (x, y) => x < 32 && y < 48, origin: [0, 0] },
+    };
+    t.check = (ctx) => vscHardwareCheck(t, ctx);
+    return t;
+  },
+  vscParts: () => require('./gen-vsc').PARTS,
   // printer firmware (lib/printer.js): sam/printer-serial.asm, the bit-banger's serial printer as on the CoCo 1/2,
   // with its vectors at the top of the CoCo 3's 32K ROM
   printer(profileId, { config = {}, work = `/tmp/mame-diff/${profileId}-printer` } = {}) {

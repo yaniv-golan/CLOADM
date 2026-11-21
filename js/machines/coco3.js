@@ -73,7 +73,7 @@ class Coco3Machine extends Machine {
     this.pia0 = new MC6821();
     this.pia1 = new MC6821();
     this.pia1.b.c1 = false;          // CB1 (CART) starts low, as MAME's 6821 (m_in_cb1 = 0)
-    this.gime = new GIME({ ram: this.mem, pal, rom: () => this.romImage(), cart: () => (this.cartPort ? this.cartPort.rom() : null) });
+    this.gime = new GIME({ ram: this.mem, pal, mameCompat: config.mameCompat, rom: () => this.romImage(), cart: () => (this.cartPort ? this.cartPort.rom() : null) });
     this.div = 4;                 // GIME clocks per CPU cycle
     this.instrPc = 0;
     this.speedChange = -1;
@@ -844,7 +844,7 @@ class Coco3Machine extends Machine {
   loadState(s) {
     super.loadState(s);
     state.load(this, s, Coco3Machine.STATE);
-    this.gime.loadState(s.gime); this.pia0.loadState(s.pia0); this.pia1.loadState(s.pia1);
+    this.gime.loadState(s.gime, this.restoringVersion); this.pia0.loadState(s.pia0); this.pia1.loadState(s.pia1);
     if (!s.hires) throw new Error('snapshot: missing "hires"');
     Object.assign(this.hires.jet, s.hires);
     if (!s.stepNoStop) throw new Error('snapshot: missing "stepNoStop"');

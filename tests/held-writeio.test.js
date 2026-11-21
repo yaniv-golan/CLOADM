@@ -269,9 +269,9 @@ const queueAndStall = (m, a, v) => {
   m.stall = null;
   b.runCycles(b.cycle);                            // no step: the flush after the loop still makes it
   m.runCycles(m.cycle);
-  // (version 3 carries the queue as `outsideWrites`: machine.js's version note, "3:")
+  // (version 3 and later carry the queue as `outsideWrites`: machine.js's version note, "3:")
   check('held window: a snapshot carries the queued write, and the restore makes it as the original does',
-    owed === 1 && bOwed === 1 && Array.isArray(snap.state.outsideWrites) && snap.state.outsideWrites.length === 1 && snap.version === 3
+    owed === 1 && bOwed === 1 && Array.isArray(snap.state.outsideWrites) && snap.state.outsideWrites.length === 1 && snap.version === Emu.SNAPSHOT_VERSION
       && b.gime.palette[0] === 0x05 && m.gime.palette[0] === 0x05,
     `queued ${owed}/${bOwed}, file ${Array.isArray(snap.state.outsideWrites) ? snap.state.outsideWrites.length : 'no key'} (v${snap.version}), palette0 ${hex(m.gime.palette[0])}/${hex(b.gime.palette[0])}`);
   // a malformed queue in a file is refused, not restored

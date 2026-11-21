@@ -586,8 +586,11 @@ class Machine {
 //      CoCo 3 adds `outsideWrites`, the writes from outside the CPU queued while an instruction was held
 //      (js/machines/coco3.js outsideWrite); a version 1 or 2 file has none and restores owing none (none could be
 //      queued before this build held them).
+//   4: the CoCo 3's GIME adds `vsc`, the vertical fine scroll ($FF9C) latched at the start of the field
+//      (js/chips/gime.js vscLine). A version 1 to 3 file has none and restores with 0, as no field scrolled before
+//      this build; the next field latches $FF9C.
 export const SNAPSHOT_FORMAT = 'cloadm-state';
-export const SNAPSHOT_VERSION = 3;
+export const SNAPSHOT_VERSION = 4;
 export const SNAPSHOT_OLDEST = 1;
 
 Machine.BASIC_POINTERS = 0x19;   // Color BASIC / Dragon BASIC TXTTAB
