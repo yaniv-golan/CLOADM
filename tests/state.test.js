@@ -120,6 +120,28 @@ for (const [name, t, at] of cases) {
   }
 }
 
+// The GIME's vertical fine scroll ($FF9C; coco3/gen-vsc.js, part 1: 8-line text, VSC stepped 0-12), on the machine
+// as shipped (no mameCompat: MAME never scrolls). Two points: in the body of a scrolled field, partway through a row
+// (the latched VSC, `vsc`, in use), and between a write to $FF9C and the next field's start, where the register
+// already holds the next value and the field still shows the latched one: both must run on identically.
+{
+  const t = spec('coco3').vsc('coco3', { part: 1, regenerate: false, config: { mameCompat: false } });
+  const points = [
+    ['in the body of a scrolled field', (g) => g.zone === 1 && g.vsc > 1 && g.logical > 40 && g.lineInRow !== 0],
+    ['after a $FF9C write, before the field latches it', (g) => g.vsc > 0 && (g.regs[12] & 0x0F) !== g.vsc],
+  ];
+  for (const [what, at] of points) {
+    const a = t.hardware(), g = a.gime;
+    let guard = 0;
+    while (!at(g) && guard++ < 4000000) a.runCycles(a.cycle + 1);
+    check(`vertical scroll: snapshot taken ${what}`, at(g), JSON.stringify({ zone: g.zone, vsc: g.vsc, ff9c: g.regs[12], lineInRow: g.lineInRow }));
+    const text = Emu.state.toJSON(a.snapshot());
+    const continued = run(a, t.regs, 40);
+    const b = Emu.restoreSnapshot(Emu.state.fromJSON(text), a.roms);
+    check(`vertical scroll, ${what}: restored machine runs identically (trace and frames)`, run(b, t.regs, 40) === continued);
+  }
+}
+
 // restored in place while the CoCo FDC holds the CPU halted (HALT on DRQ): the old controller's detach must not
 // leave the hub believing HALT is already released, or the restored controller's release is lost
 {

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Compare one machine against MAME. Needs MAME (e.g. `apt install mame`); uses only our own firmware.
 //
-//   node tools/mame-diff/run.js <profile> [--ram <K>] [--video [--artifact N] [--attr] [--composite] [--text]] [--raster [--no-trace] [--keep]] [--printer [--no-trace]] [--serial] [--reset] [--rate|--ops] [--plus] [--plustext [--video]] [--keep-firmware]
+//   node tools/mame-diff/run.js <profile> [--ram <K>] [--video [--artifact N] [--attr] [--composite] [--text]] [--raster [--no-trace] [--keep]] [--vsc [--no-trace] [--keep]] [--printer [--no-trace]] [--serial] [--reset] [--rate|--ops] [--plus] [--plustext [--video]] [--keep-firmware]
 //   node tools/mame-diff/run.js <dragon64|coco|coco3|dgnalpha> --fdc [dragonfdc|premierfdc|cocofdc|multifdc|alphafdc] [--images|--write|--nmi|--multi|--blank <fmt>:<T>x<H>|--halt [--empty]|--nitros9] [--keep-firmware]
 //   node tools/mame-diff/run.js <coco|coco3|dragon64|dragon32> --cart <setup> [--audio]
 //
@@ -12,6 +12,10 @@
 // --raster: mid-line video changes swept across every beam position (<family>/raster.asm, lib/raster.js):
 // lockstep to HALT, then every pixel of a swept field per case; --no-trace skips the lockstep part,
 // --keep leaves MAME's movie and the difference images in the work directory.
+// --vsc (coco3): the GIME's vertical fine scroll $FF9C in the native modes (coco3/gen-vsc.js, vsc-<part>.asm, each
+// part from reset): lockstep to HALT, then a field of every case pixel by pixel (lib/raster.js; MAME 0.264 never scrolls, so neither may our
+// mameCompat machine), then our shipped model's pictures against MAME's moved up by the scroll the sources give
+// (coco3/spec.js vsc); --no-trace and --keep as for --raster.
 // --printer: the printer firmware's output, byte for byte against MAME's -prin file (lib/printer.js), after
 // a lockstep run to HALT (--no-trace skips it).
 // --serial: the bit-banger serial port (or the 6551) in loopback, in lockstep with MAME's -rs232 loopback; then
@@ -155,6 +159,15 @@ async function main() {
   if (args.includes('--raster')) {
     if (!need('mid-line raster', spec.raster)) return undefined;
     return await runRaster(spec.raster(profileId, { config }), { trace: !args.includes('--no-trace'), keep: args.includes('--keep') });
+  }
+  if (args.includes('--vsc')) {
+    if (!need('vertical scroll', spec.vsc)) return undefined;
+    // every part (coco3/gen-vsc.js: each runs from reset, inside the first 2.6 million cycles)
+    let code = 0;
+    for (let part = 1; part <= spec.vscParts(); part++) {
+      code |= await runRaster(spec.vsc(profileId, { config, part, regenerate: part === 1 }), { trace: !args.includes('--no-trace'), keep: args.includes('--keep') });
+    }
+    return code;
   }
   if (args.includes('--pia1b')) {
     if (!need('PIA1 port B', spec.pia1b)) return undefined;

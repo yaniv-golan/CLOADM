@@ -772,5 +772,70 @@
     "instructions": 270,
     "presses": 2,
     "halted": true
+  },
+  "trace coco3 vsc part 1": {
+    "hash": "f0954ca6",
+    "instructions": 213666,
+    "halted": true
+  },
+  "vsc coco3 part 1": {
+    "hash": "8963dc45",
+    "frames": 140
+  },
+  "vsc coco3 part 1 hardware": {
+    "hash": "b4cec845",
+    "frames": 140
+  },
+  "trace coco3 vsc part 2": {
+    "hash": "8b4109da",
+    "instructions": 213666,
+    "halted": true
+  },
+  "vsc coco3 part 2": {
+    "hash": "18747af5",
+    "frames": 140
+  },
+  "vsc coco3 part 2 hardware": {
+    "hash": "647f8b8d",
+    "frames": 140
+  },
+  "trace coco3 vsc part 3": {
+    "hash": "8fa0fb3e",
+    "instructions": 213666,
+    "halted": true
+  },
+  "vsc coco3 part 3": {
+    "hash": "b6a65be5",
+    "frames": 140
+  },
+  "vsc coco3 part 3 hardware": {
+    "hash": "24100365",
+    "frames": 140
+  },
+  "trace coco3 vsc part 4": {
+    "hash": "0c0dc917",
+    "instructions": 213666,
+    "halted": true
+  },
+  "vsc coco3 part 4": {
+    "hash": "0a035085",
+    "frames": 140
+  },
+  "vsc coco3 part 4 hardware": {
+    "hash": "8b21a645",
+    "frames": 140
+  },
+  "trace coco3 vsc part 5": {
+    "hash": "6d6c991a",
+    "instructions": 210478,
+    "halted": true
+  },
+  "vsc coco3 part 5": {
+    "hash": "96407d01",
+    "frames": 140
+  },
+  "vsc coco3 part 5 hardware": {
+    "hash": "11c407dd",
+    "frames": 140
   }
 }
