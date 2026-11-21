@@ -232,5 +232,73 @@ for (const [label, fps, cycles] of [['PAL Dragon', 49.96766756635178, 17784], ['
     `${[...sizes].join(',')} avg ${(total / 1000).toFixed(3)}`);
 }
 
+// ---- recovery after a stall: the queue comes back into the band in seconds, not tens of seconds ----
+// A page stall leaves the queue deep (the worklet kept playing while the page could not push) or empty (paused,
+// then resumed). Either way the steering has to bring it back, and it does that by resampling a frame by a little
+// more or fewer samples. What matters is the RATE: a fixed 0.5% moves the queue by 0.005 x rate samples a second,
+// which is 5 ms of sound a second at every rate, so 60 ms of excess needs 12 s at best and, because the
+// correction is proportional, much longer in practice.
+//
+// The test runs the stage the way the page does: the machine pushes a frame each 1/fps, the card plays a
+// 1024-sample block each 1024/rate, and whichever is due first runs. Depth is read after each block (a
+// 1024-sample view, ~21-23 ms, which is the card's own granularity).
+//
+// The two cases and their bounds are RATES (ms of depth a second), not absolute levels, because the level a run
+// settles at depends on the phase between the frame clock and the card's:
+//   - from 140 ms (a stall's catch-up): at most 8 s to be back inside [10, 80] ms, and at most 2 s more to be
+//     within 10 ms of the depth 5 s after that. Main in 30 s is still 106-114 ms at +5 s and 75-86 ms at +12 s.
+//   - from empty (paused, then resumed): within 10 s it is inside the band and stays there for 5 s. Main never
+//     gets there: it sits wherever the clocks happen to leave it (measured 6-29 ms over 30 s).
+// A stall must also never cost a popped sample: the no-pop checks above cover the fade path; here the queue
+// going empty is legitimate (that is what a long stall does) and is not counted as a failure.
+for (const rate of [44100, 48000]) {
+  // run `seconds` of the page's life with the stage; `stall` (seconds) is a window with no pushes
+  const runStall = (out, { from = 0, seconds = 40, stall = null, warmMs = 0 } = {}) => {
+    const block = new Float32Array(1024), fps = 49.96766756635178, cycles = 17784;
+    const frameDt = 1 / fps, blockDt = 1024 / rate;
+    // warm the queue to `warmMs` before the timed part (what a stall found queued)
+    if (warmMs) for (let i = 0; out.buffered() < warmMs / 1000 * rate; i++) out.push([0, 0.5], cycles, fps);
+    let tf = from, tb = 0, t = from; const depth = [];
+    while (t < seconds) {
+      const quiet = stall && t >= stall[0] && t < stall[1];
+      if (tf <= tb) { if (!quiet) out.push([0, 0.5], cycles, fps); tf += frameDt; }
+      else { out.sink.pull(block); tb += blockDt; depth.push([tb, out.buffered() / rate * 1000]); }
+      t = Math.min(tf, tb);
+    }
+    return depth;
+  };
+  const depthAt = (d, t) => { let best = d[0][1]; for (const [u, m] of d) { if (u > t) break; best = m; } return best; };
+  const inBand = (m) => m >= 10 && m <= 80;
+
+  // (a) the queue is deep when the page comes back: it must be in the band within 8 s
+  {
+    const out = new Stage(rate);
+    const d = runStall(out, { from: 0, seconds: 30, warmMs: 140 });
+    const start = depthAt(d, 0.05);
+    // first time at or after the start where it is in the band and stays in it for 2 s
+    let back = null;
+    for (let i = 0; i < d.length; i++) {
+      if (d[i][0] < 0.05 || !inBand(d[i][1])) continue;
+      const stay = d.filter(([t]) => t >= d[i][0] && t < d[i][0] + 2);
+      if (stay.every(([, m]) => inBand(m))) { back = d[i][0]; break; }
+    }
+    check(`${rate} Hz: a stall's deep queue is back inside 10-80 ms within 8 s`, start > 100 && back !== null && back <= 8,
+      `started ${start.toFixed(1)} ms, ${back === null ? 'never in the band for 2 s' : `back at ${back.toFixed(2)} s`}`);
+    // and it goes on to the depth the steering aims for (40 ms), rather than stopping short in the band
+    const near = (t) => Math.abs(depthAt(d, t) - 40) <= 15;
+    check(`${rate} Hz: and it settles at the 40 ms the steering aims for (within 15 ms, at 20 s and 30 s)`, near(20) && near(30),
+      `${depthAt(d, 20).toFixed(1)} ms at 20 s, ${depthAt(d, 30).toFixed(1)} ms at 30 s`);
+  }
+  // (b) the queue is empty when the page comes back: it must be in the band, and stay, within 10 s
+  {
+    const out = new Stage(rate);
+    const d = runStall(out, { from: 0, seconds: 30 });
+    const late = d.filter(([t]) => t >= 10);
+    const inside = late.every(([, m]) => inBand(m));
+    check(`${rate} Hz: from an empty queue the band is reached within 10 s and kept for the next 20`,
+      inside && d.some(([t, m]) => t >= 5 && inBand(m)), `${late.filter(([, m]) => !inBand(m)).length} of ${late.length} blocks outside the band after 10 s, depth at 10 s ${depthAt(d, 10).toFixed(1)} ms`);
+  }
+}
+
 console.log(fail ? `${fail} FAILED` : 'all passed');
 process.exitCode = fail ? 1 : 0;
