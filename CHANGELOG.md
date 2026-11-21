@@ -258,6 +258,12 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   machine the link chose. The browser check opens `#share` directly and requires no error toast, no page error and a
   running screen.
 
+- **The Speech/Sound Pak's ROM no longer looks required on the Add ROMs screen.** On the Dragon 64 and the CoCos its
+  PIC ROM card carried the same "required" tag as BASIC, so a first visit read it as something the machine needs.
+  The Pak is an optional cartridge: its cards are now titled "Speech/Sound Pak (optional cartridge): ...", tagged
+  optional like the disk card, and listed after the machine's sockets and the disk card. The Pak still needs its PIC
+  ROM to be inserted, and says so. Checked in the browser check's `sscBoard` group.
+
 ### 0.1.7-pre
 
 #### Added

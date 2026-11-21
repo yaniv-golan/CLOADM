@@ -658,6 +658,19 @@ async function sscBoardChecks(browser, base, check) {
   check('Speech/Sound Pak: the ROM panel shows its PIC and speech sockets, the PIC required',
     sockets.some((s) => s.id === 'ssc-tms7040' && s.status === 'missing-required') && sockets.some((s) => s.id === 'ssc-sp0256' && s.status === 'missing-optional'),
     JSON.stringify(sockets));
+  // ... but the Pak is an optional cartridge: none of its cards is tagged required (BASIC's red tag), each is titled
+  // "(optional cartridge)", and they come after every one of the machine's sockets
+  const pakCards = await page.evaluate(() => {
+    const cards = [...document.querySelectorAll('#romSockets .socket')];
+    const lastMachine = cards.reduce((n, c, i) => (c.dataset.status ? i : n), -1);
+    return cards.map((c, i) => ({ c, i })).filter(({ c }) => (c.dataset.socket || '').startsWith('ssc-')).map(({ c, i }) => ({
+      id: c.dataset.socket, title: c.querySelector('strong').textContent, tag: c.querySelector('.tag').textContent,
+      req: !!c.querySelector('.tag.req'), afterMachine: i > lastMachine,
+    }));
+  });
+  check('Speech/Sound Pak: its ROM cards are optional, not required: titled "(optional cartridge)", tagged optional, below the machine sockets',
+    pakCards.length === 2 && pakCards.every((p) => !p.req && p.tag === 'optional' && /^Speech\/Sound Pak \(optional cartridge\): /.test(p.title) && p.afterMachine),
+    JSON.stringify(pakCards));
   await page.evaluate(() => { location.hash = ''; });
   await waitFor(page, () => !document.body.classList.contains('roms-open'));
   // insert it with no ROM: refused with a clear message naming the PIC ROM
