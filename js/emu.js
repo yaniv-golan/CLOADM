@@ -22,6 +22,7 @@ export * from './media/deck.js';
 export * from './media/cassette.js';
 export * from './machines/keyboards.js';
 export { HostInput, DEAD_ZONE, PLAYER_BACK_IN, STICK_RADIUS } from './host/input.js';
+export { AudioOutput } from './host/audio.js';
 export { CocoMax } from './machines/cocomax.js';
 export * from './machines/keyqueue.js';
 export * from './config.js';

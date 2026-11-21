@@ -308,6 +308,30 @@ attack-hold envelope's shape within 3% of its range (0.52%). Not sample by sampl
 stream through its own filter and starts its sample clock elsewhere. The DC level is not compared: MAME's mix
 carries constant offsets (its DAC and single-bit sound at -1 when silent) and our audio output removes DC.
 
+**Dragon and CoCo sound, and the command line's `--wav`** (`run.js <dragon64|dragon32|coco> --sound`,
+`tools/mame-diff/sam/dac-sound.js`): our firmware (`sam/dac-sound.asm`, in place of BASIC) plays DAC square waves at
+two pitches, at half the swing, in the upper half of the range, and the single-bit sound. MAME records it with
+`-wavwrite` at 48 kHz; ours is the machine's level events of every frame through the page's output stage without its
+DC filter (`AudioOutput`, `highPass: false`), the path `cloadm --wav` records through. MAME's output is ours times one
+scale factor plus one offset (its silent level is not 0), both taken from the first segment; MAME does not block DC, so
+its segment means follow the levels. Per segment: the pitch within 1% (all are equal), the RMS within 0.5% and the mean
+within 0.5% of the first segment's RMS. The DAC's half swing and upper half match to 0.01% (RMS) and 0.08% (mean), the
+single-bit sound to 0.06% and 0.24%, on all three machines. The single-bit sound adds 32 DAC steps
+(`js/machines/cocopia.js`), the weight of the DAC's top bit: the Tandy service manual's parts list gives the DAC's
+resistors R10-R15 as 10K to 324K and the single-bit sound's R22 as 10K (as MAME 0.264's `coco12.cpp` cites it; the
+manual itself was not available to this check), and MAME's level matches (it was 31.5 steps, which this comparison finds
+1.50% off and fails; `tests/cli-wav.test.js` pins it at 10240 alone and 30400 with DAC 63). A mutation
+that moves the DAC's upper half up one step fails the mean check alone (0.71% to 1.04%).
+`tests/cli-wav.test.js` then shows the recording itself is exact: firmware writing a known DAC pattern gives every level
+as 320 x the DAC value, every interval between writes is the cycle count from the MC6809 data sheet (within 0.01
+cycle; the worst seen is 0.003), the WAV is the box filter of the machine's level events sample for sample, two runs
+give the same bytes, and a snapshot taken mid-sound continues with the same samples.
+
+**Screenshot comparison** (`--expect-screenshot`): `tests/cli-screenshot.test.js` compares frames with references
+written by its own PNG encoder (RGB, RGBA, grey and palette, grey and palette also at 1, 2 and 4 bits, every filter type), so the decoder is checked against files it
+did not write; one changed pixel is found and named, the tolerance and the difference picture are checked pixel by
+pixel. The frame itself is `machine.render()`, which the `--video` comparisons above check against MAME.
+
 
 **CoCo 3 text attributes.** The display-mode comparison above cannot see the attribute bits fully: our text glyphs
 are our own design, so a character cell that differs counts as a font difference when it shows only two colours,

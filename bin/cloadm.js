@@ -11,7 +11,7 @@
 // match), 2 usage error, 3 media or ROM error, 4 internal error; every error also has a stable `code`.
 //
 // Determinism: the machine runs whole emulated frames (Session.runFrames) with no wall clock anywhere (no turbo
-// budget, no fast-tape pacing), as fast as the host can run them, so the same inputs give the same frames.
+// budget, no fast-tape pacing), as fast as the host can run them, so the same inputs give the same frames and sound.
 'use strict';
 const fs = require('fs');
 const path = require('path');
@@ -45,6 +45,12 @@ const ERROR_CODES = Object.freeze({
 const REG_BYTES = ['a', 'b', 'e', 'f', 'dp', 'cc', 'md'];
 const DEFAULT_TIMEOUT = 10;   // emulated seconds a wait-for (or the keys a type step queues) may take
 const STEP_LIMIT = 100000;    // most instructions one `step` runs
+const HOLD_LIMIT = 100000;    // most frames one `hold` runs
+// --wav: 16-bit mono PCM at WAV_RATE. A sample is the machine's sound level averaged over the sample's time window
+// (the page's own output stage, js/host/audio.js AudioOutput, without its DC-blocking filter), times WAV_SCALE: the
+// 6-bit DAC's step is 320 (DAC value d is 320 x d, at most 20160) and the single-bit output adds 10240 (32 DAC steps).
+const WAV_RATE = 44100;
+const WAV_SCALE = 20160;
 
 class CliError extends Error {
   constructor(code, message, extra = {}) {
@@ -179,6 +185,27 @@ const STEPS = {
   },
   'expect-screen': { arg: 'REGEX', help: 'the screen text must match now, or exit 1', example: '--expect-screen \'OK\'', parse: regex },
   'expect-mem': { arg: 'ADDR=VALUE', help: 'the byte must hold the value now, or exit 1', example: '--expect-mem \'$3100=5\'', parse: memTest },
+  'expect-screenshot': {
+    arg: 'FILE', help: 'the frame must match a reference PNG pixel for pixel (up to the tolerance), or exit 1; the result counts the differing pixels and gives the first', example: '--expect-screenshot ref.png',
+    parse: (t) => ({ file: t }),
+  },
+  tolerance: {
+    arg: 'N', help: 'how many pixels each later expect-screenshot may find different (default 0)', example: '--tolerance 4',
+    parse: (t) => number(t, 'tolerance', 0xFFFFFFF),
+  },
+  diff: {
+    arg: 'FILE', help: 'each later expect-screenshot writes a picture of the differences here: differing pixels red, the rest the frame dimmed', example: '--diff diff.png',
+    parse: (t) => t,
+  },
+  hold: {
+    arg: 'KEYS[:N]', help: `hold keys down in the keyboard matrix for N frames (default 1, at most ${HOLD_LIMIT}), then let go: a key name (LEFT, RIGHT, UP, DOWN, SPACE, ENTER, SHIFT, ...) or character, several joined with +`, example: '--hold RIGHT:10',
+    parse: holdKeys,
+  },
+  wav: {
+    arg: 'FILE', help: `record the machine's sound from here to the end of the run (or a wav-stop) as a 16-bit ${WAV_RATE} Hz mono WAV (emulated time; DAC value d is ${WAV_SCALE / 63} x d)`, example: '--wav sound.wav',
+    parse: (t) => ({ file: t }),
+  },
+  'wav-stop': { arg: null, help: 'end the sound recording here and write its file', example: '--wav-stop' },
   screen: { arg: null, help: 'the text on the screen (the readers Claude\'s screen_text uses); a graphics screen has no text, and says so', example: '--screen' },
   screenshot: {
     arg: 'FILE', help: 'save the frame as a PNG (the frame\'s own pixels, unscaled)', example: '--screenshot out.png',
@@ -232,6 +259,15 @@ STEPS.disasm.optionalArg = true;
 // what the script and the command line also accept for these names
 const ALIASES = { 'expect-text': 'expect-screen', png: 'screenshot', m: 'machine', o: 'option', regs: 'registers' };
 
+// KEY[+KEY...][:FRAMES]: key names as the keyboard matrix has them (js/machines/keyboards.js), {NAME} too
+function holdKeys(t) {
+  const m = /^(.+?)(?::(\d+))?$/.exec(t);
+  const keys = m ? m[1].split(/\+(?=.)/).map((k) => k.replace(/^\{(.+)\}$/, '$1')) : [];
+  if (!keys.length || keys.some((k) => !k)) throw usage(`hold is KEY[+KEY...][:FRAMES], not "${t}"`);
+  const frames = m[2] != null ? positive(m[2], 'frames', { integer: true }) : 1;
+  if (frames > HOLD_LIMIT) throw usage(`hold runs at most ${HOLD_LIMIT} frames`);
+  return { keys: keys.map((k) => k.toUpperCase()), frames };
+}
 function peekRange(a, n, t) { if (!n || a + n > 0x10000) throw usage(`peek ${t} runs past $FFFF or is empty`); return { address: a, length: n }; }
 function pokeRange(a, bytes) { if (a + bytes.length > 0x10000) throw usage('the bytes run past $FFFF'); return { address: a, bytes }; }
 
@@ -324,14 +360,89 @@ function chunk(type, data) {
   return Buffer.concat([head, data, crc]);
 }
 // a Frame (colour codes + table) as an RGBA PNG of the frame's own size
-function framePng(frame) {
-  const w = frame.width, h = frame.height, rgba = Buffer.from(Emu.frameToRGBA(frame).buffer);
+const frameRgba = (frame) => { const p = Emu.frameToRGBA(frame); return Buffer.from(p.buffer, p.byteOffset, p.byteLength); };
+function framePng(frame) { return rgbaPng(frame.width, frame.height, frameRgba(frame)); }
+
+// a PNG file -> { width, height, rgba: Buffer of R,G,B,A }: grey or palette at 1, 2, 4 or 8 bits, RGB, grey+alpha or
+// RGBA at 8, not interlaced (what screenshot writes, and what image editors save); anything else is bad-media
+function decodePng(bytes, file) {
+  const b = Buffer.from(bytes), bad = (why) => media(`${file}: ${why}`);
+  if (b.length < 8 || !PNG_SIG.every((x, i) => b[i] === x)) throw bad('not a PNG file');
+  let at = 8, ihdr = null, plte = null, trns = null;
+  const idat = [];
+  while (at + 12 <= b.length) {
+    const len = b.readUInt32BE(at), type = b.toString('latin1', at + 4, at + 8);
+    if (at + 12 + len > b.length) throw bad('the PNG is cut short');
+    const data = b.subarray(at + 8, at + 8 + len);
+    if ((zlib.crc32(b.subarray(at + 4, at + 8 + len)) >>> 0) !== b.readUInt32BE(at + 8 + len)) throw bad(`the PNG's ${type} chunk is damaged (CRC)`);
+    if (type === 'IHDR') ihdr = { w: data.readUInt32BE(0), h: data.readUInt32BE(4), depth: data[8], colour: data[9], interlace: data[12] };
+    else if (type === 'PLTE') plte = data;
+    else if (type === 'tRNS') trns = data;
+    else if (type === 'IDAT') idat.push(data);
+    else if (type === 'IEND') break;
+    at += 12 + len;
+  }
+  if (!ihdr || !idat.length) throw bad('the PNG has no image');
+  const channels = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 }[ihdr.colour], depth = ihdr.depth;
+  const depthOk = depth === 8 || ((ihdr.colour === 0 || ihdr.colour === 3) && [1, 2, 4].includes(depth));
+  if (!channels || !depthOk || ihdr.interlace) throw bad(`only non-interlaced PNGs can be compared, grey or palette at 1, 2, 4 or 8 bits and the other colour types at 8 (this one: colour type ${ihdr.colour}, ${depth}-bit${ihdr.interlace ? ', interlaced' : ''})`);
+  if (ihdr.colour === 3 && !plte) throw bad('a palette PNG without its palette');
+  // filters work on bytes: `unit` bytes a pixel (at least 1); a row of samples under 8 bits is packed, high bits first
+  const w = ihdr.w, h = ihdr.h, unit = Math.max(1, channels * depth / 8), stride = Math.ceil(w * channels * depth / 8);
+  let raw;
+  try { raw = zlib.inflateSync(Buffer.concat(idat)); } catch (e) { throw bad(`the PNG's image data cannot be read (${e.message})`); }
+  if (raw.length < (stride + 1) * h) throw bad('the PNG\'s image data is short');
+  const px = Buffer.alloc(stride * h);
+  for (let y = 0; y < h; y++) {
+    const f = raw[y * (stride + 1)], line = y * (stride + 1) + 1, row = y * stride;
+    if (f > 4) throw bad(`unknown PNG filter ${f}`);
+    for (let x = 0; x < stride; x++) {
+      const a = x >= unit ? px[row + x - unit] : 0, up = y ? px[row - stride + x] : 0, c = x >= unit && y ? px[row - stride + x - unit] : 0;
+      let pred = 0;
+      if (f === 1) pred = a; else if (f === 2) pred = up; else if (f === 3) pred = (a + up) >> 1;
+      else if (f === 4) { const p = a + up - c, pa = Math.abs(p - a), pb = Math.abs(p - up), pc = Math.abs(p - c); pred = pa <= pb && pa <= pc ? a : pb <= pc ? up : c; }
+      px[row + x] = (raw[line + x] + pred) & 0xFF;
+    }
+  }
+  // samples under 8 bits: each one unpacked to a byte (grey scaled to 0-255, a palette index kept as it is)
+  let samples = px;
+  if (depth < 8) {
+    samples = Buffer.alloc(w * h);
+    const max = (1 << depth) - 1, scale = ihdr.colour === 0 ? 255 / max : 1;
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const bit = x * depth, v = (px[y * stride + (bit >> 3)] >> (8 - depth - (bit & 7))) & max;
+        samples[y * w + x] = v * scale;
+      }
+    }
+  }
+  // a grey PNG's tRNS is one 16-bit grey value (in the PNG's own bit depth) that is transparent
+  const clear = ihdr.colour === 0 && trns && trns.length >= 2 ? trns.readUInt16BE(0) : -1;
+  const rgba = Buffer.alloc(w * h * 4);
+  for (let i = 0; i < w * h; i++) {
+    const p = samples.subarray(i * channels, (i + 1) * channels), o = i * 4;
+    if (ihdr.colour === 0) {
+      rgba[o] = rgba[o + 1] = rgba[o + 2] = p[0];
+      rgba[o + 3] = clear >= 0 && Math.round(p[0] * ((1 << depth) - 1) / 255) === clear ? 0 : 255;
+    }
+    else if (ihdr.colour === 2) { rgba[o] = p[0]; rgba[o + 1] = p[1]; rgba[o + 2] = p[2]; rgba[o + 3] = 255; }
+    else if (ihdr.colour === 3) {
+      if (p[0] * 3 + 2 >= plte.length) throw bad(`palette index ${p[0]} past the PNG's palette`);
+      rgba[o] = plte[p[0] * 3]; rgba[o + 1] = plte[p[0] * 3 + 1]; rgba[o + 2] = plte[p[0] * 3 + 2]; rgba[o + 3] = trns && p[0] < trns.length ? trns[p[0]] : 255;
+    } else if (ihdr.colour === 4) { rgba[o] = rgba[o + 1] = rgba[o + 2] = p[0]; rgba[o + 3] = p[1]; }
+    else p.copy(rgba, o);
+  }
+  return { width: w, height: h, rgba };
+}
+// RGBA bytes as a PNG
+function rgbaPng(w, h, rgba) {
   const raw = Buffer.alloc((w * 4 + 1) * h);
   for (let y = 0; y < h; y++) rgba.copy(raw, y * (w * 4 + 1) + 1, y * w * 4, (y + 1) * w * 4);   // filter 0 per row
   const ihdr = Buffer.alloc(13);
   ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 6;   // 8 bits, RGBA
   return Buffer.concat([PNG_SIG, chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw, { level: 9 })), chunk('IEND', Buffer.alloc(0))]);
 }
+const colourHex = (b, o) => `#${[b[o], b[o + 1], b[o + 2], b[o + 3]].map(hex2).join('')}`;
 
 // ---------------- running ----------------
 const DEFAULT_SETUP = () => ({ machine: 'dragon64', options: [], roms: [], noRoms: false, fastCas: false });
@@ -340,6 +451,9 @@ class Runner {
     this.setup = DEFAULT_SETUP();
     this.s = null;
     this.timeout = DEFAULT_TIMEOUT;
+    this.tolerance = 0;          // pixels an expect-screenshot may find different
+    this.diffFile = null;        // where an expect-screenshot writes its difference picture
+    this.wav = null;             // the sound recording under way: { file, out (AudioOutput), chunks, result }
     this.results = [];
     this.romReport = null;
   }
@@ -381,11 +495,17 @@ class Runner {
   // hooks; no clock) -> the frames run: fewer only when a debugger breakpoint stopped the machine part way. A machine
   // waiting for the store (m.stall: a DriveWire sector being read) is waited for, so the frames always run: the store
   // answers through the event loop, which is why this is async.
+  // While a --wav recording runs, the frames run one at a time, and each finished frame's sound goes through the
+  // recording's output stage, as the page's screen loop pushes it (js/ui/screen.js).
   async runFrames(count) {
     let ran = 0;
     while (ran < count) {
-      ran += this.s.runFrames(count - ran);
-      if (ran >= count || this.s.paused || !this.m.stall) break;
+      const n = this.s.runFrames(this.wav ? 1 : count - ran);
+      if (this.wav && n) this.wav.out.push(this.m.audioEvents, this.m.frameCycles, this.m.fps);
+      ran += n;
+      if (ran >= count) break;
+      if (this.wav && n) continue;
+      if (this.s.paused || !this.m.stall) break;
       await this.storeAnswer();
     }
     return ran;
@@ -401,7 +521,7 @@ class Runner {
   framesFor(seconds) { return Math.max(1, Math.round(seconds * this.m.fps)); }
   screen() { return Emu.screenTextTool(this.s); }
   // the failure of a condition: exit 1, with the screen for context
-  failed(code, message) { return new CliError(code, message, { screen: this.screen() }); }
+  failed(code, message, extra = {}) { return new CliError(code, message, Object.assign({ screen: this.screen() }, extra)); }
   record(step, extra = {}) { const r = Object.assign({ step: step.name }, extra); this.results.push(r); return r; }
 
   // run one step -> its result (also recorded in this.results), or null for a setup step
@@ -417,6 +537,8 @@ class Runner {
       return null;
     }
     if (step.name === 'timeout') { this.timeout = v; return this.record(step, { seconds: v }); }
+    if (step.name === 'tolerance') { this.tolerance = v; return this.record(step, { pixels: v }); }
+    if (step.name === 'diff') { this.diffFile = v; return this.record(step, { file: v }); }
     this.start();
     try {
       return await this[STEP_METHODS[step.name]](step, v, this.s);
@@ -551,6 +673,71 @@ class Runner {
     if (got !== value) throw this.failed('expect-failed', `${step.where}: ${Emu.hex(a)} holds ${Emu.hex(got, 2)}, not ${Emu.hex(value, 2)}`);
     return this.record(step, { address: a, value, met: true });
   }
+  // the frame against a reference PNG, pixel for pixel (all four bytes of each)
+  async expectScreenshot(step, { file }) {
+    const ref = decodePng(readFile(file, 'reference PNG'), file);
+    const frame = this.m.render(), w = frame.width, h = frame.height, got = frameRgba(frame);
+    const r = { file, width: w, height: h, tolerance: this.tolerance };
+    if (ref.width !== w || ref.height !== h) {
+      throw this.failed('expect-failed', `${step.where}: the frame is ${w}x${h}, ${file} is ${ref.width}x${ref.height}`, { screenshot: Object.assign(r, { referenceWidth: ref.width, referenceHeight: ref.height }) });
+    }
+    const diff = this.diffFile ? Buffer.alloc(w * h * 4) : null;
+    let differing = 0, first = null;
+    for (let i = 0, o = 0; i < w * h; i++, o += 4) {
+      const same = got[o] === ref.rgba[o] && got[o + 1] === ref.rgba[o + 1] && got[o + 2] === ref.rgba[o + 2] && got[o + 3] === ref.rgba[o + 3];
+      if (!same) {
+        differing++;
+        if (!first) first = { x: i % w, y: Math.floor(i / w), expected: colourHex(ref.rgba, o), actual: colourHex(got, o) };
+      }
+      if (diff) {
+        if (same) { diff[o] = got[o] / 3; diff[o + 1] = got[o + 1] / 3; diff[o + 2] = got[o + 2] / 3; } else diff[o] = 255;
+        diff[o + 3] = 255;
+      }
+    }
+    if (diff) { writeFile(this.diffFile, rgbaPng(w, h, diff)); r.diff = this.diffFile; }
+    r.differing = differing;
+    if (first) r.first = first;
+    if (differing > this.tolerance) {
+      const at = `first at (${first.x},${first.y}): expected ${first.expected}, got ${first.actual}`;
+      throw this.failed('expect-failed', `${step.where}: ${differing} ${differing === 1 ? 'pixel differs' : 'pixels differ'} from ${file} (tolerance ${this.tolerance}); ${at}`, { screenshot: r });
+    }
+    return this.record(step, Object.assign(r, { met: true }));
+  }
+  // keys held down in the matrix (as a finger would) for some frames, then let go
+  async hold(step, { keys, frames }) {
+    const m = this.m, missing = keys.filter((k) => !m.keyPos[k]);
+    if (missing.length) throw usage(`${step.where}: the ${m.profile.name}'s keyboard has no ${missing.join(', ')} key (names: ${Object.keys(m.keyPos).join(' ')})`, 'untypable');
+    for (const k of keys) m.setKey(k, true);
+    let ran;
+    try { ran = await this.runFrames(frames); } finally { for (const k of keys) m.setKey(k, false); }
+    return this.record(step, { keys, frames: ran });
+  }
+  // start recording the sound (ending one under way): written by endWav, when the run ends
+  async wavStep(step, { file }) {
+    this.endWav();
+    const chunks = [];
+    const out = new Emu.AudioOutput(WAV_RATE, { buffered: () => 0, write: (c) => chunks.push(c) }, { highPass: false });
+    out.volume = WAV_SCALE / 32767;
+    const result = this.record(step, { file, rate: WAV_RATE, bits: 16, dacStep: WAV_SCALE / 63 });
+    this.wav = { file, out, chunks, result };
+    return result;
+  }
+  async wavStop(step) {
+    const w = this.wav;
+    if (!w) throw usage(`${step.where}: no sound recording to stop (wav starts one)`);
+    this.endWav();
+    return this.record(step, { file: w.file, samples: w.result.samples });
+  }
+  endWav() {
+    const w = this.wav;
+    if (!w) return;
+    this.wav = null;
+    const n = w.chunks.reduce((a, c) => a + c.length, 0), samples = new Float32Array(n);
+    let at = 0;
+    for (const c of w.chunks) { samples.set(c, at); at += c.length; }
+    writeFile(w.file, Emu.writeWav(samples, WAV_RATE));
+    Object.assign(w.result, { samples: n, seconds: n / WAV_RATE });
+  }
   async screenStep(step) { return this.record(step, this.screen()); }
   async screenshot(step, { file }) {
     const frame = this.m.render();
@@ -606,7 +793,7 @@ class Runner {
 const STEP_METHODS = {
   'load-snapshot': 'loadSnapshot', program: 'program', load: 'load', asm: 'asm', cart: 'cart', tape: 'tape', disk: 'disk',
   type: 'type', frames: 'frames', seconds: 'seconds', 'wait-for': 'waitFor', 'expect-screen': 'expectScreen',
-  'expect-mem': 'expectMem', screen: 'screenStep', screenshot: 'screenshot', peek: 'peek', poke: 'poke',
+  'expect-mem': 'expectMem', 'expect-screenshot': 'expectScreenshot', hold: 'hold', wav: 'wavStep', 'wav-stop': 'wavStop', screen: 'screenStep', screenshot: 'screenshot', peek: 'peek', poke: 'poke',
   registers: 'registers', 'set-register': 'setRegister', disasm: 'disasm', step: 'stepInstructions', reset: 'resetStep',
   'power-cycle': 'powerCycle', view: 'view', 'save-snapshot': 'saveSnapshot', info: 'info',
 };
@@ -636,7 +823,7 @@ function describe() {
   return {
     name: 'cloadm',
     schemaVersion: SCHEMA_VERSION,
-    description: 'Dragon 32/64/200, Tandy Color Computer 1/2/3 and MC-10 emulator, headless: run programs, type, wait for the screen, memory or PC, read the screen as text, inspect and change memory and registers, save pictures and snapshots. Emulated time only: the same inputs give the same results.',
+    description: 'Dragon 32/64/200, Tandy Color Computer 1/2/3 and MC-10 emulator, headless: run programs, type, wait for the screen, memory or PC, hold keys, read the screen as text, inspect and change memory and registers, save pictures and snapshots, compare the picture with a reference PNG, record the sound as a WAV. Emulated time only: the same inputs give the same results.',
     usage: ['node bin/cloadm.js [--json] [steps...]', 'node bin/cloadm.js [--json] --script FILE', 'node bin/cloadm.js --describe'],
     modes: {
       'command line': 'steps as options, run in order; --json prints one object { ok, exit, machine, steps, roms?, error? }',
@@ -680,7 +867,7 @@ function machineList() {
     roms: p.roms.map((r) => ({ id: r.id, label: r.label, required: r.required, files: r.files })),
   }));
 }
-const errorJson = (e) => Object.assign({ kind: e.kind, code: e.code, message: e.message }, e.errors ? { errors: e.errors } : {}, e.screen ? { screen: e.screen } : {});
+const errorJson = (e) => Object.assign({ kind: e.kind, code: e.code, message: e.message }, e.errors ? { errors: e.errors } : {}, e.screenshot ? { screenshot: e.screenshot } : {}, e.screen ? { screen: e.screen } : {});
 // anything thrown -> a CliError (a bug becomes 'internal' with its stack)
 const asCliError = (e) => (e instanceof CliError ? e : new CliError('internal', `internal error: ${e && e.stack || e}`));
 
@@ -716,12 +903,14 @@ async function main(argv, { out = (t) => process.stdout.write(t + '\n'), err = (
       if (text != null) out(text);
     }
     runner.start();   // a command line of setup steps only still builds the machine (and checks the ROMs)
+    runner.endWav();
     return finish(0);
   } catch (e) {
+    try { runner.endWav(); } catch (e2) { /* the run already failed: its own error is the one reported */ }
     const error = asCliError(e);
     return finish(EXIT[error.kind], error);
   }
 }
 
-module.exports = { main, parseArgs, framePng, describe, EXIT, ERROR_CODES, STEPS };
+module.exports = { main, parseArgs, framePng, decodePng, describe, EXIT, ERROR_CODES, STEPS };
 if (require.main === module) main(process.argv.slice(2)).then((code) => { process.exitCode = code; });

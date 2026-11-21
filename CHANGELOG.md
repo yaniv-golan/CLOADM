@@ -26,6 +26,22 @@ All notable changes to CLOADM are recorded here. The format follows
   The frame loops wait for the media store when a DriveWire read stalls the machine. `tests/cli-agent.test.js` checks
   the debugger steps against the Session's debugger, the special keys on both input paths and the script quoting rule.
 
+- **Testing games from the command line: pictures, sound and held keys, with a guide and a starter game.**
+  `--expect-screenshot FILE` compares the frame with a reference PNG pixel for pixel (any non-interlaced PNG of up
+  to 8 bits a sample: grey and palette at 1, 2, 4 or 8 bits, RGB, with or without alpha) and fails with exit 1, the count of differing pixels and the first one (position,
+  expected and actual colour); `--tolerance N` allows N pixels and `--diff FILE` writes the differences in red.
+  `--wav FILE` (to `--wav-stop` or the end of the run) records the machine's sound as a 16-bit 44.1 kHz WAV through
+  the page's own output stage, without its DC filter, in emulated time: DAC value d is the sample 320 x d, and the same
+  run gives the same file byte for byte. `--hold KEYS[:N]` holds keys in the keyboard matrix for N frames, for programs
+  that scan it themselves. The guide, `docs/game-development.md`, covers running with and without ROMs, the memory
+  map, the formats CLOADM loads, the assembler, the keyboard matrix, the VDG and SAM modes, DAC sound and frame
+  timing, and testing with a GitHub Actions example; its programs run in `tests/game-guide.test.js`. The starter game,
+  `examples/starter-game/catch.asm` (one binary for the Dragon and the CoCo, no ROMs needed), comes with its play
+  script and its picture and sound references (`tests/starter-game.test.js`). `tests/cli-wav.test.js` checks the WAV
+  against firmware playing a known DAC pattern: every level exact and every interval between DAC writes the cycle
+  count from the MC6809 data sheet, within 0.01 cycle. `run.js <dragon64|dragon32|coco> --sound` compares that path
+  with MAME's `-wavwrite` (pitch, swing and mean level of DAC and single-bit square waves).
+
 ### Changed
 
 - **The CoCo 3 keeps its bus log only while a device that can assert HALT is attached.** The log (the accesses of
@@ -302,6 +318,11 @@ All notable changes to CLOADM are recorded here. The format follows
   through BASIC ("Using your ROMs again to load … through BASIC"); without stored ROMs, or with **Load .CAS straight
   into memory** ticked, it goes into memory as before, and so it does if the stored ROMs do not start BASIC (the
   page says so). The Claude chat's own machine never takes them.
+
+- **The Dragon's and CoCo's single-bit sound is 32 DAC steps loud, as in MAME** (it was 31.5: 1.5% quiet against
+  the DAC). The Tandy service manual's resistor values (as MAME's `coco12.cpp` cites them) make it the weight of the
+  DAC's top bit; `run.js <dragon64|dragon32|coco> --sound` measures it against MAME's `-wavwrite`, and
+  `tests/cli-wav.test.js` pins it.
 
 ### 0.1.6-pre
 

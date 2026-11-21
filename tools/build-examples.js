@@ -24,6 +24,8 @@ for (const { name, cpu, source = null, defines = {} } of [
   { name: 'welcome6803-mc10', cpu: '6803', source: 'welcome6803', defines: { HALTCODE: 0, MC10: 1, ALICE: 0, SIX09: 0 } },
   { name: 'welcome6803-alice', cpu: '6803', source: 'welcome6803', defines: { HALTCODE: 0, MC10: 0, ALICE: 1, SIX09: 0 } },
   { name: 'chat', cpu: '6809' },
+  // the starter game (docs/game-development.md): one binary for the Dragon and the CoCo, on the built-in firmware
+  { name: 'starter-game/catch', cpu: '6809' },
 ]) {
   const file = source || name;
   const res = Emu.assemble(fs.readFileSync(path.join(EX, `${file}.asm`), 'utf8'), cpu, { include, defines });

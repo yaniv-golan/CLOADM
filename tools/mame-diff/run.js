@@ -33,7 +33,9 @@
 // the same firmware on the HD6309 (dragon64 and tanodr64; the 6309 follows MAME and does not arm NMI on TFR/EXG).
 // --multi puts the controller in a Multi-Pak's slot 4 (-ext multi) and runs <board>-multi.asm (the diagnostic and the
 // Multi-Pak's part).
-// --sound (dgnalpha): the AY-3-8912 and the DAC against MAME's -wavwrite (alpha/sound-compare.js).
+// --sound (dgnalpha): the AY-3-8912 and the DAC against MAME's -wavwrite (alpha/sound-compare.js). On a SAM machine
+// (dragon64, dragon32, coco, ...): the DAC and the single-bit sound, through the command line's --wav path
+// (sam/dac-sound.js).
 // --board (dgnalpha): the Alpha's own hardware (alpha/board.asm: ROM paging, PIA2, AY-3-8912, modem).
 // --cart: a cartridge (cart/spec.js setups: banked ROM, Games Master, Orchestra-90, Multi-Pak)
 // with our firmware as its ROM, in lockstep; --audio then also compares MAME's -wavwrite recording with ours.
@@ -210,12 +212,11 @@ async function main() {
     return code;
   }
   if (args.includes('--sound')) {
-    if (profile.family !== 'alpha') {
-      console.error('--sound: the AY-3-8912 comparison is for dgnalpha');
-      process.exitCode = 2;
-      return undefined;
-    }
-    return require('./alpha/sound-compare.js').compare(profileId, { keep: args.includes('--keep') });
+    if (profile.family === 'alpha') return require('./alpha/sound-compare.js').compare(profileId, { keep: args.includes('--keep') });
+    if (profile.family === 'sam') return require('./sam/dac-sound.js').compare(profileId, { keep: args.includes('--keep') });
+    console.error('--sound: the sound comparisons are for dgnalpha (alpha/sound-compare.js) and the SAM machines (sam/dac-sound.js)');
+    process.exitCode = 2;
+    return undefined;
   }
   if (args.includes('--welcome')) {
     if (!need('welcome', spec.welcome)) return undefined;

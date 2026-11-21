@@ -54,12 +54,18 @@ Then, in any order:
 | `--disk [N=]FILE` | mount a VDK, JVC/DSK or DMK image in drive N (default 0); needs your disk cartridge ROM |
 | `--load-snapshot FILE` | open a snapshot, switching to its machine |
 | `--type TEXT` | type at the keyboard, then run until the machine has taken the keys. `\n` or `{ENTER}` is ENTER; also `{BREAK}`, `{CLEAR}`, `{UP}`, `{DOWN}`, `{LEFT}`, `{RIGHT}`, `{SPACE}`; `\\` is a backslash |
+| `--hold KEYS[:N]` | hold keys down in the keyboard matrix for N frames (default 1), then let go, for programs that read the matrix themselves (games): `RIGHT:10`, `LEFT+SPACE:3`, `{UP}`, `Z:5`. Names are the matrix's: letters, digits, `UP` `DOWN` `LEFT` `RIGHT` `SPACE` `ENTER` `CLEAR` `BREAK` `SHIFT` (and the CoCo 3's `ALT` `CTRL` `F1` `F2`) |
 | `--frames N`, `--seconds S` | run N frames, or S seconds of emulated time |
 | `--wait-for COND` | run until `text:REGEX` is on the screen, `mem:ADDR=VALUE` holds, or the PC reaches `pc:ADDR` (it stops at that instruction); exit 1 at the timeout |
 | `--timeout S` | emulated seconds each later `--wait-for` and `--type` may take (default 10) |
 | `--expect-screen REGEX`, `--expect-mem ADDR=VALUE` | must hold now, or exit 1 |
+| `--expect-screenshot FILE` | the frame must match a reference PNG pixel for pixel, or exit 1 (see [Pictures and sound](#pictures-and-sound)) |
+| `--tolerance N` | how many pixels each later `--expect-screenshot` may find different (default 0) |
+| `--diff FILE` | each later `--expect-screenshot` writes a picture of the differences to FILE |
 | `--screen` | the text on the screen |
 | `--screenshot FILE` | the frame as a PNG |
+| `--wav FILE` | record the machine's sound from here until `--wav-stop` or the end of the run, as a 16-bit mono WAV (see [Pictures and sound](#pictures-and-sound)) |
+| `--wav-stop` | end the recording and write its file |
 | `--peek ADDR[:LEN]` | memory as the CPU sees it, with no side effects |
 | `--poke ADDR=V[,V…]` | write through the memory map (ROM and I/O take nothing) |
 | `--save-snapshot FILE` | the machine as a snapshot file, which the page opens too |
@@ -88,7 +94,41 @@ gives no text and says why.
 
 **Pictures** are the frame's own pixels, unscaled: 320x240-ish for VDG machines (with the border), 640x240 for the
 CoCo 3, so a display stretches them to 4:3. They are the colours `machine.render()` gives, before the page's CRT and
-artifact-colour display effects.
+artifact-colour display effects. A picture is the last frame the video chip drew, while `--screen` and `--peek` read
+memory now: a program that changes the screen part way through a frame shows the change in the next picture, so
+run a frame (`--frames 1`) before a screenshot of something that just changed.
+
+### Pictures and sound
+
+`--expect-screenshot ref.png` compares the frame with a reference PNG, every pixel's red, green, blue and alpha
+exactly. Make the reference with `--screenshot` once, look at it, and check it in. More than `--tolerance` pixels
+different (default 0) fails the run with exit 1 (`expect-failed`), and the error (with `--json`, `error.screenshot`)
+gives `differing` (the count), `first` (`x`, `y`, and the `expected` and `actual` colours as `#RRGGBBAA`), `width`,
+`height` and `tolerance`; a passing step's result has the same fields. A reference of another size fails the same
+way. With `--diff out.png` set first, the comparison also writes a picture of the frame with every differing pixel
+red and the rest at a third of their brightness. The reference can be any non-interlaced PNG with grey or a palette at
+1, 2, 4 or 8 bits, or RGB, grey with alpha or RGBA at 8 bits (with a `tRNS` transparency where the format has one), so
+an image editor's copy, small palettes included, compares too; anything else (16 bits a sample, interlaced) is
+`bad-media`.
+
+```sh
+node bin/cloadm.js --load game.bin --wait-for 'mem:$3005=1' --frames 1 --diff diff.png --expect-screenshot ref.png
+```
+
+`--wav out.wav` records the sound of every frame that runs after it until `--wav-stop` or the end of the run (also
+when the run fails, so the recording of a failure is kept): 16-bit signed mono PCM at 44100 Hz. The samples come from
+the page's own audio path: each frame's sound levels (the DAC, the single-bit output and any sound cartridge, mixed
+by the machine) go through the page's output stage (`js/host/audio.js`), which gives 44100 / fps samples per frame,
+the fraction carried, each the level averaged over its stretch of the frame. The page then blocks DC and sets the
+volume; the recording does neither, so the levels can be checked exactly: the 6-bit DAC's value d (PIA1 `$FF20` bits
+7-2) is the sample 320 x d (0 to 20160), the single-bit sound adds 10240 (32 DAC steps), and a level that changes inside a sample's
+stretch gives the average. Everything is emulated time, so the same run gives the same file, byte for byte. The
+`wav` step's result gives `file`, `rate`, `bits`, `dacStep`, and, once written, `samples` and `seconds`.
+
+```sh
+node bin/cloadm.js --load game.bin --wait-for 'mem:$3008=14' --wav catch.wav --frames 12 --wav-stop
+cmp catch.wav tests/sound/catch.wav     # a sound effect, as a regression reference
+```
 
 ### Script mode
 
@@ -135,7 +175,7 @@ goes to stderr, with the screen when a condition failed. With `--json` it prints
 ```
 
 A failed run adds `error: { kind, code, message, screen }` (`screen` when a condition failed; `errors`, a list of
-`{ line, message }`, when an assembly failed), and `roms` lists how each ROM file given was identified. `machine` is
+`{ line, message }`, when an assembly failed; `screenshot` when an `--expect-screenshot` failed), and `roms` lists how each ROM file given was identified. `machine` is
 `null` when the run stopped before a machine was built. `--registers`, `--disasm` and `--step` give `registers`
 (an object of lower-case names), `instructions` (`address`, `bytes`, `text`, `size`, and `target` where an operand
 points somewhere) and `cycles`; `--asm` gives `exec`, the `segments` written and the program's `symbols`.
@@ -143,7 +183,7 @@ points somewhere) and `cycles`; `--asm` gives `exec`, the `segments` written and
 | Exit code | Meaning |
 |---|---|
 | 0 | every step succeeded |
-| 1 | a condition failed: a `--wait-for` timed out, an `--expect-*` did not hold, or the machine did not take typed keys in time |
+| 1 | a condition failed: a `--wait-for` timed out, an `--expect-*` (`--expect-screenshot` too) did not hold, or the machine did not take typed keys in time |
 | 2 | usage error: an unknown step, a bad argument, a key the keyboard does not have, setup after other steps |
 | 3 | media or ROM error: a file that can't be read (a `--script` file too) or isn't what the step needs, missing ROMs, something that needs BASIC run without it |
 | 4 | an internal error (a bug: please report it) |
@@ -178,6 +218,9 @@ inputs therefore give the same frames, screens and pictures on every run and eve
 taken; set `SOURCE_DATE_EPOCH` (seconds since 1970) for byte-identical snapshot files.
 
 ## For coding agents
+
+Writing a game? [Game development](game-development.md) is the guide: the hardware a game uses, a starter game, and
+its tests (keys held with `--hold`, the picture with `--expect-screenshot`, the sound with `--wav`).
 
 Everything an agent needs is in the tool itself: `--describe` is the interface as data, every error has a code, the
 failure of a condition carries the screen it failed on, waits are conditions rather than sleeps, and the same inputs
@@ -310,4 +353,4 @@ a one-line wrapper on your `PATH`.
 
 ---
 
-See also: [Using CLOADM](using.md) · [Development](development.md) · [Architecture](architecture.md)
+See also: [Game development](game-development.md) · [Using CLOADM](using.md) · [Development](development.md) · [Architecture](architecture.md)

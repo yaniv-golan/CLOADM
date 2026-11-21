@@ -134,4 +134,4 @@ function compare(profileId, { work = workDir(`${profileId}-sound`), keep = false
   return ok ? 0 : 1;
 }
 
-module.exports = { compare, TOL };
+module.exports = { compare, TOL, readWav, onset, stats };

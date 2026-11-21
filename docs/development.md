@@ -69,6 +69,10 @@ node tests/reset.test.js     # Reset: never changes the machine, keeps RAM for a
 node tests/snapshot-boot.test.js   # a snapshot opened is not a power-on: no boot failure after it, while a real power-on still has one
 node tests/cli.test.js       # bin/cloadm.js as a child process: exit codes, --json, wait-for, typing, screen text, PNG pixels, snapshots, scripts, the guide's examples
 node tests/cli-agent.test.js # bin/cloadm.js beyond the basics: --describe, error codes, the debugger steps against the Session's debugger, DriveWire stalls, special keys, script quoting, --view
+node tests/cli-wav.test.js   # --wav: a known DAC pattern's levels and timing, determinism, snapshots mid-sound, the box filter of the level events
+node tests/cli-screenshot.test.js  # --expect-screenshot (tolerance, diff, PNG layouts, errors) and --hold
+node tests/starter-game.test.js    # the starter game: its build, play script, picture and sound references, and mutants that must fail
+node tests/game-guide.test.js      # docs/game-development.md's programs and commands, run
 node tests/config.test.js    # URL parameters: every one checked (options against each model), bad values reported, links written and read back
 node tests/embed.test.js     # the embed API through its message protocol: calls, errors, events, frames
 node tests/pwa.test.js       # the service worker keeps every file the site serves; the manifest and its icons
@@ -105,7 +109,7 @@ node tests/importmedia-finally.test.js # the creation landing behind the Library
 node tests/ay8910.test.js    # AY-3-8910/8912 against its data manual: tone, noise, the 16 envelope shapes, mixer, ports
 node tests/alpha.test.js     # the Dragon Alpha's wiring: ROM banks, PIA2, the AY as the drive latch, NMI through PIA2 CA2
 node tools/build-demo.js     # rebuild examples/demo.bin
-node tools/build-examples.js # rebuild examples/liza.bin, liza6803-{mc10,alice}.bin, welcome.bin, welcome6803-{mc10,alice}.bin from their .asm sources
+node tools/build-examples.js # rebuild examples/liza.bin, liza6803-{mc10,alice}.bin, welcome.bin, welcome6803-{mc10,alice}.bin, chat.bin and starter-game/catch.bin from their .asm sources
 node tests/welcome.test.js   # welcome program on every 6809 model: screen, menu keys and events, the tune on the DAC
 node tests/demo-tone.test.js # the welcome demo plays one short clean tone (440-880 Hz, 0.3-0.5 s, $80 +/- amp), then nothing on the DAC; the bars are as defined (Dragon 64, CoCo, CoCo 3)
 node tests/privacy-copy.test.js # the ROM privacy copy (README, docs, front, /roms, Help, play) says both halves: CLOADM never uploads ROMs; what Claude reads from memory, ROM areas included, goes to Anthropic
@@ -144,6 +148,7 @@ node tools/mame-diff/run.js <profile> --reset [--cpu 6309]   # the Reset button 
 node tools/mame-diff/run.js dragon64 --fdc --images   # floppy controllers in lockstep with MAME, then the disk images byte for byte (also --fdc premierfdc, coco, coco3, dgnalpha --fdc alphafdc; --write: the mounting tests' firmware; --nmi: when the 6809 starts taking NMI; --multi: in a Multi-Pak's slot 4 with the Multi-Pak firmware; --blank vdk:40x1: a new blank disk formatted, add --no-trace for images only)
 node tools/mame-diff/run.js dgnalpha --board          # the Dragon Alpha's own hardware in lockstep (alpha/board.asm)
 node tools/mame-diff/run.js dgnalpha --sound          # the Alpha's AY-3-8912 and DAC against MAME's -wavwrite
+node tools/mame-diff/run.js dragon64 --sound          # the DAC and single-bit sound (dragon32, coco too) against -wavwrite, through --wav's path
 node tools/mame-diff/run.js <coco|coco3|dragon64|dragon32> --cart <banked|bankedshort|gmc|orch90|multi> [--audio]   # cartridges in lockstep with MAME, then their sound against MAME's -wavwrite
 node tools/mame-diff/sam/run-fastvid.js <profile>   # fast-rate video: MAME keeps the screen, ours loses it (see above)
 node tools/mame-diff/sam/run-samv.js [<profile> ...]  # SAM display counter at V=0 and V=1 (sam/samv.asm), every pixel against MAME

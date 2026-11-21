@@ -1,0 +1,31 @@
+# The starter game, played and checked by a script: node bin/cloadm.js --script examples/starter-game/catch.cloadm
+# (from the repository root; tests/starter-game.test.js runs it). The game's seed is fixed, so the blocks fall in
+# the same columns every game: 13, 14, 23, 19, ...
+load examples/starter-game/catch.bin
+wait-for text:PRESS SPACE TO START
+hold SPACE:2
+# STATE ($3005) is 1 once the playfield is drawn
+wait-for mem:$3005=1
+# the first block falls in column 13 ($3007); the paddle ($3006) starts at 14 and covers 14-16
+expect-mem $3007=13
+hold LEFT
+expect-mem $3006=13
+# caught: SCORE ($3003) goes up, and the next block starts at the top (BY, $3008, is 1) in column 14
+wait-for mem:$3003=1
+wait-for mem:$3008=1
+expect-mem $3007=14
+hold RIGHT
+expect-mem $3006=14
+wait-for mem:$3003=2
+wait-for mem:$3008=1
+expect-screen SCORE 002
+# the picture, pixel for pixel: the score, the paddle at 14 and the third block at the top of column 23. A frame
+# first: the picture is the last frame the VDG drew, and the game changed the screen after the top rows were drawn
+frames 1
+expect-screenshot tests/fixtures/starter-game/catch-play.png
+# no more keys: the next three blocks are missed and the game ends
+timeout 60
+wait-for mem:$3005=2
+expect-mem $3004=3
+expect-screen GAME OVER
+expect-screen SPACE PLAYS AGAIN

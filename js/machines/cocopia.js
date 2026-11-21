@@ -107,7 +107,9 @@ function wireCocoPias(m, { noTapeHigh = false, pb1Input, onChange = null, hires 
 }
 
 // sound: the DAC when the analogue mux selects it and sound is enabled (PIA1 CB2), plus the
-// single-bit output (PIA1 PB1 as an output)
+// single-bit output (PIA1 PB1 as an output) at 32 DAC steps, the weight of the DAC's top bit: the Tandy service
+// manual's parts list gives the DAC's resistors R10-R15 as 10K to 324K and the single-bit R22 as 10K (as cited in
+// MAME 0.264's coco12.cpp), and MAME's -wavwrite agrees (tools/mame-diff/sam/dac-sound.js; docs/verification.md)
 function updateSound(m) {
   const p0 = m.pia0, p1 = m.pia1;
   let lvl = 0;
@@ -115,7 +117,7 @@ function updateSound(m) {
     const mux = (p0.b.c2() ? 2 : 0) | (p0.a.c2() ? 1 : 0);
     if (mux === 0) lvl = (p1.a.outValue() >> 2) / 63;
   }
-  if ((p1.b.ddr & 0x02) && (p1.b.or & 0x02)) lvl += 0.5;
+  if ((p1.b.ddr & 0x02) && (p1.b.or & 0x02)) lvl += 32 / 63;
   m.setSoundLevel(lvl);
 }
 
