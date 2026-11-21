@@ -106,19 +106,19 @@ for (const [from, to] of [['translated', 'positional'], ['positional', 'translat
 }
 
 // ---- 2-4. the screen, through the key-echo firmware ----
-const fr = (s) => s.advance(1000 / s.machine.fps + 0.001);
+const fr = (s) => s.advance(1000 / s.shownMachine.fps + 0.001);
 function echoSession(id, config) {
   const s = new Emu.Session();
   s.switchMachine(id, config);
   s.load('keyecho.bin', keyechoBinary(Emu, id), { remember: false });
   // the key-echo firmware stands in for BASIC: the host's keys and the typist go to the matrix, as they do with
   // a BASIC ROM, rather than into the no-ROM stub's key-code queue (which never reaches the matrix)
-  Object.defineProperty(s.machine, 'useStub', { value: false });
+  Object.defineProperty(s.shownMachine, 'useStub', { value: false });
   for (let i = 0; i < 10; i++) fr(s);
-  return { s, kb: new HostInput(s.machine, s.keys) };
+  return { s, kb: new HostInput(s.shownMachine, s.keys) };
 }
 const drain = (s) => { for (let i = 0; i < 4000 && s.keys.pending; i++) fr(s); for (let i = 0; i < 10; i++) fr(s); };
-const screen = (s, n) => [...s.machine.ram.subarray(s.machine.profile.textScreen || 0x400).slice(0, n)];
+const screen = (s, n) => [...s.shownMachine.ram.subarray(s.shownMachine.profile.textScreen || 0x400).slice(0, n)];
 const show = (codes) => codes.map((v) => (v & 0x40 ? String.fromCharCode((v & 0x3F) < 32 ? (v & 0x3F) + 64 : v & 0x3F) : `[${String.fromCharCode((v & 0x3F) < 32 ? (v & 0x3F) + 64 : v & 0x3F)}]`)).join('');
 const typable = (id) => printable(Emu, id);
 
@@ -219,7 +219,7 @@ for (const [id, config] of FAMILIES) {
   {
     const { s } = echoSession(id, config);
     s.typeText(text);
-    for (let i = 0; i < 6000 && s.machine.typist.busy; i++) fr(s);
+    for (let i = 0; i < 6000 && s.shownMachine.typist.busy; i++) fr(s);
     for (let i = 0; i < 20; i++) fr(s);
     const got = screen(s, text.length + 1);
     check(`${tag(id, config)}: pasted text (the typist) shows the same characters`, got.join() === [...expectedCodes(text), 0x60].join(), `got ${show(got)}`);

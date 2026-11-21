@@ -156,7 +156,7 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
     return machines.get(id);
   };
   const info = (m) => {
-    const mm = m.session.machine, config = {};
+    const mm = m.session.shownMachine, config = {};
     for (const [k, v] of Object.entries(mm.config)) if (mm.profile.options[k]) config[k] = v;
     const t = tape(m);
     return { machine_id: m.id, model: mm.id, name: mm.profile.name, config, roms: mm.hasRom, frame: mm.frameCount, pc: mm.cpu.pc, ...(t ? { tape: t } : {}) };
@@ -173,14 +173,14 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
       for (let i = 0; i < r.cols * 16; i++) { const b = m.session.readByte((r.base + i) & 0xFFFF); cells += String.fromCharCode(b & 0x80 ? b & 0x8F : b); }
       return cells;
     }
-    const f = midFrame(m) ? m.whole.frame : m.session.machine.render();
+    const f = midFrame(m) ? m.whole.frame : m.session.shownMachine.render();
     return { data: f.data.slice(), table: f.table.slice() };
   };
   const sameArray = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
   const sameSignature = (a, b) => (typeof a === 'string' || typeof b === 'string' ? a === b : sameArray(a.data, b.data) && sameArray(a.table, b.table));
   // without the user's ROMs: what BASIC would need, so an agent need not read it off the firmware's screen
   const basicNote = (m) => {
-    const mm = m.session.machine;
+    const mm = m.session.shownMachine;
     if (mm.hasRom) return {};
     const need = mm.profile.roms.filter((r) => r.required && (r.at != null || r.chip));
     const one = (r) => (r.files.length > 1 ? `one of ${r.files.join(', ')}` : r.files[0]);
@@ -198,12 +198,12 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
   // a frame, the last complete frame is kept (m.whole); while the machine is still inside the frame after it, that
   // copy is the picture. A frame that ends, a new machine or a restored one makes render() the picture again.
   const midFrame = (m) => {
-    const mm = m.session.machine, w = m.whole;
+    const mm = m.session.shownMachine, w = m.whole;
     return !!w && w.machine === mm && w.frameCount === mm.frameCount && w.cycle !== mm.cycle;
   };
   const keepWhole = (m) => {
     if (midFrame(m)) return;
-    const mm = m.session.machine, f = mm.render();
+    const mm = m.session.shownMachine, f = mm.render();
     m.whole = { machine: mm, frameCount: mm.frameCount, cycle: mm.cycle, frame: { width: f.width, height: f.height, data: f.data.slice(), table: f.table.slice() } };
   };
   // the screen, as the page's screen_text reads it (one reader)
@@ -308,7 +308,7 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
     if (files.length) s.addRoms(files);
     const have = s.machineRoms();
     if (args.roms === true && !have.bootable) throw fail('missing-roms', `the ${p.name} needs ${have.sockets.filter((x) => x.status === 'missing-required').map((x) => x.label).join(' and ')}`);
-    if (args.roms === false && s.machine.hasRom) s.runWithoutRoms({ menu: false });
+    if (args.roms === false && s.shownMachine.hasRom) s.runWithoutRoms({ menu: false });
     return s;
   }
   add('boot', {
@@ -410,7 +410,7 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
     })),
     annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
     handler: async (args, { signal, progress }) => {
-      const m = get(args), mm = m.session.machine;
+      const m = get(args), mm = m.session.shownMachine;
       const frames = args.frames == null ? PRESS_FRAMES_DEFAULT : intIn(args.frames, 1, RUN_FRAMES_MAX, 'frames');
       if (args.keys != null && !Array.isArray(args.keys)) throw fail('bad-argument', 'keys is a list of key names, e.g. ["LEFT"]');
       const keys = (args.keys || []).map((k) => String(k).replace(/^\{(.+)\}$/, '$1').toUpperCase());
@@ -478,11 +478,11 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
         }
         else if (u.tape != null) {
           if (u.tape !== 'stopped' && u.tape !== 'end') throw fail('bad-argument', `until.tape is "stopped" or "end", not ${JSON.stringify(u.tape)}`);
-          if (!s.machine.deck.tape) throw fail('rejected', 'there is no tape in the deck (insert_tape or load puts one there)');
+          if (!s.shownMachine.deck.tape) throw fail('rejected', 'there is no tape in the deck (insert_tape or load puts one there)');
           const end = u.tape === 'end';
           cond = { kind: 'tape', holds: () => { const st = s.tapeStatus(); return !!st && (end ? st.atEnd : !st.motor); } };
         }
-        else if (u.pc != null) { const pc = addressOf(u.pc, 'until.pc'); cond = { kind: 'pc', pc, holds: () => s.machine.cpu.pc === pc }; }
+        else if (u.pc != null) { const pc = addressOf(u.pc, 'until.pc'); cond = { kind: 'pc', pc, holds: () => s.shownMachine.cpu.pc === pc }; }
         else {
           if (u.address == null || u.value == null) throw fail('bad-argument', 'a memory condition needs address and value');
           const a = addressOf(u.address, 'until.address'), v = intIn(u.value, 0, 255, 'until.value');
@@ -527,7 +527,7 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
     title: 'Read the CPU registers',
     description: 'The CPU\'s registers as decimal numbers (lower-case names: pc, a, b, d, x, y, u, s, dp, cc on the 6809; the 6309\'s e, f, w, v, md too; the 6803\'s a, b, d, x, s, cc), and the CPU.',
     inputSchema: withMachine(objectSchema({})), annotations: { readOnlyHint: true, openWorldHint: false }, readOnlyOk: true,
-    handler: (args) => { const m = get(args); return { cpu: m.session.machine.config.cpu, registers: m.session.debug.registers() }; },
+    handler: (args) => { const m = get(args); return { cpu: m.session.shownMachine.config.cpu, registers: m.session.debug.registers() }; },
   });
   add('screenshot', {
     title: 'Take a screenshot',
@@ -536,7 +536,7 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
     annotations: { readOnlyHint: true, openWorldHint: false }, readOnlyOk: true, image: true,
     handler: (args) => {
       const scale = args.scale == null ? 1 : intIn(args.scale, 1, SCREENSHOT_SCALE_MAX, 'scale');
-      const m = get(args), mid = midFrame(m), frame = mid ? m.whole.frame : m.session.machine.render();
+      const m = get(args), mid = midFrame(m), frame = mid ? m.whole.frame : m.session.shownMachine.render();
       return { width: frame.width * scale, height: frame.height * scale, mid_frame: mid, ...(mid ? { note: 'the machine stopped inside a frame: this is the last complete one; run_frames 2 to see a frame drawn entirely after this point' } : {}), image: host.png(frame, scale) };
     },
   });
@@ -560,7 +560,7 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
     handler: (args) => {
       const m = get(args);
       if (args.screen !== 'main' && args.screen !== 'plus') throw fail('bad-argument', `screen: ${JSON.stringify(args.screen)} is not "main" or "plus"`);
-      if (!m.session.hasTwoScreens) throw fail('rejected', `the ${m.session.machine.profile.name} has one screen`);
+      if (!m.session.hasTwoScreens) throw fail('rejected', `the ${m.session.shownMachine.profile.name} has one screen`);
       m.session.setDisplay({ screen: args.screen }, { remember: false });
       return { screen: args.screen };
     },
@@ -581,7 +581,7 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
         if (name === 'welcome') { s.startWelcome(host.program(s.welcomeFile)); return { loaded: 'welcome', message: 'welcome program running' }; }
         if (name === 'liza') return { loaded: 'liza', message: await s.startLiza((f) => host.program(f)) };
         if (name === 'demo') {
-          if (cpuFamily(s.machine.config.cpu) !== '6809') throw fail('rejected', `the demo is 6809 code; the ${s.machine.profile.name} has a ${s.machine.config.cpu}`);
+          if (cpuFamily(s.shownMachine.config.cpu) !== '6809') throw fail('rejected', `the demo is 6809 code; the ${s.shownMachine.profile.name} has a ${s.shownMachine.config.cpu}`);
           return { loaded: 'demo', message: s.load('demo.bin', host.program('demo.bin'), { remember: false }) };
         }
         throw fail('bad-argument', `program: ${JSON.stringify(name)} is not welcome, liza or demo`);
@@ -698,7 +698,7 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
     // A Session the host already has (the page's, in a view that mounts these tools) under a machine_id of its own,
     // within the same cap: the tools then act on it as on a machine they booted. -> the machine_id
     adopt(session) {
-      if (!(session instanceof Session) || !session.machine) throw new Error('adopt takes a Session with a machine');
+      if (!(session instanceof Session) || !session.shownMachine) throw new Error('adopt takes a Session with a machine');
       if (machines.size >= maxMachines) throw fail('too-many-machines', `${machines.size} open`);
       return register(session).id;
     },

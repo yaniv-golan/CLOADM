@@ -32,7 +32,7 @@ export function setupMediaPanel(page, { snapshots, disks, nitros9, keep }) {
     const n9 = media.kind === 'disk' ? inspectOs9Disk(bytes) : null;
     if (n9 && !n9.reason) {
       $('mediaOfferText').textContent = `${name} is a NitrOS-9${n9.cpu ? '/' + n9.cpu : ''} ${n9.boot === 'floppy' ? 'floppy' : 'DriveWire'} boot disk.` +
-        (session.constructor.NITROS9_MACHINES.includes(session.machine.id) ? '' : ' It boots on the CoCo 3.');
+        (session.constructor.NITROS9_MACHINES.includes(session.personMachine.id) ? '' : ' It boots on the CoCo 3.');
       $('btnMediaSwitch').textContent = 'Boot NitrOS-9';
       $('btnMediaSwitch').onclick = () => { offer.hidden = true; nitros9.bootFile(name, bytes); };
       $('btnMediaAnyway').onclick = () => { offer.hidden = true; disks.insert(name, bytes); page.focus(); };

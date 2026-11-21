@@ -157,10 +157,10 @@ function onScreen(name, cpu = '6809') {
 // ---- 5. the VDG machines read as before: the rows Session.screenText decodes ----
 for (const id of ['mc10', 'dragon32', 'dragon64', 'coco', 'coco2b']) {
   const s = new Emu.Session(); s.switchMachine(id);
-  for (let i = 0; i < 30; i++) s.advance(1000 / s.machine.fps + 0.01);
-  const base = s.machine.profile.textScreen || 0x400;
-  'HELLO, VDG 123'.padEnd(32).split('').forEach((c, i) => { s.machine.ram[base + 3 * 32 + i] = c.charCodeAt(0) & 0x3F; });
-  const got = Emu.runReadOnlyTool({ machine: s.machine, readByte: (a) => s.readByte(a) }, 'screen_text', {});
+  for (let i = 0; i < 30; i++) s.advance(1000 / s.shownMachine.fps + 0.01);
+  const base = s.shownMachine.profile.textScreen || 0x400;
+  'HELLO, VDG 123'.padEnd(32).split('').forEach((c, i) => { s.shownMachine.ram[base + 3 * 32 + i] = c.charCodeAt(0) & 0x3F; });
+  const got = Emu.runReadOnlyTool({ machine: s.shownMachine, readByte: (a) => s.readByte(a) }, 'screen_text', {});
   const want = s.screenText().map((l) => l.replace(/\s+$/, ''));
   while (want.length && !want[want.length - 1]) want.pop();
   check(`${id}: screen_text reads the VDG page as Session.screenText does`, got.text === true && got.cols === 32 && got.mode === 'MC6847 text'

@@ -29,7 +29,7 @@ export class EmbedApi {
   }
   // what is running
   info() {
-    const m = this.session.machine;
+    const m = this.session.shownMachine;
     const config = {};
     for (const [k, v] of Object.entries(m.config)) if (m.profile.options[k]) config[k] = v;
     return { machine: m.id, name: m.profile.name, config, roms: m.hasRom, frame: m.frameCount };
@@ -79,7 +79,7 @@ export class EmbedApi {
     if (why) throw new SessionError(`peek is not available while ${why === 'roms' ? 'the machine runs your own ROMs' : why === 'nitros9' ? 'NitrOS-9 runs from your own image' : 'a cartridge is plugged in'}: its memory can hold copies of ROM code, which CLOADM never hands out.`);
     addrOf(addr);
     if (!Number.isInteger(length) || length < 1 || addr + length > 0x10000) throw new SessionError('peek: length runs past 65535');
-    const m = this.session.machine, out = [];
+    const m = this.session.shownMachine, out = [];
     for (let a = addr; a < addr + length; a++) out.push(m.peek ? m.peek(a) : m.ram[a]);
     return out;
   }
@@ -90,7 +90,7 @@ export class EmbedApi {
     if (!b || addr + b.length > 0x10000) throw new SessionError('poke: give bytes that fit below 65536');
     // (the embedding page's calls are the person's input: Claude acting on the machine pauses first, Session.personInput)
     this.session.personInput();
-    for (let i = 0; i < b.length; i++) this.session.machine.poke(addr + i, b[i] & 0xFF);
+    for (let i = 0; i < b.length; i++) this.session.shownMachine.poke(addr + i, b[i] & 0xFF);
     return b.length;
   }
   screenText() { return this.session.screenText(); }
@@ -98,7 +98,7 @@ export class EmbedApi {
   setDisplay(changes) { return Object.assign({}, this.session.setDisplay(changes, { remember: false })); }
   watchFrames(on = true) { this.frames = !!on; return this.frames; }
   // after each emulated frame (the bridge calls it)
-  frame() { if (this.frames) this.send({ cloadm: 1, event: 'frame', data: { frame: this.session.machine.frameCount } }); }
+  frame() { if (this.frames) this.send({ cloadm: 1, event: 'frame', data: { frame: this.session.shownMachine.frameCount } }); }
 
   // one message from the host -> its reply (also sent); anything not a CLOADM call -> null
   handle(msg) {

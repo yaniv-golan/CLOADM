@@ -359,7 +359,7 @@ fs.writeFileSync(tmp('media', 'plain.bas'), '10 PRINT "HI"\n');
       ls.switchMachine('dragon64', {}, { menu: false });
       ls.addRoms([{ name: 'd64_1.rom', bytes: new Uint8Array(fs.readFileSync(tmp('roms', 'd64_1.rom'))) }]);
       ls.load('p.bas', new Uint8Array(Buffer.from('10 PRINT 1\n')), Object.assign({ remember: false }, opts));
-      return ls.machine.typist.queue.filter((c) => typeof c === 'string').join('');
+      return ls.shownMachine.typist.queue.filter((c) => typeof c === 'string').join('');
     };
     check('Session.load of a listing: NEW, the lines, RUN; with run false the same without RUN (the page\'s default is unchanged)',
       queued({}) === 'NEW\r10 PRINT 1\rRUN\r' && queued({ run: false }) === 'NEW\r10 PRINT 1\r', J([queued({}), queued({ run: false })]));
@@ -731,7 +731,7 @@ fs.writeFileSync(tmp('media', 'plain.bas'), '10 PRINT "HI"\n');
   here.runFrames(40);
   const px = pngPixels(Buffer.from(sv.replies[3].result.png, 'base64'));
   check('--serve: replies in order with their ids; a screenshot\'s PNG is machine.render()\'s pixels', sv.code === 0 && J(sv.replies.map((x) => x.id)) === J([1, 2, 3, 4, 5, null, 7, null, 9]) && sv.replies[3].ok
-    && px.equals(Buffer.from(Emu.frameToRGBA(here.machine.render()).buffer)), J(sv.replies.map((x) => x.ok)));
+    && px.equals(Buffer.from(Emu.frameToRGBA(here.shownMachine.render()).buffer)), J(sv.replies.map((x) => x.ok)));
   check('--serve: errors in the tools\' shape', sv.replies[4].error.code === 'bad-address' && sv.replies[5].error.code === 'bad-argument' && sv.replies[6].error.code === 'bad-argument' && /no tool "nope"/.test(sv.replies[6].error.detail)
     && sv.replies[7].error.code === 'bad-argument' && sv.replies[8].ok, J(sv.replies.slice(4)));
 

@@ -81,7 +81,7 @@ function scripted(replies) {
     const s = new Emu.Session({ store: Emu.memoryStore() });
     s.switchMachine('dragon64');
     s.setClaudeKey(KEY);
-    for (let i = 0; i < 20; i++) s.advance(1000 / s.machine.fps + 0.01);
+    for (let i = 0; i < 20; i++) s.advance(1000 / s.shownMachine.fps + 0.01);
     const replies = [];
     const { fetch, calls } = scripted(replies);
     const chat = s.startAsk({ backend: new Emu.ClaudeBackend({ fetch, apiKey: KEY }) });
@@ -113,7 +113,7 @@ function scripted(replies) {
     replies.length = 0;
     asked = 0;
     replies.push({ body: toolReply([{ name: 'poke', input: { address: 0x3000, bytes: [1] } }, { name: 'poke', input: { address: 0x3001, bytes: [2] } }]) }, { body: textReply('should not be asked') });
-    const ram = [s.machine.ram[0x3000], s.machine.ram[0x3001]];
+    const ram = [s.shownMachine.ram[0x3000], s.shownMachine.ram[0x3001]];
     let callsBefore = calls.length;
     turn = chat.sendLine('poke both');
     await until(() => !!s.claudePending);
@@ -122,7 +122,7 @@ function scripted(replies) {
     await sleep(20);
     check('two calls in one reply, Stop at the first card: the second is not asked, nothing is written, no further request',
       asked === 1 && !s.claudePending && !chat.busy && s.claudeStatus === null && calls.length === callsBefore + 1
-      && s.machine.ram[0x3000] === ram[0] && s.machine.ram[0x3001] === ram[1], `asked ${asked}, calls ${calls.length - callsBefore}`);
+      && s.shownMachine.ram[0x3000] === ram[0] && s.shownMachine.ram[0x3001] === ram[1], `asked ${asked}, calls ${calls.length - callsBefore}`);
     // with the switch on, Stop while the first runs: the second does not run
     s.setClaudeAllowed(true);
     replies.length = 0;
@@ -139,7 +139,7 @@ function scripted(replies) {
     await turn;
     chat.runTool = inner0;
     s.setClaudeAllowed(false);
-    check('switch on, Stop during the first call: the second call of the reply does not run', ran.join() === 'machine_info' && s.machine.ram[0x3001] === ram[1]
+    check('switch on, Stop during the first call: the second call of the reply does not run', ran.join() === 'machine_info' && s.shownMachine.ram[0x3001] === ram[1]
       && calls.length === callsBefore + 1 && chat.error && chat.error.code === 'aborted', ran.join());
     // a tool running: Using <tool>… (a read-only tool held by the test)
     let release;

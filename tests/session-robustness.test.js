@@ -25,7 +25,7 @@ const FIRMWARE = new Uint8Array(fs.readFileSync(path.join(ROOT, 'examples/chat.b
 const { build } = require('./fixtures/reset-firmware');
 const { basic, basic64, game } = build(Emu);
 const KEY = 'sk-ant-SESSION-ROBUSTNESS-0123456789';
-const frames = (s, k) => { for (let i = 0; i < k; i++) s.advance(1000 / s.machine.fps + 0.01); };
+const frames = (s, k) => { for (let i = 0; i < k; i++) s.advance(1000 / s.shownMachine.fps + 0.01); };
 const top = (s) => s.screenText()[0].slice(0, 4);
 const dragonRoms = (s) => s.addRoms([{ name: 'd64_1.rom', bytes: basic }, { name: 'd64_2.rom', bytes: basic64 }]);
 
@@ -66,11 +66,11 @@ const newSession = (id = 'dragon64') => { const s = new Emu.Session({ store: Emu
 // =====================================================================================
 {
   const s = newSession(); dragonRoms(s); frames(s, 10);
-  const basicM = s.machine;
+  const basicM = s.shownMachine;
   chatOn(s);
   const chatM = s.chatMachines.chat;
-  check('1 the chat is full screen and its machine is the one in use', s.claudeView === 'full' && s.machine === chatM && chatM !== basicM,
-    `${s.claudeView} ${s.machine.id}/${chatM.id}/${basicM.id}`);
+  check('1 the chat is full screen and its machine is the one in use', s.claudeView === 'full' && s.shownMachine === chatM && chatM !== basicM,
+    `${s.claudeView} ${s.shownMachine.id}/${chatM.id}/${basicM.id}`);
   const chatRamBefore = chatM.ram.slice();
 
   // a program (a DragonDOS binary with an executor): into the BASIC session's memory
@@ -81,7 +81,7 @@ const newSession = (id = 'dragon64') => { const s = new Emu.Session({ store: Emu
     `basic $0800=${basicM.ram[0x0800].toString(16)} chat $0800=${chatM.ram[0x0800].toString(16)}`);
   check('1 ...and the chat firmware is untouched by it', chatRamBefore.every((v, i) => v === chatM.ram[i]));
   // the chat is still the chat: the machine in use did not change under the person
-  check('1 the chat machine is still the one on screen', s.machine === chatM && s.chatMachines.chat === chatM && s.claudeView === 'full');
+  check('1 the chat machine is still the one on screen', s.shownMachine === chatM && s.chatMachines.chat === chatM && s.claudeView === 'full');
 
   // a POKE from the book is the person's: it acts on their machine and never types into the chat firmware, whose
   // keys are a conversation line (PM ruling)
@@ -129,7 +129,7 @@ const newSession = (id = 'dragon64') => { const s = new Emu.Session({ store: Emu
   // a cartridge: into the BASIC session's port (it has one), which starts it there
   s.switchMachine('dragon64');
   const s2 = new Emu.Session({ store: Emu.memoryStore() }); s2.switchMachine('dragon64'); dragonRoms(s2); frames(s2, 10);
-  const basic2 = s2.machine; chatOn(s2);
+  const basic2 = s2.shownMachine; chatOn(s2);
   const cart = Uint8Array.from([...new Array(0x2000).fill(0x39)]);   // 8K of RTS: a valid Program Pak image
   const cartMsg = s2.load('prog.rom', cart);
   check('1 a cartridge dropped on the chat screen goes into the BASIC session',
@@ -297,7 +297,7 @@ const newSession = (id = 'dragon64') => { const s = new Emu.Session({ store: Emu
   frames(s, 5 * 50 + 2);
   s.runWithoutRoms({ menu: false });
   s.load('a.cas', casTape());                    // tries the first image, fails, marks its CRC
-  const m = s.machine, marked = [...s.romsFailed(m)];
+  const m = s.shownMachine, marked = [...s.romsFailed(m)];
   check('2 (CRC) the first image is marked, with its CRC in the key', marked.length === 1 && marked[0] === s.bootKey(m),
     `${marked.join()} vs ${s.bootKey(m)}`);
   // The key is the ROM CRCs, so another image for the same machine is another key: replace the library's image
@@ -390,7 +390,7 @@ const newSession = (id = 'dragon64') => { const s = new Emu.Session({ store: Emu
   frames(s, 5 * 50 + 2);
   s.runWithoutRoms({ menu: false });
   s.load('a.cas', casTape());
-  check('2 (switch) the failing ROMs are marked for this machine', s.bootFailed.size === 1 && s.romsFailed(s.machine).size === 1,
+  check('2 (switch) the failing ROMs are marked for this machine', s.bootFailed.size === 1 && s.romsFailed(s.shownMachine).size === 1,
     `${s.bootFailed.size} machine(s)`);
   s.switchMachine('coco'); s.switchMachine('dragon32'); frames(s, 2);
   check('2 (switch) switching away forgets them (and the discarded machine with them)', s.bootFailed.size === 0, `${s.bootFailed.size} machine(s)`);
@@ -458,7 +458,7 @@ const newSession = (id = 'dragon64') => { const s = new Emu.Session({ store: Emu
 {
   const s = newSession(); dragonRoms(s); frames(s, 10);
   s.inject(game, 0x4022); frames(s, 5);
-  check('4 the game runs and holds the warm-start vector', top(s) === 'GGGG' && s.machine.ram[0x71] === 0x55, top(s));
+  check('4 the game runs and holds the warm-start vector', top(s) === 'GGGG' && s.shownMachine.ram[0x71] === 0x55, top(s));
   s.reset(); frames(s, 5);
   frames(s, 5 * 50 + 2);
   const st = s.bootStatus(5);

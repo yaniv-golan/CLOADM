@@ -362,7 +362,7 @@ for (const [id, family] of [['coco', 'sam'], ['mc10', 'mc10'], ['dragon64', 'sam
   const s = new Emu.Session();
   s.switchMachine('coco');
   s.attachSerial('terminal', { baud: 1200 });
-  const m = s.machine, bit = m.tickHz / 1200;
+  const m = s.shownMachine, bit = m.tickHz / 1200;
   s.serialSend('OK');
   m.runCycles(m.cycle + Math.round(4.5 * bit));
   const saved = Emu.state.fromJSON(Emu.state.toJSON(m.snapshot()));
@@ -477,7 +477,7 @@ for (const [id, caseNo] of [['coco', 16], ['dragon64', 17]]) {
   s.switchMachine('dragon64');
   s.startWelcome(new Uint8Array(fs.readFileSync(path.join(__dirname, '../examples/welcome.bin'))));
   s.welcomeSound();
-  const a = s.machine;
+  const a = s.shownMachine;
   for (let f = 0; f < 60; f++) a.runFrame();   // the stripe is built by frame 32; the tune starts then
   const regs = ['a', 'b', 'x', 'y', 'u', 's', 'pc', 'dp', 'cc'].map((name) => ({ name }));
   const withSound = (m) => { let h = 0x811C9DC5; const frame = m.runFrame.bind(m); m.runFrame = () => { frame(); for (const v of m.audioEvents) h = fnv(h, Math.round(v * 1e6)); }; return () => h >>> 0; };
@@ -648,16 +648,16 @@ for (const [id, caseNo] of [['coco', 16], ['dragon64', 17]]) {
   s.addRoms([{ name: 'bas12.rom', bytes: new Uint8Array(8192).fill(0x11) }]);
   const prog = new Uint8Array(400).fill(0x22);
   s.load('mine.bin', Emu.toBinary(Emu.assemble(' ORG $3000\nL BRA L\n END', '6809')));
-  for (let i = 0; i < 3; i++) s.machine.runFrame();
-  const text = Emu.state.toJSON(s.machine.snapshot());
+  for (let i = 0; i < 3; i++) s.shownMachine.runFrame();
+  const text = Emu.state.toJSON(s.shownMachine.snapshot());
   const mediaBefore = { roms: s.roms.sockets().length, recent: s.recentMedia().length, blobs: s.media.snapshot().length };
   check('snapshot: the stored ROM image bytes are not in it', !text.includes(Buffer.from(new Uint8Array(8192).fill(0x11)).toString('base64').slice(0, 24)));
   check('snapshot: it names the ROMs by CRC only', /"roms":\{[^}]*"bas":"[0-9A-F]{8}"/.test(text) || /"roms":/.test(text), text.slice(0, 120));
   // restoring into a fresh machine with the same ROMs leaves the media library untouched
   const s2 = new Emu.Session({ store: Emu.memoryStore(), media: s.media });
   s2.switchMachine('coco');
-  s2.machine.setRoms(s.machine.roms);
-  s2.machine.restore(Emu.state.fromJSON(text));
+  s2.shownMachine.setRoms(s.shownMachine.roms);
+  s2.shownMachine.restore(Emu.state.fromJSON(text));
   const mediaAfter = { roms: s2.roms.sockets().length, recent: s2.recentMedia().length, blobs: s2.media.snapshot().length };
   check('snapshot: loading one adds nothing to and removes nothing from the media library',
     JSON.stringify(mediaBefore) === JSON.stringify(mediaAfter), `${JSON.stringify(mediaBefore)} -> ${JSON.stringify(mediaAfter)}`);
@@ -957,7 +957,7 @@ FILL    INC     ,X+
   };
   const a = await session();
   await a.bootNitros9('n9.dsk');
-  const m = a.machine;
+  const m = a.shownMachine;
   const mid = () => a.drivewire.available > 100 && !m.stall;
   for (let guard = 0; guard < 2000000 && !mid(); guard++) { m.runCycles(m.cycle + 1); if (m.stall) await m.stall; }
   check('nitros9: snapshot with a boot-track sector part way to the machine', mid() && m.read(0x0100) === 0, `(${a.drivewire.available} bytes waiting)`);
@@ -966,7 +966,7 @@ FILL    INC     ,X+
   await b.mountDriveWire(0, 'n9.dsk');
   let err = null;
   try { b.openSnapshot(await b.readSnapshot(file.bytes)); } catch (e) { err = e; }
-  check('nitros9: the snapshot opens in a browser without ROMs (the loader is built in)', !err && b.nitros9Running && b.machine.roms.basic === Emu.nitros9LoaderRom('drivewire'), err ? err.message : '');
+  check('nitros9: the snapshot opens in a browser without ROMs (the loader is built in)', !err && b.nitros9Running && b.shownMachine.roms.basic === Emu.nitros9LoaderRom('drivewire'), err ? err.message : '');
   const finish = async (mm) => {
     let h = 0x811C9DC5, fh = 0x811C9DC5;
     mm.cpu.trace = (c) => { for (const k of ['pc', 'a', 'b', 'x', 'y', 'u', 's', 'cc']) h = fnv(h, c[k]); h = fnv(h, c.totalCycles); };
@@ -977,7 +977,7 @@ FILL    INC     ,X+
     }
     return { h: h >>> 0, fh: fh >>> 0, booted: mm.read(0x0100) === 1, screen: mm.read(0x0400) | mm.read(0x05FF) };
   };
-  const cont = await finish(m), rest = await finish(b.machine);
+  const cont = await finish(m), rest = await finish(b.shownMachine);
   check('nitros9: the restored machine finishes the boot and runs on identically (trace, frames)', cont.booted && cont.screen && rest.h === cont.h && rest.fh === cont.fh,
     JSON.stringify({ cont, rest }));
 }
@@ -1003,7 +1003,7 @@ FILL    INC     ,X+
   };
   const a = await session();
   await a.bootNitros9('n9floppy.dsk', 'disk');
-  const m = a.machine;
+  const m = a.shownMachine;
   // halted inside a sector of the boot track, after its first bytes and before its last
   const mid = () => m.cpu.haltLine && !m.stall && m.cpu.x > 0x2680 && (m.cpu.x & 0xFF) > 0x10 && (m.cpu.x & 0xFF) < 0xF0;
   for (let guard = 0; guard < 4000000 && !mid(); guard++) { m.runCycles(m.cycle + 1); if (m.stall) await m.stall; }
@@ -1014,7 +1014,7 @@ FILL    INC     ,X+
   let err = null;
   try { b.openSnapshot(await b.readSnapshot(file.bytes)); } catch (e) { err = e; }
   check('nitros9 floppy: the snapshot opens without ROMs (the loader is built in, the controller needs none)',
-    !err && b.nitros9Loader() === 'floppy' && b.machine.roms.basic === Emu.nitros9LoaderRom('floppy') && b.machine.cartPort instanceof Emu.DiskController, err ? err.message : '');
+    !err && b.nitros9Loader() === 'floppy' && b.shownMachine.roms.basic === Emu.nitros9LoaderRom('floppy') && b.shownMachine.cartPort instanceof Emu.DiskController, err ? err.message : '');
   const finish = async (mm) => {
     let h = 0x811C9DC5, fh = 0x811C9DC5;
     mm.cpu.trace = (c) => { for (const k of ['pc', 'a', 'b', 'x', 'y', 'u', 's', 'cc']) h = fnv(h, c[k]); h = fnv(h, c.totalCycles); };
@@ -1027,7 +1027,7 @@ FILL    INC     ,X+
     for (let i = 0; i < 18 * 256; i += 97) track.push(mm.read(0x2600 + i));
     return { h: h >>> 0, fh: fh >>> 0, booted: mm.read(0x0100) === 1, track: track.join(), screen: mm.read(0x0400) | mm.read(0x05FF) };
   };
-  const cont = await finish(m), rest = await finish(b.machine);
+  const cont = await finish(m), rest = await finish(b.shownMachine);
   const want = [];
   for (let i = 0; i < 18 * 256; i += 97) want.push(disk[(34 * 36) * 256 + i]);
   check('nitros9 floppy: the restored machine finishes the read and the boot identically (trace, frames, the boot track as on the disk)',

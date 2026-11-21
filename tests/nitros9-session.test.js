@@ -26,7 +26,7 @@ const rejects = async (p, re) => {
   return r === true;
 };
 const frames = async (s, n, until) => {
-  const m = s.machine;
+  const m = s.shownMachine;
   for (let f = 0; f < n; f++) { while (!m.runFrame()) await m.stall; if (until && until()) return true; }
   return false;
 };
@@ -53,7 +53,7 @@ const status = (m) => m.read(NITROS9_STATUS.addr);
     await rejects(s.bootNitros9('boot6809.dsk'), /boot6809\.dsk.*already in DriveWire drive 1: eject it there first/));
   check('... and the failed boot changed nothing (drive 1 still has it, drive 0 empty)', s.driveWireMounts.length === 1 && s.driveWireMounts[0].drive === 1 && !s.nitros9Running);
   s.ejectDriveWire(1);
-  check('a failed boot leaves the machine as it was (BASIC socket, Becker port off)', !s.nitros9Running && s.machine.config.becker === false && !s.driveWireMounts.length);
+  check('a failed boot leaves the machine as it was (BASIC socket, Becker port off)', !s.nitros9Running && s.shownMachine.config.becker === false && !s.driveWireMounts.length);
   check('addAndBootNitros9 refuses a bad file before keeping it', await rejects(s.addAndBootNitros9('x.dsk', new Uint8Array(300)), /x\.dsk: It isn't a disk image of whole 256-byte sectors/) &&
     !(await s.driveWireImages()).some((x) => x.name === 'x.dsk'));
   {
@@ -74,7 +74,7 @@ const status = (m) => m.read(NITROS9_STATUS.addr);
 
   // ---- booting the 6809 build on a 6809 CoCo 3 without the Becker port
   let msg = await s.bootNitros9('boot6809.dsk');
-  let m = s.machine;
+  let m = s.shownMachine;
   check('booted: message', /Booting NitrOS-9\/6809 from boot6809\.dsk over DriveWire$/.test(msg), msg);
   check('the machine: a CoCo 3, Becker port on, CPU and RAM kept', m.id === 'coco3' && m.config.becker === true && m.config.cpu === '6809' && m.config.ram === 128, JSON.stringify(m.config));
   check('the Becker port is served by the Session\'s DriveWire server', m.becker.server === s.drivewire);
@@ -105,18 +105,18 @@ const status = (m) => m.read(NITROS9_STATUS.addr);
 
   // a 6309 build on the 6809 CoCo 3: the machine becomes a 6309 one
   msg = await s.bootNitros9('boot6309.dsk');
-  m = s.machine;
+  m = s.shownMachine;
   check('the 6309 build switches the CPU to the HD6309, and says so', m.config.cpu === '6309' && /switched to the HD6309/.test(msg) && m.cpu.constructor.name === 'CPU6309', msg);
   check('drive 0 now has the 6309 image', s.driveWireMounts.find((d) => d.drive === 0).name === 'boot6309.dsk');
   check('pickNitros9Image: drive 0\'s image first', (await s.pickNitros9Image('6809')).name === 'boot6309.dsk');
   await frames(s, 120);
   check('the 6309 boot track runs', status(m) === NITROS9_STATUS.jumped && m.read(0x0102) === 0x5A);
   msg = await s.bootNitros9('boot6809.dsk');
-  check('the 6809 build on the 6309 machine keeps the HD6309', s.machine.config.cpu === '6309' && !/switched/.test(msg));
+  check('the 6809 build on the 6309 machine keeps the HD6309', s.shownMachine.config.cpu === '6309' && !/switched/.test(msg));
 
   // leaving: the ROMs back (none stored here: the stub)
   s.leaveNitros9();
-  check('Back to BASIC: our loader out, the machine on its own ROMs (here none: the stub)', !s.nitros9Running && s.machine.useStub && s.bootStatus().state === 'stub');
+  check('Back to BASIC: our loader out, the machine on its own ROMs (here none: the stub)', !s.nitros9Running && s.shownMachine.useStub && s.bootStatus().state === 'stub');
   check('the share link no longer boots NitrOS-9', !/nitros9/.test(s.shareUrl('https://cloadm.dev/play/')));
   // another machine and back: the user's ROMs, not the loader
   await s.bootNitros9('boot6809.dsk');
@@ -161,7 +161,7 @@ const status = (m) => m.read(NITROS9_STATUS.addr);
     f.switchMachine('coco3', { cpu: '6809', ram: 128, becker: false }, { menu: false });
     const disk = makeOs9Disk(Emu, { driver: 'rb1773', port: 'floppy', sides: 2, sectors: 1440, cpu: '6309' });
     const said = await f.addAndBootNitros9('floppy9.dsk', disk);
-    const fm = f.machine;
+    const fm = f.shownMachine;
     check('floppy: booted from floppy drive 0, the 6309 build on the HD6309, the Becker port left off',
       /Booting NitrOS-9\/6309 from floppy9\.dsk in floppy drive 0 \(switched to the HD6309/.test(said) && fm.config.cpu === '6309' && fm.config.becker === false, said);
     check('floppy: kept with the library\'s disks, and listed as a floppy', (await f.media.list('disks/')).some((e) => e.name === 'disks/floppy9.dsk') &&
@@ -177,9 +177,9 @@ const status = (m) => m.read(NITROS9_STATUS.addr);
     check('floppy: reset boots it again', status(fm) === NITROS9_STATUS.jumped && fm.read(0x0102) === 0x5A);
     check('floppy: the link boots NitrOS-9 (nitros9=1), and picks the floppy in drive 0', /nitros9=1/.test(f.shareUrl('https://cloadm.dev/play/')) && (await f.pickNitros9Image('6809')).name === 'floppy9.dsk');
     f.leaveNitros9();
-    check('floppy: Back to BASIC takes the ROM-less controller out (the disk stays in the library)', !f.nitros9Running && !f.machine.cartPort && (await f.media.list('disks/')).length === 1);
+    check('floppy: Back to BASIC takes the ROM-less controller out (the disk stays in the library)', !f.nitros9Running && !f.shownMachine.cartPort && (await f.media.list('disks/')).length === 1);
     check('floppy: by name from the link, found with the disks', /in floppy drive 0/.test(await f.bootNitros9('floppy9.dsk')));
-    f.machine.insertCartridge(new Emu.devices.multi([null, null, null, null]));
+    f.shownMachine.insertCartridge(new Emu.devices.multi([null, null, null, null]));
     check('floppy: not through a Multi-Pak', await rejects(f.bootNitros9('floppy9.dsk', 'disk'), /take the Multi-Pak out/));
     const big = makeOs9Disk(Emu, { driver: 'rb1773', port: 'floppy', sides: 2, sectors: 2880 });
     check('floppy: an 80-track one is refused before it is kept', await rejects(f.addAndBootNitros9('big.dsk', big), /big\.dsk: .*80 tracks/) && !(await f.media.list('disks/')).some((e) => e.name === 'disks/big.dsk'));

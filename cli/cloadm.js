@@ -470,7 +470,7 @@ class Runner {
     this.results = [];
     this.romReport = null;
   }
-  get m() { return this.s.machine; }
+  get m() { return this.s.shownMachine; }
   // the machine, built from the setup steps at the first step that needs it
   start() {
     if (this.s) return;
@@ -501,7 +501,7 @@ class Runner {
         }
       }
     }
-    if (noRoms && s.machine.hasRom) s.runWithoutRoms({ menu: false });
+    if (noRoms && s.shownMachine.hasRom) s.runWithoutRoms({ menu: false });
     this.s = s;
   }
   // `count` emulated frames through the Session's own frame path (Session.runFrames: keys, typing, printer, welcome
@@ -532,7 +532,9 @@ class Runner {
   // one frame -> false when a debugger breakpoint stopped it part way
   async frame() { return (await this.runFrames(1)) === 1; }
   framesFor(seconds) { return Math.max(1, Math.round(seconds * this.m.fps)); }
-  screen() { return Emu.screenTextTool(this.s); }
+  // screenTextTool takes a TOOL TARGET (a machine and the reads on it), not a Session: the chat's tools get one from
+  // Session.chatTarget(), and the CLI reads the machine on screen - the only one it has - the same way.
+  screen() { return Emu.screenTextTool(this.s.chatTarget()); }
   // the failure of a condition: exit 1, with the screen for context
   failed(code, message, extra = {}) { return new CliError(code, message, Object.assign({ screen: this.screen() }, extra)); }
   record(step, extra = {}) { const r = Object.assign({ step: step.name }, extra); this.results.push(r); return r; }
@@ -769,7 +771,7 @@ class Runner {
     return this.record(step, { name, value: s.debug.registers()[name] });
   }
   async disasm(step, { address: a, count }, s) {
-    return this.record(step, Emu.disassembleTool(s, { address: a == null ? this.m.cpu.pc : a, count }));
+    return this.record(step, Emu.disassembleTool(s.chatTarget(), { address: a == null ? this.m.cpu.pc : a, count }));
   }
   async stepInstructions(step, n, s) {
     const d = s.debug;

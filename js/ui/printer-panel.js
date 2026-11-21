@@ -8,7 +8,7 @@ import { $ } from './page.js';
 export function setupPrinterPanel(page) {
   const { session } = page;
   function show() {
-    const text = session.printoutText(), n = session.machine.printed.length;
+    const text = session.printoutText(), n = session.shownMachine.printed.length;
     $('printout').textContent = text;
     $('printout').scrollTop = $('printout').scrollHeight;
     $('printState').textContent = n ? `${n} byte${n === 1 ? '' : 's'}` : 'nothing yet';

@@ -22,7 +22,7 @@ let fail = 0, n = 0;
 const check = (name, cond, detail = '') => { n++; if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log(`ok   ${name} ${detail}`); };
 const ROOT = path.join(__dirname, '..');
 const FIRMWARE = new Uint8Array(fs.readFileSync(path.join(ROOT, 'examples/chat.bin')));
-const frames = (s, k) => { for (let i = 0; i < k; i++) s.advance(1000 / s.machine.fps + 0.01); };
+const frames = (s, k) => { for (let i = 0; i < k; i++) s.advance(1000 / s.shownMachine.fps + 0.01); };
 const { build } = require('./fixtures/reset-firmware');
 const { basic, basic64, game } = build(Emu);
 const KEY = 'sk-ant-LEAK-TEST-0123456789';
@@ -273,6 +273,30 @@ const ROWS = [
     if (!s.welcomeRunning) throw new Error('welcomeRunning is false on the person\'s machine');
     if (s.welcomeRunningOn) throw new Error('welcomeRunningOn claims the CHAT machine runs the menu');
   }],
+  // The welcome program's own two actions, with audio already unlocked and the chat on screen (the page reaches this
+  // through welcome.js after an audio unlock). Both poked this.machine - the CHAT - while the gate was the person's
+  // machine, so the sweep missed it: no row had set welcomeSoundOn. The bytes are asserted DIRECTLY, on both machines,
+  // because the chat's own frames redraw its screen: a RAM fingerprint would show noise either way.
+  ['the welcome program\'s sound goes to the person\'s machine', () => {}, (s) => {
+    const welcome = new Uint8Array(fs.readFileSync(path.join(ROOT, 'examples/welcome.bin')));
+    s.startWelcome(welcome, { greeting: 'back' });
+    s.welcomeSoundOn = true;
+    const chat = s.chatMachines.chat, at = s.welcomeBuild.soundOk, was = chat.ram[at];
+    s.welcomeSound();
+    if (chat.ram[at] !== was) throw new Error('the sound byte was written into the CHAT machine');
+    if (s.welcome.ram[at] !== 1) throw new Error('the sound byte was not written into the person\'s machine');
+  }],
+  ['the welcome program\'s key mailbox is the person\'s machine', () => {}, (s) => {
+    const welcome = new Uint8Array(fs.readFileSync(path.join(ROOT, 'examples/welcome.bin')));
+    s.startWelcome(welcome, { greeting: 'back' });
+    // the person's machine posts a key the way the program does; flushWelcome must read and clear THAT one
+    const chat = s.chatMachines.chat, at = s.welcomeBuild.event;
+    s.welcome.poke(at, 2);
+    const chatWas = chat.ram[at];
+    s.flushWelcome();
+    if (s.welcome.peek(at) !== 0) throw new Error('the key was not cleared on the person\'s machine');
+    if (chat.ram[at] !== chatWas) throw new Error('the key was written to the CHAT machine');
+  }],
   ['switch display (composite, then back)', () => {}, (s) => { const was = s.display.view; const other = was === 'crt' ? 'sharp' : 'crt'; s.setDisplay({ view: other }); if (s.display.view === was) throw new Error('the display did not change'); s.setDisplay({ view: was }); }],
   // the printout is the SHOWN machine's (the printer panel shows what the screen's machine printed, and `printed` is
   // Machine.STATE), so this is a shown-machine action by design, like opening the printer panel
@@ -312,7 +336,7 @@ async function observed(setup, act, id = 'dragon64', panel = false) {
   // (a setup may be async - mounting, importing: its work and its throw would land after the row was observed)
   if (s.setupPromise) { try { await s.setupPromise; } catch (e) { setupErrorBox.error = e.message; } }
   const setupError = setupErrorBox.error;
-  const chatM = s.chatMachines ? s.chatMachines.chat : s.machine;   // (a panel session has no chat machine)
+  const chatM = s.chatMachines ? s.chatMachines.chat : s.shownMachine;   // (a panel session has no chat machine)
   const recordBefore = s.stubRuns.get(chatM);
   let threw = null, result = null;
   try { result = await act(s); } catch (e) { threw = e.message; }
@@ -325,6 +349,73 @@ async function observed(setup, act, id = 'dragon64', panel = false) {
   s.endChat();
   return out;
 }
+
+// THE TWO ACCESSORS, ENFORCED (PM 124). Inside the Session and in every page module a bare `this.machine` or
+// `session.machine` does not exist: the field is `_shown` on the Session, and the only names for a machine are
+// shownMachine (the machine ON SCREEN: the picture, the keyboard, the frame loop, a debugger) and personMachine (the
+// PERSON's own work: files, ROMs, the POKE book, the welcome program, LIZA, disks). This is the bug class of the whole
+// branch: a person-framed gate paired with a shown-machine action (welcomeSound poked this.machine while its gate was
+// welcomeRunning, which means the person's machine).
+//
+// The scan is textual on purpose: it catches the shape a person writes, not the shape a parser sees. Over the
+// Session it reads the class's own body; over the page modules it reads every way a module can hold the Session or
+// the Page (the destructured `{ session } = page`, an alias `const x = session`, and one handed in as a parameter
+// named `session`/`s`/`page`). On those two objects the only machine name is one of the two accessors, so a bare
+// `.machine` on one of them is the raw use. What it must NOT flag is a plain object's own field (a snapshot's
+// { machine }, roms.js's target { machine }, a step's { machine }) or an element's dataset.machine; those names are
+// listed in NOT_A_SESSION per file with the reason, so a new one cannot join the list without being seen here.
+const SESSION_BODY = 'js/session.js';
+const PAGE_MODULES = [SESSION_BODY];
+for (const f of fs.readdirSync(path.join(ROOT, 'js/ui')).filter((n) => n.endsWith('.js')).sort()) PAGE_MODULES.push(`js/ui/${f}`);
+for (const f of ['js/embed-api.js', 'js/mcp/tools.js']) PAGE_MODULES.push(f);
+// names whose `.machine` is NOT the Session's or the Page's, per file, with the reason
+const NOT_A_SESSION = new Map([
+  // a tape recording's record: `r` is a plain { machine: the machine's profile name, blocks }, not a Session
+  ['js/ui/media-panel.js', new Set(['r'])],
+  // a switch offer: `sw` is a plain { machine: the snapshot's machine id, config, text } (Session.snapshotSwitch)
+  ['js/ui/snapshot-panel.js', new Set(['sw'])],
+  // the recent-media row and the welcome shelf's record: `r.machine` is a stored entry's machine id, not a Session
+  ['js/ui/drawer.js', new Set(['r'])],
+]);
+function sessionMachineUses() {
+  const out = [];
+  const src = fs.readFileSync(path.join(ROOT, SESSION_BODY), 'utf8').split('\n');
+  const cls = src.findIndex((l) => /^export class Session\b/.test(l));
+  src.forEach((line, i) => {
+    if (i < cls) return;                                  // SnapshotRomsError is above the class: its field is its own
+    const code = line.replace(/\/\/.*$/, '');             // (a use named in a comment is not a use)
+    for (const m of code.matchAll(/\bthis\.machine\b/g)) out.push(`${SESSION_BODY}:${i + 1}`);
+    // the backing field is the accessors' own: any other `this._shown` in the class is a use that skipped them
+    for (const m of code.matchAll(/\bthis\._shown\b/g)) {
+      const ok = /^\s*(get|set) shownMachine\b/.test(line) || /^\s*this\._shown = null;/.test(line);
+      if (!ok) out.push(`${SESSION_BODY}:${i + 1} (this._shown)`);
+    }
+  });
+  return out;
+}
+function pageMachineUses() {
+  const out = [];
+  for (const f of PAGE_MODULES) {
+    if (f === SESSION_BODY) continue;
+    const src = fs.readFileSync(path.join(ROOT, f), 'utf8').split('\n');
+    const holders = new Set(['session', 'page', 's']);    // (the page's Session; the page; the CLI/tool shorthand)
+    for (const line of src) {
+      for (const m of line.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:page\.)?(?:session|page)\b/g)) holders.add(m[1]);
+      for (const m of line.matchAll(/\b(?:const|let|var)\s*\{([^}]*)\}\s*=\s*(?:page|session)\b/g)) for (const n of m[1].split(',')) holders.add(n.trim().split(/[:=]/)[0].trim());
+      for (const m of line.matchAll(/\(([A-Za-z_$][\w$]*)\)\s*=>|function\s*\w+\s*\(([A-Za-z_$][\w$]*)/g)) { /* parameters named session/s are in holders already */ }
+    }
+    const allow = NOT_A_SESSION.get(f) || new Set();
+    src.forEach((line, i) => {
+      const code = line.replace(/\/\/.*$/, '');
+      for (const m of code.matchAll(/\b([A-Za-z_$][\w$]*)\.machine\b/g)) {
+        if (!holders.has(m[1]) || allow.has(m[1])) continue;
+        out.push(`${f}:${i + 1} (${m[1]}.machine)`);
+      }
+    });
+  }
+  return out;
+}
+function rawMachineUses() { return [...sessionMachineUses(), ...pageMachineUses()]; }
 
 // Every Session method the UI CALLS must have a row or a written reason, DERIVED from js/ui/*.js rather than listed
 // here by hand: a method added to a panel and called there is caught the moment it appears, which a hand-written
@@ -367,6 +458,9 @@ function rowMethods() {
 
 (async () => {
   check('the table has a row for every person-facing action', ROWS.length >= 40, `${ROWS.length} rows`);
+  // ---- the two accessors: no raw machine reach in the Session or a page module ----
+  const raw = rawMachineUses();
+  check('no raw this.machine / session.machine (shownMachine or personMachine, each saying which)', raw.length === 0, raw.join(', '));
   // ---- coverage: every Session method the UI calls is a row, or classified ----
   // (names verified to be reads/pure by reading their bodies; a name that is wrong here shows as an unknown method)
   const READ = new Set(['advance', 'besideMachine', 'blankDiskChoices', 'bootStatus', 'checkGame', 'checkLiza',
@@ -394,8 +488,9 @@ function rowMethods() {
   check('the coverage scan understands every way the UI reaches the Session', oddShapes.length === 0,
     oddShapes.map(([n, at]) => `${n} (${at}): use session.x, not a computed key or a destructured alias`).join(', '));
   // Session members whose puppets the UI drives: the MEMBER is classified, and the puppet is covered by that (the
-  // reason is written where its reachability is decided). debug: opening the Debugger view closes the chat
-  // (js/ui/claude.js:283-286, page.onView), so the panel never drives a debugger while the chat is on screen.
+  // reason is written where its reachability is decided). debug: opening the Debugger view closes the chat BEFORE
+  // the view's handler builds anything (page.onView's beforeView, js/ui/claude.js), so the debugger is never built on
+  // the chat machine - and tests/view-order.test.js pins that order (PM 124).
   // Setters/plain Session fields and page-facing state: they hold no machine of their own (or hold both machines
   // explicitly, like chatMachines), so reading them cannot reach the wrong one.
   for (const n of ['js', 'constructor', 'claudeView', 'chatView', 'claudePaused', 'claudeAllowed', 'claudePending',
@@ -403,12 +498,12 @@ function rowMethods() {
     'chatPromptEmpty', 'labels', 'turbo', 'fastCas', 'fastTape', 'unsavedRecording', 'menuTicket', 'carryOn',
     'lastRun', 'welcomeMenu', 'startMachine', 'caseInsensitive', 'webSerialAvailable', 'realCoco', 'driveWireMounts',
     'driveWireChannels', 'hasAnyRoms', 'hasMultiPak', 'claudeBusyActing', 'lizaFile', 'cartBoard', 'paused', 'display', 'debugger', 'stubRun',
-    'stubChosen', 'serialDevice', 'offersSsc', 'tapeRecording', 'personMachine', 'nitros9Running', 'nitros9OnScreen',
+    'stubChosen', 'serialDevice', 'offersSsc', 'tapeRecording', 'personMachine', 'shownMachine', 'nitros9Running', 'nitros9OnScreen',
     'hasArtifactPhase', 'hasTwoScreens', 'welcomeRunning', 'welcomeRunningOn']) SESSION.add(n);
   // Puppets whose reachability is decided where they live (see the note above): debug (the Debugger view closes the
   // chat, claude.js:283-286), chat (the ChatSession, not a machine), store/roms/index/media/keys/machine (the
   // Session's own services).
-  const OPAQUE = new Set(['debug', 'chat', 'store', 'roms', 'index', 'media', 'keys', 'machine']);
+  const OPAQUE = new Set(['debug', 'chat', 'store', 'roms', 'index', 'media', 'keys']);
   const missing = [...called].filter(([name]) => !rows.has(name) && !READ.has(name) && !LIBRARY.has(name)
     && !SESSION.has(name) && !UI.has(name) && !OPAQUE.has(name));
   check('every Session member the UI calls or reads has a row or a written reason', missing.length === 0,

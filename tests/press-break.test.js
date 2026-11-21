@@ -128,16 +128,16 @@ const trial = (id, press) => {
   rom.set(res.segments[0].data, 0);
   const s = new Emu.Session();
   s.switchMachine(id);
-  s.machine.setRoms({ basic: rom });
-  s.machine.reset(true);
-  s.machine.cpu.jump(res.exec);                         // the reset vector is $FF, so start the firmware ourselves
-  for (let i = 0; i < 4; i++) s.advance(1000 / s.machine.fps + 0.01);
-  const ran = s.machine.ram[base] === 0x5A;
+  s.shownMachine.setRoms({ basic: rom });
+  s.shownMachine.reset(true);
+  s.shownMachine.cpu.jump(res.exec);                         // the reset vector is $FF, so start the firmware ourselves
+  for (let i = 0; i < 4; i++) s.advance(1000 / s.shownMachine.fps + 0.01);
+  const ran = s.shownMachine.ram[base] === 0x5A;
   if (press) s.pressBreak();
-  for (let i = 0; i < 30; i++) s.advance(1000 / s.machine.fps + 0.01);
+  for (let i = 0; i < 30; i++) s.advance(1000 / s.shownMachine.fps + 0.01);
   // the firmware polls until it sees BREAK, so "halted" is the done byte only when one was pressed; with
   // nothing pressed it is still polling, which is what the idle check means by "not seen"
-  return { ran, done: s.machine.ram[base + 3] === 0xA5, sawBreak: s.machine.ram[base + 1] === 0x42 && s.machine.ram[base + 2] === 1, strobe: s.machine.strobe, m: s.machine, base };
+  return { ran, done: s.shownMachine.ram[base + 3] === 0xA5, sawBreak: s.shownMachine.ram[base + 1] === 0x42 && s.shownMachine.ram[base + 2] === 1, strobe: s.shownMachine.strobe, m: s.shownMachine, base };
 };
 
 (async () => {
@@ -183,8 +183,8 @@ const trial = (id, press) => {
   {
     const s = new Emu.Session();
     s.switchMachine('dragon64');
-    for (let i = 0; i < 30; i++) s.advance(1000 / s.machine.fps + 0.01);
-    const basic = s.machine;
+    for (let i = 0; i < 30; i++) s.advance(1000 / s.shownMachine.fps + 0.01);
+    const basic = s.shownMachine;
     let snaps = 0, restores = 0;
     const target = {
       get machine() { return basic; }, show: () => {}, screenText: () => s.screenText(),

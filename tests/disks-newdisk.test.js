@@ -54,7 +54,7 @@ const { check, rejects, failures } = checker();
     check('Alpha: the new-disk sizes are its 3.5" drives\' (80 x 2, 40 x 2, VDK)', al.blankDiskChoices().map((b) => `${b.format} ${b.tracks}x${b.heads} ${b.size}`).join() === 'vdk 80x2 720K,vdk 40x2 360K',
       JSON.stringify(al.blankDiskChoices()));
     const am = await al.newDisk(1, { format: 'vdk', tracks: 80, heads: 2 });
-    check('Alpha: a new disk goes into its built-in drive, no cartridge', am === 'New blank disk: disk-1.vdk in drive 1' && al.machine.cartPort === null && al.diskController === al.machine.fdc
+    check('Alpha: a new disk goes into its built-in drive, no cartridge', am === 'New blank disk: disk-1.vdk in drive 1' && al.shownMachine.cartPort === null && al.diskController === al.shownMachine.fdc
       && al.diskStatus().drives[0].drive === 1 && al.diskStatus().drives[0].size === 12 + 80 * 2 * 4608, am);
     await rejects('Alpha: no new disk in drive 2 (two drives fitted)', al.newDisk(2, { format: 'vdk', tracks: 80, heads: 2 }), /no drive 2/);
     const mc = new Emu.Session({ media: spyStore() });

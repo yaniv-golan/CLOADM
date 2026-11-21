@@ -23,7 +23,7 @@ const C = Emu.TOOL_CODES;
 
 let fail = 0, n = 0;
 const check = (name, cond, detail = '') => { n++; if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log(`ok   ${name} ${detail}`); };
-const frames = (s, k) => { for (let i = 0; i < k; i++) s.advance(1000 / s.machine.fps + 0.01); };
+const frames = (s, k) => { for (let i = 0; i < k; i++) s.advance(1000 / s.shownMachine.fps + 0.01); };
 const KEY = 'sk-ant-CONTRACT-TEST-KEY-0123456789';
 
 // a ROM-less machine (the stub reads typed keys) and a machine with "BASIC" (our idle firmware) at its OK prompt.
@@ -34,7 +34,7 @@ const START = 0x1E01, FRETOP = 0x7E00, P = 0x19;   // the Dragon's TXTTAB.. poin
 const SCAN = ' CLR $FF03\n LDA #$FF\n STA $FF02\n LDA #$04\n STA $FF03\n CLR $FF02\n CLR $FF01\n CLR $FF00\n LDA #$04\n STA $FF01\nIDLE LDA $FF00\n BRA IDLE\n';
 function basic({ ok = true, scan = false } = {}) {
   const s = new Emu.Session({ store: Emu.memoryStore() }); s.switchMachine('dragon64');
-  const m = s.machine;
+  const m = s.shownMachine;
   const asm = Emu.assemble(` ORG $8000\nSTART STA $FFC9\n CLR $FF23\n LDA #$F8\n STA $FF22\n LDA #$04\n STA $FF23\n CLR $FF22\n${scan ? SCAN : 'IDLE BRA IDLE\n'}`, '6809');
   const rom = new Uint8Array(0x4000).fill(0xFF); rom.set(asm.segments[0].data, 0);
   m.setRoms({ basic: rom }); m.reset(true); m.cpu.jump(asm.exec);
@@ -156,7 +156,7 @@ const OUTCOMES = {
     ['no BASIC ROMs', stub, { program: '10 END' }, loadYes, C.NO_BASIC],
     ['not at the prompt', () => basic({ ok: false }), { program: '10 END' }, loadYes, C.NOT_AT_PROMPT],
     ['does not fit', basic, { program: longProgram }, loadYes, C.PROGRAM_TOO_LARGE],
-    ['pointers that describe no program', () => { const s = basic(); s.pokeBytes(P + 2, [0x30, 0x00], s.machine); return s; }, { program: '10 END' }, loadYes, C.UNKNOWN_MACHINE],
+    ['pointers that describe no program', () => { const s = basic(); s.pokeBytes(P + 2, [0x30, 0x00], s.shownMachine); return s; }, { program: '10 END' }, loadYes, C.UNKNOWN_MACHINE],
     ['"Don\'t load"', basic, { program: '10 END' }, decline, C.LOAD_DECLINED],
     ['nobody to ask', basic, { program: '10 END' }, nobody, C.NO_CONSENT],
     ['Stop on its card', basic, { program: '10 END' }, stopOnCard, C.STOPPED],
@@ -224,7 +224,7 @@ process.exitCode = 1;
     const seen = new Set();
     for (const [label, machine, input, setup, want] of OUTCOMES[name] || []) {
       const s = machine();
-      const before = Emu.state.toJSON(s.machine.snapshot());
+      const before = Emu.state.toJSON(s.shownMachine.snapshot());
       // the keyboard tools wait for the machine to read their keys, so the machine runs while they are in flight
       const r = await modelCall(s, name, input, setup, ['type_text', 'press_break', 'run'].includes(name) && (typeof want === 'object' || want === C.NOT_CONSUMED));
       if (typeof want === 'object') {
@@ -238,7 +238,7 @@ process.exitCode = 1;
         && Object.keys(e).every((k) => ['code', 'remedy', 'detail'].includes(k)) && (e.detail === undefined || typeof e.detail === 'string'), r.raw);
       // a refusal before the act changes nothing; tool-failed, not-consumed and stopped-while-typing are after it
       if (![C.TOOL_FAILED, C.NOT_CONSUMED, C.MACHINE_RESTARTED].includes(want) && !['Stop while typing', 'written but did not read back'].includes(label)) {
-        check(`${name}: ${label}: nothing changed and no restore point`, Emu.state.toJSON(s.machine.snapshot()) === before && r.chat.undo.length === 0, `${r.chat.undo.length} points`);
+        check(`${name}: ${label}: nothing changed and no restore point`, Emu.state.toJSON(s.shownMachine.snapshot()) === before && r.chat.undo.length === 0, `${r.chat.undo.length} points`);
       }
     }
     const desc = Emu.actingTools().find((t) => t.name === name).description;
@@ -331,9 +331,9 @@ process.exitCode = 1;
         `${a.log.join(' > ')} ${out instanceof Error ? out.message : ''}`);
       // a gate that refuses: the gate's code, nothing changed, no restore point
       const b = rig(() => { throw new Emu.ToolError(C.CONSENT_DECLINED); });
-      const before = Emu.state.toJSON(b.s.machine.snapshot());
+      const before = Emu.state.toJSON(b.s.shownMachine.snapshot());
       let err = null; try { await b.chat.runTool(name, input); } catch (e) { err = e; }
-      check(`${name}: a refusing gate stops it: its code, nothing changed, no restore point`, err && err.code === C.CONSENT_DECLINED && b.log.join() === `gate:${name}` && Emu.state.toJSON(b.s.machine.snapshot()) === before && b.chat.undo.length === 0, b.log.join(' > '));
+      check(`${name}: a refusing gate stops it: its code, nothing changed, no restore point`, err && err.code === C.CONSENT_DECLINED && b.log.join() === `gate:${name}` && Emu.state.toJSON(b.s.shownMachine.snapshot()) === before && b.chat.undo.length === 0, b.log.join(' > '));
       // a gate that waits and is answered after the turn was stopped meanwhile: stopped (the check after the gate),
       // nothing changed
       const c = rig(() => { c.chat.controller.abort(); return new Promise((r) => setTimeout(r, 1)); });
@@ -372,10 +372,10 @@ process.exitCode = 1;
     // the Session's chats use the Session's gate: with nobody to ask, every acting tool is no-consent and nothing changes
     const s = basic();
     const chat = s.startAsk({ backend: new Emu.ClaudeBackend({ fetch: async () => { throw new Error('no network'); }, apiKey: KEY }) });
-    const before = Emu.state.toJSON(s.machine.snapshot());
+    const before = Emu.state.toJSON(s.shownMachine.snapshot());
     const codes = [];
     for (const name of acting) codes.push(await chat.runTool(name, valid[name]).then(() => 'RAN', (e) => e.code));
-    check('Session.startAsk: every acting tool goes through the Session\'s gate (nobody to ask: no-consent), nothing changed', codes.every((c) => c === C.NO_CONSENT) && Emu.state.toJSON(s.machine.snapshot()) === before && chat.undo.length === 0, codes.join());
+    check('Session.startAsk: every acting tool goes through the Session\'s gate (nobody to ask: no-consent), nothing changed', codes.every((c) => c === C.NO_CONSENT) && Emu.state.toJSON(s.shownMachine.snapshot()) === before && chat.undo.length === 0, codes.join());
     // the turn aborted (Esc, BREAK: chat.abort(), not stopClaude) while a card or a pause waits: stopped, not a hang
     for (const [what, name, input, arrange] of [
       ['the consent card', 'poke', valid.poke, (s2) => { s2.claudeGate = () => {}; }],
@@ -385,13 +385,13 @@ process.exitCode = 1;
       const s2 = basic(); arrange(s2);
       const c2 = s2.startAsk({ backend: new Emu.ClaudeBackend({ fetch: async () => { throw new Error('no network'); }, apiKey: KEY }) });
       c2.controller = new AbortController();
-      const before2 = Emu.state.toJSON(s2.machine.snapshot());
+      const before2 = Emu.state.toJSON(s2.shownMachine.snapshot());
       let settled = null;
       const pr = c2.runTool(name, input).then(() => 'RAN', (e) => e.code).then((c) => { settled = c; });
       await new Promise((r) => setImmediate(r));
       c2.abort();
       for (let i = 0; i < 50 && settled === null; i++) await new Promise((r) => setImmediate(r));
-      check(`an abort while ${what} waits ends the call stopped, nothing changed, no card left up`, settled === C.STOPPED && s2.claudePending === null && Emu.state.toJSON(s2.machine.snapshot()) === before2 && c2.undo.length === 0, `${settled}`);
+      check(`an abort while ${what} waits ends the call stopped, nothing changed, no card left up`, settled === C.STOPPED && s2.claudePending === null && Emu.state.toJSON(s2.shownMachine.snapshot()) === before2 && c2.undo.length === 0, `${settled}`);
       if (settled === null) { s2.stopClaude(); await pr; }
     }
     // the restore point a tool keeps is stamped by the Session (claudePoints has its time)
@@ -410,7 +410,7 @@ process.exitCode = 1;
     const valid = { poke: { address: 0x3000, bytes: [1] }, type_text: { text: 'A' }, load_basic: { program: '10 END' }, press_break: {}, assemble_and_load: { source: ' NOP\n', org: 0x3000 }, run: { target: 0x3000 } };
     const net = () => new Emu.ClaudeBackend({ fetch: async () => { throw new Error('no network'); }, apiKey: KEY });
     const tick = async (k = 30) => { for (let i = 0; i < k; i++) await new Promise((r) => setImmediate(r)); };
-    const at3000 = (s) => mem2(s.machine, 0x3000, 2);
+    const at3000 = (s) => mem2(s.shownMachine, 0x3000, 2);
     const mem2 = (m, a, k) => Array.from({ length: k }, (_, i) => m.ram[a + i]);
     const inc = ' INCLUDE "x.inc"\n';
     // a chat in a turn (busy, a controller) whose INCLUDE reader runs `during` while the check waits
@@ -446,14 +446,14 @@ process.exitCode = 1;
         await chat.runTool('poke', { address: 0x3100, bytes: [1] });
         arrange(s);
         s.claudeGate = () => {};
-        const before = Emu.state.toJSON(s.machine.snapshot()), undo0 = chat.undo.length;
+        const before = Emu.state.toJSON(s.shownMachine.snapshot()), undo0 = chat.undo.length;
         const st = start(chat, name, input);
         await tick();
         const carded = !!s.claudePending, pausedOk = s.pauseClaude();
         s.answerClaude(true); await tick();
-        const heldSame = Emu.state.toJSON(s.machine.snapshot()) === before && st.code === null;
+        const heldSame = Emu.state.toJSON(s.shownMachine.snapshot()) === before && st.code === null;
         end(s, chat); await tick(); await st.p;
-        const after = Emu.state.toJSON(s.machine.snapshot()) === before;
+        const after = Emu.state.toJSON(s.shownMachine.snapshot()) === before;
         check(`${name}: paused while ${what} waits, then answered yes: nothing changes while paused; ${endName} -> ${want}`,
           carded && pausedOk && heldSame && st.code === want && after === (want !== 'RAN') && chat.undo.length === undo0,
           `card ${carded} paused ${pausedOk} held ${heldSame} -> ${st.code}`);
@@ -474,12 +474,12 @@ process.exitCode = 1;
     }
     // a ChatSession built without a gate acts for nobody
     {
-      const s = basic(); const before = Emu.state.toJSON(s.machine.snapshot());
+      const s = basic(); const before = Emu.state.toJSON(s.shownMachine.snapshot());
       const bare = new Emu.ChatSession({ backend: { send() {} }, target: s.chatTarget() });
       const codes = [];
       // (a call that would act is not left to hang the test: one that has not settled at once counts as acting)
       for (const name of acting) codes.push(await Promise.race([bare.runTool(name, valid[name]).then(() => 'RAN', (e) => e.code), new Promise((r) => setTimeout(() => r('PENDING'), 50))]));
-      check('a ChatSession without a gate: every acting tool is no-consent, nothing changed', codes.every((c) => c === C.NO_CONSENT) && Emu.state.toJSON(s.machine.snapshot()) === before && bare.undo.length === 0, codes.join());
+      check('a ChatSession without a gate: every acting tool is no-consent, nothing changed', codes.every((c) => c === C.NO_CONSENT) && Emu.state.toJSON(s.shownMachine.snapshot()) === before && bare.undo.length === 0, codes.join());
     }
   }
 

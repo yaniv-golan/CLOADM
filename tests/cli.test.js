@@ -62,10 +62,10 @@ function welcomeHere(id, frames) {
   const s = new Emu.Session({ welcomeMenu: false });
   s.switchMachine(id, {}, { menu: false });
   s.startWelcome(new Uint8Array(fs.readFileSync(path.join(ROOT, 'examples', s.welcomeFile))));
-  for (let i = 0; i < frames; i++) s.machine.runFrame();
+  for (let i = 0; i < frames; i++) s.shownMachine.runFrame();
   return s;
 }
-const target = (s) => ({ machine: s.machine, screenText: () => s.screenText(), readByte: (a) => s.readByte(a) });
+const target = (s) => ({ machine: s.shownMachine, screenText: () => s.screenText(), readByte: (a) => s.readByte(a) });
 
 // ---------------- Session.runFrames, which the tool runs on ----------------
 {
@@ -76,17 +76,17 @@ const target = (s) => ({ machine: s.machine, screenText: () => s.screenText(), r
   Date.now = () => { clockRead = true; return realNow(); };
   const ran = a.runFrames(30);
   Date.now = realNow;
-  check('runFrames(30) runs 30 frames, reading no clock', ran === 30 && a.machine.frameCount === b.machine.frameCount && !clockRead, `${ran} ${clockRead}`);
-  check('runFrames gives the frames machine.runFrame() gives', Buffer.from(Emu.frameToRGBA(a.machine.render()).buffer).equals(Buffer.from(Emu.frameToRGBA(b.machine.render()).buffer)));
+  check('runFrames(30) runs 30 frames, reading no clock', ran === 30 && a.shownMachine.frameCount === b.shownMachine.frameCount && !clockRead, `${ran} ${clockRead}`);
+  check('runFrames gives the frames machine.runFrame() gives', Buffer.from(Emu.frameToRGBA(a.shownMachine.render()).buffer).equals(Buffer.from(Emu.frameToRGBA(b.shownMachine.render()).buffer)));
   // fast tape and turbo are about wall-clock time: runFrames ignores them (advance() would run up to 60 frames)
   a.turbo = true;
-  check('runFrames ignores turbo', a.runFrames(2) === 2 && a.machine.frameCount === b.machine.frameCount + 2);
+  check('runFrames ignores turbo', a.runFrames(2) === 2 && a.shownMachine.frameCount === b.shownMachine.frameCount + 2);
   a.turbo = false;
   // a breakpoint stops it part way: fewer frames, the machine paused at the address
-  const pc = a.machine.cpu.pc;
+  const pc = a.shownMachine.cpu.pc;
   a.debug.addBreakpoint(pc);
-  const before = a.machine.frameCount, got = a.runFrames(50);
-  check('runFrames stops at a breakpoint: fewer frames, paused at the address', got < 50 && a.paused && a.machine.cpu.pc === pc && a.runFrames(5) === 0, `${got} ${a.paused} ${before}`);
+  const before = a.shownMachine.frameCount, got = a.runFrames(50);
+  check('runFrames stops at a breakpoint: fewer frames, paused at the address', got < 50 && a.paused && a.shownMachine.cpu.pc === pc && a.runFrames(5) === 0, `${got} ${a.paused} ${before}`);
 }
 
 // ---------------- usage: exit 2 ----------------
@@ -193,8 +193,8 @@ for (const [id, frames] of [['coco', 50], ['mc10', 50], ['coco3', 40]]) {
   const want = Emu.screenTextTool(target(here));
   check(`${id}: screen text is screen_text's answer for the same frames`, r.code === 0 && JSON.stringify(Object.assign({ step: 'screen' }, want)) === JSON.stringify(stepOf(r.json, 'screen'))
     && want.text && want.lines.length > 5, `${JSON.stringify(stepOf(r.json, 'screen'))} vs ${JSON.stringify(want)}`);
-  check(`${id}: the frame count is the frames run`, r.json.machine.frame === here.machine.frameCount, `${r.json.machine.frame} vs ${here.machine.frameCount}`);
-  const dec = decodePng(fs.readFileSync(png)), frame = here.machine.render();
+  check(`${id}: the frame count is the frames run`, r.json.machine.frame === here.shownMachine.frameCount, `${r.json.machine.frame} vs ${here.shownMachine.frameCount}`);
+  const dec = decodePng(fs.readFileSync(png)), frame = here.shownMachine.render();
   const rgba = Buffer.from(Emu.frameToRGBA(frame).buffer);
   check(`${id}: the PNG decodes (CRCs right) to machine.render()'s pixels, ${frame.width}x${frame.height}`, dec.crcOk && dec.width === frame.width && dec.height === frame.height
     && dec.pixels.equals(rgba) && stepOf(r.json, 'screenshot').width === frame.width, `${dec.width}x${dec.height} crc ${dec.crcOk}`);

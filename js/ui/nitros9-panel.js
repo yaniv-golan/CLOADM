@@ -24,7 +24,7 @@ export function setupNitros9Panel(page) {
   const nameTitle = () => { const sel = $('n9Image'); sel.title = sel.selectedOptions[0] ? sel.selectedOptions[0].textContent : ''; };
   async function shown() { let p; do { p = pending; await p; } while (p !== pending); }
   async function render(seq) {
-    const m = session.machine, on = !!m && session.constructor.NITROS9_MACHINES.includes(m.id);   // (no machine before the page starts)
+    const m = session.personMachine, on = !!m && session.constructor.NITROS9_MACHINES.includes(m.id);   // (the person's machine, as the rest of this panel; none before the page starts)
     $('nitros9Slot').hidden = !on;
     if (!on) return;
     const running = session.nitros9Running;
@@ -57,12 +57,12 @@ export function setupNitros9Panel(page) {
   // the CoCo 3 first
   async function bootFile(name, bytes) {
     page.audio.start();
-    if (!session.constructor.NITROS9_MACHINES.includes(session.machine.id)) session.switchMachine(session.constructor.NITROS9_MACHINES[0], undefined, { menu: false });
+    if (!session.constructor.NITROS9_MACHINES.includes(session.personMachine.id)) session.switchMachine(session.constructor.NITROS9_MACHINES[0], undefined, { menu: false });
     return boot(session.addAndBootNitros9(name, bytes));
   }
   // a link's nitros9=1 (the image the user has) or nitros9=NAME
   async function fromLink(which) {
-    const cpu = session.machine.config.cpu;
+    const cpu = session.personMachine.config.cpu;
     const pick = which === true ? await session.pickNitros9Image(cpu) : { name: which, store: null };
     if (!pick || !pick.name) return fail(new Error(`This link boots NitrOS-9 from your own image, and your library has none yet. Download the NitrOS-9 v3.3.0 CoCo 3 archive (${NITROS9_IMAGES_URL}), unzip it, and add its _becker.dsk or _40d_1.dsk under the screen (NitrOS-9 · Add image…); the link then boots it.`));
     return boot(session.bootNitros9(pick.name, pick.store));

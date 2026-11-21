@@ -26,7 +26,7 @@ export function setupBootHelp(page, sockets) {
   let dismissedFor = null;   // the power-on the user dismissed the box for
   const box = $('bootHelp');
   function check() {
-    const st = session.bootStatus(BOOT_SECONDS), m = session.machine;
+    const st = session.bootStatus(BOOT_SECONDS), m = session.shownMachine;
     const resetAt = m.resetAt;
     const takeover = st.state === 'reset' && st.takeover;
     const show = (st.state === 'failed' || takeover) && dismissedFor !== `${m.id}@${resetAt}`;
@@ -48,7 +48,7 @@ export function setupBootHelp(page, sockets) {
   function startWatch() {
     if (unwatch) return;
     unwatch = page.onFrame(() => {
-      if (!session.machine) return;
+      if (!session.shownMachine) return;
       check();
       if (session.bootStatus(BOOT_SECONDS).state !== 'booting') { unwatch(); unwatch = null; }
     });
@@ -67,6 +67,6 @@ export function setupBootHelp(page, sockets) {
   $('btnBootSockets').onclick = () => { sockets.reveal(); };
   $('btnBootStub').onclick = () => { sockets.runWithoutRoms(); check(); };
   $('btnBootPower').onclick = () => { session.powerCycle({ reason: 'you power cycled the machine' }); page.focus(); };
-  $('btnBootDismiss').onclick = () => { const m = session.machine; dismissedFor = `${m.id}@${m.resetAt}`; check(); };
+  $('btnBootDismiss').onclick = () => { const m = session.shownMachine; dismissedFor = `${m.id}@${m.resetAt}`; check(); };
   return { check };
 }

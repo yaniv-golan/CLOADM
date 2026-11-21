@@ -51,7 +51,7 @@ export function setupMachinePanel(page, { showRoms }) {
         const t = document.createElement('span'); t.className = ready ? 'tag ready' : 'tag'; t.textContent = ready ? '✓' : 'needs ROMs';
         if (ready) t.setAttribute('aria-label', 'BASIC ready');
         b.append(n, t);
-        if (p.id === session.machine.id) b.setAttribute('aria-current', 'true');
+        if (p.id === session.shownMachine.id) b.setAttribute('aria-current', 'true');
         b.onclick = () => pick(p.id);
         g.append(b);
       }
@@ -108,7 +108,7 @@ export function setupMachinePanel(page, { showRoms }) {
   // It shows at once; which items stay in the Library (a look in the store) is added to it when known.
   let asking = 0;
   function confirmSwitch(to, onSwitch, onCancel = null) {
-    const from = session.machine.profile.name, items = session.takenOut(to.id, to.config), mine = ++asking;
+    const from = session.shownMachine.profile.name, items = session.takenOut(to.id, to.config), mine = ++asking;
     const snap = items.filter((t) => t.kind === 'disk' && !t.stored);
     const text = $('switchText');
     text.replaceChildren();
@@ -149,12 +149,12 @@ export function setupMachinePanel(page, { showRoms }) {
   // after a switch: what it switched to, what came out, and (a "needs ROMs" row) that it needs ROMs, with Add ROMs
   const switched = (taken) => {
     const needs = !session.machineRoms().bootable;
-    page.toast(`Switched to ${session.machine.profile.name}.${tookOut(taken)}${needs ? ' It needs ROMs for BASIC.' : ''}`,
+    page.toast(`Switched to ${session.shownMachine.profile.name}.${tookOut(taken)}${needs ? ' It needs ROMs for BASIC.' : ''}`,
       needs ? { action: { label: 'Add ROMs', run: showRoms } } : {});
   };
   function pick(id) {
     openMenu(false);
-    if (id === session.machine.id) { page.focus(); return; }
+    if (id === session.shownMachine.id) { page.focus(); return; }
     confirmSwitch({ name: availableProfiles().find((p) => p.id === id).name, id }, (taken) => {
       session.chooseMachine(id);
       switched(taken);
@@ -199,7 +199,7 @@ export function setupMachinePanel(page, { showRoms }) {
 
   session.on((ev) => {
     if (ev !== 'machine') return;
-    const m = session.machine;
+    const m = session.shownMachine;
     showOption(m, 'ram', 'ramField', 'ramSel', 'ramFixed', (v) => `${v}K`);
     showOption(m, 'cpu', 'cpuField', 'cpuSel', 'cpuFixed', cpuName);
     $('beckerField').hidden = !m.profile.options.becker;
@@ -217,18 +217,18 @@ export function setupMachinePanel(page, { showRoms }) {
 
   // a changed option power-cycles the machine with it (remembered for that model)
   const change = (key, parse, done) => (e) => {
-    const m = session.machine;
+    const m = session.shownMachine;
     session.switchMachine(m.id, Object.assign({}, session.savedConfig(m.id), { [key]: parse(e.target.value) }));
-    page.status(`${m.profile.name}: ${done(session.machine.config[key])} (switched off and on)`);
+    page.status(`${m.profile.name}: ${done(session.shownMachine.config[key])} (switched off and on)`);
     page.focus();
   };
   // RAM: asked first, as a machine switch is, naming what comes out (R25); Cancel puts the select back
   $('ramSel').onchange = (e) => {
-    const m = session.machine, ram = Number(e.target.value), config = Object.assign({}, session.savedConfig(m.id), { ram });
+    const m = session.shownMachine, ram = Number(e.target.value), config = Object.assign({}, session.savedConfig(m.id), { ram });
     confirmSwitch({ name: null, id: m.id, config }, (taken) => {
       session.switchMachine(m.id, config);
-      page.status(`${m.profile.name}: ${session.machine.config.ram}K RAM (switched off and on).${tookOut(taken)}`);
-    }, () => { e.target.value = String(session.machine.config.ram); });
+      page.status(`${m.profile.name}: ${session.shownMachine.config.ram}K RAM (switched off and on).${tookOut(taken)}`);
+    }, () => { e.target.value = String(session.shownMachine.config.ram); });
   };
   $('cpuSel').onchange = change('cpu', String, (v) => `${cpuName(v)} CPU`);
   $('chkBecker').onchange = (e) => change('becker', () => e.target.checked, (v) => `Becker port ${v ? 'on' : 'off'}`)(e);

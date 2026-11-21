@@ -16,22 +16,22 @@ const check = (name, cond, detail = '') => { n++; if (!cond) { fail++; console.l
 const J = JSON.stringify;
 // the peek tool's hex rows back to bytes, for the checks (a plain split, not the code under test)
 const peekBytes = (p) => p.hex.flatMap((row) => row.split(': ')[1].split(' ').map((h) => parseInt(h, 16)));
-const boot = (id, cfg) => { const s = new Emu.Session(); s.switchMachine(id, cfg); for (let i = 0; i < 50; i++) s.advance(1000 / s.machine.fps + 0.01); return s; };
+const boot = (id, cfg) => { const s = new Emu.Session(); s.switchMachine(id, cfg); for (let i = 0; i < 50; i++) s.advance(1000 / s.shownMachine.fps + 0.01); return s; };
 // A target shaped like Session.chatTarget(): the read tools take this, not a Session, so they can be tested
 // without a chat.
 const targetOf = (s) => {
-  const basic = () => s.machine;
+  const basic = () => s.shownMachine;
   return {
     get machine() { return basic(); },
     show: () => {},
     screenText: () => s.screenText(),
     readByte: (a) => s.readByte(a),
-    bootStatus: () => (s.machine.hasRom ? { state: 'ok' } : { state: 'stub' }),
+    bootStatus: () => (s.shownMachine.hasRom ? { state: 'ok' } : { state: 'stub' }),
   };
 };
 
 // the whole machine, serialised: any change to any chip shows up here
-const stateOf = (s) => JSON.stringify(s.machine.saveState());
+const stateOf = (s) => JSON.stringify(s.shownMachine.saveState());
 
 (async () => {
   // ---- 1. the split: the read-only names, and no acting name among them ----
@@ -156,7 +156,7 @@ const stateOf = (s) => JSON.stringify(s.machine.saveState());
       const s = boot(id);
       const r = Emu.assemble(src, cpu);
       if (!r.ok) throw new Error(`assembling the ${cpu} fixture failed: ${JSON.stringify(r.errors)}`);
-      for (const seg of r.segments) for (const [i, b] of [...seg.data].entries()) s.machine.poke(seg.addr + i, b);
+      for (const seg of r.segments) for (const [i, b] of [...seg.data].entries()) s.shownMachine.poke(seg.addr + i, b);
       const out = await Emu.runReadOnlyTool(targetOf(s), 'disassemble', { address: at, count: 3 });
       check(`disassemble on a ${cpu} machine decodes the assembled program`,
         out.cpu === cpu && JSON.stringify(out.instructions.map((i) => i.text)) === JSON.stringify(want),
@@ -172,7 +172,7 @@ const stateOf = (s) => JSON.stringify(s.machine.saveState());
     const s = boot('dragon64', { cpu: '6309' });
     const r = Emu.assemble(' ORG $3000\nSTART LDQ #$11223344\n AIM #$80,<$10\n', '6309');
     if (!r.ok) throw new Error(`assembling the 6309 fixture failed: ${JSON.stringify(r.errors)}`);
-    for (const seg of r.segments) for (const [i, b] of [...seg.data].entries()) s.machine.poke(seg.addr + i, b);
+    for (const seg of r.segments) for (const [i, b] of [...seg.data].entries()) s.shownMachine.poke(seg.addr + i, b);
     const out = await Emu.runReadOnlyTool(targetOf(s), 'disassemble', { address: 0x3000, count: 2 });
     check('disassemble on a 6309 machine uses the 6309 instruction set',
       out.cpu === '6309' && JSON.stringify(out.instructions.map((i) => i.text)) === JSON.stringify(['LDQ #$11223344', 'AIM #$80,<$10']),
@@ -188,7 +188,7 @@ const stateOf = (s) => JSON.stringify(s.machine.saveState());
     // and the other way round: a 6809 machine given cpu:'6309' must still decode as a 6809
     const s6809 = boot('dragon64');
     const r6809 = Emu.assemble(' ORG $3000\nSTART LDA #$12\n RTS\n', '6809');
-    for (const seg of r6809.segments) for (const [i, b] of [...seg.data].entries()) s6809.machine.poke(seg.addr + i, b);
+    for (const seg of r6809.segments) for (const [i, b] of [...seg.data].entries()) s6809.shownMachine.poke(seg.addr + i, b);
     const as6309 = await Emu.runReadOnlyTool(targetOf(s6809), 'disassemble', { address: 0x3000, count: 2, cpu: '6309' });
     check('a 6809 machine given cpu:"6309" in the request still decodes as a 6809',
       as6309.cpu === '6809' && as6309.instructions[0].text === 'LDA #$12',
@@ -199,8 +199,8 @@ const stateOf = (s) => JSON.stringify(s.machine.saveState());
     const sDp = boot('dragon64', { cpu: '6309' });
     const rDp = Emu.assemble(' ORG $3000\nSTART LDA <$10\n RTS\n', '6309');
     if (!rDp.ok) throw new Error(`assembling the 6309 DP fixture failed: ${JSON.stringify(rDp.errors)}`);
-    for (const seg of rDp.segments) for (const [i, b] of [...seg.data].entries()) sDp.machine.poke(seg.addr + i, b);
-    sDp.machine.cpu.dp = 0x40;
+    for (const seg of rDp.segments) for (const [i, b] of [...seg.data].entries()) sDp.shownMachine.poke(seg.addr + i, b);
+    sDp.shownMachine.cpu.dp = 0x40;
     const dpOut = await Emu.runReadOnlyTool(targetOf(sDp), 'disassemble', { address: 0x3000, count: 1 });
     check('disassemble resolves a direct operand against the machine\'s own DP on a 6309',
       dpOut.instructions[0] && dpOut.instructions[0].target === 0x4010,
@@ -235,8 +235,8 @@ const stateOf = (s) => JSON.stringify(s.machine.saveState());
     // a direct-page operand's target follows THIS machine's dp, which is what makes the address usable: the text
     // keeps the symbolic <$10, so `target` is the only place the real address appears
     const seg = Emu.assemble(' ORG $3000\n LDA <$10\n', '6809');
-    for (const s2 of seg.segments) for (const [i, b] of [...s2.data].entries()) s.machine.poke(s2.addr + i, b);
-    s.machine.cpu.dp = 0x42;
+    for (const s2 of seg.segments) for (const [i, b] of [...s2.data].entries()) s.shownMachine.poke(s2.addr + i, b);
+    s.shownMachine.cpu.dp = 0x42;
     const dpOut = await Emu.runReadOnlyTool(t, 'disassemble', { address: 0x3000, count: 1 });
     check('disassemble resolves a direct-page target with the machine\'s dp',
       dpOut.instructions[0].text === 'LDA <$10' && dpOut.instructions[0].target === 0x4210, JSON.stringify(dpOut.instructions[0]));
@@ -247,15 +247,15 @@ const stateOf = (s) => JSON.stringify(s.machine.saveState());
   // says how many there are, so a screen of blocks does not read as an empty one
   {
     const s = boot('coco');
-    for (let i = 0; i < 512; i++) s.machine.write(0x400 + i, i & 1 ? 0x8F : 0x80);   // a checkerboard of SG4 blocks
-    s.advance(1000 / s.machine.fps + 0.01);
+    for (let i = 0; i < 512; i++) s.shownMachine.write(0x400 + i, i & 1 ? 0x8F : 0x80);   // a checkerboard of SG4 blocks
+    s.advance(1000 / s.shownMachine.fps + 0.01);
     const r = await Emu.runReadOnlyTool(targetOf(s), 'screen_text', {});
     check('screen_text on a screen of semigraphics blocks: no text, and it says 512 cells are semigraphics',
       r.text === true && r.rows === 0 && r.semigraphics === 512 && /512 of the 512 cells are semigraphics/.test(r.note), J(r));
-    s.machine.write(0x400, 0x08); s.machine.write(0x401, 0x09);   // "HI" in the corner
+    s.shownMachine.write(0x400, 0x08); s.shownMachine.write(0x401, 0x09);   // "HI" in the corner
     const mixed = await Emu.runReadOnlyTool(targetOf(s), 'screen_text', {});
     check('screen_text with text among blocks: the text, the blocks as spaces, and the count', mixed.lines[0] === 'HI' && mixed.semigraphics === 510, J(mixed));
-    for (let i = 0; i < 512; i++) s.machine.write(0x400 + i, 0x60);   // all spaces
+    for (let i = 0; i < 512; i++) s.shownMachine.write(0x400 + i, 0x60);   // all spaces
     const plain = await Emu.runReadOnlyTool(targetOf(s), 'screen_text', {});
     check('screen_text with no semigraphics: no count and no note', !('semigraphics' in plain) && !('note' in plain), J(plain));
   }
@@ -270,9 +270,9 @@ const stateOf = (s) => JSON.stringify(s.machine.saveState());
       for (let gm = 0; gm < 8; gm++) {
         const s = boot(model);
         const r = Emu.assemble(` ORG $3000\nS ORCC #$50\n LDA #$${(0x80 | (gm << 4)).toString(16)}\n STA $FF22\nL BRA L\n`, '6809');
-        for (const seg of r.segments) for (const [i, b] of [...seg.data].entries()) s.machine.poke(seg.addr + i, b);
-        s.machine.jump(0x3000);
-        for (let f = 0; f < 3; f++) s.advance(1000 / s.machine.fps + 0.01);
+        for (const seg of r.segments) for (const [i, b] of [...seg.data].entries()) s.shownMachine.poke(seg.addr + i, b);
+        s.shownMachine.jump(0x3000);
+        for (let f = 0; f < 3; f++) s.advance(1000 / s.shownMachine.fps + 0.01);
         got.push((await Emu.runReadOnlyTool(targetOf(s), 'machine_info', {})).video.mode);
       }
       check(`machine_info on the ${model}: the eight MC6847 graphics modes by their data sheet names and sizes`,
@@ -282,20 +282,20 @@ const stateOf = (s) => JSON.stringify(s.machine.saveState());
   // peek's bytes come as hex rows of 16, each with its address: written by hand here, read back by the tool
   {
     const s = boot('coco');
-    for (let i = 0; i < 20; i++) s.machine.write(0x3000 + i, i * 13 & 0xFF);
+    for (let i = 0; i < 20; i++) s.shownMachine.write(0x3000 + i, i * 13 & 0xFF);
     const p = await Emu.runReadOnlyTool(targetOf(s), 'peek', { address: 0x3000, length: 20 });
     check('peek: hex rows of 16 bytes, each with its address',
       J(p) === J({ address: 0x3000, length: 20, hex: ['$3000: 00 0D 1A 27 34 41 4E 5B 68 75 82 8F 9C A9 B6 C3', '$3010: D0 DD EA F7'], truncated: false }), J(p));
     const one = await Emu.runReadOnlyTool(targetOf(s), 'peek', { address: 0xFFFF, length: 1 });
-    check('peek: one byte at $FFFF is one row', J(one.hex) === J([`$FFFF: ${s.machine.peek(0xFFFF).toString(16).toUpperCase().padStart(2, '0')}`]), J(one));
+    check('peek: one byte at $FFFF is one row', J(one.hex) === J([`$FFFF: ${s.shownMachine.peek(0xFFFF).toString(16).toUpperCase().padStart(2, '0')}`]), J(one));
   }
   {
     const s = boot('dragon64');
     const t = targetOf(s);
-    const rom = s.machine.currentRom ? s.machine.currentRom() : null;
+    const rom = s.shownMachine.currentRom ? s.shownMachine.currentRom() : null;
     if (rom) {
       // put something different in the RAM behind the ROM's address, then peek: the ROM must win
-      s.machine.ram[0x8000] = 0x00; s.machine.ram[0x8001] = 0x00;
+      s.shownMachine.ram[0x8000] = 0x00; s.shownMachine.ram[0x8001] = 0x00;
       const p = await Emu.runReadOnlyTool(t, 'peek', { address: 0x8000, length: 2 });
       check('peek at $8000 returns the ROM bytes, not the RAM behind them',
         p.address === 0x8000 && p.length === 2 && p.truncated === false
@@ -356,7 +356,7 @@ const stateOf = (s) => JSON.stringify(s.machine.saveState());
   {
     const s = boot('coco3');
     const t = targetOf(s);
-    const g = s.machine.gime;
+    const g = s.shownMachine.gime;
     const info = (regs) => { Object.assign(g.regs, regs); return Emu.runReadOnlyTool(t, 'machine_info', {}); };
 
     g.regs[0] = 0x00; g.regs[8] = 0x00; g.regs[9] = 0x00;   // native text, 32 columns
@@ -384,7 +384,7 @@ const stateOf = (s) => JSON.stringify(s.machine.saveState());
   {
     const s = boot('coco3');
     const t = targetOf(s);
-    const g = s.machine.gime;
+    const g = s.shownMachine.gime;
     const cases = [
       ['GIME native text, 32 columns, 1 line per row', { 0: 0x00, 8: 0x00, 9: 0x00 }, null],
       ['GIME native text, 32 columns', { 0: 0x00, 8: 0x03, 9: 0x00 }, null],
@@ -413,7 +413,7 @@ const stateOf = (s) => JSON.stringify(s.machine.saveState());
   {
     const s = boot('coco3');
     const t = targetOf(s);
-    s.machine.gime.regs[0] = 0x00; s.machine.gime.regs[8] = 0x80;   // native bitmap
+    s.shownMachine.gime.regs[0] = 0x00; s.shownMachine.gime.regs[8] = 0x80;   // native bitmap
     const out = await Emu.runReadOnlyTool(t, 'screen_text', {});
     check('screen_text reports no text screen in a graphics mode', out.text === false && out.rows === 0 && out.lines.length === 0 && /bitmap/.test(out.mode), JSON.stringify(out));
   }
@@ -426,7 +426,7 @@ const stateOf = (s) => JSON.stringify(s.machine.saveState());
   {
     const s = boot('coco3');
     const t = targetOf(s);
-    const g = s.machine.gime;
+    const g = s.shownMachine.gime;
     g.regs[0] = 0x00; g.regs[8] = 0x03; g.regs[9] = 0x14;   // native text, 80 columns, 8 lines per row
     const base = g.nativeVideoBase();
     for (let i = 0; i < 240; i++) g.ram[base + i] = 0x41 + Math.floor(i / 80);     // rows 'A', 'B', 'C'
@@ -447,7 +447,7 @@ const stateOf = (s) => JSON.stringify(s.machine.saveState());
     {
       g.regs[8] = 0x00;
       const okNative = {
-        get machine() { return s.machine; }, show: () => {},
+        get machine() { return s.shownMachine; }, show: () => {},
         screenText: () => { const l = new Array(16).fill(' '.repeat(32)); l[0] = 'OK' + ' '.repeat(30); return l; },
         readByte: (a) => s.readByte(a), bootStatus: () => ({ state: 'ok' }),
       };
@@ -501,7 +501,7 @@ const stateOf = (s) => JSON.stringify(s.machine.saveState());
     check('d64plus (screen main): the VDG text screen is read as before', vdgInfo.video.kind === 'text' && vdgScreen.text === true,
       JSON.stringify({ kind: vdgInfo.video.kind, text: vdgScreen.text }));
     s.setDisplay({ screen: 'plus' });
-    check('the Plus screen is selected through the setter', s.machine.view === 'plus');
+    check('the Plus screen is selected through the setter', s.shownMachine.view === 'plus');
     const info = await Emu.runReadOnlyTool(t, 'machine_info', {});
     const scr = await Emu.runReadOnlyTool(t, 'screen_text', {});
     check('d64plus (screen plus): machine_info names the HD6845S display',
@@ -529,7 +529,7 @@ const stateOf = (s) => JSON.stringify(s.machine.saveState());
     // A booted machine whose screen says OK: this is what makes the ORDER visible. With a readable screen the
     // answer is true; with the unreadable Plus screen it must be null even though bootStatus says 'ok'.
     const okTargetOf = () => ({
-      get machine() { return s.machine; }, show: () => {},
+      get machine() { return s.shownMachine; }, show: () => {},
       screenText: () => { const l = new Array(16).fill(' '.repeat(32)); l[0] = 'OK' + ' '.repeat(30); return l; },
       readByte: (a) => s.readByte(a), bootStatus: () => ({ state: 'ok' }),
     });
@@ -552,7 +552,7 @@ const stateOf = (s) => JSON.stringify(s.machine.saveState());
   {
     const s = boot('d64plus');
     const t = targetOf(s);
-    const m = s.machine;
+    const m = s.shownMachine;
     const stateOfM = () => JSON.stringify(m.saveState());
     for (const [bank, value] of [[1, 0xAA], [6, 0xBB]]) {          // MAME's $FFE2: 1 = bank A, 6 = bank B
       m.writeBank(bank);
@@ -582,7 +582,7 @@ const stateOf = (s) => JSON.stringify(s.machine.saveState());
   // no-machine (and a remedy telling it to open one), not throw a TypeError from reading .config of null.
   {
     const fresh = new Emu.Session();
-    check('a fresh Session has no machine', fresh.machine === null);
+    check('a fresh Session has no machine', fresh.shownMachine === null);
     const t = targetOf(fresh);
     const code = (name, input) => { try { Emu.runReadOnlyTool(t, name, input); return null; } catch (e) { return e.code; } };
     for (const [name, input] of [['machine_info', {}], ['screen_text', {}], ['peek', { address: 0 }], ['disassemble', { address: 0 }]]) {
@@ -603,14 +603,14 @@ const stateOf = (s) => JSON.stringify(s.machine.saveState());
   {
     const s = boot('coco3');
     const t = targetOf(s);
-    const g = s.machine.gime;
+    const g = s.shownMachine.gime;
     g.regs[0] = 0x80; g.ff22 = 0x00;                         // legacy, and A/G clear: MC6847 text
     g.regs[14] = 0x20;                                       // legacy base = $400 + regs[14]*8 = $500
-    for (let i = 0; i < 2; i++) s.advance(1000 / s.machine.fps + 0.01);
+    for (let i = 0; i < 2; i++) s.advance(1000 / s.shownMachine.fps + 0.01);
     // The two pages must not overlap: a 32x16 screen is $200 bytes, so $400-$5FF and $500-$6FF would share
     // half their bytes and the markers would clobber each other. Put the decoy far away instead.
-    for (let i = 0; i < 32 * 16; i++) s.machine.ram[(0x500 + i) & 0xFFFF] = 0x5A;     // real page: 'Z'
-    for (let i = 0; i < 32 * 16; i++) s.machine.ram[(0x2000 + i) & 0xFFFF] = 0x2E;    // decoy elsewhere: '.'
+    for (let i = 0; i < 32 * 16; i++) s.shownMachine.ram[(0x500 + i) & 0xFFFF] = 0x5A;     // real page: 'Z'
+    for (let i = 0; i < 32 * 16; i++) s.shownMachine.ram[(0x2000 + i) & 0xFFFF] = 0x2E;    // decoy elsewhere: '.'
     const out = await Emu.runReadOnlyTool(t, 'screen_text', {});
     check('coco3 with the GIME legacy base at $500: the answer reads THAT page, not the fixed $400',
       out.text === true && out.base === 0x500 && out.lines[0] === 'Z'.repeat(32),
@@ -618,8 +618,8 @@ const stateOf = (s) => JSON.stringify(s.machine.saveState());
     // and back at the power-on base: the answer follows it back (the same decoy is still at $2000, so a read at
     // $400 must NOT see it)
     g.regs[14] = 0x00;
-    for (let i = 0; i < 2; i++) s.advance(1000 / s.machine.fps + 0.01);
-    for (let i = 0; i < 32 * 16; i++) s.machine.ram[(0x400 + i) & 0xFFFF] = 0x51;     // 'Q' at the base now
+    for (let i = 0; i < 2; i++) s.advance(1000 / s.shownMachine.fps + 0.01);
+    for (let i = 0; i < 32 * 16; i++) s.shownMachine.ram[(0x400 + i) & 0xFFFF] = 0x51;     // 'Q' at the base now
     const back = await Emu.runReadOnlyTool(t, 'screen_text', {});
     check('coco3 with the GIME legacy base back at $400: the answer follows it back',
       back.base === 0x400 && back.lines[0] === 'Q'.repeat(32),
@@ -644,10 +644,10 @@ const stateOf = (s) => JSON.stringify(s.machine.saveState());
   {
     const s = boot('coco3');
     const t = targetOf(s);
-    const g = s.machine.gime;
+    const g = s.shownMachine.gime;
     g.regs[0] = 0x80; g.ff22 = 0x00;                         // legacy, A/G clear: MC6847 text
     g.regs[13] = 0xE0; g.regs[14] = 0x00;                    // legacy base = $70000 + $400 = 0x70400
-    for (let i = 0; i < 2; i++) s.advance(1000 / s.machine.fps + 0.01);
+    for (let i = 0; i < 2; i++) s.advance(1000 / s.shownMachine.fps + 0.01);
     const raw = g.videoBase();
     check('the fixture really has a base above 64K, so this test is exercising the mask',
       raw > 0xFFFF, `videoBase() = 0x${raw.toString(16)}`);
@@ -656,7 +656,7 @@ const stateOf = (s) => JSON.stringify(s.machine.saveState());
       g.physAddr(0x400) === raw && raw === 0x70400,
       `physAddr(0x400)=0x${g.physAddr(0x400).toString(16)} videoBase=0x${raw.toString(16)}`);
     // write through the machine's own map at the CPU address, which is what a program would do
-    for (let i = 0; i < 32 * 16; i++) s.machine.poke(0x400 + i, 0x4B);   // 'K'
+    for (let i = 0; i < 32 * 16; i++) s.shownMachine.poke(0x400 + i, 0x4B);   // 'K'
     const out = await Emu.runReadOnlyTool(t, 'screen_text', {});
     check('coco3 legacy base 0x70400: the reported base is masked to the 16-bit page ($0400)',
       out.text === true && out.base === 0x400,
@@ -677,8 +677,8 @@ const stateOf = (s) => JSON.stringify(s.machine.saveState());
   {
     const s = boot('coco3');
     const t = targetOf(s);
-    const g = s.machine.gime;
-    const m = s.machine;
+    const g = s.shownMachine.gime;
+    const m = s.shownMachine;
     g.regs[0] = 0x80; g.ff22 = 0x00; g.regs[13] = 0xE0; g.regs[14] = 0x00;   // legacy text, base 0x70400
     for (let i = 0; i < 2; i++) s.advance(1000 / m.fps + 0.01);
     // the power-on default map agrees, and the tool reads - the control for the case below
@@ -727,14 +727,14 @@ const stateOf = (s) => JSON.stringify(s.machine.saveState());
   // tested here, with a ROM in the socket built by this project that never prints OK.
   {
     const s = new Emu.Session(); s.switchMachine('dragon64');
-    const m = s.machine;
+    const m = s.shownMachine;
     const r = Emu.assemble(' ORG $8000\nSTART BRA START\n ORG $BFFE\n FDB START\n', '6809');
     if (!r.ok) throw new Error(`assembling the F10 fixture failed: ${JSON.stringify(r.errors)}`);
     const rom = new Uint8Array(0x4000);
     for (const seg of r.segments) rom.set(seg.data, seg.addr - 0x8000);
     m.setRoms({ basic: rom, basic64: rom });
     m.reset(true);
-    for (let i = 0; i < 60 * 12; i++) s.advance(1000 / s.machine.fps + 0.01);   // past the 5 s watchdog
+    for (let i = 0; i < 60 * 12; i++) s.advance(1000 / s.shownMachine.fps + 0.01);   // past the 5 s watchdog
     const a = s.bootStatus(), b = s.chatTarget().bootStatus();
     check('a ROM that never prints OK: Session says failed, and the chat target agrees',
       a.state === 'failed' && b.state === 'failed' && b.cause === a.cause, JSON.stringify({ session: a.state, target: b.state }));

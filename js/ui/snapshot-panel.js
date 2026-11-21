@@ -50,7 +50,7 @@ export function setupSnapshotPanel(page, { confirmSwitch, openRoms }) {
   $('btnSnapLook').onclick = () => {
     const snap = waiting;
     card.hidden = true; waiting = null;
-    if (snap.machine !== session.machine.id) session.switchMachine(snap.machine, snap.config);
+    if (snap.machine !== session.shownMachine.id) session.switchMachine(snap.machine, snap.config);
     page.focus();
   };
   $('btnSnapDismiss').onclick = () => { card.hidden = true; waiting = null; page.focus(); };

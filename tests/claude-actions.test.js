@@ -18,7 +18,7 @@ const Emu = require('./load')();
 
 let fail = 0, n = 0;
 const check = (name, cond, detail = '') => { n++; if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log(`ok   ${name} ${detail}`); };
-const frames = (s, k) => { for (let i = 0; i < k; i++) s.advance(1000 / s.machine.fps + 0.01); };
+const frames = (s, k) => { for (let i = 0; i < k; i++) s.advance(1000 / s.shownMachine.fps + 0.01); };
 const KEY = 'sk-ant-ACTIONS-TEST-KEY-0123456789';
 
 const sse = (events) => events.map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join('');
@@ -94,7 +94,7 @@ process.exitCode = 1;
     await line(s, chat, 'two');
     s.setClaudeAllowed(true); s.claudeGate = null;
     let stopped = false;
-    await line(s, chat, 'three', () => { if (!stopped && s.machine.stubKeysTaken > 0 && chat.busy && s.claudeTool === 'type_text') { const taken = s.machine.stubKeysTaken; if (taken >= 3) { stopped = true; s.stopClaude(); } } });
+    await line(s, chat, 'three', () => { if (!stopped && s.shownMachine.stubKeysTaken > 0 && chat.busy && s.claudeTool === 'type_text') { const taken = s.shownMachine.stubKeysTaken; if (taken >= 3) { stopped = true; s.stopClaude(); } } });
     check('"Just tell me the fix": – didn\'t type "DIR": you said no', JSON.stringify(lines(chat, 1)) === JSON.stringify(['– didn\'t type "DIR": you said no']), JSON.stringify(lines(chat, 1)));
     check('Stop on the card: – stopped before typing "DIR"', JSON.stringify(lines(chat, 2)) === JSON.stringify(['– stopped before typing "DIR"']), JSON.stringify(lines(chat, 2)));
     const t3 = Emu.chatTurns(chat.messages).find((x) => x.turn === 3);
@@ -128,7 +128,7 @@ process.exitCode = 1;
     s.restoreClaude();
     const hhmm = now.toTimeString().slice(0, 5);
     check('Restore to the newest point: its turn\'s line says undone at the restore time; the earlier turn\'s does not', lines(chat, 3)[0] === `✓ poked 1 byte at $3001 · undone at ${hhmm}` && lines(chat, 1)[0] === '✓ poked 1 byte at $3000'
-      && s.machine.ram[0x3001] === 0 && s.machine.ram[0x3000] === 1, JSON.stringify([lines(chat, 1), lines(chat, 3)]));
+      && s.shownMachine.ram[0x3001] === 0 && s.shownMachine.ram[0x3000] === 1, JSON.stringify([lines(chat, 1), lines(chat, 3)]));
     check('and the newest point is now the previous one, in turn 1', s.claudePoints.length === 1 && s.claudePoints[0].turn === 1);
     s.restoreClaude();
     check('restoring that one marks turn 1 too, and no point is left', /undone at/.test(lines(chat, 1)[0]) && s.claudePoints.length === 0);
@@ -172,7 +172,7 @@ process.exitCode = 1;
     const sent = [];
     const emit = chat.emitTool.bind(chat);
     chat.emitTool = (nm, i, t, isErr, v) => { sent.push(t); emit(nm, i, t, isErr, v); };
-    await line(s, chat, 'type', () => { if (!reset && s.machine.stubKeysTaken >= 3) { reset = true; s.machine.reset(false); } });
+    await line(s, chat, 'type', () => { if (!reset && s.shownMachine.stubKeysTaken >= 3) { reset = true; s.shownMachine.reset(false); } });
     const t = Emu.chatTurns(chat.messages)[0];
     const got = JSON.parse(sent[0] || '{}');
     // (a reset Claude's own keys did not cause also ends the turn, as before: the Session stops Claude for it; the call's
@@ -186,7 +186,7 @@ process.exitCode = 1;
   // the typist on its own: a reset after every key was read ends the job done; part-way, machine-restarted; Stop, stopped
   {
     const s = new Emu.Session({ store: Emu.memoryStore() }); s.switchMachine('dragon64'); frames(s, 40);
-    const m = s.machine;
+    const m = s.shownMachine;
     const all = m.typist.typePaced('AB');
     for (let i = 0; i < 400 && !(all.consumed === all.requested && all.status === 'typing'); i++) frames(s, 1);
     const caught = all.status === 'typing';

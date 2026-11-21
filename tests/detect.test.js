@@ -61,10 +61,10 @@ for (const [file, family, format] of [['rsdos.dsk', 'coco', 'RS-DOS disk'], ['rs
   const s = new Emu.Session({ store: Emu.memoryStore() });
   s.switchMachine('dragon64');
   s.typeText('hello\r\nok');
-  check('pasted text on the stub becomes key codes (upper case, CR)', s.machine.stubKeys.join() === [72, 69, 76, 76, 79, 13, 79, 75].join());
-  s.machine.setRoms({ basic: new Uint8Array(16384).fill(0x39) }); s.machine.reset(true);
+  check('pasted text on the stub becomes key codes (upper case, CR)', s.shownMachine.stubKeys.join() === [72, 69, 76, 76, 79, 13, 79, 75].join());
+  s.shownMachine.setRoms({ basic: new Uint8Array(16384).fill(0x39) }); s.shownMachine.reset(true);
   s.typeText('PRINT 1\n');
-  check('pasted text with ROMs goes through the keyboard', s.machine.typist.busy && s.machine.typist.queue.join('') === 'PRINT 1\r');
+  check('pasted text with ROMs goes through the keyboard', s.shownMachine.typist.busy && s.shownMachine.typist.queue.join('') === 'PRINT 1\r');
 }
 
 // One rule for what a disk image is: detectMedia (what the page says about a file) reports the

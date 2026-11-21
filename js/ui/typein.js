@@ -85,7 +85,7 @@ export function setupTypein(page, { openRoms, isVisible }) {
         $('btnTypein').disabled = false; $('btnTypeinFast').disabled = false;
       }
     }
-    if (isVisible()) { const frame = session.machine.render(); size(frame); screen.present(frame); }
+    if (isVisible()) { const frame = session.shownMachine.render(); size(frame); screen.present(frame); }
     requestAnimationFrame(tick);
   }
   $('btnTypein').onclick = () => start(false);

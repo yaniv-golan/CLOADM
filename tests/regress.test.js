@@ -436,17 +436,17 @@ function welcome6803Hash(id, back = false) {
   s.startWelcome(bin, back ? { greeting: 'back', carryOn: 'LIZA' } : {});
   const names = ['pc', 'a', 'b', 'x', 's', 'cc'];
   let h = 0x811C9DC5, n = 0;
-  s.machine.cpu.trace = (c) => { for (const k of names) h = fnv(h, c[k]); h = fnv(h, c.totalCycles); n++; };
-  const frame = () => s.advance(1000 / s.machine.fps + 0.01);
+  s.shownMachine.cpu.trace = (c) => { for (const k of names) h = fnv(h, c[k]); h = fnv(h, c.totalCycles); n++; };
+  const frame = () => s.advance(1000 / s.shownMachine.fps + 0.01);
   for (let i = 0; i < 50; i++) frame();
-  for (let i = 0; i < 512; i++) h = fnv(h, s.machine.ram[0x4000 + i]);    // the screen, cell by cell
+  for (let i = 0; i < 512; i++) h = fnv(h, s.shownMachine.ram[0x4000 + i]);    // the screen, cell by cell
   // each key posts into the mailbox; the Session clears it after the frame, so hash what the program wrote
   // by running a frame at a time and reading the mailbox the machine holds between them
   const mailbox = [];
   s.on((e) => { if (e.startsWith('welcome:')) mailbox.push(e); });
-  for (const k of ['1', '2', '3', '4', '5']) { s.machine.stubKeys.push(k.charCodeAt(0)); frame(); frame(); }
+  for (const k of ['1', '2', '3', '4', '5']) { s.shownMachine.stubKeys.push(k.charCodeAt(0)); frame(); frame(); }
   for (const e of mailbox) for (const c of e) h = fnv(h, c.charCodeAt(0));
-  s.machine.cpu.trace = null;
+  s.shownMachine.cpu.trace = null;
   return { hash: (h >>> 0).toString(16).padStart(8, '0'), instructions: n, events: mailbox.length };
 }
 for (const id of ['mc10', 'alice']) {

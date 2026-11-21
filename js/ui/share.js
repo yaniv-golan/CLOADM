@@ -50,7 +50,7 @@ export function setupShare(page) {
 
   // ---------------- share this moment ----------------
   async function capture() {
-    const m = session.machine, frame = m.render();
+    const m = session.shownMachine, frame = m.render();
     // the picture at true pixels, captured with the snapshot so both show the same instant
     const c = document.createElement('canvas');
     new CanvasPresenter(c).present(frame);
@@ -107,9 +107,9 @@ export function setupShare(page) {
   clipBtn.onclick = () => {
     // drawn from the machine's own frames at true pixels (the screen canvas is hidden behind this view)
     const canvas = document.createElement('canvas'), presenter = new CanvasPresenter(canvas);
-    presenter.present(session.machine.render());
+    presenter.present(session.shownMachine.render());
     let drawing = true;
-    const draw = () => { if (!drawing) return; presenter.present(session.machine.render()); requestAnimationFrame(draw); };
+    const draw = () => { if (!drawing) return; presenter.present(session.shownMachine.render()); requestAnimationFrame(draw); };
     requestAnimationFrame(draw);
     const stream = canvas.captureStream(30), rec = new MediaRecorder(stream, { mimeType: kind.type }), parts = [];
     rec.ondataavailable = (e) => { if (e.data.size) parts.push(e.data); };
@@ -160,8 +160,8 @@ export function setupShare(page) {
   $('btnEmbedFrameCopy').onclick = copy('embedFrame', 'btnEmbedFrameCopy');
   $('btnEmbedScriptCopy').onclick = copy('embedScript', 'btnEmbedScriptCopy');
   // the builder starts on the machine in use
-  session.on((ev) => { if (ev === 'machine' && !isOpen()) syncEmbed(session.machine.id); });
-  if (session.machine) syncEmbed(session.machine.id); else renderEmbed();
+  session.on((ev) => { if (ev === 'machine' && !isOpen()) syncEmbed(session.shownMachine.id); });
+  if (session.shownMachine) syncEmbed(session.shownMachine.id); else renderEmbed();
 
   show();
   return { open: () => $('btnShare').click(), embedSrc };

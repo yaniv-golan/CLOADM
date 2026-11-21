@@ -31,7 +31,7 @@ const sameSockets = ['dragon64', 'tanodr64', 'coco', 'dragondos'].every((id) => 
   return Object.keys(x).length === Object.keys(y).length && Object.keys(x).every((k) => same(x[k], y[k]));
 });
 check('round trip: every socket of every machine and cartridge restored byte for byte', sameSockets && !res.skipped.length, res.skipped.join('; '));
-check('round trip: the machine in use got its ROMs and was power cycled', b.machine.hasRom && same(b.machine.roms.bas, BAS) && b.machine.framesSinceReset === 0);
+check('round trip: the machine in use got its ROMs and was power cycled', b.shownMachine.hasRom && same(b.shownMachine.roms.bas, BAS) && b.shownMachine.framesSinceReset === 0);
 check('round trip: export of the restored store is identical', same(b.exportRomPack().bytes, pack.bytes));
 
 // damaged packs
@@ -58,7 +58,7 @@ check('round trip: export of the restored store is identical', same(b.exportRomP
     a.switchMachine(id);
     const url = a.shareUrl('https://cloadm.dev/');
     const params = [...new URL(url).searchParams.keys()];
-    check(`share link for ${id} carries only the machine and its options`, params.every((k) => k === 'machine' || a.machine.profile.options[k]) && !crcs.some((c) => url.includes(c)) && !/rom/i.test(url.replace(/machine=[^&]*/, '')), url);
+    check(`share link for ${id} carries only the machine and its options`, params.every((k) => k === 'machine' || a.shownMachine.profile.options[k]) && !crcs.some((c) => url.includes(c)) && !/rom/i.test(url.replace(/machine=[^&]*/, '')), url);
   }
 }
 

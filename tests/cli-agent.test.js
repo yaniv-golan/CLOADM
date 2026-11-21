@@ -63,7 +63,7 @@ const { STEPS, ERROR_CODES } = require(CLI);
     const regs0 = s.debug.registers();
     const st = r.json.steps;
     check('registers: the debugger\'s registers, with the CPU', r.code === 0 && st[3].cpu === '6809' && JSON.stringify(st[3].registers) === JSON.stringify(regs0), JSON.stringify(st[3]) + r.err);
-    check('disasm with no address: at the PC, 8 instructions, as disassembleTool gives them', JSON.stringify(Object.assign({ step: 'disasm' }, Emu.disassembleTool(s, { address: regs0.pc, count: 8 }))) === JSON.stringify(st[4]), JSON.stringify(st[4]).slice(0, 200));
+    check('disasm with no address: at the PC, 8 instructions, as disassembleTool gives them', JSON.stringify(Object.assign({ step: 'disasm' }, Emu.disassembleTool(s.chatTarget(), { address: regs0.pc, count: 8 }))) === JSON.stringify(st[4]), JSON.stringify(st[4]).slice(0, 200));
     check('disasm $3000:5: the program as assembled (CLR, LDX, LEAX, CMPX, BNE)', st[5].instructions.map((i) => i.text.split(' ')[0]).join() === 'CLR,LDX,LEAX,CMPX,BNE' && st[5].instructions[4].address === 0x300B, JSON.stringify(st[5].instructions.map((i) => i.text)));
     let cycles = 0;
     for (let i = 0; i < 7; i++) cycles += s.debug.step();

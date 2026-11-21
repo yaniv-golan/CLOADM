@@ -27,7 +27,7 @@ export function setupDrawer(page, { showRoms }) {
 
   // Media: what was loaded on this machine before
   function recent() {
-    const list = $('recentList'), items = session.recentMedia().filter((r) => r.machine === session.machine.id);
+    const list = $('recentList'), items = session.recentMedia().filter((r) => r.machine === session.personMachine.id);
     list.replaceChildren();
     // empty: hidden while "Last time" shows above it (the CSS), as the two would contradict each other
     for (const el of [list, $('recentHead')]) el.classList.toggle('recent-empty', !items.length);

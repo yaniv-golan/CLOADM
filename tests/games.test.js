@@ -75,7 +75,7 @@ function start(name, { machine = 'dragon64', seed = 0x1234 } = {}) {
   const s = new Emu.Session({ welcomeMenu: false });
   s.switchMachine(machine, {}, { menu: false });
   s.load(`${name}.bin`, bin(name), { remember: false });
-  const m = s.machine, sym = (k) => A[name].symbols.get(k);
+  const m = s.shownMachine, sym = (k) => A[name].symbols.get(k);
   s.runFrames(30);   // the title page drawn
   m.poke(Emu.GAMES.seed, seed >> 8); m.poke(Emu.GAMES.seed + 1, seed & 0xFF);
   // a key, then frames until the game waits for the next (ENTROPY counts its polls)
@@ -220,14 +220,14 @@ for (const machine of ['dragon32', 'coco', 'coco3', 'dragon64:6309']) {
   const s = new Emu.Session({ welcomeMenu: false });
   s.switchMachine(id, cpu ? { cpu } : {}, { menu: false });
   s.load('2048.bin', bin('2048'), { remember: false });
-  s.runFrames(30); s.machine.poke(Emu.GAMES.seed, 0xBE); s.machine.poke(Emu.GAMES.seed + 1, 0xEF);
-  s.machine.stubKeys.push(32); s.runFrames(20);
-  s.machine.stubKeys.push(8); s.runFrames(20);
+  s.runFrames(30); s.shownMachine.poke(Emu.GAMES.seed, 0xBE); s.shownMachine.poke(Emu.GAMES.seed + 1, 0xEF);
+  s.shownMachine.stubKeys.push(32); s.runFrames(20);
+  s.shownMachine.stubKeys.push(8); s.runFrames(20);
   const rng = new Rng(0xBEEF), model = new Array(16).fill(0);
   spawn(model, rng); spawn(model, rng);
   const r = move(model, 'left'); if (r.changed) spawn(r.board, rng);
-  const got = Array.from(s.machine.ram.slice(A['2048'].symbols.get('BOARD'), A['2048'].symbols.get('BOARD') + 16));
-  check(`2048 on the ${s.machine.profile.name}${cpu ? ` (${cpu})` : ''}: the same game`, show(got) === show(r.changed ? r.board : model), show(got));
+  const got = Array.from(s.shownMachine.ram.slice(A['2048'].symbols.get('BOARD'), A['2048'].symbols.get('BOARD') + 16));
+  check(`2048 on the ${s.shownMachine.profile.name}${cpu ? ` (${cpu})` : ''}: the same game`, show(got) === show(r.changed ? r.board : model), show(got));
 }
 
 // ================= Minesweeper =================
@@ -347,7 +347,7 @@ const nb = (i) => { const out = []; const x = i & 7, y = i >> 3; for (let dy = -
   s.on((e) => events.push(e));
   s.runGame('minesweeper', bin('minesweeper'));
   check('Session.runGame remembers the game as the last run', JSON.stringify(s.lastRun) === '{"kind":"game","name":"Minesweeper"}' && s.carryOn && s.carryOn.name === 'Minesweeper');
-  s.runFrames(5); s.machine.stubKeys.push(32); s.runFrames(20); s.machine.stubKeys.push(3); s.runFrames(20);
+  s.runFrames(5); s.shownMachine.stubKeys.push(32); s.runFrames(20); s.shownMachine.stubKeys.push(3); s.runFrames(20);
   check('BREAK in a game: the Session emits menu', events.includes('menu'), events.filter((e) => !/^(frame|status)/.test(e)).join());
   s.startWelcome(bin('welcome'), { greeting: 'back', carryOn: s.carryOn.name });
   s.runFrames(50);
@@ -362,12 +362,12 @@ const nb = (i) => { const out = []; const x = i & 7, y = i >> 3; for (let dy = -
   // under 32K: refused before anything is loaded (the SAM would be set for chips the machine hasn't)
   for (const ram of [4, 16]) {
     s.switchMachine('coco', { ram });
-    const before = s.machine.ram[0x3000];
+    const before = s.shownMachine.ram[0x3000];
     err = null;
     try { s.runGame('2048', bin('2048')); } catch (e) { err = e; }
     check(`the games are refused on a ${ram}K CoCo, saying why, with nothing loaded`, err instanceof Emu.SessionError
       && err.message === `2048 needs 32K RAM or more; this CoCo 1/2 has ${ram}K. Switch the RAM option to 32K or 64K to play it.`
-      && JSON.stringify(s.gameNeeds()) === JSON.stringify({ ram: 32, have: ram }) && s.machine.ram[0x3000] === before, err && err.message);
+      && JSON.stringify(s.gameNeeds()) === JSON.stringify({ ram: 32, have: ram }) && s.shownMachine.ram[0x3000] === before, err && err.message);
   }
   s.switchMachine('coco', { ram: 32 });
   check('a 32K CoCo has what the games need', s.gameNeeds() === null);
@@ -378,7 +378,7 @@ const nb = (i) => { const out = []; const x = i & 7, y = i >> 3; for (let dy = -
 for (const name of ['2048', 'minesweeper']) {
   const s = new Emu.Session({ welcomeMenu: false });
   s.switchMachine('dragon64', {}, { menu: false });
-  const m = s.machine;
+  const m = s.shownMachine;
   const m0 = m.sam.memSize;
   s.runGame(name, bin(name));
   s.runFrames(30);
@@ -483,7 +483,7 @@ WARMS   FCB     $57,$41,$52,$4D,0
   const s = new Emu.Session({ welcomeMenu: false });
   s.switchMachine('dragon64', {}, { menu: false });
   s.addRoms([{ name: 'd64_1.rom', bytes: rom }, { name: 'd64_2.rom', bytes: new Uint8Array(0x4000).fill(0x13) }]);
-  const m = s.machine;
+  const m = s.shownMachine;
   s.runFrames(10);
   const booted = m.hasRom && s.screenText()[0].trim() === 'OK COLD' && m.cpu.pc === asm.symbols.get('IDLE');
   check('(the stand-in BASIC boots cold: OK COLD on the text screen)', asm.ok && booted, JSON.stringify(s.screenText()[0]));
