@@ -311,6 +311,7 @@ export class Session {
     this.bootOk = null;             // the reset after which BASIC's OK was seen
     this.warmReset = null;          // { m, resetAt }: the run that began with the Reset button, not a power-on (bootStatus)
     this.welcome = null;            // the machine running the welcome program
+    this.welcomeGen = 0;            // bumped whenever something else takes the machine (welcomeGenNow/startWelcome)
     this.menuWatch = null;          // a program that goes back to the welcome menu when left (watchForMenu)
     this.stubRun = null;            // what runs on the stub firmware and how to restart it (Reset; see `reset`)
     this.welcomeBuild = null;       // its build's fixed addresses (WELCOME[profile cpu])
@@ -3235,7 +3236,11 @@ export class Session {
   // opens the games menu, whose 1 and 2 emit 'welcome:2048' and 'welcome:minesweeper'.
   // greeting: 'first', 'back' (a returning visitor) or 'bye' (back from a program); carryOn: a name for the carry-on
   // option, "CARRY ON WITH <name>" (option 6 on the 6809 build, 5 on the 6803 build; its key emits 'welcome:carryon'), or null
-  startWelcome(bytes, { greeting = 'first', carryOn = null } = {}) {
+  // gen: the welcomeGen a page took (welcomeGenNow) before fetching these bytes. When it is given and something
+  // took the machine since, the start does nothing and this returns null: the menu must not take the screen back
+  // from what the person started while its bytes were on the way.
+  startWelcome(bytes, { greeting = 'first', carryOn = null, gen = null } = {}) {
+    if (gen !== null && gen !== this.welcomeGen) return null;
     const m = this.machine, w = WELCOME[cpuFamily(m.config.cpu)];
     if (!w) throw new SessionError(`There is no Welcome menu for the ${m.profile.name}'s ${m.config.cpu}.`);
     const g = WELCOME.greetings.indexOf(greeting);
@@ -3270,7 +3275,15 @@ export class Session {
     this.welcomeSoundOn = true;
     if (this.welcomeRunning) this.machine.poke(this.welcomeBuild.soundOk, 1);
   }
-  endWelcome() { this.welcome = null; this.welcomeBuild = null; this.menuWatch = null; }
+  endWelcome() {
+    this.welcome = null; this.welcomeBuild = null; this.menuWatch = null;
+    this.welcomeGen++;   // anything that takes the machine cancels a welcome start still waiting on its bytes
+  }
+  // The generation a page takes before it fetches the welcome bytes and hands it back to startWelcome. Every way
+  // something else can take the machine goes through endWelcome (a program loaded, a machine switch, a Reset, a
+  // snapshot, the browser check's stubPrompt), so a start whose fetch was overtaken is refused instead of taking
+  // the screen back from what the person started meanwhile.
+  welcomeGenNow() { return this.welcomeGen; }
   // after the frames just run: emit the key posted in the mailbox, if any, and clear it
   flushWelcome() {
     if (!this.welcomeRunning) return;

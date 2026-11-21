@@ -55,17 +55,26 @@ export function setupWelcome(page, { showRoms, openClaude }) {
   // greeting: 'first', 'back' or 'bye'; on a returning visit the menu offers what ran last as option 5
   // ifIdle: only if nothing else started while the menu's bytes were fetched (the Session asked for it, then a
   // program was loaded or a snapshot opened: that wins)
+  // ifIdle: only if nothing else started while the menu's bytes were fetched (the Session asked for it, then a
+  // program was loaded or a snapshot opened: that wins). `running` is the stub program that was there when the
+  // fetch began: anything that started or stopped one since (a Power cycle, a Reset, a program, a snapshot,
+  // `stubPrompt` in the browser check) changes `stubRun`, and the start is dropped. `welcomeRunning` alone is not
+  // enough: it is FALSE both before the menu starts and after something cleared it, so a fetch that lands after
+  // the page wiped the menu (stubPrompt does, then clicks Ask Claude) would put the menu back - and "Ask Claude"
+  // then opens the full-screen chat instead of the side panel, because that is what the menu asks for.
   // byMachine: the program on the machine asked for it (the 'welcome:*' events, 'menu' after LIZA's BYE or the
   // demo): the start itself runs in Session.asMachine, so keys Claude typed that asked for it do not stop Claude
   // (the fetch before it is outside: what the person does meanwhile still stops Claude)
   // (byMachine: the ticket the Session gave when the program asked, Session.machineTicket; null: the person asked)
   const startAs = (byMachine, fn) => (byMachine ? session.asMachine(fn, byMachine) : fn());
   async function runWelcome({ greeting = 'first', carryOn = null } = {}, { ifIdle = false, byMachine = null } = {}) {
-    const m = session.machine, running = session.stubRun;
+    const m = session.machine, running = session.stubRun, gen = session.welcomeGenNow();
     try {
       const bytes = await page.fetchBytes(`examples/${session.welcomeFile}`);   // this machine's build (6809, or its own 6803 one)
-      if (ifIdle && (session.machine !== m || !m.useStub || session.stubRun !== running || session.welcomeRunning)) return;
-      startAs(byMachine, () => session.startWelcome(bytes, { greeting, carryOn: carryOn && carryOn.name }));   // (the menu says "PRESS 1 TO 4" itself: not repeated)
+      if (ifIdle && (session.machine !== m || session.stubRun !== running || session.welcomeRunning)) return;
+      // gen: a start whose fetch was overtaken (the menu cleared, a program loaded, a machine switch) is refused
+      // in the Session itself, for every caller, so a late start cannot take the screen from what was started then
+      startAs(byMachine, () => session.startWelcome(bytes, { greeting, carryOn: carryOn && carryOn.name, gen }));   // (the menu says "PRESS 1 TO 4" itself: not repeated)
     } catch (e) { page.status(`Welcome: ${e.message}`, true); }
     page.focus();
     shelf();
