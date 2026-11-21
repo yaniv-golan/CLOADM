@@ -44,11 +44,15 @@ const FULL = ['1 2 3 4 5 6 7 8 9 0', 'Q W E R T Y U I O P', 'A S D F G H J K L ;
 // start; ABC opens the full keyboard for one key, then back to the stick
 const STRIP = ['SPACE', 'ENTER', 'BREAK', '1', '2', 'Y', 'N', 'ABC'];
 const SHORT = { SPACE: 'SPC', ENTER: 'ENT', BREAK: 'BRK' };
+// a key is committed when the finger lifts, or after HOLD_MS still; moving MOVE_PX first cancels it (key(), below)
+export const HOLD_MS = 100, MOVE_PX = 10;
 
 export function setupTouchKeys(page, { input }) {
   const { session } = page;
   const box = $('touchKeys');
   let shift = false, n = 0;
+  // SHIFT keys armed (a finger on them) but not yet committed: a key that commits under them commits them first
+  const shiftArmed = new Set();
 
   function key(label) {
     const t = label === '_' ? 'SPACE' : label;
@@ -65,28 +69,57 @@ export function setupTouchKeys(page, { input }) {
     }
     b.dataset.key = t;
     const id = `k${n++}`;
-    const press = (e) => {
-      e.preventDefault();
-      if (t === 'SHIFT') { shift = !shift; for (const s of box.querySelectorAll('[data-key="SHIFT"]')) s.setAttribute('aria-pressed', String(shift)); return; }
+    // A finger that lands on a key ARMS it (it shows pressed); the key reaches the machine only when it COMMITS:
+    // the finger lifts where it went down (a tap), or stays there for HOLD_MS (a hold, for games). A finger that
+    // moves more than MOVE_PX first, or a touch the browser takes away (pointercancel: it scrolled), cancels it,
+    // and the machine never sees the key -- a drag or a scroll that starts on the keyboard types nothing. Once
+    // committed the key is held until the finger lifts, however it wobbles. SHIFT commits the same way (its
+    // toggle), so a drag over it changes nothing either -- unless another key commits while it is armed (a chord:
+    // SHIFT held, a key tapped), which commits SHIFT first.
+    let armed = null;   // { pointerId, x, y, timer, committed }
+    const commit = () => {
+      clearTimeout(armed.timer);
+      armed.committed = true;
+      if (t === 'SHIFT') { shiftArmed.delete(commit); shift = !shift; for (const s of box.querySelectorAll('[data-key="SHIFT"]')) s.setAttribute('aria-pressed', String(shift)); return; }
+      // a chord: SHIFT held down, then a key tapped before SHIFT's own HOLD_MS -- the key is shifted, as it always was
+      for (const c of [...shiftArmed]) c();
       const sp = SPECIAL[t], name = sp ? sp[0] : t;
       let code = sp ? sp[1] : t.charCodeAt(0);
       if (shift && !sp && SHIFTED[name]) code = SHIFTED[name].charCodeAt(0);
       // (the person's key: Claude acting on this machine pauses first, as for a key on the keyboard)
       session.personInput();
       input.touch(id, shift ? ['SHIFT', name] : [name], code, true);
-      b.classList.add('down');
+      // ABC's one keypress is this one: the stick comes back after it (queued, so the key is in first)
+      if (keysOnce) queueMicrotask(leave);
+    };
+    const press = (e) => {
+      e.preventDefault();
+      if (armed) return;   // a second finger on a key already down
       try { b.setPointerCapture(e.pointerId); } catch (err) { /* not a pointer we can capture */ }
+      armed = { pointerId: e.pointerId, x: e.clientX, y: e.clientY, committed: false, timer: setTimeout(commit, HOLD_MS) };
+      if (t === 'SHIFT') shiftArmed.add(commit);
+      b.classList.add('down');
       page.audio.start();
     };
-    const release = () => {
-      if (!b.classList.contains('down')) return;
+    const end = () => {
+      const was = armed;
+      armed = null;
+      clearTimeout(was.timer);
+      shiftArmed.delete(commit);
       b.classList.remove('down');
+      if (t === 'SHIFT' || !was.committed) return;
       input.touch(id, null, 0, false);
       if (shift) { shift = false; for (const s of box.querySelectorAll('[data-key="SHIFT"]')) s.setAttribute('aria-pressed', 'false'); }
     };
+    const mine = (e) => armed && e.pointerId === armed.pointerId;
     if (t === 'SHIFT') b.setAttribute('aria-pressed', 'false');
     b.addEventListener('pointerdown', press);
-    for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) b.addEventListener(ev, release);
+    b.addEventListener('pointermove', (e) => {
+      if (mine(e) && !armed.committed && Math.hypot(e.clientX - armed.x, e.clientY - armed.y) > MOVE_PX) end();
+    });
+    b.addEventListener('pointerup', (e) => { if (!mine(e)) return; if (!armed.committed) commit(); end(); });
+    // the browser took the touch (a scroll, a gesture) or the capture went: an armed key is cancelled, a held one let go
+    for (const ev of ['pointercancel', 'lostpointercapture']) b.addEventListener(ev, (e) => { if (mine(e)) end(); });
     b.addEventListener('contextmenu', (e) => e.preventDefault());
     return b;
   }
@@ -137,9 +170,8 @@ export function setupTouchKeys(page, { input }) {
     if (!keysOnce) return;
     const t = e.target;
     if (t.id === 'tkAbc') return;                     // ABC again: the keyboard it shows is already up
-    const isKey = !!(t.closest && t.closest('.tk'));
-    // the key's own handler runs after this capture listener: leaving is queued so the key types first
-    if (isKey) { queueMicrotask(leave); return; }
+    // a key ends it when it commits (key(), above): a drag that cancels the key leaves the keyboard up
+    if (t.closest && t.closest('.tk')) return;
     // Menu and the mode switch are the panel's own controls: leaving them to their handler (the switch ends ABC
     // through setMode, so the panel never shows ABC's keyboard in a mode whose switch is hidden)
     if (!(t.closest && (t.closest('.tkmode') || t.id === 'tkMenu'))) leave();
@@ -283,6 +315,29 @@ export function setupTouchKeys(page, { input }) {
     if (stickWas && !stick) { releaseStick(); input.touchFire(false); }
     stickWas = stick;
   }
+  // A phone held upright: the screen takes the height the page above it and the panel below leave (play/index.html,
+  // "a phone held upright"). What lies above the monitor (the safe-area padding, the app bar however it wraps, an
+  // offer) and from its foot to the panel's (the gap, the panel) is measured here, as CSS cannot; both are lengths of
+  // the page's own content, not of the window, so the stylesheet's 100dvh does the rest. (Unused sideways, where
+  // the monitor is fixed between the halves.)
+  const monitor = document.querySelector('.layout > main > .monitor'), root = document.documentElement.style;
+  // Safari 26 and later on an iPhone draws its bottom toolbar (the floating address bar) OVER the page, and neither
+  // the viewport units nor env(safe-area-inset-bottom) take it out: the panel stops above it (--tk-bar in
+  // play/index.html). Not an installed app (no toolbar) and not another browser on iOS (theirs is not over the page).
+  const iosSafari = /iPhone|iPod/.test(navigator.userAgent) && !/CriOS|FxiOS|EdgiOS|OPiOS|GSA\//.test(navigator.userAgent) && /Version\/(\d+)/.exec(navigator.userAgent);
+  const standalone = navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
+  document.documentElement.classList.toggle('float-bar', !!iosSafari && +iosSafari[1] >= 26 && !standalone);
+  function fit() {
+    if (box.hidden) return;
+    const m = monitor.getBoundingClientRect(), k = box.getBoundingClientRect();
+    root.setProperty('--tk-above', `${Math.round(m.top + scrollY)}px`);
+    // (less the monitor's bottom margin: the install offer's room, which the stylesheet takes out itself)
+    root.setProperty('--tk-below', `${Math.round(k.bottom - m.bottom - parseFloat(getComputedStyle(monitor).marginBottom || '0'))}px`);
+  }
+  // (the monitor's own size changes with the result, but neither length depends on it: no loop)
+  new ResizeObserver(fit).observe(document.querySelector('.layout > main'));
+  new ResizeObserver(fit).observe($('appbar'));
+  new ResizeObserver(fit).observe(box);
   coarse.addEventListener('change', apply);
   noHover.addEventListener('change', apply);
   $('selTouchKeys').onchange = (e) => { session.store.set('touchKeys', e.target.value); hidden = false; apply(); };

@@ -207,6 +207,7 @@ export function setupInstall(page, { started = () => true, machineMenu = null } 
   // the screen would take it from the menu's button (Esc would no longer close the menu).
   function close({ focus = true } = {}) {
     card.hidden = true;
+    setRoom(0);
     if (focus && !viewOpen()) page.focus();
   }
   // A menu or a view took the card's place: that is no answer. The offer is owed again (pending, the visit's showing
@@ -235,6 +236,10 @@ export function setupInstall(page, { started = () => true, machineMenu = null } 
   // in the window less a phone's notch and home indicator (safeArea)
   const inWindow = (r) => { const a = safeArea(); return r.left >= a.left && r.top >= a.top && r.right <= a.right && r.bottom <= a.bottom; };
   const clears = (r) => inWindow(r) && !OBSTACLES().some((e) => hit(r, e.getBoundingClientRect()));
+  // the strip in the room made for it lies under the monitor's bezel: that box, laid out at once, stands for the
+  // screen, whose canvas takes its new size a frame later (js/ui/screen.js)
+  const clearsUnder = (r) => inWindow(r) && r.top >= $('monitor').getBoundingClientRect().bottom - 0.5
+    && !OBSTACLES().some((e) => e !== $('screen') && hit(r, e.getBoundingClientRect()));
   const rectOf = () => { const r = card.getBoundingClientRect(); return { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height }; };
   // The corner's lift: as far as the screen and machine controls need, so the first candidate has its best chance.
   // Never so far that the card leaves the window or reaches the app bar: those buttons (Open…, Ask Claude, Menu —
@@ -260,7 +265,21 @@ export function setupInstall(page, { started = () => true, machineMenu = null } 
   // Where the card can go at this size -> { rect, where } or null when no candidate is clear.
   let placements = 0;   // how many times a place was worked out (the browser check's per-frame test reads it)
   const PLACES = ['gutter', 'gutter-left', 'strip'];
+  // The strip's room: a phone held upright fits its screen and keys to the window with no band between them
+  // (play/index.html, "a phone held upright"), so the strip asks for one: --install-room shrinks the screen by that
+  // much and leaves it as a gap under it, the keys where they were; the strip goes under the monitor's bezel (its box
+  // is laid out at once, where the canvas inside is resized a frame later). Elsewhere the variable changes nothing.
+  let room = 0;
+  const setRoom = (px) => { if (px !== room) { room = px; document.documentElement.style.setProperty('--install-room', `${px}px`); } };
   function place() {
+    // the strip in the room it already has: kept as it is when still clear (no resize, so no re-placing loop)
+    if (room && !card.hidden) {
+      card.classList.remove('gutter', 'gutter-left'); card.classList.add('strip');
+      card.style.setProperty('--install-lift', '0px');
+      card.style.setProperty('--install-top', `${Math.round($('monitor').getBoundingClientRect().bottom + 6)}px`);
+      if (clearsUnder(rectOf())) { placements++; return { rect: rectOf(), where: 'strip' }; }
+    }
+    setRoom(0);
     card.classList.remove(...PLACES);
     card.style.setProperty('--install-lift', '0px');
     if (!card.getBoundingClientRect().width) return null;   // not laid out: not measurable, so not a place
@@ -280,10 +299,21 @@ export function setupInstall(page, { started = () => true, machineMenu = null } 
       return clears(rectOf()) ? { rect: rectOf(), where: cls === 'strip' ? 'strip' : cls ? 'gutter' : 'corner' } : null;
     };
     const area = safeArea();
+    // the strip with room made for it: the card's height, read with the strip class on, plus its 6 px either side
+    const roomy = () => {
+      card.classList.remove(...PLACES); card.classList.add('strip'); card.style.setProperty('--install-lift', '0px');
+      // (a multiple of 3: the monitor narrows by 4/3 of it, a whole number of pixels, so its height drops by exactly it)
+      setRoom(Math.ceil((card.getBoundingClientRect().height + 12) / 3) * 3);
+      card.style.setProperty('--install-top', `${Math.round($('monitor').getBoundingClientRect().bottom + 6)}px`);
+      const r = clearsUnder(rectOf()) ? { rect: rectOf(), where: 'strip' } : null;
+      if (!r) setRoom(0);
+      return r;
+    };
     const spot = at(null)
       || (s.right + 12 <= area.right ? at('gutter') : null)
       || (s.left - area.left >= 12 ? at('gutter-left') : null)
-      || (s.width ? at('strip') : null);
+      || (s.width ? at('strip') : null)
+      || (s.width && document.body.classList.contains('touch-keys') ? roomy() : null);
     // no candidate: leave the card where the corner rule puts it, LIFTED (a Menu card stays up there, and the lift is
     // what keeps it off the screen and controls — dropping it would put the card over the emulated picture)
     if (!spot) { card.classList.remove(...PLACES); card.style.setProperty('--install-lift', cornerLift); }
@@ -294,6 +324,7 @@ export function setupInstall(page, { started = () => true, machineMenu = null } 
   // the user asked for it.
   function defer() {
     card.hidden = true;
+    setRoom(0);
     pending = true; shownThisVisit = false;
   }
   // A size change: re-place the card that is up (or defer it if it no longer fits), or give a deferred offer its

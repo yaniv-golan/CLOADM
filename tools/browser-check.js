@@ -6862,12 +6862,13 @@ async function inputScreenChecks(browser, base, check) {
     const lay = await page.evaluate(() => {
       const r = (id) => document.getElementById(id).getBoundingClientRect();
       return { full: r('touchFull').height > 0 && r('touchLeft').width === 0, below: r('touchFull').top >= r('screen').bottom, fits: document.documentElement.scrollWidth <= innerWidth,
-        cols: document.querySelector('#touchFull .tkrow').children.length, buttons: ['tkBreak', 'tkClear', 'tkMenu'].every((id) => r(id).height >= 44 && r(id).top >= r('touchFull').bottom),
+        // BREAK, CLEAR and Menu share the switch's row, between the screen and the keys (the portrait fit below)
+        cols: document.querySelector('#touchFull .tkrow').children.length, buttons: ['tkBreak', 'tkClear', 'tkMenu'].every((id) => r(id).height >= 40 && r(id).bottom <= r('touchFull').top && r(id).top >= r('screen').bottom),
         // the brief: in portrait the Keys | Joystick switch sits ABOVE the keys (the brief's "above the keys";
         // sideways it is in the strip with BREAK, CLEAR and Menu)
         switchShown: r('tkModeSwitch').height > 0 && r('tkModeSwitch').bottom <= r('touchFull').top && r('tkModeSwitch').top >= r('screen').bottom };
     });
-    check('touch keys (phone, portrait): ten columns under the screen, the Keys | Joystick switch above the keys, no sideways scrolling',
+    check('touch keys (phone, portrait): ten columns under the screen, the Keys | Joystick switch with BREAK, CLEAR and Menu above the keys, no sideways scrolling',
       lay.full && lay.below && lay.fits && lay.cols === 10 && lay.buttons && lay.switchShown, JSON.stringify(lay));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'touch-keys-portrait.png'), fullPage: true });
     await backspaceKey(page, '#touchFull', 'touch keys (phone, portrait)');
@@ -6875,6 +6876,164 @@ async function inputScreenChecks(browser, base, check) {
     await page.tap('#touchFull [data-key="ENTER"]');
     check('touch keys: LIZA answers what was tapped', await waitFor(page, () => /HOW LONG HAVE YOU BEEN SAD/.test(window.emu.session.screenText().join('\n'))), (await stubText(page)).split('\n').slice(4, 9).join('|'));
     check('touch keys (portrait): no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+  // ---- portrait phones: the whole panel on screen at load, the row with ENTER included, no scrolling to type ----
+  // The owner's report (iPhone, Chrome for iOS, portrait): ENTER's row was under the browser's bottom toolbar. Each
+  // size is a phone's visible area with its browser's toolbars up (Safari's and Chrome for iOS's are taken out of the
+  // window here; Chrome for iOS leaves the least), with the notch's and home indicator's insets emulated through CDP
+  // (env(safe-area-inset-*)). Every key, the switch, BREAK, CLEAR and Menu (Keys), or the strip, the stick and FIRE
+  // (Joystick), must lie inside the visual viewport less the insets, with the page not scrolled, every key at least
+  // 40 px tall, and nothing of the panel over the screen.
+  {
+    const PORTRAIT = [['iPhone SE, Safari', { width: 375, height: 548 }, null], ['iPhone SE, Chrome for iOS', { width: 375, height: 540 }, null],
+      ['iPhone 13, Safari', { width: 390, height: 664 }, { top: 0, bottom: 34, left: 0, right: 0 }],
+      ['iPhone 13, Chrome for iOS', { width: 390, height: 632 }, { top: 47, bottom: 34, left: 0, right: 0 }],
+      ['iPhone 15, Safari', { width: 393, height: 659 }, { top: 0, bottom: 34, left: 0, right: 0 }],
+      ['iPhone 15, Chrome for iOS', { width: 393, height: 628 }, { top: 59, bottom: 34, left: 0, right: 0 }],
+      ['Pixel 7, Chrome', { width: 412, height: 839 }, null],
+      // Safari 26+: the page runs under its floating toolbar, which no viewport unit or inset counts; the panel must
+      // end above it (84 px from the bottom edge, play/index.html --tk-bar)
+      ['iPhone 15, Safari 26 floating toolbar', { width: 393, height: 852 }, { top: 59, bottom: 34, left: 0, right: 0 },
+        { userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1', bar: 84 }],
+      // (the SE is where the band decides: the screen is cut by the height, so without the band ENTER's row is under it)
+      ['iPhone SE, Safari 26 floating toolbar', { width: 375, height: 667 }, null,
+        { userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1', bar: 84 }]];
+    for (const [label, viewport, inset, ios] of PORTRAIT) {
+      for (const mode of ['keys', 'joystick']) {
+        const L = `touch keys fit (${label} ${viewport.width}x${viewport.height}, ${mode})`;
+        const ctx = await browser.newContext({ viewport, hasTouch: true, isMobile: true, serviceWorkers: 'block', ...(ios ? { userAgent: ios.userAgent } : {}) });
+        const page = await ctx.newPage();
+        const errors = [];
+        page.on('pageerror', (e) => errors.push(e.message));
+        const ins = { top: 0, bottom: 0, left: 0, right: 0, ...inset };
+        if (ios) ins.bottom = Math.max(ins.bottom, ios.bar);
+        if (inset) await (await ctx.newCDPSession(page)).send('Emulation.setSafeAreaInsetsOverride', { insets: inset });
+        await page.goto(`${base}?machine=dragon64&start=liza&touch=${mode}`);
+        await waitFor(page, () => window.emu && window.emu.machine && window.emu.session.screenText().join('').includes('I AM LIZA'));
+        await waitFor(page, (m) => !document.getElementById('touchKeys').hidden && document.getElementById('touchKeys').classList.contains('joystick') === (m === 'joystick'), mode);
+        await painted(page);
+        const lay = await page.evaluate((ins) => {
+          const vv = visualViewport, safe = { l: vv.offsetLeft + ins.left, t: vv.offsetTop + ins.top, r: vv.offsetLeft + vv.width - ins.right, b: vv.offsetTop + vv.height - ins.bottom };
+          const shown = (e) => e.checkVisibility() && e.getBoundingClientRect().width > 0;
+          const box = (e) => { const r = e.getBoundingClientRect(); return { l: r.left, t: r.top, r: r.right, b: r.bottom }; };
+          const cross = (a, b) => a.l < b.r - 0.5 && b.l < a.r - 0.5 && a.t < b.b - 0.5 && b.t < a.b - 0.5;
+          const screen = box(document.querySelector('.layout > main > .monitor'));
+          const parts = [...document.querySelectorAll('#touchKeys .tk, #tkMenu, #tkModeSwitch button, #touchStick, #touchFire')].filter(shown)
+            .map((e) => ({ name: e.dataset.key || e.id || e.textContent.trim(), key: e.classList.contains('tk'), ...box(e) }));
+          const bad = [];
+          for (const p of parts) {
+            if (p.l < safe.l - 0.5 || p.t < safe.t - 0.5 || p.r > safe.r + 0.5 || p.b > safe.b + 0.5) bad.push(`${p.name} outside the visible area (${Math.round(p.t)}..${Math.round(p.b)} of ${Math.round(safe.t)}..${Math.round(safe.b)})`);
+            if (p.key && p.b - p.t < 40 - 0.5) bad.push(`${p.name} only ${Math.round(p.b - p.t)} px tall`);
+            if (cross(p, screen)) bad.push(`${p.name} over the screen`);
+          }
+          const enter = document.querySelector('#touchFull [data-key="ENTER"]');
+          return { names: parts.length, enter: enter && shown(enter) ? [Math.round(enter.getBoundingClientRect().top), Math.round(enter.getBoundingClientRect().bottom)] : null,
+            safe: [safe.t, safe.b].map(Math.round), screen: [Math.round(screen.r - screen.l), Math.round(screen.b - screen.t)], scrolled: scrollY, sideways: document.documentElement.scrollWidth > innerWidth, bad };
+        }, ins);
+        const want = mode === 'keys' ? !!lay.enter && lay.names >= 50 : lay.names >= 12;
+        check(`${L}: ${mode === 'keys' ? 'every key (ENTER\'s row included), the switch, BREAK, CLEAR and Menu' : 'the strip, the stick, FIRE, the switch, BREAK, CLEAR and Menu'} inside the visible area less its insets at load, keys at least 40 px, none over the screen`,
+          want && !lay.bad.length && lay.scrolled === 0 && !lay.sideways, JSON.stringify(lay));
+        if (shotDir) await page.screenshot({ path: path.join(shotDir, `touch-portrait-${mode}-${label.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.png`) });
+        check(`${L}: no page errors`, !errors.length, errors.join('; '));
+        await ctx.close();
+      }
+    }
+  }
+  // ---- a drag that starts on a key types nothing; a tap types; a hold holds ----
+  // Real touches through CDP. A key is armed when the finger lands and reaches the machine only when it commits: the
+  // finger lifts where it went down, or stays HOLD_MS (js/ui/touch-keys.js). A finger that moves more than MOVE_PX
+  // first cancels it, so the machine's matrix (setKey) and the no-ROM stub's queue never see the key.
+  {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 664 }, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    const cdp = await ctx.newCDPSession(page);
+    await page.goto(`${base}?machine=dragon64&start=liza`);
+    await waitFor(page, () => window.emu && window.emu.machine && window.emu.session.screenText().join('').includes('I AM LIZA'));
+    await page.evaluate(() => {
+      const m = window.emu.machine, set = m.setKey.bind(m), push = m.stubKeys.push.bind(m.stubKeys);
+      window.pressed = []; window.stubbed = [];
+      m.setKey = (k, d) => { window.pressed.push(`${k}${d ? '+' : '-'}`); return set(k, d); };
+      m.stubKeys.push = (...c) => { window.stubbed.push(...c); return push(...c); };
+      // when the finger's events reach the key (the drag's moves must come within HOLD_MS to be a drag at all)
+      window.seen = [];
+      for (const ev of ['pointerdown', 'pointermove', 'pointerup', 'pointercancel']) document.getElementById('touchKeys').addEventListener(ev, (e) => window.seen.push([e.type, Math.round(performance.now()), e.target.dataset && e.target.dataset.key]), true);
+    });
+    const at = (sel) => page.evaluate((sel) => { const r = document.querySelector(sel).getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }, sel);
+    const touch = (type, x, y) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y, id: 1, radiusX: 8, radiusY: 8, force: 1 }] });
+    const reset = () => page.evaluate(() => { window.pressed = []; window.stubbed = []; window.seen = []; });
+    const typed = () => page.evaluate(() => ({ pressed: window.pressed.join(), stubbed: window.stubbed.join(), shift: document.querySelector('#touchFull [data-key="SHIFT"]').getAttribute('aria-pressed') }));
+    const HOLD_MS = await page.evaluate(async () => (await import(new URL('js/ui/touch-keys.js', document.baseURI).href)).HOLD_MS);
+    // a drag of 40 px up (the owner's scroll), from Q, then from SHIFT; up to three tries for a drag whose first move
+    // reached the page within HOLD_MS (a loaded machine can be slower than a finger: that try tests nothing)
+    for (const [name, sel] of [['Q', '#touchFull [data-key="Q"]'], ['SHIFT', '#touchFull [data-key="SHIFT"]']]) {
+      let res = null;
+      for (let attempt = 0; attempt < 3 && !res; attempt++) {
+        await reset();
+        const p = await at(sel);
+        await touch('touchStart', p.x, p.y);
+        // (12 px steps: the first move is already past MOVE_PX, so it is the one that must cancel, and the one timed)
+        for (const dy of [12, 24, 36, 40]) await touch('touchMove', p.x, p.y - dy);
+        await page.waitForTimeout(250);
+        await touch('touchEnd');
+        await emuFrames(page, 6);
+        const seen = await page.evaluate(() => window.seen);
+        const down = seen.find((e) => e[0] === 'pointerdown'), move = seen.find((e) => e[0] === 'pointermove');
+        if (down && move && move[1] - down[1] < HOLD_MS) res = { ...(await typed()), firstMoveMs: move[1] - down[1], scrolled: await page.evaluate(() => scrollY) };
+      }
+      check(`touch keys (portrait): a touch drag of 40 px starting on ${name} types nothing (the matrix and the stub never see a key${name === 'SHIFT' ? ', SHIFT stays off' : ''}) and scrolls nothing`,
+        !!res && res.pressed === '' && res.stubbed === '' && res.shift === 'false' && res.scrolled === 0, JSON.stringify(res));
+    }
+    // a chord: SHIFT held, Q tapped before SHIFT's own HOLD_MS -- Q goes in shifted (SHIFT down in the matrix before Q,
+    // and up after it), and SHIFT is not left latched for the next key. Two fingers, real touches; a try counts only if
+    // Q's lift reached the page within HOLD_MS of SHIFT's touch (else SHIFT committed by its own timer: no chord to test)
+    {
+      let res = null;
+      const touches = (type, pts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map(([id, x, y]) => ({ x, y, id, radiusX: 8, radiusY: 8, force: 1 })) });
+      for (let attempt = 0; attempt < 3 && !res; attempt++) {
+        await keysTaken(page);
+        await reset();
+        const sh = await at('#touchFull [data-key="SHIFT"]'), q = await at('#touchFull [data-key="Q"]');
+        await touches('touchStart', [[1, sh.x, sh.y]]);
+        await touches('touchStart', [[1, sh.x, sh.y], [2, q.x, q.y]]);
+        await touches('touchEnd', [[2, q.x, q.y]]);   // (the points listed are the ones that lift) Q lifts, SHIFT still down
+        await page.waitForTimeout(150);
+        await touches('touchEnd', [[1, sh.x, sh.y]]);
+        await emuFrames(page, 10);
+        const seen = await page.evaluate(() => window.seen);
+        const downs = seen.filter((e) => e[0] === 'pointerdown'), up = seen.find((e) => e[0] === 'pointerup' && e[2] === 'Q');
+        if (downs.length === 2 && downs[0][2] === 'SHIFT' && up && up[1] - downs[0][1] < HOLD_MS && !seen.some((e) => e[0] === 'pointerup' && e[2] === 'SHIFT' && e[1] < up[1])) {
+          const pressed = await page.evaluate(() => window.pressed);
+          const at_ = (k) => pressed.indexOf(k);
+          res = { pressed: pressed.join(), qUpMs: up[1] - downs[0][1], shifted: at_('SHIFT+') >= 0 && at_('Q+') > at_('SHIFT+') && at_('SHIFT-') > at_('Q+'),
+            latched: (await typed()).shift };
+        }
+      }
+      check('touch keys (portrait): a chord (SHIFT held, Q tapped within HOLD_MS) types Q shifted and leaves SHIFT off',
+        !!res && res.shifted && res.latched === 'false', JSON.stringify(res));
+    }
+    // a tap types (pressed and let go)
+    await reset();
+    let p = await at('#touchFull [data-key="Q"]');
+    await touch('touchStart', p.x, p.y); await touch('touchEnd');
+    check('touch keys (portrait): a tap still types (Q pressed and let go in the matrix, Q to the stub)',
+      await waitFor(page, () => window.pressed.includes('Q+') && window.pressed.includes('Q-') && window.stubbed.includes(81)), JSON.stringify(await typed()));
+    // a hold holds: down past HOLD_MS, the key is down in the matrix and stays down until the finger lifts, even
+    // if it then wobbles past MOVE_PX (a held key in a game)
+    await keysTaken(page);
+    await reset();
+    p = await at('#touchFull [data-key="W"]');
+    await touch('touchStart', p.x, p.y);
+    await page.waitForTimeout(300);
+    await touch('touchMove', p.x + 14, p.y);
+    await emuFrames(page, 10);
+    const held = await page.evaluate(() => ({ pressed: window.pressed.join() }));
+    await touch('touchEnd');
+    check('touch keys (portrait): a long hold holds (W down in the matrix for as long as the finger is, a wobble after the commit included, then let go)',
+      held.pressed === 'W+' && await waitFor(page, () => window.pressed.join() === 'W+,W-'), JSON.stringify({ held, after: await typed() }));
+    check('touch keys (portrait, drag and hold): no page errors', !errors.length, errors.join('; '));
     await ctx.close();
   }
   // ---- desktop: hidden unless asked; the setting is remembered ----
@@ -6925,8 +7084,8 @@ async function inputScreenChecks(browser, base, check) {
       const covers = (id) => { const el = document.getElementById(id); if (el.hidden || getComputedStyle(el).display === 'none') return false; const b = r(el); return b.bottom > s.top && b.top < s.bottom && b.width > 0; };
       const key = document.querySelector('#touchFull [data-key="2"]');
       // BREAK, CLEAR and Menu on screen as the page opens, with the keys: no scrolling to reach them
-      const visible = (id) => { const b = r(document.getElementById(id)); return b.height >= 44 && b.top >= 0 && b.bottom <= innerHeight; };
-      return { keys: !document.getElementById('touchKeys').hidden && !!key && r(key).height >= 44 && r(key).bottom <= innerHeight,
+      const visible = (id) => { const b = r(document.getElementById(id)); return b.height >= 40 && b.top >= 0 && b.bottom <= innerHeight; };
+      return { keys: !document.getElementById('touchKeys').hidden && !!key && r(key).height >= 40 && r(key).bottom <= innerHeight,
         controls: ['tkBreak', 'tkClear', 'tkMenu'].every(visible), soundHint: covers('soundHint'), keyHint: covers('keyHint') };
     });
     check('PHONE-1 (390 px): on a first visit the on-screen keyboard is there, and no hint covers the screen', first.keys && !first.soundHint && !first.keyHint, JSON.stringify(first));
@@ -13160,15 +13319,22 @@ async function installChecks(browser, base, check) {
       && await page.evaluate(() => document.getElementById('machineMenu').hidden));
     const withCard = await page.evaluate(() => ({ h: Math.round(document.getElementById('appbar').getBoundingClientRect().height),
       reset: document.getElementById('btnReset').getBoundingClientRect().top, screen: document.getElementById('screen').getBoundingClientRect().top,
+      monitor: document.getElementById('monitor').getBoundingClientRect().top, keys: document.getElementById('touchKeys').getBoundingClientRect().top,
       pageH: document.documentElement.scrollHeight, card: !document.getElementById('installOffer').hidden }));
     await page.click('#btnInstallGo');
     await painted(page);
     const without = await page.evaluate(() => ({ h: Math.round(document.getElementById('appbar').getBoundingClientRect().height),
       reset: document.getElementById('btnReset').getBoundingClientRect().top, screen: document.getElementById('screen').getBoundingClientRect().top,
+      monitor: document.getElementById('monitor').getBoundingClientRect().top, keys: document.getElementById('touchKeys').getBoundingClientRect().top,
       pageH: document.documentElement.scrollHeight, card: !document.getElementById('installOffer').hidden }));
-    check(`install (${label}): the card moves neither the app bar (${withCard.h} px) nor #btnReset nor #screen nor the page (008)`,
+    // On the phone held upright the screen and keys fill the window, so the card's strip takes its room from the
+    // screen (js/ui/install.js --install-room): the screen is smaller inside a bezel that stays put, and nothing
+    // else moves, the keys included. Elsewhere the screen itself must not move.
+    const fitted = label === 'phone';
+    check(`install (${label}): the card moves neither the app bar (${withCard.h} px) nor #btnReset nor ${fitted ? 'the monitor nor the keys' : '#screen'} nor the page (008)`,
       withCard.card && !without.card && withCard.h === without.h && withCard.pageH === without.pageH
-      && Math.abs(withCard.screen - without.screen) < 0.5 && Math.abs(withCard.reset - without.reset) < 0.5,
+      && (fitted ? Math.abs(withCard.monitor - without.monitor) < 0.5 && Math.abs(withCard.keys - without.keys) < 0.5 : Math.abs(withCard.screen - without.screen) < 0.5)
+      && Math.abs(withCard.reset - without.reset) < 0.5,
       JSON.stringify({ withCard, without }));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `install-menu-${label}.png`) });
     check(`install (${label}): no page errors`, !errors.length, errors.join('; '));

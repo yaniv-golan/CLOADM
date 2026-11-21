@@ -1253,6 +1253,56 @@
     .layout > main > .monitor { max-width: calc((100vh - 96px) * 4 / 3); }
     .plate { display: none; }
   }
+  /* Tab means nothing on a touch screen: the screen's focus pill says only where typing goes */
+  body.touch-keys #focusHint .fh-tab { display: none; }
+  /* ---- a phone held upright with the on-screen panel: all of it on screen at once, no scrolling to type ----
+     The app bar tightens (no logo; "Add ROMs" without "No BASIC ·"), the switch and BREAK, CLEAR and Menu share one
+     row between the screen and the keys, the keys are 40 px, and the screen takes whatever height is left: the
+     visible height with the browser's toolbars up (100svh, the small viewport, which is what shows at load; 100vh
+     where it isn't known) less
+     the page above the monitor (--tk-above) and below it to the panel's foot (--tk-below), both measured by
+     js/ui/touch-keys.js because the app bar wraps and offers come and go, less the home indicator's inset and the
+     layout's 8 px bottom margin (or Safari 26's floating toolbar, --tk-bar, where that is more). The monitor is the
+     tube (4:3) and its 6 px padding; the nameplate (and the focus pill on it) gives way. The rest of the page (the controls, the drawer) follows below, for scrolling to. */
+  @media (orientation: portrait) and (max-width: 700px) {
+    body.touch-keys:not(.chat-phone) .appbar { padding: 6px 10px; gap: 6px; }
+    body.touch-keys:not(.chat-phone) .appbar > .logo, body.touch-keys:not(.chat-phone) #machineSpec, body.touch-keys:not(.chat-phone) #romPill .rp-no { display: none; }
+    body.touch-keys:not(.chat-phone) .appbar > button { min-height: 40px; padding: 0 10px; font-size: 14px; }
+    body.touch-keys:not(.chat-phone) .appbar > #romPill { min-height: 32px; }
+    body.touch-keys:not(.chat-phone) .layout { padding: 8px; gap: 8px; }
+    body.touch-keys:not(.chat-phone) .layout > main { gap: 8px; }
+    body.touch-keys:not(.chat-phone) .monitor { padding: 6px; border-radius: 14px; }
+    body.touch-keys:not(.chat-phone) .tube { border-radius: 12px / 10px; }
+    body.touch-keys:not(.chat-phone) .plate { display: none; }
+    body.touch-keys:not(.chat-phone) .layout > main > .monitor { max-width: none;
+      width: max(160px, calc(min(100%, (100vh - var(--tk-above, 0px) - var(--tk-below, 0px) - max(var(--safe-b) + 8px, var(--tk-bar, 0px)) - 12px) * 4 / 3 + 12px) - var(--install-room, 0px) * 4 / 3));
+      width: max(160px, calc(min(100%, (100svh - var(--tk-above, 0px) - var(--tk-below, 0px) - max(var(--safe-b) + 8px, var(--tk-bar, 0px)) - 12px) * 4 / 3 + 12px) - var(--install-room, 0px) * 4 / 3)); }
+    /* Safari 26+ on an iPhone: its floating toolbar lies over the page's foot, uncounted by 100svh and the inset
+       (js/ui/touch-keys.js sets .float-bar); the panel ends this far above the window's bottom edge */
+    :root.float-bar { --tk-bar: 84px; }
+    /* room for the install offer's strip under the screen, when it is up (js/ui/install.js): the monitor narrows by
+       4/3 of it (above), so its height drops by exactly the gap and nothing under it moves */
+    body.touch-keys:not(.chat-phone) .layout > main > .monitor { margin-bottom: var(--install-room, 0px); }
+    /* (40 px: under Apple's 44 pt guideline, which the room upright does not allow with five rows and the screen;
+       well over WCAG 2.5.8's 24 px minimum target) */
+    body.touch-keys:not(.chat-phone) #touchKeys .tk, body.touch-keys:not(.chat-phone) #touchKeys .tkbtns button { height: 40px; min-height: 40px; }
+    body.touch-keys:not(.chat-phone) #touchKeys .tkmode button { min-height: 38px; }
+    body.touch-keys:not(.chat-phone) #touchKeys > #touchFull { gap: 4px; }
+    /* one row above the keys: the switch (left), then BREAK, CLEAR and Menu; without a joystick port, the buttons alone */
+    body.touch-keys:not(.chat-phone) #touchKeys > .tkcenter > .tkmode { grid-row: 1; grid-column: 1 / span 4; }
+    body.touch-keys:not(.chat-phone) #touchKeys > .tkcenter > .tkbtns { grid-row: 1; grid-column: 5 / -1; gap: 4px; }
+    body.touch-keys:not(.chat-phone) #touchKeys > .tkcenter > .tkmode[hidden] + .tkbtns { grid-column: 1 / -1; }
+    body.touch-keys:not(.chat-phone) #touchKeys .tkbtns button { font-size: 14px; }
+    body.touch-keys:not(.chat-phone) #touchKeys #touchStick, body.touch-keys:not(.chat-phone) #touchKeys #touchFire { height: 150px; }
+    /* joystick mode's strip on one row, with the short labels (SPC, ENT, BRK; each name holds both) */
+    body.touch-keys:not(.chat-phone) #touchKeys #touchStrip { flex-wrap: nowrap; }
+    body.touch-keys:not(.chat-phone) #touchKeys #touchStrip .tk { flex: 1 1 0; min-width: 0; font-size: 13px; }
+    body.touch-keys:not(.chat-phone) #touchKeys #touchStrip .tk .long { display: none; }
+    body.touch-keys:not(.chat-phone) #touchKeys #touchStrip .tk .short { display: inline; }
+    /* everything fits, so a drag on the panel never needs to scroll the page: it is the keys' own (js/ui/touch-keys.js
+       cancels a key the finger moves off before it commits) */
+    body.touch-keys:not(.chat-phone) #touchKeys { touch-action: none; }
+  }
 </style>
 </head>
 <body>
@@ -1283,7 +1333,7 @@ npx serve -l 8000 .</pre>
     <span class="spec" id="machineSpec"></span>
     <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="m3 4.5 3 3 3-3"/></svg></button>
   <span id="status" aria-live="off"></span>
-  <button id="romPill" hidden>No BASIC · Add ROMs</button>
+  <button id="romPill" hidden><span class="rp-no">No BASIC · </span>Add ROMs</button>
   <span class="grow"></span>
   <button id="btnLoad" class="primary" title="A program, tape, disk, cartridge or BASIC listing">Open…</button>
   <button id="btnShare" title="A link that opens this machine as it is, a clip, a screenshot, a snapshot file; and the embed code">Share</button>
@@ -1403,7 +1453,7 @@ npx serve -l 8000 .</pre>
             <button id="btnBootStub">Run without ROMs</button><button id="btnBootPower" class="primary" hidden>Switch off and on</button><button id="btnBootDismiss">Dismiss</button></div></div>
       </div>
       <div class="plate"><span id="badge">DRAGON 64</span><span class="led" aria-hidden="true"></span>
-        <div id="focusHint" aria-hidden="true"><span class="fh-emu">Typing goes to the machine · <kbd>Tab</kbd> leaves the screen</span><span class="fh-chat"><kbd>Esc</kbd> stops a reply, clears the line, then leaves the chat</span></div></div>
+        <div id="focusHint" aria-hidden="true"><span class="fh-emu">Typing goes to the machine<span class="fh-tab"> · <kbd>Tab</kbd> leaves the screen</span></span><span class="fh-chat"><kbd>Esc</kbd> stops a reply, clears the line, then leaves the chat</span></div></div>
       <!-- the screen's hints, under it: they never lie over what the machine shows -->
       <div id="screenNotesBox"><div id="screenNotes">
         <div id="soundHint" hidden>No ROMs needed · click anywhere for sound</div>
