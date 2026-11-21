@@ -2186,7 +2186,7 @@ async function cpu6309Checks(browser, base, check) {
   await key('4');
   check('cpu=6309: key 4 opens the Claude chat (no switch to a 6809)', await waitFor(page, () => document.body.classList.contains('claude-open') && window.emu.session.chatView === 'chat', null, 15000), await msg());
   // the chat machine is the second machine startChat makes; the machine in use alone is not evidence (with the bug,
-  // startChat throws and session.machine is still the BASIC machine, which is a 6309 from the URL either way)
+  // startChat throws and the machine in use is still the BASIC machine, which is a 6309 from the URL either way)
   check('cpu=6309: the chat machine is the 6309 the visitor chose',
     await ev(() => !!window.emu.session.chatMachines && window.emu.session.chatMachines.chat.config.cpu === '6309'),
     await ev(() => window.emu.session.chatMachines ? window.emu.session.chatMachines.chat.config.cpu : 'no chat machine'));
@@ -4694,10 +4694,10 @@ async function tapeHudChecks(browser, base, check) {
     const r = h.getBoundingClientRect(), shown = !h.hidden && getComputedStyle(h).display !== 'none' && r.width > 0;
     const top = shown && document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
     return { shown, noroom: h.classList.contains('noroom'), r: { left: r.left, top: r.top, right: r.right, bottom: r.bottom }, text, vw: innerWidth, vh: innerHeight,
-      onTop: !!top && h.contains(top), fs: !!document.fullscreenElement, playing: window.emu.machine.deck.playing };
+      onTop: !!top && h.contains(top), fs: !!document.fullscreenElement, playing: window.emu.session.personMachine.deck.playing };
   });
   const placedWell = (p) => (p.shown ? p.r.left >= 0 && p.r.top >= 0 && p.r.right <= p.vw && p.r.bottom <= p.vh && p.onTop && !rectsMeet(p.r, p.text) : p.noroom);
-  const tapeIn = (page) => page.evaluate((b) => { window.emu.session.fastTape = false; window.emu.session.insertTape('Space Game.cas', new Uint8Array(b)); window.__motor = setInterval(() => window.emu.machine.deck.setMotor(true), 20); }, bytes);
+  const tapeIn = (page) => page.evaluate((b) => { window.emu.session.fastTape = false; window.emu.session.insertTape('Space Game.cas', new Uint8Array(b)); window.__motor = setInterval(() => window.emu.session.personMachine.deck.setMotor(true), 20); }, bytes);
   for (const [label, opts] of [['desktop', { viewport: { width: 1440, height: 900 } }], ['phone', { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }]]) {
     const errors = [];
     const ctx = await browser.newContext({ ...opts, serviceWorkers: 'block' });
@@ -4707,7 +4707,7 @@ async function tapeHudChecks(browser, base, check) {
     await started(page);
     await waitFor(page, () => window.emu.session.chatView === 'chat' || (window.emu.session.showChat('chat'), false), null, 15000);
     await tapeIn(page);
-    await waitFor(page, () => window.emu.machine.deck.playing && document.getElementById('tapeHud').dataset.state === 'playing', null, 15000);
+    await waitFor(page, () => window.emu.session.personMachine.deck.playing && document.getElementById('tapeHud').dataset.state === 'playing', null, 15000);
     await emuFrames(page, 30);   // the HUD has been placed a few times (four times a second)
     const chat = await hudPlace(page);
     check(`tape HUD (${label}, Claude chat): ${chat.shown ? 'in view, on top, off the chat\'s text' : 'not shown: no place off the chat\'s text'}`, chat.playing && placedWell(chat), JSON.stringify(chat));
@@ -4717,7 +4717,7 @@ async function tapeHudChecks(browser, base, check) {
     await page.goto(`${base}?machine=coco`);
     await started(page);
     await tapeIn(page);
-    await waitFor(page, () => window.emu.machine.deck.playing && !document.getElementById('tapeHud').hidden, null, 15000);
+    await waitFor(page, () => window.emu.session.personMachine.deck.playing && !document.getElementById('tapeHud').hidden, null, 15000);
     const btn = await page.$('#btnFull');
     if (btn && await btn.isVisible()) await btn.click();
     else await page.evaluate(() => document.querySelector('[data-cmd="btnFull"], #btnFull').click());

@@ -384,6 +384,10 @@ const SESSION_BODY = 'js/session.js';
 const PAGE_MODULES = [SESSION_BODY];
 for (const f of fs.readdirSync(path.join(ROOT, 'js/ui')).filter((n) => n.endsWith('.js')).sort()) PAGE_MODULES.push(`js/ui/${f}`);
 for (const f of ['js/embed-api.js', 'js/mcp/tools.js', 'cli/cloadm.js', 'tools/browser-check.js']) PAGE_MODULES.push(f);
+// the claude.ai side panel's own page: it holds one Session and no chat, but it reads the machine the same way, and
+// it was outside this scan when main brought it in (it kept a raw session.machine and threw once the field went).
+for (const f of fs.readdirSync(path.join(ROOT, 'connector/view')).filter((n) => n.endsWith('.js'))) PAGE_MODULES.push(`connector/view/${f}`);
+PAGE_MODULES.push('tools/connector-check.js');
 // names whose `.machine` is NOT the Session's or the Page's, per file, with the reason
 const NOT_A_SESSION = new Map([
   // a tape recording's record: `r` is a plain { machine: the machine's profile name, blocks }, not a Session

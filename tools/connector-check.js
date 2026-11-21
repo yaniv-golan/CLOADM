@@ -176,17 +176,17 @@ async function scenario(browser, check, name, { uri, cors = true, panelApi = nul
       // in another conversation's sandbox origin too (the partition is the chat's site); then no memory read leaves it
       const fake = (k) => Buffer.from(Uint8Array.from({ length: 16384 }, (_, i) => (i * 13 + k) & 255));
       await v.setInputFiles('#rom', [{ name: 'd64_1.rom', mimeType: 'application/octet-stream', buffer: fake(1) }, { name: 'd64_2.rom', mimeType: 'application/octet-stream', buffer: fake(2) }]);
-      const took = await wait(v, () => window.cloadmView.session.machine.hasRom, null, 5000);
+      const took = await wait(v, () => window.cloadmView.session.shownMachine.hasRom, null, 5000);
       await page.waitForTimeout(1000);   // (the stores write after the call)
       // another conversation: its view has another origin (Claude derives one per conversation and connector), so
       // its storage is its own
       await open('b');
       const other = await wait(page, () => window.hostT.listChanged, null, 20000) && await wait(view(), () => window.cloadmView && window.cloadmView.facts.storage !== '…', null, 10000);
-      const otherRoms = other && await view().evaluate(() => window.cloadmView.session.machine.hasRom);
+      const otherRoms = other && await view().evaluate(() => window.cloadmView.session.shownMachine.hasRom);
       await open('a');
       const again = await wait(page, () => window.hostT.listChanged, null, 20000);
       const v2 = view();
-      const kept = again && await wait(v2, () => window.cloadmView && window.cloadmView.session.machine.hasRom, null, 10000);
+      const kept = again && await wait(v2, () => window.cloadmView && window.cloadmView.session.shownMachine.hasRom, null, 10000);
       check('connector site: ROMs added in the panel are kept when the same conversation\'s view opens again; another conversation\'s view has its own storage', took && kept && other && otherRoms === false, JSON.stringify({ took, kept, other, otherRoms }));
       const reads = await Promise.all([call('peek', { machine_id: 'm1', address: 0x8000, length: 16 }), call('find_bytes', { machine_id: 'm1', pattern: '01 0E' }), call('disassemble', { machine_id: 'm1', address: 0x8000 })]);
       check('connector site: with the user\'s ROMs, peek, find_bytes and disassemble are refused (no tool returns ROM memory directly)', reads.every((r) => data(r) && data(r).error && data(r).error.code === 'rejected' && /no tool returns ROM memory directly/.test(data(r).error.detail)), JSON.stringify(reads).slice(0, 400));
