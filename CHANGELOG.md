@@ -139,6 +139,38 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   in that window left two drives writing the same file. Each mount claims the image's name for as long as it is
   deciding, and a second mount of it waits for that answer. `tests/mount-rename-races.test.js`.
 
+### Added
+
+- **The tape in view while it loads.** A tape that starts (dropped on the screen, opened, from a link, `CLOAD`) shows a
+  compact line on the screen's border, under the picture's text and never on it, at every size from a phone held
+  sideways to the desktop: the tape's name, BASIC's S (searching) or F (found), the block, the progress, playing or
+  stopped, End of tape, a Tape sound switch and **Deck**, which brings the cassette panel into view. It goes a few
+  seconds after the tape stops or ends, and is not shown where there is no room off the text (the phone's Claude
+  chat). Screen readers hear once when a tape starts and when it ends. The cassette panel can be folded (**Hide the
+  deck**).
+- **Tape sound.** The tape heard as it plays, as a cassette recorder's own speaker plays it: the tape's signal mixed
+  on the page's side, rounded off (a low-pass at 3.2 kHz, not the raw square), at a modest level, silent as soon as the
+  tape stops. On by default; its switch is in the tape line and the Media tab, and it is remembered; the page's
+  **Sound** switch silences it too. With fast loading
+  you hear what passes the head at its real pitch, in real time (played 30-60 times faster the tones would be far
+  above hearing). It is not the machine's sound: it is not in the machine's audio state or in snapshots, and
+  "Load .CAS straight into memory" plays no tape, so there is nothing to hear.
+
+### Changed
+
+- **A tape in the deck costs nothing while it sits there.** The Cassette slot under the screen was rewritten every
+  frame while a tape was in, playing or not; it, the cassette panel and the tape line now write only what changes.
+- **One deck moves.** Only the cassette panel's reels turn, and only while the tape really moves: not at the end of
+  the tape, nor with the motor on and the tape still. The small deck in the Cassette slot is a still picture. The end
+  of the tape is stamped on the cassette.
+
+### Fixed
+
+- **The sound mux on the cassette input.** With the cassette selected and sound enabled (BASIC's `AUDIO ON`), the
+  Dragons and CoCos now sit at the sound chip's bias, half the DAC's range, as MAME 0.264 does, instead of at 0 (a
+  click when `AUDIO ON` switched it). MAME mixes no tape signal there and neither does the machine; Tape sound is how
+  the tape is heard. Compared with MAME's `-wavwrite`: `run.js <dragon64|dragon32|coco> --cass-sound`.
+
 ### 0.1.7-pre
 
 #### Added

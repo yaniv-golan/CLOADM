@@ -4,6 +4,7 @@ import { CanvasPresenter, GlPresenter } from '../video/canvas.js';
 import { fitPicture, fitActive } from '../video/layout.js';
 import { HostInput } from '../host/input.js';
 import { Gamepads } from '../host/gamepad.js';
+import { TapeListener } from '../host/tape-sound.js';
 
 export function setupScreen(page, { loadPrograms, roms }) {
   const { session, audio, canvas } = page;
@@ -81,6 +82,9 @@ export function setupScreen(page, { loadPrograms, roms }) {
   // refreshing faster than the machine's frames (120/144 Hz) has
   // ticks with nothing new, and paused there is nothing new until a setting or the size changes.
   let last = performance.now(), fpsFrames = 0, fpsTime = last, fps = 0;
+  // the page's "Tape sound" (js/host/tape-sound.js): the tape's signal over each frame, read from the deck after it
+  const tapeListener = new TapeListener();
+  const tapeFrame = (m) => { const ev = tapeListener.frame(m.deck, m.frameCycles); return ev ? { events: ev, cycles: m.frameCycles } : null; };
   let shown = { picture: null, display: null, width: 0, height: 0, steps: -1, restores: 0 };
   let altTime = -Infinity, alt = null;
   function tick(now) {
@@ -95,7 +99,16 @@ export function setupScreen(page, { loadPrograms, roms }) {
     let ran = 0;
     if (!paused) {
       readPads();
-      ran = session.advance(dt, { onFrame: () => audio.pushFrame(m.audioEvents, m.frameCycles, m.fps), now: () => performance.now() });
+      ran = session.advance(dt, { onFrame: () => audio.pushFrame(m.audioEvents, m.frameCycles, m.fps, tapeFrame(m)), now: () => performance.now() });
+      // Fast tape loading (and Turbo) run the machine flat out and push no frames' sound. The tape is still heard:
+      // what passes the head at real speed, at its real pitch, for the real time that went by (the tape's own
+      // tones, its leader and the gaps between blocks, as the deck flies through them). Played 30 to 60 times
+      // faster, the signal would be far above hearing (its 1200/2400 Hz bits at 40-140 kHz): there is no truthful
+      // fast-forward sound to give, and silence would hide that the tape is playing at all.
+      if (ran && (session.turbo || session.tapeRunning)) {
+        const ev = tapeListener.slice(m.deck, Math.min(dt, 100) / 1000 * m.tickHz);
+        if (ev) audio.pushTape(Math.min(dt, 100), { events: ev, cycles: Math.min(dt, 100) / 1000 * m.tickHz });
+      }
       fpsFrames += ran;
     }
     const picture = m.render(), box = fit(picture), display = session.display, steps = session.debugger ? session.debugger.steps : 0, restores = presenter.restores;

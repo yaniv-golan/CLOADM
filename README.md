@@ -78,7 +78,7 @@ Per-machine notes, RAM options and the chip-by-chip list: [docs/machines.md](doc
 
 | | Today | Coming |
 |---|---|---|
-| **Cassette** | `.CAS` played as a real signal through the cassette port, WAV recordings in, fast loading, the tape counter; `CSAVE`/`CSAVEM` saved as `.CAS` or `.WAV` | The tape's sound at real speed |
+| **Cassette** | `.CAS` played as a real signal through the cassette port, WAV recordings in, fast loading, the tape counter, the tape's progress on the screen's border while it loads, Tape sound (the tape heard as a recorder's speaker plays it); `CSAVE`/`CSAVEM` saved as `.CAS` or `.WAV` | The tape signal through the machine's own sound (`AUDIO ON`: MAME 0.264 mixes none in) |
 | **Floppy** | DragonDOS (WD2797), Premier / Delta (WD2791) and RS-DOS (WD1773) cartridges; VDK, JVC (`.dsk`) and DMK images read and written, headerless NitrOS-9 / OS-9 `.dsk` images included; new blank disks; 4 drives, write-protect; booting NitrOS-9 Level 2 on the CoCo 3 from your own floppy image, no ROM needed ([how](docs/using.md#booting-nitros-9)) | Booting NitrOS-9 from 80-track floppies |
 | **Cartridges** | ROM cartridges, banked ROM cartridges up to 128K, Games Master, Orchestra-90, Multi-Pak (with a disk cartridge in slot 4); the Speech/Sound Pak on the CoCo 1/2, CoCo 2B, CoCo 3 and the Dragon 64, music only (its sound is not yet verified against MAME) | Speech/Sound Pak speech |
 | **Printer, serial, DriveWire** | Printer; bit-banger and the Dragon 64's 6551 with a terminal or loopback plug; a DriveWire 4 server in the browser over the CoCo's Becker port; booting NitrOS-9 Level 2 on the CoCo 3 from your own DriveWire image, no ROM needed ([how](docs/using.md#booting-nitros-9)); serving a real CoCo over Web Serial (untested on hardware) | |

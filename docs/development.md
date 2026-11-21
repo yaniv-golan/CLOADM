@@ -30,7 +30,7 @@ names contain one of the parts, and `node tools/browser-check.js --only <group>[
 | Video: `js/chips/` VDG, SAM, GIME, 6845, `js/video/` | `video,mc6847,mc6845,coco3,gime-vsc,composite,sammem,samrate,regress,state` | `models,display,glLoss` |
 | Machines and profiles (`js/machines/`) | `machine,models,bus,coco3,mc10,alpha,d64plus,stub-sam,state,snapshot,regress` | `models,powerOn` |
 | Floppy disks, `js/media/` | `fdc,disk,detect,state` (`disk` also selects the `disks*` suites) | `disk,media` |
-| Cassette | `tape` | `tape,tapePanel` |
+| Cassette | `tape` (also `tape-sound`) | `tape,tapePanel,tapeHud` |
 | Cartridges and sound chips | `bus,carts,ssc,sp0256,ay8910,audio` | `cartridge,sscBoard,audio` |
 | Serial, printer, DriveWire | `serial,acia,drivewire,web-serial` | `driveWire,webSerial,printer` |
 | The assembler (`js/asm/`) | `asm,includes,disasm` | `debugger` |
@@ -138,6 +138,8 @@ node tools/gen-page-preload.js  # regenerate the <link rel="modulepreload"> list
 node tools/page-load.js      # how long /play/ takes to start over a throttled link: modulepreload's effect (see below)
 node tests/readme.test.js    # README.md and docs/*.md: only what GitHub renders; links, anchors and pictures resolve; no private or ROM-folder links
 node tests/tape.test.js      # cassette: WAV files, decoding impaired recordings, capturing csave.asm's output on every SAM model and the MC-10, Session
+node tests/tape-sound.test.js  # Tape sound: the tape's signal per frame tick for tick, silence when it stops, the low-pass, not machine state; the mux's cassette bias
+node tools/mame-diff/run.js dragon64 --cass-sound   # the sound mux on the cassette input while a tape plays, against MAME's -wavwrite (dragon32, coco too)
 node tests/tape-load.test.js # a tape dropped on the page: restarted, CLOADM, EXEC only when BASIC is back, a self-starting tape left alone (BASIC stand-in)
 node tests/input.test.js     # input: both keyboard modes on every family, the keyboard joystick, gamepads, the CoCo Max module
 node tools/mame-diff/tape/run-tape.js [profile ...]   # MAME records our writer firmware; MAME reads our .CAS and WAVs with our reader firmware

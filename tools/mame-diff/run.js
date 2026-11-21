@@ -42,6 +42,8 @@
 // --sound (dgnalpha): the AY-3-8912 and the DAC against MAME's -wavwrite (alpha/sound-compare.js). On a SAM machine
 // (dragon64, dragon32, coco, ...): the DAC and the single-bit sound, through the command line's --wav path
 // (sam/dac-sound.js).
+// --cass-sound (dragon64, dragon32, coco, ...): the sound mux with the cassette input selected while a tape plays
+// (BASIC's AUDIO ON), against MAME's -wavwrite (sam/cass-sound.js).
 // --board (dgnalpha): the Alpha's own hardware (alpha/board.asm: ROM paging, PIA2, AY-3-8912, modem).
 // --cart: a cartridge (cart/spec.js setups: banked ROM, Games Master, Orchestra-90, Multi-Pak)
 // with our firmware as its ROM, in lockstep; --audio then also compares MAME's -wavwrite recording with ours.
@@ -231,6 +233,12 @@ async function main() {
     if (!r.ok) code = 1;
     if (!code) require('fs').rmSync(t.work, { recursive: true, force: true });
     return code;
+  }
+  if (args.includes('--cass-sound')) {
+    if (profile.family === 'sam') return require('./sam/cass-sound.js').compare(profileId, { keep: args.includes('--keep') });
+    console.error('--cass-sound: the cassette sound comparison is for the SAM machines (sam/cass-sound.js)');
+    process.exitCode = 2;
+    return undefined;
   }
   if (args.includes('--sound')) {
     if (profile.family === 'alpha') return require('./alpha/sound-compare.js').compare(profileId, { keep: args.includes('--keep') });

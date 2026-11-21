@@ -230,6 +230,7 @@ const SETTINGS = {
   machineChosen: FLAG, visited: FLAG, keyHintDone: FLAG,
   keyboardMode: (v) => v === 'translated' || v === 'positional',
   keyboardJoystick: (v) => v === '1' || v === '0',
+  tapeSound: (v) => v === '1' || v === '0',
   'display.settings': (v) => { const o = parseObject(v); return !!o && Object.entries(o).every(([k, x]) => Object.hasOwn(DISPLAY_VALID, k) && DISPLAY_VALID[k](x)); },
 };
 function validSetting(k, v) {

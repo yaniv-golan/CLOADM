@@ -4,6 +4,12 @@ import { SessionError } from '../session.js';
 import { createFeedback, currentView } from './feedback.js';
 
 export const $ = (id) => document.getElementById(id);
+// Write a property, an inline style or a class only when it changes. Parts refreshed per frame or per poll (the slots
+// row, the cassette panel, the tape HUD) use these, so an unchanged value costs no DOM write: setting even the same
+// textContent, hidden or title is a mutation the browser has to process.
+export const put = (el, key, value) => { if (el[key] !== value) el[key] = value; };
+export const putStyle = (el, prop, value) => { if (el.style.getPropertyValue(prop) !== value) el.style.setProperty(prop, value); };
+export const putClass = (el, name, on) => { if (el.classList.contains(name) !== on) el.classList.toggle(name, on); };
 // The views that take the emulator's place, by their #hash (Share, the Library, Add ROMs, the Debugger), opened and
 // closed through page.openView / page.closeView (the history model is page.openStep)
 export const VIEWS = Object.freeze(['#share', '#library', '#add-roms', '#debugger']);

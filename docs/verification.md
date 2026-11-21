@@ -322,6 +322,20 @@ resistors R10-R15 as 10K to 324K and the single-bit sound's R22 as 10K (as MAME 
 manual itself was not available to this check), and MAME's level matches (it was 31.5 steps, which this comparison finds
 1.50% off and fails; `tests/cli-wav.test.js` pins it at 10240 alone and 30400 with DAC 63). A mutation
 that moves the DAC's upper half up one step fails the mean check alone (0.71% to 1.04%).
+
+**The sound mux on the cassette input** (`run.js <dragon64|dragon32|coco> --cass-sound`, `tools/mame-diff/sam/cass-sound.js`):
+our firmware (`sam/cass-sound.asm`, in place of BASIC) selects the mux's sources while a tape we build (a $55 leader)
+plays: a DAC square wave (the scale), the cassette selected with sound enabled and the motor on (BASIC's `AUDIO ON`
+while loading), the same with sound disabled, with the motor off, and the DAC selected with the tape playing. MAME
+records it with `-wavwrite`; per segment the RMS and the mean within 5% of the first segment's RMS. MAME 0.264 puts
+the cassette selection at a constant bias, 32 DAC steps (its `coco.cpp` `update_sound`: 0x40 on its 0..0x7E scale), and
+mixes no tape signal: the RMS is 0 in every segment but the first, while its cassette device is playing (Lua:
+`position` advancing). CLOADM used 0 there (a mean 104% of segment 1's RMS off); it now uses the bias, and every
+segment matches on all three machines (RMS 0 / 0, mean within 0.2%). `tests/regress.test.js` hashes the firmware's sound
+(`sound dragon64 cass-sound`, `sound coco cass-sound`). On real hardware the cassette input is heard through the TV
+(`AUDIO ON`); CLOADM follows MAME here and plays the tape on the page's side instead (Tape sound, below), so this is
+not a deviation. The CoCo 3 shares the code (`js/machines/cocopia.js`) and was not compared (the firmware maps as a
+CoCo 1/2's BASIC).
 `tests/cli-wav.test.js` then shows the recording itself is exact: firmware writing a known DAC pattern gives every level
 as 320 x the DAC value, every interval between writes is the cycle count from the MC6809 data sheet (within 0.01
 cycle; the worst seen is 0.003), the WAV is the box filter of the machine's level events sample for sample, two runs
@@ -669,6 +683,37 @@ program plays at the frequency the machine makes it (within the 0.5% steering) a
 it plays (at most 2% of blocks); volume and mute; the four fallbacks to the ScriptProcessorNode (no AudioWorklet,
 its module failing to load or never loading, the processor failing); and (group `pwa`) offline. Not verified automatically: how it sounds on real devices and
 other browsers (Safari and iOS, Firefox).
+
+Tape sound (`js/host/tape-sound.js`) is the page's, not the machine's, so it has no MAME oracle either (MAME 0.264 mixes
+no tape signal into these machines' sound: below). `tests/tape-sound.test.js`: the signal it plays over each frame is
+the tape's, checked tick by tick against a second copy of the tape stepped one tick at a time; nothing when the tape
+doesn't move (motor off, the end, a rewind, a seek, another tape); a motor switched on mid-frame fills the frame's
+end; it reads ahead for fast loading without moving the tape; a playing tape is heard, a stopped one fades below 1e-3
+RMS within 6 frames with no step larger than while it played, and its largest sample step is under a third of the raw
+square's (the low-pass); at volume 0 the output is the machine's exactly; a machine whose tape is heard saves the same
+snapshot. The page (browser check, group `tapeHud`, desktop and phone): on by default, heard while the tape plays
+(the output stage's RMS over 0.01), below 1e-4 once the motor stops and while it is switched off; with the page's
+Sound switched off nothing at all is sent to the output while the tape plays (`tests/tape-sound.test.js` checks the
+same gate in Node). How it sounds is a matter of ear, not checked automatically.
+
+### The tape HUD and the cassette panel
+
+Browser check, groups `tapeHud` and `tapePanel`. At 1440x900, 820x1180, 390x844 and 844x390 (touch at the last three),
+a tape dropped on the screen loads through our BASIC stand-in (`tools/mame-diff/tape/standin.asm`) and the tape line
+comes up wholly in the viewport with the page unscrolled, on top at its centre, never meeting the picture's text area,
+with the name and block; exactly one animation runs on the page while the tape moves (the cassette panel's window);
+**Deck** brings the panel into view (not held sideways, where the touch keys cover the page and it is not offered). At
+the end of the tape, with the motor still on: "End of tape", the stamp, no animation running, and the line goes; a
+polite live region has said "Tape … playing" and "End of tape …" once each. In the Claude chat view and the browser's
+Fullscreen at 1440x900 and 390x844, the line is either in view, on top and off the text, or not shown at all (the
+phone chat, whose text fills the screen); in Fullscreen at both sizes it is shown. Only geometry relationships are
+asserted, no coordinates. The line is placed again whenever the canvas or the screen area changes size: at the
+desktop size the monitor is narrowed in place (no window resize) and, in the very frame the canvas is refitted, the line
+already lies off the new text and inside the tube (without the ResizeObserver it lies outside it). The live region is
+written exactly twice from the tape going in to its end (a MutationObserver counts the writes). DOM writes in the slots row and the
+line, per element over 2 s (desktop and phone): none with a tape stopped in the deck, and only changes while it plays
+(at most 8 a second, the position readouts); the rewrite every frame it replaced was 40-60 a second per element. The panel's
+own checks (`tapePanel`) also find no reel turning at the end of the tape.
 
 ### Install as an app (the PWA offer)
 

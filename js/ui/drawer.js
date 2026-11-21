@@ -3,7 +3,7 @@
  * keys move between tabs), the recent media list, the ROM summary, and the cassette and cartridge slots under
  * the screen. The Display tab is its own module (display-panel.js).
  */
-import { $ } from './page.js';
+import { $, put, putClass } from './page.js';
 
 export function setupDrawer(page, { showRoms }) {
   const { session } = page;
@@ -63,21 +63,21 @@ export function setupDrawer(page, { showRoms }) {
   let cartName = null;
   function slots() {
     const m = session.machine, t = m.deck.tape;
-    $('tapeName').textContent = t ? t.name : 'No tape · Insert tape…';
+    // (refreshed every frame while a tape is in: each part is written only when it changes, put/putClass)
+    put($('tapeName'), 'textContent', t ? t.name : 'No tape · Insert tape…');
     // a button that can't work is disabled with the reason, not clicked and complained about
-    $('btnRewind').disabled = !t;
-    $('btnRewind').title = t ? 'Back to the start of the tape' : 'No tape inserted';
-    $('tapeState').textContent = !t ? 'click the deck to insert' : m.deck.motor ? `motor on · ${(t.progress() * 100).toFixed(0)}%` : `stopped · ${(t.progress() * 100).toFixed(0)}%`;
-    $('btnTape').classList.toggle('turning', !!(t && m.deck.motor));
-    $('cartSlot').hidden = !m.hasCartridgePort;
+    put($('btnRewind'), 'disabled', !t);
+    put($('btnRewind'), 'title', t ? 'Back to the start of the tape' : 'No tape inserted');
+    put($('tapeState'), 'textContent', !t ? 'click the deck to insert' : m.deck.motor ? `motor on · ${(t.progress() * 100).toFixed(0)}%` : `stopped · ${(t.progress() * 100).toFixed(0)}%`);
+    put($('cartSlot'), 'hidden', !m.hasCartridgePort);
     const loaded = !!(m.hasCartridgePort && m.cartPort);
-    $('btnCart').classList.toggle('loaded', loaded);
+    putClass($('btnCart'), 'loaded', loaded);
     // the Pak takes no cartridge image: on that board the button inserts it instead of opening a file
     const onSsc = $('selCartBoard').value === 'ssc';
-    $('btnCart').textContent = loaded ? (cartName ? `${cartName} · ${m.cartPort.name || 'cartridge'}` : (m.cartPort.name || 'Cartridge'))
-      : onSsc ? 'Insert the Speech/Sound Pak…' : 'Insert cartridge…';
+    put($('btnCart'), 'textContent', loaded ? (cartName ? `${cartName} · ${m.cartPort.name || 'cartridge'}` : (m.cartPort.name || 'Cartridge'))
+      : onSsc ? 'Insert the Speech/Sound Pak…' : 'Insert cartridge…');
     // the board menu offers the Pak only on the models that take it
-    $('selCartBoard').querySelector('option[value="ssc"]').hidden = !session.offersSsc;
+    put($('selCartBoard').querySelector('option[value="ssc"]'), 'hidden', !session.offersSsc);
     if (!session.offersSsc && onSsc) { $('selCartBoard').value = 'auto'; session.cartBoard = 'auto'; slots(); }
   }
   $('btnCart').onclick = () => {

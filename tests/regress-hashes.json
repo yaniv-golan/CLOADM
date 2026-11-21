@@ -842,5 +842,15 @@
   "vsc coco3 part 5 hardware": {
     "hash": "11c407dd",
     "frames": 140
+  },
+  "sound dragon64 cass-sound": {
+    "hash": "09792745",
+    "frames": 240,
+    "events": 1012
+  },
+  "sound coco cass-sound": {
+    "hash": "478a7335",
+    "frames": 240,
+    "events": 1012
   }
 }

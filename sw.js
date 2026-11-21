@@ -118,6 +118,7 @@ const FILES = [
   'js/host/media-store-opfs.js',
   'js/host/media-store.js',
   'js/host/storage.js',
+  'js/host/tape-sound.js',
   'js/host/web-serial.js',
   'js/machines/alpha.js',
   'js/machines/becker.js',
