@@ -46,48 +46,18 @@ const FONT = (() => {
   return map;
 })();
 check('the font has the 64 characters $20-$5F', FONT.size === 64, String(FONT.size));
-// The letters drawn four pixels wide at 1x (FONT4: M, W, H, A, R - in three pixels they read as each other).
-// Each row is one byte of four 2-bit pixels; the table is read the same way, from the source.
-const FONT4 = (() => {
-  const src = include('games.inc'), at = src.indexOf('FONT4   FCB');
-  const rows = [], cs = src.indexOf('FONT4C  FCB');
-  // (/[ \t]+/, not \s+: a \s+ after FCB crossed newlines and swallowed all five glyphs into one match)
-  for (const line of src.slice(at, cs).split('\n')) {
-    const m = /FCB[ \t]+((?:\$[0-9A-F]{1,2})(?:,\$[0-9A-F]{1,2}){4})/.exec(line);
-    if (!m) continue;
-    rows.push(m[1].split(',').map((v) => parseInt(v.slice(1), 16)));
-  }
-  // the characters, from FONT4C's own line: FCB 'M,'W,'H,'A,'R
-  const line = src.slice(cs).split('\n')[0];
-  const chars = line.slice(line.indexOf('FCB') + 3).split(',').map((q) => q.trim().replace(/^'/, '').replace(/'$/, ''));
-  // (rows holds one entry a GLYPH, each its five row bytes; keyed by the glyph's rows)
-  const map = new Map();
-  chars.forEach((c, i) => map.set(rows[i].join(','), c));
-  if (map.size !== chars.length) throw new Error(`FONT4: two letters share all five rows (${map.size} of ${chars.length})`);
-  return map;
-})();
-check('the 4-pixel letters are M, W, H, A and R, five rows each', FONT4.size === 5 && [...FONT4.values()].join('') === 'MWHAR', [...FONT4.values()].join(''));
 // the text on pixel row y of the bitmap, 4-pixel cells, glyph rows `tall` apart, in colour `fg`
-// The letters drawn four pixels wide (FONT4) are recognised first: a cell is read as four pixels for those and
-// as three for everything else, so the text a person sees is the text this decodes.
 const textAt = (m, y, tall = 1, fg = 3, from = 0, to = 32) => {
   let s = '';
   for (let c = from; c < to; c++) {
-    const four = [], g = [];
+    const g = [];
     for (let k = 0; k < 5; k++) {
       const v = m.ram[0x400 + (y + k * tall) * 32 + c];
       let bits = 0;
       for (let p = 0; p < 3; p++) if (((v >> (6 - 2 * p)) & 3) === fg) bits |= 4 >> p;
       g.push(bits);
-      // a row is a 4-bit mask with bit 3 the leftmost pixel, as FONT4 stores it (MASK4 turns bit k into the
-      // 2-bit pixels), so pixel p of the four is bit 3 - p
-      let b4 = 0;
-      for (let p = 0; p < 4; p++) if (((v >> (6 - 2 * p)) & 3) === fg) b4 |= 1 << (3 - p);
-      four.push(b4);
     }
-    // The 3-pixel glyph first: every letter the 3x5 table has decodes there, and the five 4-pixel letters decode
-    // to a wrong or no 3-pixel glyph ('O', '?'...), so the 4-pixel table is the fallback rather than the first try.
-    s += FONT.get(g.join(',')) || FONT4.get(four.join(',')) || '?';
+    s += FONT.get(g.join(',')) || '?';
   }
   return s.trim();
 };

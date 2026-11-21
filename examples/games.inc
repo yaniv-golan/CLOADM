@@ -219,54 +219,11 @@ BOXCEL  STA     ,Y+
         PULS    D,X,Y,PC
 ; Text: TFG and TBG are the fill bytes of the text and background colours (colour * $55), TROWS
 ; the rows each font row is repeated (1: 5 rows tall), TWIDE 0 for 4-pixel cells, 1 for 8.
-; PCFOUR: 1x, a letter of FONT4 is drawn 4 pixels wide. A holds the character. The 3x5 glyphs stay in a
-; 4-pixel cell (one byte a row, the left three pixels used and the fourth the gap), so a 4-pixel letter simply
-; fills that cell. The five letters are tried first; anything else takes the 3-pixel path below, unchanged.
-PCFOUR  LDX     #FONT4C
-        LDB     #0
-PCF4LP  CMPA    ,X+
-        BEQ     PCF4HIT
-        INCB
-        CMPB    #5
-        BNE     PCF4LP
-        LDX     PCADDR          ; (X was the letter table: put the screen pointer back for PCNARROW)
-        LBRA    PCNARROW        ; not one of the five: its 3x5 glyph, as before
-PCF4HIT LDA     #5              ; 5 bytes a glyph
-        MUL                     ; D = index * 5 (the index was 0..4)
-        ADDD    #FONT4
-        TFR     D,Y             ; Y: the glyph's five rows
-        LDX     PCADDR
-        TFR     X,U             ; U: the screen byte being drawn
-        LDB     #5
-        STB     PCROWS
-PCF4ROW LDB     ,Y+             ; one row: four pixels of two bits each, the left pixel in bits 7-6
-        LDA     TROWS
-        STA     PCREP
-PCF4REP LDX     #MASK4
-        LDA     B,X             ; the row's pixels as a mask (A is free here: the character was used up)
-        PSHS    A
-        ANDA    TFG
-        STA     PCTMP
-        LDA     ,S+
-        COMA
-        ANDA    TBG
-        ORA     PCTMP           ; (mask AND TFG) OR (NOT mask AND TBG), as PCMIX
-        STA     ,U
-        LEAU    32,U
-        DEC     PCREP
-        BNE     PCF4REP
-        DEC     PCROWS
-        BNE     PCF4ROW
-        LDX     PCADDR
-        LEAX    1,X             ; four pixels are the 4-pixel cell
-        PULS    D,Y,U,PC
 ; PUTCH: the character A at X; X moves to the next cell
-; At 1x the letters in FONT4 (M, W, H, A, R) are drawn 4 pixels wide: in a 3-pixel cell they read as each other.
-; At 2x the 3-pixel glyphs are doubled, which is legible, so only M and W keep their own wide glyphs there.
 PUTCH   PSHS    D,Y,U
         STX     PCADDR
-        TST     TWIDE
-        BEQ     PCFOUR          ; 1x: a 4-pixel letter has a glyph of its own
+        TST     TWIDE           ; 2x wide, M and W have glyphs of their own: in three pixels they read as H
+        BEQ     PCNARROW
         LDU     #WIDEM
         CMPA    #'M
         BEQ     PCMW
@@ -424,25 +381,13 @@ PLLP    LDA     ,U+
 PLEND   PULS    D,U,PC
 
 ; pixel masks for the font: bits 2-0 of a font row -> the pixels they set (two bits each)
-MASK4   FCB     $00,$03,$0C,$0F,$30,$33,$3C,$3F,$C0,$C3,$CC,$CF,$F0,$F3,$FC,$FF   ; bits 3-0 -> four pixels
 MASK1   FCB     $00,$0C,$30,$3C,$C0,$CC,$F0,$FC
 MASK2L  FCB     $00,$00,$0F,$0F,$F0,$F0,$FF,$FF
 MASK2R  FCB     $00,$F0,$00,$F0,$00,$F0,$00,$F0
 
-; M and W 2x wide: seven pixels, two mask bytes a row (the 2x path, where a 3-pixel glyph doubled is legible)
+; M and W 2x wide: seven pixels, two mask bytes a row
 WIDEM   FCB     $C0,$0C,$F0,$3C,$CC,$CC,$C3,$0C,$C0,$0C        ; #.....#  ##...##  #.#.#.#  #..#..#  #.....#
 WIDEW   FCB     $C0,$0C,$C3,$0C,$CC,$CC,$F0,$3C,$C0,$0C        ; #.....#  #..#..#  #.#.#.#  ##...##  #.....#
-
-; Letters that a 3-pixel cell cannot tell apart, drawn 4 pixels wide (one byte a row, four pixels of two
-; bits each) at 1x - M, W, H, A and R: in three pixels M, W, H and N differ by one pixel, and A and R by two,
-; so "MOVE" read as "HOVE" and "R NEW" as "A NEW". Five rows each, $F for the left two pixels and $3 for the
-; right two, so the glyphs are 4x5 in the cell the 3x5 ones use. They are centred one pixel right.
-FONT4   FCB     $9,$F,$B,$9,$9   ; M   #..# / #### / #.## / #..# / #..#
-        FCB     $9,$9,$B,$F,$9   ; W   #..# / #..# / #.## / #### / #..#
-        FCB     $9,$9,$F,$9,$9   ; H   #..# / #..# / #### / #..# / #..#
-        FCB     $6,$9,$F,$9,$9   ; A   .##. / #..# / #### / #..# / #..#
-        FCB     $E,$9,$E,$A,$9   ; R   ###. / #..# / ###. / #.#. / #..#
-FONT4C  FCB     'M,'W,'H,'A,'R
 
 ; the font: 3x5, ASCII $20-$5F, five rows a character, bit 2 the left pixel
 FONT    FCB     %000,%000,%000,%000,%000        ; space
