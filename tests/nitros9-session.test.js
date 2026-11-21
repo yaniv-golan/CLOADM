@@ -151,7 +151,7 @@ const status = (m) => m.read(NITROS9_STATUS.addr);
     const r = new Session();
     r.switchMachine('coco3', { cpu: '6809', ram }, { menu: false });
     const said = await r.addAndBootNitros9(image, bytes);
-    const mm = r.machine, screen = () => lib.screenText(mm);
+    const mm = r.shownMachine, screen = () => lib.screenText(mm);
     const prompted = await frames(r, 40 * 60, () => screen().includes(PROMPT));
     check(`${cpu} ${ram}K: the Session boots the release image to the shell prompt`, prompted && mm.config.cpu === cpu && mm.config.ram === ram, `${said}; ${JSON.stringify(screen().slice(-3))}`);
     check(`${cpu} ${ram}K: NitrOS-9's banner`, screen().includes(`NitrOS-9/${cpu} Level 2 V3.3.0`));
@@ -245,7 +245,7 @@ const status = (m) => m.read(NITROS9_STATUS.addr);
     const r = new Session();
     r.switchMachine('coco3', { cpu: '6809', ram }, { menu: false });
     const said = await r.addAndBootNitros9(image, bytes);
-    const mm = r.machine, screen = () => lib.screenText(mm);
+    const mm = r.shownMachine, screen = () => lib.screenText(mm);
     // setime's prompt (answered with Return), or straight to the shell: the 6809 build at 128K runs no setime, in
     // MAME 0.264 as here (its startup stops early; seen on MAME's screen, not compared automatically)
     const at = () => screen().some((x) => x.startsWith('Time ?')) || screen()[screen().length - 1] === PROMPT;
