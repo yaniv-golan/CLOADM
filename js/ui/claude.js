@@ -232,6 +232,8 @@ export function setupClaude(page) {
       if (panel) panel.close({ keep: true });
       show(true);
       page.status('Chat with Claude: type on the screen and press ENTER.');
+      // no key: say so on the screen itself (the key card is beside it, or above it on a phone, below the fold)
+      if (chat !== had && !session.hasClaudeKey) session.chatNote(`No API key yet: add one ${whereKey()}.`);
       page.focus();
       // without a key the key card comes first where the page stacks (a phone or a tablet), so the page starts at the
       // top rather than at the screen
@@ -310,7 +312,9 @@ export function setupClaude(page) {
     try { saveKey(input.value); input.value = ''; $('claudeKeyMsg').textContent = ''; editingKey = false; }
     catch (e) { $('claudeKeyMsg').textContent = e.message; render(); return; }
     render();
-    // the key is in: typing goes to the chat at once (the focus was left on the page)
+    // the key is in: say so on the screen (the key card is a short line, below the fold on a phone), and typing goes
+    // to the chat at once (the focus was left on the page)
+    if (session.claudeView === 'full') session.chatNote('Key saved ✓ Type your message and press ENTER.');
     if (session.claudeView === 'full') page.focus();
   };
   $('claudeKeyInput').onkeydown = (e) => { if (e.key === 'Enter') $('btnClaudeKeySave').click(); };

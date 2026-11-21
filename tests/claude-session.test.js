@@ -555,6 +555,25 @@ async function say(s, calls, line, want) {
     check('the settings export holds no key', !exp.includes(KEY) && !/sk-ant/.test(exp));
   }
 
+  // ---- a line of the page's own on the chat screen (chatNote): the no-key hint and the key-saved line ----
+  {
+    const { s, chat, calls, basic } = open([textReply('Hi.')]);
+    frames(s, 150);
+    check('chatNote puts the page\'s line on the chat screen, as a reply is shown', s.chatNote('No API key yet: add one above.')
+      && (frames(s, 150), chatScreen(s.machine).some((l) => l.includes('No API key yet: add one above.'))), chatScreen(s.machine).join('|'));
+    check('chatNote is nobody\'s words: not in the conversation Claude reads, and the prompt is back after it',
+      chat.messages.length === 0 && chatScreen(s.machine).some((l) => l.trim().startsWith('>')), JSON.stringify(chat.messages));
+    s.chatNote('Key saved ✓ Type your message and press ENTER.\r\nsecond line?');
+    frames(s, 150);
+    check('chatNote stays one line (a line break in it is a space)', chatScreen(s.machine).some((l) => l.includes('Key saved')) && chatScreen(s.machine).some((l) => l.includes('second line?')) && !chatScreen(s.machine).some((l) => l.trim() === 'second line?'), chatScreen(s.machine).join('|'));
+    const has = (u8) => Buffer.from(u8).includes(Buffer.from(KEY));
+    check('with the notes on screen, neither machine holds the key, no snapshot has it, and the settings export has none',
+      !has(basic.ram) && !has(s.chatMachines.chat.ram) && !snapText(basic).includes(KEY) && !snapText(s.chatMachines.chat).includes(KEY)
+      && !JSON.stringify(s.exportSettings()).includes(KEY));
+    s.endChat();
+    check('chatNote with no chat open does nothing', s.chatNote('x') === false);
+  }
+
   console.log(`${n - fail}/${n} Claude session checks passed`);
   process.exitCode = fail ? 1 : 0;
 })().catch((e) => { console.error('test crashed:', e); process.exitCode = 1; });

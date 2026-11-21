@@ -150,7 +150,7 @@ TOMAIN  JSR     MAINMENU
         BRA     KEYLP
 
 ; MAINMENU: the greeting (row 6), options 1-5 (rows 8-12), option 6 if the Session set one
-; (row 13), and the prompt (row 14)
+; (row 12, the options above it moved up a row), and the prompt (row 14)
 MAINMENU
         CLR     INGAMES
         JSR     CLRMENU
@@ -169,10 +169,21 @@ GRTOK   LSLB
         LEAX    -32,X
         LDU     ,U
         JSR     PRAT
+; With option 6 the options move up a row (rows 8-12 to 7-11), so a blank row still separates the menu from
+; PRESS 1 TO 6 and the colour bar (as the 6803 build does); option 6 goes on row 12.
         TST     CARRY
         BEQ     MMDONE
+        LDX     #SCREEN+7*32
+MOVEUP  LDD     32,X
+        STD     ,X++
+        CMPX    #SCREEN+12*32
+        BNE     MOVEUP
+        LDD     #$6060          ; row 12, cleared for option 6
+CLR12   STD     ,X++
+        CMPX    #SCREEN+13*32
+        BNE     CLR12
         LDU     #T_6
-        LDX     #SCREEN+13*32+4
+        LDX     #SCREEN+12*32+4
         JSR     PRAT
         LDU     #CARRY
         JSR     PRAT
