@@ -300,7 +300,7 @@ MOVESND LDA     MERGED
         CMPA    #6
         BLS     MSIDX
         LDA     #6
-MSIDX   DECA                    ; MERGED 1 (a 4) -> index 0
+MSIDX   DECA                    ; MERGED is the joined TILE's level (a joined 4 is 3): PENTA[MERGED-1]
         LSLA
         LDX     #PENTA
         LEAX    A,X

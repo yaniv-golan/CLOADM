@@ -264,7 +264,37 @@ const show = (b) => b.map((v) => (v ? 2 ** v : '.')).join(' ');
   g.press('break');
 }
 
-// the same game on the other 6809 families
+// 2048's move cue: one tone per move, its pitch from the biggest join, and the half period is EXACT in cycles
+// (a zero-crossing rate over a 60 ms note cannot resolve a semitone; 5*A+22 can). A move that joins nothing plays
+// C5 (A=167 -> 857); a join of two 4s (MERGED=1) also plays C5, one of two 8s (MERGED=2) plays D5 (A=148 -> 762).
+{
+  const halvesOf = (edges) => { const out = []; for (let i = 1; i < edges.length; i++) if (Math.abs(edges[i][1] - edges[i - 1][1]) > 0.8) out.push(edges[i][0] - edges[i - 1][0]); return out; };
+  const cueHalves = (g, key, poke) => {
+    const m = g.m, edges = [];
+    if (poke) poke(m);
+    m.stubKeys.push(key);
+    for (let i = 0; i < 20; i++) { const base = m.frameBase; m.runFrame(); for (let k = 2; k < m.audioEvents.length; k += 2) edges.push([base + m.audioEvents[k], m.audioEvents[k + 1]]); }
+    return halvesOf(edges);
+  };
+  const g = start('2048', { seed: 0xBEEF });
+  g.press('space');   // deal
+  const plain = cueHalves(g, 8);   // LEFT, no join
+  check('2048: a move with no join plays C5 exactly (half periods of 5*167+22 = 857, +-2)',
+    plain.length >= 50 && plain.every((h) => Math.abs(h - 857) <= 2), `${plain.length} halves, ${[...new Set(plain)].slice(0, 4).join(',')}`);
+  // MERGED is the VALUE OF THE JOINED TILE (a 4 is level 3: two level-2 tiles double into it), and the note is
+  // PENTA[MERGED-1], so a join making a 4 plays E5 (A=131 -> 677) and one making an 8 plays G5 (A=110 -> 572).
+  // A move that joins nothing plays C5 (A=167 -> 857).
+  const g2 = start('2048', { seed: 0xBEEF });
+  g2.press('space', 'R');
+  const joined = cueHalves(g2, 8, (m) => [2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0].forEach((v, i) => m.poke(g2.sym('BOARD') + i, v)));
+  check('2048: a move whose join makes a 4 plays E5 exactly (half periods of 5*131+22 = 677, +-2)',
+    joined.length >= 50 && joined.every((h) => Math.abs(h - 677) <= 2), `${joined.length} halves, ${[...new Set(joined)].slice(0, 4).join(',')}`);
+  const g3 = start('2048', { seed: 0xBEEF });
+  g3.press('space', 'R');
+  const two = cueHalves(g3, 8, (m) => [3, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0].forEach((v, i) => m.poke(g3.sym('BOARD') + i, v)));
+  check('2048: a move whose join makes an 8 plays G5 exactly (half periods of 5*110+22 = 572, +-2)',
+    two.length >= 50 && two.every((h) => Math.abs(h - 572) <= 2), `${two.length} halves, ${[...new Set(two)].slice(0, 4).join(',')}`);
+}
 for (const machine of ['dragon32', 'coco', 'coco3', 'dragon64:6309']) {
   const [id, cpu] = machine.split(':');
   const s = new Emu.Session({ welcomeMenu: false });
@@ -387,6 +417,28 @@ const nb = (i) => { const out = []; const x = i & 7, y = i >> 3; for (let dy = -
   const near = (h, d) => Math.abs(h - (5 * d + 22)) <= 3;
   const a = halves.filter((h) => near(h, 167)).length, b = halves.filter((h) => near(h, 110)).length;
   check('Minesweeper: F plays C5 then G5 (24 half periods at 5*167+22 and 5*110+22 cycles)', a >= 22 && a <= 24 && b >= 22 && b <= 24, `${a} ${b} of ${halves.length}`);
+  // The open tick is E5 (A=131 -> 677 cycles a half period). A zero-crossing RATE over a 30 ms burst can only
+  // resolve ~44 cents, so a semitone error (6%) would pass an 8% pitch test; the half period in CYCLES is exact.
+  // The same for F on an open square (A=200 -> 1022), which is only ~9 ms long.
+  const halfCycles = (from) => { const out = []; for (let i = 1; i < from.length; i++) if (Math.abs(from[i][1] - from[i - 1][1]) > 0.8) out.push(from[i][0] - from[i - 1][0]); return out; };
+  const g2 = start('minesweeper', { seed: 7 });
+  g2.press('space');
+  const m2 = g2.m, openEdges = [];
+  m2.stubKeys.push(32);   // SPACE: opens the first square (always safe) -> the E5 tick
+  for (let i = 0; i < 20; i++) { const base = m2.frameBase; m2.runFrame(); for (let k = 2; k < m2.audioEvents.length; k += 2) openEdges.push([base + m2.audioEvents[k], m2.audioEvents[k + 1]]); }
+  const openHalves = halfCycles(openEdges);
+  check('Minesweeper: the open tick is E5 exactly (every half period 5*131+22 = 677 cycles, +-2)',
+    openHalves.length >= 20 && openHalves.every((h) => Math.abs(h - 677) <= 2),
+    `${openHalves.length} half periods, ${[...new Set(openHalves)].slice(0, 5).join(',')}`);
+  const g3 = start('minesweeper', { seed: 7 });
+  g3.press('space', 'space');   // open (3,3), then F on it: the low note A=200 -> 1022
+  const m3 = g3.m, buzzEdges = [];
+  m3.stubKeys.push(70);
+  for (let i = 0; i < 20; i++) { const base = m3.frameBase; m3.runFrame(); for (let k = 2; k < m3.audioEvents.length; k += 2) buzzEdges.push([base + m3.audioEvents[k], m3.audioEvents[k + 1]]); }
+  const buzzHalves = halfCycles(buzzEdges);
+  check('Minesweeper: F on an OPEN square is the low note exactly (half periods of 5*200+22 = 1022, +-2)',
+    buzzHalves.length >= 6 && buzzHalves.every((h) => Math.abs(h - 1022) <= 2),
+    `${buzzHalves.length} half periods, ${[...new Set(buzzHalves)].slice(0, 5).join(',')}`);
 }
 
 // the Session: runGame, the last run, the menu after BREAK, the carry-on line, and no games on a 6803
