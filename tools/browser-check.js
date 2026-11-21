@@ -4319,10 +4319,15 @@ async function tapePanelChecks(browser, base, check) {
       for (const id of ['tapeEyebrow', 'tapeSpeed']) window.__mo.observe(document.getElementById(id), { childList: true, characterData: true, subtree: true });
       window.__motor = setInterval(() => window.emu.machine.deck.setMotor(true), 20);
     });
-    const isFastLoading = (s) => /^LOADING · BLOCK \d+ OF 34$/.test(s.eyebrow) && /^Fast-forward ×\d+$/.test(s.speed) && Number(s.speed.split('×')[1]) > 1;
+    // The reels are part of the frame looked for: the left reel's --wound is 1 - progress to three places, so a
+    // fast-forward frame still in block 1 (progress under 0.0005, as on a runner that was slow while the first 1 s
+    // speed window closed) shows it at 1.000 although the tape is moving; requiring the reel on the FIRST fast frame
+    // failed there (CI, wound 1 at BLOCK 1 OF 34). What is asserted is unchanged: one frame shows LOADING, a speed
+    // above x1 and the left reel unwound, all at once.
+    const isFastLoading = (s) => /^LOADING · BLOCK \d+ OF 34$/.test(s.eyebrow) && /^Fast-forward ×\d+$/.test(s.speed) && Number(s.speed.split('×')[1]) > 1 && s.leftReelWound < 1;
     // waiting for the frame is the condition; the timeout only bounds a failure. The speed readout is measured
-    // over 1 s windows and reads x1 until the first closes, so this is the frame that shows both at once.
-    const sawLoading = await waitFor(page, () => window.__seen.some((s) => /^LOADING · BLOCK \d+ OF 34$/.test(s.eyebrow) && /^Fast-forward ×\d+$/.test(s.speed) && +s.speed.split('×')[1] > 1), null, 20000);
+    // over 1 s windows and reads x1 until the first closes, so this is the frame that shows all three at once.
+    const sawLoading = await waitFor(page, () => window.__seen.some((s) => /^LOADING · BLOCK \d+ OF 34$/.test(s.eyebrow) && /^Fast-forward ×\d+$/.test(s.speed) && +s.speed.split('×')[1] > 1 && s.leftReelWound < 1), null, 20000);
     const seen = await page.evaluate(() => window.__seen);
     const loading = seen.find(isFastLoading);
     check('tape panel: motor on: LOADING · BLOCK n OF 34, fast-forward faster than real time, the reels turn',
