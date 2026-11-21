@@ -83,13 +83,48 @@ const newSession = (id = 'dragon64') => { const s = new Emu.Session({ store: Emu
   // the chat is still the chat: the machine in use did not change under the person
   check('1 the chat machine is still the one on screen', s.machine === chatM && s.chatMachines.chat === chatM && s.claudeView === 'full');
 
+  // a POKE from the book is the person's: it acts on their machine and never types into the chat firmware, whose
+  // keys are a conversation line (PM ruling)
+  {
+    // its own session, on the stub by choice: a POKE's line is queued on the stub the way the page's POKE book does it
+    const ps = newSession('dragon64'); frames(ps, 5);
+    ps.runWithoutRoms({ menu: false });
+    chatOn(ps);
+    const basicM = ps.chatMachines.basic, chatBefore = ps.chatMachines.chat.ram.slice();
+    const book = ps.pokeBook();
+    check('1 a POKE from the book while the chat is on screen has entries from the BASIC session\'s machine', book.length > 0, `${book.length} entries`);
+    basicM.stubKeys.length = 0; ps.chatMachines.chat.stubKeys.length = 0;
+    const msg = ps.typePoke(0);
+    // on a stub machine the line is queued as the program's keys, on the machine the POKE is for: the BASIC session
+    const basicKeys = basicM.stubKeys.slice(), chatKeys = ps.chatMachines.chat.stubKeys.slice();
+    check('1 ...and the POKE is typed into the BASIC session, not the chat',
+      /^Typed |^Done: /.test(msg) && basicKeys.length > 0 && chatKeys.length === 0,
+      `${msg}; basic keys ${basicKeys.length} chat keys ${chatKeys.length}`);
+    check('1 ...and the chat firmware is untouched by it', chatBefore.every((v, i) => v === ps.chatMachines.chat.ram[i]));
+  }
+  // a saved snapshot is the person's machine, never the chat firmware (PM ruling)
+  {
+    const f = await s.snapshotFile();
+    const snap = await s.readSnapshot(f.bytes);
+    check('1 a snapshot saved on the chat screen is the BASIC session\'s', snap.machine === s.chatMachines.basic.id && f.saved === 'your BASIC session',
+      `${snap.machine} saved=${f.saved}`);
+    // and it does not carry the chat firmware's memory: a marker byte poked in BASIC is in the file, one in the chat
+    // machine is not
+    s.chatMachines.basic.poke(0x1234, 0x5A); s.chatMachines.chat.poke(0x1234, 0xA5);
+    const f2 = await s.snapshotFile();
+    const snap2 = await s.readSnapshot(f2.bytes);
+    const mem = snap2.state.memory;
+    check('1 ...it holds the BASIC session\'s memory and not the chat machine\'s', mem[0x1234] === 0x5A, `$1234=${mem[0x1234]}`);
+  }
+
   // a tape (type 2): into the BASIC session's deck, never the chat machine
+  const chatBeforeTape = chatM.ram.slice();   // (its own baseline: the blocks above may have touched the chat machine)
   const tapeMsg = s.load('tape.cas', casTape());
   check('1 a tape dropped on the chat screen goes to the BASIC session', s.chatMachines.basic.deck.tape !== null && chatM.deck.tape === null
     && /BASIC session/i.test(tapeMsg), `${tapeMsg}; basic deck=${!!s.chatMachines.basic.deck.tape} chat deck=${!!chatM.deck.tape}`);
   // (the chat firmware's own RAM is untouched: the BASIC session's deck went in, and the chat machine is a
   // different Machine. The BASIC session is restarted for the clean load, which is its own RAM, not the chat's)
-  check('1 ...and the chat firmware is still untouched', chatRamBefore.every((v, i) => v === chatM.ram[i]));
+  check('1 ...and the chat firmware is still untouched', chatBeforeTape.every((v, i) => v === chatM.ram[i]));
 
   // a cartridge: into the BASIC session's port (it has one), which starts it there
   s.switchMachine('dragon64');

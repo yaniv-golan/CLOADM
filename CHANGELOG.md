@@ -20,6 +20,9 @@ Next version: 0.1.7-pre (the plugin and extension manifests carry it; `tests/plu
   chat machine's drives. Two further things the first cut of this missed: a tape whose stored ROMs could not start
   BASIC still power cycled the chat machine (and left its screen on "NO ROM LOADED"), and a Reset after a drop
   replaced the chat's own restart record, so Reset took the chat screen away. Each machine now keeps its own record.
+  The POKE book and **Save snapshot** follow it too: a POKE picked there acts on your BASIC session (it used to be
+  typed into the chat firmware, whose keys are a conversation line), and a saved snapshot is your BASIC session's,
+  never the chat's screen, with the message saying so.
 
 - **Stored ROMs that do not start BASIC are not retried on every tape drop.** When a load used the stored ROMs and
   they never printed OK, every later drop repeated the whole restart-and-wait (about 5 seconds of emulated time)

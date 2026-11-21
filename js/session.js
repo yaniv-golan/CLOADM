@@ -966,8 +966,11 @@ export class Session {
   }
   // the POKE book for this machine: [{ text, about, chip, ready, bit?, set? }] (ready: can be typed now; bit/set:
   // the SAM rate bit it sets or clears), [] without a SAM
+  // The POKE book is the person's: its entries and the POKE itself act on personMachine (the BASIC session while the
+  // chat is full screen). With this.machine a POKE picked from the book while the chat was on screen was typed into
+  // the CHAT machine - into the chat firmware, whose keys are a conversation line.
   pokeBook() {
-    const m = this.machine;
+    const m = this.personMachine;
     if (!m.sam) return [];
     return POKES.filter((p) => !p.bank || m.profile.bankSelect)
       .map((p) => Object.assign({ text: p.text, about: p.about, chip: p.chip, ready: !p.basic || !m.useStub }, 'bit' in p ? { bit: p.bit, set: p.set } : {}));
@@ -978,9 +981,9 @@ export class Session {
     if (!p.ready) throw this.needsRom(p.text);
     // On the stub with a program running (the welcome menu, LIZA), the typed line would be that program's keys
     // (a digit is a menu choice): do what the stub's prompt does with the line, the store, at once.
-    const m = this.machine, poke = m.useStub && !m.atStubPrompt() && /^POKE (\d+),(\d+)$/.exec(p.text);
+    const m = this.personMachine, poke = m.useStub && !m.atStubPrompt() && /^POKE (\d+),(\d+)$/.exec(p.text);
     if (poke) { this.personInput(m); m.write(+poke[1] & 0xFFFF, +poke[2] & 0xFF); this.checkRate(); return `Done: ${p.text}`; }
-    this.typeText(p.text + '\n');
+    this.typeText(p.text + '\n', m);
     return `Typed ${p.text}`;
   }
   // called after frames run: a 'rate' event when the SAM rate changed
@@ -1304,10 +1307,15 @@ export class Session {
     try { return await this.readSnapshot(bytes); } catch (e) { throw e instanceof SessionError && /newer CLOADM/.test(e.message) ? e : damaged; }
   }
   // the moment as a file -> { name, bytes }
+  // The moment as a file the person keeps: their machine (personMachine), so with the chat full screen it is the
+  // BASIC session they were working on, never the chat firmware. `saved` names which machine it is, for the page's
+  // message when that is not the one on screen. (shareFile stays the machine on screen: a share link pairs the
+  // snapshot with the picture rendered from that same machine - see share.js.)
   async snapshotFile(now = new Date()) {
-    const m = this.machine;
+    const m = this.personMachine;
     const bytes = await encodeSnapshot(m.snapshot(), { name: m.profile.name, taken: now.toISOString() });
-    return { name: `${m.profile.name.replace(/[^A-Za-z0-9]+/g, '')}-${stamp(now)}${SNAPSHOT_EXT}`, bytes };
+    const saved = m !== this.machine ? 'your BASIC session' : null;
+    return { name: `${m.profile.name.replace(/[^A-Za-z0-9]+/g, '')}-${stamp(now)}${SNAPSHOT_EXT}`, bytes, saved };
   }
   // file bytes -> the snapshot; SessionError when it isn't one this version reads
   async readSnapshot(bytes) {
@@ -1404,9 +1412,9 @@ export class Session {
     // write can never go to a store the session has left behind
     try {
       return await this.libraryOp(async () => {
-        const { bytes } = await this.snapshotFile();
+        const { bytes, saved } = await this.snapshotFile();
         await this.media.write(slotName(n), bytes);
-        return `Took snapshot ${n}`;
+        return `Took snapshot ${n}${saved ? ` of ${saved}` : ''}`;
       });
     } catch (e) { throw this.mediaError(e, `snapshot ${n}`); }
   }
