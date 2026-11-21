@@ -23,6 +23,14 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   step (the no-pop checks are unchanged and pass), and the 15-minute clock-drift runs still drop no frame and never
   run the card dry. `tests/audio.test.js` holds both.
 
+### Fixed
+
+- **A row in the Media tab's "Recent on this machine" loads the file it names.** The rows were drawn from one copy
+  of the list and the click looked its index up in a second copy, which never matched: the index was always -1, so
+  every row answered "That file is no longer stored in this browser; load it again." even when it was. The index is
+  carried with the row now. `tests/recent-rows.test.js` pins the arithmetic and the browser check clicks a row and
+  requires the load.
+
 ### 0.1.7-pre
 
 #### Added

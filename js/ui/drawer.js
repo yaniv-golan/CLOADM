@@ -27,7 +27,12 @@ export function setupDrawer(page, { showRoms }) {
 
   // Media: what was loaded on this machine before
   function recent() {
-    const list = $('recentList'), items = session.recentMedia().filter((r) => r.machine === session.machine.id);
+    const list = $('recentList');
+    // ONE list, with each row's index taken from IT. recentMedia() hands out copies, so an index looked up in
+    // a second call with indexOf() matched nothing and was always -1: every row then said the file was no
+    // longer stored (measured). The index is carried with the row instead.
+    const all = session.recentMedia();
+    const items = all.map((r, i) => ({ r, i })).filter((x) => x.r.machine === session.machine.id);
     list.replaceChildren();
     // empty: hidden while "Last time" shows above it (the CSS), as the two would contradict each other
     for (const el of [list, $('recentHead')]) el.classList.toggle('recent-empty', !items.length);
@@ -37,13 +42,13 @@ export function setupDrawer(page, { showRoms }) {
       list.append(p);
       return;
     }
-    const all = session.recentMedia();
-    for (const r of items) {
+    for (const { r, i } of items) {
       const b = document.createElement('button'); b.className = 'row';
       const n = document.createElement('span'); n.textContent = r.name;
       const k = document.createElement('span'); k.className = 'kind'; k.textContent = r.stored ? 'load again' : `${(r.size / 1024).toFixed(0)} KB`;
-      b.append(n, k); b.disabled = !r.stored;
-      b.onclick = () => { page.attempt(() => session.loadRecent(all.indexOf(r))); page.focus(); };
+      b.append(n, k);
+      b.disabled = !r.stored;
+      b.onclick = () => { page.attempt(() => session.loadRecent(i)); page.focus(); };
       list.append(b);
     }
   }
