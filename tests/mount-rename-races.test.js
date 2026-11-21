@@ -21,6 +21,7 @@
 // Run: node tests/mount-rename-races.test.js
 const Emu = require('./load')();
 const { MemoryMediaStore } = require('../js/host/media-store-memory.js');
+const { MediaStoreError } = require('../js/host/media-store.js');
 const { DriveWireServer } = require('../js/drivewire/server.js');
 const images = require('../tools/mame-diff/fdc/images');
 
@@ -96,6 +97,28 @@ const A = () => images.vdk(40, 1), B = () => images.vdk(26, 1);
     const rn = await q(s.renameMedia('disks/keep.vdk', 'disks/later.vdk'));
     check('3. ... but a rename onto a name that is no longer in flight is refused as taken, not as in use',
       nd.ok && !rn.ok && /already/i.test(rn.m), `${nd.m} | ${rn.m}`);
+  }
+  {
+    // A rename queued behind a creation that FAILS still runs: the creation's turn ends however it ends (refused by
+    // the store, a mount that fails), and the rename is next. Otherwise one refused import would hold every later
+    // rename for the session. (A creation AHEAD that never ends -- a store that stops answering -- holds it, as it
+    // holds every creation: there is no deadline on a turn, by design; see createExclusive.)
+    const media = new MemoryMediaStore();
+    const s = await session(media);
+    await media.writeSync('disks/keep.vdk', A());
+    const realWrite = media.write.bind(media);
+    media.write = (n, b) => (n === 'disks/never.vdk' ? Promise.reject(new MediaStoreError('quota', 'no space (forced)')) : realWrite(n, b));
+    const im = q(s.importMedia('never.vdk', B()));            // refused at its store write
+    const rn = q(s.renameMedia('disks/keep.vdk', 'disks/moved.vdk'));   // queued behind it
+    const [imr, rnr] = [await im, await rn];
+    check('3. a rename queued behind a creation that the store refused still runs',
+      !imr.ok && rnr.ok && same(await read(media, 'disks/moved.vdk'), A()), `${imr.ok ? 'import ok' : imr.m} | ${rnr.ok ? 'rename ok' : rnr.m}`);
+    // and a rename of a disk a drive holds is refused at once, before any turn is taken (the drive writes it)
+    media.write = realWrite;
+    const held = await q(s.importDisk('busy.vdk', B(), 0));
+    const rn2 = await q(s.renameMedia('disks/busy.vdk', 'disks/elsewhere.vdk'));
+    check('3. ... and a rename of a disk a drive holds is refused, naming the drive, with no waiting',
+      held.ok && /is in drive 0; eject it before you rename it/.test(rn2.m), rn2.m || 'allowed');
   }
   {
     // The other order: the RENAME is asked first. On main the rename's check passed, its rename queued behind the
