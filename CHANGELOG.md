@@ -8,6 +8,24 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.1.7-pre (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
+### Fixed
+
+- **A rename can no longer take a name a new disk or an import is making, which lost the renamed image.** A disk
+  creation checks its name, then waits for the drives' own writes before writing. A rename landing in that wait took
+  the name first, and the creation's write replaced the renamed file: the imported image was GONE, and both actions
+  reported success. A creation now claims its name before that wait and releases it when it ends (a failure
+  included), and a rename onto a name in progress is refused (`... a disk is being made under that name: try again
+  once it is done.`). `tests/mount-rename-races.test.js`.
+
+- **Moving the library takes every DriveWire server with it.** The Becker port's server was retargeted by a move;
+  the one serving a real CoCo over Web Serial and the full-screen chat's kept reading and writing the old place.
+  All of them now follow the session. `tests/mount-rename-races.test.js`.
+
+- **Two DriveWire drives can no longer end up on one image when their mounts overlap.** The duplicate check and the
+  drive it claims were apart by the store's stat, so a guest's named-object mount and the user's mount of one image
+  in that window left two drives writing the same file. Each mount claims the image's name for as long as it is
+  deciding, and a second mount of it waits for that answer. `tests/mount-rename-races.test.js`.
+
 ### 0.1.7-pre
 
 #### Added
