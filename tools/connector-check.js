@@ -34,7 +34,10 @@ const q = new URLSearchParams(location.search);
 const f = document.createElement('iframe');
 f.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms');
 f.src = q.get('proxy');
-f.style.cssText = 'width:680px;height:620px;border:0';
+f.style.cssText = \`width:\${q.get('w') || 680}px;height:\${q.get('h') || 620}px;border:0;display:block\`;
+// the panel resized, and the host's context changing (displayMode: the side panel is 'fullscreen')
+window.resizeView = (w, h) => { f.style.width = w + 'px'; f.style.height = h + 'px'; };
+window.hostContextChanged = (params) => post({ method: 'ui/notifications/host-context-changed', params });
 window.hostT = { created: Date.now() }; window.hostLists = []; window.hostLog = [];
 let id = 1000; const waiting = new Map();
 const post = (m) => f.contentWindow.postMessage(Object.assign({ jsonrpc: '2.0' }, m), '*');
@@ -43,10 +46,10 @@ const listTools = () => callView('tools/list', {}).then((r) => { hostLists.push(
 addEventListener('message', (e) => {
   const d = e.data; if (e.source !== f.contentWindow || !d || d.jsonrpc !== '2.0') return;
   hostLog.push(d.method || 'reply');
-  if (d.method === 'ui/initialize') { hostT.initialize = Date.now(); post({ id: d.id, result: { protocolVersion: '2026-01-26', hostInfo: { name: 'host-stub', version: '1' }, hostCapabilities: { sandbox: { csp: JSON.parse(q.get('granted') || '{}') } }, hostContext: { displayMode: 'inline', availableDisplayModes: ['inline', 'fullscreen'] } } }); }
+  if (d.method === 'ui/initialize') { hostT.initialize = Date.now(); post({ id: d.id, result: { protocolVersion: '2026-01-26', hostInfo: { name: 'host-stub', version: '1' }, hostCapabilities: { sandbox: { csp: JSON.parse(q.get('granted') || '{}') } }, hostContext: { displayMode: q.get('mode') || 'inline', availableDisplayModes: ['inline', 'fullscreen'] } } }); }
   else if (d.method === 'ui/notifications/initialized') { hostT.initialized = Date.now(); listTools(); }
   else if (d.method === 'notifications/tools/list_changed') { hostT.listChanged = Date.now(); listTools(); }
-  else if (d.method === 'ui/request-display-mode') post({ id: d.id, result: { mode: 'fullscreen' } });
+  else if (d.method === 'ui/request-display-mode') { window.displayRequests = (window.displayRequests || []).concat([d.params.mode]); post({ id: d.id, result: { mode: 'fullscreen' } }); }
   else if (d.method === undefined && waiting.has(d.id)) { waiting.get(d.id)(d); waiting.delete(d.id); }
 });
 document.body.append(f);
@@ -57,7 +60,7 @@ const SANDBOX_HTML = `<!doctype html><meta charset="utf-8"><title>sandbox proxy<
 fetch('view' + location.search).then((r) => r.text()).then((html) => {
   const v = document.createElement('iframe');
   v.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms');
-  v.style.cssText = 'width:100%;height:600px;border:0';
+  v.style.cssText = 'width:100%;height:100vh;border:0;display:block';
   v.srcdoc = html;
   document.body.append(v);
   addEventListener('message', (e) => {
@@ -110,14 +113,14 @@ async function start({ cors = true, panelApi = null } = {}) {
 
 const wait = (page, fn, arg, ms = 20000) => page.waitForFunction(fn, arg, { timeout: ms }).then(() => true, () => false);
 
-async function scenario(browser, check, name, { uri, cors = true, panelApi = null, granted = true, shots = null }) {
+async function scenario(browser, check, name, { uri, cors = true, panelApi = null, granted = true, shots = null, mode = 'inline' }) {
   const srv = await start({ cors, panelApi });
   const ctx = await browser.newContext({ viewport: { width: 700, height: 660 } });
   const page = await ctx.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message.slice(0, 200)));
   const g = granted ? { resourceDomains: [srv.site], connectDomains: [srv.site] } : {};
-  const open = (conv) => page.goto(`http://claude.localhost:${srv.port}/?${new URLSearchParams({ proxy: `http://${conv}.sandbox.localhost:${srv.port}/sandbox?uri=${encodeURIComponent(uri)}`, granted: JSON.stringify(g) })}`);
+  const open = (conv) => page.goto(`http://claude.localhost:${srv.port}/?${new URLSearchParams({ proxy: `http://${conv}.sandbox.localhost:${srv.port}/sandbox?uri=${encodeURIComponent(uri)}`, granted: JSON.stringify(g), mode })}`);
   const view = () => page.frames().find((f) => f.url() === 'about:srcdoc');
   const call = (tool, args = {}) => page.evaluate(([n, a]) => window.callView('tools/call', { name: n, arguments: a }), [tool, args]);
   const data = (r) => (r && r.result ? r.result.structuredContent : null);
@@ -168,6 +171,8 @@ async function scenario(browser, check, name, { uri, cors = true, panelApi = nul
     await page.keyboard.press('Enter');
     const bye = await wait(v, () => window.cloadmView.session.screenText().join('\n').includes('> BYE'), null, 8000);
     check(`connector ${name}: a real click and real keys reach the machine`, bye);
+    const big = await v.evaluate(() => document.getElementById('big').checkVisibility());
+    check(`connector ${name}: opened ${mode === 'inline' ? 'inline, the view offers "Open in side panel"' : 'in the side panel (displayMode fullscreen), it does not offer it'}`, big === (mode === 'inline'));
     const storage = await v.evaluate(() => window.cloadmView.facts.storage);
     check(`connector ${name}: localStorage, IndexedDB and OPFS work in the view`, /localStorage ok, IndexedDB ok, OPFS ok/.test(storage), storage);
     if (shots) await page.screenshot({ path: path.join(shots, `connector-${name}.png`) });
@@ -188,6 +193,8 @@ async function scenario(browser, check, name, { uri, cors = true, panelApi = nul
       const v2 = view();
       const kept = again && await wait(v2, () => window.cloadmView && window.cloadmView.session.machine.hasRom, null, 10000);
       check('connector site: ROMs added in the panel are kept when the same conversation\'s view opens again; another conversation\'s view has its own storage', took && kept && other && otherRoms === false, JSON.stringify({ took, kept, other, otherRoms }));
+      const withRoms = kept && await v2.evaluate(() => { document.getElementById('machine').click(); const tag = document.querySelector('#machine-menu [data-model="dragon64"] .tag').textContent; document.getElementById('machine').click(); return { tag, status: document.getElementById('status').textContent }; });
+      check('connector site: with the ROMs, the Machine menu marks the model BASIC and the status says BASIC runs', withRoms && withRoms.tag === 'BASIC' && withRoms.status === 'BASIC is running on the Dragon 64, with your ROMs.', JSON.stringify(withRoms));
       const reads = await Promise.all([call('peek', { machine_id: 'm1', address: 0x8000, length: 16 }), call('find_bytes', { machine_id: 'm1', pattern: '01 0E' }), call('disassemble', { machine_id: 'm1', address: 0x8000 })]);
       check('connector site: with the user\'s ROMs, peek, find_bytes and disassemble are refused (no tool returns ROM memory directly)', reads.every((r) => data(r) && data(r).error && data(r).error.code === 'rejected' && /no tool returns ROM memory directly/.test(data(r).error.detail)), JSON.stringify(reads).slice(0, 400));
     }
@@ -199,13 +206,152 @@ async function scenario(browser, check, name, { uri, cors = true, panelApi = nul
   }
 }
 
+// The view's own controls, in the site variant (the same shell and panel.js as inline): Details, the screen's fit at
+// panel widths, the side-panel button by display mode, every Programs and Machine item, the sound switch, the menus
+// from the keyboard, and the cue that Claude is driving (never for the person's own keys).
+async function uiScenario(browser, check, { shots = null } = {}) {
+  const srv = await start();
+  const ctx = await browser.newContext({ viewport: { width: 1000, height: 1100 } });
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message.slice(0, 200)));
+  const g = { resourceDomains: [srv.site], connectDomains: [srv.site] };
+  await page.goto(`http://claude.localhost:${srv.port}/?${new URLSearchParams({ w: 400, h: 720, proxy: `http://ui.sandbox.localhost:${srv.port}/sandbox?uri=${encodeURIComponent('ui://cloadm/panel.html')}`, granted: JSON.stringify(g) })}`);
+  const view = () => page.frames().find((f) => f.url() === 'about:srcdoc');
+  const call = (tool, args = {}) => page.evaluate(([n, a]) => window.callView('tools/call', { name: n, arguments: a }), [tool, args]);
+  const viewFrame = async () => page.locator('iframe').contentFrame().locator('iframe');
+  try {
+    const up = await wait(page, () => window.hostT.listChanged, null, 30000);
+    const v = view();
+    check('connector ui: the view starts', up && await wait(v, () => window.cloadmView && window.cloadmView.facts.storage !== '…'), errors.join(' | '));
+    // ---- Details: collapsed, the person sees a friendly status; open, every diagnostic is there
+    const before = await v.evaluate(() => ({ open: document.getElementById('details').open, st: document.getElementById('st').checkVisibility(), msg: document.getElementById('msg').checkVisibility(), status: document.getElementById('status').textContent }));
+    await v.click('#details summary');
+    const after = await v.evaluate(() => ({ open: document.getElementById('details').open, st: document.getElementById('st').checkVisibility(), text: document.getElementById('st').textContent, msg: document.getElementById('msg').textContent }));
+    check('connector ui: Details is collapsed at first (the diagnostics and the raw load line hidden); the status says what runs', !before.open && !before.st && !before.msg && /^LIZA is running on the Dragon 64\.$/.test(before.status), JSON.stringify(before));
+    check('connector ui: Details opens to every diagnostic (variant, host, mode, csp, storage, audio, bridge) and the raw load line', after.open && after.st
+      && ['variant: site', 'host: host-stub', 'mode: inline', 'csp: resourceDomains', 'storage: localStorage ok', 'audio: off until a click', 'bridge: init', 'list_changed sent'].every((x) => after.text.includes(x)) && /liza\.bin: .*exec \$3000/.test(after.msg), JSON.stringify(after));
+    await v.click('#details summary');
+    // ---- the sound switch: off until a click, on, off
+    const sound = () => v.evaluate(() => ({ pressed: document.getElementById('sound').getAttribute('aria-pressed'), title: document.getElementById('sound').title, ctx: !!window.cloadmView.audio.ctx, on: window.cloadmView.audio.enabled }));
+    const s0 = await sound();
+    await v.click('#sound'); const s1 = await sound();
+    await v.click('#sound'); const s2 = await sound();
+    check('connector ui: the sound switch shows "off until you click", turns sound on (the audio starts), then off', s0.pressed === 'false' && /until you click/.test(s0.title) && !s0.ctx
+      && s1.pressed === 'true' && s1.ctx && s1.on && s2.pressed === 'false' && !s2.on, JSON.stringify([s0, s1, s2]));
+    // ---- the screen fills the panel, 4:3, at each width; and fits the height when that is what limits it
+    const fits = [];
+    for (const [w, h] of [[400, 720], [600, 820], [900, 1020], [900, 520]]) {
+      await page.evaluate(([a, b]) => window.resizeView(a, b), [w, h]);
+      await page.waitForTimeout(400);
+      const r = await v.evaluate(() => {
+        const c = document.getElementById('screen').getBoundingClientRect(), foot = document.getElementById('foot').getBoundingClientRect();
+        return { vw: innerWidth, vh: innerHeight, cw: c.width, ch: c.height, footBottom: foot.bottom, bar: document.getElementById('bar').offsetHeight, foot: foot.height, bezel: !!document.getElementById('screen').closest('#bezel') };
+      });
+      // the room for the picture: the view less the stage's and the bezel's padding (36 across, 32 down), the toolbar and the status line
+      const room = { w: r.vw - 36, h: r.vh - r.bar - r.foot - 32 };
+      fits.push(Object.assign({ w, h, ok: r.bezel && Math.abs(r.cw / r.ch - 4 / 3) < 0.01 && r.cw <= room.w + 1 && r.ch <= room.h + 1 && r.footBottom <= r.vh + 1 && (r.cw >= 0.9 * room.w || r.ch >= 0.9 * room.h) }, r));
+      if (shots && h > 600) await (await viewFrame()).screenshot({ path: path.join(shots, `connector-ui-${w}.png`) });
+    }
+    check('connector ui: the screen, in its bezel, fills the panel 4:3 at 400, 600 and 900 px wide (the width), and at 900 x 520 (the height), with the status line still in view', fits.every((f) => f.ok)
+      && fits.filter((f) => f.h > 600).every((f) => f.cw >= 0.85 * f.vw), JSON.stringify(fits));
+    await page.evaluate(() => window.resizeView(600, 820));
+    // ---- the side-panel button: shown inline, hidden in the side panel (displayMode fullscreen), by context and by request
+    const big = () => v.evaluate(() => document.getElementById('big').checkVisibility());
+    const inline1 = await big();
+    await page.evaluate(() => window.hostContextChanged({ displayMode: 'fullscreen' }));
+    await page.waitForTimeout(200);
+    const side = await big(), sideFits = await v.evaluate(() => document.getElementById('foot').getBoundingClientRect().bottom <= innerHeight + 1);
+    await page.evaluate(() => window.hostContextChanged({ displayMode: 'inline' }));
+    await page.waitForTimeout(200);
+    const inline2 = await big();
+    await v.click('#big');
+    await page.waitForTimeout(300);
+    const asked = await page.evaluate(() => window.displayRequests), afterAsk = await big();
+    check('connector ui: "Open in side panel" shows inline, hides in the side panel (host-context-changed), shows again inline, and asks for it (then hides)',
+      inline1 && !side && sideFits && inline2 && JSON.stringify(asked) === '["fullscreen"]' && !afterAsk, JSON.stringify({ inline1, side, sideFits, inline2, asked, afterAsk }));
+    await page.evaluate(() => window.hostContextChanged({ displayMode: 'inline' }));
+    // ---- Programs: each item runs its program
+    const pick = async (menuId, sel) => { await v.click(`#${menuId}`); await v.click(`#${menuId}-menu ${sel}`); await page.waitForTimeout(700); };
+    const state = () => v.evaluate(() => ({ status: document.getElementById('status').textContent, screen: window.cloadmView.session.screenText().join('\n'), last: window.cloadmView.session.lastRun, model: window.cloadmView.session.machine.id }));
+    const progs = {};
+    for (const p of ['welcome', 'liza', '2048', 'minesweeper']) { await pick('programs', `[data-program="${p}"]`); progs[p] = await state(); }
+    check('connector ui: Programs runs the Welcome menu, LIZA, 2048 and Minesweeper', /PRESS 1 TO 5/.test(progs.welcome.screen) && /Welcome menu is running/.test(progs.welcome.status)
+      && /LIZA - A DRAGON 64/.test(progs.liza.screen) && /^LIZA is running/.test(progs.liza.status)
+      && progs['2048'].last.name === '2048' && /^2048 is running/.test(progs['2048'].status) && progs.minesweeper.last.name === 'Minesweeper' && /^Minesweeper is running/.test(progs.minesweeper.status), JSON.stringify(progs).slice(0, 600));
+    // the Welcome menu's own keys work in the panel (2: the colour demo? 1: LIZA)
+    await pick('programs', '[data-program="welcome"]');
+    await v.click('#screen'); await page.keyboard.press('1');
+    await wait(v, () => /LIZA - A DRAGON/.test(window.cloadmView.session.screenText().join('\n')), null, 6000);
+    const viaMenu = await state();
+    check('connector ui: a choice typed in the Welcome menu runs (1: LIZA)', /LIZA - A DRAGON 64/.test(viaMenu.screen) && /^LIZA is running/.test(viaMenu.status), JSON.stringify(viaMenu).slice(0, 300));
+    // ---- the menus from the keyboard: ArrowDown opens on the first item, ArrowDown moves, Enter picks; Escape closes and gives the focus back
+    await v.focus('#programs');
+    await page.keyboard.press('ArrowDown');
+    const first = await v.evaluate(() => [document.getElementById('programs').getAttribute('aria-expanded'), document.activeElement.dataset.program]);
+    await page.keyboard.press('Escape');
+    const closed = await v.evaluate(() => [document.getElementById('programs-menu').hidden, document.activeElement.id]);
+    await page.keyboard.press('ArrowDown'); await page.keyboard.press('ArrowDown'); await page.keyboard.press('ArrowDown'); await page.keyboard.press('Enter');
+    await page.waitForTimeout(700);
+    const kb = await state();
+    check('connector ui: the menus work from the keyboard (ArrowDown opens on the first item, Escape closes back to the button, Enter picks the third: 2048)',
+      JSON.stringify(first) === '["true","welcome"]' && JSON.stringify(closed) === '[true,"programs"]' && kb.last.name === '2048', JSON.stringify({ first, closed, kb: kb.status }));
+    // ---- Machine: every model switches; the ones without ROMs say so; the last item asks for ROMs
+    const ids = await v.evaluate(async () => { document.getElementById('machine').click(); const r = [...document.querySelectorAll('#machine-menu [data-model]')].map((b) => [b.dataset.model, b.querySelector('.tag').textContent]); document.getElementById('machine').click(); return r; });
+    if (shots) { await page.evaluate(() => window.resizeView(400, 720)); await v.click('#machine'); await (await viewFrame()).screenshot({ path: path.join(shots, 'connector-ui-machine-menu.png') }); await v.click('#machine'); await page.evaluate(() => window.resizeView(600, 820)); }
+    const switched = [];
+    for (const [id] of ids) {
+      await pick('machine', `[data-model="${id}"]`);
+      const s2 = await state(), checked = await v.evaluate((x) => { document.getElementById('machine').click(); const c = document.querySelector('#machine-menu [aria-checked="true"]').dataset.model; document.getElementById('machine').click(); return c === x; }, id);
+      switched.push([id, s2.model === id && checked && /built-in firmware|Welcome menu is running/.test(s2.status)]);
+    }
+    const chooser = page.waitForEvent('filechooser', { timeout: 3000 }).then(() => true, () => false);
+    await pick('machine', '[data-action="roms"]');
+    check(`connector ui: Machine switches to each of the ${ids.length} models (marked "no ROMs" without them), and its last item asks for ROMs`,
+      ids.length >= 17 && ids.every(([, t]) => t === 'no ROMs') && switched.every(([, ok]) => ok) && await chooser, JSON.stringify({ ids, switched }));
+    await pick('machine', '[data-model="dragon64"]');
+    // ---- Claude's cue: on a call that types, with the keys; not on one that reads; never on the person's own keys
+    await pick('programs', '[data-program="liza"]');
+    const shown0 = await v.evaluate(() => window.cloadmView.cue.shown);
+    await call('screen_text', { machine_id: 'm1' });
+    const afterRead = await v.evaluate(() => [window.cloadmView.cue.shown, document.getElementById('activity').hidden]);
+    await call('type_text', { machine_id: 'm1', text: 'I AM HAPPY\n' });
+    const cue = await v.evaluate(() => ({ hidden: document.getElementById('activity').hidden, text: document.getElementById('activity').textContent, shown: window.cloadmView.cue.shown }));
+    if (shots) await (await viewFrame()).screenshot({ path: path.join(shots, 'connector-ui-claude.png') });
+    const faded = await wait(v, () => document.getElementById('activity').hidden, null, 4000);
+    check('connector ui: a type_text call from Claude shows "Claude is typing" and the keys, a read shows nothing, and the cue fades after',
+      afterRead[0] === shown0 && afterRead[1] && !cue.hidden && /Claude\s*is typing\s*I AM HAPPY⏎/.test(cue.text) && cue.shown === shown0 + 1 && faded, JSON.stringify({ shown0, afterRead, cue, faded }));
+    await v.click('#screen');
+    const seen = [];
+    for (const ch of 'HELLO') { await page.keyboard.press(ch); seen.push(await v.evaluate(() => document.getElementById('activity').hidden)); }
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(600);
+    const own = await v.evaluate(() => ({ shown: window.cloadmView.cue.shown, hidden: document.getElementById('activity').hidden, screen: window.cloadmView.session.screenText().join('\n') }));
+    check('connector ui: the person\'s own typing shows no cue (and reaches LIZA)', seen.every(Boolean) && own.hidden && own.shown === cue.shown && /> HELLO/.test(own.screen), JSON.stringify({ seen, own: Object.assign(own, { screen: own.screen.slice(-200) }) }));
+    // reduced motion: the cue goes without fading
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await v.evaluate(() => { window.fadedOnce = false; new MutationObserver(() => { if (document.getElementById('activity').classList.contains('fading')) window.fadedOnce = true; }).observe(document.getElementById('activity'), { attributes: true }); });
+    await call('press_keys', { machine_id: 'm1', keys: ['SPACE'], frames: 2 });
+    const gone = await wait(v, () => document.getElementById('activity').hidden, null, 4000);
+    await page.waitForTimeout(600);
+    const fadedOnce = await v.evaluate(() => window.fadedOnce);
+    check('connector ui: with reduced motion the cue goes without the fade', gone && fadedOnce === false, JSON.stringify({ gone, fadedOnce }));
+    check('connector ui: no page errors', !errors.length, errors.join(' | '));
+  } finally {
+    await ctx.close();
+    srv.server.close();
+    srv.server.closeAllConnections();
+  }
+}
+
 async function connectorChecks(browser, check, { shots = null } = {}) {
   await scenario(browser, check, 'site', { uri: 'ui://cloadm/panel.html', shots });
-  await scenario(browser, check, 'inline', { uri: 'ui://cloadm/inline.html', granted: false, shots });
+  await scenario(browser, check, 'inline', { uri: 'ui://cloadm/inline.html', granted: false, shots, mode: 'fullscreen' });
+  await uiScenario(browser, check, { shots });
   await scenario(browser, check, 'no-cors', { uri: 'ui://cloadm/panel.html', cors: false });
   await scenario(browser, check, 'out-of-step', { uri: 'ui://cloadm/panel.html', panelApi: 999 });
 }
-module.exports = { connectorChecks, specCsp };
+module.exports = { connectorChecks, uiScenario, specCsp };
 
 if (require.main === module) {
   (async () => {

@@ -1485,6 +1485,13 @@ Not hardware behaviour, so MAME is not its oracle (AGENTS.md section 4.6). The e
   allow-forms`) under the CSP the specification builds from the declared `_meta.ui.csp`, with and without CORS on the
   site: typing into LIZA, a game and its screenshot, real keys, storage, ROMs kept in the view's storage and memory
   reads refused while they run (the browser check's `connector` group, `tools/connector-check.js`).
+* the view's own controls, in Chromium (the same group): Details closed at first and opening to every diagnostic;
+  the screen filling the panel 4:3 at 400, 600 and 900 px wide and fitting the height at 900 x 520; **Open in side
+  panel** shown inline and hidden in the side panel (by `ui/notifications/host-context-changed` and by the host's
+  answer to the request); every Programs and Machine item; the menus from the keyboard; the sound switch; the
+  Claude cue on a call that types (with its keys), not on one that reads and never on the person's own keys, and
+  without its fade under reduced motion. The screen's size and the cue's wording are also unit-tested in Node
+  (`tests/connector.test.js`). How the view looks is reviewed on the screenshots (`--screenshots`).
 
 What only claude.ai can show (its side panel, its approval prompts, what it grants a custom connector) is a manual
 test: [deploy-connector.md](deploy-connector.md), "Verify".

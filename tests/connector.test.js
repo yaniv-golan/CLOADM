@@ -292,12 +292,48 @@ const J = JSON.stringify;
     check('bridge: a cancelled call gets no reply', !b.sent.some((m) => m.id === 80));
   }
 
+  {
+    const b = bridge();
+    b.reply('ui/initialize', { hostContext: { displayMode: 'inline', availableDisplayModes: ['inline', 'fullscreen'], theme: 'dark' } });
+    await tick();
+    const seen = [];
+    b.B.onChange(() => seen.push(b.B.hostContext.displayMode));
+    const initial = Object.assign({}, b.B.hostContext);
+    b.deliver({ jsonrpc: '2.0', method: 'ui/notifications/host-context-changed', params: { displayMode: 'fullscreen' } });
+    check('bridge: hostContext starts as ui/initialize\'s and takes each host-context-changed in (the side-panel button reads displayMode)',
+      initial.displayMode === 'inline' && b.B.hostContext.displayMode === 'fullscreen' && b.B.hostContext.theme === 'dark' && J(seen) === J(['fullscreen']), J([initial, b.B.hostContext, seen]));
+    const asked = b.B.requestDisplayMode('inline');
+    const req = b.sent.find((m) => m.method === 'ui/request-display-mode');
+    b.deliver({ jsonrpc: '2.0', id: req.id, result: { mode: 'inline' } });
+    await asked;
+    check('bridge: the mode the host answers a request with is the context\'s at once', J(req.params) === J({ mode: 'inline' }) && b.B.hostContext.displayMode === 'inline', J(b.B.hostContext));
+  }
+
+  // ---------------- the view's controls (connector/view/ui.js), the parts without a DOM ----------------
+  {
+    const ui = await imp('connector/view/ui.js');
+    const sizes = [[356, 600, 1], [556, 600, 2], [856, 2000, 1], [856, 400, 1], [100, 2000, 3]].map(([w, h, dpr]) => [w, h, dpr, ui.screenSize(w, h, { dpr })]);
+    const fills = sizes.every(([w, h, , s]) => s.width <= w && s.height <= h && Math.abs(s.width / s.height - 4 / 3) < 0.01 && (s.width >= ui.SNAP * w || s.height >= ui.SNAP * h));
+    check('screen: the largest 4:3 picture that fits, in width or height, never less than 90% of it', fills, J(sizes));
+    const whole = ui.screenSize(680, 1000, { dpr: 1 }), frac = ui.screenSize(400, 1000, { dpr: 1 }), retina = ui.screenSize(400, 1000, { dpr: 2 });
+    check('screen: whole device pixels per line when that comes within 10% (2 per line in 680 px: 640 x 480; else the full width, pixelated (400 x 300, at DPR 1 and 2)',
+      J(whole) === J({ width: 640, height: 480 }) && J(retina) === J({ width: 400, height: 300 }) && J(frac) === J({ width: 400, height: 300 }), J([whole, retina, frac]));
+    const typing = ui.claudeAction('type_text', { text: 'I AM HAPPY\n' }), keys = ui.claudeAction('press_keys', { keys: ['SHIFT', 'A'] });
+    const load = ui.claudeAction('load', { program: 'liza' }, { program: (id) => ({ liza: 'LIZA' })[id] }), sw = ui.claudeAction('switch_machine', { model: 'coco3' }, { model: (id) => ({ coco3: 'CoCo 3' })[id] });
+    check('cue: typing shows the keys (Enter as ⏎), pressing the keys held, a load and a switch say what', typing.what === 'is typing' && typing.keys === 'I AM HAPPY⏎'
+      && keys.keys === 'SHIFT + A' && load.what === 'is loading LIZA' && load.keys === null && sw.what === 'is switching to the CoCo 3', J([typing, keys, load, sw]));
+    const quiet = ['screen_text', 'screenshot', 'peek', 'registers', 'run_frames', 'step', 'list_models', 'machine_info'].filter((n) => ui.claudeAction(n, {}) !== null);
+    check('cue: none for a call that only reads or lets time pass', !quiet.length, quiet.join(','));
+    const writes = offered.filter((t) => !t.annotations.readOnlyHint && !['run_frames', 'step', 'set_display'].includes(t.name)).filter((t) => ui.claudeAction(t.name, {}) === null).map((t) => t.name);
+    check('cue: every panel tool that changes the machine has one', !writes.length, writes.join(','));
+  }
+
   // ---------------- the PANEL_API contract ----------------
   // What the view's HTML (built into the Worker) and the emulator module (served by cloadm.dev) expect of each other:
   // the bridge's members and what attach() reads, the CLOADM_VIEW fields and who reads them, the shell's element ids.
   // Its hash is recorded with the PANEL_API it belongs to: change the contract and this fails until PANEL_API is raised
   // (connector/view/tools.js) and the new pair recorded here.
-  const CONTRACT = { api: 1, sha256: '4357f395468efa9c4a3a726ae8f3721ea4a281178a33f404f8ea9728e79cfe70' };
+  const CONTRACT = { api: 2, sha256: 'ca58b7562b67fecf627f96142c8ecfc2640f6ab3045899aac061b3894b56e1e1' };
   {
     const b = bridge();
     const uniq = (re, text) => [...new Set([...text.matchAll(re)].map((m) => m[1]))].sort();
@@ -310,7 +346,7 @@ const J = JSON.stringify;
       viewFields: [...new Set([...Object.keys(cfgA), ...Object.keys(cfgB)])].sort(),
       cfgReads: uniq(/\bcfg\.(\w+)/g, bridgeSrc + panelSrc),
       panelUsesBridge: uniq(/\bbridge\.(\w+)/g, panelSrc),
-      panelIds: uniq(/\$\('(\w+)'\)/g, panelSrc),
+      panelIds: uniq(/\$\('([\w-]+)'\)/g, panelSrc),
       shellIds,
     };
     const sha = require('crypto').createHash('sha256').update(J(contract)).digest('hex');

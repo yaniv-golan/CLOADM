@@ -8,6 +8,28 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
+### Added
+
+- **Claude's side panel shows when Claude drives the machine.** While one of Claude's calls types, presses keys,
+  loads a program, switches the model or resets it, a **Claude** pill on the screen says what it does, with the keys
+  it types; it fades after the call (at once with reduced motion). Your own typing never shows it, and the tools and
+  their approvals are unchanged.
+- **The side panel's toolbar:** **Programs** (the Welcome menu, LIZA, 2048, Minesweeper, and BASIC when the model's
+  ROMs are stored; a game a model cannot run says why), **Machine** (every model, grouped, the ones without ROMs
+  marked "no ROMs", and Add ROMs for BASIC), a sound switch that shows that sound is off until a click and turns it
+  on and off, **Add ROMs…**, and **⋯** with Reset. The menus work from the keyboard (arrows, Home, End, Enter,
+  Escape). The Welcome menu's own keys now run what they offer in the panel.
+
+### Changed
+
+- **The side panel's screen fills the panel**, 4:3 and crisp (whole device pixels per line when that is within 10%,
+  else scaled without smoothing), in a bezel, at every panel width, in the side panel and after a resize, with the
+  toolbar and the status line kept in view. The line under it says what runs ("LIZA is running on the Dragon 64.");
+  the diagnostics and the raw load message moved behind **Details** (closed at first; [the deploy
+  guide](docs/deploy-connector.md#verify) reads them there). **Open in side panel** shows only while the view is not
+  in the side panel (the host's display mode). The view's contract with the site changed (`PANEL_API` 2): deploy the
+  connector's Worker again after the site has this release.
+
 ### 0.1.8-pre
 
 #### Added
