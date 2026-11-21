@@ -23,6 +23,7 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   descriptions and the skill (both copies) say to prefer the CLOADM side-panel connector for playing or watching with
   the person, and to use the local tools for files, scripting and tests (a description, not a refusal); a new eval,
   `prefer-side-panel`, covers it.
+  The lead also suggests the optional `cloadm-skill.zip` from the Releases page (the asset `release.yml` publishes).
 - The install offer card and Help's install section say "Install CLOADM as an app on this device"; Help points to
   "Use with Claude" for the Claude routes. The menu item is still "Install CLOADM…".
 - The README's top picture is the GIF; the static `img/readme-liza.png` is gone and `tools/capture-images.js` no

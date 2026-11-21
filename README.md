@@ -58,6 +58,8 @@ hardware; the exceptions are listed under [How we know it's right](#how-we-know-
 
 **Use the connector.** Add `https://mcp.cloadm.dev/mcp` as a custom connector (no sign-in). CLOADM opens in Claude's side panel on the web and in the desktop app (phones not yet tested): you watch, type along, and Claude plays it with you. Nothing to install.
 
+**Optional, recommended:** add the CLOADM skill too, so Claude drives the emulator better: download `cloadm-skill.zip` from the [Releases](https://github.com/yaniv-golan/CLOADM/releases) page and add it in claude.ai under Settings → Capabilities → Skills.
+
 **For developers and your own files: the plugin.** Runs CLOADM on your computer with your ROM files and the ~/CLOADM folder of tapes, disks and snapshots; Claude sees text and screenshots, with no live panel. Needs the Claude desktop app open (Claude Code runs it itself). Add the marketplace `yaniv-golan/CLOADM`.
 
 **Which one?**
@@ -72,7 +74,7 @@ hardware; the exceptions are listed under [How we know it's right](#how-we-know-
 | Script it from Claude Code, or run tests | Plugin |
 | Your organisation blocks plugins (desktop) | .mcpb extension |
 
-**Both on?** That's fine. Say "in the side panel" for the connector or "use my files" for the plugin; for play, Claude is told to prefer the side panel.
+**Both on?** That's fine. Say "in the side panel" for the connector or "use my files" for the plugin; for play, Claude is told to prefer the side panel. The skill alone, without the plugin, is enough to get Claude's best play on the connector.
 
 The four routes, in full: [docs/mcp.md](docs/mcp.md#which-way-should-i-install-cloadm-for-claude).
 
