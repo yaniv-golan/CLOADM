@@ -126,9 +126,9 @@ const same = (a, b) => !!a && !!b && a.length === b.length && a.every((v, i) => 
     const s3 = await session(m3);
     await m3.writeSync('disks/a.vdk', A());
     m3.rename = async (from, to) => { throw PATH_FIRST(to, why); };
-    const rn = await q(s3.renameMedia('disks/a.vdk', 'disks/sub/a.vdk'));
+    const rn = await q(s3.renameMedia('disks/a.vdk', 'disks/b.vdk'));   // a valid new name, refused by the store
     check('a rename refused at its destination keeps the destination path',
-      !rn.ok && rn.m === `disks/a.vdk: disks/sub/a.vdk: ${why}`, rn.m);
+      !rn.ok && rn.m === `disks/a.vdk: disks/b.vdk: ${why}`, rn.m);
   }
 
   // ---------------- the branches that already wrote their own sentence keep it ----------------
@@ -249,6 +249,52 @@ const same = (a, b) => !!a && !!b && a.length === b.length && a.every((v, i) => 
     // a leading dot is a file name, not a segment: it stays allowed
     const okDot = await q(s.importDisk('disks/.vdk', B(), 0));
     check('... but a file whose name starts with a dot is a name', okDot.ok && okDot.m === '.vdk in drive 0', okDot.m || 'refused');
+  }
+
+  // ---------------- a rename's destination is a name it MAKES ----------------
+  // The rule that guards a new name must cover the rename destination too, or a rename puts a name in the store that
+  // no mount can then read back: `renameMedia('disks/r.vdk', ' ')` stored `disks/ ` and
+  // `renameMedia('disks/r.vdk', 'sub/x.vdk')` stored `disks/sub/x.vdk`.
+  {
+    for (const [to, why] of [[' ', /empty or only spaces/], ['sub/x.vdk', /folder separator/]]) {
+      const media = new MemoryMediaStore();          // fresh each time: the first must not disturb the second
+      await media.writeSync('disks/r.vdk', A());
+      const s = await session(media);
+      const r = await q(s.renameMedia('disks/r.vdk', to));
+      // refused for a REASON, not with the generic "needs a name" (which would misdescribe 'sub/x.vdk')
+      check(`a disk rename to ${JSON.stringify(to)} is refused, saying what is wrong`,
+        !r.ok && why.test(r.m) && !/needs a name\.?$/.test(r.m), r.m || 'allowed');
+      check(`... ${JSON.stringify(to)} left the store as it was`, (await media.list('disks/')).map((e) => e.name).join() === 'disks/r.vdk',
+        JSON.stringify((await media.list('disks/')).map((e) => e.name)));
+    }
+    // a library (non-disk) rename is untouched: the rule is about disk image names
+    const media = new MemoryMediaStore();
+    await media.writeSync('library/prog.bin', new Uint8Array(4));
+    const s = await session(media);
+    const lib = await q(s.renameMedia('prog.bin', 'sub/prog2.bin'));
+    check('... a library rename keeps its folders (the disk rule does not reach it)', lib.ok, lib.m || 'refused');
+  }
+
+  // ---------------- a name ALREADY in the store is still read back ----------------
+  // The rule decides what CLOADM may CREATE. It must not decide what it can READ: a store from an earlier build holds
+  // 'disks/ ' and 'disks/sub/x.vdk' (main let both be renamed into place), and refusing to name them would strand
+  // them -- the same fault as refusing a stored " a.vdk". Each store below is seeded DIRECTLY, not through the code
+  // under test.
+  {
+    const media = new MemoryMediaStore({ caseInsensitive: false });
+    await media.writeSync('disks/ ', A());
+    await media.writeSync('disks/sub/x.vdk', B());
+    const s = await session(media);
+    const a = await q(s.mountDisk(0, 'disks/ '));
+    const b = await q(s.mountDisk(1, 'disks/sub/x.vdk'));
+    check('a stored blank name ("disks/ ") still mounts (it is not a name being made)', a.ok && a.m === '  in drive 0', a.m || 'refused');
+    check('a stored nested name ("disks/sub/x.vdk") still mounts, as it did on main', b.ok && b.m === 'sub/x.vdk in drive 1', b.m || 'refused');
+    // (a bare name is the file's own name, as on main: 'x.vdk' names disks/x.vdk, not disks/sub/x.vdk)
+    const c = await q(s.mountDisk(1, 'x.vdk'));
+    check('... a bare name is the leaf, as on main (so x.vdk is not the nested file)', !c.ok && /no longer stored/.test(c.m), c.m || 'mounted something');
+    // but MAKING such a name is still refused, at every door
+    const mk2 = await q(s.importDisk('disks/sub/y.vdk', A(), 0));
+    check('... while MAKING a nested name is still refused', !mk2.ok, mk2.m || 'accepted');
   }
 
   console.log(fail ? `${fail} of ${n} store-error-naming checks FAILED` : `${n}/${n} store-error-naming checks passed`);

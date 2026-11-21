@@ -28,6 +28,12 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   disk, a mount and the DriveWire box. The quota and not-found messages already wrote their own sentence and are
   unchanged. `tests/store-error-names.test.js`.
 
+- **A disk rename's new name is held to the same rule as any new disk name, and a name already stored is still
+  read back.** A rename to `" "` stored `disks/ ` and a rename to `sub/x.vdk` stored `disks/sub/x.vdk`, names no
+  mount could then read back; both are refused now, saying what is wrong with the name. And a store from an earlier
+  build that already holds such a name (`disks/ `, `disks/sub/x.vdk`) still mounts it: the rule decides what CLOADM
+  may create, never what it can read. `tests/store-error-names.test.js`.
+
 - **A disk name that is not a file name is refused.** `disks/` was stored as a blob named `disks/`, and so were
   `disks/a/`, `' '`, `disks/..` and `x/..` - names a folder store or OPFS cannot hold, and a `..` that must not
   reach the store. Every door (a library import, a new blank disk, a mount of a stored name) refuses a name that is

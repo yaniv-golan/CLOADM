@@ -132,8 +132,16 @@ export const DISK_PREFIX = 'disks/';
 // segment '.' or '..' -- a name a folder store or OPFS cannot hold, and one that would climb out of its prefix.
 // Surrounding spaces are part of the name and are kept: a store that already holds " a.vdk" (main wrote such names)
 // must still be able to mount it, and a person who typed one meant it.
-const isDiskFileName = (base) => typeof base === 'string' && base.length > 0 && !/^\s+$/.test(base)
-  && !/[\\/]/.test(base) && base !== '.' && base !== '..';
+const isDiskFileName = (base) => diskFileNameProblem(base) === null;
+// Why `base` is not a disk image's file name -> the reason, or null when it is one. A rename's destination gets the
+// reason (what is wrong with the name), the other doors the short "A disk image needs a name."
+const diskFileNameProblem = (base) => {
+  if (typeof base !== 'string' || base.length === 0) return 'it is empty';
+  if (/^\s+$/.test(base)) return 'it is empty or only spaces';
+  if (/[\\/]/.test(base)) return 'it has a folder separator; a disk image is one file';
+  if (base === '.' || base === '..') return 'it is only dots';
+  return null;
+};
 // how many times mountDisk reads an image again when the image moved under its read (its own stored name, or
 // another spelling of the same file on a store that folds case): the image is read four times at most before the
 // mount gives up. A write to a DIFFERENT stored file never spends this.
@@ -1637,6 +1645,13 @@ export class Session {
     this.checkNotInDrive(src, 'rename');
     const dst = this.libName(to.startsWith(DISK_PREFIX) || to.startsWith(LIBRARY_PREFIX) ? to : prefix + to);
     if (!dst.startsWith(prefix)) throw new SessionError(`${to}: a ${prefix === DISK_PREFIX ? 'disk image' : 'library item'} stays where it is`);
+    // The destination is a name this operation MAKES, so a disk image's must be a file's own name, as every other
+    // door that makes one insists -- and the refusal says what is wrong with it. Without this a rename to ' ' stored
+    // 'disks/ ' and a rename to 'sub/x.vdk' stored 'disks/sub/x.vdk': names no mount could read back.
+    if (prefix === DISK_PREFIX) {
+      const problem = diskFileNameProblem(dst.slice(DISK_PREFIX.length));
+      if (problem) throw new SessionError(`${to}: not a disk image name: ${problem}.`);
+    }
     // A case-only rename on a store that does not tell cases apart cannot be done: it is one file, and the
     // store's write-then-remove would replace it and then delete it. (The name is the name it already has.)
     if (this.caseInsensitive && dst !== src && dst.toLowerCase() === src.toLowerCase()) {
@@ -1917,8 +1932,20 @@ export class Session {
   // goes through this, and a store that let one through would hold a blob named 'disks/' and say " in drive 0".
   diskStoreName(name) {
     if (typeof name !== 'string' || !name) throw new SessionError('A disk image needs a name.');
-    const full = name.startsWith(DISK_PREFIX) ? name : DISK_PREFIX + String(name).split(/[\\/]/).pop();
+    const full = this.storedDiskName(name);
     if (!isDiskFileName(full.slice(DISK_PREFIX.length))) throw new SessionError('A disk image needs a name.');
+    return full;
+  }
+  // The stored name of a disk that is ALREADY there, for reading it back. The rule above decides what CLOADM may
+  // CREATE; it must not decide what it can READ. A store from an earlier build holds 'disks/ ' and
+  // 'disks/sub/x.vdk' (main let both be renamed into place), and refusing to name them would strand them -- the same
+  // fault as refusing a stored " a.vdk". So only the derivation is shared, not the check: nothing after the prefix
+  // is still not a name at all, and '..' is still refused (it must never become a store path).
+  storedDiskName(name) {
+    if (typeof name !== 'string' || !name) throw new SessionError('A disk image needs a name.');
+    const full = name.startsWith(DISK_PREFIX) ? name : DISK_PREFIX + String(name).split(/[\\/]/).pop();
+    const base = full.slice(DISK_PREFIX.length);
+    if (!base || /(^|\/)\.\.(\/|$)/.test(base)) throw new SessionError('A disk image needs a name.');
     return full;
   }
   // drives this machine's controller has (the Alpha fits 2; a disk cartridge 4)
@@ -1987,7 +2014,7 @@ export class Session {
     const { writeProtected = false } = opts, held = opts[HELD] === true;
     this.checkDrive(drive);
     if (!held) this.checkNotMoving();
-    const full = this.diskStoreName(name), base = full.slice(DISK_PREFIX.length);
+    const full = this.storedDiskName(name), base = full.slice(DISK_PREFIX.length);
     const holder = this.diskHolder(full, { machine: this.machine, drive });
     if (holder) throw new SessionError(`${holder.name} is already in drive ${holder.drive}${holder.where}.`);
     let fdc = this.diskController;
