@@ -8,7 +8,7 @@
  *   s.addRoms([{ name, bytes }]);               // identified across all models; see addRoms
  *   s.load(name, bytes)                         // binary / cassette / cartridge / BASIC text -> message
  *   s.advance(ms)                               // run the frames that are due; s.machine.render() is the picture
- *   s.runFrames(n)                              // n frames of emulated time, no clock (scripts, tests, bin/cloadm.js)
+ *   s.runFrames(n)                              // n frames of emulated time, no clock (scripts, tests, cli/cloadm.js)
  *   s.startWelcome(bytes)                       // examples/welcome.bin; then events 'welcome:liza' and so on
  *   await s.snapshotFile() / s.readSnapshot(bytes) / s.openSnapshot(snap)   // snapshots; see 'snapshots' below
  *   await s.importDisk(name, bytes, drive) / s.mountDisk(drive, name) / s.downloadDisk(drive)   // floppy disks
@@ -2234,8 +2234,9 @@ export class Session {
   needsRom(what) { return new SessionError(`${what} needs the ${this.machine.profile.name} BASIC ROM. Load the ROM files first.`); }
   // load a file of any supported kind -> message. askAddresses(name, size) -> { load, exec } | null for raw
   // data; remember: false keeps it off the recent list.
-  load(name, bytes, { askAddresses = null, remember = true } = {}) {
-    const msg = this.loadMedia(name, bytes, askAddresses);
+  // run: false types a BASIC listing without the RUN after it (the MCP server's load; the page always runs it)
+  load(name, bytes, { askAddresses = null, remember = true, run = true } = {}) {
+    const msg = this.loadMedia(name, bytes, askAddresses, { run });
     if (remember) { this.rememberMedia(name, bytes); this.setLastRun('recent', name); }
     this.emit('loaded');
     return msg;
@@ -2268,7 +2269,7 @@ export class Session {
     m.ensureBooted();
     for (let i = 0; i < 5 * m.fps && this._bootStatusOf(m).state !== 'ok' && m.runFrame(); i++);
   }
-  loadMedia(name, bytes, askAddresses) {
+  loadMedia(name, bytes, askAddresses, { run = true } = {}) {
     const m = this.machine;
     // a program the person loads takes over the machine Claude acts on (with ROMs it starts without a reset, so
     // the machine's onReset does not say so): Claude stops just before it does (inject does too), and nothing it
@@ -2362,7 +2363,7 @@ export class Session {
         if (!m.hasRom) throw this.needsRom('A BASIC listing');
         takeOver();
         m.ensureBooted();
-        m.typist.type('NEW\r' + d.text.replace(/\r\n?/g, '\n').split('\n').filter((l) => l.trim()).join('\r') + '\rRUN\r');
+        m.typist.type('NEW\r' + d.text.replace(/\r\n?/g, '\n').split('\n').filter((l) => l.trim()).join('\r') + (run ? '\rRUN\r' : '\r'));
         return `${name}: typing BASIC listing…`;
 
       default: {
@@ -3180,8 +3181,9 @@ export class Session {
 
   // ---------------- the cassette panel ----------------
   // What the deck is doing -> null without a tape, else { name, block, blocks, progress, seconds, duration,
-  // motor, playing, realSpeed, error }. block counts the tape's blocks (js/media/cassette.js casBlocks) the
-  // play position has reached; seconds is how far into the tape that is at real speed. error is the block
+  // position, length, atEnd, motor, playing, realSpeed, error }. block counts the tape's blocks (js/media/cassette.js
+  // casBlocks) the play position has reached; position is that place as a byte of the image (0 to length, the leader
+  // the deck adds before it counting as 0); seconds is how far into the tape that is at real speed. error is the block
   // number where BASIC stopped with ?IO ERROR: a run of the motor that ends with that on the last lines of
   // the screen (the ROM's own report, so it needs the text screen of a Dragon, CoCo 1/2 or MC-10).
   tapeStatus() {
@@ -3202,6 +3204,7 @@ export class Session {
     }
     return {
       name: t.name, block, blocks: info.blocks.length, progress: t.progress(), seconds: t.progress() * info.duration, duration: info.duration,
+      position: Math.max(0, Math.min(t.bytes.length, at)), length: t.bytes.length, atEnd: t.atEnd(),
       motor: deck.motor, playing: deck.playing, realSpeed: !this.fastTape, error: this.tapeWatch ? this.tapeWatch.error : null,
     };
   }
@@ -3330,7 +3333,7 @@ export class Session {
     return true;
   }
   // Run `count` frames of emulated time, with no clock: for Node scripts, tests and the command line
-  // (bin/cloadm.js), where the same calls must give the same frames on every run. Turbo and fast tape, which are
+  // (cli/cloadm.js), where the same calls must give the same frames on every run. Turbo and fast tape, which are
   // about wall-clock time, play no part. Each frame is followed by the checks advance() makes. Returns the frames
   // run: fewer when a debugger breakpoint or watchpoint stopped the machine (s.paused), or the machine waits for
   // the store (s.machine.stall, a DriveWire read: let the event loop run, then call again).

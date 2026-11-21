@@ -1,4 +1,4 @@
-// bin/cloadm.js beyond the basics: --describe (the interface as data, and every step and error code in the guide), the
+// cli/cloadm.js beyond the basics: --describe (the interface as data, and every step and error code in the guide), the
 // debugger steps (registers, set-register, disasm, step) against the Session's own debugger and disassembler, reset
 // and power-cycle, DriveWire stalls, the special keys on both input paths, script quoting and the Dragon 64 Plus's
 // second screen, each run as a child process. Only the project's own programs and firmware.
@@ -10,7 +10,7 @@ const Emu = require('./load')();
 let fail = 0, n = 0;
 const check = (name, cond, detail = '') => { n++; if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log(`ok   ${name}`); };
 const ROOT = path.join(__dirname, '..');
-const CLI = path.join(ROOT, 'bin', 'cloadm.js');
+const CLI = path.join(ROOT, 'cli', 'cloadm.js');
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'cloadm-agent-'));
 const tmp = (name) => path.join(TMP, name);
 const ENV = Object.assign({}, process.env, { SOURCE_DATE_EPOCH: '1700000000' });

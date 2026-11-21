@@ -13,7 +13,7 @@
  * Opcodes and cycles: Hitachi HD63B09E/HD63C09E data sheet, Table 9 (pp. 27-30); HD63B09EP Technical
  * Reference Guide, opcode table (pp. 10-18) and post-byte tables (pp. 24-26).
  */
-import { AsmError, splitArgs } from './syntax.js';
+import { AsmError, splitArgs, noOperand } from './syntax.js';
 import { isa6809 } from './isa6809.js';
 
 // ----- 6309-only inherent instructions: [prefix bytes] -----
@@ -58,7 +58,7 @@ const REGCODE6309 = { D: 0, X: 1, Y: 2, U: 3, S: 4, PC: 5, W: 6, V: 7, A: 8, B: 
 function encode(mn, opnd, ctx) {
   const { pc, ev, pass, line, hints } = ctx;
   // the 6309-only inherent set and the immediate-only pair
-  if (INH[mn]) { if (opnd) throw new AsmError(mn + ' takes no operand'); return INH[mn].slice(); }
+  if (INH[mn]) { noOperand(mn, opnd); return INH[mn].slice(); }
   if (IMM_ONLY[mn]) {
     if (opnd[0] !== '#') throw new AsmError(mn + ' needs immediate operand');
     return [...IMM_ONLY[mn], ev(opnd.slice(1)).value & 0xFF];

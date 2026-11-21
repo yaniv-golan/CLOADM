@@ -34,6 +34,18 @@ for (const [src, want] of cases) {
     const got = r.ok ? r.segments.map((x) => `${x.addr.toString(16).toUpperCase()}: ${hex(x.data)}`).join(' / ') : 'ERR ' + JSON.stringify(r.errors);
     if (got !== want) { fail++; console.log(`FAIL ${name}: got ${got} want ${want}`); }
   };
+  // Motorola's convention: an instruction that takes no operand ends at the mnemonic, so what follows it is a comment
+  // (agents and old listings write "LSRA   shift" without a ;); after an operand a comment needs ; since operand
+  // expressions may hold spaces ("LDA #1 + 2")
+  good('a word after an inherent instruction is a comment', ' ORG $1000\n LSRA            A bit0 = row parity\n NOP wait\n RTS done, back\n', '1000: 44 12 39');
+  good('6309: a word after an inherent instruction is a comment', ' ORG $1000\n SEXW  extend W\n NEGD negate\n', '1000: 14 10 40', '6309');
+  good('6803: a word after an inherent instruction is a comment', ' ORG $4000\n LSRA shift\n INX next\n', '4000: 44 08', '6803');
+  good('a space inside an operand expression still works', ' ORG $1000\n LDA #1 + 2 ; three\n', '1000: 86 03');
+  bad('a comment after an operand without ;: the error says so', ' ORG $1000\n LDA #1  load it\n', /^2: junk in expression "1  load it" \(a comment after an operand needs ;\)/);
+  bad('an operand after an instruction that takes none is still an error', ' ORG $1000\n LSRA ,X\n', /^2: LSRA takes no operand/);
+  bad('6803: a number after ABX is still an error', ' ORG $4000\n ABX 1\n', /^2: ABX takes no operand/, '6803');
+  bad('6309: an immediate after SEXW is still an error', ' ORG $1000\n SEXW #1\n', /^2: SEXW takes no operand/, '6309');
+  bad('junk with no space in it: no hint', ' ORG $1000\n LDA #1)\n', /^2: junk in expression "1\)"$/);
   // a forward reference in RMB or ORG: the size is not known in pass 1, so every label after it would move
   bad('RMB with a forward reference', ' ORG $1000\n JMP START\nBUF RMB SIZE\nSTART RTS\nSIZE EQU 16\n', /^3: RMB needs a value defined before it/);
   bad('ORG with a forward reference', ' ORG THERE\n JMP *\nTHERE EQU $2000\n', /^1: ORG needs a value defined before it/);

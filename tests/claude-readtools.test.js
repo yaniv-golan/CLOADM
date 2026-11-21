@@ -13,6 +13,9 @@ const Emu = require('./load')();
 let fail = 0, n = 0;
 const check = (name, cond, detail = '') => { n++; if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log(`ok   ${name} ${detail}`); };
 
+const J = JSON.stringify;
+// the peek tool's hex rows back to bytes, for the checks (a plain split, not the code under test)
+const peekBytes = (p) => p.hex.flatMap((row) => row.split(': ')[1].split(' ').map((h) => parseInt(h, 16)));
 const boot = (id, cfg) => { const s = new Emu.Session(); s.switchMachine(id, cfg); for (let i = 0; i < 50; i++) s.advance(1000 / s.machine.fps + 0.01); return s; };
 // A target shaped like Session.chatTarget(): the read tools take this, not a Session, so they can be tested
 // without a chat.
@@ -158,9 +161,12 @@ const stateOf = (s) => JSON.stringify(s.machine.saveState());
       check(`disassemble on a ${cpu} machine decodes the assembled program`,
         out.cpu === cpu && JSON.stringify(out.instructions.map((i) => i.text)) === JSON.stringify(want),
         `${out.cpu} ${JSON.stringify(out.instructions.map((i) => i.text))}`);
-      check(`disassemble on a ${cpu} machine: the bytes of each instruction are returned with it`,
-        out.instructions.every((i) => Array.isArray(i.bytes) && i.bytes.length === i.size && i.size > 0),
-        JSON.stringify(out.instructions.map((i) => i.size)));
+      // the bytes as hex pairs ("31 3F"), the same bytes the assembler produced, in order
+      const asmHex = [...r.segments[0].data].map((b) => b.toString(16).toUpperCase().padStart(2, '0'));
+      let off = r.segments[0].addr === at ? 0 : at - r.segments[0].addr;
+      check(`disassemble on a ${cpu} machine: each instruction's bytes come with it, in hex`,
+        out.instructions.every((i) => { const want = asmHex.slice(off, off + i.size).join(' '); off += i.size; return i.size > 0 && i.bytes === want; }),
+        JSON.stringify(out.instructions.map((i) => i.bytes)));
     }
     // the 6309: its own instruction set, from the machine's config (not from the request)
     const s = boot('dragon64', { cpu: '6309' });
@@ -237,6 +243,52 @@ const stateOf = (s) => JSON.stringify(s.machine.saveState());
   }
 
   // ---- 3. peek reads the machine's map, not raw RAM ----
+  // semigraphics cells on the VDG's text screen (bit 7 set: a block, not a character) read as spaces; screen_text
+  // says how many there are, so a screen of blocks does not read as an empty one
+  {
+    const s = boot('coco');
+    for (let i = 0; i < 512; i++) s.machine.write(0x400 + i, i & 1 ? 0x8F : 0x80);   // a checkerboard of SG4 blocks
+    s.advance(1000 / s.machine.fps + 0.01);
+    const r = await Emu.runReadOnlyTool(targetOf(s), 'screen_text', {});
+    check('screen_text on a screen of semigraphics blocks: no text, and it says 512 cells are semigraphics',
+      r.text === true && r.rows === 0 && r.semigraphics === 512 && /512 of the 512 cells are semigraphics/.test(r.note), J(r));
+    s.machine.write(0x400, 0x08); s.machine.write(0x401, 0x09);   // "HI" in the corner
+    const mixed = await Emu.runReadOnlyTool(targetOf(s), 'screen_text', {});
+    check('screen_text with text among blocks: the text, the blocks as spaces, and the count', mixed.lines[0] === 'HI' && mixed.semigraphics === 510, J(mixed));
+    for (let i = 0; i < 512; i++) s.machine.write(0x400 + i, 0x60);   // all spaces
+    const plain = await Emu.runReadOnlyTool(targetOf(s), 'screen_text', {});
+    check('screen_text with no semigraphics: no count and no note', !('semigraphics' in plain) && !('note' in plain), J(plain));
+  }
+  // machine_info names each MC6847 graphics mode as the data sheet does (GM0-GM7: CG1 RG1 CG2 RG2 CG3 RG3 CG6 RG6, the
+  // table written out here independently of js/chips/mc6847.js), on a VDG machine and on the CoCo 3's legacy path.
+  // Our program sets the mode byte through PIA1 port B ($FF22: A/G and GM2-0) and loops.
+  {
+    const WANT = ['CG1 64x64 4-colour', 'RG1 128x64 2-colour', 'CG2 128x64 4-colour', 'RG2 128x96 2-colour',
+      'CG3 128x96 4-colour', 'RG3 128x192 2-colour', 'CG6 128x192 4-colour', 'RG6 256x192 2-colour'];
+    for (const [model, prefix] of [['coco', 'MC6847 graphics'], ['coco3', 'GIME legacy: MC6847 graphics']]) {
+      const got = [];
+      for (let gm = 0; gm < 8; gm++) {
+        const s = boot(model);
+        const r = Emu.assemble(` ORG $3000\nS ORCC #$50\n LDA #$${(0x80 | (gm << 4)).toString(16)}\n STA $FF22\nL BRA L\n`, '6809');
+        for (const seg of r.segments) for (const [i, b] of [...seg.data].entries()) s.machine.poke(seg.addr + i, b);
+        s.machine.jump(0x3000);
+        for (let f = 0; f < 3; f++) s.advance(1000 / s.machine.fps + 0.01);
+        got.push((await Emu.runReadOnlyTool(targetOf(s), 'machine_info', {})).video.mode);
+      }
+      check(`machine_info on the ${model}: the eight MC6847 graphics modes by their data sheet names and sizes`,
+        J(got) === J(WANT.map((w) => `${prefix}, ${w}`)), J(got));
+    }
+  }
+  // peek's bytes come as hex rows of 16, each with its address: written by hand here, read back by the tool
+  {
+    const s = boot('coco');
+    for (let i = 0; i < 20; i++) s.machine.write(0x3000 + i, i * 13 & 0xFF);
+    const p = await Emu.runReadOnlyTool(targetOf(s), 'peek', { address: 0x3000, length: 20 });
+    check('peek: hex rows of 16 bytes, each with its address',
+      J(p) === J({ address: 0x3000, length: 20, hex: ['$3000: 00 0D 1A 27 34 41 4E 5B 68 75 82 8F 9C A9 B6 C3', '$3010: D0 DD EA F7'], truncated: false }), J(p));
+    const one = await Emu.runReadOnlyTool(targetOf(s), 'peek', { address: 0xFFFF, length: 1 });
+    check('peek: one byte at $FFFF is one row', J(one.hex) === J([`$FFFF: ${s.machine.peek(0xFFFF).toString(16).toUpperCase().padStart(2, '0')}`]), J(one));
+  }
   {
     const s = boot('dragon64');
     const t = targetOf(s);
@@ -247,7 +299,7 @@ const stateOf = (s) => JSON.stringify(s.machine.saveState());
       const p = await Emu.runReadOnlyTool(t, 'peek', { address: 0x8000, length: 2 });
       check('peek at $8000 returns the ROM bytes, not the RAM behind them',
         p.address === 0x8000 && p.length === 2 && p.truncated === false
-        && p.bytes[0] === rom[0] && p.bytes[1] === rom[1],
+        && J(peekBytes(p)) === J([rom[0], rom[1]]),
         `${JSON.stringify(p)} (rom ${rom[0].toString(16)} ${rom[1].toString(16)})`);
     }
   }
@@ -416,7 +468,7 @@ const stateOf = (s) => JSON.stringify(s.machine.saveState());
   // states the VDG reader's stride limit, and a future wide mode it would walk must still meet it.
   {
     const R = Emu.screenReadable;
-    const gfx = R({ text: false, name: 'MC6847 graphics, 256x192 4-colour' });
+    const gfx = R({ text: false, name: 'MC6847 graphics, RG6 256x192 2-colour' });
     check('screenReadable: a graphics mode is not readable, and the reason says there are no character cells',
       gfx.readable === false && /character cells/.test(gfx.reason || ''), JSON.stringify(gfx));
     const short = R({ text: true, readable: false, name: 'GIME native text', reason: 'rows too short' });
@@ -511,7 +563,7 @@ const stateOf = (s) => JSON.stringify(s.machine.saveState());
       check(`d64plus bank ${bank}: the two banks really hold different bytes`, m.read(0x0100) === value, `cpu ${m.read(0x0100).toString(16)}`);
       // and the tool reads it the same way, through the Session
       const p = await Emu.runReadOnlyTool(t, 'peek', { address: 0x0100, length: 1 });
-      check(`d64plus bank ${bank}: the peek TOOL reports the banked byte`, p.bytes[0] === m.read(0x0100), JSON.stringify(p.bytes));
+      check(`d64plus bank ${bank}: the peek TOOL reports the banked byte`, peekBytes(p)[0] === m.read(0x0100), JSON.stringify(p.hex));
     }
     // the CRTC page at $FFE0-$FFE2 must be answered without a side effect: read() advances the CRTC, peek does not
     const before = stateOfM();

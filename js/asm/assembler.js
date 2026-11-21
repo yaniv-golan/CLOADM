@@ -2,7 +2,8 @@
  * Two-pass assembler engine with pluggable instruction sets (./isa6809.js, ./isa6803.js, ./isa7000.js).
  *   assemble(source, cpu, { include }) -> { ok, errors[], segments[{addr,data}], exec, symbols, listing[] }
  *   toBinary(result)      -> DragonDOS binary (contiguous) or DECB segmented binary
- * Syntax: [label[:]] mnemonic operand ; comment   (lines starting with * or ; are comments)
+ * Syntax: [label[:]] mnemonic operand ; comment   (lines starting with * or ; are comments; after a mnemonic that
+ *   takes no operand, text is a comment, as in Motorola's assemblers: "LSRA  shift", unless it starts like an operand)
  * Directives: ORG EQU = FCB/DB FDB/DW FCC FCS FCN RMB/DS SETDP INCLUDE END
  * Expressions: + - * / & | ( ), $hex %binary decimal 'c' and * (current address)
  * INCLUDE "file" splices another source file in at that point; the caller supplies the text

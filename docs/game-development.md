@@ -73,7 +73,7 @@ text screen where its registers say (the built-in firmware leaves it at `$0400`)
 | assembler source (`--asm`) | assembled for the machine's CPU and run (below) |
 
 ```sh
-node bin/cloadm.js --load game.bin --frames 100 --screenshot game.png      # on the command line
+node cli/cloadm.js --load game.bin --frames 100 --screenshot game.png      # on the command line
 ```
 
 On the page, drop the file on the screen or use the Media tab.
@@ -88,7 +88,7 @@ binary when no block is below the first `ORG` (gaps filled with zeros) and a CoC
 load on every machine.
 
 ```sh
-node bin/cloadm.js --asm game.asm --frames 50 --screen      # assemble and run in one step (INCLUDEs from its folder)
+node cli/cloadm.js --asm game.asm --frames 50 --screen      # assemble and run in one step (INCLUDEs from its folder)
 ```
 
 From a script, `assemble(source, '6809')` and `toBinary(result)` (`js/emu.js`) give the binary; the page's
@@ -283,7 +283,7 @@ MSG     FCC     "PRESS A KEY"
 ```
 
 ```sh
-node bin/cloadm.js --asm hello.asm --type 'Z' --expect-screen 'PRESS A KEY\nZ'
+node cli/cloadm.js --asm hello.asm --type 'Z' --expect-screen 'PRESS A KEY\nZ'
 ```
 
 ## Testing a game from the command line
@@ -326,8 +326,8 @@ expect-screen GAME OVER
 ```
 
 ```sh
-node bin/cloadm.js --script examples/starter-game/catch.cloadm              # Dragon 64 (the default)
-node bin/cloadm.js --machine coco --script examples/starter-game/catch.cloadm
+node cli/cloadm.js --script examples/starter-game/catch.cloadm              # Dragon 64 (the default)
+node cli/cloadm.js --machine coco --script examples/starter-game/catch.cloadm
 ```
 
 The picture reference belongs to the video chip that drew it: the Dragon 32, 64 and 200 and the CoCo 1/2 (an MC6847)
@@ -343,7 +343,7 @@ and `--expect-mem` read memory and hold as soon as the bytes are written; a scre
 
 ```sh
 # pattern: settle
-node bin/cloadm.js --load examples/starter-game/catch.bin --wait-for 'text:PRESS SPACE' --hold SPACE:2 \
+node cli/cloadm.js --load examples/starter-game/catch.bin --wait-for 'text:PRESS SPACE' --hold SPACE:2 \
   --wait-for 'mem:$3005=1' --frames 1 --expect-screen 'SCORE 000' --screenshot playfield.png
 ```
 
@@ -357,7 +357,7 @@ Playing again after the game ends:
 
 ```sh
 # pattern: release
-node bin/cloadm.js --load examples/starter-game/catch.bin --wait-for 'text:PRESS SPACE' --hold SPACE:2 \
+node cli/cloadm.js --load examples/starter-game/catch.bin --wait-for 'text:PRESS SPACE' --hold SPACE:2 \
   --wait-for 'mem:$3005=1' --timeout 60 --wait-for 'mem:$3005=2' --hold SPACE:2 --wait-for 'mem:$3005=1' \
   --frames 1 --expect-mem '$3004=0' --expect-screen 'SCORE 000'
 ```
@@ -367,7 +367,7 @@ press, so the game-over screen stays (a game without the release wait starts aga
 
 ```sh
 # pattern: held
-node bin/cloadm.js --load examples/starter-game/catch.bin --wait-for 'text:PRESS SPACE' --hold SPACE:2500 \
+node cli/cloadm.js --load examples/starter-game/catch.bin --wait-for 'text:PRESS SPACE' --hold SPACE:2500 \
   --frames 50 --expect-mem '$3005=2' --expect-screen 'GAME OVER'
 ```
 
@@ -386,7 +386,7 @@ PCM at 44100 Hz, with the DAC's levels exact (value d is 320 x d) and no filteri
 file, byte for byte, and a plain `cmp` is the comparison:
 
 ```sh
-node bin/cloadm.js --load examples/starter-game/catch.bin --wait-for 'text:PRESS SPACE' --hold SPACE:2 \
+node cli/cloadm.js --load examples/starter-game/catch.bin --wait-for 'text:PRESS SPACE' --hold SPACE:2 \
   --wait-for 'mem:$3005=1' --hold LEFT --wait-for 'mem:$3008=14' \
   --wav catch.wav --frames 12 --wav-stop --expect-mem '$3003=1'
 cmp catch.wav tests/fixtures/starter-game/catch-sound.wav
@@ -413,7 +413,7 @@ jobs:
       # the game, played and checked on both families; no ROMs needed
       - run: |
           for m in dragon64 coco; do
-            node cloadm/bin/cloadm.js --machine $m --asm game/src/game.asm \
+            node cloadm/cli/cloadm.js --machine $m --asm game/src/game.asm \
               --wait-for 'text:PRESS SPACE' --hold SPACE:2 --wait-for 'mem:$3005=1' \
               --frames 1 --diff diff-$m.png --expect-screenshot game/test/play-$m.png \
               --wav sound-$m.wav --frames 25 --wav-stop
@@ -463,9 +463,9 @@ reads includes from the source's folder).
 Played from the command line, with the seed fixed:
 
 ```sh
-node bin/cloadm.js --program 2048 --frames 30 --poke '$3003=$BE,$EF' --type ' ' --frames 20 \
+node cli/cloadm.js --program 2048 --frames 30 --poke '$3003=$BE,$EF' --type ' ' --frames 20 \
   --type '{LEFT}{UP}{LEFT}{UP}{RIGHT}{DOWN}' --frames 30 --expect-screenshot tests/fixtures/games/2048-board.png
-node bin/cloadm.js --program minesweeper --frames 30 --poke '$3003=$5E,$ED' --type ' ' --frames 20 \
+node cli/cloadm.js --program minesweeper --frames 30 --poke '$3003=$5E,$ED' --type ' ' --frames 20 \
   --type ' ' --frames 20 --type '{BREAK}' --wait-for 'pc:$3005'
 ```
 

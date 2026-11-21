@@ -1,4 +1,4 @@
-// The cloadm command-line tool (bin/cloadm.js), run as a child process the way CI and agents run it: exit codes,
+// The cloadm command-line tool (cli/cloadm.js), run as a child process the way CI and agents run it: exit codes,
 // the --json shape, wait-for conditions (met and timed out), typing (the stub's key codes and the keyboard matrix,
 // special keys), screen text exactly as Claude's screen_text reader returns it, a PNG decoded back to the pixels of
 // machine.render(), snapshots that continue identically, script mode, bad arguments, missing ROMs and wrong media,
@@ -15,7 +15,7 @@ const { keyechoBinary } = require('../tools/keyecho/gen-keyecho.js');
 let fail = 0, n = 0;
 const check = (name, cond, detail = '') => { n++; if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log(`ok   ${name}`); };
 const ROOT = path.join(__dirname, '..');
-const CLI = path.join(ROOT, 'bin', 'cloadm.js');
+const CLI = path.join(ROOT, 'cli', 'cloadm.js');
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'cloadm-cli-'));
 const tmp = (name) => path.join(TMP, name);
 const ENV = Object.assign({}, process.env, { SOURCE_DATE_EPOCH: '1700000000' });
@@ -376,11 +376,11 @@ for (const [id, frames] of [['coco', 50], ['mc10', 50], ['coco3', 40]]) {
       check(`docs script example ${b.name} exits 0`, r.code === 0, r.err + r.out);
     }
   }
-  // the command lines in the guide's shell blocks that start with `node bin/cloadm.js` and need no files: they run
-  const lines = [...doc.matchAll(/```sh\n([\s\S]*?)```/g)].flatMap((m) => m[1].replace(/\\\n\s*/g, ' ').split('\n')).filter((l) => /^node bin\/cloadm\.js /.test(l) && !/--roms|--disk|--load |--cart|--tape|\.png|--script|state/.test(l));
+  // the command lines in the guide's shell blocks that start with `node cli/cloadm.js` and need no files: they run
+  const lines = [...doc.matchAll(/```sh\n([\s\S]*?)```/g)].flatMap((m) => m[1].replace(/\\\n\s*/g, ' ').split('\n')).filter((l) => /^node cli\/cloadm\.js /.test(l) && !/--roms|--disk|--load |--cart|--tape|\.png|--script|state/.test(l));
   check('the guide has runnable command lines', lines.length >= 2, lines.join(' | '));
   for (const l of lines) {
-    const args = [...l.slice('node bin/cloadm.js '.length).matchAll(/'([^']*)'|(\S+)/g)].map((m) => (m[1] != null ? m[1] : m[2]));
+    const args = [...l.slice('node cli/cloadm.js '.length).matchAll(/'([^']*)'|(\S+)/g)].map((m) => (m[1] != null ? m[1] : m[2]));
     const r = cli(args);
     check(`docs command line runs: ${l.slice(0, 90)}`, r.code === 0, r.err);
   }

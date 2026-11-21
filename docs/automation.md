@@ -3,13 +3,15 @@
 [CLOADM](../README.md) › Automation
 
 CLOADM runs headless in Node, with no browser: for CI pipelines, tests of your own Dragon, CoCo or MC-10 programs,
-and AI coding agents that need to run a program and read what it printed. There are two ways in:
+and AI coding agents that need to run a program and read what it printed. There are three ways in:
 
-* **`bin/cloadm.js`**, a command-line tool: steps on the command line or in a script file, human or JSON output,
+* **`cli/cloadm.js`**, a command-line tool: steps on the command line or in a script file, human or JSON output,
   and exit codes a pipeline can act on.
+* **`cli/cloadm.js --mcp`**, a Model Context Protocol server: a coding agent (Claude Code, Cursor, Claude Desktop)
+  boots machines and drives them through tools, keeping them between calls ([mcp.md](mcp.md)).
 * **The Node API**: the same `Session` the page uses (`js/emu.js`), driven from your own script.
 
-Both need only Node 22.12 or later, from a checkout of this repository. Nothing is installed: there are no npm
+All three need only Node 22.12 or later, from a checkout of this repository. Nothing is installed: there are no npm
 dependencies, no build step, and no `package.json` (see [Packaging](#packaging)).
 
 ## ROMs
@@ -28,9 +30,9 @@ publish their output from a run with your ROMs.
 ## The command line
 
 ```sh
-node bin/cloadm.js --help
-node bin/cloadm.js --list-machines
-node bin/cloadm.js --machine coco --program liza --wait-for 'text:/^> ?$/m' --type 'I need a holiday\n' --wait-for 'text:WHY DO YOU NEED' --screen
+node cli/cloadm.js --help
+node cli/cloadm.js --list-machines
+node cli/cloadm.js --machine coco --program liza --wait-for 'text:/^> ?$/m' --type 'I need a holiday\n' --wait-for 'text:WHY DO YOU NEED' --screen
 ```
 
 Every option is a **step**, run in the order given. The machine setup comes first:
@@ -113,7 +115,7 @@ an image editor's copy, small palettes included, compares too; anything else (16
 `bad-media`.
 
 ```sh
-node bin/cloadm.js --load game.bin --wait-for 'mem:$3005=1' --frames 1 --diff diff.png --expect-screenshot ref.png
+node cli/cloadm.js --load game.bin --wait-for 'mem:$3005=1' --frames 1 --diff diff.png --expect-screenshot ref.png
 ```
 
 `--wav out.wav` records the sound of every frame that runs after it until `--wav-stop` or the end of the run (also
@@ -127,7 +129,7 @@ stretch gives the average. Everything is emulated time, so the same run gives th
 `wav` step's result gives `file`, `rate`, `bits`, `dacStep`, and, once written, `samples` and `seconds`.
 
 ```sh
-node bin/cloadm.js --load game.bin --wait-for 'mem:$3008=14' --wav catch.wav --frames 12 --wav-stop
+node cli/cloadm.js --load game.bin --wait-for 'mem:$3008=14' --wav catch.wav --frames 12 --wav-stop
 cmp catch.wav tests/sound/catch.wav     # a sound effect, as a regression reference
 ```
 
@@ -153,7 +155,7 @@ screen
 ```
 
 ```sh
-node bin/cloadm.js --script test.cloadm --json
+node cli/cloadm.js --script test.cloadm --json
 ```
 
 ### Output and exit codes
@@ -228,7 +230,8 @@ failure of a condition carries the screen it failed on, waits are conditions rat
 always give the same results, so a retry or a bisection behaves.
 
 Run one command line per question (or one `--script`), and carry the machine from one call to the next with
-`--save-snapshot` and `--load-snapshot`: a snapshot restored continues exactly as the machine would have.
+`--save-snapshot` and `--load-snapshot`: a snapshot restored continues exactly as the machine would have. An agent
+that keeps machines open between calls uses the MCP server instead: [mcp.md](mcp.md).
 
 ### GitHub Actions
 
@@ -245,14 +248,14 @@ jobs:
         with: { node-version: '22' }
       # Machine code needs no ROMs: assemble the program, run it, wait for its title, keep a screenshot
       - run: >
-          node cloadm/bin/cloadm.js --machine coco --asm game/src/game.asm
+          node cloadm/cli/cloadm.js --machine coco --asm game/src/game.asm
           --wait-for 'text:PRESS FIRE' --type ' ' --wait-for 'mem:$0100=1'
           --screenshot game.png --json > result.json
       # BASIC needs your ROMs: a base64 ROM pack in a repository secret, written outside the workspace
       - run: |
           mkdir -p "$RUNNER_TEMP/roms"
           printf '%s' "$ROM_PACK" | base64 -d > "$RUNNER_TEMP/roms/cloadm-roms.zip"
-          node cloadm/bin/cloadm.js --machine coco --roms "$RUNNER_TEMP/roms" --load game/basic/menu.bas \
+          node cloadm/cli/cloadm.js --machine coco --roms "$RUNNER_TEMP/roms" --load game/basic/menu.bas \
             --wait-for 'text:MAIN MENU' --screen
         env:
           ROM_PACK: ${{ secrets.COCO_ROM_PACK }}
@@ -274,7 +277,7 @@ CommonJS (Node 22.12 or later). This example runs from the repository root and c
 // example: node-api
 import { readFileSync } from 'node:fs';
 import { Session, screenTextTool, frameToRGBA, assemble } from './js/emu.js';
-import { framePng } from './bin/cloadm.js';
+import { framePng } from './cli/cloadm.js';
 
 const fail = (what) => { throw new Error(`example: ${what}`); };
 
@@ -345,11 +348,11 @@ the Claude chat — is internal: it changes whenever the emulation needs it to.
 
 ## Packaging
 
-The tool is `bin/cloadm.js`, a CommonJS script like the rest of `tools/` and `tests/`, run as
-`node bin/cloadm.js`. There is deliberately no root `package.json`: the repository is a static site with no build
+The tool is `cli/cloadm.js`, a CommonJS script like the rest of `tools/` and `tests/`, run as
+`node cli/cloadm.js`. There is deliberately no root `package.json`: the repository is a static site with no build
 step, and its tests and tools are CommonJS `.js` files, which a root `package.json` with `"type": "module"` would
 turn into ES modules and break; one without it would add an npm surface (installs, a lockfile, a `bin` link) for a
-tool that needs none. To call it `cloadm`, add an alias (`alias cloadm='node /path/to/cloadm/bin/cloadm.js'`) or put
+tool that needs none. To call it `cloadm`, add an alias (`alias cloadm='node /path/to/cloadm/cli/cloadm.js'`) or put
 a one-line wrapper on your `PATH`.
 
 ---

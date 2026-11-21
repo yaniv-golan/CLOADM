@@ -19,8 +19,8 @@ node tools/browser-check.js                         # the real page in Chromium 
 node tools/browser-check.js --only pwa,models       # just those browser-check groups (--list-groups lists them)
 node tools/build-examples.js                        # rebuild examples/*.bin from source; also updates sw.js's file list
 node tools/pwa-files.js --write                     # update sw.js's offline file list after adding/removing a served file
-node bin/cloadm.js --asm prog.asm --frames 50 --screen   # assemble, run headless, print the screen (docs/automation.md)
-node bin/cloadm.js --script test.cloadm             # a scripted end-to-end test (keys, screen, pictures, sound)
+node cli/cloadm.js --asm prog.asm --frames 50 --screen   # assemble, run headless, print the screen (docs/automation.md)
+node cli/cloadm.js --script test.cloadm             # a scripted end-to-end test (keys, screen, pictures, sound)
 node tools/mame-diff/run.js <profile> [--video]     # lockstep / pixel comparison with MAME 0.264 (needs mame)
 ```
 
@@ -95,7 +95,7 @@ A program under `examples/` (a demo, a game, a tool that runs on the built-in fi
 2. An entry in the list in `tools/build-examples.js`, then `node tools/build-examples.js`. It writes the `.bin` and
    brings `sw.js`'s offline file list up to date; commit both. (A served file added any other way needs `node
    tools/pwa-files.js --write`, or `tests/pwa.test.js` fails.)
-3. A test, `tests/<name>.test.js`, with real assertions: a play script (`.cloadm`) run through `bin/cloadm.js` on
+3. A test, `tests/<name>.test.js`, with real assertions: a play script (`.cloadm`) run through `cli/cloadm.js` on
    each machine it supports (`--expect-screen`, `--expect-mem`, `--expect-screenshot`, `--wav`), and mutants of the
    program that must fail it ([docs/game-development.md](docs/game-development.md) and
    `tests/starter-game.test.js` show how).

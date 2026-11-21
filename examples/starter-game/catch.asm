@@ -27,7 +27,7 @@
 ; CoCo -, . and /).
 ;
 ; Build:  node tools/build-examples.js   (examples/starter-game/catch.bin)
-; Run:    node bin/cloadm.js --load examples/starter-game/catch.bin --hold SPACE:2 --frames 50 --screenshot catch.png
+; Run:    node cli/cloadm.js --load examples/starter-game/catch.bin --hold SPACE:2 --frames 50 --screenshot catch.png
 ;         or drop catch.bin on the page.
 ; Test:   examples/starter-game/catch.cloadm, docs/game-development.md
 ; ---------------------------------------------------------------

@@ -15,7 +15,7 @@ const { spawnSync } = require('child_process');
 let fail = 0;
 const check = (name, cond, detail = '') => { if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log(`ok   ${name}`); };
 const ROOT = path.join(__dirname, '..');
-const CLI = path.join(ROOT, 'bin', 'cloadm.js');
+const CLI = path.join(ROOT, 'cli', 'cloadm.js');
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'cloadm-shot-'));
 const tmp = (n) => path.join(TMP, n);
 function cli(args) {

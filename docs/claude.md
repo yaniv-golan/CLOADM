@@ -304,10 +304,11 @@ emulator.
   machine (the full saved state is byte-identical after every call, even with write-shaped arguments).
   Results are JSON, so a model reads fields and does not have to parse prose; a failure carries a stable code and a
   remedy (`js/claude/toolerrors.js`) and reaches the model as `{"error":{"code":…,"remedy":…}}` with
-  `is_error:true`. `peek` returns at most 256 bytes and says `truncated` when it cut a request short; a read whose
+  `is_error:true`. `peek` returns at most 256 bytes, as hex rows of 16 with their address (`"$0400: 4C 49 …"`), and
+  says `truncated` when it cut a request short; a read whose
   bytes would run past `$FFFF` is a `past-end` error, because reads do not wrap. `disassemble` decodes up to 64
   instructions in the machine's own instruction set (6809, 6803 or 6309, taken from the machine, never from the
-  request) through the same side-effect-free peek, and returns each instruction's bytes with its text. Both read whatever the machine has mapped at the
+  request) through the same side-effect-free peek, and returns each instruction's bytes (in hex, `"31 3F"`) with its text. Both read whatever the machine has mapped at the
   address, ROM areas included, and what they return is sent to Anthropic as part of your conversation, like everything else Claude reads. CLOADM
   itself never uploads your ROMs, and never puts them in share links or exported settings.
   `screen_text` returns the screen's rows as text, trailing spaces trimmed and trailing blank rows left out. It

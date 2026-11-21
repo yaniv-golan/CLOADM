@@ -33,7 +33,7 @@ check('...and a made-up pattern or group would be caught', !suites.some((f) => f
 // AGENTS.md "Start here": every repository file its commands run exists
 const agents = fs.readFileSync(path.join(ROOT, 'AGENTS.md'), 'utf8');
 const start = (/^## Start here\n([\s\S]*?)\n## 1\. /m.exec(agents) || [])[1] || '';
-const files = [...start.matchAll(/^node ((?:tests|tools|bin)\/[\w./-]+\.js)/gm)].map((m) => m[1]);
+const files = [...start.matchAll(/^node ((?:tests|tools|cli)\/[\w./-]+\.js)/gm)].map((m) => m[1]);
 const missing = files.filter((f) => !fs.existsSync(path.join(ROOT, f)));
 check('AGENTS.md "Start here" lists its commands, and every script they run exists', files.length >= 8 && missing.length === 0,
   missing.length ? missing.join(' ') : `${files.length} commands`);

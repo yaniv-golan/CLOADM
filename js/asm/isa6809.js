@@ -3,7 +3,7 @@
  * encode(mnemonic, operand, ctx) returns the instruction bytes, or null for an unknown mnemonic.
  * ctx: { pc, ev(expr) -> {value, unresolved}, pass, line, hints (Map: per-line size choices) }
  */
-import { AsmError, fit, splitArgs } from './syntax.js';
+import { AsmError, fit, splitArgs, noOperand } from './syntax.js';
 
 const INH = {
   NOP: [0x12], SYNC: [0x13], DAA: [0x19], SEX: [0x1D], RTS: [0x39], ABX: [0x3A], RTI: [0x3B],
@@ -41,7 +41,7 @@ const STACKBIT = { CC: 0x01, CCR: 0x01, A: 0x02, B: 0x04, D: 0x06, DP: 0x08, DPR
 const IDXREG = { X: 0x00, Y: 0x20, U: 0x40, S: 0x60 };
 
 function encode(mn, opnd, pc, ev, ln, pass, hints) {
-  if (INH[mn]) { if (opnd) throw new AsmError(mn + ' takes no operand'); return INH[mn].slice(); }
+  if (INH[mn]) { noOperand(mn, opnd); return INH[mn].slice(); }
   if (IMM_ONLY[mn] !== undefined) {
     if (opnd[0] !== '#') throw new AsmError(mn + ' needs immediate operand');
     return [IMM_ONLY[mn], fit(ev(opnd.slice(1)).value, 8)];

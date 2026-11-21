@@ -226,6 +226,7 @@ const userMedia = (async () => {
   check('tape panel: a new tape: block 0 of 4, at the start, its length from the bit timing, motor off, no error',
     st0.name === 'panel.cas' && st0.blocks === 4 && st0.block === 0 && st0.progress === 0 && Math.abs(st0.duration - ticks / tick) < 1e-9
     && !st0.motor && st0.error === null && st0.realSpeed === false, JSON.stringify(st0));
+  check('tape panel: a new tape: at byte 0 of the image, its length the image\'s, not at the end', st0.position === 0 && st0.length === cas.length && st0.atEnd === false, JSON.stringify(st0));
   m.deck.setMotor(true);
   const seen = new Set();
   for (let f = 0; f < 400 && !m.deck.tape.atEnd(); f++) { m.runFrame(); m.deck.setMotor(true); seen.add(t.tapeStatus().block); }
@@ -233,6 +234,7 @@ const userMedia = (async () => {
   check('tape panel: played through, the block count passes 1, 2, 3, 4 and the counter reaches the length',
     [1, 2, 3, 4].every((b) => seen.has(b)) && end.block === 4 && end.progress === 1 && Math.abs(end.seconds - end.duration) < 1e-9 && end.motor,
     `${[...seen].join(',')} ${end.seconds.toFixed(2)}/${end.duration.toFixed(2)} s`);
+  check('tape panel: played through: at the last byte of the image, at the end', end.position === cas.length && end.atEnd === true, JSON.stringify(end));
   m.deck.setMotor(false);
   check('tape panel: a run that ends without an error report has none', t.tapeStatus().error === null);
   // a tape cut inside its second data block: three blocks start on it (the namefile, two data blocks), counted by the

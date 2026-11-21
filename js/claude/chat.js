@@ -113,7 +113,7 @@ const ACTING = {
   assemble_and_load: {
     description: `Assemble source for the machine's own CPU and write it into memory; does not start it (use run). Returns {bytes,written,skipped,ranges:[{from,to}],start,symbols:{NAME:address},not_taken:[{from,to,why}]} with every address a decimal integer: bytes assembled, how many landed (written) and did not (skipped); not_taken lists bytes that did not land (why: rom, io, latch, undecoded, absent-ram, lost). Errors: empty, too-large, bad-address, not-a-number, assembly-failed (with the line numbers of your source), include-unreadable (an INCLUDE file could not be read), org-conflict, past-end, not-ram (no byte landed), each refused with nothing written.` + CONSENT,
     input_schema: schema({
-      source: { type: 'string', minLength: 1, maxLength: SOURCE_MAX, description: `Assembler source text, 1 to ${SOURCE_MAX} characters.` },
+      source: { type: 'string', minLength: 1, maxLength: SOURCE_MAX, description: `Assembler source text, 1 to ${SOURCE_MAX} characters. A comment starts with ; (a line with * or ;); after an instruction that takes no operand, text is a comment unless it starts like an operand (#, $, a digit, a comma).` },
       org: int(`Load address, decimal ${ADDR}. Omit it if the source has its own ORG; with neither, the code is assembled at ${ASSEMBLE_DEFAULT_ORG}.`, ADDRESS_MIN, ADDRESS_MAX),
     }, ['source']),
     check: (chat, t, input) => chat.assemble(t, input),

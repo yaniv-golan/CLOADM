@@ -291,7 +291,7 @@ async function say(s, calls, line, want) {
     check('poke wrote the BASIC session, not the chat machine', basic.ram[0x3000] === 1 && basic.ram[0x3001] === 2 && basic.ram[0x3002] === 3
       && chatMachine.ram.slice(0x3000, 0x3003).every((b, i) => b === chatRam[i]));
     const peeked = Array.isArray(tr) ? (() => { try { return JSON.parse(tr[1].content); } catch (e) { return null; } })() : null;
-    check('peek read it back from the BASIC session', peeked && JSON.stringify(peeked.bytes) === JSON.stringify([1, 2, 3]) && peeked.truncated === false, JSON.stringify(tr));
+    check('peek read it back from the BASIC session', peeked && JSON.stringify(peeked.hex) === JSON.stringify(['$3000: 01 02 03']) && peeked.truncated === false, JSON.stringify(tr));
     check('type_text leaves the chat on screen (the BASIC session is beside it, live)', s.machine === chatMachine && s.chatView === 'chat' && s.besideMachine() === basic);
     // type_text answers once the BASIC session (the stub here) has taken every key: its result says so
     const typed = (() => { try { return JSON.parse(calls[2].body.messages.slice(-1)[0].content[0].content); } catch (e) { return null; } })();

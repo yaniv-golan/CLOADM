@@ -18,6 +18,7 @@
  * Every tool answers a model, not a person: typed parameters with their units in the description, a JSON
  * result that echoes the request, and coded failures from js/claude/toolerrors.js.
  */
+import { MC6847 } from '../chips/mc6847.js';
 import { TOOL_CODES, ToolError, checkedInt } from './toolerrors.js';
 import { disassemble } from '../asm/disassembler.js';
 import { codeDisassembly } from '../debugger.js';
@@ -51,7 +52,7 @@ export function readOnlyTools() {
     { name: 'screen_text', description: SCREEN_TEXT_DESCRIPTION, input_schema: schema({}, []) },
     {
       name: 'peek',
-      description: 'Read bytes of memory, as the machine sees them (RAM, ROM, cartridge). Reads only; nothing is changed.',
+      description: 'Read bytes of memory, as the machine sees them (RAM, ROM, cartridge). Reads only; nothing is changed. Returns {address,length,hex,truncated}: hex is the bytes as rows of up to 16, each "$0400: 4C 49 5A ..." (the row address, then the bytes in hex).',
       input_schema: schema({
         address: int('the first address, 0 to 65535 ($0000-$FFFF)', ADDRESS_MIN, ADDRESS_MAX),
         length: int(`how many bytes, ${PEEK_LENGTH_MIN} to ${PEEK_LENGTH_MAX}; at most ${PEEK_MAX} are returned and the result says when it truncated; omit for ${PEEK_DEFAULT_LENGTH}`, PEEK_LENGTH_MIN, PEEK_LENGTH_MAX),
@@ -85,7 +86,7 @@ export function readOnlyTools() {
 const CELL_COLS = 32;
 // The description Claude sees. It names the machines and modes the reader covers, and how non-ASCII characters and
 // attributes come back, so a model knows what to expect before it calls.
-export const SCREEN_TEXT_DESCRIPTION = "The text on the machine's screen, one string per row with trailing spaces trimmed (trailing blank rows are left out, so `rows` counts the rows returned, not the rows the screen has). Reads the MC6847 VDG 32x16 text screen (MC-10, Dragon 32/64/200, CoCo 1/2, and the CoCo 3 in its CoCo-compatible mode) and every CoCo 3 GIME text mode, 6809 or 6309: 32, 40, 64 or 80 columns, with or without attribute bytes (as NitrOS-9 and BASIC's WIDTH 40/80 use); on a GIME text mode `screenRows` is how many rows the screen shows. GIME characters $20-$7E are ASCII; the GIME's international characters $00-$1F come back as the Unicode letters they show (Ç ü é â ä à å ç ê ë è ï î ß Ä Å ó æ Æ ô ö ø û ù Ø Ö Ü § £ ± ° ƒ) and $7F as ▒. Attribute bytes are never shown as characters: with attributes on, `attributes` gives each row's runs of fg, bg, underline and blink, where fg and bg are palette slots, not colours (the foreground is palette register 8+fg, the background palette register bg). Returned with the mode's name, `cols`, and where the screen was read from: `base`, the CPU address of the whole screen, given only when the memory map shows all of it to the CPU in one contiguous run (otherwise null: an MMU that splits or hides it, or 256-byte virtual rows), and on a GIME text mode `physicalBase`, its address in the CoCo 3's physical RAM. Declined with text:false and a reason: a graphics mode; a GIME text mode whose rows are too short to show a character (1 or 2 scanlines per row) or that shows no rows ($FF99 lines per field 2); a VDG page the memory map (MMU) has moved away from where the display reads it; and, on the Dragon 64 Plus's 80-column screen, a 6845 set-up the board cannot show whole (no rows or columns, R1 or R6 not less than the totals R0+1 or R4+1, wider than 80 columns or taller than the 264-line picture, fewer than 10 raster lines a row, an interlace mode, R8's display skew set to non-output) or a code outside $20-$7E. The Dragon 64 Plus's 80-column screen (its HD6845S, while the Display tab shows it) is read from the board's 2K video RAM as the CRTC walks it (start address R12/R13 as `startAddress`, R1 columns, R6 rows as `screenRows`, the 2K wrapping), as the next frame draws it; codes $20-$7E are read as ASCII (P. Mooney's IC22 EPROM dump and the Dragon Archive's Compusense character ROM dump both put 'A' at offset $0410, so code c's glyph is at c*16); the board's other codes ($00-$1F other symbols, $7F a solid block, $80-$FF mostly underlined forms of $00-$7F) are not mapped to characters here, so a screen showing one is declined; `base` is its CPU address only while $FFE2 maps the video RAM over $0000-$07FF and the screen does not wrap. Takes no parameters.";
+export const SCREEN_TEXT_DESCRIPTION = "The text on the machine's screen, one string per row with trailing spaces trimmed (trailing blank rows are left out, so `rows` counts the rows returned, not the rows the screen has). Reads the MC6847 VDG 32x16 text screen (MC-10, Dragon 32/64/200, CoCo 1/2, and the CoCo 3 in its CoCo-compatible mode) and every CoCo 3 GIME text mode, 6809 or 6309: 32, 40, 64 or 80 columns, with or without attribute bytes (as NitrOS-9 and BASIC's WIDTH 40/80 use); on a GIME text mode `screenRows` is how many rows the screen shows. GIME characters $20-$7E are ASCII; the GIME's international characters $00-$1F come back as the Unicode letters they show (Ç ü é â ä à å ç ê ë è ï î ß Ä Å ó æ Æ ô ö ø û ù Ø Ö Ü § £ ± ° ƒ) and $7F as ▒. Attribute bytes are never shown as characters: with attributes on, `attributes` gives each row's runs of fg, bg, underline and blink, where fg and bg are palette slots, not colours (the foreground is palette register 8+fg, the background palette register bg). On the VDG's text screen a cell with bit 7 set is a semigraphics block (BASIC's cursor is one): it reads as a space, and `semigraphics` counts those cells (with a `note`), so a picture made of blocks is not mistaken for an empty screen; screenshot shows it. Returned with the mode's name, `cols`, and where the screen was read from: `base`, the CPU address of the whole screen, given only when the memory map shows all of it to the CPU in one contiguous run (otherwise null: an MMU that splits or hides it, or 256-byte virtual rows), and on a GIME text mode `physicalBase`, its address in the CoCo 3's physical RAM. Declined with text:false and a reason: a graphics mode; a GIME text mode whose rows are too short to show a character (1 or 2 scanlines per row) or that shows no rows ($FF99 lines per field 2); a VDG page the memory map (MMU) has moved away from where the display reads it; and, on the Dragon 64 Plus's 80-column screen, a 6845 set-up the board cannot show whole (no rows or columns, R1 or R6 not less than the totals R0+1 or R4+1, wider than 80 columns or taller than the 264-line picture, fewer than 10 raster lines a row, an interlace mode, R8's display skew set to non-output) or a code outside $20-$7E. The Dragon 64 Plus's 80-column screen (its HD6845S, while the Display tab shows it) is read from the board's 2K video RAM as the CRTC walks it (start address R12/R13 as `startAddress`, R1 columns, R6 rows as `screenRows`, the 2K wrapping), as the next frame draws it; codes $20-$7E are read as ASCII (P. Mooney's IC22 EPROM dump and the Dragon Archive's Compusense character ROM dump both put 'A' at offset $0410, so code c's glyph is at c*16); the board's other codes ($00-$1F other symbols, $7F a solid block, $80-$FF mostly underlined forms of $00-$7F) are not mapped to characters here, so a screen showing one is declined; `base` is its CPU address only while $FFE2 maps the video RAM over $0000-$07FF and the screen does not wrap. Takes no parameters.";
 
 // Whether screen_text can read the screen faithfully, and if not, why. ONE rule, used by screen_text to decide
 // what to answer and by machine_info to report `video.readable`, so the two cannot disagree: `readable === false`
@@ -115,18 +116,22 @@ export function screenTextTool(target) {
   // 16 rows x 32 cells: the VDG family's own geometry, which is the only one this reader can walk (a wider
   // GIME mode was declined above)
   const lines = [];
+  let blocks = 0;
   for (let row = 0; row < 16; row++) {
     let line = '';
     for (let col = 0; col < CELL_COLS; col++) {
       const v = target.readByte((base + row * CELL_COLS + col) & 0xFFFF);
-      if (v & 0x80) { line += ' '; continue; }
+      if (v & 0x80) { line += ' '; blocks++; continue; }
       const c = v & 0x3F;
       line += String.fromCharCode(c < 32 ? c + 64 : c);
     }
     lines.push(line);
   }
   const shown = trimmed(lines);
-  return { text: true, mode: mode.name, cols: CELL_COLS, base, lines: shown, rows: shown.length };
+  // a cell with bit 7 set is a semigraphics block, not a character: read as a space, and counted, so a picture made
+  // of blocks (or BASIC's cursor) is not taken for an empty screen
+  const sg = blocks ? { semigraphics: blocks, note: `${blocks} of the ${16 * CELL_COLS} cells are semigraphics blocks, read as spaces: screenshot shows them` } : {};
+  return { text: true, mode: mode.name, cols: CELL_COLS, base, lines: shown, rows: shown.length, ...sg };
 }
 
 // the rows as a model reads them: trailing spaces trimmed, trailing blank rows left out (both readers)
@@ -367,19 +372,22 @@ function videoMode(m) {
         };
       }
     }
-    return { text: !ag, cols: ag ? 0 : 32, gimeBase: raw, name: ag ? 'GIME legacy: MC6847 graphics' : 'GIME legacy: MC6847 text' };
+    return { text: !ag, cols: ag ? 0 : 32, gimeBase: raw, name: ag ? `GIME legacy: MC6847 graphics, ${graphicsName(gime.ff22)}` : 'GIME legacy: MC6847 text' };
   }
   const vdg = m.vdg;
   if (vdg && vdg.firstMode) {
     const mode = vdg.firstMode[0];     // the mode of the first active line
     const ag = !!(mode & 0x80);
     if (!ag) return { text: true, cols: 32, name: 'MC6847 text' };
-    const gm = (mode >> 4) & 7;        // the MC6847's own GM numbering
-    const names = { 0: '64x64 4-colour', 1: '128x64 2-colour', 2: '128x96 2-colour', 3: '128x96 4-colour',
-      4: '128x192 2-colour', 5: '128x192 4-colour', 6: '256x192 2-colour', 7: '256x192 4-colour' };
-    return { text: false, name: `MC6847 graphics, ${names[gm] || `GM${gm}`}` };
+    return { text: false, name: `MC6847 graphics, ${graphicsName(mode)}` };
   }
   return { text: true, cols: 32, name: 'text' };
+}
+
+// a VDG mode byte's graphics mode (GM2-0, bits 6-4) as the chip's own table names it: "RG6 256x192 2-colour"
+function graphicsName(modeByte) {
+  const g = MC6847.graphicsMode((modeByte >> 4) & 7);
+  return `${g.name} ${g.width}x${g.height} ${g.colours}-colour`;
 }
 
 // Is the machine sitting at BASIC's READY prompt?
@@ -414,6 +422,9 @@ function atBasicPrompt(target, mode) {
 // error (bad-length), and so is a read whose bytes would run past $FFFF - the check is made on the bytes read
 // (at most 256), not on the bytes asked for, so an over-long request that still fits is served.
 export const PEEK_MAX = 256;
+// the bytes come as hex rows of 16, each with its address: far fewer tokens than a JSON array of numbers, and what a
+// person reading memory expects
+const PEEK_ROW = 16;
 export function peekTool(target, input) {
   if (!target.machine) throw new ToolError(TOOL_CODES.NO_MACHINE);
   const addr = checkedInt(input ? input.address : undefined, { min: ADDRESS_MIN, max: ADDRESS_MAX, code: TOOL_CODES.BAD_ADDRESS });
@@ -422,9 +433,13 @@ export function peekTool(target, input) {
   // completed by the 256-byte read it truncates to, so refusing it would contradict the remedy
   const length = Math.min(asked, PEEK_MAX);
   if (addr + length - 1 > 0xFFFF) throw new ToolError(TOOL_CODES.PAST_END, `${addr}+${length}`);
-  const bytes = [];
-  for (let i = 0; i < length; i++) bytes.push(target.readByte(addr + i));
-  return { address: addr, length, bytes, truncated: length < asked, ...(length < asked ? { max: PEEK_MAX } : {}) };
+  const hex = [];
+  for (let row = 0; row < length; row += PEEK_ROW) {
+    const n = Math.min(PEEK_ROW, length - row), bytes = [];
+    for (let i = 0; i < n; i++) bytes.push(target.readByte(addr + row + i).toString(16).toUpperCase().padStart(2, '0'));
+    hex.push(`$${(addr + row).toString(16).toUpperCase().padStart(4, '0')}: ${bytes.join(' ')}`);
+  }
+  return { address: addr, length, hex, truncated: length < asked, ...(length < asked ? { max: PEEK_MAX } : {}) };
 }
 
 // ---- disassemble ----
@@ -454,7 +469,8 @@ export function disassembleTool(target, input) {
     // path to guard.
     const ins = disassemble(cpu, at, { peek: (a) => target.readByte(a), dp });
     list.push({
-      address: ins.addr, bytes: ins.bytes, text: ins.text, size: ins.size,
+      // the bytes in hex, as peek gives them ("31 3F")
+      address: ins.addr, bytes: [...ins.bytes].map((b) => b.toString(16).toUpperCase().padStart(2, '0')).join(' '), text: ins.text, size: ins.size,
       // where a direct-page, extended, indexed or branch operand actually points, resolved with this machine's
       // own dp; `text` keeps the symbolic form ($10 in `LDA <$10`), so this is the only place the address shows
       ...(ins.target != null ? { target: ins.target } : {}),

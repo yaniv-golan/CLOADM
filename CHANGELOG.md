@@ -8,7 +8,7 @@ All notable changes to CLOADM are recorded here. The format follows
 
 ### Added
 
-- **A command-line tool and a Node API guide, for CI and coding agents.** `node bin/cloadm.js` runs any model
+- **A command-line tool and a Node API guide, for CI and coding agents.** `node cli/cloadm.js` runs any model
   headless: choose the machine and its options, give your own ROMs (a file, a ROM pack or a directory; without them
   the built-in firmware runs machine code), load a program, tape, disk, cartridge, snapshot or assembler source, type
   (with BREAK, CLEAR and the arrows), run frames or emulated seconds, wait until text is on the screen, a byte holds a
@@ -75,6 +75,35 @@ All notable changes to CLOADM are recorded here. The format follows
   after that is a plain visit. With both `app=claude` and `start=`, the chat opens and the link says `start=` was
   ignored. The Media tab's "Runs without ROMs" entries (the welcome menu, LIZA, the games, the
   chat) are real links to these addresses on the machine in use: right-click or long-press, Copy link.
+
+- **An MCP server for coding agents.** `node cli/cloadm.js --mcp [--roms PATH] [--media-root DIR] [--read-only]`
+  serves the emulator to Claude Code, Cursor, Claude Desktop and any MCP client (`docs/mcp.md`): boot up to 8
+  machines, each addressed by the `machine_id` boot returns; the in-page Claude's own tools (`machine_info`,
+  `screen_text`, `peek`, `disassemble`, `poke`, `type_text`, `load_basic`, `press_break`, `assemble_and_load`, `run`)
+  with their schemas, results and refusals, run through the page's own code; and `run_frames` (it answers "not-yet"
+  with the screen rather than blocking: about 25 s at most, cancellable, with progress; `until` text on the screen as
+  a plain substring (no pattern waits), a byte in memory, the PC, the tape stopped or at its end, or the screen
+  changed), `press_keys` (keys held together, the arrows and other named keys included, and the joystick, for some
+  frames: for games), `find_bytes` (a hex pattern with `??` anywhere in memory), `step`, `registers`, `screenshot`
+  (the only tool that returns an image; always a whole frame, `mid_frame` when the machine stopped inside one; `scale`
+  up to 3), `reset`, `power_cycle`, `set_display`, `load` (a listing with or without RUN, saying what the keyboard
+  changed or dropped), `insert_tape`, `insert_disk`, `save_snapshot` (only `.cloadm-state` files, never over a file
+  that is not a snapshot or over the config file), `restore_snapshot`, `switch_machine`, `close_machine`,
+  `list_machines` and `list_models`. A tape in the deck shows in every machine summary (motor, position, block, end);
+  a machine booted without the user's ROMs says which files BASIC needs. When a condition on the screen is met,
+  `run_frames` finishes one more frame, so a screenshot shows what the condition saw (the picture follows video memory
+  by up to a frame). Errors have the in-page `{ code, remedy, detail }` shape; the program's own output comes labelled
+  as untrusted; files are read and written only under `--media-root` (resolved with realpath and opened without
+  following a link, so no `..` or link leads out, also one that leads nowhere yet; regular files only, at most 64 MB,
+  so a FIFO or a device never blocks the server); every tool is annotated read-only or destructive, and `--read-only`
+  offers only those that touch no input, memory or file (the others are hidden, and the server's instructions name
+  none of them). With no media root given, it is `~/CLOADM` (made on the first write). `--roms` and `--media-root` can
+  also come from `~/.config/cloadm/config.json` (`%APPDATA%\cloadm\config.json` on Windows); an empty value or an
+  unfilled `${...}` placeholder counts as not given. Both protocol eras on stdio: the `initialize` handshake
+  (2025-11-25 and earlier) and stateless 2026-07-28 (`server/discover`); lines of at most 4 MB, no batches, and a
+  cancellation reaches a queued call too. `--serve` gives the same tools over JSON lines. The tools are one
+  transport-neutral table (`js/mcp/tools.js`) that an HTTP transport or an MCP Apps view can mount later.
+  `tests/mcp.test.js` drives the real server over stdio.
 
 ### Changed
 
@@ -199,6 +228,17 @@ All notable changes to CLOADM are recorded here. The format follows
 - **The welcome menu's lines are tapped by their number.** A tap on a menu line presses the inverse-video number at
   its start, whichever row it is on, so the games menu and the carry-on line can be tapped too (before, rows 9-12
   were taken as 1-4 whatever the menu showed).
+
+- **The assembler takes a comment after an instruction with no operand without a `;`**, as Motorola's assemblers do:
+  `LSRA   shift the row bit` assembles (it was "LSRA takes no operand"); text that starts like an operand (`ABX 1`,
+  `LSRA ,X`) is still an error. After an operand a comment still needs `;`
+  (operands may hold spaces, as in `LDA #1 + 2`), and the error now says so. 6809, 6309 and 6803.
+
+- **Claude's `peek` returns hex rows** of 16 bytes with their address (`"$0400: 4C 49 5A …"`), not an array of
+  numbers, and `disassemble` each instruction's bytes as hex (`"31 3F"`): far fewer tokens for the same bytes.
+
+- **Claude's `screen_text` counts semigraphics blocks** on the VDG's text screen (`semigraphics`, with a `note`): a
+  picture made of blocks read as an empty screen before.
 
 ### Fixed
 
@@ -361,6 +401,11 @@ All notable changes to CLOADM are recorded here. The format follows
   the DAC). The Tandy service manual's resistor values (as MAME's `coco12.cpp` cites them) make it the weight of the
   DAC's top bit; `run.js <dragon64|dragon32|coco> --sound` measures it against MAME's `-wavwrite`, and
   `tests/cli-wav.test.js` pins it.
+
+- **Claude's `machine_info` named the MC6847 graphics modes wrongly from GM2 on**: PMODE 4 (GM7, $F8) read as
+  "256x192 4-colour" instead of 2-colour, and every mode from GM2 one step off. The names now come from the VDG's own
+  mode table (`js/chips/mc6847.js`), with the data sheet's names (CG1 … RG6), and the CoCo 3's legacy VDG modes name
+  their graphics mode too.
 
 ### 0.1.6-pre
 

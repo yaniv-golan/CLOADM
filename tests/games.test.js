@@ -554,7 +554,7 @@ WARMS   FCB     $57,$41,$52,$4D,0
 {
   const os = require('os'), { spawnSync } = require('child_process');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cloadm-games-'));
-  const cli = (args) => spawnSync(process.execPath, [path.join(ROOT, 'bin/cloadm.js'), ...args], { encoding: 'utf8' });
+  const cli = (args) => spawnSync(process.execPath, [path.join(ROOT, 'cli/cloadm.js'), ...args], { encoding: 'utf8' });
   const fix = (f) => path.join(__dirname, 'fixtures/games', f);
   const r1 = cli(['-m', 'dragon64', '--program', '2048', '--frames', '30', '--expect-screenshot', fix('2048-title.png'), '--poke', '$3003=$BE,$EF',
     '--type', ' ', '--frames', '20', '--type', '{LEFT}{UP}{LEFT}{UP}{RIGHT}{DOWN}', '--frames', '30', '--expect-screenshot', fix('2048-board.png')]);

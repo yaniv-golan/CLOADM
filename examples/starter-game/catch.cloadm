@@ -1,4 +1,4 @@
-# The starter game, played and checked by a script: node bin/cloadm.js --script examples/starter-game/catch.cloadm
+# The starter game, played and checked by a script: node cli/cloadm.js --script examples/starter-game/catch.cloadm
 # (from the repository root; tests/starter-game.test.js runs it). The game's seed is fixed, so the blocks fall in
 # the same columns every game: 13, 14, 23, 19, ...
 load examples/starter-game/catch.bin

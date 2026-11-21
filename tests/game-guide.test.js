@@ -18,7 +18,7 @@ const { spawnSync } = require('child_process');
 let fail = 0;
 const check = (name, cond, detail = '') => { if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log(`ok   ${name}`); };
 const ROOT = path.join(__dirname, '..');
-const CLI = path.join(ROOT, 'bin', 'cloadm.js');
+const CLI = path.join(ROOT, 'cli', 'cloadm.js');
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'cloadm-guide-'));
 const tmp = (n) => path.join(TMP, n);
 function cli(args) {
@@ -111,7 +111,7 @@ for (const [name, src] of Object.entries(examples)) {
   const sh = blocks('sh').find((b) => b.includes('--wav catch.wav'));
   const cmd = sh ? sh.replace(/\\\n\s*/g, ' ').split('\n')[0] : '';
   const args = [...cmd.matchAll(/'([^']*)'|(\S+)/g)].map((m) => (m[1] != null ? m[1] : m[2]));
-  check('the guide\'s WAV command is a cloadm command line', args[0] === 'node' && args[1] === 'bin/cloadm.js', cmd);
+  check('the guide\'s WAV command is a cloadm command line', args[0] === 'node' && args[1] === 'cli/cloadm.js', cmd);
   const r = cli(args.slice(2).map((a) => (a === 'catch.wav' ? tmp('catch.wav') : a)));
   check('the guide\'s WAV command gives the reference WAV byte for byte', r.code === 0
     && fs.readFileSync(tmp('catch.wav')).equals(fs.readFileSync(path.join(ROOT, 'tests', 'fixtures', 'starter-game', 'catch-sound.wav'))), r.err);
@@ -123,7 +123,7 @@ for (const [name, src] of Object.entries(examples)) {
     const b = blocks('sh').find((x) => x.startsWith(`# pattern: ${name}\n`));
     const cmd = b ? b.split('\n').slice(1).join('\n').replace(/\\\n\s*/g, ' ').split('\n')[0] : '';
     const a = [...cmd.matchAll(/'([^']*)'|(\S+)/g)].map((m) => (m[1] != null ? m[1] : m[2]));
-    return a[0] === 'node' && a[1] === 'bin/cloadm.js' ? a.slice(2) : null;
+    return a[0] === 'node' && a[1] === 'cli/cloadm.js' ? a.slice(2) : null;
   };
   const settle = argsOf('settle'), release = argsOf('release'), held = argsOf('held');
   check('the guide has the three pattern commands', settle && release && held);

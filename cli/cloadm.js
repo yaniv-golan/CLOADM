@@ -2,11 +2,12 @@
 // cloadm: the emulator on the command line, for CI and coding agents. Plain Node (built-ins only), no build step:
 // it drives the same Session the page does (js/session.js), headless, in emulated time only.
 //
-//   node bin/cloadm.js --machine coco --program liza --type 'I need a holiday\n' --wait-for 'text:WHY DO YOU NEED' --screen
+//   node cli/cloadm.js --machine coco --program liza --type 'I need a holiday\n' --wait-for 'text:WHY DO YOU NEED' --screen
 //
 // Every option after the machine setup is a STEP, run in the order given; --script FILE reads the same steps from a
 // file, one per line (`type I need a holiday\n`). --describe prints the whole interface as JSON (steps, exit and
-// error codes). The
+// error codes). --mcp runs a Model Context Protocol server on stdio for coding agents, and --serve the same tools over
+// JSON lines (cli/mcp.js, js/mcp/tools.js; docs/mcp.md). The
 // guide is docs/automation.md. Exit codes: 0 success, 1 a condition failed (wait-for timed out, expect-* did not
 // match), 2 usage error, 3 media or ROM error, 4 internal error; every error also has a stable `code`.
 //
@@ -14,6 +15,7 @@
 // budget, no fast-tape pacing), as fast as the host can run them, so the same inputs give the same frames and sound.
 'use strict';
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const zlib = require('zlib');
 const Emu = require('../js/emu.js');
@@ -363,7 +365,16 @@ function chunk(type, data) {
 }
 // a Frame (colour codes + table) as an RGBA PNG of the frame's own size
 const frameRgba = (frame) => { const p = Emu.frameToRGBA(frame); return Buffer.from(p.buffer, p.byteOffset, p.byteLength); };
-function framePng(frame) { return rgbaPng(frame.width, frame.height, frameRgba(frame)); }
+// scale: each pixel repeated that many times across and down (nearest neighbour)
+function framePng(frame, scale = 1) {
+  if (scale === 1) return rgbaPng(frame.width, frame.height, frameRgba(frame));
+  const fw = frame.width, w = fw * scale, h = frame.height * scale, px = Emu.frameToRGBA(frame), out = Buffer.alloc(w * h * 4);
+  for (let y = 0; y < h; y++) {
+    const src = ((y / scale) | 0) * fw;
+    for (let x = 0; x < w; x++) out.writeUInt32LE(px[src + ((x / scale) | 0)], (y * w + x) * 4);
+  }
+  return rgbaPng(w, h, out);
+}
 
 // a PNG file -> { width, height, rgba: Buffer of R,G,B,A }: grey or palette at 1, 2, 4 or 8 bits, RGB, grey+alpha or
 // RGBA at 8, not interlaced (what screenshot writes, and what image editors save); anything else is bad-media
@@ -816,7 +827,7 @@ function humanText(r) {
     case 'info': return `${r.name} (${r.machine}) ${Object.entries(r.config).map(([k, v]) => `${k}=${v}`).join(' ')} · ${r.roms ? 'your ROMs' : 'built-in firmware'} · frame ${r.frame} · PC ${Emu.hex(r.pc)}`;
     case 'registers': return regsText(r.registers);
     case 'step': return regsText(r.registers);
-    case 'disasm': return r.instructions.map((i) => `${Emu.hex(i.address)}  ${i.bytes.map(hex2).join(' ').padEnd(15)} ${i.text}`).join('\n');
+    case 'disasm': return r.instructions.map((i) => `${Emu.hex(i.address)}  ${i.bytes.padEnd(15)} ${i.text}`).join('\n');
     default: return null;
   }
 }
@@ -828,10 +839,12 @@ function describe() {
     name: 'cloadm',
     schemaVersion: SCHEMA_VERSION,
     description: 'Dragon 32/64/200, Tandy Color Computer 1/2/3 and MC-10 emulator, headless: run programs, type, wait for the screen, memory or PC, hold keys, read the screen as text, inspect and change memory and registers, save pictures and snapshots, compare the picture with a reference PNG, record the sound as a WAV. Emulated time only: the same inputs give the same results.',
-    usage: ['node bin/cloadm.js [--json] [steps...]', 'node bin/cloadm.js [--json] --script FILE', 'node bin/cloadm.js --describe'],
+    usage: ['node cli/cloadm.js [--json] [steps...]', 'node cli/cloadm.js [--json] --script FILE', 'node cli/cloadm.js --describe', 'node cli/cloadm.js --mcp | --serve [--roms PATH] [--media-root DIR] [--read-only]'],
     modes: {
       'command line': 'steps as options, run in order; --json prints one object { ok, exit, machine, steps, roms?, error? }',
       script: '--script FILE: one step per line, "name argument" (the rest of the line; one surrounding pair of double quotes is taken off), # comments',
+      mcp: '--mcp: a Model Context Protocol server on stdio; its tools and their schemas come from tools/list (docs/mcp.md)',
+      serve: '--serve: the MCP tools over JSON lines: { id, tool, arguments } in, { id, ok, result | error } out (docs/mcp.md)',
     },
     exitCodes: EXIT_TEXT,
     errorCodes: Object.fromEntries(Object.entries(ERROR_CODES).map(([c, [kind, text]]) => [c, { kind, exit: EXIT[kind], description: text }])),
@@ -848,15 +861,18 @@ function helpText() {
   const rows = Object.entries(STEPS).map(([n, d]) => `  --${n}${d.arg ? ` ${d.optionalArg ? `[${d.arg}]` : d.arg}` : ''}`.padEnd(30) + d.help);
   return `cloadm: run a Dragon, Tandy CoCo or MC-10 headless, for CI and coding agents
 
-Usage: node bin/cloadm.js [--json] [steps...]
-       node bin/cloadm.js [--json] --script FILE
-       node bin/cloadm.js --describe
+Usage: node cli/cloadm.js [--json] [steps...]
+       node cli/cloadm.js [--json] --script FILE
+       node cli/cloadm.js --describe
+       node cli/cloadm.js --mcp | --serve [--roms PATH] [--media-root DIR] [--read-only]
 
 Steps run in the order given; machine, option, roms, no-roms and fast-cas come first.
 ${rows.join('\n')}
   --script FILE                 read steps from FILE, one per line: "name argument" (# comments)
   --json                        print one JSON object with every step's result instead of text
   --describe                    the whole interface as JSON: steps, exit and error codes
+  --mcp                         a Model Context Protocol server on stdio for coding agents (docs/mcp.md)
+  --serve                       the same tools over JSON lines on stdin and stdout
   --list-machines               list the models and their options (with --json: as JSON)
   --help                        this text
 
@@ -875,8 +891,77 @@ const errorJson = (e) => Object.assign({ kind: e.kind, code: e.code, message: e.
 // anything thrown -> a CliError (a bug becomes 'internal' with its stack)
 const asCliError = (e) => (e instanceof CliError ? e : new CliError('internal', `internal error: ${e && e.stack || e}`));
 
+// ---------------- --mcp and --serve ----------------
+// node cli/cloadm.js --mcp|--serve [--roms PATH]... [--media-root DIR] [--read-only]
+// A value that says nothing: empty, or a placeholder a launcher did not fill in ("${user_config.roms}": plugin hosts
+// pass unset settings through as written, or as "")
+const unset = (v) => v === '' || /\$\{[^}]*\}/.test(v);
+function parseServerArgs(argv) {
+  const o = { mode: null, roms: [], mediaRoot: null, readOnly: false };
+  for (let i = 0; i < argv.length; i++) {
+    const m = /^--([a-z-]+)(?:=([\s\S]*))?$/.exec(argv[i]);
+    // --roms=VALUE or --roms VALUE; a value that says nothing counts as not given; --roms with nothing after it is an error
+    const name = m && m[1], value = () => { const v = m[2] != null ? m[2] : argv[++i]; if (v == null) throw usage(`--${name} needs a path`); return unset(v) ? null : v; };
+    if (name === 'mcp' || name === 'serve') { if (o.mode) throw usage('--mcp or --serve, not both'); o.mode = name; }
+    else if (name === 'roms') { const v = value(); if (v) o.roms.push(v); }
+    else if (name === 'media-root') { const v = value(); if (v) { if (o.mediaRoot) throw usage('one --media-root'); o.mediaRoot = v; } }
+    else if (name === 'read-only') o.readOnly = true;
+    else throw usage(`--${o.mode || 'mcp'} takes --roms PATH, --media-root DIR and --read-only, not ${argv[i]}`, 'unknown-step');
+  }
+  return o;
+}
+// The server's settings file: %APPDATA%\cloadm\config.json on Windows, ~/.config/cloadm/config.json elsewhere
+function configPath() {
+  return process.platform === 'win32' && process.env.APPDATA ? path.join(process.env.APPDATA, 'cloadm', 'config.json') : path.join(os.homedir(), '.config', 'cloadm', 'config.json');
+}
+// { roms: [path], mediaRoot: path | null } from the settings file (none: both unset). A path may be ~ or start with ~/ and is
+// otherwise taken relative to the file's directory; empty values and unfilled placeholders count as unset.
+function readConfig(file) {
+  let text;
+  try { text = fs.readFileSync(file, 'utf8'); } catch (e) {
+    if (e.code === 'ENOENT') return { roms: [], mediaRoot: null };
+    throw usage(`cannot read the config file ${file}: ${e.code || e.message}`, 'cannot-read');
+  }
+  let c;
+  try { c = JSON.parse(text); } catch (e) { throw usage(`the config file ${file} is not valid JSON (${e.message})`); }
+  if (!c || typeof c !== 'object' || Array.isArray(c)) throw usage(`the config file ${file} must hold an object: { "roms": ["/path/to/roms"], "mediaRoot": "/path/to/project" }`);
+  const extra = Object.keys(c).filter((k) => k !== 'roms' && k !== 'mediaRoot');
+  if (extra.length) throw usage(`the config file ${file} has ${extra.map((k) => `"${k}"`).join(', ')}: it takes "roms" and "mediaRoot"`);
+  const where = (v) => (v === '~' ? os.homedir() : v.startsWith('~/') ? path.join(os.homedir(), v.slice(2)) : path.resolve(path.dirname(file), v));
+  const roms = c.roms == null ? [] : typeof c.roms === 'string' ? [c.roms] : c.roms;
+  if (!Array.isArray(roms) || roms.some((r) => typeof r !== 'string')) throw usage(`the config file ${file}: "roms" is a path or a list of paths`);
+  if (c.mediaRoot != null && typeof c.mediaRoot !== 'string') throw usage(`the config file ${file}: "mediaRoot" is a path`);
+  return { roms: roms.filter((r) => !unset(r)).map(where), mediaRoot: c.mediaRoot == null || unset(c.mediaRoot) ? null : where(c.mediaRoot) };
+}
+async function server(argv, { input, out, err }) {
+  const o = parseServerArgs(argv);
+  // each setting from the command line, else from the config file, else unset
+  const file = configPath(), c = readConfig(file);
+  const from = { roms: o.roms.length ? 'command line' : c.roms.length ? 'config file' : null, mediaRoot: o.mediaRoot ? 'command line' : c.mediaRoot ? 'config file' : 'default' };
+  if (!o.roms.length) o.roms = c.roms;
+  if (!o.mediaRoot) o.mediaRoot = c.mediaRoot;
+  // neither: a folder the person can find, ~/CLOADM (%USERPROFILE%\CLOADM on Windows), made on the first write
+  const createRoot = !o.mediaRoot;
+  if (createRoot) o.mediaRoot = path.join(os.homedir(), 'CLOADM');
+  const roms = o.roms.flatMap(romFiles);   // read once: the user's own files, never sent to a client
+  if (!createRoot) {
+    let st;
+    try { st = fs.statSync(o.mediaRoot); } catch (e) { throw media(`cannot read the media root ${o.mediaRoot}: ${e.code || e.message}`, 'cannot-read'); }
+    if (!st.isDirectory()) throw media(`the media root ${o.mediaRoot} is not a directory`, 'cannot-read');
+  }
+  const M = require('./mcp.js');
+  const T = require('../js/mcp/tools.js');
+  const toolbox = T.createToolbox(M.nodeHost({ mediaRoot: o.mediaRoot, createRoot, roms, png: framePng, configPath: file }), { readOnly: o.readOnly });
+  err(`cloadm ${o.mode}: ${toolbox.tools().length} tools${o.readOnly ? ' (read-only)' : ''}, ${roms.length} ROM file(s)${from.roms ? ` (${from.roms})` : ''}, media root ${createRoot ? o.mediaRoot : fs.realpathSync(o.mediaRoot)} (${from.mediaRoot}); config file ${file}`);
+  return o.mode === 'mcp' ? M.mcp({ toolbox, input, out }) : M.serve({ toolbox, input, out });
+}
+
 // ---------------- main ----------------
-async function main(argv, { out = (t) => process.stdout.write(t + '\n'), err = (t) => process.stderr.write(t + '\n') } = {}) {
+async function main(argv, { out = (t) => process.stdout.write(t + '\n'), err = (t) => process.stderr.write(t + '\n'), input = process.stdin } = {}) {
+  if (argv.includes('--mcp') || argv.includes('--serve')) {
+    // stdout is the protocol's: an error starting the server goes to stderr only
+    try { return await server(argv, { input, out, err }); } catch (e) { const error = asCliError(e); err(`cloadm: ${error.message}`); return EXIT[error.kind]; }
+  }
   let opts = { json: argv.includes('--json') };
   const runner = new Runner();
   const finish = (code, error = null) => {

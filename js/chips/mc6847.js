@@ -119,6 +119,7 @@ const GMODES = [
   [32, 1, 2], // GM6 CG6 128x192  4c
   [32, 1, 1], // GM7 RG6 256x192  2c
 ];
+const GMODE_NAMES = ['CG1', 'RG1', 'CG2', 'RG2', 'CG3', 'RG3', 'CG6', 'RG6'];   // GMODES' rows, as the data sheet names them
 
 // External character mode (INT/EXT high, AS low) with no external character ROM fitted, as on the
 // Dragon and CoCo: every row of the cell is the complement of the byte's low seven bits, so the
@@ -205,6 +206,12 @@ class MC6847 {
   // modes, 16 in the 16-byte graphics modes (GMODES gives those as 16)
   static bytesPerLine(modeByte) {
     return modeByte & 0x80 ? GMODES[(modeByte >> 4) & 7][0] : 32;
+  }
+  // graphics mode GM (0-7) as the data sheet names it, with its picture: { name: 'CG1'..'RG6', width, height, colours }
+  // (from GMODES: bytes per line x 8 / bits per pixel across, 192 lines / lines per row down)
+  static graphicsMode(gm) {
+    const [bytes, rows, bits] = GMODES[gm & 7];
+    return { name: GMODE_NAMES[gm & 7], width: bytes * 8 / bits, height: 192 / rows, colours: 1 << bits };
   }
   // clocks since the line began (HS on) -> active byte position, MAME's rule (mc6847.cpp
   // scanline_position_from_clock): the first visible pixel 25 clocks in, four clocks per position.

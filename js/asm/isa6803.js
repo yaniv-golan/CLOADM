@@ -7,7 +7,7 @@
  * instruction has a direct form. Both 6800-style (LDAA, STAB, ORAA, CPX) and 6809-style
  * (LDA, STB, ORA, CMPX) names are accepted.
  */
-import { AsmError, fit, splitArgs } from './syntax.js';
+import { AsmError, fit, splitArgs, noOperand } from './syntax.js';
 
 const INH = {
   NOP: 0x01, LSRD: 0x04, ASLD: 0x05, LSLD: 0x05, TAP: 0x06, TPA: 0x07, INX: 0x08, DEX: 0x09,
@@ -53,7 +53,7 @@ function offset8(ev, off) {
 
 function encode(mn, opnd, ctx) {
   const { pc, ev, pass, line, hints } = ctx;
-  if (INH[mn] !== undefined) { if (opnd) throw new AsmError(mn + ' takes no operand'); return [INH[mn]]; }
+  if (INH[mn] !== undefined) { noOperand(mn, opnd); return [INH[mn]]; }
   if (BRANCH[mn] !== undefined) {
     const off = ev(opnd).value - (pc + 2);
     if (pass === 2 && (off < -128 || off > 127)) throw new AsmError('branch out of range');

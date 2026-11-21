@@ -7328,7 +7328,7 @@ async function consentFullscreenChecks(browser, base, check) {
   try { disJson = JSON.parse(dis[0].content); } catch (e) { /* checked below */ }
   check(`${L}: disassemble runs with the switch OFF and returns the machine's own CPU and mnemonics`,
     Array.isArray(dis) && !dis[0].is_error && disJson && disJson.cpu === '6809' && disJson.count === 2
-    && disJson.instructions.length === 2 && disJson.instructions.every((i) => typeof i.text === 'string' && Array.isArray(i.bytes))
+    && disJson.instructions.length === 2 && disJson.instructions.every((i) => typeof i.text === 'string' && /^[0-9A-F]{2}( [0-9A-F]{2})*$/.test(i.bytes) && i.bytes.split(' ').length === i.size)
     && await page.isHidden('#claudeConsentAsk') && await page.evaluate(() => !window.emu.session.claudeAllowed),
     JSON.stringify(dis && dis[0]));
 

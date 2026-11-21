@@ -11,6 +11,13 @@ class AsmError extends Error {
   }
 }
 
+// What follows a mnemonic that takes no operand. Motorola's convention makes it a comment ("LSRA   shift the row bit",
+// no ; needed), but text that starts like an operand ("ABX 1", "LSRA ,X") is almost always a mistake, not a remark, so
+// it stays an error.
+function noOperand(mn, rest) {
+  if (rest && /^[#$%0-9,[<>(+\-'@]/.test(rest)) throw new AsmError(`${mn} takes no operand (a comment after it that starts like one needs ;)`);
+}
+
 // ---------- expressions ----------
 function evalExpr(text, ctx) {
   let p = 0;
@@ -66,7 +73,8 @@ function evalExpr(text, ctx) {
   }
   const v = sum();
   ws();
-  if (p !== s.length) throw new AsmError('junk in expression "' + text + '"');
+  // an operand may hold spaces ("1 + 2"), so a comment after one needs its ;
+  if (p !== s.length) throw new AsmError('junk in expression "' + text + '"' + (/\s/.test(text) ? ' (a comment after an operand needs ;)' : ''));
   return { value: v, unresolved };
 }
 
@@ -94,4 +102,4 @@ function splitArgs(s) {
   return out.map((x) => x.trim());
 }
 
-export { AsmError, splitArgs, evalExpr, fit };
+export { AsmError, splitArgs, evalExpr, fit, noOperand };

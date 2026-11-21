@@ -10,9 +10,11 @@ don't load ES modules from `file://`.
 
 ## The command line and the Node API
 
-`node bin/cloadm.js` runs any model headless from a script or CI: load a program, type, wait for text on the screen,
+`node cli/cloadm.js` runs any model headless from a script or CI: load a program, type, wait for text on the screen,
 a byte or the PC, read the screen, memory and registers, step and disassemble, save PNGs and snapshots, with `--json`
-output, exit codes and error codes; `--describe` gives the whole interface as JSON.
+output, exit codes and error codes; `--describe` gives the whole interface as JSON. `node cli/cloadm.js --mcp` is the
+MCP server for coding agents ([mcp.md](mcp.md)): the tools in `js/mcp/tools.js`, transport-neutral, mounted on stdio
+by `cli/mcp.js`.
 [automation.md](automation.md) is the guide, with the Node API under it and what of it is stable.
 
 ## The fast loop
@@ -36,7 +38,7 @@ names contain one of the parts, and `node tools/browser-check.js --only <group>[
 | Keyboard and input | `input,keyqueue,keyboard-symbols,touch-joystick,press-break` | `input,inputScreen,touchJoystick,keyboardSymbols,typing` |
 | `js/session.js`, snapshots | `session,snapshot,state,restore-points` | `snapshot,state` |
 | The Claude chat and Ask Claude | `claude,chat-firmware` | `claude,ask,commands,chatScreen` |
-| `bin/cloadm.js` (the command line) | `cli,game-guide,starter-game` | none |
+| `cli/` (the command line and the MCP server) | `cli,mcp,game-guide,starter-game` | none |
 | `examples/` (a program or game) | `pwa,starter-game,game-guide,welcome` and the example's own suite | `pwa` (and the group that offers it) |
 | `js/ui/`, `play/`, `css/`, `index.html` | `session,readme` | the panel's groups, then the whole check |
 | Docs (`README.md`, `docs/`) | `readme,romdocs,game-guide` | none |
@@ -107,8 +109,9 @@ node tests/carts.test.js     # cartridges: SN76489A, banked ROM, Orchestra-90, M
 node tests/session.test.js   # Session: model switching, ROM sockets, loading every file kind, pacing
 node tests/reset.test.js     # Reset: never changes the machine, keeps RAM for a program's warm start, the boot watchdog arms only on a power-on, ROM-drop offers
 node tests/snapshot-boot.test.js   # a snapshot opened is not a power-on: no boot failure after it, while a real power-on still has one
-node tests/cli.test.js       # bin/cloadm.js as a child process: exit codes, --json, wait-for, typing, screen text, PNG pixels, snapshots, scripts, the guide's examples
-node tests/cli-agent.test.js # bin/cloadm.js beyond the basics: --describe, error codes, the debugger steps against the Session's debugger, DriveWire stalls, special keys, script quoting, --view
+node tests/cli.test.js       # cli/cloadm.js as a child process: exit codes, --json, wait-for, typing, screen text, PNG pixels, snapshots, scripts, the guide's examples
+node tests/mcp.test.js       # the MCP server over stdio: both protocol eras, every tool's results and errors against the in-page tools, handles, --read-only, the media root, cancellation, --serve
+node tests/cli-agent.test.js # cli/cloadm.js beyond the basics: --describe, error codes, the debugger steps against the Session's debugger, DriveWire stalls, special keys, script quoting, --view
 node tests/cli-wav.test.js   # --wav: a known DAC pattern's levels and timing, determinism, snapshots mid-sound, the box filter of the level events
 node tests/cli-screenshot.test.js  # --expect-screenshot (tolerance, diff, PNG layouts, errors) and --hold
 node tests/starter-game.test.js    # the starter game: its build, play script, picture and sound references, and mutants that must fail

@@ -31,7 +31,7 @@ const LOW_MS = 10, HIGH_MS = 80, MAX_MS = 150, STEER = 0.005;
 class AudioOutput {
   // sink: where the samples go (write(chunk), buffered()); a SampleQueue unless the page plays them elsewhere.
   // highPass false: no DC-blocking filter, so a sample is the machine's level averaged over its window, times the
-  // volume (the command line's --wav recording, bin/cloadm.js, whose levels a test can check exactly)
+  // volume (the command line's --wav recording, cli/cloadm.js, whose levels a test can check exactly)
   constructor(rate, sink = new SampleQueue(rate), { highPass = true } = {}) {
     this.rate = rate;
     this.sink = sink;
