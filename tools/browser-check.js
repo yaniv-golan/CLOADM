@@ -58,6 +58,8 @@
 const http = require('http'), fs = require('fs'), path = require('path'), os = require('os'), zlib = require('zlib');
 // the snapshot format this tree writes (the version checks build a newer file from it)
 const { SNAPSHOT_VERSION } = require('../tests/load')();
+// the settle bound is the audio module's own derivation, never a literal here (see SETTLE_MS in js/host/audio.js)
+const { SETTLE_MS } = require('../js/host/audio.js');
 // Playwright is loaded once the run starts (--list-groups needs no browser, so the CI shard planner runs without it)
 let chromium;
 
@@ -1046,9 +1048,19 @@ async function audioChecks(browser, base, check) {
     `paused ${pausedState}, resumed ${resumedState}, hidden ${hiddenState}, shown ${shownState}`);
 
   // the tone: the machine's own events give its period in cycles; the played samples' rising zero crossings over
-  // a second of full blocks give its frequency (to the resampler's steering, at most 0.5%, and one crossing)
+  // a second of full blocks give its frequency (to one crossing, once the resampler has SETTLED -- while it is
+  // recovering from a stall the ratio is held at +-2% until the queue reaches TARGET_MS, so a check that sampled
+  // then would measure a deliberate detune, not the machine: CI measured 451.39 for a 456.64 Hz tone this way).
   await load(square);
   await wait(); await wait();
+  // Wait for the steering to settle: mode NONE (0) means the ratio is exactly 1. The bound is SETTLE_MS from
+  // js/host/audio.js, derived there from the module's own constants: the ratio is applied per frame of AUDIO
+  // time, so a queue at the ceiling (MAX_MS) needs about (MAX_MS - TARGET_MS) / RECOVER = 5.5 s to arrive, plus
+  // a stated slack; measured from a 149 ms queue in simulated real time it was 3.95 s at 44.1 kHz and 4.18 s at
+  // 48 kHz. A correction that never converges therefore fails HERE, by name, instead of being waited out.
+  const settled = await waitFor(page, () => window.emu.audio && window.emu.audio.out && window.emu.audio.out.mode === 0, null, SETTLE_MS);
+  check('sound: the resampler settles (ratio exactly 1) before the tone is measured', settled,
+    await page.evaluate(() => JSON.stringify({ mode: window.emu.audio && window.emu.audio.out ? window.emu.audio.out.mode : null })));
   const tone = await page.evaluate(() => {
     const m = window.emu.machine, ev = m.audioEvents, ts = [];
     for (let i = 2; i < ev.length; i += 2) if (ev[i + 1] !== ev[i - 1]) ts.push(ev[i]);
@@ -1942,9 +1954,22 @@ async function visitChecks(browser, base, check) {
   await page.click('#shelf :is(a, button):text-is("Colour demo")');
   check('shelf: the colour demo runs', await waitFor(page, () => /demo\.bin/.test(document.getElementById('toast').textContent)));
   // the machine question, answered once
+  // count the menu starts for that answer: the switch starts it ONCE (Session.chooseMachine -> offer 'none'), and
+  // the page must start nothing of its own. A second start draws the same screen, so the count is the only witness.
+  await page.evaluate(() => {
+    const s = window.emu.session;
+    window.__starts = 0;
+    if (!s.__counted) { const orig = s.startWelcome.bind(s); s.startWelcome = (b, o) => { window.__starts++; return orig(b, o); }; s.__counted = true; }
+  });
   await page.click('#askMachine button[data-machine="coco"]');
   check('machine question: switches machine and the welcome program runs there', await waitFor(page, () => window.emu.machine.id === 'coco' && window.emu.session.welcomeRunning && window.emu.session.screenText()[14].includes('PRESS 1 TO 5'))
     && !(await page.$('#askMachine')));
+  check('machine question: the menu is started exactly once (no second start from the page)',
+    await page.evaluate(() => window.__starts) === 1, String(await page.evaluate(() => window.__starts)));
+  // a first-time visitor is greeted as one: the title row, not "WELCOME BACK" (the question is asked only first time)
+  check('machine question: a first-time visitor gets the first-visit menu, not WELCOME BACK',
+    await page.evaluate(() => window.emu.session.screenText()[6].trim()) === 'DRAGON AND COLOR COMPUTER',
+    await page.evaluate(() => window.emu.session.screenText()[6].trim()));
   // a program of the user's own, then a return visit
   await page.setInputFiles('#fileProgram', { name: 'mine.bin', mimeType: 'application/octet-stream', buffer: fs.readFileSync(path.join(ROOT, 'examples/demo.bin')) });
   await waitFor(page, () => !document.getElementById('mediaOffer').hidden);
@@ -2370,6 +2395,46 @@ async function mediaChecks(browser, base, check) {
   });
   check('paste: pasted text types itself in', await waitFor(page, () => window.emu.session.screenText().join('\n').includes('> I FEEL HAPPY')),
     (await page.evaluate(() => window.emu.session.screenText().slice(5, 9).join('|'))));
+  // ---- the Media tab's "Recent on this machine": a row loads what it says, and two files of one name are told
+  // apart (js/ui/drawer.js). The row's index comes from the SAME list it was drawn from: recentMedia() hands out
+  // copies, so the old indexOf() on a second call was always -1 and every row said the file was no longer stored.
+  {
+    // two VALID programs of one name with different bytes. examples/2048.bin is a DragonDOS binary: a 10-byte
+    // header ($55, length, load, exec, checksum) and then the program, which lands at $3000. Its last byte is
+    // its end marker ($FF x3 style footer), so the byte that differs is taken from INSIDE the program: offset
+    // 0x100 into the file is $3000 + 0x100 - 10 in RAM.
+    const A = Buffer.from(fs.readFileSync(path.join(ROOT, 'examples/2048.bin')));
+    const OFF = 0x100;
+    const B = Buffer.from(A); B[OFF] = A[OFF] ^ 0xFF;
+    const ramAt = 0x3000 + (OFF - 9);             // the 9-byte header is followed by the program at $3000
+    const wantA = A[OFF], wantB = B[OFF];
+    await page.setInputFiles('#fileProgram', { name: 'recent-one.bin', mimeType: 'application/octet-stream', buffer: A });
+    await waitFor(page, () => [...document.querySelectorAll('#recentList .row')].some((b) => b.textContent.includes('recent-one.bin')));
+    const rowsBefore = await page.$$eval('#recentList .row', (x) => x.map((e) => e.textContent));
+    await page.click('#recentList .row');
+    // the click loads it, on the machine it was loaded on: no "no longer stored" toast
+    check('recent: clicking a Recent row loads it (no "no longer stored")',
+      await waitFor(page, () => !document.getElementById('toast') || document.getElementById('toast').hidden
+        || !/no longer stored/.test(document.getElementById('toast').textContent)), await page.textContent('#toast'));
+    check('recent: the clicked row loaded the program it named',
+      await waitFor(page, ([a, want]) => window.emu.machine.ram[a] === want, [ramAt, wantA]),
+      `$${(await page.evaluate((a) => window.emu.machine.ram[a], ramAt)).toString(16)} want $${wantA.toString(16)}`);
+    await page.setInputFiles('#fileProgram', { name: 'recent-one.bin', mimeType: 'application/octet-stream', buffer: B });
+    await waitFor(page, () => [...document.querySelectorAll('#recentList .row')].filter((b) => b.textContent.includes('recent-one.bin')).length === 2);
+    const rows = await page.$$eval('#recentList .row', (x) => x.map((e) => e.textContent));
+    check('recent: two files of one name with different bytes are two rows, the older told apart',
+      rows.filter((t) => t.includes('recent-one.bin')).length === 2 && /2nd/.test(rows.join('|')), rows.join(' | '));
+    if (shotDir) await page.locator('#panel-media').screenshot({ path: path.join(shotDir, 'recent-two-copies.png') });
+    // the older (2nd) row loads the OLDER program: the byte that differs is A's again, not B's
+    const second = await page.$$eval('#recentList .row', (x) => x.findIndex((e) => /2nd/.test(e.textContent)));
+    await page.$$eval('#recentList .row', (x, i) => x[i].click(), second);
+    check('recent: the older copy loads its OWN program (the differing byte is the older one\'s)',
+      await waitFor(page, ([a, want]) => window.emu.machine.ram[a] === want, [ramAt, wantA]),
+      `$${(await page.evaluate((a) => window.emu.machine.ram[a], ramAt)).toString(16)} want $${wantA.toString(16)} (the newer copy has $${wantB.toString(16)})`);
+    // the drawer lists EVERY recent entry for this machine, including ones this group did not load (game.bin
+    // above), so the count is not 1; what must hold is that ours is there once.
+    check('recent: before the second load there is one row of this name', rowsBefore.filter((t) => t.includes('recent-one.bin')).length === 1, rowsBefore.join(' | '));
+  }
   check('media: no page errors', !errors.length, errors.join('; '));
   await ctx.close();
 }
@@ -6713,8 +6778,8 @@ async function inputScreenChecks(browser, base, check) {
             if (c.l < safe.l - 0.5 || c.t < safe.t - 0.5 || c.r > safe.r + 0.5 || c.b > safe.b + 0.5) bad.push(`${c.name} outside the safe viewport`);
             if (cross(c, screen)) bad.push(`${c.name} over the screen`);
             if (c.el.scrollWidth > c.el.clientWidth) bad.push(`${c.name} clipped (${c.el.scrollWidth} > ${c.el.clientWidth})`);
-            // label in name (WCAG 2.5.3): a name set apart from the text still holds the text shown (SPC in "SPACE (SPC)")
-            if (c.el.hasAttribute('aria-label') && !c.name.toLowerCase().includes(c.el.innerText.trim().toLowerCase())) bad.push(`${c.name}: its name lacks its label "${c.el.innerText.trim()}"`);
+            // (label in name, WCAG 2.5.3, is checked over EVERY touch surface below, not only this row: the row
+            // covers the landscape controls, and the nits asked for the whole page or a narrower claim)
             for (const d of ctl) if (d !== c && cross(c, d) && !c.el.contains(d.el) && !d.el.contains(c.el)) bad.push(`${c.name} over ${d.name}`);
           }
           if (screen.t < safe.t - 0.5 || screen.b > safe.b + 0.5 || screen.l < safe.l - 0.5 || screen.r > safe.r + 0.5) bad.push('the screen outside the safe viewport');
@@ -6728,6 +6793,26 @@ async function inputScreenChecks(browser, base, check) {
           }
           return { names: ctl.map((c) => c.name), keys: keys.length, bad, fits: document.documentElement.scrollWidth <= innerWidth && document.documentElement.scrollHeight <= innerHeight + 1 };
         }, inset || { top: 0, bottom: 0, left: 0, right: 0 });
+        // label in name (WCAG 2.5.3) over every touch surface on the page, whichever layout: each control whose
+        // accessible name is set apart from its visible text must still contain that text (so a voice user saying
+        // what they see reaches it). The landscape row used to be the only place this ran; this covers the keys,
+        // the stick, FIRE, the menu, BREAK/CLEAR and the switch in every layout the group opens.
+        const ln = await page.evaluate(() => {
+          const bad = [];
+          for (const e of document.querySelectorAll('#touchKeys button, #touchStick, #touchFire, #tkBreak, #tkClear, #tkMenu, #tkModeSwitch button, #btnShowKeys')) {
+            if (!e.checkVisibility() || !e.getBoundingClientRect().width) continue;
+            if (!e.hasAttribute('aria-label')) continue;
+            // The name must hold the visible text. A WORD is a run of letters or digits, so a one-character key
+            // ("A", "1") is a word too and must be in its name; pure symbol glyphs are not words, because they can
+            // be decoration drawn beside a word ("←" above "DEL"), and WCAG also treats them as non-text.
+            const name = e.getAttribute('aria-label').toLowerCase();
+            const text = e.innerText.toLowerCase().replace(/\s+/g, ' ').trim();
+            const missing = (text.match(/[\p{L}\p{N}]+/gu) || []).filter((w) => !name.includes(w));
+            if (missing.length) bad.push(`${e.getAttribute('aria-label')}: its name lacks "${missing.join(' ')}"`);
+          }
+          return bad;
+        });
+        check(`${L}: every control's accessible name contains its visible text (WCAG label in name)`, !ln.length, ln.join('; '));
         const want = ['BREAK', 'CLEAR', 'Menu', 'Keys', 'Joystick'];
         check(`${L}: BREAK, CLEAR, the switch and Menu whole, inside the viewport and its safe area, clear of the screen and each other${mode === 'keys' ? '; split keys at least 40 px tall' : '; the strip and FIRE too'}`,
           want.every((n) => lay.names.includes(n)) && (mode === 'keys' ? lay.keys >= 40 : lay.names.includes('Fire') && lay.names.includes('SPACE (SPC)')) && !lay.bad.length && lay.fits, JSON.stringify(lay));
@@ -6754,9 +6839,12 @@ async function inputScreenChecks(browser, base, check) {
       for (const [id, cls] of show.classes || []) (id === 'body' ? document.body : document.getElementById(id)).classList.add(cls);
       const e = document.querySelector(sel);
       if (!e || !e.checkVisibility({ visibilityProperty: true })) return { sel, shown: false };
-      const r = e.getBoundingClientRect();
+      const r = e.getBoundingClientRect(), pos = getComputedStyle(e).position;
       const ok = r.width > 0 && r.left >= ins.left - 0.5 && r.top >= ins.top - 0.5 && r.right <= innerWidth - ins.right + 0.5 && r.bottom <= innerHeight - ins.bottom + 0.5;
-      return { sel, shown: true, ok, rect: [r.left, r.top, r.right, r.bottom].map(Math.round), safe: [ins.left, ins.top, innerWidth - ins.right, innerHeight - ins.bottom] };
+      // fixed: a box placed inside the safe area by normal flow would scroll out of it, and the inset is about
+      // what stays put over the page. Read here, so every overlay's check asks the same question.
+      return { sel, shown: true, pos, fixed: pos === 'fixed', ok,
+        rect: [r.left, r.top, r.right, r.bottom].map(Math.round), safe: [ins.left, ins.top, innerWidth - ins.right, innerHeight - ins.bottom] };
     }, [sel, ins, show]);
     const SIDE = { top: 0, bottom: 21, left: 59, right: 59 }, UP = { top: 47, bottom: 34, left: 0, right: 0 };
     for (const [label, viewport, ins] of [['sideways 932x430', { width: 932, height: 430 }, SIDE], ['upright 390x844', { width: 390, height: 844 }, UP]]) {
@@ -6769,7 +6857,9 @@ async function inputScreenChecks(browser, base, check) {
         await page.goto(`${base}?machine=dragon64&start=liza`);
         await waitFor(page, () => window.emu && window.emu.session.screenText().join('').includes('I AM LIZA'));
         const s = await inside(page, '#claudeStatus', ins, { ids: ['claudeBar', 'claudeStatus'], classes: [['body', 'chat-phone']] });
-        check(`${L}: the chat's turn status beside the screen lies inside the safe area`, s.shown && s.ok, JSON.stringify(s));
+        // 3c: and it is position:fixed, the thing that makes an inset a meaningful test (a flow box inside the
+        // safe area scrolls away; the status is an overlay)
+        check(`${L}: the chat's turn status beside the screen is fixed and lies inside the safe area`, s.shown && s.fixed && s.ok, JSON.stringify(s));
         await ctx.close();
       }
       // a pointer and a keyboard: a toast, the install card, the command box, Ask Claude and the page view's status pill
@@ -6806,8 +6896,11 @@ async function inputScreenChecks(browser, base, check) {
           await emuFrames(page, 3);
           const e = await inside(page, '#toast', ins);
           await page.evaluate(() => { document.getElementById('testObstacle').remove(); window.emu.feedback.clear(); });
-          check(`${L}: with only the notch's edge free along the bottom, the toast is not put there (inside the safe area, or waiting)`,
-            edge && (!e.shown || e.ok), JSON.stringify(e));
+          // A toast that never appears would satisfy "not put under the notch" while proving nothing, so this
+          // needs the toast to be VISIBLE (shown with a box) and, wherever it went, inside the safe area: the
+          // "or waiting" the old wording allowed let a toast that never showed pass.
+          check(`${L}: with only the notch's edge free along the bottom, the toast still shows, inside the safe area`,
+            edge && e.shown && e.ok, JSON.stringify(e));
         }
         if (lib) { await page.evaluate(() => { location.hash = ''; }); await waitFor(page, () => !document.body.classList.contains('library-open')); }
         await page.click('#machineBtn'); await page.click('#navInstall');   // (no install prompt: the card with the steps)
@@ -6832,9 +6925,12 @@ async function inputScreenChecks(browser, base, check) {
         const ask = await inside(page, '#ask', ins);
         check(`${L}: the Ask Claude ${viewport.width <= 700 ? 'sheet' : 'panel'} lies inside the safe area`, ask.shown && ask.ok, JSON.stringify(ask));
         const pill = await inside(page, '#viewClaude', ins, { ids: ['viewClaude'] });
-        let top = { shown: true, ok: true };
-        if (viewport.width > viewport.height) top = await inside(page, '#viewClaude', ins, { ids: ['viewClaude'], classes: [['viewClaude', 'top']] });
-        check(`${L}: the status pill lies inside the safe area${viewport.width > viewport.height ? ', at the bottom and at the top' : ''}`, pill.shown && pill.ok && top.shown && top.ok, JSON.stringify([pill, top]));
+        // sideways there are two places (the bottom and the .top one); upright only the bottom, so only the
+        // placements that really exist are asserted (a made-up third value would make the check vacuous upright)
+        const sideways = viewport.width > viewport.height;
+        const top = sideways ? await inside(page, '#viewClaude', ins, { ids: ['viewClaude'], classes: [['viewClaude', 'top']] }) : null;
+        check(`${L}: the status pill is fixed and lies inside the safe area${sideways ? ', at the bottom and at the top' : ''}`,
+          pill.shown && pill.fixed && pill.ok && (!sideways || (top.shown && top.fixed && top.ok)), JSON.stringify(sideways ? [pill, top] : [pill]));
         await ctx.close();
       }
     }
@@ -6851,6 +6947,11 @@ async function inputScreenChecks(browser, base, check) {
       await waitFor(page, () => !document.getElementById('installOffer').hidden);
       const card = await inside(page, '#installOffer', SIDE), where = await page.evaluate(() => window.emu.install.state().placement().where);
       check(`${L}: the install card, in the gutter beside the screen, lies inside the safe area`, where === 'gutter' && card.shown && card.ok, JSON.stringify({ where, card }));
+      // 3a is covered by the checks above, not here: a mutation that makes safeArea() ignore the insets turns the
+      // toast and command-box checks in this group red, so the inset arithmetic is proven. The install card's own
+      // placement cannot add to that - at every width where it is placed, the screen stays centred and the gutter it
+      // takes is far wider than the inset with or without safeArea() - and a check that cannot fail is worse than
+      // none, so there is deliberately no separate card check here.
       await ctx.close();
     }
   }

@@ -327,6 +327,7 @@ export class Session {
     this.bootOk = null;             // the reset after which BASIC's OK was seen
     this.warmReset = null;          // { m, resetAt }: the run that began with the Reset button, not a power-on (bootStatus)
     this.welcome = null;            // the machine running the welcome program
+    this.welcomeGen = 0;            // bumped by every start: the FIRST start to land wins (a later one is dropped)
     this.menuWatch = null;          // a program that goes back to the welcome menu when left (watchForMenu)
     this.stubRun = null;            // what runs on the stub firmware and how to restart it (Reset; see `reset`)
     this.welcomeBuild = null;       // its build's fixed addresses (WELCOME[profile cpu])
@@ -554,7 +555,11 @@ export class Session {
   // switch to a model; config (e.g. { ram: 64 }) is remembered for that model once it has made a machine (a
   // config the model can't take falls back to the model's defaults and is not remembered)
   // menu: false when the caller decides what runs next (the page's start: the visit, the link's program)
-  switchMachine(id, config, { menu = true } = {}) {
+  // offer: what the welcome menu is offered as, when it is offered (see offerMenu). The machine question's switch
+  // passes 'none': the person chose the MACHINE, not what ran on the old one, so the menu is started once, here,
+  // without a carry-on line -- the page then starts nothing of its own (it used to, and which of the two starts
+  // won was an accident).
+  switchMachine(id, config, { menu = true, offer = null } = {}) {
     if (!Object.hasOwn(profiles, id)) id = 'dragon64';
     let m;
     try {
@@ -568,7 +573,7 @@ export class Session {
     m.reset(true);
     this.lastRate = this.cpuRate() && this.cpuRate().rate;
     this.emit('machine');
-    if (menu) this.offerMenu();       // switched on without ROMs: the welcome menu
+    if (menu) this.offerMenu(offer);   // switched on without ROMs: the welcome menu
     return m;
   }
   // What a switch to model `id` with `config` (a RAM change: the same id) takes out of the machine in use, for the
@@ -1043,9 +1048,11 @@ export class Session {
     if (menu) this.offerMenu();
   }
   // no ROMs, nothing running: the welcome menu, greeting the visitor back (the page has its bytes)
-  offerMenu() {
+  // The event's argument is how the menu is offered: 'back' (a returning visit) or 'bye' (back from a program) as
+  // before, or 'none' from the machine question's switch, which starts the menu without a carry-on line.
+  offerMenu(offer = null) {
     const m = this.machine;
-    if (this.welcomeMenu && m.useStub && WELCOME[cpuFamily(m.config.cpu)]) this.emit('menu', 'back');
+    if (this.welcomeMenu && m.useStub && WELCOME[cpuFamily(m.config.cpu)]) this.emit('menu', offer || 'back');
   }
   // run segments at exec (Machine.injectAndRun), remembering them as the stub's program to restart on Reset
   inject(segments, exec) {
@@ -1472,17 +1479,55 @@ export class Session {
     return last;
   }
   // the machine picker is asked once, then remembered
-  chooseMachine(id) { this.store.set('machineChosen', '1'); return this.switchMachine(id); }
+  // The machine picker is asked once, then remembered. offer: how the menu is offered afterwards; the machine
+  // QUESTION (js/ui/welcome.js) passes 'none' -- the person chose the machine, not what ran on the old one -- while
+  // the header menu and the ROM screen keep the usual carry-on, which is what a returning visitor expects there.
+  chooseMachine(id, { offer = null } = {}) { this.store.set('machineChosen', '1'); return this.switchMachine(id, undefined, { offer }); }
+  // The greeting the menu takes when it is offered by a switch: a machine question ('none') is asked on a FIRST
+  // visit only, so it greets a first-time visitor ('first', the title screen); every other offer is a returning
+  // visitor's ('back') -- the page used to decide this itself, and once got it wrong. One place decides it now.
+  static greetingFor(offer) { return offer === 'none' ? 'first' : 'back'; }
   get hasAnyRoms() { return this.roms.sockets().some((s) => profiles[s.owner]); }
-  // the last few programs, tapes and cartridges loaded (bytes kept for items up to 1 MB)
-  recentMedia() { return this.index.recentMedia(); }
+  // The last few programs, tapes and cartridges loaded (bytes kept for items up to 1 MB).
+  // `copy` labels the rows that need telling apart, for two entries of ONE name — grouped with this.sameName,
+  // the store's own rule, so a store that tells cases apart does not group "GAME.BIN" with "game.bin" — that
+  // have different bytes: the newest is copy === false, the rest are later copies and get an ordinal (the
+  // SECOND '2nd', the THIRD '3rd', or 'older copy' past that). A name with a single entry is never labelled,
+  // and `copy` is null for it: there is nothing to tell it from.
+  recentMedia() {
+    const list = this.index.recentMedia();
+    // sameName is a folding rule, not an equivalence-key function (on a case-sensitive store it is ===), so
+    // entries are grouped by comparing against the names already seen rather than by a lower-cased key.
+    // Grouped by NAME and MACHINE: the drawer shows one machine's rows (drawer.js filters by machine), so two of
+    // one name on different machines are not copies of each other -- a lone Dragon row must not read "2nd".
+    const groups = [];   // [{ name, machine, members: [] }]
+    for (const r of list) {
+      let g = groups.find((x) => x.machine === r.machine && this.sameName(x.name, r.name));
+      if (!g) { g = { name: r.name, machine: r.machine, members: [] }; groups.push(g); }
+      g.members.push(r);
+    }
+    const label = new Map();
+    for (const g of groups) {
+      if (g.members.length < 2) continue;
+      g.members.forEach((r, n) => label.set(r, n === 0 ? false : n === 1 ? '2nd' : n === 2 ? '3rd' : 'older copy'));
+    }
+    return list.map((r) => Object.assign({}, r, { copy: label.has(r) ? label.get(r) : null }));
+  }
   // A full store is not an error here: the program is loaded already, and the entry says its bytes were not kept.
   // While the library moves, the index's two writes wait for it (afterMove): made against the old place now they
   // would be the ones the move leaves behind, and they go to the index's store, which is the new place by then.
   // The list is this visit's at once (the program ran), so the Media tab and "Last time" see it.
   rememberMedia(name, bytes) {
     const crc = crc32(bytes);
-    const list = this.recentMedia().filter((r) => r.crc !== crc);
+    // Identity is the NAME (by this.sameName, the store's own case rule) plus the CONTENT HASH: this load
+    // replaces the entry with the same name and the same bytes. Two things follow, and both are deliberate:
+    //  - the SAME NAME with DIFFERENT bytes stays as its own entry. Each entry has its own blob (a blob is
+    //    named by its CRC) and loadRecent gives each row its own bytes (measured), so the older row is not a
+    //    lie about the newer one; the list labels it (see recentMedia).
+    //  - a RE-NAMED copy of the same bytes keeps its own entry too: a hash-only key would swallow it.
+    // A stored CRC may be in either case (an older build wrote it lower case); the index normalises the
+    // entries it reads, and compared here case-insensitively they are the same blob.
+    const list = this.index.recentMedia().filter((r) => !(this.sameName(r.name, name) && String(r.crc).toUpperCase() === crc));
     const dropped = list.splice(RECENT_LENGTH - 1);
     list.unshift({ name, crc, size: bytes.length, machine: this.machine.id, stored: bytes.length <= 1 << 20 });
     const entry = list[0];
@@ -1490,7 +1535,12 @@ export class Session {
     // the ones the move leaves behind: then they are made once it is done, and if the new place is full the entry
     // says so (the bytes are not kept), as the immediate path does.
     const write = (entry) => {
-      for (const old of dropped) this.index.dropRecent(old.crc);
+      // A blob is named by its CRC and can back MORE than one row: a renamed copy of the same bytes keeps its own
+      // entry with the same CRC. So an evicted entry's file may still be the only copy for a survivor, and dropping
+      // it would leave that row stored:true with nothing behind it (measured: the row then fails to load, even
+      // after a reload). Only a CRC no surviving entry references is deleted.
+      const kept = new Set(list.map((r) => String(r.crc).toUpperCase()));
+      for (const old of dropped) if (!kept.has(String(old.crc).toUpperCase())) this.index.dropRecent(old.crc);
       try { if (entry.stored) this.index.putRecent(crc, bytes); }
       catch (e) { if (!(e && e.code === 'quota')) throw e; entry.stored = false; this.index.recentBytes.delete(crc); }
       this.index.setRecent(list);
@@ -3410,7 +3460,15 @@ export class Session {
   // opens the games menu, whose 1 and 2 emit 'welcome:2048' and 'welcome:minesweeper'.
   // greeting: 'first', 'back' (a returning visitor) or 'bye' (back from a program); carryOn: a name for the carry-on
   // option, "CARRY ON WITH <name>" (option 6 on the 6809 build, 5 on the 6803 build; its key emits 'welcome:carryon'), or null
-  startWelcome(bytes, { greeting = 'first', carryOn = null } = {}) {
+  // gen: the welcomeGen a page took (welcomeGenNow) before fetching these bytes. When it is given and something
+  // took the machine since, the start does nothing and this returns null: the menu must not take the screen back
+  // from what the person started while its bytes were on the way.
+  startWelcome(bytes, { greeting = 'first', carryOn = null, gen = null } = {}) {
+    // The ticket catches "the machine was taken by something else while the bytes were in flight" -- a program
+    // loaded, a snapshot opened, a Reset, a switch the person did not ask for. It is compared BEFORE the start's own
+    // machine work (which bumps it through endWelcome), and there is only ever ONE start per turn now
+    // (Session.chooseMachine starts the menu once; the page no longer races it with a second one).
+    if (gen !== null && gen !== this.welcomeGen) return null;
     const m = this.machine, w = WELCOME[cpuFamily(m.config.cpu)];
     if (!w) throw new SessionError(`There is no Welcome menu for the ${m.profile.name}'s ${m.config.cpu}.`);
     const g = WELCOME.greetings.indexOf(greeting);
@@ -3445,7 +3503,15 @@ export class Session {
     this.welcomeSoundOn = true;
     if (this.welcomeRunning) this.machine.poke(this.welcomeBuild.soundOk, 1);
   }
-  endWelcome() { this.welcome = null; this.welcomeBuild = null; this.menuWatch = null; }
+  endWelcome() {
+    this.welcome = null; this.welcomeBuild = null; this.menuWatch = null;
+    this.welcomeGen++;   // anything that takes the machine cancels a welcome start still waiting on its bytes
+  }
+  // The generation a page takes before it fetches the welcome bytes and hands it back to startWelcome. Every way
+  // something else can take the machine goes through endWelcome (a program loaded, a machine switch, a Reset, a
+  // snapshot, the browser check's stubPrompt), so a start whose fetch was overtaken is refused instead of taking
+  // the screen back from what the person started meanwhile.
+  welcomeGenNow() { return this.welcomeGen; }
   // after the frames just run: emit the key posted in the mailbox, if any, and clear it
   flushWelcome() {
     if (!this.welcomeRunning) return;

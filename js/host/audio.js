@@ -22,15 +22,31 @@
  *     it ended on, so the next frame doesn't step from the level before it.
  * While samples flow and nothing is re-seeded, the output is the high-pass of the machine's level averaged over each
  * sample's time window (a box filter).
- * Latency: a frame gives rate / fps samples with the fraction carried, and the ratio is nudged by at most STEER
- * when the sink holds less than LOW_MS or more than HIGH_MS (the card's clock drifting from the machine's), so
- * the latency stays in that band and no frame is dropped (`dropped` counts the frames that are, past MAX_MS).
+ * Latency: a frame gives rate / fps samples with the fraction carried. Inside LOW_MS..HIGH_MS the ratio is
+ * exactly 1 (a steady queue is played untouched); outside it the frame is resampled by a correction toward
+ * TARGET_MS, up to RECOVER (2%, 34 cents) - only ever reached while recovering from a stall that left the queue
+ * far outside the band. No frame is dropped (`dropped` counts the frames that are, past MAX_MS).
  */
 import { SampleQueue, FADE_MS } from './audio-worklet.js';
 import { TapeVoice, boxAverage, DEFAULT_VOLUME } from './tape-sound.js';
 
 const SUSPEND_AFTER_MS = 250;   // inactive this long (the queue drained, the fade done): suspend the context
-const LOW_MS = 10, HIGH_MS = 80, MAX_MS = 150, STEER = 0.005;
+const LOW_MS = 10, HIGH_MS = 80, MAX_MS = 150;
+const TARGET_MS = 40;           // where a correction brings the queue: the middle of the band
+// RECOVER: the ratio's distance from 1 while correcting a queue a stall left far from TARGET_MS. 2% is 34 cents,
+// a constant detune for the second or two a correction takes rather than a warble (see ratioAt).
+const RECOVER = 0.02;
+
+// How the ratio corrects, held until the queue reaches TARGET_MS: FILLING (1 + RECOVER) while the queue is short,
+// DRAINING (1 - RECOVER) while it is deep, and NONE (exactly 1) once it has arrived.
+//
+// A ratio that VARIES with the depth is what a sawtooth makes warble. The queue jumps by a 1024-sample block every
+// frame (21-23 ms), and a deep queue parked near the band crosses any ramp twice a frame, so a proportional ratio
+// flips between 1 and 0.98 about 13 times a second: measured 34.6 cents of 50 Hz warble, 13 reversals a second.
+// Held constant, the same queue is detuned by a steady 34.6 cents - a constant pitch offset, not a warble - for
+// the fraction of a second the correction needs, then exactly 1. Measured after: 0.1 reversals a second at every
+// drift that parks the queue near an edge, and a 140 ms queue back in the band in 2.7 s.
+const NONE = 0, FILLING = 1, DRAINING = 2;
 
 class AudioOutput {
   // sink: where the samples go (write(chunk), buffered()); a SampleQueue unless the page plays them elsewhere.
@@ -44,6 +60,7 @@ class AudioOutput {
     this.seed = true;            // the next frame settles the high-pass instead of playing level changes
     this.volume = 0.5;
     this.frac = 0;               // samples owed from earlier frames (rate / fps is not whole)
+    this.mode = NONE;            // NONE, FILLING or DRAINING: the correction in force (ratioAt)
     this.dropped = 0;            // frames thrown away because MAX_MS was already buffered
     this.tapeVoice = null;       // the page's "Tape sound" (a TapeVoice), mixed in at tapeVolume; none on the command line
     this.tapeVolume = DEFAULT_VOLUME;
@@ -51,11 +68,26 @@ class AudioOutput {
   buffered() { return this.sink.buffered(); }
   discontinuity() { this.seed = true; }
 
+  // The ratio a frame is resampled by, from the queue's depth in ms. Exactly 1 across the band; outside it a
+  // constant correction (see NONE/FILLING/DRAINING above). The mode is entered where the queue leaves the band and
+  // held until the queue REACHES TARGET_MS: entering at the band's edge and leaving at its middle is the
+  // hysteresis that keeps a queue near an edge from flipping the ratio frame after frame.
+  ratioAt(ms) {
+    if (this.mode === NONE) {
+      if (ms > HIGH_MS) this.mode = DRAINING;
+      else if (ms > 0 && ms < LOW_MS) this.mode = FILLING;
+    } else if (this.mode === DRAINING ? ms <= TARGET_MS : ms >= TARGET_MS) {
+      this.mode = NONE;
+    }
+    return this.mode === DRAINING ? 1 - RECOVER : this.mode === FILLING ? 1 + RECOVER : 1;
+  }
+
   // events: flat [cycle, level, cycle, level, ...] (the first at cycle 0); frameCycles: cycles in this frame.
   // A frame gives rate / fps samples, the fraction carried to the next (882.571 at 44.1 kHz for a PAL Dragon
-  // makes 882 or 883), so the sink holds what the card plays. The card's clock is not the machine's: outside
-  // LOW_MS..HIGH_MS buffered the frame is resampled to up to STEER more or fewer samples, which brings the latency
-  // back without a gap or a dropped frame. Over MAX_MS (frames pushed faster than real time) a frame is dropped.
+  // makes 882 or 883), so the sink holds what the card plays. The card's clock is not the machine's, and a stall
+  // leaves the queue far from TARGET_MS: outside LOW_MS..HIGH_MS the frame is resampled by ratioAt's ratio, which
+  // brings the latency back without a gap or a dropped frame. Over MAX_MS (frames pushed faster than real time) a
+  // frame is dropped.
   push(events, frameCycles, fps, tape = null) {
     const buf = this.buffered(), rate = this.rate;
     // keep latency bounded: a frame that comes too far ahead is dropped, and the filter's input moves to the level
@@ -72,13 +104,10 @@ class AudioOutput {
     const n = this.count(this.rate * ms / 1000);
     if (n) this.render(null, 0, n, tape);
   }
-  // samples owed for `want` more (the fraction carried), steered: outside LOW_MS..HIGH_MS buffered, up to STEER
-  // more or fewer
+  // samples owed for `want` more (the fraction carried), corrected by ratioAt: exactly 1 inside LOW_MS..HIGH_MS
+  // buffered, a held correction toward TARGET_MS outside it (0 buffered: not playing, nothing to keep up)
   count(want) {
-    const buf = this.buffered(), rate = this.rate;
-    let ratio = 1;
-    if (buf > rate * HIGH_MS / 1000) ratio = 1 - STEER;
-    else if (buf > 0 && buf < rate * LOW_MS / 1000) ratio = 1 + STEER;   // (0: not playing, nothing to keep up)
+    const ratio = this.ratioAt(this.buffered() / this.rate * 1000);
     this.frac += want * ratio;
     const n = Math.floor(this.frac);
     this.frac -= n;
@@ -223,4 +252,15 @@ class Audio {
   get tapeLevel() { return this.out && this.out.tapeVoice ? this.out.tapeVoice.rms : 0; }
 }
 
-export { Audio, AudioOutput, PortSink, FADE_MS, MAX_MS };
+// SETTLE_MS: how long a correction may take to bring a queue from the ceiling (MAX_MS) down to TARGET_MS.
+// The ratio is applied per frame of AUDIO time, so a queue near MAX_MS takes about
+// (MAX_MS - TARGET_MS) / RECOVER = 110 / 0.02 = 5500 ms to arrive; SLACK_MS is then added for the frames the
+// push/pull schedule costs on the way. Measured from a queue at the ceiling, simulated real time, over card
+// rates 44.1/48 kHz, 30/49.97/59.94/60 fps and 512/1024/2048-sample blocks: the slowest is 4.99 s (60 fps,
+// 512-sample blocks). SETTLE_MS is therefore 1.6x the worst measurement -- headroom, not merely adequate:
+// tests/audio.test.js sweeps those schedules and fails if the margin drops below 1.5x, so a stale tighter bound
+// cannot pass. A caller waiting for the ratio to be exactly 1 uses this as its bound.
+const SLACK_MS = 2500;
+const SETTLE_MS = Math.ceil((MAX_MS - TARGET_MS) / RECOVER) + SLACK_MS;
+
+export { Audio, AudioOutput, PortSink, FADE_MS, MAX_MS, TARGET_MS, RECOVER, SETTLE_MS };

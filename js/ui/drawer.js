@@ -5,6 +5,26 @@
  */
 import { $, put, putClass } from './page.js';
 
+// The recent list's rows: the entries for `machine`, each with the index it has in the FULL list. recentMedia()
+// hands out copies, so an index looked up in a second call (indexOf) matches nothing and is always -1; the index
+// must be taken from the same list the row was drawn from. This is the whole of that arithmetic, with no DOM, so a
+// Node test can run the code the drawer runs rather than a copy of it.
+export const recentRows = (all, machine) => all.map((r, i) => ({ r, i })).filter((x) => x.r.machine === machine);
+
+// What a click on a recent row does: load the entry that row was DRAWN from. The list can change between drawing
+// and clicking (a load, an eviction, a machine switch), so the row's own ENTRY decides which one to load, found
+// again in the list as it is now by its identity (name, crc, machine). The index is only a fallback for an entry
+// that has gone from the list: the row is then stale, and loadRecent(index) reports it, rather than silently
+// loading whatever moved into that slot.
+export const loadRow = (session, row) => {
+  const now = session.recentMedia();
+  const at = now.findIndex((r) => r.name === row.r.name && r.crc === row.r.crc && r.machine === row.r.machine);
+  // not found: the row was evicted (or its entry replaced) while the drawer was open. Loading by the row's old
+  // index would load whatever moved into that slot -- a different file under the same click. Say it is gone.
+  if (at < 0) throw new Error('That file is no longer in the recent list; open it again.');
+  return session.loadRecent(at);
+};
+
 export function setupDrawer(page, { showRoms }) {
   const { session } = page;
   const tabs = [...document.querySelectorAll('[role="tab"]')];
@@ -27,7 +47,8 @@ export function setupDrawer(page, { showRoms }) {
 
   // Media: what was loaded on this machine before
   function recent() {
-    const list = $('recentList'), items = session.recentMedia().filter((r) => r.machine === session.machine.id);
+    const list = $('recentList');
+    const items = recentRows(session.recentMedia(), session.machine.id);
     list.replaceChildren();
     // empty: hidden while "Last time" shows above it (the CSS), as the two would contradict each other
     for (const el of [list, $('recentHead')]) el.classList.toggle('recent-empty', !items.length);
@@ -37,13 +58,15 @@ export function setupDrawer(page, { showRoms }) {
       list.append(p);
       return;
     }
-    const all = session.recentMedia();
-    for (const r of items) {
+    for (const { r, i } of items) {
       const b = document.createElement('button'); b.className = 'row';
       const n = document.createElement('span'); n.textContent = r.name;
       const k = document.createElement('span'); k.className = 'kind'; k.textContent = r.stored ? 'load again' : `${(r.size / 1024).toFixed(0)} KB`;
-      b.append(n, k); b.disabled = !r.stored;
-      b.onclick = () => { page.attempt(() => session.loadRecent(all.indexOf(r))); page.focus(); };
+      // two rows of one name with different bytes: say which is which, or the list shows the same line twice
+      if (r.copy) { const c = document.createElement('span'); c.className = 'copy'; c.textContent = r.copy; b.append(n, c, k); }
+      else b.append(n, k);
+      b.disabled = !r.stored;
+      b.onclick = () => { page.attempt(() => loadRow(session, { r, i })); page.focus(); };
       list.append(b);
     }
   }

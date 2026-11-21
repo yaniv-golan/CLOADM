@@ -185,5 +185,41 @@ for (const id of models) {
   check('audio unlocked before the start: the tune is armed', t.machine.ram[Emu.WELCOME['6809'].soundOk] === 1);
 }
 
+// ---- a welcome start whose bytes were overtaken does not take the machine back ----
+// The page takes welcomeGenNow() before it fetches the menu's bytes and hands it to startWelcome, because the
+// fetch can be slow and something else may take the machine meanwhile: a program loaded, a machine switch, a
+// Reset, or the browser check's stubPrompt (which clears the menu so a check can type on the bare stub). Without
+// the check, the menu came back and the page's "Ask Claude" opened the full-screen chat instead of the side
+// panel, because a running menu asks for the full-screen chat. The two cases below are the two halves that make
+// the check safe: a stale start does nothing, and a start with nothing intervening still starts.
+{
+  const t = new Emu.Session({ welcomeMenu: true });
+  t.switchMachine('dragon64', {}, { menu: false });
+  const g = t.welcomeGenNow();
+  check('welcome: welcomeGenNow gives a generation to hand back', Number.isInteger(g), JSON.stringify(g));
+
+  // (a) something takes the machine while the bytes are on the way: the start is refused
+  t.endWelcome();                                  // what stubPrompt, a load, a switch or a Reset all do
+  const out = t.startWelcome(bin, { gen: g });
+  check('welcome: a start whose fetch was overtaken starts nothing', out === null && !t.welcomeRunning,
+    `returned ${JSON.stringify(out)}, welcomeRunning ${t.welcomeRunning}`);
+
+  // (b) nothing intervenes: the start goes ahead, and says what the menu offers
+  const g2 = t.welcomeGenNow();
+  const said = t.startWelcome(bin, { gen: g2 });
+  check('welcome: a start with nothing intervening starts, as before', typeof said === 'string' && /^Welcome: press 1 to \d$/.test(said) && t.welcomeRunning, String(said));
+
+  // (c) a generation from an older machine is stale too (a switch bumps it)
+  const g3 = t.welcomeGenNow();
+  t.switchMachine('coco', {}, { menu: false });
+  check('welcome: a generation taken on one machine is stale after a switch',
+    t.startWelcome(bin, { gen: g3 }) === null && !t.welcomeRunning);
+
+  // (d) a caller that passes no generation is unaffected (the Session's own paths: endWelcome + restart, tests)
+  const g4 = t.welcomeGenNow();
+  t.endWelcome();
+  check('welcome: a start with no generation given still starts (the Session\'s own paths)', t.startWelcome(bin) !== null && t.welcomeRunning);
+}
+
 console.log(fail ? `${fail} FAILED` : 'all welcome checks passed');
 process.exitCode = fail ? 1 : 0;

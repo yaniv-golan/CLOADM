@@ -8,6 +8,42 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
+### Changed
+
+- **The games' sounds are musical cues, not a buzz on every move.** 2048 played a burst of noise on every move
+  and Minesweeper one on every square opened, which is why they read as noise rather than as game sounds. 2048 now
+  plays one short tone per move, its pitch stepping up with the join it makes (C major pentatonic, C5 to D6), about
+  60 ms instead of a rumble; Minesweeper plays an E5 tick when a square opens, a rising C5-G5 pair when a flag goes
+  on (falling when it comes off), a rising arpeggio for a win and a falling one for a loss, and a single short noise
+  burst for the mine (about 170 ms, where there were three). Each pitch is checked against the recorded sound; the
+  recording is not committed (media files are refused by the repository's pre-push guard), so
+  `tests/fixtures/games/minesweeper-sounds.sha256.json` holds the SHA-256 of its PCM samples and the test compares
+  that. Set `CLOADM_KEEP_WAV` to a path outside the repository to write the recording out and listen to it.
+- **The Media tab's "Recent on this machine" no longer lists one file twice.** The list's identity was the
+  content hash alone, compared exactly, so two reachable cases showed the same name twice: an entry an older build
+  stored with a lower-case CRC was not matched by the upper-case one a later load makes, and a file of the same name
+  with different bytes (a rebuilt program) was a second row that read exactly like the first. Identity is now the
+  NAME (by the store's own case rule) plus the content hash, and stored CRCs are normalised as the list is read, so
+  an existing list heals. Two files of one name with different bytes are still both shown - each keeps and loads
+  its own bytes - and the older one is labelled (2nd, 3rd, "older copy") so the rows can be told apart.
+- **Sound comes back in seconds after the page stalls, not tens of seconds.** The output stage keeps the
+  worklet's queue near 40 ms by resampling each frame by a fraction more or fewer samples, but that correction was a
+  fixed 0.5% just outside the 10-80 ms band: the queue moved 5 ms of sound a second however far outside it was, so a
+  stall that left 135-140 ms queued (measured in Chromium after a 0.8 s stall: 141 ms) took 15-18 s to come back into
+  the band and most of a minute to settle. The correction now grows with the distance from the band's middle, up to
+  2% (34 cents) while recovering - transient, and only outside the band - and is exactly 1 inside it, as before, so a
+  steady queue is still played untouched. The same 140 ms queue is back inside the band in 4-5 s, with no sample
+  step (the no-pop checks are unchanged and pass), and the 15-minute clock-drift runs still drop no frame and never
+  run the card dry. `tests/audio.test.js` holds both.
+
+### Fixed
+
+- **A row in the Media tab's "Recent on this machine" loads the file it names.** The rows were drawn from one copy
+  of the list and the click looked its index up in a second copy, which never matched: the index was always -1, so
+  every row answered "That file is no longer stored in this browser; load it again." even when it was. The index is
+  carried with the row now. `tests/recent-rows.test.js` pins the arithmetic and the browser check clicks a row and
+  requires the load.
+
 ### 0.1.8-pre
 
 #### Added

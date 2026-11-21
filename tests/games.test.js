@@ -8,7 +8,7 @@
 // welcome menu back; the games are refused on the 6803 machines.
 // Text drawn in the bitmap is read back through the font in games.inc.
 // Run: node tests/games.test.js
-const fs = require('fs'), path = require('path');
+const fs = require('fs'), path = require('path'), crypto = require('crypto');
 const Emu = require('./load')();
 
 let fail = 0, n = 0;
@@ -214,7 +214,87 @@ const show = (b) => b.map((v) => (v ? 2 ** v : '.')).join(' ');
     && (g.m.sam.reg & 7) === 0 && g.s.screenText().every((l) => !l.trim()));
 }
 
-// the same game on the other 6809 families
+// ---- the best score (BEST): a game's own, kept while 2048 runs, shown beside SCORE ----
+// It is in the game's RAM at $3000+ (it does not survive a reload: nothing about the games is persisted), R does
+// not clear it, and it only ever rises. Each check below names what would make it fail.
+{
+  const g = start('2048', { seed: 0x5EED });
+  g.press('space');                                    // the title page
+  const best0 = bcd(g.mem('BEST', 3));
+  check('2048 BEST: a new game starts it at 0', best0 === 0 && bcd(g.mem('SCORE', 3)) === 0, String(best0));
+  // a join raises SCORE and BEST together: 2 2 in the top row scores 4
+  const poke = (b) => b.forEach((v, i) => g.m.poke(g.sym('BOARD') + i, v));
+  poke([1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+  g.press('left');
+  const sc1 = bcd(g.mem('SCORE', 3)), best1 = bcd(g.mem('BEST', 3));
+  check('2048 BEST: it rises with the score when the score passes it', sc1 === 4 && best1 === 4, `score ${sc1} best ${best1}`);
+  // and the screen shows it: BEST's six digits sit at pixels 88-111 of the score row, leading zeros as spaces
+  // shown beside SCORE: SCORE's digits and BEST's are drawn on the score row, one field after the other, and the
+  // right margin is clear (BEST's field ends inside the 128 pixels). Both read 4 here, so the two glyphs' bitmaps
+  // are the same - which is what "it is shown, and shows the value BEST holds" means.
+  const ink = (px, k) => ((g.m.ram[0x400 + (7 + k) * 32 + (px >> 2)] >> (6 - 2 * (px & 3))) & 3) === 3;
+  const SCOREX = 76, BESTX = 108;   // the two digits' first pixel, found from the row (3 pixels a digit)
+  const alike = (x, y) => { for (let k = 0; k < 10; k++) for (let px = 0; px < 3; px++) if (ink(x + px, k) !== ink(y + px, k)) return false; return true; };
+  let rightmost = -1;
+  for (let px = 0; px < 128; px++) for (let k = 0; k < 10; k++) if (ink(px, k)) rightmost = px;
+  check('2048 BEST: SCORE and BEST both show 4 on the score row, and BEST ends inside the 128 pixels',
+    alike(SCOREX, BESTX) && rightmost < 128 && BESTX > SCOREX, `rightmost ${rightmost} best@${BESTX}`);
+  // R starts a new game with SCORE 0 and leaves BEST alone (the check that fails if NEWGAME clears BEST too)
+  g.press('R');
+  check('2048 BEST: R clears the score but keeps the best', bcd(g.mem('SCORE', 3)) === 0 && bcd(g.mem('BEST', 3)) === 4,
+    `score ${bcd(g.mem('SCORE', 3))} best ${bcd(g.mem('BEST', 3))}`);
+  // a game that never catches up does not lower it: poke a small score and play a move that scores 0
+  g.m.poke(g.sym('SCORE'), 0); g.m.poke(g.sym('SCORE') + 1, 0); g.m.poke(g.sym('SCORE') + 2, 0);
+  poke([1, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+  g.press('left');                                     // nothing joins: SCORE stays 0
+  check('2048 BEST: a lower score never lowers it', bcd(g.mem('BEST', 3)) === 4 && bcd(g.mem('SCORE', 3)) === 0,
+    `score ${bcd(g.mem('SCORE', 3))} best ${bcd(g.mem('BEST', 3))}`);
+  // a higher score raises it, and it holds the higher value
+  g.m.poke(g.sym('SCORE'), 0x00); g.m.poke(g.sym('SCORE') + 1, 0x12); g.m.poke(g.sym('SCORE') + 2, 0x34);
+  poke([3, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+  g.press('left');                                     // 8 + 8 = 16 more
+  check('2048 BEST: a higher score raises it, and it holds', bcd(g.mem('BEST', 3)) === 1234 + 16,
+    `best ${bcd(g.mem('BEST', 3))} score ${bcd(g.mem('SCORE', 3))}`);
+  // it fits the line: SCORE's six digits end before BEST's begin, and BEST's end inside 128 pixels.
+  // SCORE is at pixel 56, BEST at 88: six digits of 8 pixels (2x, 4-byte cells) is 48, so SCORE ends at 104
+  // only if it is full - the fixture is that the two fields' ink never overlaps and the right margin is clear.
+  const inked = (a, b) => { for (let px = a; px < b; px++) for (let k = 0; k < 10; k++) if (((g.m.ram[0x400 + (7 + k) * 32 + (px >> 2)] >> (6 - 2 * (px & 3))) & 3) === 3) return true; return false; };
+  check('2048 BEST: SCORE ends before BEST begins and BEST ends inside the line',
+    inked(80, 88) === false && inked(120, 128) === false, `gap ${inked(80, 88)} margin ${inked(120, 128)}`);
+  g.press('break');
+}
+
+// 2048's move cue: one tone per move, its pitch from the biggest join, and the half period is EXACT in cycles
+// (a zero-crossing rate over a 60 ms note cannot resolve a semitone; 5*A+22 can). A move that joins nothing plays
+// C5 (A=167 -> 857); a join of two 4s (MERGED=1) also plays C5, one of two 8s (MERGED=2) plays D5 (A=148 -> 762).
+{
+  const halvesOf = (edges) => { const out = []; for (let i = 1; i < edges.length; i++) if (Math.abs(edges[i][1] - edges[i - 1][1]) > 0.8) out.push(edges[i][0] - edges[i - 1][0]); return out; };
+  const cueHalves = (g, key, poke) => {
+    const m = g.m, edges = [];
+    if (poke) poke(m);
+    m.stubKeys.push(key);
+    for (let i = 0; i < 20; i++) { const base = m.frameBase; m.runFrame(); for (let k = 2; k < m.audioEvents.length; k += 2) edges.push([base + m.audioEvents[k], m.audioEvents[k + 1]]); }
+    return halvesOf(edges);
+  };
+  const g = start('2048', { seed: 0xBEEF });
+  g.press('space');   // deal
+  const plain = cueHalves(g, 8);   // LEFT, no join
+  check('2048: a move with no join plays C5 exactly (half periods of 5*167+22 = 857, +-2)',
+    plain.length >= 50 && plain.every((h) => Math.abs(h - 857) <= 2), `${plain.length} halves, ${[...new Set(plain)].slice(0, 4).join(',')}`);
+  // MERGED is the VALUE OF THE JOINED TILE (a 4 is level 3: two level-2 tiles double into it), and the note is
+  // PENTA[MERGED-1], so a join making a 4 plays E5 (A=131 -> 677) and one making an 8 plays G5 (A=110 -> 572).
+  // A move that joins nothing plays C5 (A=167 -> 857).
+  const g2 = start('2048', { seed: 0xBEEF });
+  g2.press('space', 'R');
+  const joined = cueHalves(g2, 8, (m) => [2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0].forEach((v, i) => m.poke(g2.sym('BOARD') + i, v)));
+  check('2048: a move whose join makes a 4 plays E5 exactly (half periods of 5*131+22 = 677, +-2)',
+    joined.length >= 50 && joined.every((h) => Math.abs(h - 677) <= 2), `${joined.length} halves, ${[...new Set(joined)].slice(0, 4).join(',')}`);
+  const g3 = start('2048', { seed: 0xBEEF });
+  g3.press('space', 'R');
+  const two = cueHalves(g3, 8, (m) => [3, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0].forEach((v, i) => m.poke(g3.sym('BOARD') + i, v)));
+  check('2048: a move whose join makes an 8 plays G5 exactly (half periods of 5*110+22 = 572, +-2)',
+    two.length >= 50 && two.every((h) => Math.abs(h - 572) <= 2), `${two.length} halves, ${[...new Set(two)].slice(0, 4).join(',')}`);
+}
 for (const machine of ['dragon32', 'coco', 'coco3', 'dragon64:6309']) {
   const [id, cpu] = machine.split(':');
   const s = new Emu.Session({ welcomeMenu: false });
@@ -324,18 +404,41 @@ const nb = (i) => { const out = []; const x = i & 7, y = i >> 3; for (let dy = -
   check('Minesweeper: BREAK leaves: text mode, stopped at DONE', g.m.cpu.pc === Emu.GAMES.done && (g.m.pia1.saveState().b.or & 0x80) === 0);
 }
 
-// sounds: the flag's two notes (delay 60 for 24 half periods, then 40 for 36): a half period is 5*D+22 cycles
+// sounds: the flag's two notes are C5 then G5 (delays 167 and 110, 24 and 24 half periods); TONE's half period
+// is 5*D+22 cycles, so 857 and 572. The old cue was a 17 ms ~1754 Hz buzz.
 {
   const g = start('minesweeper', { seed: 7 });
   g.press('space');
   const m = g.m, edges = [];
-  m.stubKeys.push(70);   // F
+  m.stubKeys.push(70);   // F on a HIDDEN square: the only case that plays the flag
   for (let i = 0; i < 20; i++) { const base = m.frameBase; m.runFrame(); for (let k = 2; k < m.audioEvents.length; k += 2) edges.push([base + m.audioEvents[k], m.audioEvents[k + 1]]); }
   const halves = [];
   for (let i = 1; i < edges.length; i++) if (Math.abs(edges[i][1] - edges[i - 1][1]) > 0.8) halves.push(edges[i][0] - edges[i - 1][0]);
   const near = (h, d) => Math.abs(h - (5 * d + 22)) <= 3;
-  const a = halves.filter((h) => near(h, 60)).length, b = halves.filter((h) => near(h, 40)).length;
-  check('Minesweeper: F plays the flag notes (about 23 then 35 half periods at 5*60+22 and 5*40+22 cycles)', a >= 22 && a <= 24 && b >= 34 && b <= 36, `${a} ${b} of ${halves.length}`);
+  const a = halves.filter((h) => near(h, 167)).length, b = halves.filter((h) => near(h, 110)).length;
+  check('Minesweeper: F plays C5 then G5 (24 half periods at 5*167+22 and 5*110+22 cycles)', a >= 22 && a <= 24 && b >= 22 && b <= 24, `${a} ${b} of ${halves.length}`);
+  // The open tick is E5 (A=131 -> 677 cycles a half period). A zero-crossing RATE over a 30 ms burst can only
+  // resolve ~44 cents, so a semitone error (6%) would pass an 8% pitch test; the half period in CYCLES is exact.
+  // The same for F on an open square (A=200 -> 1022), which is only ~9 ms long.
+  const halfCycles = (from) => { const out = []; for (let i = 1; i < from.length; i++) if (Math.abs(from[i][1] - from[i - 1][1]) > 0.8) out.push(from[i][0] - from[i - 1][0]); return out; };
+  const g2 = start('minesweeper', { seed: 7 });
+  g2.press('space');
+  const m2 = g2.m, openEdges = [];
+  m2.stubKeys.push(32);   // SPACE: opens the first square (always safe) -> the E5 tick
+  for (let i = 0; i < 20; i++) { const base = m2.frameBase; m2.runFrame(); for (let k = 2; k < m2.audioEvents.length; k += 2) openEdges.push([base + m2.audioEvents[k], m2.audioEvents[k + 1]]); }
+  const openHalves = halfCycles(openEdges);
+  check('Minesweeper: the open tick is E5 exactly (every half period 5*131+22 = 677 cycles, +-2)',
+    openHalves.length >= 20 && openHalves.every((h) => Math.abs(h - 677) <= 2),
+    `${openHalves.length} half periods, ${[...new Set(openHalves)].slice(0, 5).join(',')}`);
+  const g3 = start('minesweeper', { seed: 7 });
+  g3.press('space', 'space');   // open (3,3), then F on it: the low note A=200 -> 1022
+  const m3 = g3.m, buzzEdges = [];
+  m3.stubKeys.push(70);
+  for (let i = 0; i < 20; i++) { const base = m3.frameBase; m3.runFrame(); for (let k = 2; k < m3.audioEvents.length; k += 2) buzzEdges.push([base + m3.audioEvents[k], m3.audioEvents[k + 1]]); }
+  const buzzHalves = halfCycles(buzzEdges);
+  check('Minesweeper: F on an OPEN square is the low note exactly (half periods of 5*200+22 = 1022, +-2)',
+    buzzHalves.length >= 6 && buzzHalves.every((h) => Math.abs(h - 1022) <= 2),
+    `${buzzHalves.length} half periods, ${[...new Set(buzzHalves)].slice(0, 5).join(',')}`);
 }
 
 // the Session: runGame, the last run, the menu after BREAK, the carry-on line, and no games on a 6803
@@ -550,8 +653,10 @@ WARMS   FCB     $57,$41,$52,$4D,0
 // the screens and the sound, through the command line (--expect-screenshot, --wav): scripted runs match the reference
 // pictures in tests/fixtures/games (made by these same commands with --screenshot and looked at: the title pages, a
 // 2048 board after six moves, a Minesweeper field after the first square, two moves and an F on an open square), pixel
-// for pixel, and Minesweeper's sounds match tests/fixtures/games/minesweeper-sounds.wav byte for byte (made by this
-// run with --wav). What the recording holds is checked from the samples: the first square's click, two cursor ticks,
+// for pixel, and Minesweeper's recorded sounds match tests/fixtures/games/minesweeper-sounds.sha256.json, which holds
+// the SHA-256 of their PCM samples (the recording itself is not committed: media files are refused by the pre-push
+// guard; set CLOADM_KEEP_WAV to a path outside the repo to hear it). What the recording holds is checked from the
+// samples: the first square's click, two cursor ticks,
 // the low buzz of F on an open square, three ticks to the mine at (6, 3), its flag's chirp on and off, and the
 // explosion (noise, the colours flashing, slower noise): bursts at full swing on the DAC (320 a step, mid level 32;
 // a level that changes within a sample's stretch is averaged).
@@ -576,7 +681,18 @@ WARMS   FCB     $57,$41,$52,$4D,0
   const r3 = cli(['-m', 'dragon64', '--program', 'minesweeper', '--frames', '30', '--expect-screenshot', fix('minesweeper-board.png')]);
   check('(--expect-screenshot fails on another picture: the title page is not the field)', r3.status === 1, String(r3.status));
   const wav = fs.existsSync(wavFile) ? fs.readFileSync(wavFile) : Buffer.alloc(0);
-  check('Minesweeper: its sounds match tests/fixtures/games/minesweeper-sounds.wav byte for byte (--wav)', wav.equals(fs.readFileSync(fix('minesweeper-sounds.wav'))), `${wav.length} bytes`);
+  // The recording is not committed (media files are refused by the repository's pre-push guard), so its PCM samples
+  // are compared by SHA-256 against a small JSON fixture: as strict as the byte-for-byte comparison it replaces.
+  const want = JSON.parse(fs.readFileSync(fix('minesweeper-sounds.sha256.json'), 'utf8'));
+  const pcm = wav.subarray(44);
+  const got = crypto.createHash('sha256').update(pcm).digest('hex');
+  check('Minesweeper: its recorded sounds match tests/fixtures/games/minesweeper-sounds.sha256.json (SHA-256 of the PCM)',
+    pcm.length === want.pcmBytes && got === want.sha256, `${pcm.length} bytes, ${got}`);
+  // A person can listen to the recording, but it is written OUTSIDE the repository: CLOADM_KEEP_WAV names the file.
+  if (process.env.CLOADM_KEEP_WAV && wav.length) {
+    fs.writeFileSync(process.env.CLOADM_KEEP_WAV, wav);
+    console.log(`(the recording was written to ${process.env.CLOADM_KEEP_WAV}, outside the repository)`);
+  }
   const samples = [];
   for (let i = 44; i + 1 < wav.length; i += 2) samples.push(wav.readInt16LE(i));
   const bursts = [];
@@ -584,10 +700,34 @@ WARMS   FCB     $57,$41,$52,$4D,0
   samples.forEach((v, i) => { if (v !== 32 * 320) { if (cur && i - cur[1] <= 200) cur[1] = i; else { cur = [i, i]; bursts.push(cur); } } });
   const len = (b) => b[1] - b[0], full = (b) => { const x = samples.slice(b[0], b[1] + 1); return Math.max(...x) === 63 * 320 && Math.min(...x) <= 320; };
   const what = bursts.map((b) => `${(b[0] / 44100).toFixed(2)}+${(len(b) / 44100).toFixed(3)}`).join(' ');
-  check('Minesweeper: the recording is click, 2 ticks, buzz, 3 ticks, chirp, chirp, and the explosion in two parts, every burst at full swing',
-    bursts.length === 11 && bursts.every(full) && samples.every((v) => v >= 0 && v <= 63 * 320)
-    && [1, 2, 4, 5, 6].every((i) => len(bursts[i]) < len(bursts[0])) && len(bursts[3]) > len(bursts[1])
-    && len(bursts[9]) > 4 * len(bursts[7]) && len(bursts[10]) > len(bursts[9]), what);
+  // The cue list, in order: the first square's open tick (E5), two cursor ticks (the right arrow, the down
+  // arrow), the low buzz of F on an OPEN square, three cursor ticks to (6,3), the flag's C5-G5 on and off, and
+  // the mine: one noise burst. Every burst is at full swing on the DAC, and every TONE cue has a pitch.
+  check('Minesweeper: the recording is 10 bursts (open tick, 2 cursor ticks, buzz, 3 ticks, 2 flag chirps, the mine), all at full swing',
+    bursts.length === 10 && bursts.every(full) && samples.every((v) => v >= 0 && v <= 63 * 320), what);
+  // pitch by zero crossings about the rest level, over the burst's span; +-8% covers the DAC's step quantisation.
+  // A burst that holds TWO notes (the flag's C5 then G5, no rest between) reads as their mean, so that one is
+  // compared with the mean and each note is checked for what it is by the half-period counts in the edge test.
+  const rest = 32 * 320;
+  const zc = (b) => { let n = 0; for (let i = b[0] + 1; i <= b[1]; i++) if ((samples[i - 1] < rest) !== (samples[i] < rest)) n++; return n; };
+  const hz = (b) => zc(b) / 2 / (len(b) / 44100);
+  const near = (v, want) => Math.abs(v - want) / want <= 0.08;
+  const cue = { open: hz(bursts[0]), buzz: hz(bursts[3]), flagOn: hz(bursts[7]), flagOff: hz(bursts[8]) };
+  // the open tick is E5 (A=131 -> 660.9 Hz), 30 ms long: 39 crossings, so +-8% is real resolution there
+  check('Minesweeper: the open tick is E5 (~661 Hz)',
+    near(cue.open, 660.9), JSON.stringify(cue));
+  // F on an OPEN square keeps the game's old low note (A=200 -> 437.8 Hz), but the burst is only ~9 ms: about 8
+  // half periods, so a crossing count cannot resolve it better than ~12%. It is checked for being clearly LOWER
+  // than the open tick, which a wrong high pitch would break; its exact length is not claimed from the WAV.
+  check('Minesweeper: the F-on-an-open-square buzz is clearly lower than the open tick (about 8 half periods measured)',
+    cue.buzz < cue.open * 0.75, JSON.stringify(cue));
+  check('Minesweeper: the flag plays C5 then G5 (a rising pair, ~523 then ~784 Hz) and the unflag the same two falling',
+    near(cue.flagOn, (523.25 + 783.99) / 2) && near(cue.flagOff, (523.25 + 783.99) / 2), JSON.stringify(cue));
+  check('Minesweeper: the flag cue is a tone, not the old buzz (longer than 25 ms, fewer than 40 level changes per note)',
+    len(bursts[7]) / 44100 > 0.025 && zc(bursts[7]) < 60, `${(len(bursts[7]) / 44100 * 1000).toFixed(1)} ms, ${zc(bursts[7])} crossings`);
+  check('Minesweeper: the mine is one noise burst of about 150 ms (not three), with many level changes',
+    len(bursts[9]) / 44100 > 0.12 && len(bursts[9]) / 44100 < 0.20 && zc(bursts[9]) > 400,
+    `${(len(bursts[9]) / 44100 * 1000).toFixed(1)} ms, ${zc(bursts[9])} crossings`);
   fs.rmSync(dir, { recursive: true, force: true });
 }
 

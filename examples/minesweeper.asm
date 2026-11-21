@@ -159,9 +159,9 @@ RVLAID  LDB     SELECT
         BMI     RVBOOM
         JSR     OPENSQ
         JSR     FLOOD
-        LDA     #2
-        LDB     #1
-        JSR     NOISE           ; a click
+        LDA     #131            ; E5, 40 halves (~38 ms): a tick, not a buzz (NOISE read as one)
+        LDB     #40
+        JSR     TONE
         LDA     OPENED
         CMPA    #SAFE
         BEQ     RVWIN
@@ -181,16 +181,12 @@ RVBOOM  LDA     #1
         JSR     SHOWALL         ; every mine shows
         LDU     #T_LOSE
         JSR     MESSAGE
-        LDA     #1              ; the explosion: noise, slower and slower
-        LDB     #6
-        JSR     NOISE
         LDB     #2
         JSR     FLASH
-        LDA     #5
+        LDU     #SND_LOSE       ; a falling arpeggio, then the burst
+        JSR     PLAY
+        LDA     #1              ; the mine: one short noise burst, not three
         LDB     #4
-        JSR     NOISE
-        LDA     #14
-        LDB     #3
         JMP     NOISE
 
 ; FLASH: B times the other colour set and back
@@ -711,12 +707,16 @@ SPMINE  FCB     $FF,$00,$CF,$20,$FF,$00  ; .....2.....
         FCB     $F3,$08,$03,$A8,$3F,$80  ; ..2.222.2..
         FCB     $FF,$00,$CF,$20,$FF,$00  ; .....2.....
         FCB     $FF,$00,$FF,$00,$FF,$00  ; ...........
-; sounds: delay, half periods
+; sounds: delay, half periods. The flag notes are a rising fifth (C5 then G5), the unflag the same two falling;
+; the win is a rising C major pentatonic arpeggio and the loss a falling one. The open tick and the mine's burst
+; are made in the code above (a TONE and a short NOISE).
 SND_FLAG
-        FCB     60,24,40,36,0
+        FCB     167,24,110,24,0
 SND_UNFLAG
-        FCB     40,24,60,20,0
-SND_WIN FCB     110,70,88,88,73,104,55,140,73,60,55,240,0
+        FCB     110,24,167,24,0
+SND_WIN FCB     167,40,131,40,110,40,97,40,81,40,0
+SND_LOSE
+        FCB     81,40,110,40,131,40,167,40,0
 ; text
 T_NAME  FCN     "MINESWEEPER"
 T_GOAL1 FCN     "TEN MINES ARE HIDDEN"

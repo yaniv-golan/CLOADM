@@ -133,7 +133,8 @@ export class MediaIndex {
     this.names = {};            // crc -> file name
     this.images = new Map();    // crc -> Uint8Array
     this.recent = [];           // the list as the Session uses it: [{ name, crc, size, machine, stored }]
-    this.recentBytes = new Map(); // crc -> Uint8Array
+    this.recentBytes = new Map(); // crc (upper case) -> Uint8Array
+    this.recentFiles = new Map(); // crc (upper case) -> the store name it was read from (an older build's case kept)
     this.changed = { sockets: new Set(), names: new Set(), recent: false };   // since load: what mergeInto counts as newer
     this.tail = Promise.resolve(); // the write chain: every store operation runs after the one before
     this.writeError = null;     // (name, error) => void: a background write failed (quota, permission)
@@ -144,16 +145,17 @@ export class MediaIndex {
     this.changed = { sockets: new Set(), names: new Set(), recent: false };
     this.sockets = parse((await readOrNull(this.store, ROM_SOCKETS)) || new Uint8Array(0), {});
     this.names = parse((await readOrNull(this.store, ROM_NAMES)) || new Uint8Array(0), {});
-    this.recent = parse((await readOrNull(this.store, RECENT_LIST)) || new Uint8Array(0), []);
+    this.recent = this._readRecent(parse((await readOrNull(this.store, RECENT_LIST)) || new Uint8Array(0), []));
     this.images.clear();
     this.recentBytes.clear();
     for (const f of await this.store.list('roms/')) {
       const m = /^roms\/([0-9A-Fa-f]+)\.rom$/.exec(f.name);
       if (m) this.images.set(m[1].toUpperCase(), await this.store.read(f.name));
     }
+    this.recentFiles.clear();
     for (const f of await this.store.list('recent/')) {
       const m = /^recent\/([0-9A-Fa-f]+)\.bin$/.exec(f.name);
-      if (m) this.recentBytes.set(m[1].toUpperCase(), await this.store.read(f.name));
+      if (m) { this.recentBytes.set(m[1].toUpperCase(), await this.store.read(f.name)); this.recentFiles.set(m[1].toUpperCase(), f.name); }
     }
     this.ready = true;
     return this;
@@ -166,27 +168,40 @@ export class MediaIndex {
     const read = (n) => { try { return s.readSync(n); } catch (e) { if (e && e.code === 'not-found') return null; throw e; } };
     this.sockets = parse(read(ROM_SOCKETS) || new Uint8Array(0), {});
     this.names = parse(read(ROM_NAMES) || new Uint8Array(0), {});
-    this.recent = parse(read(RECENT_LIST) || new Uint8Array(0), []);
+    this.recent = this._readRecent(parse(read(RECENT_LIST) || new Uint8Array(0), []));
     this.images.clear();
     this.recentBytes.clear();
     for (const f of s.listSync('roms/')) {
       const m = /^roms\/([0-9A-Fa-f]+)\.rom$/.exec(f.name);
       if (m) this.images.set(m[1].toUpperCase(), read(f.name));
     }
+    this.recentFiles.clear();
     for (const f of s.listSync('recent/')) {
       const m = /^recent\/([0-9A-Fa-f]+)\.bin$/.exec(f.name);
-      if (m) this.recentBytes.set(m[1].toUpperCase(), read(f.name));
+      if (m) { this.recentBytes.set(m[1].toUpperCase(), read(f.name)); this.recentFiles.set(m[1].toUpperCase(), f.name); }
     }
     this.ready = true;
     return this;
   }
 
   // ---- reads (synchronous, from memory) ----
+  // The recent list's CRCs are NORMALISED (upper case) as it is read: the blobs are already keyed that way
+  // (`recent/<CRC>.bin`, upper-cased above), and an older build could store a lower-case CRC in the list
+  // itself. Without this a list holding one would show the same file twice — the entry it stored, and the
+  // entry a later load makes under the upper-case CRC — and its own row would fail to find its bytes.
+  _readRecent(list) {
+    // Only real entries: an entry needs a name and a CRC. A hand-edited or older list can hold a null, a string
+    // (which Object.assign copies as {0:'j',...}) or an object with one field missing; those have no row to draw
+    // and no bytes to load, and grouping them would label junk against junk.
+    return (Array.isArray(list) ? list : [])
+      .filter((r) => r && typeof r === 'object' && typeof r.crc === 'string' && typeof r.name === 'string')
+      .map((r) => Object.assign({}, r, { crc: r.crc.toUpperCase() }));
+  }
   socketCrc(machine, socket) { return (this.sockets[machine] || {})[socket] || null; }
   image(crc) { return this.images.get(crc) || null; }
   fileName(crc) { return crc ? this.names[crc] || null : null; }
   recentMedia() { return this.recent.map((r) => Object.assign({}, r)); }
-  recentData(crc) { return this.recentBytes.get(crc) || null; }
+  recentData(crc) { return this.recentBytes.get(String(crc).toUpperCase()) || null; }
 
   // ---- writes: memory at once, queued to the store ----
   // A synchronous store writes now (so a quota error reaches the caller); an asynchronous one is queued.
@@ -247,8 +262,19 @@ export class MediaIndex {
   }
   setRecent(list) { this.recent = list; this.changed.recent = true; this._write(RECENT_LIST, json(this.recent)); }
   // (written first: when a synchronous store is full the write throws and the bytes are not taken as kept)
-  putRecent(crc, bytes) { this._write(recentFile(crc), bytes); this.recentBytes.set(crc, bytes); }
-  dropRecent(crc) { this.recentBytes.delete(crc); this._remove(recentFile(crc)); }
+  putRecent(crc, bytes) {
+    const key = String(crc).toUpperCase(), name = recentFile(key);
+    this._write(name, bytes); this.recentBytes.set(key, bytes); this.recentFiles.set(key, name);
+  }
+  // remove EVERY file that could hold this CRC's bytes. An older build could have written `recent/<lower>.bin`,
+  // and the row that read it can later be re-written under the upper-case name (loadRecent loads the bytes it just
+  // read, which stores them upper case), so remembering one name is not enough: both spellings go.
+  dropRecent(crc) {
+    const key = String(crc).toUpperCase();
+    const names = new Set([this.recentFiles.get(key) || recentFile(key), recentFile(key), recentFile(key.toLowerCase())]);
+    this.recentBytes.delete(key); this.recentFiles.delete(key);
+    for (const name of names) this._remove(name);
+  }
   // drop images no socket refers to any more
   collect() {
     const used = new Set();
