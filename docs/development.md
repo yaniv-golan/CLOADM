@@ -77,8 +77,10 @@ node tools/gen-page-preload.js  # regenerate the <link rel="modulepreload"> list
 node tools/page-load.js      # how long /play/ takes to start over a throttled link: modulepreload's effect (see below)
 node tests/readme.test.js    # README.md and docs/*.md: only what GitHub renders; links, anchors and pictures resolve; no private or ROM-folder links
 node tests/tape.test.js      # cassette: WAV files, decoding impaired recordings, capturing csave.asm's output on every SAM model and the MC-10, Session
+node tests/tape-load.test.js # a tape dropped on the page: restarted, CLOADM, EXEC only when BASIC is back, a self-starting tape left alone (BASIC stand-in)
 node tests/input.test.js     # input: both keyboard modes on every family, the keyboard joystick, gamepads, the CoCo Max module
 node tools/mame-diff/tape/run-tape.js [profile ...]   # MAME records our writer firmware; MAME reads our .CAS and WAVs with our reader firmware
+node tools/mame-diff/tape/run-playback.js [profile ...]   # how a .CAS is played: the same silences and the same blocks read as MAME (--ours: ours only)
 node tests/tokens.test.js    # design tokens: agreed values, WCAG contrast, self-hosted WOFF2 fonts and licences
 node tests/zip.test.js       # ZIP reader and inflate (hand-built archives; zlib as the oracle)
 node tests/rompack.test.js   # ROM pack round trip; ROMs never in settings export or share links

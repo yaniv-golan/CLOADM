@@ -543,6 +543,63 @@ for (const [id, caseNo] of [['coco', 16], ['dragon64', 17]]) {
     `(snapshot ${(text.length / 1024).toFixed(0)} KB, ${eb.length} events)`);
 }
 
+// a tape being played with made-up silence and leader (js/media/tape.js): snapshots in the silence after the
+// namefile and inside a data block restore into machines that read on identically, and a version 2 snapshot (the
+// tape's position counted from a 128-byte leader, no `layout`) restores at the same byte of the image
+{
+  const tape = require('../tools/mame-diff/tape/spec.js');
+  const f = tape.firmware('dragon64', 'cloadm.asm'), bytes = tape.playbackTapes().short;
+  const a = f.machine();
+  a.deck.insert(new Emu.Tape(bytes, a.tickHz, 'short.cas'));
+  const t = a.deck.tape, regs = ['a', 'b', 'x', 'y', 'u', 's', 'pc', 'dp', 'cc'].map((name) => ({ name }));
+  const inSilence = () => t.levels[t.idx] === 0 && t.halves[t.idx] > 100000 && t.idx > 0;
+  for (let i = 0; i < 2000 && !inSilence(); i++) a.runFrame();
+  const silent = inSilence();
+  const text1 = Emu.state.toJSON(a.snapshot());
+  for (let i = 0; i < 2000 && !(t.bytePosition() > 60 && t.levels[t.idx] !== undefined && !inSilence() && a.deck.motor); i++) a.runFrame();
+  const text2 = Emu.state.toJSON(a.snapshot());
+  const ends = [];
+  for (const text of [text1, text2]) {
+    const b = Emu.restoreSnapshot(Emu.state.fromJSON(text), a.roms);
+    const c = Emu.restoreSnapshot(Emu.state.fromJSON(text), a.roms);
+    const same = run(b, regs, 30) === run(c, regs, 30);
+    for (let i = 0; i < 3000 && b.cpu.pc !== f.haltPc; i++) b.runFrame();
+    ends.push({ same, table: Buffer.from(b.ram.slice(0x1000, b.cpu.u)).toString('hex') });
+  }
+  for (let i = 0; i < 3000 && a.cpu.pc !== f.haltPc; i++) a.runFrame();
+  const want = Buffer.from(a.ram.slice(0x1000, a.cpu.u)).toString('hex');
+  check('tape in the silence after the namefile: restored, it reads on to the same blocks', silent && ends[0].same && ends[0].table === want && want.length === 4 * 4 * 2, `(${want.length / 8} blocks)`);
+  check('tape inside a data block: restored, it reads on to the same blocks', ends[1].same && ends[1].table === want);
+  // a version 2 file: the same machine, the tape's position as version 2 counted it
+  const snap = Emu.state.fromJSON(text2), st = snap.state.deck.tape;
+  const tp = new Emu.Tape(bytes, a.tickHz, 'short.cas');
+  tp.idx = st.idx;
+  const n = tp.bytePosition(), sub = st.idx - (tp.byteStart[n + 1] - 16);
+  const old = Emu.state.fromJSON(text2);
+  old.version = 2;
+  delete old.state.deck.tape.layout;
+  old.state.deck.tape.idx = 128 * 16 + n * 16 + sub;
+  const r = Emu.restoreSnapshot(old, a.roms);
+  check('a version 2 snapshot restores its tape at the same byte and half cycle', sub >= 0 && sub < 16 && r.deck.tape.idx === st.idx && r.deck.tape.left === st.left, `byte ${n}`);
+  const bad = Emu.state.fromJSON(text2); bad.version = 3; delete bad.state.deck.tape.layout;
+  let refused = false; try { Emu.restoreSnapshot(bad, a.roms); } catch (e) { refused = /layout/.test(e.message); }
+  check('...and the same file claiming version 3 is refused', refused);
+}
+
+// an MC-10 with a tape part way, saved as version 2 (before tapes had a layout): its tape is not padded (the
+// family's profile says pad: false), so it restores exactly as it was, not 3 s longer
+{
+  const tape = require('../tools/mame-diff/tape/spec.js');
+  const a = Emu.createMachine('mc10', { ram: 4 }); a.reset(true);
+  a.deck.insert(new Emu.Tape(tape.playbackTapes().short, a.tickHz, 'short.c10', a.profile.tape));
+  for (let i = 0; i < 60; i++) { a.deck.setMotor(true); a.runFrame(); }   // played part way (past its leader)
+  const old = Emu.state.fromJSON(Emu.state.toJSON(a.snapshot()));
+  old.version = 2; delete old.state.deck.tape.layout; delete old.state.deck.tape.opts.pad;   // as a version 2 file had it
+  const b = Emu.restoreSnapshot(old, a.roms), t = a.deck.tape, u = b.deck.tape;
+  check('a version 2 MC-10 snapshot restores its tape unpadded, at the same place', t.idx > 0 && u.idx === t.idx && u.left === t.left
+    && u.halves.length === t.halves.length && Math.abs(u.seconds() - t.seconds()) < 1e-9, `${t.seconds().toFixed(2)} s vs ${u.seconds().toFixed(2)} s`);
+}
+
 // Input state a machine holds: a Hi-Res joystick interface's one-shot, part way through its wait. Held keys,
 // the keyboard joystick and gamepads are the host's and are not in a snapshot, so what is left to prove is
 // that the one-shot survives: armed, its deadline intact, and the machine finishes the measurement the same.

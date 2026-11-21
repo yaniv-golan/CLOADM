@@ -483,8 +483,8 @@
     "halted": true
   },
   "trace dragon64 cload.asm": {
-    "hash": "2e6b30e0",
-    "instructions": 1101079,
+    "hash": "90472226",
+    "instructions": 1700747,
     "halted": true
   },
   "trace coco csave.asm": {
@@ -493,8 +493,8 @@
     "halted": true
   },
   "trace coco cload.asm": {
-    "hash": "c4fd6a9c",
-    "instructions": 1103931,
+    "hash": "bb1159bd",
+    "instructions": 1704292,
     "halted": true
   },
   "trace coco3 csave.asm": {
@@ -503,8 +503,8 @@
     "halted": true
   },
   "trace coco3 cload.asm": {
-    "hash": "e00c943a",
-    "instructions": 1104404,
+    "hash": "363061ee",
+    "instructions": 1704782,
     "halted": true
   },
   "trace mc10 csave6803.asm": {
@@ -732,6 +732,16 @@
   "trace dragon64 ssc masked": {
     "hash": "87ece521",
     "instructions": 197020,
+    "halted": true
+  },
+  "trace dragon64 cloadm.asm": {
+    "hash": "4876b936",
+    "instructions": 3205592,
+    "halted": true
+  },
+  "trace coco cloadm.asm": {
+    "hash": "3ffb3e52",
+    "instructions": 3203397,
     "halted": true
   },
   "trace d64plus plustext.asm": {

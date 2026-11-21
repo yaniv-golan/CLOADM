@@ -460,6 +460,20 @@ written, as our own capture of the same firmware does. MAME then reads, with our
 pair unchanged in its 32K BASIC socket. Tape images and WAVs are compared by the bytes they hold, not sample by
 sample: MAME pads `.CAS` playback with silence and writes its own sample timing.
 
+**Playing a `.CAS` file** (`tools/mame-diff/tape/run-playback.js`, on the Dragon 64 and the CoCo): a `.CAS` file has
+no silence and often shortened leaders, and BASIC waits about half a second after starting the motor before it
+looks for a block, so how the file is played decides what loads. Two firmwares of ours, installed as the BASIC ROM,
+play four images (128-byte leaders; one-byte leaders; a gapped file; two files with two-byte leaders) in MAME and on
+our machines. `tape/gaps.asm` times the cassette input: MAME plays 2 s of silence at the start of the tape and 1 s
+before every later namefile and after every namefile, and makes every leader in front of a namefile and the block
+after it 128 bytes; we play the same silences (all 8 runs identical: the same number, each within 0.5%, in fact within
+8 of about 38,600 loop counts). `tape/cloadm.asm` reads the tape as BASIC's CLOADM does, with its half-second wait
+after the motor starts for the namefile and again for the data blocks: it reads the same blocks in MAME and here,
+type, length, checksum and first byte, on all 8 runs. Without the made-up leaders, our machine loses the first data
+block of the one-byte-leader and two-file images. `tests/tape.test.js` pins the signal (silences and made-up leaders
+worked out from the image), `tests/tape-load.test.js` loads tapes through `Session.load` with a BASIC stand-in
+(`tape/standin.asm`), and `tests/state.test.js` snapshots a tape in the silence and inside a block.
+
 The MC-10 and Alice use their own 6803 pair (`tape/csave6803.asm`, `tape/cload6803.asm`), since the machine has a
 6803 and no motor relay: the writer toggles P20 a square cycle per bit and the reader times the cycles on P24,
 reporting the data bytes and their sum in registers and the block and bad-checksum counts in its internal RAM.
@@ -938,6 +952,14 @@ names it.
   them. (The Dragons and the CoCo 1/2 used to read `$FA`.)
 
 ## Deviations from MAME
+
+* Playing a `.CAS` file (`js/media/tape.js`): MAME rewrites the file's leaders, making every leader in front of a
+  namefile, and in front of the block after one, exactly 128 bytes (a longer one is shortened), adds one $55 to
+  every block, and plays a run of $55 bytes between two blocks about four times as long (measured with
+  `tape/gaps.asm`: a run of n bytes between blocks gives 4n - 3). A `.CAS` file is the bytes that were on the
+  tape; we play them as they are and only make up leaders that are too short for BASIC to find the block, with
+  MAME's silences. What a program reads is the same (`tape/cloadm.asm`, above); the comparison of the signal
+  checks the silences and shows the runs between them without comparing them.
 
 MAME artefacts reproduced only under `config.mameCompat` (the comparisons turn it on; the product does not):
 

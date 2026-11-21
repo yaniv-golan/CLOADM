@@ -256,6 +256,33 @@ All notable changes to CLOADM are recorded here. The format follows
   "DEL (Backspace)", beginning with the word shown (WCAG 2.5.3). The browser check's input-screen group asserts the
   name in both layouts.
 
+- **Tapes that load over BASIC's own memory now start.** A machine-code tape dropped on the page (or opened, or
+  loaded from the Library or a link) went in with `CLOADM:EXEC` typed on one line; a tape that loads over BASIC's
+  line buffer (from $0150, as many commercial tapes do) overwrote the `:EXEC`, and its program never ran. The page
+  now types `CLOADM`, waits for the tape, and types `EXEC` on a line of its own only once BASIC is back at its
+  prompt; a tape that starts itself gets no keys at all (`Session.loadMedia`, `Typist.typeWhen`).
+
+- **A tape loads on a clean machine.** Before a tape loads through BASIC the machine is restarted, as on a machine
+  just switched on (the deck and the cartridge stay); what ran before (a `CLEAR`, 64K mode, a crashed program)
+  no longer moves BASIC's stack and memory under a tape that relies on them. The status line says "Restarted for a
+  clean load".
+
+- **`.CAS` files with short leaders load.** A `.CAS` file has no silence and often shortened leaders; BASIC waits
+  half a second after starting the motor before it looks for a block, so the first data block of such a file was
+  missed and the program loaded 255 bytes low. Tapes are now played with silence around each namefile and a full
+  128-byte leader in front of the blocks BASIC looks for, the amounts MAME uses (measured with
+  `tools/mame-diff/tape/run-playback.js`, our own firmware in MAME and here: the same silences and the same blocks
+  read on the Dragon 64 and the CoCo). Snapshot format version 3 records a tape's position in the new signal;
+  version 1 and 2 files restore their tape at the same place.
+
+- **A tape dropped while the machine runs without ROMs uses your stored ROMs.** The welcome menu, LIZA, the colour
+  demo and **Run without ROMs** take the machine's ROMs out for the rest of the visit; a tape dropped then went
+  straight into memory on the stub firmware, which has no BASIC for the program to call, and a commercial game
+  crashed with its data on the screen. If the machine's ROMs are stored, the tape now uses them again and loads
+  through BASIC ("Using your ROMs again to load … through BASIC"); without stored ROMs, or with **Load .CAS straight
+  into memory** ticked, it goes into memory as before, and so it does if the stored ROMs do not start BASIC (the
+  page says so). The Claude chat's own machine never takes them.
+
 ### 0.1.6-pre
 
 #### Added

@@ -37,8 +37,10 @@ m.runFrame();
 check('cas program ran', m.ram[0x3000] === 0x42);
 
 // tape waveform timing sanity: one 0x55 byte = 4 zero bits + 4 one bits
+// (a lone byte, no blocks: the silence at the start of a tape, a 128-byte leader, then the byte's 16 half cycles)
 const t = new Emu.Tape(new Uint8Array([0x00]), m.tickHz);
-check('tape halves', t.halves.length === (128 + 1) * 16);
+check('tape signal: silence, leader, byte', t.halves.length === 1 + (128 + 1) * 16 && t.levels[0] === 0 && t.halves[0] === Math.round(2 * m.tickHz)
+  && t.levels[1] === 1 && t.levels[2] === 0);
 
 // keyboard matrix: press 'A' (row2 col1), strobe column 1 low
 m.reset(true); m.runFrame();
@@ -51,7 +53,7 @@ check('other column unaffected', (m.read(0xFF00) & 0x04) !== 0);
 {
   const mm = Emu.createMachine('dragon64'); mm.reset(true); mm.runFrame();
   const tp = new Emu.Tape(new Uint8Array([0xF0]), m.tickHz);
-  tp.seekByte(0); tp.idx = tp.leadHalves; tp.left = tp.halves[tp.idx];
+  tp.idx = tp.halves.length - 16; tp.left = tp.halves[tp.idx];   // the byte itself
   mm.deck.insert(tp);
   mm.write(0xFF21, 0x3C);           // CA2 high = motor on, data register selected
   const periods = []; let last = mm.read(0xFF20) & 1, lastRise = null;

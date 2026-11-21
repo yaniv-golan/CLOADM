@@ -43,7 +43,7 @@ dependencies, and every chip is checked instruction by instruction and pixel by 
 2. **Add your ROMs for BASIC:** drop the files, a folder or a ZIP on the screen. Names don't matter.
    [Where to get ROMs →](https://cloadm.dev/roms/)
 3. **Drop a program on it:** a `.cas` tape, a `.bin`, a `.rom` cartridge or a BASIC listing. With
-   ROMs, CLOADM types `CLOADM:EXEC` (or `CLOAD` and `RUN`) for you.
+   ROMs, CLOADM restarts the machine and types `CLOADM` and `EXEC` (or `CLOAD` and `RUN`) for you.
 
 </td>
 </tr>

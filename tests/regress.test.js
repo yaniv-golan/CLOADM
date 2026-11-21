@@ -361,6 +361,8 @@ for (const id of ['coco', 'coco2b', 'coco3', 'dragon64']) cases.push([`trace ${i
 const tapeSpec = require('../tools/mame-diff/tape/spec.js');
 for (const id of ['dragon64', 'coco', 'coco3']) for (const file of ['csave.asm', 'cload.asm']) cases.push([`trace ${id} ${file}`, () => traceHash(tapeSpec.trace(id, file))]);
 for (const id of ['mc10', 'alice']) for (const file of ['csave6803.asm', 'cload6803.asm']) cases.push([`trace ${id} ${file}`, () => traceHash(tapeSpec.trace(id, file))]);
+// how a .CAS is played (tape/cloadm.asm reading the image with one-byte leaders; run-playback.js compares it with MAME)
+for (const id of ['dragon64', 'coco']) cases.push([`trace ${id} cloadm.asm`, () => traceHash(tapeSpec.trace(id, 'cloadm.asm'))]);
 cases.push(['video coco3', () => videoHash(spec('coco3').video('coco3'))]);
 // the GIME text attributes, every byte, 32/40/64/80 columns, lines per row 0-6, blink off and on, exact
 // (run.js coco3 --video --attr)

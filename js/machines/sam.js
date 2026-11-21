@@ -417,6 +417,7 @@ class SamMachine extends Machine {
         const hook = hooks.get(cpu.pc);
         if (hook && cpu.willExecute()) hook();
       }
+      if (this.pcWatch !== null) this.pcWatch(cpu.pc);
       cpu.c = 0;
       this.stepStart = this.cycle; this.stepReg = this.sam.reg; this.regLog.length = 0;
       this.stepCycles = cpu.totalCycles;     // the CPU's count at the step's start (it moves on when the step ends)

@@ -56,7 +56,7 @@ for (const [file, family, format] of [['rsdos.dsk', 'coco', 'RS-DOS disk'], ['rs
 
 // ---- start commands and pasted text ----
 {
-  check('start commands per kind', Emu.startCommand('cas', { machineCode: true }) === 'CLOADM:EXEC' && /^CLOAD, then RUN/.test(Emu.startCommand('cas', {}))
+  check('start commands per kind', /^CLOADM, then EXEC once the tape has loaded/.test(Emu.startCommand('cas', { machineCode: true })) && /^CLOAD, then RUN/.test(Emu.startCommand('cas', {}))
     && Emu.startCommand('disk', { file: 'GAME' }) === 'DIR, then RUN"GAME"' && Emu.startCommand('cart') === 'autostart' && Emu.startCommand('basictext') === 'typed in, then RUN');
   const s = new Emu.Session({ store: Emu.memoryStore() });
   s.switchMachine('dragon64');

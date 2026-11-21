@@ -71,6 +71,9 @@ class Machine {
     this.colScans = new Uint32Array(8);
     this.stubKeepCase = false;     // the stub's POLCAT hands over typed lower case as is (the chat firmware)
     this.pcHooks = new Map();   // pc -> fn, run when the instruction at pc is about to execute, while stubActive()
+    // pc -> (), called with the address of every instruction the CPU fetches while set (an observation for the
+    // Session, not machine state: the EXEC after a tape load watches for the loaded program running; a reset drops it)
+    this.pcWatch = null;
     this.stubConsole = null;
 
     this.deck = new CassetteDeck(() => this.now());
@@ -187,6 +190,7 @@ class Machine {
     if (hard) this.ram.fill(0);
     this.clearKeys();
     this.typist.clear('machine-restarted');   // Claude's typing ends: the machine restarted under it (not a Stop)
+    this.pcWatch = null;                      // (and an EXEC waiting for a load with it)
     this.stubKeys = [];
     this.resetHardware(hard);
     this.cpu.reset(hard);
@@ -270,6 +274,7 @@ class Machine {
         const hook = hooks.get(cpu.pc);
         if (hook && cpu.willExecute()) hook();
       }
+      if (this.pcWatch !== null) this.pcWatch(cpu.pc);
       cpu.c = 0;
       let n;
       this.inStep = true;
@@ -442,7 +447,7 @@ class Machine {
     const mem = this.memoryArray();
     if (!s.memory || s.memory.length !== mem.length) throw new Error('snapshot: memory size does not match this configuration');
     mem.set(s.memory);
-    this.deck.loadState(s.deck);
+    this.deck.loadState(s.deck, this.restoringVersion, this.profile.tape);
     if (this.bitBanger) {
       if (!s.bitBanger) throw new Error('snapshot: missing "bitBanger"');
       this.bitBanger.loadState(s.bitBanger);
@@ -575,6 +580,9 @@ class Machine {
 //   2: the CoCo 3 adds `haltDefer`, an instruction HALT suspended (js/machines/coco3.js haltSuspend, with its bus
 //      accesses so far, `log`, and the memory they touched, `mem`), or null; a version 1 file has none, and its machine restores with no instruction
 //      suspended (none was, in version 1).
+//   3: a tape in the deck adds `layout` (2): its position counts the entries of the signal js/media/tape.js plays,
+//      silence and made-up leaders included. A version 1 or 2 file has none; its position counted a 128-byte leader
+//      and then the image's bytes, and the tape restores at the same byte of the image (Tape.fromState).
 // The CoCo 3's `outsideWrites` (writes from outside the CPU queued while an instruction was held,
 //      js/machines/coco3.js outsideWrite) is an OPTIONAL key at version 2, not a new version: a loader that does not
 //      know it ignores it (measured on 570d3fc: an unknown state key loads), while a version bump would make every
@@ -582,7 +590,7 @@ class Machine {
 //      be queued before this build held them); a newer file has one, and an older build would drop it on restore -
 //      the one case a bump would have refused instead, and a debugger write while an instruction is held is rare.
 export const SNAPSHOT_FORMAT = 'cloadm-state';
-export const SNAPSHOT_VERSION = 2;
+export const SNAPSHOT_VERSION = 3;
 export const SNAPSHOT_OLDEST = 1;
 
 Machine.BASIC_POINTERS = 0x19;   // Color BASIC / Dragon BASIC TXTTAB

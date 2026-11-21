@@ -77,7 +77,7 @@ export function detectMedia(name, bytes) {
 // what CLOADM types or does to start each kind of media
 export function startCommand(kind, detail = {}) {
   switch (kind) {
-    case 'cas': return detail.machineCode ? 'CLOADM:EXEC' : 'CLOAD, then RUN once the tape has loaded';
+    case 'cas': return detail.machineCode ? 'CLOADM, then EXEC once the tape has loaded (unless it starts itself)' : 'CLOAD, then RUN once the tape has loaded';
     case 'disk': return detail.file ? `DIR, then RUN"${detail.file}"` : 'DIR';
     case 'cart': return 'autostart';
     case 'basictext': return 'typed in, then RUN';

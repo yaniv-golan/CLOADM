@@ -311,5 +311,63 @@ DATAE
   check('through BASIC, DATA file: in the deck, nothing typed', /SCORES is a DATA file/.test(msg) && !r.machine.typist.busy, msg);
 }
 
+// ---------------- the signal a .CAS file is played as (js/media/tape.js) ----------------
+// What is expected is worked out here from the image's layout, not from the code: silence (2 s at the start of
+// the tape, 1 s before a later namefile and after every namefile) and leaders made up to 128 bytes in front of
+// the first block, every namefile and the block after a namefile. The amounts are MAME's, measured with
+// tools/mame-diff/tape/run-playback.js.
+{
+  const { playbackTapes } = require('../tools/mame-diff/tape/spec.js');
+  const tapes = playbackTapes(), HZ = 894886;
+  const silences = (t) => [...t.halves].map((h, i) => [h, i]).filter(([h, i]) => t.levels[i] === 0 && h > 1000);
+  // standard: 128-byte leaders already, so only the two silences are added
+  const std = new Emu.Tape(tapes.standard, HZ);
+  const nfEnd = 128 + 20;                      // the leader and the namefile block, its closing $55 included
+  check('standard tape: the bytes as they are, with 2 s of silence first and 1 s after the namefile',
+    std.halves.length === tapes.standard.length * 16 + 2 && JSON.stringify(silences(std)) === JSON.stringify([[2 * HZ, 0], [HZ, 1 + nfEnd * 16]]));
+  // short: one $55 before the namefile and one before the first data block, each made up to 128
+  const sh = new Emu.Tape(tapes.short, HZ), b = sh.byteStart;
+  const after = 1 + 20;                        // the $55, the namefile block
+  check('short leaders: 127 bytes of leader made up in front of the namefile, after the 2 s of silence',
+    sh.halves[0] === 2 * HZ && sh.levels[0] === 0 && b[0] === 0 && b[1] === 1 + 128 * 16);
+  check('...1 s of silence and 127 bytes of leader in front of the first data block',
+    b[after] === b[after - 1] + 16 && sh.halves[b[after]] === HZ && sh.levels[b[after]] === 0 && b[after + 1] === b[after] + 1 + 128 * 16);
+  check('...and nothing else added', sh.halves.length === 2 + (127 + 127 + tapes.short.length) * 16);
+  // two files: silence before the second namefile too
+  const two = new Emu.Tape(tapes.twofiles, HZ);
+  check('two files: 2 s, then 1 s after each namefile and 1 s before the second', JSON.stringify(silences(two).map(([h]) => h)) === JSON.stringify([2 * HZ, HZ, HZ, HZ]));
+  // the MC-10's tapes (pad: false) play as before: a 128-byte leader, then the bytes
+  const raw = new Emu.Tape(tapes.short, HZ, 'x', { pad: false });
+  check('pad: false: a leader and the bytes, no silence', raw.halves.length === (128 + tapes.short.length) * 16 && silences(raw).length === 0);
+  // a byte's position and back, everywhere; progress only ever grows
+  let round = true;
+  for (let n = 0; n < tapes.short.length; n++) {
+    sh.seekByte(n);
+    if (sh.bytePosition() !== n) round = false;
+    sh.idx = sh.byteStart[n + 1] - 1;           // the byte's own last half cycle
+    if (sh.bytePosition() !== n) round = false;
+  }
+  check('seekByte and bytePosition agree on every byte, made-up silence and leader counting as the byte after them', round);
+  sh.seekByte(0);
+  let last = -1, grows = true;
+  while (!sh.atEnd()) { const p = sh.progress(); if (p < last) grows = false; last = p; sh.advance(5000); }
+  check('progress grows from 0 to 1', grows && sh.progress() === 1);
+  // a version 1 or 2 snapshot's position (128 leader bytes, then 16 entries a byte of the image) at the same byte
+  // and half cycle: inside the old leader is the start of the tape; on a byte the tape now plays silence and a
+  // made-up leader in front of (the first data block's leader), the byte's own half cycles, not the ones in front
+  const v2 = (n, sub) => ({ bytes: tapes.short, tickHz: HZ, name: 's', opts: {}, idx: 128 * 16 + n * 16 + sub, left: 7 });
+  const inLeader = Emu.Tape.fromState(Object.assign(v2(0, 0), { idx: 100 }), 2);
+  const onPadded = Emu.Tape.fromState(v2(after, 5), 2), next = Emu.Tape.fromState(v2(after + 1, 0), 2);
+  check('a version 2 position inside its leader restores at the start of the tape', inLeader.idx === 0);
+  check('...on a byte with silence and leader made up in front of it, at that byte\'s own half cycle',
+    onPadded.idx === sh.byteStart[after + 1] - 16 + 5 && onPadded.idx > sh.byteStart[after] + 1 + 127 * 16 && onPadded.left === 7 && onPadded.bytePosition() === after
+    && next.idx === sh.byteStart[after + 1] + 0 && next.bytePosition() === after + 1);
+  // the MC-10 family's tapes are not padded: an old snapshot of one restores unpadded, at the very same entry
+  const mc = Emu.Tape.fromState(v2(after, 5), 2, Emu.profiles.mc10.tape);
+  check('a version 2 MC-10 tape restores as it was played (no silence, no leader made up), at the same entry',
+    mc.idx === 128 * 16 + after * 16 + 5 && mc.halves.length === (128 + tapes.short.length) * 16 && mc.opts.pad === false);
+  check('the length in seconds counts the silences', Math.abs(sh.seconds() - (sh.halves.reduce((a, h) => a + h, 0) / HZ)) < 1e-9 && sh.seconds() > 3);
+}
+
 console.log(fail ? `${fail} FAILED` : 'all tape checks passed');
 process.exitCode = fail ? 1 : 0;

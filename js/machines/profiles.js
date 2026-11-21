@@ -161,14 +161,14 @@ const P = registry({
   mc10: {
     options: opts(cpu('6803'), ram([4, 20])),
     name: 'MC-10', family: 'mc10', textScreen: 0x4000, keyboard: 'mc10', video: 'ntsc', mame: 'mc10', joystick: false,
-    tape: { zeroHz: 1200, oneHz: 2400 }, basicFeatures: { timer: false, joystk: false, pmode: false },
+    tape: { zeroHz: 1200, oneHz: 2400, pad: false }, basicFeatures: { timer: false, joystk: false, pmode: false },
     roms: [slot('basic', 'Micro Color BASIC', 0x2000, 0xE000, ['mc10.rom'], ['11FDA97E'], { required: true })],
   },
   alice: {
     options: opts(cpu('6803'), ram([4, 20])),
     // MAME's alice uses the MC-10 machine configuration unchanged (MC6847 NTSC, 3.58 MHz / 4)
     name: 'Matra Alice', family: 'mc10', textScreen: 0x4000, keyboard: 'alice', video: 'ntsc', mame: 'alice', joystick: false,
-    tape: { zeroHz: 1200, oneHz: 2400 }, basicFeatures: { timer: false, joystk: false, pmode: false },
+    tape: { zeroHz: 1200, oneHz: 2400, pad: false }, basicFeatures: { timer: false, joystk: false, pmode: false },
     roms: [slot('basic', 'BASIC', 0x2000, 0xE000, ['alice.rom'], ['F876ABE9'], { required: true })],
   },
 });

@@ -221,7 +221,8 @@ const userMedia = (async () => {
   const m = t.machine, st0 = t.tapeStatus();
   const tick = m.tickHz, half = (f) => Math.round(tick / f / 2);
   let ticks = 0;
-  for (const byte of [...Array(128).fill(0x55), ...cas]) for (let bit = 0; bit < 8; bit++) ticks += 2 * half((byte >> bit) & 1 ? 2400 : 1200);
+  for (const byte of cas) for (let bit = 0; bit < 8; bit++) ticks += 2 * half((byte >> bit) & 1 ? 2400 : 1200);
+  ticks += 3 * Math.round(tick);   // and the silence the tape is played with: 2 s at the start, 1 s after the namefile
   check('tape panel: a new tape: block 0 of 4, at the start, its length from the bit timing, motor off, no error',
     st0.name === 'panel.cas' && st0.blocks === 4 && st0.block === 0 && st0.progress === 0 && Math.abs(st0.duration - ticks / tick) < 1e-9
     && !st0.motor && st0.error === null && st0.realSpeed === false, JSON.stringify(st0));
@@ -242,7 +243,7 @@ const userMedia = (async () => {
   check('tape panel: a tape cut short counts the block it was cut in', cut.tapeStatus().blocks === 3, JSON.stringify(cut.tapeStatus()));
   // BASIC's report on the screen as the motor stops: ?IO ERROR then OK (VDG codes: @-_ are 0-31, space to ? are 32-63)
   t.rewindTape();
-  m.deck.setMotor(true); for (let f = 0; f < 70; f++) { m.runFrame(); m.deck.setMotor(true); }
+  m.deck.setMotor(true); for (let f = 0; f < 200; f++) { m.runFrame(); m.deck.setMotor(true); }   // past the 2 s of silence
   const at = t.tapeStatus().block;
   const put = (row, text) => { for (let i = 0; i < 32; i++) { const c = (text[i] || ' ').charCodeAt(0); m.ram[0x400 + row * 32 + i] = c >= 64 ? c - 64 : c; } };
   put(14, '?IO ERROR'); put(15, 'OK');

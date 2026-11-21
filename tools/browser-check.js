@@ -5821,6 +5821,48 @@ async function tapeChecks(browser, base, check) {
   check('tape: switching machine while recording asks to save it first, and saves it', /recording on the Dragon 32/.test(asked) && /3 blocks/.test(asked)
     && kept.suggestedFilename() === 'recording.cas' && Buffer.from(fs.readFileSync(await kept.path())).equals(Buffer.from(stream))
     && await page.evaluate(() => window.emu.machine.id === 'coco' && !window.emu.session.tapeRecording), asked);
+  // A machine-code tape dropped on the page with ROMs in: the machine is restarted, CLOADM is typed, and EXEC on a
+  // line of its own once BASIC is back at its prompt. BASIC is our stand-in (tape/standin.asm: a line per ENTER,
+  // CLOADM, then a jump to the exec address), installed in the CoCo's BASIC sockets in the page; the tape's
+  // program writes "ST" at $4000 and selects PMODE 4.
+  await page.evaluate(async () => {
+    const { assemble } = await import(new URL('js/asm/assembler.js', document.baseURI).href);
+    const res = assemble(await (await fetch('tools/mame-diff/tape/standin.asm')).text(), '6809');
+    const m = window.emu.machine, base = Math.min(...m.profile.roms.map((s) => s.at)), end = Math.max(...m.profile.roms.map((s) => s.at + s.size));
+    const img = new Uint8Array(end - base).fill(0x12);
+    for (const sgm of res.segments) if (sgm.addr >= base) img.set(sgm.data.subarray(0, end - sgm.addr), sgm.addr - base);
+    m.setRoms(Object.fromEntries(m.profile.roms.map((sl) => [sl.id, img.slice(sl.at - base, sl.at - base + sl.size)])));
+    m.reset(true);
+  });
+  const startCode = [0x1A, 0x50, 0x86, 0xF8, 0xB7, 0xFF, 0x22, 0xB7, 0xFF, 0xC0, 0xB7, 0xFF, 0xC3, 0xB7, 0xFF, 0xC5, 0xCC, 0x53, 0x54, 0xFD, 0x40, 0x00, 0x20, 0xFE];
+  const blk = (type, data) => { let sum = (type + data.length) & 0xFF; for (const v of data) sum = (sum + v) & 0xFF; return [0x3C, type, data.length, ...data, sum, 0x55]; };
+  const plain = Buffer.from([...Array(128).fill(0x55), ...blk(0, [...Buffer.from('PLAIN   '), 2, 0, 0, 0x0E, 0x00, 0x0E, 0x00]),
+    ...Array(128).fill(0x55), ...blk(1, startCode), ...blk(0xFF, [])]);
+  await dropFiles(page, [['plain.cas', plain]]);
+  const said = await waitFor(page, () => /^Restarted for a clean load\. plain\.cas: tape inserted \[PLAIN \(BINARY\)\] – loading via BASIC$/.test(document.getElementById('toastText').textContent), null, 10000);
+  check('tape: a dropped machine-code tape restarts the machine first, and the page says so', said, await page.textContent('#toastText'));
+  const ran = await waitFor(page, () => { const r = window.emu.machine.ram; return r[0x4000] === 0x53 && r[0x4001] === 0x54 && r[0x80] === 0x45; }, null, 30000);
+  check('tape: ...CLOADM loads it and EXEC, typed on its own line once the tape stops, runs it', ran,
+    await page.evaluate(() => `stage ${String.fromCharCode(window.emu.machine.ram[0x80])}, pc ${window.emu.machine.cpu.pc.toString(16)}`));
+  if (shotDir) await page.locator('#screenWrap').screenshot({ path: path.join(shotDir, 'tape-drop-ran.png') });
+  // The same tape after the welcome menu (from "Runs without ROMs"), with the stand-in stored as the CoCo's ROM
+  // files: the menu runs without ROMs, and the dropped tape uses the stored ones again, through BASIC.
+  await page.evaluate(async () => {
+    const { assemble } = await import(new URL('js/asm/assembler.js', document.baseURI).href);
+    const res = assemble(await (await fetch('tools/mame-diff/tape/standin.asm')).text(), '6809');
+    const s = window.emu.session, m = s.machine, base = Math.min(...m.profile.roms.map((x) => x.at)), end = Math.max(...m.profile.roms.map((x) => x.at + x.size));
+    const img = new Uint8Array(end - base).fill(0x12);
+    for (const sgm of res.segments) if (sgm.addr >= base) img.set(sgm.data.subarray(0, end - sgm.addr), sgm.addr - base);
+    s.addRoms(m.profile.roms.map((sl) => ({ name: sl.files[0], bytes: img.slice(sl.at - base, sl.at - base + sl.size) })));
+  });
+  await page.evaluate(() => document.querySelector('#shelf button[data-shelf="welcome"]').click());
+  const menu = await waitFor(page, () => window.emu.session.welcomeRunning && window.emu.machine.useStub, null, 15000);
+  await dropFiles(page, [['plain.cas', plain]]);
+  const again = await waitFor(page, () => /^Using your ROMs again to load plain\.cas through BASIC\. Restarted for a clean load\. plain\.cas: tape inserted/.test(document.getElementById('toastText').textContent), null, 10000);
+  check('tape: after the welcome menu (no ROMs), a dropped tape uses the stored ROMs again, and the page says so', menu && again, await page.textContent('#toastText'));
+  const ranAgain = await waitFor(page, () => { const m = window.emu.machine, r = m.ram; return m.hasRom && r[0x4000] === 0x53 && r[0x4001] === 0x54 && r[0x80] === 0x45; }, null, 30000);
+  check('tape: ...and it loads through BASIC and runs', ranAgain,
+    await page.evaluate(() => `rom ${window.emu.machine.hasRom}, stage ${String.fromCharCode(window.emu.machine.ram[0x80])}, pc ${window.emu.machine.cpu.pc.toString(16)}`));
   check('tape: no page errors', !errors.length, errors.join('; '));
   await ctx.close();
 }

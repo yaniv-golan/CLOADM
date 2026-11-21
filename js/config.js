@@ -16,7 +16,7 @@
  *   app=claude              open the Claude chat: the chat firmware on a 6809 machine, and the
  *                           chat's panel (API key, machine tools) beside the screen (js/ui/claude.js)
  *   load=URL                load and run a program, tape or cartridge, as a dropped file would
- *   tape=URL                put a tape in the deck; with autorun it loads and runs (CLOAD/RUN or CLOADM:EXEC)
+ *   tape=URL                put a tape in the deck; with autorun it loads and runs (CLOAD/RUN, or CLOADM then EXEC)
  *   cart=URL                plug in a cartridge (it starts by itself)
  *   autorun[=1|0]           with tape=
  *   rom=URL (repeatable)    a ROM image to fetch (never from the Color Computer Archive; js/ui/rom-panel.js)

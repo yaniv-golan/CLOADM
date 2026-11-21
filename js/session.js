@@ -210,6 +210,31 @@ function validSetting(k, v) {
   try { resolveConfig(m[1], o); return true; } catch (e) { return false; }
 }
 
+// After CLOADM, whether to type EXEC (Typist.typeWhen): decided once a frame from what the machine does, never
+// from the screen (the load may have overwritten it, and BASIC's buffers). A tape that starts itself must get no
+// keys, and on one that loads over BASIC's line buffer an EXEC typed on the CLOADM line would be lost: so EXEC goes
+// on a line of its own, typed once the tape has stopped and the CPU has stayed in the ROM space ($8000 up: BASIC,
+// a cartridge, or BASIC copied to RAM there in 64K mode) for EXEC_IDLE frames, and never once the CPU has fetched an
+// instruction from the loaded program (Machine.pcWatch, every instruction; pages 0 and 1, where BASIC keeps routines
+// and hooks it runs itself, do not count). It gives up (types nothing) if the tape never starts or BASIC never
+// settles.
+const EXEC_IDLE = 25, EXEC_START_FRAMES = 600, EXEC_SETTLE_FRAMES = 500;
+function execWhenReady(m, file) {
+  const from = Math.max(file.load, 0x0200), to = file.load + file.data.length;
+  let frames = 0, ran = false, settle = 0, idle = 0, tookOver = false;
+  m.pcWatch = (pc) => { if (pc >= from && pc < to) tookOver = true; };
+  const done = (verdict) => { m.pcWatch = null; return verdict; };
+  return () => {
+    frames++;
+    if (tookOver) return done('drop');
+    if (m.deck.motor) { ran = true; settle = 0; idle = 0; return 'wait'; }
+    if (!ran) return frames > EXEC_START_FRAMES ? done('drop') : 'wait';
+    idle = m.cpu.pc >= 0x8000 ? idle + 1 : 0;
+    if (idle >= EXEC_IDLE) return done('type');
+    return ++settle > EXEC_SETTLE_FRAMES ? done('drop') : 'wait';
+  };
+}
+
 export class Session {
   // store: small settings (localStorage in the page). media: a MediaStore (js/host/media-store.js) for
   // ROMs, recent programs, the library and the quick-save slots; default an in-memory one, so Node tests and
@@ -976,6 +1001,7 @@ export class Session {
   // run segments at exec (Machine.injectAndRun), remembering them as the stub's program to restart on Reset
   inject(segments, exec) {
     const m = this.machine;
+    this.cancelLoadTyping(m);
     this.stopClaudeFor('you started a program', m);   // (as loadMedia: a program run with ROMs is not a reset)
     m.injectAndRun(segments, exec);
     this.stubRun = m.useStub && exec != null
@@ -2002,6 +2028,7 @@ export class Session {
       for (const x of linked) back.drives[x.drive].media.onWrite = x.link;
       throw new SessionError(`Can't restore that point (${e.message}): the machine was put back as it was, and your restore points are kept.`);
     }
+    this.cancelLoadTyping(m);          // a load's EXEC still waiting was for the machine as it was
     const notices = this.relinkPoint(m, (this.claudePointInfo.get(snap) || {}).disks || [], linked);
     // A restore point is a loaded moment too, and goes back onto the same machine (no new Machine, no Reset): the
     // boot watchdog must not count 5 s from it either, or a point taken on a game would answer 'failed' with the
@@ -2194,12 +2221,40 @@ export class Session {
     this.emit('loaded');
     return msg;
   }
+  // A tape loads through BASIC as on a machine just switched on: power cycled (the deck and the cartridge stay,
+  // as with any power cycle), then nothing is typed until BASIC is at its prompt. Whatever ran before - a CLEAR
+  // that moved the top of memory, 64K mode, a program that crashed - would otherwise decide where BASIC's stack and
+  // variables are while the tape loads, which is where a self-starting tape puts its start-up code.
+  // m runs without ROMs only because that was chosen (stubChosen), and the ROMs stored for it boot BASIC
+  // (never the chat machine: it shares the model's id, but runs the chat firmware, not the model's BASIC)
+  storedRomsWaiting(m) {
+    if (this.chatMachines && m === this.chatMachines.chat) return false;
+    return !m.hasRom && this.stubChosen.has(m.id) && !this.nitros9On(m) && this.machineRoms(m.id).bootable;
+  }
+  // put m's stored ROMs back in (as the ROM screen's "Switch on" does, on this same machine; the load power cycles it)
+  useStoredRoms(m) {
+    this.stubChosen.delete(m.id);
+    this.loadSavedRoms();
+    this.emit('roms');
+  }
+  // What a load typed into m, or is still waiting to type (the EXEC after CLOADM, and its watch on the loaded
+  // program), is dropped when something else starts on m: a later load, a program injected, a restore point.
+  // Otherwise that EXEC would be typed into whatever runs next.
+  cancelLoadTyping(m) {
+    m.typist.dropTyped();
+    m.pcWatch = null;
+  }
+  restartForLoad(m) {
+    this.powerCycle({ menu: false, reason: 'you loaded a program' });
+    m.ensureBooted();
+    for (let i = 0; i < 5 * m.fps && this._bootStatusOf(m).state !== 'ok' && m.runFrame(); i++);
+  }
   loadMedia(name, bytes, askAddresses) {
     const m = this.machine;
     // a program the person loads takes over the machine Claude acts on (with ROMs it starts without a reset, so
     // the machine's onReset does not say so): Claude stops just before it does (inject does too), and nothing it
     // held is typed into the program; a load that is refused or cancelled leaves Claude alone
-    const takeOver = () => this.stopClaudeFor('you loaded a program', m);
+    const takeOver = () => { this.cancelLoadTyping(m); this.stopClaudeFor('you loaded a program', m); };
     this.endWelcome();
     this.stubRun = null;
     const media = detectMedia(name, bytes);
@@ -2229,19 +2284,35 @@ export class Session {
         // other type) is read by a program (OPEN "I",#-1 and INPUT #-1): it goes in the deck, nothing is typed
         // or run (CLOAD would stop with ?FM ERROR, and poking it into memory would run data as code).
         if (first.fileType !== 0 && first.fileType !== 2) {
+          this.cancelLoadTyping(m);
           m.deck.insert(tape);
           return `${name}: ${first.name} is a ${first.typeName} file, which a program reads (OPEN "I",#-1); it is in the deck`;
         }
         // an ASCII BASIC listing must be tokenised by BASIC's CLOAD, so it always loads through BASIC
         const ascii = first.fileType === 0 && first.ascii;
+        // running without ROMs by choice (the welcome menu, LIZA, the demo, "Run without ROMs") while this machine's
+        // ROMs are stored: a tape that loads through BASIC uses them again rather than going into memory on the stub,
+        // which has no BASIC for a program to call
+        const again = (!this.fastCas || ascii) && this.storedRomsWaiting(m);
+        if (again) this.useStoredRoms(m);
         if (ascii && !m.hasRom) throw this.needsRom('An ASCII BASIC tape');
+        let note = '';
         if (m.hasRom && (!this.fastCas || ascii)) {
-          takeOver();
-          m.ensureBooted();
-          m.deck.insert(tape);
-          if (first.fileType === 2) m.typist.type('CLOADM:EXEC\r');
-          else { m.typist.type('CLOAD\r'); m.typist.waitTape(); m.typist.type('RUN\r'); }
-          return `${name}: tape inserted [${list}] – loading via BASIC`;
+          this.restartForLoad(m);
+          // stored ROMs that do not start BASIC (no OK after the restart) get nothing typed into them: the machine
+          // goes back to running without ROMs and the tape goes into memory there, as it did before
+          if (again && this._bootStatusOf(m).state !== 'ok') {
+            this.runWithoutRoms({ menu: false });
+            if (ascii) throw new SessionError(`${name}: your stored ${m.profile.name} ROMs did not start BASIC, and an ASCII BASIC tape needs it.`);
+            note = `Your stored ROMs did not start BASIC, so ${name} went straight into memory. `;
+          } else {
+            m.deck.insert(tape);
+            if (first.fileType === 2) {
+              m.typist.type('CLOADM\r');
+              m.typist.typeWhen(execWhenReady(m, first), 'EXEC\r');
+            } else { m.typist.type('CLOAD\r'); m.typist.waitTape(); m.typist.type('RUN\r'); }
+            return `${again ? `Using your ROMs again to load ${name} through BASIC. ` : ''}Restarted for a clean load. ${name}: tape inserted [${list}] – loading via BASIC`;
+          }
         }
         let msg;
         if (first.fileType === 0) {
@@ -2256,7 +2327,7 @@ export class Session {
         }
         tape.seekByte(first.end);       // the rest stays in the deck for multi-part loaders
         m.deck.insert(tape);
-        return msg;
+        return note + msg;
       }
 
       case 'cart': {
@@ -3053,12 +3124,10 @@ export class Session {
     if (!t) { this.tapeWatch = null; return null; }
     deck.sync();
     if (!this.tapeInfo || this.tapeInfo.tape !== t) {
-      let ticks = 0;
-      for (const h of t.halves) ticks += h;
-      this.tapeInfo = { tape: t, blocks: Array.from(casBlocks(t.bytes), (b) => b.start), duration: ticks / t.tickHz };
+      this.tapeInfo = { tape: t, blocks: Array.from(casBlocks(t.bytes), (b) => b.start), duration: t.seconds() };
       this.tapeWatch = null;
     }
-    const info = this.tapeInfo, at = Math.floor((t.idx - t.leadHalves) / 16);
+    const info = this.tapeInfo, at = t.bytePosition();
     const block = info.blocks.filter((start) => start <= at).length;
     // read errors: watch each run of the motor
     if (deck.motor) { if (!this.tapeWatch || this.tapeWatch.done) this.tapeWatch = { done: false, error: null }; }

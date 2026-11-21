@@ -62,10 +62,12 @@ class CassetteDeck {
     return { motor: this.motor, time: this.time, tape: this.tape ? this.tape.saveState() : null,
       out: this.out, recording: this.recording ? this.recording.map((e) => e.slice()) : null };
   }
-  loadState(s) {
+  // version: the snapshot's layout (Machine.restoringVersion), and profileTape: the machine's tape options
+  // (profile.tape), both for a tape saved before the tape's own layout key (Tape.fromState)
+  loadState(s, version, profileTape) {
     this.motor = s.motor; this.time = s.time;
     this.out = s.out; this.recording = s.recording ? s.recording.map((e) => e.slice()) : null;
-    this.tape = s.tape ? Tape.fromState(s.tape) : null;
+    this.tape = s.tape ? Tape.fromState(s.tape, version, profileTape) : null;
   }
 }
 
