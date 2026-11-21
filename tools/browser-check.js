@@ -3243,6 +3243,25 @@ async function snapshotChecks(browser, base, check) {
     check('snapshot: no page errors', !errors.length, errors.join('; '));
     await ctx.close();
   }
+  // the Share screen opened by address (play/#share): the page is still starting when its view is shown, so the
+  // capture waits for the visit to start; no error toast, no page error, a running screen and a filled-in view
+  {
+    const errors = [];
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const page = await ctx.newPage();
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}?machine=dragon64#share`);
+    await started(page);
+    const filled = await waitFor(page, () => !document.getElementById('share').hidden && !!document.getElementById('shareLink').value);
+    const r = await page.evaluate(() => ({ filled: true, toast: document.getElementById('toast').textContent, error: document.getElementById('toast').classList.contains('error'), link: document.getElementById('shareLink').value }));
+    const f0 = await page.evaluate(() => window.emu.machine.frameCount);
+    check('share: opened by address (#share), the view is filled in once the page has started, with no error toast',
+      filled && !/Cannot read|null/.test(r.toast) && !r.error && /^(https?|file):/.test(r.link), r.toast);
+    await emuFrames(page, 5);
+    check('share: opened by address, the screen is running', await page.evaluate((f) => window.emu.machine.frameCount > f, f0));
+    check('share: opened by address, no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
 }
 
 // LIZA for the 6803: on the MC-10 and on the Alice with no ROMs, LIZA starts from the
