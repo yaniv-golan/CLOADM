@@ -28,7 +28,7 @@ names contain one of the parts, and `node tools/browser-check.js --only <group>[
 |---|---|---|
 | `js/cpu/` (6809, 6309, 6803) | `cpu,opcodes,disasm,asm,nmi-arm,regress` | `models,cpu6309` |
 | Video: `js/chips/` VDG, SAM, GIME, 6845, `js/video/` | `video,mc6847,mc6845,coco3,composite,sammem,samrate,regress,state` | `models,display,glLoss` |
-| Machines and profiles (`js/machines/`) | `machine,models,bus,coco3,mc10,alpha,d64plus,state,snapshot,regress` | `models,powerOn` |
+| Machines and profiles (`js/machines/`) | `machine,models,bus,coco3,mc10,alpha,d64plus,stub-sam,state,snapshot,regress` | `models,powerOn` |
 | Floppy disks, `js/media/` | `fdc,disk,detect,state` (`disk` also selects the `disks*` suites) | `disk,media` |
 | Cassette | `tape` | `tape,tapePanel` |
 | Cartridges and sound chips | `bus,carts,ssc,sp0256,ay8910,audio` | `cartridge,sscBoard,audio` |

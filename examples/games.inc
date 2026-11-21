@@ -83,7 +83,7 @@ GMODE   PSHS    A
         STA     $FFC5
         BSR     SAMBASE
         STA     $FFDA           ; SAM M=10: 64K dynamic RAM, as BASIC sets it on a 32K or 64K machine.
-        STA     $FFDD           ; (The built-in firmware leaves M at 4K, which wraps the display every 4K.)
+        STA     $FFDD           ; (Set again in case M was left at 4K, which wraps the display every 4K.)
         RTS
 SAMBASE STA     $FFC6           ; SAM F=2: the display at $0400 (F1 set, the others clear)
         STA     $FFC9

@@ -118,8 +118,8 @@ expect, or for the screen to change) only if the answer is not there yet.
 
 **Write and run machine code.** Assemble with `assemble_and_load` (give `ORG` in the source, or `org`), then `run`
 with the start address (`"$3000"`), then `run_frames` until the effect, then check it. For graphics, first read
-`references/hardware.md`: the VDG mode bits and the SAM's V and F bits must agree, and the built-in firmware leaves
-the SAM at 4K, so a picture above `$0FFF` needs the SAM's memory size set. Take values from that table, not from
+`references/hardware.md`: the VDG mode bits and the SAM's V and F bits must agree, and a picture above `$0FFF` needs the
+SAM's memory size right for the RAM (power-on sets it; set it yourself to be safe). Take values from that table, not from
 memory: one wrong bit gives another mode with plausible-looking colours.
 
 **Games.** Load the game (`load` a `.bin`, `.cas` or cartridge), then wait for the title with
