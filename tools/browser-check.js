@@ -1043,9 +1043,18 @@ async function audioChecks(browser, base, check) {
     `paused ${pausedState}, resumed ${resumedState}, hidden ${hiddenState}, shown ${shownState}`);
 
   // the tone: the machine's own events give its period in cycles; the played samples' rising zero crossings over
-  // a second of full blocks give its frequency (to the resampler's steering, at most 0.5%, and one crossing)
+  // a second of full blocks give its frequency (to one crossing, once the resampler has SETTLED -- while it is
+  // recovering from a stall the ratio is held at +-2% until the queue reaches TARGET_MS, so a check that sampled
+  // then would measure a deliberate detune, not the machine: CI measured 451.39 for a 456.64 Hz tone this way).
   await load(square);
   await wait(); await wait();
+  // Wait for the steering to settle: mode NONE (0) means the ratio is exactly 1. Bounded, so a correction that
+  // never converges fails here rather than being waited out: from a queue at the band's edge it takes a few
+  // seconds at 2% (see RECOVER in js/host/audio.js; 40 ms a frame of 21-23 ms is more than a frame's worth), so 5 s
+  // is generous and a fail after it is a real one.
+  const settled = await waitFor(page, () => window.emu.audio && window.emu.audio.out && window.emu.audio.out.mode === 0, null, 5000);
+  check('sound: the resampler settles (ratio exactly 1) before the tone is measured', settled,
+    await page.evaluate(() => JSON.stringify({ mode: window.emu.audio && window.emu.audio.out ? window.emu.audio.out.mode : null })));
   const tone = await page.evaluate(() => {
     const m = window.emu.machine, ev = m.audioEvents, ts = [];
     for (let i = 2; i < ev.length; i += 2) if (ev[i + 1] !== ev[i - 1]) ts.push(ev[i]);

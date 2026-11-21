@@ -299,5 +299,27 @@ for (const rate of [44100, 48000]) {
     `${[...values].join(',')} over ${ratios.length} frames (queue ${Math.min(...depth).toFixed(0)}..${Math.max(...depth).toFixed(0)} ms), correcting ${(active * 100).toFixed(0)}% of them, ${(reversals / 80).toFixed(2)} reversals/s (a depth-following ratio gives 13/s)`);
 }
 
+// The steady-state property the browser's tone check depends on: once the queue is back at TARGET_MS the ratio is
+// EXACTLY 1 (so a tone is played at the machine's frequency), and while the resampler is recovering the ratio is
+// held within +-2% of 1 (the deliberate, transient detune). A check that sampled during recovery would measure
+// that detune instead of the machine's tone -- CI did: 451.39 Hz played for a 456.64 Hz square wave.
+{
+  const rate = 44100, fps = 49.96766756635178, cycles = 17784, block = new Float32Array(1024);
+  const out = new Stage(rate);
+  // start deep (a stall left the queue far above the band), then let it recover by pulling the card faster than
+  // the machine fills it, sampling the ratio at every frame
+  while (out.buffered() < 0.14 * rate) out.push([0, 0.5], cycles, fps);
+  const ratios = []; let tf = 0, tb = 0;
+  const frameDt = 1 / fps, blockDt = 1024 / rate;
+  while (tf < 60) {
+    if (tf <= tb) { out.push([0, 0.5], cycles, fps); tf += frameDt; } else { out.sink.pull(block); tb += blockDt; }
+    ratios.push(out.ratioAt(out.buffered() / rate * 1000));
+  }
+  const ratioOut = out.ratioAt(out.buffered() / rate * 1000);
+  check('audio: while the resampler recovers the ratio stays within +-2% of 1', ratios.every((r) => r >= 0.98 - 1e-9 && r <= 1.02 + 1e-9), `${[...new Set(ratios.map((r) => r.toFixed(3)))].join(',')}`);
+  check('audio: and once it has settled the ratio is exactly 1 (a steady tone keeps the machine\'s frequency)',
+    ratioOut === 1 && out.mode === 0, `ratio ${ratioOut}, mode ${out.mode}, queue ${(out.buffered() / rate * 1000).toFixed(1)} ms`);
+}
+
 console.log(fail ? `${fail} FAILED` : 'all passed');
 process.exitCode = fail ? 1 : 0;
