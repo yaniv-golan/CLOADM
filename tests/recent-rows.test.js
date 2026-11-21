@@ -48,4 +48,4 @@ for (const x of rows) {
 }
 
 console.log(fail ? `${fail} FAILED` : 'all recent-row checks passed');
-process.exit(fail ? 1 : 0);
+process.exitCode = fail ? 1 : 0;   // (suites never call process.exit: tests/no-exit.js guards it)

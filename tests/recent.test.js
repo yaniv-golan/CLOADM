@@ -168,4 +168,4 @@ const progB = Emu.toBinary(Emu.assemble(' ORG $3000\n FCB $BB,$BB,$BB,$BB,$BB\nL
 }
 
 console.log(fail ? `${fail} FAILED` : 'all recent checks passed');
-process.exit(fail ? 1 : 0);
+process.exitCode = fail ? 1 : 0;   // (suites never call process.exit: tests/no-exit.js guards it)
