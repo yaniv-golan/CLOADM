@@ -265,6 +265,13 @@ Next version: 0.1.7-pre (the plugin and extension manifests carry it; `tests/plu
 
 #### Fixed
 
+- **The built-in firmware sets the SAM's memory size for the fitted RAM, as BASIC does.** On the Dragons and the
+  CoCo 1/2 family it left M at 00 (4K), so a program run without ROMs that showed a screen above `$0FFF` (any
+  graphics page from `$0600`) saw the first 4K again unless it set M itself. It now leaves M = 01 on 16K and 10 on
+  32K and 64K (4K stays 00). `tests/stub-sam.test.js` checks every model and RAM option, and that a text screen at
+  `$2000` shows its own bytes; `docs/game-development.md` and the agent skill no longer tell programs the firmware
+  leaves 4K.
+
 - **A write from outside the CPU no longer runs in the middle of a held I/O access.** On the CoCo 3 an instruction
   the disk controller's HALT suspended asks the scheduler to pump its events at the held access's time; the
   debugger's memory write made from a host handler reaching the bus in that window ran in a machine state no instruction

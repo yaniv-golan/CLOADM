@@ -727,7 +727,11 @@ class SamMachine extends Machine {
     w(0xFF21, 0x00); w(0xFF20, 0xFE); w(0xFF21, 0x34);   // motor off
     w(0xFF23, 0x00); w(0xFF22, 0xFE); w(0xFF23, 0x3C);   // sound enabled
     w(0xFF20, 0x80); w(0xFF22, 0x04);                    // DAC mid, text mode
-    this.sam.reg = 0x0002 << 3;                           // text at $0400, map type 0
+    // text at $0400, map type 0, and the memory size the fitted RAM needs, as BASIC sets it at power-on: M=01 for
+    // 16K, M=10 for 32K and 64K (MC6883 data sheet p. 4-645, "Memory Size"). M sizes the video counter
+    // (js/chips/sam6883.js counterMask), so at M=00 a screen above $0FFF would show the first 4K again.
+    const k = this.config.ram, m = k >= 32 ? 2 : k >= 16 ? 1 : 0;
+    this.sam.reg = (0x0002 << 3) | (m << 13);
     const ram = this.ram;
     for (const a of [0x100, 0x103, 0x106, 0x109]) ram[a] = 0x3B;  // RTI
     const irq = STUB.symbols.get('IRQ'), firq = STUB.symbols.get('FIRQ');
