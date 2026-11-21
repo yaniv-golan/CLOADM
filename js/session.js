@@ -1658,20 +1658,24 @@ export class Session {
     this.checkNotInDrive(src, 'rename');
     const dst = this.libName(to.startsWith(DISK_PREFIX) || to.startsWith(LIBRARY_PREFIX) ? to : prefix + to);
     if (!dst.startsWith(prefix)) throw new SessionError(`${to}: a ${prefix === DISK_PREFIX ? 'disk image' : 'library item'} stays where it is`);
-    // The destination may be a name a creation (a new disk, an import) is MAKING. Its check and its write are apart
-    // by awaits, and a rename that landed in that gap put the renamed image where the creation was about to write:
-    // the creation's write then replaced it, so the renamed image was gone and the creation reported success. A
-    // disk creation marks the name it has decided on before its first await (claimDiskName), so the two cannot
-    // interleave; a name no creation has decided on (the store refused the creation before it chose) is free.
-    if (prefix === DISK_PREFIX && this.claimedDiskName(dst)) throw new SessionError(`${to}: a disk is being made under that name: try again once it is done.`);
+    // A disk image's move runs as one CREATION, like a new disk or an import: one at a time, in the order each was
+    // asked, and its turn comes after every creation queued before it has ENDED. Two holes on main close with it:
+    //   - a rename onto a name a creation is making is refused above, before the queue (that creation's turn ends
+    //     before this rename's starts, so it is the creation's name while it lasts);
+    //   - a creation asked while this rename is queued runs after the rename has RUN, so its listing sees the moved
+    //     image under the new name and does not choose it. (On main the creation chose the name from a listing made
+    //     before the queued rename ran, and wrote its own bytes over the renamed image.)
+    const claim = prefix === DISK_PREFIX;
+    if (claim && this.claimedDiskName(dst)) throw new SessionError(`${to}: a disk is being made under that name: try again once it is done.`);
     // A case-only rename on a store that does not tell cases apart cannot be done: it is one file, and the
     // store's write-then-remove would replace it and then delete it. (The name is the name it already has.)
     if (this.caseInsensitive && dst !== src && dst.toLowerCase() === src.toLowerCase()) {
       throw new SessionError(`${to}: this ${this.media.kind === 'fsa' ? 'folder' : 'storage'} does not tell upper from lower case, so ${src.slice(prefix.length)} and ${to} are the same name.`);
     }
     const op = () => this.media.rename(src, dst);
+    const run = () => this.libraryOp(() => (src.startsWith(DISK_PREFIX) ? this.diskStoreChange(op, [src, dst]) : op()));
     try {
-      return await this.libraryOp(() => (src.startsWith(DISK_PREFIX) ? this.diskStoreChange(op, [src, dst]) : op()));
+      return await (claim ? this.createExclusive(() => run()) : run());
     } catch (e) { throw this.mediaError(e, from); }
   }
   async deleteMedia(name) {
@@ -1947,6 +1951,8 @@ export class Session {
     // refuse rather than replace. This is also the same-drive case the diskHolder checks below cannot see -- they
     // look for the image in a drive, and a creation's image may have been put in this very drive (the eject below
     // would remove it) or be about to be mounted after this operation read the drive as empty.
+    // a creation of this name landed after this one was asked for -- a new disk, an import or a RENAME (all three
+    // are creations: one at a time, in ask order) -- so this one is a second creation and refuses
     const raced = this.landedRace(full, askedAt);
     if (raced) throw new SessionError(`There is already a disk named ${raced.slice(DISK_PREFIX.length)} in your library: choose another name.`);
     const holder = this.diskHolder(full, { machine: this.machine, drive });

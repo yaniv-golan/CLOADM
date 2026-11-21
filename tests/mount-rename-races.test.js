@@ -98,6 +98,34 @@ const A = () => images.vdk(40, 1), B = () => images.vdk(26, 1);
       nd.ok && !rn.ok && /already/i.test(rn.m), `${nd.m} | ${rn.m}`);
   }
   {
+    // The other order: the RENAME is asked first. On main the rename's check passed, its rename queued behind the
+    // drives' writes, and a creation asked in the gap then chose that name from a listing that could not see the
+    // queued rename, and its write landed over the renamed image. Both must be decided on the disk chain, in the
+    // order they were queued: the rename runs, then the creation finds the name taken and refuses. The renamed bytes
+    // stay under their new name and the blank is never written.
+    const media = new MemoryMediaStore();
+    const s = await session(media);
+    const keep = A();
+    await media.writeSync('disks/keep.vdk', keep);
+    let release = null;
+    s.diskStoreChange(() => new Promise((r) => { release = () => r({ name: 'disks/hold', size: 0, mtime: 0 }); }), 'disks/hold');
+    const ren = q(s.renameMedia('disks/keep.vdk', 'disks/disk-1.vdk'));   // asked first; queues behind the hold
+    for (let i = 0; i < 20; i++) await tick();
+    const nd = s.newDisk(0, { format: 'vdk', tracks: 40, heads: 1 });     // asked second; its listing cannot see the queued rename
+    for (let i = 0; i < 20; i++) await tick();
+    release();
+    const [rn, ndr] = [await ren, await q(nd)];
+    const blank = Emu.blankDisk('vdk', 40, 1);
+    check('3. rename asked first: it takes the name', rn.ok, rn.m || 'refused');
+    // the creation behind it runs after the rename has LANDED (both are creations now), so its listing sees disk-1
+    // and it takes the next free name. The hole was it writing over disk-1 from a stale listing.
+    check('3. ... and the new disk asked behind it goes to the next free name, never over the renamed image',
+      ndr.ok && ndr.m === 'New blank disk: disk-2.vdk in drive 0', ndr.m || 'refused');
+    check('3. ... so the renamed image is still under disk-1 with its own bytes, and the blank is under disk-2',
+      same(await read(media, 'disks/disk-1.vdk'), keep) && same(await read(media, 'disks/disk-2.vdk'), blank),
+      `stored=${JSON.stringify((await media.list('disks/')).map((f) => f.name))} disk-1=${same(await read(media, 'disks/disk-1.vdk'), keep) ? 'keep' : 'OTHER'}`);
+  }
+  {
     // the claim a creation takes is RELEASED when it ends, including when it FAILS. An import whose write the store
     // refuses leaves nothing claimed: the image it was going to make is free at once for a rename to take. (A
     // creation that took its claim and never released it would show here as "a disk is being made under that name",
