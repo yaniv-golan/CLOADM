@@ -761,6 +761,31 @@ const stateOf = (s) => JSON.stringify(s.shownMachine.saveState());
       freshState.state !== 'ok', JSON.stringify({ state: freshState.state, resetAt: fresh.frameCount - fresh.framesSinceReset }));
   }
 
+  // ---- a Session is NOT a tool target, and the refusal is driven (adversarial review of 4018753: nothing called
+  // these tools with a Session, so the refusal had no test at all). Every tool, every way in.
+  {
+    const s = boot('dragon64');
+    const calls = {
+      screen_text: () => Emu.screenTextTool(s),
+      machine_info: () => Emu.machineInfoTool(s),
+      peek: () => Emu.peekTool(s, {}),
+      disassemble: () => Emu.disassembleTool(s, {}),
+      runReadOnlyTool: () => Emu.runReadOnlyTool(s, 'screen_text', {}),
+    };
+    for (const [name, call] of Object.entries(calls)) {
+      let threw = null;
+      try { call(); } catch (e) { threw = e; }
+      // a ToolError with the CALL named, never a plain Error (which asToolError would report as an emulator fault)
+      check(`${name} given a Session: refused as a ToolError naming the tool target`,
+        !!threw && threw.name === 'ToolError' && threw.code === 'tool-failed' && /tool target/.test(threw.message || threw.remedy || ''),
+        threw ? `${threw.name}/${threw.code}: ${threw.message || ''}` : 'no throw');
+    }
+    // and the real target still works, so the refusal is not refusing everything
+    const t = s.chatTarget();
+    check('the same Session\'s chatTarget() still reads: the refusal is not a blanket one',
+      Emu.screenTextTool(t).text === true || Emu.machineInfoTool(t).model !== undefined);
+  }
+
   console.log(`\n${n - fail}/${n} read-only tool checks passed`);
   process.exitCode = fail ? 1 : 0;
 })().catch((e) => { console.error('test crashed:', e); process.exitCode = 1; });

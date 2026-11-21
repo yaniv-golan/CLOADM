@@ -281,7 +281,13 @@ const ROWS = [
     const welcome = new Uint8Array(fs.readFileSync(path.join(ROOT, 'examples/welcome.bin')));
     s.startWelcome(welcome, { greeting: 'back' });
     s.welcomeSoundOn = true;
-    const chat = s.chatMachines.chat, at = s.welcomeBuild.soundOk, was = chat.ram[at];
+    const chat = s.chatMachines.chat, at = s.welcomeBuild.soundOk;
+    // the two are different objects (a row that wrote through `s.welcome` while asserting on `chat` would pass on
+    // anything); the chat-side half catches a write to the SAME offset on the chat machine, which is the shape the
+    // fix is about. (It runs no frame, like every row: the sweep's control run has the chat's own running, so a
+    // frame here would show up in the fingerprint as noise.)
+    if (chat === s.welcome) throw new Error('the chat machine and the person\'s machine are one object: the row proves nothing');
+    const was = chat.ram[at];
     s.welcomeSound();
     if (chat.ram[at] !== was) throw new Error('the sound byte was written into the CHAT machine');
     if (s.welcome.ram[at] !== 1) throw new Error('the sound byte was not written into the person\'s machine');
@@ -291,6 +297,7 @@ const ROWS = [
     s.startWelcome(welcome, { greeting: 'back' });
     // the person's machine posts a key the way the program does; flushWelcome must read and clear THAT one
     const chat = s.chatMachines.chat, at = s.welcomeBuild.event;
+    if (chat === s.welcome) throw new Error('the chat machine and the person\'s machine are one object');
     s.welcome.poke(at, 2);
     const chatWas = chat.ram[at];
     s.flushWelcome();
@@ -364,10 +371,19 @@ async function observed(setup, act, id = 'dragon64', panel = false) {
 // `.machine` on one of them is the raw use. What it must NOT flag is a plain object's own field (a snapshot's
 // { machine }, roms.js's target { machine }, a step's { machine }) or an element's dataset.machine; those names are
 // listed in NOT_A_SESSION per file with the reason, so a new one cannot join the list without being seen here.
+//
+// THE BOUNDARY (adversarial review of 4018753): a textual scan cannot see a Session that arrives through
+//   * a function PARAMETER of an arbitrary name (`const spill = (sess) => sess.machine`) - a parameter's type is
+//     not in the text, and `function open(snap)` shows why guessing "any parameter" would flag plain records; and
+//   * `Reflect.get(session, 'machine')` / `Object.getOwnPropertyDescriptor`, where the field name is a string
+//     argument to a general helper.
+// Neither shape exists anywhere in the scanned set today (grep: no `Reflect.get(..., 'machine')`). Everything a
+// person writes by hand - `.machine`, `?.machine`, `['machine']`, `` [`machine`] ``, a computed key, an alias, a
+// renamed destructure, `._shown`, and a bare `this.machine` or `this._shown` in the Session - is caught.
 const SESSION_BODY = 'js/session.js';
 const PAGE_MODULES = [SESSION_BODY];
 for (const f of fs.readdirSync(path.join(ROOT, 'js/ui')).filter((n) => n.endsWith('.js')).sort()) PAGE_MODULES.push(`js/ui/${f}`);
-for (const f of ['js/embed-api.js', 'js/mcp/tools.js']) PAGE_MODULES.push(f);
+for (const f of ['js/embed-api.js', 'js/mcp/tools.js', 'cli/cloadm.js', 'tools/browser-check.js']) PAGE_MODULES.push(f);
 // names whose `.machine` is NOT the Session's or the Page's, per file, with the reason
 const NOT_A_SESSION = new Map([
   // a tape recording's record: `r` is a plain { machine: the machine's profile name, blocks }, not a Session
@@ -397,19 +413,70 @@ function pageMachineUses() {
   const out = [];
   for (const f of PAGE_MODULES) {
     if (f === SESSION_BODY) continue;
-    const src = fs.readFileSync(path.join(ROOT, f), 'utf8').split('\n');
-    const holders = new Set(['session', 'page', 's']);    // (the page's Session; the page; the CLI/tool shorthand)
-    for (const line of src) {
-      for (const m of line.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:page\.)?(?:session|page)\b/g)) holders.add(m[1]);
-      for (const m of line.matchAll(/\b(?:const|let|var)\s*\{([^}]*)\}\s*=\s*(?:page|session)\b/g)) for (const n of m[1].split(',')) holders.add(n.trim().split(/[:=]/)[0].trim());
-      for (const m of line.matchAll(/\(([A-Za-z_$][\w$]*)\)\s*=>|function\s*\w+\s*\(([A-Za-z_$][\w$]*)/g)) { /* parameters named session/s are in holders already */ }
+    // block comments removed (line numbers kept): a shape named in a comment is not a use. `//` comments are
+    // stripped per line below.
+    const raw = fs.readFileSync(path.join(ROOT, f), 'utf8').replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '));
+    const src = raw.split('\n');
+    // Every name a Session or the Page can be held under, learned from the source to a FIXPOINT (an alias of an
+    // alias counts, whichever order the lines are in). The shapes the adversarial review of 4018753 named, each one
+    // it showed green: a RENAMED destructure (`const { session: sess2 } = page`), `s = window.emu.session`, and a
+    // layered alias. `s` is NOT assumed to be a Session (page.js's onStep uses `s` for a history state): it is a
+    // holder only where the source says so.
+    const holders = new Set(['session', 'page']);
+    for (let pass = 0, grew = true; grew; pass++) {
+      grew = false;
+      const add = (n) => { if (n && !holders.has(n)) { holders.add(n); grew = true; } };
+      for (const line of src) {
+        // const x = session | page | page.session | window.emu.session  (whitespace or a line end after it, so
+        // `session.media` is not read as a bare `session`)
+        // (anywhere in a declaration list: `const s = window.emu.session, d = s.display` - the comma after is legal)
+        for (const m of line.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:window\.)?(?:emu\.)?(?:session|page)\b/g)) {
+          // the word after it must END the expression: `,` `;` `)` end of line, or a newline; `session.media` does not
+          const after = line.slice(m.index + m[0].length, m.index + m[0].length + 1);
+          if (after === '' || /[,;)\n]/.test(after)) add(m[1]);
+        }
+        for (const m of line.matchAll(/,\s*([A-Za-z_$][\w$]*)\s*=\s*(?:window\.)?(?:emu\.)?(?:session|page)\b/g)) {
+          const after = line.slice(m.index + m[0].length, m.index + m[0].length + 1);
+          if (after === '' || /[,;)\n]/.test(after)) add(m[1]);
+        }
+        // an alias of an alias: const x = y, or const x = y, z = ...  (the right side is a BARE name: a call or a
+        // member expression there is not an alias of the Session)
+        for (const m of line.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*([A-Za-z_$][\w$]*)\s*[,;)]/g)) if (holders.has(m[2])) add(m[1]);
+        // const { session } = page, const { session: sess2 } = page
+        for (const m of line.matchAll(/\b(?:const|let|var)\s*\{([^}]*)\}\s*=\s*(?:page|session)\b/g)) {
+          for (const part of m[1].split(',')) {
+            const bits = part.trim().split(/[:=]/).map((x) => x.trim());
+            add(bits.length > 1 && bits[1] ? bits[1] : bits[0]);     // (the RENAME when there is one)
+          }
+        }
+      }
     }
     const allow = NOT_A_SESSION.get(f) || new Set();
     src.forEach((line, i) => {
       const code = line.replace(/\/\/.*$/, '');
-      for (const m of code.matchAll(/\b([A-Za-z_$][\w$]*)\.machine\b/g)) {
+      // the reach forms: x.machine, x?.machine, and x['machine'] / x[`machine`] / x["machine"]
+      const forms = [
+        ...code.matchAll(/\b([A-Za-z_$][\w$]*)\??\.machine\b/g),
+        ...code.matchAll(/\b([A-Za-z_$][\w$]*)\s*\[\s*['"`]machine['"`]\s*\]/g),
+      ];
+      for (const m of forms) {
         if (!holders.has(m[1]) || allow.has(m[1])) continue;
-        out.push(`${f}:${i + 1} (${m[1]}.machine)`);
+        out.push(`${f}:${i + 1} (${m[0]})`);
+      }
+      // a COMPUTED key on a Session/Page (`session['ma' + 'chine']`) cannot be read textually as the name it makes:
+      // any bracket access on one whose key is not a plain identifier is reported instead, since the scan cannot say
+      // what it reaches. (`session[x]` and `session['a' + 'b']` both land here; `session['machine']` is caught above.)
+      for (const m of code.matchAll(/\b([A-Za-z_$][\w$]*)\s*\[\s*([^\]]+?)\s*\]/g)) {
+        if (!holders.has(m[1]) || allow.has(m[1])) continue;
+        if (/^[A-Za-z_$][\w$]*$/.test(m[2])) continue;     // session[length]: an array, not this object
+        out.push(`${f}:${i + 1} (${m[1]}[computed])`);
+      }
+    });
+    // a Session/Page read as `_shown` (the backing field) in a page module is the same raw reach as `.machine`
+    src.forEach((line, i) => {
+      const code = line.replace(/\/\/.*$/, '');
+      for (const m of code.matchAll(/\b([A-Za-z_$][\w$]*)\??\._shown\b/g)) {
+        if (holders.has(m[1]) && !allow.has(m[1])) out.push(`${f}:${i + 1} (${m[1]}._shown)`);
       }
     });
   }

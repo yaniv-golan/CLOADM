@@ -26,10 +26,14 @@ export function createPage(session, audio) {
   let shown = viewOpen() ? location.hash : '';
   function route() {
     const v = viewOpen() ? location.hash : '';
+    // BEFORE the view branch: a beforeView handler runs on EVERY step, the way an `every: true` one does, and for
+    // the same reason. The chat's close is one, and the routes that need it most change no hash at all - Back off
+    // the full-screen chat, Esc off the screen, "← Emulator" (the chat is not a view). Placed inside the branch
+    // below, it would never run on them and the person would be left in a chat Back and Esc cannot leave.
+    for (const fn of firstFns.slice()) fn();
     if (v !== shown) {
       const closed = shown !== '' && v === '';
       shown = v;
-      for (const fn of firstFns.slice()) fn();   // (what the view is ABOVE, before a view handler looks at it)
       for (const fn of viewFns.slice()) fn();
       // A view that closes leaves the focus on the screen, whichever way it closed ("← Emulator", Esc, the browser's Back):
       // Back has no control of ours to take the focus (it stays on the page or on the opener's button), and the Ask panel

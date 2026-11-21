@@ -25,7 +25,10 @@ globalThis.document = { getElementById: (id) => { if (!els.has(id)) els.set(id, 
 globalThis.getComputedStyle = () => ({ getPropertyValue: () => '0' });
 globalThis.location = { hash: '', href: 'http://localhost/play/', pathname: '/play/', search: '' };
 globalThis.history = { state: null, pushState(s, t, u) { this.state = s; setUrl(u); }, replaceState(s, t, u) { this.state = s; setUrl(u); }, back() {} };
-globalThis.addEventListener = () => {};
+// captured from the start: page.js registers route() on hashchange and popstate at createPage, and the no-hash route
+// below drives those listeners the way the browser does
+const listeners = {};
+globalThis.addEventListener = (t, f) => { (listeners[t] = listeners[t] || []).push(f); };
 
 (async () => {
   const { createPage } = await import(path.join(__dirname, '../js/ui/page.js'));
@@ -39,6 +42,29 @@ globalThis.addEventListener = () => {};
   // and a comment/detail check that the crash class it prevents is still the one named (a view handler that ran on
   // the chat machine would have seen chatMachines set; the order above is what makes that impossible)
   check('the route reached the view (the entry is the view\'s)', history.state && history.state.view === '#debugger');
+
+  // A route where the hash does NOT change must still run the beforeView handlers: the chat's close is one, and it
+  // is what closes the full-screen chat on the browser's Back, Esc and "← Emulator", none of which changes a hash.
+  // The failing shape: the page loaded on ?app=claude (the chat full screen, NO view), then Back - the hash is ''
+  // before and after, so a beforeView handler placed inside the "the view changed" branch never runs, and the chat
+  // stays open over the emulator with Esc and Back dead (adversarial review of 4018753, finding 1).
+  // A route where the hash does NOT change must still run the beforeView handlers. The chat's close is one, and it
+  // is what closes the full-screen chat on the browser's Back, on Esc off the screen, and on "← Emulator": none of
+  // them changes a view hash (the chat is not a view), so a handler placed inside the "the view changed" branch
+  // never runs and the chat stays open with Esc and Back dead (adversarial review of 4018753, finding 1).
+  // Driving the page's own listeners is the honest reproduction: the browser fires them whether or not a hash moved.
+  let chatOpen = true;
+  const order3 = [];
+  // the page was LOADED with no view hash: prime `shown` that way (createPage reads the hash at creation), so a
+  // route that leaves the hash at '' is a route where the view did NOT change - the case this checks
+  globalThis.location.hash = '';
+  const page3 = createPage({ machine: null, on() {}, emit() {}, store: { get: () => null, set() {} }, display: {} }, { running: false, start() {} });
+  page3.onView(() => { if (chatOpen) { order3.push('chat-close'); chatOpen = false; } }, { every: true, beforeView: true });
+  page3.onView(() => order3.push('view'));
+  order3.length = 0; chatOpen = true;                             // (the earlier views' routes are not this route)
+  for (const f of listeners.popstate || []) f();                  // Back off the chat, to the emulator: no hash change
+  check('a route with NO hash change (Back off the chat): the beforeView handler still runs',
+    order3.includes('chat-close'), JSON.stringify(order3));
 
   // a panel's handler registered WITHOUT beforeView runs after the view handlers, as before (nothing else moved)
   const order2 = [];

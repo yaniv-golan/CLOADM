@@ -111,8 +111,14 @@ export function screenReadable(mode) {
 // `machine` field, which is exactly the unclassified reach PM 124 asks to end).
 function toolMachine(target) {
   if (!target || typeof target !== 'object') return null;
-  if (typeof target.chatTarget === 'function' || 'shownMachine' in target) {
-    throw new Error('these tools take a tool target (Session.chatTarget()), not a Session: a Session has two machines');
+  // A Session (or anything like one) is a CALLER's mistake, and the model must be told so: a plain Error would be
+  // reported as `tool-failed` with its "the tool failed inside the emulator" remedy, and the model would be told to
+  // retry machine_info - the call that just failed. It stays tool-failed (the error set is the model's vocabulary,
+  // and this is not a failure of what the model sent), but the DETAIL names the call, and the remedy now says a
+  // detail that names a tool target means the call was wrong.
+  if (typeof target.chatTarget === 'function' || 'shownMachine' in target || 'personMachine' in target) {
+    throw new ToolError(TOOL_CODES.TOOL_FAILED,
+      'these tools take a tool target (Session.chatTarget()), not a Session: a Session has two machines, so it says which one through an accessor');
   }
   return target.machine || null;
 }
