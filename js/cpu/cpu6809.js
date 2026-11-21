@@ -18,11 +18,8 @@ import { state } from '../util.js';
 const CWAI_ENTRY = 4; // registers already stacked by CWAI: only the vector fetch remains (calibrated against MAME)
 const CYCLE_LOG = 96;  // starting capacity of one step's bus-cycle log: every instruction fits but the 6309's TFM (reserveLog)
 const E = 0x80, F = 0x40, H = 0x20, I = 0x10, N = 0x08, Z = 0x04, V = 0x02, C = 0x01;
-// Cycle counts per addressing mode (0 immediate, 1 direct, 2 indexed, 3 extended), by operation. These were
-// array literals written at each instruction; they are constants, so they live here once. (The review called
-// this a per-instruction allocation; measured, it is not - V8's escape analysis already removes such
-// short-lived literals. What the change buys is less work per instruction: one table lookup instead of
-// building the array, and one method call instead of creating a closure.)
+// Cycle counts per addressing mode (0 immediate, 1 direct, 2 indexed, 3 extended), by operation: constants kept
+// here once, so an instruction does one table lookup and one method call rather than building an array and a closure.
 const CYCLES = {
   jsr: [7, 7, 7, 8],    // JSR (BSR is immediate-only and has its own count)
   load16: [3, 5, 5, 6], // the 16-bit loads and stores: LDX/LDD/LDU and STX/STD/STU
