@@ -35,6 +35,9 @@ import { AttoClock } from '../chips/attoclock.js';
 import { NEVER, hzToAttos } from '../chips/attotime.js';
 import { MOS6551 } from '../chips/mos6551.js';
 import { SerialPort } from './rs232.js';
+import { Device } from './device.js';
+import { CocoMax } from './cocomax.js';
+import { registry } from '../util.js';
 
 // Interrupt hub: each source drives one CPU line (irq, firq, nmi, halt); a line is asserted while any
 // of its sources is. NMI is edge-triggered on the CPU, so a rising NMI level calls cpu.nmi().
@@ -125,8 +128,6 @@ class CartSlot {
   saveState() { const o = {}; for (const l of SLOT_LINES) o[l] = { ...this.st[l] }; return o; }
   loadState(s) { for (const l of SLOT_LINES) Object.assign(this.st[l], s[l]); }
 }
-
-import { Device } from './device.js';
 
 // A cartridge with its own slot lines (CartSlot) and exact-time clock; subclasses use this.lines.
 class SlotDevice extends Device {
@@ -277,10 +278,6 @@ class Acia6551 extends Device {
     this.clock.loadState(s.clock);
   }
 }
-
-import { CocoMax } from './cocomax.js';
-
-import { registry } from '../util.js';
 
 // (the Dragon 64's 6551 is part of the machine, not a cartridge: it is not listed here)
 export const devices = registry({ rom: RomCartridge, cocomax: CocoMax });
