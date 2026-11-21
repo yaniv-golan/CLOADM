@@ -18,7 +18,7 @@ const fs = require('fs');
 const path = require('path');
 const { StringDecoder } = require('string_decoder');
 const T = require('../js/mcp/tools.js');
-const { fetchRom } = require('./rom-fetch.js');
+const { fetchRom, checkUrl } = require('./rom-fetch.js');
 const zlib = require('zlib');
 
 const ROOT = path.join(__dirname, '..');
@@ -170,6 +170,7 @@ function nodeHost({ mediaRoot = null, createRoot = false, roms = [], png, now = 
       storeRoms(files, meta) { stored = null; romStore.add(files, meta); },
       removeRoms(names) { stored = null; return romStore.remove(names); },
       storedRoms: () => romStore.list(),
+      checkUrl: (url) => { checkUrl(url); },
       fetchUrl: (url, { signal, maxBytes }) => fetchRom(url, Object.assign({}, fetch, { signal, maxBytes })),
     } : {}),
     // add_roms' media source: a file, or the regular files of a folder (and its folders, links not followed), by

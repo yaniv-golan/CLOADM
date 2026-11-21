@@ -22,12 +22,14 @@ function romStore(dir, { warn = () => {}, now = () => Date.now() } = {}) {
       return Array.isArray(j.roms) ? j.roms.filter((r) => r && typeof r.file === 'string' && /^[0-9A-F]{8}\.rom$/.test(r.file) && typeof r.name === 'string') : [];
     } catch (e) { warn(`${indexFile} is not valid JSON (${e.message}); the stored ROMs are not used`); return []; }
   }
-  function writeIndex(list) {
+  // a file written whole or not at all: a new temporary file (O_EXCL: never through a link or over a file already
+  // there), then renamed over the name, which replaces a link rather than following it
+  function writeAtomic(file, data) {
     fs.mkdirSync(dir, { recursive: true });
-    const tmp = `${indexFile}.${process.pid}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify({ roms: list }, null, 1) + '\n');
-    fs.renameSync(tmp, indexFile);
+    const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
+    try { fs.writeFileSync(tmp, data, { flag: 'wx' }); fs.renameSync(tmp, file); } catch (e) { try { fs.unlinkSync(tmp); } catch (e2) { /* not made */ } throw e; }
   }
+  const writeIndex = (list) => writeAtomic(indexFile, JSON.stringify({ roms: list }, null, 1) + '\n');
   return {
     dir,
     // what is stored, without the bytes
@@ -49,7 +51,7 @@ function romStore(dir, { warn = () => {}, now = () => Date.now() } = {}) {
       fs.mkdirSync(dir, { recursive: true });
       for (const f of files) {
         const crc = crcOf(f.bytes), file = `${crc}.rom`;
-        fs.writeFileSync(path.join(dir, file), f.bytes);
+        writeAtomic(path.join(dir, file), f.bytes);
         const entry = { file, name: f.name, crc, size: f.bytes.length, source, from, added: new Date(now()).toISOString() };
         const at = list.findIndex((r) => r.crc === crc);
         if (at >= 0) list[at] = entry; else list.push(entry);

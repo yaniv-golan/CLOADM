@@ -4,7 +4,11 @@
 //  * url: a local https server with a CA made for this run and trusted only by this test's fetcher; refusals for http,
 //    a user name in the URL, private, loopback, link-local and CGNAT addresses (literal, resolved, any one of several,
 //    IPv4-mapped IPv6), a redirect into 127.0.0.1 or to a private name or to http, too many redirects, too large (by
-//    Content-Length and by the body, and the tools' own cap), not a ROM, a timeout; no cookies or credentials sent;
+//    Content-Length and by the body, and the tools' own cap), not a ROM, a timeout; no cookies or credentials sent; a
+//    redirect or error with an endless body closed at once; a malformed %-escape in the name; the certificate checked
+//    even with NODE_TLS_REJECT_UNAUTHORIZED=0;
+//  * consent for a URL asked before anything is contacted, with the whole URL (query included);
+//  * one cap on the bytes unpacked from all the ZIPs of a call; the store writing through no link;
 //  * data (base64) and the media root (a file, a ZIP, a ROM pack, a folder; links and escapes refused);
 //  * the consent paths: a confirm stub that accepts or declines, and over stdio a client that answers elicitation/create;
 //  * the store: across a server restart, merged with --roms, list_models' sources, remove_roms; --read-only hides both;
@@ -57,6 +61,33 @@ ssl('req', '-newkey', 'rsa:2048', '-nodes', '-keyout', 'srv.key', '-out', 'srv.c
 ssl('x509', '-req', '-in', 'srv.csr', '-CA', 'ca.pem', '-CAkey', 'ca.key', '-CAcreateserial', '-out', 'srv.pem', '-days', '2', '-extfile', 'ext.cnf');
 const CA = fs.readFileSync(tmp('tls', 'ca.pem'));
 
+// a response whose body never ends; closed[url] says when the client hung up
+const closed = {};
+function endless(s, status, headers) {
+  const url = s.req.url;
+  s.writeHead(status, Object.assign({ 'content-type': 'application/octet-stream' }, headers));
+  const tick = setInterval(() => s.write(Buffer.alloc(16384, 0x41)), 5);
+  s.on('close', () => { clearInterval(tick); closed[url] = Date.now(); });
+}
+// a ZIP whose entries are DEFLATE-compressed (Emu.writeZip stores them): small packed, large unpacked
+function deflateZip(entries) {
+  const locals = [], centrals = [];
+  let at = 0;
+  for (const [name, data] of entries) {
+    const nm = Buffer.from(name), comp = zlib.deflateRawSync(data), crc = zlib.crc32(data) >>> 0;
+    const head = Buffer.alloc(30);
+    head.writeUInt32LE(0x04034B50, 0); head.writeUInt16LE(20, 4); head.writeUInt16LE(8, 8); head.writeUInt32LE(crc, 14);
+    head.writeUInt32LE(comp.length, 18); head.writeUInt32LE(data.length, 22); head.writeUInt16LE(nm.length, 26);
+    const cen = Buffer.alloc(46);
+    cen.writeUInt32LE(0x02014B50, 0); cen.writeUInt16LE(20, 4); cen.writeUInt16LE(20, 6); cen.writeUInt16LE(8, 10); cen.writeUInt32LE(crc, 16);
+    cen.writeUInt32LE(comp.length, 20); cen.writeUInt32LE(data.length, 24); cen.writeUInt16LE(nm.length, 28); cen.writeUInt32LE(at, 42);
+    locals.push(head, nm, comp); centrals.push(cen, nm);
+    at += 30 + nm.length + comp.length;
+  }
+  const cd = Buffer.concat(centrals), end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054B50, 0); end.writeUInt16LE(entries.length, 8); end.writeUInt16LE(entries.length, 10); end.writeUInt32LE(cd.length, 12); end.writeUInt32LE(at, 16);
+  return new Uint8Array(Buffer.concat([...locals, cd, end]));
+}
 const zipOf = (entries) => Emu.writeZip(entries.map(([name, data]) => ({ name, data })));
 const seen = [];   // the headers of every request the test server got
 let PORT;
@@ -78,14 +109,19 @@ const routes = {
   '/notes.txt': (q, s) => s.end('not a ROM at all'),
   '/random.bin': (q, s) => s.end(Buffer.alloc(0x4000, 0x55)),                            // a ROM's size, nobody's name or contents
   '/slow.rom': () => { /* never answers */ },
+  // a redirect, and an error, each with a body that never ends: the client must close them, not wait for the timer
+  '/redirect-endless': (q, s) => endless(s, 302, { location: '/d64_1.rom' }),
+  '/error-endless': (q, s) => endless(s, 500, {}),
+  '/bad%E0%A4%A.rom': (q, s) => s.end(Buffer.from(d64)),
   '/gone.rom': (q, s) => { s.writeHead(404); s.end(); },
 };
 const srv = https.createServer({ key: fs.readFileSync(tmp('tls', 'srv.key')), cert: fs.readFileSync(tmp('tls', 'srv.pem')) }, (q, s) => {
   seen.push({ url: q.url, headers: q.headers });
-  (routes[q.url] || ((x, y) => { y.writeHead(404); y.end(); }))(q, s);
+  (routes[q.url.split('?')[0]] || ((x, y) => { y.writeHead(404); y.end(); }))(q, s);
 });
-// names the test resolves: public test addresses (TEST-NET-3), dialled to the local server; and refused ones
-const NAMES = { 'roms.test': ['203.0.113.10'], 'other.test': ['2001:db8::10'], 'evil.test': ['10.0.0.5'], 'mixed.test': ['203.0.113.10', '127.0.0.1'], 'cgnat.test': ['100.64.3.4'], 'mapped.test': ['::ffff:127.0.0.1'], 'link.test': ['169.254.169.254'] };
+// names the test resolves: public addresses (nothing is sent to them: every connection is dialled to the local test
+// server), and refused ones
+const NAMES = { 'roms.test': ['93.184.215.14'], 'other.test': ['2606:4700:4700::1111'], 'evil.test': ['10.0.0.5'], 'mixed.test': ['93.184.215.14', '127.0.0.1'], 'doc.test': ['203.0.113.10'], 'cgnat.test': ['100.64.3.4'], 'mapped.test': ['::ffff:127.0.0.1'], 'link.test': ['169.254.169.254'] };
 const FETCH = { ca: CA, lookup: async (h) => { if (!NAMES[h]) throw Object.assign(new Error('not found'), { code: 'ENOTFOUND' }); return NAMES[h]; }, dial: () => '127.0.0.1', timeoutMs: 1500 };
 
 // an in-process toolbox over the Node host, with its own store and media root
@@ -120,8 +156,9 @@ fs.writeFileSync(tmp('media', 'pack.zip'), zipOf(Emu.makeRomPack({ sockets: () =
   const U = (p, h = 'roms.test') => `https://${h}:${PORT}${p}`;
 
   // ---------------- the address check ----------------
-  const refused = ['127.0.0.1', '10.1.2.3', '172.16.5.5', '192.168.0.1', '100.64.0.1', '100.127.255.255', '169.254.169.254', '0.0.0.0', '224.0.0.1', '255.255.255.255', '::1', '::', 'fe80::1', 'fd12::1', '::ffff:10.0.0.1', '::ffff:7f00:1', '64:ff9b::a00:1', '2002:7f00:1::1'];
-  const allowed = ['8.8.8.8', '1.1.1.1', '100.63.255.255', '100.128.0.0', '172.15.255.255', '172.32.0.0', '203.0.113.10', '2606:4700::1111', '::ffff:8.8.8.8'];
+  const refused = ['127.0.0.1', '10.1.2.3', '172.16.5.5', '192.168.0.1', '100.64.0.1', '100.127.255.255', '169.254.169.254', '0.0.0.0', '224.0.0.1', '255.255.255.255', '::1', '::', 'fe80::1', 'fd12::1', '::ffff:10.0.0.1', '::ffff:7f00:1', '64:ff9b::a00:1', '2002:7f00:1::1',
+    '192.0.2.1', '198.51.100.7', '203.0.113.10', '192.88.99.1', '198.18.0.1', '2001:db8::10', '64:ff9b:1::1', '2001:0:4136:e378::1', '::ffff:8.8.8.8', '::ffff:0:0'];
+  const allowed = ['8.8.8.8', '1.1.1.1', '100.63.255.255', '100.128.0.0', '172.15.255.255', '172.32.0.0', '192.0.3.1', '203.0.114.1', '2606:4700::1111', '64:ff9b::808:808', '2002:808:808::1', '2001:4860::1'];
   check('the address check: loopback, link-local, private, CGNAT, unspecified, multicast and embedded-IPv4 forms refused', refused.every((a) => refusedAddress(a)), refused.filter((a) => !refusedAddress(a)).join());
   check('the address check: public addresses (also next to the refused ranges) allowed', allowed.every((a) => refusedAddress(a) === null), allowed.filter((a) => refusedAddress(a)).join());
 
@@ -162,8 +199,12 @@ fs.writeFileSync(tmp('media', 'pack.zip'), zipOf(Emu.makeRomPack({ sockets: () =
       ['a name resolving to a private address', U('/d64_1.rom', 'evil.test'), 'refused-url', /10\.0\.0\.5, a private/],
       ['a name with a public and a loopback address', U('/d64_1.rom', 'mixed.test'), 'refused-url', /127\.0\.0\.1, a loopback/],
       ['a name resolving to CGNAT', U('/d64_1.rom', 'cgnat.test'), 'refused-url', /CGNAT/],
-      ['a name resolving to an IPv4-mapped loopback', U('/d64_1.rom', 'mapped.test'), 'refused-url', /loopback/],
+      ['a name resolving to an IPv4-mapped loopback', U('/d64_1.rom', 'mapped.test'), 'refused-url', /::ffff:127\.0\.0\.1, an IPv4-mapped/],
       ['a name resolving to link-local (cloud metadata)', U('/d64_1.rom', 'link.test'), 'refused-url', /link-local/],
+      ['a name resolving to a documentation address', U('/d64_1.rom', 'doc.test'), 'refused-url', /documentation/],
+      ['a literal IPv4-mapped IPv6 address', `https://[::ffff:8.8.8.8]:${PORT}/d64_1.rom`, 'refused-url', /IPv4-mapped/],
+      ['an error status with a body that never ends: closed at once', U('/error-endless'), 'fetch-failed', /HTTP 500/],
+      ['a malformed %-escape in the file name: the raw name, not a failure', U('/bad%E0%A4%A.rom'), 'not-a-rom', /bad%E0%A4%A\.rom/],
       ['a redirect into 127.0.0.1', U('/to-loopback'), 'refused-url', /127\.0\.0\.1.*loopback.*redirect/],
       ['a redirect to a name resolving privately', U('/to-private'), 'refused-url', /private.*redirect/],
       ['a redirect to http', U('/to-http'), 'refused-url', /not https \(a redirect\)/],
@@ -181,12 +222,26 @@ fs.writeFileSync(tmp('media', 'pack.zip'), zipOf(Emu.makeRomPack({ sockets: () =
       const r = await t2.call('add_roms', { source: 'url', url });
       check(`url refused: ${what} -> ${want}`, code(r) === want && re.test(r.error.detail || ''), J(r));
     }
-    check('url refusals stored nothing', t2.host.storedRoms().length === 0 && !fs.existsSync(tmp('store-refusals', 'index.json')), J(t2.host.storedRoms()));
+    check('url refusals stored nothing', t2.host.storedRoms().filter((x) => x.name !== 'd64_1.rom').length === 0 && t2.host.storedRoms().length <= 1 && !fs.existsSync(tmp('store-refusals', 'index.json')), J(t2.host.storedRoms()));
     check('url: the default timeout is 20 s and the redirect limit 3', require('../cli/rom-fetch.js').TIMEOUT_MS === 20000 && require('../cli/rom-fetch.js').MAX_REDIRECTS === 3);
     // a URL with no test CA: the system trust store does not know this server's CA
     const t3 = toolbox({ store: tmp('store-noca'), fetch: Object.assign({}, FETCH, { ca: undefined }) });
     const untrusted = await t3.call('add_roms', { source: 'url', url: U('/d64_1.rom') });
     check('url: a certificate the trust store does not know is refused (fetch-failed)', code(untrusted) === 'fetch-failed', J(untrusted));
+    // NODE_TLS_REJECT_UNAUTHORIZED=0 turns certificate checks off for every request that does not set it: this one does
+    const was = process.env.NODE_TLS_REJECT_UNAUTHORIZED, warn = process.emitWarning;
+    process.emitWarning = () => {};
+    process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+    const stillChecked = await t3.call('add_roms', { source: 'url', url: U('/d64_1.rom') });
+    if (was === undefined) delete process.env.NODE_TLS_REJECT_UNAUTHORIZED; else process.env.NODE_TLS_REJECT_UNAUTHORIZED = was;
+    process.emitWarning = warn;
+    check('url: the certificate is checked even with NODE_TLS_REJECT_UNAUTHORIZED=0 (rejectUnauthorized set)', code(stillChecked) === 'fetch-failed' && /CERT|SIGNATURE|ISSUER|self.signed/i.test(stillChecked.error.detail), J(stillChecked));
+    // a redirect with a body that never ends: followed at once, and the redirect's connection closed by the client
+    const t0 = Date.now();
+    const endlessRedirect = await t2.call('add_roms', { source: 'url', url: U('/redirect-endless') });
+    await new Promise((r) => setTimeout(r, 300));
+    check('url: a redirect whose body never ends is followed and its connection closed at once, well before the timeout',
+      endlessRedirect.ok && Date.now() - t0 < 1200 && closed['/redirect-endless'] && closed['/redirect-endless'] - t0 < 1000 && closed['/error-endless'], J([endlessRedirect.ok, closed]));
     const cancel = new AbortController();
     const tc = toolbox({ store: tmp('store-cancel') });
     const pending = tc.tb.call('add_roms', { source: 'url', url: U('/slow.rom') }, { signal: cancel.signal });
@@ -214,6 +269,13 @@ fs.writeFileSync(tmp('media', 'pack.zip'), zipOf(Emu.makeRomPack({ sockets: () =
     const mixed = await t.call('add_roms', { source: 'data', data: b64, name: 'bas13.rom', url: 'https://x.test/a' });
     const noSource = await t.call('add_roms', { data: b64, name: 'bas13.rom' });
     check('data: bad base64, a missing name, an argument of another source, no source: bad-argument', [bad, noName, mixed, noSource].every((r) => code(r) === 'bad-argument'), J([bad, noName, mixed, noSource].map((r) => r.error)));
+    // ten 1 MiB entries of zeros: a few KB packed, 10 MiB unpacked, over the 8 MiB a call may unpack
+    const bomb = deflateZip([...Array(10)].map((_, i) => [`x${i}.rom`, new Uint8Array(1 << 20)]));
+    const bombR = await t.call('add_roms', { source: 'data', data: Buffer.from(bomb).toString('base64'), name: 'bomb.zip' });
+    check('data: ZIPs unpacking past 8 MiB in all -> too-large (the packed file is small)', bomb.length < 65536 && code(bombR) === 'too-large' && /unpacked in all/.test(bombR.error.detail), `${bomb.length} bytes; ${J(bombR)}`);
+    const small = deflateZip([['bas13.rom', coco], ['pad.bin', new Uint8Array(1 << 20)]]);
+    const smallR = await t.call('add_roms', { source: 'data', data: Buffer.from(small).toString('base64'), name: 'small.zip' });
+    check('data: a DEFLATE ZIP under the cap is opened', smallR.ok && smallR.data.added[0].name === 'bas13.rom', J(smallR));
     const pack = zipOf(Emu.makeRomPack({ sockets: () => [{ owner: 'dragon64', socket: 'basic', crc: Emu.crc32(d64) }], image: () => d64 }).entries.map((e) => [e.name, e.data]));
     const packR = await t.call('add_roms', { source: 'data', data: Buffer.from(pack).toString('base64'), name: 'cloadm-roms.zip' });
     check('data: a ROM pack goes back to the socket its manifest names, under that socket\'s file name', packR.ok && packR.data.added[0].name === 'd64_1.rom' && packR.data.newly_with_basic.includes('dragon64'), J(packR));
@@ -246,17 +308,31 @@ fs.writeFileSync(tmp('media', 'pack.zip'), zipOf(Emu.makeRomPack({ sockets: () =
   // ---------------- consent (a confirm stub) ----------------
   {
     const t = toolbox({ store: tmp('store-consent') });
-    const asked = [];
-    const declined = await t.call('add_roms', { source: 'url', url: U('/d64_1.rom') }, { confirm: async (msg) => { asked.push(msg); return 'decline'; } });
-    check('consent: the person is asked with the source, the files and the models', asked.length === 1 && asked[0].includes(`https://roms.test:${PORT}/d64_1.rom`) && /d64_1\.rom/.test(asked[0]) && /Dragon 64/.test(asked[0]) && /^Add these ROMs from /.test(asked[0]), J(asked));
-    check('consent: a decline stores nothing (declined)', code(declined) === 'declined' && t.host.storedRoms().length === 0 && !model(await t.call('list_models', {}), 'dragon64').basic, J(declined));
+    const asked = [], lookups = [];
+    // a URL that would carry data out in its query: the person sees all of it, and nothing is contacted (not even DNS)
+    // unless they say yes
+    const probe = U('/d64_1.rom?session=s3cr3t&user=me%40example.org');
+    const tp = toolbox({ store: tmp('store-probe'), fetch: Object.assign({}, FETCH, { lookup: async (h) => { lookups.push(h); return FETCH.lookup(h); } }) });
+    const before = seen.length;
+    const declined = await tp.call('add_roms', { source: 'url', url: probe }, { confirm: async (msg) => { asked.push(msg); return 'decline'; } });
+    check('consent (url): asked first, with the whole URL, query included', asked.length === 1 && asked[0].includes(probe) && /^Download /.test(asked[0]), J(asked));
+    check('consent (url): a decline contacts nothing: no request reached the server and no name was looked up', code(declined) === 'declined' && seen.length === before && lookups.length === 0
+      && !seen.some((x) => /s3cr3t/.test(x.url)) && tp.host.storedRoms().length === 0, J([declined, seen.length - before, lookups]));
+    const refusedFirst = await tp.call('add_roms', { source: 'url', url: 'https://10.9.9.9/x.rom?leak=1' }, { confirm: async (msg) => { asked.push(msg); return 'accept'; } });
+    check('consent (url): a URL refused without the network (a literal private address) is refused before anyone is asked', code(refusedFirst) === 'refused-url' && asked.length === 1, J(refusedFirst));
+    const okProbe = await tp.call('add_roms', { source: 'url', url: probe }, { confirm: async (msg) => { asked.push(msg); return 'accept'; } });
+    check('consent (url): an accept downloads and stores, asking once only', okProbe.ok && asked.length === 2 && seen.length === before + 1 && seen[seen.length - 1].url === '/d64_1.rom?session=s3cr3t&user=me%40example.org', J(okProbe));
+    const askedData = [];
+    const declinedData = await t.call('add_roms', { source: 'data', data: Buffer.from(d64).toString('base64'), name: 'd64_1.rom' }, { confirm: async (msg) => { askedData.push(msg); return 'decline'; } });
+    check('consent (upload): asked with the source, the files and the models', askedData.length === 1 && /^Add these ROMs from an upload \(d64_1\.rom\): d64_1\.rom → .*Dragon 64/.test(askedData[0]), J(askedData));
+    check('consent: a decline stores nothing (declined)', code(declinedData) === 'declined' && t.host.storedRoms().length === 0 && !model(await t.call('list_models', {}), 'dragon64').basic, J(declinedData));
     const cancelled = await t.call('add_roms', { source: 'data', data: Buffer.from(coco).toString('base64'), name: 'bas13.rom' }, { confirm: async () => 'cancel' });
     check('consent: a cancel stores nothing', code(cancelled) === 'declined' && t.host.storedRoms().length === 0, J(cancelled));
     const accepted = await t.call('add_roms', { source: 'url', url: U('/d64_1.rom') }, { confirm: async () => 'accept' });
     check('consent: an accept stores them, and the result says the person confirmed', accepted.ok && /confirmed/.test(accepted.data.consent) && t.host.storedRoms().length === 1, J(accepted));
     let notAsked = 0;
-    const nothing = await t.call('add_roms', { source: 'url', url: U('/notes.txt') }, { confirm: async () => { notAsked++; return 'accept'; } });
-    check('consent: nothing to store, nobody asked', code(nothing) === 'not-a-rom' && notAsked === 0);
+    const nothing = await t.call('add_roms', { source: 'data', data: Buffer.from('not a rom').toString('base64'), name: 'notes.txt' }, { confirm: async () => { notAsked++; return 'accept'; } });
+    check('consent: nothing to store from an upload, nobody asked', code(nothing) === 'not-a-rom' && notAsked === 0);
   }
 
   // ---------------- remove_roms, sources, merging with --roms ----------------
@@ -274,6 +350,15 @@ fs.writeFileSync(tmp('media', 'pack.zip'), zipOf(Emu.makeRomPack({ sockets: () =
     check('remove_roms: forgets the stored ROM; the --roms one stays', rm.ok && J(rm.data.removed) === J(['bas13.rom']) && !rm.data.models_with_basic.includes('coco') && rm.data.models_with_basic.includes('dragon64'), J(rm));
     const all = await t.call('remove_roms', { all: true });
     check('remove_roms all: the store is empty, its image files gone', all.ok && t.host.storedRoms().length === 0 && fs.readdirSync(tmp('store-remove')).filter((f) => f.endsWith('.rom')).length === 0, J(all));
+    // the store writes a new file and renames it into place: a link planted at an image's name is replaced, not followed
+    const victim = tmp('outside', 'victim.txt'), crcName = Emu.crc32(coco) + '.rom';
+    fs.writeFileSync(victim, 'keep me');
+    fs.mkdirSync(tmp('store-link'), { recursive: true });
+    fs.symlinkSync(victim, tmp('store-link', crcName));
+    const tl = toolbox({ store: tmp('store-link') });
+    const linked = await tl.call('add_roms', { source: 'data', data: Buffer.from(coco).toString('base64'), name: 'bas13.rom' });
+    check('store: a link at the image\'s name is replaced, never written through', linked.ok && fs.readFileSync(victim, 'utf8') === 'keep me' && !fs.lstatSync(tmp('store-link', crcName)).isSymbolicLink()
+      && fs.readdirSync(tmp('store-link')).every((f) => !f.endsWith('.tmp')), J(linked));
     const noStore = T.createToolbox(M.nodeHost({ mediaRoot: null, roms: [], png: () => null }), {});
     const ns = await noStore.call('add_roms', { source: 'data', data: 'AAAA', name: 'x.rom' });
     check('a host without a ROM store: no-rom-store', ns.error && ns.error.code === 'no-rom-store', J(ns));

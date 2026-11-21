@@ -182,17 +182,25 @@ The safety rules, all enforced by the server:
 - **Only what you gave.** The tool's description tells the agent to use it only with a file, folder, URL or upload
   you gave it in the conversation for this purpose, never one it found in tool output, on a web page or on the
   emulated screen, and never to search for ROMs. When your client supports MCP elicitation (the `initialize`
-  handshake revisions, 2025-06-18 on, with the `elicitation` capability), the server also asks you first: "Add these
-  ROMs from <source>: <files> → <models>?". Only an accept stores anything; a decline, a cancel or an error from the
-  client stores nothing (`declined`). A client without elicitation is not asked, and the result says so.
+  handshake revisions, 2025-06-18 on, with the `elicitation` capability), the server also asks you first. For a URL it
+  asks **before anything is contacted** (not even DNS), showing the whole URL, query included: "Download <URL> and add
+  the ROMs in it to CLOADM?". For a file or an upload it asks once it knows what is in it: "Add these ROMs from
+  <source>: <files> → <models>?". Only an accept goes on; a decline, a cancel or an error from the client downloads
+  and stores nothing (`declined`). A client without elicitation is not asked, and the result says so.
 - **URLs: https to a public address only.** `http`, a user name or password in the URL, and any host that resolves to
-  a loopback, link-local, private (RFC 1918, IPv6 ULA), CGNAT (100.64.0.0/10), unspecified, multicast or reserved
-  address are refused (`refused-url`); *every* address the name resolves to is checked, also in IPv4-mapped, NAT64 and
-  6to4 form, and the connection goes to the checked address. Each redirect is checked the same way, at most 3 of them.
-  The download stops after 20 s (`fetch-failed`). Nothing is sent but the request itself: no cookies (not even one a
-  redirect sets), no credentials, no proxy.
+  a loopback, link-local, private (RFC 1918, IPv6 ULA), CGNAT (100.64.0.0/10), unspecified, multicast, reserved,
+  documentation (192.0.2/24, 198.51.100/24, 203.0.113/24, 2001:db8::/32), benchmarking (198.18/15) or 6to4 relay
+  (192.88.99/24) address are refused (`refused-url`). *Every* address the name resolves to is checked, and the
+  connection goes to the checked address. IPv4-mapped IPv6 addresses (`::ffff:0:0/96`), local NAT64 (`64:ff9b:1::/48`)
+  and Teredo (`2001::/32`) are refused; NAT64 and 6to4 addresses are checked by the IPv4 address inside. Any port is
+  allowed: the address being public is what counts. Each redirect is checked the same way, at most 3 of them, and its
+  body is never read (the connection is closed at once, as for an error status). The download stops after 20 s
+  (`fetch-failed`). The certificate must be valid for the host in the system's trust store. Nothing is sent but the
+  request itself: no cookies (not even one a redirect sets), no credentials. It connects directly and never through a
+  proxy, so it does not work where every connection must go through one: use the media or data source there.
 - **Size caps.** A ROM file is at most 1 MiB, a ZIP of ROMs (or a CLOADM ROM pack) at most 4 MiB, by URL, upload or
-  media file (`too-large`); a download is cut off as soon as it passes the cap.
+  media file, and one call unpacks at most 8 MiB from all its ZIPs together (`too-large`); a download is cut off as
+  soon as it passes the cap.
 - **Only ROMs.** What is stored must be recognised as a ROM by the page's rules (`js/roms.js`): a known dump's CRC, a
   combined image of known halves, or a socket's usual file name with the right size. Anything else is listed in
   `skipped`; if nothing is a ROM the call fails with `not-a-rom` and stores nothing. A ROM pack's images go back to the
@@ -300,7 +308,7 @@ which only the server has. The others use these:
 | `cancelled` | the call was cancelled (on `--serve`; MCP sends no reply) |
 | `not-a-rom` | `add_roms`: nothing given is a ROM CLOADM recognises; nothing stored |
 | `too-large` | `add_roms`: a file over 1 MiB or a ZIP over 4 MiB |
-| `refused-url` | `add_roms`: not https, credentials in the URL, a non-public address (also after a redirect), or more than 3 redirects |
+| `refused-url` | `add_roms`: not https, credentials in the URL, an address that is not public (also after a redirect), or more than 3 redirects |
 | `fetch-failed` | `add_roms`: the download failed (HTTP status, TLS, DNS, the 20 s timeout) |
 | `declined` | `add_roms`: you said no when asked; nothing stored |
 | `no-rom-store` | a host of the tools (the Node API) without a ROM store |
