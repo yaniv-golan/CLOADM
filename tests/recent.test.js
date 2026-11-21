@@ -111,6 +111,10 @@ const progB = Emu.toBinary(Emu.assemble(' ORG $3000\n FCB $BB,$BB,$BB,$BB,$BB\nL
   s.load('2048.bin', progA);
   s.load('2048.BIN', progA);
   check('recent: on a store that tells cases apart, two spellings are two files', s.recentMedia().length === 2, show(s));
+  // ...and they are NOT "copies" of one another: two entries of two different names each get copy === null, so
+  // the Media tab does not label a store's ordinary two files as a second copy of one
+  check('recent: two spellings on a case-sensitive store are not labelled as copies of one name',
+    s.recentMedia().every((r) => r.copy === null), JSON.stringify(s.recentMedia().map((r) => [r.name, r.copy])));
   const ci = new MemoryMediaStore({ caseInsensitive: true });
   const t = session({ media: ci });
   t.load('2048.bin', progA);

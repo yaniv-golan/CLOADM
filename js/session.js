@@ -1431,21 +1431,27 @@ export class Session {
   chooseMachine(id) { this.store.set('machineChosen', '1'); return this.switchMachine(id); }
   get hasAnyRoms() { return this.roms.sockets().some((s) => profiles[s.owner]); }
   // The last few programs, tapes and cartridges loaded (bytes kept for items up to 1 MB).
-  // `copy` labels the rows that need telling apart, for two entries of ONE name (by this.sameName) with
-  // different bytes: the newest is copy === false, the rest are later copies and get an ordinal — the SECOND
-  // ('2nd'), the THIRD ('3rd'), or 'older copy' past that. A name with a single entry is never labelled, and
-  // `copy` is null for it: there is nothing to tell it from.
+  // `copy` labels the rows that need telling apart, for two entries of ONE name — grouped with this.sameName,
+  // the store's own rule, so a store that tells cases apart does not group "GAME.BIN" with "game.bin" — that
+  // have different bytes: the newest is copy === false, the rest are later copies and get an ordinal (the
+  // SECOND '2nd', the THIRD '3rd', or 'older copy' past that). A name with a single entry is never labelled,
+  // and `copy` is null for it: there is nothing to tell it from.
   recentMedia() {
     const list = this.index.recentMedia();
-    const seen = new Map();   // case-folded name -> how many entries of it have been passed
-    const total = new Map();
-    for (const r of list) { const k = String(r.name).toLowerCase(); total.set(k, (total.get(k) || 0) + 1); }
-    return list.map((r) => {
-      const k = String(r.name).toLowerCase();
-      const n = (seen.get(k) || 0); seen.set(k, n + 1);
-      if (total.get(k) < 2) return Object.assign(r, { copy: null });
-      return Object.assign(r, { copy: n === 0 ? false : n === 1 ? '2nd' : n === 2 ? '3rd' : 'older copy' });
-    });
+    // sameName is a folding rule, not an equivalence-key function (on a case-sensitive store it is ===), so
+    // entries are grouped by comparing against the names already seen rather than by a lower-cased key.
+    const groups = [];   // [{ name, members: [] }]
+    for (const r of list) {
+      let g = groups.find((x) => this.sameName(x.name, r.name));
+      if (!g) { g = { name: r.name, members: [] }; groups.push(g); }
+      g.members.push(r);
+    }
+    const label = new Map();
+    for (const g of groups) {
+      if (g.members.length < 2) continue;
+      g.members.forEach((r, n) => label.set(r, n === 0 ? false : n === 1 ? '2nd' : n === 2 ? '3rd' : 'older copy'));
+    }
+    return list.map((r) => Object.assign({}, r, { copy: label.has(r) ? label.get(r) : null }));
   }
   // A full store is not an error here: the program is loaded already, and the entry says its bytes were not kept.
   // While the library moves, the index's two writes wait for it (afterMove): made against the old place now they
