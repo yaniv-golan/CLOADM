@@ -588,7 +588,8 @@ share is not exercised).
 
 The machines' sound is compared with MAME's `-wavwrite` recordings (above); the way the page plays it has no MAME
 oracle (AGENTS.md 4.6). The output stage's samples are checked in Node (`tests/audio.test.js`: the high-pass of each
-sample's average level, no pop at unlock, reset, switch, pause; latency steering over 15 simulated minutes), the
+sample's average level, no pop at unlock, reset, switch, pause; latency steering over 15 simulated minutes, and a
+140 ms queue - what a page stall leaves - back inside the 10-80 ms band within 8 s), the
 AudioWorklet's queue and processor with hand-derived values (`tests/audio-worklet.test.js`: order, underrun to exact
 silence, bounded drop-oldest, the MessagePort sink), and the real page in Chromium (browser check, group `audio`):
 after the unlock an AudioWorkletNode plays and no ScriptProcessorNode is made (no deprecation warning); through

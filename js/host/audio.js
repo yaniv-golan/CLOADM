@@ -19,14 +19,28 @@
  *     it ended on, so the next frame doesn't step from the level before it.
  * While samples flow and nothing is re-seeded, the output is the high-pass of the machine's level averaged over each
  * sample's time window (a box filter).
- * Latency: a frame gives rate / fps samples with the fraction carried, and the ratio is nudged by at most STEER
- * when the sink holds less than LOW_MS or more than HIGH_MS (the card's clock drifting from the machine's), so
- * the latency stays in that band and no frame is dropped (`dropped` counts the frames that are, past MAX_MS).
+ * Latency: a frame gives rate / fps samples with the fraction carried. Inside LOW_MS..HIGH_MS the ratio is
+ * exactly 1 (a steady queue is played untouched); outside it the frame is resampled by a correction toward
+ * TARGET_MS, up to RECOVER (2%, 34 cents) - only ever reached while recovering from a stall that left the queue
+ * far outside the band. No frame is dropped (`dropped` counts the frames that are, past MAX_MS).
  */
 import { SampleQueue, FADE_MS } from './audio-worklet.js';
 
 const SUSPEND_AFTER_MS = 250;   // inactive this long (the queue drained, the fade done): suspend the context
-const LOW_MS = 10, HIGH_MS = 80, MAX_MS = 150, STEER = 0.005;
+const LOW_MS = 10, HIGH_MS = 80, MAX_MS = 150;
+const RAMP_MS = 2;              // how far outside the band the allowance takes to reach RECOVER
+const RECOVER = 0.02;           // the most the ratio may depart from 1: 2% = 34 cents, transient (recovery only)
+const TARGET_MS = 40;           // what a correction outside the band aims at: the middle of the band
+
+// The most the ratio may depart from 1 at a depth, as a fraction, for a queue OUTSIDE the band: 0 across the band
+// itself (the ratio there is exactly 1, as the old fixed +-0.5% branches had it), rising to RECOVER over RAMP_MS
+// outside either edge, so no depth gives a step anywhere. RECOVER is 2% (34 cents) and only a recovering stall
+// reaches it - a few seconds, with the queue far outside the band - so steady-state pitch is what it was before.
+function allowance(ms) {
+  if (ms <= 0 || (ms >= LOW_MS && ms <= HIGH_MS)) return 0;   // an empty queue, or across the band
+  if (ms < LOW_MS) return RECOVER * Math.min(1, (LOW_MS - ms) / RAMP_MS);
+  return RECOVER * Math.min(1, (ms - HIGH_MS) / RAMP_MS);
+}
 
 class AudioOutput {
   // sink: where the samples go (write(chunk), buffered()); a SampleQueue unless the page plays them elsewhere.
@@ -45,19 +59,27 @@ class AudioOutput {
   buffered() { return this.sink.buffered(); }
   discontinuity() { this.seed = true; }
 
+  // The ratio a frame is resampled by, from the queue's depth in ms. Exactly 1 across the band; outside it a
+  // correction proportional to the distance from TARGET_MS (which cannot overshoot the target), capped by
+  // allowance. The INSTANT depth, not an average: across the band the ratio is 1 whatever the depth, and outside
+  // it the depth moves by one frame a frame (0.15 ms), so the ratio's own frame-to-frame change stays under 0.1%.
+  ratioAt(ms) {
+    const a = allowance(ms);
+    return a === 0 ? 1 : 1 + a * Math.max(-1, Math.min(1, (TARGET_MS - ms) / TARGET_MS));
+  }
+
   // events: flat [cycle, level, cycle, level, ...] (the first at cycle 0); frameCycles: cycles in this frame.
   // A frame gives rate / fps samples, the fraction carried to the next (882.571 at 44.1 kHz for a PAL Dragon
-  // makes 882 or 883), so the sink holds what the card plays. The card's clock is not the machine's: outside
-  // LOW_MS..HIGH_MS buffered the frame is resampled to up to STEER more or fewer samples, which brings the latency
-  // back without a gap or a dropped frame. Over MAX_MS (frames pushed faster than real time) a frame is dropped.
+  // makes 882 or 883), so the sink holds what the card plays. The card's clock is not the machine's, and a stall
+  // leaves the queue far from TARGET_MS: outside LOW_MS..HIGH_MS the frame is resampled by ratioAt's ratio, which
+  // brings the latency back without a gap or a dropped frame. Over MAX_MS (frames pushed faster than real time) a
+  // frame is dropped.
   push(events, frameCycles, fps) {
     const buf = this.buffered(), rate = this.rate;
     // keep latency bounded: a frame that comes too far ahead is dropped, and the filter's input moves to the level
     // the frame ended on, so the next frame carries on from there instead of stepping (the page fell behind)
     if (buf > rate * MAX_MS / 1000) { this.dropped++; if (events.length) this.prevIn = events[events.length - 1]; return; }
-    let ratio = 1;
-    if (buf > rate * HIGH_MS / 1000) ratio = 1 - STEER;
-    else if (buf > 0 && buf < rate * LOW_MS / 1000) ratio = 1 + STEER;   // (0: not playing, nothing to keep up)
+    const ratio = this.ratioAt(buf / rate * 1000);
     this.frac += rate / fps * ratio;
     const n = Math.floor(this.frac);
     this.frac -= n;

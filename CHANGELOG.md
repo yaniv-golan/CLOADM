@@ -130,6 +130,16 @@ Next version: 0.1.7-pre (the plugin and extension manifests carry it; `tests/plu
 
 #### Changed
 
+- **Sound comes back in seconds after the page stalls, not tens of seconds.** The output stage keeps the
+  worklet's queue near 40 ms by resampling each frame by a fraction more or fewer samples, but that correction was a
+  fixed 0.5% just outside the 10-80 ms band: the queue moved 5 ms of sound a second however far outside it was, so a
+  stall that left 135-140 ms queued (measured in Chromium after a 0.8 s stall: 141 ms) took 15-18 s to come back into
+  the band and most of a minute to settle. The correction now grows with the distance from the band's middle, up to
+  2% (34 cents) while recovering - transient, and only outside the band - and is exactly 1 inside it, as before, so a
+  steady queue is still played untouched. The same 140 ms queue is back inside the band in 4-5 s, with no sample
+  step (the no-pop checks are unchanged and pass), and the 15-minute clock-drift runs still drop no frame and never
+  run the card dry. `tests/audio.test.js` holds both.
+
 - **The CoCo 3 keeps its bus log only while a device that can assert HALT is attached.** The log (the accesses of
   the instruction under way, so one HALT suspended can be run again and replay them) was kept on every machine.
   Only the CoCo FDC drives HALT here (its drive select latch's "HALT enable", `js/machines/fdc.js`), so a machine
