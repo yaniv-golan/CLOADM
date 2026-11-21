@@ -18,7 +18,7 @@ export function setupMultiPakPanel(page, { cartridge }) {
     const opt = dos && $(`selMpBoard${n}`).selectedOptions[0];
     b.disabled = !!dos;
     b.textContent = dos ? opt.dataset.name : slots[n - 1] ? slots[n - 1].name : 'Empty';
-    b.title = dos ? 'A disk controller: its ROM is the DOS ROM you added' : slots[n - 1] ? `${slots[n - 1].name}: click to choose another, Shift+click to empty` : 'Choose a cartridge image';
+    b.title = dos ? 'A disk controller: its ROM is the disk ROM you added' : slots[n - 1] ? `${slots[n - 1].name}: click to choose another, Shift+click to empty` : 'Choose a cartridge image';
   };
   // the disk controllers this machine's family takes, in every slot's board menu
   const diskOptions = () => {

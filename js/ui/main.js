@@ -93,7 +93,7 @@ if (storageProblem) page.feedback.attention(`Your stored files could not be open
 addEventListener('pagehide', () => { session.flushDisks(); session.index.flush().catch(() => {}); });
 document.addEventListener('visibilitychange', () => { if (document.hidden) { session.flushDisks(); session.index.flush().catch(() => {}); } });
 window.emu.storageChoices = availableChoices();
-const machinePanel = setupMachinePanel(page);
+const machinePanel = setupMachinePanel(page, { showRoms: () => romSockets.reveal() });
 setupPokePanel(page);
 setupPrinterPanel(page);
 setupSerialPanel(page);
@@ -103,7 +103,7 @@ const romSockets = setupRomSockets(page, romPanel, { confirmSwitch: machinePanel
 setupBootHelp(page, romSockets);
 let library = null;
 const snapshots = setupSnapshotPanel(page, { confirmSwitch: machinePanel.confirmSwitch, openRoms: () => romSockets.reveal() });
-const disks = setupDrives(page, { openRoms: () => { romSockets.reveal(); $('fileRom').click(); } });
+const disks = setupDrives(page, { openRoms: () => romSockets.reveal({ to: 'disk' }) });
 const slots = setupSlotsPanel(page, { snapshots });
 const nitros9 = setupNitros9Panel(page);
 window.emu.nitros9Shown = () => nitros9.shown();   // (the browser check: the panel shows the session's latest state)
@@ -127,7 +127,7 @@ setupCommandBox(page, claude);
 const welcome = setupWelcome(page, { showRoms, openClaude: () => claude.open() });
 const drawer = setupDrawer(page, { showRoms });
 const openRoms = () => { romSockets.reveal(); $('fileRom').click(); };
-library = setupLibrary(page, { loadProgram: media.loadProgram, runShelf: welcome.runShelf, changed: slots.refresh, reconnect });
+library = setupLibrary(page, { loadProgram: media.loadProgram, runShelf: welcome.runShelf, changed: slots.refresh, showRoms, reconnect });
 setupTypein(page, { openRoms, isVisible: () => !$('library').hidden });
 setupTapePanel(page);
 setupMultiPakPanel(page, { cartridge: (name) => drawer.cartridge(name) });

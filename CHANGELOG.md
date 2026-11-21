@@ -76,6 +76,47 @@ All notable changes to CLOADM are recorded here. The format follows
   once the typing pauses, and the Library's "N selected" is a polite live region written only when the count
   changes. `js/ui/page.js` `outsidePress` is the one press-outside rule.
 
+- **Every toast is visible** (UX ruling R24). A toast that finds no place on the emulator page where it covers
+  neither a control nor the screen's text no longer waits unseen: it takes a fixed slot at the top of the viewport,
+  above everything but the dialogs, keeps that slot until it goes, and its time starts there ("never invisible" wins
+  over "never covers a control"). A disk dropped without a disk ROM used to say nothing visible, at desktop and phone
+  sizes alike. An error toast is red (`--error`, 4.76:1 on the toast), no longer the orange of a warning.
+
+- **A switch names what comes out** (UX ruling R25). The question before a machine switch now says what the
+  switch takes out of the machine in use ("Switching to Dragon 32 resets the Dragon 64 and takes out the tape
+  GAME.CAS and the disk WORK.VDK in drive 0. They stay in your Library."); a disk that came with a snapshot is named as
+  not kept, with **Save to Library** (`Session.keepSnapshotDisk`: stored, and the drive linked to it, as one Library
+  operation that a Library move waits for; a retry saves only the disks still unsaved). DriveWire disks
+  (they stay mounted) and a Speech/Sound Pak the new machine puts back are not listed. A RAM change asks the same
+  question ("Changing RAM switches the CoCo 1/2 off and on and takes out …"); it used to ask nothing. After the
+  switch a message says "Switched to Dragon 32. Took out: GAME.CAS, WORK.VDK (drive 0)." (`Session.takenOut`), as does
+  a switch made by opening a snapshot.
+
+- **The disk ROM is findable** (UX ruling R26). **Your ROMs** shows a card for the disk ROM on every machine whose
+  cartridge port takes a disk cartridge ("Disk drives (optional): DragonDOS or Delta DOS"; "Disk BASIC (RS-DOS)" on
+  the CoCos), none on the Dragon Alpha (its own drives) or the MC-10. A drive's **Add ROMs…** opens Your ROMs on
+  that card instead of a bare file chooser. The card is not one of the machine's sockets, which are counted as before.
+
+- **The machine menu and the palette lead to the ROMs** (UX rulings R28, R28b). The machine menu's footer is two
+  menu items after a separator, in its arrow and `Tab` order, with the "✓ = BASIC ready" legend beside them: **Add or see ROMs…** (Your ROMs for this machine, the
+  focus on its heading) and **RAM, CPU and speed…** (Machine settings, the focus on its heading; on a phone its top
+  scrolled into view). Choosing a machine that needs ROMs ends with "Switched to Dragon 64. It needs ROMs for
+  BASIC." and **Add ROMs**. Ctrl+K has **Your ROMs** ("see, add or remove ROMs"), first under Settings, for rom,
+  roms, basic, firmware, add roms and your roms; **Machine settings** no longer answers "roms". The ROMs row is the
+  first in Machine settings, which now has that heading, and its button reads **Add ROMs →** without BASIC and
+  **See or add ROMs →** with it. The page says "Machine settings", never "Machine tab".
+
+- **ROMs in the Library** (UX ruling R19 A+). A **ROMs** chip after Snapshots shows one card, not tiles: "Your ROMs:
+  2 stored, used by Dragon 32 and Dragon 64. Manage them in Your ROMs →", or "No ROMs yet. CLOADM never includes
+  ROMs; add your own dumps in Your ROMs →" (`Session.storedRoms`); with ROMs stored the chip is there even when the
+  Library holds nothing else. A ROM dropped on the Library says "added to Your ROMs" with **Open Your ROMs**.
+
+- **Copy** (UX ruling R27). The page no longer says "stub": the ROMs row reads "BASIC ready" or "Not added · running
+  without ROMs", and Share says the person opening a link "runs it without ROMs". One term, **disk ROM**, replaces
+  "DOS ROM" and "disk cartridge ROM" ("Disks need a disk ROM: …"). A file for the other family is described once:
+  "dgame.dgn is a Dragon cartridge; the CoCo 1/2 may not run it." with **Open on Dragon 64** and **Load anyway**.
+  Share and the Snapshots list say "A snapshot reopens on the same machine, RAM and ROMs."
+
 ### Fixed
 
 - **A write from outside the CPU no longer runs in the middle of a held I/O access.** On the CoCo 3 an instruction

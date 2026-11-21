@@ -73,7 +73,7 @@ export function setupDrives(page, { openRoms = null } = {}) {
       // no disk system can go in yet: say which ROM it takes
       const roms = choices.map((c) => `${esc(dosLabel(c.name))} (<code>${esc(c.rom)}</code>)`).join(' or ');
       box.innerHTML = `<div class="title">Drive ${open} · no disk ROM yet</div>
-        <p class="note">Disks need a disk cartridge ROM: ${roms}. CLOADM doesn't include it; add your own, then click the drive again.</p>
+        <p class="note">Disks need a disk ROM: ${roms}. CLOADM doesn't include it; add your own, then click the drive again.</p>
         <div class="bar">${openRoms ? '<button id="driveRoms" class="primary">Add ROMs…</button>' : ''}<button id="driveClose">Close</button></div>`;
     } else {
       const pick = !st.dos && choices.filter((c) => !c.builtin).length > 1;

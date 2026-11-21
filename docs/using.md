@@ -24,7 +24,8 @@ How to load programs, tapes, disks and cartridges, the keys, snapshots, sharing 
   switch.
 * **Wrong disk type:** CLOADM tells a DragonDOS disk from an RS-DOS one by its directory track and says which
   machine it is for. A disk needs the machine's disk ROM (the DragonDOS or Delta cartridge, or Disk BASIC); the
-  drives under the screen say which one is missing.
+  drives under the screen say which one is missing, and their **Add ROMs…** opens **Your ROMs** on the disk ROM's
+  card ("Disk drives (optional): DragonDOS or Delta DOS"; on a CoCo, "Disk BASIC (RS-DOS)").
 * **Wrong symbols when typing:** the keyboard has two modes (Input tab). **Translated** types what you type, so
   the shifted symbols follow your PC keyboard (`:` is `:` though your keyboard needs Shift for it and the
   machine does not; the machine's SHIFT follows the character, and your Shift still shifts letters and the
@@ -56,8 +57,9 @@ and its tests never use them.
   browser's storage only. CLOADM itself never uploads your ROMs, never puts them in share links and never includes them
   in exported settings. If you use Claude, what it reads from the machine's memory (ROM areas included) is sent to
   Anthropic as part of your conversation. **Save ROM pack…** carries your ROMs to another browser.
-* **See what went where.** **Add ROMs** (the orange **No BASIC · Add ROMs** in the header, **Add ROMs** in the
-  Machine tab, or key 3 on the Welcome menu) shows **Your ROMs**: what each one takes (size and usual
+* **See what went where.** **Add ROMs** (the orange **No BASIC · Add ROMs** in the header, **Add or see ROMs…** at
+  the foot of the machine menu, the ROMs row at the top of Machine settings, **Your ROMs** in Ctrl+K, or key 3 on the
+  Welcome menu) shows **Your ROMs**: what each one takes (size and usual
   file names), whether it is required, and what it holds or what you miss without it. It lists what each dropped
   file turned out to be, explains a file that loaded but isn't recognised (with its CRC32 to compare), offers to
   switch to other machines your files set up, and has **Switch on** once BASIC can boot. A dropped ROM that
@@ -99,7 +101,7 @@ The [README](../README.md#what-works) has the short version of this table.
 | | Today | Coming |
 |---|---|---|
 | **Cassette** | `.CAS` played as a real 1200/2400 Hz signal through the cassette port, motor relay, fast loading; WAV recordings in; what `CSAVE`/`CSAVEM` write saved as `.CAS` or `.WAV` (a recording still running when the machine is switched is offered for saving first); a power cycle keeps the tape, the cartridge and its disks, as on real hardware; any tape exported as `.WAV`; the cassette panel (block, counter, motor, fast-forward or real speed, read errors, skip the tape) | the tape's sound at real speed |
-| **Floppy** | The Dragon DOS cartridge (WD2797), the Premier / Delta cartridge (WD2791) and the RS-DOS cartridge (WD1773), cycle for cycle as MAME has them; VDK, JVC (`.dsk`) and DMK images read and written, including headerless NitrOS-9 / OS-9 `.dsk` images of 18 x 256-byte sectors, whose LSN 0 states the geometry (a 40-track two-sided image used to be read as 80 single-sided, and on the CoCo's drive did not mount at all); 4 drives (the Dragon Alpha's own 2), write-protect; the drives card under the screen: click a drive to insert a file, a disk from your library or a new blank disk (the sizes the disk system uses: 40 or 80 tracks, one or two sides for DragonDOS and Delta; 35 or 40 for Disk BASIC; VDK, JVC or, double-sided, DMK), see its light while it works, write-protect, download it with what was written, eject. A drive whose changes the browser's storage refused is marked "not saved" (Download keeps them); without a disk ROM, a drive says which one it takes. Disks are written back to the stored image a sector at a time. The DOS ROM is yours, as every ROM; the Alpha needs none; [booting NitrOS-9](#booting-nitros-9) Level 2 on the CoCo 3 from your own 40-track floppy image, with CLOADM's own loader instead of a ROM | Booting NitrOS-9 from 80-track floppies |
+| **Floppy** | The Dragon DOS cartridge (WD2797), the Premier / Delta cartridge (WD2791) and the RS-DOS cartridge (WD1773), cycle for cycle as MAME has them; VDK, JVC (`.dsk`) and DMK images read and written, including headerless NitrOS-9 / OS-9 `.dsk` images of 18 x 256-byte sectors, whose LSN 0 states the geometry (a 40-track two-sided image used to be read as 80 single-sided, and on the CoCo's drive did not mount at all); 4 drives (the Dragon Alpha's own 2), write-protect; the drives card under the screen: click a drive to insert a file, a disk from your library or a new blank disk (the sizes the disk system uses: 40 or 80 tracks, one or two sides for DragonDOS and Delta; 35 or 40 for Disk BASIC; VDK, JVC or, double-sided, DMK), see its light while it works, write-protect, download it with what was written, eject. A drive whose changes the browser's storage refused is marked "not saved" (Download keeps them); without a disk ROM, a drive says which one it takes. Disks are written back to the stored image a sector at a time. The disk ROM is yours, as every ROM; the Alpha needs none; [booting NitrOS-9](#booting-nitros-9) Level 2 on the CoCo 3 from your own 40-track floppy image, with CLOADM's own loader instead of a ROM | Booting NitrOS-9 from 80-track floppies |
 | **Cartridges** | ROM cartridges (`.ROM`, `.CCC`, `.DGN`) at `$C000`, autostarting; banked ROM cartridges (up to 128K in 16K pages); the Games Master Cartridge (SN76489A) and the Orchestra-90 (stereo DACs), sound included; the Multi-Pak with four slots; all as MAME has them on the CoCo 1/2, the CoCo 3 and the Dragons (MAME offers the banked board only on the CoCos). The cartridge port's board menu picks the board, or picks it from the image; its Multi-Pak section fills the four slots and sets the front-panel switch. The Multi-Pak also takes a disk controller (DragonDOS, Delta DOS or Disk BASIC, your ROM) on the Dragon 64 and the CoCo, compared with MAME in slot 4; a slot's board menu offers it, and the drives card uses it. The Speech/Sound Pak is offered as a board (music only; speech not yet) on the CoCo 1/2, CoCo 2B, CoCo 3 and the Dragon 64 | Speech/Sound Pak: its AY `-wavwrite` comparison is not passing (cause not established), and SP0256 speech synthesis is not implemented |
 | **Printer, serial, DriveWire** | Printer (Dragon parallel, CoCo/MC-10 serial); the bit-banger and the Dragon 64's 6551 ACIA with a terminal or loopback plug; DriveWire 4 over the CoCo's Becker port, served in the browser: drives 0-3 from images in the browser's storage, printing, virtual serial channels to WebSockets; [booting NitrOS-9](#booting-nitros-9) Level 2 on the CoCo 3 from your own DriveWire image, with CLOADM's own loader instead of a ROM; serving a real CoCo over Web Serial (untested on hardware) | the full screens |
 | **Input** | Keyboard in two modes (translated: the character typed; positional: the physical key), keyboard joystick, gamepads (two joysticks, dead zone), the Tandy and CoCo Max 3 Hi-Res interfaces, the CoCo 3 "The Rat" mouse, the CoCo Max Hi-Res module, mouse as the right joystick; an on-screen keyboard on phones and tablets (split for the thumbs when held sideways) and a touch joystick with FIRE, a tappable welcome menu | |
@@ -176,7 +178,7 @@ whatever image is in DriveWire drive 0 then.
   (up to 128K) on a banked board, and the Orchestra-90's own ROM on an Orchestra-90; the board menu in the cartridge
   port overrides the choice (Program Pak, Banked ROM, Games Master, Orchestra-90). The port's Multi-Pak section takes an
   image and a board for each of the four slots and the front-panel switch, and inserts them together; a slot's board
-  menu also offers the machine's disk controllers (no image needed: the DOS ROM is the one you added), which the drives
+  menu also offers the machine's disk controllers (no image needed: the disk ROM is the one you added), which the drives
   card then uses.
 * **`.BAS` / `.TXT`**: BASIC listings, which are typed in.
 * Any other file loads as raw data at an address you enter.
@@ -190,7 +192,10 @@ every tape, disk, cartridge and program you load (disk images under `disks/` in 
 clicking one mounts it; one in a drive can't be renamed or deleted until it is ejected), so next time it's one click:
 click a spine or a tile, or drag it onto the machine's screen in the type-in card. A library kept in a folder on macOS
 or Windows treats `GAME.DSK` and `game.dsk` as one file, so CLOADM does too: the two cannot be in two drives at once,
-and a name that differs from a stored one only in case is the same name to every guard here. Its magazine rack links the
+and a name that differs from a stored one only in case is the same name to every guard here. Its **ROMs** chip shows
+one card instead of tiles: how many ROMs are stored and which machines use them, with a link to **Your ROMs**, where
+they are added and removed (a ROM dropped on the Library goes there too, and its message offers **Open Your ROMs**).
+Its magazine rack links the
 archives below. **Select** (beside "Add files…") turns clicks into a selection: load or rename one item (the name is
 edited on the item: Enter saves, Esc cancels), download several, or delete them. Delete asks nothing; the items
 leave the shelf at once and an Undo toast stays for 8 seconds before they are really removed. Done or Esc goes back to
@@ -281,7 +286,7 @@ scan lines) or Sharp · RGB (the pixels as they are); NTSC artifact phase; integ
 ## The speed POKEs
 
 `POKE 65495,0` sets the address-dependent rate, `POKE 65497,0` the fast rate, and `POKE 65494,0` / `POKE 65496,0`
-go back. The emulator's Machine tab shows the rate and lights the SAM chip when it changes; the POKEs tab has a
+go back. Machine settings shows the rate and lights the SAM chip when it changes; the POKEs tab has a
 POKE book that types them in, and lights the chip line of the entry that makes the change, however it was typed. Without ROMs, CLOADM carries out typed `POKE address,value` lines.
 
 ## Snapshots and sharing
@@ -302,6 +307,11 @@ never brings up the "No OK after 5 seconds" box. **Switch off and on** and addin
 their box as before; **Reset** keeps RAM and never reports a failed boot - if a program holds BASIC's warm-start
 vector it says "A program took over Reset" and offers **Switch off and on**, and otherwise shows no box.
 
+**Switching machine or RAM** asks first and names what comes out: "Switching to Dragon 32 resets the Dragon 64
+and takes out the tape GAME.CAS, the cartridge and the disk WORK.VDK in drive 0." Tapes, cartridges and disks from your
+Library stay there. A disk that came with a snapshot is not kept: **Save to Library** on the question keeps it
+first. DriveWire disks stay mounted. After the switch a message says what was taken out.
+
 A page reads the snapshot versions it knows and says so when a file is newer or older, or was saved by a
 pre-release build, whose snapshots it does not read (the format is in [architecture.md](architecture.md#snapshot-format)). **Snapshots** in the drawer's Media tab keeps three
 snapshots in this browser's storage (as `library/snapshots/slot-N.cloadm`, so the Library lists them under
@@ -312,7 +322,7 @@ fragment after `#s=`, which browsers never send to a server, so the link is long
 embed builder writes the iframe and script for the machine, program and options you pick.
 
 A shared moment holds no byte of a ROM or a cartridge (`Session.shareFile`, `js/media/romrefs.js`), even when it ran
-on your own ROMs. It names them by CRC: the machine's ROMs, the cartridge's image, a disk controller's DOS ROM. Every
+on your own ROMs. It names them by CRC: the machine's ROMs, the cartridge's image, a disk controller's disk ROM. Every
 copy of their code in memory travels as a reference (which image, where in it, how long) with the bytes left out.
 BASIC copies itself into RAM on the Dragon 64 in its 64K mode and on the CoCo 3; a program can copy any ROM, print it
 or send it down a DriveWire channel, so the printout and DriveWire's buffers and queues are scanned too, and a tape

@@ -29,7 +29,8 @@ import { availableChoices, openMediaStore } from '../host/media-store-open.js';
 import { FsaMediaStore } from '../host/media-store-fsa.js';
 import { saveFolder, forgetFolder } from '../host/folder-handle.js';
 
-const KINDS = [['all', 'All'], ['tape', 'Tapes'], ['disk', 'Disks'], ['cart', 'Cartridges'], ['program', 'Programs'], ['snapshot', 'Snapshots']];
+// (ROMs: not items of the Library but one card about Your ROMs, R19 A+)
+const KINDS = [['all', 'All'], ['tape', 'Tapes'], ['disk', 'Disks'], ['cart', 'Cartridges'], ['program', 'Programs'], ['snapshot', 'Snapshots'], ['roms', 'ROMs']];
 const KIND_OF = { cas: 'tape', wav: 'tape', disk: 'disk', cart: 'cart', binary: 'program', basictext: 'program' };
 // spine and label colours: the VDG colours the design allows for the Library
 const SPINES = ['#EDE6C8', '#F2EA4A', '#2BD8D8', '#F08A1F', '#30D82B', '#EDE6C8', '#D8D8D8', '#F2EA4A'];
@@ -71,8 +72,8 @@ const prefixOf = (name) => name.slice(0, name.length - base(name).length);
 const names = (list) => (list.length === 1 ? base(list[0]) : list.length === 2 ? `${base(list[0])} and ${base(list[1])}` : `${list.length} items`);
 const label = (name) => base(name).replace(/\.[^.]*$/, '').toUpperCase();
 
-// changed(): the library's contents changed here (the quick-save slots are in it too)
-export function setupLibrary(page, { loadProgram, runShelf, changed, reconnect = null }) {
+// changed(): the library's contents changed here (the quick-save slots are in it too); showRoms(): opens Your ROMs
+export function setupLibrary(page, { loadProgram, runShelf, changed, showRoms, reconnect = null }) {
   const { session } = page;
   const view = $('library');
   const meta = new Map();          // name -> { mtime, size, kind, family, format } (read once per version)
@@ -128,10 +129,15 @@ export function setupLibrary(page, { loadProgram, runShelf, changed, reconnect =
     // the shelves are rebuilt: the item that had focus gets it back, so keys stay with the Library
     const had = document.activeElement && view.contains(document.activeElement) ? document.activeElement.dataset.name : null;
     const shown = shownItems();
+    // (with ROMs stored the filters and the shelves show even in an empty Library: the ROMs chip is there, R19 A+)
+    const some = items.length > 0 || session.storedRoms().count > 0;
     $('libEmpty').hidden = items.length > 0;
-    $('libFilled').hidden = items.length === 0;
-    $('libFilters').hidden = items.length === 0;
-    $('libNone').hidden = !items.length || shown.length > 0;
+    $('libFilled').hidden = !some;
+    $('libFilters').hidden = !some;
+    const roms = kind === 'roms';
+    $('libNone').hidden = !items.length || shown.length > 0 || roms;
+    $('libRomsBox').hidden = !roms;
+    if (roms) romsCard();
     const tapes = shown.filter((i) => i.kind === 'tape'), rest = shown.filter((i) => i.kind !== 'tape');
     $('libTapesBox').hidden = !tapes.length;
     $('libTilesBox').hidden = !rest.length;
@@ -164,6 +170,14 @@ export function setupLibrary(page, { loadProgram, runShelf, changed, reconnect =
     if (field) { field.focus(); field.setSelectionRange(0, field.value.replace(/\.[^.]*$/, '').length); }
     else if (had) { const b = [...view.querySelectorAll('[data-name]')].find((x) => x.dataset.name === had); if (b) b.focus(); }
   }
+  // the ROMs chip's card: how many ROMs are stored and what uses them, or that there are none; the link opens Your ROMs
+  function romsCard() {
+    const r = session.storedRoms(), and = (l) => (l.length < 2 ? l.join('') : `${l.slice(0, -1).join(', ')} and ${l[l.length - 1]}`);
+    $('libRomsText').textContent = r.count ? `Your ROMs: ${r.count} stored, used by ${and(r.users)}. Manage them in` : 'No ROMs yet. CLOADM never includes ROMs; add your own dumps in';
+    $('libRomsLink').textContent = 'Your ROMs →';
+  }
+  $('libRomsLink').onclick = (e) => { e.preventDefault(); showRoms(); };
+  session.on((ev) => { if (ev === 'roms' && isOpen()) render(); });
   // an item on the shelf: its button (a click loads it, or in select mode selects it), the tick box, and the name
   // field while it is being renamed
   function item(t, b) {
@@ -325,7 +339,8 @@ export function setupLibrary(page, { loadProgram, runShelf, changed, reconnect =
     if (errors.length) { say(text ? `${text}. ${errors.join(' · ')}` : errors.join(' · '), true, text ? { details: errors.join(' · ') } : {}); return; }
     if (!text) { say('Nothing added: no files in what you gave'); return; }
     const one = kept === 1 && items.find((i) => base(i.name) === added[0]);
-    say(text, false, { action: !isOpen() ? { label: 'Show', run: () => page.openView('#library') } : one ? { label: 'Load', run: () => load(one.name) } : null });
+    // ROMs only: "Open Your ROMs" (R19 A+)
+    say(text, false, { action: roms && !kept ? { label: 'Open Your ROMs', run: showRoms } : !isOpen() ? { label: 'Show', run: () => page.openView('#library') } : one ? { label: 'Load', run: () => load(one.name) } : null });
   }
   const pick = () => $('fileLib').click();
   $('btnLibAdd').onclick = pick;

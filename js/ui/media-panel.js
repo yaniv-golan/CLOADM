@@ -46,8 +46,11 @@ export function setupMediaPanel(page, { snapshots, disks, nitros9, keep }) {
     if (media.kind === 'disk' && !mm) { audio.start(); await disks.insert(name, bytes); return; }
     if (!mm) { doLoad(name, bytes); return; }
     const m = session.machine;
-    $('mediaOfferText').textContent = `${name} is a ${media.format} for a ${mm.familyName}` + (media.reason ? ` (${media.reason})` : '') +
-      `. Your ${m.profile.name} may not run it.`;
+    // said once (R27): "dgame.dgn is a Dragon cartridge; the CoCo 1/2 may not run it." The family is named only where
+    // the format doesn't name it, and the reason only where it adds something
+    const what = media.format.includes(mm.familyName) ? media.format : `${media.format} for a ${mm.familyName}`;
+    const why = media.reason && !media.reason.toLowerCase().includes(media.format.toLowerCase()) ? ` (${media.reason})` : '';
+    $('mediaOfferText').textContent = `${name} is a ${what}${why}; the ${m.profile.name} may not run it.`;
     $('btnMediaSwitch').textContent = `Open on ${mm.suggestName}`;
     $('btnMediaSwitch').onclick = () => { offer.hidden = true; session.switchMachine(mm.suggest); if (media.kind === 'disk') disks.insert(name, bytes); else doLoad(name, bytes); page.focus(); };
     $('btnMediaAnyway').onclick = () => { offer.hidden = true; if (media.kind === 'disk') disks.insert(name, bytes); else doLoad(name, bytes); page.focus(); };

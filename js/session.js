@@ -256,6 +256,7 @@ export class Session {
     this.turbo = false;
     this.fastTape = true;       // run flat out while the tape is playing
     this.fastCas = false;       // load .cas files straight into memory instead of through BASIC
+    this.cartFiles = new WeakMap();   // a cartridge image's device -> the file it came from (takenOut names it)
     this._cartBoard = 'auto';   // the board a loaded cartridge image goes on (js/machines/carts.js CART_BOARDS)
     this.listeners = new Set(); // (event) => void: 'machine' after a switch, 'loaded' after a program, tape or
                                 // cartridge is loaded or assembled, 'roms' when stored ROMs or the stub choice change,
@@ -498,6 +499,22 @@ export class Session {
     if (menu) this.offerMenu();       // switched on without ROMs: the welcome menu
     return m;
   }
+  // What a switch to model `id` with `config` (a RAM change: the same id) takes out of the machine in use, for the
+  // page to name before and after it (UX ruling R25): [{ kind: 'tape' | 'cartridge' | 'disk', name (the file, or null
+  // for a cartridge whose file is not known), drive (a disk's), stored (a disk linked to the Library: false for the
+  // disk that came with a snapshot) }]. Not listed: the DriveWire server's disks (the Session's, not the machine's: they
+  // stay mounted) and a Speech/Sound Pak that the new machine's `ssc` option puts back (applySscOption).
+  takenOut(id, config = this.savedConfig(id)) {
+    const m = this.machine, out = [];
+    if (!m) return out;
+    if (m.deck.tape) out.push({ kind: 'tape', name: m.deck.tape.name });
+    const c = m.cartPort;
+    const sscBack = c instanceof SpeechSoundPak && profiles[id] && profiles[id].options.ssc && config && config.ssc === 'music' && !!this.roms.get('ssc').tms7040;
+    // a disk controller on its own is not named: its disks are, and a mount plugs one in again
+    if (c && !(c instanceof DiskController) && !sscBack) out.push({ kind: 'cartridge', name: this.cartFiles.get(c) || null });
+    for (const d of this.diskStatus().drives) out.push({ kind: 'disk', name: d.file, drive: d.drive, stored: d.stored });
+    return out;
+  }
   // make m the machine in use (the caller has its ROMs set or sets them next, and emits 'machine'). The old
   // machine's disks keep what was written to them, a tape recording still running is kept (keepRecording), its chat
   // closes and its debugger goes with it; a debugger m already has (a restored snapshot's breakpoints) becomes the
@@ -602,7 +619,7 @@ export class Session {
   // send text (or bytes) from the terminal to the machine; newlines become CR
   serialSend(data) {
     const p = this.machine.serialPort;
-    if (!p || p.kind !== 'terminal') throw new SessionError('Plug in the terminal first (Machine tab, Serial port).');
+    if (!p || p.kind !== 'terminal') throw new SessionError('Plug in the terminal first (Machine settings, Serial port).');
     const bytes = typeof data === 'string' ? [...data.replace(/\r?\n/g, '\r')].map((c) => c.charCodeAt(0) & 0xFF) : [...data];
     p.send(bytes, this.machine.now());
     return bytes.length;
@@ -1018,6 +1035,13 @@ export class Session {
     return { id, name: p.name, bootable: isBootable(p, roms), sockets };
   }
   // every machine with at least one ROM stored
+  // The ROMs stored in this browser, for the Library's ROMs card (R19 A+): { count: the images stored (one dump in the
+  // sockets of several models counts once), users: the names of the machines and cartridges whose sockets hold them,
+  // in profile order }
+  storedRoms() {
+    const sockets = this.roms.sockets(), owners = romOwners();
+    return { count: new Set(sockets.map((x) => x.crc)).size, users: [...new Set(sockets.map((x) => x.owner))].map((id) => owners[id].name) };
+  }
   machinesWithRoms() {
     return Object.keys(profiles).map((id) => this.machineRoms(id)).filter((x) => x.sockets.some((s) => s.status !== 'missing-required' && s.status !== 'missing-optional'));
   }
@@ -1883,7 +1907,7 @@ export class Session {
     if (!fdc && !dos) {
       const c = this.diskDosChoices();
       if (!c.length) throw new SessionError(`The ${this.machine.profile.name} has no disk drives in CLOADM.`);
-      throw new SessionError(`Disks need a disk cartridge ROM: ${c.map((x) => `${x.name} (${cartridgeRoms[x.id].roms[0].files[0]})`).join(' or ')}. Load the ROM file first.`);
+      throw new SessionError(`Disks need a disk ROM: ${c.map((x) => `${x.name} (${cartridgeRoms[x.id].roms[0].files[0]})`).join(' or ')}. Load the ROM file first.`);
     }
     // The image is read once every write is in the store: the drive's own (a disk mounted again in the drive it is
     // in must be the image that drive wrote) and every one queued, a restore's put-back included. The machine runs
@@ -2119,6 +2143,37 @@ export class Session {
     const busy = !!(fdc.wd.status & 1);
     return fdc.drives.slice(0, fdc.fitted).map((d) => busy && fdc.wd.floppy === d && d.mon === 0);
   }
+  // The disk that came with a snapshot (not linked to the Library: diskStatus stored: false) saved to the Library under
+  // its name, and the drive linked to it from then on, so what the machine writes goes there (R25: a switch takes it
+  // out, and only the Library keeps it) -> message. A name the Library already has is refused: that is another disk.
+  async keepSnapshotDisk(drive) {
+    this.checkDrive(drive);
+    const fdc = this.diskController, d = fdc && fdc.drives[drive];
+    if (!d || !d.loaded) throw new SessionError(`Drive ${drive} is empty.`);
+    const full = this.diskStoreName(d.media.name), base = full.slice(DISK_PREFIX.length);
+    if (d.media.onWrite) throw new SessionError(`${base} is already in your Library.`);
+    const media = d.media;
+    // A Library operation (libraryOp): a move that starts meanwhile waits for it, so it looks in and writes to the one
+    // store, which the move then copies. The look and the write are one queued disk change (diskStoreChange): when it
+    // runs, the image is copied and the drive linked in one synchronous step, so a write the machine makes after it
+    // goes to the store behind this one, never into the gap between them. It is queued under no name: no mount of this
+    // image can be reading it meanwhile (one that waits for the queue finds the drive linked under the name and is
+    // refused; one that read before finds no file), so a per-name count would change nothing.
+    // (diskStoreChange counts it in diskQueued all the same, so diskWritesSettled waits for it.)
+    try {
+      await this.libraryOp(() => this.diskStoreChange(async () => {
+        if (await this.media.stat(full)) throw new SessionError(`Your Library already has a disk named ${base}; download this one instead.`);
+        if (fdc.drives[drive].media !== media || media.onWrite) throw new SessionError(`Drive ${drive} no longer holds that disk.`);
+        d.flush();
+        const bytes = media.bytes.slice(), oldName = media.name;
+        media.name = full; media.onWrite = this.diskLink(full);
+        try { await this.media.write(full, bytes); } catch (e) { if (media.onWrite) { media.onWrite = null; media.name = oldName; } throw e; }
+      }));
+    } catch (e) { throw this.mediaError(e, base); }
+    await this.refreshCase();
+    this.emit('disks');
+    return `Saved ${base} to your Library`;
+  }
   // the image in a drive as it is now, written changes included -> { name, bytes }
   async downloadDisk(drive) {
     this.checkDrive(drive);
@@ -2209,6 +2264,7 @@ export class Session {
         this.flushDisks();
         let dev;
         try { dev = cartridgeFor(bytes, this.cartBoard); } catch (e) { throw new SessionError(`${name}: ${e.message}`); }
+        this.cartFiles.set(dev, name);
         return this.startCartridge(dev, `${name}: ${dev.name}`);
       }
 

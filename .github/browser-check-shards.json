@@ -82,7 +82,8 @@
       "light",
       "consentFullscreen",
       "phoneChat",
-      "askEsc"
+      "askEsc",
+      "uiModel"
     ]
   ]
 }

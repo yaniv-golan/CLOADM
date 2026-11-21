@@ -335,6 +335,16 @@ const dropFiles = (page, files, folder = null, target = 'screenWrap') => page.ev
   Object.defineProperty(ev, 'dataTransfer', { value: dt });
   document.getElementById(target).dispatchEvent(ev);
 }, [files.map(([n, b]) => [n, [...b]]), folder, target]);
+// R24: a toast the user can see, matching re: up, its box wholly inside the viewport and the toast itself what is on
+// top at its centre (not covered, not visibility: hidden)
+const toastSeen = (page, re, ms = 10000) => waitFor(page, (src) => {
+  const t = document.getElementById('toast');
+  if (t.hidden || !new RegExp(src).test(document.getElementById('toastText').textContent)) return false;
+  const b = t.getBoundingClientRect();
+  if (!(b.width > 0 && b.left >= 0 && b.top >= 0 && b.right <= innerWidth && b.bottom <= innerHeight)) return false;
+  const at = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+  return !!at && t.contains(at);
+}, re.source, ms);
 // the Add ROMs screen (#add-roms) is open, or open it
 const romsOpen = () => location.hash === '#add-roms' && !document.getElementById('romCard').hidden && document.body.classList.contains('roms-open')
   && getComputedStyle(document.querySelector('.layout')).display === 'none';
@@ -352,6 +362,12 @@ async function pickMachine(page, id) {
 }
 // the Debugger screen (#debugger), where the assembler lives
 const openDebugger = async (page) => { await page.evaluate(() => { location.hash = '#debugger'; }); await page.waitForSelector('#debugView:not([hidden])'); };
+// the switch confirmation's text (R25), read once it is `want` (its Library sentence comes from a look in the store,
+// a moment after it shows) or after 5 s
+const switchText = async (page, want) => { await maybeWaitFor('the text read as it is when it never becomes want', page, (w) => document.getElementById('switchText').textContent === w, want, 5000);
+  return page.textContent('#switchText'); };
+// a RAM change asks first, as a machine switch does (R25): answer Switch
+const confirmRam = async (page) => { await waitFor(page, () => !document.getElementById('switchConfirm').hidden); await page.click('#btnSwitch'); };
 // open a tab of the settings drawer
 const openTab = (page, name) => page.click(`[role="tab"]:text-is("${name}")`);
 // The stub firmware's own prompt, for a check that types POKEs into it: a power-on of the machine itself, below the
@@ -419,7 +435,7 @@ async function romInputChecks(browser, base, check) {
   const okD64 = await waitFor(page, () => window.emu.session.machineRoms('dragon64').bootable && window.emu.session.machineRoms('tanodr64').bootable);
   check('drop: several ROM files set up every machine they fit', okD64, await romStatus(page, 'dragon64'));
   check('drop: a program in the same drop goes to the program loader (a Dragon binary on the CoCo: the switch offer)',
-    await page.isVisible('#mediaOffer') && /demo\.bin is a DragonDOS binary for a Dragon/.test(await page.textContent('#mediaOffer')), await page.textContent('#mediaOffer'));
+    await page.isVisible('#mediaOffer') && /^demo\.bin is a DragonDOS binary; the CoCo 1\/2 may not run it\.$/.test(await page.textContent('#mediaOfferText')), await page.textContent('#mediaOffer'));
   await page.click('#btnMediaAnyway');
   // a dragged folder: ROMs taken, other files ignored and listed
   await dropFiles(page, [['coco3.rom', C3], ['readme.txt', Buffer.from('notes')]], 'MyROMs');
@@ -2280,7 +2296,7 @@ async function mediaChecks(browser, base, check) {
   const decb = Buffer.from([0, 0, 4, 0x30, 0x00, 0x86, 0x41, 0x20, 0xFE, 0xFF, 0, 0, 0x30, 0x00]);
   await page.setInputFiles('#fileProgram', { name: 'game.bin', mimeType: 'application/octet-stream', buffer: decb });
   await waitFor(page, () => !document.getElementById('mediaOffer').hidden);
-  check('media: a CoCo binary on a Dragon offers to switch', /game\.bin is a DECB binary for a CoCo\..*Your Dragon 64 may not run it/.test(await page.textContent('#mediaOffer'))
+  check('media: a CoCo binary on a Dragon offers to switch', /^game\.bin is a DECB binary for a CoCo; the Dragon 64 may not run it\.$/.test(await page.textContent('#mediaOfferText'))
     && await page.textContent('#btnMediaSwitch') === 'Open on CoCo 1/2', await page.textContent('#mediaOffer'));
   if (shotDir) await page.locator('#mediaOffer').screenshot({ path: path.join(shotDir, 'media-offer.png') });
   await page.click('#btnMediaSwitch');
@@ -2296,7 +2312,7 @@ async function mediaChecks(browser, base, check) {
   check('media: a disk image for another machine says its format and offers to switch', await waitFor(page, () => !document.getElementById('mediaOffer').hidden
     && /games\.dsk is a RS-DOS disk for a CoCo /.test(document.getElementById('mediaOffer').textContent)), await page.textContent('#mediaOffer'));
   await page.click('#btnMediaAnyway');
-  check('media: a disk image loaded anyway without a DOS ROM says which ROM it needs', await waitFor(page, () => /Disks need a disk cartridge ROM: DragonDOS cartridge \(ddos10\.rom\)/.test(document.getElementById('toast').textContent)),
+  check('media: a disk image loaded anyway without a DOS ROM says which ROM it needs, in view', await toastSeen(page, /Disks need a disk ROM: DragonDOS cartridge \(ddos10\.rom\)/),
     await page.textContent('#toast'));
   // paste types into LIZA (on the stub)
   await openDebugger(page);
@@ -2985,6 +3001,7 @@ async function pokeChecks(browser, base, check) {
   check('Machine tab on the MC-10: a RAM choice (4K / 20K), CPU 6803, no SAM rate', mc.ram === 'select 4K/20K = 20K' && mc.cpu === '6803'
     && await page.isHidden('#machineCard'), JSON.stringify(mc));
   await page.selectOption('#ramSel', '4');
+  await confirmRam(page);
   await waitFor(page, () => window.emu.machine.config.ram === 4);
   const ram4 = await page.evaluate(() => window.emu.machine.config.ram);
   check('choosing 4K power-cycles the MC-10 with 4K', ram4 === 4 && (await rows()).ram === 'select 4K/20K = 4K', String(ram4));
@@ -3145,6 +3162,7 @@ async function liza6803Checks(browser, base, check) {
     await pickMachine(page, id);
     await openTab(page, 'Machine');
     await page.selectOption('#ramSel', String(ram));
+    await confirmRam(page);
     await waitFor(page, (ram) => window.emu.machine.config.ram === ram, ram);
     await openTab(page, 'Media');
     return { ctx, page, errors };
@@ -3543,11 +3561,12 @@ async function librarySelectChecks(browser, base, check) {
 // fails without its rule):
 //  - a toast covers none of the on-screen keys (portrait: the keys under the screen; sideways: either side of it,
 //    where the toast is narrowed to the screen's foot) and is still delivered, in view;
-//  - it never covers the phone chat's sticky bar (with nothing else free it waits instead);
+//  - it covers the phone chat's sticky bar only when nothing else is free, and then from the fixed top slot (R24:
+//    never invisible wins over never covering a control);
 //  - a pointer gesture is the next action from its pointer-down (an old toast is gone before the gesture's own
 //    handler runs), and its click does not clear a toast the gesture itself raised;
-//  - a toast with no place free is not lost: unseen, its time does not run; a newer one goes first and it follows,
-//    once there is room.
+//  - a toast with no place free is not held back: it shows at once in the fixed slot at the top of the viewport, keeps
+//    that slot, and its time runs (R24); a newer one replaces it.
 async function feedbackModelChecks(browser, base, check) {
   const state = (page) => page.evaluate(() => {
     const t = document.getElementById('toast'), b = t.getBoundingClientRect(), reg = document.getElementById('toastRegion');
@@ -3589,7 +3608,8 @@ async function feedbackModelChecks(browser, base, check) {
   }
 
   // ---- the phone chat's sticky bar: with the screen out of the way and a row of controls along the bottom edge (set
-  // up for the check), the only other place is the top edge, under the bar: the toast waits rather than cover it ----
+  // up for the check), the only other place is the top edge, under the bar: R24, the toast takes the fixed top slot
+  // rather than wait unseen (never invisible wins over never covering a control) ----
   {
     const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
     const page = await ctx.newPage();
@@ -3606,8 +3626,8 @@ async function feedbackModelChecks(browser, base, check) {
     });
     await frames(page);
     const c = await state(page);
-    check('feedback model (phone chat): the toast never covers the chat\'s sticky bar (with no other place free it waits, unseen)',
-      c.up && !c.seen && c.bar === 0, JSON.stringify(c));
+    check('feedback model (phone chat): with no other place free the toast is not held back: it is in view, in the fixed top slot (R24)',
+      c.up && c.seen && await page.evaluate(() => document.getElementById('toastRegion').classList.contains('top')), JSON.stringify(c));
     await ctx.close();
   }
 
@@ -3644,25 +3664,26 @@ async function feedbackModelChecks(browser, base, check) {
     const page = await ctx.newPage();
     await page.goto(`${base}?machine=dragon64`);
     await started(page);
-    await page.evaluate(() => { scrollTo(0, 0); window.emu.feedback.clear(); window.emu.feedback.toast('First, held'); });
+    await page.evaluate(() => { scrollTo(0, 0); window.emu.feedback.clear(); window.emu.feedback.toast('First, at the top'); });
     await frames(page);
-    const held = await state(page);
-    await page.waitForTimeout(5000);   // longer than a toast's 4 s
-    const still = await state(page);
-    check('feedback model: with no place free a toast waits unseen, and its time does not run (still the current toast after 5 s)',
-      held.up && !held.seen && still.up && !still.seen && still.text === 'First, held', JSON.stringify({ held, still }));
-    // a newer one goes first; the one waiting is not lost, it comes after it
-    await page.evaluate(() => window.emu.feedback.toast('Second, newer'));
-    const order = await page.evaluate(() => window.emu.feedback.pending.map((m) => m.text));
-    // scrolled to where there is room (the end of the page): the newer shows; when it ends, the waiting one follows
+    const top = await state(page);
+    const slot = () => page.evaluate(() => ({ top: document.getElementById('toastRegion').classList.contains('top'), box: JSON.stringify(document.getElementById('toast').getBoundingClientRect()) }));
+    const s1 = await slot();
+    // scrolled to where there would be room: it keeps its slot, it is not placed again under the user's eyes
     await page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight));
     await frames(page);
-    const first = await state(page);
-    await waitFor(page, () => document.getElementById('toastText').textContent === 'First, held', null, 8000);
-    const second = await state(page);
-    check('feedback model: a newer toast goes first and the one waiting follows once there is room (nothing dropped)',
-      order.join('|') === 'Second, newer|First, held' && first.seen && first.text === 'Second, newer' && second.seen && second.text === 'First, held',
-      JSON.stringify({ order, first, second }));
+    const s2 = await slot();
+    check('feedback model: with no place free a toast shows at once in the fixed top slot, in view, and keeps that slot (R24)',
+      top.up && top.seen && top.text === 'First, at the top' && s1.top && s2.top && s1.box === s2.box, JSON.stringify({ top, s1, s2 }));
+    // its time runs there: gone after its 4 s (8 s at most on a loaded runner)
+    const t0 = Date.now(), gone = await waitFor(page, () => document.getElementById('toast').hidden, null, 9000);
+    check('feedback model: in the top slot its time runs (gone after 4 s)', gone && Date.now() - t0 >= 2500, `${Date.now() - t0} ms`);
+    // a newer one replaces the one shown, and the slot is given up when it goes
+    await page.evaluate(() => { scrollTo(0, 0); window.emu.feedback.toast('First'); window.emu.feedback.toast('Second, newer'); });
+    const order = await page.evaluate(() => window.emu.feedback.pending.map((m) => m.text));
+    await page.evaluate(() => window.emu.feedback.clear());
+    check('feedback model: a newer toast replaces the one shown; the top slot goes with it',
+      order.join('|') === 'Second, newer' && !await page.evaluate(() => document.getElementById('toastRegion').classList.contains('top')), JSON.stringify(order));
     await ctx.close();
   }
 }
@@ -3821,11 +3842,9 @@ async function feedbackChecks(browser, base, check) {
       const t = document.getElementById('toast');
       if (t.hidden) return { up: false };
       const b = t.getBoundingClientRect();
-      // a toast held back (visibility hidden: no free place in view) covers nothing
-      if (getComputedStyle(t.parentNode).visibility === 'hidden') return { up: true, seen: false, hit: [], held: true };
       const hit = [...document.querySelectorAll('.slots, #cartSlot, .controls, aside.drawer, header')].filter((e) => { const o = e.getBoundingClientRect();
         return o.width && o.height && !(b.bottom <= o.top || b.top >= o.bottom || b.right <= o.left || b.left >= o.right); }).map((e) => e.id || e.className);
-      return { up: true, seen: b.top >= 0 && b.bottom <= innerHeight, hit, box: [b.left, b.top, b.right, b.bottom].map(Math.round) };
+      return { up: true, seen: b.top >= 0 && b.bottom <= innerHeight, hit, box: [b.left, b.top, b.right, b.bottom].map(Math.round), pinned: document.getElementById('toastRegion').classList.contains('top') };
     }); };
     const raiseAt = async (y) => {
       await ev((y) => { scrollTo(0, y === 'end' ? document.documentElement.scrollHeight : y === 'slots' ? scrollY + document.querySelector('.slots').getBoundingClientRect().top - 40 : y); }, y);
@@ -3835,9 +3854,10 @@ async function feedbackChecks(browser, base, check) {
     };
     const atTop = await raiseAt(0), atSlots = await raiseAt('slots'), atEnd = await raiseAt('end');
     check(`feedback (${label}): on the emulator the toast never meets the slots or the cartridge card (top, slots, end of the page)`,
-      // (in view somewhere, so this is not passed by a toast that never shows: at the top on a desktop; on a phone the
-      // top has no room and the toast waits, shown at the end of the page)
-      atTop.up && (label === 'phone' || atTop.seen) && !atTop.hit.length && atSlots.up && !atSlots.hit.length && atEnd.up && atEnd.seen && !atEnd.hit.length,
+      // (in view somewhere, so this is not passed by a toast that never shows. On a phone the top of the page has no free
+      // place: there the toast is in the fixed top slot (R24: never invisible wins), the one place it may meet a control)
+      atTop.up && atTop.seen && (!atTop.hit.length || (label === 'phone' && atTop.pinned)) && atSlots.up && (!atSlots.hit.length || (label === 'phone' && atSlots.pinned))
+        && atEnd.up && atEnd.seen && !atEnd.hit.length,
       JSON.stringify({ atTop, atSlots, atEnd }));
     // a control that grows under a toast already shown (the drawer filling in): placed again, still clear of them
     await ev(() => { scrollTo(0, 0); window.emu.feedback.toast('Placed again when the layout changes'); });
@@ -3846,7 +3866,7 @@ async function feedbackChecks(browser, base, check) {
     await ticks(page, 4);   // placed again in the frames after the layout changed
     const grown = await placement();
     await ev(() => { for (const e of document.querySelectorAll('aside.drawer, .slots')) e.style.minHeight = ''; });
-    check(`feedback (${label}): after a control grows under it, the toast still meets no control`, grown.up && !grown.hit.length, JSON.stringify(grown));
+    check(`feedback (${label}): after a control grows under it, the toast still meets no control (or, on a phone, keeps the fixed top slot)`, grown.up && (!grown.hit.length || (label === 'phone' && grown.pinned)), JSON.stringify(grown));
     await ev(() => { scrollTo(0, 0); window.emu.feedback.clear(); });
 
     // a toast raised for the Library while the user is on the emulator waits for the Library
@@ -3891,7 +3911,7 @@ async function feedbackChecks(browser, base, check) {
     await add('DISK.VDK', vdk);
     await waitFor(page, () => !!document.querySelector('#libTiles [data-name="disks/DISK.VDK"]'));
     await tryClick('#libTiles [data-name="disks/DISK.VDK"]');
-    check(`feedback (${label}): an error is a toast with Details (first sentence shown, the rest under Details)`, await shownWithin(page, /Disks need a disk cartridge ROM/)
+    check(`feedback (${label}): an error is a toast with Details (first sentence shown, the rest under Details)`, await shownWithin(page, /Disks need a disk ROM/)
       && await ev(() => document.getElementById('toast').classList.contains('error') && document.getElementById('toastAction').textContent === 'Details'
         && document.getElementById('toastDetails').hidden && /Load the ROM file first/.test(document.getElementById('toastDetails').textContent)));
     await tryClick('#toastAction');
@@ -4643,6 +4663,7 @@ async function glossaryChecks(browser, site, check) {
   await page.evaluate(() => window.emu.session.switchMachine('coco'));
   await openTab(page, 'Machine');
   await page.selectOption('#ramSel', '16');
+  await confirmRam(page);
   await waitFor(page, () => window.emu.machine.config.ram === 16);
   await scan('/play/ after a RAM change');
   // with ROMs (synthetic) and a disk ROM: the drives offer disks, the sockets have files
@@ -4725,12 +4746,13 @@ async function navChecks(browser, site, check) {
 
 // the command box (Ctrl/Cmd+K) lists every command, grouped, when nothing is typed; its other doors; the Help page; the Ask hint
 async function commandsChecks(browser, site, check) {
-  // R14's labels and order, written out here rather than read from COMMANDS (the page's own list is checked against them)
+  // R14's labels and order (with R28b's "Your ROMs", first under Settings), written out here rather than read from
+  // COMMANDS (the page's own list is checked against them)
   const WANT = [
     ['Claude', ['Chat with Claude, full screen', 'What is this code doing?']],
     ['Files', ['Take snapshot', 'Open a program, tape, disk or cartridge…', 'Save the tape as .WAV', 'Record to tape', 'Share']],
     ['Views', ['Open the Library', 'Open the Debugger']],
-    ['Settings', ['Display settings', 'Input settings', 'POKEs', 'Machine settings']],
+    ['Settings', ['Your ROMs', 'Display settings', 'Input settings', 'POKEs', 'Machine settings']],   // (Your ROMs: R28b)
     ['Machine', ['Pause or resume', 'Turbo', 'Fullscreen', 'Reset', 'Switch off and on']],
   ];
   const LABELS = WANT.flatMap(([, l]) => l);
@@ -12592,6 +12614,446 @@ async function menuFocusChecks(browser, base, check) {
   fs.rmSync(tmp, { recursive: true, force: true });
 }
 
+// ---------------- the machine and its ROMs (UX rulings R24-R28, R19 A+) ----------------
+// At 1280 x 720 and on a 390 x 844 touch phone, through real events: every toast is visible (R24), a switch names what
+// comes out (R25), the disk ROM is findable (R26), the machine menu's footer and the palette's "Your ROMs" (R28, R28b),
+// the ROMs in the Library (R19 A+) and the copy (R27).
+const SIZES = [['desktop', { viewport: { width: 1280, height: 720 } }], ['phone', { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }]];
+async function uiModelChecks(browser, base, check) {
+  const errors = [];
+  for (const [label, opts] of SIZES) {
+    const ctx = await browser.newContext(Object.assign({ serviceWorkers: 'block' }, opts));
+    const page = await ctx.newPage();
+    page.on('pageerror', (e) => errors.push(`${label}: ${e.message}`));
+    await page.goto(`${base}?machine=dragon64`); await started(page);
+
+    // ---- R24: a disk dropped with no disk ROM: its toast is in view, on top at its centre ----
+    await dropFiles(page, [['games.vdk', fs.readFileSync(path.join(ROOT, 'tests/fixtures/disks/dragondos.vdk'))]]);
+    check(`R24 (${label}): a disk dropped without a disk ROM: the toast is inside the viewport and on top at its centre`,
+      await toastSeen(page, /games\.vdk was saved to your Library but not put in drive 0/),
+      JSON.stringify(await page.evaluate(() => ({ text: document.getElementById('toast').textContent, box: document.getElementById('toast').getBoundingClientRect().toJSON(), pending: window.emu.feedback.pending }))));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `r24-disk-toast-${label}.png`) });
+    // its time runs (seen), and it keeps its slot: the same box a few frames later
+    const box1 = await page.evaluate(() => JSON.stringify(document.getElementById('toast').getBoundingClientRect()));
+    await ticks(page, 5);
+    // an error is red (R24 ruling): the toast's bar is --error (#C42B23), not the orange of a warning
+    const bar = await page.evaluate(() => { const t = document.getElementById('toast'); return { error: t.classList.contains('error'), shadow: getComputedStyle(t).boxShadow }; });
+    check(`R24 (${label}): the error toast is red (its bar is rgb(196, 43, 35)), not orange`, bar.error && /rgb\(196, 43, 35\) 4px 0px 0px 0px inset/.test(bar.shadow) && !/rgb\(255, 154, 46\)/.test(bar.shadow), JSON.stringify(bar));
+    check(`R24 (${label}): the toast's time runs (seen) and it keeps its slot`, await page.evaluate(() => window.emu.feedback.pending[0] && window.emu.feedback.pending[0].seen)
+      && box1 === await page.evaluate(() => JSON.stringify(document.getElementById('toast').getBoundingClientRect())));
+    await page.evaluate(() => window.emu.feedback.clear());
+
+    // ---- R25: a switch names what comes out (tape and cartridge, from the old machine; both stay in the Library) ----
+    const cart = Buffer.alloc(8192, 0x12); cart[0] = 0x20; cart[1] = 0xFE;   // BRA * at $C000
+    await page.setInputFiles('#fileTape', { name: 'GAME.CAS', mimeType: 'application/octet-stream', buffer: Buffer.alloc(300, 0x55) });
+    await waitFor(page, () => window.emu.machine.deck.tape && window.emu.machine.deck.tape.name === 'GAME.CAS');
+    await page.setInputFiles('#fileCart', { name: 'GAME.DGN', mimeType: 'application/octet-stream', buffer: cart });
+    await waitFor(page, async () => !!window.emu.machine.cartPort && (await window.emu.session.listMedia()).filter((x) => /GAME\.(CAS|DGN)$/.test(x.name)).length === 2);
+    await page.click('#machineBtn');
+    await page.click('#machineMenu button[data-machine="dragon32"]');
+    await waitFor(page, () => !document.getElementById('switchConfirm').hidden);
+    const asked = await switchText(page, 'Switching to Dragon 32 resets the Dragon 64 and takes out the tape GAME.CAS and the cartridge GAME.DGN. They stay in your Library.');
+    check(`R25 (${label}): the switch confirm names the tape and the cartridge, and says they stay in the Library`,
+      asked === 'Switching to Dragon 32 resets the Dragon 64 and takes out the tape GAME.CAS and the cartridge GAME.DGN. They stay in your Library.'
+      && await page.evaluate(() => document.activeElement.id === 'btnSwitch' && document.getElementById('btnSwitchSaveDisk').hidden), asked);
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `r25-switch-confirm-${label}.png`) });
+    await page.click('#btnSwitch');
+    check(`R25 (${label}): after the switch a toast says what came out, in view`, await toastSeen(page, /^Switched to Dragon 32\. Took out: GAME\.CAS, GAME\.DGN\. It needs ROMs for BASIC\.$/),
+      await page.textContent('#toastText'));
+    // the CoCo 3: its switch says so too (it showed no toast)
+    await page.evaluate(() => window.emu.feedback.clear());
+    await page.click('#machineBtn');
+    await page.click('#machineMenu button[data-machine="coco3"]');
+    await waitFor(page, () => !document.getElementById('switchConfirm').hidden);
+    const asked3 = await page.textContent('#switchText');
+    await page.click('#btnSwitch');
+    check(`R25 (${label}): the CoCo 3 switch asks with nothing to take out, and its toast shows`, asked3 === 'Switching to CoCo 3 resets the Dragon 32. The running program will be lost.'
+      && await toastSeen(page, /^Switched to CoCo 3\. It needs ROMs for BASIC\.$/), `${asked3} / ${await page.textContent('#toastText')}`);
+    await ctx.close();
+  }
+
+  // ---- R25 on a desktop: a disk, a RAM change, a snapshot's own disk, DriveWire ----
+  {
+    const { assembleFile, romImage } = require('./mame-diff/lib/firmware');
+    const images = require('./mame-diff/fdc/images');
+    const dos = Buffer.from(romImage(assembleFile(path.join(__dirname, 'mame-diff/fdc/dragon-write.asm'), '6809'), 0xC000, 0x2000, 0x00));
+    const ctx = await browser.newContext(Object.assign({ serviceWorkers: 'block' }, SIZES[0][1]));
+    const page = await ctx.newPage();
+    page.on('pageerror', (e) => errors.push(`desktop: ${e.message}`));
+    await page.goto(`${base}?machine=coco`); await started(page);
+    await dropFiles(page, [['ddos10.rom', dos]]);
+    await waitFor(page, () => !!window.emu.session.roms.get('dragondos').rom);
+    await page.evaluate(() => window.emu.session.switchMachine('dragon64'));
+    await dropFiles(page, [['WORK.VDK', Buffer.from(images.vdk(40, 1))]]);
+    await waitFor(page, () => window.emu.session.diskStatus().drives.some((d) => d.file === 'WORK.VDK' && d.stored));
+    await page.setInputFiles('#fileTape', { name: 'GAME.CAS', mimeType: 'application/octet-stream', buffer: Buffer.alloc(300, 0x55) });
+    await waitFor(page, async () => (await window.emu.session.listMedia()).some((x) => /GAME\.CAS$/.test(x.name)));
+    await page.click('#machineBtn');
+    await page.click('#machineMenu button[data-machine="coco"]');
+    await waitFor(page, () => !document.getElementById('switchConfirm').hidden);
+    let asked = await switchText(page, 'Switching to CoCo 1/2 resets the Dragon 64 and takes out the tape GAME.CAS and the disk WORK.VDK in drive 0. They stay in your Library.');
+    check('R25: a disk in drive 0 is named with the tape; both stay in the Library',
+      asked === 'Switching to CoCo 1/2 resets the Dragon 64 and takes out the tape GAME.CAS and the disk WORK.VDK in drive 0. They stay in your Library.', asked);
+    // Cancel: nothing changes
+    await page.click('#btnSwitchCancel');
+    check('R25: Cancel keeps the machine and its media', await page.evaluate(() => window.emu.machine.id === 'dragon64' && window.emu.session.diskStatus().drives.length === 1 && !!window.emu.machine.deck.tape));
+
+    // a RAM change asks the same way (it asked nothing), and Cancel puts the select back
+    await page.evaluate(() => window.emu.session.switchMachine('coco'));
+    await page.setInputFiles('#fileTape', { name: 'GAME.CAS', mimeType: 'application/octet-stream', buffer: Buffer.alloc(300, 0x55) });
+    await waitFor(page, () => !!window.emu.machine.deck.tape);
+    await openTab(page, 'Machine');
+    await page.selectOption('#ramSel', '16');
+    await waitFor(page, () => !document.getElementById('switchConfirm').hidden);
+    asked = await switchText(page, 'Changing RAM switches the CoCo 1/2 off and on and takes out the tape GAME.CAS. It stays in your Library.');
+    check('R25: a RAM change confirms first, naming what comes out', asked === 'Changing RAM switches the CoCo 1/2 off and on and takes out the tape GAME.CAS. It stays in your Library.'
+      && await page.evaluate(() => window.emu.machine.config.ram === 64), asked);
+    await page.click('#btnSwitchCancel');
+    check('R25: Cancel on a RAM change keeps the RAM and puts the select back', await page.evaluate(() => window.emu.machine.config.ram === 64 && document.getElementById('ramSel').value === '64' && !!window.emu.machine.deck.tape));
+    await page.selectOption('#ramSel', '16');
+    await waitFor(page, () => !document.getElementById('switchConfirm').hidden);
+    await page.click('#btnSwitch');
+    check('R25: Switch on a RAM change power-cycles with the new RAM and says what came out', await waitFor(page, () => window.emu.machine.config.ram === 16)
+      && await toastSeen(page, /^CoCo 1\/2: 16K RAM \(switched off and on\)\. Took out: GAME\.CAS\.$/), await page.textContent('#toastText'));
+    await page.evaluate(() => window.emu.session.switchMachine('coco', Object.assign(window.emu.session.savedConfig('coco'), { ram: 64 })));
+
+    // a snapshot's own disk: not kept by a switch; the confirm offers to save it to the Library first
+    await page.evaluate(() => window.emu.session.switchMachine('dragon64'));
+    await dropFiles(page, [['SNAP.VDK', Buffer.from(images.vdk(40, 1))]]);
+    await waitFor(page, () => window.emu.session.diskStatus().drives.some((d) => d.file === 'SNAP.VDK'));
+    const snap = await page.evaluate(async () => { const s = window.emu.session, f = await s.snapshotFile(); await s.ejectDisk(0); await s.deleteMedia('disks/SNAP.VDK'); return [...f.bytes]; });
+    await dropFiles(page, [['moment.cloadm', Buffer.from(snap)]]);
+    await waitFor(page, () => window.emu.session.diskStatus().drives.some((d) => d.file === 'SNAP.VDK' && !d.stored));
+    await page.click('#machineBtn');
+    await page.click('#machineMenu button[data-machine="dragon32"]');
+    await waitFor(page, () => !document.getElementById('switchConfirm').hidden);
+    asked = await switchText(page, 'Switching to Dragon 32 resets the Dragon 64 and takes out the disk SNAP.VDK in drive 0. The disk that came with the snapshot is not kept; save it to the Library first.');
+    check('R25: a snapshot\'s own disk: "not kept; save it to the Library first", with Save to Library',
+      asked === 'Switching to Dragon 32 resets the Dragon 64 and takes out the disk SNAP.VDK in drive 0. The disk that came with the snapshot is not kept; save it to the Library first.'
+      && await page.isVisible('#btnSwitchSaveDisk') && await page.textContent('#btnSwitchSaveDisk') === 'Save to Library', asked);
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, 'r25-snapshot-disk.png') });
+    await page.click('#btnSwitchSaveDisk');
+    check('R25: Save to Library stores the snapshot\'s disk and links the drive to it; the confirm stays up, its button saying "Saved to Library"', await waitFor(page, async () => (await window.emu.session.listMedia()).some((x) => x.name === 'disks/SNAP.VDK')
+        && window.emu.session.diskStatus().drives[0].stored) && await page.isVisible('#switchConfirm') && await page.evaluate(() => window.emu.machine.id === 'dragon64')
+      && await waitFor(page, () => { const b = document.getElementById('btnSwitchSaveDisk'); return b.textContent === 'Saved to Library' && b.disabled; }), JSON.stringify(await page.evaluate(async () => ({ toast: document.getElementById('toastText').textContent,
+        lib: (await window.emu.session.listMedia()).map((x) => x.name), drives: window.emu.session.diskStatus().drives, confirm: !document.getElementById('switchConfirm').hidden, id: window.emu.machine.id }))));
+    await page.click('#btnSwitchCancel');
+
+    // Save to Library with two snapshot disks, the second refused once: the retry saves only the one still unsaved
+    // (it used to stop on the first, already in the Library)
+    await page.evaluate(() => window.emu.session.switchMachine('dragon64'));
+    await dropFiles(page, [['A.VDK', Buffer.from(images.vdk(40, 1))]]);
+    await waitFor(page, () => window.emu.session.diskStatus().drives.some((d) => d.file === 'A.VDK'));
+    await page.evaluate(async (b) => { await window.emu.session.importDisk('B.VDK', new Uint8Array(b), 1); }, [...images.vdk(40, 1)]);
+    const snap2 = await page.evaluate(async () => { const s = window.emu.session, f = await s.snapshotFile(); await s.ejectDisk(0); await s.ejectDisk(1);
+      await s.deleteMedia('disks/A.VDK'); await s.deleteMedia('disks/B.VDK'); return [...f.bytes]; });
+    await dropFiles(page, [['two.cloadm', Buffer.from(snap2)]]);
+    await waitFor(page, () => window.emu.session.diskStatus().drives.filter((d) => !d.stored).length === 2);
+    await page.evaluate(() => { const s = window.emu.session, keep = s.keepSnapshotDisk.bind(s); let once = true;
+      s.keepSnapshotDisk = (d) => { if (d === 1 && once) { once = false; return Promise.reject(new Error('No space left (test)')); } return keep(d); }; });
+    await page.click('#machineBtn');
+    await page.click('#machineMenu button[data-machine="dragon32"]');
+    await waitFor(page, () => !document.getElementById('switchConfirm').hidden && !document.getElementById('btnSwitchSaveDisk').hidden);
+    await page.click('#btnSwitchSaveDisk');
+    await waitFor(page, () => !document.getElementById('btnSwitchSaveDisk').disabled && window.emu.session.diskStatus().drives.find((d) => d.drive === 0).stored);
+    await page.click('#btnSwitchSaveDisk');
+    check('R25: Save to Library retried after a failure on the second disk saves it, skipping the first (already saved)',
+      await waitFor(page, () => window.emu.session.diskStatus().drives.every((d) => d.stored) && document.getElementById('btnSwitchSaveDisk').textContent === 'Saved to Library'),
+      JSON.stringify(await page.evaluate(() => ({ drives: window.emu.session.diskStatus().drives, btn: document.getElementById('btnSwitchSaveDisk').textContent, toast: document.getElementById('toastText').textContent }))));
+    await page.click('#btnSwitchCancel');
+    // a switch started by opening a snapshot of another machine says what it took out too
+    const d32snap = await page.evaluate(async () => { const s = window.emu.session; s.switchMachine('dragon32'); for (let i = 0; i < 3; i++) s.machine.runFrame();
+      const f = await s.snapshotFile(); s.switchMachine('dragon64'); s.insertTape('GAME.CAS', new Uint8Array(300).fill(0x55)); window.emu.feedback.clear(); return [...f.bytes]; });
+    await dropFiles(page, [['d32moment.cloadm', Buffer.from(d32snap)]]);
+    await waitFor(page, () => !document.getElementById('switchConfirm').hidden);
+    await page.click('#btnSwitch');
+    check('R25: a switch made by opening a snapshot says what it took out', await toastSeen(page, /^Snapshot opened: Dragon 32, without ROMs\. Took out: GAME\.CAS\.$/),
+      JSON.stringify(await page.evaluate(() => ({ toast: document.getElementById('toastText').textContent, id: window.emu.machine.id, drives: window.emu.session.diskStatus().drives.length }))));
+
+    // DriveWire: its disks are the Session's, not listed, and still mounted after the switch
+    await page.evaluate(() => window.emu.session.switchMachine('coco3', Object.assign(window.emu.session.savedConfig('coco3'), { becker: true })));
+    await page.evaluate(async () => { const s = window.emu.session; const n = await s.newDriveWireImage('dw.dsk'); await s.mountDriveWire(0, n); });
+    await page.click('#machineBtn');
+    await page.click('#machineMenu button[data-machine="coco"]');
+    await waitFor(page, () => !document.getElementById('switchConfirm').hidden);
+    asked = await switchText(page, 'Switching to CoCo 1/2 resets the CoCo 3. The running program will be lost.');
+    await page.click('#btnSwitch');
+    check('R25: a DriveWire disk is not listed, and stays mounted after the switch', asked === 'Switching to CoCo 1/2 resets the CoCo 3. The running program will be lost.'
+      && await waitFor(page, () => window.emu.machine.id === 'coco') && await page.evaluate(() => window.emu.session.driveWireMounts.some((d) => d.drive === 0 && /dw\.dsk$/.test(d.name))),
+      `${asked} / ${JSON.stringify(await page.evaluate(() => window.emu.session.driveWireMounts))}`);
+    await ctx.close();
+  }
+  // ---- R26: the disk ROM is findable: a card in Your ROMs for a machine with a disk option, and a drive's Add ROMs…
+  // lands on it; the machine's socket counts are unchanged ----
+  for (const [label, opts] of SIZES) {
+    const ctx = await browser.newContext(Object.assign({ serviceWorkers: 'block' }, opts));
+    const page = await ctx.newPage();
+    page.on('pageerror', (e) => errors.push(`${label}: ${e.message}`));
+    await page.goto(`${base}?machine=dragon64`); await started(page);
+    if (label === 'desktop') {
+      const card = async (id) => {
+        await page.evaluate((id) => { location.hash = ''; window.emu.session.switchMachine(id); }, id);
+        await openRoms(page);
+        return page.evaluate(() => { const c = document.getElementById('romDiskCard');
+          return { title: c ? c.querySelector('strong').textContent : null, disk: c ? c.dataset.disk : null, status: c ? c.hasAttribute('data-status') : null,
+            sockets: document.querySelectorAll('#romSockets [data-status]').length, want: window.emu.session.machineRoms().sockets.length }; });
+      };
+      const cards = {};
+      for (const id of ['dragon64', 'dragon32', 'coco', 'coco3', 'dgnalpha', 'mc10']) cards[id] = await card(id);
+      check('R26: Your ROMs shows the disk ROM card: Dragon "DragonDOS or Delta DOS", CoCo "Disk BASIC (RS-DOS)"',
+        cards.dragon64.title === 'Disk drives (optional): DragonDOS or Delta DOS' && cards.dragon32.title === 'Disk drives (optional): DragonDOS or Delta DOS'
+        && cards.coco.title === 'Disk drives (optional): Disk BASIC (RS-DOS)' && cards.coco3.title === 'Disk drives (optional): Disk BASIC (RS-DOS)', JSON.stringify(cards));
+      check('R26: no disk ROM card for the Dragon Alpha (its own drives) or the MC-10', cards.dgnalpha.title === null && cards.mc10.title === null, JSON.stringify(cards));
+      check('R26: the card has its own data-disk mark, not data-status, so the socket counts are the machine\'s own',
+        Object.values(cards).every((c) => c.sockets === c.want) && cards.dragon64.disk === 'missing-optional' && cards.dragon64.status === false, JSON.stringify(cards));
+      await page.evaluate(() => { location.hash = ''; window.emu.session.switchMachine('dragon64'); });
+      await waitFor(page, () => !document.body.classList.contains('roms-open'));
+    }
+    // a drive's Add ROMs…: the Add ROMs view, on the card, in view and focused, the drawer not left scrolled
+    await page.click('#drives [data-drive="0"]');
+    await waitFor(page, () => !!document.getElementById('driveRoms'));
+    await page.click('#driveRoms');
+    check(`R26 (${label}): a drive's Add ROMs… lands on the disk ROM card (in view, focused, on top at its centre)`, await waitFor(page, () => {
+      const c = document.getElementById('romDiskCard');
+      if (location.hash !== '#add-roms' || !c || document.activeElement !== c) return false;
+      const b = c.getBoundingClientRect();
+      if (!(b.top >= 0 && b.bottom <= innerHeight && b.width > 0)) return false;
+      const at = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+      return !!at && c.contains(at);
+    }), JSON.stringify(await page.evaluate(() => ({ hash: location.hash, active: document.activeElement && document.activeElement.id, box: document.getElementById('romDiskCard') && document.getElementById('romDiskCard').getBoundingClientRect().toJSON() }))));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `r26-disk-card-${label}.png`) });
+    await ctx.close();
+  }
+  // ---- R28 and R28b: the machine menu's footer, the palette's "Your ROMs", the ROMs row first in Machine settings ----
+  for (const [label, opts] of SIZES) {
+    const ctx = await browser.newContext(Object.assign({ serviceWorkers: 'block' }, opts));
+    const page = await ctx.newPage();
+    page.on('pageerror', (e) => errors.push(`${label}: ${e.message}`));
+    await page.goto(`${base}?machine=dragon64`); await started(page);
+    // ⌘K / Ctrl K "roms" Enter: the ROM view, focus on its heading, nothing scrolled, the drawer left on its tab
+    const tabBefore = await page.evaluate(() => document.querySelector('[role="tab"][aria-selected="true"]').id);
+    await page.keyboard.press('Control+k');
+    await waitFor(page, () => !document.getElementById('cmdBox').hidden);
+    await page.keyboard.type('roms');
+    const top = await page.evaluate(() => document.querySelector('#cmdOpt0 span').textContent);
+    await page.keyboard.press('Enter');
+    check(`R28b (${label}): Ctrl K "roms" Enter shows Your ROMs with the focus on its heading, the page not scrolled and the drawer on its tab`,
+      top === 'Your ROMs' && await waitFor(page, (tab) => location.hash === '#add-roms' && document.activeElement === document.getElementById('romHeading')
+        && scrollY === 0 && document.querySelector('[role="tab"][aria-selected="true"]').id === tab, tabBefore),
+      JSON.stringify(await page.evaluate(() => ({ top: document.querySelector('#cmdOpt0 span') && document.querySelector('#cmdOpt0 span').textContent, hash: location.hash, active: document.activeElement.id, y: scrollY }))));
+    await page.click('#btnRomBack');
+    await waitFor(page, () => location.hash === '' && !document.body.classList.contains('roms-open'));
+    if (label === 'desktop') {
+      const firstFor = async (q) => { await page.keyboard.press('Control+k'); await waitFor(page, () => !document.getElementById('cmdBox').hidden);
+        await page.fill('#cmdInput', q); const t = await page.evaluate(() => { const o = document.querySelector('#cmdOpt0 span'); return o && o.textContent; });
+        await page.keyboard.press('Escape'); return t; };
+      const tops = {};
+      for (const q of ['rom', 'roms', 'basic', 'firmware', 'add roms', 'your roms']) tops[q] = await firstFor(q);
+      const machineAnswers = await (async () => { await page.keyboard.press('Control+k'); await page.fill('#cmdInput', 'roms');
+        const l = await page.evaluate(() => [...document.querySelectorAll('#cmdList [role="option"] span:first-child')].map((e) => e.textContent)); await page.keyboard.press('Escape'); return l; })();
+      check('R28b: the palette\'s top result for rom, roms, basic, firmware, add roms and your roms is "Your ROMs"; "Machine settings" no longer answers "roms"',
+        Object.values(tops).every((t) => t === 'Your ROMs') && !machineAnswers.includes('Machine settings'), JSON.stringify({ tops, machineAnswers }));
+      await page.keyboard.press('Control+k');
+      const order = await page.evaluate(() => [...document.querySelectorAll('#cmdList .cmdgroup')].find((g) => g.querySelector('.group').textContent === 'Settings')
+        .querySelector('[role="option"] span').textContent);
+      await page.keyboard.press('Escape');
+      check('R28b: "Your ROMs" goes first in the Settings group', order === 'Your ROMs', order);
+    }
+    // the ROMs row is first in Machine settings; its button: "Add ROMs →" without BASIC, "See or add ROMs →" with it
+    await openTab(page, 'Machine');
+    const first = await page.evaluate(() => { const p = document.getElementById('panel-machine'); return [...p.children].filter((e) => e.classList.contains('row'))[0].id; });
+    const before = await page.textContent('#btnManageRoms');
+    await dropFiles(page, [['d64_1.rom', fake(16384, 31)], ['d64_2.rom', fake(16384, 32)]]);
+    await waitFor(page, () => window.emu.session.machineRoms('dragon64').bootable);
+    const after = await page.textContent('#btnManageRoms');
+    check(`R28b (${label}): the ROMs row is first in Machine settings; its button reads "Add ROMs →", then "See or add ROMs →" once a (test) ROM is stored`,
+      first === 'romRow' && before === 'Add ROMs →' && after === 'See or add ROMs →', JSON.stringify({ first, before, after }));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `r28-machine-settings-${label}.png`), fullPage: label === 'desktop' });
+    // a "needs ROMs" row: the toast after the switch says so, with Add ROMs (no button nested in the menu item)
+    await page.evaluate(() => { scrollTo(0, 0); window.emu.feedback.clear(); });
+    await page.click('#machineBtn');
+    await waitFor(page, () => !document.getElementById('machineMenu').hidden);
+    const nested = await page.evaluate(() => document.querySelectorAll('#machineMenu [role="menuitem"] button, #machineMenu button button').length);
+    await page.click('#machineMenu button[data-machine="dragon32"]');
+    await waitFor(page, () => !document.getElementById('switchConfirm').hidden);
+    await page.click('#btnSwitch');
+    const needs = await toastSeen(page, /^Switched to Dragon 32\. It needs ROMs for BASIC\.$/) && await page.textContent('#toastAction') === 'Add ROMs';
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `r28-needs-roms-toast-${label}.png`) });
+    await page.click('#toastAction');
+    check(`R28 (${label}): a "needs ROMs" row: the toast "Switched to Dragon 32. It needs ROMs for BASIC." with Add ROMs, which opens Your ROMs`, nested === 0 && needs
+      && await waitFor(page, () => location.hash === '#add-roms' && document.activeElement === document.getElementById('romHeading') && /DRAGON 32/.test(document.getElementById('romMachine').textContent)),
+      JSON.stringify({ nested, needs }));
+    await page.click('#btnRomBack');
+    await waitFor(page, () => location.hash === '');
+    // the footer: ↓ from the last machine reaches both items; Esc closes, the focus back on the button
+    await page.click('#machineBtn');
+    await waitFor(page, () => !document.getElementById('machineMenu').hidden);
+    await page.evaluate(() => { const l = [...document.querySelectorAll('#machineMenu button[data-machine]')]; l[l.length - 1].focus(); });
+    await page.keyboard.press('ArrowDown');
+    const f1 = await page.evaluate(() => document.activeElement.id + '|' + document.activeElement.textContent + '|' + document.activeElement.getAttribute('role'));
+    await page.keyboard.press('ArrowDown');
+    const f2 = await page.evaluate(() => document.activeElement.id + '|' + document.activeElement.textContent + '|' + document.activeElement.getAttribute('role'));
+    const sep = await page.evaluate(() => { const s = document.querySelector('#machineMenu [role="separator"]'), l = document.querySelector('#machineMenu .footer .legend');
+      return !!s && s.compareDocumentPosition(document.getElementById('menuRoms')) === Node.DOCUMENT_POSITION_FOLLOWING && !!l && l.textContent === '✓ = BASIC ready'; });
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `r28-menu-footer-${label}.png`) });
+    await page.keyboard.press('Escape');
+    check(`R28 (${label}): ↓ from the last machine reaches "Add or see ROMs…" then "RAM, CPU and speed…" (menu items after a separator; the "✓ = BASIC ready" legend kept); Esc closes the menu, focus on its button`,
+      f1 === 'menuRoms|Add or see ROMs…|menuitem' && f2 === 'menuSettings|RAM, CPU and speed…|menuitem' && sep
+      && await waitFor(page, () => document.getElementById('machineMenu').hidden && document.activeElement === document.getElementById('machineBtn')), JSON.stringify({ f1, f2, sep }));
+    // "Add or see ROMs…" (Enter): the menu closes, Your ROMs for this machine, focus on its heading
+    await page.click('#machineBtn');
+    await waitFor(page, () => !document.getElementById('machineMenu').hidden);
+    await page.focus('#menuRoms'); await page.keyboard.press('Enter');
+    check(`R28 (${label}): "Add or see ROMs…" closes the menu and opens Your ROMs for this machine, focus on its heading`,
+      await waitFor(page, () => document.getElementById('machineMenu').hidden && location.hash === '#add-roms' && document.activeElement === document.getElementById('romHeading')
+        && /DRAGON 32/.test(document.getElementById('romMachine').textContent)));
+    await page.click('#btnRomBack');
+    await waitFor(page, () => location.hash === '');
+    // "RAM, CPU and speed…": Machine settings, focus on its heading (on a phone, the panel's top in view)
+    await openTab(page, 'Media');
+    await page.evaluate(() => scrollTo(0, 0));
+    await page.click('#machineBtn');
+    await waitFor(page, () => !document.getElementById('machineMenu').hidden);
+    await page.click('#menuSettings');
+    check(`R28 (${label}): "RAM, CPU and speed…" closes the menu, selects Machine settings and focuses its heading, in view`,
+      await waitFor(page, () => { const h = document.getElementById('machineHeading'), b = h.getBoundingClientRect();
+        return document.getElementById('machineMenu').hidden && document.getElementById('tab-machine').getAttribute('aria-selected') === 'true'
+          && document.activeElement === h && b.top >= 0 && b.bottom <= innerHeight; }),
+      JSON.stringify(await page.evaluate(() => ({ active: document.activeElement.id, box: document.getElementById('machineHeading').getBoundingClientRect().toJSON() }))));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `r28-ram-cpu-speed-${label}.png`) });
+    await ctx.close();
+  }
+  // ---- R19 A+: the ROMs in the Library: a "ROMs" chip after Snapshots, one card; a ROM dropped on the Library says
+  // so with "Open Your ROMs" ----
+  for (const [label, opts] of SIZES) {
+    const ctx = await browser.newContext(Object.assign({ serviceWorkers: 'block' }, opts));
+    const page = await ctx.newPage();
+    page.on('pageerror', (e) => errors.push(`${label}: ${e.message}`));
+    await page.goto(`${base}?machine=dragon64`); await started(page);
+    await page.evaluate(() => window.emu.session.importMedia('GAME.CAS', new Uint8Array(300).fill(0x55)));
+    await page.evaluate(() => { location.hash = '#library'; });
+    await waitFor(page, () => !document.getElementById('library').hidden && !document.getElementById('libFilters').hidden);
+    const chips = await page.evaluate(() => [...document.querySelectorAll('[data-kind-filter]')].map((b) => b.textContent));
+    await page.click('[data-kind-filter="roms"]');
+    const empty = await page.evaluate(() => ({ card: !document.getElementById('libRomsBox').hidden && document.getElementById('libRomsCard').textContent,
+      tiles: !document.getElementById('libTapesBox').hidden || !document.getElementById('libTilesBox').hidden, none: !document.getElementById('libNone').hidden }));
+    check(`R19 A+ (${label}): a "ROMs" chip after Snapshots; with no ROMs one card: "No ROMs yet. CLOADM never includes ROMs; add your own dumps in Your ROMs →", no tiles`,
+      chips.slice(-2).join('|') === 'Snapshots|ROMs' && empty.card === 'No ROMs yet. CLOADM never includes ROMs; add your own dumps in Your ROMs →' && !empty.tiles && !empty.none,
+      JSON.stringify({ chips, empty }));
+    // a (synthetic) ROM dropped on the Library: "added to Your ROMs", with Open Your ROMs
+    await dropFiles(page, [['d64_1.rom', fake(16384, 41)]], null, 'library');
+    const said = await toastSeen(page, /^1 ROM added to Your ROMs$/) && await page.textContent('#toastAction') === 'Open Your ROMs';
+    // the card: the count and the machines, as session.roms holds them (worked out here from its sockets)
+    const want = await page.evaluate(() => { const s = window.emu.session.roms.sockets(), p = window.emu.profiles;
+      const users = [...new Set(s.map((x) => x.owner))].map((id) => p[id].name);
+      return `Your ROMs: ${new Set(s.map((x) => x.crc)).size} stored, used by ${users.length > 1 ? `${users.slice(0, -1).join(', ')} and ${users[users.length - 1]}` : users[0]}. Manage them in Your ROMs →`; });
+    const card = await page.textContent('#libRomsCard');
+    check(`R19 A+ (${label}): a ROM dropped on the Library says "1 ROM added to Your ROMs" with Open Your ROMs; the card gives the count and the machines`,
+      said && card === want && /Dragon 64/.test(card), JSON.stringify({ said, card, want }));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `r19-library-roms-${label}.png`) });
+    await page.click('#toastAction');
+    check(`R19 A+ (${label}): the toast's Open Your ROMs opens Your ROMs`, await waitFor(page, () => location.hash === '#add-roms' && document.activeElement === document.getElementById('romHeading')));
+    await page.evaluate(() => { location.hash = '#library'; });
+    await waitFor(page, () => !document.getElementById('library').hidden);
+    await page.click('[data-kind-filter="roms"]');
+    await page.click('#libRomsLink');
+    check(`R19 A+ (${label}): the card's link opens Your ROMs (the same view), focus on its heading`, await waitFor(page, () => location.hash === '#add-roms' && !document.getElementById('romCard').hidden
+      && document.activeElement === document.getElementById('romHeading')));
+    await ctx.close();
+  }
+  // ---- R19 A+ with an empty Library: the ROMs chip and its card are there when ROMs are stored (review finding 2) ----
+  for (const [label, opts] of SIZES) {
+    const ctx = await browser.newContext(Object.assign({ serviceWorkers: 'block' }, opts));
+    const page = await ctx.newPage();
+    page.on('pageerror', (e) => errors.push(`${label}: ${e.message}`));
+    await page.goto(`${base}?machine=dragon64`); await started(page);
+    // ROMs dropped first (on the emulator), then the Library opened: nothing else in it
+    await dropFiles(page, [['d64_1.rom', fake(16384, 61)]]);
+    await waitFor(page, () => window.emu.session.storedRoms().count === 1);
+    await page.evaluate(() => { location.hash = '#library'; });
+    await waitFor(page, () => !document.getElementById('library').hidden);
+    const chip = await waitFor(page, () => { const b = document.querySelector('[data-kind-filter="roms"]'); return !document.getElementById('libFilters').hidden && !!b && b.checkVisibility(); });
+    if (chip) await page.click('[data-kind-filter="roms"]', { timeout: 5000 }).catch(() => {});   // (a chip that can't be clicked is a FAIL below, not a throw)
+    check(`R19 A+ (${label}): ROMs stored and an empty Library: the ROMs chip is there and its card counts them`, chip
+      && await waitFor(page, () => /^Your ROMs: 1 stored, used by .*Dragon 64.*\. Manage them in Your ROMs →$/.test(document.getElementById('libRomsCard').textContent) && document.getElementById('libRomsCard').checkVisibility()),
+      JSON.stringify(await page.evaluate(() => ({ filters: document.getElementById('libFilters').hidden, filled: document.getElementById('libFilled').hidden, card: document.getElementById('libRomsCard').textContent }))));
+    await ctx.close();
+    // a ROM dropped on an empty Library: the chip appears with it
+    const ctx2 = await browser.newContext(Object.assign({ serviceWorkers: 'block' }, opts));
+    const p2 = await ctx2.newPage();
+    p2.on('pageerror', (e) => errors.push(`${label}: ${e.message}`));
+    await p2.goto(`${base}?machine=dragon64#library`); await started(p2);
+    await waitFor(p2, () => !document.getElementById('library').hidden && !document.getElementById('libEmpty').hidden);
+    const before = await p2.evaluate(() => document.getElementById('libFilters').hidden);
+    await dropFiles(p2, [['d64_1.rom', fake(16384, 62)]], null, 'library');
+    check(`R19 A+ (${label}): a ROM dropped on an empty Library: the filters (with ROMs) appear`, before
+      && await waitFor(p2, () => { const b = document.querySelector('[data-kind-filter="roms"]'); return !document.getElementById('libFilters').hidden && !!b && b.checkVisibility(); }));
+    await ctx2.close();
+  }
+
+  // ---- R27: the copy: no "stub" on the page, one term ("disk ROM"), the .dgn warning said once, the snapshot sentence ----
+  for (const [label, opts] of SIZES) {
+    const ctx = await browser.newContext(Object.assign({ serviceWorkers: 'block' }, opts));
+    const page = await ctx.newPage();
+    page.on('pageerror', (e) => errors.push(`${label}: ${e.message}`));
+    await page.goto(`${base}?machine=coco`); await started(page);
+    // every text node of the page (hidden ones too, not scripts or styles) and the words in titles, labels and placeholders
+    const pageText = () => page.evaluate(() => {
+      const out = [], w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, { acceptNode: (n) => (n.parentElement.closest('script, style') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT) });
+      while (w.nextNode()) out.push(w.currentNode.nodeValue);
+      for (const e of document.querySelectorAll('[title], [aria-label], [placeholder], [alt]')) for (const k of ['title', 'aria-label', 'placeholder', 'alt']) if (e.hasAttribute(k)) out.push(e.getAttribute(k));
+      return out.join(' ');
+    });
+    const texts = [];
+    texts.push(await pageText());
+    await page.click('#machineBtn'); await waitFor(page, () => !document.getElementById('machineMenu').hidden);
+    texts.push(await pageText());
+    await page.keyboard.press('Escape');
+    for (const h of ['#add-roms', '#share', '#library']) { await page.evaluate((h) => { location.hash = h; }, h); await painted(page); texts.push(await pageText()); }
+    await page.evaluate(() => { location.hash = ''; });
+    const all = texts.join(' ');
+    const bad = (re) => (all.match(new RegExp(`.{0,40}${re.source}.{0,40}`, 'gi')) || []).slice(0, 3);
+    check(`R27 (${label}): the page says no "stub", and never "Machine tab" (emulator, machine menu, Your ROMs, Share, Library)`, !/stub/i.test(all) && !/Machine tab/.test(all),
+      JSON.stringify({ stub: bad(/stub/), tab: bad(/Machine tab/) }));
+    check(`R27 (${label}): one term: "disk ROM", never "DOS ROM" or "disk cartridge ROM"`, !/DOS ROM|disk cartridge ROM/.test(all.replace(/(DragonDOS|Delta DOS) ROM/g, '')) && /disk ROM/.test(all),
+      JSON.stringify(bad(/DOS ROM|disk cartridge ROM/)));
+    // the ROMs row: "Not added · running without ROMs", then "BASIC ready" with (synthetic) ROMs that boot
+    await openTab(page, 'Machine');
+    const none = await page.textContent('#romState');
+    // the snapshot sentence, on Share and by the Snapshots
+    const share = await page.evaluate(() => document.querySelector('#share section p').textContent);
+    const slots = await page.textContent('#slotNote');
+    check(`R27 (${label}): the ROMs row says "Not added · running without ROMs"; Share and Snapshots say "A snapshot reopens on the same machine, RAM and ROMs."`,
+      none === 'Not added · running without ROMs' && share.includes('A snapshot reopens on the same machine, RAM and ROMs.') && slots === 'A snapshot reopens on the same machine, RAM and ROMs.',
+      JSON.stringify({ none, share, slots }));
+    // the .dgn warning, said once, with its two answers
+    await page.setInputFiles('#fileProgram', { name: 'dgame.dgn', mimeType: 'application/octet-stream', buffer: Buffer.alloc(8192, 0x12) });
+    await waitFor(page, () => !document.getElementById('mediaOffer').hidden);
+    const offer = await page.evaluate(() => [document.getElementById('mediaOfferText').textContent, document.getElementById('btnMediaSwitch').textContent, document.getElementById('btnMediaAnyway').textContent]);
+    check(`R27 (${label}): "dgame.dgn is a Dragon cartridge; the CoCo 1/2 may not run it." [Open on Dragon 64] [Load anyway]`,
+      offer.join('|') === 'dgame.dgn is a Dragon cartridge; the CoCo 1/2 may not run it.|Open on Dragon 64|Load anyway', JSON.stringify(offer));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `r27-dgn-offer-${label}.png`) });
+    await page.click('#btnMediaAnyway');
+    // a disk without a disk ROM: the drive's menu and the toast both say "disk ROM"
+    await page.evaluate(() => window.emu.feedback.clear());
+    await page.click('#drives [data-drive="0"]');
+    const note = await page.evaluate(() => document.getElementById('driveMenu').textContent);
+    await page.click('#driveClose');
+    await dropFiles(page, [['games.dsk', fs.readFileSync(path.join(ROOT, 'tests/fixtures/disks/rsdos.dsk'))]]);
+    const toast = await toastSeen(page, /Disks need a disk ROM: Disk BASIC \(RS-DOS\) cartridge \(disk11\.rom\)\./);
+    check(`R27 (${label}): without a disk ROM the drive's menu and the toast say "Disks need a disk ROM"`, /Disks need a disk ROM: Disk BASIC \(RS-DOS\) \(disk11\.rom\)\./.test(note) && toast,
+      JSON.stringify({ note, toast }));
+    await dropFiles(page, [['bas13.rom', fake(8192, 51)], ['extbas11.rom', fake(8192, 52)]]);
+    await waitFor(page, () => window.emu.session.machineRoms('coco').bootable);
+    if (await page.isVisible('#btnRomSwitchOn')) await page.click('#btnRomSwitchOn');
+    await page.evaluate(() => { if (window.emu.machine.useStub) { window.emu.session.stubChosen.delete('coco'); window.emu.session.switchMachine('coco'); } location.hash = ''; });
+    await openTab(page, 'Machine');
+    check(`R27 (${label}): with BASIC in use the ROMs row says "BASIC ready"`, await waitFor(page, () => document.getElementById('romState').textContent === 'BASIC ready'), await page.textContent('#romState'));
+    await ctx.close();
+  }
+  check('ui model: no page errors', !errors.length, errors.join('; '));
+}
+
 const GROUPS = (base, site) => [
   ['models', (b) => modelsChecks(b, base, check)],
   ['reset', (b) => resetChecks(b, base, check)],
@@ -12668,6 +13130,7 @@ const GROUPS = (base, site) => [
   ['phoneChat', (b) => phoneChatChecks(b, base, check)],
   ['share', (b) => shareChecks(b, base, site, check)],
   ['favicon', (b) => faviconChecks(b, site, check)],
+  ['uiModel', (b) => uiModelChecks(b, base, check)],
 ];
 
 (async () => {

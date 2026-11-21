@@ -39,19 +39,16 @@ export function createFeedback() {
   const waiting = new Map();          // view -> toast raised while the user was elsewhere
   let att = null;
 
-  // toasts not seen yet (no place where they cover neither a control nor the screen's text) that a newer one
-  // displaced: shown in turn, the most recent first, once the newer one has gone
-  const queue = [];
   function end(reason) {
     if (!cur) return;
     const t = cur;
     cur = null;
     clearTimeout(t.timer);
     box.hidden = true;
+    unplace();
     box.classList.remove('error');
     textEl.textContent = ''; detEl.textContent = ''; actEl.textContent = '';
     if (t.onEnd) t.onEnd(reason);
-    if (!cur && queue.length) show(queue.shift());
   }
   function arm() {
     clearTimeout(cur.timer);
@@ -60,9 +57,7 @@ export function createFeedback() {
     cur.timer = setTimeout(() => { if (cur === t) end('timeout'); }, cur.left);
   }
   function show(t) {
-    // one not seen yet is not lost: the newest is shown first, and the one it displaces waits its turn after it
-    // (in front of any older ones still waiting)
-    if (cur && !cur.seen) { clearTimeout(cur.timer); queue.unshift(cur); cur = null; }
+    // (a toast is in view from the frame it appears in: a newer one replaces it)
     end('replaced');
     cur = t;
     t.seen = false;
@@ -78,24 +73,33 @@ export function createFeedback() {
   }
   // in view for the first time: from now its time runs
   function seen() { if (cur && !cur.seen) { cur.seen = true; if (!cur.paused) arm(); } }
-  // Where a toast sits on the emulator page. It must never cover a control (the header, the machine controls, the
-  // slots and the cartridge card, the drawer, an attention card, the on-screen keys, the chat's bar): the stylesheet's
-  // place first (bottom centre; full width at the bottom on a phone) if it covers neither a control nor the screen;
-  // then, on a desktop, along the bottom edge where nothing is under it (at 1440 x 900, below the settings drawer);
-  // then along the top edge; then on the screen's border under its text (compact there if need be), never over the
-  // text itself (a toast never covers screen text: it is the user's to read). A toast's time starts
-  // when it is first in view: with no place free it is not lost, it waits (still read out, role=status) until a
-  // scroll or a layout change gives it one (the keys hidden); a newer toast goes first, the waiting one after it. Placed
-  // again every frame while it is up (follow), so a control that moves or grows under it (the drawer filling in after
-  // the toast appeared) never ends up covered. Elsewhere (the Library, Your ROMs, Share) the stylesheet's place holds.
+  // Where a toast sits on the emulator page. Two rules, in this order: a toast is never invisible (R24), and it
+  // covers no control (the header, the machine controls, the slots and the cartridge card, the drawer, an attention
+  // card, the on-screen keys, the chat's bar) where it can help it. The stylesheet's place first (bottom centre; full
+  // width at the bottom on a phone) if it covers neither a control nor the screen; then, on a desktop, along the bottom
+  // edge where nothing is under it (at 1440 x 900, below the settings drawer); then along the top edge; then on the
+  // screen's border under its text (compact there if need be), never over the text itself (a toast never covers
+  // screen text: it is the user's to read). Placed again every frame while it is up (follow), so a control that moves
+  // or grows under it (the drawer filling in after the toast appeared) never ends up covered. When none of those
+  // places is free, "never invisible" wins over "never covers a control": the toast takes a fixed slot at the top of
+  // the viewport (#toastRegion.top: above everything but the dialogs), keeps that slot until it goes (it is not
+  // placed again, so it does not jump about under the user's eyes), and its time starts there. A toast's time starts
+  // when it is first in view, which is now always the frame it appears in. Elsewhere (the Library, Your ROMs, Share)
+  // the stylesheet's place holds.
   const region = box.parentNode;
   // (the install offer too: a toast must never cover it, in any of its layouts)
   const CONTROLS = 'header, .controls, .slots, aside.drawer, #attention, #touchKeys button, #claudeBar, #installOffer';
   const boxes = (sel) => [...document.querySelectorAll(sel)].map((e) => e.getBoundingClientRect()).filter((o) => o.width && o.height);
   const hits = (r, o) => !(r.bottom <= o.top || r.top >= o.bottom || r.right <= o.left || r.left >= o.right);
-  function place() {
+  // back to the stylesheet's place (a toast that ends, or one placed afresh)
+  function unplace() {
     region.style.left = ''; region.style.top = ''; region.style.right = ''; region.style.bottom = '';
-    region.style.transform = ''; region.style.width = ''; region.style.visibility = '';
+    region.style.transform = ''; region.style.width = '';
+    region.classList.remove('top');
+  }
+  function place() {
+    if (cur && cur.pinned && !box.hidden) return;   // in the top slot: kept there until it goes
+    unplace();
     if (box.hidden) return;
     if (currentView() !== 'emulator') { seen(); return; }
     const r = box.getBoundingClientRect(), w = r.width, h = r.height, phone = innerWidth <= 700;
@@ -148,10 +152,13 @@ export function createFeedback() {
       }
       box.classList.remove('compact');
     }
-    // nowhere it covers no control: unseen, it waits (its time not running) until a scroll or a layout change gives
-    // it a place; one already seen stays hidden while its time runs on
-    put(r.left, r.top, phone ? w : null);
-    region.style.visibility = 'hidden';
+    // nowhere it covers no control: the fixed slot at the top of the viewport, kept until the toast goes
+    box.classList.remove('compact');
+    unplace();
+    region.style.top = phone ? '8px' : '16px'; region.style.bottom = 'auto';
+    region.classList.add('top');
+    if (cur) cur.pinned = true;
+    seen();
   }
   // followed every frame while it is up: a control can move under it without the window scrolling or resizing
   // (the drawer filling in, a bar appearing above the slots), and it must never end up over one
@@ -238,10 +245,10 @@ export function createFeedback() {
 
   return {
     toast, attention, resolve, viewChanged,
-    clear: () => { queue.length = 0; end('cleared'); },   // (all of them: the one up and those waiting)
+    clear: () => end('cleared'),
     get current() { return cur ? { text: cur.text, error: cur.error, view: cur.view } : null; },
-    // the toast up (seen or waiting for room) and those queued behind it, in the order they will show
-    get pending() { return (cur ? [cur] : []).concat(queue).map((t) => ({ text: t.text, seen: !!t.seen })); },
+    // the toast up, and whether its time is running (seen)
+    get pending() { return (cur ? [cur] : []).map((t) => ({ text: t.text, seen: !!t.seen })); },
     get attentionText() { return att ? att.text : null; },
   };
 }

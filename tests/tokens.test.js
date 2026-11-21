@@ -18,7 +18,7 @@ for (const m of rootBlock.matchAll(/--([a-z0-9-]+):\s*([^;]+);/g)) tokens[m[1]] 
 const DESIGN = {
   ground: '#0B0D0C', panel: '#141816', 'panel-deep': '#101311', line: '#263029', 'line-strong': '#3A4540',
   text: '#E8EDE6', 'text-2': '#C9D2C8', 'text-3': '#B4BEB3', muted: '#9AA59C', phosphor: '#3DF55A',
-  'on-phosphor': '#062A06', orange: '#FF9A2E', 'on-orange': '#2B1600', 'warn-panel': '#2B1A08',
+  'on-phosphor': '#062A06', orange: '#FF9A2E', error: '#C42B23', 'on-orange': '#2B1600', 'warn-panel': '#2B1A08',
   'screen-green': '#39E83F', 'screen-ink': '#0A3D0A', 'dragon-badge': '#F06A5F',
   'vdg-green': '#30D82B', 'vdg-yellow': '#F2EA4A', 'vdg-blue': '#2A35E8', 'vdg-red': '#D8202A',
   'vdg-buff': '#EDE6C8', 'vdg-cyan': '#2BD8D8', 'vdg-magenta': '#D02BD8', 'vdg-orange': '#F08A1F',
@@ -43,6 +43,7 @@ const PAIRS = [
   ['phosphor', 'panel', 4.5, '12.29'], ['phosphor', 'ground', 4.5, '13.38'], ['on-phosphor', 'phosphor', 4.5, '10.74'],
   ['orange', 'panel', 4.5, '8.46'], ['orange', 'warn-panel', 4.5, '7.91'], ['on-orange', 'orange', 4.5, '8.14'],
   ['text', 'warn-panel', 4.5, '14.11'], ['screen-ink', 'screen-green', 4.5, '7.59'],
+  ['error', 'text', 3, '4.76'],   // the error toast's red bar on the toast's paper (#toast's background, #E8EDE6: the dark variant's --text)
 ];
 for (const [fg, bg, min, doc] of PAIRS) {
   const r = ratio(tokens[fg], tokens[bg]);

@@ -79,8 +79,11 @@
   #machineMenu button[aria-current="true"] { background: var(--line); }
   #machineMenu .tag { font-size: 14px; color: var(--muted); white-space: nowrap; }
   #machineMenu .tag.ready { color: var(--phosphor); }
-  #machineMenu .note { grid-column: 1 / -1; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; border-top: 1px solid var(--line);
-    padding: 10px 0 0; font-size: 14px; color: var(--text-2); }
+  /* the footer (R28): a separator, then "Add or see ROMs…" and "RAM, CPU and speed…", menu items like the machines */
+  #machineMenu .sep { grid-column: 1 / -1; border-top: 1px solid var(--line); }
+  #machineMenu .footer { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 16px; }
+  #machineMenu .footer button { width: auto; flex: 1 1 200px; color: var(--text-2); }
+  #machineMenu .footer .legend { align-self: center; margin-left: auto; padding: 0 8px; font-size: 14px; color: var(--text-2); white-space: nowrap; }
   #switchConfirm { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; background: var(--warn-panel);
     border-bottom: 1px solid var(--orange); padding: 12px 20px; }
   #switchConfirm[hidden] { display: none; }
@@ -206,11 +209,15 @@
   /* on the screen's border under its text (js/ui/feedback.js), where room is short */
   #toast.compact { font-size: 12px; line-height: 1.25; padding: 2px 8px; gap: 2px 6px; border-radius: 8px; box-shadow: none; }
   #toast.compact #toastAction { padding: 1px 6px; font-size: 12px; }
-  #toast.error { box-shadow: inset 4px 0 0 var(--orange), 0 8px 24px rgba(0, 0, 0, .45); padding-left: 18px; }
+  /* an error is red (R24 ruling): the bar and the edge in --error, 4.76:1 on the toast's paper (css/tokens.css) */
+  #toast.error { box-shadow: inset 4px 0 0 var(--error), inset 0 0 0 1px var(--error), 0 8px 24px rgba(0, 0, 0, .45); padding-left: 18px; }
   #toastText { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
   #toastAction { background: #0B0D0C; color: #E8EDE6; border: 0; border-radius: 8px; padding: 6px 10px; font-weight: 700; min-height: 0; }
   #toastDetails { flex-basis: 100%; font-size: 14px; color: #2A302C; overflow-wrap: anywhere; }
   @media (max-width: 700px) { #toastRegion { left: 8px; right: 8px; bottom: 8px; transform: none; width: auto; max-width: none; } }
+  /* js/ui/feedback.js: a toast with no free place takes this fixed slot at the top (never invisible); above everything
+     but the dialogs (the Ctrl K box, 70) */
+  #toastRegion.top { z-index: 62; }
   #attention { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; background: var(--warn-panel);
     color: var(--text); border: 1px solid var(--orange); border-radius: var(--r-10); padding: 10px 12px; font-size: 15px; margin: 8px 0; }
   #attention[hidden] { display: none; }
@@ -358,6 +365,9 @@
   #panel-machine .row select { min-width: 110px; min-height: 36px; }
   #panel-machine .row .fixed { color: var(--text-2); }
   #panel-machine .rate { display: inline-flex; align-items: center; gap: 10px; }
+  #panel-machine .panelhead { margin: 0; font-size: 16px; font-weight: 600; scroll-margin-top: 8px; }
+  #panel-machine .panelhead:focus { outline: none; }
+  #panel-machine .panelhead:focus-visible { box-shadow: var(--focus-ring); border-radius: 4px; }
   #panel-machine .note { margin: 0; border-top: 1px solid var(--line); padding-top: 10px; line-height: 1.5; }
 
   /* ---- below the fold: ROM sockets, assembler, self-test ---- */
@@ -718,6 +728,10 @@
   .socket[data-status="loaded-unrecognised"] { border-color: var(--orange); }
   .socket[data-status="loaded-unrecognised"] .dot { background: var(--orange); }
   .socket[data-status="loaded-unrecognised"] .state { color: var(--orange); }
+  .socket[data-disk="loaded"] { border-color: var(--phosphor); }
+  .socket[data-disk="loaded"] .dot { background: var(--phosphor); }
+  .socket[data-disk="loaded"] .state { color: var(--phosphor); }
+  #romDiskCard:focus { outline: none; box-shadow: var(--focus-ring); }
   #romOdd:empty { display: none; }
   #romOdd .odd { background: var(--warn-panel); border: 1px solid var(--orange); border-radius: var(--r-14); padding: 14px 18px; font-size: 14px; line-height: 1.5; margin-bottom: 10px; }
   #romOdd .odd strong { color: var(--orange); }
@@ -796,6 +810,8 @@
   .tile[aria-pressed="true"] .what { color: var(--text); }
   .spine[aria-pressed="true"] { outline: 3px solid var(--phosphor); outline-offset: 3px; }
   [aria-pressed="true"] > .tick { background: var(--phosphor); border-color: var(--phosphor); }
+  #libRomsCard { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-14); padding: 16px 18px; font-size: 16px; line-height: 1.5; }
+  #libRomsLink { white-space: nowrap; }
   #library .rename { position: absolute; left: 10px; right: 10px; top: 10px; z-index: 2; background: #13240F; padding: 6px; border-radius: 8px; display: flex;
     flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
   .spines .rename { right: auto; left: 0; width: 220px; }
@@ -907,7 +923,7 @@
   .viewswitch button[aria-pressed="true"] { background: var(--line); color: var(--text); font-weight: 600; }
   button.link { background: none; border: 0; padding: 0 2px; min-height: 0; color: inherit; text-decoration: underline; font: inherit; }
   /* the Ctrl K box */
-  #cmdBox { display: flex; flex-direction: column; max-height: calc(100vh - var(--cmd-top, 90px) - 12px); position: fixed; z-index: 60; top: 90px; left: 50%; transform: translateX(-50%); width: min(600px, calc(100vw - 24px)); background: var(--panel);
+  #cmdBox { display: flex; flex-direction: column; max-height: calc(100vh - var(--cmd-top, 90px) - 12px); position: fixed; z-index: 70; top: 90px; left: 50%; transform: translateX(-50%); width: min(600px, calc(100vw - 24px)); background: var(--panel);
     border: 1px solid var(--line-strong); border-radius: 16px; box-shadow: 0 30px 70px rgba(0,0,0,.7); overflow: hidden; }
   #cmdBox[hidden] { display: none; }
   .appbar nav kbd, #askEmptyCmd kbd { font: 13px var(--font-mono); opacity: .8; background: none; border: 0; padding: 0; color: inherit; box-shadow: none; }
@@ -1215,9 +1231,11 @@ npx serve -l 8000 .</pre>
     <button type="button" id="navInstall" role="menuitem">Install CLOADM…</button>
   </div>
 </header>
-<div id="switchConfirm" role="alertdialog" aria-label="Switch machine" hidden>
-  <span>Switching to <strong id="switchName"></strong> resets the <span id="switchFrom"></span>. The running program will be lost.</span>
-  <div class="bar"><button id="btnSwitch" class="warn">Switch</button><button id="btnSwitchCancel">Cancel</button></div>
+<!-- js/ui/machine-panel.js confirmSwitch: what the switch resets and takes out (R25), what stays in the Library, and
+     an offer to save a snapshot's own disk first -->
+<div id="switchConfirm" role="alertdialog" aria-label="Switch machine" aria-describedby="switchText" hidden>
+  <span id="switchText"></span>
+  <div class="bar"><button id="btnSwitchSaveDisk" hidden>Save to Library</button><button id="btnSwitch" class="warn">Switch</button><button id="btnSwitchCancel">Cancel</button></div>
 </div>
 
 <!-- Ctrl+K / Cmd+K anywhere ("Ctrl K box"): matching commands first, then "Ask Claude: …" -->
@@ -1245,7 +1263,7 @@ npx serve -l 8000 .</pre>
   <section class="col" aria-labelledby="shareHeading">
     <div class="mono">SHARE</div>
     <h1 id="shareHeading">A link that opens exactly here</h1>
-    <p>The link holds a snapshot: machine, RAM, CPU and media state. ROMs are never included; the person opening it uses their own, or the stub if the program allows.</p>
+    <p>The link holds a snapshot: machine, RAM, CPU and media state. A snapshot reopens on the same machine, RAM and ROMs. ROMs are never included; the person opening it uses their own, or runs it without ROMs if the program allows.</p>
     <figure class="preview">
       <div class="frame"><canvas id="sharePicture" aria-label="The captured picture"></canvas>
         <div class="stripe" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
@@ -1549,6 +1567,7 @@ npx serve -l 8000 .</pre>
       <div class="eyebrow" id="recentHead">Recent on this machine</div>
       <div id="recentList"></div>
       <div id="quickSave" hidden><div class="eyebrow">Snapshots</div>
+      <p class="muted" id="slotNote" style="margin:0">A snapshot reopens on the same machine, RAM and ROMs.</p>
       <div id="slotList"></div></div>
       <a href="play/#library" id="linkLibrary">Open your library →</a>
       <label><input type="checkbox" id="chkFastTape" checked> Fast tape loading</label>
@@ -1598,6 +1617,10 @@ npx serve -l 8000 .</pre>
       <p id="pokeNone" class="muted" style="margin:0" hidden></p>
     </div>
     <div role="tabpanel" id="panel-machine" aria-labelledby="tab-machine" hidden>
+      <h2 id="machineHeading" class="panelhead" tabindex="-1">Machine settings</h2>
+      <!-- ROMs first (R28b): the row's button reads "Add ROMs →" without BASIC, "See or add ROMs →" with it (drawer.js) -->
+      <div class="row" id="romRow"><span>ROMs</span><span id="romState" class="kind"></span></div>
+      <button class="link" id="btnManageRoms" style="align-self:flex-start">Add ROMs →</button>
       <label class="row" id="ramField"><span>RAM</span><select id="ramSel"></select><span class="fixed" id="ramFixed"></span></label>
       <label class="row" id="cpuField"><span>CPU</span><select id="cpuSel"></select><span class="fixed" id="cpuFixed"></span></label>
       <label class="row" id="beckerField" hidden><span>Becker port</span><span><input type="checkbox" id="chkBecker"> DriveWire at $FF41</span></label>
@@ -1628,8 +1651,6 @@ npx serve -l 8000 .</pre>
         <div class="bar" id="dwSerialRow" hidden><select id="dwSerialBaud" aria-label="Serial rate for a real CoCo"></select>
           <button id="btnDwSerial">Serve a real CoCo…</button><span class="muted" id="dwSerialState"></span></div>
       </div>
-      <div class="row"><span>ROMs</span><span id="romState" class="kind"></span></div>
-      <button class="link" id="btnManageRoms" style="align-self:flex-start">Add ROMs →</button>
       <p class="muted note">ROMs are copyrighted by Microsoft, Tandy, Dragon Data and others. CLOADM doesn't include them and
         never downloads them. Verified against MAME, benchmarked against XRoar: <a href="credits/">credits</a>.</p>
     </div>
@@ -1782,6 +1803,8 @@ npx serve -l 8000 .</pre>
         <p id="libNone" class="muted" hidden>Nothing here for this machine and kind.</p>
         <div id="libTapesBox"><div class="eyebrow">Tapes</div><div class="spines" id="libTapes"></div></div>
         <div id="libTilesBox"><div class="eyebrow">Disks, cartridges and programs</div><div class="tiles" id="libTiles"></div></div>
+        <!-- the ROMs chip (R19 A+): one card, not tiles; the ROMs themselves are managed in Your ROMs -->
+        <div id="libRomsBox" hidden><p id="libRomsCard"><span id="libRomsText"></span> <a href="play/#add-roms" id="libRomsLink"></a></p></div>
       </div>
       <p class="muted" style="margin:0" id="libFooter">Click a spine or a tile, or drag it onto the machine's screen, to load it. Drop files or a folder here to add them.</p>
       <div class="storage" id="libStorage">

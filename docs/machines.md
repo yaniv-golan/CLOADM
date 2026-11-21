@@ -18,7 +18,7 @@ Which machines CLOADM emulates, their options, and what is emulated chip by chip
 | **CLONES** | Dynacom MX-1600, LZ Color64, Codimex CD-6809 | 6809 · MC6847 | the clone's BASIC | ✅ trace |
 
 Pick the machine from the menu at the top left of the emulator; switching a running machine asks first. RAM, CPU
-and the CPU speed are in the Machine tab: the CoCo 1/2 and 2B, the CoCo clones and the CP-400 offer 4K,
+and the CPU speed are in Machine settings: the CoCo 1/2 and 2B, the CoCo clones and the CP-400 offer 4K,
 16K, 32K or 64K, and the MC-10 and Alice 4K or 20K. With less RAM selected, RAM
 above the fitted chips is absent, and the SAM mirrors the video to what is there (MC6883 data sheet, p. 4-645).
 On NTSC machines the 256×192 two-colour mode shows composite artifact colours, as on a TV, and on PAL Dragons the
@@ -29,7 +29,7 @@ from its Hitachi HD6845S CRT controller), and the Display tab switches between t
 from a user-supplied character generator.
 
 The Dragon 64, the Tano Dragon 64, the CoCo 1/2 and the CoCo 3 can run the Hitachi 6309 in place of the 6809
-(Machine tab, CPU). The core and its sources are described in [cpu6309.md](cpu6309.md). The 6309 runs the 6809
+(Machine settings, CPU). The core and its sources are described in [cpu6309.md](cpu6309.md). The 6309 runs the 6809
 instruction set in emulation mode, so the programs that run without ROMs — the welcome menu, LIZA and the colour
 demo — and the Claude chat firmware run on it unchanged.
 
@@ -50,9 +50,9 @@ demo — and the Claude chat firmware run on it unchanged.
 | Display | CRT · composite (composite colour, a WebGL CRT look with curvature, phosphor glow and scan lines) or Sharp · RGB (the pixels as they are); NTSC artifact phase; integer scaling; 4:3 or fill; remembered |
 | Dragon 64 | Switching between the 32K-mode and 64K-mode BASIC ROMs through PIA1 PB2, ACIA stub |
 | Dragon 200-E | The Spanish character generator ROM in place of the VDG's internal set, and the driver's rewired VDG inputs; a 4K character-generator socket, required to boot |
-| Printer | Dragons: the parallel port (PIA0 port B, strobe PIA1 PA1). CoCo 1/2/3 and MC-10: a serial printer on the bit-banger at 600 baud, as MAME fits by default. Shown in the Machine tab, saved as received |
-| DriveWire | CoCo 1/2/3 and clones, option `becker` (`?becker=true`): MAME's Becker port at $FF41 (status, bit 1: data waiting) and $FF42 (data); on the CoCo 3 only while the GIME's $FF90 bit 2 enables the spare chip select, as in MAME. The DriveWire 4 server (`js/drivewire/server.js`) runs in the page: disk transactions on up to 256 drives (images in the media store, read and written a sector at a time), named objects, printing (to the printout), the time, 15 virtual serial channels (each can be bridged to a WebSocket, `js/host/drivewire-ws.js`). Machine tab: drives 0-3, write protect, add / new blank / save an image, one channel's WebSocket |
-| Serial port | CoCo 1/2/3 and MC-10 bit-banger (TXD PIA1 PA1 / port 2 bit 0, RXD PIA1 PB0 / port 2 bit 2, DCD PIA1 CA1, MC-10 CTS port 2 bit 3), with a printer, a terminal (300-9600 baud, in the Machine tab) or a loopback plug. Dragon 64, 200 and Tano: the 6551 ACIA at $FF04-$FF07 (all rates and word formats, parity, break, echo, interrupts on the CPU's IRQ), with nothing plugged in, a terminal or a loopback plug |
+| Printer | Dragons: the parallel port (PIA0 port B, strobe PIA1 PA1). CoCo 1/2/3 and MC-10: a serial printer on the bit-banger at 600 baud, as MAME fits by default. Shown in Machine settings, saved as received |
+| DriveWire | CoCo 1/2/3 and clones, option `becker` (`?becker=true`): MAME's Becker port at $FF41 (status, bit 1: data waiting) and $FF42 (data); on the CoCo 3 only while the GIME's $FF90 bit 2 enables the spare chip select, as in MAME. The DriveWire 4 server (`js/drivewire/server.js`) runs in the page: disk transactions on up to 256 drives (images in the media store, read and written a sector at a time), named objects, printing (to the printout), the time, 15 virtual serial channels (each can be bridged to a WebSocket, `js/host/drivewire-ws.js`). Machine settings: drives 0-3, write protect, add / new blank / save an image, one channel's WebSocket |
+| Serial port | CoCo 1/2/3 and MC-10 bit-banger (TXD PIA1 PA1 / port 2 bit 0, RXD PIA1 PB0 / port 2 bit 2, DCD PIA1 CA1, MC-10 CTS port 2 bit 3), with a printer, a terminal (300-9600 baud, in Machine settings) or a loopback plug. Dragon 64, 200 and Tano: the 6551 ACIA at $FF04-$FF07 (all rates and word formats, parity, break, echo, interrupts on the CPU's IRQ), with nothing plugged in, a terminal or a loopback plug |
 | Dragon Professional (Alpha) | As MAME's `dgnalpha`: the boot ROM bank and the BASIC bank (switched through PIA1 PB2 or PIA2 PA2), a third PIA, the AY-3-8912 (three tone channels, noise, envelopes; its port A selects the drives), the built-in WD2797 with two 3.5" drives (NMI through PIA2 CA2, DRQ on PIA2 CB1), the modem's registers. Its disks go in from the drives card under the screen, on its two built-in drives (no cartridge) |
 | Dragon 64 Plus | A second, 80-column screen from an HD6845S CRTC and an 8K character generator (640×264, 80×22 characters of 8×12), the `$FFE2` bank register (two extra 32K RAM banks and a 2K video-RAM overlay over `$0000-$07FF`), and `$FFE2`'s display-enable status. An 8K character-generator socket, required for that screen; the 512-byte timing PROM is stored and not used |
 

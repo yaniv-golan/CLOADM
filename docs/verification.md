@@ -594,6 +594,32 @@ written exactly twice (a `MutationObserver` counts the writes).
 Not verified automatically: what a real screen reader says (the live regions' text and politeness are checked,
 not the speech).
 
+### The machine and its ROMs: toasts, switches, the disk ROM, the menu, the Library, the copy
+
+UX rulings R24-R28 and R19 A+ have no MAME oracle (AGENTS.md 4.6): the oracle is the rulings themselves, and the
+browser check's group `uiModel` drives them with real events at 1280x720 and at 390x844 with touch:
+
+* R24: a disk dropped without a disk ROM: the toast's box is inside the viewport and `elementFromPoint` at its centre
+  is the toast; it keeps its slot and its time runs. (`feedbackModel` checks the fixed top slot where nothing else is
+  free, and that it goes after its 4 s.)
+* R25: the switch confirmation's text for a tape and a cartridge (both in the Library), a tape and a disk, a RAM
+  change (and Cancel putting the select back), a snapshot's own disk with **Save to Library** (stored and linked),
+  DriveWire (not listed, still mounted after the switch); the toasts after the switch. `tests/switch-losses.test.js`
+  checks `Session.takenOut` and `Session.keepSnapshotDisk` in Node, the Speech/Sound Pak case included.
+* R26: the disk ROM card's title per machine (none on the Alpha and the MC-10), its `data-disk` mark with the socket
+  counts unchanged, and a drive's **Add ROMs…** landing on it (in view, focused, on top at its centre).
+* R28, R28b: Ctrl K "roms" Enter (Your ROMs, focus on its heading, nothing scrolled), the palette's top result for
+  each of its words, the ROMs row first and its label with and without a stored test ROM, the "needs ROMs" toast and
+  its action, ↓ from the last machine to both footer items, Esc, and each footer item's focus.
+* R19 A+: the ROMs chip's card with and without ROMs (the count and the machines worked out from `session.roms`),
+  the drop's **Open Your ROMs**, and the card's link. `tests/stored-roms.test.js` checks `Session.storedRoms`.
+* R27: every text node and title, label and placeholder of the page (emulator, machine menu, Your ROMs, Share,
+  Library) holds no "stub" and no "Machine tab", and "disk ROM" is the one term; the ROMs row's states, the .dgn
+  warning and the snapshot sentence word for word.
+
+Not verified automatically: how the fixed top slot reads to a person on a real phone (screenshots
+`r24-disk-toast-*.png` were looked at).
+
 ## The comparisons
 
 `tools/mame-diff/` compares this emulator with MAME's `dragon64` driver. Neither tool uses the Dragon ROMs: both
@@ -867,7 +893,7 @@ names it.
   are answered from and land in the shared images, stop and unplugging close it. Nothing has been run on a real
   cable. To try it: a CoCo with a DriveWire-enabled DOS (HDB-DOS for DriveWire, or NitrOS-9 with the DriveWire
   drivers) on its bit-banger port, a DriveWire serial cable and a USB serial adapter; Chrome or Edge on a desktop;
-  open `play/`, add a disk image in the Machine tab's DriveWire box and choose it for drive 0, pick the rate the
+  open `play/`, add a disk image in Machine settings' DriveWire box and choose it for drive 0, pick the rate the
   CoCo's driver uses, click "Serve a real CoCo…" and choose the adapter; then `DIR` (HDB-DOS) or `dir /x0`
   (NitrOS-9) on the CoCo should list the image.
 * `node tools/mame-diff/run.js <profile> --reset` presses the Reset button (`sam/reset.asm`). MAME's Lua presses it
@@ -1185,7 +1211,7 @@ same screen.
 * `tools/browser-check.js` (`cpu6309`, in the full run): `?machine=dragon64&cpu=6309` opens on the menu with no error
   toast and no `undefined` (the bug's `examples/undefined: HTTP 404`), key 1 runs LIZA without leaving the 6309, BYE
   returns to the menu, key 2 runs the demo (sampling its program counter and the 6309 trap bit), key 4 opens the chat
-  on the 6309, a new visit with no query parameters keeps the choice from storage, and the Machine tab's CPU row
+  on the 6309, a new visit with no query parameters keeps the choice from storage, and Machine settings' CPU row
   switches a CoCo 1/2 to the 6309 into its menu.
 
 ## SAM CPU rate (the speed POKEs)

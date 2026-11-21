@@ -1,6 +1,6 @@
 /*
  * The machine: the grouped machine menu in the header (with a confirmation before a running machine is
- * switched), the monitor's bezel and nameplate, the RAM and CPU rows of the Machine tab (a select where the model
+ * switched or its RAM changed, naming what comes out), the monitor's bezel and nameplate, the RAM and CPU rows of Machine settings (a select where the model
  * offers a choice; changing one power-cycles the machine).
  */
 import { availableProfiles } from '../machines/profiles.js';
@@ -9,9 +9,9 @@ import { $, ESC } from './page.js';
 
 // the menu's sections and the bezel/nameplate choice live in js/machines/menu.js (data only, tested in Node)
 export { caseOf };
-// the CPU as the Machine tab names it: the Dragons and Color Computers use the 6809E (external clock)
+// the CPU as Machine settings names it: the Dragons and Color Computers use the 6809E (external clock)
 const cpuName = (v) => (v === '6809' ? '6809E' : v);
-// a Machine tab row for one profile option: a select when the model offers a choice, else the value as text
+// a Machine settings row for one profile option: a select when the model offers a choice, else the value as text
 function showOption(m, key, field, sel, fixed, fmt) {
   const opt = m.profile.options[key], s = $(sel), choice = !!opt && opt.values.length > 1;
   $(field).hidden = !opt;
@@ -27,7 +27,8 @@ function showOption(m, key, field, sel, fixed, fmt) {
   $(fixed).textContent = fmt(m.config[key]);
 }
 
-export function setupMachinePanel(page) {
+// showRoms(): opens Your ROMs for the machine in use (js/ui/rom-sockets.js reveal)
+export function setupMachinePanel(page, { showRoms }) {
   const { session } = page;
   const btn = $('machineBtn'), menu = $('machineMenu'), confirm = $('switchConfirm');
   let pending = null;   // what Switch does
@@ -56,13 +57,17 @@ export function setupMachinePanel(page) {
       }
       menu.append(g);
     }
-    const note = document.createElement('div'); note.className = 'note machines';
-    const left = document.createElement('span'); left.textContent = 'RAM, CPU and the CPU speed are in the Machine tab.';
-    const right = document.createElement('span'), tick = document.createElement('span');
-    tick.className = 'tag ready'; tick.textContent = '✓';
-    right.append(tick, ' = BASIC ready');
-    note.append(left, right);
-    menu.append(note);
+    // the footer (R28): two menu items after a separator, in the menu's arrow and Tab order like the machines
+    const sep = document.createElement('div'); sep.className = 'sep machines'; sep.setAttribute('role', 'separator');
+    const foot = document.createElement('div'); foot.className = 'footer machines'; foot.setAttribute('role', 'none');
+    const item = (id, text, fn) => { const b = document.createElement('button'); b.id = id; b.setAttribute('role', 'menuitem'); b.textContent = text; b.onclick = fn; return b; };
+    // the tick's legend, after the two items: a note, not a menu item (the arrows and Tab pass it by)
+    const legend = document.createElement('span'), tick = document.createElement('span');
+    legend.className = 'legend'; tick.className = 'tag ready'; tick.textContent = '✓';
+    legend.append(tick, ' = BASIC ready');
+    foot.append(item('menuRoms', 'Add or see ROMs…', () => { openMenu(false); showRoms(); }),
+      item('menuSettings', 'RAM, CPU and speed…', () => { openMenu(false); machineSettings(); }), legend);
+    menu.append(sep, foot);
     // the rows that are not buildMenu's own go after its own (js/ui/install.js's Install CLOADM… row, kept last)
     for (const el of [...menu.children].filter((e) => !e.classList.contains('machines'))) menu.append(el);
   }
@@ -80,29 +85,101 @@ export function setupMachinePanel(page) {
   }
   const moreBelow = () => menu.classList.toggle('more-below', menu.scrollTop + menu.clientHeight < menu.scrollHeight - 2);
   menu.addEventListener('scroll', moreBelow);
-  // a running machine is switched only after a confirmation: `name` is what it switches to, onSwitch does it
-  function confirmSwitch(name, onSwitch) {
-    pending = onSwitch;
-    $('switchName').textContent = name;
-    $('switchFrom').textContent = session.machine.profile.name;
+  // ---- the switch confirmation (R25): it names what the switch takes out, built from the old machine before the
+  // switch (Session.takenOut), says which of those stay in the Library, and offers to save a snapshot's own disk ----
+  let cancelled = null;   // what Cancel does besides closing (a RAM change puts the select back)
+  // "a, b and c"
+  const and = (l) => (l.length < 2 ? l.join('') : `${l.slice(0, -1).join(', ')} and ${l[l.length - 1]}`);
+  const what = (t) => (t.kind === 'tape' ? `the tape ${t.name}` : t.kind === 'cartridge' ? (t.name ? `the cartridge ${t.name}` : 'the cartridge') : `the disk ${t.name} in drive ${t.drive}`);
+  const short = (t) => (t.kind === 'disk' ? `${t.name} (drive ${t.drive})` : t.name || 'the cartridge');
+  // " Took out: GAME.CAS, WORK.VDK (drive 0)." after a switch (empty when nothing came out)
+  const tookOut = (taken) => (taken.length ? ` Took out: ${taken.map(short).join(', ')}.` : '');
+  // which items stay in the Library: a disk linked to it (stored), a tape or cartridge whose file is there
+  async function inLibrary(items) {
+    let names = [];
+    if (items.some((t) => t.kind !== 'disk' && t.name)) {
+      try { names = (await session.listMedia()).map((x) => x.name.split('/').pop()); } catch (e) { names = []; }
+    }
+    return items.filter((t) => (t.kind === 'disk' ? t.stored : !!t.name && names.some((n) => session.sameName(n, t.name))));
+  }
+  // to: { name: what it switches to (null for a RAM change), id, config }; onSwitch(taken, said) does it, taken being
+  // what came out and said its " Took out: …." for the message; onCancel: what Cancel undoes. A running machine is
+  // switched only after this.
+  // It shows at once; which items stay in the Library (a look in the store) is added to it when known.
+  let asking = 0;
+  function confirmSwitch(to, onSwitch, onCancel = null) {
+    const from = session.machine.profile.name, items = session.takenOut(to.id, to.config), mine = ++asking;
+    const snap = items.filter((t) => t.kind === 'disk' && !t.stored);
+    const text = $('switchText');
+    text.replaceChildren();
+    if (to.name) {
+      const n = document.createElement('strong'); n.id = 'switchName'; n.textContent = to.name;
+      const f = document.createElement('span'); f.id = 'switchFrom'; f.textContent = from;
+      text.append('Switching to ', n, ' resets the ', f);
+    } else {
+      const f = document.createElement('span'); f.id = 'switchFrom'; f.textContent = from;
+      text.append('Changing RAM switches the ', f, ' off and on');
+    }
+    text.append(items.length ? ` and takes out ${and(items.map(what))}.` : '. The running program will be lost.');
+    const keptAt = document.createElement('span');   // "They stay in your Library.", once known
+    text.append(keptAt);
+    inLibrary(items).then((kept) => {
+      if (mine !== asking || !kept.length) return;
+      keptAt.textContent = ` ${kept.length === items.length ? (kept.length === 1 ? 'It stays in your Library.' : 'They stay in your Library.')
+        : `${and(kept.map(short))} ${kept.length === 1 ? 'stays' : 'stay'} in your Library.`}`;
+    });
+    if (snap.length) text.append(' ', snap.length === 1 ? 'The disk that came with the snapshot is not kept; save it to the Library first.'
+      : 'The disks that came with the snapshot are not kept; save them to the Library first.');
+    const save = $('btnSwitchSaveDisk');
+    save.hidden = !snap.length; save.disabled = false; save.textContent = 'Save to Library';
+    save.onclick = async () => {
+      save.disabled = true;
+      try {
+        // (said on the button itself, the control it is about: no toast)
+        // (a retry after a failure skips the disks already saved: their drives are linked now)
+        for (const t of snap) { const now = session.diskStatus().drives.find((x) => x.drive === t.drive); if (now && !now.stored) await session.keepSnapshotDisk(t.drive); }
+        save.textContent = 'Saved to Library';
+      } catch (e) { save.disabled = false; page.status(e.message, true); }
+    };
+    pending = () => onSwitch(items, tookOut(items));
+    cancelled = onCancel;
     confirm.hidden = false;
     $('btnSwitch').focus();
   }
+  // after a switch: what it switched to, what came out, and (a "needs ROMs" row) that it needs ROMs, with Add ROMs
+  const switched = (taken) => {
+    const needs = !session.machineRoms().bootable;
+    page.toast(`Switched to ${session.machine.profile.name}.${tookOut(taken)}${needs ? ' It needs ROMs for BASIC.' : ''}`,
+      needs ? { action: { label: 'Add ROMs', run: showRoms } } : {});
+  };
   function pick(id) {
     openMenu(false);
     if (id === session.machine.id) { page.focus(); return; }
-    confirmSwitch(availableProfiles().find((p) => p.id === id).name, () => {
+    confirmSwitch({ name: availableProfiles().find((p) => p.id === id).name, id }, (taken) => {
       session.chooseMachine(id);
-      page.status(`Switched to ${session.machine.profile.name}`);
+      switched(taken);
     });
+  }
+  // the menu's "RAM, CPU and speed…": the Machine settings tab, with the focus on its heading (on a phone, its top
+  // scrolled into view)
+  function machineSettings() {
+    $('tab-machine').click();
+    const h = $('machineHeading'), phone = matchMedia('(max-width: 700px)').matches;
+    h.focus({ preventScroll: phone });
+    if (phone) h.scrollIntoView({ block: 'start' });
   }
   $('btnSwitch').onclick = () => {
     confirm.hidden = true;
-    const run = pending; pending = null;
+    const run = pending; pending = null; cancelled = null;
     if (run) run();
     page.focus();
   };
-  $('btnSwitchCancel').onclick = () => { confirm.hidden = true; pending = null; page.focus(); };
+  $('btnSwitchCancel').onclick = () => {
+    confirm.hidden = true; pending = null;
+    const undo = cancelled; cancelled = null;
+    if (undo) undo();
+    page.focus();
+  };
   page.onEscape(ESC.confirm, () => !confirm.hidden, () => $('btnSwitchCancel').click());
   btn.onclick = () => openMenu(menu.hidden);
   // closed, with the focus back on the button (refocus) or left where something else took it
@@ -145,7 +222,14 @@ export function setupMachinePanel(page) {
     page.status(`${m.profile.name}: ${done(session.machine.config[key])} (switched off and on)`);
     page.focus();
   };
-  $('ramSel').onchange = change('ram', Number, (v) => `${v}K RAM`);
+  // RAM: asked first, as a machine switch is, naming what comes out (R25); Cancel puts the select back
+  $('ramSel').onchange = (e) => {
+    const m = session.machine, ram = Number(e.target.value), config = Object.assign({}, session.savedConfig(m.id), { ram });
+    confirmSwitch({ name: null, id: m.id, config }, (taken) => {
+      session.switchMachine(m.id, config);
+      page.status(`${m.profile.name}: ${session.machine.config.ram}K RAM (switched off and on).${tookOut(taken)}`);
+    }, () => { e.target.value = String(session.machine.config.ram); });
+  };
   $('cpuSel').onchange = change('cpu', String, (v) => `${cpuName(v)} CPU`);
   $('chkBecker').onchange = (e) => change('becker', () => e.target.checked, (v) => `Becker port ${v ? 'on' : 'off'}`)(e);
   // `close` is openMenu(false): the item js/ui/install.js keeps in the menu closes it through this, rather than

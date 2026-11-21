@@ -287,7 +287,7 @@ emulator.
   BASIC sets it), 42 columns by 24 rows with this project's own 6×8 font. Typed lower case reaches the firmware as
   typed (the stub hands every other program upper case, as BASIC's keyboard does).
 * **The bytes.** A line goes to Claude when you press ENTER. The firmware carries the bytes one of two ways, chosen
-  at start. On a CoCo with the Becker port on (`?becker=true`, the Machine tab) it finds the DriveWire server
+  at start. On a CoCo with the Becker port on (`?becker=true`, Machine settings) it finds the DriveWire server
   (DWINIT) and talks on virtual serial channel 14, as it would on a real machine with a Becker port: SERINIT,
   FASTWRITE for each typed byte, SERREAD / SERREADM for the reply, into a 256-byte ring (DriveWire 4
   specification, "Virtual Serial Channels"). The chat machine has its own DriveWire server on the Session's

@@ -1,5 +1,5 @@
 /*
- * The settings drawer beside the screen: tabs Media / Display / Input / POKEs / Machine (keyboard: arrow
+ * The settings drawer beside the screen: tabs Media / Display / Input / POKEs / Machine (Machine settings; keyboard: arrow
  * keys move between tabs), the recent media list, the ROM summary, and the cassette and cartridge slots under
  * the screen. The Display tab is its own module (display-panel.js).
  */
@@ -48,10 +48,12 @@ export function setupDrawer(page, { showRoms }) {
     }
   }
 
-  // Machine tab: ROM summary; header pill when the machine in use has no BASIC
+  // Machine settings: the ROM summary, first in the panel (R28b), its button "Add ROMs →" without BASIC and "See or
+  // add ROMs →" with it; the header pill when the machine in use has no BASIC
   function roms() {
     const r = session.machineRoms(), m = session.machine;
-    $('romState').textContent = session.nitros9Running ? 'Not used · NitrOS-9 runs on CLOADM\'s own loader' : !m.useStub ? 'BASIC ready' : r.bootable ? 'Loaded · running the stub' : 'Not added · running the stub';
+    $('romState').textContent = session.nitros9Running ? 'Not used · NitrOS-9 runs on CLOADM\'s own loader' : !m.useStub ? 'BASIC ready' : r.bootable ? 'Loaded · running without ROMs for now' : 'Not added · running without ROMs';
+    $('btnManageRoms').textContent = r.bootable ? 'See or add ROMs →' : 'Add ROMs →';
     $('romPill').hidden = r.bootable || session.nitros9Running;   // NitrOS-9 needs no ROM
   }
   $('romPill').onclick = showRoms;

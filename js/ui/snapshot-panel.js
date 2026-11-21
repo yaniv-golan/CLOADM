@@ -27,7 +27,8 @@ export function setupSnapshotPanel(page, { confirmSwitch, openRoms }) {
     try { session.snapshotRoms(snap); }
     catch (e) { if (e instanceof SnapshotRomsError) { needsRoms(snap, e); return; } throw e; }
     const sw = session.snapshotSwitch(snap);
-    if (sw) confirmSwitch(sw.text, () => page.attempt(() => session.openSnapshot(snap)));
+    // (its message says what the switch took out, as a switch from the menu does)
+    if (sw) confirmSwitch({ name: sw.text, id: sw.machine, config: sw.config }, (taken, said) => page.attempt(() => session.openSnapshot(snap) + (said ? `.${said}` : '')));
     else { page.attempt(() => session.openSnapshot(snap)); page.focus(); }
   }
   // a file that may be a snapshot: opened (true), or false to load it as anything else

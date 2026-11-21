@@ -2,6 +2,7 @@
  * Adding ROMs, at /play/#add-roms instead of the emulator. It opens from
  * "No BASIC · Add ROMs", the Machine tab's "Add ROMs →", the Welcome menu's key 3, the boot help's "Add
  * ROMs", and anything else that needs ROMs. It shows:
+ *  - the disk ROM's card where the machine takes a disk cartridge (R26: a drive's Add ROMs… lands on it);
  *  - the machine's sockets, each with what it takes (size, usual file names), whether it is required, and what
  *    it holds or what is missing and why it matters (a required socket: no BASIC without it; an optional one:
  *    what you lose);
@@ -53,6 +54,26 @@ export function setupRomSockets(page, romInput, { confirmSwitch }) {
     if (s.status === 'missing-required') return 'Waiting for a file. Without it there is no BASIC: the machine runs without ROMs, machine-code programs only.';
     return OPTIONAL_WHY[s.id] || 'Optional.';
   }
+  // The disk ROM (R26): one card for a machine whose cartridge port takes a disk cartridge, from
+  // Session.diskDosChoices() ("Disk drives (optional): DragonDOS or Delta DOS"); none for a machine with its own disk
+  // interface (the Dragon Alpha) or with no cartridge port (the MC-10). Like the Pak's, it carries its own attribute
+  // (data-disk), not data-status: it is not one of the machine's sockets, and the socket counts read [data-status].
+  function diskCard() {
+    const c = session.diskDosChoices().filter((x) => !x.builtin);
+    if (!c.length) return [];
+    const card = el('div', null, 'socket'), ready = c.filter((x) => x.ready);
+    card.id = 'romDiskCard'; card.tabIndex = -1;
+    card.dataset.socket = 'disk';
+    card.dataset.disk = ready.length ? 'loaded' : 'missing-optional';
+    const body = el('div', null, 'body'), top = el('div', null, 'top');
+    const names = c.map((x) => x.name.replace(/ cartridge$/, ''));
+    top.append(el('strong', `Disk drives (optional): ${names.join(' or ')}`), el('span', 'optional', 'tag'));
+    const state = ready.length ? `✓ ${ready.map((x) => `${x.name.replace(/ cartridge$/, '')} disk ROM`).join(', ')} · ready for disks`
+      : 'Optional: without a disk ROM the drives stay empty. CLOADM doesn\'t include one; add your own dump.';
+    body.append(top, el('div', `8 KB · usually ${c.map((x) => x.rom).join(' or ')}`, 'expect'), el('div', state, 'state'));
+    card.append(el('span', null, 'dot'), body);
+    return [card];
+  }
   // drawn only while the screen is open (show() draws it on opening)
   function render() {
     if (!isOpen() || !session.machine) return;
@@ -81,7 +102,7 @@ export function setupRomSockets(page, romInput, { confirmSwitch }) {
       body.append(top, el('div', `${kb(s.size)} · usually ${s.files[0]}`, 'expect'), el('div', state, 'state'));
       card.append(el('span', null, 'dot'), body);
       return card;
-    }) : []));
+    }) : []), ...diskCard());
     // a loaded file that is not a known dump: what it means and what to do
     $('romOdd').replaceChildren(...info.sockets.filter((s) => s.status === 'loaded-unrecognised').map((s) => {
       const d = el('div', null, 'odd');
@@ -120,7 +141,7 @@ export function setupRomSockets(page, romInput, { confirmSwitch }) {
       const bar = el('div', null, 'bar');
       bar.append(button(`Switch to ${o.name}`, () => {
         close();   // (back on the emulator, where the confirmation shows)
-        confirmSwitch(o.name, () => { session.chooseMachine(o.machine); page.status(`Switched to ${o.name}`); });
+        confirmSwitch({ name: o.name, id: o.machine }, (taken, said) => { session.chooseMachine(o.machine); page.status(`Switched to ${o.name}${said ? `.${said}` : ''}`); });
       }, true),
         button(`Stay on ${m.profile.name}`, () => { offers = offers.filter((x) => x !== o); render(); }));
       d.append(bar);
@@ -164,8 +185,13 @@ export function setupRomSockets(page, romInput, { confirmSwitch }) {
   });
   $('btnRunStub').onclick = () => runWithoutRoms();
   function runWithoutRoms() { session.runWithoutRoms(); render(); page.status(`${session.machine.profile.name}: running without ROMs`); }
-  // open this screen (the header's pill, the Machine tab, the boot help, the Welcome menu's key 3)
-  function reveal() { if (isOpen()) render(); else page.openView('#add-roms'); }
+  // open this screen (the header's pill, the Machine tab, the boot help, the Welcome menu's key 3); to: 'disk' lands
+  // on the disk ROM's card (a drive's Add ROMs…): scrolled into view, with the focus
+  function reveal({ to = null } = {}) {
+    if (isOpen()) render(); else page.openView('#add-roms');
+    const card = to === 'disk' && $('romDiskCard');
+    if (card) { card.scrollIntoView({ block: 'center' }); card.focus({ preventScroll: true }); }
+  }
   show();
   return { render, runWithoutRoms, reveal };
 }

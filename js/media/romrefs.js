@@ -105,7 +105,7 @@ export function stripRoms(snap, machineRoms) {
       const key = path.split('.').pop();
       if (key !== 'bytes' && key !== 'rom') continue;
       const crc = crc32(value);
-      if (!images.some((x) => x.crc === crc)) images.push({ crc, bytes: value, kind: key === 'rom' ? 'dos' : 'cartridge', label: key === 'rom' ? 'the disk controller\'s DOS ROM' : 'the cartridge' });
+      if (!images.some((x) => x.crc === crc)) images.push({ crc, bytes: value, kind: key === 'rom' ? 'dos' : 'cartridge', label: key === 'rom' ? 'the disk ROM' : 'the cartridge' });
       set(out.state, path, { $image: crc });
       placed.push({ path, crc });
     }

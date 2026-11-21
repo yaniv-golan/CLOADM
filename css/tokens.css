@@ -15,6 +15,7 @@
  *   phosphor on panel 12.29, on ground 13.38          on-phosphor on phosphor 10.74
  *   orange   on panel 8.46, on warn-panel 7.91        on-orange on orange 8.14
  *   text     on warn-panel 14.11                      screen-ink on screen-green 7.59
+ *   error    on the toast's paper (--text) 4.76: the error toast's bar, the same in both variants
  *   line-strong on panel 1.80: borders only where the control is also identified by its text (secondary
  *   buttons, dashed media slots), so it is not the only cue (WCAG 1.4.11). Focus rings use phosphor.
  *
@@ -93,6 +94,7 @@
   --link: var(--green);     /* links */
   --link-hover: #9BFFAA;    /* links under the pointer */
   --orange: #FF9A2E;        /* warnings and tape only */
+  --error: #C42B23;         /* an error: the bar of an error toast, on the toast's light paper (the --text colour) */
   --on-orange: #2B1600;     /* text on orange */
   --warn-panel: #2B1A08;    /* warning panel */
   --screen-green: #39E83F;  /* stand-in for the VDG text screen, marketing only */
