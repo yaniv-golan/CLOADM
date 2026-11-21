@@ -1,7 +1,7 @@
 {
-  "name": "cloadm",
+  "name": "cloadm-both",
   "version": "0.1.8-pre",
-  "description": "Dragon, Tandy Color Computer and MC-10 emulator as an MCP server: boot machines, run programs, type, read the screen, memory and registers, step the CPU and take screenshots.",
+  "description": "TEST plugin (branch claude/plugin-both-servers-test, never for main): the CLOADM skill, the local MCP server (cloadm-files: your ROMs and ~/CLOADM) and the remote side-panel connector (cloadm-panel: https://mcp.cloadm.dev/mcp) in one plugin.",
   "author": {
     "name": "Yaniv Golan",
     "url": "https://github.com/yaniv-golan"
@@ -20,15 +20,21 @@
   ],
   "icon": "./icons/icon-512.png",
   "mcpServers": {
-    "cloadm": {
+    "cloadm-files": {
       "command": "node",
       "args": [
         "${CLAUDE_PLUGIN_ROOT}/cli/cloadm.js",
         "--mcp"
       ]
+    },
+    "cloadm-panel": {
+      "type": "http",
+      "url": "https://mcp.cloadm.dev/mcp"
     }
   },
   "network": {
-    "hosts": []
+    "hosts": [
+      "mcp.cloadm.dev"
+    ]
   }
 }

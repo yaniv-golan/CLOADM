@@ -1,12 +1,15 @@
 {
-  "name": "cloadm-marketplace",
-  "owner": { "name": "Yaniv Golan", "url": "https://github.com/yaniv-golan" },
-  "description": "CLOADM, the Dragon / CoCo / MC-10 emulator, for coding agents.",
+  "name": "cloadm-test",
+  "owner": {
+    "name": "Yaniv Golan",
+    "url": "https://github.com/yaniv-golan"
+  },
+  "description": "TEST marketplace (branch claude/plugin-both-servers-test, never for main): one plugin, cloadm-both.",
   "plugins": [
     {
-      "name": "cloadm",
+      "name": "cloadm-both",
       "source": "./",
-      "description": "Dragon, Tandy Color Computer and MC-10 emulator as an MCP server: boot machines, run programs, type, read the screen, memory and registers, step the CPU and take screenshots."
+      "description": "TEST: the CLOADM skill, the local server (cloadm-files: your ROMs and ~/CLOADM) and the remote side-panel connector (cloadm-panel: https://mcp.cloadm.dev/mcp) in one plugin."
     }
   ]
 }

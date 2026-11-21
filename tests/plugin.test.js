@@ -60,18 +60,23 @@ JSON.stringify(J.market, (k, v) => { if (k === 'version') marketVersions.push(v)
 check('marketplace.json gives no version that differs', marketVersions.every((v) => v === NEXT), marketVersions.join(', '));
 
 // ---------------- names and paths ----------------
-check('plugin.json: name "cloadm"', J.plugin.name === 'cloadm');
-check('marketplace.json: name "cloadm-marketplace", an owner, one plugin "cloadm" at "./" with a description',
-  J.market.name === 'cloadm-marketplace' && J.market.owner && J.market.owner.name && Array.isArray(J.market.plugins) &&
-  J.market.plugins.length === 1 && J.market.plugins[0].name === 'cloadm' && J.market.plugins[0].source === './' && !!J.market.plugins[0].description);
+// TEST BRANCH (claude/plugin-both-servers-test, never for main): the plugin is cloadm-both in the marketplace cloadm-test,
+// with the local server (cloadm-files) and the remote side-panel connector (cloadm-panel)
+check('plugin.json: name "cloadm-both" (test branch)', J.plugin.name === 'cloadm-both');
+check('marketplace.json: name "cloadm-test", an owner, one plugin "cloadm-both" at "./" with a description (test branch)',
+  J.market.name === 'cloadm-test' && J.market.owner && J.market.owner.name && Array.isArray(J.market.plugins) &&
+  J.market.plugins.length === 1 && J.market.plugins[0].name === 'cloadm-both' && J.market.plugins[0].source === './' && !!J.market.plugins[0].description);
 for (const p of J.market.plugins || []) {
   const dir = path.resolve(ROOT, p.source), man = readJson(path.relative(ROOT, path.join(dir, '.claude-plugin', 'plugin.json')));
   check(`marketplace source ${p.source} is inside the repository and holds the plugin "${p.name}"`,
     (dir === ROOT || dir.startsWith(ROOT + path.sep)) && !man.error && man.json.name === p.name);
 }
 
-const server = (J.plugin.mcpServers || {}).cloadm || {};
-check('plugin.json: mcpServers.cloadm is node cli/cloadm.js --mcp from the plugin root',
+const server = (J.plugin.mcpServers || {})['cloadm-files'] || {};
+check('plugin.json: exactly two servers, cloadm-files and cloadm-panel (test branch)', JSON.stringify(Object.keys(J.plugin.mcpServers || {})) === JSON.stringify(['cloadm-files', 'cloadm-panel']));
+const panel = (J.plugin.mcpServers || {})['cloadm-panel'] || {};
+check('plugin.json: cloadm-panel is the remote connector over HTTP, https://mcp.cloadm.dev/mcp, its host declared', panel.type === 'http' && panel.url === 'https://mcp.cloadm.dev/mcp' && Object.keys(panel).length === 2 && JSON.stringify((J.plugin.network || {}).hosts) === JSON.stringify(['mcp.cloadm.dev']), JSON.stringify(panel));
+check('plugin.json: mcpServers["cloadm-files"] is node cli/cloadm.js --mcp from the plugin root',
   server.command === 'node' && JSON.stringify(server.args) === JSON.stringify(['${CLAUDE_PLUGIN_ROOT}/cli/cloadm.js', '--mcp']), JSON.stringify(server));
 const pluginRoot = (s) => s.replace(/\$\{CLAUDE_PLUGIN_ROOT\}/g, ROOT);
 check('plugin.json: the server script resolves', fs.existsSync(pluginRoot(server.args[0])));
