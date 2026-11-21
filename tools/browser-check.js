@@ -1071,7 +1071,8 @@ async function audioChecks(browser, base, check) {
   // time, so a queue at the ceiling (MAX_MS) needs about (MAX_MS - TARGET_MS) / RECOVER = 5.5 s to arrive, plus
   // a stated slack; measured from a 149 ms queue in simulated real time it was 3.95 s at 44.1 kHz and 4.18 s at
   // 48 kHz for this page's schedule, and tests/audio.test.js sweeps 44.1/48 kHz, 30/49.97/59.94/60 fps and
-  // 512/1024/2048-sample blocks from the ceiling, where the slowest (4.99 s) is what SETTLE_MS is held to. A correction that never converges therefore fails HERE, by name, instead of being waited out.
+  // 512/1024/2048-sample blocks from the ceiling, where the slowest (4.99 s) is what SETTLE_MS is held to.
+  // A correction that never converges therefore fails HERE, by name, instead of being waited out.
   const settled = await waitFor(page, () => window.emu.audio && window.emu.audio.out && window.emu.audio.out.mode === 0, null, SETTLE_MS);
   check('sound: the resampler settles (ratio exactly 1) before the tone is measured', settled,
     await page.evaluate(() => JSON.stringify({ mode: window.emu.audio && window.emu.audio.out ? window.emu.audio.out.mode : null })));
@@ -4426,12 +4427,13 @@ async function tapePanelChecks(browser, base, check) {
     // speed window closed) shows it at 1.000 although the tape is moving; requiring the reel on the FIRST fast frame
     // failed there (CI, wound 1 at BLOCK 1 OF 34). What is asserted is unchanged: one frame shows LOADING, a speed
     // above x1 and the left reel unwound, all at once.
-    // The check must not depend on how far the machine got in its first seconds: on a slow runner the tape can still be
-    // inside block 1 (progress under 0.0005) for several panel repaints. Once the panel shows PLAYING, the tape is
+    // The check must not depend on how far the machine got in its first seconds: on a slow runner the tape can still
+    // be inside block 1 (progress under 0.0005) for several panel repaints. Once the panel shows PLAYING, the tape is
     // moved a quarter of the way in (the same seekByte as the end-of-tape step below), so the frame waited for below
     // needs only the panel to repaint, whatever the runner's speed; the bound on that wait is the failure timeout.
     // The reels are still what is asserted: with the --wound styles frozen (tape-panel.js not updating them) the
-    // left reel reads 1 for ever and this check goes red after the full 20 s.
+    // left reel reads 1 for ever and this check goes red after the full 20 s. That the deck really plays the tape
+    // on is asserted separately, by the position sample after the frame.
     const playing = await waitFor(page, () => window.__seen.some((s) => s.state === 'playing'), null, 20000);
     if (playing) await page.evaluate(() => { const t = window.emu.machine.deck.tape; t.seekByte(Math.floor(t.bytes.length / 4)); });
     const isFastLoading = (s) => /^LOADING · BLOCK \d+ OF 34$/.test(s.eyebrow) && /^Fast-forward ×\d+$/.test(s.speed) && Number(s.speed.split('×')[1]) > 1 && s.leftReelWound < 1;
@@ -4439,6 +4441,17 @@ async function tapePanelChecks(browser, base, check) {
     // over 1 s windows and reads x1 until the first closes, so this is the frame that shows every condition at once.
     const sawLoading = await waitFor(page, () => window.__seen.some((s) => /^LOADING · BLOCK \d+ OF 34$/.test(s.eyebrow) && /^Fast-forward ×\d+$/.test(s.speed) && +s.speed.split('×')[1] > 1
       && s.moving && s.leftReelWound < 1), null, 20000);
+    // The seek above moves idx and the reel by itself, so the frame alone no longer shows that the deck plays on: the
+    // tape position is sampled before and after half a second of natural playback and must advance, the panel still
+    // saying LOADING at x>1 (or END OF TAPE, which only an advance can reach). A deck that stopped advancing the tape
+    // would pass the frame check on the seek jump and fails here.
+    const idx0 = await page.evaluate(() => window.emu.machine.deck.tape.idx);
+    await page.waitForTimeout(500);
+    const adv = await page.evaluate((i0) => {
+      const t = window.emu.machine.deck.tape, eyebrow = document.getElementById('tapeEyebrow').textContent, speed = document.getElementById('tapeSpeed').textContent;
+      return { idx0: i0, idx1: t.idx, eyebrow, speed, ok: t.idx > i0 && (/^LOADING · BLOCK \d+ OF 34$/.test(eyebrow) && /^Fast-forward ×\d+$/.test(speed) && +speed.split('×')[1] > 1 || /^END OF TAPE/.test(eyebrow)) };
+    }, idx0);
+    check('tape panel: motor on: the tape position keeps advancing in natural playback after the seek, LOADING at x>1', adv.ok, JSON.stringify(adv));
     const seen = await page.evaluate(() => window.__seen);
     // one shown frame with all of it: loading fast, the reels turning and the tape wound on (the first moving frame can
     // come while the left reel still reads 1.000 to three places)
