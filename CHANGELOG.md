@@ -8,6 +8,26 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.1.7-pre (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
+### Fixed
+
+- **A file dropped while the Claude chat is full screen goes to your BASIC session, not the chat.** The chat runs
+  its own firmware on a second machine of the same model, and that machine was the one a drop loaded into: a
+  program or a tape overwrote the chat firmware's memory and the chat screen went away, with the message saying the
+  load had worked. Programs, tapes, cartridges and disks now land on the BASIC session behind the chat (the machine
+  Claude acts on), the message says where they went, and the chat stays as it was. The drives card shows that
+  session's drives; on a Dragon Alpha, whose disk interface is built in, a disk dropped there used to go into the
+  chat machine's drives.
+
+- **Stored ROMs that do not start BASIC are not retried on every tape drop.** When a load used the stored ROMs and
+  they never printed OK, every later drop repeated the whole restart-and-wait (about 5 seconds of emulated time)
+  before falling back to running the tape in memory. The failure is now remembered for the visit, and a power cycle
+  or a ROM change clears it, so after either the ROMs are tried again.
+
+- **A restore closes the stale "No OK" box.** Claude's undo, and opening a snapshot, put the machine back to a
+  moment that is not a power-on; boot-help never re-checked, so a box raised by the run the restore replaced stayed
+  on screen. Restores are now announced as their own `restored` event (never `reset`), which boot-help listens to,
+  so the box goes with the run it belonged to and a moment that really is a boot failure still shows its cause.
+
 ### 0.1.7-pre
 
 #### Added

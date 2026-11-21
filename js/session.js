@@ -308,6 +308,7 @@ export class Session {
     this.keys = new KeyQueue();     // host key presses for the matrix, applied at frame starts (keyqueue.js)
     this.roms = new RomLibrary(this.index, romOwners);
     this.stubChosen = new Set();    // machines the user chose to run without ROMs this session
+    this.bootFailed = new Set();    // `machine@crcs` whose stored ROMs did not start BASIC this session (storedRomsWaiting)
     this.bootOk = null;             // the reset after which BASIC's OK was seen
     this.warmReset = null;          // { m, resetAt }: the run that began with the Reset button, not a power-on (bootStatus)
     this.welcome = null;            // the machine running the welcome program
@@ -759,7 +760,7 @@ export class Session {
   async pickNitros9Image(cpu = null) {
     const ok = (await this.nitros9Images()).filter((x) => !x.reason);
     const dw0 = this.driveWireMounts.find((d) => d.drive === 0);
-    const fd0 = this.machine && this.diskController ? this.diskStatus().drives.find((d) => d.drive === 0 && d.name) : null;
+    const fd0 = this.diskMachine && this.diskController ? this.diskStatus().drives.find((d) => d.drive === 0 && d.name) : null;
     return (dw0 && ok.find((x) => x.store === 'drivewire' && x.name === dw0.name)) ||
       (fd0 && ok.find((x) => x.store === 'disk' && DISK_PREFIX + x.name === fd0.name)) ||
       ok.find((x) => cpu && x.cpu === cpu) || ok[0] || null;
@@ -995,9 +996,11 @@ export class Session {
   // program next (startWelcome).
   // reason: the note when this stops Claude (the Power cycle button says the person did it; ROMs added, Run without
   // ROMs and the like restart the machine without being asked to power cycle it)
-  powerCycle({ menu = true, reason = 'the machine restarted' } = {}) {
-    this.stopClaudeFor(reason);
-    const m = this.machine;
+  // on: the machine to power cycle. The default is the machine in use; a load on the BASIC session while the chat
+  // is full screen passes that BASIC machine, so its clean restart never restarts the chat machine under the person.
+  powerCycle({ menu = true, reason = 'the machine restarted', on = null } = {}) {
+    const m = on || this.machine;
+    this.stopClaudeFor(reason, m);
     this.endWelcome();
     this.stubRun = null;
     this.keys.clear();
@@ -1015,12 +1018,16 @@ export class Session {
     const m = this.machine;
     if (this.welcomeMenu && m.useStub && WELCOME[cpuFamily(m.config.cpu)]) this.emit('menu', 'back');
   }
-  // run segments at exec (Machine.injectAndRun), remembering them as the stub's program to restart on Reset
-  inject(segments, exec) {
-    const m = this.machine;
+  // run segments at exec (Machine.injectAndRun), remembering them as the stub's program to restart on Reset.
+  // on: the machine to run them on (loadMedia's target: the BASIC session while the chat is full screen), else the
+  // machine in use. The restart-on-Reset record follows that machine, so Reset restarts the program on the machine
+  // the person sees it on.
+  inject(segments, exec, on = null) {
+    const m = on || this.machine;
     this.cancelLoadTyping(m);
     this.stopClaudeFor('you started a program', m);   // (as loadMedia: a program run with ROMs is not a reset)
     m.injectAndRun(segments, exec);
+    // (keyed by the machine it ran on, so Reset restarts it only on that machine: Session.reset checks stubRun.m)
     this.stubRun = m.useStub && exec != null
       ? { m, segments: segments.map((s) => ({ addr: s.addr, data: s.data.slice() })), exec, watch: null, welcome: null } : null;
   }
@@ -1034,6 +1041,9 @@ export class Session {
   // after a hard reset: the firmware may have changed (ROMs or the stub) and the SAM rate is back to slow
   poweredOn() {
     this.warmReset = null;   // a power-on arms the boot watchdog again, even in the frame of a Reset (same resetAt)
+    // a power-on is a fresh try at the ROMs: a machine whose ROMs did not start BASIC is tried again after one
+    // (the 'Switch off and on' the boot box offers is exactly that, and so is a ROM added or the machine switched)
+    this.bootFailed.clear();
     this.lastRate = this.cpuRate() && this.cpuRate().rate;
     this.emit('firmware');
   }
@@ -1343,6 +1353,9 @@ export class Session {
     if (m.atStubPrompt()) this.offerMenu();
     this.emit('disks');
     this.emit('nitros9');
+    // an opened moment is a restore, not a power-on: announced as 'restored' (never 'reset'), the same event an
+    // undo emits, so boot-help re-checks here too and its box never outlives the run the moment replaced
+    this.emit('restored');
     const n9 = this.nitros9Loader(m);
     return `Snapshot opened: ${m.profile.name}${n9 === 'drivewire' ? ', NitrOS-9 (on the image in DriveWire drive 0 now)' : n9 ? ', NitrOS-9' : Object.keys(roms).length ? '' : ', without ROMs'}`;
   }
@@ -1696,10 +1709,15 @@ export class Session {
   // chained, so they land in order; diskWritesDone() waits for them.
   // The disk cartridge (DragonDOS, Delta DOS or Disk BASIC) needs its ROM: the user's, like every other.
 
+  // where a file the person loads goes: the BASIC session while the Claude chat is full screen (Session.loadTarget)
+  // the person's disks go in the same machine, so a disk dropped on the chat screen lands in the drives the person
+  // sees, and the drives card shows those drives, not the chat machine's empty ones (it is a fresh machine: only a
+  // model with its own disk interface, the Dragon Alpha, has a controller there at all)
+  get diskMachine() { return this.loadTarget().m; }
   // the disk cartridges this machine can take: [{ id, name, controller, ready (ROM stored), inserted }]
   // A machine with its own disk interface (the Dragon Alpha) offers only that: { id: 'builtin', builtin: true }.
   diskDosChoices() {
-    const m = this.machine;
+    const m = this.diskMachine;
     if (m && m.fdc instanceof DiskController) return [{ id: 'builtin', name: m.fdc.name, controller: m.fdc.type, ready: true, inserted: true, builtin: true }];
     if (!m || !m.hasCartridgePort) return [];
     const ids = DISK_DOS[machineFamily(m.profile)] || [];
@@ -1708,7 +1726,7 @@ export class Session {
   }
   // the disk controller: the machine's own (the Dragon Alpha's), else the one in the cartridge port or in one of
   // its Multi-Pak's slots, or null
-  get diskController() { return this.diskControllerOf(this.machine); }
+  get diskController() { return this.diskControllerOf(this.diskMachine); }
   diskControllerOf(m) {
     if (m.fdc instanceof DiskController) return m.fdc;
     if (m.cartPort instanceof MultiPak) return m.cartPort.slots.find((c) => c instanceof DiskController) || null;
@@ -1729,7 +1747,7 @@ export class Session {
   }
   // the controller type a new disk is for: the one in use, else the preferred disk system's (null: no drives)
   blankDiskController() {
-    const fdc = this.machine && this.diskController;
+    const fdc = this.diskMachine && this.diskController;
     if (fdc) return fdc.type;
     const dos = this.diskDosChoices().find((c) => c.id === (this.preferredDiskDos() || {}).id) || this.diskDosChoices()[0];
     return dos ? dos.controller : null;
@@ -1740,7 +1758,7 @@ export class Session {
   async newDisk(drive, { format, tracks, heads }, { name = null, writeProtected = false } = {}) {
     this.checkDrive(drive);
     const type = this.blankDiskController();
-    if (!type) throw new SessionError(`The ${this.machine.profile.name} has no disk drives in CLOADM.`);
+    if (!type) throw new SessionError(`The ${this.diskMachine.profile.name} has no disk drives in CLOADM.`);
     if (!['vdk', 'jvc', 'dmk'].includes(format)) throw new SessionError(`A new disk is a VDK, JVC or DMK image, not "${format}".`);
     const kind = DRIVE_TYPES[FDC_BOARDS[type].drive];
     if (!Number.isInteger(tracks) || tracks < 1 || tracks > Math.min(kind.tracks, 82)) throw new SessionError(`Drive ${drive} takes disks of 1 to ${Math.min(kind.tracks, 82)} tracks, not ${tracks}.`);
@@ -1782,7 +1800,7 @@ export class Session {
     });
   }
   insertDiskDos(id) {
-    const m = this.machine, choice = this.diskDosChoices().find((c) => c.id === id);
+    const m = this.diskMachine, choice = this.diskDosChoices().find((c) => c.id === id);
     if (choice && choice.builtin) throw new SessionError(`The ${m.profile.name}'s disk interface is built in: no cartridge needed.`);
     if (!choice) throw new SessionError(`The ${m.profile.name} can't take ${cartridgeRoms[id] ? `the ${cartridgeRoms[id].name}` : `"${id}"`}.`);
     if (!choice.ready) throw new SessionError(`The ${choice.name} needs its ROM (${cartridgeRoms[id].roms[0].files.join(', ')}). Load the ROM file first.`);
@@ -1878,7 +1896,7 @@ export class Session {
     return name.startsWith(DISK_PREFIX) ? name : DISK_PREFIX + name.split(/[\\/]/).pop();
   }
   // drives this machine's controller has (the Alpha fits 2; a disk cartridge 4)
-  get driveCount() { const fdc = this.machine && this.diskController; return fdc ? fdc.fitted : 4; }
+  get driveCount() { const fdc = this.diskMachine && this.diskController; return fdc ? fdc.fitted : 4; }
   checkDrive(drive) {
     const n = this.driveCount;
     if (!Number.isInteger(drive) || drive < 0 || drive >= n) throw new SessionError(`There is no drive ${drive} (drives 0 to ${n - 1}).`);
@@ -1908,7 +1926,7 @@ export class Session {
     // would remove it) or be about to be mounted after this operation read the drive as empty.
     const raced = this.landedRace(full, askedAt);
     if (raced) throw new SessionError(`There is already a disk named ${raced.slice(DISK_PREFIX.length)} in your library: choose another name.`);
-    const holder = this.diskHolder(full, { machine: this.machine, drive });
+    const holder = this.diskHolder(full, { machine: this.diskMachine, drive });
     if (holder) throw new SessionError(`${holder.name} is in drive ${holder.drive}${holder.where}; eject it there first.`);
     if (this.diskStatus().drives.some((d) => this.sameName(d.name, full))) await this.ejectDisk(drive);
     await this.diskWritesDone();
@@ -1944,14 +1962,14 @@ export class Session {
     this.checkDrive(drive);
     if (!held) this.checkNotMoving();
     const full = this.diskStoreName(name), base = full.slice(DISK_PREFIX.length);
-    const holder = this.diskHolder(full, { machine: this.machine, drive });
+    const holder = this.diskHolder(full, { machine: this.diskMachine, drive });
     if (holder) throw new SessionError(`${holder.name} is already in drive ${holder.drive}${holder.where}.`);
     let fdc = this.diskController;
-    if (!fdc && this.machine.cartPort instanceof MultiPak) throw new SessionError('The Multi-Pak has no disk controller: put one in one of its slots first (Multi-Pak…).');
+    if (!fdc && this.diskMachine.cartPort instanceof MultiPak) throw new SessionError('The Multi-Pak has no disk controller: put one in one of its slots first (Multi-Pak…).');
     const dos = fdc ? null : this.preferredDiskDos();
     if (!fdc && !dos) {
       const c = this.diskDosChoices();
-      if (!c.length) throw new SessionError(`The ${this.machine.profile.name} has no disk drives in CLOADM.`);
+      if (!c.length) throw new SessionError(`The ${this.diskMachine.profile.name} has no disk drives in CLOADM.`);
       throw new SessionError(`Disks need a disk ROM: ${c.map((x) => `${x.name} (${cartridgeRoms[x.id].roms[0].files[0]})`).join(' or ')}. Load the ROM file first.`);
     }
     // The image is read once every write is in the store: the drive's own (a disk mounted again in the drive it is
@@ -1986,7 +2004,7 @@ export class Session {
     }
     // from here on nothing waits, so what is checked is what the mount finds: another mount that went in meanwhile
     // (into another drive, or into this one) is seen
-    const again = this.diskHolder(full, { machine: this.machine, drive });
+    const again = this.diskHolder(full, { machine: this.diskMachine, drive });
     if (again) throw new SessionError(`${base} is already in drive ${again.drive}${again.where}.`);
     if (!held) this.checkNotMoving();
     const format = detectDiskFormat(bytes, base);
@@ -2055,6 +2073,11 @@ export class Session {
     // moment carries its diagnosis in the snapshot), so the Session does, here, where the point's state is put
     // back. The latch is re-armed by the same frame rule every reset uses: the point's own frame is a new run.
     m.restored = true;
+    // Announced as its own event, not 'reset': an undo is not a Reset, and the listeners that hear 'reset' (a
+    // sound discontinuity, the drives card, the welcome shelf, the slots) must not act on a Reset that never
+    // happened. boot-help listens for 'restored' and re-checks, so the "No OK" box raised by the run the undo took
+    // away goes with it (restorePoint answers 'restored' for the machine now, so one check closes it).
+    this.emit('restored');
     this.emit('disks');
     return notices;
   }
@@ -2172,9 +2195,9 @@ export class Session {
   // why the store refused this image's last write (its changes are only in the drive until a write succeeds)
   // count: the drives there are (or will be once a cartridge goes in)
   diskStatus() {
-    const fdc = this.machine && this.diskController;
+    const fdc = this.diskMachine && this.diskController;
     if (!fdc) return { dos: null, count: 4, drives: [] };
-    const id = this.machine.fdc === fdc ? 'builtin' : Object.keys(cartridgeRoms).find((k) => cartridgeRoms[k].controller === fdc.type);
+    const id = this.diskMachine.fdc === fdc ? 'builtin' : Object.keys(cartridgeRoms).find((k) => cartridgeRoms[k].controller === fdc.type);
     return {
       dos: { id, name: id === 'builtin' ? fdc.name : cartridgeRoms[id].name },
       count: fdc.fitted,
@@ -2184,7 +2207,7 @@ export class Session {
   // the drive lights: [lit, ...] per drive. A drive's light is on while it is selected, its motor runs and the
   // controller is busy with a command (it is reading, writing or stepping)
   diskActivity() {
-    const fdc = this.machine && this.diskController;
+    const fdc = this.diskMachine && this.diskController;
     if (!fdc) return [false, false, false, false];
     const busy = !!(fdc.wd.status & 1);
     return fdc.drives.slice(0, fdc.fitted).map((d) => busy && fdc.wd.floppy === d && d.mon === 0);
@@ -2231,6 +2254,19 @@ export class Session {
     return { name: m.name.split('/').pop(), bytes: m.bytes.slice() };
   }
 
+  // Where a file the person loads (dropped, picked, from a link) goes: the BASIC session, which is the machine in
+  // use except while the Claude chat is full screen. The chat machine runs the chat firmware (examples/chat.bin),
+  // and a tape or program loaded into it overwrote that firmware's RAM and took the chat screen away, with a
+  // message saying the load had worked. The person's files are for their BASIC session, which Claude acts on too
+  // (chatTarget): a load lands there, and the chat stays on screen as it was. -> { m, why }, why being what the
+  // load's message says when the target is not the machine in use ('' when it is).
+  loadTarget() {
+    const m = this.machine;
+    if (this.chatMachines && m === this.chatMachines.chat && this.chatMachines.basic !== m) {
+      return { m: this.chatMachines.basic, why: 'Loaded into your BASIC session, which is what runs behind the chat. ' };
+    }
+    return { m, why: '' };
+  }
   needsRom(what) { return new SessionError(`${what} needs the ${this.machine.profile.name} BASIC ROM. Load the ROM files first.`); }
   // load a file of any supported kind -> message. askAddresses(name, size) -> { load, exec } | null for raw
   // data; remember: false keeps it off the recent list.
@@ -2245,11 +2281,26 @@ export class Session {
   // as with any power cycle), then nothing is typed until BASIC is at its prompt. Whatever ran before - a CLEAR
   // that moved the top of memory, 64K mode, a program that crashed - would otherwise decide where BASIC's stack and
   // variables are while the tape loads, which is where a self-starting tape puts its start-up code.
-  // m runs without ROMs only because that was chosen (stubChosen), and the ROMs stored for it boot BASIC
+  // m runs without ROMs only because that was chosen (stubChosen), the ROMs stored for it boot BASIC, and they
+  // have not already been tried and found not to (bootFailed): a drop that found that out would otherwise repeat
+  // the whole 5 s restart-for-a-clean-load and fall back on every later drop, for ROM images that never will.
   // (never the chat machine: it shares the model's id, but runs the chat firmware, not the model's BASIC)
   storedRomsWaiting(m) {
     if (this.chatMachines && m === this.chatMachines.chat) return false;
-    return !m.hasRom && this.stubChosen.has(m.id) && !this.nitros9On(m) && this.machineRoms(m.id).bootable;
+    return !m.hasRom && this.stubChosen.has(m.id) && !this.nitros9On(m) && this.machineRoms(m.id).bootable
+      && !this.bootFailed.has(this.bootKey(m));
+  }
+  // the ROMs a machine runs with, as the key a boot failure is remembered under: the same machine with other ROMs
+  // is a different try (a ROM change clears it), and so is a power-on (Session.poweredOn clears the whole set)
+  bootKey(m) {
+    const roms = this.roms.get(m.id);
+    return `${m.id}@${m.profile.roms.map((s) => (roms[s.id] ? crc32(roms[s.id]) : '-')).join(',')}`;
+  }
+  // remember that m's stored ROMs did not start BASIC, and keep them off later loads' retries until a power-on or
+  // a ROM change clears it (forgetBootFailure). -> the note the load's message adds.
+  bootFailedThis(m, name) {
+    this.bootFailed.add(this.bootKey(m));
+    return `Your stored ROMs did not start BASIC, so ${name} went straight into memory. `;
   }
   // put m's stored ROMs back in (as the ROM screen's "Switch on" does, on this same machine; the load power cycles it)
   useStoredRoms(m) {
@@ -2264,13 +2315,22 @@ export class Session {
     m.typist.dropTyped();
     m.pcWatch = null;
   }
+  // on: the machine to restart (loadMedia's target, which is the BASIC session while the chat is full screen); the
+  // default is the machine in use. A power cycle of another machine must not reach into the chat: the chat machine
+  // is reset through this same path only for itself, never for the person's load.
   restartForLoad(m) {
-    this.powerCycle({ menu: false, reason: 'you loaded a program' });
+    this.powerCycle({ menu: false, reason: 'you loaded a program', on: m });
     m.ensureBooted();
     for (let i = 0; i < 5 * m.fps && this._bootStatusOf(m).state !== 'ok' && m.runFrame(); i++);
   }
-  loadMedia(name, bytes, askAddresses, { run = true } = {}) {
-    const m = this.machine;
+  // on: the machine to load on, for a caller that already knows (the chat's own firmware load names its chat
+  // machine); otherwise the person's load target (loadTarget), which is the machine in use unless the chat is full
+  // screen, where it is the BASIC session behind it. The message says where it went when that is not the machine
+  // in use.
+  loadMedia(name, bytes, askAddresses, { run = true, on = null } = {}) {
+    const target = on ? { m: on, why: '' } : this.loadTarget();
+    const m = target.m;
+    const where = (msg) => target.why + msg;
     // a program the person loads takes over the machine Claude acts on (with ROMs it starts without a reset, so
     // the machine's onReset does not say so): Claude stops just before it does (inject does too), and nothing it
     // held is typed into the program; a load that is refused or cancelled leaves Claude alone
@@ -2288,10 +2348,10 @@ export class Session {
           if (!m.hasRom) throw this.needsRom('A BASIC program');
           takeOver();
           m.loadBasicProgram(d.segments[0].data, d.segments[0].addr);
-          return `${name}: ${d.format}, ${d.segments[0].data.length} bytes – RUN`;
+          return where(`${name}: ${d.format}, ${d.segments[0].data.length} bytes – RUN`);
         }
-        this.inject(d.segments, d.exec);
-        return `${name}: ${d.format} ${describeSegments(d.segments, d.exec)}`;
+        this.inject(d.segments, d.exec, m);
+        return where(`${name}: ${d.format} ${describeSegments(d.segments, d.exec)}`);
 
       case 'wav':
         throw new SessionError(d.error ? `${name}: ${d.error}` : `${name}: no tape blocks found in this recording${d.wav && d.wav.badBlocks ? ` (${d.wav.badBlocks} damaged)` : ''}`);
@@ -2306,7 +2366,7 @@ export class Session {
         if (first.fileType !== 0 && first.fileType !== 2) {
           this.cancelLoadTyping(m);
           m.deck.insert(tape);
-          return `${name}: ${first.name} is a ${first.typeName} file, which a program reads (OPEN "I",#-1); it is in the deck`;
+          return where(`${name}: ${first.name} is a ${first.typeName} file, which a program reads (OPEN "I",#-1); it is in the deck`);
         }
         // an ASCII BASIC listing must be tokenised by BASIC's CLOAD, so it always loads through BASIC
         const ascii = first.fileType === 0 && first.ascii;
@@ -2324,14 +2384,14 @@ export class Session {
           if (again && this._bootStatusOf(m).state !== 'ok') {
             this.runWithoutRoms({ menu: false });
             if (ascii) throw new SessionError(`${name}: your stored ${m.profile.name} ROMs did not start BASIC, and an ASCII BASIC tape needs it.`);
-            note = `Your stored ROMs did not start BASIC, so ${name} went straight into memory. `;
+            note = this.bootFailedThis(m, name);
           } else {
             m.deck.insert(tape);
             if (first.fileType === 2) {
               m.typist.type('CLOADM\r');
               m.typist.typeWhen(execWhenReady(m, first), 'EXEC\r');
             } else { m.typist.type('CLOAD\r'); m.typist.waitTape(); m.typist.type('RUN\r'); }
-            return `${again ? `Using your ROMs again to load ${name} through BASIC. ` : ''}Restarted for a clean load. ${name}: tape inserted [${list}] – loading via BASIC`;
+            return where(`${again ? `Using your ROMs again to load ${name} through BASIC. ` : ''}Restarted for a clean load. ${name}: tape inserted [${list}] – loading via BASIC`);
           }
         }
         let msg;
@@ -2342,12 +2402,12 @@ export class Session {
           msg = `${name}: ${first.name} (BASIC) fast-loaded – RUN`;
         } else {
           const seg = { addr: first.load, data: first.data };
-          this.inject([seg], first.exec);
+          this.inject([seg], first.exec, m);
           msg = `${name}: ${first.name} fast-loaded ${describeSegments([seg], first.exec)}`;
         }
         tape.seekByte(first.end);       // the rest stays in the deck for multi-part loaders
         m.deck.insert(tape);
-        return note + msg;
+        return where(note + msg);
       }
 
       case 'cart': {
@@ -2356,7 +2416,7 @@ export class Session {
         let dev;
         try { dev = cartridgeFor(bytes, this.cartBoard); } catch (e) { throw new SessionError(`${name}: ${e.message}`); }
         this.cartFiles.set(dev, name);
-        return this.startCartridge(dev, `${name}: ${dev.name}`);
+        return where(this.startCartridge(dev, `${name}: ${dev.name}`, m));
       }
 
       case 'basictext':
@@ -2364,14 +2424,14 @@ export class Session {
         takeOver();
         m.ensureBooted();
         m.typist.type('NEW\r' + d.text.replace(/\r\n?/g, '\n').split('\n').filter((l) => l.trim()).join('\r') + (run ? '\rRUN\r' : '\r'));
-        return `${name}: typing BASIC listing…`;
+        return where(`${name}: typing BASIC listing…`);
 
       default: {
         const a = askAddresses && askAddresses(name, bytes.length);
         if (!a) throw new SessionError(`${name}: unknown format (${bytes.length} bytes)`);
         const seg = { addr: a.load, data: bytes };
-        this.inject([seg], a.exec);
-        return `${name}: raw ${describeSegments([seg], a.exec)}`;
+        this.inject([seg], a.exec, m);
+        return where(`${name}: raw ${describeSegments([seg], a.exec)}`);
       }
     }
   }
@@ -2381,11 +2441,14 @@ export class Session {
     this._cartBoard = v;
   }
   // the cartridge goes in and runs: autostart through BASIC after a reset, or straight at $C000 without a ROM
-  startCartridge(dev, what) {
-    const m = this.machine;
+  // on: the machine the cartridge goes into (loadMedia's target: the BASIC session while the chat is full screen),
+  // else the machine in use. The cartridge belongs to that machine either way, so the chat machine's port is never
+  // filled behind the chat firmware's back.
+  startCartridge(dev, what, on = null) {
+    const m = on || this.machine;
     m.insertCartridge(dev);
     if (m.hasRom) { m.reset(false); return `${what} inserted, autostarting`; }
-    this.inject([], 0xC000);
+    this.inject([], 0xC000, m);
     return `${what} inserted, running at $C000`;
   }
   // A Multi-Pak with up to four cartridges: items[i] = { name, bytes, board }, { dos } (a disk controller: an id
@@ -2934,7 +2997,8 @@ export class Session {
     const { welcome, welcomeBuild } = this;
     this.install(chatMachine);
     this.emit('machine');
-    this.loadMedia('chat.bin', firmware, null);
+    // on the chat machine itself (not loadTarget: the chat's own firmware is the one thing that loads there)
+    this.loadMedia('chat.bin', firmware, null, { on: chatMachine });
     // (loading ends the welcome; it ran on the BASIC session, not this one)
     Object.assign(this, { welcome, welcomeBuild });
     if (kept) {
@@ -3241,7 +3305,7 @@ export class Session {
     const g = WELCOME.greetings.indexOf(greeting);
     if (g < 0) throw new SessionError(`unknown welcome greeting "${greeting}"`);
     if (!m.useStub) this.runWithoutRoms({ menu: false });   // also adds the machine to stubChosen ("Use the ROMs again" undoes it)
-    this.loadMedia(this.welcomeFile, bytes, null);
+    this.loadMedia(this.welcomeFile, bytes, null, { on: m });
     if (this.stubRun) this.stubRun.welcome = { bytes, greeting, carryOn };   // Reset: the menu as it is now
     this.menuWatch = null;
     m.poke(w.greet, g);

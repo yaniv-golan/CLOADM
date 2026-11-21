@@ -282,6 +282,9 @@ emulator.
   goes in while you watch the chat. The chat needs a 6809-family CPU (the 6309 runs the firmware unchanged) and
   32K or more: the firmware uses $0400-$7FFF. On a machine with less the chat opens and the screen stays the stub's,
   so pick a 32K model (the Dragon 64, a 32K CoCo); the chat opens on a Dragon 64 from an MC-10 or Alice.
+  A file dropped while the chat is full screen (a program, a tape, a cartridge or a disk) goes to your BASIC session,
+  never the chat machine: the chat machine runs the chat firmware, and a load there would overwrite it and take the
+  chat screen away. The message says where it went, and the drives card shows the BASIC session's drives.
 * **Typing.** A line can be up to 255 characters. It wraps as you type the way replies wrap: a word that doesn't fit
   moves to the next line, a word with no space in it breaks at the character, and a space that falls at the end of a
   full line ends it without being drawn. BACKSPACE goes back across the wraps. A key past the 255th is refused visibly: the screen flashes (the VDG's colour

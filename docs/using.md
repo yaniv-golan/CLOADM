@@ -314,7 +314,9 @@ soon as you add it. A snapshot of another model or RAM size asks before switchin
 power-on: whatever the program on screen is doing (a game, a program that took over Reset), opening a snapshot
 never brings up the "No OK after 5 seconds" box. **Switch off and on** and adding ROMs are power-ons again, with
 their box as before; **Reset** keeps RAM and never reports a failed boot - if a program holds BASIC's warm-start
-vector it says "A program took over Reset" and offers **Switch off and on**, and otherwise shows no box.
+vector it says "A program took over Reset" and offers **Switch off and on**, and otherwise shows no box. Restoring
+(Claude's undo included) takes down a box the run it replaced had raised, and a restored moment that really is a
+boot failure shows its own cause.
 
 **Switching machine or RAM** asks first and names what comes out: "Switching to Dragon 32 resets the Dragon 64
 and takes out the tape GAME.CAS, the cartridge and the disk WORK.VDK in drive 0." Tapes, cartridges and disks from your
