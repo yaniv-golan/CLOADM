@@ -3,7 +3,7 @@
 <p align="center"><b>Dragon · Tandy Color Computer · MC-10 in your browser, checked cycle by cycle against MAME where MAME has the hardware.</b></p>
 
 <p align="center">
-  <img src="img/readme-liza.png" width="640" alt="LIZA running on an emulated Dragon 64 with no ROMs: I AM LIZA. WHAT IS ON YOUR MIND? > I MISS MY DRAGON. DO COMPUTERS WORRY YOU? > BECAUSE IT WAS MAGIC. IS THAT THE REAL REASON?">
+  <img src="img/readme-demo.gif" width="640" alt="An emulated Dragon 64 with no ROMs, looping: the welcome menu (talk to LIZA, colour and sound, add your ROMs for BASIC, chat with Claude, play a game), then LIZA: I MISS MY DRAGON. DO COMPUTERS WORRY YOU? BECAUSE IT WAS MAGIC. IS THAT THE REAL REASON?">
 </p>
 
 <p align="center">
@@ -13,6 +13,12 @@
   <a href="#machines">Machines</a> ·
   <a href="docs/verification.md">Verification</a> ·
   <a href="CONTRIBUTING.md">Contributing</a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/yaniv-golan/CLOADM/actions/workflows/tests.yml"><img src="https://github.com/yaniv-golan/CLOADM/actions/workflows/tests.yml/badge.svg?branch=main" alt="tests workflow status on main" height="20"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license" height="20"></a>
+  <a href="https://cloadm.dev/play/"><img src="https://img.shields.io/badge/live%20demo-cloadm.dev-brightgreen" alt="Live demo at cloadm.dev" height="20"></a>
 </p>
 
 CLOADM (named after the BASIC command that loads machine code from tape) emulates the Dragon 32/64/200, the Tandy
@@ -59,11 +65,17 @@ hardware; the exceptions are listed under [How we know it's right](#how-we-know-
 Something not working? The [quick fixes](https://cloadm.dev/help/#fixes) cover a black screen, no sound, a tape
 that won't load, a disk that shows nothing and the keyboard.
 
-## Use it from code or an agent
+## Use it with AI coding agents and Claude
 
-`node cli/cloadm.js --program liza --screen` runs a program headless and prints the screen. In Claude Code:
-`/plugin marketplace add yaniv-golan/CLOADM`, then `/plugin install cloadm`.
-Guides: [docs/automation.md](docs/automation.md) and [docs/mcp.md](docs/mcp.md).
+* **Claude:** the connector and the plugin above; the install steps and a comparison are in
+  [docs/mcp.md](docs/mcp.md#which-way-should-i-install-cloadm-for-claude).
+* **Any MCP client** (Claude Code, Cursor, Claude Desktop, Codex, Gemini CLI, …): `node cli/cloadm.js --mcp` is a
+  stdio server that boots machines, runs programs, types, reads the screen and memory, steps the CPU and takes
+  screenshots ([docs/mcp.md](docs/mcp.md)). It needs Node 22.12 or later and a checkout, and nothing to install.
+* **Scripts and CI:** `node cli/cloadm.js --program liza --screen` runs a program headless and prints the screen
+  ([docs/automation.md](docs/automation.md)).
+* **Changing CLOADM with an agent:** [AGENTS.md](AGENTS.md) is the contributor guide for people and coding agents
+  alike, and says what you must show before a change counts as done.
 
 ## Machines
 

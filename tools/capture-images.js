@@ -4,7 +4,8 @@
 //   img/welcome.png  the welcome program's menu (landing page hero, README)
 //   img/liza.png     a short LIZA conversation (landing page, README)
 // Each is the emulator canvas at its native resolution; pages scale it with image-rendering: pixelated. The
-// README gets copies scaled 2x with square pixels (img/readme-*.png), since GitHub scales images smoothly.
+// README gets copies scaled 2x with square pixels (img/readme-*.png), since GitHub scales images smoothly; its
+// animated picture, img/readme-demo.gif, comes from tools/capture-gif.js.
 //   node tools/capture-images.js
 const http = require('http'), fs = require('fs'), path = require('path');
 const { chromium } = require('playwright');
@@ -58,7 +59,6 @@ const waitFor = async (page, fn) => { for (let i = 0; i < 200; i++) { if (await 
       await page.keyboard.type(line, { delay: 40 }); await page.keyboard.press('Enter'); await page.waitForTimeout(800);
     }
     await save(page, 'liza.png');
-    await save(page, 'readme-liza.png', 2);
   } finally {
     await browser.close();
     server.close();

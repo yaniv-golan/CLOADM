@@ -8,6 +8,18 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
+### Added
+
+- README: status, licence and live-demo badges, a looping picture of the welcome menu and LIZA (`img/readme-demo.gif`,
+  captured from the real page with no ROMs by `node tools/capture-gif.js`, with the small encoder in `tools/gif.js`),
+  and a "Use it with AI coding agents and Claude" section that points to the MCP server, the connector and plugin, the
+  command line and AGENTS.md.
+
+### Changed
+
+- The README's top picture is the GIF; the static `img/readme-liza.png` is gone and `tools/capture-images.js` no
+  longer writes it. `tests/readme.test.js` now checks GIF pictures too (a real GIF, 4:3, captured by a tool in `tools/`).
+
 ### 0.1.8-pre
 
 #### Added
