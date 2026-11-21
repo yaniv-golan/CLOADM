@@ -1698,8 +1698,8 @@ async function resetChecks(browser, base, check) {
   check('reset: Reset warm-starts into the game, RAM kept (W)', await waitFor(page, () => window.emu.session.screenText()[0].startsWith('WWWW')), await top());
   await emuFrames(page, 5);
   const after = await named();
-  check('reset: Reset keeps the machine: header, status line and remembered machine', before.id === 'dragon64' && after.id === 'dragon64' && after.name === 'Dragon 64'
-    && after.stored === 'dragon64' && /^Dragon 64 · /.test(after.status), JSON.stringify({ before, after }));
+  check('reset: Reset keeps the machine: header, status line (the speed; the name is the header\'s) and remembered machine', before.id === 'dragon64' && after.id === 'dragon64' && after.name === 'Dragon 64'
+    && after.stored === 'dragon64' && /^\d+ fps · /.test(after.status), JSON.stringify({ before, after }));
   // 5 s of emulated time after the Reset
   const shown = await waitFor(page, () => !document.getElementById('bootHelp').hidden, null, 30000);
   const box = await page.textContent('#bootHelp');
@@ -5293,12 +5293,14 @@ async function commandsChecks(browser, site, check) {
     await ctx.close();
   }
   {
-    const { ctx, page } = await open({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+    // (held sideways, where the app bar gives way to the panel; upright Commands… is in the app bar's More: the
+    // mobile group)
+    const { ctx, page } = await open({ viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true });
     await waitFor(page, () => !document.getElementById('touchKeys').hidden && document.body.classList.contains('touch-keys'));
     await page.tap('#tkMenu');
-    const item = await page.evaluate(() => { const b = document.querySelector('#tkMenuSheet [data-item="commands"]'); return b && b.textContent; });
+    const item = await page.evaluate(() => { const b = document.querySelector('#tkMenuSheet [data-item="commands"]'); return b && b.checkVisibility() && b.textContent; });
     await page.tap('#tkMenuSheet [data-item="commands"]', { timeout: 3000 }).catch(() => {});   // (a missing item is a FAIL below, not a throw)
-    check('commands (touch keys): the keys\' Menu has "Commands…", which opens the box', item === 'Commands…'
+    check('commands (touch keys, sideways): the keys\' Menu has "Commands…", which opens the box', item === 'Commands…'
       && await waitFor(page, () => !document.getElementById('cmdBox').hidden && document.activeElement === document.getElementById('cmdInput') && document.getElementById('tkMenuSheet').hidden), String(item));
     await ctx.close();
   }
@@ -10652,7 +10654,7 @@ async function phoneChatChecks(browser, base, check) {
     check(`phone chat (${label}): and nothing lies over it`, !after.covered.length, JSON.stringify(after.covered));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `phone-chat-${label}-reply.png`) });
     // the way out is always there (PC-M1): upright, the chat bar stays at the top when the page scrolls; either way
-    // the keyboard's Menu is "← Emulator" and leaves the chat
+    // the keyboard's Menu is "← Emulator" and leaves the chat (back on the emulator it is Keys ▾ upright, Menu sideways)
     if (label === 'portrait') {
       await page.evaluate(() => scrollTo(0, 500));
       check('phone chat (portrait): scrolled down, the chat bar and its "← Emulator" stay at the top', await page.evaluate(() => {
@@ -10663,7 +10665,7 @@ async function phoneChatChecks(browser, base, check) {
     check(`phone chat (${label}): the on-screen keyboard's Menu says "← Emulator"`, await page.textContent('#tkMenu') === '← Emulator');
     await page.tap('#tkMenu');
     check(`phone chat (${label}): and leaves the chat for the emulator`, await waitFor(page, () => !document.body.classList.contains('claude-open') && !/app=claude/.test(location.search)
-      && document.getElementById('tkMenu').textContent === 'Menu'));
+      && document.getElementById('tkMenu').textContent === (innerHeight > innerWidth ? 'Keys ▾' : 'Menu')));
     check(`phone chat (${label}): no page errors`, !errors.length, errors.join('; '));
     await ctx.close();
   }
@@ -14336,7 +14338,8 @@ async function mobileChecks(browser, base, check) {
     check('mobile (app bar): no page errors', !errors.length, errors.join('; '));
     await ctx.close();
   }
-  // m3 below 390 px (the 320 px iPhone SE): Add ROMs takes a row of its own, under a row that still holds the machine,
+  // m3 where the machine's name would be cut short (the 320 px iPhone SE): Add ROMs takes a row of its own, under a row
+  // that still holds the machine,
   // Open…, Ask Claude and More whole
   {
     const { ctx, page } = await open(dev('iPhone SE'), '?machine=dragon64');

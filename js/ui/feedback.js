@@ -124,11 +124,12 @@ export function createFeedback() {
       const f = (cv.dataset.active || '0,0,1,1').split(',').map(Number);
       return { left: c.left + f[0] * c.width, top: c.top + f[1] * c.height, right: c.left + f[2] * c.width, bottom: c.top + f[3] * c.height };
     })() : null;
-    // the band under the text, inside the tube: the picture's border, and the black glass under the picture where the
-    // tube is taller than it (a phone held sideways, whose screen column has the window's height: there the band
-    // under the picture is the one place that covers neither the text nor a key)
+    // the band under the text, inside what shows of the screen. A phone held sideways with the touch keys: the screen
+    // column has the window's height and the picture sits in the middle of its tube, so the band reaches the tube's
+    // foot, the black glass under the picture: the one place there that covers neither the text nor a key
+    const sideKeys = document.body.classList.contains('touch-keys') && matchMedia('(orientation: landscape) and (max-height: 500px)').matches;
     const band = t && t.width && t.height && text ? { left: Math.max(t.left, c.left, area.left) + 8, right: Math.min(t.right, c.right, area.right) - 8,
-      top: text.bottom + 2, bottom: Math.min(t.bottom, area.bottom) - 4 } : null;
+      top: text.bottom + 2, bottom: Math.min(t.bottom, sideKeys ? Infinity : c.bottom, area.bottom) - 4 } : null;
     const offText = controls.concat(text ? [text] : []);
     tries.push([r.left, area.top + (phone ? 8 : 16), true]);
     const put = (x, y, width = null) => {

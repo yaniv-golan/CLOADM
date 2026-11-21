@@ -772,7 +772,8 @@ picture is at least 80% of the page's width (41% on the SE and 58% on the iPhone
 already at 84%, so its row guards rather than fails); the panel's toolbar (Keys, Joystick, BREAK, CLEAR, Keys ▾) has no two buttons
 overlapping, none clipped, outside its switch or off the page; BREAK, CLEAR and Keys ▾ are at least 44 px tall. The app
 bar on an iPhone 15 is one row (the machine with its name whole, Add ROMs, Open…, Ask Claude, More), More's label
-centred in its button, and opening More moves nothing in that row; under 390 px Add ROMs takes a row of its own. More
+centred in its button, and opening More moves nothing in that row; where the machine's name would be cut short (the 320 px SE)
+Add ROMs takes a row of its own. More
 (the links, Commands…, Share) and Keys ▾ (Full keyboard, Game keys, Hide keys) share no item, and Hide keys hides the
 panel. `?start=2048` and `?start=minesweeper`, and a game started from the Media tab, show the game keys (not the full
 keyboard, on screen); their → is the machine's RIGHT; Keys ▾ switches layouts; BREAK back to the welcome menu brings the

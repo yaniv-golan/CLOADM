@@ -173,6 +173,21 @@ $('btnMenu').onclick = () => {
   session.on((ev) => { if (ev === 'machine') fit(); });
   fit();
 }
+// the phone's app bar (700 px and less, play/index.html): one row while the machine's name fits whole beside Add ROMs;
+// where it would be cut short, Add ROMs takes a row of its own (class "rom-below"). Measured, as above: taken off,
+// then put on if the name is clipped
+{
+  const bar = $('appbar'), name = $('machineName'), phone = matchMedia('(max-width: 700px)');
+  const fit = () => {
+    bar.classList.remove('rom-below');
+    if (phone.matches && !$('romPill').hidden && name.scrollWidth > name.clientWidth + 0.5) bar.classList.add('rom-below');
+  };
+  new ResizeObserver(fit).observe(bar);
+  new MutationObserver(fit).observe($('romPill'), { attributes: true, attributeFilter: ['hidden'] });
+  if (document.fonts) document.fonts.ready.then(fit);
+  session.on((ev) => { if (ev === 'machine') fit(); });
+  fit();
+}
 
 // Esc closes the topmost surface that is open (page.onEscape: confirmations, menus, cards, the views, the chat)
 //; on the screen only a confirmation or a card takes it, and otherwise it is the machine's BREAK; a control

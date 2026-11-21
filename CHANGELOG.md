@@ -31,7 +31,7 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 - **The phone's app bar on an iPhone 15:** Menu's label sat at the top of its button, Add ROMs wrapped to a second row,
   and opening Menu pushed Share into the row. The bar is one row (the machine's name gives way first; Ask Claude is its
   icon under 480 px), labels are centred, and More opens its links and Share under the row, moving nothing in it.
-  Under 390 px Add ROMs takes a row of its own.
+  Where the machine's name would be cut short beside it (measured), Add ROMs takes a row of its own.
 - **On a touch screen the games' hint says "tap a key" and "tap BREAK"**, not "press a key" and "BREAK (Esc)"; held
   sideways it sits on the black glass under the picture instead of over the top keys and the screen.
 
