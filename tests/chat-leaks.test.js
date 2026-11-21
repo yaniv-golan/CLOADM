@@ -38,7 +38,8 @@ const ROM_A = new Uint8Array(16384).fill(0x12), ROM_B = new Uint8Array(16384).fi
 function chatSession(setup = () => {}, id = 'dragon64', panel = false) {
   const s = new Emu.Session({ store: Emu.memoryStore(), media: new Emu.MemoryMediaStore() });
   s.switchMachine(id);
-  setup(s);
+  const r = setup(s);
+  if (r && typeof r.then === 'function') s.setupPromise = r;
   frames(s, 5);
   // panel: the side-panel chat (Ask Claude), which has no chat machine - its target is the machine in use. Rows that
   // need Claude to be pausable use it, because pausing is only possible when Claude acts on the keyed machine.
@@ -148,7 +149,6 @@ const ROWS = [
   // (the Pak needs the user's PIC ROM, which may not be committed: this row is its refusal path, kept because a
   // refusal must still not touch the chat machine - it is marked 'may-throw')
   ['insert the Speech/Sound Pak (refused without its PIC ROM)', () => {}, (s) => s.insertSsc(), 'may-throw:needs its PIC ROM'],
-  // (the Pak needs the user's PIC ROM, so it cannot be put IN here: this row is its eject refusal, named)
   // (the Pak needs the user's PIC ROM, so it cannot be put IN here: this row is what eject does when it is out, and
   // asserts that answer - it returns a sentence, it does not throw)
   ['eject the Speech/Sound Pak (not in)', () => {}, (s) => { if (!/not in/.test(s.ejectSsc())) throw new Error('eject did not say the Pak is not in'); }],
@@ -204,8 +204,6 @@ const ROWS = [
   ['import a disk image into the library', withDos, (s) => s.importDisk('d.vdk', Emu.blankDisk('vdk', 40, 1), 0)],
   ['mount a disk by name', withDos, async (s) => { await s.media.write('disks/m.vdk', Emu.blankDisk('vdk', 40, 1)); return s.mountDisk(0, 'disks/m.vdk'); }],
   ['open a snapshot', () => {}, async (s) => { const snap = await s.readSnapshot((await s.snapshotFile()).bytes); return s.openSnapshot(snap); }, 'closes-chat'],
-  // (keepSnapshotDisk is for a disk that came WITH a snapshot and is not in the Library yet: a disk already in the
-  // Library is refused - "already in your Library" - so the row mounts a fresh image under a name of its own)
   // keepSnapshotDisk is for a disk that came WITH a snapshot (not linked to the Library): unlink the imported one so
   // the row reaches the save, then assert the drive is linked to the Library afterwards.
   // a disk that came WITH a snapshot is not in the Library at all (no stored image, no link): remove the import from
@@ -260,6 +258,21 @@ const ROWS = [
     s.leaveNitros9();
     if (s.nitros9Running) throw new Error('still running after leave');
   }],
+  // Share pairs a picture of the machine ON SCREEN with a link to that machine (shareUrl). With the chat open after a
+  // floppy boot, the person's nitros9Running is true but the SHOWN machine's is not: the link must describe the chat
+  // machine, as its picture does. This row asserts the shown-machine getter both ways.
+  ['Share: the shown machine\'s NitrOS-9, not the person\'s', 'coco3', (s) => s.media.write('disks/n9.dsk', NITROS9), async (s) => {
+    await s.bootNitros9('n9.dsk');
+    if (!s.nitros9Running) throw new Error('the person\'s NitrOS-9 is not reported');
+    if (s.chatMachines && s.nitros9OnScreen) throw new Error('the SHOWN machine claims NitrOS-9 it does not run');
+  }],
+  // the welcome getters: the person's machine and the shown one, which differ while the chat is open
+  ['the welcome state speaks for the person\'s machine and the shown one separately', () => {}, (s) => {
+    const welcome = new Uint8Array(fs.readFileSync(path.join(ROOT, 'examples/welcome.bin')));
+    s.startWelcome(welcome, { greeting: 'back' });
+    if (!s.welcomeRunning) throw new Error('welcomeRunning is false on the person\'s machine');
+    if (s.welcomeRunningOn) throw new Error('welcomeRunningOn claims the CHAT machine runs the menu');
+  }],
   ['switch display (composite, then back)', () => {}, (s) => { const was = s.display.view; const other = was === 'crt' ? 'sharp' : 'crt'; s.setDisplay({ view: other }); if (s.display.view === was) throw new Error('the display did not change'); s.setDisplay({ view: was }); }],
   // the printout is the SHOWN machine's (the printer panel shows what the screen's machine printed, and `printed` is
   // Machine.STATE), so this is a shown-machine action by design, like opening the printer panel
@@ -292,8 +305,13 @@ const ROWS = [
 // action, one without.)
 async function observed(setup, act, id = 'dragon64', panel = false) {
   // a setup that throws is a failure of the ROW (it did not get the state it asked for): collected and failed below
-  let setupError = null;
-  const s = chatSession((x) => { try { setup(x); } catch (e) { setupError = e.message; } }, id, panel);
+  const setupErrorBox = { error: null };
+  // the wrapper RETURNS the setup's value (a promise for an async setup) so chatSession can hand it back;
+  // chatSession is what knows it, so it is read from there
+  const s = chatSession((x) => { try { return setup(x); } catch (e) { setupErrorBox.error = e.message; } }, id, panel);
+  // (a setup may be async - mounting, importing: its work and its throw would land after the row was observed)
+  if (s.setupPromise) { try { await s.setupPromise; } catch (e) { setupErrorBox.error = e.message; } }
+  const setupError = setupErrorBox.error;
   const chatM = s.chatMachines ? s.chatMachines.chat : s.machine;   // (a panel session has no chat machine)
   const recordBefore = s.stubRuns.get(chatM);
   let threw = null, result = null;
@@ -320,11 +338,16 @@ async function observed(setup, act, id = 'dragon64', panel = false) {
 //   ROW       it has a row in ROWS.
 const UI_DIR = path.join(ROOT, 'js/ui');
 function uiCalledMethods() {
-  const out = new Map();   // name -> file:line of the first call
+  const out = new Map();   // name -> file:line of the first mention
   for (const f of fs.readdirSync(UI_DIR).filter((n) => n.endsWith('.js'))) {
     const src = fs.readFileSync(path.join(UI_DIR, f), 'utf8').split('\n');
     src.forEach((line, i) => {
-      for (const m of line.matchAll(/\bsession\.([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/g)) if (!out.has(m[1])) out.set(m[1], `${f}:${i + 1}`);
+      // CALLS and READS alike: a getter that means the wrong machine is the nitros9Running class of bug, and reading
+      // `session.x` is how a panel uses one. The shapes the reviewer named must not slip past silently:
+      // session?.x(), session['x'], and a destructured `{ x } = session`: each is an ERROR below, not a silent miss.
+      for (const m of line.matchAll(/\bsession\??\.([a-zA-Z_][a-zA-Z0-9_]*)/g)) if (!out.has(m[1])) out.set(m[1], `${f}:${i + 1}`);
+      for (const m of line.matchAll(/\bsession\s*\[\s*['"]([a-zA-Z_][a-zA-Z0-9_]*)['"]\s*\]/g)) out.set(`[${m[1]}]`, `${f}:${i + 1}`);
+      for (const m of line.matchAll(/\b(?:const|let|var)\s*\{([^}]*)\}\s*=\s*session\b/g)) out.set(`{${m[1].trim()}}`, `${f}:${i + 1}`);
     });
   }
   return out;
@@ -365,9 +388,30 @@ function rowMethods() {
   // page concerns, not machine actions
   const UI = new Set(['mediaError', 'visit']);
   const rows = rowMethods();
-  const missing = [...uiCalledMethods()].filter(([name]) => !rows.has(name) && !READ.has(name) && !LIBRARY.has(name)
-    && !SESSION.has(name) && !UI.has(name));
-  check('every Session method the UI calls has a row or a written reason', missing.length === 0,
+  const called = uiCalledMethods();
+  // a shape the scan does not understand must FAIL, not vanish: an unclassified reading is exactly what this catches
+  const oddShapes = [...called].filter(([n]) => n.startsWith('[') || n.startsWith('{'));
+  check('the coverage scan understands every way the UI reaches the Session', oddShapes.length === 0,
+    oddShapes.map(([n, at]) => `${n} (${at}): use session.x, not a computed key or a destructured alias`).join(', '));
+  // Session members whose puppets the UI drives: the MEMBER is classified, and the puppet is covered by that (the
+  // reason is written where its reachability is decided). debug: opening the Debugger view closes the chat
+  // (js/ui/claude.js:283-286, page.onView), so the panel never drives a debugger while the chat is on screen.
+  // Setters/plain Session fields and page-facing state: they hold no machine of their own (or hold both machines
+  // explicitly, like chatMachines), so reading them cannot reach the wrong one.
+  for (const n of ['js', 'constructor', 'claudeView', 'chatView', 'claudePaused', 'claudeAllowed', 'claudePending',
+    'claudeActing', 'claudeStatus', 'claudePoints', 'claudeGate', 'keyStore', 'chatMachines', 'hasClaudeKey',
+    'chatPromptEmpty', 'labels', 'turbo', 'fastCas', 'fastTape', 'unsavedRecording', 'menuTicket', 'carryOn',
+    'lastRun', 'welcomeMenu', 'startMachine', 'caseInsensitive', 'webSerialAvailable', 'realCoco', 'driveWireMounts',
+    'driveWireChannels', 'hasAnyRoms', 'hasMultiPak', 'claudeBusyActing', 'lizaFile', 'cartBoard', 'paused', 'display', 'debugger', 'stubRun',
+    'stubChosen', 'serialDevice', 'offersSsc', 'tapeRecording', 'personMachine', 'nitros9Running', 'nitros9OnScreen',
+    'hasArtifactPhase', 'hasTwoScreens', 'welcomeRunning', 'welcomeRunningOn']) SESSION.add(n);
+  // Puppets whose reachability is decided where they live (see the note above): debug (the Debugger view closes the
+  // chat, claude.js:283-286), chat (the ChatSession, not a machine), store/roms/index/media/keys/machine (the
+  // Session's own services).
+  const OPAQUE = new Set(['debug', 'chat', 'store', 'roms', 'index', 'media', 'keys', 'machine']);
+  const missing = [...called].filter(([name]) => !rows.has(name) && !READ.has(name) && !LIBRARY.has(name)
+    && !SESSION.has(name) && !UI.has(name) && !OPAQUE.has(name));
+  check('every Session member the UI calls or reads has a row or a written reason', missing.length === 0,
     missing.map(([n, at]) => `${n} (${at})`).join(', '));
 
   // The sweep's own proof, before any row: a leaky action must be caught. Two probes stand in for the two columns
@@ -425,75 +469,76 @@ function rowMethods() {
     const real = await observed(setup, act, id, panel);
     // like for like, final state against final state (see observed)
     real.changed = diff(control.final, real.final);
+    // ---- ONE GATE FOR EVERY KIND, before any kind's own assertion ----
+    // A row's proof is worthless without these, and every kind used to repeat them (or forget them: an injected
+    // "endChat(); throw" passed under closes-chat, and a throwing setup passed under all seven named kinds).
+    //   * the setup must not have thrown (the row never got the state it asked for; async setups are awaited by
+    //     observed());
+    //   * a throw is a failure, unless the kind is may-throw:<regex> and the message matches that NON-EMPTY regex.
+    const setupThrew = real.setupError || control.setupError;
+    const mayThrow = kind && kind.startsWith('may-throw') ? kind.slice('may-throw:'.length) : null;
+    const throwOk = mayThrow ? (mayThrow.length > 0 && !!real.threw && new RegExp(mayThrow).test(real.threw)) : !real.threw;
+    const gate = [];
+    if (setupThrew) gate.push(`the setup threw: ${setupThrew}`);
+    if (!throwOk) gate.push(real.threw ? `an unnamed throw: ${real.threw}` : mayThrow ? `expected a throw matching /${mayThrow}/, none` : '');
+    const gateFail = gate.filter(Boolean);
+
     if (kind === 'restarts-chat') {
-      // Deliberate: the chat machine is reset, so its reset count moves and the chat FIRMWARE STARTS AGAIN - its RAM
-      // is the program's, from a fresh start, so a few bytes differ from the control's (measured: 6) even though the
-      // screen is the same picture. What must not change is everything of the machine that is not the firmware's own
-      // state: its port, tape, ROM set, stub choice, and its own stub-restart record. And the screen must be the
-      // chat's screen after it, not the stub's: the point of a reset here is that the chat comes back.
-      // the firmware's own state: its RAM and its output (the chat firmware's printer writes are its own too)
+      // deliberate: the chat machine is reset, so its reset count moves and the chat FIRMWARE STARTS AGAIN - its RAM
+      // is the program's, from a fresh start. What must not change is everything of the machine that is not the
+      // firmware's own state, and the screen must be the chat's after it, not the stub's.
       const notFirmware = real.changed.filter((k) => !['ram', 'resetAt', 'frames', 'printed'].includes(k));
       check(`no leak: ${name}`, notFirmware.length === 0 && real.changed.includes('resetAt') && real.recordKept && real.same
-        && real.screen === control.screen && !real.threw,
-        `${real.changed.join(', ')}${notFirmware.length ? ` (beyond the firmware's own state: ${notFirmware.join(',')})` : ''}${real.threw ? ` (threw: ${real.threw})` : ''}`);
+        && real.screen === control.screen && gateFail.length === 0,
+        `${real.changed.join(', ')}${notFirmware.length ? ` (beyond the firmware's own state: ${notFirmware.join(',')})` : ''}${gateFail.join('; ')}`);
       continue;
     }
     if (kind === 'closes-chat-or-throws') {
-      // a recent file of another model switches the machine (the chat closes); of this model it loads on the person's
-      // session. Either way the chat machine must not be touched while it is still there.
-      check(`no leak: ${name}`, real.changed.length === 0 && !real.threw && real.recordKept,
-        `${real.changed.join(', ')}${real.threw ? ` (threw: ${real.threw})` : ''}`);
+      check(`no leak: ${name}`, real.changed.length === 0 && real.recordKept && gateFail.length === 0,
+        `${real.changed.join(', ')}${gateFail.join('; ')}`);
       continue;
     }
     if (kind === 'firmware-keys') {
       // the keyboard types into the chat firmware by design; what must not change is anything of the machine that is
       // not the firmware's own memory
       const notFirmware = real.changed.filter((k) => !['ram', 'frames', 'printed'].includes(k));
-      check(`no leak: ${name}`, notFirmware.length === 0 && !real.threw, `${real.changed.join(', ')}`);
+      check(`no leak: ${name}`, notFirmware.length === 0 && gateFail.length === 0, `${real.changed.join(', ')}${gateFail.join('; ')}`);
       continue;
     }
     if (kind === 'shown-machine') {
       // by design it acts on the machine on screen: assert exactly that, and that the person's session is untouched
-      check(`no leak: ${name}`, (real.changed.length === 0 || real.changed.every((k) => k === 'printed')) && !real.threw,
-        `${real.changed.join(', ')}${real.threw ? ` (threw: ${real.threw})` : ''}`);
+      check(`no leak: ${name}`, (real.changed.length === 0 || real.changed.every((k) => k === 'printed')) && gateFail.length === 0,
+        `${real.changed.join(', ')}${gateFail.join('; ')}`);
+      continue;
+    }
+    if (kind === 'shown-nitros9') {
+      // the SHOWN machine's NitrOS-9 state (Share): the row asserts, as it runs, that the shown machine's answer is
+      // right; nothing must be written to it
+      check(`no leak: ${name}`, gateFail.length === 0, gateFail.join('; '));
       continue;
     }
     if (kind === 'panel') {
       // no chat machine exists in this session: the row's own assertions (in the action) are the whole check
-      check(`no leak: ${name}`, !real.threw, real.threw ? `the action threw: ${real.threw}` : '');
+      check(`no leak: ${name}`, gateFail.length === 0, gateFail.join('; '));
       continue;
     }
     if (kind === 'closes-chat') {
       // the chat's own closing: the machine going is the point
-      check(`no leak: ${name} (the chat closes)`, !real.same, `chat machine ${real.same ? 'kept' : 'replaced'}`);
+      check(`no leak: ${name} (the chat closes)`, !real.same && gateFail.length === 0,
+        `chat machine ${real.same ? 'kept' : 'replaced'}${gateFail.join('; ')}`);
       continue;
     }
     if (kind === 'keeps-chat') {
-      // the chat STAYS: the machine is there AND unchanged (skipping the fingerprint here let a change through)
+      // the chat STAYS: the machine is there AND unchanged
       check(`no leak: ${name} (the chat stays)`, real.same && real.changed.length === 0 && real.recordKept
-        && !real.threw, `chat machine ${real.same ? 'kept' : 'replaced'}; changed: ${real.changed.join(', ') || 'nothing'}`);
+        && gateFail.length === 0, `chat machine ${real.same ? 'kept' : 'replaced'}; changed: ${real.changed.join(', ') || 'nothing'}${gateFail.join('; ')}`);
       continue;
     }
+    // the default kind: the chat machine must be unchanged beyond the control
     const changed = real.changed;
     if (!real.recordKept && control.recordKept) changed.push('stub record');
     if (!real.same) changed.push('chat machine replaced');
-    // A throw is a FAILURE for every kind (see below), so a kind that means "this may refuse" must name the reason:
-    // only 'may-throw:<regex>' lets one through, and only if it matches.
-    if (real.threw && !(kind && kind.startsWith('may-throw'))) changed.push(`threw: ${real.threw}`);
-    // A ROW WHOSE ACTION THREW PROVES NOTHING: it never reached the code the row exists to check. That is a FAILURE
-    // of the row, not a note on it - this is how three rows ("run a game", "run LIZA", the disk rows) passed while
-    // the routing they checked was broken. A row that is expected to refuse says so with a kind.
-    // 'may-throw': a refusal the row exists to check (the machine lacks a ROM the project may not commit). What the
-    // refusal must NOT do is touch the chat machine; and it must throw for the reason the row names, not another.
-    const threw = real.threw ? ` (the action threw: ${real.threw})` : '';
-    // 'may-throw' names the reason it is allowed to refuse with, as a regex on the message: an unrelated throw (a
-    // typo in the row, a missing fixture) must not pass for the refusal the row is about.
-    const okThrow = kind && kind.startsWith('may-throw') ? !!real.threw && new RegExp(kind.slice(10)).test(real.threw) : !real.threw;
-    // a setup that threw means the row never got its state; and the same setup runs for the control, so only the
-    // real run's is reported
-    const setupThrew = real.setupError || control.setupError;
-    check(`no leak: ${name}`, changed.length === 0 && okThrow && !setupThrew,
-      `${changed.join(', ')}${threw}${setupThrew ? ` (the setup threw: ${setupThrew})` : ''}`);
+    check(`no leak: ${name}`, changed.length === 0 && gateFail.length === 0, `${changed.join(', ')}${gateFail.join('; ')}`);
   }
   console.log(`${n - fail}/${n} chat-leak checks passed`);
   process.exitCode = fail ? 1 : 0;

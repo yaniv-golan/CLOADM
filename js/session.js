@@ -765,9 +765,13 @@ export class Session {
   nitros9On(m = this.machine) { return !!this.nitros9Loader(m); }
   // Is NitrOS-9 running on the machine the PERSON is working on? personMachine, not this.machine: with the chat full
   // screen this.machine is the chat machine, which never has the loader, so this answered false and the NitrOS-9 panel
-  // hid **Leave** - the fixed leaveNitros9 could not be reached (review 0.1.9 round 1). Every reader in js/ui means
-  // the person's machine: the ROMs row and pill, the nitros9 panel, Share and install's "a program is running".
+  // hid **Leave** - the fixed leaveNitros9 could not be reached (review 0.1.9 round 1). The readers that mean the
+  // person's machine are the ROMs row and pill, the nitros9 panel and install's "a program is running".
+  // Share is NOT one of them: it pairs a picture of the machine ON SCREEN with a link to that same machine
+  // (js/ui/share.js capture, and shareUrl below), so it asks nitros9OnScreen.
   get nitros9Running() { return this.nitros9On(this.personMachine); }
+  // Is NitrOS-9 running on the machine on screen? For what pairs with the shown picture (Share) and nothing else.
+  get nitros9OnScreen() { return this.nitros9On(this.machine); }
   // the stored images with what they are: [{ name, size, store, os9, label, cpu, boot, reason }] (reason null: it
   // boots); the DriveWire images, then the floppy images that are OS-9 disks
   async nitros9Images() {
@@ -879,8 +883,8 @@ export class Session {
   // floppy boot comes out (its disks are kept in the library)
   leaveNitros9() {
     // The person's machine (personMachine): bootNitros9 runs on it, and with the chat full screen this.machine is the
-    // chat - which never has the loader ROM, so this returned at once and did nothing (review round 3). The
-    // nitros9Running getter reads this.machine, so it is not asked here: the question is about m.
+    // chat - which never has the loader ROM, so asking this.machine returned at once and did nothing (review 0.1.9).
+    // The question is about m, so it is asked of m.
     const m = this.personMachine;
     if (!this.nitros9On(m)) return;
     if (m.cartPort instanceof DiskController && !m.cartPort.romBytes) { this.flushDisks(); m.ejectCartridge(); this.emit('disks'); }
@@ -3171,7 +3175,9 @@ export class Session {
   // checks these)
   static LIZA = { '6809': 'liza.bin', ram: 20, '6803': Object.freeze({ mc10: 'liza6803-mc10.bin', alice: 'liza6803-alice.bin' }),
     done: Object.freeze({ '6809': 0x3033, '6803': 0x503C }) };
-  get lizaFile() { return cpuFamily(this.machine.config.cpu) === '6809' ? Session.LIZA['6809'] : Session.LIZA['6803'][this.machine.id]; }
+  // the person's machine (personMachine): LIZA is theirs, and with the chat full screen this.machine is the chat,
+  // which has neither LIZA build (the 6803 table is keyed by machine id, so a miss is undefined)
+  get lizaFile() { const m = this.personMachine; return cpuFamily(m.config.cpu) === '6809' ? Session.LIZA['6809'] : Session.LIZA['6803'][m.id]; }
   // what a machine needs before it can run LIZA -> { ram, have } when the RAM option is too small, else null
   lizaNeeds() {
     const m = this.personMachine, need = Session.LIZA.ram;
@@ -3413,7 +3419,14 @@ export class Session {
     const last = (carry ? 1 : 0) + (w === WELCOME['6809'] ? 5 : 4);   // the 6809 build has the games too
     return `Welcome: press 1 to ${last}`;
   }
-  get welcomeRunning() { return this.welcome === this.machine; }
+  // Is the welcome program running on the PERSON's machine? personMachine: with the chat full screen this.machine is
+  // the chat machine, so this answered false while the person's menu was on screen, and the readers that ask (the
+  // Ask box opening full screen, the quick-save slots, install's "a program is running", command-box) all mean the
+  // person's. The one reader that means the SHOWN screen - a tap on the menu lines (js/ui/screen.js:206, which taps
+  // and types on session.machine) - asks welcomeRunningOn.
+  get welcomeRunning() { return this.welcome === this.personMachine; }
+  // on the machine on screen (a tap on the menu): what the canvas shows and types into
+  get welcomeRunningOn() { return !!this.welcome && this.welcome === this.machine; }
   // the welcome build this machine runs: the 6809 file for every 6809-family model (the 6309 included), the
   // machine's own 6803 build on the MC-10 and the Alice (their subtitles differ). The page fetches it by this name.
   get welcomeFile() {

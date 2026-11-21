@@ -131,7 +131,9 @@ async function say(s, calls, line, want) {
     w.switchMachine('dragon64');
     w.startWelcome(new Uint8Array(fs.readFileSync(path.join(__dirname, '../examples/welcome.bin'))));
     w.startChat({ backend: new Emu.ClaudeBackend({ fetch: async () => null, apiKey: KEY }), channel: new Emu.MemoryChannel(), firmware: FIRMWARE });
-    check('the welcome program is not running on the chat machine', !w.welcomeRunning);
+    // the MENU keeps running on the person's machine (closing the chat comes back to it, the next check); what is not
+    // running on the CHAT machine is that program - which is what welcomeRunningOn answers, the shown-machine view
+    check('the welcome program is not running on the chat machine', !w.welcomeRunningOn && w.welcomeRunning);
     w.endChat();
     check('closing a chat opened from the welcome menu comes back to the welcome program', w.welcomeRunning);
     // and its keys still reach the page: a key the program posts after the chat is a welcome event again

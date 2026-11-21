@@ -418,11 +418,13 @@ export function setupInstall(page, { started = () => true, machineMenu = null } 
   // drive: the brief lists "LIZA, a binary, a tape, a disk, or BASIC with ROMs", and a tape or disk is something to
   // come back to even before it has been read.
   function programRunning() {
-    const m = session.machine;
+    // ONE machine throughout: the person's (the getters below - welcomeRunning, nitros9Running - are person-framed,
+    // so asking this.machine for the deck and the drives mixed the two, review 0.1.9 round 2)
+    const m = session.personMachine;
     // nothing has run before the visit's own program has started: the first frame or two are the page setting up
     if (!m || !started() || session.paused || document.body.classList.contains('paused')) return false;
     if (session.welcomeRunning) return false;
-    if (session.nitros9Running) return true;
+    if (session.nitros9Running) return true;   // the person's machine (as the getter now says)
     if (m.deck && m.deck.tape) return true;                                  // a tape in the deck
     if (m.diskController && session.diskStatus().drives.length) return true;  // a disk in a drive (only when one is fitted)
     return !m.atStubPrompt();

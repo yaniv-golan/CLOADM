@@ -203,7 +203,7 @@ export function setupScreen(page, { loadPrograms, roms }) {
   // games menu), so the tapped row's cell there says which key it is. While the touch stick is showing, the
   // person is playing a game, not choosing a menu line: no tap goes to the menu then.
   canvas.addEventListener('pointerup', (e) => {
-    if (!session.welcomeRunning) return;
+    if (!session.welcomeRunningOn) return;   // the machine ON SCREEN: this handler taps and types on session.machine
     if (touchStickUp()) return;
     const m = session.machine, r = canvas.getBoundingClientRect(), f = m.render();
     const row = Math.floor(((e.clientY - r.top) / r.height * f.height - 24) / 12);
