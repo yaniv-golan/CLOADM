@@ -51,9 +51,13 @@ const UNDAMAGED = new WeakSet();
 
 // Does this image survive a round trip through its own format? Decode it, write it back with saveDisk(), decode
 // again, and compare the flux track for track. True for VDK, JVC and double-density DMK; false for single-density
-// DMK, whose FM bytes come back as a different but equivalent encoding. Done once at mount (two decodes and one
-// encode of the image, which is the same order as the mount itself); the caller keeps the mounted bytes only when
-// this says the committed image cannot be trusted to rebuild the drive.
+// DMK, whose FM bytes come back as a different but equivalent encoding. Two decodes and one encode of the image,
+// about three times the cost of the mount itself, so mount() does not do it: the drive works it out once per mount,
+// the first time drive.mountBytes is read. The Session reads it in the background after a mount
+// (Session.checkDiskLater), so the work is normally done before the first snapshot; a snapshot taken sooner gets
+// the same answer by doing it then. It cannot throw, so deferring it moves no error: a bad image still fails at
+// mount, in loadDisk. The caller keeps the mounted bytes only when this says the committed image cannot be trusted
+// to rebuild the drive.
 function roundTrips(bytes, format, tracks, heads) {
   let again;
   try {
@@ -88,8 +92,10 @@ export class FloppyDrive {
     this.media = null;
     this.image = null;
     // The image as mounted, kept ONLY for an image whose format does not survive a round trip (see mount());
-    // null otherwise, which is every VDK and JVC image and every double-density DMK.
-    this.mountBytes = null;
+    // null otherwise, which is every VDK and JVC image and every double-density DMK. Decided lazily: until the
+    // get mountBytes() below first runs, pendingBytes holds a copy of the image as mounted.
+    this.keptBytes = null;
+    this.pendingBytes = null;
     this.written = new Set();     // track buffers changed since mount (by index)
     this.saveError = null;
     this.mon = 1; this.cyl = 0; this.ss = 0; this.actualSs = 0; this.dir = 0; this.stp = 1; this.wpt = 0; this.idx = 0;
@@ -110,8 +116,11 @@ export class FloppyDrive {
     // which is exact only if the format gives back what it was given. VDK, JVC and double-density DMK do. A
     // single-density DMK image does not: its FM track bytes come back as a different but equivalent MFM/FM
     // encoding, so a committed image reloaded is not the flux the drive had. For those, keep the mounted bytes
-    // too, so a restore starts from them - the cost is carrying the image twice in that case only.
-    this.mountBytes = roundTrips(media.bytes, media.format, this.tracks, this.sides) ? null : media.bytes.slice();
+    // too, so a restore starts from them - the cost is carrying the image twice in that case only. Which case
+    // this is waits for the first time it matters (get mountBytes); until then, a copy of the bytes as mounted,
+    // because flush() commits writes into media.bytes in place.
+    this.keptBytes = null;
+    this.pendingBytes = media.bytes.slice();
     this.written.clear();
     this.saveError = null;
     this.initLoad(!media.writeProtected);
@@ -130,11 +139,22 @@ export class FloppyDrive {
     if (!this.image) return;
     this.flush();
     this.image = null; this.media = null; this.written.clear();
+    this.keptBytes = null; this.pendingBytes = null;
     this.cacheClear();
     this.revStart = NEVER;
     this.indexResync();
   }
   get loaded() { return !!this.image; }
+  // The image as mounted when its format does not round-trip, else null (see mount()). Worked out from the copy
+  // taken at mount the first time it is asked for, so the answer is the one an eager check at mount would give.
+  get mountBytes() {
+    if (this.pendingBytes) {
+      const b = this.pendingBytes;
+      this.pendingBytes = null;
+      this.keptBytes = roundTrips(b, this.media.format, this.tracks, this.sides) ? null : b;
+    }
+    return this.keptBytes;
+  }
   setWriteProtect(on) { this.wpt = on ? 1 : 0; if (this.media) this.media.writeProtected = !!on; }
 
   // commit_image: the flux image back into the file, reported as changed ranges
@@ -385,7 +405,8 @@ export class FloppyDrive {
     for (const k of ATTO_STATE) s[k] = toText(this[k]);
     if (this.image) {
       s.media = { bytes: this.media.bytes.slice(), format: this.media.format, name: this.media.name || '', writeProtected: !!this.media.writeProtected };
-      if (this.mountBytes) s.mountBytes = this.mountBytes.slice();
+      const kept = this.mountBytes;
+      if (kept) s.mountBytes = kept.slice();
       // The geometry as mounted. It has to be saved rather than derived again on restore: an OS-9 image's geometry
       // comes from its own first sector, so a guest that writes LSN 0 (a format, a descriptor change) would make
       // the committed bytes look like a different disk - 40x2 would come back as 80x1, throwing away every side-1
@@ -407,14 +428,16 @@ export class FloppyDrive {
       const bytes = from.slice();
       const media = { bytes, format: s.media.format, name: s.media.name, writeProtected: s.media.writeProtected, onWrite };
       this.media = media;
-      this.mountBytes = s.mountBytes ? s.mountBytes.slice() : null;
+      // decided when the snapshot was taken: a snapshot carries mountBytes exactly when they are needed
+      this.keptBytes = s.mountBytes ? s.mountBytes.slice() : null;
+      this.pendingBytes = null;
       if (!s.geometry) throw new Error('snapshot: drive is missing "geometry"');
       this.geometry = Object.assign({}, s.geometry);
       this.image = loadDisk(bytes, s.media.format, { tracks: this.tracks, heads: this.sides }, this.geometry);
       this.written = new Set();
       for (const w of s.written) { this.image.data[w.k] = Array.from(w.flux); this.written.add(w.k); }
       if (s.mountBytes) media.bytes = s.media.bytes.slice();   // committed, not mounted
-    } else { this.media = null; this.image = null; this.mountBytes = null; this.written = new Set(); }
+    } else { this.media = null; this.image = null; this.keptBytes = null; this.pendingBytes = null; this.written = new Set(); }
     for (const k of DRIVE_STATE) { if (!(k in s)) throw new Error(`snapshot: drive is missing "${k}"`); this[k] = s[k]; }
     for (const k of ATTO_STATE) this[k] = fromText(s[k]);
   }

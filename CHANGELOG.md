@@ -225,6 +225,15 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 - The CLI no longer accepts the undocumented step aliases `expect-text`, `png` and `regs` (in scripts and as
   `--expect-text`, `--png`, `--regs`); use `expect-screen`, `screenshot` and `registers`. `-m` and `-o` stay.
 
+### Changed
+
+- Mounting a disk is faster: about four times, 590 ms down to 150 ms for a 180K JVC image in Node. To learn
+  whether a snapshot must carry the image as mounted (only a single-density DMK needs it), the drive used to
+  decode the image twice more and encode it once at every mount. That check now runs in the background just
+  after the mount, so neither the mount nor the next snapshot (a restore point, a share) waits for it. A snapshot
+  taken before the check has run still gets the same answer, by doing the check then. What is saved, exported and
+  snapshotted is byte for byte the same, and a bad image is still refused at mount with the same message.
+
 ### 0.1.7-pre
 
 #### Added
