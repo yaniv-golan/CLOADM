@@ -21,7 +21,7 @@
  * Tape sound (js/host/tape-sound.js): the tape heard as a recorder's speaker plays it, on the page's side. On by
  * default, remembered (tapeSound), in the HUD and the Media tab.
  */
-import { $ } from './page.js';
+import { $, put, putStyle, putClass } from './page.js';
 
 const pad3 = (n) => String(Math.max(0, Math.floor(n)) % 1000).padStart(3, '0');
 const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
@@ -74,9 +74,15 @@ export function setupTapePanel(page) {
   // in the band above the text, compact if it has to be. It must be on top where it lies (nothing else, such as touch
   // keys laid over the tube, covers it). With no such place (the phone chat shows the text edge to edge) it is not
   // shown: the cassette panel still says it all. -> whether it was placed
+  let placedFor = '';
   function placeHud() {
     const wrap = $('screenWrap'), cv = $('screen'), w = wrap.getBoundingClientRect(), c = cv.getBoundingClientRect();
-    hud.classList.remove('noroom');
+    // nothing it depends on changed (the boxes, the text area, the HUD's text, Fullscreen): left as it is, no writes
+    const key = [w.left, w.top, w.width, w.height, c.left, c.top, c.width, c.height, wrap.parentElement.getBoundingClientRect().height, cv.dataset.active,
+      innerWidth, innerHeight, !!document.fullscreenElement, $('hudName').textContent, $('hudState').textContent].join();
+    if (key === placedFor) return !hud.classList.contains('noroom');
+    placedFor = key;
+    putClass(hud, 'noroom', false);
     if (!c.width || !w.width) { hud.classList.add('noroom'); return false; }
     const f = (cv.dataset.active || '0,0,1,1').split(',').map(Number);
     const textTop = c.top + f[1] * c.height, textBottom = c.top + f[3] * c.height;
@@ -90,22 +96,22 @@ export function setupTapePanel(page) {
       return [r.left + 6, r.left + r.width / 2, r.right - 6].every((x) => { const e = document.elementFromPoint(x, y); return !!e && hud.contains(e); });
     };
     for (const compact of [false, true]) {
-      hud.classList.toggle('compact', compact);
+      putClass(hud, 'compact', compact);
       // measured from the left edge (an absolute box shrinks to the room right of where it was left)
-      hud.style.left = '0px';
-      hud.style.maxWidth = `${Math.max(120, Math.round(c.width - 12))}px`;
+      putStyle(hud, 'left', '0px');
+      putStyle(hud, 'max-width', `${Math.max(120, Math.round(c.width - 12))}px`);
       // the progress bar gives way to the name where the two don't both fit
-      hud.classList.remove('nobar');
-      if (name.scrollWidth > name.clientWidth) hud.classList.add('nobar');
+      putClass(hud, 'nobar', false);
+      if (name.scrollWidth > name.clientWidth) putClass(hud, 'nobar', true);
       const h = hud.offsetHeight, x = c.left + (c.width - hud.offsetWidth) / 2;
       for (const [a, b] of bands) {
         if (b - a < h) continue;
-        hud.style.left = `${Math.round(x - w.left)}px`;
-        hud.style.top = `${Math.round((a + b - h) / 2 - w.top)}px`;
+        putStyle(hud, 'left', `${Math.round(x - w.left)}px`);
+        putStyle(hud, 'top', `${Math.round((a + b - h) / 2 - w.top)}px`);
         if (onTop()) return true;
       }
     }
-    hud.classList.add('noroom');
+    putClass(hud, 'noroom', true);
     return false;
   }
 
@@ -115,7 +121,7 @@ export function setupTapePanel(page) {
 
   function updateHud(st, moving) {
     const now = performance.now();
-    if (!st) { hud.hidden = true; wasMotor = false; hudTape = null; said = ''; return; }
+    if (!st) { put(hud, 'hidden', true); wasMotor = false; hudTape = null; said = ''; return; }
     // a tape going in (dropped, opened, from a link) shows the HUD for a moment, before (or without) the motor
     if (session.machine.deck.tape !== hudTape) { hudTape = session.machine.deck.tape; hudUntil = now + HUD_HOLD_MS; }
     // the HUD shows while the tape plays and HUD_HOLD_MS after it stops or ends (or goes in: hudUntil); at the end
@@ -126,18 +132,18 @@ export function setupTapePanel(page) {
     const show = running || now < hudUntil;
     if (running) announce(`play:${st.name}`, `Tape ${st.name} playing`);
     else if (st.progress >= 1) announce(`end:${st.name}`, `End of tape ${st.name}`);
-    if (!show) { hud.hidden = true; return; }
+    if (!show) { put(hud, 'hidden', true); return; }
     const state = st.error ? 'error' : st.progress >= 1 ? 'end' : moving ? 'playing' : st.motor ? 'waiting' : st.block ? 'stopped' : 'ready';
-    hud.dataset.state = state;
+    put(hud.dataset, 'state', state);
     const says = st.motor && !st.error && st.progress < 1 ? basicSays() : '';
-    $('hudName').textContent = st.name;
-    $('hudState').textContent = state === 'error' ? `Read error · block ${st.error}`
+    put($('hudName'), 'textContent', st.name);
+    put($('hudState'), 'textContent', state === 'error' ? `Read error · block ${st.error}`
       : state === 'end' ? 'End of tape'
-        : `${says ? `${says} · ` : ''}${state === 'ready' ? 'In the deck' : state === 'stopped' ? 'Stopped · ' : ''}${state === 'ready' ? '' : `${Math.max(1, st.block)}/${st.blocks}`}`;
-    $('hudBar').style.width = `${(st.progress * 100).toFixed(1)}%`;
-    hud.title = `${st.name}: ${$('hudState').textContent}${says === 'S' ? ' (S: BASIC is searching for the file)' : says === 'F' ? ' (F: BASIC found the file)' : ''}`;
-    $('btnHudSound').setAttribute('aria-pressed', String(audio.tapeSound));
-    hud.hidden = false;
+        : `${says ? `${says} · ` : ''}${state === 'ready' ? 'In the deck' : state === 'stopped' ? 'Stopped · ' : ''}${state === 'ready' ? '' : `${Math.max(1, st.block)}/${st.blocks}`}`);
+    putStyle($('hudBar'), 'width', `${(st.progress * 100).toFixed(1)}%`);
+    put(hud, 'title', `${st.name}: ${$('hudState').textContent}${says === 'S' ? ' (S: BASIC is searching for the file)' : says === 'F' ? ' (F: BASIC found the file)' : ''}`);
+    if ($('btnHudSound').getAttribute('aria-pressed') !== String(audio.tapeSound)) $('btnHudSound').setAttribute('aria-pressed', String(audio.tapeSound));
+    put(hud, 'hidden', false);
     placeHud();
   }
 
@@ -151,44 +157,44 @@ export function setupTapePanel(page) {
     const moving = !!(st && st.playing && lastPos !== null && pos !== lastPos);
     lastPos = pos;
     updateHud(st, moving);
-    panel.hidden = !st && !rec;
+    put(panel, 'hidden', !st && !rec);
     if (panel.hidden) return;
-    panel.toggleAttribute('data-moving', moving);
+    if (panel.hasAttribute('data-moving') !== moving) panel.toggleAttribute('data-moving', moving);
     // measured speed: emulated frames per real second against the machine's own rate
     const now = performance.now();
     if (now - speed.at >= 1000) { speed = { at: now, frame: m.frameCount, x: (m.frameCount - speed.frame) / m.fps / ((now - speed.at) / 1000) }; }
     const eyebrow = $('tapeEyebrow');
-    eyebrow.classList.toggle('error', !!(st && st.error));
-    $('tapeEnd').hidden = !(st && st.progress >= 1);
+    putClass(eyebrow, 'error', !!(st && st.error));
+    put($('tapeEnd'), 'hidden', !(st && st.progress >= 1));
     if (rec && !st) {
-      eyebrow.textContent = m.deck.motor ? 'RECORDING · MOTOR ON' : 'RECORDING · WAITING FOR THE MOTOR';
-      $('tapeLabel').textContent = 'Recording'; $('tapeLength').textContent = '';
-      panel.dataset.state = 'recording';
-      $('btnSkipTape').hidden = true; $('btnTapeRetry').hidden = true;
-      $('tapeCounter').textContent = `motor ${m.deck.motor ? 'ON' : 'off'}`; $('tapeSpeed').textContent = '';
-      $('tapeBar').style.width = '0%';
+      put(eyebrow, 'textContent', m.deck.motor ? 'RECORDING · MOTOR ON' : 'RECORDING · WAITING FOR THE MOTOR');
+      put($('tapeLabel'), 'textContent', 'Recording'); put($('tapeLength'), 'textContent', '');
+      put(panel.dataset, 'state', 'recording');
+      put($('btnSkipTape'), 'hidden', true); put($('btnTapeRetry'), 'hidden', true);
+      put($('tapeCounter'), 'textContent', `motor ${m.deck.motor ? 'ON' : 'off'}`); put($('tapeSpeed'), 'textContent', '');
+      putStyle($('tapeBar'), 'width', '0%');
       return;
     }
     if (waveFor !== m.deck.tape) shape(m.deck.tape);
     const p = m.profile.tape || {};
-    eyebrow.textContent = st.error ? `READ ERROR · BLOCK ${st.error} OF ${st.blocks}`
+    put(eyebrow, 'textContent', st.error ? `READ ERROR · BLOCK ${st.error} OF ${st.blocks}`
       : st.progress >= 1 ? `END OF TAPE · ${st.blocks} BLOCKS`
         : st.motor ? `${rec ? 'RECORDING · ' : ''}LOADING · BLOCK ${Math.max(1, st.block)} OF ${st.blocks}`
-          : `STOPPED · BLOCK ${st.block} OF ${st.blocks}`;
-    panel.dataset.state = st.error ? 'error' : st.progress >= 1 ? 'end' : st.motor ? 'playing' : 'stopped';
-    $('tapeLabel').textContent = st.name;
-    $('tapeLength').textContent = mmss(st.duration);
-    $('reelL').style.setProperty('--wound', (1 - st.progress).toFixed(3));
-    $('reelR').style.setProperty('--wound', st.progress.toFixed(3));
-    $('tapeBar').style.width = `${(st.progress * 100).toFixed(1)}%`;
+          : `STOPPED · BLOCK ${st.block} OF ${st.blocks}`);
+    put(panel.dataset, 'state', st.error ? 'error' : st.progress >= 1 ? 'end' : st.motor ? 'playing' : 'stopped');
+    put($('tapeLabel'), 'textContent', st.name);
+    put($('tapeLength'), 'textContent', mmss(st.duration));
+    putStyle($('reelL'), '--wound', (1 - st.progress).toFixed(3));
+    putStyle($('reelR'), '--wound', st.progress.toFixed(3));
+    putStyle($('tapeBar'), 'width', `${(st.progress * 100).toFixed(1)}%`);
     // the stripe keeps its full-width colours: the bar only uncovers more of it
-    $('tapeBar').style.setProperty('--stripe-w', st.progress > 0 ? `${(100 / st.progress).toFixed(1)}%` : '100%');
-    $('tapeCounter').textContent = `Counter ${pad3(st.seconds)} · ${p.zeroHz || 1200}/${p.oneHz || 2400} Hz · motor ${st.motor ? 'ON' : 'off'}`;
-    $('tapeSpeed').textContent = !st.playing ? '' : st.realSpeed ? 'Real speed' : `Fast-forward ×${Math.max(1, Math.round(speed.x))}`;
-    $('btnRealSpeed').setAttribute('aria-pressed', String(st.realSpeed));
-    $('btnRealSpeed').textContent = `Real speed: ${st.realSpeed ? 'on' : 'off'}`;
-    $('btnSkipTape').hidden = st.progress >= 1;
-    $('btnTapeRetry').hidden = !st.error;
+    putStyle($('tapeBar'), '--stripe-w', st.progress > 0 ? `${(100 / st.progress).toFixed(1)}%` : '100%');
+    put($('tapeCounter'), 'textContent', `Counter ${pad3(st.seconds)} · ${p.zeroHz || 1200}/${p.oneHz || 2400} Hz · motor ${st.motor ? 'ON' : 'off'}`);
+    put($('tapeSpeed'), 'textContent', !st.playing ? '' : st.realSpeed ? 'Real speed' : `Fast-forward ×${Math.max(1, Math.round(speed.x))}`);
+    if ($('btnRealSpeed').getAttribute('aria-pressed') !== String(st.realSpeed)) $('btnRealSpeed').setAttribute('aria-pressed', String(st.realSpeed));
+    put($('btnRealSpeed'), 'textContent', `Real speed: ${st.realSpeed ? 'on' : 'off'}`);
+    put($('btnSkipTape'), 'hidden', st.progress >= 1);
+    put($('btnTapeRetry'), 'hidden', !st.error);
     if (!panel.classList.contains('folded')) drawWave(st);
   }
 

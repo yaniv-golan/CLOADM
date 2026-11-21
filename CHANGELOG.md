@@ -27,6 +27,8 @@ Next version: 0.1.7-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Changed
 
+- **A tape in the deck costs nothing while it sits there.** The Cassette slot under the screen was rewritten every
+  frame while a tape was in, playing or not; it, the cassette panel and the tape line now write only what changes.
 - **One deck moves.** Only the cassette panel's reels turn, and only while the tape really moves: not at the end of
   the tape, nor with the motor on and the tape still. The small deck in the Cassette slot is a still picture. The end
   of the tape is stamped on the cassette.

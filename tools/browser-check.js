@@ -4510,6 +4510,30 @@ async function tapeHudChecks(browser, base, check) {
       await page.evaluate(() => { document.getElementById('monitor').style.maxWidth = ''; });
       await emuFrames(page, 5);
     }
+    if (label === 'desktop' || label === 'phone') {
+      // DOM writes in the slots row and the HUD, per element, over 2 s: none while the tape sits stopped in the deck
+      // (it used to rewrite the row every frame), and only what changes while it plays (a few a second at most)
+      const watch = (ms) => page.evaluate((ms) => new Promise((done) => {
+        const counts = {};
+        const mo = new MutationObserver((recs) => {
+          for (const r of recs) { const el = r.target.nodeType === 1 ? r.target : r.target.parentElement; const k = (el.closest('[id]') || el).id || el.tagName; counts[k] = (counts[k] || 0) + 1; }
+        });
+        for (const sel of ['.slots', '#tapeHud']) mo.observe(document.querySelector(sel), { subtree: true, childList: true, characterData: true, attributes: true });
+        setTimeout(() => { mo.disconnect(); done(counts); }, ms);
+      }), ms);
+      await page.evaluate(() => { clearInterval(window.__motor); window.__motor = setInterval(() => window.emu.machine.deck.setMotor(false), 10); });
+      await emuFrames(page, 15);
+      const stopped = await watch(2000);
+      await page.evaluate(() => { clearInterval(window.__motor); window.__motor = setInterval(() => window.emu.machine.deck.setMotor(true), 10); });
+      await emuFrames(page, 15);
+      const playing = await watch(2000);
+      await page.evaluate(() => clearInterval(window.__motor));
+      // (stopped: at most the one write as the HUD's hold runs out. Playing: each write is a change; the slot's percentage
+      // follows this short tape at about 6 a second, a real tape's at well under one; the rewrite every frame was 60)
+      check(`tape HUD (${label}): DOM writes per element in 2 s: at most 1 with the tape stopped, at most 8 a second while it plays (slots row and HUD)`,
+        Object.values(stopped).every((n) => n <= 1) && Object.values(playing).every((n) => n <= 16) && Object.keys(playing).length > 0,
+        JSON.stringify({ stopped, playing }));
+    }
     if (label !== 'phone sideways') {
       await page.click('#btnHudDeck');
       const inView = await waitFor(page, () => { const r = document.getElementById('tapePanel').getBoundingClientRect(); return r.top >= 0 && r.top < innerHeight - 100; }, null, 10000);

@@ -639,7 +639,9 @@ phone chat, whose text fills the screen); in Fullscreen at both sizes it is show
 asserted, no coordinates. The line is placed again whenever the canvas or the screen area changes size: at the
 desktop size the monitor is narrowed in place (no window resize) and, in the very frame the canvas is refitted, the line
 already lies off the new text and inside the tube (without the ResizeObserver it lies outside it). The live region is
-written exactly twice from the tape going in to its end (a MutationObserver counts the writes). The panel's
+written exactly twice from the tape going in to its end (a MutationObserver counts the writes). DOM writes in the slots row and the
+line, per element over 2 s (desktop and phone): none with a tape stopped in the deck, and only changes while it plays
+(at most 8 a second, the position readouts); the rewrite every frame it replaced was 40-60 a second per element. The panel's
 own checks (`tapePanel`) also find no reel turning at the end of the tape.
 
 ### Install as an app (the PWA offer)
