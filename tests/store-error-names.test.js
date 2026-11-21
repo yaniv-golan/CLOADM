@@ -93,6 +93,13 @@ const A = () => images.vdk(40, 2), B = () => images.vdk(40, 1);
     const m3 = (await q(s3.newDisk(0, { format: 'vdk', tracks: 40, heads: 1 }, { name: 'blank.vdk' }))).m;
     check('importDisk, importMedia and newDisk all report the same refused write the same way',
       m1 === `work.vdk: ${why}` && m2 === m1 && m3 === `blank.vdk: ${why}`, `${m1} | ${m2} | ${m3}`);
+    // the same import given as a PATH (a browser may hand over a relative path, and Windows separators too): the
+    // store's message leads with the STORED name, and the file must still be named once, as its own file name
+    for (const given of ['dir/work.vdk', 'C:\\dir\\work.vdk']) {
+      const sm = await mk(); sm.media.failOn = 'disks/work.vdk';
+      const got = (await q(sm.importMedia(given, A()))).m;
+      check(`importMedia given as ${JSON.stringify(given)} is named once, by its file name`, got === `work.vdk: ${why}`, got);
+    }
   }
   {
     // the stored name is not the caller's name: a mount reads disks/work.vdk and reports 'work.vdk'
@@ -105,6 +112,14 @@ const A = () => images.vdk(40, 2), B = () => images.vdk(40, 1);
     const r = await q(s.mountDisk(0, 'work.vdk'));
     check('a refused read is reported under the store\'s reason once (it led with the same name)',
       !r.ok && r.m === `work.vdk: ${why}`, r.m);
+    // a rename that fails at its DESTINATION: the destination's path is where it failed, and it is kept
+    const m3 = new FailingStore();
+    const s3 = await session(m3);
+    await m3.writeSync('disks/a.vdk', A());
+    m3.rename = async (from, to) => { throw PATH_FIRST(to, why); };
+    const rn = await q(s3.renameMedia('disks/a.vdk', 'disks/sub/a.vdk'));
+    check('a rename refused at its destination keeps the destination path',
+      !rn.ok && rn.m === `disks/a.vdk: disks/sub/a.vdk: ${why}`, rn.m);
   }
 
   // ---------------- the branches that already wrote their own sentence keep it ----------------
@@ -124,11 +139,17 @@ const A = () => images.vdk(40, 2), B = () => images.vdk(40, 1);
     check('a SessionError passes through unchanged', s.mediaError(own, 'work.vdk') === own);
     // a name given with its prefix is the name the user typed; it is named once like any other
     check('a caller\'s prefixed name is reported once',
-      s.mediaError(PATH_FIRST('disks/UTILS.DSK', 'permission was refused'), 'disks/UTILS.DSK').message === 'disks/UTILS.DSK: permission was refused');
-    // the library's own one-file actions pass the STORED name, and a backend may lead with the bare one: name.endsWith
-    // is the half of the rule that keeps that from being said twice
-    check('a stored name against a reason led by the bare name is reported once',
-      s.mediaError(PATH_FIRST('UTILS.DSK', 'permission was refused'), 'disks/UTILS.DSK').message === 'disks/UTILS.DSK: permission was refused');
+      s.mediaError(PATH_FIRST('disks/UTILS.DSK', 'permission was refused'), 'disks/UTILS.DSK', 'disks/UTILS.DSK').message === 'disks/UTILS.DSK: permission was refused');
+    // a name with a space in it: the stored path leads, so it must be stripped -- a rule that only matched a
+    // no-space prefix would leave the file named twice here
+    check('a name with a space is named once',
+      s.mediaError(PATH_FIRST('disks/My Disk.vdk', 'permission was refused'), 'My Disk.vdk', 'disks/My Disk.vdk').message === 'My Disk.vdk: permission was refused');
+    // a DIFFERENT file's path must not be stripped: the reader has to see where it failed
+    check('a reason naming a different file keeps its path (where it failed is not lost)',
+      s.mediaError(PATH_FIRST('disks/sub/a.vdk', 'permission was refused'), 'a.vdk', 'disks/a.vdk').message === 'a.vdk: disks/sub/a.vdk: permission was refused');
+    // a name that LOOKS like a prefixed spelling of this one is a different file (the suffix half must not match it)
+    check('a reason led by a longer name is not taken for this one',
+      s.mediaError(PATH_FIRST('disks/xa.vdk', 'no'), 'a.vdk', 'disks/a.vdk').message === 'a.vdk: disks/xa.vdk: no');
   }
 
   // ---------------- a disk name must have something after the prefix ----------------
@@ -172,12 +193,26 @@ const A = () => images.vdk(40, 2), B = () => images.vdk(40, 1);
     const auto = await q(s3.newDisk(0, { format: 'vdk', tracks: 40, heads: 1 }));
     check('no name asked: still chooses one', auto.ok && /^New blank disk: disk-\d+\.vdk in drive 0$/.test(auto.m), auto.m);
   }
-  // a dot-only base ('disks/.') is a name the store may hold, and it is not the prefix: it keeps working
+  // Every base that is not a file name is refused at every door: a trailing separator, whitespace only, and the
+  // segment '.' or '..' (a folder store and OPFS cannot hold either; libName already refuses '..' for library names,
+  // and a disk name must not reach the store with one)
   {
     const media = new MemoryMediaStore();
     const s = await session(media);
-    const r = await q(s.importDisk('disks/.', B(), 0));
-    check('... but a base that is only dots is a name, not the prefix', r.ok && r.m === '. in drive 0', r.m);
+    for (const given of ['disks/a/', 'disks/a//', 'disks/a\\', ' ', 'disks/ ', 'disks/.', 'disks/..', 'x/..', 'disks/./']) {
+      const r = await q(s.importDisk(given, B(), 0));
+      check(`importDisk ${JSON.stringify(given)}: refused as a name`, !r.ok && r.m === 'A disk image needs a name.', r.m || 'accepted');
+    }
+    const nd = await q(s.newDisk(0, { format: 'vdk', tracks: 40, heads: 1 }, { name: 'disks/ ' }));
+    check('newDisk "disks/ ": refused as a name', !nd.ok && nd.m === 'A disk image needs a name.', nd.m || 'accepted');
+    const mt = await q(s.mountDisk(0, 'disks/..'));
+    check('mountDisk "disks/..": refused as a name', !mt.ok && mt.m === 'A disk image needs a name.', mt.m || 'accepted');
+    const im = await q(s.importMedia('x/..', B()));
+    check('importMedia "x/..": refused as a name', !im.ok && im.m === 'A disk image needs a name.', im.m || 'accepted');
+    check('nothing was written by any of them', (await media.list()).length === 0, JSON.stringify((await media.list()).map((e) => e.name)));
+    // a leading dot is a file name, not a segment: it stays allowed
+    const okDot = await q(s.importDisk('disks/.vdk', B(), 0));
+    check('... but a file whose name starts with a dot is a name', okDot.ok && okDot.m === '.vdk in drive 0', okDot.m || 'refused');
   }
 
   console.log(fail ? `${fail} of ${n} store-error-naming checks FAILED` : `${n}/${n} store-error-naming checks passed`);

@@ -18,17 +18,20 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 - **A refused file is named once, not twice.** The two real media backends word a failure with the stored path in
   front of it (`disks/work.vdk: permission was refused`), and the Session put the disk's name in front of that, so a
-  refused import or save read `work.vdk: disks/work.vdk: permission was refused`. A reason that leads with the name,
-  or with the stored spelling of the same file, now has that part dropped before the name goes in front; any other
-  reason is kept whole behind it. One rule, in `Session.mediaError`, so the library import, a new blank disk, a mount
-  and the DriveWire box all say the same thing. The quota and not-found messages already wrote their own sentence and
-  are unchanged. `tests/store-error-names.test.js`.
+  refused import or save read `work.vdk: disks/work.vdk: permission was refused`. Each caller now hands `mediaError`
+  the stored name it just used, and a reason that leads with exactly that name has the leading copy dropped before
+  the person's name goes in front. Any other path a reason carries is kept: a rename that fails at its destination
+  still says where, and a name with a space or a file dropped under a path (`dir/work.vdk`, Windows separators) is
+  named once by its own file name. One rule for the library import, a new blank disk, a mount and the DriveWire box.
+  The quota and not-found messages already wrote their own sentence and are unchanged.
+  `tests/store-error-names.test.js`.
 
-- **A disk name with nothing after the prefix is refused.** `disks/` (and `disks//`) passed every check and was
-  stored as a blob literally named `disks/`: the Library listed it with no file name, and the drive said " in drive 0".
-  Every door - a library import, a new blank disk, a mount of a stored name - refuses it as `A disk image needs a
-  name.` (A file that is not a disk image, dropped with such a path, is refused as `A file needs a name.` - on main it
-  was stored under a name that was only a prefix, e.g. `library/programs/`.) Names with a base are unchanged.
+- **A disk name that is not a file name is refused.** `disks/` was stored as a blob named `disks/`, and so were
+  `disks/a/`, `' '`, `disks/..` and `x/..` - names a folder store or OPFS cannot hold, and a `..` that must not
+  reach the store. Every door (a library import, a new blank disk, a mount of a stored name) now refuses anything
+  that is not a file's own name - empty, whitespace only, a trailing separator, or the segment `.` or `..` - as
+  `A disk image needs a name.` (a file that is not a disk image, dropped with such a path, as `A file needs a
+  name.`). A name that starts with a dot (`.vdk`) is a real name and still works.
   `tests/store-error-names.test.js`.
 
 ### 0.1.7-pre
