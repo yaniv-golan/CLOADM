@@ -45,16 +45,11 @@ function chatSession(setup = () => {}, id = 'dragon64') {
   return s;
 }
 const withRoms = (s) => s.addRoms([{ name: 'd64_1.rom', bytes: basic }, { name: 'd64_2.rom', bytes: basic64 }]);
-// a CoCo 3 session (NitrOS-9's machine) with a bootable NitrOS-9 floppy image in the library: the image is the
-// user's, from the project's cache, and the row is skipped where it is not there (no image may be committed)
-const NITROS9 = (() => {
-  try {
-    const { cached } = require('../tools/nitros9/fetch.js');
-    const c = cached('nos96809l2v030300coco3_40d_1.dsk');
-    return c.bytes || null;
-  } catch (e) { return null; }
-})();
-const coco3Chat = (s) => { s.switchMachine('coco3'); };
+// A SYNTHETIC NitrOS-9 floppy image (tests/fixtures/nitros9-synth.js), built from the OS-9 volume and module layout
+// so the floppy-boot row runs everywhere: the user's real image may not be committed, and a test that needs it
+// would prove nothing on CI. It is an image of a disk, with no system code on it.
+const { synthNitrOs9Floppy } = require('./fixtures/nitros9-synth.js');
+const NITROS9 = synthNitrOs9Floppy();
 const onStub = (s) => s.runWithoutRoms({ menu: false });
 const withTape = (s) => s.insertTape('x.cas', casTape());
 
@@ -139,7 +134,7 @@ const ROWS = [
   ['take a restore point / undo', () => {}, (s) => { const c = s.startAsk({ backend: backend() }); c.undo.push(s.chatTarget().snapshot()); return s.restoreClaude(0); }],
   // NitrOS-9
   // the image goes into the library before the chat opens, so the boot finds it (skipped without the user's image)
-  ['boot NitrOS-9 from a floppy image (CoCo 3)', 'coco3', (s) => s.media.write('disks/n9.dsk', NITROS9), (s) => s.bootNitros9('n9.dsk'), NITROS9 ? undefined : 'skip'],
+  ['boot NitrOS-9 from a floppy image (CoCo 3)', 'coco3', (s) => s.media.write('disks/n9.dsk', NITROS9), (s) => s.bootNitros9('n9.dsk')],
   ['boot NitrOS-9: a name that is not in the library', 'coco3', () => {}, (s) => s.bootNitros9('not-there.dsk')],
   // the Claude chat itself (must reach the person's machine for acting)
   ['Ask Claude (the side panel)', () => {}, (s) => s.startAsk({ backend: backend() })],
