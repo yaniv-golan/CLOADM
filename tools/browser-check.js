@@ -2371,12 +2371,12 @@ async function mediaChecks(browser, base, check) {
   // apart (js/ui/drawer.js). The row's index comes from the SAME list it was drawn from: recentMedia() hands out
   // copies, so the old indexOf() on a second call was always -1 and every row said the file was no longer stored.
   {
-    // two VALID programs of one name with different bytes: change the FIRST PAYLOAD byte (offset 8; bytes 0-7 are
-    // the DECB length and addresses, where a change makes the file unloadable rather than different), so the byte
-    // that lands at the load address tells the two apart in RAM.
+    // two VALID programs of one name with different bytes. examples/2048.bin is a RAW image loaded at $3000 (it
+    // has no DECB header: its first byte is already code), so changing its LAST byte changes the program without
+    // touching anything a loader reads. The load address's first byte tells the two apart in RAM.
     const A = Buffer.from(fs.readFileSync(path.join(ROOT, 'examples/2048.bin')));
-    const B = Buffer.from(A); B[8] = A[8] ^ 0xFF;
-    const firstA = A[8], firstB = B[8];
+    const B = Buffer.from(A); B[B.length - 1] = A[A.length - 1] ^ 0xFF;
+    const firstA = A[0], firstB = B[0], lastA = A[A.length - 1], lastB = B[B.length - 1];
     await page.setInputFiles('#fileProgram', { name: 'recent-one.bin', mimeType: 'application/octet-stream', buffer: A });
     await waitFor(page, () => [...document.querySelectorAll('#recentList .row')].some((b) => b.textContent.includes('recent-one.bin')));
     const rowsBefore = await page.$$eval('#recentList .row', (x) => x.map((e) => e.textContent));
@@ -2386,19 +2386,21 @@ async function mediaChecks(browser, base, check) {
       await waitFor(page, () => !document.getElementById('toast') || document.getElementById('toast').hidden
         || !/no longer stored/.test(document.getElementById('toast').textContent)), await page.textContent('#toast'));
     check('recent: the clicked row loaded the program it named',
-      await waitFor(page, () => window.emu.machine.ram[0x3000] === firstA), `$${await page.evaluate(() => window.emu.machine.ram[0x3000]).then((v) => v.toString(16))} want $${firstA.toString(16)}`);
+      await waitFor(page, () => window.emu.machine.ram[0x3000] === firstA),
+      `$${(await page.evaluate(() => window.emu.machine.ram[0x3000])).toString(16)} want $${firstA.toString(16)}`);
     await page.setInputFiles('#fileProgram', { name: 'recent-one.bin', mimeType: 'application/octet-stream', buffer: B });
     await waitFor(page, () => [...document.querySelectorAll('#recentList .row')].filter((b) => b.textContent.includes('recent-one.bin')).length === 2);
     const rows = await page.$$eval('#recentList .row', (x) => x.map((e) => e.textContent));
     check('recent: two files of one name with different bytes are two rows, the older told apart',
       rows.filter((t) => t.includes('recent-one.bin')).length === 2 && /2nd/.test(rows.join('|')), rows.join(' | '));
     if (shotDir) await page.locator('#panel-media').screenshot({ path: path.join(shotDir, 'recent-two-copies.png') });
-    // the older (2nd) row loads the OLDER bytes: it is a real entry, not a duplicate of the newer one
+    // the older (2nd) row loads the OLDER program: its LAST byte, the one that differs, is back to A's
     const second = await page.$$eval('#recentList .row', (x) => x.findIndex((e) => /2nd/.test(e.textContent)));
     await page.$$eval('#recentList .row', (x, i) => x[i].click(), second);
-    check('recent: the older copy loads its OWN program',
-      await waitFor(page, () => window.emu.machine.ram[0x3000] === firstA),
-      `$${await page.evaluate(() => window.emu.machine.ram[0x3000]).then((v) => v.toString(16))} want $${firstA.toString(16)} (the newer copy is $${firstB.toString(16)})`);
+    const last = 0x3000 + A.length - 1;
+    check('recent: the older copy loads its OWN program (its last byte, not the newer one\'s)',
+      await waitFor(page, ([a, want]) => window.emu.machine.ram[a] === want, [last, lastA]),
+      `last byte $${(await page.evaluate((a) => window.emu.machine.ram[a], last)).toString(16)} - A ends $${lastA.toString(16)}, the newer B ends $${lastB.toString(16)}`);
     check('recent: rows before the second load were one', rowsBefore.length === 1, rowsBefore.join(' | '));
   }
   check('media: no page errors', !errors.length, errors.join('; '));
