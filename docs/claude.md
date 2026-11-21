@@ -338,12 +338,12 @@ emulator.
     § £ ± ° ƒ`) and `$7F` (a checkerboard) as `▒`; bit 7 is ignored, as the GIME's font ignores it. Attribute
     bytes are never shown as characters: `attributes` gives each row's runs of equal attributes (`from`, `to`,
     `fg`, `bg`, `underline`, `blink`), where `fg` and `bg` are palette slots 0-7, not colours: the foreground is
-    palette register 8+`fg`, the background palette register `bg`. The vertical scroll register `$FF9C` does not move GIME text rows in
-    this emulator, as in MAME 0.264 (the top border resets the row's line counter), so the reader does not apply
-    it either: it reads what the display draws.
-
-    **Known limitation:** GIME `$FF9C` does not move text rows in this emulator or in MAME 0.264, while real
-    hardware smooth-scrolls them.
+    palette register 8+`fg`, the background palette register `bg`. The vertical fine scroll register `$FF9C`
+    (VSC) moves the text up by VSC scanlines when VSC is less than the rows' height (8, 9, 10 or 11 lines), as on
+    real hardware: the first row then shows only its lower part, and the next row of the buffer comes in at the
+    bottom, so the reader counts it too (`screenRows` 25 instead of 24 on a 192-line screen of 8-line rows), and reads
+    every row whole, as it stands in memory. MAME 0.264 does not scroll (the machine's `mameCompat` option, for the
+    MAME comparisons, reproduces that, and the reader follows it there).
   * **the Dragon 64 Plus's 80-column screen** (its Hitachi HD6845S), while the Display tab shows it. The board has
     no register that picks a screen (MAME shows both, as two screens): the screen read is the one the page shows,
     and on the main screen the VDG page is read as on a Dragon 64. The machine walks the board's own screen

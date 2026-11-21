@@ -7,8 +7,9 @@
 //    on the 6809 and the 6309 CoCo 3. The expected rows are literals in that file; `node tools/mame-diff/run.js
 //    coco3 --video --text` shows MAME 0.264 draws those same screens (pixels and glyph placement);
 //  * attribute bytes are decoded into runs and never read as characters;
-//  * the vertical scroll register does not move GIME text rows (in this model, as in MAME's) and the reader agrees
-//    with the picture;
+//  * the vertical scroll register: under mameCompat (MAME 0.264, which the screens here run) it does not move GIME
+//    text rows and the reader agrees with the picture; on the machine as shipped it scrolls them, and the reader
+//    counts the row the scroll brings in at the bottom;
 //  * the answer comes from the emulator's own GIME state, not the CPU-readable registers (a read of $FF98-$FF9F
 //    tells a program nothing): a target whose every byte reads $FF gets the same answer;
 //  * the screen is read from physical RAM: `base` is the CPU address the memory map gives it, or null;
@@ -116,7 +117,8 @@ function onScreen(name, cpu = '6809') {
     off.attributes === undefined && off.cols === 80 && off.lines[0].slice(0, 6) === 'N\u00eai\u00eat\u00ea', JSON.stringify(off.lines[0].slice(0, 12)));
 }
 
-// ---- 3. the vertical scroll ($FF9C) does not move GIME text rows: the picture and the reader agree ----
+// ---- 3. the vertical scroll ($FF9C) under mameCompat (MAME 0.264) does not move GIME text rows: the picture and
+// the reader agree ----
 {
   const m = onScreen('text 80 attr');
   const lines0 = JSON.stringify(read(m).lines);
@@ -125,8 +127,33 @@ function onScreen(name, cpu = '6809') {
   for (const v of [1, 5, 9, 15]) {
     m.gime.regs[12] = v;
     m.runFrame(); m.runFrame();
-    check(`$FF9C = ${v}: the picture is the same, and so are the rows read`, frameHash(m) === h0 && JSON.stringify(read(m).lines) === lines0);
+    check(`mameCompat, $FF9C = ${v}: the picture is the same, and so are the rows read`, frameHash(m) === h0 && JSON.stringify(read(m).lines) === lines0);
   }
+}
+// ---- 3b. ... and on the machine as shipped it scrolls them (js/chips/gime.js vscLine): with 8-line rows, VSC v < 8
+// starts the screen v lines into its first row, so 192 lines show ceil((192 + v) / 8) rows, the last one the
+// buffer's row 24, which the reader then reads too (its top part is on the screen); VSC 8 and up do not scroll ----
+{
+  const m = Emu.createMachine('coco3');            // the built-in firmware: it sets the GIME up once, at reset
+  const g = m.gime;
+  for (let f = 0; f < 4; f++) m.runFrame();
+  g.regs[0] = 0x00; g.regs[8] = 0x03; g.regs[9] = 0x05; g.regs[13] = 0xC0; g.regs[14] = 0x00; g.updateGeometry();
+  for (let i = 0; i < 16; i++) g.palette[i] = i * 4 + 1;   // every entry a different colour, so the glyphs show
+  const at = 0x60000 & g.ramMask;
+  for (let i = 0; i < 26 * 80; i += 2) { g.ram[at + i] = 0x20; g.ram[at + i + 1] = 0; }
+  for (let r = 0; r < 26; r++) [...`ROW ${String(r).padStart(2, '0')}`].forEach((ch, i) => { g.ram[at + r * 80 + i * 2] = ch.charCodeAt(0); g.ram[at + r * 80 + i * 2 + 1] = 0; });
+  g.regs[12] = 0;
+  let got = read(m);
+  check('shipped, $FF9C = 0: 24 rows, the last the buffer\'s row 23', got.screenRows === 24 && got.lines[23] === 'ROW 23' && !got.lines.includes('ROW 24'), JSON.stringify(got.lines.slice(-2)));
+  g.regs[12] = 3;
+  got = read(m);
+  check('shipped, $FF9C = 3: 25 rows, the 25th the buffer\'s row 24', got.screenRows === 25 && got.lines[24] === 'ROW 24' && /, 25 rows$/.test(got.mode), JSON.stringify({ mode: got.mode, last: got.lines.slice(-2) }));
+  m.runFrame(); m.runFrame();
+  const scrolled = frameHash(m);
+  g.regs[12] = 8;
+  got = read(m);
+  m.runFrame(); m.runFrame();
+  check('shipped, $FF9C = 8 (the row height): not scrolled, 24 rows, and the picture differs from VSC 3\'s', got.screenRows === 24 && frameHash(m) !== scrolled);
 }
 
 // ---- 4. not a text screen: graphics, short rows, no rows ----
