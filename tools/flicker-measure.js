@@ -1,7 +1,8 @@
-// Item 7 (PM 110): measure the page for flicker during the first "fix-D" load - a .cas dropped on the stub with
-// stored ROMs, which takes the "Using your ROMs again" path (restart into BASIC, load through it).
-// First visit (fresh profile, no service worker yet) vs second. Reports, per second of the load: DOM mutations,
-// layout shifts, canvas element replacements, service-worker events and reloads. Measurement only.
+// What a page load costs the DOM: a .cas dropped with ROMs stored (the "Using your ROMs again" path, which restarts
+// into BASIC and loads through it), in a fresh profile (no storage, no service worker yet) and in one that has
+// visited before. Reports, per second of the load and in all: DOM mutations, layout shifts, canvas element
+// replacements, service-worker events, navigations, reloads, and the inline-style writes on #toastRegion (where a
+// toast's placement loop shows; see docs/development.md, "The page's per-frame work").
 //
 // Usage: node tools/flicker-measure.js [--runs N] [--out DIR]
 const fs = require('fs'), path = require('path'), os = require('os'), http = require('http');
@@ -35,7 +36,7 @@ const { basic, basic64 } = build(Emu);
 // the instrumentation, installed before any page script runs
 const INIT = `
 window.__flick = { mut: 0, shift: 0, cls: 0, canvases: 0, sw: [], reloads: 0, samples: [], t0: performance.now(), regionWrites: 0 };
-// (item 7) the toast region's inline-style writes: a MutationObserver on attributes, filtered to the one element
+// the toast region's inline-style writes: a MutationObserver on attributes, filtered to the one element
 new MutationObserver((recs) => { for (const r of recs) if (r.type === 'attributes' && r.target && r.target.id === 'toastRegion' && r.attributeName === 'style') window.__flick.regionWrites++; })
   .observe(document, { subtree: true, attributes: true, attributeFilter: ['style'] });
 new MutationObserver((recs) => { window.__flick.mut += recs.length; }).observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
@@ -63,7 +64,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function oneRun(browser, base, { fresh, label }) {
   // fresh: a brand-new profile (no storage, no service worker). Otherwise reuse one that has visited before.
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'w1-flick-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cloadm-load-'));
   const ctx = await chromium.launchPersistentContext(dir, { viewport: { width: 1440, height: 900 } });
   await ctx.addInitScript(INIT + PERSIST);
   const page = await ctx.newPage();
@@ -75,7 +76,7 @@ async function oneRun(browser, base, { fresh, label }) {
   await page.waitForFunction(() => window.emu && window.emu.ready && window.emu.started, null, { timeout: 30000 });
   // let the visit settle (the welcome menu, the service worker's first install)
   await sleep(3000);
-  // stored ROMs, then choose to run without them (the "fix-D" precondition)
+  // stored ROMs, then choose to run without them: the precondition for the path this measures
   await page.evaluate(([a, b]) => window.emu.session.addRoms([{ name: 'd64_1.rom', bytes: Uint8Array.from(a) }, { name: 'd64_2.rom', bytes: Uint8Array.from(b) }]),
     [[...basic], [...basic64]]);
   await page.evaluate(() => window.emu.session.runWithoutRoms({ menu: false }));
@@ -84,7 +85,7 @@ async function oneRun(browser, base, { fresh, label }) {
   const before = await page.evaluate(() => ({ ...window.__flick, samples: [], t0: performance.now() }));
   const nav0 = navigations.length;
   await page.evaluate(async ([bytes]) => {
-    const f = new File([new Uint8Array(bytes)], 'fix-d.cas');
+    const f = new File([new Uint8Array(bytes)], 'load-measure.cas');
     const dt = new DataTransfer(); dt.items.add(f);
     const ev = new Event('drop', { bubbles: true, cancelable: true });
     Object.defineProperty(ev, 'dataTransfer', { value: dt });
@@ -102,7 +103,7 @@ async function oneRun(browser, base, { fresh, label }) {
   const dMut = after.mut - before.mut, dShift = +(after.shift - before.shift).toFixed(5), dCls = after.cls - before.cls;
   const canv = after.canvases - before.canvases;
   return { label, fresh, seconds: secs, mutations: dMut, mutationsPerSec: Math.round(dMut / secs), layoutShifts: dCls, cls: dShift,
-    // (item 7) #toastRegion's style-attribute writes in the window: main rewrote it every animation frame
+    // #toastRegion's style-attribute writes in the window: main rewrote it every animation frame
     regionWrites: after.regionWrites - before.regionWrites,
     canvasElements: canv, reloads: after.reloads, sw: after.sw.slice(0, 5), navigations: navigations.length - nav0, errors,
     samples: after.samples };
@@ -111,7 +112,7 @@ async function oneRun(browser, base, { fresh, label }) {
 async function main() {
   const args = process.argv.slice(2);
   const runs = Number((args[args.indexOf('--runs') + 1]) || 3);
-  const out = args.includes('--out') ? args[args.indexOf('--out') + 1] : path.join(os.tmpdir(), 'w1-flicker');
+  const out = args.includes('--out') ? args[args.indexOf('--out') + 1] : path.join(os.tmpdir(), 'cloadm-load-measure');
   fs.mkdirSync(out, { recursive: true });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const base = `http://127.0.0.1:${server.address().port}/play/`;
