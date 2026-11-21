@@ -216,6 +216,10 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 - **The MCP server's `load` runs the games too:** `program` takes `2048` and `minesweeper` as well as `welcome`,
   `liza` and `demo` (refused, as on the page, where the machine cannot run them).
 
+### Fixed
+
+- Booting NitrOS-9 from a Library image whose storage fails (not just a missing image) now reports the storage error instead of "There is no image called ...".
+
 ### 0.1.7-pre
 
 #### Added
