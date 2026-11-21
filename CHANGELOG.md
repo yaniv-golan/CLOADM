@@ -8,6 +8,11 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.1.7-pre (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
+### Changed
+
+- The CLI no longer accepts the undocumented step aliases `expect-text`, `png` and `regs` (in scripts and as
+  `--expect-text`, `--png`, `--regs`); use `expect-screen`, `screenshot` and `registers`. `-m` and `-o` stay.
+
 ### 0.1.7-pre
 
 #### Added
