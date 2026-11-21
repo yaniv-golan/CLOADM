@@ -53,8 +53,9 @@ and its tests never use them.
   kept. That site isn't part of this project, CLOADM never contacts it, and whether you may download from it
   depends on the law where you live and on the copyright holders' terms.
 * **Drop the files on the page.** CLOADM checks each one's CRC32 against the ROMs it recognises and keeps it in your
-  browser's storage only. It is never uploaded, never put in share links and never included in exported
-  settings. **Save ROM pack…** carries your ROMs to another browser.
+  browser's storage only. CLOADM itself never uploads your ROMs, never puts them in share links and never includes them
+  in exported settings. If you use Claude, what it reads from the machine's memory (ROM areas included) is sent to
+  Anthropic as part of your conversation. **Save ROM pack…** carries your ROMs to another browser.
 * **See what went where.** **Add ROMs** (the orange **No BASIC · Add ROMs** in the header, **Add ROMs** in the
   Machine tab, or key 3 on the Welcome menu) shows **Your ROMs**: what each one takes (size and usual
   file names), whether it is required, and what it holds or what you miss without it. It lists what each dropped

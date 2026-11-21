@@ -58,7 +58,8 @@ BASIC and holds the conversation on the green screen, in a lowercase font drawn 
 work on the BASIC session kept alongside the chat: read its screen and memory, POKE, type in short programs or load
 longer ones and RUN them,
 press BREAK, and one click undoes it all. It runs on your own Anthropic API key, kept in your browser and never
-visible to the emulated machine, snapshots, share links or exported settings. Coming: the same chat over DriveWire
+visible to the emulated machine, snapshots, share links or exported settings. What Claude reads from the machine's memory (ROM
+areas included) is sent to Anthropic as part of your conversation; CLOADM itself never uploads your ROMs. Coming: the same chat over DriveWire
 to a real CoCo or Dragon on Web Serial, and the CoCo 3's 80-column screen.
 
 The API costs are kept down with prompt caching: the tool list and the brief are cached together behind one
@@ -85,7 +86,7 @@ Two ways to talk to Claude, one conversation:
   type come first (each presses the page's own button and is never sent to Claude), **Ask Claude: "…"** is always
   last. Enter runs the command or asks; asking opens the side panel, or full screen while the welcome menu is on
   screen.
-* **Consent.** Claude can always read the emulated machine (screen text, memory, model and program counter), and nothing outside the emulator; the panel names what it reads. What it reads goes to Anthropic with the conversation, using your key. Acting
+* **Consent.** Claude can always read the emulated machine (screen text, memory, model and program counter), and nothing outside the emulator; the panel names what it reads. What it reads goes to Anthropic with the conversation, using your key. That includes the machine's memory, so ROM areas Claude peeks at or disassembles are sent too; CLOADM itself never uploads your ROMs, and never puts them in share links or exported settings. Acting
   (POKE, typing, BREAK) needs **Let Claude use the emulator**, off until you allow it: the first time Claude wants to
   act it asks in the conversation (**Allow**, which turns the switch on for the visit, or **Just tell me the fix**,
   which Claude is told as `consent-declined` and which changes nothing; Stop while it asks is `stopped`). While Claude acts the screen has a pulsing green ring and
@@ -305,7 +306,9 @@ emulator.
   `is_error:true`. `peek` returns at most 256 bytes and says `truncated` when it cut a request short; a read whose
   bytes would run past `$FFFF` is a `past-end` error, because reads do not wrap. `disassemble` decodes up to 64
   instructions in the machine's own instruction set (6809, 6803 or 6309, taken from the machine, never from the
-  request) through the same side-effect-free peek, and returns each instruction's bytes with its text.
+  request) through the same side-effect-free peek, and returns each instruction's bytes with its text. Both read whatever the machine has mapped at the
+  address, ROM areas included, and what they return is sent to Anthropic as part of your conversation, like everything else Claude reads. CLOADM
+  itself never uploads your ROMs, and never puts them in share links or exported settings.
   `screen_text` returns the screen's rows as text, trailing spaces trimmed and trailing blank rows left out. It
   reads three kinds of text screen:
   * **the MC6847 VDG's 32x16 page** (MC-10, Dragon 32/64/200, CoCo 1/2, and the CoCo 3 in its CoCo-compatible

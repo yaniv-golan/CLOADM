@@ -173,6 +173,15 @@ All notable changes to CLOADM are recorded here. The format follows
   its queue lasts (a few tens of milliseconds), then fades to silence. `tools/browser-check.js` and `docs/using.md`
   only; no page behaviour changed.
 
+- **What the ROM privacy text says about Claude.** The README, the Using guide, the front page, the **/roms** page, the
+  Help page and the ROM panel said ROMs are "never uploaded". That is true of CLOADM itself, but Claude's `peek` and
+  `disassemble` tools read whatever the machine has mapped, ROM areas included, and what Claude reads goes to Anthropic
+  with the conversation. The copy now says both: CLOADM never uploads your ROMs and never puts them in share links or
+  exported settings; if you use Claude, what it reads from the machine's memory (ROM areas included) is sent to
+  Anthropic as part of your conversation. The Ask Claude panel's footer line, `docs/claude.md` (the Consent and tools
+  paragraphs) and the Help page's "What Claude can do" say the same. Wording only: no tool behaviour changed, and the
+  browser check asserts the new text.
+
 ### 0.1.6-pre
 
 #### Added

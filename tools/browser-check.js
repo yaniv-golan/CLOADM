@@ -1756,7 +1756,7 @@ async function romUiChecks(browser, base, check) {
   check('sockets: nothing dropped yet', /Nothing yet/.test(await page.textContent('#romFound')) && await page.isHidden('#btnRomSwitchOn'));
   check('sockets: the given copy, and the way to the /roms page', await page.$eval('#romsLink', (a) => new URL(a.href).pathname) === '/roms/'
     && /File names don't matter: CLOADM recognises ROMs by their contents\./.test(await page.textContent('#romCard'))
-    && /ROMs stay in this browser\. They are never uploaded, put in share links or exported\./.test(await page.textContent('#romCard')));
+    && /ROMs stay in this browser\. CLOADM never uploads them and never puts them in share links or exported settings\. If you use Claude, what it reads from the machine's memory \(ROM areas included\) is sent to Anthropic as part of your conversation\./.test(await page.textContent('#romCard')));
   await shot('missing');
   await page.click('#btnRunStub');
   check('sockets: "Run without ROMs" runs without them: the welcome menu', await waitFor(page, () => window.emu.session.welcomeRunning && !window.emu.machine.hasRom)
@@ -5620,7 +5620,7 @@ async function readingChecks(browser, site, check) {
       check('/roms: says it in one place: dump your own, the archive keeps the XRoar sets, copyright, never downloaded',
         /Dump your own/.test(text) && /The community-run Color Computer Archive keeps the ROM sets XRoar uses/.test(text)
         && /ROMs are copyrighted by Microsoft, Tandy, Dragon Data and others\. CLOADM doesn't include them and never\s+downloads them\./.test(text)
-        && /File names don't matter: CLOADM recognises ROMs by their contents\./.test(text) && /ROMs stay in this browser\. They are never uploaded, put in share links or exported\./.test(text));
+        && /File names don't matter: CLOADM recognises ROMs by their contents\./.test(text) && /ROMs stay in this browser\. CLOADM never uploads them and never puts them in share links or exported settings\. If you use Claude, what it reads from the machine's memory \(ROM areas included\) is sent to Anthropic as part of your conversation\./.test(text));
       check('/roms: links the archive\'s ROM folder as a plain link', await page.getAttribute('#archiveRoms', 'href') === 'https://colorcomputerarchive.com/repo/ROMs/XRoar/'
         && /noreferrer/.test(await page.getAttribute('#archiveRoms', 'rel')));
       const rows = await page.$$eval('table.plain tbody tr td:first-child', (r) => r.map((x) => x.textContent));
@@ -9117,7 +9117,7 @@ async function askChecks(browser, base, check) {
       && !(await page.isChecked('#chkAskMachine')));
     check(`${L}: the empty state says Claude reads only this emulated machine, visible${phone ? ' on the phone sheet (where "Claude can read" is hidden)' : ''}, and names it`, await vis('#askEmpty') && !(await vis('#askSee')) === phone
       && (await page.textContent('#askEmptyText')) === 'Claude reads only this emulated Dragon 64 (its screen text and memory), never your computer. It types or changes things only if you allow it.', await page.textContent('#askEmptyText'));
-    check(`${L}: the footer line about Anthropic is visible`, await vis('#askSendNote') && await page.textContent('#askSendNote') === 'Your messages and what Claude reads go to Anthropic with your key.');
+    check(`${L}: the footer line about Anthropic is visible`, await vis('#askSendNote') && await page.textContent('#askSendNote') === 'Your messages and what Claude reads from the machine\'s memory (ROM areas included) go to Anthropic with your key.');
     // the empty state follows a machine switch (the panel text updates whether or not the panel is showing)
     await page.evaluate(() => window.emu.session.switchMachine('coco'));
     const named = await waitFor(page, () => /CoCo 1\/2/.test(document.getElementById('askEmptyText').textContent), null, 5000);

@@ -1496,7 +1496,7 @@ npx serve -l 8000 .</pre>
       <div class="bar"><input id="askInput" aria-label="Message to Claude" autocomplete="off" placeholder="Ask about this machine…"><button id="btnAskSend" class="primary">Send</button></div>
       <div class="askfoot"><label><input type="checkbox" id="chkAskMachine"> Let Claude use the emulator</label>
         <span class="muted" id="askKeyLine">API key · Saved in this browser. <button class="link" id="btnAskKeyChange">Change</button> <button class="link" id="btnAskKeyForget">Forget</button></span></div>
-      <p class="muted" id="askSendNote">Your messages and what Claude reads go to Anthropic with your key.</p>
+      <p class="muted" id="askSendNote">Your messages and what Claude reads from the machine's memory (ROM areas included) go to Anthropic with your key.</p>
     </div>
   </aside>
   <nav id="askRail" aria-label="Machine settings" hidden></nav>
@@ -1733,7 +1733,7 @@ npx serve -l 8000 .</pre>
           The report contains no ROM data: only sizes, checksums and test results.</p>
         <pre id="selftestOut"></pre>
       </section>
-      <p class="muted small">ROMs stay in this browser. They are never uploaded, put in share links or exported.</p>
+      <p class="muted small">ROMs stay in this browser. CLOADM never uploads them and never puts them in share links or exported settings. If you use Claude, what it reads from the machine's memory (ROM areas included) is sent to Anthropic as part of your conversation.</p>
     </section>
   </div>
 </div>
