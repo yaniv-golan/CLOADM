@@ -69,6 +69,9 @@ class DiskController extends SlotDevice {
     this.reset(true);
   }
   get name() { return this.board.name; }
+  // only the CoCo controller drives HALT (its drive select latch's bit 7, while the data register waits for DRQ);
+  // the Dragon and Premier boards have no such line, and the Alpha's interface is built into the machine
+  get canHalt() { return this.type === 'cocofdc'; }
   // taken out of the slot: written tracks are committed first
   detach() {
     this.flush();

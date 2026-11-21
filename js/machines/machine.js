@@ -23,8 +23,9 @@
  *   - create this.interrupts = new InterruptHub(this.cpu) and route every interrupt source through
  *     setLine(source, line, level) (lines: irq, firq, nmi, halt; and cart, the cartridge port's CART line,
  *     which the family routes in cartLineChanged(level))
- *   - for a cartridge port: return true from hasCartridgePort, map cartPort (an Device) into
- *     $C000-$FEFF / $FF40-$FF5F, and remap in cartridgeChanged()
+ *   - for a cartridge port: return true from hasCartridgePort, map cartPort (a Device) into
+ *     $C000-$FEFF / $FF40-$FF5F, and remap in cartridgeChanged(); what the attached devices decide is
+ *     settled in devicesAttached(), called whenever one is attached or detached
  *   - for no-ROM operation: map stub firmware (stubRom) and call installStub(); override
  *     stubActive() when the stub ROM can be mapped out
  *   - set Family.BASIC_POINTERS (address of BASIC's TXTTAB) for loadBasicProgram
@@ -383,20 +384,33 @@ class Machine {
   cartLineChanged() { /* family hook: the cartridge port's CART line */ }
   frameEnd() { /* family hook: bring sound generators up to the end of the frame */ }
   get hasCartridgePort() { return false; }
+  // A port change cannot be made inside an instruction: it would let the step under way be suspended against a bus
+  // log that started late (the CoCo 3's logBus is live, and rests on a step never spanning an attach). Refused
+  // loudly, like a device driving HALT undeclared (coco3.js setLine): it is a programmer error, not a state a
+  // person can reach - the page, the Session and the debugger all attach between frames - so there is no
+  // user-readable message to write. (tests/coco3-buslog.test.js)
   insertCartridge(dev) {
     if (!this.hasCartridgePort) throw new Error(`the ${this.profile.name} has no cartridge port`);
+    if (this.inStep) throw new Error('a cartridge cannot be attached inside an instruction: attach it between frames');
     if (this.cartPort) this.cartPort.detach();
     this.cartPort = dev;
     dev.attach(this);
     this.cartridgeChanged();
+    this.devicesAttached();
   }
   ejectCartridge() {
     if (!this.cartPort) return;
+    if (this.inStep) throw new Error('a cartridge cannot be taken out inside an instruction: take it out between frames');
     this.cartPort.detach();
     this.cartPort = null;
     this.cartridgeChanged();
+    this.devicesAttached();
   }
   cartridgeChanged() { /* family hook: remap the cartridge ROM space */ }
+  // called whenever a device has been attached or detached (a cartridge in or out, a machine restored from a
+  // snapshot, a Multi-Pak's slot changed): family hook for what the attached devices decide, such as the CoCo 3's
+  // bus log (coco3.js logBus)
+  devicesAttached() { }
 
   // ---------------- state (snapshots) ----------------
   // Families extend saveState/loadState with their chips and fields (calling super). Input
@@ -439,8 +453,10 @@ class Machine {
     }
     if (this.hasCartridgePort) {
       if (s.cartridge && !devices[s.cartridge.type]) throw new Error(`snapshot: unknown cartridge ${s.cartridge.type}`);
+      // (the port is empty here: it was detached above, so ejectCartridge would return at once and never announce
+      // it - the family must hear of this either way, as the CoCo 3's bus log needs of it)
       if (s.cartridge) this.insertCartridge(devices[s.cartridge.type].fromState(s.cartridge.state));
-      else this.ejectCartridge();
+      this.devicesAttached();
     }
     // after the cartridge: what each source holds, so a source letting go of a line another still holds leaves
     // it held

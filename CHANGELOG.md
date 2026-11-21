@@ -8,6 +8,25 @@ All notable changes to CLOADM are recorded here. The format follows
 
 ### Changed
 
+- **The CoCo 3 keeps its bus log only while a device that can assert HALT is attached.** The log (the accesses of
+  the instruction under way, so one HALT suspended can be run again and replay them) was kept on every machine.
+  Only the CoCo FDC drives HALT here (its drive select latch's "HALT enable", `js/machines/fdc.js`), so a machine
+  with anything else, or nothing, in its cartridge port now logs nothing and runs faster: measured on a CoCo 3
+  without the controller, a median of five paired runs (46,000 frames each, a fresh process per run, alternating
+  builds; every run is in the report), **+4.4% frames/s**; with the controller attached, where the log still runs,
+  within noise of before (-1.2%). A device declares that it can, with `Device.canHalt`; a Multi-Pak answers for the
+  cartridges in its slots, so a Multi-Pak rebuilt with a controller in one slot and put in over the old one settles
+  it at once (the page's own path; there is no other). Nothing changes for machines with the controller, for the
+  disk interface built into the Dragon Alpha, or for any snapshot: a held instruction keeps its own log and
+  restores with it.
+- **The log is kept honest.** A device that drives HALT without declaring `Device.canHalt` is refused at the first
+  HALT, naming it, rather than suspending an instruction against a log that is not carried; and a cartridge asked
+  to go in or come out from inside an instruction is refused the same way. Both are programmer errors, not states a
+  person can reach (every page, Session and debugger path attaches between frames). A HALT from a source with no log
+  behind it - in shipped code, only a test hook, since the slot's line timer is the only event that asserts HALT -
+  halts the CPU between instructions instead of suspending one it could not replay. A snapshot loaded over a machine
+  holding a different cartridge announces the port either way, so the log follows the file.
+  `tests/coco3-buslog.test.js`, and the CoCo 3, FDC, halt-replay, halt-held and state suites.
 - **The floppy-disk suite is split in four.** `tests/disks.test.js` had grown to about 150 s (v0.1.6 added about 900
   lines of mount-race and new-disk-race cases, each importing and mounting 40-track images, and a mount is about
   1.3 s of flux encoding, as it was in v0.1.5), close to and on CI over `tests/all.js`'s 240 s per-suite cap. Its cases, unchanged, now run in

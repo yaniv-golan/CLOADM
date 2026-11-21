@@ -87,11 +87,15 @@ class Coco3Machine extends Machine {
     // held access's time, not the machine's. An explicit flag rather than a test on ioShift, which is legitimately
     // 0 for an access held at the instruction's own start - the guard must not depend on that.
     this.heldIo = false;
-    // every bus access of the step so far, in order (busLogged): its address and the byte read or written. A step run
-    // again after HALT suspended it gets its first replayN accesses from here (replayRead), not from the bus.
+    // every bus access of an instruction that may be suspended by HALT, in order (busLogged): its address and the
+    // byte read or written. A step run again after HALT suspended it gets its first accesses from here (replayRead),
+    // not from the bus. Kept only while a device that can assert HALT is attached (logBus): carrying it was worth
+    // 4.4% frames/s on a CoCo 3 without the controller (the median of five paired runs), and only the CoCo FDC's
+    // HALT can suspend an instruction (fireEvent / logBus)
     this.busA = new Int32Array(256); this.busV = new Uint8Array(256); this.busN = 0;
     this.busAt = 0;          // the next access of a step run again
     this.replayN = -1;       // how many of its accesses are replayed (-1: not replaying)
+    this.busHalt = false;    // a HALT-capable device is attached (devicesAttached; see logBus)
     this.waitLimit = Infinity; // haltWait waits no later than this tick (the end of the run: runCycles)
     this.sliceStart = 0;
     this.holdUntil = -Infinity;
@@ -116,6 +120,43 @@ class Coco3Machine extends Machine {
   romImage() { return this.roms.basic && this.roms.basic.length >= 0x8000 ? this.roms.basic : STUB.rom; }
   romsChanged() { this.gime.cartridgeChanged(); }
   get hasCartridgePort() { return true; }
+  // Whether the bus log is carried: an instruction can be suspended only by HALT, and HALT reaches the CPU from a
+  // device through its slot's line timer (a SlotDevice's CartSlot: only the CoCo FDC drives an 'halt' line), so the
+  // log is needed while a device declaring Device.canHalt is attached (a Multi-Pak answers for its slots). A line
+  // asserted any other way (a test or the debugger calling setLine) takes the CPU between instructions: there is no
+  // step to hold, so nothing to log. A held instruction keeps its log whatever is attached now, as its step run
+  // again replays against it and may be held again (a restored snapshot whose controller was then taken out).
+  // The log is live, so a device attached later needs nothing from before it came: a step never spans an attach.
+  // A snapshot's haltDefer was logged while its device was attached, and Machine.loadState attaches the cartridge
+  // before the rest of the state comes back, so a restored suspended instruction keeps its log.
+  get logBus() { return this.busHalt || this.haltDefer !== null; }
+  devicesAttached() {
+    this.busHalt = !!(this.cartPort && this.cartPort.canHalt);
+  }
+  // (read and write test the two fields logBus is made of, not the getter: the call on every access cost 5-6% with
+  // the controller attached, where the log runs and every access pays it. An attach or a hold shows on the next
+  // access: a step never spans an attach.)
+  // A device asserting HALT without declaring Device.canHalt would suspend an instruction against a log that is not
+  // carried: replay would have nothing to replay and the instruction would be dropped instead of run again. Checked
+  // here so a device added later that drives the line and forgets its declaration fails at the first HALT rather
+  // than silently losing replay. A line from a source that is not the attached device (a test or the debugger
+  // calling setLine) is not a device's and is left alone.
+  //
+  // This is a programmer error, not a state a person can reach: a device here is only ever constructed by this
+  // repository's own code (js/machines/*.js, the Session, the page), never from a cartridge image, a BASIC program,
+  // a key or a snapshot. So there is deliberately no user-readable message; the page's frame loop has no catch and
+  // it surfaces there as an uncaught error, which is the loud answer a bug deserves. The message names the device
+  // for whoever adds the next one.
+  setLine(source, line, level) {
+    // (only the device in the port is a device's line: a test, a tool or a host hook calling setLine is not, and its
+    // HALT takes effect between instructions - see fireEvent)
+    if (line === 'halt' && level && this.cartPort && source === this.cartPort.id && !this.cartPort.canHalt) {
+      throw new Error(`HALT: the ${this.cartPort.type} in the cartridge port asserts the line but does not declare ` +
+        'Device.canHalt, so the CoCo 3\'s bus log (js/machines/coco3.js logBus) is not carried and an instruction ' +
+        'HALT holds cannot be run again');
+    }
+    super.setLine(source, line, level);
+  }
   // CART (cartridge pin 8) drives PIA1 CB1 and the GIME's EI0, as MAME's coco3_state::cart_w
   cartLineChanged(level) { this.pia1.setC1('b', level); this.gime.setInput(GIME.INT.EI0, level); }
   // The cartridge slot runs on the driver's clock (coco3.cpp: XTAL / 32, COCOCART_SLOT DERIVED_CLOCK(1, 1)).
@@ -200,15 +241,16 @@ class Coco3Machine extends Machine {
     const s = a >= 0xFE00 ? 8 : a >> 13;
     return this.gime.wr[s] === this.gime.sink ? 'rom' : null;
   }
-  // A step logs every bus access it makes (busLogged). A step run again after HALT suspended it (haltSuspend) replays
-  // the accesses it had made before its held one (replayRead, replayWrite): each read returns the byte it returned
-  // then, each write is not made again. Once is all the hardware saw, and the bytes read are the ones read then, not
-  // memory as the instruction itself has changed it since (a 6309 TFM whose source overlaps its destination).
+  // A step logs every bus access it makes (busLogged) while a HALT-capable device is attached (logBus). A step run
+  // again after HALT suspended it (haltSuspend) replays the accesses it had made before its held one (replayRead,
+  // replayWrite): each read returns the byte it returned then, each write is not made again. Once is all the hardware
+  // saw, and the bytes read are the ones read then, not memory as the instruction itself has changed it since (a 6309
+  // TFM whose source overlaps its destination).
   read(a) {
     if (this.inStep) {
       if (this.replayN >= 0) return this.replayRead(a);
       const v = this.busRead(a);
-      this.busLogged(a, v);
+      if (this.busHalt || this.haltDefer !== null) this.busLogged(a, v);
       return v;
     }
     return this.busRead(a);
@@ -278,7 +320,7 @@ class Coco3Machine extends Machine {
     if (this.inStep) {
       if (this.replayN >= 0 && this.replayWrite(a, v)) return;   // made before the step was suspended (read())
       this.busWrite(a, v);
-      this.busLogged(a, v & 0xFF);
+      if (this.busHalt || this.haltDefer !== null) this.busLogged(a, v & 0xFF);
     } else this.busWrite(a, v);
   }
   busWrite(a, v) {
@@ -501,6 +543,16 @@ class Coco3Machine extends Machine {
     const was = this.cpu.haltLine;
     super.fireEvent(e);
     if (was === this.cpu.haltLine) return;
+    // Only a device's HALT can fall inside an instruction and suspend it (its slot line has the 6-cycle delay; that
+    // is what makes the disk controller's held transfer work). This branch is for a line with no log carried for it.
+    // In shipped code that means a non-device source, and the only one is a test hook: the slot's line timer (a
+    // SlotDevice's CartSlot) is the only event here that asserts HALT, and a device's own assertion either carries
+    // the log (it declares canHalt) or is refused before it gets here (setLine). Such a line halts the CPU between
+    // instructions: it clears haltAt and returns before haltArrived, so it also skips that function's
+    // mid-instruction accounting (haltS, haltK, haltN - and with them what haltReleased charges as haltTail).
+    // (Suspending an instruction against an empty log would drop it instead of replaying it;
+    // tests/coco3-buslog.test.js.)
+    if (this.cpu.haltLine && !this.logBus) { this.haltAt = -1; return; }
     if (this.cpu.haltLine) { this.haltAt = e.at; this.haltS = -1; if (!this.inStep) this.haltArrived(); }
     else { this.haltAt = -1; if (this.haltDefer) this.haltDefer.rel = e.at; else if (this.haltS >= 0) this.haltReleased(e.at); }
   }

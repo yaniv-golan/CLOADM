@@ -1011,7 +1011,20 @@ is in: the frame, or the slice `runCycles` was given. A read whose DRQ never com
 would otherwise hold the frame forever. Past that point the instruction is suspended (`haltSuspend`): the CPU's
 registers go back to its start (`cpu.mark` / `cpu.rewind`), every bus access it made before the held one is kept in
 order, address and byte (code fetches, RAM and I/O, reads and writes: `busLogged`), and frames go on with the CPU
-halted. When HALT is released the instruction runs again from its start (`cpu.rerun`: no interrupt taken first, not
+halted. That log is kept only while a device that can assert HALT is attached (`logBus`): the CoCo FDC alone drives
+the line here, a Multi-Pak answers for its slots, and a device that drives it without declaring `Device.canHalt` is
+refused at the first HALT (a machine with nothing else attached logs nothing and runs 4.4% faster by the median of
+five paired runs; `tests/coco3-buslog.test.js`). A held instruction keeps its own log, so a snapshot restores with it and a restored
+machine whose controller is then taken out still replays it. The log is live: nothing attaches a device inside a step,
+so a device attached later needs nothing from before it came (`Machine.devicesAttached`; a cartridge asked to go in
+or come out from inside an instruction is refused, as the programmer error it is). A HALT from a source with no log
+behind it halts the CPU between instructions rather than suspending one: with nothing logged, a replay would drop
+the instruction and make its accesses twice (`fireEvent`). In shipped code the only such source is a non-device one,
+a test hook - the slot's line timer is the only event that asserts HALT, and a device's own assertion either carries
+the log or is refused first - and that path also skips the mid-instruction cycle accounting (`haltArrived`'s
+`haltS`/`haltK`/`haltN`, and the `haltTail` `haltReleased` would charge). A
+snapshot loaded over a machine with a different cartridge announces the port's new state either way, so the log
+follows the file (`Machine.loadState`). When HALT is released the instruction runs again from its start (`cpu.rerun`: no interrupt taken first, not
 traced twice) with those accesses replayed, not made again: each read returns the byte it returned then, each write
 is not repeated (`replayRead`, `replayWrite`), so the bytes it reads are the ones it read, not memory as it has itself
 changed it since (a 6309 TFM whose source overlaps its destination), and an I/O write that remapped memory (the MMU)

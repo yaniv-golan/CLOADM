@@ -192,6 +192,9 @@ class MultiPak extends SlotDevice {
   }
   get scsSlot() { return (this.select & 3) + 1; }
   get ctsSlot() { return ((this.select >> 4) & 3) + 1; }
+  // it can assert HALT if anything in a slot can (a Multi-Pak's slots change only by a new Multi-Pak: the panel
+  // builds one and the machine attaches it over the old, which is what devicesAttached then settles)
+  get canHalt() { return this.slots.some((c) => !!c && c.canHalt); }
   cart(n) { return this.slots[n - 1]; }
   lineValue(n, line) { const c = this.cart(n); return c && c.lines ? c.lines.value(line) : 'clear'; }
   // update_line

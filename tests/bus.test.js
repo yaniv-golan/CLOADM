@@ -6,9 +6,11 @@ let fail = 0;
 const check = (name, cond, detail = '') => { if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log(`ok   ${name} ${detail}`); };
 const throws = (fn) => { try { fn(); return false; } catch (e) { return true; } };
 
-// a test device: 8K ROM plus a register at $FF40 that counts writes and can raise lines
+// a test device: 8K ROM plus a register at $FF40 that counts writes and can raise lines (HALT included, so it
+// declares it: a device that drives the line without canHalt is refused by the CoCo 3, coco3.js setLine)
 class TestCart extends Emu.Device {
   constructor() { super('test'); this.bytes = new Uint8Array(0x2000).map((_, i) => i & 0xFF); this.reg = 0; }
+  get canHalt() { return true; }
   rom() { return this.bytes; }
   readIO(a) { return a === 0xFF40 ? this.reg : undefined; }
   writeIO(a, v) { if (a === 0xFF40) this.reg = v; if (a === 0xFF41) this.host.setLine('testcart', 'nmi', !!v); if (a === 0xFF42) this.host.setLine('testcart', 'halt', !!v); }
