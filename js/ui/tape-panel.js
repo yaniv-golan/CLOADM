@@ -51,7 +51,7 @@ export function setupTapePanel(page) {
   }
 
   function update() {
-    const m = session.machine;
+    const m = session.personMachine;
     if (!m) return;
     const st = session.tapeStatus(), rec = session.tapeRecording;
     panel.hidden = !st && !rec;

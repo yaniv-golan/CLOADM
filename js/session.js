@@ -869,12 +869,14 @@ export class Session {
   // back to the machine's own ROMs (BASIC), from the start; a disk controller plugged in without a ROM for the
   // floppy boot comes out (its disks are kept in the library)
   leaveNitros9() {
+    // NitrOS-9 runs on the machine in use (bootNitros9 switches to the CoCo 3 there), so that is the machine to
+    // take it off; the chat cannot be open on a NitrOS-9 machine (the switch that boots it closes the chat)
     const m = this.machine;
     if (!this.nitros9Running) return;
     if (m.cartPort instanceof DiskController && !m.cartPort.romBytes) { this.flushDisks(); m.ejectCartridge(); this.emit('disks'); }
     if (this.stubChosen.has(m.id)) m.setRoms(Object.fromEntries(m.profile.roms.map((x) => [x.id, null])));
-    else this.loadSavedRoms();
-    this.powerCycle();
+    else this.loadSavedRoms(m);
+    this.powerCycle({ on: m });
     this.emit('roms');
     this.emit('nitros9');
   }
@@ -1005,6 +1007,11 @@ export class Session {
   // the welcome menu, as a visit does. With ROMs,
   // reset and power-on are BASIC's.
   // Reset and power cycle drop any frames owed to real time (no catch-up burst after them); 'reset' event
+  // With the chat full screen, Reset is the SHOWN machine's, deliberately: the screen's Reset restarts what is
+  // running on screen, which is the chat firmware, and it comes back running (tests/chat-leaks.test.js pins it: its
+  // reset count moves, nothing else of it does, and the person's session is untouched). A POWER CYCLE is different:
+  // the physical switch is the person's machine's (powerCycle defaults to personMachine), because switching off would
+  // wipe the chat firmware rather than restart it.
   reset() {
     this.stopClaudeFor('you reset the machine');
     const m = this.machine, again = this.stubRun && this.stubRun.m === m && m.useStub ? this.stubRun : null;
@@ -1021,10 +1028,12 @@ export class Session {
   // program next (startWelcome).
   // reason: the note when this stops Claude (the Power cycle button says the person did it; ROMs added, Run without
   // ROMs and the like restart the machine without being asked to power cycle it)
-  // on: the machine to power cycle. The default is the machine in use; a load on the BASIC session while the chat
-  // is full screen passes that BASIC machine, so its clean restart never restarts the chat machine under the person.
+  // on: the machine to power cycle. THE DEFAULT IS THE PERSON'S MACHINE (personMachine), not the one on screen: while
+  // the chat is full screen the machine on screen runs the chat firmware, and a person-facing power cycle - the
+  // screen's Power button, the boot box's Switch off and on - wiped it. The chat's own power comes from its own code
+  // (it always passes the chat machine), never from this default.
   powerCycle({ menu = true, reason = 'the machine restarted', on = null } = {}) {
-    const m = on || this.machine;
+    const m = on || this.personMachine;
     // A load on the BASIC session while the chat is open passes that session, and this stops Claude only when it is
     // the machine Claude acts on (stopClaudeFor's own rule: chatTarget()). In the full-screen chat that IS the BASIC
     // session, so a load there stops Claude (as before); in the side panel the conversation acts on the machine it
@@ -3150,7 +3159,7 @@ export class Session {
   get lizaFile() { return cpuFamily(this.machine.config.cpu) === '6809' ? Session.LIZA['6809'] : Session.LIZA['6803'][this.machine.id]; }
   // what a machine needs before it can run LIZA -> { ram, have } when the RAM option is too small, else null
   lizaNeeds() {
-    const m = this.machine, need = Session.LIZA.ram;
+    const m = this.personMachine, need = Session.LIZA.ram;
     if (cpuFamily(m.config.cpu) !== '6803' || m.config.ram >= need) return null;
     return { ram: need, have: m.config.ram };
   }
@@ -3170,7 +3179,7 @@ export class Session {
     this.checkLiza();
     const msg = this.load(this.lizaFile, bytes, { remember: false });
     this.setLastRun('liza', 'LIZA');
-    this.watchForMenu('liza');
+    this.watchForMenu('liza', this.personMachine);
     return msg;
   }
   // A game (GAMES.list key) from its bytes, at once -> the load message. The games are 6809 programs: on another CPU
@@ -3182,12 +3191,12 @@ export class Session {
   }
   // what the machine in use lacks for the games -> { ram, have } when its RAM option is under GAMES.ram, else null
   gameNeeds() {
-    const m = this.machine;
+    const m = this.personMachine;
     return m.config.ram < GAMES.ram ? { ram: GAMES.ram, have: m.config.ram } : null;
   }
   // can game `name` run here? Throws a SessionError that says why not (another CPU, too little RAM)
   checkGame(name) {
-    const g = GAMES.list[name], m = this.machine;
+    const g = GAMES.list[name], m = this.personMachine;
     this.gameFile(name);
     if (cpuFamily(m.config.cpu) !== '6809') throw new SessionError(`${g.name} is 6809 code; the ${m.profile.name} has a ${m.config.cpu}.`);
     const need = this.gameNeeds();
@@ -3195,13 +3204,13 @@ export class Session {
   }
   runGame(name, bytes) {
     this.checkGame(name);
-    const file = this.gameFile(name), m = this.machine;
+    const file = this.gameFile(name), m = this.personMachine;
     const msg = this.load(file, bytes, { remember: false });
     // the SAM's memory size as the firmware or BASIC left it, for the game to put back on leaving (the CoCo 3's
     // GIME has no M bits: the header's default stays)
     if (m.sam) m.poke(GAMES.samExit, m.sam.memSize);
     this.setLastRun('game', GAMES.list[name].name);
-    this.watchForMenu('game');
+    this.watchForMenu('game', m);
     return msg;
   }
   // Leaving a program goes back to the welcome menu: BYE in LIZA (it stops at its DONE
@@ -3212,8 +3221,8 @@ export class Session {
   // A load, a switch, a reset or a power cycle ends the watch.
   // A game is watched with BASIC ROMs too: there BREAK hands the machine back to BASIC with a warm reset (BASIC
   // sets up the SAM, the PIAs and its interrupts again), as there is no menu to go back to.
-  watchForMenu(kind) {
-    const m = this.machine;
+  watchForMenu(kind, on = null) {
+    const m = on || this.machine;
     const watch = kind === 'game' && !m.useStub ? true : this.welcomeMenu && WELCOME[cpuFamily(m.config.cpu)] && m.useStub;
     this.menuWatch = watch ? { kind, m, since: null, taken: m.stubKeysTaken, drawing: false } : null;
     if (this.stubRun && this.stubRun.m === m) this.stubRun.watch = kind;   // a Reset restarts the watch too

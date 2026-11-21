@@ -189,8 +189,9 @@ const newSession = (id = 'dragon64') => { const s = new Emu.Session({ store: Emu
   s.addRoms([{ name: 'd64_1.rom', bytes: basic64 /* a real 16K image */ }]);
   check('1b (ROMs) a ROM dropped on the chat screen is loaded onto the BASIC session', basic.hasRom === true && chatM.hasRom === false,
     `basic ${basic.hasRom} chat ${chatM.hasRom}`);
-  check('1b (ROMs) ...and the chat machine is never power cycled into it (its RAM is untouched)', chatBefore.every((v, i) => v === chatM.ram[i])
-    || chatM.useStub, `chat useStub ${chatM.useStub}`);
+  const chatChanged = chatBefore.reduce((n, v, i) => n + (v === chatM.ram[i] ? 0 : 1), 0);
+  check('1b (ROMs) ...and the chat machine is not power cycled into it (its RAM is untouched)', chatChanged === 0
+    && chatM.useStub === true, `chat RAM bytes changed: ${chatChanged}; chat useStub ${chatM.useStub}`);
 }
 {
   // Remove ROMs (Ctrl+K → Your ROMs → Remove ROMs) is the person's machine too
@@ -296,13 +297,17 @@ const newSession = (id = 'dragon64') => { const s = new Emu.Session({ store: Emu
   frames(s, 5 * 50 + 2);
   s.runWithoutRoms({ menu: false });
   s.load('a.cas', casTape());                    // tries the first image, fails, marks its CRC
-  const marked = [...s.bootFailed];
-  check('2 (CRC) the first image is marked', marked.length === 1, marked.join());
-  // replace it with a different image, with no power cycle: addRoms does power cycle (a ROM change is one), so go
-  // through the library directly as a second socket write would, then reload onto the machine
-  s.addRoms([{ name: 'b.rom', bytes: new Uint8Array(16 * 1024).fill(0x41) }]);
-  const key = s.bootKey(s.machine);
-  check('2 (CRC) the key follows the ROM bytes, not just the machine', key !== marked[0] && !s.bootFailed.has(key), `${key} vs ${marked.join()}`);
+  const m = s.machine, marked = [...s.romsFailed(m)];
+  check('2 (CRC) the first image is marked, with its CRC in the key', marked.length === 1 && marked[0] === s.bootKey(m),
+    `${marked.join()} vs ${s.bootKey(m)}`);
+  // The key is the ROM CRCs, so another image for the same machine is another key: replace the library's image
+  // directly (addRoms would power cycle, and a power-on empties the whole Map - the next case, not this one), and
+  // the old mark must not match the new image. The stored failure itself is kept (only a power-on forgets it).
+  s.roms.put(m.id, 'basic', new Uint8Array(16 * 1024).fill(0x41), 'b.rom');
+  const key = s.bootKey(m);
+  check('2 (CRC) the key follows the ROM bytes, not just the machine', key !== marked[0] && !s.romsFailed(m).has(key),
+    `${key} vs ${marked.join()}`);
+  check("2 (CRC) ...and the old CRC is still on the machine's record (the Set was not emptied)", s.romsFailed(m).size === 1, `${s.romsFailed(m).size}`);
 }
 {
   // review probe C: an ASCII BASIC tape with the failing ROMs. The refusal must still remember the failure - once,

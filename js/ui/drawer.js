@@ -51,7 +51,7 @@ export function setupDrawer(page, { showRoms }) {
   // Machine settings: the ROM summary, first in the panel (R28b), its button "Add ROMs →" without BASIC and "See or
   // add ROMs →" with it; the header pill when the machine in use has no BASIC
   function roms() {
-    const r = session.machineRoms(), m = session.machine;
+    const r = session.machineRoms(), m = session.personMachine;   // the person's machine (the BASIC session while the chat is on screen)
     $('romState').textContent = session.nitros9Running ? 'Not used · NitrOS-9 runs on CLOADM\'s own loader' : !m.useStub ? 'BASIC ready' : r.bootable ? 'Loaded · running without ROMs for now' : 'Not added · running without ROMs';
     $('btnManageRoms').textContent = r.bootable ? 'See or add ROMs →' : 'Add ROMs →';
     $('romPill').hidden = r.bootable || session.nitros9Running;   // NitrOS-9 needs no ROM
@@ -62,7 +62,7 @@ export function setupDrawer(page, { showRoms }) {
   // slots under the screen: the cassette deck and the cartridge port
   let cartName = null;
   function slots() {
-    const m = session.machine, t = m.deck.tape;
+    const m = session.personMachine, t = m.deck.tape;
     $('tapeName').textContent = t ? t.name : 'No tape · Insert tape…';
     // a button that can't work is disabled with the reason, not clicked and complained about
     $('btnRewind').disabled = !t;
@@ -101,9 +101,9 @@ export function setupDrawer(page, { showRoms }) {
   // row changes without an event. Replaces a 500 ms setInterval that ran for the whole session.
   let unwatch = null;
   function watchTape() {
-    const t = session.machine && session.machine.deck.tape;
+    const t = session.personMachine && session.personMachine.deck.tape;
     if (t) {
-      if (!unwatch) unwatch = page.onFrame(() => { if (session.machine) slots(); });
+      if (!unwatch) unwatch = page.onFrame(() => { if (session.personMachine) slots(); });
     } else if (unwatch) { unwatch(); unwatch = null; }
   }
   watchTape();

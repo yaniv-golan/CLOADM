@@ -43,7 +43,7 @@ export function setupTypein(page, { openRoms, isVisible }) {
 
   const lines = () => src.value.replace(/\r\n?/g, '\n').split('\n').filter((l) => l.trim());
   function status() {
-    const m = session.machine;
+    const m = session.personMachine;   // the machine the listing goes into
     if (!m) return;                 // before the page has started a machine
     const needs = m.useStub;
     $('typeinNeeds').hidden = !needs;
@@ -67,9 +67,9 @@ export function setupTypein(page, { openRoms, isVisible }) {
     status();
   }
   function tick() {
-    if (!session.machine) { requestAnimationFrame(tick); return; }
+    if (!session.personMachine) { requestAnimationFrame(tick); return; }
     if (job) {
-      const m = session.machine, left = m.typist.queue.length + (m.typist.state ? 1 : 0);
+      const m = session.personMachine, left = m.typist.queue.length + (m.typist.state ? 1 : 0);
       const done = job.total - left;
       // which line the typist is on: count the line ends already typed (NEW is line 0)
       const ends = (job.text.slice(0, done).match(/\n/g) || []).length;

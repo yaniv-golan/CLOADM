@@ -45,7 +45,7 @@ export function setupMediaPanel(page, { snapshots, disks, nitros9, keep }) {
     if ($('btnMediaAnyway').dataset.label) $('btnMediaAnyway').textContent = $('btnMediaAnyway').dataset.label;
     if (media.kind === 'disk' && !mm) { audio.start(); await disks.insert(name, bytes); return; }
     if (!mm) { doLoad(name, bytes); return; }
-    const m = session.machine;
+    const m = session.personMachine;
     // said once (R27): "dgame.dgn is a Dragon cartridge; the CoCo 1/2 may not run it." The family is named only where
     // the format doesn't name it, and the reason only where it adds something
     const what = media.format.includes(mm.familyName) ? media.format : `${media.format} for a ${mm.familyName}`;
@@ -101,7 +101,7 @@ export function setupMediaPanel(page, { snapshots, disks, nitros9, keep }) {
   };
   // the tape in the deck as WAV; with no tape, the last recording as it was written
   $('btnTapeWav').onclick = () => {
-    if (!session.machine.deck.tape && lastRecording) { download('recording.wav', lastRecording.wav, 'audio/wav'); page.status('Saved recording.wav'); return; }
+    if (!session.personMachine.deck.tape && lastRecording) { download('recording.wav', lastRecording.wav, 'audio/wav'); page.status('Saved recording.wav'); return; }
     page.attempt(() => { const w = session.tapeWav(); download(w.name, w.bytes, 'audio/wav'); return `Saved ${w.name}`; });
   };
   session.on((ev) => { if (ev === 'machine') { lastRecording = null; showRecording(); } });
