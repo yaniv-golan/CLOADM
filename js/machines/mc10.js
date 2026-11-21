@@ -172,7 +172,7 @@ class Mc10Machine extends Machine {
   // fetching from the VDG's own address counter (the MC-10 has no SAM) as the beam passes.
   fetchAndDraw(b, from, to) {
     const mode = this.vdgMode(b.latch);
-    const modulo = Math.round(32 / MC6847.bytesPerLine(mode));
+    const modulo = MC6847.sampleModulo(mode);
     const span = this.spanBytes;
     const size = this.ramEnd - 0x4000, wrap = size < 0x1800 ? size : 0x10000;
     // The VDG generates the address itself: the line's row times its bytes per row, both from the mode in

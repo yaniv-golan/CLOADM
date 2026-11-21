@@ -504,18 +504,22 @@ const nb = (i) => { const out = []; const x = i & 7, y = i >> 3; for (let dy = -
 }
 
 // BREAK on the title page leaves too; the game puts the SAM's memory size back as it found it (SAMEXIT, set by the
-// Session from the machine: 4K on the built-in firmware, M=0), after running with M=10
+// Session from the machine), after running with M=10. The built-in firmware already leaves M=10 on a 64K machine (the
+// Session records that), so SAMEXIT is then set to 16K (M=01): a game that left M at 10 instead of putting back what
+// SAMEXIT holds fails here.
 for (const name of ['2048', 'minesweeper']) {
   const s = new Emu.Session({ welcomeMenu: false });
   s.switchMachine('dragon64', {}, { menu: false });
   const m = s.machine;
-  const m0 = m.sam.memSize;
   s.runGame(name, bin(name));
+  const recorded = m.ram[Emu.GAMES.samExit] === m.sam.memSize && m.sam.memSize === 2;
+  const m0 = 1;
+  m.poke(Emu.GAMES.samExit, m0);
   s.runFrames(30);
   const during = m.sam.memSize, samExit = m.ram[Emu.GAMES.samExit];
   m.stubKeys.push(3); s.runFrames(10);
   check(`${name}: BREAK on the title page leaves (text mode, DONE); the SAM's M is back to ${m0} after ${during} while it ran`, m.cpu.pc === Emu.GAMES.done
-    && (m.pia1.saveState().b.or & 0x80) === 0 && m.sam.memSize === m0 && during === 2 && samExit === m0 && A[name].symbols.get('SAMEXIT') === Emu.GAMES.samExit);
+    && (m.pia1.saveState().b.or & 0x80) === 0 && recorded && m.sam.memSize === m0 && during === 2 && samExit === m0 && A[name].symbols.get('SAMEXIT') === Emu.GAMES.samExit);
 }
 
 // With BASIC ROMs: BREAK hands the machine back to BASIC, started cold. A stand-in BASIC (our own firmware, no ROM

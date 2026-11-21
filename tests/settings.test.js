@@ -49,10 +49,11 @@ const fake = (size, seed) => { const b = new Uint8Array(size); let x = seed >>> 
     'romdata.basic': 'AAAA', 'rom.coco.basic': 'x', 'media.x': 'y', glow: 3, ok: 'fine', 'bad key': 'v', 'claude.apiKey': 'sk-ant-secret',
     machine: 'zx81', 'config.coco3': '{"ram":48}', 'config.constructor': '{}', 'config.zx81': '{}', 'config.coco': 'not json',
     'display.settings': '{"view":"tv"}', keyboardMode: 'qwerty', visited: 'yes', keyHintDone: '1', keyboardJoystick: '1', 'config.mc10': '{"ram":4}',
+    tapeSound: '0',
   } };
   const r2 = b.importSettings(evil);
   check('import: only allowed settings with valid values are applied (unknown keys, ROM/media keys, an API key, bad values ignored)',
-    JSON.stringify(r2.applied.sort()) === JSON.stringify(['config.mc10', 'keyHintDone', 'keyboardJoystick']) && r2.ignored.length === Object.keys(evil.settings).length - 3
+    JSON.stringify(r2.applied.sort()) === JSON.stringify(['config.mc10', 'keyHintDone', 'keyboardJoystick', 'tapeSound']) && r2.ignored.length === Object.keys(evil.settings).length - 4
     && st2.get('romdata.basic') === null && st2.get('ok') === null && st2.get('claude.apiKey') === null && b.savedConfig('coco3').ram === 128 && b.startMachine === 'dragon64', JSON.stringify(r2));
   // and nothing outside the list leaves in an export, even when the store holds it
   st2.set('claude.apiKey', 'sk-ant-secret'); st2.set('somethingElse', '1'); st2.set('machine', 'dragon64');

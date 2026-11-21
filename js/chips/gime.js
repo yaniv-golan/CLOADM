@@ -140,10 +140,26 @@ for (let c = 0; c < 16; c++) for (let r = 0; r < 12; r++) {
   SG4_FONT[c * 12 + r] = ((c & (top ? 8 : 2)) ? 0xF0 : 0) | ((c & (top ? 4 : 1)) ? 0x0F : 0);
 }
 
-// $FF9C -> lines per row in compatibility text mode (as MAME models it; real GIME behaviour unverified)
+// $FF9C -> lines per row in compatibility text mode (as MAME 0.264 models it). Corroborated by N. Marentes, Jumping
+// Joey technical notes, "THE COCO3 CAN DISPLAY SEMIGRAPHICS MODES": $FF9C = 7, 8, 9, 10 give SG6, SG8, SG12, SG24
+// (4, 3, 2, 1 lines a row); the CoCo 3 Service Manual (26-3334, section 1.5, printed p13) has $0F (12 lines) as
+// the value compatibility mode needs.
 const COMPAT_TEXT_LPR = [11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 4, 3, 2, 1, 12];
 // $FF98 bits 0-2 -> lines per row in GIME modes (7: the row never ends)
 const GIME_LPR = [1, 1, 2, 8, 9, 10, 11, 0x10000];
+// The GIME-mode vertical fine scroll, $FF9C bits 0-3 (VSC; bits 4-7 unused). Sources: Sock Master's GIME reference
+// (6809.org.uk/twilight/sock/gime.html, "FF9C Vertical scroll register - VSC": consecutive values scroll the screen
+// up one scanline at a time in modes where more than one scanline makes up a text row or a graphics row); the CoCo 3
+// Service Manual (26-3334, section 1.5, printed p13: bits 3-0 VSC3-0); Super Extended BASIC Unravelled II (ch. 5,
+// printed pp16, 18-19: bits 7-4 reserved; software scrolls a row by resetting VSC and moving the start in
+// $FF9D/$FF9E, so VSC never carries into the start); Tepolt, Assembly Language Programming for the CoCo3 (1987,
+// printed p25, pp29-30: with 8-line native text, VSC 0-7 move the picture up and the next buffer row enters at
+// the bottom). So the first row of the body starts VSC scanlines in, when VSC is less than the row's height.
+// What the sources leave open, and how this model treats it (docs/verification.md, "Deviations from MAME"): VSC at
+// or above the row height, 1-line rows ($FF98 LPR 0 and 1) and LPR 7's endless row are not scrolled; VSC is latched
+// at the start of the field, with the video start (as MAME's new_frame loads it). MAME 0.264 never scrolls: its
+// top border resets the row's line counter (gime.cpp record_border_scanline), which config.mameCompat reproduces.
+const vscLine = (vsc, lprBits) => (lprBits >= 2 && lprBits <= 6 && vsc < GIME_LPR[lprBits] ? vsc : 0);
 const HRES_BYTES = [16, 20, 32, 40, 64, 80, 128, 160];
 // $FF99 -> characters per row in GIME text modes: bit 4 (H50) and bit 2 select 32, 40, 64 or 80
 const textCols = (ff99) => ((ff99 & 0x10) ? ((ff99 & 0x04) ? 80 : 64) : ((ff99 & 0x04) ? 40 : 32));
@@ -156,6 +172,7 @@ class GIME {
     this.pal = !!opts.pal;
     this.romBytes = opts.rom;
     this.cartBytes = opts.cart || (() => null);
+    this.mameCompat = !!opts.mameCompat;   // MAME 0.264's GIME: no vertical fine scroll (comparisons only)
     this.onIrq = null;              // called when the IRQ/FIRQ outputs may have changed
     this.onTimer = null;            // called with the new timerDue whenever the timer restarts
     this.regs = new Uint8Array(16);
@@ -193,7 +210,7 @@ class GIME {
     this.fs = false; this.fsNext = null;
     this.topBorder = 25 + this.pad; this.body = 192;
     this.legacy = false;
-    this.videoPos = 0; this.lineInRow = 0;
+    this.videoPos = 0; this.lineInRow = 0; this.vsc = 0;
     this.reset();
   }
 
@@ -221,8 +238,12 @@ class GIME {
 
   // Registers and video/timer state. Memory-map caches are rebuilt; the frame buffer is redrawn
   // from the next scanline on.
+  // version: the snapshot layout being read (Machine.restoringVersion). A file before version 4 has no `vsc` (the
+  // vertical fine scroll latched for the field): no field scrolled then, so it restores as 0, its power-on value,
+  // and the next field latches $FF9C (machine.js's version note, "4:").
   saveState() { return state.save(this, GIME.STATE); }
-  loadState(s) {
+  loadState(s, version) {
+    if (version < 4 && !('vsc' in s)) s = Object.assign({ vsc: 0 }, s);
     state.load(this, s, GIME.STATE);
     this.updateMemory();
     this.updateTable();
@@ -392,7 +413,7 @@ class GIME {
     const changed = legacy !== this.legacy;
     this.legacy = legacy;
     this.videoPos = this.videoBase();
-    this.lineInRow = this.regs[12] & 0x0F;
+    this.vsc = this.regs[12] & 0x0F;       // the vertical fine scroll, latched with the video start (vscLine)
     if (changed) this.updateGeometry();
   }
   videoBase() {
@@ -415,11 +436,13 @@ class GIME {
   //  * a row's cells start ($FF9F & $7F) x 2 bytes in, wrapping within the row's 256 bytes;
   //  * every row is `lpr` scanlines ($FF98 bits 0-2); the body shows topBorder..min(body end, retrace, the picture's
   //    last line) scanlines ($FF99 bits 5-6), so the screen has ceil(lines / lpr) rows, the last perhaps cut short;
-  //  * the vertical scroll ($FF9C) is loaded into the line counter at the frame start, but every top-border line
-  //    sets the counter to 0 again (hsRise, as MAME 0.264's record_border_scanline), so in this model (and MAME's)
-  //    it never moves a GIME-mode text row: the body always starts on line 0 of its first row.
-  // Returns { cols, attr, lpr, rows, base, pitch, hoff, hven, chars: [Uint8Array(cols)], attrs: [Uint8Array(cols)]
-  // | null }, the character codes as stored (bit 7 included; the font ignores it).
+  //  * the vertical fine scroll ($FF9C, vscLine) starts the body `vsc` scanlines into its first row, so that row
+  //    shows only its lower part and ceil((lines + vsc) / lpr) rows show, the last perhaps cut short. The scroll is
+  //    the one latched for the field on the screen (`this.vsc`), not $FF9C as it stands: a write takes effect at the
+  //    next field's start, so the rows read agree with the picture until then. Under config.mameCompat (MAME 0.264)
+  //    the body always starts on line 0: vsc = 0.
+  // Returns { cols, attr, lpr, vsc, rows, base, pitch, hoff, hven, chars: [Uint8Array(cols)], attrs:
+  // [Uint8Array(cols)] | null }, the character codes as stored (bit 7 included; the font ignores it).
   textScreen() {
     const r = this.regs;
     if ((r[0] & 0x80) || (r[8] & 0x80)) return null;
@@ -427,7 +450,8 @@ class GIME {
     const pitch = (r[15] & 0x80) ? 256 : cols * (attr ? 2 : 1);
     const hoff = (r[15] & 0x7F) * 2, lpr = GIME_LPR[r[8] & 7], base = this.nativeVideoBase();
     const lines = Math.max(0, Math.min(this.topBorder + this.body, this.untilRetrace, HEIGHT + 1 + this.pad) - this.topBorder);
-    const rows = Math.ceil(lines / lpr);
+    const vsc = this.mameCompat ? 0 : vscLine(this.vsc, r[8] & 7);
+    const rows = lines ? Math.ceil((lines + vsc) / lpr) : 0;
     const chars = [], attrs = attr ? [] : null;
     for (let row = 0; row < rows; row++) {
       const at = base + row * pitch, c = new Uint8Array(cols), a = attr ? new Uint8Array(cols) : null;
@@ -438,7 +462,7 @@ class GIME {
       }
       chars.push(c); if (a) attrs.push(a);
     }
-    return { cols, attr, lpr, rows, base, pitch, hoff, hven: !!(r[15] & 0x80), chars, attrs };
+    return { cols, attr, lpr, vsc, rows, base, pitch, hoff, hven: !!(r[15] & 0x80), chars, attrs };
   }
   // HS rising edge: record the line that just ended and advance the scanline counter.
   // Returns true if HS is seen by the PIA (not on PAL padding lines).
@@ -459,6 +483,8 @@ class GIME {
       this.logical = 0; this.zone = Z_RETRACE;
     } else if (this.zone === Z_TOP && this.logical >= this.topBorder) {
       this.logical = 0; this.zone = Z_BODY;
+      // the first body line: the vertical fine scroll starts it partway into the row (vscLine)
+      if (!this.legacy && !this.mameCompat) this.lineInRow = vscLine(this.vsc, this.regs[8] & 7);
     } else if (this.zone === Z_BODY && this.logical >= this.body) {
       this.logical = 0; this.zone = Z_BOTTOM;
       this.pulse(INT_VBORD);
@@ -658,7 +684,7 @@ GIME.WIDTH = WIDTH; GIME.HEIGHT = HEIGHT; GIME.LINE = LINE; GIME.HS_FALL = HS_FA
 GIME.RGB_PALETTE = RGB_PALETTE; GIME.COMPOSITE_PALETTE = COMPOSITE_PALETTE; GIME.COMPOSITE_PALETTE_180 = COMPOSITE_PALETTE_180;
 GIME.HIRES_FONT = HIRES_FONT; GIME.LOWRES_FONT = LOWRES_FONT; GIME.TEXT_CHARS = TEXT_CHARS;
 GIME.INT = { TMR: INT_TMR, HBORD: INT_HBORD, VBORD: INT_VBORD, EI2: INT_EI2, EI1: INT_EI1, EI0: INT_EI0 };
-GIME.STATE = ['regs', 'mmu', 'palette', 'linePal', 'sam', 'zone', 'logical', 'physical', 'topBorder', 'body', 'lineInRow', 'mixKeys',
+GIME.STATE = ['regs', 'mmu', 'palette', 'linePal', 'sam', 'zone', 'logical', 'physical', 'topBorder', 'body', 'lineInRow', 'vsc', 'mixKeys',
   'videoPos', 'timerDue', 'timerValue', 'legacy', 'irq', 'firq', 'intValue', 'fs', 'fsNext', 'fsFall', 'ff22', 'ff23', 'blink',
   'untilVblank', 'untilRetrace'];
 

@@ -28,7 +28,7 @@ hardware; the exceptions are listed under [How we know it's right](#how-we-know-
 > Please [report what breaks](https://github.com/yaniv-golan/cloadm/issues).
 
 > [!NOTE]
-> CLOADM includes no ROMs and never downloads them. You supply your own dumps once; they stay in your browser, and CLOADM never uploads them (what Claude reads from the machine's memory, ROM areas included, goes to Anthropic if you use it).
+> CLOADM includes no ROMs and never downloads them by itself (the MCP server's `add_roms` fetches only a URL you give it). You supply your own dumps once; they stay in your browser, and CLOADM never uploads them (what Claude reads from the machine's memory, ROM areas included, goes to Anthropic if you use it).
 > Without them, a built-in firmware still runs machine-code programs and the programs written for this project.
 > [Where to get ROMs →](https://cloadm.dev/roms/)
 
@@ -49,6 +49,12 @@ hardware; the exceptions are listed under [How we know it's right](#how-we-know-
 </td>
 </tr>
 </table>
+
+**With Claude:** two ways, both [compared here](docs/mcp.md#which-way-should-i-install-cloadm-for-claude).
+* **Connector** (most people): add `https://mcp.cloadm.dev/mcp` as a custom connector (no sign-in). The emulator runs
+  in Claude's side panel, live, with nothing to install; ROMs are added in the panel.
+* **Plugin** (your own files, Claude Code): add the marketplace `yaniv-golan/CLOADM`. It runs on your computer, with
+  your ROM files and the `~/CLOADM` folder; Claude sees text and screenshots.
 
 Something not working? The [quick fixes](https://cloadm.dev/help/#fixes) cover a black screen, no sound, a tape
 that won't load, a disk that shows nothing and the keyboard.
@@ -78,7 +84,7 @@ Per-machine notes, RAM options and the chip-by-chip list: [docs/machines.md](doc
 
 | | Today | Coming |
 |---|---|---|
-| **Cassette** | `.CAS` played as a real signal through the cassette port, WAV recordings in, fast loading, the tape counter; `CSAVE`/`CSAVEM` saved as `.CAS` or `.WAV` | The tape's sound at real speed |
+| **Cassette** | `.CAS` played as a real signal through the cassette port, WAV recordings in, fast loading, the tape counter, the tape's progress on the screen's border while it loads, Tape sound (the tape heard as a recorder's speaker plays it); `CSAVE`/`CSAVEM` saved as `.CAS` or `.WAV` | The tape signal through the machine's own sound (`AUDIO ON`: MAME 0.264 mixes none in) |
 | **Floppy** | DragonDOS (WD2797), Premier / Delta (WD2791) and RS-DOS (WD1773) cartridges; VDK, JVC (`.dsk`) and DMK images read and written, headerless NitrOS-9 / OS-9 `.dsk` images included; new blank disks; 4 drives, write-protect; booting NitrOS-9 Level 2 on the CoCo 3 from your own floppy image, no ROM needed ([how](docs/using.md#booting-nitros-9)) | Booting NitrOS-9 from 80-track floppies |
 | **Cartridges** | ROM cartridges, banked ROM cartridges up to 128K, Games Master, Orchestra-90, Multi-Pak (with a disk cartridge in slot 4); the Speech/Sound Pak on the CoCo 1/2, CoCo 2B, CoCo 3 and the Dragon 64, music only (its sound is not yet verified against MAME) | Speech/Sound Pak speech |
 | **Printer, serial, DriveWire** | Printer; bit-banger and the Dragon 64's 6551 with a terminal or loopback plug; a DriveWire 4 server in the browser over the CoCo's Becker port; booting NitrOS-9 Level 2 on the CoCo 3 from your own DriveWire image, no ROM needed ([how](docs/using.md#booting-nitros-9)); serving a real CoCo over Web Serial (untested on hardware) | |
@@ -86,7 +92,7 @@ Per-machine notes, RAM options and the chip-by-chip list: [docs/machines.md](doc
 | **Games** | 2048 and Minesweeper, our own, no ROMs needed (32K or more): welcome menu option 5, or [`?start=2048`](https://cloadm.dev/play/?start=2048) / [`?start=minesweeper`](https://cloadm.dev/play/?start=minesweeper) ([details](docs/using.md#games)) | |
 | **Library** | Every tape, disk, cartridge and program you load, kept for next time, in the browser or a folder on your computer; paste a magazine listing and CLOADM types it in | |
 | **Claude** | Chat with Claude full screen on the green screen (phones included), or Ask Claude in a side panel; Claude reads only the emulated machine (its screen text and memory, never anything else on your computer; it says so when it can't read a screen), and acts on it (POKE, typing, loading a BASIC program, BREAK) only with your permission, with undo | The chat over DriveWire to a real machine; the CoCo 3's 80-column chat screen |
-| **Tools** | Assembler, Debugger, POKE book, snapshots; a command line, MCP server and Node API for agents ([automation](docs/automation.md), [MCP](docs/mcp.md)) | Step back (rewind) |
+| **Tools** | Assembler, Debugger, POKE book, snapshots; a command line, MCP server and Node API for agents, and a claude.ai connector that runs the emulator in Claude's side panel ([automation](docs/automation.md), [MCP](docs/mcp.md), [side panel](docs/mcp.md#claude-on-the-web-side-panel)) | Step back (rewind) |
 | **Sharing** | Every setting as a URL parameter; a link that opens exactly this moment, a 6-second clip, a true-pixel screenshot; embed code and a JavaScript API; works offline once visited; **Install CLOADM…** at the foot of the **machine menu** (the machine-name button, top left), and a one-time offer once a program has run a minute (its own window, offline) | |
 
 How to load each kind of file, the keys, snapshots, sharing and embedding: [docs/using.md](docs/using.md). Running it from scripts and CI (`node cli/cloadm.js`): [docs/automation.md](docs/automation.md). Writing a game and testing it end to end (keys, screen, pictures, sound), with a starter game: [docs/game-development.md](docs/game-development.md).
@@ -182,6 +188,7 @@ areas included) is sent to Anthropic as part of your conversation. More in [docs
   part of your conversation.
 * **Where does my Anthropic API key go?** It stays in this browser and goes only to Anthropic's API, never into the
   machine, snapshots, share links or exported settings.
+* **How does it compare to XRoar, MAME and VCC?** [docs/comparison.md](docs/comparison.md).
 * **Which keys are BREAK and CLEAR?** `Esc` and `Home`. The rest: [docs/using.md](docs/using.md#keys).
 
 ## Why this exists

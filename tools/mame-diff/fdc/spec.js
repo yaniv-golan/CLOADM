@@ -8,7 +8,7 @@
 // write-protected (MAME opens an image inside a ZIP read-only), 2 a drive without a disk, 3 a DMK disk.
 const fs = require('fs'), path = require('path'), cp = require('child_process');
 const { loadEmu, assembleFile, romImage, writeRoms, writeProfileRoms, mameConfigArgs } = require('../lib/firmware');
-const { REGS } = require('../sam/spec');
+const { REGS } = require('../lib/regs');
 const { workDir } = require('../lib/workdir');
 const images = require('./images');
 

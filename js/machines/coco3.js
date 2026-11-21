@@ -56,7 +56,6 @@ class Coco3Machine extends Machine {
     const master = pal ? 28475000 : 28636363;
     super(profile, config, { tickHz: master / 8, lineCycles: LINE, lines: pal ? 312 : 262, resetOffset: 20, ramSize: 1 });
     this.masterHz = master;
-    if (config.mameCompat) this.unitAttos = 10n ** 18n / BigInt(Math.floor(master / 32)) / 4n;
     this.cpuClockHz = master / 32;          // nominal 6809 clock at normal speed
     // Exact time (Machine.clockUnits, for the disk drives' timers) is reckoned in GIME clocks of the real crystal.
     // config.mameCompat: as MAME's machine time, a quarter of its 6809 cycle (1e18 / 894886 attoseconds; the GIME
@@ -73,12 +72,12 @@ class Coco3Machine extends Machine {
     this.pia0 = new MC6821();
     this.pia1 = new MC6821();
     this.pia1.b.c1 = false;          // CB1 (CART) starts low, as MAME's 6821 (m_in_cb1 = 0)
-    this.gime = new GIME({ ram: this.mem, pal, rom: () => this.romImage(), cart: () => (this.cartPort ? this.cartPort.rom() : null) });
+    this.gime = new GIME({ ram: this.mem, pal, mameCompat: config.mameCompat, rom: () => this.romImage(), cart: () => (this.cartPort ? this.cartPort.rom() : null) });
     this.div = 4;                 // GIME clocks per CPU cycle
     this.instrPc = 0;
     this.speedChange = -1;
     // HALT arriving inside an instruction (config.mameCompat; see fireEvent): the step that ran last, the HALT
-    this.stepS = 0; this.stepN = 0; this.inStep = false; this.haltAt = -1;
+    this.stepS = 0; this.stepN = 0; this.haltAt = -1;
     this.haltS = -1; this.haltK = 0; this.haltN = 0;
     this.haltDefer = null;   // an I/O access waiting for HALT to be released (haltWait); between steps, the suspended
                              // instruction (haltSuspend)
@@ -170,12 +169,6 @@ class Coco3Machine extends Machine {
   // driver's clock (6883sam.cpp
   // update_cpu_clock: m_cpu->owner()->set_unscaled_clock), so at 1.78 MHz the delays are half as long.
   get slotHz() { return this.masterHz / (this.gime.fast ? 16 : 32); }
-  // exact time (Machine.clockUnits) with config.mameCompat: MAME's clocks. The CPU (DERIVED_CLOCK of
-  // XTAL/32, 894886 Hz) spends 1e18/894886 as per cycle, 1e18/1789772 at the GIME's fast rate; a unit is a quarter
-  // of the first, rounded down to 279365449 as (also exactly half of the second, rounded down), which runs 0.75 as
-  // per tick short of MAME, 11 ps after 4 seconds. MAME's machine time counts 4 cycles before the first
-  // instruction (as on the SAM machines, sam.js clockUnits), one fewer than our video origin (resetOffset 20 ticks).
-  clockUnits() { return this.config.mameCompat ? super.clockUnits() - 4 : super.clockUnits(); }
   cartridgeChanged() { this.gime.cartridgeChanged(); }
   get monitor() { return this.gime.monitor; }
   set monitor(v) { this.gime.monitor = v === 'composite' ? 'composite' : 'rgb'; }
@@ -428,6 +421,11 @@ class Coco3Machine extends Machine {
   // instruction has cycleCount 0 and is not held, so it takes now() - note that the in-step form would NOT give
   // now() there, since Math.max(1, 0) * div - 1 is div - 1 clocks, not 0.
   ioTime() { return this.inStep || this.heldIo ? this.cycle + this.ioShift + Math.max(1, this.cpu.cycleCount) * this.div - 1 : this.cycle; }
+  // exact time (Machine.clockUnits) with config.mameCompat: MAME's clocks. The CPU (DERIVED_CLOCK of
+  // XTAL/32, 894886 Hz) spends 1e18/894886 as per cycle, 1e18/1789772 at the GIME's fast rate; a unit is a quarter
+  // of the first, rounded down to 279365449 as (also exactly half of the second, rounded down), which runs 0.75 as
+  // per tick short of MAME, 11 ps after 4 seconds. MAME's machine time counts 4 cycles before the first
+  // instruction (as on the SAM machines, sam.js clockUnits), one fewer than our video origin (resetOffset 20 ticks).
   clockUnits() { return super.clockUnits() - (this.config.mameCompat ? MAME_TIME_LAG : 0); }
   // Start of the current access cycle (the CPU counts the cycles of the instruction so far). Between instructions
   // there is no cycle in progress, and cycleCount holds the last step's, so it is now (see Machine.ioTime): an
@@ -844,7 +842,7 @@ class Coco3Machine extends Machine {
   loadState(s) {
     super.loadState(s);
     state.load(this, s, Coco3Machine.STATE);
-    this.gime.loadState(s.gime); this.pia0.loadState(s.pia0); this.pia1.loadState(s.pia1);
+    this.gime.loadState(s.gime, this.restoringVersion); this.pia0.loadState(s.pia0); this.pia1.loadState(s.pia1);
     if (!s.hires) throw new Error('snapshot: missing "hires"');
     Object.assign(this.hires.jet, s.hires);
     if (!s.stepNoStop) throw new Error('snapshot: missing "stepNoStop"');

@@ -356,6 +356,28 @@ const notOs9 = (bytes) => { try { return !geo(bytes).os9; } catch (e) { return t
   throws('blank disk: an unknown format refused', () => Emu.blankDisk('adf', 40, 1), /unknown disk format adf/);
 }
 
+// ---------------- a disk changed without an eject: the new mount decides afresh whether its bytes are kept
+// The drive keeps the image as mounted only for a format that does not round-trip (single-density DMK), and decides
+// lazily (js/chips/floppy.js get mountBytes). A second mount over the first, with no unmount between them, must
+// forget the first image's answer and bytes: a snapshot carrying them would restore the old disk's flux.
+{
+  const m = Emu.createMachine('coco');
+  m.insertCartridge(new Emu.devices.cocofdc({ rom: new Uint8Array(0x2000) }));
+  const fdc = m.cartPort, d = fdc.drives[0];
+  const sd = images.dmk(10, 2); sd[4] = 0x40;       // bit 6: single density (FM)
+  fdc.mount(0, { bytes: sd, format: 'dmk', name: 'sd.dmk', writeProtected: false });
+  const first = m.snapshot();
+  const jvc = images.jvc(40, 1);
+  fdc.mount(0, { bytes: jvc.slice(), format: 'jvc', name: 'b.dsk', writeProtected: false });
+  const snap = Emu.state.fromJSON(Emu.state.toJSON(m.snapshot()));
+  const sdrive = (x) => x.state.cartridge.state.drives[0];
+  check('remount: the single-density DMK\'s snapshot carried its mounted bytes', !!sdrive(first).mountBytes);
+  check('remount: the second image\'s snapshot carries none (a JVC round-trips)', !sdrive(snap).mountBytes);
+  const rd = Emu.restoreSnapshot(snap, m.roms).cartPort.drives[0];
+  check('remount: the restored drive has the second image\'s flux, track for track', JSON.stringify(rd.image.data) === JSON.stringify(d.image.data)
+    && eq(rd.media.bytes, jvc));
+}
+
 // ---------------- MAME's time arithmetic (attotime) where it rounds
 import('../js/chips/attotime.js').then((A) => {
   check('attotime / 2 rounds half up', A.div(5n, 2) === 3n && A.div(4n, 2) === 2n);

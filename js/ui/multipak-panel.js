@@ -12,6 +12,15 @@ export function setupMultiPakPanel(page, { cartridge }) {
   const slots = [null, null, null, null];        // { name, bytes } per slot
   let picking = 0;
   const show = () => { $('mpak').hidden = !session.hasMultiPak; };
+  // The slots are hidden while the section is closed, not only folded away by <details>, so a reader view working from
+  // the markup (Chrome's reading mode, Readability) leaves them out too. A press on the summary unhides them before
+  // the section draws open (toggle, a task later, would show an empty frame first); toggle covers any other way.
+  {
+    const mp = $('mpak'), inner = mp.querySelector('.mpSlots');
+    mp.querySelector('summary').addEventListener('click', () => { inner.hidden = mp.open; });
+    mp.addEventListener('toggle', () => { inner.hidden = !mp.open; });
+    inner.hidden = !mp.open;
+  }
   const dosOf = (n) => { const v = $(`selMpBoard${n}`).value; return v.startsWith('dos:') ? v.slice(4) : null; };
   const label = (n) => {
     const b = $(`btnMpSlot${n}`), dos = dosOf(n);

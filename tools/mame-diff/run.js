@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Compare one machine against MAME. Needs MAME (e.g. `apt install mame`); uses only our own firmware.
 //
-//   node tools/mame-diff/run.js <profile> [--ram <K>] [--video [--artifact N] [--attr] [--composite] [--text]] [--raster [--no-trace] [--keep]] [--printer [--no-trace]] [--serial] [--reset] [--rate|--ops] [--plus] [--plustext [--video]] [--keep-firmware]
+//   node tools/mame-diff/run.js <profile> [--ram <K>] [--video [--artifact N] [--attr] [--composite] [--text]] [--raster [--no-trace] [--keep]] [--vsc [--no-trace] [--keep]] [--printer [--no-trace]] [--serial] [--reset] [--rate|--ops] [--plus] [--plustext [--video]] [--paging [--video]] [--keep-firmware]
 //   node tools/mame-diff/run.js <dragon64|coco|coco3|dgnalpha> --fdc [dragonfdc|premierfdc|cocofdc|multifdc|alphafdc] [--images|--write|--nmi|--multi|--blank <fmt>:<T>x<H>|--halt [--empty]|--nitros9] [--keep-firmware]
 //   node tools/mame-diff/run.js <coco|coco3|dragon64|dragon32> --cart <setup> [--audio]
 //
@@ -12,6 +12,10 @@
 // --raster: mid-line video changes swept across every beam position (<family>/raster.asm, lib/raster.js):
 // lockstep to HALT, then every pixel of a swept field per case; --no-trace skips the lockstep part,
 // --keep leaves MAME's movie and the difference images in the work directory.
+// --vsc (coco3): the GIME's vertical fine scroll $FF9C in the native modes (coco3/gen-vsc.js, vsc-<part>.asm, each
+// part from reset): lockstep to HALT, then a field of every case pixel by pixel (lib/raster.js; MAME 0.264 never scrolls, so neither may our
+// mameCompat machine), then our shipped model's pictures against MAME's moved up by the scroll the sources give
+// (coco3/spec.js vsc); --no-trace and --keep as for --raster.
 // --printer: the printer firmware's output, byte for byte against MAME's -prin file (lib/printer.js), after
 // a lockstep run to HALT (--no-trace skips it).
 // --serial: the bit-banger serial port (or the 6551) in loopback, in lockstep with MAME's -rs232 loopback; then
@@ -19,6 +23,8 @@
 // --rate / --ops (SAM family): the CPU rate firmware (sam/rate.asm, sam/ops.asm) instead of diag.asm; MAME
 // approximates the SAM rates, so this compares MAME with our config.mameCompat model of it.
 // --plus (Dragon 64 Plus): the 80-column board firmware (d64plus/plus.asm) on top of diag.asm's base machine.
+// --paging (Dragon 64 Plus): $FFE2 paging (d64plus/paging.asm), ours without mameCompat; with --video, the VDG
+// picture under each paging against MAME's (d64plus/run-paging.js).
 // --plustext (Dragon 64 Plus): the 80-column text screens of the screen-text reader (d64plus/plustext.asm, written by
 // d64plus/text-screens.js); with --video, every screen's 640x264 picture against MAME's (d64plus/run-text.js).
 // --fdc: a floppy disk controller cartridge (fdc/: -ext dragon_fdc or premier_fdc on dragon64, -ext fdc on coco and coco3)
@@ -36,6 +42,8 @@
 // --sound (dgnalpha): the AY-3-8912 and the DAC against MAME's -wavwrite (alpha/sound-compare.js). On a SAM machine
 // (dragon64, dragon32, coco, ...): the DAC and the single-bit sound, through the command line's --wav path
 // (sam/dac-sound.js).
+// --cass-sound (dragon64, dragon32, coco, ...): the sound mux with the cassette input selected while a tape plays
+// (BASIC's AUDIO ON), against MAME's -wavwrite (sam/cass-sound.js).
 // --board (dgnalpha): the Alpha's own hardware (alpha/board.asm: ROM paging, PIA2, AY-3-8912, modem).
 // --cart: a cartridge (cart/spec.js setups: banked ROM, Games Master, Orchestra-90, Multi-Pak)
 // with our firmware as its ROM, in lockstep; --audio then also compares MAME's -wavwrite recording with ours.
@@ -106,6 +114,12 @@ async function main() {
     const r = cp.spawnSync('node', [path.join(__dirname, 'd64plus', 'run-text.js'), profileId], { stdio: 'inherit' });
     return r.status === null ? 1 : r.status;
   }
+  if (args.includes('--paging') && args.includes('--video')) {
+    // the Dragon 64 Plus's VDG under every $FFE2 paging, pixel by pixel (d64plus/run-paging.js)
+    if (profile.family !== 'd64plus') { console.error('--paging: the bank register is a Dragon 64 Plus comparison'); return 2; }
+    const r = cp.spawnSync('node', [path.join(__dirname, 'd64plus', 'run-paging.js'), profileId], { stdio: 'inherit' });
+    return r.status === null ? 1 : r.status;
+  }
   if (args.includes('--video') && args.includes('--text')) {
     // the CoCo 3 GIME text screens and the screen-text reader (coco3/run-text.js)
     if (profile.family !== 'coco3') { console.error('--text: the GIME text screens are a CoCo 3 comparison'); return 2; }
@@ -155,6 +169,15 @@ async function main() {
   if (args.includes('--raster')) {
     if (!need('mid-line raster', spec.raster)) return undefined;
     return await runRaster(spec.raster(profileId, { config }), { trace: !args.includes('--no-trace'), keep: args.includes('--keep') });
+  }
+  if (args.includes('--vsc')) {
+    if (!need('vertical scroll', spec.vsc)) return undefined;
+    // every part (coco3/gen-vsc.js: each runs from reset, inside the first 2.6 million cycles)
+    let code = 0;
+    for (let part = 1; part <= spec.vscParts(); part++) {
+      code |= await runRaster(spec.vsc(profileId, { config, part, regenerate: part === 1 }), { trace: !args.includes('--no-trace'), keep: args.includes('--keep') });
+    }
+    return code;
   }
   if (args.includes('--pia1b')) {
     if (!need('PIA1 port B', spec.pia1b)) return undefined;
@@ -211,6 +234,12 @@ async function main() {
     if (!code) require('fs').rmSync(t.work, { recursive: true, force: true });
     return code;
   }
+  if (args.includes('--cass-sound')) {
+    if (profile.family === 'sam') return require('./sam/cass-sound.js').compare(profileId, { keep: args.includes('--keep') });
+    console.error('--cass-sound: the cassette sound comparison is for the SAM machines (sam/cass-sound.js)');
+    process.exitCode = 2;
+    return undefined;
+  }
   if (args.includes('--sound')) {
     if (profile.family === 'alpha') return require('./alpha/sound-compare.js').compare(profileId, { keep: args.includes('--keep') });
     if (profile.family === 'sam') return require('./sam/dac-sound.js').compare(profileId, { keep: args.includes('--keep') });
@@ -235,6 +264,12 @@ async function main() {
   if (args.includes('--plustext')) {
     if (!need('80-column text', spec.plusText)) return undefined;
     const t = spec.plusText(profileId, { config, regenerate: !args.includes('--keep-firmware') });
+    t.install();
+    return await lockstep(Object.assign({}, t, { machine: t.machine() }));
+  }
+  if (args.includes('--paging')) {
+    if (!need('paging', spec.paging)) return undefined;
+    const t = spec.paging(profileId, { config });
     t.install();
     return await lockstep(Object.assign({}, t, { machine: t.machine() }));
   }

@@ -19,7 +19,8 @@
       "welcomeScreen",
       "cpu6309",
       "backFocus",
-      "fold"
+      "fold",
+      "semantics"
     ],
     [
       "models",
@@ -31,6 +32,7 @@
       "media",
       "libraryStorage",
       "tapePanel",
+      "tapeHud",
       "printer",
       "webSerial",
       "liza6803",
@@ -83,7 +85,8 @@
       "consentFullscreen",
       "phoneChat",
       "askEsc",
-      "uiModel"
+      "uiModel",
+      "connector"
     ]
   ]
 }

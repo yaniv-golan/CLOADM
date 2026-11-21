@@ -115,7 +115,7 @@ function levelsToFlux(levels) {
   const big = BigInt(total);
   for (let i = 0; i < dest.length; i++) {
     const t = mgTime(dest[i]);
-    const pos = total === 100000000 ? t * 2 : Number((200000000n * BigInt(t)) / big);
+    const pos = total === REVOLUTION / 2 ? t * 2 : Number((BigInt(REVOLUTION) * BigInt(t)) / big);
     dest[i] = mg(mgType(dest[i]), pos);
   }
   return dest;
@@ -159,7 +159,7 @@ function buildWdTrackMfm(cellCount, sects, gap3, gap1, gap2) {
 export function fluxToBits(tbuf, cellSize) {
   let hasInfo = false;
   for (const v of tbuf) if (mgType(v) === MG_F) { hasInfo = true; break; }
-  if (!hasInfo) return new Uint8Array(Math.floor(200000000 / cellSize));
+  if (!hasInfo) return new Uint8Array(Math.floor(REVOLUTION / cellSize));
   let period = cellSize;
   const periodAdjustBase = Math.trunc(period * 0.05);
   const minPeriod = Math.trunc(cellSize * 0.75), maxPeriod = Math.trunc(cellSize * 1.25);
@@ -175,7 +175,7 @@ export function fluxToBits(tbuf, cellSize) {
   const get = () => {
     let bit, first;
     let edge = mgTime(tbuf[curEntry]);
-    if (edge < curPos) edge += 200000000;
+    if (edge < curPos) edge += REVOLUTION;
     const next = curPos + period + phaseAdjust;
     if (edge >= next) { bit = false; phaseAdjust = 0; }
     else {
@@ -198,8 +198,8 @@ export function fluxToBits(tbuf, cellSize) {
     first = nextIsFirst;
     nextIsFirst = false;
     curPos = next;
-    if (curPos >= 200000000) {
-      curPos -= 200000000;
+    if (curPos >= REVOLUTION) {
+      curPos -= REVOLUTION;
       curEntry = 0;
       if (curPos >= Math.trunc(period / 2)) first = true; else nextIsFirst = true;
     }
@@ -618,7 +618,7 @@ function bitsToDmkTrack(bits, length) {
 function saveDmk(image, tracks, heads, options) {
   const length = options.trackLength || 0x80 + 6250;
   const cells = (length - 0x80) * 16;
-  const cellSize = Math.floor(200000000 / cells);
+  const cellSize = Math.floor(REVOLUTION / cells);
   const out = new Uint8Array(16 + tracks * heads * length);
   out[0] = options.writeProtected ? 0xff : 0x00;
   out[1] = tracks; out[2] = length & 0xff; out[3] = length >> 8;

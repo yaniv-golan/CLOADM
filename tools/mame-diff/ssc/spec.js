@@ -23,7 +23,7 @@
  */
 const fs = require('fs');
 const { loadEmu, romImage, writeRoms } = require('../lib/firmware.js');
-const { REGS } = require('../sam/spec.js');
+const { REGS } = require('../lib/regs');
 const { buildPic, buildSp0256, buildAsm, IOCNT0_MASKED, IOCNT0_INT3_ENABLED } = require('../ssc/gen-roms.js');
 
 // Our 6809 firmware, one assembled image laid into each of the machine's ROM sockets at that socket's own base

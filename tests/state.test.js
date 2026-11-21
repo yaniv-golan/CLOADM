@@ -120,6 +120,28 @@ for (const [name, t, at] of cases) {
   }
 }
 
+// The GIME's vertical fine scroll ($FF9C; coco3/gen-vsc.js, part 1: 8-line text, VSC stepped 0-12), on the machine
+// as shipped (no mameCompat: MAME never scrolls). Two points: in the body of a scrolled field, partway through a row
+// (the latched VSC, `vsc`, in use), and between a write to $FF9C and the next field's start, where the register
+// already holds the next value and the field still shows the latched one: both must run on identically.
+{
+  const t = spec('coco3').vsc('coco3', { part: 1, regenerate: false, config: { mameCompat: false } });
+  const points = [
+    ['in the body of a scrolled field', (g) => g.zone === 1 && g.vsc > 1 && g.logical > 40 && g.lineInRow !== 0],
+    ['after a $FF9C write, before the field latches it', (g) => g.vsc > 0 && (g.regs[12] & 0x0F) !== g.vsc],
+  ];
+  for (const [what, at] of points) {
+    const a = t.hardware(), g = a.gime;
+    let guard = 0;
+    while (!at(g) && guard++ < 4000000) a.runCycles(a.cycle + 1);
+    check(`vertical scroll: snapshot taken ${what}`, at(g), JSON.stringify({ zone: g.zone, vsc: g.vsc, ff9c: g.regs[12], lineInRow: g.lineInRow }));
+    const text = Emu.state.toJSON(a.snapshot());
+    const continued = run(a, t.regs, 40);
+    const b = Emu.restoreSnapshot(Emu.state.fromJSON(text), a.roms);
+    check(`vertical scroll, ${what}: restored machine runs identically (trace and frames)`, run(b, t.regs, 40) === continued);
+  }
+}
+
 // restored in place while the CoCo FDC holds the CPU halted (HALT on DRQ): the old controller's detach must not
 // leave the hub believing HALT is already released, or the restored controller's release is lost
 {
@@ -835,6 +857,46 @@ for (const [id, caseNo] of [['coco', 16], ['dragon64', 17]]) {
     rd.flush();
     check('a flush after the restore reports nothing changed', reported === null,
       reported ? `${reported.n} bytes reported at ${reported.off}` : 'nothing reported');
+  }
+
+  // The drive decides whether to keep its mounted bytes lazily (js/chips/floppy.js get mountBytes): not at mount,
+  // but the first time a snapshot needs the answer. That answer must be the one an eager check at mount gives,
+  // even when the disk has been written and committed before the first snapshot. Two single-density DMK drives
+  // (the case that needs the mounted bytes): one asked at mount (eager), one asked only by its first snapshot,
+  // after a write and a commit. Their snapshots, the restored flux and the disk exported after a further write on
+  // the restored drive must all be the same.
+  {
+    const fdcSpec = spec('fdc').trace('dragon64', { controller: 'dragonfdc', regenerate: false });
+    const img = require('../tools/mame-diff/fdc/images').dmk(10, 2);
+    img[4] = 0x40;                                   // bit 6: single density (FM)
+    const write = (d, cyl) => {
+      d.cyl = cyl; d.ss = 0;
+      const start = d.revStart, span = d.revTime;
+      d.writeFlux(start, start + span, [start + span / 4n, start + span / 2n, start + (span * 3n) / 4n]);
+      d.imageDirty = true;
+      d.flush();
+    };
+    const run = (eager) => {
+      const fm = fdcSpec.machine();
+      for (let f = 0; f < 40; f++) fm.runFrame();
+      const d = fdcSpec.fdcOf(fm).drives[0];
+      d.mount({ bytes: img.slice(), format: 'dmk', name: 'sd.dmk', writeProtected: false });
+      const keptAtMount = eager ? !!d.mountBytes : null;
+      write(d, 2);
+      const text = Emu.state.toJSON(fm.snapshot());
+      const r = Emu.restoreSnapshot(Emu.state.fromJSON(text), fm.roms);
+      const rd = fdcSpec.fdcOf(r).drives[0];
+      const flux = JSON.stringify(rd.image.data);
+      write(rd, 4);
+      return { keptAtMount, text, flux, exported: rd.media.bytes.slice(), live: JSON.stringify(d.image.data) };
+    };
+    const eager = run(true), lazy = run(false);
+    check('a single-density DMK is one the drive keeps its mounted bytes for', eager.keptAtMount === true);
+    check('lazy: the first snapshot after a write and commit equals the eager one', lazy.text === eager.text,
+      `${lazy.text.length} vs ${eager.text.length} chars`);
+    check('lazy: the restored drive has the flux the live drive had, cell for cell', lazy.flux === lazy.live && lazy.flux === eager.flux);
+    check('lazy: the disk exported after a write on the restored drive equals the eager one',
+      lazy.exported.length === eager.exported.length && lazy.exported.every((v, i) => v === eager.exported[i]));
   }
 
   console.log(fail ? `${fail} FAILED` : 'all passed');

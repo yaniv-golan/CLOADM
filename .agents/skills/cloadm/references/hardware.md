@@ -54,9 +54,10 @@ colours), not PMODE 4.
 - **F0-F6** (`$FFC6-$FFD3`): the screen's address in 512-byte units, `$FFC6`/`$FFC7` clear/set F0 up to
   `$FFD2`/`$FFD3` for F6. `$0400` is F = 2 (`$FFC6`, `$FFC9`, `$FFCA`, `$FFCC`, `$FFCE`, `$FFD0`, `$FFD2`); `$0600`
   is F = 3 (`$FFC7`, `$FFC9`, then F2-F6 cleared).
-- **M1-M0** (`$FFDA-$FFDD`): the RAM size the video counter wraps at. BASIC sets it at power-on; **the built-in
-  firmware leaves it at 4K**, so a screen reaching above `$0FFF` (any graphics page at `$0600`) shows the wrong bytes
-  until you set it: `STA $FFDA` (M0 clear) and `STA $FFDD` (M1 set) on a 32K or 64K machine.
+- **M1-M0** (`$FFDA-$FFDD`): the RAM size the video counter wraps at. BASIC and the built-in firmware set it for the
+  fitted RAM at power-on (10 on 32K and 64K, 01 on 16K). At 4K (M = 00) a screen reaching above `$0FFF` (any graphics
+  page at `$0600`) shows the wrong bytes, so a program sets it itself to be safe: `STA $FFDA` (M0 clear) and
+  `STA $FFDD` (M1 set) on a 32K or 64K machine.
 
 ## Recipe: PMODE 4 on the built-in firmware
 

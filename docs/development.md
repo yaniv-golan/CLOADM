@@ -27,10 +27,10 @@ names contain one of the parts, and `node tools/browser-check.js --only <group>[
 | You changed | Suites (`tests/all.js --only ...`) | Browser-check groups (`--only ...`) |
 |---|---|---|
 | `js/cpu/` (6809, 6309, 6803) | `cpu,opcodes,disasm,asm,nmi-arm,regress` | `models,cpu6309` |
-| Video: `js/chips/` VDG, SAM, GIME, 6845, `js/video/` | `video,mc6847,mc6845,coco3,composite,sammem,samrate,regress,state` | `models,display,glLoss` |
-| Machines and profiles (`js/machines/`) | `machine,models,bus,coco3,mc10,alpha,d64plus,state,snapshot,regress` | `models,powerOn` |
+| Video: `js/chips/` VDG, SAM, GIME, 6845, `js/video/` | `video,mc6847,mc6845,coco3,gime-vsc,composite,sammem,samrate,regress,state` | `models,display,glLoss` |
+| Machines and profiles (`js/machines/`) | `machine,models,bus,coco3,mc10,alpha,d64plus,stub-sam,state,snapshot,regress` | `models,powerOn` |
 | Floppy disks, `js/media/` | `fdc,disk,detect,state` (`disk` also selects the `disks*` suites) | `disk,media` |
-| Cassette | `tape` | `tape,tapePanel` |
+| Cassette | `tape` (also `tape-sound`) | `tape,tapePanel,tapeHud` |
 | Cartridges and sound chips | `bus,carts,ssc,sp0256,ay8910,audio` | `cartridge,sscBoard,audio` |
 | Serial, printer, DriveWire | `serial,acia,drivewire,web-serial` | `driveWire,webSerial,printer` |
 | The assembler (`js/asm/`) | `asm,includes,disasm` | `debugger` |
@@ -39,8 +39,9 @@ names contain one of the parts, and `node tools/browser-check.js --only <group>[
 | `js/session.js`, snapshots | `session,snapshot,state,restore-points` | `snapshot,state` |
 | The Claude chat and Ask Claude | `claude,chat-firmware` | `claude,ask,commands,chatScreen` |
 | `cli/` (the command line and the MCP server) | `cli,mcp,game-guide,starter-game` | none |
+| `connector/` (the side-panel connector) | `connector,mcp,skill` | `connector` |
 | `examples/` (a program or game) | `pwa,starter-game,game-guide,welcome` and the example's own suite | `pwa` (and the group that offers it) |
-| `js/ui/`, `play/`, `css/`, `index.html` | `session,readme` | the panel's groups, then the whole check |
+| `js/ui/`, `play/`, `css/`, `index.html` | `session,readme,screen-alternative` | the panel's groups and `semantics`, then the whole check |
 | Docs (`README.md`, `docs/`) | `readme,romdocs,game-guide` | none |
 | `CHANGELOG.md` | `changelog` | none |
 | The test runner (`tests/all.js`, `suite-verdict.js`, `no-exit.js`) | `allsummary,allsignal,exitguard,exitcode` | none |
@@ -86,6 +87,7 @@ node tests/halt-replay.test.js # CoCo 3 held instruction run again: exact reads 
 node tests/coco3-buslog.test.js # CoCo 3 bus log: carried only with a HALT-capable device (logBus), hot-plug, snapshots, the guards
 node tests/held-writeio.test.js # a write from outside during a held access: queued, made between instructions, same machine either way
 node tests/coco3.test.js     # CoCo 3: MMU, GIME interrupts, timer, speed, video
+node tests/gime-vsc.test.js  # CoCo 3: the GIME's vertical fine scroll ($FF9C), line by line against rows worked out from the sources
 node tests/mc10.test.js      # MC-10: 6803 core, assembler plugin, machine
 node tests/sp0256.test.js    # SP0256 speech chip: sequencer, paging, branches, handshake, RCU, timing (GI design spec)
 node tests/liza6803.test.js  # LIZA for the 6803: same conversation as the 6809 build on mc10 and alice; BREAK, CLEAR, backspace
@@ -114,6 +116,10 @@ node tests/skill.test.js     # the agent skill: the .agents copy identical, fron
 node tests/skill-evals/run.js # the skill's evals with and without it: real, billed Claude runs (needs the claude CLI), not in tests/all.js
 node tests/plugin.test.js    # the plugin, marketplace and Claude Desktop extension manifests: one version, paths, placeholders, the tool list, the server starting as each starts it
 node tests/mcp.test.js       # the MCP server over stdio: both protocol eras, every tool's results and errors against the in-page tools, handles, --read-only, the media root, cancellation, --serve
+node tests/mcp-roms.test.js  # add_roms / remove_roms with stand-in ROMs: a local https server (a CA made for the run), every URL refusal (http, private/loopback/CGNAT/link-local, redirects, size, timeout, not a ROM), data, the media root, consent (elicitation), the store across restarts, --read-only, no ROM bytes in results
+node tests/connector.test.js # the side-panel connector (connector/): the Worker over HTTP, both views and their CSP, the folded emulator identical to the plain modules, the panel's tools equal to the server's, the 100k limit, the bridge's protocol in a vm
+node tools/connector-check.js # the connector's two views in Chromium, nested as Claude nests them under the spec's CSP, with a host stub: handshake first, list_changed, the tools, keys, storage, ROMs kept and refused to memory reads, no CORS, out of step (the browser check's `connector` group)
+node connector/build.js      # build the connector's views into connector/worker/src/views.gen.js (wrangler deploy runs it; docs/deploy-connector.md)
 node tests/cli-agent.test.js # cli/cloadm.js beyond the basics: --describe, error codes, the debugger steps against the Session's debugger, DriveWire stalls, special keys, script quoting, --view
 node tests/cli-wav.test.js   # --wav: a known DAC pattern's levels and timing, determinism, snapshots mid-sound, the box filter of the level events
 node tests/cli-screenshot.test.js  # --expect-screenshot (tolerance, diff, PNG layouts, errors) and --hold
@@ -136,6 +142,8 @@ node tools/gen-page-preload.js  # regenerate the <link rel="modulepreload"> list
 node tools/page-load.js      # how long /play/ takes to start over a throttled link: modulepreload's effect (see below)
 node tests/readme.test.js    # README.md and docs/*.md: only what GitHub renders; links, anchors and pictures resolve; no private or ROM-folder links
 node tests/tape.test.js      # cassette: WAV files, decoding impaired recordings, capturing csave.asm's output on every SAM model and the MC-10, Session
+node tests/tape-sound.test.js  # Tape sound: the tape's signal per frame tick for tick, silence when it stops, the low-pass, not machine state; the mux's cassette bias
+node tools/mame-diff/run.js dragon64 --cass-sound   # the sound mux on the cassette input while a tape plays, against MAME's -wavwrite (dragon32, coco too)
 node tests/tape-load.test.js # a tape dropped on the page: restarted, CLOADM, EXEC only when BASIC is back, a self-starting tape left alone (BASIC stand-in)
 node tests/input.test.js     # input: both keyboard modes on every family, the keyboard joystick, gamepads, the CoCo Max module
 node tools/mame-diff/tape/run-tape.js [profile ...]   # MAME records our writer firmware; MAME reads our .CAS and WAVs with our reader firmware
@@ -171,13 +179,16 @@ node tests/allsignal.test.js              # a signal to the gate stops every sui
 node tests/changelog.test.js              # a released CHANGELOG section equals the same section in its git tag (named corrections aside); needs the tags (CI fetches them, `git fetch --tags` locally: without them it prints a SKIP line per tag)
 node tests/exitcode.test.js               # no suite or tool forces process.exit() (the Node 25 deadlock), by static scan
 node tests/exitguard.test.js              # the same rule at run time, against every spelling a static scan cannot see
+node tests/screen-alternative.test.js     # the screen canvas's text alternative: screen_text's rows, blank and block screens, a graphics mode, 80-column GIME
 node tools/mame-diff/run.js <profile>     # lockstep trace comparison with MAME (needs mame; exit 0 = identical)
 node tools/mame-diff/run.js <profile> --video [--artifact N]   # pixel comparison of every display mode with MAME
 node tools/mame-diff/run.js coco3 --video --attr   # the GIME's text attributes, exactly (blank glyphs, so the fonts never show)
 node tools/mame-diff/run.js coco3 --video --text [--cpu 6309]   # the GIME text screens, and Claude's screen_text on them
 node tools/mame-diff/run.js d64plus --plustext [--video]   # the Dragon 64 Plus's 80-column text screens (lockstep; --video: every pixel)
+node tools/mame-diff/run.js d64plus --paging [--video]   # the Dragon 64 Plus's $FFE2 paging: $04 is the motherboard RAM, the VDG never sees a bank (lockstep; --video: every pixel)
 node tools/mame-diff/run.js coco3 --video --composite [--artifact N]   # the CoCo 3 on MAME's composite monitor (BPI, MOCH, artifact colours)
 node tools/mame-diff/run.js <profile> --raster  # mid-line video changes swept across every beam position, against MAME
+node tools/mame-diff/run.js coco3 --vsc   # the GIME's vertical fine scroll ($FF9C): lockstep, every case's pixels, our scroll against MAME's pictures
 node tools/mame-diff/run.js <profile> --printer # printer output byte for byte against MAME's printer file
 node tools/mame-diff/run.js <profile> --serial  # the bit-banger (or the Dragon 64's 6551) in lockstep with MAME's loopback plug
 node tools/mame-diff/drivewire/run-dw.js [profile ...] [--no-trace]  # DriveWire over the Becker port: lockstep with MAME (TCP to our server), and byte for byte
@@ -187,6 +198,7 @@ node tools/mame-diff/run.js coco3 --fdc cocofdc --halt   # the controller's HALT
 node tools/mame-diff/run.js coco3 --fdc cocofdc --halt --empty   # a halted read on a drive with no disk: the CPU held for good, as in MAME
 node tools/mame-diff/run.js coco3 --fdc cocofdc --nitros9 [--cpu 6309]   # the NitrOS-9 floppy loader on a hand-built boot floppy, with MAME
 node tools/browser-check.js --only nitros9   # Boot NitrOS-9 from the page (the release images when fetched)
+node tools/browser-check.js --only semantics # landmarks, headings, closed surfaces hidden for real, the screen's text alternative, a reading mode (Readability)
 node tools/nitros9/boot-mame.js <image> --cpu 6809 --seconds 30 --type 'dir\r' --at 15 --record tests/fixtures/nitros9/coco3-6809-becker.json   # its MAME reference (also boot.js: the same boot on ours)
 node tools/mame-diff/run.js <profile> --rate    # SAM CPU rate firmware (sam/rate.asm) in lockstep with MAME (mameCompat)
 node tools/mame-diff/run.js <profile> --ops     # every instruction class at the SAM rates (sam/ops.asm), with MAME

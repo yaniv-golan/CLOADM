@@ -23,7 +23,7 @@
 // foreground (bits 3-5) on the row MAME and the GIME pick for the lines-per-row, and blink (bit 7), which blanks
 // the character and drops its underline while the GIME's timer has toggled the blink state: each mode is shown
 // with blink off, then again after one timer expiry, with the timer stopped so the state holds.
-const fs = require('fs'), path = require('path'), zlib = require('zlib');
+const fs = require('fs'), path = require('path');
 const { loadEmu, romImage } = require('../lib/firmware');
 const { runMame } = require('../lib/mame');
 const assemble = (src) => {
@@ -38,6 +38,7 @@ const ATTR = !!process.env.ATTR;
 // MONITOR=composite (run.js coco3 --video --composite): MAME's composite monitor and ours, every mode plus the
 // $FF98 BPI (burst phase invert) and MOCH (monochrome) variants, in vdg-composite.asm
 const COMPOSITE = process.env.MONITOR === 'composite';
+const { png } = require('../lib/png');
 const { workDir, keepWorkDir } = require('../lib/workdir');
 const ARTIFACT = process.env.ARTIFACT === undefined ? 0 : +process.env.ARTIFACT;
 // VDG_WORK: a folder of your own, kept (and needed by SKIP_MAME=1); otherwise a fresh one, removed at exit
@@ -277,16 +278,6 @@ for (let f = 0; f < 60 * 40 && !ours[N]; f++) {
   if (ph !== last) { last = ph; wait = 15; }
   if (wait > 0) wait--;
   else if (wait === 0) { wait = -1; ours[ph] = Emu.frameToRGBA(m.render()); }
-}
-
-function png(w, h, rgba) {
-  const crcT = new Int32Array(256).map((_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; return c; });
-  const crc = (b) => { let c = -1; for (const x of b) c = crcT[(c ^ x) & 0xFF] ^ (c >>> 8); return (c ^ -1) >>> 0; };
-  const chunk = (t, d) => { const len = Buffer.alloc(4); len.writeUInt32BE(d.length); const td = Buffer.concat([Buffer.from(t), d]); const c = Buffer.alloc(4); c.writeUInt32BE(crc(td)); return Buffer.concat([len, td, c]); };
-  const raw = Buffer.alloc((w * 4 + 1) * h);
-  for (let y = 0; y < h; y++) { raw[y * (w * 4 + 1)] = 0; rgba.copy(raw, y * (w * 4 + 1) + 1, y * w * 4, (y + 1) * w * 4); }
-  const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 6;
-  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]);
 }
 
 const W = 640, H = 240;

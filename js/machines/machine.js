@@ -180,9 +180,7 @@ class Machine {
     if (inside(pc)) return true;
     if (!p.calls.includes(pc)) return false;
     // in a console call: where it returns to (the 6809 leaves S on the return address, the 6803 one byte below)
-    const s = (this.cpu.s + (this.config.cpu === '6803' ? 1 : 0)) & 0xFFFF;
-    const rd = (a) => (this.peek ? this.peek(a) : this.ram[a]);
-    return inside((rd(s) << 8) | rd((s + 1) & 0xFFFF));
+    return inside(this.cpu.returnAddress((a) => (this.peek ? this.peek(a) : this.ram[a])));
   }
 
   // ---------------- reset ----------------
@@ -263,7 +261,6 @@ class Machine {
   startTimeline() { /* family hook: schedule the first video events */ }
 
   // ---------------- frame loop ----------------
-  // run instructions until tick `end` (the last one may overshoot it)
   // Run instructions until the tick reaches `end` (or at most `steps` instructions: the debugger's single step)
   runCycles(end, steps = Infinity) {
     const cpu = this.cpu, hooks = this.pcHooks;
@@ -586,8 +583,11 @@ class Machine {
 //      CoCo 3 adds `outsideWrites`, the writes from outside the CPU queued while an instruction was held
 //      (js/machines/coco3.js outsideWrite); a version 1 or 2 file has none and restores owing none (none could be
 //      queued before this build held them).
+//   4: the CoCo 3's GIME adds `vsc`, the vertical fine scroll ($FF9C) latched at the start of the field
+//      (js/chips/gime.js vscLine). A version 1 to 3 file has none and restores with 0, as no field scrolled before
+//      this build; the next field latches $FF9C.
 export const SNAPSHOT_FORMAT = 'cloadm-state';
-export const SNAPSHOT_VERSION = 3;
+export const SNAPSHOT_VERSION = 4;
 export const SNAPSHOT_OLDEST = 1;
 
 Machine.BASIC_POINTERS = 0x19;   // Color BASIC / Dragon BASIC TXTTAB

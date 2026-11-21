@@ -207,6 +207,9 @@ class MC6847 {
   static bytesPerLine(modeByte) {
     return modeByte & 0x80 ? GMODES[(modeByte >> 4) & 7][0] : 32;
   }
+  // the VDG walks 32 byte positions per line and reads memory at every sampleModulo-th one (MAME: `pos %
+  // sample_modulo == 0`, `sample_modulo = 32 / sample_count`): 1 for 32 bytes a line, 2 for 16
+  static sampleModulo(modeByte) { return Math.round(32 / MC6847.bytesPerLine(modeByte)); }
   // graphics mode GM (0-7) as the data sheet names it, with its picture: { name: 'CG1'..'RG6', width, height, colours }
   // (from GMODES: bytes per line x 8 / bits per pixel across, 192 lines / lines per row down)
   static graphicsMode(gm) {

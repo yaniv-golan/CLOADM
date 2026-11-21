@@ -22,7 +22,7 @@ checked against MAME.
 | Interrupts | IRQ and FIRQ go through the RAM vectors at `$010C` and `$010F` (a `JMP`, as in Color BASIC); the firmware's handlers just acknowledge the PIAs. The field sync interrupt (PIA0 CB1) is on and the CPU's IRQ unmasked when a program starts | BASIC's own handlers (its `TIMER`, sound) |
 | Keys | `--type` feeds POLCAT; `--hold` presses keys in the matrix (what a game reads itself) | `--type` and `--hold` both press keys in the matrix, as BASIC's POLCAT reads it |
 | Loads | machine code: `.bin`, `.cas` machine-code files, cartridges (run at `$C000`), `--asm` source | everything, BASIC programs and listings too |
-| SAM memory size | 4K (M = 00): set it before showing a screen above `$0FFF` ([The screen](#the-screen)) | set for the machine's RAM |
+| SAM memory size | set for the machine's RAM, as BASIC sets it (M = 01 on 16K, 10 on 32K and 64K; 00 on 4K) | set for the machine's RAM |
 
 A game that drives the hardware itself (the screen through the VDG and SAM, keys through the PIA, sound through the
 DAC) runs the same on both, and so does one that uses only POLCAT and CHROUT. A program started on the built-in
@@ -139,11 +139,11 @@ The SAM fetches the screen for the VDG; the PIA1 port B bits pick the VDG's mode
 * **Where:** SAM F0-F6 (`$FFC6-$FFD3`) give the screen's address in 512-byte units. `$0400` is F = 2: write
   `$FFC6` (F0 clear), `$FFC9` (F1 set), and `$FFCA`, `$FFCC`, `$FFCE`, `$FFD0`, `$FFD2` (F2-F6 clear).
 * **How much it can see:** the SAM's video address counter wraps at the RAM size set in M1-M0 (`$FFDA-$FFDD`):
-  4K for M = 00, 16K for 01, all of it for 10. BASIC sets M for the machine's RAM at power-on (10 on 32K and 64K
-  machines); the built-in firmware leaves it at 00, so a screen that reaches above `$0FFF` (a graphics page at
-  `$0600` already does) shows the bytes at its address modulo 4K until the program sets M itself:
-  `STA $FFDA` (M0 clear) and `STA $FFDD` (M1 set) on a 32K or 64K machine, `STA $FFDB` (M0 set) and `STA $FFDC`
-  (M1 clear) on a 16K one.
+  4K for M = 00, 16K for 01, all of it for 10. BASIC and the built-in firmware both set M for the machine's RAM
+  at power-on (01 on 16K, 10 on 32K and 64K machines). A program that changed M, or that may start after something
+  else did, sets it itself: `STA $FFDA` (M0 clear) and `STA $FFDD` (M1 set) on a 32K or 64K machine, `STA $FFDB`
+  (M0 set) and `STA $FFDC` (M1 clear) on a 16K one. At M = 00 a screen that reaches above `$0FFF` (a graphics page
+  at `$0600` already does) shows the bytes at its address modulo 4K.
 * **Text and semigraphics** (VDG A/G = 0, SAM V = 0): 32x16 characters, one byte each. Codes `$00-$3F` are the VDG's
   64 characters shown light on dark, `$40-$7F` the same characters dark on green (BASIC's screen: a space is `$60`;
   letters `A-Z` are `$41-$5A`, digits and punctuation are their ASCII code plus `$40`). Codes `$80-$FF` are SG4
@@ -183,7 +183,7 @@ FILL    COM     ,X+
         DECB
         BNE     ROW
         STA     $FFDA           ; SAM M = 10: 32K/64K RAM, so the VDG sees
-        STA     $FFDD           ; above $0FFF (the built-in firmware leaves 4K)
+        STA     $FFDD           ; above $0FFF (already so at power-on; set anyway)
         STA     $FFC7           ; SAM F = 3: the picture at 3 x 512 = $0600
         STA     $FFC9
         STA     $FFCA
@@ -446,8 +446,8 @@ reads includes from the source's folder).
   the matrix: the firmware (built-in or BASIC) deals with the Dragon and CoCo layouts, and `--type` (`{UP}`, `{LEFT}`,
   `{BREAK}`, letters, space) drives them. The starter game scans the matrix itself (held keys, `--hold`) because it
   moves while a key is down.
-* **The four-colour screen.** CG6 (PMODE 3, 128x192) at `$0400`: the SAM's M set to 64K first (the built-in firmware
-  leaves 4K, which would show the bottom 64 rows as a copy of the top), V = 110, F = 2, `$FF22` = `$E0` or `$E8` with
+* **The four-colour screen.** CG6 (PMODE 3, 128x192) at `$0400`: the SAM's M set to 64K first (the power-on value
+  on 32K and 64K, set again in case a program left 4K, which would show the bottom 64 rows as a copy of the top), V = 110, F = 2, `$FF22` = `$E0` or `$E8` with
   bits 2-0 kept. Minesweeper uses colour set 1 (buff, cyan, magenta, orange) and flashes to set 0 when it ends.
 * **Text in a bitmap.** A 3x5 font in a 4-pixel cell is one byte a row: a table of the eight 3-bit patterns as pixel
   masks, ANDed with the colour's fill byte (colour x `$55`) and ORed with the background's. The same glyphs are drawn

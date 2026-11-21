@@ -87,22 +87,24 @@ export function setupRomSockets(page, romInput, { confirmSwitch }) {
       body.append(top, el('div', `${kb(s.size)} · usually ${s.files.concat(s.aliases).join(' or ')}`, 'expect'), el('div', socketState(s), 'state'));
       card.append(el('span', null, 'dot'), body);
       return card;
-    }), ...(session.offersSsc ? session.sscRoms().map((s) => {
+    }), ...diskCard(), ...(session.offersSsc ? session.sscRoms().map((s) => {
       // The Speech/Sound Pak's own sockets: a cartridge board with its own ROM, not part of the machine's. They
       // carry data-ssc rather than data-status so they are a separate list from the machine's sockets (the page's
-      // browser check reads the machine's sockets by [data-status]).
+      // browser check reads the machine's sockets by [data-status]). The Pak itself is an optional cartridge, so its
+      // cards are titled and tagged optional, like the disk card, and come last: a ROM the Pak needs (data-ssc
+      // "missing-required") is still not one the machine needs, and a red "required" beside BASIC's read as if it were.
       const card = el('div', null, 'socket');
       card.dataset.socket = `ssc-${s.id}`;
       card.dataset.ssc = s.status === 'loaded' ? 'loaded' : s.required ? 'missing-required' : 'missing-optional';
       const body = el('div', null, 'body'), top = el('div', null, 'top');
-      top.append(el('strong', `Speech/Sound Pak: ${s.label}`), el('span', s.required ? 'required' : 'optional', s.required ? 'tag req' : 'tag'));
+      top.append(el('strong', `Speech/Sound Pak (optional cartridge): ${s.label}`), el('span', 'optional', 'tag'));
       const state = s.status === 'loaded' ? '✓ loaded'
-        : s.required ? 'Waiting for a file. Without it the Pak cannot be inserted; it plays its music side from this ROM.'
+        : s.required ? 'Only for the Speech/Sound Pak: without it the Pak cannot be inserted; it plays its music side from this ROM.'
           : 'Optional: speech is not implemented yet, so the Pak plays music without it.';
       body.append(top, el('div', `${kb(s.size)} · usually ${s.files[0]}`, 'expect'), el('div', state, 'state'));
       card.append(el('span', null, 'dot'), body);
       return card;
-    }) : []), ...diskCard());
+    }) : []));
     // a loaded file that is not a known dump: what it means and what to do
     $('romOdd').replaceChildren(...info.sockets.filter((s) => s.status === 'loaded-unrecognised').map((s) => {
       const d = el('div', null, 'odd');

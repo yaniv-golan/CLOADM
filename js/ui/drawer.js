@@ -3,7 +3,27 @@
  * keys move between tabs), the recent media list, the ROM summary, and the cassette and cartridge slots under
  * the screen. The Display tab is its own module (display-panel.js).
  */
-import { $ } from './page.js';
+import { $, put, putClass } from './page.js';
+
+// The recent list's rows: the entries for `machine`, each with the index it has in the FULL list. recentMedia()
+// hands out copies, so an index looked up in a second call (indexOf) matches nothing and is always -1; the index
+// must be taken from the same list the row was drawn from. This is the whole of that arithmetic, with no DOM, so a
+// Node test can run the code the drawer runs rather than a copy of it.
+export const recentRows = (all, machine) => all.map((r, i) => ({ r, i })).filter((x) => x.r.machine === machine);
+
+// What a click on a recent row does: load the entry that row was DRAWN from. The list can change between drawing
+// and clicking (a load, an eviction, a machine switch), so the row's own ENTRY decides which one to load, found
+// again in the list as it is now by its identity (name, crc, machine). The index is only a fallback for an entry
+// that has gone from the list: the row is then stale, and loadRecent(index) reports it, rather than silently
+// loading whatever moved into that slot.
+export const loadRow = (session, row) => {
+  const now = session.recentMedia();
+  const at = now.findIndex((r) => r.name === row.r.name && r.crc === row.r.crc && r.machine === row.r.machine);
+  // not found: the row was evicted (or its entry replaced) while the drawer was open. Loading by the row's old
+  // index would load whatever moved into that slot -- a different file under the same click. Say it is gone.
+  if (at < 0) throw new Error('That file is no longer in the recent list; open it again.');
+  return session.loadRecent(at);
+};
 
 // The recent list's rows: the entries for `machine`, each with the index it has in the FULL list. recentMedia()
 // hands out copies, so an index looked up in a second call (indexOf) matches nothing and is always -1; the index
@@ -86,21 +106,21 @@ export function setupDrawer(page, { showRoms }) {
   let cartName = null;
   function slots() {
     const m = session.machine, t = m.deck.tape;
-    $('tapeName').textContent = t ? t.name : 'No tape · Insert tape…';
+    // (refreshed every frame while a tape is in: each part is written only when it changes, put/putClass)
+    put($('tapeName'), 'textContent', t ? t.name : 'No tape · Insert tape…');
     // a button that can't work is disabled with the reason, not clicked and complained about
-    $('btnRewind').disabled = !t;
-    $('btnRewind').title = t ? 'Back to the start of the tape' : 'No tape inserted';
-    $('tapeState').textContent = !t ? 'click the deck to insert' : m.deck.motor ? `motor on · ${(t.progress() * 100).toFixed(0)}%` : `stopped · ${(t.progress() * 100).toFixed(0)}%`;
-    $('btnTape').classList.toggle('turning', !!(t && m.deck.motor));
-    $('cartSlot').hidden = !m.hasCartridgePort;
+    put($('btnRewind'), 'disabled', !t);
+    put($('btnRewind'), 'title', t ? 'Back to the start of the tape' : 'No tape inserted');
+    put($('tapeState'), 'textContent', !t ? 'click the deck to insert' : m.deck.motor ? `motor on · ${(t.progress() * 100).toFixed(0)}%` : `stopped · ${(t.progress() * 100).toFixed(0)}%`);
+    put($('cartSlot'), 'hidden', !m.hasCartridgePort);
     const loaded = !!(m.hasCartridgePort && m.cartPort);
-    $('btnCart').classList.toggle('loaded', loaded);
+    putClass($('btnCart'), 'loaded', loaded);
     // the Pak takes no cartridge image: on that board the button inserts it instead of opening a file
     const onSsc = $('selCartBoard').value === 'ssc';
-    $('btnCart').textContent = loaded ? (cartName ? `${cartName} · ${m.cartPort.name || 'cartridge'}` : (m.cartPort.name || 'Cartridge'))
-      : onSsc ? 'Insert the Speech/Sound Pak…' : 'Insert cartridge…';
+    put($('btnCart'), 'textContent', loaded ? (cartName ? `${cartName} · ${m.cartPort.name || 'cartridge'}` : (m.cartPort.name || 'Cartridge'))
+      : onSsc ? 'Insert the Speech/Sound Pak…' : 'Insert cartridge…');
     // the board menu offers the Pak only on the models that take it
-    $('selCartBoard').querySelector('option[value="ssc"]').hidden = !session.offersSsc;
+    put($('selCartBoard').querySelector('option[value="ssc"]'), 'hidden', !session.offersSsc);
     if (!session.offersSsc && onSsc) { $('selCartBoard').value = 'auto'; session.cartBoard = 'auto'; slots(); }
   }
   $('btnCart').onclick = () => {

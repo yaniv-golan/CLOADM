@@ -28,7 +28,7 @@
  *   - context openers under the machine: "Explain this error" (a BASIC error on screen, orange) and "Help with my
  *     program" (a BASIC program in memory); clicking one opens the panel and asks.
  */
-import { $, ESC, viewOpen } from './page.js';
+import { $, ESC, viewOpen, markUndrawn } from './page.js';
 import { PAUSED_CARD_TEXT, acceptClick, drawAccept, loadCardText } from './claude.js';
 import { CLAUDE_PAUSED_SHORT } from '../session.js';
 import { cpuFamily } from '../cpu/cpus.js';
@@ -71,6 +71,7 @@ export function setupAsk(page, claude) {
     open = true; minimised = false; closeAfterTurn = false;
     ask.hidden = false;
     document.body.classList.add('ask-open');
+    markUndrawn();
     $('askRail').hidden = phone();
     if (phone()) setHeight('half');
     render();
@@ -83,6 +84,7 @@ export function setupAsk(page, claude) {
     $('askRail').hidden = true;
     setRail(null);
     document.body.classList.remove('ask-open');
+    markUndrawn();
     if (!keep) minimised = false;
     render();
   }
@@ -155,6 +157,7 @@ export function setupAsk(page, claude) {
   function setRail(tab) {
     railTab = tab;
     document.body.classList.toggle('ask-rail-drawer', !!tab);
+    markUndrawn();   // (now: the drawer the rail shows must take the focus its tab gives below)
     for (const b of $('askRail').children) b.setAttribute('aria-pressed', String(b.dataset.tab === tab));
     if (tab) $(tab).click();
   }

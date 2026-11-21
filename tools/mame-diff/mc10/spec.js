@@ -4,9 +4,7 @@
 const path = require('path');
 const { loadEmu, assembleFile, romImage, writeRoms, mameConfigArgs } = require('../lib/firmware');
 const { workDir } = require('../lib/workdir');
-
-const REGS = ['pc:4', 'a:2', 'b:2', 'x:4', 's:4', 'cc:2']
-  .map((r) => { const [name, w] = r.split(':'); return { name, width: +w, mame: name }; });
+const { REGS_6803: REGS } = require('../lib/regs');
 
 // The keys held from power-on, and where they sit. The Alice's matrix is not the MC-10's (its A is row 1
 // bit 2; the MC-10's is row 0 bit 1), so the MAME script that presses them is built from each machine's own
@@ -137,5 +135,4 @@ end`).join('\n'),
     const rom = romImage(asm, 0xE000, 0x2000, 0x01);
     return { machine: () => machine(profileId, rom, []), frames: 800 };
   },
-  REGS,
 };
