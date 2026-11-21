@@ -10,6 +10,13 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Changed
 
+- **The games' sounds are musical cues, not a buzz on every move.** 2048 played a burst of noise on every move
+  and Minesweeper one on every square opened, which is why they read as noise rather than as game sounds. 2048 now
+  plays one short tone per move, its pitch stepping up with the join it makes (C major pentatonic, C5 to D6), about
+  60 ms instead of a rumble; Minesweeper plays an E5 tick when a square opens, a rising C5-G5 pair when a flag goes
+  on (falling when it comes off), a rising arpeggio for a win and a falling one for a loss, and a single short noise
+  burst for the mine (about 170 ms, where there were three). Each pitch is checked against the recorded sound and
+  `tests/fixtures/games/minesweeper-sounds.wav` is re-recorded.
 - **The Media tab's "Recent on this machine" no longer lists one file twice.** The list's identity was the
   content hash alone, compared exactly, so two reachable cases showed the same name twice: an entry an older build
   stored with a lower-case CRC was not matched by the upper-case one a later load makes, and a file of the same name
