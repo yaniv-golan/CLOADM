@@ -837,6 +837,46 @@ for (const [id, caseNo] of [['coco', 16], ['dragon64', 17]]) {
       reported ? `${reported.n} bytes reported at ${reported.off}` : 'nothing reported');
   }
 
+  // The drive decides whether to keep its mounted bytes lazily (js/chips/floppy.js get mountBytes): not at mount,
+  // but the first time a snapshot needs the answer. That answer must be the one an eager check at mount gives,
+  // even when the disk has been written and committed before the first snapshot. Two single-density DMK drives
+  // (the case that needs the mounted bytes): one asked at mount (eager), one asked only by its first snapshot,
+  // after a write and a commit. Their snapshots, the restored flux and the disk exported after a further write on
+  // the restored drive must all be the same.
+  {
+    const fdcSpec = spec('fdc').trace('dragon64', { controller: 'dragonfdc', regenerate: false });
+    const img = require('../tools/mame-diff/fdc/images').dmk(10, 2);
+    img[4] = 0x40;                                   // bit 6: single density (FM)
+    const write = (d, cyl) => {
+      d.cyl = cyl; d.ss = 0;
+      const start = d.revStart, span = d.revTime;
+      d.writeFlux(start, start + span, [start + span / 4n, start + span / 2n, start + (span * 3n) / 4n]);
+      d.imageDirty = true;
+      d.flush();
+    };
+    const run = (eager) => {
+      const fm = fdcSpec.machine();
+      for (let f = 0; f < 40; f++) fm.runFrame();
+      const d = fdcSpec.fdcOf(fm).drives[0];
+      d.mount({ bytes: img.slice(), format: 'dmk', name: 'sd.dmk', writeProtected: false });
+      const keptAtMount = eager ? !!d.mountBytes : null;
+      write(d, 2);
+      const text = Emu.state.toJSON(fm.snapshot());
+      const r = Emu.restoreSnapshot(Emu.state.fromJSON(text), fm.roms);
+      const rd = fdcSpec.fdcOf(r).drives[0];
+      const flux = JSON.stringify(rd.image.data);
+      write(rd, 4);
+      return { keptAtMount, text, flux, exported: rd.media.bytes.slice(), live: JSON.stringify(d.image.data) };
+    };
+    const eager = run(true), lazy = run(false);
+    check('a single-density DMK is one the drive keeps its mounted bytes for', eager.keptAtMount === true);
+    check('lazy: the first snapshot after a write and commit equals the eager one', lazy.text === eager.text,
+      `${lazy.text.length} vs ${eager.text.length} chars`);
+    check('lazy: the restored drive has the flux the live drive had, cell for cell', lazy.flux === lazy.live && lazy.flux === eager.flux);
+    check('lazy: the disk exported after a write on the restored drive equals the eager one',
+      lazy.exported.length === eager.exported.length && lazy.exported.every((v, i) => v === eager.exported[i]));
+  }
+
   console.log(fail ? `${fail} FAILED` : 'all passed');
   process.exitCode = fail ? 1 : 0;
 })().catch((e) => { console.log('FAIL', e.stack); process.exitCode = 1; });

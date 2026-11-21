@@ -8,6 +8,14 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.1.7-pre (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
+### Changed
+
+- Mounting a disk is faster. The drive used to decode a disk image three times and encode it once more at every
+  mount, to learn whether a snapshot would need to carry the image as mounted (only a single-density DMK does).
+  It now works that out the first time a snapshot needs the answer, from a copy of the image as mounted, so a
+  mount decodes the image once. What is saved, exported and snapshotted is byte for byte the same, and a bad
+  image is still refused at mount with the same message.
+
 ### 0.1.7-pre
 
 #### Added
