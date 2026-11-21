@@ -1430,15 +1430,38 @@ export class Session {
   // the machine picker is asked once, then remembered
   chooseMachine(id) { this.store.set('machineChosen', '1'); return this.switchMachine(id); }
   get hasAnyRoms() { return this.roms.sockets().some((s) => profiles[s.owner]); }
-  // the last few programs, tapes and cartridges loaded (bytes kept for items up to 1 MB)
-  recentMedia() { return this.index.recentMedia(); }
+  // The last few programs, tapes and cartridges loaded (bytes kept for items up to 1 MB).
+  // `copy` labels the rows that need telling apart, for two entries of ONE name (by this.sameName) with
+  // different bytes: the newest is copy === false, the rest are later copies and get an ordinal — the SECOND
+  // ('2nd'), the THIRD ('3rd'), or 'older copy' past that. A name with a single entry is never labelled, and
+  // `copy` is null for it: there is nothing to tell it from.
+  recentMedia() {
+    const list = this.index.recentMedia();
+    const seen = new Map();   // case-folded name -> how many entries of it have been passed
+    const total = new Map();
+    for (const r of list) { const k = String(r.name).toLowerCase(); total.set(k, (total.get(k) || 0) + 1); }
+    return list.map((r) => {
+      const k = String(r.name).toLowerCase();
+      const n = (seen.get(k) || 0); seen.set(k, n + 1);
+      if (total.get(k) < 2) return Object.assign(r, { copy: null });
+      return Object.assign(r, { copy: n === 0 ? false : n === 1 ? '2nd' : n === 2 ? '3rd' : 'older copy' });
+    });
+  }
   // A full store is not an error here: the program is loaded already, and the entry says its bytes were not kept.
   // While the library moves, the index's two writes wait for it (afterMove): made against the old place now they
   // would be the ones the move leaves behind, and they go to the index's store, which is the new place by then.
   // The list is this visit's at once (the program ran), so the Media tab and "Last time" see it.
   rememberMedia(name, bytes) {
     const crc = crc32(bytes);
-    const list = this.recentMedia().filter((r) => r.crc !== crc);
+    // Identity is the NAME (by this.sameName, the store's own case rule) plus the CONTENT HASH: this load
+    // replaces the entry with the same name and the same bytes. Two things follow, and both are deliberate:
+    //  - the SAME NAME with DIFFERENT bytes stays as its own entry. Each entry has its own blob (a blob is
+    //    named by its CRC) and loadRecent gives each row its own bytes (measured), so the older row is not a
+    //    lie about the newer one; the list labels it (see recentMedia).
+    //  - a RE-NAMED copy of the same bytes keeps its own entry too: a hash-only key would swallow it.
+    // A stored CRC may be in either case (an older build wrote it lower case); the index normalises the
+    // entries it reads, and compared here case-insensitively they are the same blob.
+    const list = this.index.recentMedia().filter((r) => !(this.sameName(r.name, name) && String(r.crc).toUpperCase() === crc));
     const dropped = list.splice(RECENT_LENGTH - 1);
     list.unshift({ name, crc, size: bytes.length, machine: this.machine.id, stored: bytes.length <= 1 << 20 });
     const entry = list[0];

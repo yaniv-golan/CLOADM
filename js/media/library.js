@@ -144,7 +144,7 @@ export class MediaIndex {
     this.changed = { sockets: new Set(), names: new Set(), recent: false };
     this.sockets = parse((await readOrNull(this.store, ROM_SOCKETS)) || new Uint8Array(0), {});
     this.names = parse((await readOrNull(this.store, ROM_NAMES)) || new Uint8Array(0), {});
-    this.recent = parse((await readOrNull(this.store, RECENT_LIST)) || new Uint8Array(0), []);
+    this.recent = this._readRecent(parse((await readOrNull(this.store, RECENT_LIST)) || new Uint8Array(0), []));
     this.images.clear();
     this.recentBytes.clear();
     for (const f of await this.store.list('roms/')) {
@@ -166,7 +166,7 @@ export class MediaIndex {
     const read = (n) => { try { return s.readSync(n); } catch (e) { if (e && e.code === 'not-found') return null; throw e; } };
     this.sockets = parse(read(ROM_SOCKETS) || new Uint8Array(0), {});
     this.names = parse(read(ROM_NAMES) || new Uint8Array(0), {});
-    this.recent = parse(read(RECENT_LIST) || new Uint8Array(0), []);
+    this.recent = this._readRecent(parse(read(RECENT_LIST) || new Uint8Array(0), []));
     this.images.clear();
     this.recentBytes.clear();
     for (const f of s.listSync('roms/')) {
@@ -182,11 +182,18 @@ export class MediaIndex {
   }
 
   // ---- reads (synchronous, from memory) ----
+  // The recent list's CRCs are NORMALISED (upper case) as it is read: the blobs are already keyed that way
+  // (`recent/<CRC>.bin`, upper-cased above), and an older build could store a lower-case CRC in the list
+  // itself. Without this a list holding one would show the same file twice — the entry it stored, and the
+  // entry a later load makes under the upper-case CRC — and its own row would fail to find its bytes.
+  _readRecent(list) {
+    return (Array.isArray(list) ? list : []).map((r) => (r && typeof r.crc === 'string' ? Object.assign({}, r, { crc: r.crc.toUpperCase() }) : r));
+  }
   socketCrc(machine, socket) { return (this.sockets[machine] || {})[socket] || null; }
   image(crc) { return this.images.get(crc) || null; }
   fileName(crc) { return crc ? this.names[crc] || null : null; }
   recentMedia() { return this.recent.map((r) => Object.assign({}, r)); }
-  recentData(crc) { return this.recentBytes.get(crc) || null; }
+  recentData(crc) { return this.recentBytes.get(String(crc).toUpperCase()) || null; }
 
   // ---- writes: memory at once, queued to the store ----
   // A synchronous store writes now (so a quota error reaches the caller); an asynchronous one is queued.

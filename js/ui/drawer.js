@@ -46,7 +46,9 @@ export function setupDrawer(page, { showRoms }) {
       const b = document.createElement('button'); b.className = 'row';
       const n = document.createElement('span'); n.textContent = r.name;
       const k = document.createElement('span'); k.className = 'kind'; k.textContent = r.stored ? 'load again' : `${(r.size / 1024).toFixed(0)} KB`;
-      b.append(n, k);
+      // two rows of one name with different bytes: say which is which, or the list shows the same line twice
+      if (r.copy) { const c = document.createElement('span'); c.className = 'copy'; c.textContent = r.copy; b.append(n, c, k); }
+      else b.append(n, k);
       b.disabled = !r.stored;
       b.onclick = () => { page.attempt(() => session.loadRecent(i)); page.focus(); };
       list.append(b);

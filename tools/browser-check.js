@@ -2367,6 +2367,40 @@ async function mediaChecks(browser, base, check) {
   });
   check('paste: pasted text types itself in', await waitFor(page, () => window.emu.session.screenText().join('\n').includes('> I FEEL HAPPY')),
     (await page.evaluate(() => window.emu.session.screenText().slice(5, 9).join('|'))));
+  // ---- the Media tab's "Recent on this machine": a row loads what it says, and two files of one name are told
+  // apart (js/ui/drawer.js). The row's index comes from the SAME list it was drawn from: recentMedia() hands out
+  // copies, so the old indexOf() on a second call was always -1 and every row said the file was no longer stored.
+  {
+    // two VALID programs of one name with different bytes: change the FIRST PAYLOAD byte (offset 8; bytes 0-7 are
+    // the DECB length and addresses, where a change makes the file unloadable rather than different), so the byte
+    // that lands at the load address tells the two apart in RAM.
+    const A = Buffer.from(fs.readFileSync(path.join(ROOT, 'examples/2048.bin')));
+    const B = Buffer.from(A); B[8] = A[8] ^ 0xFF;
+    const firstA = A[8], firstB = B[8];
+    await page.setInputFiles('#fileProgram', { name: 'recent-one.bin', mimeType: 'application/octet-stream', buffer: A });
+    await waitFor(page, () => [...document.querySelectorAll('#recentList .row')].some((b) => b.textContent.includes('recent-one.bin')));
+    const rowsBefore = await page.$$eval('#recentList .row', (x) => x.map((e) => e.textContent));
+    await page.click('#recentList .row');
+    // the click loads it, on the machine it was loaded on: no "no longer stored" toast
+    check('recent: clicking a Recent row loads it (no "no longer stored")',
+      await waitFor(page, () => !document.getElementById('toast') || document.getElementById('toast').hidden
+        || !/no longer stored/.test(document.getElementById('toast').textContent)), await page.textContent('#toast'));
+    check('recent: the clicked row loaded the program it named',
+      await waitFor(page, () => window.emu.machine.ram[0x3000] === firstA), `$${await page.evaluate(() => window.emu.machine.ram[0x3000]).then((v) => v.toString(16))} want $${firstA.toString(16)}`);
+    await page.setInputFiles('#fileProgram', { name: 'recent-one.bin', mimeType: 'application/octet-stream', buffer: B });
+    await waitFor(page, () => [...document.querySelectorAll('#recentList .row')].filter((b) => b.textContent.includes('recent-one.bin')).length === 2);
+    const rows = await page.$$eval('#recentList .row', (x) => x.map((e) => e.textContent));
+    check('recent: two files of one name with different bytes are two rows, the older told apart',
+      rows.filter((t) => t.includes('recent-one.bin')).length === 2 && /2nd/.test(rows.join('|')), rows.join(' | '));
+    if (shotDir) await page.locator('#panel-media').screenshot({ path: path.join(shotDir, 'recent-two-copies.png') });
+    // the older (2nd) row loads the OLDER bytes: it is a real entry, not a duplicate of the newer one
+    const second = await page.$$eval('#recentList .row', (x) => x.findIndex((e) => /2nd/.test(e.textContent)));
+    await page.$$eval('#recentList .row', (x, i) => x[i].click(), second);
+    check('recent: the older copy loads its OWN program',
+      await waitFor(page, () => window.emu.machine.ram[0x3000] === firstA),
+      `$${await page.evaluate(() => window.emu.machine.ram[0x3000]).then((v) => v.toString(16))} want $${firstA.toString(16)} (the newer copy is $${firstB.toString(16)})`);
+    check('recent: rows before the second load were one', rowsBefore.length === 1, rowsBefore.join(' | '));
+  }
   check('media: no page errors', !errors.length, errors.join('; '));
   await ctx.close();
 }

@@ -10,6 +10,13 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Changed
 
+- **The Media tab's "Recent on this machine" no longer lists one file twice.** The list's identity was the
+  content hash alone, compared exactly, so two reachable cases showed the same name twice: an entry an older build
+  stored with a lower-case CRC was not matched by the upper-case one a later load makes, and a file of the same name
+  with different bytes (a rebuilt program) was a second row that read exactly like the first. Identity is now the
+  NAME (by the store's own case rule) plus the content hash, and stored CRCs are normalised as the list is read, so
+  an existing list heals. Two files of one name with different bytes are still both shown - each keeps and loads
+  its own bytes - and the older one is labelled (2nd, 3rd, "older copy") so the rows can be told apart.
 - The README opens with "Try it" and has a short "Use it from code or an agent" section; the Games and Tools
   cells of the feature tables are one line each; the MAME instruction counts are refreshed (Dragon 64 1,028,112,
   CoCo 32K / CP 400 1,043,371, CoCo 3 88,797).
