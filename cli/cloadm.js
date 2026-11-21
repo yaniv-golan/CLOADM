@@ -174,7 +174,7 @@ const STEPS = {
   cart: { arg: 'FILE', help: 'plug in a cartridge ROM image (an error if the file is not one)', example: '--cart pak.rom', parse: (t) => t },
   tape: { arg: 'FILE', help: 'put a .cas or .wav in the cassette deck without loading it (then type CLOAD)', example: '--tape game.cas', parse: (t) => t },
   disk: {
-    arg: '[N=]FILE', help: 'mount a disk image (VDK, JVC/DSK, DMK) in drive N (default 0); needs your disk cartridge ROM', example: '--disk 1=data.dsk',
+    arg: '[N=]FILE', help: 'mount a disk image (VDK, JVC/DSK, DMK) in drive N (default 0); needs your disk ROM', example: '--disk 1=data.dsk',
     parse: (t) => { const m = /^([0-3])=(.+)$/.exec(t); return m ? { drive: +m[1], file: m[2] } : { drive: 0, file: t }; },
   },
   type: {

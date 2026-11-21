@@ -171,9 +171,9 @@ A combined image also works: one 16K file holding Extended Color BASIC followed 
 |---|---|---|---|---|---|
 | BASIC | Required | 8K | `alice.rom` | – | `F876ABE9` |
 
-## Disk-controller cartridges
+## Disk cartridges
 
-Disk BASIC lives in the disk-controller cartridge, not in the computer. CLOADM recognises these ROMs and
+Disk BASIC lives in the disk cartridge, not in the computer. CLOADM recognises these ROMs and
 plugs them into the disk cartridge when a disk is mounted (the CP-400 one is kept until that model exists);
 they never make a machine bootable.
 

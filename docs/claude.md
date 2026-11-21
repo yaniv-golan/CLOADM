@@ -30,15 +30,17 @@ same length, so the two images have the same layout and differ only in the name.
 
 `examples/welcome.asm` is the first program a visitor sees: the eight VDG colours build up as a stripe, then
 CLOADM in block letters and a menu. The keys 1 to 4 reach the page through a mailbox byte the Session reads after
-every frame (`Session.startWelcome`, events `welcome:liza`, `welcome:demo`, `welcome:roms`, `welcome:claude`),
-and a short original tune plays on the DAC once the browser allows sound. It runs on the 6809-family machines
+every frame (`Session.startWelcome`, events `welcome:liza`, `welcome:demo`, `welcome:roms`, `welcome:claude`);
+key 5, "PLAY A GAME", opens the games menu, where 1 and 2 start 2048 and Minesweeper (events `welcome:2048`,
+`welcome:minesweeper`) and 0 or BREAK go back. A short original tune plays on the DAC once the browser allows sound. It runs on the 6809-family machines
 (the HD6309 included, which runs the 6809 build in emulation mode, and the CoCo 3 in its CoCo 2-compatible text
-mode); the MC-10 and Alice get a 6803 version with LIZA's.
+mode); the MC-10 and Alice get a 6803 version with LIZA's, which has keys 1 to 4 and no games.
 Without ROMs every visit opens on it: a returning visitor reads
-"WELCOME BACK" and, if something ran last time, option 5 "CARRY ON WITH ..." (`welcome:carryon`; the Session
-sets the greeting and the line before the program starts). Option 5 offers only what runs on the machine in use
-(`Session.carryOn`): a file on the machine it was loaded on, the colour demo on a 6809-family CPU (the 6309 runs it
-too), LIZA everywhere. Leaving a program brings the menu back, "BYE FOR NOW.
+"WELCOME BACK" and, if something ran last time, option 6 "CARRY ON WITH ..." (option 5 on the 6803 build;
+`welcome:carryon`; the Session sets the greeting and the line before the program starts). It offers only what runs
+on the machine in use
+(`Session.carryOn`): a file on the machine it was loaded on, the colour demo and the games on a 6809-family CPU (the
+6309 runs them too), LIZA everywhere. Leaving a program brings the menu back, "BYE FOR NOW.
 PICK ANOTHER?": BYE in LIZA, or a key once the colour demo is drawing (the Session watches and emits `menu`).
 With ROMs the machine boots them as before; the Media tab's "Last time" runs the last item again, and the
 welcome menu is the first entry of "Runs without ROMs".
@@ -46,7 +48,7 @@ Without ROMs the machine behaves like a real computer and never leaves you on th
 cycle**, **Run without ROMs** and **Remove ROMs** turn it on into the welcome menu (`menu` with `'back'`), and
 **Reset** restarts what is running from its own entry point (the menu, LIZA, a binary with an exec address), or
 brings the menu when nothing is. Switching to a machine without its ROMs turns it on into its menu (the MC-10 and
-Alice run their own 6803 build, with the same greetings and option 5), and a snapshot taken on the stub's bare
+Alice run their own 6803 build, with the same greetings and its option 5), and a snapshot taken on the stub's bare
 prompt opens on the menu. On the menu, or any program on the stub, the POKE book does its POKE directly instead of
 typing it (its digits would be the program's keys). Embedded (`?embed=1`) the page has no menu of its own: the
 embedding page drives a plain machine, and without ROMs that is the stub's own screen.

@@ -10,7 +10,7 @@ in lockstep. No copyrighted ROM is used for testing.
 * `node tools/mame-diff/run.js dragon64 --video` compares the screen pixel by pixel: on the Dragon 64, all 20
   display modes are identical.
 * `node tools/mame-diff/run.js dragon64 --fdc` runs the floppy controller cartridges against MAME the same way,
-  with our firmware as the DOS ROM and four drives; `--images` also compares the disk images both write.
+  with our firmware as the disk ROM and four drives; `--images` also compares the disk images both write.
 * `node tools/mame-diff/run.js coco --cart gmc --audio` runs a cartridge with our firmware as its ROM, then compares
   the sound MAME records with ours, sample by sample.
 * `node tests/regress.test.js` replays the verified traces and frames in seconds, without MAME, after every change.
@@ -763,7 +763,7 @@ names it.
   floppy disk controller cartridges (`fdc/`: `-ext dragon_fdc` with a WD2797 and `-ext premier_fdc` with a WD2791 on
   the Dragon 64, `-ext fdc` with a WD1773 on the CoCo and the CoCo 3, and `multifdc`: the same CoCo controller in slot 4 of a
   Multi-Pak, `-ext multi`, which the front-panel switch selects at reset, so the same firmware runs while every NMI
-  and HALT reaches the CPU through the Multi-Pak) with our firmware as the DOS ROM
+  and HALT reaches the CPU through the Multi-Pak) with our firmware as the disk ROM
   (`fdc/gen-diag.js`) and four drives: a double-sided disk, a write-protected one (MAME opens an image inside a ZIP
   read-only), a drive without a disk and a DMK disk, all built by `fdc/images.js`. The firmware covers register commit
   delays, the index pulse, restore/seek/step at every rate with update and verify, step-out below track 0, verify

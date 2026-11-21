@@ -1,6 +1,6 @@
 <h1 align="center">CLOADM</h1>
 
-<p align="center"><b>Dragon · Tandy Color Computer · MC-10 in your browser, checked cycle by cycle against MAME.</b></p>
+<p align="center"><b>Dragon · Tandy Color Computer · MC-10 in your browser, checked cycle by cycle against MAME where MAME has the hardware.</b></p>
 
 <p align="center">
   <img src="img/readme-liza.png" width="640" alt="LIZA running on an emulated Dragon 64 with no ROMs: I AM LIZA. WHAT IS ON YOUR MIND? > I MISS MY DRAGON. DO COMPUTERS WORRY YOU? > BECAUSE IT WAS MAGIC. IS THAT THE REAL REASON?">
@@ -17,9 +17,10 @@
 
 CLOADM (named after the BASIC command that loads machine code from tape) emulates the Dragon 32/64/200, the Tandy
 Color Computer 1/2/3, the MC-10 and their clones in a web page. It is plain JavaScript with no build step and no
-dependencies, and every chip is checked instruction by instruction and pixel by pixel against MAME.
+dependencies, and it is checked instruction by instruction and pixel by pixel against MAME wherever MAME has the
+hardware; the exceptions are listed under [How we know it's right](#how-we-know-its-right).
 
-**1,028,156** instructions identical to MAME on the Dragon 64 · **20/20** display modes pixel-identical ·
+**1,028,156** instructions identical to MAME on the Dragon 64 · **20/20** Dragon 64 display modes pixel-identical ·
 **17** models · **0** dependencies · **MIT**
 
 > [!IMPORTANT]
@@ -73,7 +74,7 @@ Per-machine notes, RAM options and the chip-by-chip list: [docs/machines.md](doc
 |---|---|---|
 | **Cassette** | `.CAS` played as a real signal through the cassette port, WAV recordings in, fast loading, the tape counter; `CSAVE`/`CSAVEM` saved as `.CAS` or `.WAV` | The tape's sound at real speed |
 | **Floppy** | DragonDOS (WD2797), Premier / Delta (WD2791) and RS-DOS (WD1773) cartridges; VDK, JVC (`.dsk`) and DMK images read and written, headerless NitrOS-9 / OS-9 `.dsk` images included; new blank disks; 4 drives, write-protect; booting NitrOS-9 Level 2 on the CoCo 3 from your own floppy image, no ROM needed ([how](docs/using.md#booting-nitros-9)) | Booting NitrOS-9 from 80-track floppies |
-| **Cartridges** | ROM cartridges, banked ROM cartridges up to 128K, Games Master, Orchestra-90, Multi-Pak (with a disk controller in slot 4); the Speech/Sound Pak on the CoCo 1/2, CoCo 2B, CoCo 3 and the Dragon 64, music only (its sound is not yet verified against MAME) | Speech/Sound Pak speech |
+| **Cartridges** | ROM cartridges, banked ROM cartridges up to 128K, Games Master, Orchestra-90, Multi-Pak (with a disk cartridge in slot 4); the Speech/Sound Pak on the CoCo 1/2, CoCo 2B, CoCo 3 and the Dragon 64, music only (its sound is not yet verified against MAME) | Speech/Sound Pak speech |
 | **Printer, serial, DriveWire** | Printer; bit-banger and the Dragon 64's 6551 with a terminal or loopback plug; a DriveWire 4 server in the browser over the CoCo's Becker port; booting NitrOS-9 Level 2 on the CoCo 3 from your own DriveWire image, no ROM needed ([how](docs/using.md#booting-nitros-9)); serving a real CoCo over Web Serial (untested on hardware) | |
 | **Input** | Translated and positional keyboard, keyboard joystick, gamepads, Hi-Res interfaces, the CoCo 3 mouse; an on-screen keyboard and joystick on phones and tablets | |
 | **Games** | 2048 and Minesweeper, our own, in the 128x192 four-colour graphics mode with sound, no ROMs needed (32K or more): the welcome menu's **5 Play a game** (NEW GAMES FOR AN OLD MACHINE) on the Dragons and CoCos, or a direct link, [`?start=2048`](https://cloadm.dev/play/?start=2048) / [`?start=minesweeper`](https://cloadm.dev/play/?start=minesweeper) | |
@@ -125,7 +126,7 @@ What each machine needs:
 | Matra Alice | BASIC (8K) | – | 8K |
 <!-- rom-table:end -->
 
-Disk BASIC (RS-DOS, DragonDOS) lives in the disk-controller cartridge, not the computer; CLOADM recognises those
+Disk BASIC (RS-DOS, DragonDOS) lives in the disk cartridge, not the computer; CLOADM recognises those
 ROMs and uses them in the disk cartridges. Every socket, alias and the CRC32 of every known-good dump are in
 [docs/roms.md](docs/roms.md).
 
@@ -136,6 +137,11 @@ instruction's registers and cycle count must match, every display mode must matc
 written by both must be byte-identical, and cartridge sound is compared with MAME's recording. A regression gate
 (`node tests/regress.test.js`) replays the verified traces and frames in seconds after every change. Where MAME and
 the hardware disagree, the hardware wins and the difference is documented.
+
+This holds where MAME has the hardware. The exceptions: the CoCo 3's video is 34/49 identical (the rest differ only
+in text glyph shapes); the PAL CoCo 3 cannot be verified, because MAME does not run a PAL field for it; the
+Speech/Sound Pak's sound is not yet compared with MAME; and the clones (Dynacom MX-1600, LZ Color64, Codimex
+CD-6809) and the Matra Alice are compared by instruction trace only, not by video.
 
 MAME 0.264 is the reference. A few areas are compared on MAME 0.289; [docs/verification.md](docs/verification.md)
 lists them, with the results for every machine and device.
@@ -201,7 +207,8 @@ EXEC
 Bug reports and pull requests are welcome: [open an issue](https://github.com/yaniv-golan/cloadm/issues). To run it
 locally, serve the repository with any static server (`python3 -m http.server`) and open `/play/`; `node
 tests/all.js` runs every test. There is no `package.json`, on purpose: nothing to install, so run `node tests/all.js`
-rather than `npm test`. Changes follow [AGENTS.md](AGENTS.md): nothing counts as done until it matches MAME.
+rather than `npm test`. Changes follow [AGENTS.md](AGENTS.md): nothing counts as done until it passes the proof it asks for, which includes
+matching MAME wherever the change touches hardware behaviour.
 [CONTRIBUTING.md](CONTRIBUTING.md) also says how to put your own program on the shelf of programs that run without
 ROMs. The internals: [docs/architecture.md](docs/architecture.md) and [docs/development.md](docs/development.md).
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Generates docs/roms.md from the profiles (js/machines/profiles.js): every machine's ROM sockets,
 // whether each is required, its size, usual file names and aliases, the CRC32 of each known-good dump,
-// and the combined-file option; then the disk-controller cartridge ROMs.
+// and the combined-file option; then the disk cartridges' ROMs.
 //
 //   node tools/gen-rom-docs.js           write docs/roms.md
 //   node tools/gen-rom-docs.js --check   exit 1 if docs/roms.md is out of date (tests/romdocs.test.js)
@@ -90,8 +90,8 @@ function generate() {
     const c = combined(p);
     if (c) out.push(`A combined image also works: ${c}.`, '');
   }
-  out.push('## Disk-controller cartridges', '');
-  out.push('Disk BASIC lives in the disk-controller cartridge, not in the computer. CLOADM recognises these ROMs and',
+  out.push('## Disk cartridges', '');
+  out.push('Disk BASIC lives in the disk cartridge, not in the computer. CLOADM recognises these ROMs and',
     'plugs them into the disk cartridge when a disk is mounted (the CP-400 one is kept until that model exists);',
     'they never make a machine bootable.', '');
   for (const c of Object.values(Emu.cartridgeRoms)) {

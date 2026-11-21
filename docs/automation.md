@@ -54,7 +54,7 @@ Then, in any order:
 | `--asm FILE` | assemble a source file with the bundled assembler, for the machine's CPU, and run it (`INCLUDE`s are read from its folder) |
 | `--cart FILE` | plug in a cartridge ROM image |
 | `--tape FILE` | put a `.cas` or `.wav` in the deck without loading it (then type `CLOAD`) |
-| `--disk [N=]FILE` | mount a VDK, JVC/DSK or DMK image in drive N (default 0); needs your disk cartridge ROM |
+| `--disk [N=]FILE` | mount a VDK, JVC/DSK or DMK image in drive N (default 0); needs your disk ROM |
 | `--load-snapshot FILE` | open a snapshot, switching to its machine |
 | `--type TEXT` | type at the keyboard, then run until the machine has taken the keys. `\n` or `{ENTER}` is ENTER; also `{BREAK}`, `{CLEAR}`, `{UP}`, `{DOWN}`, `{LEFT}`, `{RIGHT}`, `{SPACE}`; `\\` is a backslash |
 | `--hold KEYS[:N]` | hold keys down in the keyboard matrix for N frames (default 1), then let go, for programs that read the matrix themselves (games): `RIGHT:10`, `LEFT+SPACE:3`, `{UP}`, `Z:5`. Names are the matrix's: letters, digits, `UP` `DOWN` `LEFT` `RIGHT` `SPACE` `ENTER` `CLEAR` `BREAK` `SHIFT` (and the CoCo 3's `ALT` `CTRL` `F1` `F2`) |

@@ -66,7 +66,7 @@ and its tests never use them.
   couldn't be used (the wrong size for its name, say) opens it to say why.
 
 The early CoCo ROMs (`bas10`, `bas11`, `extbas10`) have known bugs, so prefer later revisions. Disk BASIC
-(RS-DOS, DragonDOS) lives in the disk-controller cartridge, not the computer; CLOADM recognises those ROMs and keeps
+(RS-DOS, DragonDOS) lives in the disk cartridge, not the computer; CLOADM recognises those ROMs and keeps
 them for the disk cartridges. The Alice 32 and Alice 90 are different machines from the Matra
 Alice. Every socket, alias and the CRC32 of every known-good dump are in [roms.md](roms.md).
 

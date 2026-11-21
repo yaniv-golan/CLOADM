@@ -43,17 +43,17 @@ The server's start-up line on stderr says where each setting came from.
 
 Every host below runs the same server from a copy of this repository; only the way it gets there differs. All of
 them need Node 22.12 or later on the computer that runs the server. No ROMs come with CLOADM: without yours, every
-machine runs the built-in firmware (machine code and the bundled programs LIZA, the demo and the welcome screen run;
-BASIC does not). The agent skill that teaches an agent to use these tools lives in `skills/cloadm/` (and a copy in
+machine runs the built-in firmware (machine code and the bundled programs LIZA, the demo, the welcome screen, 2048 and
+Minesweeper run; BASIC does not). The agent skill that teaches an agent to use these tools lives in `skills/cloadm/` (and a copy in
 `.agents/skills/cloadm/`).
 
 | Host | How |
 |---|---|
 | Claude Code | the plugin from this repository's marketplace |
-| Cowork (Claude desktop app) | the same marketplace, added in the desktop app (not yet: see [Cowork](#cowork)) |
+| Cowork (Claude desktop app) | supported via the desktop app's plugin marketplace; tested in the cowork-harness container, not yet in real Cowork (see [Cowork](#cowork)) |
 | Claude Desktop (chat) | the `.mcpb` extension from the GitHub Releases page |
-| Codex app, Cursor | this repository's marketplace may install as it is (untested: see below) |
-| Cursor, Gemini CLI, Codex, other MCP clients | an MCP server entry pointing at a checkout, plus the skill folder |
+| Cursor | an MCP server entry pointing at a checkout, plus the skill folder (supported); this repository's marketplace may also install as it is (untested: see below) |
+| Codex (CLI and app), Gemini CLI, other MCP clients | an MCP server entry pointing at a checkout, plus the skill folder; in the Codex app the marketplace is untested (see below) |
 | claude.ai on the web | not supported yet: it cannot start a local server |
 
 ### Claude Code
@@ -80,7 +80,8 @@ Cowork reads plugins from your Claude account, not from Claude Code: a plugin in
 `claude plugin install` stays on that computer and does not reach Cowork. In the Claude desktop app open
 **Customize → Plugins**, choose **Add marketplace**, enter `yaniv-golan/CLOADM`, then install **cloadm** from it.
 The server is a local one (the app starts `node` on your computer), so it runs only in Cowork sessions that run on
-your computer, and that computer needs Node 22.12 or later on its `PATH`.
+your computer, and that computer needs Node 22.12 or later on its `PATH`. This route has been tested in the
+cowork-harness container, not yet in real Cowork.
 
 The plugin's root is the repository, so it must not have a top-level `bin/` directory: Cowork and claude.ai refuse
 a plugin that has one ([plugins reference](https://code.claude.com/docs/en/plugins-reference), "Standard layout";

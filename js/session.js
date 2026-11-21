@@ -3231,9 +3231,10 @@ export class Session {
   // Run the welcome program on the built-in stub of the machine in use (also when it has ROMs: "Use the
   // ROMs again" brings BASIC back). `bytes` is that machine's build: the 6809 build for the 6809 models,
   // the 6803 build for the MC-10 and Alice (see welcomeFile). Keys 1-4 then emit 'welcome:liza',
-  // 'welcome:demo', 'welcome:roms' and 'welcome:claude' after the frame they were pressed in.
-  // greeting: 'first', 'back' (a returning visitor) or 'bye' (back from a program); carryOn: a name for option 5,
-  // "CARRY ON WITH <name>" (key 5 then emits 'welcome:carryon'), or null
+  // 'welcome:demo', 'welcome:roms' and 'welcome:claude' after the frame they were pressed in; on the 6809 build key 5
+  // opens the games menu, whose 1 and 2 emit 'welcome:2048' and 'welcome:minesweeper'.
+  // greeting: 'first', 'back' (a returning visitor) or 'bye' (back from a program); carryOn: a name for the carry-on
+  // option, "CARRY ON WITH <name>" (option 6 on the 6809 build, 5 on the 6803 build; its key emits 'welcome:carryon'), or null
   startWelcome(bytes, { greeting = 'first', carryOn = null } = {}) {
     const m = this.machine, w = WELCOME[cpuFamily(m.config.cpu)];
     if (!w) throw new SessionError(`There is no Welcome menu for the ${m.profile.name}'s ${m.config.cpu}.`);
