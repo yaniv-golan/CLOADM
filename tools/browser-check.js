@@ -4430,6 +4430,12 @@ async function tapeHudChecks(browser, base, check) {
       const box = document.getElementById('chkFastTape'); box.checked = false; box.dispatchEvent(new Event('change'));
     });
     const hiddenFirst = await page.isHidden('#tapeHud');
+    // every write to the live region, from before the tape goes in to its end: exactly two (playing, end)
+    await page.evaluate(() => {
+      window.__said = [];
+      new MutationObserver(() => window.__said.push(document.getElementById('hudSay').textContent))
+        .observe(document.getElementById('hudSay'), { childList: true, characterData: true, subtree: true });
+    });
     await dropFiles(page, [['Space Game.cas', bytes]]);
     const playing = await waitFor(page, () => window.emu.machine.deck.playing && !document.getElementById('tapeHud').hidden
       && document.getElementById('tapeHud').dataset.state === 'playing', null, 20000);
@@ -4479,6 +4485,31 @@ async function tapeHudChecks(browser, base, check) {
       await page.$eval('#chkSound', (c) => c.click());
       await page.evaluate(() => clearInterval(window.__motor));
     }
+    if (label === 'desktop') {
+      // The screen shrinks with no window resize (the monitor narrowed in place, as a layout change does). The canvas is
+      // refitted on the next frame; this page's own ResizeObserver on the canvas, registered after the HUD's, reads the
+      // HUD in that same frame, before any 250 ms update could move it: it must already lie off the new text and in the
+      // tube. (Without the HUD's observer it is still where the larger screen had it.)
+      const refit = await page.evaluate(() => new Promise((done) => {
+        const cv = document.getElementById('screen'), w0 = cv.getBoundingClientRect().width, h = document.getElementById('tapeHud');
+        const ro = new ResizeObserver(() => {
+          const c = cv.getBoundingClientRect();
+          if (Math.abs(c.width - w0) < 50) return;
+          ro.disconnect();
+          const f = (cv.dataset.active || '0,0,1,1').split(',').map(Number), r = h.getBoundingClientRect(), t = cv.closest('.tube').getBoundingClientRect();
+          const text = { left: c.left + f[0] * c.width, top: c.top + f[1] * c.height, right: c.left + f[2] * c.width, bottom: c.top + f[3] * c.height };
+          const meets = !(r.bottom <= text.top || r.top >= text.bottom || r.right <= text.left || r.left >= text.right);
+          const inTube = r.top >= t.top && r.bottom <= t.bottom && r.left >= t.left && r.right <= t.right;
+          done({ meets, inTube, shown: !h.hidden && !h.classList.contains('noroom'), w0, w: c.width, r: [r.left, r.top, r.right, r.bottom], text });
+        });
+        ro.observe(cv);
+        document.getElementById('monitor').style.maxWidth = '520px';
+      }));
+      check('tape HUD (desktop): the screen shrinking in place: in the very frame the canvas is refitted the HUD is already off the new text and in the tube',
+        refit.shown && !refit.meets && refit.inTube, JSON.stringify(refit));
+      await page.evaluate(() => { document.getElementById('monitor').style.maxWidth = ''; });
+      await emuFrames(page, 5);
+    }
     if (label !== 'phone sideways') {
       await page.click('#btnHudDeck');
       const inView = await waitFor(page, () => { const r = document.getElementById('tapePanel').getBoundingClientRect(); return r.top >= 0 && r.top < innerHeight - 100; }, null, 10000);
@@ -4489,8 +4520,11 @@ async function tapeHudChecks(browser, base, check) {
     const ended = await waitFor(page, () => document.getElementById('tapeHud').dataset.state === 'end' && document.getElementById('hudState').textContent === 'End of tape', null, 10000);
     const end = await page.evaluate(() => ({ motor: window.emu.machine.deck.motor, stamp: !document.getElementById('tapeEnd').hidden, moving: document.getElementById('tapePanel').hasAttribute('data-moving'),
       anims: document.getAnimations().filter((a) => a.playState === 'running').length, eyebrow: document.getElementById('tapeEyebrow').textContent }));
-    check(`tape HUD (${label}): one polite announcement each when the tape plays and when it ends`, await page.evaluate(() => {
-      const s = document.getElementById('hudSay'); return s.getAttribute('aria-live') === 'polite' && s.textContent === 'End of tape Space Game.cas'; }) && sayPlay === 'Tape Space Game.cas playing', sayPlay);
+    await emuFrames(page, 30);   // more updates after the end: none may announce again
+    const said = await page.evaluate(() => window.__said);
+    check(`tape HUD (${label}): exactly two polite announcements from the tape going in to its end: playing, then the end`,
+      await page.getAttribute('#hudSay', 'aria-live') === 'polite' && sayPlay === 'Tape Space Game.cas playing'
+      && JSON.stringify(said) === JSON.stringify(['Tape Space Game.cas playing', 'End of tape Space Game.cas']), JSON.stringify(said));
     check(`tape HUD (${label}): at the end of the tape (motor still on): "End of tape", the stamp on the cassette, nothing animating`,
       ended && end.motor && end.stamp && !end.moving && end.anims === 0 && /^END OF TAPE/.test(end.eyebrow), JSON.stringify(end));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `tape-hud-${label.replace(' ', '-')}-end.png`) });

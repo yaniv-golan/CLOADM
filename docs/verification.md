@@ -636,7 +636,10 @@ the end of the tape, with the motor still on: "End of tape", the stamp, no anima
 polite live region has said "Tape … playing" and "End of tape …" once each. In the Claude chat view and the browser's
 Fullscreen at 1440x900 and 390x844, the line is either in view, on top and off the text, or not shown at all (the
 phone chat, whose text fills the screen); in Fullscreen at both sizes it is shown. Only geometry relationships are
-asserted, no coordinates. The line is placed again whenever the canvas or the screen area changes size. The panel's
+asserted, no coordinates. The line is placed again whenever the canvas or the screen area changes size: at the
+desktop size the monitor is narrowed in place (no window resize) and, in the very frame the canvas is refitted, the line
+already lies off the new text and inside the tube (without the ResizeObserver it lies outside it). The live region is
+written exactly twice from the tape going in to its end (a MutationObserver counts the writes). The panel's
 own checks (`tapePanel`) also find no reel turning at the end of the tape.
 
 ### Install as an app (the PWA offer)
