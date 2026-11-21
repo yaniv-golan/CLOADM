@@ -1,9 +1,12 @@
 // Rebuild examples/*.bin: node tools/build-examples.js
+// It then brings sw.js's offline file list up to date (tools/pwa-files.js), so a new example file does not leave
+// tests/pwa.test.js failing until `node tools/pwa-files.js --write` is run by hand.
 // Each entry: source, the CPU its assembler plugin is for, whether the source INCLUDEs files from examples/
 // (LIZA's shared conversation data and the welcome program's screen data are two), read here and handed to
 // the assembler, and any assemble-time flags. Every flag is passed explicitly as 0 or 1: an IF on a symbol
 // that was not passed is an assembler error, so a typo cannot build the wrong variant silently.
 const fs = require('fs'), path = require('path');
+const { syncSw } = require('./pwa-files.js');
 const Emu = require('../tests/load.js')();
 const EX = path.join(__dirname, '../examples');
 const include = (name) => {
@@ -34,4 +37,9 @@ for (const { name, cpu, source = null, defines = {} } of [
   const bin = Emu.toBinary(res);
   fs.writeFileSync(path.join(EX, `${name}.bin`), bin);
   console.log(`examples/${name}.bin: ${bin.length} bytes (${cpu})`);
+}
+// Reached only when every build succeeded (a failed one returns above). The examples are served, so sw.js keeps them.
+{
+  const { changed, count } = syncSw(path.join(__dirname, '..'));
+  console.log(changed ? `sw.js: file list updated (${count} files); commit it with the examples` : `sw.js: file list already up to date (${count} files)`);
 }

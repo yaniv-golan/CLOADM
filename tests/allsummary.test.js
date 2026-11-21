@@ -31,7 +31,7 @@ const standInRegress = (tests) => fs.writeFileSync(path.join(tests, 'regress.tes
 // Copy the runner and the no-exit guard into a scratch tests/ directory, add `body` as zz-probe.test.js, run it,
 // and hand back the exit status and merged output. `timeoutMs` shortens the per-suite kill so a probe that hangs
 // is caught quickly rather than after the real 4 minutes; it also checks that a killed suite reads as a failure.
-function gate(body, { name = 'zz-probe.test.js', timeoutMs = 60000, regress } = {}) {
+function gate(body, { name = 'zz-probe.test.js', timeoutMs = 60000, regress, args = [], extra = {} } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'allsummary-'));
   const tests = path.join(dir, 'tests');
   fs.mkdirSync(tests, { recursive: true });
@@ -41,7 +41,8 @@ function gate(body, { name = 'zz-probe.test.js', timeoutMs = 60000, regress } = 
   if (regress === null) { /* no regress.test.js at all */ } else if (regress === undefined) standInRegress(tests);
   else fs.writeFileSync(path.join(tests, 'regress.test.js'), regress);
   if (body !== null) fs.writeFileSync(path.join(tests, name), body);
-  const r = cp.spawnSync(process.execPath, [path.join(tests, 'all.js'), '--jobs', '1'],
+  for (const [n, b] of Object.entries(extra)) fs.writeFileSync(path.join(tests, n), b);
+  const r = cp.spawnSync(process.execPath, [path.join(tests, 'all.js'), '--jobs', '1', ...args],
     { encoding: 'utf8', timeout: 120000, env: Object.assign({}, process.env, { CLOADM_SUITE_TIMEOUT_MS: String(timeoutMs) }) });
   fs.rmSync(dir, { recursive: true, force: true });
   return { status: r.status, out: (r.stdout || '') + (r.stderr || '') };
@@ -808,6 +809,56 @@ const failedAs = (r, name) => r.status !== 0 && new RegExp(`FAIL  ${name.replace
     && probe("if (!ok) console.log('FAIL x');") === false
     && probe("} else console.log('FAIL x');") === false
     && probe("// console.log('FAIL out');") === false);
+}
+
+// 8. The run's last line names every failing suite: "FAILED: a.test.js, b.test.js". A long log's tail, which is
+// what a reader (or a coding agent) sees first, must say what to rerun, not only how many failed.
+{
+  const pass = "console.log('all passed');\n", failing = "console.log('FAIL a real check');\nconsole.log('1 FAILED');\nprocess.exitCode = 1;\n";
+  const lastLine = (out) => out.trim().split('\n').pop();
+  const two = gate(failing, { extra: { 'zz-alsofails.test.js': failing, 'zz-fine.test.js': pass } });
+  check('the last line of a failing run names every failing suite, and only those',
+    two.status !== 0 && lastLine(two.out) === 'FAILED: zz-alsofails.test.js, zz-probe.test.js' && /2 of 4 suites FAILED/.test(two.out),
+    lastLine(two.out));
+  const inc = gate(pass, { regress: null });
+  check('...and an incomplete regression gate is named there too',
+    inc.status !== 0 && lastLine(inc.out) === 'FAILED: regress.test.js (regression gate incomplete)', lastLine(inc.out));
+  const ok = gate(pass);
+  check('...and a passing run prints no FAILED line', ok.status === 0 && !/^FAILED:/m.test(ok.out) && /all 2 suites passed$/.test(ok.out.trim()), lastLine(ok.out));
+}
+
+// 9. --only <pattern>: a quick subset run. It runs only the suites whose name contains a pattern, it can never read
+// as the full gate (its summary says SUBSET RUN and never "all N suites passed"), it still fails on a failing suite
+// and names it, a pattern that selects nothing is an error (exit 2), and the regression gate is held to completeness
+// whenever it is selected.
+{
+  const pass = "console.log('all passed');\n", failing = "console.log('FAIL a real check');\nconsole.log('1 FAILED');\nprocess.exitCode = 1;\n";
+  const lastLine = (out) => out.trim().split('\n').pop();
+  // a failing suite left out of the selection does not run: the subset passes, and says it is a subset
+  const sub = gate(failing, { args: ['--only', 'zz-fine'], extra: { 'zz-fine.test.js': pass } });
+  check('--only runs just the matching suites, and the summary says it is not the full gate',
+    sub.status === 0 && /^pass  zz-fine\.test\.js/m.test(sub.out) && !/zz-probe|regress/.test(sub.out)
+      && lastLine(sub.out) === 'SUBSET RUN (--only zz-fine), not the full gate: 1 of 3 suites run, all passed'
+      && !/all \d+ suites passed/.test(sub.out), lastLine(sub.out));
+  // several patterns, one failing: the run fails and the FAILED line names it
+  const bad = gate(failing, { args: ['--only', 'zz-fine,zz-probe'], extra: { 'zz-fine.test.js': pass } });
+  check('--only with a failing suite fails, and names it on the last line',
+    bad.status === 1 && /SUBSET RUN \(--only zz-fine,zz-probe\), not the full gate: 1 of 2 selected suites FAILED/.test(bad.out)
+      && lastLine(bad.out) === 'FAILED: zz-probe.test.js', lastLine(bad.out));
+  // a pattern that matches nothing is an error, not a green run of zero suites; so is a missing pattern
+  const none = gate(pass, { args: ['--only', 'nosuchsuite'] });
+  check('--only that selects nothing exits 2 and says so', none.status === 2 && /no suite name contains this/.test(none.out) && !/passed/.test(none.out),
+    `exit ${none.status}: ${lastLine(none.out)}`);
+  const empty = gate(pass, { args: ['--only'] });
+  check('--only with no pattern exits 2', empty.status === 2 && /--only needs a pattern/.test(empty.out), `exit ${empty.status}`);
+  // the regression gate, when selected, is still checked for completeness: shards short of --count fail the subset
+  const fewer = STAND_IN_REGRESS.replace("k = T / (s ? Number(s.split('/')[1]) : 1);", "k = T / (s ? Number(s.split('/')[1]) : 1) - 1;");
+  const reg = gate(pass, { args: ['--only', 'regress'], regress: fewer });
+  check('--only regress still fails an incomplete regression gate', reg.status === 1 && /-- INCOMPLETE/.test(reg.out)
+    && lastLine(reg.out) === 'FAILED: regress.test.js (regression gate incomplete)', lastLine(reg.out));
+  const regOk = gate(pass, { args: ['--only', 'regress'] });
+  check('...and passes a complete one, as a subset', regOk.status === 0 && /regress 12\/12 included/.test(regOk.out)
+    && /^SUBSET RUN \(--only regress\), not the full gate: 1 of 2 suites run, all passed$/m.test(regOk.out), lastLine(regOk.out));
 }
 
 console.log(fail ? `${fail} FAILED` : 'all passed');

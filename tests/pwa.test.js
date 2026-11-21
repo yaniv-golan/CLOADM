@@ -5,6 +5,7 @@
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const os = require('os'), cp = require('child_process');
 const { pwaFiles, withList } = require('../tools/pwa-files.js');
 
 const ROOT = path.join(__dirname, '..');
@@ -16,7 +17,7 @@ const sw = fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8');
 const ctx = { self: { addEventListener() {}, location: { origin: 'https://cloadm.dev' } } };
 vm.runInNewContext(sw + '\nthis.FILES_SEEN = FILES; this.CACHE_SEEN = CACHE;', ctx);
 const files = ctx.FILES_SEEN, expected = pwaFiles();
-check('sw.js lists exactly the files tools/pwa-files.js finds (run it with --write after adding a file)',
+check('sw.js lists exactly the files tools/pwa-files.js finds (after adding or removing a served file run: node tools/pwa-files.js --write; tools/build-examples.js does it for you)',
   JSON.stringify(files) === JSON.stringify(expected), `${files.length} listed, ${expected.length} found`);
 check('sw.js is what --write produces', withList(sw, expected) === sw);
 const missing = files.filter((f) => !fs.existsSync(path.join(ROOT, f)));
@@ -46,6 +47,33 @@ check('manifest: a 192 and a 512 icon, and a maskable one (what browsers ask for
 for (const page of ['index.html', 'play/index.html']) {
   const html = fs.readFileSync(path.join(ROOT, page), 'utf8');
   check(`${page} links the manifest and the theme colour`, /<link rel="manifest" href="manifest\.webmanifest">/.test(html) && /<meta name="theme-color" content="#0B0D0C">/.test(html));
+}
+
+// tools/build-examples.js brings sw.js up to date itself: a new file under examples/ used to leave this suite failing
+// until `node tools/pwa-files.js --write` was run by hand. Run the real tool in a scratch copy of the served tree
+// (the real tree is only read): a file added to examples/ must be in sw.js afterwards, sw.js must then be exactly
+// what --write produces, and a second run must leave it alone.
+{
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pwa-build-'));
+  try {
+    const DIRS = ['css', 'fonts', 'img', 'icons', 'js', 'examples', 'embed', 'play', 'roms', 'help', 'credits'];
+    for (const d of DIRS) fs.cpSync(path.join(ROOT, d), path.join(dir, d), { recursive: true });
+    for (const f of ['index.html', 'favicon.svg', 'favicon.ico', 'manifest.webmanifest', 'sw.js']) fs.copyFileSync(path.join(ROOT, f), path.join(dir, f));
+    fs.mkdirSync(path.join(dir, 'tools')); fs.mkdirSync(path.join(dir, 'tests'));
+    for (const f of ['build-examples.js', 'pwa-files.js']) fs.copyFileSync(path.join(ROOT, 'tools', f), path.join(dir, 'tools', f));
+    fs.copyFileSync(path.join(ROOT, 'tests/load.js'), path.join(dir, 'tests/load.js'));
+    fs.mkdirSync(path.join(dir, 'examples/zz-new-game'));
+    fs.writeFileSync(path.join(dir, 'examples/zz-new-game/zz.bin'), Buffer.from([1, 2, 3]));
+    const before = fs.readFileSync(path.join(dir, 'sw.js'), 'utf8');
+    const run = () => cp.spawnSync(process.execPath, [path.join(dir, 'tools/build-examples.js')], { encoding: 'utf8', timeout: 120000 });
+    const r1 = run(), after = fs.readFileSync(path.join(dir, 'sw.js'), 'utf8');
+    check('build-examples adds a new example file to sw.js and says so', r1.status === 0 && !before.includes("'examples/zz-new-game/zz.bin'")
+      && after.includes("'examples/zz-new-game/zz.bin'") && /sw\.js: file list updated/.test(r1.stdout), `exit ${r1.status} ${(r1.stderr || '').slice(0, 200)}`);
+    check('...and leaves sw.js exactly as --write would', withList(after, pwaFiles(dir)) === after);
+    const r2 = run();
+    check('...and a second run changes nothing', r2.status === 0 && fs.readFileSync(path.join(dir, 'sw.js'), 'utf8') === after
+      && /sw\.js: file list already up to date/.test(r2.stdout), `exit ${r2.status}`);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 }
 
 console.log(fail ? `${fail} FAILED` : 'all passed');

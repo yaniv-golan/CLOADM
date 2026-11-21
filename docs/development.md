@@ -15,6 +15,46 @@ a byte or the PC, read the screen, memory and registers, step and disassemble, s
 output, exit codes and error codes; `--describe` gives the whole interface as JSON.
 [automation.md](automation.md) is the guide, with the Node API under it and what of it is stable.
 
+## The fast loop
+
+The full gates are slow (`node tests/all.js` about 5-6 minutes, the browser check 15-20), so while you work run the
+suites and groups for what you changed: `node tests/all.js --only <part of a name>[,...]` runs the suites whose file
+names contain one of the parts, and `node tools/browser-check.js --only <group>[,...]` the browser-check groups
+(`--list-groups` lists them).
+
+| You changed | Suites (`tests/all.js --only ...`) | Browser-check groups (`--only ...`) |
+|---|---|---|
+| `js/cpu/` (6809, 6309, 6803) | `cpu,opcodes,disasm,asm,nmi-arm,regress` | `models,cpu6309` |
+| Video: `js/chips/` VDG, SAM, GIME, 6845, `js/video/` | `video,mc6847,mc6845,coco3,composite,sammem,samrate,regress,state` | `models,display,glLoss` |
+| Machines and profiles (`js/machines/`) | `machine,models,bus,coco3,mc10,alpha,d64plus,state,snapshot,regress` | `models,powerOn` |
+| Floppy disks, `js/media/` | `fdc,disk,detect,state` (`disk` also selects the `disks*` suites) | `disk,media` |
+| Cassette | `tape` | `tape,tapePanel` |
+| Cartridges and sound chips | `bus,carts,ssc,sp0256,ay8910,audio` | `cartridge,sscBoard,audio` |
+| Serial, printer, DriveWire | `serial,acia,drivewire,web-serial` | `driveWire,webSerial,printer` |
+| The assembler (`js/asm/`) | `asm,includes,disasm` | `debugger` |
+| Debugger | `debugger,debug-session,halt` | `debugger,debuggerScreen` |
+| Keyboard and input | `input,keyqueue,keyboard-symbols,touch-joystick,press-break` | `input,inputScreen,touchJoystick,keyboardSymbols,typing` |
+| `js/session.js`, snapshots | `session,snapshot,state,restore-points` | `snapshot,state` |
+| The Claude chat and Ask Claude | `claude,chat-firmware` | `claude,ask,commands,chatScreen` |
+| `bin/cloadm.js` (the command line) | `cli,game-guide,starter-game` | none |
+| `examples/` (a program or game) | `pwa,starter-game,game-guide,welcome` and the example's own suite | `pwa` (and the group that offers it) |
+| `js/ui/`, `play/`, `css/`, `index.html` | `session,readme` | the panel's groups, then the whole check |
+| Docs (`README.md`, `docs/`) | `readme,romdocs,game-guide` | none |
+| `CHANGELOG.md` | `changelog` | none |
+| The test runner (`tests/all.js`, `suite-verdict.js`, `no-exit.js`) | `allsummary,allsignal,exitguard,exitcode` | none |
+| `tools/browser-check*.js`, `.github/` | `browser-check` | the groups it touches |
+
+A subset run says `SUBSET RUN (--only ...), not the full gate` on its summary line: it is never the proof. The full
+gates are still required:
+
+* **before every push:** `node tests/all.js` in full (the regression hashes included);
+* **before pushing anything the page runs** (`js/`, `play/`, `css/`, `index.html`, `sw.js`, `tools/browser-check*.js`):
+  the whole browser check, in one process, with nothing else running on the machine;
+* **before you call the change done:** a green CI run, attempt 1, on the exact commit you report (AGENTS.md section 4).
+
+When a full run fails, its last line names the failing suites (`FAILED: a.test.js, b.test.js`); rerun just those with
+`--only` while you fix them, then the full gate again.
+
 ## Tests and tools
 
 Contributors follow [AGENTS.md](../AGENTS.md): the rules, where code goes, and the proof required before a change
@@ -29,7 +69,7 @@ is in no shard, in two, or isn't a group (it reads the groups from `node tools/b
 Don't run anything else on the machine while the browser check runs: it is timing-sensitive under load.
 
 ```
-node tests/all.js            # every suite below in a worker pool (--jobs N to cap it), one line each, the regression gate included (exit 0 = all passed, and every suite must also have printed its summary line: one that exits 0 half done is a failure)
+node tests/all.js            # every suite below in a worker pool (--jobs N to cap it), one line each, the regression gate included (exit 0 = all passed, and every suite must also have printed its summary line: one that exits 0 half done is a failure); a failing run ends with FAILED: <the suites>; --only <part>[,...] runs a subset, marked as not the gate
 node tools/browser-check.js  # the real pages in Chromium: the landing page (desktop and phone) and /play/: every model, LIZA end to end, the file:// notice, Capture & share and opening snapshots, the favicon and no missing file requested by any page; the feedback model (toasts on the page the user is on, cleared by the next action, Undo, Details, desktop and phone). Every "← Emulator", Esc and Back return to the emulator, from `/play/` and `?app=claude`, after a reload and from a page loaded on a view (`--only emulatorBack`). `--only feedback,library` runs just those groups (an unknown group is an error); see "What the gates' results mean" below
 node tools/capture-images.js # recapture img/*.png (site and README pictures) from the emulator, with no ROMs
 node tests/cpu.test.js       # 6809 instruction tests, scripted (all tests load js/emu.js via tests/load.js)
@@ -72,10 +112,10 @@ node tests/cli-agent.test.js # bin/cloadm.js beyond the basics: --describe, erro
 node tests/cli-wav.test.js   # --wav: a known DAC pattern's levels and timing, determinism, snapshots mid-sound, the box filter of the level events
 node tests/cli-screenshot.test.js  # --expect-screenshot (tolerance, diff, PNG layouts, errors) and --hold
 node tests/starter-game.test.js    # the starter game: its build, play script, picture and sound references, and mutants that must fail
-node tests/game-guide.test.js      # docs/game-development.md's programs and commands, run
+node tests/game-guide.test.js      # docs/game-development.md's programs and commands, run (the settling patterns too, each shown to matter)
 node tests/config.test.js    # URL parameters: every one checked (options against each model), bad values reported, links written and read back
 node tests/embed.test.js     # the embed API through its message protocol: calls, errors, events, frames
-node tests/pwa.test.js       # the service worker keeps every file the site serves; the manifest and its icons
+node tests/pwa.test.js       # the service worker keeps every file the site serves (and build-examples.js keeps the list current); the manifest and its icons
 node tests/install.test.js   # the install offer's rules: stored answers, Not now twice, a dismissed prompt, who is offered, the 60 s clock, each browser's steps
 node tests/settings.test.js  # settings export and import round trip; ROMs and programs never in it, ignored if added
 node tests/storage-move.test.js  # moving the library to another store: what is copied, kept, merged (ROM sockets and names), refused; reconnecting a folder copies only this visit's files
@@ -109,7 +149,7 @@ node tests/importmedia-finally.test.js # the creation landing behind the Library
 node tests/ay8910.test.js    # AY-3-8910/8912 against its data manual: tone, noise, the 16 envelope shapes, mixer, ports
 node tests/alpha.test.js     # the Dragon Alpha's wiring: ROM banks, PIA2, the AY as the drive latch, NMI through PIA2 CA2
 node tools/build-demo.js     # rebuild examples/demo.bin
-node tools/build-examples.js # rebuild examples/liza.bin, liza6803-{mc10,alice}.bin, welcome.bin, welcome6803-{mc10,alice}.bin, chat.bin and starter-game/catch.bin from their .asm sources
+node tools/build-examples.js # rebuild examples/liza.bin, liza6803-{mc10,alice}.bin, welcome.bin, welcome6803-{mc10,alice}.bin, chat.bin and starter-game/catch.bin from their .asm sources, then bring sw.js's offline file list up to date
 node tests/welcome.test.js   # welcome program on every 6809 model: screen, menu keys and events, the tune on the DAC
 node tests/demo-tone.test.js # the welcome demo plays one short clean tone (440-880 Hz, 0.3-0.5 s, $80 +/- amp), then nothing on the DAC; the bars are as defined (Dragon 64, CoCo, CoCo 3)
 node tests/privacy-copy.test.js # the ROM privacy copy (README, docs, front, /roms, Help, play) says both halves: CLOADM never uploads ROMs; what Claude reads from memory, ROM areas included, goes to Anthropic
@@ -119,7 +159,8 @@ node tests/returning.test.js # returning visits: greetings, option 5, what ran l
 node tests/power-on.test.js  # without ROMs: Reset restarts what runs; power-on, a machine switch and a snapshot of the stub's prompt bring the welcome menu (6809 and 6803)
 node tests/welcome6803.test.js # the 6803 welcome on mc10 and alice: raw screen cells, per-machine subtitle, keys, the two builds differ only at the HALT
 node tests/regress.test.js                # fast gate: trace and frame hashes of the diagnostic firmware (seconds, no MAME; tests/all.js runs it too; --count prints the number of cases)
-node tests/allsummary.test.js             # the gate itself: a suite that exits 0 without printing its summary (a pending promise, or one printed only from an exit handler) fails; a suite that prints a "FAIL " line and exits 0 fails; normal suites pass; summaries printed from every writer and quote style are read; fixtures stay out
+node tests/allsummary.test.js             # the gate itself: the FAILED: line and --only subset runs; a suite that exits 0 without printing its summary (a pending promise, or one printed only from an exit handler) fails; a suite that prints a "FAIL " line and exits 0 fails; normal suites pass; summaries printed from every writer and quote style are read; fixtures stay out
+node tests/fastloop.test.js               # the fast-loop table above: every suite pattern selects a suite, every group exists; AGENTS.md's Start-here scripts exist
 node tests/allsignal.test.js              # a signal to the gate stops every suite and exits 128+n; nothing survives
 node tests/changelog.test.js              # a released CHANGELOG section equals the same section in its git tag (named corrections aside); needs the tags (CI fetches them, `git fetch --tags` locally: without them it prints a SKIP line per tag)
 node tests/exitcode.test.js               # no suite or tool forces process.exit() (the Node 25 deadlock), by static scan

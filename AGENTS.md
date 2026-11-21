@@ -5,6 +5,41 @@ applies to everyone who changes it, human or coding agent. Read `README.md`, `do
 `docs/verification.md` before you start. This file says how to work and, above all, **what you must show before you call anything
 done**.
 
+## Start here
+
+The short version, for a first session. Everything below it is the full guide, and it still applies.
+
+**The commands you'll use** (no `package.json` on purpose: there is nothing to install and no `npm test`):
+
+```
+node tests/all.js                                   # the full suite gate (~5-6 min); exit 0 = every suite passed
+node tests/all.js --only cli,game-guide             # a quick subset while you work (marked SUBSET RUN: not the gate)
+node tests/regress.test.js                          # the regression hashes alone (MAME-verified traces and frames)
+node tools/browser-check.js                         # the real page in Chromium (15-20 min); run alone on the machine
+node tools/browser-check.js --only pwa,models       # just those browser-check groups (--list-groups lists them)
+node tools/build-examples.js                        # rebuild examples/*.bin from source; also updates sw.js's file list
+node tools/pwa-files.js --write                     # update sw.js's offline file list after adding/removing a served file
+node bin/cloadm.js --asm prog.asm --frames 50 --screen   # assemble, run headless, print the screen (docs/automation.md)
+node bin/cloadm.js --script test.cloadm             # a scripted end-to-end test (keys, screen, pictures, sound)
+node tools/mame-diff/run.js <profile> [--video]     # lockstep / pixel comparison with MAME 0.264 (needs mame)
+```
+
+Which suites and groups to run for what you changed: [docs/development.md, "The fast loop"](docs/development.md#the-fast-loop).
+Which proof levels apply to your kind of change: [section 4, "Which levels apply"](#which-levels-apply).
+
+**The rules most often broken:**
+
+1. **No ROMs.** Never fetch, commit, recreate or use BASIC, DOS, cartridge, character or speech ROMs (rule 1.1).
+2. **Never edit `tests/regress-hashes.json` by hand.** A hash changes only through `node tests/regress.test.js
+   --update`, after the MAME comparisons for every affected profile pass, with the reason in the commit message (4.2).
+3. **CHANGELOG entries go under `## [Unreleased]` only.** A released section is history: never add to or reword it
+   (`tests/changelog.test.js` compares each one with its git tag).
+4. **Commit as yourself, with your GitHub noreply address** (`git config user.email
+   "<id>+<login>@users.noreply.github.com"`), never as "Claude" or another tool's identity.
+5. **No force-push and no rebase of a branch you have pushed.** To catch up, merge the base branch in.
+6. **CI attempt 1 must be green.** Don't re-run a red run until it passes; fix it. A green re-run is accepted only
+   with the disclosure in section 6 (each earlier failure named, and why it is a flake).
+
 ## 1. Hard rules
 
 1. **No copyrighted ROMs, ever.** Don't download, fetch, commit, generate from memory, or ask for BASIC, DOS, disk
@@ -52,6 +87,23 @@ Every new stateful component goes into the snapshot (`saveState` / `loadState`) 
 5. Update the documentation the change affects (`README.md` and `docs/using.md` feature tables,
    `docs/verification.md`, the commands in `docs/development.md`) and `CHANGELOG.md` in the same branch.
 
+### Adding an example program or game
+
+A program under `examples/` (a demo, a game, a tool that runs on the built-in firmware):
+
+1. The source, `examples/<name>.asm` or `examples/<name>/<name>.asm`; your own code, no ROM code.
+2. An entry in the list in `tools/build-examples.js`, then `node tools/build-examples.js`. It writes the `.bin` and
+   brings `sw.js`'s offline file list up to date; commit both. (A served file added any other way needs `node
+   tools/pwa-files.js --write`, or `tests/pwa.test.js` fails.)
+3. A test, `tests/<name>.test.js`, with real assertions: a play script (`.cloadm`) run through `bin/cloadm.js` on
+   each machine it supports (`--expect-screen`, `--expect-mem`, `--expect-screenshot`, `--wav`), and mutants of the
+   program that must fail it ([docs/game-development.md](docs/game-development.md) and
+   `tests/starter-game.test.js` show how).
+4. Documentation: a line in `docs/development.md` for the new test and in its `build-examples.js` line; the
+   feature tables in `README.md` and `docs/using.md` if users see it; `CHANGELOG.md` under `[Unreleased]`.
+5. Proof: 4.1, 4.2 (hashes unchanged: an example changes no emulation), 4.3, and 4.7 with `--only pwa` plus any
+   group that offers it on the page; 4.4 and 4.5 are "not applicable" in the report (see "Which levels apply").
+
 ## 4. Definition of done: the proof ladder
 
 A change is done only when every applicable level below passes. Your report (section 6) shows the evidence.
@@ -64,6 +116,37 @@ green only if all of them passed, and its summary gives the commit SHA and tree 
 That run, on the SHA you report, is the proof for levels 4.1, 4.2 and 4.7. Run the same commands locally while you
 develop (sections 1 and 3 still apply); CI doesn't replace them, it records the final result once. CI has no MAME,
 so levels 4.4 to 4.6 are still run locally and reported.
+
+### Which levels apply
+
+Every change runs 4.1, 4.2 and 4.3. The others depend on what you changed; when one does not apply, say so in the
+report with the reason ("4.4: not applicable, no hardware behaviour changed"), never by leaving it out.
+
+| Change | 4.4 MAME lockstep | 4.5 snapshots | 4.6 other oracle | 4.7 browser check |
+|---|---|---|---|---|
+| A chip, CPU, device, cartridge or model (hardware behaviour) | yes, every affected profile | yes, for new state | only where MAME can't be the oracle | yes if the page exposes it |
+| Video or sound output | yes, with `--video` / `-wavwrite` | if new state | for things MAME lacks | yes (look at the screenshots) |
+| A media format (disk, tape, cartridge file) | bytes the machine writes, against MAME | if mounted state changes | the format's spec | yes if the page mounts it |
+| An example program or game on the built-in firmware (no ROMs) | no: it adds no hardware behaviour | no, unless it adds machine state | its own end-to-end test is the oracle | `--only pwa` (it is served offline), plus the group that offers it on the page, if any |
+| A UI panel or page behaviour (`js/ui/`, `play/`, `css/`) | no | if it saves settings or state | no | yes: extend a group and run the whole check |
+| The CLI, Node API or Session (no hardware change) | no | if it touches snapshots | no | only if the page uses it |
+| Tests, tools or CI (`tests/`, `tools/`, `.github/`) | no | no | no | if `tools/browser-check*.js` changed |
+| Documentation only | no | no | no | no (4.1 still runs `readme.test.js` and the guide tests) |
+
+### Without MAME
+
+If MAME isn't installed where you work (CI has none either), don't skip 4.4 silently and don't claim it. Run every
+other level, then list each MAME comparison the change needs under "Not verified" in the report, as the exact
+commands a maintainer should run, for example:
+
+```
+node tools/mame-diff/run.js dragon64              # lockstep, every instruction and cycle, to HALT
+node tools/mame-diff/run.js coco3 --video         # every pixel of every mode
+node tools/mame-diff/tape/run-tape.js dragon64    # the tape round trip through MAME
+```
+
+with what each one should show ("identical", HALT reached, frames compared). A change that needs 4.4 is not done
+until a maintainer has run them: say so, rather than reporting it as done.
 
 ### 4.1 All suites pass
 ```

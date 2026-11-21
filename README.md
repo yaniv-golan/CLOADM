@@ -197,7 +197,8 @@ EXEC
 
 Bug reports and pull requests are welcome: [open an issue](https://github.com/yaniv-golan/cloadm/issues). To run it
 locally, serve the repository with any static server (`python3 -m http.server`) and open `/play/`; `node
-tests/all.js` runs every test. Changes follow [AGENTS.md](AGENTS.md): nothing counts as done until it matches MAME.
+tests/all.js` runs every test. There is no `package.json`, on purpose: nothing to install, so run `node tests/all.js`
+rather than `npm test`. Changes follow [AGENTS.md](AGENTS.md): nothing counts as done until it matches MAME.
 [CONTRIBUTING.md](CONTRIBUTING.md) also says how to put your own program on the shelf of programs that run without
 ROMs. The internals: [docs/architecture.md](docs/architecture.md) and [docs/development.md](docs/development.md).
 

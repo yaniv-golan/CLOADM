@@ -7,7 +7,10 @@
 //      vsync   the field sync interrupt through $010C counts frames: after N more frames, N more counted
 //    and every example has a check here (and every check an example);
 //  - the play script the guide quotes is the starter game's script, line for line (its "..." aside);
-//  - the guide's WAV command, run as written, gives the reference WAV byte for byte.
+//  - the guide's WAV command, run as written, gives the reference WAV byte for byte;
+//  - the two settling patterns ("# pattern: settle|release|held" blocks) run as written and pass, and each is shown
+//    to matter: the picture before the extra frame differs from the one after it, and the held-key command fails on
+//    a starter game with its release wait taken out.
 // Run: node tests/game-guide.test.js
 const fs = require('fs'), os = require('os'), path = require('path'), zlib = require('zlib');
 const { spawnSync } = require('child_process');
@@ -112,6 +115,39 @@ for (const [name, src] of Object.entries(examples)) {
   const r = cli(args.slice(2).map((a) => (a === 'catch.wav' ? tmp('catch.wav') : a)));
   check('the guide\'s WAV command gives the reference WAV byte for byte', r.code === 0
     && fs.readFileSync(tmp('catch.wav')).equals(fs.readFileSync(path.join(ROOT, 'tests', 'fixtures', 'starter-game', 'catch-sound.wav'))), r.err);
+}
+
+// the settling patterns, as written
+{
+  const argsOf = (name) => {
+    const b = blocks('sh').find((x) => x.startsWith(`# pattern: ${name}\n`));
+    const cmd = b ? b.split('\n').slice(1).join('\n').replace(/\\\n\s*/g, ' ').split('\n')[0] : '';
+    const a = [...cmd.matchAll(/'([^']*)'|(\S+)/g)].map((m) => (m[1] != null ? m[1] : m[2]));
+    return a[0] === 'node' && a[1] === 'bin/cloadm.js' ? a.slice(2) : null;
+  };
+  const settle = argsOf('settle'), release = argsOf('release'), held = argsOf('held');
+  check('the guide has the three pattern commands', settle && release && held);
+  if (settle && release && held) {
+    const r = cli(settle.map((a) => (a === 'playfield.png' ? tmp('settled.png') : a)));
+    check('pattern settle: runs as written', r.code === 0, r.err);
+    // the same command without the extra frame: its picture is the half-drawn frame, not the settled one
+    const i = settle.indexOf('--frames');
+    const early = settle.slice(0, i).concat(settle.slice(i + 2)).map((a) => (a === 'playfield.png' ? tmp('early.png') : a));
+    const e = cli(early);
+    check('pattern settle: without --frames 1 the picture differs', e.code === 0
+      && !fs.readFileSync(tmp('early.png')).equals(fs.readFileSync(tmp('settled.png'))), e.err);
+    const rr = cli(release);
+    check('pattern release: playing again after the game ends runs as written', rr.code === 0, rr.err);
+    const h = cli(held);
+    check('pattern held: SPACE held to past the game\'s end leaves the game-over screen', h.code === 0, h.err);
+    // the starter game with WAITSP's release loop taken out (BNE WAITSP -> two NOPs, same size): the held-key
+    // command must now fail, so it is what catches a game that does not wait for the release
+    const src = fs.readFileSync(path.join(ROOT, 'examples', 'starter-game', 'catch.asm'), 'utf8');
+    const loop = '        BITA    #KSPACE\n        BNE     WAITSP\n';
+    fs.writeFileSync(tmp('norelease.asm'), src.replace(loop, '        BITA    #KSPACE\n        NOP\n        NOP\n'));
+    const m = cli(held.map((a) => (a === '--load' ? '--asm' : a === 'examples/starter-game/catch.bin' ? tmp('norelease.asm') : a)));
+    check('pattern held: fails on a game that does not wait for the release', src.includes(loop) && m.code === 1 && /\$3005 holds \$01/.test(m.err), m.err);
+  }
 }
 
 fs.rmSync(TMP, { recursive: true, force: true });

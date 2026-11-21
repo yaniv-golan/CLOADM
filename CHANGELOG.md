@@ -42,6 +42,17 @@ All notable changes to CLOADM are recorded here. The format follows
   count from the MC6809 data sheet, within 0.01 cycle. `run.js <dragon64|dragon32|coco> --sound` compares that path
   with MAME's `-wavwrite` (pitch, swing and mean level of DAC and single-bit square waves).
 
+- **A faster start for contributors and coding agents.** `AGENTS.md` opens with "Start here": the ten commands
+  you'll use and the rules most often broken; section 4 gains a table of which proof levels apply to which kind of
+  change, what to do without MAME (run everything else and list the exact `run.js` commands under "Not verified"),
+  and a checklist for adding an example program or game. `docs/development.md` has "The fast loop": which suites and
+  browser-check groups to run for what you changed, and when the full gates are still required
+  (`tests/fastloop.test.js` keeps its names real). `node tests/all.js --only <part>[,...]` runs a subset, marked
+  `SUBSET RUN ... not the full gate`; a failing run now ends with `FAILED: <suites>`. `tools/build-examples.js`
+  brings `sw.js`'s offline file list up to date, so a new example no longer fails `tests/pwa.test.js`.
+  `docs/game-development.md` adds where a game goes in memory and two patterns that settle a test (wait for the
+  byte, then a frame before a screenshot; wait for a key's release), each run in `tests/game-guide.test.js`.
+
 ### Changed
 
 - **The CoCo 3 keeps its bus log only while a device that can assert HALT is attached.** The log (the accesses of

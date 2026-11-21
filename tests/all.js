@@ -6,7 +6,14 @@
 // passed", ...): a suite that stops halfway -- the usual cause is a promise that never settles, which does not
 // hang but lets Node drain the event loop and exit 0 -- prints no summary and is failed by name.
 //
-//   node tests/all.js [--jobs N]
+//   node tests/all.js [--jobs N] [--only <pattern>[,<pattern>...]]
+//
+// --only runs just the suites whose file name contains one of the patterns (a quick loop while developing; see
+// docs/development.md, "The fast loop"). Such a run is NOT the gate: its summary says so, and the regression gate's
+// completeness is checked only if regress.test.js is among the selected suites. A pattern that selects nothing is
+// an error (exit 2), so a typo cannot read as a green run.
+//
+// The last line of every run that has a failure is "FAILED: <suite>, <suite>, ...", naming each one.
 //
 // Each suite is its own Node process, as before: the suites share no state, write no files, and a crash in one
 // cannot affect another. Running several at once only changes wall time. Output and exit codes are identical
@@ -26,7 +33,21 @@ const jobs = Math.max(1, Math.min(8, argJobs || usable));
 // out of the gate: a fixture that always fails must not make every run fail.
 function isFixture(name) { return name.startsWith('fixture-'); }
 
-const files = fs.readdirSync(__dirname).filter((f) => f.endsWith('.test.js') && !isFixture(f)).sort();
+const allFiles = fs.readdirSync(__dirname).filter((f) => f.endsWith('.test.js') && !isFixture(f)).sort();
+// --only: a comma-separated list of substrings of suite file names. Kept as given for the summary line.
+const onlyArg = (() => {
+  const i = process.argv.indexOf('--only');
+  if (i < 0) return null;
+  const v = process.argv[i + 1];
+  return v && !v.startsWith('--') ? v : '';
+})();
+const onlyPats = onlyArg === null ? null : onlyArg.split(',').map((p) => p.trim()).filter(Boolean);
+const files = onlyPats ? allFiles.filter((f) => onlyPats.some((p) => f.includes(p))) : allFiles;
+if (onlyPats && !files.length) {
+  console.error(onlyPats.length ? `--only ${onlyArg}: no suite name contains ${onlyPats.length > 1 ? 'any of these' : 'this'}; suites are tests/*.test.js`
+    : '--only needs a pattern: node tests/all.js --only <part of a suite name>[,<another>]');
+  process.exitCode = 2;
+}
 const results = new Map();   // file -> { ok, seconds, output }
 
 // The summary rule itself (what a suite's last line must be, and whether a finished suite passed) lives in
@@ -282,12 +303,36 @@ async function regressIncluded() {
   return { ok: whole, line: `regress ${ok}/${total} included (${parts.length} of ${shards} shard${shards > 1 ? 's' : ''} reported, ${ran} cases run)${whole ? '' : ' -- INCOMPLETE'}` };
 }
 
+// The run's last line, when anything failed: every failing suite by name (and the regression gate, when it is the
+// incomplete part), so a reader of a long log, or a coding agent reading only its tail, sees what to rerun.
+function failedLine(regOk) {
+  const names = files.filter((f) => results.has(f) && !results.get(f).ok);
+  if (!regOk) names.push(`${REGRESS} (regression gate incomplete)`);
+  return names.length ? `FAILED: ${names.join(', ')}` : null;
+}
+
 (async () => {
-  const t0 = Date.now();
+  if (!files.length) return;           // --only selected nothing: reported above, exit 2
   await Promise.all(Array.from({ length: Math.min(jobs, files.length) }, worker));
+  if (onlyPats) {
+    // A subset run: the regression gate's completeness is checked only when its suite was selected, and the summary
+    // can never be mistaken for the full gate's ("all N suites passed").
+    const reg = files.includes(REGRESS) ? await regressIncluded() : { ok: true, line: null };
+    if (reg.line) console.log(reg.line);
+    const what = `SUBSET RUN (--only ${onlyArg}), not the full gate:`;
+    console.log(failed ? `${what} ${failed} of ${files.length} selected suites FAILED`
+      : reg.ok ? `${what} ${files.length} of ${allFiles.length} suites run, all passed`
+        : `${what} the selected suites exited 0, but the regression gate is incomplete: FAILED`);
+    const fl = failedLine(reg.ok);
+    if (fl) console.log(fl);
+    process.exitCode = failed || !reg.ok ? 1 : 0;
+    return;
+  }
   const reg = await regressIncluded();
   console.log(reg.line);
   const bad = failed + (reg.ok ? 0 : 1);
   console.log(failed ? `${failed} of ${files.length} suites FAILED` : reg.ok ? `all ${files.length} suites passed` : `all ${files.length} suites exited 0, but the regression gate is incomplete: FAILED`);
+  const fl = failedLine(reg.ok);
+  if (fl) console.log(fl);
   process.exitCode = bad ? 1 : 0;
 })();

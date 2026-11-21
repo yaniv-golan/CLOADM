@@ -51,6 +51,14 @@ The Dragon and the CoCo share their memory map (64K machines in the SAM's map ty
 | `$FFC0-$FFDF` | SAM registers | write-only bit pairs: an even address clears a bit, the odd one sets it |
 | `$FFF0-$FFFF` | CPU vectors | read from the ROM's `$BFF0-$BFFF` |
 
+**Where a game goes.** `ORG $3000` runs on every 6809 machine, 16K ones included: code and data from `$3000`, and
+`$3000-$3FFF` (4K) is the room a 16K machine has above it; on 32K and 64K machines RAM runs on to `$7FFF`. Set the
+stack yourself (the starter game's `LDS #START` grows it down from just below the game, into free RAM). Buffers belong after the code,
+as `RMB` (the assembler reserves the space and nothing else is put there) or as `EQU` addresses above the image's
+last byte; an `EQU` buffer inside the image overwrites the program when it is written. The assembler does not check
+this for you: compare the buffer addresses with the image's end (`--asm game.asm --json` reports the program's
+symbols; put a label after the last `RMB` to see where it ends).
+
 The Dragon 64 adds a 6551 ACIA at `$FF04-$FF07`; the CoCo 3 has its GIME at `$FF90-$FFBF` and puts the CoCo 2
 text screen where its registers say (the built-in firmware leaves it at `$0400`).
 
@@ -325,6 +333,43 @@ node bin/cloadm.js --machine coco --script examples/starter-game/catch.cloadm
 The picture reference belongs to the video chip that drew it: the Dragon 32, 64 and 200 and the CoCo 1/2 (an MC6847)
 draw this screen identically, while the CoCo 2B's MC6847T1 draws other letter shapes and the CoCo 3's frame is twice
 as wide, so a game that runs on those keeps a reference per chip.
+
+### Two patterns that settle a test
+
+**Wait for the byte, then one frame, then look at the picture.** A game changes its state byte while the VDG is part
+way through drawing a frame, so the frame on screen at that moment is still partly the old one. `--expect-screen`
+and `--expect-mem` read memory and hold as soon as the bytes are written; a screenshot (`--screenshot`,
+`--expect-screenshot`) is the last frame the VDG drew, so run `--frames 1` before it:
+
+```sh
+# pattern: settle
+node bin/cloadm.js --load examples/starter-game/catch.bin --wait-for 'text:PRESS SPACE' --hold SPACE:2 \
+  --wait-for 'mem:$3005=1' --frames 1 --expect-screen 'SCORE 000' --screenshot playfield.png
+```
+
+Without `--frames 1` the picture is the half-drawn frame, and it differs from one taken a frame later.
+
+**Wait for a key to be let go.** A key that started one screen must not also act on the next: the starter game's
+`WAITSP` waits until SPACE is up, then until it is pressed, so SPACE held from the title screen does not skip the
+game-over screen. In the test, `--hold SPACE:2` presses and releases (two frames down, then up), so each screen sees
+its own press; a key held across a screen change is one press, and the next screen waits for it to be released.
+Playing again after the game ends:
+
+```sh
+# pattern: release
+node bin/cloadm.js --load examples/starter-game/catch.bin --wait-for 'text:PRESS SPACE' --hold SPACE:2 \
+  --wait-for 'mem:$3005=1' --timeout 60 --wait-for 'mem:$3005=2' --hold SPACE:2 --wait-for 'mem:$3005=1' \
+  --frames 1 --expect-mem '$3004=0' --expect-screen 'SCORE 000'
+```
+
+And the other side, the test that the game waits: SPACE held from the title to past the end of the game is one
+press, so the game-over screen stays (a game without the release wait starts again at once, and this fails):
+
+```sh
+# pattern: held
+node bin/cloadm.js --load examples/starter-game/catch.bin --wait-for 'text:PRESS SPACE' --hold SPACE:2500 \
+  --frames 50 --expect-mem '$3005=2' --expect-screen 'GAME OVER'
+```
 
 ### Visual and audio regression tests
 
