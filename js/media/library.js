@@ -133,7 +133,8 @@ export class MediaIndex {
     this.names = {};            // crc -> file name
     this.images = new Map();    // crc -> Uint8Array
     this.recent = [];           // the list as the Session uses it: [{ name, crc, size, machine, stored }]
-    this.recentBytes = new Map(); // crc -> Uint8Array
+    this.recentBytes = new Map(); // crc (upper case) -> Uint8Array
+    this.recentFiles = new Map(); // crc (upper case) -> the store name it was read from (an older build's case kept)
     this.changed = { sockets: new Set(), names: new Set(), recent: false };   // since load: what mergeInto counts as newer
     this.tail = Promise.resolve(); // the write chain: every store operation runs after the one before
     this.writeError = null;     // (name, error) => void: a background write failed (quota, permission)
@@ -151,9 +152,10 @@ export class MediaIndex {
       const m = /^roms\/([0-9A-Fa-f]+)\.rom$/.exec(f.name);
       if (m) this.images.set(m[1].toUpperCase(), await this.store.read(f.name));
     }
+    this.recentFiles.clear();
     for (const f of await this.store.list('recent/')) {
       const m = /^recent\/([0-9A-Fa-f]+)\.bin$/.exec(f.name);
-      if (m) this.recentBytes.set(m[1].toUpperCase(), await this.store.read(f.name));
+      if (m) { this.recentBytes.set(m[1].toUpperCase(), await this.store.read(f.name)); this.recentFiles.set(m[1].toUpperCase(), f.name); }
     }
     this.ready = true;
     return this;
@@ -173,9 +175,10 @@ export class MediaIndex {
       const m = /^roms\/([0-9A-Fa-f]+)\.rom$/.exec(f.name);
       if (m) this.images.set(m[1].toUpperCase(), read(f.name));
     }
+    this.recentFiles.clear();
     for (const f of s.listSync('recent/')) {
       const m = /^recent\/([0-9A-Fa-f]+)\.bin$/.exec(f.name);
-      if (m) this.recentBytes.set(m[1].toUpperCase(), read(f.name));
+      if (m) { this.recentBytes.set(m[1].toUpperCase(), read(f.name)); this.recentFiles.set(m[1].toUpperCase(), f.name); }
     }
     this.ready = true;
     return this;
@@ -254,8 +257,19 @@ export class MediaIndex {
   }
   setRecent(list) { this.recent = list; this.changed.recent = true; this._write(RECENT_LIST, json(this.recent)); }
   // (written first: when a synchronous store is full the write throws and the bytes are not taken as kept)
-  putRecent(crc, bytes) { this._write(recentFile(crc), bytes); this.recentBytes.set(crc, bytes); }
-  dropRecent(crc) { this.recentBytes.delete(crc); this._remove(recentFile(crc)); }
+  putRecent(crc, bytes) {
+    const key = String(crc).toUpperCase(), name = recentFile(key);
+    this._write(name, bytes); this.recentBytes.set(key, bytes); this.recentFiles.set(key, name);
+  }
+  // remove EVERY file that could hold this CRC's bytes. An older build could have written `recent/<lower>.bin`,
+  // and the row that read it can later be re-written under the upper-case name (loadRecent loads the bytes it just
+  // read, which stores them upper case), so remembering one name is not enough: both spellings go.
+  dropRecent(crc) {
+    const key = String(crc).toUpperCase();
+    const names = new Set([this.recentFiles.get(key) || recentFile(key), recentFile(key), recentFile(key.toLowerCase())]);
+    this.recentBytes.delete(key); this.recentFiles.delete(key);
+    for (const name of names) this._remove(name);
+  }
   // drop images no socket refers to any more
   collect() {
     const used = new Set();
