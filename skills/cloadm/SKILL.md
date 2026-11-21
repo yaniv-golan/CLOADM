@@ -102,6 +102,10 @@ pretend BASIC ran. The user can give the server their own dumps in two ways:
 - **On the server's command line or config file**: a folder named in `"roms"` in `~/.config/cloadm/config.json`, or
   `--roms`, then a restart.
 
+On macOS, don't advise pointing `"roms"` at Downloads, Desktop or Documents: those folders are protected, and macOS
+then asks for access every time the server starts. Suggest that the user copy the dumps into the media folder
+(`~/CLOADM`) and add them with `add_roms` (`source: "media"`), which copies them into the server's own store.
+
 Do not put ROMs in the media folder yourself, and never fetch them on your own initiative.
 
 ## Recipes

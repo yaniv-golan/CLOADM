@@ -160,6 +160,12 @@ after editing the file (`/mcp` in Claude Code). The
 Claude Desktop extension asks for both folders when it is installed and passes them on the command line, which wins
 over the file; a ROM folder left empty there falls back to the file.
 
+**On macOS, keep ROMs out of Downloads, Desktop and Documents.** Those folders are protected, so a config `roms` that
+points into one makes macOS ask "node would like to access files in your Downloads folder" every time the server
+starts. Copy the dumps into `~/CLOADM` and add them with `add_roms` (`source: "media"`), or put them in a folder of
+their own elsewhere: `add_roms` copies what it stores into `~/.config/cloadm/roms/`, so the server never reads the
+original location again.
+
 ## Adding your ROMs
 
 CLOADM never ships, links to or fetches ROMs by itself. `add_roms` lets **you** give the server your own dumps from
