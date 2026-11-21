@@ -1098,8 +1098,10 @@ export class Session {
   machinesWithRoms() {
     return Object.keys(profiles).map((id) => this.machineRoms(id)).filter((x) => x.sockets.some((s) => s.status !== 'missing-required' && s.status !== 'missing-optional'));
   }
-  loadSavedRoms() {
-    const m = this.machine, stored = this.roms.get(m.id);
+  // on: the machine to load them onto (the default is the machine in use; a load on the BASIC session while the chat
+  // is full screen loads them onto that session, not onto the chat machine, whose firmware must stay in place)
+  loadSavedRoms(on = null) {
+    const m = on || this.machine, stored = this.roms.get(m.id);
     m.setRoms(Object.fromEntries(m.profile.roms.map((x) => [x.id, stored[x.id] || null])));
   }
   romDescription() {
@@ -2305,7 +2307,7 @@ export class Session {
   // put m's stored ROMs back in (as the ROM screen's "Switch on" does, on this same machine; the load power cycles it)
   useStoredRoms(m) {
     this.stubChosen.delete(m.id);
-    this.loadSavedRoms();
+    this.loadSavedRoms(m);
     this.emit('roms');
   }
   // What a load typed into m, or is still waiting to type (the EXEC after CLOADM, and its watch on the loaded

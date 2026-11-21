@@ -226,8 +226,11 @@ for (const [how, toStub] of [
     && /^Your stored ROMs did not start BASIC, so test\.cas went straight into memory\. test\.cas: TEST fast-loaded/.test(r.msg), `${r.msg} | keys ${r.keys}`);
 }
 {
-  // the Claude chat machine (the same model, on the chat firmware, no ROMs): a tape dropped on it does not take the
-  // stored ROMs, and the BASIC session's own no-ROM choice is left as it was
+  // The Claude chat machine (the same model, on the chat firmware, no ROMs) is on screen. A tape dropped then goes
+  // to the BASIC session behind it, not to the chat machine (a load there overwrote the chat firmware:
+  // tests/session-robustness.test.js). So it is loaded as any drop on that BASIC session is, by the BASIC session's
+  // own rules: it runs without ROMs by choice, its stored ROMs boot BASIC, so they are used again for this load.
+  // The chat machine keeps its firmware, and is not the machine the tape went into.
   const s = storedSession('dragon64');
   s.runWithoutRoms({ menu: false });
   const basic = s.machine;
@@ -235,8 +238,9 @@ for (const [how, toStub] of [
     firmware: new Uint8Array(fs.readFileSync(path.join(__dirname, '../examples/chat.bin'))), tools: false });
   const chat = s.machine;
   const msg = s.load('test.cas', plain, { remember: false });
-  check('a tape dropped on the chat machine does not use the stored ROMs, and the BASIC session stays without them',
-    chat !== basic && chat.useStub && basic.useStub && s.stubChosen.has('dragon64') && !/Using your ROMs again/.test(msg), msg);
+  check('a tape dropped on the chat screen goes to the BASIC session and uses its stored ROMs there; the chat machine keeps its firmware',
+    chat !== basic && chat.useStub && basic.hasRom && !chat.deck.tape && basic.deck.tape
+    && /^Loaded into your BASIC session/.test(msg) && /Using your ROMs again/.test(msg), `${msg} | basic rom=${basic.hasRom} chat tape=${!!chat.deck.tape} basic tape=${!!basic.deck.tape}`);
 }
 {
   // what cancels a load's typing keeps Claude's: a paced job queued before it is still typed
