@@ -8,6 +8,21 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.1.7-pre (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
+### Fixed
+
+- **The on-screen keyboard fits a phone held upright, and a drag on it no longer types.** On an iPhone in Chrome or
+  Safari (and on smaller phones) the row with ENTER was under the browser's bottom toolbar, with nothing to say it
+  was there. Upright, the app bar now tightens ("Add ROMs" without "No BASIC ·"), the Keys | Joystick switch shares
+  one row with BREAK, CLEAR and Menu between the screen and the keys, the keys are 40 px, Joystick mode's strip is one
+  row, and the screen takes the height left in the window with the toolbars up (`100svh`, `100vh` where it is not
+  known; on Safari 26 and later the panel also stops above the floating toolbar it draws over the page), so the whole
+  panel is on screen at load. The screen's focus pill no longer says "Tab leaves the screen" on a touch screen.
+  A key now types when the finger lifts, or after it has rested 100 ms (holds still work for games); a finger that
+  moves more than 10 px first, or a touch the browser takes for a scroll, types nothing (it used to type on touching
+  down), and upright a drag on the panel no longer scrolls the page. The install offer's one-line strip, which sat in the band that
+  used to be between the screen and the keys, now has the screen make room for it while it is up (the keys stay put). Checked in the browser check at eight phone
+  sizes and toolbars, with real touch events.
+
 ### 0.1.7-pre
 
 #### Added

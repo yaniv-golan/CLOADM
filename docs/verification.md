@@ -584,6 +584,20 @@ conditions need a running Claude turn. Not verified
 automatically: Safari's own toolbar on a real iPhone (Chromium's `dvh` equals the window's height, so the toolbar's
 share is not exercised).
 
+Held upright, the same group loads LIZA at eight phone sizes, each the visible area a browser's toolbars leave:
+iPhone SE in Safari (375x548) and Chrome for iOS (375x540), iPhone 13 (390x664, and 390x632 with 47 px above) and
+iPhone 15 (393x659, and 393x628 with 59 px above) with a 34 px home indicator inset, a Pixel 7 in Chrome
+(412x839), and an iPhone 15 in Safari 26 (its user agent, 393x852: the page runs under the floating toolbar, which
+no viewport unit or inset counts, so the panel must end 84 px above the bottom edge; the 84 px is a model of that
+toolbar, not a measurement). In Keys and Joystick mode every key (ENTER's row included), the switch, BREAK, CLEAR and Menu, or the
+strip, the stick and FIRE, must lie inside the visual viewport less the insets at load, with the page not scrolled,
+each key at least 40 px tall and none over the screen. With real touch events (CDP) a drag of 40 px that starts on Q,
+and one that starts on SHIFT, must reach neither the machine's matrix (`setKey`) nor the no-ROM stub's queue (SHIFT
+stays off) and must not scroll the page; a tap must press and release Q; a hold must keep W down past a 14 px wobble
+until the finger lifts. A drag counts only if its first move reached the page within the 100 ms hold time (up to
+three tries), as a slower one is a hold. Not verified automatically: Chrome's and Safari's real toolbars on an
+iPhone (they are modelled as a shorter window, or Safari 26's as an 84 px band), and how a drag feels there.
+
 ### Sound output (the page's audio path)
 
 The machines' sound is compared with MAME's `-wavwrite` recordings (above); the way the page plays it has no MAME
