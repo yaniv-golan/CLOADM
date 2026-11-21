@@ -8,6 +8,25 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
+### Next release (0.1.9-pre)
+
+#### Changed
+
+- **Test and tool tidy-ups, no emulation change.** `tools/mame-diff/tape/spec.js` takes its register lists from
+  `lib/regs.js` like the other specs. The settle sweep in `tests/audio.test.js` now covers 30 fps and 2048-sample
+  blocks (the worst case is unchanged, 4.99 s), and the comments in `js/host/audio.js` and `tools/browser-check.js`
+  say what the sweep covers.
+
+#### Fixed
+
+- **`node tools/mame-diff/run.js d64plus --video` works.** It looked for a `run-vdg.js` the Dragon 64 Plus family does
+  not have; it now runs `d64plus/run-video.js`, the 80-column screen against MAME (168,960 pixels identical).
+- **A steadier tape-panel browser check.** The "motor on: LOADING" check no longer depends on how far a slow runner
+  got into block 1 before the panel repainted: it moves the tape a quarter of the way in once the panel is playing,
+  then still requires one frame with LOADING, a speed above x1, the reels turning and the left reel unwound.
+- **`pushTape` is tested from a deep queue** (`tests/audio.test.js`): DRAINING back to NONE, a push dropped past
+  `MAX_MS`, and the queue settling near `TARGET_MS`.
+
 ### 0.1.8-pre
 
 #### Added
