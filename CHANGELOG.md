@@ -104,6 +104,41 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   part of it and are kept: a store that already holds `" a.vdk"` still mounts it, and a name that starts with a dot
   (`.vdk`) is a real name. `tests/store-error-names.test.js`.
 
+- **A rename and a new disk or import can no longer write over each other's image.** A disk creation checks its
+  name, then waits for the drives' own writes before writing, and a rename was not ordered with it at all: a rename
+  landing in that wait took the name first (the creation's write then replaced the renamed file, and the image was
+  gone), and a rename asked first could be overtaken the same way (the creation had picked the name from a listing
+  that could not see the queued move). A disk rename now runs as one creation, like a new disk or an import: one at
+  a time, in the order each was asked, and after the creations queued before it have ended. A rename onto a name a
+  creation is making is refused (`... a disk is being made under that name: try again once it is done.`), and a
+  creation asked behind a queued rename lists after it has run and takes a free name. `tests/mount-rename-races.test.js`.
+
+- **A rename and an import of the same name can no longer overwrite each other.** A rename runs as a creation like a
+  new disk or an import, but it did not record the name it took, so an import queued behind it read the name as a
+  deliberate replace and wrote its own bytes over the renamed image. Every creation now records what it stored - a
+  rename only when it succeeds - and the one queued behind it refuses as a second creation of that name.
+
+- **A name a rename moved an image away from is free again.** `A.vdk` renamed to `X.vdk`, then `X.vdk` to `Y.vdk`,
+  left `x.vdk` recorded as taken, so an import of that name queued behind both was refused ("There is already a disk
+  named x.vdk") although the name was free. A rename now records the name it vacated, and the creation queued behind
+  takes it. (Safe before - nothing was overwritten - but wrong.)
+
+- **A guest's DriveWire mount can no longer take a second drive on an image another mount is taking.** The named
+  object's duplicate scan ran before it claimed the name and never again inside the claim, so a guest mount
+  overlapping the user's mount left two drives writing one file (this had passed before the claim was added). Every
+  arm re-scans inside the claim now; the claim lives on the drives map, so servers that share drives (a real CoCo
+  over Web Serial, the chat) wait on each other; and its key is the store's case rule, so two spellings of one file
+  wait too.
+
+- **Moving the library takes every DriveWire server with it.** The Becker port's server was retargeted by a move;
+  the one serving a real CoCo over Web Serial and the full-screen chat's kept reading and writing the old place.
+  All of them now follow the session. `tests/mount-rename-races.test.js`.
+
+- **Two DriveWire drives can no longer end up on one image when their mounts overlap.** The duplicate check and the
+  drive it claims were apart by the store's stat, so a guest's named-object mount and the user's mount of one image
+  in that window left two drives writing the same file. Each mount claims the image's name for as long as it is
+  deciding, and a second mount of it waits for that answer. `tests/mount-rename-races.test.js`.
+
 ### 0.1.7-pre
 
 #### Added

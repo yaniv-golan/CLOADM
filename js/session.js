@@ -365,6 +365,7 @@ export class Session {
     this.creationsAsked = [];       // askedAt of each creation asked and not yet finished, oldest first (createExclusive)
     this.landing = 0;               // names creations have landed so far (each creation notes it when asked: createExclusive)
     this.pendingLands = [];         // { name, at }: names landed that a creation still queued may have to refuse
+    this.diskClaims = new Map();   // stored name -> how many creations are making it (claimDiskName: a rename may not take one)
     this.debugger = null;           // created on first use by `debug` (js/debugger.js)
     this.labels = null;             // symbols of the program in use (the assembler's Map name -> address)
     this.displayCache = null;       // Session.display, once read from the store
@@ -506,10 +507,22 @@ export class Session {
     this.useMediaStore(store);
     await this.index.load();
     await this.measureCase();   // the new store's own answer: another file system can tell cases apart where this one did not
-    this.drivewire.store = store;
+    // every DriveWire server the Session made reads and writes the store it is serving from: this one, and the ones
+    // serveRealCoco and the full-screen chat built (they outlive their links, and are used from the drives the
+    // drives list shares). A move that retargeted only the Becker port's left them on the old place.
+    for (const server of this.dwServers()) server.store = store;
     this.emit('roms');
     this.emit('storage');
     return { copied, kept };
+  }
+  // Every DriveWire server this Session built and still holds: the Becker port's, the one a real CoCo is served
+  // from (while it is open), and the chat's (while it is up). One list, so a change to where the library is kept
+  // reaches them all (moveMedia).
+  dwServers() {
+    const out = [this.drivewire];
+    if (this.serialLink && this.serialLink.server) out.push(this.serialLink.server);
+    if (this.chatServer) out.push(this.chatServer);
+    return out.filter((s) => s);
   }
   on(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); }
   emit(event, arg) { for (const fn of this.listeners) fn(event, arg); }
@@ -1568,6 +1581,27 @@ export class Session {
   // hung store write already holds a mount or a library move: giving up on the wait would not stop the write, which
   // could then land, mount and claim the name alongside the creations let in after it. An honest wait keeps the
   // one-at-a-time guarantee; a store that never answers is the store backend's to fix.
+  // A disk creation's name, claimed while it is being made (newDisk, importDisk, importMedia): the name it will
+  // write, marked BEFORE the creation's first await that can let another Library action in, and released when it
+  // ends. A rename onto a claimed name is refused instead of racing the write. A newDisk with no name has none to
+  // claim until its listing has picked one; that far a rename cannot be blocked, and a name the listing picked is
+  // claimed in the same step it is picked (nothing awaits between the pick and the claim).
+  claimDiskName(full) { this.diskClaims.set(full, (this.diskClaims.get(full) || 0) + 1); }
+  // counted, not a Set: two creations of one name can be in flight (the second is refused at its turn, but it holds
+  // its claim until then), and the first to end must not release the second's claim
+  releaseDiskName(full) {
+    const n = this.diskClaims.get(full);
+    if (n === undefined) return;
+    if (n > 1) this.diskClaims.set(full, n - 1); else this.diskClaims.delete(full);
+  }
+  // run a disk creation with its name claimed until it ends (whatever it ends with)
+  claimingDiskName(full, run) {
+    this.claimDiskName(full);
+    let p;
+    try { p = Promise.resolve(run()); } catch (e) { this.releaseDiskName(full); throw e; }
+    return p.finally(() => this.releaseDiskName(full));
+  }
+  claimedDiskName(full) { for (const n of this.diskClaims.keys()) if (this.sameName(n, full)) return true; return false; }
   createExclusive(op) {
     const askedAt = this.landing;
     this.creationsAsked.push(askedAt);
@@ -1589,7 +1623,7 @@ export class Session {
     for (let i = this.pendingLands.length - 1; i >= 0; i--) {
       const p = this.pendingLands[i];
       if (p.at <= askedAt) break;
-      if (this.sameName(p.name, full)) return p.name;
+      if (this.sameName(p.name, full)) return p.vacated ? null : p.name;
     }
     return null;
   }
@@ -1597,6 +1631,13 @@ export class Session {
   creationLanded(full) {
     this.landing++;
     this.pendingLands.push({ name: full, at: this.landing });
+  }
+  // a rename moved an image AWAY from `full`: the name is free again, so a creation waiting behind it must not read
+  // an earlier landing of that name as still taken (A->X then X->Y leaves x.vdk free for an import behind both).
+  // Recorded as a landing of a name that is no longer there, which landedRace treats as "not taken" by this one.
+  nameVacated(full) {
+    this.landing++;
+    this.pendingLands.push({ name: full, vacated: true, at: this.landing });
   }
   // Does this library treat GAME.DSK and game.dsk as one name? The store's own settled answer wins: a real
   // backend measures itself inside every list() (js/host/media-store-fsa.js _case), so the store can be settled by
@@ -1666,14 +1707,32 @@ export class Session {
       const problem = diskFileNameProblem(dst.slice(DISK_PREFIX.length));
       if (problem) throw new SessionError(`${to}: not a disk image name: ${problem}.`);
     }
+    // A disk image's move runs as one CREATION, like a new disk or an import: one at a time, in the order each was
+    // asked, and its turn comes after every creation queued before it has ENDED. Two holes on main close with it:
+    //   - a rename onto a name a creation is making is refused above, before the queue (that creation's turn ends
+    //     before this rename's starts, so it is the creation's name while it lasts);
+    //   - a creation asked while this rename is queued runs after the rename has RUN, so its listing sees the moved
+    //     image under the new name and does not choose it. (On main the creation chose the name from a listing made
+    //     before the queued rename ran, and wrote its own bytes over the renamed image.)
+    const claim = prefix === DISK_PREFIX;
+    if (claim && this.claimedDiskName(dst)) throw new SessionError(`${to}: a disk is being made under that name: try again once it is done.`);
     // A case-only rename on a store that does not tell cases apart cannot be done: it is one file, and the
     // store's write-then-remove would replace it and then delete it. (The name is the name it already has.)
     if (this.caseInsensitive && dst !== src && dst.toLowerCase() === src.toLowerCase()) {
       throw new SessionError(`${to}: this ${this.media.kind === 'fsa' ? 'folder' : 'storage'} does not tell upper from lower case, so ${src.slice(prefix.length)} and ${to} are the same name.`);
     }
     const op = () => this.media.rename(src, dst);
+    const run = async () => {
+      const r = await this.libraryOp(() => (src.startsWith(DISK_PREFIX) ? this.diskStoreChange(op, [src, dst]) : op()));
+      // the rename took `dst`: land it, so a creation queued behind this one sees the name as taken (landedRace)
+      // and refuses, rather than reading it as a deliberate replace and writing its own bytes over the renamed
+      // image. And it vacated `src`: a creation queued behind must not read an earlier landing of that name as
+      // still taken. Both only on success: a rename that failed took nothing and vacated nothing.
+      if (claim) { this.creationLanded(dst); this.nameVacated(src); }
+      return r;
+    };
     try {
-      return await this.libraryOp(() => (src.startsWith(DISK_PREFIX) ? this.diskStoreChange(op, [src, dst]) : op()));
+      return await (claim ? this.createExclusive(() => run()) : run());
     } catch (e) { throw this.mediaError(e, from, src); }
   }
   async deleteMedia(name) {
@@ -1707,6 +1766,7 @@ export class Session {
     // this runs when the creation's turn comes, which may be long after the caller was let in: a library move may
     // have started meanwhile, and writing now would put the image in the folder it is moving away from. It runs as a
     // Library operation, whose own check refuses it then (and which the move waits for once it has started).
+    if (disk) this.claimDiskName(target);   // before the creation's first await: a rename may not take the name it is making
     const write = (askedAt) => this.libraryOp(async () => {
       // a creation of this name landed after this one was asked for: a second creation of one name, refused rather
       // than replacing it
@@ -1725,6 +1785,7 @@ export class Session {
     // name is the stored one without the library prefix -- what the Library lists, not just the leaf.
     const shown = disk ? base : target.slice(LIBRARY_PREFIX.length);
     try { return disk ? await this.createExclusive(write) : await write(0); } catch (e) { throw this.mediaError(e, shown, target); }
+    finally { if (disk) this.releaseDiskName(target); }
   }
   // A store failure as the user should read it, named once. `name` is what the person sees (their file's own name);
   // `stored` is the store's name for the file this operation works on, when the caller knows it -- and the caller
@@ -1841,8 +1902,13 @@ export class Session {
         const ext = format === 'jvc' ? 'dsk' : format;
         for (let n = 1; !full || taken(full); n++) full = `${DISK_PREFIX}disk-${n}.${ext}`;
       }
-      const msg = await this.importDiskStored(full, full.slice(DISK_PREFIX.length), bytes, drive, writeProtected, askedAt);
-      return `New blank disk: ${msg}`;
+      // the name is decided: claim it before the next await (importDiskStored's), so a rename cannot take it while
+      // the blank is being written. (A name picked from the listing is claimed in the same step as the pick.)
+      this.claimDiskName(full);
+      try {
+        const msg = await this.importDiskStored(full, full.slice(DISK_PREFIX.length), bytes, drive, writeProtected, askedAt);
+        return `New blank disk: ${msg}`;
+      } finally { this.releaseDiskName(full); }
     });
   }
   insertDiskDos(id) {
@@ -1981,7 +2047,7 @@ export class Session {
     const format = detectDiskFormat(bytes, base);
     if (!format) throw new SessionError(`${base}: not a disk image CLOADM can read (VDK, JVC/DSK or DMK).`);
     try { diskGeometry(bytes, format); } catch (e) { throw new SessionError(`${base}: ${e.message}`); }
-    return this.createExclusive((askedAt) => this.importDiskStored(full, base, bytes, drive, writeProtected, askedAt));
+    return this.claimingDiskName(full, () => this.createExclusive((askedAt) => this.importDiskStored(full, base, bytes, drive, writeProtected, askedAt)));
   }
   // the stored part of importDisk, run as one creation. askedAt: the landing count when this creation was asked
   // for (see createExclusive), which tells a second creation of one name from a deliberate replace.
@@ -1991,6 +2057,8 @@ export class Session {
     // refuse rather than replace. This is also the same-drive case the diskHolder checks below cannot see -- they
     // look for the image in a drive, and a creation's image may have been put in this very drive (the eject below
     // would remove it) or be about to be mounted after this operation read the drive as empty.
+    // a creation of this name landed after this one was asked for -- a new disk, an import or a RENAME (all three
+    // are creations: one at a time, in ask order) -- so this one is a second creation and refuses
     const raced = this.landedRace(full, askedAt);
     if (raced) throw new SessionError(`There is already a disk named ${raced.slice(DISK_PREFIX.length)} in your library: choose another name.`);
     const holder = this.diskHolder(full, { machine: this.machine, drive });
