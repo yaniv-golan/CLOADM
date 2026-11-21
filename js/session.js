@@ -313,7 +313,11 @@ export class Session {
     this.warmReset = null;          // { m, resetAt }: the run that began with the Reset button, not a power-on (bootStatus)
     this.welcome = null;            // the machine running the welcome program
     this.menuWatch = null;          // a program that goes back to the welcome menu when left (watchForMenu)
-    this.stubRun = null;            // what runs on the stub firmware and how to restart it (Reset; see `reset`)
+    // What runs on the stub firmware and how to restart it, per machine (Reset; see `reset`). Per machine because
+    // two can exist at once - the chat machine and the BASIC session beside it - and a load on one must not take
+    // away the other's restart record (review probe B: the chat's died with a load on the BASIC session).
+    this.stubRuns = new Map();
+    this.stubRun = null;            // the record for the machine in use, set by `install`; '' until there is one
     this.welcomeBuild = null;       // its build's fixed addresses (WELCOME[profile cpu])
     this.welcomeSoundOn = false;    // audio unlocked: the welcome program may play its tune
     this.tapeInfo = null;           // the tape in the deck: its block starts and length (tapeStatus)
@@ -558,6 +562,15 @@ export class Session {
     for (const d of this.diskStatus().drives) out.push({ kind: 'disk', name: d.file, drive: d.drive, stored: d.stored });
     return out;
   }
+  // Set (or clear) the stub-restart record of machine m (default: the machine in use). Kept per machine: the
+  // chat machine and the BASIC session beside it each have their own, and the one on screen reads this.stubRun.
+  setStubRun(m, rec = null) {
+    if (rec) this.stubRuns.set(m, rec); else this.stubRuns.delete(m);
+    this.stubRun = this.stubRuns.get(this.machine) || null;
+  }
+  // take away the record of every machine the chat has beside the one in use (a chat belongs to its machines):
+  // endChat/dropChat and adopt use it, where before a single this.stubRun = null was enough
+  clearStubRuns(machines) { for (const m of machines) if (m) this.stubRuns.delete(m); this.stubRun = this.stubRuns.get(this.machine) || null; }
   // make m the machine in use (the caller has its ROMs set or sets them next, and emits 'machine'). The old
   // machine's disks keep what was written to them, a tape recording still running is kept (keepRecording), its chat
   // closes and its debugger goes with it; a debugger m already has (a restored snapshot's breakpoints) becomes the
@@ -565,8 +578,9 @@ export class Session {
   adopt(m) {
     if (this.machine) { this.flushDisks(); this.keepRecording(); }   // its disks and a recording still running are kept
     this.endWelcome();
+    const chat = this.chatMachines;
     this.dropChat();                      // a chat belongs to the machine it was opened on
-    this.stubRun = null;
+    if (chat) this.clearStubRuns([chat.chat, chat.basic]);
     this.warmReset = null;                // a new machine is a power-on: the boot watchdog arms
     if (this.debugger) { this.debugger.detach(); this.debugger = null; }
     if (m.debugger) { this.debugger = m.debugger; this.debugger.setSymbols(() => this.labels); }
@@ -585,6 +599,7 @@ export class Session {
     this.keys.clear();
     if (this.debugger && this.debugger.machine !== m) { this.debugger.detach(); this.debugger = null; }
     this.machine = m;
+    this.stubRun = this.stubRuns.get(m) || null;   // the record is the machine's, not the Session's (see stubRuns)
     this.applyDisplay();
     this.acc = 0;
     this.lastRate = this.cpuRate() && this.cpuRate().rate;
@@ -830,7 +845,7 @@ export class Session {
         await this.mountDisk(0, DISK_PREFIX + name, { [HELD]: true });
       } else await this.mountDriveWire(0, name, { [HELD]: true });
       this.endWelcome();
-      this.stubRun = null;
+      this.setStubRun(mm);          // the NitrOS-9 load starts on mm (its own record, not another machine's)
       this.keys.clear();
       const kind = floppy ? 'floppy' : 'drivewire';
       mm.setRoms(Object.fromEntries(mm.profile.roms.map((x) => [x.id, x.id === 'basic' ? nitros9LoaderRom(kind) : null])));
@@ -986,7 +1001,7 @@ export class Session {
     this.endWelcome();
     this.keys.clear();
     if (again) this.restart(again);
-    else { this.stubRun = null; m.reset(false); this.warmReset = { m, resetAt: m.frameCount }; }
+    else { this.setStubRun(m); m.reset(false); this.warmReset = { m, resetAt: m.frameCount }; }
     this.acc = 0;
     this.emit('reset');
     if (!again) this.offerMenu();
@@ -1000,9 +1015,13 @@ export class Session {
   // is full screen passes that BASIC machine, so its clean restart never restarts the chat machine under the person.
   powerCycle({ menu = true, reason = 'the machine restarted', on = null } = {}) {
     const m = on || this.machine;
+    // A load on the BASIC session while the chat is open passes that session, and this stops Claude only when it is
+    // the machine Claude acts on (stopClaudeFor's own rule: chatTarget()). In the full-screen chat that IS the BASIC
+    // session, so a load there stops Claude (as before); in the side panel the conversation acts on the machine it
+    // runs beside, so its reply goes on - the decision this makes deliberate rather than incidental.
     this.stopClaudeFor(reason, m);
     this.endWelcome();
-    this.stubRun = null;
+    this.setStubRun(m);
     this.keys.clear();
     this.flushDisks();
     // a power cycle keeps what is inserted, as on real hardware, so the Pak's option decides it again from the
@@ -1015,7 +1034,9 @@ export class Session {
   }
   // no ROMs, nothing running: the welcome menu, greeting the visitor back (the page has its bytes)
   offerMenu() {
-    const m = this.machine;
+    // the person's machine (personMachine): a Reset after a load on the chat screen used to offer the welcome menu
+    // to the CHAT machine, which never runs it, and the page acted on that (review probe B)
+    const m = this.personMachine;
     if (this.welcomeMenu && m.useStub && WELCOME[cpuFamily(m.config.cpu)]) this.emit('menu', 'back');
   }
   // run segments at exec (Machine.injectAndRun), remembering them as the stub's program to restart on Reset.
@@ -1028,14 +1049,14 @@ export class Session {
     this.stopClaudeFor('you started a program', m);   // (as loadMedia: a program run with ROMs is not a reset)
     m.injectAndRun(segments, exec);
     // (keyed by the machine it ran on, so Reset restarts it only on that machine: Session.reset checks stubRun.m)
-    this.stubRun = m.useStub && exec != null
-      ? { m, segments: segments.map((s) => ({ addr: s.addr, data: s.data.slice() })), exec, watch: null, welcome: null } : null;
+    this.setStubRun(m, m.useStub && exec != null
+      ? { m, segments: segments.map((s) => ({ addr: s.addr, data: s.data.slice() })), exec, watch: null, welcome: null } : null);
   }
   // start a stub program again from its entry point: the welcome menu as it was, or the bytes and exec address
   restart(r) {
     if (r.welcome) { this.startWelcome(r.welcome.bytes, r.welcome); return; }
     this.machine.injectAndRun(r.segments, r.exec);
-    this.stubRun = r;
+    this.setStubRun(this.machine, r);
     if (r.watch) this.watchForMenu(r.watch);
   }
   // after a hard reset: the firmware may have changed (ROMs or the stub) and the SAM rate is back to slow
@@ -1114,18 +1135,21 @@ export class Session {
     this.checkNotMoving();
     this.roms.clear(this.machine.id);
     this.loadSavedRoms();
-    this.stubRun = null;
+    this.setStubRun(this.machine);
     this.machine.reset(true);
     this.emit('roms');
     this.poweredOn();
     this.offerMenu();
   }
-  // run the built-in stub firmware on the machine in use (also when ROMs are loaded)
+  // Run the built-in stub firmware on the machine the person is working on (personMachine: the BASIC session while
+  // the chat is full screen), also when ROMs are loaded. The load's fall-back for stored ROMs that do not start
+  // BASIC calls this; with this.machine it stripped the CHAT machine's ROMs and power cycled the chat, which left
+  // its screen on "NO ROM LOADED" (review probe A).
   runWithoutRoms({ menu = true } = {}) {
-    const m = this.machine;
+    const m = this.personMachine;
     m.setRoms(Object.fromEntries(m.profile.roms.map((x) => [x.id, null])));
     this.stubChosen.add(m.id);
-    this.powerCycle({ menu });
+    this.powerCycle({ menu, on: m });
     this.emit('roms');
   }
   // ROM pack: all stored ROMs as one local ZIP file -> { name, bytes }
@@ -2256,17 +2280,23 @@ export class Session {
     return { name: m.name.split('/').pop(), bytes: m.bytes.slice() };
   }
 
-  // Where a file the person loads (dropped, picked, from a link) goes: the BASIC session, which is the machine in
-  // use except while the Claude chat is full screen. The chat machine runs the chat firmware (examples/chat.bin),
-  // and a tape or program loaded into it overwrote that firmware's RAM and took the chat screen away, with a
-  // message saying the load had worked. The person's files are for their BASIC session, which Claude acts on too
-  // (chatTarget): a load lands there, and the chat stays on screen as it was. -> { m, why }, why being what the
-  // load's message says when the target is not the machine in use ('' when it is).
+  // The machine EVERY person-facing media, tape, cartridge, poke and welcome action acts on. The machine in use,
+  // except while the Claude chat is full screen: then the chat machine is on screen (the chat firmware), and the
+  // person's own machine is the BASIC session kept beside it (chatTarget()). Anything the person does with a file,
+  // a tape, the deck's controls, a cartridge, the POKE book or the welcome program goes to this machine, never to
+  // the chat machine: a load or a power cycle there overwrote the chat firmware and took the chat screen away. The
+  // machine-internal paths (the frame loop, the shown screen, the keyboard, the display, the chat itself) keep using
+  // this.machine, and say so where they do. One target, read here, rather than an `on:` argument threaded through
+  // each caller - which is what made the first cut of this fix patchy.
+  get personMachine() {
+    const c = this.chatMachines;
+    return c && this.machine === c.chat && c.basic !== this.machine ? c.basic : this.machine;
+  }
+  // where a file the person loads goes: the same machine, and what the load's message says when that is not the
+  // machine in use ('' when it is).
   loadTarget() {
-    const m = this.machine;
-    if (this.chatMachines && m === this.chatMachines.chat && this.chatMachines.basic !== m) {
-      return { m: this.chatMachines.basic, why: 'Loaded into your BASIC session, which is what runs behind the chat. ' };
-    }
+    const m = this.personMachine;
+    if (m !== this.machine) return { m, why: 'Loaded into your BASIC session, which is what runs behind the chat. ' };
     return { m, why: '' };
   }
   needsRom(what) { return new SessionError(`${what} needs the ${this.machine.profile.name} BASIC ROM. Load the ROM files first.`); }
@@ -2338,7 +2368,7 @@ export class Session {
     // held is typed into the program; a load that is refused or cancelled leaves Claude alone
     const takeOver = () => { this.cancelLoadTyping(m); this.stopClaudeFor('you loaded a program', m); };
     this.endWelcome();
-    this.stubRun = null;
+    this.setStubRun(m);     // the load starts something on THIS machine; the other machine's record is untouched
     const media = detectMedia(name, bytes);
     if (media.kind === 'disk') {
       throw new SessionError(`${name}: ${media.format}${media.family ? ` for a ${FAMILY_NAMES[media.family]}` : ''}. Disk images go in a disk drive, not into memory.`);
@@ -2385,8 +2415,11 @@ export class Session {
           // goes back to running without ROMs and the tape goes into memory there, as it did before
           if (again && this._bootStatusOf(m).state !== 'ok') {
             this.runWithoutRoms({ menu: false });
+            // remembered BEFORE the ASCII refusal throws: otherwise every ASCII drop re-tried the ROMs (a full
+            // restart and 5 s of emulated time each) for ROMs already known not to start BASIC (review probe C)
+            const refused = this.bootFailedThis(m, name);
             if (ascii) throw new SessionError(`${name}: your stored ${m.profile.name} ROMs did not start BASIC, and an ASCII BASIC tape needs it.`);
-            note = this.bootFailedThis(m, name);
+            note = refused;
           } else {
             m.deck.insert(tape);
             if (first.fileType === 2) {
@@ -2458,7 +2491,7 @@ export class Session {
   // switchSlot is the front-panel switch (1-4), the slot whose ROM shows at reset. MAME fits a disk controller in
   // slot 4 only (the one compared with it); the Multi-Pak routes every slot alike, so any slot takes one here.
   insertMultiPak(items, { switchSlot = 4 } = {}) {
-    const m = this.machine;
+    const m = this.personMachine;
     this.endWelcome();
     if (!m.hasCartridgePort) throw new SessionError(`A Multi-Pak needs a cartridge port; the ${m.profile.name} has none`);
     if (!this.hasMultiPak) throw new SessionError(`The Multi-Pak is not verified on the ${m.profile.name} yet; it is offered on the machines it was compared with MAME on`);
@@ -2479,7 +2512,7 @@ export class Session {
       }), { switchSlot });
     } catch (e) { throw new SessionError(`Multi-Pak: ${e.message}`); }
     this.flushDisks();
-    const msg = this.startCartridge(mp, `Multi-Pak (${names.map((n, i) => `${i + 1}: ${n}`).join(', ')})`);
+    const msg = this.startCartridge(mp, `Multi-Pak (${names.map((n, i) => `${i + 1}: ${n}`).join(', ')})`, m);
     if (dos.length) this.store.set(`diskDos.${machineFamily(m.profile)}`, dos[0].dos);
     this.emit('loaded');
     this.emit('disks');
@@ -3067,6 +3100,7 @@ export class Session {
     if (!this.chat) return;
     if (this.claudePending) this.claudePending.resolve(false);
     this.chat.abort();
+    if (this.chatMachines) this.clearStubRuns([this.chatMachines.chat, this.chatMachines.basic]);
     this.chat = null; this.chatMachines = null; this.chatView = null; this.chatServer = null;
     this.endClaudePause();
     this.claudeView = null; this.claudeActing = null; this.claudePending = null; this.claudePaused = null; this.claudeTool = null; this.claudeCall = null;
@@ -3205,7 +3239,7 @@ export class Session {
   }
   // insert a tape for a manual CLOAD / CLOADM: .CAS bytes, or a WAV recording (decoded to .CAS)
   insertTape(name, bytes) {
-    const m = this.machine, d = formats.identify(name, bytes);
+    const m = this.personMachine, d = formats.identify(name, bytes);
     if (d.kind === 'wav') throw new SessionError(d.error ? `${name}: ${d.error}` : `${name}: no tape blocks found in this recording`);
     m.deck.insert(new Tape(d.kind === 'cas' ? d.bytes : bytes, m.tickHz, name, m.profile.tape));
     this.emit('tape');
@@ -3213,21 +3247,21 @@ export class Session {
   }
   // the tape in the deck as a WAV file (its signal: one sine cycle per bit) -> { name, bytes }
   tapeWav() {
-    const t = this.machine.deck.tape;
+    const t = this.personMachine.deck.tape;
     if (!t) throw new SessionError('There is no tape in the deck.');
-    const p = this.machine.profile.tape || {};
+    const p = this.personMachine.profile.tape || {};
     return { name: t.name.replace(/\.[^.]*$/, '') + '.wav', bytes: casToWav(t.bytes, { zeroHz: p.zeroHz, oneHz: p.oneHz }) };
   }
 
   // ---------------- recording what the machine writes to tape (CSAVE, CSAVEM, your own writer) ----------------
-  get tapeRecording() { return !!this.machine.deck.recording; }
+  get tapeRecording() { return !!this.personMachine.deck.recording; }
   startTapeRecording() {
-    this.machine.deck.startRecording();
+    this.personMachine.deck.startRecording();
     return 'Recording the cassette output: CSAVE or CSAVEM now.';
   }
   // -> { cas, wav, blocks, badBlocks, seconds }: .CAS bytes decoded from what was written, and the signal itself
   stopTapeRecording(sampleRate = 44100) {
-    const m = this.machine, events = m.deck.stopRecording(), p = m.profile.tape || {};
+    const m = this.personMachine, events = m.deck.stopRecording(), p = m.profile.tape || {};
     const samples = recordingToSamples(events, m.tickHz, sampleRate);
     const r = samplesToCas(samples, sampleRate, { zeroHz: p.zeroHz, oneHz: p.oneHz });
     return { cas: r.bytes, wav: writeWav(samples, sampleRate), blocks: r.blocks, badBlocks: r.badBlocks, seconds: samples.length / sampleRate };
@@ -3243,7 +3277,7 @@ export class Session {
     this.unsavedRecording = Object.assign(r, { machine: this.machine.profile.name });
     this.emit('recording');
   }
-  rewindTape() { const t = this.machine.deck.tape; if (t) t.seekByte(0); this.tapeWatch = null; return !!t; }
+  rewindTape() { const t = this.personMachine.deck.tape; if (t) t.seekByte(0); this.tapeWatch = null; return !!t; }
 
   // ---------------- the cassette panel ----------------
   // What the deck is doing -> null without a tape, else { name, block, blocks, progress, seconds, duration,
@@ -3253,7 +3287,7 @@ export class Session {
   // number where BASIC stopped with ?IO ERROR: a run of the motor that ends with that on the last lines of
   // the screen (the ROM's own report, so it needs the text screen of a Dragon, CoCo 1/2 or MC-10).
   tapeStatus() {
-    const m = this.machine, deck = m.deck, t = deck.tape;
+    const m = this.personMachine, deck = m.deck, t = deck.tape;
     if (!t) { this.tapeWatch = null; return null; }
     deck.sync();
     if (!this.tapeInfo || this.tapeInfo.tape !== t) {
@@ -3280,7 +3314,7 @@ export class Session {
   // .CAS name (.C10 / .K7 kept: the same block format); what would make the load fail is checked before the power
   // cycle, which takes the tape out, so a refused skip leaves the tape where it was.
   skipTape() {
-    const m = this.machine, t = m.deck.tape;
+    const m = this.personMachine, t = m.deck.tape;
     if (!t) throw new SessionError('There is no tape in the deck.');
     const ext = (t.name.split('.').pop() || '').toLowerCase();
     const name = /^(cas|c10|k7)$/.test(ext) ? t.name : `${t.name.replace(/\.[^.]*$/, '')}.cas`;
@@ -3348,7 +3382,7 @@ export class Session {
   }
 
   // ---------------- real time ----------------
-  get tapeRunning() { return this.fastTape && this.machine.deck.playing; }
+  get tapeRunning() { return this.fastTape && this.personMachine.deck.playing; }
   // run the frames due after `ms` of real time; onFrame(machine) after each paced frame (audio).
   // Flat out (turbo, fast tape) runs for at most `budgetMs`. Returns the number of frames run.
   advance(ms, { onFrame = null, budgetMs = 14, now = () => Date.now() } = {}) {

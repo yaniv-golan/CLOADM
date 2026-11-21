@@ -42,8 +42,8 @@ const backend = (text = 'ok') => new Emu.ClaudeBackend({ fetch: async () => new 
 // leader, a header block (type 0) naming the file, data blocks (type 1), then the end block. This is the shape
 // tests/tape-load.test.js builds; it is not taken from any commercial tape.
 const block = (type, data) => { let s = (type + data.length) & 255; for (const d of data) s = (s + d) & 255; return [0x3C, type, data.length, ...data, s, 0x55]; };
-function casTape({ name = 'TEST', load = 0x0300, exec = 0x0300, data = [0x20, 0xFE], gap = 128 } = {}) {
-  const nf = [...Buffer.from((name + '        ').slice(0, 8)), 2, 0, 0, exec >> 8, exec & 255, load >> 8, load & 255];
+function casTape({ name = 'TEST', load = 0x0300, exec = 0x0300, data = [0x20, 0xFE], gap = 128, fileType = 2, ascii = false } = {}) {
+  const nf = [...Buffer.from((name + '        ').slice(0, 8)), fileType, ascii ? 0xFF : 0, 0, exec >> 8, exec & 255, load >> 8, load & 255];
   const out = [...new Array(128).fill(0x55), ...block(0, nf), ...new Array(gap).fill(0x55)];
   for (let i = 0; i < data.length; i += 255) out.push(...block(1, data.slice(i, i + 255)));
   out.push(...block(0xFF, []));
@@ -102,18 +102,22 @@ const newSession = (id = 'dragon64') => { const s = new Emu.Session({ store: Emu
     `${cartMsg}; basic cart=${!!basic2.cartPort} chat cart=${!!s2.chatMachines.chat.cartPort}`);
 }
 
-// the same for a disk image, which goes into a drive (the Session's, not the machine's, but the message and the
-// refusal path must name the BASIC session too): refused identically on the chat and on the BASIC session, and the
-// chat's RAM is untouched
+// the same for a disk image, which goes into a drive: the refusal must name the PERSON's machine, and the chat's RAM
+// is untouched. The disk has to be a real image to reach the routing at all - a garbage file is refused by
+// detectMedia before any machine is looked at, which is why the old version of this check passed on main.
 {
-  const s = newSession(); dragonRoms(s); frames(s, 10);
+  const s = newSession('dgnalpha'); frames(s, 5);
   chatOn(s);
   const chatM = s.chatMachines.chat, before = chatM.ram.slice();
-  // no disk controller: the drop is refused, and the refusal must be the same one the machine in use gives
-  const why = (() => { try { s.load('disk.vdk', new Uint8Array(0x1000)); return 'loaded'; } catch (e) { return e.message; } })();
-  check('1 a disk dropped on the chat screen is refused as a disk, never fast-loaded into the chat', /Disk images go in a disk drive/.test(why),
-    why);
+  // a real VDK image; the Dragon Alpha has its disk interface built in, so the mount can go either machine's way
+  await s.importDisk('real.vdk', Emu.blankDisk('vdk', 40, 1), 0);
+  check('1 a disk dropped on the chat screen is mounted in the person\'s drives', s.diskStatus().drives.length === 1
+    && s.diskControllerOf(s.chatMachines.basic).drives[0].loaded && !s.diskControllerOf(chatM).drives[0].loaded,
+    JSON.stringify(s.diskStatus().drives));
   check('1 ...and the chat firmware is untouched by it', before.every((v, i) => v === chatM.ram[i]));
+  // a garbage file is still refused as a disk, before any machine
+  const why = (() => { try { s.load('disk.vdk', new Uint8Array(0x1000)); return 'loaded'; } catch (e) { return e.message; } })();
+  check('1 a file that only looks like a disk is refused before any machine is touched', /Disk images go in a disk drive/.test(why), why);
 }
 {
   // the Dragon Alpha has a built-in disk interface, so with the chat full screen both machines have a controller:
@@ -185,6 +189,95 @@ const newSession = (id = 'dragon64') => { const s = new Emu.Session({ store: Emu
   const msg = s.load('b.cas', bad);
   check('2 a ROM change (Forget ROMs, then new ROMs) clears the mark: the good ROMs are used again',
     /Using your ROMs again/.test(msg), msg);
+}
+{
+  // the key is the ROM CRCs, and ONLY they: change the stored bytes without a power cycle or a machine switch (a
+  // second drop of a different ROM image, replacing the first), and the mark from the old CRC must not apply. This is
+  // the part the Forget-ROMs case above cannot reach, since clearRoms calls poweredOn() and empties the set anyway.
+  const s = newSession('dragon32');
+  s.addRoms([{ name: 'a.rom', bytes: new Uint8Array(16 * 1024).fill(0x39) }]);
+  frames(s, 5 * 50 + 2);
+  s.runWithoutRoms({ menu: false });
+  s.load('a.cas', casTape());                    // tries the first image, fails, marks its CRC
+  const marked = [...s.bootFailed];
+  check('2 (CRC) the first image is marked', marked.length === 1, marked.join());
+  // replace it with a different image, with no power cycle: addRoms does power cycle (a ROM change is one), so go
+  // through the library directly as a second socket write would, then reload onto the machine
+  s.addRoms([{ name: 'b.rom', bytes: new Uint8Array(16 * 1024).fill(0x41) }]);
+  const key = s.bootKey(s.machine);
+  check('2 (CRC) the key follows the ROM bytes, not just the machine', key !== marked[0] && !s.bootFailed.has(key), `${key} vs ${marked.join()}`);
+}
+{
+  // review probe C: an ASCII BASIC tape with the failing ROMs. The refusal must still remember the failure - once,
+  // not on every drop - or each ASCII drop pays the whole restart and 5 s again.
+  const s = newSession('dragon32');
+  s.addRoms([{ name: 'wrong.bin', bytes: new Uint8Array(16 * 1024).fill(0x39) }]);
+  frames(s, 5 * 50 + 2);
+  s.runWithoutRoms({ menu: false });
+  let fw = 0; s.on((ev) => { if (ev === 'firmware') fw++; });
+  const asc = casTape({ fileType: 0, ascii: true, data: [...Buffer.from('10 PRINT 1\r')] });
+  const throws = (f) => { try { f(); return null; } catch (e) { return e.message; } };
+  const e1 = throws(() => s.load('a.cas', asc)), f1 = fw;
+  check('2 (ASCII) the first ASCII drop is refused and its ROMs are tried', /did not start BASIC, and an ASCII BASIC tape needs it/.test(e1 || ''), e1);
+  check('2 (ASCII) ...and the failure is remembered', s.bootFailed.size === 1, [...s.bootFailed].join());
+  const f0 = fw;
+  throws(() => s.load('b.cas', asc));
+  check('2 (ASCII) the second ASCII drop does not restart into them again', fw - f0 === 0, `${fw - f0} firmware events (first drop: ${f1})`);
+}
+{
+  // review probe A: the load's fall-back with the failing ROMs, on the chat screen, must not touch the chat machine
+  const s = newSession('dragon32');
+  s.addRoms([{ name: 'wrong.bin', bytes: new Uint8Array(16 * 1024).fill(0x39) }]);
+  frames(s, 5 * 50 + 2);
+  s.runWithoutRoms({ menu: false });
+  chatOn(s);
+  const chatM = s.chatMachines.chat, before = chatM.ram.slice();
+  s.load('t.cas', casTape());
+  check('1 (probe A) the failing-ROM fall-back leaves the chat machine untouched', before.every((v, i) => v === chatM.ram[i])
+    && chatM.useStub === true && s.chatMachines.basic.useStub === true && !s.chatMachines.basic.hasRom,
+    `chat useStub ${chatM.useStub} basic useStub ${s.chatMachines.basic.useStub}`);
+}
+{
+  // review probe B: a drop on the chat screen, then Reset, must not take the chat's screen away (its own stub
+  // program's restart record is the chat machine's, not the Session's single one)
+  const s = newSession('dragon32'); frames(s, 5);
+  chatOn(s); frames(s, 10);
+  const chatM = s.chatMachines.chat, screenBefore = s.screenText(chatM).slice(0, 3).join('|');
+  s.load('p.bin', BINARY);
+  check('1 (probe B) the chat keeps its own restart record after a load on the BASIC session', s.stubRun && s.stubRun.m === chatM,
+    s.stubRun ? (s.stubRun.m === chatM ? 'chat' : 'other') : 'null');
+  let menus = 0; s.on((e) => { if (e === 'menu') menus++; });
+  s.reset(); frames(s, 20);
+  check('1 (probe B) Reset leaves the chat screen as it was, with no menu offered', s.screenText(chatM).slice(0, 3).join('|') === screenBefore && menus === 0,
+    `${s.screenText(chatM).slice(0, 3).join('|')} menus=${menus}`);
+}
+{
+  // review probe D: the deck controls and the Multi-Pak are the person's, not the chat machine's
+  const s = newSession('dragon32'); frames(s, 5);
+  chatOn(s);
+  s.insertTape('x.cas', casTape());
+  check('1 (probe D) insertTape goes into the BASIC session\'s deck', !!s.chatMachines.basic.deck.tape && !s.chatMachines.chat.deck.tape);
+  const st = s.tapeStatus();
+  check('1 (probe D) tapeStatus describes that tape (not null), and rewindTape reaches it', st && st.name === 'x.cas' && s.rewindTape() === true,
+    JSON.stringify(st).slice(0, 80));
+  s.insertMultiPak([{ name: 'c.rom', bytes: new Uint8Array(0x2000).fill(0x39) }]);
+  check('1 (probe D) the Multi-Pak goes into the BASIC session\'s port', !!s.chatMachines.basic.cartPort && !s.chatMachines.chat.cartPort,
+    `basic ${s.chatMachines.basic.cartPort && s.chatMachines.basic.cartPort.constructor.name} chat ${s.chatMachines.chat.cartPort && s.chatMachines.chat.cartPort.constructor.name}`);
+}
+{
+  // offerMenu (review probe B's other half), where this.machine and the person's machine DISAGREE about the stub.
+  // The chat machine is given ROMs (a switch or a restore can do that); the BASIC session is on the stub by choice.
+  // Run without ROMs on the person's machine, then a person-side power cycle: the menu is for the BASIC session,
+  // never for the chat machine, which does not run the welcome program (its screen is the chat firmware).
+  const s = newSession('dragon32'); frames(s, 5);
+  chatOn(s); frames(s, 5);
+  const chatM = s.chatMachines.chat, basic = s.chatMachines.basic;
+  chatM.setRoms({ basic: new Uint8Array(0x4000).fill(0x12) });   // the chat machine now has ROMs: no stub, no menu
+  check('1 (offerMenu) the two machines disagree about the stub', chatM.useStub === false && basic.useStub === true,
+    `chat ${chatM.useStub} basic ${basic.useStub}`);
+  let menus = 0; s.on((e) => { if (e === 'menu') menus++; });
+  s.powerCycle({ menu: true, on: basic });
+  check('1 (offerMenu) the menu is offered for the person\'s machine, not the chat', menus === 1, `menus ${menus}`);
 }
 
 // =====================================================================================
