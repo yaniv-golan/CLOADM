@@ -196,14 +196,47 @@ const A = () => images.vdk(40, 1), B = () => images.vdk(26, 1);
     }
   }
   {
-    // A rename that FAILS lands nothing (the name is not taken), so a later creation of that name is not refused as
-    // a second creation: it is simply the first to take it.
+    // A rename that FAILS lands nothing (the name is not taken), so a creation queued BEHIND it is not refused as a
+    // second creation: it is simply the first to take the name. The import is asked BEFORE the failing rename is
+    // awaited, while its turn is still queued -- asked afterwards the test would pass with the rename landing in a
+    // finally, even on failure, and could not tell the two apart.
     const media = new MemoryMediaStore();
     const s = await session(media);
-    const rn = await q(s.renameMedia('disks/gone.vdk', 'disks/wanted.vdk'));   // the source is not there: it fails
-    const im = await q(s.importMedia('wanted.vdk', B()));
+    const rnP = q(s.renameMedia('disks/gone.vdk', 'disks/wanted.vdk'));   // the source is not there: it will fail
+    const imP = q(s.importMedia('wanted.vdk', B()));                      // queued behind it, before it is awaited
+    const [rn, im] = [await rnP, await imP];
     check('3. a rename that failed does not land the name it never took',
       !rn.ok && im.ok && same(await read(media, 'disks/wanted.vdk'), B()), `${rn.m} | ${im.m || 'refused'}`);
+  }
+  {
+    // The claim is COUNTED, and that is pinned at its own contract rather than through a race. A rename cannot see
+    // the difference from outside: it always queue behind every creation turn (createExclusive), so a claim wrongly
+    // released while another creation of the name is in flight is masked by the turn. This checks the contract the
+    // Session relies on directly: two claims of one name, one release, and the name is still claimed; a second
+    // release frees it. A Set (or a Map set to 1) fails the middle step.
+    const s = await session(new MemoryMediaStore());
+    s.claimDiskName('disks/x.vdk');
+    s.claimDiskName('disks/x.vdk');
+    s.releaseDiskName('disks/x.vdk');
+    check('3. one release does not free a name two creations hold', s.claimedDiskName('disks/x.vdk'));
+    s.releaseDiskName('disks/x.vdk');
+    check('3. ... and the second release does', !s.claimedDiskName('disks/x.vdk'));
+  }
+
+  {
+    // A rename VACATES its source: A->X then X->Y leaves x.vdk free, so an import of it asked behind both must be
+    // allowed (it used to refuse, naming x.vdk, because A->X had landed x.vdk and nothing ever un-landed it). The
+    // refusal there was safe but wrong: the name was free.
+    const media = new MemoryMediaStore();
+    const s = await session(media);
+    await media.writeSync('disks/a.vdk', A());
+    const r1 = q(s.renameMedia('disks/a.vdk', 'disks/x.vdk'));
+    const r2 = q(s.renameMedia('disks/x.vdk', 'disks/y.vdk'));
+    const im = q(s.importDisk('x.vdk', B(), 1));
+    const [a, b, c] = [await r1, await r2, await im];
+    check('3. a rename that vacated a name frees it for a creation queued behind',
+      a.ok && b.ok && c.ok && same(await read(media, 'disks/x.vdk'), B()) && same(await read(media, 'disks/y.vdk'), A()),
+      `${a.m || ''} | ${b.m || ''} | ${c.m || 'refused'}`);
   }
 
   // ---------------- 4. a move retargets every DriveWire server the Session made ----------------

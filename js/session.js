@@ -1594,7 +1594,7 @@ export class Session {
     for (let i = this.pendingLands.length - 1; i >= 0; i--) {
       const p = this.pendingLands[i];
       if (p.at <= askedAt) break;
-      if (this.sameName(p.name, full)) return p.name;
+      if (this.sameName(p.name, full)) return p.vacated ? null : p.name;
     }
     return null;
   }
@@ -1602,6 +1602,13 @@ export class Session {
   creationLanded(full) {
     this.landing++;
     this.pendingLands.push({ name: full, at: this.landing });
+  }
+  // a rename moved an image AWAY from `full`: the name is free again, so a creation waiting behind it must not read
+  // an earlier landing of that name as still taken (A->X then X->Y leaves x.vdk free for an import behind both).
+  // Recorded as a landing of a name that is no longer there, which landedRace treats as "not taken" by this one.
+  nameVacated(full) {
+    this.landing++;
+    this.pendingLands.push({ name: full, vacated: true, at: this.landing });
   }
   // Does this library treat GAME.DSK and game.dsk as one name? The store's own settled answer wins: a real
   // backend measures itself inside every list() (js/host/media-store-fsa.js _case), so the store can be settled by
@@ -1683,8 +1690,9 @@ export class Session {
       const r = await this.libraryOp(() => (src.startsWith(DISK_PREFIX) ? this.diskStoreChange(op, [src, dst]) : op()));
       // the rename took `dst`: land it, so a creation queued behind this one sees the name as taken (landedRace)
       // and refuses, rather than reading it as a deliberate replace and writing its own bytes over the renamed
-      // image. Landed only on success: a rename that failed took nothing.
-      if (claim) this.creationLanded(dst);
+      // image. And it vacated `src`: a creation queued behind must not read an earlier landing of that name as
+      // still taken. Both only on success: a rename that failed took nothing and vacated nothing.
+      if (claim) { this.creationLanded(dst); this.nameVacated(src); }
       return r;
     };
     try {

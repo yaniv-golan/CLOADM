@@ -168,10 +168,14 @@ export class DriveWireServer {
   // that is not there holds nothing.
   async claimName(name, run) {
     const key = this.claimKey(name);
-    while (this.claims.has(key)) await this.claims.get(key).catch(() => {});
+    // the map this claim was TAKEN in, captured once: `this.claims` follows the drives, so a drives reassignment
+    // while the claim is held would otherwise release into the new map and leave the entry behind in the old one
+    // (not reachable today -- the drives are set right after construction -- but a claim must free what it took)
+    const claims = this.claims;
+    while (claims.has(key)) await claims.get(key).catch(() => {});
     let release;
-    this.claims.set(key, new Promise((r) => { release = r; }));
-    try { return await run(); } finally { this.claims.delete(key); release(); }
+    claims.set(key, new Promise((r) => { release = r; }));
+    try { return await run(); } finally { claims.delete(key); release(); }
   }
   eject(drive) { if (this.lease === drive) this.lease = null; return this.drives.delete(drive); }
   get mounts() { return [...this.drives.entries()].sort((a, b) => a[0] - b[0]).map(([drive, d]) => ({ drive, name: d.name, writeProtected: d.writeProtected })); }
@@ -342,16 +346,16 @@ export class DriveWireServer {
         // the same claim a mount takes (claimName): the duplicate scan above ran before the first await, so without
         // it the user's mount of this image could land in the stat's gap and leave two drives on the file
         await this.claimName(name, async () => {
-          // the scan above ran before this claim and can be stale: a mount of the same image (the user's, or
-          // another guest's) may have landed in between. Re-scan INSIDE the claim, which is what closes the window.
-          for (const [n, d] of this.drives) if (this.sameStoredName(d.name, name)) return reply(n);
           const st = await this.store.stat(name);
           // the stat awaited: a move can have begun since. A mount hands the guest a drive it then writes through
           // (Write, SetStat), so it must not come out of here onto a store the copy has left. Refused now, with the
           // same reply(0). (A create needs no check here: it ran as one Library operation, which the move waits for.)
           if (this.mayWrite && !this.mayWrite()) return reply(0);
           if (!st) return reply(0);
-          // and again: the stat awaited, so a mount can have landed since the re-scan too
+          // The scan above ran before this claim and is stale now; this is the one that matters, and the last await
+          // before the drive is set, so nothing can land between. (No second scan is needed anywhere: every
+          // drives.set runs inside a claim -- here, mount(), and the create arm -- so a claim holder is the only
+          // thing that can take a drive, and it took it only after its own scan.)
           for (const [n, d] of this.drives) if (this.sameStoredName(d.name, name)) return reply(n);
           let free = 0;
           for (let n = 255; n >= 1 && !free; n--) if (!this.drives.has(n)) free = n;

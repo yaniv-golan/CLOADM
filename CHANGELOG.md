@@ -30,6 +30,11 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   deliberate replace and wrote its own bytes over the renamed image. Every creation now records what it stored - a
   rename only when it succeeds - and the one queued behind it refuses as a second creation of that name.
 
+- **A name a rename moved an image away from is free again.** `A.vdk` renamed to `X.vdk`, then `X.vdk` to `Y.vdk`,
+  left `x.vdk` recorded as taken, so an import of that name queued behind both was refused ("There is already a disk
+  named x.vdk") although the name was free. A rename now records the name it vacated, and the creation queued behind
+  takes it. (Safe before - nothing was overwritten - but wrong.)
+
 - **A guest's DriveWire mount can no longer take a second drive on an image another mount is taking.** The named
   object's duplicate scan ran before it claimed the name and never again inside the claim, so a guest mount
   overlapping the user's mount left two drives writing one file (this had passed before the claim was added). Every
