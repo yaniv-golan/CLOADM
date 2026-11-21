@@ -265,6 +265,13 @@ Next version: 0.1.7-pre (the plugin and extension manifests carry it; `tests/plu
 
 #### Fixed
 
+- **Dragon 64 Plus: `$FFE2` = `$04` is the motherboard RAM, and the 32-column screen never shows a bank.** Following
+  Harvey-Smith's traced schematic of the board (owner-supplied research; the schematic has known drawing errors),
+  bit 2 of `$FFE2` only picks bank A or B, so `$04` (and `$05`, with the video RAM) now selects the motherboard RAM
+  instead of leaving the previous bank; and the MC6847 now always fetches from the motherboard RAM, whatever bank or
+  video RAM the CPU has selected. MAME 0.264 agrees in outcome (`run.js d64plus --paging [--video]`, identical to
+  HALT and in every pixel); under `config.mameCompat` the register keeps MAME's decode. `tests/d64plus.test.js`.
+
 - **A write from outside the CPU no longer runs in the middle of a held I/O access.** On the CoCo 3 an instruction
   the disk controller's HALT suspended asks the scheduler to pump its events at the held access's time; the
   debugger's memory write made from a host handler reaching the bus in that window ran in a machine state no instruction

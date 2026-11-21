@@ -4,6 +4,7 @@
 //   trace()  - lockstep to HALT on our own firmware installed in the two BASIC ROM sockets, which is the
 //              Dragon 64's diag.asm: a Dragon 64 Plus is one until software touches $FFE0-$FFE2, so this
 //              proves the base machine (CPU, both PIAs, SAM, VDG, ACIA, ROM banks) is the 64's.
+//   paging() - paging.asm without mameCompat: $FFE2 = $04 is the motherboard RAM, and the VDG never sees a bank.
 //   plus()   - our 80-column firmware (plus.asm): programs the HD6845S, writes characters into the video
 //              RAM bank through $FFE2, switches banks, and halts; the trace (every CRTC register access and
 //              every $FFE2 bank write) is compared instruction for instruction.
@@ -91,6 +92,12 @@ module.exports = {
   // writes the video RAM and sets R1, R6, R9 and R12/R13 for each screen, then puts text on the MC6847 screen
   plusText(profileId, { regenerate = true, config = {}, work = `/tmp/mame-diff/${profileId}-plustext`, chargen } = {}) {
     return run(profileId, 'plustext.asm', { regenerate, config, work, seconds: 12, instructions: 500000, generator: path.join(__dirname, 'text-screens.js'), chargen });
+  },
+  // the paging the Harvey-Smith traced schematic gives where MAME 0.264's outcome is the same (paging.asm): $04
+  // after bank A or B is the motherboard RAM, and the VDG never sees a bank. Ours runs WITHOUT mameCompat, so the
+  // banks reach memory on our side and the comparison shows the CPU and the VDG still reach the motherboard RAM.
+  paging(profileId, { config = {}, work = `/tmp/mame-diff/${profileId}-paging` } = {}) {
+    return run(profileId, 'paging.asm', { config: Object.assign({ mameCompat: false }, config), work, seconds: 10, instructions: 1500000 });
   },
   REGS,
 };

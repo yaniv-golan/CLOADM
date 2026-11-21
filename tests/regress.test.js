@@ -146,6 +146,10 @@ cases.push(['trace d64plus plus.asm', () => traceHash(spec('d64plus').plus('d64p
 // the 80-column text screens of the screen-text reader (plustext.asm, run.js d64plus --plustext; its pictures with
 // --plustext --video), also under mameCompat; the reader itself is tested in tests/d64plus-screen-text.test.js
 cases.push(['trace d64plus plustext.asm', () => traceHash(spec('d64plus').plusText('d64plus', { regenerate: false }))]);
+// the $FFE2 paging of the Harvey-Smith traced schematic where MAME 0.264's outcome is the same (paging.asm, run.js
+// d64plus --paging; its VDG pictures with --paging --video), WITHOUT mameCompat: $04 is the motherboard RAM and the
+// VDG never sees a bank
+cases.push(['trace d64plus paging.asm', () => traceHash(spec('d64plus').paging('d64plus'))]);
 for (const id of ['dragon64', 'coco', 'coco2b']) cases.push([`video ${id}`, () => videoHash(spec('sam').video(id))]);
 // SAM CPU rate: MAME-verified with config.mameCompat (run.js --rate / --ops), XRoar-verified without it
 // (sam/run-xroar.js); fast-rate video without it (sam/run-fastvid.js, data sheet model)

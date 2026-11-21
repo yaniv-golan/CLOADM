@@ -39,7 +39,7 @@ What each machine's comparison with MAME 0.264 showed when it was verified (the 
 | Machine | Instruction trace (registers and cycles) | Display modes | Mid-line changes (`--raster`) |
 |---|---|---|---|
 | Dragon 64 | 1,028,156 instructions identical, HALT reached | 20/20 identical, PAL colour blending included | 17/17 identical |
-| Dragon 64 Plus | identical, HALT reached: 1,016,256 instructions (the base machine), 1,177,312 (the 80-column board) and 334,449 (the 80-column text screens), under `mameCompat`; the bank register from Compusense's technical notes (see below) | the 80-column screen 640 x 264 identical, but on 0.264 its video RAM is never written (see below); the six 80-column text screens identical, every pixel, with the video RAM put into MAME's share by the harness | – |
+| Dragon 64 Plus | identical, HALT reached: 1,016,256 instructions (the base machine), 1,177,312 (the 80-column board) and 334,449 (the 80-column text screens), under `mameCompat`; 2,546,275 (the `$FFE2` paging of the traced schematic, without `mameCompat`; its VDG picture 8 of 8 identical); the bank register from Compusense's technical notes (see below) | the 80-column screen 640 x 264 identical, but on 0.264 its video RAM is never written (see below); the six 80-column text screens identical, every pixel, with the video RAM put into MAME's share by the harness | – |
 | Dragon 32, Dragon 200, Tano Dragon 64 | identical | 20/20 identical, PAL colour blending included on the Dragon 32 and 200 (the Tano is NTSC) | 17/17 identical |
 | Dragon 200-E | 1,028,156 instructions identical, HALT reached | 20/20 identical, with a character generator written by this project (see below) | 17/17 identical (its own variant of cases 5 and 11, see below) |
 | Prológica CP 400 | 1,043,415 instructions identical, HALT reached | 20/20 identical | – |
@@ -424,11 +424,30 @@ Not verified, by the notes or by MAME:
     before its banks see it) let an access paged by P1 to the upper 32K miss the banks. **Open item:** this
     differs from what we and MAME do; a later behaviour change, not made here;
   * `$FFE2` bit 2 only XORs Z7 into the extra DRAM's address, so `$04` (R2 R1 = 10) selects motherboard RAM like
-    `$00`. We keep `$04` as MAME does (no change). **Open item:** whether our `$04` handling matches this is for a
-    later behaviour change, not made here;
+    `$00` (and `$05` motherboard RAM with the video RAM over `$0000-$07FF`). The machine follows this
+    (`js/machines/d64plus.js` `writeBank()`); under `config.mameCompat` it keeps MAME's no-change decode (below);
   * the MC6847 fetches motherboard RAM in the E = 0 phase, so the 32-column screen does not see the selected
-    bank. We (and MAME) let it see the selected bank. **Open item:** this differs from what we and MAME do; a
-    later behaviour change, not made here.
+    bank or the video RAM. The machine follows this: the VDG always reads the motherboard RAM.
+
+  Cited in the code and tests as "Harvey-Smith traced Dragon 64 Plus schematic (owner-supplied research; known
+  drawing errors)". `tests/d64plus.test.js` checks both against tables written out from it: the CPU's read of
+  `$0100` and `$1000` for every `$FFE2` value after `$00`, `$02`, `$06` and `$07`, with a distinct byte in each RAM;
+  and the VDG's picture under every value, with one pattern in the motherboard RAM and another in banks A, B and the
+  video RAM, against the picture the motherboard pattern alone draws.
+
+**Dragon 64 Plus paging against MAME 0.264.** MAME 0.264 never applies `$FFE2` to memory (below), so its CPU and VDG
+always reach the motherboard RAM: for these two points its outcome is the schematic's. `run.js d64plus --paging`
+runs our firmware `d64plus/paging.asm` on our machine **without** `mameCompat` (our banks reach memory): it selects
+bank A, bank B and the video RAM, then `$04` or `$05`, and reads and writes `$0100`, `$0101`, `$01FF`, `$1000` and
+`$1001`, never touching `$0000-$7FFF` while a bank or the video RAM covers the address. Identical to HALT: 2,546,275
+instructions compared, registers and cycle counts identical, HALT at instruction 1,223,365 (`trace d64plus
+paging.asm` in the regression gate). With the old decode (`$04` keeping bank A) it diverges at the first read
+under `$04` (instruction 27,162). `run.js d64plus --paging --video` holds the VDG's text screen on `$0000` under
+each of `$00`, `$02`, `$06`, `$01`, `$03`, `$07`, `$04` and `$05` (each phase changes CSS so headless MAME redraws)
+and compares the 256 × 192 picture with MAME's: 8 of 8 identical, 0 pixels differing. With a VDG that sees the
+banks, 6 of the 8 differ (35,616 to 36,864 pixels each; `$00` and `$04` pass, as they should). This proves the
+MAME-equal outcome only: that the banks themselves hold what the CPU wrote is checked against Compusense's notes
+by the unit tests, not by MAME 0.264.
 
 Against MAME 0.264: `run.js d64plus` (the Dragon 64's diagnostic) and `run.js d64plus --plus` (our 80-column
 firmware: every HD6845S register and the R12-R15 read-back, the video-RAM bank, distinct bytes in banks A and B,
@@ -995,7 +1014,17 @@ MAME artefacts reproduced only under `config.mameCompat` (the comparisons turn i
   `js/machines/d64plus.js`) found bits 2-1 select the bank, bit 0 maps the video RAM over `$0000-$07FF` only,
   and the read's bit 0 is 1 outside blanking. Both versions' `d64plus_bank_w()` leave both banks' entries as
   they were for the undocumented `$04`/`$05` (0.264's entries after `$03` then `$04`: plus RAM 1, video RAM 3), and
-  so do we. Without `mameCompat` the banks reach memory (`js/machines/d64plus.js`).
+  so do we under `mameCompat`. Without `mameCompat` the banks reach the CPU (`js/machines/d64plus.js`).
+
+* Dragon 64 Plus, without `mameCompat`: `$FFE2` = `$04` selects the motherboard RAM (`$05` the motherboard RAM
+  with the video RAM), where MAME's `d64plus_bank_w()` leaves the banks as they were; and the MC6847 always fetches
+  the motherboard RAM, where MAME's driver installs the banks in the SAM's space, through which its VDG fetches
+  too. Source: Harvey-Smith traced Dragon 64 Plus schematic (owner-supplied research; known drawing errors), P.
+  Harvey-Smith's Eagle schematic of his own DragonPlus board (World of Dragon forum, 7 June 2017,
+  `viewtopic.php?p=15826`): bit 2 only XORs Z7 into the extra DRAM's address, and the MC6847 reads in E = 0. Not
+  verified on hardware. MAME 0.264 still compares (it never applies `$FFE2`, so its outcome is the schematic's:
+  `run.js d64plus --paging [--video]`, above); the 0.289 probe above was not re-run, and on `$04`/`$05` and the
+  VDG 0.289 is expected to differ from us.
 
 * A cartridge that ties CART to Q (the program pak with auto-start, the banked ROM cartridge, the Games Master, the
   Orchestra-90): MAME toggles the line five times through its slot's timers whenever a PIA1 register is written

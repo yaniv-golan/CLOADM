@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Compare one machine against MAME. Needs MAME (e.g. `apt install mame`); uses only our own firmware.
 //
-//   node tools/mame-diff/run.js <profile> [--ram <K>] [--video [--artifact N] [--attr] [--composite] [--text]] [--raster [--no-trace] [--keep]] [--printer [--no-trace]] [--serial] [--reset] [--rate|--ops] [--plus] [--plustext [--video]] [--keep-firmware]
+//   node tools/mame-diff/run.js <profile> [--ram <K>] [--video [--artifact N] [--attr] [--composite] [--text]] [--raster [--no-trace] [--keep]] [--printer [--no-trace]] [--serial] [--reset] [--rate|--ops] [--plus] [--plustext [--video]] [--paging [--video]] [--keep-firmware]
 //   node tools/mame-diff/run.js <dragon64|coco|coco3|dgnalpha> --fdc [dragonfdc|premierfdc|cocofdc|multifdc|alphafdc] [--images|--write|--nmi|--multi|--blank <fmt>:<T>x<H>|--halt [--empty]|--nitros9] [--keep-firmware]
 //   node tools/mame-diff/run.js <coco|coco3|dragon64|dragon32> --cart <setup> [--audio]
 //
@@ -19,6 +19,8 @@
 // --rate / --ops (SAM family): the CPU rate firmware (sam/rate.asm, sam/ops.asm) instead of diag.asm; MAME
 // approximates the SAM rates, so this compares MAME with our config.mameCompat model of it.
 // --plus (Dragon 64 Plus): the 80-column board firmware (d64plus/plus.asm) on top of diag.asm's base machine.
+// --paging (Dragon 64 Plus): $FFE2 paging (d64plus/paging.asm), ours without mameCompat; with --video, the VDG
+// picture under each paging against MAME's (d64plus/run-paging.js).
 // --plustext (Dragon 64 Plus): the 80-column text screens of the screen-text reader (d64plus/plustext.asm, written by
 // d64plus/text-screens.js); with --video, every screen's 640x264 picture against MAME's (d64plus/run-text.js).
 // --fdc: a floppy disk controller cartridge (fdc/: -ext dragon_fdc or premier_fdc on dragon64, -ext fdc on coco and coco3)
@@ -104,6 +106,12 @@ async function main() {
     // the Dragon 64 Plus's 80-column text screens, pixel by pixel (d64plus/run-text.js)
     if (profile.family !== 'd64plus') { console.error('--plustext: the 80-column text screens are a Dragon 64 Plus comparison'); return 2; }
     const r = cp.spawnSync('node', [path.join(__dirname, 'd64plus', 'run-text.js'), profileId], { stdio: 'inherit' });
+    return r.status === null ? 1 : r.status;
+  }
+  if (args.includes('--paging') && args.includes('--video')) {
+    // the Dragon 64 Plus's VDG under every $FFE2 paging, pixel by pixel (d64plus/run-paging.js)
+    if (profile.family !== 'd64plus') { console.error('--paging: the bank register is a Dragon 64 Plus comparison'); return 2; }
+    const r = cp.spawnSync('node', [path.join(__dirname, 'd64plus', 'run-paging.js'), profileId], { stdio: 'inherit' });
     return r.status === null ? 1 : r.status;
   }
   if (args.includes('--video') && args.includes('--text')) {
@@ -235,6 +243,12 @@ async function main() {
   if (args.includes('--plustext')) {
     if (!need('80-column text', spec.plusText)) return undefined;
     const t = spec.plusText(profileId, { config, regenerate: !args.includes('--keep-firmware') });
+    t.install();
+    return await lockstep(Object.assign({}, t, { machine: t.machine() }));
+  }
+  if (args.includes('--paging')) {
+    if (!need('paging', spec.paging)) return undefined;
+    const t = spec.paging(profileId, { config });
     t.install();
     return await lockstep(Object.assign({}, t, { machine: t.machine() }));
   }
