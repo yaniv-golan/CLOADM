@@ -8,6 +8,17 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.1.7-pre (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
+### Added
+
+- **The CoCo 3's vertical fine scroll (`$FF9C`) in the GIME modes.** With rows of 2, 8, 9, 10 or 11 scanlines, a
+  value below the row height now moves the picture up by that many lines, and the next row of the buffer comes in at
+  the bottom, as Sock Master's GIME reference and Tepolt's *Assembly Language Programming for the CoCo3* describe:
+  smooth-scrolling text and double-height graphics show as on the real machine. Claude's `screen_text` counts the row
+  the scroll brings in. MAME 0.264 does not scroll; the `mameCompat` option (for the MAME comparisons) keeps its
+  behaviour. Snapshots are now format version 4 (the GIME's latched scroll); older files still open. Checked with
+  `node tools/mame-diff/run.js coco3 --vsc` and `tests/gime-vsc.test.js`; what the sources leave open is listed in
+  `docs/verification.md`.
+
 ### 0.1.7-pre
 
 #### Added

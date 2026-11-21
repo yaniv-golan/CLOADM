@@ -364,7 +364,58 @@ a horizontal offset ignored in our renderer fails here); (3) `screen_text` on ou
 machine at that moment returns exactly the expected rows, row count, base and attribute runs. Result against MAME
 0.264: 14 of 14 on `coco3` and 14 of 14 on `coco3h` (6309). `tests/coco3-screen-text.test.js` runs the same
 firmware without MAME on both CPUs, plus the cases that need no picture (graphics and short rows declined, the
-attribute bytes never read as text, `$FF9C` changing neither picture nor reading, the VDG machines unchanged).
+attribute bytes never read as text, `$FF9C` changing neither picture nor reading under `mameCompat` and scrolling
+both on the machine as shipped, the VDG machines unchanged). These screens run under `mameCompat`, as every MAME
+comparison does: MAME 0.264 does not apply `$FF9C`'s fine scroll (next).
+
+**CoCo 3 GIME vertical fine scroll (`$FF9C`, VSC).** Sources: [S1] Sock Master's GIME reference
+(`6809.org.uk/twilight/sock/gime.html`, "FF9C Vertical scroll register - VSC": bits 7-4 unused; consecutive values
+scroll the screen up one scanline at a time where more than one scanline makes up a text row or a graphics row);
+[S2] the Tandy CoCo 3 Service Manual (26-3334), section 1.5, printed p13 (bits 3-0 VSC3-0; `$0F` in compatibility
+mode; `$FF9D`/`$FF9E` the start in 8-byte units); [S3] Super Extended BASIC Unravelled II, ch. 5, printed pp16, 18-19
+(bits 7-4 reserved; BASIC scrolls a row by resetting VSC and moving the start by a row, so VSC does not carry into
+the start); [S4] Tepolt, *Assembly Language Programming for the CoCo3* (1987), printed p25 and pp29-30 (with 8-line
+native text, VSC 0-7 move the picture up and the next buffer row comes in at the bottom; its "bit 3 = SCEN"
+conflicts with S1 and S2 and is not implemented); [S5] N. Marentes, Jumping Joey technical notes, "THE COCO3 CAN
+DISPLAY SEMIGRAPHICS MODES" (compatibility-mode `$FF9C` 7/8/9/10 give SG6/SG8/SG12/SG24, which corroborates the
+lines-per-row table `COMPAT_TEXT_LPR` that MAME and we use there). The model (`js/chips/gime.js` `vscLine`): in a
+GIME mode whose `$FF98` lines per row is 2, 8, 9, 10 or 11, a VSC below the row height starts the body VSC scanlines
+into its first row, so the picture moves up by VSC lines and the bottom shows the next row of the buffer, in part;
+VSC is latched at the start of the field, with the video start. MAME 0.264 loads VSC into the row's line counter at
+`new_frame`, but its top border sets the counter back to 0 on every line (`gime.cpp` `record_border_scanline`), so
+it never scrolls; `config.mameCompat` does the same (a deviation, below). Each case below, what MAME does and what
+we do:
+
+| Case | MAME 0.264 | CLOADM (shipped) | Settled by |
+|---|---|---|---|
+| Native rows of 2, 8, 9, 10, 11 lines, VSC below the row height | no scroll | scrolled VSC lines | S1, S4 (MAME contradicted: `mameCompat` keeps MAME's) |
+| VSC at or above the row height | no scroll | no scroll | nothing: unknown |
+| Rows of 1 line (`$FF98` LPR 0 and 1) | no scroll | no scroll | nothing: unknown (S1 needs more than one line a row; LPR 1 may be 2 lines on some GIMEs) |
+| LPR 7 (MAME: a row that never ends) | no scroll | no scroll | nothing: unknown |
+| When a write takes effect | (no effect) | at the next field's start | MAME's `new_frame` latch, followed; unverified |
+| 1986 and 1987 GIMEs | one model | one model | nothing: unknown |
+| Compatibility mode | lines per row from `$FF9C` (S5's SG modes) | the same | S2, S5, MAME |
+
+`run.js coco3 --vsc` (`coco3/gen-vsc.js`, our firmware in `coco3/vsc-1.asm` to `vsc-5.asm`) puts up 60 cases:
+8-line text and double-height (2-line) graphics with VSC stepped through 0-15, 9-, 10- and 11-line text, 8- and
+11-line graphics, 1-line rows (LPR 0 and 1), LPR 7, the 200- and 225-line resolutions, and VSC written mid-field (in
+the top border and in the body, cleared again in the bottom border). The screen holds blank characters with a
+different attribute byte in every cell, so no font shows and every pixel is compared exactly. The cases are split
+over five parts, each run from reset, because MAME 0.264's 6809 runs on a whole-Hz clock (894886 Hz), 0.38 ppm slower
+than its GIME's video timing: an HS edge reaches its CPU one cycle earlier every 2,603,190 cycles, which our CoCo 3
+`mameCompat` does not model (a single run of all 60 cases showed exactly that, twice: one `SYNC` one cycle shorter
+in MAME at instructions 356003 and 540577, nothing else); each part halts by cycle 2,030,115. For each part: (1)
+lockstep with MAME to HALT; (2) a field of every case against MAME's, pixel by pixel, and no case may change the
+picture from its lead-in field (MAME never scrolls); (3) the same firmware on our machine as shipped: each case's
+picture must be MAME's picture of the same field moved up by the scroll the sources give (worked out in `spec.js`
+`scrollOf`, not by our GIME), the bottom VSC lines of the body excepted (the next buffer row, which MAME does not
+show), and must differ from its lead-in field exactly when it scrolls. Result against MAME 0.264: every part
+identical to HALT (720984, 720984, 720984, 720984 and 911939 instructions compared, HALT at instruction 203408 or
+155922), 60 of 60 cases identical, and 60 of 60 hardware-model cases MAME's picture moved by the sources' scroll.
+`tests/gime-vsc.test.js` checks the shipped model line by line against rows worked out by hand from S1 and S4
+(graphics of 2, 8, 9, 10 and 11 lines, every VSC; 8-line text, where the underline marks each row's last line; 225
+lines; bits 4-7 ignored; the field-start latch; compatibility mode; `mameCompat`; the text screen the reader sees;
+snapshots); `tests/state.test.js` saves mid-field, scrolled and between a write and its latch.
 
 The Dragon 200-E's character generator is a character ROM, and like the BASIC ROMs it is the user's to supply:
 CLOADM never ships or fetches one. Its video comparison installs, in both emulators, a 4K pattern built by
@@ -986,6 +1037,15 @@ names it.
   checks the silences and shows the runs between them without comparing them.
 
 MAME artefacts reproduced only under `config.mameCompat` (the comparisons turn it on; the product does not):
+
+* CoCo 3 GIME vertical fine scroll (`$FF9C`): MAME 0.264 never scrolls a GIME-mode row (its top border resets the
+  row's line counter on every line, `gime.cpp` `record_border_scanline`, after `new_frame` loaded VSC into it). The
+  sources (Sock Master's GIME reference, "FF9C Vertical scroll register - VSC"; Tepolt (1987) pp29-30; above, "CoCo
+  3 GIME vertical fine scroll") say VSC below the row height moves the picture up by VSC lines; the machine as shipped
+  does that (`js/chips/gime.js` `vscLine`). What no source settles, and how we treat it, MAME-identical in every
+  comparison: VSC at or above the row height, rows of one line (`$FF98` LPR 0 and 1) and LPR 7 are not scrolled;
+  VSC is latched at the start of the field (MAME's `new_frame`); 1986 and 1987 GIMEs are not told apart. Each of
+  these is unverified on real hardware.
 
 * Dragon 64 Plus: MAME 0.264's `$FFE2` write (`d64plus_bank_w()`) sets its two memory banks' entries, but CPU and
   VDG accesses to `$0000-$7FFF` keep reaching the standard RAM: a Lua probe writing each documented value and
