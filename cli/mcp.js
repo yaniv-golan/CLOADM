@@ -11,13 +11,15 @@
 // The host gives the toolbox files only under --media-root (each path resolved with realpath and refused if it
 // leaves the root, also through a link; the file then opened without following a link and refused unless it is a
 // regular file, so nothing swapped in between, a FIFO or a device is read or written), the ROM files given with
-// --roms, PNG encoding, and the bundled programs.
+// --roms, PNG encoding, the bundled programs, and add_roms' store and downloader (cli/rom-store.js, cli/rom-fetch.js).
 // Started from cli/cloadm.js: `node cli/cloadm.js --mcp [--roms DIR] [--media-root DIR] [--read-only]`.
 'use strict';
 const fs = require('fs');
 const path = require('path');
 const { StringDecoder } = require('string_decoder');
 const T = require('../js/mcp/tools.js');
+const { fetchRom, checkUrl } = require('./rom-fetch.js');
+const zlib = require('zlib');
 
 const ROOT = path.join(__dirname, '..');
 // the stateless revisions this server speaks (per-request _meta), and the handshake ones (initialize), newest first
@@ -28,7 +30,9 @@ const META = 'io.modelcontextprotocol/';
 const UNSUPPORTED_VERSION = -32022;   // 2026-07-28's UnsupportedProtocolVersionError
 const LIST_TTL_MS = 3600000;          // tools/list does not change while the server runs
 const MEDIA_MAX = 64 << 20;   // the largest file the tools read
-const LINE_MAX = 4 << 20;     // the longest message line read; a longer one is refused unread (no tool takes data inline)
+const LINE_MAX = 8 << 20;     // the longest message line read; a longer one is refused unread (add_roms' data, a 4 MiB file in base64, fits)
+const FOLDER_FILES_MAX = 256;   // files add_roms reads from one folder of the media root
+const FOLDER_BYTES_MAX = 16 << 20;   // and bytes in all; the rest are reported by size, unread
 // open flags: never through a link in the last part of the path (the directories are already real paths), and never
 // waiting (a FIFO opens at once and is then refused by fstat)
 const { O_RDONLY, O_WRONLY, O_CREAT, O_NOFOLLOW = 0, O_NONBLOCK = 0 } = fs.constants;
@@ -39,6 +43,7 @@ function instructions(toolbox) {
   const lines = ['CLOADM emulates the Dragon 32/64/200, Tandy Color Computer 1/2/3 and MC-10.'];
   if (!has('poke')) lines.push('Read-only mode: input, memory writes, media and snapshots are disabled, and their tools are not offered. Boot machines, let them go on with run_frames, and read them.');
   lines.push('Start with boot (list_models gives the models and their options); every other machine tool takes the machine_id it returns. BASIC needs the user\'s ROMs (boot says whether it has them); without them a machine runs the built-in firmware.'
+    + (has('add_roms') ? ' add_roms stores ROMs the user gives you (a file in the media root, a URL or an upload they provided in this conversation; never one you found).' : '')
     + (has('assemble_and_load') ? ' Write 6809/6803 assembler with assemble_and_load, then run it; load also runs the bundled programs welcome, liza and demo.' : ''));
   lines.push('Wait with run_frames and an until condition (text on the screen, e.g. {"text": "OK"}; a memory byte; the PC; the tape; the screen changing) rather than guessing delays; it returns "not-yet" with the screen when the condition has not held, and you can call it again. Read results with screen_text (text) or screenshot (graphics), peek, find_bytes, disassemble and registers.'
     + (has('type_text') ? ' Type with type_text ("\\n" is Enter); for games hold keys or the joystick with press_keys.' : ''));
@@ -47,12 +52,14 @@ function instructions(toolbox) {
 }
 
 // ---------------- the Node host ----------------
-// mediaRoot: a directory (or null: no files at all); roms: [{ name, bytes }]
+// mediaRoot: a directory (or null: no files at all); roms: [{ name, bytes, source }] (source "cli" or "config")
 // configPath: the settings file that can name a media root, for the no-media-root error to point at
 // createRoot: the media root is a default (~/CLOADM) that may not exist yet: it is made on the first write, never
 // before (a server that only starts, or only reads, leaves no folder behind)
-function nodeHost({ mediaRoot = null, createRoot = false, roms = [], png, now = () => Date.now(), configPath = null }) {
+// romStore: add_roms' store (cli/rom-store.js), or null: no add_roms; fetch: options for cli/rom-fetch.js (tests: ca, lookup, timeoutMs)
+function nodeHost({ mediaRoot = null, createRoot = false, roms = [], png, now = () => Date.now(), configPath = null, romStore = null, fetch = {} }) {
   let root = mediaRoot && !createRoot ? fs.realpathSync(mediaRoot) : null;
+  let stored = null;   // the store's ROMs, read once until add_roms or remove_roms changes them
   const inside = (p) => p === root || p.startsWith(root + path.sep);
   // the root's real path, making the default one when a write needs it -> null while it does not exist
   function rootFor(write) {
@@ -149,7 +156,47 @@ function nodeHost({ mediaRoot = null, createRoot = false, roms = [], png, now = 
         return Buffer.from(f.bytes).toString('utf8');
       };
     },
-    roms: () => roms,
+    // the ROMs given on the command line or in the config file, after the stored ones (so they fill a socket both
+    // fill), and without a stored copy of a ROM they also hold (it shows as theirs)
+    roms() {
+      if (!romStore) return roms;
+      if (!stored) {
+        const given = new Set(roms.map((f) => zlib.crc32(f.bytes)));
+        stored = romStore.files().filter((f) => !given.has(zlib.crc32(f.bytes))).map((f) => Object.assign(f, { source: 'stored' }));
+      }
+      return stored.concat(roms);
+    },
+    ...(romStore ? {
+      storeRoms(files, meta) { stored = null; romStore.add(files, meta); },
+      removeRoms(names) { stored = null; return romStore.remove(names); },
+      storedRoms: () => romStore.list(),
+      checkUrl: (url) => { checkUrl(url); },
+      fetchUrl: (url, { signal, maxBytes }) => fetchRom(url, Object.assign({}, fetch, { signal, maxBytes })),
+    } : {}),
+    // add_roms' media source: a file, or the regular files of a folder (and its folders, links not followed), by
+    // readMedia's rules; one larger than maxBytes, or past FOLDER_BYTES_MAX in all, is given by its size, unread
+    readMediaFiles(p, { maxBytes = MEDIA_MAX } = {}) {
+      const real = resolve(p);
+      let st;
+      try { st = fs.lstatSync(real); } catch (e) { throw new T.McpToolError('cannot-read', `${p}: ${e.code || e.message}`); }
+      if (!st.isDirectory()) return [st.isFile() && st.size > maxBytes ? { name: path.basename(real), size: st.size } : read(p)];
+      const out = [];
+      let total = 0;
+      const walk = (dir, depth) => {
+        for (const e of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1))) {
+          if (out.length >= FOLDER_FILES_MAX) return;
+          const full = path.join(dir, e.name);
+          if (e.isDirectory()) { if (depth < 4) walk(full, depth + 1); continue; }
+          if (!e.isFile()) continue;
+          const size = fs.statSync(full).size;
+          if (size > maxBytes || total + size > FOLDER_BYTES_MAX) { out.push({ name: e.name, size }); continue; }
+          total += size;
+          out.push(read(path.relative(root, full)));
+        }
+      };
+      walk(real, 0);
+      return out;
+    },
     png,
     program: (f) => new Uint8Array(fs.readFileSync(path.join(ROOT, 'examples', path.basename(f)))),
     now,
@@ -162,7 +209,7 @@ function nodeHost({ mediaRoot = null, createRoot = false, roms = [], png, now = 
 // Lines in, one handler at a time in order, except the messages `immediate` picks out (a cancellation), which are
 // handled at once, while a call runs. A line longer than LINE_MAX is not kept: the handler gets { tooLong: true } in
 // its place. Resolves when the input ends and the last handler has finished.
-function lines(input, handle, immediate) {
+function lines(input, handle, immediate, onEnd = () => {}) {
   return new Promise((resolve) => {
     const decoder = new StringDecoder('utf8');
     let buf = '', skipping = false, chain = Promise.resolve();
@@ -188,6 +235,7 @@ function lines(input, handle, immediate) {
     input.on('end', () => {
       buf += decoder.end();
       if (!skipping) line(buf);
+      onEnd();
       chain.then(resolve);
     });
   });
@@ -217,7 +265,25 @@ async function mcp({ toolbox, input, out }) {
     return { content, structuredContent: r.data };
   };
   const capabilities = { tools: { listChanged: false } };
+  // Asking the person (add_roms' consent): an elicitation/create request to a client that said at initialize it takes
+  // them (the handshake revisions, 2025-06-18 on; a stateless request carries no such promise, so it is not asked).
+  // Its reply is taken at once (immediate), not queued behind the call that waits for it.
+  let elicitation = false, nextAsk = 1;
+  const asking = new Map();   // our request id -> resolve
+  const confirm = (message, { signal } = {}) => new Promise((resolve) => {
+    const id = `cloadm-ask-${nextAsk++}`, key = keyOf(id);
+    const done = (answer) => { if (asking.delete(key)) resolve(answer); };
+    asking.set(key, done);
+    if (signal) { if (signal.aborted) { done('cancel'); return; } signal.addEventListener('abort', () => done('cancel'), { once: true }); }
+    send({ id, method: 'elicitation/create', params: { message, requestedSchema: { type: 'object', properties: {} } } });
+  });
   const immediate = (msg) => {
+    if (msg && typeof msg === 'object' && !Array.isArray(msg) && msg.method === undefined && msg.id != null && asking.has(keyOf(msg.id))) {
+      // a reply to our question: only an accept is consent; an error or anything else stores nothing
+      const action = msg.result && typeof msg.result.action === 'string' ? msg.result.action : 'decline';
+      asking.get(keyOf(msg.id))(action === 'accept' ? 'accept' : action === 'cancel' ? 'cancel' : 'decline');
+      return true;
+    }
     if (msg && msg.method === 'notifications/cancelled' && msg.params) {
       const c = running.get(keyOf(msg.params.requestId));
       if (c) c.abort(); else waiting.cancel(msg.params.requestId);
@@ -257,6 +323,7 @@ async function mcp({ toolbox, input, out }) {
         answer({ supportedVersions: [...MODERN_VERSIONS, ...LEGACY_VERSIONS], capabilities, instructions: instructions(toolbox), ttlMs: LIST_TTL_MS, cacheScope: 'private', _meta: { [`${META}serverInfo`]: SERVER_INFO } });
         return;
       case 'initialize':
+        elicitation = !!(p.capabilities && p.capabilities.elicitation && typeof p.capabilities.elicitation === 'object');
         // the handshake revisions: the client's version when this server speaks it, else the newest it speaks
         answer({
           protocolVersion: LEGACY_VERSIONS.includes(p.protocolVersion) ? p.protocolVersion : LEGACY_VERSIONS[0],
@@ -272,7 +339,7 @@ async function mcp({ toolbox, input, out }) {
         if (!note) running.set(keyOf(msg.id), ctl);
         const token = p._meta && p._meta.progressToken;
         const progress = token == null ? null : (done, total) => send({ method: 'notifications/progress', params: { progressToken: token, progress: done, ...(Number.isFinite(total) ? { total } : {}), message: `${done} frames` } });
-        const r = await toolbox.call(p.name, p.arguments, { signal: ctl.signal, progress: (...a) => { if (!ctl.signal.aborted && progress) progress(...a); } });
+        const r = await toolbox.call(p.name, p.arguments, { signal: ctl.signal, confirm: elicitation && !modern ? confirm : null, progress: (...a) => { if (!ctl.signal.aborted && progress) progress(...a); } });
         running.delete(keyOf(msg.id));
         if (ctl.signal.aborted) return;   // cancelled: no further message for it (stdio binding: MUST NOT)
         answer(result(r));
@@ -282,7 +349,7 @@ async function mcp({ toolbox, input, out }) {
         if (msg.method.startsWith('notifications/')) return;
         error(-32601, `method not found: ${msg.method}`);
     }
-  }, immediate);
+  }, immediate, () => { for (const done of [...asking.values()]) done('cancel'); });
   return 0;
 }
 

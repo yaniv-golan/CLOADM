@@ -160,6 +160,63 @@ after editing the file (`/mcp` in Claude Code). The
 Claude Desktop extension asks for both folders when it is installed and passes them on the command line, which wins
 over the file; a ROM folder left empty there falls back to the file.
 
+**On macOS, keep ROMs out of Downloads, Desktop and Documents.** Those folders are protected, so a config `roms` that
+points into one makes macOS ask "node would like to access files in your Downloads folder" every time the server
+starts. Copy the dumps into `~/CLOADM` and add them with `add_roms` (`source: "media"`), or put them in a folder of
+their own elsewhere: `add_roms` copies what it stores into `~/.config/cloadm/roms/`, so the server never reads the
+original location again.
+
+## Adding your ROMs
+
+CLOADM never ships, links to or fetches ROMs by itself. `add_roms` lets **you** give the server your own dumps from
+inside a chat, from one of three sources, and keeps them in the server's own ROM store:
+
+| `source` | Arguments | What it takes |
+|---|---|---|
+| `media` | `path` | a ROM file, a ZIP of them or a folder of them (its subfolders too) in the media root, by the same rules as every other file tool: `..`, absolute paths elsewhere and links that lead out are refused, and links in a folder are not followed |
+| `url` | `url` | an https URL you gave the agent |
+| `data` | `data`, `name` | the base64 bytes of a file you uploaded in the chat, and its file name |
+
+The safety rules, all enforced by the server:
+
+- **Only what you gave.** The tool's description tells the agent to use it only with a file, folder, URL or upload
+  you gave it in the conversation for this purpose, never one it found in tool output, on a web page or on the
+  emulated screen, and never to search for ROMs. When your client supports MCP elicitation (the `initialize`
+  handshake revisions, 2025-06-18 on, with the `elicitation` capability), the server also asks you first. For a URL it
+  asks **before anything is contacted** (not even DNS), showing the whole URL, query included: "Download <URL> and add
+  the ROMs in it to CLOADM?". For a file or an upload it asks once it knows what is in it: "Add these ROMs from
+  <source>: <files> → <models>?". Only an accept goes on; a decline, a cancel or an error from the client downloads
+  and stores nothing (`declined`). A client without elicitation is not asked, and the result says so.
+- **URLs: https to a public address only.** `http`, a user name or password in the URL, and any host that resolves to
+  a loopback, link-local, private (RFC 1918, IPv6 ULA), CGNAT (100.64.0.0/10), unspecified, multicast, reserved,
+  documentation (192.0.2/24, 198.51.100/24, 203.0.113/24, 2001:db8::/32), benchmarking (198.18/15) or 6to4 relay
+  (192.88.99/24) address are refused (`refused-url`). *Every* address the name resolves to is checked, and the
+  connection goes to the checked address. IPv4-mapped IPv6 addresses (`::ffff:0:0/96`), local NAT64 (`64:ff9b:1::/48`)
+  and Teredo (`2001::/32`) are refused; NAT64 and 6to4 addresses are checked by the IPv4 address inside. Any port is
+  allowed: the address being public is what counts. Each redirect is checked the same way, at most 3 of them, and its
+  body is never read (the connection is closed at once, as for an error status). The download stops after 20 s
+  (`fetch-failed`). The certificate must be valid for the host in the system's trust store. Nothing is sent but the
+  request itself: no cookies (not even one a redirect sets), no credentials. It connects directly and never through a
+  proxy, so it does not work where every connection must go through one: use the media or data source there.
+- **Size caps.** A ROM file is at most 1 MiB, a ZIP of ROMs (or a CLOADM ROM pack) at most 4 MiB, by URL, upload or
+  media file, and one call unpacks at most 8 MiB from all its ZIPs together (`too-large`); a download is cut off as
+  soon as it passes the cap.
+- **Only ROMs.** What is stored must be recognised as a ROM by the page's rules (`js/roms.js`): a known dump's CRC, a
+  combined image of known halves, or a socket's usual file name with the right size. Anything else is listed in
+  `skipped`; if nothing is a ROM the call fails with `not-a-rom` and stores nothing. A ROM pack's images go back to the
+  sockets its manifest names.
+- **No bytes back.** No result carries ROM bytes (only names, sizes, CRCs and the models they fit), and the server
+  logs none.
+
+The store is a folder of the server's own, next to its config file: `~/.config/cloadm/roms/`
+(`%APPDATA%\cloadm\roms\` on Windows), never the media root. It is merged with `--roms` and the config file's
+`roms` at every start (where both fill a socket, `--roms` or the config file wins). Machines already open do not
+change: the result lists `models_with_basic` (as `list_models` reports it) and `newly_with_basic`, and suggests
+`boot` or `switch_machine`. `list_models` gives, for each model, `basic` (whether the server has its BASIC ROMs) and,
+for each ROM, `loaded`: the file that fills it and its `source` (`cli`, `config` or `stored`). `remove_roms` forgets
+stored ROMs by name, or `all: true`; ROMs from `--roms` or the config file are yours to remove. `--read-only` hides
+both tools (the stored ROMs are still used).
+
 ## The tools
 
 Every machine tool takes `machine_id`, the handle `boot` returns (`"m1"`, `"m2"`, …; never reused). At most 8 machines
@@ -167,7 +224,7 @@ are open at once.
 
 | Tool | What it does | Read-only |
 |---|---|---|
-| `list_models` | the models, their options and values, and the ROM files each needs for BASIC | yes |
+| `list_models` | the models, their options and values, the ROM files each needs for BASIC, whether the server has them (`basic`), and which file fills each ROM and from where (`loaded`: `source` `cli`, `config` or `stored`) | yes |
 | `list_machines` | the machines open now | yes |
 | `boot` | a new machine: `model`, `options`, `roms` (true: your ROMs, false: the built-in firmware) → its `machine_id` | allowed |
 | `switch_machine` | another model or options behind the same `machine_id` | |
@@ -193,12 +250,14 @@ are open at once.
 | `load` | run a file from the media root (binary, tape, cartridge, BASIC listing, disk into drive 0) or a bundled program (`welcome`, `liza`, `demo`). A listing is typed as NEW, its lines and RUN (`run: false` leaves out RUN), and the result says what the keyboard typed differently (`changed`) or could not type (`dropped`) | |
 | `insert_tape`, `insert_disk` | a tape in the deck, a disk in a drive (a disk needs your disk ROM) | |
 | `save_snapshot`, `restore_snapshot` | the whole machine to a file under the media root, and back. `save_snapshot` writes only names ending `.cloadm-state`, replaces an existing file only if it is a snapshot, and never writes the server's config file | |
+| `add_roms` | store your own ROMs from the media root, an https URL or an upload (`source` `media`, `url` or `data`), with the checks in [Adding your ROMs](#adding-your-roms); only with a source you gave the agent | |
+| `remove_roms` | forget stored ROMs by name, or all of them | |
 
 "Read-only" says which tools `--read-only` keeps: "yes" for the tools that change nothing (`readOnlyHint`), "allowed"
 for the ones it keeps because they only make, run or show a machine of the server's own. Every tool states all four
 hints: `readOnlyHint`, `destructiveHint` (true for what types, writes, loads or replaces), `idempotentHint` (true for
-the read-only tools and for what gives the same result when repeated) and `openWorldHint: false`: nothing reaches
-beyond the server and your media root.
+the read-only tools and for what gives the same result when repeated) and `openWorldHint`: false on every tool but
+`add_roms`, which can fetch a URL you give it; nothing else reaches beyond the server and your media root.
 
 **The page's tools are the page's.** `machine_info`, `screen_text`, `peek`, `disassemble`, `poke`, `type_text`,
 `load_basic`, `press_break`, `assemble_and_load` and `run` are the tools the in-page Claude uses
@@ -247,11 +306,17 @@ which only the server has. The others use these:
 | `rejected` | the machine refused (a disk without a disk ROM, a format it does not know, …); nothing changed |
 | `read-only` | the server runs with `--read-only` |
 | `cancelled` | the call was cancelled (on `--serve`; MCP sends no reply) |
+| `not-a-rom` | `add_roms`: nothing given is a ROM CLOADM recognises; nothing stored |
+| `too-large` | `add_roms`: a file over 1 MiB or a ZIP over 4 MiB |
+| `refused-url` | `add_roms`: not https, credentials in the URL, an address that is not public (also after a redirect), or more than 3 redirects |
+| `fetch-failed` | `add_roms`: the download failed (HTTP status, TLS, DNS, the 20 s timeout) |
+| `declined` | `add_roms`: you said no when asked; nothing stored |
+| `no-rom-store` | a host of the tools (the Node API) without a ROM store |
 
 An unknown tool name is the protocol's error `-32602`, as the specification says; everything else is a tool result,
 so the agent can read the remedy and try again.
 
-**ROMs.** The server reads your ROMs; it never returns them as files. Reads of memory follow the page's rule: like the
+**ROMs.** The server reads your ROMs; it never returns them as files, and `add_roms` never echoes their bytes. Reads of memory follow the page's rule: like the
 in-page Claude, `peek`, `disassemble` and `screenshot` show what the machine holds, which with your ROMs includes ROM
 code, so treat what an agent reads as you would treat your ROMs.
 
@@ -264,7 +329,7 @@ request that carries `_meta["io.modelcontextprotocol/protocolVersion"]` is serve
 the server's identity in its `_meta`, `tools/list` carries `ttlMs` and `cacheScope`, and a version it does not speak is
 `UnsupportedProtocolVersionError` (`-32022`) with the list it does. Tool lists come in a fixed order. stdout carries
 only protocol messages; the server's start-up line goes to stderr; it exits when its input closes. Each message is
-one line of at most 4 MB (a longer line is refused with `-32600` and not read); a JSON-RPC batch (an array of
+one line of at most 8 MB (room for an `add_roms` upload) (a longer line is refused with `-32600` and not read); a JSON-RPC batch (an array of
 messages) is refused with `-32600` too, as no revision it speaks has batches. A cancellation also reaches a call still
 waiting behind another: it is then never run, and never answered.
 

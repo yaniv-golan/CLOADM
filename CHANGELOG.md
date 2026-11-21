@@ -43,6 +43,21 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   (portrait and landscape) and tablet size, with Mozilla's Readability (an unmodified copy in `tools/vendor/`,
   development only) as the stand-in for a reading mode.
 
+### Added
+
+- **The MCP server takes your own ROMs from the chat: `add_roms` and `remove_roms`.** `add_roms` stores ROM dumps you
+  give the agent, from a file, ZIP or folder in the media root, an https URL, or a file you uploaded (base64), in the
+  server's own store (`~/.config/cloadm/roms/`, `%APPDATA%\cloadm\roms\` on Windows), merged with `--roms` and the
+  config file at every start. A URL must be https to a public address: every resolved address is checked, loopback,
+  link-local, private, CGNAT, documentation and IPv4-mapped ones are refused, also after a redirect (at most 3); 20 s,
+  1 MiB a file and 4 MiB a ZIP (8 MiB unpacked a call), no cookies, credentials or proxy. Only what CLOADM recognises as a ROM is stored (`not-a-rom` otherwise), no result
+  carries the bytes, and a client with MCP elicitation asks you to confirm first: for a URL before anything is
+  contacted, showing the whole URL (a decline downloads and stores nothing). Machines
+  already open keep running; the result names the models that now have BASIC. `list_models` gives each model's `basic`
+  and, for each ROM, the file and its source (`cli`, `config`, `stored`); `remove_roms` forgets stored ones;
+  `--read-only` hides both. CLOADM itself still ships, links to and fetches no ROMs. `docs/mcp.md`, "Adding your
+  ROMs"; `tests/mcp-roms.test.js`, with stand-in ROMs and a local https server.
+
 ### 0.1.7-pre
 
 #### Added

@@ -166,18 +166,18 @@ fs.writeFileSync(tmp('media', 'plain.bas'), '10 PRINT "HI"\n');
   const list = (await s.request('tools/list', {})).result.tools, list2 = (await s.request('tools/list', {})).result.tools;
   const names = list.map((t) => t.name);
   const want = ['list_models', 'list_machines', 'boot', 'switch_machine', 'close_machine', 'machine_info', 'screen_text', 'peek', 'disassemble', 'poke', 'type_text', 'load_basic',
-    'press_break', 'assemble_and_load', 'run', 'find_bytes', 'press_keys', 'run_frames', 'step', 'registers', 'screenshot', 'reset', 'power_cycle', 'set_display', 'load', 'insert_tape', 'insert_disk', 'save_snapshot', 'restore_snapshot'];
+    'press_break', 'assemble_and_load', 'run', 'find_bytes', 'press_keys', 'run_frames', 'step', 'registers', 'screenshot', 'reset', 'power_cycle', 'set_display', 'load', 'insert_tape', 'insert_disk', 'save_snapshot', 'restore_snapshot', 'add_roms', 'remove_roms'];
   check('tools/list: the agreed vocabulary (the page\'s tools under their own names, the rest in the same style), in a fixed order', J(names) === J(want) && J(list) === J(list2), J(names));
   const page = new Set([...Emu.readOnlyTools(), ...Emu.actingTools()].map((t) => t.name));
   const badSchema = list.filter((t) => {
     const sc = t.inputSchema;
     return sc.type !== 'object' || sc.additionalProperties !== false || !sc.properties || !(sc.required || []).every((r) => r in sc.properties)
-      || !/^[A-Za-z0-9_.-]{1,128}$/.test(t.name) || !t.description || !t.title || t.annotations.openWorldHint !== false
+      || !/^[A-Za-z0-9_.-]{1,128}$/.test(t.name) || !t.description || !t.title || t.annotations.openWorldHint !== (t.name === 'add_roms')
       || !['readOnlyHint', 'destructiveHint', 'idempotentHint'].every((h) => typeof t.annotations[h] === 'boolean')
       || (t.annotations.readOnlyHint && (t.annotations.destructiveHint || !t.annotations.idempotentHint))
-      || (!['list_models', 'list_machines', 'boot'].includes(t.name) && !(sc.required || []).includes('machine_id'));
+      || (!['list_models', 'list_machines', 'boot', 'add_roms', 'remove_roms'].includes(t.name) && !(sc.required || []).includes('machine_id'));
   });
-  check('tools/list: every schema an object root, closed, required inside properties; names, titles; all four hints on every tool (read-only ones idempotent, not destructive); machine_id required', !badSchema.length, badSchema.map((t) => t.name).join());
+  check('tools/list: every schema an object root, closed, required inside properties; names, titles; all four hints on every tool (read-only ones idempotent, not destructive; openWorldHint only on add_roms, which fetches a URL); machine_id required', !badSchema.length, badSchema.map((t) => t.name).join());
   const pageSchemaSame = [...Emu.readOnlyTools(), ...Emu.actingTools()].every((p) => {
     const t = list.find((x) => x.name === p.name), props = Object.assign({}, t.inputSchema.properties);
     delete props.machine_id;
@@ -410,10 +410,10 @@ fs.writeFileSync(tmp('media', 'plain.bas'), '10 PRINT "HI"\n');
   const f1 = (await s.call('list_machines')).data.machines.find((m) => m.machine_id === 'm2').frame;
   check('cancelling a queued call: it never runs and gets no reply; the call before it is answered', q1.result && !s.got.some((m) => m.id === 'q2') && f1 - f0 === 400, `${f1 - f0} frames, ${J(q1).slice(0, 100)}`);
   // a line over the limit is refused (-32600) without being kept, and the server goes on
-  s.send('{"jsonrpc":"2.0","id":"huge","method":"ping","params":{"pad":"' + 'x'.repeat(5 << 20) + '"}}');
+  s.send('{"jsonrpc":"2.0","id":"huge","method":"ping","params":{"pad":"' + 'x'.repeat(9 << 20) + '"}}');
   const huge = await s.wait((m) => m.error && m.error.code === -32600 && /too long/.test(m.error.message));
   const pingAfter = await s.request('ping', {});
-  check('a line over 4 MB: -32600 (id null, it was not read), and the next request is answered', huge.id === null && pingAfter.result, J(huge));
+  check('a line over 8 MB: -32600 (id null, it was not read), and the next request is answered', huge.id === null && pingAfter.result, J(huge));
   // a batch (an array) is not a message this server takes
   s.send('[{"jsonrpc":"2.0","id":"b1","method":"ping"}]');
   const batch = await s.wait((m) => m.error && m.error.code === -32600 && m.id === null && /one JSON-RPC 2.0 message per line/.test(m.error.message));
