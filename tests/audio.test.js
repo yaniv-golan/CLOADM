@@ -321,5 +321,47 @@ for (const rate of [44100, 48000]) {
     ratioOut === 1 && out.mode === 0, `ratio ${ratioOut}, mode ${out.mode}, queue ${(out.buffered() / rate * 1000).toFixed(1)} ms`);
 }
 
+// The bound the browser's tone check waits under must be at least the TRUE worst case, or the check flakes on the
+// slowest start it can see. The worst case is a queue at the ceiling: pushes above MAX_MS are dropped, so the
+// deepest queue that can exist is just under MAX_MS. How long the correction then takes depends on the frame and
+// block schedule: measured over card rates 44.1/48 kHz, 30/49.97/59.94/60 fps and 512/1024/2048-sample blocks,
+// the slowest is 4.99 s (60 fps, 512-sample blocks) -- so this drives those schedules in simulated real time
+// (frames at 1/fps of audio time, the card pulling blocks) and requires NONE within SETTLE_MS. RED if the bound
+// is set below the measurement: it is the guard on the number.
+{
+  const { SETTLE_MS, MAX_MS } = require('../js/host/audio.js');
+  const cycles = 17784;
+  let slowest = 0, worstAt = '';
+  for (const rate of [44100, 48000]) {
+    for (const fps of [49.96766756635178, 59.94, 60]) {
+      for (const bs of [512, 1024]) {
+        const out = new Stage(rate);
+        // fill to just under MAX_MS -- the deepest a queue can be, because push() drops what would exceed it
+        let guard = 0;
+        while ((out.buffered() / rate * 1000) < MAX_MS - 1 && guard++ < 4000) out.push([0, 0.5], cycles, fps);
+        const startMs = out.buffered() / rate * 1000;
+        const frameDt = 1 / fps, block = new Float32Array(bs), blockDt = bs / rate;
+        let tf = 0, tb = 0, settled = null;
+        while (tf < 30 && settled === null) {
+          if (tf <= tb) { out.push([0, 0.5], cycles, fps); tf += frameDt; }
+          else { out.pull(block); tb += blockDt; if (out.mode === 0 && tb > 0.1) settled = tb; }
+        }
+        const ms = settled === null ? Infinity : settled * 1000;
+        if (ms > slowest) { slowest = ms; worstAt = `${rate} Hz, ${fps} fps, ${bs}-sample blocks, from ${startMs.toFixed(0)} ms`; }
+        check(`${rate} Hz, ${fps} fps, ${bs}-sample blocks: a queue at the ${MAX_MS} ms ceiling settles within SETTLE_MS (${SETTLE_MS} ms)`,
+          settled !== null && ms <= SETTLE_MS, settled === null ? 'never settled' : `${ms.toFixed(0)} ms`);
+      }
+    }
+  }
+  // AND the bound must have real HEADROOM over the measured worst case, not merely exceed it. A bound equal to the
+  // measurement passes "settles within" and still flakes: the browser's real schedule is not this model's, and a
+  // post-stall queue is exactly where it runs. The reviewer's finding was that 5 s was "about 2% margin in exactly
+  // the post-stall case"; requiring headroom is what makes such a bound fail here.
+  const headroom = SETTLE_MS / slowest;
+  check('audio: the settle bound has real headroom over the measured worst case (not merely above it)',
+    headroom >= 1.5 && headroom <= 3,
+    `SETTLE_MS ${SETTLE_MS} ms / worst ${slowest.toFixed(0)} ms = ${headroom.toFixed(2)}x (${worstAt})`);
+}
+
 console.log(fail ? `${fail} FAILED` : 'all passed');
 process.exitCode = fail ? 1 : 0;

@@ -54,8 +54,6 @@ export function setupWelcome(page, { showRoms, openClaude }) {
 
   // greeting: 'first', 'back' or 'bye'; on a returning visit the menu offers what ran last as option 5
   // ifIdle: only if nothing else started while the menu's bytes were fetched (the Session asked for it, then a
-  // program was loaded or a snapshot opened: that wins)
-  // ifIdle: only if nothing else started while the menu's bytes were fetched (the Session asked for it, then a
   // program was loaded or a snapshot opened: that wins). `running` is the stub program that was there when the
   // fetch began: anything that started or stopped one since (a Power cycle, a Reset, a program, a snapshot,
   // `stubPrompt` in the browser check) changes `stubRun`, and the start is dropped. `welcomeRunning` alone is not

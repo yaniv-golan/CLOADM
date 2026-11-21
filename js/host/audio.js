@@ -222,4 +222,15 @@ class Audio {
   }
 }
 
-export { Audio, AudioOutput, PortSink, FADE_MS, MAX_MS };
+// SETTLE_MS: how long a correction may take to bring a queue from the ceiling (MAX_MS) down to TARGET_MS.
+// The ratio is applied per frame of AUDIO time, so a queue near MAX_MS takes about
+// (MAX_MS - TARGET_MS) / RECOVER = 110 / 0.02 = 5500 ms to arrive; SLACK_MS is then added for the frames the
+// push/pull schedule costs on the way. Measured from a queue at the ceiling, simulated real time, over card
+// rates 44.1/48 kHz, 30/49.97/59.94/60 fps and 512/1024/2048-sample blocks: the slowest is 4.99 s (60 fps,
+// 512-sample blocks). SETTLE_MS is therefore 1.6x the worst measurement -- headroom, not merely adequate:
+// tests/audio.test.js sweeps those schedules and fails if the margin drops below 1.5x, so a stale tighter bound
+// cannot pass. A caller waiting for the ratio to be exactly 1 uses this as its bound.
+const SLACK_MS = 2500;
+const SETTLE_MS = Math.ceil((MAX_MS - TARGET_MS) / RECOVER) + SLACK_MS;
+
+export { Audio, AudioOutput, PortSink, FADE_MS, MAX_MS, TARGET_MS, RECOVER, SETTLE_MS };

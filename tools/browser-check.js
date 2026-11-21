@@ -55,6 +55,8 @@
 const http = require('http'), fs = require('fs'), path = require('path'), os = require('os'), zlib = require('zlib');
 // the snapshot format this tree writes (the version checks build a newer file from it)
 const { SNAPSHOT_VERSION } = require('../tests/load')();
+// the settle bound is the audio module's own derivation, never a literal here (see SETTLE_MS in js/host/audio.js)
+const { SETTLE_MS } = require('../js/host/audio.js');
 // Playwright is loaded once the run starts (--list-groups needs no browser, so the CI shard planner runs without it)
 let chromium;
 
@@ -1048,11 +1050,12 @@ async function audioChecks(browser, base, check) {
   // then would measure a deliberate detune, not the machine: CI measured 451.39 for a 456.64 Hz tone this way).
   await load(square);
   await wait(); await wait();
-  // Wait for the steering to settle: mode NONE (0) means the ratio is exactly 1. Bounded, so a correction that
-  // never converges fails here rather than being waited out: from a queue at the band's edge it takes a few
-  // seconds at 2% (see RECOVER in js/host/audio.js; 40 ms a frame of 21-23 ms is more than a frame's worth), so 5 s
-  // is generous and a fail after it is a real one.
-  const settled = await waitFor(page, () => window.emu.audio && window.emu.audio.out && window.emu.audio.out.mode === 0, null, 5000);
+  // Wait for the steering to settle: mode NONE (0) means the ratio is exactly 1. The bound is SETTLE_MS from
+  // js/host/audio.js, derived there from the module's own constants: the ratio is applied per frame of AUDIO
+  // time, so a queue at the ceiling (MAX_MS) needs about (MAX_MS - TARGET_MS) / RECOVER = 5.5 s to arrive, plus
+  // a stated slack; measured from a 149 ms queue in simulated real time it was 3.95 s at 44.1 kHz and 4.18 s at
+  // 48 kHz. A correction that never converges therefore fails HERE, by name, instead of being waited out.
+  const settled = await waitFor(page, () => window.emu.audio && window.emu.audio.out && window.emu.audio.out.mode === 0, null, SETTLE_MS);
   check('sound: the resampler settles (ratio exactly 1) before the tone is measured', settled,
     await page.evaluate(() => JSON.stringify({ mode: window.emu.audio && window.emu.audio.out ? window.emu.audio.out.mode : null })));
   const tone = await page.evaluate(() => {

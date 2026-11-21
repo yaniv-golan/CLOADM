@@ -15,6 +15,8 @@ const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bcs-'));
 fs.mkdirSync(path.join(dir, 'tools'));
 fs.symlinkSync(path.join(ROOT, 'tools', 'browser-check-lib.js'), path.join(dir, 'tools', 'browser-check-lib.js'));
 fs.symlinkSync(path.join(ROOT, 'tests'), path.join(dir, 'tests'));
+// the check also reads js/host/audio.js for SETTLE_MS (the tone check's settle bound), so the copy needs js/ too
+fs.symlinkSync(path.join(ROOT, 'js'), path.join(dir, 'js'));
 let n = 0;
 function run({ check = realCheck, shards = realShards, args = [] } = {}) {
   const c = path.join(dir, 'tools', `browser-check-${++n}.js`), s = path.join(dir, `shards-${n}.json`);

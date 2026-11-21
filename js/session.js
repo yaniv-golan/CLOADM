@@ -311,7 +311,7 @@ export class Session {
     this.bootOk = null;             // the reset after which BASIC's OK was seen
     this.warmReset = null;          // { m, resetAt }: the run that began with the Reset button, not a power-on (bootStatus)
     this.welcome = null;            // the machine running the welcome program
-    this.welcomeGen = 0;            // bumped by every start (a later start wins over an earlier one)
+    this.welcomeGen = 0;            // bumped by every start: the FIRST start to land wins (a later one is dropped)
     this.menuWatch = null;          // a program that goes back to the welcome menu when left (watchForMenu)
     this.stubRun = null;            // what runs on the stub firmware and how to restart it (Reset; see `reset`)
     this.welcomeBuild = null;       // its build's fixed addresses (WELCOME[profile cpu])
