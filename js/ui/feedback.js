@@ -44,6 +44,7 @@ export function createFeedback() {
     const t = cur;
     cur = null;
     clearTimeout(t.timer);
+    stopFollow();               // nothing places a toast that has gone
     box.hidden = true;
     unplace();
     box.classList.remove('error');
@@ -61,6 +62,7 @@ export function createFeedback() {
     end('replaced');
     cur = t;
     t.seen = false;
+    decided = null;                 // a new toast: measure afresh
     t.left = t.action || t.details ? LONG : SHORT;
     textEl.textContent = t.text;
     box.classList.toggle('error', !!t.error);
@@ -90,18 +92,78 @@ export function createFeedback() {
   // (the install offer too: a toast must never cover it, in any of its layouts)
   const CONTROLS = 'header, .controls, .slots, aside.drawer, #attention, #touchKeys button, #claudeBar, #installOffer';
   const boxes = (sel) => [...document.querySelectorAll(sel)].map((e) => e.getBoundingClientRect()).filter((o) => o.width && o.height);
+
   const hits = (r, o) => !(r.bottom <= o.top || r.top >= o.bottom || r.right <= o.left || r.left >= o.right);
+  // ONE writer for the region's inline style, and it writes only what changed. Main wrote eleven properties every
+  // frame (6 in unplace, 5 in put): 2715 style-attribute writes in a 3 s load window, 2714 of them byte-identical, and
+  // each is a DOM mutation and a style invalidation. `applied` is the stylesheet's place: null (no inline style, the
+  // stylesheet's own place holds), 'top' (the fixed top slot), or { left, top, width }.
+  let applied = null;
+  const PROPS = ['left', 'top', 'right', 'bottom', 'transform', 'width'];
+  // The stylesheet's own place: no inline style at all. Clear what a placed toast set, and only if something is there.
+  function clearRegion() {
+    // nothing inline to clear: leave it (the stylesheet's place already holds, and a stationary toast must cost no
+    // writes at all -- clearing six already-empty properties every frame is exactly the thrash this fixes)
+    if (region.style.cssText === '') return;
+    for (const k of PROPS) if (region.style[k] !== '') region.style[k] = '';
+    region.classList.remove('top');
+  }
+  // Place the toast: { left, top, width|null } px values. Writes a property only when its value changes.
+  function placedAt(left, top, width) {
+    const want = { left, top, width };
+    for (const k of ['left', 'top', 'width']) {
+      const v = k === 'width' ? (width === null ? '' : width) : want[k];
+      if (region.style[k] !== v) region.style[k] = v;
+    }
+    for (const [k, v] of [['transform', 'none'], ['right', 'auto'], ['bottom', 'auto']]) if (region.style[k] !== v) region.style[k] = v;
+    region.classList.remove('top');
+    applied = want;
+  }
+  // The fixed top slot: the class carries the rest, the two inline properties pin it away from the stylesheet's edge.
+  function placedTop() {
+    clearRegion();
+    region.classList.add('top');
+    const top = innerWidth <= 700 ? '8px' : '16px';
+    if (region.style.top !== top) region.style.top = top;
+    if (region.style.bottom !== 'auto') region.style.bottom = 'auto';
+    applied = 'top';
+  }
   // back to the stylesheet's place (a toast that ends, or one placed afresh)
   function unplace() {
-    region.style.left = ''; region.style.top = ''; region.style.right = ''; region.style.bottom = '';
-    region.style.transform = ''; region.style.width = '';
-    region.classList.remove('top');
+    const had = region.style.cssText !== '';
+    clearRegion();
+    if (had) applied = null;   // (with nothing to clear, the last placement still describes the style that is there)
+  }
+  // Everything place()'s decision reads, as one string: if it is unchanged the answer is unchanged, so a stationary
+  // toast needs no measurement and no write. (The controls' geometry is in it: a control that grows under the toast is
+  // a different answer, which is what the browser check's "a control grows under it" case needs.)
+  let measuredFor = null, decided = null;
+  function placementInputs() {
+    const t = box.getBoundingClientRect();
+    const controls = [...document.querySelectorAll(CONTROLS)].map((e) => { const o = e.getBoundingClientRect(); return o.width && o.height ? `${Math.round(o.left)},${Math.round(o.top)},${Math.round(o.right)},${Math.round(o.bottom)}` : ''; }).join(';');
+    // the box's own rect too: a layout change that moves the toast (a scroll, a control appearing above it) moves it,
+    // while a stationary toast's rect does not change at all
+    return [innerWidth, innerHeight, currentView(), t.left, t.top, t.width, t.height, box.className, region.className, controls].join('|');
+  }
+  // put back the placement an unchanged frame would have decided on (writes only if something moved)
+  function reapply() {
+    if (!decided) return;
+    if (decided.kind === 'natural') unplace();        // (the stylesheet's place: nothing inline)
+    else if (decided.kind === 'placed') placedAt(decided.left, decided.top, decided.width);
+    else placedTop();
   }
   function place() {
     if (cur && cur.pinned && !box.hidden) return;   // in the top slot: kept there until it goes
+    if (box.hidden) { unplace(); return; }
+    if (currentView() !== 'emulator') { unplace(); seen(); return; }
+    // The measurement below needs the NATURAL box -- the toast at the stylesheet's place, with no inline style. Taking
+    // it means clearing what a previous placement wrote, then measuring and re-placing: a clear, a layout and a write
+    // per frame, which is where main's thrash came from. So it is done only when something that can move the toast has
+    // changed. A toast whose inputs are unchanged is re-placed from the same answer, and writes nothing.
+    const inputs = placementInputs();
+    if (decided && inputs === measuredFor) { reapply(); seen(); return; }
     unplace();
-    if (box.hidden) return;
-    if (currentView() !== 'emulator') { seen(); return; }
+    measuredFor = inputs;
     const r = box.getBoundingClientRect(), w = r.width, h = r.height, phone = innerWidth <= 700, area = safeArea();
     const controls = boxes(CONTROLS), screen = boxes('#monitor, #monitor .tube, #screen');   // (the phone chat's monitor has no box of its own)
     const rect = (left, top) => ({ left, top, right: left + w, bottom: top + h });
@@ -129,15 +191,17 @@ export function createFeedback() {
       top: text.bottom + 2, bottom: Math.min(t.bottom, c.bottom, area.bottom) - 4 } : null;
     const offText = controls.concat(text ? [text] : []);
     tries.push([r.left, area.top + (phone ? 8 : 16), true]);
-    const put = (x, y, width = null) => {
-      region.style.transform = 'none'; region.style.bottom = 'auto'; region.style.right = 'auto';
-      region.style.left = `${Math.round(x)}px`; region.style.top = `${Math.round(y)}px`;
-      if (width !== null) region.style.width = `${Math.round(width)}px`;
-    };
+    const put = (x, y, width = null) => placedAt(`${Math.round(x)}px`, `${Math.round(y)}px`, width === null ? null : `${Math.round(width)}px`);
     box.classList.remove('compact');
     const at = tries.find(([x, y, avoidScreen]) => free(rect(x, y), avoidScreen ? controls.concat(screen) : controls));
     if (at) {
-      if (at[0] !== r.left || at[1] !== r.top) put(at[0], at[1], phone ? w : null);
+      if (at[0] !== r.left || at[1] !== r.top) {
+        put(at[0], at[1], phone ? w : null);
+        decided = { kind: 'placed', left: `${Math.round(at[0])}px`, top: `${Math.round(at[1])}px`, width: null };
+      } else {
+        // the toast's own place is free: the stylesheet's place holds, and there is no inline style to re-apply
+        decided = { kind: 'natural' };
+      }
       seen();
       return;
     }
@@ -149,21 +213,35 @@ export function createFeedback() {
         put(0, 0, bw);
         const bb = box.getBoundingClientRect(), x = (band.left + band.right - bb.width) / 2, y = band.bottom - bb.height;
         const spot = { left: x, top: y, right: x + bb.width, bottom: y + bb.height };
-        if (y >= band.top && free(spot, offText)) { put(x, y, bw); seen(); return; }
+        if (y >= band.top && free(spot, offText)) { put(x, y, bw); decided = { kind: 'placed', left: `${Math.round(x)}px`, top: `${Math.round(y)}px`, width: `${Math.round(bw)}px` }; seen(); return; }
       }
       box.classList.remove('compact');
     }
     // nowhere it covers no control: the fixed slot at the top of the viewport, kept until the toast goes
     box.classList.remove('compact');
-    unplace();
-    region.style.top = phone ? '8px' : '16px'; region.style.bottom = 'auto';
-    region.classList.add('top');
+    placedTop();
+    decided = { kind: 'top' };
     if (cur) cur.pinned = true;
     seen();
   }
   // followed every frame while it is up: a control can move under it without the window scrolling or resizing
   // (the drawer filling in, a bar appearing above the slots), and it must never end up over one
-  function follow(t) { if (cur !== t) return; place(); requestAnimationFrame(() => follow(t)); }
+  // One placement chain for the page, cancelled when no toast is up. On main every show() started its own and none
+  // was ever cancelled: replacing a toast three times in a task left three chains placing the SAME frame (measured:
+  // three different positions written per frame), and each toast of a session added a loop that only ever returned
+  // early. `raf` is the chain in flight (null: none).
+  let raf = null;
+  function follow(t) {
+    if (cur !== t || raf !== null) return;          // (a chain is already running for this toast)
+    const step = () => {
+      raf = null;
+      if (cur !== t) return;                        // this toast is gone: the chain ends here
+      place();
+      if (cur === t) raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+  }
+  function stopFollow() { if (raf !== null) { cancelAnimationFrame(raf); raf = null; } }
   // text: what happened; error: an action failed; action: { label, run } (Undo, Show, Load); details: more text
   // (an error's sentences after the first go there by default); view: the page it belongs to (default: the one
   // shown); onEnd(reason): called once when it goes ('timeout', 'replaced', 'cleared', 'action', 'dropped', 'closed')

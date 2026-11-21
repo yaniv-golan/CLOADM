@@ -134,6 +134,9 @@ node tests/roms.test.js      # ROM identification across machines (synthetic ima
 node tools/gen-rom-docs.js   # regenerate docs/roms.md from the profiles (tests/romdocs.test.js checks it)
 node tools/gen-page-preload.js  # regenerate the <link rel="modulepreload"> list in play/index.html (tests/pagepreload.test.js checks it)
 node tools/page-load.js      # how long /play/ takes to start over a throttled link: modulepreload's effect (see below)
+node tools/flicker-measure.js # a .cas dropped on stored ROMs, first visit vs repeat: DOM mutations, layout shifts, canvas
+                              # replacements, service-worker events and reloads per second, and #toastRegion's inline-style
+                              # writes (the toast placement loop's cost: see "the page's per-frame work" below)
 node tests/readme.test.js    # README.md and docs/*.md: only what GitHub renders; links, anchors and pictures resolve; no private or ROM-folder links
 node tests/tape.test.js      # cassette: WAV files, decoding impaired recordings, capturing csave.asm's output on every SAM model and the MC-10, Session
 node tests/tape-load.test.js # a tape dropped on the page: restarted, CLOADM, EXEC only when BASIC is back, a self-starting tape left alone (BASIC stand-in)
@@ -280,6 +283,15 @@ access (`readRange` to mount, `writeRange` for what the machine writes, only the
 drive's motor stops, on eject, and before the machine or the page goes away), never through the media index.
 A disk that comes back with a snapshot is the snapshot's own copy: it is not linked to the stored image, and
 Download saves it.
+
+**The page's per-frame work.** A toast is placed once per animation frame while it is up, so it keeps clear of a
+control that grows under it (`js/ui/feedback.js`; `follow` → `place`). That is one chain for the page, cancelled when
+the toast goes, and `place` writes the region's inline style only when the placement changes: measured with
+`node tools/flicker-measure.js`, one fix-D load window wrote `#toastRegion`'s style **3,630-3,645 times** while every
+show started its own uncancelled chain and every frame rewrote eleven properties, and **30 times** with one chain and a
+write-on-change writer (the run's DOM mutations fell from ~6,500 to ~2,410). The browser check holds a stationary toast
+to 40 style writes in 60 frames and still requires it to follow a layout change; `tests/toast-follow.test.js` pins the
+chain count, the stationary cost and the follow in Node.
 
 ## Pictures
 

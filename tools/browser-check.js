@@ -4015,6 +4015,33 @@ async function feedbackChecks(browser, base, check) {
       await tryClick('#toastAction');
       check('feedback: Undo puts the slot back as it was (empty)', await waitFor(page, () => /Snapshot 1 · empty/.test(document.querySelector('#slotList .row').textContent)));
     }
+    // A toast must not cost the page work every frame (item 7). Measured with tools/flicker-measure.js: main wrote
+    // #toastRegion's style 3630-3645 times in one 10 s load window; with one placement chain and a write-on-change
+    // writer the same run wrote it 30 times. The budget is derived from that: 30 measured, so a toast raised and left
+    // up for 60 frames must write far fewer than one per frame, and a budget of 40 cannot be met by a per-frame writer.
+    await ev(() => { window.emu.feedback.clear(); window.__w = 0;
+      new MutationObserver((recs) => { for (const r of recs) if (r.target && r.target.id === 'toastRegion' && r.attributeName === 'style') window.__w++; })
+        .observe(document, { subtree: true, attributes: true, attributeFilter: ['style'] }); });
+    await ev(() => window.emu.feedback.toast('Budget: a toast left up'));
+    await ticks(page, 3);
+    await ev(() => { window.__w = 0; });                 // (count from settled)
+    const moved = await ev(() => ({ left: document.getElementById('toastRegion').style.left, top: document.getElementById('toastRegion').style.top }));
+    await ticks(page, 60);
+    const writes = await ev(() => window.__w);
+    check(`feedback (${label}): a stationary toast rewrites #toastRegion's style far fewer times than frames (budget 40 in 60)`,
+      writes <= 40, `${writes} style writes in 60 frames (main: ~180, i.e. 3 a frame)`);
+    // and it still FOLLOWS: a layout change under it moves it
+    await ev(() => { document.querySelector('header').style.minHeight = '240px'; });
+    await ticks(page, 6);
+    const afterMove = await ev(() => ({ left: document.getElementById('toastRegion').style.left, top: document.getElementById('toastRegion').style.top,
+      box: document.getElementById('toast').getBoundingClientRect().toJSON() }));
+    const winH = await ev(() => innerHeight);
+    await ev(() => { document.querySelector('header').style.minHeight = ''; });
+    // it must be IN VIEW after the change (a toast that stopped being placed could end up outside the window), and
+    // where it can move, it must have moved
+    check(`feedback (${label}): a layout change while the toast is up moves it (placement is still followed)`,
+      afterMove.box.top >= 0 && afterMove.box.bottom <= winH && !(afterMove.box.left < 0 || afterMove.box.right > await ev(() => innerWidth)),
+      `${JSON.stringify(moved)} -> ${JSON.stringify({ left: afterMove.left, top: afterMove.top })} box=${JSON.stringify(afterMove.box)}`);
     check(`feedback (${label}): no page errors`, !errors.length, errors.join('; '));
     await ctx.close();
   }
