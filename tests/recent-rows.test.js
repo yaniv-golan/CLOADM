@@ -45,12 +45,11 @@ check('recent rows: the other machine\'s entry is not shown', !rows.some((x) => 
 // SECOND recentMedia() call, whose objects are different -- always -1 (shown here, for the record). So the handler
 // must not recompute an index: it uses the one recentRows gave it. This reads the drawer's own source for that.
 {
-  const drawerSrc = fs.readFileSync(path.join(__dirname, '../js/ui/drawer.js'), 'utf8');
-  const body = /function recent\(\)[\s\S]*?\n  \}/.exec(drawerSrc);
   const oldRows = s.recentMedia().filter((r) => r.machine === 'dragon64').map((r) => ({ r, i: all.indexOf(r) }));
   check('recent rows: an index looked up against a second call is -1 (the bug this pins)', oldRows.every((x) => x.i === -1), JSON.stringify(oldRows.map((x) => x.i)));
-  check('recent rows: the drawer does not recompute an index for a click (no indexOf in its recent handler)',
-    !!body && !/indexOf\s*\(/.test(body[0]) && /loadRecent\(i\)/.test(body[0]), body ? (body[0].match(/loadRecent\([^)]*\)/) || ['?'])[0] : 'handler not found');
+  // (the click's own behaviour -- a row load the entry it named, and a stale row saying so -- is
+  // tests/recent-click.test.js's job, through drawer.js's loadRow; a source grep here would pin a spelling, not
+  // the behaviour)
 }
 
 // and the index each row carries really loads that row's file

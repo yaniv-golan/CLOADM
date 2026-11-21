@@ -1438,6 +1438,10 @@ export class Session {
   // QUESTION (js/ui/welcome.js) passes 'none' -- the person chose the machine, not what ran on the old one -- while
   // the header menu and the ROM screen keep the usual carry-on, which is what a returning visitor expects there.
   chooseMachine(id, { offer = null } = {}) { this.store.set('machineChosen', '1'); return this.switchMachine(id, undefined, { offer }); }
+  // The greeting the menu takes when it is offered by a switch: a machine question ('none') is asked on a FIRST
+  // visit only, so it greets a first-time visitor ('first', the title screen); every other offer is a returning
+  // visitor's ('back') -- the page used to decide this itself, and once got it wrong. One place decides it now.
+  static greetingFor(offer) { return offer === 'none' ? 'first' : 'back'; }
   get hasAnyRoms() { return this.roms.sockets().some((s) => profiles[s.owner]); }
   // The last few programs, tapes and cartridges loaded (bytes kept for items up to 1 MB).
   // `copy` labels the rows that need telling apart, for two entries of ONE name — grouped with this.sameName,

@@ -11,6 +11,20 @@ import { $ } from './page.js';
 // Node test can run the code the drawer runs rather than a copy of it.
 export const recentRows = (all, machine) => all.map((r, i) => ({ r, i })).filter((x) => x.r.machine === machine);
 
+// What a click on a recent row does: load the entry that row was DRAWN from. The list can change between drawing
+// and clicking (a load, an eviction, a machine switch), so the row's own ENTRY decides which one to load, found
+// again in the list as it is now by its identity (name, crc, machine). The index is only a fallback for an entry
+// that has gone from the list: the row is then stale, and loadRecent(index) reports it, rather than silently
+// loading whatever moved into that slot.
+export const loadRow = (session, row) => {
+  const now = session.recentMedia();
+  const at = now.findIndex((r) => r.name === row.r.name && r.crc === row.r.crc && r.machine === row.r.machine);
+  // not found: the row was evicted (or its entry replaced) while the drawer was open. Loading by the row's old
+  // index would load whatever moved into that slot -- a different file under the same click. Say it is gone.
+  if (at < 0) throw new Error('That file is no longer in the recent list; open it again.');
+  return session.loadRecent(at);
+};
+
 export function setupDrawer(page, { showRoms }) {
   const { session } = page;
   const tabs = [...document.querySelectorAll('[role="tab"]')];
@@ -52,7 +66,7 @@ export function setupDrawer(page, { showRoms }) {
       if (r.copy) { const c = document.createElement('span'); c.className = 'copy'; c.textContent = r.copy; b.append(n, c, k); }
       else b.append(n, k);
       b.disabled = !r.stored;
-      b.onclick = () => { page.attempt(() => session.loadRecent(i)); page.focus(); };
+      b.onclick = () => { page.attempt(() => loadRow(session, { r, i })); page.focus(); };
       list.append(b);
     }
   }

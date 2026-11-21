@@ -100,8 +100,10 @@ export function setupWelcome(page, { showRoms, openClaude }) {
       // machine, not what ran on the old one. The question is asked on a FIRST visit only, so the menu greets a
       // first-time visitor: greeting 'first' (the title screen), as main's handler did with runWelcome's default.
       // 'back'/'bye' as before.
-      if (arg === 'none') await runWelcome({ greeting: 'first', carryOn: null }, { ifIdle: true, byMachine: null });
-      else await runWelcome(arg === 'back' ? { greeting: 'back', carryOn: session.carryOn } : { greeting: 'bye' }, { ifIdle: true, byMachine: arg !== 'back' ? session.menuTicket || asked : null });
+      // the greeting is the Session's decision (Session.greetingFor), so the page and the Node tests share it
+      const greeting = arg === 'none' || arg === 'back' ? session.constructor.greetingFor(arg) : 'bye';
+      await runWelcome({ greeting, carryOn: arg === 'back' ? session.carryOn : null },
+        { ifIdle: true, byMachine: arg !== 'back' ? session.menuTicket || asked : null });
     }
   });
   // what ran last, again: LIZA, the demo, or the file (from the recent list)
