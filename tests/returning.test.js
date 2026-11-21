@@ -145,6 +145,29 @@ const store = () => { const m = new Map(); return { get: (k) => (m.has(k) ? m.ge
     check(`BYE in LIZA, ${label}: the menu comes after 3 s of machine time, not after a number of ticks`,
       early === 0 && menus === 1, `${calls} ticks, ${s.machine.frameCount - f0} frames; menus ${early} then ${menus}`);
   }
+  // BREAK (POLCAT code 3) mid-line leaves exactly as BYE does: the goodbye, the same DONE loop, and the menu 3 s
+  // later, once; on the 6809 build and the 6803 one (an MC-10 switched to the 20K LIZA needs)
+  for (const [id, file] of [['dragon64', 'liza.bin'], ['mc10', 'liza6803-mc10.bin']]) {
+    const s = new Emu.Session({ store: store() });
+    s.switchMachine(id);
+    if (s.lizaNeeds()) s.switchLiza();
+    const fam = id === 'mc10' ? '6803' : '6809';
+    let menus = 0;
+    s.on((e) => { if (e === 'menu') menus++; });
+    await s.startLiza(() => read(file));
+    frames(s, 30);
+    s.typeText('I FEEL');
+    frames(s, 30);
+    s.machine.stubKeys.push(3);
+    let at = null;
+    for (let i = 0; i < 300 && at === null; i++) { frames(s, 1); if (s.machine.cpu.pc === Emu.Session.LIZA.done[fam]) at = i; }
+    const t = s.screenText().join(' ');
+    frames(s, Math.floor(s.machine.fps * 3) - 5);
+    const early = menus;
+    frames(s, 10);
+    check(`${id}: BREAK in LIZA mid-line is BYE: the goodbye, DONE, and the menu 3 s later, once`,
+      at !== null && /> I FEEL +GOODBYE\. IT WAS NICE/.test(t) && early === 0 && menus === 1, `at ${at} early ${early} menus ${menus} ${JSON.stringify(t.slice(-120))}`);
+  }
   // with ROMs (BASIC, not the stub) there is no menu to go back to: no watch
   {
     const s = new Emu.Session({ store: store() });

@@ -166,6 +166,54 @@ function firstDiff(a, b) {
   return '';
 }
 
+// ---- BREAK, CLEAR and backspace while a line is typed ----
+// POLCAT gives BREAK as 3 and CLEAR as 12 (BASIC's codes; the stub's for Esc and Home). Each build is checked against
+// what the brief asks for, and the 6803 builds against the 6809 build row for row (the title row aside).
+const keys = (m, codes) => { for (const c of codes) { m.stubKeys.push(c); m.runFrame(); m.runFrame(); } for (let i = 0; i < 30; i++) m.runFrame(); return screenOf(m); };
+const codes = (text) => [...text.toUpperCase()].map((c) => c.charCodeAt(0));
+function keySession(id, load, title) {
+  const m = longSession(id, load), out = { m };
+  say(m, 'I need a holiday');
+  // the stack pointers seen while LIZA waits at a prompt: CLEAR leaves READLN without returning, so it must reset the
+  // stack, or every CLEAR would leave READLN's return address (and more) behind
+  // (the shallowest one: the waiting loop's own; deeper ones are the POLCAT calls and interrupts it makes)
+  const stackAtPrompt = () => { let top = 0; m.cpu.trace = (c) => { top = Math.max(top, c.s); }; m.runFrame(); m.runFrame(); m.cpu.trace = null; return top.toString(16); };
+  const before = stackAtPrompt();
+  // CLEAR mid-line: a clear screen with the title, a blank row and a fresh prompt; the half-typed line is gone
+  out.cleared = keys(m, [...codes('MY BOSS IS'), 12]);
+  check(`${id}: CLEAR mid-line clears the screen to the title, a blank row and "> " with the cursor`,
+    JSON.stringify(out.cleared) === JSON.stringify([title, '', '> #', ...Array(13).fill('')]), JSON.stringify(out.cleared.slice(0, 4)));
+  for (let i = 0; i < 5; i++) keys(m, [...codes('X'), 12]);
+  check(`${id}: CLEAR keeps the stack where it is at every prompt (six CLEARs leave nothing behind)`, stackAtPrompt() === before, `${before} / ${stackAtPrompt()}`);
+  // the next line is answered normally (the conversation went on: no repeat, no lost state)
+  out.after = say(m, 'I am tired');
+  // ("I AM" + the rest: the data file's first I AM reply, "HOW LONG HAVE YOU BEEN *?")
+  check(`${id}: after CLEAR the next line is answered normally`, out.after[2] === '> I AM TIRED' && out.after[3] === 'HOW LONG HAVE YOU BEEN TIRED?',
+    JSON.stringify(out.after.slice(2, 6)));
+  // backspace still works: "I NEEX" + backspace + "D A HOLIDAY" is "I NEED A HOLIDAY", answered with the data file's
+  // second I NEED reply (the first was given before CLEAR: the rotation went on through it)
+  out.bs = keys(m, [...codes('I NEEX'), 8, ...codes('D A HOLIDAY'), 13]);
+  check(`${id}: backspace still corrects the line ("I NEEX", BS, "D A HOLIDAY")`,
+    flat(out.bs).endsWith('> I NEED A HOLIDAY WOULD IT REALLY HELP YOU TO GET A HOLIDAY? >'), flat(out.bs).slice(-80));
+  // BREAK at the prompt: the goodbye BYE gives, and the program stops at the DONE loop
+  out.brk = keys(m, [3]);
+  const done = load.done;
+  check(`${id}: BREAK at the prompt says goodbye as BYE does`, /> +GOODBYE\. IT WAS NICE TALKING TO YOU\. TAKE CARE OF YOURSELF\.$/.test(flat(out.brk)), flat(out.brk).slice(-70));
+  check(`${id}: ... and stops at BYE's DONE loop`, m.cpu.pc === done, m.cpu.pc.toString(16));
+  return out;
+}
+const refLoad = (m) => { const d = Emu.formats.identify('liza.bin', Emu.toBinary(s6809)); m.injectAndRun(d.segments, d.exec); };
+refLoad.done = s6809.symbols.get('DONE');
+const refKeys = keySession('dragon64', refLoad, 'LIZA - A DRAGON 64 THERAPIST');
+for (const id of ['mc10', 'alice']) {
+  const load = (m) => m.injectAndRun(b6803[id].segments, b6803[id].exec);
+  load.done = b6803[id].symbols.get('DONE');
+  const ours = keySession(id, load, TITLES[id]);
+  const strip = (o) => [o.cleared, o.after, o.bs, o.brk].map((scr) => JSON.stringify(scr.slice(1)));
+  check(`${id}: CLEAR, the next line, backspace and BREAK give the 6809 build's screens, row for row`,
+    JSON.stringify(strip(ours)) === JSON.stringify(strip(refKeys)), firstDiff(strip(ours), strip(refKeys)));
+}
+
 // ---- the screen scrolls, and a line longer than the screen ----
 // The 6809 build on the Dragon is the oracle for both: same conversation, same screen.
 function longSession(profileId, load) {

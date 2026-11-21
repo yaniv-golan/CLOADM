@@ -2934,7 +2934,7 @@ export class Session {
   // done: each build's DONE loop, where it stops after BYE (tests/returning.test.js assembles the sources and
   // checks these)
   static LIZA = { '6809': 'liza.bin', ram: 20, '6803': Object.freeze({ mc10: 'liza6803-mc10.bin', alice: 'liza6803-alice.bin' }),
-    done: Object.freeze({ '6809': 0x303F, '6803': 0x5048 }) };
+    done: Object.freeze({ '6809': 0x3033, '6803': 0x503C }) };
   get lizaFile() { return cpuFamily(this.machine.config.cpu) === '6809' ? Session.LIZA['6809'] : Session.LIZA['6803'][this.machine.id]; }
   // what a machine needs before it can run LIZA -> { ram, have } when the RAM option is too small, else null
   lizaNeeds() {

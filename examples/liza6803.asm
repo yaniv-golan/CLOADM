@@ -20,8 +20,8 @@
 ; through the MC-10 ROM entry points POLCAT ($F883: key in A, Z set
 ; when none) and CHROUT ($F9C6: print A). The screen is the 32x16
 ; text screen at $4000. The program sits at $5000, above the 4K
-; option's RAM, so it needs the MC-10/Alice 20K option. Size: 3530 bytes of code and data, from $5000 to
-; $5DC9, with variables extending to $5FB4.
+; option's RAM, so it needs the MC-10/Alice 20K option. Size: 3556 bytes of code and data, from $5000 to
+; $5DE3, with variables extending to $5FCE.
 ;
 ; Pointer state lives in the program's own RAM, not the 6803's
 ; on-chip RAM at $80-$FF: BASIC's own routines use that while CHROUT
@@ -40,11 +40,7 @@ STACK   EQU     $5000-1         ; stack top: the 6803 pushes down, so the first 
         ORG     $5000
 
 START   LDS     #STACK          ; stack just below the program
-        JSR     CLS
-        LDX     #TITLE
-        JSR     PRINTW
-        JSR     NEWLN
-        JSR     NEWLN
+        JSR     HEADER
         LDX     #INTRO
         JSR     PRINTW
         JSR     NEWLN
@@ -65,7 +61,7 @@ MAIN    LDX     #PROMPT
         LDX     #R_EMPTY
         BRA     RESPND
 
-BYENOW  LDX     #BYEMSG
+BYENOW  LDX     #BYEMSG         ; (BREAK in READLN comes here too)
         JSR     PRINTW
         JSR     NEWLN
 DONE    BRA     DONE
@@ -342,6 +338,13 @@ OUTCH   LDX     OUTPTR
 ; ---------------------------------------------------------------
 ; screen and keyboard
 
+; HEADER: a clear screen with the title and a blank line under it
+HEADER  JSR     CLS
+        LDX     #TITLE
+        JSR     PRINTW
+        JSR     NEWLN
+        JMP     NEWLN
+
 ; CLS: clear the screen, home the console's cursor and ours
 CLS     LDAA    #12
         JSR     CHROUT
@@ -510,7 +513,9 @@ WL2     PULA
         PULX
         RTS
 
-; READLN: read a line into INBUF (upper case), with backspace
+; READLN: read a line into INBUF (upper case), with backspace.
+; BREAK (POLCAT code 3) leaves as BYE does; CLEAR (12) drops the
+; line, clears the screen and starts a fresh prompt. Neither returns.
 READLN  LDX     #INBUF
         STX     RPTR
         CLR     INLEN
@@ -520,6 +525,10 @@ RLK     JSR     GETKEY
         BEQ     RLEND
         CMPA    #8
         BEQ     RLBS
+        CMPA    #3
+        BEQ     RLBRK
+        CMPA    #12
+        BEQ     RLCLR
         CMPA    #' '
         BLO     RLK
         CMPA    #'a
@@ -548,6 +557,11 @@ RLBS    TST     INLEN
 RLEND   LDX     RPTR
         CLR     0,X
         RTS
+RLBRK   JSR     NEWLN
+        JMP     BYENOW
+RLCLR   LDS     #STACK          ; abandon READLN's caller: back to MAIN
+        JSR     HEADER
+        JMP     MAIN
 
 ; ---------------------------------------------------------------
 ; data

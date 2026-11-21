@@ -35,7 +35,11 @@ const SPECIAL = {
   Alt: 'ALT', Control: 'CTRL', F1: 'F1', F2: 'F2',   // CoCo 3 only; the other matrices have no such cells
 };
 // ASCII codes for the no-ROM stub's POLCAT, which reads a byte rather than the matrix
-const STUB_CODES = { Enter: 13, Backspace: 8, ArrowLeft: 8, ArrowRight: 9, ArrowUp: 94, ArrowDown: 10, Escape: 3, Home: 12 };
+const STUB_CODES = { Enter: 13, Backspace: 8, ArrowLeft: 8, ArrowRight: 9, ArrowUp: 94, ArrowDown: 10 };
+// a key (not a typed character) that holds the machine's BREAK or CLEAR gives the code BASIC's POLCAT returns for
+// it, whichever host key it is in the mode in use (Esc, Home or Delete translated; Esc, End, Home or the MC-10's ]
+// positional). A typed character stays itself: translated, \ is SHIFT+CLEAR on the matrix but 92 to the stub.
+const STUB_KEY_CODES = { BREAK: 3, CLEAR: 12 };
 const isModifier = (key) => key === 'Shift' || key === 'Control' || key === 'Alt' || key === 'Meta';
 
 // a stick position in -1..1 -> the machines' 0..63 axis (one end is 0, the other 63; centre is 32)
@@ -118,7 +122,7 @@ class HostInput {
     if (e.ctrlKey || e.metaKey || e.altKey) return false;   // a browser shortcut, not ours to take
     const entry = this.machineKeys(e);
     if (!entry) return false;
-    if (this.m.useStub && !e.repeat) this.pushStub(e);
+    if (this.m.useStub && !e.repeat) this.pushStub(e, entry);
     const shift = entry.shift ?? this.hostShift;
     for (const [code, held] of this.heldKeys) if (code !== e.code && held.shift === !shift) this.heldKeys.delete(code);
     this.setMatrix(e.code, entry);
@@ -159,11 +163,12 @@ class HostInput {
     if (down) this.setMatrix(e.code, { keys: [name], shift: null }); else this.clearMatrix(e.code);
     return true;
   }
-  pushStub(e) {
+  pushStub(e, entry) {
     // the stub hands programs upper case, as BASIC's keyboard does, unless the program draws lower case itself
     // (the chat firmware: machine.stubKeepCase)
     const ch = e.key.length === 1 ? (this.m.stubKeepCase ? e.key : e.key.toUpperCase()) : '';
-    const code = STUB_CODES[e.key] || (ch ? ch.charCodeAt(0) & 0x7F : 0);
+    const key = (this.mode === 'positional' || !ch) && entry.keys.length === 1 ? STUB_KEY_CODES[entry.keys[0]] : 0;
+    const code = key || STUB_CODES[e.key] || (ch ? ch.charCodeAt(0) & 0x7F : 0);
     if (code) this.m.stubKeys.push(code);
   }
   // an on-screen key (js/ui/touch-keys.js) pressed or let go: machine key names (SHIFT first when it is held) and

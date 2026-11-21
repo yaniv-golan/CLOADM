@@ -39,7 +39,7 @@ node tests/held-writeio.test.js # a write from outside during a held access: que
 node tests/coco3.test.js     # CoCo 3: MMU, GIME interrupts, timer, speed, video
 node tests/mc10.test.js      # MC-10: 6803 core, assembler plugin, machine
 node tests/sp0256.test.js    # SP0256 speech chip: sequencer, paging, branches, handshake, RCU, timing (GI design spec)
-node tests/liza6803.test.js  # LIZA for the 6803: same conversation as the 6809 build on mc10 and alice
+node tests/liza6803.test.js  # LIZA for the 6803: same conversation as the 6809 build on mc10 and alice; BREAK, CLEAR, backspace
 node tests/state.test.js     # snapshots: save mid-run and part-way along a swept line, restore, identical frames
 node tests/snapshot.test.js  # snapshot files: format and version, defective files, every model opened elsewhere, ROMs by CRC, switching, slots
 node tests/press-break.test.js # BREAK delivery: our own firmware scans the matrix on dragon64, coco3 and mc10
@@ -100,7 +100,7 @@ node tests/demo-tone.test.js # the welcome demo plays one short clean tone (440-
 node tests/privacy-copy.test.js # the ROM privacy copy (README, docs, front, /roms, Help, play) says both halves: CLOADM never uploads ROMs; what Claude reads from memory, ROM areas included, goes to Anthropic
 node tests/cpu6309-offer.test.js   # the welcome menu is offered on every 6309 model ('menu', 'back'), and the file it fetches is the 6809 build (welcome.bin), as the 6809 gets
 node tests/cpu6309-session.test.js # the HD6309 runs the 6809 builds: welcome menu, LIZA, the demo and the chat firmware on every 6309 model, each ending in the same state as on the 6809
-node tests/returning.test.js # returning visits: greetings, option 5, what ran last, back to the menu from LIZA and the demo
+node tests/returning.test.js # returning visits: greetings, option 5, what ran last, back to the menu from LIZA (BYE or BREAK) and the demo
 node tests/power-on.test.js  # without ROMs: Reset restarts what runs; power-on, a machine switch and a snapshot of the stub's prompt bring the welcome menu (6809 and 6803)
 node tests/welcome6803.test.js # the 6803 welcome on mc10 and alice: raw screen cells, per-machine subtitle, keys, the two builds differ only at the HALT
 node tests/regress.test.js                # fast gate: trace and frame hashes of the diagnostic firmware (seconds, no MAME; tests/all.js runs it too; --count prints the number of cases)

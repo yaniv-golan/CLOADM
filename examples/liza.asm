@@ -15,11 +15,7 @@ MAXIN   EQU     60              ; longest input line
         ORG     $3000
 
 START   LDS     #$3000          ; stack just below the program
-        JSR     CLS
-        LDX     #TITLE
-        JSR     PRINTW
-        JSR     NEWLN
-        JSR     NEWLN
+        JSR     HEADER
         LDX     #INTRO
         JSR     PRINTW
         JSR     NEWLN
@@ -35,7 +31,7 @@ MAIN    LDX     #PROMPT
         LDX     #KBYE           ; leaving?
         JSR     FIND
         BCS     NOTBYE
-        LDX     #BYEMSG
+BYENOW  LDX     #BYEMSG         ; (BREAK in READLN comes here too)
         JSR     PRINTW
         JSR     NEWLN
 DONE    BRA     DONE
@@ -217,6 +213,13 @@ N3      LDA     #' '
 ; ---------------------------------------------------------------
 ; screen and keyboard
 
+; HEADER: a clear screen with the title and a blank line under it
+HEADER  JSR     CLS
+        LDX     #TITLE
+        JSR     PRINTW
+        JSR     NEWLN
+        JMP     NEWLN
+
 CLS     LDX     #SCREEN
         LDA     #$60
 CL1     STA     ,X+
@@ -314,7 +317,9 @@ WL1     LDA     ,X+
         BRA     WL1
 WL2     PULS    X,PC
 
-; READLN: read a line into INBUF (upper case), with backspace
+; READLN: read a line into INBUF (upper case), with backspace.
+; BREAK (POLCAT code 3) leaves as BYE does; CLEAR (12) drops the
+; line, clears the screen and starts a fresh prompt. Neither returns.
 READLN  LDX     #INBUF
         CLR     INLEN
 RLC     JSR     SHOWCUR
@@ -323,6 +328,10 @@ RLK     JSR     GETKEY
         BEQ     RLEND
         CMPA    #8
         BEQ     RLBS
+        CMPA    #3
+        BEQ     RLBRK
+        CMPA    #12
+        BEQ     RLCLR
         CMPA    #' '
         BLO     RLK
         CMPA    #'a
@@ -345,6 +354,11 @@ RLBS    TST     INLEN
         BRA     RLC
 RLEND   CLR     ,X
         RTS
+RLBRK   JSR     NEWLN
+        JMP     BYENOW
+RLCLR   LDS     #$3000          ; abandon READLN's caller: back to MAIN
+        JSR     HEADER
+        JMP     MAIN
 
 ; ---------------------------------------------------------------
 ; data

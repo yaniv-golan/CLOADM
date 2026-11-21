@@ -3183,8 +3183,25 @@ async function liza6803Checks(browser, base, check) {
     await page.keyboard.press('Enter');
     const answered = await waitFor(page, () => /WHY DO YOU NEED A HOLIDAY\?/.test(window.emu.session.screenText().join(' ')));
     check(`${id}: a typed sentence gets the expected reply`, answered, (await screenOf(page)).split('\n').slice(-3).join(' | '));
-    check(`${id}: no page errors`, !errors.length, errors.join('; '));
     if (shotDir) await page.locator('#screenWrap').screenshot({ path: path.join(shotDir, `liza6803-${id}.png`) });
+    // CLEAR (Home; the MC-10 and Alice have no CLEAR key, the stub gives Home's code 12) mid-line: the title, a blank
+    // row and a fresh prompt, the half-typed line gone; the next line is answered normally
+    await page.keyboard.type('My boss', { delay: 40 });
+    await page.keyboard.press('Home');
+    const title = id === 'mc10' ? 'LIZA - AN MC-10 THERAPIST' : 'LIZA - AN ALICE THERAPIST';
+    const cleared = await waitFor(page, (t) => { const r = window.emu.session.screenText(); return r[0].trim() === t && r[1].trim() === '' && r[2].startsWith('>') && !r.join('').includes('MY BOSS') && r.slice(3).every((l) => !l.trim()); }, title);
+    check(`${id}: CLEAR (Home) mid-line clears to the title and a fresh prompt`, cleared, JSON.stringify((await screenOf(page)).split('\n').slice(0, 4)));
+    if (shotDir) await page.locator('#screenWrap').screenshot({ path: path.join(shotDir, `liza6803-${id}-clear.png`) });
+    await page.keyboard.type('I am tired', { delay: 40 });
+    await page.keyboard.press('Enter');
+    check(`${id}: after CLEAR the next line is answered`, await waitFor(page, () => /HOW LONG HAVE YOU BEEN TIRED\?/.test(window.emu.session.screenText().join(' '))),
+      (await screenOf(page)).split('\n').slice(0, 5).join(' | '));
+    // BREAK (Esc) at the prompt leaves as BYE does: the goodbye, then the welcome menu (bounded in machine frames)
+    await page.keyboard.press('Escape');
+    const bye = await waitFor(page, () => /GOODBYE\. IT WAS NICE TALKING TO YOU/.test(window.emu.session.screenText().join(' ').replace(/ +/g, ' ')));
+    const menu = await waitForFrames(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[7].trim() === 'BYE FOR NOW. PICK ANOTHER?', null, 400);
+    check(`${id}: BREAK (Esc) in LIZA says goodbye and brings the menu back, as BYE does`, bye && menu, (await screenOf(page)).split('\n').slice(6, 9).join(' | '));
+    check(`${id}: no page errors`, !errors.length, errors.join('; '));
     await ctx.close();
   }
   // a 4K MC-10: the shelf's LIZA says it needs 20K; choosing it brings the one-click offer above the screen;
@@ -3225,6 +3242,30 @@ async function liza6803Checks(browser, base, check) {
     const ran = await waitFor(page, () => window.emu.machine.config.ram === 20 && window.emu.session.screenText().join('').includes('I AM LIZA'), null, 8000);
     check('?start=liza on a 4K Alice (phone): the 20K offer fits the screen, then LIZA runs', offered && fits && ran && (await page.textContent('#lizaOfferText')) === 'LIZA needs the 20K RAM option. This Matra Alice has 4K.'
       && !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+  // the on-screen keys on a phone (Dragon 64, the 6809 build): CLEAR mid-line clears to the title and a fresh
+  // prompt, and BREAK leaves as BYE does, back to the welcome menu
+  {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}?machine=dragon64&start=liza`);
+    await started(page);
+    await waitFor(page, () => !document.getElementById('touchKeys').hidden && window.emu.session.screenText().join('').includes('I AM LIZA'));
+    const tap = async (k) => { await page.locator(`#touchKeys [data-key="${k}"]:visible`).first().tap(); await emuFrames(page, 4); };
+    for (const k of ['H', 'I']) await tap(k);
+    const typed = await waitFor(page, () => window.emu.session.screenText().some((l) => l.startsWith('> HI')));
+    await tap('CLEAR');
+    const cleared = await waitFor(page, () => { const r = window.emu.session.screenText(); return r[0].trim() === 'LIZA - A DRAGON 64 THERAPIST' && r[1].trim() === '' && r[2].startsWith('>') && !r.join('').includes('HI') && !r.join('').includes('I AM LIZA'); });
+    check('Dragon 64 (touch keys): CLEAR mid-line clears to the title and a fresh prompt', typed && cleared, JSON.stringify((await screenOf(page)).split('\n').slice(0, 4)));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, 'liza-touch-clear.png') });
+    await tap('BREAK');
+    const bye = await waitFor(page, () => /GOODBYE\. IT WAS NICE TALKING TO YOU/.test(window.emu.session.screenText().join(' ').replace(/ +/g, ' ')));
+    const menu = await waitForFrames(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[7].trim() === 'BYE FOR NOW. PICK ANOTHER?', null, 400);
+    check('Dragon 64 (touch keys): BREAK leaves LIZA as BYE does, back to the welcome menu', bye && menu, (await screenOf(page)).split('\n').slice(6, 9).join(' | '));
+    check('Dragon 64 (touch keys): no page errors', !errors.length, errors.join('; '));
     await ctx.close();
   }
   // a 6809 machine: LIZA comes from the welcome menu's key 1, and the status names it too

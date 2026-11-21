@@ -117,6 +117,15 @@ All notable changes to CLOADM are recorded here. The format follows
   "dgame.dgn is a Dragon cartridge; the CoCo 1/2 may not run it." with **Open on Dragon 64** and **Load anyway**.
   Share and the Snapshots list say "A snapshot reopens on the same machine, RAM and ROMs."
 
+- **BREAK and CLEAR work in LIZA.** Its line reader used to ignore every control key but backspace and ENTER. Now,
+  on the 6809 build and both 6803 builds (MC-10, Alice), BREAK (POLCAT code 3) leaves exactly as `BYE` does, the
+  same goodbye and the same end loop, so without ROMs the welcome menu comes back; CLEAR (code 12) drops the half
+  typed line, clears the screen to the title and a fresh `>` prompt, and the conversation goes on. The MC-10 and
+  Alice have no CLEAR key: on the built-in firmware `Home`, `Delete` and the on-screen CLEAR still send 12. Without
+  ROMs, every host key the keyboard maps to BREAK or CLEAR now gives the program that key's code (`Delete`, and in
+  positional mode `End` and the MC-10's `]`, gave nothing or the character before). `tests/liza6803.test.js`,
+  `tests/returning.test.js`, `tests/keyboard-symbols.test.js` and the browser check cover it.
+
 ### Fixed
 
 - **A write from outside the CPU no longer runs in the middle of a held I/O access.** On the CoCo 3 an instruction

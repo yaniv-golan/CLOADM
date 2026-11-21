@@ -220,6 +220,11 @@ says (translated mode): `:` is `:` and `*` is `*`, whichever of them needs Shift
 On a Mac keyboard without `Home` or forward `Delete`, CLEAR is `Fn`+`←` (Home) or `Fn`+`Delete`. `Option` and `Cmd`
 stay with the Mac (on the CoCo 3, `Option` alone is ALT).
 
+In LIZA, BREAK leaves exactly as typing `BYE` does (the goodbye, then the welcome menu without ROMs), and CLEAR
+clears the screen to the title and a fresh `>` prompt, dropping anything half typed; the conversation goes on.
+The MC-10 and Alice have no CLEAR key of their own: on the built-in firmware `Home`, `Delete` or the on-screen CLEAR
+still give it. With Micro Color BASIC in, LIZA sees whatever code its keyboard routine returns (not checked here).
+
 The machine gets the keyboard while its screen has focus (click it, or just start typing on a fresh page). Anywhere
 else the page keeps the keys: `Tab` moves between controls, `Enter` and `Space` press buttons, arrows move sliders
 and `Esc` closes a dialog. `Tab` and `Shift+Tab` never go to the machine, so the screen is never a keyboard trap:

@@ -11,12 +11,13 @@ keyword matching in 3 KB of 6809. It runs with no ROMs: press 1 on the welcome s
 `examples/liza.asm` is LIZA, an ELIZA-style conversation program written for this project in 6809 assembly. It finds
 keywords in what you type, swaps pronouns ("my" → "your", "I am" → "you are") and rotates through its replies.
 It uses only the ROM's `POLCAT`/`CHROUT` vectors, so it runs with or without the Dragon ROMs. Click **Open LIZA source**,
-then **Assemble & run**, and type `BYE` to finish.
+then **Assemble & run**, and type `BYE` (or press BREAK) to finish; CLEAR clears the screen for a fresh prompt and
+keeps the conversation going.
 
 There are two builds holding the same conversation, and the keywords, replies and pronoun swaps live once, in
-`examples/liza-data.inc`, which both sources `INCLUDE`. The 6809 build (`examples/liza.asm`) assembles to 3190
+`examples/liza-data.inc`, which both sources `INCLUDE`. The 6809 build (`examples/liza.asm`) assembles to 3217
 bytes of code and data at `$3000`, and the 6803 build (`examples/liza6803.asm`, for the MC-10 and Matra Alice,
-in 6803 assembly) to 3530 at `$5000`: its loaded image ends at `$5DC9` and its variables extend to `$5FB4`. It sits
+in 6803 assembly) to 3556 at `$5000`: its loaded image ends at `$5DE3` and its variables extend to `$5FCE`. It sits
 above a 4K machine's RAM, so it needs the 20K option: on a 4K MC-10 or Alice the shelf's LIZA says so, and
 choosing it (or opening `play/?start=liza`) offers a one-click switch to 20K above the screen, which restarts the
 machine with 20K and starts LIZA.

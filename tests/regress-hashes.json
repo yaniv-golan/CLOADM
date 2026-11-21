@@ -600,13 +600,13 @@
     "halted": true
   },
   "liza6803 mc10": {
-    "hash": "0629e842",
-    "instructions": 999978,
+    "hash": "7156aaa1",
+    "instructions": 1000134,
     "halted": true
   },
   "liza6803 alice": {
-    "hash": "7e4b3ac0",
-    "instructions": 999978,
+    "hash": "3b154b7b",
+    "instructions": 1000134,
     "halted": true
   },
   "welcome6803 mc10": {

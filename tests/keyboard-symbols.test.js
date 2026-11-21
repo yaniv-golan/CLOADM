@@ -278,6 +278,27 @@ for (const id of ['coco3', 'coco', 'mc10']) {
   check(`${id}: all released`, q.want.size === 0, heldNow());
 }
 
+// Without ROMs the stub's POLCAT reads a code, not the matrix: every host key the matrix takes as BREAK or CLEAR gives
+// that key's code (BREAK 3, CLEAR 12, as BASIC's POLCAT does), so a program on the stub (LIZA) sees BREAK and CLEAR
+// from the same keys. Translated: Esc, Home, Delete; positional: Esc, End, Home, and on the MC-10 (whose positional
+// layout has no CLEAR) the ] key, its BREAK.
+for (const id of ['dragon64', 'coco', 'mc10']) {
+  for (const mode of ['translated', 'positional']) {
+    const m = Emu.createMachine(id), q = new Emu.KeyQueue(), kb = new HostInput(m, q);
+    kb.mode = mode;
+    const keys = mode === 'translated' ? [['Escape', 'Escape', 3], ['Home', 'Home', 12], ['Delete', 'Delete', 12]]
+      : id === 'mc10' ? [[']', 'BracketRight', 3]] : [['Escape', 'Escape', 3], ['End', 'End', 3], ['Home', 'Home', 12]];
+    const got = keys.map(([key, code]) => { m.stubKeys.length = 0; kb.keydown({ key, code }); kb.keyup({ key, code }); return m.stubKeys.join(','); });
+    check(`${id} ${mode}: on the stub ${keys.map(([k]) => k).join(', ')} give POLCAT ${keys.map(([, , c]) => c).join(', ')}`,
+      m.useStub && got.join(' ') === keys.map(([, , c]) => String(c)).join(' '), got.join(' '));
+    if (mode === 'translated') {
+      // a typed character stays itself: \ is SHIFT+CLEAR on the matrix, but the stub gets the character, 92
+      m.stubKeys.length = 0; kb.keydown({ key: '\\', code: 'Backslash' }); kb.keyup({ key: '\\', code: 'Backslash' });
+      check(`${id} translated: on the stub a typed \\ is 92, not CLEAR`, m.stubKeys.join(',') === '92', m.stubKeys.join(','));
+    }
+  }
+}
+
 // the expected screen codes are the 6847's, independent of the firmware: ':' is $7A, '*' $6A, inverse 'A' $01
 check('VDG codes: ":" $7A, "*" $6A, "@" $40, inverse A $01', vdg(':') === 0x7A && vdg('*') === 0x6A && vdg('@') === 0x40 && inverse(vdg('A')) === 0x01);
 
