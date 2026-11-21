@@ -35,9 +35,9 @@ const BIN = Uint8Array.from([0x55, 0x02, 0x08, 0x00, 0x00, 0x02, 0x08, 0x00, 0xA
 const ROM_A = new Uint8Array(16384).fill(0x12), ROM_B = new Uint8Array(16384).fill(0x41);
 
 // a chat on the session, full screen, with the BASIC session set up per `setup`
-function chatSession(setup = () => {}) {
-  const s = new Emu.Session({ store: Emu.memoryStore() });
-  s.switchMachine('dragon64');
+function chatSession(setup = () => {}, id = 'dragon64') {
+  const s = new Emu.Session({ store: Emu.memoryStore(), media: new Emu.MemoryMediaStore() });
+  s.switchMachine(id);
   setup(s);
   frames(s, 5);
   s.startChat({ backend: backend(), channel: new Emu.MemoryChannel(), firmware: FIRMWARE, brief: '', tools: false });
@@ -45,6 +45,16 @@ function chatSession(setup = () => {}) {
   return s;
 }
 const withRoms = (s) => s.addRoms([{ name: 'd64_1.rom', bytes: basic }, { name: 'd64_2.rom', bytes: basic64 }]);
+// a CoCo 3 session (NitrOS-9's machine) with a bootable NitrOS-9 floppy image in the library: the image is the
+// user's, from the project's cache, and the row is skipped where it is not there (no image may be committed)
+const NITROS9 = (() => {
+  try {
+    const { cached } = require('../tools/nitros9/fetch.js');
+    const c = cached('nos96809l2v030300coco3_40d_1.dsk');
+    return c.bytes || null;
+  } catch (e) { return null; }
+})();
+const coco3Chat = (s) => { s.switchMachine('coco3'); };
 const onStub = (s) => s.runWithoutRoms({ menu: false });
 const withTape = (s) => s.insertTape('x.cas', casTape());
 
@@ -128,7 +138,9 @@ const ROWS = [
   ['save a quick slot', () => {}, (s) => s.saveSlot(1)],
   ['take a restore point / undo', () => {}, (s) => { const c = s.startAsk({ backend: backend() }); c.undo.push(s.chatTarget().snapshot()); return s.restoreClaude(0); }],
   // NitrOS-9
-  ['boot NitrOS-9', () => {}, (s) => s.bootNitros9(new Uint8Array(0x1000))],
+  // the image goes into the library before the chat opens, so the boot finds it (skipped without the user's image)
+  ['boot NitrOS-9 from a floppy image (CoCo 3)', 'coco3', (s) => s.media.write('disks/n9.dsk', NITROS9), (s) => s.bootNitros9('n9.dsk'), NITROS9 ? undefined : 'skip'],
+  ['boot NitrOS-9: a name that is not in the library', 'coco3', () => {}, (s) => s.bootNitros9('not-there.dsk')],
   // the Claude chat itself (must reach the person's machine for acting)
   ['Ask Claude (the side panel)', () => {}, (s) => s.startAsk({ backend: backend() })],
   // (these three close or leave the chat by design: the runner asserts that, not a fingerprint of a machine that is
@@ -145,8 +157,8 @@ const ROWS = [
 // A row is run TWICE from the same starting point: once with a no-op in place of the action (the control: the chat
 // firmware's own running over the same frames, which changes its RAM and frame count by itself) and once with the
 // action. A field that differs beyond the control is the action's doing: a leak into the chat machine.
-async function observed(setup, act) {
-  const s = chatSession((x) => { try { setup(x); } catch (e) { /* the setup's own needs */ } });
+async function observed(setup, act, id = 'dragon64') {
+  const s = chatSession((x) => { try { setup(x); } catch (e) { /* the setup's own needs */ } }, id);
   const chatM = s.chatMachines.chat;
   const before = fingerprint(chatM), recordBefore = s.stubRuns.get(chatM);
   let threw = null;
@@ -161,9 +173,15 @@ async function observed(setup, act) {
 
 (async () => {
   check('the table has a row for every person-facing action', ROWS.length >= 40, `${ROWS.length} rows`);
-  for (const [name, setup, act, kind] of ROWS) {
-    const control = await observed(setup, async () => {});
-    const real = await observed(setup, act);
+  // A row is [name, setup, act] or [name, model, setup, act, kind]: the model is for rows whose machine matters
+  // (NitrOS-9 is a CoCo 3 program); a kind of 'skip' means the row could not run here (a user image that is absent).
+  for (const row of ROWS) {
+    const [name, a1, a2, a3, a4] = row;
+    const id = typeof a1 === 'string' ? a1 : 'dragon64';
+    const setup = typeof a1 === 'string' ? a2 : a1, act = typeof a1 === 'string' ? a3 : a2, kind = typeof a1 === 'string' ? a4 : a3;
+    if (kind === 'skip') { console.log(`skip no leak: ${name} (no user image here)`); continue; }
+    const control = await observed(setup, async () => {}, id);
+    const real = await observed(setup, act, id);
     if (kind === 'restarts-chat') {
       // deliberate: the chat machine is reset (its reset count moves) and NOTHING else of it changes - it comes back
       // running the chat firmware; the person's session and the chat's stub record are untouched

@@ -813,7 +813,10 @@ export class Session {
   async bootNitros9(name, store = null) {
     // it reads the image from the store and mounts it: not while the library moves (nor does it then)
     this.checkNotMoving();
-    const m = this.machine;
+    // the person's machine (personMachine): with the chat on screen, this.machine is the chat machine, and mm below
+    // starts as m - so a boot that needs no switch (the same CPU, a floppy image) put the disk controller into the
+    // CHAT's port and mounted there (review round 2, finding 3, confirmed with a real image)
+    const m = this.personMachine;
     if (!Session.NITROS9_MACHINES.includes(m.id)) throw new SessionError(`NitrOS-9 boots here on the CoCo 3, not the ${m.profile.name}. Switch to the CoCo 3 first.`);
     if (!name) throw new SessionError(`No NitrOS-9 image: add your NitrOS-9 disk image (download nos96809l2v030300coco3.zip, or nos96309l2v030300coco3.zip for the HD6309, from ${NITROS9_IMAGES_URL}, unzip it, and use the file ending in _becker.dsk for DriveWire, or _40d_1.dsk for the floppy drive).`);
     const where = store ? [store] : ['drivewire', 'disk'];
