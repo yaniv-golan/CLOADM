@@ -274,5 +274,30 @@ for (const rate of [44100, 48000]) {
   check(`${rate} Hz: at most the one frame the 150 ms bound takes`, out.dropped <= 1, `${out.dropped} dropped`);
 }
 
+// ---- the correction does not warble a queue that keeps crossing into the band ----
+// The queue jumps by a 1024-sample block every frame (21-23 ms), so a correction whose SIZE follows the depth
+// flips on and off every time the queue crosses an edge. Measured with a card clock 1% slow - which parks the
+// queue around 58 ms with the correction on half the frames - a proportional ratio reversed 13 times a second
+// (34.6 cents of 50 Hz warble). Held CONSTANT from the moment the queue leaves the band until it reaches
+// TARGET_MS, the ratio is one of three exact values and changes rarely: this pins both, and 0.5 reversals a
+// second is well under the 13 a depth-following ratio gives.
+{
+  const rate = 44100, skew = 0.99, fps = 49.96766756635178, cycles = 17784;
+  const out = new Stage(rate), block = new Float32Array(1024), frameDt = 1 / fps, blockDt = 1024 / (rate * skew);
+  while (out.buffered() < 0.04 * rate) out.push([0, 0.5], cycles, fps);
+  let tf = 0, tb = 0; const ratios = [], depth = [];
+  while (tf < 120) {
+    if (tf <= tb) { out.push([0, 0.5], cycles, fps); tf += frameDt; }
+    else { out.sink.pull(block); tb += blockDt; if (tf > 40) { ratios.push(out.ratioAt(out.buffered() / rate * 1000)); depth.push(out.buffered() / rate * 1000); } }
+  }
+  const values = [...new Set(ratios.map((r) => r.toFixed(6)))];
+  let reversals = 0, prev = 0;
+  for (let i = 1; i < ratios.length; i++) { const s = Math.sign(ratios[i] - ratios[i - 1]); if (s && prev && s !== prev) reversals++; if (s) prev = s; }
+  const active = ratios.filter((r) => r !== 1).length / ratios.length;
+  check(`${rate} Hz, card clock x${skew}: the ratio takes 3 values, corrects and does not hunt`,
+    [...values].every((v) => ['1.000000', '1.020000', '0.980000'].includes(v)) && active > 0.2 && active < 0.8 && reversals / 80 <= 1,
+    `${[...values].join(',')} over ${ratios.length} frames (queue ${Math.min(...depth).toFixed(0)}..${Math.max(...depth).toFixed(0)} ms), correcting ${(active * 100).toFixed(0)}% of them, ${(reversals / 80).toFixed(2)} reversals/s (a depth-following ratio gives 13/s)`);
+}
+
 console.log(fail ? `${fail} FAILED` : 'all passed');
 process.exitCode = fail ? 1 : 0;

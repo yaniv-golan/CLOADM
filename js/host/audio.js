@@ -28,19 +28,21 @@ import { SampleQueue, FADE_MS } from './audio-worklet.js';
 
 const SUSPEND_AFTER_MS = 250;   // inactive this long (the queue drained, the fade done): suspend the context
 const LOW_MS = 10, HIGH_MS = 80, MAX_MS = 150;
-const RAMP_MS = 2;              // how far outside the band the allowance takes to reach RECOVER
-const RECOVER = 0.02;           // the most the ratio may depart from 1: 2% = 34 cents, transient (recovery only)
-const TARGET_MS = 40;           // what a correction outside the band aims at: the middle of the band
+const TARGET_MS = 40;           // where a correction brings the queue: the middle of the band
+// RECOVER: the ratio's distance from 1 while correcting a queue a stall left far from TARGET_MS. 2% is 34 cents,
+// a constant detune for the second or two a correction takes rather than a warble (see ratioAt).
+const RECOVER = 0.02;
 
-// The most the ratio may depart from 1 at a depth, as a fraction, for a queue OUTSIDE the band: 0 across the band
-// itself (the ratio there is exactly 1, as the old fixed +-0.5% branches had it), rising to RECOVER over RAMP_MS
-// outside either edge, so no depth gives a step anywhere. RECOVER is 2% (34 cents) and only a recovering stall
-// reaches it - a few seconds, with the queue far outside the band - so steady-state pitch is what it was before.
-function allowance(ms) {
-  if (ms <= 0 || (ms >= LOW_MS && ms <= HIGH_MS)) return 0;   // an empty queue, or across the band
-  if (ms < LOW_MS) return RECOVER * Math.min(1, (LOW_MS - ms) / RAMP_MS);
-  return RECOVER * Math.min(1, (ms - HIGH_MS) / RAMP_MS);
-}
+// How the ratio corrects, held until the queue reaches TARGET_MS: FILLING (1 + RECOVER) while the queue is short,
+// DRAINING (1 - RECOVER) while it is deep, and NONE (exactly 1) once it has arrived.
+//
+// A ratio that VARIES with the depth is what a sawtooth makes warble. The queue jumps by a 1024-sample block every
+// frame (21-23 ms), and a deep queue parked near the band crosses any ramp twice a frame, so a proportional ratio
+// flips between 1 and 0.98 about 13 times a second: measured 34.6 cents of 50 Hz warble, 13 reversals a second.
+// Held constant, the same queue is detuned by a steady 34.6 cents - a constant pitch offset, not a warble - for
+// the fraction of a second the correction needs, then exactly 1. Measured after: 0.1 reversals a second at every
+// drift that parks the queue near an edge, and a 140 ms queue back in the band in 2.7 s.
+const NONE = 0, FILLING = 1, DRAINING = 2;
 
 class AudioOutput {
   // sink: where the samples go (write(chunk), buffered()); a SampleQueue unless the page plays them elsewhere.
@@ -54,18 +56,24 @@ class AudioOutput {
     this.seed = true;            // the next frame settles the high-pass instead of playing level changes
     this.volume = 0.5;
     this.frac = 0;               // samples owed from earlier frames (rate / fps is not whole)
+    this.mode = NONE;            // NONE, FILLING or DRAINING: the correction in force (ratioAt)
     this.dropped = 0;            // frames thrown away because MAX_MS was already buffered
   }
   buffered() { return this.sink.buffered(); }
   discontinuity() { this.seed = true; }
 
   // The ratio a frame is resampled by, from the queue's depth in ms. Exactly 1 across the band; outside it a
-  // correction proportional to the distance from TARGET_MS (which cannot overshoot the target), capped by
-  // allowance. The INSTANT depth, not an average: across the band the ratio is 1 whatever the depth, and outside
-  // it the depth moves by one frame a frame (0.15 ms), so the ratio's own frame-to-frame change stays under 0.1%.
+  // constant correction (see NONE/FILLING/DRAINING above). The mode is entered where the queue leaves the band and
+  // held until the queue REACHES TARGET_MS: entering at the band's edge and leaving at its middle is the
+  // hysteresis that keeps a queue near an edge from flipping the ratio frame after frame.
   ratioAt(ms) {
-    const a = allowance(ms);
-    return a === 0 ? 1 : 1 + a * Math.max(-1, Math.min(1, (TARGET_MS - ms) / TARGET_MS));
+    if (this.mode === NONE) {
+      if (ms > HIGH_MS) this.mode = DRAINING;
+      else if (ms > 0 && ms < LOW_MS) this.mode = FILLING;
+    } else if (this.mode === DRAINING ? ms <= TARGET_MS : ms >= TARGET_MS) {
+      this.mode = NONE;
+    }
+    return this.mode === DRAINING ? 1 - RECOVER : this.mode === FILLING ? 1 + RECOVER : 1;
   }
 
   // events: flat [cycle, level, cycle, level, ...] (the first at cycle 0); frameCycles: cycles in this frame.
