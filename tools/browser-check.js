@@ -13631,9 +13631,11 @@ async function uiModelChecks(browser, base, check) {
     const page = await ctx.newPage();
     page.on('pageerror', (e) => errors.push(`${label}: ${e.message}`));
     await page.goto(`${base}?machine=coco`); await started(page);
-    // every text node of the page (hidden ones too, not scripts or styles) and the words in titles, labels and placeholders
+    // every text node of the page (hidden ones too, not scripts or styles) and the words in titles, labels and placeholders.
+    // Not the screen's text alternative (#screenAlt): that is the emulated machine's own screen as text (the no-ROM
+    // firmware prints its banner there), not the page's copy, as the canvas's pixels are not
     const pageText = () => page.evaluate(() => {
-      const out = [], w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, { acceptNode: (n) => (n.parentElement.closest('script, style') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT) });
+      const out = [], w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, { acceptNode: (n) => (n.parentElement.closest('script, style, #screenAlt') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT) });
       while (w.nextNode()) out.push(w.currentNode.nodeValue);
       for (const e of document.querySelectorAll('[title], [aria-label], [placeholder], [alt]')) for (const k of ['title', 'aria-label', 'placeholder', 'alt']) if (e.hasAttribute(k)) out.push(e.getAttribute(k));
       return out.join(' ');
