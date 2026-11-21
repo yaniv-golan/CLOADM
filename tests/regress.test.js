@@ -118,6 +118,9 @@ for (const id of ['coco', 'coco2b', 'cp400', 'dragon32', 'dragon64']) cases.push
 // the RAM-size input (PB2) follows the fitted RAM: 16K reads it high, 32K and 64K from PIA0 PB6
 for (const ram of [4, 16, 32]) cases.push([`trace coco ${ram}K pia1b.asm`, () => traceHash(spec('sam').pia1b('coco', { config: { ram } }))]);
 cases.push(['trace coco3 pia1b.asm', () => traceHash(spec('coco3').pia1b('coco3'))]);
+// the sound mux on the cassette input while a tape plays (BASIC's AUDIO ON): sam/cass-sound.asm with a tape we build
+// (run.js <profile> --cass-sound, against MAME's -wavwrite)
+for (const id of ['dragon64', 'coco']) cases.push([`sound ${id} cass-sound`, () => soundHash({ machine: () => require('../tools/mame-diff/sam/cass-sound.js').setup(id).m, frames: 240 })]);
 cases.push(['trace dgnalpha pia1b.asm', () => traceHash(spec('alpha').pia1b('dgnalpha'))]);
 // The Reset button: what the CPU and the PIAs keep over a reset, RAM kept, BASIC's warm-start vector taken and
 // refused (reset.asm; MAME agrees instruction for instruction: run.js <profile> --reset [--cpu 6309] on 0.264)

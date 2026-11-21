@@ -116,6 +116,11 @@ function updateSound(m) {
   if (p1.b.c2()) {
     const mux = (p0.b.c2() ? 2 : 0) | (p0.a.c2() ? 1 : 0);
     if (mux === 0) lvl = (p1.a.outValue() >> 2) / 63;
+    // the cassette input selected (BASIC's AUDIO ON): the sound chip biases that AC-coupled input at the middle of
+    // its range, 32 DAC steps, as MAME 0.264's coco.cpp update_sound() does (0x40 on its 0..0x7E DAC scale). MAME
+    // mixes in no tape signal there, so neither does the machine: the page's "Tape sound" plays the tape on the host
+    // side instead (js/host/audio.js). tools/mame-diff/sam/cass-sound.js compares the level with MAME's -wavwrite.
+    else if (mux === 1) lvl = 32 / 63;
   }
   if ((p1.b.ddr & 0x02) && (p1.b.or & 0x02)) lvl += 32 / 63;
   m.setSoundLevel(lvl);

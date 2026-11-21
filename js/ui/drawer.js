@@ -68,7 +68,6 @@ export function setupDrawer(page, { showRoms }) {
     $('btnRewind').disabled = !t;
     $('btnRewind').title = t ? 'Back to the start of the tape' : 'No tape inserted';
     $('tapeState').textContent = !t ? 'click the deck to insert' : m.deck.motor ? `motor on · ${(t.progress() * 100).toFixed(0)}%` : `stopped · ${(t.progress() * 100).toFixed(0)}%`;
-    $('btnTape').classList.toggle('turning', !!(t && m.deck.motor));
     $('cartSlot').hidden = !m.hasCartridgePort;
     const loaded = !!(m.hasCartridgePort && m.cartPort);
     $('btnCart').classList.toggle('loaded', loaded);

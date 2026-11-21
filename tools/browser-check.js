@@ -4310,6 +4310,7 @@ async function tapePanelChecks(browser, base, check) {
         speed: document.getElementById('tapeSpeed').textContent,
         state: document.getElementById('tapePanel').dataset.state,
         leftReelWound: parseFloat(getComputedStyle(document.getElementById('reelL')).getPropertyValue('--wound')),
+        moving: document.getElementById('tapePanel').hasAttribute('data-moving'),
       });
       note();   // STOPPED, before the motor
       // the panel repaints every 250 ms on its own; sampling faster than that, and on the two texts changing
@@ -4324,9 +4325,9 @@ async function tapePanelChecks(browser, base, check) {
     // over 1 s windows and reads x1 until the first closes, so this is the frame that shows both at once.
     const sawLoading = await waitFor(page, () => window.__seen.some((s) => /^LOADING · BLOCK \d+ OF 34$/.test(s.eyebrow) && /^Fast-forward ×\d+$/.test(s.speed) && +s.speed.split('×')[1] > 1), null, 20000);
     const seen = await page.evaluate(() => window.__seen);
-    const loading = seen.find(isFastLoading);
+    const loading = seen.find((x) => isFastLoading(x) && x.moving) || seen.find(isFastLoading);
     check('tape panel: motor on: LOADING · BLOCK n OF 34, fast-forward faster than real time, the reels turn',
-      sawLoading && !!loading && loading.state === 'playing' && loading.leftReelWound < 1,
+      sawLoading && !!loading && loading.state === 'playing' && loading.leftReelWound < 1 && loading.moving,
       `loading=${JSON.stringify(loading)} states=${[...new Set(seen.map((s) => s.state))].join(',')} frames=${seen.length}`);
     // the end of the tape, checked on its own so that it cannot stand in for the LOADING assertion above
     // The rest of the tape is skipped to its last block first: at fast-forward the run to the end takes as long as the
@@ -4334,17 +4335,22 @@ async function tapePanelChecks(browser, base, check) {
     // 34). What is checked is what the panel shows when the tape ends, not how fast it gets there.
     await page.evaluate(() => { const t = window.emu.machine.deck.tape; t.seekByte(t.bytes.length - 8); });
     const sawEnd = await waitFor(page, () => document.getElementById('tapeEyebrow').textContent === 'END OF TAPE · 34 BLOCKS', null, 20000);
-    const endState = await page.evaluate(() => ({ eyebrow: document.getElementById('tapeEyebrow').textContent, state: document.getElementById('tapePanel').dataset.state }));
-    check('tape panel: at the end: END OF TAPE with its block count, still playing', sawEnd && endState.state === 'playing', JSON.stringify(endState));
+    await waitFor(page, () => !document.getElementById('tapePanel').hasAttribute('data-moving'), null, 5000);
+    const endState = await page.evaluate(() => ({ eyebrow: document.getElementById('tapeEyebrow').textContent, state: document.getElementById('tapePanel').dataset.state,
+      stamp: !document.getElementById('tapeEnd').hidden, moving: document.getElementById('tapePanel').hasAttribute('data-moving'),
+      anims: document.getAnimations().filter((a) => a.playState === 'running').length }));
+    check('tape panel: at the end (the motor still on): END OF TAPE with its block count, the stamp, and nothing turning',
+      sawEnd && endState.state === 'end' && endState.stamp && !endState.moving && endState.anims === 0, JSON.stringify(endState));
     // done with the tape here; stop the sampler so it is not still recording during the blocks below
     await page.evaluate(() => { clearInterval(window.__sampler); window.__mo.disconnect(); });
     // real speed: the same setting as the Media tab's checkbox
     await page.click('#btnRealSpeed');
-    await waitFor(page, () => !window.emu.session.fastTape && document.getElementById('tapeSpeed').textContent === 'Real speed');
+    // (at the end of the tape nothing moves, so no speed is shown, whatever the setting)
+    await waitFor(page, () => !window.emu.session.fastTape && document.getElementById('btnRealSpeed').getAttribute('aria-pressed') === 'true');
     const real = { pressed: await page.getAttribute('#btnRealSpeed', 'aria-pressed'), box: await page.isChecked('#chkFastTape'),
       fast: await page.evaluate(() => window.emu.session.fastTape), speed: await text('tapeSpeed') };
     check('tape panel: "Real speed" turns fast tape loading off (the Media tab\'s checkbox too)', real.pressed === 'true' && !real.box && !real.fast
-      && real.speed === 'Real speed', JSON.stringify(real));
+      && real.speed === '', JSON.stringify(real));
     if (shotDir) await (await page.$('#tapePanel')).screenshot({ path: path.join(shotDir, 'tape-panel-desktop.png') });
     // a read error: BASIC's report on the screen as the motor stops (written into the text screen here)
     await page.evaluate(() => {
@@ -4380,6 +4386,102 @@ async function tapePanelChecks(browser, base, check) {
     await ctx.close();
   }
   fs.rmSync(tmp, { recursive: true, force: true });
+}
+
+// The tape HUD, the one moving deck and Tape sound (js/ui/tape-panel.js, js/host/tape-sound.js). At the desktop,
+// tablet, phone (upright) and phone (sideways) sizes, a machine-code tape dropped on the screen loads through BASIC
+// (our stand-in, tape/standin.asm, in the CoCo's BASIC sockets) at real speed: the HUD comes up wholly in the viewport
+// without scrolling, under the picture's text (never on it), on top where it is (nothing covers it), with the tape's
+// name and block; exactly one animation runs on the page while the tape moves (the cassette panel's window); "Deck"
+// brings the panel into view (not sideways, where the touch keys cover the page). At the end of the tape: "End of
+// tape" in the HUD, the stamp on the cassette, nothing animating although BASIC leaves the motor on, and the HUD goes.
+// Tape sound (desktop and phone): on by default; its voice is heard while the tape plays and silent once the motor
+// stops (the Web Audio output stage's own measure, audio.tapeLevel); the HUD's switch turns it off (and the Media
+// tab's checkbox, remembered) and nothing is heard then.
+async function tapeHudChecks(browser, base, check) {
+  const blk = (type, data) => { let sum = (type + data.length) & 0xFF; for (const v of data) sum = (sum + v) & 0xFF; return [0x3C, type, data.length, ...data, sum, 0x55]; };
+  const code = [0x1A, 0x50, 0x20, 0xFE, ...Array.from({ length: 2996 }, (_, i) => (i * 7) & 0xFF)];   // ORCC, BRA *: it waits when run
+  const bytes = [...Array(128).fill(0x55), ...blk(0, [...Buffer.from('SPACE   '), 2, 0, 0, 0x0E, 0x00, 0x0E, 0x00]), ...Array(128).fill(0x55)];
+  for (let i = 0; i < code.length; i += 250) bytes.push(...blk(1, code.slice(i, i + 250)), 0x55, 0x55);
+  bytes.push(...blk(0xFF, []));
+  const sizes = [['desktop', { viewport: { width: 1440, height: 900 } }, true],
+    ['tablet', { viewport: { width: 820, height: 1180 }, hasTouch: true, isMobile: true }, false],
+    ['phone', { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }, true],
+    ['phone sideways', { viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true }, false]];
+  for (const [label, opts, sound] of sizes) {
+    const errors = [];
+    const ctx = await browser.newContext({ ...opts, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}?machine=coco`);
+    await started(page);
+    await page.evaluate(async () => {
+      const { assemble } = await import(new URL('js/asm/assembler.js', document.baseURI).href);
+      const res = assemble(await (await fetch('tools/mame-diff/tape/standin.asm')).text(), '6809');
+      const m = window.emu.machine, b = Math.min(...m.profile.roms.map((x) => x.at)), e = Math.max(...m.profile.roms.map((x) => x.at + x.size));
+      const img = new Uint8Array(e - b).fill(0x12);
+      for (const sg of res.segments) if (sg.addr >= b) img.set(sg.data.subarray(0, e - sg.addr), sg.addr - b);
+      m.setRoms(Object.fromEntries(m.profile.roms.map((sl) => [sl.id, img.slice(sl.at - b, sl.at - b + sl.size)])));
+      m.reset(true);
+      // real speed (the Media tab's "Fast tape loading" off), so the tape plays for a while
+      const box = document.getElementById('chkFastTape'); box.checked = false; box.dispatchEvent(new Event('change'));
+    });
+    const hiddenFirst = await page.isHidden('#tapeHud');
+    await dropFiles(page, [['Space Game.cas', bytes]]);
+    const playing = await waitFor(page, () => window.emu.machine.deck.playing && !document.getElementById('tapeHud').hidden
+      && document.getElementById('tapeHud').dataset.state === 'playing', null, 20000);
+    const hud = await page.evaluate(() => {
+      const h = document.getElementById('tapeHud'), r = h.getBoundingClientRect(), cv = document.getElementById('screen'), c = cv.getBoundingClientRect();
+      const f = (cv.dataset.active || '0,0,1,1').split(',').map(Number);
+      const text = { left: c.left + f[0] * c.width, top: c.top + f[1] * c.height, right: c.left + f[2] * c.width, bottom: c.top + f[3] * c.height };
+      const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return { r: { left: r.left, top: r.top, right: r.right, bottom: r.bottom }, text, vw: innerWidth, vh: innerHeight, scrollY,
+        onTop: !!top && h.contains(top), name: document.getElementById('hudName').textContent, state: document.getElementById('hudState').textContent,
+        anims: document.getAnimations().filter((a) => a.playState === 'running').map((a) => (a.effect && a.effect.target ? `${a.effect.target.id || a.effect.target.className}` : '?')) };
+    });
+    check(`tape HUD (${label}): hidden before; a dropped tape shows it in the viewport without scrolling, on top, with the name and block`,
+      hiddenFirst && playing && hud.r.left >= 0 && hud.r.top >= 0 && hud.r.right <= hud.vw && hud.r.bottom <= hud.vh && hud.scrollY === 0 && hud.onTop
+      && hud.name === 'Space Game.cas' && /\d+\/14$/.test(hud.state), JSON.stringify(hud));
+    check(`tape HUD (${label}): never over the picture's text`, !rectsMeet(hud.r, hud.text), JSON.stringify([hud.r, hud.text]));
+    check(`tape HUD (${label}): one animation runs while the tape plays: the cassette panel's reels`, hud.anims.length === 1 && hud.anims[0] === 'window', hud.anims.join());
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `tape-hud-${label.replace(' ', '-')}.png`) });
+    if (sound) {
+      // unlocked by a click (browsers allow sound only after one); then the tape's voice while it plays
+      await page.click('#screen', { position: { x: 20, y: 20 } });
+      const heard = await waitFor(page, () => window.emu.audioRunning() && window.emu.audio.tapeSound && window.emu.audio.tapeLevel > 0.01, null, 15000);
+      check(`tape sound (${label}): on by default; heard while the tape plays`, heard && await page.getAttribute('#btnHudSound', 'aria-pressed') === 'true'
+        && await page.isChecked('#chkTapeSound'), String(await page.evaluate(() => window.emu.audio.tapeLevel)));
+      await page.evaluate(() => { window.__motor = setInterval(() => window.emu.machine.deck.setMotor(false), 10); });
+      const quiet = await waitFor(page, () => window.emu.audio.tapeLevel < 1e-4, null, 10000);
+      check(`tape sound (${label}): silent once the motor stops`, quiet, String(await page.evaluate(() => window.emu.audio.tapeLevel)));
+      await page.evaluate(() => { clearInterval(window.__motor); window.__motor = setInterval(() => window.emu.machine.deck.setMotor(true), 10); });
+      await waitFor(page, () => window.emu.audio.tapeLevel > 0.01, null, 10000);
+      await page.click('#btnHudSound');
+      const off = await waitFor(page, () => !window.emu.audio.tapeSound && window.emu.audio.tapeLevel < 1e-4, null, 10000);
+      check(`tape sound (${label}): the HUD's switch turns it off (the Media tab's checkbox too, remembered): nothing heard while the tape plays`,
+        off && await page.getAttribute('#btnHudSound', 'aria-pressed') === 'false' && !await page.isChecked('#chkTapeSound')
+        && await page.evaluate(() => window.emu.machine.deck.playing && window.emu.session.store.get('tapeSound') === '0'), String(await page.evaluate(() => window.emu.audio.tapeLevel)));
+      await page.click('#btnHudSound');
+      await page.evaluate(() => clearInterval(window.__motor));
+    }
+    if (label !== 'phone sideways') {
+      await page.click('#btnHudDeck');
+      const inView = await waitFor(page, () => { const r = document.getElementById('tapePanel').getBoundingClientRect(); return r.top >= 0 && r.top < innerHeight - 100; }, null, 10000);
+      check(`tape HUD (${label}): "Deck" brings the cassette panel into view`, inView && await page.isVisible('#tapeWave'));
+    } else check(`tape HUD (${label}): no "Deck" where the touch keys cover the page`, await page.isHidden('#btnHudDeck'));
+    // the end of the tape: the motor left on (as BASIC may), and nothing turns
+    await page.evaluate(() => { const t = window.emu.machine.deck.tape; t.seekByte(t.bytes.length); window.emu.machine.deck.setMotor(true); });
+    const ended = await waitFor(page, () => document.getElementById('tapeHud').dataset.state === 'end' && document.getElementById('hudState').textContent === 'End of tape', null, 10000);
+    const end = await page.evaluate(() => ({ motor: window.emu.machine.deck.motor, stamp: !document.getElementById('tapeEnd').hidden, moving: document.getElementById('tapePanel').hasAttribute('data-moving'),
+      anims: document.getAnimations().filter((a) => a.playState === 'running').length, eyebrow: document.getElementById('tapeEyebrow').textContent }));
+    check(`tape HUD (${label}): at the end of the tape (motor still on): "End of tape", the stamp on the cassette, nothing animating`,
+      ended && end.motor && end.stamp && !end.moving && end.anims === 0 && /^END OF TAPE/.test(end.eyebrow), JSON.stringify(end));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `tape-hud-${label.replace(' ', '-')}-end.png`) });
+    const gone = await waitFor(page, () => document.getElementById('tapeHud').hidden, null, 15000);
+    check(`tape HUD (${label}): it goes a few seconds after the end`, gone);
+    check(`tape HUD (${label}): no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
 }
 
 // The Library's remaining parts ("Stored in browser storage (OPFS), or linked to a folder on
@@ -13459,6 +13561,7 @@ const GROUPS = (base, site) => [
   ['typeinScreen', (b) => typeinScreenChecks(b, base, check)],
   ['slot', (b) => slotChecks(b, base, check)],
   ['tapePanel', (b) => tapePanelChecks(b, base, check)],
+  ['tapeHud', (b) => tapeHudChecks(b, base, check)],
   ['printer', (b) => printerChecks(b, base, check)],
   ['driveWire', (b) => driveWireChecks(b, base, check)],
   ['nitros9', (b) => nitros9Checks(b, base, check)],

@@ -31,6 +31,7 @@
       "media",
       "libraryStorage",
       "tapePanel",
+      "tapeHud",
       "printer",
       "webSerial",
       "liza6803",
