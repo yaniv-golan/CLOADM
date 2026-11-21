@@ -1484,7 +1484,12 @@ export class Session {
     // the ones the move leaves behind: then they are made once it is done, and if the new place is full the entry
     // says so (the bytes are not kept), as the immediate path does.
     const write = (entry) => {
-      for (const old of dropped) this.index.dropRecent(old.crc);
+      // A blob is named by its CRC and can back MORE than one row: a renamed copy of the same bytes keeps its own
+      // entry with the same CRC. So an evicted entry's file may still be the only copy for a survivor, and dropping
+      // it would leave that row stored:true with nothing behind it (measured: the row then fails to load, even
+      // after a reload). Only a CRC no surviving entry references is deleted.
+      const kept = new Set(list.map((r) => String(r.crc).toUpperCase()));
+      for (const old of dropped) if (!kept.has(String(old.crc).toUpperCase())) this.index.dropRecent(old.crc);
       try { if (entry.stored) this.index.putRecent(crc, bytes); }
       catch (e) { if (!(e && e.code === 'quota')) throw e; entry.stored = false; this.index.recentBytes.delete(crc); }
       this.index.setRecent(list);
