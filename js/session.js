@@ -129,6 +129,20 @@ export class SnapshotRomsError extends SessionError {
 }
 // floppy disk images live in the media store under this prefix (never in the media index)
 export const DISK_PREFIX = 'disks/';
+// A disk image's own file name (what follows the prefix): not empty, not whitespace ONLY, no separator, and not the
+// segment '.' or '..' -- a name a folder store or OPFS cannot hold, and one that would climb out of its prefix.
+// Surrounding spaces are part of the name and are kept: a store that already holds " a.vdk" (main wrote such names)
+// must still be able to mount it, and a person who typed one meant it.
+const isDiskFileName = (base) => diskFileNameProblem(base) === null;
+// Why `base` is not a disk image's file name -> the reason, or null when it is one. A rename's destination gets the
+// reason (what is wrong with the name), the other doors the short "A disk image needs a name."
+const diskFileNameProblem = (base) => {
+  if (typeof base !== 'string' || base.length === 0) return 'it is empty';
+  if (/^\s+$/.test(base)) return 'it is empty or only spaces';
+  if (/[\\/]/.test(base)) return 'it has a folder separator; a disk image is one file';
+  if (base === '.' || base === '..') return 'it is only dots';
+  return null;
+};
 // how many times mountDisk reads an image again when the image moved under its read (its own stored name, or
 // another spelling of the same file on a store that folds case): the image is read four times at most before the
 // mount gives up. A write to a DIFFERENT stored file never spends this.
@@ -483,7 +497,7 @@ export class Session {
     for (const f of files) {
       if (INDEX_LISTS.includes(f.name) || !wanted(f)) continue;   // the lists are merged below, not kept or replaced whole
       if (await store.stat(f.name)) { kept++; continue; }
-      try { await store.write(f.name, await this.media.read(f.name)); } catch (e) { throw this.mediaError(e, f.name); }
+      try { await store.write(f.name, await this.media.read(f.name)); } catch (e) { throw this.mediaError(e, f.name, f.name); }
       copied++;
     }
     // the index's lists, merged: a move takes this library's entries, reconnecting the folder's except what
@@ -680,7 +694,7 @@ export class Session {
     if (!clean) throw new SessionError('The image needs a name.');
     if (bytes.length % 256) throw new SessionError(`${name}: ${bytes.length} bytes is not a whole number of 256-byte sectors.`);
     this.checkNotMoving();
-    try { await this.libraryOp(() => this.media.write(DW_PREFIX + clean, bytes)); } catch (e) { throw this.mediaError(e, clean); }
+    try { await this.libraryOp(() => this.media.write(DW_PREFIX + clean, bytes)); } catch (e) { throw this.mediaError(e, clean, DW_PREFIX + clean); }
     this.emit('drivewire');
     return clean;
   }
@@ -710,7 +724,7 @@ export class Session {
   get driveWireMounts() { return this.drivewire.mounts.map((d) => Object.assign(d, { name: d.name.startsWith(DW_PREFIX) ? d.name.slice(DW_PREFIX.length) : d.name })); }
   // an image as a file to keep (it has what the machine wrote)
   async driveWireFile(name) {
-    try { return { name, bytes: await this.media.read(DW_PREFIX + name) }; } catch (e) { throw this.mediaError(e, name); }
+    try { return { name, bytes: await this.media.read(DW_PREFIX + name) }; } catch (e) { throw this.mediaError(e, name, DW_PREFIX + name); }
   }
   // connect virtual serial channel `ch` (0-14) or window channel (128-142) to a WebSocket; null url disconnects it
   connectDriveWireChannel(ch, url) {
@@ -775,7 +789,7 @@ export class Session {
       // re-reads for it, and the drives' writes are ordered against it
       this.checkNotMoving();
       const base = full.slice(DISK_PREFIX.length);
-      try { await this.libraryOp(() => this.diskStoreChange(() => this.media.write(full, bytes), full)); } catch (e) { throw this.mediaError(e, base); }
+      try { await this.libraryOp(() => this.diskStoreChange(() => this.media.write(full, bytes), full)); } catch (e) { throw this.mediaError(e, base, full); }
       return this.bootSaved(base, 'disk');
     }
     return this.bootSaved(await this.importDriveWireImage(name, bytes), 'drivewire');
@@ -1508,7 +1522,8 @@ export class Session {
   }
   // read a stored blob by name -> Uint8Array (throws SessionError when it is gone)
   async openMedia(name) {
-    try { return await this.media.read(this.libName(name)); } catch (e) { throw this.mediaError(e, name); }
+    const full = this.libName(name);
+    try { return await this.media.read(full); } catch (e) { throw this.mediaError(e, name, full); }
   }
   // { name, bytes } to save the user's file with (the Library's download, and the fallback's "keep")
   async downloadMedia(name) { return { name: name.split('/').pop(), bytes: await this.openMedia(name) }; }
@@ -1644,6 +1659,13 @@ export class Session {
     this.checkNotInDrive(src, 'rename');
     const dst = this.libName(to.startsWith(DISK_PREFIX) || to.startsWith(LIBRARY_PREFIX) ? to : prefix + to);
     if (!dst.startsWith(prefix)) throw new SessionError(`${to}: a ${prefix === DISK_PREFIX ? 'disk image' : 'library item'} stays where it is`);
+    // The destination is a name this operation MAKES, so a disk image's must be a file's own name, as every other
+    // door that makes one insists -- and the refusal says what is wrong with it. Without this a rename to ' ' stored
+    // 'disks/ ' and a rename to 'sub/x.vdk' stored 'disks/sub/x.vdk': names no mount could read back.
+    if (prefix === DISK_PREFIX) {
+      const problem = diskFileNameProblem(dst.slice(DISK_PREFIX.length));
+      if (problem) throw new SessionError(`${to}: not a disk image name: ${problem}.`);
+    }
     // A case-only rename on a store that does not tell cases apart cannot be done: it is one file, and the
     // store's write-then-remove would replace it and then delete it. (The name is the name it already has.)
     if (this.caseInsensitive && dst !== src && dst.toLowerCase() === src.toLowerCase()) {
@@ -1652,7 +1674,7 @@ export class Session {
     const op = () => this.media.rename(src, dst);
     try {
       return await this.libraryOp(() => (src.startsWith(DISK_PREFIX) ? this.diskStoreChange(op, [src, dst]) : op()));
-    } catch (e) { throw this.mediaError(e, from); }
+    } catch (e) { throw this.mediaError(e, from, src); }
   }
   async deleteMedia(name) {
     const full = this.libName(name);
@@ -1661,7 +1683,7 @@ export class Session {
     const op = () => this.media.remove(full);
     try {
       return await this.libraryOp(() => (full.startsWith(DISK_PREFIX) ? this.diskStoreChange(op, full) : op()));
-    } catch (e) { throw this.mediaError(e, name); }
+    } catch (e) { throw this.mediaError(e, name, full); }
   }
   // take a file the user picked into the library under `name`; ROM images go through identification, so
   // they land in the index's own sockets rather than being written as an opaque blob; disk images go under
@@ -1669,8 +1691,14 @@ export class Session {
   async importMedia(name, bytes) {
     this.checkNotMoving();
     if (Session.isRom(name, bytes)) return { roms: this.addRoms([{ name, bytes }]) };
+    // the file's own name is the last segment; anything that is not a file name (a path ending in a separator, a
+    // whitespace-only name, '.', '..') leaves nothing to name the file with. A disk image is refused as a disk
+    // (diskStoreName's rule, reached through this door too); anything else is refused as a file -- what it is is
+    // decided by its bytes, not by the missing name.
     const base = name.split(/[\\/]/).pop();
-    const target = detectMedia(base, bytes).kind === 'disk' ? DISK_PREFIX + base : this.libName(name);
+    const kind = detectMedia(base, bytes).kind;
+    if (!base || !isDiskFileName(base)) throw new SessionError(kind === 'disk' ? 'A disk image needs a name.' : 'A file needs a name.');
+    const target = kind === 'disk' ? DISK_PREFIX + base : this.libName(name);
     this.checkNotInDrive(target, 'replace');   // synchronous, so it needs no creation's turn: a disk in a drive is not replaced
     // non-disk media (programs, ROMs) are made by writes that replace, so they take no creation's turn; a disk
     // image may replace one of its name, but not take a name a new disk (or another import) is making: it runs as
@@ -1692,13 +1720,35 @@ export class Session {
       try { await this.refreshCase(); } finally { if (disk) this.creationLanded(target); }
       return { stored: r };
     });
-    try { return disk ? await this.createExclusive(write) : await write(0); } catch (e) { throw this.mediaError(e, name); }
+    // What a failure is reported under. A disk image is stored under its own file name, so that is what the drives and
+    // the Library show; any other file is stored under the path the person dropped (library/dir/prog.bin), so its
+    // name is the stored one without the library prefix -- what the Library lists, not just the leaf.
+    const shown = disk ? base : target.slice(LIBRARY_PREFIX.length);
+    try { return disk ? await this.createExclusive(write) : await write(0); } catch (e) { throw this.mediaError(e, shown, target); }
   }
-  mediaError(e, name) {
+  // A store failure as the user should read it, named once. `name` is what the person sees (their file's own name);
+  // `stored` is the store's name for the file this operation works on, when the caller knows it -- and the caller
+  // always does: it is the name it just asked the store about. Nothing is guessed from the message: the two real
+  // backends lead their reason with the STORED path (`disks/work.vdk: permission was refused`), and that leading
+  // copy is dropped only when it is exactly this operation's stored name. Any other path the reason carries is
+  // kept: it is where the store failed, and a rename that fails at its destination must say so.
+  //   not-found, quota: said in the session's own words, with the name (what failed, then what to do); the store's
+  //     message is not used, so the several ways the backends word it (js/host/media-store-{fsa,opfs,memory}.js)
+  //     cannot make the sentence read differently.
+  // A SessionError is the session's own message already: it is handed on unchanged, so nothing above is said twice.
+  // What the page's background-write listener says when an index write fails (js/ui/main.js wires this method to its
+  // status line). The index's name IS the stored name, so it is handed over: without it a ROM image's path was
+  // repeated. -> the message
+  indexWriteError(name, e) { return this.mediaError(e, name, name).message; }
+  mediaError(e, name, stored = null) {
     if (e instanceof SessionError) return e;
     if (e && e.code === 'not-found') return new SessionError(`${name} is no longer stored in this browser; load it again.`);
     if (e && e.code === 'quota') return new SessionError(`No space left in this browser's storage for ${name}. Delete something, or save your media as files.`);
-    return new SessionError(`${name}: ${e && e.message ? e.message : 'storage error'}`);
+    let said = e && e.message ? e.message : 'storage error';
+    // the reason's leading "<path>: " is this file's copy of the name only when the path IS this operation's stored
+    // name for it -- compared whole, so a longer or different name is left alone (and a name with a space works)
+    if (stored && said.startsWith(`${stored}: `)) said = said.slice(stored.length + 2);
+    return new SessionError(`${name}: ${said}`);
   }
 
   // ---------------- programs and media ----------------
@@ -1774,7 +1824,7 @@ export class Session {
       // name.") is still raised first, as it was when the derivation moved inside the turn.
       const label = (name ? this.diskStoreName(name).slice(DISK_PREFIX.length) : '') || 'A new disk';
       let listed;
-      try { listed = await this.listDisks(); } catch (e) { throw this.mediaError(e, label); }
+      try { listed = await this.listDisks(); } catch (e) { throw this.mediaError(e, label, DISK_PREFIX); }
       const stored = new Set(listed.map((d) => d.name));
       // on a store that does not tell cases apart, a name already there in another case is that same disk
       const taken = (n) => stored.has(n) || [...stored].some((s) => this.sameName(s, n));
@@ -1887,9 +1937,30 @@ export class Session {
     const choices = this.diskDosChoices(), saved = this.store.get(`diskDos.${machineFamily(this.machine.profile)}`);
     return choices.find((c) => c.id === saved && c.ready) || choices.find((c) => c.ready) || null;
   }
+  // The stored name for a disk the user asked for. What follows the prefix is the file's own name -- in the drives,
+  // in the Library, and in every message -- so anything that is not one is refused: nothing after the prefix
+  // ('disks/'), a trailing separator ('disks/a/'), whitespace only (' ', 'disks/ '), or the segment '.' or '..'
+  // ('disks/.', 'disks/..', 'x/..' -- a folder store and OPFS can hold neither, and '..' must not reach the store;
+  // libName refuses it for library names and this is the same rule). A leading dot in a real name ('.vdk') is a
+  // file's name and stays allowed. Refused here because every door (importDisk, newDisk, mountDisk, importMedia)
+  // goes through this, and a store that let one through would hold a blob named 'disks/' and say " in drive 0".
   diskStoreName(name) {
     if (typeof name !== 'string' || !name) throw new SessionError('A disk image needs a name.');
-    return name.startsWith(DISK_PREFIX) ? name : DISK_PREFIX + name.split(/[\\/]/).pop();
+    const full = this.storedDiskName(name);
+    if (!isDiskFileName(full.slice(DISK_PREFIX.length))) throw new SessionError('A disk image needs a name.');
+    return full;
+  }
+  // The stored name of a disk that is ALREADY there, for reading it back. The rule above decides what CLOADM may
+  // CREATE; it must not decide what it can READ. A store from an earlier build holds 'disks/ ' and
+  // 'disks/sub/x.vdk' (main let both be renamed into place), and refusing to name them would strand them -- the same
+  // fault as refusing a stored " a.vdk". So only the derivation is shared, not the check: nothing after the prefix
+  // is still not a name at all, and '..' is still refused (it must never become a store path).
+  storedDiskName(name) {
+    if (typeof name !== 'string' || !name) throw new SessionError('A disk image needs a name.');
+    const full = name.startsWith(DISK_PREFIX) ? name : DISK_PREFIX + String(name).split(/[\\/]/).pop();
+    const base = full.slice(DISK_PREFIX.length);
+    if (!base || /(^|\/)\.\.(\/|$)/.test(base)) throw new SessionError('A disk image needs a name.');
+    return full;
   }
   // drives this machine's controller has (the Alpha fits 2; a disk cartridge 4)
   get driveCount() { const fdc = this.machine && this.diskController; return fdc ? fdc.fitted : 4; }
@@ -1930,7 +2001,7 @@ export class Session {
     const again = this.diskHolder(full);
     if (again) throw new SessionError(`${again.name} is in drive ${again.drive}${again.where}; eject it there first.`);
     this.checkNotMoving();
-    try { await this.diskStoreChange(() => this.media.write(full, bytes), full); } catch (e) { throw this.mediaError(e, base); }
+    try { await this.diskStoreChange(() => this.media.write(full, bytes), full); } catch (e) { throw this.mediaError(e, base, full); }
     // The name is stored, so from here on this creation lands it however it ends -- mounted, a mount that fails, or a
     // case probe that throws -- and it lands it only at the end: a creation asked at any point while this one runs
     // (askedAt below this landing) is waiting behind it and refuses, while one asked after it finished is a
@@ -1948,7 +2019,7 @@ export class Session {
       // creation's own messages exact: the "in drive N" refusals, and the mount failure just above, which already
       // names the disk. (A backend message that itself embeds the path therefore repeats it, exactly as
       // importMedia's has always done: mediaError adds the name to whatever the store said.)
-      throw this.mediaError(e, base);
+      throw this.mediaError(e, base, full);
     } finally { this.creationLanded(full); }
   }
   // a stored disk image into a drive (plugging in the disk cartridge if none is) -> message
@@ -1957,7 +2028,7 @@ export class Session {
     const { writeProtected = false } = opts, held = opts[HELD] === true;
     this.checkDrive(drive);
     if (!held) this.checkNotMoving();
-    const full = this.diskStoreName(name), base = full.slice(DISK_PREFIX.length);
+    const full = this.storedDiskName(name), base = full.slice(DISK_PREFIX.length);
     const holder = this.diskHolder(full, { machine: this.machine, drive });
     if (holder) throw new SessionError(`${holder.name} is already in drive ${holder.drive}${holder.where}.`);
     let fdc = this.diskController;
@@ -1992,7 +2063,7 @@ export class Session {
         const st = await this.media.stat(full);
         if (!st) throw new MediaStoreError('not-found', full);
         bytes = await this.media.readRange(full, 0, st.size);
-      } catch (e) { throw this.mediaError(e, base); }
+      } catch (e) { throw this.mediaError(e, base, full); }
       flush();
       const moved = changesTo(ci) !== before;
       if (!moved) break;
@@ -2122,10 +2193,10 @@ export class Session {
       const fdc = this.diskControllerOf(rollback.machine), d = fdc && fdc.drives[rollback.drive];
       if (d && d.loaded && d.media.onWrite && d.media.onWrite.mount === mount) d.media.onWrite = null;
       this.diskUnsaved.delete(name);
-      const why = this.mediaError(e, base).message.replace(/[.\s]+$/, '');
+      const why = this.mediaError(e, base, name).message.replace(/[.\s]+$/, '');
       this.addDiskError(new SessionError(`Drive ${rollback.drive}: the Library's ${base} couldn't be put back to the restored disk (${why}); the restored disk isn't saved to the Library. Download it to keep it.`));
     } else {
-      const err = this.mediaError(e, base);
+      const err = this.mediaError(e, base, name);
       this.addDiskError(err);
       this.diskUnsaved.set(name, err.message);
     }
@@ -2229,7 +2300,7 @@ export class Session {
         media.name = full; media.onWrite = this.diskLink(full);
         try { await this.media.write(full, bytes); } catch (e) { if (media.onWrite) { media.onWrite = null; media.name = oldName; } throw e; }
       }));
-    } catch (e) { throw this.mediaError(e, base); }
+    } catch (e) { throw this.mediaError(e, base, full); }
     await this.refreshCase();
     this.emit('disks');
     return `Saved ${base} to your Library`;

@@ -78,6 +78,32 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   `node tools/mame-diff/run.js coco3 --vsc` and `tests/gime-vsc.test.js`; what the sources leave open is listed in
   `docs/verification.md`.
 
+- **A refused file is named once, not twice.** The two real media backends word a failure with the stored path in
+  front of it (`disks/work.vdk: permission was refused`), and the Session put the disk's name in front of that, so a
+  refused import or save read `work.vdk: disks/work.vdk: permission was refused`. Each caller now hands `mediaError`
+  the stored name it just used, and a reason that leads with exactly that name has the leading copy dropped before
+  the person's name goes in front. Any other path a reason carries is kept: a rename that fails at its destination
+  still says where, and a name with a space or a file dropped under a path (`dir/work.vdk`, Windows separators) is
+  named once by its own file name - and a library file dropped under a path reports the name the Library lists
+  (`dir/prog.bin`, not just the leaf). The page's background-write notice takes its wording from the Session too
+  (`Session.indexWriteError`), so a failed ROM write is named once. One rule for the library import, a new blank
+  disk, a mount and the DriveWire box. The quota and not-found messages already wrote their own sentence and are
+  unchanged. `tests/store-error-names.test.js`.
+
+- **A disk rename's new name is held to the same rule as any new disk name, and a name already stored is still
+  read back.** A rename to `" "` stored `disks/ ` and a rename to `sub/x.vdk` stored `disks/sub/x.vdk`, names no
+  mount could then read back; both are refused now, saying what is wrong with the name. And a store from an earlier
+  build that already holds such a name (`disks/ `, `disks/sub/x.vdk`) still mounts it: the rule decides what CLOADM
+  may create, never what it can read. `tests/store-error-names.test.js`.
+
+- **A disk name that is not a file name is refused.** `disks/` was stored as a blob named `disks/`, and so were
+  `disks/a/`, `' '`, `disks/..` and `x/..` - names a folder store or OPFS cannot hold, and a `..` that must not
+  reach the store. Every door (a library import, a new blank disk, a mount of a stored name) refuses a name that is
+  empty, whitespace ONLY, has a trailing separator, or is the segment `.` or `..`, as `A disk image needs a name.`
+  (a file that is not a disk image, dropped with such a path, as `A file needs a name.`). Spaces AROUND a name are
+  part of it and are kept: a store that already holds `" a.vdk"` still mounts it, and a name that starts with a dot
+  (`.vdk`) is a real name. `tests/store-error-names.test.js`.
+
 ### 0.1.7-pre
 
 #### Added
