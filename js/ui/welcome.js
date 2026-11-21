@@ -43,6 +43,8 @@ export const SHELF = [
 const gameItem = (key) => SHELF.find((x) => x.game === key);
 // the machine question: one button per family people are likely to have had
 const ASK = [['dragon64', 'Dragon 32 / 64'], ['coco', 'CoCo 1 / 2'], ['coco3', 'CoCo 3'], ['mc10', 'MC-10']];
+// the on-screen panel is up (js/ui/touch-keys.js): the hints say "tap", and BREAK is its button, not Esc
+const touchPanel = () => document.body.classList.contains('touch-keys');
 const el = (tag, text, cls) => { const e = document.createElement(tag); if (text != null) e.textContent = text; if (cls) e.className = cls; return e; };
 
 export function setupWelcome(page, { showRoms, openClaude }) {
@@ -86,7 +88,8 @@ export function setupWelcome(page, { showRoms, openClaude }) {
     else if (ev === 'welcome:demo') {
       await run(SHELF[1], { byMachine: asked });
       showBack(true);
-      page.status('Colour demo: press a key to start it; another key goes back to the menu');
+      page.status(touchPanel() ? 'Colour demo: tap a key to start it; another tap goes back to the menu'
+        : 'Colour demo: press a key to start it; another key goes back to the menu');
     } else if (ev === 'welcome:roms') showRoms();
     else if (ev === 'welcome:claude') await openClaude();
     else if (ev === 'welcome:carryon') await runAgain({ byMachine: asked });
@@ -137,7 +140,8 @@ export function setupWelcome(page, { showRoms, openClaude }) {
         session.checkGame(item.game);   // (another CPU, or under 32K: says so before fetching anything)
         const bytes = await page.fetchBytes(`examples/${session.gameFile(item.game)}`);
         startAs(byMachine, () => session.runGame(item.game, bytes));
-        page.status(`${item.name}: press a key to start; BREAK (Esc) goes back to the menu`);
+        page.status(touchPanel() ? `${item.name}: tap a key to play; tap BREAK for the menu`
+          : `${item.name}: press a key to start; BREAK (Esc) goes back to the menu`);
       } else {
         const bytes = await page.fetchBytes(item.url);
         page.status(startAs(byMachine, () => session.load(item.url.split('/').pop(), bytes, { remember: false })));

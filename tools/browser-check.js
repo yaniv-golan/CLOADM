@@ -7014,13 +7014,16 @@ async function inputScreenChecks(browser, base, check) {
     check('touch keys (portrait): no page errors', !errors.length, errors.join('; '));
     await ctx.close();
   }
-  // ---- portrait phones: the whole panel on screen at load, the row with ENTER included, no scrolling to type ----
-  // The owner's report (iPhone, Chrome for iOS, portrait): ENTER's row was under the browser's bottom toolbar. Each
-  // size is a phone's visible area with its browser's toolbars up (Safari's and Chrome for iOS's are taken out of the
-  // window here; Chrome for iOS leaves the least), with the notch's and home indicator's insets emulated through CDP
-  // (env(safe-area-inset-*)). Every key, the switch, BREAK, CLEAR and Menu (Keys), or the strip, the stick and FIRE
-  // (Joystick), must lie inside the visual viewport less the insets, with the page not scrolled, every key at least
-  // 40 px tall, and nothing of the panel over the screen.
+  // ---- portrait phones: the screen at the page's full width, the toolbar under it at load, every key reachable ----
+  // The v0.1.8 review (M2): the screen was cut down to fit the whole panel under it (160 px wide on a small phone), too
+  // small to read. Now the screen takes the page's width and the panel follows; where the window is too short the page
+  // scrolls. Each size is a phone's visible area with its browser's toolbars up (Safari's and Chrome for iOS's are
+  // taken out of the window here; Chrome for iOS leaves the least), with the notch's and home indicator's insets
+  // emulated through CDP (env(safe-area-inset-*)). At load: the screen's picture at least 80% of the window's width, and the
+  // switch, BREAK, CLEAR and Keys ▾ inside the visible area less the insets (44 px tall). Scrolled so the panel's foot
+  // is at the visible bottom (not scrolled at all where it already is: the larger phones), every key (ENTER's row
+  // included), or the strip, the stick and FIRE, lies inside it too, every key at least 40 px tall, none over the
+  // screen. (The original owner's report, ENTER's row under the browser's bottom toolbar, is that last part.)
   {
     const PORTRAIT = [['iPhone SE, Safari', { width: 375, height: 548 }, null], ['iPhone SE, Chrome for iOS', { width: 375, height: 540 }, null],
       ['iPhone 13, Safari', { width: 390, height: 664 }, { top: 0, bottom: 34, left: 0, right: 0 }],
@@ -7028,11 +7031,10 @@ async function inputScreenChecks(browser, base, check) {
       ['iPhone 15, Safari', { width: 393, height: 659 }, { top: 0, bottom: 34, left: 0, right: 0 }],
       ['iPhone 15, Chrome for iOS', { width: 393, height: 628 }, { top: 59, bottom: 34, left: 0, right: 0 }],
       ['Pixel 7, Chrome', { width: 412, height: 839 }, null],
-      // Safari 26+: the page runs under its floating toolbar, which no viewport unit or inset counts; the panel must
-      // end above it (84 px from the bottom edge, play/index.html --tk-bar)
+      // Safari 26+: the page runs under its floating toolbar, which no viewport unit or inset counts; the panel's foot
+      // must scroll clear of it (the page ends 84 px lower, play/index.html .float-bar)
       ['iPhone 15, Safari 26 floating toolbar', { width: 393, height: 852 }, { top: 59, bottom: 34, left: 0, right: 0 },
         { userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1', bar: 84 }],
-      // (the SE is where the band decides: the screen is cut by the height, so without the band ENTER's row is under it)
       ['iPhone SE, Safari 26 floating toolbar', { width: 375, height: 667 }, null,
         { userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1', bar: 84 }]];
     for (const [label, viewport, inset, ios] of PORTRAIT) {
@@ -7048,6 +7050,20 @@ async function inputScreenChecks(browser, base, check) {
         await page.goto(`${base}?machine=dragon64&start=liza&touch=${mode}`);
         await waitFor(page, () => window.emu && window.emu.machine && window.emu.session.screenText().join('').includes('I AM LIZA'));
         await waitFor(page, (m) => !document.getElementById('touchKeys').hidden && document.getElementById('touchKeys').classList.contains('joystick') === (m === 'joystick'), mode);
+        await painted(page);
+        // at load: the screen's width and the toolbar
+        const load = await page.evaluate((ins) => {
+          const vv = visualViewport, safeT = vv.offsetTop + ins.top, safeB = vv.offsetTop + vv.height - ins.bottom;
+          const s = document.getElementById('screen').getBoundingClientRect();
+          const bar = ['tkBreak', 'tkClear', 'tkMenu'].map((id) => document.getElementById(id).getBoundingClientRect())
+            .concat([...document.querySelectorAll('#tkModeSwitch button')].map((e) => e.getBoundingClientRect()));
+          return { screenW: Math.round(s.width), w: innerWidth, bar: bar.every((r) => r.width > 0 && r.top >= safeT - 0.5 && r.bottom <= safeB + 0.5), barH: Math.min(...bar.slice(0, 3).map((r) => Math.round(r.height))) };
+        }, ins);
+        check(`${L}: at load the screen's picture is at least 80% of the page's width (${load.screenW} of ${load.w} px) and the switch, BREAK, CLEAR and Keys ▾ are in view, 44 px tall`,
+          load.screenW >= load.w * 0.8 && load.bar && load.barH >= 44, JSON.stringify(load));
+        // scrolled (if need be) so the panel's foot is at the visible bottom less the insets
+        await page.evaluate((ins) => { const k = document.getElementById('touchKeys').getBoundingClientRect(), vv = visualViewport;
+          const over = k.bottom - (vv.offsetTop + vv.height - ins.bottom); if (over > 0) scrollBy(0, Math.ceil(over)); }, ins);
         await painted(page);
         const lay = await page.evaluate((ins) => {
           const vv = visualViewport, safe = { l: vv.offsetLeft + ins.left, t: vv.offsetTop + ins.top, r: vv.offsetLeft + vv.width - ins.right, b: vv.offsetTop + vv.height - ins.bottom };
@@ -7065,11 +7081,13 @@ async function inputScreenChecks(browser, base, check) {
           }
           const enter = document.querySelector('#touchFull [data-key="ENTER"]');
           return { names: parts.length, enter: enter && shown(enter) ? [Math.round(enter.getBoundingClientRect().top), Math.round(enter.getBoundingClientRect().bottom)] : null,
-            safe: [safe.t, safe.b].map(Math.round), screen: [Math.round(screen.r - screen.l), Math.round(screen.b - screen.t)], scrolled: scrollY, sideways: document.documentElement.scrollWidth > innerWidth, bad };
+            safe: [safe.t, safe.b].map(Math.round), screen: [Math.round(screen.r - screen.l), Math.round(screen.b - screen.t)], scrolled: Math.round(scrollY), sideways: document.documentElement.scrollWidth > innerWidth, bad };
         }, ins);
         const want = mode === 'keys' ? !!lay.enter && lay.names >= 50 : lay.names >= 12;
-        check(`${L}: ${mode === 'keys' ? 'every key (ENTER\'s row included), the switch, BREAK, CLEAR and Menu' : 'the strip, the stick, FIRE, the switch, BREAK, CLEAR and Menu'} inside the visible area less its insets at load, keys at least 40 px, none over the screen`,
-          want && !lay.bad.length && lay.scrolled === 0 && !lay.sideways, JSON.stringify(lay));
+        // (the larger phones need no scroll at all: the screen, the toolbar and every key at once)
+        const fitsAtLoad = viewport.height >= 650 && !ios;
+        check(`${L}: ${mode === 'keys' ? 'every key (ENTER\'s row included), the switch, BREAK, CLEAR and Keys ▾' : 'the strip, the stick, FIRE, the switch, BREAK, CLEAR and Keys ▾'} inside the visible area less its insets${fitsAtLoad ? ' at load, unscrolled' : ', the page scrolled to the panel\'s foot'}, keys at least 40 px, none over the screen`,
+          want && !lay.bad.length && (!fitsAtLoad || lay.scrolled === 0) && !lay.sideways, JSON.stringify(lay));
         if (shotDir) await page.screenshot({ path: path.join(shotDir, `touch-portrait-${mode}-${label.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.png`) });
         check(`${L}: no page errors`, !errors.length, errors.join('; '));
         await ctx.close();
@@ -14222,6 +14240,204 @@ async function uiModelChecks(browser, base, check) {
   check('ui model: no page errors', !errors.length, errors.join('; '));
 }
 
+// ---- mobile: the v0.1.8 UI/UX review's phone and header findings (M2, m1, m2, m3, m4, m7, p1) ----
+// Real touch contexts (hasTouch, isMobile) at Playwright's device sizes. Each check failed on v0.1.8 (1dd66fa).
+async function mobileChecks(browser, base, check) {
+  const { devices } = require('playwright');
+  const dev = (name) => { const { defaultBrowserType, ...o } = devices[name]; return o; };
+  const PHONES = ['iPhone SE', 'iPhone 15', 'Pixel 7'];
+  const open = async (opts, q = '') => {
+    const ctx = await browser.newContext({ ...opts, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}${q}`);
+    // (the welcome menu, or the game the link starts: its toast says so)
+    await waitFor(page, () => window.emu && window.emu.ready && window.emu.machine && (window.emu.session.welcomeRunning || /^(2048|Minesweeper):/.test(document.getElementById('toastText').textContent)));
+    await painted(page);
+    return { ctx, page, errors };
+  };
+  // boxes, in the page: overlaps among a list, and clipped text
+  const LAYOUT = () => {
+    window.__box = (e) => { const r = e.getBoundingClientRect(); return { l: r.left, t: r.top, r: r.right, b: r.bottom, w: r.width, h: r.height }; };
+    window.__cross = (a, b) => a.l < b.r - 0.5 && b.l < a.r - 0.5 && a.t < b.b - 0.5 && b.t < a.b - 0.5;
+    window.__clipped = (e) => e.scrollWidth > e.clientWidth + 0.5 || e.scrollHeight > e.clientHeight + 0.5;
+  };
+
+  // M2, m1, p1: upright phones. The screen takes the page's width; the toolbar (the switch, BREAK, CLEAR, Keys ▾)
+  // is one row of whole, unclipped, non-overlapping buttons, BREAK, CLEAR and Keys ▾ at least 44 px tall
+  for (const name of PHONES) {
+    const { ctx, page, errors } = await open(dev(name), '?machine=dragon64');
+    await page.evaluate(LAYOUT);
+    const r = await page.evaluate(() => {
+      const s = document.getElementById('screen').getBoundingClientRect();
+      const ids = ['tkBreak', 'tkClear', 'tkMenu'];
+      const bar = [...document.querySelectorAll('#tkModeSwitch button')].concat(ids.map((id) => document.getElementById(id)));
+      const boxes = bar.map((e) => ({ name: e.textContent.trim(), ...window.__box(e), clipped: window.__clipped(e) }));
+      const overlaps = [];
+      for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) if (window.__cross(boxes[i], boxes[j])) overlaps.push(`${boxes[i].name}/${boxes[j].name}`);
+      const sw = document.getElementById('tkModeSwitch').getBoundingClientRect();
+      // each switch button inside its group (a label pushed out of it is the iPhone SE's "Joystick" under BREAK)
+      const outOfSwitch = boxes.slice(0, 2).filter((b) => b.l < sw.left - 0.5 || b.r > sw.right + 0.5).map((b) => b.name);
+      return { screenW: Math.round(s.width), w: innerWidth, overlaps, outOfSwitch, clipped: boxes.filter((b) => b.clipped).map((b) => b.name),
+        offPage: boxes.filter((b) => b.l < 0 || b.r > innerWidth).map((b) => b.name), heights: boxes.slice(2).map((b) => Math.round(b.h)), labels: boxes.map((b) => b.name) };
+    });
+    check(`mobile (${name} ${r.w} px, portrait): the screen's picture is at least 80% of the page's width (${r.screenW} px, at least ${Math.ceil(r.w * 0.8)})`, r.screenW >= r.w * 0.8, JSON.stringify(r));
+    check(`mobile (${name}, portrait): the panel's toolbar has no overlapping, clipped or off-page button (Keys, Joystick, BREAK, CLEAR, Keys ▾)`,
+      !r.overlaps.length && !r.outOfSwitch.length && !r.clipped.length && !r.offPage.length && r.labels.join() === 'Keys,Joystick,BREAK,CLEAR,Keys ▾', JSON.stringify(r));
+    check(`mobile (${name}, portrait): BREAK, CLEAR and Keys ▾ are at least 44 px tall`, r.heights.every((h) => h >= 44), JSON.stringify(r.heights));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `mobile-${name.replace(/\W+/g, '-')}-portrait.png`) });
+    check(`mobile (${name}, portrait): no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // m3, m2: the phone's app bar (iPhone 15, 393 px): one row (Add ROMs included), the machine's name whole, More's
+  // label centred in its button; opening More moves nothing in that row; More and Keys ▾ share no item
+  {
+    const { ctx, page, errors } = await open(dev('iPhone 15'), '?machine=dragon64');
+    await page.evaluate(LAYOUT);
+    const row = () => page.evaluate(() => ['machineBtn', 'romPill', 'btnLoad', 'btnAsk', 'btnMenu'].map((id) => { const b = window.__box(document.getElementById(id)); return [id, Math.round(b.l), Math.round(b.t), Math.round(b.r), Math.round(b.b)]; }));
+    const before = await row();
+    const bar = await page.evaluate(() => {
+      const ids = ['machineBtn', 'romPill', 'btnLoad', 'btnAsk', 'btnMenu'], els = ids.map((id) => document.getElementById(id));
+      const boxes = els.map((e) => window.__box(e)), mid = (b) => (b.t + b.b) / 2;
+      const overlaps = [];
+      for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) if (window.__cross(boxes[i], boxes[j])) overlaps.push(`${ids[i]}/${ids[j]}`);
+      // More's text: the range of its label, centred in the button (it was at the top of a 40 px button)
+      const m = document.getElementById('btnMenu'), range = document.createRange(); range.selectNodeContents(m);
+      const t = range.getBoundingClientRect(), mb = m.getBoundingClientRect();
+      return { oneRow: boxes.every((b) => Math.abs(mid(b) - mid(boxes[0])) <= 3), visible: els.every((e) => e.checkVisibility()), overlaps,
+        inBar: boxes.every((b) => b.l >= 0 && b.r <= innerWidth), nameWhole: !window.__clipped(document.getElementById('machineName')),
+        moreLabel: m.textContent.trim(), labelOffset: Math.round(Math.abs((t.top + t.bottom) / 2 - (mb.top + mb.bottom) / 2)) };
+    });
+    check('mobile (iPhone 15, portrait): the app bar is one row, Add ROMs included, nothing overlapping or off the page, the machine\'s name whole',
+      bar.oneRow && bar.visible && !bar.overlaps.length && bar.inBar && bar.nameWhole, JSON.stringify(bar));
+    check('mobile (iPhone 15, portrait): the app bar\'s menu button says More, its label centred in it', bar.moreLabel === 'More' && bar.labelOffset <= 2, JSON.stringify(bar));
+    await page.tap('#btnMenu');
+    await waitFor(page, () => document.getElementById('appbar').classList.contains('menu-open'));
+    await painted(page);
+    const after = await row();
+    check('mobile (iPhone 15, portrait): opening More moves nothing in the bar\'s row (Share and the links open under it)',
+      JSON.stringify(before) === JSON.stringify(after) && await page.isVisible('#btnShare'), JSON.stringify({ before, after }));
+    const more = await page.evaluate(() => [...document.querySelectorAll('.appbar nav a, .appbar nav button, #btnShare')].filter((e) => e.checkVisibility()).map((e) => e.innerText.replace(/\s+/g, ' ').trim()));
+    await page.tap('#btnMenu');
+    await page.tap('#tkMenu');
+    await waitFor(page, () => !document.getElementById('tkMenuSheet').hidden);
+    const keys = await page.evaluate(() => ({ label: document.getElementById('tkMenu').textContent, items: [...document.querySelectorAll('#tkMenuSheet button')].filter((e) => e.checkVisibility()).map((e) => e.textContent.trim()) }));
+    const shared = keys.items.filter((i) => more.includes(i));
+    check('mobile (iPhone 15, portrait): two distinct menus: More (the links, Commands…, Share) and Keys ▾ (Full keyboard, Game keys, Hide keys), no item in both',
+      keys.label === 'Keys ▾' && !shared.length && keys.items.join() === 'Full keyboard,Game keys,Hide keys' && more.includes('Commands…'), JSON.stringify({ more, keys, shared }));
+    await page.tap('#tkMenuSheet [data-item="hide"]');
+    check('mobile (iPhone 15, portrait): Keys ▾ → Hide keys hides the panel; the Keys button brings it back',
+      await page.isHidden('#touchKeys') && await page.isVisible('#btnShowKeys'));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, 'mobile-iphone15-hidden-keys.png') });
+    await page.tap('#btnShowKeys');
+    check('mobile (iPhone 15, portrait): the panel back', await page.isVisible('#touchKeys'));
+    check('mobile (app bar): no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+  // m3 below 390 px (the 320 px iPhone SE): Add ROMs takes a row of its own, under a row that still holds the machine,
+  // Open…, Ask Claude and More whole
+  {
+    const { ctx, page } = await open(dev('iPhone SE'), '?machine=dragon64');
+    await page.evaluate(LAYOUT);
+    const r = await page.evaluate(() => {
+      const ids = ['machineBtn', 'btnLoad', 'btnAsk', 'btnMenu'], b = ids.map((id) => window.__box(document.getElementById(id))), rom = window.__box(document.getElementById('romPill'));
+      return { row: b.every((x) => Math.abs(x.t - b[0].t) <= 4 && x.l >= 0 && x.r <= innerWidth), romBelow: rom.t >= Math.max(...b.map((x) => x.b)) - 0.5 && rom.l >= 0,
+        nameWhole: !window.__clipped(document.getElementById('machineName')), askName: document.getElementById('btnAsk').textContent.includes('Ask Claude') };
+    });
+    check('mobile (iPhone SE, 320 px): the machine (its name whole), Open…, Ask Claude (its icon; the name in the button) and More on one row, Add ROMs under it',
+      r.row && r.romBelow && r.nameWhole && r.askName, JSON.stringify(r));
+    await ctx.close();
+  }
+
+  // M2: the game keys. ?start=2048 and ?start=minesweeper open on them; a game started from the page does too; leaving
+  // the game brings the full keyboard back; Keys ▾ picks either; an arrow reaches the machine. Held sideways the
+  // split keyboard stays (landscape unchanged).
+  for (const game of ['2048', 'minesweeper']) {
+    const { ctx, page, errors } = await open(dev('iPhone 15'), `?machine=dragon64&start=${game}`);
+    // (a page without the game keys fails the check below, not this wait)
+    await page.waitForFunction(() => document.getElementById('touchPad') && document.getElementById('touchPad').checkVisibility(), null, { timeout: 5000 }).catch(() => {});
+    const r = await page.evaluate(() => ({ pad: !!document.getElementById('touchPad') && document.getElementById('touchPad').checkVisibility(), full: document.getElementById('touchFull').checkVisibility(),
+      keys: [...document.querySelectorAll('#touchPad .tk')].map((e) => e.dataset.key).join(' '), h: Math.round(document.getElementById('touchKeys').getBoundingClientRect().height),
+      bottom: document.getElementById('touchKeys').getBoundingClientRect().bottom <= innerHeight }));
+    check(`mobile (iPhone 15, ?start=${game}): the game keys (arrows, R, F, Y, N, SPACE, ENTER), not the full keyboard, all on screen`,
+      r.pad && !r.full && r.keys === '↑ R F Y N ← ↓ → SPACE ENTER' && r.h < 200 && r.bottom, JSON.stringify(r));
+    if (game === '2048' && r.pad) {
+      await page.evaluate(() => { const m = window.emu.machine, set = m.setKey.bind(m); window.pressed = []; m.setKey = (k, d) => { window.pressed.push(`${k}${d ? '+' : '-'}`); return set(k, d); }; });
+      await page.tap('#touchPad [data-key="→"]');
+      check('mobile (2048): the game keys\' → is the machine\'s RIGHT', await waitFor(page, () => window.pressed.includes('RIGHT+') && window.pressed.includes('RIGHT-')), JSON.stringify(await page.evaluate(() => window.pressed)));
+      await page.tap('#tkMenu');
+      await page.tap('#tkMenuSheet [data-item="full"]');
+      check('mobile (2048): Keys ▾ → Full keyboard brings the keyboard back during the game', await page.isVisible('#touchFull') && await page.isHidden('#touchPad')
+        && await page.getAttribute('#tkMenuSheet [data-item="full"]', 'aria-pressed') === 'true');
+      await page.tap('#tkMenu');
+      await page.tap('#tkMenuSheet [data-item="pad"]');
+      check('mobile (2048): Keys ▾ → Game keys takes them back', await page.isVisible('#touchPad') && await page.isHidden('#touchFull'));
+      if (shotDir) await page.screenshot({ path: path.join(shotDir, 'mobile-iphone15-2048-game-keys.png') });
+      // BREAK leaves the game for the welcome menu, which wants digits: the full keyboard
+      await page.tap('#tkBreak');
+      check('mobile (2048): BREAK leaves for the welcome menu, and the full keyboard comes back', await waitFor(page, () => window.emu.session.welcomeRunning && !window.emu.session.gameRunning
+        && document.getElementById('touchFull').checkVisibility() && !document.getElementById('touchPad').checkVisibility(), null, 20000));
+      // a game started on the page (the drawer's shelf), not by the link
+      await page.evaluate(() => document.querySelector('#shelf a[href*="start=minesweeper"]').click());
+      check('mobile: a game started from the page (Minesweeper, the Media tab) brings the game keys up too', await waitFor(page, () => window.emu.session.gameRunning && document.getElementById('touchPad').checkVisibility()));
+    }
+    check(`mobile (?start=${game}): no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+  for (const name of ['iPhone SE landscape', 'iPhone 15 landscape']) {
+    const { ctx, page, errors } = await open(dev(name), '?machine=dragon64&start=2048');
+    await painted(page);
+    await page.evaluate(LAYOUT);
+    const r = await page.evaluate(() => ({ pad: !!document.getElementById('touchPad') && document.getElementById('touchPad').checkVisibility(), halves: ['touchLeft', 'touchRight'].every((id) => document.getElementById(id).checkVisibility()),
+      menu: document.getElementById('tkMenu').textContent, heights: ['tkBreak', 'tkClear', 'tkMenu'].map((id) => Math.round(document.getElementById(id).getBoundingClientRect().height)) }));
+    check(`mobile (${name}, a game): the split keyboard as before (no game keys sideways), Menu, BREAK, CLEAR and Menu 44 px`,
+      !r.pad && r.halves && r.menu === 'Menu' && r.heights.every((h) => h >= 44), JSON.stringify(r));
+    // m7: the game's toast says "tap", and covers neither a key nor the screen's text, inside the window
+    await waitFor(page, () => !document.getElementById('toast').hidden && /2048/.test(document.getElementById('toastText').textContent));
+    await painted(page);
+    const t = await page.evaluate(() => {
+      const box = window.__box(document.getElementById('toast')), cv = document.getElementById('screen'), c = cv.getBoundingClientRect();
+      const f = (cv.dataset.active || '0,0,1,1').split(',').map(Number);
+      const text = { l: c.left + f[0] * c.width, t: c.top + f[1] * c.height, r: c.left + f[2] * c.width, b: c.top + f[3] * c.height };
+      const keys = [...document.querySelectorAll('#touchKeys button')].filter((e) => e.checkVisibility()).filter((e) => window.__cross(box, window.__box(e))).map((e) => e.textContent.trim());
+      return { text: document.getElementById('toastText').textContent, keys, overText: window.__cross(box, text), inView: box.t >= 0 && box.b <= innerHeight && box.l >= 0 && box.r <= innerWidth };
+    });
+    check(`mobile (${name}): the game's toast says to tap (no Esc), and covers no key and not the screen's text`,
+      /tap a key/.test(t.text) && /tap BREAK/.test(t.text) && !/Esc|press/.test(t.text) && !t.keys.length && !t.overText && t.inView, JSON.stringify(t));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `mobile-${name.replace(/\W+/g, '-')}-toast.png`) });
+    check(`mobile (${name}): no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+  // m7, p1 on a tablet: the toast says tap; the panel's buttons 44 px
+  {
+    const { ctx, page } = await open(dev('iPad (gen 7)'), '?machine=dragon64&start=2048');
+    await waitFor(page, () => /2048/.test(document.getElementById('toastText').textContent));
+    const r = await page.evaluate(() => ({ text: document.getElementById('toastText').textContent, heights: ['tkBreak', 'tkClear', 'tkMenu'].map((id) => Math.round(document.getElementById(id).getBoundingClientRect().height)),
+      pad: !!document.getElementById('touchPad') && document.getElementById('touchPad').checkVisibility() }));
+    check('mobile (iPad, ?start=2048): the toast says tap a key and tap BREAK; the game keys; BREAK, CLEAR and Keys ▾ 44 px',
+      /tap a key/.test(r.text) && /tap BREAK/.test(r.text) && !/Esc/.test(r.text) && r.pad && r.heights.every((h) => h >= 44), JSON.stringify(r));
+    await ctx.close();
+  }
+  // a computer (no touch): the toast keeps the keyboard's words
+  {
+    const { ctx, page } = await open({ viewport: { width: 1280, height: 800 } }, '?machine=dragon64&start=2048');
+    await waitFor(page, () => /2048/.test(document.getElementById('toastText').textContent));
+    const text = await page.evaluate(() => document.getElementById('toastText').textContent);
+    check('mobile (desktop, ?start=2048): the toast still says press a key and BREAK (Esc)', /press a key/.test(text) && /BREAK \(Esc\)/.test(text), text);
+    await ctx.close();
+  }
+  // m4: the desktop's status shows the speed only (the machine's name is on the button beside it), whole
+  for (const width of [1440, 1024]) {
+    const { ctx, page } = await open({ viewport: { width, height: 900 } }, '?machine=dragon64');
+    await waitFor(page, () => /fps/.test(document.getElementById('status').textContent));
+    const r = await page.evaluate(() => { const e = document.getElementById('status'); return { text: e.textContent, clipped: e.scrollWidth > e.clientWidth + 0.5, w: Math.round(e.getBoundingClientRect().width) }; });
+    check(`mobile (desktop ${width} px): the status shows fps and speed whole, without the machine's name`, !r.clipped && !/Dragon/.test(r.text) && /^\d+ fps · \d+%/.test(r.text), JSON.stringify(r));
+    await ctx.close();
+  }
+}
+
 const GROUPS = (base, site) => [
   ['models', (b) => modelsChecks(b, base, check)],
   ['reset', (b) => resetChecks(b, base, check)],
@@ -14301,6 +14517,7 @@ const GROUPS = (base, site) => [
   ['favicon', (b) => faviconChecks(b, site, check)],
   ['uiModel', (b) => uiModelChecks(b, base, check)],
   ['semantics', (b) => semanticsChecks(b, base, site, check)],
+  ['mobile', (b) => mobileChecks(b, base, check)],
   // (required when the group runs: the shard planner's copy of this file runs --list-groups without it)
   ['connector', (b) => require('./connector-check').connectorChecks(b, check, { shots: shotDir })],
 ];

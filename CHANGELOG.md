@@ -8,6 +8,33 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
+### Changed
+
+- **Phones held upright: the screen at the page's full width, game keys for the games.** The screen was cut down so
+  the whole keyboard fitted under it (about 160 px wide on a small iPhone, 230 on an iPhone 15): too small to read the
+  welcome menu, the 2048 tiles or LIZA. It now takes the page's width and the panel follows under it; where the window
+  is too short the page scrolls (from the screen or the bar: a drag on the keys is still the keys'). While 2048 or
+  Minesweeper runs (`?start=`, PLAY A GAME, the Media tab) the panel shows **game keys** instead of the full keyboard:
+  the arrows as a pad, R, F, Y, N, SPACE and ENTER, on two rows; leaving the game brings the keyboard back. Held
+  sideways nothing changes. The browser check's new group `mobile` covers it (every check failed on v0.1.8).
+- **The touch panel's Menu is "Keys ▾" where the app bar shows, and the phone's app bar Menu is "More".** The two
+  Menus overlapped (Commands… in both). Keys ▾ picks Full keyboard or Game keys and has Hide keys, one tap from the
+  panel; More has the links, Commands… and Share. Held sideways, where the app bar gives way, the panel's Menu keeps
+  the machine menu, Commands… and Hide keys.
+- **The status in the app bar shows the speed only** ("50 fps · 100%"): the machine's name is on the button beside it,
+  and at 1440 px the repeated name pushed the speed into an ellipsis.
+
+### Fixed
+
+- **iPhone SE: "Joystick" was clipped under BREAK.** The panel's toolbar keeps the switch at its own width and shares
+  the rest among BREAK, CLEAR and Keys ▾, now 44 px tall.
+- **The phone's app bar on an iPhone 15:** Menu's label sat at the top of its button, Add ROMs wrapped to a second row,
+  and opening Menu pushed Share into the row. The bar is one row (the machine's name gives way first; Ask Claude is its
+  icon under 480 px), labels are centred, and More opens its links and Share under the row, moving nothing in it.
+  Under 390 px Add ROMs takes a row of its own.
+- **On a touch screen the games' hint says "tap a key" and "tap BREAK"**, not "press a key" and "BREAK (Esc)"; held
+  sideways it sits on the black glass under the picture instead of over the top keys and the screen.
+
 ### 0.1.8-pre
 
 #### Added

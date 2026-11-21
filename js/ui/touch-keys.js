@@ -4,7 +4,9 @@
  *
  * Keys: in landscape on a phone it is the design's split thumb keyboard, the screen between its halves with
  * BREAK, CLEAR, the switch and Menu under it; in portrait (or on a larger touch screen) a ten-column keyboard
- * under the screen. Keys go to the machine through HostInput.touch (the KeyQueue holds each press long enough
+ * under the screen, which takes the page's full width (the page scrolls to the keys' foot where the window is
+ * short), or, while one of the bundled games runs, the two rows of game keys (arrows, R, F, Y, N, SPACE, ENTER);
+ * "Keys ▾" picks either, or hides the panel. Keys go to the machine through HostInput.touch (the KeyQueue holds each press long enough
  * for the machine to see it; the no-ROM stub gets the character). SHIFT is sticky: it shifts the next key.
  *
  * Joystick: one stick drives the right joystick (joystick 0, the same one the first gamepad drives): analogue
@@ -18,7 +20,7 @@
  * work at once: the stick and FIRE are separate pointers, and each captures its own.
  *
  * Shown by itself on touch screens (a coarse pointer, touch points without hover, or a first touch); the Input
- * tab's "On-screen keyboard" setting says Automatic, Always or Never, and "Hide keys" (in Menu) hides it for the
+ * tab's "On-screen keyboard" setting says Automatic, Always or Never, and "Hide keys" (in Keys ▾, or Menu sideways) hides it for the
  * visit (a Keys button brings it back). The mode is remembered per machine (touchMode.<id>), and ?touch= sets it
  * for the visit (js/config.js; never for an embed, which has no panel of its own).
  */
@@ -29,8 +31,12 @@ import { $, ESC, markUndrawn } from './page.js';
 // label -> machine key name, and the code the stub reads (ASCII; the arrows as BASIC's codes)
 const SPECIAL = {
   '↑': ['UP', 94], '↓': ['DOWN', 10], '←': ['LEFT', 8], ENTER: ['ENTER', 13], SPACE: ['SPACE', 32],
-  BREAK: ['BREAK', 3], CLEAR: ['CLEAR', 12],
+  '→': ['RIGHT', 9], BREAK: ['BREAK', 3], CLEAR: ['CLEAR', 12],
 };
+// the game keys: what 2048 and Minesweeper read (the arrows, R to start again, SPACE and F, Y and N, ENTER), on two
+// rows instead of five, so an upright phone keeps the room for the screen. '' is a gap (the d-pad's corners).
+const PAD = [['', '↑', '', 'R', 'F', 'Y', 'N'], ['←', '↓', '→', 'SPACE', 'ENTER']];
+const ARROW_NAMES = { '↑': 'Up', '↓': 'Down', '←': 'Left', '→': 'Right' };
 // the character SHIFT + key types (the Dragon layout's shifted symbols), for the stub
 const SHIFTED = {};
 for (let c = 32; c < 127; c++) { const ch = String.fromCharCode(c), k = charToKeys(ch); if (k && k.shift && !SHIFTED[k.key]) SHIFTED[k.key] = ch; }
@@ -54,7 +60,7 @@ export function setupTouchKeys(page, { input }) {
   // SHIFT keys armed (a finger on them) but not yet committed: a key that commits under them commits them first
   const shiftArmed = new Set();
 
-  function key(label) {
+  function key(label, { arrow = false } = {}) {
     const t = label === '_' ? 'SPACE' : label;
     const b = document.createElement('button');
     b.type = 'button';
@@ -62,7 +68,8 @@ export function setupTouchKeys(page, { input }) {
     b.textContent = t;
     // ← is the Dragon's and CoCo's backspace: the glyph stays, a small DEL under it says so, and its name starts with
     // that visible word (WCAG 2.5.3, label in name): "DEL (Backspace)"
-    if (t === '←') {
+    if (arrow) b.setAttribute('aria-label', ARROW_NAMES[t]);
+    else if (t === '←') {
       b.setAttribute('aria-label', 'DEL (Backspace)');
       b.replaceChildren(Object.assign(document.createElement('span'), { className: 'glyph', textContent: '←' }),
         Object.assign(document.createElement('span'), { className: 'del', textContent: 'DEL' }));
@@ -127,6 +134,11 @@ export function setupTouchKeys(page, { input }) {
   $('touchLeft').append(...rows(SPLIT.left));
   $('touchRight').append(...rows(SPLIT.right));
   $('touchFull').append(...rows(FULL));
+  for (const r of PAD) {
+    const row = document.createElement('div'); row.className = 'tkrow';
+    for (const l of r) row.append(l ? key(l, { arrow: l in ARROW_NAMES }) : Object.assign(document.createElement('span'), { className: 'tkgap' }));
+    $('touchPad').append(row);
+  }
   for (const [id, label] of [['tkBreak', 'BREAK'], ['tkClear', 'CLEAR']]) $(id).replaceWith(Object.assign(key(label), { id }));
 
   // ---- joystick mode: the stick, FIRE and the key strip ----
@@ -280,6 +292,16 @@ export function setupTouchKeys(page, { input }) {
   const touchScreen = () => (touchSeen = touchSeen || coarse.matches || (navigator.maxTouchPoints > 0 && noHover.matches));
   addEventListener('pointerdown', (e) => { if (e.pointerType === 'touch' && !touchSeen) { touchSeen = true; apply(); } }, { capture: true });
   let hidden = false;
+  // the keys' layout: the full keyboard, or the game keys (PAD). The game keys while one of the bundled games runs
+  // (Session.gameRunning: ?start=2048, the menu's PLAY A GAME, Run again), unless the person picks a layout in the
+  // Keys menu; that pick holds until a game starts or is left (then the default fits what runs again).
+  // Held sideways the split keyboard stays (play/index.html leaves #touchPad out there): the screen has its height.
+  let layoutPick = null;
+  const sheet = $('tkMenuSheet');
+  const layout = () => layoutPick || (session.gameRunning ? 'pad' : 'full');
+  // a phone held sideways: the app bar gives way to the panel (play/index.html), so the panel's Menu carries the
+  // machine menu and Commands…; elsewhere the app bar has them and the button is the keys' own menu ("Keys ▾")
+  const sideways = matchMedia('(orientation: landscape) and (max-height: 500px)');
   // standing aside: the page has a text field the person types in with the phone's own keyboard (the chat's API
   // key form), so the machine keyboard steps out of its way until the field is gone
   let aside = false;
@@ -299,6 +321,17 @@ export function setupTouchKeys(page, { input }) {
     box.hidden = !on;
     box.classList.toggle('joystick', !!joyMode);
     box.classList.toggle('keysonce', keysOnce);
+    // the game keys: keys mode only (joystick mode has its own strip; ABC's one keypress brings the full keyboard)
+    const pad = on && !joyMode && layout() === 'pad';
+    box.classList.toggle('pad', pad);
+    // the menu button's label and items (see `sideways`; a phone's full-screen chat: the way back, js/ui/claude.js)
+    const side = sideways.matches;
+    $('tkMenu').textContent = document.body.classList.contains('chat-phone') ? '← Emulator' : side ? 'Menu' : 'Keys ▾';
+    for (const b of sheet.querySelectorAll('[data-item]')) {
+      const it = b.dataset.item;
+      b.hidden = it === 'menu' || it === 'commands' ? !side : it === 'full' || it === 'pad' ? side || !!joyMode : false;
+      if (it === 'full' || it === 'pad') b.setAttribute('aria-pressed', String(layout() === it));
+    }
     box.dataset.mode = modus();
     document.body.classList.toggle('touch-keys', on);
     document.body.classList.toggle('touch-stick', !!joyMode);
@@ -315,46 +348,32 @@ export function setupTouchKeys(page, { input }) {
     if (stickWas && !stick) { releaseStick(); input.touchFire(false); }
     stickWas = stick;
   }
-  // A phone held upright: the screen takes the height the page above it and the panel below leave (play/index.html,
-  // "a phone held upright"). What lies above the monitor (the safe-area padding, the app bar however it wraps, an
-  // offer) and from its foot to the panel's (the gap, the panel) is measured here, as CSS cannot; both are lengths of
-  // the page's own content, not of the window, so the stylesheet's 100dvh does the rest. (Unused sideways, where
-  // the monitor is fixed between the halves.)
-  const monitor = document.querySelector('.layout > main > .monitor'), root = document.documentElement.style;
   // Safari 26 and later on an iPhone draws its bottom toolbar (the floating address bar) OVER the page, and neither
-  // the viewport units nor env(safe-area-inset-bottom) take it out: the panel stops above it (--tk-bar in
-  // play/index.html). Not an installed app (no toolbar) and not another browser on iOS (theirs is not over the page).
+  // the viewport units nor env(safe-area-inset-bottom) take it out: upright, the page ends with that much room under
+  // the panel, so its last row scrolls clear of the toolbar (.float-bar in play/index.html). Not an installed app (no
+  // toolbar) and not another browser on iOS (theirs is not over the page).
   const iosSafari = /iPhone|iPod/.test(navigator.userAgent) && !/CriOS|FxiOS|EdgiOS|OPiOS|GSA\//.test(navigator.userAgent) && /Version\/(\d+)/.exec(navigator.userAgent);
   const standalone = navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
   document.documentElement.classList.toggle('float-bar', !!iosSafari && +iosSafari[1] >= 26 && !standalone);
-  function fit() {
-    if (box.hidden) return;
-    const m = monitor.getBoundingClientRect(), k = box.getBoundingClientRect();
-    root.setProperty('--tk-above', `${Math.round(m.top + scrollY)}px`);
-    // (less the monitor's bottom margin: the install offer's room, which the stylesheet takes out itself)
-    root.setProperty('--tk-below', `${Math.round(k.bottom - m.bottom - parseFloat(getComputedStyle(monitor).marginBottom || '0'))}px`);
-  }
-  // (the monitor's own size changes with the result, but neither length depends on it: no loop)
-  new ResizeObserver(fit).observe(document.querySelector('.layout > main'));
-  new ResizeObserver(fit).observe($('appbar'));
-  new ResizeObserver(fit).observe(box);
   coarse.addEventListener('change', apply);
+  sideways.addEventListener('change', apply);
   noHover.addEventListener('change', apply);
   $('selTouchKeys').onchange = (e) => { session.store.set('touchKeys', e.target.value); hidden = false; apply(); };
   $('btnShowKeys').onclick = () => { hidden = false; apply(); };
-  // Menu: the machine menu the app bar's Menu opens, plus "Hide keys" (which lives in Menu, so the strip has
-  // the Keys | Joystick switch instead). In a phone's chat (body.chat-phone, js/ui/claude.js) the app bar gives
-  // way to the chat bar, so Menu is "← Emulator" and leaves the chat in one tap, as it always has: the way out
-  // must not need a second tap.
-  const sheet = $('tkMenuSheet');
-  sheet.innerHTML = '<button type="button" data-item="menu">Machine menu</button><button type="button" data-item="commands">Commands…</button><button type="button" data-item="hide">Hide keys</button>';
+  // The panel's menu button. Where the app bar shows (upright, a tablet) it is "Keys ▾": the layout (Full keyboard or
+  // Game keys, in keys mode) and Hide keys; the app bar's own More has the links and Commands…, so the two menus
+  // share nothing. Held sideways the app bar gives way to the panel, so it is "Menu": the machine menu, Commands…
+  // and Hide keys. In a phone's chat (body.chat-phone, js/ui/claude.js) the app bar gives way to the chat bar, so
+  // it is "← Emulator" and leaves the chat in one tap, as it always has: the way out must not need a second tap.
+  sheet.innerHTML = '<button type="button" data-item="full">Full keyboard</button><button type="button" data-item="pad">Game keys</button>'
+    + '<button type="button" data-item="menu">Machine menu</button><button type="button" data-item="commands">Commands…</button><button type="button" data-item="hide">Hide keys</button>';
   const closeSheet = () => { sheet.hidden = true; $('tkMenu').setAttribute('aria-expanded', 'false'); };
   // a disclosure: it opens with the focus on its first button, and Esc gives the focus back to Menu
   $('tkMenu').onclick = () => {
     if (document.body.classList.contains('chat-phone')) { $('btnClaudeBack').click(); return; }
     sheet.hidden = !sheet.hidden;
     $('tkMenu').setAttribute('aria-expanded', String(!sheet.hidden));
-    if (!sheet.hidden) sheet.querySelector('button').focus();
+    if (!sheet.hidden) sheet.querySelector('button:not([hidden])').focus();
   };
   sheet.onclick = (e) => {
     const b = e.target.closest('[data-item]');
@@ -363,6 +382,7 @@ export function setupTouchKeys(page, { input }) {
     if (b.dataset.item === 'menu') $('btnMenu').click();
     else if (b.dataset.item === 'commands') $('navCommands').click();
     else if (b.dataset.item === 'hide') { hidden = true; apply(); }
+    else { layoutPick = b.dataset.item; apply(); }
   };
   // (open only while it shows: a panel that went away with it open must not take the screen's Esc)
   const sheetOpen = () => !sheet.hidden && sheet.checkVisibility();
@@ -371,7 +391,10 @@ export function setupTouchKeys(page, { input }) {
   // still type: the sheet is above the panel)
   page.outsidePress(sheetOpen, (t) => sheet.contains(t) || $('tkMenu').contains(t), (refocus) => { closeSheet(); if (refocus) $('tkMenu').focus(); });
   // a machine switch: the mode is that machine's own; a machine without a joystick port goes back to the keys
+  // a game starting or left: the layout follows what runs (the person's pick was for what ran before)
   session.on((ev) => {
+    if (ev === 'game' || ev === 'menu') { layoutPick = null; apply(); return; }
+    if (['loaded', 'reset', 'welcome', 'firmware'].includes(ev)) { apply(); return; }
     if (ev !== 'machine') return;
     // a stick the OLD machine's panel was driving is let go of, so nothing carries over. Only then: a machine whose
     // joystick the mouse or the keyboard joystick drives is the host's, and this panel must not recentre it.

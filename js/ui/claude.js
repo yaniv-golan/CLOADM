@@ -393,9 +393,7 @@ export function setupClaude(page) {
     // machine's screen, and the joystick is not offered there), so a change of it must be applied, not just the
     // class toggled: the stick, FIRE and the switch come and go with it
     if (page.touchKeys) page.touchKeys.apply();
-    // the on-screen keyboard's Menu leads out of the chat there (the app bar and its menu give way to the chat bar,
-    // which the keyboard covers when the phone is held sideways); touch-keys.js leaves in one tap with this label
-    $('tkMenu').textContent = phoneChat ? '← Emulator' : 'Menu';
+    // (the on-screen keyboard's Menu is "← Emulator" there, and leaves the chat in one tap: touch-keys.js apply(), above)
     // the help line: the key state's text (in brackets on the chat screen too, from the firmware)
     // (while a turn is in progress the status line says what it is doing, with Stop)
     const help = chat && chat.busy ? '' : k === 'none' ? `[No API key yet: add one ${whereKey()}.]` : keyText(k);

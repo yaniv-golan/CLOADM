@@ -447,11 +447,15 @@ const nb = (i) => { const out = []; const x = i & 7, y = i >> 3; for (let dy = -
   const s = new Emu.Session({ store });
   s.switchMachine('dragon64');
   const events = [];
-  s.on((e) => events.push(e));
+  let runningAtGame = null;
+  s.on((e) => { events.push(e); if (e === 'game') runningAtGame = s.gameRunning; });
+  check('Session.gameRunning: false on the welcome menu', s.gameRunning === false);
   s.runGame('minesweeper', bin('minesweeper'));
+  check('Session.runGame emits game, with gameRunning already true for the listeners (the touch panel\'s game keys)', runningAtGame === true && s.gameRunning === true, events.join());
   check('Session.runGame remembers the game as the last run', JSON.stringify(s.lastRun) === '{"kind":"game","name":"Minesweeper"}' && s.carryOn && s.carryOn.name === 'Minesweeper');
   s.runFrames(5); s.machine.stubKeys.push(32); s.runFrames(20); s.machine.stubKeys.push(3); s.runFrames(20);
   check('BREAK in a game: the Session emits menu', events.includes('menu'), events.filter((e) => !/^(frame|status)/.test(e)).join());
+  check('Session.gameRunning: false once the game is left', s.gameRunning === false);
   s.startWelcome(bin('welcome'), { greeting: 'back', carryOn: s.carryOn.name });
   s.runFrames(50);
   check('the welcome menu offers it back as option 6', s.screenText()[13].trim() === '6 CARRY ON WITH MINESWEEPER', s.screenText()[13]);
@@ -474,6 +478,10 @@ const nb = (i) => { const out = []; const x = i & 7, y = i >> 3; for (let dy = -
   }
   s.switchMachine('coco', { ram: 32 });
   check('a 32K CoCo has what the games need', s.gameNeeds() === null);
+  s.runGame('2048', bin('2048'));
+  const was = s.gameRunning;
+  s.switchMachine('dragon64');
+  check('Session.gameRunning: a machine switch ends it (the game ran on the old machine)', was === true && s.gameRunning === false);
 }
 
 // BREAK on the title page leaves too; the game puts the SAM's memory size back as it found it (SAMEXIT, set by the

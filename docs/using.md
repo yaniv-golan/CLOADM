@@ -239,7 +239,7 @@ and `Esc` closes a dialog. `Tab` and `Shift+Tab` never go to the machine, so the
 reached by keyboard it shows a ring and "Tab leaves the screen" (CLEAR is `Home` or `Delete`).
 
 `Esc` answers "no" to a question waiting above the screen (a confirmation, an offer, a snapshot's "needs ROMs")
-and closes an open menu (the machine menu, Menu's links on a phone, a drive's menu, Ctrl+K, the touch keys' Menu)
+and closes an open menu (the machine menu, More's links on a phone, a drive's menu, Ctrl+K, the touch keys' Menu)
 wherever the focus is; a menu gives the focus back to the button that opened it (Ctrl+K to what had it). A menu
 also closes when `Tab` leaves it (the machine menu) or on a press outside it, and the focus goes back to its
 button unless the press landed on something that takes the focus. Otherwise `Esc` is BREAK while the screen has
@@ -273,11 +273,15 @@ not when the right port holds a Hi-Res interface or The Rat) turns it into a **t
 * FIRE is the joystick's button bit, so it shares a keyboard row line as a real stick's fire button does, and on the
   CoCo 3 it raises the keyboard interrupt. A gamepad connecting stands the touch stick down until it disconnects.
   The mode is remembered per machine, and `?touch=joystick` or `?touch=keys` sets it for the visit.
-* Keys mode: the keyboard splits for your thumbs, BREAK, CLEAR, the switch and Menu sit under it. `SHIFT` shifts the
-  next key. **Hide keys** is in the panel's Menu. Input tab → On-screen keyboard: Automatic, Always or Never.
-* On a phone held upright the whole panel fits on screen with the browser's toolbars up, the row with ENTER included:
-  the switch, BREAK, CLEAR and Menu share one row between the screen and the keys, and the screen takes the height
-  that is left. A key types when your finger lifts, or once it has rested on the key a moment (so a held key works in
+* Keys mode: held sideways the keyboard splits for your thumbs, BREAK, CLEAR, the switch and Menu sit under it (Menu
+  has the machine menu, Commands… and **Hide keys**). `SHIFT` shifts the next key. Input tab → On-screen keyboard:
+  Automatic, Always or Never.
+* On a phone held upright the screen takes the page's full width, and the panel follows under it: one row with the
+  switch, BREAK, CLEAR and **Keys ▾**, then the keys. Where the window is too short for all of it the page scrolls
+  (drag the screen or the bar). **Keys ▾** (upright and on a tablet) picks **Full keyboard** or **Game keys** and has
+  **Hide keys**. While 2048 or Minesweeper runs (`?start=2048`, PLAY A GAME, the Media tab) the panel shows the game
+  keys: the arrows as a pad, R, F, Y, N, SPACE and ENTER on two rows; leaving the game brings the keyboard back. On a
+  touch screen the games' hint says "tap a key" and "tap BREAK". A key types when your finger lifts, or once it has rested on the key a moment (so a held key works in
   games); a finger that slides off it first types nothing, so a drag or a scroll that starts on the keyboard never
   presses a key. The joystick strip's keys (SPC, ENT, BRK, 1, 2, Y, N) work the same way, so held
   they register after about 100 ms; the stick and FIRE act at once.
@@ -287,7 +291,7 @@ not when the right port holds a Hi-Res interface or The Rat) turns it into a **t
 
 ## Commands
 
-`Ctrl+K` (`⌘K` on a Mac), or **Commands…** in the app bar (behind **Menu** on a phone, and in the touch keys' Menu), opens the
+`Ctrl+K` (`⌘K` on a Mac), or **Commands…** in the app bar (behind **More** on a phone, and in the touch keys' Menu held sideways), opens the
 command box. With nothing typed it lists every command by group (Claude, Files, Views, Settings, Machine); `↓` chooses one, `Enter`
 runs it. Type to filter, or type a question for Claude. Commands run on the page and are never sent to Claude. The
 [Help page](../help/) lists the commands, the shortcuts and what Claude can read and do.

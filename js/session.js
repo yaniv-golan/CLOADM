@@ -3306,6 +3306,7 @@ export class Session {
     if (m.sam) m.poke(GAMES.samExit, m.sam.memSize);
     this.setLastRun('game', GAMES.list[name].name);
     this.watchForMenu('game');
+    this.emit('game', name);   // (after the watch: gameRunning is true for the listeners)
     return msg;
   }
   // Leaving a program goes back to the welcome menu: BYE in LIZA (it stops at its DONE
@@ -3492,6 +3493,9 @@ export class Session {
     return `Welcome: press 1 to ${last}`;
   }
   get welcomeRunning() { return this.welcome === this.machine; }
+  // one of the bundled games (2048, Minesweeper) is what runs on this machine now: from runGame until it is left
+  // (BREAK), or a load, a reset or a switch ends the watch. The page's touch panel offers its game keys then.
+  get gameRunning() { const w = this.menuWatch; return !!w && w.kind === 'game' && w.m === this.machine; }
   // the welcome build this machine runs: the 6809 file for every 6809-family model (the 6309 included), the
   // machine's own 6803 build on the MC-10 and the Alice (their subtitles differ). The page fetches it by this name.
   get welcomeFile() {
@@ -3605,9 +3609,10 @@ export class Session {
     o.runFrame();
     this.pumpChat(o);
   }
+  // (the machine's name is not in it: the app bar shows it on the machine button beside the status)
   statusLine(fps) {
     const m = this.machine;
-    let s = `${m.profile.name} · ${fps.toFixed(0)} fps · ${(fps / m.fps * 100).toFixed(0)}%`;
+    let s = `${fps.toFixed(0)} fps · ${(fps / m.fps * 100).toFixed(0)}%`;
     const t = m.deck.tape;
     if (t) s += ` · tape ${t.name} ${(t.progress() * 100).toFixed(0)}%${m.deck.motor ? ' ▶' : ''}`;
     return s;
