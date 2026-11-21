@@ -8,7 +8,7 @@
  * a command does exactly what its button does; "Take snapshot" (the Glossary's word) saves the snapshot file the
  * Share screen's "Download snapshot" saves.
  */
-import { $, ESC } from './page.js';
+import { $, ESC, safeArea } from './page.js';
 
 // [label, what it does, more words it answers to, the button it presses (or what it does, for one with no button), group]
 // In the order the empty box lists them (the groups in GROUPS' order). A command with a keyboard shortcut would
@@ -124,7 +124,7 @@ export function setupCommandBox(page, claude) {
   const phone = matchMedia('(max-width: 700px), (orientation: landscape) and (max-height: 500px)');
   function place() {
     const bar = $('appbar').getBoundingClientRect();
-    const top = phone.matches ? Math.max(12, Math.round(bar.bottom) + 8) : 90;
+    const top = phone.matches ? Math.max(Math.round(safeArea().top) + 12, Math.round(bar.bottom) + 8) : 90;
     box.style.top = phone.matches ? `${top}px` : '';
     box.style.setProperty('--cmd-top', `${top}px`);
   }

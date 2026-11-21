@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- the emulator lives at /play/; every relative URL (scripts, styles, examples, docs) is from the site root -->
 <base href="../">
 <title>CLOADM: play</title>
@@ -12,7 +12,12 @@
 <link rel="stylesheet" href="css/tokens.css">
 <style>
   /* The emulator: dark only. Colours, type and shape from css/tokens.css. */
-  body { font-size: var(--text-body); min-height: 100vh; display: flex; flex-direction: column; }
+  /* the page covers the whole display (viewport-fit=cover), so a phone's notch, rounded corners and home indicator
+     are kept clear by these insets (all 0 off such a phone); the browser check overrides them to emulate one */
+  :root { --safe-t: env(safe-area-inset-top, 0px); --safe-r: env(safe-area-inset-right, 0px);
+    --safe-b: env(safe-area-inset-bottom, 0px); --safe-l: env(safe-area-inset-left, 0px); }
+  body { font-size: var(--text-body); min-height: 100vh; display: flex; flex-direction: column;
+    padding: var(--safe-t) var(--safe-r) var(--safe-b) var(--safe-l); }
   button { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: var(--r-10); padding: 9px 14px;
     font: inherit; font-size: 15px; cursor: pointer; min-height: 40px; }
   button:hover { border-color: var(--line-strong); }
@@ -202,7 +207,8 @@
   .hint { text-align: center; color: var(--text-2); font-size: 15px; }
   /* the feedback model: toasts light on dark, bottom centre (full width on a phone); attention
      orange, over the screen on the emulator and under the header elsewhere */
-  #toastRegion { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 60; width: max-content; max-width: min(560px, calc(100vw - 32px)); }
+  #toastRegion { position: fixed; left: 50%; bottom: calc(24px + var(--safe-b)); transform: translateX(-50%); z-index: 60; width: max-content;
+    max-width: min(560px, calc(100vw - 32px - var(--safe-l) - var(--safe-r))); }
   #toast { background: #E8EDE6; color: #0B0D0C; border-radius: 12px; padding: 10px 10px 10px 14px; font-size: 15px; line-height: 1.4;
     display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; box-shadow: 0 8px 24px rgba(0, 0, 0, .45); }
   #toast[hidden] { display: none; }
@@ -214,7 +220,8 @@
   #toastText { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
   #toastAction { background: #0B0D0C; color: #E8EDE6; border: 0; border-radius: 8px; padding: 6px 10px; font-weight: 700; min-height: 0; }
   #toastDetails { flex-basis: 100%; font-size: 14px; color: #2A302C; overflow-wrap: anywhere; }
-  @media (max-width: 700px) { #toastRegion { left: 8px; right: 8px; bottom: 8px; transform: none; width: auto; max-width: none; } }
+  @media (max-width: 700px) { #toastRegion { left: calc(8px + var(--safe-l)); right: calc(8px + var(--safe-r)); bottom: calc(8px + var(--safe-b));
+    transform: none; width: auto; max-width: none; } }
   /* js/ui/feedback.js: a toast with no free place takes this fixed slot at the top (never invisible); above everything
      but the dialogs (the Ctrl K box, 70) */
   #toastRegion.top { z-index: 62; }
@@ -257,7 +264,8 @@
      js/ui/install.js tries each place below in turn (the class applied, the real box read back) and keeps the first
      that covers none of the screen, the machine controls, the app bar or a visible on-screen key;
      with none clear, the offer waits (unspent) for a layout that has room. */
-  #installOffer { position: fixed; z-index: 61; right: 16px; bottom: calc(16px + var(--install-lift, 0px)); width: min(360px, calc(100vw - 32px));
+  #installOffer { position: fixed; z-index: 61; right: calc(16px + var(--safe-r)); bottom: calc(16px + var(--safe-b) + var(--install-lift, 0px));
+    width: min(360px, calc(100vw - 32px - var(--safe-l) - var(--safe-r)));
     background: var(--panel); border: 1px solid var(--phosphor); border-radius: var(--r-14); padding: 14px 16px;
     box-shadow: 0 18px 44px rgba(0, 0, 0, .55); display: flex; flex-direction: column; gap: 8px; }
   #installOffer[hidden] { display: none; }
@@ -274,23 +282,24 @@
      specificity and leaves the gutter doing nothing exactly where it is needed); with the on-screen keyboard up the
      keyboard's own layout owns the card. */
   @media (min-width: 701px) {
-    body:not(.touch-keys) #installOffer.gutter { left: auto; right: 8px; bottom: 16px; width: min(260px, 34vw); }
-    body:not(.touch-keys) #installOffer.gutter-left { right: auto; left: 8px; bottom: 16px; width: min(260px, 34vw); }
+    body:not(.touch-keys) #installOffer.gutter { left: auto; right: calc(8px + var(--safe-r)); bottom: calc(16px + var(--safe-b)); width: min(260px, 34vw); }
+    body:not(.touch-keys) #installOffer.gutter-left { right: auto; left: calc(8px + var(--safe-l)); bottom: calc(16px + var(--safe-b)); width: min(260px, 34vw); }
   }
   /* a narrow window: a full-width card at the bottom (with the on-screen keyboard up, that is over the keys, so
      js/ui/install.js finds it unclear and tries the strip under the screen instead) */
-  @media (max-width: 700px) { #installOffer { left: 8px; right: 8px; width: auto; bottom: calc(8px + var(--install-lift, 0px)); } }
+  @media (max-width: 700px) { #installOffer { left: calc(8px + var(--safe-l)); right: calc(8px + var(--safe-r)); width: auto;
+    bottom: calc(8px + var(--safe-b) + var(--install-lift, 0px)); } }
   /* held sideways it floats too (008: showing or dismissing it must never move the page) */
   @media (orientation: landscape) and (max-height: 500px) {
     /* without the on-screen keyboard too, the card floats (008: showing or dismissing it must not move the page).
        js/ui/install.js places it: the corner lifted clear of the screen, else a narrower card in the gutter beside
        the screen (.gutter), else it is not shown (the offer waits for a layout with room). */
-    body:not(.touch-keys) #installOffer { position: fixed; z-index: 61; right: 16px; bottom: calc(16px + var(--install-lift, 0px));
-      left: auto; width: min(360px, calc(100vw - 32px)); padding: 10px 14px; }
+    body:not(.touch-keys) #installOffer { position: fixed; z-index: 61; right: calc(16px + var(--safe-r)); bottom: calc(16px + var(--safe-b) + var(--install-lift, 0px));
+      left: auto; width: min(360px, calc(100vw - 32px - var(--safe-l) - var(--safe-r))); padding: 10px 14px; }
     /* with the on-screen keyboard up (a phone) the card's place is the screen's centre column at the bottom, which is
        the keyboard's own button row (BREAK, CLEAR, the switch, Menu). Those buttons are never hidden for it: the
        placement finds the place unclear and the offer waits for a layout with room. */
-    .touch-keys #installOffer { position: fixed; z-index: 7; left: 50%; right: auto; bottom: 8px; transform: translateX(-50%);
+    .touch-keys #installOffer { position: fixed; z-index: 7; left: 50%; right: auto; bottom: calc(8px + var(--safe-b)); transform: translateX(-50%);
       width: min(280px, 34vw); padding: 8px 10px; gap: 4px; box-shadow: none; }
     #installOffer strong { font-size: 13px; line-height: 1.3; }
     #installOffer ol { display: none; }
@@ -301,7 +310,7 @@
      screen. One line of words and the buttons, in the band between the screen's bottom and the first key's top;
      js/ui/install.js sets --install-top from the screen's measured bottom and keeps the strip only if the box it
      reads back is clear of the keys. (Last in the sheet and with the body prefix, so it outranks the rules above.) */
-  body #installOffer.strip { top: var(--install-top, 0px); bottom: auto; left: 8px; right: 8px; width: auto; transform: none;
+  body #installOffer.strip { top: var(--install-top, 0px); bottom: auto; left: calc(8px + var(--safe-l)); right: calc(8px + var(--safe-r)); width: auto; transform: none;
     padding: 6px 10px; gap: 4px; box-shadow: none; }
   /* (the words wrap if they must: a strip grown taller than the band is then not clear, and the offer waits) */
   body #installOffer.strip strong { font-size: 13px; line-height: 1.3; }
@@ -566,6 +575,10 @@
   #touchKeys #touchStrip { display: flex; flex-wrap: wrap; gap: 4px; }
   #touchKeys #touchStrip .tk { flex: 0 0 46px; height: 44px; font-size: 13px; }
   #touchKeys #touchStrip .tk.space { flex: 1 1 60px; }
+  #touchKeys #touchStrip .tk .short { display: none; }
+  /* ← (backspace): the arrow with a small DEL under it */
+  #touchKeys .tk[data-key="←"] { display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1; gap: 1px; }
+  #touchKeys .tk[data-key="←"] .del { font-size: 9px; font-weight: 700; letter-spacing: .04em; opacity: .7; }
   #touchKeys #touchStick { position: relative; height: 168px; border-radius: var(--r-10); border: 2px dashed #2C322D; background: #131513; touch-action: none; overflow: hidden; }
   #touchKeys #touchKnob { position: absolute; left: 50%; top: 50%; width: 56px; height: 56px; margin-left: -28px; margin-top: -28px; border-radius: 50%;
     background: #30352F; border: 2px solid #4A5148; pointer-events: none; }
@@ -573,7 +586,7 @@
   #touchKeys #touchFire { height: 168px; border: 0; border-radius: var(--r-10); background: #B3261E; color: #fff; font-size: 24px; font-weight: 800; box-shadow: 0 3px 0 #000; }
   #touchKeys #touchFire.down { background: #7A1B14; transform: translateY(2px); box-shadow: 0 1px 0 #000; }
   /* the panel's Menu: a short list over the page, never over the screen (its options are about the panel) */
-  #tkMenuSheet { position: fixed; z-index: 8; right: 16px; bottom: 64px; min-width: 180px; padding: 6px; border: 1px solid var(--line); border-radius: var(--r-10);
+  #tkMenuSheet { position: fixed; z-index: 8; right: calc(16px + var(--safe-r)); bottom: calc(64px + var(--safe-b)); min-width: 180px; padding: 6px; border: 1px solid var(--line); border-radius: var(--r-10);
     background: #1C201D; box-shadow: 0 8px 24px #000A; }
   #tkMenuSheet[hidden] { display: none; }
   #tkMenuSheet button { display: block; width: 100%; min-height: 44px; margin: 0; border: 0; border-radius: 7px; background: transparent; color: var(--text); text-align: left; font-size: 15px; padding: 0 12px; }
@@ -585,14 +598,18 @@
     body.touch-keys .appbar, body.touch-keys .drawer, body.touch-keys .panels, body.touch-keys footer, body.touch-keys .controls,
     body.touch-keys .slots, body.touch-keys .hint, body.touch-keys #welcome, body.touch-keys .plate { display: none !important; }
     body.touch-keys .layout { padding: 0; }
-    body.touch-keys .layout > main > .monitor { position: fixed; z-index: 6; top: 8px; left: 50%; transform: translateX(-50%); width: min(280px, 34vw);
+    body.touch-keys .layout > main > .monitor { position: fixed; z-index: 6; top: calc(8px + var(--safe-t)); left: 50%; transform: translateX(-50%); width: min(280px, 34vw);
       max-width: none; padding: 0; border-radius: var(--r-8); box-shadow: none; background: #000; }
-    /* the tube stops above the control strip under it (a 48 px row and the gaps: the switch shares the row
-       sideways, so there is one row there, not two) */
-    body.touch-keys .tube { border-radius: var(--r-8); height: calc(100vh - 16px - 56px - 2 * 8px); aspect-ratio: auto; }
+    /* the tube stops above the control strip under it: the top padding, the tube, a gap, the 44 px row and the
+       bottom padding fill the visible height (dvh: the height the browser's toolbars leave, where it knows it) less
+       the safe-area insets (a phone's home indicator) */
+    body.touch-keys .tube { border-radius: var(--r-8); height: calc(100vh - 68px - var(--safe-t) - var(--safe-b));
+      height: calc(100dvh - 68px - var(--safe-t) - var(--safe-b)); aspect-ratio: auto; }
     body.touch-keys #screenWrap { inset: 0; }
-    body.touch-keys #touchKeys { position: fixed; inset: 0; z-index: 5; display: grid; grid-template-columns: 1fr minmax(0, min(280px, 34vw)) 1fr;
-      grid-template-rows: auto auto 1fr auto; gap: 8px; padding: 8px 16px; background: var(--ground); pointer-events: none; }
+    body.touch-keys #touchKeys { position: fixed; top: 0; left: 0; right: 0; width: auto; max-width: none; height: 100vh; height: 100dvh; z-index: 5; display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, min(280px, 34vw)) minmax(0, 1fr); grid-template-rows: auto auto 1fr auto; gap: 8px;
+      padding: calc(8px + var(--safe-t)) calc(16px + var(--safe-r)) calc(8px + var(--safe-b)) calc(16px + var(--safe-l));
+      background: var(--ground); pointer-events: none; }
     body.touch-keys #touchKeys > * { pointer-events: auto; }
     body.touch-keys #touchKeys > #touchFull { display: none; }
     /* ABC from joystick mode: sideways the screen keeps the whole height, so there is no room under it for a
@@ -603,40 +620,47 @@
     body.touch-keys #touchKeys.keysonce.joystick > #touchStick,
     body.touch-keys #touchKeys.keysonce.joystick > #touchFire,
     body.touch-keys #touchKeys.keysonce.joystick > #touchStrip { display: none; }
-    /* the control row keeps the whole width under the halves, so BREAK, CLEAR, the switch and Menu stay tappable */
-    body.touch-keys #touchKeys.keysonce.joystick > .tkcenter { grid-column: 1 / -1; grid-row: 4; }
     /* the split keyboard's two halves down the page's sides, between the top and the buttons under the screen;
        joystick mode has no keyboard halves at all */
     body.touch-keys #touchKeys > .tkhalf { display: flex; flex-direction: column; gap: 5px; justify-content: flex-end; grid-row: 1 / span 3; align-self: stretch; }
+    /* on the shortest windows (653x280) the keys' rows close up a little, so five of them still get 40 px each
+       without running into the panel's top padding */
+    @media (max-height: 300px) { body.touch-keys #touchKeys > .tkhalf { gap: 3px; } }
     body.touch-stick #touchKeys > .tkhalf { display: none; }
     body.touch-keys #touchKeys > #touchLeft { grid-column: 1; }
     body.touch-keys #touchKeys > #touchRight { grid-column: 3; }
-    body.touch-keys #touchKeys .tk { height: min(56px, calc((100vh - 40px) / 5)); }
+    /* the halves' rows share the height above the control row: 56 px each where there is room, never under 40 */
+    body.touch-keys #touchKeys > .tkhalf .tkrow { flex: 0 1 56px; min-height: 40px; }
+    body.touch-keys #touchKeys > .tkhalf .tk { height: auto; }
     /* the control strip in one row under the screen, in the brief's order: BREAK, CLEAR, Keys|Joystick, Menu
-       (hide keys is in Menu). The buttons box is unpacked so the four can order themselves; the switch takes a
-       little more of the row, as it carries two words. */
-    body.touch-keys #touchKeys > .tkcenter { display: flex; flex-direction: row; gap: 4px; grid-column: 2; grid-row: 4;
+       (hide keys is in Menu). The buttons box is unpacked so the four can order themselves. The row is centred
+       under the screen and at least as wide as it, and wider where the labels need it: the halves stop above
+       this row, so it may run under them, and no label is ever cut short. */
+    body.touch-keys #touchKeys > .tkcenter { display: flex; flex-direction: row; gap: 4px; grid-column: 1 / -1; grid-row: 4;
+      justify-self: center; width: max-content; max-width: 100%; min-width: min(280px, 34vw);
       align-self: stretch; pointer-events: auto; height: auto; }
     body.touch-keys #touchKeys > .tkcenter > *, body.touch-keys #touchKeys > .tkcenter #tkBreak,
     body.touch-keys #touchKeys > .tkcenter #tkClear, body.touch-keys #touchKeys > .tkcenter #tkMenu { height: 44px; }
     body.touch-keys #touchKeys > .tkcenter > .tkbtns { display: contents; }
-    body.touch-keys #touchKeys > .tkcenter > .tkmode { order: 3; flex: 2 1 0; }
-    body.touch-keys #touchKeys > .tkcenter #tkBreak { order: 1; flex: 1 1 0; }
-    body.touch-keys #touchKeys > .tkcenter #tkClear { order: 2; flex: 1 1 0; }
-    body.touch-keys #touchKeys > .tkcenter #tkMenu { order: 4; flex: 1 1 0; }
+    body.touch-keys #touchKeys > .tkcenter > .tkmode { order: 3; flex: 2 0 auto; }
+    body.touch-keys #touchKeys > .tkcenter > .tkmode button { padding: 0 12px; }
+    body.touch-keys #touchKeys > .tkcenter #tkBreak { order: 1; flex: 1 0 auto; padding: 0 12px; }
+    body.touch-keys #touchKeys > .tkcenter #tkClear { order: 2; flex: 1 0 auto; padding: 0 12px; }
+    body.touch-keys #touchKeys > .tkcenter #tkMenu { order: 4; flex: 1 0 auto; padding: 0 12px; }
     /* joystick mode, sideways: the screen keeps the column the tube is given; the stick's zone is the left of it
-       and the strip, FIRE and the controls the right, each as wide as the other (the brief: the left half the
-       stick, the right half FIRE and the key strip) */
-    body.touch-stick #touchKeys { grid-template-columns: minmax(0, 1fr) minmax(0, min(360px, 44vw)) minmax(0, 1fr);
-      grid-template-rows: auto 1fr auto auto; }
-    body.touch-stick #touchKeys > #touchStick { grid-column: 1; grid-row: 1 / span 4; height: auto; align-self: stretch; }
+       and the strip and FIRE the right, each as wide as the other (the brief: the left half the stick, the right
+       half FIRE and the key strip); the control row is the keys mode's, under all three */
+    body.touch-stick #touchKeys { grid-template-columns: minmax(0, 1fr) minmax(0, min(360px, 44vw)) minmax(0, 1fr); }
+    body.touch-stick #touchKeys > #touchStick { grid-column: 1; grid-row: 1 / span 3; height: auto; align-self: stretch; }
     body.touch-stick #touchKeys > #touchStrip { grid-column: 3; grid-row: 1; align-self: start; }
-    body.touch-stick #touchKeys > #touchStrip .tk { flex: 1 1 0; min-width: 0; }
-    body.touch-stick #touchKeys > #touchFire { grid-column: 3; grid-row: 2; height: auto; align-self: stretch; }
-    body.touch-stick #touchKeys > .tkcenter { grid-column: 3; grid-row: 3 / span 2; align-self: end; }
-    /* the screen keeps its own column, and the tube fits the height the strip, switch and buttons leave */
+    /* the strip's eight keys in two rows of four; SPACE, ENTER and BREAK show their short labels (SPC, ENT, BRK:
+       js/ui/touch-keys.js keeps the whole word as the button's name), so no label is cut short */
+    body.touch-stick #touchKeys > #touchStrip .tk { flex: 1 1 calc(25% - 3px); min-width: 0; font-size: 13px; }
+    body.touch-stick #touchKeys > #touchStrip .tk .long { display: none; }
+    body.touch-stick #touchKeys > #touchStrip .tk .short { display: inline; }
+    body.touch-stick #touchKeys > #touchFire { grid-column: 3; grid-row: 2 / span 2; height: auto; align-self: stretch; }
     body.touch-stick .layout > main > .monitor { width: min(360px, 44vw); }
-    body.touch-stick .tube { width: min(360px, 44vw); height: calc(100vh - 16px - 44px - 40px - 2 * 48px - 5 * 8px); }
+    body.touch-stick .tube { width: min(360px, 44vw); }
   }
   /* ---- the chat, full screen, on a phone (body.chat-phone: js/ui/claude.js, portrait up to 700 px wide or held
      sideways up to 500 px high). The chat is the screen's text, so the screen gets the room: no app bar (the bar's
@@ -669,14 +693,16 @@
     /* the chat's screen is wider than the panel's usual middle column (its text gets the room), so the grid's
        middle column takes that width too: the keyboard's halves either side stay clear of the screen */
     body.chat-phone.touch-keys #touchKeys { grid-template-columns: minmax(0, 1fr) minmax(0, min(360px, 44vw)) minmax(0, 1fr); }
-    body.chat-phone.touch-keys #touchKeys > .tkcenter, body.chat-phone.touch-keys .layout > main > .monitor { width: min(360px, 44vw); }
-    body.chat-phone.touch-keys #touchKeys > .tkcenter { grid-row: 4; }
+    body.chat-phone.touch-keys .layout > main > .monitor { width: min(360px, 44vw); }
+    body.chat-phone.touch-keys #touchKeys > .tkcenter { min-width: min(360px, 44vw); }
     body.chat-phone.touch-keys #touchKeys > .tkcenter > .tkbtns { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-    body.chat-phone.touch-keys .tube { height: calc(100vh - 16px - 48px - 8px - 8px); }
+    body.chat-phone.touch-keys .tube { height: calc(100vh - 80px - var(--safe-t) - var(--safe-b));
+      height: calc(100dvh - 80px - var(--safe-t) - var(--safe-b)); }
     /* the keyboard covers the page here: the chat bar stays under it, and the keyboard's Menu is "← Emulator" */
     body.chat-phone.touch-keys #claudeBar { position: static; z-index: auto; }
     /* ...but the turn's status (Stop, and Resume while paused) stays above it, at the top beside the screen */
-    body.chat-phone.touch-keys #claudeStatus:not([hidden]) { position: fixed; z-index: 7; top: 8px; left: 16px; max-width: calc((100vw - min(360px, 44vw)) / 2 - 32px);
+    body.chat-phone.touch-keys #claudeStatus:not([hidden]) { position: fixed; z-index: 7; top: calc(8px + var(--safe-t)); left: calc(16px + var(--safe-l));
+      max-width: calc((100vw - min(360px, 44vw)) / 2 - 32px - var(--safe-l));
       flex-wrap: wrap; gap: 6px 8px; padding: 6px 8px; background: var(--ground); border: 1px solid var(--line); border-radius: 8px; }
     /* no key yet: the key card beside the screen rather than above it, so both fit the height (the
        screen was a screen and a half down) */
@@ -828,7 +854,7 @@
     #btnLibSelectAll .wide { display: none; } #btnLibSelectAll .narrow { display: inline; }
     #library.selecting #libTapHint { display: block; margin: -8px 0 0; font-size: 14px; }
     #libSelActions:not([hidden]) { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; flex-wrap: wrap;
-      gap: 8px; background: var(--panel); border-top: 1px solid var(--line-strong); padding: 10px 12px 28px; }
+      gap: 8px; background: var(--panel); border-top: 1px solid var(--line-strong); padding: 10px 12px max(28px, var(--safe-b)); }
     #libSelActions .libbtn { height: 52px; flex: 1 1 0; min-width: 0; padding: 10px 8px; }
     #libSelActions svg { display: none; }
     #btnLibDelete { font-weight: 600; }
@@ -923,7 +949,9 @@
   .viewswitch button[aria-pressed="true"] { background: var(--line); color: var(--text); font-weight: 600; }
   button.link { background: none; border: 0; padding: 0 2px; min-height: 0; color: inherit; text-decoration: underline; font: inherit; }
   /* the Ctrl K box */
-  #cmdBox { display: flex; flex-direction: column; max-height: calc(100vh - var(--cmd-top, 90px) - 12px); position: fixed; z-index: 70; top: 90px; left: 50%; transform: translateX(-50%); width: min(600px, calc(100vw - 24px)); background: var(--panel);
+  #cmdBox { display: flex; flex-direction: column; max-height: calc(100vh - var(--cmd-top, 90px) - 12px - var(--safe-b));
+    max-height: calc(100dvh - var(--cmd-top, 90px) - 12px - var(--safe-b)); position: fixed; z-index: 70; top: 90px; left: 50%; transform: translateX(-50%);
+    width: min(600px, calc(100vw - 24px - var(--safe-l) - var(--safe-r))); background: var(--panel);
     border: 1px solid var(--line-strong); border-radius: 16px; box-shadow: 0 30px 70px rgba(0,0,0,.7); overflow: hidden; }
   #cmdBox[hidden] { display: none; }
   .appbar nav kbd, #askEmptyCmd kbd { font: 13px var(--font-mono); opacity: .8; background: none; border: 0; padding: 0; color: inherit; box-shadow: none; }
@@ -1053,7 +1081,8 @@
   #btnFsStop { background: var(--text); color: var(--ground); }
   /* a page view (body.view-claude): the same pill, fixed at the bottom of the window (each view's own header and
      "← Emulator" are at its top); the page leaves room under the view for it and the toasts go above it */
-  #viewClaude { position: fixed; z-index: 55; left: 50%; bottom: 16px; transform: translateX(-50%); width: max-content; max-width: calc(100vw - 32px); box-sizing: border-box;
+  #viewClaude { position: fixed; z-index: 55; left: 50%; bottom: calc(16px + var(--safe-b)); transform: translateX(-50%); width: max-content;
+    max-width: calc(100vw - 32px - var(--safe-l) - var(--safe-r)); box-sizing: border-box;
     display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px 12px; background: var(--ground); color: var(--text);
     border: 1px solid var(--phosphor); border-radius: 20px; padding: 6px 6px 6px 16px; font-size: 15px; box-shadow: 0 8px 24px rgba(0,0,0,.6); }
   #viewClaude[hidden] { display: none; }
@@ -1063,12 +1092,12 @@
   #btnViewAnswer[hidden], #btnViewResume[hidden] { display: none; }
   #btnViewStop { background: var(--text); color: var(--ground); }
   body.view-claude { padding-bottom: 96px; }
-  body.view-claude #toastRegion, body.claude-float #toastRegion { bottom: 96px; }
+  body.view-claude #toastRegion, body.claude-float #toastRegion { bottom: calc(96px + var(--safe-b)); }
   /* (held sideways with the touch keyboard, which then fills the window: at the top over the screen, as the screen's
      pill; the toasts stay at the bottom there) */
   @media (orientation: landscape) and (max-height: 500px) {
-    #viewClaude.top { top: 8px; bottom: auto; }
-    body.claude-float.touch-keys #toastRegion { bottom: 8px; }
+    #viewClaude.top { top: calc(8px + var(--safe-t)); bottom: auto; }
+    body.claude-float.touch-keys #toastRegion { bottom: calc(8px + var(--safe-b)); }
   }
   /* the Library's selection bar, fixed at a phone's bottom edge, moves up above it */
   @media (max-width: 700px) { body.view-claude #libSelActions:not([hidden]) { bottom: 100px; } }
@@ -1119,7 +1148,7 @@
   @media (max-width: 959px) and (min-width: 701px) {
     /* (no minimum height: on a phone held sideways the window is lower than one, and the panel's status line, with
        Stop and Resume, must stay inside it) */
-    #ask { position: fixed; top: 70px; right: 12px; bottom: 12px; height: auto; min-height: 0; z-index: 40; box-shadow: 0 30px 70px rgba(0,0,0,.7); }
+    #ask { position: fixed; top: calc(70px + var(--safe-t)); right: calc(12px + var(--safe-r)); bottom: calc(12px + var(--safe-b)); height: auto; min-height: 0; z-index: 40; box-shadow: 0 30px 70px rgba(0,0,0,.7); }
     #askRail { display: none; }
     body.ask-open .layout > .drawer { display: flex; }
   }
@@ -1128,7 +1157,8 @@
     #btnAsk { order: 1; padding: 0 12px; min-height: 44px; }
     #btnAsk svg { display: none; }
     /* the bottom sheet: peek, half and full heights */
-    #ask { position: fixed; left: 0; right: 0; bottom: var(--sheet-bottom, 0px); top: var(--sheet-top, 50vh); width: auto; height: auto; min-height: 0; z-index: 40; border-radius: 16px 16px 0 0;
+    /* (clear of a phone's home indicator and rounded corners; a keyboard up is taller than the inset and wins) */
+    #ask { position: fixed; left: var(--safe-l); right: var(--safe-r); bottom: max(var(--sheet-bottom, 0px), var(--safe-b)); top: var(--sheet-top, 50vh); width: auto; height: auto; min-height: 0; z-index: 40; border-radius: 16px 16px 0 0;
       border: 0; border-top: 1px solid var(--line-strong); }
     #ask[data-height="peek"] { top: auto; height: 76px; }
     #askGrip, .askhead .viewswitch button#btnAskSide, #ask #btnAskMin { display: none; }

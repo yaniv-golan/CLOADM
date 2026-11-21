@@ -23,7 +23,7 @@
  * The rules are exported pure functions (readAnswer, mayOffer, afterNotNow, afterDismissed, cardShows, createRunClock, platformOf, isInstalled, isIos), so Node tests pin them without a browser; setupInstall is the DOM
  * wiring around them.
  */
-import { $, ESC, viewOpen } from './page.js';
+import { $, ESC, viewOpen, safeArea } from './page.js';
 
 export const INSTALL_KEY = 'installAsk';
 export const NOT_NOW_DAYS = 14;
@@ -232,7 +232,8 @@ export function setupInstall(page, { started = () => true, machineMenu = null } 
     .filter((e) => e && e.checkVisibility({ visibilityProperty: true }));
   const hit = (a, b) => !!a && !!b && !!b.width && !!a.width
     && !(a.bottom <= b.top || a.top >= b.bottom || a.right <= b.left || a.left >= b.right);
-  const inWindow = (r) => r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight;
+  // in the window less a phone's notch and home indicator (safeArea)
+  const inWindow = (r) => { const a = safeArea(); return r.left >= a.left && r.top >= a.top && r.right <= a.right && r.bottom <= a.bottom; };
   const clears = (r) => inWindow(r) && !OBSTACLES().some((e) => hit(r, e.getBoundingClientRect()));
   const rectOf = () => { const r = card.getBoundingClientRect(); return { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height }; };
   // The corner's lift: as far as the screen and machine controls need, so the first candidate has its best chance.
@@ -253,7 +254,7 @@ export function setupInstall(page, { started = () => true, machineMenu = null } 
       .filter((o) => o.width && o.height);
     const floor = bar.length ? Math.max(...bar.map((o) => o.bottom)) : 0;
     card.style.setProperty('--install-lift', `${Math.round(up)}px`);
-    const over = Math.max(-rectOf().top, floor + 8 - rectOf().top);
+    const over = Math.max(safeArea().top - rectOf().top, floor + 8 - rectOf().top);
     if (over > 0) card.style.setProperty('--install-lift', `${Math.round(Math.max(0, up - over))}px`);
   }
   // Where the card can go at this size -> { rect, where } or null when no candidate is clear.
@@ -278,9 +279,10 @@ export function setupInstall(page, { started = () => true, machineMenu = null } 
       if (cls) card.classList.add(cls);
       return clears(rectOf()) ? { rect: rectOf(), where: cls === 'strip' ? 'strip' : cls ? 'gutter' : 'corner' } : null;
     };
+    const area = safeArea();
     const spot = at(null)
-      || (s.right + 12 <= innerWidth ? at('gutter') : null)
-      || (s.left >= 12 ? at('gutter-left') : null)
+      || (s.right + 12 <= area.right ? at('gutter') : null)
+      || (s.left - area.left >= 12 ? at('gutter-left') : null)
       || (s.width ? at('strip') : null);
     // no candidate: leave the card where the corner rule puts it, LIFTED (a Menu card stays up there, and the lift is
     // what keeps it off the screen and controls — dropping it would put the card over the emulated picture)

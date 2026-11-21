@@ -6314,6 +6314,15 @@ async function touchJoystickChecks(browser, base, check) {
 // the whole page is the drop target; the browser is asked to keep the ROMs, and the page says what it answered
 async function inputScreenChecks(browser, base, check) {
   const stubText = (page) => page.evaluate(() => window.emu.session.screenText().join('\n'));
+  // ← is backspace: the glyph stays and a DEL hint shows under it, and its accessible name begins with that visible
+  // word and says what it does, "DEL (Backspace)" (WCAG 2.5.3, label in name)
+  const backspaceKey = async (page, scope, L) => {
+    const b = page.locator(scope).getByRole('button', { name: 'DEL (Backspace)', exact: true });
+    const r = await b.evaluateAll((els) => els.map((e) => ({ shown: e.checkVisibility(), key: e.dataset.key, glyph: e.querySelector('.glyph')?.textContent,
+      del: e.querySelector('.del')?.textContent, delShown: !!e.querySelector('.del')?.checkVisibility(), clip: e.scrollWidth > e.clientWidth || e.scrollHeight > e.clientHeight })));
+    check(`${L}: the ← key's accessible name is "DEL (Backspace)", its glyph ← with a DEL hint under it, unclipped`,
+      r.length === 1 && r[0].shown && r[0].key === '←' && r[0].glyph === '←' && r[0].del === 'DEL' && r[0].delShown && !r[0].clip, JSON.stringify(r));
+  };
   // ---- a phone held sideways ----
   {
     const ctx = await browser.newContext({ viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true });
@@ -6332,6 +6341,7 @@ async function inputScreenChecks(browser, base, check) {
     });
     check('touch keys (phone, sideways): shown by themselves, split for the thumbs with the screen between, the page fits the screen',
       lay.coarse && lay.shown && lay.split && lay.between && lay.fits && lay.keyH >= 44 && lay.header === 'none', JSON.stringify(lay));
+    await backspaceKey(page, '#touchRight', 'touch keys (phone, sideways)');
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'touch-keys-landscape.png') });
     // typing on the stub: P R I N T, SHIFT 1 (!), ENTER
     for (const k of ['P', 'R', 'I', 'N', 'T']) await page.tap(`#touchLeft [data-key="${k}"], #touchRight [data-key="${k}"]`);
@@ -6353,6 +6363,181 @@ async function inputScreenChecks(browser, base, check) {
     check('touch keys (sideways): no page errors', !errors.length, errors.join('; '));
     await ctx.close();
   }
+  // ---- short landscape: the control row under the screen (BREAK, CLEAR, Keys|Joystick, Menu) whole and in view ----
+  // An iPhone held sideways in Safari is about 1000x461 or less, with the notch's and home indicator's safe-area
+  // insets (emulated through CDP, so env(safe-area-inset-*) takes them). Every control in the row, and in
+  // joystick mode the strip and FIRE, must lie inside the viewport less those insets, clear of the screen and of
+  // each other, with its label whole (scrollWidth <= clientWidth); the split keys stay at least 40 px tall.
+  {
+    const { devices } = require('playwright');
+    const insets = { top: 0, bottom: 21, left: 47, right: 47 };
+    for (const [label, opts, inset] of [['iPhone 15 landscape', devices['iPhone 15 landscape'], null], ['iPhone SE landscape', devices['iPhone SE landscape'], null],
+      ['844x390, notch insets', { viewport: { width: 844, height: 390 } }, insets], ['932x430, notch insets', { viewport: { width: 932, height: 430 } }, { ...insets, left: 59, right: 59 }],
+      ['667x375', { viewport: { width: 667, height: 375 } }, null], ['653x280', { viewport: { width: 653, height: 280 } }, null]]) {
+      for (const mode of ['keys', 'joystick']) {
+        const L = `touch keys (${label}, ${mode})`;
+        const ctx = await browser.newContext({ ...opts, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+        const page = await ctx.newPage();
+        const errors = [];
+        page.on('pageerror', (e) => errors.push(e.message));
+        if (inset) await (await ctx.newCDPSession(page)).send('Emulation.setSafeAreaInsetsOverride', { insets: inset });
+        await page.goto(`${base}?machine=dragon64&touch=${mode}${mode === 'keys' ? '&start=liza' : ''}`);
+        await waitFor(page, () => window.emu && window.emu.ready && window.emu.machine);
+        if (mode === 'keys') await waitFor(page, () => window.emu.session.screenText().join('').includes('I AM LIZA'));
+        const lay = await page.evaluate((ins) => {
+          const box = (e) => { const r = e.getBoundingClientRect(); return { l: r.left, t: r.top, r: r.right, b: r.bottom }; };
+          const cross = (a, b) => a.l < b.r - 0.5 && b.l < a.r - 0.5 && a.t < b.b - 0.5 && b.t < a.b - 0.5;
+          const shown = (e) => e.checkVisibility() && e.getBoundingClientRect().width > 0;
+          const sel = '#tkBreak, #tkClear, #tkMenu, #tkModeSwitch button, #touchStrip .tk, #touchFire';
+          const ctl = [...document.querySelectorAll(sel)].filter(shown).map((e) => ({ name: e.getAttribute('aria-label') || e.textContent.trim(), el: e, ...box(e) }));
+          const screen = box(document.querySelector('.layout > main > .monitor'));
+          const safe = { l: ins.left, t: ins.top, r: innerWidth - ins.right, b: innerHeight - ins.bottom };
+          const bad = [];
+          for (const c of ctl) {
+            if (c.l < safe.l - 0.5 || c.t < safe.t - 0.5 || c.r > safe.r + 0.5 || c.b > safe.b + 0.5) bad.push(`${c.name} outside the safe viewport`);
+            if (cross(c, screen)) bad.push(`${c.name} over the screen`);
+            if (c.el.scrollWidth > c.el.clientWidth) bad.push(`${c.name} clipped (${c.el.scrollWidth} > ${c.el.clientWidth})`);
+            // label in name (WCAG 2.5.3): a name set apart from the text still holds the text shown (SPC in "SPACE (SPC)")
+            if (c.el.hasAttribute('aria-label') && !c.name.toLowerCase().includes(c.el.innerText.trim().toLowerCase())) bad.push(`${c.name}: its name lacks its label "${c.el.innerText.trim()}"`);
+            for (const d of ctl) if (d !== c && cross(c, d) && !c.el.contains(d.el) && !d.el.contains(c.el)) bad.push(`${c.name} over ${d.name}`);
+          }
+          if (screen.t < safe.t - 0.5 || screen.b > safe.b + 0.5 || screen.l < safe.l - 0.5 || screen.r > safe.r + 0.5) bad.push('the screen outside the safe viewport');
+          const keys = [...document.querySelectorAll('#touchLeft .tk, #touchRight .tk')].filter(shown).map((e) => ({ name: e.dataset.key, ...box(e) }));
+          for (const k of keys) {
+            if (k.b - k.t < 40) bad.push(`key ${k.name} only ${Math.round(k.b - k.t)} px tall`);
+            if (k.l < safe.l - 0.5 || k.t < safe.t - 0.5 || k.r > safe.r + 0.5 || k.b > safe.b + 0.5) bad.push(`key ${k.name} outside the safe viewport`);
+            if (k.t < safe.t + 8 - 0.5) bad.push(`key ${k.name} over the panel's 8 px top padding`);
+            if (cross(k, screen)) bad.push(`key ${k.name} over the screen`);
+            for (const c of ctl) if (cross(k, c)) bad.push(`key ${k.name} over ${c.name}`);
+          }
+          return { names: ctl.map((c) => c.name), keys: keys.length, bad, fits: document.documentElement.scrollWidth <= innerWidth && document.documentElement.scrollHeight <= innerHeight + 1 };
+        }, inset || { top: 0, bottom: 0, left: 0, right: 0 });
+        const want = ['BREAK', 'CLEAR', 'Menu', 'Keys', 'Joystick'];
+        check(`${L}: BREAK, CLEAR, the switch and Menu whole, inside the viewport and its safe area, clear of the screen and each other${mode === 'keys' ? '; split keys at least 40 px tall' : '; the strip and FIRE too'}`,
+          want.every((n) => lay.names.includes(n)) && (mode === 'keys' ? lay.keys >= 40 : lay.names.includes('Fire') && lay.names.includes('SPACE (SPC)')) && !lay.bad.length && lay.fits, JSON.stringify(lay));
+        if (shotDir) await page.screenshot({ path: path.join(shotDir, `touch-landscape-${mode}-${label.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.png`) });
+        check(`${L}: no page errors`, !errors.length, errors.join('; '));
+        await ctx.close();
+      }
+    }
+  }
+  // ---- the page covers the display (viewport-fit=cover): every overlay stays inside the safe area ----
+  // With a phone's notch and home indicator emulated (CDP Emulation.setSafeAreaInsetsOverride, read by
+  // env(safe-area-inset-*)), each fixed overlay must lie inside the window less the insets, sideways (932x430,
+  // 59 px each side, 21 below) and upright (390x844, 47 above, 34 below): a toast (placed by js/ui/feedback.js),
+  // the install card (js/ui/install.js, from the Menu), the command box, the Ask Claude panel or sheet, the
+  // status pill over a page view (#viewClaude, at the bottom and, sideways, at the top) and the chat's turn
+  // status beside the screen sideways (#claudeStatus). The pill and the turn status are made visible directly
+  // (their own conditions need a running Claude turn; the Claude checks cover those): what is tested here is where
+  // the stylesheet puts them.
+  {
+    // (show: ids to unhide and classes to add first, in the same task, so the page's own code cannot hide them again
+    // before the box is read)
+    const inside = (page, sel, ins, show = {}) => page.evaluate(([sel, ins, show]) => {
+      for (const id of show.ids || []) document.getElementById(id).hidden = false;
+      for (const [id, cls] of show.classes || []) (id === 'body' ? document.body : document.getElementById(id)).classList.add(cls);
+      const e = document.querySelector(sel);
+      if (!e || !e.checkVisibility({ visibilityProperty: true })) return { sel, shown: false };
+      const r = e.getBoundingClientRect();
+      const ok = r.width > 0 && r.left >= ins.left - 0.5 && r.top >= ins.top - 0.5 && r.right <= innerWidth - ins.right + 0.5 && r.bottom <= innerHeight - ins.bottom + 0.5;
+      return { sel, shown: true, ok, rect: [r.left, r.top, r.right, r.bottom].map(Math.round), safe: [ins.left, ins.top, innerWidth - ins.right, innerHeight - ins.bottom] };
+    }, [sel, ins, show]);
+    const SIDE = { top: 0, bottom: 21, left: 59, right: 59 }, UP = { top: 47, bottom: 34, left: 0, right: 0 };
+    for (const [label, viewport, ins] of [['sideways 932x430', { width: 932, height: 430 }, SIDE], ['upright 390x844', { width: 390, height: 844 }, UP]]) {
+      // with the touch keyboard, sideways: the chat's turn status beside the screen
+      if (viewport.width > viewport.height) {
+        const L = `safe area (${label}, touch keyboard)`;
+        const ctx = await browser.newContext({ viewport, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+        const page = await ctx.newPage();
+        await (await ctx.newCDPSession(page)).send('Emulation.setSafeAreaInsetsOverride', { insets: ins });
+        await page.goto(`${base}?machine=dragon64&start=liza`);
+        await waitFor(page, () => window.emu && window.emu.session.screenText().join('').includes('I AM LIZA'));
+        const s = await inside(page, '#claudeStatus', ins, { ids: ['claudeBar', 'claudeStatus'], classes: [['body', 'chat-phone']] });
+        check(`${L}: the chat's turn status beside the screen lies inside the safe area`, s.shown && s.ok, JSON.stringify(s));
+        await ctx.close();
+      }
+      // a pointer and a keyboard: a toast, the install card, the command box, Ask Claude and the page view's status pill
+      {
+        const L = `safe area (${label})`;
+        const ctx = await browser.newContext({ viewport, serviceWorkers: 'block' });
+        const page = await ctx.newPage();
+        await (await ctx.newCDPSession(page)).send('Emulation.setSafeAreaInsetsOverride', { insets: ins });
+        await page.goto(`${base}?machine=dragon64&start=liza`);
+        await waitFor(page, () => window.emu && window.emu.session.screenText().join('').includes('I AM LIZA'));
+        await page.evaluate(() => { const w = document.getElementById('welcome'); if (w) w.hidden = true; window.emu.feedback.clear(); });
+        // upright the emulator's toast waits here (every place covers the slots); the Library's toast keeps the
+        // stylesheet's own place, the phone's full-width one at the bottom
+        const lib = viewport.width <= 700;
+        if (lib) { await page.evaluate(() => { location.hash = '#library'; }); await waitFor(page, () => document.body.classList.contains('library-open')); }
+        await page.evaluate(() => window.emu.feedback.toast('Inside the safe area'));
+        await emuFrames(page, 3);
+        const t = await inside(page, '#toast', ins);
+        check(`${L}: a toast${lib ? ' (the Library\'s)' : ''} lies inside the safe area`, t.shown && t.ok, JSON.stringify(t));
+        await page.evaluate(() => window.emu.feedback.clear());
+        // sideways, a control placed so the only free spot along the bottom is at the left edge, under the notch:
+        // js/ui/feedback.js must not put the toast there (it goes elsewhere inside the safe area, or waits)
+        if (!lib) {
+          // (the free band is 20 px wider than the toast, starting at the window's 16 px margin: room for it only
+          // where the notch is, 59 px)
+          const edge = await page.evaluate((w) => {
+            const o = document.createElement('div');
+            o.className = 'controls'; o.id = 'testObstacle';
+            Object.assign(o.style, { position: 'fixed', left: `${16 + w + 20}px`, right: '0', top: '300px', bottom: '0', display: 'block' });
+            document.body.append(o);
+            window.emu.feedback.toast('Inside the safe area');
+            return true;
+          }, t.rect[2] - t.rect[0]);
+          await emuFrames(page, 3);
+          const e = await inside(page, '#toast', ins);
+          await page.evaluate(() => { document.getElementById('testObstacle').remove(); window.emu.feedback.clear(); });
+          check(`${L}: with only the notch's edge free along the bottom, the toast is not put there (inside the safe area, or waiting)`,
+            edge && (!e.shown || e.ok), JSON.stringify(e));
+        }
+        if (lib) { await page.evaluate(() => { location.hash = ''; }); await waitFor(page, () => !document.body.classList.contains('library-open')); }
+        await page.click('#machineBtn'); await page.click('#navInstall');   // (no install prompt: the card with the steps)
+        await waitFor(page, () => !document.getElementById('installOffer').hidden);
+        const card = await inside(page, '#installOffer', ins);
+        check(`${L}: the install card lies inside the safe area`, card.shown && card.ok, JSON.stringify(card));
+        await page.evaluate(() => { document.getElementById('installOffer').hidden = true; });
+        await page.focus('#screen');
+        // upright, with the page scrolled so the app bar is gone: the box then opens at the top (js/ui/command-box.js),
+        // which must be below the notch's inset
+        if (viewport.width <= 700) await page.evaluate(() => scrollTo(0, 2000));
+        await page.keyboard.press('Control+k');
+        await waitFor(page, () => !document.getElementById('cmdBox').hidden);
+        const cmd = await inside(page, '#cmdBox', ins);
+        check(`${L}: the command box lies inside the safe area${viewport.width <= 700 ? ' (opened with the app bar scrolled away)' : ''}`, cmd.shown && cmd.ok, JSON.stringify(cmd));
+        await page.keyboard.press('Escape');
+        await waitFor(page, () => document.getElementById('cmdBox').hidden);
+        await page.evaluate(() => scrollTo(0, 0));
+        await page.click('#btnAsk');
+        await waitFor(page, () => document.body.classList.contains('ask-open'));
+        await emuFrames(page, 2);
+        const ask = await inside(page, '#ask', ins);
+        check(`${L}: the Ask Claude ${viewport.width <= 700 ? 'sheet' : 'panel'} lies inside the safe area`, ask.shown && ask.ok, JSON.stringify(ask));
+        const pill = await inside(page, '#viewClaude', ins, { ids: ['viewClaude'] });
+        let top = { shown: true, ok: true };
+        if (viewport.width > viewport.height) top = await inside(page, '#viewClaude', ins, { ids: ['viewClaude'], classes: [['viewClaude', 'top']] });
+        check(`${L}: the status pill lies inside the safe area${viewport.width > viewport.height ? ', at the bottom and at the top' : ''}`, pill.shown && pill.ok && top.shown && top.ok, JSON.stringify([pill, top]));
+        await ctx.close();
+      }
+    }
+    // the install card in the gutter beside the screen (1100x480 is a size where js/ui/install.js picks it)
+    {
+      const L = 'safe area (sideways 1100x480)';
+      const ctx = await browser.newContext({ viewport: { width: 1100, height: 480 }, serviceWorkers: 'block' });
+      const page = await ctx.newPage();
+      await (await ctx.newCDPSession(page)).send('Emulation.setSafeAreaInsetsOverride', { insets: SIDE });
+      await page.goto(`${base}?machine=dragon64&start=liza`);
+      await waitFor(page, () => window.emu && window.emu.session.screenText().join('').includes('I AM LIZA'));
+      await page.evaluate(() => { const w = document.getElementById('welcome'); if (w) w.hidden = true; window.emu.feedback.clear(); });
+      await page.click('#machineBtn'); await page.click('#navInstall');
+      await waitFor(page, () => !document.getElementById('installOffer').hidden);
+      const card = await inside(page, '#installOffer', SIDE), where = await page.evaluate(() => window.emu.install.state().placement().where);
+      check(`${L}: the install card, in the gutter beside the screen, lies inside the safe area`, where === 'gutter' && card.shown && card.ok, JSON.stringify({ where, card }));
+      await ctx.close();
+    }
+  }
   // ---- portrait: ten columns; LIZA by taps ----
   {
     const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
@@ -6372,6 +6557,7 @@ async function inputScreenChecks(browser, base, check) {
     check('touch keys (phone, portrait): ten columns under the screen, the Keys | Joystick switch above the keys, no sideways scrolling',
       lay.full && lay.below && lay.fits && lay.cols === 10 && lay.buttons && lay.switchShown, JSON.stringify(lay));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'touch-keys-portrait.png'), fullPage: true });
+    await backspaceKey(page, '#touchFull', 'touch keys (phone, portrait)');
     for (const ch of 'I AM SAD') await page.tap(`#touchFull [data-key="${ch === ' ' ? 'SPACE' : ch}"]`);
     await page.tap('#touchFull [data-key="ENTER"]');
     check('touch keys: LIZA answers what was tapped', await waitFor(page, () => /HOW LONG HAVE YOU BEEN SAD/.test(window.emu.session.screenText().join('\n'))), (await stubText(page)).split('\n').slice(4, 9).join('|'));

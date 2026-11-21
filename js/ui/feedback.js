@@ -19,7 +19,7 @@
  * share (#share), else 'emulator'
  * (the Debugger is the emulator page's assembler panel today).
  */
-import { $ } from './page.js';
+import { $, safeArea } from './page.js';
 
 const SHORT = 4000, LONG = 8000, WAIT = 60000;
 export const currentView = () => ({ '#library': 'library', '#add-roms': 'roms', '#share': 'share' }[location.hash] || 'emulator');
@@ -102,16 +102,17 @@ export function createFeedback() {
     unplace();
     if (box.hidden) return;
     if (currentView() !== 'emulator') { seen(); return; }
-    const r = box.getBoundingClientRect(), w = r.width, h = r.height, phone = innerWidth <= 700;
+    const r = box.getBoundingClientRect(), w = r.width, h = r.height, phone = innerWidth <= 700, area = safeArea();
     const controls = boxes(CONTROLS), screen = boxes('#monitor, #monitor .tube, #screen');   // (the phone chat's monitor has no box of its own)
     const rect = (left, top) => ({ left, top, right: left + w, bottom: top + h });
-    const inView = (c) => c.left >= 0 && c.right <= innerWidth && c.top >= 0 && c.bottom <= innerHeight;
+    // in view: inside the window less a phone's notch and home indicator (safeArea)
+    const inView = (c) => c.left >= area.left && c.right <= area.right && c.top >= area.top && c.bottom <= area.bottom;
     const free = (c, avoid) => inView(c) && avoid.every((o) => !hits(c, o));
     const tries = [];   // [left, top, also avoid the screen?]
     tries.push([r.left, r.top, true]);
     if (!phone) {
       const xs = [];
-      for (let x = 16; x + w <= innerWidth - 16; x += 8) xs.push(x);
+      for (let x = area.left + 16; x + w <= area.right - 16; x += 8) xs.push(x);
       xs.sort((a, b) => Math.abs(a - r.left) - Math.abs(b - r.left));
       for (const x of xs) tries.push([x, r.top, true]);
     }
@@ -124,10 +125,10 @@ export function createFeedback() {
       return { left: c.left + f[0] * c.width, top: c.top + f[1] * c.height, right: c.left + f[2] * c.width, bottom: c.top + f[3] * c.height };
     })() : null;
     // the band under the text, inside what shows of the screen
-    const band = t && t.width && t.height && text ? { left: Math.max(t.left, c.left, 0) + 8, right: Math.min(t.right, c.right, innerWidth) - 8,
-      top: text.bottom + 2, bottom: Math.min(t.bottom, c.bottom, innerHeight) - 4 } : null;
+    const band = t && t.width && t.height && text ? { left: Math.max(t.left, c.left, area.left) + 8, right: Math.min(t.right, c.right, area.right) - 8,
+      top: text.bottom + 2, bottom: Math.min(t.bottom, c.bottom, area.bottom) - 4 } : null;
     const offText = controls.concat(text ? [text] : []);
-    tries.push([r.left, phone ? 8 : 16, true]);
+    tries.push([r.left, area.top + (phone ? 8 : 16), true]);
     const put = (x, y, width = null) => {
       region.style.transform = 'none'; region.style.bottom = 'auto'; region.style.right = 'auto';
       region.style.left = `${Math.round(x)}px`; region.style.top = `${Math.round(y)}px`;

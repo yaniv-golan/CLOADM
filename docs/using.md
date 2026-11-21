@@ -248,14 +248,17 @@ chat takes its place; the conversation moves to the side panel, which reopens wh
 `#library`, or a reload on it) closes to the emulator rather than leaving the page. Every "← Emulator" returns to
 the emulator, whatever the address (`?app=claude` included) and the history behind it.
 
-On a phone or tablet an on-screen panel appears under the screen; held sideways it is fixed around the screen.
+On a phone or tablet an on-screen panel appears under the screen; held sideways it is fixed around the screen. Its ← key
+(marked DEL) is the machine's backspace.
 The **Keys | Joystick** switch (shown when the machine has a joystick port of its own — not the MC-10 or Alice, and
 not when the right port holds a Hi-Res interface or The Rat) turns it into a **touch joystick**:
 
 * One stick, on the **right** joystick (the one the first gamepad drives), analogue over the machines' 0–63 with a
   small dead zone, no eight-way snap. Touch down anywhere in the zone to set its centre; about 56 px of travel is
   full deflection. In Keys mode held sideways the panel is the split thumb keyboard; in Joystick mode the stick fills
-  the left, and the key strip (SPACE, ENTER, BREAK, 1, 2, Y, N, ABC) and a large FIRE the right. Upright the switch,
+  the left, and the key strip (SPACE, ENTER, BREAK, 1, 2, Y, N, ABC; sideways SPACE, ENTER and BREAK read SPC, ENT and
+  BRK) and a large FIRE the right. Either way BREAK, CLEAR, the switch and Menu are one row along the bottom, clear of a
+  phone's notch and home indicator. Upright the switch,
   the key strip, the stick and FIRE come under the screen. ABC shows the keyboard for one keypress — the whole
   keyboard upright, the split keyboard's two halves sideways, where the screen has the height — then the stick
   returns. The stick and FIRE can be held at once.

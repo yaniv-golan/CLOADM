@@ -532,6 +532,20 @@ Not verified automatically: a real gamepad and a real mouse (the browser check d
 `navigator.getGamepads`; the Rat is driven in Node), and the feel of the touch keyboard and the touch stick on a
 real phone or tablet.
 
+The panel held sideways on a short screen is checked by the browser check's `inputScreen` group at the iPhone 15 and
+iPhone SE landscape descriptors, 844x390 and 932x430 with safe-area insets emulated through CDP
+(`Emulation.setSafeAreaInsetsOverride`, which `env(safe-area-inset-*)` reads), 667x375 and 653x280, in Keys and
+Joystick mode: BREAK, CLEAR, the switch, Menu (and the strip and FIRE) lie inside the viewport less the insets, clear
+of the screen and of each other, with their labels unclipped and, where a button has a name of its own, that label
+in its name; the split keys stay at least 40 px tall and below the panel's top padding. With the same emulated
+insets, sideways (932x430, and 1100x480 for the install card's gutter) and upright (390x844), the same group puts a
+toast (with a control placed so that the only free spot is under the notch), the install card, the command box
+(upright, opened with the app bar scrolled away), the Ask Claude panel and sheet, the page view's status pill and
+the chat's turn status inside the safe area; the pill and the turn status are unhidden directly, as their own
+conditions need a running Claude turn. Not verified
+automatically: Safari's own toolbar on a real iPhone (Chromium's `dvh` equals the window's height, so the toolbar's
+share is not exercised).
+
 ### Sound output (the page's audio path)
 
 The machines' sound is compared with MAME's `-wavwrite` recordings (above); the way the page plays it has no MAME

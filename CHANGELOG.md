@@ -232,6 +232,30 @@ All notable changes to CLOADM are recorded here. The format follows
   paragraphs) and the Help page's "What Claude can do" say the same. Wording only: no tool behaviour changed, and the
   browser check asserts the new text.
 
+- **A phone held sideways keeps the whole control row in view.** On a short landscape screen (an iPhone in Safari,
+  about 1000x461 or less) the row under the screen cut BREAK and CLEAR to "BRE" and "CLEA", and in Safari its lower
+  part fell behind the bottom edge, as the panel and the screen were sized with `vh`, which counts the height behind
+  the browser's toolbar. The row (BREAK, CLEAR, Keys | Joystick, Menu) is now centred along the bottom, as wide as its
+  labels need and at least as wide as the screen, under the keyboard's halves as well; the panel and screen are sized
+  with `dvh` (where the browser has it) and keep clear of `env(safe-area-inset-*)`, the page now covering the display
+  (`viewport-fit=cover`). The keyboard's rows share the height above the row (56 px, never under 40), and a window
+  over 900 px wide no longer pulls the panel off centre. In Joystick mode the row is the same; the strip goes to two
+  rows of four, with SPC, ENT and BRK as short labels (named "SPACE (SPC)" and so on, so the label shown is in the
+  name), where it clipped SPACE, ENTER and BREAK; on the shortest windows (653x280) the keys close up so each keeps
+  40 px without running into the top padding. As the page now reaches under a notch and the home indicator, every
+  overlay keeps inside the safe area as well: the toasts (also where `js/ui/feedback.js` places them), the install
+  card (and `js/ui/install.js`'s placement), the command box, the Ask Claude panel and sheet, the status pill over a
+  page view and the chat's turn status, all through one `safeArea()` (`js/ui/page.js`) and the `--safe-*` insets.
+  The browser check's input-screen group loads six short landscape sizes (the iPhone 15 and SE in landscape, 844x390
+  and 932x430 with emulated notch insets, 667x375 and 653x280) in both modes and requires every control whole,
+  inside the safe viewport, clear of the screen and of each other, and puts each overlay inside the emulated safe
+  area sideways and upright.
+
+- **The on-screen ← key reads as backspace.** The Dragon's and CoCo's ← (backspace) key on the touch keyboard, upright
+  and in the split keyboard sideways, keeps its arrow with a small DEL under it, and its accessible name is
+  "DEL (Backspace)", beginning with the word shown (WCAG 2.5.3). The browser check's input-screen group asserts the
+  name in both layouts.
+
 ### 0.1.6-pre
 
 #### Added

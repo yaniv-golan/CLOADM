@@ -43,6 +43,7 @@ const FULL = ['1 2 3 4 5 6 7 8 9 0', 'Q W E R T Y U I O P', 'A S D F G H J K L ;
 // joystick mode's key strip: the keys a game that asks "PRESS Y OR N" wants, and the space bar most use to
 // start; ABC opens the full keyboard for one key, then back to the stick
 const STRIP = ['SPACE', 'ENTER', 'BREAK', '1', '2', 'Y', 'N', 'ABC'];
+const SHORT = { SPACE: 'SPC', ENTER: 'ENT', BREAK: 'BRK' };
 
 export function setupTouchKeys(page, { input }) {
   const { session } = page;
@@ -55,6 +56,13 @@ export function setupTouchKeys(page, { input }) {
     b.type = 'button';
     b.className = 'tk' + (t.length > 2 ? ' wide' : '') + (t === 'SPACE' ? ' space' : '');
     b.textContent = t;
+    // ← is the Dragon's and CoCo's backspace: the glyph stays, a small DEL under it says so, and its name starts with
+    // that visible word (WCAG 2.5.3, label in name): "DEL (Backspace)"
+    if (t === '←') {
+      b.setAttribute('aria-label', 'DEL (Backspace)');
+      b.replaceChildren(Object.assign(document.createElement('span'), { className: 'glyph', textContent: '←' }),
+        Object.assign(document.createElement('span'), { className: 'del', textContent: 'DEL' }));
+    }
     b.dataset.key = t;
     const id = `k${n++}`;
     const press = (e) => {
@@ -91,7 +99,14 @@ export function setupTouchKeys(page, { input }) {
   // ---- joystick mode: the stick, FIRE and the key strip ----
   const strip = $('touchStrip');
   for (const label of STRIP) {
-    if (label !== 'ABC') { strip.append(key(label)); continue; }
+    if (label !== 'ABC') {
+      // SPACE, ENTER and BREAK carry a short label too (SPC, ENT, BRK), shown where the strip is narrow (a phone
+      // held sideways, play/index.html); the button's name holds both, "SPACE (SPC)", so either visible label is in it
+      const k = key(label), short = SHORT[label];
+      if (short) { k.setAttribute('aria-label', `${label} (${short})`); k.replaceChildren(Object.assign(document.createElement('span'), { className: 'long', textContent: label }),
+        Object.assign(document.createElement('span'), { className: 'short', textContent: short })); }
+      strip.append(k); continue;
+    }
     const b = document.createElement('button');
     b.type = 'button'; b.id = 'tkAbc'; b.className = 'tk wide'; b.textContent = 'ABC';
     b.addEventListener('pointerdown', (e) => { e.preventDefault(); page.audio.start(); showKeysOnce(); });

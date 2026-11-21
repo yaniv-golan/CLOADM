@@ -10,6 +10,13 @@ export const VIEWS = Object.freeze(['#share', '#library', '#add-roms', '#debugge
 export const viewOpen = () => VIEWS.includes(location.hash);
 // what a press can give the focus to: a press there takes it, so a surface that the press closes leaves it there
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), label, summary, [tabindex], [contenteditable="true"], [contenteditable=""]';
+// The part of the window clear of a phone's notch, rounded corners and home indicator: the window less the
+// safe-area insets the stylesheet keeps as --safe-t/r/b/l (play/index.html; all 0 off such a phone). Anything a
+// script places over the page (a toast, the install offer) must lie inside it.
+export function safeArea() {
+  const s = getComputedStyle(document.documentElement), px = (n) => parseFloat(s.getPropertyValue(n)) || 0;
+  return { left: px('--safe-l'), top: px('--safe-t'), right: innerWidth - px('--safe-r'), bottom: innerHeight - px('--safe-b') };
+}
 
 export function createPage(session, audio) {
   const canvas = $('screen');
