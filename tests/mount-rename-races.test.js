@@ -35,7 +35,7 @@ const session = async (media) => { const s = new Emu.Session({ media }); s.switc
 // an image whose bytes are all its own (the pattern names track, side and sector; different sizes differ everywhere)
 const A = () => images.vdk(40, 1), B = () => images.vdk(26, 1);
 
-(async () => {
+(async () => { try {
   // ---------------- 3. a rename may not take a name a creation is making ----------------
   // The creation's name is checked, then it WAITS on the disk chain (diskWritesDone) before it writes -- a real await
   // a drive's own write can hold open. A rename that lands inside that wait takes the name first, and the creation's
@@ -176,6 +176,36 @@ const A = () => images.vdk(40, 1), B = () => images.vdk(26, 1);
       nd.ok && r1.ok && r2.ok && same(await read(media, 'disks/gone.vdk'), B()), `${nd.m} | ${r2.m}`);
   }
 
+  {
+    // The OTHER hole the reviewer found: rename asked first, then an IMPORT of the same name. The rename runs as a
+    // creation but never LANDED the name it took, so an import queued behind it read it as a deliberate replace and
+    // wrote its own bytes over the renamed image (both reported success). Every creation lands what it stores --
+    // a rename included -- so the import behind it refuses as a second creation of that name.
+    for (const how of ['importMedia', 'importDisk']) {
+      const media = new MemoryMediaStore();
+      const s = await session(media);
+      const keep = A(), other = B();
+      await media.writeSync('disks/keep.vdk', keep);
+      const rn = q(s.renameMedia('disks/keep.vdk', 'disks/fresh.vdk'));   // asked first: takes the name
+      const im = how === 'importMedia' ? q(s.importMedia('fresh.vdk', other)) : q(s.importDisk('fresh.vdk', other, 1));
+      const [rr, ir] = [await rn, await im];
+      check(`3. rename first, then ${how}: the import is refused as a second creation of the name`,
+        rr.ok && !ir.ok && /already a disk named fresh\.vdk/.test(ir.m), `${rr.m || 'rename failed'} | ${ir.m || 'import wrote'}`);
+      check(`3. ... and fresh.vdk still holds the RENAMED image, not the import's bytes`,
+        same(await read(media, 'disks/fresh.vdk'), keep), same(await read(media, 'disks/fresh.vdk'), keep) ? 'keep' : 'OTHER');
+    }
+  }
+  {
+    // A rename that FAILS lands nothing (the name is not taken), so a later creation of that name is not refused as
+    // a second creation: it is simply the first to take it.
+    const media = new MemoryMediaStore();
+    const s = await session(media);
+    const rn = await q(s.renameMedia('disks/gone.vdk', 'disks/wanted.vdk'));   // the source is not there: it fails
+    const im = await q(s.importMedia('wanted.vdk', B()));
+    check('3. a rename that failed does not land the name it never took',
+      !rn.ok && im.ok && same(await read(media, 'disks/wanted.vdk'), B()), `${rn.m} | ${im.m || 'refused'}`);
+  }
+
   // ---------------- 4. a move retargets every DriveWire server the Session made ----------------
   {
     // serveRealCoco over a stub serial port and startChat's chatServer, both on the session's store, then a move
@@ -271,6 +301,84 @@ const A = () => images.vdk(40, 1), B = () => images.vdk(26, 1);
       `${ra} | ${rb} | ${holders} drives`);
   }
   {
+    // The REGRESSION the reviewer found (it passed on main, failed here): the user's mount() parked in its stat, then
+    // the guest's NAME MOUNT arm -- whose duplicate scan ran before its claim and never again inside it -- took a
+    // second drive on the same file. Every arm must re-scan INSIDE the claim.
+    const st = new MemoryMediaStore();
+    st.writeSync('drivewire/OBJ', new Uint8Array(256));
+    const srv = new DriveWireServer({ store: st, namePrefix: 'drivewire/' });
+    const realStat = st.stat.bind(st);
+    let go = null, first = true;
+    st.stat = async (name) => { if (first) { first = false; await new Promise((r) => { go = r; }); } return realStat(name); };
+    const user = srv.mount(0, 'drivewire/OBJ').then(() => 'ok', (e) => e.message);
+    await tick();
+    for (const b of [0x01, 3, ...[...'OBJ'].map((c) => c.charCodeAt(0))]) srv.receive(b);   // NAME MOUNT, overlapping
+    await tick();
+    go();
+    while (srv.busy) await srv.busy;
+    const reply = srv.output.splice(0);
+    const holders = [...srv.drives.values()].filter((d) => d.name === 'drivewire/OBJ').length;
+    const u = await user;
+    check('5. a guest NAME MOUNT overlapping a user mount leaves one drive on the image', holders === 1,
+      `${holders} drives: ${JSON.stringify([...srv.drives.entries()].map(([d, v]) => [d, v.name]))}`);
+    check('5. ... the user\'s mount went in, and the guest was refused (0)', u === 'ok' && reply.length === 1 && reply[0] === 0,
+      `${u} | ${JSON.stringify(reply)}`);
+  }
+  {
+    // Two servers that SHARE one drives map (serveRealCoco and the chat's server do): a claim that is per server lets
+    // a guest on the served link and the user's mount on the Becker port past each other. The claim is shared
+    // wherever the drives are.
+    const st = new MemoryMediaStore();
+    st.writeSync('drivewire/OBJ', new Uint8Array(256));
+    const becker = new DriveWireServer({ store: st, namePrefix: 'drivewire/' });
+    const served = new DriveWireServer({ store: st, namePrefix: 'drivewire/' });
+    served.drives = becker.drives;
+    const realStat = st.stat.bind(st);
+    let go = null, first = true;
+    st.stat = async (name) => { if (first) { first = false; await new Promise((r) => { go = r; }); } return realStat(name); };
+    for (const b of [0x01, 3, ...[...'OBJ'].map((c) => c.charCodeAt(0))]) served.receive(b);   // the served link's guest
+    await tick();
+    // the guest holds the claim and is parked in the store; the Becker side's user mount must WAIT for it (not take
+    // a second drive), so it is asked now and awaited only after the guest is let go
+    const userP = becker.mount(0, 'drivewire/OBJ').then(() => 'ok', (e) => e.message);
+    await tick();
+    // PROOF OF THE WAIT (not just of the end state): while the served guest holds the claim, the Becker-side mount
+    // has not finished. With a claim per server it finishes at once, which is the hole.
+    let finishedEarly = false;
+    userP.then(() => { finishedEarly = true; });
+    for (let i = 0; i < 20; i++) await tick();
+    check('5. ... and while the served guest holds the claim, the Becker-side mount has not finished (it waits)',
+      !finishedEarly, finishedEarly ? 'finished while the guest still held the claim' : '');
+    go();
+    while (served.busy) await served.busy;
+    const user = await userP;
+    const holders = [...becker.drives.values()].filter((d) => d.name === 'drivewire/OBJ').length;
+    check('5. servers sharing a drives map share one claim: still one drive on the image', holders === 1,
+      `${holders} drives; user ${user}; guest reply ${JSON.stringify(served.output.splice(0))}`);
+  }
+  {
+    // A case-insensitive store: the two spellings are ONE file, so two overlapping mounts of them must serialise.
+    // With claims keyed by the exact string (not by the store's rule) they do not, and both pass the duplicate scan:
+    // whichever lands second is the one that should have been refused, and the file ends up on the wrong drive.
+    const st = new MemoryMediaStore({ caseInsensitive: true });
+    st.writeSync('drivewire/OBJ', new Uint8Array(256));
+    const srv = new DriveWireServer({ store: st, namePrefix: 'drivewire/', sameName: (a, b) => a.toLowerCase() === b.toLowerCase() });
+    const realStat = st.stat.bind(st);
+    let go = null, hold = true;
+    st.stat = async (name) => { if (hold) { hold = false; await new Promise((r) => { go = r; }); } return realStat(name); };
+    const a = srv.mount(0, 'drivewire/OBJ').then(() => 'ok', (e) => e.message);   // asked first: wins
+    await tick();
+    const b = srv.mount(1, 'drivewire/obj').then(() => 'ok', (e) => e.message);   // the other spelling, overlapping
+    await tick();
+    go();
+    const [ra, rb] = [await a, await b];
+    const holders = [...srv.drives.entries()].filter(([, d]) => d.name.toLowerCase() === 'drivewire/obj');
+    check('5. two spellings of one file: exactly one drive holds it', holders.length === 1,
+      JSON.stringify([...srv.drives.entries()].map(([d, v]) => [d, v.name])));
+    check('5. ... on the drive that asked first, and the second is refused naming it',
+      ra === 'ok' && holders[0][0] === 0 && /already in DriveWire drive 0/.test(rb), `${ra} | ${rb} | drive ${holders[0] && holders[0][0]}`);
+  }
+  {
     // a mount of an image that is NOT there, overlapping one of one that is: the missing one must not claim a drive
     // (it used to be able to: a failed stat left nothing behind, and a later claim did not look again)
     const st = new MemoryMediaStore();
@@ -281,6 +389,7 @@ const A = () => images.vdk(40, 1), B = () => images.vdk(26, 1);
     check('5. a mount of an already-held image is refused, naming the drive', /already in DriveWire drive 0/.test(r), r);
   }
 
+  } catch (e) { fail++; console.log('FAIL the suite threw: ' + (e && e.message)); }
   console.log(fail ? `${fail} of ${n} mount/rename-race checks FAILED` : `${n}/${n} mount/rename-race checks passed`);
   process.exitCode = fail ? 1 : 0;
 })();

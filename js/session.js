@@ -350,7 +350,7 @@ export class Session {
     this.creationsAsked = [];       // askedAt of each creation asked and not yet finished, oldest first (createExclusive)
     this.landing = 0;               // names creations have landed so far (each creation notes it when asked: createExclusive)
     this.pendingLands = [];         // { name, at }: names landed that a creation still queued may have to refuse
-    this.diskClaims = new Set();   // stored names a disk creation is making now (claimDiskName: a rename may not take one)
+    this.diskClaims = new Map();   // stored name -> how many creations are making it (claimDiskName: a rename may not take one)
     this.debugger = null;           // created on first use by `debug` (js/debugger.js)
     this.labels = null;             // symbols of the program in use (the assembler's Map name -> address)
     this.displayCache = null;       // Session.display, once read from the store
@@ -1557,8 +1557,14 @@ export class Session {
   // ends. A rename onto a claimed name is refused instead of racing the write. A newDisk with no name has none to
   // claim until its listing has picked one; that far a rename cannot be blocked, and a name the listing picked is
   // claimed in the same step it is picked (nothing awaits between the pick and the claim).
-  claimDiskName(full) { this.diskClaims.add(full); }
-  releaseDiskName(full) { this.diskClaims.delete(full); }
+  claimDiskName(full) { this.diskClaims.set(full, (this.diskClaims.get(full) || 0) + 1); }
+  // counted, not a Set: two creations of one name can be in flight (the second is refused at its turn, but it holds
+  // its claim until then), and the first to end must not release the second's claim
+  releaseDiskName(full) {
+    const n = this.diskClaims.get(full);
+    if (n === undefined) return;
+    if (n > 1) this.diskClaims.set(full, n - 1); else this.diskClaims.delete(full);
+  }
   // run a disk creation with its name claimed until it ends (whatever it ends with)
   claimingDiskName(full, run) {
     this.claimDiskName(full);
@@ -1566,7 +1572,7 @@ export class Session {
     try { p = Promise.resolve(run()); } catch (e) { this.releaseDiskName(full); throw e; }
     return p.finally(() => this.releaseDiskName(full));
   }
-  claimedDiskName(full) { for (const n of this.diskClaims) if (this.sameName(n, full)) return true; return false; }
+  claimedDiskName(full) { for (const n of this.diskClaims.keys()) if (this.sameName(n, full)) return true; return false; }
   createExclusive(op) {
     const askedAt = this.landing;
     this.creationsAsked.push(askedAt);
@@ -1673,7 +1679,14 @@ export class Session {
       throw new SessionError(`${to}: this ${this.media.kind === 'fsa' ? 'folder' : 'storage'} does not tell upper from lower case, so ${src.slice(prefix.length)} and ${to} are the same name.`);
     }
     const op = () => this.media.rename(src, dst);
-    const run = () => this.libraryOp(() => (src.startsWith(DISK_PREFIX) ? this.diskStoreChange(op, [src, dst]) : op()));
+    const run = async () => {
+      const r = await this.libraryOp(() => (src.startsWith(DISK_PREFIX) ? this.diskStoreChange(op, [src, dst]) : op()));
+      // the rename took `dst`: land it, so a creation queued behind this one sees the name as taken (landedRace)
+      // and refuses, rather than reading it as a deliberate replace and writing its own bytes over the renamed
+      // image. Landed only on success: a rename that failed took nothing.
+      if (claim) this.creationLanded(dst);
+      return r;
+    };
     try {
       return await (claim ? this.createExclusive(() => run()) : run());
     } catch (e) { throw this.mediaError(e, from); }

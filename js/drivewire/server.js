@@ -90,8 +90,8 @@ export class DriveWireServer {
     this.sameName = sameName;
     this.clock = clock;
     this.namePrefix = namePrefix;
-    this.drives = new Map();          // drive number -> { name, writeProtected, named }
-    this.claims = new Map();          // stored name -> promise: a mount of it is deciding (see mount)
+    this.claims = new Map();          // claim key -> promise: a mount of it is deciding (see claimName); shared with the drives
+    this.drives = new Map();          // drive number -> { name, writeProtected, named }; carries `claims` when shared
     this.onPrint = null;              // (bytes) => void at Print Flush
     this.onChannelData = null;        // (channel, bytes) => void: the guest wrote to a channel
     this.onChannelOpen = null;        // (channel) => void
@@ -152,15 +152,26 @@ export class DriveWireServer {
     }
     return null;
   }
-  // One claim per stored image at a time: `run` checks and then sets the drive it decided on, and a second claim
-  // of the same name waits for the first to finish before it checks, so it sees that drive (a duplicate) instead of
-  // passing a check made before the first landed. A failed run releases its claim, so an image that is not there
-  // holds nothing.
+  // The claim map belongs to the DRIVES, not to this server: two servers can share one drives map (the one a real
+  // CoCo is served from and the chat's both take Session.drivewire.drives), and a claim only one of them could see
+  // would let a guest on one link and a user on the other take the same image. Whoever is given the drives is given
+  // their claims, so the two always wait on each other.
+  set drives(d) { this._drives = d; this.claims = (d && d.claims) || (this.claims || new Map()); if (d && !d.claims) d.claims = this.claims; }
+  get drives() { return this._drives; }
+  // The key a claim is held under: the name as the STORE compares it. holderOf() folds case by the store's rule
+  // (this.sameName), so two spellings of one file must wait on one claim; the exact string as a key let OBJ and obj
+  // claim at the same time and both pass the duplicate scan.
+  claimKey(name) { return this.sameName ? (this.sameName(name, name.toLowerCase()) ? name.toLowerCase() : name) : name; }
+  // One claim per stored image at a time: `run` re-checks the drives and then sets the one it decided on, and a
+  // second claim of the same file waits for the first to finish before it checks, so it sees that drive (a
+  // duplicate) instead of passing a scan made before the first landed. A failed run releases its claim, so an image
+  // that is not there holds nothing.
   async claimName(name, run) {
-    while (this.claims.has(name)) await this.claims.get(name).catch(() => {});
+    const key = this.claimKey(name);
+    while (this.claims.has(key)) await this.claims.get(key).catch(() => {});
     let release;
-    this.claims.set(name, new Promise((r) => { release = r; }));
-    try { return await run(); } finally { this.claims.delete(name); release(); }
+    this.claims.set(key, new Promise((r) => { release = r; }));
+    try { return await run(); } finally { this.claims.delete(key); release(); }
   }
   eject(drive) { if (this.lease === drive) this.lease = null; return this.drives.delete(drive); }
   get mounts() { return [...this.drives.entries()].sort((a, b) => a[0] - b[0]).map(([drive, d]) => ({ drive, name: d.name, writeProtected: d.writeProtected })); }
@@ -331,12 +342,17 @@ export class DriveWireServer {
         // the same claim a mount takes (claimName): the duplicate scan above ran before the first await, so without
         // it the user's mount of this image could land in the stat's gap and leave two drives on the file
         await this.claimName(name, async () => {
+          // the scan above ran before this claim and can be stale: a mount of the same image (the user's, or
+          // another guest's) may have landed in between. Re-scan INSIDE the claim, which is what closes the window.
+          for (const [n, d] of this.drives) if (this.sameStoredName(d.name, name)) return reply(n);
           const st = await this.store.stat(name);
           // the stat awaited: a move can have begun since. A mount hands the guest a drive it then writes through
           // (Write, SetStat), so it must not come out of here onto a store the copy has left. Refused now, with the
           // same reply(0). (A create needs no check here: it ran as one Library operation, which the move waits for.)
           if (this.mayWrite && !this.mayWrite()) return reply(0);
           if (!st) return reply(0);
+          // and again: the stat awaited, so a mount can have landed since the re-scan too
+          for (const [n, d] of this.drives) if (this.sameStoredName(d.name, name)) return reply(n);
           let free = 0;
           for (let n = 255; n >= 1 && !free; n--) if (!this.drives.has(n)) free = n;
           if (!free) return reply(0);

@@ -25,6 +25,18 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   creation is making is refused (`... a disk is being made under that name: try again once it is done.`), and a
   creation asked behind a queued rename lists after it has run and takes a free name. `tests/mount-rename-races.test.js`.
 
+- **A rename and an import of the same name can no longer overwrite each other.** A rename runs as a creation like a
+  new disk or an import, but it did not record the name it took, so an import queued behind it read the name as a
+  deliberate replace and wrote its own bytes over the renamed image. Every creation now records what it stored - a
+  rename only when it succeeds - and the one queued behind it refuses as a second creation of that name.
+
+- **A guest's DriveWire mount can no longer take a second drive on an image another mount is taking.** The named
+  object's duplicate scan ran before it claimed the name and never again inside the claim, so a guest mount
+  overlapping the user's mount left two drives writing one file (this had passed before the claim was added). Every
+  arm re-scans inside the claim now; the claim lives on the drives map, so servers that share drives (a real CoCo
+  over Web Serial, the chat) wait on each other; and its key is the store's case rule, so two spellings of one file
+  wait too.
+
 - **Moving the library takes every DriveWire server with it.** The Becker port's server was retargeted by a move;
   the one serving a real CoCo over Web Serial and the full-screen chat's kept reading and writing the old place.
   All of them now follow the session. `tests/mount-rename-races.test.js`.
