@@ -336,9 +336,9 @@ for (const [id, frames] of [['coco', 50], ['mc10', 50], ['coco3', 40]]) {
     'type "I need a holiday\\n"',
     'wait-for text:WHY DO YOU NEED',
     '',
-    'expect-text HOLIDAY',
+    'expect-screen HOLIDAY',
     'peek $0400:4',
-    'png ' + tmp('script.png'),
+    'screenshot ' + tmp('script.png'),
     'screen',
   ].join('\n'));
   const r = cli(['--json', '--script', tmp('liza.cloadm')]);

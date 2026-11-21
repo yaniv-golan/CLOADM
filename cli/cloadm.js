@@ -261,7 +261,7 @@ const STEPS = {
 // --disasm with nothing after it: the PC
 STEPS.disasm.optionalArg = true;
 // what the script and the command line also accept for these names
-const ALIASES = { 'expect-text': 'expect-screen', png: 'screenshot', m: 'machine', o: 'option', regs: 'registers' };
+const ALIASES = { m: 'machine', o: 'option' };
 
 // KEY[+KEY...][:FRAMES]: key names as the keyboard matrix has them (js/machines/keyboards.js), {NAME} too
 function holdKeys(t) {

@@ -220,6 +220,11 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 - Booting NitrOS-9 from a Library image whose storage fails (not just a missing image) now reports the storage error instead of "There is no image called ...".
 
+### Changed
+
+- The CLI no longer accepts the undocumented step aliases `expect-text`, `png` and `regs` (in scripts and as
+  `--expect-text`, `--png`, `--regs`); use `expect-screen`, `screenshot` and `registers`. `-m` and `-o` stay.
+
 ### 0.1.7-pre
 
 #### Added

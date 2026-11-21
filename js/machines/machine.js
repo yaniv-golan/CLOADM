@@ -261,7 +261,6 @@ class Machine {
   startTimeline() { /* family hook: schedule the first video events */ }
 
   // ---------------- frame loop ----------------
-  // run instructions until tick `end` (the last one may overshoot it)
   // Run instructions until the tick reaches `end` (or at most `steps` instructions: the debugger's single step)
   runCycles(end, steps = Infinity) {
     const cpu = this.cpu, hooks = this.pcHooks;
