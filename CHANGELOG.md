@@ -8,9 +8,7 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.1.7-pre (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
-### 0.1.7-pre
-
-#### Added
+### Added
 
 - **The play page reads as a document: for screen readers and a browser's reading mode.** On a phone, Chrome's
   reading mode showed every panel's text in a jumble. The emulator is now the one `<main>`, with a heading naming the
@@ -23,6 +21,11 @@ Next version: 0.1.7-pre (the plugin and extension manifests carry it; `tests/plu
   `<main>`. Nothing looks different. The browser check's new group `semantics` checks all of it at desktop, phone
   (portrait and landscape) and tablet size, with Mozilla's Readability (an unmodified copy in `tools/vendor/`,
   development only) as the stand-in for a reading mode.
+
+### 0.1.7-pre
+
+#### Added
+
 - **A command-line tool and a Node API guide, for CI and coding agents.** `node cli/cloadm.js` runs any model
   headless: choose the machine and its options, give your own ROMs (a file, a ROM pack or a directory; without them
   the built-in firmware runs machine code), load a program, tape, disk, cartridge, snapshot or assembler source, type
