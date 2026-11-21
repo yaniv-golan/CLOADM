@@ -172,7 +172,8 @@ const J = JSON.stringify;
   check('panel tools: no ROM store in the panel, so add_roms and remove_roms are not offered (the toolbox would only refuse them)',
     !offered.some((t) => t.name === 'add_roms' || t.name === 'remove_roms') && !!local.add_roms && !!local.remove_roms, offered.map((t) => t.name).join(','));
   check('panel tools: the local server\'s names, schemas and annotations; the file tools and close_machine left out',
-    offered.every((t) => t.name === 'boot' || J(t) === J(local[t.name])) && J(offered.map((t) => t.name)) === J(Object.keys(local).filter((k) => !panel.LEFT_OUT.includes(k)))
+    offered.every((t) => t.name === 'boot' || J(t) === J(t.name === 'load' ? { ...local.load, description: local.load.description.replace(/ For playing or watching a machine with the person, prefer the CLOADM side-panel connector.*$/, '') } : local[t.name])) && J(offered.map((t) => t.name)) === J(Object.keys(local).filter((k) => !panel.LEFT_OUT.includes(k)))
+    && !/side-panel connector/.test(offered.find((t) => t.name === 'load').description) && /side-panel connector/.test(local.load.description)
     && panel.LEFT_OUT.every((k) => local[k]) && J(offered.find((t) => t.name === 'boot').inputSchema) === J(local.boot.inputSchema), offered.map((t) => t.name).join(','));
   const want = ['boot', 'switch_machine', 'type_text', 'press_keys', 'screen_text', 'screenshot', 'peek', 'find_bytes', 'disassemble', 'registers', 'step', 'run', 'run_frames', 'load', 'reset', 'power_cycle'];
   check('panel tools: everything the panel runs is offered', want.every((w) => offered.some((t) => t.name === w)) && offered.length <= 64, want.filter((w) => !offered.some((t) => t.name === w)).join(','));
@@ -339,6 +340,8 @@ const J = JSON.stringify;
     const firstPlugin = t.search(/^#{1,3} .*[Pp]lugin/m);
     check(`${f}: "Use the connector" leads, before the plugin and before any plugin heading; the Which-one table has 7 rows`,
       lead >= 0 && plug > lead && tab > plug && (firstPlugin < 0 || firstPlugin > lead) && rows.length === 7 && /\| \.mcpb extension \|$/.test(rows[6]) && /not yet tested on phones/.test(rows[1]), `${lead} ${plug} ${tab} ${rows.length}`);
+    const zips = [...new Set([...t.matchAll(/`([\w.-]+\.zip)`/g)].map((m) => m[1]))], rel = fs.readFileSync(path.join(ROOT, '.github/workflows/release.yml'), 'utf8');
+    check(`${f}: names the skill zip, and release.yml publishes that exact file`, zips.length === 1 && rel.includes(`dist/${zips[0]}`), zips.join(','));
     check(`${f}: says web and the desktop app, and that phones are not yet tested`, /side panel on the web and in the desktop app \(phones not yet tested\)/.test(t));
   }
   console.log(`${n - fail}/${n} connector checks passed`);

@@ -751,7 +751,7 @@ fs.writeFileSync(tmp('media', 'plain.bas'), '10 PRINT "HI"\n');
     const names = tb.tools().map((t) => t.name);
     {
       const d = (t, n) => t.tools().find((x) => x.name === n).description;
-      check('own session: boot (the panel itself) does not send the person elsewhere', !/side-panel connector/.test(d(tb, 'boot')));
+      check('own session: boot and load (the panel itself) do not send the person elsewhere', ['boot', 'load'].every((n) => !/side-panel connector/.test(d(tb, n))));
     }
     check('own session: the host\'s machine is m1 at once; close_machine is not offered', !names.includes('close_machine') && names.includes('boot')
       && J((await tb.call('list_machines', {})).data.machines.map((m) => m.machine_id)) === '["m1"]', names.join(','));
