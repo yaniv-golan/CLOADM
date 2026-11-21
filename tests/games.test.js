@@ -214,6 +214,56 @@ const show = (b) => b.map((v) => (v ? 2 ** v : '.')).join(' ');
     && (g.m.sam.reg & 7) === 0 && g.s.screenText().every((l) => !l.trim()));
 }
 
+// ---- the best score (BEST): a game's own, kept while 2048 runs, shown beside SCORE ----
+// It is in the game's RAM at $3000+ (it does not survive a reload: nothing about the games is persisted), R does
+// not clear it, and it only ever rises. Each check below names what would make it fail.
+{
+  const g = start('2048', { seed: 0x5EED });
+  g.press('space');                                    // the title page
+  const best0 = bcd(g.mem('BEST', 3));
+  check('2048 BEST: a new game starts it at 0', best0 === 0 && bcd(g.mem('SCORE', 3)) === 0, String(best0));
+  // a join raises SCORE and BEST together: 2 2 in the top row scores 4
+  const poke = (b) => b.forEach((v, i) => g.m.poke(g.sym('BOARD') + i, v));
+  poke([1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+  g.press('left');
+  const sc1 = bcd(g.mem('SCORE', 3)), best1 = bcd(g.mem('BEST', 3));
+  check('2048 BEST: it rises with the score when the score passes it', sc1 === 4 && best1 === 4, `score ${sc1} best ${best1}`);
+  // and the screen shows it: BEST's six digits sit at pixels 88-111 of the score row, leading zeros as spaces
+  // shown beside SCORE: SCORE's digits and BEST's are drawn on the score row, one field after the other, and the
+  // right margin is clear (BEST's field ends inside the 128 pixels). Both read 4 here, so the two glyphs' bitmaps
+  // are the same - which is what "it is shown, and shows the value BEST holds" means.
+  const ink = (px, k) => ((g.m.ram[0x400 + (7 + k) * 32 + (px >> 2)] >> (6 - 2 * (px & 3))) & 3) === 3;
+  const SCOREX = 76, BESTX = 108;   // the two digits' first pixel, found from the row (3 pixels a digit)
+  const alike = (x, y) => { for (let k = 0; k < 10; k++) for (let px = 0; px < 3; px++) if (ink(x + px, k) !== ink(y + px, k)) return false; return true; };
+  let rightmost = -1;
+  for (let px = 0; px < 128; px++) for (let k = 0; k < 10; k++) if (ink(px, k)) rightmost = px;
+  check('2048 BEST: SCORE and BEST both show 4 on the score row, and BEST ends inside the 128 pixels',
+    alike(SCOREX, BESTX) && rightmost < 128 && BESTX > SCOREX, `rightmost ${rightmost} best@${BESTX}`);
+  // R starts a new game with SCORE 0 and leaves BEST alone (the check that fails if NEWGAME clears BEST too)
+  g.press('R');
+  check('2048 BEST: R clears the score but keeps the best', bcd(g.mem('SCORE', 3)) === 0 && bcd(g.mem('BEST', 3)) === 4,
+    `score ${bcd(g.mem('SCORE', 3))} best ${bcd(g.mem('BEST', 3))}`);
+  // a game that never catches up does not lower it: poke a small score and play a move that scores 0
+  g.m.poke(g.sym('SCORE'), 0); g.m.poke(g.sym('SCORE') + 1, 0); g.m.poke(g.sym('SCORE') + 2, 0);
+  poke([1, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+  g.press('left');                                     // nothing joins: SCORE stays 0
+  check('2048 BEST: a lower score never lowers it', bcd(g.mem('BEST', 3)) === 4 && bcd(g.mem('SCORE', 3)) === 0,
+    `score ${bcd(g.mem('SCORE', 3))} best ${bcd(g.mem('BEST', 3))}`);
+  // a higher score raises it, and it holds the higher value
+  g.m.poke(g.sym('SCORE'), 0x00); g.m.poke(g.sym('SCORE') + 1, 0x12); g.m.poke(g.sym('SCORE') + 2, 0x34);
+  poke([3, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+  g.press('left');                                     // 8 + 8 = 16 more
+  check('2048 BEST: a higher score raises it, and it holds', bcd(g.mem('BEST', 3)) === 1234 + 16,
+    `best ${bcd(g.mem('BEST', 3))} score ${bcd(g.mem('SCORE', 3))}`);
+  // it fits the line: SCORE's six digits end before BEST's begin, and BEST's end inside 128 pixels.
+  // SCORE is at pixel 56, BEST at 88: six digits of 8 pixels (2x, 4-byte cells) is 48, so SCORE ends at 104
+  // only if it is full - the fixture is that the two fields' ink never overlaps and the right margin is clear.
+  const inked = (a, b) => { for (let px = a; px < b; px++) for (let k = 0; k < 10; k++) if (((g.m.ram[0x400 + (7 + k) * 32 + (px >> 2)] >> (6 - 2 * (px & 3))) & 3) === 3) return true; return false; };
+  check('2048 BEST: SCORE ends before BEST begins and BEST ends inside the line',
+    inked(80, 88) === false && inked(120, 128) === false, `gap ${inked(80, 88)} margin ${inked(120, 128)}`);
+  g.press('break');
+}
+
 // the same game on the other 6809 families
 for (const machine of ['dragon32', 'coco', 'coco3', 'dragon64:6309']) {
   const [id, cpu] = machine.split(':');
