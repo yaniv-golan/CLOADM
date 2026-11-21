@@ -1681,7 +1681,18 @@ export class Session {
     // one creation at a time (createExclusive): the name is chosen and checked, written and mounted before another
     // creation looks, so a second one sees this disk and is refused rather than replacing its bytes
     return this.createExclusive(async (askedAt) => {
-      const stored = new Set((await this.listDisks()).map((d) => d.name));
+      // What this creation's errors are reported under. The listing below is the only throw here that is not
+      // already a SessionError naming the disk (the name checks here and importDiskStored itself throw
+      // SessionErrors, which mediaError hands on unchanged), so it is the one that needs a name. That name is the
+      // one asked for, but it cannot always be one: with no name asked the name is CHOSEN FROM THIS LISTING
+      // (disk-1.vdk and on), so a failing listing fails before a name exists, and a name that leaves nothing after
+      // the prefix ("disks/") would make the message start with ": ". Both report as the creation itself: "A new
+      // disk". The derivation happens before the listing so that a name mediaError refuses ("A disk image needs a
+      // name.") is still raised first, as it was when the derivation moved inside the turn.
+      const label = (name ? this.diskStoreName(name).slice(DISK_PREFIX.length) : '') || 'A new disk';
+      let listed;
+      try { listed = await this.listDisks(); } catch (e) { throw this.mediaError(e, label); }
+      const stored = new Set(listed.map((d) => d.name));
       // on a store that does not tell cases apart, a name already there in another case is that same disk
       const taken = (n) => stored.has(n) || [...stored].some((s) => this.sameName(s, n));
       let full;
@@ -1847,6 +1858,14 @@ export class Session {
       // stored by now: a mount that fails says so, rather than that the import did not happen
       try { return await this.mountDisk(drive, full, { writeProtected }); }
       catch (e) { throw new SessionError(`${base} was saved to your Library but not put in drive ${drive}: ${e.message}`); }
+    } catch (e) {
+      // What is left here (the case probe, above all) is reported as this creation's own error, named the way
+      // importMedia names it (`base`, the stored name without its prefix), so both callers of this creation --
+      // importDisk and newDisk -- get the same form. A SessionError is handed on unchanged, which keeps the
+      // creation's own messages exact: the "in drive N" refusals, and the mount failure just above, which already
+      // names the disk. (A backend message that itself embeds the path therefore repeats it, exactly as
+      // importMedia's has always done: mediaError adds the name to whatever the store said.)
+      throw this.mediaError(e, base);
     } finally { this.creationLanded(full); }
   }
   // a stored disk image into a drive (plugging in the disk cartridge if none is) -> message

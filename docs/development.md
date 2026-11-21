@@ -90,6 +90,7 @@ node tests/disks.test.js     # disks through the Session: stored, mounted and wr
 node tests/disks-mount-race.test.js   # a Library rename, import or delete of the image a mount is reading: it reads again or fails clearly
 node tests/disks-mount-case.test.js   # writes to the image being mounted under its own name or another case spelling, on case-sensitive, case-insensitive and unmeasured stores
 node tests/disks-newdisk.test.js      # a new blank disk formatted by our firmware; newDisk against an import of the same name
+node tests/importmedia-finally.test.js # the creation landing behind the Library's import: it lands only at the end, so a second creation asked inside the case probe is refused, and one queued behind a probe that throws still refuses
 node tests/ay8910.test.js    # AY-3-8910/8912 against its data manual: tone, noise, the 16 envelope shapes, mixer, ports
 node tests/alpha.test.js     # the Dragon Alpha's wiring: ROM banks, PIA2, the AY as the drive latch, NMI through PIA2 CA2
 node tools/build-demo.js     # rebuild examples/demo.bin

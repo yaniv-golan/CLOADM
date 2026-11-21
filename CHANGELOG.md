@@ -53,6 +53,15 @@ All notable changes to CLOADM are recorded here. The format follows
   change, except that `SCREEN_TEXT_DESCRIPTION`, the tool description Claude sees at run time, is reworded (the ASCII
   mapping now cites its sources; the wording change is all).
 
+- **The creation-landing tests behind the Library's import.** `tests/importmedia-finally.test.js` holds an import
+  inside its store write, queues a second creation of the same name behind it, and makes the case probe that follows
+  the write throw: the first import reports that error and its bytes stay stored, and the queued second is refused
+  with the Library's own message rather than replacing it - the `finally` around `refreshCase` in `importMedia` and
+  `importDiskStored`. The same shape with the probe succeeding, and an import asked after the first finished taking
+  the name as a deliberate replace. It also holds the probe itself and asks a second creation inside it, which proves
+  the name lands at the END rather than straight after the write: a landing made after the write would let that
+  second creation count as a replace and take the name. No product change.
+
 ### Fixed
 
 - **A write from outside the CPU no longer runs in the middle of a held I/O access.** On the CoCo 3 an instruction
@@ -104,6 +113,19 @@ All notable changes to CLOADM are recorded here. The format follows
   loaded moment on the Reset rules (RAM kept, no "the boot failed"; a program holding BASIC's warm-start vector gets
   "A program took over Reset"); **Switch off and on**, or a ROM change, arms the boot check again. The browser check
   opens a snapshot of a game, waits 6 s of the machine's own frames, and requires no box.
+
+- **A failed import or new disk now names the file it was for.** When the case probe that follows a disk image's
+  write throws, `importDisk` reported the store's own message with no file name, where `importMedia` reports
+  `<name>: <reason>`. The wrap now happens once, in the creation both callers use (`importDiskStored`), so
+  `importDisk` and `newDisk` report the same form: `work.vdk: the store's reason`. A message the creation already
+  phrases itself (`… was saved to your Library but not put in drive N`) keeps its exact wording, because `mediaError`
+  hands a `SessionError` on unchanged. (A backend message that itself carries the path therefore reads
+  `work.vdk: disks/work.vdk: …`, which is what `importMedia` has always done with the same message: the rule is one
+  name in front of the store's text, not a rewrite of the text.) `newDisk`'s own check, before it writes anything,
+  was the same gap (it lists the Library to see whether the name is taken) and is named the same way; with no name
+  asked, the name is chosen from that listing, so a failed listing there reports as "A new disk: ..." (there is no
+  name to use yet). `tests/importmedia-finally.test.js` cases 4, 9, 10, 11 and 12 hold the red-first copy, the second
+  caller's copy, the exact-wording rule, the pre-write listing, and the unnamed, empty-label and path-bearing shapes.
 
 ### 0.1.6-pre
 

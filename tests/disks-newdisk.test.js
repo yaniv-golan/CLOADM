@@ -441,7 +441,7 @@ const { check, rejects, failures } = checker();
       const p2 = q(s.importDisk(N, images.vdk(20, 1), 1));
       release();
       const r1 = await p1, r2 = await p2;
-      check('case probe throws: the new disk reports the probe\'s error', !r1.ok && r1.m === 'a synchronous store must declare caseInsensitive', r1.m);
+      check('case probe throws: the new disk reports the probe\'s error, by name', !r1.ok && r1.m === `blank.vdk: a synchronous store must declare caseInsensitive`, r1.m);
       check('case probe throws: the import queued meanwhile is refused as a second creation', !r2.ok && r2.m === 'There is already a disk named blank.vdk in your library: choose another name.', r2.m);
       check('case probe throws: the store holds the blank\'s bytes', same(await media.read('disks/blank.vdk'), Emu.blankDisk('vdk', 40, 2)));
     }
