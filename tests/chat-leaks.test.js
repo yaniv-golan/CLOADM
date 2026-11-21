@@ -86,9 +86,12 @@ function fingerprint(m) {
     serial: m.serialPort ? `${m.serialPort.kind}:${m.serialPort.baud}` : null,
     printed: m.printed.length,
     joy: JSON.stringify(m.joy) + '|' + JSON.stringify(m.fire),
-    sam: m.sam ? `${m.sam.rate}:${m.sam.memSize}:${m.sam.vdg}` : null,
-    pia: [m.pia1, m.pia].filter(Boolean).map((p) => [
-      p.a.cr, p.a.ddr, p.a.orb !== undefined ? p.a.orb : null, p.b.cr, p.b.ddr, p.b.orb !== undefined ? p.b.orb : null].join('/')).join(' ; '),
+    // Each chip's OWN saveState(), not hand-picked field names: my first version read `sam.vdg` (no such field) and
+    // `pia` (it is pia0, and the output register is `or`, not `orb`), so three columns compared undefined for every
+    // row and could never fail. A chip that gains a field gains it here without a test edit.
+    sam: m.sam ? JSON.stringify(m.sam.saveState()) : null,
+    pia0: m.pia0 ? JSON.stringify(m.pia0.saveState()) : null,
+    pia1: m.pia1 ? JSON.stringify(m.pia1.saveState()) : null,
     drives: (() => { const f = m.fdc || (m.cartPort && m.cartPort.drives ? m.cartPort : null);
       return f && f.drives ? f.drives.map((d) => (d.loaded ? d.media.name + ':' + (d.wpt ? 'w' : 'r') : '-')).join(',') : null; })(),
   };
@@ -98,7 +101,6 @@ function diff(before, after) {
   for (const k of Object.keys(before)) if (JSON.stringify(before[k]) !== JSON.stringify(after[k])) out.push(k);
   return out;
 }
-const stable = (m) => { const b = fingerprint(m); frames(m && m.session ? null : { fps: 50 }, 0); return b; };
 
 // ---- the table: one row per person-facing action the UI can trigger ----
 // setup: what the BASIC session needs before the action makes sense (the action then runs with the chat on screen)
@@ -142,7 +144,7 @@ const ROWS = [
   ['insert a Multi-Pak', () => {}, (s) => s.insertMultiPak([{ name: 'c.rom', bytes: new Uint8Array(0x2000).fill(0x39) }])],
   // (the Pak needs the user's PIC ROM, which may not be committed: this row is its refusal path, kept because a
   // refusal must still not touch the chat machine - it is marked 'may-throw')
-  ['insert the Speech/Sound Pak (refused without its PIC ROM)', () => {}, (s) => s.insertSsc(), 'may-throw'],
+  ['insert the Speech/Sound Pak (refused without its PIC ROM)', () => {}, (s) => s.insertSsc(), 'may-throw:needs its PIC ROM'],
   ['eject the Speech/Sound Pak', () => {}, (s) => s.ejectSsc()],
   // programs and the welcome
   // A game WITH BASIC ROMs is the case where the menu watch's machine matters: the watch is on for a ROM machine
@@ -173,27 +175,45 @@ const ROWS = [
   ['save a quick slot', () => {}, (s) => s.saveSlot(1)],
   ['take a restore point / undo', () => {}, (s) => { const c = s.startAsk({ backend: backend() }); c.undo.push(s.chatTarget().snapshot()); return s.restoreClaude(0); }],
   // NitrOS-9
-  // the image goes into the library before the chat opens, so the boot finds it (skipped without the user's image)
+  // the image goes into the library before the chat opens, so the boot finds it
   // (a machine switch replaces the machine and closes the conversation: documented, 'closes-chat')
   ['choose a machine (the machine menu)', () => {}, (s) => s.chooseMachine('coco3'), 'closes-chat'],
-  ['load a recent file of another model', () => {}, (s) => s.loadRecent(0), 'closes-chat-or-throws'],
-  ['import a ROM pack', () => {}, (s) => { try { return s.importRomPack([]); } catch (e) { /* an empty pack is refused */ } }],
-  ['import settings', () => {}, (s) => { try { return s.importSettings('{"format":"cloadm-settings","version":1,"settings":{}}'); } catch (e) {} }],
-  ['import media into the library', () => {}, (s) => s.importMedia('prog.bin', BIN)],
+  ['load a recent file (recent list)', () => {}, (s) => { s.load('recent.bin', BIN); return s.loadRecent(0); }, 'closes-chat-or-throws'],
+  // A real pack, from the Session's own export: it carries the stored ROMs' manifest and images, so the import
+  // restores them (an empty array is not a pack, and the row used to swallow that refusal).
+  ['import a ROM pack', withRoms, (s) => s.importRomPack(Emu.readZip(s.exportRomPack().bytes))],
+  ['import settings', () => {}, (s) => s.importSettings('{"format":"cloadm-settings","version":1,"settings":{}}')],
+  // a ROM through the Library's import goes on to addRoms (session.js:1730), which reaches the machine: the row uses
+  // a ROM for exactly that reason
+  ['import media into the library (a ROM: it goes on to addRoms)', () => {}, (s) => s.importMedia('d64_1.rom', basic)],
   ['import a disk image into the library', withDos, (s) => s.importDisk('d.vdk', Emu.blankDisk('vdk', 40, 1), 0)],
   ['mount a disk by name', withDos, async (s) => { await s.media.write('disks/m.vdk', Emu.blankDisk('vdk', 40, 1)); return s.mountDisk(0, 'disks/m.vdk'); }],
   ['open a snapshot', () => {}, async (s) => { const snap = await s.readSnapshot((await s.snapshotFile()).bytes); return s.openSnapshot(snap); }, 'closes-chat'],
   // (keepSnapshotDisk is for a disk that came WITH a snapshot and is not in the Library yet: a disk already in the
   // Library is refused - "already in your Library" - so the row mounts a fresh image under a name of its own)
-  ['keep a snapshot\'s disk in the library', withDos, async (s) => { await s.importDisk('kept.vdk', Emu.blankDisk('vdk', 40, 1), 0); return s.keepSnapshotDisk(0); }, 'may-throw'],
-  ['leave NitrOS-9', () => {}, (s) => s.leaveNitros9()],
-  ['resume the debugger', () => {}, (s) => s.resume()],
+  ['keep a snapshot\'s disk in the library', withDos, async (s) => { await s.importDisk('kept.vdk', Emu.blankDisk('vdk', 40, 1), 0); return s.keepSnapshotDisk(0); }, 'may-throw:already in your Library'],
+  // leaveNitros9 must actually TAKE NitrOS-9 OFF the person's machine after a floppy boot: it used to return at once
+  // (it asked the chat machine, which never has the loader ROM). The row boots, leaves, and asserts the loader is gone.
+  ['leave NitrOS-9 (after a floppy boot)', 'coco3', (s) => s.media.write('disks/n9.dsk', NITROS9), async (s) => {
+    await s.bootNitros9('n9.dsk');
+    const basic = s.chatMachines.basic;
+    if (!s.nitros9On(basic)) throw new Error('the boot did not put the loader on the person\'s machine');
+    s.leaveNitros9();
+    if (s.nitros9On(basic)) throw new Error('leaveNitros9 left the loader on the person\'s machine (it did nothing)');
+  }],
+  ['resume the debugger', () => {}, (s) => { s.debug; return s.resume(); }],
   // 'none' is the first device offered and attaching it changes nothing: the row must plug in one that does
+  // DriveWire: the server and its drives are the SESSION's, not a machine's (session.js:716-760 mountDriveWire and
+  // 740 connectDriveWireChannel read no machine at all). Rows anyway, because that is the claim being made.
+  ['mount a DriveWire image', () => {}, async (s) => { await s.media.write('drivewire/w.vdk', Emu.blankDisk('vdk', 40, 1)); return s.mountDriveWire(1, 'w.vdk'); }],
+  ['connect a DriveWire channel', () => {}, (s) => s.connectDriveWireChannel(0, null)],
+  // (serveRealCoco needs Web Serial, which no test host has: its refusal is the reachable code here)
+  ['serve a real CoCo (refused: no Web Serial in a test host)', () => {}, (s) => s.serveRealCoco(115200), 'may-throw:no Web Serial'],
   ['attach a serial device', () => {}, (s) => s.attachSerial('terminal')],
-  ['send serial text', () => {}, (s) => { try { return s.serialSend('hi'); } catch (e) { /* no port without the device */ } }],
+  ['send serial text', () => {}, (s) => { s.attachSerial('terminal'); return s.serialSend('hi'); }],
   ['assemble and run a program (the assembler panel)', () => {}, (s) => s.runAssembled(Emu.assemble(' ORG $3000\nSTART LDA #$01\n BRA START\n', '6809'))],
   ['boot NitrOS-9 from a floppy image (CoCo 3)', 'coco3', (s) => s.media.write('disks/n9.dsk', NITROS9), (s) => s.bootNitros9('n9.dsk')],
-  ['boot NitrOS-9: a name that is not in the library (refused)', 'coco3', () => {}, (s) => s.bootNitros9('not-there.dsk'), 'may-throw'],
+  ['boot NitrOS-9: a name that is not in the library (refused)', 'coco3', () => {}, (s) => s.bootNitros9('not-there.dsk'), 'may-throw:There is no image called not-there'],
   // the Claude chat itself (must reach the person's machine for acting)
   ['Ask Claude (the side panel)', () => {}, (s) => s.startAsk({ backend: backend() })],
   // (these three close or leave the chat by design: the runner asserts that, not a fingerprint of a machine that is
@@ -208,6 +228,21 @@ const ROWS = [
   ['clear the printout (the shown machine\'s printout, by design)', () => {}, (s) => s.clearPrintout(), 'shown-machine'],
   ['save settings', () => {}, (s) => s.exportSettings()],
 ];
+
+// WHAT HAS NO ROW, and why - each checked by reading the cited line, not assumed:
+//   openSnapshot      its machine comes from restoreSnapshot (machines/profiles.js:218), which BUILDS a machine
+//                     from the snapshot's own model: there is no chat machine involved. The row exists anyway
+//                     (it closes the chat, like a switch).
+//   connectDriveWireChannel / mountDriveWire
+//                     the DriveWire server and its drives are the Session's (session.js:716-760, 740): neither
+//                     reads a machine. Rows exist to hold that claim.
+//   serveRealCoco     needs Web Serial; in a Node test it refuses at session.js:893 before touching anything.
+//                     Its row is the refusal, named.
+//   importSettings    touches no machine: it writes the settings store (session.js:1260 onwards).
+//   importMedia       is NOT exempt and has a row: a ROM dropped on the Library goes through addRoms
+//                     (session.js:1730), which reaches the machine - the row is a ROM, not a program, for that
+//                     reason.
+// No method in this file is left without either a row or one of the reasons above.
 
 // A row is run TWICE from the same starting point: once with a no-op in place of the action (the control: the chat
 // firmware's own running over the same frames, which changes its RAM and frame count by itself) and once with the
@@ -242,13 +277,46 @@ async function observed(setup, act, id = 'dragon64') {
   const power = await observed(() => {}, async (s) => s.powerCycle({ on: s.chatMachines.chat }));
   const leakPow = diff(clean.final, power.final);
   check('the comparison catches a power cycle of the chat machine', leakPow.includes('resetAt'), JSON.stringify(leakPow));
+
+  // EVERY FINGERPRINT FIELD MUST BE ABLE TO SEE A CHANGE. A field that reads a property that does not exist compares
+  // undefined with undefined for every row, and no row can ever fail on it - which is exactly how this sweep once
+  // "checked" the SAM's display bits and the PIA registers while reading `sam.vdg`, `pia` and `orb`, none of which
+  // exist. Each probe below changes exactly ONE field of the chat machine and requires that field to show it.
+  const PROBES = [
+    ['ram', (c) => c.poke(0x5000, 0xA5)],
+    ['resetAt', (c) => c.reset(true)],
+    ['frames', (c) => c.runFrame()],
+    ['cart', (c) => c.insertCartridge(new Emu.devices.rom(new Uint8Array(0x2000).fill(0x39), {}))],
+    ['tape', (c) => c.deck.insert(new Emu.Tape(casTape(), c.tickHz, 'probe.cas', c.profile.tape))],
+    ['roms', (c) => c.setRoms(Object.assign({}, c.roms, { basic: new Uint8Array(0x4000).fill(0x5A) }))],
+    // (useStub is !hasRom, so it moves only with the ROM set - the 'roms' probe covers it; no separate probe is
+    // possible, and the loop below records it as covered rather than poking a getter)
+    ['serial', (c) => c.attachSerial('terminal', { baud: 600 })],
+    ['printed', (c) => c.printed.push(0x41, 0x42)],
+    ['joy', (c) => { c.joy[0][0] = 1; c.joy[0][1] = 2; }],
+    ['sam', (c) => { c.sam.reg ^= 0x0F; }],
+    ['pia0', (c) => { c.pia0.a.or ^= 0x55; }],
+    ['pia1', (c) => { c.pia1.b.ddr ^= 0x01; }],
+  ];
+  for (const [field, poke] of PROBES) {
+    const probe = await observed(() => {}, async (s) => { poke(s.chatMachines.chat); });
+    const seen = diff(clean.final, probe.final);
+    // a field whose value the host cannot set on this machine is not comparable here: say so rather than pass it
+    // 'present' means the field can hold a value at all: for cart and tape that is null until something is inserted,
+    // so the probe's OWN value is what shows the field works (the diff is what is checked either way).
+    const present = clean.final[field] !== undefined || probe.final[field] !== undefined;
+    // not a null field, and not one a host cannot set here: the probe must change it and the diff must show it
+    const covered = field === 'stub' ? clean.final.roms !== probe.final.roms : seen.includes(field);
+    check(`the fingerprint can see a change to "${field}"`, !present || covered || !!probe.threw,
+      `${present ? (seen.join(',') || 'nothing changed') : 'not present on this machine'}${probe.threw ? ` (probe threw: ${probe.threw})` : ''}`);
+  }
   // A row is [name, setup, act] or [name, model, setup, act, kind]: the model is for rows whose machine matters
-  // (NitrOS-9 is a CoCo 3 program); a kind of 'skip' means the row could not run here (a user image that is absent).
+  // (NitrOS-9 is a CoCo 3 program). No row skips: the floppy row builds its own image (tests/fixtures/nitros9-synth.js),
+  // so a machine without the user's file still proves the routing.
   for (const row of ROWS) {
     const [name, a1, a2, a3, a4] = row;
     const id = typeof a1 === 'string' ? a1 : 'dragon64';
     const setup = typeof a1 === 'string' ? a2 : a1, act = typeof a1 === 'string' ? a3 : a2, kind = typeof a1 === 'string' ? a4 : a3;
-    if (kind === 'skip') { console.log(`skip no leak: ${name} (no user image here)`); continue; }
     const control = await observed(setup, async () => {}, id);
     const real = await observed(setup, act, id);
     // like for like, final state against final state (see observed)
@@ -285,11 +353,15 @@ async function observed(setup, act, id = 'dragon64') {
         `${real.changed.join(', ')}`);
       continue;
     }
-    if (kind === 'closes-chat' || kind === 'keeps-chat') {
-      // the chat's own closing/leaving: the machine going is the point; what must NOT happen is a fingerprint change
-      // before it went, which the control comparison still covers for the ones that stay
-      check(`no leak: ${name} (${kind === 'closes-chat' ? 'the chat closes' : 'the chat stays'})`, kind === 'closes-chat' ? !real.same : real.same,
-        `chat machine ${real.same ? 'kept' : 'replaced'}`);
+    if (kind === 'closes-chat') {
+      // the chat's own closing: the machine going is the point
+      check(`no leak: ${name} (the chat closes)`, !real.same, `chat machine ${real.same ? 'kept' : 'replaced'}`);
+      continue;
+    }
+    if (kind === 'keeps-chat') {
+      // the chat STAYS: the machine is there AND unchanged (skipping the fingerprint here let a change through)
+      check(`no leak: ${name} (the chat stays)`, real.same && real.changed.length === 0 && real.recordKept
+        && !real.threw, `chat machine ${real.same ? 'kept' : 'replaced'}; changed: ${real.changed.join(', ') || 'nothing'}`);
       continue;
     }
     const changed = real.changed;
@@ -301,7 +373,9 @@ async function observed(setup, act, id = 'dragon64') {
     // 'may-throw': a refusal the row exists to check (the machine lacks a ROM the project may not commit). What the
     // refusal must NOT do is touch the chat machine; and it must throw for the reason the row names, not another.
     const threw = real.threw ? ` (the action threw: ${real.threw})` : '';
-    const okThrow = kind === 'may-throw' ? !!real.threw : !real.threw;
+    // 'may-throw' names the reason it is allowed to refuse with, as a regex on the message: an unrelated throw (a
+    // typo in the row, a missing fixture) must not pass for the refusal the row is about.
+    const okThrow = kind && kind.startsWith('may-throw') ? !!real.threw && new RegExp(kind.slice(10)).test(real.threw) : !real.threw;
     check(`no leak: ${name}`, changed.length === 0 && okThrow, `${changed.join(', ')}${threw}`);
   }
   console.log(`${n - fail}/${n} chat-leak checks passed`);

@@ -874,10 +874,11 @@ export class Session {
   // back to the machine's own ROMs (BASIC), from the start; a disk controller plugged in without a ROM for the
   // floppy boot comes out (its disks are kept in the library)
   leaveNitros9() {
-    // NitrOS-9 runs on the machine in use (bootNitros9 switches to the CoCo 3 there), so that is the machine to
-    // take it off; the chat cannot be open on a NitrOS-9 machine (the switch that boots it closes the chat)
-    const m = this.machine;
-    if (!this.nitros9Running) return;
+    // The person's machine (personMachine): bootNitros9 runs on it, and with the chat full screen this.machine is the
+    // chat - which never has the loader ROM, so this returned at once and did nothing (review round 3). The
+    // nitros9Running getter reads this.machine, so it is not asked here: the question is about m.
+    const m = this.personMachine;
+    if (!this.nitros9On(m)) return;
     if (m.cartPort instanceof DiskController && !m.cartPort.romBytes) { this.flushDisks(); m.ejectCartridge(); this.emit('disks'); }
     if (this.stubChosen.has(m.id)) m.setRoms(Object.fromEntries(m.profile.roms.map((x) => [x.id, null])));
     else this.loadSavedRoms(m);
