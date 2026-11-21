@@ -30,23 +30,25 @@ const prompt = (sess = s) => { sess.runFrames(60); return (sess.screenText()[14]
   check('welcome: a menu with no carry-on says PRESS 1 TO 5', prompt() === 'PRESS 1 TO 5', prompt());
 }
 
-// 2. the page's shape after a machine switch: an earlier start already drew a carry-on menu in this turn, then
-// the page's own start (carryOn: null) arrives with the ticket taken before both. It must win and the menu must
-// say PRESS 1 TO 5 -- which is what main's behaviour produced by the second start simply overwriting the first.
+// 2. the machine question's switch (Session.chooseMachine): the menu is offered ONCE, saying it wants no
+// carry-on, even though the Session HAS one for what ran on the old machine. There used to be a second start from
+// the page, with a different carry-on, and which won was an accident ("PRESS 1 TO 6" after the ticket landed).
 {
   const s2 = new Emu.Session({ store: Emu.memoryStore(), media: new MemoryMediaStore() });
   s2.switchMachine('dragon64');
-  // the page's shape: the switch FIRST (as the fixed askMachine handler does), then the ticket, then its start
-  s2.switchMachine('coco');
-  const gen = s2.welcomeGenNow();
-  // the earlier start: switchMachine's offerMenu -> the page's runWelcome with the Session's carry-on
-  s2.startWelcome(welcome, { greeting: 'back', carryOn: 'Colour demo', gen });
-  check('welcome: the earlier start drew its carry-on line first', prompt(s2) === 'PRESS 1 TO 6', prompt(s2));
-  // the page's own start, its ticket now stale only because the earlier start took the machine
-  const ok = s2.startWelcome(welcome, { greeting: 'back', carryOn: null, gen });
-  check('welcome: the page\'s own start (no carry-on) is not refused by the earlier start in the same turn',
-    ok !== null && s2.welcomeRunning, String(ok));
-  check('welcome: and the menu it draws says PRESS 1 TO 5 (no carry-on line)', prompt(s2) === 'PRESS 1 TO 5', prompt(s2));
+  const demo = new Uint8Array(fs.readFileSync(path.join(ROOT, 'examples/demo.bin')));
+  s2.load('demo.bin', demo, { remember: false });
+  s2.setLastRun('demo', 'Colour demo');
+  check('welcome: the Session has a carry-on for the old machine\'s demo',
+    JSON.stringify(s2.carryOn) === '{"kind":"demo","name":"Colour demo"}', JSON.stringify(s2.carryOn));
+  const offered = [];
+  s2.on((ev, arg) => { if (ev === 'menu') offered.push(arg); });
+  s2.chooseMachine('coco');
+  check('welcome: the machine question offers the menu ONCE, and without a carry-on',
+    offered.length === 1 && offered[0] === 'none', JSON.stringify(offered));
+  // what the page does from that one offer
+  s2.startWelcome(welcome, { greeting: 'back', carryOn: null });
+  check('welcome: and the menu it starts says PRESS 1 TO 5 (no carry-on line)', prompt(s2) === 'PRESS 1 TO 5', prompt(s2));
 }
 
 // 3. the rule the ticket exists for still holds: a start overtaken by something the page did NOT ask for is refused

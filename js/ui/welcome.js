@@ -67,13 +67,7 @@ export function setupWelcome(page, { showRoms, openClaude }) {
   // (the fetch before it is outside: what the person does meanwhile still stops Claude)
   // (byMachine: the ticket the Session gave when the program asked, Session.machineTicket; null: the person asked)
   const startAs = (byMachine, fn) => (byMachine ? session.asMachine(fn, byMachine) : fn());
-  async function runWelcome({ greeting = 'first', carryOn = null } = {}, { ifIdle = false, byMachine = null, after = null } = {}) {
-    // `after`: an action the page takes BEFORE the menu starts, which takes the machine itself (the machine
-    // question's switch). The ticket below must be taken AFTER it, or the page's own switch invalidates the start
-    // it asked for -- measured: the menu then keeps the carry-on line switchMachine's offerMenu drew ("PRESS 1 TO
-    // 6") instead of the page's own no-carry-on start ("PRESS 1 TO 5"). The ticket still catches what it exists
-    // for: a fetch overtaken by something the person did while the bytes were on the way.
-    if (after) after();
+  async function runWelcome({ greeting = 'first', carryOn = null } = {}, { ifIdle = false, byMachine = null } = {}) {
     const m = session.machine, running = session.stubRun, gen = session.welcomeGenNow();
     try {
       const bytes = await page.fetchBytes(`examples/${session.welcomeFile}`);   // this machine's build (6809, or its own 6803 one)
@@ -100,7 +94,13 @@ export function setupWelcome(page, { showRoms, openClaude }) {
     else if (ev === 'welcome:carryon') await runAgain({ byMachine: asked });
     else if (ev === 'welcome:2048' || ev === 'welcome:minesweeper') await run(gameItem(ev.slice(8)), { byMachine: asked });
     // back from a program ('bye'), or the machine turned on, or reset with nothing to restart, without ROMs ('back')
-    else if (ev === 'menu') { showBack(false); await runWelcome(arg === 'back' ? { greeting: 'back', carryOn: session.carryOn } : { greeting: 'bye' }, { ifIdle: true, byMachine: arg !== 'back' ? session.menuTicket || asked : null }); }
+    else if (ev === 'menu') {
+      showBack(false);
+      // 'none': the machine question's switch, which starts the menu without a carry-on -- the person chose the
+      // machine, not what ran on the old one. 'back'/'bye' as before.
+      if (arg === 'none') await runWelcome({ greeting: 'back', carryOn: null }, { ifIdle: true, byMachine: null });
+      else await runWelcome(arg === 'back' ? { greeting: 'back', carryOn: session.carryOn } : { greeting: 'bye' }, { ifIdle: true, byMachine: arg !== 'back' ? session.menuTicket || asked : null });
+    }
   });
   // what ran last, again: LIZA, the demo, or the file (from the recent list)
   async function runAgain({ byMachine = null } = {}) {
@@ -203,9 +203,11 @@ export function setupWelcome(page, { showRoms, openClaude }) {
       ask.append(el('span', 'Which computer did you have? '));
       for (const [id, label] of ASK) {
         const b = el('button', label); b.dataset.machine = id;
-        // the welcome menu on every machine: 6809 models run the 6809 build, the MC-10 and Alice their own
-        // the switch is the page's own, so the menu's ticket is taken after it (see runWelcome's `after`)
-        b.onclick = async () => { ask.remove(); await runWelcome({}, { after: () => session.chooseMachine(id) }); };
+        // the welcome menu on every machine: 6809 models run the 6809 build, the MC-10 and Alice their own.
+        // The switch starts the menu itself, ONCE, without a carry-on (Session.chooseMachine passes offer 'none'):
+        // the page starts nothing here, because two starts in one turn only worked while the later overwrote the
+        // earlier, and after the generation ticket that depended on which one arrived first.
+        b.onclick = () => { ask.remove(); session.chooseMachine(id); page.focus(); };
         ask.append(b);
       }
       box.append(ask);

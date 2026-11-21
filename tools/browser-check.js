@@ -1939,9 +1939,18 @@ async function visitChecks(browser, base, check) {
   await page.click('#shelf :is(a, button):text-is("Colour demo")');
   check('shelf: the colour demo runs', await waitFor(page, () => /demo\.bin/.test(document.getElementById('toast').textContent)));
   // the machine question, answered once
+  // count the menu starts for that answer: the switch starts it ONCE (Session.chooseMachine -> offer 'none'), and
+  // the page must start nothing of its own. A second start draws the same screen, so the count is the only witness.
+  await page.evaluate(() => {
+    const s = window.emu.session;
+    window.__starts = 0;
+    if (!s.__counted) { const orig = s.startWelcome.bind(s); s.startWelcome = (b, o) => { window.__starts++; return orig(b, o); }; s.__counted = true; }
+  });
   await page.click('#askMachine button[data-machine="coco"]');
   check('machine question: switches machine and the welcome program runs there', await waitFor(page, () => window.emu.machine.id === 'coco' && window.emu.session.welcomeRunning && window.emu.session.screenText()[14].includes('PRESS 1 TO 5'))
     && !(await page.$('#askMachine')));
+  check('machine question: the menu is started exactly once (no second start from the page)',
+    await page.evaluate(() => window.__starts) === 1, String(await page.evaluate(() => window.__starts)));
   // a program of the user's own, then a return visit
   await page.setInputFiles('#fileProgram', { name: 'mine.bin', mimeType: 'application/octet-stream', buffer: fs.readFileSync(path.join(ROOT, 'examples/demo.bin')) });
   await waitFor(page, () => !document.getElementById('mediaOffer').hidden);

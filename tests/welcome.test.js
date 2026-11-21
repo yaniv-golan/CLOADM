@@ -196,10 +196,7 @@ for (const id of models) {
   const t = new Emu.Session({ welcomeMenu: true });
   t.switchMachine('dragon64', {}, { menu: false });
   const g = t.welcomeGenNow();
-  // the ticket has two counters: `machine` (what taking the machine moves) and `start` (what every start moves);
-  // a start is refused only when the MACHINE counter has moved, so a later start in one turn still wins
-  check('welcome: welcomeGenNow gives a ticket to hand back (a machine counter and a start counter)',
-    g && Number.isInteger(g.machine) && Number.isInteger(g.start), JSON.stringify(g));
+  check('welcome: welcomeGenNow gives a generation to hand back', Number.isInteger(g), JSON.stringify(g));
 
   // (a) something takes the machine while the bytes are on the way: the start is refused
   t.endWelcome();                                  // what stubPrompt, a load, a switch or a Reset all do

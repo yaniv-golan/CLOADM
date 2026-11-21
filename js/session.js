@@ -312,7 +312,6 @@ export class Session {
     this.warmReset = null;          // { m, resetAt }: the run that began with the Reset button, not a power-on (bootStatus)
     this.welcome = null;            // the machine running the welcome program
     this.welcomeGen = 0;            // bumped by every start (a later start wins over an earlier one)
-    this.welcomeGenMachine = 0;     // bumped whenever something TAKES the machine (a start is refused only if this moves)
     this.menuWatch = null;          // a program that goes back to the welcome menu when left (watchForMenu)
     this.stubRun = null;            // what runs on the stub firmware and how to restart it (Reset; see `reset`)
     this.welcomeBuild = null;       // its build's fixed addresses (WELCOME[profile cpu])
@@ -526,7 +525,11 @@ export class Session {
   // switch to a model; config (e.g. { ram: 64 }) is remembered for that model once it has made a machine (a
   // config the model can't take falls back to the model's defaults and is not remembered)
   // menu: false when the caller decides what runs next (the page's start: the visit, the link's program)
-  switchMachine(id, config, { menu = true } = {}) {
+  // offer: what the welcome menu is offered as, when it is offered (see offerMenu). The machine question's switch
+  // passes 'none': the person chose the MACHINE, not what ran on the old one, so the menu is started once, here,
+  // without a carry-on line -- the page then starts nothing of its own (it used to, and which of the two starts
+  // won was an accident).
+  switchMachine(id, config, { menu = true, offer = null } = {}) {
     if (!Object.hasOwn(profiles, id)) id = 'dragon64';
     let m;
     try {
@@ -540,7 +543,7 @@ export class Session {
     m.reset(true);
     this.lastRate = this.cpuRate() && this.cpuRate().rate;
     this.emit('machine');
-    if (menu) this.offerMenu();       // switched on without ROMs: the welcome menu
+    if (menu) this.offerMenu(offer);   // switched on without ROMs: the welcome menu
     return m;
   }
   // What a switch to model `id` with `config` (a RAM change: the same id) takes out of the machine in use, for the
@@ -565,7 +568,7 @@ export class Session {
   // Session's, with the Session's symbols.
   adopt(m) {
     if (this.machine) { this.flushDisks(); this.keepRecording(); }   // its disks and a recording still running are kept
-    this.endWelcome({ byStart: this.startingWelcome });
+    this.endWelcome();
     this.dropChat();                      // a chat belongs to the machine it was opened on
     this.stubRun = null;
     this.warmReset = null;                // a new machine is a power-on: the boot watchdog arms
@@ -1000,7 +1003,7 @@ export class Session {
   powerCycle({ menu = true, reason = 'the machine restarted' } = {}) {
     this.stopClaudeFor(reason);
     const m = this.machine;
-    this.endWelcome({ byStart: this.startingWelcome });
+    this.endWelcome();
     this.stubRun = null;
     this.keys.clear();
     this.flushDisks();
@@ -1013,9 +1016,11 @@ export class Session {
     if (menu) this.offerMenu();
   }
   // no ROMs, nothing running: the welcome menu, greeting the visitor back (the page has its bytes)
-  offerMenu() {
+  // The event's argument is how the menu is offered: 'back' (a returning visit) or 'bye' (back from a program) as
+  // before, or 'none' from the machine question's switch, which starts the menu without a carry-on line.
+  offerMenu(offer = null) {
     const m = this.machine;
-    if (this.welcomeMenu && m.useStub && WELCOME[cpuFamily(m.config.cpu)]) this.emit('menu', 'back');
+    if (this.welcomeMenu && m.useStub && WELCOME[cpuFamily(m.config.cpu)]) this.emit('menu', offer || 'back');
   }
   // run segments at exec (Machine.injectAndRun), remembering them as the stub's program to restart on Reset
   inject(segments, exec) {
@@ -1429,7 +1434,7 @@ export class Session {
     return last;
   }
   // the machine picker is asked once, then remembered
-  chooseMachine(id) { this.store.set('machineChosen', '1'); return this.switchMachine(id); }
+  chooseMachine(id) { this.store.set('machineChosen', '1'); return this.switchMachine(id, undefined, { offer: 'none' }); }
   get hasAnyRoms() { return this.roms.sockets().some((s) => profiles[s.owner]); }
   // The last few programs, tapes and cartridges loaded (bytes kept for items up to 1 MB).
   // `copy` labels the rows that need telling apart, for two entries of ONE name — grouped with this.sameName,
@@ -2306,7 +2311,7 @@ export class Session {
     // the machine's onReset does not say so): Claude stops just before it does (inject does too), and nothing it
     // held is typed into the program; a load that is refused or cancelled leaves Claude alone
     const takeOver = () => { this.cancelLoadTyping(m); this.stopClaudeFor('you loaded a program', m); };
-    this.endWelcome({ byStart: this.startingWelcome });
+    this.endWelcome();
     this.stubRun = null;
     const media = detectMedia(name, bytes);
     if (media.kind === 'disk') {
@@ -3270,41 +3275,32 @@ export class Session {
   // took the machine since, the start does nothing and this returns null: the menu must not take the screen back
   // from what the person started while its bytes were on the way.
   startWelcome(bytes, { greeting = 'first', carryOn = null, gen = null } = {}) {
-    // The ticket must catch "the machine was taken by something else while the bytes were in flight" -- a program
-    // loaded, a snapshot opened, a Reset, a switch the person did not ask for -- and it must NOT catch another
-    // WELCOME START. Two starts can be in flight in one turn: switchMachine's offerMenu (which carries the Session's
-    // carry-on) and the page's own runWelcome right after the switch the page asked for (carryOn: null). Main let
-    // the second overwrite the first, so the menu read "PRESS 1 TO 5"; counting starts in the same ticket refused
-    // the second and left "PRESS 1 TO 6". welcomeGen counts MACHINE-TAKING, welcomeGenOwned counts starts: a start
-    // is refused only if the former moved, and then it is the newest start either way.
-    if (gen !== null && gen.machine !== this.welcomeGenMachine) return null;
+    // The ticket catches "the machine was taken by something else while the bytes were in flight" -- a program
+    // loaded, a snapshot opened, a Reset, a switch the person did not ask for. It is compared BEFORE the start's own
+    // machine work (which bumps it through endWelcome), and there is only ever ONE start per turn now
+    // (Session.chooseMachine starts the menu once; the page no longer races it with a second one).
+    if (gen !== null && gen !== this.welcomeGen) return null;
     const m = this.machine, w = WELCOME[cpuFamily(m.config.cpu)];
     if (!w) throw new SessionError(`There is no Welcome menu for the ${m.profile.name}'s ${m.config.cpu}.`);
     const g = WELCOME.greetings.indexOf(greeting);
     if (g < 0) throw new SessionError(`unknown welcome greeting "${greeting}"`);
-    // Everything below is the START taking the machine (it may power it without ROMs, load the menu, reset from a
-    // previous program): none of it is "something else took it", so the machine ticket must not move (see endWelcome).
-    const outer = this._startingWelcome;
-    this._startingWelcome = true;
-    try {
-      if (!m.useStub) this.runWithoutRoms({ menu: false });   // also adds the machine to stubChosen ("Use the ROMs again" undoes it)
-      this.loadMedia(this.welcomeFile, bytes, null);
-      if (this.stubRun) this.stubRun.welcome = { bytes, greeting, carryOn };   // Reset: the menu as it is now
-      this.menuWatch = null;
-      m.poke(w.greet, g);
-      let carry = carryOn ? `CARRY ON WITH ${carryOn}`.toUpperCase().replace(/[^ -_]/g, '?') : '';
-      if (carry.length > w.carryMax) {   // cut at a word if there is one past "CARRY ON WITH", else at the edge
-        const cut = carry.lastIndexOf(' ', w.carryMax);
-        carry = carry.slice(0, cut > 'CARRY ON WITH'.length ? cut : w.carryMax);
-      }
-      for (let i = 0; i <= carry.length; i++) m.poke(w.carry + i, i < carry.length ? carry.charCodeAt(i) : 0);
-      this.welcome = m;
-      this.welcomeBuild = w;
-      this.emit('welcome');   // (the page's parts that depend on whether the welcome program runs: the quick-save slots)
-      if (this.welcomeSoundOn) this.welcomeSound();
-      const last = (carry ? 1 : 0) + (w === WELCOME['6809'] ? 5 : 4);   // the 6809 build has the games too
-      return `Welcome: press 1 to ${last}`;
-    } finally { this._startingWelcome = outer; }
+    if (!m.useStub) this.runWithoutRoms({ menu: false });   // also adds the machine to stubChosen ("Use the ROMs again" undoes it)
+    this.loadMedia(this.welcomeFile, bytes, null);
+    if (this.stubRun) this.stubRun.welcome = { bytes, greeting, carryOn };   // Reset: the menu as it is now
+    this.menuWatch = null;
+    m.poke(w.greet, g);
+    let carry = carryOn ? `CARRY ON WITH ${carryOn}`.toUpperCase().replace(/[^ -_]/g, '?') : '';
+    if (carry.length > w.carryMax) {   // cut at a word if there is one past "CARRY ON WITH", else at the edge
+      const cut = carry.lastIndexOf(' ', w.carryMax);
+      carry = carry.slice(0, cut > 'CARRY ON WITH'.length ? cut : w.carryMax);
+    }
+    for (let i = 0; i <= carry.length; i++) m.poke(w.carry + i, i < carry.length ? carry.charCodeAt(i) : 0);
+    this.welcome = m;
+    this.welcomeBuild = w;
+    this.emit('welcome');   // (the page's parts that depend on whether the welcome program runs: the quick-save slots)
+    if (this.welcomeSoundOn) this.welcomeSound();
+    const last = (carry ? 1 : 0) + (w === WELCOME['6809'] ? 5 : 4);   // the 6809 build has the games too
+    return `Welcome: press 1 to ${last}`;
   }
   get welcomeRunning() { return this.welcome === this.machine; }
   // the welcome build this machine runs: the 6809 file for every 6809-family model (the 6309 included), the
@@ -3318,22 +3314,15 @@ export class Session {
     this.welcomeSoundOn = true;
     if (this.welcomeRunning) this.machine.poke(this.welcomeBuild.soundOk, 1);
   }
-  endWelcome({ byStart = false } = {}) {
+  endWelcome() {
     this.welcome = null; this.welcomeBuild = null; this.menuWatch = null;
-    // Every way of taking the machine cancels a start still waiting on its bytes -- EXCEPT another welcome start,
-    // which is not "something else took it": two starts in one turn are the page's own (switchMachine's offerMenu
-    // with the Session's carry-on, then the page's start without one), and the later one must win, as main's did.
-    this.welcomeGen++;
-    if (!byStart) this.welcomeGenMachine++;
+    this.welcomeGen++;   // anything that takes the machine cancels a welcome start still waiting on its bytes
   }
-  // Are we inside a start? The start's own paths (runWithoutRoms -> powerCycle) call endWelcome, and that must not
-  // count as something else taking the machine.
-  get startingWelcome() { return !!this._startingWelcome; }
   // The generation a page takes before it fetches the welcome bytes and hands it back to startWelcome. Every way
   // something else can take the machine goes through endWelcome (a program loaded, a machine switch, a Reset, a
   // snapshot, the browser check's stubPrompt), so a start whose fetch was overtaken is refused instead of taking
   // the screen back from what the person started meanwhile.
-  welcomeGenNow() { return { start: this.welcomeGen, machine: this.welcomeGenMachine }; }
+  welcomeGenNow() { return this.welcomeGen; }
   // after the frames just run: emit the key posted in the mailbox, if any, and clear it
   flushWelcome() {
     if (!this.welcomeRunning) return;
