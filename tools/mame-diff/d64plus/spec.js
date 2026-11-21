@@ -13,9 +13,7 @@
 // never reads the PROM, so its contents cannot affect a comparison.
 const path = require('path'), fs = require('fs'), cp = require('child_process');
 const { loadEmu, assembleFile, romImage, writeRoms, mameConfigArgs } = require('../lib/firmware');
-
-const REGS = ['pc:4', 'a:2', 'b:2', 'x:4', 'y:4', 'u:4', 's:4', 'dp:2', 'cc:2']
-  .map((r) => { const [name, w] = r.split(':'); return { name, width: +w, mame: name }; });
+const { REGS } = require('../lib/regs');
 
 // An 8K character generator built from our own pattern, never a real ROM: each byte spells out the
 // (code, raster line) address it was fetched for, so a pixel comparison proves which address the CRTC
@@ -92,5 +90,4 @@ module.exports = {
   plusText(profileId, { regenerate = true, config = {}, work = `/tmp/mame-diff/${profileId}-plustext`, chargen } = {}) {
     return run(profileId, 'plustext.asm', { regenerate, config, work, seconds: 12, instructions: 500000, generator: path.join(__dirname, 'text-screens.js'), chargen });
   },
-  REGS,
 };
