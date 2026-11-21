@@ -1546,6 +1546,44 @@ async function resetChecks(browser, base, check) {
   await page.click('#btnRomBack');
   check('reset: no page errors', !errors.length, errors.join(' | '));
   await ctx.close();
+  // A moment opened from a snapshot is not a power-on: the same game, restored from its own snapshot, must show
+  // no boot box at all after 5 s of emulated time. It is made inside the page (as the reset group makes the game)
+  // and opened there, because a moment taken on a game holds the game's memory and is opened the same way by a
+  // file or a slot. The snapshot is taken early in its run (within the first 5 s), so this is the early-snapshot
+  // path: Node test 8 (tests/snapshot-boot.test.js) covers one taken past the window, decided on open.
+  const ctx2 = await guardedContext(browser, []);
+  const p2 = await ctx2.newPage();
+  const errors2 = [];
+  p2.on('pageerror', (e) => errors2.push(e.message));
+  await p2.goto(`${base}?machine=dragon64`); await started(p2);
+  await p2.evaluate((b) => {
+    const crc = (bytes) => { let c = -1; for (const v of bytes) { c ^= v; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; } return ((c ^ -1) >>> 0).toString(16).toUpperCase().padStart(8, '0'); };
+    for (const id of ['dragon64', 'tanodr64']) window.emu.profiles[id].roms[0].crcs.push(crc(b));
+  }, [...fw.basic]);
+  await dropFiles(p2, [['d64_1.rom', Buffer.from(fw.basic)], ['d64_2.rom', Buffer.from(fw.basic64)]]);
+  await waitFor(p2, () => window.emu.session.bootStatus().state === 'ok' && window.emu.machine.id === 'dragon64');
+  await dropFiles(p2, [['game.bin', Buffer.from(fw.gameBin)]]);
+  await waitFor(p2, () => window.emu.session.screenText()[0].startsWith('GGGG'));
+  // the moment, as a file: decoded by the page's own reader, so no snapshot is built by this test
+  const snap = await p2.evaluate(async () => [...(await window.emu.session.snapshotFile()).bytes]);
+  await waitFor(p2, () => window.emu.machine.frameCount > 200);
+  check('snapshot boot: the game holds the warm-start vector before the snapshot', await p2.evaluate(() => window.emu.machine.ram[0x71] === 0x55));
+  // switch the machine off and on first: the restored run is not the one the page was on before it
+  await p2.click('#btnHardReset');
+  await waitFor(p2, () => window.emu.session.bootStatus().state === 'ok' && document.getElementById('bootHelp').hidden);
+  await dropFiles(p2, [['game.cloadm', Buffer.from(snap)]]);
+  check('snapshot boot: the moment is back (the game on screen)', await waitFor(p2, () => window.emu.session.screenText()[0].startsWith('GGGG')), await p2.evaluate(() => window.emu.session.screenText()[0]));
+  // six whole seconds of the machine's own frames past the restore - and then the page's box must still be down
+  await emuFrames(p2, 6 * 60 + 10);
+  const restoredBox = await p2.evaluate(() => ({ hidden: document.getElementById('bootHelp').hidden, text: document.getElementById('bootHelp').textContent,
+    state: document.getElementById('bootHelp').dataset.state, status: window.emu.session.bootStatus(5).state }));
+  // `hidden` and `state` come from the page, but the claim is also made from the Session's own answer: after 5 s of
+  // emulated frames it is 'restored', not 'failed', which is what showed the box before this fix.
+  check('snapshot boot: no boot box after a restored game, 6 s on', restoredBox.hidden && restoredBox.status === 'restored' && restoredBox.state === 'restored'
+    && !/No OK|problem in CLOADM|took over Reset/.test(restoredBox.text), JSON.stringify(restoredBox));
+  if (shotDir) await p2.locator('#screenWrap').screenshot({ path: path.join(shotDir, 'snapshot-boot.png') });
+  check('snapshot boot: no page errors', !errors2.length, errors2.join(' | '));
+  await ctx2.close();
 }
 
 async function romUiChecks(browser, base, check) {

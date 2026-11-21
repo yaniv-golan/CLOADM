@@ -378,9 +378,11 @@ function videoMode(m) {
 
 // Is the machine sitting at BASIC's READY prompt?
 // The prompt is the ROM's own business, but the Session already decides "did BASIC start?" (the target's
-// bootStatus -> 'stub' | 'ok' | 'booting' | 'failed'). A machine with no ROMs runs the built-in stub and has no
-// BASIC prompt (null); otherwise `atPrompt` is whether the screen still shows OK, which the target's
-// bootStatus has already established, and null when it cannot be told.
+// bootStatus -> 'stub' | 'nitros9' | 'ok' | 'booting' | 'restored' | 'reset' | 'failed'). A machine with no ROMs
+// runs the built-in stub and has no BASIC prompt (null); otherwise `atPrompt` is whether the screen still shows OK,
+// which the target's bootStatus has already established, and null when it cannot be told. A restored moment (a
+// snapshot opened, not powered on) and a run a program took over after Reset answer `false`: BASIC's prompt is not
+// what is on screen, and saying so stops a model from typing a BASIC line into a game.
 //
 // When the machine is showing a screen this tool cannot read (a graphics mode, a declined GIME or 6845 set-up), the
 // OK test would be run against rows it cannot decode. That is not "yes" and not "no": it is unknowable from here,

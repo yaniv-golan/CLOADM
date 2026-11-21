@@ -86,6 +86,10 @@ class Machine {
     this.frameBase = 0;       // tick at which the current frame started
     this.frameCount = 0;
     this.framesSinceReset = 0;
+    // This run began as a snapshot loaded onto the machine (restore), not as a power-on or a Reset. Not emulated
+    // state (a restored moment is the same machine either way), so it is not in Machine.STATE and never enters a
+    // snapshot; every reset clears it, so it can never outlive the run it describes.
+    this.restored = false;
     // Event queue: { at (tick), pri, seq, name, arg }, ordered by (at, pri, seq). Events are plain
     // data naming a handler registered with on(), so pending events can be saved in snapshots.
     this.queue = [];
@@ -138,6 +142,11 @@ class Machine {
   romsChanged() { /* subclass hook */ }
   get hasRom() { return this.profile.roms.filter((s) => s.required).every((s) => !!this.roms[s.id]); }
   get useStub() { return !this.hasRom; }
+  // the frame count at which the current run began: changes with every reset and power-on, so it tells runs apart
+  // (the Session's boot watchdog keys on it). A restored moment keeps the snapshot's frameCount and framesSinceReset,
+  // so its resetAt is the run's start in the machine it was taken on, NOT a new machine's 0 - and it can coincide
+  // with a power-on's in the same frame, which is why the boot watchdog also keys on `restored`, not only on this.
+  get resetAt() { return this.frameCount - this.framesSinceReset; }
   stubActive() { return this.useStub; }
   // No-ROM stub: PC hooks at the stub firmware's entry points (symbols from stubRom):
   // RESET runs init(), POLCAT returns a queued key (A, Z clear) or none (Z set), CHROUT prints A on
@@ -189,6 +198,7 @@ class Machine {
     }
     if (this.cartPort) this.cartPort.reset(hard);   // the cartridge port carries the reset line
     this.framesSinceReset = 0;
+    this.restored = false;   // this run starts as a Reset or a power-on, whatever an earlier one was
     // whoever drives the machine is told it started over (the Session stops Claude acting on it); a host hook,
     // not machine state, so not in the snapshot
     if (this.onReset) this.onReset(hard);
@@ -464,6 +474,7 @@ class Machine {
   restore(snap) {
     this.checkSnapshot(snap);
     this.loadSnapshotState(snap);
+    this.restored = true;   // this run began as a loaded moment: the Session's boot watchdog leaves it alone
   }
   // loads a snapshot's state in the layout of the file's version, without restore()'s checks (call checkSnapshot
   // first); a loader that reads a key newer files have can tell an older file's absence of it by restoringVersion

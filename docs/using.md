@@ -290,7 +290,11 @@ pixels.
 
 A snapshot never contains ROMs, only the CRC of each ROM it ran with. Opening one needs exactly those ROMs in this
 browser (or none, if it ran without ROMs); otherwise CLOADM says which ROM it needs and opens the snapshot as
-soon as you add it. A snapshot of another model or RAM size asks before switching.
+soon as you add it. A snapshot of another model or RAM size asks before switching. A restored moment is not a
+power-on: whatever the program on screen is doing (a game, a program that took over Reset), opening a snapshot
+never brings up the "No OK after 5 seconds" box. **Switch off and on** and adding ROMs are power-ons again, with
+their box as before; **Reset** keeps RAM and never reports a failed boot - if a program holds BASIC's warm-start
+vector it says "A program took over Reset" and offers **Switch off and on**, and otherwise shows no box.
 
 A page reads the snapshot versions it knows and says so when a file is newer or older, or was saved by a
 pre-release build, whose snapshots it does not read (the format is in [architecture.md](architecture.md#snapshot-format)). **Snapshots** in the drawer's Media tab keeps three

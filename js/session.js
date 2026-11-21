@@ -1084,24 +1084,28 @@ export class Session {
     return out;
   }
   // Did BASIC start? 'stub' (no ROMs in use), 'nitros9' (our NitrOS-9 loader instead of BASIC: bootNitros9),
-  // 'ok' (BASIC printed OK), 'booting', or 'failed' when no OK
-  // appeared within `seconds` of emulated time after power-on; then `cause` explains it from the sockets.
-  // The latch (bootOk) records the power-on whose OK was seen, so a screen that scrolls OK away does not go back
-  // to 'booting'. It is keyed by MACHINE as well as by reset, because frameCount and framesSinceReset are
-  // per-machine and two machines can share the same arithmetic (a freshly made chat machine and a BASIC machine
+  // 'ok' (BASIC printed OK), 'booting', 'restored' (a snapshot was opened: not a power-on, so not a boot), or
+  // 'failed' when no OK appeared within `seconds` of emulated time after a power-on; then `cause` explains it from
+  // the sockets. The latch (bootOk) records the power-on whose OK was seen, so a screen that scrolls OK away does
+  // not go back to 'booting'. It is keyed by MACHINE as well as by reset, because frameCount and framesSinceReset
+  // are per-machine and two machines can share the same arithmetic (a freshly made chat machine and a BASIC machine
   // at power-on are both 0): unkeyed, one machine's 'ok' would satisfy the other's check. bootStatus() and
   // chatTarget().bootStatus() both come here, so the two views of one machine cannot disagree.
   bootStatus(seconds = 5) { return this._bootStatusOf(this.machine, seconds); }
   _bootStatusOf(m, seconds = 5) {
     if (!m.hasRom) return { state: 'stub' };
     if (this.nitros9On(m)) return { state: 'nitros9' };   // our NitrOS-9 loader, not BASIC: no OK to wait for
-    const resetAt = m.frameCount - m.framesSinceReset;   // identifies the current power-on or reset
+    const resetAt = m.resetAt;                            // identifies the current power-on or reset
     if (this.bootOk && this.bootOk.m === m && this.bootOk.resetAt === resetAt) return { state: 'ok' };
     if (this.screenText(m).some((l) => l.trim() === 'OK')) { this.bootOk = { m, resetAt }; return { state: 'ok' }; }
     if (m.framesSinceReset < seconds * m.fps) return { state: 'booting' };
-    // The watchdog is for a power-on. After the Reset button RAM is kept and BASIC's reset routine may jump
-    // through the warm-start vector a program set, so no OK is not a boot failure: 'reset', with `takeover` when
-    // a program holds that vector (warmStartTakeover).
+    // The watchdog is for a power-on. A moment opened from a snapshot was not one: the program it holds may have
+    // taken the screen from BASIC (a game, a program that took over Reset) or never printed OK at all, and coming
+    // back to it is not a boot that failed (m.restored: set by Machine.restore, cleared by every reset).
+    if (m.restored) return { state: 'restored' };
+    // After the Reset button RAM is kept and BASIC's reset routine may jump through the warm-start vector a
+    // program set, so no OK is not a boot failure either: 'reset', with `takeover` when a program holds that
+    // vector (warmStartTakeover).
     if (this.warmReset && this.warmReset.m === m && this.warmReset.resetAt === resetAt) return { state: 'reset', takeover: warmStartTakeover(m) };
     // the sockets are the Session's, keyed by machine; ask about THIS machine rather than the one on screen
     const sockets = (m === this.machine ? this.machineRoms() : this.machineRoms(m.id)).sockets;
@@ -1249,6 +1253,10 @@ export class Session {
   // The machine is built and restored aside and replaces the one in use only when that worked: a snapshot that
   // can't be restored throws a SessionError and changes nothing (machine, remembered model and config, stub
   // choice). A switch remembers the snapshot's config for its model, as choosing that machine would.
+  // The moment was not a power-on: bootStatus answers 'restored' rather than 'failed' for it (m.restored, which
+  // Machine.restore sets), so a program that took the screen -- a game, anything that never printed OK -- is not
+  // reported as a boot failure 5 s after it comes back. A later Reset or power-on clears the flag, so the
+  // watchdog is armed again for it.
   openSnapshot(snap) {
     const roms = this.snapshotRoms(snap), p = profiles[snap.machine];
     // a shared one: its ROM code rebuilt from this browser's own images (snapshotRoms checked they are all here)
@@ -1952,6 +1960,12 @@ export class Session {
       throw new SessionError(`Can't restore that point (${e.message}): the machine was put back as it was, and your restore points are kept.`);
     }
     const notices = this.relinkPoint(m, (this.claudePointInfo.get(snap) || {}).disks || [], linked);
+    // A restore point is a loaded moment too, and goes back onto the same machine (no new Machine, no Reset): the
+    // boot watchdog must not count 5 s from it either, or a point taken on a game would answer 'failed' with the
+    // socket cause after Claude's undo. Machine.loadSnapshotState deliberately does not mark it (a boot-failure
+    // moment carries its diagnosis in the snapshot), so the Session does, here, where the point's state is put
+    // back. The latch is re-armed by the same frame rule every reset uses: the point's own frame is a new run.
+    m.restored = true;
     this.emit('disks');
     return notices;
   }

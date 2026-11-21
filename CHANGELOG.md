@@ -38,6 +38,15 @@ All notable changes to CLOADM are recorded here. The format follows
 
 - The **Switch off and on** button's tooltip said it ejects the tape and cartridge; they stay in, and it says so.
 
+- **Opening a snapshot no longer says CLOADM failed.** Opening a snapshot (a file or a quick-save slot), or putting
+  a moment back with Claude's **↶ Restore to …**, no longer brings up the boot-failure box ("No OK after 5 seconds …
+  a problem in CLOADM"), whenever in its run the moment was saved: before, one taken more than five seconds into its
+  run showed the box the instant it opened, and an earlier one showed it after the rest of the five seconds. A
+  loaded moment is not a power-on; it is now marked as such (`bootStatus` answers `restored`). A **Reset** leaves a
+  loaded moment on the Reset rules (RAM kept, no "the boot failed"; a program holding BASIC's warm-start vector gets
+  "A program took over Reset"); **Switch off and on**, or a ROM change, arms the boot check again. The browser check
+  opens a snapshot of a game, waits 6 s of the machine's own frames, and requires no box.
+
 ### 0.1.6-pre
 
 #### Added
