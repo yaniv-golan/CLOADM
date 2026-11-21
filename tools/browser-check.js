@@ -6480,8 +6480,8 @@ async function inputScreenChecks(browser, base, check) {
             if (c.l < safe.l - 0.5 || c.t < safe.t - 0.5 || c.r > safe.r + 0.5 || c.b > safe.b + 0.5) bad.push(`${c.name} outside the safe viewport`);
             if (cross(c, screen)) bad.push(`${c.name} over the screen`);
             if (c.el.scrollWidth > c.el.clientWidth) bad.push(`${c.name} clipped (${c.el.scrollWidth} > ${c.el.clientWidth})`);
-            // label in name (WCAG 2.5.3): a name set apart from the text still holds the text shown (SPC in "SPACE (SPC)")
-            if (c.el.hasAttribute('aria-label') && !c.name.toLowerCase().includes(c.el.innerText.trim().toLowerCase())) bad.push(`${c.name}: its name lacks its label "${c.el.innerText.trim()}"`);
+            // (label in name, WCAG 2.5.3, is checked over EVERY touch surface below, not only this row: the row
+            // covers the landscape controls, and the nits asked for the whole page or a narrower claim)
             for (const d of ctl) if (d !== c && cross(c, d) && !c.el.contains(d.el) && !d.el.contains(c.el)) bad.push(`${c.name} over ${d.name}`);
           }
           if (screen.t < safe.t - 0.5 || screen.b > safe.b + 0.5 || screen.l < safe.l - 0.5 || screen.r > safe.r + 0.5) bad.push('the screen outside the safe viewport');
@@ -6495,6 +6495,21 @@ async function inputScreenChecks(browser, base, check) {
           }
           return { names: ctl.map((c) => c.name), keys: keys.length, bad, fits: document.documentElement.scrollWidth <= innerWidth && document.documentElement.scrollHeight <= innerHeight + 1 };
         }, inset || { top: 0, bottom: 0, left: 0, right: 0 });
+        // label in name (WCAG 2.5.3) over every touch surface on the page, whichever layout: each control whose
+        // accessible name is set apart from its visible text must still contain that text (so a voice user saying
+        // what they see reaches it). The landscape row used to be the only place this ran; this covers the keys,
+        // the stick, FIRE, the menu, BREAK/CLEAR and the switch in every layout the group opens.
+        const ln = await page.evaluate(() => {
+          const bad = [];
+          for (const e of document.querySelectorAll('#touchKeys button, #touchStick, #touchFire, #tkBreak, #tkClear, #tkMenu, #tkModeSwitch button, #btnShowKeys')) {
+            if (!e.checkVisibility() || !e.getBoundingClientRect().width) continue;
+            if (!e.hasAttribute('aria-label')) continue;
+            const name = e.getAttribute('aria-label').toLowerCase(), text = e.innerText.trim().toLowerCase();
+            if (text && !name.includes(text)) bad.push(`${e.getAttribute('aria-label')}: its name lacks its label "${e.innerText.trim()}"`);
+          }
+          return bad;
+        });
+        check(`${L}: every control's accessible name contains its visible text (WCAG label in name)`, !ln.length, ln.join('; '));
         const want = ['BREAK', 'CLEAR', 'Menu', 'Keys', 'Joystick'];
         check(`${L}: BREAK, CLEAR, the switch and Menu whole, inside the viewport and its safe area, clear of the screen and each other${mode === 'keys' ? '; split keys at least 40 px tall' : '; the strip and FIRE too'}`,
           want.every((n) => lay.names.includes(n)) && (mode === 'keys' ? lay.keys >= 40 : lay.names.includes('Fire') && lay.names.includes('SPACE (SPC)')) && !lay.bad.length && lay.fits, JSON.stringify(lay));
@@ -6521,9 +6536,12 @@ async function inputScreenChecks(browser, base, check) {
       for (const [id, cls] of show.classes || []) (id === 'body' ? document.body : document.getElementById(id)).classList.add(cls);
       const e = document.querySelector(sel);
       if (!e || !e.checkVisibility({ visibilityProperty: true })) return { sel, shown: false };
-      const r = e.getBoundingClientRect();
+      const r = e.getBoundingClientRect(), pos = getComputedStyle(e).position;
       const ok = r.width > 0 && r.left >= ins.left - 0.5 && r.top >= ins.top - 0.5 && r.right <= innerWidth - ins.right + 0.5 && r.bottom <= innerHeight - ins.bottom + 0.5;
-      return { sel, shown: true, ok, rect: [r.left, r.top, r.right, r.bottom].map(Math.round), safe: [ins.left, ins.top, innerWidth - ins.right, innerHeight - ins.bottom] };
+      // fixed: a box placed inside the safe area by normal flow would scroll out of it, and the inset is about
+      // what stays put over the page. Read here, so every overlay's check asks the same question.
+      return { sel, shown: true, pos, fixed: pos === 'fixed', ok,
+        rect: [r.left, r.top, r.right, r.bottom].map(Math.round), safe: [ins.left, ins.top, innerWidth - ins.right, innerHeight - ins.bottom] };
     }, [sel, ins, show]);
     const SIDE = { top: 0, bottom: 21, left: 59, right: 59 }, UP = { top: 47, bottom: 34, left: 0, right: 0 };
     for (const [label, viewport, ins] of [['sideways 932x430', { width: 932, height: 430 }, SIDE], ['upright 390x844', { width: 390, height: 844 }, UP]]) {
@@ -6536,7 +6554,9 @@ async function inputScreenChecks(browser, base, check) {
         await page.goto(`${base}?machine=dragon64&start=liza`);
         await waitFor(page, () => window.emu && window.emu.session.screenText().join('').includes('I AM LIZA'));
         const s = await inside(page, '#claudeStatus', ins, { ids: ['claudeBar', 'claudeStatus'], classes: [['body', 'chat-phone']] });
-        check(`${L}: the chat's turn status beside the screen lies inside the safe area`, s.shown && s.ok, JSON.stringify(s));
+        // 3c: and it is position:fixed, the thing that makes an inset a meaningful test (a flow box inside the
+        // safe area scrolls away; the status is an overlay)
+        check(`${L}: the chat's turn status beside the screen is fixed and lies inside the safe area`, s.shown && s.fixed && s.ok, JSON.stringify(s));
         await ctx.close();
       }
       // a pointer and a keyboard: a toast, the install card, the command box, Ask Claude and the page view's status pill
@@ -6573,8 +6593,11 @@ async function inputScreenChecks(browser, base, check) {
           await emuFrames(page, 3);
           const e = await inside(page, '#toast', ins);
           await page.evaluate(() => { document.getElementById('testObstacle').remove(); window.emu.feedback.clear(); });
-          check(`${L}: with only the notch's edge free along the bottom, the toast is not put there (inside the safe area, or waiting)`,
-            edge && (!e.shown || e.ok), JSON.stringify(e));
+          // A toast that never appears would satisfy "not put under the notch" while proving nothing, so this
+          // needs the toast to be VISIBLE (shown with a box) and, wherever it went, inside the safe area: the
+          // "or waiting" the old wording allowed let a toast that never showed pass.
+          check(`${L}: with only the notch's edge free along the bottom, the toast still shows, inside the safe area`,
+            edge && e.shown && e.ok, JSON.stringify(e));
         }
         if (lib) { await page.evaluate(() => { location.hash = ''; }); await waitFor(page, () => !document.body.classList.contains('library-open')); }
         await page.click('#machineBtn'); await page.click('#navInstall');   // (no install prompt: the card with the steps)
@@ -6601,7 +6624,8 @@ async function inputScreenChecks(browser, base, check) {
         const pill = await inside(page, '#viewClaude', ins, { ids: ['viewClaude'] });
         let top = { shown: true, ok: true };
         if (viewport.width > viewport.height) top = await inside(page, '#viewClaude', ins, { ids: ['viewClaude'], classes: [['viewClaude', 'top']] });
-        check(`${L}: the status pill lies inside the safe area${viewport.width > viewport.height ? ', at the bottom and at the top' : ''}`, pill.shown && pill.ok && top.shown && top.ok, JSON.stringify([pill, top]));
+        check(`${L}: the status pill is fixed and lies inside the safe area${viewport.width > viewport.height ? ', at the bottom and at the top' : ''}`,
+          pill.shown && pill.fixed && pill.ok && top.shown && top.fixed && top.ok, JSON.stringify([pill, top]));
         await ctx.close();
       }
     }
@@ -6618,6 +6642,25 @@ async function inputScreenChecks(browser, base, check) {
       await waitFor(page, () => !document.getElementById('installOffer').hidden);
       const card = await inside(page, '#installOffer', SIDE), where = await page.evaluate(() => window.emu.install.state().placement().where);
       check(`${L}: the install card, in the gutter beside the screen, lies inside the safe area`, where === 'gutter' && card.shown && card.ok, JSON.stringify({ where, card }));
+      // 3a (js/ui/install.js's own use of safeArea()): the card may only go where inWindow() says - the window
+      // LESS the insets. This narrows the window until the only gutter wide enough is the notch-side one (59 px of
+      // inset each side): a placement that measured against the window edge, not safeArea(), would take it. What
+      // must hold is that the card never sits left of the inset, whichever of the other places it picks or waits in.
+      const narrow = [700, 620, 560, 500];
+      let under = null;
+      for (const w of narrow) {
+        await page.setViewportSize({ width: w, height: 480 });
+        await emuFrames(page, 3);
+        const r = await page.evaluate(() => {
+          const card = document.getElementById('installOffer');
+          if (card.hidden) return { hidden: true };
+          const b = card.getBoundingClientRect();
+          return { hidden: false, left: Math.round(b.left), right: Math.round(b.right), where: window.emu.install.state().placement().where };
+        });
+        if (!r.hidden && r.left < SIDE.left - 0.5) { under = { w, ...r }; break; }
+      }
+      check(`${L}: shrinking the window never puts the card under the notch (js/ui/install.js measures with safeArea)`,
+        !under, JSON.stringify({ under, tried: narrow }));
       await ctx.close();
     }
   }
