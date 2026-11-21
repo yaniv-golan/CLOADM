@@ -4043,10 +4043,14 @@ async function feedbackChecks(browser, base, check) {
     // growing by 240 px pushes everything below it down by 240 (or the toast takes a different place), so the box's
     // top must have changed -- that is what a placement that stopped re-placing cannot do.
     const dy = afterMove.box.top - moved.box.top, dx = afterMove.box.left - moved.box.left;
-    check(`feedback (${label}): a layout change while the toast is up MOVES it (placement is still followed)`,
-      (Math.abs(dy) > 20 || Math.abs(dx) > 20) && afterMove.box.top >= 0 && afterMove.box.bottom <= winH
-        && afterMove.box.left >= 0 && afterMove.box.right <= winW,
-      `moved by (${dx}, ${dy}): ${JSON.stringify(moved.box)} -> ${JSON.stringify(afterMove.box)}`);
+    const pinnedNow = await ev(() => document.getElementById('toastRegion').classList.contains('top'));
+    // An UNPINNED toast must have moved (a frozen placement passes "still in view" trivially). A PINNED one is kept
+    // in the top slot until it goes, deliberately -- so on a phone, where no place is free and the toast takes that
+    // slot, it must instead stay put and in view. Either way "it follows" is doing something real.
+    check(`feedback (${label}): a layout change while the toast is up ${pinnedNow ? 'keeps a pinned toast in its slot' : 'MOVES the toast'} (placement is still followed)`,
+      afterMove.box.top >= 0 && afterMove.box.bottom <= winH && afterMove.box.left >= 0 && afterMove.box.right <= winW
+        && (pinnedNow ? (dx === 0 && dy === 0) : (Math.abs(dy) > 20 || Math.abs(dx) > 20)),
+      `moved by (${dx}, ${dy}), pinned ${pinnedNow}: ${JSON.stringify(moved.box)} -> ${JSON.stringify(afterMove.box)}`);
     check(`feedback (${label}): no page errors`, !errors.length, errors.join('; '));
     await ctx.close();
   }
