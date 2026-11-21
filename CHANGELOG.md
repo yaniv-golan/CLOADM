@@ -10,12 +10,14 @@ Next version: 0.1.7-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Fixed
 
-- **A rename can no longer take a name a new disk or an import is making, which lost the renamed image.** A disk
-  creation checks its name, then waits for the drives' own writes before writing. A rename landing in that wait took
-  the name first, and the creation's write replaced the renamed file: the imported image was GONE, and both actions
-  reported success. A creation now claims its name before that wait and releases it when it ends (a failure
-  included), and a rename onto a name in progress is refused (`... a disk is being made under that name: try again
-  once it is done.`). `tests/mount-rename-races.test.js`.
+- **A rename and a new disk or import can no longer write over each other's image.** A disk creation checks its
+  name, then waits for the drives' own writes before writing, and a rename was not ordered with it at all: a rename
+  landing in that wait took the name first (the creation's write then replaced the renamed file, and the image was
+  gone), and a rename asked first could be overtaken the same way (the creation had picked the name from a listing
+  that could not see the queued move). A disk rename now runs as one creation, like a new disk or an import: one at
+  a time, in the order each was asked, and after the creations queued before it have ended. A rename onto a name a
+  creation is making is refused (`... a disk is being made under that name: try again once it is done.`), and a
+  creation asked behind a queued rename lists after it has run and takes a free name. `tests/mount-rename-races.test.js`.
 
 - **Moving the library takes every DriveWire server with it.** The Becker port's server was retargeted by a move;
   the one serving a real CoCo over Web Serial and the full-screen chat's kept reading and writing the old place.
