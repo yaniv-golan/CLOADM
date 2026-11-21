@@ -4025,7 +4025,8 @@ async function feedbackChecks(browser, base, check) {
     await ev(() => window.emu.feedback.toast('Budget: a toast left up'));
     await ticks(page, 3);
     await ev(() => { window.__w = 0; });                 // (count from settled)
-    const moved = await ev(() => ({ left: document.getElementById('toastRegion').style.left, top: document.getElementById('toastRegion').style.top }));
+    const moved = await ev(() => ({ left: document.getElementById('toastRegion').style.left, top: document.getElementById('toastRegion').style.top,
+      box: document.getElementById('toast').getBoundingClientRect().toJSON() }));
     await ticks(page, 60);
     const writes = await ev(() => window.__w);
     check(`feedback (${label}): a stationary toast rewrites #toastRegion's style far fewer times than frames (budget 40 in 60)`,
@@ -4036,12 +4037,16 @@ async function feedbackChecks(browser, base, check) {
     const afterMove = await ev(() => ({ left: document.getElementById('toastRegion').style.left, top: document.getElementById('toastRegion').style.top,
       box: document.getElementById('toast').getBoundingClientRect().toJSON() }));
     const winH = await ev(() => innerHeight);
+    const winW = await ev(() => innerWidth);
     await ev(() => { document.querySelector('header').style.minHeight = ''; });
-    // it must be IN VIEW after the change (a toast that stopped being placed could end up outside the window), and
-    // where it can move, it must have moved
-    check(`feedback (${label}): a layout change while the toast is up moves it (placement is still followed)`,
-      afterMove.box.top >= 0 && afterMove.box.bottom <= winH && !(afterMove.box.left < 0 || afterMove.box.right > await ev(() => innerWidth)),
-      `${JSON.stringify(moved)} -> ${JSON.stringify({ left: afterMove.left, top: afterMove.top })} box=${JSON.stringify(afterMove.box)}`);
+    // It must have MOVED, not merely stayed in view: a frozen placement passes "still in view" trivially. The header
+    // growing by 240 px pushes everything below it down by 240 (or the toast takes a different place), so the box's
+    // top must have changed -- that is what a placement that stopped re-placing cannot do.
+    const dy = afterMove.box.top - moved.box.top, dx = afterMove.box.left - moved.box.left;
+    check(`feedback (${label}): a layout change while the toast is up MOVES it (placement is still followed)`,
+      (Math.abs(dy) > 20 || Math.abs(dx) > 20) && afterMove.box.top >= 0 && afterMove.box.bottom <= winH
+        && afterMove.box.left >= 0 && afterMove.box.right <= winW,
+      `moved by (${dx}, ${dy}): ${JSON.stringify(moved.box)} -> ${JSON.stringify(afterMove.box)}`);
     check(`feedback (${label}): no page errors`, !errors.length, errors.join('; '));
     await ctx.close();
   }

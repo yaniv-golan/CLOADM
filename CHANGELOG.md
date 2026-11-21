@@ -16,8 +16,10 @@ Next version: 0.1.7-pre (the plugin and extension manifests carry it; `tests/plu
   `#toastRegion`, 2,714 of 2,715 of them byte-identical. One cancellable chain now places a toast, and the style is
   written only when the placement changes (and cleared when the stylesheet's own place is right). In a fix-D load
   window the region's style writes fall from 3,630-3,645 to 30, and the page's DOM mutations from about 6,500 to
-  2,410; the toast still follows a resize, a scroll or a control that grows under it. This does not claim to fix the
-  flicker the owner saw. `tests/toast-follow.test.js`, `tools/flicker-measure.js`.
+  2,410; the toast still follows a resize, a scroll or a control that grows under it. The identity a placement is
+  cached under includes everything the decision reads (the safe-area insets, the screen's geometry and its visible
+  text area included), and a test asserts each input is in it. This does not claim to fix the flicker the owner saw.
+  `tests/toast-follow.test.js`, `tools/flicker-measure.js`.
 
 ### 0.1.7-pre
 

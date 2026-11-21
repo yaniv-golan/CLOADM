@@ -32,6 +32,27 @@ export function splitDetails(text) {
   return m && m[1].length >= 12 ? [m[1], m[2]] : [text, null];
 }
 
+// The identity of a placement decision, from every input it is made from. Pure (no DOM, no window), so a test can
+// call it with hand-built inputs and prove each input is in the key -- which a behavioural test cannot always do (a
+// pinned toast is never re-placed, and the band branch always pins to the band's floor, so some inputs cannot move a
+// real toast even though the decision reads them). A hand-written list of these drifted twice before it was one
+// function with one set of fields: it missed the safe-area insets and the screen's text area.
+export function placementKey(I) {
+  const outline = (o) => (o && o.width && o.height ? `${Math.round(o.left)},${Math.round(o.top)},${Math.round(o.right)},${Math.round(o.bottom)}` : '');
+  return [
+    I.winW, I.winH, I.view,
+    // the box's own rect: a layout change that moves the toast (a scroll, a control appearing above it) moves it,
+    // while a stationary toast's rect does not change at all
+    I.box.left, I.box.top, I.box.width, I.box.height, I.classes,
+    (I.controls || []).map(outline).join(';'),
+    // the screen's geometry and its visible text area: the toast avoids the text and may sit in the band under it,
+    // and data-active can change with no layout at all
+    outline(I.screen), outline(I.tube), I.active,
+    // the safe area (a phone's notch, browser chrome, a rotation): an inset can change without the box moving
+    I.area.left, I.area.top, I.area.right, I.area.bottom,
+  ].join('|');
+}
+
 export function createFeedback() {
   const box = $('toast'), textEl = $('toastText'), actEl = $('toastAction'), detEl = $('toastDetails'), moreEl = detEl;
   const attBox = $('attention'), attText = $('attentionText'), attAct = $('attentionAction');
@@ -139,11 +160,15 @@ export function createFeedback() {
   // a different answer, which is what the browser check's "a control grows under it" case needs.)
   let measuredFor = null, decided = null;
   function placementInputs() {
-    const t = box.getBoundingClientRect();
-    const controls = [...document.querySelectorAll(CONTROLS)].map((e) => { const o = e.getBoundingClientRect(); return o.width && o.height ? `${Math.round(o.left)},${Math.round(o.top)},${Math.round(o.right)},${Math.round(o.bottom)}` : ''; }).join(';');
-    // the box's own rect too: a layout change that moves the toast (a scroll, a control appearing above it) moves it,
-    // while a stationary toast's rect does not change at all
-    return [innerWidth, innerHeight, currentView(), t.left, t.top, t.width, t.height, box.className, region.className, controls].join('|');
+    const t = box.getBoundingClientRect(), area = safeArea();
+    const cv = document.getElementById('screen'), tubeEl = document.querySelector('#monitor .tube');
+    return placementKey({
+      winW: innerWidth, winH: innerHeight, view: currentView(),
+      box: { left: t.left, top: t.top, width: t.width, height: t.height }, classes: `${box.className}|${region.className}`,
+      controls: [...document.querySelectorAll(CONTROLS)].map((e) => e.getBoundingClientRect()),
+      screen: cv && cv.getBoundingClientRect(), tube: tubeEl && tubeEl.getBoundingClientRect(),
+      active: cv ? cv.dataset.active || '0,0,1,1' : '', area,
+    });
   }
   // put back the placement an unchanged frame would have decided on (writes only if something moved)
   function reapply() {
@@ -196,8 +221,11 @@ export function createFeedback() {
     const at = tries.find(([x, y, avoidScreen]) => free(rect(x, y), avoidScreen ? controls.concat(screen) : controls));
     if (at) {
       if (at[0] !== r.left || at[1] !== r.top) {
-        put(at[0], at[1], phone ? w : null);
-        decided = { kind: 'placed', left: `${Math.round(at[0])}px`, top: `${Math.round(at[1])}px`, width: null };
+        // the width put() WRITES, recorded exactly: null here would make reapply() clear the width, shrink the region,
+        // and re-place -- a per-frame oscillation worse than main (phone, top-edge spot)
+        const width = phone ? `${Math.round(w)}px` : null;
+        put(at[0], at[1], width);
+        decided = { kind: 'placed', left: `${Math.round(at[0])}px`, top: `${Math.round(at[1])}px`, width };
       } else {
         // the toast's own place is free: the stylesheet's place holds, and there is no inline style to re-apply
         decided = { kind: 'natural' };
