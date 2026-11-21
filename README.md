@@ -50,6 +50,12 @@ hardware; the exceptions are listed under [How we know it's right](#how-we-know-
 </tr>
 </table>
 
+**With Claude:** two ways, both [compared here](docs/mcp.md#which-way-should-i-install-cloadm-for-claude).
+* **Connector** (most people): add `https://mcp.cloadm.dev/mcp` as a custom connector (no sign-in). The emulator runs
+  in Claude's side panel, live, with nothing to install; ROMs are added in the panel.
+* **Plugin** (your own files, Claude Code): add the marketplace `yaniv-golan/CLOADM`. It runs on your computer, with
+  your ROM files and the `~/CLOADM` folder; Claude sees text and screenshots.
+
 Something not working? The [quick fixes](https://cloadm.dev/help/#fixes) cover a black screen, no sound, a tape
 that won't load, a disk that shows nothing and the keyboard.
 
@@ -86,7 +92,7 @@ Per-machine notes, RAM options and the chip-by-chip list: [docs/machines.md](doc
 | **Games** | 2048 and Minesweeper, our own, no ROMs needed (32K or more): welcome menu option 5, or [`?start=2048`](https://cloadm.dev/play/?start=2048) / [`?start=minesweeper`](https://cloadm.dev/play/?start=minesweeper) ([details](docs/using.md#games)) | |
 | **Library** | Every tape, disk, cartridge and program you load, kept for next time, in the browser or a folder on your computer; paste a magazine listing and CLOADM types it in | |
 | **Claude** | Chat with Claude full screen on the green screen (phones included), or Ask Claude in a side panel; Claude reads only the emulated machine (its screen text and memory, never anything else on your computer; it says so when it can't read a screen), and acts on it (POKE, typing, loading a BASIC program, BREAK) only with your permission, with undo | The chat over DriveWire to a real machine; the CoCo 3's 80-column chat screen |
-| **Tools** | Assembler, Debugger, POKE book, snapshots; a command line, MCP server and Node API for agents ([automation](docs/automation.md), [MCP](docs/mcp.md)) | Step back (rewind) |
+| **Tools** | Assembler, Debugger, POKE book, snapshots; a command line, MCP server and Node API for agents, and a claude.ai connector that runs the emulator in Claude's side panel ([automation](docs/automation.md), [MCP](docs/mcp.md), [side panel](docs/mcp.md#claude-on-the-web-side-panel)) | Step back (rewind) |
 | **Sharing** | Every setting as a URL parameter; a link that opens exactly this moment, a 6-second clip, a true-pixel screenshot; embed code and a JavaScript API; works offline once visited; **Install CLOADM…** at the foot of the **machine menu** (the machine-name button, top left), and a one-time offer once a program has run a minute (its own window, offline) | |
 
 How to load each kind of file, the keys, snapshots, sharing and embedding: [docs/using.md](docs/using.md). Running it from scripts and CI (`node cli/cloadm.js`): [docs/automation.md](docs/automation.md). Writing a game and testing it end to end (keys, screen, pictures, sound), with a starter game: [docs/game-development.md](docs/game-development.md).

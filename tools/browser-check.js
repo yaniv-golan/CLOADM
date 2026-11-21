@@ -48,6 +48,9 @@
 //
 // Then the reading pages (/roms) at desktop and phone width, and that only /roms and the landing page link the archive's ROM folder.
 //
+// Then the side-panel connector's two views (connector/), nested as an MCP Apps host nests them, under the spec's CSP,
+// with a protocol-faithful host stub (tools/connector-check.js, the `connector` group).
+//
 // The emulator is served at /play/; the landing page at / is checked at desktop and phone width: its links
 // resolve, "Try it now" opens the welcome program, the machine cards and "Talk to LIZA" open the emulator.
 //
@@ -14165,6 +14168,8 @@ const GROUPS = (base, site) => [
   ['favicon', (b) => faviconChecks(b, site, check)],
   ['uiModel', (b) => uiModelChecks(b, base, check)],
   ['semantics', (b) => semanticsChecks(b, base, site, check)],
+  // (required when the group runs: the shard planner's copy of this file runs --list-groups without it)
+  ['connector', (b) => require('./connector-check').connectorChecks(b, check, { shots: shotDir })],
 ];
 
 (async () => {
