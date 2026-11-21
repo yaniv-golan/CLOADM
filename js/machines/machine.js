@@ -180,9 +180,7 @@ class Machine {
     if (inside(pc)) return true;
     if (!p.calls.includes(pc)) return false;
     // in a console call: where it returns to (the 6809 leaves S on the return address, the 6803 one byte below)
-    const s = (this.cpu.s + (this.config.cpu === '6803' ? 1 : 0)) & 0xFFFF;
-    const rd = (a) => (this.peek ? this.peek(a) : this.ram[a]);
-    return inside((rd(s) << 8) | rd((s + 1) & 0xFFFF));
+    return inside(this.cpu.returnAddress((a) => (this.peek ? this.peek(a) : this.ram[a])));
   }
 
   // ---------------- reset ----------------

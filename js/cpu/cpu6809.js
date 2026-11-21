@@ -161,6 +161,9 @@ class CPU6809 {
   pushS8(v) { this.s = (this.s - 1) & 0xFFFF; this.write8(this.s, v); }
   pushS16(v) { this.pushS8(v); this.pushS8(v >> 8); }
   pullS8() { const v = this.read8(this.s); this.s = (this.s + 1) & 0xFFFF; return v; }
+  // The return address a JSR/BSR left on the stack, read with rd (a side-effect-free peek): S points at the last
+  // byte pushed, so the address is at S (high) and S+1 (low).
+  returnAddress(rd) { return (rd(this.s) << 8) | rd((this.s + 1) & 0xFFFF); }
   pullS16() { const h = this.pullS8(); return (h << 8) | this.pullS8(); }
   pushU8(v) { this.u = (this.u - 1) & 0xFFFF; this.write8(this.u, v); }
   pushU16(v) { this.pushU8(v); this.pushU8(v >> 8); }

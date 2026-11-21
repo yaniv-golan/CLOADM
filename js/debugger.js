@@ -380,14 +380,11 @@ export class Debugger {
     if (!CALLS[this.cpu].has(ins.mnemonic)) { this.step(); return; }
     this._runToArrival((pc + ins.size) & 0xFFFF, cpu.s, max);
   }
-  // Run until the current subroutine returns: the return address sits at the top of the stack, where each core
-  // stacks it. The 6809's S points at the last byte pushed, so the address is at S (high) and S+1 (low); the
-  // 6803 pushes low byte first and post-decrements, so S points below it and the address is at S+1 (high) and
-  // S+2 (low) (MC6803 data sheet, JSR/RTS). The return is the arrival there with the stack above where it is
-  // now (so the same address reached in a deeper call does not count).
+  // Run until the current subroutine returns: the return address sits at the top of the stack (where each core
+  // keeps it: cpu.returnAddress). The return is the arrival there with the stack above where it is now (so the
+  // same address reached in a deeper call does not count).
   runToReturn(max = 1000000) {
-    const cpu = this.machine.cpu, at = this.cpu === '6803' ? (cpu.s + 1) & 0xFFFF : cpu.s;
-    const target = (this.peek(at) << 8) | this.peek((at + 1) & 0xFFFF);
+    const cpu = this.machine.cpu, target = cpu.returnAddress((a) => this.peek(a));
     this._runToArrival(target, cpu.s + 1, max);
   }
   // run until the program counter reaches addr (at most max instructions; then it stops with kind 'limit')
