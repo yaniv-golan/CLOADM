@@ -94,6 +94,31 @@ if (process.argv[2] === 'worker') {
     check('... nothing was stored, the lock is not ours to remove', !fs.existsSync(path.join(dir, 'index.json')) && fs.existsSync(path.join(dir, 'index.lock')));
   }
 
+  // ---- Windows: the open refused (EACCES) with no lock file there ----
+  {
+    const dir = path.join(TMP, 'win'), store = romStore(dir, { lockWaitMs: 300 });
+    const platform = Object.getOwnPropertyDescriptor(process, 'platform'), open = fs.openSync;
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    fs.openSync = (f, ...a) => { if (String(f).endsWith('index.lock')) throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' }); return open(f, ...a); };
+    const t0 = Date.now();
+    let e = null;
+    try { store.add([{ name: 'a.rom', bytes: bytes(9) }], { source: 'data', from: 'x' }); } catch (x) { e = x; }
+    const took = Date.now() - t0;
+    Object.defineProperty(process, 'platform', platform);
+    fs.openSync = open;
+    check('win32, EACCES and no lock file: add throws cannot-write at once naming EACCES, not a spin', e && e.code === 'cannot-write' && /cannot lock .*EACCES/.test(e.message) && took < 1000, `${took} ms ${e && e.message}`);
+    check('... and a lock file there while EACCES lasts waits, then gives the timeout error', (() => {
+      fs.writeFileSync(path.join(dir, 'index.lock'), '');
+      Object.defineProperty(process, 'platform', { value: 'win32' });
+      fs.openSync = (f, ...a) => { if (String(f).endsWith('index.lock')) throw Object.assign(new Error('EACCES'), { code: 'EACCES' }); return open(f, ...a); };
+      let x = null; const t = Date.now();
+      try { store.add([{ name: 'a.rom', bytes: bytes(9) }], { source: 'data', from: 'x' }); } catch (y) { x = y; }
+      const dt = Date.now() - t;
+      Object.defineProperty(process, 'platform', platform); fs.openSync = open; fs.unlinkSync(path.join(dir, 'index.lock'));
+      return x && x.code === 'cannot-write' && /remove index\.lock/.test(x.message) && dt < 2000;
+    })());
+  }
+
   // ---- an index that is not valid, or cannot be read ----
   {
     const dir = path.join(TMP, 'corrupt'), warns = [], store = romStore(dir, { warn: (t) => warns.push(t) });

@@ -74,9 +74,17 @@ function romStore(dir, { warn = () => {}, now = () => Date.now(), lockStaleMs = 
     for (;;) {
       try { fs.closeSync(fs.openSync(lock, 'wx')); break; } catch (e) {
         // on Windows a lock being deleted by its holder answers EPERM or EACCES to a new open
-        if (e.code !== 'EEXIST' && !(process.platform === 'win32' && (e.code === 'EPERM' || e.code === 'EACCES'))) throw new T.McpToolError('cannot-write', `cannot lock the ROM store ${dir}: ${e.code || e.message}`);
-        try { if (Date.now() - fs.statSync(lock).mtimeMs > LOCK_STALE_MS) { fs.unlinkSync(lock); continue; } } catch (e2) { continue; /* released meanwhile */ }
+        const denied = process.platform === 'win32' && (e.code === 'EPERM' || e.code === 'EACCES');
+        if (e.code !== 'EEXIST' && !denied) throw new T.McpToolError('cannot-write', `cannot lock the ROM store ${dir}: ${e.code || e.message}`);
+        // no path of this loop goes round again without passing the deadline
         if (Date.now() > until) throw new T.McpToolError('cannot-write', `the ROM store is locked: ${lock} is held by another process; remove index.lock if no CLOADM server is running`);
+        let age;
+        try { age = Date.now() - fs.statSync(lock).mtimeMs; } catch (e2) {
+          // released meanwhile: try again; but a refusal with no lock file there is the folder refusing us, not a holder
+          if (denied) throw new T.McpToolError('cannot-write', `cannot lock the ROM store ${dir}: ${e.code}; the folder refuses new files`);
+          continue;
+        }
+        if (age > LOCK_STALE_MS) { try { fs.unlinkSync(lock); } catch (e3) { /* broken by another */ } continue; }
         sleepMs(5 + Math.floor(Math.random() * 20));
       }
     }
