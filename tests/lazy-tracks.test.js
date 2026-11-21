@@ -147,5 +147,5 @@ for (const [profile, opts, frames, at] of [
   }
 }
 
-if (fail) { console.log(`${fail} failed`); process.exit(1); }
-console.log('all passed');
+console.log(fail ? `${fail} failed` : 'all passed');
+process.exitCode = fail ? 1 : 0;
