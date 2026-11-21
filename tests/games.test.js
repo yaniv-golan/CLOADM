@@ -8,7 +8,7 @@
 // welcome menu back; the games are refused on the 6803 machines.
 // Text drawn in the bitmap is read back through the font in games.inc.
 // Run: node tests/games.test.js
-const fs = require('fs'), path = require('path');
+const fs = require('fs'), path = require('path'), crypto = require('crypto');
 const Emu = require('./load')();
 
 let fail = 0, n = 0;
@@ -649,8 +649,10 @@ WARMS   FCB     $57,$41,$52,$4D,0
 // the screens and the sound, through the command line (--expect-screenshot, --wav): scripted runs match the reference
 // pictures in tests/fixtures/games (made by these same commands with --screenshot and looked at: the title pages, a
 // 2048 board after six moves, a Minesweeper field after the first square, two moves and an F on an open square), pixel
-// for pixel, and Minesweeper's sounds match tests/fixtures/games/minesweeper-sounds.wav byte for byte (made by this
-// run with --wav). What the recording holds is checked from the samples: the first square's click, two cursor ticks,
+// for pixel, and Minesweeper's recorded sounds match tests/fixtures/games/minesweeper-sounds.sha256.json, which holds
+// the SHA-256 of their PCM samples (the recording itself is not committed: media files are refused by the pre-push
+// guard; set CLOADM_KEEP_WAV to a path outside the repo to hear it). What the recording holds is checked from the
+// samples: the first square's click, two cursor ticks,
 // the low buzz of F on an open square, three ticks to the mine at (6, 3), its flag's chirp on and off, and the
 // explosion (noise, the colours flashing, slower noise): bursts at full swing on the DAC (320 a step, mid level 32;
 // a level that changes within a sample's stretch is averaged).
@@ -675,7 +677,18 @@ WARMS   FCB     $57,$41,$52,$4D,0
   const r3 = cli(['-m', 'dragon64', '--program', 'minesweeper', '--frames', '30', '--expect-screenshot', fix('minesweeper-board.png')]);
   check('(--expect-screenshot fails on another picture: the title page is not the field)', r3.status === 1, String(r3.status));
   const wav = fs.existsSync(wavFile) ? fs.readFileSync(wavFile) : Buffer.alloc(0);
-  check('Minesweeper: its sounds match tests/fixtures/games/minesweeper-sounds.wav byte for byte (--wav)', wav.equals(fs.readFileSync(fix('minesweeper-sounds.wav'))), `${wav.length} bytes`);
+  // The recording is not committed (media files are refused by the repository's pre-push guard), so its PCM samples
+  // are compared by SHA-256 against a small JSON fixture: as strict as the byte-for-byte comparison it replaces.
+  const want = JSON.parse(fs.readFileSync(fix('minesweeper-sounds.sha256.json'), 'utf8'));
+  const pcm = wav.subarray(44);
+  const got = crypto.createHash('sha256').update(pcm).digest('hex');
+  check('Minesweeper: its recorded sounds match tests/fixtures/games/minesweeper-sounds.sha256.json (SHA-256 of the PCM)',
+    pcm.length === want.pcmBytes && got === want.sha256, `${pcm.length} bytes, ${got}`);
+  // A person can listen to the recording, but it is written OUTSIDE the repository: CLOADM_KEEP_WAV names the file.
+  if (process.env.CLOADM_KEEP_WAV && wav.length) {
+    fs.writeFileSync(process.env.CLOADM_KEEP_WAV, wav);
+    console.log(`(the recording was written to ${process.env.CLOADM_KEEP_WAV}, outside the repository)`);
+  }
   const samples = [];
   for (let i = 44; i + 1 < wav.length; i += 2) samples.push(wav.readInt16LE(i));
   const bursts = [];
