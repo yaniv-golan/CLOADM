@@ -228,8 +228,9 @@ route CPU RAM through its own cached view of `space(0)`, and that cache is inval
 2-1 select the 32K bank (setting both the pram and vram banks), and bit 0 overlays the 2K video RAM on
 `$0000-$07FF` only. For an unknown value (`$04`, `$05`) the default case leaves both bank entries as they were,
 but **bit 0 is still applied**: so `$05` turns the overlay *on* and `$04` changes nothing. Only a value that both
-selects case 0/2/6 and has bit 0 clear removes the overlay. CLOADM's `js/machines/d64plus.js` (on branch
-`cloadm-7b-d64plus`, not yet on main) matches this on all 16 probed cases.
+selects case 0/2/6 and has bit 0 clear removes the overlay. CLOADM's `js/machines/d64plus.js` matches this on
+all 16 probed cases under `config.mameCompat`. As shipped, `$FFE2` = `$04`/`$05` selects the motherboard RAM (`$05`
+with the video RAM over it; docs/verification.md, "Deviations from MAME").
 
 ## Summary
 

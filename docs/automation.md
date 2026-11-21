@@ -139,7 +139,8 @@ cmp catch.wav tests/sound/catch.wav     # a sound effect, as a regression refere
 The argument is the rest of the line, trimmed; the one rule for quotes is that when it starts and ends with a double
 quote, that one pair is taken off and nothing else changes. So `type " B "` keeps its spaces, `type ""A""` types `"A"`,
 and `type "C` types `"C`. On the command line the shell does the quoting, and the argument is taken as it is. A script
-can be mixed with other steps on the command line.
+can be mixed with other steps on the command line. The short names `m` (machine) and `o` (option) work in a script
+as they do on the command line (`-m`, `-o`); no other step has an alias.
 
 ```text
 # example: liza-script

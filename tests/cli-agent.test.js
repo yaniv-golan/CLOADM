@@ -173,6 +173,44 @@ const { STEPS, ERROR_CODES } = require(CLI);
 
 let pending = 1;
 function finishAsync() {
+
+// ---- --set-register: every register's own width, at its limit and one past it ----
+// The command line refuses a value that does not fit its register rather than cutting it down, and sets one that
+// fits whole. The 6309's three extra byte registers (e, f, md) and its 32-bit q are the ones a plain
+// `name === 'a'` test would miss, so each is tried at its own limit and one past it, on a machine that has it.
+{
+  for (const r of ['a', 'b', 'dp', 'cc']) {
+    const fits = cli(['-m', 'dragon32', '--set-register', `${r}=$FF`, '--registers']);
+    const over = cli(['-m', 'dragon32', '--set-register', `${r}=$100`, '--registers']);
+    check(`--set-register ${r} (8 bits): $FF is set whole, $100 refused with its own bound`,
+      fits.code === 0 && new RegExp(`${r.toUpperCase()}=\\$FF`).test(fits.out) && over.code === 2 && /is not a number from 0 to 255/.test(over.err) && over.out === '',
+      `${fits.code} ${over.code} ${over.err}`);
+  }
+  for (const r of ['e', 'f', 'md']) {
+    const fits = cli(['-m', 'coco3', '-o', 'cpu=6309', '--set-register', `${r}=$FF`, '--registers']);
+    const over = cli(['-m', 'coco3', '-o', 'cpu=6309', '--set-register', `${r}=$100`, '--registers']);
+    check(`--set-register ${r} (6309, 8 bits): $FF is set whole, $100 refused with its own bound`,
+      fits.code === 0 && new RegExp(`${r.toUpperCase()}=\\$FF`).test(fits.out) && over.code === 2 && /is not a number from 0 to 255/.test(over.err) && over.out === '',
+      `${fits.code} ${over.code} ${over.err}`);
+  }
+  // q is the only 32-bit register: $FFFFFFFF fits, $100000000 does not
+  {
+    const fits = cli(['-m', 'coco3', '-o', 'cpu=6309', '--set-register', 'q=$FFFFFFFF', '--registers']);
+    const over = cli(['-m', 'coco3', '-o', 'cpu=6309', '--set-register', 'q=$100000000', '--registers']);
+    check('--set-register q (6309, 32 bits): $FFFFFFFF is set whole, $100000000 refused with its own bound',
+      fits.code === 0 && /Q=\$FFFFFFFF/.test(fits.out) && over.code === 2 && /is not a number from 0 to 4294967295/.test(over.err) && over.out === '',
+      `${fits.out.trim()} | ${over.code} ${over.err}`);
+  }
+  // the 16-bit registers, each at $FFFF and refused at $10000 (w exists only on the 6309)
+  for (const r of ['x', 'y', 'u', 's', 'pc', 'd', 'w']) {
+    const machine = r === 'w' ? ['-m', 'coco3', '-o', 'cpu=6309'] : ['-m', 'dragon32'];
+    const fits = cli([...machine, '--set-register', `${r}=$FFFF`, '--registers']);
+    const over = cli([...machine, '--set-register', `${r}=$10000`, '--registers']);
+    check(`--set-register ${r} (16 bits): $FFFF is set whole, $10000 refused with its own bound`,
+      fits.code === 0 && over.code === 2 && /is not a number from 0 to 65535/.test(over.err), `${fits.code} ${over.code} ${over.err.slice(0, 100)}`);
+  }
+}
+
   if (--pending) return;
   fs.rmSync(TMP, { recursive: true, force: true });
   console.log(fail ? `${fail} FAILED` : `${n}/${n} CLI agent checks passed`);

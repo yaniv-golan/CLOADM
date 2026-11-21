@@ -261,7 +261,7 @@ const STEPS = {
 // --disasm with nothing after it: the PC
 STEPS.disasm.optionalArg = true;
 // what the script and the command line also accept for these names
-const ALIASES = { 'expect-text': 'expect-screen', png: 'screenshot', m: 'machine', o: 'option', regs: 'registers' };
+const ALIASES = { m: 'machine', o: 'option' };
 
 // KEY[+KEY...][:FRAMES]: key names as the keyboard matrix has them (js/machines/keyboards.js), {NAME} too
 function holdKeys(t) {
@@ -945,7 +945,10 @@ async function server(argv, { input, out, err }) {
   // neither: a folder the person can find, ~/CLOADM (%USERPROFILE%\CLOADM on Windows), made on the first write
   const createRoot = !o.mediaRoot;
   if (createRoot) o.mediaRoot = path.join(os.homedir(), 'CLOADM');
-  const roms = o.roms.flatMap(romFiles);   // read once: the user's own files, never sent to a client
+  // read once: the user's own files, never sent to a client; list_models says where each came from
+  const roms = o.roms.flatMap(romFiles).map((f) => Object.assign(f, { source: from.roms === 'command line' ? 'cli' : 'config' }));
+  // add_roms' store, next to the config file: merged with those at start-up (they win a socket both fill)
+  const store = require('./rom-store.js').romStore(path.join(path.dirname(file), 'roms'), { warn: (t) => err(`cloadm ${o.mode}: ${t}`) });
   if (!createRoot) {
     let st;
     try { st = fs.statSync(o.mediaRoot); } catch (e) { throw media(`cannot read the media root ${o.mediaRoot}: ${e.code || e.message}`, 'cannot-read'); }
@@ -953,8 +956,10 @@ async function server(argv, { input, out, err }) {
   }
   const M = require('./mcp.js');
   const T = require('../js/mcp/tools.js');
-  const toolbox = T.createToolbox(M.nodeHost({ mediaRoot: o.mediaRoot, createRoot, roms, png: framePng, configPath: file }), { readOnly: o.readOnly });
-  err(`cloadm ${o.mode}: ${toolbox.tools().length} tools${o.readOnly ? ' (read-only)' : ''}, ${roms.length} ROM file(s)${from.roms ? ` (${from.roms})` : ''}, media root ${createRoot ? o.mediaRoot : fs.realpathSync(o.mediaRoot)} (${from.mediaRoot}); config file ${file}`);
+  const host = M.nodeHost({ mediaRoot: o.mediaRoot, createRoot, roms, png: framePng, configPath: file, romStore: store });
+  const toolbox = T.createToolbox(host, { readOnly: o.readOnly });
+  const kept = host.roms().length - roms.length;
+  err(`cloadm ${o.mode}: ${toolbox.tools().length} tools${o.readOnly ? ' (read-only)' : ''}, ${roms.length} ROM file(s)${from.roms ? ` (${from.roms})` : ''}${kept ? `, ${kept} stored (${store.dir})` : ''}, media root ${createRoot ? o.mediaRoot : fs.realpathSync(o.mediaRoot)} (${from.mediaRoot}); config file ${file}`);
   return o.mode === 'mcp' ? M.mcp({ toolbox, input, out }) : M.serve({ toolbox, input, out });
 }
 

@@ -310,6 +310,31 @@ const { check, rejects, failures } = checker();
       again instanceof Emu.SessionError && /kept writing while it was read; try again/.test(again.message), again instanceof Error ? again.message : String(again));
     check('... after 4 reads (the first and three more: the same limit as before)', n2 === 4, String(n2));
   }
+  // ---------------- after a mount the Session runs the drive's round-trip check in the background
+  // (Session.checkDiskLater, js/chips/floppy.js get mountBytes), so the first snapshot after a mount - a restore
+  // point at the start of a Claude turn - does not pay for it, and gets what the check made at mount would give.
+  {
+    const sd = images.dmk(10, 2); sd[4] = 0x40;     // single density: the drive keeps its mounted bytes
+    const run = async (eager) => {
+      const { s } = session('dragon64', 'dragondos', 'dragon');
+      await s.importDisk('sd.dmk', sd, 0);
+      await s.importDisk('dd.vdk', images.vdk(40, 2), 1);
+      const drives = s.diskController.drives.slice(0, 2);
+      if (eager) for (const d of drives) void d.mountBytes;
+      await s.disksChecked();
+      const checked = drives.every((d) => d.pendingBytes === null);
+      const t = performance.now();
+      const snap = s.shownMachine.snapshot();
+      const ms = performance.now() - t;
+      return { checked, ms, text: Emu.state.toJSON(snap), kept: drives.map((d) => !!d.mountBytes) };
+    };
+    const eager = await run(true), bg = await run(false);
+    check('after a mount the background check has run on both drives', bg.checked);
+    check('so the first snapshot after the mounts is quick (under 50 ms)', bg.ms < 50, `${bg.ms.toFixed(1)} ms`);
+    check('the drives keep the mounted bytes exactly where the check at mount says (SD DMK yes, VDK no)',
+      JSON.stringify(bg.kept) === '[true,false]' && JSON.stringify(eager.kept) === '[true,false]', JSON.stringify(bg.kept));
+    check('and that snapshot is the one a check at mount gives', bg.text === eager.text, `${bg.text.length} vs ${eager.text.length} chars`);
+  }
   const fail = failures();
   console.log(fail ? `${fail} failed` : 'all passed');
   process.exitCode = fail ? 1 : 0;

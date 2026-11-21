@@ -71,8 +71,100 @@ const machine = (roms = true) => {
   m.write(0xFFE2, 0x01); check('1: bit 0 also overlays the video RAM on the standard bank', sel().join() === '0,3', sel().join());
   m.write(0xFFE2, 0x07); check('7: bank B and the overlay', sel().join() === '2,3', sel().join());
   m.write(0xFFE2, 0x03); check('3: bank A and the overlay', sel().join() === '1,3', sel().join());
-  m.write(0xFFE2, 0x04); check('4: an unknown value (bits 1-2 = 100) leaves both banks as they were', sel().join() === '1,3', sel().join());
+  m.write(0xFFE2, 0x04); check('4 (R2 R1 = 10): the motherboard RAM, as $00 (Harvey-Smith schematic: bit 2 only XORs Z7)', sel().join() === '0,0', sel().join());
+  m.write(0xFFE2, 0x07); m.write(0xFFE2, 0x05); check('5: the motherboard RAM and the overlay, even after bank B', sel().join() === '0,3', sel().join());
   m.write(0xFFE2, 0x00); check('0 again: the overlay goes back', sel().join() === '0,0', sel().join());
+}
+// config.mameCompat keeps MAME's d64plus_bank_w(): bits 2-1 = 10 logs an error and leaves both banks alone
+{
+  const m = Emu.createMachine('d64plus', { mameCompat: true });
+  m.reset(true);
+  const sel = () => [m.pramBank, m.vramBank];
+  m.write(0xFFE2, 0x03); m.write(0xFFE2, 0x04);
+  check('mameCompat: 4 after 3 leaves both banks as they were (MAME)', sel().join() === '1,3', sel().join());
+  m.write(0xFFE2, 0x06); m.write(0xFFE2, 0x05);
+  check('mameCompat: 5 after 6 keeps bank B and adds the overlay (MAME)', sel().join() === '2,3', sel().join());
+}
+
+// ---- what the CPU reads under each $FFE2 value, from the source RAM it should come from ----
+// P. Harvey-Smith's traced Eagle schematic of his DragonPlus board (World of Dragon forum, 7 June 2017; known drawing errors; not verified on hardware):
+// bit 1 selects the extra DRAM, bit 2 picks A or B; bit 0 the video RAM over $0000-$07FF. Compusense p. 2 gives $00, $02, $06 and R0.
+// Each source holds its own byte, so a read says which RAM it came from. The table is written out here, not derived.
+{
+  const SRC = { mb: 0x11, A: 0x22, B: 0x33, V: 0x44 };
+  //            $FFE2: [$0100, $1000]
+  const TABLE = { 0: ['mb', 'mb'], 1: ['V', 'mb'], 2: ['A', 'A'], 3: ['V', 'A'], 4: ['mb', 'mb'], 5: ['V', 'mb'], 6: ['B', 'B'], 7: ['V', 'B'] };
+  for (const before of [0x00, 0x02, 0x06, 0x07]) {
+    for (let v = 0; v < 8; v++) {
+      const m = machine();
+      for (const a of [0x0100, 0x1000]) { m.ram[a] = SRC.mb; m.plusRam[a] = SRC.A; m.plusRam[0x8000 + a] = SRC.B; }
+      m.videoRam[0x100] = SRC.V;
+      m.write(0xFFE2, before); m.write(0xFFE2, v);
+      const got = [m.read(0x0100), m.read(0x1000)], want = TABLE[v].map((k) => SRC[k]);
+      check(`$FFE2 = $0${v} after $0${before}: $0100 from ${TABLE[v][0]}, $1000 from ${TABLE[v][1]}`, got.join() === want.join(), got.map((x) => x.toString(16)).join());
+    }
+  }
+  // a write under $04 lands in the motherboard RAM, not in the bank selected before
+  const m = machine();
+  m.write(0xFFE2, 0x02); m.write(0xFFE2, 0x04); m.write(0x2000, 0x99);
+  check('a write under $04 (after bank A) lands in the motherboard RAM', m.ram[0x2000] === 0x99 && m.plusRam[0x2000] !== 0x99);
+}
+
+// ---- the MC6847 always fetches the motherboard RAM ----
+// P. Harvey-Smith's traced Eagle schematic of his DragonPlus board (World of Dragon forum, 7 June 2017; known drawing errors; not verified on hardware):
+// the VDG reads in E = 0 straight from the motherboard RAM. Our own firmware (an idle loop) keeps the VDG in text mode on $0000
+// (SAM F = 0); the motherboard holds pattern P there and banks A, B and the video RAM hold Q. Under every $FFE2 value
+// the picture must be the one a machine with P alone draws, and never the one Q draws.
+{
+  const fw = Emu.assemble(`        ORG     $8000
+RESET   ORCC    #$50
+        STA     $FFDD
+        CLR     $FF23
+        LDA     #$F8
+        STA     $FF22
+        LDA     #$34
+        STA     $FF23
+        CLR     $FF22
+IDLE    BRA     IDLE
+        ORG     $BFFE
+        FDB     RESET`);
+  const img = new Uint8Array(0x4000).fill(0x12);
+  for (const sg of fw.segments) img.set(sg.data, sg.addr - 0x8000);
+  const P = (a) => (a * 7 + 1) & 0xFF, Q = (a) => (a * 13 + 0x40) & 0xFF;
+  const picture = (fill, v, compat = false) => {
+    const m = Emu.createMachine('d64plus', { mameCompat: compat });
+    m.setRoms({ basic: img, basic64: img, chargen: charger(), prom: fake(0x200, 3) });
+    m.reset(true);
+    fill(m);
+    m.write(0xFFE2, v);
+    for (let f = 0; f < 3; f++) m.runFrame();
+    return Array.from(m.render().data).join();
+  };
+  const mbOnly = (src) => (m) => { for (let a = 0; a < 0x800; a++) m.ram[a] = src(a); };
+  const both = (m) => {
+    for (let a = 0; a < 0x800; a++) { m.ram[a] = P(a); m.plusRam[a] = Q(a); m.plusRam[0x8000 + a] = Q(a); m.videoRam[a] = Q(a); }
+  };
+  const want = picture(mbOnly(P), 0), notWant = picture(mbOnly(Q), 0);
+  check('the two patterns draw different pictures (the test can tell them apart)', want !== notWant);
+  for (let v = 0; v < 8; v++) {
+    const got = picture(both, v);
+    check(`$FFE2 = $0${v}: the VDG draws the motherboard RAM's bytes`, got === want && got !== notWant);
+  }
+  check('mameCompat: the VDG draws the motherboard RAM too (MAME 0.264 never applies $FFE2)', picture(both, 0x03, true) === want);
+}
+
+// ---- paging.asm, the lockstep firmware, on our machine without mameCompat ----
+// RESULTS: the CPU's reads after $02 -> $04, $06 -> $04, $07 -> $05 and $03 -> $04 (the bytes paging.asm put in the
+// motherboard RAM: $0100 = $03, $0101 = $04, $01FF = $02, $1000 = $5A, $1001 = $77)
+{
+  const t = require('../tools/mame-diff/d64plus/spec').paging('d64plus');
+  const m = t.machine(), halt2 = t.asm.symbols.get('HALT2');
+  for (let f = 0; f < 600 && m.cpu.pc !== halt2; f++) m.runFrame();
+  const got = Array.from(m.ram.subarray(0x3F10, 0x3F18));
+  check('paging.asm reaches its HALT loop', m.cpu.pc === halt2 && m.ram[0] === 0x01);
+  check('paging.asm: every read under $04 / $05 came from the motherboard RAM', got.join() === [0x03, 0x5A, 0x77, 0x04, 0x5A, 0x77, 0x03, 0x02].join(),
+    got.map((x) => x.toString(16)).join(' '));
+  check('paging.asm: no byte reached bank A, bank B or the video RAM', m.plusRam.every((x) => x === 0) && m.videoRam.every((x) => x === 0));
 }
 
 // ---- the banks at the bus ----

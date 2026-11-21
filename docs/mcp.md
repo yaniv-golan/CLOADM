@@ -8,6 +8,39 @@ them, types, waits for the screen, reads the screen, memory and registers, steps
 machines live in the server for as long as it runs. It needs Node 22.12 or later and a checkout of this repository,
 and nothing else: no npm packages and no build.
 
+## Which way should I install CLOADM for Claude?
+
+Claude is one app on the web, on phones and on the desktop. There are two main ways to give it CLOADM, and two
+for special cases. "Marketplace" is not a separate way: it is just where the plugin is listed, and this repository is
+its own marketplace.
+
+| Way | Install | Where the emulator runs | Tested |
+|---|---|---|---|
+| **1. Connector** (most people) | Plugins → Add → "Add custom connector" → name `CLOADM` and URL `https://mcp.cloadm.dev/mcp` → **No sign-in** → Add | in Claude's side panel, in your browser | the view on claude.ai on the web (the prototype); the desktop app and phones not yet |
+| **2. Plugin** (your own files, or Claude Code) | Customize → Plugins → Add → "Add marketplace" → `yaniv-golan/CLOADM` → Add on **Cloadm**; in Claude Code `/plugin marketplace add yaniv-golan/CLOADM`, then `/plugin install cloadm@cloadm-marketplace` | on your computer | Claude Code; the desktop app's plugin path by the owner |
+| 3. `.mcpb` extension (niche) | download `cloadm.mcpb` from the [Releases](https://github.com/yaniv-golan/CLOADM/releases) page and open it | on your computer, Claude Desktop only | |
+| 4. Other agents (Cursor, Codex, Gemini CLI, …) | an MCP entry for `node cli/cloadm.js --mcp`, plus `.agents/skills/` | on your computer | see [below](#cursor-gemini-cli-codex-and-other-mcp-clients) |
+
+**1. Connector.** Works wherever you use Claude, with no computer of your own involved. The emulator runs in Claude's
+side panel: you watch the screen and can type into it yourself, and Claude uses the tools on the same machine,
+asking you to approve each call. Nothing to install. Your ROMs are added inside the panel and stay in that browser.
+There are no files: no tapes, disks or snapshots from your computer, and no downloads. Verified with the prototype on
+claude.ai on the web; in the desktop app and on phones it is not yet tested. Details:
+[Claude on the web: side panel](#claude-on-the-web-side-panel).
+
+**2. Plugin.** The emulator runs on your computer, so it needs the Claude desktop app installed and open (Claude Code
+runs it itself). Claude sessions on the web and on your phone can then use it too while that computer is on (how the
+app shares a computer's local tools; not yet tested with CLOADM). With the app closed the tools are not available
+(inferred, not tested). It uses your ROM files and the `~/CLOADM` folder for tapes, disks, programs and snapshots
+([Your ROMs and media folder](#your-roms-and-media-folder)). Claude sees text and screenshots; there is no live
+panel. The plugin includes the skill that teaches Claude how to drive the emulator.
+
+**3. `.mcpb` extension.** For a Claude desktop app where your organisation does not allow plugins or marketplaces, or
+if you want a settings form for the ROM and media folders. Desktop only, and without the skill.
+
+**4. Other agents.** An MCP configuration entry that starts the server from a checkout, and the skill from
+`.agents/skills/cloadm/` where the client reads skills.
+
 ## Starting it
 
 ```sh
@@ -50,11 +83,10 @@ Minesweeper run; BASIC does not). The agent skill that teaches an agent to use t
 | Host | How |
 |---|---|
 | Claude Code | the plugin from this repository's marketplace |
-| Cowork (Claude desktop app) | supported via the desktop app's plugin marketplace; tested in the cowork-harness container, not yet in real Cowork (see [Cowork](#cowork)) |
-| Claude Desktop (chat) | the `.mcpb` extension from the GitHub Releases page |
+| The Claude desktop app | the plugin, from this repository's marketplace (see [The Claude desktop app](#the-claude-desktop-app)); or the `.mcpb` extension where plugins are not allowed |
 | Cursor | an MCP server entry pointing at a checkout, plus the skill folder (supported); this repository's marketplace may also install as it is (untested: see below) |
 | Codex (CLI and app), Gemini CLI, other MCP clients | an MCP server entry pointing at a checkout, plus the skill folder; in the Codex app the marketplace is untested (see below) |
-| claude.ai on the web | not supported yet: it cannot start a local server |
+| claude.ai on the web | the remote connector `https://mcp.cloadm.dev/mcp`, in Claude's side panel (see [Claude on the web: side panel](#claude-on-the-web-side-panel)) |
 
 ### Claude Code
 
@@ -74,20 +106,23 @@ ROMs and its files live in `~/CLOADM` (put tapes, disks and programs there); see
 claude mcp add cloadm -- node /path/to/cloadm/cli/cloadm.js --mcp --roms /path/to/roms --media-root /path/to/project
 ```
 
-### Cowork
+### The Claude desktop app
 
-Cowork reads plugins from your Claude account, not from Claude Code: a plugin installed with `/plugin` or
-`claude plugin install` stays on that computer and does not reach Cowork. In the Claude desktop app open
-**Customize → Plugins**, choose **Add marketplace**, enter `yaniv-golan/CLOADM`, then install **cloadm** from it.
-The server is a local one (the app starts `node` on your computer), so it runs only in Cowork sessions that run on
-your computer, and that computer needs Node 22.12 or later on its `PATH`. This route has been tested in the
-cowork-harness container, not yet in real Cowork.
+The app reads plugins from your Claude account, not from Claude Code: a plugin installed with `/plugin` or
+`claude plugin install` stays on that computer and does not reach the app. In the app:
+
+1. In the sidebar, **Customize** → the **Plugins** tab → **Add** → **Add marketplace**, and enter `yaniv-golan/CLOADM`.
+2. **Add** on the **Cloadm** plugin (or just ask for it in a chat).
+3. The app says "This plugin includes local MCP servers … cloadm": click **Continue**.
+
+(Steps checked by the owner in the desktop app.) The server is a local one (the app starts `node` on your computer),
+so it runs while the app is open on that computer, which needs Node 22.12 or later on its `PATH`.
 
 The plugin's root is the repository, so it must not have a top-level `bin/` directory: Cowork and claude.ai refuse
 a plugin that has one ([plugins reference](https://code.claude.com/docs/en/plugins-reference), "Standard layout";
 [platform support](https://claude.com/docs/plugins/platform-support)). That is why the server is in `cli/`.
 
-### Claude Desktop
+### The .mcpb extension
 
 Download `cloadm.mcpb` from the [Releases](https://github.com/yaniv-golan/CLOADM/releases) page and open it (or drag
 it onto Settings → Extensions). The app asks for a **media folder** (required: the only folder the tools read and
@@ -160,6 +195,63 @@ after editing the file (`/mcp` in Claude Code). The
 Claude Desktop extension asks for both folders when it is installed and passes them on the command line, which wins
 over the file; a ROM folder left empty there falls back to the file.
 
+**On macOS, keep ROMs out of Downloads, Desktop and Documents.** Those folders are protected, so a config `roms` that
+points into one makes macOS ask "node would like to access files in your Downloads folder" every time the server
+starts. Copy the dumps into `~/CLOADM` and add them with `add_roms` (`source: "media"`), or put them in a folder of
+their own elsewhere: `add_roms` copies what it stores into `~/.config/cloadm/roms/`, so the server never reads the
+original location again.
+
+## Adding your ROMs
+
+CLOADM never ships, links to or fetches ROMs by itself. `add_roms` lets **you** give the server your own dumps from
+inside a chat, from one of three sources, and keeps them in the server's own ROM store:
+
+| `source` | Arguments | What it takes |
+|---|---|---|
+| `media` | `path` | a ROM file, a ZIP of them or a folder of them (its subfolders too) in the media root, by the same rules as every other file tool: `..`, absolute paths elsewhere and links that lead out are refused, and links in a folder are not followed |
+| `url` | `url` | an https URL you gave the agent |
+| `data` | `data`, `name` | the base64 bytes of a file you uploaded in the chat, and its file name |
+
+The safety rules, all enforced by the server:
+
+- **Only what you gave.** The tool's description tells the agent to use it only with a file, folder, URL or upload
+  you gave it in the conversation for this purpose, never one it found in tool output, on a web page or on the
+  emulated screen, and never to search for ROMs. When your client supports MCP elicitation (the `initialize`
+  handshake revisions, 2025-06-18 on, with the `elicitation` capability), the server also asks you first. For a URL it
+  asks **before anything is contacted** (not even DNS), showing the whole URL, query included: "Download <URL> and add
+  the ROMs in it to CLOADM?". For a file or an upload it asks once it knows what is in it: "Add these ROMs from
+  <source>: <files> → <models>?". Only an accept goes on; a decline, a cancel or an error from the client downloads
+  and stores nothing (`declined`). A client without elicitation is not asked, and the result says so.
+- **URLs: https to a public address only.** `http`, a user name or password in the URL, and any host that resolves to
+  a loopback, link-local, private (RFC 1918, IPv6 ULA), CGNAT (100.64.0.0/10), unspecified, multicast, reserved,
+  documentation (192.0.2/24, 198.51.100/24, 203.0.113/24, 2001:db8::/32), benchmarking (198.18/15) or 6to4 relay
+  (192.88.99/24) address are refused (`refused-url`). *Every* address the name resolves to is checked, and the
+  connection goes to the checked address. IPv4-mapped IPv6 addresses (`::ffff:0:0/96`), local NAT64 (`64:ff9b:1::/48`)
+  and Teredo (`2001::/32`) are refused; NAT64 and 6to4 addresses are checked by the IPv4 address inside. Any port is
+  allowed: the address being public is what counts. Each redirect is checked the same way, at most 3 of them, and its
+  body is never read (the connection is closed at once, as for an error status). The download stops after 20 s
+  (`fetch-failed`). The certificate must be valid for the host in the system's trust store. Nothing is sent but the
+  request itself: no cookies (not even one a redirect sets), no credentials. It connects directly and never through a
+  proxy, so it does not work where every connection must go through one: use the media or data source there.
+- **Size caps.** A ROM file is at most 1 MiB, a ZIP of ROMs (or a CLOADM ROM pack) at most 4 MiB, by URL, upload or
+  media file, and one call unpacks at most 8 MiB from all its ZIPs together (`too-large`); a download is cut off as
+  soon as it passes the cap.
+- **Only ROMs.** What is stored must be recognised as a ROM by the page's rules (`js/roms.js`): a known dump's CRC, a
+  combined image of known halves, or a socket's usual file name with the right size. Anything else is listed in
+  `skipped`; if nothing is a ROM the call fails with `not-a-rom` and stores nothing. A ROM pack's images go back to the
+  sockets its manifest names.
+- **No bytes back.** No result carries ROM bytes (only names, sizes, CRCs and the models they fit), and the server
+  logs none.
+
+The store is a folder of the server's own, next to its config file: `~/.config/cloadm/roms/`
+(`%APPDATA%\cloadm\roms\` on Windows), never the media root. It is merged with `--roms` and the config file's
+`roms` at every start (where both fill a socket, `--roms` or the config file wins). Machines already open do not
+change: the result lists `models_with_basic` (as `list_models` reports it) and `newly_with_basic`, and suggests
+`boot` or `switch_machine`. `list_models` gives, for each model, `basic` (whether the server has its BASIC ROMs) and,
+for each ROM, `loaded`: the file that fills it and its `source` (`cli`, `config` or `stored`). `remove_roms` forgets
+stored ROMs by name, or `all: true`; ROMs from `--roms` or the config file are yours to remove. `--read-only` hides
+both tools (the stored ROMs are still used).
+
 ## The tools
 
 Every machine tool takes `machine_id`, the handle `boot` returns (`"m1"`, `"m2"`, …; never reused). At most 8 machines
@@ -167,7 +259,7 @@ are open at once.
 
 | Tool | What it does | Read-only |
 |---|---|---|
-| `list_models` | the models, their options and values, and the ROM files each needs for BASIC | yes |
+| `list_models` | the models, their options and values, the ROM files each needs for BASIC, whether the server has them (`basic`), and which file fills each ROM and from where (`loaded`: `source` `cli`, `config` or `stored`) | yes |
 | `list_machines` | the machines open now | yes |
 | `boot` | a new machine: `model`, `options`, `roms` (true: your ROMs, false: the built-in firmware) → its `machine_id` | allowed |
 | `switch_machine` | another model or options behind the same `machine_id` | |
@@ -190,15 +282,17 @@ are open at once.
 | `screenshot` | the screen as a PNG image, always a whole frame (`mid_frame` says when the machine stopped inside one and this is the last complete frame; the next frame began before the stop, so `run_frames 2` shows one drawn entirely after it); `scale` 1 to 3 enlarges it | yes |
 | `reset`, `power_cycle` | the reset button; off and on (RAM cleared) | |
 | `set_display` | which of the Dragon 64 Plus's screens is shown (`main` or `plus`) | allowed |
-| `load` | run a file from the media root (binary, tape, cartridge, BASIC listing, disk into drive 0) or a bundled program (`welcome`, `liza`, `demo`). A listing is typed as NEW, its lines and RUN (`run: false` leaves out RUN), and the result says what the keyboard typed differently (`changed`) or could not type (`dropped`) | |
+| `load` | run a file from the media root (binary, tape, cartridge, BASIC listing, disk into drive 0) or a bundled program (`welcome`, `liza`, `demo`, or the games `2048` and `minesweeper`). A listing is typed as NEW, its lines and RUN (`run: false` leaves out RUN), and the result says what the keyboard typed differently (`changed`) or could not type (`dropped`) | |
 | `insert_tape`, `insert_disk` | a tape in the deck, a disk in a drive (a disk needs your disk ROM) | |
 | `save_snapshot`, `restore_snapshot` | the whole machine to a file under the media root, and back. `save_snapshot` writes only names ending `.cloadm-state`, replaces an existing file only if it is a snapshot, and never writes the server's config file | |
+| `add_roms` | store your own ROMs from the media root, an https URL or an upload (`source` `media`, `url` or `data`), with the checks in [Adding your ROMs](#adding-your-roms); only with a source you gave the agent | |
+| `remove_roms` | forget stored ROMs by name, or all of them | |
 
 "Read-only" says which tools `--read-only` keeps: "yes" for the tools that change nothing (`readOnlyHint`), "allowed"
 for the ones it keeps because they only make, run or show a machine of the server's own. Every tool states all four
 hints: `readOnlyHint`, `destructiveHint` (true for what types, writes, loads or replaces), `idempotentHint` (true for
-the read-only tools and for what gives the same result when repeated) and `openWorldHint: false`: nothing reaches
-beyond the server and your media root.
+the read-only tools and for what gives the same result when repeated) and `openWorldHint`: false on every tool but
+`add_roms`, which can fetch a URL you give it; nothing else reaches beyond the server and your media root.
 
 **The page's tools are the page's.** `machine_info`, `screen_text`, `peek`, `disassemble`, `poke`, `type_text`,
 `load_basic`, `press_break`, `assemble_and_load` and `run` are the tools the in-page Claude uses
@@ -247,11 +341,18 @@ which only the server has. The others use these:
 | `rejected` | the machine refused (a disk without a disk ROM, a format it does not know, …); nothing changed |
 | `read-only` | the server runs with `--read-only` |
 | `cancelled` | the call was cancelled (on `--serve`; MCP sends no reply) |
+| `not-a-rom` | `add_roms`: nothing given is a ROM CLOADM recognises; nothing stored |
+| `too-large` | `add_roms`: a file over 1 MiB or a ZIP over 4 MiB |
+| `refused-url` | `add_roms`: not https, credentials in the URL, an address that is not public (also after a redirect), or more than 3 redirects |
+| `fetch-failed` | `add_roms`: the download failed (HTTP status, TLS, DNS, the 20 s timeout) |
+| `declined` | `add_roms`: you said no when asked; nothing stored |
+| `no-rom-store` | a host of the tools (the Node API) without a ROM store |
 
 An unknown tool name is the protocol's error `-32602`, as the specification says; everything else is a tool result,
 so the agent can read the remedy and try again.
 
-**ROMs.** The server reads your ROMs; it never returns them as files. Reads of memory follow the page's rule: like the
+**ROMs.** The server reads your ROMs; it never returns them as files, and `add_roms` never echoes their bytes. (In Claude's [side panel](#claude-on-the-web-side-panel)
+the rule is stricter: memory reads are refused while your ROMs run.) Reads of memory follow the page's rule: like the
 in-page Claude, `peek`, `disassemble` and `screenshot` show what the machine holds, which with your ROMs includes ROM
 code, so treat what an agent reads as you would treat your ROMs.
 
@@ -264,12 +365,80 @@ request that carries `_meta["io.modelcontextprotocol/protocolVersion"]` is serve
 the server's identity in its `_meta`, `tools/list` carries `ttlMs` and `cacheScope`, and a version it does not speak is
 `UnsupportedProtocolVersionError` (`-32022`) with the list it does. Tool lists come in a fixed order. stdout carries
 only protocol messages; the server's start-up line goes to stderr; it exits when its input closes. Each message is
-one line of at most 4 MB (a longer line is refused with `-32600` and not read); a JSON-RPC batch (an array of
+one line of at most 8 MB (room for an `add_roms` upload) (a longer line is refused with `-32600` and not read); a JSON-RPC batch (an array of
 messages) is refused with `-32600` too, as no revision it speaks has batches. A cancellation also reaches a call still
 waiting behind another: it is then never run, and never answered.
 
-MCP Apps (a `ui://` view of the machine in the client) is not served yet: the tools are built so that one can be added
-without changing them.
+On stdio the server serves no MCP Apps view (`ui://`); the [side panel](#claude-on-the-web-side-panel) is where the
+same tools run in one.
+
+## Claude on the web: side panel
+
+On claude.ai the emulator runs in Claude's side panel, in your browser, through a remote connector at
+`https://mcp.cloadm.dev/mcp` (a small stateless server with no sign-in: it serves the view and keeps nothing). Claude
+then uses the same machine tools as above on the machine you see.
+
+**Add it** (once): in claude.ai, **Plugins → Add → "Add custom connector"**, name `CLOADM`, URL
+`https://mcp.cloadm.dev/mcp`, choose **No sign-in**, then **Add**. On a Team or Enterprise plan an owner may have to add it
+under Organization settings → Connectors. Interactive views and app tools are a claude.ai feature that not every
+account or organization has yet.
+
+**Use it:**
+
+1. In a chat with the connector enabled, ask Claude to open the emulator (for example "Open CLOADM"). It calls
+   `open_emulator` and the view appears: a Dragon 64 talking as LIZA, or BASIC if you have added ROMs there.
+2. Open the view in the side panel (Claude's expand control, or the view's **Open in side panel** button). Click the
+   screen to type on it yourself.
+3. In your **next** message, ask for what you want ("type I AM HAPPY and tell me what LIZA says", "play 2048",
+   "write a 6809 program that fills the screen and run it"). The view registers its tools after it has loaded, so
+   Claude can use them from the next turn, not in the one that opened it. Claude asks you to approve each call.
+
+**The tools in the panel** are the ones in [The tools](#the-tools), with the same names, arguments and results
+(`machine_output` with its `untrusted` note included), run by the view on the machine on screen:
+
+* There is one machine, `machine_id` `"m1"`, already on. `boot` and `switch_machine` change it to another model or
+  options; `close_machine` is not offered.
+* `load` runs the bundled programs by name (`welcome`, `liza`, `demo`, `2048`, `minesweeper`). The panel has no files:
+  a `path` is refused with `no-media-root`, and `insert_tape`, `insert_disk`, `save_snapshot` and `restore_snapshot`
+  are not offered. Claude's views cannot download, so nothing is saved out of the panel either.
+* Your ROM files stay in the panel. Add them with **Add ROMs…** or by dropping the files on the view; they are kept
+  in that view's own browser storage, and no tool takes or returns them as files (`add_roms` and `remove_roms` are not
+  offered). While they run, `peek`, `find_bytes`
+  and `disassemble` are refused (`rejected`): memory can then hold ROM code, and no tool returns it directly. That is
+  not a seal: a program run on the machine can read the ROM (BASIC's `PEEK` printed on the screen, machine code from
+  `assemble_and_load` and then `registers`, `run_frames` waiting for a memory byte to hold each value in turn), so a
+  determined agent can infer ROM contents through execution. Each call is still yours to approve. Claude gives each
+  conversation's view its own origin, so a new conversation starts without them; reopening the same conversation keeps
+  them (in that browser).
+* Claude's limits for app tools: a call may run 45 s, and a result may hold 100,000 characters. A tool that runs the
+  machine stops after about 25 s of real time, `run_frames` after 3000 frames (call it again to wait longer, as
+  everywhere), and a result that would be longer is refused with `too-long`.
+
+Errors the panel adds to the [ones above](#results-and-errors):
+
+| Code | Meaning |
+|---|---|
+| `too-long` | the result is over 100,000 characters: ask for less (a shorter `peek` or `disassemble`, a narrower `find_bytes`, a smaller screenshot `scale`) |
+| `not-started` | the emulator in the view could not start (`detail` says why: cloadm.dev unreachable, for example) |
+| `not-ready` | a call came before the emulator had started, and it did not start within 15 s: call again |
+| `out-of-step` | the connector and the cloadm.dev site are from different releases (see below) |
+
+**Two views.** `open_emulator` (the default) is a small view whose emulator code comes from cloadm.dev
+(`_meta.ui.csp` declares `https://cloadm.dev` and nothing else, and the site sends `Access-Control-Allow-Origin: *`).
+`open_emulator_inline` carries all of the emulator's code, about 1 MiB, and loads nothing from anywhere: Claude uses
+it when the first view stays at "loading" or says `error`.
+
+**Releases.** The first view loads `connector/view/panel.js` from cloadm.dev, which loads `js/` from beside it, so the
+glue between the view and the emulator always comes from the same release of the site as the emulator itself. What
+the connector itself carries (the bridge that talks to Claude, and the tool list Claude sees before the emulator has
+loaded) is checked against the site's with a version number, `PANEL_API` (`connector/view/tools.js`): when they
+differ, the tools answer `out-of-step` rather than half working, and the emulator's own tool list replaces the
+connector's as soon as it has loaded. The self-contained view has no such dependency. The connector's server and its
+deployment: [deploy-connector.md](deploy-connector.md).
+
+**Privacy.** The connector's server receives Claude's requests for its tool list and its views, nothing more: what you
+type, the screen and your ROM files stay in the view in your browser (what Claude reads through
+the tools goes to Claude, as in any chat). It stores nothing and logs nothing.
 
 ## Serving JSON lines
 

@@ -537,6 +537,9 @@ function rowMethods() {
     'readSlot', 'readSnapshot', 'readSnapshotLink', 'recentMedia', 'sameName', 'savedConfig', 'screenText',
     'shareFile', 'shareUrl', 'slotBytes', 'snapshotLink', 'snapshotRoms', 'snapshotSwitch', 'sscRoms', 'statusLine',
     'takenOut', 'tapeStatus', 'terminalText', 'welcomeFile', 'welcomeRunning', 'preferredDiskDos', 'storedRoms',
+    // (main 1dd66fa: all four are reads/pure. indexWriteError formats a stored-write error; tapeRunning reads the
+    // PERSON's deck motor flag; screenAlternative describes the SHOWN screen's text; welcomeGenNow reads the ticket)
+    'indexWriteError', 'tapeRunning', 'screenAlternative', 'welcomeGenNow',
     'pickNitros9Image', 'openMedia', 'downloadMedia', 'downloadDisk', 'diskWritesDone', 'printoutFile']);
   // writes the library or settings only
   const LIBRARY = new Set(['addRoms', 'clearRoms', 'deleteMedia', 'importDriveWireImage', 'importMedia',

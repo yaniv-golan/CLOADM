@@ -48,6 +48,9 @@
 //
 // Then the reading pages (/roms) at desktop and phone width, and that only /roms and the landing page link the archive's ROM folder.
 //
+// Then the side-panel connector's two views (connector/), nested as an MCP Apps host nests them, under the spec's CSP,
+// with a protocol-faithful host stub (tools/connector-check.js, the `connector` group).
+//
 // The emulator is served at /play/; the landing page at / is checked at desktop and phone width: its links
 // resolve, "Try it now" opens the welcome program, the machine cards and "Talk to LIZA" open the emulator.
 //
@@ -55,6 +58,8 @@
 const http = require('http'), fs = require('fs'), path = require('path'), os = require('os'), zlib = require('zlib');
 // the snapshot format this tree writes (the version checks build a newer file from it)
 const { SNAPSHOT_VERSION } = require('../tests/load')();
+// the settle bound is the audio module's own derivation, never a literal here (see SETTLE_MS in js/host/audio.js)
+const { SETTLE_MS } = require('../js/host/audio.js');
 // Playwright is loaded once the run starts (--list-groups needs no browser, so the CI shard planner runs without it)
 let chromium;
 
@@ -653,6 +658,19 @@ async function sscBoardChecks(browser, base, check) {
   check('Speech/Sound Pak: the ROM panel shows its PIC and speech sockets, the PIC required',
     sockets.some((s) => s.id === 'ssc-tms7040' && s.status === 'missing-required') && sockets.some((s) => s.id === 'ssc-sp0256' && s.status === 'missing-optional'),
     JSON.stringify(sockets));
+  // ... but the Pak is an optional cartridge: none of its cards is tagged required (BASIC's red tag), each is titled
+  // "(optional cartridge)", and they come after every one of the machine's sockets
+  const pakCards = await page.evaluate(() => {
+    const cards = [...document.querySelectorAll('#romSockets .socket')];
+    const lastMachine = cards.reduce((n, c, i) => (c.dataset.status ? i : n), -1);
+    return cards.map((c, i) => ({ c, i })).filter(({ c }) => (c.dataset.socket || '').startsWith('ssc-')).map(({ c, i }) => ({
+      id: c.dataset.socket, title: c.querySelector('strong').textContent, tag: c.querySelector('.tag').textContent,
+      req: !!c.querySelector('.tag.req'), afterMachine: i > lastMachine,
+    }));
+  });
+  check('Speech/Sound Pak: its ROM cards are optional, not required: titled "(optional cartridge)", tagged optional, below the machine sockets',
+    pakCards.length === 2 && pakCards.every((p) => !p.req && p.tag === 'optional' && /^Speech\/Sound Pak \(optional cartridge\): /.test(p.title) && p.afterMachine),
+    JSON.stringify(pakCards));
   await page.evaluate(() => { location.hash = ''; });
   await waitFor(page, () => !document.body.classList.contains('roms-open'));
   // insert it with no ROM: refused with a clear message naming the PIC ROM
@@ -1043,9 +1061,19 @@ async function audioChecks(browser, base, check) {
     `paused ${pausedState}, resumed ${resumedState}, hidden ${hiddenState}, shown ${shownState}`);
 
   // the tone: the machine's own events give its period in cycles; the played samples' rising zero crossings over
-  // a second of full blocks give its frequency (to the resampler's steering, at most 0.5%, and one crossing)
+  // a second of full blocks give its frequency (to one crossing, once the resampler has SETTLED -- while it is
+  // recovering from a stall the ratio is held at +-2% until the queue reaches TARGET_MS, so a check that sampled
+  // then would measure a deliberate detune, not the machine: CI measured 451.39 for a 456.64 Hz tone this way).
   await load(square);
   await wait(); await wait();
+  // Wait for the steering to settle: mode NONE (0) means the ratio is exactly 1. The bound is SETTLE_MS from
+  // js/host/audio.js, derived there from the module's own constants: the ratio is applied per frame of AUDIO
+  // time, so a queue at the ceiling (MAX_MS) needs about (MAX_MS - TARGET_MS) / RECOVER = 5.5 s to arrive, plus
+  // a stated slack; measured from a 149 ms queue in simulated real time it was 3.95 s at 44.1 kHz and 4.18 s at
+  // 48 kHz. A correction that never converges therefore fails HERE, by name, instead of being waited out.
+  const settled = await waitFor(page, () => window.emu.audio && window.emu.audio.out && window.emu.audio.out.mode === 0, null, SETTLE_MS);
+  check('sound: the resampler settles (ratio exactly 1) before the tone is measured', settled,
+    await page.evaluate(() => JSON.stringify({ mode: window.emu.audio && window.emu.audio.out ? window.emu.audio.out.mode : null })));
   const tone = await page.evaluate(() => {
     const m = window.emu.machine, ev = m.audioEvents, ts = [];
     for (let i = 2; i < ev.length; i += 2) if (ev[i + 1] !== ev[i - 1]) ts.push(ev[i]);
@@ -1961,9 +1989,22 @@ async function visitChecks(browser, base, check) {
   await page.click('#shelf :is(a, button):text-is("Colour demo")');
   check('shelf: the colour demo runs', await waitFor(page, () => /demo\.bin/.test(document.getElementById('toast').textContent)));
   // the machine question, answered once
+  // count the menu starts for that answer: the switch starts it ONCE (Session.chooseMachine -> offer 'none'), and
+  // the page must start nothing of its own. A second start draws the same screen, so the count is the only witness.
+  await page.evaluate(() => {
+    const s = window.emu.session;
+    window.__starts = 0;
+    if (!s.__counted) { const orig = s.startWelcome.bind(s); s.startWelcome = (b, o) => { window.__starts++; return orig(b, o); }; s.__counted = true; }
+  });
   await page.click('#askMachine button[data-machine="coco"]');
   check('machine question: switches machine and the welcome program runs there', await waitFor(page, () => window.emu.machine.id === 'coco' && window.emu.session.welcomeRunning && window.emu.session.screenText()[14].includes('PRESS 1 TO 5'))
     && !(await page.$('#askMachine')));
+  check('machine question: the menu is started exactly once (no second start from the page)',
+    await page.evaluate(() => window.__starts) === 1, String(await page.evaluate(() => window.__starts)));
+  // a first-time visitor is greeted as one: the title row, not "WELCOME BACK" (the question is asked only first time)
+  check('machine question: a first-time visitor gets the first-visit menu, not WELCOME BACK',
+    await page.evaluate(() => window.emu.session.screenText()[6].trim()) === 'DRAGON AND COLOR COMPUTER',
+    await page.evaluate(() => window.emu.session.screenText()[6].trim()));
   // a program of the user's own, then a return visit
   await page.setInputFiles('#fileProgram', { name: 'mine.bin', mimeType: 'application/octet-stream', buffer: fs.readFileSync(path.join(ROOT, 'examples/demo.bin')) });
   await waitFor(page, () => !document.getElementById('mediaOffer').hidden);
@@ -2389,6 +2430,46 @@ async function mediaChecks(browser, base, check) {
   });
   check('paste: pasted text types itself in', await waitFor(page, () => window.emu.session.screenText().join('\n').includes('> I FEEL HAPPY')),
     (await page.evaluate(() => window.emu.session.screenText().slice(5, 9).join('|'))));
+  // ---- the Media tab's "Recent on this machine": a row loads what it says, and two files of one name are told
+  // apart (js/ui/drawer.js). The row's index comes from the SAME list it was drawn from: recentMedia() hands out
+  // copies, so the old indexOf() on a second call was always -1 and every row said the file was no longer stored.
+  {
+    // two VALID programs of one name with different bytes. examples/2048.bin is a DragonDOS binary: a 10-byte
+    // header ($55, length, load, exec, checksum) and then the program, which lands at $3000. Its last byte is
+    // its end marker ($FF x3 style footer), so the byte that differs is taken from INSIDE the program: offset
+    // 0x100 into the file is $3000 + 0x100 - 10 in RAM.
+    const A = Buffer.from(fs.readFileSync(path.join(ROOT, 'examples/2048.bin')));
+    const OFF = 0x100;
+    const B = Buffer.from(A); B[OFF] = A[OFF] ^ 0xFF;
+    const ramAt = 0x3000 + (OFF - 9);             // the 9-byte header is followed by the program at $3000
+    const wantA = A[OFF], wantB = B[OFF];
+    await page.setInputFiles('#fileProgram', { name: 'recent-one.bin', mimeType: 'application/octet-stream', buffer: A });
+    await waitFor(page, () => [...document.querySelectorAll('#recentList .row')].some((b) => b.textContent.includes('recent-one.bin')));
+    const rowsBefore = await page.$$eval('#recentList .row', (x) => x.map((e) => e.textContent));
+    await page.click('#recentList .row');
+    // the click loads it, on the machine it was loaded on: no "no longer stored" toast
+    check('recent: clicking a Recent row loads it (no "no longer stored")',
+      await waitFor(page, () => !document.getElementById('toast') || document.getElementById('toast').hidden
+        || !/no longer stored/.test(document.getElementById('toast').textContent)), await page.textContent('#toast'));
+    check('recent: the clicked row loaded the program it named',
+      await waitFor(page, ([a, want]) => window.emu.machine.ram[a] === want, [ramAt, wantA]),
+      `$${(await page.evaluate((a) => window.emu.machine.ram[a], ramAt)).toString(16)} want $${wantA.toString(16)}`);
+    await page.setInputFiles('#fileProgram', { name: 'recent-one.bin', mimeType: 'application/octet-stream', buffer: B });
+    await waitFor(page, () => [...document.querySelectorAll('#recentList .row')].filter((b) => b.textContent.includes('recent-one.bin')).length === 2);
+    const rows = await page.$$eval('#recentList .row', (x) => x.map((e) => e.textContent));
+    check('recent: two files of one name with different bytes are two rows, the older told apart',
+      rows.filter((t) => t.includes('recent-one.bin')).length === 2 && /2nd/.test(rows.join('|')), rows.join(' | '));
+    if (shotDir) await page.locator('#panel-media').screenshot({ path: path.join(shotDir, 'recent-two-copies.png') });
+    // the older (2nd) row loads the OLDER program: the byte that differs is A's again, not B's
+    const second = await page.$$eval('#recentList .row', (x) => x.findIndex((e) => /2nd/.test(e.textContent)));
+    await page.$$eval('#recentList .row', (x, i) => x[i].click(), second);
+    check('recent: the older copy loads its OWN program (the differing byte is the older one\'s)',
+      await waitFor(page, ([a, want]) => window.emu.machine.ram[a] === want, [ramAt, wantA]),
+      `$${(await page.evaluate((a) => window.emu.machine.ram[a], ramAt)).toString(16)} want $${wantA.toString(16)} (the newer copy has $${wantB.toString(16)})`);
+    // the drawer lists EVERY recent entry for this machine, including ones this group did not load (game.bin
+    // above), so the count is not 1; what must hold is that ours is there once.
+    check('recent: before the second load there is one row of this name', rowsBefore.filter((t) => t.includes('recent-one.bin')).length === 1, rowsBefore.join(' | '));
+  }
   check('media: no page errors', !errors.length, errors.join('; '));
   await ctx.close();
 }
@@ -3195,6 +3276,25 @@ async function snapshotChecks(browser, base, check) {
     check('snapshot: "Look around without them" opens that machine without the moment', await waitFor(page, () => document.getElementById('snapNeeds').hidden
       && window.emu.machine.id === 'dragon32' && window.emu.machine.useStub));
     check('snapshot: no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+  // the Share screen opened by address (play/#share): the page is still starting when its view is shown, so the
+  // capture waits for the visit to start; no error toast, no page error, a running screen and a filled-in view
+  {
+    const errors = [];
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const page = await ctx.newPage();
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}?machine=dragon64#share`);
+    await started(page);
+    const filled = await waitFor(page, () => !document.getElementById('share').hidden && !!document.getElementById('shareLink').value);
+    const r = await page.evaluate(() => ({ filled: true, toast: document.getElementById('toast').textContent, error: document.getElementById('toast').classList.contains('error'), link: document.getElementById('shareLink').value }));
+    const f0 = await page.evaluate(() => window.emu.machine.frameCount);
+    check('share: opened by address (#share), the view is filled in once the page has started, with no error toast',
+      filled && !/Cannot read|null/.test(r.toast) && !r.error && /^(https?|file):/.test(r.link), r.toast);
+    await emuFrames(page, 5);
+    check('share: opened by address, the screen is running', await page.evaluate((f) => window.emu.machine.frameCount > f, f0));
+    check('share: opened by address, no page errors', !errors.length, errors.join('; '));
     await ctx.close();
   }
 }
@@ -4332,6 +4432,7 @@ async function tapePanelChecks(browser, base, check) {
         speed: document.getElementById('tapeSpeed').textContent,
         state: document.getElementById('tapePanel').dataset.state,
         leftReelWound: parseFloat(getComputedStyle(document.getElementById('reelL')).getPropertyValue('--wound')),
+        moving: document.getElementById('tapePanel').hasAttribute('data-moving'),
       });
       note();   // STOPPED, before the motor
       // the panel repaints every 250 ms on its own; sampling faster than that, and on the two texts changing
@@ -4341,14 +4442,22 @@ async function tapePanelChecks(browser, base, check) {
       for (const id of ['tapeEyebrow', 'tapeSpeed']) window.__mo.observe(document.getElementById(id), { childList: true, characterData: true, subtree: true });
       window.__motor = setInterval(() => window.emu.machine.deck.setMotor(true), 20);
     });
-    const isFastLoading = (s) => /^LOADING · BLOCK \d+ OF 34$/.test(s.eyebrow) && /^Fast-forward ×\d+$/.test(s.speed) && Number(s.speed.split('×')[1]) > 1;
+    // The reels are part of the frame looked for: the left reel's --wound is 1 - progress to three places, so a
+    // fast-forward frame still in block 1 (progress under 0.0005, as on a runner that was slow while the first 1 s
+    // speed window closed) shows it at 1.000 although the tape is moving; requiring the reel on the FIRST fast frame
+    // failed there (CI, wound 1 at BLOCK 1 OF 34). What is asserted is unchanged: one frame shows LOADING, a speed
+    // above x1 and the left reel unwound, all at once.
+    const isFastLoading = (s) => /^LOADING · BLOCK \d+ OF 34$/.test(s.eyebrow) && /^Fast-forward ×\d+$/.test(s.speed) && Number(s.speed.split('×')[1]) > 1 && s.leftReelWound < 1;
     // waiting for the frame is the condition; the timeout only bounds a failure. The speed readout is measured
-    // over 1 s windows and reads x1 until the first closes, so this is the frame that shows both at once.
-    const sawLoading = await waitFor(page, () => window.__seen.some((s) => /^LOADING · BLOCK \d+ OF 34$/.test(s.eyebrow) && /^Fast-forward ×\d+$/.test(s.speed) && +s.speed.split('×')[1] > 1), null, 20000);
+    // over 1 s windows and reads x1 until the first closes, so this is the frame that shows every condition at once.
+    const sawLoading = await waitFor(page, () => window.__seen.some((s) => /^LOADING · BLOCK \d+ OF 34$/.test(s.eyebrow) && /^Fast-forward ×\d+$/.test(s.speed) && +s.speed.split('×')[1] > 1
+      && s.moving && s.leftReelWound < 1), null, 20000);
     const seen = await page.evaluate(() => window.__seen);
-    const loading = seen.find(isFastLoading);
+    // one shown frame with all of it: loading fast, the reels turning and the tape wound on (the first moving frame can
+    // come while the left reel still reads 1.000 to three places)
+    const loading = seen.find((x) => isFastLoading(x) && x.moving && x.leftReelWound < 1) || seen.find(isFastLoading);
     check('tape panel: motor on: LOADING · BLOCK n OF 34, fast-forward faster than real time, the reels turn',
-      sawLoading && !!loading && loading.state === 'playing' && loading.leftReelWound < 1,
+      sawLoading && !!loading && loading.state === 'playing' && loading.leftReelWound < 1 && loading.moving,
       `loading=${JSON.stringify(loading)} states=${[...new Set(seen.map((s) => s.state))].join(',')} frames=${seen.length}`);
     // the end of the tape, checked on its own so that it cannot stand in for the LOADING assertion above
     // The rest of the tape is skipped to its last block first: at fast-forward the run to the end takes as long as the
@@ -4356,17 +4465,22 @@ async function tapePanelChecks(browser, base, check) {
     // 34). What is checked is what the panel shows when the tape ends, not how fast it gets there.
     await page.evaluate(() => { const t = window.emu.machine.deck.tape; t.seekByte(t.bytes.length - 8); });
     const sawEnd = await waitFor(page, () => document.getElementById('tapeEyebrow').textContent === 'END OF TAPE · 34 BLOCKS', null, 20000);
-    const endState = await page.evaluate(() => ({ eyebrow: document.getElementById('tapeEyebrow').textContent, state: document.getElementById('tapePanel').dataset.state }));
-    check('tape panel: at the end: END OF TAPE with its block count, still playing', sawEnd && endState.state === 'playing', JSON.stringify(endState));
+    await waitFor(page, () => !document.getElementById('tapePanel').hasAttribute('data-moving'), null, 5000);
+    const endState = await page.evaluate(() => ({ eyebrow: document.getElementById('tapeEyebrow').textContent, state: document.getElementById('tapePanel').dataset.state,
+      stamp: !document.getElementById('tapeEnd').hidden, moving: document.getElementById('tapePanel').hasAttribute('data-moving'),
+      anims: document.getAnimations().filter((a) => a.playState === 'running').length }));
+    check('tape panel: at the end (the motor still on): END OF TAPE with its block count, the stamp, and nothing turning',
+      sawEnd && endState.state === 'end' && endState.stamp && !endState.moving && endState.anims === 0, JSON.stringify(endState));
     // done with the tape here; stop the sampler so it is not still recording during the blocks below
     await page.evaluate(() => { clearInterval(window.__sampler); window.__mo.disconnect(); });
     // real speed: the same setting as the Media tab's checkbox
     await page.click('#btnRealSpeed');
-    await waitFor(page, () => !window.emu.session.fastTape && document.getElementById('tapeSpeed').textContent === 'Real speed');
+    // (at the end of the tape nothing moves, so no speed is shown, whatever the setting)
+    await waitFor(page, () => !window.emu.session.fastTape && document.getElementById('btnRealSpeed').getAttribute('aria-pressed') === 'true');
     const real = { pressed: await page.getAttribute('#btnRealSpeed', 'aria-pressed'), box: await page.isChecked('#chkFastTape'),
       fast: await page.evaluate(() => window.emu.session.fastTape), speed: await text('tapeSpeed') };
     check('tape panel: "Real speed" turns fast tape loading off (the Media tab\'s checkbox too)', real.pressed === 'true' && !real.box && !real.fast
-      && real.speed === 'Real speed', JSON.stringify(real));
+      && real.speed === '', JSON.stringify(real));
     if (shotDir) await (await page.$('#tapePanel')).screenshot({ path: path.join(shotDir, 'tape-panel-desktop.png') });
     // a read error: BASIC's report on the screen as the motor stops (written into the text screen here)
     await page.evaluate(() => {
@@ -4402,6 +4516,222 @@ async function tapePanelChecks(browser, base, check) {
     await ctx.close();
   }
   fs.rmSync(tmp, { recursive: true, force: true });
+}
+
+// The tape HUD, the one moving deck and Tape sound (js/ui/tape-panel.js, js/host/tape-sound.js). At the desktop,
+// tablet, phone (upright) and phone (sideways) sizes, a machine-code tape dropped on the screen loads through BASIC
+// (our stand-in, tape/standin.asm, in the CoCo's BASIC sockets) at real speed: the HUD comes up wholly in the viewport
+// without scrolling, under the picture's text (never on it), on top where it is (nothing covers it), with the tape's
+// name and block; exactly one animation runs on the page while the tape moves (the cassette panel's window); "Deck"
+// brings the panel into view (not sideways, where the touch keys cover the page). At the end of the tape: "End of
+// tape" in the HUD, the stamp on the cassette, nothing animating although BASIC leaves the motor on, and the HUD goes.
+// Tape sound (desktop and phone): on by default; its voice is heard while the tape plays and silent once the motor
+// stops (the Web Audio output stage's own measure, audio.tapeLevel); the HUD's switch turns it off (and the Media
+// tab's checkbox, remembered) and nothing is heard then.
+async function tapeHudChecks(browser, base, check) {
+  const blk = (type, data) => { let sum = (type + data.length) & 0xFF; for (const v of data) sum = (sum + v) & 0xFF; return [0x3C, type, data.length, ...data, sum, 0x55]; };
+  const code = [0x1A, 0x50, 0x20, 0xFE, ...Array.from({ length: 2996 }, (_, i) => (i * 7) & 0xFF)];   // ORCC, BRA *: it waits when run
+  const bytes = [...Array(128).fill(0x55), ...blk(0, [...Buffer.from('SPACE   '), 2, 0, 0, 0x0E, 0x00, 0x0E, 0x00]), ...Array(128).fill(0x55)];
+  for (let i = 0; i < code.length; i += 250) bytes.push(...blk(1, code.slice(i, i + 250)), 0x55, 0x55);
+  bytes.push(...blk(0xFF, []));
+  const sizes = [['desktop', { viewport: { width: 1440, height: 900 } }, true],
+    ['tablet', { viewport: { width: 820, height: 1180 }, hasTouch: true, isMobile: true }, false],
+    ['phone', { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }, true],
+    ['phone sideways', { viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true }, false]];
+  for (const [label, opts, sound] of sizes) {
+    const errors = [];
+    const ctx = await browser.newContext({ ...opts, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}?machine=coco`);
+    await started(page);
+    await page.evaluate(async () => {
+      const { assemble } = await import(new URL('js/asm/assembler.js', document.baseURI).href);
+      const res = assemble(await (await fetch('tools/mame-diff/tape/standin.asm')).text(), '6809');
+      const m = window.emu.machine, b = Math.min(...m.profile.roms.map((x) => x.at)), e = Math.max(...m.profile.roms.map((x) => x.at + x.size));
+      const img = new Uint8Array(e - b).fill(0x12);
+      for (const sg of res.segments) if (sg.addr >= b) img.set(sg.data.subarray(0, e - sg.addr), sg.addr - b);
+      m.setRoms(Object.fromEntries(m.profile.roms.map((sl) => [sl.id, img.slice(sl.at - b, sl.at - b + sl.size)])));
+      m.reset(true);
+      // real speed (the Media tab's "Fast tape loading" off), so the tape plays for a while
+      const box = document.getElementById('chkFastTape'); box.checked = false; box.dispatchEvent(new Event('change'));
+    });
+    const hiddenFirst = await page.isHidden('#tapeHud');
+    // every write to the live region, from before the tape goes in to its end: exactly two (playing, end)
+    await page.evaluate(() => {
+      window.__said = [];
+      new MutationObserver(() => window.__said.push(document.getElementById('hudSay').textContent))
+        .observe(document.getElementById('hudSay'), { childList: true, characterData: true, subtree: true });
+    });
+    await dropFiles(page, [['Space Game.cas', bytes]]);
+    const playing = await waitFor(page, () => window.emu.machine.deck.playing && !document.getElementById('tapeHud').hidden
+      && document.getElementById('tapeHud').dataset.state === 'playing', null, 20000);
+    const hud = await page.evaluate(() => {
+      const h = document.getElementById('tapeHud'), r = h.getBoundingClientRect(), cv = document.getElementById('screen'), c = cv.getBoundingClientRect();
+      const f = (cv.dataset.active || '0,0,1,1').split(',').map(Number);
+      const text = { left: c.left + f[0] * c.width, top: c.top + f[1] * c.height, right: c.left + f[2] * c.width, bottom: c.top + f[3] * c.height };
+      const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return { r: { left: r.left, top: r.top, right: r.right, bottom: r.bottom }, text, vw: innerWidth, vh: innerHeight, scrollY,
+        onTop: !!top && h.contains(top), name: document.getElementById('hudName').textContent, state: document.getElementById('hudState').textContent,
+        anims: document.getAnimations().filter((a) => a.playState === 'running').map((a) => (a.effect && a.effect.target ? `${a.effect.target.id || a.effect.target.className}` : '?')) };
+    });
+    check(`tape HUD (${label}): hidden before; a dropped tape shows it in the viewport without scrolling, on top, with the name and block`,
+      hiddenFirst && playing && hud.r.left >= 0 && hud.r.top >= 0 && hud.r.right <= hud.vw && hud.r.bottom <= hud.vh && hud.scrollY === 0 && hud.onTop
+      && hud.name === 'Space Game.cas' && /\d+\/14$/.test(hud.state), JSON.stringify(hud));
+    check(`tape HUD (${label}): never over the picture's text`, !rectsMeet(hud.r, hud.text), JSON.stringify([hud.r, hud.text]));
+    const sayPlay = await page.textContent('#hudSay');
+    check(`tape HUD (${label}): one animation runs while the tape plays: the cassette panel's reels`, hud.anims.length === 1 && hud.anims[0] === 'window', hud.anims.join());
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `tape-hud-${label.replace(' ', '-')}.png`) });
+    if (sound) {
+      // unlocked by a click (browsers allow sound only after one); then the tape's voice while it plays
+      await page.click('#screen', { position: { x: 20, y: 20 } });
+      const heard = await waitFor(page, () => window.emu.audioRunning() && window.emu.audio.tapeSound && window.emu.audio.tapeLevel > 0.01, null, 15000);
+      check(`tape sound (${label}): on by default; heard while the tape plays`, heard && await page.getAttribute('#btnHudSound', 'aria-pressed') === 'true'
+        && await page.isChecked('#chkTapeSound'), String(await page.evaluate(() => window.emu.audio.tapeLevel)));
+      await page.evaluate(() => { window.__motor = setInterval(() => window.emu.machine.deck.setMotor(false), 10); });
+      const quiet = await waitFor(page, () => window.emu.audio.tapeLevel < 1e-4, null, 10000);
+      check(`tape sound (${label}): silent once the motor stops`, quiet, String(await page.evaluate(() => window.emu.audio.tapeLevel)));
+      await page.evaluate(() => { clearInterval(window.__motor); window.__motor = setInterval(() => window.emu.machine.deck.setMotor(true), 10); });
+      await waitFor(page, () => window.emu.audio.tapeLevel > 0.01, null, 10000);
+      await page.click('#btnHudSound');
+      const off = await waitFor(page, () => !window.emu.audio.tapeSound && window.emu.audio.tapeLevel < 1e-4, null, 10000);
+      check(`tape sound (${label}): the HUD's switch turns it off (the Media tab's checkbox too, remembered): nothing heard while the tape plays`,
+        off && await page.getAttribute('#btnHudSound', 'aria-pressed') === 'false' && !await page.isChecked('#chkTapeSound')
+        && await page.evaluate(() => window.emu.machine.deck.playing && window.emu.session.store.get('tapeSound') === '0'), String(await page.evaluate(() => window.emu.audio.tapeLevel)));
+      await page.click('#btnHudSound');
+      await waitFor(page, () => window.emu.audio.tapeSound && window.emu.audio.tapeLevel > 0.01, null, 10000);
+      // the page's Sound switch is the master: off, nothing is sent at all, the tape's voice included
+      await page.evaluate(() => { const a = window.emu.audio, sink = a.out.sink, w = sink.write.bind(sink); window.__sent = 0; sink.write = (c) => { window.__sent++; return w(c); }; });
+      await page.$eval('#chkSound', (c) => c.click());
+      await page.evaluate(() => { window.__sent = 0; });
+      const framesAt = await page.evaluate(() => window.emu.machine.frameCount);
+      await waitFor(page, (f) => window.emu.machine.frameCount > f + 30, framesAt, 10000);
+      const muted = await page.evaluate(() => ({ sent: window.__sent, playing: window.emu.machine.deck.playing, tapeSound: window.emu.audio.tapeSound }));
+      check(`tape sound (${label}): with the page's Sound switched off, nothing is sent, the tape's voice included (Tape sound still on)`,
+        muted.sent === 0 && muted.playing && muted.tapeSound, JSON.stringify(muted));
+      await page.$eval('#chkSound', (c) => c.click());
+      await page.evaluate(() => clearInterval(window.__motor));
+    }
+    if (label === 'desktop') {
+      // The screen shrinks with no window resize (the monitor narrowed in place, as a layout change does). The canvas is
+      // refitted on the next frame; this page's own ResizeObserver on the canvas, registered after the HUD's, reads the
+      // HUD in that same frame, before any 250 ms update could move it: it must already lie off the new text and in the
+      // tube. (Without the HUD's observer it is still where the larger screen had it.)
+      const refit = await page.evaluate(() => new Promise((done) => {
+        const cv = document.getElementById('screen'), w0 = cv.getBoundingClientRect().width, h = document.getElementById('tapeHud');
+        const ro = new ResizeObserver(() => {
+          const c = cv.getBoundingClientRect();
+          if (Math.abs(c.width - w0) < 50) return;
+          ro.disconnect();
+          const f = (cv.dataset.active || '0,0,1,1').split(',').map(Number), r = h.getBoundingClientRect(), t = cv.closest('.tube').getBoundingClientRect();
+          const text = { left: c.left + f[0] * c.width, top: c.top + f[1] * c.height, right: c.left + f[2] * c.width, bottom: c.top + f[3] * c.height };
+          const meets = !(r.bottom <= text.top || r.top >= text.bottom || r.right <= text.left || r.left >= text.right);
+          const inTube = r.top >= t.top && r.bottom <= t.bottom && r.left >= t.left && r.right <= t.right;
+          done({ meets, inTube, shown: !h.hidden && !h.classList.contains('noroom'), w0, w: c.width, r: [r.left, r.top, r.right, r.bottom], text });
+        });
+        ro.observe(cv);
+        document.getElementById('monitor').style.maxWidth = '520px';
+      }));
+      check('tape HUD (desktop): the screen shrinking in place: in the very frame the canvas is refitted the HUD is already off the new text and in the tube',
+        refit.shown && !refit.meets && refit.inTube, JSON.stringify(refit));
+      await page.evaluate(() => { document.getElementById('monitor').style.maxWidth = ''; });
+      await emuFrames(page, 5);
+    }
+    if (label === 'desktop' || label === 'phone') {
+      // DOM writes in the slots row and the HUD, per element, over 2 s: none while the tape sits stopped in the deck
+      // (it used to rewrite the row every frame), and only what changes while it plays (a few a second at most)
+      const watch = (ms) => page.evaluate((ms) => new Promise((done) => {
+        const counts = {};
+        const mo = new MutationObserver((recs) => {
+          for (const r of recs) { const el = r.target.nodeType === 1 ? r.target : r.target.parentElement; const k = (el.closest('[id]') || el).id || el.tagName; counts[k] = (counts[k] || 0) + 1; }
+        });
+        for (const sel of ['.slots', '#tapeHud']) mo.observe(document.querySelector(sel), { subtree: true, childList: true, characterData: true, attributes: true });
+        setTimeout(() => { mo.disconnect(); done(counts); }, ms);
+      }), ms);
+      await page.evaluate(() => { clearInterval(window.__motor); window.__motor = setInterval(() => window.emu.machine.deck.setMotor(false), 10); });
+      await emuFrames(page, 15);
+      const stopped = await watch(2000);
+      await page.evaluate(() => { clearInterval(window.__motor); window.__motor = setInterval(() => window.emu.machine.deck.setMotor(true), 10); });
+      await emuFrames(page, 15);
+      const playing = await watch(2000);
+      await page.evaluate(() => clearInterval(window.__motor));
+      // (stopped: at most the one write as the HUD's hold runs out. Playing: each write is a change; the slot's percentage
+      // follows this short tape at about 6 a second, a real tape's at well under one; the rewrite every frame was 60)
+      check(`tape HUD (${label}): DOM writes per element in 2 s: at most 1 with the tape stopped, at most 8 a second while it plays (slots row and HUD)`,
+        Object.values(stopped).every((n) => n <= 1) && Object.values(playing).every((n) => n <= 16) && Object.keys(playing).length > 0,
+        JSON.stringify({ stopped, playing }));
+    }
+    if (label !== 'phone sideways') {
+      await page.click('#btnHudDeck');
+      const inView = await waitFor(page, () => { const r = document.getElementById('tapePanel').getBoundingClientRect(); return r.top >= 0 && r.top < innerHeight - 100; }, null, 10000);
+      check(`tape HUD (${label}): "Deck" brings the cassette panel into view`, inView && await page.isVisible('#tapeWave'));
+    } else check(`tape HUD (${label}): no "Deck" where the touch keys cover the page`, await page.isHidden('#btnHudDeck'));
+    // the end of the tape: the motor left on (as BASIC may), and nothing turns
+    await page.evaluate(() => { const t = window.emu.machine.deck.tape; t.seekByte(t.bytes.length); window.emu.machine.deck.setMotor(true); });
+    const ended = await waitFor(page, () => document.getElementById('tapeHud').dataset.state === 'end' && document.getElementById('hudState').textContent === 'End of tape', null, 10000);
+    const end = await page.evaluate(() => ({ motor: window.emu.machine.deck.motor, stamp: !document.getElementById('tapeEnd').hidden, moving: document.getElementById('tapePanel').hasAttribute('data-moving'),
+      anims: document.getAnimations().filter((a) => a.playState === 'running').length, eyebrow: document.getElementById('tapeEyebrow').textContent }));
+    await emuFrames(page, 30);   // more updates after the end: none may announce again
+    const said = await page.evaluate(() => window.__said);
+    check(`tape HUD (${label}): exactly two polite announcements from the tape going in to its end: playing, then the end`,
+      await page.getAttribute('#hudSay', 'aria-live') === 'polite' && sayPlay === 'Tape Space Game.cas playing'
+      && JSON.stringify(said) === JSON.stringify(['Tape Space Game.cas playing', 'End of tape Space Game.cas']), JSON.stringify(said));
+    check(`tape HUD (${label}): at the end of the tape (motor still on): "End of tape", the stamp on the cassette, nothing animating`,
+      ended && end.motor && end.stamp && !end.moving && end.anims === 0 && /^END OF TAPE/.test(end.eyebrow), JSON.stringify(end));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `tape-hud-${label.replace(' ', '-')}-end.png`) });
+    const gone = await waitFor(page, () => document.getElementById('tapeHud').hidden, null, 15000);
+    check(`tape HUD (${label}): it goes a few seconds after the end`, gone);
+    check(`tape HUD (${label}): no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+  // The Claude chat view and the browser's Fullscreen, at the phone and desktop sizes: wherever the HUD shows it is in
+  // view, on top and off the picture's text; where there is no such place (the phone chat shows its text edge to edge)
+  // it is not shown at all. Geometry relationships only, no fixed coordinates.
+  const hudPlace = (page) => page.evaluate(() => {
+    const h = document.getElementById('tapeHud'), cv = document.getElementById('screen'), c = cv.getBoundingClientRect();
+    const f = (cv.dataset.active || '0,0,1,1').split(',').map(Number);
+    const text = { left: c.left + f[0] * c.width, top: c.top + f[1] * c.height, right: c.left + f[2] * c.width, bottom: c.top + f[3] * c.height };
+    const r = h.getBoundingClientRect(), shown = !h.hidden && getComputedStyle(h).display !== 'none' && r.width > 0;
+    const top = shown && document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return { shown, noroom: h.classList.contains('noroom'), r: { left: r.left, top: r.top, right: r.right, bottom: r.bottom }, text, vw: innerWidth, vh: innerHeight,
+      onTop: !!top && h.contains(top), fs: !!document.fullscreenElement, playing: window.emu.machine.deck.playing };
+  });
+  const placedWell = (p) => (p.shown ? p.r.left >= 0 && p.r.top >= 0 && p.r.right <= p.vw && p.r.bottom <= p.vh && p.onTop && !rectsMeet(p.r, p.text) : p.noroom);
+  const tapeIn = (page) => page.evaluate((b) => { window.emu.session.fastTape = false; window.emu.session.insertTape('Space Game.cas', new Uint8Array(b)); window.__motor = setInterval(() => window.emu.machine.deck.setMotor(true), 20); }, bytes);
+  for (const [label, opts] of [['desktop', { viewport: { width: 1440, height: 900 } }], ['phone', { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }]]) {
+    const errors = [];
+    const ctx = await browser.newContext({ ...opts, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}?machine=coco&app=claude`);
+    await started(page);
+    await waitFor(page, () => window.emu.session.chatView === 'chat' || (window.emu.session.showChat('chat'), false), null, 15000);
+    await tapeIn(page);
+    await waitFor(page, () => window.emu.machine.deck.playing && document.getElementById('tapeHud').dataset.state === 'playing', null, 15000);
+    await emuFrames(page, 30);   // the HUD has been placed a few times (four times a second)
+    const chat = await hudPlace(page);
+    check(`tape HUD (${label}, Claude chat): ${chat.shown ? 'in view, on top, off the chat\'s text' : 'not shown: no place off the chat\'s text'}`, chat.playing && placedWell(chat), JSON.stringify(chat));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `tape-hud-${label}-chat.png`) });
+    await page.evaluate(() => clearInterval(window.__motor));
+    // the browser's Fullscreen (the page's own button: a real click)
+    await page.goto(`${base}?machine=coco`);
+    await started(page);
+    await tapeIn(page);
+    await waitFor(page, () => window.emu.machine.deck.playing && !document.getElementById('tapeHud').hidden, null, 15000);
+    const btn = await page.$('#btnFull');
+    if (btn && await btn.isVisible()) await btn.click();
+    else await page.evaluate(() => document.querySelector('[data-cmd="btnFull"], #btnFull').click());
+    const full = await waitFor(page, () => document.fullscreenElement === document.getElementById('screenWrap'), null, 10000);
+    // a 4:3 picture in the whole window leaves the border free at both sizes: shown, once the window has settled
+    const settled = await waitFor(page, () => { const h = document.getElementById('tapeHud'); return !h.hidden && !h.classList.contains('noroom'); }, null, 5000);
+    await emuFrames(page, 10);
+    const fs = await hudPlace(page);
+    check(`tape HUD (${label}, Fullscreen): shown, in view, on top, off the picture's text`, full && settled && fs.fs && fs.shown && placedWell(fs), JSON.stringify(fs));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `tape-hud-${label}-fullscreen.png`) });
+    await page.evaluate(() => { clearInterval(window.__motor); return document.exitFullscreen && document.fullscreenElement ? document.exitFullscreen() : null; });
+    check(`tape HUD (${label}, chat and Fullscreen): no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
 }
 
 // The Library's remaining parts ("Stored in browser storage (OPFS), or linked to a folder on
@@ -6502,8 +6832,8 @@ async function inputScreenChecks(browser, base, check) {
             if (c.l < safe.l - 0.5 || c.t < safe.t - 0.5 || c.r > safe.r + 0.5 || c.b > safe.b + 0.5) bad.push(`${c.name} outside the safe viewport`);
             if (cross(c, screen)) bad.push(`${c.name} over the screen`);
             if (c.el.scrollWidth > c.el.clientWidth) bad.push(`${c.name} clipped (${c.el.scrollWidth} > ${c.el.clientWidth})`);
-            // label in name (WCAG 2.5.3): a name set apart from the text still holds the text shown (SPC in "SPACE (SPC)")
-            if (c.el.hasAttribute('aria-label') && !c.name.toLowerCase().includes(c.el.innerText.trim().toLowerCase())) bad.push(`${c.name}: its name lacks its label "${c.el.innerText.trim()}"`);
+            // (label in name, WCAG 2.5.3, is checked over EVERY touch surface below, not only this row: the row
+            // covers the landscape controls, and the nits asked for the whole page or a narrower claim)
             for (const d of ctl) if (d !== c && cross(c, d) && !c.el.contains(d.el) && !d.el.contains(c.el)) bad.push(`${c.name} over ${d.name}`);
           }
           if (screen.t < safe.t - 0.5 || screen.b > safe.b + 0.5 || screen.l < safe.l - 0.5 || screen.r > safe.r + 0.5) bad.push('the screen outside the safe viewport');
@@ -6517,6 +6847,26 @@ async function inputScreenChecks(browser, base, check) {
           }
           return { names: ctl.map((c) => c.name), keys: keys.length, bad, fits: document.documentElement.scrollWidth <= innerWidth && document.documentElement.scrollHeight <= innerHeight + 1 };
         }, inset || { top: 0, bottom: 0, left: 0, right: 0 });
+        // label in name (WCAG 2.5.3) over every touch surface on the page, whichever layout: each control whose
+        // accessible name is set apart from its visible text must still contain that text (so a voice user saying
+        // what they see reaches it). The landscape row used to be the only place this ran; this covers the keys,
+        // the stick, FIRE, the menu, BREAK/CLEAR and the switch in every layout the group opens.
+        const ln = await page.evaluate(() => {
+          const bad = [];
+          for (const e of document.querySelectorAll('#touchKeys button, #touchStick, #touchFire, #tkBreak, #tkClear, #tkMenu, #tkModeSwitch button, #btnShowKeys')) {
+            if (!e.checkVisibility() || !e.getBoundingClientRect().width) continue;
+            if (!e.hasAttribute('aria-label')) continue;
+            // The name must hold the visible text. A WORD is a run of letters or digits, so a one-character key
+            // ("A", "1") is a word too and must be in its name; pure symbol glyphs are not words, because they can
+            // be decoration drawn beside a word ("←" above "DEL"), and WCAG also treats them as non-text.
+            const name = e.getAttribute('aria-label').toLowerCase();
+            const text = e.innerText.toLowerCase().replace(/\s+/g, ' ').trim();
+            const missing = (text.match(/[\p{L}\p{N}]+/gu) || []).filter((w) => !name.includes(w));
+            if (missing.length) bad.push(`${e.getAttribute('aria-label')}: its name lacks "${missing.join(' ')}"`);
+          }
+          return bad;
+        });
+        check(`${L}: every control's accessible name contains its visible text (WCAG label in name)`, !ln.length, ln.join('; '));
         const want = ['BREAK', 'CLEAR', 'Menu', 'Keys', 'Joystick'];
         check(`${L}: BREAK, CLEAR, the switch and Menu whole, inside the viewport and its safe area, clear of the screen and each other${mode === 'keys' ? '; split keys at least 40 px tall' : '; the strip and FIRE too'}`,
           want.every((n) => lay.names.includes(n)) && (mode === 'keys' ? lay.keys >= 40 : lay.names.includes('Fire') && lay.names.includes('SPACE (SPC)')) && !lay.bad.length && lay.fits, JSON.stringify(lay));
@@ -6543,9 +6893,12 @@ async function inputScreenChecks(browser, base, check) {
       for (const [id, cls] of show.classes || []) (id === 'body' ? document.body : document.getElementById(id)).classList.add(cls);
       const e = document.querySelector(sel);
       if (!e || !e.checkVisibility({ visibilityProperty: true })) return { sel, shown: false };
-      const r = e.getBoundingClientRect();
+      const r = e.getBoundingClientRect(), pos = getComputedStyle(e).position;
       const ok = r.width > 0 && r.left >= ins.left - 0.5 && r.top >= ins.top - 0.5 && r.right <= innerWidth - ins.right + 0.5 && r.bottom <= innerHeight - ins.bottom + 0.5;
-      return { sel, shown: true, ok, rect: [r.left, r.top, r.right, r.bottom].map(Math.round), safe: [ins.left, ins.top, innerWidth - ins.right, innerHeight - ins.bottom] };
+      // fixed: a box placed inside the safe area by normal flow would scroll out of it, and the inset is about
+      // what stays put over the page. Read here, so every overlay's check asks the same question.
+      return { sel, shown: true, pos, fixed: pos === 'fixed', ok,
+        rect: [r.left, r.top, r.right, r.bottom].map(Math.round), safe: [ins.left, ins.top, innerWidth - ins.right, innerHeight - ins.bottom] };
     }, [sel, ins, show]);
     const SIDE = { top: 0, bottom: 21, left: 59, right: 59 }, UP = { top: 47, bottom: 34, left: 0, right: 0 };
     for (const [label, viewport, ins] of [['sideways 932x430', { width: 932, height: 430 }, SIDE], ['upright 390x844', { width: 390, height: 844 }, UP]]) {
@@ -6558,7 +6911,9 @@ async function inputScreenChecks(browser, base, check) {
         await page.goto(`${base}?machine=dragon64&start=liza`);
         await waitFor(page, () => window.emu && window.emu.session.screenText().join('').includes('I AM LIZA'));
         const s = await inside(page, '#claudeStatus', ins, { ids: ['claudeBar', 'claudeStatus'], classes: [['body', 'chat-phone']] });
-        check(`${L}: the chat's turn status beside the screen lies inside the safe area`, s.shown && s.ok, JSON.stringify(s));
+        // 3c: and it is position:fixed, the thing that makes an inset a meaningful test (a flow box inside the
+        // safe area scrolls away; the status is an overlay)
+        check(`${L}: the chat's turn status beside the screen is fixed and lies inside the safe area`, s.shown && s.fixed && s.ok, JSON.stringify(s));
         await ctx.close();
       }
       // a pointer and a keyboard: a toast, the install card, the command box, Ask Claude and the page view's status pill
@@ -6595,8 +6950,11 @@ async function inputScreenChecks(browser, base, check) {
           await emuFrames(page, 3);
           const e = await inside(page, '#toast', ins);
           await page.evaluate(() => { document.getElementById('testObstacle').remove(); window.emu.feedback.clear(); });
-          check(`${L}: with only the notch's edge free along the bottom, the toast is not put there (inside the safe area, or waiting)`,
-            edge && (!e.shown || e.ok), JSON.stringify(e));
+          // A toast that never appears would satisfy "not put under the notch" while proving nothing, so this
+          // needs the toast to be VISIBLE (shown with a box) and, wherever it went, inside the safe area: the
+          // "or waiting" the old wording allowed let a toast that never showed pass.
+          check(`${L}: with only the notch's edge free along the bottom, the toast still shows, inside the safe area`,
+            edge && e.shown && e.ok, JSON.stringify(e));
         }
         if (lib) { await page.evaluate(() => { location.hash = ''; }); await waitFor(page, () => !document.body.classList.contains('library-open')); }
         await page.click('#machineBtn'); await page.click('#navInstall');   // (no install prompt: the card with the steps)
@@ -6621,9 +6979,12 @@ async function inputScreenChecks(browser, base, check) {
         const ask = await inside(page, '#ask', ins);
         check(`${L}: the Ask Claude ${viewport.width <= 700 ? 'sheet' : 'panel'} lies inside the safe area`, ask.shown && ask.ok, JSON.stringify(ask));
         const pill = await inside(page, '#viewClaude', ins, { ids: ['viewClaude'] });
-        let top = { shown: true, ok: true };
-        if (viewport.width > viewport.height) top = await inside(page, '#viewClaude', ins, { ids: ['viewClaude'], classes: [['viewClaude', 'top']] });
-        check(`${L}: the status pill lies inside the safe area${viewport.width > viewport.height ? ', at the bottom and at the top' : ''}`, pill.shown && pill.ok && top.shown && top.ok, JSON.stringify([pill, top]));
+        // sideways there are two places (the bottom and the .top one); upright only the bottom, so only the
+        // placements that really exist are asserted (a made-up third value would make the check vacuous upright)
+        const sideways = viewport.width > viewport.height;
+        const top = sideways ? await inside(page, '#viewClaude', ins, { ids: ['viewClaude'], classes: [['viewClaude', 'top']] }) : null;
+        check(`${L}: the status pill is fixed and lies inside the safe area${sideways ? ', at the bottom and at the top' : ''}`,
+          pill.shown && pill.fixed && pill.ok && (!sideways || (top.shown && top.fixed && top.ok)), JSON.stringify(sideways ? [pill, top] : [pill]));
         await ctx.close();
       }
     }
@@ -6640,6 +7001,11 @@ async function inputScreenChecks(browser, base, check) {
       await waitFor(page, () => !document.getElementById('installOffer').hidden);
       const card = await inside(page, '#installOffer', SIDE), where = await page.evaluate(() => window.emu.install.state().placement().where);
       check(`${L}: the install card, in the gutter beside the screen, lies inside the safe area`, where === 'gutter' && card.shown && card.ok, JSON.stringify({ where, card }));
+      // 3a is covered by the checks above, not here: a mutation that makes safeArea() ignore the insets turns the
+      // toast and command-box checks in this group red, so the inset arithmetic is proven. The install card's own
+      // placement cannot add to that - at every width where it is placed, the screen stays centred and the gutter it
+      // takes is far wider than the inset with or without safeArea() - and a check that cannot fail is worse than
+      // none, so there is deliberately no separate card check here.
       await ctx.close();
     }
   }
@@ -6654,12 +7020,13 @@ async function inputScreenChecks(browser, base, check) {
     const lay = await page.evaluate(() => {
       const r = (id) => document.getElementById(id).getBoundingClientRect();
       return { full: r('touchFull').height > 0 && r('touchLeft').width === 0, below: r('touchFull').top >= r('screen').bottom, fits: document.documentElement.scrollWidth <= innerWidth,
-        cols: document.querySelector('#touchFull .tkrow').children.length, buttons: ['tkBreak', 'tkClear', 'tkMenu'].every((id) => r(id).height >= 44 && r(id).top >= r('touchFull').bottom),
+        // BREAK, CLEAR and Menu share the switch's row, between the screen and the keys (the portrait fit below)
+        cols: document.querySelector('#touchFull .tkrow').children.length, buttons: ['tkBreak', 'tkClear', 'tkMenu'].every((id) => r(id).height >= 40 && r(id).bottom <= r('touchFull').top && r(id).top >= r('screen').bottom),
         // the brief: in portrait the Keys | Joystick switch sits ABOVE the keys (the brief's "above the keys";
         // sideways it is in the strip with BREAK, CLEAR and Menu)
         switchShown: r('tkModeSwitch').height > 0 && r('tkModeSwitch').bottom <= r('touchFull').top && r('tkModeSwitch').top >= r('screen').bottom };
     });
-    check('touch keys (phone, portrait): ten columns under the screen, the Keys | Joystick switch above the keys, no sideways scrolling',
+    check('touch keys (phone, portrait): ten columns under the screen, the Keys | Joystick switch with BREAK, CLEAR and Menu above the keys, no sideways scrolling',
       lay.full && lay.below && lay.fits && lay.cols === 10 && lay.buttons && lay.switchShown, JSON.stringify(lay));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'touch-keys-portrait.png'), fullPage: true });
     await backspaceKey(page, '#touchFull', 'touch keys (phone, portrait)');
@@ -6667,6 +7034,164 @@ async function inputScreenChecks(browser, base, check) {
     await page.tap('#touchFull [data-key="ENTER"]');
     check('touch keys: LIZA answers what was tapped', await waitFor(page, () => /HOW LONG HAVE YOU BEEN SAD/.test(window.emu.session.screenText().join('\n'))), (await stubText(page)).split('\n').slice(4, 9).join('|'));
     check('touch keys (portrait): no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+  // ---- portrait phones: the whole panel on screen at load, the row with ENTER included, no scrolling to type ----
+  // The owner's report (iPhone, Chrome for iOS, portrait): ENTER's row was under the browser's bottom toolbar. Each
+  // size is a phone's visible area with its browser's toolbars up (Safari's and Chrome for iOS's are taken out of the
+  // window here; Chrome for iOS leaves the least), with the notch's and home indicator's insets emulated through CDP
+  // (env(safe-area-inset-*)). Every key, the switch, BREAK, CLEAR and Menu (Keys), or the strip, the stick and FIRE
+  // (Joystick), must lie inside the visual viewport less the insets, with the page not scrolled, every key at least
+  // 40 px tall, and nothing of the panel over the screen.
+  {
+    const PORTRAIT = [['iPhone SE, Safari', { width: 375, height: 548 }, null], ['iPhone SE, Chrome for iOS', { width: 375, height: 540 }, null],
+      ['iPhone 13, Safari', { width: 390, height: 664 }, { top: 0, bottom: 34, left: 0, right: 0 }],
+      ['iPhone 13, Chrome for iOS', { width: 390, height: 632 }, { top: 47, bottom: 34, left: 0, right: 0 }],
+      ['iPhone 15, Safari', { width: 393, height: 659 }, { top: 0, bottom: 34, left: 0, right: 0 }],
+      ['iPhone 15, Chrome for iOS', { width: 393, height: 628 }, { top: 59, bottom: 34, left: 0, right: 0 }],
+      ['Pixel 7, Chrome', { width: 412, height: 839 }, null],
+      // Safari 26+: the page runs under its floating toolbar, which no viewport unit or inset counts; the panel must
+      // end above it (84 px from the bottom edge, play/index.html --tk-bar)
+      ['iPhone 15, Safari 26 floating toolbar', { width: 393, height: 852 }, { top: 59, bottom: 34, left: 0, right: 0 },
+        { userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1', bar: 84 }],
+      // (the SE is where the band decides: the screen is cut by the height, so without the band ENTER's row is under it)
+      ['iPhone SE, Safari 26 floating toolbar', { width: 375, height: 667 }, null,
+        { userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1', bar: 84 }]];
+    for (const [label, viewport, inset, ios] of PORTRAIT) {
+      for (const mode of ['keys', 'joystick']) {
+        const L = `touch keys fit (${label} ${viewport.width}x${viewport.height}, ${mode})`;
+        const ctx = await browser.newContext({ viewport, hasTouch: true, isMobile: true, serviceWorkers: 'block', ...(ios ? { userAgent: ios.userAgent } : {}) });
+        const page = await ctx.newPage();
+        const errors = [];
+        page.on('pageerror', (e) => errors.push(e.message));
+        const ins = { top: 0, bottom: 0, left: 0, right: 0, ...inset };
+        if (ios) ins.bottom = Math.max(ins.bottom, ios.bar);
+        if (inset) await (await ctx.newCDPSession(page)).send('Emulation.setSafeAreaInsetsOverride', { insets: inset });
+        await page.goto(`${base}?machine=dragon64&start=liza&touch=${mode}`);
+        await waitFor(page, () => window.emu && window.emu.machine && window.emu.session.screenText().join('').includes('I AM LIZA'));
+        await waitFor(page, (m) => !document.getElementById('touchKeys').hidden && document.getElementById('touchKeys').classList.contains('joystick') === (m === 'joystick'), mode);
+        await painted(page);
+        const lay = await page.evaluate((ins) => {
+          const vv = visualViewport, safe = { l: vv.offsetLeft + ins.left, t: vv.offsetTop + ins.top, r: vv.offsetLeft + vv.width - ins.right, b: vv.offsetTop + vv.height - ins.bottom };
+          const shown = (e) => e.checkVisibility() && e.getBoundingClientRect().width > 0;
+          const box = (e) => { const r = e.getBoundingClientRect(); return { l: r.left, t: r.top, r: r.right, b: r.bottom }; };
+          const cross = (a, b) => a.l < b.r - 0.5 && b.l < a.r - 0.5 && a.t < b.b - 0.5 && b.t < a.b - 0.5;
+          const screen = box(document.querySelector('.layout > main > .monitor'));
+          const parts = [...document.querySelectorAll('#touchKeys .tk, #tkMenu, #tkModeSwitch button, #touchStick, #touchFire')].filter(shown)
+            .map((e) => ({ name: e.dataset.key || e.id || e.textContent.trim(), key: e.classList.contains('tk'), ...box(e) }));
+          const bad = [];
+          for (const p of parts) {
+            if (p.l < safe.l - 0.5 || p.t < safe.t - 0.5 || p.r > safe.r + 0.5 || p.b > safe.b + 0.5) bad.push(`${p.name} outside the visible area (${Math.round(p.t)}..${Math.round(p.b)} of ${Math.round(safe.t)}..${Math.round(safe.b)})`);
+            if (p.key && p.b - p.t < 40 - 0.5) bad.push(`${p.name} only ${Math.round(p.b - p.t)} px tall`);
+            if (cross(p, screen)) bad.push(`${p.name} over the screen`);
+          }
+          const enter = document.querySelector('#touchFull [data-key="ENTER"]');
+          return { names: parts.length, enter: enter && shown(enter) ? [Math.round(enter.getBoundingClientRect().top), Math.round(enter.getBoundingClientRect().bottom)] : null,
+            safe: [safe.t, safe.b].map(Math.round), screen: [Math.round(screen.r - screen.l), Math.round(screen.b - screen.t)], scrolled: scrollY, sideways: document.documentElement.scrollWidth > innerWidth, bad };
+        }, ins);
+        const want = mode === 'keys' ? !!lay.enter && lay.names >= 50 : lay.names >= 12;
+        check(`${L}: ${mode === 'keys' ? 'every key (ENTER\'s row included), the switch, BREAK, CLEAR and Menu' : 'the strip, the stick, FIRE, the switch, BREAK, CLEAR and Menu'} inside the visible area less its insets at load, keys at least 40 px, none over the screen`,
+          want && !lay.bad.length && lay.scrolled === 0 && !lay.sideways, JSON.stringify(lay));
+        if (shotDir) await page.screenshot({ path: path.join(shotDir, `touch-portrait-${mode}-${label.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.png`) });
+        check(`${L}: no page errors`, !errors.length, errors.join('; '));
+        await ctx.close();
+      }
+    }
+  }
+  // ---- a drag that starts on a key types nothing; a tap types; a hold holds ----
+  // Real touches through CDP. A key is armed when the finger lands and reaches the machine only when it commits: the
+  // finger lifts where it went down, or stays HOLD_MS (js/ui/touch-keys.js). A finger that moves more than MOVE_PX
+  // first cancels it, so the machine's matrix (setKey) and the no-ROM stub's queue never see the key.
+  {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 664 }, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    const cdp = await ctx.newCDPSession(page);
+    await page.goto(`${base}?machine=dragon64&start=liza`);
+    await waitFor(page, () => window.emu && window.emu.machine && window.emu.session.screenText().join('').includes('I AM LIZA'));
+    await page.evaluate(() => {
+      const m = window.emu.machine, set = m.setKey.bind(m), push = m.stubKeys.push.bind(m.stubKeys);
+      window.pressed = []; window.stubbed = [];
+      m.setKey = (k, d) => { window.pressed.push(`${k}${d ? '+' : '-'}`); return set(k, d); };
+      m.stubKeys.push = (...c) => { window.stubbed.push(...c); return push(...c); };
+      // when the finger's events reach the key (the drag's moves must come within HOLD_MS to be a drag at all)
+      window.seen = [];
+      for (const ev of ['pointerdown', 'pointermove', 'pointerup', 'pointercancel']) document.getElementById('touchKeys').addEventListener(ev, (e) => window.seen.push([e.type, Math.round(performance.now()), e.target.dataset && e.target.dataset.key]), true);
+    });
+    const at = (sel) => page.evaluate((sel) => { const r = document.querySelector(sel).getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }, sel);
+    const touch = (type, x, y) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y, id: 1, radiusX: 8, radiusY: 8, force: 1 }] });
+    const reset = () => page.evaluate(() => { window.pressed = []; window.stubbed = []; window.seen = []; });
+    const typed = () => page.evaluate(() => ({ pressed: window.pressed.join(), stubbed: window.stubbed.join(), shift: document.querySelector('#touchFull [data-key="SHIFT"]').getAttribute('aria-pressed') }));
+    const HOLD_MS = await page.evaluate(async () => (await import(new URL('js/ui/touch-keys.js', document.baseURI).href)).HOLD_MS);
+    // a drag of 40 px up (the owner's scroll), from Q, then from SHIFT; up to three tries for a drag whose first move
+    // reached the page within HOLD_MS (a loaded machine can be slower than a finger: that try tests nothing)
+    for (const [name, sel] of [['Q', '#touchFull [data-key="Q"]'], ['SHIFT', '#touchFull [data-key="SHIFT"]']]) {
+      let res = null;
+      for (let attempt = 0; attempt < 3 && !res; attempt++) {
+        await reset();
+        const p = await at(sel);
+        await touch('touchStart', p.x, p.y);
+        // (12 px steps: the first move is already past MOVE_PX, so it is the one that must cancel, and the one timed)
+        for (const dy of [12, 24, 36, 40]) await touch('touchMove', p.x, p.y - dy);
+        await page.waitForTimeout(250);
+        await touch('touchEnd');
+        await emuFrames(page, 6);
+        const seen = await page.evaluate(() => window.seen);
+        const down = seen.find((e) => e[0] === 'pointerdown'), move = seen.find((e) => e[0] === 'pointermove');
+        if (down && move && move[1] - down[1] < HOLD_MS) res = { ...(await typed()), firstMoveMs: move[1] - down[1], scrolled: await page.evaluate(() => scrollY) };
+      }
+      check(`touch keys (portrait): a touch drag of 40 px starting on ${name} types nothing (the matrix and the stub never see a key${name === 'SHIFT' ? ', SHIFT stays off' : ''}) and scrolls nothing`,
+        !!res && res.pressed === '' && res.stubbed === '' && res.shift === 'false' && res.scrolled === 0, JSON.stringify(res));
+    }
+    // a chord: SHIFT held, Q tapped before SHIFT's own HOLD_MS -- Q goes in shifted (SHIFT down in the matrix before Q,
+    // and up after it), and SHIFT is not left latched for the next key. Two fingers, real touches; a try counts only if
+    // Q's lift reached the page within HOLD_MS of SHIFT's touch (else SHIFT committed by its own timer: no chord to test)
+    {
+      let res = null;
+      const touches = (type, pts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map(([id, x, y]) => ({ x, y, id, radiusX: 8, radiusY: 8, force: 1 })) });
+      for (let attempt = 0; attempt < 3 && !res; attempt++) {
+        await keysTaken(page);
+        await reset();
+        const sh = await at('#touchFull [data-key="SHIFT"]'), q = await at('#touchFull [data-key="Q"]');
+        await touches('touchStart', [[1, sh.x, sh.y]]);
+        await touches('touchStart', [[1, sh.x, sh.y], [2, q.x, q.y]]);
+        await touches('touchEnd', [[2, q.x, q.y]]);   // (the points listed are the ones that lift) Q lifts, SHIFT still down
+        await page.waitForTimeout(150);
+        await touches('touchEnd', [[1, sh.x, sh.y]]);
+        await emuFrames(page, 10);
+        const seen = await page.evaluate(() => window.seen);
+        const downs = seen.filter((e) => e[0] === 'pointerdown'), up = seen.find((e) => e[0] === 'pointerup' && e[2] === 'Q');
+        if (downs.length === 2 && downs[0][2] === 'SHIFT' && up && up[1] - downs[0][1] < HOLD_MS && !seen.some((e) => e[0] === 'pointerup' && e[2] === 'SHIFT' && e[1] < up[1])) {
+          const pressed = await page.evaluate(() => window.pressed);
+          const at_ = (k) => pressed.indexOf(k);
+          res = { pressed: pressed.join(), qUpMs: up[1] - downs[0][1], shifted: at_('SHIFT+') >= 0 && at_('Q+') > at_('SHIFT+') && at_('SHIFT-') > at_('Q+'),
+            latched: (await typed()).shift };
+        }
+      }
+      check('touch keys (portrait): a chord (SHIFT held, Q tapped within HOLD_MS) types Q shifted and leaves SHIFT off',
+        !!res && res.shifted && res.latched === 'false', JSON.stringify(res));
+    }
+    // a tap types (pressed and let go)
+    await reset();
+    let p = await at('#touchFull [data-key="Q"]');
+    await touch('touchStart', p.x, p.y); await touch('touchEnd');
+    check('touch keys (portrait): a tap still types (Q pressed and let go in the matrix, Q to the stub)',
+      await waitFor(page, () => window.pressed.includes('Q+') && window.pressed.includes('Q-') && window.stubbed.includes(81)), JSON.stringify(await typed()));
+    // a hold holds: down past HOLD_MS, the key is down in the matrix and stays down until the finger lifts, even
+    // if it then wobbles past MOVE_PX (a held key in a game)
+    await keysTaken(page);
+    await reset();
+    p = await at('#touchFull [data-key="W"]');
+    await touch('touchStart', p.x, p.y);
+    await page.waitForTimeout(300);
+    await touch('touchMove', p.x + 14, p.y);
+    await emuFrames(page, 10);
+    const held = await page.evaluate(() => ({ pressed: window.pressed.join() }));
+    await touch('touchEnd');
+    check('touch keys (portrait): a long hold holds (W down in the matrix for as long as the finger is, a wobble after the commit included, then let go)',
+      held.pressed === 'W+' && await waitFor(page, () => window.pressed.join() === 'W+,W-'), JSON.stringify({ held, after: await typed() }));
+    check('touch keys (portrait, drag and hold): no page errors', !errors.length, errors.join('; '));
     await ctx.close();
   }
   // ---- desktop: hidden unless asked; the setting is remembered ----
@@ -6717,8 +7242,8 @@ async function inputScreenChecks(browser, base, check) {
       const covers = (id) => { const el = document.getElementById(id); if (el.hidden || getComputedStyle(el).display === 'none') return false; const b = r(el); return b.bottom > s.top && b.top < s.bottom && b.width > 0; };
       const key = document.querySelector('#touchFull [data-key="2"]');
       // BREAK, CLEAR and Menu on screen as the page opens, with the keys: no scrolling to reach them
-      const visible = (id) => { const b = r(document.getElementById(id)); return b.height >= 44 && b.top >= 0 && b.bottom <= innerHeight; };
-      return { keys: !document.getElementById('touchKeys').hidden && !!key && r(key).height >= 44 && r(key).bottom <= innerHeight,
+      const visible = (id) => { const b = r(document.getElementById(id)); return b.height >= 40 && b.top >= 0 && b.bottom <= innerHeight; };
+      return { keys: !document.getElementById('touchKeys').hidden && !!key && r(key).height >= 40 && r(key).bottom <= innerHeight,
         controls: ['tkBreak', 'tkClear', 'tkMenu'].every(visible), soundHint: covers('soundHint'), keyHint: covers('keyHint') };
     });
     check('PHONE-1 (390 px): on a first visit the on-screen keyboard is there, and no hint covers the screen', first.keys && !first.soundHint && !first.keyHint, JSON.stringify(first));
@@ -11409,6 +11934,263 @@ async function modelsChecks(browser, base, check) {
   check('file:// open shows how to serve the page', await local.waitForSelector('#startError', { state: 'visible', timeout: 10000 }).then(() => true, () => false));
 }
 
+// ---------------- document semantics: what assistive technology and a reading mode get ----------------
+// The play page as a document, at desktop, phone portrait and landscape, and tablet size: exactly one <main> (the
+// emulator's) and one main landmark in every view (each view is its own while open), the landmark set, the headings in
+// order (one h1, no level skipped), the screen canvas named and its text alternative (Session.screenAlternative) in the
+// accessibility tree, and every surface that is not drawn (a dialog, a menu, a tab panel, an aside, a nav, a view, the
+// Multi-Pak's folded slots, the emulator behind a view) hidden for real: by its hidden attribute or by inert and
+// aria-hidden, nothing of it in Playwright's accessibility snapshot, nothing in it able to take the focus. Dialogs are
+// named; none says aria-modal, because none is modal (Tab leaves the command box, shown here). Then a reading mode's
+// extraction, with Mozilla's Readability (tools/vendor/readability, an unmodified copy) standing in for one: it works
+// from the markup, not the stylesheet, which is how Chrome's reading mode came to show every panel's text. Its article
+// must be short and be the screen's text, not the panels'; in a view, the view and not the emulator behind it.
+// Finally the landing page: banner, navigation, one main, contentinfo, headings in order.
+async function semanticsChecks(browser, base, site, check) {
+  const { devices } = require('playwright');
+  const READER = path.join(__dirname, 'vendor', 'readability', 'Readability.js');
+  const LANDMARK = /^(\s*)- (banner|main|navigation|complementary|contentinfo|region|search|form)(?: "((?:[^"\\]|\\.)*)")?/;
+  // the landmarks (role "name", nested ones indented by depth) and the headings ([level, name]) of the snapshot
+  const outline = async (page) => {
+    const snap = await page.locator('body').ariaSnapshot();
+    const landmarks = [], headings = [];
+    for (const line of snap.split('\n')) {
+      const l = LANDMARK.exec(line);
+      if (l) landmarks.push(`${l[2]}${l[3] !== undefined ? ` "${l[3]}"` : ''}`);
+      const h = /heading "((?:[^"\\]|\\.)*)" \[level=(\d)\]/.exec(line);
+      if (h) headings.push([+h[2], h[1]]);
+    }
+    return { snap, landmarks, headings };
+  };
+  // one h1, first; each heading at most one level below the one before
+  const inOrder = (hs) => hs.length > 0 && hs[0][0] === 1 && hs.filter(([l]) => l === 1).length === 1 && hs.every(([l], i) => i === 0 || l <= hs[i - 1][0] + 1);
+  // Every surface that is not drawn, and whether it is hidden for real. Read in the page: the surfaces are found by
+  // what they are (role or element), not by a list of ids, so a new one is covered. Not drawn: no box (display: none,
+  // a closed <details>), invisible or transparent, or a box wholly off the page (a panel parked off-screen by CSS).
+  // With each: whether it or an ancestor has the hidden attribute or inert with aria-hidden, and its focusable
+  // descendants that took a focus(). Each is marked (data-semantics-probe) for the snapshot check, and unmarked after.
+  const undrawn = (page) => page.evaluate(() => {
+    const SURFACES = '[role="dialog"], [role="alertdialog"], dialog, [role="menu"], [role="tabpanel"], [role="main"], [role="region"], main, aside, nav, '
+      + '.layout, #appbar, body > footer, #mpak .mpSlots, #tkMenuSheet, #driveMenu';
+    const FOCUSABLE = 'a[href], button, input, select, textarea, summary, [tabindex]';
+    const W = document.documentElement.scrollWidth, H = document.documentElement.scrollHeight;
+    const out = [];
+    for (const el of document.querySelectorAll(SURFACES)) {
+      const b = el.getBoundingClientRect(), x = b.left + scrollX, y = b.top + scrollY;
+      const off = b.width > 0 && b.height > 0 && (x + b.width <= 0 || y + b.height <= 0 || x >= W || y >= H);
+      if (el.checkVisibility({ opacityProperty: true, visibilityProperty: true }) && !off) continue;
+      const hiddenBy = el.closest('[hidden]') ? 'hidden' : el.closest('[inert][aria-hidden="true"]') ? 'inert' : null;
+      const was = document.activeElement, took = [];
+      for (const f of el.querySelectorAll(FOCUSABLE)) { f.focus(); if (document.activeElement === f) took.push(f.id || f.tagName); }
+      if (was && was.focus) was.focus();
+      el.setAttribute('data-semantics-probe', String(out.length));
+      out.push({ id: el.id || `${el.tagName.toLowerCase()}.${el.className}`, hiddenBy, took });
+    }
+    return out;
+  });
+  // what is not drawn must be hidden for real, show nothing to assistive technology and take no focus
+  const closedOk = async (page, L) => {
+    const list = await undrawn(page);
+    const bad = list.filter((s) => !s.hiddenBy || s.took.length);
+    const seen = [];
+    for (let i = 0; i < list.length; i++) if ((await page.locator(`[data-semantics-probe="${i}"]`).ariaSnapshot()).trim()) seen.push(list[i].id);
+    await page.evaluate(() => { for (const el of document.querySelectorAll('[data-semantics-probe]')) el.removeAttribute('data-semantics-probe'); });
+    check(`${L}: every surface not drawn is hidden for real (hidden, or inert and aria-hidden), takes no focus and is out of the accessibility snapshot (${list.length} surfaces)`,
+      list.length > 0 && !bad.length && !seen.length, JSON.stringify({ bad, seen }));
+    return list;
+  };
+  // the screen canvas: its role and name, and the text in its subtree in Chromium's accessibility tree, which must be
+  // the Session's text alternative (whitespace runs compared as one space)
+  const norm = (t) => t.replace(/\s+/g, ' ').trim();
+  const screenAx = async (page) => {
+    const cdp = await page.context().newCDPSession(page);
+    const { nodes } = await cdp.send('Accessibility.getFullAXTree');
+    await cdp.detach();
+    const byId = new Map(nodes.map((n) => [n.nodeId, n]));
+    const app = nodes.filter((n) => !n.ignored && n.role && n.role.value === 'application');
+    const text = (n) => (n.role && n.role.value === 'StaticText' ? n.name.value : '') + (n.childIds || []).map((c) => text(byId.get(c))).join('');
+    return { count: app.length, name: app[0] && app[0].name && app[0].name.value, text: app[0] ? text(app[0]) : '' };
+  };
+  // what a reading mode extracts: Readability on a copy of the document, as the page is now
+  const extract = async (page) => {
+    if (!await page.evaluate(() => typeof window.Readability === 'function')) await page.addScriptTag({ path: READER });
+    return page.evaluate(() => { const a = new window.Readability(document.cloneNode(true)).parse(); return a ? a.textContent.replace(/\s+/g, ' ').trim() : ''; });
+  };
+  // text of the panels and views: none of it is the article on the emulator
+  const SOUP = ['Cassette', 'Drives', 'Cartridge port', 'Multi-Pak', 'Slot 1', 'Fast tape loading', 'Runs without ROMs', 'Recent on this machine',
+    'Machine settings', 'Your Anthropic API key', 'Ask about this machine', 'Give it a BASIC to boot', 'A link that opens exactly here',
+    'Your tapes, disks and cartridges', 'Breakpoints', 'Credits', 'Running with no ROMs'];
+
+  const SIZES = [['desktop', { viewport: { width: 1440, height: 900 } }], ['phone', devices['Pixel 7']],
+    ['phone landscape', devices['Pixel 7 landscape']], ['tablet', devices['iPad (gen 7)']]];
+  for (const [label, opts] of SIZES) {
+    const ctx = await browser.newContext({ ...opts, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}?machine=dragon64`);
+    await ready(page);
+    await started(page);
+    await waitFor(page, () => window.emu.session.screenAlternative().includes('TALK TO LIZA'));
+    // (the text alternative follows the screen within a second: wait for it to have caught up)
+    await waitFor(page, () => document.getElementById('screenAlt').textContent === window.emu.session.screenAlternative());
+    const L = `semantics (${label})`;
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `semantics-${label.replace(/ /g, '-')}.png`) });
+
+    // one <main>, one main landmark; the landmarks; the headings
+    const o = await outline(page);
+    const mains = await page.evaluate(() => document.querySelectorAll('main').length);
+    check(`${L}: exactly one <main>, and one main landmark, the emulator's, named by the machine`,
+      mains === 1 && o.landmarks.filter((x) => x.startsWith('main')).length === 1 && o.landmarks.includes('main "Dragon 64"'), JSON.stringify({ mains, landmarks: o.landmarks }));
+    // the touch keys' layout on a phone held sideways has only the emulator: the keys stand for the app bar, the
+    // ports, the drawer and the footer
+    const touch = !await page.locator('#appbar').isVisible();
+    const navShown = await page.locator('#appbar > nav').isVisible();
+    const want = touch ? ['main "Dragon 64"'] : ['banner', ...(navShown ? ['navigation "App"'] : []), 'main "Dragon 64"', 'complementary "Tape, disks and cartridges"',
+      'complementary "Settings drawer"', 'contentinfo'];
+    check(`${L}: the landmarks: ${touch ? 'the emulator alone (main), its touch keys in place of the rest' : `the app bar (banner${navShown ? ', its links a navigation' : '; its links folded behind Menu, so no navigation'}), the emulator (main) with the ports under its screen (complementary), the settings drawer (complementary), the footer (contentinfo)`}`,
+      JSON.stringify(o.landmarks) === JSON.stringify(want), JSON.stringify(o.landmarks));
+    check(`${L}: the headings: one h1 naming the machine, none skipped`, inOrder(o.headings) && o.headings[0][1] === 'Dragon 64', JSON.stringify(o.headings));
+
+    // the screen: an application named as before, its text alternative the screen's text
+    const ax = await screenAx(page);
+    const alt = await page.evaluate(() => window.emu.session.screenAlternative());
+    check(`${L}: the screen is one application, named, its text alternative the screen's text in the accessibility tree`,
+      ax.count === 1 && ax.name === 'The emulated screen. Click it, then type. Tab leaves it.' && norm(ax.text) === norm(alt) && /1 TALK TO LIZA/.test(ax.text), JSON.stringify(ax));
+
+    // closed surfaces, as the page starts and after each has been opened and closed again
+    await closedOk(page, `${L}, as it starts`);
+    if (label === 'desktop') {
+      await page.click('#machineBtn'); await waitFor(page, () => !document.getElementById('machineMenu').hidden);
+      await page.keyboard.press('Escape'); await waitFor(page, () => document.getElementById('machineMenu').hidden);
+      await page.keyboard.press('Control+k'); await waitFor(page, () => !document.getElementById('cmdBox').hidden);
+      // the command box is not modal: Tab leaves it, past its box and its list (so it must not, and does not, say aria-modal)
+      const outside = () => page.evaluate(() => !document.getElementById('cmdBox').contains(document.activeElement) && !document.getElementById('cmdBox').hidden);
+      let left = false;
+      for (let i = 0; i < 4 && !left; i++) { await page.keyboard.press('Tab'); left = await outside(); }
+      const dialogs = await page.evaluate(() => [...document.querySelectorAll('[role="dialog"], [role="alertdialog"], dialog')].map((d) => ({
+        id: d.id, named: !!((d.getAttribute('aria-label') || '').trim() || (d.getAttribute('aria-labelledby') || '').split(/\s+/).some((i) => document.getElementById(i))), modal: d.getAttribute('aria-modal') })));
+      check(`${L}: every dialog is named, and none says aria-modal: none is modal (Tab leaves the open command box)`,
+        left && dialogs.length >= 5 && dialogs.every((d) => d.named && d.modal === null), JSON.stringify({ left, dialogs }));
+      await page.keyboard.press('Escape'); await waitFor(page, () => document.getElementById('cmdBox').hidden);
+      await openTab(page, 'Display'); await openTab(page, 'Media');
+      await closedOk(page, `${L}, after the machine menu, the command box and a tab were opened and closed`);
+    }
+    if (label === 'phone') {
+      // the app bar's links behind Menu: out of the tree while folded, in it while open
+      const folded = await page.evaluate(() => { const n = document.querySelector('#appbar > nav'); return n.inert && n.getAttribute('aria-hidden') === 'true'; });
+      await page.click('#btnMenu');
+      await waitFor(page, () => document.querySelector('#appbar > nav').checkVisibility());
+      const open = await outline(page);
+      const opened = await page.evaluate(() => !document.querySelector('#appbar > nav').inert && !document.querySelector('#appbar > nav').hasAttribute('aria-hidden'));
+      check(`${L}: the links behind Menu are inert and aria-hidden while folded, a navigation landmark once Menu opens them`,
+        folded && opened && open.landmarks.includes('navigation "App"'), JSON.stringify({ folded, opened, landmarks: open.landmarks }));
+      await page.click('#btnMenu');
+      await waitFor(page, () => document.querySelector('#appbar > nav').inert);
+    }
+
+    // a reading mode on the emulator: the screen's text, short, none of the panels' text
+    const article = await extract(page);
+    const soup = SOUP.filter((s) => article.includes(s));
+    check(`${L}: a reading mode (Readability) extracts the screen's text, short (${article.length} characters), none of the panels' text`,
+      article.startsWith(norm(alt)) && article.length <= 400 && !soup.length, JSON.stringify({ article: article.slice(0, 300), soup }));
+
+    // the views: each its own main landmark with one h1, the emulator behind it inert and out of a reading mode
+    for (const [hash, name, own, backBtn] of [['#library', 'Library', 'Your tapes, disks and cartridges', '#btnLibBack'],
+      ['#share', 'A link that opens exactly here', 'The link holds a snapshot', '#shareBack'], ['#debugger', 'DEBUGGER', 'Breakpoints', '#btnDbgBack'],
+      ['#add-roms', 'Give it a BASIC to boot', 'Drop your ROM files here', '#btnRomBack']]) {
+      if (label !== 'desktop' && hash !== '#library') continue;   // (the views do not change with the size; the Library stands for them)
+      await page.evaluate((h) => { location.hash = h; }, hash);
+      await waitFor(page, () => getComputedStyle(document.querySelector('.layout')).display === 'none');
+      const v = await outline(page);
+      const behind = await page.evaluate(() => { const l = document.querySelector('.layout'); return l.inert && l.getAttribute('aria-hidden') === 'true'; });
+      check(`${L}, ${hash}: one main landmark, the view's ("${name}"), one h1 and the headings in order`,
+        v.landmarks.filter((x) => x.startsWith('main')).length === 1 && v.landmarks.includes(`main "${name}"`) && inOrder(v.headings) && v.headings[0][1] === name,
+        JSON.stringify({ landmarks: v.landmarks, headings: v.headings }));
+      await closedOk(page, `${L}, ${hash}`);
+      const text = await extract(page);
+      check(`${L}, ${hash}: the emulator behind the view is inert and aria-hidden, and a reading mode reads the view, not the emulator`,
+        behind && text.includes(own) && !text.includes('TALK TO LIZA') && !text.includes('Fast tape loading'), JSON.stringify({ behind, text: text.slice(0, 200) }));
+      await page.click(backBtn);
+      await waitFor(page, () => getComputedStyle(document.querySelector('.layout')).display !== 'none');
+      const back = await page.evaluate(() => ({ inert: document.querySelector('.layout').inert, focus: document.activeElement && document.activeElement.id }));
+      check(`${L}, ${hash} closed: the emulator is back, not inert, and the screen has the focus`, !back.inert && back.focus === 'screen', JSON.stringify(back));
+    }
+
+    // the screen's text alternative follows the screen: LIZA from the welcome menu
+    if (label === 'desktop') {
+      await page.click('#screen');
+      await page.keyboard.press('1');
+      const follows = await waitFor(page, () => /LIZA/.test(window.emu.session.screenAlternative()) && !/TALK TO LIZA/.test(window.emu.session.screenAlternative())
+        && document.getElementById('screenAlt').textContent === window.emu.session.screenAlternative());
+      const ax2 = await screenAx(page);
+      check(`${L}: the text alternative follows the screen (LIZA started from the menu)`, follows && norm(ax2.text) === norm(await page.evaluate(() => window.emu.session.screenAlternative())), JSON.stringify(ax2.text.slice(0, 120)));
+      // Ask Claude's side panel (off the welcome menu it opens beside the machine): a complementary landmark while open,
+      // hidden for real once closed
+      await page.click('#btnAsk'); await waitFor(page, () => !document.getElementById('ask').hidden);
+      const asking = await outline(page);
+      check(`${L}: Ask Claude open: its aside is a complementary landmark, the headings still in order`,
+        asking.landmarks.includes('complementary "Ask Claude"') && inOrder(asking.headings), JSON.stringify(asking.landmarks));
+      await page.click('#btnAskClose'); await waitFor(page, () => document.getElementById('ask').hidden);
+      await closedOk(page, `${L}, Ask Claude opened and closed`);
+    }
+    check(`${L}: no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // the full-screen chat: its bar is a region with the one h1; one main
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    await page.goto(`${base}?machine=dragon64&app=claude`);
+    await ready(page);
+    await linkIn(page);
+    await waitFor(page, () => !document.getElementById('claudeBar').hidden);
+    const o = await outline(page);
+    check('semantics (chat): one main, the chat bar a region with the one h1 (CHAT WITH CLAUDE), the headings in order',
+      o.landmarks.filter((x) => x.startsWith('main')).length === 1 && o.landmarks.includes('region "CHAT WITH CLAUDE"') && inOrder(o.headings) && o.headings[0][1] === 'CHAT WITH CLAUDE',
+      JSON.stringify({ landmarks: o.landmarks, headings: o.headings }));
+    await closedOk(page, 'semantics (chat)');
+    await ctx.close();
+  }
+
+  // a Color Computer: the Multi-Pak's slots are hidden while it is folded, and only then
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    await page.goto(`${base}?machine=coco`);
+    await ready(page);
+    const st = () => page.evaluate(() => ({ open: document.getElementById('mpak').open, hidden: document.querySelector('#mpak .mpSlots').hidden }));
+    const folded = await st();
+    await page.click('#mpak summary');
+    await waitFor(page, () => document.getElementById('mpak').open);
+    const opened = await st();
+    const slot1 = await page.locator('#btnMpSlot1').isVisible();
+    await page.click('#mpak summary');
+    await waitFor(page, () => !document.getElementById('mpak').open);
+    const again = await st();
+    check('semantics (coco): the Multi-Pak\'s slots are hidden while it is folded, shown while it is open',
+      !folded.open && folded.hidden && opened.open && !opened.hidden && slot1 && !again.open && again.hidden, JSON.stringify({ folded, opened, slot1, again }));
+    await closedOk(page, 'semantics (coco), the Multi-Pak folded again');
+    await ctx.close();
+  }
+
+  // the landing page
+  for (const [label, opts] of [['desktop', { viewport: { width: 1440, height: 900 } }], ['phone', devices['Pixel 7']]]) {
+    const ctx = await browser.newContext({ ...opts, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    await page.goto(site);
+    const o = await outline(page);
+    // (its labelled sections are regions, inside the main)
+    const regions = o.landmarks.filter((x) => x.startsWith('region'));
+    check(`semantics (landing, ${label}): banner with the site navigation, one main with its ${regions.length} sections as regions, contentinfo; one h1 and the headings in order`,
+      JSON.stringify(o.landmarks.filter((x) => !x.startsWith('region'))) === JSON.stringify(['banner', 'navigation "Site"', 'main', 'contentinfo'])
+      && regions.length >= 4 && o.landmarks.indexOf(regions[0]) === 3 && o.landmarks.indexOf('contentinfo') === 3 + regions.length
+      && await page.evaluate(() => document.querySelectorAll('main').length) === 1 && inOrder(o.headings), JSON.stringify({ landmarks: o.landmarks, headings: o.headings }));
+    await ctx.close();
+  }
+}
+
 // The groups, in run order: [name, (browser) => the group's checks]. --only takes these names.
 // The install offer (js/ui/install.js): the Menu item and the card, on a synthetic beforeinstallprompt (Chromium's
 // event, with a mocked prompt() and userChoice; no real install can be automated), an iOS user agent, and a
@@ -12695,15 +13477,22 @@ async function installChecks(browser, base, check) {
       && await page.evaluate(() => document.getElementById('machineMenu').hidden));
     const withCard = await page.evaluate(() => ({ h: Math.round(document.getElementById('appbar').getBoundingClientRect().height),
       reset: document.getElementById('btnReset').getBoundingClientRect().top, screen: document.getElementById('screen').getBoundingClientRect().top,
+      monitor: document.getElementById('monitor').getBoundingClientRect().top, keys: document.getElementById('touchKeys').getBoundingClientRect().top,
       pageH: document.documentElement.scrollHeight, card: !document.getElementById('installOffer').hidden }));
     await page.click('#btnInstallGo');
     await painted(page);
     const without = await page.evaluate(() => ({ h: Math.round(document.getElementById('appbar').getBoundingClientRect().height),
       reset: document.getElementById('btnReset').getBoundingClientRect().top, screen: document.getElementById('screen').getBoundingClientRect().top,
+      monitor: document.getElementById('monitor').getBoundingClientRect().top, keys: document.getElementById('touchKeys').getBoundingClientRect().top,
       pageH: document.documentElement.scrollHeight, card: !document.getElementById('installOffer').hidden }));
-    check(`install (${label}): the card moves neither the app bar (${withCard.h} px) nor #btnReset nor #screen nor the page (008)`,
+    // On the phone held upright the screen and keys fill the window, so the card's strip takes its room from the
+    // screen (js/ui/install.js --install-room): the screen is smaller inside a bezel that stays put, and nothing
+    // else moves, the keys included. Elsewhere the screen itself must not move.
+    const fitted = label === 'phone';
+    check(`install (${label}): the card moves neither the app bar (${withCard.h} px) nor #btnReset nor ${fitted ? 'the monitor nor the keys' : '#screen'} nor the page (008)`,
       withCard.card && !without.card && withCard.h === without.h && withCard.pageH === without.pageH
-      && Math.abs(withCard.screen - without.screen) < 0.5 && Math.abs(withCard.reset - without.reset) < 0.5,
+      && (fitted ? Math.abs(withCard.monitor - without.monitor) < 0.5 && Math.abs(withCard.keys - without.keys) < 0.5 : Math.abs(withCard.screen - without.screen) < 0.5)
+      && Math.abs(withCard.reset - without.reset) < 0.5,
       JSON.stringify({ withCard, without }));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `install-menu-${label}.png`) });
     check(`install (${label}): no page errors`, !errors.length, errors.join('; '));
@@ -13396,9 +14185,11 @@ async function uiModelChecks(browser, base, check) {
     const page = await ctx.newPage();
     page.on('pageerror', (e) => errors.push(`${label}: ${e.message}`));
     await page.goto(`${base}?machine=coco`); await started(page);
-    // every text node of the page (hidden ones too, not scripts or styles) and the words in titles, labels and placeholders
+    // every text node of the page (hidden ones too, not scripts or styles) and the words in titles, labels and placeholders.
+    // Not the screen's text alternative (#screenAlt): that is the emulated machine's own screen as text (the no-ROM
+    // firmware prints its banner there), not the page's copy, as the canvas's pixels are not
     const pageText = () => page.evaluate(() => {
-      const out = [], w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, { acceptNode: (n) => (n.parentElement.closest('script, style') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT) });
+      const out = [], w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, { acceptNode: (n) => (n.parentElement.closest('script, style, #screenAlt') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT) });
       while (w.nextNode()) out.push(w.currentNode.nodeValue);
       for (const e of document.querySelectorAll('[title], [aria-label], [placeholder], [alt]')) for (const k of ['title', 'aria-label', 'placeholder', 'alt']) if (e.hasAttribute(k)) out.push(e.getAttribute(k));
       return out.join(' ');
@@ -13481,6 +14272,7 @@ const GROUPS = (base, site) => [
   ['typeinScreen', (b) => typeinScreenChecks(b, base, check)],
   ['slot', (b) => slotChecks(b, base, check)],
   ['tapePanel', (b) => tapePanelChecks(b, base, check)],
+  ['tapeHud', (b) => tapeHudChecks(b, base, check)],
   ['printer', (b) => printerChecks(b, base, check)],
   ['driveWire', (b) => driveWireChecks(b, base, check)],
   ['nitros9', (b) => nitros9Checks(b, base, check)],
@@ -13530,6 +14322,9 @@ const GROUPS = (base, site) => [
   ['share', (b) => shareChecks(b, base, site, check)],
   ['favicon', (b) => faviconChecks(b, site, check)],
   ['uiModel', (b) => uiModelChecks(b, base, check)],
+  ['semantics', (b) => semanticsChecks(b, base, site, check)],
+  // (required when the group runs: the shard planner's copy of this file runs --list-groups without it)
+  ['connector', (b) => require('./connector-check').connectorChecks(b, check, { shots: shotDir })],
 ];
 
 (async () => {

@@ -30,6 +30,7 @@ const clipType = () => {
 export function setupShare(page) {
   const { session } = page;
   const view = $('share');
+  let started = false;   // the visit has started (ready()): until then there is no machine to capture
   let captured = null;   // { file: { name, bytes } | null, png: Blob, link | null, base: file name without extension }
 
   // ---------------- the view (#share) ----------------
@@ -38,7 +39,8 @@ export function setupShare(page) {
     const open = isOpen();
     document.body.classList.toggle('share-open', open);
     view.hidden = !open;
-    if (open && !captured) capture().catch((e) => page.status(e.message, true));
+    // opened by address (play/#share) the page is still starting: the view shows, and ready() captures once there is a machine
+    if (open && !captured && started) capture().catch((e) => page.status(e.message, true));
     if (open) window.scrollTo(0, 0);
   }
   page.onView(show);
@@ -164,5 +166,9 @@ export function setupShare(page) {
   if (session.shownMachine) syncEmbed(session.shownMachine.id); else renderEmbed();
 
   show();
-  return { open: () => $('btnShare').click(), embedSrc };
+  return {
+    open: () => $('btnShare').click(), embedSrc,
+    // the visit has started (main.js): a page opened at #share captures its moment now
+    ready() { started = true; if (isOpen() && !captured) show(); },
+  };
 }

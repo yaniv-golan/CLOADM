@@ -810,9 +810,9 @@ GM7     LDA     #$30
         STA     $FFD0           ; F5 = 0
         STA     $FFD2           ; F6 = 0
         STA     $FFDA           ; M0 = 0
-        STA     $FFDD           ; M1 = 1   (64K: the stub leaves 4K, which wraps the
-                                ;          display address at $1000; the chat
-                                ;          uses $0400-$7FFF, so 32K or more)
+        STA     $FFDD           ; M1 = 1   (64K: at 4K the display address wraps at
+                                ;          $1000; the chat uses $0400-$7FFF,
+                                ;          so 32K or more)
         JSR     CLS
         CLR     CURROW
         CLR     LLEN

@@ -274,6 +274,10 @@ class CPU6803 {
   push8(v) { this.write8(this.s, v); this.s = (this.s - 1) & 0xFFFF; }
   push16(v) { this.push8(v); this.push8(v >> 8); }
   pull8() { this.s = (this.s + 1) & 0xFFFF; return this.read8(this.s); }
+  // The return address a JSR/BSR left on the stack, read with rd (a side-effect-free peek): the 6803 pushes the low
+  // byte first and post-decrements, so S points below it and the address is at S+1 (high) and S+2 (low)
+  // (MC6803 data sheet, JSR/RTS).
+  returnAddress(rd) { const a = (this.s + 1) & 0xFFFF; return (rd(a) << 8) | rd((a + 1) & 0xFFFF); }
   pull16() { const h = this.pull8(); return (h << 8) | this.pull8(); }
   pushAll() { this.push16(this.pc); this.push16(this.x); this.push8(this.a); this.push8(this.b); this.push8(this.cc); }
 

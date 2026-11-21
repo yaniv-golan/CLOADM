@@ -551,7 +551,7 @@ class SamMachine extends Machine {
     const to = Math.min(42, pos);
     if (!b || to <= b.pos) return;
     if (b.pos < 32) this.fetchAndDraw(b, b.pos, Math.min(32, to));
-    const modulo = Math.round(32 / MC6847.bytesPerLine(b.mode));
+    const modulo = MC6847.sampleModulo(b.mode);
     for (let p = Math.max(32, b.pos); p < to; p++) if (p % modulo === 0) this.videoRead(b.fetched++);
     b.pos = to;
   }
@@ -565,24 +565,19 @@ class SamMachine extends Machine {
   }
   // Fetch and draw byte positions [from, to) of the beam's line with the beam's mode, advancing
   // the SAM counter for the bytes actually fetched.
-  //   The VDG walks its 32 byte positions and reads video memory at every 32/bytes-per-line-th
-  //   one, so the number of bytes a span contains depends on the mode in force for that span
-  //   (MAME: `pos % sample_modulo == 0` with `sample_modulo = 32 / sample_count`).
+  //   The VDG walks its 32 byte positions and reads video memory at every sampleModulo-th one, so the number
+  //   of bytes a span contains depends on the mode in force for that span.
   fetchAndDraw(b, from, to) {
     const span = this.spanBytes;
     // the 200-E's generator bank: read at each fetch (hardware) or held for the whole field (mameCompat)
     if (this.charBankHold) this.vdg.charBank = this.charBankLatch;
     else if (this.vdgBankBit) this.vdg.charBank = (this.pia1.b.outValue() >> 4) & 1;
-    const modulo = Math.round(32 / MC6847.bytesPerLine(b.mode));
+    const modulo = MC6847.sampleModulo(b.mode);
     let n = 0;
-    // The VDG passes a monotonic byte index to the SAM (MAME: `input(m_video_address++)`), not
-    // the sampled position: the SAM compares the low address bit with its counter's bit 0 to
-    // decide whether to bump the counter, so the index must walk 0,1,2... across the whole line.
-    // b.fetched counts the bytes already read earlier in this line, so a span that starts part
-    // way along continues the sequence instead of restarting it.
-    // displayRead() reads at the counter's current position and bumps it when the address bit
-    // differs, so the index is the byte's number in the line (0 for the first), passed before the
-    // count is incremented - exactly what MAME's `input(m_video_address++)` does.
+    // The VDG passes the SAM a running byte index (MAME: `input(m_video_address++)`), not the sampled position:
+    // displayRead() reads at the counter's current position and bumps it when the index's low bit differs from
+    // the counter's bit 0, so the index must walk 0,1,2... across the whole line. b.fetched counts the bytes
+    // already read earlier in this line, so a span that starts part way along continues the sequence.
     // A byte at position pos is fetched ACTIVE_START + pos ticks into the line period; at the fast rate the
     // CPU may hold the VDG's slot then (stolenByte; never with config.mameCompat, as in MAME).
     for (let pos = from; pos < to; pos++) {
@@ -727,7 +722,11 @@ class SamMachine extends Machine {
     w(0xFF21, 0x00); w(0xFF20, 0xFE); w(0xFF21, 0x34);   // motor off
     w(0xFF23, 0x00); w(0xFF22, 0xFE); w(0xFF23, 0x3C);   // sound enabled
     w(0xFF20, 0x80); w(0xFF22, 0x04);                    // DAC mid, text mode
-    this.sam.reg = 0x0002 << 3;                           // text at $0400, map type 0
+    // text at $0400, map type 0, and the memory size the fitted RAM needs, as BASIC sets it at power-on: M=01 for
+    // 16K, M=10 for 32K and 64K (MC6883 data sheet p. 4-645, "Memory Size"). M sizes the video counter
+    // (js/chips/sam6883.js counterMask), so at M=00 a screen above $0FFF would show the first 4K again.
+    const k = this.config.ram, m = k >= 32 ? 2 : k >= 16 ? 1 : 0;
+    this.sam.reg = (0x0002 << 3) | (m << 13);
     const ram = this.ram;
     for (const a of [0x100, 0x103, 0x106, 0x109]) ram[a] = 0x3B;  // RTI
     const irq = STUB.symbols.get('IRQ'), firq = STUB.symbols.get('FIRQ');

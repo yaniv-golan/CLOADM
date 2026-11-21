@@ -4,6 +4,7 @@
 //   trace()  - lockstep to HALT on our own firmware installed in the two BASIC ROM sockets, which is the
 //              Dragon 64's diag.asm: a Dragon 64 Plus is one until software touches $FFE0-$FFE2, so this
 //              proves the base machine (CPU, both PIAs, SAM, VDG, ACIA, ROM banks) is the 64's.
+//   paging() - paging.asm without mameCompat: $FFE2 = $04 is the motherboard RAM, and the VDG never sees a bank.
 //   plus()   - our 80-column firmware (plus.asm): programs the HD6845S, writes characters into the video
 //              RAM bank through $FFE2, switches banks, and halts; the trace (every CRTC register access and
 //              every $FFE2 bank write) is compared instruction for instruction.
@@ -13,9 +14,7 @@
 // never reads the PROM, so its contents cannot affect a comparison.
 const path = require('path'), fs = require('fs'), cp = require('child_process');
 const { loadEmu, assembleFile, romImage, writeRoms, mameConfigArgs } = require('../lib/firmware');
-
-const REGS = ['pc:4', 'a:2', 'b:2', 'x:4', 'y:4', 'u:4', 's:4', 'dp:2', 'cc:2']
-  .map((r) => { const [name, w] = r.split(':'); return { name, width: +w, mame: name }; });
+const { REGS } = require('../lib/regs');
 
 // An 8K character generator built from our own pattern, never a real ROM: each byte spells out the
 // (code, raster line) address it was fetched for, so a pixel comparison proves which address the CRTC
@@ -92,5 +91,10 @@ module.exports = {
   plusText(profileId, { regenerate = true, config = {}, work = `/tmp/mame-diff/${profileId}-plustext`, chargen } = {}) {
     return run(profileId, 'plustext.asm', { regenerate, config, work, seconds: 12, instructions: 500000, generator: path.join(__dirname, 'text-screens.js'), chargen });
   },
-  REGS,
+  // the paging the Harvey-Smith traced schematic gives where MAME 0.264's outcome is the same (paging.asm): $04
+  // after bank A or B is the motherboard RAM, and the VDG never sees a bank. Ours runs WITHOUT mameCompat, so the
+  // banks reach memory on our side and the comparison shows the CPU and the VDG still reach the motherboard RAM.
+  paging(profileId, { config = {}, work = `/tmp/mame-diff/${profileId}-paging` } = {}) {
+    return run(profileId, 'paging.asm', { config: Object.assign({ mameCompat: false }, config), work, seconds: 10, instructions: 1500000 });
+  },
 };

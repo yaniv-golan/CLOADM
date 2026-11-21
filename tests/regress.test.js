@@ -118,6 +118,9 @@ for (const id of ['coco', 'coco2b', 'cp400', 'dragon32', 'dragon64']) cases.push
 // the RAM-size input (PB2) follows the fitted RAM: 16K reads it high, 32K and 64K from PIA0 PB6
 for (const ram of [4, 16, 32]) cases.push([`trace coco ${ram}K pia1b.asm`, () => traceHash(spec('sam').pia1b('coco', { config: { ram } }))]);
 cases.push(['trace coco3 pia1b.asm', () => traceHash(spec('coco3').pia1b('coco3'))]);
+// the sound mux on the cassette input while a tape plays (BASIC's AUDIO ON): sam/cass-sound.asm with a tape we build
+// (run.js <profile> --cass-sound, against MAME's -wavwrite)
+for (const id of ['dragon64', 'coco']) cases.push([`sound ${id} cass-sound`, () => soundHash({ machine: () => require('../tools/mame-diff/sam/cass-sound.js').setup(id).m, frames: 240 })]);
 cases.push(['trace dgnalpha pia1b.asm', () => traceHash(spec('alpha').pia1b('dgnalpha'))]);
 // The Reset button: what the CPU and the PIAs keep over a reset, RAM kept, BASIC's warm-start vector taken and
 // refused (reset.asm; MAME agrees instruction for instruction: run.js <profile> --reset [--cpu 6309] on 0.264)
@@ -146,6 +149,10 @@ cases.push(['trace d64plus plus.asm', () => traceHash(spec('d64plus').plus('d64p
 // the 80-column text screens of the screen-text reader (plustext.asm, run.js d64plus --plustext; its pictures with
 // --plustext --video), also under mameCompat; the reader itself is tested in tests/d64plus-screen-text.test.js
 cases.push(['trace d64plus plustext.asm', () => traceHash(spec('d64plus').plusText('d64plus', { regenerate: false }))]);
+// the $FFE2 paging of the Harvey-Smith traced schematic where MAME 0.264's outcome is the same (paging.asm, run.js
+// d64plus --paging; its VDG pictures with --paging --video), WITHOUT mameCompat: $04 is the motherboard RAM and the
+// VDG never sees a bank
+cases.push(['trace d64plus paging.asm', () => traceHash(spec('d64plus').paging('d64plus'))]);
 for (const id of ['dragon64', 'coco', 'coco2b']) cases.push([`video ${id}`, () => videoHash(spec('sam').video(id))]);
 // SAM CPU rate: MAME-verified with config.mameCompat (run.js --rate / --ops), XRoar-verified without it
 // (sam/run-xroar.js); fast-rate video without it (sam/run-fastvid.js, data sheet model)
@@ -161,6 +168,14 @@ for (const id of ['dragon64', 'coco']) {
 // (the 200-E runs its character-generator variant, raster-chargen.asm)
 for (const [id, family, frames] of [['coco', 'sam', 200], ['coco2b', 'sam', 200], ['dragon64', 'sam', 200], ['dragon200e', 'sam', 200], ['mc10', 'mc10', 135], ['coco3', 'coco3', 110]]) {
   cases.push([`raster ${id}`, () => videoHash({ machine: spec(family).raster(id, { regenerate: false }).machine, frames })]);
+}
+// the GIME's vertical fine scroll $FF9C (coco3/gen-vsc.js, vsc-<part>.asm; run.js coco3 --vsc): each part's trace to
+// HALT and every frame to its end with MAME's timing (mameCompat, where MAME 0.264 never scrolls), and every frame
+// of the machine as shipped, which --vsc checks against MAME's pictures moved up by the scroll the sources give
+for (let part = 1; part <= spec('coco3').vscParts(); part++) {
+  cases.push([`trace coco3 vsc part ${part}`, () => traceHash(spec('coco3').vsc('coco3', { part, regenerate: false }))]);
+  cases.push([`vsc coco3 part ${part}`, () => videoHash({ machine: spec('coco3').vsc('coco3', { part, regenerate: false }).machine, frames: 140 })]);
+  cases.push([`vsc coco3 part ${part} hardware`, () => videoHash({ machine: spec('coco3').vsc('coco3', { part, regenerate: false }).hardware, frames: 140 })]);
 }
 // the SAM display-counter probe at V 0 and V 1 (sam/samv.asm; sam/run-samv.js compares it with MAME)
 for (const id of ['dragon64', 'dragon200e']) cases.push([`samv ${id}`, () => videoHash(spec('sam').samv(id))]);

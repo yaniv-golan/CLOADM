@@ -6,7 +6,7 @@ Every chip is compared with MAME 0.264 by running diagnostic firmware written fo
 in lockstep. No copyrighted ROM is used for testing.
 
 * `node tools/mame-diff/run.js dragon64` compares every instruction's registers, flags and cycle count with MAME's.
-  On the Dragon 64: 1,028,156 instructions identical, and the firmware reaches its HALT loop.
+  On the Dragon 64: 1,028,112 instructions identical, and the firmware reaches its HALT loop.
 * `node tools/mame-diff/run.js dragon64 --video` compares the screen pixel by pixel: on the Dragon 64, all 20
   display modes are identical.
 * `node tools/mame-diff/run.js dragon64 --fdc` runs the floppy controller cartridges against MAME the same way,
@@ -38,15 +38,15 @@ What each machine's comparison with MAME 0.264 showed when it was verified (the 
 
 | Machine | Instruction trace (registers and cycles) | Display modes | Mid-line changes (`--raster`) |
 |---|---|---|---|
-| Dragon 64 | 1,028,156 instructions identical, HALT reached | 20/20 identical, PAL colour blending included | 17/17 identical |
-| Dragon 64 Plus | identical, HALT reached: 1,016,256 instructions (the base machine), 1,177,312 (the 80-column board) and 334,449 (the 80-column text screens), under `mameCompat`; the bank register from Compusense's technical notes (see below) | the 80-column screen 640 x 264 identical, but on 0.264 its video RAM is never written (see below); the six 80-column text screens identical, every pixel, with the video RAM put into MAME's share by the harness | – |
+| Dragon 64 | 1,028,112 instructions identical, HALT reached | 20/20 identical, PAL colour blending included | 17/17 identical |
+| Dragon 64 Plus | identical, HALT reached: 1,016,256 instructions (the base machine), 1,177,312 (the 80-column board) and 334,449 (the 80-column text screens), under `mameCompat`; 2,546,275 (the `$FFE2` paging of the traced schematic, without `mameCompat`; its VDG picture 8 of 8 identical); the bank register from Compusense's technical notes (see below) | the 80-column screen 640 x 264 identical, but on 0.264 its video RAM is never written (see below); the six 80-column text screens identical, every pixel, with the video RAM put into MAME's share by the harness | – |
 | Dragon 32, Dragon 200, Tano Dragon 64 | identical | 20/20 identical, PAL colour blending included on the Dragon 32 and 200 (the Tano is NTSC) | 17/17 identical |
-| Dragon 200-E | 1,028,156 instructions identical, HALT reached | 20/20 identical, with a character generator written by this project (see below) | 17/17 identical (its own variant of cases 5 and 11, see below) |
-| Prológica CP 400 | 1,043,415 instructions identical, HALT reached | 20/20 identical | – |
+| Dragon 200-E | 1,028,112 instructions identical, HALT reached | 20/20 identical, with a character generator written by this project (see below) | 17/17 identical (its own variant of cases 5 and 11, see below) |
+| Prológica CP 400 | 1,043,371 instructions identical, HALT reached | 20/20 identical | – |
 | Color Computer 1/2, 2B | identical | 20/20 identical, NTSC artifact colours included, at each artifact setting | 17/17 identical (coco, coco2b) |
-| Color Computer 1/2 at 4K, 16K and 32K | identical at every size (1,099,793 / 1,079,377 / 1,043,415 instructions) | 20/20 identical at 4K and 16K | 17/17 identical at 4K and 16K |
+| Color Computer 1/2 at 4K, 16K and 32K | identical at every size (1,099,793 / 1,079,377 / 1,043,371 instructions) | 20/20 identical at 4K and 16K | 17/17 identical at 4K and 16K |
 | Dynacom MX-1600, LZ Color64, Codimex CD-6809 | identical | – | – |
-| Color Computer 3 (128K and 512K) | 88,787 instructions identical | 34/49 identical; the rest differ only in text glyph shapes (our own font designs); the same at each artifact setting, artifact colours included. Text attributes (`--attr`): 34/34 identical, exactly (every attribute byte; 32/40/64/80 columns; lines per row 0-6; blink off and on). GIME text screens and the screen reader (`--text`, 6809 and 6309): 14/14, apart from glyph shapes, with MAME's glyphs and ours where the expected text says. Composite monitor (`--composite`): 67/67 at artifact settings 0, 1 and 2 (46 exact, 21 apart from glyph shapes), with `$FF98` BPI and MOCH | 8/8 identical, per line (MAME cannot draw part of a GIME line) |
+| Color Computer 3 (128K and 512K) | 88,797 instructions identical | 34/49 identical; the rest differ only in text glyph shapes (our own font designs); the same at each artifact setting, artifact colours included. Text attributes (`--attr`): 34/34 identical, exactly (every attribute byte; 32/40/64/80 columns; lines per row 0-6; blink off and on). GIME text screens and the screen reader (`--text`, 6809 and 6309): 14/14, apart from glyph shapes, with MAME's glyphs and ours where the expected text says. Composite monitor (`--composite`): 67/67 at artifact settings 0, 1 and 2 (46 exact, 21 apart from glyph shapes), with `$FF98` BPI and MOCH | 8/8 identical, per line (MAME cannot draw part of a GIME line) |
 | Color Computer 3 (PAL) | cannot be verified against MAME: its `coco3p` keeps the CoCo 3's 262-line NTSC geometry, so it does not run a PAL field (see below) | – | – |
 | MC-10 | 908,205 instructions identical | 20/20 identical, NTSC artifact colours included, at each artifact setting | 10/10 identical |
 | Matra Alice | 908,205 instructions identical, HALT reached | – | – |
@@ -322,6 +322,20 @@ resistors R10-R15 as 10K to 324K and the single-bit sound's R22 as 10K (as MAME 
 manual itself was not available to this check), and MAME's level matches (it was 31.5 steps, which this comparison finds
 1.50% off and fails; `tests/cli-wav.test.js` pins it at 10240 alone and 30400 with DAC 63). A mutation
 that moves the DAC's upper half up one step fails the mean check alone (0.71% to 1.04%).
+
+**The sound mux on the cassette input** (`run.js <dragon64|dragon32|coco> --cass-sound`, `tools/mame-diff/sam/cass-sound.js`):
+our firmware (`sam/cass-sound.asm`, in place of BASIC) selects the mux's sources while a tape we build (a $55 leader)
+plays: a DAC square wave (the scale), the cassette selected with sound enabled and the motor on (BASIC's `AUDIO ON`
+while loading), the same with sound disabled, with the motor off, and the DAC selected with the tape playing. MAME
+records it with `-wavwrite`; per segment the RMS and the mean within 5% of the first segment's RMS. MAME 0.264 puts
+the cassette selection at a constant bias, 32 DAC steps (its `coco.cpp` `update_sound`: 0x40 on its 0..0x7E scale), and
+mixes no tape signal: the RMS is 0 in every segment but the first, while its cassette device is playing (Lua:
+`position` advancing). CLOADM used 0 there (a mean 104% of segment 1's RMS off); it now uses the bias, and every
+segment matches on all three machines (RMS 0 / 0, mean within 0.2%). `tests/regress.test.js` hashes the firmware's sound
+(`sound dragon64 cass-sound`, `sound coco cass-sound`). On real hardware the cassette input is heard through the TV
+(`AUDIO ON`); CLOADM follows MAME here and plays the tape on the page's side instead (Tape sound, below), so this is
+not a deviation. The CoCo 3 shares the code (`js/machines/cocopia.js`) and was not compared (the firmware maps as a
+CoCo 1/2's BASIC).
 `tests/cli-wav.test.js` then shows the recording itself is exact: firmware writing a known DAC pattern gives every level
 as 320 x the DAC value, every interval between writes is the cycle count from the MC6809 data sheet (within 0.01
 cycle; the worst seen is 0.003), the WAV is the box filter of the machine's level events sample for sample, two runs
@@ -364,7 +378,59 @@ a horizontal offset ignored in our renderer fails here); (3) `screen_text` on ou
 machine at that moment returns exactly the expected rows, row count, base and attribute runs. Result against MAME
 0.264: 14 of 14 on `coco3` and 14 of 14 on `coco3h` (6309). `tests/coco3-screen-text.test.js` runs the same
 firmware without MAME on both CPUs, plus the cases that need no picture (graphics and short rows declined, the
-attribute bytes never read as text, `$FF9C` changing neither picture nor reading, the VDG machines unchanged).
+attribute bytes never read as text, `$FF9C` changing neither picture nor reading under `mameCompat` and scrolling
+both on the machine as shipped, the VDG machines unchanged). These screens run under `mameCompat`, as every MAME
+comparison does: MAME 0.264 does not apply `$FF9C`'s fine scroll (next).
+
+**CoCo 3 GIME vertical fine scroll (`$FF9C`, VSC).** Sources: [S1] Sock Master's GIME reference
+(`6809.org.uk/twilight/sock/gime.html`, "FF9C Vertical scroll register - VSC": bits 7-4 unused; consecutive values
+scroll the screen up one scanline at a time where more than one scanline makes up a text row or a graphics row);
+[S2] the Tandy CoCo 3 Service Manual (26-3334), section 1.5, printed p13 (bits 3-0 VSC3-0; `$0F` in compatibility
+mode; `$FF9D`/`$FF9E` the start in 8-byte units); [S3] Super Extended BASIC Unravelled II, ch. 5, printed pp16, 18-19
+(bits 7-4 reserved; BASIC scrolls a row by resetting VSC and moving the start by a row, so VSC does not carry into
+the start); [S4] Tepolt, *Assembly Language Programming for the CoCo3* (1987), printed p25 and pp29-30 (with 8-line
+native text, VSC 0-7 move the picture up and the next buffer row comes in at the bottom; its "bit 3 = SCEN"
+conflicts with S1 and S2 and is not implemented); [S5] N. Marentes, Jumping Joey technical notes, "THE COCO3 CAN
+DISPLAY SEMIGRAPHICS MODES" (compatibility-mode `$FF9C` 7/8/9/10 give SG6/SG8/SG12/SG24, which corroborates the
+lines-per-row table `COMPAT_TEXT_LPR` that MAME and we use there). The model (`js/chips/gime.js` `vscLine`): in a
+GIME mode whose `$FF98` lines per row is 2, 8, 9, 10 or 11, a VSC below the row height starts the body VSC scanlines
+into its first row, so the picture moves up by VSC lines and the bottom shows the next row of the buffer, in part;
+VSC is latched at the start of the field, with the video start. MAME 0.264 loads VSC into the row's line counter at
+`new_frame`, but its top border sets the counter back to 0 on every line (`gime.cpp` `record_border_scanline`), so
+it never scrolls; `config.mameCompat` does the same (a deviation, below). Each case below, what MAME does and what
+we do:
+
+| Case | MAME 0.264 | CLOADM (shipped) | Settled by |
+|---|---|---|---|
+| Native rows of 2, 8, 9, 10, 11 lines, VSC below the row height | no scroll | scrolled VSC lines | S1, S4 (MAME contradicted: `mameCompat` keeps MAME's) |
+| VSC at or above the row height | no scroll | no scroll | nothing: unknown |
+| Rows of 1 line (`$FF98` LPR 0 and 1) | no scroll | no scroll | nothing: unknown (S1 needs more than one line a row; LPR 1 may be 2 lines on some GIMEs) |
+| LPR 7 (MAME: a row that never ends) | no scroll | no scroll | nothing: unknown |
+| When a write takes effect | (no effect) | at the next field's start | MAME's `new_frame` latch, followed; unverified |
+| 1986 and 1987 GIMEs | one model | one model | nothing: unknown |
+| Compatibility mode | lines per row from `$FF9C` (S5's SG modes) | the same | S2, S5, MAME |
+
+`run.js coco3 --vsc` (`coco3/gen-vsc.js`, our firmware in `coco3/vsc-1.asm` to `vsc-5.asm`) puts up 60 cases:
+8-line text and double-height (2-line) graphics with VSC stepped through 0-15, 9-, 10- and 11-line text, 8- and
+11-line graphics, 1-line rows (LPR 0 and 1), LPR 7, the 200- and 225-line resolutions, and VSC written mid-field (in
+the top border and in the body, cleared again in the bottom border). The screen holds blank characters with a
+different attribute byte in every cell, so no font shows and every pixel is compared exactly. The cases are split
+over five parts, each run from reset, because MAME 0.264's 6809 runs on a whole-Hz clock (894886 Hz), 0.38 ppm slower
+than its GIME's video timing: an HS edge reaches its CPU one cycle earlier every 2,603,190 cycles, which our CoCo 3
+`mameCompat` does not model (an earlier single-firmware build of these cases, about 6.3 million cycles long, showed
+exactly that: a `SYNC` one cycle shorter in MAME at about cycle 2,603,182 after reset, and again 2,603,190 cycles
+later, nothing else); each part halts by cycle 2,030,115. For each part: (1)
+lockstep with MAME to HALT; (2) a field of every case against MAME's, pixel by pixel, and no case may change the
+picture from its lead-in field (MAME never scrolls); (3) the same firmware on our machine as shipped: each case's
+picture must be MAME's picture of the same field moved up by the scroll the sources give (worked out in `spec.js`
+`scrollOf`, not by our GIME), the bottom VSC lines of the body excepted (the next buffer row, which MAME does not
+show), and must differ from its lead-in field exactly when it scrolls. Result against MAME 0.264: every part
+identical to HALT (720984, 720984, 720984, 720984 and 911939 instructions compared, HALT at instruction 203408 or
+155922), 60 of 60 cases identical, and 60 of 60 hardware-model cases MAME's picture moved by the sources' scroll.
+`tests/gime-vsc.test.js` checks the shipped model line by line against rows worked out by hand from S1 and S4
+(graphics of 2, 8, 9, 10 and 11 lines, every VSC; 8-line text, where the underline marks each row's last line; 225
+lines; bits 4-7 ignored; the field-start latch; compatibility mode; `mameCompat`; the text screen the reader sees;
+snapshots); `tests/state.test.js` saves mid-field, scrolled and between a write and its latch.
 
 The Dragon 200-E's character generator is a character ROM, and like the BASIC ROMs it is the user's to supply:
 CLOADM never ships or fetches one. Its video comparison installs, in both emulators, a 4K pattern built by
@@ -424,11 +490,31 @@ Not verified, by the notes or by MAME:
     before its banks see it) let an access paged by P1 to the upper 32K miss the banks. **Open item:** this
     differs from what we and MAME do; a later behaviour change, not made here;
   * `$FFE2` bit 2 only XORs Z7 into the extra DRAM's address, so `$04` (R2 R1 = 10) selects motherboard RAM like
-    `$00`. We keep `$04` as MAME does (no change). **Open item:** whether our `$04` handling matches this is for a
-    later behaviour change, not made here;
+    `$00` (and `$05` motherboard RAM with the video RAM over `$0000-$07FF`). The machine follows this
+    (`js/machines/d64plus.js` `writeBank()`); under `config.mameCompat` it keeps MAME's no-change decode (below);
   * the MC6847 fetches motherboard RAM in the E = 0 phase, so the 32-column screen does not see the selected
-    bank. We (and MAME) let it see the selected bank. **Open item:** this differs from what we and MAME do; a
-    later behaviour change, not made here.
+    bank or the video RAM. The machine follows this: the VDG always reads the motherboard RAM.
+
+  Cited in the code and tests as "P. Harvey-Smith's traced Eagle schematic of his DragonPlus board (World of Dragon
+  forum, 7 June 2017; known drawing errors; not verified on hardware)". `tests/d64plus.test.js` checks both against
+  tables written out from it: the CPU's read of `$0100` and `$1000` for every `$FFE2` value after `$00`, `$02`,
+  `$06` and `$07`, with a distinct byte in each RAM; and the VDG's picture under every value, with one pattern in
+  the motherboard RAM and another in banks A, B and the video RAM, against the picture the motherboard pattern alone
+  draws.
+
+**Dragon 64 Plus paging against MAME 0.264.** MAME 0.264 never applies `$FFE2` to memory (below), so its CPU and VDG
+always reach the motherboard RAM: for these two points its outcome is the schematic's. `run.js d64plus --paging`
+runs our firmware `d64plus/paging.asm` on our machine **without** `mameCompat` (our banks reach memory): it selects
+bank A, bank B and the video RAM, then `$04` or `$05`, and reads and writes `$0100`, `$0101`, `$01FF`, `$1000` and
+`$1001`, never touching `$0000-$7FFF` while a bank or the video RAM covers the address. Identical to HALT: 2,546,275
+instructions compared, registers and cycle counts identical, HALT at instruction 1,223,365 (`trace d64plus
+paging.asm` in the regression gate). With the old decode (`$04` keeping bank A) it diverges at the first read
+under `$04` (instruction 27,162). `run.js d64plus --paging --video` holds the VDG's text screen on `$0000` under
+each of `$00`, `$02`, `$06`, `$01`, `$03`, `$07`, `$04` and `$05` (each phase changes CSS so headless MAME redraws)
+and compares the 256 × 192 picture with MAME's: 8 of 8 identical, 0 pixels differing. With a VDG that sees the
+banks, 6 of the 8 differ (35,616 to 36,864 pixels each; `$00` and `$04` pass, as they should). This proves the
+MAME-equal outcome only: that the banks themselves hold what the CPU wrote is checked against Compusense's notes
+by the unit tests, not by MAME 0.264.
 
 Against MAME 0.264: `run.js d64plus` (the Dragon 64's diagnostic) and `run.js d64plus --plus` (our 80-column
 firmware: every HD6845S register and the R12-R15 read-back, the video-RAM bank, distinct bytes in banks A and B,
@@ -584,11 +670,32 @@ conditions need a running Claude turn. Not verified
 automatically: Safari's own toolbar on a real iPhone (Chromium's `dvh` equals the window's height, so the toolbar's
 share is not exercised).
 
+Held upright, the same group loads LIZA at nine phone sizes, each the visible area a browser's toolbars leave:
+iPhone SE in Safari (375x548) and Chrome for iOS (375x540), iPhone 13 (390x664, and 390x632 with 47 px above) and
+iPhone 15 (393x659, and 393x628 with 59 px above) with a 34 px home indicator inset, a Pixel 7 in Chrome
+(412x839), and an iPhone 15 and an iPhone SE in Safari 26 (its user agent, 393x852 and 375x667: the page runs under the
+floating toolbar, which no viewport unit or inset counts, so the panel must end 84 px above the bottom edge; the
+84 px is a model of that toolbar, which the iOS Simulator's Safari showed it clears by 62 px on the SE and 100 px on
+the 15; on the SE, removing it puts ENTER's row under the band). In Keys and Joystick mode every key (ENTER's row included), the switch, BREAK, CLEAR and Menu, or the
+strip, the stick and FIRE, must lie inside the visual viewport less the insets at load, with the page not scrolled,
+each key at least 40 px tall and none over the screen. With real touch events (CDP) a drag of 40 px that starts on Q,
+and one that starts on SHIFT, must reach neither the machine's matrix (`setKey`) nor the no-ROM stub's queue (SHIFT
+stays off) and must not scroll the page; a tap must press and release Q; a hold must keep W down past a 14 px wobble
+until the finger lifts; a chord (SHIFT held by one finger, Q tapped by another within the hold time) must put SHIFT
+down in the matrix before Q and up after it, and leave SHIFT off. A drag counts only if its first move (12 px, past
+the 10 px threshold) reached the page within the 100 ms hold time, and a chord only if Q lifted within it (up to
+three tries each), as anything slower is a hold. Not verified automatically: Chrome's and Safari's real toolbars on an
+iPhone (they are modelled as a shorter window, or Safari 26's as an 84 px band), and how a drag feels there.
+The band is chosen from the user agent (Safari 26 or later on an iPhone, not installed): a Safari 26 set to keep
+its address bar at the top, or another browser sending the same user agent, gets the band where it has no toolbar
+over the page, and the screen is smaller than it need be there.
+
 ### Sound output (the page's audio path)
 
 The machines' sound is compared with MAME's `-wavwrite` recordings (above); the way the page plays it has no MAME
 oracle (AGENTS.md 4.6). The output stage's samples are checked in Node (`tests/audio.test.js`: the high-pass of each
-sample's average level, no pop at unlock, reset, switch, pause; latency steering over 15 simulated minutes), the
+sample's average level, no pop at unlock, reset, switch, pause; latency steering over 15 simulated minutes, and a
+140 ms queue - what a page stall leaves - back inside the 10-80 ms band within 8 s), the
 AudioWorklet's queue and processor with hand-derived values (`tests/audio-worklet.test.js`: order, underrun to exact
 silence, bounded drop-oldest, the MessagePort sink), and the real page in Chromium (browser check, group `audio`):
 after the unlock an AudioWorkletNode plays and no ScriptProcessorNode is made (no deprecation warning); through
@@ -598,6 +705,37 @@ program plays at the frequency the machine makes it (within the 0.5% steering) a
 it plays (at most 2% of blocks); volume and mute; the four fallbacks to the ScriptProcessorNode (no AudioWorklet,
 its module failing to load or never loading, the processor failing); and (group `pwa`) offline. Not verified automatically: how it sounds on real devices and
 other browsers (Safari and iOS, Firefox).
+
+Tape sound (`js/host/tape-sound.js`) is the page's, not the machine's, so it has no MAME oracle either (MAME 0.264 mixes
+no tape signal into these machines' sound: below). `tests/tape-sound.test.js`: the signal it plays over each frame is
+the tape's, checked tick by tick against a second copy of the tape stepped one tick at a time; nothing when the tape
+doesn't move (motor off, the end, a rewind, a seek, another tape); a motor switched on mid-frame fills the frame's
+end; it reads ahead for fast loading without moving the tape; a playing tape is heard, a stopped one fades below 1e-3
+RMS within 6 frames with no step larger than while it played, and its largest sample step is under a third of the raw
+square's (the low-pass); at volume 0 the output is the machine's exactly; a machine whose tape is heard saves the same
+snapshot. The page (browser check, group `tapeHud`, desktop and phone): on by default, heard while the tape plays
+(the output stage's RMS over 0.01), below 1e-4 once the motor stops and while it is switched off; with the page's
+Sound switched off nothing at all is sent to the output while the tape plays (`tests/tape-sound.test.js` checks the
+same gate in Node). How it sounds is a matter of ear, not checked automatically.
+
+### The tape HUD and the cassette panel
+
+Browser check, groups `tapeHud` and `tapePanel`. At 1440x900, 820x1180, 390x844 and 844x390 (touch at the last three),
+a tape dropped on the screen loads through our BASIC stand-in (`tools/mame-diff/tape/standin.asm`) and the tape line
+comes up wholly in the viewport with the page unscrolled, on top at its centre, never meeting the picture's text area,
+with the name and block; exactly one animation runs on the page while the tape moves (the cassette panel's window);
+**Deck** brings the panel into view (not held sideways, where the touch keys cover the page and it is not offered). At
+the end of the tape, with the motor still on: "End of tape", the stamp, no animation running, and the line goes; a
+polite live region has said "Tape … playing" and "End of tape …" once each. In the Claude chat view and the browser's
+Fullscreen at 1440x900 and 390x844, the line is either in view, on top and off the text, or not shown at all (the
+phone chat, whose text fills the screen); in Fullscreen at both sizes it is shown. Only geometry relationships are
+asserted, no coordinates. The line is placed again whenever the canvas or the screen area changes size: at the
+desktop size the monitor is narrowed in place (no window resize) and, in the very frame the canvas is refitted, the line
+already lies off the new text and inside the tube (without the ResizeObserver it lies outside it). The live region is
+written exactly twice from the tape going in to its end (a MutationObserver counts the writes). DOM writes in the slots row and the
+line, per element over 2 s (desktop and phone): none with a tape stopped in the deck, and only changes while it plays
+(at most 8 a second, the position readouts); the rewrite every frame it replaced was 40-60 a second per element. The panel's
+own checks (`tapePanel`) also find no reel turning at the end of the tape.
 
 ### Install as an app (the PWA offer)
 
@@ -646,6 +784,29 @@ written exactly twice (a `MutationObserver` counts the writes).
 Not verified automatically: what a real screen reader says (the live regions' text and politeness are checked,
 not the speech).
 
+### Document semantics: landmarks, headings and what a reading mode extracts
+
+The play page as a document has no MAME oracle (AGENTS.md 4.6): the oracle is HTML and WAI-ARIA's landmark and
+heading model, Chromium's accessibility tree (Playwright's accessibility snapshot, and the full tree over the DevTools
+protocol for the canvas's subtree), and Mozilla's Readability 0.6.0 (`tools/vendor/readability`, an unmodified copy,
+development only) standing in for a browser's reading mode, which works from the markup, not the stylesheet. The
+browser check's group `semantics` runs at 1440x900, a Pixel 7 in portrait and landscape and an iPad, and checks:
+exactly one `<main>` (the emulator's) and one main landmark in every view (each view is its own while open); the
+landmark set; one h1 and no heading level skipped, in the emulator, every view and the full-screen chat; every
+surface that is not drawn (dialogs, menus, tab panels, asides, navs, views, the folded Multi-Pak, the emulator behind a
+view, the app bar's links folded behind a phone's Menu, the drawer and the ports in the touch layout) hidden by its
+`hidden` attribute or by `inert` and `aria-hidden`, out of the accessibility snapshot and unable to take the focus,
+as the page starts and after each was opened and closed; every dialog named and none claiming `aria-modal`, because
+none is modal (Tab leaves the open command box); the screen canvas an `application` with its name and, in its
+subtree, the text of `Session.screenAlternative()` (Claude's `screen_text` reader; `tests/screen-alternative.test.js`
+checks it in Node), following the screen; and Readability's article: the screen's text, at most 400 characters, none
+of the panels' text, and in a view the view's text, not the emulator's. The landing page: banner, the site
+navigation, one main, contentinfo, headings in order.
+
+Not verified automatically: what Chrome's own reading mode (Android or desktop) and a real screen reader present;
+Readability is the stand-in. Mutations that turn the group red: no `inert` on what a view or a layout hides (20
+checks), a second `<main>` (16), the ports under the screen a `<div>` instead of an `<aside>` (6).
+
 ### The machine and its ROMs: toasts, switches, the disk ROM, the menu, the Library, the copy
 
 UX rulings R24-R28 and R19 A+ have no MAME oracle (AGENTS.md 4.6): the oracle is the rulings themselves, and the
@@ -684,7 +845,7 @@ names it.
   count after every instruction. The diagnostic firmware covers the ALU over a grid of operands with carry/half-carry in and
   out, all indexed addressing modes, TFR/EXG, the stack, SWI1-3, every short and long branch, PIA registers, HS/FS timing
   and IRQ, CWAI, SYNC, SAM writes, Dragon 64 ROM bank switching, the 64K map type, page bit P1 (with and without M1 and TY), keyboard rows and the joystick comparator.
-  Current result: **1,028,156 instructions identical**, cycle counts included.
+  Current result: **1,028,112 instructions identical**, cycle counts included.
 * `node tools/mame-diff/run.js <profile> --video` compares the rendered screen pixel by pixel in all 20 display modes. All text,
   semigraphics and graphics modes are identical on the Dragon and CoCo machines, including the CoCo 2B's MC6847T1
   character set with lowercase. Composite colour is compared exactly as well (see below); `--artifact N` sets MAME's
@@ -987,6 +1148,15 @@ names it.
 
 MAME artefacts reproduced only under `config.mameCompat` (the comparisons turn it on; the product does not):
 
+* CoCo 3 GIME vertical fine scroll (`$FF9C`): MAME 0.264 never scrolls a GIME-mode row (its top border resets the
+  row's line counter on every line, `gime.cpp` `record_border_scanline`, after `new_frame` loaded VSC into it). The
+  sources (Sock Master's GIME reference, "FF9C Vertical scroll register - VSC"; Tepolt (1987) pp29-30; above, "CoCo
+  3 GIME vertical fine scroll") say VSC below the row height moves the picture up by VSC lines; the machine as shipped
+  does that (`js/chips/gime.js` `vscLine`). What no source settles, and how we treat it, MAME-identical in every
+  comparison: VSC at or above the row height, rows of one line (`$FF98` LPR 0 and 1) and LPR 7 are not scrolled;
+  VSC is latched at the start of the field (MAME's `new_frame`); 1986 and 1987 GIMEs are not told apart. Each of
+  these is unverified on real hardware.
+
 * Dragon 64 Plus: MAME 0.264's `$FFE2` write (`d64plus_bank_w()`) sets its two memory banks' entries, but CPU and
   VDG accesses to `$0000-$7FFF` keep reaching the standard RAM: a Lua probe writing each documented value and
   then `$0100` and `$1000` reads back what it wrote every time, while the `:plus_ram` and `:video_ram` shares are
@@ -995,7 +1165,16 @@ MAME artefacts reproduced only under `config.mameCompat` (the comparisons turn i
   `js/machines/d64plus.js`) found bits 2-1 select the bank, bit 0 maps the video RAM over `$0000-$07FF` only,
   and the read's bit 0 is 1 outside blanking. Both versions' `d64plus_bank_w()` leave both banks' entries as
   they were for the undocumented `$04`/`$05` (0.264's entries after `$03` then `$04`: plus RAM 1, video RAM 3), and
-  so do we. Without `mameCompat` the banks reach memory (`js/machines/d64plus.js`).
+  so do we under `mameCompat`. Without `mameCompat` the banks reach the CPU (`js/machines/d64plus.js`).
+
+* Dragon 64 Plus, without `mameCompat`: `$FFE2` = `$04` selects the motherboard RAM (`$05` the motherboard RAM
+  with the video RAM), where MAME's `d64plus_bank_w()` leaves the banks as they were; and the MC6847 always fetches
+  the motherboard RAM, where MAME's driver installs the banks in the SAM's space, through which its VDG fetches
+  too. Source: P. Harvey-Smith's traced Eagle schematic of his DragonPlus board (World of Dragon forum, 7 June 2017,
+  `viewtopic.php?p=15826`; known drawing errors): bit 2 only XORs Z7 into the extra DRAM's address, and the MC6847
+  reads in E = 0. Not verified on hardware. MAME 0.264 still compares (it never applies `$FFE2`, so its outcome is the schematic's:
+  `run.js d64plus --paging [--video]`, above); the 0.289 probe above was not re-run, and on `$04`/`$05` and the
+  VDG 0.289 is expected to differ from us.
 
 * A cartridge that ties CART to Q (the program pak with auto-start, the banked ROM cartridge, the Games Master, the
   Orchestra-90): MAME toggles the line five times through its slot's timers whenever a PIA1 register is written
@@ -1288,6 +1467,27 @@ independently in `tests/games.test.js`:
   games menu's keys) each turn `tests/games.test.js` or `tests/welcome.test.js` red, and so do five more: the flood
   opening flagged squares (testing OPEN only), the title page ignoring BREAK, the SAM's M not put back, no reset at
   `DONE` with ROMs, and no RAM check.
+
+## The side-panel connector (claude.ai)
+
+Not hardware behaviour, so MAME is not its oracle (AGENTS.md section 4.6). The emulator in the view is the same
+`js/`; what is new is the connector around it, checked against the MCP Apps specification (ext-apps
+`specification/2026-01-26/apps.mdx`) and the local MCP server:
+
+* the folded emulator of the self-contained view runs LIZA identically to the plain modules: screen, frame count and
+  every pixel (`tests/connector.test.js`);
+* the panel's tools are the local server's, name, schema and annotations byte for byte, with the file tools left out;
+  results keep the `untrusted` wrapping; over 100,000 characters is `too-long`;
+* the bridge's protocol, in a vm and in Chromium: `ui/initialize` before the emulator's module runs, `tools/list`
+  answered at once, `notifications/tools/list_changed` when the emulator is ready, early calls held, a failed start
+  `not-started`, a different `PANEL_API` `out-of-step`;
+* both views nested as Claude nests them (host → sandbox proxy → `srcdoc` view, `allow-scripts allow-same-origin
+  allow-forms`) under the CSP the specification builds from the declared `_meta.ui.csp`, with and without CORS on the
+  site: typing into LIZA, a game and its screenshot, real keys, storage, ROMs kept in the view's storage and memory
+  reads refused while they run (the browser check's `connector` group, `tools/connector-check.js`).
+
+What only claude.ai can show (its side panel, its approval prompts, what it grants a custom connector) is a manual
+test: [deploy-connector.md](deploy-connector.md), "Verify".
 
 ## The HD6309 running the 6809 builds
 

@@ -232,5 +232,136 @@ for (const [label, fps, cycles] of [['PAL Dragon', 49.96766756635178, 17784], ['
     `${[...sizes].join(',')} avg ${(total / 1000).toFixed(3)}`);
 }
 
+// ---- recovery after a stall ----
+// A page stall leaves the queue deep: the worklet keeps playing while the page cannot push, so when the page comes
+// back there is more queued than TARGET_MS. The steering brings it back by resampling a frame by a little more or
+// fewer samples, and what matters is the RATE: a fixed 0.5% moves the queue by 0.005 x rate samples a second, which
+// is 5 ms of sound a second at every rate, so 60 ms of excess needs 12 s at the very least and in practice much
+// longer, because the correction is proportional and so decays as it approaches the target.
+//
+// The test runs the stage the way the page does: the machine pushes a frame each 1/fps, the card plays a
+// 1024-sample block each 1024/rate, and whichever is due first runs. The queue is warmed to 140 ms (what the real
+// page measured after a 0.8 s stall: 141 ms) and the time to be back inside [10, 80] ms - and to STAY there for
+// 2 s - is the measurement. Main takes 15.7-18.5 s; the correction here takes 4-5 s.
+//
+// Only this one measurement is asserted, and deliberately: measured on both versions, the depth at 20-30 s and the
+// behaviour of a queue that starts EMPTY do not differ between them (from empty both reach 13-16 ms within seconds
+// and stay in the band; at 20-30 s both sit near 60 ms), so a check on either would pass whatever the steering did -
+// a test that cannot fail. The empty-queue case has no defect to fix: what used to be reported as "17-29 ms for
+// seconds after a stall" was the page-side PortSink.buffered() reading low, not the worklet's queue.
+for (const rate of [44100, 48000]) {
+  const fps = 49.96766756635178, cycles = 17784, block = new Float32Array(1024);
+  const out = new Stage(rate);
+  while (out.buffered() < 0.14 * rate) out.push([0, 0.5], cycles, fps);   // the queue a stall leaves
+  const frameDt = 1 / fps, blockDt = 1024 / rate;
+  let tf = 0, tb = 0; const depth = [];
+  while (tf < 30) {
+    if (tf <= tb) { out.push([0, 0.5], cycles, fps); tf += frameDt; }
+    else { out.sink.pull(block); tb += blockDt; depth.push([tb, out.buffered() / rate * 1000]); }
+  }
+  const inBand = (m) => m >= 10 && m <= 80;
+  let back = null;
+  for (let i = 0; i < depth.length && back === null; i++) {
+    if (!inBand(depth[i][1])) continue;
+    const stay = depth.filter(([t]) => t >= depth[i][0] && t < depth[i][0] + 2);
+    if (stay.every(([, m]) => inBand(m))) back = depth[i][0];
+  }
+  check(`${rate} Hz: a stall's 140 ms queue is back inside 10-80 ms, and stays, within 8 s`,
+    depth[0][1] > 100 && back !== null && back <= 8,
+    `started ${depth[0][1].toFixed(1)} ms, ${back === null ? 'never settled in the band for 2 s' : `back at ${back.toFixed(2)} s`}`);
+  // 140 ms is already past MAX_MS (150) with a frame on top, so dropping exactly the first frame is the bound
+  // working, not a fault; a second drop would be the recovery falling behind
+  check(`${rate} Hz: at most the one frame the 150 ms bound takes`, out.dropped <= 1, `${out.dropped} dropped`);
+}
+
+// ---- the correction does not warble a queue that keeps crossing into the band ----
+// The queue jumps by a 1024-sample block every frame (21-23 ms), so a correction whose SIZE follows the depth
+// flips on and off every time the queue crosses an edge. Measured with a card clock 1% slow - which parks the
+// queue around 58 ms with the correction on half the frames - a proportional ratio reversed 13 times a second
+// (34.6 cents of 50 Hz warble). Held CONSTANT from the moment the queue leaves the band until it reaches
+// TARGET_MS, the ratio is one of three exact values and changes rarely: this pins both, and 0.5 reversals a
+// second is well under the 13 a depth-following ratio gives.
+{
+  const rate = 44100, skew = 0.99, fps = 49.96766756635178, cycles = 17784;
+  const out = new Stage(rate), block = new Float32Array(1024), frameDt = 1 / fps, blockDt = 1024 / (rate * skew);
+  while (out.buffered() < 0.04 * rate) out.push([0, 0.5], cycles, fps);
+  let tf = 0, tb = 0; const ratios = [], depth = [];
+  while (tf < 120) {
+    if (tf <= tb) { out.push([0, 0.5], cycles, fps); tf += frameDt; }
+    else { out.sink.pull(block); tb += blockDt; if (tf > 40) { ratios.push(out.ratioAt(out.buffered() / rate * 1000)); depth.push(out.buffered() / rate * 1000); } }
+  }
+  const values = [...new Set(ratios.map((r) => r.toFixed(6)))];
+  let reversals = 0, prev = 0;
+  for (let i = 1; i < ratios.length; i++) { const s = Math.sign(ratios[i] - ratios[i - 1]); if (s && prev && s !== prev) reversals++; if (s) prev = s; }
+  const active = ratios.filter((r) => r !== 1).length / ratios.length;
+  check(`${rate} Hz, card clock x${skew}: the ratio takes 3 values, corrects and does not hunt`,
+    [...values].every((v) => ['1.000000', '1.020000', '0.980000'].includes(v)) && active > 0.2 && active < 0.8 && reversals / 80 <= 1,
+    `${[...values].join(',')} over ${ratios.length} frames (queue ${Math.min(...depth).toFixed(0)}..${Math.max(...depth).toFixed(0)} ms), correcting ${(active * 100).toFixed(0)}% of them, ${(reversals / 80).toFixed(2)} reversals/s (a depth-following ratio gives 13/s)`);
+}
+
+// The steady-state property the browser's tone check depends on: once the queue is back at TARGET_MS the ratio is
+// EXACTLY 1 (so a tone is played at the machine's frequency), and while the resampler is recovering the ratio is
+// held within +-2% of 1 (the deliberate, transient detune). A check that sampled during recovery would measure
+// that detune instead of the machine's tone -- CI did: 451.39 Hz played for a 456.64 Hz square wave.
+{
+  const rate = 44100, fps = 49.96766756635178, cycles = 17784, block = new Float32Array(1024);
+  const out = new Stage(rate);
+  // start deep (a stall left the queue far above the band), then let it recover by pulling the card faster than
+  // the machine fills it, sampling the ratio at every frame
+  while (out.buffered() < 0.14 * rate) out.push([0, 0.5], cycles, fps);
+  const ratios = []; let tf = 0, tb = 0;
+  const frameDt = 1 / fps, blockDt = 1024 / rate;
+  while (tf < 60) {
+    if (tf <= tb) { out.push([0, 0.5], cycles, fps); tf += frameDt; } else { out.sink.pull(block); tb += blockDt; }
+    ratios.push(out.ratioAt(out.buffered() / rate * 1000));
+  }
+  const ratioOut = out.ratioAt(out.buffered() / rate * 1000);
+  check('audio: while the resampler recovers the ratio stays within +-2% of 1', ratios.every((r) => r >= 0.98 - 1e-9 && r <= 1.02 + 1e-9), `${[...new Set(ratios.map((r) => r.toFixed(3)))].join(',')}`);
+  check('audio: and once it has settled the ratio is exactly 1 (a steady tone keeps the machine\'s frequency)',
+    ratioOut === 1 && out.mode === 0, `ratio ${ratioOut}, mode ${out.mode}, queue ${(out.buffered() / rate * 1000).toFixed(1)} ms`);
+}
+
+// The bound the browser's tone check waits under must be at least the TRUE worst case, or the check flakes on the
+// slowest start it can see. The worst case is a queue at the ceiling: pushes above MAX_MS are dropped, so the
+// deepest queue that can exist is just under MAX_MS. How long the correction then takes depends on the frame and
+// block schedule: measured over card rates 44.1/48 kHz, 30/49.97/59.94/60 fps and 512/1024/2048-sample blocks,
+// the slowest is 4.99 s (60 fps, 512-sample blocks) -- so this drives those schedules in simulated real time
+// (frames at 1/fps of audio time, the card pulling blocks) and requires NONE within SETTLE_MS. RED if the bound
+// is set below the measurement: it is the guard on the number.
+{
+  const { SETTLE_MS, MAX_MS } = require('../js/host/audio.js');
+  const cycles = 17784;
+  let slowest = 0, worstAt = '';
+  for (const rate of [44100, 48000]) {
+    for (const fps of [49.96766756635178, 59.94, 60]) {
+      for (const bs of [512, 1024]) {
+        const out = new Stage(rate);
+        // fill to just under MAX_MS -- the deepest a queue can be, because push() drops what would exceed it
+        let guard = 0;
+        while ((out.buffered() / rate * 1000) < MAX_MS - 1 && guard++ < 4000) out.push([0, 0.5], cycles, fps);
+        const startMs = out.buffered() / rate * 1000;
+        const frameDt = 1 / fps, block = new Float32Array(bs), blockDt = bs / rate;
+        let tf = 0, tb = 0, settled = null;
+        while (tf < 30 && settled === null) {
+          if (tf <= tb) { out.push([0, 0.5], cycles, fps); tf += frameDt; }
+          else { out.pull(block); tb += blockDt; if (out.mode === 0 && tb > 0.1) settled = tb; }
+        }
+        const ms = settled === null ? Infinity : settled * 1000;
+        if (ms > slowest) { slowest = ms; worstAt = `${rate} Hz, ${fps} fps, ${bs}-sample blocks, from ${startMs.toFixed(0)} ms`; }
+        check(`${rate} Hz, ${fps} fps, ${bs}-sample blocks: a queue at the ${MAX_MS} ms ceiling settles within SETTLE_MS (${SETTLE_MS} ms)`,
+          settled !== null && ms <= SETTLE_MS, settled === null ? 'never settled' : `${ms.toFixed(0)} ms`);
+      }
+    }
+  }
+  // AND the bound must have real HEADROOM over the measured worst case, not merely exceed it. A bound equal to the
+  // measurement passes "settles within" and still flakes: the browser's real schedule is not this model's, and a
+  // post-stall queue is exactly where it runs. The reviewer's finding was that 5 s was "about 2% margin in exactly
+  // the post-stall case"; requiring headroom is what makes such a bound fail here.
+  const headroom = SETTLE_MS / slowest;
+  check('audio: the settle bound has real headroom over the measured worst case (not merely above it)',
+    headroom >= 1.5 && headroom <= 3,
+    `SETTLE_MS ${SETTLE_MS} ms / worst ${slowest.toFixed(0)} ms = ${headroom.toFixed(2)}x (${worstAt})`);
+}
+
 console.log(fail ? `${fail} FAILED` : 'all passed');
 process.exitCode = fail ? 1 : 0;

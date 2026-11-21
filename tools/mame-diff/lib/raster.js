@@ -11,23 +11,26 @@
 // A case must also not be vacuous: the swept field must differ from the case's plain lead-in field (or,
 // for a case whose writes must not show, equal it).
 // Exit code 0 only if the trace is identical, the firmware reaches HALT and every case passes.
-const fs = require('fs'), path = require('path'), zlib = require('zlib');
+const fs = require('fs'), path = require('path');
+const { png } = require('./png');
 const { loadEmu } = require('./firmware');
 const { keepWorkDir } = require('./workdir');
 const { lockstep } = require('./lockstep');
 const { runMame } = require('./mame');
 const { readAvi, toRGBA } = require('./avi');
+const CAPTURE = 3;                         // the field shown while the field counter reads 3 (a swept one)
 
 // t: { label, system, work, args, regs, waitOps, luaPrelude, haltPc, install(), machine(), phaseAddr,
-//      fieldAddr, file, cases: [{ name, phase, noEffect }], fields, plain, seconds, geometry }
+//      fieldAddr, file, cases: [{ name, phase, noEffect }], fields, plain, seconds, geometry, what, check }
+// what (optional): what the cases are, for the summary line; check (optional): a function given the captures and
+// the colour map ({ mame, ours, plain, map, M, O, W, H, rows, cols, ignore }) that runs the spec's own checks and
+// returns true if they pass
 // geometry (optional, for pictures that are not the MC6847's): { offset(movie) -> { ox, oy } of our frame's
 // origin in MAME's bitmap, skipTop: rows at the top left out of the lead-in comparison, origin: [x, y] of
 // the active area in our frame, for reporting }
 async function runRaster(t, { trace = true, keep = false } = {}) {
-  const Emu = loadEmu(), V = Emu.MC6847;
+  const V = loadEmu().MC6847;
   let W = V.WIDTH, H = V.HEIGHT;
-  const CAPTURE = 3;                       // the field shown while the field counter reads 3 (a swept one)
-  const PLAIN = t.plain;                   // ... and while it reads t.plain (a lead-in field; see each spec)
   let ok = true;
   t.install();
   if (trace) {
@@ -59,19 +62,8 @@ end)
   if (!keep) fs.unlinkSync(avi);
 
   // ours, by the same rule
-  const m = t.machine(), ours = {}, plain = {};
-  // (through the bus: on the CoCo 3 the CPU sees its RAM through the GIME; $FF ends the firmware, but RAM
-  // may also hold $FF before its first case)
-  for (let f = 0, started = false; f < 2000; f++) {
-    m.runFrame();
-    const ph = m.read(t.phaseAddr), n = m.read(t.fieldAddr);
-    if (ph === 0xFF && started) break;
-    if (!ph || ph === 0xFF) continue;
-    started = true;
-    W = m.render().width; H = m.render().height;
-    if (!ours[ph] && n === CAPTURE) ours[ph] = Emu.frameToRGBA(m.render()).slice();
-    if (!plain[ph] && n === PLAIN) plain[ph] = Emu.frameToRGBA(m.render()).slice();
-  }
+  const { ours, plain, width, height } = captureOurs(t, t.machine());
+  if (width) { W = width; H = height; }
 
   // MC6847 pictures: MAME's bitmap has the 256x192 active area with 58 px of border at each side, and 25 rows
   // above it (NTSC) or 50 (PAL, which adds 25 padding lines above the top border). Ours: 32 px and 24 rows.
@@ -98,6 +90,8 @@ end)
   }
 
   let passed = 0;
+  // apart from the first display byte, which the lead-in fields change
+  const ignore = g.ignore || ((x, y) => y < V.BORDER_Y + 12);
   fs.mkdirSync(t.work, { recursive: true });
   for (const f of fs.readdirSync(t.work)) if (/^diff-\d+\.png$/.test(f)) fs.unlinkSync(path.join(t.work, f));
   for (const c of t.cases) {
@@ -112,9 +106,7 @@ end)
       put(x, y, map.has(mv) ? map.get(mv) : 0xFF00FF); put(W + x, y, ov); put(2 * W + x, y, same ? 0x202020 : 0x0000FF);
     }
     if (diff) fs.writeFileSync(path.join(t.work, `diff-${c.phase}.png`), png(W * 3, rows, img));
-    // apart from the first display byte, which the lead-in fields change
     let changed = 0;
-    const ignore = g.ignore || ((x, y) => y < V.BORDER_Y + 12);
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (!ignore(x, y) && O(oc, x, y) !== O(pc, x, y)) changed++;
     const effectOk = c.noEffect ? changed === 0 : changed > 0;
     if (!diff && effectOk) passed++;
@@ -123,20 +115,33 @@ end)
       (c.noEffect ? `; ${changed ? `CHANGED ${changed} px from the plain field, which it must not` : 'no change from the plain field, as required'}` :
         `; ${changed} px changed by the writes${effectOk ? '' : ' - nothing changed, so the case proves nothing'}`));
   }
-  console.log(`[${t.label}] ${passed}/${t.cases.length} mid-line cases identical with MAME (active area and border)`);
+  console.log(`[${t.label}] ${passed}/${t.cases.length} ${t.what || 'mid-line cases'} identical with MAME (active area and border)`);
   if (passed !== t.cases.length) ok = false;
+  // a spec's own checks on MAME's pictures (t.check: true if they pass), with what the comparison learned
+  if (t.check && !t.check({ mame, ours, plain, map, M, O, W, H, rows, cols, ignore })) ok = false;
   if (keep || !ok) keepWorkDir(t.work, keep ? '--keep' : 'movie and difference images');
   return ok ? 0 : 1;
 }
 
-function png(w, h, rgba) {
-  const crcT = new Int32Array(256).map((_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; return c; });
-  const crc = (b) => { let c = -1; for (const x of b) c = crcT[(c ^ x) & 0xFF] ^ (c >>> 8); return (c ^ -1) >>> 0; };
-  const chunk = (t, d) => { const len = Buffer.alloc(4); len.writeUInt32BE(d.length); const td = Buffer.concat([Buffer.from(t), d]); const c = Buffer.alloc(4); c.writeUInt32BE(crc(td)); return Buffer.concat([len, td, c]); };
-  const raw = Buffer.alloc((w * 4 + 1) * h);
-  for (let y = 0; y < h; y++) { raw[y * (w * 4 + 1)] = 0; rgba.copy(raw, y * (w * 4 + 1) + 1, y * w * 4, (y + 1) * w * 4); }
-  const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 6;
-  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]);
+// The field captured for each case on one of our machines, by the rule MAME's are: the field shown while the field
+// counter reads CAPTURE (a swept one), and the plain one while it reads t.plain (a lead-in field; see each spec).
+// Returns { ours: { phase: RGBA }, plain: { phase: RGBA }, width, height }.
+function captureOurs(t, m) {
+  const Emu = loadEmu(), ours = {}, plain = {};
+  let width = 0, height = 0;
+  // (through the bus: on the CoCo 3 the CPU sees its RAM through the GIME; $FF ends the firmware, but RAM
+  // may also hold $FF before its first case)
+  for (let f = 0, started = false; f < 2000; f++) {
+    m.runFrame();
+    const ph = m.read(t.phaseAddr), n = m.read(t.fieldAddr);
+    if (ph === 0xFF && started) break;
+    if (!ph || ph === 0xFF) continue;
+    started = true;
+    width = m.render().width; height = m.render().height;
+    if (!ours[ph] && n === CAPTURE) ours[ph] = Emu.frameToRGBA(m.render()).slice();
+    if (!plain[ph] && n === t.plain) plain[ph] = Emu.frameToRGBA(m.render()).slice();
+  }
+  return { ours, plain, width, height };
 }
 
-module.exports = { runRaster };
+module.exports = { runRaster, captureOurs };

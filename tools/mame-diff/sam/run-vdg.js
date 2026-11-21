@@ -4,7 +4,7 @@
 // Composite colour is compared exactly too: NTSC artifact colours in the 256x192 mode and PAL line-pair
 // blending (mc6847.cpp, artifacter). ARTIFACT=N sets MAME's "Artifacting" option (0 off, 1 Standard,
 // 2 Reverse; MAME's default is 1) and ours to the same value.
-const fs = require('fs'), path = require('path'), cp = require('child_process'), zlib = require('zlib');
+const fs = require('fs'), path = require('path'), cp = require('child_process');
 const ROOT = path.join(__dirname, '../../..');
 const Emu = require(path.join(ROOT, 'tests/load.js'))();
 const PROFILE_ID = process.argv[2] || 'dragon64';
@@ -13,6 +13,7 @@ const PROFILE_ID = process.argv[2] || 'dragon64';
 // (small RAM cannot hold $7000); only the sizes whose pictures the firmware can describe are offered.
 const RAM_ARG = (() => { const i = process.argv.indexOf('--ram'); return i > 0 ? Number(process.argv[i + 1]) : null; })();
 const PROFILE = Emu.profiles[PROFILE_ID];
+const { png } = require('../lib/png');
 const { workDir, keepWorkDir } = require('../lib/workdir');
 // VDG_WORK: a folder of your own, kept (and needed by SKIP_MAME=1); otherwise a fresh one, removed at exit
 const WORK = process.env.VDG_WORK || workDir(`${PROFILE_ID}${RAM_ARG ? `-${RAM_ARG}k` : ''}-vdg`);
@@ -100,16 +101,6 @@ const NAMES = ['', 'text CSS0', 'text CSS1', 'SG6 CSS0', 'SG6 CSS1', 'CG1 CSS0',
   'CG2 CSS0', 'CG2 CSS1', 'RG2 CSS0', 'RG2 CSS1', 'CG3 CSS0', 'CG3 CSS1', 'RG3 CSS0', 'RG3 CSS1', 'CG6 CSS0', 'CG6 CSS1', 'RG6 CSS0', 'RG6 CSS1'];
 
 // minimal PNG writer for diff images
-function png(w, h, rgba) {
-  const crcT = new Int32Array(256).map((_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; return c; });
-  const crc = (b) => { let c = -1; for (const x of b) c = crcT[(c ^ x) & 0xFF] ^ (c >>> 8); return (c ^ -1) >>> 0; };
-  const chunk = (t, d) => { const len = Buffer.alloc(4); len.writeUInt32BE(d.length); const td = Buffer.concat([Buffer.from(t), d]); const c = Buffer.alloc(4); c.writeUInt32BE(crc(td)); return Buffer.concat([len, td, c]); };
-  const raw = Buffer.alloc((w * 4 + 1) * h);
-  for (let y = 0; y < h; y++) { raw[y * (w * 4 + 1)] = 0; rgba.copy(raw, y * (w * 4 + 1) + 1, y * w * 4, (y + 1) * w * 4); }
-  const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 6;
-  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]);
-}
-
 let total = 0, failed = 0;
 for (let ph = 1; ph <= 20; ph++) {
   // Under -video none MAME only refreshes its screen bitmap on partial updates (mode changes),

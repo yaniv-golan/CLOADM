@@ -1,0 +1,18 @@
+# CLOADM's remote MCP connector (connector/worker/src/server.js), served at https://mcp.cloadm.dev/mcp.
+# Deploying: docs/deploy-connector.md. Nothing here is a secret, and the Worker needs none.
+name = "cloadm-mcp"
+main = "src/index.js"
+compatibility_date = "2026-11-01"
+workers_dev = false
+
+# the custom domain (Cloudflare makes its DNS record and certificate when the zone cloadm.dev is on the account)
+routes = [{ pattern = "mcp.cloadm.dev", custom_domain = true }]
+
+# no request logs: the Worker writes none, and Workers Logs stay off
+[observability]
+enabled = false
+
+# the two views, from connector/view/ and js/ (connector/build.js; folding for the self-contained view only)
+[build]
+command = "node ../build.js"
+watch_dir = ["../view", "../../js"]

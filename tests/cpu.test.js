@@ -1,6 +1,6 @@
 // Run: node tests/cpu.test.js
 const Emu = require('./load')();
-const { CPU6809 } = Emu;
+const { CPU6809, CPU6803 } = Emu;
 
 let failures = 0, count = 0;
 function check(name, got, want) {
@@ -208,6 +208,22 @@ for (const [name, bytes, cyc] of [['CLR $40 (direct)', [0x0F, 0x40], 6], ['CLR $
   const c = cpu.step();
   check(`${name}: reads, then writes 0`, log.join(','), 'r,w0');
   check(`${name}: cycles`, c, cyc);
+}
+
+// returnAddress(): the address a JSR left on the stack, on each core (the 6809 keeps it at S, the 6803 at S+1;
+// MC6809 and MC6803 data sheets, JSR). Expected values are the instruction's own next-instruction address.
+for (const [name, Core, jsr] of [['6809', CPU6809, [0xBD, 0x20, 0x00]], ['6803', CPU6803, [0xBD, 0x20, 0x00]]]) {
+  const mem = new Uint8Array(0x10000);
+  mem.set(jsr, 0x1234); mem[0x2000] = 0x39;   // JSR $2000 at $1234; RTS there
+  const cpu = new Core({ read: (a) => mem[a], write: (a, v) => { mem[a] = v; } });
+  cpu.reset(); cpu.s = 0x8000; cpu.pc = 0x1234;
+  cpu.step();
+  check(`${name}: JSR enters the subroutine`, cpu.pc, 0x2000);
+  check(`${name}: returnAddress after JSR`, cpu.returnAddress((a) => mem[a]), 0x1237);
+  // S at the top of memory: the 6809 reads $FFFF then $0000, the 6803 (one byte up) $0000 then $0001
+  cpu.s = 0xFFFF;
+  const at = { 0xFFFF: 0x12, 0x0000: 0x34, 0x0001: 0x56 };
+  check(`${name}: returnAddress wraps at the top of memory`, cpu.returnAddress((a) => at[a] || 0), name === '6809' ? 0x1234 : 0x3456);
 }
 
 console.log(`${count - failures}/${count} checks passed`);

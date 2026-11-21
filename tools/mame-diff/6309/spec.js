@@ -12,6 +12,7 @@
 const path = require('path'), cp = require('child_process');
 const { loadEmu, assembleFile, romImage, writeRoms, mameConfigArgs } = require('../lib/firmware');
 const { MAME } = require('../lib/mame');
+const { REGS_6309: REGS } = require('../lib/regs');
 
 // The ROMs MAME's driver for `system` asks for, in the order it lists them, as [{ name, size }]. With
 // `all` false only the first region's ROMs are returned (the ones the firmware replaces); with it true,
@@ -37,9 +38,6 @@ function mameRoms(work, system, all = false) {
 
 // the registers the trace compares. W, Q, E, F, V and MD are the 6309's own; W/Q are derived from
 // E:F and A:B:E:F, so a divergence in any of them shows up in both places.
-const REGS = ['pc:4', 'a:2', 'b:2', 'x:4', 'y:4', 'u:4', 's:4', 'dp:2', 'cc:2', 'e:2', 'f:2', 'w:4', 'q:8', 'v:4', 'md:2']
-  .map((r) => { const [name, w] = r.split(':'); return { name, width: +w, mame: name.toUpperCase() }; });
-
 // the profile's HD6309 sibling: dragon64 -> dragon64h, coco -> cocoh, coco3 -> coco3h, tanodr64 -> tanodr64h
 const hd6309 = (id) => `${id}h`;
 

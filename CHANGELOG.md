@@ -6,7 +6,263 @@ All notable changes to CLOADM are recorded here. The format follows
 
 ## [Unreleased]
 
-Next version: 0.1.7-pre (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
+Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
+
+### 0.1.8-pre
+
+#### Added
+
+- **The play page reads as a document: for screen readers and a browser's reading mode.** On a phone, Chrome's
+  reading mode showed every panel's text in a jumble. The emulator is now the one `<main>`, with a heading naming the
+  machine; the app bar, the ports under the screen, the settings drawer and the footer are landmarks; each view
+  (Library, Share, the Debugger, Add ROMs) is the main landmark while it is open, with one h1; and what is not drawn
+  is hidden for real, not only by the stylesheet: the emulator behind a view, the phone's folded Menu links, the drawer
+  and ports in the touch layout are `inert` and `aria-hidden`, and the Multi-Pak's slots are `hidden` while it is
+  folded. The screen canvas is an application with a text alternative: the screen's text, as Claude's `screen_text`
+  reads it, refreshed at most once a second (`Session.screenAlternative()`). The landing page gains its `<header>` and
+  `<main>`. Nothing looks different. The browser check's new group `semantics` checks all of it at desktop, phone
+  (portrait and landscape) and tablet size, with Mozilla's Readability (an unmodified copy in `tools/vendor/`,
+  development only) as the stand-in for a reading mode.
+
+- **CLOADM in Claude's side panel on claude.ai: a remote connector.** Add `https://mcp.cloadm.dev/mcp` as a custom
+  connector (no sign-in) and ask Claude to open CLOADM: the emulator runs in an MCP Apps view, in your browser, which
+  you can open in the side panel and type on; from the next message Claude uses the machine tools the MCP server has
+  (the same names, arguments, results and `untrusted` wrapping) on the machine on screen, each call approved by you.
+  The view is `connector/view/`: a bridge that shakes hands with Claude before the emulator loads and tells it when
+  the tools are ready, and the toolbox on the panel's own machine. One machine (`m1`); `load` runs the bundled
+  programs; no files, tapes, disks or snapshots (the panel has neither files nor downloads). ROMs are added in the
+  panel and stay in its browser storage; while they run, `peek`, `find_bytes` and `disassemble` are refused, so no
+  tool returns ROM memory directly (a program run on the machine can still read it, so a determined agent can infer
+  ROM contents through execution). `add_roms` and `remove_roms` are not offered there either. Results over Claude's
+  100,000 characters are refused with `too-long`. Two views: the default loads the emulator from cloadm.dev (its CSP
+  declares that origin only), and a self-contained one (about 1 MiB) loads nothing; the glue the default view loads
+  comes from the same release of the site as `js/`, and a version number (`PANEL_API`) makes a connector out of step
+  with the site say so (`out-of-step`) instead of half working. The server (`connector/worker/`, a Cloudflare Worker)
+  is stateless and stores and logs nothing, takes one JSON-RPC message per request (no batches) of at most 64 KiB, and
+  reports the build's `git describe` as its version; its build refuses to run until cloadm.dev serves the same
+  `PANEL_API`. Deploying it: `docs/deploy-connector.md`. Tested in `tests/connector.test.js` (the server, the views,
+  the folded emulator against the plain modules, the bridge's protocol) and the browser check's `connector` group
+  (both views nested as Claude nests them, under the spec's CSP, with and without CORS, and out of step). Guide:
+  `docs/mcp.md`, "Claude on the web: side panel".
+  `docs/mcp.md` now opens with "Which way should I install CLOADM for Claude?" (the connector, the plugin, the `.mcpb`
+  extension, other agents, and what each has been tested on), the desktop app's plugin steps are the ones the app
+  shows, the README says it in four lines, and the skill tells the agent which of the two routes it is on.
+
+- **The MCP server's `load` runs the games too:** `program` takes `2048` and `minesweeper` as well as `welcome`,
+  `liza` and `demo` (refused, as on the page, where the machine cannot run them).
+
+- **The MCP server takes your own ROMs from the chat: `add_roms` and `remove_roms`.** `add_roms` stores ROM dumps you
+  give the agent, from a file, ZIP or folder in the media root, an https URL, or a file you uploaded (base64), in the
+  server's own store (`~/.config/cloadm/roms/`, `%APPDATA%\cloadm\roms\` on Windows), merged with `--roms` and the
+  config file at every start. A URL must be https to a public address: every resolved address is checked, loopback,
+  link-local, private, CGNAT, documentation and IPv4-mapped ones are refused, also after a redirect (at most 3); 20 s,
+  1 MiB a file and 4 MiB a ZIP (8 MiB unpacked a call), no cookies, credentials or proxy. Only what CLOADM recognises
+  as a ROM is stored (`not-a-rom` otherwise), no result carries the bytes, and a client with MCP elicitation asks you
+  to confirm first: for a URL before anything is contacted, showing the whole URL (a decline downloads and stores
+  nothing). Machines already open keep running; the result names the models that now have BASIC. `list_models` gives
+  each model's `basic` and, for each ROM, the file and its source (`cli`, `config`, `stored`); `remove_roms` forgets
+  stored ones; `--read-only` hides both. CLOADM itself still ships and links to no ROMs, and fetches only a URL you
+  give `add_roms`. `docs/mcp.md`, "Adding your ROMs"; `tests/mcp-roms.test.js`, with stand-in ROMs and a local https
+  server.
+
+- **The CoCo 3's vertical fine scroll (`$FF9C`) in the GIME modes.** With rows of 2, 8, 9, 10 or 11 scanlines, a
+  value below the row height now moves the picture up by that many lines, and the next row of the buffer comes in at
+  the bottom, as Sock Master's GIME reference and Tepolt's *Assembly Language Programming for the CoCo3* describe:
+  smooth-scrolling text and double-height graphics show as on the real machine. Claude's `screen_text` counts the row
+  the scroll brings in. MAME 0.264 does not scroll; the `mameCompat` option (for the MAME comparisons) keeps its
+  behaviour. Snapshots are now format version 4 (the GIME's latched scroll); older files still open. Checked with
+  `node tools/mame-diff/run.js coco3 --vsc` and `tests/gime-vsc.test.js`; what the sources leave open is listed in
+  `docs/verification.md`.
+
+- **The tape in view while it loads.** A tape that starts (dropped on the screen, opened, from a link, `CLOAD`) shows a
+  compact line on the screen's border, under the picture's text and never on it, at every size from a phone held
+  sideways to the desktop: the tape's name, BASIC's S (searching) or F (found), the block, the progress, playing or
+  stopped, End of tape, a Tape sound switch and **Deck**, which brings the cassette panel into view. It goes a few
+  seconds after the tape stops or ends, and is not shown where there is no room off the text (the phone's Claude
+  chat). Screen readers hear once when a tape starts and when it ends. The cassette panel can be folded (**Hide the
+  deck**).
+
+- **Tape sound.** The tape heard as it plays, as a cassette recorder's own speaker plays it: the tape's signal mixed
+  on the page's side, rounded off (a low-pass at 3.2 kHz, not the raw square), at a modest level, silent as soon as the
+  tape stops. On by default; its switch is in the tape line and the Media tab, and it is remembered; the page's
+  **Sound** switch silences it too. With fast loading
+  you hear what passes the head at its real pitch, in real time (played 30-60 times faster the tones would be far
+  above hearing). It is not the machine's sound: it is not in the machine's audio state or in snapshots, and
+  "Load .CAS straight into memory" plays no tape, so there is nothing to hear.
+
+- **A comparison with XRoar, MAME and VCC/OVCC** ([docs/comparison.md](docs/comparison.md)), dated November 2026, with a
+  source for every claim about the other projects, where each is stronger, and "see the project" wherever a claim
+  could not be checked in a primary source. Linked from the README FAQ and the "See also" line of `docs/using.md`.
+
+#### Changed
+
+- The README opens with "Try it" and has a short "Use it from code or an agent" section; the Games and Tools
+  cells of the feature tables are one line each; the MAME instruction counts are refreshed (Dragon 64 1,028,112,
+  CoCo 32K / CP 400 1,043,371, CoCo 3 88,797).
+
+- **A tape in the deck costs nothing while it sits there.** The Cassette slot under the screen was rewritten every
+  frame while a tape was in, playing or not; it, the cassette panel and the tape line now write only what changes.
+
+- **One deck moves.** Only the cassette panel's reels turn, and only while the tape really moves: not at the end of
+  the tape, nor with the motor on and the tape still. The small deck in the Cassette slot is a still picture. The end
+  of the tape is stamped on the cassette.
+
+- Mounting a disk is faster: about four times, 590 ms down to 150 ms for a 180K JVC image in Node. To learn
+  whether a snapshot must carry the image as mounted (only a single-density DMK needs it), the drive used to
+  decode the image twice more and encode it once at every mount. That check now runs in the background just
+  after the mount, so neither the mount nor the next snapshot (a restore point, a share) waits for it. A snapshot
+  taken before the check has run still gets the same answer, by doing the check then. What is saved, exported and
+  snapshotted is byte for byte the same, and a bad image is still refused at mount with the same message.
+
+- The CLI no longer accepts the undocumented step aliases `expect-text`, `png` and `regs` (in scripts and as
+  `--expect-text`, `--png`, `--regs`); use `expect-screen`, `screenshot` and `registers`. `-m` and `-o` stay.
+
+- **The games' sounds are musical cues, not a buzz on every move.** 2048 played a burst of noise on every move
+  and Minesweeper one on every square opened, which is why they read as noise rather than as game sounds. 2048 now
+  plays one short tone per move, its pitch stepping up with the join it makes (C major pentatonic, C5 to D6), about
+  60 ms instead of a rumble; Minesweeper plays an E5 tick when a square opens, a rising C5-G5 pair when a flag goes
+  on (falling when it comes off), a rising arpeggio for a win and a falling one for a loss, and a single short noise
+  burst for the mine (about 170 ms, where there were three). Each pitch is checked against the recorded sound; the
+  recording is not committed (media files are refused by the repository's pre-push guard), so
+  `tests/fixtures/games/minesweeper-sounds.sha256.json` holds the SHA-256 of its PCM samples and the test compares
+  that. Set `CLOADM_KEEP_WAV` to a path outside the repository to write the recording out and listen to it.
+
+- **The Media tab's "Recent on this machine" no longer lists one file twice.** The list's identity was the
+  content hash alone, compared exactly, so two reachable cases showed the same name twice: an entry an older build
+  stored with a lower-case CRC was not matched by the upper-case one a later load makes, and a file of the same name
+  with different bytes (a rebuilt program) was a second row that read exactly like the first. Identity is now the
+  NAME (by the store's own case rule) plus the content hash, and stored CRCs are normalised as the list is read, so
+  an existing list heals. Two files of one name with different bytes are still both shown - each keeps and loads
+  its own bytes - and the older one is labelled (2nd, 3rd, "older copy") so the rows can be told apart.
+
+- **Sound comes back in seconds after the page stalls, not tens of seconds.** The output stage keeps the
+  worklet's queue near 40 ms by resampling each frame by a fraction more or fewer samples, but that correction was a
+  fixed 0.5% just outside the 10-80 ms band: the queue moved 5 ms of sound a second however far outside it was, so a
+  stall that left 135-140 ms queued (measured in Chromium after a 0.8 s stall: 141 ms) took 15-18 s to come back into
+  the band and most of a minute to settle. The correction now grows with the distance from the band's middle, up to
+  2% (34 cents) while recovering - transient, and only outside the band - and is exactly 1 inside it, as before, so a
+  steady queue is still played untouched. The same 140 ms queue is back inside the band in 4-5 s, with no sample
+  step (the no-pop checks are unchanged and pass), and the 15-minute clock-drift runs still drop no frame and never
+  run the card dry. `tests/audio.test.js` holds both.
+
+#### Fixed
+
+- **Dragon 64 Plus: `$FFE2` = `$04` is the motherboard RAM, and the 32-column screen never shows a bank.** Following
+  P. Harvey-Smith's traced Eagle schematic of his DragonPlus board (World of Dragon forum, 7 June 2017; known drawing
+  errors; not verified on hardware), bit 2 of `$FFE2` only picks bank A or B, so `$04` (and `$05`, with the video RAM)
+  now selects the motherboard RAM instead of leaving the previous bank; and the MC6847 now always fetches from the
+  motherboard RAM, whatever bank or video RAM the CPU has selected. MAME 0.264 never applies `$FFE2` to memory, so its
+  outcome equals the schematic's for these two points (`run.js d64plus --paging [--video]`, identical to HALT and in
+  every pixel); this proves the MAME-equal outcome only, not the banks themselves; under `config.mameCompat` the
+  register keeps MAME's decode. `tests/d64plus.test.js`.
+
+- **The built-in firmware sets the SAM's memory size for the fitted RAM, as BASIC does.** On the Dragons and the
+  CoCo 1/2 family it left M at 00 (4K), so a program run without ROMs that showed a screen above `$0FFF` (any
+  graphics page from `$0600`) saw the first 4K again unless it set M itself. It now leaves M = 01 on 16K and 10 on
+  32K and 64K (4K stays 00). `tests/stub-sam.test.js` checks every model and RAM option, and that a text screen at
+  `$2000` shows its own bytes; `docs/game-development.md` and the agent skill no longer tell programs the firmware
+  leaves 4K.
+
+- **The sound mux on the cassette input.** With the cassette selected and sound enabled (BASIC's `AUDIO ON`), the
+  Dragons and CoCos now sit at the sound chip's bias, half the DAC's range, as MAME 0.264 does, instead of at 0 (a
+  click when `AUDIO ON` switched it). MAME mixes no tape signal there and neither does the machine; Tape sound is how
+  the tape is heard. Compared with MAME's `-wavwrite`: `run.js <dragon64|dragon32|coco> --cass-sound`.
+
+- **The on-screen keyboard fits a phone held upright, and a drag on it no longer types.** On an iPhone in Chrome or
+  Safari (and on smaller phones) the row with ENTER was under the browser's bottom toolbar, with nothing to say it
+  was there. Upright, the app bar now tightens ("Add ROMs" without "No BASIC ·"), the Keys | Joystick switch shares
+  one row with BREAK, CLEAR and Menu between the screen and the keys, the keys are 40 px, Joystick mode's strip is one
+  row, and the screen takes the height left in the window with the toolbars up (`100svh`, `100vh` where it is not
+  known; on Safari 26 and later the panel also stops above the floating toolbar it draws over the page), so the whole
+  panel is on screen at load. The screen's focus pill no longer says "Tab leaves the screen" on a touch screen.
+  A key now types when the finger lifts, or after it has rested 100 ms (holds still work for games); a finger that
+  moves more than 10 px first, or a touch the browser takes for a scroll, types nothing (it used to type on touching
+  down; SHIFT held while another key is tapped still shifts it), and upright a drag on the panel no longer scrolls
+  the page. The install offer's one-line strip, which sat in the band that used to be between the screen and the
+  keys, now has the screen make room for it while it is up (the keys stay put). Checked in the browser check at nine
+  phone sizes and toolbars, with real touch events.
+
+- **A refused file is named once, not twice.** The two real media backends word a failure with the stored path in
+  front of it (`disks/work.vdk: permission was refused`), and the Session put the disk's name in front of that, so a
+  refused import or save read `work.vdk: disks/work.vdk: permission was refused`. Each caller now hands `mediaError`
+  the stored name it just used, and a reason that leads with exactly that name has the leading copy dropped before
+  the person's name goes in front. Any other path a reason carries is kept: a rename that fails at its destination
+  still says where, and a name with a space or a file dropped under a path (`dir/work.vdk`, Windows separators) is
+  named once by its own file name - and a library file dropped under a path reports the name the Library lists
+  (`dir/prog.bin`, not just the leaf). The page's background-write notice takes its wording from the Session too
+  (`Session.indexWriteError`), so a failed ROM write is named once. One rule for the library import, a new blank
+  disk, a mount and the DriveWire box. The quota and not-found messages already wrote their own sentence and are
+  unchanged. `tests/store-error-names.test.js`.
+
+- **A disk rename's new name is held to the same rule as any new disk name, and a name already stored is still
+  read back.** A rename to `" "` stored `disks/ ` and a rename to `sub/x.vdk` stored `disks/sub/x.vdk`, names no
+  mount could then read back; both are refused now, saying what is wrong with the name. And a store from an earlier
+  build that already holds such a name (`disks/ `, `disks/sub/x.vdk`) still mounts it: the rule decides what CLOADM
+  may create, never what it can read. `tests/store-error-names.test.js`.
+
+- **A disk name that is not a file name is refused.** `disks/` was stored as a blob named `disks/`, and so were
+  `disks/a/`, `' '`, `disks/..` and `x/..` - names a folder store or OPFS cannot hold, and a `..` that must not
+  reach the store. Every door (a library import, a new blank disk, a mount of a stored name) refuses a name that is
+  empty, whitespace ONLY, has a trailing separator, or is the segment `.` or `..`, as `A disk image needs a name.`
+  (a file that is not a disk image, dropped with such a path, as `A file needs a name.`). Spaces AROUND a name are
+  part of it and are kept: a store that already holds `" a.vdk"` still mounts it, and a name that starts with a dot
+  (`.vdk`) is a real name. `tests/store-error-names.test.js`.
+
+- **A rename and a new disk or import can no longer write over each other's image.** A disk creation checks its name,
+  then waits for the drives' own writes before writing, and a rename was not ordered with it at all: a rename landing
+  in that wait took the name first (the creation's write then replaced the renamed file, and the image was gone), and
+  a rename asked first could be overtaken the same way (the creation had picked the name from a listing that could not
+  see the queued move). A disk rename now runs as one creation, like a new disk or an import: one at a time, in the
+  order each was asked, and after the creations queued before it have ended. A rename onto a name a creation is making
+  is refused (`... a disk is being made under that name: try again once it is done.`), and a creation asked behind a
+  queued rename lists after it has run and takes a free name. `tests/mount-rename-races.test.js`.
+
+- **A rename and an import of the same name can no longer overwrite each other.** A rename runs as a creation like a
+  new disk or an import, but it did not record the name it took, so an import queued behind it read the name as a
+  deliberate replace and wrote its own bytes over the renamed image. Every creation now records what it stored - a
+  rename only when it succeeds - and the one queued behind it refuses as a second creation of that name.
+
+- **A name a rename moved an image away from is free again.** `A.vdk` renamed to `X.vdk`, then `X.vdk` to `Y.vdk`,
+  left `x.vdk` recorded as taken, so an import of that name queued behind both was refused ("There is already a disk
+  named x.vdk") although the name was free. A rename now records the name it vacated, and the creation queued behind
+  takes it. (Safe before - nothing was overwritten - but wrong.)
+
+- **A guest's DriveWire mount can no longer take a second drive on an image another mount is taking.** The named
+  object's duplicate scan ran before it claimed the name and never again inside the claim, so a guest mount
+  overlapping the user's mount left two drives writing one file (this had passed before the claim was added). Every
+  arm re-scans inside the claim now; the claim lives on the drives map, so servers that share drives (a real CoCo
+  over Web Serial, the chat) wait on each other; and its key is the store's case rule, so two spellings of one file
+  wait too.
+
+- **Moving the library takes every DriveWire server with it.** The Becker port's server was retargeted by a move;
+  the one serving a real CoCo over Web Serial and the full-screen chat's kept reading and writing the old place.
+  All of them now follow the session. `tests/mount-rename-races.test.js`.
+
+- **Two DriveWire drives can no longer end up on one image when their mounts overlap.** The duplicate check and the
+  drive it claims were apart by the store's stat, so a guest's named-object mount and the user's mount of one image
+  in that window left two drives writing the same file. Each mount claims the image's name for as long as it is
+  deciding, and a second mount of it waits for that answer. `tests/mount-rename-races.test.js`.
+
+- Booting NitrOS-9 from a Library image whose storage fails (not just a missing image) now reports the storage error
+  instead of "There is no image called ...".
+
+- **A row in the Media tab's "Recent on this machine" loads the file it names.** The rows were drawn from one copy
+  of the list and the click looked its index up in a second copy, which never matched: the index was always -1, so
+  every row answered "That file is no longer stored in this browser; load it again." even when it was. The index is
+  carried with the row now. `tests/recent-rows.test.js` pins the arithmetic and the browser check clicks a row and
+  requires the load.
+
+- **Opening the page directly at `play/#share` no longer shows "Cannot read properties of null (reading 'render')".**
+  The Share screen captured its moment as soon as its view was set up, before the visit had a machine. It now shows
+  the view at once and captures when the page has started, so the link opens the Share screen filled in, on the
+  machine the link chose. The browser check opens `#share` directly and requires no error toast, no page error and a
+  running screen.
+
+- **The Speech/Sound Pak's ROM no longer looks required on the Add ROMs screen.** On the Dragon 64 and the CoCos its
+  PIC ROM card carried the same "required" tag as BASIC, so a first visit read it as something the machine needs.
+  The Pak is an optional cartridge: its cards are now titled "Speech/Sound Pak (optional cartridge): ...", tagged
+  optional like the disk card, and listed after the machine's sockets and the disk card. The Pak still needs its PIC
+  ROM to be inserted, and says so. Checked in the browser check's `sscBoard` group.
 
 ### Fixed
 

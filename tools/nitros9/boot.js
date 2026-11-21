@@ -6,7 +6,8 @@
 // --type types TEXT (\r for Return) at S seconds (default 15) through the keyboard matrix.
 const fs = require('fs');
 const { loadEmu } = require('../mame-diff/lib/firmware');
-const { driveWire, coco3, screenText, png } = require('./lib');
+const { driveWire, coco3, screenText } = require('./lib');
+const { png } = require('../mame-diff/lib/png');
 
 const argv = process.argv.slice(2);
 const opt = (k, d) => { const i = argv.indexOf(k); return i >= 0 ? argv[i + 1] : d; };

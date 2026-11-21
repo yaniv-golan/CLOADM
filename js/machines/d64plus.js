@@ -16,10 +16,10 @@
  *          write: the RAM bank register (d64plus_bank_w)
  *
  * RAM (d64plus_bank_w, and the two memory_bank_creators it drives):
- *   bits 1-2 pick the 32K bank the CPU and the VDG see at $0000-$7FFF: 0 = the standard 64K Dynamic RAM,
- *   2 = plus RAM bank A, 6 = plus RAM bank B (any other value leaves the banks as they were and logs an
- *   error in MAME).
- *   bit 0 additionally overlays the 2K video RAM over $0000-$07FF for the CPU and the VDG (bank C).
+ *   bits 1-2 pick the 32K bank the CPU sees at $0000-$7FFF: 0 (and 4, below) = the standard 64K Dynamic RAM,
+ *   2 = plus RAM bank A, 6 = plus RAM bank B (MAME instead leaves the banks as they were for 4 and logs an error).
+ *   bit 0 additionally overlays the 2K video RAM over $0000-$07FF for the CPU (bank C).
+ *   The VDG always sees the standard RAM (below).
  *   bit 0 clear does not move the video overlay back: the switch above re-selects entries 0-2 first, so a
  *   write with bit 0 clear always puts the video window back on the selected RAM bank.
  * Each bank access is 32K because the SAM drives A14; the video RAM is 2K and mirrors through the SAM's
@@ -33,8 +33,17 @@
  * the dynamic bank". Page 2: the write table, R2 R1 = 00 standard, 01 bank A, 11 bank B, R0 = 1 video RAM
  * bank C, "Bits 3-7 must not be used". Page 3: read bit 0 "SO": 1 "Video display busy i.e. not blanking",
  * 0 "Video display available, ie blanking". Page 4: the character set in a 2764, "only the first character
- * set is used", sixteen bytes a character. This implementation follows it; R2 R1 = 10 ($04) is not in the
- * table, and is left as MAME leaves it (no change).
+ * set is used", sixteen bytes a character. This implementation follows it.
+ *
+ * Two points the notes leave open come from P. Harvey-Smith's traced Eagle schematic of his DragonPlus board
+ * (World of Dragon forum, 7 June 2017, viewtopic.php?p=15826; known drawing errors). Not verified on hardware.
+ *   - $FFE2 bit 1 alone selects the extra DRAM; bit 2 only XORs Z7 into its address (bank A or B). So R2 R1 = 10
+ *     ($04, and $05 with the video RAM) is the motherboard RAM, like $00: the CPU sees the motherboard RAM.
+ *   - The MC6847 fetches in the E = 0 phase straight from the motherboard RAM, whatever the paging: neither bank A,
+ *     bank B nor the video RAM overlay ever reaches the 32-column screen.
+ * MAME differs on both: d64plus_bank_w() (0.264 and 0.289) leaves the banks as they were for $04/$05, and 0.289
+ * installs the banks in the SAM's space, where the VDG fetches too. Under config.mameCompat, $04/$05 keep MAME's
+ * no-change decode.
  *
  * config.mameCompat: MAME 0.264 does not apply the bank register to memory. d64plus_bank_w() sets the
  * memory_bank entries, but every CPU and VDG access to $0000-$7FFF still reaches the standard RAM: a Lua probe
@@ -136,17 +145,26 @@ class D64PlusMachine extends SamMachine {
     if (a < VIDEO_RAM) this.bankWrite(this.vramBank, a, v);
     else this.bankWrite(this.pramBank, a, v);
   }
-  // the VDG's fetches go through the same banks (MAME installs them in the SAM's own space 0); its counter can
-  // reach the upper 32K, which no bank covers
-  displayByte(a) { return a < 0x8000 ? this.cpuBankByte(a) : this.ram[a]; }
+  // The VDG fetches from the motherboard RAM whatever $FFE2 selects (P. Harvey-Smith's traced Eagle schematic of his
+  // DragonPlus board, World of Dragon forum, 7 June 2017; known drawing errors; not verified on hardware: the MC6847
+  // reads in E = 0, past the banks), so the SAM
+  // base class's displayByte (this.ram) stands. MAME 0.264 agrees, since its banks never reach memory at all.
 
-  // d64plus_bank_w
+  // The bank register. Bit 1 selects the extra DRAM and bit 2 then picks bank A or B (it XORs Z7 into the DRAM's
+  // address: P. Harvey-Smith's traced Eagle schematic of his DragonPlus board, World of Dragon forum, 7 June 2017;
+  // known drawing errors; not verified on hardware), so $04 is the motherboard RAM like $00. Bit 0 overlays the video RAM. Compusense's table (p. 2) gives 00, 01, 11 and R0.
+  // config.mameCompat keeps MAME's d64plus_bank_w(): bits 2-1 = 10 logs an error and leaves both banks alone.
   writeBank(v) {
-    switch (v & 0x06) {
-      case 0: this.pramBank = 0; this.vramBank = 0; break;
-      case 2: this.pramBank = 1; this.vramBank = 1; break;
-      case 6: this.pramBank = 2; this.vramBank = 2; break;
-      default: break;                 // MAME logs an error and leaves the banks alone
+    if (this.config.mameCompat) {
+      switch (v & 0x06) {
+        case 0: this.pramBank = 0; this.vramBank = 0; break;
+        case 2: this.pramBank = 1; this.vramBank = 1; break;
+        case 6: this.pramBank = 2; this.vramBank = 2; break;
+        default: break;
+      }
+    } else {
+      this.pramBank = v & 0x02 ? (v & 0x04 ? 2 : 1) : 0;
+      this.vramBank = this.pramBank;
     }
     if (v & 0x01) this.vramBank = 3;
   }

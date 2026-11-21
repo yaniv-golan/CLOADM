@@ -88,7 +88,7 @@ export function createFeedback() {
   // the stylesheet's place holds.
   const region = box.parentNode;
   // (the install offer too: a toast must never cover it, in any of its layouts)
-  const CONTROLS = 'header, .controls, .slots, aside.drawer, #attention, #touchKeys button, #claudeBar, #installOffer';
+  const CONTROLS = 'header, .controls, .slots, aside.drawer, #attention, #touchKeys button, #claudeBar, #installOffer, #tapeHud:not([hidden])';
   const boxes = (sel) => [...document.querySelectorAll(sel)].map((e) => e.getBoundingClientRect()).filter((o) => o.width && o.height);
   const hits = (r, o) => !(r.bottom <= o.top || r.top >= o.bottom || r.right <= o.left || r.left >= o.right);
   // back to the stylesheet's place (a toast that ends, or one placed afresh)

@@ -20,7 +20,7 @@ Color Computer 1/2/3, the MC-10 and their clones in a web page. It is plain Java
 dependencies, and it is checked instruction by instruction and pixel by pixel against MAME wherever MAME has the
 hardware; the exceptions are listed under [How we know it's right](#how-we-know-its-right).
 
-**1,028,156** instructions identical to MAME on the Dragon 64 · **20/20** Dragon 64 display modes pixel-identical ·
+**1,028,112** instructions identical to MAME on the Dragon 64 · **20/20** Dragon 64 display modes pixel-identical ·
 **17** models · **0** dependencies · **MIT**
 
 > [!IMPORTANT]
@@ -28,7 +28,7 @@ hardware; the exceptions are listed under [How we know it's right](#how-we-know-
 > Please [report what breaks](https://github.com/yaniv-golan/cloadm/issues).
 
 > [!NOTE]
-> CLOADM includes no ROMs and never downloads them. You supply your own dumps once; they stay in your browser, and CLOADM never uploads them (what Claude reads from the machine's memory, ROM areas included, goes to Anthropic if you use it).
+> CLOADM includes no ROMs and never downloads them by itself (the MCP server's `add_roms` fetches only a URL you give it). You supply your own dumps once; they stay in your browser, and CLOADM never uploads them (what Claude reads from the machine's memory, ROM areas included, goes to Anthropic if you use it).
 > Without them, a built-in firmware still runs machine-code programs and the programs written for this project.
 > [Where to get ROMs →](https://cloadm.dev/roms/)
 
@@ -50,8 +50,20 @@ hardware; the exceptions are listed under [How we know it's right](#how-we-know-
 </tr>
 </table>
 
+**With Claude:** two ways, both [compared here](docs/mcp.md#which-way-should-i-install-cloadm-for-claude).
+* **Connector** (most people): add `https://mcp.cloadm.dev/mcp` as a custom connector (no sign-in). The emulator runs
+  in Claude's side panel, live, with nothing to install; ROMs are added in the panel.
+* **Plugin** (your own files, Claude Code): add the marketplace `yaniv-golan/CLOADM`. It runs on your computer, with
+  your ROM files and the `~/CLOADM` folder; Claude sees text and screenshots.
+
 Something not working? The [quick fixes](https://cloadm.dev/help/#fixes) cover a black screen, no sound, a tape
 that won't load, a disk that shows nothing and the keyboard.
+
+## Use it from code or an agent
+
+`node cli/cloadm.js --program liza --screen` runs a program headless and prints the screen. In Claude Code:
+`/plugin marketplace add yaniv-golan/CLOADM`, then `/plugin install cloadm`.
+Guides: [docs/automation.md](docs/automation.md) and [docs/mcp.md](docs/mcp.md).
 
 ## Machines
 
@@ -72,15 +84,15 @@ Per-machine notes, RAM options and the chip-by-chip list: [docs/machines.md](doc
 
 | | Today | Coming |
 |---|---|---|
-| **Cassette** | `.CAS` played as a real signal through the cassette port, WAV recordings in, fast loading, the tape counter; `CSAVE`/`CSAVEM` saved as `.CAS` or `.WAV` | The tape's sound at real speed |
+| **Cassette** | `.CAS` played as a real signal through the cassette port, WAV recordings in, fast loading, the tape counter, the tape's progress on the screen's border while it loads, Tape sound (the tape heard as a recorder's speaker plays it); `CSAVE`/`CSAVEM` saved as `.CAS` or `.WAV` | The tape signal through the machine's own sound (`AUDIO ON`: MAME 0.264 mixes none in) |
 | **Floppy** | DragonDOS (WD2797), Premier / Delta (WD2791) and RS-DOS (WD1773) cartridges; VDK, JVC (`.dsk`) and DMK images read and written, headerless NitrOS-9 / OS-9 `.dsk` images included; new blank disks; 4 drives, write-protect; booting NitrOS-9 Level 2 on the CoCo 3 from your own floppy image, no ROM needed ([how](docs/using.md#booting-nitros-9)) | Booting NitrOS-9 from 80-track floppies |
 | **Cartridges** | ROM cartridges, banked ROM cartridges up to 128K, Games Master, Orchestra-90, Multi-Pak (with a disk cartridge in slot 4); the Speech/Sound Pak on the CoCo 1/2, CoCo 2B, CoCo 3 and the Dragon 64, music only (its sound is not yet verified against MAME) | Speech/Sound Pak speech |
 | **Printer, serial, DriveWire** | Printer; bit-banger and the Dragon 64's 6551 with a terminal or loopback plug; a DriveWire 4 server in the browser over the CoCo's Becker port; booting NitrOS-9 Level 2 on the CoCo 3 from your own DriveWire image, no ROM needed ([how](docs/using.md#booting-nitros-9)); serving a real CoCo over Web Serial (untested on hardware) | |
 | **Input** | Translated and positional keyboard, keyboard joystick, gamepads, Hi-Res interfaces, the CoCo 3 mouse; an on-screen keyboard and joystick on phones and tablets | |
-| **Games** | 2048 and Minesweeper, our own, in the 128x192 four-colour graphics mode with sound, no ROMs needed (32K or more): the welcome menu's **5 Play a game** (NEW GAMES FOR AN OLD MACHINE) on the Dragons and CoCos, or a direct link, [`?start=2048`](https://cloadm.dev/play/?start=2048) / [`?start=minesweeper`](https://cloadm.dev/play/?start=minesweeper) | |
+| **Games** | 2048 and Minesweeper, our own, no ROMs needed (32K or more): welcome menu option 5, or [`?start=2048`](https://cloadm.dev/play/?start=2048) / [`?start=minesweeper`](https://cloadm.dev/play/?start=minesweeper) ([details](docs/using.md#games)) | |
 | **Library** | Every tape, disk, cartridge and program you load, kept for next time, in the browser or a folder on your computer; paste a magazine listing and CLOADM types it in | |
 | **Claude** | Chat with Claude full screen on the green screen (phones included), or Ask Claude in a side panel; Claude reads only the emulated machine (its screen text and memory, never anything else on your computer; it says so when it can't read a screen), and acts on it (POKE, typing, loading a BASIC program, BREAK) only with your permission, with undo | The chat over DriveWire to a real machine; the CoCo 3's 80-column chat screen |
-| **Tools** | 6809/6803 assembler, the Debugger screen (breakpoints, watchpoints, stepping, registers, memory, trace), POKE book, ROM self-test, snapshots (Snapshot 1–3 in the browser); a command-line tool, an MCP server for coding agents, installable as a Claude Code plugin or a Claude Desktop extension ([docs/mcp.md](docs/mcp.md)) and a Node API: run a program headless, type, wait for the screen, check memory and registers, step and disassemble, save PNGs, compare them with reference pictures, record the sound as WAV, save snapshots ([docs/automation.md](docs/automation.md); for games: [docs/game-development.md](docs/game-development.md)) | Step back (rewind) |
+| **Tools** | Assembler, Debugger, POKE book, snapshots; a command line, MCP server and Node API for agents, and a claude.ai connector that runs the emulator in Claude's side panel ([automation](docs/automation.md), [MCP](docs/mcp.md), [side panel](docs/mcp.md#claude-on-the-web-side-panel)) | Step back (rewind) |
 | **Sharing** | Every setting as a URL parameter; a link that opens exactly this moment, a 6-second clip, a true-pixel screenshot; embed code and a JavaScript API; works offline once visited; **Install CLOADM…** at the foot of the **machine menu** (the machine-name button, top left), and a one-time offer once a program has run a minute (its own window, offline) | |
 
 How to load each kind of file, the keys, snapshots, sharing and embedding: [docs/using.md](docs/using.md). Running it from scripts and CI (`node cli/cloadm.js`): [docs/automation.md](docs/automation.md). Writing a game and testing it end to end (keys, screen, pictures, sound), with a starter game: [docs/game-development.md](docs/game-development.md).
@@ -162,6 +174,23 @@ press BREAK, and one click undoes it all. It runs on your own Anthropic API key,
 visible to the emulated machine, snapshots, share links or exported settings. What Claude reads from the machine's memory (ROM
 areas included) is sent to Anthropic as part of your conversation. More in [docs/claude.md](docs/claude.md).
 
+## FAQ
+
+* **Why do I need ROMs?** BASIC and the DOS are copyrighted; CLOADM can't ship them. Without them it still runs
+  machine-code programs, LIZA, the welcome program and its two games.
+* **Does it work on a phone?** Yes: an on-screen keyboard appears, split for the thumbs when held sideways,
+  and a switch turns it into a touch joystick (stick and FIRE) for games.
+* **Does it work offline?** Yes, after one visit. Browsers offer to install it, and **Install CLOADM…** at the foot
+  of the **machine menu** (the machine-name button, top left) makes it an app of its own (its own window, offline);
+  the page offers it once a program has run for a minute.
+* **Where are my ROMs and programs kept?** In your browser's private storage, or a folder you choose. CLOADM itself never
+  uploads them. If you use Claude, what it reads from the machine's memory (ROM areas included) is sent to Anthropic as
+  part of your conversation.
+* **Where does my Anthropic API key go?** It stays in this browser and goes only to Anthropic's API, never into the
+  machine, snapshots, share links or exported settings.
+* **How does it compare to XRoar, MAME and VCC?** [docs/comparison.md](docs/comparison.md).
+* **Which keys are BREAK and CLEAR?** `Esc` and `Home`. The rest: [docs/using.md](docs/using.md#keys).
+
 ## Why this exists
 
 I was thirteen, in Israel, in 1983, when my parents gave me a Dragon 64 for my Bar Mitzvah. Not a Dragon 32: a 64.
@@ -185,22 +214,6 @@ POKE 65494,0
 EXEC
 ?PEEK(25)*256+PEEK(26)
 ```
-
-## FAQ
-
-* **Why do I need ROMs?** BASIC and the DOS are copyrighted; CLOADM can't ship them. Without them it still runs
-  machine-code programs, LIZA, the welcome program and its two games.
-* **Does it work on a phone?** Yes: an on-screen keyboard appears, split for the thumbs when held sideways,
-  and a switch turns it into a touch joystick (stick and FIRE) for games.
-* **Does it work offline?** Yes, after one visit. Browsers offer to install it, and **Install CLOADM…** at the foot
-  of the **machine menu** (the machine-name button, top left) makes it an app of its own (its own window, offline);
-  the page offers it once a program has run for a minute.
-* **Where are my ROMs and programs kept?** In your browser's private storage, or a folder you choose. CLOADM itself never
-  uploads them. If you use Claude, what it reads from the machine's memory (ROM areas included) is sent to Anthropic as
-  part of your conversation.
-* **Where does my Anthropic API key go?** It stays in this browser and goes only to Anthropic's API, never into the
-  machine, snapshots, share links or exported settings.
-* **Which keys are BREAK and CLEAR?** `Esc` and `Home`. The rest: [docs/using.md](docs/using.md#keys).
 
 ## Contributing
 

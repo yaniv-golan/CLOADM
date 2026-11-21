@@ -19,7 +19,7 @@ const spec = require('./spec');
 const { writeRoms } = require('../lib/firmware');
 const { MAME, baseArgs, env } = require('../lib/mame');
 const { lockstep, hx } = require('../lib/lockstep');
-const { REGS } = require('../sam/spec');
+const { REGS } = require('../lib/regs');
 
 const PORT = 65504;   // coco_dwsock's default server port
 const argv = process.argv.slice(2);

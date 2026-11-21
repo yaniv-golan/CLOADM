@@ -23,6 +23,8 @@ globalThis.document = { getElementById: (id) => { if (!els.has(id)) els.set(id, 
   body: mk(), documentElement: mk(), createElement: () => mk(), createTextNode: () => mk(), querySelector: () => null,
   querySelectorAll: () => [], addEventListener() {} };
 globalThis.getComputedStyle = () => ({ getPropertyValue: () => '0' });
+// (main 1dd66fa: createPage watches the body's and the app bar's class now, to know when a frame has not been drawn)
+globalThis.MutationObserver = class { observe() {} disconnect() {} };
 globalThis.location = { hash: '', href: 'http://localhost/play/', pathname: '/play/', search: '' };
 globalThis.history = { state: null, pushState(s, t, u) { this.state = s; setUrl(u); }, replaceState(s, t, u) { this.state = s; setUrl(u); }, back() {} };
 // captured from the start: page.js registers route() on hashchange and popstate at createPage, and the no-hash route

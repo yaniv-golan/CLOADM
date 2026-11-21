@@ -212,6 +212,7 @@ export function setupMachinePanel(page, { showRoms }) {
     btn.setAttribute('aria-label', label);
     $('monitor').dataset.family = caseOf(m.profile);
     $('badge').textContent = m.profile.name.replace(/ \(.*\)$/, '').toUpperCase();   // the case badge: no (PAL) or (Alpha)
+    $('emuHeading').textContent = m.profile.name;   // the emulator's heading (for assistive technology and reader views)
     document.title = `${m.profile.name} – CLOADM`;
   });
 

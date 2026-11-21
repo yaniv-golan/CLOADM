@@ -12,7 +12,7 @@ import { localStore } from '../host/storage.js';
 import { openChosenStore, availableChoices } from '../host/media-store-open.js';
 import { loadFolder } from '../host/folder-handle.js';
 import { MemoryMediaStore } from '../host/media-store-memory.js';
-import { $, createPage, viewOpen, ESC } from './page.js';
+import { $, createPage, viewOpen, ESC, markUndrawn } from './page.js';
 import { setupScreen } from './screen.js';
 import { setupTouchKeys } from './touch-keys.js';
 import { setupMachinePanel } from './machine-panel.js';
@@ -70,7 +70,7 @@ const keyStore = (() => { try { return localStorage ? storageKeyStore(localStora
 const session = new Session({ store: settings, media: mediaStore, keyStore, welcomeMenu: !link.embed });
 const page = createPage(session, new Audio());
 // a background write that fails (full storage, permission refused) must reach the user, not vanish
-session.index.writeError = (name, e) => page.status(session.mediaError(e, name).message, true);
+session.index.writeError = (name, e) => page.status(session.indexWriteError(name, e), true);
 // the handle exists before the awaited init, so anything watching the page sees it at once
 window.emu = { session, profiles, Emu, feedback: page.feedback, ready: false, started: false, audio: page.audio, audioRunning: () => page.audio.running, get machine() { return session.shownMachine; },
   // the input layer, for the browser check (keyboard modes, the keyboard joystick and the gamepads)
@@ -119,7 +119,7 @@ page.touchKeys = setupTouchKeys(page, { input: screen.input });
 setupDisplayPanel(page);
 setupKeyHint(page);
 setupSettingsFile(page);
-setupShare(page);
+const share = setupShare(page);
 const showRoms = () => romSockets.reveal();
 const claude = setupClaude(page);
 setupAsk(page, claude);
@@ -131,6 +131,8 @@ library = setupLibrary(page, { loadProgram: media.loadProgram, runShelf: welcome
 setupTypein(page, { openRoms, isVisible: () => !$('library').hidden });
 setupTapePanel(page);
 setupMultiPakPanel(page, { cartridge: (name) => drawer.cartridge(name) });
+// a view the page opened on (play/#library) has hidden the emulator: mark it so (page.js keeps it so from now on)
+markUndrawn();
 
 // the cartridge slot under the screen
 $('fileCart').onchange = async (e) => {
@@ -231,6 +233,7 @@ const starting = welcome.start(visit, { fromLink, withMedia: link.roms.length > 
   // started: the visit's program (welcome, LIZA) runs and the link's ROMs, media and moment are in (window.emu.ready:
   // storage is open); linkDone: the same moment, kept for the link checks
   window.emu.started = true;
+  share.ready();
   window.emu.linkDone = true;
   if (link.errors.length) page.status(`This link has settings CLOADM can't use: ${link.errors.join('; ')}`, true);
 })();
