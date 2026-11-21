@@ -32,25 +32,47 @@ export function splitDetails(text) {
   return m && m[1].length >= 12 ? [m[1], m[2]] : [text, null];
 }
 
-// The identity of a placement decision, from every input it is made from. Pure (no DOM, no window), so a test can
-// call it with hand-built inputs and prove each input is in the key -- which a behavioural test cannot always do (a
-// pinned toast is never re-placed, and the band branch always pins to the band's floor, so some inputs cannot move a
-// real toast even though the decision reads them). A hand-written list of these drifted twice before it was one
-// function with one set of fields: it missed the safe-area insets and the screen's text area.
-export function placementKey(I) {
-  const outline = (o) => (o && o.width && o.height ? `${Math.round(o.left)},${Math.round(o.top)},${Math.round(o.right)},${Math.round(o.bottom)}` : '');
-  return [
-    I.winW, I.winH, I.view,
-    // the box's own rect: a layout change that moves the toast (a scroll, a control appearing above it) moves it,
-    // while a stationary toast's rect does not change at all
-    I.box.left, I.box.top, I.box.width, I.box.height, I.classes,
-    (I.controls || []).map(outline).join(';'),
-    // the screen's geometry and its visible text area: the toast avoids the text and may sit in the band under it,
-    // and data-active can change with no layout at all
-    outline(I.screen), outline(I.tube), I.active,
-    // the safe area (a phone's notch, browser chrome, a rotation): an inset can change without the box moving
-    I.area.left, I.area.top, I.area.right, I.area.bottom,
-  ].join('|');
+// The placement decision, as data in and data out -- PURE. It reads no document, no window, no element and no
+// module state: everything it can consult is in `inputs`, which `readInputs()` builds. That is the point of the shape:
+// a read the decision needs but the inputs do not carry cannot be written, so the decision and the identity of the
+// decision (JSON.stringify(inputs)) cannot drift. (An earlier version kept a separate list as the cache key beside a
+// place() that still read the DOM; three different omissions in that list passed every test.)
+//   inputs: see readInputs()
+//   -> { kind: 'natural' }                      the stylesheet's own place
+//    | { kind: 'placed', left, top, width }     CSS px strings (width null: the stylesheet's width)
+//    | { kind: 'band', band, offText, fullWidth } the band under the screen's text; the caller measures the two forms
+//    | { kind: 'top' }                          the fixed slot at the top of the viewport
+export function decide(I) {
+  const { box: r, phone, area, controls, screen, tube: t, canvas: c, active } = I;
+  const w = r.width, h = r.height;
+  const hits = (a, o) => !(a.bottom <= o.top || a.top >= o.bottom || a.right <= o.left || a.left >= o.right);
+  const rect = (left, top) => ({ left, top, right: left + w, bottom: top + h });
+  const inView = (a) => a.left >= area.left && a.right <= area.right && a.top >= area.top && a.bottom <= area.bottom;
+  const free = (a, avoid) => inView(a) && avoid.every((o) => !hits(a, o));
+  const tries = [[r.left, r.top, true]];   // [left, top, also avoid the screen?]
+  if (!phone) {
+    const xs = [];
+    for (let x = area.left + 16; x + w <= area.right - 16; x += 8) xs.push(x);
+    xs.sort((a, b) => Math.abs(a - r.left) - Math.abs(b - r.left));
+    for (const x of xs) tries.push([x, r.top, true]);
+  }
+  // the screen's visible text, and the band under it inside what shows of the screen
+  const text = c && c.width ? (() => {
+    const f = (active || '0,0,1,1').split(',').map(Number);
+    return { left: c.left + f[0] * c.width, top: c.top + f[1] * c.height, right: c.left + f[2] * c.width, bottom: c.top + f[3] * c.height };
+  })() : null;
+  const band = t && t.width && t.height && text ? { left: Math.max(t.left, c.left, area.left) + 8, right: Math.min(t.right, c.right, area.right) - 8,
+    top: text.bottom + 2, bottom: Math.min(t.bottom, c.bottom, area.bottom) - 4 } : null;
+  const offText = controls.concat(text ? [text] : []);
+  tries.push([r.left, area.top + (phone ? 8 : 16), true]);
+  const at = tries.find(([x, y, avoidScreen]) => free(rect(x, y), avoidScreen ? controls.concat(screen) : controls));
+  if (at) {
+    if (at[0] === r.left && at[1] === r.top) return { kind: 'natural' };
+    // (the width the writer must set is the toast's own on a phone -- recorded here so it can be re-applied)
+    return { kind: 'placed', left: `${Math.round(at[0])}px`, top: `${Math.round(at[1])}px`, width: phone ? `${Math.round(w)}px` : null };
+  }
+  if (band && band.right - band.left > 40 && band.bottom - band.top > 12) return { kind: 'band', band, offText, fullWidth: w };
+  return { kind: 'top' };
 }
 
 export function createFeedback() {
@@ -68,7 +90,7 @@ export function createFeedback() {
     stopFollow();               // nothing places a toast that has gone
     box.hidden = true;
     unplace();
-    box.classList.remove('error');
+    box.classList.remove('error', 'compact');   // (a form left on measured the NEXT toast's first frame)
     textEl.textContent = ''; detEl.textContent = ''; actEl.textContent = '';
     if (t.onEnd) t.onEnd(reason);
   }
@@ -83,6 +105,7 @@ export function createFeedback() {
     end('replaced');
     cur = t;
     t.seen = false;
+    box.classList.remove('compact');   // (a previous toast may have left the compact form on: measure this one fresh)
     decided = null;                 // a new toast: measure afresh
     t.left = t.action || t.details ? LONG : SHORT;
     textEl.textContent = t.text;
@@ -117,9 +140,6 @@ export function createFeedback() {
   const hits = (r, o) => !(r.bottom <= o.top || r.top >= o.bottom || r.right <= o.left || r.left >= o.right);
   // ONE writer for the region's inline style, and it writes only what changed. Main wrote eleven properties every
   // frame (6 in unplace, 5 in put): 2715 style-attribute writes in a 3 s load window, 2714 of them byte-identical, and
-  // each is a DOM mutation and a style invalidation. `applied` is the stylesheet's place: null (no inline style, the
-  // stylesheet's own place holds), 'top' (the fixed top slot), or { left, top, width }.
-  let applied = null;
   const PROPS = ['left', 'top', 'right', 'bottom', 'transform', 'width'];
   // The stylesheet's own place: no inline style at all. Clear what a placed toast set, and only if something is there.
   function clearRegion() {
@@ -130,6 +150,11 @@ export function createFeedback() {
     region.classList.remove('top');
   }
   // Place the toast: { left, top, width|null } px values. Writes a property only when its value changes.
+  // the writers' shared helpers (place() is a thin shell now: put/hitsRect/inViewOf are the only geometry it has)
+  const px = (v) => (typeof v === 'number' ? `${Math.round(v)}px` : v);
+  const put = (left, top, width = null) => placedAt(px(left), px(top), width === null ? null : px(width));
+  const hitsRect = (r, o) => !(r.bottom <= o.top || r.top >= o.bottom || r.right <= o.left || r.left >= o.right);
+  const inViewOf = (c, area) => c.left >= area.left && c.right <= area.right && c.top >= area.top && c.bottom <= area.bottom;
   function placedAt(left, top, width) {
     const want = { left, top, width };
     for (const k of ['left', 'top', 'width']) {
@@ -138,116 +163,90 @@ export function createFeedback() {
     }
     for (const [k, v] of [['transform', 'none'], ['right', 'auto'], ['bottom', 'auto']]) if (region.style[k] !== v) region.style[k] = v;
     region.classList.remove('top');
-    applied = want;
   }
   // The fixed top slot: the class carries the rest, the two inline properties pin it away from the stylesheet's edge.
-  function placedTop() {
+  function placedTop(area) {
     clearRegion();
     region.classList.add('top');
-    const top = innerWidth <= 700 ? '8px' : '16px';
+    // the slot is inside the safe area: clear of a phone's notch (viewport-fit=cover) as well as of the top edge
+    const top = `${Math.round((area ? area.top : 0) + (innerWidth <= 700 ? 8 : 16))}px`;
     if (region.style.top !== top) region.style.top = top;
     if (region.style.bottom !== 'auto') region.style.bottom = 'auto';
-    applied = 'top';
   }
   // back to the stylesheet's place (a toast that ends, or one placed afresh)
-  function unplace() {
-    const had = region.style.cssText !== '';
-    clearRegion();
-    if (had) applied = null;   // (with nothing to clear, the last placement still describes the style that is there)
-  }
+  function unplace() { clearRegion(); }
   // Everything place()'s decision reads, as one string: if it is unchanged the answer is unchanged, so a stationary
   // toast needs no measurement and no write. (The controls' geometry is in it: a control that grows under the toast is
   // a different answer, which is what the browser check's "a control grows under it" case needs.)
   let measuredFor = null, decided = null;
-  function placementInputs() {
+  // EVERY DOM read the placement needs, in one place and nowhere else. `place()` decides from exactly this object and
+  // uses it as the identity of the decision, so an input cannot be read by the decision and forgotten by the key.
+  function readInputs() {
     const t = box.getBoundingClientRect(), area = safeArea();
     const cv = document.getElementById('screen'), tubeEl = document.querySelector('#monitor .tube');
-    return placementKey({
-      winW: innerWidth, winH: innerHeight, view: currentView(),
-      box: { left: t.left, top: t.top, width: t.width, height: t.height }, classes: `${box.className}|${region.className}`,
-      controls: [...document.querySelectorAll(CONTROLS)].map((e) => e.getBoundingClientRect()),
-      screen: cv && cv.getBoundingClientRect(), tube: tubeEl && tubeEl.getBoundingClientRect(),
-      active: cv ? cv.dataset.active || '0,0,1,1' : '', area,
-    });
+    const boxOf = (o) => (o ? { left: o.left, top: o.top, right: o.right, bottom: o.bottom, width: o.width, height: o.height } : null);
+    return {
+      winW: innerWidth, winH: innerHeight, view: currentView(), phone: innerWidth <= 700, area: { ...area },
+      box: boxOf(t), classes: `${box.className}|${region.className}|${document.body ? document.body.className : ''}`,
+      // the elements place() avoids: the controls, and #monitor itself (its bezel padding changes with the chat's
+      // phone layout) with the screen and the tube inside it
+      controls: [...document.querySelectorAll(CONTROLS)].map((e) => e.getBoundingClientRect()).filter((o) => o.width && o.height).map(boxOf),
+      screen: [...document.querySelectorAll('#monitor, #monitor .tube, #screen')].map((e) => e.getBoundingClientRect()).filter((o) => o.width && o.height).map(boxOf),
+      tube: boxOf(tubeEl && tubeEl.getBoundingClientRect()), canvas: boxOf(cv && cv.getBoundingClientRect()),
+      active: cv ? cv.dataset.active || '0,0,1,1' : '',
+    };
   }
   // put back the placement an unchanged frame would have decided on (writes only if something moved)
   function reapply() {
     if (!decided) return;
-    if (decided.kind === 'natural') unplace();        // (the stylesheet's place: nothing inline)
-    else if (decided.kind === 'placed') placedAt(decided.left, decided.top, decided.width);
-    else placedTop();
+    if (decided.kind === 'natural') { unplace(); box.classList.remove('compact'); return; }
+    if (decided.kind === 'placed') {
+      if (decided.compact !== undefined) box.classList.toggle('compact', decided.compact);
+      placedAt(decided.left, decided.top, decided.width);
+      return;
+    }
+    box.classList.remove('compact');
+    placedTop(readInputs().area);
   }
   function place() {
     if (cur && cur.pinned && !box.hidden) return;   // in the top slot: kept there until it goes
     if (box.hidden) { unplace(); return; }
     if (currentView() !== 'emulator') { unplace(); seen(); return; }
-    // The measurement below needs the NATURAL box -- the toast at the stylesheet's place, with no inline style. Taking
-    // it means clearing what a previous placement wrote, then measuring and re-placing: a clear, a layout and a write
-    // per frame, which is where main's thrash came from. So it is done only when something that can move the toast has
-    // changed. A toast whose inputs are unchanged is re-placed from the same answer, and writes nothing.
-    const inputs = placementInputs();
-    if (decided && inputs === measuredFor) { reapply(); seen(); return; }
+    // Read, compare, and only when something changed decide and write. The decision needs the NATURAL box (no inline
+    // style), so a previous placement is cleared before the decision is measured; a frame whose inputs are unchanged
+    // puts the same placement back and satisfies every read from `decided`. `decided` is `{ ...verdict, compact }`
+    // where `compact` is the form the band branch needed, so a re-apply writes the same thing without measuring.
+    const probe = readInputs();
+    const key = JSON.stringify(probe);
+    if (decided && key === measuredFor) { reapply(); seen(); return; }
     unplace();
-    measuredFor = inputs;
-    const r = box.getBoundingClientRect(), w = r.width, h = r.height, phone = innerWidth <= 700, area = safeArea();
-    const controls = boxes(CONTROLS), screen = boxes('#monitor, #monitor .tube, #screen');   // (the phone chat's monitor has no box of its own)
-    const rect = (left, top) => ({ left, top, right: left + w, bottom: top + h });
-    // in view: inside the window less a phone's notch and home indicator (safeArea)
-    const inView = (c) => c.left >= area.left && c.right <= area.right && c.top >= area.top && c.bottom <= area.bottom;
-    const free = (c, avoid) => inView(c) && avoid.every((o) => !hits(c, o));
-    const tries = [];   // [left, top, also avoid the screen?]
-    tries.push([r.left, r.top, true]);
-    if (!phone) {
-      const xs = [];
-      for (let x = area.left + 16; x + w <= area.right - 16; x += 8) xs.push(x);
-      xs.sort((a, b) => Math.abs(a - r.left) - Math.abs(b - r.left));
-      for (const x of xs) tries.push([x, r.top, true]);
-    }
-    // the screen: never over its text; below the text area, on the screen's border, if there is room
-    // (compact there when the full toast does not fit)
-    const tube = document.querySelector('#monitor .tube'), cv = document.getElementById('screen');
-    const t = tube && tube.getBoundingClientRect(), c = cv && cv.getBoundingClientRect();
-    const text = c && c.width ? (() => {
-      const f = (cv.dataset.active || '0,0,1,1').split(',').map(Number);
-      return { left: c.left + f[0] * c.width, top: c.top + f[1] * c.height, right: c.left + f[2] * c.width, bottom: c.top + f[3] * c.height };
-    })() : null;
-    // the band under the text, inside what shows of the screen
-    const band = t && t.width && t.height && text ? { left: Math.max(t.left, c.left, area.left) + 8, right: Math.min(t.right, c.right, area.right) - 8,
-      top: text.bottom + 2, bottom: Math.min(t.bottom, c.bottom, area.bottom) - 4 } : null;
-    const offText = controls.concat(text ? [text] : []);
-    tries.push([r.left, area.top + (phone ? 8 : 16), true]);
-    const put = (x, y, width = null) => placedAt(`${Math.round(x)}px`, `${Math.round(y)}px`, width === null ? null : `${Math.round(width)}px`);
-    box.classList.remove('compact');
-    const at = tries.find(([x, y, avoidScreen]) => free(rect(x, y), avoidScreen ? controls.concat(screen) : controls));
-    if (at) {
-      if (at[0] !== r.left || at[1] !== r.top) {
-        // the width put() WRITES, recorded exactly: null here would make reapply() clear the width, shrink the region,
-        // and re-place -- a per-frame oscillation worse than main (phone, top-edge spot)
-        const width = phone ? `${Math.round(w)}px` : null;
-        put(at[0], at[1], width);
-        decided = { kind: 'placed', left: `${Math.round(at[0])}px`, top: `${Math.round(at[1])}px`, width };
-      } else {
-        // the toast's own place is free: the stylesheet's place holds, and there is no inline style to re-apply
-        decided = { kind: 'natural' };
-      }
-      seen();
-      return;
-    }
-    // in the band under the screen's text: as it is if it fits, else compact (smaller type, narrowed to the band)
-    if (band && band.right - band.left > 40 && band.bottom - band.top > 12) {
+    const I = readInputs();
+    measuredFor = JSON.stringify(I);
+    const d = decide(I);
+    if (d.kind === 'natural') { decided = d; box.classList.remove('compact'); seen(); return; }
+    if (d.kind === 'placed') { put(d.left, d.top, d.width); decided = d; seen(); return; }
+    if (d.kind === 'band') {
+      // the compact form is a layout question, so it is measured here; `decided` records which form fit, so the
+      // re-apply never measures again
       for (const compact of [false, true]) {
         box.classList.toggle('compact', compact);
-        const bw = Math.min(compact ? Infinity : w, band.right - band.left);
+        const bw = Math.min(compact ? Infinity : d.fullWidth, d.band.right - d.band.left);
         put(0, 0, bw);
-        const bb = box.getBoundingClientRect(), x = (band.left + band.right - bb.width) / 2, y = band.bottom - bb.height;
+        const bb = box.getBoundingClientRect(), x = (d.band.left + d.band.right - bb.width) / 2, y = d.band.bottom - bb.height;
         const spot = { left: x, top: y, right: x + bb.width, bottom: y + bb.height };
-        if (y >= band.top && free(spot, offText)) { put(x, y, bw); decided = { kind: 'placed', left: `${Math.round(x)}px`, top: `${Math.round(y)}px`, width: `${Math.round(bw)}px` }; seen(); return; }
+        if (y >= d.band.top && inViewOf(spot, I.area) && d.offText.every((o) => !hitsRect(spot, o))) {
+          put(x, y, bw);
+          measuredFor = JSON.stringify(readInputs());   // (the compact class changed the toast's own class list)
+          decided = { kind: 'placed', left: `${Math.round(x)}px`, top: `${Math.round(y)}px`, width: `${Math.round(bw)}px`, compact };
+          seen(); return;
+        }
       }
       box.classList.remove('compact');
+      measuredFor = JSON.stringify(readInputs());
     }
     // nowhere it covers no control: the fixed slot at the top of the viewport, kept until the toast goes
     box.classList.remove('compact');
-    placedTop();
+    placedTop(I.area);
     decided = { kind: 'top' };
     if (cur) cur.pinned = true;
     seen();
@@ -357,5 +356,8 @@ export function createFeedback() {
     // the toast up, and whether its time is running (seen)
     get pending() { return (cur ? [cur] : []).map((t) => ({ text: t.text, seen: !!t.seen })); },
     get attentionText() { return att ? att.text : null; },
+    // the placement's inputs, read from the page: the placement loop and its tests use it (the decision itself never
+    // reads the DOM, so this is the one place that does)
+    readPlacementInputs: readInputs,
   };
 }

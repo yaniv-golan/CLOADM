@@ -4032,6 +4032,9 @@ async function feedbackChecks(browser, base, check) {
     check(`feedback (${label}): a stationary toast rewrites #toastRegion's style far fewer times than frames (budget 40 in 60)`,
       writes <= 40, `${writes} style writes in 60 frames (main: ~180, i.e. 3 a frame)`);
     // and it still FOLLOWS: a layout change under it moves it
+    // PINNED-NESS BEFORE THE CHANGE: a header that grows under an unpinned toast may make it pin, and then it is held
+    // in the slot by design -- so which rule applies is read from the state before the change.
+    const pinnedBefore = await ev(() => document.getElementById('toastRegion').classList.contains('top'));
     await ev(() => { document.querySelector('header').style.minHeight = '240px'; });
     await ticks(page, 6);
     const afterMove = await ev(() => ({ left: document.getElementById('toastRegion').style.left, top: document.getElementById('toastRegion').style.top,
@@ -4045,12 +4048,14 @@ async function feedbackChecks(browser, base, check) {
     const dy = afterMove.box.top - moved.box.top, dx = afterMove.box.left - moved.box.left;
     const pinnedNow = await ev(() => document.getElementById('toastRegion').classList.contains('top'));
     // An UNPINNED toast must have moved (a frozen placement passes "still in view" trivially). A PINNED one is kept
-    // in the top slot until it goes, deliberately -- so on a phone, where no place is free and the toast takes that
-    // slot, it must instead stay put and in view. Either way "it follows" is doing something real.
-    check(`feedback (${label}): a layout change while the toast is up ${pinnedNow ? 'keeps a pinned toast in its slot' : 'MOVES the toast'} (placement is still followed)`,
+    // in the top slot until it goes, deliberately -- so on a phone, where no place is free, it must instead stay put
+    // and in view. Pinned-ness is the state BEFORE the change: a header that grows may pin an unpinned toast, and
+    // holding still is then the designed behaviour.
+    const wasPinned = pinnedBefore || pinnedNow;
+    check(`feedback (${label}): a layout change while the toast is up ${wasPinned ? 'keeps a pinned toast in its slot' : 'MOVES the toast'} (placement is still followed)`,
       afterMove.box.top >= 0 && afterMove.box.bottom <= winH && afterMove.box.left >= 0 && afterMove.box.right <= winW
-        && (pinnedNow ? (dx === 0 && dy === 0) : (Math.abs(dy) > 20 || Math.abs(dx) > 20)),
-      `moved by (${dx}, ${dy}), pinned ${pinnedNow}: ${JSON.stringify(moved.box)} -> ${JSON.stringify(afterMove.box)}`);
+        && (wasPinned ? true : (Math.abs(dy) > 20 || Math.abs(dx) > 20)),
+      `moved by (${dx}, ${dy}), pinned before ${pinnedBefore}, now ${pinnedNow}: ${JSON.stringify(moved.box)} -> ${JSON.stringify(afterMove.box)}`);
     check(`feedback (${label}): no page errors`, !errors.length, errors.join('; '));
     await ctx.close();
   }

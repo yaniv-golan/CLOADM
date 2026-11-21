@@ -12,6 +12,8 @@
 const fs = require('fs'), path = require('path'), vm = require('vm');
 // the selector feedback.js uses for the controls a toast must not cover (one string, checked by the stand-in)
 const CONTROLS_SEL = 'header, .controls, .slots, aside.drawer, #attention, #touchKeys button, #claudeBar, #installOffer';
+// the screen selectors feedback.js avoids (readInputs uses this one string, checked by the stand-in)
+const SCREEN_SEL = '#monitor, #monitor .tube, #screen';
 
 let fail = 0, n = 0;
 const check = (name, cond, detail = '') => { n++; if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log(`ok   ${name} ${detail}`); };
@@ -47,10 +49,16 @@ function world({ width = 1440, height = 900, controlBox = null } = {}) {
       _rect: rect({}),
       getBoundingClientRect() {
         // #toast.compact is smaller (play/index.html: 12px type, 2px padding). A stand-in whose rect ignored the class
-        // could never show the band branch's compact form, nor the phone width shrinking -- two real bugs.
+        // could never show the band branch's compact form.
         const c = this === box && this.classList.contains('compact');
         const h = this._rect.height ? (c ? Math.max(16, Math.round(this._rect.height * 0.6)) : this._rect.height) : this._rect.height;
-        return { ...this._rect, height: h, bottom: this._rect.top + h };
+        // (A toast inside the region takes the region's inline width. This stand-in stops short of modelling the
+        // stylesheet's `width: auto` as a different number, because the decision records the box's width at the
+        // moment it decides, and a model that changed that number mid-decision would be modelling a bug: the width is
+        // pinned by the check below instead, and the oscillation it prevents is a per-frame write count.)
+        const inline = this === box && region.style.width ? Number.parseFloat(region.style.width) : NaN;
+        const w = Number.isFinite(inline) ? inline : this._rect.width;
+        return { ...this._rect, width: w, height: h, right: this._rect.left + w, bottom: this._rect.top + h };
       },
       classList: { _s: new Set(), add(c) { this._s.add(c); }, remove(c) { this._s.delete(c); }, toggle(c, on) { if (on === undefined) { this._s.has(c) ? this._s.delete(c) : this._s.add(c); } else if (on) this._s.add(c); else this._s.delete(c); }, contains(c) { return this._s.has(c); } },
       querySelector() { return null; },
@@ -75,7 +83,8 @@ function world({ width = 1440, height = 900, controlBox = null } = {}) {
   const document = {
     getElementById: (id) => (id === 'screen' ? screen : els.get(id) || (id === 'toast' ? box : el(id))),
     querySelector: (sel) => (sel === '#toastRegion' ? region : sel === '#monitor .tube' ? tube : null),
-    querySelectorAll: (sel) => (sel === CONTROLS_SEL ? [control] : []),
+    // the elements the placement decision avoids besides the controls: #monitor, its tube, and the screen
+    querySelectorAll: (sel) => (sel === CONTROLS_SEL ? [control] : sel === SCREEN_SEL ? [screen, tube] : []),
     documentElement: { style: mkStyle('html') },
     addEventListener() {}, removeEventListener() {},
   };
@@ -107,13 +116,41 @@ function loadFeedback(w) {
     .replace(/^export (const|function|class) /gm, '$1 ');
   // the declarations the file makes are read back from the context (a script has no `export`)
   const ctx = vm.createContext({ ...w.sandbox, $: (id) => w.el(id), safeArea: () => ({ left: 0, top: w.sandbox.__safeTop || 0, right: w.sandbox.innerWidth, bottom: w.sandbox.innerHeight - (w.sandbox.__safeBottom || 0) }) });
-  vm.runInContext(src + '\n;globalThis.__fb = createFeedback; globalThis.__placementKey = placementKey;', ctx, { filename: 'feedback.js' });
-  globalThis.__placementKey = ctx.__placementKey;
+  vm.runInContext(src + '\n;globalThis.__fb = createFeedback; globalThis.__decide = decide;', ctx, { filename: 'feedback.js' });
+  globalThis.__decide = ctx.__decide;
+  globalThis.__ctx = ctx;   // (the purity check must patch the VM's document/window, not this process's)
   return ctx.__fb();
 }
 
 // a toast as the page raises one (the model's own API), kept up by having no timer run in this stand-in
 const raise = (fb, text = 'A toast') => fb.toast(text);
+// Hand-built inputs for the pure decision. The geometry leaves the screen's band as the only free place, so the
+// screen, the tube and the text area each decide the verdict; a geometry with a free place would never consult them
+// and the checks below would pass without proving anything.
+const MON = { left: 100, top: 200, right: 800, bottom: 860, width: 700, height: 660 };
+const BASE = {
+  winW: 1440, winH: 900, view: 'emulator', phone: false, area: { left: 0, top: 0, right: 1440, bottom: 900 },
+  box: { left: 248, top: 940, right: 873, bottom: 980, width: 625, height: 40 }, classes: 'toast||',
+  controls: [{ left: 0, top: 0, right: 1440, bottom: 900, width: 1440, height: 900 }],
+  screen: [MON], tube: { left: 100, top: 200, right: 800, bottom: 700, width: 700, height: 500 },
+  canvas: MON, active: '0,0.1,1,0.5',
+};
+const decide = (I) => globalThis.__decide(I);
+const hostile = () => new Proxy({}, { get(_, k) { throw new Error('decide() read the DOM: ' + String(k)); } });
+function decideWithHostileDom(I) {
+  // the vm context is where decide() looks for `document`/`window`: patching this process's globals would not
+  // reach it (a vm's document is a sandbox property, so the check would pass without proving anything)
+  const vmCtx = globalThis.__ctx;
+  const d = Object.getOwnPropertyDescriptor(vmCtx, 'document'), w = Object.getOwnPropertyDescriptor(vmCtx, 'window');
+  Object.defineProperty(vmCtx, 'document', { value: hostile(), configurable: true });
+  Object.defineProperty(vmCtx, 'window', { value: hostile(), configurable: true });
+  try { return decide(Object.freeze(I)); }
+  catch (e) { return { kind: 'threw', error: e.message }; }   // (reported as a failed check, not an aborted suite)
+  finally {
+    if (d) Object.defineProperty(vmCtx, 'document', d); else delete vmCtx.document;
+    if (w) Object.defineProperty(vmCtx, 'window', w); else delete vmCtx.window;
+  }
+}
 
 (async () => {
   // ---- one chain, however many toasts ----
@@ -201,49 +238,56 @@ const raise = (fb, text = 'A toast') => fb.toast(text);
       placed && w.region.style.left === '' && w.region.style.top === '', `left=${JSON.stringify(w.region.style.left)} top=${JSON.stringify(w.region.style.top)}`);
   }
 
-  // ---- the cache key covers every input the decision reads ----
-  // A hand-written key missed two inputs the first time: the safe-area insets and the screen's text area. Each case
-  // below changes ONE of them, with the window and the toast's own natural rect unchanged, and requires the toast to
-  // be re-placed. (A key that omits the input re-applies the old decision and the toast stays where it was.)
+  // ---- readInputs() fills every field the decision reads, from the real DOM ----
+  // decide() cannot read the DOM, so a field readInputs() forgets is invisible to the decision: it would decide on
+  // `undefined` and every input check above would still pass (it passes its own arguments). So this reads the REAL
+  // stand-in DOM and requires each field to be populated.
   {
-    // safe area: same window, same natural box, only the top inset changes
     const w = world();
     const fb = loadFeedback(w);
-    w.box._rect = { left: 248, top: 940, right: 873, bottom: 980, width: 625, height: 40 };   // below the window
-    raise(fb, 'safe'); w.frame(); w.frame();
-    const first = `${w.region.style.left}|${w.region.style.top}`;
-    w.sandbox.__safeTop = 300;
-    w.frame(); w.frame();
-    const afterSafe = `${w.region.style.left}|${w.region.style.top}`;
-    check('a safe-area change re-places the toast (the insets are part of the key)', first !== afterSafe, `${first} -> ${afterSafe}`);
+    w.screen._rect = { left: 100, top: 200, right: 800, bottom: 860, width: 700, height: 660 };
+    w.tube._rect = { left: 100, top: 200, right: 800, bottom: 700, width: 700, height: 500 };
+    w.screen.dataset.active = '0,0.1,1,0.5';
+    raise(fb, 'inputs'); w.frame();
+    const I = fb.readPlacementInputs();
+    check('readInputs() carries the screen, the tube, the canvas and their visible text area',
+      Array.isArray(I.screen) && I.screen.length > 0 && !!I.tube && !!I.canvas && I.active === '0,0.1,1,0.5',
+      JSON.stringify({ screen: I.screen.length, tube: !!I.tube, canvas: !!I.canvas, active: I.active }));
+    check('readInputs() carries the controls, the box, the classes and the safe area',
+      Array.isArray(I.controls) && I.controls.length > 0 && !!I.box && typeof I.classes === 'string' && !!I.area,
+      JSON.stringify({ controls: I.controls.length, box: !!I.box, area: !!I.area }));
   }
+
+  // ---- the decision is PURE, and every input it uses reaches it ----
+  // decide() is exported and takes only its inputs. These checks call it with the DOM made hostile: while it runs,
+  // `document` and `window` are Proxies that throw on ANY access, so a decision that reads one fails. That is the
+  // property a separate hand-written key could not provide -- it drifted three times in review (the safe-area insets,
+  // the screen's text area, then #monitor's bezel), each time passing every other test.
   {
-    // The key must CARRY the screen's text area, even where a behavioural test cannot show it: once a toast is pinned
-    // to the top slot it is deliberately never re-placed, and the band branch always pins to the band's floor, so no
-    // placement changes when only data-active does. So this asserts on the identity itself, through the exported pure
-    // `placementKey`: two inputs that differ in ONE field must be two identities.
-    const base = {
-      winW: 1440, winH: 900, view: 'emulator',
-      box: { left: 248, top: 940, width: 625, height: 40 }, classes: 'toast|',
-      controls: [{ left: 0, top: 0, right: 1440, bottom: 120, width: 1440, height: 120 }],
-      screen: { left: 100, top: 200, width: 700, height: 660 }, tube: { left: 100, top: 200, width: 700, height: 500 },
-      active: '0,0,1,1', area: { left: 0, top: 0, right: 1440, bottom: 900 },
-    };
-    const key = globalThis.__placementKey;
-    const variant = (patch) => key({ ...base, ...patch });
-    check('the screen text area (data-active) is part of the placement identity', variant({ active: '0,0.05,1,0.4' }) !== variant({}));
-    check('the safe-area insets are part of the placement identity',
-      variant({ area: { ...base.area, top: 300 } }) !== variant({}) && variant({ area: { ...base.area, bottom: 880 } }) !== variant({}));
-    check('the screen and its tube are part of the placement identity',
-      variant({ screen: { ...base.screen, bottom: 700 } }) !== variant({}) && variant({ tube: { ...base.tube, bottom: 600 } }) !== variant({}));
-    check('the controls, the box rect, the classes, the window and the view are each part of it too',
-      // (outline() reads left/top/right/bottom: a taller control's BOTTOM is what moves)
-      variant({ controls: [{ left: 0, top: 0, right: 1440, bottom: 200, width: 1440, height: 200 }] }) !== variant({})
-      && variant({ box: { ...base.box, top: 930 } }) !== variant({})
-      && variant({ classes: 'toast compact|' }) !== variant({})
-      && variant({ winW: 1439 }) !== variant({}) && variant({ winH: 899 }) !== variant({})
-      && variant({ view: 'library' }) !== variant({}));
-    check('... and identical inputs are one identity (the cache can hit)', variant({}) === variant({}));
+    const decided = decideWithHostileDom({ ...BASE });
+    check('decide() reads no DOM: it decides from its inputs alone (document/window throw if touched)',
+      !!decided && decided.kind !== 'threw' && ['natural', 'placed', 'band', 'top'].includes(decided.kind),
+      JSON.stringify(decided).slice(0, 80));
+    const verdict = (patch) => JSON.stringify(decide({ ...BASE, ...patch }));
+    check('setup: BASE needs the screen (the band is the only free place)', JSON.parse(verdict({})).kind === 'band', verdict({}).slice(0, 60));
+    check('the decision uses the screen text area (data-active)', verdict({ active: '0,0,1,1' }) !== verdict({}), verdict({ active: '0,0,1,1' }).slice(0, 40));
+    check('the decision uses the tube', verdict({ tube: null }) !== verdict({}));
+    // the safe area bounds the band (and decides which attempts are "in view"): a bottom inset that clips the screen
+    // gives a different answer, band geometry included
+    check('the decision uses the safe-area insets',
+      verdict({ area: { left: 0, top: 0, right: 1440, bottom: 660 } }) !== verdict({}),
+      verdict({ area: { left: 0, top: 0, right: 1440, bottom: 660 } }).slice(0, 46));
+    // the controls decide whether a free place exists at all
+    check('the decision uses the controls', verdict({ controls: [] }) !== verdict({}), verdict({ controls: [] }).slice(0, 40));
+    // the box's own place: with no controls, a box already at a free spot takes the natural answer
+    check('the decision uses the box position',
+      verdict({ controls: [], box: { ...BASE.box, left: 40, top: 40, right: 665, bottom: 80 } }) !== verdict({ controls: [] }),
+      verdict({ controls: [], box: { ...BASE.box, left: 40, top: 40, right: 665, bottom: 80 } }).slice(0, 40));
+    // the phone flag drops the row of x-attempts
+    check('the decision uses the phone flag', verdict({ phone: true, controls: [] }) !== verdict({ controls: [] }),
+      verdict({ phone: true, controls: [] }).slice(0, 40));
+    // and a decision made from ONE object, with that object unchanged, is the same answer every time (the cache can hit)
+    check('... and the same inputs give the same verdict', verdict({}) === verdict({}));
   }
   // ---- the phone top-edge case does not oscillate ----
   // 390x800, the natural place covered and the top-edge spot free: the placed width is written, so the record must
