@@ -2403,7 +2403,9 @@ async function mediaChecks(browser, base, check) {
     check('recent: the older copy loads its OWN program (the differing byte is the older one\'s)',
       await waitFor(page, ([a, want]) => window.emu.machine.ram[a] === want, [ramAt, wantA]),
       `$${(await page.evaluate((a) => window.emu.machine.ram[a], ramAt)).toString(16)} want $${wantA.toString(16)} (the newer copy has $${wantB.toString(16)})`);
-    check('recent: rows before the second load were one', rowsBefore.length === 1, rowsBefore.join(' | '));
+    // the drawer lists EVERY recent entry for this machine, including ones this group did not load (game.bin
+    // above), so the count is not 1; what must hold is that ours is there once.
+    check('recent: before the second load there is one row of this name', rowsBefore.filter((t) => t.includes('recent-one.bin')).length === 1, rowsBefore.join(' | '));
   }
   check('media: no page errors', !errors.length, errors.join('; '));
   await ctx.close();
