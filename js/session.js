@@ -71,7 +71,7 @@ const describeSegments = (segs, exec) =>
 
 // everything that holds ROMs: the models, the disk-controller cartridges and the Speech/Sound Pak (looked up when
 // used, so profiles added at run time count)
-const romOwners = () => Object.assign({}, profiles, cartridgeRoms, { ssc: SSC_ROM_PROFILE });
+export const romOwners = () => Object.assign({}, profiles, cartridgeRoms, { ssc: SSC_ROM_PROFILE });
 
 // The welcome program: its fixed addresses, one entry per CPU family. Its choices (1-7) are posted in the `event`
 // mailbox, which the Session reads and clears after every frame (a mailbox rather than PC hooks: the

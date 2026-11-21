@@ -171,6 +171,14 @@
     {
       "name": "restore_snapshot",
       "description": "Restore a snapshot"
+    },
+    {
+      "name": "add_roms",
+      "description": "Add the user's ROMs"
+    },
+    {
+      "name": "remove_roms",
+      "description": "Forget stored ROMs"
     }
   ],
   "tools_generated": false,
