@@ -1655,11 +1655,13 @@ export class Session {
   async importMedia(name, bytes) {
     this.checkNotMoving();
     if (Session.isRom(name, bytes)) return { roms: this.addRoms([{ name, bytes }]) };
-    // the file's own name is the last segment; a path that ends in a separator ('disks/', 'dir/') leaves nothing,
-    // which is what the person who picked a folder-like name asked for and what diskStoreName refuses
+    // the file's own name is the last segment; a path that ends in a separator ('disks/', 'dir/') leaves nothing to
+    // name the file with. A disk image is refused as a disk (diskStoreName's rule, reached through this door too);
+    // anything else is refused as a file -- what it is is decided by its bytes, not by the missing name.
     const base = name.split(/[\\/]/).pop();
-    if (!base) throw new SessionError('A disk image needs a name.');
-    const target = detectMedia(base, bytes).kind === 'disk' ? DISK_PREFIX + base : this.libName(name);
+    const kind = detectMedia(base, bytes).kind;
+    if (!base) throw new SessionError(kind === 'disk' ? 'A disk image needs a name.' : 'A file needs a name.');
+    const target = kind === 'disk' ? DISK_PREFIX + base : this.libName(name);
     this.checkNotInDrive(target, 'replace');   // synchronous, so it needs no creation's turn: a disk in a drive is not replaced
     // non-disk media (programs, ROMs) are made by writes that replace, so they take no creation's turn; a disk
     // image may replace one of its name, but not take a name a new disk (or another import) is making: it runs as

@@ -27,7 +27,9 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 - **A disk name with nothing after the prefix is refused.** `disks/` (and `disks//`) passed every check and was
   stored as a blob literally named `disks/`: the Library listed it with no file name, and the drive said " in drive 0".
   Every door - a library import, a new blank disk, a mount of a stored name - refuses it as `A disk image needs a
-  name.` Names with a base are unchanged. `tests/store-error-names.test.js`.
+  name.` (A file that is not a disk image, dropped with such a path, is refused as `A file needs a name.` - on main it
+  was stored under a name that was only a prefix, e.g. `library/programs/`.) Names with a base are unchanged.
+  `tests/store-error-names.test.js`.
 
 ### 0.1.7-pre
 

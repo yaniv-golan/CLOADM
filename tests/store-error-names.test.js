@@ -146,6 +146,14 @@ const A = () => images.vdk(40, 2), B = () => images.vdk(40, 1);
     }
     const im = await q(s.importMedia('disks/', A()));
     check('importMedia "disks/": refused the same way', !im.ok && im.m === 'A disk image needs a name.', im.m);
+    // a file that is NOT a disk image, dropped with a path that ends in a separator: refused as a file, not as a disk
+    // (what it is comes from its bytes; on main it was stored under a name that was only a prefix)
+    const prog = new Uint8Array(64).fill(7);
+    const imf = await q(s.importMedia('programs/', prog));
+    check('importMedia "programs/" of a program: refused as a file that needs a name',
+      !imf.ok && imf.m === 'A file needs a name.', imf.m);
+    check('... and nothing was stored under a prefix-only name',
+      !(await media.list()).some((e) => e.name.endsWith('/')), JSON.stringify((await media.list()).map((e) => e.name)));
     const nd = await q(s.newDisk(0, { format: 'vdk', tracks: 40, heads: 1 }, { name: 'disks/' }));
     check('newDisk {name: "disks/"}: refused the same way', !nd.ok && nd.m === 'A disk image needs a name.', nd.m);
     const mt = await q(s.mountDisk(0, 'disks/'));
