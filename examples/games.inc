@@ -218,19 +218,24 @@ BOXCEL  STA     ,Y+
         BNE     BOXROW
         PULS    D,X,Y,PC
 ; Text: TFG and TBG are the fill bytes of the text and background colours (colour * $55), TROWS
-; the rows each font row is repeated (1: 5 rows tall), TWIDE 0 for 4-pixel cells, 1 for 8.
-; PUTCH: the character A at X; X moves to the next cell
+; the rows each font row is repeated (1: 5 rows tall). TWIDE 1 is the fixed 8-pixel doubled cell the
+; titles use, positioned and advanced in BYTES. TWIDE 0 is PROPORTIONAL, positioned and advanced in
+; PIXELS: a glyph is its own width plus ONE BLANK COLUMN after it, so no two letters ever touch (four
+; pixels of ink in a four-pixel cell left no gap and smeared ARROWS). Widths: A H R are 4 (FONT4),
+; M W are 5 (FONT5), everything else is 3 (FONT).
+; PUTCH: the character in A. TWIDE 1: at the screen byte in X, which advances 2. TWIDE 0: at the pixel
+; PCOL (0-3) of the screen byte X; X and PCOL move past the glyph and its blank column.
 PUTCH   PSHS    D,Y,U
+        TST     TWIDE
+        LBEQ    PCPROP
+; the 2x titles: a byte cursor and a fixed 8-pixel cell, unchanged (M and W have glyphs of their own)
         STX     PCADDR
-        TST     TWIDE           ; 2x wide, M and W have glyphs of their own: in three pixels they read as H
-        BEQ     PCNARROW
         LDU     #WIDEM
         CMPA    #'M
         BEQ     PCMW
         LDU     #WIDEW
         CMPA    #'W
         BEQ     PCMW
-PCNARROW
         SUBA    #$20
         CMPA    #$40
         BLO     PCOK
@@ -245,42 +250,32 @@ PCOK    LDB     #5
 PCROW   LDB     ,U+             ; a font row, bits 2-0 (bit 2 the left pixel)
         LDA     TROWS
         STA     PCREP
-PCREPT  TST     TWIDE
-        BNE     PCWIDE
-        LDX     #MASK1
+PCREPT  LDX     #MASK2L
         LDA     B,X
-        BSR     PCMIX
-        STA     ,Y
-        BRA     PCNEXT
-PCWIDE  LDX     #MASK2L
-        LDA     B,X
-        BSR     PCMIX
+        LBSR    PCMIX
         STA     ,Y
         LDX     #MASK2R
         LDA     B,X
-        BSR     PCMIX
+        LBSR    PCMIX
         STA     1,Y
-PCNEXT  LEAY    32,Y
+        LEAY    32,Y
         DEC     PCREP
         BNE     PCREPT
         DEC     PCROWS
         BNE     PCROW
         LDX     PCADDR
-        LEAX    1,X
-        TST     TWIDE
-        BEQ     PCDONE
-        LEAX    1,X
-PCDONE  PULS    D,Y,U,PC
+        LEAX    2,X
+        PULS    D,Y,U,PC
 ; PCMW: the 7-pixel glyph at U (five rows of two mask bytes) at PCADDR, 2x wide
 PCMW    TFR     X,Y
         LDB     #5
         STB     PCROWS
 PCMWROW LDB     TROWS
 PCMWREP LDA     ,U
-        BSR     PCMIX
+        LBSR    PCMIX
         STA     ,Y
         LDA     1,U
-        BSR     PCMIX
+        LBSR    PCMIX
         STA     1,Y
         LEAY    32,Y
         DECB
@@ -291,6 +286,120 @@ PCMWREP LDA     ,U
         LDX     PCADDR
         LEAX    2,X
         PULS    D,Y,U,PC
+; PCPROP: the 1x glyph of A at the pixel PCOL of the screen byte X, proportional
+PCPROP  LBSR    PCFIND          ; U: its five rows, PCGW: its width in pixels
+        STX     PSTART          ; where the glyph starts, for the cursor's advance
+        STX     PCADDR
+        LDB     #5
+        STB     PCROWS
+PCGGLY  LDB     ,U+             ; the font row: PCGW bits, its left pixel the top bit
+        LDA     #8
+        SUBA    PCGW            ; left-align it in a byte, so each pixel falls off the top
+        BEQ     PCGALI
+PCGLSH  LSLB
+        DECA
+        BNE     PCGLSH
+PCGALI  STB     PCROWBYTE
+        LDA     TROWS
+        STA     PCREP
+PCGROW  BSR     PCDOROW
+        DEC     PCREP
+        BNE     PCGROW
+        DEC     PCROWS
+        BNE     PCGGLY
+        LDX     PSTART          ; the cursor: past the glyph and its blank column
+        LDA     PCOL
+        ADDA    PCGW
+        INCA
+PCADV   CMPA    #4
+        BLO     PCADVD
+        SUBA    #4
+        LEAX    1,X
+        BRA     PCADV
+PCADVD  STA     PCOL
+        STX     PCSBYTE         ; the pixel cursor: the byte here, the pixel in PCOL
+        PULS    D,Y,U,PC
+; PCDOROW: one screen row of the glyph at PCADDR: its PCGW pixels and the blank column after them,
+; each pixel taking the text colour when its bit is set and the background colour when it is clear
+PCDOROW LDA     PCROWBYTE
+        STA     PCBITS
+        LDX     PCADDR
+        STX     PCCUR
+        LDA     PCOL
+        STA     PCOFF
+        LDA     PCGW
+        INCA                    ; the glyph and its blank column
+        STA     PCNPIX
+PCNXT   LDA     PCBITS
+        BITA    #$80
+        LBEQ    PBACK
+        LDA     TFG
+        BRA     PCSET
+PBACK   LDA     TBG
+PCSET   STA     PCOLOUR
+        LDA     PCBITS
+        LSLA
+        STA     PCBITS
+        LDB     PCOFF
+        LDX     #PIXMASK
+        LDB     B,X
+        STB     PCMASK
+        LDA     PCOLOUR
+        ANDA    PCMASK
+        STA     PCTMP
+        LDB     PCMASK
+        COMB
+        LDX     PCCUR
+        ANDB    ,X
+        ORB     PCTMP
+        STB     ,X
+        INC     PCOFF
+        LDA     PCOFF
+        CMPA    #4
+        BLO     PCWRAP
+        CLR     PCOFF
+        LDX     PCCUR
+        LEAX    1,X
+        STX     PCCUR
+PCWRAP  DEC     PCNPIX
+        BNE     PCNXT
+        LDX     PCADDR
+        LEAX    32,X
+        STX     PCADDR
+        RTS
+; PCFIND: A = a character -> U: its five glyph rows, PCGW: its width (3, 4 or 5)
+PCFIND  CMPA    #'M
+        BEQ     PCFW5M
+        CMPA    #'W
+        BEQ     PCFW5W
+        CMPA    #'A
+        BEQ     PCFW5A
+        CMPA    #'H
+        BEQ     PCFW5H
+        CMPA    #'R
+        BEQ     PCFW5R
+        SUBA    #$20            ; FONT: $20-$5F, three wide
+        CMPA    #$40
+        BLO     PCF3
+        LDA     #'?-$20
+PCF3    LDB     #5
+        MUL
+        ADDD    #FONT
+        TFR     D,U
+        LDA     #3
+        BRA     PCFW
+PCFW5A  LDU     #FONT5A
+        BRA     PCFW5
+PCFW5H  LDU     #FONT5H
+        BRA     PCFW5
+PCFW5R  LDU     #FONT5R
+        BRA     PCFW5
+PCFW5M  LDU     #FONT5M
+        BRA     PCFW5
+PCFW5W  LDU     #FONT5W
+PCFW5   LDA     #5
+PCFW    STA     PCGW
+        RTS
 ; A = pixel mask -> (mask AND TFG) OR (NOT mask AND TBG)
 PCMIX   PSHS    A
         ANDA    TFG
@@ -300,15 +409,34 @@ PCMIX   PSHS    A
         ANDA    TBG
         ORA     PCTMP
         RTS
-; PUTSTR: the string at U (0 ends) from X
+; PUTSTR: the string at U (0 ends). TWIDE: from the screen byte X, advancing X. 1x: from the pixel
+; cursor PCSBYTE/PCOL, which each glyph advances (X is not the cursor there: a glyph can start mid-byte).
 PUTSTR  LDA     ,U+
         BEQ     PSDONE
-        LBSR    PUTCH
+        TST     TWIDE
+        BNE     PSBYTE
+        LDX     PCSBYTE
+PSBYTE  LBSR    PUTCH
         BRA     PUTSTR
 PSDONE  RTS
-; PRINTAT: the string at U, at column B, row A, in the current text style
-PRINTAT JSR     AT
+; PRINTAT: the string at U at column B, row A, in the current text style. In 1x B is a PIXEL column
+; (0-127); when TWIDE it is a byte column (0-31).
+PRINTAT TST     TWIDE
+        BNE     PRBYTE
+        BSR     ATPIX
         BRA     PUTSTR
+PRBYTE  JSR     AT
+        BRA     PUTSTR
+; ATPIX: pixel column B (0-127), row A -> X = its screen byte, PCOL = the pixel within it
+ATPIX   PSHS    B
+        ANDB    #3
+        STB     PCOL
+        PULS    B
+        LSRB
+        LSRB
+        LBSR    AT
+        STX     PCSBYTE         ; the proportional cursor starts here
+        RTS
 ; STRLEN: the length of the string at U -> B
 STRLEN  PSHS    U
         CLRB
@@ -317,13 +445,37 @@ SLLP    TST     ,U+
         INCB
         BRA     SLLP
 SLEND   PULS    U,PC
-; CENTRE: the string at U centred on the screen at row A (one byte a character, or two when TWIDE)
+; STRWID: the 1x width of the string at U in pixels (its glyphs and the blank columns) -> B.
+; The string pointer lives in SWPTR: PCFIND returns the glyph's address in U, which would otherwise
+; overwrite it and run the loop past the string's end (it did, forever).
+STRWID  PSHS    U               ; the caller's string pointer: PCFIND returns a glyph in U
+        STU     SWPTR
+        CLRB
+SWLP    LDX     SWPTR
+        LDA     ,X+
+        BEQ     SWEND
+        STX     SWPTR           ; (after the test: STX sets the flags, which would hide the 0)
+        PSHS    B
+        LBSR    PCFIND          ; PCGW: its width; the advance is one blank column more
+        LDB     PCGW
+        INCB
+        ADDB    ,S+
+        BRA     SWLP
+SWEND   DECB
+        PULS    U,PC
+; CENTRE: the string at U centred on the screen at row A (pixels in 1x, bytes when TWIDE)
 CENTRE  PSHS    A
-        BSR     STRLEN
         TST     TWIDE
-        BEQ     CEN1
+        BNE     CENBYTE
+        BSR     STRWID
+        NEGB
+        ADDB    #128
+        LSRB
+        PULS    A
+        BRA     PRINTAT
+CENBYTE BSR     STRLEN
         LSLB
-CEN1    NEGB
+        NEGB
         ADDB    #32
         LSRB
         PULS    A
@@ -388,6 +540,17 @@ MASK2R  FCB     $00,$F0,$00,$F0,$00,$F0,$00,$F0
 ; M and W 2x wide: seven pixels, two mask bytes a row
 WIDEM   FCB     $C0,$0C,$F0,$3C,$CC,$CC,$C3,$0C,$C0,$0C        ; #.....#  ##...##  #.#.#.#  #..#..#  #.....#
 WIDEW   FCB     $C0,$0C,$C3,$0C,$CC,$CC,$F0,$3C,$C0,$0C        ; #.....#  #..#..#  #.#.#.#  ##...##  #.....#
+
+; pixel masks for one pixel, by its position in a screen byte (0-3): the two bits it sets
+PIXMASK FCB     $C0,$30,$0C,$03
+; the five letters a 3-pixel cell cannot tell apart, 5x5: five bits a row, bit 4 the left pixel,
+; ONE BLANK COLUMN after each (the proportional cell). A has its point, H a full middle bar, R a
+; bowl and a leg, M its top notch, W the mirror. They differ by shape at the centre, not by one pixel.
+FONT5A  FCB     %00100,%01010,%10001,%11111,%10001        ; ..#.. .#.#. #...# ##### #...#
+FONT5H  FCB     %10001,%10001,%11111,%10001,%10001        ; #...# #...# ##### #...# #...#
+FONT5R  FCB     %11110,%10001,%11110,%10100,%10001        ; ####. #...# ####. #.#.. #...#
+FONT5M  FCB     %10001,%11011,%10101,%10001,%10001        ; #...# ##.## #.#.# #...# #...#
+FONT5W  FCB     %10001,%10001,%10101,%11011,%10001        ; #...# #...# #.#.# ##.## #...#
 
 ; the font: 3x5, ASCII $20-$5F, five rows a character, bit 2 the left pixel
 FONT    FCB     %000,%000,%000,%000,%000        ; space
@@ -458,7 +621,19 @@ FONT    FCB     %000,%000,%000,%000,%000        ; space
 ; variables (set before use: the binary does not carry RMB space)
 ENTROPY RMB     2
 RSEED   RMB     2
-PCADDR  RMB     2
+PCADDR  RMB     2               ; 2x: the screen byte PUTCH is at
+PCOL    RMB     1
+PCSBYTE RMB     2               ; 1x: the screen byte the pixel cursor is in (PCOL: the pixel)
+SWPTR   RMB     2               ; STRWID's string pointer               ; 1x: the pixel (0-3) within the screen byte the cursor is at
+PSTART  RMB     2               ; 1x: where a glyph starts, for the cursor's advance
+PCGW    RMB     1               ; 1x: the glyph's width in pixels (3, 4 or 5)
+PCROWBYTE RMB   1               ; 1x: the font row being drawn, left-aligned
+PCCUR   RMB     2               ; 1x: the screen byte one pixel of the row goes into
+PCOFF   RMB     1               ; 1x: the pixel within PCCUR
+PCNPIX  RMB     1               ; 1x: pixels left in the row (the glyph and its blank column)
+PCBITS  RMB     1               ; 1x: the row's pixels, the top bit the next one
+PCMASK  RMB     1               ; 1x: the two bits of the pixel being set
+PCOLOUR RMB     1               ; 1x: the colour byte of that pixel
 NSCOUNT RMB     1
 BOXW    RMB     1
 BOXH    RMB     1

@@ -463,9 +463,9 @@ COUNTER LDA     #$FF
         CLR     TWIDE
         LDA     #2
         STA     TROWS
-        LDB     #29
+        LDB     #29*4           ; byte 29 in pixels (the 1x cursor is a pixel)
         LDA     #2
-        JSR     AT
+        JSR     ATPIX
         LDA     #MINES
         SUBA    FLAGS
         LDB     #'0-1
@@ -619,6 +619,8 @@ SQNOTH  CMPB    #K_OPEN
         STA     TROWS
         LDX     SQADDR
         LEAX    1+5*32,X
+        STX     PCADDR
+        CLR     PCOL            ; the pixel within that byte
         TFR     B,A
         ADDA    #'0
         JSR     PUTCH
@@ -722,11 +724,11 @@ T_NAME  FCN     "MINESWEEPER"
 T_GOAL1 FCN     "TEN MINES ARE HIDDEN"
 T_GOAL2 FCN     "OPEN EVERY OTHER SQUARE"
 T_KEYS1 FCN     "ARROWS MOVE  SPACE OPENS"
-T_KEYS2 FCN     "F FLAGS A MINE  R STARTS AGAIN"
+T_KEYS2 FCN     "F FLAGS A MINE  R START"
 T_KEYS3 FCN     "A NUMBER: MINES NEXT TO IT"
 T_PRESS FCN     "PRESS A KEY TO PLAY"
 T_HINT  FCN     "SPACE OPENS  F FLAGS"
-T_FOOT  FCN     "ARROWS MOVE  R NEW  BREAK LEAVES"
+T_FOOT  FCN     "ARROWS  R=NEW  BREAK=QUIT"
 T_WIN   FCN     "ALL CLEAR! R PLAYS AGAIN"
 T_LOSE  FCN     "BOOM! R PLAYS AGAIN"
 

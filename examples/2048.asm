@@ -393,11 +393,11 @@ FRAME   CLRA
         LDA     #1
         STA     TROWS
         LDU     #T_SCORE
-        LDB     #14
+        LDB     #14*4           ; column 14 in pixels (the 1x cursor is a pixel)
         LDA     #1
         JSR     PRINTAT
         LDU     #T_BEST
-        LDB     #22
+        LDB     #22*4
         LDA     #1
         JSR     PRINTAT
         LDU     #T_HINT
@@ -555,14 +555,14 @@ SCSHOW  LDA     #$FF            ; red digits, 10 rows tall
         LDA     #2
         STA     TROWS
         LDX     #SCORE
-        LDB     #14
+        LDB     #14*4
         BSR     SCNUM
         LDX     #BEST
-        LDB     #22
-; six BCD digits at X, at column B, row 7, leading zeros as spaces
+        LDB     #22*4
+; six BCD digits at X, at pixel column B, row 7, leading zeros as spaces
 SCNUM   PSHS    X
         LDA     #7
-        JSR     AT
+        JSR     ATPIX
         PULS    U
         CLR     LEAD
         LDB     #3
@@ -689,13 +689,13 @@ SND_OVER
 ; text
 T_NAME  FCN     "2048"
 T_JOIN  FCN     "JOIN THE TILES TO MAKE 2048"
-T_KEYS1 FCN     "ARROWS OR W A S D SLIDE THEM"
+T_KEYS1 FCN     "ARROWS OR WASD SLIDE THEM"
 T_KEYS2 FCN     "R STARTS AGAIN"
 T_KEYS3 FCN     "BREAK LEAVES"
 T_PRESS FCN     "PRESS A KEY TO PLAY"
 T_SCORE FCN     "SCORE"
 T_BEST  FCN     "BEST"
-T_HINT  FCN     "ARROWS MOVE  R NEW  BREAK LEAVES"
+T_HINT  FCN     "ARROWS  R=NEW  BREAK=QUIT"
 T_WIN   FCN     "YOU MADE 2048! PLAY ON"
 T_OVER  FCN     "NO MOVES LEFT. R PLAYS AGAIN"
 

@@ -46,18 +46,43 @@ const FONT = (() => {
   return map;
 })();
 check('the font has the 64 characters $20-$5F', FONT.size === 64, String(FONT.size));
-// the text on pixel row y of the bitmap, 4-pixel cells, glyph rows `tall` apart, in colour `fg`
-const textAt = (m, y, tall = 1, fg = 3, from = 0, to = 32) => {
-  let s = '';
-  for (let c = from; c < to; c++) {
-    const g = [];
-    for (let k = 0; k < 5; k++) {
-      const v = m.ram[0x400 + (y + k * tall) * 32 + c];
-      let bits = 0;
-      for (let p = 0; p < 3; p++) if (((v >> (6 - 2 * p)) & 3) === fg) bits |= 4 >> p;
-      g.push(bits);
-    }
-    s += FONT.get(g.join(',')) || '?';
+
+// ---- the 1x font is PROPORTIONAL: a glyph's own width plus one blank column, so neighbours never touch ----
+// FONT5: the five letters a 3-pixel cell cannot tell apart, drawn five pixels wide (games.inc).
+const WIDE5 = (() => {
+  const src = include('games.inc'), at = src.indexOf('FONT5   FCB');
+  if (at < 0) return new Map();
+  const rows = [];
+  for (const line of src.slice(at).split('\n')) {
+    const m = /FCB\s+(%[01]{5}(?:,%[01]{5}){4})/.exec(line);
+    if (!m) break;
+    rows.push(m[1].split(',').map((b) => parseInt(b.slice(1), 2)).join(','));
+  }
+  const map = new Map();
+  rows.forEach((r, i) => { if (!map.has(r)) map.set(r, String.fromCharCode('AHRMW'.charCodeAt(0) + i)); });
+  return map;
+})();
+const glyphWidth = (ch) => (WIDE5.has(ch) ? 5 : 3);
+const strWidth = (s) => [...s].reduce((n, c) => n + glyphWidth(c) + 1, 0) - 1;   // the last glyph has no blank column after it
+check('the wide letters are A, H, M, R and W, five pixels wide', [...WIDE5.values()].join('') === 'AHRMW' && WIDE5.size === 5,
+  JSON.stringify([...WIDE5.values()].join('')));
+for (const game of ['2048', 'minesweeper']) {
+  const src = fs.readFileSync(path.join(ROOT, `examples/${game}.asm`), 'utf8');
+  const long = [...src.matchAll(/^(T_\w+)\s+FCN\s+"([^"]+)"$/gm)]
+    .filter(([, , s]) => strWidth(s) > 128).map(([, k, s]) => `${k} (${strWidth(s)} px)`);
+  check(`${game}: every string fits the 128-pixel line (the 1x font is proportional)`, long.length === 0, long.join(', '));
+}
+// the 1x text on pixel row y of the bitmap, from pixel column `from` to `to`, in colour `fg`: a glyph is five
+// pixels wide (WIDE5) or three (FONT), one blank column after each, so the cursor lands on every glyph's first pixel
+const textAt = (m, y, tall = 1, fg = 3, from = 0, to = 128) => {
+  const pixel = (px, row) => ((m.ram[0x400 + (y + row * tall) * 32 + (px >> 2)] >> (6 - 2 * (px & 3))) & 3) === fg;
+  const cols = (x, w) => { const g = []; for (let k = 0; k < 5; k++) { let bits = 0; for (let p = 0; p < w; p++) if (pixel(x + p, k)) bits = (bits << 1) | 1; g.push(bits); } return g.join(','); };
+  const three = (s) => { const g = s.split(',').map(Number); const out = []; for (const v of g) { let b = 0; for (let p = 0; p < 3; p++) if ((v >> (2 - p)) & 1) b |= 4 >> p; out.push(b); } return out.join(','); };
+  let s = '', x = from;
+  while (x + 2 < to) {
+    const five = cols(x, 5), wide = [...WIDE5].find(([, v]) => v === five);
+    if (wide) { s += wide[0]; x += 6; continue; }
+    s += FONT.get(three(cols(x, 3))) || '?'; x += 4;
   }
   return s.trim();
 };
@@ -150,7 +175,9 @@ const show = (b) => b.map((v) => (v ? 2 ** v : '.')).join(' ');
   }
   check('2048: 60 scripted moves give the board and score of the rules', same && merges > 10, firstBad || `${merges} moves joined tiles, score ${score}`);
   // the score on the screen: six digits, leading zeros as spaces, red, 10 rows tall at byte 14
-  const shown = [textAt(g.m, 7, 2, 3, 14, 20), textAt(g.m, 7, 2, 3, 22, 28)], labels = textAt(g.m, 1, 1, 2, 12);
+  // the score on the screen: digits centered in the score's cell (bytes 14-19, i.e. pixels 56-79) and the best
+  // score's (bytes 22-27, pixels 88-111), red, 10 rows tall
+  const shown = [textAt(g.m, 7, 2, 3, 56, 80), textAt(g.m, 7, 2, 3, 88, 112)], labels = textAt(g.m, 1, 1, 2, 48, 128);
   check('2048: the score and the best score are shown', shown[0] === String(score) && shown[1] === String(score) && labels === 'SCORE   BEST', JSON.stringify([shown, labels]));
   check('2048: MOVES counts the moves that changed the board', g.mem('MOVES', 2)[1] > 30);
 
