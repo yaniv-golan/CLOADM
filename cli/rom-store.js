@@ -10,6 +10,17 @@ const zlib = require('zlib');
 
 const crcOf = (bytes) => (zlib.crc32(bytes) >>> 0).toString(16).toUpperCase().padStart(8, '0');
 const INDEX = 'index.json';
+const LOCK = 'index.lock', LOCK_STALE_MS = 10000, LOCK_WAIT_MS = 30000;
+
+// a URL kept as origin + path: never the query or the fragment, which can hold a token (anything else, such as a path
+// in the media root, is kept as it is)
+function fromOf(from) {
+  if (typeof from !== 'string') return from;
+  let u;
+  try { u = new URL(from); } catch (e) { return from; }
+  return u.protocol === 'http:' || u.protocol === 'https:' ? u.origin + u.pathname : from;
+}
+const sleepMs = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 
 // dir: the store's folder (made on the first add); warn(text): a problem reading it back (never the bytes)
 function romStore(dir, { warn = () => {}, now = () => Date.now() } = {}) {
@@ -29,6 +40,24 @@ function romStore(dir, { warn = () => {}, now = () => Date.now() } = {}) {
     const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
     try { fs.writeFileSync(tmp, data, { flag: 'wx' }); fs.renameSync(tmp, file); } catch (e) { try { fs.unlinkSync(tmp); } catch (e2) { /* not made */ } throw e; }
   }
+  // Two server processes may share the store. Every change reads the index again and writes it back while holding
+  // index.lock, a file made with O_EXCL; the index itself is replaced by a rename, so a reader never sees half of it.
+  // A lock older than LOCK_STALE_MS (its holder died) is broken. Breaking is the one step that is not exclusive: two
+  // processes breaking the same dead lock at the same instant can both go on; the window is a few microseconds, after
+  // ten seconds of nobody holding it.
+  function locked(fn) {
+    fs.mkdirSync(dir, { recursive: true });
+    const lock = path.join(dir, LOCK), until = Date.now() + LOCK_WAIT_MS;
+    for (;;) {
+      try { fs.closeSync(fs.openSync(lock, 'wx')); break; } catch (e) {
+        if (e.code !== 'EEXIST') throw e;
+        try { if (Date.now() - fs.statSync(lock).mtimeMs > LOCK_STALE_MS) { fs.unlinkSync(lock); continue; } } catch (e2) { continue; /* released meanwhile */ }
+        if (Date.now() > until) throw new Error(`${lock} is held by another process; remove it if none is running`);
+        sleepMs(5 + Math.floor(Math.random() * 20));
+      }
+    }
+    try { return fn(); } finally { try { fs.unlinkSync(lock); } catch (e) { /* broken as stale by another */ } }
+  }
   const writeIndex = (list) => writeAtomic(indexFile, JSON.stringify({ roms: list }, null, 1) + '\n');
   return {
     dir,
@@ -47,25 +76,27 @@ function romStore(dir, { warn = () => {}, now = () => Date.now() } = {}) {
     },
     // files: [{ name, bytes }]; an image already stored (same CRC) is replaced by the new entry
     add(files, { source, from }) {
-      const list = readIndex();
-      fs.mkdirSync(dir, { recursive: true });
-      for (const f of files) {
-        const crc = crcOf(f.bytes), file = `${crc}.rom`;
-        writeAtomic(path.join(dir, file), f.bytes);
-        const entry = { file, name: f.name, crc, size: f.bytes.length, source, from, added: new Date(now()).toISOString() };
-        const at = list.findIndex((r) => r.crc === crc);
-        if (at >= 0) list[at] = entry; else list.push(entry);
-      }
-      writeIndex(list);
+      from = fromOf(from);
+      locked(() => {
+        const list = readIndex();
+        for (const f of files) {
+          const crc = crcOf(f.bytes), file = `${crc}.rom`;
+          writeAtomic(path.join(dir, file), f.bytes);
+          const entry = { file, name: f.name, crc, size: f.bytes.length, source, from, added: new Date(now()).toISOString() };
+          const at = list.findIndex((r) => r.crc === crc);
+          if (at >= 0) list[at] = entry; else list.push(entry);
+        }
+        writeIndex(list);
+      });
     },
     // names: the entries to forget (null: all) -> the names forgotten
-    remove(names) {
+    remove: (names) => locked(() => {
       const list = readIndex(), gone = list.filter((r) => names === null || names.includes(r.name)), keep = list.filter((r) => !gone.includes(r));
       if (!gone.length) return [];
       writeIndex(keep);
       for (const r of gone) if (!keep.some((k) => k.file === r.file)) { try { fs.unlinkSync(path.join(dir, r.file)); } catch (e) { /* already gone */ } }
       return gone.map((r) => r.name);
-    },
+    }),
   };
 }
 
