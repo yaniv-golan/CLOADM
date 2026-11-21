@@ -38,8 +38,9 @@ Next version: 0.1.7-pre (the plugin and extension manifests carry it; `tests/plu
   chat firmware and leave "NO ROM LOADED"); the cassette deck's row, the type-in panel and the sockets screen show
   your BASIC session's tape and ROMs; and running a game or LIZA sets the machine up on your BASIC session, so
   leaving them (BREAK, BYE) goes back to the welcome menu as it should. Reset on the chat screen restarts the chat
-  firmware, which is what is on screen, and it comes back running. Booting NitrOS-9 from a floppy image also sets up
-  your BASIC session now (it put the disk controller into the chat machine's port).
+  firmware, which is what is on screen, and it comes back running. A floppy
+  NitrOS-9 boot also sets up your BASIC session (it put the disk controller into the chat machine's port), and so do
+  the assembler panel's **Run**, the Serial port panel and a game's or LIZA's menu watch.
 
 - **A restore closes the stale "No OK" box.** Claude's undo, and opening a snapshot, put the machine back to a
   moment that is not a power-on; boot-help never re-checked, so a box raised by the run the restore replaced stayed

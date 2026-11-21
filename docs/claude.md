@@ -147,7 +147,9 @@ Two ways to talk to Claude, one conversation:
   ends Fullscreen so it can be answered. A **Reset** or a **power cycle** of the machine Claude acts on, while Claude
   acts or is paused, stops Claude first ("[stopped: you reset the machine]" in the conversation); so does any other
   restart of that machine (a program or cartridge that starts, the welcome menu, LIZA, ROMs cleared: the machine's
-  `onReset`), and any program you load or run on it (with ROMs a program starts without a reset). A Reset of the full-screen chat's own screen leaves Claude's work on the BASIC session alone. A
+  `onReset`), and any program you load or run on it (with ROMs a program starts without a reset). A Reset of the full-screen chat's own screen leaves Claude's work on the BASIC session alone: Reset restarts what
+  is on screen (the chat firmware, which comes back running), while **Power** switches off and on the machine you
+  are working on - your BASIC session - and leaves the chat's screen alone. A
   snapshot load or a machine switch replaces the machine and closes the conversation. An Esc held down is one
   press: its autorepeat does not stop Claude, whatever modifier (Shift, AltGr, Caps Lock…) is pressed meanwhile; an
   Esc that only closes a card or a confirmation above the screen is not a key on the machine and pauses nothing.

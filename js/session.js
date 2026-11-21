@@ -650,12 +650,14 @@ export class Session {
   // the device on it: { kind: 'none' | 'printer' | 'terminal' | 'loopback', baud, kinds (what can be plugged in),
   // chip: 'bit-banger' | '6551' }, or null on machines without one
   get serialDevice() {
-    const m = this.machine, p = m.serialPort;
+    const m = this.personMachine, p = m.serialPort;
     return p ? { kind: p.kind, baud: p.baud, kinds: m.serialDevices, chip: m.acia ? '6551' : 'bit-banger' } : null;
   }
   // plug in a device; a terminal shows what the machine sends (terminalText) and sends what is typed (serialSend)
+  // the serial port is the person's (the Serial port panel): with the chat full screen this put the device on the
+  // chat machine's port
   attachSerial(kind, { baud = 600 } = {}) {
-    const m = this.machine;
+    const m = this.personMachine;
     if (!m.serialPort) throw new SessionError(`The ${m.profile.name} has no serial port here.`);
     if (!m.serialDevices.includes(kind)) throw new SessionError(`No serial device "${kind}" on the ${m.profile.name} (${m.serialDevices.join(', ')}).`);
     if (!SERIAL_BAUDS.includes(baud)) throw new SessionError(`${baud} baud is not offered (${SERIAL_BAUDS.join(', ')}).`);
@@ -683,10 +685,10 @@ export class Session {
   clearTerminal() { this.terminalBytes.length = 0; this.emit('serial'); }
   // send text (or bytes) from the terminal to the machine; newlines become CR
   serialSend(data) {
-    const p = this.machine.serialPort;
+    const p = this.personMachine.serialPort;
     if (!p || p.kind !== 'terminal') throw new SessionError('Plug in the terminal first (Machine settings, Serial port).');
     const bytes = typeof data === 'string' ? [...data.replace(/\r?\n/g, '\r')].map((c) => c.charCodeAt(0) & 0xFF) : [...data];
-    p.send(bytes, this.machine.now());
+    p.send(bytes, this.personMachine.now());
     return bytes.length;
   }
 
@@ -2566,6 +2568,9 @@ export class Session {
   }
   // the person types text in (a paste, the type-in panel, a POKE from the book, a tap on the welcome menu, the embed
   // API): it is the person's input, so Claude acting on that machine pauses first (personInput), and the text goes in
+  // What is typed at the keyboard goes to the machine ON SCREEN: with the chat full screen that is the chat, and a
+  // line typed there is a line of the conversation - by design. (A caller that means the person's BASIC session
+  // while the chat is open names it: typeText(text, session.personMachine).)
   typeText(text, m = this.machine) {
     this.personInput(m);
     return this.queueText(text, m);
@@ -3141,8 +3146,10 @@ export class Session {
 
   // assembled program (Emu.assemble result) -> message
   runAssembled(res) {
+    // the assembler panel is the person's: the program runs on personMachine (inject's default is the machine in
+    // use, which with the chat full screen is the chat machine - the sweep's runAssembled row was red on that)
     this.endWelcome();
-    this.inject(res.segments, res.exec);
+    this.inject(res.segments, res.exec, this.personMachine);
     this.labels = res.symbols;                    // the debugger's disassembly shows them (see `debug`)
     if (this.debugger) this.debugger.setSymbols(() => this.labels);
     this.emit('loaded');
