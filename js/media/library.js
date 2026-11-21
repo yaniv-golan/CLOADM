@@ -190,7 +190,12 @@ export class MediaIndex {
   // itself. Without this a list holding one would show the same file twice — the entry it stored, and the
   // entry a later load makes under the upper-case CRC — and its own row would fail to find its bytes.
   _readRecent(list) {
-    return (Array.isArray(list) ? list : []).map((r) => (r && typeof r.crc === 'string' ? Object.assign({}, r, { crc: r.crc.toUpperCase() }) : r));
+    // Only real entries: an entry needs a name and a CRC. A hand-edited or older list can hold a null, a string
+    // (which Object.assign copies as {0:'j',...}) or an object with one field missing; those have no row to draw
+    // and no bytes to load, and grouping them would label junk against junk.
+    return (Array.isArray(list) ? list : [])
+      .filter((r) => r && typeof r === 'object' && typeof r.crc === 'string' && typeof r.name === 'string')
+      .map((r) => Object.assign({}, r, { crc: r.crc.toUpperCase() }));
   }
   socketCrc(machine, socket) { return (this.sockets[machine] || {})[socket] || null; }
   image(crc) { return this.images.get(crc) || null; }
