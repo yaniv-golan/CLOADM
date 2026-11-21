@@ -12,6 +12,17 @@ Next version: 0.1.7-pre (the plugin and extension manifests carry it; `tests/plu
 
 #### Added
 
+- **The play page reads as a document: for screen readers and a browser's reading mode.** On a phone, Chrome's
+  reading mode showed every panel's text in a jumble. The emulator is now the one `<main>`, with a heading naming the
+  machine; the app bar, the ports under the screen, the settings drawer and the footer are landmarks; each view
+  (Library, Share, the Debugger, Add ROMs) is the main landmark while it is open, with one h1; and what is not drawn
+  is hidden for real, not only by the stylesheet: the emulator behind a view, the phone's folded Menu links, the drawer
+  and ports in the touch layout are `inert` and `aria-hidden`, and the Multi-Pak's slots are `hidden` while it is
+  folded. The screen canvas is an application with a text alternative: the screen's text, as Claude's `screen_text`
+  reads it, refreshed at most once a second (`Session.screenAlternative()`). The landing page gains its `<header>` and
+  `<main>`. Nothing looks different. The browser check's new group `semantics` checks all of it at desktop, phone
+  (portrait and landscape) and tablet size, with Mozilla's Readability (an unmodified copy in `tools/vendor/`,
+  development only) as the stand-in for a reading mode.
 - **A command-line tool and a Node API guide, for CI and coding agents.** `node cli/cloadm.js` runs any model
   headless: choose the machine and its options, give your own ROMs (a file, a ROM pack or a directory; without them
   the built-in firmware runs machine code), load a program, tape, disk, cartridge, snapshot or assembler source, type

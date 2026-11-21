@@ -66,6 +66,12 @@ Self-hosted from `fonts/`, each with its licence file, so the site never asks a 
 
 The WOFF2 files are the unmodified Google Fonts builds packaged by [Fontsource](https://fontsource.org/).
 
+## Development tools
+
+- **[Readability](https://github.com/mozilla/readability)** by Mozilla (Copyright (c) 2010 Arc90 Inc), Apache
+  License 2.0: an unmodified copy in `tools/vendor/readability/`, with its licence, used only by the browser check
+  as a stand-in for a browser's reading mode. The site never loads it.
+
 ## Programs on the "runs without ROMs" shelf
 
 Only programs written for CLOADM: the welcome program, LIZA and the colour demo. No third-party homebrew is bundled. A title would be

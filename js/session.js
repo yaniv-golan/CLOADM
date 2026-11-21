@@ -44,6 +44,7 @@ import { inspectOs9Disk, NITROS9_IMAGES_URL } from './media/os9.js';
 import { END_OF_REPLY } from './claude/chat.js';
 import { loadBasic as loadBasicInto, planBasic } from './claude/basicload.js';
 import { transcript } from './claude/history.js';
+import { screenTextTool } from './claude/readtools.js';
 
 // the status of a turn paused by the person's key, in every view that shows it with Resume and Stop (Esc is Stop then)
 // (one text for every paused state, UX R11b: whether a call waits, typing is held, or Claude only writes its reply,
@@ -1149,6 +1150,19 @@ export class Session {
       out.push(line);
     }
     return out;
+  }
+  // The screen as text, for the page's text alternative of the screen canvas (what a screen reader or a reader view
+  // gets instead of the picture): the machine on screen read as Claude's screen_text reads it (one reader: every
+  // text mode it can walk, the CoCo 3's GIME and the Dragon 64 Plus's 80 columns included), its rows from the first
+  // with text joined by "\n".
+  // A screen it cannot read as text says so in a sentence, as does one of semigraphics blocks only or an empty one.
+  screenAlternative(m = this.machine) {
+    const r = screenTextTool({ machine: m, readByte: (a) => this.readByte(a, m) });
+    if (!r.text) return `The screen shows a picture, not text (${r.mode}).`;
+    // (blank rows above the first line of text are where it sits on the screen, not text: left out)
+    const from = r.lines.findIndex((l) => l.trim());
+    if (from >= 0) return r.lines.slice(from).join('\n');
+    return r.semigraphics ? 'The screen shows block graphics, no text.' : 'The screen is blank.';
   }
   // Did BASIC start? 'stub' (no ROMs in use), 'nitros9' (our NitrOS-9 loader instead of BASIC: bootNitros9),
   // 'ok' (BASIC printed OK), 'booting', 'restored' (a snapshot was opened: not a power-on, so not a boot), or

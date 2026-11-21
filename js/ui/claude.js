@@ -22,7 +22,7 @@ import { ACTING_TOOL_NAMES } from '../claude/chat.js';
 import { CLAUDE_PAUSED_TEXT } from '../session.js';
 import { CanvasPresenter } from '../video/canvas.js';
 import { cpuFamily } from '../cpu/cpus.js';
-import { $, ESC, VIEWS, viewOpen } from './page.js';
+import { $, ESC, VIEWS, viewOpen, markUndrawn } from './page.js';
 import { chatTurns } from '../claude/history.js';
 import { actionLines, restoreLine } from './claude-lines.js';
 
@@ -258,6 +258,8 @@ export function setupClaude(page) {
     document.body.classList.toggle('claude-open', on);
     $('claude').hidden = !on;
     $('claudeBar').hidden = !on;
+    $('emuHeading').hidden = on;   // the chat's bar is the heading then (one h1: its CHAT WITH CLAUDE)
+    markUndrawn();   // (the chat hides the drawer and the ports: page.js)
     $('claudeViewRow').hidden = !on;
     // the address says what is open, so a reload or a copied link opens the same. Opening the chat is one step in
     // the page's history (page.openStep): the browser's Back closes it (the app bar is hidden in the phone layout; Ctrl K still reaches the views), and

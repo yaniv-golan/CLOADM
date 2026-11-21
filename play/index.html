@@ -177,7 +177,7 @@
   .slot[hidden] { display: none; }
   .slot.tape { flex-basis: 280px; }
   #cartSlot { flex-basis: 220px; }
-  .slot .body { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .slot .inner { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
   .slot .title { font-size: 14px; color: var(--muted); }
   .slot .name { font-weight: 700; overflow-wrap: anywhere; }
   /* The NitrOS-9 image list: one full-width row in the card, never wider than it (a long release file name would
@@ -185,7 +185,8 @@
      title (set with the choice) show the whole name. */
   #n9Image { flex: 1 1 100%; min-width: 0; max-width: 100%; text-overflow: ellipsis; }
   #mpak summary { cursor: pointer; color: var(--text-2); }
-  .mpBody { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+  .mpSlots { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+  .mpSlots[hidden] { display: none; }
   .mpRow { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
   .mpLabel { min-width: 3.5em; color: var(--text-2); }
   .mpRow button:not(.primary) { max-width: 12em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -475,7 +476,7 @@
   #debugView[hidden] { display: none; }
   .dbghead { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 12px 20px; border-bottom: 1px solid #1D2420; }
   .dbghead a { color: var(--text-2); text-decoration: none; font-size: 14px; }
-  .dbghead .wordmark { font-weight: 800; font-stretch: 125%; font-size: 16px; }
+  .dbghead .wordmark { margin: 0; font-weight: 800; font-stretch: 125%; font-size: 16px; }
   .dbghead .grow { flex: 1; }
   #dbgStatus { font-size: 14px; color: var(--phosphor); }
   #dbgStatus.stopped { color: var(--orange); }
@@ -1282,17 +1283,18 @@ npx serve -l 8000 .</pre>
   <div class="cmdfoot" role="note">Type to filter, or type a question for Claude. Commands run here and are never sent to Claude.</div>
 </div>
 
-<div id="claudeBar" hidden>
+<div id="claudeBar" role="region" aria-labelledby="claudeBarHeading" hidden>
   <button id="btnClaudeBack">← Emulator</button>
-  <h1>CHAT WITH CLAUDE</h1>
+  <h1 id="claudeBarHeading">CHAT WITH CLAUDE</h1>
   <span id="claudeStatus" role="status" hidden><span class="dot" aria-hidden="true"></span><span id="claudeStatusText">Thinking…</span><button id="btnClaudeResume" hidden>Resume</button><button id="btnClaudeStop">Stop</button></span>
   <div class="viewswitch" role="group" aria-label="View"><button id="btnFullSide" aria-pressed="false">Side panel</button><button id="btnFullFull" aria-pressed="true">Full screen</button></div>
   <span class="muted" id="claudeSame">Same conversation in both views</span>
   <span id="claudeSpec"></span>
 </div>
 
-<!-- Share: a view of /play/ at #share -->
-<div id="share" hidden aria-labelledby="shareHeading">
+<!-- Share: a view of /play/ at #share. Each view (Share, the Debugger, Add ROMs, the Library) is the page's main landmark
+     while it is open (role="main"); the emulator's <main>, hidden behind it, is made inert then (js/ui/page.js) -->
+<div id="share" role="main" hidden aria-labelledby="shareHeading">
   <header><a href="#" class="back" id="shareBack">← Emulator</a><strong>SHARE</strong><span class="grow" style="flex:1"></span><a href="help/">Help</a></header>
   <section class="col" aria-labelledby="shareHeading">
     <div class="mono">SHARE</div>
@@ -1335,7 +1337,10 @@ npx serve -l 8000 .</pre>
   </section>
 </div>
 <div class="layout">
-  <main>
+  <main aria-labelledby="emuHeading">
+    <!-- the emulator's heading, for assistive technology and reader views (the case badge is its visible name);
+         js/ui/machine-panel.js names the machine, and the full-screen chat's bar takes over as the heading -->
+    <h1 id="emuHeading" class="sr-only">Dragon 64</h1>
     <div id="snapNeeds" role="alertdialog" aria-labelledby="snapNeedsText" hidden><strong id="snapNeedsText"></strong>
       <div class="bar"><button id="btnSnapRoms" class="primary">Add ROMs</button><button id="btnSnapLook"></button>
         <button id="btnSnapDismiss">Dismiss</button></div></div>
@@ -1347,7 +1352,7 @@ npx serve -l 8000 .</pre>
 
     <div class="monitor crt" id="monitor" data-family="dragon">
       <div class="tube">
-        <div id="screenWrap"><canvas id="screen" tabindex="0" aria-label="The emulated screen. Click it, then type. Tab leaves it."></canvas>
+        <div id="screenWrap"><canvas id="screen" tabindex="0" role="application" aria-label="The emulated screen. Click it, then type. Tab leaves it."><pre id="screenAlt">The screen is blank.</pre></canvas>
           <!-- the browser's Fullscreen shows only this wrapper: Claude's status with Stop (and Resume) is in it -->
           <div id="fsClaude" role="status" hidden><span class="dot" aria-hidden="true"></span><span id="fsClaudeText"></span><button id="btnFsResume" hidden>Resume</button><button id="btnFsStop">Stop</button></div></div>
         <!-- Claude acting on the machine: a pulsing ring on the screen and this pill with Stop -->
@@ -1417,10 +1422,12 @@ npx serve -l 8000 .</pre>
     </div>
 
     <!-- the on-screen keyboard (js/ui/touch-keys.js) -->
-    <div class="slots">
+    <!-- the machine's ports under the screen, a complementary landmark of the emulator: their labels are controls' text,
+         not the main content a reading mode should show (it leaves an aside out) -->
+    <aside class="slots" aria-label="Tape, disks and cartridges">
       <div class="slot tape">
         <button class="deck" id="btnTape" aria-label="Cassette deck: insert a tape"><span class="reel"></span><span class="reel"></span></button>
-        <div class="body">
+        <div class="inner">
           <div class="title">Cassette · <span id="tapeState">click the deck to insert</span></div>
           <div class="name" id="tapeName">No tape</div>
           <div class="bar"><button id="btnRewind">Rewind</button>
@@ -1429,7 +1436,7 @@ npx serve -l 8000 .</pre>
         </div>
       </div>
       <div class="slot" id="driveSlot" hidden>
-        <div class="body" style="flex:1">
+        <div class="inner" style="flex:1">
           <div class="title">Drives · <span id="driveDos"></span> · click a drive to insert</div>
           <div class="drives" id="drives" role="group" aria-label="Disk drives"></div>
           <div class="drive-menu" id="driveMenu" hidden></div>
@@ -1437,7 +1444,7 @@ npx serve -l 8000 .</pre>
         </div>
       </div>
       <div class="slot" id="nitros9Slot" hidden>
-        <div class="body" style="flex:1">
+        <div class="inner" style="flex:1">
           <div class="title">NitrOS-9 · <span id="n9State">DriveWire or floppy, no ROM needed</span></div>
           <div class="bar"><select id="n9Image" aria-label="NitrOS-9 DriveWire image"></select>
             <button id="btnN9Boot">Boot NitrOS-9</button><button id="btnN9Add">Add image…</button>
@@ -1451,7 +1458,7 @@ npx serve -l 8000 .</pre>
         </div>
       </div>
       <div class="slot" id="cartSlot">
-        <div class="body" style="flex:1">
+        <div class="inner" style="flex:1">
           <div class="title">Cartridge port</div>
           <div class="bar"><button class="cart" id="btnCart" aria-label="Cartridge port: insert a cartridge">Insert cartridge…</button>
             <select id="selCartBoard" aria-label="Cartridge board for the next image" title="The board the next cartridge image goes on">
@@ -1459,7 +1466,7 @@ npx serve -l 8000 .</pre>
               <option value="gmc">Games Master</option><option value="orch90">Orchestra-90</option>
               <option value="ssc">Speech/Sound Pak (music only; speech not yet)</option></select></div>
           <details id="mpak"><summary>Multi-Pak…</summary>
-            <div class="mpBody">
+            <div class="mpSlots">
               <div class="mpRow"><span class="mpLabel">Slot 1</span><button id="btnMpSlot1" aria-label="Multi-Pak slot 1: choose a cartridge image">Empty</button>
                 <select id="selMpBoard1" aria-label="Multi-Pak slot 1 board"><option value="auto">Board: automatic</option><option value="pak">Program Pak</option><option value="banked">Banked ROM</option><option value="gmc">Games Master</option><option value="orch90">Orchestra-90</option></select></div>
               <div class="mpRow"><span class="mpLabel">Slot 2</span><button id="btnMpSlot2" aria-label="Multi-Pak slot 2: choose a cartridge image">Empty</button>
@@ -1475,7 +1482,7 @@ npx serve -l 8000 .</pre>
           </details>
         </div>
       </div>
-    </div>
+    </aside>
     <!-- the cassette panel: while a tape is in the deck or it records -->
     <section id="tapePanel" aria-label="Cassette deck" hidden>
       <div class="deckart">
@@ -1692,9 +1699,9 @@ npx serve -l 8000 .</pre>
 </div>
 
 <!-- The Debugger: shown instead of the emulator at #debugger -->
-<div id="debugView" hidden>
+<div id="debugView" role="main" aria-labelledby="dbgHeading" hidden>
   <header class="dbghead">
-    <a href="play/" id="btnDbgBack">← Emulator</a><strong class="wordmark">DEBUGGER</strong>
+    <a href="play/" id="btnDbgBack">← Emulator</a><h1 class="wordmark" id="dbgHeading">DEBUGGER</h1>
     <span id="dbgStatus" class="mono" role="status"></span><span class="grow"></span>
     <div role="toolbar" aria-label="Execution" class="bar">
       <button id="btnDbgRun" class="primary">Run <kbd>F5</kbd></button><button id="btnDbgStep">Step <kbd>F11</kbd></button>
@@ -1740,7 +1747,7 @@ npx serve -l 8000 .</pre>
 </div>
 
 <!-- Adding ROMs: shown instead of the emulator at #add-roms -->
-<div id="romCard" hidden>
+<div id="romCard" role="main" aria-labelledby="romHeading" hidden>
   <div class="libhead"><a href="play/" id="btnRomBack">← Emulator</a><span class="grow"></span><a href="roms/" id="romsLink">Where to get ROMs</a></div>
   <div class="romgrid">
     <section class="romleft" aria-labelledby="romHeading">
@@ -1797,7 +1804,7 @@ npx serve -l 8000 .</pre>
 <div id="viewClaude" role="status" hidden><span class="dot" aria-hidden="true"></span><span id="viewClaudeText"></span><button id="btnViewAnswer" hidden>Answer</button><button id="btnViewResume" hidden>Resume</button><button id="btnViewStop">Stop</button></div>
 <div id="toastRegion" role="status" aria-live="polite"><div id="toast" hidden><span id="toastText"></span><button id="toastAction" type="button" hidden></button><div id="toastDetails" hidden></div></div></div>
 <div id="attention" hidden><span id="attentionText"></span><span class="bar"><button id="attentionAction" class="primary" hidden></button><button id="attentionClose">Dismiss</button></span></div>
-<div id="library" hidden>
+<div id="library" role="main" aria-labelledby="libHeading" hidden>
   <div class="libhead"><a href="play/" id="btnLibBack">← Emulator</a><strong class="wordmark">LIBRARY</strong><span class="grow"></span><a href="help/">Help</a></div>
   <div class="libgrid">
     <section class="shelf" aria-labelledby="libHeading">

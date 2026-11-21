@@ -82,6 +82,7 @@ export function setupScreen(page, { loadPrograms, roms }) {
   // ticks with nothing new, and paused there is nothing new until a setting or the size changes.
   let last = performance.now(), fpsFrames = 0, fpsTime = last, fps = 0;
   let shown = { picture: null, display: null, width: 0, height: 0, steps: -1, restores: 0 };
+  let altTime = -Infinity, alt = null;
   function tick(now) {
     requestAnimationFrame(tick);
     const dt = now - last; last = now;
@@ -101,6 +102,13 @@ export function setupScreen(page, { loadPrograms, roms }) {
     if (ran || picture !== shown.picture || display !== shown.display || box.width !== shown.width || box.height !== shown.height || steps !== shown.steps || restores !== shown.restores) {
       presenter.present(picture, display, box.width, box.height);
       shown = { picture, display, width: box.width, height: box.height, steps, restores };
+    }
+    // the canvas's text alternative (#screenAlt, its fallback content): the screen as text for a screen reader or a
+    // reader view, at most once a second, and written only when it changed
+    if (now - altTime >= 1000) {
+      altTime = now;
+      const t = session.screenAlternative();
+      if (t !== alt) { $('screenAlt').textContent = t; alt = t; }
     }
     if (paused) return;
     if (now - fpsTime >= 1000) { fps = fpsFrames * 1000 / (now - fpsTime); fpsFrames = 0; fpsTime = now; }

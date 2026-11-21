@@ -11387,6 +11387,263 @@ async function modelsChecks(browser, base, check) {
   check('file:// open shows how to serve the page', await local.waitForSelector('#startError', { state: 'visible', timeout: 10000 }).then(() => true, () => false));
 }
 
+// ---------------- document semantics: what assistive technology and a reading mode get ----------------
+// The play page as a document, at desktop, phone portrait and landscape, and tablet size: exactly one <main> (the
+// emulator's) and one main landmark in every view (each view is its own while open), the landmark set, the headings in
+// order (one h1, no level skipped), the screen canvas named and its text alternative (Session.screenAlternative) in the
+// accessibility tree, and every surface that is not drawn (a dialog, a menu, a tab panel, an aside, a nav, a view, the
+// Multi-Pak's folded slots, the emulator behind a view) hidden for real: by its hidden attribute or by inert and
+// aria-hidden, nothing of it in Playwright's accessibility snapshot, nothing in it able to take the focus. Dialogs are
+// named; none says aria-modal, because none is modal (Tab leaves the command box, shown here). Then a reading mode's
+// extraction, with Mozilla's Readability (tools/vendor/readability, an unmodified copy) standing in for one: it works
+// from the markup, not the stylesheet, which is how Chrome's reading mode came to show every panel's text. Its article
+// must be short and be the screen's text, not the panels'; in a view, the view and not the emulator behind it.
+// Finally the landing page: banner, navigation, one main, contentinfo, headings in order.
+async function semanticsChecks(browser, base, site, check) {
+  const { devices } = require('playwright');
+  const READER = path.join(__dirname, 'vendor', 'readability', 'Readability.js');
+  const LANDMARK = /^(\s*)- (banner|main|navigation|complementary|contentinfo|region|search|form)(?: "((?:[^"\\]|\\.)*)")?/;
+  // the landmarks (role "name", nested ones indented by depth) and the headings ([level, name]) of the snapshot
+  const outline = async (page) => {
+    const snap = await page.locator('body').ariaSnapshot();
+    const landmarks = [], headings = [];
+    for (const line of snap.split('\n')) {
+      const l = LANDMARK.exec(line);
+      if (l) landmarks.push(`${l[2]}${l[3] !== undefined ? ` "${l[3]}"` : ''}`);
+      const h = /heading "((?:[^"\\]|\\.)*)" \[level=(\d)\]/.exec(line);
+      if (h) headings.push([+h[2], h[1]]);
+    }
+    return { snap, landmarks, headings };
+  };
+  // one h1, first; each heading at most one level below the one before
+  const inOrder = (hs) => hs.length > 0 && hs[0][0] === 1 && hs.filter(([l]) => l === 1).length === 1 && hs.every(([l], i) => i === 0 || l <= hs[i - 1][0] + 1);
+  // Every surface that is not drawn, and whether it is hidden for real. Read in the page: the surfaces are found by
+  // what they are (role or element), not by a list of ids, so a new one is covered. Not drawn: no box (display: none,
+  // a closed <details>), invisible or transparent, or a box wholly off the page (a panel parked off-screen by CSS).
+  // With each: whether it or an ancestor has the hidden attribute or inert with aria-hidden, and its focusable
+  // descendants that took a focus(). Each is marked (data-semantics-probe) for the snapshot check, and unmarked after.
+  const undrawn = (page) => page.evaluate(() => {
+    const SURFACES = '[role="dialog"], [role="alertdialog"], dialog, [role="menu"], [role="tabpanel"], [role="main"], [role="region"], main, aside, nav, '
+      + '.layout, #appbar, body > footer, #mpak .mpSlots, #tkMenuSheet, #driveMenu';
+    const FOCUSABLE = 'a[href], button, input, select, textarea, summary, [tabindex]';
+    const W = document.documentElement.scrollWidth, H = document.documentElement.scrollHeight;
+    const out = [];
+    for (const el of document.querySelectorAll(SURFACES)) {
+      const b = el.getBoundingClientRect(), x = b.left + scrollX, y = b.top + scrollY;
+      const off = b.width > 0 && b.height > 0 && (x + b.width <= 0 || y + b.height <= 0 || x >= W || y >= H);
+      if (el.checkVisibility({ opacityProperty: true, visibilityProperty: true }) && !off) continue;
+      const hiddenBy = el.closest('[hidden]') ? 'hidden' : el.closest('[inert][aria-hidden="true"]') ? 'inert' : null;
+      const was = document.activeElement, took = [];
+      for (const f of el.querySelectorAll(FOCUSABLE)) { f.focus(); if (document.activeElement === f) took.push(f.id || f.tagName); }
+      if (was && was.focus) was.focus();
+      el.setAttribute('data-semantics-probe', String(out.length));
+      out.push({ id: el.id || `${el.tagName.toLowerCase()}.${el.className}`, hiddenBy, took });
+    }
+    return out;
+  });
+  // what is not drawn must be hidden for real, show nothing to assistive technology and take no focus
+  const closedOk = async (page, L) => {
+    const list = await undrawn(page);
+    const bad = list.filter((s) => !s.hiddenBy || s.took.length);
+    const seen = [];
+    for (let i = 0; i < list.length; i++) if ((await page.locator(`[data-semantics-probe="${i}"]`).ariaSnapshot()).trim()) seen.push(list[i].id);
+    await page.evaluate(() => { for (const el of document.querySelectorAll('[data-semantics-probe]')) el.removeAttribute('data-semantics-probe'); });
+    check(`${L}: every surface not drawn is hidden for real (hidden, or inert and aria-hidden), takes no focus and is out of the accessibility snapshot (${list.length} surfaces)`,
+      list.length > 0 && !bad.length && !seen.length, JSON.stringify({ bad, seen }));
+    return list;
+  };
+  // the screen canvas: its role and name, and the text in its subtree in Chromium's accessibility tree, which must be
+  // the Session's text alternative (whitespace runs compared as one space)
+  const norm = (t) => t.replace(/\s+/g, ' ').trim();
+  const screenAx = async (page) => {
+    const cdp = await page.context().newCDPSession(page);
+    const { nodes } = await cdp.send('Accessibility.getFullAXTree');
+    await cdp.detach();
+    const byId = new Map(nodes.map((n) => [n.nodeId, n]));
+    const app = nodes.filter((n) => !n.ignored && n.role && n.role.value === 'application');
+    const text = (n) => (n.role && n.role.value === 'StaticText' ? n.name.value : '') + (n.childIds || []).map((c) => text(byId.get(c))).join('');
+    return { count: app.length, name: app[0] && app[0].name && app[0].name.value, text: app[0] ? text(app[0]) : '' };
+  };
+  // what a reading mode extracts: Readability on a copy of the document, as the page is now
+  const extract = async (page) => {
+    if (!await page.evaluate(() => typeof window.Readability === 'function')) await page.addScriptTag({ path: READER });
+    return page.evaluate(() => { const a = new window.Readability(document.cloneNode(true)).parse(); return a ? a.textContent.replace(/\s+/g, ' ').trim() : ''; });
+  };
+  // text of the panels and views: none of it is the article on the emulator
+  const SOUP = ['Cassette', 'Drives', 'Cartridge port', 'Multi-Pak', 'Slot 1', 'Fast tape loading', 'Runs without ROMs', 'Recent on this machine',
+    'Machine settings', 'Your Anthropic API key', 'Ask about this machine', 'Give it a BASIC to boot', 'A link that opens exactly here',
+    'Your tapes, disks and cartridges', 'Breakpoints', 'Credits', 'Running with no ROMs'];
+
+  const SIZES = [['desktop', { viewport: { width: 1440, height: 900 } }], ['phone', devices['Pixel 7']],
+    ['phone landscape', devices['Pixel 7 landscape']], ['tablet', devices['iPad (gen 7)']]];
+  for (const [label, opts] of SIZES) {
+    const ctx = await browser.newContext({ ...opts, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}?machine=dragon64`);
+    await ready(page);
+    await started(page);
+    await waitFor(page, () => window.emu.session.screenAlternative().includes('TALK TO LIZA'));
+    // (the text alternative follows the screen within a second: wait for it to have caught up)
+    await waitFor(page, () => document.getElementById('screenAlt').textContent === window.emu.session.screenAlternative());
+    const L = `semantics (${label})`;
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `semantics-${label.replace(/ /g, '-')}.png`) });
+
+    // one <main>, one main landmark; the landmarks; the headings
+    const o = await outline(page);
+    const mains = await page.evaluate(() => document.querySelectorAll('main').length);
+    check(`${L}: exactly one <main>, and one main landmark, the emulator's, named by the machine`,
+      mains === 1 && o.landmarks.filter((x) => x.startsWith('main')).length === 1 && o.landmarks.includes('main "Dragon 64"'), JSON.stringify({ mains, landmarks: o.landmarks }));
+    // the touch keys' layout on a phone held sideways has only the emulator: the keys stand for the app bar, the
+    // ports, the drawer and the footer
+    const touch = !await page.locator('#appbar').isVisible();
+    const navShown = await page.locator('#appbar > nav').isVisible();
+    const want = touch ? ['main "Dragon 64"'] : ['banner', ...(navShown ? ['navigation "App"'] : []), 'main "Dragon 64"', 'complementary "Tape, disks and cartridges"',
+      'complementary "Settings drawer"', 'contentinfo'];
+    check(`${L}: the landmarks: ${touch ? 'the emulator alone (main), its touch keys in place of the rest' : `the app bar (banner${navShown ? ', its links a navigation' : '; its links folded behind Menu, so no navigation'}), the emulator (main) with the ports under its screen (complementary), the settings drawer (complementary), the footer (contentinfo)`}`,
+      JSON.stringify(o.landmarks) === JSON.stringify(want), JSON.stringify(o.landmarks));
+    check(`${L}: the headings: one h1 naming the machine, none skipped`, inOrder(o.headings) && o.headings[0][1] === 'Dragon 64', JSON.stringify(o.headings));
+
+    // the screen: an application named as before, its text alternative the screen's text
+    const ax = await screenAx(page);
+    const alt = await page.evaluate(() => window.emu.session.screenAlternative());
+    check(`${L}: the screen is one application, named, its text alternative the screen's text in the accessibility tree`,
+      ax.count === 1 && ax.name === 'The emulated screen. Click it, then type. Tab leaves it.' && norm(ax.text) === norm(alt) && /1 TALK TO LIZA/.test(ax.text), JSON.stringify(ax));
+
+    // closed surfaces, as the page starts and after each has been opened and closed again
+    await closedOk(page, `${L}, as it starts`);
+    if (label === 'desktop') {
+      await page.click('#machineBtn'); await waitFor(page, () => !document.getElementById('machineMenu').hidden);
+      await page.keyboard.press('Escape'); await waitFor(page, () => document.getElementById('machineMenu').hidden);
+      await page.keyboard.press('Control+k'); await waitFor(page, () => !document.getElementById('cmdBox').hidden);
+      // the command box is not modal: Tab leaves it, past its box and its list (so it must not, and does not, say aria-modal)
+      const outside = () => page.evaluate(() => !document.getElementById('cmdBox').contains(document.activeElement) && !document.getElementById('cmdBox').hidden);
+      let left = false;
+      for (let i = 0; i < 4 && !left; i++) { await page.keyboard.press('Tab'); left = await outside(); }
+      const dialogs = await page.evaluate(() => [...document.querySelectorAll('[role="dialog"], [role="alertdialog"], dialog')].map((d) => ({
+        id: d.id, named: !!((d.getAttribute('aria-label') || '').trim() || (d.getAttribute('aria-labelledby') || '').split(/\s+/).some((i) => document.getElementById(i))), modal: d.getAttribute('aria-modal') })));
+      check(`${L}: every dialog is named, and none says aria-modal: none is modal (Tab leaves the open command box)`,
+        left && dialogs.length >= 5 && dialogs.every((d) => d.named && d.modal === null), JSON.stringify({ left, dialogs }));
+      await page.keyboard.press('Escape'); await waitFor(page, () => document.getElementById('cmdBox').hidden);
+      await openTab(page, 'Display'); await openTab(page, 'Media');
+      await closedOk(page, `${L}, after the machine menu, the command box and a tab were opened and closed`);
+    }
+    if (label === 'phone') {
+      // the app bar's links behind Menu: out of the tree while folded, in it while open
+      const folded = await page.evaluate(() => { const n = document.querySelector('#appbar > nav'); return n.inert && n.getAttribute('aria-hidden') === 'true'; });
+      await page.click('#btnMenu');
+      await waitFor(page, () => document.querySelector('#appbar > nav').checkVisibility());
+      const open = await outline(page);
+      const opened = await page.evaluate(() => !document.querySelector('#appbar > nav').inert && !document.querySelector('#appbar > nav').hasAttribute('aria-hidden'));
+      check(`${L}: the links behind Menu are inert and aria-hidden while folded, a navigation landmark once Menu opens them`,
+        folded && opened && open.landmarks.includes('navigation "App"'), JSON.stringify({ folded, opened, landmarks: open.landmarks }));
+      await page.click('#btnMenu');
+      await waitFor(page, () => document.querySelector('#appbar > nav').inert);
+    }
+
+    // a reading mode on the emulator: the screen's text, short, none of the panels' text
+    const article = await extract(page);
+    const soup = SOUP.filter((s) => article.includes(s));
+    check(`${L}: a reading mode (Readability) extracts the screen's text, short (${article.length} characters), none of the panels' text`,
+      article.startsWith(norm(alt)) && article.length <= 400 && !soup.length, JSON.stringify({ article: article.slice(0, 300), soup }));
+
+    // the views: each its own main landmark with one h1, the emulator behind it inert and out of a reading mode
+    for (const [hash, name, own, backBtn] of [['#library', 'Library', 'Your tapes, disks and cartridges', '#btnLibBack'],
+      ['#share', 'A link that opens exactly here', 'The link holds a snapshot', '#shareBack'], ['#debugger', 'DEBUGGER', 'Breakpoints', '#btnDbgBack'],
+      ['#add-roms', 'Give it a BASIC to boot', 'Drop your ROM files here', '#btnRomBack']]) {
+      if (label !== 'desktop' && hash !== '#library') continue;   // (the views do not change with the size; the Library stands for them)
+      await page.evaluate((h) => { location.hash = h; }, hash);
+      await waitFor(page, () => getComputedStyle(document.querySelector('.layout')).display === 'none');
+      const v = await outline(page);
+      const behind = await page.evaluate(() => { const l = document.querySelector('.layout'); return l.inert && l.getAttribute('aria-hidden') === 'true'; });
+      check(`${L}, ${hash}: one main landmark, the view's ("${name}"), one h1 and the headings in order`,
+        v.landmarks.filter((x) => x.startsWith('main')).length === 1 && v.landmarks.includes(`main "${name}"`) && inOrder(v.headings) && v.headings[0][1] === name,
+        JSON.stringify({ landmarks: v.landmarks, headings: v.headings }));
+      await closedOk(page, `${L}, ${hash}`);
+      const text = await extract(page);
+      check(`${L}, ${hash}: the emulator behind the view is inert and aria-hidden, and a reading mode reads the view, not the emulator`,
+        behind && text.includes(own) && !text.includes('TALK TO LIZA') && !text.includes('Fast tape loading'), JSON.stringify({ behind, text: text.slice(0, 200) }));
+      await page.click(backBtn);
+      await waitFor(page, () => getComputedStyle(document.querySelector('.layout')).display !== 'none');
+      const back = await page.evaluate(() => ({ inert: document.querySelector('.layout').inert, focus: document.activeElement && document.activeElement.id }));
+      check(`${L}, ${hash} closed: the emulator is back, not inert, and the screen has the focus`, !back.inert && back.focus === 'screen', JSON.stringify(back));
+    }
+
+    // the screen's text alternative follows the screen: LIZA from the welcome menu
+    if (label === 'desktop') {
+      await page.click('#screen');
+      await page.keyboard.press('1');
+      const follows = await waitFor(page, () => /LIZA/.test(window.emu.session.screenAlternative()) && !/TALK TO LIZA/.test(window.emu.session.screenAlternative())
+        && document.getElementById('screenAlt').textContent === window.emu.session.screenAlternative());
+      const ax2 = await screenAx(page);
+      check(`${L}: the text alternative follows the screen (LIZA started from the menu)`, follows && norm(ax2.text) === norm(await page.evaluate(() => window.emu.session.screenAlternative())), JSON.stringify(ax2.text.slice(0, 120)));
+      // Ask Claude's side panel (off the welcome menu it opens beside the machine): a complementary landmark while open,
+      // hidden for real once closed
+      await page.click('#btnAsk'); await waitFor(page, () => !document.getElementById('ask').hidden);
+      const asking = await outline(page);
+      check(`${L}: Ask Claude open: its aside is a complementary landmark, the headings still in order`,
+        asking.landmarks.includes('complementary "Ask Claude"') && inOrder(asking.headings), JSON.stringify(asking.landmarks));
+      await page.click('#btnAskClose'); await waitFor(page, () => document.getElementById('ask').hidden);
+      await closedOk(page, `${L}, Ask Claude opened and closed`);
+    }
+    check(`${L}: no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // the full-screen chat: its bar is a region with the one h1; one main
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    await page.goto(`${base}?machine=dragon64&app=claude`);
+    await ready(page);
+    await linkIn(page);
+    await waitFor(page, () => !document.getElementById('claudeBar').hidden);
+    const o = await outline(page);
+    check('semantics (chat): one main, the chat bar a region with the one h1 (CHAT WITH CLAUDE), the headings in order',
+      o.landmarks.filter((x) => x.startsWith('main')).length === 1 && o.landmarks.includes('region "CHAT WITH CLAUDE"') && inOrder(o.headings) && o.headings[0][1] === 'CHAT WITH CLAUDE',
+      JSON.stringify({ landmarks: o.landmarks, headings: o.headings }));
+    await closedOk(page, 'semantics (chat)');
+    await ctx.close();
+  }
+
+  // a Color Computer: the Multi-Pak's slots are hidden while it is folded, and only then
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    await page.goto(`${base}?machine=coco`);
+    await ready(page);
+    const st = () => page.evaluate(() => ({ open: document.getElementById('mpak').open, hidden: document.querySelector('#mpak .mpSlots').hidden }));
+    const folded = await st();
+    await page.click('#mpak summary');
+    await waitFor(page, () => document.getElementById('mpak').open);
+    const opened = await st();
+    const slot1 = await page.locator('#btnMpSlot1').isVisible();
+    await page.click('#mpak summary');
+    await waitFor(page, () => !document.getElementById('mpak').open);
+    const again = await st();
+    check('semantics (coco): the Multi-Pak\'s slots are hidden while it is folded, shown while it is open',
+      !folded.open && folded.hidden && opened.open && !opened.hidden && slot1 && !again.open && again.hidden, JSON.stringify({ folded, opened, slot1, again }));
+    await closedOk(page, 'semantics (coco), the Multi-Pak folded again');
+    await ctx.close();
+  }
+
+  // the landing page
+  for (const [label, opts] of [['desktop', { viewport: { width: 1440, height: 900 } }], ['phone', devices['Pixel 7']]]) {
+    const ctx = await browser.newContext({ ...opts, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    await page.goto(site);
+    const o = await outline(page);
+    // (its labelled sections are regions, inside the main)
+    const regions = o.landmarks.filter((x) => x.startsWith('region'));
+    check(`semantics (landing, ${label}): banner with the site navigation, one main with its ${regions.length} sections as regions, contentinfo; one h1 and the headings in order`,
+      JSON.stringify(o.landmarks.filter((x) => !x.startsWith('region'))) === JSON.stringify(['banner', 'navigation "Site"', 'main', 'contentinfo'])
+      && regions.length >= 4 && o.landmarks.indexOf(regions[0]) === 3 && o.landmarks.indexOf('contentinfo') === 3 + regions.length
+      && await page.evaluate(() => document.querySelectorAll('main').length) === 1 && inOrder(o.headings), JSON.stringify({ landmarks: o.landmarks, headings: o.headings }));
+    await ctx.close();
+  }
+}
+
 // The groups, in run order: [name, (browser) => the group's checks]. --only takes these names.
 // The install offer (js/ui/install.js): the Menu item and the card, on a synthetic beforeinstallprompt (Chromium's
 // event, with a mocked prompt() and userChoice; no real install can be automated), an iOS user agent, and a
@@ -13508,6 +13765,7 @@ const GROUPS = (base, site) => [
   ['share', (b) => shareChecks(b, base, site, check)],
   ['favicon', (b) => faviconChecks(b, site, check)],
   ['uiModel', (b) => uiModelChecks(b, base, check)],
+  ['semantics', (b) => semanticsChecks(b, base, site, check)],
 ];
 
 (async () => {
