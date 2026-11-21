@@ -5,6 +5,12 @@
  */
 import { $ } from './page.js';
 
+// The recent list's rows: the entries for `machine`, each with the index it has in the FULL list. recentMedia()
+// hands out copies, so an index looked up in a second call (indexOf) matches nothing and is always -1; the index
+// must be taken from the same list the row was drawn from. This is the whole of that arithmetic, with no DOM, so a
+// Node test can run the code the drawer runs rather than a copy of it.
+export const recentRows = (all, machine) => all.map((r, i) => ({ r, i })).filter((x) => x.r.machine === machine);
+
 export function setupDrawer(page, { showRoms }) {
   const { session } = page;
   const tabs = [...document.querySelectorAll('[role="tab"]')];
@@ -28,11 +34,7 @@ export function setupDrawer(page, { showRoms }) {
   // Media: what was loaded on this machine before
   function recent() {
     const list = $('recentList');
-    // ONE list, with each row's index taken from IT. recentMedia() hands out copies, so an index looked up in
-    // a second call with indexOf() matched nothing and was always -1: every row then said the file was no
-    // longer stored (measured). The index is carried with the row instead.
-    const all = session.recentMedia();
-    const items = all.map((r, i) => ({ r, i })).filter((x) => x.r.machine === session.machine.id);
+    const items = recentRows(session.recentMedia(), session.machine.id);
     list.replaceChildren();
     // empty: hidden while "Last time" shows above it (the CSS), as the two would contradict each other
     for (const el of [list, $('recentHead')]) el.classList.toggle('recent-empty', !items.length);
