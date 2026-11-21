@@ -73,19 +73,35 @@ const describeSegments = (segs, exec) =>
 // used, so profiles added at run time count)
 const romOwners = () => Object.assign({}, profiles, cartridgeRoms, { ssc: SSC_ROM_PROFILE });
 
-// The welcome program: its fixed addresses, one entry per CPU family. Keys 1-4 are posted in the `event`
+// The welcome program: its fixed addresses, one entry per CPU family. Its choices (1-7) are posted in the `event`
 // mailbox, which the Session reads and clears after every frame (a mailbox rather than PC hooks: the
 // CoCo 3 runs hooks only in its ROM area); `soundOk` is set once the page has unlocked audio. The 6809
 // build sits at $6000 and covers eleven models (the HD6309 included: it runs the 6809 build in emulation
 // mode, like any 6809 program); the 6803 build (the MC-10 and the Matra Alice) sits at
 // $5000 and is built once per machine, so its subtitle names the one it runs on.
 export const WELCOME = Object.freeze({
-  '6809': Object.freeze({ file: 'welcome.bin', start: 0x6000, event: 0x6003, soundOk: 0x6004, greet: 0x6006, carry: 0x6007 }),
-  '6803': Object.freeze({ file: null, start: 0x5000, event: 0x5003, soundOk: 0x5004, greet: 0x5006, carry: 0x5007 }),
-  events: Object.freeze(['liza', 'demo', 'roms', 'claude', 'carryon']),   // key 1-5 (5 only with a carry-on line)
+  // carryMax: the carry-on line's text, 0-terminated (none when the first byte is 0), this long at most (the 6809
+  // build's line has the room for "CARRY ON WITH MINESWEEPER")
+  '6809': Object.freeze({ file: 'welcome.bin', start: 0x6000, event: 0x6003, soundOk: 0x6004, greet: 0x6006, carry: 0x6007, carryMax: 26 }),
+  '6803': Object.freeze({ file: null, start: 0x5000, event: 0x5003, soundOk: 0x5004, greet: 0x5006, carry: 0x5007, carryMax: 24 }),
+  // the choices 1-7: keys 1-4 of the menu, its carry-on line (key 5 on the 6803 build, 6 on the 6809 one), and the
+  // 6809 build's games menu (key 5, then 1 or 2)
+  events: Object.freeze(['liza', 'demo', 'roms', 'claude', 'carryon', '2048', 'minesweeper']),
   greetings: Object.freeze(['first', 'back', 'bye']),   // greet: 0 the first visit, 1 "WELCOME BACK", 2 "BYE FOR NOW. PICK ANOTHER?"
-  carryMax: 24,                   // carry: option 5's text, 0-terminated (none when the first byte is 0), this long at most
 });
+// The games (examples/2048.asm, examples/minesweeper.asm): 6809 programs at $3000 that share a fixed header
+// (examples/games.inc): `seed`, a word that, when nonzero, starts their random numbers instead of the key-press
+// timing (the tests set it), `done`, the loop where a game stops after BREAK, back in text mode, and `samExit`, the
+// SAM memory size (M, 0-3) the game puts back on leaving (the Session sets the machine's; the SAM can't be read).
+// They need `ram` K: they set the SAM for 64K chips, which a 4K or 16K machine's chips are not.
+export const GAMES = Object.freeze({
+  list: Object.freeze({ 2048: Object.freeze({ file: '2048.bin', name: '2048' }), minesweeper: Object.freeze({ file: 'minesweeper.bin', name: 'Minesweeper' }) }),
+  start: 0x3000, seed: 0x3003, done: 0x3005, samExit: 0x3007, ram: 32,
+});
+// Color BASIC's and Dragon BASIC's warm-start flag: $55 there at reset means a warm start (the program kept)
+const BASIC_RSTFLG = 0x71;
+// a game's GAMES.list key from its name ('Minesweeper' -> 'minesweeper'), or undefined
+export const gameKey = (name) => Object.keys(GAMES.list).find((k) => GAMES.list[k].name === name);
 // the 6803 welcome's files, per profile: the build's subtitle names the machine it runs on
 export const WELCOME6803 = Object.freeze({ mc10: 'welcome6803-mc10.bin', alice: 'welcome6803-alice.bin' });
 
@@ -1391,21 +1407,23 @@ export class Session {
     return { first, machineChosen: this.store.get('machineChosen') !== null, recent: this.recentMedia() };
   }
   // What ran last (the returning visit's "Last time" and the menu's "CARRY ON WITH"), kept across visits:
-  // { kind: 'liza' | 'demo' | 'recent', name } or null. LIZA and the demo aren't in the recent list (they are
-  // ours, not the user's files), so they are remembered here; a file is the recent list's first item.
+  // { kind: 'liza' | 'demo' | 'game' | 'recent', name } or null (a game's name is its GAMES.list name). LIZA, the
+  // demo and the games aren't in the recent list (they are ours, not the user's files), so they are remembered
+  // here; a file is the recent list's first item.
   get lastRun() {
     try { const v = JSON.parse(this.store.get('lastRun') || 'null'); return v && typeof v.kind === 'string' && typeof v.name === 'string' ? v : null; }
     catch (e) { return null; }
   }
   setLastRun(kind, name) { this.store.set('lastRun', JSON.stringify({ kind, name })); }
-  // What the welcome menu's option 5 offers on the machine in use: what ran last, if it runs here. A file only on
-  // the machine it was loaded on (and only while its bytes are kept), the colour demo only on a 6809-family CPU,
-  // LIZA on every machine (its 6809 or 6803 build). null: no option 5.
+  // What the welcome menu's carry-on line offers on the machine in use: what ran last, if it runs here. A file only
+  // on the machine it was loaded on (and only while its bytes are kept), the colour demo and the games only on a
+  // 6809-family CPU, LIZA on every machine (its 6809 or 6803 build). null: no carry-on line.
   get carryOn() {
     const last = this.lastRun, m = this.machine;
     if (!last || !m) return null;
     if (last.kind === 'recent') { const r = this.recentMedia()[0]; return r && r.stored && r.name === last.name && r.machine === m.id ? last : null; }
     if (last.kind === 'demo') return cpuFamily(m.config.cpu) === '6809' ? last : null;
+    if (last.kind === 'game') return cpuFamily(m.config.cpu) === '6809' && gameKey(last.name) ? last : null;
     return last;
   }
   // the machine picker is asked once, then remembered
@@ -3033,23 +3051,69 @@ export class Session {
     this.watchForMenu('liza');
     return msg;
   }
+  // A game (GAMES.list key) from its bytes, at once -> the load message. The games are 6809 programs: on another CPU
+  // the Session refuses, saying so.
+  gameFile(name) {
+    const g = GAMES.list[name];
+    if (!g) throw new SessionError(`There is no game called "${name}" (there are ${Object.keys(GAMES.list).join(' and ')}).`);
+    return g.file;
+  }
+  // what the machine in use lacks for the games -> { ram, have } when its RAM option is under GAMES.ram, else null
+  gameNeeds() {
+    const m = this.machine;
+    return m.config.ram < GAMES.ram ? { ram: GAMES.ram, have: m.config.ram } : null;
+  }
+  // can game `name` run here? Throws a SessionError that says why not (another CPU, too little RAM)
+  checkGame(name) {
+    const g = GAMES.list[name], m = this.machine;
+    this.gameFile(name);
+    if (cpuFamily(m.config.cpu) !== '6809') throw new SessionError(`${g.name} is 6809 code; the ${m.profile.name} has a ${m.config.cpu}.`);
+    const need = this.gameNeeds();
+    if (need) throw new SessionError(`${g.name} needs ${need.ram}K RAM or more; this ${m.profile.name} has ${need.have}K. Switch the RAM option to ${need.ram}K or 64K to play it.`);
+  }
+  runGame(name, bytes) {
+    this.checkGame(name);
+    const file = this.gameFile(name), m = this.machine;
+    const msg = this.load(file, bytes, { remember: false });
+    // the SAM's memory size as the firmware or BASIC left it, for the game to put back on leaving (the CoCo 3's
+    // GIME has no M bits: the header's default stays)
+    if (m.sam) m.poke(GAMES.samExit, m.sam.memSize);
+    this.setLastRun('game', GAMES.list[name].name);
+    this.watchForMenu('game');
+    return msg;
+  }
   // Leaving a program goes back to the welcome menu: BYE in LIZA (it stops at its DONE
-  // loop; the goodbye stays readable for LIZA_BYE_SECONDS), any key once the colour demo is drawing (it has taken
+  // loop; the goodbye stays readable for LIZA_BYE_SECONDS), BREAK in a game (it stops at GAMES.done), any key once the colour demo is drawing (it has taken
   // its "press any key" from the stub and reads no keys after that, so one waiting in the stub's queue is the
   // visitor's asking to leave). Only on a 6809-family machine on the stub firmware,
   // where the welcome menu runs; the Session emits 'menu' and the page starts the menu again (it has its bytes).
   // A load, a switch, a reset or a power cycle ends the watch.
+  // A game is watched with BASIC ROMs too: there BREAK hands the machine back to BASIC with a warm reset (BASIC
+  // sets up the SAM, the PIAs and its interrupts again), as there is no menu to go back to.
   watchForMenu(kind) {
     const m = this.machine;
-    this.menuWatch = this.welcomeMenu && WELCOME[cpuFamily(m.config.cpu)] && m.useStub ? { kind, m, since: null, taken: m.stubKeysTaken, drawing: false } : null;
+    const watch = kind === 'game' && !m.useStub ? true : this.welcomeMenu && WELCOME[cpuFamily(m.config.cpu)] && m.useStub;
+    this.menuWatch = watch ? { kind, m, since: null, taken: m.stubKeysTaken, drawing: false } : null;
     if (this.stubRun && this.stubRun.m === m) this.stubRun.watch = kind;   // a Reset restarts the watch too
   }
   checkMenuReturn() {
     const w = this.menuWatch;
     if (!w) return;
     const m = this.machine;
-    if (w.m !== m || !m.useStub) { this.menuWatch = null; return; }
-    if (w.kind === 'liza') {
+    if (w.m !== m || (!m.useStub && w.kind !== 'game')) { this.menuWatch = null; return; }
+    if (w.kind === 'game') {
+      if (m.cpu.pc !== GAMES.done) return;
+      if (!m.useStub) {   // with BASIC: back to it (the machine asked, as a menu return is asked)
+        // A cold start, not a warm one: the game has drawn over $0400-$1BFF (BASIC's program, the graphics pages,
+        // a disk DOS's workspace and FAT copy) and run from $3000, so nothing BASIC had there can be trusted. The
+        // reset button keeps the cartridge and disks; clearing BASIC's warm-start flag (RSTFLG, $0071, on the
+        // Dragon and the CoCo alike; $55 means warm) makes BASIC start afresh, as at power-on.
+        this.menuWatch = null;
+        m.poke(BASIC_RSTFLG, 0);
+        this.asMachine(() => this.reset(), this.machineTicket());
+        return;
+      }
+    } else if (w.kind === 'liza') {
       // the goodbye's time is the machine's: its frames since LIZA reached DONE (this runs once per advance(),
       // which can run several frames, or none)
       if (m.cpu.pc !== Session.LIZA.done[cpuFamily(m.config.cpu)]) { w.since = null; return; }
@@ -3178,16 +3242,17 @@ export class Session {
     this.menuWatch = null;
     m.poke(w.greet, g);
     let carry = carryOn ? `CARRY ON WITH ${carryOn}`.toUpperCase().replace(/[^ -_]/g, '?') : '';
-    if (carry.length > WELCOME.carryMax) {   // cut at a word if there is one past "CARRY ON WITH", else at the edge
-      const cut = carry.lastIndexOf(' ', WELCOME.carryMax);
-      carry = carry.slice(0, cut > 'CARRY ON WITH'.length ? cut : WELCOME.carryMax);
+    if (carry.length > w.carryMax) {   // cut at a word if there is one past "CARRY ON WITH", else at the edge
+      const cut = carry.lastIndexOf(' ', w.carryMax);
+      carry = carry.slice(0, cut > 'CARRY ON WITH'.length ? cut : w.carryMax);
     }
     for (let i = 0; i <= carry.length; i++) m.poke(w.carry + i, i < carry.length ? carry.charCodeAt(i) : 0);
     this.welcome = m;
     this.welcomeBuild = w;
     this.emit('welcome');   // (the page's parts that depend on whether the welcome program runs: the quick-save slots)
     if (this.welcomeSoundOn) this.welcomeSound();
-    return carry ? 'Welcome: press 1 to 5' : 'Welcome: press 1 to 4';
+    const last = (carry ? 1 : 0) + (w === WELCOME['6809'] ? 5 : 4);   // the 6809 build has the games too
+    return `Welcome: press 1 to ${last}`;
   }
   get welcomeRunning() { return this.welcome === this.machine; }
   // the welcome build this machine runs: the 6809 file for every 6809-family model (the 6309 included), the

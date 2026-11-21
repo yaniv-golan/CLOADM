@@ -1,8 +1,9 @@
 // Returning visits, the Session's part: the welcome menu
 // greets a returning visitor ("WELCOME BACK") or one back from a program ("BYE FOR NOW. PICK ANOTHER?") and can
-// offer a fifth option, "CARRY ON WITH <what ran last>", whose key emits 'welcome:carryon'; what ran last is
-// remembered across visits (LIZA, the colour demo, or a file); leaving LIZA (BYE) or the demo (any key once it is
-// drawing) emits 'menu' so the page brings the menu back. Expected screen text comes from the design.
+// offer a last option, "CARRY ON WITH <what ran last>" (6 on the 6809 build, after 5 PLAY A GAME; 5 on the 6803 one),
+// whose key emits 'welcome:carryon'; what ran last is remembered across visits (LIZA, the colour demo, a game, or a
+// file); leaving LIZA (BYE), a game (BREAK) or the demo (any key once it is drawing) emits 'menu' so the page brings
+// the menu back. Expected screen text comes from the design.
 // Run: node tests/returning.test.js
 const fs = require('fs'), path = require('path');
 const Emu = require('./load')();
@@ -26,7 +27,7 @@ const store = () => { const m = new Map(); return { get: (k) => (m.has(k) ? m.ge
     && b.every((x) => x.ok && x.symbols.get('DONE') === Emu.Session.LIZA.done['6803']));
 }
 
-// the greetings and option 5
+// the greetings and the carry-on option (6 on the 6809 build)
 {
   const s = new Emu.Session({ store: store() });
   s.switchMachine('dragon64');
@@ -35,27 +36,27 @@ const store = () => { const m = new Map(); return { get: (k) => (m.has(k) ? m.ge
   s.startWelcome(welcome, { greeting: 'back', carryOn: 'LIZA' });
   frames(s, 50);
   let t = s.screenText();
-  check('back: "WELCOME BACK" under the title, centred (a row up, as option 5 is offered)', t[6] === '          WELCOME BACK          ', JSON.stringify(t[6]));
-  check('back: option 5 "CARRY ON WITH LIZA" (its number in inverse video), a blank row, "PRESS 1 TO 5"', t[12].trim() === '5 CARRY ON WITH LIZA'
-    && s.machine.ram[0x400 + 12 * 32 + 4] === 0x35 && t[13].trim() === '' && t[14].trim() === 'PRESS 1 TO 5' && t[11].trim() === '4 CHAT WITH CLAUDE'
+  check('back: "WELCOME BACK" under the title, centred', t[6] === '          WELCOME BACK          ', JSON.stringify(t[6]));
+  check('back: option 6 "CARRY ON WITH LIZA" (its number in inverse video) under 5 PLAY A GAME, then "PRESS 1 TO 6"', t[13].trim() === '6 CARRY ON WITH LIZA'
+    && s.machine.ram[0x400 + 13 * 32 + 4] === 0x36 && t[14].trim() === 'PRESS 1 TO 6' && t[12].trim() === '5 PLAY A GAME' && t[11].trim() === '4 CHAT WITH CLAUDE'
     && t[7].trim() === '' && t[8].trim() === '1 TALK TO LIZA', JSON.stringify(t.slice(6, 15)));
-  s.machine.stubKeys.push(0x35); frames(s, 2);
-  check('back: key 5 emits welcome:carryon', events.join() === 'welcome:carryon', events.join());
+  s.machine.stubKeys.push(0x36); frames(s, 2);
+  check('back: key 6 emits welcome:carryon', events.join() === 'welcome:carryon', events.join());
   s.startWelcome(welcome, { greeting: 'bye' });
   frames(s, 50);
   t = s.screenText();
-  check('bye: "BYE FOR NOW. PICK ANOTHER?" and no option 5', t[7].trim() === 'BYE FOR NOW. PICK ANOTHER?' && t[13].trim() === '' && t[14].trim() === 'PRESS 1 TO 4', JSON.stringify(t.slice(7, 15)));
+  check('bye: "BYE FOR NOW. PICK ANOTHER?" and no option 6', t[6].trim() === 'BYE FOR NOW. PICK ANOTHER?' && t[13].trim() === '' && t[14].trim() === 'PRESS 1 TO 5', JSON.stringify(t.slice(6, 15)));
   events.length = 0;
-  s.machine.stubKeys.push(0x35); frames(s, 2);
-  check('without option 5, key 5 does nothing', !events.length, events.join());
+  s.machine.stubKeys.push(0x36); frames(s, 2);
+  check('without option 6, key 6 does nothing', !events.length, events.join());
   s.startWelcome(welcome, { carryOn: 'a very long file name.cas' });
   frames(s, 50);
   t = s.screenText();
-  check('first: the first visit\'s subtitle; option 5 cut at a word to fit (24 characters at most)', t[6].trim() === 'DRAGON AND COLOR COMPUTER'
-    && t[12].trim() === '5 CARRY ON WITH A VERY', JSON.stringify(t[12]));
+  check('first: the first visit\'s subtitle; option 6 cut at a word to fit (26 characters at most)', t[6].trim() === 'DRAGON AND COLOR COMPUTER'
+    && t[13].trim() === '6 CARRY ON WITH A VERY LONG', JSON.stringify(t[13]));
   s.startWelcome(welcome, { carryOn: 'SUPERCALIFRAGILISTIC.CAS' });
   frames(s, 50);
-  check('a name with no space to cut at is cut at the edge', s.screenText()[12].trim() === '5 CARRY ON WITH SUPERCALIF', JSON.stringify(s.screenText()[12]));
+  check('a name with no space to cut at is cut at the edge', s.screenText()[13].trim() === '6 CARRY ON WITH SUPERCALIFRA', JSON.stringify(s.screenText()[13]));
   let err = null;
   try { s.startWelcome(welcome, { greeting: 'hello' }); } catch (e) { err = e; }
   check('an unknown greeting is a SessionError', err instanceof Emu.SessionError, err && err.message);

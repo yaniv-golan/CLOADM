@@ -35,7 +35,7 @@ dependencies, and every chip is checked instruction by instruction and pixel by 
 
 <table>
 <tr>
-<td width="50%"><img src="img/readme-welcome.png" width="100%" alt="The welcome program on an emulated Dragon 64: the eight VDG colours, CLOADM in block letters, and a menu: 1 talk to LIZA, 2 colour and sound, 3 add your ROMs for BASIC, 4 chat with Claude."></td>
+<td width="50%"><img src="img/readme-welcome.png" width="100%" alt="The welcome program on an emulated Dragon 64: the eight VDG colours, CLOADM in block letters, and a menu: 1 talk to LIZA, 2 colour and sound, 3 add your ROMs for BASIC, 4 chat with Claude, 5 play a game."></td>
 <td>
 
 1. **Open [cloadm.dev](https://cloadm.dev/play/).** It's already running: the welcome program, with LIZA one key
@@ -76,6 +76,7 @@ Per-machine notes, RAM options and the chip-by-chip list: [docs/machines.md](doc
 | **Cartridges** | ROM cartridges, banked ROM cartridges up to 128K, Games Master, Orchestra-90, Multi-Pak (with a disk controller in slot 4); the Speech/Sound Pak on the CoCo 1/2, CoCo 2B, CoCo 3 and the Dragon 64, music only (its sound is not yet verified against MAME) | Speech/Sound Pak speech |
 | **Printer, serial, DriveWire** | Printer; bit-banger and the Dragon 64's 6551 with a terminal or loopback plug; a DriveWire 4 server in the browser over the CoCo's Becker port; booting NitrOS-9 Level 2 on the CoCo 3 from your own DriveWire image, no ROM needed ([how](docs/using.md#booting-nitros-9)); serving a real CoCo over Web Serial (untested on hardware) | |
 | **Input** | Translated and positional keyboard, keyboard joystick, gamepads, Hi-Res interfaces, the CoCo 3 mouse; an on-screen keyboard and joystick on phones and tablets | |
+| **Games** | 2048 and Minesweeper, our own, in the 128x192 four-colour graphics mode with sound, no ROMs needed (32K or more): the welcome menu's **5 Play a game** (NEW GAMES FOR AN OLD MACHINE) on the Dragons and CoCos, or a direct link, [`?start=2048`](https://cloadm.dev/play/?start=2048) / [`?start=minesweeper`](https://cloadm.dev/play/?start=minesweeper) | |
 | **Library** | Every tape, disk, cartridge and program you load, kept for next time, in the browser or a folder on your computer; paste a magazine listing and CLOADM types it in | |
 | **Claude** | Chat with Claude full screen on the green screen (phones included), or Ask Claude in a side panel; Claude reads only the emulated machine (its screen text and memory, never anything else on your computer; it says so when it can't read a screen), and acts on it (POKE, typing, loading a BASIC program, BREAK) only with your permission, with undo | The chat over DriveWire to a real machine; the CoCo 3's 80-column chat screen |
 | **Tools** | 6809/6803 assembler, the Debugger screen (breakpoints, watchpoints, stepping, registers, memory, trace), POKE book, ROM self-test, snapshots (Snapshot 1–3 in the browser); a command-line tool for CI and coding agents and a Node API: run a program headless, type, wait for the screen, check memory and registers, step and disassemble, save PNGs, compare them with reference pictures, record the sound as WAV, save snapshots ([docs/automation.md](docs/automation.md); for games: [docs/game-development.md](docs/game-development.md)) | Step back (rewind) |
@@ -146,7 +147,9 @@ keyword matching in 3 KB of 6809. It runs with no ROMs: press 1 on the Welcome m
 [cloadm.dev/play/?start=liza](https://cloadm.dev/play/?start=liza).
 
 **Claude** is the same machine forty years on: press 4 on the Welcome menu, or open
-[cloadm.dev/play/?app=claude](https://cloadm.dev/play/?app=claude). Firmware written for this project replaces
+[cloadm.dev/play/?app=claude](https://cloadm.dev/play/?app=claude). (The games have links of their own too:
+[?start=2048](https://cloadm.dev/play/?start=2048) and [?start=minesweeper](https://cloadm.dev/play/?start=minesweeper);
+every program in the Media tab's "Runs without ROMs" is a link you can copy.) Firmware written for this project replaces
 BASIC and holds the conversation on the green screen, in a lowercase font drawn by the machine itself. Claude can
 work on the BASIC session kept alongside the chat: read its screen and memory, POKE, type in short programs or load longer ones (asking first) and RUN them,
 press BREAK, and one click undoes it all. It runs on your own Anthropic API key, kept in your browser and never
@@ -180,7 +183,7 @@ EXEC
 ## FAQ
 
 * **Why do I need ROMs?** BASIC and the DOS are copyrighted; CLOADM can't ship them. Without them it still runs
-  machine-code programs, LIZA and the welcome program.
+  machine-code programs, LIZA, the welcome program and its two games.
 * **Does it work on a phone?** Yes: an on-screen keyboard appears, split for the thumbs when held sideways,
   and a switch turns it into a touch joystick (stick and FIRE) for games.
 * **Does it work offline?** Yes, after one visit. Browsers offer to install it, and **Install CLOADM…** at the foot

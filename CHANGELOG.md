@@ -53,6 +53,29 @@ All notable changes to CLOADM are recorded here. The format follows
   `docs/game-development.md` adds where a game goes in memory and two patterns that settle a test (wait for the
   byte, then a frame before a screenshot; wait for a key's release), each run in `tests/game-guide.test.js`.
 
+- **Two games, 2048 and Minesweeper, on the welcome menu.** Written for CLOADM in 6809 assembly
+  (`examples/2048.asm`, `examples/minesweeper.asm`, their shared `examples/games.inc`), they draw on the VDG's
+  128x192 four-colour screen with their own font, play their sounds on the DAC, and read the keys through the
+  firmware's POLCAT, so they run without ROMs (or with BASIC) on every Dragon, CoCo 1/2/3 and clone with 32K or more,
+  the 6309 option included (a 4K or 16K CoCo is refused, saying why: the games set the SAM for 64K chips). BREAK
+  leaves a game, on its title page too, putting the SAM back as it was: without ROMs for the menu, with BASIC back to
+  BASIC, started cold (a BASIC program in memory is not kept: the game draws over it). The welcome menu's new
+  **5 PLAY A GAME** opens "NEW GAMES FOR AN OLD MACHINE" (1 2048, 2 Minesweeper, 0 back); the carry-on line is now
+  option 6, and offers the last game too. Also `?start=2048`,
+  `?start=minesweeper`, the Media tab's "Runs without ROMs" and `--program 2048|minesweeper`. Minesweeper's first
+  square is always safe, its flood fill uses a queue (the stack stays within 32 bytes), and at most ten flags.
+  `tests/games.test.js` plays both against models of their rules and random numbers, and checks their screens
+  (`--expect-screenshot`) and Minesweeper's sounds (`--wav`) against references; the browser check opens them from
+  the menu. `docs/game-development.md` uses them as worked examples.
+
+- **Direct links to LIZA, the Claude chat and the games.** `?start=liza`, `?app=claude`, `?start=2048` and
+  `?start=minesweeper` open their program straight away, with no welcome menu first (the browser check counts the
+  menu's starts to show it); a game link on an MC-10 or Alice says the game is 6809 code. `?start=` stays in the
+  address while its program runs and goes once the program is left, as `?app=claude` does for the chat, so a reload
+  after that is a plain visit. With both `app=claude` and `start=`, the chat opens and the link says `start=` was
+  ignored. The Media tab's "Runs without ROMs" entries (the welcome menu, LIZA, the games, the
+  chat) are real links to these addresses on the machine in use: right-click or long-press, Copy link.
+
 ### Changed
 
 - **The CoCo 3 keeps its bus log only while a device that can assert HALT is attached.** The log (the accesses of
@@ -172,6 +195,10 @@ All notable changes to CLOADM are recorded here. The format follows
   ROMs, every host key the keyboard maps to BREAK or CLEAR now gives the program that key's code (`Delete`, and in
   positional mode `End` and the MC-10's `]`, gave nothing or the character before). `tests/liza6803.test.js`,
   `tests/returning.test.js`, `tests/keyboard-symbols.test.js` and the browser check cover it.
+
+- **The welcome menu's lines are tapped by their number.** A tap on a menu line presses the inverse-video number at
+  its start, whichever row it is on, so the games menu and the carry-on line can be tapped too (before, rows 9-12
+  were taken as 1-4 whatever the menu showed).
 
 ### Fixed
 

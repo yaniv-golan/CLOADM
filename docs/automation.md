@@ -15,7 +15,8 @@ dependencies, no build step, and no `package.json` (see [Packaging](#packaging))
 ## ROMs
 
 Nothing here needs a ROM to run machine code. Without ROMs every machine runs CLOADM's own built-in firmware,
-which runs machine-code programs, the bundled programs (the welcome menu, LIZA, the colour demo) and anything you
+which runs machine-code programs, the bundled programs (the welcome menu, LIZA, the colour demo, 2048 and
+Minesweeper) and anything you
 assemble with the bundled assembler. BASIC needs the BASIC ROMs, which CLOADM never ships: give the tool your own
 dumps with `--roms` (a file, a ROM pack `.zip` saved from the page, or a directory of them). In CI, keep them out of
 the repository and out of the logs: store them as an encrypted secret or in a private artifact store and write them
@@ -46,7 +47,7 @@ Then, in any order:
 
 | Step | What it does |
 |---|---|
-| `--program welcome\|liza\|demo` | a bundled program (no ROMs needed) |
+| `--program welcome\|liza\|demo\|2048\|minesweeper` | a bundled program (no ROMs needed; the demo and the games on a 6809-family machine) |
 | `--load FILE` | a binary, `.cas`, `.wav`, cartridge or BASIC listing, loaded and run as dropping it on the page; a disk image goes in drive 0 |
 | `--asm FILE` | assemble a source file with the bundled assembler, for the machine's CPU, and run it (`INCLUDE`s are read from its folder) |
 | `--cart FILE` | plug in a cartridge ROM image |

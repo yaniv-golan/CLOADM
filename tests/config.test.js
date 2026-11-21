@@ -57,8 +57,11 @@ const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   check('autorun=0 is off', parse('?autorun=0').autorun === false);
   check('autorun=maybe: error', /autorun=maybe: 1 or 0/.test(parse('?autorun=maybe').errors[0]));
   check('an empty media link: error', /tape=: not a link/.test(parse('?tape=').errors[0]));
-  check('start=welcome and liza; anything else is an error', parse('?start=welcome').start === 'welcome' && parse('?start=liza').start === 'liza'
-    && parse('?start=game').start === null && parse('?start=game').errors[0] === "start=game isn't something CLOADM has (try start=welcome or start=liza)", parse('?start=game').errors[0]);
+  check('start=welcome, liza, 2048 and minesweeper; anything else is an error', parse('?start=welcome').start === 'welcome' && parse('?start=liza').start === 'liza'
+    && parse('?start=2048').start === '2048' && parse('?start=minesweeper').start === 'minesweeper'
+    && parse('?app=claude&start=2048').start === null && parse('?app=claude&start=2048').app === 'claude'
+    && parse('?app=claude&start=2048').errors[0] === 'start=2048 is ignored: app=claude opens instead'
+    && parse('?start=game').start === null && parse('?start=game').errors[0] === "start=game isn't something CLOADM has (try start=welcome or start=liza or start=2048 or start=minesweeper)", parse('?start=game').errors[0]);
   check('app=claude; anything else is an error', parse('?app=claude').app === 'claude' && !parse('?app=claude').errors.length
     && parse('?app=bogus').app === null && parse('?app=bogus').errors[0] === "app=bogus isn't something CLOADM has (try app=claude)", parse('?app=bogus').errors[0]);
 check('a failed fetch of a link\'s file: a network or CORS failure (TypeError) gets a plain sentence, an HTTP status keeps its words',

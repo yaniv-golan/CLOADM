@@ -1254,6 +1254,41 @@ Found and not fixed: at power-on the WD1773 starts a restore on its own (`wd_fdc
 INTRQ reaches our CPU about 8 cycles later than MAME's. The diagnostics and both NitrOS-9 boots send Force Interrupt
 first (as `boot_1773.asm`'s HWInit does), so nothing compared depends on it.
 
+## The games (2048 and Minesweeper)
+
+Programs of our own, not hardware behaviour: they use the VDG's 128x192 four-colour mode (CG6), the SAM's display
+registers, the DAC and the firmware's POLCAT, all already compared with MAME (the `--video` comparisons cover CG6,
+the welcome tune the DAC path). The oracle is the games' rules and their documented random numbers, written
+independently in `tests/games.test.js`:
+
+* 2048: a model of the slide-and-join rule and of the new tile (the 16-bit Galois LFSR with taps $B400, eight steps a
+  byte, rejection sampling for the square and the one-in-ten 4) plays 60 scripted moves from a fixed seed, and the
+  board and BCD score in memory match after every move; joins happen once per move; a move that changes nothing brings
+  no tile; a full board with only a vertical join left is not over; a stuck board is over (both checked on the model
+  first); 2048 is announced once and play goes on; the same game on the Dragon 32, CoCo, CoCo 3 and 6309.
+* Minesweeper: over 40 seeds the first square is safe with no mine next to it, ten mines, every count right, and the
+  flood opens exactly what the rules open; flags (at most ten, not on open squares, a flagged square does not open);
+  a scripted win and a loss; the stack stays within 32 bytes of $3000 over a whole game (a queue, never recursion); a
+  flagged blank square inside the first square's area stays flagged and the flood goes round it, against the model's
+  flood with that square left out (the mines laid by the model from the same random numbers).
+* Leaving: BREAK on either title page goes to `DONE` in text mode with the SAM's M back to what the Session recorded
+  (0 on the built-in firmware, 2 while the game ran). With BASIC: a stand-in BASIC written for the test (it sets the
+  SAM as BASIC does, prints OK and COLD or WARM from BASIC's warm-start flag at `$0071`, and its POLCAT reads SPACE
+  and BREAK from the matrix; no ROM code) boots, the reset button gives WARM (the control), 2048 runs on it reading
+  keys through its POLCAT, and BREAK brings it back started cold (OK COLD, M = 10, its idle loop): the game has drawn
+  over BASIC's program area, so a warm start would trust garbage. Without the flag cleared the check fails. Under 32K (4K and 16K CoCos) the Session, the command line (exit 3) and a link refuse, saying why.
+* Text drawn in the bitmap is read back through the font in `examples/games.inc`; the screens also match reference
+  PNGs in `tests/fixtures/games` through `--expect-screenshot` (made by the same commands and looked at), and
+  Minesweeper's sounds a reference WAV through `--wav`, whose bursts (click, ticks, buzz, chirps, explosion) are
+  checked from the samples; the flag's notes are measured on the DAC against the delay loop's 5*D+22 cycles.
+* The browser check (`visit`, `url`) opens both from the welcome menu's games menu, presses keys, sees the frame
+  change, leaves with BREAK (Esc) back to the menu, and opens them with `?start=`; the MC-10 refuses them.
+* Ten deliberate breakages of the rules (a joined tile joining again, the 4's odds, the vertical-join test, the win
+  value, mines next to the first square, the flood, the win count, the flag limit, the mines shown on a loss, the
+  games menu's keys) each turn `tests/games.test.js` or `tests/welcome.test.js` red, and so do five more: the flood
+  opening flagged squares (testing OPEN only), the title page ignoring BREAK, the SAM's M not put back, no reset at
+  `DONE` with ROMs, and no RAM check.
+
 ## The HD6309 running the 6809 builds
 
 Not hardware behaviour: the 6309 core is compared with MAME per instruction already ([cpu6309.md](cpu6309.md)); this

@@ -1857,11 +1857,11 @@ async function visitChecks(browser, base, check) {
   const screen = () => page.evaluate(() => window.emu.session.screenText().join('\n'));
   // first visit, no ROMs: the welcome program is already running on the stub
   await page.goto(base);
-  const menu = () => waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[14].includes('PRESS 1 TO 4'));
+  const menu = () => waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[14].includes('PRESS 1 TO 5'));
   check('first visit: opens on the welcome program running without ROMs', await menu() && !(await page.evaluate(() => window.emu.machine.hasRom))
-    && /1 TALK TO LIZA/.test(await screen()), (await screen()).split('\n')[9]);
-  check('first visit: "Runs without ROMs" is the welcome menu (on screen now), our programs and the Claude chat', (await page.$$eval('#shelf button', (b) => b.map((x) => x.textContent).join())) === 'Welcome menu on screen now,LIZA,Colour demo,Chat with Claude',
-    await page.$$eval('#shelf button', (b) => b.map((x) => x.textContent).join()));
+    && /1 TALK TO LIZA/.test(await screen()), (await screen()).split('\n')[8]);
+  check('first visit: "Runs without ROMs" is the welcome menu (on screen now), our programs and the Claude chat', (await page.$$eval('#shelf :is(a, button)', (b) => b.map((x) => x.textContent).join())) === 'Welcome menu on screen now,LIZA,Colour demo,2048,Minesweeper,Chat with Claude',
+    await page.$$eval('#shelf :is(a, button)', (b) => b.map((x) => x.textContent).join()));
   check('first visit: "No BASIC · Add ROMs" in the header and the machine question', await page.isVisible('#romPill') && await page.isVisible('#askMachine'));
   check('first visit: "click for sound" until a click or key, no tune yet', await page.isVisible('#soundHint') && !(await page.evaluate(() => window.emu.audioRunning()))
     && await page.evaluate(() => window.emu.machine.ram[0x6004]) === 0);
@@ -1888,6 +1888,45 @@ async function visitChecks(browser, base, check) {
   check('welcome: "Back to the menu" shows while the demo runs', await page.isVisible('#btnWelcomeBack'));
   await page.click('#btnWelcomeBack');
   check('welcome: "Back to the menu" returns to the menu, and hides', await menu() && await page.isHidden('#btnWelcomeBack'));
+  // the games: 5 opens the games menu, 1 and 2 start 2048 and Minesweeper (the 128x192 four-colour screen), their
+  // keys change the screen, and BREAK (Esc) comes back to the menu. The frame is summed in the page: a key that
+  // the game took redraws it.
+  const frameSum = () => page.evaluate(() => { const d = window.emu.machine.render().data; let h = 0; for (let i = 0; i < d.length; i += 3) h = (h * 31 + d[i]) >>> 0; return h; });
+  const graphics = () => page.evaluate(() => (window.emu.machine.pia1.saveState().b.or & 0x80) !== 0);
+  await key('5');
+  check('welcome: 5 PLAY A GAME opens the games menu, NEW GAMES FOR AN OLD MACHINE', await waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[6].trim() === 'NEW GAMES FOR AN OLD MACHINE'
+    && window.emu.session.screenText()[8].trim() === '1 2048' && window.emu.session.screenText()[9].trim() === '2 MINESWEEPER'));
+  if (shotDir) await page.locator('#screenWrap').screenshot({ path: path.join(shotDir, 'welcome-games.png') });
+  for (const [k, name, moves] of [['1', '2048', ['ArrowLeft', 'ArrowUp']], ['2', 'Minesweeper', ['ArrowRight', 'ArrowDown']]]) {
+    if (k === '2') {
+      await key('5');
+      await waitFor(page, () => window.emu.session.screenText()[6].trim() === 'NEW GAMES FOR AN OLD MACHINE');
+    }
+    await key(k);
+    check(`games: ${k} starts ${name} on its title page (the four-colour screen)`, await waitFor(page, (n) => !window.emu.session.welcomeRunning
+      && (window.emu.machine.pia1.saveState().b.or & 0x80) !== 0 && new RegExp(`^${n}: press a key`).test(document.getElementById('toast').textContent), name) && await graphics(),
+      await page.textContent('#toast'));
+    await page.waitForTimeout(300);
+    if (shotDir) await page.locator('#screenWrap').screenshot({ path: path.join(shotDir, `games-${name.toLowerCase()}-title.png`) });
+    let before = await frameSum();
+    await key(' ');
+    check(`games: ${name}: a key leaves the title page for the game (the screen changes)`, await waitFor(page, (b) => {
+      const d = window.emu.machine.render().data; let h = 0; for (let i = 0; i < d.length; i += 3) h = (h * 31 + d[i]) >>> 0; return h !== b; }, before));
+    await page.waitForTimeout(300);
+    if (k === '2') { await key(' '); await page.waitForTimeout(300); }   // Minesweeper: open the first square
+    for (const mv of moves) {
+      before = await frameSum();
+      await key(mv);
+      check(`games: ${name}: ${mv} changes the screen`, await waitFor(page, (b) => {
+        const d = window.emu.machine.render().data; let h = 0; for (let i = 0; i < d.length; i += 3) h = (h * 31 + d[i]) >>> 0; return h !== b; }, before));
+      await page.waitForTimeout(200);
+    }
+    if (shotDir) await page.locator('#screenWrap').screenshot({ path: path.join(shotDir, `games-${name.toLowerCase()}-play.png`) });
+    await key('Escape');
+    check(`games: BREAK (Esc) leaves ${name} for the welcome menu`, await waitForFrames(page, () => window.emu.session.welcomeRunning
+      && window.emu.session.screenText()[6].trim() === 'BYE FOR NOW. PICK ANOTHER?', null, 400) && !(await graphics()));
+  }
+  check('games: the last game is what the next visit\'s menu carries on with', await page.evaluate(() => JSON.stringify(window.emu.session.carryOn)) === '{"kind":"game","name":"Minesweeper"}');
   await key('1');
   check('welcome: 1 runs LIZA', await waitFor(page, () => window.emu.session.screenText().join('').includes('I AM LIZA')));
   // "No BASIC · Add ROMs" opens Add ROMs, whose "Choose files…" opens the ROM file picker
@@ -1897,11 +1936,11 @@ async function visitChecks(browser, base, check) {
   check('Add ROMs: "Choose files…" opens the ROM picker', !!chooser && chooser.isMultiple());
   await page.click('#btnRomBack');
   // the shelf runs the colour demo
-  await page.click('#shelf button:text-is("Colour demo")');
+  await page.click('#shelf :is(a, button):text-is("Colour demo")');
   check('shelf: the colour demo runs', await waitFor(page, () => /demo\.bin/.test(document.getElementById('toast').textContent)));
   // the machine question, answered once
   await page.click('#askMachine button[data-machine="coco"]');
-  check('machine question: switches machine and the welcome program runs there', await waitFor(page, () => window.emu.machine.id === 'coco' && window.emu.session.welcomeRunning && window.emu.session.screenText()[14].includes('PRESS 1 TO 4'))
+  check('machine question: switches machine and the welcome program runs there', await waitFor(page, () => window.emu.machine.id === 'coco' && window.emu.session.welcomeRunning && window.emu.session.screenText()[14].includes('PRESS 1 TO 5'))
     && !(await page.$('#askMachine')));
   // a program of the user's own, then a return visit
   await page.setInputFiles('#fileProgram', { name: 'mine.bin', mimeType: 'application/octet-stream', buffer: fs.readFileSync(path.join(ROOT, 'examples/demo.bin')) });
@@ -1912,11 +1951,11 @@ async function visitChecks(browser, base, check) {
   await page.reload();
   await ready(page);
   // (the menu says welcome back and offers the last item; no welcome-back card)
-  await waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[12].includes('CARRY ON'));
-  const back = await page.evaluate(() => ({ machine: window.emu.machine.id, greet: window.emu.session.screenText()[6].trim(), five: window.emu.session.screenText()[12].trim(),
+  await waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[13].includes('CARRY ON'));
+  const back = await page.evaluate(() => ({ machine: window.emu.machine.id, greet: window.emu.session.screenText()[6].trim(), five: window.emu.session.screenText()[13].trim(),
     card: !document.getElementById('welcome').hidden, last: document.getElementById('lastTime').hidden ? null : document.getElementById('lastName').textContent }));
-  check('returning: same machine, the menu says WELCOME BACK and offers the last item as 5; "Last time" in the Media tab; no card',
-    back.machine === 'coco' && back.greet === 'WELCOME BACK' && back.five === '5 CARRY ON WITH MINE.BIN' && !back.card && back.last === 'mine.bin · CoCo 1/2', JSON.stringify(back));
+  check('returning: same machine, the menu says WELCOME BACK and offers the last item as 6; "Last time" in the Media tab; no card',
+    back.machine === 'coco' && back.greet === 'WELCOME BACK' && back.five === '6 CARRY ON WITH MINE.BIN' && !back.card && back.last === 'mine.bin · CoCo 1/2', JSON.stringify(back));
   check('returning: the machine question is not asked again', !(await page.$('#askMachine')));
   await page.click('#btnRunAgain');
   check('returning: "Run again" loads it', await waitFor(page, () => /mine\.bin/.test(document.getElementById('toast').textContent) && window.emu.machine.cpu.pc >= 0x4000));
@@ -1925,7 +1964,7 @@ async function visitChecks(browser, base, check) {
 }
 
 // Returning visits: leaving LIZA with BYE brings the menu back ("BYE FOR NOW.
-// PICK ANOTHER?"); a returning visitor without ROMs lands on the menu ("WELCOME BACK", 5 CARRY ON WITH LIZA, PRESS 1
+// PICK ANOTHER?"); a returning visitor without ROMs lands on the menu ("WELCOME BACK", 6 CARRY ON WITH LIZA, PRESS 1
 // TO 5), with "Last time · LIZA · Run again" and the menu "on screen now" in the Media tab; key 5 runs LIZA again.
 // With ROMs the machine boots its ROMs (not the menu), "Last time" names the file and its machine, and the welcome
 // menu is one click away in "Runs without ROMs". Screenshots of each state, to compare with the design.
@@ -1947,29 +1986,29 @@ async function returningChecks(browser, base, check) {
   await page.keyboard.type('BYE', { delay: 60 }); await page.keyboard.press('Enter');
   // LIZA keeps its goodbye on the screen for 3 s of machine time (Session LIZA_BYE_SECONDS) before the menu comes
   // back: bounded in machine frames (400, 8 s at 50 Hz), so a page running slowly under load is not cut short
-  const bye = await waitForFrames(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[7].trim() === 'BYE FOR NOW. PICK ANOTHER?', null, 400);
+  const bye = await waitForFrames(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[6].trim() === 'BYE FOR NOW. PICK ANOTHER?', null, 400);
   const t = await screen();
-  check('returning: BYE in LIZA brings the menu back, "BYE FOR NOW. PICK ANOTHER?", 1 to 4', bye && t[14].trim() === 'PRESS 1 TO 4' && t[9].trim() === '1 TALK TO LIZA', JSON.stringify(t.slice(7, 15)));
+  check('returning: BYE in LIZA brings the menu back, "BYE FOR NOW. PICK ANOTHER?", 1 to 5', bye && t[14].trim() === 'PRESS 1 TO 5' && t[8].trim() === '1 TALK TO LIZA', JSON.stringify(t.slice(6, 15)));
   await shot('back-from-liza');
   // a return visit, no ROMs
   await page.reload(); await ready(page);
-  await waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[12].includes('CARRY ON'));
-  const r = await page.evaluate(() => ({ greet: window.emu.session.screenText()[6].trim(), five: window.emu.session.screenText()[12].trim(), gap: window.emu.session.screenText()[13].trim(), press: window.emu.session.screenText()[14].trim(),
+  await waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[13].includes('CARRY ON'));
+  const r = await page.evaluate(() => ({ greet: window.emu.session.screenText()[6].trim(), five: window.emu.session.screenText()[13].trim(), games: window.emu.session.screenText()[12].trim(), press: window.emu.session.screenText()[14].trim(),
     media: (document.querySelector('[role="tab"][aria-controls="panel-media"]').click(), document.getElementById('panel-media').innerText),
     card: !document.getElementById('welcome').hidden, last: document.getElementById('lastTime').hidden ? null : document.getElementById('lastName').textContent,
-    shelf: [...document.querySelectorAll('#shelf button')].map((b) => b.textContent).join('|'), pill: getComputedStyle(document.getElementById('romPill')).display !== 'none' && !document.getElementById('romPill').hidden }));
-  check('returning (no ROMs): the menu says WELCOME BACK and offers 5 CARRY ON WITH LIZA; "Last time · LIZA"; the menu on screen now; no card; No BASIC in the header',
-    r.greet === 'WELCOME BACK' && r.five === '5 CARRY ON WITH LIZA' && r.gap === '' && r.press === 'PRESS 1 TO 5' && !r.card && r.last === 'LIZA'
-    && r.shelf === 'Welcome menu on screen now|LIZA|Colour demo|Chat with Claude' && r.pill, JSON.stringify(r));
+    shelf: [...document.querySelectorAll('#shelf :is(a, button)')].map((b) => b.textContent).join('|'), pill: getComputedStyle(document.getElementById('romPill')).display !== 'none' && !document.getElementById('romPill').hidden }));
+  check('returning (no ROMs): the menu says WELCOME BACK and offers 6 CARRY ON WITH LIZA under 5 PLAY A GAME; "Last time · LIZA"; the menu on screen now; no card; No BASIC in the header',
+    r.greet === 'WELCOME BACK' && r.five === '6 CARRY ON WITH LIZA' && r.games === '5 PLAY A GAME' && r.press === 'PRESS 1 TO 6' && !r.card && r.last === 'LIZA'
+    && r.shelf === 'Welcome menu on screen now|LIZA|Colour demo|2048|Minesweeper|Chat with Claude' && r.pill, JSON.stringify(r));
   // the Media tab as shown says "Last time · LIZA" with no "Nothing loaded yet" contradicting it, and the
-  // menu keeps a blank row above PRESS 1 TO 5 (r.gap, above)
+  // menu lists 5 PLAY A GAME above the carry-on line (r.games, above)
   check('returning (no ROMs): the Media tab shows "Last time · LIZA" and no "Nothing loaded yet"',
     /Last time\s*LIZA/.test(r.media) && !/Nothing loaded yet/.test(r.media), r.media.slice(0, 200));
   await shot('no-roms');
   await page.mouse.click(5, 5);
   await waitFor(page, () => window.emu.machine.ram[0x6005] === 1, null, 20000);
-  await page.focus('#screen'); await page.keyboard.press('5');
-  check('returning: key 5 carries on with LIZA', await waitFor(page, () => window.emu.session.screenText().join('').includes('I AM LIZA')));
+  await page.focus('#screen'); await page.keyboard.press('6');
+  check('returning: key 6 carries on with LIZA', await waitFor(page, () => window.emu.session.screenText().join('').includes('I AM LIZA')));
   // with ROMs: a synthetic Dragon 64 set; the machine boots it (not the menu)
   await page.evaluate(() => { const s = window.emu.session, f = (n) => new Uint8Array(0x4000).fill(n); s.addRoms([{ name: 'd64_1.rom', bytes: f(0x12) }, { name: 'd64_2.rom', bytes: f(0x13) }]); });
   await page.setInputFiles('#fileProgram', { name: 'games.bin', mimeType: 'application/octet-stream', buffer: Buffer.from([0x55, 2, 0x30, 0x00, 0x00, 0x01, 0x30, 0x00, 0xAA, 0x39]) });
@@ -1977,11 +2016,11 @@ async function returningChecks(browser, base, check) {
   await page.evaluate(() => window.emu.session.index.flush());
   await page.reload(); await ready(page); await started(page);
   const w = await page.evaluate(() => ({ menu: window.emu.session.welcomeRunning, rom: window.emu.machine.hasRom, card: !document.getElementById('welcome').hidden,
-    last: document.getElementById('lastTime').hidden ? null : document.getElementById('lastName').textContent, shelf: [...document.querySelectorAll('#shelf button')].map((b) => b.textContent).join('|') }));
+    last: document.getElementById('lastTime').hidden ? null : document.getElementById('lastName').textContent, shelf: [...document.querySelectorAll('#shelf :is(a, button)')].map((b) => b.textContent).join('|') }));
   check('returning (with ROMs): the machine boots its ROMs, not the menu; "Last time · games.bin · Dragon 64"; the welcome menu one click away; no card',
-    !w.menu && w.rom && !w.card && w.last === 'games.bin · Dragon 64' && w.shelf === 'Welcome menu|LIZA|Colour demo|Chat with Claude', JSON.stringify(w));
+    !w.menu && w.rom && !w.card && w.last === 'games.bin · Dragon 64' && w.shelf === 'Welcome menu|LIZA|Colour demo|2048|Minesweeper|Chat with Claude', JSON.stringify(w));
   await shot('with-roms');
-  await page.click('#shelf button[data-shelf="welcome"]');
+  await page.click('#shelf :is(a, button)[data-shelf="welcome"]');
   check('returning (with ROMs): "Welcome menu" runs it', await waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[6].trim() === 'WELCOME BACK'));
   check('returning: no page errors', !errors.length, errors.join('; '));
   await ctx.close();
@@ -2018,8 +2057,8 @@ async function cpu6309Checks(browser, base, check) {
   const msg = () => page.textContent('#toast');
   const ev = (fn) => page.evaluate(fn);
   const isError = () => page.evaluate(() => document.getElementById('toast').classList.contains('error'));
-  // the menu is on screen and says PRESS 1 TO 4 or TO 5 (option 5 appears only when something ran last)
-  const menu = () => waitFor(page, () => window.emu.session.welcomeRunning && /PRESS 1 TO [45]/.test(window.emu.session.screenText()[14]), null, 15000);
+  // the menu is on screen and says PRESS 1 TO 5 or TO 6 (option 6 appears only when something ran last)
+  const menu = () => waitFor(page, () => window.emu.session.welcomeRunning && /PRESS 1 TO [56]/.test(window.emu.session.screenText()[14]), null, 15000);
   const screenText = async () => (await ev(() => window.emu.session.screenText())).join('\n');
   const key = async (k) => { await page.focus('#screen'); await page.keyboard.press(k); };
 
@@ -2034,9 +2073,9 @@ async function cpu6309Checks(browser, base, check) {
     Array.isArray(seen0) && !seen0.some((t) => t.error || /undefined/i.test(t.text)) && !(await isError()),
     JSON.stringify(seen0));
   const t0 = await screenText();
-  check('cpu=6309: the menu is the 6809 build\'s, key 1 TO 4 and LIZA', /1 TALK TO LIZA/.test(t0) && /PRESS 1 TO 4/.test(t0), t0.split('\n')[9]);
-  check('cpu=6309: "Colour demo" is still on the "Runs without ROMs" shelf (the Media tab keeps it)', /Colour demo/.test(await page.$$eval('#shelf button', (b) => b.map((x) => x.textContent).join('|'))),
-    await page.$$eval('#shelf button', (b) => b.map((x) => x.textContent).join('|')));
+  check('cpu=6309: the menu is the 6809 build\'s, key 1 TO 5 and LIZA', /1 TALK TO LIZA/.test(t0) && /PRESS 1 TO 5/.test(t0), t0.split('\n')[8]);
+  check('cpu=6309: "Colour demo" is still on the "Runs without ROMs" shelf (the Media tab keeps it)', /Colour demo/.test(await page.$$eval('#shelf :is(a, button)', (b) => b.map((x) => x.textContent).join('|'))),
+    await page.$$eval('#shelf :is(a, button)', (b) => b.map((x) => x.textContent).join('|')));
 
   // keys 1 and BYE round-trip, all on the 6309
   await key('1');
@@ -2049,11 +2088,11 @@ async function cpu6309Checks(browser, base, check) {
   await page.focus('#screen'); await page.keyboard.type('BYE', { delay: 60 }); await page.keyboard.press('Enter');
   // the goodbye lasts LIZA_BYE_SECONDS of MACHINE time, so this is bounded in machine frames (400, 8 s at 50 Hz),
   // as returningChecks does: a page running slowly under load must not be cut short by a wall-clock limit
-  check('cpu=6309: BYE returns to the welcome menu', await waitForFrames(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[7].trim() === 'BYE FOR NOW. PICK ANOTHER?', null, 400), await screenText());
+  check('cpu=6309: BYE returns to the welcome menu', await waitForFrames(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[6].trim() === 'BYE FOR NOW. PICK ANOTHER?', null, 400), await screenText());
   // the menu is started by the page after `menu` arrives (a fetch of welcome.bin plus the program's frames), so
   // bound it in machine frames like the BYE wait above, not in wall time
-  check('cpu=6309: the menu says "PRESS 1 TO 4" again',
-    await waitForFrames(page, () => window.emu.session.welcomeRunning && /PRESS 1 TO [45]/.test(window.emu.session.screenText()[14]), null, 400), await screenText());
+  check('cpu=6309: the menu says "PRESS 1 TO 5" again',
+    await waitForFrames(page, () => window.emu.session.welcomeRunning && /PRESS 1 TO [56]/.test(window.emu.session.screenText()[14]), null, 400), await screenText());
 
   // keys 2 and 4 (demo, chat) come up on the 6309 as on the 6809
   await key('2');
@@ -2077,10 +2116,10 @@ async function cpu6309Checks(browser, base, check) {
     });
     check('cpu=6309: the demo executes its own code and takes no illegal-opcode trap', seen.inDemo && !seen.trapped && !seen.welcome, JSON.stringify(seen));
   }
-  // "Back to the menu" starts the menu afresh (greeting 'first', no option 5): the same on 6809 and 6309
+  // "Back to the menu" starts the menu afresh (greeting 'first', no carry-on option): the same on 6809 and 6309
   await page.click('#btnWelcomeBack');
   check('cpu=6309: "Back to the menu" returns to the menu', await menu() && !(await isError()), await screenText());
-  check('cpu=6309: "Back to the menu" starts it afresh, no option 5 (as on the 6809)', await ev(() => window.emu.session.screenText()[14].includes('PRESS 1 TO 4') && !window.emu.session.screenText().join('').includes('CARRY ON')), await screenText());
+  check('cpu=6309: "Back to the menu" starts it afresh, no carry-on option (as on the 6809)', await ev(() => window.emu.session.screenText()[14].includes('PRESS 1 TO 5') && !window.emu.session.screenText().join('').includes('CARRY ON')), await screenText());
   await key('4');
   check('cpu=6309: key 4 opens the Claude chat (no switch to a 6809)', await waitFor(page, () => document.body.classList.contains('claude-open') && window.emu.session.chatView === 'chat', null, 15000), await msg());
   // the chat machine is the second machine startChat makes; session.machine alone is not evidence (with the bug,
@@ -2093,7 +2132,7 @@ async function cpu6309Checks(browser, base, check) {
 
   // a new visit with NO parameters: the 6309 choice must come from storage, not from the link (reloading the
   // current URL would keep `?cpu=6309` in the address and prove nothing). The demo ran, so the menu offers it as
-  // option 5 ("PRESS 1 TO 5"), exactly as the 6809 would.
+  // option 6 ("PRESS 1 TO 6"), exactly as the 6809 would.
   // (persistence is a precondition, not evidence: the base commit stores the choice too. The checks that fail
   // there are the menu, option 5 and the shelf below, which all need the lookups to work.)
   await page.goto(base);
@@ -2101,10 +2140,10 @@ async function cpu6309Checks(browser, base, check) {
   check('cpu=6309: a visit with no parameters at all keeps the 6309 choice (from storage)', await waitFor(page, () => window.emu.machine && window.emu.machine.config.cpu === '6309')
     && await ev(() => location.search === ''), await ev(() => location.search));
   check('cpu=6309: the new visit opens on the welcome menu, no error', await menu() && !(await isError()), await msg());
-  check('cpu=6309: the new visit offers what ran last (the demo) as option 5, as on the 6809',
-    await waitFor(page, () => window.emu.session.screenText()[12].includes('CARRY ON WITH COLOUR') && window.emu.session.screenText()[14].includes('PRESS 1 TO 5')), await screenText());
-  check('cpu=6309: "Colour demo" is still on the shelf (the new visit\'s Media tab keeps it)', /Colour demo/.test(await page.$$eval('#shelf button', (b) => b.map((x) => x.textContent).join('|'))),
-    await page.$$eval('#shelf button', (b) => b.map((x) => x.textContent).join('|')));
+  check('cpu=6309: the new visit offers what ran last (the demo) as option 6, as on the 6809',
+    await waitFor(page, () => window.emu.session.screenText()[13].includes('CARRY ON WITH COLOUR') && window.emu.session.screenText()[14].includes('PRESS 1 TO 6')), await screenText());
+  check('cpu=6309: "Colour demo" is still on the shelf (the new visit\'s Media tab keeps it)', /Colour demo/.test(await page.$$eval('#shelf :is(a, button)', (b) => b.map((x) => x.textContent).join('|'))),
+    await page.$$eval('#shelf :is(a, button)', (b) => b.map((x) => x.textContent).join('|')));
   check('cpu=6309: no page errors in the whole case', !errors.length, errors.join('; '));
   await ctx.close();
 
@@ -2122,7 +2161,7 @@ async function cpu6309Checks(browser, base, check) {
   // (a precondition: the base commit accepts cpu=6309 in the profiles too, so this is not evidence by itself;
   // the discriminating check is that the welcome menu then starts, below)
   check('cpu=6309 (Machine tab, CoCo 1/2): the machine is a 6309', await waitFor(p2, () => window.emu.machine.config.cpu === '6309' && window.emu.machine.id === 'coco'));
-  check('cpu=6309 (Machine tab, CoCo 1/2): the welcome menu starts', await waitFor(p2, () => window.emu.session.welcomeRunning && /PRESS 1 TO [45]/.test(window.emu.session.screenText()[14]), null, 15000),
+  check('cpu=6309 (Machine tab, CoCo 1/2): the welcome menu starts', await waitFor(p2, () => window.emu.session.welcomeRunning && /PRESS 1 TO [56]/.test(window.emu.session.screenText()[14]), null, 15000),
     await p2.evaluate(() => window.emu.session.screenText().join('\n')));
   check('cpu=6309 (Machine tab, CoCo 1/2): no page errors', !errors2.length, errors2.join('; '));
   await ctx2.close();
@@ -2149,7 +2188,7 @@ async function cpu6309Checks(browser, base, check) {
   const on6309 = await waitFor(p3, () => window.emu && window.emu.session && window.emu.session.machine && window.emu.session.machine.id === 'coco3'
     && window.emu.session.machine.config.cpu === '6309' && window.emu.machine && window.emu.machine.config.cpu === '6309', null, 15000);
   check('?machine=coco3&cpu=6309: the link opens a CoCo 3 with the HD6309', on6309, await p3.evaluate(() => (window.emu && window.emu.machine ? `${window.emu.machine.id} ${window.emu.machine.config.cpu}` : 'no machine')));
-  const menu3 = await waitFor(p3, () => window.emu.session.welcomeRunning && /PRESS 1 TO [45]/.test(window.emu.session.screenText()[14]), null, 15000);
+  const menu3 = await waitFor(p3, () => window.emu.session.welcomeRunning && /PRESS 1 TO [56]/.test(window.emu.session.screenText()[14]), null, 15000);
   check('?machine=coco3&cpu=6309: the welcome menu is offered and on screen', menu3, (await p3.evaluate(() => window.emu.session.screenText())).join('\n'));
   const toasts3 = await p3.evaluate(() => window.__toasts || null);
   check('?machine=coco3&cpu=6309: no error toast, nothing "undefined", no file missing (404)',
@@ -2183,10 +2222,10 @@ async function powerOnChecks(browser, base, check) {
   // Reset on the welcome menu: the menu again
   await page.click('#btnReset');
   check('Reset (no ROMs) on the welcome menu: the welcome menu restarts', await waitFor(page, () => window.emu.session.welcomeRunning
-    && window.emu.session.screenText()[9].trim() === '1 TALK TO LIZA') && !(await bare()), await text());
+    && window.emu.session.screenText()[8].trim() === '1 TALK TO LIZA') && !(await bare()), await text());
   // Reset in LIZA: LIZA from the start
   await openTab(page, 'Media');
-  await page.click('#shelf button:text-is("LIZA")');
+  await page.click('#shelf :is(a, button):text-is("LIZA")');
   await waitFor(page, () => window.emu.session.screenText().join('').includes('I AM LIZA'));
   await page.focus('#screen'); await page.keyboard.type('HELLO THERE', { delay: 60 }); await page.keyboard.press('Enter');
   await waitFor(page, () => window.emu.session.screenText().join('').includes('HELLO THERE'));
@@ -2196,8 +2235,8 @@ async function powerOnChecks(browser, base, check) {
   await shot('reset-liza');
   // Switch off and on: the welcome menu, greeting the visitor back and offering LIZA again
   await page.click('#btnHardReset');
-  check('Switch off and on (no ROMs): the welcome menu, WELCOME BACK, 5 CARRY ON WITH LIZA', await waitFor(page, () => window.emu.session.welcomeRunning
-    && window.emu.session.screenText()[6].trim() === 'WELCOME BACK' && window.emu.session.screenText()[12].trim() === '5 CARRY ON WITH LIZA') && !(await bare()), await text());
+  check('Switch off and on (no ROMs): the welcome menu, WELCOME BACK, 6 CARRY ON WITH LIZA', await waitFor(page, () => window.emu.session.welcomeRunning
+    && window.emu.session.screenText()[6].trim() === 'WELCOME BACK' && window.emu.session.screenText()[13].trim() === '6 CARRY ON WITH LIZA') && !(await bare()), await text());
   await shot('switch-off-and-on');
   // Reset in a binary of the visitor's: it restarts at its exec address (INC $0400 ; BRA $3000)
   await page.setInputFiles('#fileProgram', { name: 'loop.bin', mimeType: 'application/octet-stream', buffer: Buffer.from([0x55, 2, 0x30, 0x00, 0x00, 0x05, 0x30, 0x00, 0xAA, 0x7C, 0x04, 0x00, 0x20, 0xFB]) });
@@ -2238,10 +2277,10 @@ async function powerOnChecks(browser, base, check) {
   for (const [id, sub] of [['coco3', 'DRAGON AND COLOR COMPUTER'], ['mc10', 'TANDY MC-10']]) {
     await pickMachine(page, id);
     check(`switching to the ${id} (no ROMs) from the machine menu: its welcome menu, WELCOME BACK`, await waitFor(page, (id) => window.emu.machine.id === id
-      && window.emu.session.welcomeRunning && window.emu.session.screenText()[7].trim() === 'WELCOME BACK', id) && !(await bare()), `${sub} | ${await text()}`);
-    // option 5 offers only what runs here: loop.bin was loaded on the Dragon 64, so not on this machine
+      && window.emu.session.welcomeRunning && window.emu.session.screenText()[id === 'mc10' ? 7 : 6].trim() === 'WELCOME BACK', id) && !(await bare()), `${sub} | ${await text()}`);
+    // the carry-on option offers only what runs here: loop.bin was loaded on the Dragon 64, so not on this machine
     const five = await page.evaluate(() => [window.emu.session.screenText()[13].trim(), window.emu.session.screenText()[14].trim()]);
-    check(`switching to the ${id}: the menu doesn't offer the Dragon 64's loop.bin (no option 5, PRESS 1 TO 4)`, five[0] === '' && five[1] === 'PRESS 1 TO 4', JSON.stringify(five));
+    check(`switching to the ${id}: the menu doesn't offer the Dragon 64's loop.bin (no carry-on option)`, five[0] === '' && five[1] === (id === 'mc10' ? 'PRESS 1 TO 4' : 'PRESS 1 TO 5'), JSON.stringify(five));
   }
   await shot('switch-mc10');
   // the MC-10: Reset keeps its menu, Switch off and on brings it back (no more bare stub screen on the 6803)
@@ -2254,8 +2293,8 @@ async function powerOnChecks(browser, base, check) {
   // a snapshot taken on the stub's bare prompt (made below the page: the page no longer gets there) opens on the
   // welcome menu; one taken in a program opens in it
   await pickMachine(page, 'dragon64');
-  check('back on the Dragon 64, the menu offers its loop.bin again (5 CARRY ON WITH LOOP.BIN)', await waitFor(page, () => window.emu.session.welcomeRunning
-    && window.emu.session.screenText()[12].trim() === '5 CARRY ON WITH LOOP.BIN'), await text());
+  check('back on the Dragon 64, the menu offers its loop.bin again (6 CARRY ON WITH LOOP.BIN)', await waitFor(page, () => window.emu.session.welcomeRunning
+    && window.emu.session.screenText()[13].trim() === '6 CARRY ON WITH LOOP.BIN'), await text());
   await stubPrompt(page);
   await waitFor(page, () => window.emu.machine.atStubPrompt() && window.emu.session.screenText().join('').includes('NO ROM LOADED'));
   const bareSnap = await page.evaluate(async () => [...(await window.emu.session.snapshotFile()).bytes]);
@@ -3145,7 +3184,7 @@ async function snapshotChecks(browser, base, check) {
 async function liza6803Checks(browser, base, check) {
   const screenOf = (page) => page.evaluate(() => window.emu.session.screenText().join('\n'));
   const shelfLiza = (page) => page.evaluate(() => {
-    const b = [...document.querySelectorAll('#shelf button')].find((x) => x.textContent === 'LIZA');
+    const b = [...document.querySelectorAll('#shelf :is(a, button)')].find((x) => x.textContent === 'LIZA');
     if (b) b.click();
     return !!b;
   });
@@ -3208,9 +3247,9 @@ async function liza6803Checks(browser, base, check) {
   // "Not now" leaves the machine alone; taking it fits 20K and LIZA runs
   {
     const { ctx, page, errors } = await firstVisitOn('mc10', 4);
-    const tag = await page.evaluate(() => { const b = [...document.querySelectorAll('#shelf button')].find((x) => x.textContent.startsWith('LIZA')); return b && `${b.textContent}|${b.dataset.needs}|${b.title}`; });
+    const tag = await page.evaluate(() => { const b = [...document.querySelectorAll('#shelf :is(a, button)')].find((x) => x.textContent.startsWith('LIZA')); return b && `${b.textContent}|${b.dataset.needs}|${b.title}`; });
     check('4K MC-10: the shelf\'s LIZA says it needs 20K', tag === 'LIZA needs 20K|20|An ELIZA-style conversation program (the 6803 build; needs the 20K RAM option)', tag);
-    await page.click('#shelf button[data-needs="20"]');
+    await page.click('#shelf :is(a, button)[data-needs="20"]');
     await waitFor(page, () => !document.getElementById('lizaOffer').hidden && document.activeElement.id === 'btnLizaRam');
     const card = { shown: await page.isVisible('#lizaOffer'), text: await page.textContent('#lizaOfferText'), btn: await page.textContent('#btnLizaRam'),
       focus: await page.evaluate(() => document.activeElement.id), error: await page.evaluate(() => document.getElementById('toast').classList.contains('error')) };
@@ -3219,11 +3258,11 @@ async function liza6803Checks(browser, base, check) {
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'liza-20k-offer.png') });
     await page.click('#btnLizaRamCancel');
     check('4K MC-10: "Not now" closes the offer and keeps 4K', await page.isHidden('#lizaOffer') && await page.evaluate(() => window.emu.machine.config.ram) === 4);
-    await page.click('#shelf button[data-needs="20"]');
+    await page.click('#shelf :is(a, button)[data-needs="20"]');
     await page.click('#btnLizaRam');
     const switched = await waitFor(page, () => window.emu.machine.config.ram === 20 && window.emu.session.screenText().join('').includes('I AM LIZA'), null, 8000);
     check('4K MC-10: one click fits 20K and LIZA runs; the offer and the tag are gone', switched && await page.isHidden('#lizaOffer')
-      && !(await page.$('#shelf button[data-needs]')), `${await page.evaluate(() => window.emu.machine.config.ram)}K`);
+      && !(await page.$('#shelf :is(a, button)[data-needs]')), `${await page.evaluate(() => window.emu.machine.config.ram)}K`);
     check('4K MC-10: no page errors', !errors.length, errors.join('; '));
     if (shotDir) await page.locator('#screenWrap').screenshot({ path: path.join(shotDir, 'liza6803-4k-switch.png') });
     await ctx.close();
@@ -3263,7 +3302,7 @@ async function liza6803Checks(browser, base, check) {
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'liza-touch-clear.png') });
     await tap('BREAK');
     const bye = await waitFor(page, () => /GOODBYE\. IT WAS NICE TALKING TO YOU/.test(window.emu.session.screenText().join(' ').replace(/ +/g, ' ')));
-    const menu = await waitForFrames(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[7].trim() === 'BYE FOR NOW. PICK ANOTHER?', null, 400);
+    const menu = await waitForFrames(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[6].trim() === 'BYE FOR NOW. PICK ANOTHER?', null, 400);
     check('Dragon 64 (touch keys): BREAK leaves LIZA as BYE does, back to the welcome menu', bye && menu, (await screenOf(page)).split('\n').slice(6, 9).join(' | '));
     check('Dragon 64 (touch keys): no page errors', !errors.length, errors.join('; '));
     await ctx.close();
@@ -4166,7 +4205,7 @@ async function slotChecks(browser, base, check) {
   // the moment: LIZA, with a marker in memory once she has greeted. Not the welcome menu: quick save stays hidden
   // while it is all that has run (FV-1), and a moment of the stub's bare prompt opens on the menu
   await openTab(page, 'Media');
-  await page.click('#shelf button:text-is("LIZA")');
+  await page.click('#shelf :is(a, button):text-is("LIZA")');
   await waitFor(page, () => window.emu.session.screenText().join('').includes('I AM LIZA'));
   await page.evaluate(() => window.emu.machine.poke(1030, 77));
   await page.click('#btnPause');
@@ -4563,7 +4602,7 @@ async function firstVisitChecks(browser, base, check) {
       check('first visit: dismissed, still the one call to add ROMs; after Esc the key line under the slots shows instead of the hint',
         JSON.stringify(after.romCalls) === '["romPill"]' && JSON.stringify(after.legends) === '["hint"]', JSON.stringify(after));
       // something to save: LIZA from the Media tab's shelf
-      await page.click('#shelf button:text-is("LIZA")');
+      await page.click('#shelf :is(a, button):text-is("LIZA")');
       check('first visit: quick save appears once something else runs (LIZA)', await waitFor(page, () => {
         const q = document.getElementById('quickSave'); return q.getClientRects().length > 0 && document.querySelectorAll('#slotList .slot-row').length === 3;
       }));
@@ -5011,7 +5050,7 @@ async function landingChecks(browser, site, check) {
     check(`landing (${label}): nothing from other hosts, no page errors`, !foreign.length && !archive.length && !errors.length, foreign.concat(errors).join(' '));
     // "Try it now": the emulator with the welcome program running
     await page.click('#tryIt');
-    check(`landing (${label}): "Try it now" opens /play/ with the welcome program`, await waitFor(page, () => window.emu && window.emu.session.welcomeRunning && window.emu.session.screenText()[14].includes('PRESS 1 TO 4'))
+    check(`landing (${label}): "Try it now" opens /play/ with the welcome program`, await waitFor(page, () => window.emu && window.emu.session.welcomeRunning && window.emu.session.screenText()[14].includes('PRESS 1 TO 5'))
       && new URL(page.url()).pathname === '/play/');
     if (label === 'desktop') {
       await page.goto(site);
@@ -5855,7 +5894,7 @@ async function tapeChecks(browser, base, check) {
     for (const sgm of res.segments) if (sgm.addr >= base) img.set(sgm.data.subarray(0, end - sgm.addr), sgm.addr - base);
     s.addRoms(m.profile.roms.map((sl) => ({ name: sl.files[0], bytes: img.slice(sl.at - base, sl.at - base + sl.size) })));
   });
-  await page.evaluate(() => document.querySelector('#shelf button[data-shelf="welcome"]').click());
+  await page.evaluate(() => document.querySelector('#shelf :is(a, button)[data-shelf="welcome"]').click());
   const menu = await waitFor(page, () => window.emu.session.welcomeRunning && window.emu.machine.useStub, null, 15000);
   await dropFiles(page, [['plain.cas', plain]]);
   const again = await waitFor(page, () => /^Using your ROMs again to load plain\.cas through BASIC\. Restarted for a clean load\. plain\.cas: tape inserted/.test(document.getElementById('toastText').textContent), null, 10000);
@@ -6039,10 +6078,12 @@ async function touchJoystickChecks(browser, base, check) {
     // starts to take the menu's place, which is the machine's own pace, not wall time. On the stick page the tap
     // must be ignored, so there is nothing to wait for there: the menu is still up when the check reads it.
     const tapMenuLine = async (page, { expectLeave = false } = {}) => {
+      // (the menu's lines are drawn after its colour stripe: a tap reads the number on the line it lands on)
+      await waitFor(page, () => window.emu.session.screenText()[9].trim() === '2 COLOUR AND SOUND');
       const state = await page.evaluate(() => {
         const s = window.emu.session, r = document.getElementById('screen').getBoundingClientRect();
         document.getElementById('screen').dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true,
-          clientX: r.left + r.width / 2, clientY: r.top + (24 + 10 * 12 + 6) / 240 * r.height, pointerType: 'touch' }));
+          clientX: r.left + r.width / 2, clientY: r.top + (24 + 9 * 12 + 6) / 240 * r.height, pointerType: 'touch' }));
         return { stick: document.getElementById('touchKeys').classList.contains('joystick'), before: s.welcomeRunning };
       });
       if (expectLeave) await waitForFrames(page, () => !window.emu.session.welcomeRunning, null, 400);
@@ -6629,11 +6670,11 @@ async function inputScreenChecks(browser, base, check) {
     const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
     const page = await ctx.newPage();
     await page.goto(base);
-    await waitFor(page, () => window.emu && window.emu.session.welcomeRunning && window.emu.session.screenText()[14].includes('PRESS 1 TO 4'));
+    await waitFor(page, () => window.emu && window.emu.session.welcomeRunning && window.emu.session.screenText()[14].includes('PRESS 1 TO 5'));
     await page.tap('#screen', { position: { x: 5, y: 5 } });                      // unlocks sound: the tune plays first
     await waitFor(page, () => window.emu.machine.ram[0x6005] === 1, null, 20000);
-    // the "2 COLOUR AND SOUND" line: text row 10, lines 144..155 of the 240-line frame
-    const at = await page.evaluate(() => { const r = document.getElementById('screen').getBoundingClientRect(); return { x: r.width / 2, y: (24 + 10 * 12 + 6) / 240 * r.height }; });
+    // the "2 COLOUR AND SOUND" line: text row 9, lines 132..143 of the 240-line frame
+    const at = await page.evaluate(() => { const r = document.getElementById('screen').getBoundingClientRect(); return { x: r.width / 2, y: (24 + 9 * 12 + 6) / 240 * r.height }; });
     await page.tap('#screen', { position: at });
     // (said: shown, or on a phone waiting for room in the toast's queue: a toast never covers the screen's text)
     check('welcome: tapping a menu line chooses it (2: the colour demo)', await waitFor(page, () => window.emu.feedback.pending.some((m) => /Colour demo/.test(m.text)) && !window.emu.session.welcomeRunning),
@@ -6648,7 +6689,7 @@ async function inputScreenChecks(browser, base, check) {
     const errors = [];
     page.on('pageerror', (e) => errors.push(e.message));
     await page.goto(base);
-    await waitFor(page, () => window.emu && window.emu.session.welcomeRunning && window.emu.session.screenText()[14].includes('PRESS 1 TO 4'));
+    await waitFor(page, () => window.emu && window.emu.session.welcomeRunning && window.emu.session.screenText()[14].includes('PRESS 1 TO 5'));
     const first = await page.evaluate(() => {
       const r = (el) => el.getBoundingClientRect(), s = r(document.getElementById('screen'));
       const covers = (id) => { const el = document.getElementById(id); if (el.hidden || getComputedStyle(el).display === 'none') return false; const b = r(el); return b.bottom > s.top && b.top < s.bottom && b.width > 0; };
@@ -6765,7 +6806,7 @@ async function urlChecks(browser, base, check) {
   await open('?app=bogus');
   check('link: app=bogus: "isn\'t something CLOADM has (try app=claude)"', (await msg()).includes("app=bogus isn't something CLOADM has (try app=claude)") && await ev(() => !!window.emu.machine.id), await msg());
   await open('?start=bogus');
-  check('link: start=bogus says what to try', (await msg()).includes("start=bogus isn't something CLOADM has (try start=welcome or start=liza)"), await msg());
+  check('link: start=bogus says what to try', (await msg()).includes("start=bogus isn't something CLOADM has (try start=welcome or start=liza or start=2048 or start=minesweeper)"), await msg());
   // a file at a host that doesn't allow other sites (no CORS header) fails in fetch with a TypeError: plain words, not "Failed to fetch"
   await ctx.route('https://nocors.example/**', (route) => route.abort('failed'));   // what the browser's fetch gives for a cross-origin refusal (Playwright's fulfill adds CORS headers itself, so abort stands in): a TypeError
   await open('?machine=dragon64&load=https://nocors.example/demo.bin');
@@ -6821,6 +6862,73 @@ async function urlChecks(browser, base, check) {
     && /ROM self-test: \d+\/\d+ passed/.test(document.getElementById('toast').textContent), null, 60000), await page.textContent('#toast'));
   await open('?machine=dragon64&start=liza');
   check('link: start=liza runs LIZA', await waitFor(page, () => window.emu.session.screenText().join('').includes('I AM LIZA')));
+  for (const [game, name] of [['2048', '2048'], ['minesweeper', 'Minesweeper']]) {
+    await open(`?machine=coco&start=${game}`);
+    check(`link: start=${game} runs the game on its title page (the four-colour screen)`, await waitFor(page, (n) => (window.emu.machine.pia1.saveState().b.or & 0x80) !== 0
+      && JSON.stringify(window.emu.session.lastRun) === JSON.stringify({ kind: 'game', name: n }), name));
+  }
+  // Direct links: each opens its program with no welcome menu in between (the page's 'welcome' events are counted
+  // from the Session's creation, in a page of their own), and no page errors. ?start= stays in the address while the
+  // program runs and goes once it is left (as ?app=claude does for the chat); the Media tab's entries are real links
+  // to them, so "Copy link" gives the same address.
+  {
+    const dctx = await browser.newContext({ serviceWorkers: 'block' });
+    await dctx.addInitScript(() => {
+      let v;
+      window.__welcomeStarts = 0;
+      Object.defineProperty(window, 'emu', { configurable: true, get() { return v; },
+        set(x) { v = x; if (x && x.session) x.session.on((e) => { if (e === 'welcome') window.__welcomeStarts++; }); } });
+    });
+    const dp = await dctx.newPage();
+    const derr = [];
+    dp.on('pageerror', (e) => derr.push(e.message));
+    const go = async (q) => { await dp.goto(`${base}${q}`); return waitFor(dp, () => window.emu && window.emu.linkDone, null, 15000); };
+    const graphics = () => dp.evaluate(() => (window.emu.machine.pia1.saveState().b.or & 0x80) !== 0);
+    await go('?machine=dragon64&start=liza');
+    check('direct link: ?start=liza opens LIZA, no welcome menu in between', await waitFor(dp, () => window.emu.session.screenText().join('').includes('I AM LIZA'))
+      && await dp.evaluate(() => window.__welcomeStarts) === 0, String(await dp.evaluate(() => window.__welcomeStarts)));
+    await go('?machine=dragon64&app=claude');
+    check('direct link: ?app=claude opens the chat, no welcome menu in between', await waitFor(dp, () => document.body.classList.contains('claude-open') && window.emu.session.chatView === 'chat')
+      && await dp.evaluate(() => window.__welcomeStarts) === 0, String(await dp.evaluate(() => window.__welcomeStarts)));
+    for (const [game, name] of [['2048', '2048'], ['minesweeper', 'Minesweeper']]) {
+      for (const m of ['dragon64', 'coco3']) {
+        await go(`?machine=${m}&start=${game}`);
+        check(`direct link: ?machine=${m}&start=${game} opens ${name}, no welcome menu in between`, await waitFor(dp, (n) => JSON.stringify(window.emu.session.lastRun) === JSON.stringify({ kind: 'game', name: n }), name)
+          && await graphics() && await dp.evaluate(() => window.__welcomeStarts) === 0 && new URL(dp.url()).searchParams.get('start') === game, dp.url());
+      }
+    }
+    // leaving the game: BREAK, the menu, and the address without start= (a reload is a plain visit)
+    await dp.focus('#screen'); await dp.keyboard.press('Space'); await dp.waitForTimeout(300); await dp.keyboard.press('Escape');
+    check('direct link: BREAK leaves the game for the menu, and the address drops start=', await waitForFrames(dp, () => window.emu.session.welcomeRunning, null, 400)
+      && await waitFor(dp, () => !new URL(location.href).searchParams.has('start')), dp.url());
+    await dp.reload(); await waitFor(dp, () => window.emu && window.emu.linkDone, null, 15000);
+    // (and the counter of welcome starts sees this one: the "no welcome menu in between" checks above are not blind)
+    check('direct link: a reload after leaving opens the welcome menu, not the game', await waitFor(dp, () => window.emu.session.welcomeRunning) && !(await graphics())
+      && await dp.evaluate(() => window.__welcomeStarts) >= 1, String(await dp.evaluate(() => window.__welcomeStarts)));
+    // the Media tab's entries are links to the same addresses, on the machine in use
+    const hrefs = await dp.evaluate(() => Object.fromEntries([...document.querySelectorAll('#shelf a')].map((a) => [a.textContent.replace(/ on screen now$/, ''), new URL(a.href).search])));
+    const want = (q) => (h) => !!h && new URLSearchParams(h).get('machine') === 'coco3' && Object.entries(q).every(([k, v]) => new URLSearchParams(h).get(k) === v);
+    check('direct link: the Media tab\'s welcome menu, LIZA, 2048, Minesweeper and Claude entries are links to them on this machine',
+      want({ start: 'welcome' })(hrefs['Welcome menu']) && want({ start: 'liza' })(hrefs.LIZA) && want({ start: '2048' })(hrefs['2048'])
+      && want({ start: 'minesweeper' })(hrefs.Minesweeper) && want({ app: 'claude' })(hrefs['Chat with Claude']), JSON.stringify(hrefs));
+    const msHref = await dp.evaluate(() => [...document.querySelectorAll('#shelf a')].find((a) => a.textContent === 'Minesweeper').href);
+    await dp.goto(msHref); await waitFor(dp, () => window.emu && window.emu.linkDone, null, 15000);
+    check('direct link: the Minesweeper entry\'s link, opened, runs Minesweeper with no menu in between', await waitFor(dp, () => JSON.stringify(window.emu.session.lastRun) === '{"kind":"game","name":"Minesweeper"}')
+      && await graphics() && await dp.evaluate(() => window.__welcomeStarts) === 0);
+    check('direct links: no page errors', !derr.length, derr.join('; '));
+    await dctx.close();
+  }
+  // both app= and start=: the chat opens, the game does not start, and the link says start= was ignored
+  await open('?machine=dragon64&app=claude&start=2048');
+  check('link: app=claude&start=2048 opens the chat, not the game, and says start= is ignored', await waitFor(page, () => document.body.classList.contains('claude-open') && window.emu.session.chatView === 'chat')
+    && /start=2048 is ignored: app=claude opens instead/.test(await msg())
+    && await ev(() => { const b = window.emu.session.chatMachines.basic.ram; return !(b[0x3005] === 0x20 && b[0x3006] === 0xFE); }), await msg());   // (no game's DONE loop in the BASIC machine)
+  // under 32K the games are refused, saying why, and nothing runs
+  await open('?machine=coco&ram=16&start=minesweeper');
+  check('link: start=minesweeper on a 16K CoCo says it needs 32K', await waitFor(page, () => /Minesweeper needs 32K RAM or more; this CoCo 1\/2 has 16K/.test(document.getElementById('toast').textContent))
+    && await ev(() => (window.emu.machine.pia1.saveState().b.or & 0x80) === 0), await msg());
+  await open('?machine=mc10&start=2048');
+  check('link: start=2048 on an MC-10 says the game is 6809 code', await waitFor(page, () => /2048 is 6809 code; the MC-10 has a 6803/.test(document.getElementById('toast').textContent)), await msg());
   await open('?machine=dragon64&embed=1');
   check('link: embed=1 shows the screen alone', await ev(() => document.body.classList.contains('embed')) && await page.isHidden('.appbar') && await page.isHidden('.drawer')
     && await ev(() => { const r = document.getElementById('screen').getBoundingClientRect(); return r.width > 300; }));
@@ -6934,7 +7042,7 @@ async function pwaChecks(browser, site, check) {
   check('PWA: the manifest is linked and served', await page.evaluate(async () => { const l = document.querySelector('link[rel="manifest"]'); const m = await (await fetch(l.href)).json(); return m.start_url === '/play/'; }));
   await ctx.setOffline(true);
   await page.goto(`${site}play/?machine=dragon64&start=welcome`);
-  check('PWA offline: /play/ reloads and runs the welcome program', await waitFor(page, () => window.emu && window.emu.session.welcomeRunning && window.emu.session.screenText()[14].includes('PRESS 1 TO 4'), null, 10000));
+  check('PWA offline: /play/ reloads and runs the welcome program', await waitFor(page, () => window.emu && window.emu.session.welcomeRunning && window.emu.session.screenText()[14].includes('PRESS 1 TO 5'), null, 10000));
   // sound offline: the worklet's module comes from the kept copy, so a click starts the AudioWorkletNode and it
   // plays (the welcome tune: the processor reports samples taken, and its output is not silent)
   await page.mouse.click(5, 5);
@@ -8449,7 +8557,7 @@ async function askEscChecks(browser, base, check) {
       b.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerId: 7, pointerType: 'touch' }));
       setTimeout(() => b.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, pointerId: 7, pointerType: 'touch' })), 120); })],
     ['a tap on the menu line', { width: 1440, height: 900 }, null, (page) => page.evaluate(() => { const c = document.getElementById('screen'), r = c.getBoundingClientRect(), f = window.emu.session.machine.render();
-      c.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: r.left + r.width / 2, clientY: r.top + (24 + 12 * 9 + 6) / f.height * r.height })); })],
+      c.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: r.left + r.width / 2, clientY: r.top + (24 + 12 * 8 + 6) / f.height * r.height })); })],
   ]) {
     const { ctx, page, errors, replies } = await open(vp, opts || {});
     await page.evaluate(() => document.getElementById('btnAsk').click());
@@ -11177,13 +11285,13 @@ async function uiQaChecks(browser, base, check) {
     && !(history.state && (history.state.mark || history.state.claudeChat)) && !document.body.classList.contains('claude-open')));
   // a 4K MC-10's LIZA offer
   await page.goto(`${base}?machine=mc10&ram=4`); await ready(page);
-  await page.click('#shelf button[data-needs="20"]');
+  await page.click('#shelf :is(a, button)[data-needs="20"]');
   await waitFor(page, () => !document.getElementById('lizaOffer').hidden);
   await page.keyboard.press('Escape');
   check('Esc closes the LIZA RAM offer ("Not now")', await waitFor(page, () => document.getElementById('lizaOffer').hidden) && await page.evaluate(() => window.emu.machine.config.ram) === 4);
   // a question above the screen answers "no" to Esc with the focus on the screen too (reviewer: the offer stayed),
   // and that Esc is not BREAK
-  await page.click('#shelf button[data-needs="20"]');
+  await page.click('#shelf :is(a, button)[data-needs="20"]');
   await waitFor(page, () => !document.getElementById('lizaOffer').hidden);
   await page.focus('#screen');
   await watchKeys();
@@ -11244,7 +11352,7 @@ async function modelsChecks(browser, base, check) {
     errors.length = 0;
     await pickMachine(page, id);
     // without ROMs every model is switched on into its welcome menu, never the stub's bare screen
-    await waitFor(page, () => (window.emu.session.welcomeRunning && window.emu.session.screenText()[9].trim() === '1 TALK TO LIZA') || window.emu.machine.hasRom);
+    await waitFor(page, () => (window.emu.session.welcomeRunning && [8, 9].some((r) => window.emu.session.screenText()[r].trim() === '1 TALK TO LIZA')) || window.emu.machine.hasRom);
     await redrawn(page);
     const colours = await page.evaluate(() => {
       // what the page drew (WebGL or 2D), copied to a 2D canvas to read it

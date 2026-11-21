@@ -104,6 +104,8 @@ function condition(text) {
 }
 // Text to type. \n (or \r) is ENTER, \\ a backslash, {NAME} a key that is no character: ENTER, BREAK, CLEAR, UP,
 // DOWN, LEFT, RIGHT, SPACE. A real newline is ENTER too. Returns a list of characters and { key } items.
+// the bundled programs --program runs
+const PROGRAMS = ['welcome', 'liza', 'demo', ...Object.keys(Emu.GAMES.list)];
 const KEY_NAMES = ['ENTER', 'BREAK', 'CLEAR', 'UP', 'DOWN', 'LEFT', 'RIGHT', 'SPACE'];
 function typed(text) {
   const out = [];
@@ -156,8 +158,8 @@ const STEPS = {
     parse: (t) => t,
   },
   program: {
-    arg: 'NAME', help: 'run a bundled program: welcome, liza or demo (no ROMs needed)', example: '--program liza',
-    parse: (t) => { if (!['welcome', 'liza', 'demo'].includes(t)) throw usage(`program is welcome, liza or demo, not "${t}"`); return t; },
+    arg: 'NAME', help: 'run a bundled program: welcome, liza, demo, 2048 or minesweeper (no ROMs needed)', example: '--program liza',
+    parse: (t) => { if (!PROGRAMS.includes(t)) throw usage(`program is ${PROGRAMS.slice(0, -1).join(', ')} or ${PROGRAMS.at(-1)}, not "${t}"`); return t; },
   },
   load: {
     arg: 'FILE', help: 'load and run a binary, .cas, .wav, cartridge or BASIC listing, as dropping it on the page; a disk image goes in drive 0', example: '--load game.bin',
@@ -557,7 +559,9 @@ class Runner {
     let message;
     if (name === 'welcome') { s.startWelcome(example(s.welcomeFile)); message = 'welcome program running'; }
     else if (name === 'liza') message = await s.startLiza(example);
-    else {
+    else if (Emu.GAMES.list[name]) {
+      try { message = s.runGame(name, example(s.gameFile(name))); } catch (e) { if (e instanceof Emu.SessionError) throw media(e.message, 'rejected'); throw e; }
+    } else {
       if (Emu.cpuFamily(this.m.config.cpu) !== '6809') throw media(`the demo is 6809 code; the ${this.m.profile.name} has a ${this.m.config.cpu}`, 'rejected');
       message = s.load('demo.bin', example('demo.bin'), { remember: false });
     }

@@ -76,7 +76,7 @@ for (const id of two) {
   check(`${id} 6309: startWelcome loads the welcome program`, !err && s.welcomeRunning, err && err.message);
   frames(s, 50);
   const t = s.screenText();
-  check(`${id} 6309: the menu shows, key 1 to 4`, /1 TALK TO LIZA/.test(t[9]) && /PRESS 1 TO 4/.test(t[14]), JSON.stringify(t.slice(9, 15)));
+  check(`${id} 6309: the menu shows, keys 1 to 5`, /1 TALK TO LIZA/.test(t[8]) && /5 PLAY A GAME/.test(t[12]) && /PRESS 1 TO 5/.test(t[14]), JSON.stringify(t.slice(8, 15)));
   // the welcome build draws the same screen on the 6309 as on the 6809 (same CPU state, same cells)
   const welcome6309 = runOn(id, '6309', welcome, 'welcome.bin', 50), welcome6809 = runOn(id, '6809', welcome, 'welcome.bin', 50);
   check(`${id} 6309: the welcome menu ends where the 6809's does (same CPU state and screen)`,

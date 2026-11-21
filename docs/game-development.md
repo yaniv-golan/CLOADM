@@ -424,6 +424,57 @@ jobs:
         with: { name: differences, path: 'diff-*.png' }
 ```
 
+## Worked examples: 2048 and Minesweeper
+
+The two games on the welcome menu's **5 PLAY A GAME** are larger examples of the same techniques, and of a few more:
+[`examples/2048.asm`](../examples/2048.asm), [`examples/minesweeper.asm`](../examples/minesweeper.asm) and the
+routines they share, [`examples/games.inc`](../examples/games.inc) (`INCLUDE "games.inc"`; the command line's `--asm`
+reads includes from the source's folder).
+
+* **A fixed header for the tools.** Each starts `ENTRY JMP START` at `$3000`, then `SEED` (a word at `$3003`),
+  `DONE BRA DONE` (`$3005`) and `SAMEXIT` (`$3007`). A test pokes a nonzero `SEED` so the random numbers are the same
+  every run (otherwise they are seeded by how many times the title page polled for a key). BREAK leaves the game, on
+  its title page too: the text screen again, the SAM's memory size put back to `SAMEXIT` (the SAM's registers can't be
+  read back, so the loader says what it was: CLOADM's Session sets it, and the default, 2, is BASIC's), then `DONE`,
+  which a test (`--wait-for pc:$3005`) and the page watch for. Without ROMs the page brings the welcome menu back;
+  with BASIC it clears BASIC's warm-start flag (`$0071`) and presses reset, so BASIC starts cold: the bitmap at
+  `$0400-$1BFF` has overwritten BASIC's program and any disk DOS workspace, which a warm start would trust.
+* **32K or more.** The bitmap needs the SAM set for 64K chips (M = 10), as BASIC sets it on 32K and 64K machines; on a
+  4K or 16K machine, whose 4K or 16K chips are addressed differently, that would scramble memory, so CLOADM refuses
+  the games there (`Session.gameNeeds`), on the page, in a link and on the command line.
+* **Keys through POLCAT.** Turn-based games want one event a press, so they call `JSR [$A000]` instead of scanning
+  the matrix: the firmware (built-in or BASIC) deals with the Dragon and CoCo layouts, and `--type` (`{UP}`, `{LEFT}`,
+  `{BREAK}`, letters, space) drives them. The starter game scans the matrix itself (held keys, `--hold`) because it
+  moves while a key is down.
+* **The four-colour screen.** CG6 (PMODE 3, 128x192) at `$0400`: the SAM's M set to 64K first (the built-in firmware
+  leaves 4K, which would show the bottom 64 rows as a copy of the top), V = 110, F = 2, `$FF22` = `$E0` or `$E8` with
+  bits 2-0 kept. Minesweeper uses colour set 1 (buff, cyan, magenta, orange) and flashes to set 0 when it ends.
+* **Text in a bitmap.** A 3x5 font in a 4-pixel cell is one byte a row: a table of the eight 3-bit patterns as pixel
+  masks, ANDed with the colour's fill byte (colour x `$55`) and ORed with the background's. The same glyphs are drawn
+  twice as wide (two bytes) and any number of rows tall for the titles and the tiles' numbers.
+* **Sprites with a mask.** Minesweeper's flag and mine are 11 pixels by 10 rows stored as (mask, colour) byte pairs:
+  `screen AND mask OR colour` keeps the square's background where the sprite is transparent.
+* **No recursion.** Minesweeper's flood fill keeps a queue of squares in a 64-byte table (a square joins it once, as
+  it opens), so the stack never grows with the size of the empty area; `tests/games.test.js` fills the RAM below the
+  stack with a pattern and shows it stays within 32 bytes of `$3000` over a whole game.
+* **Sound that is easy to check.** `TONE` writes `$FC` and `$04` in turn with a half period of `5 x D + 22` cycles;
+  `NOISE` sends LFSR values to the DAC. Both run with the game stopped, as the starter game's do.
+
+Played from the command line, with the seed fixed:
+
+```sh
+node bin/cloadm.js --program 2048 --frames 30 --poke '$3003=$BE,$EF' --type ' ' --frames 20 \
+  --type '{LEFT}{UP}{LEFT}{UP}{RIGHT}{DOWN}' --frames 30 --expect-screenshot tests/fixtures/games/2048-board.png
+node bin/cloadm.js --program minesweeper --frames 30 --poke '$3003=$5E,$ED' --type ' ' --frames 20 \
+  --type ' ' --frames 20 --type '{BREAK}' --wait-for 'pc:$3005'
+```
+
+[`tests/games.test.js`](../tests/games.test.js) goes further: models of both games' rules and of their random numbers,
+written from the descriptions in the sources, play scripted games and compare the boards in memory after every key;
+the screens match reference PNGs (`--expect-screenshot`), Minesweeper's sounds a reference WAV (`--wav`), and text
+drawn in the bitmap is read back through the font. Deliberate breakages of the rules (a tile joining twice in a move,
+mines next to the first square, the flag limit, ...) each turn it red.
+
 ---
 
 See also: [Automation](automation.md) · [Using CLOADM](using.md) · [Machines](machines.md)

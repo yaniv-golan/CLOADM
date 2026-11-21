@@ -240,7 +240,11 @@
   #shelf .tag { font-size: 14px; color: var(--orange); font-weight: 600; }
   /* the returning visit: one row a program, its tag on the right */
   #shelf { display: flex; flex-direction: column; gap: 8px; }
-  #shelf button { display: flex; justify-content: space-between; align-items: center; gap: 10px; width: 100%; text-align: left; }
+  #shelf button, #shelf a { display: flex; justify-content: space-between; align-items: center; gap: 10px; width: 100%; text-align: left; }
+  /* the shelf's links (a program a link can start) look like its buttons */
+  #shelf a { box-sizing: border-box; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: var(--r-10);
+    padding: 9px 14px; font-size: 15px; min-height: 40px; text-decoration: none; }
+  #shelf a:hover { border-color: var(--line-strong); }
   #shelf .tag.now { color: var(--muted); font-weight: 400; }
   #shelf [aria-current="true"] { border-color: var(--phosphor); }
   /* the returning visit: what ran last, one click away */

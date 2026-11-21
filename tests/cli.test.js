@@ -114,7 +114,7 @@ const target = (s) => ({ machine: s.machine, screenText: () => s.screenText(), r
     [['--type', '{F1}'], /unknown key \{F1\}/],
     [['--type', 'a\\q'], /unknown escape \\q/],
     [['--frames', '1', '--machine', 'coco'], /machine sets up the machine, so it must come before every other step/],
-    [['--program', 'pacman'], /program is welcome, liza or demo/],
+    [['--program', 'pacman'], /program is welcome, liza, demo, 2048 or minesweeper/],
     [['--screen', 'now'], /unexpected argument "now"/],
   ];
   for (const [args, re] of bad) {

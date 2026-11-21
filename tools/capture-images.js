@@ -45,14 +45,14 @@ const waitFor = async (page, fn) => { for (let i = 0; i < 200; i++) { if (await 
   try {
     let page = await (await browser.newContext()).newPage();
     await page.goto(`${base}?machine=dragon64&start=welcome`);
-    await waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[14].includes('PRESS 1 TO 4'));
+    await waitFor(page, () => window.emu && window.emu.machine && window.emu.session.welcomeRunning && window.emu.session.screenText()[14].includes('PRESS 1 TO 5'));
     await page.waitForTimeout(300);
     if (await page.evaluate(() => window.emu.machine.hasRom)) throw new Error('ROMs loaded: refusing to capture');
     await save(page, 'welcome.png');
     await save(page, 'readme-welcome.png', 2);
     page = await (await browser.newContext()).newPage();
     await page.goto(`${base}?machine=dragon64&start=liza`);
-    await waitFor(page, () => window.emu.session.screenText().join('').includes('I AM LIZA'));
+    await waitFor(page, () => window.emu && window.emu.machine && window.emu.session.screenText().join('').includes('I AM LIZA'));
     await page.focus('#screen');
     for (const line of ['I MISS MY DRAGON', 'BECAUSE IT WAS MAGIC']) {
       await page.keyboard.type(line, { delay: 40 }); await page.keyboard.press('Enter'); await page.waitForTimeout(800);

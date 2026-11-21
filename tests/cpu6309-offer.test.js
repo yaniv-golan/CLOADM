@@ -62,8 +62,8 @@ for (const id of with6309) {
     s.startWelcome(bytes, { greeting: 'back', carryOn: null });
     frames(s, 50);
     const t = s.screenText();
-    check(`${tag}: the file starts as the welcome menu on the 6309 ("1 TALK TO LIZA", "PRESS 1 TO 4")`,
-      s.welcomeRunning && /1 TALK TO LIZA/.test(t[9]) && /PRESS 1 TO 4/.test(t[14]), JSON.stringify(t.slice(9, 15)));
+    check(`${tag}: the file starts as the welcome menu on the 6309 ("1 TALK TO LIZA", "PRESS 1 TO 5")`,
+      s.welcomeRunning && /1 TALK TO LIZA/.test(t[8]) && /PRESS 1 TO 5/.test(t[14]), JSON.stringify(t.slice(8, 15)));
   }
 
   // no offer where it is not wanted: an embed turns the menu off, and a machine with ROMs is not on the stub

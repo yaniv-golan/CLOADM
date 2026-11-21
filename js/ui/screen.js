@@ -197,15 +197,19 @@ export function setupScreen(page, { loadPrograms, roms }) {
     catch (err) { page.status(`That drop could not be read: ${err.message}`, true); }
   });
 
-  // ---- the welcome menu by touch or click: a tap on one of its four lines presses that line's number ----
-  // (text row r of the 32x16 screen is lines 24 + 12r .. 35 + 12r of every 240-line frame). While the touch
-  // stick is showing, the person is playing a game, not choosing a menu line: no tap goes to the menu then.
+  // ---- the welcome menu by touch or click: a tap on one of its lines presses that line's number ----
+  // (text row r of the 32x16 screen is lines 24 + 12r .. 35 + 12r of every 240-line frame). A menu line starts
+  // with its number in inverse video at column 4 (both builds, every menu: the main one, the carry-on line, the
+  // games menu), so the tapped row's cell there says which key it is. While the touch stick is showing, the
+  // person is playing a game, not choosing a menu line: no tap goes to the menu then.
   canvas.addEventListener('pointerup', (e) => {
     if (!session.welcomeRunning) return;
     if (touchStickUp()) return;
-    const r = canvas.getBoundingClientRect(), f = session.machine.render();
+    const m = session.machine, r = canvas.getBoundingClientRect(), f = m.render();
     const row = Math.floor(((e.clientY - r.top) / r.height * f.height - 24) / 12);
-    if (row >= 9 && row <= 12) { audio.start(); session.typeText(String(row - 8)); }
+    if (row < 0 || row > 15) return;
+    const cell = m.peek((m.profile.textScreen || 0x400) + row * 32 + 4);
+    if (cell >= 0x30 && cell <= 0x39) { audio.start(); session.typeText(String.fromCharCode(cell)); }
   });
 
   // ---- run controls ----

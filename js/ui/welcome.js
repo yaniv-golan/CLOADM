@@ -5,14 +5,15 @@
  *    question, asked once and then remembered. Adding ROMs is the header's "No BASIC · Add ROMs" and the menu's
  *    key 3. The welcome program's
  *    keys arrive as Session events: 1 runs LIZA, 2 the colour demo, 3 shows the ROM
- *    sockets, 4 the Claude chat. From the demo, "Back to the menu"
- *    returns. No DOM keys are read here: the machine gets every key (Esc is its BREAK).
+ *    sockets, 4 the Claude chat, 5 PLAY A GAME, a games menu (NEW GAMES FOR AN OLD
+ *    MACHINE: 2048, Minesweeper; 6809 machines). From the demo, "Back to
+ *    the menu" returns; BREAK leaves a game. No DOM keys are read here: the machine gets every key (Esc is its BREAK).
  *  - Returning: without ROMs every visit boots the welcome menu, which
- *    says "WELCOME BACK" and, when something ran last time, offers it as option 5 ("CARRY ON WITH LIZA"); with
+ *    says "WELCOME BACK" and, when something ran last time, offers it as its last option ("CARRY ON WITH LIZA"); with
  *    ROMs the machine boots BASIC as before. Either way the Media tab's "Last time" offers "Run again", and the
  *    welcome menu is the first of "Runs without ROMs". No separate welcome-back card.
- *  - Leaving a program goes back to the menu ("BYE FOR NOW. PICK ANOTHER?"): BYE in LIZA, a key once the colour
- *    demo is drawing (the Session watches and emits 'menu').
+ *  - Leaving a program goes back to the menu ("BYE FOR NOW. PICK ANOTHER?"): BYE in LIZA, BREAK in a game, a key
+ *    once the colour demo is drawing (the Session watches and emits 'menu').
  *  - Without ROMs the machine is never left on the stub's bare screen: Switch off
  *    and on, "Run without ROMs" and "Remove ROMs" turn it on into the welcome menu ("WELCOME BACK", the Session
  *    emits ('menu', 'back')); Reset restarts what was running (the menu, LIZA, a binary), or the menu.
@@ -22,6 +23,8 @@
 import { $, ESC } from './page.js';
 import { profiles } from '../machines/profiles.js';
 import { cpuFamily } from '../cpu/cpus.js';
+import { gameKey } from '../session.js';
+import { buildUrl } from '../config.js';
 
 // Programs that run without ROMs: our own only. Third-party homebrew is not bundled: the stub provides only
 // POLCAT and CHROUT, so most homebrew (which calls other ROM routines) wouldn't run, and anything listed here
@@ -34,7 +37,10 @@ import { cpuFamily } from '../cpu/cpus.js';
 export const SHELF = [
   { name: 'LIZA', liza: true, title: 'An ELIZA-style conversation program' },
   { name: 'Colour demo', url: 'examples/demo.bin', cpu: '6809', title: 'Graphics and colour demo' },
+  { name: '2048', game: '2048', cpu: '6809', title: '2048: slide and join the tiles (arrows; BREAK leaves)' },
+  { name: 'Minesweeper', game: 'minesweeper', cpu: '6809', title: 'Minesweeper: find the ten mines (arrows, SPACE, F; BREAK leaves)' },
 ];
+const gameItem = (key) => SHELF.find((x) => x.game === key);
 // the machine question: one button per family people are likely to have had
 const ASK = [['dragon64', 'Dragon 32 / 64'], ['coco', 'CoCo 1 / 2'], ['coco3', 'CoCo 3'], ['mc10', 'MC-10']];
 const el = (tag, text, cls) => { const e = document.createElement(tag); if (text != null) e.textContent = text; if (cls) e.className = cls; return e; };
@@ -77,6 +83,7 @@ export function setupWelcome(page, { showRoms, openClaude }) {
     } else if (ev === 'welcome:roms') showRoms();
     else if (ev === 'welcome:claude') await openClaude();
     else if (ev === 'welcome:carryon') await runAgain({ byMachine: asked });
+    else if (ev === 'welcome:2048' || ev === 'welcome:minesweeper') await run(gameItem(ev.slice(8)), { byMachine: asked });
     // back from a program ('bye'), or the machine turned on, or reset with nothing to restart, without ROMs ('back')
     else if (ev === 'menu') { showBack(false); await runWelcome(arg === 'back' ? { greeting: 'back', carryOn: session.carryOn } : { greeting: 'bye' }, { ifIdle: true, byMachine: arg !== 'back' ? session.menuTicket || asked : null }); }
   });
@@ -86,6 +93,7 @@ export function setupWelcome(page, { showRoms, openClaude }) {
     if (!last) return;
     if (last.kind === 'liza') await run(SHELF[0], { byMachine });
     else if (last.kind === 'demo') await run(SHELF[1], { byMachine });
+    else if (last.kind === 'game') await run(gameItem(gameKey(last.name)), { byMachine });
     else { page.attempt(() => startAs(byMachine, () => session.loadRecent(0))); page.focus(); }
   }
   // the Media tab's "Last time": the name (and the machine, for a file) and "Run again"
@@ -108,6 +116,11 @@ export function setupWelcome(page, { showRoms, openClaude }) {
         session.checkLiza();
         const bytes = await page.fetchBytes(`examples/${session.lizaFile}`);
         page.status(startAs(byMachine, () => session.runLiza(bytes)));
+      } else if (item.game) {
+        session.checkGame(item.game);   // (another CPU, or under 32K: says so before fetching anything)
+        const bytes = await page.fetchBytes(`examples/${session.gameFile(item.game)}`);
+        startAs(byMachine, () => session.runGame(item.game, bytes));
+        page.status(`${item.name}: press a key to start; BREAK (Esc) goes back to the menu`);
       } else {
         const bytes = await page.fetchBytes(item.url);
         page.status(startAs(byMachine, () => session.load(item.url.split('/').pop(), bytes, { remember: false })));
@@ -132,7 +145,16 @@ export function setupWelcome(page, { showRoms, openClaude }) {
   $('btnLizaRamCancel').onclick = () => { offer.hidden = true; page.focus(); };
   page.onEscape(ESC.card, () => !offer.hidden, () => $('btnLizaRamCancel').click());
   // "Runs without ROMs" in the drawer's Media tab: the welcome menu ("on screen now" while it
-  // runs), the programs for this machine's CPU, and the Claude chat (not in this version: says so)
+  // runs), the programs for this machine's CPU, and the Claude chat. Each one a link can start (the welcome menu,
+  // LIZA, the games: ?start=; the chat: ?app=claude) is a real link to it on this machine, so "Copy link" gives the
+  // direct link; a plain click runs it here, as a button would (a click with a modifier is left to the browser).
+  const linkTo = (params) => buildUrl(location.href, Object.assign({ machine: session.machine.id, config: session.machine.config }, params));
+  const entry = (text, params, onclick) => {
+    if (!params) { const b = el('button', text); b.onclick = onclick; return b; }
+    const a = el('a', text); a.href = linkTo(params);
+    a.onclick = (e) => { if (e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return; e.preventDefault(); onclick(); };
+    return a;
+  };
   function shelf() {
     const row = $('shelf');
     row.replaceChildren();
@@ -140,20 +162,19 @@ export function setupWelcome(page, { showRoms, openClaude }) {
     // (the 6309 runs it too: it is in the 6809 instruction-set family)
     const cpu = session.machine.config.cpu, family = cpuFamily(cpu), need = session.lizaNeeds();
     {
-      const w = el('button', 'Welcome menu'); w.dataset.shelf = 'welcome';
-      w.title = 'The Welcome menu: LIZA, colour and sound, adding ROMs, Claude';
-      w.onclick = () => runWelcome({ greeting: 'back', carryOn: session.carryOn });
+      const w = entry('Welcome menu', { start: 'welcome' }, () => runWelcome({ greeting: 'back', carryOn: session.carryOn })); w.dataset.shelf = 'welcome';
+      w.title = 'The Welcome menu: LIZA, colour and sound, adding ROMs, Claude, games';
       if (session.welcomeRunning) { w.append(' ', el('span', 'on screen now', 'tag now')); w.setAttribute('aria-current', 'true'); }
       row.append(w);
     }
     for (const item of SHELF.filter((x) => !x.cpu || x.cpu === family)) {
-      const b = el('button', item.name); b.onclick = () => run(item);
+      const b = entry(item.name, item.liza ? { start: 'liza' } : item.game ? { start: item.game } : null, () => run(item));
       // the LIZA title names the build the machine actually runs (the 6309 runs the 6809 build)
       b.title = item.liza ? `${item.title} (the ${family} build${need ? `; needs the ${need.ram}K RAM option` : ''})` : item.title;
       if (item.liza && need) { const t = el('span', `needs ${need.ram}K`, 'tag'); b.append(' ', t); b.dataset.needs = String(need.ram); }
       row.append(b);
     }
-    const c = el('button', 'Chat with Claude'); c.dataset.shelf = 'claude'; c.onclick = () => openClaude();
+    const c = entry('Chat with Claude', { app: 'claude' }, () => openClaude()); c.dataset.shelf = 'claude';
     row.append(c);
   }
   // the 20K offer belongs to the machine that was on; the welcome menu's "on screen now" follows what runs
@@ -206,20 +227,33 @@ export function setupWelcome(page, { showRoms, openClaude }) {
   setInterval(showHint, 1000);
 
   // start: v = session.visit() before anything else is stored
-  // program: 'welcome' or 'liza' from the URL (?start=, as the landing page links), run whatever the visit.
+  // program: 'welcome', 'liza', '2048' or 'minesweeper' from the URL (?start=, as the landing page links), run
+  // whatever the visit.
   // Resolves once the program it starts (if any) is running.
   // fromLink: the URL names a machine, ROMs or media; withMedia: ROMs or media (they decide what runs, not the menu)
   async function start(v, { fromLink, withMedia = false, program = null }) {
     // a machine picked in the header menu (Session.chooseMachine) counts as the answer to the question
     session.on((ev) => { if (ev === 'machine' && session.store.get('machineChosen')) { const a = $('askMachine'); if (a) a.remove(); } });
-    // option 5 only for what runs on the machine in use (Session.carryOn: another machine's file is not offered)
+    // the carry-on line only for what runs on the machine in use (Session.carryOn: another machine's file is not offered)
     const menu = v.first ? {} : { greeting: 'back', carryOn: session.carryOn };
     if (program) {
       if (v.first && !session.hasAnyRoms) firstVisit(!v.machineChosen);
       // LIZA and the welcome program run on every machine (the 20K question comes first on a 4K MC-10 or
-      // Alice); the Session picks the build for the machine's CPU
+      // Alice); the Session picks the build for the machine's CPU. The games are 6809 programs: on an MC-10 or
+      // Alice the Session refuses and the status line says why.
       if (program === 'liza') await run(SHELF[0]);
+      else if (gameItem(program)) await run(gameItem(program));
       else await runWelcome(menu);
+      // As ?app=claude is the address while the chat is open (js/ui/page.js), ?start= is while the program it
+      // started runs: a reload starts it again. Once something else takes the machine (the program is left for the
+      // menu, a switch, a load, the menu or another program started) the address drops it, so a reload or Back to
+      // this entry opens what a plain visit would, not the program left behind.
+      const drop = (ev) => {
+        if (!['menu', 'machine', 'loaded', 'welcome', 'firmware'].includes(ev)) return;
+        const u = new URL(location.href);
+        if (u.searchParams.has('start')) { u.searchParams.delete('start'); history.replaceState(history.state, '', u.href); }
+      };
+      session.on(drop);
     } else if (!withMedia && session.machine.useStub && session.welcomeMenu) {
       // Without this machine's ROMs the visit opens on the welcome menu, never the stub's bare screen: the
       // first visit's, or greeting a returning visitor back. A link that only names the machine (the landing page's

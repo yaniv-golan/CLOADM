@@ -8,11 +8,13 @@
 ; "CLOADM" in large block characters and the menu. Keys 1-4 are
 ; posted in EVENT, a mailbox at a fixed address that the Session reads
 ; and clears after every frame (js/session.js WELCOME); the program
-; keeps waiting for keys. Before it runs, the Session may set GREET
-; (0 the first visit, 1 "WELCOME BACK", 2 "BYE FOR NOW. PICK ANOTHER?")
-; and CARRY, the text of a fifth option ("CARRY ON WITH LIZA"): with
-; CARRY set, the menu has option 5 and key 5 is posted too. Once the page has unlocked audio it sets
-; SOUNDOK and a short original tune plays on the 6-bit DAC.
+; keeps waiting for keys. Key 5 (PLAY A GAME) opens the games menu, where 1 and 2 post
+; 6 (2048) and 7 (Minesweeper) and 0 or BREAK go back. Before it runs,
+; the Session may set GREET (0 the first visit, 1 "WELCOME BACK",
+; 2 "BYE FOR NOW. PICK ANOTHER?") and CARRY, the text of a sixth option
+; ("CARRY ON WITH LIZA"): with CARRY set, the menu has option 6 and key 6
+; posts 5. Once the page has unlocked audio it sets SOUNDOK and a short
+; original tune plays on the 6-bit DAC.
 ; Keys come from the ROM's POLCAT vector, so it runs on the stub or
 ; with BASIC ROMs.
 ; Build: node tools/build-examples.js  (examples/welcome.bin)
@@ -30,12 +32,12 @@ PIA1CRB EQU     $FF23
         ORG     $6000
 ; ---- fixed entry points: js/session.js knows these addresses ----
 WELCOME JMP     START           ; $6000
-EVENT   FCB     0               ; $6003 key 1-4 pressed (cleared by the Session)
+EVENT   FCB     0               ; $6003 the choice, 1-7 (cleared by the Session)
 SOUNDOK FCB     0               ; $6004 set to 1 by the page once audio is unlocked
 PLAYED  FCB     0               ; $6005 the tune has played
-CARRYN  EQU     24              ; the longest option 5 text
+CARRYN  EQU     26              ; the longest option 6 text ("CARRY ON WITH MINESWEEPER" fits)
 GREET   FCB     0               ; $6006 set by the Session: 0 first visit, 1 back, 2 bye
-CARRY   FCB     0               ; $6007 set by the Session: option 5's text (0 ends; none if 0)
+CARRY   FCB     0               ; $6007 set by the Session: option 6's text (0 ends; none if 0)
         RMB     CARRYN
 
 START   ORCC    #$50            ; no interrupts: frame timing from the FS flag
@@ -92,52 +94,8 @@ BIGCEL  LDA     ,U+
         CMPX    #SCREEN+5*32
         BLO     BIGROW
 
-; ---- text ----
-        LDU     #TEXTS
-TEXT    LDX     ,U++            ; screen address, 0 ends
-        BEQ     ENDTXT
-        LDY     ,U++            ; string
-        PSHS    U
-        TFR     Y,U
-        JSR     PRAT
-        PULS    U
-        BRA     TEXT
-ENDTXT
-; ---- the greeting under the title, chosen by GREET ----
-        LDB     GREET
-        CMPB    #2
-        BLS     GRTOK
-        CLRB
-GRTOK   LSLB
-        LSLB                    ; 4 bytes an entry
-        LDU     #GREETS
-        LEAU    B,U
-        LDX     ,U++
-        LDU     ,U
-        JSR     PRAT
-; ---- option 5, if the Session set one: its line and the prompt's last digit ----
-; With option 5 the greeting and the menu move up a row (rows 7-12 to 6-11), so a blank row still separates the
-; menu from PRESS 1 TO 5; option 5 goes on row 12.
-        TST     CARRY
-        BEQ     NOFIVE
-        LDX     #SCREEN+6*32
-MOVEUP  LDD     32,X
-        STD     ,X++
-        CMPX    #SCREEN+12*32
-        BNE     MOVEUP
-        LDD     #$6060          ; row 12, cleared for option 5
-CLR12   STD     ,X++
-        CMPX    #SCREEN+13*32
-        BNE     CLR12
-        LDU     #T_5
-        LDX     #SCREEN+12*32+4
-        JSR     PRAT
-        LDU     #CARRY
-        JSR     PRAT
-        LDA     #'5
-        STA     SCREEN+14*32+21 ; PRESS 1 TO 4 -> 5
-NOFIVE
-
+; ---- the menu (rows 6-14) ----
+        JSR     MAINMENU
 ; ---- bottom stripe, drawn at once ----
         LDX     #SCREEN+15*32
         CLRB
@@ -148,6 +106,8 @@ STRIP2  JSR     BLOCK
         BNE     STRIP2
 
 ; ---- wait for keys; play the tune once sound is unlocked ----
+; the main menu: 1-4 post their events, 5 opens the games menu, 6 (with option 6) posts 5;
+; the games menu: 1 and 2 post 6 and 7, 0 or BREAK go back
 KEYLP   TST     SOUNDOK
         BEQ     NOSND
         TST     PLAYED
@@ -158,17 +118,92 @@ NOSND   TST     EVENT           ; the last key not taken yet
         BNE     KEYLP
         JSR     [POLCAT]
         BEQ     KEYLP
+        TST     INGAMES
+        BNE     GAMEKEY
+        CMPA    #'5
+        BEQ     TOGAMES
+        BHI     KEYSIX
         CMPA    #'1
         BLO     KEYLP
-        CMPA    #'4
-        BLS     KEYOK
-        CMPA    #'5             ; 5 only with option 5
+        SUBA    #'0             ; 1-4
+        BRA     POST
+KEYSIX  CMPA    #'6             ; 6 only with option 6
         BNE     KEYLP
         TST     CARRY
         BEQ     KEYLP
-KEYOK   SUBA    #'0             ; 1-5
-        STA     EVENT
+        LDA     #5
+POST    STA     EVENT
         BRA     KEYLP
+TOGAMES JSR     GAMESMENU
+        BRA     KEYLP
+GAMEKEY CMPA    #'0
+        BEQ     TOMAIN
+        CMPA    #3              ; BREAK
+        BEQ     TOMAIN
+        CMPA    #'1
+        BLO     KEYLP
+        CMPA    #'2
+        BHI     KEYLP
+        ADDA    #6-'1           ; 6 2048, 7 Minesweeper
+        BRA     POST
+TOMAIN  JSR     MAINMENU
+        BRA     KEYLP
+
+; MAINMENU: the greeting (row 6), options 1-5 (rows 8-12), option 6 if the Session set one
+; (row 13), and the prompt (row 14)
+MAINMENU
+        CLR     INGAMES
+        JSR     CLRMENU
+        LDU     #MENU9
+        JSR     TEXTS9
+; the greeting, chosen by GREET (its table's rows are the 6803 build's: one row higher here)
+        LDB     GREET
+        CMPB    #2
+        BLS     GRTOK
+        CLRB
+GRTOK   LSLB
+        LSLB                    ; 4 bytes an entry
+        LDU     #GREETS
+        LEAU    B,U
+        LDX     ,U++
+        LEAX    -32,X
+        LDU     ,U
+        JSR     PRAT
+        TST     CARRY
+        BEQ     MMDONE
+        LDU     #T_6
+        LDX     #SCREEN+13*32+4
+        JSR     PRAT
+        LDU     #CARRY
+        JSR     PRAT
+        LDA     #'6
+        STA     SCREEN+14*32+21 ; PRESS 1 TO 5 -> 6
+MMDONE  RTS
+
+; GAMESMENU: the games, and the way back
+GAMESMENU
+        LDA     #1
+        STA     INGAMES
+        JSR     CLRMENU
+        LDU     #GAMES9
+; TEXTS9: the strings in the table at U (screen address, string; 0 ends)
+TEXTS9  LDX     ,U++
+        BEQ     T9DONE
+        LDY     ,U++
+        PSHS    U
+        TFR     Y,U
+        JSR     PRAT
+        PULS    U
+        BRA     TEXTS9
+T9DONE  RTS
+
+; CLRMENU: rows 6-14 to spaces
+CLRMENU LDX     #SCREEN+6*32
+        LDD     #$6060
+CLRM    STD     ,X++
+        CMPX    #SCREEN+15*32
+        BNE     CLRM
+        RTS
 
 ; B = cell 0-31 -> A = full SG4 block of colour B/4
 BLOCK   TFR     B,A
@@ -221,5 +256,36 @@ TREST   DECB
 TDONE   RTS
 
         INCLUDE "welcome-data.inc"
+
+; ---- the 6809 build's menus (the 6803 build has no games: they are 6809 programs) ----
+MENU9   FDB     SCREEN+8*32+4,T_1
+        FDB     SCREEN+9*32+4,T_2
+        FDB     SCREEN+10*32+4,T_3
+        FDB     SCREEN+11*32+4,T_4
+        FDB     SCREEN+12*32+4,T_5G
+        FDB     SCREEN+14*32+10,T_PRESS5
+        FDB     0
+GAMES9  FDB     SCREEN+6*32+2,T_GAMES
+        FDB     SCREEN+8*32+4,T_G1
+        FDB     SCREEN+9*32+4,T_G2
+        FDB     SCREEN+11*32+4,T_G0
+        FDB     SCREEN+13*32+5,T_GBRK
+        FDB     SCREEN+14*32+8,T_GPRESS
+        FDB     0
+T_5G    FCB     '5+$80
+        FCN     " PLAY A GAME"
+T_6     FCB     '6+$80
+        FCN     " "
+T_PRESS5 FCN    "PRESS 1 TO 5"
+T_GAMES FCN     "NEW GAMES FOR AN OLD MACHINE"
+T_G1    FCB     '1+$80
+        FCN     " 2048"
+T_G2    FCB     '2+$80
+        FCN     " MINESWEEPER"
+T_G0    FCB     '0+$80
+        FCN     " BACK TO THE MENU"
+T_GBRK  FCN     "BREAK LEAVES A GAME"
+T_GPRESS FCN    "PRESS 1, 2 OR 0"
+INGAMES FCB     0               ; the games menu is showing
 
         END     WELCOME

@@ -29,7 +29,7 @@ check('the welcome build without its machine flags is an error', !noFlags.ok && 
 const sym = (n) => asm.symbols.get(n);
 check('fixed addresses match Session WELCOME', sym('WELCOME') === Emu.WELCOME['6809'].start && sym('EVENT') === Emu.WELCOME['6809'].event
   && sym('SOUNDOK') === Emu.WELCOME['6809'].soundOk && sym('GREET') === Emu.WELCOME['6809'].greet && sym('CARRY') === Emu.WELCOME['6809'].carry
-  && sym('CARRYN') === Emu.WELCOME.carryMax && Emu.WELCOME.events.join() === 'liza,demo,roms,claude,carryon');
+  && sym('CARRYN') === Emu.WELCOME['6809'].carryMax && Emu.WELCOME.events.join() === 'liza,demo,roms,claude,carryon,2048,minesweeper');
 
 // SG4 cell: bit 7 set, colour in bits 6-4, quarters upper-left 3, upper-right 2, lower-left 1, lower-right 0
 const VDG = ['green', 'yellow', 'blue', 'red', 'buff', 'cyan', 'magenta', 'orange'];
@@ -84,16 +84,35 @@ for (const id of models) {
     return line;
   });
   check(`${id}: CLOADM in green block letters`, pixels.join('\n') === wantPixels.join('\n'), `\n${pixels.join('\n')}`);
-  check(`${id}: subtitle and menu`, screen[7].trim() === 'DRAGON AND COLOR COMPUTER' && screen[9].trim() === '1 TALK TO LIZA'
-    && screen[10].trim() === '2 COLOUR AND SOUND' && screen[11].trim() === '3 ADD YOUR ROMS FOR BASIC'
-    && screen[12].trim() === '4 CHAT WITH CLAUDE' && screen[14].trim() === 'PRESS 1 TO 4', JSON.stringify(screen.slice(7, 15)));
-  check(`${id}: the menu numbers are in inverse video`, [9, 10, 11, 12].every((r, i) => ram(0x400 + r * 32 + 4) === 0x31 + i));
+  check(`${id}: subtitle and menu`, screen[6].trim() === 'DRAGON AND COLOR COMPUTER' && screen[8].trim() === '1 TALK TO LIZA'
+    && screen[9].trim() === '2 COLOUR AND SOUND' && screen[10].trim() === '3 ADD YOUR ROMS FOR BASIC'
+    && screen[11].trim() === '4 CHAT WITH CLAUDE' && screen[12].trim() === '5 PLAY A GAME' && screen[13].trim() === ''
+    && screen[14].trim() === 'PRESS 1 TO 5', JSON.stringify(screen.slice(6, 15)));
+  check(`${id}: the menu numbers are in inverse video`, [8, 9, 10, 11, 12].every((r, i) => ram(0x400 + r * 32 + 4) === 0x31 + i));
   // keys
-  pressKey(s, '5'); pressKey(s, 'A');
-  check(`${id}: other keys fire nothing`, !events.length, events.join());
+  pressKey(s, '6'); pressKey(s, 'A'); pressKey(s, '0');
+  check(`${id}: other keys fire nothing (6 only with a carry-on line)`, !events.length, events.join());
   for (const k of ['1', '2', '3', '4']) pressKey(s, k);
   check(`${id}: keys 1-4 fire their events in order, once each`, events.join() === 'welcome:liza,welcome:demo,welcome:roms,welcome:claude', events.join());
-  check(`${id}: the welcome program keeps running after the events`, s.welcomeRunning && /PRESS 1 TO 4/.test(s.screenText()[14]));
+  check(`${id}: the welcome program keeps running after the events`, s.welcomeRunning && /PRESS 1 TO 5/.test(s.screenText()[14]));
+  // the games menu: 5 opens it, 1 and 2 pick a game, 0 and BREAK go back; nothing else fires
+  events.length = 0;
+  pressKey(s, '5');
+  const g = s.screenText();
+  check(`${id}: key 5 shows the games menu`, g[6].trim() === 'NEW GAMES FOR AN OLD MACHINE' && g[8].trim() === '1 2048' && g[9].trim() === '2 MINESWEEPER'
+    && g[11].trim() === '0 BACK TO THE MENU' && g[14].trim() === 'PRESS 1, 2 OR 0' && [8, 9, 11].every((r, i) => ram(0x400 + r * 32 + 4) === [0x31, 0x32, 0x30][i]),
+    JSON.stringify(g.slice(6, 15)));
+  for (const k of ['3', '4', '5', 'A']) pressKey(s, k);
+  check(`${id}: in the games menu, keys 3-5 fire nothing`, !events.length, events.join());
+  pressKey(s, '1'); pressKey(s, '2');
+  check(`${id}: games menu keys 1 and 2 fire welcome:2048 and welcome:minesweeper`, events.join() === 'welcome:2048,welcome:minesweeper', events.join());
+  pressKey(s, '0');
+  check(`${id}: 0 goes back to the main menu`, s.screenText()[12].trim() === '5 PLAY A GAME' && s.screenText()[6].trim() === 'DRAGON AND COLOR COMPUTER');
+  pressKey(s, '5'); s.machine.stubKeys.push(3); runFrames(s, 2);
+  check(`${id}: BREAK goes back to the main menu too`, s.screenText()[12].trim() === '5 PLAY A GAME');
+  events.length = 0;
+  pressKey(s, '1');
+  check(`${id}: back in the main menu, 1 is LIZA again`, events.join() === 'welcome:liza', events.join());
 }
 
 // sound: nothing before the unlock; then the tune, once

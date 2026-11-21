@@ -9,11 +9,14 @@
  * Parameters (URL_PARAMS lists them):
  *   machine=ID              a model of profiles.js (unknown: the fallback machine, and an error)
  *   <option>=VALUE          the model's options (profile.options: ram, cpu, ...), each checked against its values
- *   start=welcome|liza      run that program (6809 machines)
+ *   start=welcome|liza|2048|minesweeper
+ *                           run that program, with no welcome menu first (the games on 6809 machines; elsewhere the
+ *                           status line says why); it stays in the address while the program runs and goes once it
+ *                           is left, as app=claude does for the chat (js/ui/welcome.js)
  *   nitros9=1|NAME          CoCo 3: boot NitrOS-9 over DriveWire from the user's own image in the library (1: the
  *                           one in DriveWire drive 0, else the bootable one for the link's CPU; NAME: that image).
  *                           The image itself is never in a link (Session.bootNitros9)
- *   app=claude              open the Claude chat: the chat firmware on a 6809 machine, and the
+ *   app=claude              open the Claude chat (with start= too: the chat, and start= is ignored, saying so): the chat firmware on a 6809 machine, and the
  *                           chat's panel (API key, machine tools) beside the screen (js/ui/claude.js)
  *   load=URL                load and run a program, tape or cartridge, as a dropped file would
  *   tape=URL                put a tape in the deck; with autorun it loads and runs (CLOAD/RUN, or CLOADM then EXEC)
@@ -48,7 +51,7 @@ const FLAGS = { sound: 'sound', fasttape: 'fastTape', turbo: 'turbo', embed: 'em
 const MEDIA = ['load', 'tape', 'cart'];
 export const URL_PARAMS = ['machine', 'start', 'app', 'nitros9', ...MEDIA, 'autorun', 'rom', ...Object.keys(DISPLAY_PARAMS), 'joy', 'touch', ...Object.keys(FLAGS), 'storage'];
 const STORAGE = ['opfs', 'fsa', 'fallback'];
-const STARTS = ['welcome', 'liza'];
+const STARTS = ['welcome', 'liza', '2048', 'minesweeper'];
 const APPS = ['claude'];
 const TOUCH_MODES = ['joystick', 'keys'];
 
@@ -88,6 +91,8 @@ export function parseUrlConfig(search, fallbackMachine = 'dragon64') {
   if (start !== null) { if (STARTS.includes(start)) cfg.start = start; else errors.push(`start=${start} isn't something CLOADM has (try start=${STARTS.join(' or start=')})`); }
   const app = p.get('app');
   if (app !== null) { if (APPS.includes(app)) cfg.app = app; else errors.push(`app=${app} isn't something CLOADM has (try app=${APPS.join(' or app=')})`); }
+  // both: the app wins (it takes the screen), and start= is not run behind it
+  if (cfg.app && cfg.start) { errors.push(`start=${cfg.start} is ignored: app=${cfg.app} opens instead`); cfg.start = null; }
   // nitros9: true (the image the user has) or an image's name; only where NitrOS-9 boots (the CoCo 3)
   if (p.has('nitros9')) {
     const v = p.get('nitros9');
