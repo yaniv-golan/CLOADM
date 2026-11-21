@@ -4323,9 +4323,12 @@ async function tapePanelChecks(browser, base, check) {
     const isFastLoading = (s) => /^LOADING · BLOCK \d+ OF 34$/.test(s.eyebrow) && /^Fast-forward ×\d+$/.test(s.speed) && Number(s.speed.split('×')[1]) > 1;
     // waiting for the frame is the condition; the timeout only bounds a failure. The speed readout is measured
     // over 1 s windows and reads x1 until the first closes, so this is the frame that shows both at once.
-    const sawLoading = await waitFor(page, () => window.__seen.some((s) => /^LOADING · BLOCK \d+ OF 34$/.test(s.eyebrow) && /^Fast-forward ×\d+$/.test(s.speed) && +s.speed.split('×')[1] > 1), null, 20000);
+    const sawLoading = await waitFor(page, () => window.__seen.some((s) => /^LOADING · BLOCK \d+ OF 34$/.test(s.eyebrow) && /^Fast-forward ×\d+$/.test(s.speed) && +s.speed.split('×')[1] > 1
+      && s.moving && s.leftReelWound < 1), null, 20000);
     const seen = await page.evaluate(() => window.__seen);
-    const loading = seen.find((x) => isFastLoading(x) && x.moving) || seen.find(isFastLoading);
+    // one shown frame with all of it: loading fast, the reels turning and the tape wound on (the first moving frame can
+    // come while the left reel still reads 1.000 to three places)
+    const loading = seen.find((x) => isFastLoading(x) && x.moving && x.leftReelWound < 1) || seen.find(isFastLoading);
     check('tape panel: motor on: LOADING · BLOCK n OF 34, fast-forward faster than real time, the reels turn',
       sawLoading && !!loading && loading.state === 'playing' && loading.leftReelWound < 1 && loading.moving,
       `loading=${JSON.stringify(loading)} states=${[...new Set(seen.map((s) => s.state))].join(',')} frames=${seen.length}`);
