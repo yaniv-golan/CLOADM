@@ -14,6 +14,15 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   cells of the feature tables are one line each; the MAME instruction counts are refreshed (Dragon 64 1,028,112,
   CoCo 32K / CP 400 1,043,371, CoCo 3 88,797).
 
+### Fixed
+
+- **Dragon 64 Plus: `$FFE2` = `$04` is the motherboard RAM, and the 32-column screen never shows a bank.** Following
+  Harvey-Smith's traced schematic of the board (owner-supplied research; the schematic has known drawing errors),
+  bit 2 of `$FFE2` only picks bank A or B, so `$04` (and `$05`, with the video RAM) now selects the motherboard RAM
+  instead of leaving the previous bank; and the MC6847 now always fetches from the motherboard RAM, whatever bank or
+  video RAM the CPU has selected. MAME 0.264 agrees in outcome (`run.js d64plus --paging [--video]`, identical to
+  HALT and in every pixel); under `config.mameCompat` the register keeps MAME's decode. `tests/d64plus.test.js`.
+
 ### 0.1.7-pre
 
 #### Added

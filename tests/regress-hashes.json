@@ -772,5 +772,10 @@
     "instructions": 270,
     "presses": 2,
     "halted": true
+  },
+  "trace d64plus paging.asm": {
+    "hash": "0e104970",
+    "instructions": 1503308,
+    "halted": true
   }
 }
