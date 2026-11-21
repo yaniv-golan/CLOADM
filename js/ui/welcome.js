@@ -207,7 +207,7 @@ export function setupWelcome(page, { showRoms, openClaude }) {
         // The switch starts the menu itself, ONCE, without a carry-on (Session.chooseMachine passes offer 'none'):
         // the page starts nothing here, because two starts in one turn only worked while the later overwrote the
         // earlier, and after the generation ticket that depended on which one arrived first.
-        b.onclick = () => { ask.remove(); session.chooseMachine(id); page.focus(); };
+        b.onclick = () => { ask.remove(); session.chooseMachine(id, { offer: 'none' }); page.focus(); };
         ask.append(b);
       }
       box.append(ask);

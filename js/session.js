@@ -1434,7 +1434,10 @@ export class Session {
     return last;
   }
   // the machine picker is asked once, then remembered
-  chooseMachine(id) { this.store.set('machineChosen', '1'); return this.switchMachine(id, undefined, { offer: 'none' }); }
+  // The machine picker is asked once, then remembered. offer: how the menu is offered afterwards; the machine
+  // QUESTION (js/ui/welcome.js) passes 'none' -- the person chose the machine, not what ran on the old one -- while
+  // the header menu and the ROM screen keep the usual carry-on, which is what a returning visitor expects there.
+  chooseMachine(id, { offer = null } = {}) { this.store.set('machineChosen', '1'); return this.switchMachine(id, undefined, { offer }); }
   get hasAnyRoms() { return this.roms.sockets().some((s) => profiles[s.owner]); }
   // The last few programs, tapes and cartridges loaded (bytes kept for items up to 1 MB).
   // `copy` labels the rows that need telling apart, for two entries of ONE name — grouped with this.sameName,

@@ -43,12 +43,25 @@ const prompt = (sess = s) => { sess.runFrames(60); return (sess.screenText()[14]
     JSON.stringify(s2.carryOn) === '{"kind":"demo","name":"Colour demo"}', JSON.stringify(s2.carryOn));
   const offered = [];
   s2.on((ev, arg) => { if (ev === 'menu') offered.push(arg); });
-  s2.chooseMachine('coco');
+  s2.chooseMachine('coco', { offer: 'none' });   // the machine QUESTION's call (js/ui/welcome.js)
   check('welcome: the machine question offers the menu ONCE, and without a carry-on',
     offered.length === 1 && offered[0] === 'none', JSON.stringify(offered));
   // what the page does from that one offer
   s2.startWelcome(welcome, { greeting: 'back', carryOn: null });
   check('welcome: and the menu it starts says PRESS 1 TO 5 (no carry-on line)', prompt(s2) === 'PRESS 1 TO 5', prompt(s2));
+}
+
+// 2b. the HEADER machine menu (and the ROM screen's switch) is NOT the machine question: it keeps the usual offer,
+// so a returning visitor still sees "6 CARRY ON WITH ..." there. The machine question is the only caller that asks
+// for 'none'.
+{
+  const s3 = new Emu.Session({ store: Emu.memoryStore(), media: new MemoryMediaStore() });
+  s3.switchMachine('dragon64');
+  s3.setLastRun('demo', 'Colour demo');
+  const offered = [];
+  s3.on((ev, arg) => { if (ev === 'menu') offered.push(arg); });
+  s3.chooseMachine('coco');               // as the header menu does
+  check('welcome: the header machine menu offers the usual menu (the carry-on one)', offered.length === 1 && offered[0] === 'back', JSON.stringify(offered));
 }
 
 // 3. the rule the ticket exists for still holds: a start overtaken by something the page did NOT ask for is refused
