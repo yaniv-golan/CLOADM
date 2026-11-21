@@ -67,7 +67,13 @@ export function setupWelcome(page, { showRoms, openClaude }) {
   // (the fetch before it is outside: what the person does meanwhile still stops Claude)
   // (byMachine: the ticket the Session gave when the program asked, Session.machineTicket; null: the person asked)
   const startAs = (byMachine, fn) => (byMachine ? session.asMachine(fn, byMachine) : fn());
-  async function runWelcome({ greeting = 'first', carryOn = null } = {}, { ifIdle = false, byMachine = null } = {}) {
+  async function runWelcome({ greeting = 'first', carryOn = null } = {}, { ifIdle = false, byMachine = null, after = null } = {}) {
+    // `after`: an action the page takes BEFORE the menu starts, which takes the machine itself (the machine
+    // question's switch). The ticket below must be taken AFTER it, or the page's own switch invalidates the start
+    // it asked for -- measured: the menu then keeps the carry-on line switchMachine's offerMenu drew ("PRESS 1 TO
+    // 6") instead of the page's own no-carry-on start ("PRESS 1 TO 5"). The ticket still catches what it exists
+    // for: a fetch overtaken by something the person did while the bytes were on the way.
+    if (after) after();
     const m = session.machine, running = session.stubRun, gen = session.welcomeGenNow();
     try {
       const bytes = await page.fetchBytes(`examples/${session.welcomeFile}`);   // this machine's build (6809, or its own 6803 one)
@@ -198,7 +204,8 @@ export function setupWelcome(page, { showRoms, openClaude }) {
       for (const [id, label] of ASK) {
         const b = el('button', label); b.dataset.machine = id;
         // the welcome menu on every machine: 6809 models run the 6809 build, the MC-10 and Alice their own
-        b.onclick = async () => { session.chooseMachine(id); ask.remove(); await runWelcome(); };
+        // the switch is the page's own, so the menu's ticket is taken after it (see runWelcome's `after`)
+        b.onclick = async () => { ask.remove(); await runWelcome({}, { after: () => session.chooseMachine(id) }); };
         ask.append(b);
       }
       box.append(ask);
