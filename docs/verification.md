@@ -495,11 +495,12 @@ Not verified, by the notes or by MAME:
   * the MC6847 fetches motherboard RAM in the E = 0 phase, so the 32-column screen does not see the selected
     bank or the video RAM. The machine follows this: the VDG always reads the motherboard RAM.
 
-  Cited in the code and tests as "Harvey-Smith traced Dragon 64 Plus schematic (owner-supplied research; known
-  drawing errors)". `tests/d64plus.test.js` checks both against tables written out from it: the CPU's read of
-  `$0100` and `$1000` for every `$FFE2` value after `$00`, `$02`, `$06` and `$07`, with a distinct byte in each RAM;
-  and the VDG's picture under every value, with one pattern in the motherboard RAM and another in banks A, B and the
-  video RAM, against the picture the motherboard pattern alone draws.
+  Cited in the code and tests as "P. Harvey-Smith's traced Eagle schematic of his DragonPlus board (World of Dragon
+  forum, 7 June 2017; known drawing errors; not verified on hardware)". `tests/d64plus.test.js` checks both against
+  tables written out from it: the CPU's read of `$0100` and `$1000` for every `$FFE2` value after `$00`, `$02`,
+  `$06` and `$07`, with a distinct byte in each RAM; and the VDG's picture under every value, with one pattern in
+  the motherboard RAM and another in banks A, B and the video RAM, against the picture the motherboard pattern alone
+  draws.
 
 **Dragon 64 Plus paging against MAME 0.264.** MAME 0.264 never applies `$FFE2` to memory (below), so its CPU and VDG
 always reach the motherboard RAM: for these two points its outcome is the schematic's. `run.js d64plus --paging`
@@ -1169,10 +1170,9 @@ MAME artefacts reproduced only under `config.mameCompat` (the comparisons turn i
 * Dragon 64 Plus, without `mameCompat`: `$FFE2` = `$04` selects the motherboard RAM (`$05` the motherboard RAM
   with the video RAM), where MAME's `d64plus_bank_w()` leaves the banks as they were; and the MC6847 always fetches
   the motherboard RAM, where MAME's driver installs the banks in the SAM's space, through which its VDG fetches
-  too. Source: Harvey-Smith traced Dragon 64 Plus schematic (owner-supplied research; known drawing errors), P.
-  Harvey-Smith's Eagle schematic of his own DragonPlus board (World of Dragon forum, 7 June 2017,
-  `viewtopic.php?p=15826`): bit 2 only XORs Z7 into the extra DRAM's address, and the MC6847 reads in E = 0. Not
-  verified on hardware. MAME 0.264 still compares (it never applies `$FFE2`, so its outcome is the schematic's:
+  too. Source: P. Harvey-Smith's traced Eagle schematic of his DragonPlus board (World of Dragon forum, 7 June 2017,
+  `viewtopic.php?p=15826`; known drawing errors): bit 2 only XORs Z7 into the extra DRAM's address, and the MC6847
+  reads in E = 0. Not verified on hardware. MAME 0.264 still compares (it never applies `$FFE2`, so its outcome is the schematic's:
   `run.js d64plus --paging [--video]`, above); the 0.289 probe above was not re-run, and on `$04`/`$05` and the
   VDG 0.289 is expected to differ from us.
 

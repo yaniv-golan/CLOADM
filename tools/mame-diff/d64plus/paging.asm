@@ -1,7 +1,7 @@
 ; The Dragon 64 Plus's paging, for the lockstep comparison with MAME (run.js d64plus --paging [--video]).
 ; Our own firmware, installed in the two BASIC ROM sockets. It runs on our machine WITHOUT config.mameCompat,
-; so it proves two points from the Harvey-Smith traced Dragon 64 Plus schematic (owner-supplied research; known
-; drawing errors) where MAME 0.264's outcome is the same as the schematic's:
+; so it proves two points from P. Harvey-Smith's traced Eagle schematic of his DragonPlus board (World of Dragon
+; forum, 7 June 2017; known drawing errors; not verified on hardware) where MAME 0.264's outcome is the same as the schematic's:
 ;   (a) $FFE2 = $04 (R2 R1 = 10) is the motherboard RAM, like $00, after bank A or bank B was selected
 ;       ($05: the same, with the video RAM over $0000-$07FF only);
 ;   (b) the MC6847 always fetches from the motherboard RAM, whatever $FFE2 selects.

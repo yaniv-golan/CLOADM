@@ -87,8 +87,8 @@ const machine = (roms = true) => {
 }
 
 // ---- what the CPU reads under each $FFE2 value, from the source RAM it should come from ----
-// Harvey-Smith traced Dragon 64 Plus schematic (owner-supplied research; known drawing errors): bit 1 selects the
-// extra DRAM, bit 2 picks A or B; bit 0 the video RAM over $0000-$07FF. Compusense p. 2 gives $00, $02, $06 and R0.
+// P. Harvey-Smith's traced Eagle schematic of his DragonPlus board (World of Dragon forum, 7 June 2017; known drawing errors; not verified on hardware):
+// bit 1 selects the extra DRAM, bit 2 picks A or B; bit 0 the video RAM over $0000-$07FF. Compusense p. 2 gives $00, $02, $06 and R0.
 // Each source holds its own byte, so a read says which RAM it came from. The table is written out here, not derived.
 {
   const SRC = { mb: 0x11, A: 0x22, B: 0x33, V: 0x44 };
@@ -111,8 +111,8 @@ const machine = (roms = true) => {
 }
 
 // ---- the MC6847 always fetches the motherboard RAM ----
-// Harvey-Smith traced Dragon 64 Plus schematic (owner-supplied research; known drawing errors): the VDG reads in
-// E = 0 straight from the motherboard RAM. Our own firmware (an idle loop) keeps the VDG in text mode on $0000
+// P. Harvey-Smith's traced Eagle schematic of his DragonPlus board (World of Dragon forum, 7 June 2017; known drawing errors; not verified on hardware):
+// the VDG reads in E = 0 straight from the motherboard RAM. Our own firmware (an idle loop) keeps the VDG in text mode on $0000
 // (SAM F = 0); the motherboard holds pattern P there and banks A, B and the video RAM hold Q. Under every $FFE2 value
 // the picture must be the one a machine with P alone draws, and never the one Q draws.
 {

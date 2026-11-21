@@ -61,8 +61,9 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   to confirm first: for a URL before anything is contacted, showing the whole URL (a decline downloads and stores
   nothing). Machines already open keep running; the result names the models that now have BASIC. `list_models` gives
   each model's `basic` and, for each ROM, the file and its source (`cli`, `config`, `stored`); `remove_roms` forgets
-  stored ones; `--read-only` hides both. CLOADM itself still ships, links to and fetches no ROMs. `docs/mcp.md`,
-  "Adding your ROMs"; `tests/mcp-roms.test.js`, with stand-in ROMs and a local https server.
+  stored ones; `--read-only` hides both. CLOADM itself still ships and links to no ROMs, and fetches only a URL you
+  give `add_roms`. `docs/mcp.md`, "Adding your ROMs"; `tests/mcp-roms.test.js`, with stand-in ROMs and a local https
+  server.
 
 - **The CoCo 3's vertical fine scroll (`$FF9C`) in the GIME modes.** With rows of 2, 8, 9, 10 or 11 scanlines, a
   value below the row height now moves the picture up by that many lines, and the next row of the buffer comes in at
@@ -147,11 +148,13 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 #### Fixed
 
 - **Dragon 64 Plus: `$FFE2` = `$04` is the motherboard RAM, and the 32-column screen never shows a bank.** Following
-  Harvey-Smith's traced schematic of the board (owner-supplied research; the schematic has known drawing errors),
-  bit 2 of `$FFE2` only picks bank A or B, so `$04` (and `$05`, with the video RAM) now selects the motherboard RAM
-  instead of leaving the previous bank; and the MC6847 now always fetches from the motherboard RAM, whatever bank or
-  video RAM the CPU has selected. MAME 0.264 agrees in outcome (`run.js d64plus --paging [--video]`, identical to
-  HALT and in every pixel); under `config.mameCompat` the register keeps MAME's decode. `tests/d64plus.test.js`.
+  P. Harvey-Smith's traced Eagle schematic of his DragonPlus board (World of Dragon forum, 7 June 2017; known drawing
+  errors; not verified on hardware), bit 2 of `$FFE2` only picks bank A or B, so `$04` (and `$05`, with the video RAM)
+  now selects the motherboard RAM instead of leaving the previous bank; and the MC6847 now always fetches from the
+  motherboard RAM, whatever bank or video RAM the CPU has selected. MAME 0.264 never applies `$FFE2` to memory, so its
+  outcome equals the schematic's for these two points (`run.js d64plus --paging [--video]`, identical to HALT and in
+  every pixel); this proves the MAME-equal outcome only, not the banks themselves; under `config.mameCompat` the
+  register keeps MAME's decode. `tests/d64plus.test.js`.
 
 - **The built-in firmware sets the SAM's memory size for the fitted RAM, as BASIC does.** On the Dragons and the
   CoCo 1/2 family it left M at 00 (4K), so a program run without ROMs that showed a screen above `$0FFF` (any

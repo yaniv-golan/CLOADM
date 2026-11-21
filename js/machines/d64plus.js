@@ -35,9 +35,8 @@
  * 0 "Video display available, ie blanking". Page 4: the character set in a 2764, "only the first character
  * set is used", sixteen bytes a character. This implementation follows it.
  *
- * Two points the notes leave open come from Harvey-Smith traced Dragon 64 Plus schematic (owner-supplied research;
- * known drawing errors): P. Harvey-Smith's Eagle schematic of his own DragonPlus board (World of Dragon forum,
- * 7 June 2017, viewtopic.php?p=15826). Not verified on hardware.
+ * Two points the notes leave open come from P. Harvey-Smith's traced Eagle schematic of his DragonPlus board
+ * (World of Dragon forum, 7 June 2017, viewtopic.php?p=15826; known drawing errors). Not verified on hardware.
  *   - $FFE2 bit 1 alone selects the extra DRAM; bit 2 only XORs Z7 into its address (bank A or B). So R2 R1 = 10
  *     ($04, and $05 with the video RAM) is the motherboard RAM, like $00: the CPU sees the motherboard RAM.
  *   - The MC6847 fetches in the E = 0 phase straight from the motherboard RAM, whatever the paging: neither bank A,
@@ -146,13 +145,14 @@ class D64PlusMachine extends SamMachine {
     if (a < VIDEO_RAM) this.bankWrite(this.vramBank, a, v);
     else this.bankWrite(this.pramBank, a, v);
   }
-  // The VDG fetches from the motherboard RAM whatever $FFE2 selects (Harvey-Smith traced Dragon 64 Plus schematic
-  // (owner-supplied research; known drawing errors): the MC6847 reads in E = 0, past the banks), so the SAM
+  // The VDG fetches from the motherboard RAM whatever $FFE2 selects (P. Harvey-Smith's traced Eagle schematic of his
+  // DragonPlus board, World of Dragon forum, 7 June 2017; known drawing errors; not verified on hardware: the MC6847
+  // reads in E = 0, past the banks), so the SAM
   // base class's displayByte (this.ram) stands. MAME 0.264 agrees, since its banks never reach memory at all.
 
   // The bank register. Bit 1 selects the extra DRAM and bit 2 then picks bank A or B (it XORs Z7 into the DRAM's
-  // address: Harvey-Smith traced Dragon 64 Plus schematic (owner-supplied research; known drawing errors)), so $04 is
-  // the motherboard RAM like $00. Bit 0 overlays the video RAM. Compusense's table (p. 2) gives 00, 01, 11 and R0.
+  // address: P. Harvey-Smith's traced Eagle schematic of his DragonPlus board, World of Dragon forum, 7 June 2017;
+  // known drawing errors; not verified on hardware), so $04 is the motherboard RAM like $00. Bit 0 overlays the video RAM. Compusense's table (p. 2) gives 00, 01, 11 and R0.
   // config.mameCompat keeps MAME's d64plus_bank_w(): bits 2-1 = 10 logs an error and leaves both banks alone.
   writeBank(v) {
     if (this.config.mameCompat) {

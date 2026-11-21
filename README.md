@@ -28,7 +28,7 @@ hardware; the exceptions are listed under [How we know it's right](#how-we-know-
 > Please [report what breaks](https://github.com/yaniv-golan/cloadm/issues).
 
 > [!NOTE]
-> CLOADM includes no ROMs and never downloads them. You supply your own dumps once; they stay in your browser, and CLOADM never uploads them (what Claude reads from the machine's memory, ROM areas included, goes to Anthropic if you use it).
+> CLOADM includes no ROMs and never downloads them by itself (the MCP server's `add_roms` fetches only a URL you give it). You supply your own dumps once; they stay in your browser, and CLOADM never uploads them (what Claude reads from the machine's memory, ROM areas included, goes to Anthropic if you use it).
 > Without them, a built-in firmware still runs machine-code programs and the programs written for this project.
 > [Where to get ROMs →](https://cloadm.dev/roms/)
 

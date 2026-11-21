@@ -4,8 +4,8 @@
 //
 // The firmware is paging.asm: text mode from $0000 holding a pattern in the motherboard RAM, then one phase per
 // $FFE2 value ($00, $02, $06, $01, $03, $07, $04, $05), each held for 30 fields with its number at PHASE. The
-// Harvey-Smith traced Dragon 64 Plus schematic (owner-supplied research; known drawing errors) has the MC6847 fetch
-// from the motherboard RAM whatever the paging, and MAME 0.264 never applies $FFE2 to memory, so both pictures must
+// P. Harvey-Smith's traced Eagle schematic of his DragonPlus board (World of Dragon forum, 7 June 2017; known drawing errors; not verified on hardware)
+// has the MC6847 fetch from the motherboard RAM whatever the paging, and MAME 0.264 never applies $FFE2 to memory, so both pictures must
 // be the motherboard's pattern in every phase. Ours runs WITHOUT mameCompat, so its banks do reach the CPU: a VDG
 // that saw bank A, bank B or the video RAM (all zero on ours, never written) would draw a different screen.
 //
