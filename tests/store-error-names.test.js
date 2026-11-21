@@ -49,6 +49,8 @@ const PATH_FIRST = (path, why) => new MediaStoreError('io', `${path}: ${why}`);
 // the same failure with the path inside the reason instead (a backend that words it that way)
 const PATH_INSIDE = (path, why) => new MediaStoreError('io', `the folder refused ${path}: ${why}`);
 const A = () => images.vdk(40, 2), B = () => images.vdk(40, 1);
+const read = async (media, name) => media.read(name).catch(() => null);   // null when it is not there
+const same = (a, b) => !!a && !!b && a.length === b.length && a.every((v, i) => v === b[i]);
 
 (async () => {
   // ---------------- the general branch: a store failure that embeds the stored path names the disk once ----------------
@@ -100,6 +102,13 @@ const A = () => images.vdk(40, 2), B = () => images.vdk(40, 1);
       const got = (await q(sm.importMedia(given, A()))).m;
       check(`importMedia given as ${JSON.stringify(given)} is named once, by its file name`, got === `work.vdk: ${why}`, got);
     }
+    // (3) a NON-disk file given as a path is stored as library/dir/prog.bin, so a failure reports the name the
+    // Library shows -- "dir/prog.bin" -- not just the leaf, which would not match anything on screen
+    {
+      const sm = await mk(); sm.media.failOn = 'library/dir/prog.bin'; sm.media.err = PATH_FIRST('library/dir/prog.bin', why);
+      const got = (await q(sm.importMedia('dir/prog.bin', new Uint8Array(4)))).m;
+      check('a failed library import given as a path reports the library-relative name', got === `dir/prog.bin: ${why}`, got);
+    }
   }
   {
     // the stored name is not the caller's name: a mount reads disks/work.vdk and reports 'work.vdk'
@@ -147,9 +156,18 @@ const A = () => images.vdk(40, 2), B = () => images.vdk(40, 1);
     // a DIFFERENT file's path must not be stripped: the reader has to see where it failed
     check('a reason naming a different file keeps its path (where it failed is not lost)',
       s.mediaError(PATH_FIRST('disks/sub/a.vdk', 'permission was refused'), 'a.vdk', 'disks/a.vdk').message === 'a.vdk: disks/sub/a.vdk: permission was refused');
-    // a name that LOOKS like a prefixed spelling of this one is a different file (the suffix half must not match it)
-    check('a reason led by a longer name is not taken for this one',
+    // nor may a name that merely ENDS with this one be taken for it (under a rule that matches "/"+name, xa.vdk
+    // would be stripped for a.vdk and the reader would read "a.vdk: no")
+    check('a reason led by a name this one is only a suffix of is kept whole',
       s.mediaError(PATH_FIRST('disks/xa.vdk', 'no'), 'a.vdk', 'disks/a.vdk').message === 'a.vdk: disks/xa.vdk: no');
+    // (2) the page's background-write listener (js/ui/main.js) reports a failed index write. It used to call
+    // mediaError without the stored name, so a ROM image's path was repeated. The rule lives on the Session now
+    // (indexWriteError), where the page's one-line listener takes it from and this test pins it.
+    check('a background index write failure names the ROM once',
+      s.indexWriteError('roms/1234abcd.rom', PATH_FIRST('roms/1234abcd.rom', 'permission was refused')) === 'roms/1234abcd.rom: permission was refused',
+      s.indexWriteError('roms/1234abcd.rom', PATH_FIRST('roms/1234abcd.rom', 'permission was refused')));
+    check('... and a failure whose reason names nothing is still named and explained',
+      s.indexWriteError('roms/sockets.json', new MediaStoreError('quota', 'no space')) === "No space left in this browser's storage for roms/sockets.json. Delete something, or save your media as files.");
   }
 
   // ---------------- a disk name must have something after the prefix ----------------
@@ -210,6 +228,24 @@ const A = () => images.vdk(40, 2), B = () => images.vdk(40, 1);
     const im = await q(s.importMedia('x/..', B()));
     check('importMedia "x/..": refused as a name', !im.ok && im.m === 'A disk image needs a name.', im.m || 'accepted');
     check('nothing was written by any of them', (await media.list()).length === 0, JSON.stringify((await media.list()).map((e) => e.name)));
+    // (1) SURROUNDING SPACES ARE PART OF A FILE'S NAME. Round 2 refused them everywhere and stranded every disk a
+    // main-era store already held under such a name: a mount of a stored " a.vdk" said "A disk image needs a name."
+    // Only whitespace-ONLY names are not names; a name with spaces around it is one.
+    {
+      const m2 = new MemoryMediaStore({ caseInsensitive: false });
+      await m2.writeSync('disks/ a.vdk', A());
+      await m2.writeSync('disks/b.vdk ', B());
+      const s2 = await session(m2);
+      const mnt = await q(s2.mountDisk(0, ' a.vdk'));
+      const mnt2 = await q(s2.mountDisk(1, 'disks/b.vdk '));
+      check('a disk stored as " a.vdk" still mounts (names with surrounding spaces are names)',
+        mnt.ok && same(await read(m2, 'disks/ a.vdk'), A()), mnt.m || 'refused');
+      check('... and one stored as "b.vdk " mounts too', mnt2.ok && same(await read(m2, 'disks/b.vdk '), B()), mnt2.m || 'refused');
+      const im = await q(s2.importDisk('c.vdk ', B(), 1));
+      check('... and a disk may be imported under a name with a trailing space', im.ok && im.m === 'c.vdk  in drive 1', im.m || 'refused');
+      const pm = await q(s2.importMedia(' prog.bin', new Uint8Array(4)));
+      check('... and a library file under a name with a leading space', pm.ok, pm.m || 'refused');
+    }
     // a leading dot is a file name, not a segment: it stays allowed
     const okDot = await q(s.importDisk('disks/.vdk', B(), 0));
     check('... but a file whose name starts with a dot is a name', okDot.ok && okDot.m === '.vdk in drive 0', okDot.m || 'refused');

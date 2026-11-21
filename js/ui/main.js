@@ -70,7 +70,7 @@ const keyStore = (() => { try { return localStorage ? storageKeyStore(localStora
 const session = new Session({ store: settings, media: mediaStore, keyStore, welcomeMenu: !link.embed });
 const page = createPage(session, new Audio());
 // a background write that fails (full storage, permission refused) must reach the user, not vanish
-session.index.writeError = (name, e) => page.status(session.mediaError(e, name).message, true);
+session.index.writeError = (name, e) => page.status(session.indexWriteError(name, e), true);
 // the handle exists before the awaited init, so anything watching the page sees it at once
 window.emu = { session, profiles, Emu, feedback: page.feedback, ready: false, started: false, audio: page.audio, audioRunning: () => page.audio.running, get machine() { return session.machine; },
   // the input layer, for the browser check (keyboard modes, the keyboard joystick and the gamepads)

@@ -128,10 +128,12 @@ export class SnapshotRomsError extends SessionError {
 }
 // floppy disk images live in the media store under this prefix (never in the media index)
 export const DISK_PREFIX = 'disks/';
-// A disk image's own file name (what follows the prefix): not empty, not whitespace only, no separator, and not the
+// A disk image's own file name (what follows the prefix): not empty, not whitespace ONLY, no separator, and not the
 // segment '.' or '..' -- a name a folder store or OPFS cannot hold, and one that would climb out of its prefix.
-const isDiskFileName = (base) => typeof base === 'string' && base.length > 0 && base.trim() === base
-  && !/^\s+$/.test(base) && !/[\\/]/.test(base) && base !== '.' && base !== '..';
+// Surrounding spaces are part of the name and are kept: a store that already holds " a.vdk" (main wrote such names)
+// must still be able to mount it, and a person who typed one meant it.
+const isDiskFileName = (base) => typeof base === 'string' && base.length > 0 && !/^\s+$/.test(base)
+  && !/[\\/]/.test(base) && base !== '.' && base !== '..';
 // how many times mountDisk reads an image again when the image moved under its read (its own stored name, or
 // another spelling of the same file on a store that folds case): the image is read four times at most before the
 // mount gives up. A write to a DIFFERENT stored file never spends this.
@@ -1689,8 +1691,11 @@ export class Session {
       try { await this.refreshCase(); } finally { if (disk) this.creationLanded(target); }
       return { stored: r };
     });
-    // (reported as the file's own name: a path the browser handed over is where it came from, not what it is called)
-    try { return disk ? await this.createExclusive(write) : await write(0); } catch (e) { throw this.mediaError(e, base || name, target); }
+    // What a failure is reported under. A disk image is stored under its own file name, so that is what the drives and
+    // the Library show; any other file is stored under the path the person dropped (library/dir/prog.bin), so its
+    // name is the stored one without the library prefix -- what the Library lists, not just the leaf.
+    const shown = disk ? base : target.slice(LIBRARY_PREFIX.length);
+    try { return disk ? await this.createExclusive(write) : await write(0); } catch (e) { throw this.mediaError(e, shown, target); }
   }
   // A store failure as the user should read it, named once. `name` is what the person sees (their file's own name);
   // `stored` is the store's name for the file this operation works on, when the caller knows it -- and the caller
@@ -1702,6 +1707,10 @@ export class Session {
   //     message is not used, so the several ways the backends word it (js/host/media-store-{fsa,opfs,memory}.js)
   //     cannot make the sentence read differently.
   // A SessionError is the session's own message already: it is handed on unchanged, so nothing above is said twice.
+  // What the page's background-write listener says when an index write fails (js/ui/main.js wires this method to its
+  // status line). The index's name IS the stored name, so it is handed over: without it a ROM image's path was
+  // repeated. -> the message
+  indexWriteError(name, e) { return this.mediaError(e, name, name).message; }
   mediaError(e, name, stored = null) {
     if (e instanceof SessionError) return e;
     if (e && e.code === 'not-found') return new SessionError(`${name} is no longer stored in this browser; load it again.`);
