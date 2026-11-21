@@ -2,7 +2,7 @@
 // installed in place of coco3.rom. MAME stops when the firmware writes phase 10 to $7000.
 const path = require('path');
 const { loadEmu, assembleFile, romImage, writeRoms, mameConfigArgs, writeCfg } = require('../lib/firmware');
-const { REGS } = require('../sam/spec');
+const { REGS } = require('../lib/regs');
 const { workDir } = require('../lib/workdir');
 
 // mameCompat reproduces MAME's speed-switch scheduling (off in the product)

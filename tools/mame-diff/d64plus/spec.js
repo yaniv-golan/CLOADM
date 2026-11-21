@@ -14,9 +14,7 @@
 // never reads the PROM, so its contents cannot affect a comparison.
 const path = require('path'), fs = require('fs'), cp = require('child_process');
 const { loadEmu, assembleFile, romImage, writeRoms, mameConfigArgs } = require('../lib/firmware');
-
-const REGS = ['pc:4', 'a:2', 'b:2', 'x:4', 'y:4', 'u:4', 's:4', 'dp:2', 'cc:2']
-  .map((r) => { const [name, w] = r.split(':'); return { name, width: +w, mame: name }; });
+const { REGS } = require('../lib/regs');
 
 // An 8K character generator built from our own pattern, never a real ROM: each byte spells out the
 // (code, raster line) address it was fetched for, so a pixel comparison proves which address the CRTC
@@ -99,5 +97,4 @@ module.exports = {
   paging(profileId, { config = {}, work = `/tmp/mame-diff/${profileId}-paging` } = {}) {
     return run(profileId, 'paging.asm', { config: Object.assign({ mameCompat: false }, config), work, seconds: 10, instructions: 1500000 });
   },
-  REGS,
 };

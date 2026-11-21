@@ -8,6 +8,7 @@ const path = require('path');
 const { loadEmu, assembleFile, romImage, writeRoms, mameConfigArgs } = require('../lib/firmware');
 const sam = require('../sam/spec');
 const { workDir } = require('../lib/workdir');
+const { REGS } = require('../lib/regs');
 
 const pager = () => romImage(assembleFile(path.join(__dirname, 'pager.asm'), '6809'), 0xA000, 0x2000, 0x12);
 // the Alpha's ROM slots for a 16K image meant for $8000-$BFFF
@@ -34,7 +35,7 @@ module.exports = {
     const slots = slotsFor(romImage(asm, 0x8000, 0x4000, 0x12));
     return {
       label: profileId, system: profile.mame, work, seconds: 4, args: ['-ext', '', ...mameConfigArgs(resolved)],
-      regs: sam.REGS, waitOps: ['CWAI', 'SYNC'], haltPc: asm.symbols.get('HALT'),
+      regs: REGS, waitOps: ['CWAI', 'SYNC'], haltPc: asm.symbols.get('HALT'),
       install: () => writeRoms(work, profile.mame, filesFor(profile, slots)),
       machine: () => machine(profileId, slots, config),
       instructions: 300000,
@@ -52,7 +53,7 @@ module.exports = {
     const slots = { boot: code, basic };
     return {
       label: `${profileId} pia1b.asm`, system: profile.mame, work, seconds: 4, args: ['-ext', '', ...mameConfigArgs(resolved)],
-      regs: sam.REGS, waitOps: ['CWAI', 'SYNC'], haltPc: asm.symbols.get('HALT'),
+      regs: REGS, waitOps: ['CWAI', 'SYNC'], haltPc: asm.symbols.get('HALT'),
       install: () => writeRoms(work, profile.mame, filesFor(profile, slots)),
       machine: (cfg = config) => machine(profileId, slots, cfg),
       instructions: 400000,
@@ -78,11 +79,10 @@ module.exports = {
     const slots = { boot: romImage(asm, 0xA000, 0x2000, 0x00), basic };
     return {
       label: `${profileId} board`, system: profile.mame, work, seconds: 4, args: ['-ext', ''],
-      regs: sam.REGS, waitOps: ['CWAI', 'SYNC'], haltPc: asm.symbols.get('HALT'),
+      regs: REGS, waitOps: ['CWAI', 'SYNC'], haltPc: asm.symbols.get('HALT'),
       install: () => writeRoms(work, profile.mame, filesFor(profile, slots)),
       machine: () => machine(profileId, slots),
       instructions: 60000,                          // past HALT (51,135)
     };
   },
-  REGS: sam.REGS,
 };

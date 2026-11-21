@@ -4,11 +4,9 @@
 const path = require('path'), fs = require('fs'), cp = require('child_process');
 const { loadEmu, assembleFile, romImage, writeRoms, writeProfileRoms, mameConfigArgs, writeCfg } = require('../lib/firmware');
 const { workDir } = require('../lib/workdir');
+const { REGS } = require('../lib/regs');
 
 const RESET_FRAMES = 5;   // reset.asm: frames between reaching SYNC and the Reset press
-const REGS = ['pc:4', 'a:2', 'b:2', 'x:4', 'y:4', 'u:4', 's:4', 'dp:2', 'cc:2']
-  .map((r) => { const [name, w] = r.split(':'); return { name, width: +w, mame: name }; });
-
 // split 16K firmware images into the profile's ROM slots
 function slotData(profile, bank0, bank1) {
   const out = {};
@@ -354,5 +352,4 @@ ${[conf(1, 1, 0), conf(3, 3, 13), conf(4, 4, 13), conf(6, 6, 13)].join('\n')}
     const { bank0 } = images('vdg.asm');
     return { machine: () => machine(profileId, withChip(profile, slotData(profile, bank0, bank0))), frames: 680 };
   },
-  REGS,
 };

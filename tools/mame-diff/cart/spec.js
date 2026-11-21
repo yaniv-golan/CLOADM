@@ -5,7 +5,7 @@
 //   bankedshort  the same with a 40K image: MAME repeats it to fill the 128K region
 const fs = require('fs'), path = require('path'), cp = require('child_process');
 const { loadEmu, assembleFile, romImage, writeRoms, writeProfileRoms } = require('../lib/firmware');
-const { REGS } = require('../sam/spec');
+const { REGS } = require('../lib/regs');
 const { SN76489 } = require('./chips.js');
 
 const RAMSRC = 0xC800, RAMBASE = 0x1000;
