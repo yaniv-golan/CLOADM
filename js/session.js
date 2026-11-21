@@ -308,7 +308,10 @@ export class Session {
     this.keys = new KeyQueue();     // host key presses for the matrix, applied at frame starts (keyqueue.js)
     this.roms = new RomLibrary(this.index, romOwners);
     this.stubChosen = new Set();    // machines the user chose to run without ROMs this session
-    this.bootFailed = new Set();    // `machine@crcs` whose stored ROMs did not start BASIC this session (storedRomsWaiting)
+    // The stored-ROM CRCs that did not start BASIC, per machine (Map<Machine, Set<crcs>>): a fresh try is a power-on
+    // or a switch, which forgets them (poweredOn clears every machine's; adopt forgets the machine left behind), and
+    // another set of ROMs is another key (storedRomsWaiting).
+    this.bootFailed = new Map();
     this.bootOk = null;             // the reset after which BASIC's OK was seen
     this.warmReset = null;          // { m, resetAt }: the run that began with the Reset button, not a power-on (bootStatus)
     this.welcome = null;            // the machine running the welcome program
@@ -584,6 +587,10 @@ export class Session {
     this.warmReset = null;                // a new machine is a power-on: the boot watchdog arms
     if (this.debugger) { this.debugger.detach(); this.debugger = null; }
     if (m.debugger) { this.debugger = m.debugger; this.debugger.setSymbols(() => this.labels); }
+    // the machines left behind keep no state in the Session: their ROM-failure sets go (a switch back is a fresh
+    // try) and their stub-restart records with them (the record of a Machine that is gone cannot come back)
+    for (const [mm] of this.bootFailed) if (mm !== this.machine && mm !== m) this.bootFailed.delete(mm);
+    for (const [mm] of this.stubRuns) if (mm !== this.machine && mm !== m) this.stubRuns.delete(mm);
     this.store.set('machine', m.id);
     this.install(m);
   }
@@ -1067,7 +1074,7 @@ export class Session {
     this.warmReset = null;   // a power-on arms the boot watchdog again, even in the frame of a Reset (same resetAt)
     // a power-on is a fresh try at the ROMs: a machine whose ROMs did not start BASIC is tried again after one
     // (the 'Switch off and on' the boot box offers is exactly that, and so is a ROM added or the machine switched)
-    this.bootFailed.clear();
+    this.bootFailed.clear();      // a power-on is a fresh try at the ROMs, for every machine
     this.lastRate = this.cpuRate() && this.cpuRate().rate;
     this.emit('firmware');
   }
@@ -1085,7 +1092,7 @@ export class Session {
   addRoms(files) {
     // the index's writes go to the store, which the move is copying: a drop may not land in the old one after it
     this.checkNotMoving();
-    const m = this.machine, owners = romOwners();
+    const m = this.personMachine, owners = romOwners();
     const { files: results } = identifyRoms(files, owners, m.id);
     const touched = new Map();   // owner id -> file names
     for (const r of results) for (const t of r.targets) {
@@ -1094,7 +1101,7 @@ export class Session {
       if (!touched.get(t.machine).includes(r.name)) touched.get(t.machine).push(r.name);
     }
     for (const id of touched.keys()) this.stubChosen.delete(id);
-    if (touched.has(m.id)) { this.loadSavedRoms(); this.powerCycle(); }
+    if (touched.has(m.id)) { this.loadSavedRoms(m); this.powerCycle({ on: m }); }
     const ids = [...touched.keys()];
     const machines = ids.filter((id) => profiles[id]).map((id) => this.machineRoms(id));
     const cartridges = ids.filter((id) => cartridgeRoms[id]).map((id) => ({ id, name: cartridgeRoms[id].name, sockets: socketStatus(cartridgeRoms[id], this.roms.get(id)) }));
@@ -1136,10 +1143,13 @@ export class Session {
   // forget the ROMs of the machine in use (the index's writes: not while the library moves, as addRoms)
   clearRoms() {
     this.checkNotMoving();
-    this.roms.clear(this.machine.id);
-    this.loadSavedRoms();
-    this.setStubRun(this.machine);
-    this.machine.reset(true);
+    // the person's machine (personMachine): with the chat full screen this used to clear and reset the CHAT machine
+    // and leave the person's own session on "NO ROM LOADED" (review round 2, finding 2)
+    const m = this.personMachine;
+    this.roms.clear(m.id);
+    this.loadSavedRoms(m);
+    this.setStubRun(m);
+    m.reset(true);
     this.emit('roms');
     this.poweredOn();
     this.offerMenu();
@@ -1168,7 +1178,8 @@ export class Session {
     const { restored, skipped } = restoreRomPack(zipEntries, this.roms, romOwners());
     const ids = [...new Set(restored.map((r) => r.machine))];
     for (const id of ids) this.stubChosen.delete(id);
-    if (ids.includes(this.machine.id)) { this.loadSavedRoms(); this.powerCycle(); }
+    const pm = this.personMachine;
+    if (ids.includes(pm.id)) { this.loadSavedRoms(pm); this.powerCycle({ on: pm }); }
     this.emit('roms');
     return { machines: ids.filter((id) => profiles[id]).map((id) => this.machineRoms(id)), skipped };
   }
@@ -1854,9 +1865,9 @@ export class Session {
   // CoCo 2B, CoCo 3 and the Dragon 64 (each with its own `--ssc` lockstep against MAME). The PIC (TMS7040) ROM is
   // the user's, like BASIC and DOS; the board's speech half is not implemented yet, so it is described as music
   // only everywhere it is offered.
-  get offersSsc() { return !!(this.machine && this.machine.profile.options && this.machine.profile.options.ssc); }
+  get offersSsc() { return !!(this.personMachine && this.personMachine.profile.options && this.personMachine.profile.options.ssc); }
   // is the Pak in the cartridge port? (also when it arrived through a restored snapshot)
-  get sscInserted() { return !!this.machine && this.machine.cartPort instanceof SpeechSoundPak; }
+  get sscInserted() { return !!this.personMachine && this.personMachine.cartPort instanceof SpeechSoundPak; }
   // what is needed to put the Pak in: [{ id, label, size, files, status }] from the stored ROMs
   sscRoms() {
     const stored = this.roms.get('ssc');
@@ -1867,7 +1878,7 @@ export class Session {
   // Only the PIC's ROM is required: speech is not implemented, so the SP0256's allophone data is optional and the
   // card runs its music side without it (js/machines/ssc.js).
   insertSsc() {
-    const m = this.machine;
+    const m = this.personMachine;
     if (!m) throw new SessionError('There is no machine to put the Speech/Sound Pak in.');
     if (!this.offersSsc) throw new SessionError(`The ${m.profile.name} can't take the Speech/Sound Pak: CLOADM offers it only on the models its Pak is verified on.`);
     const missing = this.sscRoms().filter((s) => s.required && s.status !== 'loaded');
@@ -1888,7 +1899,7 @@ export class Session {
   }
   // take it out and leave the machine on its own ROMs
   ejectSsc() {
-    const m = this.machine;
+    const m = this.personMachine;
     if (!this.sscInserted) return 'The Speech/Sound Pak is not in.';
     m.ejectCartridge();
     this.setOption('ssc', 'none');
@@ -2328,7 +2339,7 @@ export class Session {
   storedRomsWaiting(m) {
     if (this.chatMachines && m === this.chatMachines.chat) return false;
     return !m.hasRom && this.stubChosen.has(m.id) && !this.nitros9On(m) && this.machineRoms(m.id).bootable
-      && !this.bootFailed.has(this.bootKey(m));
+      && !this.romsFailed(m).has(this.bootKey(m));
   }
   // the ROMs a machine runs with, as the key a boot failure is remembered under: the same machine with other ROMs
   // is a different try (a ROM change clears it), and so is a power-on (Session.poweredOn clears the whole set)
@@ -2338,8 +2349,10 @@ export class Session {
   }
   // remember that m's stored ROMs did not start BASIC, and keep them off later loads' retries until a power-on or
   // a ROM change clears it (forgetBootFailure). -> the note the load's message adds.
+  // the CRCs that did not start BASIC on m (a Set; empty until one does)
+  romsFailed(m) { let f = this.bootFailed.get(m); if (!f) { f = new Set(); this.bootFailed.set(m, f); } return f; }
   bootFailedThis(m, name) {
-    this.bootFailed.add(this.bootKey(m));
+    this.romsFailed(m).add(this.bootKey(m));
     return `Your stored ROMs did not start BASIC, so ${name} went straight into memory. `;
   }
   // put m's stored ROMs back in (as the ROM screen's "Switch on" does, on this same machine; the load power cycles it)
@@ -3330,7 +3343,7 @@ export class Session {
     if (d.kind !== 'cas' || !d.files.length) throw new SessionError(`${t.name}: no complete file on this tape to load instantly.`);
     if (d.files[0].fileType === 0 && !m.hasRom) throw this.needsRom('A BASIC tape');
     const { bytes } = t, fast = this.fastCas;
-    this.powerCycle();
+    this.powerCycle({ on: m });      // the person's machine (it was this.machine: with the chat on screen, the chat's)
     this.fastCas = true;
     try { return this.load(name, bytes, { remember: false }); } finally { this.fastCas = fast; }
   }
@@ -3344,13 +3357,22 @@ export class Session {
   // greeting: 'first', 'back' (a returning visitor) or 'bye' (back from a program); carryOn: a name for the carry-on
   // option, "CARRY ON WITH <name>" (option 6 on the 6809 build, 5 on the 6803 build; its key emits 'welcome:carryon'), or null
   startWelcome(bytes, { greeting = 'first', carryOn = null } = {}) {
-    const m = this.machine, w = WELCOME[cpuFamily(m.config.cpu)];
+    // the person's machine (personMachine): the welcome program is for them, and with the chat full screen the
+    // machine on screen runs the chat firmware (review round 2, finding 4)
+    const m = this.personMachine, w = WELCOME[cpuFamily(m.config.cpu)];
     if (!w) throw new SessionError(`There is no Welcome menu for the ${m.profile.name}'s ${m.config.cpu}.`);
     const g = WELCOME.greetings.indexOf(greeting);
     if (g < 0) throw new SessionError(`unknown welcome greeting "${greeting}"`);
-    if (!m.useStub) this.runWithoutRoms({ menu: false });   // also adds the machine to stubChosen ("Use the ROMs again" undoes it)
+    // without its ROMs (also when it has them): "Use the ROMs again" brings BASIC back; the choice is the machine's
+    if (!m.useStub) {
+      if (m !== this.machine) { m.setRoms(Object.fromEntries(m.profile.roms.map((x) => [x.id, null]))); this.stubChosen.add(m.id); this.emit('roms'); }
+      else this.runWithoutRoms({ menu: false });
+    }
     this.loadMedia(this.welcomeFile, bytes, null, { on: m });
-    if (this.stubRun) this.stubRun.welcome = { bytes, greeting, carryOn };   // Reset: the menu as it is now
+    // Reset: the menu as it is now. loadMedia above cleared this machine's record and made the program's (segments,
+    // exec), which this machine's record must keep: only its `welcome` field is set.
+    const rec = this.stubRuns.get(m);
+    if (rec) rec.welcome = { bytes, greeting, carryOn };
     this.menuWatch = null;
     m.poke(w.greet, g);
     let carry = carryOn ? `CARRY ON WITH ${carryOn}`.toUpperCase().replace(/[^ -_]/g, '?') : '';
@@ -3361,6 +3383,7 @@ export class Session {
     for (let i = 0; i <= carry.length; i++) m.poke(w.carry + i, i < carry.length ? carry.charCodeAt(i) : 0);
     this.welcome = m;
     this.welcomeBuild = w;
+
     this.emit('welcome');   // (the page's parts that depend on whether the welcome program runs: the quick-save slots)
     if (this.welcomeSoundOn) this.welcomeSound();
     const last = (carry ? 1 : 0) + (w === WELCOME['6809'] ? 5 : 4);   // the 6809 build has the games too

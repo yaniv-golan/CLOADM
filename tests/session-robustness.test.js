@@ -177,6 +177,68 @@ const newSession = (id = 'dragon64') => { const s = new Emu.Session({ store: Emu
 }
 
 // =====================================================================================
+// 1b. the rest of the person's machine (review round 2): ROMs, tapes by skip, the SSC, the welcome program
+// =====================================================================================
+{
+  // a ROM dropped while the chat is full screen is the PERSON's: it boots their BASIC session, and never puts ROMs
+  // in the chat machine (which runs the chat firmware)
+  const s = newSession('dragon64'); frames(s, 5);
+  chatOn(s);
+  const chatM = s.chatMachines.chat, basic = s.chatMachines.basic;
+  const chatBefore = chatM.ram.slice();
+  s.addRoms([{ name: 'd64_1.rom', bytes: basic64 /* a real 16K image */ }]);
+  check('1b (ROMs) a ROM dropped on the chat screen is loaded onto the BASIC session', basic.hasRom === true && chatM.hasRom === false,
+    `basic ${basic.hasRom} chat ${chatM.hasRom}`);
+  check('1b (ROMs) ...and the chat machine is never power cycled into it (its RAM is untouched)', chatBefore.every((v, i) => v === chatM.ram[i])
+    || chatM.useStub, `chat useStub ${chatM.useStub}`);
+}
+{
+  // Remove ROMs (Ctrl+K → Your ROMs → Remove ROMs) is the person's machine too
+  const s = newSession('dragon64'); dragonRoms(s); frames(s, 10);
+  chatOn(s);
+  const chatM = s.chatMachines.chat;
+  s.clearRoms();
+  check('1b (Remove ROMs) it clears the BASIC session, not the chat machine', s.chatMachines.basic.hasRom === false && chatM.hasRom === false
+    && chatM.useStub === true, `basic ${s.chatMachines.basic.hasRom} chat ${chatM.hasRom}`);
+}
+{
+  // skipTape is the person's machine end to end: its power cycle was this.machine
+  const s = newSession('dragon32'); frames(s, 5);
+  chatOn(s);
+  const chatM = s.chatMachines.chat, chatBefore = chatM.ram.slice();
+  s.insertTape('x.cas', casTape());
+  const msg = s.skipTape();
+  check('1b (skipTape) it loads the tape on the BASIC session and power cycles that one', /fast-loaded/.test(msg)
+    && chatBefore.every((v, i) => v === chatM.ram[i]), `${msg}`);
+}
+{
+  // the welcome program, which offerMenu now offers for the person's machine, must be set up on that machine and
+  // must not touch the chat machine's state at all (it used to be written over the chat firmware). The chat machine
+  // keeps its own RAM and its own restart record.
+  const s = newSession('dragon32'); frames(s, 5);
+  chatOn(s);
+  const chatM = s.chatMachines.chat, basic = s.chatMachines.basic;
+  const chatRun = s.stubRuns.get(chatM);
+  const welcome = new Uint8Array(fs.readFileSync(path.join(ROOT, 'examples/welcome.bin')));
+  s.startWelcome(welcome, { greeting: 'back' });
+  // the program's own bytes went to the BASIC session, not the chat machine: its record holds the program and the
+  // chat machine's is the one it had
+  const basicRec = s.stubRuns.get(basic);
+  // the program's own bytes are in the BASIC session's memory at its entry, and not in the chat machine's
+  const sg = basicRec && basicRec.segments && basicRec.segments[0];
+  const at = sg && sg.addr;
+  // the program's bytes are in the BASIC session's memory where it starts, and the chat machine's memory there is
+  // not the program (byte by byte on the ones that tell them apart: a byte both hold by coincidence proves nothing)
+  const same = !!sg && [0, 1, 2, 3].every((k) => basic.ram[(at + k) & 0xFFFF] === sg.data[k])
+    && [0, 1, 2, 3].some((k) => chatM.ram[(at + k) & 0xFFFF] !== sg.data[k]);
+  check('1b (welcome) the welcome program is set up in the BASIC session\'s memory, not the chat machine\'s',
+    s.welcome === basic && s.welcomeBuild !== null && basicRec && basicRec.m === basic && same,
+    `welcome on ${s.welcome === basic ? 'basic' : 'other'}; program bytes in basic: ${same}`);
+  check('1b (welcome) ...and the chat machine keeps its own restart record, untouched', s.stubRuns.get(chatM) === chatRun);
+  check('1b (welcome) ...and its ROM choice is untouched', chatM.useStub === true);
+}
+
+// =====================================================================================
 // 2. stored ROMs that do not start BASIC are not retried on every drop
 // =====================================================================================
 {
@@ -313,6 +375,24 @@ const newSession = (id = 'dragon64') => { const s = new Emu.Session({ store: Emu
   let menus = 0; s.on((e) => { if (e === 'menu') menus++; });
   s.powerCycle({ menu: true, on: basic });
   check('1 (offerMenu) the menu is offered for the person\'s machine, not the chat', menus === 1, `menus ${menus}`);
+}
+
+{
+  // review round 2, finding 5: a machine SWITCH is a fresh try at the ROMs (the comment said so and the code did
+  // not). Mark the failing ROMs, switch away and back, then a drop must try them again.
+  const s = newSession('dragon32');
+  s.addRoms([{ name: 'wrong.bin', bytes: new Uint8Array(16 * 1024).fill(0x39) }]);
+  frames(s, 5 * 50 + 2);
+  s.runWithoutRoms({ menu: false });
+  s.load('a.cas', casTape());
+  check('2 (switch) the failing ROMs are marked for this machine', s.bootFailed.size === 1 && s.romsFailed(s.machine).size === 1,
+    `${s.bootFailed.size} machine(s)`);
+  s.switchMachine('coco'); s.switchMachine('dragon32'); frames(s, 2);
+  check('2 (switch) switching away forgets them (and the discarded machine with them)', s.bootFailed.size === 0, `${s.bootFailed.size} machine(s)`);
+  let fw = 0; s.on((e) => { if (e === 'firmware') fw++; });
+  const f0 = fw;
+  s.load('b.cas', casTape());
+  check('2 (switch) so the next drop tries the ROMs again', fw - f0 > 0, `${fw - f0} firmware events`);
 }
 
 // =====================================================================================
