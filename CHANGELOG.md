@@ -23,6 +23,15 @@ All notable changes to CLOADM are recorded here. The format follows
   (shifted symbols hidden at phone width). The browser check makes sure the art is drawn, fits the page and is
   aria-hidden.
 
+- **Docs: Dragon 64 Plus citations.** The HD6845S R8 interlace and skew decline and the 80-column character mapping
+  (`$20`-`$7E` as ASCII) now cite their primary sources (Hitachi HD6845S data sheet R8 tables, P. Mooney's IC22 dump,
+  the Dragon Archive's Compusense ROM dump, P. Harvey-Smith's traced schematic) instead of "as recalled" and
+  "assumed"; `docs/verification.md` lists the schematic-derived findings, two of which (SAM P1 and the MC6847's bank)
+  differ from current behaviour and are open items. The schematic wiring is marked "from a traced schematic with known
+  drawing errors; not verified on hardware" in the docs and code comments. Comments and docs only; no behaviour
+  change, except that `SCREEN_TEXT_DESCRIPTION`, the tool description Claude sees at run time, is reworded (the ASCII
+  mapping now cites its sources; the wording change is all).
+
 ### Fixed
 
 - **Reset after a game no longer says CLOADM failed.** Many machine-code games set BASIC's warm-start flag and

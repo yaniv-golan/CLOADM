@@ -391,12 +391,20 @@ machine follows both, as MAME does (writes set the banks, reads return the statu
 Not verified, by the notes or by MAME:
 * the bank switching itself against any emulator: MAME 0.264 never applies it (below), so the comparison runs
   with the banks held on the standard RAM, and the switching is checked only by the unit tests from the notes;
-* the order of the SAM's page bit P1 and the banks: an access paged by P1 to the upper 32K misses the banks, as
-  MAME's SAM forms the address before its banks see it; the notes do not say;
-* the value `$04` (R2 R1 = 10; kept as MAME keeps it, no change);
-* the dot clock and so the cell width (8 pixels, as MAME);
-* whether the MC6847 screen sees the selected bank (as MAME: it does);
-* the real 80-column glyphs (the user's `chargen.ic22`).
+* the real 80-column glyphs (the user's `chargen.ic22`);
+* findings from P. Harvey-Smith's Eagle schematic of his own DragonPlus board (World of Dragon forum, 7 June 2017,
+  `viewtopic.php?p=15826`), each "from a traced schematic with known drawing errors; not verified on hardware":
+  * the dot clock is the host crystal divided by 8 for the 6845 CLK (IC25 QC), which matches our 8-pixel cell
+    (and MAME's);
+  * SAM P1 does not bypass the banks: the bank PROM decodes CPU A15. We (and MAME's SAM, which forms the address
+    before its banks see it) let an access paged by P1 to the upper 32K miss the banks. **Open item:** this
+    differs from what we and MAME do; a later behaviour change, not made here;
+  * `$FFE2` bit 2 only XORs Z7 into the extra DRAM's address, so `$04` (R2 R1 = 10) selects motherboard RAM like
+    `$00`. We keep `$04` as MAME does (no change). **Open item:** whether our `$04` handling matches this is for a
+    later behaviour change, not made here;
+  * the MC6847 fetches motherboard RAM in the E = 0 phase, so the 32-column screen does not see the selected
+    bank. We (and MAME) let it see the selected bank. **Open item:** this differs from what we and MAME do; a
+    later behaviour change, not made here.
 
 Against MAME 0.264: `run.js d64plus` (the Dragon 64's diagnostic) and `run.js d64plus --plus` (our 80-column
 firmware: every HD6845S register and the R12-R15 read-back, the video-RAM bank, distinct bytes in banks A and B,
@@ -425,13 +433,23 @@ video RAM (below), the Lua script puts each screen's 2K, built from the screen's
 the video RAM, and the match shows they put exactly those bytes there. `tests/d64plus-screen-text.test.js` reads
 every screen with `screen_text` against literal rows in `text-screens.js`, decodes our picture (drawn with a
 generator that shows each code as its byte) back to the same rows, and covers the declines, `base`, a read
-mid-frame, snapshots, the VDG screen and Compusense's own register table (p. 4). Not verified: the board's
-character mapping. No primary source for it could be found (Compusense's notes p. 4 give only the 2764's format: 256
-characters of 16 bytes, a 7 x 9 matrix below a blank row); the reader assumes ASCII for `$20`-`$7E`, from standard
-6845 board practice, and declines any other code. Nor the HD6845S R8 skew table behind the "display skew
-non-output" decline (bits 5-4 = 11): it is from the HD6845S data sheet's R8 table as recalled; the data sheet was
-not available to check (no page reference), and the decline is kept because it fails safe. Nor the real glyphs
-(the user's ROM).
+mid-frame, snapshots, the VDG screen and Compusense's own register table (p. 4). Sources for what the reader assumes
+rather than compares with MAME: the HD6845S R8 table (Hitachi, "HD6845S, HD68A45S, HD68B45S" data sheet, Interlace
+and Skew Register (R8), Tables 4-6, PDF p. 11; the printed page numbers are cropped in the archived scan) puts bits
+1-0 = 00/10 non-interlace, 01 interlace sync, 11 interlace sync and video, and bits 5-4 (display skew) and 7-6
+(cursor skew) at 00 none, 01 one character, 10 two, 11 non-output, so Compusense's `$A2` is non-interlace with
+two-character display and cursor skew, and the "non-output" decline (bits 5-4 = 11) is sourced. The character
+mapping: P. Mooney (Serenarian), "Appendix A: The DragonPlus Character Set", his IC22 EPROM dump transcribed from a
+1986 programmer printout (World of Dragon forum, 25 March 2018, `archive.worldofdragon.org/phpBB3/viewtopic.php?p=16452`),
+and the Dragon Archive's Compusense character ROM dump both put `A` at EPROM offset `$0410` and `a` at `$0610`, so
+code c's glyph is at c x 16 and `$20`-`$7E` are ASCII; `$00`-`$1F` hold other visible symbols (accented letters,
+the pound sign and so on), `$7F` is a solid block and `$80`-`$FF` are mostly underlined forms of `$00`-`$7F`. The
+reader declines a code outside `$20`-`$7E` because it does not map those symbols or the underlining. Which half of the
+generator: P. Harvey-Smith's Eagle schematic, traced from his own DragonPlus board (World of Dragon forum, 7 June
+2017, `viewtopic.php?p=15826`), has EPROM A0-A3 on the 6845's RA0-RA3, A4-A10 on character bits 0-6, A11 on
+character bit 7 (through the latch/jumper path) and A12 on a font-select jumper; no 6845 output drives A11 or A12;
+Compusense's notes say only the first set is used and the archived ROM's upper 4K is all `$FF`. No ROM image was
+downloaded or used for any of this, and none is in the repository. Not verified: the real glyphs (the user's ROM).
 
 **Cassette** (`tools/mame-diff/tape/run-tape.js`, on the Dragon 32 and 64, the CoCo 1/2 and 2B and the CoCo 3): MAME
 runs our writer firmware (`tape/csave.asm`, which writes a namefile, a 255-byte data block and an end-of-file block

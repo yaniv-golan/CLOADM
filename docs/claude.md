@@ -352,27 +352,37 @@ emulator.
     screen does not wrap (never under `mameCompat`, where MAME 0.264 does not map it), otherwise `null`. The
     cursor (R14/R15, R10/R11) is not reported: `screen_text` has no cursor field on any machine.
 
-    **The character mapping is not verified.** Codes `$20`-`$7E` are read as ASCII, an assumption from standard
-    6845 board practice: no primary source for the board's code layout could be found. Compusense's "Dragonplus
-    Interface Technical Information" (p. 4, "Character ROM") says only that the 2764 holds 256 characters of 16
-    bytes, a 7 x 9 matrix below a blank row, not which code is which; MAME's driver indexes the user's ROM by code
-    and says nothing either; the board's own manual was not reachable for this change. Any other code has no
-    character here: a screen that shows one is declined, naming the row, the column and the code. The
-    character generator itself is the user's ROM and is never needed or read.
+    **The character mapping.** Codes `$20`-`$7E` are read as ASCII. Sources: P. Mooney (Serenarian), "Appendix A:
+    The DragonPlus Character Set", his IC22 EPROM dump transcribed from a 1986 programmer printout (World of Dragon
+    forum, 25 March 2018, `archive.worldofdragon.org/phpBB3/viewtopic.php?p=16452`), and the Dragon Archive's
+    Compusense character ROM dump. Both put `A` at EPROM offset `$0410` and `a` at `$0610`: code c's glyph is at
+    c x 16. `$00`-`$1F` hold other visible symbols (accented letters, the pound sign and so on), `$7F` is a solid
+    block and `$80`-`$FF` are mostly underlined forms of `$00`-`$7F`; the reader gives no character for a code
+    outside `$20`-`$7E` and declines a screen that shows one, naming the row, the column and the code, because
+    those symbols and the underlining are not mapped here. Which half of the generator is used: P. Harvey-Smith's
+    Eagle schematic, traced from his own DragonPlus board (World of Dragon forum, 7 June 2017,
+    `viewtopic.php?p=15826`), has EPROM A0-A3 on the 6845's RA0-RA3, A4-A10 on character bits 0-6, A11 on character
+    bit 7 (through the latch/jumper path) and A12 on a font-select jumper; no 6845 output drives A11 or A12.
+    That wiring is from a traced schematic with known drawing errors; not verified on hardware.
+    Compusense's notes (p. 4) say only the first set is used, and the archived ROM's upper 4K is all `$FF`. The
+    character generator itself is the user's ROM and is never needed, read or stored.
 
     It DECLINES, rather than guess, a set-up the board cannot show whole, checked on the CRTC's registers in this
     order: R8 bit 0 selecting an interlace mode (not modelled; Compusense's own `$A2` is non-interlace and read);
-    R8 bits 5-4 = 11, the HD6845S's display skew "non-output", which blanks the screen (from the HD6845S data
-    sheet's R8 table as recalled; the data sheet was not available to check, no page reference; declining it fails
-    safe) (a skew of 1 or 2
-    characters only moves the picture and is read; neither our renderer nor MAME 0.264 models skew, so the
-    80-column picture is not moved or blanked by it here);
+    R8 bits 5-4 = 11, the HD6845S's display skew "non-output", which blanks the screen;
     R1 or R6 0 (no characters); R1 not less than R0 + 1 or R6 not less than R4 + 1 (the MC6845 data sheet's
     Nhd < Nht and Nvd < Nvt); more than 80 columns or rows taller than the board's 264-line picture (MAME's
     `plus_screen`, 640 x 264); fewer than 10 raster lines a row (the board's characters are a 7 x 9 matrix below a
     blank row, Compusense's notes p. 4, so a shorter row cuts them); and a code outside `$20`-`$7E`. The CRTC's
     power-on registers (8 lines a row) are declined that way until a program sets the board up; Compusense's own
     set-up (p. 4: 80 x 24 rows of 11 lines) is read.
+
+    The R8 decline is sourced from Hitachi, "HD6845S, HD68A45S, HD68B45S" data sheet, Interlace and Skew Register
+    (R8), Tables 4-6, PDF p. 11 (the printed page numbers are cropped in the archived scan). Bits 1-0 are 00 and 10
+    non-interlace, 01 interlace sync and 11 interlace sync and video. Bits 5-4 (display skew) and 7-6 (cursor skew)
+    are 00 none, 01 one character, 10 two characters and 11 non-output. A skew of 1 or 2 characters only moves the
+    picture, so it is read. Neither our renderer nor MAME 0.264 models skew, so the 80-column picture is not moved
+    or blanked by it here.
 
   The tool DECLINES, with `text:false`, the mode named and a reason, anything it cannot read faithfully: a
   graphics mode (VDG or GIME bitmap), a GIME text mode whose rows are 1 or 2 lines tall (no glyph is shown whole)

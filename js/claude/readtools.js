@@ -85,7 +85,7 @@ export function readOnlyTools() {
 const CELL_COLS = 32;
 // The description Claude sees. It names the machines and modes the reader covers, and how non-ASCII characters and
 // attributes come back, so a model knows what to expect before it calls.
-export const SCREEN_TEXT_DESCRIPTION = "The text on the machine's screen, one string per row with trailing spaces trimmed (trailing blank rows are left out, so `rows` counts the rows returned, not the rows the screen has). Reads the MC6847 VDG 32x16 text screen (MC-10, Dragon 32/64/200, CoCo 1/2, and the CoCo 3 in its CoCo-compatible mode) and every CoCo 3 GIME text mode, 6809 or 6309: 32, 40, 64 or 80 columns, with or without attribute bytes (as NitrOS-9 and BASIC's WIDTH 40/80 use); on a GIME text mode `screenRows` is how many rows the screen shows. GIME characters $20-$7E are ASCII; the GIME's international characters $00-$1F come back as the Unicode letters they show (Ç ü é â ä à å ç ê ë è ï î ß Ä Å ó æ Æ ô ö ø û ù Ø Ö Ü § £ ± ° ƒ) and $7F as ▒. Attribute bytes are never shown as characters: with attributes on, `attributes` gives each row's runs of fg, bg, underline and blink, where fg and bg are palette slots, not colours (the foreground is palette register 8+fg, the background palette register bg). Returned with the mode's name, `cols`, and where the screen was read from: `base`, the CPU address of the whole screen, given only when the memory map shows all of it to the CPU in one contiguous run (otherwise null: an MMU that splits or hides it, or 256-byte virtual rows), and on a GIME text mode `physicalBase`, its address in the CoCo 3's physical RAM. Declined with text:false and a reason: a graphics mode; a GIME text mode whose rows are too short to show a character (1 or 2 scanlines per row) or that shows no rows ($FF99 lines per field 2); a VDG page the memory map (MMU) has moved away from where the display reads it; and, on the Dragon 64 Plus's 80-column screen, a 6845 set-up the board cannot show whole (no rows or columns, R1 or R6 not less than the totals R0+1 or R4+1, wider than 80 columns or taller than the 264-line picture, fewer than 10 raster lines a row, an interlace mode, R8's display skew set to non-output) or a code outside $20-$7E. The Dragon 64 Plus's 80-column screen (its HD6845S, while the Display tab shows it) is read from the board's 2K video RAM as the CRTC walks it (start address R12/R13 as `startAddress`, R1 columns, R6 rows as `screenRows`, the 2K wrapping), as the next frame draws it; codes $20-$7E are read as ASCII (an assumption: no source documents the board's character layout); `base` is its CPU address only while $FFE2 maps the video RAM over $0000-$07FF and the screen does not wrap. Takes no parameters.";
+export const SCREEN_TEXT_DESCRIPTION = "The text on the machine's screen, one string per row with trailing spaces trimmed (trailing blank rows are left out, so `rows` counts the rows returned, not the rows the screen has). Reads the MC6847 VDG 32x16 text screen (MC-10, Dragon 32/64/200, CoCo 1/2, and the CoCo 3 in its CoCo-compatible mode) and every CoCo 3 GIME text mode, 6809 or 6309: 32, 40, 64 or 80 columns, with or without attribute bytes (as NitrOS-9 and BASIC's WIDTH 40/80 use); on a GIME text mode `screenRows` is how many rows the screen shows. GIME characters $20-$7E are ASCII; the GIME's international characters $00-$1F come back as the Unicode letters they show (Ç ü é â ä à å ç ê ë è ï î ß Ä Å ó æ Æ ô ö ø û ù Ø Ö Ü § £ ± ° ƒ) and $7F as ▒. Attribute bytes are never shown as characters: with attributes on, `attributes` gives each row's runs of fg, bg, underline and blink, where fg and bg are palette slots, not colours (the foreground is palette register 8+fg, the background palette register bg). Returned with the mode's name, `cols`, and where the screen was read from: `base`, the CPU address of the whole screen, given only when the memory map shows all of it to the CPU in one contiguous run (otherwise null: an MMU that splits or hides it, or 256-byte virtual rows), and on a GIME text mode `physicalBase`, its address in the CoCo 3's physical RAM. Declined with text:false and a reason: a graphics mode; a GIME text mode whose rows are too short to show a character (1 or 2 scanlines per row) or that shows no rows ($FF99 lines per field 2); a VDG page the memory map (MMU) has moved away from where the display reads it; and, on the Dragon 64 Plus's 80-column screen, a 6845 set-up the board cannot show whole (no rows or columns, R1 or R6 not less than the totals R0+1 or R4+1, wider than 80 columns or taller than the 264-line picture, fewer than 10 raster lines a row, an interlace mode, R8's display skew set to non-output) or a code outside $20-$7E. The Dragon 64 Plus's 80-column screen (its HD6845S, while the Display tab shows it) is read from the board's 2K video RAM as the CRTC walks it (start address R12/R13 as `startAddress`, R1 columns, R6 rows as `screenRows`, the 2K wrapping), as the next frame draws it; codes $20-$7E are read as ASCII (P. Mooney's IC22 EPROM dump and the Dragon Archive's Compusense character ROM dump both put 'A' at offset $0410, so code c's glyph is at c*16); the board's other codes ($00-$1F other symbols, $7F a solid block, $80-$FF mostly underlined forms of $00-$7F) are not mapped to characters here, so a screen showing one is declined; `base` is its CPU address only while $FFE2 maps the video RAM over $0000-$07FF and the screen does not wrap. Takes no parameters.";
 
 // Whether screen_text can read the screen faithfully, and if not, why. ONE rule, used by screen_text to decide
 // what to answer and by machine_info to report `video.readable`, so the two cannot disagree: `readable === false`
@@ -158,27 +158,33 @@ function plusCpuBase(m, t) {
   return first;
 }
 
-// The Dragon 64 Plus board's character mapping: video RAM code -> the character it shows. NOT VERIFIED: no primary
-// source for the layout could be found. Compusense's "Dragonplus Interface Technical Information" p. 4 says only that
-// the 2764 holds 256 characters of 16 bytes (a 7 x 9 matrix under a blank row), not which code is which; the board's
-// character generator is the user's ROM and is never read here. Codes $20-$7E are ASSUMED to be ASCII, as on 6845
-// boards of the period whose software writes ASCII to screen RAM; any other code has no character here, and a screen
-// showing one is declined rather than guessed. (docs/claude.md and docs/verification.md say the same.)
+// The Dragon 64 Plus board's character mapping: video RAM code -> the character it shows. Sources: P. Mooney
+// (Serenarian), "Appendix A: The DragonPlus Character Set", his IC22 EPROM dump transcribed from a 1986 programmer
+// printout (World of Dragon forum, 25 March 2018, archive.worldofdragon.org/phpBB3/viewtopic.php?p=16452), and the
+// Dragon Archive's Compusense character ROM dump. Both put 'A' at EPROM offset $0410 and 'a' at $0610: code c's glyph
+// is at c * 16, so codes $20-$7E are ASCII. $00-$1F hold other visible symbols (accented letters, the pound sign and
+// so on), $7F is a solid block and $80-$FF are mostly underlined forms of $00-$7F; this reader gives no character
+// for a code outside $20-$7E (those symbols and the underlining are not mapped here), so a screen showing one is
+// declined rather than guessed. Which half of the generator is used: P. Harvey-Smith's Eagle schematic, traced from
+// his own DragonPlus board (World of Dragon forum, 7 June 2017, viewtopic.php?p=15826), wires EPROM A0-A3 to the
+// 6845's RA0-RA3, A4-A10 to character bits 0-6, A11 to character bit 7 (through the latch/jumper path) and A12 to a
+// font-select jumper; no 6845 output drives A11 or A12. That wiring is from a traced schematic with known drawing errors; not verified on hardware.
+// Compusense's "Dragonplus Interface Technical Information" p. 4 says only the first set is used, and the archived
+// ROM's upper 4K is all $FF. The ROM image itself is the user's and is never read or stored here.
 export const PLUS_CHARS = Object.freeze(Array.from({ length: 256 }, (_, c) => (c >= 0x20 && c <= 0x7E ? String.fromCharCode(c) : null)));
 
 // The 80-column screen as videoMode reports it, or the reason it cannot be read. The checks are on the CRTC's
 // registers as they stand (the machine's own state, never a CPU read of $FFE1, which on the HD6845S answers only
 // R12-R17), in this order:
-//   * R8 bit 0 set selects an interlace mode (MC6845 data sheet, R8 bits 1-0: x0 non-interlace, 01 interlace sync,
-//     11 interlace sync and video), which changes the rows' raster addressing; the emulator draws without interlace,
-//     so what the board shows is not known here. Compusense's own set-up writes R8 = $A2 (bits 1-0 = 10:
-//     non-interlace; technical notes p. 4), which is read;
-//   * R8 bits 5-4 = 11: the HD6845S's display skew "non-output" (from the HD6845S data sheet's R8 table as recalled;
-//     the data sheet was not available to check (no page reference). As recalled: DISPTMG skew 00 none, 01 one
-//     character, 10 two, 11 non-output); declining it fails safe. So the display timing is inhibited and
-//     the screen is blank. Neither our renderer nor MAME 0.264 (mc6845.cpp defines MODE_DISPLAY_ENABLE_SKEW and
-//     never uses it) models skew, so a skew of 1 or 2 characters, which only moves the picture (Compusense's own
-//     $A2 is display and cursor skew 2), is read;
+//   * R8 bit 0 set selects an interlace mode (Hitachi HD6845S data sheet, Interlace and Skew Register (R8), Table 4,
+//     PDF p. 11: bits 1-0 = 00 and 10 non-interlace, 01 interlace sync, 11 interlace sync and video), which changes
+//     the rows' raster addressing; the emulator draws without interlace, so what the board shows is not known here.
+//     Compusense's own set-up writes R8 = $A2 (bits 1-0 = 10: non-interlace; technical notes p. 4), which is read;
+//   * R8 bits 5-4 = 11: the HD6845S's display (DISPTMG) skew "non-output" (same data sheet, Table 5, PDF p. 11: 00
+//     non-skew, 01 one-character skew, 10 two-character skew, 11 non-output; Table 6 gives the cursor skew, bits
+//     7-6, the same values). So the display timing is inhibited and the screen is blank. Neither our renderer nor
+//     MAME 0.264 (mc6845.cpp defines MODE_DISPLAY_ENABLE_SKEW and never uses it) models skew, so a skew of 1 or 2
+//     characters, which only moves the picture (Compusense's own $A2 is display and cursor skew 2), is read;
 //   * R1 or R6 0: the CRTC displays no characters;
 //   * R1 >= R0 + 1 or R6 >= R4 + 1: the data sheet's constraints Nhd < Nht and Nvd < Nvt are broken, and the chip's
 //     output is not a screen of rows;
