@@ -8,9 +8,7 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.1.7-pre (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
-### 0.1.7-pre
-
-#### Added
+### Added
 
 - **The MCP server takes your own ROMs from the chat: `add_roms` and `remove_roms`.** `add_roms` stores ROM dumps you
   give the agent, from a file, ZIP or folder in the media root, an https URL, or a file you uploaded (base64), in the
@@ -23,6 +21,10 @@ Next version: 0.1.7-pre (the plugin and extension manifests carry it; `tests/plu
   and, for each ROM, the file and its source (`cli`, `config`, `stored`); `remove_roms` forgets stored ones;
   `--read-only` hides both. CLOADM itself still ships, links to and fetches no ROMs. `docs/mcp.md`, "Adding your
   ROMs"; `tests/mcp-roms.test.js`, with stand-in ROMs and a local https server.
+
+### 0.1.7-pre
+
+#### Added
 
 - **A command-line tool and a Node API guide, for CI and coding agents.** `node cli/cloadm.js` runs any model
   headless: choose the machine and its options, give your own ROMs (a file, a ROM pack or a directory; without them
