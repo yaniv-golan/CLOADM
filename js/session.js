@@ -763,7 +763,11 @@ export class Session {
   // which of our loaders is the ROM of machine m: 'drivewire', 'floppy' or null
   nitros9Loader(m = this.machine) { return m && m.roms ? nitros9LoaderKind(m.roms.basic) : null; }
   nitros9On(m = this.machine) { return !!this.nitros9Loader(m); }
-  get nitros9Running() { return this.nitros9On(); }
+  // Is NitrOS-9 running on the machine the PERSON is working on? personMachine, not this.machine: with the chat full
+  // screen this.machine is the chat machine, which never has the loader, so this answered false and the NitrOS-9 panel
+  // hid **Leave** - the fixed leaveNitros9 could not be reached (review 0.1.9 round 1). Every reader in js/ui means
+  // the person's machine: the ROMs row and pill, the nitros9 panel, Share and install's "a program is running".
+  get nitros9Running() { return this.nitros9On(this.personMachine); }
   // the stored images with what they are: [{ name, size, store, os9, label, cpu, boot, reason }] (reason null: it
   // boots); the DriveWire images, then the floppy images that are OS-9 disks
   async nitros9Images() {

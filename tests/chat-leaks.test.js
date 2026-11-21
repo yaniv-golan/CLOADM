@@ -35,12 +35,15 @@ const BIN = Uint8Array.from([0x55, 0x02, 0x08, 0x00, 0x00, 0x02, 0x08, 0x00, 0xA
 const ROM_A = new Uint8Array(16384).fill(0x12), ROM_B = new Uint8Array(16384).fill(0x41);
 
 // a chat on the session, full screen, with the BASIC session set up per `setup`
-function chatSession(setup = () => {}, id = 'dragon64') {
+function chatSession(setup = () => {}, id = 'dragon64', panel = false) {
   const s = new Emu.Session({ store: Emu.memoryStore(), media: new Emu.MemoryMediaStore() });
   s.switchMachine(id);
   setup(s);
   frames(s, 5);
-  s.startChat({ backend: backend(), channel: new Emu.MemoryChannel(), firmware: FIRMWARE, brief: '', tools: false });
+  // panel: the side-panel chat (Ask Claude), which has no chat machine - its target is the machine in use. Rows that
+  // need Claude to be pausable use it, because pausing is only possible when Claude acts on the keyed machine.
+  if (panel) s.startAsk({ backend: backend() });
+  else s.startChat({ backend: backend(), channel: new Emu.MemoryChannel(), firmware: FIRMWARE, brief: '', tools: false });
   frames(s, 5);
   return s;
 }
@@ -145,7 +148,10 @@ const ROWS = [
   // (the Pak needs the user's PIC ROM, which may not be committed: this row is its refusal path, kept because a
   // refusal must still not touch the chat machine - it is marked 'may-throw')
   ['insert the Speech/Sound Pak (refused without its PIC ROM)', () => {}, (s) => s.insertSsc(), 'may-throw:needs its PIC ROM'],
-  ['eject the Speech/Sound Pak', () => {}, (s) => s.ejectSsc()],
+  // (the Pak needs the user's PIC ROM, so it cannot be put IN here: this row is its eject refusal, named)
+  // (the Pak needs the user's PIC ROM, so it cannot be put IN here: this row is what eject does when it is out, and
+  // asserts that answer - it returns a sentence, it does not throw)
+  ['eject the Speech/Sound Pak (not in)', () => {}, (s) => { if (!/not in/.test(s.ejectSsc())) throw new Error('eject did not say the Pak is not in'); }],
   // programs and the welcome
   // A game WITH BASIC ROMs is the case where the menu watch's machine matters: the watch is on for a ROM machine
   // whatever the stub choice, so it records whichever machine it was given - and BREAK has to hand THAT machine back.
@@ -168,7 +174,16 @@ const ROWS = [
   // to the chat machine by design. The person's BASIC session is named explicitly, and that is what the row checks.
   ['type text to the person\'s machine', () => {}, (s) => s.typeText('PRINT 1\n', s.personMachine)],
   ['type text at the keyboard (the chat, by design, its own RAM)', () => {}, (s) => s.typeText('PRINT 1\n'), 'firmware-keys'],
-  ['send a key (personInput)', () => {}, (s) => s.personInput(s.chatMachines.basic)],
+  // personInput pauses Claude only when Claude is acting on the machine the key went to. That is a side-panel chat
+  // (its target IS the person's machine); its two real fields are claudeActing and chat.busy, both plain state the
+  // gate sets - so the row sets them and asserts the pause, rather than calling with nothing acting and "passing".
+  ['send a key (personInput): Claude is acting on that machine, and pauses', () => {
+    // (a side-panel chat: no chat machine, so chatTarget is the person's machine)
+  }, (s) => {
+    s.claudeActing = true; s.chat.busy = true;   // (the state the gate leaves while Claude acts)
+    const r = s.personInput(s.personMachine);
+    if (r !== true || !s.claudePaused) throw new Error('personInput did not pause Claude');
+  }, 'panel'],
   ['press BREAK', () => {}, (s) => s.pressBreak()],
   // snapshots
   ['save a snapshot', () => {}, (s) => s.snapshotFile()],
@@ -191,7 +206,19 @@ const ROWS = [
   ['open a snapshot', () => {}, async (s) => { const snap = await s.readSnapshot((await s.snapshotFile()).bytes); return s.openSnapshot(snap); }, 'closes-chat'],
   // (keepSnapshotDisk is for a disk that came WITH a snapshot and is not in the Library yet: a disk already in the
   // Library is refused - "already in your Library" - so the row mounts a fresh image under a name of its own)
-  ['keep a snapshot\'s disk in the library', withDos, async (s) => { await s.importDisk('kept.vdk', Emu.blankDisk('vdk', 40, 1), 0); return s.keepSnapshotDisk(0); }, 'may-throw:already in your Library'],
+  // keepSnapshotDisk is for a disk that came WITH a snapshot (not linked to the Library): unlink the imported one so
+  // the row reaches the save, then assert the drive is linked to the Library afterwards.
+  // a disk that came WITH a snapshot is not in the Library at all (no stored image, no link): remove the import from
+  // the store first, so the row reaches the save body instead of the "already in your Library" guard.
+  ['keep a snapshot\'s disk in the library', withDos, async (s) => {
+    await s.importDisk('kept.vdk', Emu.blankDisk('vdk', 40, 1), 0);
+    const fdc = s.diskControllerOf(s.chatMachines.basic), d = fdc.drives[0];
+    d.media.onWrite = null;
+    await s.media.remove('disks/kept.vdk');
+    const msg = await s.keepSnapshotDisk(0);
+    if (!d.media.onWrite) throw new Error('the disk was not saved and linked');
+    return msg;
+  }],
   // leaveNitros9 must actually TAKE NitrOS-9 OFF the person's machine after a floppy boot: it used to return at once
   // (it asked the chat machine, which never has the loader ROM). The row boots, leaves, and asserts the loader is gone.
   ['leave NitrOS-9 (after a floppy boot)', 'coco3', (s) => s.media.write('disks/n9.dsk', NITROS9), async (s) => {
@@ -201,12 +228,12 @@ const ROWS = [
     s.leaveNitros9();
     if (s.nitros9On(basic)) throw new Error('leaveNitros9 left the loader on the person\'s machine (it did nothing)');
   }],
-  ['resume the debugger', () => {}, (s) => { s.debug; return s.resume(); }],
+  ['resume the debugger (stopped, then resumed)', () => {}, (s) => { const d = s.debug; d.halt(); if (!d.stopped) throw new Error('the debugger did not stop'); s.resume(); if (d.stopped) throw new Error('resume left the debugger stopped'); }],
   // 'none' is the first device offered and attaching it changes nothing: the row must plug in one that does
   // DriveWire: the server and its drives are the SESSION's, not a machine's (session.js:716-760 mountDriveWire and
   // 740 connectDriveWireChannel read no machine at all). Rows anyway, because that is the claim being made.
   ['mount a DriveWire image', () => {}, async (s) => { await s.media.write('drivewire/w.vdk', Emu.blankDisk('vdk', 40, 1)); return s.mountDriveWire(1, 'w.vdk'); }],
-  ['connect a DriveWire channel', () => {}, (s) => s.connectDriveWireChannel(0, null)],
+  ['disconnect a DriveWire channel', () => {}, (s) => { s.connectDriveWireChannel(0, null); return s.connectDriveWireChannel(0, null); }],
   // (serveRealCoco needs Web Serial, which no test host has: its refusal is the reachable code here)
   ['serve a real CoCo (refused: no Web Serial in a test host)', () => {}, (s) => s.serveRealCoco(115200), 'may-throw:no Web Serial'],
   ['attach a serial device', () => {}, (s) => s.attachSerial('terminal')],
@@ -222,7 +249,18 @@ const ROWS = [
   ['show the BASIC session', () => {}, (s) => s.showChat('basic'), 'keeps-chat'],
   ['return to the side panel', () => {}, (s) => s.toSidePanel(), 'closes-chat'],
   // settings and the library (no machine at all, but they are in the UI's list)
-  ['switch display', () => {}, (s) => s.setDisplay({})],
+  ['flush the disks (the page does this on a hide)', () => {}, (s) => s.flushDisks()],
+  ['read the POKE book (and type one)', () => {}, (s) => { const b = s.pokeBook(); if (!b.length) throw new Error('no POKE book'); return s.typePoke(0); }],
+  ['restore a quick-save slot', () => {}, async (s) => { await s.saveSlot(1); return s.restoreSlot(1); }],
+  // after a floppy boot on the person's machine, with the chat on screen, the NitrOS-9 state that the PANEL reads
+  // must say it is running - otherwise the panel hides Leave and the fix is unreachable from the page
+  ['add and boot a NitrOS-9 image (and the panel-side state says it runs)', 'coco3', () => {}, async (s) => {
+    await s.addAndBootNitros9('n9.dsk', NITROS9);
+    if (!s.nitros9Running) throw new Error('nitros9Running is false with the chat open: the panel would hide Leave');
+    s.leaveNitros9();
+    if (s.nitros9Running) throw new Error('still running after leave');
+  }],
+  ['switch display (composite, then back)', () => {}, (s) => { const was = s.display.view; const other = was === 'crt' ? 'sharp' : 'crt'; s.setDisplay({ view: other }); if (s.display.view === was) throw new Error('the display did not change'); s.setDisplay({ view: was }); }],
   // the printout is the SHOWN machine's (the printer panel shows what the screen's machine printed, and `printed` is
   // Machine.STATE), so this is a shown-machine action by design, like opening the printer panel
   ['clear the printout (the shown machine\'s printout, by design)', () => {}, (s) => s.clearPrintout(), 'shown-machine'],
@@ -236,8 +274,8 @@ const ROWS = [
 //   connectDriveWireChannel / mountDriveWire
 //                     the DriveWire server and its drives are the Session's (session.js:716-760, 740): neither
 //                     reads a machine. Rows exist to hold that claim.
-//   serveRealCoco     needs Web Serial; in a Node test it refuses at session.js:893 before touching anything.
-//                     Its row is the refusal, named.
+//   serveRealCoco     needs Web Serial; in a Node test it refuses when the link is opened (session.js:901,
+//                     `await link.open(baud)`), before any machine is touched. Its row is the refusal, named.
 //   importSettings    touches no machine: it writes the settings store (session.js:1260 onwards).
 //   importMedia       is NOT exempt and has a row: a ROM dropped on the Library goes through addRoms
 //                     (session.js:1730), which reaches the machine - the row is a ROM, not a program, for that
@@ -252,21 +290,86 @@ const ROWS = [
 // firmware writes RAM and the frame count by itself, so those two columns were dropped for every row and a row that
 // poked 64 bytes into the chat machine passed. The comparison is like for like: two runs, same frames, one with the
 // action, one without.)
-async function observed(setup, act, id = 'dragon64') {
-  const s = chatSession((x) => { try { setup(x); } catch (e) { /* the setup's own needs */ } }, id);
-  const chatM = s.chatMachines.chat;
+async function observed(setup, act, id = 'dragon64', panel = false) {
+  // a setup that throws is a failure of the ROW (it did not get the state it asked for): collected and failed below
+  let setupError = null;
+  const s = chatSession((x) => { try { setup(x); } catch (e) { setupError = e.message; } }, id, panel);
+  const chatM = s.chatMachines ? s.chatMachines.chat : s.machine;   // (a panel session has no chat machine)
   const recordBefore = s.stubRuns.get(chatM);
   let threw = null, result = null;
   try { result = await act(s); } catch (e) { threw = e.message; }
   frames(s, 3);
-  const out = { final: fingerprint(chatM), recordKept: s.stubRuns.get(chatM) === recordBefore,
-    same: s.chatMachines && s.chatMachines.chat === chatM, threw, result, screen: s.screenText(chatM).slice(0, 2).join('|') };
+  // three separate facts, so a panel session and a closed chat are not confused: was there a chat, is the same
+  // machine still behind it, and did the action throw
+  const out = { setupError, final: fingerprint(chatM), recordKept: s.stubRuns.get(chatM) === recordBefore,
+    same: s.chatMachines ? s.chatMachines.chat === chatM : false, threw, result,
+    screen: s.screenText(chatM).slice(0, 2).join('|'), panel };
   s.endChat();
+  return out;
+}
+
+// Every Session method the UI CALLS must have a row or a written reason, DERIVED from js/ui/*.js rather than listed
+// here by hand: a method added to a panel and called there is caught the moment it appears, which a hand-written
+// claim of "full coverage" cannot do (it was wrong twice).
+//
+// The reasons are by KIND of method, not per method, so a new one falls into one:
+//   READ      a getter or a pure query: it returns a value and changes nothing, so it cannot leak.
+//   LIBRARY   it writes the media store or the settings store only (no machine).
+//   SESSION   it changes Session state that belongs to no machine (the chat, the display, a channel).
+//   UI        it is a page concern (visit, error text), not an action on a machine.
+//   ROW       it has a row in ROWS.
+const UI_DIR = path.join(ROOT, 'js/ui');
+function uiCalledMethods() {
+  const out = new Map();   // name -> file:line of the first call
+  for (const f of fs.readdirSync(UI_DIR).filter((n) => n.endsWith('.js'))) {
+    const src = fs.readFileSync(path.join(UI_DIR, f), 'utf8').split('\n');
+    src.forEach((line, i) => {
+      for (const m of line.matchAll(/\bsession\.([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/g)) if (!out.has(m[1])) out.set(m[1], `${f}:${i + 1}`);
+    });
+  }
+  return out;
+}
+// the methods with a row: the act of every row, by the Session member it calls
+function rowMethods() {
+  const out = new Set();
+  // every function in the row (setup and act alike): the point is which Session methods a row exercises, and both
+  // do - a setup that calls a method is also coverage of it
+  for (const row of ROWS) {
+    for (const fn of row.filter((x) => typeof x === 'function')) {
+      for (const m of String(fn).matchAll(/\bs\.([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/g)) out.add(m[1]);
+    }
+  }
   return out;
 }
 
 (async () => {
   check('the table has a row for every person-facing action', ROWS.length >= 40, `${ROWS.length} rows`);
+  // ---- coverage: every Session method the UI calls is a row, or classified ----
+  // (names verified to be reads/pure by reading their bodies; a name that is wrong here shows as an unknown method)
+  const READ = new Set(['advance', 'besideMachine', 'blankDiskChoices', 'bootStatus', 'checkGame', 'checkLiza',
+    'checkNotInDrive', 'codeAt', 'cpuRate', 'diskActivity', 'diskDosChoices', 'diskStatus', 'driveWireFile',
+    'driveWireImages', 'gameFile', 'inspect', 'listDisks', 'listMedia', 'listSlots', 'lizaNeeds', 'machineRoms',
+    'machineTicket', 'machinesWithRoms', 'nitros9Images', 'nitros9Loader', 'nitros9On', 'printoutFile', 'printoutText',
+    'readSlot', 'readSnapshot', 'readSnapshotLink', 'recentMedia', 'sameName', 'savedConfig', 'screenText',
+    'shareFile', 'shareUrl', 'slotBytes', 'snapshotLink', 'snapshotRoms', 'snapshotSwitch', 'sscRoms', 'statusLine',
+    'takenOut', 'tapeStatus', 'terminalText', 'welcomeFile', 'welcomeRunning', 'preferredDiskDos', 'storedRoms',
+    'pickNitros9Image', 'openMedia', 'downloadMedia', 'downloadDisk', 'diskWritesDone', 'printoutFile']);
+  // writes the library or settings only
+  const LIBRARY = new Set(['addRoms', 'clearRoms', 'deleteMedia', 'importDriveWireImage', 'importMedia',
+    'importSettings', 'listMedia', 'moveMedia', 'newDriveWireImage', 'renameMedia', 'exportRomPack', 'exportSettings',
+    'setClaudeKey', 'clearClaudeKey', 'setClaudeAllowed', 'setLastRun', 'useMediaStore']);
+  // Session state that belongs to no machine
+  const SESSION = new Set(['answerClaude', 'clearTerminal', 'welcomeSound', 'asMachine', 'connectDriveWireChannel', 'ejectDriveWire', 'endChat', 'emit',
+    'on', 'personInput', 'ready', 'reset', 'resume', 'resumeClaude', 'setDisplay', 'startAsk', 'startChat', 'stopClaude',
+    'stopRealCoco', 'toSidePanel', 'showChat', 'watchForMenu']);
+  // page concerns, not machine actions
+  const UI = new Set(['mediaError', 'visit']);
+  const rows = rowMethods();
+  const missing = [...uiCalledMethods()].filter(([name]) => !rows.has(name) && !READ.has(name) && !LIBRARY.has(name)
+    && !SESSION.has(name) && !UI.has(name));
+  check('every Session method the UI calls has a row or a written reason', missing.length === 0,
+    missing.map(([n, at]) => `${n} (${at})`).join(', '));
+
   // The sweep's own proof, before any row: a leaky action must be caught. Two probes stand in for the two columns
   // the old runner killed - RAM (a poke into the chat machine) and frames (a power cycle of it) - and both must be
   // RED. If either passes, the comparison is wrong and every "no leak" below means nothing.
@@ -307,7 +410,7 @@ async function observed(setup, act, id = 'dragon64') {
     const present = clean.final[field] !== undefined || probe.final[field] !== undefined;
     // not a null field, and not one a host cannot set here: the probe must change it and the diff must show it
     const covered = field === 'stub' ? clean.final.roms !== probe.final.roms : seen.includes(field);
-    check(`the fingerprint can see a change to "${field}"`, !present || covered || !!probe.threw,
+    check(`the fingerprint can see a change to "${field}"`, (!present || covered) && !probe.threw,
       `${present ? (seen.join(',') || 'nothing changed') : 'not present on this machine'}${probe.threw ? ` (probe threw: ${probe.threw})` : ''}`);
   }
   // A row is [name, setup, act] or [name, model, setup, act, kind]: the model is for rows whose machine matters
@@ -317,8 +420,9 @@ async function observed(setup, act, id = 'dragon64') {
     const [name, a1, a2, a3, a4] = row;
     const id = typeof a1 === 'string' ? a1 : 'dragon64';
     const setup = typeof a1 === 'string' ? a2 : a1, act = typeof a1 === 'string' ? a3 : a2, kind = typeof a1 === 'string' ? a4 : a3;
-    const control = await observed(setup, async () => {}, id);
-    const real = await observed(setup, act, id);
+    const panel = kind === 'panel';
+    const control = await observed(setup, async () => {}, id, panel);
+    const real = await observed(setup, act, id, panel);
     // like for like, final state against final state (see observed)
     real.changed = diff(control.final, real.final);
     if (kind === 'restarts-chat') {
@@ -330,14 +434,15 @@ async function observed(setup, act, id = 'dragon64') {
       // the firmware's own state: its RAM and its output (the chat firmware's printer writes are its own too)
       const notFirmware = real.changed.filter((k) => !['ram', 'resetAt', 'frames', 'printed'].includes(k));
       check(`no leak: ${name}`, notFirmware.length === 0 && real.changed.includes('resetAt') && real.recordKept && real.same
-        && real.screen === control.screen,
-        `${real.changed.join(', ')}${notFirmware.length ? ` (beyond the firmware's own state: ${notFirmware.join(',')})` : ''}`);
+        && real.screen === control.screen && !real.threw,
+        `${real.changed.join(', ')}${notFirmware.length ? ` (beyond the firmware's own state: ${notFirmware.join(',')})` : ''}${real.threw ? ` (threw: ${real.threw})` : ''}`);
       continue;
     }
     if (kind === 'closes-chat-or-throws') {
       // a recent file of another model switches the machine (the chat closes); of this model it loads on the person's
       // session. Either way the chat machine must not be touched while it is still there.
-      check(`no leak: ${name}`, real.changed.length === 0, `${real.changed.join(', ')}${real.threw ? ` (threw: ${real.threw})` : ''}`);
+      check(`no leak: ${name}`, real.changed.length === 0 && !real.threw && real.recordKept,
+        `${real.changed.join(', ')}${real.threw ? ` (threw: ${real.threw})` : ''}`);
       continue;
     }
     if (kind === 'firmware-keys') {
@@ -349,8 +454,13 @@ async function observed(setup, act, id = 'dragon64') {
     }
     if (kind === 'shown-machine') {
       // by design it acts on the machine on screen: assert exactly that, and that the person's session is untouched
-      check(`no leak: ${name}`, real.changed.length === 0 || real.changed.every((k) => k === 'printed'),
-        `${real.changed.join(', ')}`);
+      check(`no leak: ${name}`, (real.changed.length === 0 || real.changed.every((k) => k === 'printed')) && !real.threw,
+        `${real.changed.join(', ')}${real.threw ? ` (threw: ${real.threw})` : ''}`);
+      continue;
+    }
+    if (kind === 'panel') {
+      // no chat machine exists in this session: the row's own assertions (in the action) are the whole check
+      check(`no leak: ${name}`, !real.threw, real.threw ? `the action threw: ${real.threw}` : '');
       continue;
     }
     if (kind === 'closes-chat') {
@@ -367,6 +477,9 @@ async function observed(setup, act, id = 'dragon64') {
     const changed = real.changed;
     if (!real.recordKept && control.recordKept) changed.push('stub record');
     if (!real.same) changed.push('chat machine replaced');
+    // A throw is a FAILURE for every kind (see below), so a kind that means "this may refuse" must name the reason:
+    // only 'may-throw:<regex>' lets one through, and only if it matches.
+    if (real.threw && !(kind && kind.startsWith('may-throw'))) changed.push(`threw: ${real.threw}`);
     // A ROW WHOSE ACTION THREW PROVES NOTHING: it never reached the code the row exists to check. That is a FAILURE
     // of the row, not a note on it - this is how three rows ("run a game", "run LIZA", the disk rows) passed while
     // the routing they checked was broken. A row that is expected to refuse says so with a kind.
@@ -376,7 +489,11 @@ async function observed(setup, act, id = 'dragon64') {
     // 'may-throw' names the reason it is allowed to refuse with, as a regex on the message: an unrelated throw (a
     // typo in the row, a missing fixture) must not pass for the refusal the row is about.
     const okThrow = kind && kind.startsWith('may-throw') ? !!real.threw && new RegExp(kind.slice(10)).test(real.threw) : !real.threw;
-    check(`no leak: ${name}`, changed.length === 0 && okThrow, `${changed.join(', ')}${threw}`);
+    // a setup that threw means the row never got its state; and the same setup runs for the control, so only the
+    // real run's is reported
+    const setupThrew = real.setupError || control.setupError;
+    check(`no leak: ${name}`, changed.length === 0 && okThrow && !setupThrew,
+      `${changed.join(', ')}${threw}${setupThrew ? ` (the setup threw: ${setupThrew})` : ''}`);
   }
   console.log(`${n - fail}/${n} chat-leak checks passed`);
   process.exitCode = fail ? 1 : 0;
