@@ -291,20 +291,27 @@ CWWON   LDA     #1
         LDU     #SND_WIN
         JMP     PLAY
 
-; sounds of a move: a soft slide, and a note for the biggest join, higher for bigger tiles
-MOVESND LDA     #6
-        LDB     #1
-        JSR     NOISE
-        LDA     MERGED
-        BEQ     MSDONE
-        LDB     #9
-        MUL                     ; 9 per doubling
-        NEGB
-        ADDB    #150            ; delay: 132 for a 4 ... 51 for 2048
-        TFR     B,A
-        LDB     #60
+; sounds of a move: a short tone, its pitch stepping up with the biggest join (C major pentatonic, C5 to D6); a
+; move with no join plays the lowest note. No noise: it read as a buzz on every move (measured ~177 ms), and the
+; tone says "moved" without it. TONE's half period is 5*A+22 cycles, so A = round((894886/(2f)-22)/5).
+; 60 half periods at the lowest note is 57 ms: short enough not to hold up the next key.
+MOVESND LDA     MERGED
+        BEQ     MSNOTE          ; no join: the lowest note
+        CMPA    #6
+        BLS     MSIDX
+        LDA     #6
+MSIDX   DECA                    ; MERGED 1 (a 4) -> index 0
+        LSLA
+        LDX     #PENTA
+        LEAX    A,X
+        BRA     MSSET
+MSNOTE  LDX     #PENTA
+MSSET   LDA     ,X
+        LDB     1,X
         JSR     TONE
-MSDONE  RTS
+        RTS
+; the move notes: delay, half periods - C5, D5, E5, G5, A5, C6, D6
+PENTA   FCB     167,64,148,64,131,64,110,64,97,64,81,64,72,64
 
 ; ---- the screen ----
 ; the title page: the name, a row of tiles, how to play; waits for a key (its timing seeds the game)
