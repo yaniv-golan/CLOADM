@@ -8,6 +8,39 @@ them, types, waits for the screen, reads the screen, memory and registers, steps
 machines live in the server for as long as it runs. It needs Node 22.12 or later and a checkout of this repository,
 and nothing else: no npm packages and no build.
 
+## Which way should I install CLOADM for Claude?
+
+Claude is one app on the web, on phones and on the desktop. There are two main ways to give it CLOADM, and two
+for special cases. "Marketplace" is not a separate way: it is just where the plugin is listed, and this repository is
+its own marketplace.
+
+| Way | Install | Where the emulator runs | Tested |
+|---|---|---|---|
+| **1. Connector** (most people) | Plugins → Add → "Add custom connector" → `https://mcp.cloadm.dev/mcp` → **No sign-in** → Add | in Claude's side panel, in your browser | the view on claude.ai on the web (the prototype); the desktop app and phones not yet |
+| **2. Plugin** (your own files, or Claude Code) | Plugins → Add → "Add marketplace" → `yaniv-golan/CLOADM` → Add on **Cloadm**; in Claude Code `/plugin marketplace add yaniv-golan/CLOADM`, then `/plugin install cloadm@cloadm-marketplace` | on your computer | Claude Code; the desktop app's plugin path by the owner |
+| 3. `.mcpb` extension (niche) | download `cloadm.mcpb` from the [Releases](https://github.com/yaniv-golan/CLOADM/releases) page and open it | on your computer, Claude Desktop only | |
+| 4. Other agents (Cursor, Codex, Gemini CLI, …) | an MCP entry for `node cli/cloadm.js --mcp`, plus `.agents/skills/` | on your computer | see [below](#cursor-gemini-cli-codex-and-other-mcp-clients) |
+
+**1. Connector.** Works wherever you use Claude, with no computer of your own involved. The emulator runs in Claude's
+side panel: you watch the screen and can type into it yourself, and Claude uses the tools on the same machine,
+asking you to approve each call. Nothing to install. Your ROMs are added inside the panel and stay in that browser.
+There are no files: no tapes, disks or snapshots from your computer, and no downloads. Verified with the prototype on
+claude.ai on the web; in the desktop app and on phones it is not yet tested. Details:
+[Claude on the web: side panel](#claude-on-the-web-side-panel).
+
+**2. Plugin.** The emulator runs on your computer, so it needs the Claude desktop app installed and open (Claude Code
+runs it itself). Claude sessions on the web and on your phone can then use it too while that computer is on (how the
+app shares a computer's local tools; not yet tested with CLOADM). With the app closed the tools are not available
+(inferred, not tested). It uses your ROM files and the `~/CLOADM` folder for tapes, disks, programs and snapshots
+([Your ROMs and media folder](#your-roms-and-media-folder)). Claude sees text and screenshots; there is no live
+panel. The plugin includes the skill that teaches Claude how to drive the emulator.
+
+**3. `.mcpb` extension.** For a Claude desktop app where your organisation does not allow plugins or marketplaces, or
+if you want a settings form for the ROM and media folders. Desktop only, and without the skill.
+
+**4. Other agents.** An MCP configuration entry that starts the server from a checkout, and the skill from
+`.agents/skills/cloadm/` where the client reads skills.
+
 ## Starting it
 
 ```sh
@@ -50,8 +83,7 @@ Minesweeper run; BASIC does not). The agent skill that teaches an agent to use t
 | Host | How |
 |---|---|
 | Claude Code | the plugin from this repository's marketplace |
-| Cowork (Claude desktop app) | supported via the desktop app's plugin marketplace; tested in the cowork-harness container, not yet in real Cowork (see [Cowork](#cowork)) |
-| Claude Desktop (chat) | the `.mcpb` extension from the GitHub Releases page |
+| The Claude desktop app | the plugin, from this repository's marketplace (see [The Claude desktop app](#the-claude-desktop-app)); or the `.mcpb` extension where plugins are not allowed |
 | Cursor | an MCP server entry pointing at a checkout, plus the skill folder (supported); this repository's marketplace may also install as it is (untested: see below) |
 | Codex (CLI and app), Gemini CLI, other MCP clients | an MCP server entry pointing at a checkout, plus the skill folder; in the Codex app the marketplace is untested (see below) |
 | claude.ai on the web | the remote connector `https://mcp.cloadm.dev/mcp`, in Claude's side panel (see [Claude on the web: side panel](#claude-on-the-web-side-panel)) |
@@ -74,20 +106,23 @@ ROMs and its files live in `~/CLOADM` (put tapes, disks and programs there); see
 claude mcp add cloadm -- node /path/to/cloadm/cli/cloadm.js --mcp --roms /path/to/roms --media-root /path/to/project
 ```
 
-### Cowork
+### The Claude desktop app
 
-Cowork reads plugins from your Claude account, not from Claude Code: a plugin installed with `/plugin` or
-`claude plugin install` stays on that computer and does not reach Cowork. In the Claude desktop app open
-**Customize → Plugins**, choose **Add marketplace**, enter `yaniv-golan/CLOADM`, then install **cloadm** from it.
-The server is a local one (the app starts `node` on your computer), so it runs only in Cowork sessions that run on
-your computer, and that computer needs Node 22.12 or later on its `PATH`. This route has been tested in the
-cowork-harness container, not yet in real Cowork.
+The app reads plugins from your Claude account, not from Claude Code: a plugin installed with `/plugin` or
+`claude plugin install` stays on that computer and does not reach the app. In the app:
+
+1. In the sidebar, **Customize** → the **Plugins** tab → **Add** → **Add marketplace**, and enter `yaniv-golan/CLOADM`.
+2. **Add** on the **Cloadm** plugin (or just ask for it in a chat).
+3. The app says "This plugin includes local MCP servers … cloadm": click **Continue**.
+
+(Steps checked by the owner in the desktop app.) The server is a local one (the app starts `node` on your computer),
+so it runs while the app is open on that computer, which needs Node 22.12 or later on its `PATH`.
 
 The plugin's root is the repository, so it must not have a top-level `bin/` directory: Cowork and claude.ai refuse
 a plugin that has one ([plugins reference](https://code.claude.com/docs/en/plugins-reference), "Standard layout";
 [platform support](https://claude.com/docs/plugins/platform-support)). That is why the server is in `cli/`.
 
-### Claude Desktop
+### The .mcpb extension
 
 Download `cloadm.mcpb` from the [Releases](https://github.com/yaniv-golan/CLOADM/releases) page and open it (or drag
 it onto Settings → Extensions). The app asks for a **media folder** (required: the only folder the tools read and

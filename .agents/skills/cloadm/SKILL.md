@@ -19,6 +19,13 @@ point them at its install guide (https://github.com/yaniv-golan/CLOADM/blob/main
 the machine yourself, guess what a program would print, or run the emulator some other way unless the user asks for
 that.
 
+**Which route you are on.** If the tools include `insert_tape`, `insert_disk` and `save_snapshot` (files under the
+media root, `~/CLOADM` by default), this is the local server (the plugin, the extension or a config entry): ROMs and
+files are on the user's computer. If they do not, and `boot` says the host has one machine on its screen, this is the
+connector in Claude's side panel: there is one machine (`"m1"`, already on), ROMs are added by the user in the panel
+(Add ROMs… or a drop), there are no files or downloads, and memory reads are refused while ROMs run. Advise the user
+for the route you are on.
+
 ## The tools, by what they do
 
 Names below are the server's base names; your host may prefix them.
