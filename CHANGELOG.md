@@ -6,6 +6,8 @@ All notable changes to CLOADM are recorded here. The format follows
 
 ## [Unreleased]
 
+Next version: 0.1.7-pre (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
+
 ### Added
 
 - **A command-line tool and a Node API guide, for CI and coding agents.** `node cli/cloadm.js` runs any model
@@ -104,6 +106,25 @@ All notable changes to CLOADM are recorded here. The format follows
   cancellation reaches a queued call too. `--serve` gives the same tools over JSON lines. The tools are one
   transport-neutral table (`js/mcp/tools.js`) that an HTTP transport or an MCP Apps view can mount later.
   `tests/mcp.test.js` drives the real server over stdio.
+
+- **An agent skill for the MCP server.** `skills/cloadm/` (with a copy at `.agents/skills/cloadm/` for Codex, Cursor
+  and Gemini CLI) teaches an agent to use the tools: boot, wait until the machine is ready, act, and check what
+  happened; what runs with and without ROMs; tapes, games and `press_keys` against `type_text`; debugging with
+  breakpoints, stepping, `disassemble` and `find_bytes`; snapshots as checkpoints; and the VDG and SAM mode bits from the
+  data sheets. It stops if the tools are absent. The plugin ships it, and a release attaches it as a zip.
+  `tests/skill.test.js` keeps the copy identical, the frontmatter valid, the tool table equal to the server's, and runs
+  the skill's own claims and its PMODE 4 recipe on the server. `tests/skill-evals/` holds seven evals and
+  `run.js`, which runs them with and without the skill (real model runs, outside `tests/all.js`).
+
+- **CLOADM as a Claude Code and Cowork plugin and a Claude Desktop extension.** The repository is its own
+  plugin marketplace (`.claude-plugin/marketplace.json`, `.claude-plugin/plugin.json`): `/plugin marketplace add
+  yaniv-golan/CLOADM` then `/plugin install cloadm` starts the MCP server with no configuration. `mcpb/manifest.json`
+  describes the Claude Desktop extension (`cloadm.mcpb`), asking for the media folder and an optional ROM folder; a
+  tag `v*` packs it and attaches it to a GitHub Release (`.github/workflows/release.yml`, which fetches the packer in
+  CI only: the repository still has no build step and no `package.json`). Install steps for Claude Code, Cowork,
+  Claude Desktop, Cursor, Gemini CLI and Codex are in `docs/mcp.md`. `tests/plugin.test.js` checks the manifests: valid
+  JSON, one version everywhere (this file's "Next version"), every path resolves, no placeholder but the ones each
+  host defines, the extension's tool list is the server's, and the server starts as each manifest starts it.
 
 ### Changed
 

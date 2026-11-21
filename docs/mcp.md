@@ -20,7 +20,7 @@ node cli/cloadm.js --mcp [--roms PATH]... [--media-root DIR] [--read-only]
 | `--media-root DIR` | the only directory the tools may read programs, tapes, disks, snapshots and `INCLUDE` files from, or write snapshots to. Every path is resolved inside it with `realpath`: `..`, an absolute path elsewhere, or a link that leads out are refused (`outside-media-root`). Without it (nor `mediaRoot` in the config file) the media root is `~/CLOADM` (`%USERPROFILE%\CLOADM` on Windows), a folder you can find: it is made on the first write (the first `save_snapshot`), never by starting or reading, and put tapes, disks and programs there for the tools to load; a file that is not there is `cannot-read`, naming the folder. What remains: a hard link inside the root to a file elsewhere is followed (it is the same file), and a directory swapped for a link between the check and the open is a race only someone who can already write in the root can run |
 | `--read-only` | only the tools that leave the machines' input, memory and your files alone: an agent can boot machines, let them run and look at them, but not type, write memory, load media or write files. The other tools are hidden (`tools/list` leaves them out, and the server's instructions name none of them); a call to one anyway is refused with `read-only` |
 
-**The config file.** `--roms` and `--media-root` can also be set once, in `~/.config/cloadm/config.json`
+<a id="the-config-file"></a>**The config file.** `--roms` and `--media-root` can also be set once, in `~/.config/cloadm/config.json`
 (`%APPDATA%\cloadm\config.json` on Windows):
 
 ```json
@@ -39,29 +39,125 @@ The server's start-up line on stderr says where each setting came from.
 `--serve` takes the same options and serves the same tools over plain JSON lines, for programs that do not speak MCP
 (see [Serving JSON lines](#serving-json-lines)).
 
+## Installing
+
+Every host below runs the same server from a copy of this repository; only the way it gets there differs. All of
+them need Node 22.12 or later on the computer that runs the server. No ROMs come with CLOADM: without yours, every
+machine runs the built-in firmware (machine code and the bundled programs LIZA, the demo and the welcome screen run;
+BASIC does not). The agent skill that teaches an agent to use these tools lives in `skills/cloadm/` (and a copy in
+`.agents/skills/cloadm/`).
+
+| Host | How |
+|---|---|
+| Claude Code | the plugin from this repository's marketplace |
+| Cowork (Claude desktop app) | the same marketplace, added in the desktop app (not yet: see [Cowork](#cowork)) |
+| Claude Desktop (chat) | the `.mcpb` extension from the GitHub Releases page |
+| Codex app, Cursor | this repository's marketplace may install as it is (untested: see below) |
+| Cursor, Gemini CLI, Codex, other MCP clients | an MCP server entry pointing at a checkout, plus the skill folder |
+| claude.ai on the web | not supported yet: it cannot start a local server |
+
 ### Claude Code
+
+In a Claude Code session:
+
+```text
+/plugin marketplace add yaniv-golan/CLOADM
+/plugin install cloadm@cloadm-marketplace
+```
+
+(Claude Code 2.1.275 or later also takes the two steps as one: `/plugin install cloadm --marketplace yaniv-golan/CLOADM`.)
+The plugin starts `node ${CLAUDE_PLUGIN_ROOT}/cli/cloadm.js --mcp` with no arguments, so out of the box it has no
+ROMs and its files live in `~/CLOADM` (put tapes, disks and programs there); see
+[Your ROMs and media folder](#your-roms-and-media-folder). Instead of the plugin you can also add the server by hand:
 
 ```sh
 claude mcp add cloadm -- node /path/to/cloadm/cli/cloadm.js --mcp --roms /path/to/roms --media-root /path/to/project
 ```
 
-### Cursor
+### Cowork
 
-`.cursor/mcp.json` in the project, or `~/.cursor/mcp.json`:
+Cowork reads plugins from your Claude account, not from Claude Code: a plugin installed with `/plugin` or
+`claude plugin install` stays on that computer and does not reach Cowork. In the Claude desktop app open
+**Customize → Plugins**, choose **Add marketplace**, enter `yaniv-golan/CLOADM`, then install **cloadm** from it.
+The server is a local one (the app starts `node` on your computer), so it runs only in Cowork sessions that run on
+your computer, and that computer needs Node 22.12 or later on its `PATH`.
 
-```json
-{ "mcpServers": { "cloadm": { "command": "node", "args": ["/path/to/cloadm/cli/cloadm.js", "--mcp", "--media-root", "/path/to/project"] } } }
-```
+The plugin's root is the repository, so it must not have a top-level `bin/` directory: Cowork and claude.ai refuse
+a plugin that has one ([plugins reference](https://code.claude.com/docs/en/plugins-reference), "Standard layout";
+[platform support](https://claude.com/docs/plugins/platform-support)). That is why the server is in `cli/`.
 
 ### Claude Desktop
 
-`claude_desktop_config.json` (Settings → Developer → Edit Config):
+Download `cloadm.mcpb` from the [Releases](https://github.com/yaniv-golan/CLOADM/releases) page and open it (or drag
+it onto Settings → Extensions). The app asks for a **media folder** (required: the only folder the tools read and
+write) and a **ROM folder** (optional), and passes them as `--media-root` and `--roms`. The bundle holds only the
+server (`cli/`, `js/` and the bundled programs); it has no npm packages and no ROMs. It is made from
+`mcpb/manifest.json` when a version is tagged (`.github/workflows/release.yml`).
+
+To run a checkout instead, add it to `claude_desktop_config.json` (Settings → Developer → Edit Config):
 
 ```json
 { "mcpServers": { "cloadm": { "command": "node", "args": ["/path/to/cloadm/cli/cloadm.js", "--mcp", "--roms", "/path/to/roms", "--media-root", "/path/to/project"] } } }
 ```
 
-Use absolute paths: the client starts the server from a directory of its own choosing.
+### Cursor, Gemini CLI, Codex and other MCP clients
+
+**Untested: the marketplace in the Codex app and in Cursor.** Both read Claude Code's plugin format to some
+degree, so adding `yaniv-golan/CLOADM` as a plugin marketplace there may install the plugin as it is. Nobody has
+tried it yet; if it does not start the server, use the manual steps after this paragraph.
+
+* The Codex desktop app reads a repository's `.claude-plugin/marketplace.json` as a "legacy-compatible" marketplace,
+  accepts Claude-compatible plugin manifests, and sets `CLAUDE_PLUGIN_ROOT` for plugin hooks
+  ([Package your plugin](https://developers.openai.com/plugins/build/plugins),
+  [Submit your Claude Code plugin](https://developers.openai.com/plugins/guides/submit-claude-plugin)). Its docs do
+  not say whether it expands `${CLAUDE_PLUGIN_ROOT}` in an MCP server's arguments, which this plugin needs.
+* Cursor documents its own `.cursor-plugin/` format and the open Agent Plugins format
+  ([Plugins](https://cursor.com/docs/plugins), [Plugins reference](https://cursor.com/docs/reference/plugins)); it
+  imports Claude Code plugins too, but only its forum says so, not its docs.
+
+Clone the repository, then give your client an MCP server entry that runs it; use absolute paths, as the client
+starts the server from a directory of its own choosing.
+
+Cursor: `.cursor/mcp.json` in the project, or `~/.cursor/mcp.json` (both are read; the project's entry wins on the
+same name: [Cursor MCP](https://cursor.com/docs/mcp)):
+
+```json
+{ "mcpServers": { "cloadm": { "command": "node", "args": ["/path/to/cloadm/cli/cloadm.js", "--mcp", "--media-root", "/path/to/project"] } } }
+```
+
+Gemini CLI: the same `mcpServers` entry in `.gemini/settings.json` (the project) or `~/.gemini/settings.json`
+([Gemini CLI MCP servers](https://github.com/google-gemini/gemini-cli/blob/main/docs/tools/mcp-server.md)).
+
+Codex: a `[mcp_servers.<name>]` table in `~/.codex/config.toml`
+([Codex MCP](https://developers.openai.com/codex/mcp), [configuration reference](https://developers.openai.com/codex/config-reference)),
+or `codex mcp add cloadm -- node /path/to/cloadm/cli/cloadm.js --mcp --media-root /path/to/project`:
+
+```toml
+[mcp_servers.cloadm]
+command = "node"
+args = ["/path/to/cloadm/cli/cloadm.js", "--mcp", "--media-root", "/path/to/project"]
+```
+
+The skill: all three read `.agents/skills/<name>/SKILL.md`, in the project and in `~/.agents/skills/`, so copy (or
+link) this repository's `.agents/skills/cloadm/` to either place
+([Codex skills](https://developers.openai.com/codex/skills): every `.agents/skills` from the working directory up to
+the repository root, and `$HOME/.agents/skills`; [Cursor skills](https://cursor.com/docs/skills): `.agents/skills/`
+and `.cursor/skills/` anywhere in the repository, `~/.agents/skills/` and `~/.cursor/skills/`, and Claude's
+`.claude/skills/` and `~/.claude/skills/` too;
+[Gemini CLI skills](https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/skills.md): `.agents/skills/` as
+an alias of `.gemini/skills/`, and `~/.agents/skills/`). A skill under `~/.agents/skills/` stays on that computer:
+Cursor's Cloud Agents sync only `~/.cursor/skills/`.
+
+### Your ROMs and media folder
+
+The plugin starts the server with no paths of its own, so it takes them from the [config file](#the-config-file)
+(`~/.config/cloadm/config.json`, or `%APPDATA%\cloadm\config.json` on Windows), with `roms` and `mediaRoot` as in
+the example there; paths may start with `~/`. Without one it has no ROMs (machines run the built-in firmware), and
+its media folder is `~/CLOADM` (`%USERPROFILE%\CLOADM` on Windows): put the tapes, disks and programs you want an
+agent to load there; snapshots are written there too, and the folder is made on the first one. Restart the server
+after editing the file (`/mcp` in Claude Code). The
+Claude Desktop extension asks for both folders when it is installed and passes them on the command line, which wins
+over the file; a ROM folder left empty there falls back to the file.
 
 ## The tools
 
@@ -143,7 +239,7 @@ which only the server has. The others use these:
 | `unknown-model` | not a model id from `list_models` |
 | `bad-option` | the model has no such option, or not that value |
 | `missing-roms` | `boot` asked for ROMs the server was not given |
-| `no-media-root` | the server was started without `--media-root` |
+| `no-media-root` | the host gave the tools no media root: only through the Node API with `mediaRoot` null, as the server itself defaults to `~/CLOADM` |
 | `outside-media-root` | the path leaves the media root, or is a link the server will not write through |
 | `cannot-read`, `cannot-write` | the file could not be read or written: missing, not a regular file (a FIFO, a device, a directory), or over 64 MB |
 | `bad-media` | the file is not what the tool takes |

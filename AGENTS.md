@@ -71,6 +71,9 @@ Which proof levels apply to your kind of change: [section 4, "Which levels apply
 | Front-end logic without a DOM | `js/session.js` | Testable in Node |
 | Page UI | `js/ui/<panel>.js`, one module per panel | Thin; calls the Session |
 | Browser services (storage, Web Serial, gamepads, audio) | `js/host/` | Behind a small interface the core can be tested without |
+| An MCP tool | `js/mcp/tools.js` (transport-neutral), served by `cli/cloadm.js --mcp` (`cli/mcp.js`) | Documented in `docs/mcp.md`; tested in `tests/mcp.test.js` |
+| The agent skill | `skills/cloadm/`, copied byte for byte to `.agents/skills/cloadm/` | Names every tool by what it does; `tests/skill.test.js`; evals in `tests/skill-evals/` |
+| Plugin and extension manifests | `.claude-plugin/`, `mcpb/manifest.json` | One version, from CHANGELOG.md's "Next version" line; `tests/plugin.test.js` |
 
 Every new stateful component goes into the snapshot (`saveState` / `loadState`) and into `tests/state.test.js`.
 
@@ -86,6 +89,12 @@ Every new stateful component goes into the snapshot (`saveState` / `loadState`) 
 4. Commit in small, working steps. Every commit passes `node tests/all.js`.
 5. Update the documentation the change affects (`README.md` and `docs/using.md` feature tables,
    `docs/verification.md`, the commands in `docs/development.md`) and `CHANGELOG.md` in the same branch.
+6. A change to an MCP tool's name, arguments or behaviour updates `docs/mcp.md`, the skill (both copies) and its
+   evals in the same branch. The plugin and extension version comes only from CHANGELOG.md's "Next version" line.
+   Never add a top-level `bin/` directory: Cowork and claude.ai refuse a plugin that has one, and the repository root
+   is the plugin.
+7. To poke a running machine while you develop, the MCP server (`node cli/cloadm.js --mcp`, or the plugin) is a quick
+   way in. It is not a substitute for the proof ladder below.
 
 ### Adding an example program or game
 

@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: snapshot-inspect
+expected_outcome: |
+  The agent restores the snapshot into a machine and reads $3100 with peek (the score is 91, $5B). It does not open, read, unzip or parse the snapshot file itself.
+context:
+  scaffold_script: place-files.sh

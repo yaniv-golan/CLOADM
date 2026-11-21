@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: checkerboard
+expected_outcome: |
+  Assembled code sets the VDG to RG6 ($FF22 bits 7-4 = 1111), the SAM to V=110, F=3 or another page that holds the picture, and M for 32K/64K; the screenshot (a whole frame) shows the checkerboard.

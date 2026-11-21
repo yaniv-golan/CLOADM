@@ -58,7 +58,7 @@ export const MCP_ERRORS = Object.freeze({
   'unknown-model': 'use a model id from list_models',
   'bad-option': 'use an option and value that list_models gives for this model',
   'missing-roms': 'this model needs BASIC ROMs the server was not given (detail names them): boot with roms:false to run machine code on the built-in firmware, or ask the person to start the server with --roms',
-  'no-media-root': 'this server reads and writes no files: ask the person to start it with --media-root DIR or to set "mediaRoot" in the cloadm config file (detail names it), or use assemble_and_load and type_text instead of files',
+  'no-media-root': 'this host gives the tools no media folder, so they read and write no files: use assemble_and_load and type_text instead of files, or ask the person to give the host a media root (the cloadm server itself defaults to ~/CLOADM, or takes --media-root DIR or "mediaRoot" in its config file)',
   'outside-media-root': 'give a path inside the media root (relative to it); paths that leave it, also through a link, are refused',
   'cannot-read': 'the file could not be read (detail says why): check the path with the person',
   'cannot-write': 'the file could not be written (detail says why)',

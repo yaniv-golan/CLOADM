@@ -1,0 +1,34 @@
+{
+  "name": "cloadm",
+  "version": "0.1.7-pre",
+  "description": "Dragon, Tandy Color Computer and MC-10 emulator as an MCP server: boot machines, run programs, type, read the screen, memory and registers, step the CPU and take screenshots.",
+  "author": {
+    "name": "Yaniv Golan",
+    "url": "https://github.com/yaniv-golan"
+  },
+  "homepage": "https://github.com/yaniv-golan/CLOADM/blob/main/docs/mcp.md",
+  "repository": "https://github.com/yaniv-golan/CLOADM",
+  "license": "MIT",
+  "keywords": [
+    "emulator",
+    "dragon",
+    "coco",
+    "trs-80",
+    "6809",
+    "retro",
+    "mcp"
+  ],
+  "icon": "./icons/icon-512.png",
+  "mcpServers": {
+    "cloadm": {
+      "command": "node",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/cli/cloadm.js",
+        "--mcp"
+      ]
+    }
+  },
+  "network": {
+    "hosts": []
+  }
+}

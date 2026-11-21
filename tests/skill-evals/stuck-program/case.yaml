@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: stuck-program
+expected_outcome: |
+  The program loads and shows STUCK. reset restarts it (on the built-in firmware reset restarts the program last loaded), so the agent uses power_cycle on the same machine_id, which clears RAM and shows the firmware's banner (NO ROM LOADED - BUILT-IN STUB); the answer reports what each step showed.
+context:
+  scaffold_script: place-files.sh

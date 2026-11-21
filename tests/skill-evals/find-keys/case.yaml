@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: find-keys
+expected_outcome: |
+  The program reacts to Q (left), P (right) and SPACE (fire): Q and P move a "*" marker left and right on row 8 of the text screen, SPACE turns it into "#". The agent finds those three keys from the code (disassembly, find_bytes, or the source) and confirms each with press_keys, reporting the effect seen.
+context:
+  scaffold_script: place-files.sh

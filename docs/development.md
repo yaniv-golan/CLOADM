@@ -110,6 +110,9 @@ node tests/session.test.js   # Session: model switching, ROM sockets, loading ev
 node tests/reset.test.js     # Reset: never changes the machine, keeps RAM for a program's warm start, the boot watchdog arms only on a power-on, ROM-drop offers
 node tests/snapshot-boot.test.js   # a snapshot opened is not a power-on: no boot failure after it, while a real power-on still has one
 node tests/cli.test.js       # cli/cloadm.js as a child process: exit codes, --json, wait-for, typing, screen text, PNG pixels, snapshots, scripts, the guide's examples
+node tests/skill.test.js     # the agent skill: the .agents copy identical, frontmatter, its tool table equal to the server's, its claims and PMODE 4 recipe run on the server
+node tests/skill-evals/run.js # the skill's evals with and without it: real, billed Claude runs (needs the claude CLI), not in tests/all.js
+node tests/plugin.test.js    # the plugin, marketplace and Claude Desktop extension manifests: one version, paths, placeholders, the tool list, the server starting as each starts it
 node tests/mcp.test.js       # the MCP server over stdio: both protocol eras, every tool's results and errors against the in-page tools, handles, --read-only, the media root, cancellation, --serve
 node tests/cli-agent.test.js # cli/cloadm.js beyond the basics: --describe, error codes, the debugger steps against the Session's debugger, DriveWire stalls, special keys, script quoting, --view
 node tests/cli-wav.test.js   # --wav: a known DAC pattern's levels and timing, determinism, snapshots mid-sound, the box filter of the level events

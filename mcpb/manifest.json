@@ -1,0 +1,187 @@
+{
+  "manifest_version": "0.3",
+  "name": "cloadm",
+  "display_name": "CLOADM",
+  "version": "0.1.7-pre",
+  "description": "Dragon, Tandy Color Computer and MC-10 emulator: boot machines, run programs, type, read the screen, memory and registers, step the CPU and take screenshots.",
+  "long_description": "CLOADM emulates the Dragon 32/64/200, Tandy Color Computer 1/2/3, MC-10 and clones. Without ROMs every machine runs CLOADM's own firmware, which runs machine code and the bundled programs (LIZA, the demo); with your own ROM dumps it runs BASIC and DOS. No ROMs are included. Programs, tapes, disks and snapshots are read from and written to the media folder only.",
+  "author": {
+    "name": "Yaniv Golan",
+    "url": "https://github.com/yaniv-golan"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yaniv-golan/CLOADM"
+  },
+  "homepage": "https://github.com/yaniv-golan/CLOADM",
+  "documentation": "https://github.com/yaniv-golan/CLOADM/blob/main/docs/mcp.md",
+  "support": "https://github.com/yaniv-golan/CLOADM/issues",
+  "icon": "icons/icon-512.png",
+  "license": "MIT",
+  "keywords": [
+    "emulator",
+    "dragon",
+    "coco",
+    "trs-80",
+    "mc-10",
+    "6809",
+    "retro"
+  ],
+  "server": {
+    "type": "node",
+    "entry_point": "cli/cloadm.js",
+    "mcp_config": {
+      "command": "node",
+      "args": [
+        "${__dirname}/cli/cloadm.js",
+        "--mcp",
+        "--media-root=${user_config.media_root}",
+        "--roms=${user_config.roms}"
+      ],
+      "env": {}
+    }
+  },
+  "user_config": {
+    "media_root": {
+      "type": "directory",
+      "title": "Media folder",
+      "description": "The only folder the emulator may read programs, tapes, disks and snapshots from, and write snapshots to.",
+      "required": true
+    },
+    "roms": {
+      "type": "directory",
+      "title": "ROM folder (optional)",
+      "description": "A folder of your own ROM dumps (BASIC, DOS). Without it the machines run CLOADM's built-in firmware: machine code and the bundled programs run, BASIC does not.",
+      "required": false
+    }
+  },
+  "tools": [
+    {
+      "name": "list_models",
+      "description": "List machine models"
+    },
+    {
+      "name": "list_machines",
+      "description": "List open machines"
+    },
+    {
+      "name": "boot",
+      "description": "Boot a machine"
+    },
+    {
+      "name": "switch_machine",
+      "description": "Switch a machine to another model"
+    },
+    {
+      "name": "close_machine",
+      "description": "Close a machine"
+    },
+    {
+      "name": "machine_info",
+      "description": "Machine info"
+    },
+    {
+      "name": "screen_text",
+      "description": "Screen text"
+    },
+    {
+      "name": "peek",
+      "description": "Peek"
+    },
+    {
+      "name": "disassemble",
+      "description": "Disassemble"
+    },
+    {
+      "name": "poke",
+      "description": "Poke"
+    },
+    {
+      "name": "type_text",
+      "description": "Type text"
+    },
+    {
+      "name": "load_basic",
+      "description": "Load basic"
+    },
+    {
+      "name": "press_break",
+      "description": "Press break"
+    },
+    {
+      "name": "assemble_and_load",
+      "description": "Assemble and load"
+    },
+    {
+      "name": "run",
+      "description": "Run"
+    },
+    {
+      "name": "find_bytes",
+      "description": "Find bytes in memory"
+    },
+    {
+      "name": "press_keys",
+      "description": "Hold keys or the joystick"
+    },
+    {
+      "name": "run_frames",
+      "description": "Run the machine"
+    },
+    {
+      "name": "step",
+      "description": "Step instructions"
+    },
+    {
+      "name": "registers",
+      "description": "Read the CPU registers"
+    },
+    {
+      "name": "screenshot",
+      "description": "Take a screenshot"
+    },
+    {
+      "name": "reset",
+      "description": "Press reset"
+    },
+    {
+      "name": "power_cycle",
+      "description": "Power-cycle"
+    },
+    {
+      "name": "set_display",
+      "description": "Choose the screen shown"
+    },
+    {
+      "name": "load",
+      "description": "Load a program"
+    },
+    {
+      "name": "insert_tape",
+      "description": "Insert a tape"
+    },
+    {
+      "name": "insert_disk",
+      "description": "Insert a disk"
+    },
+    {
+      "name": "save_snapshot",
+      "description": "Save a snapshot"
+    },
+    {
+      "name": "restore_snapshot",
+      "description": "Restore a snapshot"
+    }
+  ],
+  "tools_generated": false,
+  "compatibility": {
+    "platforms": [
+      "darwin",
+      "win32",
+      "linux"
+    ],
+    "runtimes": {
+      "node": ">=22.12.0"
+    }
+  }
+}

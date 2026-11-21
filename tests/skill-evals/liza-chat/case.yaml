@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: liza-chat
+expected_outcome: |
+  A Dragon 64 runs on the built-in firmware, LIZA is loaded, a line is typed at its prompt, and the answer reported is the one LIZA put on the screen.

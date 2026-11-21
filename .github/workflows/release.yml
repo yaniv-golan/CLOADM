@@ -1,0 +1,59 @@
+# A release, on pushing a tag v*: the Claude Desktop extension (cloadm.mcpb) and the agent skill (cloadm-skill.zip),
+# attached to a GitHub Release for that tag (docs/mcp.md, "Installing").
+#
+# The repository stays build-free with no package.json (AGENTS.md rule 1.2): the MCPB packer is fetched here with npx,
+# pinned, and runs only in this job. The bundle is a staged copy of what the server needs at run time (cli/, js/, the
+# bundled programs in examples/, the licences and the icon) with mcpb/manifest.json at its root; nothing is compiled
+# and no npm package goes in it. No ROM is in the repository, so none is in the bundle.
+#
+# The tag must name the version the manifests carry (tests/plugin.test.js keeps plugin.json, marketplace.json,
+# mcpb/manifest.json and CHANGELOG.md's "Next version" in agreement), so a mistyped tag publishes nothing.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      - name: The tag names the manifests' version
+        run: |
+          v=$(node -p "require('./mcpb/manifest.json').version")
+          test "v$v" = "$GITHUB_REF_NAME" || { echo "tag $GITHUB_REF_NAME, manifests say $v"; exit 1; }
+          node tests/plugin.test.js
+
+      - name: Stage and pack the extension
+        run: |
+          mkdir -p dist stage
+          git archive HEAD cli js examples LICENSE licenses icons/icon-512.png | tar -x -C stage
+          cp mcpb/manifest.json stage/manifest.json
+          npx --yes @anthropic-ai/mcpb@2.1.2 validate stage/manifest.json
+          npx --yes @anthropic-ai/mcpb@2.1.2 pack stage dist/cloadm.mcpb
+
+      - name: Zip the skill
+        run: |
+          test -f skills/cloadm/SKILL.md || { echo "skills/cloadm/SKILL.md is missing"; exit 1; }
+          (cd skills && zip -r -X ../dist/cloadm-skill.zip cloadm)
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pre=""; case "$GITHUB_REF_NAME" in *-*) pre="--prerelease";; esac
+          gh release create "$GITHUB_REF_NAME" dist/cloadm.mcpb dist/cloadm-skill.zip \
+            --title "$GITHUB_REF_NAME" --notes "See CHANGELOG.md. Install: docs/mcp.md." $pre
