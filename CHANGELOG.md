@@ -8,14 +8,6 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
-### Fixed
-
-- **Opening the page directly at `play/#share` no longer shows "Cannot read properties of null (reading 'render')".**
-  The Share screen captured its moment as soon as its view was set up, before the visit had a machine. It now shows
-  the view at once and captures when the page has started, so the link opens the Share screen filled in, on the
-  machine the link chose. The browser check opens `#share` directly and requires no error toast, no page error and a
-  running screen.
-
 ### 0.1.8-pre
 
 #### Added
@@ -256,6 +248,12 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   every row answered "That file is no longer stored in this browser; load it again." even when it was. The index is
   carried with the row now. `tests/recent-rows.test.js` pins the arithmetic and the browser check clicks a row and
   requires the load.
+
+- **Opening the page directly at `play/#share` no longer shows "Cannot read properties of null (reading 'render')".**
+  The Share screen captured its moment as soon as its view was set up, before the visit had a machine. It now shows
+  the view at once and captures when the page has started, so the link opens the Share screen filled in, on the
+  machine the link chose. The browser check opens `#share` directly and requires no error toast, no page error and a
+  running screen.
 
 ### 0.1.7-pre
 
