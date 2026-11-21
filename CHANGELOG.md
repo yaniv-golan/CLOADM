@@ -8,10 +8,11 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
-### 0.1.8-pre
+### Changed
 
-#### Changed
-
+- The README opens with "Try it" and has a short "Use it from code or an agent" section; the Games and Tools
+  cells of the feature tables are one line each; the MAME instruction counts are refreshed (Dragon 64 1,028,112,
+  CoCo 32K / CP 400 1,043,371, CoCo 3 88,797).
 - **Sound comes back in seconds after the page stalls, not tens of seconds.** The output stage keeps the
   worklet's queue near 40 ms by resampling each frame by a fraction more or fewer samples, but that correction was a
   fixed 0.5% just outside the 10-80 ms band: the queue moved 5 ms of sound a second however far outside it was, so a
