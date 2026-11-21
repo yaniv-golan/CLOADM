@@ -69,10 +69,15 @@ const J = JSON.stringify;
   const method = await post({ jsonrpc: '2.0', id: 8, method: 'prompts/list' });
   for (const k of Object.keys(saved)) console[k] = saved[k];
 
+  // git as the build runs it; null where it cannot answer (no git binary, or not a checkout: a source archive)
+  const git = (args) => {
+    try { return require('child_process').execFileSync('git', args, { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }); } catch (e) { return null; }
+  };
+  const inCheckout = git(['rev-parse', 'HEAD']) !== null;
   check('initialize: the client\'s version when the Worker speaks it, else the newest; the MCP Apps extension; the release version',
     init.body.result.protocolVersion === '2025-06-18' && initOld.body.result.protocolVersion === '2025-11-25'
     && J(init.body.result.capabilities.extensions['io.modelcontextprotocol/ui'].mimeTypes) === J([MIME])
-    && init.body.result.serverInfo.version === build.version() && build.version() !== 'unknown' && /next message/.test(init.body.result.instructions), J(init.body));
+    && init.body.result.serverInfo.version === build.version() && (build.version() !== 'unknown') === inCheckout && /next message/.test(init.body.result.instructions), J(init.body));
   check('a notification gets 202 and no body', notif.status === 202 && notif.body === null);
   check('a batch (a JSON array) is refused with -32600, also one of 600 reads of the 1 MiB view (nothing is built)', batch.status === 400 && batch.body.error.code === -32600 && /batches/.test(batch.body.error.message)
     && bomb.status === 400 && bomb.body.error.code === -32600 && J(bomb.body).length < 200, J(batch.body));
@@ -110,9 +115,17 @@ const J = JSON.stringify;
     [views.site, views.inline].every((h) => h.indexOf('CLOADM_BRIDGE = {') < h.indexOf('<script type="module">')) && cfgA.api === panel.PANEL_API && cfgB.api === panel.PANEL_API
     && cfgA.version === build.version() && J(cfgA.tools) === J(build.panelTools()) && J(cfgB.tools) === J(cfgA.tools) && cfgA.programs === undefined);
   const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, '.claude-plugin/plugin.json'), 'utf8'));
-  const described = require('child_process').execFileSync('git', ['describe', '--tags', '--always', '--dirty'], { cwd: ROOT, encoding: 'utf8' }).trim().replace(/^v/, '');
-  check('the version is the build\'s (git describe), not the released number in CHANGELOG.md or the manifests', build.version() === described
-    && (require('child_process').execFileSync('git', ['tag', '--points-at', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).split('\n').includes(`v${manifest.version}`) || build.version() !== manifest.version), `${build.version()} ${described} ${manifest.version}`);
+  const describedRaw = git(['describe', '--tags', '--always', '--dirty']);
+  if (describedRaw === null) {
+    // without git the build cannot know what it is, and says so rather than borrowing the released number
+    check('the version without git is "unknown", not the released number in CHANGELOG.md or the manifests',
+      build.version() === 'unknown' && build.version() !== manifest.version, `${build.version()} ${manifest.version}`);
+  } else {
+    const described = describedRaw.trim().replace(/^v/, '');
+    const tags = (git(['tag', '--points-at', 'HEAD']) || '').split('\n');
+    check('the version is the build\'s (git describe), not the released number in CHANGELOG.md or the manifests', build.version() === described
+      && (tags.includes(`v${manifest.version}`) || build.version() !== manifest.version), `${build.version()} ${described} ${manifest.version}`);
+  }
   const site = (body) => async () => body;
   const same = await build.checkSite(site(`export const PANEL_API = ${panel.PANEL_API};`));
   const otherApi = await build.checkSite(site(`export const PANEL_API = ${panel.PANEL_API + 1};`));
@@ -156,6 +169,8 @@ const J = JSON.stringify;
     readMedia() { throw new T.McpToolError('no-media-root'); }, writeMedia() { throw new T.McpToolError('no-media-root'); } };
   const local = Object.fromEntries(T.createToolbox(host).tools().map((t) => [t.name, t]));
   const offered = build.panelTools();
+  check('panel tools: no ROM store in the panel, so add_roms and remove_roms are not offered (the toolbox would only refuse them)',
+    !offered.some((t) => t.name === 'add_roms' || t.name === 'remove_roms') && !!local.add_roms && !!local.remove_roms, offered.map((t) => t.name).join(','));
   check('panel tools: the local server\'s names, schemas and annotations; the file tools and close_machine left out',
     offered.every((t) => t.name === 'boot' || J(t) === J(local[t.name])) && J(offered.map((t) => t.name)) === J(Object.keys(local).filter((k) => !panel.LEFT_OUT.includes(k)))
     && panel.LEFT_OUT.every((k) => local[k]) && J(offered.find((t) => t.name === 'boot').inputSchema) === J(local.boot.inputSchema), offered.map((t) => t.name).join(','));

@@ -402,7 +402,8 @@ account or organization has yet.
   a `path` is refused with `no-media-root`, and `insert_tape`, `insert_disk`, `save_snapshot` and `restore_snapshot`
   are not offered. Claude's views cannot download, so nothing is saved out of the panel either.
 * Your ROM files stay in the panel. Add them with **Add ROMs…** or by dropping the files on the view; they are kept
-  in that view's own browser storage, and no tool takes or returns them as files. While they run, `peek`, `find_bytes`
+  in that view's own browser storage, and no tool takes or returns them as files (`add_roms` and `remove_roms` are not
+  offered). While they run, `peek`, `find_bytes`
   and `disassemble` are refused (`rejected`): memory can then hold ROM code, and no tool returns it directly. That is
   not a seal: a program run on the machine can read the ROM (BASIC's `PEEK` printed on the screen, machine code from
   `assemble_and_load` and then `registers`, `run_frames` waiting for a memory byte to hold each value in turn), so a

@@ -198,14 +198,15 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   programs; no files, tapes, disks or snapshots (the panel has neither files nor downloads). ROMs are added in the
   panel and stay in its browser storage; while they run, `peek`, `find_bytes` and `disassemble` are refused, so no tool
   returns ROM memory directly (a program run on the machine can still read it, so a determined agent can infer ROM
-  contents through execution). Results over Claude's 100,000 characters are refused with `too-long`. Two views: the default
-  loads the emulator from cloadm.dev (its CSP declares that origin only), and a self-contained one (about 1 MiB) loads
-  nothing; the glue the default view loads comes from the same release of the site as `js/`, and a version number
+  contents through execution). `add_roms` and `remove_roms` are not offered there either. Results over Claude's
+  100,000 characters are refused with `too-long`. Two views: the default loads the emulator from cloadm.dev (its CSP
+  declares that origin only), and a self-contained one (about 1 MiB) loads nothing; the glue the default view loads comes from the same release of the site as `js/`, and a version number
   (`PANEL_API`) makes a connector out of step with the site say so (`out-of-step`) instead of half working. The server
   (`connector/worker/`, a Cloudflare Worker) is stateless and stores and logs nothing, takes one JSON-RPC message
   per request (no batches) of at most 64 KiB, and reports the build's `git describe` as its version; its build refuses
-  to run until cloadm.dev serves the same `PANEL_API`. Deploying it: `docs/deploy-connector.md`. Tested in `tests/connector.test.js` (the server, the views, the folded emulator against
-  the plain modules, the bridge's protocol) and the browser check's `connector` group (both views nested as Claude
+  to run until cloadm.dev serves the same `PANEL_API`. Deploying it: `docs/deploy-connector.md`. Tested in
+  `tests/connector.test.js` (the server, the views, the folded emulator against the plain modules, the bridge's
+  protocol) and the browser check's `connector` group (both views nested as Claude
   nests them, under the spec's CSP, with and without CORS, and out of step). Guide: `docs/mcp.md`, "Claude on the web:
   side panel".
   `docs/mcp.md` now opens with "Which way should I install CLOADM for Claude?" (the connector, the plugin, the `.mcpb`

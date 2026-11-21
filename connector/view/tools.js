@@ -5,7 +5,8 @@
 //  * no tool returns ROM memory directly: peek, find_bytes and disassemble refuse while the user's ROM code can be in
 //    memory (refuseRomReads), and no tool takes or returns a ROM file. This is not a seal: a program the agent runs on
 //    the machine (assemble_and_load and step, BASIC's PEEK, run_frames until a memory byte holds a value) can still
-//    read ROM, so a determined agent can infer its contents through execution;
+//    read ROM, so a determined agent can infer its contents through execution; add_roms and remove_roms are left
+//    out (the panel's ROMs are added in the view itself, and the toolbox has no ROM store here);
 //  * no files: the panel has no media folder (the host's sandbox has no downloads, and nothing here may reach the
 //    user's disk), so insert_tape, insert_disk, save_snapshot and restore_snapshot are left out, and load runs the
 //    bundled programs only (a path is refused with no-media-root, naming what does work);
@@ -22,7 +23,7 @@ import { createToolbox, mcpResult, McpToolError } from '../../js/mcp/tools.js';
 // emulator whose number differs (out-of-step).
 export const PANEL_API = 1;
 export const TEXT_MAX = 100000;
-export const LEFT_OUT = Object.freeze(['close_machine', 'insert_tape', 'insert_disk', 'save_snapshot', 'restore_snapshot']);
+export const LEFT_OUT = Object.freeze(['close_machine', 'insert_tape', 'insert_disk', 'save_snapshot', 'restore_snapshot', 'add_roms', 'remove_roms']);
 // the bundled programs' files a load by name can ask for (Session.welcomeFile, lizaFile, gameFile and the demo, for
 // every model): variant A fetches them from the site beside js/, variant B carries them inline
 export const PROGRAM_FILES = Object.freeze(['welcome.bin', 'welcome6803-mc10.bin', 'welcome6803-alice.bin', 'liza.bin', 'liza6803-mc10.bin', 'liza6803-alice.bin', 'demo.bin', '2048.bin', 'minesweeper.bin']);
