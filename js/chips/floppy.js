@@ -51,8 +51,9 @@ const UNDAMAGED = new WeakSet();
 
 // Does this image survive a round trip through its own format? Decode it, write it back with saveDisk(), decode
 // again, and compare the flux track for track. True for VDK, JVC and double-density DMK; false for single-density
-// DMK, whose FM bytes come back as a different but equivalent encoding. Two decodes and one encode of the image,
-// about three times the cost of the mount itself, so mount() does not do it: the drive works it out once per mount,
+// DMK, whose FM bytes come back as a different but equivalent encoding. Two decodes and one encode of every track,
+// about three times the cost of building the whole disk (a mount builds only the tracks the guest reads), so
+// mount() does not do it: the drive works it out once per mount,
 // the first time drive.mountBytes is read. The Session reads it in the background after a mount
 // (Session.checkDiskLater), so the work is normally done before the first snapshot; a snapshot taken sooner gets
 // the same answer by doing it then. It cannot throw, so deferring it moves no error: a bad image still fails at
@@ -64,8 +65,8 @@ function roundTrips(bytes, format, tracks, heads) {
     const a = loadDisk(bytes, format, { tracks, heads });
     const saved = saveDisk(a, format, { geometry: diskGeometry(bytes, format) });
     again = loadDisk(saved, format, { tracks, heads });
-    for (let i = 0; i < again.data.length; i++) {
-      const x = a.data[i], y = again.data[i];
+    for (let i = 0; i < again.count; i++) {
+      const x = a.track(i), y = again.track(i);
       if (x.length !== y.length) return false;
       for (let k = 0; k < x.length; k++) if (x[k] !== y[k]) return false;
     }
@@ -412,7 +413,7 @@ export class FloppyDrive {
       // the committed bytes look like a different disk - 40x2 would come back as 80x1, throwing away every side-1
       // track, and on a 42-track drive the restore would not load at all.
       s.geometry = Object.assign({}, this.geometry);
-      s.written = [...this.written].map((k) => ({ k, flux: Uint32Array.from(this.image.data[k]) }));
+      s.written = [...this.written].map((k) => ({ k, flux: Uint32Array.from(this.image.track(k)) }));
     } else s.media = null;
     return s;
   }
@@ -435,7 +436,7 @@ export class FloppyDrive {
       this.geometry = Object.assign({}, s.geometry);
       this.image = loadDisk(bytes, s.media.format, { tracks: this.tracks, heads: this.sides }, this.geometry);
       this.written = new Set();
-      for (const w of s.written) { this.image.data[w.k] = Array.from(w.flux); this.written.add(w.k); }
+      for (const w of s.written) { this.image.setTrack(w.k, Array.from(w.flux)); this.written.add(w.k); }
       if (s.mountBytes) media.bytes = s.media.bytes.slice();   // committed, not mounted
     } else { this.media = null; this.image = null; this.keptBytes = null; this.pendingBytes = null; this.written = new Set(); }
     for (const k of DRIVE_STATE) { if (!(k in s)) throw new Error(`snapshot: drive is missing "${k}"`); this[k] = s[k]; }
