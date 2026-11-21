@@ -8,7 +8,9 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.1.7-pre (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
-### Added
+### 0.1.7-pre
+
+#### Added
 
 - **A command-line tool and a Node API guide, for CI and coding agents.** `node cli/cloadm.js` runs any model
   headless: choose the machine and its options, give your own ROMs (a file, a ROM pack or a directory; without them
@@ -126,7 +128,7 @@ Next version: 0.1.7-pre (the plugin and extension manifests carry it; `tests/plu
   JSON, one version everywhere (this file's "Next version"), every path resolves, no placeholder but the ones each
   host defines, the extension's tool list is the server's, and the server starts as each manifest starts it.
 
-### Changed
+#### Changed
 
 - **The CoCo 3 keeps its bus log only while a device that can assert HALT is attached.** The log (the accesses of
   the instruction under way, so one HALT suspended can be run again and replay them) was kept on every machine.
@@ -261,7 +263,7 @@ Next version: 0.1.7-pre (the plugin and extension manifests carry it; `tests/plu
 - **Claude's `screen_text` counts semigraphics blocks** on the VDG's text screen (`semigraphics`, with a `note`): a
   picture made of blocks read as an empty screen before.
 
-### Fixed
+#### Fixed
 
 - **A write from outside the CPU no longer runs in the middle of a held I/O access.** On the CoCo 3 an instruction
   the disk controller's HALT suspended asks the scheduler to pump its events at the held access's time; the
