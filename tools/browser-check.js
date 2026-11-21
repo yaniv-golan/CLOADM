@@ -6504,8 +6504,13 @@ async function inputScreenChecks(browser, base, check) {
           for (const e of document.querySelectorAll('#touchKeys button, #touchStick, #touchFire, #tkBreak, #tkClear, #tkMenu, #tkModeSwitch button, #btnShowKeys')) {
             if (!e.checkVisibility() || !e.getBoundingClientRect().width) continue;
             if (!e.hasAttribute('aria-label')) continue;
-            const name = e.getAttribute('aria-label').toLowerCase(), text = e.innerText.trim().toLowerCase();
-            if (text && !name.includes(text)) bad.push(`${e.getAttribute('aria-label')}: its name lacks its label "${e.innerText.trim()}"`);
+            // The name must hold the visible text. A WORD is a run of letters or digits, so a one-character key
+            // ("A", "1") is a word too and must be in its name; pure symbol glyphs are not words, because they can
+            // be decoration drawn beside a word ("←" above "DEL"), and WCAG also treats them as non-text.
+            const name = e.getAttribute('aria-label').toLowerCase();
+            const text = e.innerText.toLowerCase().replace(/\s+/g, ' ').trim();
+            const missing = (text.match(/[\p{L}\p{N}]+/gu) || []).filter((w) => !name.includes(w));
+            if (missing.length) bad.push(`${e.getAttribute('aria-label')}: its name lacks "${missing.join(' ')}"`);
           }
           return bad;
         });
@@ -6622,10 +6627,12 @@ async function inputScreenChecks(browser, base, check) {
         const ask = await inside(page, '#ask', ins);
         check(`${L}: the Ask Claude ${viewport.width <= 700 ? 'sheet' : 'panel'} lies inside the safe area`, ask.shown && ask.ok, JSON.stringify(ask));
         const pill = await inside(page, '#viewClaude', ins, { ids: ['viewClaude'] });
-        let top = { shown: true, ok: true };
-        if (viewport.width > viewport.height) top = await inside(page, '#viewClaude', ins, { ids: ['viewClaude'], classes: [['viewClaude', 'top']] });
-        check(`${L}: the status pill is fixed and lies inside the safe area${viewport.width > viewport.height ? ', at the bottom and at the top' : ''}`,
-          pill.shown && pill.fixed && pill.ok && top.shown && top.fixed && top.ok, JSON.stringify([pill, top]));
+        // sideways there are two places (the bottom and the .top one); upright only the bottom, so only the
+        // placements that really exist are asserted (a made-up third value would make the check vacuous upright)
+        const sideways = viewport.width > viewport.height;
+        const top = sideways ? await inside(page, '#viewClaude', ins, { ids: ['viewClaude'], classes: [['viewClaude', 'top']] }) : null;
+        check(`${L}: the status pill is fixed and lies inside the safe area${sideways ? ', at the bottom and at the top' : ''}`,
+          pill.shown && pill.fixed && pill.ok && (!sideways || (top.shown && top.fixed && top.ok)), JSON.stringify(sideways ? [pill, top] : [pill]));
         await ctx.close();
       }
     }
