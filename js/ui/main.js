@@ -119,7 +119,7 @@ page.touchKeys = setupTouchKeys(page, { input: screen.input });
 setupDisplayPanel(page);
 setupKeyHint(page);
 setupSettingsFile(page);
-setupShare(page);
+const share = setupShare(page);
 const showRoms = () => romSockets.reveal();
 const claude = setupClaude(page);
 setupAsk(page, claude);
@@ -231,6 +231,7 @@ const starting = welcome.start(visit, { fromLink, withMedia: link.roms.length > 
   // started: the visit's program (welcome, LIZA) runs and the link's ROMs, media and moment are in (window.emu.ready:
   // storage is open); linkDone: the same moment, kept for the link checks
   window.emu.started = true;
+  share.ready();
   window.emu.linkDone = true;
   if (link.errors.length) page.status(`This link has settings CLOADM can't use: ${link.errors.join('; ')}`, true);
 })();
