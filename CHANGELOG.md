@@ -23,6 +23,12 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   video RAM the CPU has selected. MAME 0.264 agrees in outcome (`run.js d64plus --paging [--video]`, identical to
   HALT and in every pixel); under `config.mameCompat` the register keeps MAME's decode. `tests/d64plus.test.js`.
 
+### Added
+
+- **A comparison with XRoar, MAME and VCC/OVCC** ([docs/comparison.md](docs/comparison.md)), dated November 2026, with a
+  source for every claim about the other projects, where each is stronger, and "see the project" wherever a claim
+  could not be checked in a primary source. Linked from the README FAQ and the "See also" line of `docs/using.md`.
+
 ### 0.1.7-pre
 
 #### Added

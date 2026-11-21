@@ -182,6 +182,7 @@ areas included) is sent to Anthropic as part of your conversation. More in [docs
   part of your conversation.
 * **Where does my Anthropic API key go?** It stays in this browser and goes only to Anthropic's API, never into the
   machine, snapshots, share links or exported settings.
+* **How does it compare to XRoar, MAME and VCC?** [docs/comparison.md](docs/comparison.md).
 * **Which keys are BREAK and CLEAR?** `Esc` and `Home`. The rest: [docs/using.md](docs/using.md#keys).
 
 ## Why this exists
