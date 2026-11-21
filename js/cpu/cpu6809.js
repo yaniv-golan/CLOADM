@@ -67,9 +67,12 @@ class CPU6809 {
     this.stepHalted = false;         // the step was a halted cycle (HALT, or the rest of a halted wait): no instruction
   }
 
-  reset() {
+  // hard: power-on. A reset with the power on (the Reset button) sets I and F and leaves the other flags as they
+  // were, as MAME 0.264's m6809 does (run.js <profile> --reset: CC $58 before the press is $58 after it); at
+  // power-on they start clear, as in a freshly started MAME.
+  reset(hard = true) {
     this.dp = 0;
-    this.cc = I | F;
+    this.cc = hard ? I | F : this.cc | I | F;
     this.nmiArmed = false;
     this.nmiPending = false;
     this.cwai = false;

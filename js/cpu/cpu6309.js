@@ -89,8 +89,8 @@ class CPU6309 extends CPU6809 {
   get native() { return !!(this.md & 0x01); }
   get firqAsIrq() { return !!(this.md & 0x02); }
 
-  reset() {
-    super.reset();
+  reset(hard = true) {
+    super.reset(hard);
     this.md = 0;                 // a reset leaves emulation mode
     // V is documented as unchanged by a reset (reference guide p. 2), so its power-on value is not
     // specified. MAME's m6309 powers up with $FFFF and nothing can rely on another value; match it.

@@ -56,6 +56,7 @@ node tests/display.test.js   # Display tab settings (validated, remembered, appl
 node tests/bus.test.js       # expansion bus: cartridge ROM/I-O, CART autostart, NMI/HALT lines, interrupt hub, the floating bus
 node tests/carts.test.js     # cartridges: SN76489A, banked ROM, Orchestra-90, Multi-Pak, board choice, CART tied to Q, Session
 node tests/session.test.js   # Session: model switching, ROM sockets, loading every file kind, pacing
+node tests/reset.test.js     # Reset: never changes the machine, keeps RAM for a program's warm start, the boot watchdog arms only on a power-on, ROM-drop offers
 node tests/config.test.js    # URL parameters: every one checked (options against each model), bad values reported, links written and read back
 node tests/embed.test.js     # the embed API through its message protocol: calls, errors, events, frames
 node tests/pwa.test.js       # the service worker keeps every file the site serves; the manifest and its icons
@@ -123,6 +124,7 @@ node tools/nitros9/boot-mame.js <image> --cpu 6809 --seconds 30 --type 'dir\r' -
 node tools/mame-diff/run.js <profile> --rate    # SAM CPU rate firmware (sam/rate.asm) in lockstep with MAME (mameCompat)
 node tools/mame-diff/run.js <profile> --ops     # every instruction class at the SAM rates (sam/ops.asm), with MAME
 node tools/mame-diff/run.js <profile> --pia1b   # PIA1 port B's input pins (RAM size sense, serial in), with MAME (SAM machines, the Alpha and CoCo 3)
+node tools/mame-diff/run.js <profile> --reset [--cpu 6309]   # the Reset button (sam/reset.asm): MAME's soft reset and ours, RAM kept, BASIC's warm-start vector taken and refused (SAM machines; the 6309 on dragon64h, tanodr64h)
 node tools/mame-diff/run.js dragon64 --fdc --images   # floppy controllers in lockstep with MAME, then the disk images byte for byte (also --fdc premierfdc, coco, coco3, dgnalpha --fdc alphafdc; --write: the mounting tests' firmware; --nmi: when the 6809 starts taking NMI; --multi: in a Multi-Pak's slot 4 with the Multi-Pak firmware; --blank vdk:40x1: a new blank disk formatted, add --no-trace for images only)
 node tools/mame-diff/run.js dgnalpha --board          # the Dragon Alpha's own hardware in lockstep (alpha/board.asm)
 node tools/mame-diff/run.js dgnalpha --sound          # the Alpha's AY-3-8912 and DAC against MAME's -wavwrite

@@ -5,6 +5,7 @@ const path = require('path'), fs = require('fs'), cp = require('child_process');
 const { loadEmu, assembleFile, romImage, writeRoms, writeProfileRoms, mameConfigArgs, writeCfg } = require('../lib/firmware');
 const { workDir } = require('../lib/workdir');
 
+const RESET_FRAMES = 5;   // reset.asm: frames between reaching SYNC and the Reset press
 const REGS = ['pc:4', 'a:2', 'b:2', 'x:4', 'y:4', 'u:4', 's:4', 'dp:2', 'cc:2']
   .map((r) => { const [name, w] = r.split(':'); return { name, width: +w, mame: name }; });
 
@@ -101,7 +102,7 @@ module.exports = {
     for (const sl of profile.roms) for (const f of sl.files) files[f] = slots[sl.id];
     return {
       label: `${profileId} ${file}`, system: profile.mame, work, seconds: 4, args: mameArgs(profile, resolved),
-      regs: REGS, waitOps: ['CWAI', 'SYNC'], haltPc: asm.symbols.get('HALT'), files, asm, stopAtHalt,
+      regs: REGS, waitOps: ['CWAI', 'SYNC'], haltPc: asm.symbols.get('HALT'), files, asm, slots, stopAtHalt,
       install: () => { writeProfileRoms(work, profile, slots); if (profile.charGen) inverseCfg(work, profile.mame, resolved.inverseVideo); },
       machine: (cfg = config) => machine(profileId, slots, cfg),
       instructions: 400000,
@@ -109,6 +110,37 @@ module.exports = {
   },
   // PIA1 port B's input pins (pia1b.asm; CoCo wiring: MAME coco.cpp pia1_pb_r)
   pia1b(profileId, opts = {}) { return this.rate(profileId, Object.assign({ file: 'pia1b.asm', work: `/tmp/mame-diff/${profileId}-pia1b` }, opts)); },
+  // The Reset button (reset.asm): MAME's Lua presses it (machine:soft_reset) RESET_FRAMES frames after the firmware
+  // has reached each SYNC (PHASE goes 1, then 2). The lockstep resets ours when MAME's trace shows the reset
+  // (resetOurs); pressAfter is the same rule in frames for the MAME-free regression gate.
+  reset(profileId, opts = {}) {
+    const t = this.rate(profileId, Object.assign({ file: 'reset.asm', work: workDir(`${profileId}-reset`), stopAtHalt: true }, opts));
+    const sym = (n) => t.asm.symbols.get(n);
+    const phase = sym('PHASE');
+    return Object.assign(t, {
+      label: `${profileId} reset.asm`, seconds: 6, resetPc: sym('RESET'), phaseAddr: phase,
+      // (MAME runs the script again after each soft reset; the global keeps this to the first run)
+      luaPrelude: `local sp = manager.machine.devices[":maincpu"].spaces["program"]
+if not _G.cloadm_reset then
+  _G.cloadm_reset = true
+  for a = 0x71, 0x73 do sp:write_u8(a, 0) end
+  for a = ${phase}, ${phase + 0x1F} do sp:write_u8(a, 0) end
+  local seen, wait = 0, -1
+  emu.register_frame_done(function()
+    local p = sp:read_u8(${phase})
+    if p > seen then seen = p; wait = ${RESET_FRAMES} end
+    if wait > 0 then wait = wait - 1 elseif wait == 0 then wait = -1; manager.machine:soft_reset() end
+  end)
+end
+`,
+      // our side of a press. MAME's cycle count starts again at 0 after a soft reset, so the lockstep compares the
+      // cycles from the first instruction after it afresh (beforeOurs returns true): when the button is pressed is
+      // outside the machine, and this firmware does nothing after a reset that depends on when that was.
+      resetOurs(m) { m.reset(false); },
+      // the regression gate's presses: RESET_FRAMES frames after PHASE rises, at a frame's end
+      pressAfter: RESET_FRAMES,
+    });
+  },
   // the SAM memory-size (M1/M0) and page (P1) bits: what a low address aliases to (memsize.asm)
   memsize(profileId, opts = {}) { return this.rate(profileId, Object.assign({ file: 'memsize.asm', work: workDir(`${profileId}-memsize`) }, opts)); },
   // The floating bus: what $FF60-$FFBF returns with no cartridge fitted (floating.asm; MAME coco.cpp

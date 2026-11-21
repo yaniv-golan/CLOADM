@@ -23,6 +23,7 @@
     [
       "models",
       "romUi",
+      "reset",
       "mediaBackend",
       "sscBoard",
       "typing",

@@ -9,6 +9,9 @@ How to load programs, tapes, disks and cartridges, the keys, snapshots, sharing 
 * **Black screen, or no `OK`:** if BASIC hasn't started 5 seconds after power-on, a box over the screen says why,
   from the ROMs: usually a file CLOADM doesn't recognise (another revision, a damaged copy, or a ROM for
   another machine). **Add ROMs** shows them; **Run without ROMs** runs the machine without them.
+* **No `OK` after Reset:** **Reset** keeps memory, as on the real machine, and many games set BASIC's warm-start
+  vector so that Reset goes back into them. The box then says a program took over Reset; **Switch off and on**
+  gives a clean BASIC.
 * **No sound:** browsers only allow sound after a click or a key press. Click the screen, and check **Sound** is
   ticked (Input tab). Sound plays on the browser's audio thread (an AudioWorklet), so a busy page doesn't make it
   stutter; a browser without AudioWorklet, or a copy served over plain `http://` from an address other than

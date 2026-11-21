@@ -738,5 +738,29 @@
     "hash": "630c8fee",
     "instructions": 500676,
     "halted": true
+  },
+  "trace dragon64 reset.asm": {
+    "hash": "bc5fac6b",
+    "instructions": 270,
+    "presses": 2,
+    "halted": true
+  },
+  "trace tanodr64 reset.asm": {
+    "hash": "d2b0964f",
+    "instructions": 270,
+    "presses": 2,
+    "halted": true
+  },
+  "trace coco reset.asm": {
+    "hash": "d2b0964f",
+    "instructions": 270,
+    "presses": 2,
+    "halted": true
+  },
+  "trace dragon64 reset.asm 6309": {
+    "hash": "bc5fac6b",
+    "instructions": 270,
+    "presses": 2,
+    "halted": true
   }
 }

@@ -180,6 +180,16 @@ const DISPLAY_VALID = registry({
 const FLAG = (v) => v === '1';
 // how long LIZA's goodbye stays on screen before the welcome menu comes back
 const LIZA_BYE_SECONDS = 3;
+// A program holds BASIC's warm-start vector: RSTFLG ($71) is $55 and RSTVEC ($72-$73) points at a NOP ($12), which
+// is what Color BASIC's and Dragon BASIC's reset routine checks before jumping there instead of a cold start (as their
+// published disassemblies are commonly described; not checked against a primary source). What the machine does on a
+// Reset is compared with MAME on the SAM machines (tools/mame-diff/sam/reset.asm); on the CoCo 3 it is not.
+// 6809-family BASICs only; the MC-10's is not modelled.
+function warmStartTakeover(m) {
+  if (cpuFamily(m.config.cpu) !== '6809') return false;
+  const rd = (a) => (m.peek ? m.peek(a) : m.ram[a]);
+  return rd(0x71) === 0x55 && rd((rd(0x72) << 8) | rd(0x73)) === 0x12;
+}
 // what Stop answers a question on screen with: load_basic's card then fails with stopped, not load-declined
 const STOPPED = Symbol('stopped');
 const parseObject = (v) => { try { const o = JSON.parse(v); return o && typeof o === 'object' && !Array.isArray(o) ? o : null; } catch (e) { return null; } };
@@ -256,6 +266,7 @@ export class Session {
     this.roms = new RomLibrary(this.index, romOwners);
     this.stubChosen = new Set();    // machines the user chose to run without ROMs this session
     this.bootOk = null;             // the reset after which BASIC's OK was seen
+    this.warmReset = null;          // { m, resetAt }: the run that began with the Reset button, not a power-on (bootStatus)
     this.welcome = null;            // the machine running the welcome program
     this.menuWatch = null;          // a program that goes back to the welcome menu when left (watchForMenu)
     this.stubRun = null;            // what runs on the stub firmware and how to restart it (Reset; see `reset`)
@@ -496,6 +507,7 @@ export class Session {
     this.endWelcome();
     this.dropChat();                      // a chat belongs to the machine it was opened on
     this.stubRun = null;
+    this.warmReset = null;                // a new machine is a power-on: the boot watchdog arms
     if (this.debugger) { this.debugger.detach(); this.debugger = null; }
     if (m.debugger) { this.debugger = m.debugger; this.debugger.setSymbols(() => this.labels); }
     this.store.set('machine', m.id);
@@ -914,7 +926,7 @@ export class Session {
     this.endWelcome();
     this.keys.clear();
     if (again) this.restart(again);
-    else { this.stubRun = null; m.reset(false); }
+    else { this.stubRun = null; m.reset(false); this.warmReset = { m, resetAt: m.frameCount }; }
     this.acc = 0;
     this.emit('reset');
     if (!again) this.offerMenu();
@@ -961,6 +973,7 @@ export class Session {
   }
   // after a hard reset: the firmware may have changed (ROMs or the stub) and the SAM rate is back to slow
   poweredOn() {
+    this.warmReset = null;   // a power-on arms the boot watchdog again, even in the frame of a Reset (same resetAt)
     this.lastRate = this.cpuRate() && this.cpuRate().rate;
     this.emit('firmware');
   }
@@ -972,7 +985,8 @@ export class Session {
   //     cartridges: [{ id, name, sockets }], bootable: [machine ids that can now boot BASIC],
   //     offers: [{ machine, name, files }] }
   // result: 'verified' | 'loaded-unrecognised' | 'rejected' | 'ignored'. offers name the other machines this
-  // drop made ready (a ROM for another machine is an offer to switch, not an error). The machine in use is
+  // drop made ready (a ROM for another machine is an offer to switch, not an error), except one whose sockets
+  // hold the same ROMs as the machine in use. The machine in use is
   // power cycled if its ROMs changed.
   addRoms(files) {
     // the index's writes go to the store, which the move is copying: a drop may not land in the old one after it
@@ -990,7 +1004,10 @@ export class Session {
     const ids = [...touched.keys()];
     const machines = ids.filter((id) => profiles[id]).map((id) => this.machineRoms(id));
     const cartridges = ids.filter((id) => cartridgeRoms[id]).map((id) => ({ id, name: cartridgeRoms[id].name, sockets: socketStatus(cartridgeRoms[id], this.roms.get(id)) }));
-    const offers = machines.filter((x) => x.bootable && x.id !== m.id).map((x) => ({ machine: x.id, name: x.name, files: touched.get(x.id) }));
+    // (not a machine whose sockets now hold exactly the ROMs of the machine in use, as the Dragon 64 and the Tano
+    // Dragon 64 do: switching to it would change nothing the drop is about)
+    const crcs = (id) => this.machineRoms(id).sockets.map((s) => s.crc || '').join(',');
+    const offers = machines.filter((x) => x.bootable && x.id !== m.id && crcs(x.id) !== crcs(m.id)).map((x) => ({ machine: x.id, name: x.name, files: touched.get(x.id) }));
     this.emit('roms');
     return { files: results, machines, cartridges, bootable: machines.filter((x) => x.bootable).map((x) => x.id), offers };
   }
@@ -1082,6 +1099,10 @@ export class Session {
     if (this.bootOk && this.bootOk.m === m && this.bootOk.resetAt === resetAt) return { state: 'ok' };
     if (this.screenText(m).some((l) => l.trim() === 'OK')) { this.bootOk = { m, resetAt }; return { state: 'ok' }; }
     if (m.framesSinceReset < seconds * m.fps) return { state: 'booting' };
+    // The watchdog is for a power-on. After the Reset button RAM is kept and BASIC's reset routine may jump
+    // through the warm-start vector a program set, so no OK is not a boot failure: 'reset', with `takeover` when
+    // a program holds that vector (warmStartTakeover).
+    if (this.warmReset && this.warmReset.m === m && this.warmReset.resetAt === resetAt) return { state: 'reset', takeover: warmStartTakeover(m) };
     // the sockets are the Session's, keyed by machine; ask about THIS machine rather than the one on screen
     const sockets = (m === this.machine ? this.machineRoms() : this.machineRoms(m.id)).sockets;
     const odd = sockets.filter((s) => s.status === 'loaded-unrecognised');

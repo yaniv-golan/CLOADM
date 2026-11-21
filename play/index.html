@@ -1301,7 +1301,7 @@ npx serve -l 8000 .</pre>
         <div id="askActing" role="status" hidden><span class="dot" aria-hidden="true"></span><span id="askActingText">Claude is typing…</span><button id="btnAskResume" hidden>Resume</button><button id="btnAskStop">Stop</button></div>
         <div id="bootHelp" hidden role="status"><strong id="bootHelpTitle"></strong><span id="bootHelpText"></span>
           <div class="bar"><button id="btnBootSockets" class="primary">Add ROMs</button>
-            <button id="btnBootStub">Run without ROMs</button><button id="btnBootDismiss">Dismiss</button></div></div>
+            <button id="btnBootStub">Run without ROMs</button><button id="btnBootPower" class="primary" hidden>Switch off and on</button><button id="btnBootDismiss">Dismiss</button></div></div>
       </div>
       <div class="plate"><span id="badge">DRAGON 64</span><span class="led" aria-hidden="true"></span>
         <div id="focusHint" aria-hidden="true"><span class="fh-emu">Typing goes to the machine · <kbd>Tab</kbd> leaves the screen</span><span class="fh-chat"><kbd>Esc</kbd> stops a reply, clears the line, then leaves the chat</span></div></div>
@@ -1348,7 +1348,7 @@ npx serve -l 8000 .</pre>
     <div class="controls" id="welcomeBackBar"><button id="btnWelcomeBack" class="primary" hidden>Back to the menu</button></div>
     <div class="controls" role="toolbar" aria-label="Machine controls">
       <button id="btnReset">Reset</button>
-      <button id="btnHardReset" title="Clear memory, eject tape and cartridge">Switch off and on</button>
+      <button id="btnHardReset" title="Clears memory; the tape and cartridge stay in">Switch off and on</button>
       <button id="btnPause">Pause</button>
       <button id="btnTurbo" title="Run as fast as possible (never changes the emulated CPU speed)">Turbo</button>
       <button id="btnFull">Fullscreen</button>

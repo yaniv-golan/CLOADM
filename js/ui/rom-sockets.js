@@ -25,10 +25,11 @@ const OPTIONAL_WHY = {
 const el = (tag, text, cls) => { const e = document.createElement(tag); if (text != null) e.textContent = text; if (cls) e.className = cls; return e; };
 const button = (text, fn, primary = false) => { const b = el('button', text, primary ? 'primary' : ''); b.onclick = fn; return b; };
 
-export function setupRomSockets(page, romInput) {
+// confirmSwitch: the machine menu's confirmation (js/ui/machine-panel.js), which an offer's switch goes through too
+export function setupRomSockets(page, romInput, { confirmSwitch }) {
   const { session } = page;
   const view = $('romCard');
-  let offers = [];      // [{ machine, name, files }] from the last drop
+  let offers = [];      // [{ machine, name, files }] from the last drop, until this screen closes or the machine restarts
   let found = null;     // the last drop's per-file results
 
   // ---------------- open and close (#add-roms) ----------------
@@ -37,6 +38,7 @@ export function setupRomSockets(page, romInput) {
     const open = isOpen();
     document.body.classList.toggle('roms-open', open);
     view.hidden = !open;
+    if (!open) offers = [];   // shown once, with the drop they came from: never again from a later visit to this screen
     if (open) { render(); $('romHeading').focus(); }
   }
   page.onView(show);
@@ -116,7 +118,10 @@ export function setupRomSockets(page, romInput) {
       d.dataset.machine = o.machine;
       d.append(el('div', `${o.files.join(', ')} ${o.files.length > 1 ? 'are' : 'is'} for the ${o.name}. The ${o.name} is now ready too.`));
       const bar = el('div', null, 'bar');
-      bar.append(button(`Switch to ${o.name}`, () => { offers = []; session.switchMachine(o.machine); page.status(`Switched to ${o.name}`); close(); }, true),
+      bar.append(button(`Switch to ${o.name}`, () => {
+        close();   // (back on the emulator, where the confirmation shows)
+        confirmSwitch(o.name, () => { session.chooseMachine(o.machine); page.status(`Switched to ${o.name}`); });
+      }, true),
         button(`Stay on ${m.profile.name}`, () => { offers = offers.filter((x) => x !== o); render(); }));
       d.append(bar);
       return d;
@@ -149,9 +154,14 @@ export function setupRomSockets(page, romInput) {
     // a drop that needs explaining (a ROM that could not be used) opens this screen to say why; one that loaded,
     // even if not a known dump, doesn't (the boot watchdog points here if it then fails to start)
     if (report && report.files && !isOpen() && report.files.some((f) => f.result === 'rejected')) page.openView('#add-roms');
+    if (!isOpen()) offers = [];   // a drop elsewhere says what it set up in its toast; no offer waits for a later visit
     render();
   });
-  session.on((ev) => { if (ev === 'machine' || ev === 'roms' || ev === 'firmware') render(); });
+  // a drop's offers are about that moment: a new machine, a power-on or a reset ends them
+  session.on((ev) => {
+    if (ev === 'machine' || ev === 'firmware' || ev === 'reset') offers = [];
+    if (ev === 'machine' || ev === 'roms' || ev === 'firmware' || ev === 'reset') render();
+  });
   $('btnRunStub').onclick = () => runWithoutRoms();
   function runWithoutRoms() { session.runWithoutRoms(); render(); page.status(`${session.machine.profile.name}: running without ROMs`); }
   // open this screen (the header's pill, the Machine tab, the boot help, the Welcome menu's key 3)

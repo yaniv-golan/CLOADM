@@ -82,10 +82,15 @@ function streamTrace({ work, system, seconds, args = [], regs, luaPrelude = '', 
   cp.execFileSync('mkfifo', [fifo]);
   const fmt = regs.map((r) => `%0${r.width}X`).join(' ') + ' %X ';
   const luaFile = path.join(work, 'trace.lua');
+  // MAME runs this script again after a soft reset (machine:soft_reset, run.js --reset); its globals survive, so the
+  // trace is started once and keeps going through the reset
   fs.writeFileSync(luaFile, `${luaPrelude}
 local d = manager.machine.debugger
-d:command('trace ${fifo},${cpu},noloop,{tracelog "${fmt}",${regs.map((r) => r.mame).join(',')},totalcycles}')
-d:command('go')
+if not _G.cloadm_traced then
+  _G.cloadm_traced = true
+  d:command('trace ${fifo},${cpu},noloop,{tracelog "${fmt}",${regs.map((r) => r.mame).join(',')},totalcycles}')
+  d:command('go')
+end
 ${luaPostlude}
 `);
   const proc = cp.spawn(MAME, [...baseArgs(work, system, luaFile, seconds, false), '-debug', '-debugger', 'none', ...args],

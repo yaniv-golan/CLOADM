@@ -9,7 +9,9 @@ const { streamTrace } = require('./mame');
 const hx = (v, n) => v.toString(16).toUpperCase().padStart(n, '0');
 
 // spec: { system, work, seconds, args, regs: [{ name, width, mame }], luaPrelude, luaPostlude,
-//         waitOps, machine (prepared, reset), haltPc }; or, in place of machine, ours: () => [regs (hex strings, in
+//         waitOps, machine (prepared, reset), haltPc, beforeOurs(entry, base) (optional: called with each MAME entry
+//         before our next instruction is taken; base is [MAME's first cycles, ours] once the first has been; a true
+//         answer restarts the elapsed-cycle count at this entry) }; or, in place of machine, ours: () => [regs (hex strings, in
 //         the order of spec.regs), totalCycles] for our next instruction (a trace computed beforehand)
 //
 // The comparison is strict: there are no allowed differences. Where MAME and this project disagree the
@@ -44,6 +46,10 @@ async function lockstep(spec) {
   };
   await streamTrace(Object.assign({}, spec, {
     onEntry(e) {
+      // (a spec whose MAME run is reset from outside the machine resets ours here, before our next instruction:
+      // run.js --reset)
+      // A true answer starts the cycle count afresh at this entry (MAME's own count restarts after a soft reset).
+      if (spec.beforeOurs && spec.beforeOurs(e, base)) { base = null; prev = null; }
       const next = nextOurs();
       if (!next) return false;          // (a trace computed beforehand has ended: MAME ran on past it)
       const [or, oc] = next;

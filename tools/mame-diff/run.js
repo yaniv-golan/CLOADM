@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Compare one machine against MAME. Needs MAME (e.g. `apt install mame`); uses only our own firmware.
 //
-//   node tools/mame-diff/run.js <profile> [--ram <K>] [--video [--artifact N] [--attr] [--composite] [--text]] [--raster [--no-trace] [--keep]] [--printer [--no-trace]] [--serial] [--rate|--ops] [--plus] [--plustext [--video]] [--keep-firmware]
+//   node tools/mame-diff/run.js <profile> [--ram <K>] [--video [--artifact N] [--attr] [--composite] [--text]] [--raster [--no-trace] [--keep]] [--printer [--no-trace]] [--serial] [--reset] [--rate|--ops] [--plus] [--plustext [--video]] [--keep-firmware]
 //   node tools/mame-diff/run.js <dragon64|coco|coco3|dgnalpha> --fdc [dragonfdc|premierfdc|cocofdc|multifdc|alphafdc] [--images|--write|--nmi|--multi|--blank <fmt>:<T>x<H>|--halt [--empty]|--nitros9] [--keep-firmware]
 //   node tools/mame-diff/run.js <coco|coco3|dragon64|dragon32> --cart <setup> [--audio]
 //
@@ -40,6 +40,8 @@
 // --pia1b: PIA1 port B's input pins (sam/pia1b.asm, coco3/pia1b.asm, alpha/pia1b.asm; the CoCo wiring of MAME's coco.cpp).
 // --floating: the floating bus, $FF60-$FFBF with no cartridge fitted (sam/floating.asm; MAME coco.cpp
 // floating_bus_read), on every SAM machine.
+// --reset [--cpu 6309]: the Reset button (sam/reset.asm): MAME's soft reset pressed from Lua, ours when MAME's trace shows it; RAM kept, the
+// warm-start vector taken and refused, what the CPU and the PIAs keep over a reset.
 // --memsize: the SAM memory-size (M1/M0) and page (P1) bits (sam/memsize.asm; MAME 6883sam.cpp read/write).
 // --welcome: the 6803 welcome program's comparison build on the MC-10 and the Alice (mc10/gen-welcome.js
 // makes a ROM-socket loader that copies the HALTCODE=1 build to $5000; the trace runs to its HALT). With --back,
@@ -163,6 +165,22 @@ async function main() {
     const t = spec.floating(profileId, { config });
     t.install();
     return await lockstep(Object.assign({}, t, { machine: t.machine() }));
+  }
+  if (args.includes('--reset')) {
+    // the Reset button: MAME's soft reset, ours at the same cycle (sam/spec.js reset); --cpu 6309 runs the same
+    // firmware on the model's HD6309 sibling in MAME (dragon64h, tanodr64h), ours with the 6309 option
+    const resetSpec = profile.family === 'sam' ? require(path.join(__dirname, 'sam', 'spec.js')) : spec;
+    if (!resetSpec.reset) { console.error(`${profile.family}: no Reset firmware for this family`); process.exitCode = 2; return; }
+    const t = resetSpec.reset(profileId, { config: cpuOpt === '6309' ? Object.assign({}, config, { cpu: '6309' }) : config });
+    if (cpuOpt === '6309') {
+      t.system = profile.mame6309; t.label += ' 6309';
+      t.install = () => { require('./lib/firmware').writeProfileRoms(t.work, profile, t.slots, t.system); };
+    }
+    t.install();
+    const m = t.machine();
+    const beforeOurs = (e, base) => { if (!base || e.pc !== t.resetPc || !m.cpu.syncing) return false; t.resetOurs(m); return true; };
+    process.exitCode = await lockstep(Object.assign({}, t, { machine: m, beforeOurs }));
+    return;
   }
   if (args.includes('--memsize')) {
     // exitCode plus an explicit return, not process.exit: setting exitCode alone would fall through into the

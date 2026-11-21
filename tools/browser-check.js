@@ -1479,6 +1479,75 @@ async function webSerialChecks(browser, base, check) {
   await ctx.close();
 }
 
+// Reset (tests/reset.test.js in Node): our BASIC stand-in as the Dragon 64's ROMs (recognised, as a real dump is, so
+// a boot failure would blame CLOADM), which makes the Dragon 64 and the Tano Dragon 64 both ready. A game that takes
+// over Reset runs; the Reset button keeps the machine, the game gets Reset, and the boot box says the program took it
+// over, with Switch off and on, never "No OK" or "a problem in CLOADM". The ROM drop's offers are about that drop:
+// none for a machine with the same ROMs, and none left over when Add ROMs is opened later.
+async function resetChecks(browser, base, check) {
+  const ctx = await guardedContext(browser, []);
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  const { build } = require('../tests/fixtures/reset-firmware');
+  const fw = build(require('../tests/load')());
+  const named = () => page.evaluate(() => ({ id: window.emu.machine.id, name: document.getElementById('machineName').textContent,
+    status: document.getElementById('status').textContent, stored: window.emu.session.store.get('machine') }));
+  const top = () => page.evaluate(() => window.emu.session.screenText()[0].slice(0, 4));
+  await page.goto(`${base}?machine=dragon64`); await started(page);
+  // our firmware's CRC as a known dump of both machines' 32K-mode BASIC (page memory only)
+  await page.evaluate((b) => {
+    const crc = (bytes) => { let c = -1; for (const v of bytes) { c ^= v; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; } return ((c ^ -1) >>> 0).toString(16).toUpperCase().padStart(8, '0'); };
+    for (const id of ['dragon64', 'tanodr64']) window.emu.profiles[id].roms[0].crcs.push(crc(b));
+  }, [...fw.basic]);
+  await dropFiles(page, [['d64_1.rom', Buffer.from(fw.basic)], ['d64_2.rom', Buffer.from(fw.basic64)]]);
+  check('reset: one drop makes the Dragon 64 and the Tano Dragon 64 ready', await waitFor(page, () => ['dragon64', 'tanodr64'].every((id) => window.emu.session.machineRoms(id).bootable)));
+  check('reset: the Dragon 64 boots our BASIC stand-in (OK)', await waitFor(page, () => window.emu.session.bootStatus().state === 'ok' && window.emu.machine.id === 'dragon64'));
+  await page.click('#machineBtn');
+  check('reset: the machine menu marks both BASIC ready', await page.$$eval('#machineMenu [data-machine="dragon64"] .tag.ready, #machineMenu [data-machine="tanodr64"] .tag.ready', (t) => t.length) === 2);
+  await page.keyboard.press('Escape');
+  // Add ROMs opened after the drop (as the boot box's Add ROMs would): no offer of the Tano, which has the same ROMs
+  await openRoms(page);
+  check('reset: no offer to switch to a machine with the same ROMs', await page.isHidden('#romOffers') && !/Switch to/.test(await page.textContent('#romCard')), await page.textContent('#romOffers'));
+  await page.click('#btnRomBack');
+  await waitFor(page, () => location.hash === '');
+  // the game, dropped on the screen
+  await dropFiles(page, [['game.bin', Buffer.from(fw.gameBin)]]);
+  check('reset: the game runs', await waitFor(page, () => window.emu.session.screenText()[0].startsWith('GGGG')), await top());
+  const before = await named();
+  await page.click('#btnReset');
+  check('reset: Reset warm-starts into the game, RAM kept (W)', await waitFor(page, () => window.emu.session.screenText()[0].startsWith('WWWW')), await top());
+  await emuFrames(page, 5);
+  const after = await named();
+  check('reset: Reset keeps the machine: header, status line and remembered machine', before.id === 'dragon64' && after.id === 'dragon64' && after.name === 'Dragon 64'
+    && after.stored === 'dragon64' && /^Dragon 64 · /.test(after.status), JSON.stringify({ before, after }));
+  // 5 s of emulated time after the Reset
+  const shown = await waitFor(page, () => !document.getElementById('bootHelp').hidden, null, 30000);
+  const box = await page.textContent('#bootHelp');
+  check('reset: the box says the program took over Reset, not that BASIC failed', shown && /A program took over Reset/.test(box) && /warm-start vector/.test(box)
+    && !/No OK|problem in CLOADM/.test(box), box);
+  check('reset: ... with Switch off and on and Dismiss, not Add ROMs or Run without ROMs', await page.isVisible('#btnBootPower') && await page.isVisible('#btnBootDismiss')
+    && await page.isHidden('#btnBootSockets') && await page.isHidden('#btnBootStub'));
+  check('reset: still the Dragon 64 while the box shows', (await named()).id === 'dragon64');
+  if (shotDir) await page.locator('#screenWrap').screenshot({ path: path.join(shotDir, 'reset-takeover.png') });
+  await page.click('#btnBootPower');
+  check('reset: Switch off and on gives a clean BASIC (OK) on the same machine, and the box goes', await waitFor(page, () => window.emu.session.screenText()[0].startsWith('OK')
+    && document.getElementById('bootHelp').hidden && window.emu.machine.id === 'dragon64'));
+  // offers from a drop made while Add ROMs is open: shown, then gone once it closes
+  await page.evaluate(() => window.emu.session.switchMachine('coco'));
+  await openRoms(page);
+  await dropFiles(page, [['d64_1.rom', Buffer.from(fw.basic)]], null, 'romCard');
+  check('reset: a drop on a CoCo offers the Dragons it set up', await waitFor(page, () => !document.getElementById('romOffers').hidden)
+    && /Switch to Dragon 64/.test(await page.textContent('#romOffers')), await page.textContent('#romOffers'));
+  await page.click('#btnRomBack');
+  await waitFor(page, () => location.hash === '');
+  await openRoms(page);
+  check('reset: the offers are gone when Add ROMs is opened again', await page.isHidden('#romOffers'), await page.textContent('#romOffers'));
+  await page.click('#btnRomBack');
+  check('reset: no page errors', !errors.length, errors.join(' | '));
+  await ctx.close();
+}
+
 async function romUiChecks(browser, base, check) {
   const archive = [];
   const ctx = await guardedContext(browser, archive);
@@ -1555,7 +1624,12 @@ async function romUiChecks(browser, base, check) {
   check('offer: the ready machines are summarised', /Also ready to run BASIC: Dragon 32/.test(await page.textContent('#romReady')));
   await shot('offer');
   await page.click('#romOffers button.primary');
-  check('offer: "Switch to" switches machine and goes back to the emulator', await waitFor(page, () => window.emu.machine.id === 'dragon32' && location.hash === ''));
+  // (the switch asks first, as the machine menu does: the machine in use may be running something)
+  check('offer: "Switch to" goes back to the emulator and asks first, as the machine menu does',
+    await waitFor(page, () => location.hash === '' && !document.getElementById('switchConfirm').hidden) && await page.evaluate(() => window.emu.machine.id) === 'coco'
+    && /Dragon 32/.test(await page.textContent('#switchName')), await page.textContent('#switchConfirm'));
+  await page.click('#btnSwitch');
+  check('offer: ... and Switch switches the machine', await waitFor(page, () => window.emu.machine.id === 'dragon32' && location.hash === ''));
   // boot watchdog: the Dragon 32 "ROM" above is random bytes: no OK after 5 s of emulated time
   const failed = await waitFor(page, () => !document.getElementById('bootHelp').hidden, null, 30000);
   check('watchdog: shows the cause from the socket status', failed && /Dragon 32 BASIC is d32\.rom, which isn't recognised/.test(await page.textContent('#bootHelp')), await page.textContent('#bootHelp'));
@@ -12047,6 +12121,7 @@ async function installChecks(browser, base, check) {
 
 const GROUPS = (base, site) => [
   ['models', (b) => modelsChecks(b, base, check)],
+  ['reset', (b) => resetChecks(b, base, check)],
   ['romUi', (b) => romUiChecks(b, base, check)],
   ['mediaBackend', (b) => mediaBackendChecks(b, base, check)],
   ['audio', (b) => audioChecks(b, base, check)],

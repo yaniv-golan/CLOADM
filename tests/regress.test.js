@@ -68,6 +68,28 @@ function printerHash(t) {
   for (const b of m.printed) h = fnv(h, b);
   return { hash: h.toString(16).padStart(8, '0'), printed: m.printed.length, halted };
 }
+// the Reset button (reset.asm; run.js <profile> --reset): the trace through two presses with RAM kept, each made
+// `pressAfter` frames after the firmware reaches SYNC (MAME presses at its own frame end; when, is outside the
+// machine and nothing after it depends on it)
+function resetHash(t) {
+  const m = t.machine();
+  const names = t.regs.map((r) => r.name);
+  let h = 0x811C9DC5, n = 0, c0 = null, halted = false, seen = 0, wait = -1, presses = 0;
+  m.cpu.trace = (c) => {
+    if (c0 === null) c0 = c.totalCycles;
+    for (const r of names) h = fnv(h, c[r]);
+    h = fnv(h, c.totalCycles - c0);
+    n++;
+    if (c.pc === t.haltPc) { halted = true; m.cpu.trace = null; }
+  };
+  for (let f = 0; f < 600 && !halted; f++) {
+    m.runFrame();
+    const p = m.peek(t.phaseAddr);
+    if (p > seen) { seen = p; wait = t.pressAfter; }
+    if (wait > 0) wait--; else if (wait === 0) { wait = -1; m.reset(false); presses++; }
+  }
+  return { hash: h.toString(16).padStart(8, '0'), instructions: n, presses, halted };
+}
 // the sound a machine makes: every level change (frame offset and level, to 1e-9), frame by frame
 function soundHash(v) {
   const m = v.machine();
@@ -97,6 +119,11 @@ for (const id of ['coco', 'coco2b', 'cp400', 'dragon32', 'dragon64']) cases.push
 for (const ram of [4, 16, 32]) cases.push([`trace coco ${ram}K pia1b.asm`, () => traceHash(spec('sam').pia1b('coco', { config: { ram } }))]);
 cases.push(['trace coco3 pia1b.asm', () => traceHash(spec('coco3').pia1b('coco3'))]);
 cases.push(['trace dgnalpha pia1b.asm', () => traceHash(spec('alpha').pia1b('dgnalpha'))]);
+// The Reset button: what the CPU and the PIAs keep over a reset, RAM kept, BASIC's warm-start vector taken and
+// refused (reset.asm; MAME agrees instruction for instruction: run.js <profile> --reset [--cpu 6309] on 0.264)
+for (const id of ['dragon64', 'tanodr64', 'coco']) cases.push([`trace ${id} reset.asm`, () => resetHash(spec('sam').reset(id))]);
+// the same on the HD6309 (run.js <dragon64|tanodr64> --reset --cpu 6309: dragon64h and tanodr64h)
+cases.push(['trace dragon64 reset.asm 6309', () => resetHash(spec('sam').reset('dragon64', { config: { cpu: '6309' } }))]);
 // The floating bus, $FF60-$FFBF with no cartridge fitted (floating.asm; run.js <profile> --floating). It reads
 // the window in every indexed form and in extended mode, so the trace holds what each rule returned on every
 // machine: MAME agrees instruction for instruction (run.js <profile> --floating, all five

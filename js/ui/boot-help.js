@@ -1,7 +1,9 @@
 /*
  * Boot help: when ROMs are in use and BASIC hasn't printed OK within a few seconds of power-on, a box
  * over the screen explains why, from the socket status (Session.bootStatus reads the screen), with
- * "Check the sockets" and "Run without ROMs". It never blocks the machine and can be dismissed.
+ * "Add ROMs" and "Run without ROMs". After the Reset button it never says the boot failed (RAM is kept and a
+ * program may hold BASIC's warm-start vector); when a program does hold it, the box says so instead and offers
+ * "Switch off and on". It never blocks the machine and can be dismissed.
  */
 import { $ } from './page.js';
 
@@ -14,11 +16,14 @@ export function setupBootHelp(page, sockets) {
   function check() {
     const st = session.bootStatus(BOOT_SECONDS), m = session.machine;
     const resetAt = m.frameCount - m.framesSinceReset;
-    const show = st.state === 'failed' && dismissedFor !== `${m.id}@${resetAt}`;
+    const takeover = st.state === 'reset' && st.takeover;
+    const show = (st.state === 'failed' || takeover) && dismissedFor !== `${m.id}@${resetAt}`;
     if (show) {
-      $('bootHelpTitle').textContent = `No OK after ${BOOT_SECONDS} seconds`;
-      $('bootHelpText').textContent = st.cause;
+      $('bootHelpTitle').textContent = takeover ? 'A program took over Reset' : `No OK after ${BOOT_SECONDS} seconds`;
+      $('bootHelpText').textContent = takeover ? "It set BASIC's warm-start vector, so Reset goes back into it. Switch off and on for a clean BASIC." : st.cause;
     }
+    $('btnBootSockets').hidden = $('btnBootStub').hidden = takeover;
+    $('btnBootPower').hidden = !takeover;
     box.hidden = !show;
     box.dataset.state = st.state;
   }
@@ -42,6 +47,7 @@ export function setupBootHelp(page, sockets) {
   session.on((ev) => { if (ev === 'machine' || ev === 'firmware' || ev === 'reset') { check(); startWatch(); } });
   $('btnBootSockets').onclick = () => { sockets.reveal(); };
   $('btnBootStub').onclick = () => { sockets.runWithoutRoms(); check(); };
+  $('btnBootPower').onclick = () => { session.powerCycle({ reason: 'you power cycled the machine' }); page.focus(); };
   $('btnBootDismiss').onclick = () => { const m = session.machine; dismissedFor = `${m.id}@${m.frameCount - m.framesSinceReset}`; check(); };
   return { check };
 }

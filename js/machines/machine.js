@@ -179,7 +179,7 @@ class Machine {
     this.typist.clear('machine-restarted');   // Claude's typing ends: the machine restarted under it (not a Stop)
     this.stubKeys = [];
     this.resetHardware(hard);
-    this.cpu.reset();
+    this.cpu.reset(hard);
     if (hard) {
       // power-on: video timing restarts at the frame origin; the CPU starts resetOffset ticks later
       this.queue = [];

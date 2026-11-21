@@ -15,6 +15,29 @@ All notable changes to CLOADM are recorded here. The format follows
   firmware and store fixtures in `tests/disks-common.js`. No check was removed or loosened (206 passing checks before
   and after); the disk code itself is unchanged.
 
+### Fixed
+
+- **Reset after a game no longer says CLOADM failed.** Many machine-code games set BASIC's warm-start flag and
+  vector ($71 = $55, $72-$73 pointing at a NOP of their own), so **Reset** goes back into the game with RAM kept,
+  as on a real machine. The boot box then counted 5 seconds from the Reset, saw no OK and said "No OK after 5
+  seconds … a problem in CLOADM". The watchdog now arms only on a power-on (a new machine, **Switch off and on**,
+  ROMs changed). After a Reset that a program took over, the box says "A program took over Reset" and offers
+  **Switch off and on** for a clean BASIC (`Session.bootStatus` answers `reset`, with `takeover`).
+
+- **Add ROMs no longer keeps old offers to switch machine.** A ROM drop's "Switch to …" offers stayed for the
+  whole visit, so opening Add ROMs later (from the boot box, say) still offered "Switch to Tano Dragon 64" after a
+  drop of Dragon 64 ROMs. Offers now show only with the drop that made them: they go when Add ROMs closes and on a
+  machine change, power-on or Reset. A machine whose sockets hold the same ROMs as the one in use (the Dragon 64 and
+  the Tano Dragon 64) is not offered, and **Switch to …** asks first, as the machine menu does.
+
+- **Reset keeps the 6809's flags, and a CoCo's Reset latches no serial edge, as MAME's.** A Reset (not a power-on)
+  sets only CC's I and F, leaving the others as they were (the 6309 too), and leaves PIA1's CA1 line as it is
+  instead of latching a new edge from the serial port. Found by the new lockstep comparison of the Reset button
+  (`run.js <profile> --reset`, `tools/mame-diff/sam/reset.asm`): every instruction identical through two Resets on
+  every SAM machine compared and on the 6309 (dragon64h, tanodr64h), and four cases in the regression gate.
+
+- The **Switch off and on** button's tooltip said it ejects the tape and cartridge; they stay in, and it says so.
+
 ### 0.1.6-pre
 
 #### Added

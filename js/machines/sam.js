@@ -665,8 +665,10 @@ class SamMachine extends Machine {
     this.pia0.reset(); this.pia1.reset();
     if (this.acia) this.acia.reset(hard);
     // CoCo: PIA1 CA1 is the serial port's carrier detect, which the device drives from reset (MAME coco12.cpp:
-    // rs232 dcd -> pia1 ca1): low from the printer or a terminal, which latches a falling edge
-    if (this.profile.ca1Low) { this.pia1.a.c1 = true; this.pia1.setC1('a', !!this.bitBanger.dcd); }
+    // rs232 dcd -> pia1 ca1): low from the printer or a terminal, which latches a falling edge at power-on. A
+    // reset with the power on (the Reset button) leaves the line where it is, so no edge is latched (MAME keeps the
+    // PIA's input levels over a soft reset: run.js coco --reset)
+    if (this.profile.ca1Low && hard) { this.pia1.a.c1 = true; this.pia1.setC1('a', !!this.bitBanger.dcd); }
   }
 
   reset(hard) {

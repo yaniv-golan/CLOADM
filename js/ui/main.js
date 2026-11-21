@@ -99,7 +99,7 @@ setupPrinterPanel(page);
 setupSerialPanel(page);
 setupDriveWirePanel(page);
 const romPanel = setupRomPanel(page);
-const romSockets = setupRomSockets(page, romPanel);
+const romSockets = setupRomSockets(page, romPanel, { confirmSwitch: machinePanel.confirmSwitch });
 setupBootHelp(page, romSockets);
 let library = null;
 const snapshots = setupSnapshotPanel(page, { confirmSwitch: machinePanel.confirmSwitch, openRoms: () => romSockets.reveal() });

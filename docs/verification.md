@@ -830,6 +830,22 @@ names it.
   open `play/`, add a disk image in the Machine tab's DriveWire box and choose it for drive 0, pick the rate the
   CoCo's driver uses, click "Serve a real CoCo…" and choose the adapter; then `DIR` (HDB-DOS) or `dir /x0`
   (NitrOS-9) on the CoCo should list the image.
+* `node tools/mame-diff/run.js <profile> --reset` presses the Reset button (`sam/reset.asm`). MAME's Lua presses it
+  with `machine:soft_reset()` five frames after the firmware waits in `SYNC`; ours is reset when MAME's trace shows the
+  reset, and both elapsed-cycle counts start again there (MAME's own count restarts after a soft reset; when the
+  button is pressed is outside the machine, and nothing the firmware does after it depends on when). Its Lua prelude
+  zeroes `$0071-$0073` and `$0100-$011F` in MAME before the first instruction, so the power-on read of the warm-start
+  flag sees what our zero-filled RAM holds. The firmware follows BASIC's warm-start convention (RSTFLG `$71` = `$55`
+  and a NOP at the address in RSTVEC `$72-$73`; as the published Color BASIC and Dragon BASIC disassemblies are
+  commonly described, not re-checked against a primary source): the first Reset takes the vector, the second finds
+  no NOP there and starts cold, and reads what RAM kept. Every instruction identical to HALT (270, two presses) on
+  dragon64, tanodr64, dragon32, dragon200, coco, coco2b and cp400, and with `--cpu 6309` on MAME's dragon64h and
+  tanodr64h. It found two differences, both fixed: ours set CC
+  to I|F on a Reset, clearing the other flags (MAME sets I and F and leaves the rest), and our CoCo latched
+  a new PIA1 CA1 edge from the serial port on a Reset (MAME keeps the PIA's input levels). The regression gate runs
+  it on dragon64, tanodr64, coco and dragon64 with the 6309, pressing five frames after each `SYNC`. There is no
+  Reset comparison for the CoCo 3 (or the MC-10 and the Alpha): the boot box's "took over Reset" check reads the
+  same `$71`-`$73` there, which is not verified against MAME on the CoCo 3.
 * `node tools/mame-diff/run.js <profile> --pia1b` reads PIA1 port B's input pins with PIA0 PB6 high, low and an
   input, and port B all inputs, mixed and all outputs (`sam/pia1b-body.asm`). Every Dragon and CoCo wires them as
   MAME's `coco.cpp` `pia1_pb_r` has them: bit 2 senses the RAM size (16K reads it high; with 32K or 64K it follows
