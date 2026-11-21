@@ -1,8 +1,8 @@
 // The MCP Apps bridge of CLOADM's side-panel view: a CLASSIC script, inlined in the view's HTML (connector/build.js)
 // before the emulator's module, so it shakes hands with the host as soon as the HTML is parsed, before the emulator's
 // code is fetched (variant A) or evaluated (variant B, about 1 MiB) and before storage opens. A view that did its
-// handshake only after all that was shown by Claude without its app tools ever being listed; this order is what made
-// them work on claude.ai (spike, branch claude/spike-mcp-sidepanel-selfhost).
+// handshake only after all that was shown by Claude without its app tools ever being listed; with this order, Claude
+// listed them and called them on claude.ai.
 // Protocol (ext-apps specification/2026-01-26/apps.mdx, JSON-RPC 2.0 over postMessage with the host):
 //  * the view sends ui/initialize (appCapabilities.tools.listChanged: true), then ui/notifications/initialized;
 //  * the host asks tools/list (answered at once, from the list the build put in CLOADM_VIEW.tools) and sends

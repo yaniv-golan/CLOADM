@@ -4,7 +4,8 @@
 //    variant A declares https://cloadm.dev only, B nothing), notifications (202), GET (405), bad bodies; it writes no
 //    console output; wrangler.toml holds no secret, no account and keeps logs off;
 //  * the views (connector/build.js): A fetches one module, from cloadm.dev; B fetches nothing and carries the bundled
-//    programs; both carry the tool list and PANEL_API; the version is CHANGELOG.md's "Next version";
+//    programs; both carry the tool list and PANEL_API; the version is the checkout's `git describe`; the build refuses
+//    a site whose PANEL_API differs (checkSite);
 //  * the folded core (connector/fold.js) runs LIZA identically to the plain modules (screen, frame count, every pixel),
 //    and the folded panel toolbox lists the same tools;
 //  * the panel's tools (connector/view/tools.js): the local server's names and schemas, byte for byte; the file tools
@@ -55,6 +56,11 @@ const J = JSON.stringify;
   const A = (await read('ui://cloadm/panel.html')).result.contents[0], B = (await read('ui://cloadm/inline.html')).result.contents[0];
   const noRes = await read('ui://cloadm/nope.html');
   const batch = await post([{ jsonrpc: '2.0', id: 7, method: 'ping' }, { jsonrpc: '2.0', method: 'notifications/x' }]);
+  // a batch of reads of the 1 MiB view (57 KB of request asking for about 600 MiB of reply) is refused unread
+  const bomb = await post(Array.from({ length: 600 }, (_, i) => ({ jsonrpc: '2.0', id: i, method: 'resources/read', params: { uri: 'ui://cloadm/inline.html' } })));
+  // the body limit is in bytes, not characters: 30,000 three-byte characters are 90,000 bytes
+  const wide = await post(null, J({ jsonrpc: '2.0', id: 1, method: 'ping', params: { pad: '\u20ac'.repeat(30000) } }));
+  const lied = await worker.fetch(new Request('https://mcp.cloadm.dev/mcp', { method: 'POST', body: '{}', headers: { 'content-type': 'application/json', 'content-length': '999999' } }));
   const get = await worker.fetch(new Request('https://mcp.cloadm.dev/mcp'));
   const other = await worker.fetch(new Request('https://mcp.cloadm.dev/'));
   const parse = await post(null, '{nope');
@@ -66,8 +72,11 @@ const J = JSON.stringify;
   check('initialize: the client\'s version when the Worker speaks it, else the newest; the MCP Apps extension; the release version',
     init.body.result.protocolVersion === '2025-06-18' && initOld.body.result.protocolVersion === '2025-11-25'
     && J(init.body.result.capabilities.extensions['io.modelcontextprotocol/ui'].mimeTypes) === J([MIME])
-    && init.body.result.serverInfo.version === build.version() && /next message/.test(init.body.result.instructions), J(init.body));
-  check('a notification gets 202 and no body; a batch replies to its requests only', notif.status === 202 && notif.body === null && J(batch.body) === J([{ jsonrpc: '2.0', id: 7, result: {} }]));
+    && init.body.result.serverInfo.version === build.version() && build.version() !== 'unknown' && /next message/.test(init.body.result.instructions), J(init.body));
+  check('a notification gets 202 and no body', notif.status === 202 && notif.body === null);
+  check('a batch (a JSON array) is refused with -32600, also one of 600 reads of the 1 MiB view (nothing is built)', batch.status === 400 && batch.body.error.code === -32600 && /batches/.test(batch.body.error.message)
+    && bomb.status === 400 && bomb.body.error.code === -32600 && J(bomb.body).length < 200, J(batch.body));
+  check('the 64 KiB limit counts bytes (90,000 bytes of 30,000 characters: 413), and a Content-Length over it is refused before reading', wide.status === 413 && lied.status === 413, `${wide.status} ${lied.status}`);
   const tools = list.body.result.tools;
   check('tools/list: the two server tools, each opening its view, no arguments, read-only',
     J(tools.map((t) => [t.name, t._meta.ui.resourceUri])) === J([['open_emulator', 'ui://cloadm/panel.html'], ['open_emulator_inline', 'ui://cloadm/inline.html']])
@@ -101,8 +110,17 @@ const J = JSON.stringify;
     [views.site, views.inline].every((h) => h.indexOf('CLOADM_BRIDGE = {') < h.indexOf('<script type="module">')) && cfgA.api === panel.PANEL_API && cfgB.api === panel.PANEL_API
     && cfgA.version === build.version() && J(cfgA.tools) === J(build.panelTools()) && J(cfgB.tools) === J(cfgA.tools) && cfgA.programs === undefined);
   const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, '.claude-plugin/plugin.json'), 'utf8'));
-  check('the version is the plugin\'s (CHANGELOG.md\'s Next version)', build.version() === manifest.version, `${build.version()} ${manifest.version}`);
-  check('B is about 1 MiB (claude.ai accepted the spike\'s 909 KiB view)', views.inline.length < 1.25 * 1024 * 1024, `${views.inline.length}`);
+  const described = require('child_process').execFileSync('git', ['describe', '--tags', '--always', '--dirty'], { cwd: ROOT, encoding: 'utf8' }).trim().replace(/^v/, '');
+  check('the version is the build\'s (git describe), not the released number in CHANGELOG.md or the manifests', build.version() === described
+    && (require('child_process').execFileSync('git', ['tag', '--points-at', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).split('\n').includes(`v${manifest.version}`) || build.version() !== manifest.version), `${build.version()} ${described} ${manifest.version}`);
+  const site = (body) => async () => body;
+  const same = await build.checkSite(site(`export const PANEL_API = ${panel.PANEL_API};`));
+  const otherApi = await build.checkSite(site(`export const PANEL_API = ${panel.PANEL_API + 1};`));
+  const missing = await build.checkSite(async () => { throw new Error('HTTP 404'); });
+  const none = await build.checkSite(site('// not the panel'));
+  check('build: the site check passes only when cloadm.dev serves the same PANEL_API (a release not yet on the site is refused)', same.ok && !otherApi.ok && /serves PANEL_API/.test(otherApi.why)
+    && !missing.ok && /404/.test(missing.why) && !none.ok, J([otherApi, missing, none]));
+  check('B is about 1 MiB (claude.ai has accepted a 909 KiB view)', views.inline.length < 1.25 * 1024 * 1024, `${views.inline.length}`);
 
   // ---------------- the folded core ----------------
   const { fold } = await imp('connector/fold.js');
@@ -160,8 +178,8 @@ const J = JSON.stringify;
   const before = await ptb.call('peek', { machine_id: 'm1', address: 0x3000, length: 2 }, { base64: b64 });
   s.addRoms([{ name: 'd64_1.rom', bytes: fake(1) }, { name: 'd64_2.rom', bytes: fake(2) }]);
   const romReads = await Promise.all([ptb.call('peek', { machine_id: 'm1', address: 0x8000, length: 16 }, { base64: b64 }), ptb.call('find_bytes', { machine_id: 'm1', pattern: '01 0E' }, { base64: b64 }), ptb.call('disassemble', { machine_id: 'm1', address: 0x8000 }, { base64: b64 })]);
-  check('panel tools: memory reads work without ROMs, and are refused once the user\'s ROMs are in (no ROM byte leaves the panel)', !before.isError && s.romCodeIn() === 'roms'
-    && romReads.every((r) => r.isError && r.structuredContent.error.code === 'rejected' && /never leave this host/.test(r.structuredContent.error.detail)), J(romReads).slice(0, 300));
+  check('panel tools: memory reads work without ROMs, and are refused once the user\'s ROMs are in (no tool returns ROM memory directly)', !before.isError && s.romCodeIn() === 'roms'
+    && romReads.every((r) => r.isError && r.structuredContent.error.code === 'rejected' && /no tool returns ROM memory directly/.test(r.structuredContent.error.detail)), J(romReads).slice(0, 300));
   await ptb.call('boot', { roms: false }, { base64: b64 });
   await ptb.call('load', { machine_id: 'm1', program: 'liza' }, { base64: b64 });
   const bigText = { content: [{ type: 'text', text: 'x'.repeat(panel.TEXT_MAX + 1) }] }, okText = { content: [{ type: 'text', text: 'x'.repeat(panel.TEXT_MAX) }] };
@@ -229,12 +247,13 @@ const J = JSON.stringify;
   {
     const b = bridge();
     b.reply('ui/initialize', {});
-    b.B.attach({ api: panel.PANEL_API + 1, tools: [], call: async () => ({}) });
+    b.B.attach({ api: panel.PANEL_API + 1, tools: [{ name: 'screen_text' }], call: async () => ({ content: [{ type: 'text', text: 'served anyway' }] }) });
     b.deliver({ jsonrpc: '2.0', id: 60, method: 'tools/call', params: { name: 'screen_text', arguments: {} } });
     await waitFor(() => b.sent.some((m) => m.id === 60));
     const r = b.sent.find((m) => m.id === 60);
-    check('bridge: an emulator with another PANEL_API is refused: calls answer out-of-step, no list_changed', r && r.result.isError && r.result.structuredContent.error.code === 'out-of-step'
-      && !b.sent.some((m) => m.method === 'notifications/tools/list_changed') && /out-of-step/.test(b.B.describe()), J(r));
+    const code = r?.result?.structuredContent?.error?.code ?? null;
+    check('bridge: an emulator with another PANEL_API is refused: the call answers out-of-step', code === 'out-of-step', `got ${J(r)}`);
+    check('bridge: ... and no list_changed is sent, and the status line says out-of-step', !b.sent.some((m) => m.method === 'notifications/tools/list_changed') && /out-of-step/.test(b.B.describe()), J(b.sent));
   }
   {
     const b = bridge();
@@ -258,6 +277,46 @@ const J = JSON.stringify;
     check('bridge: a cancelled call gets no reply', !b.sent.some((m) => m.id === 80));
   }
 
+  // ---------------- the PANEL_API contract ----------------
+  // What the view's HTML (built into the Worker) and the emulator module (served by cloadm.dev) expect of each other:
+  // the bridge's members and what attach() reads, the CLOADM_VIEW fields and who reads them, the shell's element ids.
+  // Its hash is recorded with the PANEL_API it belongs to: change the contract and this fails until PANEL_API is raised
+  // (connector/view/tools.js) and the new pair recorded here.
+  const CONTRACT = { api: 1, sha256: '4357f395468efa9c4a3a726ae8f3721ea4a281178a33f404f8ea9728e79cfe70' };
+  {
+    const b = bridge();
+    const uniq = (re, text) => [...new Set([...text.matchAll(re)].map((m) => m[1]))].sort();
+    const panelSrc = fs.readFileSync(path.join(ROOT, 'connector/view/panel.js'), 'utf8');
+    const shellIds = uniq(/\bid="([^"]+)"/g, views.site.replace(/<script[\s\S]*?<\/script>/g, ''));
+    const contract = {
+      bridgeMembers: Object.getOwnPropertyNames(b.B).sort(),
+      arity: { attach: b.B.attach.length, fail: b.B.fail.length, onChange: b.B.onChange.length, requestDisplayMode: b.B.requestDisplayMode.length },
+      attachReads: uniq(/\b(?:x|impl)\.(\w+)/g, bridgeSrc),
+      viewFields: [...new Set([...Object.keys(cfgA), ...Object.keys(cfgB)])].sort(),
+      cfgReads: uniq(/\bcfg\.(\w+)/g, bridgeSrc + panelSrc),
+      panelUsesBridge: uniq(/\bbridge\.(\w+)/g, panelSrc),
+      panelIds: uniq(/\$\('(\w+)'\)/g, panelSrc),
+      shellIds,
+    };
+    const sha = require('crypto').createHash('sha256').update(J(contract)).digest('hex');
+    const missingIds = contract.panelIds.filter((id) => !shellIds.includes(id));
+    check('PANEL_API contract: every element panel.js uses is in the shell', !missingIds.length, missingIds.join(','));
+    const api = panel.PANEL_API;
+    check(`PANEL_API contract: the recorded hash is this contract's, under PANEL_API ${api}`, sha === CONTRACT.sha256 && api === CONTRACT.api,
+      sha === CONTRACT.sha256 ? `PANEL_API is ${api} but the contract was recorded under ${CONTRACT.api}: record { api: ${api}, sha256: '${sha}' }`
+        : api === CONTRACT.api ? `the contract changed (${sha}) but PANEL_API is still ${api}: raise PANEL_API in connector/view/tools.js, then record the new pair ${J(contract)}`
+          : `PANEL_API is now ${api}: record { api: ${api}, sha256: '${sha}' }`);
+  }
+
+  // ---------------- what the docs claim about ROMs ----------------
+  // ROM memory is not sealed: a program run on the machine can read it (tests/mcp.test.js pins that). Nothing may claim
+  // that no ROM byte leaves the panel; the guide must say what is true instead.
+  const claimFiles = ['docs/mcp.md', 'CHANGELOG.md', 'README.md', 'skills/cloadm/SKILL.md', ...['view/tools.js', 'view/panel.js', 'view/bridge.js', 'worker/src/server.js', 'build.js'].map((f) => `connector/${f}`), 'js/mcp/tools.js'];
+  const overclaims = claimFiles.filter((f) => /no ROM bytes? (ever )?leaves?|never leaves? (this host|the panel)|ROMs? (never|cannot) leave/i.test(fs.readFileSync(path.join(ROOT, f), 'utf8')));
+  check('no file claims that no ROM byte leaves the panel; the guide says a determined agent can infer ROM contents through execution', !overclaims.length
+    && /a\s+determined agent can infer ROM contents through execution/.test(fs.readFileSync(path.join(ROOT, 'docs/mcp.md'), 'utf8')), overclaims.join(', '));
+
   console.log(`${n - fail}/${n} connector checks passed`);
   process.exitCode = fail ? 1 : 0;
-})().catch((e) => { console.log('FAIL', String(e.stack).slice(0, 2000)); process.exitCode = 1; });
+// (straight to stdout: a failure while the Worker is probed comes while console is stubbed)
+})().catch((e) => { process.stdout.write(`FAIL ${String(e.stack).slice(0, 2000)}\n`); process.exitCode = 1; });

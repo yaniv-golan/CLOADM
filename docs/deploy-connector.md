@@ -10,8 +10,11 @@ answers Claude's MCP requests with two tools and two views, and the emulator the
 ## What it depends on
 
 * **cloadm.dev serves this release.** The default view (`open_emulator`) loads `connector/view/panel.js` and `js/`
-  from `https://cloadm.dev`, so the release must be on the site (GitHub Pages builds `main`) before the Worker that
-  matches it is deployed. The view's bridge checks `PANEL_API` (`connector/view/tools.js`) against the site's: a
+  from `https://cloadm.dev`, so the release must be on the site before the Worker that matches it is deployed. GitHub
+  Pages publishes the head of `main`, not a tag: the site is whatever `main` holds now. The build enforces the order:
+  it fetches `https://cloadm.dev/connector/view/tools.js` and refuses to build unless the site's `PANEL_API` is the
+  checkout's (a first deploy, before the site has the connector, or a deliberate one: `CLOADM_FORCE_DEPLOY=1 npx
+  wrangler@latest deploy`, or `node ../build.js --force`). The view's bridge checks `PANEL_API` (`connector/view/tools.js`) against the site's: a
   Worker newer or older than the site in that number answers `out-of-step` until both match. Deploy the Worker after
   each release that changes `connector/` or `PANEL_API`; a release that changes only `js/` needs no redeploy (the
   emulator's own tool list replaces the one the Worker was built with as soon as the view has loaded).
@@ -37,7 +40,9 @@ npx wrangler@latest login          # once: opens the browser
 npx wrangler@latest deploy
 ```
 
-`deploy` runs the build (it prints the two views' sizes and the version) and uploads the Worker `cloadm-mcp`.
+`deploy` runs the build (it checks the site, then prints the two views' sizes and the version) and uploads the
+Worker `cloadm-mcp`. The version the server reports is the checkout's `git describe` (`0.1.8` on the release's tag,
+`0.1.8-2-gabc1234` for later work, `-dirty` with uncommitted changes), so deploy from a clean checkout of the tag.
 `wrangler.toml` turns Workers Logs off (`[observability] enabled = false`) and has no `workers.dev` address
 (`workers_dev = false`). To try it before it has its domain, `npx wrangler@latest dev` serves it on
 `http://localhost:8787/mcp`.
@@ -74,7 +79,7 @@ curl -s -X POST https://mcp.cloadm.dev/mcp \
 The answer lists `open_emulator` and `open_emulator_inline`, each with `_meta.ui.resourceUri`. Also:
 
 ```
-# the version is the release's ("Next version" in CHANGELOG.md when it was built)
+# serverInfo.version is the checkout's git describe (the tag, on a release)
 curl -s -X POST https://mcp.cloadm.dev/mcp -H 'content-type: application/json' \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{}}}'
 # the default view declares https://cloadm.dev and nothing else

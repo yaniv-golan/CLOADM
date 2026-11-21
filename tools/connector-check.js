@@ -13,7 +13,7 @@
 //   site      (A, open_emulator): the handshake comes before the emulator's module runs; the first list already has
 //             every tool; list_changed follows; screen_text, type_text (LIZA answers), load 2048 and screenshot, peek;
 //             a real click and real keys; storage; ROMs added in the panel persist across a reload, and then memory
-//             reads are refused (no ROM byte leaves the panel)
+//             reads are refused (no tool returns ROM memory directly)
 //   inline    (B, open_emulator_inline): the same handshake and tools with nothing fetched
 //   no-cors   A when the site sends no Access-Control-Allow-Origin: the handshake still comes; calls are not-started
 //   out-of-step A when the site's panel speaks another PANEL_API: calls are out-of-step
@@ -189,7 +189,7 @@ async function scenario(browser, check, name, { uri, cors = true, panelApi = nul
       const kept = again && await wait(v2, () => window.cloadmView && window.cloadmView.session.machine.hasRom, null, 10000);
       check('connector site: ROMs added in the panel are kept when the same conversation\'s view opens again; another conversation\'s view has its own storage', took && kept && other && otherRoms === false, JSON.stringify({ took, kept, other, otherRoms }));
       const reads = await Promise.all([call('peek', { machine_id: 'm1', address: 0x8000, length: 16 }), call('find_bytes', { machine_id: 'm1', pattern: '01 0E' }), call('disassemble', { machine_id: 'm1', address: 0x8000 })]);
-      check('connector site: with the user\'s ROMs, peek, find_bytes and disassemble are refused (no ROM byte leaves the panel)', reads.every((r) => data(r) && data(r).error && data(r).error.code === 'rejected' && /never leave this host/.test(data(r).error.detail)), JSON.stringify(reads).slice(0, 400));
+      check('connector site: with the user\'s ROMs, peek, find_bytes and disassemble are refused (no tool returns ROM memory directly)', reads.every((r) => data(r) && data(r).error && data(r).error.code === 'rejected' && /no tool returns ROM memory directly/.test(data(r).error.detail)), JSON.stringify(reads).slice(0, 400));
     }
     check(`connector ${name}: no page errors`, !errors.length, errors.join(' | '));
   } finally {

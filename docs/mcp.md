@@ -16,8 +16,8 @@ its own marketplace.
 
 | Way | Install | Where the emulator runs | Tested |
 |---|---|---|---|
-| **1. Connector** (most people) | Plugins → Add → "Add custom connector" → `https://mcp.cloadm.dev/mcp` → **No sign-in** → Add | in Claude's side panel, in your browser | the view on claude.ai on the web (the prototype); the desktop app and phones not yet |
-| **2. Plugin** (your own files, or Claude Code) | Plugins → Add → "Add marketplace" → `yaniv-golan/CLOADM` → Add on **Cloadm**; in Claude Code `/plugin marketplace add yaniv-golan/CLOADM`, then `/plugin install cloadm@cloadm-marketplace` | on your computer | Claude Code; the desktop app's plugin path by the owner |
+| **1. Connector** (most people) | Plugins → Add → "Add custom connector" → name `CLOADM` and URL `https://mcp.cloadm.dev/mcp` → **No sign-in** → Add | in Claude's side panel, in your browser | the view on claude.ai on the web (the prototype); the desktop app and phones not yet |
+| **2. Plugin** (your own files, or Claude Code) | Customize → Plugins → Add → "Add marketplace" → `yaniv-golan/CLOADM` → Add on **Cloadm**; in Claude Code `/plugin marketplace add yaniv-golan/CLOADM`, then `/plugin install cloadm@cloadm-marketplace` | on your computer | Claude Code; the desktop app's plugin path by the owner |
 | 3. `.mcpb` extension (niche) | download `cloadm.mcpb` from the [Releases](https://github.com/yaniv-golan/CLOADM/releases) page and open it | on your computer, Claude Desktop only | |
 | 4. Other agents (Cursor, Codex, Gemini CLI, …) | an MCP entry for `node cli/cloadm.js --mcp`, plus `.agents/skills/` | on your computer | see [below](#cursor-gemini-cli-codex-and-other-mcp-clients) |
 
@@ -336,9 +336,12 @@ account or organization has yet.
 * `load` runs the bundled programs by name (`welcome`, `liza`, `demo`, `2048`, `minesweeper`). The panel has no files:
   a `path` is refused with `no-media-root`, and `insert_tape`, `insert_disk`, `save_snapshot` and `restore_snapshot`
   are not offered. Claude's views cannot download, so nothing is saved out of the panel either.
-* Your ROMs stay in the panel. Add them with **Add ROMs…** or by dropping the files on the view; they are kept in that
-  view's own browser storage, never sent anywhere, and no tool takes or returns them. While they run, `peek`,
-  `find_bytes` and `disassemble` are refused (`rejected`): memory can then hold ROM code. Claude gives each
+* Your ROM files stay in the panel. Add them with **Add ROMs…** or by dropping the files on the view; they are kept
+  in that view's own browser storage, and no tool takes or returns them as files. While they run, `peek`, `find_bytes`
+  and `disassemble` are refused (`rejected`): memory can then hold ROM code, and no tool returns it directly. That is
+  not a seal: a program run on the machine can read the ROM (BASIC's `PEEK` printed on the screen, machine code from
+  `assemble_and_load` and then `registers`, `run_frames` waiting for a memory byte to hold each value in turn), so a
+  determined agent can infer ROM contents through execution. Each call is still yours to approve. Claude gives each
   conversation's view its own origin, so a new conversation starts without them; reopening the same conversation keeps
   them (in that browser).
 * Claude's limits for app tools: a call may run 45 s, and a result may hold 100,000 characters. A tool that runs the
@@ -368,7 +371,8 @@ connector's as soon as it has loaded. The self-contained view has no such depend
 deployment: [deploy-connector.md](deploy-connector.md).
 
 **Privacy.** The connector's server receives Claude's requests for its tool list and its views, nothing more: what you
-type, the screen and your ROMs stay in the view in your browser. It stores nothing and logs nothing.
+type, the screen and your ROM files stay in the view in your browser (what Claude reads through
+the tools goes to Claude, as in any chat). It stores nothing and logs nothing.
 
 ## Serving JSON lines
 

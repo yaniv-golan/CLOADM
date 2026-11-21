@@ -1,6 +1,8 @@
 // CLOADM's remote MCP connector, https://mcp.cloadm.dev/mcp: a Cloudflare Worker, no dependencies, no sign-in.
-// Transport: Streamable HTTP, stateless: every POST /mcp gets one JSON reply (no sessions, no SSE stream, so GET is
-// 405); a POST of notifications only gets 202. Nothing is stored and nothing is logged: the Worker keeps no state
+// Transport: Streamable HTTP, stateless: every POST /mcp carries one JSON-RPC message and gets one JSON reply (no
+// sessions, no SSE stream, so GET is 405); a notification gets 202. Batches (a JSON array) are refused, as MCP
+// 2025-06-18 removed them: one POST could otherwise ask for hundreds of copies of the 1 MiB view. A body is read up to
+// BODY_MAX bytes and no further (a Content-Length over it is refused before reading). Nothing is stored and nothing is logged: the Worker keeps no state
 // between requests, writes no console output, and wrangler.toml turns Workers Logs off.
 // Server tools, minimal: each opens the emulator view (MCP Apps, _meta.ui.resourceUri); the emulator then runs in the
 // person's browser, and its own tools (type_text, screen_text, run_frames, ...) are app tools the view registers
@@ -34,6 +36,24 @@ const resources = (views) => ({
   'ui://cloadm/inline.html': { name: 'CLOADM (self-contained)', text: views.inline,
     meta: { ui: { prefersBorder: false, preferredDisplayMode: 'fullscreen' } } },
 });
+
+// the request's body as text, or null once it passes `max` bytes (read no further)
+async function readCapped(req, max) {
+  if (!req.body) return '';
+  const reader = req.body.getReader(), parts = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > max) { await reader.cancel(); return null; }
+    parts.push(value);
+  }
+  const all = new Uint8Array(size);
+  let at = 0;
+  for (const p of parts) { all.set(p, at); at += p.byteLength; }
+  return new TextDecoder().decode(all);
+}
 
 export function createServer(views) {
   const RES = resources(views);
@@ -69,16 +89,18 @@ export function createServer(views) {
       const url = new URL(req.url);
       if (url.pathname !== '/mcp') return new Response('CLOADM MCP connector: POST /mcp (https://cloadm.dev/docs/mcp.md)\n', { status: 404, headers: { 'content-type': 'text/plain' } });
       if (req.method !== 'POST') return new Response(null, { status: 405, headers: { Allow: 'POST' } });
-      const text = await req.text();
-      if (text.length > BODY_MAX) return json({ jsonrpc: '2.0', id: null, error: { code: -32600, message: `request too large (at most ${BODY_MAX} bytes)` } }, 413);
-      let body;
-      try { body = JSON.parse(text); } catch (e) { return json({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'parse error' } }, 400); }
-      const msgs = Array.isArray(body) ? body : [body];
-      if (!msgs.length || msgs.some((m) => !m || typeof m !== 'object' || m.jsonrpc !== '2.0')) return json({ jsonrpc: '2.0', id: null, error: { code: -32600, message: 'invalid request' } }, 400);
-      // requests get replies; notifications and replies to nothing we asked get none
-      const replies = msgs.filter((m) => typeof m.method === 'string' && m.id !== undefined && m.id !== null).map(handle);
-      if (!replies.length) return new Response(null, { status: 202 });
-      return json(Array.isArray(body) ? replies : replies[0]);
+      const tooLarge = () => json({ jsonrpc: '2.0', id: null, error: { code: -32600, message: `request too large (at most ${BODY_MAX} bytes)` } }, 413);
+      const declared = req.headers.get('content-length');
+      if (declared !== null && !(Number(declared) <= BODY_MAX)) return tooLarge();
+      const text = await readCapped(req, BODY_MAX);
+      if (text === null) return tooLarge();
+      let msg;
+      try { msg = JSON.parse(text); } catch (e) { return json({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'parse error' } }, 400); }
+      if (Array.isArray(msg)) return json({ jsonrpc: '2.0', id: null, error: { code: -32600, message: 'invalid request: batches are not supported (one JSON-RPC message per request)' } }, 400);
+      if (!msg || typeof msg !== 'object' || msg.jsonrpc !== '2.0') return json({ jsonrpc: '2.0', id: null, error: { code: -32600, message: 'invalid request' } }, 400);
+      // a request gets its reply; a notification, or a reply to nothing we asked, gets none
+      if (typeof msg.method !== 'string' || msg.id === undefined || msg.id === null) return new Response(null, { status: 202 });
+      return json(handle(msg));
     },
   };
 }

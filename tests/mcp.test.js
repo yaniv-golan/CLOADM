@@ -774,7 +774,7 @@ fs.writeFileSync(tmp('media', 'plain.bas'), '10 PRINT "HI"\n');
     check('load: a game on a machine that cannot run it is refused as the page refuses it', !no6809.ok && no6809.error.code === 'rejected' && /6809 code/.test(no6809.error.detail), J(no6809));
     const badProg = await tb.call('load', { machine_id: 'm1', program: 'tetris' });
     check('load: an unknown program names the bundled ones', !badProg.ok && /welcome, liza, demo, 2048 or minesweeper/.test(badProg.error.detail), J(badProg));
-    // no ROM byte leaves a host that refuses ROM reads: with the user's ROMs (here bytes standing in for them) peek,
+    // no tool returns ROM memory directly on a host that refuses ROM reads: with the user's ROMs (here bytes standing in for them) peek,
     // find_bytes and disassemble are refused; without ROMs they read
     await tb.call('boot', { model: 'dragon32', roms: false });
     const free = await tb.call('peek', { machine_id: 'm1', address: 0xA000, length: 4 });
@@ -783,7 +783,13 @@ fs.writeFileSync(tmp('media', 'plain.bas'), '10 PRINT "HI"\n');
     const refused = await Promise.all([tb.call('peek', { machine_id: 'm1', address: 0xA000, length: 4 }), tb.call('find_bytes', { machine_id: 'm1', pattern: '03 0A' }), tb.call('disassemble', { machine_id: 'm1', address: 0x8000, count: 4 })]);
     const shown = await tb.call('screen_text', { machine_id: 'm1' });
     check('refuseRomReads: peek, find_bytes and disassemble are refused while the user\'s ROMs run; the screen still reads', free.ok && withRoms === 'roms'
-      && refused.every((x) => !x.ok && x.error.code === 'rejected' && /never leave this host/.test(x.error.detail)) && shown.ok, J(refused).slice(0, 400));
+      && refused.every((x) => !x.ok && x.error.code === 'rejected' && /no tool returns ROM memory directly/.test(x.error.detail)) && shown.ok, J(refused).slice(0, 400));
+    // ... and that is all it is: a program run on the machine still reads ROM. The docs say so (a determined agent can
+    // infer ROM contents through execution); this pins the path they name, run_frames waiting for a byte's value
+    const romByte = own.readByte(0xA000);
+    const wrong = await tb.call('run_frames', { machine_id: 'm1', frames: 1, until: { address: 0xA000, value: (romByte + 1) & 255 } });
+    const right = await tb.call('run_frames', { machine_id: 'm1', frames: 1, until: { address: 0xA000, value: romByte } });
+    check('refuseRomReads is not a seal: run_frames until a ROM byte holds a value still answers (as docs/mcp.md says)', wrong.ok && wrong.data.status === 'not-yet' && right.ok && right.data.status === 'met', J([wrong.data && wrong.data.status, right.data && right.data.status]));
     const stdio = T.createToolbox(host);
     const boot2 = await stdio.call('boot', { model: 'dragon32' });
     stdio.call('poke', { machine_id: boot2.data.machine.machine_id, address: 0x3000, bytes: [1] });

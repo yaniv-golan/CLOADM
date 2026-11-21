@@ -160,11 +160,13 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
   const machines = new Map();   // machine_id -> { id, session, chat }
   let nextId = 1;
   if (own) maxMachines = 1;
-  // the embed API's refusal (EmbedApi.peek), for a host that hands no ROM byte out
+  // the embed API's refusal (EmbedApi.peek): no tool returns ROM memory directly. It is not a seal: a program run on
+  // the machine (assemble_and_load, BASIC's PEEK, a run_frames until on a memory byte) can still read the ROM, so a
+  // determined agent can infer its contents through execution
   const romGuard = (m) => {
     if (!refuseRomReads) return;
     const why = m.session.romCodeIn();
-    if (why) throw fail('rejected', `memory is not readable here while ${why === 'roms' ? 'the machine runs the user\'s own ROMs' : why === 'nitros9' ? 'NitrOS-9 runs from the user\'s own image' : 'a cartridge is plugged in'}: it can hold copies of ROM code, which never leave this host. Run without ROMs (boot with roms: false) to read memory`);
+    if (why) throw fail('rejected', `memory is not readable here while ${why === 'roms' ? 'the machine runs the user\'s own ROMs' : why === 'nitros9' ? 'NitrOS-9 runs from the user\'s own image' : 'a cartridge is plugged in'}: it can hold copies of ROM code, and no tool returns ROM memory directly. Run without ROMs (boot with roms: false) to read memory`);
   };
 
   const get = (args) => {
