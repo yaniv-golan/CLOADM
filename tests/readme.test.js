@@ -67,14 +67,18 @@ for (const [what, re] of [['the site', /https:\/\/cloadm\.dev\/play\//], ['/roms
 }
 check('never links the archive\'s ROM folder', !/colorcomputerarchive\.com\/repo\/ROMs/i.test(md));
 
-// pictures: PNGs captured from the emulator (tools/capture-images.js), 4:3, with alt text
+// pictures: PNGs and GIFs captured from the emulator (tools/capture-images.js, tools/capture-gif.js), 4:3, with alt
+// text. Badges are the only pictures from elsewhere: remote https images with alt text.
 const imgs = [...md.matchAll(/<img src="([^"]+)"[^>]*alt="([^"]+)"/g)];
 check('every picture has alt text', imgs.length === (md.match(/<img /g) || []).length && imgs.length >= 2);
+const tools = ['capture-images.js', 'capture-gif.js'].map((f) => fs.readFileSync(path.join(ROOT, 'tools', f), 'utf8'));
 for (const [, src] of imgs) {
-  const b = fs.readFileSync(path.join(ROOT, src));
-  const w = b.readUInt32BE(16), h = b.readUInt32BE(20);
-  check(`${src}: a PNG captured by tools/capture-images.js, 4:3`, b.slice(1, 4).toString() === 'PNG' && w * 3 === h * 4
-    && fs.readFileSync(path.join(ROOT, 'tools/capture-images.js'), 'utf8').includes(path.basename(src)), `${w}x${h}`);
+  if (/^https:\/\//.test(src)) { check(`${src}: a badge from GitHub or shields.io`, /^https:\/\/(github\.com\/yaniv-golan\/CLOADM\/actions\/|img\.shields\.io\/)/.test(src)); continue; }
+  const b = fs.readFileSync(path.join(ROOT, src)), gif = b.slice(0, 6).toString() === 'GIF89a';
+  const w = gif ? b.readUInt16LE(6) : b.readUInt32BE(16), h = gif ? b.readUInt16LE(8) : b.readUInt32BE(20);
+  check(`${src}: a PNG or GIF captured by a tool in tools/, 4:3`, (gif || b.slice(1, 4).toString() === 'PNG') && w * 3 === h * 4
+    && tools.some((t) => t.includes(path.basename(src))), `${w}x${h}`);
+  if (gif) check(`${src}: animated (more than one frame), looping, under 1.5 MB`, b.includes(Buffer.from('NETSCAPE2.0')) && b.filter((x) => x === 0x2c).length > 1 && b.length < 1.5 * 1024 * 1024, `${b.length} bytes`);
 }
 // the ROM table is still the generated one (tests/romdocs.test.js compares its rows)
 check('the generated ROM table is kept', /<!-- rom-table:start[\s\S]*<!-- rom-table:end -->/.test(md));

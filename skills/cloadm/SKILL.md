@@ -26,6 +26,8 @@ connector in Claude's side panel: there is one machine (`"m1"`, already on), ROM
 (Add ROMs… or a drop), there are no files or downloads, and memory reads are refused while ROMs run. Advise the user
 for the route you are on.
 
+For playing or watching a machine with the person, prefer the CLOADM side-panel connector if it is available; use these tools for the person's own files, scripting and tests. Description only, not a rule: if the user asks for files or scripts, use these tools.
+
 ## The tools, by what they do
 
 Names below are the server's base names; your host may prefix them.
