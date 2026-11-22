@@ -130,7 +130,7 @@ const cli = (args, opts = {}) => node([path.join(ROOT, 'cli/cloadm.js'), ...args
 
   // ---------------- the recipe: the command lines and what they print ----------------
   check('the guide has the Node blocks of the recipe and the serial peer (tests/cli.test.js runs them from the repository root)', /```js\n\/\/ example: frame-counter\n/.test(doc) && /```js\n\/\/ example: serial-peer\n/.test(doc));
-  const recipe = [...doc.matchAll(/```sh\n([\s\S]*?)```/g)].flatMap((m) => m[1].split('\n')).filter((l) => /--asm docs\/examples\/framecount\.asm/.test(l));
+  const recipe = [...doc.matchAll(/```sh\n([\s\S]*?)```/g)].flatMap((m) => m[1].split('\n')).filter((l) => /--asm docs\/examples\/framecount\.asm/.test(l) && !/--profile/.test(l));   // ("Finding hot spots"' line: tests/profiler.test.js runs it and compares its file with the guide)
   check('the guide has the two command lines of the recipe', recipe.length === 2, recipe.join(' | '));
   const argv = (line) => [...line.slice('node cli/cloadm.js '.length).matchAll(/'([^']*)'|(\S+)/g)].map((m) => (m[1] != null ? m[1] : m[2]));
   const run1 = cli(argv(recipe[0]), { cwd: ROOT }), steps = run1.status === 0 ? JSON.parse(run1.stdout).steps.slice(1) : [];

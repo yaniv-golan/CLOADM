@@ -123,9 +123,11 @@ and the byte reads as it was until the machine next runs. A read is not deferred
 there - a read that releases HALT is what a halted loop waits for (`tests/held-writeio.test.js`).
 
 **Probes and bus taps.** The host observes a running machine through internal hooks, shared by the
-debugger, the Session and the developer features built on them (the memory-write observer, `Session.watchWrites`).
-All are host state: never in a snapshot, untouched by a reset, and free when nothing is registered. The one public API
-on them is `watchWrites` (below).
+debugger, the Session and the developer features built on them (the memory-write observer, `Session.watchWrites`, and the
+profiler). All are host state: never in a snapshot, untouched by a reset, and free when nothing is registered. Their public
+clients are `watchWrites` (below) and the profiler (`js/profiler.js`, `Session.profile`): one probe that charges the
+cycles `cpu.totalCycles` moved since the last probe to the instruction that ran, and a read and a write tap over the
+whole address space for its spin test, all on `session.hooks` and taken off when it stops.
 
 * `machine.addProbe(fn)` → `remove()`. `fn(pc)` runs before each CPU step, in registration order, from the family's
   `runCycles`. `pc` is the address of the instruction about to run, unless an interrupt is taken at that step: then

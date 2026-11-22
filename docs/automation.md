@@ -75,6 +75,8 @@ Then, in any order:
 | `--record-stop` | end the recording and write it |
 | `--serial-trace FILE` | trace the serial port from here to the end of the run (the last 65,536 events), written as JSON Lines, one event a line, also when the run fails (see [The serial port from Node](#the-serial-port-from-node)) |
 | `--disk-trace FILE` | trace the disk controller from here to the end of the run (the last 65,536 events), written as JSON Lines, one event a line, also when the run fails (see [Tracing the disk controller](#tracing-the-disk-controller)) |
+| `--profile FILE[:cycles\|samples]` | profile where the CPU spends its time from here to `--profile-stop` or the end of the run, by symbol (see [Finding hot spots](#finding-hot-spots)); FILE gets a text table, or JSON with `--json` |
+| `--profile-stop` | end the profile and write its file |
 | `--peek ADDR[:LEN]` | memory as the CPU sees it, with no side effects |
 | `--poke ADDR=V[,V…]` | write through the memory map (ROM and I/O take nothing) |
 | `--save-snapshot FILE` | the machine as a snapshot file, which the page opens too |
@@ -449,7 +451,7 @@ guest writes its frame-complete marker:
   rate it is the start of the instruction's last cycle for most instructions (the timing checked against MAME; the CPU core
   counts a push's cycles as it goes, so `PSHU A,B` times its two bytes at its 5th and 6th cycles of 7), at the address-dependent and fast rates the
   access's own cycle, and on the CoCo 3 the access's time in GIME clocks. A two-byte write (`STD`) or a push (`PSHS`) gives one event a byte, in the order the bus made them.
-* In `fn`, `machine.setKey`, the joystick (`machine.joy`) and mouse (`machine.mouse`), `session.serialSend` and
+* In `fn`, `machine.setKey`, the joystick (`machine.joy`) and mouse (`machine.mouse`), `session.serial.send` and
   `session.pokeBytes` take effect from the next instruction. Returning `'stop'` stops the run there, as a debugger stop
   (`session.paused`, `debug.stopReason.kind === 'write'`; `debug.resume()` and `runFrames` go on). `switchMachine`,
   `openSnapshot` and `snapshotFile` throw a `SessionError` inside `fn`.
@@ -517,6 +519,76 @@ w.remove();
 s.debug.resume();
 s.runFrames(2);
 if (s.paused || s.readByte(0x3100) !== 16) fail(`after resume, tick ${s.readByte(0x3100)}`);
+console.log('example passed');
+```
+
+### Finding hot spots
+
+A slow build tells you how many frames it takes, not where they go. A **profile** charges every CPU cycle to the
+instruction that spent it, folds the counts into the program's symbols, and says which of that time was spent
+**spinning**: waiting on a poll rather than computing.
+
+```sh
+node cli/cloadm.js --asm docs/examples/framecount.asm --frames 5 --profile hot.txt --frames 50 --profile-stop
+```
+
+```text
+889199 cycles; halted 0; outside any symbol 0
+ share         count   spin  where
+ 99.9%        888449    99%  WAITFS $3046-$3068  polls $FF02 $FF03
+  0.1%           500     1%  NOKEY $3069-$30FF  polls $FF02 $FF03
+  0.0%           250     8%  TICK $3043-$3045  polls $FF02 $FF03
+(counts are keyed by CPU address: banked or MMU-mapped code that runs at one address is counted together)
+```
+
+Here nearly all the time is the field-sync wait (`WAITFS` polling `$FF03`, PIA0's field-sync flag): the program is
+idle, not slow (`$FF02` is read to clear the flag). A row that is hot and **not** spin is where to optimise.
+
+* **Symbols.** The labels `--asm` gave, or a map read with `--symbols` (`--assemble --map`, an LWLINK or CMOC map), as
+  they are when the profile is written. A symbol's range runs from its address to the next symbol's, at most 4K bytes;
+  addresses no symbol covers are counted in 256-byte pages (`symbol` null), and `unattributed` is their total.
+* **`cycles`** (the default) is exact: the total is the CPU's cycle count over the profile (`cpu.totalCycles`; CPU
+  cycles on the CoCo 3 too, whatever its GIME clock does). **`samples`** takes one PC every 1000 cycles and counts
+  samples. Cycles in which the disk controller's HALT holds the CPU are no instruction's: they are the `(halted)` row.
+  The cycles an interrupt takes to enter (stacking the registers) count to the instruction it interrupted.
+* **Spin.** The instructions are taken 32 at a time; a window is spin when it ran at most 4 distinct instructions,
+  wrote no RAM, and read I/O (`$FF00`-`$FFFF`; on the MC-10 the `$BF00`-`$BFFF` page: keyboard read, VDG latch write) or read one RAM byte more than once. A row's `spin.share` is the part of its count made in spin
+  windows, and `spin.polls` the addresses those windows read. A delay loop that only counts in a register is compute.
+  The MC-10's 6803 keeps its ports, timer and serial registers (`$0000`-`$001F`) and its own RAM (`$0080`-`$00FF`)
+  off the machine's bus, so the profile sees no access to them: a wait on a 6803 port alone counts as compute.
+* **One address space.** The counts are keyed by CPU address: code banked in or mapped by the CoCo 3's MMU at the same
+  address is counted together, and the report says so (`note`).
+* **Cost.** While a profile runs, the machine runs 1.4 to 1.7 times slower (`node tools/profile-cost.js` measures it on
+  the Dragon 64, CoCo 3 and MC-10); with none, nothing is attached and nothing is slower. A profile is host state:
+  no snapshot carries it, and opening a snapshot starts it empty.
+
+From Node, `session.profile({ mode, every, symbols, buckets })` starts one; `report({ top })` reads it at any time and
+`stop()` ends it with its last report: `{ mode, every, total, halted, unattributed, rows, ranges, note }`, each row
+`{ symbol, start, end, count, share, spin: { share, polls } }`, largest first (`top`, default 30, of them). `every`
+is the sample period in cycles; `buckets` (default 4096) the most ranges a report keeps, the smallest beyond it
+summed in one `(other)` row; `symbols` a Map or object of name to address, by default the Session's labels.
+
+```js
+// example: hot-spots
+import { readFileSync } from 'node:fs';
+import { Session, assemble, profileText } from './js/emu.js';
+
+const fail = (what) => { throw new Error(`example: ${what}`); };
+const s = new Session({ welcomeMenu: false });
+s.switchMachine('dragon64', {}, { menu: false });
+s.runAssembled(assemble(readFileSync('docs/examples/framecount.asm', 'utf8'), '6809'));
+s.runFrames(5);                              // past its start (it clears the picture first)
+
+const t0 = s.shownMachine.cpu.totalCycles;
+const p = s.profile();                       // mode 'cycles': every cycle, exactly
+s.runFrames(50);
+const r = p.stop();
+console.log(profileText(r));
+
+if (r.total !== s.shownMachine.cpu.totalCycles - t0) fail('the total is not the CPU\'s cycle count');
+const top = r.rows[0];
+if (top.symbol !== 'WAITFS' || top.share < 0.99) fail(`the hot spot is ${top.symbol}`);
+if (top.spin.share < 0.95 || !top.spin.polls.includes('$FF03')) fail('the field-sync wait is not spin on $FF03');
 console.log('example passed');
 ```
 
@@ -917,6 +989,7 @@ machine boots from the disk; that path needs a ROM CLOADM does not ship, and is 
 | `disk` (`trace`, `status`), `diagnostics().disk` | the disk controller: the trace's event kinds and fields and the status decoded ([Tracing the disk controller](#tracing-the-disk-controller)) |
 | `debug` (`addBreakpoint`, `step`, `registers`, …) | the debugger, as the page's Debugger screen uses it |
 | `watchWrites({ start, end }, fn)` | the memory-write observer ([Applying input on a guest write](#applying-input-on-a-guest-write)) |
+| `profile({ mode, every, symbols, buckets })` → `report({ top })`, `stop()`, `profileText(report)` | hot spots ([Finding hot spots](#finding-hot-spots)); the report's fields |
 
 Not promoted, although they are reachable: `machine.serialPort`, `pcWatch`, `stubKeys` and the typist's internals (`machine.typist`
 beyond `press`, which the typing row names).

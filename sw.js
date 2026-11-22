@@ -162,6 +162,7 @@ const FILES = [
   'js/media/tape.js',
   'js/media/zip.js',
   'js/package.json',
+  'js/profiler.js',
   'js/roms.js',
   'js/selftest.js',
   'js/session.js',
