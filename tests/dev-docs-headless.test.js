@@ -193,7 +193,7 @@ const cli = (args, opts = {}) => node([path.join(ROOT, 'cli/cloadm.js'), ...args
     check('a snapshot of the Dragon 64 keeps the terminal, its baud and the bytes on their way; the Session re-plugs only its own log',
       t.personMachine.serialPort.kind === 'terminal' && t.personMachine.serialPort.baud === 1200 && t.personMachine.serialPort.queue.length === port.queue.length && t.terminalBytes.length === 0, `${t.personMachine.serialPort.queue.length} vs ${port.queue.length}`);
   }
-  check('the serial note names the tests it rests on, and they exist', /The serial terminal: a byte on its way to the machine is part of the/.test(read('tests/state.test.js')) && /The Dragon 64's 6551 ACIA with a loopback plug/.test(read('tests/state.test.js')));
+  check('the serial note names the tests it rests on, and they exist', /The serial terminal: a byte on its way to the machine is part of the/.test(read('tests/state-carts.test.js')) && /The Dragon 64's 6551 ACIA with a loopback plug/.test(read('tests/state-carts.test.js')));
 
   // ---------------- links ----------------
   const anchor = '#which-storage-and-serial-paths-each-model-has';

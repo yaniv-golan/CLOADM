@@ -501,6 +501,21 @@ if (process.argv.includes('--count')) { console.log(`${cases.length} regression 
 // CommonJS module), so nothing runs and Node exits by itself, without calling process.exit.
 let usageErr = null;
 const usage = (msg) => { console.error(msg); process.exitCode = 2; usageErr = msg; };
+// --only <pattern>: run just the cases whose name matches (a substring, or a regular expression when it is written
+// as one, e.g. --only /^dragon64/). A focused run while changing one thing; it prints the summary it ran, and it is
+// refused with --update, because recording from a partial run would write a baseline with only those cases in it.
+const only = (() => {
+  const i = process.argv.indexOf('--only');
+  if (i < 0) return null;
+  const a = process.argv[i + 1] || '';
+  if (!a) { usage('--only needs a case name or part of one, e.g. --only dragon64'); return null; }
+  if (a.length > 2 && a.startsWith('/') && a.lastIndexOf('/') > 0) {
+    const j = a.lastIndexOf('/');
+    try { const re = new RegExp(a.slice(1, j), a.slice(j + 1)); return { what: a, test: (name) => re.test(name) }; }
+    catch (e) { usage(`--only: ${e.message}`); return null; }
+  }
+  return { what: a, test: (name) => name.includes(a) };
+})();
 const shard = (() => {
   const i = process.argv.indexOf('--shard');
   if (i < 0) return null;
@@ -511,12 +526,20 @@ const shard = (() => {
   // Recording new hashes from a shard would write the file with only this shard's cases, deleting every other
   // hash -- the opposite of what --update means. Refuse rather than produce a corrupted baseline.
   if (UPDATE) { usage('--update records every case, so it cannot be used with --shard; run --update without a shard'); return null; }
+  if (only) { usage('--only runs some cases, so it cannot be used with --shard; run one or the other'); return null; }
   return { idx, of };
 })();
+if (only && UPDATE) { usage('--update records every case, so it cannot be used with --only; run --update on its own'); }
+// --only that matches nothing is an error, not a pass: "0/0 matched" says everything matched, which is the opposite
+// of what happened, and a typo in a case name would look like a clean run (tests/all.js refuses its --only so).
+if (only && !cases.some(([name]) => only.test(name))) {
+  usage(`--only ${only.what}: no case name matches; --count lists how many there are, and a case is named as a run prints it`);
+}
 if (usageErr) return;   // a usage error: exitCode is 2, and the rest of the file must not run
 const expected = fs.existsSync(FILE) ? JSON.parse(fs.readFileSync(FILE, 'utf8')) : {};
 const split = shard && assignShards(cases.map(([name]) => name), expected, shard.of);
-const mine = shard ? cases.filter(([name]) => split.get(name) === shard.idx) : cases;
+const mine = (shard ? cases.filter(([name]) => split.get(name) === shard.idx) : cases)
+  .filter(([name]) => !only || only.test(name));
 const actual = {};
 let fail = 0;
 const t0 = Date.now();

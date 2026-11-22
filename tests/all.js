@@ -151,7 +151,10 @@ const SUITE_TIMEOUT_MS = envT || 240000;   // 4 min: ~7x state.test.js's 33.9 s 
 // shard's wall time follows the machine's load, not its share of the work (6 shards: the longest 121.3 s in the
 // same setup). The cap is only there to catch a hang, as for the suites.
 const LONG_SUITE_TIMEOUT_MS = envT || 600000;
-const LONG_SUITES = new Set(['regress.test.js', 'state.test.js']);
+// The suites long enough to need the longer timeout. state.test.js was one file of about 210 s on CI; the split
+// made it four (state 10 s, state-fdc 23, state-carts 15, state-tape 2 locally), and state-fdc is still long enough
+// on CI to be worth the extra headroom. state-split is static (reads a manifest, 0.1 s) and is NOT long.
+const LONG_SUITES = new Set(['regress.test.js', 'state-fdc.test.js', 'state-carts.test.js']);
 const TIMEOUT_MS = (f) => (LONG_SUITES.has(f) ? LONG_SUITE_TIMEOUT_MS : SUITE_TIMEOUT_MS);
 
 // Every suite process still running, so a signal can take the whole set down. A suite is spawned detached (its

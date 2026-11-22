@@ -3,15 +3,26 @@
 // can be.
 //
 // A case's cost is estimated from its recorded value, which already says how much it runs: a trace records the
-// instructions it executed, a video run the frames it drew. Measured on a 4-core machine (regress unsharded,
-// 134 cases, 178 s): a trace costs about 2 s plus 2.5 us per instruction (the floppy blank-disk traces, 8-9
-// million instructions, take 17-20 s), a video run about 1.6 ms per frame, anything else about 1 s. The estimate
-// only decides the balance; which cases run does not depend on it, and a case without a recorded value (a new
-// one) counts as 1.
+// instructions it executed, a video run the frames it drew. RECALIBRATED by measuring, not by guessing
+// (tools/measure-regress-cost.js runs every case on its own and fits the times): on this machine a trace costs about
+// 0.59 us per instruction and a video run about 0.58 ms per frame, with node startup (about 0.1 s) taken out. The
+// constants before this were 2.5 us and 1.6 ms, roughly four and three times too high, so the balance put far too
+// much weight on instruction count. The estimate only decides the balance; which cases run does not depend on it,
+// and a case without a recorded value (a new one) counts as 1.
+//
+// Measured on this machine the balance barely moves: shard spreads came out 1.21x before and 1.19x after at 4
+// shards (and slightly wider at 8), because the split is dominated by two floppy traces of 6.4 s and 5.2 s rather
+// than by the slope. The constants are still the measured ones - the old ones over-weighted instruction count by
+// ~4x - but do not expect this to shorten a shard on its own.
+// Re-measure on a machine that differs a lot (the fit is per-machine): node tools/measure-regress-cost.js
+// Re-measured 2026-11-22 with the tool (177 cases, one process each, startup 0.09 s taken out): trace 0.59 us per
+// instruction (n=126), video 0.584 ms per frame (n=47) - within 0.7% of the constants below, so they did not move.
+const TRACE_S = 0.59e-6;     // seconds per instruction of a trace case
+const FRAME_S = 0.58e-3;     // seconds per frame of a video case
 function caseCost(rec) {
   if (!rec) return 1;
-  if (rec.instructions != null) return 2 + rec.instructions * 2.5e-6;
-  if (rec.frames != null) return 0.3 + rec.frames * 1.6e-3;
+  if (rec.instructions != null) return rec.instructions * TRACE_S;
+  if (rec.frames != null) return rec.frames * FRAME_S;
   return 1;
 }
 

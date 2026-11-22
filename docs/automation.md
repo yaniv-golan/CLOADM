@@ -488,7 +488,7 @@ fields are what the command line itself uses, and are not promised there.
 
 A snapshot holds the machine and the serial device plugged into it. For the terminal that is the device's kind and baud, the
 line level, the **bytes handed to the machine that it has not finished receiving** (`queue`) and the decoder of the byte
-being sent the other way (`tests/state.test.js`: "The serial terminal: a byte on its way to the machine is part of the
+being sent the other way (`tests/state-carts.test.js`: "The serial terminal: a byte on its way to the machine is part of the
 snapshot"; and "The Dragon 64's 6551 ACIA with a loopback plug", a byte shifted out and back when the snapshot is taken). It does **not** hold your peer:
 its own queue (what it has not yet handed over), what it has received, its backing file or the offset in it, or the
 `onReceive` hook (`Session.openSnapshot` makes a new machine and re-plugs only the Session's own terminal log, `terminalBytes`,
@@ -497,7 +497,7 @@ which starts empty). So a peer that must resume has three jobs, in this order:
 1. **Freeze.** Stop handing over bytes (no more `serialSend`) and stop the host side. Then `machine.serialPort.flush(machine.now())`:
    the port decodes what the machine sends lazily, so this delivers every byte the machine has *completely* sent to
    `onReceive`, and the one in the middle of being sent stays in the decoder (which the snapshot holds) and arrives after the
-   restore (`tests/state.test.js` flushes before it snapshots the bit-banger).
+   restore (`tests/state-carts.test.js` flushes before it snapshots the bit-banger).
 2. **Save the peer next to the snapshot**, under the same name: the number of bytes it **handed to the machine** (not the
    number the machine has read: the difference is the queue, which is in the snapshot), what it has received and its offset
    in the backing file.
@@ -564,7 +564,7 @@ console.log('example passed');
 
 The example runs on the CoCo's bit-banger because its guest is small. The Dragon 64, 200 and Tano's 6551 has its own port object
 (`machine.serialPort` is it too: `attachSerial`, `serialSend`, `onReceive` and `flush` are the same calls) and its registers and
-shift state are in the snapshot as well (`tests/state.test.js`: "The Dragon 64's 6551 ACIA with a loopback plug", a byte shifted out
+shift state are in the snapshot as well (`tests/state-carts.test.js`: "The Dragon 64's 6551 ACIA with a loopback plug", a byte shifted out
 and back when the snapshot is taken). The example does not exercise the machine-to-peer direction: its guest only receives.
 
 ### What is stable
