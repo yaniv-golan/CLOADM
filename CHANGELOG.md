@@ -56,6 +56,20 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   tab waits for you to type; it never starts a turn by itself. A screen-only embed shows nothing unless its link has
   the new `askclaude=1`, the Share screen's **Offer 'Ask Claude ↗'**: then a small chip in the screen's corner does
   the same. The browser check's new group `askPopout` covers it.
+- **Record a clip from a headless run: `--record FILE.avi` … `--record-stop`.** (Command line and a new media module; no
+  change to the emulation.) One command writes the picture and sound together as a RIFF AVI 1.0 file
+  (`js/media/avi.js`, a pure writer): 8-bit palettized video, the frame's own colour codes and table, with a
+  palette-change chunk whenever the table changes; 16-bit 44.1 kHz mono PCM, the samples `--wav` makes. The frame rate
+  is the machine's exact `tickHz / frameCycles` (888625/17784 on the PAL Dragons), and each frame gets 44100 / fps
+  samples with the remainder carried as an exact fraction, so picture and sound never drift; `--wav` now counts its
+  samples per frame the same exact way, and its output is unchanged. The file is written when the run ends, even when it fails, and the same command
+  gives the same bytes. At the AVI 1.0 limit of 1 GiB the run stops with `record-too-big`, suggesting `--record-dir
+  DIR`, which writes a PNG per frame, a WAV and an ffconcat list (durations to the microsecond) instead; a frame that
+  changes size stops it with `record-size-changed`, naming the frame. `docs/automation.md` has a "Recording a clip"
+  section. `tests/cli-record.test.js` reads the file with its own AVI reader and checks every frame against
+  `frameToRGBA`, the audio against the same run's `--wav` byte for byte, each frame's sample count, and the header
+  rate on every model; mutants of the writer (the carried fraction dropped, R and B swapped, the palette chunk left
+  out) fail it, and ffprobe and ffmpeg, when installed, must read the same rate and pixels.
 - **Headless developer docs: which paths each model has, a complete Node example, a graphics recipe and a serial note.** (Documentation,
   one example and its test; no change to the emulator.) `docs/automation.md` gains a per-model table of the tape, disk-controller,
   6551, bit-banger and Becker paths, built from `js/machines/profiles.js` (the options example no longer offers `becker=true`
@@ -242,7 +256,6 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   Dragons and the CoCos; the MC-10 has no drives, and the Dragon Alpha's own interface is unchanged.
 - **On a phone, a slot holding media comes first** under the keyboard panel (then the cassette, the drives, the
   cartridge), so a mounted disk is never below an empty cassette deck.
-
 - **The developer API's stable table covers what a headless script needs.** (Documentation and a test; no change to the emulator.)
   `docs/automation.md`'s "What is stable" table now names `machine.setKey(name, down)` and the key names
   (`Object.keys(machine.keyPos)`; the `[row, column]` values stay internal), `machine.frameCount`, `machine.now()`,

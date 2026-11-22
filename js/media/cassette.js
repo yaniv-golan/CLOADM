@@ -8,6 +8,7 @@
  *
  *   parseWav(bytes)                    -> { sampleRate, channels, bits, samples: Float32Array (mono, -1..1) }
  *   writeWav(samples, sampleRate)      -> 16-bit PCM mono WAV bytes
+ *   pcm16(samples)                     -> the 16-bit values writeWav stores (Int16Array)
  *   casToSamples(cas, opts) / casToWav -> the signal: one sine cycle per bit, starting upwards
  *   samplesToCas(samples, rate, opts)  -> { bytes, blocks, badBlocks, polarity }: the .CAS bytes in the signal
  *   wavToCas(wavBytes, opts)           -> the same from a WAV file
@@ -70,8 +71,15 @@ export function writeWav(samples, sampleRate) {
   v.setUint32(12, FMT, true); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
   v.setUint32(24, sampleRate, true); v.setUint32(28, sampleRate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
   v.setUint32(36, DATA, true); v.setUint32(40, n * 2, true);
-  for (let i = 0; i < n; i++) v.setInt16(44 + i * 2, Math.round(Math.max(-1, Math.min(1, samples[i])) * 32767), true);
+  const pcm = pcm16(samples);
+  for (let i = 0; i < n; i++) v.setInt16(44 + i * 2, pcm[i], true);
   return b;
+}
+// samples (-1..1, clipped) -> 16-bit PCM values: writeWav's quantisation, shared with the AVI recorder (js/media/avi.js)
+export function pcm16(samples) {
+  const out = new Int16Array(samples.length);
+  for (let i = 0; i < samples.length; i++) out[i] = Math.round(Math.max(-1, Math.min(1, samples[i])) * 32767);
+  return out;
 }
 
 // one sine cycle per bit, LSB first, starting upwards; silence before and after

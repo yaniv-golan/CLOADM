@@ -37,6 +37,8 @@ const ERROR_CODES = Object.freeze({
   'cannot-write': ['media', 'a file could not be written'],
   'bad-media': ['media', 'a file is not what the step needs (format, kind, assembly errors)'],
   'missing-roms': ['media', 'the ROMs given do not include what the model needs to boot'],
+  'record-too-big': ['media', 'a record (AVI) recording reached the AVI 1.0 limit of 1 GiB (record-dir has none)'],
+  'record-size-changed': ['media', 'the frame changed size during a recording (a CoCo 3 mode or monitor change)'],
   rejected: ['media', 'the machine refused the media or request (e.g. a BASIC program without BASIC, a disk on a machine with no drives)'],
   timeout: ['condition', 'a wait-for did not hold within its timeout'],
   'expect-failed': ['condition', 'an expect-* did not hold'],
@@ -53,6 +55,9 @@ const HOLD_LIMIT = 100000;    // most frames one `hold` runs
 // 6-bit DAC's step is 320 (DAC value d is 320 x d, at most 20160) and the single-bit output adds 10240 (32 DAC steps).
 const WAV_RATE = 44100;
 const WAV_SCALE = 20160;
+// --record: an AVI 1.0 file (js/media/avi.js) of every frame and its sound (the --wav samples); --record-dir: the
+// same as PNGs, a WAV and an ffconcat list
+const RECORD_LIMIT = Emu.AVI_LIMIT;
 
 class CliError extends Error {
   constructor(code, message, extra = {}) {
@@ -210,6 +215,15 @@ const STEPS = {
     parse: (t) => ({ file: t }),
   },
   'wav-stop': { arg: null, help: 'end the sound recording here and write its file', example: '--wav-stop' },
+  record: {
+    arg: 'FILE', help: `record the picture and sound from here to the end of the run (or a record-stop) as an AVI: 8-bit palettized video at the machine's exact frame rate, ${WAV_RATE} Hz 16-bit mono PCM (the wav step's samples); at most 1 GiB (AVI 1.0), written even if the run fails`, example: '--record clip.avi',
+    parse: (t) => ({ file: t }),
+  },
+  'record-dir': {
+    arg: 'DIR', help: 'record as record does, into DIR: a PNG per frame (frame00000.png, ...), sound.wav and frames.ffconcat (each frame\'s duration, to the microsecond); no size limit', example: '--record-dir clip',
+    parse: (t) => ({ dir: t }),
+  },
+  'record-stop': { arg: null, help: 'end the recording (record or record-dir) here and write it', example: '--record-stop' },
   screen: { arg: null, help: 'the text on the screen (the readers Claude\'s screen_text uses); a graphics screen has no text, and says so', example: '--screen' },
   screenshot: {
     arg: 'FILE', help: 'save the frame as a PNG (the frame\'s own pixels, unscaled)', example: '--screenshot out.png',
@@ -466,7 +480,9 @@ class Runner {
     this.timeout = DEFAULT_TIMEOUT;
     this.tolerance = 0;          // pixels an expect-screenshot may find different
     this.diffFile = null;        // where an expect-screenshot writes its difference picture
-    this.wav = null;             // the sound recording under way: { file, out (AudioOutput), chunks, result }
+    this.wav = null;             // the sound recording under way: { file, out (AudioOutput), clock, chunks, result }
+    this.rec = null;             // the picture and sound recording under way (recordStep)
+    this.recordLimit = RECORD_LIMIT;
     this.results = [];
     this.romReport = null;
   }
@@ -508,16 +524,19 @@ class Runner {
   // hooks; no clock) -> the frames run: fewer only when a debugger breakpoint stopped the machine part way. A machine
   // waiting for the store (m.stall: a DriveWire sector being read) is waited for, so the frames always run: the store
   // answers through the event loop, which is why this is async.
-  // While a --wav recording runs, the frames run one at a time, and each finished frame's sound goes through the
-  // recording's output stage, as the page's screen loop pushes it (js/ui/screen.js).
+  // While a --wav or --record recording runs, the frames run one at a time, and each finished frame's sound goes
+  // through the recording's output stage, as the page's screen loop pushes it (js/ui/screen.js): sampleRate / fps
+  // samples a frame, the fraction carried exactly (Emu.sampleClock), so the sound never drifts from the frames.
   async runFrames(count) {
     let ran = 0;
+    const one = () => this.wav || this.rec;
     while (ran < count) {
-      const n = this.s.runFrames(this.wav ? 1 : count - ran);
-      if (this.wav && n) this.wav.out.push(this.m.audioEvents, this.m.frameCycles, this.m.fps);
+      const n = this.s.runFrames(one() ? 1 : count - ran);
+      if (n && this.wav) this.wav.out.render(this.m.audioEvents, this.m.frameCycles, this.wav.clock.next(), null);
+      if (n && this.rec) this.recordFrame();
       ran += n;
       if (ran >= count) break;
-      if (this.wav && n) continue;
+      if (one() && n) continue;
       if (this.s.paused || !this.m.stall) break;
       await this.storeAnswer();
     }
@@ -729,14 +748,20 @@ class Runner {
     try { ran = await this.runFrames(frames); } finally { for (const k of keys) m.setKey(k, false); }
     return this.record(step, { keys, frames: ran });
   }
+  // the --wav output stage: the page's AudioOutput without its DC-blocking filter, at WAV_SCALE; write(chunk) takes
+  // each frame's samples. Its frames' sample counts come from a sampleClock at the machine's exact frame rate.
+  soundOut(write) {
+    const out = new Emu.AudioOutput(WAV_RATE, { buffered: () => 0, write }, { highPass: false });
+    out.volume = WAV_SCALE / 32767;
+    return { out, clock: Emu.sampleClock(WAV_RATE, Emu.frameRate(this.m.tickHz, this.m.frameCycles)) };
+  }
   // start recording the sound (ending one under way): written by endWav, when the run ends
   async wavStep(step, { file }) {
     this.endWav();
     const chunks = [];
-    const out = new Emu.AudioOutput(WAV_RATE, { buffered: () => 0, write: (c) => chunks.push(c) }, { highPass: false });
-    out.volume = WAV_SCALE / 32767;
+    const { out, clock } = this.soundOut((c) => chunks.push(c));
     const result = this.record(step, { file, rate: WAV_RATE, bits: 16, dacStep: WAV_SCALE / 63 });
-    this.wav = { file, out, chunks, result };
+    this.wav = { file, out, clock, chunks, result };
     return result;
   }
   async wavStop(step) {
@@ -754,6 +779,69 @@ class Runner {
     for (const c of w.chunks) { samples.set(c, at); at += c.length; }
     writeFile(w.file, Emu.writeWav(samples, WAV_RATE));
     Object.assign(w.result, { samples: n, seconds: n / WAV_RATE });
+  }
+  // start recording the picture and sound (ending a recording under way): an AVI (record) or a directory of PNGs, a
+  // WAV and an ffconcat list (record-dir), written by endRecord when the run ends, even when it fails
+  async recordStep(step, { file, dir }) {
+    this.endRecord();
+    const m = this.m, rate = Emu.frameRate(m.tickHz, m.frameCycles);
+    let pending = null;
+    const { out, clock } = this.soundOut((c) => { pending = c; });
+    const rec = { file, dir, out, clock, rate, take: () => { const c = pending; pending = null; return c; }, frames: 0, width: 0, height: 0, startFrame: m.frameCount };
+    if (file) rec.avi = Emu.aviWriter({ rate, sampleRate: WAV_RATE, maxBytes: this.recordLimit });
+    else {
+      try { fs.mkdirSync(dir, { recursive: true }); } catch (e) { throw media(`${step.where}: cannot make ${dir}: ${e.code || e.message}`, 'cannot-write'); }
+      rec.chunks = [];
+    }
+    rec.result = this.record(step, Object.assign(file ? { file } : { dir }, { fps: `${rate.num}/${rate.den}`, rate: WAV_RATE, bits: 16 }));
+    this.rec = rec;
+    return rec.result;
+  }
+  async recordStop(step) {
+    const r = this.rec;
+    if (!r) throw usage(`${step.where}: no recording to stop (record or record-dir starts one)`);
+    this.endRecord();
+    return this.record(step, Object.assign(r.file ? { file: r.file } : { dir: r.dir }, { frames: r.result.frames }));
+  }
+  // the frame just run, and its sound, into the recording
+  recordFrame() {
+    const r = this.rec, m = this.m;
+    r.out.render(m.audioEvents, m.frameCycles, r.clock.next(), null);
+    const samples = r.take() || new Float32Array(0), frame = m.render();
+    if (!r.frames) { r.width = frame.width; r.height = frame.height; }
+    else if (frame.width !== r.width || frame.height !== r.height) {
+      throw media(`recording ${r.file || r.dir}: frame ${r.frames} of the recording (machine frame ${m.frameCount}) is ${frame.width}x${frame.height}, the frames before it ${r.width}x${r.height} (a mode or monitor change); record each part separately, with record-stop and a new record`, 'record-size-changed');
+    }
+    if (r.avi) {
+      try { r.avi.addFrame(frame, Emu.pcm16(samples)); } catch (e) {
+        if (e.code !== 'too-big') throw e;
+        throw media(`recording ${r.file}: frame ${r.frames} would take it past the AVI 1.0 limit of 1 GiB (${this.recordLimit} bytes); record a long run with --record-dir DIR (PNGs, a WAV and an ffconcat list), or end this one sooner with --record-stop`, 'record-too-big');
+      }
+    } else {
+      writeFile(path.join(r.dir, recordPng(r.frames)), framePng(frame));
+      r.chunks.push(samples);
+    }
+    r.frames++;
+  }
+  // write the recording under way (if any): what it holds so far, even when the run failed part way
+  endRecord() {
+    const r = this.rec;
+    if (!r) return;
+    this.rec = null;
+    Object.assign(r.result, { frames: r.frames, width: r.width, height: r.height });
+    if (r.avi) {
+      if (!r.frames) throw usage(`recording ${r.file}: no frames ran while it recorded`);
+      const bytes = r.avi.finish();
+      writeFile(r.file, bytes);
+      Object.assign(r.result, { size: bytes.length, samples: r.avi.samples });
+      return;
+    }
+    const n = r.chunks.reduce((a, c) => a + c.length, 0), samples = new Float32Array(n);
+    let at = 0;
+    for (const c of r.chunks) { samples.set(c, at); at += c.length; }
+    writeFile(path.join(r.dir, 'sound.wav'), Emu.writeWav(samples, WAV_RATE));
+    writeFile(path.join(r.dir, 'frames.ffconcat'), ffconcat(r.frames, r.rate));
+    Object.assign(r.result, { samples: n });
   }
   async screenStep(step) { return this.record(step, this.screen()); }
   async screenshot(step, { file }) {
@@ -810,10 +898,24 @@ class Runner {
 const STEP_METHODS = {
   'load-snapshot': 'loadSnapshot', program: 'program', load: 'load', asm: 'asm', cart: 'cart', tape: 'tape', disk: 'disk',
   type: 'type', frames: 'frames', seconds: 'seconds', 'wait-for': 'waitFor', 'expect-screen': 'expectScreen',
-  'expect-mem': 'expectMem', 'expect-screenshot': 'expectScreenshot', hold: 'hold', wav: 'wavStep', 'wav-stop': 'wavStop', screen: 'screenStep', screenshot: 'screenshot', peek: 'peek', poke: 'poke',
+  'expect-mem': 'expectMem', 'expect-screenshot': 'expectScreenshot', hold: 'hold', wav: 'wavStep', 'wav-stop': 'wavStop',
+  record: 'recordStep', 'record-dir': 'recordStep', 'record-stop': 'recordStop', screen: 'screenStep', screenshot: 'screenshot', peek: 'peek', poke: 'poke',
   registers: 'registers', 'set-register': 'setRegister', disasm: 'disasm', step: 'stepInstructions', reset: 'resetStep',
   'power-cycle': 'powerCycle', view: 'view', 'save-snapshot': 'saveSnapshot', info: 'info',
 };
+// record-dir's files: frame k's PNG, and the ffconcat list that plays them at the exact frame rate. Frame k starts at
+// k x den / num seconds; each duration is the difference of those starts rounded to the microsecond, so the list
+// adds up to the run's length without drifting. The last file is listed twice (ffmpeg's concat demuxer ignores the
+// last entry's duration otherwise).
+const recordPng = (k) => `frame${String(k).padStart(5, '0')}.png`;
+function ffconcat(frames, { num, den }) {
+  const at = (k) => (BigInt(k) * BigInt(den) * 1000000n + BigInt(num) / 2n) / BigInt(num);   // microseconds, rounded
+  const us = (d) => `${d / 1000000n}.${String(d % 1000000n).padStart(6, '0')}`;
+  const lines = ['ffconcat version 1.0'];
+  for (let k = 0; k < frames; k++) lines.push(`file ${recordPng(k)}`, `duration ${us(at(k + 1) - at(k))}`);
+  if (frames) lines.push(`file ${recordPng(frames - 1)}`);
+  return Buffer.from(lines.join('\n') + '\n');
+}
 const condText = (c) => (c.kind === 'text' ? `text:${c.source}` : c.kind === 'mem' ? `mem:${Emu.hex(c.address)}=${Emu.hex(c.value, 2)}` : `pc:${Emu.hex(c.address)}`);
 const hex2 = (b) => b.toString(16).toUpperCase().padStart(2, '0');
 
@@ -843,7 +945,7 @@ function describe() {
   return {
     name: 'cloadm',
     schemaVersion: SCHEMA_VERSION,
-    description: 'Dragon 32/64/200, Tandy Color Computer 1/2/3 and MC-10 emulator, headless: run programs, type, wait for the screen, memory or PC, hold keys, read the screen as text, inspect and change memory and registers, save pictures and snapshots, compare the picture with a reference PNG, record the sound as a WAV. Emulated time only: the same inputs give the same results.',
+    description: 'Dragon 32/64/200, Tandy Color Computer 1/2/3 and MC-10 emulator, headless: run programs, type, wait for the screen, memory or PC, hold keys, read the screen as text, inspect and change memory and registers, save pictures and snapshots, compare the picture with a reference PNG, record the sound as a WAV, record picture and sound as an AVI. Emulated time only: the same inputs give the same results.',
     usage: ['node cli/cloadm.js [--json] [steps...]', 'node cli/cloadm.js [--json] --script FILE', 'node cli/cloadm.js --describe', 'node cli/cloadm.js --mcp | --serve [--roms PATH] [--media-root DIR] [--read-only]'],
     modes: {
       'command line': 'steps as options, run in order; --json prints one object { ok, exit, machine, steps, roms?, error? }',
@@ -967,13 +1069,15 @@ async function server(argv, { input, out, err }) {
 }
 
 // ---------------- main ----------------
-async function main(argv, { out = (t) => process.stdout.write(t + '\n'), err = (t) => process.stderr.write(t + '\n'), input = process.stdin } = {}) {
+// recordLimit: the AVI size limit (tests set a small one to reach it quickly)
+async function main(argv, { out = (t) => process.stdout.write(t + '\n'), err = (t) => process.stderr.write(t + '\n'), input = process.stdin, recordLimit = RECORD_LIMIT } = {}) {
   if (argv.includes('--mcp') || argv.includes('--serve')) {
     // stdout is the protocol's: an error starting the server goes to stderr only
     try { return await server(argv, { input, out, err }); } catch (e) { const error = asCliError(e); err(`cloadm: ${error.message}`); return EXIT[error.kind]; }
   }
   let opts = { json: argv.includes('--json') };
   const runner = new Runner();
+  runner.recordLimit = recordLimit;
   const finish = (code, error = null) => {
     if (opts.json) {
       const o = { ok: code === 0, exit: code, machine: runner.machineInfo(), steps: runner.results };
@@ -1004,9 +1108,11 @@ async function main(argv, { out = (t) => process.stdout.write(t + '\n'), err = (
     }
     runner.start();   // a command line of setup steps only still builds the machine (and checks the ROMs)
     runner.endWav();
+    runner.endRecord();
     return finish(0);
   } catch (e) {
     try { runner.endWav(); } catch (e2) { /* the run already failed: its own error is the one reported */ }
+    try { runner.endRecord(); } catch (e2) { /* likewise */ }
     const error = asCliError(e);
     return finish(EXIT[error.kind], error);
   }
