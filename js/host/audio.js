@@ -9,7 +9,8 @@
  *   discontinuity()                  the machine's sound level is about to jump for a reason that isn't sound
  *                                    (reset, power cycle, machine switch, program load, sound switched on)
  * The sink plays the samples (SampleQueue.pull, js/host/audio-worklet.js): on the audio thread in an
- * AudioWorkletNode, or, where AudioWorklet is missing, in a ScriptProcessorNode (see Audio.start).
+ * AudioWorkletNode, or, where no AudioWorklet module can load, in a ScriptProcessorNode (see Audio.start: the
+ * connector's inline view, whose CSP allows no fetched, blob: or data: script, and plain http:// away from localhost).
  * It never makes a step the machine didn't play:
  *   - through the first frame after a discontinuity (and the first frame once sound is unlocked) the DC-blocking
  *     high-pass follows the level instead of passing its changes on, so the jump from the old level to the new
@@ -18,21 +19,30 @@
  *   - when the queue runs dry (pause, turbo or fast tape, which push no sound, a slow tab) the last sample is held
  *     and faded out over FADE_MS, and faded in again over FADE_MS when samples come back, instead of dropping to
  *     0 and jumping back (SampleQueue.pull);
- *   - a frame dropped to keep latency bounded (the page fell behind) still moves the filter's input to the level
- *     it ended on, so the next frame doesn't step from the level before it.
+ *   - a frame dropped by the catch-up (below) still moves the filter's input to the level it ended on, so the next
+ *     frame doesn't step from the level before it.
  * While samples flow and nothing is re-seeded, the output is the high-pass of the machine's level averaged over each
  * sample's time window (a box filter).
  * Latency: a frame gives rate / fps samples with the fraction carried. Inside LOW_MS..HIGH_MS the ratio is
  * exactly 1 (a steady queue is played untouched); outside it the frame is resampled by a correction toward
- * TARGET_MS, up to RECOVER (2%, 34 cents) - only ever reached while recovering from a stall that left the queue
- * far outside the band. No frame is dropped (`dropped` counts the frames that are, past MAX_MS).
+ * TARGET_MS, up to RECOVER (2%, 34 cents): the slow drift between the machine's clock and the card's.
+ * Bounded catch-up after a stall (a background tab, a long debugger stop, a GC pause), in two halves, so recovery
+ * takes a fixed short time instead of seconds of 2% resampling:
+ *   - too shallow: once the queue has run dry and faded out, it waits until TARGET_MS is queued before it plays
+ *     again (SampleQueue's re-prime, js/host/audio-worklet.js), so it restarts at TARGET_MS at once;
+ *   - too deep: once more than SKIP_MS is queued (a burst of catch-up frames on top of what was queued), whole
+ *     frames are dropped until the queue is back to TARGET_MS (`catchingUp`; `dropped` counts them). Each dropped
+ *     frame is one frame of real time the queue drains by, so SKIP_MS falls to TARGET_MS within
+ *     (SKIP_MS - TARGET_MS) of real time plus a frame: CATCHUP_MS.
  */
-import { SampleQueue, FADE_MS } from './audio-worklet.js';
+import { SampleQueue, FADE_MS, TARGET_MS } from './audio-worklet.js';
 import { TapeVoice, boxAverage, DEFAULT_VOLUME } from './tape-sound.js';
 
 const SUSPEND_AFTER_MS = 250;   // inactive this long (the queue drained, the fade done): suspend the context
-const LOW_MS = 10, HIGH_MS = 80, MAX_MS = 150;
-const TARGET_MS = 40;           // where a correction brings the queue: the middle of the band
+const LOW_MS = 10, HIGH_MS = 80;  // the band inside which a frame is played untouched (TARGET_MS, 40, its middle)
+// SKIP_MS: deeper than this, frames are dropped down to TARGET_MS (the catch-up). Above HIGH_MS, so the 80-120 ms a
+// slow drift reaches is still corrected by resampling (inaudible) rather than by skipping sound
+const SKIP_MS = 120;
 // RECOVER: the ratio's distance from 1 while correcting a queue a stall left far from TARGET_MS. 2% is 34 cents,
 // a constant detune for the second or two a correction takes rather than a warble (see ratioAt).
 const RECOVER = 0.02;
@@ -61,7 +71,8 @@ class AudioOutput {
     this.volume = 0.5;
     this.frac = 0;               // samples owed from earlier frames (rate / fps is not whole)
     this.mode = NONE;            // NONE, FILLING or DRAINING: the correction in force (ratioAt)
-    this.dropped = 0;            // frames thrown away because MAX_MS was already buffered
+    this.dropped = 0;            // frames dropped by the catch-up
+    this.catchingUp = false;     // dropping frames: more than SKIP_MS was queued, and not yet back to TARGET_MS
     this.tapeVoice = null;       // the page's "Tape sound" (a TapeVoice), mixed in at tapeVolume; none on the command line
     this.tapeVolume = DEFAULT_VOLUME;
   }
@@ -86,23 +97,30 @@ class AudioOutput {
   // A frame gives rate / fps samples, the fraction carried to the next (882.571 at 44.1 kHz for a PAL Dragon
   // makes 882 or 883), so the sink holds what the card plays. The card's clock is not the machine's, and a stall
   // leaves the queue far from TARGET_MS: outside LOW_MS..HIGH_MS the frame is resampled by ratioAt's ratio, which
-  // brings the latency back without a gap or a dropped frame. Over MAX_MS (frames pushed faster than real time) a
-  // frame is dropped.
+  // brings the latency back without a gap or a dropped frame. Deeper than SKIP_MS the catch-up drops the frame.
   push(events, frameCycles, fps, tape = null) {
-    const buf = this.buffered(), rate = this.rate;
-    // keep latency bounded: a frame that comes too far ahead is dropped, and the filter's input moves to the level
-    // the frame ended on, so the next frame carries on from there instead of stepping (the page fell behind)
-    if (buf > rate * MAX_MS / 1000) { this.dropped++; if (events && events.length) this.prevIn = events[events.length - 1]; return; }
-    const n = this.count(rate / fps);
+    // a dropped frame moves the filter's input to the level the frame ended on, so the next frame carries on from
+    // there instead of stepping
+    if (this.skip()) { if (events && events.length) this.prevIn = events[events.length - 1]; return; }
+    const n = this.count(this.rate / fps);
     if (n) this.render(events, frameCycles, n, tape);
   }
   // `ms` of real time with no machine frame (fast tape loading runs the machine flat out and pushes none): the
   // tape alone (tape: { events, cycles }, js/host/tape-sound.js), the machine's own output carrying on from where
   // it was, decaying as its filter does
   pushTape(ms, tape) {
-    if (this.buffered() > this.rate * MAX_MS / 1000) { this.dropped++; return; }
+    if (this.skip()) return;
     const n = this.count(this.rate * ms / 1000);
     if (n) this.render(null, 0, n, tape);
+  }
+  // the catch-up: true when this push is to be dropped. Entered past SKIP_MS, held until the queue is back to
+  // TARGET_MS (dropping only down to SKIP_MS would leave it deep, for the slow correction to finish); on leaving,
+  // the correction starts from NONE, the queue being at its target
+  skip() {
+    const ms = this.buffered() / this.rate * 1000;
+    if (this.catchingUp ? ms > TARGET_MS : ms > SKIP_MS) { this.catchingUp = true; this.dropped++; return true; }
+    if (this.catchingUp) { this.catchingUp = false; this.mode = NONE; }
+    return false;
   }
   // samples owed for `want` more (the fraction carried), corrected by ratioAt: exactly 1 inside LOW_MS..HIGH_MS
   // buffered, a held correction toward TARGET_MS outside it (0 buffered: not playing, nothing to keep up)
@@ -183,7 +201,8 @@ class Audio {
   // Called from a click or key press (browsers only allow sound after one). The context is made here, at once,
   // so the gesture unlocks it; the samples are played by an AudioWorkletNode, on the audio thread, once its module
   // has loaded (a moment: until then there is no output stage and frames make no sound, as before the unlock).
-  // Fallback: where AudioWorklet is missing (an insecure http:// address other than localhost, an old browser), its
+  // Fallback: where no worklet module can load (the connector's inline view, whose CSP allows no fetched, blob: or
+  // data: script; AudioWorklet missing in an insecure http:// address other than localhost), its
   // module fails or hasn't loaded within WORKLET_WAIT_MS, or its processor fails once running, a ScriptProcessorNode
   // plays a SampleQueue on the page's thread, so sound keeps working (`fallback` says why). It is made only then:
   // with AudioWorklet working, no ScriptProcessorNode is ever created.
@@ -252,15 +271,16 @@ class Audio {
   get tapeLevel() { return this.out && this.out.tapeVoice ? this.out.tapeVoice.rms : 0; }
 }
 
-// SETTLE_MS: how long a correction may take to bring a queue from the ceiling (MAX_MS) down to TARGET_MS.
-// The ratio is applied per frame of AUDIO time, so a queue near MAX_MS takes about
-// (MAX_MS - TARGET_MS) / RECOVER = 110 / 0.02 = 5500 ms to arrive; SLACK_MS is then added for the frames the
-// push/pull schedule costs on the way. Measured from a queue at the ceiling, simulated real time, over card
-// rates 44.1/48 kHz, 30/49.97/59.94/60 fps and 512/1024/2048-sample blocks: the slowest is 4.99 s (59.94 fps,
-// 512-sample blocks). SETTLE_MS is therefore 1.6x the worst measurement -- headroom, not merely adequate:
-// tests/audio.test.js sweeps those schedules and fails if the margin drops below 1.5x, so a stale tighter bound
-// cannot pass. A caller waiting for the ratio to be exactly 1 uses this as its bound.
+// CATCHUP_MS: how long the catch-up may take, in real time, from the deepest queue the page makes (SKIP_MS plus
+// the 4 frames one page tick can push, at 30 fps) back to TARGET_MS: each dropped frame is one frame of real time
+// the card drains. tests/audio.test.js measures it over 44.1/48 kHz, 30-60 fps and 128-2048-sample blocks.
+const CATCHUP_MS = SKIP_MS + 4 * 1000 / 30 - TARGET_MS + 1000 / 30;
+// SETTLE_MS: how long the correction may take to bring a queue that is just under SKIP_MS (the deepest the catch-up
+// leaves alone) down to TARGET_MS, so that the ratio is exactly 1 again: (SKIP_MS - TARGET_MS) / RECOVER = 4000 ms
+// of audio, plus SLACK_MS for the push/pull schedule on the way. tests/audio.test.js sweeps card rates 44.1/48 kHz,
+// 30/49.97/59.94/60 fps and 512/1024/2048-sample blocks and fails if SETTLE_MS is not at least 1.5x the slowest.
+// A caller waiting for the ratio to be exactly 1 uses this as its bound (the browser check's tone).
 const SLACK_MS = 2500;
-const SETTLE_MS = Math.ceil((MAX_MS - TARGET_MS) / RECOVER) + SLACK_MS;
+const SETTLE_MS = Math.ceil((SKIP_MS - TARGET_MS) / RECOVER) + SLACK_MS;
 
-export { Audio, AudioOutput, PortSink, FADE_MS, MAX_MS, TARGET_MS, RECOVER, SETTLE_MS };
+export { Audio, AudioOutput, PortSink, FADE_MS, SKIP_MS, TARGET_MS, RECOVER, SETTLE_MS, CATCHUP_MS, LOW_MS, HIGH_MS };

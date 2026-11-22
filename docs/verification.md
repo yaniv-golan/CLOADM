@@ -695,17 +695,23 @@ over the page, and the screen is smaller than it need be there.
 
 The machines' sound is compared with MAME's `-wavwrite` recordings (above); the way the page plays it has no MAME
 oracle (AGENTS.md 4.6). The output stage's samples are checked in Node (`tests/audio.test.js`: the high-pass of each
-sample's average level, no pop at unlock, reset, switch, pause; latency steering over 15 simulated minutes, and a
-140 ms queue - what a page stall leaves - back inside the 10-80 ms band within 8 s), the
+sample's average level, no pop at unlock, reset, switch, pause; latency steering over 15 simulated minutes; the bounded catch-up on a mocked clock that models the page's
+requestAnimationFrame loop and the audio thread's 128-sample quanta at 44.1/48 kHz and 50/60 fps: steady state in the
+band with no short quantum, a 0.3 s and a 2 s stall of both kinds (no tick at all; ticks with the machine paused) back
+to sound within N = ceil((TARGET_MS + a frame + a tick) / quantum) callbacks with no short quantum after, the same
+pause without the re-prime refilling slowly, and a 250 ms queue back inside the band within `CATCHUP_MS`), the
 AudioWorklet's queue and processor with hand-derived values (`tests/audio-worklet.test.js`: order, underrun to exact
-silence, bounded drop-oldest, the MessagePort sink), and the real page in Chromium (browser check, group `audio`):
+silence, the re-prime's wait and its bound, bounded drop-oldest, the MessagePort sink), and the real page in Chromium
+(browser check, group `audio`; samples captured through the processor's tap, its copy of every block it plays):
+after a pause it restarts at least `TARGET_MS` deep with no short block for the second after;
 after the unlock an AudioWorkletNode plays and no ScriptProcessorNode is made (no deprecation warning); through
 loads, resets, pause, turbo, sound off, machine switches and a 200 ms busy page, every sample the worklet plays at
 full gain equals the one the output stage made (tolerance 0) and no step exceeds 0.01; the tone of a square-wave
 program plays at the frequency the machine makes it (within the 0.5% steering) and the queue doesn't run dry while
 it plays (at most 2% of blocks); volume and mute; the four fallbacks to the ScriptProcessorNode (no AudioWorklet,
-its module failing to load or never loading, the processor failing); and (group `pwa`) offline. Not verified automatically: how it sounds on real devices and
-other browsers (Safari and iOS, Firefox).
+its module failing to load or never loading, the processor failing); and (group `pwa`) offline, where the worklet's
+module comes from the kept copy and plays. Not verified automatically: how it sounds (a glitch heard or not) on real
+devices and other browsers (Safari and iOS, Firefox).
 
 Tape sound (`js/host/tape-sound.js`) is the page's, not the machine's, so it has no MAME oracle either (MAME 0.264 mixes
 no tape signal into these machines' sound: below). `tests/tape-sound.test.js`: the signal it plays over each frame is

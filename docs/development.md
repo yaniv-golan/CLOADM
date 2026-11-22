@@ -178,8 +178,8 @@ node tests/settings.test.js  # settings export and import round trip; ROMs and p
 node tests/storage-move.test.js  # moving the library to another store: what is copied, kept, merged (ROM sockets and names), refused; reconnecting a folder copies only this visit's files
 node tests/media-store.test.js  # storage layer: the MediaStore contract, random access, quota, localStorage migration
 node tests/mame-lib.test.js    # the MAME runner: a failed start or exit status stops a comparison; the timeout only warns
-node tests/audio.test.js     # audio output stage: sound unchanged, no pop at unlock, reset, machine switch, pause and resume
-node tests/audio-worklet.test.js  # the AudioWorklet path: queue order, underrun to silence, bounded drop-oldest, the MessagePort sink, the processor
+node tests/audio.test.js     # audio output stage: sound unchanged, no pop at unlock, reset, machine switch, pause and resume; the bounded catch-up after a stall on a mocked clock
+node tests/audio-worklet.test.js  # the AudioWorklet path: queue order, underrun to silence, the re-prime after a gap, bounded drop-oldest, the MessagePort sink, the processor
 node tests/keyqueue.test.js  # fast typing: bursts read back from the keyboard matrix on every family and typed into LIZA, in order and complete
 node tests/roms.test.js      # ROM identification across machines (synthetic images only), library, offers
 node tools/gen-rom-docs.js   # regenerate docs/roms.md from the profiles (tests/romdocs.test.js checks it)

@@ -2,11 +2,12 @@
 // PortSink), browser-free. Every expected value below is worked out by hand from the rules in audio-worklet.js:
 // samples come out in the order written; on underrun the last sample fades to 0 over FADE_MS (a gain step of
 // 1 / (rate * FADE_MS / 1000) a sample) and then the output is exactly 0, never an old sample again; a full queue
-// drops its OLDEST samples; at full gain the output is the samples themselves.
+// drops its OLDEST samples; at full gain the output is the samples themselves. The queues of the first four blocks
+// are made with primeMs 0 (no re-prime after a gap), so they test those rules alone; the re-prime has its own block.
 const { pathToFileURL } = require('url');
 const path = require('path');
 const { SampleQueue, CAPACITY_MS } = require('../js/host/audio-worklet.js');
-const { PortSink, AudioOutput, MAX_MS } = require('../js/host/audio.js');
+const { PortSink, AudioOutput, SKIP_MS } = require('../js/host/audio.js');
 
 let fail = 0;
 const check = (name, cond, detail = '') => { if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log(`ok   ${name} ${detail}`); };
@@ -16,7 +17,7 @@ const same = (a, b, tol = 0) => a.length === b.length && a.every((v, i) => (tol 
 
 // rate 200: FADE_MS = 5 is one sample, so the gain goes 0 -> 1 on the first sample and 1 -> 0 on the first missing one
 {
-  const q = new SampleQueue(200);
+  const q = new SampleQueue(200, { primeMs: 0 });
   q.write(new Float32Array([0.1, 0.2, 0.3])); q.write(new Float32Array([0.4, 0.5]));
   const out = pull(q, 7);
   check('in order, then silence on underrun (no repeat of the last sample)', same(out, f32([0.1, 0.2, 0.3, 0.4, 0.5, 0, 0])), JSON.stringify(out));
@@ -25,7 +26,7 @@ const same = (a, b, tol = 0) => a.length === b.length && a.every((v, i) => (tol 
 }
 // rate 1000: the fade is 5 samples, a step of 0.2
 {
-  const q = new SampleQueue(1000);
+  const q = new SampleQueue(1000, { primeMs: 0 });
   q.write(new Float32Array(8).fill(1));
   const out = pull(q, 15);
   check('fades in over 5 samples, plays, fades out over 4 more to exact 0', same(out, [0.2, 0.4, 0.6, 0.8, 1, 1, 1, 1, 0.8, 0.6, 0.4, 0.2, 0, 0, 0], 1e-6), JSON.stringify(out));
@@ -36,23 +37,24 @@ const same = (a, b, tol = 0) => a.length === b.length && a.every((v, i) => (tol 
 }
 // a bounded queue: capacity 4, writes past it drop the oldest
 {
-  const q = new SampleQueue(200, 4);
+  const q = new SampleQueue(200, { capacity: 4, primeMs: 0 });
   q.write(new Float32Array([1, 2, 3])); q.write(new Float32Array([4, 5, 6]));
   check('overrun drops the oldest: 1 and 2 go, 3..6 stay', q.dropped === 2 && q.buffered() === 4 && same(pull(q, 4), [3, 4, 5, 6]), `dropped ${q.dropped}`);
   check('taken + dropped is the index of the next sample (6)', q.taken + q.dropped === 6);
-  const r = new SampleQueue(200, 4);
+  const r = new SampleQueue(200, { capacity: 4, primeMs: 0 });
   r.write(new Float32Array([1, 2])); r.write(new Float32Array([3, 4, 5, 6, 7]));
   check('a chunk bigger than the queue: everything older and its own oldest sample go', r.dropped === 3 && same(pull(r, 4), [4, 5, 6, 7]), `dropped ${r.dropped}`);
-  const w = new SampleQueue(200, 4);
+  const w = new SampleQueue(200, { capacity: 4, primeMs: 0 });
   w.write(new Float32Array([1, 2, 3]));
   const a = pull(w, 2);
   w.write(new Float32Array([4, 5, 6]));                  // wraps around the end of the buffer
   check('order is kept across the wrap of the buffer', same(a, [1, 2]) && same(pull(w, 4), [3, 4, 5, 6]) && w.dropped === 0);
-  check(`the default capacity is CAPACITY_MS (${CAPACITY_MS} ms, twice MAX_MS ${MAX_MS})`, new SampleQueue(44100).capacity === 13230 && new SampleQueue(48000).capacity === 14400 && CAPACITY_MS === 2 * MAX_MS);
+  // the deepest the page makes it is SKIP_MS plus the 4 frames one page tick can push at 30 fps (133 ms)
+  check(`the default capacity is CAPACITY_MS (${CAPACITY_MS} ms, more than SKIP_MS ${SKIP_MS} + 4 frames at 30 fps)`, new SampleQueue(44100).capacity === 13230 && new SampleQueue(48000).capacity === 14400 && CAPACITY_MS > SKIP_MS + 4000 / 30);
 }
 // at full gain, the output is the samples, value for value, whatever the chunk and block sizes
 {
-  const q = new SampleQueue(48000);
+  const q = new SampleQueue(48000, { primeMs: 0 });
   let x = 12345;
   const rnd = () => { x = (x * 1103515245 + 12345) >>> 0; return x / 2 ** 32; };
   const written = [], played = [];
@@ -65,6 +67,34 @@ const same = (a, b, tol = 0) => a.length === b.length && a.every((v, i) => (tol 
   }
   const tail = played.slice(300);
   check('at full gain the output equals the samples written, in order (tolerance 0)', tail.length > 50000 && same(tail, written.slice(300, 300 + tail.length)), `${tail.length} samples`);
+}
+
+// the re-prime (the shallow half of the bounded catch-up): rate 1000 and primeMs 10, so the queue waits for 10
+// samples; the fade is 5 samples, a step of 0.2
+{
+  const q = new SampleQueue(1000, { primeMs: 10 });
+  check('re-prime: a new queue is priming', q.priming === true);
+  q.write(new Float32Array(6).fill(1));
+  const a = pull(q, 4);
+  check('re-prime: 6 queued of 10 is not enough: silence, nothing taken', same(a, [0, 0, 0, 0]) && q.taken === 0 && q.buffered() === 6, JSON.stringify(a));
+  q.write(new Float32Array(4).fill(1));
+  const b = pull(q, 12);
+  check('re-prime: at 10 queued it plays at once, fading in, then fades out on running dry',
+    same(b, [0.2, 0.4, 0.6, 0.8, 1, 1, 1, 1, 1, 1, 0.8, 0.6], 1e-6) && q.taken === 10, JSON.stringify(b));
+  // the fade not yet at 0 (0.6): samples back now are a dip, not a gap: they play at once, fading back in
+  q.write(new Float32Array([1, 1]));
+  const c = pull(q, 2);
+  check('re-prime: a dip that refills before the fade reaches 0 resumes with no wait', same(c, [0.8, 1], 1e-6) && q.primes === 0, JSON.stringify(c));
+  pull(q, 6);
+  check('re-prime: running dry until the fade reaches 0 is a gap: priming again, counted', q.priming === true && q.primes === 1);
+  // a lone 3-sample chunk: never reaches 10, so it plays after waiting twice primeMs (20 samples) with it queued
+  q.write(new Float32Array([1, 1, 1]));
+  const d = pull(q, 23);
+  check('re-prime: a lone short chunk is not held forever: it plays on the 20th sample waited (2 x primeMs) with it queued',
+    same(d, [...new Array(19).fill(0), 0.2, 0.4, 0.6, 0.4], 1e-6) && q.taken === 15, JSON.stringify(d));
+  const z = new SampleQueue(1000, { primeMs: 0 });
+  z.write(new Float32Array([1])); 
+  check('re-prime: primeMs 0 never waits', same(pull(z, 1), [0.2], 1e-6) && z.priming === false);
 }
 
 (async () => {
@@ -113,11 +143,12 @@ const same = (a, b, tol = 0) => a.length === b.length && a.every((v, i) => (tol 
     c2.port1.close(); c2.port2.close();
   }
   // the processor, with the worklet's globals stood in: it plays its queue into every channel of its output, reports
-  // taken + dropped every 4 blocks, and with the tap on posts each block with its index, count and full flag
+  // taken + dropped every 4 blocks, and with the tap on posts each block with its index, count, full flag, depth and
+  // re-prime counts. sampleRate 8000: the fade is 40 samples, the re-prime TARGET_MS (40 ms) 320, the queue 2400.
   {
     const posted = [];
     let proc = null;
-    globalThis.sampleRate = 1000;                        // a 5-sample fade, as above; the queue holds 300
+    globalThis.sampleRate = 8000;
     globalThis.currentTime = 1.5;
     globalThis.currentFrame = 1500;
     globalThis.AudioWorkletProcessor = class { constructor() { this.port = { postMessage: (m) => posted.push(m) }; } };
@@ -126,37 +157,49 @@ const same = (a, b, tol = 0) => a.length === b.length && a.every((v, i) => (tol 
     check('the module registers the processor as cloadm-output', proc && proc.name === 'cloadm-output');
     const p = new proc.P();
     const block = () => { const o = [new Float32Array(128), new Float32Array(128)]; const keep = p.process([], [o]); return { o, keep }; };
+    const v = (i) => Math.fround(i / 512);
     p.port.onmessage({ data: { tap: true } });
-    p.port.onmessage({ data: { samples: new Float32Array(200).map((_, i) => i / 256) } });
+    // 400 samples at once into a new (priming) queue: more than the 320 it waits for, so it plays at once, fading in
+    p.port.onmessage({ data: { samples: new Float32Array(400).map((_, i) => i / 512) } });
     const b1 = block();
-    const v = (i) => Math.fround(i / 256);
-    const fadeIn = Array.from({ length: 128 }, (_, i) => (i < 4 ? Math.fround(v(i) * (i + 1) / 5) : v(i)));
-    check('a block: the first 128 samples (the first 4 fading in), in both channels; the processor stays alive',
-      b1.keep === true && same([...b1.o[0]], fadeIn) && same([...b1.o[1]], [...b1.o[0]]), JSON.stringify([...b1.o[0]].slice(0, 6)));
+    const fadeIn = Array.from({ length: 128 }, (_, i) => (i < 39 ? Math.fround(v(i) * (i + 1) / 40) : v(i)));
+    check('a block: 400 queued at once (more than the 320 it waits for) play at once, fading in over 40, in both channels; the processor stays alive',
+      b1.keep === true && same([...b1.o[0]], fadeIn) && same([...b1.o[1]], [...b1.o[0]]), JSON.stringify([...b1.o[0]].slice(0, 3)));
     const t1 = posted.shift().tap;
-    check('tap: index 0, 128 taken, not full (it faded in), its currentTime', t1.start === 0 && t1.n === 128 && t1.full === false && t1.time === 1.5 && same([...t1.out], [...b1.o[0]]));
+    check('tap: index 0, 128 taken, not full (priming as it began), its currentTime, 400 queued, no re-prime yet',
+      t1.start === 0 && t1.n === 128 && t1.full === false && t1.time === 1.5 && t1.queued === 400 && t1.primes === 0 && same([...t1.out], [...b1.o[0]]), JSON.stringify({ ...t1, out: undefined }));
     const b2 = block(), t2 = posted.shift().tap;
-    const left = [...Array.from({ length: 72 }, (_, i) => v(128 + i)), ...[4, 3, 2, 1].map((k) => Math.fround(v(199) * k / 5)), ...new Array(52).fill(0)];
-    check('tap: the next block takes the 72 left from index 128 at full gain, fades the last out over 5 samples, then exact 0; not full',
-      t2.start === 128 && t2.n === 72 && t2.full === false && same([...b2.o[0]], left), JSON.stringify([...b2.o[0]].slice(70, 78)));
-    p.port.onmessage({ data: { samples: new Float32Array(300).fill(0.5) } });
-    block(); posted.shift();                             // (fade-in block)
+    check('tap: the next block is full and is the samples 128..255',
+      t2.start === 128 && t2.n === 128 && t2.full === true && t2.queued === 272 && same([...b2.o[0]], Array.from({ length: 128 }, (_, i) => v(128 + i))), JSON.stringify({ ...t2, out: undefined }));
+    block(); posted.shift();                             // 256..383, full
     const b4 = block(), msgs = posted.splice(0);
     const t4 = msgs.find((m) => m.tap).tap, rep = msgs.find((m) => m.removed !== undefined);
-    check('tap: a block of queued samples at full gain is full, and is the samples', t4.full === true && t4.start === 328 && t4.n === 128 && [...b4.o[0]].every((v) => v === 0.5));
-    check('after 4 blocks it reports taken + dropped, as of the end of the block', rep && rep.removed === 456 && rep.frame === 1628, JSON.stringify(rep));
+    const tail = [...Array.from({ length: 16 }, (_, i) => v(384 + i)), ...Array.from({ length: 40 }, (_, j) => Math.fround(v(399) * (39 - j) / 40)), ...new Array(72).fill(0)];
+    check('tap: the last 16, then a 40-sample fade to exact 0, which is a gap: priming again (counted)',
+      t4.start === 384 && t4.n === 16 && t4.full === false && same([...b4.o[0]], tail) && p.q.priming === true && p.q.primes === 1, JSON.stringify([...b4.o[0]].slice(14, 18)));
+    check('after 4 blocks it reports taken + dropped (400), as of the end of the block', rep && rep.removed === 400 && rep.frame === 1628, JSON.stringify(rep));
+    // priming: 100 queued (< 320) is held, silent, until it has waited 640 samples (2 x 320) with something queued
+    p.port.onmessage({ data: { samples: new Float32Array(100).fill(0.5) } });
+    const held = [block(), block(), block(), block()].flatMap((b) => [...b.o[0]]);
+    const t56 = posted.splice(0).filter((m) => m.tap).map((m) => m.tap);
+    check('re-prime: a short chunk after a gap is held in silence (nothing taken) while it waits', held.every((x) => x === 0) && t56.every((t) => t.n === 0 && t.queued === 100), JSON.stringify(t56.map((t) => [t.n, t.queued])));
+    const b7 = block(), t7 = posted.splice(0).find((m) => m.tap).tap;
+    // waited 512 in the four blocks; this one's index 127 is the 640th waited: it plays from there (1 taken)
+    check('re-prime: ... and plays once it has waited 640 samples (at the last index of the fifth block), fading in',
+      b7.o[0][126] === 0 && b7.o[0][127] === Math.fround(0.5 / 40) && t7.n === 1, JSON.stringify({ at: [...b7.o[0]].slice(125), n: t7.n }));
     p.port.onmessage({ data: { tap: false } });
     block();
-    check('tap off: nothing posted but the reports', posted.length === 0);
-    // overrun in the processor: 350 samples into a 300-sample queue drop the 50 oldest; the report counts them, so
-    // the page's count of what is queued (written less removed) comes back to 0 once it has all played
+    check('tap off: nothing posted but the reports', posted.every((m) => m.removed !== undefined));
+    posted.length = 0;
+    // overrun in the processor: 2500 samples into a 2400-sample queue drop the 100 oldest; the report counts them
+    // (taken 512 + dropped 100), so the page's count of what is queued (written less removed) stays right
     const p2 = new proc.P();
-    p2.port.onmessage({ data: { samples: new Float32Array(350).map((_, i) => i) } });
+    p2.port.onmessage({ data: { samples: new Float32Array(2500).map((_, i) => i) } });
     const first = [];
-    for (let i = 0; i < 4; i++) { const o = [new Float32Array(128)]; p2.process([], [o]); if (!i) first.push(...o[0].slice(5, 8)); }
+    for (let i = 0; i < 4; i++) { const o = [new Float32Array(128)]; p2.process([], [o]); if (!i) first.push(...o[0].slice(45, 48)); }
     const r2 = posted.splice(0).find((m) => m.removed !== undefined);
-    check('processor overrun: the oldest go (it starts at sample 50), and the report counts taken + dropped (300 + 50)',
-      same(first, [55, 56, 57]) && r2 && r2.removed === 350, JSON.stringify({ first, r2 }));
+    check('processor overrun: the oldest go (it starts at sample 100), and the report counts taken + dropped (512 + 100)',
+      same(first, [145, 146, 147]) && r2 && r2.removed === 612 && p2.q.dropped === 100, JSON.stringify({ first, r2 }));
   }
   console.log(fail ? `${fail} FAILED` : 'all passed');
   process.exitCode = fail ? 1 : 0;
