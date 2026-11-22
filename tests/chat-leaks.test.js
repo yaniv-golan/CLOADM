@@ -366,47 +366,107 @@ async function observed(setup, act, id = 'dragon64', panel = false) {
 // branch: a person-framed gate paired with a shown-machine action (welcomeSound poked this.machine while its gate was
 // welcomeRunning, which means the person's machine).
 //
-// The scan is textual on purpose: it catches the shape a person writes, not the shape a parser sees. Over the
-// Session it reads the class's own body; over the page modules it reads every way a module can hold the Session or
-// the Page (the destructured `{ session } = page`, an alias `const x = session`, and one handed in as a parameter
-// named `session`/`s`/`page`). On those two objects the only machine name is one of the two accessors, so a bare
-// `.machine` on one of them is the raw use. What it must NOT flag is a plain object's own field (a snapshot's
-// { machine }, roms.js's target { machine }, a step's { machine }) or an element's dataset.machine; those names are
-// listed in NOT_A_SESSION per file with the reason, so a new one cannot join the list without being seen here.
+// The scan is textual on purpose. It does NOT parse: it reads comments out of the text with a small lexer
+// (`stripComments`: strings, template literals and regex literals are honoured, so a `//` inside one is not a
+// comment), learns the names a Session or the Page is held under from the WHOLE FILE (an alias may be declared on one
+// line and used on another; a right side may be spread over lines or wrapped in parentheses), and then looks for the
+// machine named on those names. Over the Session the root is `this`; over the page modules it is the names the file
+// itself declares (`session`, `page`, `emu`, `window.emu`) or a learned alias of one. What it must NOT flag is a plain
+// object's own field (a snapshot's { machine }, roms.js's target { machine }, a step's { machine }) or an element's
+// dataset.machine; those names are listed in NOT_A_SESSION per file with the reason, so a new one cannot join the list
+// without being seen here.
 //
-// THE BOUNDARY. This is a textual scan, and it has a written, measured edge. It sees a use only when the Session or
-// the Page is reached through a NAME it learned (see `holders` below) and the machine is then named `.machine` or
-// `._shown`. What it does NOT catch, each one measured to stay green on the tree this comment was written against
-// (the probe planted the shape in a real file and the suite still reported 96/96; the two known-caught controls in
-// that probe, `this._shown` and `page.session._shown`, do fail, so the probe itself works):
-//   * `this?._shown` and `this['_shown']` - the bracket/optional forms are matched for `.machine`, not for `_shown`;
-//   * `const { _shown } = this` - a destructure of the backing field inside the Session body;
-//   * `const self = this; self._shown` - `this` itself is never learned as a holder;
-//   * `const sess = page.session; sess._shown` (and `sess.machine`) - `page.session` does not make `sess` a holder:
-//     the alias rule reads `= session` / `= page`, not a member of one;
-//   * `const k = '_shown'; session[k]` - a computed key is only reported when it is not a plain identifier, so a
-//     variable holding the name is skipped (a string literal, `session['_shown']`, IS caught);
-//   * `const { _shown: mm } = this.session` and `const { machine } = this.session` in embed-api, and
-//     `const { machine } = session` in cli - a destructure is only learned when the right side is the bare word
-//     `session`/`page`, not `this.session`;
-//   * a Session handed to a function through a PARAMETER of an arbitrary name (`const spill = (sess) => sess.machine`)
-//     - a parameter's type is not in the text, and `function open(snap)` shows why guessing "any parameter" would
-//     flag plain records;
-//   * `Reflect.get(session, 'machine')` / `Object.getOwnPropertyDescriptor`, where the field name is a string
-//     argument to a general helper.
-// None of those shapes exists in the scanned set today (grep, and the suite green over it). What it DOES catch, all
-// pinned by a case in this file: `.machine`, `?.machine`, `['machine']`, `` [`machine`] ``, a computed key whose key
-// is not a plain identifier, an alias of the Session or the Page (layered, renamed, comma-only), a renamed
-// destructure from a bare `session`/`page`, `._shown` on a learned holder, and a bare `this.machine` or
-// `this._shown` in the Session body. Widening it to the rest is a follow-up branch, not this one.
+// THE BOUNDARY. This is a textual scan, and it has a written, measured edge. Every shape below is measured against the
+// tree, from BOTH sides: `tests/chat-leaks-scan.test.js` plants each one in a real file of a throwaway copy and
+// requires the scan to name it AT THE PLANTED LINE, and the last row of that suite requires the unplanted tree to stay
+// green. A shape listed as caught without a row there is a claim, not proof.
+//
+//   CAUGHT - each has a row in the scan suite:
+//     * `this.machine` and `this._shown` in the Session body, plus the backing field in every form:
+//       `this?._shown`, `this['_shown']` / `this["_shown"]`, `const { _shown } = this`, and an alias of `this`
+//       declared on its OWN line (`const self = this;\n self._shown`), split after the `=` (`const self =\n this;`),
+//       or assigned after a bare `let` (`let self; self = this;`) - each with its own row, because a per-line learning
+//       would pass the one-line form and prove nothing;
+//     * `.machine`, `?.machine`, `['machine']`, `` [`machine`] ``, and a computed key whose key is a string literal;
+//       a key bound TWICE, or reassigned, has no single value at any line, so it is reported too (an unknown key on a
+//       Session is not one this scan can call an array) - both orders have a row;
+//     * an alias of the Session or the Page: layered (`const a = session, b = a`), renamed, comma-only
+//       (`const a = session, b = 2`), a MEMBER of a holder (`const sess = page.session`, `this.session`), an alias of
+//       `window.emu` itself (`const e = window.emu; const s = e.session`), one claimed by a bare assignment
+//       (`let e9; e9 = window.emu;`), and one whose right side is PARENTHESISED (`const sess5 = (\n page.session\n);`);
+//     * a destructure of the machine or the backing field out of a Session expression, named or renamed:
+//       `const { _shown: mm } = this.session`, `const { machine } = this.session`, `const { machine } = session`,
+//       `const { session: ss } = window.emu`, `const {\n _shown\n} = self` (an alias declared on an earlier line), and
+//       any of these SPREAD OVER LINES - the binding rules read the whole file, not one line, in every scanned file
+//       (not only the Session);
+//     * a declaration split after the `=` (`const sess =\n page.session`), and a holder reached on the line after the
+//       alias (`const s2 = page.session;\n s2.machine`) - the alias is learned over the file, the reach is per line;
+//     * a `//` that is INSIDE A STRING is not a comment: `if (location.href !== 'http://a') page.session.machine.z = 1`
+//       is found, where a per-line `/\/\/.*$/` strip hid the whole reach;
+//     * `emu.machine` / `window.emu.machine`, but ONLY in the page-driving tools and only while `js/ui/main.js`
+//       defines it as the named shown-machine accessor - and `emu.session.machine` anywhere is an ordinary reach.
+//
+//   NOT CAUGHT - still unprovable from a line scanner, and the scan suite has no row for these (it must not claim
+//   them). An AST scan is a separate item, after v0.1.9; these are what stays out until then:
+//     * a Session handed to a function through a PARAMETER of an arbitrary name (`const spill = (sess) => sess.machine`)
+//       - a parameter's type is not in the text, and `function open(snap)` shows why guessing "any parameter" would
+//       flag plain records;
+//     * a Session or the machine carried in a STRUCTURE (a property of a plain object, an array element, a Map value,
+//       a closure passed across files) - the scan follows NAMES, not the objects they are stored in;
+//     * `Reflect.get(session, 'machine')` / `Object.getOwnPropertyDescriptor`, where the field name is a string
+//       argument to a general helper;
+//     * a key name built at run time (`session['ma' + 'chine']`, `session[x]` for a non-literal `x`): the scan reports
+//       the bracket access it cannot read rather than deciding it, but it cannot say WHICH name was reached, so a
+//       `.machine` on the result of one is invisible;
+//     * an ALIAS of the one licensed accessor, `const m = window.emu.machine`: the scan allows it in the page-driving
+//       tools, because reading the shown machine through one is what about seventy call sites there do and telling
+//       `m.frameCount` from `m.z = 1` textually is not reliable in every expression form. What IS caught is the
+//       accessor used outside an exempt tool, and the accessor ceasing to be named.
+// And the other side of the same coin, MEASURED (round-3 review, item 5): a name learned as an alias or a constant
+// string is that for the whole file/class, so a shadowing rebinding in another function is reported although it is
+// not a reach. This is the FAIL-SAFE direction - it flags, it never lets a reach through - so it is listed here
+// rather than closed:
+//     const self = this; ...            (in one method)   +   (self) => self._shown   (a plain record, another one)
+//     const k = 'machine'; ...          (in one method)   +   for (let k = 0; ...)    (an unrelated k)
+//     const h = page; ...               (a holder)        +   page\n .querySelector(..) learnt as `page .querySelector`
+// Every false positive here costs a false FAIL, never a missed leak. Scoping the learning to the enclosing function
+// would need brace matching through template literals and regex literals, which this textual scan deliberately does
+// not do - that is the AST item. No such collision exists in the scanned set today (the suite over the real tree
+// requires zero findings); a future one is a reason to scope the learning, not to weaken it.
+// None of the uncaught shapes exists in the scanned set today (grep, and the suite green over it).
 const SESSION_BODY = 'js/session.js';
-const PAGE_MODULES = [SESSION_BODY];
-for (const f of fs.readdirSync(path.join(ROOT, 'js/ui')).filter((n) => n.endsWith('.js')).sort()) PAGE_MODULES.push(`js/ui/${f}`);
-for (const f of ['js/embed-api.js', 'js/mcp/tools.js', 'cli/cloadm.js', 'tools/browser-check.js']) PAGE_MODULES.push(f);
-// the claude.ai side panel's own page: it holds one Session and no chat, but it reads the machine the same way, and
-// it was outside this scan when main brought it in (it kept a raw session.machine and threw once the field went).
-for (const f of fs.readdirSync(path.join(ROOT, 'connector/view')).filter((n) => n.endsWith('.js'))) PAGE_MODULES.push(`connector/view/${f}`);
-PAGE_MODULES.push('tools/connector-check.js');
+// Every file whose code is scanned for a raw machine reach: the Session, every page module, the embed API and the
+// tools that drive the page from outside. It is a FUNCTION of the tree's root so the scan-coverage suite can run this
+// same scan over a throwaway copy with one shape planted, in-process: spawning a scanner per row was most of that
+// suite's cost (31 spawns x ~0.9 s, 95 s in CI).
+function pageModules(root) {
+  const mods = [SESSION_BODY];
+  for (const f of fs.readdirSync(path.join(root, 'js/ui')).filter((n) => n.endsWith('.js')).sort()) mods.push(`js/ui/${f}`);
+  for (const f of ['js/embed-api.js', 'js/mcp/tools.js', 'cli/cloadm.js', 'tools/browser-check.js',
+    // the tools that drive the page from outside: browser-check-lib is the shared helper both of the others use, and
+    // capture-images renders from the live page. They reach `window.emu.machine`, which is the shown machine by the
+    // page's own definition, so an unclassified use there is the same bug as one in js/ui.
+    'tools/browser-check-lib.js', 'tools/capture-images.js']) mods.push(f);
+  // the claude.ai side panel's own page: it holds one Session and no chat, but it reads the machine the same way, and
+  // it was outside this scan when main brought it in (it kept a raw session.machine and threw once the field went).
+  for (const f of fs.readdirSync(path.join(root, 'connector/view')).filter((n) => n.endsWith('.js'))) mods.push(`connector/view/${f}`);
+  mods.push('tools/connector-check.js');
+  return mods;
+}
+// `window.emu.machine` is NOT a raw reach: js/ui/main.js defines it as a NAMED accessor,
+// `get machine() { return session.shownMachine; }`, so a page-driving tool writing `emu.machine` is saying which
+// machine it wants, not reaching a field. That definition is the whole licence for the exemption, so it is READ from
+// the source rather than assumed here: delete or rename the accessor and the exemption stops applying (the two checks
+// below fail loudly), rather than quietly blessing a stale reach that would now be `undefined`.
+const EMU_DEF_FILES = ['js/ui/main.js'];
+const emuMachineIsNamedShown = (root = ROOT) => EMU_DEF_FILES.some((f) => {
+  const src = fs.readFileSync(path.join(root, f), 'utf8');
+  return /get\s+machine\s*\(\s*\)\s*\{\s*return\s+[A-Za-z_$][\w$]*\.shownMachine\s*;?\s*\}/.test(src);
+});
+// the tools that drive the page from outside are the ONLY place the exemption applies: js/, cli/, connector/ and play/
+// must keep being scanned with no exception (the checks below assert they contain no `emu.machine` at all, so widening
+// where the exemption lives means proving a new place needs it, not adding a name here)
+const EMU_EXEMPT_TOOLS = new Set(['tools/browser-check.js', 'tools/browser-check-lib.js', 'tools/capture-images.js']);
 // names whose `.machine` is NOT the Session's or the Page's, per file, with the reason
 const NOT_A_SESSION = new Map([
   // a tape recording's record: `r` is a plain { machine: the machine's profile name, blocks }, not a Session
@@ -416,85 +476,342 @@ const NOT_A_SESSION = new Map([
   // the recent-media row and the welcome shelf's record: `r.machine` is a stored entry's machine id, not a Session
   ['js/ui/drawer.js', new Set(['r'])],
 ]);
-function sessionMachineUses() {
-  const out = [];
-  const src = fs.readFileSync(path.join(ROOT, SESSION_BODY), 'utf8').split('\n');
-  const cls = src.findIndex((l) => /^export class Session\b/.test(l));
-  src.forEach((line, i) => {
-    if (i < cls) return;                                  // SnapshotRomsError is above the class: its field is its own
-    const code = line.replace(/\/\/.*$/, '');             // (a use named in a comment is not a use)
-    for (const m of code.matchAll(/\bthis\.machine\b/g)) out.push(`${SESSION_BODY}:${i + 1}`);
-    // the backing field is the accessors' own: any other `this._shown` in the class is a use that skipped them
-    for (const m of code.matchAll(/\bthis\._shown\b/g)) {
-      const ok = /^\s*(get|set) shownMachine\b/.test(line) || /^\s*this\._shown = null;/.test(line);
-      if (!ok) out.push(`${SESSION_BODY}:${i + 1} (this._shown)`);
+// Strip `//` and `/* */` comments from JS source, leaving STRING, TEMPLATE and REGEX literals alone. Length and
+// newlines are preserved (a comment becomes spaces) so every character index still points at the line it came from -
+// that is what the line numbers rely on.
+//
+// A naive `/\/\/.*$/` also strips from the `//` INSIDE a string: on
+//     if (location.href !== 'http://a') page.session.machine.z = 1;
+// the rest of the line - the whole reach - became a comment and was invisible. So the stripper walks the text with
+// the states a JS lexer needs: strings, template literals (recursing into their `${}` expressions, which hold code),
+// regex literals (decided from the previous significant character, the standard heuristic), and the two comment forms.
+function stripComments(text) {
+  const out = text.split('');
+  const n = text.length;
+  const blank = (from, to) => { for (let k = from; k < to; k++) if (out[k] !== '\n') out[k] = ' '; };
+  // does a `/` here begin a REGEX (rather than a division)? Yes only where an expression may start.
+  const regexMayStart = (prev) => prev === '' || /[({[,;=:!&|?+\-*%~^<>]/.test(prev);
+  // the closing quote of a '...' or "..." starting at i (escapes honoured; a newline ends it, unclosed)
+  const str = (i, q) => {
+    i++;
+    while (i < n) { if (text[i] === '\\') { i += 2; continue; } if (text[i] === q) return i + 1; if (text[i] === '\n') return i; i++; }
+    return i;
+  };
+  // a regex literal starting at i: to the closing / outside a character class, then its flags
+  const re = (i) => {
+    const from = i; i++;
+    let inClass = false;
+    while (i < n) {
+      const c = text[i];
+      if (c === '\\') { i += 2; continue; }
+      if (c === '[') inClass = true;
+      else if (c === ']') inClass = false;
+      else if (c === '/' && !inClass) { i++; break; }
+      else if (c === '\n') return from + 1;      // not a regex after all: only the slash was code
+      i++;
     }
-  });
+    while (i < n && /[a-z]/i.test(text[i])) i++;
+    return i;
+  };
+  // CODE from i. `brace` stops at the matching `}` at depth 0 (used for a template's ${ ... }).
+  const code = (i, brace) => {
+    let prev = '';
+    while (i < n) {
+      const c = text[i], d = text[i + 1];
+      if (brace && c === '}') return i;
+      if (c === '/' && d === '/') { const s = i; while (i < n && text[i] !== '\n') i++; blank(s, i); continue; }
+      if (c === '/' && d === '*') { const s = i; i += 2; while (i < n && !(text[i] === '*' && text[i + 1] === '/')) i++; i = Math.min(n, i + 2); blank(s, i); continue; }
+      if (c === "'" || c === '"') { i = str(i, c); prev = c; continue; }
+      if (c === '`') { i = tmpl(i); prev = '`'; continue; }
+      if (c === '/' && regexMayStart(prev)) { i = re(i); prev = '/'; continue; }
+      if (c === '{') { i = code(i + 1, true); if (i < n) i++; prev = '}'; continue; }
+      if (!/\s/.test(c)) prev = c;
+      i++;
+    }
+    return i;
+  };
+  // a template literal starting at i, with its ${ } expressions walked as code (so a `//` in one is a comment)
+  const tmpl = (i) => {
+    i++;
+    while (i < n) {
+      if (text[i] === '\\') { i += 2; continue; }
+      if (text[i] === '`') return i + 1;
+      if (text[i] === '$' && text[i + 1] === '{') { i = code(i + 2, true); if (i < n) i++; continue; }
+      i++;
+    }
+    return i;
+  };
+  code(0, false);
+  return out.join('');
+}
+// A name bound to a string literal more than once in a file is a name whose VALUE, at any given line, this scan
+// cannot know: `const k = '_shown'; this[k]` and later `const k = 'x'` - or the reverse order - both end with an
+// unknown `k`, and the first order would be silently let through by a "last one wins" map. So the map keeps the SET of
+// literals a name was ever bound to and drops names that are also reassigned; a key resolved to a set of several
+// values is UNKNOWN, and a computed key on a Session/Page that is unknown is reported (the scan cannot say it is not
+// a reach). Takes lines ALREADY stripped of comments. Returns Map<name, {values:Set, reassigned:bool}>.
+function stringBindings(lines) {
+  const out = new Map();
+  const entry = (n) => { if (!out.has(n)) out.set(n, { values: new Set(), reassigned: false }); return out.get(n); };
+  for (const code of lines) {
+    for (const m of code.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*['"`]([^'"`]*)['"`]\s*[,;)]?/g)) entry(m[1]).values.add(m[2]);
+    for (const m of code.matchAll(/^\s*([A-Za-z_$][\w$]*)\s*=\s*(?!=)/g)) {
+      if (code.includes('const ' + m[1]) || code.includes('let ' + m[1]) || code.includes('var ' + m[1])) continue;
+      entry(m[1]).reassigned = true;
+    }
+  }
   return out;
 }
-function pageMachineUses() {
+// What a computed key reaches: exactly one literal value (the reach is that name), or unknown (several bindings or a
+// reassignment - a reach the scan cannot rule out). A name never bound to a literal is not a key of interest at all.
+const keyIs = (bindings, name) => {
+  const b = bindings.get(name);
+  if (!b) return null;                                   // not a literal-bound name: an ordinary `session[i]`
+  if (b.reassigned || b.values.size !== 1) return 'unknown';
+  return [...b.values][0];
+};
+function sessionMachineUses(root = ROOT) {
   const out = [];
-  for (const f of PAGE_MODULES) {
+  const raw = fs.readFileSync(path.join(root, SESSION_BODY), 'utf8');
+  // comments gone FIRST, and only the real ones (stripComments): a `//` inside a string is not a comment. Then the
+  // SAME whole-file binding rules the pages use, because the Session has the same shapes - `const self =\n this;`,
+  // `let self; self = this;`, `const self = this;` then a destructure on later lines. A per-line pass missed all three,
+  // which is what the round-3 review found still open on this side.
+  const stripped = stripComments(raw);
+  const src = stripped.split('\n');
+  const cls = src.findIndex((l) => /^export class Session\b/.test(l));
+  const constStrings = stringBindings(src);
+  // THE HOLDER RULES, the same set as pageMachineUses but with `this` as the root: an alias of `this` is a holder of
+  // the Session. Learned over the whole class body to a fixpoint, so the order of the lines does not matter.
+  const thisAliases = new Set();
+  const thisAliasOf = [];     // [name, source]: `const X = Y` where Y may be an alias of this
+  const thisMemberOf = [];    // [name, base|null]
+  const thisBareAssign = [];  // [name, base|null]: `X = this` with no declaration in front
+  const thisBareHolder = new Set();
+  {
+    const t = stripped;
+    for (const m of t.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*this\b/g)) thisBareHolder.add(m[1]);
+    for (const m of t.matchAll(/,\s*([A-Za-z_$][\w$]*)\s*=\s*this\b/g)) thisBareHolder.add(m[1]);
+    for (const m of t.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*([A-Za-z_$][\w$]*)\s*[,;)]/g)) thisAliasOf.push([m[1], m[2]]);
+    for (const m of t.matchAll(/,\s*([A-Za-z_$][\w$]*)\s*=\s*([A-Za-z_$][\w$]*)\s*[,;)]/g)) thisAliasOf.push([m[1], m[2]]);
+    // a bare assignment: `let self; self = this;` (not the declaration form)
+    for (const m of t.matchAll(/(^|[;,{}\s])([A-Za-z_$][\w$]*)\s*=\s*(?!=)this\b/g)) {
+      const at = m.index + m[1].length;
+      if (!/\b(?:const|let|var)\s+$/.test(t.slice(Math.max(0, at - 40), at))) thisBareAssign.push(m[2]);
+    }
+  }
+  for (const n of thisBareHolder) thisAliases.add(n);
+  for (let pass = 0, grew = true; grew && pass < 50; pass++) {
+    grew = false;
+    for (const [n, src2] of thisAliasOf) if (thisAliases.has(src2) && !thisAliases.has(n)) { thisAliases.add(n); grew = true; }
+    for (const n of thisBareAssign) if (!thisAliases.has(n)) { thisAliases.add(n); grew = true; }
+  }
+  src.forEach((line, i) => {
+    if (i < cls) return;                                  // SnapshotRomsError is above the class: its field is its own
+    const code = line;                                    // (comments were stripped whole-file, above)
+    for (const m of code.matchAll(/\bthis\.machine\b/g)) out.push(`${SESSION_BODY}:${i + 1}`);
+    // the backing field is the accessors' own: any other `this._shown` in the class is a use that skipped them,
+    // in every form: `this._shown`, `this?._shown`, `this?.['_shown']`, `this['_shown']` / `this["_shown"]`, and a
+    // destructure `const { _shown } = this`. The accessors' own lines are the only place it may appear.
+    const ownLine = /^\s*(get|set) shownMachine\b/.test(line) || /^\s*this\._shown = null;/.test(line);
+    for (const m of code.matchAll(/\bthis\s*\??\.\s*_shown\b/g)) if (!ownLine) out.push(`${SESSION_BODY}:${i + 1} (${m[0]})`);
+    for (const m of code.matchAll(/\bthis\s*(\?\.)?\s*\[\s*['"`]_shown['"`]\s*\]/g)) if (!ownLine) out.push(`${SESSION_BODY}:${i + 1} (${m[0]})`);
+    for (const m of code.matchAll(/\{[^}]*\b_shown\b[^}]*\}\s*=\s*(this|[A-Za-z_$][\w$]*)\b/g)) if (!ownLine) out.push(`${SESSION_BODY}:${i + 1} (destructured _shown)`);
+    // a computed key on `this`: `const k = '_shown'; this[k]`. A key bound once to a literal is that reach; a key
+    // bound twice (or reassigned) is UNKNOWN, and this scan reports a key it cannot read rather than letting it pass.
+    for (const m of code.matchAll(/\bthis\s*\??\s*\[\s*([A-Za-z_$][\w$]*)\s*\]/g)) {
+      const v = keyIs(constStrings, m[1]);
+      if (v === '_shown' || v === 'machine') out.push(`${SESSION_BODY}:${i + 1} (this[${m[1]}=${JSON.stringify(v)}])`);
+      else if (v === 'unknown') out.push(`${SESSION_BODY}:${i + 1} (this[${m[1]}=unknown, several bindings])`);
+    }
+    // an alias of `this` (learned over the whole class, above), in the same forms
+    for (const a of thisAliases) {
+      for (const m of code.matchAll(new RegExp(`\\b${a}\\s*\\??\\.\\s*_shown\\b`, 'g'))) out.push(`${SESSION_BODY}:${i + 1} (${m[0]})`);
+      for (const m of code.matchAll(new RegExp(`\\b${a}\\s*(?:\\?\\.)?\\s*\\[\\s*['"\`].*?['"\`]\\s*\\]`, 'g'))) out.push(`${SESSION_BODY}:${i + 1} (${m[0]})`);
+    }
+  });
+  // a destructure spread over lines whose right side is `this` OR a learned alias of it: `const {\n _shown\n} = this`,
+  // `const self = this;` then `const {\n _shown\n} = self`. It lives HERE and not in pageMachineUses, which skips the
+  // Session body. The line is the MATCH'S OWN offset in the stripped text (no token search, which could report the
+  // wrong line when the same identifier appears earlier in the class).
+  for (const m of stripped.matchAll(/\b(?:const|let|var)\s*\{\s*([^{}]*?)\s*\}\s*=\s*(this|[A-Za-z_$][\w$]*)\s*[,;)]/g)) {
+    const rhs = m[2];
+    if (!/\b(?:machine|_shown)\b/.test(m[1])) continue;
+    if (rhs !== 'this' && rhs !== 'machine' && rhs !== '_shown' && !thisAliases.has(rhs)) continue;
+    const at = stripped.slice(0, m.index).split('\n').length;
+    out.push(`${SESSION_BODY}:${at} ({ ${m[1].replace(/\s+/g, ' ').trim().slice(0, 24)} } = ${rhs}, over lines)`);
+  }
+  return out;
+}
+function pageMachineUses(root = ROOT) {
+  const out = [];
+  for (const f of pageModules(root)) {
     if (f === SESSION_BODY) continue;
-    // block comments removed (line numbers kept): a shape named in a comment is not a use. `//` comments are
-    // stripped per line below.
-    const raw = fs.readFileSync(path.join(ROOT, f), 'utf8').replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '));
-    const src = raw.split('\n');
+    // block comments removed (line numbers kept): a shape named in a comment is not a use. The strip is
+    // stripComments, not a regex: the round-3 review showed a `//` INSIDE a string hid the rest of its line
+    // (`if (location.href !== 'http://a') page.session.machine.z = 1;`), in the reach rules and in this one strip.
+    const raw = fs.readFileSync(path.join(root, f), 'utf8');
+    const src = stripComments(raw).split('\n');
+    // EVERY RULE THAT BINDS A NAME READS THE WHOLE FILE, not one line at a time. A declaration may be spread over
+    // lines - `const sess =\n  page.session`, `const {\n machine\n} = session`, `const {\n session: ss\n} = window.emu`
+    // - and a per-line pass silently missed all three (the round-3 review's evasions 3a, 3b, 3d). The reach rules
+    // below stay per line (a `.machine` is always on one line). `stripped` is the file with comments blanked (so a
+    // name in a comment is not learned) and its LENGTH is unchanged, which is what lets `lineOf` report the line a
+    // match in the whole-file text came from. The blanking is `stripComments`, which leaves a `//` inside a string
+    // alone; a name or reach after a string on the same line is therefore still seen.
+    const stripped = src.join('\n');
+    const lineOf = (idx) => stripped.slice(0, idx).split('\n').length;
     // Every name a Session or the Page can be held under, learned from the source to a FIXPOINT (an alias of an
     // alias counts, whichever order the lines are in). The shapes the adversarial review of 4018753 named, each one
     // it showed green: a RENAMED destructure (`const { session: sess2 } = page`), `s = window.emu.session`, and a
     // layered alias. `s` is NOT assumed to be a Session (page.js's onStep uses `s` for a history state): it is a
     // holder only where the source says so.
-    // The limit of this learning, measured and listed under THE BOUNDARY above: an alias must be a BARE name on the
-    // right (`= session`, `= page`, `= anAlias`), or a destructure from a bare `session`/`page`. `page.session` and
-    // `this.session` do NOT make the left side a holder, so `sess = page.session; sess.machine` is missed.
-    const holders = new Set(['session', 'page']);
-    for (let pass = 0, grew = true; grew; pass++) {
+    // Session-shaped expressions that ARE learned, each with a row in the scan suite: an alias (`= session` /
+    // `= page` / `= anAlias`), a member of a holder (`= page.session`, `= this.session`), and a destructure of either.
+    // names bound to a string literal: see stringBindings. A computed key from a name bound once is that reach; a
+    // name bound twice or reassigned is UNKNOWN and is reported rather than skipped.
+    const constStrings = stringBindings(src);
+    // `emu` is a holder like `session` and `page`: it carries the Session and the Page's own services
+    // (`window.emu = { session, profiles, … }` in js/ui/main.js). Its `machine` is the ONE member that is a named
+    // accessor rather than a field, and that is allowed only where EMU_EXEMPT_TOOLS says and only while the accessor
+    // exists; every other `emu.<x>.machine` is caught like any other reach.
+    // A bare ASSIGNMENT to a name that holds the Session also makes it a holder: `let sess; sess = page.session;`
+    // then `sess.machine` is the same reach as `page.session.machine`, and nothing about the `let` line alone says so.
+    // Learned over the file (one pass), the same fixpoint the declarations use.
+    const holders = new Set(['session', 'page', 'emu']);
+    // THE HOLDER RULES ARE MATCHED ONCE, into facts, and the fixpoint then runs over the FACTS. It used to re-run every
+    // regex over every line on each pass, and a scaffold-heavy file needs dozens of passes (one name is learned per
+    // pass because the regexes read the CURRENT holder set): measured at 58 passes x ~700 lines x ~15 regexes, 57 s for
+    // one scan, which is what pushed this suite past its 240 s gate limit. The facts cost one pass; the fixpoint over
+    // them is trivial. Same rules, same results - the completeness check (the scan suite) is unchanged.
+    const bareHolder = new Set();      // `const X = session` / `, X = page` / `const X = window.emu.session` / `= window.emu`
+    const bareAlias = [];              // [name, source]: `const X = Y` where Y may be a holder  (also the comma form)
+    const memberOf = [];               // [name, base|null]: `const X = this.session` (null) or `page.session` (base)
+    const bareAssign = [];             // [name, base|null]: `X = session` with no declaration in front
+    const destructured = [];           // names from `const { session: s2 } = page` / `window.emu`
+    const machineDestructure = [];     // { line, text }: a destructure of machine/_shown out of a Session expression
+    {
+      const t = stripped;   // (the whole file: every binding rule below reads this, so a multi-line form is one shape)
+      // `const X = session`, `= page`, `= window.emu`, `= window.emu.session`, `= emu.session`.
+      // `emu` IS a holder (it carries `session`), but `emu.machine` is a VALUE - the machine itself - so the match
+      // must stop at a word end: `const p = window.emu.machine` binds the machine, not a Session, and `p[i]` on it
+      // is not a Session reach. (Reading `emus`/`emu2` as `emu` is excluded for the same reason.)
+      for (const m of t.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:window\.)?(?:emu(?:\.(?:session|page))?|session|page)\b/g)) {
+        const after = t.slice(m.index + m[0].length, m.index + m[0].length + 1);
+        if (after !== '.' && (after === '' || /[,;)\s\]]/.test(after))) bareHolder.add(m[1]);
+      }
+      for (const m of t.matchAll(/,\s*([A-Za-z_$][\w$]*)\s*=\s*(?:window\.)?(?:emu(?:\.(?:session|page))?|session|page)\b/g)) {
+        const after = t.slice(m.index + m[0].length, m.index + m[0].length + 1);
+        if (after !== '.' && (after === '' || /[,;)\s\]]/.test(after))) bareHolder.add(m[1]);
+      }
+      // an alias of an alias: `const X = Y`, and the SECOND declarator form `const a = session, b = a`
+      for (const m of t.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*([A-Za-z_$][\w$]*)\s*[,;)]/g)) bareAlias.push([m[1], m[2]]);
+      for (const m of t.matchAll(/,\s*([A-Za-z_$][\w$]*)\s*=\s*([A-Za-z_$][\w$]*)\s*[,;)]/g)) bareAlias.push([m[1], m[2]]);
+      // a MEMBER of a holder: `const X = this.session` / `const X = page.session` / `const X = e.session`
+      for (const m of t.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:this\.|([A-Za-z_$][\w$]*)\.)session\b/g)) memberOf.push([m[1], m[2] === undefined ? null : m[2]]);
+      // a bare assignment anywhere: `let sess; sess = page.session;` - and `sess = session` on its own. It accepts
+      // `= window.emu` too (a holder like any other): `let e9; e9 = window.emu;` then `e9.session.machine`.
+      // The trailing guard is the holder rule's, for the same reason: `d = window.emu.session.diskStatus()` binds the
+      // RESULT of diskStatus, not the Session, so a `.` (or a call `(`) after the name means this is not a holder.
+      for (const m of t.matchAll(/(^|[;,{}\s])([A-Za-z_$][\w$]*)\s*=\s*(?!=)(?:window\.)?(?:this\.)?(?:([A-Za-z_$][\w$]*)\.)?(?:session|page|emu)\b(?!\s*[.(])/g)) {
+        const at = m.index + m[1].length;
+        const declBefore = /\b(?:const|let|var)\s+$/.test(t.slice(Math.max(0, at - 40), at));
+        if (!declBefore) bareAssign.push([m[2], m[3] === undefined ? null : m[3]]);
+      }
+      // a PARENTHESISED right side: `const sess5 = (\n page.session\n);`, `e9 = (window.emu);`. It must be a CLOSED
+      // paren group followed by nothing that makes it an arrow parameter or a member: `const frames = (page) => ...`
+      // binds an arrow whose PARAMETER is named page, not the Page. The lookahead keeps that out. `(?!\s*[,;)]*=$)`
+      // and the declarator check keep a `, d = window.emu` inside a const list from being read as a bare assignment.
+      // a PARENTHESISED right side: `const sess5 = (\n page.session\n);`, `e9 = (window.emu);`. It must be a CLOSED
+      // paren group followed by nothing that makes it an arrow parameter or a member: `const frames = (page) => ...`
+      // binds an arrow whose PARAMETER is named page, not the Page. The lookahead keeps that out. A member of the head
+      // (`page.session`, `emu.session`) may follow inside the parens, so each head carries its own optional member.
+      const notArrowOrMember = '(?![\\s)]*=>)(?!\\s*\\.)';
+      const paren = '(?:\\s*\\(\\s*)*';
+      const holderRhs = '(?:window\\.)?(?:emu(?:\\.[A-Za-z_$][\\w$]*)?|page(?:\\.[A-Za-z_$][\\w$]*)?|session(?:\\.[A-Za-z_$][\\w$]*)?)';
+      for (const m of t.matchAll(new RegExp(`\\b(?:const|let|var)\\s+([A-Za-z_$][\\w$]*)\\s*=\\s*${paren}${holderRhs}\\s*\\)+\\s*${notArrowOrMember}`, 'g'))) {
+        bareHolder.add(m[1]);
+      }
+      for (const m of t.matchAll(new RegExp(`(^|[;{}\\s])([A-Za-z_$][\\w$]*)\\s*=\\s*(?!=)${paren}(?:window\\.)?(?:emu(?:\\.(?:session|page))?|session|page)\\s*\\)+\\s*${notArrowOrMember}`, 'g'))) {
+        const at = m.index + m[1].length;
+        if (!/\b(?:const|let|var)\s+$/.test(t.slice(Math.max(0, at - 40), at))
+          && !/(?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=\s*[^;,]*,\s*$/.test(t.slice(Math.max(0, at - 200), at))) {
+          bareAssign.push([m[2], null]);
+        }
+      }
+      // `const { session } = page`, `const { session: s2 } = window.emu`
+      for (const m of t.matchAll(/\b(?:const|let|var)\s*\{([^}]*)\}\s*=\s*(?:window\.)?(?:page|session|emu)\b/g)) {
+        for (const part of m[1].split(',')) {
+          const bits = part.trim().split(/[:=]/).map((x) => x.trim());
+          destructured.push(bits.length > 1 && bits[1] ? bits[1] : bits[0]);     // (the RENAME when there is one)
+        }
+      }
+      // a destructure of the MACHINE out of a Session expression - a USE, kept as a fact because whether the right
+      // side is Session-shaped depends on the finished holder set (it may name a learned alias). Read from the
+      // joined text so a destructure spread over lines is the same shape as a one-line one.
+      for (const m of t.matchAll(/\b(?:const|let|var)\s*\{([^{}]*)\}\s*=\s*(this\.session|[A-Za-z_$][\w$]*\.session|[A-Za-z_$][\w$]*)\s*[,;)]?/g)) {
+        if (/\b(?:machine|_shown)\b/.test(m[1])) machineDestructure.push({ line: lineOf(m.index), text: `{ ${m[1].replace(/\s+/g, ' ').trim().slice(0, 24)} } = ${m[2]}` });
+      }
+    }
+    // the fixpoint, over the facts: a name is a holder when a rule says so and its source already is one
+    for (let pass = 0, grew = true; grew && pass < 50; pass++) {
       grew = false;
       const add = (n) => { if (n && !holders.has(n)) { holders.add(n); grew = true; } };
-      for (const line of src) {
-        // const x = session | page | page.session | window.emu.session  (whitespace or a line end after it, so
-        // `session.media` is not read as a bare `session`)
-        // (anywhere in a declaration list: `const s = window.emu.session, d = s.display` - the comma after is legal)
-        for (const m of line.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:window\.)?(?:emu\.)?(?:session|page)\b/g)) {
-          // the word after it must END the expression: `,` `;` `)` end of line, or a newline; `session.media` does not
-          const after = line.slice(m.index + m[0].length, m.index + m[0].length + 1);
-          if (after === '' || /[,;)\n]/.test(after)) add(m[1]);
-        }
-        for (const m of line.matchAll(/,\s*([A-Za-z_$][\w$]*)\s*=\s*(?:window\.)?(?:emu\.)?(?:session|page)\b/g)) {
-          const after = line.slice(m.index + m[0].length, m.index + m[0].length + 1);
-          if (after === '' || /[,;)\n]/.test(after)) add(m[1]);
-        }
-        // an alias of an alias: const x = y, or const x = y, z = ...  (the right side is a BARE name: a call or a
-        // member expression there is not an alias of the Session)
-        for (const m of line.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*([A-Za-z_$][\w$]*)\s*[,;)]/g)) if (holders.has(m[2])) add(m[1]);
-        // const { session } = page, const { session: sess2 } = page
-        for (const m of line.matchAll(/\b(?:const|let|var)\s*\{([^}]*)\}\s*=\s*(?:page|session)\b/g)) {
-          for (const part of m[1].split(',')) {
-            const bits = part.trim().split(/[:=]/).map((x) => x.trim());
-            add(bits.length > 1 && bits[1] ? bits[1] : bits[0]);     // (the RENAME when there is one)
-          }
-        }
+      for (const n of bareHolder) add(n);
+      for (const [n, src2] of bareAlias) if (holders.has(src2)) add(n);
+      for (const [n, base] of memberOf) if (base === null || holders.has(base)) add(n);
+      for (const [n, base] of bareAssign) if (base === null || holders.has(base)) add(n);
+      for (const n of destructured) add(n);
+    }
+    // the machine destructures are uses wherever the right side is Session-shaped (a holder, or a chain ending in
+    // `.session`). A plain record's `{ machine }` is NOT matched - that is what NOT_A_SESSION is for on `.machine`.
+    for (const { line, text } of machineDestructure) {
+      const rhs = text.slice(text.indexOf('} = ') + 4);
+      const base = rhs.split('.')[0];
+      if (rhs === 'this.session' || /^(?:session|page)$/.test(rhs) || /session$/.test(rhs) || holders.has(base)) {
+        out.push(`${f}:${line} (${text})`);
       }
     }
     const allow = NOT_A_SESSION.get(f) || new Set();
+    // `emu.machine` (and `window.emu.machine`) is the accessor named above: it says "the shown machine". It is
+    // allowed ONLY in the page-driving tools, and only while that accessor exists. Everything else about `emu` is
+    // still a holder, so `emu.session.machine` is caught like any other reach.
+    // Read ONCE per file, not once per line: it used to open js/ui/main.js on every line of every module.
+    const emuOk = EMU_EXEMPT_TOOLS.has(f) && emuMachineIsNamedShown(root);
     src.forEach((line, i) => {
-      const code = line.replace(/\/\/.*$/, '');
-      // the reach forms: x.machine, x?.machine, and x['machine'] / x[`machine`] / x["machine"]
+      const code = line;   // (comments were stripped whole-file, above)
+      // the reach forms: x.machine, x?.machine, and x['machine'] / x[`machine`] / x["machine"], each also with the
+      // optional-chaining `?.` in front of the bracket: `session?.['machine']` is the same reach as `session['machine']`
       const forms = [
         ...code.matchAll(/\b([A-Za-z_$][\w$]*)\??\.machine\b/g),
-        ...code.matchAll(/\b([A-Za-z_$][\w$]*)\s*\[\s*['"`]machine['"`]\s*\]/g),
+        ...code.matchAll(/\b([A-Za-z_$][\w$]*)\s*\??\.?\s*\[\s*['"`]machine['"`]\s*\]/g),
       ];
+      // An ALIAS of the accessor is allowed in the page-driving tools (a known limit, below); the accessor itself is
+      // allowed only there and only while licensed.
       for (const m of forms) {
         if (!holders.has(m[1]) || allow.has(m[1])) continue;
+        if (m[1] === 'emu' && emuOk) continue;
         out.push(`${f}:${i + 1} (${m[0]})`);
+      }
+      // An ALIAS of the accessor is a known limit, documented rather than pretended: `const m = window.emu.machine`
+      // is allowed in the page-driving tools, because reading the shown machine through one is what about seventy call
+      // sites in browser-check.js do, and refusing it would need a write-detector that is right about `m.frameCount`
+      // vs `m.z = 1` in every expression form. What IS caught is the accessor itself used outside an exempt tool, and
+      // the accessor ceasing to be named (the two rows beside this one). See THE BOUNDARY.
+      // a computed key bound to a constant NAME: `const k = '_shown'; session[k]` is the same reach as
+      // `session['_shown']`. A key bound twice, or reassigned, has no single value at any line, so it is reported
+      // (the scan cannot say it is NOT a reach) - rather than skipped, which is what "last one wins" used to do.
+      for (const m of code.matchAll(/\b([A-Za-z_$][\w$]*)\s*\[\s*([A-Za-z_$][\w$]*)\s*\]/g)) {
+        if (!holders.has(m[1]) || allow.has(m[1])) continue;
+        const v = keyIs(constStrings, m[2]);
+        if (v === 'machine' || v === '_shown') out.push(`${f}:${i + 1} (${m[1]}[${m[2]}=${JSON.stringify(v)}])`);
+        else if (v === 'unknown') out.push(`${f}:${i + 1} (${m[1]}[${m[2]}=unknown, several bindings])`);
       }
       // a COMPUTED key on a Session/Page (`session['ma' + 'chine']`) cannot be read textually as the name it makes:
       // any bracket access on one whose key is not a plain identifier is reported instead, since the scan cannot say
       // what it reaches. (`session[x]` and `session['a' + 'b']` both land here; `session['machine']` is caught above.)
-      // The `continue` below SKIPS a plain identifier key, on the assumption that `session[x]` is an array. When `x`
-      // holds a machine's field name (`const k = '_shown'; session[k]`) that assumption is wrong, and the use is
-      // missed - measured, see THE BOUNDARY above. A string literal in the brackets is still caught by the form above.
+      // A PLAIN identifier key is skipped on the assumption that `session[x]` is an array - unless it is bound to a
+      // string or bound twice, which the leg ABOVE reports.
       for (const m of code.matchAll(/\b([A-Za-z_$][\w$]*)\s*\[\s*([^\]]+?)\s*\]/g)) {
         if (!holders.has(m[1]) || allow.has(m[1])) continue;
         if (/^[A-Za-z_$][\w$]*$/.test(m[2])) continue;     // session[length]: an array, not this object
@@ -503,7 +820,7 @@ function pageMachineUses() {
     });
     // a Session/Page read as `_shown` (the backing field) in a page module is the same raw reach as `.machine`
     src.forEach((line, i) => {
-      const code = line.replace(/\/\/.*$/, '');
+      const code = line;   // (comments were stripped whole-file, above)
       for (const m of code.matchAll(/\b([A-Za-z_$][\w$]*)\??\._shown\b/g)) {
         if (holders.has(m[1]) && !allow.has(m[1])) out.push(`${f}:${i + 1} (${m[1]}._shown)`);
       }
@@ -511,7 +828,7 @@ function pageMachineUses() {
   }
   return out;
 }
-function rawMachineUses() { return [...sessionMachineUses(), ...pageMachineUses()]; }
+function rawMachineUses(root = ROOT) { return [...sessionMachineUses(root), ...pageMachineUses(root)]; }
 
 // Every Session method the UI CALLS must have a row or a written reason, DERIVED from js/ui/*.js rather than listed
 // here by hand: a method added to a panel and called there is caught the moment it appears, which a hand-written
@@ -552,11 +869,43 @@ function rowMethods() {
   return out;
 }
 
+// `--scan-only`: run ONLY the raw-machine scan and print its findings, for a person running it by hand. The
+// scan-coverage suite no longer spawns this: it requires this file and calls `rawMachineUses(root)` IN PROCESS, over
+// a throwaway copy - a spawn per planted row cost 0.9 s x 31 and pushed the suite past its gate limit in CI. The full
+// suite is what the gate runs; this mode sets exitCode and does NOT start the async block below, so there is no
+// process.exit() anywhere (tests/exitcode.test.js).
+const SCAN_ONLY = process.argv.includes('--scan-only');
+if (SCAN_ONLY) {
+  const found = rawMachineUses();
+  if (found.length) console.log(`FAIL raw machine reach: ${found.join(', ')}`);
+  else console.log('ok   no raw machine reach');
+  process.exitCode = found.length ? 1 : 0;
+}
+// for tests/chat-leaks-scan.test.js: the scan over an arbitrary root, so a plant can be judged without a spawn
+module.exports = { rawMachineUses, sessionMachineUses, pageMachineUses, pageModules, emuMachineIsNamedShown };
+// REQUIRED BY THE SCAN-COVERAGE SUITE: that suite runs the sweep it does not need, and the sweep builds fixtures and
+// runs sixty-odd machine actions. When this file is a module (not the entry point) and not in --scan-only mode, stop
+// here - the harness only wants the scan. (Still no process.exit: the block simply never starts.)
+const REQUIRED = require.main !== module;
+
 (async () => {
+  if (SCAN_ONLY || REQUIRED) return;   // the scan-only run has already done its work; a require is not a run
   check('the table has a row for every person-facing action', ROWS.length >= 40, `${ROWS.length} rows`);
   // ---- the two accessors: no raw machine reach in the Session or a page module ----
   const raw = rawMachineUses();
   check('no raw this.machine / session.machine (shownMachine or personMachine, each saying which)', raw.length === 0, raw.join(', '));
+  // THE ONE EXEMPTION, PINNED. `emu.machine` is allowed in the page-driving tools only while js/ui/main.js names it
+  // as a shown-machine accessor (pageMachineUses reads that definition). Two ways it could rot silently, one check
+  // each: the accessor could be deleted (every tool use then reaches an unnamed field, and must fail), or the
+  // exemption could stop being exercised at all (a tool stops using it, and the allowance would then be dead code
+  // that a future reader mistakes for protection).
+  check('the emu.machine exemption is still licensed: js/ui/main.js defines it as get machine() { return session.shownMachine; }',
+    emuMachineIsNamedShown(), emuMachineIsNamedShown() ? '' : `no such accessor in ${EMU_DEF_FILES.join(', ')}`);
+  {
+    const users = [...EMU_EXEMPT_TOOLS].filter((f) => /\bemu\s*\.\s*machine\b/.test(fs.readFileSync(path.join(ROOT, f), 'utf8')));
+    check('the emu.machine exemption is still used: a page-driving tool reaches emu.machine', users.length > 0,
+      users.length ? `${users.length} tools use it` : `none of ${EMU_EXEMPT_TOOLS.size} tools use it; delete EMU_EXEMPT_TOOLS`);
+  }
   // ---- coverage: every Session method the UI calls is a row, or classified ----
   // (names verified to be reads/pure by reading their bodies; a name that is wrong here shows as an unknown method)
   const READ = new Set(['advance', 'besideMachine', 'blankDiskChoices', 'bootStatus', 'checkGame', 'checkLiza',
