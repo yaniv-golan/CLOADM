@@ -10,6 +10,43 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Fixed
 
+- **A file dropped while the Claude chat is full screen goes to your BASIC session, not the chat.** The chat runs
+  its own firmware on a second machine of the same model, and that machine was the one a drop loaded into: a
+  program or a tape overwrote the chat firmware's memory and the chat screen went away, with the message saying the
+  load had worked. Everything you do with a file, a tape, the deck's controls, a cartridge or the POKE book now acts
+  on one machine — your BASIC session behind the chat (the machine Claude acts on) — so a program, tape, cartridge
+  or disk lands there, the message says where it went, and the chat stays as it was. The drives card shows that
+  session's drives; on a Dragon Alpha, whose disk interface is built in, a disk dropped there used to go into the
+  chat machine's drives. Two further things the first cut of this missed: a tape whose stored ROMs could not start
+  BASIC still power cycled the chat machine (and left its screen on "NO ROM LOADED"), and a Reset after a drop
+  replaced the chat's own restart record, so Reset took the chat screen away. Each machine now keeps its own record.
+  The POKE book, **Save snapshot**, a dropped ROM (and a ROM pack), **Remove ROMs**, **Skip** on a tape, the
+  Speech/Sound Pak and the welcome menu follow it too: each used to act on the chat machine with the chat full screen
+  (a POKE typed into the chat firmware, whose keys are a conversation line; a saved snapshot of the chat's screen; a
+  dropped ROM booting the chat machine instead of your session; Remove ROMs and Switch off and on resetting it; the
+  welcome menu written over the chat firmware). The messages say which machine was used where it is not the one on
+  screen.
+
+- **Stored ROMs that do not start BASIC are not retried on every tape drop.** When a load used the stored ROMs and
+  they never printed OK, every later drop repeated the whole restart-and-wait (about 5 seconds of emulated time)
+  before falling back to running the tape in memory — and an ASCII BASIC tape, which is refused instead, re-tried
+  them on every drop too. The failure is now remembered for the visit, and a power cycle or a ROM change clears it,
+  so after either the ROMs are tried again.
+
+- **The chat's screen survives what you do to your own machine.** Following the fix above: the screen's **Power**
+  button and the "Switch off and on" box power on your BASIC session, not the chat machine (they used to wipe the
+  chat firmware and leave "NO ROM LOADED"); the cassette deck's row, the type-in panel and the sockets screen show
+  your BASIC session's tape and ROMs; and running a game or LIZA sets the machine up on your BASIC session, so
+  leaving them (BREAK, BYE) goes back to the welcome menu as it should. Reset on the chat screen restarts the chat
+  firmware, which is what is on screen, and it comes back running. A floppy
+  NitrOS-9 boot also sets up your BASIC session (it put the disk controller into the chat machine's port), and so do
+  the assembler panel's **Run**, the Serial port panel and a game's or LIZA's menu watch.
+
+- **A restore closes the stale "No OK" box.** Claude's undo, and opening a snapshot, put the machine back to a
+  moment that is not a power-on; boot-help never re-checked, so a box raised by the run the restore replaced stayed
+  on screen. Restores are now announced as their own `restored` event (never `reset`), which boot-help listens to,
+  so the box goes with the run it belonged to and a moment that really is a boot failure still shows its cause.
+
 - **Whichever machine the screen shows, everything you do acts on the machine that is yours.** With the Claude chat
   full screen the page runs a second machine for the chat firmware, and a few things still reached that one: the
   welcome program's tune was played into the chat's memory (so your own menu stayed silent) and its keypresses were
@@ -281,45 +318,6 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   The Pak is an optional cartridge: its cards are now titled "Speech/Sound Pak (optional cartridge): ...", tagged
   optional like the disk card, and listed after the machine's sockets and the disk card. The Pak still needs its PIC
   ROM to be inserted, and says so. Checked in the browser check's `sscBoard` group.
-
-### Fixed
-
-- **A file dropped while the Claude chat is full screen goes to your BASIC session, not the chat.** The chat runs
-  its own firmware on a second machine of the same model, and that machine was the one a drop loaded into: a
-  program or a tape overwrote the chat firmware's memory and the chat screen went away, with the message saying the
-  load had worked. Everything you do with a file, a tape, the deck's controls, a cartridge or the POKE book now acts
-  on one machine — your BASIC session behind the chat (the machine Claude acts on) — so a program, tape, cartridge
-  or disk lands there, the message says where it went, and the chat stays as it was. The drives card shows that
-  session's drives; on a Dragon Alpha, whose disk interface is built in, a disk dropped there used to go into the
-  chat machine's drives. Two further things the first cut of this missed: a tape whose stored ROMs could not start
-  BASIC still power cycled the chat machine (and left its screen on "NO ROM LOADED"), and a Reset after a drop
-  replaced the chat's own restart record, so Reset took the chat screen away. Each machine now keeps its own record.
-  The POKE book, **Save snapshot**, a dropped ROM (and a ROM pack), **Remove ROMs**, **Skip** on a tape, the
-  Speech/Sound Pak and the welcome menu follow it too: each used to act on the chat machine with the chat full screen
-  (a POKE typed into the chat firmware, whose keys are a conversation line; a saved snapshot of the chat's screen; a
-  dropped ROM booting the chat machine instead of your session; Remove ROMs and Switch off and on resetting it; the
-  welcome menu written over the chat firmware). The messages say which machine was used where it is not the one on
-  screen.
-
-- **Stored ROMs that do not start BASIC are not retried on every tape drop.** When a load used the stored ROMs and
-  they never printed OK, every later drop repeated the whole restart-and-wait (about 5 seconds of emulated time)
-  before falling back to running the tape in memory — and an ASCII BASIC tape, which is refused instead, re-tried
-  them on every drop too. The failure is now remembered for the visit, and a power cycle or a ROM change clears it,
-  so after either the ROMs are tried again.
-
-- **The chat's screen survives what you do to your own machine.** Following the fix above: the screen's **Power**
-  button and the "Switch off and on" box power on your BASIC session, not the chat machine (they used to wipe the
-  chat firmware and leave "NO ROM LOADED"); the cassette deck's row, the type-in panel and the sockets screen show
-  your BASIC session's tape and ROMs; and running a game or LIZA sets the machine up on your BASIC session, so
-  leaving them (BREAK, BYE) goes back to the welcome menu as it should. Reset on the chat screen restarts the chat
-  firmware, which is what is on screen, and it comes back running. A floppy
-  NitrOS-9 boot also sets up your BASIC session (it put the disk controller into the chat machine's port), and so do
-  the assembler panel's **Run**, the Serial port panel and a game's or LIZA's menu watch.
-
-- **A restore closes the stale "No OK" box.** Claude's undo, and opening a snapshot, put the machine back to a
-  moment that is not a power-on; boot-help never re-checked, so a box raised by the run the restore replaced stayed
-  on screen. Restores are now announced as their own `restored` event (never `reset`), which boot-help listens to,
-  so the box goes with the run it belonged to and a moment that really is a boot failure still shows its cause.
 
 ### 0.1.7-pre
 
