@@ -430,7 +430,7 @@ identical to HALT (720984, 720984, 720984, 720984 and 911939 instructions compar
 `tests/gime-vsc.test.js` checks the shipped model line by line against rows worked out by hand from S1 and S4
 (graphics of 2, 8, 9, 10 and 11 lines, every VSC; 8-line text, where the underline marks each row's last line; 225
 lines; bits 4-7 ignored; the field-start latch; compatibility mode; `mameCompat`; the text screen the reader sees;
-snapshots); `tests/state.test.js` saves mid-field, scrolled and between a write and its latch.
+snapshots); `tests/state-carts.test.js` saves mid-field, scrolled and between a write and its latch.
 
 The Dragon 200-E's character generator is a character ROM, and like the BASIC ROMs it is the user's to supply:
 CLOADM never ships or fetches one. Its video comparison installs, in both emulators, a 4K pattern built by
@@ -582,7 +582,7 @@ after the motor starts for the namefile and again for the data blocks: it reads 
 type, length, checksum and first byte, on all 8 runs. Without the made-up leaders, our machine loses the first data
 block of the one-byte-leader and two-file images. `tests/tape.test.js` pins the signal (silences and made-up leaders
 worked out from the image), `tests/tape-load.test.js` loads tapes through `Session.load` with a BASIC stand-in
-(`tape/standin.asm`), and `tests/state.test.js` snapshots a tape in the silence and inside a block.
+(`tape/standin.asm`), and `tests/state-tape.test.js` snapshots a tape in the silence and inside a block.
 
 The MC-10 and Alice use their own 6803 pair (`tape/csave6803.asm`, `tape/cload6803.asm`), since the machine has a
 6803 and no motor relay: the writer toggles P20 a square cycle per bit and the reader times the cycles on P24,
@@ -1350,7 +1350,7 @@ same data-register accesses run as one slice, as frames and as 37-tick slices, f
 register (its read replayed), and for the HD6309 in native mode (`LDA $FF4B,Y`, whose post byte's native saving is
 added as the instruction goes; `cpu.mark` keeps those savings too); taking the controller out after 600 suspended
 frames releases the CPU where the time has got to, and the next frame is one frame long. A long wait's halted cycles
-(`cpu.haltTail`) are charged at once up to the next event, not one step each. `tests/state.test.js`: snapshots taken
+(`cpu.haltTail`) are charged at once up to the next event, not one step each. `tests/state-carts.test.js`: snapshots taken
 while suspended (6809, and 6309 native), restored into a fresh machine, run on identically (trace, frames). The MAME runs above are unchanged by it. MAME holds the CPU the same way:
 `tools/mame-diff/fdc/coco-halt-empty.asm` (`run.js coco3 --fdc cocofdc --halt --empty`) reads a sector on drive 0, then
 issues a read on drive 2, which has no disk, in Disk BASIC's order: 2,506 instructions identical in registers and
