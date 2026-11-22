@@ -42,7 +42,7 @@ names contain one of the parts, and `node tools/browser-check.js --only <group>[
 | `connector/` (the side-panel connector) | `connector,mcp,skill` | `connector` |
 | `examples/` (a program or game) | `pwa,starter-game,game-guide,welcome` and the example's own suite | `pwa` (and the group that offers it) |
 | `js/ui/`, `play/`, `css/`, `index.html` | `session,readme,screen-alternative` | the panel's groups and `semantics`, then the whole check |
-| Docs (`README.md`, `docs/`) | `readme,romdocs,game-guide` | none |
+| Docs (`README.md`, `docs/`) | `readme,romdocs,game-guide,dev-docs-headless` | none |
 | `CHANGELOG.md` | `changelog` | none |
 | The test runner (`tests/all.js`, `suite-verdict.js`, `no-exit.js`) | `allsummary,allsignal,exitguard,exitcode` | none |
 | `tools/browser-check*.js`, `.github/` | `browser-check` | the groups it touches |
@@ -125,6 +125,7 @@ node tests/cli-wav.test.js   # --wav: a known DAC pattern's levels and timing, d
 node tests/cli-screenshot.test.js  # --expect-screenshot (tolerance, diff, PNG layouts, errors) and --hold
 node tests/starter-game.test.js    # the starter game: its build, play script, picture and sound references, and mutants that must fail
 node tests/game-guide.test.js      # docs/game-development.md's programs and commands, run (the settling patterns too, each shown to matter)
+node tests/dev-docs-headless.test.js  # docs/automation.md's per-model table (rebuilt from the machines), the example docs/examples/headless-frame.mjs run from outside the repository, the recipe and the serial-peer note
 node tests/config.test.js    # URL parameters: every one checked (options against each model), bad values reported, links written and read back
 node tests/embed.test.js     # the embed API through its message protocol: calls, errors, events, frames
 node tests/pwa.test.js       # the service worker keeps every file the site serves (and build-examples.js keeps the list current); the manifest and its icons

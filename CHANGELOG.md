@@ -8,6 +8,19 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
+### Added
+
+- **Headless developer docs: which paths each model has, a complete Node example, a graphics recipe and a serial note.** (Documentation,
+  one example and its test; no change to the emulator.) `docs/automation.md` gains a per-model table of the tape, disk-controller,
+  6551, bit-banger and Becker paths, built from `js/machines/profiles.js` (the options example no longer offers `becker=true`
+  generically: it is CoCo-family only, and the Dragon 64 refuses it with `bad-option`); a complete Node example that uses only the
+  public modules and runs from outside the repository (`docs/examples/headless-frame.mjs`: a Session, a DragonDOS binary, a held
+  key, stepped frames, the raw framebuffer, a PNG); a recipe for a graphics program with no text to wait on (wait on a frame counter
+  in RAM, from the command line and Node, with the elapsed frames and cycles, and how input is latched at a guest tick versus the
+  50/60 Hz video field); and a note on snapshotting a machine whose serial peer lives outside it (the freeze order, saving the peer's
+  in-flight bytes and resuming at the same byte). `tests/dev-docs-headless.test.js` rebuilds the table from the machines, runs the
+  example from a temporary directory and from a copy, fails mutants of its guest, and checks the numbers the text quotes.
+
 ### Fixed
 
 - **An embedded CLOADM could open the Claude chat; the chat is no longer available in an embed.**

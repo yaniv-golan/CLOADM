@@ -59,7 +59,7 @@ last byte; an `EQU` buffer inside the image overwrites the program when it is wr
 this for you: compare the buffer addresses with the image's end (`--asm game.asm --json` reports the program's
 symbols; put a label after the last `RMB` to see where it ends).
 
-The Dragon 64 adds a 6551 ACIA at `$FF04-$FF07`; the CoCo 3 has its GIME at `$FF90-$FFBF` and puts the CoCo 2
+The Dragon 64 adds a 6551 ACIA at `$FF04-$FF07` ([which models have which serial path](automation.md#which-storage-and-serial-paths-each-model-has)); the CoCo 3 has its GIME at `$FF90-$FFBF` and puts the CoCo 2
 text screen where its registers say (the built-in firmware leaves it at `$0400`).
 
 ## Programs CLOADM loads
