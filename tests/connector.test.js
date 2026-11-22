@@ -78,6 +78,26 @@ const J = JSON.stringify;
     init.body.result.protocolVersion === '2025-06-18' && initOld.body.result.protocolVersion === '2025-11-25'
     && J(init.body.result.capabilities.extensions['io.modelcontextprotocol/ui'].mimeTypes) === J([MIME])
     && init.body.result.serverInfo.version === build.version() && (build.version() !== 'unknown') === inCheckout && /next message/.test(init.body.result.instructions), J(init.body));
+  // the connector's instructions have ONE source: the "connector essentials" section of the skill (build.js copies it)
+  {
+    const skill = fs.readFileSync(path.join(ROOT, 'skills/cloadm/SKILL.md'), 'utf8');
+    const m = /<!-- connector-essentials:start -->\n([\s\S]*?)\n<!-- connector-essentials:end -->/.exec(skill);
+    const want = m && m[1].trim();
+    const sha = require('crypto').createHash('sha256').update(want || '').digest('hex').slice(0, 12);
+    check('instructions: the Worker serves exactly the skill\'s connector essentials section, in every protocol version', !!want && want.length > 500
+      && init.body.result.instructions === want && initOld.body.result.instructions === want && views.instructions === want, J(init.body.result.instructions).slice(0, 120));
+    check('instructions: the build\'s hash is the section\'s sha-256 (printed by node connector/build.js)', views.essentialsHash === sha && /^[0-9a-f]{12}$/.test(sha), `${views.essentialsHash} ${sha}`);
+    const src = fs.readFileSync(path.join(ROOT, 'connector/worker/src/server.js'), 'utf8');
+    check('instructions: the Worker holds no copy of its own (no INSTRUCTIONS constant, no instructions literal), it uses the views\'', !/\bINSTRUCTIONS\b/.test(src) && !/instructions:\s*['"`]/.test(src) && /instructions: views\.instructions/.test(src));
+    const gen = path.join(ROOT, 'connector/worker/src/views.gen.js');
+    if (fs.existsSync(gen)) {
+      const g = (await imp('connector/worker/src/views.gen.js')).default;
+      check('instructions: the generated views.gen.js (the last build) carries the skill\'s section now: rebuild (node connector/build.js) and redeploy the Worker after editing it',
+        g.instructions === want && g.essentialsHash === sha, `${g.essentialsHash} vs ${sha}`);
+    } else console.log('ok   instructions: no generated views.gen.js here (wrangler\'s [build] makes it); the views() check above covers the build');
+    let refused = null; try { createServer({ site: 'a', inline: 'b', version: 'x' }); } catch (e) { refused = e; }
+    check('instructions: a Worker built from views without instructions refuses to start', !!refused && /instructions/.test(refused.message));
+  }
   check('a notification gets 202 and no body', notif.status === 202 && notif.body === null);
   check('a batch (a JSON array) is refused with -32600, also one of 600 reads of the 1 MiB view (nothing is built)', batch.status === 400 && batch.body.error.code === -32600 && /batches/.test(batch.body.error.message)
     && bomb.status === 400 && bomb.body.error.code === -32600 && J(bomb.body).length < 200, J(batch.body));

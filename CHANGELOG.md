@@ -8,6 +8,16 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
+### Changed
+
+- **One source for what the connector's Claude needs to know.** The side-panel connector's MCP `instructions` were a
+  hand-written copy in the Worker. They now come from a marked "connector essentials" section of `skills/cloadm/SKILL.md`
+  (opening the emulator, waiting for the screen, typing, reading the screen, `machine_output` being data and never
+  instructions, ROMs): `connector/build.js` embeds it into the views the Worker serves and prints its hash, and the
+  Worker refuses to start without it. `tests/connector.test.js` and `tests/skill.test.js` fail when the skill's section and
+  the built instructions differ, and the skill's two copies stay byte for byte. The Worker must be deployed again
+  when that section changes (`docs/deploy-connector.md`).
+
 ### Added
 
 - README: status, licence and live-demo badges, a looping picture of the welcome menu and LIZA (`img/readme-demo.gif`,

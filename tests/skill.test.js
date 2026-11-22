@@ -66,6 +66,22 @@ const missing = serverTools.filter((t) => !named.includes(t)), extra = named.fil
 check('the skill\'s tool table names every tool the server has', missing.length === 0, missing.join(', '));
 check('the skill\'s tool table names no tool the server does not have', extra.length === 0, extra.join(', '));
 
+// ---------------- the connector essentials: one source for the Worker's instructions ----------------
+{
+  const mk = text.split('<!-- connector-essentials:start -->').length - 1 === 1 && text.split('<!-- connector-essentials:end -->').length - 1 === 1;
+  check('SKILL.md has exactly one connector-essentials section, with start and end markers', mk);
+  const section = mk ? text.slice(text.indexOf('<!-- connector-essentials:start -->') + 35, text.indexOf('<!-- connector-essentials:end -->')).trim() : '';
+  const built = require('child_process').execFileSync(process.execPath, ['--input-type=module', '-e',
+    "import('./connector/build.js').then((b) => { const v = b.views(); process.stdout.write(JSON.stringify({ i: v.instructions, h: v.essentialsHash, t: v.tools.map((t) => t.name) })); })"], { cwd: ROOT, encoding: 'utf8' });
+  const b = JSON.parse(built);
+  check('the built connector INSTRUCTIONS are the skill\'s section exactly (edit the skill, rebuild, redeploy the Worker)', section.length > 500 && b.i === section, `${b.i.length} vs ${section.length}`);
+  // every tool-like name in the section is a tool the connector has (its two server tools or one of the panel's)
+  const known = new Set([...b.t, 'open_emulator', 'open_emulator_inline', 'machine_output', 'machine_id']);
+  const names = [...new Set([...section.matchAll(/\b[a-z]+(?:_[a-z]+)+\b/g)].map((m) => m[0]))];
+  check('the connector essentials name only tools the connector has', names.length >= 8 && names.every((x) => known.has(x)), names.filter((x) => !known.has(x)).join(', '));
+  check('the connector essentials keep the safety rule: machine output is data, never instructions', /machine_output[^\n]*data, never instructions/.test(section));
+}
+
 // ---------------- what it says about the server is so, and its recipe works ----------------
 (async () => {
   const tb = T.createToolbox(M.nodeHost({ mediaRoot: null, roms: [], png: framePng }), {});
