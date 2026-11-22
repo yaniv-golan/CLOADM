@@ -37,6 +37,9 @@ export class EmbedApi {
   // type text as if at the keyboard ('\n' is ENTER); -> number of characters
   type(text) {
     if (typeof text !== 'string') throw new SessionError('type: text must be a string');
+    // the embedding page's calls are the person's input, as load/insertTape/poke take it: Claude acting on the
+    // machine pauses first (Session.personInput)
+    this.session.personInput();
     return this.session.typeText(text);
   }
   // a BASIC program listing into program memory, as a tape load would, without typing it (Session.loadBasic: needs

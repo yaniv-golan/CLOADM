@@ -7458,6 +7458,25 @@ async function urlChecks(browser, base, check) {
   check('link: embed=1 shows the screen alone', await ev(() => document.body.classList.contains('embed')) && await page.isHidden('.appbar') && await page.isHidden('.drawer')
     && await ev(() => { const r = document.getElementById('screen').getBoundingClientRect(); return r.width > 300; }));
   if (shotDir) await page.screenshot({ path: path.join(shotDir, 'embed-alone.png') });
+  // PM 137: an embed cannot reach the Claude chat. The rule is that ?embed=1&app=claude shows no key card and creates
+  // no chat machine; the routes (the Ask panel, the command box, a keypress) are not set up there at all.
+  await open('?machine=dragon64&embed=1&app=claude');
+  await page.waitForTimeout(1500);
+  const embedChat = await ev(() => {
+    const s = window.emu.session;
+    const vis = (id) => { const el = document.getElementById(id); if (!el) return false; const r = el.getBoundingClientRect(); return !el.hidden && r.width > 0 && r.height > 0; };
+    return { chatMachines: !!s.chatMachines, chat: !!s.chat, keyCard: vis('claudeKeyCard'), panel: vis('claude'), ask: vis('ask'),
+      api: !!(window.emu.embed) };
+  });
+  check('embed + app=claude: no chat machine, no chat and no key card', embedChat.chatMachines === false && embedChat.chat === false && embedChat.keyCard === false,
+    JSON.stringify(embedChat));
+  check('embed + app=claude: the chat panel and the Ask panel are not on screen', !embedChat.panel && !embedChat.ask, JSON.stringify(embedChat));
+  // the keypress route: Ctrl/⌘ K opens the command box, which can open the chat. In an embed it is not wired.
+  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+k' : 'Control+k');
+  await page.waitForTimeout(300);
+  const afterKey = await ev(() => ({ box: !document.getElementById('cmdBox').hidden, chat: !!window.emu.session.chat, machines: !!window.emu.session.chatMachines }));
+  check('embed + app=claude: a keypress opens no chat (and no command box to open one)', !afterKey.chat && !afterKey.machines, JSON.stringify(afterKey));
+  check('embed + app=claude: no page errors', !errors.length, errors.join('; '));
   check('links: no page errors', !errors.length, errors.join('; '));
   await ctx.close();
 }

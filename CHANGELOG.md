@@ -8,6 +8,10 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
+### Fixed
+
+- **An embedded CLOADM could open the Claude chat; the chat is no longer available in an embed.**
+
 ### 0.1.8-pre
 
 #### Added

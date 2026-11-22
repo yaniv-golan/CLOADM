@@ -112,9 +112,11 @@
   .tube { position: relative; aspect-ratio: 4 / 3; border-radius: 28px / 22px; background: #000; overflow: hidden; box-shadow: inset 0 0 40px #000; }
   #screenWrap { position: absolute; inset: 4% 5%; display: flex; align-items: center; justify-content: center; }
   #screenWrap.drop { outline: 3px dashed var(--phosphor); outline-offset: 4px; }
-  /* embed mode (?embed=1): the screen alone, filling the frame */
-  body.embed .appbar, body.embed #switchConfirm, body.embed .drawer, body.embed .panels, body.embed footer, body.embed .controls,
-  body.embed .slots, body.embed .hint, body.embed .plate, body.embed #welcome { display: none !important; }
+  /* embed mode (?embed=1): the screen alone, filling the frame. The Claude panels are hidden here as a second lock:
+     an embed does not set up the chat at all (js/ui/main.js), so this only matters if a future route reaches one. */
+  body.embed .appbar, body.embed #switchConfirm, body.embed .drawer, body.embed footer, body.embed .controls,
+  body.embed .slots, body.embed .hint, body.embed .plate, body.embed #welcome,
+  body.embed #claude, body.embed #ask, body.embed #askRail { display: none !important; }
   body.embed .layout { padding: 0; display: block; }
   body.embed .layout > main { gap: 0; }
   body.embed .layout > main > .monitor { max-width: none; border-radius: 0; padding: 0; box-shadow: none; background: #000; }
