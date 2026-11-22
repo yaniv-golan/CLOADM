@@ -480,9 +480,7 @@ CLOADM_DIR=/path/to/cloadm node my-copy-of-it.mjs out.png
 ```
 
 `tests/dev-docs-headless.test.js` runs it from a temporary directory outside the repository (and from a copy of the `.mjs`
-alone, with `CLOADM_DIR`), and compares the line above with what it prints, so it cannot rot. Everything it calls is reachable from `js/emu.js` and `cli/cloadm.js`, but not every call is in
-the stability table below: `machine.setKey`, `machine.keyPos`, `machine.frameCount`, `machine.now()` and the `Frame`
-fields are what the command line itself uses, and are not promised there.
+alone, with `CLOADM_DIR`), and compares the line above with what it prints, so it cannot rot. Everything it calls is in the stability table below.
 
 ### A snapshot with a serial peer outside the machine
 
@@ -580,9 +578,15 @@ and back when the snapshot is taken). The example does not exercise the machine-
 | `typeText(text)`, `untypable(text)` | typing; for BREAK, CLEAR and the arrows, `machine.typist.press(key)` with ROMs (the keyboard matrix), and `machine.stubKeys.push(code)` on the built-in firmware (its POLCAT codes: BREAK 3, CLEAR 12, LEFT 8, RIGHT 9, DOWN 10, UP 94) |
 | `screenTextTool(session.chatTarget())`, `screenText()` | the screen as text (the first is the full reader and takes a tool target, never a Session; the second the raw 32x16 VDG page) |
 | `readByte(addr)`, `pokeBytes(addr, bytes)` | memory |
-| `machine.render()`, `frameToRGBA(frame)`, `framePng(frame)` | pictures |
+| `machine.render()`, `frameToRGBA(frame)`, `framePng(frame, scale)` | pictures; `framePng` is imported from `cli/cloadm.js` (it uses Node's zlib), the rest from `js/emu.js` |
+| `Frame`: `width`, `height`, `aspect`, `active`, `data`, `table` | the picture `machine.render()` returns: `data` is one byte (a colour code) a pixel, `width * height` of them; `table` is the 256-entry RGBA of each code (`0xAABBGGRR`); `active` is `{ x, y, width, height }` of the picture inside the border, or `null` when it moves with the mode (the CoCo 3's) |
+| `machine.setKey(name, down)`, the key names `Object.keys(machine.keyPos)` | the keyboard matrix, as a finger holds a key; an unknown name does nothing. The `[row, column]` values of `keyPos` are internal |
+| `machine.frameCount`, `machine.now()`, `machine.tickHz`, `machine.cpu.totalCycles` | emulated time: frames run, the machine's clock (see "What 'cycles' counts" above: the GIME's on the CoCo 3), that clock's rate in Hz, and CPU cycles |
 | `await snapshotFile()`, `await readSnapshot(bytes)`, `openSnapshot(snap)` | snapshots |
 | `debug` (`addBreakpoint`, `step`, `registers`, …) | the debugger, as the page's Debugger screen uses it |
+
+Not promoted, although they are reachable: `machine.serialPort`, `pcWatch`, `stubKeys` and the typist's internals (`machine.typist`
+beyond `press`, which the typing row names).
 
 Everything else — the chips, the CPU cores, the machine classes, the scheduler, the snapshot's `state` layout and
 the Claude chat — is internal: it changes whenever the emulation needs it to.
