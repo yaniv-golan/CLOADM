@@ -418,6 +418,9 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   The ScriptProcessorNode stays only as the fallback where no AudioWorklet module can load (the connector's inline
   view, whose policy allows no loaded script, and plain `http://` away from `localhost`). `tests/audio.test.js`
   measures the recovery on a model of the page's clock; the browser check's `audio` group checks the real page.
+- **A poke to the MC-10's `$0015`-`$001F` was reported as one to the 6803's registers.** The 6803's on-chip registers end
+  at `$0014`; `$0015`-`$001F` go to the bus, where nothing answers, so a poke there is now refused as undecoded (and the
+  profiler, new in this release, counts a write there as a write to memory).
 - **An embedded CLOADM could open the Claude chat; the chat is no longer available in an embed.**
 - **Two server processes adding ROMs at once could lose index entries.** Every change to the ROM store's index now
   reads it again and writes it while holding a lock file (`index.lock`, broken after ten seconds if its holder died),

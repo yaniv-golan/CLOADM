@@ -97,13 +97,13 @@ class Mc10Machine extends Machine {
   // Why a write at `a` would not be seen (see Machine.writeKind), for the write path the tools use
   // (Machine.poke). RAM is the fitted 4K or 20K above $4000 and the 6803's on-chip RAM at $0080-$00FF while
   // its RAM control register enables it (cpu.ramc bit 6; cpu6803.js write8). The ROM is $E000 and up. The
-  // 6803's own registers are $0000-$001F. $BFFF is the video/sound latch: the CPU can write it
+  // 6803's own registers are $0000-$0014. $BFFF is the video/sound latch: the CPU can write it
   // (Mc10Machine.write handles it), but poke() does not route there, so a poke there is lost and says so.
   writeKind(a) {
     a &= 0xFFFF;
     const cpu = this.cpu;
     if (a >= 0x80 && a < 0x100) return cpu && cpu.iram && (cpu.ramc & 0x40) ? null : 'undecoded';
-    if (a < 0x20) return 'io';                     // the 6803's own registers (cpu6803.js regWrite)
+    if (a < 0x15) return 'io';                     // the 6803's own registers, $0000-$0014 (cpu6803.js regWrite); $0015-$001F reach the bus, where nothing answers
     if (a >= 0x4000 && a < this.ramEnd) return null;
     if (a === 0xBFFF) return 'latch';              // writable by the CPU; a poke does not reach it
     if (a >= 0xE000) return 'rom';
