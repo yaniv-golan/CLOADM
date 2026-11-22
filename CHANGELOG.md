@@ -60,6 +60,12 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Changed
 
+- **Asking Claude opens the side panel beside your machine, whatever is on it.** The header's **Ask Claude**, Ctrl+K's
+  **Ask Claude: "…"** and the panel's openers now open the side panel with the welcome menu on screen too, where they
+  used to open the full-screen chat and put a separate chat machine in place of yours. Your machine stays on screen and
+  keeps running. Only **Chat with Claude, full screen** and the welcome menu's chat item open the full-screen chat.
+  Claude reads your machine's screen and memory with "Let Claude use the emulator" off, as before (a new test,
+  `tests/claude-read-ungated.test.js`, holds this in both views); only typing, POKEs, loading and running ask first.
 - **`add_roms` keeps a URL as origin + path.** The store's `index.json` recorded the full URL a ROM came from, query
   string and fragment included, which can hold a token. It now keeps the origin and the path only.
 - **Test and tool tidy-ups, no emulation change.** `tools/mame-diff/tape/spec.js` takes its register lists from

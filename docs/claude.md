@@ -87,8 +87,9 @@ Two ways to talk to Claude, one conversation:
   keyboard while you type (the visual viewport).
 * **Ctrl+K** opens "Ask Claude or find a command" (`js/ui/command-box.js`): the page's commands that match what you
   type come first (each presses the page's own button and is never sent to Claude), **Ask Claude: "…"** is always
-  last. Enter runs the command or asks; asking opens the side panel, or full screen while the welcome menu is on
-  screen.
+  last. Enter runs the command or asks; asking opens the side panel beside the
+  machine, whatever is on it (the welcome menu, a game, LIZA). Only **Chat with Claude, full screen** and the welcome
+  menu's chat item open the full-screen chat.
 * **Inside another site** (`js/ui/ask-popout.js`) there is no chat: CLOADM framed in someone else's page would put
   the key card on their page. The app bar's Ask button reads **Ask Claude ↗** instead, in the same place (beside
   Menu on a phone), and is a link that opens CLOADM top-level in a new tab with `target=_blank` and

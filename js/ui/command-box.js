@@ -2,7 +2,7 @@
  * The "Ask Claude or find a command" box:
  * Ctrl+K (Cmd+K on a Mac) anywhere opens it. As you type, the page's commands that match come first, and
  * "Ask Claude: …" is always last; ↑↓ choose, Enter runs the command or asks, Esc closes. A command runs on the page
- * and is never sent to Claude. Asking opens the side panel, or full screen while the welcome menu is on screen.
+ * and is never sent to Claude. Asking opens the side panel, beside the person's machine, whatever is on it.
  * With nothing typed it lists every command, by group, with no row chosen until the first ↓. It also opens from the
  * app bar's "Commands…" (and the touch keys' menu). The command list is the page's own buttons: each entry clicks one, so
  * a command does exactly what its button does; "Take snapshot" (the Glossary's word) saves the snapshot file the
@@ -83,7 +83,7 @@ export function setupCommandBox(page, claude) {
     if (o.kind === 'ask') {
       row.className = 'ask';
       a.textContent = `Ask Claude: "${o.q}"`;
-      h.textContent = session.welcomeRunning ? 'opens full screen' : 'opens the side panel';
+      h.textContent = 'opens the side panel';
     } else { a.textContent = o.c[0]; h.textContent = o.c[1]; }
     row.append(a, h);
     row.onmousemove = () => { if (selected !== i) { selected = i; draw(); } };
@@ -169,9 +169,9 @@ export function setupCommandBox(page, claude) {
     if (!o) return;
     closeBox({ refocus: o.kind !== 'ask' });
     if (o.kind === 'ask') {
-      // the welcome menu on screen: full screen; otherwise the side panel
-      if (session.welcomeRunning) claude.openFull().then((c) => { if (c) claude.ask(o.q); });
-      else claude.openPanel(o.q);
+      // the side panel, beside the person's machine whatever is on it (only "Chat with Claude, full screen" and the
+      // welcome menu's chat item go full screen)
+      claude.openPanel(o.q);
       return;
     }
     const id = o.c[3];

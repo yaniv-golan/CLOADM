@@ -384,6 +384,14 @@ const stubPrompt = async (page) => {
   await waitFor(page, () => window.emu && window.emu.started);
   await page.evaluate(() => { const s = window.emu.session; s.endWelcome(); s.stubRun = null; s.keys.clear(); window.emu.machine.reset(true); });
 };
+// The full-screen chat as a person opens it from anywhere: Ctrl K, "Chat with Claude, full screen" (asking Claude, the
+// header's button included, opens the side panel instead, whatever is on the screen)
+const chatFullScreen = async (page) => {
+  await page.keyboard.press('Control+k');
+  await waitFor(page, () => !document.getElementById('cmdBox').hidden);
+  await page.keyboard.type('chat full'); await page.keyboard.press('Enter');
+  return waitFor(page, () => window.emu.session.claudeView === 'full' && document.body.classList.contains('claude-open'), null, 15000);
+};
 // Do two page rectangles (getBoundingClientRect shapes) meet? Vertical separation OR horizontal separation means
 // they do not; otherwise they overlap. One definition, used by every overlap check, so a sign cannot flip.
 const rectsMeet = (a, b) => !(a.bottom <= b.top || a.top >= b.bottom || a.right <= b.left || a.left >= b.right);
@@ -5107,15 +5115,14 @@ async function glossaryChecks(browser, site, check) {
   await scan('/play/ Share');
   await page.click('#shareBack');
   await waitFor(page, () => document.getElementById('share').hidden);
-  // Claude: the chat full screen (from the welcome menu, where "Ask Claude" opens it), then the Ask panel beside the
-  // live machine (from the stub's prompt), each with its key form (no key in this browser)
-  await page.click('#btnAsk');
-  await waitFor(page, () => window.emu.session.claudeView === 'full');
+  // Claude: the chat full screen (Ctrl K, "Chat with Claude, full screen"), then the Ask panel beside the live
+  // machine (from the stub's prompt), each with its key form (no key in this browser)
+  await chatFullScreen(page);
   await scan('/play/ Claude chat, full screen');
   await page.click('#btnClaudeBack');
   await waitFor(page, () => window.emu.session.claudeView !== 'full');
   await stubPrompt(page);
-  await page.click('#btnAsk');
+  if (await page.evaluate(() => document.getElementById('ask').hidden)) await page.click('#btnAsk');
   await waitFor(page, () => !document.getElementById('ask').hidden);
   await scan('/play/ Ask Claude panel');
   await page.click('#btnAsk');
@@ -5231,7 +5238,7 @@ async function commandsChecks(browser, site, check) {
     page.on('pageerror', (e) => errors.push(e.message));
     await page.goto(`${site}play/?machine=dragon64`);
     await started(page);
-    await stubPrompt(page);   // the live machine, not the welcome menu (with the menu on screen Ask Claude opens full screen)
+    await stubPrompt(page);   // the live machine, not the welcome menu
     return { ctx, page };
   };
   const box = (page) => page.evaluate(() => {
@@ -8231,7 +8238,7 @@ async function askFollowupChecks(browser, base, check) {
     });
     await page.goto(`${base}?machine=dragon64`);
     await started(page);
-    await stubPrompt(page);   // the live machine, not the welcome menu (where Ask Claude opens full screen)
+    await stubPrompt(page);   // the live machine, not the welcome menu
     await page.evaluate((k) => localStorage.setItem('cloadm.anthropicKey', k), KEY);
     return { ctx, page, errors, requests, replies };
   }
@@ -10326,8 +10333,7 @@ async function askChecks(browser, base, check) {
 
     await page.goto(`${base}?machine=dragon64`);
     await started(page);
-    // the live machine, not the welcome menu (a link that names a machine opens on it; with the menu on
-    // screen "Ask Claude" opens full screen instead of beside the machine)
+    // the live machine, not the welcome menu (a link that names a machine opens on it)
     await stubPrompt(page);
     // ---- the header button; no key yet ----
     check(`${L}: the header has "Ask Claude"${phone ? '' : ' with its Ctrl K hint'}`, await vis('#btnAsk') && /Ask Claude/.test(await page.textContent('#btnAsk'))
@@ -10362,11 +10368,11 @@ async function askChecks(browser, base, check) {
     check(`${L}: switching machines updates the name in the empty state`, named && /emulated CoCo 1\/2 \(/.test(await page.textContent('#askEmptyText')), await page.textContent('#askEmptyText'));
     await page.evaluate(() => window.emu.session.switchMachine('dragon64'));
     check(`${L}: and back`, await waitFor(page, () => /Dragon 64/.test(document.getElementById('askEmptyText').textContent), null, 5000));
-    // a machine switch shows the welcome menu (where "Ask Claude" opens the full screen chat) and can leave the panel up:
+    // a machine switch shows the welcome menu and can leave the panel up:
     // back on the live machine, close whatever is open and open the side panel, checking each step.
     // The menu is not on the screen when switchMachine returns: the page fetches its program and starts it when the bytes
     // arrive. stubPrompt ends the menu, so it has to come after the menu started: a start that landed after it (the fetch
-    // is slower under load) ran the menu again, and "Ask Claude" then opened the full screen chat, not the side panel.
+    // is slower under load) would run the menu again over the live machine.
     check(`${L}: (setup) the welcome menu has started on the machine switched back to`, await waitFor(page, () => window.emu.session.welcomeRunning, null, 15000));
     await stubPrompt(page);
     if (await vis('#ask')) {
@@ -10714,6 +10720,142 @@ async function askChecks(browser, base, check) {
   }
   await askGimeTextChecks(browser, base, check);
   await askPlusTextChecks(browser, base, check);
+  await askBesideChecks(browser, base, check);
+}
+
+// Asking Claude opens the side panel (the sheet on a phone) beside the person's own machine, whatever is on it: the
+// welcome menu, a game, LIZA with no ROMs. The machine stays on screen and keeps running; no chat machine takes its
+// place. Only "Chat with Claude, full screen" goes full screen. With "Let Claude use the emulator" off, Claude's
+// screen_text and peek read the person's machine (the mocked API asks for them); a poke still asks first.
+async function askBesideChecks(browser, base, check) {
+  const KEY = 'sk-ant-BESIDE-CHECK-KEY-0123456789';
+  const sse = (events) => events.map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join('');
+  const msgStart = { type: 'message_start', message: { id: 'msg', type: 'message', role: 'assistant', model: 'claude-opus-5-5', content: [] } };
+  const text = (t) => sse([msgStart, { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+    { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: t } }, { type: 'content_block_stop', index: 0 },
+    { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: {} }, { type: 'message_stop' }]);
+  const tools = (uses) => sse([msgStart, ...uses.flatMap((u, i) => [
+    { type: 'content_block_start', index: i, content_block: { type: 'tool_use', id: `toolu_${i}`, name: u.name, input: {} } },
+    { type: 'content_block_delta', index: i, delta: { type: 'input_json_delta', partial_json: JSON.stringify(u.input) } },
+    { type: 'content_block_stop', index: i }]), { type: 'message_delta', delta: { stop_reason: 'tool_use' }, usage: {} }, { type: 'message_stop' }]);
+  const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'POST, OPTIONS' };
+  const SCENES = [
+    // [name, link, what must be on the person's machine before asking]
+    ['the welcome menu', '?machine=dragon64', () => window.emu.session.welcomeRunning && /PRESS 1 TO [56]/.test(window.emu.session.screenText()[14])],
+    ['a running game (2048)', '?machine=dragon64&start=2048', () => !window.emu.session.welcomeRunning && !!window.emu.session.stubRun && window.emu.machine.frameCount > 30],
+    ['LIZA without BASIC ROMs', '?machine=dragon64&start=liza', () => !window.emu.machine.hasRom && window.emu.session.screenText().join('').includes('I AM LIZA')],
+  ];
+  for (const [label, viewport, opts] of [['desktop', { width: 1440, height: 900 }, {}], ['phone', { width: 390, height: 844 }, { hasTouch: true, isMobile: true }]]) {
+    for (const [scene, link, ready] of SCENES) {
+      for (const how of ['the header button', 'Ctrl K "Ask Claude: …"']) {
+        // Ctrl K on the desktop only (a phone has no keyboard shortcut to press)
+        if (how !== 'the header button' && label === 'phone') continue;
+        const L = `askBeside (${scene}, ${how}, ${label})`;
+        const ctx = await browser.newContext({ viewport, serviceWorkers: 'block', ...opts });
+        const page = await ctx.newPage();
+        const errors = [], requests = [], replies = [];
+        page.on('pageerror', (e) => errors.push(e.message));
+        await ctx.route('https://api.anthropic.com/**', async (route) => {
+          const req = route.request();
+          if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
+          requests.push(JSON.parse(req.postData()));
+          const r = replies.shift() || { body: text('ok') };
+          try { await route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'text/event-stream' }, body: r.body }); } catch (e) { /* stopped */ }
+        });
+        await page.goto(`${base}${link}`);
+        await started(page);
+        await page.evaluate((k) => localStorage.setItem('cloadm.anthropicKey', k), KEY);
+        check(`${L}: (setup) ${scene} is on the person's machine`, await waitFor(page, ready, null, 20000), await page.evaluate(() => window.emu.session.screenText().join('|')));
+        const before = await page.evaluate(() => ({ m: (window.__person = window.emu.session.shownMachine, true), exec: window.emu.session.stubRun && window.emu.session.stubRun.exec,
+          welcome: window.emu.session.welcomeRunning, f: window.emu.machine.frameCount }));
+        // a turn that reads with the switch off, then tries a poke (the card comes up; "Just tell me the fix" answers it)
+        replies.push({ body: tools([{ name: 'screen_text', input: {} }, { name: 'peek', input: { address: 0x0400, length: 16 } }]) },
+          { body: tools([{ name: 'poke', input: { address: 0x3000, bytes: [7] } }]) }, { body: text('Done.') });
+        if (how === 'the header button') {
+          await page.click('#btnAsk');
+        } else {
+          await page.focus('#screen');
+          await page.keyboard.press('Control+k');
+          await waitFor(page, () => !document.getElementById('cmdBox').hidden);
+          // (words no command answers to, so Enter asks: the ask row is the only row, and selected)
+          await page.keyboard.type('hello there');
+          const row = await page.evaluate(() => { const r = [...document.querySelectorAll('#cmdBox [role="option"]')];
+            return { n: r.length, ask: !!r[0] && r[0].classList.contains('ask') && r[0].getAttribute('aria-selected') === 'true', hint: r[0] && r[0].querySelector('.hint').textContent }; });
+          check(`${L}: the ask row is the one selected, and says it opens the side panel`, row.n === 1 && row.ask && row.hint === 'opens the side panel', JSON.stringify(row));
+          await page.keyboard.press('Enter');
+        }
+        const opened = await waitFor(page, () => document.body.classList.contains('ask-open') && !document.getElementById('ask').hidden, null, 10000);
+        const st = await page.evaluate(() => { const s = window.emu.session;
+          return { view: s.claudeView, chatMachines: !!s.chatMachines, same: s.shownMachine === window.__person && s.personMachine === window.__person,
+            full: document.body.classList.contains('claude-open'), claudeHidden: document.getElementById('claude').hidden, app: /app=claude/.test(location.search),
+            sheet: document.getElementById('ask').dataset.height || null }; });
+        check(`${L}: the ${label === 'phone' ? 'sheet' : 'side panel'} opens beside the person's machine; no chat machine replaces it`,
+          opened && st.view === 'panel' && !st.chatMachines && st.same && !st.full && st.claudeHidden && !st.app && (label !== 'phone' || !!st.sheet), JSON.stringify(st));
+        if (how === 'the header button') {
+          await page.fill('#askInput', 'What is on my screen? Put 7 at $3000.');
+          await page.press('#askInput', 'Enter');
+        }
+        const card = await waitFor(page, () => !!window.emu.session.claudePending && !document.getElementById('askConsent').hidden, null, 15000);
+        // the machine runs on (its own frames) and is still the same program while the card waits
+        const running = await emuFrames(page, 20);
+        const after = await page.evaluate(() => ({ same: window.emu.session.shownMachine === window.__person, exec: window.emu.session.stubRun && window.emu.session.stubRun.exec,
+          welcome: window.emu.session.welcomeRunning, f: window.emu.machine.frameCount, allowed: window.emu.session.claudeAllowed, pending: window.emu.session.claudePending && window.emu.session.claudePending.name }));
+        check(`${L}: the person's machine stays on screen and keeps running the same program`, running && after.same && after.f > before.f
+          && after.exec === before.exec && after.welcome === before.welcome, JSON.stringify({ before, after }));
+        // the reads went back to the model as results (not errors), from the person's machine, with the switch off
+        const res = (requests[1] && requests[1].messages.slice(-1)[0].content) || [];
+        const want = await page.evaluate(() => Array.from({ length: 16 }, (_, i) => window.emu.session.readByte(0x0400 + i, window.__person)));
+        let peek = null; try { peek = JSON.parse(res[1].content); } catch (e) { /* fails below */ }
+        const got = peek && Array.isArray(peek.hex) ? peek.hex.flatMap((l) => l.split(':')[1].trim().split(/\s+/).map((h) => parseInt(h, 16))) : null;
+        const screenNow = await page.evaluate(() => window.emu.session.screenText(window.__person).join('\n'));
+        let sc = null; try { sc = JSON.parse(res[0].content); } catch (e) { /* fails below */ }
+        const lines = sc && sc.lines;
+        // (the game draws in a graphics mode: screen_text reads it and says it has no character cells, naming the mode)
+        const screenRead = scene === 'a running game (2048)' ? !!sc && sc.text === false && /graphics/.test(sc.mode)
+          : Array.isArray(lines) && lines.some((l) => l.trim() && screenNow.includes(l.trim()));
+        check(`${L}: with the switch off, screen_text and peek read the person's machine (no card for them)`, !after.allowed && res.length === 2 && !res[0].is_error && !res[1].is_error
+          && screenRead
+          && (scene !== 'the welcome menu' || lines.some((l) => /PRESS 1 TO [56]/.test(l))) && Array.isArray(got) && got.length === 16
+          // (LIZA's screen stands still while it waits; the menu's stripe and the game move, so only LIZA is compared byte for byte)
+          && (scene !== 'LIZA without BASIC ROMs' || JSON.stringify(got) === JSON.stringify(want)), JSON.stringify(res).slice(0, 400));
+        check(`${L}: the poke asks first (the consent card)`, card && after.pending === 'poke', JSON.stringify(after));
+        await page.click('#btnAskTell');
+        const declined = await waitFor(page, () => !window.emu.session.chat.busy, null, 15000);
+        const pokeRes = (requests[2] && requests[2].messages.slice(-1)[0].content) || [];
+        check(`${L}: "Just tell me the fix" refuses the poke, which changes nothing`, declined && pokeRes[0] && pokeRes[0].is_error && /consent-declined/.test(pokeRes[0].content)
+          && await page.evaluate(() => window.emu.session.claudeAllowed === false), JSON.stringify(pokeRes).slice(0, 300));
+        check(`${L}: no page errors`, !errors.length, errors.join('; '));
+        await ctx.close();
+      }
+    }
+    // the full-screen chat entry still goes full screen, from the welcome menu too
+    {
+      const L = `askBeside ("Chat with Claude, full screen" from the welcome menu, ${label})`;
+      const ctx = await browser.newContext({ viewport, serviceWorkers: 'block', ...opts });
+      const page = await ctx.newPage();
+      const errors = [];
+      page.on('pageerror', (e) => errors.push(e.message));
+      await page.goto(`${base}?machine=dragon64`);
+      await started(page);
+      await waitFor(page, SCENES[0][2], null, 20000);
+      if (label === 'phone') {
+        // a phone: Menu, then "Commands…", then the command
+        if (await page.isVisible('#btnMenu')) await page.click('#btnMenu');
+        await page.click('#navCommands');
+        await waitFor(page, () => !document.getElementById('cmdBox').hidden);
+        await page.keyboard.type('chat full'); await page.keyboard.press('Enter');
+      } else {
+        await page.focus('#screen');
+        await page.keyboard.press('Control+k');
+        await waitFor(page, () => !document.getElementById('cmdBox').hidden);
+        await page.keyboard.type('chat full'); await page.keyboard.press('Enter');
+      }
+      check(`${L}: opens the full-screen chat on its own chat machine`, await waitFor(page, () => window.emu.session.claudeView === 'full' && !!window.emu.session.chatMachines
+        && window.emu.session.chatView === 'chat' && document.body.classList.contains('claude-open'), null, 15000));
+      check(`${L}: no page errors`, !errors.length, errors.join('; '));
+      await ctx.close();
+    }
+  }
 }
 
 // Ask Claude on a CoCo 3 in an 80-column GIME text mode with attributes (as NitrOS-9 uses): Claude's screen_text
@@ -11222,8 +11364,7 @@ async function emulatorBackChecks(browser, base, check) {
       await load('?machine=dragon64');
       // a conversation exists (the panel opened, then closed with its ✕), so only the rule keeps the panel closed
       await page.click('#btnAsk');
-      await waitFor(page, () => window.emu.session.chat && (window.emu.session.claudeView === 'full' || !document.getElementById('ask').hidden));
-      if (await page.evaluate(() => window.emu.session.claudeView === 'full')) await page.click('#btnFullSide');   // the welcome menu opens it full screen
+      await waitFor(page, () => window.emu.session.chat && !document.getElementById('ask').hidden);
       await waitFor(page, () => !document.getElementById('ask').hidden && window.emu.session.claudeView !== 'full');
       await tag();
       await page.click('#btnAskClose');
@@ -12202,8 +12343,7 @@ async function uiQaChecks(browser, base, check) {
   await waitFor(page, () => window.emu.session.welcomeRunning);
   // a marked entry of our own under the chat's history step, to see where Esc leaves history
   await page.evaluate(() => { history.pushState({ mark: 'before chat' }, ''); window.__samePage = true; });
-  await page.click('#btnAsk');
-  await waitFor(page, () => window.emu.session.claudeView === 'full');
+  await chatFullScreen(page);
   const stepped = await page.evaluate(() => !!(history.state && history.state.claudeChat));
   // (with a line typed, BREAK has something to do: the firmware drops the line; the empty, idle prompt is leave-the-chat, in escChatChecks)
   await page.focus('#screen'); await emuFrames(page, 3); await page.keyboard.type('x');
