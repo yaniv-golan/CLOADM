@@ -405,7 +405,8 @@ async function observed(setup, act, id = 'dragon64', panel = false) {
 //
 //   NO LONGER FLAGGED - the false positives of the line scanner, each an `allow` row: a name is a binding in its own
 //   scope, so a shadowing binding elsewhere is a different one. `(self) => self._shown` on a record, in a method other
-//   than the one with `const self = this`; a `for (let k = 0; ...)` beside a block's `const k = 'machine'`; and a
+//   than the one with `const self = this`; a `for (let k = 0; ...)` beside a block's `const k = 'machine'`; an inner
+//   block's own `const k = 'x'` under an outer `const k = 'machine'` (the NEAREST binding is the one used); and a
 //   block's own `const k = '_shown'` next to an outer `const k = 'x'` (the old two-bindings row required a catch there -
 //   that expectation was itself the false positive; the row now reassigns ONE binding, which is a real reach).
 //   The names `session`, `page` and `emu` stay holders by name, whatever they are bound to (fail-safe, on purpose).

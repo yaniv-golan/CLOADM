@@ -214,6 +214,9 @@ const CASES = [
   { id: "const k = 'machine' in a block, for (let k = 0; ...) page[k] (allowed: a different k)", file: 'js/ui/claude.js',
     find: '  }, { every: true, beforeView: true });\n',
     insert: "  { const k = 'machine'; if (k) globalThis.__z = 2; }\n  for (let k = 0; k < 2; k++) if (page[k]) globalThis.__z = 1;\n", expect: 'allow' },
+  { id: "const k = 'machine', and an inner block's own const k = 'x'; page[k] there is page['x'] (allowed: the NEAREST binding)", file: 'js/ui/claude.js',
+    find: '  }, { every: true, beforeView: true });\n',
+    insert: "  const k = 'machine'; if (k) globalThis.__z = 2;\n  { const k = 'x'; if (page[k]) globalThis.__z = 1; }\n", expect: 'allow' },
   // (f) the reader's SELF-CHECK: a file it cannot read whole is reported where the reading broke. An unclosed block
   // comment hides everything after it - every reach in the rest of the file - so the finding is the comment itself.
   { id: 'an unclosed /* comment hiding a reach (the self-check reports the file unreadable there)', file: 'js/ui/claude.js',

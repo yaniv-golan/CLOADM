@@ -84,7 +84,7 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   `for (let k ...)`) is no longer flagged. A file the reader cannot read whole is reported where it breaks. One
   scan-suite row required a catch on a block-scoped `k` that reaches nothing; that expectation was a false positive,
   so the row now reassigns one binding and the old plant is an `allow` row. The per-file list of names that "are not
-  a Session" is gone, since the reader follows values. `tests/chat-leaks-scan.test.js` has 14 new rows, each green
+  a Session" is gone, since the reader follows values. `tests/chat-leaks-scan.test.js` has 15 new rows, each green
   under the line scanner. It reads only the planted file per row, which takes it from about 23 s to about 2 s.
 - **`add_roms` keeps a URL as origin + path.** The store's `index.json` recorded the full URL a ROM came from, query
   string and fragment included, which can hold a token. It now keeps the origin and the path only.
