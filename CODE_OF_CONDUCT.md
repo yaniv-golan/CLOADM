@@ -60,7 +60,13 @@ representative at an online or offline event.
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
 reported to the community leaders responsible for enforcement: the maintainer
-via GitHub.
+via GitHub. Reports are private. This project has no conduct e-mail address and
+no public issue or discussion is the place for one: use the repository's
+[Security tab](https://github.com/yaniv-golan/cloadm/security), where GitHub
+offers **Report a vulnerability**, a private report only the maintainer can
+read (the same channel [SECURITY.md](SECURITY.md) describes for security
+problems; a conduct report should say it is one, and nothing about it becomes a
+public advisory).
 All complaints will be reviewed and investigated promptly and fairly.
 
 All community leaders are obligated to respect the privacy and security of the

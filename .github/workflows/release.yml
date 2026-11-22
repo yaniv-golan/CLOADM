@@ -1,41 +1,105 @@
-# A release, on pushing a tag v*: the Claude Desktop extension (cloadm.mcpb) and the agent skill (cloadm-skill.zip),
-# attached to a GitHub Release for that tag (docs/mcp.md, "Installing").
+# A release, on pushing a tag v*: the gates, the Claude Desktop extension (cloadm.mcpb) and the agent skill
+# (cloadm-skill.zip), attested, and attached to a GitHub Release for that tag (docs/mcp.md, "Installing").
 #
-# The repository stays build-free with no package.json (AGENTS.md rule 1.2): the MCPB packer is fetched here with npx,
-# pinned, and runs only in this job. The bundle is a staged copy of what the server needs at run time (cli/, js/, the
-# bundled programs in examples/, the licences and the icon) with mcpb/manifest.json at its root; nothing is compiled
-# and no npm package goes in it. No ROM is in the repository, so none is in the bundle.
+# THE GATES COME FIRST, and this workflow runs them itself: `gates` reuses .github/workflows/tests.yml, so a release
+# runs the same suites, browser-check shards and summary job on the tagged commit that a branch run does (AGENTS.md
+# section 4). Nothing is packed, attested or published until that job is green.
 #
-# The tag must name the version the manifests carry (tests/plugin.test.js keeps plugin.json, marketplace.json,
-# mcpb/manifest.json and CHANGELOG.md's "Next version" in agreement), so a mistyped tag publishes nothing.
+# THREE JOBS, BY WHAT THEY ARE ALLOWED TO DO. `pack` runs npx (@anthropic-ai/mcpb, whose own dependencies are not ours
+# to pin) and so has NO write permission and no secrets: it can read the repository and upload an artifact, and nothing
+# else. `attest` holds the write scopes the attestation needs (attestations, id-token) and runs NO third-party npm
+# code: it downloads the artifact pack produced and attests it. `publish` holds contents: write, runs only gh, and does
+# nothing else. A compromised packer can therefore not reach a token that could publish.
+#
+# A DRY RUN: dispatching this workflow by hand (workflow_dispatch with dry_run=true, the default) runs the gate, the
+# pack and a notes check, and SKIPS `attest` and `publish` -- those two jobs carry `if:` conditions that are false on a
+# dry run, so the jobs do not exist in the run at all, and neither the write permissions nor `gh release create` are
+# reached. Nothing is published by a dry run: the only step that creates a Release is in `publish`, and `publish` is
+# skipped by its own `if:`. (Checked by node tests/workflows-release.test.js, which reads the conditions and requires
+# the publish step to live only in the job a dry run skips.)
+#
+# WHAT IS PUBLISHED is the tag's own commit: tests/plugin.test.js keeps plugin.json, marketplace.json,
+# mcpb/manifest.json and CHANGELOG.md's "Next version" in agreement, so a mistyped tag publishes nothing, and the
+# release notes are that version's section of CHANGELOG.md (.github/scripts/release-notes.js), never a summary written
+# here. The assets carry a build-provenance attestation naming this repository, workflow and commit;
+# `gh attestation verify cloadm.mcpb --repo yaniv-golan/CLOADM` checks it.
+#
+# The repository stays build-free with no package.json (AGENTS.md rule 1.2). Every action is pinned to a full commit
+# SHA with its release tag beside it, as in tests.yml.
 name: release
 
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Run the gates, pack and notes check only: no attestation, no Release (default true)'
+        type: boolean
+        default: true
 
+# Read-only by default; each job that needs more asks for it, and only that job.
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  release:
+  # The same gate as a branch push, on the tagged commit. The job is named `gates` by tests.yml, the name the main
+  # ruleset requires, so a branch and a release are one gate and not two that could disagree.
+  gates:
+    uses: ./.github/workflows/tests.yml
+    permissions:
+      contents: read
+
+  # Unpinned third-party npm code runs HERE and nowhere else: no write scopes, no secrets, and the only thing it can do
+  # is upload the bundle it made.
+  pack:
+    needs: gates
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      # The whole history, with its tags: tests/plugin.test.js reads them (and fails on CI without them).
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
         with:
           node-version: '22'
 
-      - name: The tag names the manifests' version
+      # THE VERSION THIS RUN IS ABOUT, decided once. On a tag it is the tag, and the manifests must agree with it. On a
+      # hand-started dry run there is no tag, so it is CHANGELOG.md's "Next version" line -- the version the working
+      # tree is preparing -- which is why a dry run can be dispatched FROM MAIN, where the owner will actually do it.
+      # The value reaches later steps through $GITHUB_ENV; it is never interpolated into a script.
+      - name: The version (the tag, or the next version for a dry run)
+        env:
+          RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
         run: |
-          v=$(node -p "require('./mcpb/manifest.json').version")
-          test "v$v" = "$GITHUB_REF_NAME" || { echo "tag $GITHUB_REF_NAME, manifests say $v"; exit 1; }
+          if [ -n "$RELEASE_TAG" ]; then
+            v="${RELEASE_TAG#v}"
+            have=$(node -p "require('./mcpb/manifest.json').version")
+            test "$have" = "$v" || { echo "tag $RELEASE_TAG, manifests say $have"; exit 1; }
+          else
+            v=$(node -p "require('./.github/scripts/release-notes.js').nextVersion(require('fs').readFileSync('CHANGELOG.md','utf8')) || ''")
+            test -n "$v" || { echo "no \"Next version:\" line in CHANGELOG.md to dry-run"; exit 1; }
+            echo "dry run for the next version, $v (no tag: nothing will be published)"
+          fi
+          echo "v=$v" >> "$GITHUB_OUTPUT"
+          echo "RELEASE_VERSION=$v" >> "$GITHUB_ENV"
           node tests/plugin.test.js
+
+      # The notes are checked BEFORE anything is attested: a version whose CHANGELOG section is missing or empty fails
+      # here, where nothing has been signed and nothing can be published.
+      - name: The notes are that version's CHANGELOG section
+        run: |
+          node .github/scripts/release-notes.js "$RELEASE_VERSION" release-notes.md
+          test -s release-notes.md || { echo "the notes for $RELEASE_VERSION are empty"; exit 1; }
+          mkdir -p dist
+          { echo "Install: docs/mcp.md."; echo; cat release-notes.md; } > dist/release-notes.md
 
       - name: Stage and pack the extension
         run: |
@@ -50,10 +114,75 @@ jobs:
           test -f skills/cloadm/SKILL.md || { echo "skills/cloadm/SKILL.md is missing"; exit 1; }
           (cd skills && zip -r -X ../dist/cloadm-skill.zip cloadm)
 
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: release-assets
+          # ONE directory. A multi-path list here makes upload-artifact root the artifact at the paths' least common
+          # ancestor (the workspace), so downloading it into dist/ would put the files at dist/dist/... and attest and
+          # publish would find nothing. The dry run below downloads it and checks each file, so that class of bug shows
+          # up before a tag.
+          path: dist/
+
+  # The artifact hand-off, checked on EVERY run -- a tag's and a dry run's alike. It downloads the artifact the way
+  # `attest` and `publish` do and asserts each file is where they will read it. A single-directory upload that became
+  # a multi-path one again would put the files at dist/dist/..., and this job would fail before a tag could publish.
+  verify-assets:
+    needs: [gates, pack]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
+        with:
+          name: release-assets
+          path: dist
+      - name: Every asset is where attest and publish will read it
+        run: |
+          for f in dist/cloadm.mcpb dist/cloadm-skill.zip dist/release-notes.md; do
+            test -f "$f" || { echo "missing $f (the artifact did not unpack into dist/ with these names)"; ls -R dist; exit 1; }
+          done
+          test -s dist/release-notes.md || { echo "the notes file is empty"; exit 1; }
+          echo "assets: $(ls -1 dist | tr '\n' ' ')"
+
+  # The attestation: no third-party code runs here, only GitHub's own action on the bytes `pack` produced.
+  attest:
+    needs: [gates, pack, verify-assets]
+    if: github.ref_type == 'tag' && (github.event_name == 'push' || inputs.dry_run != true)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      attestations: write   # the build provenance attestation
+      id-token: write       # the short-lived signing certificate Sigstore issues for it
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
+        with:
+          name: release-assets
+          path: dist
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8  # v4.2.2
+        with:
+          subject-path: 'dist/*.mcpb,dist/*.zip'
+
+  # The Release: `gh` writes it and nothing else happens. The only step in the workflow that can create one, and it is
+  # in the job a dry run skips.
+  publish:
+    needs: [gates, pack, verify-assets, attest]
+    if: github.ref_type == 'tag' && (github.event_name == 'push' || inputs.dry_run != true)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write       # the Release and its attached assets
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
+        with:
+          name: release-assets
+          path: dist
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          pre=""; case "$GITHUB_REF_NAME" in *-*) pre="--prerelease";; esac
-          gh release create "$GITHUB_REF_NAME" dist/cloadm.mcpb dist/cloadm-skill.zip \
-            --title "$GITHUB_REF_NAME" --notes "See CHANGELOG.md. Install: docs/mcp.md." $pre
+          pre=""; case "$RELEASE_TAG" in *-*) pre="--prerelease";; esac
+          gh release create "$RELEASE_TAG" dist/cloadm.mcpb dist/cloadm-skill.zip \
+            --title "$RELEASE_TAG" --notes-file dist/release-notes.md $pre

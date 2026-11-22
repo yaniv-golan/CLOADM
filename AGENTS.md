@@ -103,7 +103,8 @@ A program under `examples/` (a demo, a game, a tool that runs on the built-in fi
 1. The source, `examples/<name>.asm` or `examples/<name>/<name>.asm`; your own code, no ROM code.
 2. An entry in the list in `tools/build-examples.js`, then `node tools/build-examples.js`. It writes the `.bin` and
    brings `sw.js`'s offline file list up to date; commit both. (A served file added any other way needs `node
-   tools/pwa-files.js --write`, or `tests/pwa.test.js` fails.)
+   tools/pwa-files.js --write`, or `tests/pwa.test.js` fails.) The one exception to the list is `examples/demo.bin`,
+   which `tools/build-demo.js` builds from its hand-encoded source: it predates the list and stays out of it.
 3. A test, `tests/<name>.test.js`, with real assertions: a play script (`.cloadm`) run through `cli/cloadm.js` on
    each machine it supports (`--expect-screen`, `--expect-mem`, `--expect-screenshot`, `--wav`), and mutants of the
    program that must fail it ([docs/game-development.md](docs/game-development.md) and
@@ -119,7 +120,10 @@ A change is done only when every applicable level below passes. Your report (sec
 
 **The gate is a green CI run on the exact commit.** Every push to `main` and to contributor branches (`claude/**`,
 `ds/**`) runs the `tests` workflow (`.github/workflows/tests.yml`) once on the pushed head; for a branch with another
-name, run it by hand (Actions → tests → Run workflow). It runs `node tests/all.js` and every group of
+name, run it by hand (Actions → tests → Run workflow). A pull request into `main` also runs it, on the merge result
+GitHub builds for the PR (`refs/pull/N/merge`): that run's SHA is a merge commit, so it is the proof that merging the
+branch keeps `main` green, not the proof for the branch -- report the run on the pushed head. It runs
+`node tests/all.js` and every group of
 the browser check, split over parallel shards that together must cover every group. Its final job, `gates`, is
 green only if all of them passed, and its summary gives the commit SHA and tree hash (`git rev-parse HEAD^{tree}`).
 That run, on the SHA you report, is the proof for levels 4.1, 4.2 and 4.7. Run the same commands locally while you

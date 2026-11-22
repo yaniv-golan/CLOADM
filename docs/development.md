@@ -63,12 +63,51 @@ When a full run fails, its last line names the failing suites (`FAILED: a.test.j
 Contributors follow [AGENTS.md](../AGENTS.md): the rules, where code goes, and the proof required before a change
 counts as done.
 
-CI (`.github/workflows/tests.yml`) runs the gates once per push, on the pushed head of `main` and of `claude/**` and
-`ds/**` branches (other branches: Actions → tests → Run workflow): `node tests/all.js`, and the browser check split into parallel shards (`--only <groups>`, listed in
-`.github/browser-check-shards.json`). `node .github/scripts/browser-check-shards.js` fails if a browser-check group
-is in no shard, in two, or isn't a group (it reads the groups from `node tools/browser-check.js --list-groups`, the
-`GROUPS` table itself); run it after adding a group, and add the group to a shard. A green run's
+CI (`.github/workflows/tests.yml`) runs the gates on every push to `main` and to contributor branches (`claude/**`,
+`ds/**`) on the pushed commit, and on every pull request into `main` on the merge result GitHub builds for it
+(`refs/pull/N/merge`, so that run's SHA is a merge commit, not the branch head). Other branches: Actions → tests →
+Run workflow. The gates are `node tests/all.js` and the browser check split into parallel shards
+(`--only <groups>`, listed in `.github/browser-check-shards.json`). The run's jobs are `browser-check shards are
+complete` (and the matrix it plans), `node tests/all.js`, one `browser check <shard>` per shard, and `gates`, which
+is green only if every other job passed. `node .github/scripts/browser-check-shards.js` fails if a browser-check
+group is in no shard, in two, or isn't a group (it reads the groups from `node tools/browser-check.js --list-groups`,
+the `GROUPS` table itself); run it after adding a group, and add the group to a shard. A green run's
 `gates` summary (commit SHA, tree hash, each job's counts) is the definition of done; see AGENTS.md section 4.
+Every action in the workflows is pinned to a commit SHA with its release tag beside it, and `pull_request_target` is
+never used; `node tests/workflows.test.js` holds both, and `.github/dependabot.yml` proposes the bumps weekly.
+`node tests/workflows-release.test.js` holds `release.yml`'s shape: it runs the gates (`release.yml` calls
+`tests.yml` in place) before anything is packed; the unpinned `npx` code runs in a job with no write scope; the
+attestation covers the assets and runs no third-party code; and the notes are the tagged version's CHANGELOG section,
+checked before anything is signed.
+
+**The site** is deployed by `pages.yml`, on a `workflow_run` of the gates: when `tests` finishes successfully for a
+push to `main`, it deploys exactly the SHA those gates ran on (`github.event.workflow_run.head_sha`), and nothing else
+does -- not a branch, a pull request or a tag. A red `main` never publishes, and an older commit cannot overwrite a
+newer deploy (it refuses unless `main` still points at the commit it gated). It is a separate workflow because a
+CALLED workflow's jobs may not request more than the caller grants, and `release.yml` calls `tests.yml` with
+`contents: read`; a deploy job inside `tests.yml` would be refused at load time and every tag release would die.
+
+**It does nothing until you switch Pages over.** The job's guard includes `vars.PAGES_VIA_ACTIONS == 'true'`, a
+repository variable that does not exist yet, so every run skips and legacy Pages keeps serving `main` as it does today.
+Merging it therefore changes nothing, and merge order does not matter. (The `github-pages` environment allows `main`,
+so once a deploy does run, a `main` push's deploy is accepted.)
+
+**Publishing the site: the owner's procedure, in this order.**
+1. **Settings -> Pages -> Source = "GitHub Actions"**. The legacy build stops publishing `main` from this point.
+2. **Settings -> Secrets and variables -> Actions -> Variables -> New variable**: `PAGES_VIA_ACTIONS` = `true`. From
+   here a successful `main` push deploys.
+3. **Re-run the latest green `tests` run on `main`** (Actions -> tests -> the run -> *Re-run all jobs* on its first
+   attempt), or push any commit; then open <https://cloadm.dev> and check the site is the new build.
+   Expect a short gap between steps 1 and 3 -- from the source switch until the first deploy lands, nothing publishes
+   the site -- so do steps 1 and 3 back to back.
+
+**A dry run of the release, after this lands on `main`**: GitHub -> Actions -> **release** -> *Run workflow* -> branch
+**main**, leave `dry_run` **checked** (it is the default) -> *Run workflow*. Dispatching it from a TAG with `dry_run`
+unchecked PUBLISHES that tag -- the dry run is only a dry run because it is started from a branch with the box on.
+It runs the gates, packs the extension, checks the artifact hand-off, and checks the notes for `CHANGELOG.md`'s current
+"Next version" line -- and skips `attest` and `publish` by their own `if:` conditions, so no Release is created and no
+write scope is used.
+
 Don't run anything else on the machine while the browser check runs: it is timing-sensitive under load.
 
 ```
@@ -178,7 +217,8 @@ node tests/regress.test.js                # fast gate: trace and frame hashes of
 node tests/allsummary.test.js             # the gate itself: the FAILED: line and --only subset runs; a suite that exits 0 without printing its summary (a pending promise, or one printed only from an exit handler) fails; a suite that prints a "FAIL " line and exits 0 fails; normal suites pass; summaries printed from every writer and quote style are read; fixtures stay out
 node tests/fastloop.test.js               # the fast-loop table above: every suite pattern selects a suite, every group exists; AGENTS.md's Start-here scripts exist
 node tests/allsignal.test.js              # a signal to the gate stops every suite and exits 128+n; nothing survives
-node tests/changelog.test.js              # a released CHANGELOG section equals the same section in its git tag (named corrections aside); needs the tags (CI fetches them, `git fetch --tags` locally: without them it prints a SKIP line per tag)
+node tests/changelog.test.js              # a released CHANGELOG section equals the same section in its git tag (named corrections aside), and every release uses Keep a Changelog headings (Added/Changed/Fixed); needs the tags (CI fetches them, `git fetch --tags` locally: without them it prints a SKIP line per tag)
+node tests/workflows-release.test.js      # release.yml packs in a read-only job, checks the notes before attesting, checks the artifact hand-off on every run, and its dry run cannot publish; pages.yml publishes main only after the gates, on a main push, once PAGES_VIA_ACTIONS is set
 node tests/exitcode.test.js               # no suite or tool forces process.exit() (the Node 25 deadlock), by static scan
 node tests/exitguard.test.js              # the same rule at run time, against every spelling a static scan cannot see
 node tests/screen-alternative.test.js     # the screen canvas's text alternative: screen_text's rows, blank and block screens, a graphics mode, 80-column GIME

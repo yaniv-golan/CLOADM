@@ -170,37 +170,87 @@ console.log('all passed');`);
 }
 
 // The tools exemption, tested where it actually decides: in a process whose entry script is each of these.
+//
+// The rule lives in no-exit.js and is resolved from THAT file's own directory: an entry script is a tool when it sits
+// inside `join(<dir of no-exit.js>, '..', 'tools') + sep`. So a copy of no-exit.js under a scratch `tests/` makes
+// `<scratch>/tools/...` the tools directory, and the real rule is exercised against real paths — no probe is ever
+// written into this repository, so the tree cannot be left changed by a suite that dies part way through.
+{
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'exitguard-tools-'));
+  try {
+    const tests = path.join(scratch, 'tests');   // `<scratch>/tools/…` is where the probe entries go, below
+    fs.mkdirSync(tests, { recursive: true });
+    fs.copyFileSync(GUARD, path.join(tests, 'no-exit.js'));
+    const env = Object.assign({}, process.env, { NODE_OPTIONS: `--require ${JSON.stringify(path.join(tests, 'no-exit.js'))}` });
+    const runWith = (file) => cp.spawnSync(process.execPath, [file], { encoding: 'utf8', env, timeout: 20000 });
+    // 1a. a TOP-LEVEL tools entry script: NOT guarded (gen-rom-docs.js ends with exit(0), which is how it says
+    // "the list is already right").
+    // Every probe path is recorded as it is created, and the check after the run asserts each one is OUTSIDE the
+    // repository: the property, checked while the probes exist. The earlier version listed three fixed paths and
+    // looked for them after cleanup, which passed on base too -- base also deleted its probes, so it could not fail.
+    const made = [];
+    const probe = (rel) => {
+      const f = path.join(scratch, rel);
+      fs.mkdirSync(path.dirname(f), { recursive: true });
+      fs.writeFileSync(f, "console.log('tool ok'); process.exit(0);\n");
+      made.push(f);
+      const inside = path.relative(path.join(__dirname, '..'), f);
+      check(`the probe ${rel} is outside the repository (checked while it exists)`,
+        inside.startsWith('..') || path.isAbsolute(inside), f);
+      return runWith(f);
+    };
+    const t = probe('tools/zz-exitguard-probe.js');
+    check('a top-level tools entry script is NOT guarded', t.status === 0 && /tool ok/.test(t.stdout), `exit ${t.status}`);
+    // 1b. a NESTED tools entry script: also not guarded. A nested tool uses exit(0) as a success signal just as a
+    // top-level one does (the rule is the tools/ directory, not its depth), so exempting one and not the other
+    // would be arbitrary.
+    const n = probe('tools/zz-nested/run.js');
+    check('a nested tools entry script is NOT guarded', n.status === 0 && /tool ok/.test(n.stdout), `exit ${n.status}`);
+    // 1c. every probe really is a process that would have been guarded: without the exemption it must fail. Run the
+    // same file through a no-exit.js whose rules directory is somewhere else, so this file is NOT under it.
+    {
+      const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), 'exitguard-elsewhere-'));
+      try {
+        fs.copyFileSync(GUARD, path.join(elsewhere, 'no-exit.js'));
+        const strict = Object.assign({}, process.env, { NODE_OPTIONS: `--require ${JSON.stringify(path.join(elsewhere, 'no-exit.js'))}` });
+        const r = cp.spawnSync(process.execPath, [path.join(scratch, 'tools', 'zz-nested', 'run.js')], { encoding: 'utf8', env: strict, timeout: 20000 });
+        check('...and the probe would be guarded if it were outside that tools/ (so the exemption is what let it pass)',
+          r.status !== 0 && /process\.exit\(\) called at/.test(r.stdout), `exit ${r.status}`);
+      } finally { fs.rmSync(elsewhere, { recursive: true, force: true }); }
+    }
+    // 2. a helper under tests/tools/: guarded, so the rule cannot be fooled by a directory name
+    const fake = path.join(scratch, 'tests', 'tools'); fs.mkdirSync(fake, { recursive: true });
+    const helper = path.join(fake, 'helper.js');
+    fs.writeFileSync(helper, "console.log('helper ran'); process.exit(0);\n");
+    const h = runWith(helper);
+    check('a helper at tests/tools/ IS guarded (the rule is a resolved path, not a name match)', h.status !== 0, `exit ${h.status}`);
+  } finally {
+    fs.rmSync(scratch, { recursive: true, force: true });
+  }
+  // The scratch tree is gone, directories and all: a suite that leaves a file behind makes the next `git status`
+  // lie about what changed.
+  check('the probe tree is removed, with its directories', !fs.existsSync(scratch), scratch);
+}
+// 3. No probe was written into this repository: every path the probes created was checked, at creation time, to be
+// outside it (above), and after the run the repository has gained nothing. That last claim is compared against git,
+// not against a list of the three probe names: git answers for any name a probe could have, so a probe added to this
+// section later is caught without being added to a list here. (A list of the probe paths used to sit beside this
+// check; every path on it is under tools/ or tests/, so it could only ever fail when the git check below failed too.)
+{
+  const untracked = cp.spawnSync('git', ['status', '--porcelain', '--', 'tools', 'tests'], { cwd: path.join(__dirname, '..'), encoding: 'utf8' });
+  check('the run left no untracked file under tools/ or tests/', untracked.status === 0 && !/^\?\?/m.test(untracked.stdout || ''),
+    (untracked.stdout || '').trim().split('\n').filter((l) => l.startsWith('??')).join(' | '));
+}
+// 4. an -e child has no entry script, so it must stay guarded -- from ANY directory. The guard must not resolve an
+// absent entry script: fs.realpathSync('') is the CWD, and run from inside tools/ that would exempt a process with
+// no entry script at all. This is the shape a realpath fix broke once, so it is checked from the tools directory.
 {
   const env = Object.assign({}, process.env, { NODE_OPTIONS: `--require ${JSON.stringify(GUARD)}` });
-  const runWith = (file) => cp.spawnSync(process.execPath, [file], { encoding: 'utf8', env, timeout: 20000 });
-  // 1a. a TOP-LEVEL tools entry script: NOT guarded (gen-rom-docs.js ends with exit(0), which is how it says
-  // "the list is already right"). Written into this repo's own tools/ so the rule resolves against the real
-  // directory, then removed.
-  const probe = (rel) => {
-    const f = path.join(__dirname, '..', rel);
-    fs.mkdirSync(path.dirname(f), { recursive: true });
-    fs.writeFileSync(f, "console.log('tool ok'); process.exit(0);\n");
-    const r = runWith(f);
-    fs.rmSync(f, { force: true });
-    return r;
-  };
-  const t = probe('tools/zz-exitguard-probe.js');
-  check('a top-level tools entry script is NOT guarded', t.status === 0 && /tool ok/.test(t.stdout), `exit ${t.status}`);
-  // 1b. a NESTED tools entry script: also not guarded. A nested tool uses exit(0) as a success signal just as a
-  // top-level one does (the rule is the tools/ directory, not its depth), so exempting one and not the other
-  // would be arbitrary.
-  const n = probe('tools/zz-nested/run.js');
-  check('a nested tools entry script is NOT guarded', n.status === 0 && /tool ok/.test(n.stdout), `exit ${n.status}`);
-  // 2. a helper under tests/tools/: guarded, so the rule cannot be fooled by a directory name
-  const fake = path.join(dir, 'tests', 'tools'); fs.mkdirSync(fake, { recursive: true });
-  const helper = path.join(fake, 'helper.js');
-  fs.writeFileSync(helper, "console.log('helper ran'); process.exit(0);\n");
-  const h = runWith(helper);
-  check('a helper at tests/tools/ IS guarded (the rule is a resolved path, not a name match)', h.status !== 0, `exit ${h.status}`);
-  // 3. an -e child has no entry script, so it must stay guarded
   const e = cp.spawnSync(process.execPath, ['-e', "console.log('e ran'); process.exit(0);"], { encoding: 'utf8', env, timeout: 20000 });
   check('an -e child (no entry script) IS guarded', e.status !== 0, `exit ${e.status}`);
-  // 4. a suite itself: guarded
+  const inTools = cp.spawnSync(process.execPath, ['-e', "process.exit(0);"], { encoding: 'utf8', env, timeout: 20000, cwd: path.join(__dirname, '..', 'tools', 'mame-diff') });
+  check('...and an -e child run from inside tools/ is guarded too (no entry script is never the cwd)', inTools.status !== 0, `exit ${inTools.status}`);
+  // 5. a suite itself: guarded
   const st = suite("console.log('all passed'); process.exit(0);");
   check('a suite IS guarded', st.code !== 0, `exit ${st.code}`);
 }

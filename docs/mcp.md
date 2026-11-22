@@ -150,7 +150,9 @@ Download `cloadm.mcpb` from the [Releases](https://github.com/yaniv-golan/CLOADM
 it onto Settings → Extensions). The app asks for a **media folder** (required: the only folder the tools read and
 write) and a **ROM folder** (optional), and passes them as `--media-root` and `--roms`. The bundle holds only the
 server (`cli/`, `js/` and the bundled programs); it has no npm packages and no ROMs. It is made from
-`mcpb/manifest.json` when a version is tagged (`.github/workflows/release.yml`).
+`mcpb/manifest.json` when a version is tagged (`.github/workflows/release.yml`), and only after the same gates a
+branch runs have passed on the tagged commit; each asset carries a build-provenance attestation, which
+`gh attestation verify cloadm.mcpb --repo yaniv-golan/CLOADM` checks.
 
 To run a checkout instead, add it to `claude_desktop_config.json` (Settings → Developer → Edit Config):
 

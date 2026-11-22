@@ -1,0 +1,15 @@
+{
+  "name": "f5-four-hash-appended",
+  "note": "Positive control: a \"#### Fixed\" block after the last bullet. The guard already sees this, because \"#### \" is not a section boundary. A fix must not break it.",
+  "version": "9.9-pre",
+  "tags": [
+    "v9.9-pre",
+    "v9.8-pre"
+  ],
+  "expect": {
+    "now": "FAIL",
+    "afterFix": "FAIL"
+  },
+  "tagged": "# Changelog\n\n## [Unreleased]\n\nNext version: 9.9-pre.\n\n### 9.9-pre\n\n#### Added\n\n- the released feature\n\n#### Changed\n\n- the released change\n\n#### Fixed\n\n- the released fix one\n- the released fix two\n\n### 9.8-pre\n\n#### Added\n\n- the older feature\n",
+  "candidate": "# Changelog\n\n## [Unreleased]\n\nNext version: 9.9-pre.\n\n### 9.9-pre\n\n#### Added\n\n- the released feature\n\n#### Changed\n\n- the released change\n\n#### Fixed\n\n- the released fix one\n- the released fix two\n\n#### Fixed\n\n- stray four-hash\n\n### 9.8-pre\n\n#### Added\n\n- the older feature\n"
+}

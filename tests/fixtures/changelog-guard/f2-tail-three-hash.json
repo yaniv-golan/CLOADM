@@ -1,0 +1,15 @@
+{
+  "name": "f2-tail-three-hash",
+  "note": "THE REAL BUG: a \"### Fixed\" block after the LAST bullet of 9.9-pre (main 0.1.8-pre shape). parse() ends the section before it, on both sides, so 9.9-pre compares equal and the entries vanish.",
+  "version": "9.9-pre",
+  "tags": [
+    "v9.9-pre",
+    "v9.8-pre"
+  ],
+  "expect": {
+    "now": "PASS",
+    "afterFix": "FAIL"
+  },
+  "tagged": "# Changelog\n\n## [Unreleased]\n\nNext version: 9.9-pre.\n\n### 9.9-pre\n\n#### Added\n\n- the released feature\n\n#### Changed\n\n- the released change\n\n#### Fixed\n\n- the released fix one\n- the released fix two\n\n### 9.8-pre\n\n#### Added\n\n- the older feature\n",
+  "candidate": "# Changelog\n\n## [Unreleased]\n\nNext version: 9.9-pre.\n\n### 9.9-pre\n\n#### Added\n\n- the released feature\n\n#### Changed\n\n- the released change\n\n#### Fixed\n\n- the released fix one\n- the released fix two\n\n### Fixed\n\n- stray one\n- stray two\n\n### 9.8-pre\n\n#### Added\n\n- the older feature\n"
+}

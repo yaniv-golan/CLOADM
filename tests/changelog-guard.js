@@ -9,12 +9,22 @@
 // For each released version with a git tag, the section must be byte-identical to the same section in the tagged
 // CHANGELOG, except for corrections listed by name in the allowlist (each is "this text in the tagged section became
 // that text", with a one-line reason; the tagged text must still contain it, so a list entry cannot go stale).
-'use strict';
-
 // A release heading: "### 0.1.3-pre", "### 0.1.0 (first public release ...)". Not "### Added" or "### Fixed", which are the
 // subsections of [Unreleased] and are not releases.
 const HEADING = /^### (\d+\.\d+\S*)/;
-const OTHER_HEADING = /^#{1,3} /;
+// A version's section ends at the NEXT VERSION heading or at a level-2/level-1 heading, never at a "### Fixed".
+// It used to end at any level 1-3 heading, so a "### Fixed" block appended inside a released section (before the next
+// version heading) fell outside the section: the guard compared the text before it, found no difference, and stayed
+// green. A merge resolution did exactly that. Now the whole section is compared, so an inserted block is a
+// difference like any other line.
+const SECTION_BOUNDARY = /^(?:#{1,2} |### \d)/;
+
+// The headings a section carries, in order: what a reader sees as its structure. A section whose headings differ from
+// its tag's is reported by name, so a moved or renamed subsection is caught even if the text around it happened to
+// match (and so the failure says why rather than quoting a line).
+function headingsOf(section) {
+  return section.split('\n').filter((l) => /^#{1,6} /.test(l)).map((l) => l.trim());
+}
 
 // The sections of a CHANGELOG text: versions in file order, each version's section text, and whether a
 // "## [Unreleased]" heading is present above the first version heading.
@@ -24,7 +34,7 @@ function parse(text) {
   for (const line of text.split('\n')) {
     const m = HEADING.exec(line);
     if (m) { cur = m[1]; if (!(cur in sections)) { versions.push(cur); sections[cur] = []; } seenVersion = true; }
-    else if (OTHER_HEADING.test(line)) {
+    else if (SECTION_BOUNDARY.test(line)) {
       cur = null;
       if (!seenVersion && /^## \[Unreleased\]/i.test(line)) unreleased = true;
     }
@@ -34,6 +44,53 @@ function parse(text) {
   for (const v of versions) out[v] = sections[v].join('\n');
   return { versions, sections: out, unreleased };
 }
+
+// The subsections a release may use: the three headings of Keep a Changelog that this project writes (its "Security"
+// is not used here). A released section is made of these and nothing else, so a release page reads the same way
+// wherever it is shown (GitHub's Release page, a changelog viewer) instead of carrying this file's private shapes.
+const KEEP_A_CHANGELOG = ['Added', 'Changed', 'Deprecated', 'Removed', 'Fixed', 'Security'];
+const REQUIRED_KINDS = ['Added', 'Changed', 'Fixed'];
+
+// What a section's subsections are: the distinct "#### X" headings it carries, in file order. A released section must
+// use only KEEP_A_CHANGELOG names (this repository used "#### Upgrading" in its first release, named as an exception
+// below, because a released section cannot be corrected retroactively without a new tag).
+function subsectionKinds(section) {
+  const out = [];
+  for (const line of section.split('\n')) {
+    const m = /^#### (.+?)\s*$/.exec(line);
+    if (m && !out.includes(m[1])) out.push(m[1]);
+  }
+  return out;
+}
+
+// A released section's subsections that are not Keep a Changelog names. `allow` is the list of { version, kinds }
+// exceptions (a section shipped before this rule; its tag has it and it cannot be corrected).
+function oddSubsections(text, allow = []) {
+  const now = parse(text);
+  const bad = [];
+  for (const v of now.versions) {
+    const kinds = subsectionKinds(now.sections[v]);
+    const allowed = new Set([...KEEP_A_CHANGELOG, ...(allow.filter((a) => a.version === v).flatMap((a) => a.kinds))]);
+    const odd = kinds.filter((k) => !allowed.has(k));
+    if (odd.length) bad.push(`${v}: ${odd.join(', ')}`);
+  }
+  return bad;
+}
+
+// [Unreleased]'s own subsections: the section keeps "Next version: X" and then the headings of the release being
+// prepared, all of which must be Keep a Changelog names. A release is not prepared in a heading of its own kind.
+function unreleasedKinds(text) {
+  const lines = text.split('\n');
+  let inUn = false;
+  const kinds = [];
+  for (const line of lines) {
+    if (/^## \[Unreleased\]/i.test(line)) { inUn = true; continue; }
+    if (inUn && /^#{1,3} /.test(line)) break;      // a version heading (or another ## heading) ends it
+    if (inUn) { const m = /^#### (.+?)\s*$/.exec(line); if (m && !kinds.includes(m[1])) kinds.push(m[1]); }
+  }
+  return kinds;
+}
+
 
 // A heading's git tag: "v<version>", unless the table names another. The first release's heading is "0.1.0" and
 // its tag is v0.1.0-pre (the "-pre" came with the tag, the heading kept its name).
@@ -94,7 +151,13 @@ function check({ text, tagText, tags, ci = false, allowed = ALLOWED_CORRECTIONS,
       want = want.replace(c.from, () => c.to);
     }
     compared.push(version);
-    if (now.sections[version] !== want) {
+    // The section's structure first, by name: a heading moved, renamed, added or removed is reported as that, so a
+    // "### Fixed" appended inside a released section fails even where the surrounding text still matches.
+    const wasHeads = headingsOf(want), nowHeads = headingsOf(now.sections[version]);
+    if (wasHeads.join('\n') !== nowHeads.join('\n')) {
+      failures.push(`${version} is a released section (tag ${tag}) and its headings changed: released ${JSON.stringify(wasHeads)}, now ${JSON.stringify(nowHeads)}. `
+        + 'New entries go under "## [Unreleased]", in a new "### Fixed"/"### Added" above the newest released section.');
+    } else if (now.sections[version] !== want) {
       failures.push(`${version} is a released section (tag ${tag}) and was changed: ${firstDifference(want, now.sections[version])}. `
         + 'New entries go under "## [Unreleased]", in a new "### Fixed"/"### Added" above the newest released section.');
     }
@@ -115,4 +178,4 @@ function check({ text, tagText, tags, ci = false, allowed = ALLOWED_CORRECTIONS,
   return { failures, skips, compared };
 }
 
-module.exports = { parse, check, tagOf, TAG_ALIASES, ALLOWED_CORRECTIONS };
+module.exports = { parse, check, tagOf, TAG_ALIASES, ALLOWED_CORRECTIONS, subsectionKinds, oddSubsections, unreleasedKinds, KEEP_A_CHANGELOG };
