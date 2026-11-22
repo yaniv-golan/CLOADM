@@ -95,6 +95,9 @@ const node = (args, opts = {}) => spawnSync(process.execPath, args, Object.assig
   const noSeek = mutant('noseek', '        STA     FDCCMD          ; the seek', '        NOP');
   check('a guest that never seeks (it reads sector 5 of track 0) makes the example fail', noSeek.status !== 0 && /disk-read: track 2 sector 5: byte \d+ is/.test(noSeek.stderr), why(noSeek));
 
+  const early = mutant('early', '        CLR     DONE\n', '        LDA     #$A5\n        STA     DONE\n');
+  check('a guest that sets the done byte before it has read anything makes the example fail with a clear message, not a negative byte count', early.status !== 0 && /disk-read: track 0 sector 1: the done byte is set but the guest has not stored where it stopped/.test(early.stderr), why(early));
+
   // ---------------- the command line, as the guide says ----------------
   {
     const dir = path.join(TMP, 'cli');

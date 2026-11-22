@@ -58,7 +58,8 @@ const frames = m.frameCount - frame0, cycles = m.now() - cycles0;
 const word = (a) => (session.readByte(a) << 8) | session.readByte(a + 1);
 const reads = [[0, 1, BUF1, STAT1, END1], [2, 5, BUF2, STAT2, END2]].map(([track, sector, at, stat, end]) => {
   const got = Uint8Array.from({ length: 256 }, (_, i) => session.readByte(at + i)), want = sectorBytes(track, sector);
-  const status = session.readByte(stat), taken = word(end) - at;
+  const status = session.readByte(stat), stop = word(end), taken = stop - at;
+  if (stop <= at) fail(`track ${track} sector ${sector}: the done byte is set but the guest has not stored where it stopped (${hex(stop, 4)}): it was set before the read finished`);
   // status: bit 7 not ready, 4 record not found, 3 CRC error, 2 lost data, 0 busy: none may be set after a good read
   if (status & 0x9D) fail(`track ${track} sector ${sector}: the controller's status is ${hex(status)}`);
   if (taken !== 256) fail(`track ${track} sector ${sector}: the guest took ${taken} bytes, not 256`);

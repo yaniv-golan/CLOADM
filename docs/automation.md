@@ -609,7 +609,7 @@ or a timer.
 in: `node cli/cloadm.js --disk t.vdk --asm diskread.asm` with no ROMs stops with exit 3, `Disks need a disk ROM: DragonDOS
 cartridge (ddos10.rom) or Delta DOS cartridge (deltados.rom)`, whatever the order of the steps. With a DragonDOS ROM given
 (`--roms DIR --disk t.vdk`) the Session plugs the controller in itself; that path needs a ROM CLOADM does not ship, and is not run here. A
-command-line way to plug the bare controller in, with no ROM, does not exist yet; `--disk` refuses without a disk ROM in this version, and that is being changed. The Node names the example uses (`devices.dragonfdc`, `machine.insertCartridge`, `fdc.mount`,
+command-line way to plug the bare controller in, with no ROM, does not exist: this version has no command-line way to plug in the bare controller, and `--disk` refuses without a disk ROM. The Node names the example uses (`devices.dragonfdc`, `machine.insertCartridge`, `fdc.mount`,
 `blankDisk`, `diskGeometry`) are public from `js/emu.js` but are not in the stability table below.
 
 ### What is stable
