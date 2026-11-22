@@ -14,6 +14,7 @@
 // CLOADM_BRIDGE.fail(why) says the emulator could not start: calls are then answered at once with not-started.
 // CLOADM_BRIDGE.hostContext is the host's context as it stands: ui/initialize's hostContext, with each
 // ui/notifications/host-context-changed merged in (the view reads displayMode from it: inline, or the side panel).
+// Only the keys the view uses are kept (CONTEXT_KEYS).
 (() => {
   const cfg = window.CLOADM_VIEW || {};
   const EARLY_WAIT_MS = 15000;   // with the tools' own 25 s limit, inside the host's 45 s per call
@@ -28,6 +29,13 @@
   const ms = () => Date.now() - log.t0;
   let impl = null, failed = null, tools = Array.isArray(cfg.tools) ? cfg.tools : [];
   let settle;
+  // the host context's keys the view reads, copied one by one from what the host sent (nothing else is taken in)
+  const CONTEXT_KEYS = ['displayMode', 'availableDisplayModes', 'containerDimensions', 'theme'];
+  const merge = (base, add) => {
+    const out = Object.assign({}, base);
+    if (add && typeof add === 'object') for (const k of CONTEXT_KEYS) if (Object.prototype.hasOwnProperty.call(add, k)) out[k] = add[k];
+    return out;
+  };
   const ready = new Promise((r) => { settle = r; });
   const listeners = [];
   const changed = () => listeners.forEach((fn) => fn());
@@ -54,7 +62,7 @@
     fail(why) { if (impl || failed) return; failed = { code: 'not-started', detail: String(why) }; settle(); changed(); },
     // -> the host's answer ({ mode }: the mode it is in now, which the context takes at once)
     requestDisplayMode: (mode) => rpc('ui/request-display-mode', { mode }).then((r) => {
-      if (r && typeof r.mode === 'string') { B.hostContext = Object.assign({}, B.hostContext, { displayMode: r.mode }); changed(); }
+      if (r && typeof r.mode === 'string') { B.hostContext = merge(B.hostContext, { displayMode: r.mode }); changed(); }
       return r;
     }),
   };
@@ -88,7 +96,7 @@
     if (d.method === 'tools/list') { log.lists++; changed(); send({ id: d.id, result: { tools } }); return; }
     if (d.method === 'tools/call') { call(d); return; }
     if (d.method === 'ping') { send({ id: d.id, result: {} }); return; }
-    if (d.method === 'ui/notifications/host-context-changed' && d.params && typeof d.params === 'object') B.hostContext = Object.assign({}, B.hostContext, d.params);
+    if (d.method === 'ui/notifications/host-context-changed') B.hostContext = merge(B.hostContext, d.params);
     if (d.method === 'notifications/cancelled') { const c = d.params && running.get(d.params.requestId); if (c) c.abort(); return; }
     if (d.method) { log.other.push(d.method.replace(/^ui\/notifications\//, '')); if (log.other.length > 6) log.other.shift(); changed(); }
     if (d.id !== undefined) send({ id: d.id, error: { code: -32601, message: `method not supported: ${d.method}` } });
@@ -99,7 +107,7 @@
     appCapabilities: { tools: { listChanged: true }, availableDisplayModes: ['inline', 'fullscreen'] } })
     .then((r) => {
       log.init = ms(); B.host = r;
-      if (r && r.hostContext && typeof r.hostContext === 'object') B.hostContext = Object.assign({}, r.hostContext, B.hostContext);
+      if (r) B.hostContext = merge(merge({}, r.hostContext), B.hostContext);
       send({ method: 'ui/notifications/initialized', params: {} });
       log.initialized = ms();
       if (impl) listChanged();

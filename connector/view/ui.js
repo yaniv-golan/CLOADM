@@ -158,20 +158,32 @@ export function describeCall(name, args = {}, { read = false, title = name, mode
   }
 }
 
-// The chip on the bezel (R29). An acting call: the bezel takes Claude's colour and the chip says what it does, with
-// the keys (the last KEYS_SHOWN characters) in Claude's colour as they reach the machine (typed(n)) and a cursor;
-// done() shows what it did for HOLD_MS. A reading call: a quiet chip for READ_MS. The person's own input never comes
+// The one announcement for a call (screen readers): what it does, and at most ANNOUNCE_KEYS of the keys it types; a
+// long text is announced by its length. null for a call that only reads: a loop polling the screen would otherwise
+// be announced on every call (the chip shows reads; the announcements are for what changes the machine).
+export const ANNOUNCE_KEYS = 40;
+export function announcement(d) {
+  if (d.read) return null;
+  if (!d.keys) return d.now;
+  if (d.keys.length > 4 * ANNOUNCE_KEYS) return `${d.now.replace(/: $/, '')} ${d.keys.length.toLocaleString('en')} characters`;
+  return `${d.now}${d.keys.length > ANNOUNCE_KEYS ? `${d.keys.slice(0, ANNOUNCE_KEYS)}…` : d.keys}`;
+}
+
+// The chip on the bezel (R29, R34). An acting call: the bezel takes Claude's clay edge and the chip says what it does,
+// with the keys (a window of KEYS_SHOWN characters that follows the typing) as they reach the machine (typed(n)) and
+// a cursor; done() shows what it did for HOLD_MS. A reading call: a quiet chip for READ_MS. The person's own input never comes
 // here. els: { bezel, chip, text, keys, left }
-export const KEYS_SHOWN = 24, HOLD_MS = 2000, READ_MS = 1500;
+export const KEYS_SHOWN = 24, KEYS_AHEAD = 6, HOLD_MS = 2000, READ_MS = 1500;
 export function chip(els) {
   let timer = null, call = null;
   const draw = () => {
     const c = call, keys = c.d.keys || '';
     els.text.textContent = c.done ? c.d.past : c.d.now;
+    // a window of KEYS_SHOWN characters that follows the typing: the last keys typed, then the next few to come
     const typed = keys.slice(0, c.typed), left = keys.slice(c.typed);
-    const start = keys.length > KEYS_SHOWN ? keys.length - (KEYS_SHOWN - 1) : 0;   // the last characters, after an ellipsis
-    els.keys.textContent = (start ? '…' : '') + typed.slice(Math.min(start, typed.length));
-    els.left.textContent = left.slice(Math.max(0, start - typed.length));
+    const shown = Math.min(typed.length, KEYS_SHOWN - Math.min(left.length, KEYS_AHEAD) - (typed.length > KEYS_SHOWN ? 1 : 0));
+    els.keys.textContent = (shown < typed.length ? '…' : '') + typed.slice(typed.length - shown);
+    els.left.textContent = left.slice(0, KEYS_SHOWN - shown);
     els.chip.classList.toggle('nokeys', !keys);
   };
   const hide = () => { els.chip.hidden = true; els.bezel.classList.remove('claude'); call = null; };

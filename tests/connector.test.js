@@ -307,6 +307,10 @@ const J = JSON.stringify;
     b.deliver({ jsonrpc: '2.0', id: req.id, result: { mode: 'inline' } });
     await asked;
     check('bridge: the mode the host answers a request with is the context\'s at once', J(req.params) === J({ mode: 'inline' }) && b.B.hostContext.displayMode === 'inline', J(b.B.hostContext));
+    b.deliver({ jsonrpc: '2.0', method: 'ui/notifications/host-context-changed', params: { displayMode: 'pip', styles: { variables: { x: 1 } }, toString: 'x', __proto__: { polluted: 1 } } });
+    b.deliver({ jsonrpc: '2.0', method: 'ui/notifications/host-context-changed', params: 'not an object' });
+    check('bridge: only the context keys the view reads are taken in (displayMode, availableDisplayModes, containerDimensions, theme)',
+      J(Object.keys(b.B.hostContext).sort()) === J(['availableDisplayModes', 'displayMode', 'theme']) && b.B.hostContext.displayMode === 'pip' && !('polluted' in b.B.hostContext), J(b.B.hostContext));
   }
 
   // ---------------- the view's controls (connector/view/ui.js), the parts without a DOM ----------------
@@ -329,6 +333,10 @@ const J = JSON.stringify;
     const reads = ['screen_text', 'screenshot', 'peek', 'find_bytes'].map((n) => ui.describeCall(n, {}, { read: true }));
     check('chip: a reading call is a quiet "Claude read the screen" or "Claude read memory"', reads.every((r) => r.read && !r.keys)
       && J(reads.map((r) => r.now)) === J(['Claude read the screen', 'Claude read the screen', 'Claude read memory', 'Claude read memory']), J(reads));
+    const say = (keys, read = false) => ui.announcement(Object.assign(ui.describeCall(read ? 'screen_text' : 'type_text', { text: keys }, { read })));
+    const short = say('DIR\n'), mid = say('A'.repeat(100)), long = say('B'.repeat(2000));
+    check('announcement: short keys whole, more than 40 cut at 40 with an ellipsis, a long text by its length; none for a read',
+      short === 'Claude is typing: DIR↵' && mid === `Claude is typing: ${'A'.repeat(40)}…` && long === 'Claude is typing 2,000 characters' && say('', true) === null, J([short, mid, long]));
     const unnamed = offered.filter((t) => !t.annotations.readOnlyHint).filter((t) => /^Claude: /.test(ui.describeCall(t.name, {}, { title: t.title }).now)).map((t) => t.name);
     check('chip: every panel tool that acts (readOnlyHint false) has its own words', !unnamed.length, unnamed.join(','));
   }

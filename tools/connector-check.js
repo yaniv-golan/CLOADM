@@ -275,12 +275,18 @@ async function uiScenario(browser, check, { shots = null } = {}) {
       s0.pressed === 'false' && s0.label === 'Sound off' && s0.path === null && s1.pressed === 'true' && s1.label === 'Sound on' && !!s1.path && s1.on && s2.pressed === 'false' && s2.label === 'Sound off' && !s2.on, JSON.stringify([s0, s1, s2]));
     // ---- ⋯ → "Open in side panel": only inline with fullscreen offered; asked, the host answers and sends its new context
     const bigShown = async () => { await v.click('#more'); const r = await v.evaluate(() => document.getElementById('big').checkVisibility()); await page.keyboard.press('Escape'); return r; };
+    // the host's notification alone (no request): fullscreen hides the item, inline brings it back
+    await page.evaluate(() => window.hostContextChanged({ displayMode: 'fullscreen' }));
+    await settle();
+    const byNotice = await bigShown();
+    await page.evaluate(() => window.hostContextChanged({ displayMode: 'inline' }));
+    await settle();
     const offered = await bigShown();
     await v.click('#more'); await v.click('#big');
     await page.waitForTimeout(300);
     const asked = await page.evaluate(() => window.displayRequests), inSide = await bigShown(), sideMode = await v.evaluate(() => window.CLOADM_BRIDGE.hostContext.displayMode);
-    check('connector ui: ⋯ offers "Open in side panel" inline (fullscreen available), asks the host, and does not offer it in the side panel (displayMode fullscreen)',
-      offered && JSON.stringify(asked) === '["fullscreen"]' && sideMode === 'fullscreen' && !inSide, JSON.stringify({ offered, asked, inSide, sideMode }));
+    check('connector ui: ⋯ offers "Open in side panel" inline (fullscreen available), not after the host\'s host-context-changed to fullscreen alone, asks the host, and does not offer it in the side panel',
+      !byNotice && offered && JSON.stringify(asked) === '["fullscreen"]' && sideMode === 'fullscreen' && !inSide, JSON.stringify({ byNotice, offered, asked, inSide, sideMode }));
     // ---- a fixed height (the side panel): the screen fills the box left after the toolbar and one status line, in
     // the limiting dimension within 16 px; the toolbar is one row at every width
     const fixed = [];
@@ -289,10 +295,10 @@ async function uiScenario(browser, check, { shots = null } = {}) {
       await settle();
       const r = await geometry(), roomH = r.vh - r.bar - (r.footBottom - r.footTop);
       const gapW = (r.vw - r.cw) / 2, gapH = (roomH - r.ch) / 2;
-      fixed.push(Object.assign({ w, h, gapW, gapH, ok: Math.abs(r.cw / r.ch - 4 / 3) < 0.01 && r.bar <= 44 && r.footBottom <= r.vh + 1 && gapW >= 0 && gapH >= 0 && Math.min(gapW, gapH) <= 16 }, r));
+      fixed.push(Object.assign({ w, h, gapW, gapH, ok: Math.abs(r.cw / r.ch - 4 / 3) < 0.01 && r.bar <= 44 && r.footBottom <= r.vh + 1 && gapW >= 0 && gapH >= 0 && Math.min(gapW, gapH) <= 13 }, r));   // the stage's 4 px and the bezel's 8 px, + 1
       if (h !== 560) await shot(`side-${w}`);
     }
-    check('connector ui: in the side panel the screen fills the limiting dimension within 16 px at 400, 600 and 900 px wide and at 900 x 560, 4:3, the status line in view, the toolbar one row (≤ 44 px)',
+    check('connector ui: in the side panel the screen fills the limiting dimension to the stage\'s and the bezel\'s padding (12 px, + 1) at 400, 600 and 900 px wide and at 900 x 560, 4:3, the status line in view, the toolbar one row (≤ 44 px)',
       fixed.every((f) => f.ok), JSON.stringify(fixed));
     await page.evaluate(() => { window.resizeView(600, 800); window.hostContextChanged({ displayMode: 'fullscreen', containerDimensions: { width: 600, height: 800 } }); });
     await settle();
@@ -376,7 +382,6 @@ async function uiScenario(browser, check, { shots = null } = {}) {
     await page.evaluate(() => { window.typed = window.callView('tools/call', { name: 'type_text', arguments: { machine_id: 'm1', text: 'I AM HAPPY TODAY, AND THE SUN IS OUT\n' } }); });
     await page.waitForTimeout(100);
     await v.focus('#screen'); await page.keyboard.press('X');   // the person types during Claude's call
-    await shot('claude-typing');
     await page.evaluate(() => window.typed);
     const during = (await v.evaluate(() => window.samples)).filter((x) => x.chip && /^Claude is typing: /.test(x.chip));
     const all = await v.evaluate(() => window.samples.filter((x) => x.chip && !/^Claude typed /.test(x.chip)));
@@ -402,6 +407,23 @@ async function uiScenario(browser, check, { shots = null } = {}) {
     await page.waitForTimeout(600);
     const own = await v.evaluate(() => ({ shown: window.cloadmView.cue.shown, hidden: document.getElementById('chip').hidden, claude: document.getElementById('bezel').classList.contains('claude'), screen: window.cloadmView.session.screenText().join('\n') }));
     check('connector ui: the person\'s own typing shows no chip and leaves the bezel as it is (and reaches LIZA)', seen.every(Boolean) && own.hidden && !own.claude && own.shown === ended.shown && /> X?HELLO/.test(own.screen), JSON.stringify({ seen, own: Object.assign(own, { screen: own.screen.slice(-200) }) }));
+    // markup typed by Claude stays text in the chip
+    const markup = '<b>X</b>&amp;';
+    await call('type_text', { machine_id: 'm1', text: markup });
+    const asText = await v.evaluate(() => ({ children: document.getElementById('chip-keys').childElementCount, text: document.getElementById('chip-keys').textContent, left: document.getElementById('chip-left').childElementCount }));
+    check('connector ui: markup Claude types is shown as text in the chip (no elements made from it)', asText.children === 0 && asText.left === 0 && asText.text === markup, JSON.stringify(asText));
+    // the announcement is short: a long text by its length; a loop of reads announces nothing
+    await pick('programs', '[data-program="liza"]');
+    const long = 'HELLO THERE '.repeat(25);
+    await page.evaluate((t) => { window.longCall = window.callView('tools/call', { name: 'type_text', arguments: { machine_id: 'm1', text: t } }); }, long);
+    await page.waitForTimeout(250);
+    const longSaid = await v.evaluate(() => document.getElementById('announce').textContent);
+    await shot('claude-typing');   // (while the call still runs)
+    await page.evaluate(() => window.longCall);
+    for (let i = 0; i < 6; i++) await call('screen_text', { machine_id: 'm1' });
+    const afterReads = await v.evaluate(() => document.getElementById('announce').textContent);
+    check('connector ui: one short announcement per acting call ("Claude is typing 300 characters" for a long text), and none for a loop of reads',
+      longSaid === `Claude is typing ${long.length} characters` && afterReads === longSaid, JSON.stringify({ longSaid, afterReads }));
     // R34, Claude's colour, in the host's light and dark themes: a filled clay chip with near-black text (contrast
     // ≥ 4.5, keys included), always the word "Claude"; the bezel's clay edge with a #B85C3E outline on a light host
     // (≥ 3:1 against #FAF9F5); the focus ring neutral, never clay

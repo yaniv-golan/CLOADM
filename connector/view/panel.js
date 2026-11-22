@@ -18,7 +18,7 @@ import { Audio } from '../../js/host/audio.js';
 import { McpToolError } from '../../js/mcp/tools.js';
 import { profiles } from '../../js/machines/profiles.js';
 import { panelToolbox, PANEL_API, PROGRAM_FILES } from './tools.js';
-import { menu, menuItem, fitScreen, CrispPresenter, describeCall, chip } from './ui.js';
+import { menu, menuItem, fitScreen, CrispPresenter, describeCall, announcement, chip } from './ui.js';
 
 export { PANEL_API };
 const loadedAt = performance.now();   // this module's code began (all of its imports loaded): the browser check compares the handshake with it
@@ -209,8 +209,9 @@ export async function start() {
     date: () => new Date(),
     yield: nextTask,
   });
-  // Claude's calls: the chip (acting or reading, by the tool's readOnlyHint), one announcement per call, and the
-  // status line's action line after an acting one. The person's own keys and clicks never come here.
+  // Claude's calls: the chip (acting or reading, by the tool's readOnlyHint), one short announcement per acting call
+  // (none for reads), and the status line's action line after an acting one. The person's own keys and clicks never
+  // come here.
   const tools = new Map(toolbox.tools().map((t) => [t.name, t]));
   const cue = chip({ bezel: $('bezel'), chip: $('chip'), text: $('chip-text'), keys: $('chip-keys'), left: $('chip-left') });
   let busy = false, typing = null, queue = Promise.resolve();
@@ -220,7 +221,8 @@ export async function start() {
       const t = tools.get(name), a = args || {};
       const d = describeCall(name, a, { read: !!(t && t.annotations && t.annotations.readOnlyHint), title: t ? t.title : name, model, program: (id) => PROGRAM_NAMES[id] || id });
       cue.start(d);
-      $('announce').textContent = d.keys ? `${d.now}${d.keys}` : d.now;
+      const said = announcement(d);
+      if (said) $('announce').textContent = said;
       if (name === 'type_text' && d.keys) { typing = { m: session.machine, total: d.keys.length }; cue.typed(0); }
       try {
         const r = await toolbox.call(name, args, { signal, base64: toBase64 });
