@@ -4,9 +4,7 @@
 // machine, no #claude panel, no key card, and no route reaches one: not `?app=claude`, not an EmbedApi call, not a
 // keypress (the chat's own keys handlers are inside setupClaude, which does not run).
 //
-// RED-FIRST: written against main 1dd66fa, where `setupClaude` always runs, `#claude` is hidden by nothing in embed
-// mode (the rule at play/index.html:116-117 hides a `.panels` element that does not exist), and `EmbedApi.type`
-// reaches the shown machine — the chat machine — with no personInput() pause.
+// Red on main 1dd66fa: the controller is set up in an embed and the embed stylesheet hides no Claude panel.
 const fs = require('fs'), path = require('path');
 let fail = 0, n = 0;
 const check = (name, cond, detail = '') => { n++; if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log('ok   ', name, detail); };
@@ -40,17 +38,22 @@ const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
     !/body\.embed \.panels\b/.test(embedCss), '');
 }
 
-// ---- A3: EmbedApi.type takes the personInput() pause like every other acting method -------------------------
+// ---- A3: EmbedApi.type takes the explicit personInput() call the other acting methods make ------------------
+// (Session.typeText itself already pauses - js/session.js's typeText calls personInput - so this is the embed layer
+// making the same call as load/insertTape/poke: defence in depth, not the only pause on the path.)
 {
   const src = read('js/embed-api.js');
   const typeBody = (src.match(/  type\(text\) \{[\s\S]*?\n  \}/) || [''])[0];
-  check('EmbedApi.type calls session.personInput() first, as load/insertTape/poke do', /personInput\(/.test(typeBody), typeBody.trim().slice(0, 120));
+  check('EmbedApi.type calls session.personInput(), as load/insertTape/poke do', /this\.session\.personInput\(\)/.test(typeBody), typeBody.trim().slice(0, 120));
   // and the acting methods that do NOT act (info, peek is a read) are unchanged in that respect
   const load = (src.match(/  load\(name, bytes\) \{[\s\S]*?\n  \}/) || [''])[0];
   check('load still takes the pause (unchanged)', /personInput\(/.test(load));
 }
 
 // ---- A4: an EmbedApi with no chat cannot type into a chat machine (behavioural) -----------------------------
+// (the mock's typeText calls personInput as the real Session.typeText does, so the pause is not double-counted: this
+// covers the EmbedApi LAYER - that it names a machine and takes its own pause - not the Session's behaviour, which
+// js/session.js owns and its own tests pin.)
 {
   const { EmbedApi } = require(path.join(ROOT, 'js/embed-api.js'));
   const log = { personInput: 0, typed: [] };
@@ -61,12 +64,13 @@ const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
     nitros9On: () => false,
     romCodeIn: () => null,
     personInput() { log.personInput++; },
-    typeText(text, m) { (m || this.shownMachine).typist.typePaced(text); },
+    // the real Session.typeText does exactly this: pause, then queue on the machine named (or the shown one)
+    typeText(text, m) { this.personInput(m); (m || this.shownMachine).typist.typePaced(text); },
     screenText() { return []; },
   };
   const api = new EmbedApi(s, () => {});
   api.type('hello\n');
-  check('type reaches a machine and takes the pause (baseline: this branch does not remove typing)', log.typed.length === 1 && log.personInput === 1,
+  check('type reaches a machine and takes the pause (baseline: this branch does not remove typing)', log.typed.length === 1 && log.personInput >= 1,
     JSON.stringify(log));
 }
 

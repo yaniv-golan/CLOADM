@@ -37,8 +37,9 @@ export class EmbedApi {
   // type text as if at the keyboard ('\n' is ENTER); -> number of characters
   type(text) {
     if (typeof text !== 'string') throw new SessionError('type: text must be a string');
-    // the embedding page's calls are the person's input, as load/insertTape/poke take it: Claude acting on the
-    // machine pauses first (Session.personInput)
+    // Session.typeText pauses Claude itself (js/session.js: its first line is personInput), so this call is the same
+    // one load/insertTape/poke make at this layer rather than an extra pause: defence in depth, so the embed API's
+    // acting methods all state the person's input the same way.
     this.session.personInput();
     return this.session.typeText(text);
   }

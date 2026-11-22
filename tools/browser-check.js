@@ -7475,7 +7475,15 @@ async function urlChecks(browser, base, check) {
   await page.keyboard.press(process.platform === 'darwin' ? 'Meta+k' : 'Control+k');
   await page.waitForTimeout(300);
   const afterKey = await ev(() => ({ box: !document.getElementById('cmdBox').hidden, chat: !!window.emu.session.chat, machines: !!window.emu.session.chatMachines }));
-  check('embed + app=claude: a keypress opens no chat (and no command box to open one)', !afterKey.chat && !afterKey.machines, JSON.stringify(afterKey));
+  check('embed + app=claude: a keypress opens no chat and no command box', !afterKey.chat && !afterKey.machines && afterKey.box === false, JSON.stringify(afterKey));
+  // the key store is in-memory in an embed: a key left in localStorage by an ordinary visit is not visible to the
+  // embedded session, and nothing can write it to storage from here
+  await ev(() => localStorage.setItem('cloadm.anthropicKey', 'sk-ant-BROWSER-CHECK-SENTINEL'));
+  await open('?machine=dragon64&embed=1&app=claude');
+  await page.waitForTimeout(800);
+  const embedKey = await ev(() => ({ seen: window.emu.session.keyStore.get(), stored: localStorage.getItem('cloadm.anthropicKey') }));
+  check('embed: the saved key is not visible to the embedded session (an in-memory store)', embedKey.seen === null, JSON.stringify(embedKey));
+  await ev(() => localStorage.removeItem('cloadm.anthropicKey'));
   check('embed + app=claude: no page errors', !errors.length, errors.join('; '));
   check('links: no page errors', !errors.length, errors.join('; '));
   await ctx.close();

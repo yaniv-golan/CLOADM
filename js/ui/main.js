@@ -64,8 +64,12 @@ try {
   storageProblem = e;
   mediaStore = new MemoryMediaStore();
 }
-// the Claude API key: this browser's storage only (cloadm.anthropicKey), never a Session setting
-const keyStore = (() => { try { return localStorage ? storageKeyStore(localStorage) : new MemoryKeyStore(); } catch (e) { return new MemoryKeyStore(); } })();
+// the Claude API key: this browser's storage only (cloadm.anthropicKey), never a Session setting.
+// An embed gets an in-memory store, never the saved one: no route in an embed may reach a key left in this browser
+// (the chat is not set up there either, but the store is the second lock - a future route that reads keyStore.get()
+// finds nothing).
+const keyStore = link.embed ? new MemoryKeyStore()
+  : (() => { try { return localStorage ? storageKeyStore(localStorage) : new MemoryKeyStore(); } catch (e) { return new MemoryKeyStore(); } })();
 // embedded (?embed=1): no welcome menu of its own; the embedding page drives a plain machine
 const session = new Session({ store: settings, media: mediaStore, keyStore, welcomeMenu: !link.embed });
 const page = createPage(session, new Audio());
