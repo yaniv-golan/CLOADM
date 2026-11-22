@@ -50,6 +50,7 @@ export { AlphaMachine } from './machines/alpha.js';
 export * from './machines/profiles.js';
 export * from './asm/syntax.js';
 export * from './asm/assembler.js';
+export * from './asm/symbols.js';
 export * from './asm/disassembler.js';
 export * from './session.js';
 export * from './claude/backend.js';

@@ -279,7 +279,7 @@ function keyechoBinary(Emu, profileId) {
   const { cpu, source } = keyecho(Emu, profileId);
   const res = Emu.assemble(source, cpu);
   if (!res.ok) throw new Error(`keyecho ${profileId}: ${JSON.stringify(res.errors)}`);
-  return Emu.toBinary(res);
+  return Emu.toBinary(res, { format: 'dragondos' });
 }
 // what the screen must hold after typing text (one line, no ENTER): each character's VDG code in normal video,
 // a letter in its capital; an upper-case letter typed with Shift is the machine's SHIFTed letter (inverse)

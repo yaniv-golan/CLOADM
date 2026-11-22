@@ -18,7 +18,7 @@ for (const game of ['2048', 'minesweeper']) {
   const A = Emu.assemble(read(`${game}.asm`), '6809', { include: read });
   const s = new Emu.Session({ welcomeMenu: false });
   s.switchMachine('dragon64', {}, { menu: false });
-  s.load(`${game}.bin`, new Uint8Array(Emu.toBinary(A)), { remember: false });
+  s.load(`${game}.bin`, new Uint8Array(Emu.toBinary(A, { format: 'dragondos' })), { remember: false });
   const m = s.shownMachine, sy = (k) => A.symbols.get(k);
   const PCPROP = sy('PCPROP'), PCOL = sy('PCOL'), PCGW = sy('PCGW');
   // pcWatch is called with the PC before every instruction, at full speed: no stepping loop, no slowdown.

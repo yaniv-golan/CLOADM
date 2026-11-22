@@ -377,7 +377,7 @@ for (const [id, frames] of [['coco', 50], ['mc10', 50], ['coco3', 40]]) {
     }
   }
   // the command lines in the guide's shell blocks that start with `node cli/cloadm.js` and need no files: they run
-  const lines = [...doc.matchAll(/```sh\n([\s\S]*?)```/g)].flatMap((m) => m[1].replace(/\\\n\s*/g, ' ').split('\n')).filter((l) => /^node cli\/cloadm\.js /.test(l) && !/--roms|--disk|--load |--cart|--tape|\.png|--script|state/.test(l));
+  const lines = [...doc.matchAll(/```sh\n([\s\S]*?)```/g)].flatMap((m) => m[1].replace(/\\\n\s*/g, ' ').split('\n')).filter((l) => /^node cli\/cloadm\.js /.test(l) && !/--roms|--disk|--load |--cart|--tape|\.png|--script|--assemble|state/.test(l));
   check('the guide has runnable command lines', lines.length >= 2, lines.join(' | '));
   for (const l of lines) {
     const args = [...l.slice('node cli/cloadm.js '.length).matchAll(/'([^']*)'|(\S+)/g)].map((m) => (m[1] != null ? m[1] : m[2]));

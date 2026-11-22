@@ -26,7 +26,7 @@ for (const [file, family, format] of [['rsdos.dsk', 'coco', 'RS-DOS disk'], ['rs
 // ---- binaries, tapes and cartridges ----
 {
   const prog = Emu.assemble(' ORG $3000\nL BRA L\n END', '6809');
-  const dragon = Emu.toBinary(prog);                        // contiguous: DragonDOS header
+  const dragon = Emu.toBinary(prog, { format: 'dragondos' });                        // contiguous: DragonDOS header
   const decb = Uint8Array.from([0, 0, 2, 0x30, 0x00, 0x20, 0xFE, 0xFF, 0, 0, 0x30, 0x00]);
   check('DragonDOS binary -> Dragon', Emu.detectMedia('a.bin', dragon).family === 'dragon');
   check('DECB binary -> CoCo', Emu.detectMedia('a.bin', decb).family === 'coco');

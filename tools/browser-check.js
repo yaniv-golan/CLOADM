@@ -117,7 +117,7 @@ function bareProgram() {
   const Emu = require('./mame-diff/lib/firmware').loadEmu(), gen = require('./mame-diff/fdc/gen-bare.js');
   const r = Emu.assemble(gen.source('dragon', 'ram'), '6809');
   if (!r.ok) throw new Error(JSON.stringify(r.errors));
-  return { bin: Buffer.from(Emu.toBinary(r)), ADDR: gen.ADDR };
+  return { bin: Buffer.from(Emu.toBinary(r, { format: 'dragondos' })), ADDR: gen.ADDR };
 }
 // track 0 sector 1 as tools/mame-diff/fdc/images.js builds it, the first four bytes in hex as the program shows them
 const T0S1_HEX = [0, 1, 2, 3].map((i) => ((11 + i * 5 + (i >> 4)) & 0xff).toString(16).toUpperCase().padStart(2, '0')).join(' ');
@@ -928,8 +928,8 @@ const audioNodeCounter = ({ noWorklet = false, badModule = false, hangModule = f
 //   switches keep the one context and the one node (no leak); no ScriptProcessorNode and no deprecation warning.
 async function audioChecks(browser, base, check) {
   const Emu = require('../tests/load')();
-  const bin = [...Emu.toBinary(Emu.assemble(DAC_HIGH, '6809'))];
-  const square = [...Emu.toBinary(Emu.assemble(DAC_SQUARE, '6809'))];
+  const bin = [...Emu.toBinary(Emu.assemble(DAC_HIGH, '6809'), { format: 'dragondos' })];
+  const square = [...Emu.toBinary(Emu.assemble(DAC_SQUARE, '6809'), { format: 'dragondos' })];
   const ctx = await browser.newContext();
   await ctx.addInitScript(audioNodeCounter);
   const page = await ctx.newPage();
@@ -5659,6 +5659,47 @@ SUB     INCA
     return { bps: b.debugger ? b.debugger.breakpoints() : null };
   });
   check('debugger: a snapshot taken in the page keeps the breakpoints', JSON.stringify(snapped.bps) === '[12293]', JSON.stringify(snapped));
+  // the Assembler tab's Save writes the file the open machine loads: DragonDOS on a Dragon, DECB on a CoCo
+  const saveFile = async (pg) => {
+    const [dl] = await Promise.all([pg.waitForEvent('download'), pg.click('#btnAsmSave')]);
+    const f = path.join(os.tmpdir(), `cloadm-asm-${process.pid}.bin`);
+    await dl.saveAs(f);
+    const bytes = [...fs.readFileSync(f)];
+    fs.unlinkSync(f);
+    return { name: dl.suggestedFilename(), bytes };
+  };
+  const dragonSave = await saveFile(page);
+  check('debugger: Save on a Dragon writes a DragonDOS file ($55 type load length exec $AA, then the program\'s bytes)',
+    dragonSave.bytes[0] === 0x55 && dragonSave.bytes[2] === 0x30 && dragonSave.bytes[3] === 0x00 && dragonSave.bytes[8] === 0xAA && dragonSave.bytes[9] === 0x86 && dragonSave.bytes[10] === 0x00
+    && ((dragonSave.bytes[4] << 8) | dragonSave.bytes[5]) === dragonSave.bytes.length - 9, JSON.stringify(dragonSave.bytes.slice(0, 12)));
+  const cocoPage = await ctx.newPage();
+  const cocoErrors = [];
+  cocoPage.on('pageerror', (e) => cocoErrors.push(e.message));
+  await cocoPage.goto(`${base}?machine=coco`); await started(cocoPage);
+  await openDebugger(cocoPage);
+  await cocoPage.fill('#asmSource', SRC);
+  const cocoSave = await saveFile(cocoPage), cb = cocoSave.bytes;
+  check('debugger: Save on a CoCo writes a DECB file ($00 length address data, then $FF $00 $00 and the exec address)',
+    cb[0] === 0x00 && ((cb[1] << 8) | cb[2]) === cb.length - 10 && cb[3] === 0x30 && cb[4] === 0x00 && cb[5] === 0x86 && cb.slice(-5).join(',') === '255,0,0,48,0', JSON.stringify(cb.slice(0, 8)) + JSON.stringify(cb.slice(-6)));
+  check('debugger: the saved file is named after the source', dragonSave.name === 'program.bin' && cocoSave.name === 'program.bin', `${dragonSave.name} ${cocoSave.name}`);
+  check('debugger: no page errors saving', !cocoErrors.length, cocoErrors.join('; '));
+  // the MC-10 and Alice load .c10 tapes: no binary file to save, so Save is off and the note says why (the command line's words)
+  const mcPage = await ctx.newPage();
+  const mcErrors = [];
+  mcPage.on('pageerror', (e) => mcErrors.push(e.message));
+  await mcPage.goto(`${base}?machine=mc10`); await started(mcPage);
+  await openDebugger(mcPage);
+  const saveState = () => mcPage.evaluate(() => { const b = document.getElementById('btnAsmSave'), n = document.getElementById('asmSaveNote'); return { disabled: b.disabled, note: n.textContent, hidden: n.hidden, shown: n.getBoundingClientRect().height > 0, described: b.getAttribute('aria-describedby') }; });
+  const mcSave = await saveState();
+  check('debugger: on the MC-10 Save is disabled and a visible note gives the reason, the one message of the command line',
+    mcSave.disabled && !mcSave.hidden && mcSave.shown && mcSave.described === 'asmSaveNote' && mcSave.note === 'The MC-10 loads .c10 tapes, not binary files: there is no file format to save a program in for it.', JSON.stringify(mcSave));
+  await mcPage.evaluate(() => window.emu.session.switchMachine('alice', {}, { menu: false }));
+  const aliceSave = await saveState();
+  check('debugger: switching to the Matra Alice keeps Save off and names the Alice', aliceSave.disabled && !aliceSave.hidden && aliceSave.note.startsWith('The Matra Alice loads .c10 tapes'), JSON.stringify(aliceSave));
+  await mcPage.evaluate(() => window.emu.session.switchMachine('dragon64', {}, { menu: false }));
+  const backSave = await saveState();
+  check('debugger: switching back to a Dragon turns Save on and hides the note', !backSave.disabled && backSave.hidden && backSave.note === '', JSON.stringify(backSave));
+  check('debugger: no page errors switching the MC-10, Alice and Dragon', !mcErrors.length, mcErrors.join('; '));
   check('debugger: no page errors', !errors.length, errors.join('; '));
   await ctx.close();
 

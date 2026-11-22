@@ -31,7 +31,7 @@ const { ADDR } = gen;
 const NOTE = 'on the disk controller only (no disk ROM). Programs that read the disk directly can use it; DIR and other disk commands need your disk ROM.';
 // track 0, side 0, sector 1 as images.js builds every sector: (t * 7 + h * 3 + s * 11 + i * 5 + (i >> 4)) & 0xff
 const T0S1 = Array.from({ length: 256 }, (_, i) => (11 + i * 5 + (i >> 4)) & 0xff);
-const program = (board) => { const r = Emu.assemble(gen.source(board, 'ram'), '6809'); if (!r.ok) throw new Error(JSON.stringify(r.errors)); return Emu.toBinary(r); };
+const program = (board) => { const r = Emu.assemble(gen.source(board, 'ram'), '6809'); if (!r.ok) throw new Error(JSON.stringify(r.errors)); return Emu.toBinary(r, { format: 'dragondos' }); };
 const word = (m, a) => (m.ram[a] << 8) | m.ram[a + 1];
 const frames = (s, n) => { for (let i = 0; i < n; i++) s.shownMachine.runFrame(); };
 const topLine = (s) => s.screenText()[0];

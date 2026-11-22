@@ -136,7 +136,7 @@ const casBlock = (type, bytes) => { let sum = (type + bytes.length) & 0xFF; byte
 const code = Emu.assemble('        ORG $3000\nSTART   LDA #$5A\n        STA $3100\nL       BRA L\n        END START\n', '6809');
 const seg = code.segments[0];
 fs.writeFileSync(tmp('media', 'prog.cas'), Uint8Array.from([...casBlock(0, [...Buffer.from('PROG    '), 2, 0, 0, 0x30, 0x00, 0x30, 0x00]), ...casBlock(1, [...seg.data]), ...casBlock(0xFF, [])]));
-fs.writeFileSync(tmp('media', 'prog.bin'), Emu.toBinary(code));
+fs.writeFileSync(tmp('media', 'prog.bin'), Emu.toBinary(code, { format: 'dragondos' }));
 fs.writeFileSync(tmp('media', 'junk.xyz'), 'no program here');
 fs.writeFileSync(tmp('media', 'notes.cloadm-state'), 'my notes, not a snapshot');
 fs.writeFileSync(tmp('media', 'lib.asm'), 'VALUE   EQU $42\n');
@@ -339,7 +339,7 @@ fs.writeFileSync(tmp('media', 'plain.bas'), '10 PRINT "HI"\n');
   const again = await s.call('save_snapshot', Object.assign({ path: 'again.cloadm-state' }, M));
   check('save_snapshot: a name not ending .cloadm-state is refused (bad-argument), an existing file that is no snapshot is not replaced (cannot-write), a snapshot is',
     wrongName.error && wrongName.error.code === 'bad-argument' && newName.error && newName.error.code === 'bad-argument' && !fs.existsSync(tmp('media', '.bashrc'))
-    && fs.readFileSync(tmp('media', 'prog.bin')).equals(Buffer.from(Emu.toBinary(code)))
+    && fs.readFileSync(tmp('media', 'prog.bin')).equals(Buffer.from(Emu.toBinary(code, { format: 'dragondos' })))
     && notASnapshot.error && notASnapshot.error.code === 'cannot-write' && /not a snapshot/.test(notASnapshot.error.detail) && fs.readFileSync(tmp('media', 'notes.cloadm-state'), 'utf8') === 'my notes, not a snapshot'
     && again.data && again.data.saved === 'again.cloadm-state', J([wrongName.error, newName.error, notASnapshot.error, again.data]));
   const restored = await s.call('restore_snapshot', Object.assign({ path: 'same.cloadm-state' }, M));
@@ -880,7 +880,7 @@ fs.writeFileSync(tmp('media', 'plain.bas'), '10 PRINT "HI"\n');
     const home = tmp('cfg-home'), cfgDir = path.join(home, '.config', 'cloadm'), cfg = path.join(cfgDir, 'config.json');
     fs.mkdirSync(cfgDir, { recursive: true });
     fs.mkdirSync(tmp('cfg-media'));
-    fs.writeFileSync(tmp('cfg-media', 'only-here.bin'), Emu.toBinary(code));
+    fs.writeFileSync(tmp('cfg-media', 'only-here.bin'), Emu.toBinary(code, { format: 'dragondos' }));
     const env = Object.assign({}, ENV, { HOME: home });
     // starts a server, loads a file and reads the start-up line -> { line, load: the load's error code or 'ok' }
     const probe = async (args, file = 'only-here.bin') => {
@@ -924,12 +924,12 @@ fs.writeFileSync(tmp('media', 'plain.bas'), '10 PRINT "HI"\n');
     check('a literal ${...} placeholder or an empty --media-root= / --roms= counts as not given: the config file applies', placeholders.load === 'ok' && empties.load === 'ok' && /1 ROM file\(s\) \(config file\)/.test(empties.line), J([placeholders, empties]));
     // a config file with placeholders or empty values: unset; a relative path: from the file's directory; ~/ from home
     fs.mkdirSync(path.join(home, 'proj'));
-    fs.writeFileSync(path.join(home, 'proj', 'only-here.bin'), Emu.toBinary(code));
+    fs.writeFileSync(path.join(home, 'proj', 'only-here.bin'), Emu.toBinary(code, { format: 'dragondos' }));
     fs.writeFileSync(cfg, JSON.stringify({ mediaRoot: '~/proj', roms: ['${user_config.roms}', ''] }));
     const tilde = await probe([]);
     fs.writeFileSync(cfg, JSON.stringify({ mediaRoot: '../../proj' }));
     const relative = await probe([]);
-    fs.writeFileSync(path.join(home, 'only-here.bin'), Emu.toBinary(code));
+    fs.writeFileSync(path.join(home, 'only-here.bin'), Emu.toBinary(code, { format: 'dragondos' }));
     fs.writeFileSync(cfg, JSON.stringify({ mediaRoot: '~' }));
     const bareTilde = await probe([]);
     fs.writeFileSync(cfg, JSON.stringify({ mediaRoot: '${HOME}/proj' }));

@@ -23,7 +23,7 @@ const A = {};
 for (const name of ['2048', 'minesweeper']) {
   const a = build(name);
   A[name] = a;
-  check(`${name}.asm assembles to the committed ${name}.bin`, a.ok && Buffer.from(Emu.toBinary(a)).equals(Buffer.from(bin(name))), JSON.stringify(a.errors));
+  check(`${name}.asm assembles to the committed ${name}.bin`, a.ok && Buffer.from(Emu.toBinary(a, { format: 'dragondos' })).equals(Buffer.from(bin(name))), JSON.stringify(a.errors));
   const sym = (k) => a.symbols.get(k);
   check(`${name}: entry $3000, SEED $3003, DONE $3005 (Session GAMES)`, a.exec === Emu.GAMES.start && sym('ENTRY') === Emu.GAMES.start && sym('SEED') === Emu.GAMES.seed && sym('DONE') === Emu.GAMES.done
     && Emu.GAMES.list[name].file === `${name}.bin`);

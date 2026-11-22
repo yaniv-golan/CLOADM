@@ -19,7 +19,7 @@ const fake = (size, seed) => { const b = new Uint8Array(size); let x = seed >>> 
   st.set('keyHintDone', '1');
   const rom = fake(0x4000, 7);
   a.addRoms([{ name: 'mine.rom', bytes: rom }]);
-  a.load('p.bin', Emu.toBinary(Emu.assemble(' ORG $3000\nL BRA L\n END', '6809')));
+  a.load('p.bin', Emu.toBinary(Emu.assemble(' ORG $3000\nL BRA L\n END', '6809'), { format: 'dragondos' }));
   await a.index.flush();
 
   const exp = a.exportSettings(), text = JSON.stringify(exp);

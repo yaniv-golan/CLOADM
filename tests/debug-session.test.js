@@ -93,7 +93,7 @@ const asmRun = (s, text, cpu = '6809', id = 'dragon64', org = 0x3000) => {
   // a program that did not come from the assembler has no symbols
   const s2 = new Emu.Session({ store: Emu.memoryStore() });
   s2.switchMachine('dragon64');
-  s2.load('raw.bin', Emu.toBinary(r));
+  s2.load('raw.bin', Emu.toBinary(r, { format: 'dragondos' }));
   const plain = s2.debug.disassemble(r.symbols.get('START'), 1)[0];
   check('a program that did not come from the assembler has plain addresses', /^\$/.test(plain.text.split(' ')[1] || '') || !/[A-Z]{3,}/.test(plain.text.split(' ')[1] || ''),
     plain.text);

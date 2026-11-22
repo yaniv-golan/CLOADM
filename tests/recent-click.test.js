@@ -25,7 +25,7 @@ const drawer = (() => {
 
 let fail = 0;
 const check = (name, cond, detail = '') => { if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log(`ok   ${name} ${detail}`); };
-const prog = (b, n) => Emu.toBinary(Emu.assemble(` ORG $3000\n FCB ${Array(n).fill(`$${b}`).join(',')}\nL BRA L\n END`, '6809'));
+const prog = (b, n) => Emu.toBinary(Emu.assemble(` ORG $3000\n FCB ${Array(n).fill(`$${b}`).join(',')}\nL BRA L\n END`, '6809'), { format: 'dragondos' });
 const fresh = ({ media = new MemoryMediaStore(), store = Emu.memoryStore() } = {}) => {
   const s = new Emu.Session({ store, media, welcomeMenu: false });
   s.switchMachine('dragon64', {}, { menu: false });
