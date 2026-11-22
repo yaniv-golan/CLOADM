@@ -8,9 +8,21 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
+### Changed
+
+- **`add_roms` keeps a URL as origin + path.** The store's `index.json` recorded the full URL a ROM came from, query
+  string and fragment included, which can hold a token. It now keeps the origin and the path only.
+
 ### Fixed
 
 - **An embedded CLOADM could open the Claude chat; the chat is no longer available in an embed.**
+- **Two server processes adding ROMs at once could lose index entries.** Every change to the ROM store's index now
+  reads it again and writes it while holding a lock file (`index.lock`, broken after ten seconds if its holder died),
+  and the index is replaced by a rename. `tests/rom-store.test.js` runs two processes adding different ROMs
+  concurrently and checks that none is lost. A lock that stays gives `cannot-write` with the remedy (remove
+  `index.lock` if no CLOADM server is running). An index that is not valid JSON is moved aside as
+  `index.json.corrupt-<time>` by the next change, instead of every old entry being dropped from the new one; one that
+  cannot be read stops the change. Older entries with a query in `from` are cleaned when the index is next written.
 
 ### 0.1.8-pre
 

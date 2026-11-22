@@ -212,6 +212,8 @@ inside a chat, from one of three sources, and keeps them in the server's own ROM
 | `url` | `url` | an https URL you gave the agent |
 | `data` | `data`, `name` | the base64 bytes of a file you uploaded in the chat, and its file name |
 
+The store records where a ROM came from: a URL as origin + path only (never its query or fragment). Two servers may share it; changes are serialised by a lock file (`index.lock`), and an index that is not valid JSON is moved aside as `index.json.corrupt-<time>` before the next change.
+
 The safety rules, all enforced by the server:
 
 - **Only what you gave.** The tool's description tells the agent to use it only with a file, folder, URL or upload
