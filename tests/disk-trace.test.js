@@ -270,6 +270,81 @@ HALT    BRA     HALT
   const ev = tr.events.filter((e) => e.kind !== 'reg-write');
   check('a force interrupt: the read ends interrupted, then the $D0 command', ev.length === 3 && ev[0].name === 'read-sector' && ev[1].kind === 'done' && ev[1].interrupted === true && ev[1].cmd === 0x88 && ev[1].bytes === 0 && ev[1].requested === null && ev[2].name === 'force-interrupt', JSON.stringify(ev));
 }
+{
+  // a seek to track 30 at 30 ms a step (about 0.9 s) cut short by $D0: a type I command reports requested 0 even
+  // when interrupted (type I moves no data; the interrupted rule is for types II and III)
+  const { s } = session('dragonfdc');
+  const tr = s.disk.trace();
+  s.runAssembled(asm(`
+        ORG     $3000
+START   ORCC    #$50
+        LDA     #$04
+        STA     $FF48
+        LDA     #30
+        STA     $FF43
+        LDA     #$13
+        STA     $FF40
+        LDX     #5000
+W       LEAX    -1,X
+        BNE     W
+        LDA     #$D0
+        STA     $FF40
+HALT    BRA     HALT
+        END     START`));
+  s.runFrames(20);
+  const ev = tr.events.filter((e) => e.kind !== 'reg-write');
+  check('a force-interrupted seek: done interrupted, requested 0 (type I), then the $D0 command', ev.length === 3 && ev[0].name === 'seek' && ev[1].kind === 'done' && ev[1].interrupted === true && ev[1].cmd === 0x13 && ev[1].requested === 0 && ev[2].name === 'force-interrupt', JSON.stringify(ev));
+}
+
+// ---------------- a trace leaves the chip as it is: INTRQ, DRQ, NMI, the CPU's lines ----------------
+{
+  // the Dragon FDC with NMI enabled (latch $24: motor, NMI enable, double density). The guest starts a read of
+  // sector 1 and never touches the controller again: DRQ stays up (the cartridge's CART line), the WD sets lost
+  // data and ends, and INTRQ rises to NMI, which the guest counts at $3200 and returns from. Nothing reads the status
+  // after INTRQ rose, so a trace that read it (instead of computing it) would clear INTRQ and drop NMI.
+  const GUEST = `
+        ORG     $3000
+START   ORCC    #$50
+        CLR     $3200
+        LDA     #$7E            ; NMI (RAM vector $0109): JMP NMIH
+        STA     $0109
+        LDX     #NMIH
+        STX     $010A
+        LDS     #$2F00          ; (NMI is armed once S is loaded)
+        LDA     #$24
+        STA     $FF48
+        LDA     #1
+        STA     $FF42
+        LDA     #$88
+        STA     $FF40
+HALT    BRA     HALT
+NMIH    INC     $3200
+        RTI
+        END     START`;
+  const run = (traced) => {
+    const { s, fdc } = session('dragonfdc');
+    const tr = traced ? s.disk.trace() : null;
+    s.runAssembled(asm(GUEST));
+    const polled = [];
+    for (let f = 0; f < 10; f++) { s.runFrames(1); if (traced) polled.push(s.disk.status()); }
+    const m = s.machine, c = m.cpu;
+    return {
+      wd: { intrq: fdc.wd.intrq, drq: fdc.wd.drq, status: fdc.wd.status }, board: { intrq: fdc.intrq, drq: fdc.drq },
+      lines: { nmi: m.interrupts.level(fdc.id, 'nmi'), slotNmi: fdc.lines.level('nmi'), cart: fdc.lines.level('cart'), cb1: m.pia1.b.c1 },
+      cpu: { nmiPending: c.nmiPending, nmiArmed: c.nmiArmed, firqLine: c.firqLine, irqLine: c.irqLine, haltLine: c.haltLine, pc: c.pc, cycles: c.totalCycles },
+      nmis: s.readByte(0x3200), chip: JSON.stringify(fdc.wd.saveState()),
+      done: tr ? tr.events.find((e) => e.kind === 'done') : null, polled,
+    };
+  };
+  const plain = run(false), traced = run(true);
+  const same = (k) => JSON.stringify(plain[k]) === JSON.stringify(traced[k]);
+  check('the untraced run: INTRQ up, NMI asserted and taken once, DRQ up with the CART line, lost data', plain.wd.intrq && plain.lines.nmi && plain.nmis === 1 && plain.wd.drq && plain.lines.cart && (plain.wd.status & 0x04) !== 0, JSON.stringify(plain));
+  check('with a trace and status() polled every frame: the WD\'s INTRQ, DRQ and status are the same', same('wd') && same('board'), `${JSON.stringify(plain.wd)} vs ${JSON.stringify(traced.wd)}`);
+  check('...the NMI and CART lines (machine.interrupts) are the same', same('lines'), `${JSON.stringify(plain.lines)} vs ${JSON.stringify(traced.lines)}`);
+  check('...the CPU\'s lines, PC and cycles, and the NMIs the guest took, are the same', same('cpu') && same('nmis'), `${JSON.stringify(plain.cpu)} vs ${JSON.stringify(traced.cpu)}`);
+  check('...and the whole chip state is the same', same('chip'));
+  check('...while the trace saw the read end with lost data and status() showed INTRQ up', traced.done && traced.done.lostData === true && traced.polled[traced.polled.length - 1].intrq === true, JSON.stringify(traced.done));
+}
 
 // ---------------- the regression runs with a trace on ----------------
 {

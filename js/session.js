@@ -536,7 +536,8 @@ export class DiskTrace {
     const wd = fdc.wd, p = this.pending, st = wd.statusValue();
     const type1 = !(cmd & 0x80), op = cmd & 0xf0;
     this.pending = null;
-    // no sector length when no sector was found: record not found, not ready, write protected, cut short
+    // no sector length when no sector was found: record not found, not ready, write protected, cut short (a type I
+    // command reports 0 either way: it moves no data)
     const failed = interrupted || !!(st & 0xd0);
     let requested = null;
     if (type1) requested = 0;
