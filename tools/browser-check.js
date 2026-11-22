@@ -735,6 +735,13 @@ async function cartridgeChecks(browser, base, check) {
   const back = await switchTo('coco');
   check('Multi-Pak section: shown again on switching back to a Color Computer', back.mpak, JSON.stringify(back));
   if (shotDir) await (await page.$('#cartSlot')).screenshot({ path: path.join(shotDir, 'multipak-panel.png') });
+  // the Dragon 200-E takes the Dragons' disk cartridges (MAME dragon.cpp: dragon200e() is dragon64(), slot default
+  // dragon_fdc), never RS-DOS: the Add ROMs screen's disk card names them
+  await switchTo('dragon200e');
+  await page.evaluate(() => { location.hash = '#add-roms'; });
+  await waitFor(page, () => !document.getElementById('romCard').hidden && !!document.querySelector('#romDiskCard strong'));
+  const disk200e = await page.textContent('#romDiskCard strong');
+  check('Dragon 200-E: the Add ROMs disk card offers DragonDOS or Delta DOS, as on the Dragon 64', disk200e === 'Disk drives: DragonDOS or Delta DOS', disk200e);
   check('cartridges: no page errors', errors.length === 0, errors.join('; '));
   await ctx.close();
 }
