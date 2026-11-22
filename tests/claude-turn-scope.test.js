@@ -13,6 +13,7 @@
 //    history that would wedge the real chat fails these tests. apiMessages (js/claude/history.js) is also tested
 //    on hand-built histories. Never the real API.
 const Emu = require('./load')();
+const fs = require('fs'), path = require('path');
 
 let fail = 0, n = 0;
 const check = (name, cond, detail = '') => { n++; if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log(`ok   ${name} ${detail}`); };
@@ -983,3 +984,42 @@ function askSession({ include = null, stallMs } = {}) {
   console.log(`\n${n - fail}/${n} turn scope checks passed`);
   process.exitCode = fail ? 1 : 0;
 })().catch((e) => { console.log('FAIL test crashed:', e && e.stack || e); finished = true; process.exitCode = 1; });
+
+// The ticket a menu is STARTED with, by what asked for it (Session.menuTicketFor). The page's 'menu' handler used
+// to apply one expression to every offer: `arg !== 'back' ? session.menuTicket || asked : null`. For 'none' -- the
+// machine question's switch, always the person's own act -- that could take a ticket left over from an earlier LIZA
+// BYE, so a person's click on a machine would start the menu as if Claude had asked. The rule is one place now.
+{
+  const { s } = askSession();
+  const person = { claude: false };
+  const claudes = { claude: true, pauses: 0 };
+  s.menuTicket = claudes;
+  const got = {
+    none: s.menuTicketFor('none', person),        // the person chose a machine: no ticket, whatever an earlier BYE left
+    back: s.menuTicketFor('back', person),        // a returning visit: none either
+    program: s.menuTicketFor(null, person),       // a program asked (the demo's key, or a LIZA BYE: 'menu' with no arg)
+    programNoBye: (() => { const was = s.menuTicket; s.menuTicket = null; const t = s.menuTicketFor(null, person); s.menuTicket = was; return t; })(),
+  };
+  check('menuTicketFor: a machine question takes no ticket, and a program\'s menu takes the BYE\'s (or the event\'s)',
+    got.none === null && got.back === null && got.program === claudes && got.programNoBye && got.programNoBye.claude === false,
+    JSON.stringify({ none: got.none, back: got.back, program: !!got.program, programNoBye: !!got.programNoBye }));
+  // and with no BYE in play, a program's menu still takes the ticket taken at the event, never a stale one
+  s.menuTicket = null;
+  check('menuTicketFor: with no BYE on record, the menu takes the ticket taken at the event',
+    s.menuTicketFor(null, person) && s.menuTicketFor(null, person).claude === person.claude,
+    JSON.stringify(s.menuTicketFor(null, person)));
+  // THE CALLER: the rule above is worth nothing if the page does not use it. js/ui/welcome.js's 'menu' handler is
+  // its only caller, and the Session cannot test a caller, so the source is checked: that one line must route
+  // through menuTicketFor, and no copy of the old one-expression rule may be left anywhere in the page.
+  // (The live path through the page is checked in tools/browser-check.js by counting the start's ticket.)
+  {
+    const src = fs.readFileSync(path.join(__dirname, '../js/ui/welcome.js'), 'utf8');
+    const line = src.split('\n').find((l) => /byMachine:\s*session\.menuTicketFor\(/.test(l));
+    check('the page\'s menu handler takes its ticket from Session.menuTicketFor (its only caller)',
+      !!line && /session\.menuTicketFor\(arg,\s*asked\)/.test(line),
+      line ? line.trim() : 'no byMachine: session.menuTicketFor(arg, asked) line in js/ui/welcome.js');
+    const oldStyle = /arg\s*!==\s*'back'\s*\?\s*session\.menuTicket/.test(src);
+    check('the page keeps no copy of the old one-expression ticket rule',
+      !oldStyle, oldStyle ? 'found the old expression in js/ui/welcome.js' : 'none found');
+  }
+}

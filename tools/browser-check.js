@@ -2001,13 +2001,30 @@ async function visitChecks(browser, base, check) {
   await page.evaluate(() => {
     const s = window.emu.session;
     window.__starts = 0;
-    if (!s.__counted) { const orig = s.startWelcome.bind(s); s.startWelcome = (b, o) => { window.__starts++; return orig(b, o); }; s.__counted = true; }
+    window.__driven = [];
+    if (!s.__counted) {
+      const orig = s.startWelcome.bind(s);
+      // did the menu run as if the machine asked? the page starts it inside Session.asMachine with a ticket
+      // (startAs) when the program asked; Session.machineDriven is that ticket while the start runs
+      s.startWelcome = (...a) => { window.__starts++; window.__driven.push(s.machineDriven === null || s.machineDriven === undefined ? 'none' : 'a ticket'); return orig(...a); };
+      s.__counted = true;
+    }
   });
   await page.click('#askMachine button[data-machine="coco"]');
   check('machine question: switches machine and the welcome program runs there', await waitFor(page, () => window.emu.machine.id === 'coco' && window.emu.session.welcomeRunning && window.emu.session.screenText()[14].includes('PRESS 1 TO 5'))
     && !(await page.$('#askMachine')));
   check('machine question: the menu is started exactly once (no second start from the page)',
     await page.evaluate(() => window.__starts) === 1, String(await page.evaluate(() => window.__starts)));
+  // ... and the START it makes carries no machine ticket: a machine question is the person's own act, so the menu
+  // must not start as if Claude had asked. This is the page's own caller (js/ui/welcome.js's 'menu' handler), and it
+  // is checked HERE because the Node test can only test the Session's rule, not that the page uses it: the LIZA BYE
+  // just above left a ticket in session.menuTicket, so the old one-expression caller would hand that over and the
+  // start would run inside asMachine with it.
+  check('machine question: the menu the page starts for it carries no machine ticket (it goes through Session.menuTicketFor)',
+    await page.evaluate(() => window.__driven.length === 1 && window.__driven[0] === 'none'),
+    JSON.stringify(await page.evaluate(() => window.__driven)));
+  check('machine question: the LIZA BYE before it DID leave a ticket to take (so the check above can fail)',
+    await page.evaluate(() => !!window.emu.session.menuTicket));
   // a first-time visitor is greeted as one: the title row, not "WELCOME BACK" (the question is asked only first time)
   check('machine question: a first-time visitor gets the first-visit menu, not WELCOME BACK',
     await page.evaluate(() => window.emu.session.screenText()[6].trim()) === 'DRAGON AND COLOR COMPUTER',

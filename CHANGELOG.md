@@ -291,6 +291,20 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   browser check's new group `closedViews` tabs through the page at desktop, tablet and phone sizes with every view
   closed, and after each view closed by Esc, Back or a link, and requires that focus never lands inside a closed view or
   a hidden panel, and that an open view's controls are reachable.
+- **The machine question no longer starts the welcome menu as if Claude had asked for it.** Choosing a machine is
+  the person's own act, but the page applied one rule to every menu it started, so a machine question could pick up
+  the ticket a LIZA `BYE` had left behind. Which ticket a menu starts with is now one rule in the Session
+  (`Session.menuTicketFor`): a machine question takes none, a `BYE` takes the `BYE`'s, and a returning visit takes
+  none.
+- **A Recent row is found by the session's own name rule, and its "gone from the list" error is a `SessionError`.**
+  The row was matched with `===` where the rest of the app compares names with `Session.sameName` (the store's own
+  case rule), so on a store that does not tell cases apart a row drawn as `GAME.BIN` could not find `game.bin`. The
+  error was a plain `Error`; it is now `SessionError`, so a caller can tell it from a fault (the page already showed
+  it on the drawer's message line either way).
+- **The recorded sounds' fixture now checks the WAV header it records.** The fixture carries the sample rate,
+  channels and bits, but only the PCM hash and length were compared, so a recording that came back at another rate,
+  in stereo, or 8-bit would still have matched a hash taken from its own bytes. The header's fields are now read and
+  compared, along with the header's own shape (RIFF/WAVE, the `data` chunk and its size).
 
 ### 0.1.8-pre
 
