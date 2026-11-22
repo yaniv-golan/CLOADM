@@ -7,7 +7,7 @@
  *   s.switchMachine('coco2b', { ram: 64 });
  *   s.addRoms([{ name, bytes }]);               // identified across all models; see addRoms
  *   s.load(name, bytes)                         // binary / cassette / cartridge / BASIC text -> message
- *   s.advance(ms)                               // run the frames that are due; s.machine.render() is the picture
+ *   s.advance(ms)                               // run the frames that are due; s.shownMachine.render() is the picture
  *   s.runFrames(n)                              // n frames of emulated time, no clock (scripts, tests, cli/cloadm.js)
  *   s.startWelcome(bytes)                       // examples/welcome.bin; then events 'welcome:liza' and so on
  *   await s.snapshotFile() / s.readSnapshot(bytes) / s.openSnapshot(snap)   // snapshots; see 'snapshots' below
@@ -679,6 +679,7 @@ export class Session {
     this.pendingLands = [];         // { name, at }: names landed that a creation still queued may have to refuse
     this.diskClaims = new Map();   // stored name -> how many creations are making it (claimDiskName: a rename may not take one)
     this.debugger = null;           // created on first use by `debug` (js/debugger.js)
+    this.pendingStop = null;        // a watchWrites 'stop' on the BASIC session beside a full-screen chat: { machine, reason } (writeStopped)
     // the Session's own probes and bus taps (js/hooks.js), put on the person's machine (install, followPerson): the
     // machine in use, or the BASIC session beside a full-screen chat. Host state, never in a snapshot. The developer
     // API is built on them: serial, disk, watchWrites (js/writewatch.js) and profile (js/profiler.js).
@@ -970,6 +971,7 @@ export class Session {
     try { this.serial.deliver(); } catch (e) { undelivered = e; }   // what the old machine sent goes out first
     this.followPerson(this.personFor(m)); // the Session's hooks move to the person's machine (adopt: a switch, a snapshot)
     this.shownMachine = m;
+    this.presentPendingStop();
     this.stubRun = this.stubRuns.get(m) || null;   // the record is the machine's, not the Session's (see stubRuns)
     this.applyDisplay();
     this.acc = 0;
@@ -2963,6 +2965,14 @@ export class Session {
     const c = this.chatMachines;
     return c && shown === c.chat && c.basic !== shown ? c.basic : shown;
   }
+  // a write stop kept for the machine now on screen becomes its debugger stop (paused at the instruction after the
+  // write, with the stop's reason); one whose machine is no longer the person's is dropped
+  presentPendingStop() {
+    const ps = this.pendingStop;
+    if (!ps) return;
+    if (ps.machine === this.shownMachine) { this.pendingStop = null; this.debug._stop('write', ps.reason); }
+    else if (ps.machine !== this.personMachine) this.pendingStop = null;
+  }
   // put the Session's hooks (session.hooks: the developer API's probes, taps, serial listeners and traces) on m, the
   // person's machine; what a machine they leave wrote and had not yet delivered to watchWrites is dropped
   followPerson(m = this.personMachine) {
@@ -4200,7 +4210,6 @@ export class Session {
   // 'debug'), or the machine waiting for the store (m.stall: the same frame finishes on a later call).
   oneFrame(m, d) {
     this.keys.step(m);
-    this.followPerson();
     const ww = this.watchedRun(m);
     if (!(d ? d.runFrame() !== false : m.runFrame(ww))) {
       this.acc = 0;
@@ -4209,7 +4218,7 @@ export class Session {
       return false;
     }
     this.pumpChat(m);
-    if (!this.runBeside(m)) return false;
+    this.runBeside(m);
     this.serial.deliver();   // the frame's serial bytes from the person's machine (shown, or beside a full-screen chat)
     return true;
   }
@@ -4217,7 +4226,7 @@ export class Session {
   // (cli/cloadm.js), where the same calls must give the same frames on every run. Turbo and fast tape, which are
   // about wall-clock time, play no part. Each frame is followed by the checks advance() makes. Returns the frames
   // run: fewer when a debugger breakpoint or watchpoint stopped the machine (s.paused), or the machine waits for
-  // the store (s.machine.stall, a DriveWire read: let the event loop run, then call again).
+  // the store (s.shownMachine.stall, a DriveWire read: let the event loop run, then call again).
   runFrames(count) {
     const m = this.shownMachine;
     let n = 0;
@@ -4239,17 +4248,22 @@ export class Session {
     const c = this.chatMachines;
     return c ? (this.shownMachine === c.chat ? c.basic : c.chat) : null;
   }
-  // -> false when a watchWrites callback stopped the machine beside (the person's) part way through its frame
+  // A machine stopped by a watchWrites 'stop' while beside a full-screen chat (pendingStop) is frozen: it does not
+  // run until the person comes back to it, while the chat machine goes on. A frame a 'stop' ends part way stays open.
   runBeside() {
     const o = this.besideMachine();
-    if (!o || o.stall) return true;
-    if (!o.runFrame(this.watchedRun(o))) {
-      this.acc = 0;
-      if (!o.stall) this.emit('debug');
-      return false;
-    }
-    this.pumpChat(o);
-    return true;
+    if (!o || o.stall || (this.pendingStop && this.pendingStop.machine === o)) return;
+    if (o.runFrame(this.watchedRun(o))) this.pumpChat(o);
+  }
+  // A watchWrites callback returned 'stop' on m, the person's machine, right after the writing instruction (info:
+  // { address, value, pc, writer }). A write stop belongs to the machine that wrote: on the machine on screen it is a
+  // debugger stop ('write'); on the BASIC session beside a full-screen chat it freezes that machine and is kept
+  // (pendingStop) until install puts the machine back on screen, where it becomes that machine's debugger stop. The
+  // chat machine keeps running; 'writeStop' tells the page, which says so.
+  writeStopped(m, info) {
+    if (m === this.shownMachine) { this.debug._stop('write', info); return; }
+    this.pendingStop = { machine: m, reason: info };
+    this.emit('writeStop', info);
   }
   // the run Machine.runFrame takes for m while a watchWrites observer is registered on it (the person's machine): an
   // instruction at a time, so a callback may stop it; null otherwise (the machine runs its frame as it always does)

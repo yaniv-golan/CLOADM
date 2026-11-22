@@ -77,8 +77,9 @@ export class WriteWatch {
     if (this.delivering) throw new SessionError(`${what} is not allowed in a watchWrites callback (the machine is between two instructions)`);
   }
 
-  // deliver what the instruction just done wrote; a callback returning 'stop' stops the run through the debugger
-  // ('write', after the queued events are all delivered)
+  // deliver what the instruction just done wrote; a callback returning 'stop' stops the machine that wrote, after the
+  // queued events are all delivered (Session.writeStopped: a debugger stop, 'write', on the machine on screen; a stop
+  // kept for later on the BASIC session beside a full-screen chat)
   drain() {
     const m = this.s.hooks.machine;
     if (this.delivering || !m || m.cpuHeld) return;   // (a held CoCo 3 instruction is not done yet)
@@ -93,7 +94,7 @@ export class WriteWatch {
     } finally { this.delivering = false; }
     if (stop) {
       this.stopAsked = true;
-      this.s.debug._stop('write', { address: stop.address, value: stop.value, pc: m.cpu.pc, writer: stop.pc });
+      this.s.writeStopped(m, { address: stop.address, value: stop.value, pc: m.cpu.pc, writer: stop.pc });
     }
   }
 

@@ -310,8 +310,9 @@ for (const id of ['dragon64', 'coco3', 'mc10']) {
 // ---------------- a full-screen chat: observers are on the person's machine ----------------
 // With the Claude chat full screen the chat machine is on screen and the person's (the BASIC session) runs beside it.
 // watchWrites observes the person's machine: docs/examples/framecount.asm on the BASIC session counts FRAME ($3100)
-// once a field, and each INC is one event, stamped with the BASIC machine's frame; 'stop' stops that machine right
-// after the writing instruction, as a debugger stop, and the run goes on from there.
+// once a field, and each INC is one event, stamped with the BASIC machine's frame. A 'stop' belongs to the machine that
+// wrote: it freezes the BASIC session right after the writing instruction while the chat machine runs on, and the page
+// is told ('writeStop'); back in the side panel it is that machine's debugger stop, and step and resume act on it.
 {
   const fsx = require('fs'), pathx = require('path');
   const firmware = new Uint8Array(fsx.readFileSync(pathx.join(__dirname, '..', 'examples/chat.bin')));
@@ -327,15 +328,34 @@ for (const id of ['dragon64', 'coco3', 'mc10']) {
   const evs = [];
   const w = fs3.watchWrites({ start: 0x3100, end: 0x3100 }, (ev) => { evs.push(ev); return ev.value === 12 ? 'stop' : undefined; });
   check('full screen: the chat machine on screen, the observer\'s tap on the BASIC session', chatM !== basic && fs3.personMachine === basic && basic.busTaps.writes.length === 1 && chatM.busTaps.writes.length === 0);
+  const told = [];
+  fs3.on((ev, arg) => { if (ev === 'writeStop') told.push(arg); });
+  const c0 = chatM.frameCount;
   const n = fs3.runFrames(20);
   check('full screen: each of the BASIC guest\'s INC FRAME is an event, from its PC, stamped with the BASIC machine\'s frame',
     evs.length > 3 && evs.every((e, k) => e.pc === INCPC && (k === 0 || e.value === ((evs[k - 1].value + 1) & 0xFF))) && evs[evs.length - 1].frame === basic.frameCount,
     `${evs.length} events, last ${JSON.stringify(evs[evs.length - 1])}`);
-  check('full screen: \'stop\' at FRAME 12 pauses the run right after that INC on the BASIC machine', fs3.paused && fs3.debug.stopReason.kind === 'write' && basic.ram[0x3100] === 12 && basic.cpu.pc === AFTER && n < 20,
-    `paused ${fs3.paused} pc $${basic.cpu.pc.toString(16)} frame ${basic.ram[0x3100]} ran ${n}`);
+  check('full screen: \'stop\' at FRAME 12: the chat runs all 20 frames, unpaused, and the BASIC machine is frozen right after that INC',
+    n === 20 && chatM.frameCount === c0 + 20 && !fs3.paused && basic.ram[0x3100] === 12 && basic.cpu.pc === AFTER && evs[evs.length - 1].value === 12,
+    `ran ${n}, chat +${chatM.frameCount - c0}, paused ${fs3.paused}, pc $${basic.cpu.pc.toString(16)}, FRAME ${basic.ram[0x3100]}`);
+  check('full screen: the stop is kept for the BASIC machine, not given to the chat machine\'s debugger, and the page is told once',
+    fs3.pendingStop && fs3.pendingStop.machine === basic && !(fs3.debugger && fs3.debugger.stopped) && told.length === 1 && told[0].address === 0x3100 && told[0].value === 12,
+    JSON.stringify(told));
+  const frozen = { pc: basic.cpu.pc, frame: basic.frameCount, cycles: basic.cpu.totalCycles, events: evs.length };
+  fs3.runFrames(5);
+  check('full screen: the BASIC machine stays frozen while the chat machine runs on',
+    basic.cpu.pc === frozen.pc && basic.frameCount === frozen.frame && basic.cpu.totalCycles === frozen.cycles && evs.length === frozen.events && chatM.frameCount === c0 + 25);
+  fs3.toSidePanel();
+  const r = fs3.debug.stopReason || {};
+  check('side panel: the BASIC machine on screen, paused on its own debugger right after the write, with the write\'s reason',
+    fs3.shownMachine === basic && fs3.paused && fs3.debug.machine === basic && r.kind === 'write' && r.address === 0x3100 && r.value === 12 && r.pc === AFTER && r.writer === INCPC && !fs3.pendingStop,
+    JSON.stringify(r));
+  const s0 = basic.cpu.totalCycles;
+  fs3.debug.step();
+  check('side panel: step moves the BASIC machine one instruction', basic.cpu.pc !== AFTER && basic.cpu.totalCycles > s0, `$${basic.cpu.pc.toString(16)}`);
   fs3.debug.resume();
   fs3.runFrames(3);
-  check('full screen: resumed, the BASIC guest goes on counting', !fs3.paused && basic.ram[0x3100] > 12, `${basic.ram[0x3100]}`);
+  check('side panel: resumed, the BASIC guest goes on counting', !fs3.paused && basic.ram[0x3100] > 12, `${basic.ram[0x3100]}`);
   w.remove();
   check('full screen: removed, neither machine keeps a tap', basic.busTaps.writes.length === 0 && chatM.busTaps.writes.length === 0);
 }

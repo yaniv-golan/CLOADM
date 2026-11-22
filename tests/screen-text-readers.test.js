@@ -598,6 +598,46 @@ const frameOf = (m) => J(Array.from(m.render().data));
     check('watchdog: OK on the displayed page at $0C00: ok', st.bootStatus().state === 'ok', J(st.bootStatus()));
   }
 
+  // ---------------- a full-screen chat: the shown screen and the person's machine ----------------
+  // Session.screenText() means "the screen": in a full-screen chat, the chat machine's. screenTextTool(chatTarget())
+  // reads the person's machine, the BASIC session beside it. Both are pinned here, and they must differ.
+  {
+    const fsx = require('fs'), pathx = require('path');
+    const firmware = new Uint8Array(fsx.readFileSync(pathx.join(__dirname, '..', 'examples/chat.bin')));
+    const s = new Emu.Session({ welcomeMenu: false, store: Emu.memoryStore(), media: new Emu.MemoryMediaStore() });
+    s.switchMachine('dragon64', {}, { menu: false });
+    const basic = s.shownMachine;
+    s.runAssembled(Emu.assemble([
+      '        ORG     $3000',
+      'START   ORCC    #$50',
+      '        LDX     #$0400',
+      'CLR     LDA     #$60',
+      '        STA     ,X+',
+      '        CMPX    #$0600',
+      '        BNE     CLR',
+      '        LDX     #MSG',
+      '        LDY     #$0400',
+      'COPY    LDA     ,X+',
+      '        BEQ     SPIN',
+      '        STA     ,Y+',
+      '        BRA     COPY',
+      'SPIN    BRA     SPIN',
+      "MSG     FCC     /BASIC SESSION HERE/",
+      '        FCB     0',
+      '        END     START'].join('\n'), '6809'));
+    s.runFrames(3);
+    s.startChat({ backend: new Emu.ClaudeBackend({ fetch: async () => null, apiKey: 'sk-ant-test' }), channel: new Emu.MemoryChannel(), firmware, brief: '', tools: false });
+    s.runFrames(10);
+    const chatM = s.shownMachine;
+    const shown = s.screenText().map((l) => l.replace(/\s+$/, '')).join('\n');
+    const person = Emu.screenTextTool(s.chatTarget());
+    check('full-screen chat: screenText() reads the chat machine on screen (its own screen, not the BASIC session\'s)',
+      chatM !== basic && shown === s.screenText(chatM).map((l) => l.replace(/\s+$/, '')).join('\n') && !shown.includes('BASIC SESSION HERE'), J(shown.slice(0, 80)));
+    check('full-screen chat: screenTextTool(chatTarget()) reads the person\'s machine, the BASIC session beside it',
+      s.chatTarget().machine === basic && person.text && person.lines[0] === 'BASIC SESSION HERE', J(person.lines && person.lines.slice(0, 2)));
+    check('full-screen chat: the two differ', person.lines.join('\n') !== shown);
+  }
+
   console.log(`\n${n - fail}/${n} passed`);
   process.exitCode = fail ? 1 : 0;
 })();

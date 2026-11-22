@@ -249,9 +249,11 @@ export function setupDebuggerPanel(page) {
   $('dbgByteWatchRead').onclick = () => { d().addWatchpoint(selected, 1, { read: true, write: false }); refresh(); };
 
   // ---------------- keeping it current ----------------
-  session.on((ev) => {
+  session.on((ev, arg) => {
     if (ev === 'machine') { disStart = null; lastRegs = null; selected = null; }
     if (ev === 'debug' || ev === 'machine' || ev === 'loaded') refresh();
+    // a watchWrites 'stop' on your machine while the full-screen chat is on screen: it waits, frozen, for you to come back
+    if (ev === 'writeStop') page.toast(`Your machine stopped on a write to ${hex4(arg.address)}; return to it to debug.`);
   });
   // live while running: the screen every frame, the rest a few times a second
   let lastSlow = 0;

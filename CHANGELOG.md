@@ -127,7 +127,8 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   as before; the Debugger screen shows such a stop as "Paused at a write to $XXXX". Documented in `docs/automation.md`
   ("Applying input on a guest write", an example that runs as a test) and `docs/architecture.md`; `tests/writewatch.test.js`.
   Observers are on the person's machine: with the Claude chat full
-  screen, the BASIC session running beside it.
+  screen, the BASIC session running beside it. A 'stop' there freezes that machine, with a note on the page, while the chat
+  runs on; back in the side panel it is that machine's debugger stop.
 - **A disk controller trace for Node and headless runs.** A developer porting a game had two disk driver bugs that each looked
   like a frozen game, a wrong sector-length bit and data lost to a byte loop too slow, and had to trace `$FF40-$FF43` by hand.
   `session.disk.trace({ limit })` keeps a ring of what the controller did: `command` (the command byte and name, drive, side,

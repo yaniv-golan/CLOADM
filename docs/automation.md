@@ -710,9 +710,15 @@ screen (`shownMachine`) and the person's machine, the BASIC session, runs beside
 never the chat machine: `serial` (its device, `send`, subscribers and traces), `disk` (`status` and traces),
 `watchWrites`, `profile` and `diagnostics()`, like the loads, disks and tapes. Their probes, taps and listeners are
 on the Session's hooks registry (`js/hooks.js`), which moves with the person's machine: a full-screen chat opening or
-closing leaves them where they are. The debugger (`debug`) is the exception: it belongs to the machine on screen. A
-`watchWrites` callback that returns `'stop'` on the BASIC session beside a full-screen chat stops that machine right
-after the write and pauses the Session as a debugger stop, as it would with the BASIC session on screen.
+closing leaves them where they are. The debugger (`debug`) is the exception: it belongs to the machine on screen. So
+is `screenText()`, which means "the screen" (the page's text alternative, the embed API, the boot watchdog, the Ask
+panel): in a full-screen chat it reads the chat's screen, while `screenTextTool(session.chatTarget())` reads the BASIC
+session's. A
+`watchWrites` callback that returns `'stop'` belongs to the machine that wrote: on the BASIC session beside a
+full-screen chat it freezes that machine right after the write, while the chat machine keeps running and the page says
+"Your machine stopped on a write to $XXXX; return to it to debug". When the BASIC session is back on screen (the side
+panel, or the chat closed) the stop is its debugger's: `session.paused`, `debug.stopReason.kind === 'write'`, and
+`debug.step()` and `debug.resume()` act on it.
 
 ### A complete example that runs from outside the repository
 
@@ -1041,7 +1047,7 @@ as `CLOADM` loads it: a program in pieces more than 256 bytes apart is `bad-medi
 | `toBinary(result, { format })`, `writeDragonDos(segments, exec, { type, maxGap })`, `writeDecb(segments, exec)`, `parseSymbols(text)`, `formatSymbols(symbols)`, `setLabels(map)` | a program as a file (`format`: `'dragondos'` or `'decb'`, required) and its symbols |
 | `runFrames(n)` | emulated frames, no clock; `advance(ms)` is the page's real-time pacing |
 | `typeText(text)`, `untypable(text)` | typing; for BREAK, CLEAR and the arrows, `machine.typist.press(key)` with ROMs (the keyboard matrix), and `machine.stubKeys.push(code)` on the built-in firmware (its POLCAT codes: BREAK 3, CLEAR 12, LEFT 8, RIGHT 9, DOWN 10, UP 94) |
-| `screenTextTool(session.chatTarget())`, `screenText()` | the screen as text, from one reader (the VDG page, every CoCo 3 GIME text mode, the CoCo 3's page where the display reads it, the Dragon 64 Plus's 80 columns while shown): the first takes a tool target, never a Session, and gives screen_text's answer (trimmed rows, the mode, where it was read); the second gives every row at full width, and on a screen that is not text the 32x16 VDG page as before |
+| `screenTextTool(session.chatTarget())`, `screenText()` | the screen as text, from one reader (the VDG page, every CoCo 3 GIME text mode, the CoCo 3's page where the display reads it, the Dragon 64 Plus's 80 columns while shown): the first takes a tool target, never a Session, and gives screen_text's answer (trimmed rows, the mode, where it was read); the second gives every row at full width, and on a screen that is not text the 32x16 VDG page as before. `screenText()` reads the screen as shown (`shownMachine`), `screenTextTool(session.chatTarget())` the person's machine: in a full-screen chat the first is the chat's screen and the second the BASIC session's ([Which machine](#which-machine-the-developer-api-acts-on)) |
 | `readByte(addr)`, `pokeBytes(addr, bytes)` | memory |
 | `machine.render()`, `frameToRGBA(frame)`, `framePng(frame, scale)` | pictures; `framePng` is imported from `cli/cloadm.js` (it uses Node's zlib), the rest from `js/emu.js` |
 | `Frame`: `width`, `height`, `aspect`, `active`, `data`, `table` | the picture `machine.render()` returns: `data` is one byte (a colour code) a pixel, `width * height` of them; `table` is the 256-entry RGBA of each code (`0xAABBGGRR`); `active` is `{ x, y, width, height }` of the picture inside the border, or `null` when it moves with the mode (the CoCo 3's) |
