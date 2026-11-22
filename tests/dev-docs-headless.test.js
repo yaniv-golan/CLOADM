@@ -143,7 +143,7 @@ const cli = (args, opts = {}) => node([path.join(ROOT, 'cli/cloadm.js'), ...args
   check('the second command line writes the picture (a 320x240 PNG)', run2.status === 0 && fs.existsSync(keyPng) && fs.readFileSync(keyPng).readUInt32BE(16) === 320, run2.stderr);
   // the field rate is the video standard's: every model's CPU cycles and fields a second, against what the text says
   {
-    const PAL = ['dragon32', 'dragon64', 'dragon200', 'dragon200e', 'dgnalpha', 'd64plus', 'coco3p'];
+    const PAL = Object.keys(Emu.profiles).filter((id) => Emu.profiles[id].video === 'pal');   // (the text's lists are checked against the profiles below)
     const bad = [];
     for (const id of Object.keys(Emu.profiles)) {
       const s = new Emu.Session({ welcomeMenu: false });
@@ -160,8 +160,15 @@ const cli = (args, opts = {}) => node([path.join(ROOT, 'cli/cloadm.js'), ...args
     }
     check('every model runs the cycles and fields a second its video standard gives (PAL 17,784; NTSC 14,934), the Tano Dragon 64 NTSC and the CoCo 3 (PAL) PAL', !bad.length, bad.join('; '));
     const para = doc.slice(doc.indexOf('**A video field is the frame.**'), doc.indexOf('**What "cycles" counts.**'));
-    check('the text says so by video standard and names the exceptions with their numbers', /\*\*PAL\*\* machines/.test(para) && /\*\*NTSC\*\* machines/.test(para) && /`coco3p`/.test(para) && /Tano\s+Dragon 64/.test(para)
-      && /17,784 CPU cycles a frame, 49\.97 fields a second on the Dragons\s+\(888,625 Hz\) and 50\.04 on the CoCo 3 \(PAL\) \(889,844 Hz\)/.test(para) && /14,934 cycles a frame, 59\.92 a second \(894,886 Hz\)/.test(para)
+    // the two lists of model ids in the text are exactly the models whose profiles say PAL and NTSC
+    const ids = (m) => (m ? [...m[1].matchAll(/`([a-z0-9]+)`/g)].map((x) => x[1]).sort() : null);
+    const palText = ids(/\*\*PAL\*\* machines \(([\s\S]*?)\) run 17,784/.exec(para)), ntscText = ids(/\*\*NTSC\*\* machines \(([\s\S]*?)\) run\s+14,934/.exec(para));
+    const byVideo = (v) => Object.keys(Emu.profiles).filter((id) => Emu.profiles[id].video === v).sort();
+    check('the PAL and NTSC lists in the text are exactly the models whose profiles have video pal and ntsc, each model once',
+      !!palText && !!ntscText && JSON.stringify(palText) === JSON.stringify(byVideo('pal')) && JSON.stringify(ntscText) === JSON.stringify(byVideo('ntsc'))
+      && palText.length + ntscText.length === Object.keys(Emu.profiles).length, `${palText} | ${ntscText}`);
+    check('the text says so by video standard and names the exceptions with their numbers', /\*\*PAL\*\* machines/.test(para) && /\*\*NTSC\*\* machines/.test(para) && /`coco3p`/.test(para) && /`tanodr64`, the Tano Dragon 64, which is NTSC/.test(para)
+      && /17,784 CPU cycles a frame, 49\.97 fields a second on the\s+Dragons\s+\(888,625 Hz\) and 50\.04 on the CoCo 3 \(PAL\) \(889,844 Hz\)/.test(para) && /14,934 cycles a frame, 59\.92 a second \(894,886 Hz\)/.test(para)
       && !/50 times a second on the Dragons/.test(para));
     // the CoCo 3 counts machine ticks in four times the CPU cycle, as the text says (machine.now() vs machine.cpu.totalCycles)
     const s3 = new Emu.Session({ welcomeMenu: false });

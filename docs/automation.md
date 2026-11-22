@@ -337,10 +337,11 @@ frame, each held at least 3 frames (`js/machines/keyqueue.js`), which suits a ke
 sample on a chosen tick.
 
 **A video field is the frame.** The VDG's field sync comes once per frame and is the guest's tick when it waits for it, so the
-rate is the video standard's, not the family's: **PAL** machines (the Dragon 32, 64, 200, 200-E, the Dragon Professional (Alpha)
-and the Dragon 64 Plus, and the **CoCo 3 (PAL)**, `coco3p`) run 17,784 CPU cycles a frame, 49.97 fields a second on the Dragons
-(888,625 Hz) and 50.04 on the CoCo 3 (PAL) (889,844 Hz); **NTSC** machines (the CoCo 1/2, 2B and clones, the CoCo 3, the **Tano
-Dragon 64**, which is NTSC, the MC-10 and the Alice) run 14,934 cycles a frame, 59.92 a second (894,886 Hz). `--frames`,
+rate is the video standard's, not the family's. **PAL** machines (`dragon32`, `dragon64`, `dragon200`, `dragon200e`, `dgnalpha`,
+`d64plus`: the Dragons but the Tano; and `coco3p`, the CoCo 3 (PAL)) run 17,784 CPU cycles a frame, 49.97 fields a second on the
+Dragons (888,625 Hz) and 50.04 on the CoCo 3 (PAL) (889,844 Hz). **NTSC** machines (`coco`, `coco2b`, `mx1600`, `lzcolor64`,
+`cd6809`, `cp400`: the CoCo 1/2, 2B and clones; `coco3`; `tanodr64`, the Tano Dragon 64, which is NTSC; and `mc10` and `alice`) run
+14,934 cycles a frame, 59.92 a second (894,886 Hz). `--frames`,
 `--hold` counts and the `frames` in a `--wait-for` result are those frames, and a `mem:` condition is checked as each frame
 ends, so a wait finishes at the first frame boundary at which the byte holds, not at the instruction that wrote it (use
 `--wait-for pc:` to stop at an instruction). A guest that does more than a frame's work between field syncs simply ticks slower
