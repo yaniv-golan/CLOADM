@@ -18,6 +18,13 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   reported at mount. The flux, the bits and the sectors every track gives are unchanged, and so are the regression
   hashes.
 
+- **Building a floppy track allocates far less.** The MFM and FM cells a track is built from now go into a
+  `Uint32Array` that doubles when full (`CellBuffer`), not a JavaScript array of one slot per cell, and the flux
+  positions are scaled with exact `Number` arithmetic (`fluxPosition`) instead of a `BigInt` per transition. In Node,
+  building every track of a 180K VDK takes about 88 ms instead of 122 ms, and restoring a snapshot with four drives
+  and building all their tracks 335 ms instead of 499 ms. Every track's flux and every image `saveDisk` writes are
+  unchanged byte for byte, and so are the regression hashes.
+
 ### 0.1.8-pre
 
 #### Added
