@@ -624,10 +624,10 @@ node docs/examples/bin-to-wav.mjs outdir       # writes GAME.cas and GAME.wav th
 ```
 
 1. `buildCas([{ name, type: 'binary', load, exec, data }], { family })` is the `.CAS` bytes: a namefile block (the name padded to 8, the
-   file type, the ASCII flags, the exec and load addresses), the data in blocks of up to 255 bytes, and an end-of-file block, each
+   file type, the ASCII flag, the gap flag, the exec and load addresses), the data in blocks of up to 255 bytes, and an end-of-file block, each
    with its 128-byte `$55` leader, `$3C`, type, length, checksum and a trailing `$55`: the stream the writer firmware in
    `tools/mame-diff/tape/csave.asm` writes, which the tape tests check against MAME. Several files go in one list; `type` is `'basic'`,
-   `'data'` or `'binary'` (`ascii: true` for text). `family` is `'dragon'`, `'coco'` or `'mc10'`; the three write the same blocks.
+   `'data'` or `'binary'` (`ascii: true` for BASIC saved as text; a data file is always ASCII, and text is gapped). `family` is `'dragon'`, `'coco'` or `'mc10'`; the three write the same blocks.
 2. `casToWav(cas, { family, gaps: 'player', wave: 'sine', sampleRate: 44100, amplitude })` is the signal, one cycle per bit, least
    significant bit first, starting upwards; `wave: 'square'` gives a hard edge. `gaps: 'player'` adds what a tape player does to a
    `.CAS` file: **2 s of silence at the start, 1 s before each later namefile block and 1 s after each namefile block, and a

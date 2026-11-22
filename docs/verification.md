@@ -568,7 +568,7 @@ written, as our own capture of the same firmware does. MAME then reads, with our
 (`tape/cload.asm`), the `.CAS` and the WAV we captured and the WAV we export from that `.CAS`: every one reads back
 3 blocks and 255 data bytes with the right sum and no bad checksum, in MAME as on our machines. The CoCo 3 runs this
 pair unchanged in its 32K BASIC socket. Tape images and WAVs are compared by the bytes they hold, not sample by
-sample: MAME pads `.CAS` playback with silence and writes its own sample timing. The WAVs `buildCas` and `casToWav` make for the same program (a sine and a square wave, with a player's gaps: the layout `tapeGaps` shares with the deck) are read the same way (`run-tape.js` builds them and checks that `buildCas` writes exactly the stream the writer firmware writes). Not run in the cloud (no MAME there); the commands are `node tools/mame-diff/tape/run-tape.js dragon64`, `coco` and `mc10`, and `node tools/mame-diff/tape/run-playback.js`.
+sample: MAME pads `.CAS` playback with silence and writes its own sample timing. The WAVs `buildCas` and `casToWav` make for the same program (a sine and a square wave, with a player's gaps: the layout `tapeGaps` shares with the deck) are read the same way (`run-tape.js` builds them and checks that `buildCas` writes exactly the stream the writer firmware writes).
 
 **Playing a `.CAS` file** (`tools/mame-diff/tape/run-playback.js`, on the Dragon 64 and the CoCo): a `.CAS` file has
 no silence and often shortened leaders, and BASIC waits about half a second after starting the motor before it

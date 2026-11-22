@@ -10,7 +10,7 @@
 //  * the example docs/examples/bin-to-wav.mjs runs from a temporary directory and prints what the guide quotes;
 //  * mutants: the same checks against copies of the code with one breakage each (no leader before the second file, a wrong checksum, the
 //    MC-10 padded); each must fail at least one check.
-// MAME is the oracle for the gaps and the reader (docs/verification.md); it is not run here. Run: node tests/bin-to-tape.test.js
+// MAME is the oracle for the gaps and the reader (docs/verification.md, tools/mame-diff/tape/run-tape.js); this test needs none. Run: node tests/bin-to-tape.test.js
 'use strict';
 const fs = require('fs'), os = require('os'), path = require('path');
 const { spawnSync } = require('child_process');
@@ -69,9 +69,14 @@ async function libraryChecks(root, check) {
   const twoFiles = parseCas(two);
   check('buildCas: parseCas reads both files', twoFiles.length === 2 && twoFiles[1].name === 'TWO' && twoFiles[1].load === 0x4000 && twoFiles[1].exec === 0x4001 && same(twoFiles[1].data, dataB) && same(twoFiles[0].data, data255));
   // other file types
-  const bas = buildCas([{ name: 'LISTING', type: 'basic', ascii: true, data: [...'10 PRINT 1\r'].map((c) => c.charCodeAt(0)) }]);
-  check('buildCas: an ASCII BASIC file is type 0 with both flags $FF and no addresses', same(bas.subarray(0, 128 + 3 + 15 + 2), Uint8Array.from(blk(0, namefile('LISTING', 0, 0xFF, 0, 0)).slice(0, 128 + 3 + 15 + 2))));
-  check('buildCas: a data file is type 1', buildCas([{ name: 'D', type: 'data', data: [1] }])[128 + 3 + 8] === 1);
+  // the namefile: name (8), file type, ASCII flag, GAP flag, exec, load
+  const nf = (f) => Array.from(buildCas([f]).subarray(128 + 3, 128 + 3 + 15));
+  const listing = [...'10 PRINT 1\r'].map((c) => c.charCodeAt(0));
+  check('buildCas: an ASCII BASIC file is type 0, ASCII flag $FF and gap flag $FF, no addresses', same(nf({ name: 'LISTING', type: 'basic', ascii: true, data: listing }), namefile('LISTING', 0, 0xFF, 0, 0).map((v, i) => (i === 10 ? 0xFF : v))));
+  check('buildCas: a tokenised BASIC file is type 0 with both flags $00', same(nf({ name: 'TOK', type: 'basic', data: [1, 2, 3] }), namefile('TOK', 0, 0, 0, 0)));
+  check('buildCas: a binary file has both flags $00', nf({ name: 'B', type: 'binary', load: 1, exec: 2, data: [1] })[9] === 0 && nf({ name: 'B', type: 'binary', load: 1, exec: 2, data: [1] })[10] === 0);
+  check('buildCas: a data file is type 1, ASCII and gapped (flags $FF $FF) by default', (() => { const d = nf({ name: 'D', type: 'data', data: [1] }); return d[8] === 1 && d[9] === 0xFF && d[10] === 0xFF; })());
+  check('buildCas: a data file that is not ASCII is refused', throwsType(() => buildCas([{ name: 'D', type: 'data', ascii: false, data: [1] }]), /data file is ASCII/));
   // refusals
   const bad = (f, o) => throwsType(() => buildCas(f, o), /./);
   check('buildCas: an unknown family, an empty list, a long or non-ASCII name, an unknown type, a binary with no addresses and a 17-bit address are refused',
@@ -138,6 +143,26 @@ async function libraryChecks(root, check) {
       }
     }
   }
+  // a recording is not always loud, clean or well behaved: a quiet one (the squelch is relative to its own level), a click or a pop in it
+  const decodes = (y) => { const z = C.samplesToCas(y, 44100); return same(z.bytes, one) && z.badBlocks === 0; };
+  const loud = casToSamples(one);
+  check('decoder: our WAV at amplitude 0.25, 0.1 and 0.05 (a quiet recording) gives the .CAS bytes back', [0.25, 0.1, 0.05].every((a) => decodes(casToSamples(one, { amplitude: a }))));
+  check('decoder: a quiet recording (0.1 and 0.05) with a little noise (SNR 20 dB) gives the bytes back', decodes(casToSamples(one, { amplitude: 0.1 }).map((v) => v + 0.005 * gauss())) && decodes(casToSamples(one, { amplitude: 0.05 }).map((v) => v + 0.0025 * gauss())));
+  const quietTape = casToSamples(one, { amplitude: 0.25 });
+  const click = Float32Array.from(quietTape); for (let i = 1.5 * 44100; i < 1.5 * 44100 + 132; i++) click[i] = 1;   // 3 ms at full scale, 0.5 s before the signal
+  check('decoder: a quiet tape (0.25) with one 3 ms full-scale click half a second before it is read in full', decodes(click));
+  const pop = (() => { const lead = new Float32Array(44100), after = quietTape, y = new Float32Array(lead.length + after.length); y.set(after, lead.length); for (let i = 0; i < 882; i++) y[i] = i % 2 ? -1 : 1; return y; })();   // a 20 ms pop, then 1 s of silence and the tape's own 2 s
+  check('decoder: a quiet tape with a 20 ms full-scale pop 3 s before it is read in full', decodes(pop));
+  // the start of a run: up to three damaged bytes in front of a leader are read as $55 (and only then)
+  const lead40 = new Array(40).fill(0x55), tail = blk(0, namefile('X', 2, 0, 0, 0), 0).slice(0);
+  const runOf = (head) => { const stream = Uint8Array.from([...head, ...lead40, ...tail]); return Array.from(C.samplesToCas(casToSamples(stream, { gaps: 'none' }), 44100).bytes); };
+  const rest = [...lead40, ...tail];
+  check('decoder: three damaged bytes (a bit or two off $55) at the start of a run in front of a leader are read as $55', same(runOf([0x54, 0x45, 0x75]), [0x55, 0x55, 0x55, ...rest]) && same(runOf([0x55, 0x57, 0x15]), [0x55, 0x55, 0x55, ...rest]), '');
+  check('decoder: four damaged bytes at the start are not repaired (the run starts at the exact leader)', same(runOf([0x54, 0x45, 0x75, 0x51]), rest));
+  check('decoder: a byte three bits off $55 stops the repair (nothing is repaired)', same(runOf([0x54, 0x52, 0x75]), rest) && same(runOf([0x54, 0x45, 0x52]), rest));
+  check('decoder: six damaged bytes, each at most 2 bits off, are not repaired', same(runOf([0x54, 0x45, 0x75, 0x51, 0x57, 0x5D]), rest));
+  const afterSeven = Array.from(C.samplesToCas(casToSamples(Uint8Array.from([0x57, 0x55, 0x55, 0x55, ...tail]), { gaps: 'none' }), 44100).bytes);
+  check('decoder: a run that starts $57 $55 $55 $55 $3C (a short leader, not a leader) is read as it is: the $57 is not rewritten to $55', same(afterSeven, [0x55, 0x55, 0x55, ...tail]), afterSeven.slice(0, 6).join());
   // a tape with short leaders is made up to the player's 128, the same files
   const short = Uint8Array.from([...blk(0, namefile('SHORT', 2, 0, 0x3000, 0x3000), 10), ...blk(1, prog(30), 10), ...blk(0xFF, [], 10)]);
   const padded = wavToCas(casToWav(short));
@@ -267,10 +292,16 @@ async function cliChecks(root, check) {
     ['no leader before the second file', '], TAPE_LEADER));\n', '], out.length ? 0 : TAPE_LEADER));\n', 'js/media/cassette.js'],
     ['a wrong checksum', 'let sum = (type + data.length) & 0xFF;', 'let sum = (type + data.length + 1) & 0xFF;', 'js/media/cassette.js'],
     ['the MC-10 padded', "mc10: { ext: 'c10', zeroHz: 1200, oneHz: 2400, pad: false }", "mc10: { ext: 'c10', zeroHz: 1200, oneHz: 2400, pad: true }", 'js/media/cassette.js'],
+    // the decoder (the library checks only: the command line is not in these)
+    ['an absolute squelch at 0.05', '|| rms < 1e-3) { close(); continue; }', '|| rms < 0.05) { close(); continue; }', 'js/media/cassette.js', 'library'],
+    ['an absolute squelch at 0.21', '|| rms < 1e-3) { close(); continue; }', '|| rms < 0.21) { close(); continue; }', 'js/media/cassette.js', 'library'],
+    ['the leader repair reaching six bytes', 'q <= 24 && p - q >= 8 * 16', 'q <= 48 && p - q >= 8 * 16', 'js/media/cassette.js', 'library'],
+    ['the leader repair taking bytes four bits off $55', 'return c <= 2;', 'return c <= 4;', 'js/media/cassette.js', 'library'],
+    ['the leader repair with no long leader required', ' && p - q >= 8 * 16', '', 'js/media/cassette.js', 'library'],
   ];
   const guarded = async (fn, root, check) => { try { await fn(root, check); } catch (e) { check(`a check threw: ${e.message}`, false); } };
   const results = [];
-  for (const [what, from, to, file] of mutants) {
+  for (const [what, from, to, file, only] of mutants) {
     const root = fs.mkdtempSync(path.join(TMP, 'mutant-'));
     for (const d of ['js', 'cli']) fs.cpSync(path.join(ROOT, d), path.join(root, d), { recursive: true });
     const f = path.join(root, file), text = fs.readFileSync(f, 'utf8');
@@ -278,7 +309,7 @@ async function cliChecks(root, check) {
     fs.writeFileSync(f, text.replace(from, to));
     const before = failures.length, m = record(`mutant: ${what}`);
     await guarded(libraryChecks, root, m);
-    await guarded(cliChecks, root, m);
+    if (only !== 'library') await guarded(cliChecks, root, m);
     results.push({ what, red: failures.splice(before).map((x) => x.name) });
   }
 
