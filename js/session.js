@@ -273,20 +273,6 @@ function execWhenReady(m, file) {
   return { decide, cancel };
 }
 
-// What a terminal shows of the bytes it received, as text: 7-bit characters; CR, LF and CR LF end lines; a
-// backspace takes the last character back. (The page's terminal log: js/ui/serial-panel.js.)
-export function terminalText(bytes) {
-  let out = '';
-  for (let i = 0; i < bytes.length; i++) {
-    const c = bytes[i] & 0x7F;
-    if (c === 13) { out += '\n'; if ((bytes[i + 1] & 0x7F) === 10) i++; }
-    else if (c === 10) out += '\n';
-    else if (c === 8) out = out.slice(0, -1);
-    else if (c === 9 || c >= 32) out += String.fromCharCode(c);
-  }
-  return out;
-}
-
 // The serial port of the Session's machine (session.serial): the device plugged in, the bytes both ways, and a
 // trace of what the port did. Subscriptions and traces belong to the Session: its hooks registry (session.hooks)
 // puts the port listener and each trace on whichever machine is in use (switchMachine, openSnapshot, a power
@@ -438,34 +424,30 @@ export class SerialTrace {
   constructor(limit, reads = false) {
     this.limit = limit; this.reads = reads;
     this.ring = []; this.head = 0; this.dropped = 0;
-    this.machine = null;
   }
+  // everything it records on m names m itself: no machine is shared between attachments, so a hook registry that
+  // takes this off a machine it could not finish moving to leaves the one it stays on recording
   attach(m) {
-    this.machine = m;
-    let off = () => {};
-    if (m.acia && m.serialPort === m.acia.port) off = m.acia.addTrace((kind, data, at) => this.chip(kind, data, at));
-    else if (m.serialPort) {
-      const p = m.serialPort, l = { tx: (byte, at) => this.add({ at, kind: 'tx', byte }), rx: (byte, at) => this.add({ at, kind: 'rx', byte }) };
-      p.listeners.add(l);
-      off = () => p.listeners.delete(l);
-    }
-    return () => { off(); if (this.machine === m) this.machine = null; };
+    if (m.acia && m.serialPort === m.acia.port) return m.acia.addTrace((kind, data, at) => this.chip(m, kind, data, at));
+    if (!m.serialPort) return () => {};
+    const p = m.serialPort, l = { tx: (byte, at) => this.add(m, { at, kind: 'tx', byte }), rx: (byte, at) => this.add(m, { at, kind: 'rx', byte }) };
+    p.listeners.add(l);
+    return () => p.listeners.delete(l);
   }
-  chip(kind, data, at) {
+  chip(m, kind, data, at) {
     if (kind === 'reg-read') {
       if (!this.reads) return;
       const last = this.last();
       if (last && last.kind === 'reg-read' && last.reg === data.reg && last.value === data.value) { last.count++; return; }
-      this.add({ at, kind, reg: data.reg, value: data.value, count: 1 });
+      this.add(m, { at, kind, reg: data.reg, value: data.value, count: 1 });
       return;
     }
     const e = Object.assign({ at, kind }, data);
-    if (kind !== 'reg-write') e.status = this.machine.acia.chip.peek(1);   // never read(1): that clears the IRQ
-    this.add(e);
+    if (kind !== 'reg-write') e.status = m.acia.chip.peek(1);   // never read(1): that clears the IRQ
+    this.add(m, e);
   }
   last() { return this.ring.length ? this.ring[(this.head + this.ring.length - 1) % this.ring.length] : null; }
-  add(e) {
-    const m = this.machine;
+  add(m, e) {
     const ev = Object.assign({ at: e.at, frame: m.frameCount, pc: m.cpu.pc }, e);
     if (this.ring.length < this.limit) { this.ring.push(ev); return; }
     this.ring[this.head] = ev;

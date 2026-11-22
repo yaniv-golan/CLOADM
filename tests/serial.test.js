@@ -4,6 +4,7 @@
 // node tools/mame-diff/run.js <profile> --printer (byte for byte against MAME's printer file).
 const Emu = require('./load')();
 const { SerialRx } = require('../js/machines/serial.js');
+const { terminalText } = require('../js/ui/terminal-text.js');   // the serial panel's text (no DOM)
 
 let fail = 0;
 const check = (name, cond, detail = '') => { if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log(`ok   ${name} ${detail}`); };
@@ -189,9 +190,9 @@ const refused = (fn, re) => { try { fn(); return false; } catch (e) { return e i
   for (const [at, l] of frames([0x4F, 0x4B, 0x0D, 0x0A, 0x3E], { t0: t, bit })) m.bitBanger.txd(at, l);
   m.bitBanger.flush(t + 60 * bit);
   s.serial.flush();
-  check('Session: what the machine sends reaches a subscriber, and shows as terminal text', Emu.terminalText(got) === 'OK\n>', JSON.stringify(Emu.terminalText(got)));
+  check('Session: what the machine sends reaches a subscriber, and shows as terminal text', terminalText(got) === 'OK\n>', JSON.stringify(terminalText(got)));
   check('terminalText: 7-bit, CR LF / CR / LF end lines, a backspace takes a character back, other controls dropped',
-    Emu.terminalText([0xC1, 0x42, 0x08, 0x43, 13, 10, 0x44, 13, 0x45, 10, 0x01, 9, 0x46]) === 'AC\nD\nE\n\tF');
+    terminalText([0xC1, 0x42, 0x08, 0x43, 13, 10, 0x44, 13, 0x45, 10, 0x01, 9, 0x46]) === 'AC\nD\nE\n\tF');
   s.switchMachine('dragon32');
   check('Session: the Dragon 32 has no serial port', s.serial.device === null && refused(() => s.serial.attach('terminal'), /has no serial port here/));
 }
@@ -216,7 +217,7 @@ const refused = (fn, re) => { try { fn(); return false; } catch (e) { return e i
   }
   for (let f = 0; f < 3; f++) m.runFrame();
   s.serial.flush();
-  check('Session: what the 6551 sends reaches a subscriber', Emu.terminalText(sentBack) === 'HI\n', JSON.stringify(Emu.terminalText(sentBack)));
+  check('Session: what the 6551 sends reaches a subscriber', terminalText(sentBack) === 'HI\n', JSON.stringify(terminalText(sentBack)));
   s.serial.send('Z', { text: true });
   let got = -1;
   for (let g = 0; g < 4000 && got < 0; g++) { m.runCycles(m.cycle + 10); if (m.read(0xFF05) & 0x08) got = m.read(0xFF04); }

@@ -244,7 +244,7 @@ const echoed = (s) => { const end = s.readByte(0x31FE) << 8 | s.readByte(0x31FF)
   s.serial.send([0x10, 0x20, 0x30]);
   const d = s.debug;
   for (let k = 0; k < 4000 && i.tx.length < 3; k++) d.step();
-  check('\'instant\' hears bytes after each debugger step; \'frame\' waits for the end of the frame', eq(i.rx, [0x10, 0x20, 0x30]) && eq(i.tx, [0x10, 0x20, 0x30]) && f.calls === 0, `${i.rx} ${i.tx} ${f.calls}`);
+  check('\'instant\' hears bytes by the next instruction while stepping; \'frame\' waits for the end of the frame', eq(i.rx, [0x10, 0x20, 0x30]) && eq(i.tx, [0x10, 0x20, 0x30]) && f.calls === 0, `${i.rx} ${i.tx} ${f.calls}`);
   s.serial.flush();
   check('flush() hands a \'frame\' subscriber what has crossed by now', eq(f.rx, i.rx) && eq(f.tx, i.tx), `${f.rx} ${f.tx}`);
   s.runFrames(1);
@@ -394,6 +394,27 @@ const echoed = (s) => { const end = s.readByte(0x31FE) << 8 | s.readByte(0x31FF)
   check('a trace moves to the next machine (the bit-banger): its tx byte is there', t.events.some((e) => e.kind === 'tx' && e.byte === 0x77));
   t.stop();
 }
+// ---------------- a move to another machine that fails leaves the trace recording ----------------
+// session.hooks moves everything or nothing: when a hook refuses the next machine, what went on it is taken off
+// again and everything stays where it was. A trace must keep recording on the machine it stayed on.
+for (const [id, guest, baud, feed] of [['dragon64', ECHO6551, 9600, true], ['coco', sender(90, [0x61, 0x62]), 1200, false]]) {
+  const s = session(id, guest, { baud, frames: 1 });
+  const tr = s.serial.trace();
+  const bad = Emu.createMachine(id);
+  const refuse = s.hooks.add((m) => { if (m === bad) throw new Error('this hook refuses that machine'); return () => {}; });
+  let refused = null;
+  try { s.hooks.attach(bad); } catch (e) { refused = e.message; }
+  let crash = null;
+  try {
+    if (feed) s.serial.send([0x41, 0x42]);
+    s.runFrames(20);
+  } catch (e) { crash = e.message; }
+  const got = tr.events.filter((e) => e.kind === (feed ? 'rx' : 'tx')).map((e) => e.byte).join();
+  check(`${id}: a hook refusing the next machine leaves the trace recording on the machine it stayed on`, refused === 'this hook refuses that machine' && crash === null && got === (feed ? '65,66' : '97,98') && tr.events.every((e) => e.frame >= 1),
+    `${refused}; ${crash}; ${got}`);
+  refuse(); tr.stop();
+}
+
 // ---------------- a trace leaves the chip as it is: the IRQ ----------------
 {
   // command $09: DTR on, the receive interrupt on, the transmitter on without its interrupt. A byte comes in (the

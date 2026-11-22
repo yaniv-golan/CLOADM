@@ -7,7 +7,8 @@
  * when another machine takes over.
  */
 import { $ } from './page.js';
-import { SERIAL_BAUDS, terminalText } from '../session.js';
+import { SERIAL_BAUDS } from '../session.js';
+import { terminalText } from './terminal-text.js';
 
 export function setupSerialPanel(page) {
   const { session } = page;

@@ -198,6 +198,7 @@ const FILES = [
   'js/ui/slots-panel.js',
   'js/ui/snapshot-panel.js',
   'js/ui/tape-panel.js',
+  'js/ui/terminal-text.js',
   'js/ui/touch-keys.js',
   'js/ui/typein.js',
   'js/ui/welcome.js',

@@ -42,7 +42,7 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   refuses any value outside 0..255 (`send([256])` used to go out as `$00`). A machine's `SerialPort` has a listener set (`listeners`,
   `{ tx(byte, at), rx(byte, at) }`) in place of its one `onReceive`. The Web Serial object the DriveWire link uses is
   `session.webSerial` (it was `session.serial`). The terminal log left the Session: `terminalText()`, `clearTerminal()` and
-  `terminalBytes` are gone; the serial panel keeps its own log as a subscriber, and `terminalText(bytes)` is a plain function.
+  `terminalBytes` are gone; the serial panel keeps its own log as a subscriber, and turns it into text itself (`js/ui/terminal-text.js`).
 
 ### Fixed
 

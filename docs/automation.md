@@ -509,7 +509,7 @@ gets the bytes `send` handed over, each once it has crossed the wire into the ma
 when it was sent. `bytes` is a `Uint8Array`; `info` is `{ at, frame, device }`: `at` the machine tick of each byte
 (for `tx` the receiver's last sample, the middle of the stop bit; for `rx` the end of the stop bit), `frame` the frame
 count when it was delivered, `device` the kind plugged in (a `tx` subscriber hears the serial printer too; the page's
-terminal log keeps only what reached the terminal, and `terminalText(bytes)` turns bytes into what a terminal shows).
+terminal log, the serial panel's own subscriber, keeps only what reached the terminal).
 Delivery is at the end of each frame and on `flush()`; a subscriber with `{ flush: 'instant' }` also gets what has
 crossed before each instruction the CPU starts (a probe on the machine, there only while such a subscriber is: it
 costs a flush an instruction), when `runFrames` returns and when a debugger stops the machine (a breakpoint or
