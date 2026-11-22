@@ -420,9 +420,10 @@ idle, not slow (`$FF02` is read to clear the flag). A row that is hot and **not*
   samples. Cycles in which the disk controller's HALT holds the CPU are no instruction's: they are the `(halted)` row.
   The cycles an interrupt takes to enter (stacking the registers) count to the instruction it interrupted.
 * **Spin.** The instructions are taken 32 at a time; a window is spin when it ran at most 4 distinct instructions,
-  wrote no RAM, and read I/O (`$FF00`-`$FFEF`; on the MC-10 its 6803 registers `$0000`-`$001F` and the keyboard
-  latch `$BFFF`) or read one RAM byte more than once. A row's `spin.share` is the part of its count made in spin
+  wrote no RAM, and read I/O (`$FF00`-`$FFFF`; on the MC-10 the `$BF00`-`$BFFF` page: keyboard read, VDG latch write) or read one RAM byte more than once. A row's `spin.share` is the part of its count made in spin
   windows, and `spin.polls` the addresses those windows read. A delay loop that only counts in a register is compute.
+  The MC-10's 6803 keeps its ports, timer and serial registers (`$0000`-`$001F`) and its own RAM (`$0080`-`$00FF`)
+  off the machine's bus, so the profile sees no access to them: a wait on a 6803 port alone counts as compute.
 * **One address space.** The counts are keyed by CPU address: code banked in or mapped by the CoCo 3's MMU at the same
   address is counted together, and the report says so (`note`).
 * **Cost.** While a profile runs, the machine runs 1.4 to 1.7 times slower (`node tools/profile-cost.js` measures it on

@@ -152,13 +152,24 @@ for (const id of ['dragon64', 'coco3']) {
   const delay = row(profileAt(t, res, 'DELAY', 3), 'DELAY');
   check(`${id}: a register countdown is compute (it polls nothing)`, delay.share > 0.99 && delay.spin.share === 0, JSON.stringify(delay));
 }
-{ // the MC-10: its keyboard latch ($BFFF) is I/O
+{ // the MC-10: the $BF00-$BFFF page (keyboard read, VDG latch write) is I/O; the 6803's own registers ($0000-$001F)
+  // never reach the bus, so a port-1 strobe is no access the profile sees (and so no RAM write)
   const SPIN6803 = `
         ORG     $4800
 START   SEI
         BRA     START
 KEYW    LDAA    $BFFF
         BRA     KEYW
+SCAN    LDAA    #$FE            ; a keyboard scan: strobe a column on port 1 ($0002), read the rows
+        STAA    $02
+        LDAB    $BFFF
+        BRA     SCAN
+LATCH   LDAA    $BFFF           ; a wait that writes the VDG latch back each time
+        STAA    $BFFF
+        BRA     LATCH
+PAGE    LDAA    $BFFF           ; the same, writing elsewhere in the $BFxx page (no RAM there)
+        STAA    $BF00
+        BRA     PAGE
 COMP    LDAA    0,X
         ADDA    #1
         STAA    0,X
@@ -173,6 +184,12 @@ COMP    LDAA    0,X
   s.runAssembled(res); s.runFrames(1);
   const key = row(profileAt(s, res, 'KEYW', 3), 'KEYW');
   check('mc10: a keyboard poll is spin, polling $BFFF', key.spin.share > 0.99 && key.spin.polls.join() === '$BFFF', JSON.stringify(key));
+  const scan = row(profileAt(s, res, 'SCAN', 3), 'SCAN');
+  check('mc10: a keyboard scan writing port 1 ($0002) is spin, polling $BFFF', scan.share > 0.99 && scan.spin.share > 0.99 && scan.spin.polls.join() === '$BFFF', JSON.stringify(scan));
+  const latch = row(profileAt(s, res, 'LATCH', 3), 'LATCH');
+  check('mc10: a wait that writes the $BFxx latch is still spin', latch.share > 0.99 && latch.spin.share > 0.99, JSON.stringify(latch));
+  const page = row(profileAt(s, res, 'PAGE', 3), 'PAGE');
+  check('mc10: ... wherever in the $BF00-$BFFF page it writes', page.share > 0.99 && page.spin.share > 0.99, JSON.stringify(page));
   s.debug.setRegister('x', 0x4A00);
   const p = s.profile(); s.debug.setRegister('pc', res.symbols.get('COMP')); s.debug.setRegister('x', 0x4A00); s.runFrames(3);
   const comp = row(p.stop(), 'COMP');
@@ -318,6 +335,19 @@ for (const id of ['coco', 'coco3']) {
   fs.writeFileSync(sym, 'HOT $3046\n');
   const c = cli(['--asm', SRC, '--symbols', sym, '--profile', 'sym.txt', '--frames', '10']);
   check('cli: --symbols names the ranges', c.status === 0 && /HOT \$3046-\$4045\b/.test(fs.readFileSync(path.join(dir, 'sym.txt'), 'utf8')));
+  // the guide's command line ("Finding hot spots"), run as written (the source path from the repository), and the
+  // file it writes compared with the table the guide shows
+  const guide = fs.readFileSync(path.join(__dirname, '../docs/automation.md'), 'utf8');
+  const section = guide.slice(guide.indexOf('### Finding hot spots'));
+  const line = /```sh\n(node cli\/cloadm\.js [^\n]*--profile [^\n]*)\n```/.exec(section);
+  const table = /```text\n([\s\S]*?)```/.exec(section);
+  check('the guide shows a --profile command line and its table', line && table, '');
+  if (line && table) {
+    const args = line[1].slice('node cli/cloadm.js '.length).split(/\s+/).map((x) => (x.startsWith('docs/') ? path.join(__dirname, '..', x) : x));
+    const g = cli(args), file = path.join(dir, args[args.indexOf('--profile') + 1]);
+    const got = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
+    check('the guide\'s command line writes exactly the table the guide shows', g.status === 0 && got === table[1], `${g.stderr}\n--- got\n${got}--- guide\n${table[1]}`);
+  }
   const d = cli(['--frames', '1', '--profile-stop']);
   check('cli: --profile-stop with no profile is a usage error', d.status === 2 && /no profile to stop/.test(d.stderr), d.stderr);
   const e = cli(['--profile', ':samples']);

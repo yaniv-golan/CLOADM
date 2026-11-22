@@ -40,11 +40,13 @@ const WRAP = 0x100000000;
 
 const hex = (a, n = 4) => `$${a.toString(16).toUpperCase().padStart(n, '0')}`;
 
-// the address space the spin test counts as I/O: the 6809 machines' $FF00-$FFEF (the vectors above are read when an
-// interrupt is taken, which is no poll); the MC-10's 6803 on-chip registers $0000-$001F and its keyboard/VDG latch page
+// the address space the spin test counts as I/O: the 6809 machines' $FF00-$FFFF; the MC-10's $BF00-$BFFF page
+// (keyboard read, VDG latch write). The 6803's on-chip registers ($0000-$001F: its ports, timer, serial) and on-chip
+// RAM ($0080-$00FF) never reach the machine's bus (cpu6803.js read8/write8), so the taps see none of their accesses:
+// a wait that polls only a 6803 port reads no I/O here, and is counted as compute.
 function ioTest(m) {
-  if (m && m.config && m.config.cpu === '6803') return (a) => a <= 0x1F || (a >= 0xBF00 && a <= 0xBFFF);
-  return (a) => a >= 0xFF00 && a < 0xFFF0;
+  if (m && m.config && m.config.cpu === '6803') return (a) => a >= 0xBF00 && a <= 0xBFFF;
+  return (a) => a >= 0xFF00;
 }
 
 function symbolList(symbols) {
@@ -55,7 +57,7 @@ function symbolList(symbols) {
   for (const [name, a] of entries) {
     if (!Number.isInteger(a) || a < 0 || a > 0xFFFF) continue;
     const had = byAddr.get(a);
-    if (had === undefined || name < had) byAddr.set(a, name);   // one name per address: the first in order
+    if (had === undefined || name < had) byAddr.set(a, name);   // one name per address: the alphabetically first
   }
   return [...byAddr].sort((x, y) => x[0] - y[0]);
 }
