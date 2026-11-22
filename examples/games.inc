@@ -6,7 +6,7 @@
 ; Screen: the VDG's 128x192 four-colour mode (CG6, PMODE 3 in BASIC), 32 bytes a row, four
 ; pixels a byte (two bits each, the left pixel in bits 7-6), at $0400-$1BFF. Colours 0-3 are
 ; green, yellow, blue, red (CSS 0) or buff, cyan, magenta, orange (CSS 1).
-; Text: our own 3x5 font in a 4-pixel cell (one byte a row), drawn 1x or 2x wide and any number
+; Text: our own 3x5 font (one byte a row), drawn 1x proportional or 2x wide and any number
 ; of rows tall.
 ; Keys: the ROM's POLCAT vector at $A000 (the built-in firmware provides it), so the Dragon and
 ; CoCo keyboard matrices, which differ, are the firmware's business: arrows, SPACE, ENTER and
@@ -218,19 +218,24 @@ BOXCEL  STA     ,Y+
         BNE     BOXROW
         PULS    D,X,Y,PC
 ; Text: TFG and TBG are the fill bytes of the text and background colours (colour * $55), TROWS
-; the rows each font row is repeated (1: 5 rows tall), TWIDE 0 for 4-pixel cells, 1 for 8.
-; PUTCH: the character A at X; X moves to the next cell
+; the rows each font row is repeated (1: 5 rows tall). TWIDE 1 is the fixed 8-pixel doubled cell the
+; titles use, positioned and advanced in BYTES. TWIDE 0 is PROPORTIONAL, positioned and advanced in
+; PIXELS: a glyph is its own width plus ONE BLANK COLUMN after it, so no two letters ever touch (four
+; pixels of ink in a four-pixel cell left no gap and smeared ARROWS). Widths: A H R are 4 (FONT4),
+; M W are 5 (FONT5), everything else is 3 (FONT).
+; PUTCH: the character in A. TWIDE 1: at the screen byte in X, which advances 2. TWIDE 0: at the pixel
+; PCOL (0-3) of the screen byte X; X and PCOL move past the glyph and its blank column.
 PUTCH   PSHS    D,Y,U
+        TST     TWIDE
+        LBEQ    PCPROP
+; the 2x titles: a byte cursor and a fixed 8-pixel cell, unchanged (M and W have glyphs of their own)
         STX     PCADDR
-        TST     TWIDE           ; 2x wide, M and W have glyphs of their own: in three pixels they read as H
-        BEQ     PCNARROW
         LDU     #WIDEM
         CMPA    #'M
         BEQ     PCMW
         LDU     #WIDEW
         CMPA    #'W
         BEQ     PCMW
-PCNARROW
         SUBA    #$20
         CMPA    #$40
         BLO     PCOK
@@ -245,42 +250,32 @@ PCOK    LDB     #5
 PCROW   LDB     ,U+             ; a font row, bits 2-0 (bit 2 the left pixel)
         LDA     TROWS
         STA     PCREP
-PCREPT  TST     TWIDE
-        BNE     PCWIDE
-        LDX     #MASK1
+PCREPT  LDX     #MASK2L
         LDA     B,X
-        BSR     PCMIX
-        STA     ,Y
-        BRA     PCNEXT
-PCWIDE  LDX     #MASK2L
-        LDA     B,X
-        BSR     PCMIX
+        LBSR    PCMIX
         STA     ,Y
         LDX     #MASK2R
         LDA     B,X
-        BSR     PCMIX
+        LBSR    PCMIX
         STA     1,Y
-PCNEXT  LEAY    32,Y
+        LEAY    32,Y
         DEC     PCREP
         BNE     PCREPT
         DEC     PCROWS
         BNE     PCROW
         LDX     PCADDR
-        LEAX    1,X
-        TST     TWIDE
-        BEQ     PCDONE
-        LEAX    1,X
-PCDONE  PULS    D,Y,U,PC
+        LEAX    2,X
+        PULS    D,Y,U,PC
 ; PCMW: the 7-pixel glyph at U (five rows of two mask bytes) at PCADDR, 2x wide
 PCMW    TFR     X,Y
         LDB     #5
         STB     PCROWS
 PCMWROW LDB     TROWS
 PCMWREP LDA     ,U
-        BSR     PCMIX
+        LBSR    PCMIX
         STA     ,Y
         LDA     1,U
-        BSR     PCMIX
+        LBSR    PCMIX
         STA     1,Y
         LEAY    32,Y
         DECB
@@ -291,6 +286,120 @@ PCMWREP LDA     ,U
         LDX     PCADDR
         LEAX    2,X
         PULS    D,Y,U,PC
+; PCPROP: the 1x glyph of A at the pixel PCOL of the screen byte X, proportional. A screen row is
+; drawn ONE ROW AT A TIME, as two read-modify-writes (the cell is at most two screen bytes wide):
+;   new = (old AND NOT GAP) OR (TBG AND GAP) XOR (V AND DK)   GAP: the pixels the cell touches
+;                                                             V:   the row's ink, in place
+;                                                             DK:  TFG XOR TBG
+; with V from a table pre-shifted for the width and the phase. GAP, V's table and DK's identity
+; hold for the whole glyph, so each glyph sets them up once and each row then costs one lookup and
+; two merges: the per-pixel loop (and its stack nesting) is gone. The XOR matters: TBG and DK share
+; bits for most colour pairs, so ORing them over the cell would light a clear pixel.
+; PHASE: only phases 0 and 2 occur. A 5-wide cell at phase 1 or 3 would need a third screen byte, so no
+; table exists for those widths there. tests/cursor-phases.test.js proves the invariant the way that can
+; actually fail: it runs both titles and reads PCOL as PCPROP is entered, so a CENTRE that stopped aligning
+; or a tile column that came out odd is caught on the cursor, not on a picture that still looks even.
+; WIDTH: 3 uses the 3-pixel tables, 5 (and a 4, which the font does not have) the 5-pixel ones.
+PCPROP  LBSR    PCFIND          ; U: its five rows, PCGW: its width in pixels
+        STX     PSTART          ; where the glyph starts, for the cursor's advance
+        LDB     PCOL
+        LDA     #4
+        CMPA    PCGW            ; PCGW < 4: a 3-wide glyph
+        BHI     PCG3W
+        ADDB    #4              ; 5 (or 4) wide: entries 2 and 3
+PCG3W   LSRB                    ; PCOL is 0 or 2 (the only phases that occur), so PCOL>>1 is 0 or 1
+        LSLB                    ; two bytes an entry: both tables are indexed in BYTES
+        LDX     #VTAB
+        LDX     B,X             ; X: the V table: {3-wide phase 0, phase 2, 5-wide phase 0, phase 2}
+        LDY     #GAPTAB
+        LDD     B,Y             ; the cell's mask (hi,lo): every pixel it touches
+        STD     GAP
+        COMA                    ; and its complement
+        COMB
+        STD     MASK
+        LDA     TBG
+        ANDA    GAP
+        STA     FILL
+        LDA     TBG
+        ANDA    GAP+1
+        STA     FILL+1
+        LDA     TFG
+        EORA    TBG
+        STA     DK              ; TFG is TBG XOR DK, a bit at a time
+        LDY     PSTART          ; the screen byte of the glyph's first row
+        LDB     #5
+        STB     PCROWS
+PCGGLY  LDB     ,U+             ; the font row: its bit 0 is the RIGHTMOST pixel (the tables' index)
+        BSR     PCDOROW
+        DEC     PCROWS
+        BNE     PCGGLY
+        LDX     PSTART          ; the cursor: past the glyph and its blank column
+        LDA     PCOL
+        ADDA    PCGW
+        INCA
+PCADV   CMPA    #4
+        BLO     PCADVD
+        SUBA    #4
+        LEAX    1,X
+        BRA     PCADV
+PCADVD  STA     PCOL
+        STX     PCSBYTE         ; the pixel cursor: the byte here, the pixel in PCOL
+        PULS    D,Y,U,PC
+; PCDOROW: one font row, TROWS screen rows of it, from Y. A LEAF: it neither PSHSes nor calls (the
+; per-pixel version nested JSRs and drove the stack into $3037). B: the font row, X: its V table,
+; Y: the screen byte; MASK (NOT GAP), FILL (TBG AND GAP), DK, TROWS. Y ends past the last row.
+PCDOROW LSLB                    ; two bytes an entry
+        LDD     B,X             ; V: the row's pixels as 2-bit pairs, in place, hi byte first
+        ANDA    DK              ; ink: TFG where V is set. A set pixel is the pair 11, so V AND DK
+        ANDB    DK              ;   leaves DK's bits there and 0 elsewhere, and TBG XOR DK is TFG
+        EORA    FILL
+        EORB    FILL+1
+        STD     PTMP            ; the cell's contents: the same for all TROWS rows
+        LDA     TROWS
+        STA     PCREP
+PCDOREP LDD     ,Y              ; keep the screen's bits outside the cell
+        ANDA    MASK
+        ANDB    MASK+1
+        ORA     PTMP            ; and take the cell's
+        ORB     PTMP+1
+        STD     ,Y
+        LEAY    32,Y
+        DEC     PCREP
+        BNE     PCDOREP
+        RTS
+; PCFIND: A = a character -> U: its five glyph rows, PCGW: its width (3, 4 or 5)
+PCFIND  CMPA    #'M
+        BEQ     PCFW5M
+        CMPA    #'W
+        BEQ     PCFW5W
+        CMPA    #'A
+        BEQ     PCFW5A
+        CMPA    #'H
+        BEQ     PCFW5H
+        CMPA    #'R
+        BEQ     PCFW5R
+        SUBA    #$20            ; FONT: $20-$5F, three wide
+        CMPA    #$40
+        BLO     PCF3
+        LDA     #'?-$20
+PCF3    LDB     #5
+        MUL
+        ADDD    #FONT
+        TFR     D,U
+        LDA     #3
+        BRA     PCFW
+PCFW5A  LDU     #FONT5A
+        BRA     PCFW5
+PCFW5H  LDU     #FONT5H
+        BRA     PCFW5
+PCFW5R  LDU     #FONT5R
+        BRA     PCFW5
+PCFW5M  LDU     #FONT5M
+        BRA     PCFW5
+PCFW5W  LDU     #FONT5W
+PCFW5   LDA     #5
+PCFW    STA     PCGW
+        RTS
 ; A = pixel mask -> (mask AND TFG) OR (NOT mask AND TBG)
 PCMIX   PSHS    A
         ANDA    TFG
@@ -300,15 +409,34 @@ PCMIX   PSHS    A
         ANDA    TBG
         ORA     PCTMP
         RTS
-; PUTSTR: the string at U (0 ends) from X
+; PUTSTR: the string at U (0 ends). TWIDE: from the screen byte X, advancing X. 1x: from the pixel
+; cursor PCSBYTE/PCOL, which each glyph advances (X is not the cursor there: a glyph can start mid-byte).
 PUTSTR  LDA     ,U+
         BEQ     PSDONE
-        LBSR    PUTCH
+        TST     TWIDE
+        BNE     PSBYTE
+        LDX     PCSBYTE
+PSBYTE  LBSR    PUTCH
         BRA     PUTSTR
 PSDONE  RTS
-; PRINTAT: the string at U, at column B, row A, in the current text style
-PRINTAT JSR     AT
+; PRINTAT: the string at U at column B, row A, in the current text style. In 1x B is a PIXEL column
+; (0-127); when TWIDE it is a byte column (0-31).
+PRINTAT TST     TWIDE
+        BNE     PRBYTE
+        BSR     ATPIX
         BRA     PUTSTR
+PRBYTE  JSR     AT
+        BRA     PUTSTR
+; ATPIX: pixel column B (0-127), row A -> X = its screen byte, PCOL = the pixel within it
+ATPIX   PSHS    B
+        ANDB    #3
+        STB     PCOL
+        PULS    B
+        LSRB
+        LSRB
+        LBSR    AT
+        STX     PCSBYTE         ; the proportional cursor starts here
+        RTS
 ; STRLEN: the length of the string at U -> B
 STRLEN  PSHS    U
         CLRB
@@ -317,13 +445,40 @@ SLLP    TST     ,U+
         INCB
         BRA     SLLP
 SLEND   PULS    U,PC
-; CENTRE: the string at U centred on the screen at row A (one byte a character, or two when TWIDE)
+; STRWID: the 1x width of the string at U in pixels (its glyphs and the blank columns) -> B.
+; The string pointer lives in SWPTR: PCFIND returns the glyph's address in U, which would otherwise
+; overwrite it and run the loop past the string's end (it did, forever).
+STRWID  PSHS    U               ; the caller's string pointer: PCFIND returns a glyph in U
+        STU     SWPTR
+        CLRB
+SWLP    LDX     SWPTR
+        LDA     ,X+
+        BEQ     SWEND
+        STX     SWPTR           ; (after the test: STX sets the flags, which would hide the 0)
+        PSHS    B
+        LBSR    PCFIND          ; PCGW: its width; the advance is one blank column more
+        LDB     PCGW
+        INCB
+        ADDB    ,S+
+        BRA     SWLP
+SWEND   DECB
+        PULS    U,PC
+; CENTRE: the string at U centred on the screen at row A (pixels in 1x, bytes when TWIDE)
 CENTRE  PSHS    A
-        BSR     STRLEN
         TST     TWIDE
-        BEQ     CEN1
+        BNE     CENBYTE
+        BSR     STRWID
+        NEGB
+        ADDB    #128
+        LSRB
+        ANDB    #$FE            ; EVEN: the 1x renderer draws a glyph row at a time and is exact only at pixel
+                                ; phases 0 and 2 (a 6-pixel cell at phase 3 spans 3 bytes). Advances are 4 or 6,
+                                ; both even, so an even start keeps every glyph at phase 0 or 2.
+        PULS    A
+        BRA     PRINTAT
+CENBYTE BSR     STRLEN
         LSLB
-CEN1    NEGB
+        NEGB
         ADDB    #32
         LSRB
         PULS    A
@@ -388,6 +543,41 @@ MASK2R  FCB     $00,$F0,$00,$F0,$00,$F0,$00,$F0
 ; M and W 2x wide: seven pixels, two mask bytes a row
 WIDEM   FCB     $C0,$0C,$F0,$3C,$CC,$CC,$C3,$0C,$C0,$0C        ; #.....#  ##...##  #.#.#.#  #..#..#  #.....#
 WIDEW   FCB     $C0,$0C,$C3,$0C,$CC,$CC,$F0,$3C,$C0,$0C        ; #.....#  #..#..#  #.#.#.#  ##...##  #.....#
+
+; pixel masks for one pixel, by its position in a screen byte (0-3): the two bits it sets
+PIXMASK FCB     $C0,$30,$0C,$03
+; The 1x renderer's tables. tests/font-tables.test.js ENUMERATES every row pattern a glyph can have, applies
+; the shift rule written out in that test, and compares the result with these bytes; a difference fails. One
+; of its checks reads V3P0's entry for 'I' against the font, so a model that only agreed with itself would fail.
+; A row's pixels as 2-bit pairs in place, indexed by the RAW font row bits: the row's bit 0 is its
+; rightmost pixel, so px = w-1-i. 8 entries for 3 wide, 32 for 5.
+V3P0    FCB     $00,$00,$0C,$00,$30,$00,$3C,$00,$C0,$00,$CC,$00,$F0,$00,$FC,$00
+V3P2    FCB     $00,$00,$00,$C0,$03,$00,$03,$C0,$0C,$00,$0C,$C0,$0F,$00,$0F,$C0
+V5P0    FCB     $00,$00,$00,$C0,$03,$00,$03,$C0,$0C,$00,$0C,$C0,$0F,$00,$0F,$C0
+        FCB     $30,$00,$30,$C0,$33,$00,$33,$C0,$3C,$00,$3C,$C0,$3F,$00,$3F,$C0
+        FCB     $C0,$00,$C0,$C0,$C3,$00,$C3,$C0,$CC,$00,$CC,$C0,$CF,$00,$CF,$C0
+        FCB     $F0,$00,$F0,$C0,$F3,$00,$F3,$C0,$FC,$00,$FC,$C0,$FF,$00,$FF,$C0
+; a 5-wide cell at phase 1 or 3 would put its blank column in a THIRD screen byte, which the two-byte
+; window cannot hold. No glyph is drawn at an odd phase (tests/cursor-phases.test.js proves it by watching
+; the cursor the renderer uses), so no such table exists.
+V5P2    FCB     $00,$00,$00,$0C,$00,$30,$00,$3C,$00,$C0,$00,$CC,$00,$F0,$00,$FC
+        FCB     $03,$00,$03,$0C,$03,$30,$03,$3C,$03,$C0,$03,$CC,$03,$F0,$03,$FC
+        FCB     $0C,$00,$0C,$0C,$0C,$30,$0C,$3C,$0C,$C0,$0C,$CC,$0C,$F0,$0C,$FC
+        FCB     $0F,$00,$0F,$0C,$0F,$30,$0F,$3C,$0F,$C0,$0F,$CC,$0F,$F0,$0F,$FC
+; a glyph's V table and its cell mask, in the same index: (phase >> 1) + 2 if 5 (or 4) wide. FOUR entries,
+; and every one is reachable: a glyph's phase is only ever 0 or 2. tests/cursor-phases.test.js proves that by
+; watching PCOL as each glyph is drawn (242 glyphs over both titles), and it fails on a single odd phase.
+; There are therefore no odd-phase entries to carry.
+VTAB    FDB     V3P0,V3P2,V5P0,V5P2
+GAPTAB  FCB     $FF,$00,$0F,$F0,$FF,$F0,$0F,$FF
+; the five letters a 3-pixel cell cannot tell apart, 5x5: five bits a row, bit 4 the left pixel,
+; ONE BLANK COLUMN after each (the proportional cell). A has its point, H a full middle bar, R a
+; bowl and a leg, M its top notch, W the mirror. They differ by shape at the centre, not by one pixel.
+FONT5A  FCB     %00100,%01010,%10001,%11111,%10001        ; ..#.. .#.#. #...# ##### #...#
+FONT5H  FCB     %10001,%10001,%11111,%10001,%10001        ; #...# #...# ##### #...# #...#
+FONT5R  FCB     %11110,%10001,%11110,%10100,%10001        ; ####. #...# ####. #.#.. #...#
+FONT5M  FCB     %10001,%11011,%10101,%10001,%10001        ; #...# ##.## #.#.# #...# #...#
+FONT5W  FCB     %10001,%10001,%10101,%11011,%10001        ; #...# #...# #.#.# ##.## #...#
 
 ; the font: 3x5, ASCII $20-$5F, five rows a character, bit 2 the left pixel
 FONT    FCB     %000,%000,%000,%000,%000        ; space
@@ -458,7 +648,17 @@ FONT    FCB     %000,%000,%000,%000,%000        ; space
 ; variables (set before use: the binary does not carry RMB space)
 ENTROPY RMB     2
 RSEED   RMB     2
-PCADDR  RMB     2
+PCADDR  RMB     2               ; 2x: the screen byte PUTCH is at
+PCOL    RMB     1
+PCSBYTE RMB     2               ; 1x: the screen byte the pixel cursor is in (PCOL: the pixel)
+SWPTR   RMB     2               ; STRWID's string pointer               ; 1x: the pixel (0-3) within the screen byte the cursor is at
+PSTART  RMB     2               ; 1x: where a glyph starts, for the cursor's advance
+PCGW    RMB     1               ; 1x: the glyph's width in pixels (3, 4 or 5)
+PTMP    RMB     2               ; 1x: a row's cell contents, ready to merge into the screen
+MASK    RMB     2               ; 1x: NOT GAP: the screen bits outside the cell
+FILL    RMB     2               ; 1x: TBG where the cell is clear
+GAP     RMB     2               ; 1x: the pixels the cell touches (its glyph and its blank column)
+DK      RMB     1               ; 1x: TFG XOR TBG
 NSCOUNT RMB     1
 BOXW    RMB     1
 BOXH    RMB     1
