@@ -38,6 +38,11 @@ class PacedJob {
   }
 }
 
+// the typeWhen items among `items`, dropped undecided: each one's cancel, once
+function cancelDecisions(items) {
+  for (const it of items) if (it && typeof it === 'object' && it.decide && it.cancel) { const c = it.cancel; it.cancel = null; c(); }
+}
+
 class Typist {
   constructor(machine) {
     this.m = machine;
@@ -67,7 +72,9 @@ class Typist {
   // Type `text` only if the machine is ready for it: decide(), asked once a frame from when the keys before it
   // have been typed, returns 'wait' (ask again next frame), 'type' (type the text now) or 'drop' (never type it).
   // Typing after a load is decided by what the machine does, not by a time: Session.loadMedia's EXEC.
-  typeWhen(decide, text) { this.queue.push({ decide, text }); }
+  // `cancel` (optional) is called if the item is dropped before decide() settles it (clear, dropTyped): what decide()
+  // watches with (the load detector's probe) goes with it.
+  typeWhen(decide, text, cancel = null) { this.queue.push({ decide, text, cancel }); }
   // press a key that is not a character (BREAK): queued like typing, so it goes down and comes back up
   // across frames exactly as a typed key does. A key set down and up inside one call is invisible - the CPU
   // reads the PIA, it is not sampled by the machine - so the press has to span frames to be seen at all.
@@ -80,14 +87,18 @@ class Typist {
     const jobs = new Set(this.queue.filter((it) => it && it.job).map((it) => it.job));
     if (this.state && this.state.job) jobs.add(this.state.job);
     if (this.state && this.state.keys) for (const k of this.state.keys) this.m.setKey(k, false);
+    const dropped = this.queue;
     this.queue = []; this.state = null;
+    cancelDecisions(dropped);
     for (const j of jobs) j.end(j.consumed === j.requested ? 'done' : why);
   }
   // Drop what type(), waitTape(), typeWhen() and press() queued (what a load typed, or is waiting to type), and let
   // go of such a key held down now; paced jobs (Claude's typing) are kept. A program loaded next replaces the one
   // those keys were for: Session.cancelLoadTyping.
   dropTyped() {
+    const dropped = this.queue.filter((it) => !(it && typeof it === 'object' && it.paced !== undefined));
     this.queue = this.queue.filter((it) => it && typeof it === 'object' && it.paced !== undefined);
+    cancelDecisions(dropped);
     if (this.state && !this.state.job) { for (const k of this.state.keys) this.m.setKey(k, false); this.state = null; }
   }
   // drop a job's keys still waiting (it has ended: nothing of it is typed later)

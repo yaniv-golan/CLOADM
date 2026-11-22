@@ -26,6 +26,7 @@ import { cartridgeRoms, createMachine, profiles, resolveConfig, restoreSnapshot 
 import { cpuFamily } from './cpu/cpus.js';
 import { SpeechSoundPak, SSC_ROM_PROFILE } from './machines/ssc.js';
 import { Debugger, codeDisassembly } from './debugger.js';
+import { HostHooks } from './hooks.js';
 import { disassembleBlock } from './asm/disassembler.js';
 import { formats } from './media/formats.js';
 import { Tape } from './media/tape.js';
@@ -249,16 +250,18 @@ function validSetting(k, v) {
 // keys, and on one that loads over BASIC's line buffer an EXEC typed on the CLOADM line would be lost: so EXEC goes
 // on a line of its own, typed once the tape has stopped and the CPU has stayed in the ROM space ($8000 up: BASIC,
 // a cartridge, or BASIC copied to RAM there in 64K mode) for EXEC_IDLE frames, and never once the CPU has fetched an
-// instruction from the loaded program (Machine.pcWatch, every instruction; pages 0 and 1, where BASIC keeps routines
+// instruction from the loaded program (a probe, Machine.addProbe: every instruction; pages 0 and 1, where BASIC keeps routines
 // and hooks it runs itself, do not count). It gives up (types nothing) if the tape never starts or BASIC never
 // settles.
 const EXEC_IDLE = 25, EXEC_START_FRAMES = 600, EXEC_SETTLE_FRAMES = 500;
+// -> { decide, cancel } for Typist.typeWhen: the probe goes when decide() settles, or when the typist drops the EXEC
+// (a reset, a later load: Typist.clear / dropTyped call cancel).
 function execWhenReady(m, file) {
   const from = Math.max(file.load, 0x0200), to = file.load + file.data.length;
   let frames = 0, ran = false, settle = 0, idle = 0, tookOver = false;
-  m.pcWatch = (pc) => { if (pc >= from && pc < to) tookOver = true; };
-  const done = (verdict) => { m.pcWatch = null; return verdict; };
-  return () => {
+  const cancel = m.addProbe((pc) => { if (pc >= from && pc < to) tookOver = true; });
+  const done = (verdict) => { cancel(); return verdict; };
+  const decide = () => {
     frames++;
     if (tookOver) return done('drop');
     if (m.deck.motor) { ran = true; settle = 0; idle = 0; return 'wait'; }
@@ -267,6 +270,7 @@ function execWhenReady(m, file) {
     if (idle >= EXEC_IDLE) return done('type');
     return ++settle > EXEC_SETTLE_FRAMES ? done('drop') : 'wait';
   };
+  return { decide, cancel };
 }
 
 // The serial port of the Session's machine (session.serial): the device plugged in, the bytes both ways, and a
@@ -568,6 +572,9 @@ export class Session {
     this.pendingLands = [];         // { name, at }: names landed that a creation still queued may have to refuse
     this.diskClaims = new Map();   // stored name -> how many creations are making it (claimDiskName: a rename may not take one)
     this.debugger = null;           // created on first use by `debug` (js/debugger.js)
+    // the Session's own probes and bus taps (js/hooks.js), put on whichever machine is in use (install); host state,
+    // never in a snapshot. Internal: no public API yet.
+    this.hooks = new HostHooks();
     this.labels = null;             // symbols of the program in use (the assembler's Map name -> address)
     this.displayCache = null;       // Session.display, once read from the store
     this.unsavedRecording = null;   // a tape recording kept when its machine went (keepRecording), until the page takes it
@@ -819,6 +826,7 @@ export class Session {
     m.onReset = () => this.stopClaudeFor('the machine restarted', m);
     this.keys.clear();
     if (this.debugger && this.debugger.machine !== m) { this.debugger.detach(); this.debugger = null; }
+    this.hooks.attach(m);                 // the Session's probes and bus taps move to m (adopt: a switch, a snapshot)
     this.machine = m;
     this.applyDisplay();
     this.acc = 0;
@@ -2670,12 +2678,11 @@ export class Session {
     this.loadSavedRoms();
     this.emit('roms');
   }
-  // What a load typed into m, or is still waiting to type (the EXEC after CLOADM, and its watch on the loaded
-  // program), is dropped when something else starts on m: a later load, a program injected, a restore point.
-  // Otherwise that EXEC would be typed into whatever runs next.
+  // What a load typed into m, or is still waiting to type (the EXEC after CLOADM, and its probe on the loaded
+  // program, which the typist drops with it), is dropped when something else starts on m: a later load, a program
+  // injected, a restore point. Otherwise that EXEC would be typed into whatever runs next.
   cancelLoadTyping(m) {
     m.typist.dropTyped();
-    m.pcWatch = null;
   }
   restartForLoad(m) {
     this.powerCycle({ menu: false, reason: 'you loaded a program' });
@@ -2742,7 +2749,8 @@ export class Session {
             m.deck.insert(tape);
             if (first.fileType === 2) {
               m.typist.type('CLOADM\r');
-              m.typist.typeWhen(execWhenReady(m, first), 'EXEC\r');
+              const exec = execWhenReady(m, first);
+              m.typist.typeWhen(exec.decide, 'EXEC\r', exec.cancel);
             } else { m.typist.type('CLOAD\r'); m.typist.waitTape(); m.typist.type('RUN\r'); }
             return `${again ? `Using your ROMs again to load ${name} through BASIC. ` : ''}Restarted for a clean load. ${name}: tape inserted [${list}] – loading via BASIC`;
           }

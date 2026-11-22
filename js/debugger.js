@@ -132,29 +132,42 @@ export class Debugger {
     this.hit = null;               // the watchpoint hit of the instruction just executed
     this.checkedPc = null;         // the PC whose instruction has had its breakpoint check and hasn't run yet (_go)
     this.checkedAt = 0;            // ...and the machine's redirect count then (an outside change makes it a new one)
-    // the unwrapped read, for the debugger's own view (taken before _attach replaces the bus read)
+    // the family's read, for the debugger's own view (never through the bus taps)
     this._peekMap = this._peekMapFor(machine, machine.read.bind(machine));
     this._attach();
     machine.debugger = this;       // the machine's snapshot carries its breakpoints and watchpoints
   }
 
   // ---------------- bus ----------------
-  // The CPU talks to the machine's read/write; instance properties shadow the family's methods, so every
-  // real bus access (and only a real one: the 6809's dummy cycles never reach the bus) passes through here.
+  // The watchpoints are a client of the machine's bus taps (js/machines/bustaps.js): a tap over the whole address
+  // space for each kind of access some watchpoint watches, and none while no watchpoint does, so a debugger with no
+  // watchpoints leaves the bus as it is. Every real bus access (and only a real one: the 6809's dummy cycles never
+  // reach the bus) of a watched kind passes through _access. The taps take replays: an instruction the CoCo 3
+  // suspends reports its accesses again from the run that completes it (_stepOnce drops what the suspended run saw).
   _attach() {
-    const m = this.machine;
-    this._readOrig = m.read.bind(m);
-    this._writeOrig = m.write.bind(m);
-    m.read = (a) => { const v = this._readOrig(a); this._access('read', a, v); return v; };
-    m.write = (a, v) => { this._writeOrig(a, v); this._access('write', a, v & 0xFF); };
+    this._taps = { read: null, write: null };
+    this._syncTaps();
+  }
+  _syncTaps() {
+    const taps = this._taps, bus = this.machine.busTaps;
+    if (!taps) return;
+    for (const kind of ['read', 'write']) {
+      const want = this.wps.some((w) => w[kind]);
+      if (want && !taps[kind]) {
+        const fn = (a, v) => this._access(kind, a, v);
+        taps[kind] = kind === 'read' ? bus.addReadTap({ start: 0, end: 0xFFFF }, fn, { replays: true })
+          : bus.addWriteTap({ start: 0, end: 0xFFFF }, fn, { replays: true });
+      } else if (!want && taps[kind]) { taps[kind](); taps[kind] = null; }
+    }
   }
   // unhook (the machine is thrown away, or a new debugger takes its place)
   detach() {
-    const m = this.machine;
-    if (this._readOrig) { m.read = this._readOrig; m.write = this._writeOrig; }
-    this._readOrig = this._writeOrig = null;
+    const m = this.machine, taps = this._taps;
+    if (taps) { if (taps.read) taps.read(); if (taps.write) taps.write(); }
+    this._taps = null;
     if (m.debugger === this) m.debugger = null;
   }
+  get attached() { return this._taps !== null; }
   _access(kind, address, value) {
     if (this.hit) return;          // the first access of this instruction that matches is the one reported
     for (const w of this.wps) {
@@ -219,10 +232,10 @@ export class Debugger {
     if (start + size - 1 > 0xFFFF) throw new SessionError(`watchpoint range $${start.toString(16).toUpperCase()}-$${(start + size - 1).toString(16).toUpperCase()} runs past the end of memory`);
     if (!read && !write) throw new SessionError('a watchpoint must watch reads, writes, or both');
     const w = { start, size, read: !!read, write: !!write };
-    this.wps.push(w); return w;
+    this.wps.push(w); this._syncTaps(); return w;
   }
-  removeWatchpoint(w) { const i = this.wps.indexOf(w); if (i >= 0) this.wps.splice(i, 1); return i >= 0; }
-  clearWatchpoints() { this.wps.length = 0; }
+  removeWatchpoint(w) { const i = this.wps.indexOf(w); if (i >= 0) { this.wps.splice(i, 1); this._syncTaps(); } return i >= 0; }
+  clearWatchpoints() { this.wps.length = 0; this._syncTaps(); }
   watchpoints() { return this.wps.map((w) => ({ ...w })); }
 
   // ---------------- running ----------------
@@ -435,7 +448,7 @@ export class Debugger {
   peekBytes(addr, count) { return Array.from({ length: count }, (_, i) => this.peek(addr + i)); }
   write(addr, bytes) {
     if (!isAddr(addr)) throw new SessionError(`address must be a whole number from 0 to $FFFF (got ${addr})`);
-    [...bytes].forEach((b, i) => this._writeOrig((addr + i) & 0xFFFF, b & 0xFF));
+    [...bytes].forEach((b, i) => this.machine.busTaps.rawWrite((addr + i) & 0xFFFF, b & 0xFF));
     return bytes.length;
   }
 
@@ -446,6 +459,7 @@ export class Debugger {
   loadState(s) {
     this.bps = new Set((s.breakpoints || []).map((a) => a & 0xFFFF));
     this.wps = (s.watchpoints || []).map((w) => ({ start: w.start & 0xFFFF, size: w.size, read: !!w.read, write: !!w.write }));
+    this._syncTaps();
     this.stopped = false; this.stopReason = null; this.skipBp = null; this.untilPc = null; this.untilS = null; this.hit = null;
     this.checkedPc = null;
     this.log.length = 0;
