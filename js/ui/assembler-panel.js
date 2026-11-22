@@ -22,7 +22,7 @@ export function setupAssemblerPanel(page) {
     const src = $('asmSource').value;
     const include = await loadIncludes(src, fetchInclude);
     const t0 = performance.now();
-    const res = assemble(src, session.machine.config.cpu, { include });
+    const res = assemble(src, session.personMachine.config.cpu, { include });
     const ms = (performance.now() - t0).toFixed(1);
     if (!res.ok) {
       // inline under the source, one row per error; an error in this source links to its line (one in an
@@ -71,7 +71,7 @@ export function setupAssemblerPanel(page) {
   }
 
   // LIZA has a build per CPU, and the 6803 source needs the shared data file it includes
-  $('btnAsmLiza').onclick = () => openExampleSource(session.machine.config.cpu === '6803' ? 'examples/liza6803.asm' : 'examples/liza.asm');
+  $('btnAsmLiza').onclick = () => openExampleSource(session.personMachine.config.cpu === '6803' ? 'examples/liza6803.asm' : 'examples/liza.asm');
   $('btnAsmOpen').onclick = () => $('fileAsm').click();
   $('fileAsm').onchange = async (e) => {
     const f = e.target.files[0]; e.target.value = '';

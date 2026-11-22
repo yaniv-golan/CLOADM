@@ -220,12 +220,12 @@ const image = (banks) => { const b = new Uint8Array(banks * 0x4000); for (let k 
   throws('Session: an unknown board is refused', () => { s.cartBoard = 'speech'; }, /unknown cartridge board/);
   s.cartBoard = 'gmc';
   const msg = s.load('tune.ccc', new Uint8Array(0x8000), { remember: false });
-  check('Session: a cartridge image goes on the chosen board', s.machine.cartPort.type === 'gmc' && /Games Master Cartridge inserted/.test(msg), msg);
+  check('Session: a cartridge image goes on the chosen board', s.shownMachine.cartPort.type === 'gmc' && /Games Master Cartridge inserted/.test(msg), msg);
   s.cartBoard = 'orch90';
   throws('Session: an image too big for the board is refused, naming the file', () => s.load('big.rom', new Uint8Array(0x4000), { remember: false }), /big\.rom: Orchestra-90: .*up to 8K/);
   s.cartBoard = 'auto';
   const mmsg = s.insertMultiPak([{ name: 'a.rom', bytes: new Uint8Array(0x8000), board: 'banked' }, null, { name: 'o.rom', bytes: new Uint8Array(0x2000), board: 'orch90' }], { switchSlot: 1 });
-  check('Session: Multi-Pak inserted with its slots', s.machine.cartPort.type === 'multi' && s.machine.read(0xFF7F) === 0xCC && /Multi-Pak \(1: a\.rom, 2: empty, 3: o\.rom\)/.test(mmsg), mmsg);
+  check('Session: Multi-Pak inserted with its slots', s.shownMachine.cartPort.type === 'multi' && s.shownMachine.read(0xFF7F) === 0xCC && /Multi-Pak \(1: a\.rom, 2: empty, 3: o\.rom\)/.test(mmsg), mmsg);
   throws('Session: a Multi-Pak has four slots', () => s.insertMultiPak([null, null, null, null, null]), /four slots/);
   throws('Session: a bad image in a Multi-Pak names the problem', () => s.insertMultiPak([{ name: 'x', bytes: new Uint8Array(0), board: 'gmc' }]), /Multi-Pak: the cartridge image is empty/);
   // The Multi-Pak is offered where it has been verified against MAME, which today is the Color Computer 1/2 and
@@ -261,7 +261,7 @@ const image = (banks) => { const b = new Uint8Array(banks * 0x4000); for (let k 
   // the reason the Dragons are out is "not verified yet", so the message must say so rather than claim no device
   s.switchMachine('dragon200');
   throws('Session: no Multi-Pak on the Dragon 200, not verified there yet', () => s.insertMultiPak([]), /not verified on the Dragon 200 yet/);
-  check('Session: the Dragon 200 still has its cartridge port', s.machine.hasCartridgePort && !s.hasMultiPak);
+  check('Session: the Dragon 200 still has its cartridge port', s.shownMachine.hasCartridgePort && !s.hasMultiPak);
   s.switchMachine('mc10');
   throws('Session: no Multi-Pak on the MC-10, no cartridge port', () => s.insertMultiPak([]), /needs a cartridge port; the .*MC-10 has none/);
   s.switchMachine('alice');

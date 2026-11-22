@@ -66,10 +66,10 @@ const progB = Emu.toBinary(Emu.assemble(' ORG $3000\n FCB $BB,$BB,$BB,$BB,$BB\nL
   // each row loads its own bytes: this is WHY both rows are honest rather than one lying about the other
   const newest = session({ media: s.media });
   newest.loadRecent(0);
-  check('recent: the newest row loads the newest bytes', newest.machine.ram[0x3000] === 0xBB, `$${newest.machine.ram[0x3000].toString(16)}`);
+  check('recent: the newest row loads the newest bytes', newest.shownMachine.ram[0x3000] === 0xBB, `$${newest.shownMachine.ram[0x3000].toString(16)}`);
   const older = session({ media: s.media });
   older.loadRecent(1);
-  check('recent: the older row loads its OWN bytes, not the newer ones', older.machine.ram[0x3000] === 0xAA, `$${older.machine.ram[0x3000].toString(16)}`);
+  check('recent: the older row loads its OWN bytes, not the newer ones', older.shownMachine.ram[0x3000] === 0xAA, `$${older.shownMachine.ram[0x3000].toString(16)}`);
 }
 
 // ---- 4. the two rows of one name are told apart ----
@@ -164,7 +164,7 @@ const progB = Emu.toBinary(Emu.assemble(' ORG $3000\n FCB $BB,$BB,$BB,$BB,$BB\nL
   media.writeSync(`recent/${crc}.bin`, progA);
   const s = session({ media });
   s.load('2048.bin', progA);
-  check('recent: the healed entry still loads (its bytes are found under the normalised CRC)', /2048\.bin/.test(s.loadRecent(0)) && s.machine.ram[0x3000] === 0xAA);
+  check('recent: the healed entry still loads (its bytes are found under the normalised CRC)', /2048\.bin/.test(s.loadRecent(0)) && s.shownMachine.ram[0x3000] === 0xAA);
 }
 
 // ---- 10. the copy label is per MACHINE: the drawer shows one machine's rows, so two of one name on different

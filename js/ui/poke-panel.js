@@ -22,7 +22,7 @@ export function setupPokePanel(page) {
     card.hidden = !r;
     $('turboNote').hidden = !r;
     $('pokeNone').hidden = !!r;
-    $('pokeNone').textContent = session.machine.profile.family === 'coco3' ? "The CoCo 3's speed POKEs aren't in this book yet."
+    $('pokeNone').textContent = session.personMachine.profile.family === 'coco3' ? "The CoCo 3's speed POKEs aren't in this book yet."
       : "This machine has no SAM, so the speed POKEs don't apply.";
     const before = rate;
     rate = r ? r.rate : null;

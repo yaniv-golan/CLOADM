@@ -177,7 +177,7 @@ const refused = (fn, re) => { try { fn(); return false; } catch (e) { return e i
   check('Session: sending needs the terminal', refused(() => s.serialSend('X'), /Plug in the terminal first/));
   check('Session: unknown device and baud refused', refused(() => s.attachSerial('modem'), /No serial device/) && refused(() => s.attachSerial('terminal', { baud: 1234 }), /not offered/));
   s.attachSerial('terminal', { baud: 1200 });
-  const n = s.serialSend('RUN\n'), m = s.machine, bit = m.tickHz / 1200;
+  const n = s.serialSend('RUN\n'), m = s.shownMachine, bit = m.tickHz / 1200;
   // 'R' = $52 = 0101 0010: start, then 0 1 0 0 1 0 1 0
   const levels = [];
   for (let k = 0; k < 10; k++) levels.push(m.bitBanger.rxd(m.now() + (k + 0.5) * bit));
@@ -199,7 +199,7 @@ const refused = (fn, re) => { try { fn(); return false; } catch (e) { return e i
 {
   const s = new Emu.Session();
   s.switchMachine('dragon64');
-  const m = s.machine;
+  const m = s.shownMachine;
   check('Session: the Dragon 64 starts with nothing on its 6551', JSON.stringify(s.serialDevice) === JSON.stringify({ kind: 'none', baud: 9600, kinds: ['none', 'terminal', 'loopback'], chip: '6551' }));
   check('Session: no serial printer on a Dragon (it prints on the parallel port)', refused(() => s.attachSerial('printer'), /No serial device "printer" on the Dragon 64/));
   s.attachSerial('terminal', { baud: 9600 });

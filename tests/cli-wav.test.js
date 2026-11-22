@@ -137,7 +137,7 @@ function edges(samples, g) {
 for (const machine of ['dragon64', 'coco']) {
   const s = new Emu.Session({ welcomeMenu: false });
   s.switchMachine(machine, {}, { menu: false });
-  const { frameCycles, fps } = s.machine;
+  const { frameCycles, fps } = s.shownMachine;
   const file = tmp(`dac-${machine}.wav`);
   const r = cli(['--machine', machine, '--asm', ASM, '--wav', file, '--frames', '14', '--json']);
   check(`${machine}: the run succeeds`, r.code === 0, r.err);
@@ -160,8 +160,8 @@ for (const machine of ['dragon64', 'coco']) {
     gaps.length === wantGaps.length && worst < 0.01, `${gaps.length} vs ${wantGaps.length}`);
   // the square wave's period in seconds: 2 x (8 x 300 + 25) cycles at the machine's clock
   const sq = es.slice(LEVELS.length, LEVELS.length + SQUARE.halves);
-  const period = (sq[sq.length - 1].t - sq[0].t) / ((sq.length - 1) / 2) / s.machine.tickHz;
-  check(`${machine}: the square wave's period is 2 x 2425 cycles (${(1 / period).toFixed(3)} Hz)`, Math.abs(period * s.machine.tickHz - 4850) < 0.01);
+  const period = (sq[sq.length - 1].t - sq[0].t) / ((sq.length - 1) / 2) / s.shownMachine.tickHz;
+  check(`${machine}: the square wave's period is 2 x 2425 cycles (${(1 / period).toFixed(3)} Hz)`, Math.abs(period * s.shownMachine.tickHz - 4850) < 0.01);
 }
 
 // ---- 2. determinism ----
@@ -189,7 +189,7 @@ for (const machine of ['dragon64', 'coco']) {
   const s = new Emu.Session({ welcomeMenu: false });
   s.switchMachine('dragon64', {}, { menu: false });
   s.runAssembled(Emu.assemble(SOURCE, '6809'));
-  const m = s.machine, want = [];
+  const m = s.shownMachine, want = [];
   let frac = 0;
   for (let f = 0; f < 14; f++) {
     s.runFrames(1);

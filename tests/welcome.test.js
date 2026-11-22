@@ -45,8 +45,8 @@ const ART = {
 const wantPixels = Array.from({ length: 6 }, (_, y) => [...'CLOADM'].map((ch) => ART[ch][y]).join('..'));
 
 const clock = () => { let t = 0; return { now: () => t, tick: (ms) => { t += ms; } }; };
-const runFrames = (s, n) => { for (let i = 0; i < n; i++) s.advance(1000 / s.machine.fps + 0.01); };
-const pressKey = (s, ch) => { s.machine.stubKeys.push(ch.charCodeAt(0)); runFrames(s, 2); };
+const runFrames = (s, n) => { for (let i = 0; i < n; i++) s.advance(1000 / s.shownMachine.fps + 0.01); };
+const pressKey = (s, ch) => { s.shownMachine.stubKeys.push(ch.charCodeAt(0)); runFrames(s, 2); };
 
 // starting the welcome program is announced ('welcome'), after it is running: the page's quick-save slots, hidden
 // while the welcome program is all that has run, decide on it (their first listing can come before the start)
@@ -67,7 +67,7 @@ for (const id of models) {
   s.on((e) => { if (e.startsWith('welcome:')) events.push(e); });
   s.startWelcome(bin);
   runFrames(s, 50);
-  const m = s.machine, ram = (a) => m.ram[a];
+  const m = s.shownMachine, ram = (a) => m.ram[a];
   const screen = s.screenText();
   // stripe: 32 cells, four of each colour in order, at the top (built) and bottom (drawn at once)
   const stripe = (row) => Array.from({ length: 32 }, (_, i) => ram(0x400 + row * 32 + i));
@@ -108,7 +108,7 @@ for (const id of models) {
   check(`${id}: games menu keys 1 and 2 fire welcome:2048 and welcome:minesweeper`, events.join() === 'welcome:2048,welcome:minesweeper', events.join());
   pressKey(s, '0');
   check(`${id}: 0 goes back to the main menu`, s.screenText()[12].trim() === '5 PLAY A GAME' && s.screenText()[6].trim() === 'DRAGON AND COLOR COMPUTER');
-  pressKey(s, '5'); s.machine.stubKeys.push(3); runFrames(s, 2);
+  pressKey(s, '5'); s.shownMachine.stubKeys.push(3); runFrames(s, 2);
   check(`${id}: BREAK goes back to the main menu too`, s.screenText()[12].trim() === '5 PLAY A GAME');
   events.length = 0;
   pressKey(s, '1');
@@ -123,7 +123,7 @@ for (const id of models) {
     const s = new Emu.Session();
     s.switchMachine(id);
     s.startWelcome(bin);
-    const m = s.machine;
+    const m = s.shownMachine;
     const edges = [];   // [absolute tick, level]
     const frames = (n) => { for (let i = 0; i < n; i++) { const base = m.frameBase; m.runFrame(); for (let k = 2; k < m.audioEvents.length; k += 2) edges.push([base + m.audioEvents[k], m.audioEvents[k + 1]]); } };
     frames(100);
@@ -163,13 +163,13 @@ for (const id of models) {
   s.switchMachine('dragon32');
   s.addRoms([{ name: 'd32.rom', bytes: new Uint8Array(0x4000).fill(0x12) }]);
   s.startWelcome(bin);
-  check('with ROMs loaded it runs on the stub', s.machine.useStub && s.welcomeRunning);
+  check('with ROMs loaded it runs on the stub', s.shownMachine.useStub && s.welcomeRunning);
   const events = [];
   s.on((e) => events.push(e));
   s.load('liza.bin', new Uint8Array(fs.readFileSync(path.join(ROOT, 'examples/liza.bin'))), { remember: false });
   check('loading another program ends the welcome', !s.welcomeRunning);
-  s.machine.ram[Emu.WELCOME['6809'].event] = 1;   // LIZA's memory, not a mailbox any more
-  s.advance(1000 / s.machine.fps + 0.01);
+  s.shownMachine.ram[Emu.WELCOME['6809'].event] = 1;   // LIZA's memory, not a mailbox any more
+  s.advance(1000 / s.shownMachine.fps + 0.01);
   check('after it ends, the mailbox address is not read', !events.some((e) => e.startsWith('welcome:')));
   s.startWelcome(bin);
   s.switchMachine('coco');
@@ -182,7 +182,7 @@ for (const id of models) {
   t.switchMachine('dragon64');
   t.welcomeSound();
   t.startWelcome(bin);
-  check('audio unlocked before the start: the tune is armed', t.machine.ram[Emu.WELCOME['6809'].soundOk] === 1);
+  check('audio unlocked before the start: the tune is armed', t.shownMachine.ram[Emu.WELCOME['6809'].soundOk] === 1);
 }
 
 // ---- a welcome start whose bytes were overtaken does not take the machine back ----

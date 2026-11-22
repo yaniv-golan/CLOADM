@@ -20,7 +20,7 @@ export function setupDriveWirePanel(page) {
   $('dwSerialBaud').value = '115200';
   for (let c = 0; c < 15; c++) { const o = document.createElement('option'); o.value = c; o.textContent = `Channel ${c}`; $('dwChan').append(o); }
   async function show() {
-    const m = session.machine;
+    const m = session.shownMachine;
     $('dwSection').hidden = !m.becker && !session.webSerialAvailable;
     if ($('dwSection').hidden) return;
     for (const id of ['dwChan', 'dwUrl', 'btnDwConnect', 'dwChanState']) $(id).hidden = !m.becker;

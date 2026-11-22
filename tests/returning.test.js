@@ -13,7 +13,7 @@ const check = (name, cond, detail = '') => { n++; if (!cond) { fail++; console.l
 const ROOT = path.join(__dirname, '..');
 const read = (f) => new Uint8Array(fs.readFileSync(path.join(ROOT, 'examples', f)));
 const welcome = read('welcome.bin'), liza = read('liza.bin'), demo = read('demo.bin');
-const frames = (s, k) => { for (let i = 0; i < k; i++) s.advance(1000 / s.machine.fps + 0.01); };
+const frames = (s, k) => { for (let i = 0; i < k; i++) s.advance(1000 / s.shownMachine.fps + 0.01); };
 const store = () => { const m = new Map(); return { get: (k) => (m.has(k) ? m.get(k) : null), set: (k, v) => m.set(k, String(v)), remove: (k) => m.delete(k), keys: () => [...m.keys()] }; };
 
 // LIZA's DONE loops, where the watch looks: the Session's constants are the assembled sources' symbols
@@ -38,16 +38,16 @@ const store = () => { const m = new Map(); return { get: (k) => (m.has(k) ? m.ge
   let t = s.screenText();
   check('back: "WELCOME BACK" under the title, centred', t[6] === '          WELCOME BACK          ', JSON.stringify(t[6]));
   check('back: option 6 "CARRY ON WITH LIZA" (its number in inverse video) under 5 PLAY A GAME (the options moved up a row), a blank row, then "PRESS 1 TO 6" (not against the colour bar)', t[12].trim() === '6 CARRY ON WITH LIZA'
-    && s.machine.ram[0x400 + 12 * 32 + 4] === 0x36 && t[13].trim() === '' && t[14].trim() === 'PRESS 1 TO 6' && t[11].trim() === '5 PLAY A GAME' && t[10].trim() === '4 CHAT WITH CLAUDE'
+    && s.shownMachine.ram[0x400 + 12 * 32 + 4] === 0x36 && t[13].trim() === '' && t[14].trim() === 'PRESS 1 TO 6' && t[11].trim() === '5 PLAY A GAME' && t[10].trim() === '4 CHAT WITH CLAUDE'
     && t[7].trim() === '1 TALK TO LIZA' && t[8].trim() === '2 COLOUR AND SOUND', JSON.stringify(t.slice(6, 15)));
-  s.machine.stubKeys.push(0x36); frames(s, 2);
+  s.shownMachine.stubKeys.push(0x36); frames(s, 2);
   check('back: key 6 emits welcome:carryon', events.join() === 'welcome:carryon', events.join());
   s.startWelcome(welcome, { greeting: 'bye' });
   frames(s, 50);
   t = s.screenText();
   check('bye: "BYE FOR NOW. PICK ANOTHER?" and no option 6', t[6].trim() === 'BYE FOR NOW. PICK ANOTHER?' && t[13].trim() === '' && t[14].trim() === 'PRESS 1 TO 5', JSON.stringify(t.slice(6, 15)));
   events.length = 0;
-  s.machine.stubKeys.push(0x36); frames(s, 2);
+  s.shownMachine.stubKeys.push(0x36); frames(s, 2);
   check('without option 6, key 6 does nothing', !events.length, events.join());
   s.startWelcome(welcome, { carryOn: 'a very long file name.cas' });
   frames(s, 50);
@@ -113,8 +113,8 @@ const store = () => { const m = new Map(); return { get: (k) => (m.has(k) ? m.ge
     frames(s, 30);
     s.typeText('BYE\n');
     let at = null;
-    for (let i = 0; i < 300 && at === null; i++) { frames(s, 1); if (s.machine.cpu.pc === Emu.Session.LIZA.done['6809']) at = i; }
-    const fps = s.machine.fps;
+    for (let i = 0; i < 300 && at === null; i++) { frames(s, 1); if (s.shownMachine.cpu.pc === Emu.Session.LIZA.done['6809']) at = i; }
+    const fps = s.shownMachine.fps;
     frames(s, Math.floor(fps * 3) - 5);
     const early = menus;
     frames(s, 10);
@@ -135,16 +135,16 @@ const store = () => { const m = new Map(); return { get: (k) => (m.has(k) ? m.ge
     await s.startLiza(() => liza);
     frames(s, 30);
     s.typeText('BYE\n');
-    for (let i = 0; i < 300 && s.machine.cpu.pc !== Emu.Session.LIZA.done['6809']; i++) frames(s, 1);
-    const fps = s.machine.fps, frameMs = 1000 / fps, f0 = s.machine.frameCount;
+    for (let i = 0; i < 300 && s.shownMachine.cpu.pc !== Emu.Session.LIZA.done['6809']; i++) frames(s, 1);
+    const fps = s.shownMachine.fps, frameMs = 1000 / fps, f0 = s.shownMachine.frameCount;
     let calls = 0;
     // 3 s of machine time less a little, in ticks of `tick` frames (or 150 ticks running nothing)
-    if (tick) while (s.machine.frameCount - f0 < fps * 3 - 5) { s.advance(tick * frameMs + 0.01); calls++; }
+    if (tick) while (s.shownMachine.frameCount - f0 < fps * 3 - 5) { s.advance(tick * frameMs + 0.01); calls++; }
     else for (; calls < 200; calls++) s.advance(0.001);
     const early = menus;
     frames(s, tick ? 10 : fps * 3 + 5);   // (ticks with no frame gave the goodbye no machine time at all)
     check(`BYE in LIZA, ${label}: the menu comes after 3 s of machine time, not after a number of ticks`,
-      early === 0 && menus === 1, `${calls} ticks, ${s.machine.frameCount - f0} frames; menus ${early} then ${menus}`);
+      early === 0 && menus === 1, `${calls} ticks, ${s.shownMachine.frameCount - f0} frames; menus ${early} then ${menus}`);
   }
   // BREAK (POLCAT code 3) mid-line leaves exactly as BYE does: the goodbye, the same DONE loop, and the menu 3 s
   // later, once; on the 6809 build and the 6803 one (an MC-10 switched to the 20K LIZA needs)
@@ -159,11 +159,11 @@ const store = () => { const m = new Map(); return { get: (k) => (m.has(k) ? m.ge
     frames(s, 30);
     s.typeText('I FEEL');
     frames(s, 30);
-    s.machine.stubKeys.push(3);
+    s.shownMachine.stubKeys.push(3);
     let at = null;
-    for (let i = 0; i < 300 && at === null; i++) { frames(s, 1); if (s.machine.cpu.pc === Emu.Session.LIZA.done[fam]) at = i; }
+    for (let i = 0; i < 300 && at === null; i++) { frames(s, 1); if (s.shownMachine.cpu.pc === Emu.Session.LIZA.done[fam]) at = i; }
     const t = s.screenText().join(' ');
-    frames(s, Math.floor(s.machine.fps * 3) - 5);
+    frames(s, Math.floor(s.shownMachine.fps * 3) - 5);
     const early = menus;
     frames(s, 10);
     check(`${id}: BREAK in LIZA mid-line is BYE: the goodbye, DONE, and the menu 3 s later, once`,
@@ -186,10 +186,10 @@ const store = () => { const m = new Map(); return { get: (k) => (m.has(k) ? m.ge
     s.load('demo.bin', demo, { remember: false });
     s.watchForMenu('demo');
     frames(s, 20);
-    s.machine.stubKeys.push(0x20); frames(s, 20);
+    s.shownMachine.stubKeys.push(0x20); frames(s, 20);
     check('demo: the key that starts it doesn\'t leave it', menus === 0 && s.menuWatch && s.menuWatch.drawing);
-    s.machine.stubKeys.push(0x20); frames(s, 2);
-    check('demo: a key while it draws asks for the menu, and the key is dropped', menus === 1 && s.machine.stubKeys.length === 0 && s.menuWatch === null);
+    s.shownMachine.stubKeys.push(0x20); frames(s, 2);
+    check('demo: a key while it draws asks for the menu, and the key is dropped', menus === 1 && s.shownMachine.stubKeys.length === 0 && s.menuWatch === null);
     // another load ends a watch
     s.load('demo.bin', demo, { remember: false });
     s.watchForMenu('demo');

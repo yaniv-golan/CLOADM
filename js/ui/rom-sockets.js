@@ -76,8 +76,8 @@ export function setupRomSockets(page, romInput, { confirmSwitch }) {
   }
   // drawn only while the screen is open (show() draws it on opening)
   function render() {
-    if (!isOpen() || !session.machine) return;
-    const m = session.machine, info = session.machineRoms(), name = m.profile.name;
+    if (!isOpen() || !session.personMachine) return;
+    const m = session.personMachine, info = session.machineRoms(m.id), name = m.profile.name;   // the person's machine
     $('romMachine').textContent = name.toUpperCase();
     $('romSockets').replaceChildren(...info.sockets.map((s) => {
       const card = el('div', null, 'socket');
@@ -159,7 +159,7 @@ export function setupRomSockets(page, romInput, { confirmSwitch }) {
     on.textContent = `Switch on the ${name}`;
   }
   $('btnRomSwitchOn').onclick = () => {
-    const m = session.machine;
+    const m = session.personMachine;
     if (m.useStub) { session.stubChosen.delete(m.id); session.switchMachine(m.id); }
     page.status(`${m.profile.name}: switched on with its ROMs`);
     close();
@@ -186,7 +186,7 @@ export function setupRomSockets(page, romInput, { confirmSwitch }) {
     if (ev === 'machine' || ev === 'roms' || ev === 'firmware' || ev === 'reset') render();
   });
   $('btnRunStub').onclick = () => runWithoutRoms();
-  function runWithoutRoms() { session.runWithoutRoms(); render(); page.status(`${session.machine.profile.name}: running without ROMs`); }
+  function runWithoutRoms() { session.runWithoutRoms(); render(); page.status(`${session.personMachine.profile.name}: running without ROMs`); }
   // open this screen (the header's pill, the Machine tab, the boot help, the Welcome menu's key 3); to: 'disk' lands
   // on the disk ROM's card (a drive's Add ROMs…): scrolled into view, with the focus
   function reveal({ to = null } = {}) {

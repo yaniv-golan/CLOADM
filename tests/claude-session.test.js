@@ -91,7 +91,7 @@ function frameScreen(m) {
   return out;
 }
 const settle = () => new Promise((r) => setTimeout(r, 10));
-const frames = (s, k) => { for (let i = 0; i < k; i++) s.advance(1000 / s.machine.fps + 0.01); };
+const frames = (s, k) => { for (let i = 0; i < k; i++) s.advance(1000 / s.shownMachine.fps + 0.01); };
 const snapText = (m) => Emu.state.toJSON(m.snapshot());
 
 function open(bodies, { machine = 'dragon64', cpu = null, tools = true } = {}) {
@@ -101,7 +101,7 @@ function open(bodies, { machine = 'dragon64', cpu = null, tools = true } = {}) {
   const { fetch, calls } = scripted(bodies);
   const backend = new Emu.ClaudeBackend({ fetch, apiKey: s.keyStore.get() });
   const channel = new Emu.MemoryChannel();
-  const basic = s.machine;
+  const basic = s.shownMachine;
   const chat = s.startChat({ backend, channel, firmware: FIRMWARE, brief: 'BRIEF', tools });
   return { s, chat, calls, basic, channel };
 }
@@ -116,34 +116,36 @@ async function say(s, calls, line, want) {
   // ---- opening and closing ----
   {
     const { s, chat, basic } = open([textReply('Hi.')]);
-    check('startChat: a second machine of the same model goes on screen', s.machine !== basic && s.machine.id === basic.id
-      && s.chatView === 'chat' && s.chatMachines.basic === basic && s.chatMachines.chat === s.machine);
-    check('the chat machine runs the stub (no ROM needed) with the chat firmware', !s.machine.hasRom && s.machine.cpu.pc >= 0x6000 && s.machine.cpu.pc < 0x7000, s.machine.cpu.pc.toString(16));
+    check('startChat: a second machine of the same model goes on screen', s.shownMachine !== basic && s.shownMachine.id === basic.id
+      && s.chatView === 'chat' && s.chatMachines.basic === basic && s.chatMachines.chat === s.shownMachine);
+    check('the chat machine runs the stub (no ROM needed) with the chat firmware', !s.shownMachine.hasRom && s.shownMachine.cpu.pc >= 0x6000 && s.shownMachine.cpu.pc < 0x7000, s.shownMachine.cpu.pc.toString(16));
     check('the chat has the machine tools on by default: every read-only and acting tool, and nothing else',
       JSON.stringify(chat.tools.map((t) => t.name).sort()) === JSON.stringify([...Emu.machineTools().map((t) => t.name)].sort())
       && chat.tools.length === Emu.READ_ONLY_TOOLS.length + Emu.ACTING_TOOL_NAMES.length,
       chat.tools.map((t) => t.name).join(','));
-    check('showChat("basic") puts the BASIC session on screen, and back', s.showChat('basic') && s.machine === basic && s.chatView === 'basic'
-      && s.showChat('chat') && s.machine === s.chatMachines.chat);
+    check('showChat("basic") puts the BASIC session on screen, and back', s.showChat('basic') && s.shownMachine === basic && s.chatView === 'basic'
+      && s.showChat('chat') && s.shownMachine === s.chatMachines.chat);
     s.endChat();
-    check('endChat: the BASIC session is back on screen and the chat is gone', s.machine === basic && s.chat === null && s.chatMachines === null);
+    check('endChat: the BASIC session is back on screen and the chat is gone', s.shownMachine === basic && s.chat === null && s.chatMachines === null);
     const w = new Emu.Session({ store: Emu.memoryStore() });
     w.switchMachine('dragon64');
     w.startWelcome(new Uint8Array(fs.readFileSync(path.join(__dirname, '../examples/welcome.bin'))));
     w.startChat({ backend: new Emu.ClaudeBackend({ fetch: async () => null, apiKey: KEY }), channel: new Emu.MemoryChannel(), firmware: FIRMWARE });
-    check('the welcome program is not running on the chat machine', !w.welcomeRunning);
+    // the MENU keeps running on the person's machine (closing the chat comes back to it, the next check); what is not
+    // running on the CHAT machine is that program - which is what welcomeRunningOn answers, the shown-machine view
+    check('the welcome program is not running on the chat machine', !w.welcomeRunningOn && w.welcomeRunning);
     w.endChat();
     check('closing a chat opened from the welcome menu comes back to the welcome program', w.welcomeRunning);
     // and its keys still reach the page: a key the program posts after the chat is a welcome event again
     const heard = [];
     w.on((ev) => { if (ev === 'welcome:demo') heard.push('demo'); });
-    w.machine.poke(0x6003, 2);
+    w.shownMachine.poke(0x6003, 2);
     let flushed = true;
     try { w.flushWelcome(); } catch (e) { flushed = e.message; }
     check('after the chat, the welcome menu\'s keys are events again (key 2: the colour demo)', flushed === true && heard.join() === 'demo', String(flushed));
     const o2 = open([textReply('Hi.')]);
     o2.s.switchMachine('coco');
-    check('a machine switch closes the chat', o2.s.chat === null && o2.s.machine.id === 'coco' && o2.s.chatView === null);
+    check('a machine switch closes the chat', o2.s.chat === null && o2.s.shownMachine.id === 'coco' && o2.s.chatView === null);
   }
   {
     const s = new Emu.Session({ store: Emu.memoryStore() });
@@ -163,13 +165,13 @@ async function say(s, calls, line, want) {
   for (const id of ['dragon64', 'dragon32', 'coco', 'coco3']) {
     const { s } = open([textReply('x')], { machine: id });
     s.setDisplay({ view: 'sharp' }, { remember: false });
-    s.machine.setComposite(0);
+    s.shownMachine.setComposite(0);
     frames(s, 10);
     s.typeText('Hello');
     frames(s, 30);
     // a frame during which the screen memory did not change (the cursor blinks), so RAM is what was drawn
     // memory as the CPU sees it (the CoCo 3's RAM sits behind its MMU)
-    const m = s.machine, screen = () => Uint8Array.from({ length: 6144 }, (_, i) => s.readByte(0x400 + i));
+    const m = s.shownMachine, screen = () => Uint8Array.from({ length: 6144 }, (_, i) => s.readByte(0x400 + i));
     for (let i = 0; i < 100; i++) { const r0 = screen(); frames(s, 1); if (Buffer.from(r0).equals(Buffer.from(screen()))) break; }
     const f = m.render(), green = f.table[f.data[0]];   // the border is the foreground colour in graphics modes
     const ram = screen(), sx = f.width >= 512 ? 2 : 1;   // the CoCo 3's frame is 640 wide: two pixels a dot
@@ -203,7 +205,7 @@ async function say(s, calls, line, want) {
     frames(s, 40);
     check('the reply, the CR LF that ends it and the end-of-reply byte are handed to the chat firmware, a byte a frame', waiting === 'Hello from Claude.\r\n\x04'.length && channel.queued === 0, `${waiting} queued, ${channel.queued} left`);
     check('the conversation holds the turn', s.chat.messages.length === 2 && s.chat.messages[1].content === 'Hello from Claude.');
-    const shown = chatScreen(s.machine);
+    const shown = chatScreen(s.shownMachine);
     check('the chat screen shows the line and the whole reply (a reply ends its line)', shown.includes('> Hello, Claude: 1+1?') && shown.includes('Hello from Claude.'),
       JSON.stringify(shown.filter(Boolean)));
   }
@@ -212,16 +214,16 @@ async function say(s, calls, line, want) {
   // what the person did, read through the firmware's own variables.
   {
     const { s, chat, calls } = open([textReply('Hello from Claude.')]);
-    const key = (code) => { s.machine.stubKeys.push(code); frames(s, 3); };
+    const key = (code) => { s.shownMachine.stubKeys.push(code); frames(s, 3); };
     frames(s, 10);
     check('chatPromptEmpty: a fresh prompt is empty and idle', s.chatPromptEmpty === true);
     key('a'.charCodeAt(0)); key('b'.charCodeAt(0));
-    check('chatPromptEmpty: with two characters typed it is not (BLEN = 2)', s.chatPromptEmpty === false && s.readByte(Emu.CHAT_STATE.blen, s.machine) === 2);
+    check('chatPromptEmpty: with two characters typed it is not (BLEN = 2)', s.chatPromptEmpty === false && s.readByte(Emu.CHAT_STATE.blen, s.shownMachine) === 2);
     key(0x03);
-    check('chatPromptEmpty: BREAK drops the typed line, and the prompt is empty again', s.chatPromptEmpty === true && s.readByte(Emu.CHAT_STATE.blen, s.machine) === 0);
+    check('chatPromptEmpty: BREAK drops the typed line, and the prompt is empty again', s.chatPromptEmpty === true && s.readByte(Emu.CHAT_STATE.blen, s.shownMachine) === 0);
     s.typeText('hi\n');
     for (let i = 0; i < 40 && !chat.busy && calls.length < 1; i++) { frames(s, 1); await settle(); }
-    check('chatPromptEmpty: with the line sent and its reply on the way it is not (WAIT set, or the reply streaming)', s.chatPromptEmpty === false, `wait ${s.readByte(Emu.CHAT_STATE.wait, s.machine)} busy ${chat.busy}`);
+    check('chatPromptEmpty: with the line sent and its reply on the way it is not (WAIT set, or the reply streaming)', s.chatPromptEmpty === false, `wait ${s.readByte(Emu.CHAT_STATE.wait, s.shownMachine)} busy ${chat.busy}`);
     for (let i = 0; i < 400 && (chat.busy || s.chatPromptEmpty === false); i++) { frames(s, 1); await settle(); }
     check('chatPromptEmpty: once the reply has ended it is empty and idle again', s.chatPromptEmpty === true);
     s.showChat('basic');
@@ -236,7 +238,7 @@ async function say(s, calls, line, want) {
     const s = new Emu.Session({ store: Emu.memoryStore() });
     s.switchMachine('dragon64');
     s.setDisplay({ view: 'sharp' }, { remember: false });
-    s.machine.setComposite(0);
+    s.shownMachine.setComposite(0);
     const { fetch, calls } = scripted([textReply('Second answer.')]);
     const backend = new Emu.ClaudeBackend({ fetch, apiKey: '' });
     const channel = new Emu.MemoryChannel();
@@ -254,8 +256,8 @@ async function say(s, calls, line, want) {
     for (let i = 0; i < 400 && channel.queued; i++) frames(s, 1);
     frames(s, 30);
     const want = ['> first', 'Thinking...', '[No API key: add your Anthropic API key to', 'chat.]', '> second', 'Thinking...', 'Second answer.', '>'];
-    const ram = chatScreen(s.machine).filter(Boolean);
-    const shown = frameScreen(s.machine).filter(Boolean);
+    const ram = chatScreen(s.shownMachine).filter(Boolean);
+    const shown = frameScreen(s.shownMachine).filter(Boolean);
     check('frame: a wrapped error, a line typed during it and a new prompt each stay whole, line by line', midway > 10
       && JSON.stringify(shown) === JSON.stringify(want), `${midway} bytes were still to come; ${JSON.stringify(shown)}`);
     check('the line typed while the error was arriving was not taken (no request, nothing on screen)', calls.length === 1
@@ -284,7 +286,7 @@ async function say(s, calls, line, want) {
     s.setClaudeAllowed(true);
     frames(s, 10);
     const before = snapText(basic);
-    const chatMachine = s.machine, chatRam = chatMachine.ram.slice(0x3000, 0x3003);
+    const chatMachine = s.shownMachine, chatRam = chatMachine.ram.slice(0x3000, 0x3003);
     await say(s, calls, 'poke something', 3);
     for (let i = 0; i < 20 && chat.busy; i++) await settle();
     const tr = calls[1] && calls[1].body.messages.slice(-1)[0].content;
@@ -292,7 +294,7 @@ async function say(s, calls, line, want) {
       && chatMachine.ram.slice(0x3000, 0x3003).every((b, i) => b === chatRam[i]));
     const peeked = Array.isArray(tr) ? (() => { try { return JSON.parse(tr[1].content); } catch (e) { return null; } })() : null;
     check('peek read it back from the BASIC session', peeked && JSON.stringify(peeked.hex) === JSON.stringify(['$3000: 01 02 03']) && peeked.truncated === false, JSON.stringify(tr));
-    check('type_text leaves the chat on screen (the BASIC session is beside it, live)', s.machine === chatMachine && s.chatView === 'chat' && s.besideMachine() === basic);
+    check('type_text leaves the chat on screen (the BASIC session is beside it, live)', s.shownMachine === chatMachine && s.chatView === 'chat' && s.besideMachine() === basic);
     // type_text answers once the BASIC session (the stub here) has taken every key: its result says so
     const typed = (() => { try { return JSON.parse(calls[2].body.messages.slice(-1)[0].content[0].content); } catch (e) { return null; } })();
     check('type_text delivered every key to the BASIC session and says so', typed && typed.requested === 8 && typed.consumed === 8 && typed.lines_delivered === 1
@@ -302,7 +304,7 @@ async function say(s, calls, line, want) {
     check('one snapshot for the turn, before its first change', chat.undo.length === 1 && point !== before && JSON.parse(point) && chat.undo[0] !== null);
     frames(s, 30);
     check('the typed text ran on the BASIC session, off screen', s.screenText(basic).some((l) => l.includes('PRINT 7')), s.screenText(basic).join('|'));
-    check('Undo restores the BASIC session exactly to the snapshot; the chat stays on screen', chat.undoLast() && snapText(basic) === point && s.machine === chatMachine && chat.undo.length === 0);
+    check('Undo restores the BASIC session exactly to the snapshot; the chat stays on screen', chat.undoLast() && snapText(basic) === point && s.shownMachine === chatMachine && chat.undo.length === 0);
     check('nothing left to undo', chat.undoLast() === false);
   }
 
@@ -345,7 +347,7 @@ async function say(s, calls, line, want) {
     const s = new Emu.Session({ store: Emu.memoryStore() });
     s.switchMachine('dragon64');
     s.setClaudeKey(KEY);
-    const basic = s.machine;
+    const basic = s.shownMachine;
     frames(s, 30);
     const bodies = [
       toolReply([{ name: 'screen_text' }, { name: 'poke', input: { address: 0x3000, bytes: [7] } }]), textReply('Change $3000 to 7 yourself.'),
@@ -355,7 +357,7 @@ async function say(s, calls, line, want) {
     const { fetch, calls } = scripted(bodies);
     const backend = new Emu.ClaudeBackend({ fetch, apiKey: KEY });
     const chat = s.startAsk({ backend, brief: 'BRIEF' });
-    check('startAsk: a conversation with no chat machine, beside the machine in use', s.chat === chat && !s.chatMachines && s.machine === basic
+    check('startAsk: a conversation with no chat machine, beside the machine in use', s.chat === chat && !s.chatMachines && s.shownMachine === basic
       && s.claudeView === 'panel' && chat.channel === null && chat.target.machine === basic);
     check('startAsk again gives the same conversation', s.startAsk({ backend }) === chat);
     // the person says no: reading worked, the poke is refused with the reason, nothing changed
@@ -426,7 +428,7 @@ async function say(s, calls, line, want) {
     check('to full screen: the same ChatSession, now on the chat machine, with the BASIC session beside it', same === chat && s.claudeView === 'full' && s.chatMachines.basic === basic
       // two turns, each recorded whole (the line, its tool round - tool_use and tool_result - and the reply): 8
       // messages, of which the views show the 4 lines and replies
-      && s.machine === s.chatMachines.chat && s.besideMachine() === basic && chat.channel === channel && chat.messages.length === 8 && Emu.transcript(chat.messages).length === 4);
+      && s.shownMachine === s.chatMachines.chat && s.besideMachine() === basic && chat.channel === channel && chat.messages.length === 8 && Emu.transcript(chat.messages).length === 4);
     check('the firmware is given what was said so far, each turn on its own line, then a prompt', /^> What is on the screen\? Fix it\.\r\nChange \$3000 to 7 yourself\.\r\n> Do it for me\.\r\nPoked\.\r\n\x04$/.test(told), JSON.stringify(told));
     const pc0 = basic.cpu.totalCycles;
     frames(s, 5);
@@ -438,10 +440,10 @@ async function say(s, calls, line, want) {
       && calls[4].body.messages[8].content === 'still there?' && chat.messages.slice(-1)[0].content === 'Still here, full screen.', JSON.stringify(calls[4] && calls[4].body.messages.map((m) => m.content)));
     // back to the side panel: the BASIC session on screen, the chat machine gone, the conversation kept
     s.toSidePanel();
-    check('back to the side panel: the BASIC session on screen, no chat machine, the conversation kept', s.claudeView === 'panel' && !s.chatMachines && s.machine === basic
+    check('back to the side panel: the BASIC session on screen, no chat machine, the conversation kept', s.claudeView === 'panel' && !s.chatMachines && s.shownMachine === basic
       && s.chat === chat && chat.channel === null && channel.closed && chat.messages.length === 10 && Emu.transcript(chat.messages).length === 6);
     s.endChat();
-    check('closing ends the conversation', s.chat === null && s.claudeView === null && s.machine === basic);
+    check('closing ends the conversation', s.chat === null && s.claudeView === null && s.shownMachine === basic);
   }
 
   // ---- a key the person presses pauses Claude (14b follow-up); the Debugger's code ----
@@ -449,7 +451,7 @@ async function say(s, calls, line, want) {
     const s = new Emu.Session({ store: Emu.memoryStore() });
     s.switchMachine('dragon64');
     s.setClaudeKey(KEY);
-    const m = s.machine;
+    const m = s.shownMachine;
     const { fetch } = scripted([textReply('x')]);
     const chat = s.startAsk({ backend: new Emu.ClaudeBackend({ fetch, apiKey: KEY }) });
     s.setClaudeAllowed(true);
@@ -493,8 +495,8 @@ async function say(s, calls, line, want) {
     {
       const s3 = new Emu.Session({ store: Emu.memoryStore() });
       s3.switchMachine('mc10');
-      [0xB6, 0x42, 0x00, 0x39].forEach((b, i) => s3.machine.poke(0x4000 + i, b));   // LDAA $4200; RTS
-      s3.machine.cpu.jump(0x4000);
+      [0xB6, 0x42, 0x00, 0x39].forEach((b, i) => s3.shownMachine.poke(0x4000 + i, b));   // LDAA $4200; RTS
+      s3.shownMachine.cpu.jump(0x4000);
       const c3 = s3.codeAt(0x4000, 2);
       check('codeAt: the 6803 line has X and S but no Y, U or DP', /^PC=[0-9A-F]{4} A=[0-9A-F]{2} B=[0-9A-F]{2} X=[0-9A-F]{4} S=[0-9A-F]{4} CC=[0-9A-F]{2}$/.test(c3.registers)
         && !/\b(Y|U|DP)=/.test(c3.registers), c3.registers);
@@ -508,7 +510,7 @@ async function say(s, calls, line, want) {
   {
     const { s, basic } = open([textReply('x')]);
     const chatM = s.chatMachines.chat;
-    check('full screen: this.machine is the chat machine, not the BASIC session (the premise)', s.machine === chatM && chatM !== basic);
+    check('full screen: this.shownMachine is the chat machine, not the BASIC session (the premise)', s.shownMachine === chatM && chatM !== basic);
     [0x86, 0x41, 0xA7, 0x80, 0x5A, 0x26, 0xFB, 0x39].forEach((b, i) => basic.poke(0x3000 + i, b));
     [0x4F, 0x5F, 0x39, 0x12].forEach((b, i) => chatM.poke(0x3000 + i, b));   // CLRA CLRB RTS NOP: not what the BASIC session holds
     basic.cpu.pc = 0x3000; chatM.cpu.pc = 0x3002;
@@ -526,7 +528,7 @@ async function say(s, calls, line, want) {
     const { s, basic } = open([textReply('x')], { machine: 'coco3', cpu: '6309' });
     const chatM = s.chatMachines.chat;
     check('full screen 6309: the BASIC session is a 6309 and is not this.machine (the premise)',
-      basic.config.cpu === '6309' && s.machine === chatM && chatM !== basic);
+      basic.config.cpu === '6309' && s.shownMachine === chatM && chatM !== basic);
     const r = Emu.assemble(' ORG $3000\n LDA <$10\n LDQ #$11223344\n', '6309');
     if (!r.ok) throw new Error(JSON.stringify(r.errors));
     [...r.segments[0].data].forEach((b, i) => basic.poke(0x3000 + i, b));
@@ -560,25 +562,25 @@ async function say(s, calls, line, want) {
     const { s, chat, calls, basic } = open([textReply('Hi.')]);
     frames(s, 150);
     check('chatNote puts the page\'s line on the chat screen, as a reply is shown', s.chatNote('No API key yet: add one above.')
-      && (frames(s, 150), chatScreen(s.machine).some((l) => l.includes('No API key yet: add one above.'))), chatScreen(s.machine).join('|'));
+      && (frames(s, 150), chatScreen(s.shownMachine).some((l) => l.includes('No API key yet: add one above.'))), chatScreen(s.shownMachine).join('|'));
     check('chatNote is nobody\'s words: not in the conversation Claude reads, and the prompt is back after it',
-      chat.messages.length === 0 && chatScreen(s.machine).some((l) => l.trim().startsWith('>')), JSON.stringify(chat.messages));
+      chat.messages.length === 0 && chatScreen(s.shownMachine).some((l) => l.trim().startsWith('>')), JSON.stringify(chat.messages));
     // the key-saved line is plain ASCII (the chat font has no check mark: it would draw blank cells) and fits one row;
     // the WHOLE row is compared, so a glyph the font lacks turns the row into something else and fails
     const SAVED = 'Key saved. Type below and press ENTER.';
     s.chatNote(SAVED);
     frames(s, 150);
-    check('chatNote: the key-saved line shows whole on one row of the chat screen', chatScreen(s.machine).some((l) => l === SAVED) && SAVED.length <= 42 && /^[\x20-\x7E]+$/.test(SAVED), chatScreen(s.machine).join('|'));
+    check('chatNote: the key-saved line shows whole on one row of the chat screen', chatScreen(s.shownMachine).some((l) => l === SAVED) && SAVED.length <= 42 && /^[\x20-\x7E]+$/.test(SAVED), chatScreen(s.shownMachine).join('|'));
     s.chatNote('A check mark \u2713 has no glyph.');
     frames(s, 150);
     check('chatNote: a character the chat font lacks does not draw as itself, so the whole-row comparison above fails on it (why the line is ASCII)',
-      chatScreen(s.machine).some((l) => l.startsWith('A check mark')) && !chatScreen(s.machine).some((l) => l === 'A check mark \u2713 has no glyph.'), chatScreen(s.machine).join('|'));
+      chatScreen(s.shownMachine).some((l) => l.startsWith('A check mark')) && !chatScreen(s.shownMachine).some((l) => l === 'A check mark \u2713 has no glyph.'), chatScreen(s.shownMachine).join('|'));
     s.chatNote('one line\r\nsecond line?');
     frames(s, 150);
-    check('chatNote stays one line (a line break in it is a space)', chatScreen(s.machine).some((l) => l === 'one line second line?'), chatScreen(s.machine).join('|'));
+    check('chatNote stays one line (a line break in it is a space)', chatScreen(s.shownMachine).some((l) => l === 'one line second line?'), chatScreen(s.shownMachine).join('|'));
     // the chat screen is a bitmap, so a search of memory for the key's bytes cannot see it on the screen: the screen's
     // text, rows joined with no separator (a key wrapped over rows is still found), must not hold the key
-    const screenText = () => chatScreen(s.machine).join('');
+    const screenText = () => chatScreen(s.shownMachine).join('');
     const has = (u8) => Buffer.from(u8).includes(Buffer.from(KEY));
     check('with the notes on screen, neither machine holds the key, no snapshot has it, the settings export has none, and the chat screen does not show it',
       !has(basic.ram) && !has(s.chatMachines.chat.ram) && !snapText(basic).includes(KEY) && !snapText(s.chatMachines.chat).includes(KEY)

@@ -557,11 +557,11 @@ HALT    BRA     HALT
     const r = Emu.assemble(' ORG $3000\nSTART LDA <$10\n LDQ #$11223344\n', '6309');
     if (!r.ok) throw new Error('6309 codeAt firmware does not assemble: ' + JSON.stringify(r.errors));
     for (const [i, b] of [...r.segments[0].data].entries()) s.debug.write(0x3000 + i, [b]);
-    s.machine.cpu.dp = 0x40;
-    s.machine.cpu.jump(0x3000);
+    s.shownMachine.cpu.dp = 0x40;
+    s.shownMachine.cpu.jump(0x3000);
     // distinct values in every 6309-only register, so a line that prints the wrong one (or masks Q to 16 bits)
     // shows: Q = $11223344 splits as D = $1122 and W = $3344, and W splits as E = $33, F = $44
-    s.machine.cpu.q = 0x11223344; s.machine.cpu.v = 0x5566;
+    s.shownMachine.cpu.q = 0x11223344; s.shownMachine.cpu.v = 0x5566;
     const c = s.codeAt(0x3000, 2);
     check('6309: codeAt disassembles LDQ as LDQ, not as data', /LDQ #\$11223344/.test(c.text) && !/FCB/.test(c.text), JSON.stringify(c.text));
     check('6309: codeAt shows all 32 bits of Q', /\bQ=11223344\b/.test(c.registers), c.registers);

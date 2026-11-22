@@ -361,7 +361,7 @@ fs.writeFileSync(tmp('media', 'plain.bas'), '10 PRINT "HI"\n');
       ls.switchMachine('dragon64', {}, { menu: false });
       ls.addRoms([{ name: 'd64_1.rom', bytes: new Uint8Array(fs.readFileSync(tmp('roms', 'd64_1.rom'))) }]);
       ls.load('p.bas', new Uint8Array(Buffer.from('10 PRINT 1\n')), Object.assign({ remember: false }, opts));
-      return ls.machine.typist.queue.filter((c) => typeof c === 'string').join('');
+      return ls.shownMachine.typist.queue.filter((c) => typeof c === 'string').join('');
     };
     check('Session.load of a listing: NEW, the lines, RUN; with run false the same without RUN (the page\'s default is unchanged)',
       queued({}) === 'NEW\r10 PRINT 1\rRUN\r' && queued({ run: false }) === 'NEW\r10 PRINT 1\r', J([queued({}), queued({ run: false })]));
@@ -733,7 +733,7 @@ fs.writeFileSync(tmp('media', 'plain.bas'), '10 PRINT "HI"\n');
   here.runFrames(40);
   const px = pngPixels(Buffer.from(sv.replies[3].result.png, 'base64'));
   check('--serve: replies in order with their ids; a screenshot\'s PNG is machine.render()\'s pixels', sv.code === 0 && J(sv.replies.map((x) => x.id)) === J([1, 2, 3, 4, 5, null, 7, null, 9]) && sv.replies[3].ok
-    && px.equals(Buffer.from(Emu.frameToRGBA(here.machine.render()).buffer)), J(sv.replies.map((x) => x.ok)));
+    && px.equals(Buffer.from(Emu.frameToRGBA(here.shownMachine.render()).buffer)), J(sv.replies.map((x) => x.ok)));
   check('--serve: errors in the tools\' shape', sv.replies[4].error.code === 'bad-address' && sv.replies[5].error.code === 'bad-argument' && sv.replies[6].error.code === 'bad-argument' && /no tool "nope"/.test(sv.replies[6].error.detail)
     && sv.replies[7].error.code === 'bad-argument' && sv.replies[8].ok, J(sv.replies.slice(4)));
 
@@ -760,10 +760,10 @@ fs.writeFileSync(tmp('media', 'plain.bas'), '10 PRINT "HI"\n');
     const poked = await tb.call('poke', { machine_id: 'm1', address: 0x3F00, bytes: [7] });
     check('own session: the tools act on the host\'s Session itself', poked.ok && own.readByte(0x3F00) === 7);
     const booted = await tb.call('boot', { model: 'dragon32' });
-    check('own session: boot switches the host\'s machine in place and returns m1', booted.ok && booted.data.machine.machine_id === 'm1' && own.machine.id === 'dragon32'
+    check('own session: boot switches the host\'s machine in place and returns m1', booted.ok && booted.data.machine.machine_id === 'm1' && own.shownMachine.id === 'dragon32'
       && /already on/.test(tb.tools().find((t) => t.name === 'boot').description), J(booted).slice(0, 200));
     const sw = await tb.call('switch_machine', { machine_id: 'm1', model: 'coco', options: { ram: 64 } });
-    check('own session: switch_machine changes the same Session', sw.ok && own.machine.id === 'coco' && own.machine.config.ram === 64, J(sw).slice(0, 200));
+    check('own session: switch_machine changes the same Session', sw.ok && own.shownMachine.id === 'coco' && own.shownMachine.config.ram === 64, J(sw).slice(0, 200));
     let notSession = null;
     try { T.createToolbox(host, { session: { machine: {} } }); } catch (e) { notSession = e.message; }
     check('own session: only a Session', /session must be a Session/.test(notSession), notSession);
@@ -771,10 +771,10 @@ fs.writeFileSync(tmp('media', 'plain.bas'), '10 PRINT "HI"\n');
     const game = await tb.call('load', { machine_id: 'm1', program: '2048' });
     const ran = await tb.call('run_frames', { machine_id: 'm1', frames: 100 });
     const graphics = await tb.call('screen_text', { machine_id: 'm1' });
-    check('load: the bundled game 2048 runs (its board is in a graphics mode)', game.ok && game.data.loaded === '2048' && ran.ok && own.machine.cpu.pc >= 0x3000 && own.machine.cpu.pc < 0x3C00
+    check('load: the bundled game 2048 runs (its board is in a graphics mode)', game.ok && game.data.loaded === '2048' && ran.ok && own.shownMachine.cpu.pc >= 0x3000 && own.shownMachine.cpu.pc < 0x3C00
       && graphics.ok && graphics.data.machine_output.text === false, J([game, graphics]).slice(0, 300));
     const mines = await tb.call('load', { machine_id: 'm1', program: 'minesweeper' });
-    check('load: minesweeper too', mines.ok && own.machine.cpu.pc >= 0x3000, J(mines).slice(0, 200));
+    check('load: minesweeper too', mines.ok && own.shownMachine.cpu.pc >= 0x3000, J(mines).slice(0, 200));
     await tb.call('boot', { model: 'mc10' });
     const no6809 = await tb.call('load', { machine_id: 'm1', program: '2048' });
     check('load: a game on a machine that cannot run it is refused as the page refuses it', !no6809.ok && no6809.error.code === 'rejected' && /6809 code/.test(no6809.error.detail), J(no6809));

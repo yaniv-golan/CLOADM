@@ -32,7 +32,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const tick = async (k = 30) => { for (let i = 0; i < k; i++) await new Promise((r) => setImmediate(r)); };
 const until = async (fn, ms = 3000) => { const t = Date.now(); while (Date.now() - t < ms) { if (fn()) return true; await sleep(5); } return !!fn(); };
 const within = (p, ms = 3000) => Promise.race([p.then((v) => ({ v }), (e) => ({ e })), sleep(ms).then(() => 'timeout')]);
-const frames = (s, k) => { for (let i = 0; i < k; i++) s.advance(1000 / s.machine.fps + 0.01); };
+const frames = (s, k) => { for (let i = 0; i < k; i++) s.advance(1000 / s.shownMachine.fps + 0.01); };
 
 // the scripted Messages API: each request takes the next reply; { gate: true } holds it until open() is called
 const sse = (events) => events.map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join('');
@@ -77,7 +77,7 @@ function stubAsk({ include = null } = {}) {
 const START = 0x1E01, FRETOP = 0x7E00, P = 0x19;   // the Dragon's TXTTAB.. pointers at $19 [ITD App.8]
 function basicAsk() {
   const s = new Emu.Session({ store: Emu.memoryStore() }); s.switchMachine('dragon64');
-  const m = s.machine;
+  const m = s.shownMachine;
   const asm = Emu.assemble(' ORG $8000\nSTART STA $FFC9\n CLR $FF23\n LDA #$F8\n STA $FF22\n LDA #$04\n STA $FF23\n CLR $FF22\nIDLE BRA IDLE\n', '6809');
   const rom = new Uint8Array(0x4000).fill(0xFF); rom.set(asm.segments[0].data, 0);
   m.setRoms({ basic: rom }); m.reset(true); m.cpu.jump(asm.exec);
@@ -96,7 +96,7 @@ function basicAsk() {
   s.claudeGate = () => {};
   return { s, chat, replies, api: a, tools };
 }
-const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.machine.ram[a + i]).join();
+const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.shownMachine.ram[a + i]).join();
 
 (async () => {
   // ================= A: the person's input while a gate card waits =================
@@ -337,7 +337,7 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.machine.ram[a + i
     const text = 'PRINT "A LONG LINE THAT TAKES A WHILE TO TYPE"\n'.repeat(4);
     replies.push({ body: toolReply('type_text', { text }) }, { body: textReply('Typed.') });
     const turn = chat.sendLine('type');
-    const m = s.machine;
+    const m = s.shownMachine;
     await until(() => m.typist.queue.length > 50, 3000);
     frames(s, 10);
     const paused = s.personInput();
@@ -359,7 +359,7 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.machine.ram[a + i
     const text = 'PRINT "A LONG LINE THAT TAKES A WHILE TO TYPE"\n'.repeat(4);
     replies.push({ body: toolReply('type_text', { text }) }, { body: textReply('Typed.') });
     const turn = chat.sendLine('type');
-    const m = s.machine;
+    const m = s.shownMachine;
     await until(() => m.typist.queue.length > 50, 3000);
     frames(s, 10);
     const paused = s.personInput();
@@ -373,7 +373,7 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.machine.ram[a + i
     replies.length = 0;   // (the stopped turn never asked for its last reply)
     replies.push({ body: toolReply('poke', { address: 0x3050, bytes: [0x77] }) }, { body: textReply('Done.') });
     const r2 = await within(chat.sendLine('poke'));
-    check('F4 ... and the next turn acts', r2 !== 'timeout' && tools[1] && !tools[1].isError && s.machine.ram[0x3050] === 0x77 && !s.claudePaused, JSON.stringify(tools[1]));
+    check('F4 ... and the next turn acts', r2 !== 'timeout' && tools[1] && !tools[1].isError && s.shownMachine.ram[0x3050] === 0x77 && !s.claudePaused, JSON.stringify(tools[1]));
     s.endChat();
   }
   {
@@ -399,7 +399,7 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.machine.ram[a + i
     replies.length = 0;
     replies.push({ body: toolReply('poke', { address: 0x3060, bytes: [0x66] }) }, { body: textReply('Done.') });
     const r2 = await within(chat.sendLine('poke'));
-    check('... and the next turn acts', r2 !== 'timeout' && tools[1] && !tools[1].isError && s.machine.ram[0x3060] === 0x66, JSON.stringify(tools[1]));
+    check('... and the next turn acts', r2 !== 'timeout' && tools[1] && !tools[1].isError && s.shownMachine.ram[0x3060] === 0x66, JSON.stringify(tools[1]));
     s.endChat();
   }
   {
@@ -453,7 +453,7 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.machine.ram[a + i
 
   // ================= F2: the embed API's changes are the person's input =================
   for (const [what, rig, act, landed] of [
-    ['poke', stubAsk, (api) => api.poke(0x3100, [0x42]), (s) => s.machine.ram[0x3100] === 0x42],
+    ['poke', stubAsk, (api) => api.poke(0x3100, [0x42]), (s) => s.shownMachine.ram[0x3100] === 0x42],
     ['loadBasic', basicAsk, (api) => api.loadBasic('10 PRINT "E"'), (s, ptrs) => ram(s, P + 2, 2) !== ptrs],
   ]) {
     // Claude's acting call waits at its card (the switch off): the embedding page's call pauses Claude first, then acts
@@ -481,7 +481,7 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.machine.ram[a + i
     const { s } = stubAsk();
     const api = new Emu.EmbedApi(s, () => {});
     api.poke(0x3100, [1]);
-    check('F2 the embed API\'s poke with no turn in progress pauses nothing', !s.claudePaused && s.machine.ram[0x3100] === 1);
+    check('F2 the embed API\'s poke with no turn in progress pauses nothing', !s.claudePaused && s.shownMachine.ram[0x3100] === 1);
     s.endChat();
   }
 

@@ -90,11 +90,11 @@ LOOP    LDA     $1000
   const make = (id) => {
     const s = new Emu.Session();
     s.switchMachine(id);
-    s.machine.setRoms(id === 'dragon64' ? { basic: rom, basic64: rom } : { basic: rom }); s.machine.reset(true);
-    for (let f = 0; f < 3; f++) s.machine.runFrame();
+    s.shownMachine.setRoms(id === 'dragon64' ? { basic: rom, basic64: rom } : { basic: rom }); s.shownMachine.reset(true);
+    for (let f = 0; f < 3; f++) s.shownMachine.runFrame();
     return s;
   };
-  const s = make('dragon64'), m = s.machine;
+  const s = make('dragon64'), m = s.shownMachine;
   check('firmware set M1 and P1: $1000 is RAM $9000 to the CPU', m.sam.page1 === 1 && m.ramAddr(0x1000, m.sam.reg) === 0x9000);
   s.pokeBytes(0x1000, [0x33]);
   for (let f = 0; f < 2; f++) m.runFrame();
@@ -110,7 +110,7 @@ LOOP    LDA     $1000
   for (let f = 0; f < 2; f++) m.runFrame();
   check('the debugger\'s memory write lands where the CPU reads it too', s.readByte(0x1001) === 0x44 && s.debugger.read(0x1000) === 0x44);
   // a 32K Dragon: P1 points the low half at RAM that is not fitted, so a poke there lands nowhere (as the CPU's own write)
-  const d = make('dragon32'), dm = d.machine, before = dm.ram.slice();
+  const d = make('dragon32'), dm = d.shownMachine, before = dm.ram.slice();
   d.pokeBytes(0x1000, [0x55]);
   check('32K: with P1 a poke to $1000 is lost (no RAM at $9000), as the CPU\'s write is', dm.ram.every((v, i) => v === before[i]) && d.readByte(0x1000) === 0x00);
 }
@@ -120,8 +120,8 @@ LOOP    LDA     $1000
 // strobed columns. Read across $BFFF through the debugger and check the counter is untouched.
 {
   const s = new Emu.Session(); s.switchMachine('mc10');
-  for (let i = 0; i < 40; i++) s.advance(1000 / s.machine.fps + 0.01);
-  const m = s.machine, dbg = s.debug;               // creates the debugger on first use
+  for (let i = 0; i < 40; i++) s.advance(1000 / s.shownMachine.fps + 0.01);
+  const m = s.shownMachine, dbg = s.debug;               // creates the debugger on first use
   m.casReads = 7;                                   // a nonzero counter a bus latch read would reset
   const seen = [];
   for (let a = 0xBFFC; a <= 0xC002; a++) seen.push(dbg.peek(a));

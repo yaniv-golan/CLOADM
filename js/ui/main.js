@@ -76,7 +76,7 @@ const page = createPage(session, new Audio());
 // a background write that fails (full storage, permission refused) must reach the user, not vanish
 session.index.writeError = (name, e) => page.status(session.indexWriteError(name, e), true);
 // the handle exists before the awaited init, so anything watching the page sees it at once
-window.emu = { session, profiles, Emu, feedback: page.feedback, ready: false, started: false, audio: page.audio, audioRunning: () => page.audio.running, get machine() { return session.machine; },
+window.emu = { session, profiles, Emu, feedback: page.feedback, ready: false, started: false, audio: page.audio, audioRunning: () => page.audio.running, get machine() { return session.shownMachine; },
   // the input layer, for the browser check (keyboard modes, the keyboard joystick and the gamepads)
   get input() { return screen.input; }, readPads: () => screen.readPads() };
 try {

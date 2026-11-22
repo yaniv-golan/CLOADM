@@ -14,10 +14,10 @@ let events = 0;
 s.on((e) => { if (e === 'machine') events++; });
 
 s.switchMachine('coco3', { ram: 128 });
-check('switchMachine builds the model with the given options', s.machine.id === 'coco3' && s.machine.config.ram === 128 && events === 1);
+check('switchMachine builds the model with the given options', s.shownMachine.id === 'coco3' && s.shownMachine.config.ram === 128 && events === 1);
 s.switchMachine('dragon64');
 s.switchMachine('coco3');
-check('options are remembered per model', s.machine.config.ram === 128);
+check('options are remembered per model', s.shownMachine.config.ram === 128);
 check('last machine is remembered', new Emu.Session({ store: kv }).startMachine === 'coco3');
 check('unknown model falls back to the Dragon 64', s.switchMachine('nope').id === 'dragon64');
 
@@ -25,18 +25,18 @@ check('unknown model falls back to the Dragon 64', s.switchMachine('nope').id ==
 // machine in use by size; a file that fits nowhere is reported, not thrown; clearRoms forgets them
 const fake = new Uint8Array(0x4000).fill(0x12);
 const added = s.addRoms([{ name: 'x.rom', bytes: fake }]);
-check('ROM by size goes to a socket of the machine in use', added.files[0].result === 'loaded-unrecognised' && !!s.machine.roms.basic, added.files[0].message);
+check('ROM by size goes to a socket of the machine in use', added.files[0].result === 'loaded-unrecognised' && !!s.shownMachine.roms.basic, added.files[0].message);
 check('ROM of no socket size is reported', s.addRoms([{ name: 'y.rom', bytes: new Uint8Array(4096) }]).files[0].result === 'rejected');
 s.clearRoms();
-check('clearRoms empties the sockets and the store', !s.machine.hasRom && ![...store.keys()].some((k) => k.startsWith('rom')));
+check('clearRoms empties the sockets and the store', !s.shownMachine.hasRom && ![...store.keys()].some((k) => k.startsWith('rom')));
 
 // loading without ROMs
 const prog = Emu.assemble(' ORG $3000\n LDA #$41\n STA $0400\nL BRA L\n END', '6809');
 const bin = Emu.toBinary(prog);
-check('binary loads and runs on the stub', /DragonDOS|binary/i.test(s.load('t.bin', bin)) && (() => { s.machine.runFrame(); return s.machine.ram[0x400] === 0x41; })());
+check('binary loads and runs on the stub', /DragonDOS|binary/i.test(s.load('t.bin', bin)) && (() => { s.shownMachine.runFrame(); return s.shownMachine.ram[0x400] === 0x41; })());
 check('BASIC listing needs a ROM', throws(() => s.load('p.bas', new TextEncoder().encode('10 PRINT "HI"\n')), Emu.SessionError));
 check('raw data needs addresses', throws(() => s.load('raw.dat', new Uint8Array([1, 2, 3])), Emu.SessionError));
-check('raw data with addresses loads', /raw/.test(s.load('raw.dat', new Uint8Array([7, 8, 9]), { askAddresses: () => ({ load: 0x2000, exec: null }) })) && s.machine.ram[0x2001] === 8);
+check('raw data with addresses loads', /raw/.test(s.load('raw.dat', new Uint8Array([7, 8, 9]), { askAddresses: () => ({ load: 0x2000, exec: null }) })) && s.shownMachine.ram[0x2001] === 8);
 s.switchMachine('mc10');
 check('cartridge refused on the MC-10 (no port)', throws(() => s.load('c.ccc', new Uint8Array(0x2000).fill(0x39)), Emu.SessionError));
 s.switchMachine('dragon64');
@@ -49,21 +49,21 @@ check('tape insert', /inserted/.test(s.insertTape('t.cas', new Uint8Array(64).fi
   s.on((ev) => events.push(ev));
   s.insertTape('announce.cas', new Uint8Array(64).fill(0x55));
   check('inserting a tape emits the tape event', events.includes('tape'), `(${events.join(',')})`);
-  check('and it is what makes the deck show the tape', !!s.machine.deck.tape && s.machine.deck.tape.name === 'announce.cas');
+  check('and it is what makes the deck show the tape', !!s.shownMachine.deck.tape && s.shownMachine.deck.tape.name === 'announce.cas');
 }
 
 // a power cycle keeps what is inserted (as on real hardware, only RAM and the CPU
 // start over): the cartridge stays in its port, the tape in the deck where it was, the machine starts again
 {
-  const t = s.machine.deck.tape;
+  const t = s.shownMachine.deck.tape;
   t.seekByte(20);
   const at = [t.idx, t.left];                      // (the motor is off, so the frames below don't move it)
-  const cart = s.machine.cartPort;
-  for (let f = 0; f < 30; f++) s.machine.runFrame();
+  const cart = s.shownMachine.cartPort;
+  for (let f = 0; f < 30; f++) s.shownMachine.runFrame();
   s.powerCycle();
-  check('power cycle: the cartridge stays in its port', !!cart && s.machine.cartPort === cart);
-  check('power cycle: the tape stays in the deck, where it was', s.machine.deck.tape === t && t.idx === at[0] && t.left === at[1] && t.idx > 0, `at ${t.idx}`);
-  check('power cycle: the machine starts again', s.machine.framesSinceReset === 0);
+  check('power cycle: the cartridge stays in its port', !!cart && s.shownMachine.cartPort === cart);
+  check('power cycle: the tape stays in the deck, where it was', s.shownMachine.deck.tape === t && t.idx === at[0] && t.left === at[1] && t.idx > 0, `at ${t.idx}`);
+  check('power cycle: the machine starts again', s.shownMachine.framesSinceReset === 0);
 }
 // adding ROMs power cycles the machine in use: an inserted tape stays (it used to be ejected)
 {
@@ -71,7 +71,7 @@ check('tape insert', /inserted/.test(s.insertTape('t.cas', new Uint8Array(64).fi
   r.switchMachine('dragon32');
   r.insertTape('t.cas', new Uint8Array(64).fill(0x55));
   r.addRoms([{ name: 'd32.rom', bytes: new Uint8Array(0x4000).fill(0x12) }]);
-  check('adding a ROM keeps the tape in the deck', r.machine.hasRom && !!r.machine.deck.tape && r.machine.deck.tape.name === 't.cas');
+  check('adding a ROM keeps the tape in the deck', r.shownMachine.hasRom && !!r.shownMachine.deck.tape && r.shownMachine.deck.tape.name === 't.cas');
 }
 
 // pacing: 100 ms of real time runs 5 PAL frames (20 ms each); turbo runs flat out
@@ -86,7 +86,7 @@ check('status line', /^Dragon 64 · \d+ fps/.test(s.statusLine(50)), s.statusLin
 s.turbo = false;
 // a reset or power cycle drops the frames still owed to real time: no burst of catch-up frames (and sound) after it
 {
-  const fms = 1000 / s.machine.fps, seen = [];
+  const fms = 1000 / s.shownMachine.fps, seen = [];
   s.on((e) => seen.push(e));
   for (const [what, act] of [['reset', () => s.reset()], ['power cycle', () => s.powerCycle()]]) {
     s.advance(fms * 6.5);                 // a slow tick: 4 frames run, 2.5 or more still owed
@@ -115,8 +115,8 @@ s.turbo = false;
   check('return visit: not first, machine chosen, recent list kept', !again.first && again.machineChosen && again.recent.length === 1 && again.recent[0].name === 'loop.bin' && again.recent[0].machine === 'dragon64');
   const w = new Emu.Session({ store: st, media });
   w.switchMachine(w.startMachine);
-  check('return visit: the last machine is restored', w.machine.id === 'coco');
-  check('loadRecent loads the item on the machine it was loaded on', /loop\.bin/.test(w.loadRecent(0)) && w.machine.id === 'dragon64' && w.machine.cpu.pc === 0x3000);
+  check('return visit: the last machine is restored', w.shownMachine.id === 'coco');
+  check('loadRecent loads the item on the machine it was loaded on', /loop\.bin/.test(w.loadRecent(0)) && w.shownMachine.id === 'dragon64' && w.shownMachine.cpu.pc === 0x3000);
   for (let i = 0; i < 7; i++) w.load(`p${i}.bin`, Emu.toBinary(Emu.assemble(` ORG $3000\n FCB ${i}\n END`, '6809')));
   check('recent list keeps the last 5, and only their files', w.recentMedia().length === 5 && media.snapshot().filter((f) => f.name.startsWith('recent/') && f.name.endsWith('.bin')).length === 5);
   const exp = JSON.stringify(w.exportSettings());
@@ -140,7 +140,7 @@ s.turbo = false;
   check('CPU rate label at power-on', p.cpuRate().label === '0.89 MHz', p.cpuRate().label);
   const run = (frames) => { for (let i = 0; i < frames; i++) p.advance(20); };
   run(10);
-  const steps = () => { const m = p.machine; let n = 0; m.cpu.trace = () => n++; m.runFrame(); m.cpu.trace = null; return n; };
+  const steps = () => { const m = p.shownMachine; let n = 0; m.cpu.trace = () => n++; m.runFrame(); m.cpu.trace = null; return n; };
   const slowSteps = steps();
   const expect = [[0, 1, 'address-dependent (0.89 / 1.78 MHz)'], [1, 0, '0.89 MHz'], [2, 2, '1.78 MHz'], [3, 0, '0.89 MHz']];
   for (const [i, rate, label] of expect) {
@@ -218,7 +218,7 @@ const userMedia = (async () => {
   t.switchMachine('dragon64');
   check('tape panel: no tape, no status', t.tapeStatus() === null);
   t.insertTape('panel.cas', cas);
-  const m = t.machine, st0 = t.tapeStatus();
+  const m = t.shownMachine, st0 = t.tapeStatus();
   const tick = m.tickHz, half = (f) => Math.round(tick / f / 2);
   let ticks = 0;
   for (const byte of cas) for (let bit = 0; bit < 8; bit++) ticks += 2 * half((byte >> bit) & 1 ? 2400 : 1200);
@@ -261,8 +261,8 @@ const userMedia = (async () => {
   const msg = t.skipTape();
   check('skipTape: the program is loaded instantly (in memory, running), the rest of the tape stays in the deck',
     /panel\.cas: PANEL fast-loaded \$3000-\$30C7, exec \$3000/.test(msg) && code.every((v, i) => m.ram[0x3000 + i] === v) && m.cpu.pc >= 0x3000 && m.cpu.pc < 0x30C8
-    && t.machine.deck.tape && t.machine.deck.tape.name === 'panel.cas' && t.fastCas === false, msg);
-  t.machine.deck.eject();
+    && t.shownMachine.deck.tape && t.shownMachine.deck.tape.name === 'panel.cas' && t.fastCas === false, msg);
+  t.shownMachine.deck.eject();
   check('skipTape without a tape: refused', (() => { try { t.skipTape(); return false; } catch (e) { return e instanceof Emu.SessionError; } })());
   // a tape that went in as a WAV recording: its bytes are the decoded .CAS, so it loads under a .CAS name
   {
@@ -270,11 +270,11 @@ const userMedia = (async () => {
     const w = new Emu.Session({ store: Emu.memoryStore() });
     w.switchMachine('dragon64');
     w.insertTape('panel.wav', casToWav(cas));
-    const inDeck = w.machine.deck.tape && w.machine.deck.tape.name;
+    const inDeck = w.shownMachine.deck.tape && w.shownMachine.deck.tape.name;
     let msg;                                    // a failure is a FAIL line, not a crash of the whole suite
     try { msg = w.skipTape(); } catch (e) { msg = `threw: ${e.message}`; }
     check('skipTape on a tape from a WAV recording: loads the decoded blocks (under panel.cas)', inDeck === 'panel.wav'
-      && /panel\.cas: PANEL fast-loaded \$3000-\$30C7, exec \$3000/.test(msg) && code.every((v, i) => w.machine.ram[0x3000 + i] === v), msg);
+      && /panel\.cas: PANEL fast-loaded \$3000-\$30C7, exec \$3000/.test(msg) && code.every((v, i) => w.shownMachine.ram[0x3000 + i] === v), msg);
   }
   // a BASIC tape with no BASIC ROM: refused before the power cycle, so the tape and the machine are as they were
   {
@@ -283,11 +283,11 @@ const userMedia = (async () => {
     const b2 = new Emu.Session({ store: Emu.memoryStore() });
     b2.switchMachine('dragon64');
     b2.insertTape('prog.cas', basic);
-    b2.machine.ram[0x3000] = 0x77;
+    b2.shownMachine.ram[0x3000] = 0x77;
     let err = null; try { b2.skipTape(); } catch (e) { err = e; }
     check('skipTape on a BASIC tape without the BASIC ROM: refused, and nothing changed (tape still in, memory kept)',
-      err instanceof Emu.SessionError && /needs the Dragon 64 BASIC ROM/.test(err.message) && b2.machine.deck.tape && b2.machine.deck.tape.name === 'prog.cas'
-      && b2.machine.ram[0x3000] === 0x77, err && err.message);
+      err instanceof Emu.SessionError && /needs the Dragon 64 BASIC ROM/.test(err.message) && b2.shownMachine.deck.tape && b2.shownMachine.deck.tape.name === 'prog.cas'
+      && b2.shownMachine.ram[0x3000] === 0x77, err && err.message);
   }
   t.fastTape = false;
   t.insertTape('panel.cas', cas);
@@ -316,7 +316,7 @@ const userMedia = (async () => {
     JSON.stringify(s2.lizaNeeds()));
   const refused = await s2.startLiza(fetch).then(() => null, (e) => e);
   check('LIZA refuses to start on a 4K MC-10, saying what it needs', refused instanceof Emu.SessionError, refused && refused.message);
-  check('the one-step switch fits the 20K option', s2.switchLiza() === 20 && s2.machine.config.ram === 20, `${s2.machine.config.ram}K`);
+  check('the one-step switch fits the 20K option', s2.switchLiza() === 20 && s2.shownMachine.config.ram === 20, `${s2.shownMachine.config.ram}K`);
   check('after the switch LIZA starts', await s2.startLiza(fetch) === 'loaded liza6803-mc10.bin');
   s2.switchMachine('alice', { ram: 20 });
   check('a 20K Alice runs LIZA directly, nothing to ask', s2.lizaNeeds() === null && await s2.startLiza(fetch) === 'loaded liza6803-alice.bin');
@@ -328,10 +328,10 @@ const userMedia = (async () => {
   s3.switchMachine('mc10', { ram: 20 });
   const msg3 = await s3.startLiza(fetch);
   check('Session loads LIZA for real on a 20K MC-10', /liza6803-mc10\.bin: DragonDOS binary/.test(msg3), msg3);
-  for (let i = 0; i < 20; i++) s3.machine.runFrame();
+  for (let i = 0; i < 20; i++) s3.shownMachine.runFrame();
   check('the MC-10 screen shows the LIZA title', s3.screenText().join(' ').includes('I AM LIZA'), s3.screenText()[2]);
   s3.typeText('I need a holiday\n');
-  for (let i = 0; i < 90; i++) s3.machine.runFrame();
+  for (let i = 0; i < 90; i++) s3.shownMachine.runFrame();
   check('typing through the Session gets the reply on screen', s3.screenText().join(' ').includes('WHY DO YOU NEED A HOLIDAY?'),
     s3.screenText().filter((l) => l.trim()).slice(-2).join(' | '));
   // the 4K question through the page's own path: the answer is reported before anything is loaded

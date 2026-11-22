@@ -88,7 +88,7 @@ async function build(which, caseInsensitive) {
   await s.mountDriveWire(0, 'GAME.DSK');
   if (which === 'becker') {
     const server = s.drivewire;
-    return { s, media, server, reached: !!s.machine.becker && s.machine.becker.server === server };
+    return { s, media, server, reached: !!s.shownMachine.becker && s.shownMachine.becker.server === server };
   }
   if (which === 'realCoco') {
     s.serial = stubSerial().serial;
@@ -102,7 +102,7 @@ async function build(which, caseInsensitive) {
   s.startChat({ backend, firmware: FIRMWARE, brief: 'BRIEF', tools: false, drivewire: true });
   const server = s.chatServer;
   // a chat with no server, or one whose machine got the BASIC session's server instead of its own, fails here
-  return { s, media, server, reached: !!(server && s.machine.becker && s.machine.becker.server === server) && server !== s.drivewire };
+  return { s, media, server, reached: !!(server && s.shownMachine.becker && s.shownMachine.becker.server === server) && server !== s.drivewire };
 }
 // let a Session go before the next one is built: the serial link stopped, and a chat closed (it would otherwise keep
 // its second machine and chatServer alive; nothing advances it here, so this is tidiness, not a correctness need)

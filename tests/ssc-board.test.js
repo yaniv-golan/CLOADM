@@ -87,13 +87,13 @@ const storeSscRoms = (s, { pic = PIC, sp = SP_ROM } = {}) => {
   // present: it goes in, and the port holds the Pak
   storeSscRoms(s, { pic: PIC, sp: SP_ROM });
   const msg = s.insertSsc();
-  check('the PIC ROM present: the Pak inserts', s.sscInserted && s.machine.cartPort.type === 'ssc', String(s.sscInserted));
+  check('the PIC ROM present: the Pak inserts', s.sscInserted && s.shownMachine.cartPort.type === 'ssc', String(s.sscInserted));
   check('...and the message says music only', /music only/.test(msg) && /speech is not implemented/.test(msg), msg);
-  check('...and the option is remembered as music', s.machine.config.ssc === 'music', s.machine.config.ssc);
-  check('...and the Pak is the port\'s board, with its label', s.machine.cartPort.name === 'Speech/Sound Pak', s.machine.cartPort.name);
+  check('...and the option is remembered as music', s.shownMachine.config.ssc === 'music', s.shownMachine.config.ssc);
+  check('...and the Pak is the port\'s board, with its label', s.shownMachine.cartPort.name === 'Speech/Sound Pak', s.shownMachine.cartPort.name);
   // eject: the port empties and the option goes back
   s.ejectSsc();
-  check('eject: the port is empty and the option is none', !s.sscInserted && s.machine.config.ssc === 'none');
+  check('eject: the port is empty and the option is none', !s.sscInserted && s.shownMachine.config.ssc === 'none');
 }
 
 // ---------------------------------------------------------------- no speech ROM: it inserts and plays
@@ -106,7 +106,7 @@ const storeSscRoms = (s, { pic = PIC, sp = SP_ROM } = {}) => {
   storeSscRoms(s, { pic: PIC, sp: null });
   const e = throws(() => s.insertSsc());
   check('no speech ROM: the Pak inserts anyway', !e && s.sscInserted, e ? e.message : '');
-  const pak = s.machine.cartPort;
+  const pak = s.shownMachine.cartPort;
   check('...its SP0256 carries no allophone data (the documented empty case, not a zero-filled image)',
     pak.sp0256Data === null, String(pak.sp0256Data));
   // the AY is present and can still be programmed: a mixer write makes a channel audible, which is what the
@@ -121,7 +121,7 @@ const storeSscRoms = (s, { pic = PIC, sp = SP_ROM } = {}) => {
   for (let k = 0; k < 4000; k++) { pak.ay.step(pak.ayOut); level = Math.max(level, Math.abs(pak.ayOut[0])); }
   check('...the AY sounds without any speech ROM (music path independent of it)', level > 0, `peak level ${level}`);
   // the card runs: frames advance with no error, which is what "plays" means at this level
-  check('...and the machine runs frames with the Pak in', !throws(() => { for (let f = 0; f < 3; f++) s.machine.runFrame(); }));
+  check('...and the machine runs frames with the Pak in', !throws(() => { for (let f = 0; f < 3; f++) s.shownMachine.runFrame(); }));
 }
 
 // ---------------------------------------------------------------- it survives a snapshot
@@ -129,10 +129,10 @@ const storeSscRoms = (s, { pic = PIC, sp = SP_ROM } = {}) => {
   const s = await session();
   storeSscRoms(s);
   s.insertSsc();
-  const snap = JSON.parse(Emu.state.toJSON(s.machine.snapshot()));
+  const snap = JSON.parse(Emu.state.toJSON(s.shownMachine.snapshot()));
   check('snapshot: the port holds the Pak', snap.state.cartridge && snap.state.cartridge.type === 'ssc', JSON.stringify(snap.state.cartridge && snap.state.cartridge.type));
   let m = null;
-  const e = throws(() => { m = Emu.restoreSnapshot(Emu.state.fromJSON(JSON.stringify(snap)), s.machine.roms); });
+  const e = throws(() => { m = Emu.restoreSnapshot(Emu.state.fromJSON(JSON.stringify(snap)), s.shownMachine.roms); });
   check('snapshot: restored, the Pak is in the port again', !e && m && m.cartPort && m.cartPort.type === 'ssc', e ? e.message : '');
   check('snapshot: and the restored card still steps', m && !throws(() => { for (let f = 0; f < 2; f++) m.runFrame(); }));
 }
@@ -157,7 +157,7 @@ const storeSscRoms = (s, { pic = PIC, sp = SP_ROM } = {}) => {
   a.switchMachine('coco');
   storeSscRoms(a);
   a.insertSsc();
-  check('the option and the ROM are remembered', a.machine.config.ssc === 'music');
+  check('the option and the ROM are remembered', a.shownMachine.config.ssc === 'music');
   // a fresh Session on the same two stores: the machine's config says music and the ROM is still stored, so the
   // Pak comes back. The ROM lives in the MEDIA store and the config in the key-value store; ready() loads both.
   const b = await newSession(st, md).ready();

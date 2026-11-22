@@ -12,9 +12,9 @@ export function setupEmbed(page) {
   const api = new EmbedApi(session, (msg) => { if (parent) parent.postMessage(msg, '*'); });
   window.addEventListener('message', (e) => { if (parent && e.source === parent) api.handle(e.data); });
   // a 'frame' event after each emulated frame (when the host watches them)
-  let seen = session.machine.frameCount;
+  let seen = session.shownMachine.frameCount;
   const tick = () => {
-    const f = session.machine.frameCount;
+    const f = session.shownMachine.frameCount;
     if (f !== seen) { seen = f; api.frame(); }
     requestAnimationFrame(tick);
   };

@@ -146,8 +146,8 @@ const J = JSON.stringify;
     s.runFrames(100);
     s.typeText('I AM HAPPY\n');
     s.runFrames(400);
-    const f = s.machine.render();
-    return { text: s.screenText().join('\n'), frames: s.machine.frameCount, pixels: Buffer.from(f.data).toString('base64') };
+    const f = s.shownMachine.render();
+    return { text: s.screenText().join('\n'), frames: s.shownMachine.frameCount, pixels: Buffer.from(f.data).toString('base64') };
   }
   const folded = await run((await loadFolded('js/session.js', 'export const Session = __ENTRY__.Session;\n')).Session);
   const plain = await run(Session);

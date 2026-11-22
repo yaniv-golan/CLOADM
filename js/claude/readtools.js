@@ -102,8 +102,29 @@ export function screenReadable(mode) {
   return { readable: true };
 }
 
+// ---- what a tool target is ----
+// The read-only tools take a TARGET, not a Session: an object with `machine` (the machine to read) and the same
+// reads a tool needs on it (screenText, readByte, bootStatus), which is what Session.chatTarget() makes and what a
+// caller with its own machine builds. A Session is NOT one: it says which machine it means through an accessor
+// (shownMachine / personMachine), and a tool that guessed would read the chat machine when it meant the person's.
+// Passing a Session here is refused by name rather than read through (a Session used to satisfy this by having a
+// `machine` field, which is exactly the unclassified reach this classification ends).
+function toolMachine(target) {
+  if (!target || typeof target !== 'object') return null;
+  // A Session (or anything like one) is a CALLER's mistake, and the model must be told so: a plain Error would be
+  // reported as `tool-failed` with its "the tool failed inside the emulator" remedy, and the model would be told to
+  // retry machine_info - the call that just failed. It stays tool-failed (the error set is the model's vocabulary,
+  // and this is not a failure of what the model sent), but the DETAIL names the call, and the remedy now says a
+  // detail that names a tool target means the call was wrong.
+  if (typeof target.chatTarget === 'function' || 'shownMachine' in target || 'personMachine' in target) {
+    throw new ToolError(TOOL_CODES.TOOL_FAILED,
+      'these tools take a tool target (Session.chatTarget()), not a Session: a Session has two machines, so it says which one through an accessor');
+  }
+  return target.machine || null;
+}
+
 export function screenTextTool(target) {
-  const m = target.machine;
+  const m = toolMachine(target);
   if (!m) throw new ToolError(TOOL_CODES.NO_MACHINE);
   const mode = videoMode(m);
   const read = screenReadable(mode);
@@ -286,7 +307,7 @@ function textBase(m, mode) {
 // when they cannot be told, which is different from false. `readable` is the SAME answer screen_text gives, from
 // the same rule (screenReadable), so a model can tell in one call whether screen_text is worth calling at all.
 export function machineInfoTool(target) {
-  const m = target.machine;
+  const m = toolMachine(target);
   if (!m) throw new ToolError(TOOL_CODES.NO_MACHINE);
   const mode = videoMode(m);
   const read = screenReadable(mode);
@@ -410,7 +431,8 @@ function atBasicPrompt(target, mode) {
   if (!st || st.state === 'stub' || st.state === 'booting') return null;
   if (st.state !== 'ok') return false;
   // a GIME text mode is read by the GIME's own walk, not the VDG page Session.screenText decodes
-  const lines = mode.gimeText ? gimeText(target.machine, mode).lines : mode.plusText ? plusText(target.machine, mode).lines : target.screenText();
+  const tm = toolMachine(target);
+  const lines = mode.gimeText ? gimeText(tm, mode).lines : mode.plusText ? plusText(tm, mode).lines : target.screenText();
   return lines.some((l) => l.trim() === 'OK');
 }
 
@@ -426,7 +448,7 @@ export const PEEK_MAX = 256;
 // person reading memory expects
 const PEEK_ROW = 16;
 export function peekTool(target, input) {
-  if (!target.machine) throw new ToolError(TOOL_CODES.NO_MACHINE);
+  if (!toolMachine(target)) throw new ToolError(TOOL_CODES.NO_MACHINE);
   const addr = checkedInt(input ? input.address : undefined, { min: ADDRESS_MIN, max: ADDRESS_MAX, code: TOOL_CODES.BAD_ADDRESS });
   const asked = input && input.length != null ? checkedInt(input.length, { min: PEEK_LENGTH_MIN, max: PEEK_LENGTH_MAX, code: TOOL_CODES.BAD_LENGTH }) : PEEK_DEFAULT_LENGTH;
   // the check is on the bytes actually read, not on the bytes asked for: an asked-for 4096 at $F800 is
@@ -453,7 +475,7 @@ export function peekTool(target, input) {
 // covers all three - so there is no second instruction table to drift.
 export const DISASSEMBLE_MAX = 64;
 export function disassembleTool(target, input) {
-  const m = target.machine;
+  const m = toolMachine(target);
   if (!m) throw new ToolError(TOOL_CODES.NO_MACHINE);
   const { cpu, dp } = codeDisassembly(m);
   const addr = checkedInt(input ? input.address : undefined, { min: ADDRESS_MIN, max: ADDRESS_MAX, code: TOOL_CODES.BAD_ADDRESS });

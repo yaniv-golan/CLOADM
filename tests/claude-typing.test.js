@@ -30,7 +30,7 @@ const C = Emu.TOOL_CODES;
 
 let fail = 0, n = 0;
 const check = (name, cond, detail = '') => { n++; if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log(`ok   ${name} ${detail}`); };
-const frames = (s, k) => { for (let i = 0; i < k; i++) s.advance(1000 / s.machine.fps + 0.01); };
+const frames = (s, k) => { for (let i = 0; i < k; i++) s.advance(1000 / s.shownMachine.fps + 0.01); };
 const dead = new Emu.ClaudeBackend({ fetch: async () => { throw new Error('no network in this test'); }, apiKey: 'sk-ant-TYPING-TEST-KEY-0123456789' });
 const call = (chat, name, input = {}) => Promise.resolve(chat.backend.runTool(name, input)).then((out) => ({ ok: true, out }), (err) => ({ ok: false, err }));
 // call a tool with the machine running until it settles
@@ -198,7 +198,7 @@ const SLOT = { dragon64: 0x4000, coco3: 0x8000, mc10: 0x2000 };
 function machineWith(id, busy) {
   const s = new Emu.Session({ store: Emu.memoryStore() });
   s.switchMachine(id);
-  const m0 = s.machine, six = id === 'mc10' ? '6803' : '6809';
+  const m0 = s.shownMachine, six = id === 'mc10' ? '6803' : '6809';
   const enter = m0.keyPos.ENTER[1] * 8 + m0.keyPos.ENTER[0];
   const asm = Emu.assemble(firmware(six, enter, busy), six);
   if (!asm.ok) throw new Error(asm.errors.map((e) => `line ${e.line}: ${e.message}`).join('; '));
@@ -208,7 +208,7 @@ function machineWith(id, busy) {
   m0.reset(true);
   m0.cpu.jump(asm.exec);
   frames(s, 6);
-  const m = s.machine, base = id === 'mc10' ? 0x4300 : 0x0300, logAt = base + (id === 'mc10' ? 0x50 : 0x40);
+  const m = s.shownMachine, base = id === 'mc10' ? 0x4300 : 0x0300, logAt = base + (id === 'mc10' ? 0x50 : 0x40);
   const log = () => Array.from({ length: m.ram[base] }, (_, i) => m.ram[logAt + i]);
   const shift = m.keyPos.SHIFT[1] * 8 + m.keyPos.SHIFT[0];
   // the keys the firmware saw, SHIFT left out (it goes down with each shifted character)

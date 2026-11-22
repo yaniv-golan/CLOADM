@@ -129,14 +129,14 @@ const runFire = (id, press) => {
   rom.set(FW_ASM.segments[0].data, 0);
   const s = new Emu.Session();
   s.switchMachine(id);
-  s.machine.setRoms({ basic: rom });
-  s.machine.reset(true);
-  s.machine.cpu.jump(FW_ASM.exec);
-  for (let i = 0; i < 3; i++) s.advance(1000 / s.machine.fps + 0.01);
-  if (press) press(s.machine);
-  for (let i = 0; i < 4; i++) s.advance(1000 / s.machine.fps + 0.01);
+  s.shownMachine.setRoms({ basic: rom });
+  s.shownMachine.reset(true);
+  s.shownMachine.cpu.jump(FW_ASM.exec);
+  for (let i = 0; i < 3; i++) s.advance(1000 / s.shownMachine.fps + 0.01);
+  if (press) press(s.shownMachine);
+  for (let i = 0; i < 4; i++) s.advance(1000 / s.shownMachine.fps + 0.01);
   const base = FW_ASM.symbols.get('MARK');
-  return { m: s.machine, base };
+  return { m: s.shownMachine, base };
 };
 for (const id of ['dragon64', 'coco3']) {
   const idle = runFire(id, null);
