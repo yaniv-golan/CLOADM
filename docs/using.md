@@ -432,7 +432,7 @@ on-screen keyboard, it may sit over some keys until you close it.
 ## Assembler
 
 The Assembler, in the Source pane of the **Debugger** screen (in the header), is a two-pass 6809/6803 assembler (`js/asm/`). Write or open source, click
-**Assemble & run** to run it on the emulated machine, or click **Save .BIN** to download a DragonDOS binary.
+**Assemble & run** to run it on the emulated machine, or click **Save .BIN** to download the binary the open machine loads (DragonDOS on a Dragon, DECB on a CoCo; Save is off on the MC-10 and Alice, which load `.c10` tapes).
 Wrong code is never emitted without an error: an operand that doesn't fit its field (`LDA #$1234`, `FCB 300`, `FDB $12345`,
 a 16-bit address or offset past 64K), a division by zero, a label defined twice (by a line label or `EQU`), and an
 `ORG` or `RMB` whose value is defined only later in the source (it would move every label after it) are errors

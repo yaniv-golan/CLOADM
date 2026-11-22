@@ -10,7 +10,8 @@
  *                                                                        plain "name address" lines of a CMOC .map
  *                                                                        (a bare ADDR is hexadecimal, as linkers print it)
  *   Symbol: NAME (file) = ADDR    Local symbol: NAME (file) = ADDR       LWLINK's -m map (its "Section:" lines are skipped)
- * An address is 1 to 4 hexadecimal digits; a symbol whose name appears twice with different addresses, a line that is none of the
+ * The name and the address are separated by white space, "=" or ":" ("CODE" is not the symbol COD at $E). An address is 1 to 4
+ * hexadecimal digits, in either case; a symbol whose name appears twice with different addresses, a line that is none of the
  * above and an address past $FFFF are errors that name the line (a SymbolsError with `line`).
  */
 export class SymbolsError extends Error {
@@ -20,7 +21,7 @@ export class SymbolsError extends Error {
 const NAME = '[A-Za-z_.@][A-Za-z0-9_.@$]*';
 const ADDR = '(?:\\$|0[xX])?([0-9A-Fa-f]{1,5})';   // five digits are matched so that $10000 is refused by value, not misread
 const LWLINK = new RegExp(`^(?:Local\\s+)?[Ss]ymbol:\\s*(${NAME})\\s*(?:\\([^)]*\\))?\\s*=\\s*${ADDR}$`);
-const PLAIN = new RegExp(`^(${NAME})\\s*(?:=|:)?\\s*${ADDR}$`);
+const PLAIN = new RegExp(`^(${NAME})(?:\\s*[=:]\\s*|\\s+)${ADDR}$`);
 const SKIP = /^(?:[*;#]|\/\/|Section:|Entry:|Symbol\s+Address\b)/i;
 
 export function parseSymbols(text) {

@@ -23,11 +23,11 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 - **`cloadm --assemble`: assemble to a file without building a machine.** `node cli/cloadm.js --assemble game.asm --cpu 6809 --format
   dragondos|decb|raw --out game.bin [--map game.map] [--json]` writes the binary and stops (`--asm` assembles **and runs**).
-  `--format` follows `--machine` when one is given (the Dragons `dragondos`, the CoCos `decb`; the MC-10 and Alice have no default),
-  and is required without it. A DragonDOS file or raw image zero-fills a gap of up to 256 bytes between two pieces and refuses a
-  larger one as `bad-media` with the hint `use --format decb`. `--map` writes one `NAME $ADDR` line per symbol, sorted by address.
+  `--format` follows `--machine` when one is given (the Dragons `dragondos`, the CoCos `decb`; the MC-10 and Alice load `.c10` tapes, so
+  `--machine mc10` is refused), and is required without it. A DragonDOS file or raw image zero-fills a gap of up to 256 bytes between
+  two pieces (`writeDragonDos`'s default `maxGap`) and refuses a larger one as `bad-media` with the hint `use --format decb`. `--map` writes one `NAME $ADDR` line per symbol, sorted by address.
   A new step, `--symbols FILE`, reads such a map (or an LWLINK `-m` or CMOC `.map`) into the session's labels: `--disasm` shows
-  them and `--wait-for pc:LABEL` stops at one. New in `js/media/formats.js`: `writeDragonDos(segments, exec, { type, maxGap })` and
+  them (those `--asm` gave too) and `--wait-for pc:LABEL` stops at one. New in `js/media/formats.js`: `writeDragonDos(segments, exec, { type, maxGap })` and
   `writeDecb(segments, exec)`, the round-trip partners of `parseDragonDos` and `parseDecb`; new in `js/asm/symbols.js`:
   `parseSymbols`, `formatSymbols`, `lookupSymbol`.
 
@@ -35,9 +35,10 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 - **`toBinary(result, { format })` needs the format.** It used to write DragonDOS whenever the program was contiguous, even for a
   CoCo, and DECB otherwise; now the caller says `'dragondos'` or `'decb'` (and an optional `maxGap`), and a call without one
-  throws. Every caller passes the format it means, and `examples/*.bin` are byte for byte what they were. The Assembler tab's
-  Save writes the file the open machine loads: DECB on a CoCo, DragonDOS on a Dragon (the MC-10 and Alice keep DragonDOS, the
-  header this project's own loader reads).
+  throws. Every caller passes the format it means, and `examples/*.bin` are byte for byte what they were. `writeDragonDos` refuses a gap
+  of more than 256 bytes between two segments unless the caller raises `maxGap` (`examples/chat.bin` does: its blocks sit up to
+  1,438 bytes apart). The Assembler tab's Save writes the file the open machine loads: DECB on a CoCo, DragonDOS on a Dragon; on
+  the MC-10 and Alice, which load `.c10` tapes, Save is off and says why. `--disasm` now names labels from `--asm` as well.
 
 ### Fixed
 

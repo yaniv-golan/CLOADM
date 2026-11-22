@@ -5506,6 +5506,23 @@ SUB     INCA
     cb[0] === 0x00 && ((cb[1] << 8) | cb[2]) === cb.length - 10 && cb[3] === 0x30 && cb[4] === 0x00 && cb[5] === 0x86 && cb.slice(-5).join(',') === '255,0,0,48,0', JSON.stringify(cb.slice(0, 8)) + JSON.stringify(cb.slice(-6)));
   check('debugger: the saved file is named after the source', dragonSave.name === 'program.bin' && cocoSave.name === 'program.bin', `${dragonSave.name} ${cocoSave.name}`);
   check('debugger: no page errors saving', !cocoErrors.length, cocoErrors.join('; '));
+  // the MC-10 and Alice load .c10 tapes: no binary file to save, so Save is off and the note says why (the command line's words)
+  const mcPage = await ctx.newPage();
+  const mcErrors = [];
+  mcPage.on('pageerror', (e) => mcErrors.push(e.message));
+  await mcPage.goto(`${base}?machine=mc10`); await started(mcPage);
+  await openDebugger(mcPage);
+  const saveState = () => mcPage.evaluate(() => { const b = document.getElementById('btnAsmSave'), n = document.getElementById('asmSaveNote'); return { disabled: b.disabled, note: n.textContent, hidden: n.hidden, shown: n.getBoundingClientRect().height > 0, described: b.getAttribute('aria-describedby') }; });
+  const mcSave = await saveState();
+  check('debugger: on the MC-10 Save is disabled and a visible note gives the reason, the one message of the command line',
+    mcSave.disabled && !mcSave.hidden && mcSave.shown && mcSave.described === 'asmSaveNote' && mcSave.note === 'The MC-10 loads .c10 tapes, not binary files: there is no file format to save a program in for it.', JSON.stringify(mcSave));
+  await mcPage.evaluate(() => window.emu.session.switchMachine('alice', {}, { menu: false }));
+  const aliceSave = await saveState();
+  check('debugger: switching to the Matra Alice keeps Save off and names the Alice', aliceSave.disabled && !aliceSave.hidden && aliceSave.note.startsWith('The Matra Alice loads .c10 tapes'), JSON.stringify(aliceSave));
+  await mcPage.evaluate(() => window.emu.session.switchMachine('dragon64', {}, { menu: false }));
+  const backSave = await saveState();
+  check('debugger: switching back to a Dragon turns Save on and hides the note', !backSave.disabled && backSave.hidden && backSave.note === '', JSON.stringify(backSave));
+  check('debugger: no page errors switching the MC-10, Alice and Dragon', !mcErrors.length, mcErrors.join('; '));
   check('debugger: no page errors', !errors.length, errors.join('; '));
   await ctx.close();
 

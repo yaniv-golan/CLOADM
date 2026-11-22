@@ -63,7 +63,12 @@ const { STEPS, ERROR_CODES } = require(CLI);
     const regs0 = s.debug.registers();
     const st = r.json.steps;
     check('registers: the debugger\'s registers, with the CPU', r.code === 0 && st[3].cpu === '6809' && JSON.stringify(st[3].registers) === JSON.stringify(regs0), JSON.stringify(st[3]) + r.err);
-    check('disasm with no address: at the PC, 8 instructions, as disassembleTool gives them', JSON.stringify(Object.assign({ step: 'disasm' }, Emu.disassembleTool(s, { address: regs0.pc, count: 8 }))) === JSON.stringify(st[4]), JSON.stringify(st[4]).slice(0, 200));
+    // (the CLI adds `label` and `targetLabel` from the program's symbols; everything else is what disassembleTool gives)
+    const unlabelled = (step) => Object.assign({}, step, { instructions: step.instructions.map(({ label, targetLabel, ...rest }) => rest) });
+    check('disasm with no address: at the PC, 8 instructions, as disassembleTool gives them', JSON.stringify(Object.assign({ step: 'disasm' }, Emu.disassembleTool(s, { address: regs0.pc, count: 8 }))) === JSON.stringify(unlabelled(st[4])), JSON.stringify(st[4]).slice(0, 200));
+    // the labels are the assembler's own: the name --asm gave each address, found by this test from the asm step's symbols
+    const named = new Map(Object.entries(st[0].symbols).map(([name, at]) => [at, name]));
+    check('disasm: an instruction at a label carries it, and one that is not at a label carries none', st[5].instructions.every((i) => i.label === named.get(i.address)) && st[5].instructions.some((i) => i.label) && st[4].instructions.every((i) => i.label === named.get(i.address)), JSON.stringify(st[5].instructions.map((i) => i.label)));
     check('disasm $3000:5: the program as assembled (CLR, LDX, LEAX, CMPX, BNE)', st[5].instructions.map((i) => i.text.split(' ')[0]).join() === 'CLR,LDX,LEAX,CMPX,BNE' && st[5].instructions[4].address === 0x300B, JSON.stringify(st[5].instructions.map((i) => i.text)));
     let cycles = 0;
     for (let i = 0; i < 7; i++) cycles += s.debug.step();
@@ -72,7 +77,7 @@ const { STEPS, ERROR_CODES } = require(CLI);
     finishAsync();
   })().catch((e) => { check('debugger steps against the Session', false, e.stack); finishAsync(); });
   const h = cli(['-m', 'dragon32', '--asm', tmp('count.asm'), '--set-register', 'pc=$3017', '--registers', '--disasm', '--step', '3', '--expect-mem', '$3100=0']);
-  check('set-register pc, then the human registers and disasm lines', h.code === 0 && /PC=\$3017 /.test(h.out.split('\n')[0]) && h.out.split('\n')[1] === '$3017  20 FE           BRA $3017'
+  check('set-register pc, then the human registers and disasm lines', h.code === 0 && /PC=\$3017 /.test(h.out.split('\n')[0]) && h.out.split('\n')[1] === 'DONE:' && h.out.split('\n')[2] === '$3017  20 FE           BRA $3017  ; DONE'
     && /PC=\$3017/.test(h.out.trim().split('\n').pop()), h.out + h.err);
   const bad = cli(['--set-register', 'zz=1']);
   check('set-register with a register the CPU does not have: exit 3 (refused), names it', bad.code === 3 && /unknown register "zz"/.test(bad.err), bad.err);

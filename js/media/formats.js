@@ -18,9 +18,9 @@ function checkSegments(segments, exec) {
   }
 }
 // DragonDOS binary: $55 type load length exec $AA data. One contiguous range: the segments are put in address order and
-// a gap between two of them is filled with zero bytes, up to maxGap bytes (default: any gap that fits the file's 65535); a larger gap, or segments that
+// a gap between two of them is filled with zero bytes, up to maxGap bytes (default 256); a larger gap, or segments that
 // overlap, is a WriteError (a segmented format, writeDecb, holds them). type: 2 binary (default), 1 BASIC.
-export function writeDragonDos(segments, exec, { type = 2, maxGap = 0xFFFF } = {}) {
+export function writeDragonDos(segments, exec, { type = 2, maxGap = 256 } = {}) {
   checkSegments(segments, exec);
   if (type !== 1 && type !== 2) throw new WriteError('range', `a DragonDOS file type is 1 (BASIC) or 2 (binary), not ${type}`);
   const sorted = segments.filter((g) => g.data.length).sort((a, b) => a.addr - b.addr);
@@ -39,11 +39,14 @@ export function writeDragonDos(segments, exec, { type = 2, maxGap = 0xFFFF } = {
   for (const g of sorted) out.set(g.data, 9 + g.addr - lo);
   return out;
 }
-// DECB (Color BASIC LOADM) segmented binary: ($00 length address data)* $FF $00 $00 exec. The segments stay as they are, in order.
+// DECB (Color BASIC LOADM) segmented binary: ($00 length address data)* $FF $00 $00 exec. The segments stay as they are, in order
+// (an empty one is left out).
 export function writeDecb(segments, exec) {
   checkSegments(segments, exec);
+  const kept = segments.filter((g) => g.data.length);       // an empty segment is no block (as writeDragonDos leaves it out)
+  if (!kept.length) throw new WriteError('empty', 'nothing to write: the program has no bytes');
   const parts = [];
-  for (const g of segments) {
+  for (const g of kept) {
     if (g.data.length > 0xFFFF) throw new WriteError('range', `a segment of ${g.data.length} bytes is more than a DECB block's 65535`, { at: g.addr });
     parts.push(0x00, ...word(g.data.length), ...word(g.addr), ...g.data);
   }

@@ -41,12 +41,12 @@ async function libraryChecks(root, check) {
   check('DragonDOS: type 1 is written as the type byte', writeDragonDos([seg(0x3000, 1)], 0x3000, { type: 1 })[1] === 0x01);
   check('DragonDOS: two segments are joined, in address order, whatever order they come in',
     same(writeDragonDos([seg(0x3002, 3, 4), seg(0x3000, 1, 2)], 0x3000), [0x55, 0x02, 0x30, 0x00, 0x00, 0x04, 0x30, 0x00, 0xAA, 1, 2, 3, 4]));
-  const gap256 = writeDragonDos([seg(0x3000, 0xAA), seg(0x3101, 0xBB)], 0x3000, { maxGap: 256 });
-  check('DragonDOS: a gap of exactly 256 bytes is filled with zeros', gap256.length === 9 + 0x102 && gap256[9] === 0xAA && gap256[9 + 0x101] === 0xBB && gap256.subarray(10, 9 + 0x101).every((b) => b === 0) && same(gap256.subarray(4, 6), [0x01, 0x02]));
+  const gap256 = writeDragonDos([seg(0x3000, 0xAA), seg(0x3101, 0xBB)], 0x3000);
+  check('DragonDOS: the default limit is 256: a gap of exactly 256 bytes is filled with zeros', gap256.length === 9 + 0x102 && gap256[9] === 0xAA && gap256[9 + 0x101] === 0xBB && gap256.subarray(10, 9 + 0x101).every((b) => b === 0) && same(gap256.subarray(4, 6), [0x01, 0x02]));
   check('DragonDOS: a gap of 257 bytes is a WriteError of kind gap, which carries where and how big',
-    throwsKind(() => writeDragonDos([seg(0x3000, 0xAA), seg(0x3102, 0xBB)], 0x3000, { maxGap: 256 })) === 'gap');
-  try { writeDragonDos([seg(0x3000, 0xAA), seg(0x3102, 0xBB)], 0x3000, { maxGap: 256 }); } catch (e) { check('DragonDOS: the gap error says where the gap starts and its size', e.at === 0x3001 && e.gap === 257, `${e.at} ${e.gap}`); }
-  check('DragonDOS: with no limit given a large gap that fits is zero-filled', writeDragonDos([seg(0x3000, 1), seg(0x4000, 2)], 0x3000).length === 9 + 0x1001);
+    throwsKind(() => writeDragonDos([seg(0x3000, 0xAA), seg(0x3102, 0xBB)], 0x3000)) === 'gap' && throwsKind(() => writeDragonDos([seg(0x3000, 0xAA), seg(0x3102, 0xBB)], 0x3000, { maxGap: 256 })) === 'gap');
+  try { writeDragonDos([seg(0x3000, 0xAA), seg(0x3102, 0xBB)], 0x3000); } catch (e) { check('DragonDOS: the gap error says where the gap starts and its size', e.at === 0x3001 && e.gap === 257, `${e.at} ${e.gap}`); }
+  check('DragonDOS: a larger gap is refused by default and zero-filled when the caller raises maxGap', throwsKind(() => writeDragonDos([seg(0x3000, 1), seg(0x4000, 2)], 0x3000)) === 'gap' && writeDragonDos([seg(0x3000, 1), seg(0x4000, 2)], 0x3000, { maxGap: 0xFFFF }).length === 9 + 0x1001);
   check('DragonDOS: overlapping segments are refused', throwsKind(() => writeDragonDos([seg(0x3000, 1, 2), seg(0x3001, 3)], 0x3000)) === 'overlap');
   check('DragonDOS: no segments, or only empty ones, is refused', throwsKind(() => writeDragonDos([], 0)) === 'empty' && throwsKind(() => writeDragonDos([seg(0x3000)], 0)) === 'empty');
   check('DragonDOS: an address past the 64 KiB and an exec past $FFFF are refused', throwsKind(() => writeDragonDos([seg(0xFFFF, 1, 2)], 0)) === 'range' && throwsKind(() => writeDragonDos([seg(0x3000, 1)], 0x10000)) === 'range');
@@ -56,6 +56,8 @@ async function libraryChecks(root, check) {
   check('DECB: one segment is $00 length address data and the $FF $00 $00 exec postamble', same(writeDecb([seg(0x3000, 1, 2, 3)], 0x3001), [0x00, 0x00, 0x03, 0x30, 0x00, 1, 2, 3, 0xFF, 0x00, 0x00, 0x30, 0x01]));
   check('DECB: segments stay separate and in the order given, gaps and all',
     same(writeDecb([seg(0x4000, 7), seg(0x3000, 5, 6)], 0x3000), [0x00, 0x00, 0x01, 0x40, 0x00, 7, 0x00, 0x00, 0x02, 0x30, 0x00, 5, 6, 0xFF, 0x00, 0x00, 0x30, 0x00]));
+  check('DECB: an empty segment is left out, as DragonDOS leaves it out', same(writeDecb([seg(0x3000, 1), seg(0x3010)], 0x3000), writeDecb([seg(0x3000, 1)], 0x3000)) && same(writeDecb([seg(0x2000), seg(0x3000, 1)], 0x3000), writeDecb([seg(0x3000, 1)], 0x3000)));
+  check('DECB: a program of only empty segments is the empty error, as in DragonDOS', throwsKind(() => writeDecb([seg(0x3000), seg(0x3010)], 0x3000)) === 'empty');
   check('DECB: no segments is refused, and so is a segment past the end of memory', throwsKind(() => writeDecb([], 0)) === 'empty' && throwsKind(() => writeDecb([seg(0xFFFF, 1, 2)], 0)) === 'range');
 
   // round trips through the parsers
@@ -83,7 +85,8 @@ async function toBinaryChecks(root, check) {
   check('toBinary: dragondos is writeDragonDos of the segments', same(A.toBinary(res, { format: 'dragondos' }), F.writeDragonDos(res.segments, res.exec)));
   check('toBinary: decb is writeDecb of the segments', same(A.toBinary(res, { format: 'decb' }), F.writeDecb(res.segments, res.exec)));
   check('toBinary: a CoCo program that is contiguous is DECB when asked for it (it used to be DragonDOS whichever machine)', A.toBinary(A.assemble(SMALL, '6809'), { format: 'decb' })[0] === 0x00);
-  check('toBinary: maxGap reaches the DragonDOS writer', /gap/.test(must(() => A.toBinary(A.assemble(GAP257, '6809'), { format: 'dragondos', maxGap: 256 })) || ''));
+  check('toBinary: the DragonDOS gap limit is the writer\'s default (257 refused, 256 written), and maxGap raises it', /gap/.test(must(() => A.toBinary(A.assemble(GAP257, '6809'), { format: 'dragondos' })) || '') && same(A.toBinary(res, { format: 'dragondos' }), F.writeDragonDos(res.segments, res.exec))
+    && A.toBinary(A.assemble(GAP257, '6809'), { format: 'dragondos', maxGap: 4096 }).length === 9 + 0x105);
 }
 
 // ---------------- the command line, at `root` ----------------
@@ -106,10 +109,15 @@ async function cliChecks(root, check) {
     r = cli(['--assemble', small, '--machine', id, '--out', `${id}.bin`, '--json']);
     check(`the default format of the ${id} is ${want}`, r.code === 0 && r.json().assemble.format === want, r.out + r.err);
   }
-  r = cli(['--assemble', small, '--machine', 'mc10', '--out', 'm.bin']);
-  check('the MC-10 has no default format (it loads .c10): exit 2 and nothing written', r.code === 2 && /\.c10/.test(r.err) && !fs.existsSync(path.join(dir, 'm.bin')), r.err);
-  r = cli(['--assemble', small, '--machine', 'mc10', '--format', 'raw', '--out', 'm.bin']);
-  check('the MC-10 with --format raw: the 6803 program bytes and nothing else', r.code === 0 && same(bin('m.bin'), [0x86, 0x41, 0xB7, 0x31, 0x00, 0x20, 0xFE]), r.err);
+  for (const [id, name] of [['mc10', 'MC-10'], ['alice', 'Matra Alice']]) {
+    for (const extra of [[], ['--format', 'raw'], ['--format', 'dragondos']]) {
+      r = cli(['--assemble', small, '--machine', id, ...extra, '--out', 'm.bin']);
+      check(`the ${name} loads .c10 tapes: ${extra.join(' ') || 'no --format'} is refused with the one message, exit 2, nothing written`,
+        r.code === 2 && r.err.trim() === `cloadm: The ${name} loads .c10 tapes, not binary files: there is no file format to save a program in for it.` && !fs.existsSync(path.join(dir, 'm.bin')), r.err);
+    }
+  }
+  r = cli(['--assemble', small, '--cpu', '6803', '--format', 'raw', '--out', 'm.bin']);
+  check('without a machine, a 6803 program can still be written raw', r.code === 0 && same(bin('m.bin'), [0x86, 0x41, 0xB7, 0x31, 0x00, 0x20, 0xFE]), r.err);
   r = cli(['--assemble', small, '--machine', 'dragon64', '--format', 'decb', '--out', 'x.bin']);
   check('an explicit --format wins over the machine\'s', r.code === 0 && bin('x.bin')[0] === 0x00);
 
@@ -183,6 +191,8 @@ async function cliChecks(root, check) {
   const lab = cli(['--machine', 'dragon64', '--load', path.join(dir, 'd.bin'), '--symbols', path.join(dir, 'd.map'), '--wait-for', 'pc:L', '--expect-mem', '$3100=$41', '--json']);
   check('two processes: --symbols d.map then --wait-for pc:L stops at L ($3005); the label is found whatever its case', lab.code === 0 && lab.json().steps.find((s) => s.step === 'wait-for').address === 0x3005
     && cli(['--machine', 'dragon64', '--load', path.join(dir, 'd.bin'), '--symbols', path.join(dir, 'd.map'), '--wait-for', 'pc:l']).code === 0, lab.out + lab.err);
+  const asmDis = cli(['--asm', small, '--frames', '1', '--disasm', '$3000:3']);
+  check('--disasm names the labels --asm gave, with no --symbols', asmDis.code === 0 && /START:\n\$3000 {2}86 41/.test(asmDis.out) && /\nL:\n\$3005 {2}20 FE {11}BRA \$3005 {2}; L/.test(asmDis.out), asmDis.out);
   const dis = cli(['--machine', 'dragon64', '--load', path.join(dir, 'd.bin'), '--symbols', path.join(dir, 'd.map'), '--disasm', '$3000:3', '--json']);
   const ins = dis.code === 0 ? dis.json().steps.find((s) => s.step === 'disasm').instructions : [];
   check('--symbols: --disasm names the instruction at a label and the label a branch goes to', ins.length === 3 && ins[0].label === 'START' && ins[2].label === 'L' && ins[2].targetLabel === 'L', dis.out.slice(0, 400) + dis.err);
@@ -198,16 +208,8 @@ async function cliChecks(root, check) {
   check('--help names --assemble and says that --asm runs', /--assemble FILE/.test(cli(['--help']).out) && /--asm assembles and RUNS/.test(cli(['--help']).out));
 }
 
-(async () => {
-  // the real code first: every check must hold
-  const real = record('real');
-  await libraryChecks(ROOT, real);
-  await toBinaryChecks(ROOT, real);
-  await cliChecks(ROOT, real);
-
-  const Emu = await import(pathToFileURL(path.join(ROOT, 'js/emu.js')).href);
-  const sy = record('real');
-  const S = Emu;
+async function symbolChecks(root, sy) {
+  const S = await import(pathToFileURL(path.join(root, 'js/asm/symbols.js')).href);
   sy('symbols: formatSymbols sorts by address, then name, and writes NAME $ADDR with four digits',
     S.formatSymbols(new Map([['LOOP', 0x3005], ['START', 0x3000], ['BETA', 0x3005], ['SCREEN', 0x400]])) === 'SCREEN $0400\nSTART $3000\nBETA $3005\nLOOP $3005\n');
   sy('symbols: a value that is not a 16-bit whole number is left out', S.formatSymbols({ A: 1, B: 1.5, C: -1, D: 0x10000 }) === 'A $0001\n');
@@ -223,8 +225,26 @@ async function cliChecks(root, check) {
   sy('symbols: a line that is not a symbol names its line number', bad('A $1\nthis is nonsense\n').line === 2);
   sy('symbols: an address past $FFFF is refused', bad('A $10000\n') instanceof S.SymbolsError);
   sy('symbols: one name with two addresses is refused, with the same address twice it is not', bad('A $1\nA $2\n').line === 2 && bad('A $1\nA $1\n') === null);
+  // a name and an address need a separator: the end of a bare word is not an address
+  const rejects = (text) => bad(text) instanceof S.SymbolsError;
+  sy('symbols: "CODE" is not the symbol COD at $E, and "FOO1234" is not FOO123 at $4: a line with no separator is refused', rejects('CODE\n') && rejects('FOO1234\n') && rejects('ABCDEF\n') && rejects('X$12\n'));
+  sy('symbols: a separator may be white space, "=" or ":", with or without spaces around the last two', ['A 12', 'A\t12', 'A=12', 'A = 12', 'A: 12', 'A:12', 'A $12', 'A 0x12'].every((l) => { const m = S.parseSymbols(`${l}\n`); return m.size === 1 && m.get('A') === 0x12; }));
+  const lower = S.parseSymbols('foo c0de\nSymbol: x (f.o) = 00ff\nbar = 0xabcd\nbaz: $fF00\n');
+  sy('symbols: hexadecimal addresses in lower case (and mixed), in the plain form, LWLINK\'s and after 0x or $', lower.get('foo') === 0xC0DE && lower.get('x') === 0xFF && lower.get('bar') === 0xABCD && lower.get('baz') === 0xFF00);
   sy('symbols: lookupSymbol finds an exact name, then a case-insensitive one if only one matches, and gives up on a tie',
     S.lookupSymbol(new Map([['Loop', 5]]), 'Loop') === 5 && S.lookupSymbol(new Map([['LOOP', 5]]), 'loop') === 5 && S.lookupSymbol(new Map([['LOOP', 5], ['Loop', 6]]), 'loop') === undefined && S.lookupSymbol(null, 'x') === undefined);
+}
+
+(async () => {
+  // the real code first: every check must hold
+  const real = record('real');
+  await libraryChecks(ROOT, real);
+  await toBinaryChecks(ROOT, real);
+  await cliChecks(ROOT, real);
+
+  const Emu = await import(pathToFileURL(path.join(ROOT, 'js/emu.js')).href);
+  const sy = record('real');
+  await symbolChecks(ROOT, sy);
   sy('binaryFormat: dragondos for every Dragon, decb for every CoCo, none for the MC-10 and the Alice', (() => {
     const dragons = ['dragon32', 'dragon64', 'dragon200', 'dragon200e', 'tanodr64', 'dgnalpha', 'd64plus'], cocos = ['coco', 'coco2b', 'mx1600', 'lzcolor64', 'cd6809', 'cp400', 'coco3', 'coco3p'];
     return dragons.every((id) => Emu.binaryFormat(Emu.profiles[id]) === 'dragondos') && cocos.every((id) => Emu.binaryFormat(Emu.profiles[id]) === 'decb') && Emu.binaryFormat(Emu.profiles.mc10) === null && Emu.binaryFormat(Emu.profiles.alice) === null
@@ -232,17 +252,21 @@ async function cliChecks(root, check) {
   })());
 
   // the mutants: a copy of the code with one breakage each; each must fail some check
-  const mutants = [
+  const mutants = [   // [what, from, to, file (default js/media/formats.js)]
     ['the load and exec bytes swapped in the DragonDOS header', 'out.set([0x55, type, ...word(lo), ...word(len), ...word(exec), 0xAA]);', 'out.set([0x55, type, ...word(exec), ...word(len), ...word(lo), 0xAA]);'],
     ['the DECB $FF $00 $00 postamble dropped', 'parts.push(0xFF, 0x00, 0x00, ...word(exec));', 'parts.push(...word(exec));'],
     ['the gap rule off by one (a gap of exactly the limit refused)', 'g.addr - end > maxGap', 'g.addr - end >= maxGap'],
     ['the gap rule off by one the other way (a gap one over the limit allowed)', 'g.addr - end > maxGap', 'g.addr - end > maxGap + 1'],
+    ['an empty segment written as a DECB block', 'const kept = segments.filter((g) => g.data.length); ', 'const kept = segments; '],
+    ['the default gap limit unlimited again', 'maxGap = 256 }', 'maxGap = 0xFFFF }'],
+    ['symbols: no separator required', "(?:\\\\s*[=:]\\\\s*|\\\\s+)", "\\\\s*(?:=|:)?\\\\s*", 'js/asm/symbols.js'],
+    ['symbols: upper-case hexadecimal only', '[0-9A-Fa-f]{1,5}', '[0-9A-F]{1,5}', 'js/asm/symbols.js'],
   ];
   const copies = [];
-  for (const [what, from, to] of mutants) {
+  for (const [what, from, to, file = 'js/media/formats.js'] of mutants) {
     const root = fs.mkdtempSync(path.join(TMP, 'mutant-'));
     for (const d of ['js', 'cli']) fs.cpSync(path.join(ROOT, d), path.join(root, d), { recursive: true });
-    const f = path.join(root, 'js/media/formats.js'), text = fs.readFileSync(f, 'utf8');
+    const f = path.join(root, file), text = fs.readFileSync(f, 'utf8');
     if (text.split(from).length !== 2) { record('mutant')(`the mutation "${what}" applies exactly once (the code it breaks has moved)`, false); continue; }
     fs.writeFileSync(f, text.replace(from, to));
     copies.push({ what, root });
@@ -254,6 +278,7 @@ async function cliChecks(root, check) {
     const before = failures.length;
     const m = record(`mutant: ${what}`);
     await guarded(libraryChecks, root, m);
+    await guarded(symbolChecks, root, m);
     await guarded(toBinaryChecks, root, m);
     await guarded(cliChecks, root, m);
     const red = failures.splice(before).map((x) => x.name);

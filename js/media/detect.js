@@ -27,6 +27,11 @@ export function binaryFormat(profile) {
   if (profile.family === 'mc10') return null;
   return profile.keyboard === 'dragon' || profile.keyboard === 'dragon200e' ? 'dragondos' : 'decb';
 }
+// why a model has no binary file format to save a program in (null: it has one): the one message the command line's --assemble
+// and the Assembler tab's Save both give
+export function binaryFormatRefusal(profile) {
+  return binaryFormat(profile) ? null : `The ${profile.name} loads .c10 tapes, not binary files: there is no file format to save a program in for it.`;
+}
 export const FAMILY_NAMES = { dragon: 'Dragon', coco: 'CoCo', mc10: 'MC-10' };
 
 // a raw disk image (after any header): DragonDOS or RS-DOS, by their directory tracks

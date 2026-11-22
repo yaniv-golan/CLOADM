@@ -475,7 +475,6 @@ class Runner {
     this.wav = null;             // the sound recording under way: { file, out (AudioOutput), chunks, result }
     this.results = [];
     this.romReport = null;
-    this.symbolMap = null;       // the labels the last --symbols read
   }
   get m() { return this.s.machine; }
   // the machine, built from the setup steps at the first step that needs it
@@ -603,7 +602,6 @@ class Runner {
     let map;
     try { map = Emu.parseSymbols(Buffer.from(readFile(file, 'symbol map')).toString('utf8')); } catch (e) { if (e instanceof Emu.SymbolsError) throw media(`${file}: ${e.message}`); throw e; }
     s.setLabels(map);
-    this.symbolMap = map;   // --disasm names labels from a map; the program's own (--asm) are not added to its listing
     return this.record(step, { file, count: map.size });
   }
   async cart(step, file, s) {
@@ -782,8 +780,8 @@ class Runner {
   }
   async disasm(step, { address: a, count }, s) {
     const r = Emu.disassembleTool(s, { address: a == null ? this.m.cpu.pc : a, count });
-    // the labels --symbols gave (while they are the session's): `label` on an instruction that has one, `targetLabel` where its operand points at one
-    if (s.labels && s.labels === this.symbolMap && s.labels.size) {
+    // the session's labels (from --asm or --symbols): `label` on an instruction that has one, `targetLabel` where its operand points at one
+    if (s.labels && s.labels.size) {
       const names = new Map();
       for (const [name, at] of s.labels) if (!names.has(at)) names.set(at, name);
       for (const i of r.instructions) {
@@ -1004,7 +1002,6 @@ function assembleFile(file, cpu) {
 }
 // --assemble FILE --out FILE [--cpu C] [--machine ID] [--format F] [--map FILE] [--json]: assemble to a file and stop. No machine is built.
 const ASSEMBLE_FORMATS = ['dragondos', 'decb', 'raw'];
-const ASSEMBLE_GAP = 256;   // the most a DragonDOS file or a raw image zero-fills between two segments
 function assembleOptions(argv) {
   const o = { json: false, source: null, cpu: null, machine: null, format: null, out: null, map: null };
   const names = ['assemble', 'cpu', 'machine', 'format', 'out', 'map'];
@@ -1029,24 +1026,22 @@ function assembleRun(argv) {
     profile = Emu.profiles[o.machine];
     if (!profile) throw usage(`no machine "${o.machine}" (--list-machines lists them)`, 'bad-option');
   }
+  const refusal = profile && Emu.binaryFormatRefusal(profile);
+  if (refusal) throw usage(refusal);
   if (!profile && !o.cpu) throw usage('--assemble needs --cpu (6809, 6309, 6803 or 7000) or a --machine to take it from');
   if (!profile && !o.format) throw usage(`--assemble needs --format (${ASSEMBLE_FORMATS.join(', ')}) without a --machine to take it from`);
   if (o.format != null && !ASSEMBLE_FORMATS.includes(o.format)) throw usage(`--format is ${ASSEMBLE_FORMATS.join(', ')}, not "${o.format}"`);
   if (o.cpu != null && !Emu.cpuFamily(o.cpu)) throw usage(`--cpu is 6809, 6309, 6803 or 7000, not "${o.cpu}"`);
   if (profile && o.cpu != null && !profile.options.cpu.values.includes(o.cpu)) throw usage(`the ${profile.name} has a ${profile.options.cpu.values.join(' or ')}, not a ${o.cpu}`, 'bad-option');
   const cpu = o.cpu || profile.options.cpu.default;
-  let format = o.format;
-  if (!format) {
-    format = Emu.binaryFormat(profile);
-    if (!format) throw usage(`the ${profile.name} loads .c10 tapes, not binaries, so there is no default format: give --format raw (or dragondos, the header this project's own loader reads)`);
-  }
+  const format = o.format || Emu.binaryFormat(profile);
   const res = assembleFile(o.source, cpu);
   if (!res.segments.some((g) => g.data.length)) throw media(`${o.source}: the program assembles to no bytes`);
   let bytes;
   try {
     bytes = format === 'decb' ? Emu.writeDecb(res.segments, res.exec)
-      : format === 'dragondos' ? Emu.writeDragonDos(res.segments, res.exec, { maxGap: ASSEMBLE_GAP })
-        : Emu.writeDragonDos(res.segments, res.exec, { maxGap: ASSEMBLE_GAP }).subarray(9);
+      : format === 'dragondos' ? Emu.writeDragonDos(res.segments, res.exec)
+        : Emu.writeDragonDos(res.segments, res.exec).subarray(9);
   } catch (e) {
     if (!(e instanceof Emu.WriteError)) throw e;
     throw media(`${o.source}: ${e.message}${e.kind === 'gap' || e.kind === 'overlap' ? '; use --format decb' : ''}`, 'bad-media');
