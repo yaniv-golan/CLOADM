@@ -103,6 +103,7 @@ class Machine {
     this.timelineStarted = false;
 
     this.cartPort = null;     // device in the cartridge port (families with a port)
+    this.diskTrace = null;    // (kind, data, at, controller) => void: the disk controller's trace (setDiskTrace); not state
     // the printer: the bytes it has received (a Dragon's parallel port; a serial printer on the bit-banger
     // output of the other machines, through this.bitBanger)
     this.printed = [];
@@ -397,6 +398,7 @@ class Machine {
     if (this.cartPort) this.cartPort.detach();
     this.cartPort = dev;
     dev.attach(this);
+    this.bindDiskTrace();
     this.cartridgeChanged();
     this.devicesAttached();
   }
@@ -409,6 +411,13 @@ class Machine {
     this.devicesAttached();
   }
   cartridgeChanged() { /* family hook: remap the cartridge ROM space */ }
+  // hear the disk controller (js/machines/fdc.js setDiskTrace): the machine's own, the one in the cartridge port or
+  // in a Multi-Pak's slot, and one plugged in later; null stops it
+  setDiskTrace(fn) { this.diskTrace = fn; this.bindDiskTrace(); }
+  bindDiskTrace() {
+    const port = this.cartPort;
+    for (const d of [this.fdc, port, ...(port && port.slots ? port.slots : [])]) if (d && typeof d.setDiskTrace === 'function') d.setDiskTrace(this.diskTrace);
+  }
   // called whenever a device has been attached or detached (a cartridge in or out, a machine restored from a
   // snapshot, a Multi-Pak's slot changed): family hook for what the attached devices decide, such as the CoCo 3's
   // bus log (coco3.js logBus)

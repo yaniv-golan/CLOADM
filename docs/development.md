@@ -97,6 +97,7 @@ node tests/press-break.test.js # BREAK delivery: our own firmware scans the matr
 node tests/video.test.js     # scanline video: beam position, SAM display counter, mid-line mode splits
 node tests/serial.test.js    # serial line receiver and port devices, PIA output callback, printer paths, the Session's terminal
 node tests/serial-api.test.js # session.serial on the 6551 and the bit-banger: every byte both ways, subscribers, delivery times, the trace (its hashes against the MAME-verified runs), diagnostics, --serial-trace
+node tests/disk-trace.test.js  # session.disk on the WD2797, WD2791 and WD1773: a full read, a late byte loop, a wrong length bit, rnf, write protect, status() without side effects, the trace's hashes against the MAME-verified runs, --disk-trace
 node tests/acia.test.js      # the 6551 alone: registers, data sheet rates, frames in every format both ways, errors, interrupts, state
 node tests/drivewire.test.js # the DriveWire server against the DW4 specification, the Becker port, the Session, a WebSocket channel
 node tests/claude-chat-drivewire.test.js # the Claude chat end to end over DriveWire channel 14 on the Becker port (mocked fetch)

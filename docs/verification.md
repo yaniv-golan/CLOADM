@@ -1107,6 +1107,14 @@ names it.
   back to back 10 bit times and one clock apart, as MAME's `mos6551.cpp` takes a clock to go from the stop bit to the
   next byte; a late data register read gives exactly one overrun. With a full trace on (register reads included),
   `sam/acia.asm` on the Dragon 64 and `sam/printer-serial.asm` on the CoCo give the same regression hashes as without.
+* The Session's disk controller trace (`session.disk`: `trace`, `status`; `tests/disk-trace.test.js`) adds no hardware
+  behaviour either: its oracle is the MAME-verified controllers and disks whose bytes are a formula
+  (`tools/mame-diff/fdc/images.js`). Small polled readers and writers on the built-in firmware show a full 256-byte
+  sector as 256 bytes taken and requested; a 33-cycle byte loop at double density (a byte every 32 us, about 28.6 CPU
+  cycles) as lost data with fewer bytes taken; the WD2797's read sector without the `b` flag as 512 requested; a
+  missing sector as record not found; a write-protected disk as write protect, on the WD2797, WD2791 and WD1773. With
+  a trace on, the floppy diagnostics (`fdc/dragon.asm`, `coco.asm`, `premier.asm`, `alpha.asm`, `coco-multi.asm`,
+  `coco-halt.asm`) give the same regression hashes as without, and the trace sees their full 256-byte reads.
 * <a id="web-serial"></a>**Web Serial (a real CoCo on a serial cable) is not verified.** `js/host/web-serial.js` serves DriveWire on a
   serial port the browser opens (8N1, 38400-230400 baud), on the same drives as the emulated machine, through a
   second server so the two links do not mix. `tests/web-serial.test.js` and the browser check run it against a

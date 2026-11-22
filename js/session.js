@@ -459,6 +459,120 @@ export class SerialTrace {
   events() { return this.ring.slice(this.head).concat(this.ring.slice(0, this.head)).map((e) => Object.assign({}, e)); }
 }
 
+// The disk controller of the Session's machine (session.disk): its status decoded and a trace of its commands. A
+// trace belongs to the Session: a new machine (switchMachine, openSnapshot, a power cycle) gets it again (install),
+// a disk cartridge plugged in later is heard too (Machine.setDiskTrace), and no snapshot holds it.
+const WD_COMMANDS = ['restore', 'seek', 'step', 'step', 'step-in', 'step-in', 'step-out', 'step-out',
+  'read-sector', 'read-sector', 'write-sector', 'write-sector', 'read-address', 'force-interrupt', 'read-track', 'write-track'];
+export class DiskApi {
+  constructor(session) {
+    this.session = session;
+    this.traces = [];               // traces running
+    this.machine = null;            // the machine the sink is on
+    this.sink = (kind, data, at, fdc) => { for (const t of this.traces) t.hear(kind, data, at, fdc); };
+  }
+  // the Session's machine is now m: the traces move to it
+  install(m) {
+    if (this.machine) this.machine.setDiskTrace(null);
+    this.machine = m;
+    for (const t of this.traces) t.machine = m;
+    if (this.traces.length) m.setDiskTrace(this.sink);
+  }
+  // record what the disk controller does, in a ring of the last `limit` events, oldest first: { at, frame, pc,
+  // kind, ... }. kinds: 'command' ({ cmd, name, drive, side, track, sector, density }: a command takes effect),
+  // 'done' ({ cmd, name, status, bytes, requested, lostData, crc, rnf, writeProtect }: it ended; with interrupted
+  // when a force interrupt ended it), 'reg-write' ({ reg, addr, value }: the CPU wrote a WD register or the drive
+  // latch). -> { events, dropped, stop() }
+  trace({ limit = 4096 } = {}) {
+    if (!(Number.isInteger(limit) && limit > 0)) throw new SessionError(`limit is a whole number of events above 0, not ${limit}.`);
+    const t = new DiskTrace(limit);
+    t.machine = this.session.machine;
+    this.traces.push(t);
+    if (this.traces.length === 1) this.session.machine.setDiskTrace(this.sink);
+    const api = this;
+    return {
+      get events() { return t.events(); },
+      get dropped() { return t.dropped; },
+      stop() {
+        const i = api.traces.indexOf(t);
+        if (i < 0) return;
+        api.traces.splice(i, 1);
+        if (!api.traces.length && api.machine) api.machine.setDiskTrace(null);
+      },
+    };
+  }
+  // the controller's registers as the CPU would read them (peeked: INTRQ and DRQ stay as they are), the status
+  // decoded as the command type in force gives it; null without a disk controller. status is the chip's own value
+  // (the WD2791's bus shows its complement).
+  status() {
+    const fdc = this.session.diskController;
+    if (!fdc) return null;
+    const wd = fdc.wd, inv = wd.v.busInvert, v = wd.peek(0) ^ inv;
+    const drive = wd.floppy ? fdc.drives.indexOf(wd.floppy) : null;
+    const common = { controller: fdc.type, chip: wd.variant, value: v, busy: !!(v & 0x01), crc: !!(v & 0x08), writeProtect: !!(v & 0x40), notReady: !!(v & 0x80) };
+    const bits = wd.statusType1
+      ? { type: 1, index: !!(v & 0x02), track0: !!(v & 0x04), seekError: !!(v & 0x10), headLoaded: !!(v & 0x20) }
+      : { type: 2, drq: !!(v & 0x02), lostData: !!(v & 0x04), rnf: !!(v & 0x10), deletedMark: !!(v & 0x20) };
+    return Object.assign(common, bits, {
+      command: wd.command, name: WD_COMMANDS[wd.command >> 4], track: wd.peek(1) ^ inv, sector: wd.peek(2) ^ inv, data: wd.peek(3) ^ inv,
+      intrq: wd.intrq, drqLine: wd.drq, drive, density: wd.dden ? 'single' : 'double',
+    });
+  }
+}
+
+// A trace of one machine's disk controller (DiskApi.trace): a ring of events.
+export class DiskTrace {
+  constructor(limit) {
+    this.limit = limit;
+    this.ring = []; this.head = 0; this.dropped = 0;
+    this.machine = null;
+    this.pending = null;            // the command under way: { cmd, bytes }
+  }
+  hear(kind, data, at, fdc) {
+    const wd = fdc.wd;
+    if (kind === 'reg-write') { this.add(Object.assign({ at, kind }, data)); return; }
+    if (kind === 'taken') { if (this.pending) this.pending.bytes++; return; }
+    if (kind === 'command') {
+      // a force interrupt ends the command under way (wd17xx.js interruptStart)
+      if ((wd.command & 0xf0) === 0xd0 && wd.busy && this.pending) this.done(at, fdc, this.pending.cmd, true);
+      const cmd = wd.command, type2 = !!(cmd & 0x80);
+      const drive = wd.floppy ? fdc.drives.indexOf(wd.floppy) : null;
+      // the WD2797 selects the side with a type II/III command's S flag; elsewhere the drive's side line holds it
+      const side = type2 && wd.v.sideControl ? (cmd & 0x02 ? 1 : 0) : wd.floppy ? wd.floppy.ss : null;
+      this.pending = (cmd & 0xf0) === 0xd0 ? null : { cmd, bytes: 0 };
+      this.add({ at, kind, cmd, name: WD_COMMANDS[cmd >> 4], drive, side, track: wd.track, sector: wd.sector, density: wd.dden ? 'single' : 'double' });
+      return;
+    }
+    if (kind === 'done') this.done(at, fdc, wd.command, false);
+  }
+  // the command ends: its result from the status register (computed, never read) and the bytes the CPU took
+  done(at, fdc, cmd, interrupted) {
+    const wd = fdc.wd, p = this.pending, st = wd.statusValue();
+    const type1 = !(cmd & 0x80), op = cmd & 0xf0;
+    this.pending = null;
+    // no sector length when no sector was found: record not found, not ready, write protected, cut short
+    const failed = interrupted || !!(st & 0xd0);
+    let requested = null;
+    if (type1) requested = 0;
+    else if (op === 0xc0) requested = failed ? null : 6;
+    else if (op < 0xc0) requested = failed ? null : wd.sectorSize;
+    const e = { at, kind: 'done', cmd, name: WD_COMMANDS[cmd >> 4], status: st, bytes: p && p.cmd === cmd ? p.bytes : null, requested,
+      lostData: !type1 && !!(st & 0x04), crc: !!(st & 0x08), rnf: !!(st & 0x10), writeProtect: !!(st & 0x40) };
+    if (interrupted) e.interrupted = true;
+    this.add(e);
+  }
+  add(e) {
+    const m = this.machine;
+    const ev = Object.assign({ at: e.at, frame: m.frameCount, pc: m.cpu.pc }, e);
+    if (this.ring.length < this.limit) { this.ring.push(ev); return; }
+    this.ring[this.head] = ev;
+    this.head = (this.head + 1) % this.limit;
+    this.dropped++;
+  }
+  // oldest first
+  events() { return this.ring.slice(this.head).concat(this.ring.slice(0, this.head)).map((e) => Object.assign({}, e)); }
+}
+
 export class Session {
   // store: small settings (localStorage in the page). media: a MediaStore (js/host/media-store.js) for
   // ROMs, recent programs, the library and the quick-save slots; default an in-memory one, so Node tests and
@@ -529,6 +643,8 @@ export class Session {
     this.terminalBytes = [];        // what the machine has sent to the serial terminal
     // the serial port's byte streams and diagnostics; the page's terminal log is its first subscriber
     this.serial = new SerialApi(this);
+    // the disk controller's status and trace (DiskApi)
+    this.disk = new DiskApi(this);
     this.serial.subscribe({ tx: (bytes, info) => {
       if (info.device !== 'terminal') return;
       for (const b of bytes) this.terminalBytes.push(b);
@@ -828,6 +944,7 @@ export class Session {
     try { this.serial.deliver(); } catch (e) { undelivered = e; }   // what the old machine sent goes out first
     this.terminalBytes = [];
     this.serial.install(m);
+    this.disk.install(m);
     if (m.becker && !m.becker.server) { this.drivewire.resetLink(); m.becker.attach(this.drivewire); }
     if (undelivered) throw undelivered;
   }
@@ -881,12 +998,14 @@ export class Session {
   clearTerminal() { this.terminalBytes.length = 0; this.emit('serial'); }
   // where the machine is, for a report of why something stalled: { pc, frame, now (ticks), cycles (the CPU's
   // total), serial: { device, status (the 6551's, decoded; null on a bit-banger), queued (bytes handed to the
-  // terminal that the machine has not finished receiving) } }. It changes nothing.
+  // terminal that the machine has not finished receiving) }, disk: the disk controller's status (DiskApi.status;
+  // null without one) }. It changes nothing.
   diagnostics() {
     const m = this.machine, p = m.serialPort;
     return {
       pc: m.cpu.pc, frame: m.frameCount, now: m.now(), cycles: m.cpu.totalCycles,
       serial: p ? { device: this.serial.device, status: this.serial.status(), queued: p.kind === 'terminal' ? p.queue.length : 0 } : null,
+      disk: this.disk.status(),
     };
   }
 

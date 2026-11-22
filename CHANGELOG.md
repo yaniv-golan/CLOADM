@@ -33,6 +33,18 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   and `serial` (added fields; the same `schemaVersion`). A trace changes no emulation: the MAME-verified 6551 and printer runs
   hash the same with one on (`tests/serial-api.test.js`, both chips, every byte 00..FF both ways). Documented in
   `docs/automation.md` ("The serial port from Node", and the serial-peer note rewritten on it).
+- **A disk controller trace for Node and headless runs.** A developer porting a game had two disk driver bugs that each looked
+  like a frozen game, a wrong sector-length bit and data lost to a byte loop too slow, and had to trace `$FF40-$FF43` by hand.
+  `session.disk.trace({ limit })` keeps a ring of what the controller did: `command` (the command byte and name, drive, side,
+  track, sector, density), `done` (the status, the bytes the CPU took while DRQ was up, the sector length the controller took,
+  `lostData`, `crc`, `rnf`, `writeProtect`; `interrupted` when a force interrupt ended it) and `reg-write` (the WD registers and
+  the drive latch), each with its tick, frame and PC, on the WD2797, WD2791 and WD1773, in the cartridge port, a Multi-Pak or
+  the Dragon Alpha. `session.disk.status()` decodes the controller's status by peeking (a read would clear INTRQ), and
+  `session.diagnostics()` gains `disk`. On the command line, `--disk-trace FILE` writes the trace as JSON Lines (also when the
+  run fails), and `timeout` and `keys-not-taken` errors carry `disk` (an added field; the same `schemaVersion`). The trace
+  belongs to the Session, like the serial trace, and is never in a snapshot; it changes no emulation: the MAME-verified floppy
+  runs hash the same with one on (`tests/disk-trace.test.js`). Documented in `docs/automation.md` ("Tracing the disk
+  controller").
 
 ### Changed
 

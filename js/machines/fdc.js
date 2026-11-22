@@ -29,6 +29,11 @@
  *
  * The DOS ROM is the user's (8K, at $C000; CTS; Dragon and Premier: a 16K region with the rest 00): none is bundled. Without one the cartridge space reads 00.
  *
+ * Tracing (setDiskTrace(fn), for the Session's session.disk.trace; not state): fn(kind, data, at, controller) hears
+ * 'reg-write' ({ reg: 'command' | 'track' | 'sector' | 'data' | 'latch', addr, value }: what the CPU wrote, before
+ * the WD2791's inversion; addr null for the Alpha's latch, which is the AY-3-8912's port A), 'taken' (the CPU read
+ * or wrote the data register while DRQ was up: a byte transferred), and the chip's 'command' and 'done'.
+ *
  * Drives: mount(n, media) with media as js/chips/floppy.js describes (bytes, format, name, writeProtected,
  * onWrite); eject(n); setWriteProtect(n, on); flush() commits written tracks to the media now.
  */
@@ -36,6 +41,8 @@ import { SlotDevice, devices } from './bus.js';
 import { WD17xx } from '../chips/wd17xx.js';
 import { FloppyDrive } from '../chips/floppy.js';
 import { NEVER } from '../chips/attotime.js';
+
+const WD_REGS = ['command', 'track', 'sector', 'data'];
 
 const BOARDS = {
   dragonfdc: { name: 'Dragon FDC (WD2797)', chip: 'wd2797', fdcClock: 1000000, drive: '525qd' },
@@ -64,6 +71,7 @@ class DiskController extends SlotDevice {
     this.dskreg = 0;
     this.intrq = false;
     this.drq = true;
+    this.trace = null;      // (kind, data, at, controller) => void: setDiskTrace; not state
     this.wd.onIntrq = (v) => { this.intrq = v; this.updateLines(); };
     this.wd.onDrq = (v) => { this.drq = v; this.updateLines(); };
     this.reset(true);
@@ -75,7 +83,30 @@ class DiskController extends SlotDevice {
   // taken out of the slot: written tracks are committed first
   detach() {
     this.flush();
+    this.setDiskTrace(null);
     super.detach();
+  }
+  // hear the registers and the commands (see the header); null stops it
+  setDiskTrace(fn) {
+    this.trace = fn;
+    this.wd.onTrace = fn ? (kind) => fn(kind, null, this.traceTime(), this) : null;
+  }
+  // the machine tick now: the event's while a timer runs, else the bus access's
+  traceTime() { return this.clock.tick !== null ? Math.floor(this.clock.tick) : this.host ? this.host.now() : 0; }
+  // the WD's registers as the CPU reaches them (r 0 status/command .. 3 data; addr the CPU's address)
+  wdRead(r, addr) {
+    if (this.trace && r === 3 && this.wd.drq) this.trace('taken', { addr }, this.traceTime(), this);
+    return this.wd.read(r);
+  }
+  wdWrite(r, v, addr) {
+    if (this.trace) {
+      this.trace('reg-write', { reg: WD_REGS[r], addr, value: v }, this.traceTime(), this);
+      if (r === 3 && this.wd.drq) this.trace('taken', { addr }, this.traceTime(), this);
+    }
+    this.wd.write(r, v);
+  }
+  latchWrite(v, addr) {
+    if (this.trace) this.trace('reg-write', { reg: 'latch', addr, value: v }, this.traceTime(), this);
   }
   // coco_family_fdc_device_base::device_reset, then the WD's own reset (mr_w) and the drives'
   reset(hard) {
@@ -131,29 +162,29 @@ class DiskController extends SlotDevice {
     const off = a - 0xFF40;
     if (this.type === 'dragonfdc') {
       const r = off & 0xef;
-      return r < 4 ? this.wd.read(r) : 0x00;
+      return r < 4 ? this.wdRead(r, a) : 0x00;
     }
-    if (this.type === 'premierfdc') return off < 4 ? this.wd.read(off) : 0x00;
+    if (this.type === 'premierfdc') return off < 4 ? this.wdRead(off, a) : 0x00;
     const r = off & 0x1f;
-    return r >= 8 && r < 12 ? this.wd.read(r - 8) : 0x00;
+    return r >= 8 && r < 12 ? this.wdRead(r - 8, a) : 0x00;
   }
   writeIO(a, v) {
     if (a >= 0xFF60) return;
     const off = a - 0xFF40;
     if (this.type === 'dragonfdc') {
       const r = off & 0xef;
-      if (r < 4) this.wd.write(r, v);
-      else if (r >= 8 && r < 16) this.dskregW(v);
+      if (r < 4) this.wdWrite(r, v, a);
+      else if (r >= 8 && r < 16) { this.latchWrite(v, a); this.dskregW(v); }
       return;
     }
     if (this.type === 'premierfdc') {
-      if (off < 4) this.wd.write(off, v);
-      else if (off === 4) this.dskregW(v);
+      if (off < 4) this.wdWrite(off, v, a);
+      else if (off === 4) { this.latchWrite(v, a); this.dskregW(v); }
       return;
     }
     const r = off & 0x1f;
-    if (r < 8) this.dskregW(v);
-    else if (r < 12) this.wd.write(r - 8, v);
+    if (r < 8) { this.latchWrite(v, a); this.dskregW(v); }
+    else if (r < 12) this.wdWrite(r - 8, v, a);
   }
 
   // ---------------- media
@@ -217,6 +248,7 @@ class AlphaFdc extends DiskController {
     this.wd.onDrq = (v) => { this.drq = v; if (this.onDrq) this.onDrq(v); };
   }
   select(data) {
+    this.latchWrite(data, null);
     let floppy = null;
     for (let n = 0; n < 4; n++) if (data & (1 << n)) floppy = n < this.fitted ? this.drives[n] : null;
     this.wd.setFloppy(floppy);
