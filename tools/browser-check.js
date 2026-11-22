@@ -5261,11 +5261,11 @@ async function navChecks(browser, site, check) {
 
 // the command box (Ctrl/Cmd+K) lists every command, grouped, when nothing is typed; its other doors; the Help page; the Ask hint
 async function commandsChecks(browser, site, check) {
-  // R14's labels and order (with R28b's "Your ROMs", first under Settings), written out here rather than read from
-  // COMMANDS (the page's own list is checked against them)
+  // R14's labels and order (with R28b's "Your ROMs", first under Settings, and the disk commands after Open…),
+  // written out here rather than read from COMMANDS (the page's own list is checked against them)
   const WANT = [
     ['Claude', ['Chat with Claude, full screen', 'What is this code doing?']],
-    ['Files', ['Take snapshot', 'Open a program, tape, disk or cartridge…', 'Save the tape as .WAV', 'Record to tape', 'Share']],
+    ['Files', ['Take snapshot', 'Open a program, tape, disk or cartridge…', 'Insert a disk…', 'New blank disk', 'Eject disk', 'Save the tape as .WAV', 'Record to tape', 'Share']],
     ['Views', ['Open the Library', 'Open the Debugger']],
     ['Settings', ['Your ROMs', 'Display settings', 'Input settings', 'POKEs', 'Machine settings']],   // (Your ROMs: R28b)
     ['Machine', ['Pause or resume', 'Turbo', 'Fullscreen', 'Reset', 'Switch off and on']],
