@@ -283,7 +283,7 @@ async function say(s, calls, line, want) {
       textReply('Done.'),
     ];
     const { s, chat, calls, basic } = open(bodies);
-    s.setClaudeAllowed(true);
+    s.consent.setAllowed(true);
     frames(s, 10);
     const before = snapText(basic);
     const chatMachine = s.shownMachine, chatRam = chatMachine.ram.slice(0x3000, 0x3003);
@@ -326,7 +326,7 @@ async function say(s, calls, line, want) {
   {
     const { s, chat, basic } = open([textReply('x')]);
     // the acting tools pass the consent gate before their own checks (ChatSession.runTool), so it is given here
-    s.setClaudeAllowed(true);
+    s.consent.setAllowed(true);
     const err = async (name, input, re) => { try { await chat.runTool(name, input); return false; } catch (e) { return re.test(e.message); } };
     const code = async (name, input) => { try { await chat.runTool(name, input); return null; } catch (e) { return e.code; } };
     check('peek: address checked, with codes', await code('peek', { address: 70000 }) === Emu.TOOL_CODES.BAD_ADDRESS
@@ -362,7 +362,7 @@ async function say(s, calls, line, want) {
     check('startAsk again gives the same conversation', s.startAsk({ backend }) === chat);
     // the person says no: reading worked, the poke is refused with the reason, nothing changed
     const asked = [];
-    s.claudeGate = (name, input) => { asked.push(name); Promise.resolve().then(() => s.answerClaude(false)); };
+    s.consent.asker = (name, input) => { asked.push(name); Promise.resolve().then(() => s.consent.answer(false)); };
     const before = snapText(basic);
     const r1 = await chat.sendLine('What is on the screen? Fix it.');
     const results = calls[1] && calls[1].body.messages.slice(-1)[0].content;
@@ -374,8 +374,8 @@ async function say(s, calls, line, want) {
     {
       const askedNow = [];
       const ranTools = [];                 // the tools that actually reached their act (inside withRestorePoint)
-      s.claudeAllowed = false;
-      s.claudeGate = (name) => { askedNow.push(name); Promise.resolve().then(() => s.answerClaude(false)); };
+      s.consent.allowed = false;
+      s.consent.asker = (name) => { askedNow.push(name); Promise.resolve().then(() => s.consent.answer(false)); };
       const gateText = { poke: { address: 0x3000, bytes: [1] }, type_text: { text: 'X' }, press_break: {} };
       const schemas = Emu.actingTools().map((t) => t.name);
       // chat.runTool runs the gate (chat.gate, set by Session.gateTools) and then the act, inside
@@ -407,12 +407,12 @@ async function say(s, calls, line, want) {
         `acts run: ${ranTools.join(',') || 'none'} | ram[0x3000]=${basic.ram[0x3000]} | undo=${chat.undo.length}`);
     }
     check('"Just tell me the fix": the poke is refused with the reason Claude is given, and nothing changes', results[1].is_error && /Just tell me the fix/.test(results[1].content)
-      && snapText(basic) === before && chat.undo.length === 0 && !s.claudeAllowed && r1 && r1.text === 'Change $3000 to 7 yourself.', JSON.stringify(results[1]));
+      && snapText(basic) === before && chat.undo.length === 0 && !s.consent.allowed && r1 && r1.text === 'Change $3000 to 7 yourself.', JSON.stringify(results[1]));
     // the person allows it: the poke happens after a restore point, and stays allowed
-    s.claudeGate = () => { Promise.resolve().then(() => s.answerClaude(true)); };
+    s.consent.asker = () => { Promise.resolve().then(() => s.consent.answer(true)); };
     await chat.sendLine('Do it for me.');
     const points = s.claudePoints;
-    check('Allow: the change is made after a restore point, stamped with its time; the switch stays on', basic.ram[0x3000] === 9 && s.claudeAllowed
+    check('Allow: the change is made after a restore point, stamped with its time; the switch stays on', basic.ram[0x3000] === 9 && s.consent.allowed
       && points.length === 1 && points[0].index === 0 && typeof points[0].at === 'number' && Emu.state.toJSON(chat.undo[0]) === before);
     check('restoreClaude puts the BASIC session back to the restore point and drops it', s.restoreClaude(0) && snapText(basic) === before && s.claudePoints.length === 0);
     // Stop while Claude's typing is still going in
@@ -454,13 +454,13 @@ async function say(s, calls, line, want) {
     const m = s.shownMachine;
     const { fetch } = scripted([textReply('x')]);
     const chat = s.startAsk({ backend: new Emu.ClaudeBackend({ fetch, apiKey: KEY }) });
-    s.setClaudeAllowed(true);
+    s.consent.setAllowed(true);
     // Claude has typing going in
     const job = s.typeTextPaced('10 PRINT 1\n20 PRINT 2\n', m);
     s.claudeActing = { name: 'type_text', input: { text: '10 PRINT 1\n20 PRINT 2\n' } };
     chat.busy = true;
     const queued = m.typist.queue.length;
-    check('pauseClaude holds back what Claude still had to type', queued === 22 && s.pauseClaude() && m.typist.queue.length === 0 && s.claudePaused.held.queue.length === queued && s.claudeBusyActing);
+    check('pauseClaude holds back what Claude still had to type', queued === 22 && s.pauseClaude() && m.typist.queue.length === 0 && s.consent.paused.held.queue.length === queued && s.claudeBusyActing);
     check('pausing twice does nothing', s.pauseClaude() === false);
     // Claude's next action waits while paused
     let done = false;
@@ -469,7 +469,7 @@ async function say(s, calls, line, want) {
     check('an action while paused waits (nothing changed)', !done && m.ram[0x3000] !== 5);
     m.stubKeys.push(88);                          // the person's own key
     check('resumeClaude queues the held typing after the person\'s key, and the waiting action goes on', s.resumeClaude() && m.stubKeys[0] === 88
-      && m.stubKeys.length === 1 && m.typist.queue.length === queued && s.claudePaused === null && (await next, done) && m.ram[0x3000] === 5);
+      && m.stubKeys.length === 1 && m.typist.queue.length === queued && s.consent.paused === null && (await next, done) && m.ram[0x3000] === 5);
     // Stop while paused: the held typing is dropped and a waiting action is refused
     s.claudeActing = { name: 'type_text', input: { text: 'x' } };
     s.pauseClaude();
@@ -478,7 +478,7 @@ async function say(s, calls, line, want) {
     s.stopClaude();
     await blocked;
     check('Stop while paused: nothing held is typed, the waiting action is refused, the typing ends stopped', refused && m.stubKeys.length === 0 && m.typist.queue.length === 0
-      && m.ram[0x3001] !== 6 && s.claudePaused === null && job.status === 'stopped');
+      && m.ram[0x3001] !== 6 && s.consent.paused === null && job.status === 'stopped');
     chat.busy = false;
     // codeAt: the code and the registers, as the Debugger would show them
     [0x86, 0x41, 0xA7, 0x80, 0x5A, 0x26, 0xFB, 0x39].forEach((b, i) => m.poke(0x3000 + i, b));

@@ -87,30 +87,30 @@ async function modelCall(s, name, input, setup = null, run = false) {
 }
 
 // arrangements
-const allow = (s) => { s.setClaudeAllowed(true); };
-const say = (answer) => (s) => { s.claudeGate = () => { Promise.resolve().then(() => answer(s)); }; };
-const decline = say((s) => s.answerClaude(false));
-const loadYes = say((s) => s.answerClaude(true));
+const allow = (s) => { s.consent.setAllowed(true); };
+const say = (answer) => (s) => { s.consent.asker = () => { Promise.resolve().then(() => answer(s)); }; };
+const decline = say((s) => s.consent.answer(false));
+const loadYes = say((s) => s.consent.answer(true));
 const stopOnCard = say((s) => s.stopClaude());
-const nobody = (s) => { s.claudeGate = null; };
+const nobody = (s) => { s.consent.asker = null; };
 // a key the person pressed has paused Claude; Stop while the action waits
 // (the person presses Stop as soon as the action is waiting: when its wake-up is queued)
 const pausedThenStop = (s) => {
-  s.setClaudeAllowed(true);
+  s.consent.setAllowed(true);
   const wake = [];
   wake.push = function (f) { Array.prototype.push.call(this, f); Promise.resolve().then(() => s.stopClaude()); return this.length; };
-  s.claudePaused = { held: { queue: [], stub: [] }, wake };
+  s.consent.paused = { held: { queue: [], stub: [] }, wake };
 };
-const raw = (method) => (s, chat) => { s.setClaudeAllowed(true); chat.target[method] = () => { throw new Error('boom inside the emulator'); }; };
+const raw = (method) => (s, chat) => { s.consent.setAllowed(true); chat.target[method] = () => { throw new Error('boom inside the emulator'); }; };
 // type_text's job, as the typist would end it
 const job = (status, extra = {}) => (s, chat) => {
-  s.setClaudeAllowed(true);
+  s.consent.setAllowed(true);
   chat.target.typeText = (text) => Object.assign({ promise: Promise.resolve(), status, requested: text.length, consumed: 0, linesRequested: 0, linesDelivered: 0, end() {} }, extra);
 };
 // a keyboard job the machine's reset ended part-way (Machine.reset clears the typist with 'machine-restarted'), from
 // the target method that starts it
 const restarted = (method) => (s, chat) => {
-  s.setClaudeAllowed(true);
+  s.consent.setAllowed(true);
   chat.target[method] = () => ({ promise: Promise.resolve(), status: 'machine-restarted', key: method === 'pressBreak' ? 'BREAK' : undefined, requested: 4, consumed: 1, linesRequested: 1, linesDelivered: 0, end() {} });
 };
 const big = (k) => 'x'.repeat(k);
@@ -189,7 +189,7 @@ const OUTCOMES = {
     ['bad source', stub, { source: ' LDQ #1\n', org: 0x3000 }, allow, C.ASSEMBLY_FAILED],
     ['org and ORG disagree', stub, { source: ' ORG $4000\n NOP\n', org: 0x3000 }, allow, C.ORG_CONFLICT],
     ['an INCLUDE that cannot be read', stub, { source: ' INCLUDE "x.inc"\n', org: 0x3000 },
-      (s, chat) => { s.setClaudeAllowed(true); chat.include = async () => { throw Object.assign(new Error('timed out'), { code: 'timeout' }); }; }, C.INCLUDE_UNREADABLE],
+      (s, chat) => { s.consent.setAllowed(true); chat.include = async () => { throw Object.assign(new Error('timed out'), { code: 'timeout' }); }; }, C.INCLUDE_UNREADABLE],
     ['past $FFFF', stub, { source: ' FCB 1,2\n', org: 0xFFFF }, allow, C.PAST_END],
     ['ROM only', stub, { source: ' FCB 1\n', org: 0xFFF0 }, allow, C.NOT_RAM],
     ['nobody to ask', stub, { source: ' NOP\n', org: 0x3000 }, nobody, C.NO_CONSENT],
@@ -281,7 +281,7 @@ process.exitCode = 1;
       && p('assemble_and_load', 'org').description.includes(`assembled at ${Emu.ASSEMBLE_DEFAULT_ORG}`));
     // and the code applies those defaults: run with no target types RUN (no BASIC here: no-basic, as "RUN" is);
     // assemble_and_load with no org and no ORG assembles at ASSEMBLE_DEFAULT_ORG
-    const s = stub(); s.setClaudeAllowed(true);
+    const s = stub(); s.consent.setAllowed(true);
     const chat = s.startAsk({ backend: new Emu.ClaudeBackend({ fetch: async () => { throw new Error('no network'); }, apiKey: KEY }) });
     const code = (name, input) => chat.runTool(name, input).then(() => null, (e) => e.code);
     check('run with no target behaves as "RUN"', await code('run', {}) === C.NO_BASIC && await code('run', { target: Emu.RUN_DEFAULT_TARGET }) === C.NO_BASIC);
@@ -354,7 +354,7 @@ process.exitCode = 1;
     // the restore point is kept before the act, so it is there while typing is still going in, and a not-ram
     // (nothing landed) takes it back, putting back the oldest point it had pushed out of the last 10
     {
-      const s2 = stub(); s2.setClaudeAllowed(true);
+      const s2 = stub(); s2.consent.setAllowed(true);
       const c2 = s2.startAsk({ backend: new Emu.ClaudeBackend({ fetch: async () => { throw new Error('no network'); }, apiKey: KEY }) });
       let finish = null;
       c2.target.typeText = (text) => ({ promise: new Promise((r) => { finish = r; }), status: 'done', requested: text.length, consumed: text.length, linesRequested: 1, linesDelivered: 1 });
@@ -378,9 +378,9 @@ process.exitCode = 1;
     check('Session.startAsk: every acting tool goes through the Session\'s gate (nobody to ask: no-consent), nothing changed', codes.every((c) => c === C.NO_CONSENT) && Emu.state.toJSON(s.shownMachine.snapshot()) === before && chat.undo.length === 0, codes.join());
     // the turn aborted (Esc, BREAK: chat.abort(), not stopClaude) while a card or a pause waits: stopped, not a hang
     for (const [what, name, input, arrange] of [
-      ['the consent card', 'poke', valid.poke, (s2) => { s2.claudeGate = () => {}; }],
-      ['load_basic\'s card', 'load_basic', valid.load_basic, (s2) => { s2.setClaudeAllowed(true); s2.claudeGate = () => {}; }],
-      ['a pause', 'poke', valid.poke, (s2) => { s2.setClaudeAllowed(true); s2.claudePaused = { held: { queue: [], stub: [] }, wake: [] }; }],
+      ['the consent card', 'poke', valid.poke, (s2) => { s2.consent.asker = () => {}; }],
+      ['load_basic\'s card', 'load_basic', valid.load_basic, (s2) => { s2.consent.setAllowed(true); s2.consent.asker = () => {}; }],
+      ['a pause', 'poke', valid.poke, (s2) => { s2.consent.setAllowed(true); s2.consent.paused = { held: { queue: [], stub: [] }, wake: [] }; }],
     ]) {
       const s2 = basic(); arrange(s2);
       const c2 = s2.startAsk({ backend: new Emu.ClaudeBackend({ fetch: async () => { throw new Error('no network'); }, apiKey: KEY }) });
@@ -391,11 +391,11 @@ process.exitCode = 1;
       await new Promise((r) => setImmediate(r));
       c2.abort();
       for (let i = 0; i < 50 && settled === null; i++) await new Promise((r) => setImmediate(r));
-      check(`an abort while ${what} waits ends the call stopped, nothing changed, no card left up`, settled === C.STOPPED && s2.claudePending === null && Emu.state.toJSON(s2.shownMachine.snapshot()) === before2 && c2.undo.length === 0, `${settled}`);
+      check(`an abort while ${what} waits ends the call stopped, nothing changed, no card left up`, settled === C.STOPPED && s2.consent.pending === null && Emu.state.toJSON(s2.shownMachine.snapshot()) === before2 && c2.undo.length === 0, `${settled}`);
       if (settled === null) { s2.stopClaude(); await pr; }
     }
     // the restore point a tool keeps is stamped by the Session (claudePoints has its time)
-    s.setClaudeAllowed(true);
+    s.consent.setAllowed(true);
     await chat.runTool('poke', { address: 0x3000, bytes: [5] }).catch(() => null);
     check('the Session stamps each restore point a tool keeps', s.claudePoints.length === 1 && typeof s.claudePoints[0].at === 'number', JSON.stringify(s.claudePoints));
   }
@@ -404,7 +404,7 @@ process.exitCode = 1;
   // A pause (a key the person pressed) or the switch turned off while a card waited or the tool's check ran (an
   // INCLUDE read) is seen just before the change: paused waits for Resume (Stop or Esc: stopped), a call that relied
   // on the switch is no-consent once it is off. Everything goes through the Session (pauseClaude, resumeClaude,
-  // stopClaude, answerClaude, setClaudeAllowed), as the page does.
+  // stopClaude, consent.answer, consent.setAllowed), as the page does.
   {
     const acting = [...Emu.ACTING_TOOL_NAMES];
     const valid = { poke: { address: 0x3000, bytes: [1] }, type_text: { text: 'A' }, load_basic: { program: '10 END' }, press_break: {}, assemble_and_load: { source: ' NOP\n', org: 0x3000 }, run: { target: 0x3000 } };
@@ -415,7 +415,7 @@ process.exitCode = 1;
     const inc = ' INCLUDE "x.inc"\n';
     // a chat in a turn (busy, a controller) whose INCLUDE reader runs `during` while the check waits
     const rig2 = (during) => {
-      const s = basic(); s.setClaudeAllowed(true);
+      const s = basic(); s.consent.setAllowed(true);
       const chat = s.startAsk({ backend: net(), include: async () => { during(s, chat); return ' FCB $55,$AA\n'; } });
       chat.busy = true; chat.controller = new AbortController();
       return { s, chat };
@@ -426,7 +426,7 @@ process.exitCode = 1;
       const { s, chat } = rig2((s1) => { s1.pauseClaude(); });
       const st = start(chat, 'assemble_and_load', { source: inc, org: 0x3000 });
       await tick();
-      const paused = !!s.claudePaused, held = at3000(s).join(), heldUndo = chat.undo.length, waiting = st.code === null;
+      const paused = !!s.consent.paused, held = at3000(s).join(), heldUndo = chat.undo.length, waiting = st.code === null;
       end(s, chat); await tick(); await st.p;
       const landed = at3000(s).join() === '85,170';
       check(`assemble_and_load paused during its INCLUDE read: nothing lands while paused; ${endName} -> ${want}`,
@@ -435,22 +435,22 @@ process.exitCode = 1;
     }
     // a pause while a card waits, then the person answers yes: still nothing until Resume
     for (const [what, name, input, arrange] of [
-      ['the consent card', 'poke', { address: 0x3000, bytes: [0x55, 0xAA] }, (s) => { s.setClaudeAllowed(false); }],
+      ['the consent card', 'poke', { address: 0x3000, bytes: [0x55, 0xAA] }, (s) => { s.consent.setAllowed(false); }],
       ['load_basic\'s card', 'load_basic', { program: '10 END' }, () => {}],
     ]) {
       for (const [end, endName, want] of [[(s) => s.resumeClaude(), 'Resume', 'RAN'], [(s) => s.stopClaude(), 'Stop', C.STOPPED]]) {
-        const s = basic(); s.setClaudeAllowed(true);
+        const s = basic(); s.consent.setAllowed(true);
         const chat = s.startAsk({ backend: net() });
         chat.busy = true; chat.controller = new AbortController();
         // an earlier call this turn: Claude is acting, so a key the person presses pauses it
         await chat.runTool('poke', { address: 0x3100, bytes: [1] });
         arrange(s);
-        s.claudeGate = () => {};
+        s.consent.asker = () => {};
         const before = Emu.state.toJSON(s.shownMachine.snapshot()), undo0 = chat.undo.length;
         const st = start(chat, name, input);
         await tick();
-        const carded = !!s.claudePending, pausedOk = s.pauseClaude();
-        s.answerClaude(true); await tick();
+        const carded = !!s.consent.pending, pausedOk = s.pauseClaude();
+        s.consent.answer(true); await tick();
         const heldSame = Emu.state.toJSON(s.shownMachine.snapshot()) === before && st.code === null;
         end(s, chat); await tick(); await st.p;
         const after = Emu.state.toJSON(s.shownMachine.snapshot()) === before;
@@ -461,16 +461,16 @@ process.exitCode = 1;
     }
     // the switch turned off during the INCLUDE read: a call that relied on the switch is no-consent, nothing changed
     {
-      const { s, chat } = rig2((s1) => { s1.setClaudeAllowed(false); });
+      const { s, chat } = rig2((s1) => { s1.consent.setAllowed(false); });
       const st = start(chat, 'assemble_and_load', { source: inc, org: 0x3000 }); await tick(); await st.p;
       check('the switch turned off while the INCLUDEs were read: no-consent, nothing written, no restore point', st.code === C.NO_CONSENT && at3000(s).join() === '0,0' && chat.undo.length === 0, `${st.code} ${at3000(s)}`);
     }
     // ... while a call allowed by its own card (Allow on the consent card) goes on: the person said yes to this call
     {
-      const { s, chat } = rig2((s1) => { s1.setClaudeAllowed(false); });
-      s.setClaudeAllowed(false); s.claudeGate = () => { Promise.resolve().then(() => s.answerClaude(true)); };
+      const { s, chat } = rig2((s1) => { s1.consent.setAllowed(false); });
+      s.consent.setAllowed(false); s.consent.asker = () => { Promise.resolve().then(() => s.consent.answer(true)); };
       const st = start(chat, 'assemble_and_load', { source: inc, org: 0x3000 }); await tick(); await st.p;
-      check('a call allowed on its own card still acts when the switch goes off during its check (the card answered for it)', st.code === 'RAN' && at3000(s).join() === '85,170' && !s.claudeAllowed, `${st.code} ${at3000(s)}`);
+      check('a call allowed on its own card still acts when the switch goes off during its check (the card answered for it)', st.code === 'RAN' && at3000(s).join() === '85,170' && !s.consent.allowed, `${st.code} ${at3000(s)}`);
     }
     // a ChatSession built without a gate acts for nobody
     {

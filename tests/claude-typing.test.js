@@ -215,7 +215,7 @@ function machineWith(id, busy) {
   const keys = () => log().filter((c) => c !== shift);
   // what typing `text` must produce: each character's key position, from the machine's own layout
   const want = (text) => [...text].map((ch) => { const k = Emu.charToKeys(ch); const [r, c] = m.keyPos[k.key]; return c * 8 + r; });
-  s.setClaudeAllowed(true);
+  s.consent.setAllowed(true);
   const chat = s.startAsk({ backend: dead });
   return { s, m, chat, keys, want, started: m.hasRom && m.ram[base + 1] === 0x5A };
 }

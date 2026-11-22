@@ -33,7 +33,7 @@ const text = (t) => sse([start, { type: 'content_block_start', index: 0, content
 function ask(replies) {
   const s = new Emu.Session({ store: Emu.memoryStore() });
   s.switchMachine('dragon64'); frames(s, 40);
-  s.setClaudeKey(KEY); s.setClaudeAllowed(true);
+  s.setClaudeKey(KEY); s.consent.setAllowed(true);
   const fetch = async () => new Response(replies.shift() || text('ok'), { status: 200, headers: { 'content-type': 'text/event-stream' } });
   const chat = s.startAsk({ backend: new Emu.ClaudeBackend({ fetch, apiKey: KEY }) });
   return { s, chat };
@@ -87,12 +87,12 @@ process.exitCode = 1;
   // ---- declined, stopped before, stopped while (a stopped turn makes no second request) ----
   {
     const { s, chat } = ask([tools([['type_text', { text: 'DIR\n' }]]), text('ok'), tools([['type_text', { text: 'DIR\n' }]]), tools([['type_text', { text: 'PRINT "A LONG LINE TO TYPE"\n' }]]), text('ok')]);
-    s.setClaudeAllowed(false);
-    s.claudeGate = () => { Promise.resolve().then(() => s.answerClaude(false)); };
+    s.consent.setAllowed(false);
+    s.consent.asker = () => { Promise.resolve().then(() => s.consent.answer(false)); };
     await line(s, chat, 'one');
-    s.claudeGate = () => { Promise.resolve().then(() => s.stopClaude()); };
+    s.consent.asker = () => { Promise.resolve().then(() => s.stopClaude()); };
     await line(s, chat, 'two');
-    s.setClaudeAllowed(true); s.claudeGate = null;
+    s.consent.setAllowed(true); s.consent.asker = null;
     let stopped = false;
     await line(s, chat, 'three', () => { if (!stopped && s.shownMachine.stubKeysTaken > 0 && chat.busy && s.claudeTool === 'type_text') { const taken = s.shownMachine.stubKeysTaken; if (taken >= 3) { stopped = true; s.stopClaude(); } } });
     check('"Just tell me the fix": – didn\'t type "DIR": you said no', JSON.stringify(lines(chat, 1)) === JSON.stringify(['– didn\'t type "DIR": you said no']), JSON.stringify(lines(chat, 1)));

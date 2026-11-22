@@ -8503,7 +8503,7 @@ async function consentFullscreenChecks(browser, base, check) {
   await started(page);
   await waitFor(page, () => window.emu.session.claudeView === 'full', null, 15000);
   await page.evaluate(() => { const b = window.emu.session.chat.backend, f = b.fetch; window.emu.__sent = 0; b.fetch = (...a) => { window.emu.__sent++; return f(...a); }; });
-  check(`${L}: "Let Claude use the emulator" starts off`, !(await page.isChecked('#chkClaudeTools')) && await page.evaluate(() => !window.emu.session.claudeAllowed));
+  check(`${L}: "Let Claude use the emulator" starts off`, !(await page.isChecked('#chkClaudeTools')) && await page.evaluate(() => !window.emu.session.consent.allowed));
 
   // the first acting tool asks; "Just tell me the fix" refuses it
   replies.push({ body: tools([{ name: 'type_text', input: { text: 'PRINT 1\n' } }]) }, { body: text('Type PRINT 1 yourself.') });
@@ -8517,7 +8517,7 @@ async function consentFullscreenChecks(browser, base, check) {
   const refused = requests[1] && requests[1].messages.slice(-1)[0].content;
   check(`${L}: "Just tell me the fix" refuses the tool: Claude is told, nothing is typed into BASIC, the switch stays off`,
     Array.isArray(refused) && refused[0].is_error && /Just tell me the fix/.test(refused[0].content)
-    && await page.evaluate(() => window.emu.session.chatMachines.basic.stubKeys.length === 0 && !window.emu.session.claudeAllowed && window.emu.session.chat.undo.length === 0)
+    && await page.evaluate(() => window.emu.session.chatMachines.basic.stubKeys.length === 0 && !window.emu.session.consent.allowed && window.emu.session.chat.undo.length === 0)
     && !(await page.isChecked('#chkClaudeTools')) && await page.isHidden('#claudeConsentAsk'), JSON.stringify(refused));
 
   // asked again (the switch is still off); Allow lets it act and turns the switch on
@@ -8528,7 +8528,7 @@ async function consentFullscreenChecks(browser, base, check) {
   await done(4);
   const ran = requests[3] && requests[3].messages.slice(-1)[0].content;
   check(`${L}: Allow: the tool runs (typed into the BASIC session, a restore point first) and the switch turns on`,
-    Array.isArray(ran) && !ran[0].is_error && await page.evaluate(() => window.emu.session.claudeAllowed && window.emu.session.chat.undo.length === 1)
+    Array.isArray(ran) && !ran[0].is_error && await page.evaluate(() => window.emu.session.consent.allowed && window.emu.session.chat.undo.length === 1)
     && await page.isChecked('#chkClaudeTools') && await page.isHidden('#claudeConsentAsk'), JSON.stringify(ran));
 
   // allowed for the visit: the next action does not ask
@@ -8540,13 +8540,13 @@ async function consentFullscreenChecks(browser, base, check) {
 
   // the read-only tools never ask, and the page shows what they read: the switch is
   // ON here from the Allow above, so this case first turns it OFF to prove reading does not need consent
-  await page.evaluate(() => window.emu.session.setClaudeAllowed(false));
-  check(`${L}: the switch is off again for the read-only case`, await page.evaluate(() => !window.emu.session.claudeAllowed));
+  await page.evaluate(() => window.emu.session.consent.setAllowed(false));
+  check(`${L}: the switch is off again for the read-only case`, await page.evaluate(() => !window.emu.session.consent.allowed));
   replies.push({ body: tools([{ name: 'machine_info', input: {} }]) }, { body: text('It is a Dragon 64.') });
   await typeLine('what machine is it');
   await done(8);
   const readBack = requests[7] && requests[7].messages.slice(-1)[0].content;
-  const readState = await page.evaluate(() => ({ allowed: window.emu.session.claudeAllowed, undo: window.emu.session.chat.undo.length }));
+  const readState = await page.evaluate(() => ({ allowed: window.emu.session.consent.allowed, undo: window.emu.session.chat.undo.length }));
   check(`${L}: with the switch OFF a read-only tool runs: no consent card, and the tool result carries the machine's name`,
     Array.isArray(readBack) && !readBack[0].is_error && /Tandy Color Computer|Dragon/.test(String(readBack[0].content))
     && !readState.allowed && await page.isHidden('#claudeConsentAsk'),
@@ -8563,7 +8563,7 @@ async function consentFullscreenChecks(browser, base, check) {
   check(`${L}: disassemble runs with the switch OFF and returns the machine's own CPU and mnemonics`,
     Array.isArray(dis) && !dis[0].is_error && disJson && disJson.cpu === '6809' && disJson.count === 2
     && disJson.instructions.length === 2 && disJson.instructions.every((i) => typeof i.text === 'string' && /^[0-9A-F]{2}( [0-9A-F]{2})*$/.test(i.bytes) && i.bytes.split(' ').length === i.size)
-    && await page.isHidden('#claudeConsentAsk') && await page.evaluate(() => !window.emu.session.claudeAllowed),
+    && await page.isHidden('#claudeConsentAsk') && await page.evaluate(() => !window.emu.session.consent.allowed),
     JSON.stringify(dis && dis[0]));
 
   // load_basic checks its program before its own card: on this machine (no BASIC ROMs) it is refused with a coded
@@ -8591,7 +8591,7 @@ async function consentFullscreenChecks(browser, base, check) {
   await page.reload();
   await started(page);
   await waitFor(page, () => window.emu.session.claudeView === 'full', null, 15000);
-  check(`${L}: after a reload the switch is off again`, !(await page.isChecked('#chkClaudeTools')) && await page.evaluate(() => !window.emu.session.claudeAllowed));
+  check(`${L}: after a reload the switch is off again`, !(await page.isChecked('#chkClaudeTools')) && await page.evaluate(() => !window.emu.session.consent.allowed));
   check(`${L}: no page errors`, !errors.length, errors.join('; '));
   await ctx.close();
 }
@@ -8648,7 +8648,7 @@ async function askFollowupChecks(browser, base, check) {
     await waitFor(page, () => !document.getElementById('askActing').hidden && window.emu.machine.typist.queue.length > 100, null, 8000);
     await page.focus('#screen');
     await page.keyboard.press('x');
-    const paused = await page.evaluate(() => { const m = window.emu.machine; const before = m.typist.queue.length; return { paused: !!window.emu.session.claudePaused, left: before,
+    const paused = await page.evaluate(() => { const m = window.emu.machine; const before = m.typist.queue.length; return { paused: !!window.emu.session.consent.paused, left: before,
       pill: document.getElementById('askActing').textContent, resume: !document.getElementById('btnAskResume').hidden, ring: document.getElementById('monitor').classList.contains('claude-acting') }; });
     await emuFrames(page, 30);
     const still = await page.evaluate(() => window.emu.machine.stubKeys.filter((c) => c !== 'X'.charCodeAt(0)).length + window.emu.machine.typist.queue.length);
@@ -8656,15 +8656,15 @@ async function askFollowupChecks(browser, base, check) {
       paused.paused && /Paused/.test(paused.pill) && paused.resume && still === 0 && await page.isVisible('#btnAskStop'), JSON.stringify(paused));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'ask-paused-desktop.png') });
     // compared in the same task as the click: the held keys are queued again, after the person's own
-    const resumed = await page.evaluate(() => { const s = window.emu.session, held = s.claudePaused.held.queue.length, before = s.personMachine.typist.queue.length;
-      document.getElementById('btnAskResume').click(); return { held, queued: s.personMachine.typist.queue.length - before, paused: !!s.claudePaused }; });
+    const resumed = await page.evaluate(() => { const s = window.emu.session, held = s.consent.paused.held.queue.length, before = s.personMachine.typist.queue.length;
+      document.getElementById('btnAskResume').click(); return { held, queued: s.personMachine.typist.queue.length - before, paused: !!s.consent.paused }; });
     check('ask (keys): Resume carries on typing where Claude stopped', resumed.held > 50 && resumed.queued === resumed.held && !resumed.paused
       && /Claude is typing/.test(await page.textContent('#askActing')), JSON.stringify(resumed));
     await page.focus('#screen');
     await page.keyboard.press('y');
-    await waitFor(page, () => window.emu.session.claudePaused);
+    await waitFor(page, () => window.emu.session.consent.paused);
     await page.click('#btnAskStop');
-    check('ask (keys): Stop while paused ends the turn; nothing held is typed later', await waitFor(page, () => !window.emu.session.claudePaused && !window.emu.session.chat.busy
+    check('ask (keys): Stop while paused ends the turn; nothing held is typed later', await waitFor(page, () => !window.emu.session.consent.paused && !window.emu.session.chat.busy
       && document.getElementById('askActing').hidden) && (await emuFrames(page, 30), await page.evaluate(() => window.emu.machine.stubKeys.length === 0 && window.emu.machine.typist.queue.length === 0)));
     if (replies.held) replies.held.release();
     check('ask (keys): no page errors', !errors.length, errors.join('; '));
@@ -8683,17 +8683,17 @@ async function askFollowupChecks(browser, base, check) {
     await waitFor(page, () => window.emu.session.claudeActing && window.emu.machine.ram[0x3000] === 0x11 && window.emu.session.chat.busy, null, 8000);
     await page.focus('#screen');
     await page.keyboard.press('x');
-    const during = await page.evaluate(() => ({ paused: !!window.emu.session.claudePaused, status: document.getElementById('askStatusText').textContent }));
+    const during = await page.evaluate(() => ({ paused: !!window.emu.session.consent.paused, status: document.getElementById('askStatusText').textContent }));
     replies.held.release();
     await waitFor(page, () => !window.emu.session.chat.busy, null, 8000);
-    const after = await page.evaluate(() => ({ paused: !!window.emu.session.claudePaused, resume: !document.getElementById('btnAskResume').hidden, status: !document.getElementById('askStatus').hidden }));
+    const after = await page.evaluate(() => ({ paused: !!window.emu.session.consent.paused, resume: !document.getElementById('btnAskResume').hidden, status: !document.getElementById('askStatus').hidden }));
     check('ask (pause scope): a key while Claude thinks after acting pauses it; when the reply finishes the pause is gone (no Resume, no status)',
       during.paused && /Paused/.test(during.status) && !after.paused && !after.resume && !after.status, JSON.stringify({ during, after }));
     replies.push({ hold: true, body: tools([{ name: 'poke', input: { address: 0x3001, bytes: [0x22] } }]) }, { body: text('Poked again.') });
     await page.fill('#askInput', 'Poke 3001 too');
     await page.press('#askInput', 'Enter');
     await waitFor(page, () => window.emu.session.chat.busy && !document.getElementById('askStatus').hidden, null, 8000);
-    const next = await page.evaluate(() => ({ paused: !!window.emu.session.claudePaused, status: document.getElementById('askStatusText').textContent }));
+    const next = await page.evaluate(() => ({ paused: !!window.emu.session.consent.paused, status: document.getElementById('askStatusText').textContent }));
     replies.held.release();
     const ran = await waitFor(page, () => window.emu.machine.ram[0x3001] === 0x22 && !window.emu.session.chat.busy, null, 8000);
     check('ask (pause scope): the next turn starts as Thinking…, not Paused, and its poke runs without a Resume',
@@ -8707,7 +8707,7 @@ async function askFollowupChecks(browser, base, check) {
     await waitFor(page, () => window.emu.session.chat.busy && !document.getElementById('askStatus').hidden, null, 8000);
     await page.focus('#screen');
     await page.keyboard.press('z');
-    const textOnly = await page.evaluate(() => ({ paused: !!window.emu.session.claudePaused, acting: window.emu.session.claudeBusyActing, status: document.getElementById('askStatusText').textContent,
+    const textOnly = await page.evaluate(() => ({ paused: !!window.emu.session.consent.paused, acting: window.emu.session.claudeBusyActing, status: document.getElementById('askStatusText').textContent,
       resume: !document.getElementById('btnAskResume').hidden, pill: !document.getElementById('askActing').hidden }));
     replies.held.release();
     const replied = await waitFor(page, () => !window.emu.session.chat.busy && /Just words\./.test(document.getElementById('askMessages').textContent), null, 8000);
@@ -8727,21 +8727,21 @@ async function askFollowupChecks(browser, base, check) {
     if (tag === 'phone') {
       // the phone's sheet (side panel): a pause shows Resume and Stop on the screen, and Resume carries on
       // (the switch is below the sheet's fold; its click is covered elsewhere)
-      await page.evaluate(() => window.emu.session.setClaudeAllowed(true));
+      await page.evaluate(() => window.emu.session.consent.setAllowed(true));
       replies.push({ body: tools([{ name: 'type_text', input: { text: LISTING } }]) }, { hold: true, body: text('Typed.') });
       await page.fill('#askInput', 'Type a long listing for me');
       await page.press('#askInput', 'Enter');
       await waitFor(page, () => !document.getElementById('askActing').hidden && window.emu.machine.typist.queue.length > 100, null, 8000);
       await page.focus('#screen');
       await page.keyboard.press('x');
-      const sheet = await page.evaluate(() => ({ paused: !!window.emu.session.claudePaused, resume: !document.getElementById('btnAskResume').hidden }));
+      const sheet = await page.evaluate(() => ({ paused: !!window.emu.session.consent.paused, resume: !document.getElementById('btnAskResume').hidden }));
       // each button whole inside the screen (the pill is in the screen, which clips what overflows it) and on top
       const sheetVis = (await page.evaluate(() => { const t = document.querySelector('.tube').getBoundingClientRect();
         return ['btnAskResume', 'btnAskStop'].map((id) => { const b = document.getElementById(id), r = b.getBoundingClientRect();
           return r.width > 0 && r.left >= t.left && r.right <= t.right && r.top >= t.top && r.bottom <= t.bottom && b.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)); }); })).every(Boolean);
       if (shotDir) await page.screenshot({ path: path.join(shotDir, 'ask-paused-phone-sheet.png') });
       await page.click('#btnAskResume');
-      const back = await page.evaluate(() => !window.emu.session.claudePaused && window.emu.machine.typist.queue.length > 50);
+      const back = await page.evaluate(() => !window.emu.session.consent.paused && window.emu.machine.typist.queue.length > 50);
       check('ask (phone sheet): a pause shows Resume and Stop on the screen, and Resume carries on typing', sheet.paused && sheet.resume && sheetVis && back, JSON.stringify(sheet));
       await page.click('#btnAskStop');
       await waitFor(page, () => !window.emu.session.chat.busy, null, 8000);
@@ -8760,20 +8760,20 @@ async function askFollowupChecks(browser, base, check) {
     await waitFor(page, `(${basic})().typist.queue.length > 100 && window.emu.session.claudeBusyActing`, null, 8000);
     await page.focus('#screen');
     await page.keyboard.press('x');
-    const paused = await page.evaluate(() => ({ paused: !!window.emu.session.claudePaused, status: document.getElementById('claudeStatusText').textContent,
+    const paused = await page.evaluate(() => ({ paused: !!window.emu.session.consent.paused, status: document.getElementById('claudeStatusText').textContent,
       resume: !document.getElementById('btnClaudeResume').hidden }));
     const shown = await page.isVisible('#btnClaudeResume') && await page.isVisible('#btnClaudeStop');
     check(`${L}: a key on the BASIC session pauses Claude; the bar says Paused with Resume and Stop, both on screen`, paused.paused && /Paused/.test(paused.status) && paused.resume && shown, JSON.stringify(paused));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `ask-paused-full-${tag}.png`) });
-    const resumed = await page.evaluate((b) => { const s = window.emu.session, held = s.claudePaused.held.queue.length, m = (0, eval)(b)(), before = m.typist.queue.length;
-      document.getElementById('btnClaudeResume').click(); return { held, queued: m.typist.queue.length - before, paused: !!s.claudePaused, hidden: document.getElementById('btnClaudeResume').hidden }; }, `(${basic})`);
+    const resumed = await page.evaluate((b) => { const s = window.emu.session, held = s.consent.paused.held.queue.length, m = (0, eval)(b)(), before = m.typist.queue.length;
+      document.getElementById('btnClaudeResume').click(); return { held, queued: m.typist.queue.length - before, paused: !!s.consent.paused, hidden: document.getElementById('btnClaudeResume').hidden }; }, `(${basic})`);
     check(`${L}: Resume in the bar carries on typing where Claude stopped, and goes away`, resumed.held > 50 && resumed.queued === resumed.held && !resumed.paused && resumed.hidden, JSON.stringify(resumed));
     // paused again: Stop in the bar ends the turn and nothing held is typed later
     await page.focus('#screen');
     await page.keyboard.press('y');
-    await waitFor(page, () => window.emu.session.claudePaused);
+    await waitFor(page, () => window.emu.session.consent.paused);
     await page.click('#btnClaudeStop');
-    const stopped = await waitFor(page, () => !window.emu.session.claudePaused && !window.emu.session.chat.busy && document.getElementById('claudeStatus').hidden, null, 8000);
+    const stopped = await waitFor(page, () => !window.emu.session.consent.paused && !window.emu.session.chat.busy && document.getElementById('claudeStatus').hidden, null, 8000);
     await emuFrames(page, 30);
     check(`${L}: Stop in the bar while paused ends the turn; nothing held is typed later`, stopped && await page.evaluate((b) => { const m = (0, eval)(b)(); return m.stubKeys.length === 0 && m.typist.queue.length === 0; }, `(${basic})`));
     if (replies.held) { replies.held.release(); replies.held = null; }
@@ -8787,7 +8787,7 @@ async function askFollowupChecks(browser, base, check) {
     await waitFor(page, () => window.emu.session.chat.busy && !document.getElementById('claudeStatus').hidden, null, 8000);
     await page.focus('#screen');
     await page.keyboard.press('z');
-    const textOnly = await page.evaluate(() => ({ paused: !!window.emu.session.claudePaused, status: document.getElementById('claudeStatusText').textContent, resume: !document.getElementById('btnClaudeResume').hidden }));
+    const textOnly = await page.evaluate(() => ({ paused: !!window.emu.session.consent.paused, status: document.getElementById('claudeStatusText').textContent, resume: !document.getElementById('btnClaudeResume').hidden }));
     replies.held.release();
     const done = await waitFor(page, () => !window.emu.session.chat.busy, null, 8000);
     check(`${L}: a later text-only turn is not paused by a key (Thinking…, no Resume) and ends`, !textOnly.paused && textOnly.status === 'Thinking…' && !textOnly.resume && done, JSON.stringify(textOnly));
@@ -8802,14 +8802,14 @@ async function askFollowupChecks(browser, base, check) {
     const { ctx, page, errors, replies } = await open(vp, null, opts);
     const L = `ask (pause, ${tag})`;
     await page.evaluate(() => document.getElementById('btnAsk').click());
-    await page.evaluate(() => window.emu.session.setClaudeAllowed(true));
+    await page.evaluate(() => window.emu.session.consent.setAllowed(true));
     replies.push({ body: tools([{ name: 'type_text', input: { text: LISTING } }]) }, { hold: true, body: text('Typed.') });
     await page.evaluate(() => { window.emu.session.chat ? window.emu.session.chat.sendLine('Type a long listing for me') : null; });
     if (!(await page.evaluate(() => !!window.emu.session.chat))) { await page.fill('#askInput', 'Type a long listing for me'); await page.press('#askInput', 'Enter'); }
     await waitFor(page, () => window.emu.machine.typist.queue.length > 100 && window.emu.session.claudeBusyActing, null, 8000);
     await page.focus('#screen');
     await page.keyboard.press('x');
-    await waitFor(page, () => !!window.emu.session.claudePaused);
+    await waitFor(page, () => !!window.emu.session.consent.paused);
     const where = await page.evaluate(() => { const t = document.querySelector('.tube').getBoundingClientRect();
       const on = (id) => { const b = document.getElementById(id), r = b.getBoundingClientRect(); return !b.hidden && r.width > 0 && r.top >= 0 && r.bottom <= innerHeight && b.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)); };
       const inTube = (id) => { const r = document.getElementById(id).getBoundingClientRect(); return r.left >= t.left && r.right <= t.right; };
@@ -8823,12 +8823,12 @@ async function askFollowupChecks(browser, base, check) {
     check(`${L}: Resume and Stop are on screen and uncovered while paused`, ok, JSON.stringify(where));
     if (opts) check(`${L}: (the touch keyboard is up)`, await page.evaluate(() => document.body.classList.contains('touch-keys')));
     await page.click(tag === '360 px phone' ? '#btnAskResume' : '#btnAskStatusResume');
-    const resumed = await page.evaluate(() => !window.emu.session.claudePaused && window.emu.machine.typist.queue.length > 50);
+    const resumed = await page.evaluate(() => !window.emu.session.consent.paused && window.emu.machine.typist.queue.length > 50);
     await page.focus('#screen');
     await page.keyboard.press('y');
-    await waitFor(page, () => !!window.emu.session.claudePaused);
+    await waitFor(page, () => !!window.emu.session.consent.paused);
     await page.click(tag === '360 px phone' ? '#btnAskStop' : '#btnAskStatusStop');
-    const stopped = await waitFor(page, () => !window.emu.session.claudePaused && !window.emu.session.chat.busy, null, 8000);
+    const stopped = await waitFor(page, () => !window.emu.session.consent.paused && !window.emu.session.chat.busy, null, 8000);
     check(`${L}: Resume carries on, and Stop ends the turn`, resumed && stopped);
     if (replies.held) replies.held.release();
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
@@ -8841,7 +8841,7 @@ async function askFollowupChecks(browser, base, check) {
     const { ctx, page, errors, replies } = await open({ width: 844, height: 390 }, null, { hasTouch: true, isMobile: true });
     const L = 'ask (full-screen pause, sideways with the keyboard)';
     await page.evaluate(() => document.getElementById('btnAsk').click());
-    await page.evaluate(() => window.emu.session.setClaudeAllowed(true));
+    await page.evaluate(() => window.emu.session.consent.setAllowed(true));
     await page.evaluate(() => document.getElementById('btnAskFull').click());
     await waitFor(page, () => window.emu.session.claudeView === 'full' && !!window.emu.session.chatMachines && document.body.classList.contains('touch-keys')
       && document.body.classList.contains('chat-phone'), null, 15000);
@@ -8852,7 +8852,7 @@ async function askFollowupChecks(browser, base, check) {
     await waitFor(page, () => window.emu.session.chatTarget().machine.typist.queue.length > 100 && window.emu.session.claudeBusyActing, null, 8000);
     await page.focus('#screen');
     await page.keyboard.press('x');
-    await waitFor(page, () => !!window.emu.session.claudePaused && !document.getElementById('btnClaudeResume').hidden);
+    await waitFor(page, () => !!window.emu.session.consent.paused && !document.getElementById('btnClaudeResume').hidden);
     // each button is on top where it is drawn (nothing covers it) and inside the window (the keyboard lets taps
     // through its gaps, pointer-events: none, which elementFromPoint skips: it is made hit-testable while measuring)
     const uncovered = await page.evaluate(() => { const tk = document.getElementById('touchKeys'), was = tk.style.pointerEvents; tk.style.pointerEvents = 'auto';
@@ -8862,12 +8862,12 @@ async function askFollowupChecks(browser, base, check) {
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'ask-paused-full-sideways.png') });
     check(`${L}: paused, Resume and Stop are on screen above the keyboard`, uncovered.every(Boolean), JSON.stringify(uncovered));
     await page.click('#btnClaudeResume');
-    const resumed = await page.evaluate(() => !window.emu.session.claudePaused && window.emu.session.chatTarget().machine.typist.queue.length > 50);
+    const resumed = await page.evaluate(() => !window.emu.session.consent.paused && window.emu.session.chatTarget().machine.typist.queue.length > 50);
     await page.focus('#screen');
     await page.keyboard.press('y');
-    await waitFor(page, () => !!window.emu.session.claudePaused);
+    await waitFor(page, () => !!window.emu.session.consent.paused);
     await page.click('#btnClaudeStop');
-    const stopped = await waitFor(page, () => !window.emu.session.claudePaused && !window.emu.session.chat.busy, null, 8000);
+    const stopped = await waitFor(page, () => !window.emu.session.consent.paused && !window.emu.session.chat.busy, null, 8000);
     check(`${L}: Resume carries on, and Stop ends the turn`, resumed && stopped);
     if (replies.held) replies.held.release();
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
@@ -9070,7 +9070,7 @@ async function askFollowupChecks(browser, base, check) {
       w(0x19, 0x1E01); w(0x1B, 0x1E03); w(0x1D, 0x1E03); w(0x1F, 0x1E03); w(0x21, 0x7E00);
       for (let i = 0; i < 512; i++) m.ram[0x400 + i] = 0x60;
       m.ram[0x440] = 0x0F; m.ram[0x441] = 0x0B;            // OK
-      s.setClaudeAllowed(true);
+      s.consent.setAllowed(true);
       return m.hasRom;
     });
     await emuFrames(page, 3);
@@ -9083,7 +9083,7 @@ async function askFollowupChecks(browser, base, check) {
     replies.push({ body: tools([{ name: 'load_basic', input: { program: PROG } }]) }, { body: text('Loaded.') });
     await askNow('Load my 20-line program');
     check('load card: with "Let Claude use the emulator" on, load_basic still asks with its own card, saying what it loads',
-      ready && await loadCard() && await page.evaluate(() => window.emu.session.claudeAllowed) && await page.isHidden('#askConsent')
+      ready && await loadCard() && await page.evaluate(() => window.emu.session.consent.allowed) && await page.isHidden('#askConsent')
       && /20-line BASIC program \(lines 10 to 200, \d+ bytes\)/.test(await page.textContent('#askLoadText'))
       && /Don't ask again this session/.test(await page.textContent('#askLoad')) && !(await page.isChecked('#chkAskLoadNoAsk')), await page.textContent('#askLoad'));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'ask-load-basic-card.png') });
@@ -9102,7 +9102,7 @@ async function askFollowupChecks(browser, base, check) {
     await page.check('#chkAskLoadNoAsk');
     await page.click('#btnAskLoad');
     await turnsDone(2);
-    check('load card: ticked and loaded: this session does not ask again', await page.evaluate(() => window.emu.session.claudeLoadNoAsk) && (await listing()) === '10 PRINT "TWO"');
+    check('load card: ticked and loaded: this session does not ask again', await page.evaluate(() => window.emu.session.consent.loadNoAsk) && (await listing()) === '10 PRINT "TWO"');
     // a third load goes straight in: no card
     replies.push({ body: tools([{ name: 'load_basic', input: { program: '10 PRINT "THREE"' } }]) }, { body: text('Done.') });
     let carded = false;
@@ -9134,7 +9134,7 @@ async function askFollowupChecks(browser, base, check) {
     await page.click('#chkAskMachine');
     await emuFrames(page, 1);
     check('switch off from the page (side panel): the box is unticked, acting is off and "Don\'t ask again" is cleared',
-      !(await page.isChecked('#chkAskMachine')) && await page.evaluate(() => !window.emu.session.claudeAllowed && !window.emu.session.claudeLoadNoAsk));
+      !(await page.isChecked('#chkAskMachine')) && await page.evaluate(() => !window.emu.session.consent.allowed && !window.emu.session.consent.loadNoAsk));
     // with the switch off the card has no "Don't ask again" box, and ticking it anyway (as a script could) loads this
     // program but does not stop the next card: no load can go in silently
     let t = await lbTurn('10 PRINT "FOUR"', sidePanel('Load four'));
@@ -9143,7 +9143,7 @@ async function askFollowupChecks(browser, base, check) {
     const sentTicked = await page.evaluate(() => { const b = document.getElementById('chkAskLoadNoAsk'); b.checked = true; document.getElementById('btnAskLoad').click(); return b.checked; });
     let res = await t.settle();
     check('switch off: Load it loads, and a ticked hidden box does not turn the card off', sentTicked && res.isError === false && res.out.lines === 1 && (await listing()) === '10 PRINT "FOUR"'
-      && await page.evaluate(() => !window.emu.session.claudeLoadNoAsk), JSON.stringify(res));
+      && await page.evaluate(() => !window.emu.session.consent.loadNoAsk), JSON.stringify(res));
     t = await lbTurn('10 PRINT "FIVE"', sidePanel('Load five'));
     check('switch off: the next load_basic asks again (no silent load), still without the box', await loadCard() && !(await boxShown('chkAskLoadNoAsk')));
     // the side panel's Don't load: Claude gets load-declined, the card goes, the program in memory stays
@@ -9159,7 +9159,7 @@ async function askFollowupChecks(browser, base, check) {
     await page.click('#btnAskLoadNo');
     res = await t.settle();
     check('side panel: ticked, then Don\'t load: load-declined, nothing loaded, and the session still asks', res.out.error && res.out.error.code === 'load-declined'
-      && (await listing()) === '10 PRINT "FOUR"' && await page.evaluate(() => !window.emu.session.claudeLoadNoAsk), JSON.stringify(res));
+      && (await listing()) === '10 PRINT "FOUR"' && await page.evaluate(() => !window.emu.session.consent.loadNoAsk), JSON.stringify(res));
     t = await lbTurn('10 PRINT "SEVEN"', sidePanel('Load seven'));
     check('side panel: the next card starts with the box unticked (a tick does not carry over to the next card)', await loadCard() && !(await page.isChecked('#chkAskLoadNoAsk')));
     await page.click('#btnAskLoadNo');
@@ -9180,7 +9180,7 @@ async function askFollowupChecks(browser, base, check) {
     res = await t.settle();
     check('full screen: ticked, then Don\'t load: Claude gets load-declined, the card goes, nothing is loaded, the session still asks',
       res.isError === true && res.out.error && res.out.error.code === 'load-declined' && await page.isHidden('#claudeLoad') && (await listing()) === '10 PRINT "FOUR"'
-      && await page.evaluate(() => !window.emu.session.claudeLoadNoAsk), JSON.stringify(res));
+      && await page.evaluate(() => !window.emu.session.consent.loadNoAsk), JSON.stringify(res));
     t = await lbTurn('10 PRINT "NINE"', fullSend('load nine'));
     check('full screen: the next card starts with the box unticked', await fullCard() && !(await page.isChecked('#chkClaudeLoadNoAsk')));
     await page.click('#btnClaudeLoad');
@@ -9191,7 +9191,7 @@ async function askFollowupChecks(browser, base, check) {
     await page.click('#chkClaudeTools');
     t = await lbTurn('10 PRINT "TEN"', fullSend('load ten'));
     check('full screen: switch off from the page: acting is off and the card has no "Don\'t ask again" box', await fullCard() && !(await page.isChecked('#chkClaudeTools'))
-      && await page.evaluate(() => !window.emu.session.claudeAllowed) && !(await boxShown('chkClaudeLoadNoAsk')));
+      && await page.evaluate(() => !window.emu.session.consent.allowed) && !(await boxShown('chkClaudeLoadNoAsk')));
     await page.click('#btnClaudeLoadNo');
     res = await t.settle();
     check('full screen: Don\'t load with the switch off: load-declined, nothing loaded', res.out.error && res.out.error.code === 'load-declined' && (await listing()) === '10 PRINT "NINE"', JSON.stringify(res));
@@ -9252,7 +9252,7 @@ async function askEscChecks(browser, base, check) {
   // the side panel (or the full-screen chat), the switch on, Claude typing a long listing into the BASIC session
   async function typing(page, replies, { full = false, basicView = true } = {}) {
     await page.evaluate(() => document.getElementById('btnAsk').click());
-    await page.evaluate(() => window.emu.session.setClaudeAllowed(true));
+    await page.evaluate(() => window.emu.session.consent.setAllowed(true));
     if (full) {
       await page.evaluate(() => document.getElementById('btnAskFull').click());
       await waitFor(page, () => window.emu.session.claudeView === 'full' && !!window.emu.session.chatMachines, null, 15000);
@@ -9273,13 +9273,13 @@ async function askEscChecks(browser, base, check) {
   async function pause(page) {
     await page.focus('#screen');
     await page.keyboard.press('x');
-    return waitFor(page, () => !!window.emu.session.claudePaused);
+    return waitFor(page, () => !!window.emu.session.consent.paused);
   }
   // stopped: not paused, the turn over; then Resume (as the page's buttons call it) types nothing, now or later
   async function stoppedForGood(page) {
-    const ended = await waitFor(page, () => !window.emu.session.claudePaused && !(window.emu.session.chat && window.emu.session.chat.busy), null, 8000);
+    const ended = await waitFor(page, () => !window.emu.session.consent.paused && !(window.emu.session.chat && window.emu.session.chat.busy), null, 8000);
     const r = await page.evaluate(() => { const s = window.emu.session, m = s.chatTarget().machine; window.__pushed.length = 0;
-      return { paused: !!s.claudePaused, busy: !!(s.chat && s.chat.busy), resumed: s.resumeClaude(), queued: m.typist.queue.length + m.stubKeys.length }; });
+      return { paused: !!s.consent.paused, busy: !!(s.chat && s.chat.busy), resumed: s.resumeClaude(), queued: m.typist.queue.length + m.stubKeys.length }; });
     await emuFrames(page, 30);
     const later = await page.evaluate(() => { const m = window.emu.session.chatTarget().machine; return m.typist.queue.length + m.stubKeys.length + window.__pushed.length; });
     return { ok: ended && !r.paused && !r.busy && r.resumed === false && r.queued === 0 && later === 0, ...r, later };
@@ -9326,7 +9326,7 @@ async function askEscChecks(browser, base, check) {
     const r = await page.evaluate(() => { const c = document.getElementById('screen'); c.focus(); window.__pushed.length = 0;
       const key = (type, key, code) => c.dispatchEvent(new KeyboardEvent(type, { key, code, bubbles: true, cancelable: true }));
       key('keydown', 'x', 'KeyX'); key('keyup', 'x', 'KeyX');
-      const paused = !!window.emu.session.claudePaused;
+      const paused = !!window.emu.session.consent.paused;
       key('keydown', 'Escape', 'Escape'); key('keyup', 'Escape', 'Escape');
       return { paused, breakSent: window.__pushed.includes(3) }; });
     const after = await stoppedForGood(page);
@@ -9343,7 +9343,7 @@ async function askEscChecks(browser, base, check) {
     await page.focus('#screen');
     await page.evaluate(() => { window.__pushed.length = 0; });
     await page.keyboard.press('Escape');
-    const r = await page.evaluate(() => ({ paused: !!window.emu.session.claudePaused, busy: window.emu.session.chat.busy, breakSent: window.__pushed.includes(3) }));
+    const r = await page.evaluate(() => ({ paused: !!window.emu.session.consent.paused, busy: window.emu.session.chat.busy, breakSent: window.__pushed.includes(3) }));
     check('askEsc (Esc not paused): Esc while Claude types pauses Claude and is BREAK, as before (the turn goes on)', r.paused && r.busy && r.breakSent, JSON.stringify(r));
     await page.click('#btnAskStop');
     check('askEsc (Esc not paused): Stop then ends it', (await stoppedForGood(page)).ok);
@@ -9362,7 +9362,7 @@ async function askEscChecks(browser, base, check) {
     await page.keyboard.down('Escape');
     await page.keyboard.down('Escape');
     await page.keyboard.up('Escape');
-    const r = await page.evaluate(() => ({ paused: !!window.emu.session.claudePaused, busy: window.emu.session.chat.busy }));
+    const r = await page.evaluate(() => ({ paused: !!window.emu.session.consent.paused, busy: window.emu.session.chat.busy }));
     check('askEsc (Esc held): an Esc held down while Claude types pauses Claude and its repeats do not stop it', r.paused && r.busy, JSON.stringify(r));
     await page.keyboard.press('Escape');
     check('askEsc (Esc held): the next Esc press stops Claude', (await stoppedForGood(page)).ok);
@@ -9381,7 +9381,7 @@ async function askEscChecks(browser, base, check) {
     await page.keyboard.up('Shift');
     await page.keyboard.down('Escape');
     await page.keyboard.up('Escape');
-    const r = await page.evaluate(() => ({ paused: !!window.emu.session.claudePaused, busy: window.emu.session.chat.busy }));
+    const r = await page.evaluate(() => ({ paused: !!window.emu.session.consent.paused, busy: window.emu.session.chat.busy }));
     check('askEsc (Esc held, Shift let go): the repeat after letting go of Shift is the same press, not a Stop', r.paused && r.busy, JSON.stringify(r));
     await page.keyboard.press('Escape');
     check('askEsc (Esc held, Shift let go): the next Esc press stops Claude', (await stoppedForGood(page)).ok);
@@ -9400,7 +9400,7 @@ async function askEscChecks(browser, base, check) {
     await page.keyboard.down('Escape');
     await page.keyboard.up('Escape');
     await page.keyboard.up('Shift');
-    const r = await page.evaluate(() => ({ paused: !!window.emu.session.claudePaused, busy: window.emu.session.chat.busy }));
+    const r = await page.evaluate(() => ({ paused: !!window.emu.session.consent.paused, busy: window.emu.session.chat.busy }));
     check('askEsc (Esc held, Shift pressed): the repeat after pressing Shift is the same press, not a Stop', r.paused && r.busy, JSON.stringify(r));
     await page.keyboard.press('Escape');
     check('askEsc (Esc held, Shift pressed): the next Esc press stops Claude', (await stoppedForGood(page)).ok);
@@ -9419,7 +9419,7 @@ async function askEscChecks(browser, base, check) {
     await page.keyboard.up(key);
     await page.keyboard.down('Escape');
     await page.keyboard.up('Escape');
-    const r = await page.evaluate(() => ({ paused: !!window.emu.session.claudePaused, busy: window.emu.session.chat.busy }));
+    const r = await page.evaluate(() => ({ paused: !!window.emu.session.consent.paused, busy: window.emu.session.chat.busy }));
     check(`askEsc (Esc held, ${key} pressed): the repeat is the same press, not a Stop`, r.paused && r.busy, JSON.stringify(r));
     await page.click('#btnAskStop');
     if (replies.held) replies.held.release();
@@ -9434,7 +9434,7 @@ async function askEscChecks(browser, base, check) {
     await page.evaluate(() => { document.getElementById('mediaOfferText').textContent = 'A test offer'; document.getElementById('mediaOffer').hidden = false; window.__pushed.length = 0; });
     await page.focus('#screen');
     await page.keyboard.press('Escape');
-    const r = await page.evaluate(() => ({ closed: document.getElementById('mediaOffer').hidden, paused: !!window.emu.session.claudePaused, busy: window.emu.session.chat.busy, breakSent: window.__pushed.includes(3) }));
+    const r = await page.evaluate(() => ({ closed: document.getElementById('mediaOffer').hidden, paused: !!window.emu.session.consent.paused, busy: window.emu.session.chat.busy, breakSent: window.__pushed.includes(3) }));
     check('askEsc (card, not paused): Esc closes the card above the screen, sends no BREAK and does not pause Claude', r.closed && !r.paused && r.busy && !r.breakSent, JSON.stringify(r));
     await page.click('#btnAskStop');
     if (replies.held) replies.held.release();
@@ -9450,7 +9450,7 @@ async function askEscChecks(browser, base, check) {
     await page.keyboard.press('Control+k');
     const boxOpen = await waitFor(page, () => !document.getElementById('cmdBox').hidden);
     await page.keyboard.press('Escape');
-    const first = await page.evaluate(() => ({ paused: !!window.emu.session.claudePaused, closed: document.getElementById('cmdBox').hidden }));
+    const first = await page.evaluate(() => ({ paused: !!window.emu.session.consent.paused, closed: document.getElementById('cmdBox').hidden }));
     await page.keyboard.press('Escape');
     const after = await stoppedForGood(page);
     check('askEsc (order): with the command box open during a pause, the first Esc closes it (still paused), the next stops Claude',
@@ -9468,7 +9468,7 @@ async function askEscChecks(browser, base, check) {
     await page.evaluate(() => { document.getElementById('mediaOfferText').textContent = 'A test offer'; document.getElementById('mediaOffer').hidden = false; });
     await page.focus('#screen');
     await page.keyboard.press('Escape');
-    const first = await page.evaluate(() => ({ paused: !!window.emu.session.claudePaused, closed: document.getElementById('mediaOffer').hidden, breakSent: window.__pushed.includes(3) }));
+    const first = await page.evaluate(() => ({ paused: !!window.emu.session.consent.paused, closed: document.getElementById('mediaOffer').hidden, breakSent: window.__pushed.includes(3) }));
     await page.focus('#screen');
     await page.keyboard.press('Escape');
     const after = await stoppedForGood(page);
@@ -9495,17 +9495,17 @@ async function askEscChecks(browser, base, check) {
     check(`${L}: acting, unpaused: the status with Stop is on the fullscreen screen and clickable`, isFull && acting.stop && acting.resumeHidden && /Claude is typing/.test(acting.text), JSON.stringify(acting));
     await page.focus('#screen');
     await page.keyboard.press('x');
-    await waitFor(page, () => !!window.emu.session.claudePaused && !document.getElementById('btnFsResume').hidden);
+    await waitFor(page, () => !!window.emu.session.consent.paused && !document.getElementById('btnFsResume').hidden);
     const paused = { both: await hit(['btnFsResume', 'btnFsStop']), text: await page.textContent('#fsClaudeText'), still: await page.evaluate(() => document.fullscreenElement === document.getElementById('screenWrap')) };
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `ask-fullscreen-paused-${tag.replace(/[ ×]/g, '-')}.png`) });
     // (on a touch screen the status names Stop instead: there is no Esc to name, UX R30)
     check(`${L}: paused: Resume and Stop are on the fullscreen screen and clickable, the status says ${opts ? 'Stop ends Claude\'s turn' : 'Esc stops Claude'}`,
       paused.both.every(Boolean) && (opts ? paused.text === 'Paused: you tapped a key · Stop ends Claude\'s turn' : /Esc stops Claude/.test(paused.text)) && paused.still, JSON.stringify(paused));
     await page.click('#btnFsResume');
-    const resumed = await page.evaluate(() => !window.emu.session.claudePaused && window.emu.machine.typist.queue.length > 50);
+    const resumed = await page.evaluate(() => !window.emu.session.consent.paused && window.emu.machine.typist.queue.length > 50);
     await page.focus('#screen');
     await page.keyboard.press('y');
-    await waitFor(page, () => !!window.emu.session.claudePaused);
+    await waitFor(page, () => !!window.emu.session.consent.paused);
     await page.click('#btnFsStop');
     const after = await stoppedForGood(page);
     check(`${L}: Resume carries on; Stop ends the turn and nothing is typed later`, resumed && after.ok, JSON.stringify({ resumed, after }));
@@ -9533,7 +9533,7 @@ async function askEscChecks(browser, base, check) {
   {
     const { ctx, page, errors, replies } = await open({ width: 1440, height: 900 });
     await page.evaluate(() => document.getElementById('btnAsk').click());
-    await page.evaluate(async () => { const s = window.emu.session; s.setClaudeAllowed(true);
+    await page.evaluate(async () => { const s = window.emu.session; s.consent.setAllowed(true);
       const r = await fetch(`examples/${s.welcomeFile}`); s.startWelcome(new Uint8Array(await r.arrayBuffer())); });
     await emuFrames(page, 120);
     replies.push({ body: tools([{ name: 'type_text', input: { text: '1' } }]) }, { hold: true, body: text('LIZA is up.') });
@@ -9632,7 +9632,7 @@ async function askEscChecks(browser, base, check) {
           shown && !r.inLayout && textOk && (touchPaused || r.text === r.status) && r.resume === paused && stop === 'ok' && (!paused || resume === 'ok') && back === 'ok', JSON.stringify({ shown, ...r, stop, resume, back }));
         if (paused) {
           if (resume === 'ok') await page.click('#btnViewResume');
-          const resumed = await waitFor(page, () => !window.emu.session.claudePaused && window.emu.session.claudeBusyActing && document.getElementById('btnViewResume').hidden, null, 5000);
+          const resumed = await waitFor(page, () => !window.emu.session.consent.paused && window.emu.session.claudeBusyActing && document.getElementById('btnViewResume').hidden, null, 5000);
           check(`${L}: Resume lets Claude go on, and the pill stays`, resumed && await page.evaluate(() => !document.getElementById('viewClaude').hidden));
         }
         if (stop === 'ok') await page.click('#btnViewStop'); else await page.evaluate(() => document.getElementById('btnAskStop').click());
@@ -9649,7 +9649,7 @@ async function askEscChecks(browser, base, check) {
   for (const [tag, vp, opts] of [['1440', { width: 1440, height: 900 }], ['phone', { width: 390, height: 844 }, { hasTouch: true, isMobile: true }]]) {
     const { ctx, page, errors, replies } = await open(vp, opts || {});
     await page.evaluate(() => document.getElementById('btnAsk').click());
-    await page.evaluate(async () => { const s = window.emu.session; s.setClaudeAllowed(true);
+    await page.evaluate(async () => { const s = window.emu.session; s.consent.setAllowed(true);
       const r = await fetch(`examples/${s.welcomeFile}`); s.startWelcome(new Uint8Array(await r.arrayBuffer())); });
     await emuFrames(page, 120);
     replies.push({ body: tools([{ name: 'type_text', input: { text: '3' } }]) }, { hold: true, body: text('Add ROMs is open.') });
@@ -9680,11 +9680,11 @@ async function askEscChecks(browser, base, check) {
       await waitFor(page, (h) => location.hash === h && !document.getElementById('viewClaude').hidden, view, 5000);
       const thinking = await page.evaluate(() => document.getElementById('viewClaudeText').textContent);
       const held = replies.held; replies.held = null; held.release();
-      const back = await waitFor(page, () => !!window.emu.session.claudePending && location.hash === '' && !document.getElementById('askConsent').hidden, null, 8000);
+      const back = await waitFor(page, () => !!window.emu.session.consent.pending && location.hash === '' && !document.getElementById('askConsent').hidden, null, 8000);
       await new Promise((res) => setTimeout(res, 300));
       const allow = await clickable(page, '#btnAskAllow');
       if (allow === 'ok') await page.click('#btnAskAllow');
-      const typed = await waitFor(page, () => !window.emu.session.claudePending && window.emu.session.claudeAllowed, null, 5000);
+      const typed = await waitFor(page, () => !window.emu.session.consent.pending && window.emu.session.consent.allowed, null, 5000);
       check(`${L}: the pill says Thinking… under the view; the card closes the view and shows on the emulator, and Allow answers it`,
         thinking === 'Thinking…' && back && allow === 'ok' && typed, JSON.stringify({ thinking, back, allow, typed }));
       for (let i = 0; i < 400 && !replies.held; i++) await new Promise((res) => setTimeout(res, 20));
@@ -9692,10 +9692,10 @@ async function askEscChecks(browser, base, check) {
       const ended = await waitFor(page, () => !window.emu.session.chat.busy, null, 8000);
       check(`${L}: (the first turn ended)`, ended);
       // a card already up, then the person opens a view: the pill shows "Waiting for your OK" with Answer
-      await page.evaluate(() => window.emu.session.setClaudeAllowed(false));
+      await page.evaluate(() => window.emu.session.consent.setAllowed(false));
       replies.push({ body: tools([{ name: 'type_text', input: { text: 'PRINT 2' } }]) }, { hold: true, body: text('Done.') });
       await page.evaluate(() => { window.emu.session.chat.sendLine('Type PRINT 2'); });
-      const pending = await waitFor(page, () => !!window.emu.session.claudePending, null, 8000);
+      const pending = await waitFor(page, () => !!window.emu.session.consent.pending, null, 8000);
       check(`${L}: (the second turn's card is up)`, pending);
       await page.evaluate((h) => { location.hash = h; }, view);
       const waiting = await waitFor(page, (h) => location.hash === h && document.getElementById('viewClaudeText').textContent === 'Waiting for your OK' && !document.getElementById('btnViewAnswer').hidden, view, 5000);
@@ -9705,7 +9705,7 @@ async function askEscChecks(browser, base, check) {
       await new Promise((res) => setTimeout(res, 300));
       const tell = await clickable(page, '#btnAskTell');
       if (tell === 'ok') await page.click('#btnAskTell');
-      const answered = await waitFor(page, () => !window.emu.session.claudePending, null, 5000);
+      const answered = await waitFor(page, () => !window.emu.session.consent.pending, null, 5000);
       check(`${L}: a card already waiting shows "Waiting for your OK" with Answer in the view; Answer brings the card into view and it is answered`,
         waiting && answer === 'ok' && shownCard && tell === 'ok' && answered, JSON.stringify({ waiting, answer, shownCard, tell, answered }));
       if (replies.held) replies.held.release();
@@ -9724,15 +9724,15 @@ async function askEscChecks(browser, base, check) {
       const { ctx, page, errors, replies } = await open(vp, opts || {});
       const L = `askEsc (F1 Stop on the pill during a gate wait, ${keyFirst ? 'the person\'s key while the card waits' : 'the card waiting'}, ${tag})`;
       await page.evaluate(() => document.getElementById('btnAsk').click());
-      await page.evaluate(() => window.emu.session.setClaudeAllowed(false));
+      await page.evaluate(() => window.emu.session.consent.setAllowed(false));
       replies.push({ body: tools([{ name: 'type_text', input: { text: 'PRINT 2' } }]) }, { hold: true, body: text('Done.') });
       await page.evaluate(() => { window.emu.session.chat.sendLine('Type PRINT 2'); });
-      const pending = await waitFor(page, () => !!window.emu.session.claudePending && !document.getElementById('askConsent').hidden, null, 8000);
+      const pending = await waitFor(page, () => !!window.emu.session.consent.pending && !document.getElementById('askConsent').hidden, null, 8000);
       let paused = 'n/a';
       if (keyFirst) {
         await page.focus('#screen');
         await page.keyboard.press('x');
-        paused = await waitFor(page, () => !!window.emu.session.claudePaused && !!window.emu.session.claudePending, null, 5000);
+        paused = await waitFor(page, () => !!window.emu.session.consent.paused && !!window.emu.session.consent.pending, null, 5000);
         await page.evaluate(() => { window.__pushed.length = 0; });
         await emuFrames(page, 30);
       }
@@ -9748,7 +9748,7 @@ async function askEscChecks(browser, base, check) {
           && r.answer && r.resume === keyFirst && stop === 'ok', JSON.stringify({ pending, paused, held, shown, ...r, stop }));
       if (stop === 'ok') await page.click('#btnViewStop'); else await page.evaluate(() => document.getElementById('btnAskStop').click());
       const after = await stoppedForGood(page);
-      const res = await page.evaluate(() => { const s = window.emu.session; return { pending: !!s.claudePending, call: s.claudeCall, undo: s.chat.undo.length, msgs: document.getElementById('askMessages').textContent.slice(-200) }; });
+      const res = await page.evaluate(() => { const s = window.emu.session; return { pending: !!s.consent.pending, call: s.claudeCall, undo: s.chat.undo.length, msgs: document.getElementById('askMessages').textContent.slice(-200) }; });
       const gone = await waitFor(page, () => document.getElementById('viewClaude').hidden, null, 5000);
       check(`${L}: Stop on the pill ends the call (stopped) and the turn: no card left, nothing typed then or later, no restore point, the pill goes`,
         after.ok && !res.pending && res.call === null && res.undo === 0 && gone, JSON.stringify({ after, ...res, gone }));
@@ -9778,7 +9778,7 @@ async function askEscChecks(browser, base, check) {
     const L = `askEsc (F2 ${tag})`;
     const going = await typing(page, replies);
     await act(page);
-    const r = await page.evaluate(() => ({ paused: !!window.emu.session.claudePaused, busy: window.emu.session.chat.busy,
+    const r = await page.evaluate(() => ({ paused: !!window.emu.session.consent.paused, busy: window.emu.session.chat.busy,
       status: window.emu.session.claudeStatus && window.emu.session.claudeStatus.phase }));
     check(`${L}: pauses Claude while it types (as a key on the screen does)`, going && r.paused && r.busy && r.status === 'paused', JSON.stringify({ going, ...r }));
     await page.evaluate(() => document.getElementById('btnAskStop').click());
@@ -9800,7 +9800,7 @@ async function askEscChecks(browser, base, check) {
   ]) {
     const { ctx, page, errors, replies } = await open(vp, opts || {});
     await page.evaluate(() => document.getElementById('btnAsk').click());
-    await page.evaluate(async () => { const s = window.emu.session; s.setClaudeAllowed(true);
+    await page.evaluate(async () => { const s = window.emu.session; s.consent.setAllowed(true);
       const r = await fetch(`examples/${s.welcomeFile}`); s.startWelcome(new Uint8Array(await r.arrayBuffer())); });
     await emuFrames(page, 120);
     replies.push({ body: tools([{ name: 'poke', input: { address: 0x3000, bytes: [7] } }]) }, { hold: true, body: text('ok') });
@@ -9824,10 +9824,10 @@ async function askEscChecks(browser, base, check) {
     await page.focus('#screen');
     await page.evaluate(() => { window.__pushed.length = 0; });
     await page.keyboard.press('Escape');
-    const r = await page.evaluate(() => ({ rail: document.body.classList.contains('ask-rail-drawer'), paused: !!window.emu.session.claudePaused, breakSent: window.__pushed.includes(3) }));
+    const r = await page.evaluate(() => ({ rail: document.body.classList.contains('ask-rail-drawer'), paused: !!window.emu.session.consent.paused, breakSent: window.__pushed.includes(3) }));
     check('askEsc (rail): with a rail tab open, Esc on the screen closes the tab, sends no BREAK and does not pause Claude', !r.rail && !r.paused && !r.breakSent, JSON.stringify(r));
     await page.keyboard.press('Escape');
-    const r2 = await page.evaluate(() => ({ paused: !!window.emu.session.claudePaused, breakSent: window.__pushed.includes(3) }));
+    const r2 = await page.evaluate(() => ({ paused: !!window.emu.session.consent.paused, breakSent: window.__pushed.includes(3) }));
     check('askEsc (rail): the next Esc is BREAK and pauses Claude, as before', r2.paused && r2.breakSent, JSON.stringify(r2));
     await page.click('#btnAskStop');
     check('askEsc (rail): Stop then ends it', (await stoppedForGood(page)).ok);
@@ -9840,7 +9840,7 @@ async function askEscChecks(browser, base, check) {
     await typing(page, replies);
     await page.focus('#screen');
     await page.keyboard.down('Shift');
-    const paused = await page.evaluate(() => !!window.emu.session.claudePaused);
+    const paused = await page.evaluate(() => !!window.emu.session.consent.paused);
     await page.keyboard.up('Shift');
     check('askEsc (Shift): Shift alone, the machine\'s SHIFT key, pauses Claude while it types', paused);
     await page.click('#btnAskStop');
@@ -9878,11 +9878,11 @@ async function askEscChecks(browser, base, check) {
     await waitFor(page, () => window.emu.session.claudeView === 'full' && !!window.emu.session.chatMachines, null, 15000);
     replies.push({ body: tools([{ name: 'type_text', input: { text: 'PRINT 1' } }]) }, { hold: true, body: text('Done.') });
     await page.evaluate(() => { window.emu.session.chat.sendLine('Type PRINT 1'); });
-    const pending = await waitFor(page, () => !!window.emu.session.claudePending && document.getElementById('touchKeys').hidden, null, 8000);
+    const pending = await waitFor(page, () => !!window.emu.session.consent.pending && document.getElementById('touchKeys').hidden, null, 8000);
     await page.evaluate(() => document.getElementById('btnClaudeAllow').scrollIntoView({ block: 'center' }));
     const allow = await clickable(page, '#btnClaudeAllow');
     if (allow === 'ok') await page.click('#btnClaudeAllow');
-    const back = await waitFor(page, () => !window.emu.session.claudePending && !document.getElementById('touchKeys').hidden, null, 5000);
+    const back = await waitFor(page, () => !window.emu.session.consent.pending && !document.getElementById('touchKeys').hidden, null, 5000);
     check(`${L}: the touch keyboard stands aside while the card waits, Allow can be clicked, and the keyboard comes back`, pending && allow === 'ok' && back, JSON.stringify({ pending, allow, back }));
     if (replies.held) replies.held.release();
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
@@ -9940,7 +9940,7 @@ async function askEscChecks(browser, base, check) {
     await typing(page, replies);
     await page.focus('#screen');
     await page.keyboard.down('Shift');                                   // pauses Claude: the mark is Shift's
-    const paused = await page.evaluate(() => !!window.emu.session.claudePaused);
+    const paused = await page.evaluate(() => !!window.emu.session.consent.paused);
     await page.evaluate(() => window.dispatchEvent(new Event('blur')));  // its keyup goes to another window
     await page.evaluate(() => document.getElementById('screen').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true })));
     const after = await stoppedForGood(page);
@@ -9976,11 +9976,11 @@ async function askEscChecks(browser, base, check) {
     const shown = panelStop === 'ok' || pill, stop = panelStop === 'ok' ? 'panel' : await clickable(page, '#btnViewStop');
     for (let i = 0; i < 200 && !replies.held; i++) await new Promise((res) => setTimeout(res, 20));
     const held = replies.held; replies.held = null; if (held) held.release();
-    const aside = await waitFor(page, () => !!window.emu.session.claudePending && document.getElementById('touchKeys').hidden, null, 8000);
+    const aside = await waitFor(page, () => !!window.emu.session.consent.pending && document.getElementById('touchKeys').hidden, null, 8000);
     // (no scroll of its own: the page must bring the card's Allow into view, js/ui/ask.js)
     const allow = await clickable(page, '#btnAskAllow');
     if (allow === 'ok') await page.click('#btnAskAllow');
-    const back = await waitFor(page, () => !window.emu.session.claudePending && !document.getElementById('touchKeys').hidden, null, 5000);
+    const back = await waitFor(page, () => !window.emu.session.consent.pending && !document.getElementById('touchKeys').hidden, null, 5000);
     check(`${L}: a Stop can be clicked (the panel's beside the keyboard, or else the pill, not both), and a card makes the keyboard stand aside so Allow can be clicked`,
       keys && shown && (stop === 'panel' || stop === 'ok') && pill === (panelStop !== 'ok') && aside && allow === 'ok' && back, JSON.stringify({ keys, panelStop, pill, stop, aside, allow, back }));
     await page.evaluate(() => window.emu.session.stopClaude());
@@ -10022,7 +10022,7 @@ async function askEscChecks(browser, base, check) {
     o.inc = null;
     await ctx.route('**/examples/r11.inc', async (route) => { await new Promise((res) => { o.inc = res; }); await route.fulfill({ status: 200, body: ' FCB $55,$AA\n' }); });
     await page.evaluate(() => document.getElementById('btnAsk').click());
-    await page.evaluate(() => window.emu.session.setClaudeAllowed(false));
+    await page.evaluate(() => window.emu.session.consent.setAllowed(false));
     if (full) {
       await page.evaluate(() => document.getElementById('btnAskFull').click());
       await waitFor(page, () => window.emu.session.claudeView === 'full' && !!window.emu.session.chatMachines, null, 15000);
@@ -10031,10 +10031,10 @@ async function askEscChecks(browser, base, check) {
     }
     replies.push({ body: tools([use]) }, ...(then ? [{ hold: true, body: tools([then]) }] : []), { hold: true, body: text('Done.') });
     await page.evaluate(() => { window.emu.session.chat.sendLine('Do it'); });
-    o.carded = await waitFor(page, () => !!window.emu.session.claudePending, null, 8000);
+    o.carded = await waitFor(page, () => !!window.emu.session.consent.pending, null, 8000);
     return o;
   }
-  const key = async (page) => { await page.focus('#screen'); await page.keyboard.press('x'); return waitFor(page, () => !!window.emu.session.claudePaused, null, 5000); };
+  const key = async (page) => { await page.focus('#screen'); await page.keyboard.press('x'); return waitFor(page, () => !!window.emu.session.consent.paused, null, 5000); };
   const at = (page, a, k) => page.evaluate(([a2, k2]) => Array.from(window.emu.session.chatTarget().machine.ram.slice(a2, a2 + k2)).join(), [a, k]);
   const POKE = { name: 'poke', input: { address: 0x3000, bytes: [0x55] } };
   const ASM = { name: 'assemble_and_load', input: { source: ' INCLUDE "r11.inc"\n', org: 0x3000 } };
@@ -10051,9 +10051,9 @@ async function askEscChecks(browser, base, check) {
       check(`${L}: a key while the card waits: the button reads "Allow and resume" (was "${plain}"), the card says why, the status is the pause's, the decline label is unchanged`,
         carded && plain === 'Allow' && paused && shown && /^Paused because you pressed a key\. Allow and resume lets Claude/.test(r.line) && /^Paused: you pressed a key · Claude's next action waits · Esc stops Claude$/.test(r.status) && r.tell === 'Just tell me the fix', JSON.stringify({ carded, plain, paused, shown, ...r }));
       await page.click(u.allow);
-      const resumedAtOnce = await page.evaluate(() => !window.emu.session.claudePaused);
+      const resumedAtOnce = await page.evaluate(() => !window.emu.session.consent.paused);
       for (let i = 0; i < 200 && !replies.held; i++) await new Promise((res) => setTimeout(res, 20));
-      const res = await page.evaluate(() => ({ undo: window.emu.session.chat.undo.length, allowed: window.emu.session.claudeAllowed }));
+      const res = await page.evaluate(() => ({ undo: window.emu.session.chat.undo.length, allowed: window.emu.session.consent.allowed }));
       check(`${L}: one click on "Allow and resume" gives consent and resumes; the poke acts exactly once (one restore point), the switch is on`,
         resumedAtOnce && !!replies.held && await at(page, 0x3000, 1) === '85' && res.undo === 1 && res.allowed, JSON.stringify({ resumedAtOnce, ...res }));
       const label = await page.textContent(u.allow);
@@ -10068,9 +10068,9 @@ async function askEscChecks(browser, base, check) {
       const L = `askEsc (R11 ${where}, decline)`;
       await key(page);
       await page.click(u.tell);
-      await waitFor(page, () => !window.emu.session.claudePending, null, 5000);
+      await waitFor(page, () => !window.emu.session.consent.pending, null, 5000);
       for (let i = 0; i < 200 && !replies.held; i++) await new Promise((res) => setTimeout(res, 20));
-      const r = await page.evaluate((q) => ({ paused: !!window.emu.session.claudePaused, undo: window.emu.session.chat.undo.length, resume: !document.querySelector(q.resume).hidden }), u);
+      const r = await page.evaluate((q) => ({ paused: !!window.emu.session.consent.paused, undo: window.emu.session.chat.undo.length, resume: !document.querySelector(q.resume).hidden }), u);
       check(`${L}: "Just tell me the fix" while paused acts on nothing (no restore point) and Claude stays paused, with Resume`,
         r.paused && r.undo === 0 && r.resume && await at(page, 0x3000, 1) === '0', JSON.stringify(r));
       await page.evaluate(() => window.emu.session.stopClaude());
@@ -10087,7 +10087,7 @@ async function askEscChecks(browser, base, check) {
       const L = `askEsc (R11 ${where}, a key after the click${off ? ', then the switch off' : ''})`;
       await key(page);
       await page.click(u.allow);
-      const resumed = await waitFor(page, () => !window.emu.session.claudePaused && !window.emu.session.claudePending, null, 5000);
+      const resumed = await waitFor(page, () => !window.emu.session.consent.paused && !window.emu.session.consent.pending, null, 5000);
       // the check is reading the INCLUDE file (held): the person presses a key now
       for (let i = 0; i < 250 && !o.inc; i++) await new Promise((res) => setTimeout(res, 20));
       const reading = !!o.inc;
@@ -10095,7 +10095,7 @@ async function askEscChecks(browser, base, check) {
       if (off) await page.click(u.sw);
       if (o.inc) o.inc();
       await emuFrames(page, 10);
-      const r = await page.evaluate((q) => ({ paused: !!window.emu.session.claudePaused, busy: window.emu.session.chat.busy, undo: window.emu.session.chat.undo.length, resume: !document.querySelector(q.resume).hidden }), u);
+      const r = await page.evaluate((q) => ({ paused: !!window.emu.session.consent.paused, busy: window.emu.session.chat.busy, undo: window.emu.session.chat.undo.length, resume: !document.querySelector(q.resume).hidden }), u);
       check(`${L}: the call waits at the re-check: nothing written, no restore point, Resume shown`,
         resumed && reading && again && r.paused && r.busy && r.undo === 0 && r.resume && await at(page, 0x3000, 2) === '0,0', JSON.stringify({ resumed, reading, again, ...r }));
       await page.click(u.resume);
@@ -10108,7 +10108,7 @@ async function askEscChecks(browser, base, check) {
         // F3: the refusal was that pause's: the switch back on, the turn's next acting call (held reply released),
         // paused by a key during its INCLUDE read and resumed, acts once (one restore point)
         await page.click(u.sw);
-        const sw = await page.evaluate(() => window.emu.session.claudeAllowed);
+        const sw = await page.evaluate(() => window.emu.session.consent.allowed);
         o.inc = null;
         const held2 = replies.held; replies.held = null; if (held2) held2.release();
         for (let i = 0; i < 250 && !o.inc; i++) await new Promise((res) => setTimeout(res, 20));
@@ -10119,7 +10119,7 @@ async function askEscChecks(browser, base, check) {
         const waits = await at(page, 0x3040, 2);
         await page.click(u.resume);
         for (let i = 0; i < 200 && !replies.held; i++) await new Promise((res) => setTimeout(res, 20));
-        const r2 = await page.evaluate(() => ({ undo: window.emu.session.chat.undo.length, paused: !!window.emu.session.claudePaused }));
+        const r2 = await page.evaluate(() => ({ undo: window.emu.session.chat.undo.length, paused: !!window.emu.session.consent.paused }));
         const bytes2 = await at(page, 0x3040, 2);
         check(`${L}: the switch back on in the same turn: the next acting call, paused during its check and resumed, acts once (one restore point)`,
           sw && reading2 && paused2 && waits === '0,0' && bytes2 === '85,170' && r2.undo === 1 && !r2.paused, JSON.stringify({ sw, reading2, paused2, waits, bytes2, ...r2 }));
@@ -10135,26 +10135,26 @@ async function askEscChecks(browser, base, check) {
       const { ctx, page, errors, replies } = await open(vp);
       const L = 'askEsc (R11 the page leaves Fullscreen for a card, a key first)';
       await page.evaluate(() => document.getElementById('btnAsk').click());
-      await page.evaluate(() => window.emu.session.setClaudeAllowed(false));
+      await page.evaluate(() => window.emu.session.consent.setAllowed(false));
       await goFull(page);
       const isFull = await waitFor(page, () => document.fullscreenElement === document.getElementById('screenWrap'));
       await page.evaluate(() => { const orig = document.exitFullscreen.bind(document); window.__leaves = 0;
         document.exitFullscreen = () => { window.__leaves++; return new Promise((res, rej) => { window.__leave = () => orig().then(res, rej); }); }; });
       replies.push({ body: tools([POKE]) }, { hold: true, body: text('Done.') });
       await page.evaluate(() => { window.emu.session.chat.sendLine('Do it'); });
-      const asked = await waitFor(page, () => !!window.emu.session.claudePending && window.__leaves > 0, null, 8000);
+      const asked = await waitFor(page, () => !!window.emu.session.consent.pending && window.__leaves > 0, null, 8000);
       const paused = await key(page);
       await page.evaluate(() => window.__leave());
       const left = await waitFor(page, () => !document.fullscreenElement, null, 5000);
       await emuFrames(page, 5);
-      const r = await page.evaluate(() => ({ paused: !!window.emu.session.claudePaused, card: !!window.emu.session.claudePending, busy: window.emu.session.chat.busy, leaves: window.__leaves }));
+      const r = await page.evaluate(() => ({ paused: !!window.emu.session.consent.paused, card: !!window.emu.session.consent.pending, busy: window.emu.session.chat.busy, leaves: window.__leaves }));
       check(`${L}: Claude stays paused with the card up (the leave was the page's, not the person's), and the page asked to leave once`,
         isFull && asked && paused && left && r.paused && r.card && r.busy && r.leaves === 1, JSON.stringify({ isFull, asked, paused, left, ...r }));
       await page.evaluate(() => window.emu.session.stopClaude());
       if (replies.held) { replies.held.release(); replies.held = null; }
       // F2: that page leave is over; a later leave the person makes while Claude is paused stops Claude as before
       await waitFor(page, () => !window.emu.session.chat.busy, null, 5000);
-      await page.evaluate(() => { delete document.exitFullscreen; window.emu.session.setClaudeAllowed(true); });
+      await page.evaluate(() => { delete document.exitFullscreen; window.emu.session.consent.setAllowed(true); });
       replies.length = 0;   // (the stopped turn never asked for its last reply)
       await typing(page, replies);
       await goFull(page);
@@ -10174,7 +10174,7 @@ async function askEscChecks(browser, base, check) {
       await key(page);
       await page.focus('#screen');
       await page.keyboard.press('Escape');
-      const ended = await waitFor(page, () => !window.emu.session.chat.busy && !window.emu.session.claudePending && !window.emu.session.claudePaused, null, 5000);
+      const ended = await waitFor(page, () => !window.emu.session.chat.busy && !window.emu.session.consent.pending && !window.emu.session.consent.paused, null, 5000);
       const r = await page.evaluate(() => ({ err: window.emu.session.chat.error && window.emu.session.chat.error.code, undo: window.emu.session.chat.undo.length }));
       check(`${L}: Esc while paused with the card up stops Claude: the card goes, the turn ends stopped (no further request), nothing acts`,
         ended && r.err === 'aborted' && r.undo === 0 && !replies.held && await at(page, 0x3000, 1) === '0', JSON.stringify({ ended, ...r, held: !!replies.held }));
@@ -10193,9 +10193,9 @@ async function askEscChecks(browser, base, check) {
       if (stale === 'plain') await page.evaluate((q) => { const b = document.querySelector(q.allow); b.dataset.resume = ''; }, u);
       else await page.evaluate((q) => { window.emu.session.resumeClaude(); const b = document.querySelector(q.allow); b.textContent = 'Allow and resume'; b.dataset.resume = '1'; }, u);
       await page.click(u.allow);
-      await waitFor(page, () => !window.emu.session.claudePending, null, 5000);
+      await waitFor(page, () => !window.emu.session.consent.pending, null, 5000);
       for (let i = 0; i < 100 && !replies.held; i++) await new Promise((res) => setTimeout(res, 20));
-      const r = await page.evaluate(() => ({ paused: !!window.emu.session.claudePaused, undo: window.emu.session.chat.undo.length }));
+      const r = await page.evaluate(() => ({ paused: !!window.emu.session.consent.paused, undo: window.emu.session.chat.undo.length }));
       const poked = await at(page, 0x3000, 1);
       check(stale === 'plain' ? `${L}: answers yes without resuming: nothing acts, no restore point, still paused`
         : `${L}: no error, the poke acts exactly once`, stale === 'plain' ? poked === '0' && r.undo === 0 && r.paused : poked === '85' && r.undo === 1 && !r.paused && !!replies.held, JSON.stringify({ poked, ...r }));
@@ -10223,10 +10223,10 @@ async function askEscChecks(browser, base, check) {
       });
     }
     await page.evaluate(() => document.getElementById('btnAsk').click());
-    await page.evaluate(() => window.emu.session.setClaudeAllowed(false));
+    await page.evaluate(() => window.emu.session.consent.setAllowed(false));
     replies.push({ body: tools([{ name: 'poke', input: { address: 0x3000, bytes: [0x55] } }]) }, { hold: true, body: text('Done.') });
     await page.evaluate(() => { window.emu.session.chat.sendLine('Do it'); });
-    const carded = await waitFor(page, () => !!window.emu.session.claudePending, null, 8000);
+    const carded = await waitFor(page, () => !!window.emu.session.consent.pending, null, 8000);
     let quiet = 'n/a';
     if (how === 'debugger') {
       await page.evaluate(() => { location.hash = '#debugger'; });
@@ -10237,11 +10237,11 @@ async function askEscChecks(browser, base, check) {
     } else {
       // resting with noise inside the dead zone, polled for a while: not the person's input
       for (let i = 0; i < 20; i++) { await page.evaluate((k) => window.__setPad([(k % 3 - 1) * 0.1, (k % 2) * 0.1], [false, false]), i); await emuFrames(page, 2); }
-      quiet = await page.evaluate(() => !window.emu.session.claudePaused);
+      quiet = await page.evaluate(() => !window.emu.session.consent.paused);
       await page.evaluate(() => window.__setPad([0, 0], [true, false]));
     }
-    const paused = await waitFor(page, () => !!window.emu.session.claudePaused, null, 5000);
-    const r = await page.evaluate(() => ({ card: !!window.emu.session.claudePending, byte: window.emu.session.chatTarget().machine.ram[0x3100] }));
+    const paused = await waitFor(page, () => !!window.emu.session.consent.paused, null, 5000);
+    const r = await page.evaluate(() => ({ card: !!window.emu.session.consent.pending, byte: window.emu.session.chatTarget().machine.ram[0x3100] }));
     check(`${L}: while Claude's call waits at its card, it pauses Claude${how === 'gamepad' ? ' (a pad resting with noise did not)' : ', and the byte is set'}`,
       carded && paused && r.card && (how === 'gamepad' ? quiet === true : r.byte === 0x42), JSON.stringify({ carded, paused, quiet, ...r }));
     await page.evaluate(() => window.emu.session.stopClaude());
@@ -10266,11 +10266,11 @@ async function askEscChecks(browser, base, check) {
       });
     } else await page.evaluate(() => { document.getElementById('chkJoy').checked = true; });
     await page.evaluate(() => document.getElementById('btnAsk').click());
-    await page.evaluate(() => window.emu.session.setClaudeAllowed(false));
+    await page.evaluate(() => window.emu.session.consent.setAllowed(false));
     replies.push({ body: tools([{ name: 'poke', input: { address: 0x3000, bytes: [0x55] } }]) }, { hold: true, body: text('Done.') });
     await page.evaluate(() => { window.emu.session.chat.sendLine('Do it'); });
-    const carded = await waitFor(page, () => !!window.emu.session.claudePending, null, 8000);
-    const pauses = () => page.evaluate(() => window.emu.session.claudePauses);
+    const carded = await waitFor(page, () => !!window.emu.session.consent.pending, null, 8000);
+    const pauses = () => page.evaluate(() => window.emu.session.consent.pauses);
     const resume = () => page.evaluate(() => window.emu.session.resumeClaude());
     const p0 = await pauses();
     let counts;
@@ -10323,7 +10323,7 @@ async function askEscChecks(browser, base, check) {
     const carded = await typing(page, replies);
     await page.evaluate(() => { if (!document.getElementById('ask').hidden) document.getElementById('btnAskClose').click(); });
     await waitFor(page, () => document.getElementById('touchStick').getBoundingClientRect().width > 0, null, 5000);
-    const pauses = () => page.evaluate(() => window.emu.session.claudePauses);
+    const pauses = () => page.evaluate(() => window.emu.session.consent.pauses);
     const resume = () => page.evaluate(() => window.emu.session.resumeClaude());
     const R = 56;   // STICK_RADIUS (js/host/input.js)
     const p0 = await pauses();
@@ -10470,7 +10470,7 @@ async function askStatusChecks(browser, base, check) {
   // the turn has ended and the person can go on: no status, the box (side panel) or the chat (full screen) takes a line
   const usable = (page, v, full) => page.evaluate(([v, full]) => {
     const s = document.getElementById(v.status);
-    const free = !window.emu.session.chat.busy && !window.emu.session.claudePending && (!s || !!s.closest('[hidden]') || !s.offsetParent);
+    const free = !window.emu.session.chat.busy && !window.emu.session.consent.pending && (!s || !!s.closest('[hidden]') || !s.offsetParent);
     if (full) return free;
     const i = document.getElementById('askInput'), b = document.getElementById('btnAskSend');
     return free && !!i.offsetParent && !i.disabled && !b.disabled;
@@ -10571,7 +10571,7 @@ async function askStatusChecks(browser, base, check) {
       await reply(page, { holdMs: 1500, chunks: [tools([{ name: 'load_basic', input: { program: PROG } }])] });
       await send('load it again');
       await page.evaluate(() => { location.hash = '#library'; });
-      await waitFor(page, () => !!window.emu.session.claudePending, null, 15000);
+      await waitFor(page, () => !!window.emu.session.consent.pending, null, 15000);
       await page.evaluate(() => { location.hash = ''; });
       const back = await statusIs(page, v, /Waiting for your OK/) && await inView(page, v.load);
       check(`${label}: a card that came under a page view is in view with Waiting for your OK on coming back`, back, JSON.stringify(await page.evaluate(() => ({ hidden: document.getElementById('ask').hidden, rects: document.getElementById('ask').getClientRects().length, hash: location.hash, card: !document.getElementById('askLoad').hidden, st: document.getElementById('askStatusText').textContent, body: document.getElementById('askBody').scrollTop + '/' + document.getElementById('askBody').scrollHeight }))));
@@ -10589,7 +10589,7 @@ async function askStatusChecks(browser, base, check) {
     check(`${label}: Load it: the turn ends with Claude's reply, and the input works again`, await idle(page) && await usable(page, v, full)
       && await page.evaluate(() => window.emu.session.chat.messages.slice(-1)[0].content === 'Loaded. LIST shows all 30 lines.'));
     // a tool that runs a while: type_text, after the consent card (the switch is off: an earlier Allow turned it on)
-    await page.evaluate(() => window.emu.session.setClaudeAllowed(false));
+    await page.evaluate(() => window.emu.session.consent.setAllowed(false));
     await reply(page, { chunks: [tools([{ name: 'type_text', input: { text: Array.from({ length: 30 }, (_, i) => `${i + 1}0 REM LINE ${i + 1}`).join('\n') + '\n' } }])] });
     await reply(page, { chunks: [text('Typed.')] });
     await send('type it instead');
@@ -10889,8 +10889,8 @@ async function askChecks(browser, base, check) {
     }), await ev(() => (document.querySelector('#askMessages .actions .act') || {}).textContent));
     // ---- assemble_and_load and run: consent off means no change; Allow, then the round trip; Restore undoes it ----
     const PROG = ' ORG $3000\nSTART LDA #$41\n STA $4000\n BRA START\n';
-    await ev(() => window.emu.session.setClaudeAllowed(false));   // the switch's own effect (on a phone it sits under the sheet)
-    check(`${L}: the switch is off again, so Claude has to ask`, await ev(() => !window.emu.session.claudeAllowed));
+    await ev(() => window.emu.session.consent.setAllowed(false));   // the switch's own effect (on a phone it sits under the sheet)
+    check(`${L}: the switch is off again, so Claude has to ask`, await ev(() => !window.emu.session.consent.allowed));
     replies.push({ body: tools([{ name: 'assemble_and_load', input: { source: PROG } }]) }, { body: text('Loaded.') });
     await ask('Load a little program');
     check(`${L}: with consent off assemble_and_load asks first, and nothing is written`, await waitFor(page, () => !document.getElementById('askConsent').hidden)
@@ -10898,7 +10898,7 @@ async function askChecks(browser, base, check) {
       && await ev(() => window.emu.session.personMachine.ram[0x3000] === 0 && window.emu.session.chat.undo.length === 0));
     await page.click('#btnAskTell');
     await idle();
-    check(`${L}: "Just tell me the fix": still nothing written, no restore point, and the tool result says why`, await ev(() => window.emu.session.personMachine.ram[0x3000] === 0 && window.emu.session.chat.undo.length === 0 && !window.emu.session.claudeAllowed)
+    check(`${L}: "Just tell me the fix": still nothing written, no restore point, and the tool result says why`, await ev(() => window.emu.session.personMachine.ram[0x3000] === 0 && window.emu.session.chat.undo.length === 0 && !window.emu.session.consent.allowed)
       && JSON.stringify(requests[requests.length - 1].messages.slice(-1)[0].content).includes('consent-declined'));
     replies.push({ body: tools([{ name: 'assemble_and_load', input: { source: PROG } }]) }, { body: tools([{ name: 'run', input: { target: '$3000' } }]) }, { body: text('Running.') });
     await ask('Load it and run it');
@@ -10916,7 +10916,7 @@ async function askChecks(browser, base, check) {
     // ---- R13: a busy turn folds its ✓ lines; reads only as counts; R12: the line moves back a point on a restore ----
     // (rows are appended to the live region, never all replaced: the first message's node is the same one throughout)
     await ev(() => { window.firstRow = document.querySelector('#askMessages .msg'); });
-    await ev(() => window.emu.session.setClaudeAllowed(true));
+    await ev(() => window.emu.session.consent.setAllowed(true));
     replies.push({ body: tools([{ name: 'poke', input: { address: 0x3000, bytes: [1] } }]) }, { body: text('One.') });
     await ask('Poke one byte');
     await idle();
@@ -11075,7 +11075,7 @@ async function askChecks(browser, base, check) {
     await ev(() => document.getElementById('btnPause').click());   // (its handler, not a hit test: the drawer is folded away with the panel open on a phone)
     await waitFor(page, () => document.body.classList.contains('paused'));
     const framesAtPause = await ev(() => window.emu.session.shownMachine.frameCount);
-    await ev(() => window.emu.session.setClaudeAllowed(true));    // (Allow turned it on for the visit; the second turn needs it again)
+    await ev(() => window.emu.session.consent.setAllowed(true));    // (Allow turned it on for the visit; the second turn needs it again)
     replies.push({ body: tools([{ name: 'type_text', input: { text: LISTING } }]) });
     await ask('Type the listing in again');
     const askedAgain = await waitFor(page, () => !document.getElementById('askActing').hidden
@@ -12054,7 +12054,7 @@ async function claudeChecks(browser, base, check) {
   replies.push({ body: text('Only reading now.') });
   await say('can you still read?', 3);
   check('claude: with "Let Claude use the emulator" off the tools still go (reading always works; acting asks first)', requests.length === 3 && requests[2].body.tools.length === TOOL_COUNT
-    && await page.evaluate(() => !window.emu.session.claudeAllowed));
+    && await page.evaluate(() => !window.emu.session.consent.allowed));
   replies.push({ status: 429, body: JSON.stringify({ type: 'error', error: { type: 'rate_limit_error', message: 'slow down' } }) });
   await say('again', 4);
   check('claude: a rate limit is said in the help line and not retried', await waitFor(page, () => /rate limited/.test(document.getElementById('claudeHelp').textContent)) && requests.length === 4);
@@ -15834,7 +15834,7 @@ async function armGuardChecks(browser, base, check) {
     document.getElementById('btnAsk').click();
     const chk = document.getElementById('chkAskMachine'), shownNow = document.getElementById('askComposer').checkVisibility();
     chk.click();
-    return { shownNow, aria: chk.getAttribute('aria-disabled'), checked: chk.checked, allowed: window.emu.session.claudeAllowed,
+    return { shownNow, aria: chk.getAttribute('aria-disabled'), checked: chk.checked, allowed: window.emu.session.consent.allowed,
       age: performance.now() - window.emu.armGuard.shownAt(document.getElementById('askComposer')) };
   });
   check(`${L}: a card hidden and shown again starts its window again: a press the instant it is back does nothing`,
@@ -15843,25 +15843,25 @@ async function armGuardChecks(browser, base, check) {
   check(`${L}: the composer is announced once by its purpose ("Claude settings ready.", no control names repeated)`,
     await ev(() => document.getElementById('armAnnounce').textContent) === 'Claude settings ready.', await ev(() => document.getElementById('armAnnounce').textContent));
   await ev(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
-  const swSoon = await tooSoon('askComposer', 'chkAskMachine', 'click', () => document.getElementById('chkAskMachine').checked || window.emu.session.claudeAllowed);
+  const swSoon = await tooSoon('askComposer', 'chkAskMachine', 'click', () => document.getElementById('chkAskMachine').checked || window.emu.session.consent.allowed);
   check(`${L}: "Let Claude use the emulator" clicked too soon stays off`, !swSoon.late && swSoon.done === false, JSON.stringify(swSoon));
-  const labelSoon = await tooSoon('askComposer', 'chkAskMachine', 'label', () => document.getElementById('chkAskMachine').checked || window.emu.session.claudeAllowed);
+  const labelSoon = await tooSoon('askComposer', 'chkAskMachine', 'label', () => document.getElementById('chkAskMachine').checked || window.emu.session.consent.allowed);
   check(`${L}: … a click on its label text too soon leaves it off too`, !labelSoon.late && labelSoon.done === false, JSON.stringify(labelSoon));
-  const swSpace = await tooSoon('askComposer', 'chkAskMachine', 'space', () => document.getElementById('chkAskMachine').checked || window.emu.session.claudeAllowed);
+  const swSpace = await tooSoon('askComposer', 'chkAskMachine', 'space', () => document.getElementById('chkAskMachine').checked || window.emu.session.consent.allowed);
   check(`${L}: … and Space on it too soon does nothing either`, !swSpace.late && swSpace.done === false, JSON.stringify(swSpace));
-  const swLate = await pressAt('askComposer', 'chkAskMachine', 600, 'space', () => window.emu.session.claudeAllowed);
+  const swLate = await pressAt('askComposer', 'chkAskMachine', 600, 'space', () => window.emu.session.consent.allowed);
   check(`${L}: Space on the switch at 600 ms turns it on`, swLate.done === true, JSON.stringify(swLate));
   await page.uncheck('#chkAskMachine');
-  check(`${L}: (and off again)`, await ev(() => !window.emu.session.claudeAllowed));
+  check(`${L}: (and off again)`, await ev(() => !window.emu.session.consent.allowed));
 
   // ---- the consent card: Allow ----
   const consent = async () => {
     replies.push({ body: tools([{ name: 'type_text', input: { text: 'PRINT 1\n' } }]) }, { body: text('Typed.') });
     await page.fill('#askInput', 'fix it');
     await page.press('#askInput', 'Enter');
-    return waitFor(page, () => !!window.emu.session.claudePending && document.getElementById('askConsent').checkVisibility(), null, 15000);
+    return waitFor(page, () => !!window.emu.session.consent.pending && document.getElementById('askConsent').checkVisibility(), null, 15000);
   };
-  const answered = () => !window.emu.session.claudePending;
+  const answered = () => !window.emu.session.consent.pending;
   check(`${L}: (the consent card is up)`, await consent());
   const allowSoon = await tooSoon('askConsent', 'btnAskAllow', 'click', answered);
   check(`${L}: Allow clicked 200 ms after the card appears does nothing (the card stays, the focus stays on Allow)`,
@@ -15911,9 +15911,9 @@ async function armGuardChecks(browser, base, check) {
   const fsTap = await pressAt('claudeKeyCard', 'btnClaudeKeySave', 600, 'tap', () => !!window.emu.session.keyStore.get());
   check(`${L}: full screen: a tap on Save key at 600 ms saves it`, fsTap.done === true, JSON.stringify(fsTap));
   await ev(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
-  const toolsSoon = await tooSoon('claudeSession', 'chkClaudeTools', 'click', () => window.emu.session.claudeAllowed);
+  const toolsSoon = await tooSoon('claudeSession', 'chkClaudeTools', 'click', () => window.emu.session.consent.allowed);
   check(`${L}: full screen: the switch clicked too soon stays off`, !toolsSoon.late && toolsSoon.done === false, JSON.stringify(toolsSoon));
-  const toolsLate = await pressAt('claudeSession', 'chkClaudeTools', 600, 'click', () => window.emu.session.claudeAllowed);
+  const toolsLate = await pressAt('claudeSession', 'chkClaudeTools', 600, 'click', () => window.emu.session.consent.allowed);
   check(`${L}: full screen: the switch at 600 ms turns on`, toolsLate.done === true, JSON.stringify(toolsLate));
   // the full-screen consent card: Allow
   await page.uncheck('#chkClaudeTools');
@@ -15923,7 +15923,7 @@ async function armGuardChecks(browser, base, check) {
   await page.focus('#screen');
   await page.keyboard.type('fix it');
   await page.keyboard.press('Enter');
-  check(`${L}: (the full-screen consent card is up)`, await waitFor(page, () => !!window.emu.session.claudePending && document.getElementById('claudeConsentAsk').checkVisibility(), null, 15000));
+  check(`${L}: (the full-screen consent card is up)`, await waitFor(page, () => !!window.emu.session.consent.pending && document.getElementById('claudeConsentAsk').checkVisibility(), null, 15000));
   const fsAllowSoon = await tooSoon('claudeConsentAsk', 'btnClaudeAllow', 'click', answered);
   check(`${L}: full screen: Allow clicked too soon does nothing`, !fsAllowSoon.late && fsAllowSoon.done === false && fsAllowSoon.focus === 'btnClaudeAllow', JSON.stringify(fsAllowSoon));
   const fsAllow = await pressAt('claudeConsentAsk', 'btnClaudeAllow', 600, 'click', answered);

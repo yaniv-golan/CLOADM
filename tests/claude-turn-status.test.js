@@ -86,7 +86,7 @@ function scripted(replies) {
     const { fetch, calls } = scripted(replies);
     const chat = s.startAsk({ backend: new Emu.ClaudeBackend({ fetch, apiKey: KEY }) });
     let asked = 0;
-    s.claudeGate = () => { asked++; };
+    s.consent.asker = () => { asked++; };
     check('no turn: no status', s.claudeStatus === null);
     // Thinking… while the request is out and while its stream runs
     const first = { gate: true, chunks: [textReply('Hello there.')] };
@@ -101,7 +101,7 @@ function scripted(replies) {
     // a card: Waiting for your OK (poke with the switch off asks first); Stop there ends the turn, no more requests
     replies.push({ body: toolReply([{ name: 'poke', input: { address: 0x3000, bytes: [1] } }]) }, { body: textReply('should not be asked') });
     turn = chat.sendLine('poke it');
-    await until(() => !!s.claudePending);
+    await until(() => !!s.consent.pending);
     const waiting = s.claudeStatus;
     check('a card up: Waiting for your OK', asked === 1 && waiting && waiting.phase === 'consent' && waiting.text === 'Waiting for your OK' && waiting.tool === 'poke', JSON.stringify(waiting));
     s.stopClaude();
@@ -116,15 +116,15 @@ function scripted(replies) {
     const ram = [s.shownMachine.ram[0x3000], s.shownMachine.ram[0x3001]];
     let callsBefore = calls.length;
     turn = chat.sendLine('poke both');
-    await until(() => !!s.claudePending);
+    await until(() => !!s.consent.pending);
     s.stopClaude();
     await turn;
     await sleep(20);
     check('two calls in one reply, Stop at the first card: the second is not asked, nothing is written, no further request',
-      asked === 1 && !s.claudePending && !chat.busy && s.claudeStatus === null && calls.length === callsBefore + 1
+      asked === 1 && !s.consent.pending && !chat.busy && s.claudeStatus === null && calls.length === callsBefore + 1
       && s.shownMachine.ram[0x3000] === ram[0] && s.shownMachine.ram[0x3001] === ram[1], `asked ${asked}, calls ${calls.length - callsBefore}`);
     // with the switch on, Stop while the first runs: the second does not run
-    s.setClaudeAllowed(true);
+    s.consent.setAllowed(true);
     replies.length = 0;
     replies.push({ body: toolReply([{ name: 'machine_info' }, { name: 'poke', input: { address: 0x3001, bytes: [2] } }]) }, { body: textReply('should not be asked') });
     let hold;
@@ -138,7 +138,7 @@ function scripted(replies) {
     hold();
     await turn;
     chat.runTool = inner0;
-    s.setClaudeAllowed(false);
+    s.consent.setAllowed(false);
     check('switch on, Stop during the first call: the second call of the reply does not run', ran.join() === 'machine_info' && s.shownMachine.ram[0x3001] === ram[1]
       && calls.length === callsBefore + 1 && chat.error && chat.error.code === 'aborted', ran.join());
     // a tool running: Using <tool>… (a read-only tool held by the test)

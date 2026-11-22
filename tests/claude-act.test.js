@@ -62,18 +62,18 @@ process.exitCode = 1;
     const m = s.shownMachine;
     const pc = m.cpu.pc, snap = Emu.state.toJSON(m.snapshot());
     for (const [name, input] of [['assemble_and_load', { source: ' NOP\n', org: 0x3000 }], ['run', { target: 0x3000 }]]) {
-      const r = await call(chat, name, input);       // claudeGate is null: nobody can say yes
+      const r = await call(chat, name, input);       // consent.asker is null: nobody can say yes
       check(`${name}: refused with no consent: the code no-consent, with its remedy`, !r.ok && r.err.code === C.NO_CONSENT && r.err.tool.remedy === Emu.TOOL_ERRORS[C.NO_CONSENT], r.ok ? JSON.stringify(r.out) : r.err.message);
     }
-    check('refused calls changed nothing and took no restore point', Emu.state.toJSON(m.snapshot()) === snap && m.cpu.pc === pc && chat.undo.length === 0 && !s.claudeAllowed);
+    check('refused calls changed nothing and took no restore point', Emu.state.toJSON(m.snapshot()) === snap && m.cpu.pc === pc && chat.undo.length === 0 && !s.consent.allowed);
     // the person says "Just tell me the fix"
-    s.claudeGate = () => Promise.resolve().then(() => s.answerClaude(false));
+    s.consent.asker = () => Promise.resolve().then(() => s.consent.answer(false));
     const no = await call(chat, 'assemble_and_load', { source: ' NOP\n', org: 0x3000 });
     check('"Just tell me the fix": refused with consent-declined, nothing written', !no.ok && no.err.code === C.CONSENT_DECLINED && mem(m, 0x3000, 1)[0] === 0 && chat.undo.length === 0);
     // the person allows it
-    s.claudeGate = () => Promise.resolve().then(() => s.answerClaude(true));
+    s.consent.asker = () => Promise.resolve().then(() => s.consent.answer(true));
     const yes = await call(chat, 'assemble_and_load', { source: ' LDA #$41\n', org: 0x3000 });
-    check('Allow: the program is written, after one restore point', yes.ok && mem(m, 0x3000, 2).join() === '134,65' && chat.undo.length === 1 && s.claudeAllowed, yes.ok ? '' : yes.err.message);
+    check('Allow: the program is written, after one restore point', yes.ok && mem(m, 0x3000, 2).join() === '134,65' && chat.undo.length === 1 && s.consent.allowed, yes.ok ? '' : yes.err.message);
     const before = chat.undo.length;
     const r2 = await call(chat, 'run', { target: 0x3000 });
     check('run goes through the same consent once allowed (no second question)', r2.ok && m.cpu.pc === 0x3000 && chat.undo.length === before, r2.ok ? r2.out : r2.err.message);
@@ -89,26 +89,26 @@ process.exitCode = 1;
   {
     const store = Emu.memoryStore();
     const s1 = new Emu.Session({ store }); s1.switchMachine('dragon64'); frames(s1, 40);
-    s1.claudeGate = () => Promise.resolve().then(() => s1.answerClaude(true));
+    s1.consent.asker = () => Promise.resolve().then(() => s1.consent.answer(true));
     const c1 = s1.startAsk({ backend: dead });
     const ok1 = await call(c1, 'assemble_and_load', { source: ' FCB 1\n', org: 0x3000 });
-    check('the first session: Allow, and it is allowed for the visit', ok1.ok && s1.claudeAllowed);
+    check('the first session: Allow, and it is allowed for the visit', ok1.ok && s1.consent.allowed);
     const kept = JSON.stringify([...store.keys()].map((k) => [k, store.get(k)]));
     check('nothing stored by the first session records the consent', !/claude.?allowed|consent/i.test(kept), kept.slice(0, 200));
     // the page reloads: a new Session over the same store (and a new machine)
     const s2 = new Emu.Session({ store }); s2.switchMachine('dragon64'); frames(s2, 40);
-    check('after a reload the switch is off again', s2.claudeAllowed === false);
+    check('after a reload the switch is off again', s2.consent.allowed === false);
     const c2 = s2.startAsk({ backend: dead });
     const asked = [];
     const r0 = await call(c2, 'run', { target: 0x3000 });
     check('with no one to ask, a tool is refused on the fresh session (no-consent)', !r0.ok && r0.err.code === C.NO_CONSENT && s2.shownMachine.cpu.pc !== 0x3000);
-    s2.claudeGate = (name) => { asked.push(name); Promise.resolve().then(() => s2.answerClaude(false)); };
+    s2.consent.asker = (name) => { asked.push(name); Promise.resolve().then(() => s2.consent.answer(false)); };
     const r1 = await call(c2, 'assemble_and_load', { source: ' FCB 2\n', org: 0x3100 });
-    check('the fresh session asks again, and a no changes nothing', asked.join() === 'assemble_and_load' && !r1.ok && r1.err.code === C.CONSENT_DECLINED && s2.shownMachine.ram[0x3100] === 0 && !s2.claudeAllowed);
+    check('the fresh session asks again, and a no changes nothing', asked.join() === 'assemble_and_load' && !r1.ok && r1.err.code === C.CONSENT_DECLINED && s2.shownMachine.ram[0x3100] === 0 && !s2.consent.allowed);
     // a restored snapshot or an opened settings export does not grant it either
     const snap = s1.shownMachine.snapshot();
     s2.shownMachine.restore(snap);
-    check('restoring a snapshot taken while allowed does not allow', s2.claudeAllowed === false);
+    check('restoring a snapshot taken while allowed does not allow', s2.consent.allowed === false);
   }
 
   // ---- 2c. the three consent codes, one test each: no-consent, consent-declined, stopped ----
@@ -117,15 +117,15 @@ process.exitCode = 1;
     const chat = ask(s);
     const none = await call(chat, 'poke', { address: 0x3000, bytes: [1] });
     check('no-consent: no one can be asked, so the tool throws no-consent (and nothing changes)', !none.ok && none.err.code === C.NO_CONSENT && s.shownMachine.ram[0x3000] === 0);
-    s.claudeGate = () => Promise.resolve().then(() => s.answerClaude(false));
+    s.consent.asker = () => Promise.resolve().then(() => s.consent.answer(false));
     const declined = await call(chat, 'poke', { address: 0x3000, bytes: [1] });
     check('consent-declined: "Just tell me the fix" throws consent-declined', !declined.ok && declined.err.code === C.CONSENT_DECLINED && s.shownMachine.ram[0x3000] === 0);
     // a key the person pressed has paused Claude; Stop while the next action waits throws stopped
-    s.setClaudeAllowed(true);
-    s.claudePaused = { held: { queue: [], stub: [] }, wake: [] };
+    s.consent.setAllowed(true);
+    s.consent.paused = { held: { queue: [], stub: [] }, wake: [] };
     const waiting = call(chat, 'poke', { address: 0x3000, bytes: [1] });
     await Promise.resolve();
-    check('stopped: while paused the action waits, and nothing is written', s.shownMachine.ram[0x3000] === 0 && s.claudePaused.wake.length === 1);
+    check('stopped: while paused the action waits, and nothing is written', s.shownMachine.ram[0x3000] === 0 && s.consent.paused.wake.length === 1);
     s.stopClaude();
     const stopped = await waiting;
     check('stopped: Stop throws stopped, nothing was written, no restore point', !stopped.ok && stopped.err.code === C.STOPPED && s.shownMachine.ram[0x3000] === 0 && chat.undo.length === 0, stopped.ok ? '' : stopped.err.message);
@@ -137,28 +137,28 @@ process.exitCode = 1;
     const chat = ask(s); const m = s.shownMachine;
     const queued = () => m.stubKeys.length + (m.typist ? m.typist.queue.length : 0);
     const r = await call(chat, name, input);
-    check(`${name}: without consent it is refused with no-consent, queues no key and takes no restore point`, !r.ok && r.err.code === C.NO_CONSENT && queued() === 0 && chat.undo.length === 0 && !s.claudeAllowed, r.ok ? JSON.stringify(r.out) : r.err.message);
-    s.claudeGate = () => Promise.resolve().then(() => s.answerClaude(false));
+    check(`${name}: without consent it is refused with no-consent, queues no key and takes no restore point`, !r.ok && r.err.code === C.NO_CONSENT && queued() === 0 && chat.undo.length === 0 && !s.consent.allowed, r.ok ? JSON.stringify(r.out) : r.err.message);
+    s.consent.asker = () => Promise.resolve().then(() => s.consent.answer(false));
     const d = await call(chat, name, input);
     check(`${name}: "Just tell me the fix" is refused with consent-declined and queues nothing`, !d.ok && d.err.code === C.CONSENT_DECLINED && queued() === 0 && chat.undo.length === 0);
-    s.claudeGate = () => Promise.resolve().then(() => s.answerClaude(true));
+    s.consent.asker = () => Promise.resolve().then(() => s.consent.answer(true));
     // both settle once the machine has read the keys (or not), so they run with frames. The stub here takes typed
     // key codes but reads no matrix key, so BREAK is not read: press_break says so rather than claiming a press
     const taken = m.stubKeysTaken;
     const ok = await callFrames(s, chat, name, input);
     if (name === 'type_text') {
-      check(`${name}: after Allow it acts: one restore point, keys delivered, and the result is JSON`, ok.ok && chat.undo.length === 1 && s.claudeAllowed
+      check(`${name}: after Allow it acts: one restore point, keys delivered, and the result is JSON`, ok.ok && chat.undo.length === 1 && s.consent.allowed
         && m.stubKeysTaken - taken === 8 && JSON.stringify(ok.out) === '{"requested":8,"consumed":8,"lines_requested":1,"lines_delivered":1}', ok.ok ? JSON.stringify(ok.out) : ok.err.message);
     } else {
       check(`${name}: after Allow it acts (one restore point) and says the stub did not read BREAK: not-consumed, nothing left queued`, !ok.ok && ok.err.code === C.NOT_CONSUMED
-        && /key 1 \(BREAK\) was not read by the machine/.test(ok.err.message) && /"consumed":0/.test(ok.err.message) && chat.undo.length === 1 && s.claudeAllowed && queued() === 0, ok.ok ? JSON.stringify(ok.out) : ok.err.message);
+        && /key 1 \(BREAK\) was not read by the machine/.test(ok.err.message) && /"consumed":0/.test(ok.err.message) && chat.undo.length === 1 && s.consent.allowed && queued() === 0, ok.ok ? JSON.stringify(ok.out) : ok.err.message);
     }
   }
 
   // ---- 3. assemble_and_load: what it writes and reports, and that it does not start the machine ----
   {
     const s = boot('dragon64');
-    s.setClaudeAllowed(true);
+    s.consent.setAllowed(true);
     const chat = ask(s);
     const m = s.shownMachine, pc = m.cpu.pc;
     const r = await call(chat, 'assemble_and_load', { source: 'START LDA #$41\n      STA $4000\n      BRA START\n', org: 0x3000 });
@@ -178,7 +178,7 @@ process.exitCode = 1;
     const s = boot('coco');
     const m = s.shownMachine;
     check('(the CoCo here has no ROM: the stub)', m.useStub);
-    s.setClaudeAllowed(true);
+    s.consent.setAllowed(true);
     const chat = ask(s);
     m.ram[0x5000] = 0xAB; m.ram[0x6123] = 0xCD;
     const fsr = m.framesSinceReset, pc = m.cpu.pc;
@@ -190,7 +190,7 @@ process.exitCode = 1;
   // ---- 4. errors: the model's own line numbers; nothing written ----
   {
     const s = boot('dragon64');
-    s.setClaudeAllowed(true);
+    s.consent.setAllowed(true);
     const chat = ask(s);
     const m = s.shownMachine;
     const r = await call(chat, 'assemble_and_load', { source: ' NOP\n LDA #\n', org: 0x3000 });
@@ -205,7 +205,7 @@ process.exitCode = 1;
     const empty = await call(chat, 'assemble_and_load', { source: '* nothing\n' });
     check('a source with no bytes is empty', !empty.ok && empty.err.code === C.EMPTY && chat.undo.length === 0);
     check('failures took no restore point', chat.undo.length === 0);
-    const mc = boot('mc10'); mc.setClaudeAllowed(true);
+    const mc = boot('mc10'); mc.consent.setAllowed(true);
     const x = await call(ask(mc), 'assemble_and_load', { source: ' LDA #$41\n PSHS A\n', org: 0x4100 });
     check("the machine's own CPU decides the instruction set: 6809-only PSHS on an MC-10 is an error", !x.ok && x.err.code === C.ASSEMBLY_FAILED, x.ok ? '' : x.err.message);
     const y = await call(ask(mc), 'assemble_and_load', { source: ' LDAA #$41\n', org: 0x4100 });
@@ -218,7 +218,7 @@ process.exitCode = 1;
     // $FF is the byte it already holds, so only the map can say it did not take
     const rom = new Uint8Array(0x4000).fill(0xFF);
     const d = boot('dragon64'); d.shownMachine.setRoms({ basic: rom }); d.shownMachine.reset(true); frames(d, 4);
-    d.setClaudeAllowed(true);
+    d.consent.setAllowed(true);
     const chat = ask(d); const m = d.shownMachine;
     const notRam = (r) => !r.ok && r.err.code === C.NOT_RAM;
     // a write that lands nowhere is the error not-ram: no restore point, nothing changed, nothing hidden underneath
@@ -250,7 +250,7 @@ process.exitCode = 1;
     check('and the same bytes did not land anywhere hidden (the ROM image underneath is untouched)', m.peek ? m.peek(0x8000) === 0xFF : true);
 
     // MC-10: $0080-$00FF is on-chip RAM (takes), $BFFF is a latch (does not)
-    const mc = boot('mc10'); mc.setClaudeAllowed(true);
+    const mc = boot('mc10'); mc.consent.setAllowed(true);
     const mchat = ask(mc);
     const iram = await call(mchat, 'assemble_and_load', { source: ' FCB $5A\n', org: 0x0090 });
     check('MC-10: $0080-$00FF is on-chip RAM and takes the write', iram.ok && iram.out.written === 1 && nt(iram) === '[]' && mc.shownMachine.ram[0x90] === 0x5A, JSON.stringify(iram.ok ? iram.out : iram.err.code));
@@ -262,7 +262,7 @@ process.exitCode = 1;
     check('MC-10: a poke straddling $BFFF reports what landed', mpart.ok ? mpart.out.written === 1 || mpart.out.written === 2 : notRam(mpart), JSON.stringify(mpart.ok ? mpart.out : mpart.err.code));
 
     // CoCo (SAM, 4 ROM-less): the same on the stub machine
-    const cc = boot('coco'); cc.setClaudeAllowed(true);
+    const cc = boot('coco'); cc.consent.setAllowed(true);
     const cchat = ask(cc);
     const cio = await call(cchat, 'poke', { address: 0xFF22, bytes: [0xFF] });
     check('CoCo: an I/O address is not-ram', notRam(cio));
@@ -270,7 +270,7 @@ process.exitCode = 1;
     check('CoCo: RAM takes a poke', cram.ok && cram.out.written === 1 && cc.shownMachine.ram[0x3000] === 5);
 
     // CoCo 3: the vector page is ROM through the GIME too
-    const c3 = boot('coco3'); c3.setClaudeAllowed(true);
+    const c3 = boot('coco3'); c3.consent.setAllowed(true);
     const v3 = await call(ask(c3), 'assemble_and_load', { source: ' FCB $FF\n', org: 0xFFFE });
     check('CoCo 3: the vector page is not-ram', notRam(v3));
     const p3 = await call(ask(c3), 'poke', { address: 0xFF90, bytes: [1] });
@@ -279,7 +279,7 @@ process.exitCode = 1;
 
   // ---- 5a. F7 (poke half): on the Dragon 64 Plus a poke goes where the CPU's write goes, through the selected RAM bank ----
   {
-    const s = boot('d64plus'); s.setClaudeAllowed(true);
+    const s = boot('d64plus'); s.consent.setAllowed(true);
     const chat = ask(s); const m = s.shownMachine;
     check('(the Dragon 64 Plus here has no ROM, and its banks reach memory)', !m.hasRom && m.banksReachMemory !== false);
     const cpuRead = (a) => m.read(a);
@@ -303,7 +303,7 @@ process.exitCode = 1;
   // ---- 5c. a not-ram answer changes nothing at all (no hidden RAM under the ROM), on every family; and every acting tool leaves a restore point ----
   {
     for (const id of ['coco3', 'dragon64', 'mc10', 'd64plus']) {
-      const s = boot(id); s.setClaudeAllowed(true);
+      const s = boot(id); s.consent.setAllowed(true);
       const chat = ask(s); const m = s.shownMachine;
       // an address the map calls ROM (or, on the MC-10, undecoded: on-chip RAM while its control register is off)
       if (id === 'mc10') m.cpu.ramc = 0;
@@ -326,7 +326,7 @@ process.exitCode = 1;
       }
       // every acting tool takes the turn's restore point BEFORE it changes anything, and Undo returns the machine to it
       for (const [name, input] of [['poke', { address: 0x3000, bytes: [1, 2] }], ['assemble_and_load', { source: ' FCB 7\n', org: 0x4100 }], ['type_text', { text: 'AB' }], ['press_break', {}], ['run', { target: 0x4100 }]]) {
-        const s2 = boot(id); s2.setClaudeAllowed(true);
+        const s2 = boot(id); s2.consent.setAllowed(true);
         const c2 = ask(s2); const m2 = s2.shownMachine;
         if (id === 'mc10' && name === 'poke') input.address = 0x4200;
         const was = Emu.state.toJSON(m2.snapshot());
@@ -340,7 +340,7 @@ process.exitCode = 1;
           acted(r) && c2.undo.length === 1 && Emu.state.toJSON(c2.undo[0]) === was && c2.undoLast() && Emu.state.toJSON(m2.snapshot()) === was,
           r.ok ? JSON.stringify(r.out) : r.err.code);
         // and through the Session's own mechanism the page uses (restoreClaude, the "Restore to before Claude's changes" button)
-        const s3 = boot(id); s3.setClaudeAllowed(true);
+        const s3 = boot(id); s3.consent.setAllowed(true);
         const c3 = ask(s3); const m3 = s3.shownMachine;
         const inp3 = name === 'poke' && id === 'mc10' ? { ...input, address: 0x4200 } : input;
         const was3 = Emu.state.toJSON(m3.snapshot());
@@ -354,14 +354,14 @@ process.exitCode = 1;
 
   // ---- 5b. review fixes: past $FFFF, hidden RAM under ROM, a turn that ends mid-call ----
   {
-    const s = boot('dragon64'); s.setClaudeAllowed(true);
+    const s = boot('dragon64'); s.consent.setAllowed(true);
     const chat = ask(s); const m = s.shownMachine;
     const w = await call(chat, 'assemble_and_load', { source: ' ORG $FFFF\n FCB 1,2,3\n' });
     check('a program running past $FFFF is refused and wraps nothing onto page zero', !w.ok && w.err.code === C.PAST_END && m.ram[0] === 0 && m.ram[1] === 0 && chat.undo.length === 0, w.ok ? '' : w.err.message);
     const h = await call(chat, 'assemble_and_load', { source: ' FCB $AA\n', org: 0x9000 });
     check('a byte that cannot land is not-ram, and is not hidden in the RAM under the ROM', !h.ok && h.err.code === C.NOT_RAM && m.ram[0x9000] === 0, h.ok ? '' : h.err.message);
     // Stop pressed while the INCLUDEs are being read: nothing is written
-    const s2 = boot('dragon64'); s2.setClaudeAllowed(true);
+    const s2 = boot('dragon64'); s2.consent.setAllowed(true);
     const c2 = ask(s2, { include: async () => { c2.controller = new AbortController(); c2.controller.abort(); return ' FCB 7\n'; } });
     const st = await call(c2, 'assemble_and_load', { source: ' INCLUDE "a.inc"\n', org: 0x3000 });
     check('a turn stopped while INCLUDEs were read writes nothing', !st.ok && st.err.code === C.STOPPED && s2.shownMachine.ram[0x3000] === 0 && c2.undo.length === 0, st.ok ? '' : st.err.message);
@@ -370,7 +370,7 @@ process.exitCode = 1;
   // ---- 6. run: target forms, validation before the restore point, RUN ----
   {
     const s = boot('dragon64');
-    s.setClaudeAllowed(true);
+    s.consent.setAllowed(true);
     const chat = ask(s);
     const m = s.shownMachine;
     for (const [input, want] of [[0x3000, 0x3000], ['$3000', 0x3000], ['0x3000', 0x3000], ['3000', 0x3000], [0x4000, 0x4000]]) {
@@ -545,7 +545,7 @@ STB     FCB     $FE,$FD,$FB,$F7,$EF,$DF,$BF,$7F
       frames(s, 6);
       const m = s.shownMachine;
       check(`${id}: our firmware is the BASIC ROM and it ran`, m.hasRom && m.ram[base + 1] === 0x5A && m.ram[base] === 0, `marker $${m.ram[base + 1].toString(16)}`);
-      s.setClaudeAllowed(true);
+      s.consent.setAllowed(true);
       const chat = ask(s);
       // RUN is typed the paced way, so the call settles once the firmware has read every key (it runs with frames)
       const r = await callFrames(s, chat, 'run', { target: 'RUN' });
@@ -580,7 +580,7 @@ STB     FCB     $FE,$FD,$FB,$F7,$EF,$DF,$BF,$7F
 
   // ---- 7. INCLUDE: only through the injected reader ----
   {
-    const s = boot('dragon64'); s.setClaudeAllowed(true);
+    const s = boot('dragon64'); s.consent.setAllowed(true);
     // a fetch that would serve the file: the tool must not reach for it (nothing is fetched by the tool itself)
     const realFetch = globalThis.fetch; let fetched = 0;
     globalThis.fetch = async () => { fetched++; return { ok: true, text: async () => 'TABLE FCB $11\n' }; };
@@ -588,7 +588,7 @@ STB     FCB     $FE,$FD,$FB,$F7,$EF,$DF,$BF,$7F
     try { none = await call(ask(s), 'assemble_and_load', { source: ' INCLUDE "data.inc"\n', org: 0x3000 }); } finally { globalThis.fetch = realFetch; }
     check('with no reader nothing is fetched, even with a fetch that would answer', fetched === 0, `${fetched} fetches`);
     check('with no reader an INCLUDE is an assembler error', !none.ok && none.err.code === C.ASSEMBLY_FAILED && /data\.inc/.test(none.err.tool.detail) && mem(s.shownMachine, 0x3000, 1)[0] === 0, none.ok ? '' : none.err.message);
-    const s2 = boot('dragon64'); s2.setClaudeAllowed(true);
+    const s2 = boot('dragon64'); s2.consent.setAllowed(true);
     const asked = [];
     const files = { 'data.inc': 'TABLE FCB $11,$22,$33\n', 'nest.inc': ' INCLUDE "data.inc"\n FCB $44\n' };
     const chat = ask(s2, { include: async (name) => { asked.push(name); return files[name] ?? null; } });
@@ -615,7 +615,7 @@ STB     FCB     $FE,$FD,$FB,$F7,$EF,$DF,$BF,$7F
   // ---- 8. the key stays out ----
   {
     const KEY = 'sk-ant-ACT-TEST-KEY-0123456789';
-    const s = boot('dragon64'); s.setClaudeKey(KEY); s.setClaudeAllowed(true);
+    const s = boot('dragon64'); s.setClaudeKey(KEY); s.consent.setAllowed(true);
     const chat = ask(s);
     const r = await call(chat, 'assemble_and_load', { source: ' LDA #$41\n', org: 0x3000 });
     await call(chat, 'run', { target: 0x3000 });
@@ -635,7 +635,7 @@ STB     FCB     $FE,$FD,$FB,$F7,$EF,$DF,$BF,$7F
     {
       const sg = boot('dragon64'); const cg = ask(sg); const before = Emu.state.toJSON(sg.shownMachine.snapshot());
       const asked = [];
-      sg.claudeGate = (name) => { asked.push(name); Promise.resolve().then(() => sg.answerClaude(false)); };
+      sg.consent.asker = (name) => { asked.push(name); Promise.resolve().then(() => sg.consent.answer(false)); };
       const inputs = { poke: { address: 0x3000, bytes: [1] }, type_text: { text: 'X' }, press_break: {}, assemble_and_load: { source: ' NOP\n', org: 0x3000 }, run: { target: 0x3000 }, load_basic: { program: '10 END' } };
       // load_basic has its own card on every call, after its program is checked: on this machine (no BASIC ROMs)
       // the check refuses it with no-basic before anyone is asked (its card is tested in tests/basic-load.test.js)
@@ -662,7 +662,7 @@ STB     FCB     $FE,$FD,$FB,$F7,$EF,$DF,$BF,$7F
       && /1 to \d+ characters/.test(tools.find((t) => t.name === 'type_text').description) && /\d+ to \d+ of them/.test(tools.find((t) => t.name === 'poke').description + JSON.stringify(tools.find((t) => t.name === 'poke').input_schema)));
     check('every acting parameter is typed and described with its unit or limits', tools.every((t) => Object.values(t.input_schema.properties).every((pr) => (pr.type || (pr.anyOf && pr.anyOf.every((alt) => alt.type))) && (pr.description || pr.maxLength || pr.items))), '');
     check('addresses are integers 0-65535 and say decimal', ['poke', 'assemble_and_load'].every((nm) => /[Dd]ecimal/.test(JSON.stringify(tools.find((t) => t.name === nm).input_schema))));
-    const s = boot('dragon64'); s.setClaudeAllowed(true);
+    const s = boot('dragon64'); s.consent.setAllowed(true);
     const chat = ask(s); const m = s.shownMachine;
     const err = async (name, input) => { const r = await call(chat, name, input); return r.ok ? `ok ${JSON.stringify(r.out)}` : r.err.code; };
     check('poke: bad-address / not-a-number', await err('poke', { address: 70000, bytes: [1] }) === C.BAD_ADDRESS && await err('poke', { address: '$30', bytes: [1] }) === C.NOT_A_NUMBER && await err('poke', { address: 1.5, bytes: [1] }) === C.NOT_A_NUMBER);
@@ -696,7 +696,7 @@ STB     FCB     $FE,$FD,$FB,$F7,$EF,$DF,$BF,$7F
     const bodies = [toolTurn('run', { target: 'banana' }), endTurn, toolTurn('assemble_and_load', { source: ' FCB 1\n', org: 0x3200 }), endTurn];
     const sent = [];
     const fetch = async (url, init) => { sent.push(JSON.parse(init.body)); return new Response(bodies[sent.length - 1], { status: 200, headers: { 'content-type': 'text/event-stream' } }); };
-    const s3 = boot('dragon64'); s3.setClaudeKey(KEY); s3.setClaudeAllowed(true);
+    const s3 = boot('dragon64'); s3.setClaudeKey(KEY); s3.consent.setAllowed(true);
     const c3 = s3.startAsk({ backend: new Emu.ClaudeBackend({ fetch, apiKey: KEY }) });
     await c3.sendLine('go');
     const res1 = sent[1].messages.slice(-1)[0].content[0];
@@ -711,7 +711,7 @@ STB     FCB     $FE,$FD,$FB,$F7,$EF,$DF,$BF,$7F
     const KEY = 'sk-ant-LEAK-TEST-KEY-9876543210abcdef';
     const store = Emu.memoryStore();
     const s = new Emu.Session({ store }); s.switchMachine('dragon64'); frames(s, 40);
-    s.setClaudeKey(KEY); s.setClaudeAllowed(true);
+    s.setClaudeKey(KEY); s.consent.setAllowed(true);
     const chat = ask(s);
     await call(chat, 'assemble_and_load', { source: ' FCB 1\n', org: 0x3000 });
     await call(chat, 'poke', { address: 0x3010, bytes: [2] });

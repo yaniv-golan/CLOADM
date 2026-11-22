@@ -78,15 +78,15 @@ function basicSession(id, { scan = false } = {}) {
   for (let i = 0; i < 512; i++) m.ram[screen + i] = 0x60;
   m.ram[screen + 64] = 0x0F; m.ram[screen + 65] = 0x0B;   // "OK" on the third row
   frames(s, 3);
-  s.setClaudeAllowed(true);
-  s.claudeGate = () => { Promise.resolve().then(() => s.answerClaude(true)); };
+  s.consent.setAllowed(true);
+  s.consent.asker = () => { Promise.resolve().then(() => s.consent.answer(true)); };
   return s;
 }
 // a session on the stub firmware (it reads the keyboard, so type_text completes); acting allowed
 function stubSession(id) {
   const s = new Emu.Session({ store: Emu.memoryStore() });
   s.switchMachine(id); frames(s, 40);
-  s.setClaudeAllowed(true);
+  s.consent.setAllowed(true);
   return s;
 }
 // One valid call per acting tool, and the session it runs on. A tool missing here fails the coverage check.
@@ -154,7 +154,7 @@ const ACT = {
     for (const op of ['clearRoms', 'runWithoutRoms']) {
       const s = new Emu.Session({ store: Emu.memoryStore() }); s.switchMachine('dragon64');
       s.roms.put('dragon64', 'basic', romFor(), 'idle.rom'); s.loadSavedRoms(); s.powerCycle(); frames(s, 10);
-      s.setClaudeAllowed(true);
+      s.consent.setAllowed(true);
       const chat = s.startAsk({ backend: dead() }); const m = s.shownMachine;
       await call(chat, 'poke', { address: 0x3000, bytes: [0x11] });
       chat.snapped = false;    // a second turn: a second point
@@ -219,7 +219,7 @@ const ACT = {
       const d0 = images.vdk(40, 2), d1 = images.vdk(40, 1);
       await s.importDisk('work.vdk', d0, 0);
       await s.importDisk('other.vdk', d1, 1);
-      s.setClaudeAllowed(true);
+      s.consent.setAllowed(true);
       const chat = s.startAsk({ backend: dead() });
       const m = s.chatTarget().machine;
       // eleven turns (more than the 10 points kept, so the newest point is one that pushed an older one out), each
@@ -286,7 +286,7 @@ const ACT = {
       const d0 = images.vdk(40, 2), d1 = images.vdk(40, 1);
       await s.importDisk('work.vdk', d0, 0);
       await s.importDisk('other.vdk', d1, 1);
-      s.setClaudeAllowed(true);
+      s.consent.setAllowed(true);
       const chat = s.startAsk({ backend: dead() });
       const m = s.chatTarget().machine;
       let k = 0;

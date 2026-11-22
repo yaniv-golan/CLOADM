@@ -14,7 +14,7 @@
 //  * C - Resume after A: the waiting call acts, the turn goes on, and its next acting call goes through the gate
 //    again (a card again once the switch is off); the pause and the gate's call state end with the turn, so a key in
 //    a later turn that only answers in text is just the person's key.
-//  * R11 (UX ruling "Allow and resume") - answerClaude(true, { resume: true }) answers and resumes in one step and the
+//  * R11 (UX ruling "Allow and resume") - consent.answer(true, { resume: true }) answers and resumes in one step and the
 //    call acts once; a no while paused acts on nothing and leaves the pause; the switch turned off while a call waits
 //    paused refuses it on Resume (no-consent) whatever consent it relied on, a card answered for it included; the
 //    switch turned on while paused does not resume; while paused the status is the pause's even with a card up.
@@ -59,7 +59,7 @@ function api(replies) {
   return { fetch, calls };
 }
 
-// a ROM-less Dragon 64 (the stub) with Ask open and a page that shows cards (claudeGate)
+// a ROM-less Dragon 64 (the stub) with Ask open and a page that shows cards (consent.asker)
 function stubAsk({ include = null } = {}) {
   const s = new Emu.Session({ store: Emu.memoryStore() });
   s.switchMachine('dragon64');
@@ -70,7 +70,7 @@ function stubAsk({ include = null } = {}) {
   const chat = s.startAsk({ backend: new Emu.ClaudeBackend({ fetch: a.fetch, apiKey: KEY }), include });
   const tools = [];
   chat.onToolUse = (name, input, text, isError, value) => tools.push({ name, isError, code: isError && value ? value.code : null });
-  s.claudeGate = () => {};
+  s.consent.asker = () => {};
   return { s, chat, replies, api: a, tools };
 }
 // a Dragon 64 with "BASIC" (our idle firmware) at its OK prompt, as tests/claude-acting-contract.test.js builds it
@@ -93,7 +93,7 @@ function basicAsk() {
   const chat = s.startAsk({ backend: new Emu.ClaudeBackend({ fetch: a.fetch, apiKey: KEY }) });
   const tools = [];
   chat.onToolUse = (name, input, text, isError, value) => tools.push({ name, isError, code: isError && value ? value.code : null });
-  s.claudeGate = () => {};
+  s.consent.asker = () => {};
   return { s, chat, replies, api: a, tools };
 }
 const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.shownMachine.ram[a + i]).join();
@@ -104,16 +104,16 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.shownMachine.ram[
     // A1: the consent card on the turn's first acting call (Claude has not acted yet this turn); the person's input
     // comes through Session.personInput, as every key on the page does
     const { s, chat, replies, tools } = stubAsk();
-    s.setClaudeAllowed(false);
+    s.consent.setAllowed(false);
     replies.push({ body: toolReply('poke', { address: 0x3000, bytes: [0x55] }) }, { body: textReply('Done.') });
     const turn = chat.sendLine('poke it');
-    await until(() => !!s.claudePending);
-    const card = { pending: s.claudePending && s.claudePending.kind, acting: s.claudeBusyActing };
+    await until(() => !!s.consent.pending);
+    const card = { pending: s.consent.pending && s.consent.pending.kind, acting: s.claudeBusyActing };
     const paused = s.personInput();
     const status1 = s.claudeStatus;
-    s.answerClaude(true);
+    s.consent.answer(true);
     await tick();
-    const held = { ram: ram(s, 0x3000, 1), undo: chat.undo.length, busy: chat.busy, paused: !!s.claudePaused, status: s.claudeStatus && s.claudeStatus.phase };
+    const held = { ram: ram(s, 0x3000, 1), undo: chat.undo.length, busy: chat.busy, paused: !!s.consent.paused, status: s.claudeStatus && s.claudeStatus.phase };
     // (R11, an intended change: while paused the status is the pause's, not "Waiting for your OK"; the card stays)
     check('A1 the person\'s input while the consent card waits (the turn\'s first acting call) pauses Claude; the card stays up, the status is the pause\'s',
       card.pending === 'consent' && card.acting === false && paused === true && status1.phase === 'paused' && status1.text === 'Paused: you pressed a key · Claude\'s next action waits · Esc stops Claude', JSON.stringify({ card, paused, status1 }));
@@ -123,21 +123,21 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.shownMachine.ram[
     const r = await within(turn);
     check('A1 Stop then ends the call stopped: nothing written, no restore point, no pause or call left, the turn ends',
       r !== 'timeout' && tools.length === 1 && tools[0].code === C.STOPPED && ram(s, 0x3000, 1) === '0' && chat.undo.length === 0
-      && !s.claudePaused && s.claudeCall === null && !chat.busy && chat.error && chat.error.code === 'aborted', JSON.stringify({ tools, err: chat.error && chat.error.code, call: s.claudeCall }));
+      && !s.consent.paused && s.claudeCall === null && !chat.busy && chat.error && chat.error.code === 'aborted', JSON.stringify({ tools, err: chat.error && chat.error.code, call: s.claudeCall }));
     s.endChat();
   }
   {
     // A2: load_basic's card (switch on: load_basic asks on every call). (Text the person types would also leave
     // BASIC away from its prompt, so the load would be refused not-at-prompt by its check: the pause alone is shown.)
     const { s, chat, replies, tools } = basicAsk();
-    s.setClaudeAllowed(true);
+    s.consent.setAllowed(true);
     const ptrs = ram(s, P, 10);
     replies.push({ body: toolReply('load_basic', { program: '10 PRINT "HI"\n20 GOTO 10' }) }, { body: textReply('Loaded.') });
     const turn = chat.sendLine('load it');
-    await until(() => !!s.claudePending);
-    const kind = s.claudePending && s.claudePending.kind;
+    await until(() => !!s.consent.pending);
+    const kind = s.consent.pending && s.consent.pending.kind;
     const paused = s.personInput();
-    s.answerClaude(true);
+    s.consent.answer(true);
     await tick();
     const held = { ptrs: ram(s, P, 10) === ptrs, undo: chat.undo.length, busy: chat.busy };
     check('A2 the person\'s input while load_basic\'s card waits pauses Claude; Load it does not load while paused (no restore point)',
@@ -145,7 +145,7 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.shownMachine.ram[
     s.stopClaude();
     const r = await within(turn);
     check('A2 Stop then: load_basic stopped, the program is not loaded, no restore point',
-      r !== 'timeout' && tools[0] && tools[0].code === C.STOPPED && ram(s, P, 10) === ptrs && chat.undo.length === 0 && !s.claudePaused, JSON.stringify(tools));
+      r !== 'timeout' && tools[0] && tools[0].code === C.STOPPED && ram(s, P, 10) === ptrs && chat.undo.length === 0 && !s.consent.paused, JSON.stringify(tools));
     s.endChat();
   }
 
@@ -153,18 +153,18 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.shownMachine.ram[
     // A3: a call refused at its card ends its gate: while Claude then only thinks (the next request is out), the
     // person's key is just their key, not a pause (as in a turn that has not acted)
     const { s, chat, replies, tools } = stubAsk();
-    s.setClaudeAllowed(false);
+    s.consent.setAllowed(false);
     const next = { gate: true, body: textReply('Fine, here is how.') };
     replies.push({ body: toolReply('poke', { address: 0x3000, bytes: [0x55] }) }, next);
     const turn = chat.sendLine('poke it');
-    await until(() => !!s.claudePending);
-    s.answerClaude(false);
+    await until(() => !!s.consent.pending);
+    s.consent.answer(false);
     await until(() => !!next.open);
     const key = s.personInput();
     next.open();
     const r = await within(turn);
     check('A3 after a call refused at its card, a key while Claude thinks does not pause it; the turn ends normally',
-      key === false && !s.claudePaused && r !== 'timeout' && tools[0].code === C.CONSENT_DECLINED && ram(s, 0x3000, 1) === '0' && !chat.error, JSON.stringify({ key, tools }));
+      key === false && !s.consent.paused && r !== 'timeout' && tools[0].code === C.CONSENT_DECLINED && ram(s, 0x3000, 1) === '0' && !chat.error, JSON.stringify({ key, tools }));
     s.endChat();
   }
 
@@ -176,45 +176,45 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.shownMachine.ram[
     const rig = stubAsk({ include });
     s = rig.s;
     const { chat, replies, tools } = rig;
-    s.setClaudeAllowed(true);
+    s.consent.setAllowed(true);
     replies.push({ body: toolReply('assemble_and_load', { source: ' INCLUDE "x.inc"\n', org: 0x3000 }) }, { body: textReply('Done.') });
     const turn = chat.sendLine('assemble');
     await until(() => !!reading);
-    const paused = !!s.claudePaused;
+    const paused = !!s.consent.paused;
     reading();
     await tick();
-    const held = { ram: ram(s, 0x3000, 2), undo: chat.undo.length, busy: chat.busy, paused: !!s.claudePaused };
+    const held = { ram: ram(s, 0x3000, 2), undo: chat.undo.length, busy: chat.busy, paused: !!s.consent.paused };
     check(`B the person's input during the check (an INCLUDE read) pauses Claude: when the read ends nothing is written and no restore point is taken (${endName})`,
       paused && held.ram === '0,0' && held.undo === 0 && held.busy && held.paused, JSON.stringify({ paused, held }));
     endIt(s, chat);
     const r = await within(turn);
     check(`B ${endName} then ends the call stopped: nothing written, no restore point, no pause left`,
-      r !== 'timeout' && tools[0] && tools[0].code === C.STOPPED && ram(s, 0x3000, 2) === '0,0' && chat.undo.length === 0 && !s.claudePaused && s.claudeCall === null, JSON.stringify(tools));
+      r !== 'timeout' && tools[0] && tools[0].code === C.STOPPED && ram(s, 0x3000, 2) === '0,0' && chat.undo.length === 0 && !s.consent.paused && s.claudeCall === null, JSON.stringify(tools));
     s.endChat();
   }
 
   // ================= R11: "Allow and resume" (UX ruling) =================
   {
-    // answerClaude(true, { resume: true }) answers and resumes in one synchronous step: the call acts once
+    // consent.answer(true, { resume: true }) answers and resumes in one synchronous step: the call acts once
     // (acted: the poke's byte, or load_basic's end-of-program pointer moved)
     for (const [what, rig, tool, input, arrange, landed] of [
-      ['the consent card', stubAsk, 'poke', { address: 0x3000, bytes: [0x55] }, (s) => s.setClaudeAllowed(false), (s) => ram(s, 0x3000, 1) === '85'],
-      ['load_basic\'s card', basicAsk, 'load_basic', { program: '10 END' }, (s) => s.setClaudeAllowed(true), null],
+      ['the consent card', stubAsk, 'poke', { address: 0x3000, bytes: [0x55] }, (s) => s.consent.setAllowed(false), (s) => ram(s, 0x3000, 1) === '85'],
+      ['load_basic\'s card', basicAsk, 'load_basic', { program: '10 END' }, (s) => s.consent.setAllowed(true), null],
     ]) {
       const { s, chat, replies, tools } = rig();
       arrange(s);
       const ptrs = ram(s, P + 2, 2);
       replies.push({ body: toolReply(tool, input) }, { body: textReply('Done.') });
       const turn = chat.sendLine('go');
-      await until(() => !!s.claudePending);
+      await until(() => !!s.consent.pending);
       s.personInput();
-      const before = { paused: !!s.claudePaused, card: !!s.claudePending };
-      s.answerClaude(true, { resume: true });
-      const sameStep = { paused: !!s.claudePaused, card: !!s.claudePending };
+      const before = { paused: !!s.consent.paused, card: !!s.consent.pending };
+      s.consent.answer(true, { resume: true });
+      const sameStep = { paused: !!s.consent.paused, card: !!s.consent.pending };
       const r = await within(turn);
       const acted = tool === 'poke' ? landed(s) : ram(s, P + 2, 2) !== ptrs;
       check(`R11 ${what}: answer with resume: yes and Resume in one synchronous step; the call acts exactly once, one restore point, the turn ends`,
-        before.paused && before.card && !sameStep.paused && r !== 'timeout' && acted && tools.length === 1 && !tools[0].isError && chat.undo.length === 1 && !s.claudePaused,
+        before.paused && before.card && !sameStep.paused && r !== 'timeout' && acted && tools.length === 1 && !tools[0].isError && chat.undo.length === 1 && !s.consent.paused,
         JSON.stringify({ before, sameStep, tools, undo: chat.undo.length }));
       s.endChat();
     }
@@ -222,15 +222,15 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.shownMachine.ram[
   {
     // a no while paused acts on nothing and leaves the pause; Resume then goes on (the call already refused)
     const { s, chat, replies, tools } = stubAsk();
-    s.setClaudeAllowed(false);
+    s.consent.setAllowed(false);
     const next = { gate: true, body: textReply('OK, here is the fix.') };
     replies.push({ body: toolReply('poke', { address: 0x3000, bytes: [0x55] }) }, next);
     const turn = chat.sendLine('poke');
-    await until(() => !!s.claudePending);
+    await until(() => !!s.consent.pending);
     s.personInput();
-    s.answerClaude(false, { resume: true });
+    s.consent.answer(false, { resume: true });
     await tick();
-    const after = { paused: !!s.claudePaused, ram: ram(s, 0x3000, 1), code: tools[0] && tools[0].code, undo: chat.undo.length };
+    const after = { paused: !!s.consent.paused, ram: ram(s, 0x3000, 1), code: tools[0] && tools[0].code, undo: chat.undo.length };
     check('R11 decline while paused: nothing acts (consent-declined), no restore point, and the pause stays (a no never resumes)',
       after.paused && after.ram === '0' && after.code === C.CONSENT_DECLINED && after.undo === 0, JSON.stringify(after));
     s.resumeClaude(); await until(() => !!next.open); next.open();
@@ -241,22 +241,22 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.shownMachine.ram[
   {
     // the bug: a card answered "Allow and resume", then a key during the INCLUDE read, the switch off, Resume: the
     // call must be refused (it relied on the card, so the switch check alone let it through)
-    for (const [what, flip] of [['the switch off', (s) => s.setClaudeAllowed(false)], ['the switch off and on again', (s) => { s.setClaudeAllowed(false); s.setClaudeAllowed(true); }]]) {
+    for (const [what, flip] of [['the switch off', (s) => s.consent.setAllowed(false)], ['the switch off and on again', (s) => { s.consent.setAllowed(false); s.consent.setAllowed(true); }]]) {
       let s = null, reading = null;
       const include = async () => { s.personInput(); await new Promise((r) => { reading = r; }); return ' FCB $55,$AA\n'; };
       const rig = stubAsk({ include });
       s = rig.s;
       const { chat, replies, tools } = rig;
-      s.setClaudeAllowed(false);
+      s.consent.setAllowed(false);
       replies.push({ body: toolReply('assemble_and_load', { source: ' INCLUDE "x.inc"\n', org: 0x3000 }) }, { body: textReply('Done.') });
       const turn = chat.sendLine('assemble');
-      await until(() => !!s.claudePending);
-      s.answerClaude(true, { resume: false });
+      await until(() => !!s.consent.pending);
+      s.consent.answer(true, { resume: false });
       await until(() => !!reading);
-      const paused = !!s.claudePaused;
+      const paused = !!s.consent.paused;
       flip(s);
       reading(); await tick();
-      const still = !!s.claudePaused;
+      const still = !!s.consent.paused;
       s.resumeClaude();
       const r = await within(turn);
       check(`R11 a call allowed on its card, paused during its check, ${what} while paused, then Resume: refused no-consent, nothing written, no restore point`,
@@ -272,17 +272,17 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.shownMachine.ram[
     const rig = stubAsk({ include });
     s = rig.s;
     const { chat, replies, tools } = rig;
-    s.setClaudeAllowed(true);
+    s.consent.setAllowed(true);
     const second = { gate: true, body: toolReply('poke', { address: 0x3010, bytes: [0x11] }) };
     replies.push({ body: toolReply('assemble_and_load', { source: ' INCLUDE "x.inc"\n', org: 0x3000 }) }, second, { body: textReply('Done.') });
     const turn = chat.sendLine('assemble, then poke');
     await until(() => !!reading);
-    s.setClaudeAllowed(false);
+    s.consent.setAllowed(false);
     reading(); await tick();
     s.resumeClaude();
     await until(() => !!second.open);
     const refused = tools[0] && tools[0].code;
-    s.setClaudeAllowed(true);
+    s.consent.setAllowed(true);
     second.open();
     const r1 = await within(turn);
     const undo1 = chat.undo.length;
@@ -293,7 +293,7 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.shownMachine.ram[
     replies.push({ body: toolReply('assemble_and_load', { source: ' INCLUDE "x.inc"\n', org: 0x3020 }) }, { body: textReply('Done.') });
     const turn2 = chat.sendLine('again');
     await until(() => !!reading);
-    const paused2 = !!s.claudePaused;
+    const paused2 = !!s.consent.paused;
     reading(); await tick();
     s.resumeClaude();
     const r2 = await within(turn2);
@@ -309,19 +309,19 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.shownMachine.ram[
     const rig = stubAsk({ include });
     s = rig.s;
     const { chat, replies, tools } = rig;
-    s.setClaudeAllowed(true);
+    s.consent.setAllowed(true);
     const next = { gate: true, body: toolReply('assemble_and_load', { source: ' INCLUDE "x.inc"\n', org: 0x3030 }) };
     replies.push({ body: toolReply('assemble_and_load', { source: ' INCLUDE "x.inc"\n', org: 0x3000 }) }, next, { body: textReply('Done.') });
     const turn = chat.sendLine('assemble twice');
     await until(() => !!reading);
-    s.setClaudeAllowed(false);
+    s.consent.setAllowed(false);
     reading(); reading = null; await tick();
     s.resumeClaude();
     await until(() => tools.length === 1 && !!next.open);
-    s.setClaudeAllowed(true);
+    s.consent.setAllowed(true);
     next.open();
     await until(() => !!reading && n === 2);
-    const paused = !!s.claudePaused;
+    const paused = !!s.consent.paused;
     reading(); await tick();
     s.resumeClaude();
     const r = await within(turn);
@@ -333,7 +333,7 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.shownMachine.ram[
     // F4: the switch off while Claude's typing is held by a pause: Resume types none of it, and the call fails
     // no-consent (withdrawing consent stops all of Claude's input to the machine)
     const { s, chat, replies, tools } = stubAsk();
-    s.setClaudeAllowed(true);
+    s.consent.setAllowed(true);
     const text = 'PRINT "A LONG LINE THAT TAKES A WHILE TO TYPE"\n'.repeat(4);
     replies.push({ body: toolReply('type_text', { text }) }, { body: textReply('Typed.') });
     const turn = chat.sendLine('type');
@@ -341,8 +341,8 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.shownMachine.ram[
     await until(() => m.typist.queue.length > 50, 3000);
     frames(s, 10);
     const paused = s.personInput();
-    const heldN = s.claudePaused && s.claudePaused.held.queue.length;
-    s.setClaudeAllowed(false);
+    const heldN = s.consent.paused && s.consent.paused.held.queue.length;
+    s.consent.setAllowed(false);
     s.resumeClaude();
     const right = { queue: m.typist.queue.length, stub: m.stubKeys.length };
     for (let i = 0; i < 60; i++) { frames(s, 1); await tick(1); }
@@ -355,7 +355,7 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.shownMachine.ram[
   {
     // revoked, then Stop: Stop wins (stopped, not no-consent), nothing stays queued, and the next turn acts
     const { s, chat, replies, tools } = stubAsk();
-    s.setClaudeAllowed(true);
+    s.consent.setAllowed(true);
     const text = 'PRINT "A LONG LINE THAT TAKES A WHILE TO TYPE"\n'.repeat(4);
     replies.push({ body: toolReply('type_text', { text }) }, { body: textReply('Typed.') });
     const turn = chat.sendLine('type');
@@ -363,39 +363,39 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.shownMachine.ram[
     await until(() => m.typist.queue.length > 50, 3000);
     frames(s, 10);
     const paused = s.personInput();
-    s.setClaudeAllowed(false);
+    s.consent.setAllowed(false);
     s.stopClaude();
     const r = await within(turn);
     const left = { queue: m.typist.queue.length, stub: m.stubKeys.length };
     check('F4 revoked then Stop: the call is stopped (not no-consent), nothing stays queued',
       paused && r !== 'timeout' && tools[0] && tools[0].code === C.STOPPED && left.queue === 0 && left.stub === 0, JSON.stringify({ tools, left }));
-    s.setClaudeAllowed(true);
+    s.consent.setAllowed(true);
     replies.length = 0;   // (the stopped turn never asked for its last reply)
     replies.push({ body: toolReply('poke', { address: 0x3050, bytes: [0x77] }) }, { body: textReply('Done.') });
     const r2 = await within(chat.sendLine('poke'));
-    check('F4 ... and the next turn acts', r2 !== 'timeout' && tools[1] && !tools[1].isError && s.shownMachine.ram[0x3050] === 0x77 && !s.claudePaused, JSON.stringify(tools[1]));
+    check('F4 ... and the next turn acts', r2 !== 'timeout' && tools[1] && !tools[1].isError && s.shownMachine.ram[0x3050] === 0x77 && !s.consent.paused, JSON.stringify(tools[1]));
     s.endChat();
   }
   {
-    // revoked, then Stop, on a gated call waiting in pauseWait (paused during its INCLUDE read, so it waits at the
+    // revoked, then Stop, on a gated call waiting in Consent.wait (paused during its INCLUDE read, so it waits at the
     // re-check): Stop wins - the call is stopped, not no-consent - nothing is written, and the next turn acts
     let s = null, reading = null;
     const include = async () => { s.personInput(); await new Promise((r) => { reading = r; }); return ' FCB $55,$AA\n'; };
     const rig = stubAsk({ include });
     s = rig.s;
     const { chat, replies, tools } = rig;
-    s.setClaudeAllowed(true);
+    s.consent.setAllowed(true);
     replies.push({ body: toolReply('assemble_and_load', { source: ' INCLUDE "x.inc"\n', org: 0x3000 }) }, { body: textReply('Done.') });
     const turn = chat.sendLine('assemble');
     await until(() => !!reading);
     reading(); await tick();
-    const waiting = !!s.claudePaused && s.claudeCall !== null;
-    s.setClaudeAllowed(false);
+    const waiting = !!s.consent.paused && s.claudeCall !== null;
+    s.consent.setAllowed(false);
     s.stopClaude();
     const r = await within(turn);
-    check('revoked then Stop on a gated call waiting in pauseWait: stopped (not no-consent), nothing written, no restore point',
+    check('revoked then Stop on a gated call waiting in Consent.wait: stopped (not no-consent), nothing written, no restore point',
       waiting && r !== 'timeout' && tools[0] && tools[0].code === C.STOPPED && ram(s, 0x3000, 2) === '0,0' && chat.undo.length === 0, JSON.stringify({ waiting, tools }));
-    s.setClaudeAllowed(true);
+    s.consent.setAllowed(true);
     replies.length = 0;
     replies.push({ body: toolReply('poke', { address: 0x3060, bytes: [0x66] }) }, { body: textReply('Done.') });
     const r2 = await within(chat.sendLine('poke'));
@@ -405,14 +405,14 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.shownMachine.ram[
   {
     // the switch on while paused gives consent only: it does not resume
     const { s, chat, replies } = stubAsk();
-    s.setClaudeAllowed(false);
+    s.consent.setAllowed(false);
     replies.push({ body: toolReply('poke', { address: 0x3000, bytes: [0x55] }) }, { body: textReply('Done.') });
     const turn = chat.sendLine('poke');
-    await until(() => !!s.claudePending);
+    await until(() => !!s.consent.pending);
     s.personInput();
-    s.setClaudeAllowed(true);
+    s.consent.setAllowed(true);
     await tick();
-    const held = { paused: !!s.claudePaused, card: !!s.claudePending, ram: ram(s, 0x3000, 1) };
+    const held = { paused: !!s.consent.paused, card: !!s.consent.pending, ram: ram(s, 0x3000, 1) };
     check('R11 the switch on while paused (a card up) does not resume: still paused, the card still up, nothing written',
       held.paused && held.card && held.ram === '0', JSON.stringify(held));
     s.stopClaude(); await within(turn);
@@ -424,22 +424,22 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.shownMachine.ram[
     // waits (not that it acts), and Claude is not "acting"; the next acting call then waits, and the status is the
     // plain pause again. (Claude acted earlier in this turn, so the turn counts as acting until the decline.)
     const { s, chat, replies, tools } = stubAsk();
-    s.setClaudeAllowed(true);
+    s.consent.setAllowed(true);
     const third = { gate: true, body: toolReply('poke', { address: 0x3002, bytes: [3] }) };
     const second = { gate: true, body: toolReply('poke', { address: 0x3001, bytes: [2] }) };
     replies.push({ body: toolReply('poke', { address: 0x3000, bytes: [1] }) }, second, third, { body: textReply('Done.') });
     const turn = chat.sendLine('poke thrice');
     await until(() => !!second.open);
-    s.setClaudeAllowed(false);
+    s.consent.setAllowed(false);
     second.open();
-    await until(() => !!s.claudePending);
+    await until(() => !!s.consent.pending);
     s.personInput();
-    s.answerClaude(false);
+    s.consent.answer(false);
     await until(() => !!third.open);
     const writing = { status: s.claudeStatus, acting: s.claudeBusyActing, held: s.claudeHeld };
     third.open();
-    await until(() => !!s.claudePending);
-    s.answerClaude(true);
+    await until(() => !!s.consent.pending);
+    s.consent.answer(true);
     await tick();
     const waiting = { status: s.claudeStatus, acting: s.claudeBusyActing, ram: ram(s, 0x3002, 1) };
     check('R11 paused at a card then declined: while Claude only writes, the status is the one paused text (its next action waits), and Claude is not acting',
@@ -458,19 +458,19 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.shownMachine.ram[
   ]) {
     // Claude's acting call waits at its card (the switch off): the embedding page's call pauses Claude first, then acts
     const { s, chat, replies, tools } = rig();
-    s.setClaudeAllowed(false);
+    s.consent.setAllowed(false);
     const ptrs = ram(s, P + 2, 2);
     replies.push({ body: toolReply('poke', { address: 0x3000, bytes: [0x55] }) }, { body: textReply('Done.') });
     const turn = chat.sendLine('poke');
-    await until(() => !!s.claudePending);
+    await until(() => !!s.consent.pending);
     const api = new Emu.EmbedApi(s, () => {});
     let err = null;
     try { act(api); } catch (e) { err = e; }
-    const r = { paused: !!s.claudePaused, landed: landed(s, ptrs), err: err && err.message };
+    const r = { paused: !!s.consent.paused, landed: landed(s, ptrs), err: err && err.message };
     check(`F2 the embed API's ${what} while Claude's call waits at its card pauses Claude, then does what it was asked`, r.paused && r.landed && !err, JSON.stringify(r));
-    s.answerClaude(true);
+    s.consent.answer(true);
     await tick();
-    check(`F2 after the embed ${what}: Allow (plain) does not act past the pause`, ram(s, 0x3000, 1) === '0' && chat.undo.length === 0 && !!s.claudePaused);
+    check(`F2 after the embed ${what}: Allow (plain) does not act past the pause`, ram(s, 0x3000, 1) === '0' && chat.undo.length === 0 && !!s.consent.paused);
     s.stopClaude();
     await within(turn);
     check(`F2 after the embed ${what}: Stop ends the call stopped`, tools[0] && tools[0].code === C.STOPPED);
@@ -481,7 +481,7 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.shownMachine.ram[
     const { s } = stubAsk();
     const api = new Emu.EmbedApi(s, () => {});
     api.poke(0x3100, [1]);
-    check('F2 the embed API\'s poke with no turn in progress pauses nothing', !s.claudePaused && s.shownMachine.ram[0x3100] === 1);
+    check('F2 the embed API\'s poke with no turn in progress pauses nothing', !s.consent.paused && s.shownMachine.ram[0x3100] === 1);
     s.endChat();
   }
 
@@ -568,35 +568,35 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.shownMachine.ram[
   // ================= C: Resume after A =================
   {
     const { s, chat, replies, tools } = stubAsk();
-    s.setClaudeAllowed(false);
+    s.consent.setAllowed(false);
     const gates = [];
     const gate = chat.gate;
     chat.gate = (name, input, call) => { gates.push(name); return gate(name, input, call); };
     const second = { gate: true, body: toolReply('poke', { address: 0x3001, bytes: [0xAA] }) };
     replies.push({ body: toolReply('poke', { address: 0x3000, bytes: [0x55] }) }, second, { body: textReply('Done.') });
     const turn = chat.sendLine('poke twice');
-    await until(() => !!s.claudePending);
+    await until(() => !!s.consent.pending);
     s.personInput();
-    s.answerClaude(true);
+    s.consent.answer(true);
     await tick();
     const before = { ram: ram(s, 0x3000, 1), undo: chat.undo.length };
     s.resumeClaude();
     await until(() => !!second.open);
-    const first = { ram: ram(s, 0x3000, 1), undo: chat.undo.length, paused: !!s.claudePaused, tool: tools[0] };
+    const first = { ram: ram(s, 0x3000, 1), undo: chat.undo.length, paused: !!s.consent.paused, tool: tools[0] };
     check('C Resume after the pause during the card: the waiting poke acts (it was Allowed) with the turn\'s one restore point',
       before.ram === '0' && before.undo === 0 && first.ram === '85' && first.undo === 1 && !first.paused && first.tool && !first.tool.isError, JSON.stringify({ before, first }));
     // the person turns the switch off before Claude's next call: that call goes through the gate again and asks
-    s.setClaudeAllowed(false);
+    s.consent.setAllowed(false);
     second.open();
-    await until(() => !!s.claudePending);
-    const again = { pending: s.claudePending && s.claudePending.kind, gates: gates.join(), ram: ram(s, 0x3001, 1) };
-    s.answerClaude(true);
+    await until(() => !!s.consent.pending);
+    const again = { pending: s.consent.pending && s.consent.pending.kind, gates: gates.join(), ram: ram(s, 0x3001, 1) };
+    s.consent.answer(true);
     const r = await within(turn);
     check('C the turn goes on: its next acting call goes through the gate again (the card again, the switch being off), then acts; the turn ends',
       again.pending === 'consent' && again.gates === 'poke,poke' && again.ram === '0' && r !== 'timeout' && ram(s, 0x3001, 1) === '170'
       && chat.messages.slice(-1)[0].content === 'Done.' && chat.undo.length === 1, JSON.stringify({ again, msgs: chat.messages.length }));
     check('C the turn\'s pause and gate state end with it: not paused, no call in flight, not acting',
-      !s.claudePaused && s.claudeCall === null && s.claudeActing === null && !s.claudeBusyActing && s.claudeStatus === null, JSON.stringify({ call: s.claudeCall, acting: s.claudeActing }));
+      !s.consent.paused && s.claudeCall === null && s.claudeActing === null && !s.claudeBusyActing && s.claudeStatus === null, JSON.stringify({ call: s.claudeCall, acting: s.claudeActing }));
     // a later turn that only answers in text: a key the person presses is just their key
     const later = { gate: true, body: textReply('Just text.') };
     replies.push(later);
@@ -605,7 +605,7 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.shownMachine.ram[
     const key = s.personInput();
     later.open();
     await within(turn2);
-    check('C a key in a later text-only turn does not pause Claude', key === false && !s.claudePaused, `${key}`);
+    check('C a key in a later text-only turn does not pause Claude', key === false && !s.consent.paused, `${key}`);
     s.endChat();
   }
 

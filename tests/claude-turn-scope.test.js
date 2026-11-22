@@ -170,7 +170,7 @@ function askSession({ include = null, stallMs } = {}) {
     const fetched = [];
     const include = Emu.exampleReader((url, init) => { fetched.push(init && init.signal); return new Promise(() => {}); });
     const { s, chat, replies, api, tools } = askSession({ include });
-    s.setClaudeAllowed(true);
+    s.consent.setAllowed(true);
     const ram = s.shownMachine.ram[0x3000];
     replies.push({ body: toolReply([{ name: 'assemble_and_load', input: { source: ' INCLUDE "hang.asm"\n FCB 9\n', org: 0x3000 } }]) }, { body: textReply('should not be asked') });
     const turn = chat.sendLine('assemble it');
@@ -192,7 +192,7 @@ function askSession({ include = null, stallMs } = {}) {
     // the timeout: the tool returns include-unreadable to the model, and the turn goes on to its reply
     const include = Emu.exampleReader(() => new Promise(() => {}), 'examples/', { timeoutMs: 50 });
     const { s, chat, replies, api, tools } = askSession({ include });
-    s.setClaudeAllowed(true);
+    s.consent.setAllowed(true);
     replies.push({ body: toolReply([{ name: 'assemble_and_load', input: { source: ' INCLUDE "hang.asm"\n', org: 0x3000 } }]) }, { body: textReply('The include file could not be read.') });
     const r = await within(chat.sendLine('assemble it'), 3000);
     const result = api.calls[1] && api.calls[1].body.messages.slice(-1)[0].content[0];
@@ -207,7 +207,7 @@ function askSession({ include = null, stallMs } = {}) {
     const asked = [];
     const include = Emu.exampleReader((url) => { asked.push(url); return new Promise(() => {}); }, 'examples/', { timeoutMs: 50 });
     const { s, chat, replies, tools } = askSession({ include });
-    s.setClaudeAllowed(true);
+    s.consent.setAllowed(true);
     replies.push({ body: toolReply([{ name: 'assemble_and_load', input: { source: ' INCLUDE "a.asm"\n INCLUDE "b.asm"\n INCLUDE "c.asm"\n', org: 0x3000 } }]) }, { body: textReply('No.') });
     await within(chat.sendLine('assemble it'), 3000);
     check('M1 timeout with three INCLUDEs: one read is waited for, the call fails include-unreadable naming it', asked.join() === 'examples/a.asm'
@@ -218,7 +218,7 @@ function askSession({ include = null, stallMs } = {}) {
     // a reader that ignores the signal altogether (an embedder's): Stop still ends the turn
     let asked = 0;
     const { s, chat, replies } = askSession({ include: () => { asked++; return new Promise(() => {}); } });
-    s.setClaudeAllowed(true);
+    s.consent.setAllowed(true);
     replies.push({ body: toolReply([{ name: 'assemble_and_load', input: { source: ' INCLUDE "x.asm"\n', org: 0x3000 } }]) });
     const turn = chat.sendLine('assemble it');
     await until(() => asked === 1);
@@ -231,7 +231,7 @@ function askSession({ include = null, stallMs } = {}) {
   // ================= M2: the pause belongs to its turn =================
   const pausedTurn = async (s, chat, replies, reply) => {
     const m = s.shownMachine;
-    s.setClaudeAllowed(true);
+    s.consent.setAllowed(true);
     const gated = { gate: true, ...reply };
     replies.push(gated);
     const turn = chat.sendLine('type for me');
@@ -249,7 +249,7 @@ function askSession({ include = null, stallMs } = {}) {
     const { s, chat, replies, api } = askSession();
     const { paused, during, r, job, m } = await pausedTurn(s, chat, replies, reply);
     check(`M2 a turn that ${how} while paused: the pause ends with it, nothing it held is typed, the held typing ends stopped`,
-      paused && during && during.phase === 'paused' && r !== 'timeout' && s.claudePaused === null && job.status === 'stopped'
+      paused && during && during.phase === 'paused' && r !== 'timeout' && s.consent.paused === null && job.status === 'stopped'
       && m.typist.queue.length === 0 && (code ? chat.error && chat.error.code === code : !chat.error), `${JSON.stringify(during)} ${chat.error && chat.error.code}`);
     // the next turn does not start paused: its status is Thinking…, and an acting tool runs without waiting for a Resume
     s.claudeActing = null;
@@ -270,7 +270,7 @@ function askSession({ include = null, stallMs } = {}) {
     // stopped while paused (already so before; kept), and no pause outside a turn
     const { s, chat, replies } = askSession();
     const gated = { gate: true, body: textReply('x') };
-    s.setClaudeAllowed(true);
+    s.consent.setAllowed(true);
     replies.push(gated);
     const turn = chat.sendLine('type');
     await until(() => !!gated.open);
@@ -279,11 +279,11 @@ function askSession({ include = null, stallMs } = {}) {
     s.pauseClaude();
     s.stopClaude();
     const r = await within(turn);
-    check('M2 Stop while paused: the turn ends stopped and the pause with it', r !== 'timeout' && s.claudePaused === null && job.status === 'stopped' && chat.error.code === 'aborted');
+    check('M2 Stop while paused: the turn ends stopped and the pause with it', r !== 'timeout' && s.consent.paused === null && job.status === 'stopped' && chat.error.code === 'aborted');
     // after the turn: Claude's typing still going in, a key does not pause (there is no turn to resume)
     s.typeTextPaced('10 PRINT 1\n', s.shownMachine);
     s.claudeActing = { name: 'type_text', input: { text: '10 PRINT 1\n' } };
-    check('M2 no turn in progress: pauseClaude does nothing, so no pause can carry into the next turn', !chat.busy && s.claudeBusyActing && s.pauseClaude() === false && s.claudePaused === null);
+    check('M2 no turn in progress: pauseClaude does nothing, so no pause can carry into the next turn', !chat.busy && s.claudeBusyActing && s.pauseClaude() === false && s.consent.paused === null);
     s.endChat();
   }
 
@@ -336,7 +336,7 @@ function askSession({ include = null, stallMs } = {}) {
     ];
     for (const [what, reply, act] of ends) {
       const { chat, replies, api, s } = askSession({ stallMs: 80, include: () => new Promise(() => {}) });
-      s.setClaudeAllowed(true);
+      s.consent.setAllowed(true);
       replies.push({ body: textReply('First answer.') });
       await chat.sendLine('first');
       replies.push(reply);
@@ -483,20 +483,20 @@ function askSession({ include = null, stallMs } = {}) {
     // past the card): the card stays the person's to answer, and Allow does not let the action run past the pause -
     // it waits for Resume, then acts and the turn ends
     const { s, chat, replies } = askSession();
-    s.claudeGate = () => {};
-    s.setClaudeAllowed(true);
+    s.consent.asker = () => {};
+    s.consent.setAllowed(true);
     // (the second poke asks again: the switch is turned off while the reply comes, so its consent card comes up)
     const second = { gate: true, body: toolReply([{ name: 'poke', input: { address: 0x3001, bytes: [2] } }]) };
     replies.push({ body: toolReply([{ name: 'poke', input: { address: 0x3000, bytes: [1] } }]) }, second, { body: textReply('Done.') });
     const turn = chat.sendLine('poke twice');
     await until(() => !!second.open);
-    s.setClaudeAllowed(false);
+    s.consent.setAllowed(false);
     second.open();
-    await until(() => !!s.claudePending);
-    const during = { acting: s.claudeBusyActing, paused: s.pauseClaude(), state: !!s.claudePaused, card: !!s.claudePending };
-    s.answerClaude(true);
+    await until(() => !!s.consent.pending);
+    const during = { acting: s.claudeBusyActing, paused: s.pauseClaude(), state: !!s.consent.paused, card: !!s.consent.pending };
+    s.consent.answer(true);
     for (let i = 0; i < 30; i++) await new Promise((r) => setImmediate(r));
-    const held = { poked: s.shownMachine.ram[0x3001], busy: chat.busy, paused: !!s.claudePaused };
+    const held = { poked: s.shownMachine.ram[0x3001], busy: chat.busy, paused: !!s.consent.paused };
     s.resumeClaude();
     const r = await within(turn);
     check('M2 a key while a card waits pauses Claude (Claude acted this turn), the card stays up; Allow does not act while paused; Resume acts and the turn ends',
@@ -509,22 +509,22 @@ function askSession({ include = null, stallMs } = {}) {
     // an abort of the turn while paused (BREAK on the chat screen calls chat.abort, not Stop) ends the pause: the
     // action waiting on it is refused, nothing held is typed, the turn ends; a Resume after it does nothing
     const { s, chat, replies } = askSession();
-    s.setClaudeAllowed(true);
+    s.consent.setAllowed(true);
     const m = s.shownMachine;
     replies.push({ body: toolReply([{ name: 'poke', input: { address: 0x3000, bytes: [7] } }, { name: 'poke', input: { address: 0x3001, bytes: [8] } }]) }, { body: textReply('x') });
     // (pause as soon as the first poke has run: the second waits on the pause)
     let job = null;
     const off = s.on(() => { if (!job && m.ram[0x3000] === 7 && s.claudeActing) { job = s.typeTextPaced('10 PRINT 1\n', m); s.pauseClaude(); } });
     const turn = chat.sendLine('poke twice');
-    await until(() => !!s.claudePaused);
-    const waiting = s.claudePaused && s.claudePaused.wake.length;
-    await until(() => !!s.claudePaused && s.claudePaused.wake.length > 0);
+    await until(() => !!s.consent.paused);
+    const waiting = s.consent.paused && s.consent.paused.wake.length;
+    await until(() => !!s.consent.paused && s.consent.paused.wake.length > 0);
     chat.abort();
     const r = await within(turn);
     const resumed = s.resumeClaude();
     await sleep(20);
     check('M2 an abort while paused (BREAK) ends the pause: the waiting poke is refused, nothing held is typed, the turn ends stopped, Resume after it does nothing',
-      r !== 'timeout' && s.claudePaused === null && m.ram[0x3001] !== 8 && job && job.status === 'stopped' && m.typist.queue.length === 0 && chat.error && chat.error.code === 'aborted' && resumed === false,
+      r !== 'timeout' && s.consent.paused === null && m.ram[0x3001] !== 8 && job && job.status === 'stopped' && m.typist.queue.length === 0 && chat.error && chat.error.code === 'aborted' && resumed === false,
       JSON.stringify({ waiting, r: r === 'timeout' ? r : 'ended', ram: m.ram[0x3001], job: job && job.status, err: chat.error && chat.error.code }));
     if (typeof off === 'function') off();
     s.endChat();
@@ -537,7 +537,7 @@ function askSession({ include = null, stallMs } = {}) {
   // load replaces the machine and closes the conversation.
   for (const how of ['reset', 'powerCycle', 'switchMachine', 'openSnapshot']) {
     const { s, chat, replies } = askSession();
-    s.setClaudeAllowed(true);
+    s.consent.setAllowed(true);
     const m = s.shownMachine;
     const snap = how === 'openSnapshot' ? await s.readSnapshot((await s.snapshotFile()).bytes) : null;
     replies.push({ body: toolReply([{ name: 'poke', input: { address: 0x3000, bytes: [7] } }, { name: 'poke', input: { address: 0x3001, bytes: [8] } }]) }, { body: textReply('x') });
@@ -550,8 +550,8 @@ function askSession({ include = null, stallMs } = {}) {
     const texts = [];
     chat.onText = (t) => texts.push(t);
     const turn = chat.sendLine('poke twice');
-    await until(() => !!s.claudePaused && s.claudePaused.wake.length > 0);
-    const held = s.claudePaused && s.claudePaused.held.queue.length;
+    await until(() => !!s.consent.paused && s.consent.paused.wake.length > 0);
+    const held = s.consent.paused && s.consent.paused.held.queue.length;
     if (how === 'reset') s.reset();
     else if (how === 'powerCycle') s.powerCycle();
     else if (how === 'switchMachine') s.switchMachine('coco2');
@@ -562,7 +562,7 @@ function askSession({ include = null, stallMs } = {}) {
     const now = s.shownMachine;
     const keeps = how === 'reset' || how === 'powerCycle';
     check(`R10 ${how} while Claude is paused stops Claude: pause ended, waiting poke refused, held keys dropped, turn ended stopped, Resume afterwards types nothing`,
-      held > 0 && r !== 'timeout' && s.claudePaused === null && m.ram[0x3001] !== 8 && now.ram[0x3001] !== 8 && job && job.status === 'stopped'
+      held > 0 && r !== 'timeout' && s.consent.paused === null && m.ram[0x3001] !== 8 && now.ram[0x3001] !== 8 && job && job.status === 'stopped'
       && m.typist.queue.length === 0 && now.typist.queue.length === 0 && !(now.stubKeys && now.stubKeys.length) && chat.error && chat.error.code === 'aborted' && resumed === false
       && !s.claudeBusyActing && (keeps ? s.chat === chat && notes.length === 1 && (how === "reset" ? notes[0] === "you reset the machine" : notes[0] === "the machine restarted")
         && texts.includes(`\r\n[stopped: ${notes[0]}]\r\n`) : s.chat === null),
@@ -584,19 +584,19 @@ function askSession({ include = null, stallMs } = {}) {
     };
     for (const [how, act] of Object.entries(restarts)) {
       const { s, chat, replies } = askSession();
-      s.setClaudeAllowed(true);
+      s.consent.setAllowed(true);
       const m = s.shownMachine;
       replies.push({ body: toolReply([{ name: 'poke', input: { address: 0x3000, bytes: [7] } }, { name: 'poke', input: { address: 0x3001, bytes: [8] } }]) }, { body: textReply('x') });
       let job = null;
       const off = s.on(() => { if (!job && m.ram[0x3000] === 7 && s.claudeActing) { job = s.typeTextPaced('10 PRINT 1\n', m); s.pauseClaude(); } });
       const turn = chat.sendLine('poke twice');
-      await until(() => !!s.claudePaused && s.claudePaused.wake.length > 0);
+      await until(() => !!s.consent.paused && s.consent.paused.wake.length > 0);
       try { await act(s); } catch (e) { /* (a restart that refuses still must not leave a pause behind) */ }
       const r = await within(turn);
       const resumed = s.resumeClaude();
       const q = s.shownMachine.typist.queue.length;
       check(`R10 a restart by ${how} while Claude is paused stops Claude: the waiting poke is refused, Resume afterwards types nothing`,
-        r !== 'timeout' && s.claudePaused === null && resumed === false && q === 0 && s.shownMachine.ram[0x3001] !== 8 && chat.error && chat.error.code === 'aborted' && job.status === 'stopped',
+        r !== 'timeout' && s.consent.paused === null && resumed === false && q === 0 && s.shownMachine.ram[0x3001] !== 8 && chat.error && chat.error.code === 'aborted' && job.status === 'stopped',
         JSON.stringify({ r: r === 'timeout' ? r : 'ended', resumed, q, err: chat.error && chat.error.code, job: job && job.status }));
       off();
       s.endChat();
@@ -617,20 +617,20 @@ function askSession({ include = null, stallMs } = {}) {
       for (const paused of [true, false]) {
         const { s, chat, replies } = askSession();
         s.shownMachine.setRoms({ basic: rom, basic64: null }); s.shownMachine.reset(true);
-        s.setClaudeAllowed(true);
+        s.consent.setAllowed(true);
         const m = s.shownMachine;
         replies.push({ body: toolReply([{ name: 'poke', input: { address: 0x3000, bytes: [7] } }, { name: 'poke', input: { address: 0x3001, bytes: [8] } }]) }, { gate: true, body: textReply('x') });
         let job = null;
         const off = s.on(() => { if (!job && m.ram[0x3000] === 7 && s.claudeActing) { job = s.typeTextPaced('10 PRINT 1\n', m); if (paused) s.pauseClaude(); } });
         const turn = chat.sendLine('poke twice');
-        if (paused) await until(() => !!s.claudePaused && s.claudePaused.wake.length > 0); else await until(() => !!job && m.typist.queue.length > 0);
+        if (paused) await until(() => !!s.consent.paused && s.consent.paused.wake.length > 0); else await until(() => !!job && m.typist.queue.length > 0);
         const fromBefore = m.typist.queue.length;
         try { await act(s); } catch (e) { /* (a load that refuses still must not leave Claude going) */ }
         const r = await within(turn);
         const resumed = s.resumeClaude();
         const own = m.typist.queue.filter((c) => c && c.job === job).length;
         check(`R10 with ROMs, ${how} while Claude is ${paused ? 'paused' : 'typing'} stops Claude: the turn ends stopped, ${paused ? 'the waiting poke is refused, ' : ''}none of Claude's keys are typed into the program`,
-          r !== 'timeout' && s.claudePaused === null && resumed === false && own === 0 && chat.error && chat.error.code === 'aborted' && job.status === 'stopped' && !s.claudeBusyActing
+          r !== 'timeout' && s.consent.paused === null && resumed === false && own === 0 && chat.error && chat.error.code === 'aborted' && job.status === 'stopped' && !s.claudeBusyActing
           && (!paused || m.ram[0x3001] !== 8),
           JSON.stringify({ r: r === 'timeout' ? r : 'ended', resumed, own, fromBefore, err: chat.error && chat.error.code, job: job && job.status }));
         off();
@@ -647,17 +647,17 @@ function askSession({ include = null, stallMs } = {}) {
     };
     for (const [how, act] of Object.entries(refused)) {
       const { s, chat, replies } = askSession();
-      s.setClaudeAllowed(true);
+      s.consent.setAllowed(true);
       const m = s.shownMachine;
       replies.push({ body: toolReply([{ name: 'poke', input: { address: 0x3000, bytes: [7] } }, { name: 'poke', input: { address: 0x3001, bytes: [8] } }]) }, { body: textReply('x') });
       let job = null;
       const notes = [];
       const off = s.on((ev, arg) => { if (ev === 'claude-stopped') notes.push(arg); if (!job && m.ram[0x3000] === 7 && s.claudeActing) { job = s.typeTextPaced('10 PRINT 1\n', m); s.pauseClaude(); } });
       const turn = chat.sendLine('poke twice');
-      await until(() => !!s.claudePaused && s.claudePaused.wake.length > 0);
+      await until(() => !!s.consent.paused && s.consent.paused.wake.length > 0);
       let threw = false;
       try { await act(s); } catch (e) { threw = true; }
-      const still = !!s.claudePaused && chat.busy;
+      const still = !!s.consent.paused && chat.busy;
       const resumed = s.resumeClaude();
       const r = await within(turn);
       check(`R10 ${how} (refused) leaves Claude paused, no note; Resume then carries on`,
@@ -675,7 +675,7 @@ function askSession({ include = null, stallMs } = {}) {
     const { s, chat, replies } = askSession();
     s.startWelcome(ex(s.welcomeFile));
     for (let i = 0; i < 200; i++) s.advance(1000 / s.shownMachine.fps + 0.01);
-    s.setClaudeAllowed(true);
+    s.consent.setAllowed(true);
     const done = { gate: true, body: textReply('LIZA is up.') };
     replies.push({ body: toolReply([{ name: 'type_text', input: { text: '1' } }]) }, done);
     const notes = [];
@@ -698,17 +698,17 @@ function askSession({ include = null, stallMs } = {}) {
   {
     const fs = require('fs'), ex = (n) => fs.readFileSync(require('path').join(__dirname, '..', 'examples', n));
     const { s, chat, replies } = askSession();
-    s.setClaudeAllowed(true);
+    s.consent.setAllowed(true);
     const m = s.shownMachine;
     replies.push({ body: toolReply([{ name: 'poke', input: { address: 0x3000, bytes: [7] } }, { name: 'poke', input: { address: 0x3001, bytes: [8] } }]) }, { body: textReply('x') });
     let job = null;
     const off = s.on(() => { if (!job && m.ram[0x3000] === 7 && s.claudeActing) { job = s.typeTextPaced('10 PRINT 1\n', m); s.pauseClaude(); } });
     const turn = chat.sendLine('poke twice');
-    await until(() => !!s.claudePaused && s.claudePaused.wake.length > 0);
+    await until(() => !!s.consent.paused && s.consent.paused.wake.length > 0);
     s.asMachine(() => s.runLiza(ex(s.lizaFile)), s.machineTicket());
     const r = await within(turn);
     check('R10 a program start the machine asked for while Claude is paused (the person\'s key) stops Claude; Resume afterwards types nothing',
-      r !== 'timeout' && s.claudePaused === null && s.resumeClaude() === false && s.shownMachine.typist.queue.length === 0 && chat.error && chat.error.code === 'aborted',
+      r !== 'timeout' && s.consent.paused === null && s.resumeClaude() === false && s.shownMachine.typist.queue.length === 0 && chat.error && chat.error.code === 'aborted',
       JSON.stringify({ err: chat.error && chat.error.code }));
     off();
     s.endChat();
@@ -723,7 +723,7 @@ function askSession({ include = null, stallMs } = {}) {
     const { s, chat, replies } = askSession();
     s.startWelcome(ex(s.welcomeFile));
     for (let i = 0; i < 200; i++) s.advance(1000 / s.shownMachine.fps + 0.01);
-    s.setClaudeAllowed(true);
+    s.consent.setAllowed(true);
     const next = { gate: true, body: toolReply([{ name: 'type_text', input: { text: '2' } }]) };
     replies.push({ body: toolReply([{ name: 'poke', input: { address: 0x3000, bytes: [7] } }]) }, next, { body: textReply('x') });
     let liza = null;
@@ -733,7 +733,7 @@ function askSession({ include = null, stallMs } = {}) {
     const before = s.claudeStatus && s.claudeStatus.phase;
     if (how.startsWith('typed')) s.typeText('1');
     else { s.personInput(); s.shownMachine.stubKeys.push(0x31); }
-    const paused = !!s.claudePaused, phase = s.claudeStatus && s.claudeStatus.phase;
+    const paused = !!s.consent.paused, phase = s.claudeStatus && s.claudeStatus.phase;
     for (let i = 0; i < 600 && !liza; i++) { s.advance(1000 / s.shownMachine.fps + 0.01); await sleep(0); }
     if (next.open) next.open();
     const r = await within(turn);
@@ -746,21 +746,21 @@ function askSession({ include = null, stallMs } = {}) {
   {
     // the POKE book's line, Claude's own RUN, and input to another machine than Claude's
     const { s, chat, replies } = askSession();
-    s.setClaudeAllowed(true);
+    s.consent.setAllowed(true);
     const next = { gate: true, body: textReply('x') };
     replies.push({ body: toolReply([{ name: 'poke', input: { address: 0x3000, bytes: [7] } }]) }, next);
     const turn = chat.sendLine('poke');
     await until(() => !!next.open && s.claudeBusyActing);
     s.queueText('RUN\n');
-    const ownRun = !!s.claudePaused;
+    const ownRun = !!s.consent.paused;
     const other = s.personInput({});
-    const poke = s.typePoke(0) && !!s.claudePaused;
-    const pauses = s.claudePauses;
+    const poke = s.typePoke(0) && !!s.consent.paused;
+    const pauses = s.consent.pauses;
     const again = s.personInput();
     next.open();
     await within(turn);
     check('F2 a POKE typed from the book pauses Claude; Claude\'s own RUN (queueText) and input to another machine do not; once paused, more input makes no new pause',
-      !ownRun && other === false && poke && again === false && s.claudePauses === pauses, JSON.stringify({ ownRun, other, poke, again }));
+      !ownRun && other === false && poke && again === false && s.consent.pauses === pauses, JSON.stringify({ ownRun, other, poke, again }));
     s.endChat();
   }
   {
@@ -770,13 +770,13 @@ function askSession({ include = null, stallMs } = {}) {
     const { s, chat, replies } = askSession();
     s.startWelcome(ex(s.welcomeFile));
     for (let i = 0; i < 200; i++) s.advance(1000 / s.shownMachine.fps + 0.01);
-    s.setClaudeAllowed(true);
+    s.consent.setAllowed(true);
     const next = { gate: true, body: textReply('x') };
     replies.push({ body: toolReply([{ name: 'poke', input: { address: 0x3000, bytes: [7] } }]) }, next);
     const turn = chat.sendLine('poke');
     await until(() => !!next.open && s.claudeBusyActing);
     const msg = s.typePoke(0);
-    const paused = !!s.claudePaused;
+    const paused = !!s.consent.paused;
     next.open();
     await within(turn);
     check('F2 a POKE from the book stored at once on the stub (a program running) pauses Claude', /^Done:/.test(msg) && paused, JSON.stringify({ msg, paused }));
@@ -785,7 +785,7 @@ function askSession({ include = null, stallMs } = {}) {
   {
     // not acting (no turn, or a turn that only thinks): the person's input is just theirs, nothing pauses
     const { s, chat, replies } = askSession();
-    const idle = s.personInput() || s.typeText('A') === 0 || !!s.claudePaused;
+    const idle = s.personInput() || s.typeText('A') === 0 || !!s.consent.paused;
     const think = { gate: true, body: textReply('hi') };
     replies.push(think);
     const turn = chat.sendLine('hello');
@@ -793,7 +793,7 @@ function askSession({ include = null, stallMs } = {}) {
     const thinking = s.personInput();
     think.open();
     await within(turn);
-    check('F2 with no turn, or a turn that only thinks, the person\'s input pauses nothing', !idle && thinking === false && !s.claudePaused, JSON.stringify({ idle, thinking }));
+    check('F2 with no turn, or a turn that only thinks, the person\'s input pauses nothing', !idle && thinking === false && !s.consent.paused, JSON.stringify({ idle, thinking }));
     s.endChat();
   }
   // the ticket is taken when the program asks (the page does it as the event comes): a start it asks for after
@@ -802,7 +802,7 @@ function askSession({ include = null, stallMs } = {}) {
   for (const how of ['the key came while Claude only thought', 'a pause and Resume came between']) {
     const fs = require('fs'), ex = (n) => fs.readFileSync(require('path').join(__dirname, '..', 'examples', n));
     const { s, chat, replies } = askSession();
-    s.setClaudeAllowed(true);
+    s.consent.setAllowed(true);
     const m = s.shownMachine;
     const think = { gate: true, body: toolReply([{ name: 'poke', input: { address: 0x3000, bytes: [7] } }]) };
     replies.push(think, { gate: true, body: textReply('x') });
@@ -832,7 +832,7 @@ function askSession({ include = null, stallMs } = {}) {
   for (const how of ['paused, then Resume during the goodbye', 'Claude only thought, then acted during the goodbye']) {
     const fs = require('fs'), ex = (n) => fs.readFileSync(require('path').join(__dirname, '..', 'examples', n));
     const { s, chat, replies } = askSession();
-    s.setClaudeAllowed(true);
+    s.consent.setAllowed(true);
     s.runLiza(ex(s.lizaFile));
     for (let i = 0; i < 200; i++) s.advance(1000 / s.shownMachine.fps + 0.01);
     const m = s.shownMachine;
@@ -869,17 +869,17 @@ function askSession({ include = null, stallMs } = {}) {
   {
     // a key while a card waits (Claude acted this turn, its next action asks) is the person's: the ticket says so
     const { s, chat, replies } = askSession();
-    s.claudeGate = () => {};
-    s.setClaudeAllowed(true);
+    s.consent.asker = () => {};
+    s.consent.setAllowed(true);
     const second = { gate: true, body: toolReply([{ name: 'poke', input: { address: 0x3001, bytes: [2] } }]) };
     replies.push({ body: toolReply([{ name: 'poke', input: { address: 0x3000, bytes: [1] } }]) }, second, { body: textReply('Done.') });
     const turn = chat.sendLine('poke twice');
     await until(() => !!second.open);
-    s.setClaudeAllowed(false);
+    s.consent.setAllowed(false);
     second.open();
-    await until(() => !!s.claudePending);
+    await until(() => !!s.consent.pending);
     const t = s.machineTicket();
-    s.answerClaude(false);
+    s.consent.answer(false);
     await within(turn);
     check('R10 a ticket taken while a card waits is not Claude\'s (a key then is the person\'s)', s.claudeBusyActing === false && t.claude === false, JSON.stringify({ claude: t.claude }));
     s.endChat();
@@ -901,7 +901,7 @@ function askSession({ include = null, stallMs } = {}) {
     // session alone; a Reset with the BASIC session on screen stops it
     const fs = require('fs');
     const { s, chat, replies } = askSession();
-    s.setClaudeAllowed(true);
+    s.consent.setAllowed(true);
     s.startChat({ backend: chat.backend, channel: new Emu.MemoryChannel(), firmware: fs.readFileSync(require('path').join(__dirname, '..', 'examples', 'chat.bin')) });
     const basic = s.chatMachines.basic;
     replies.push({ body: toolReply([{ name: 'poke', input: { address: 0x3000, bytes: [7] } }]) }, { gate: true, body: textReply('x') });
@@ -924,7 +924,7 @@ function askSession({ include = null, stallMs } = {}) {
   {
     // the same for a Reset while Claude acts unpaused (its typing still going in): Claude stops, nothing more is typed
     const { s, chat, replies } = askSession();
-    s.setClaudeAllowed(true);
+    s.consent.setAllowed(true);
     const m = s.shownMachine;
     replies.push({ body: toolReply([{ name: 'poke', input: { address: 0x3000, bytes: [7] } }]) }, { gate: true, body: textReply('x') });
     let job = null;
@@ -956,7 +956,7 @@ function askSession({ include = null, stallMs } = {}) {
   for (const [how, ending, stall] of [['finishes', { body: textReply('Poked.') }], ['is stopped', { gate: true, body: textReply('late') }],
     ['fails', { status: 500, json: { type: 'error', error: { type: 'api_error', message: 'boom' } } }], ['stalls', { chunks: [sse([start])], stall: true }, 80]]) {
     const { s, chat, replies, api } = askSession(stall ? { stallMs: stall } : {});
-    s.setClaudeAllowed(true);
+    s.consent.setAllowed(true);
     replies.push({ body: toolReply([{ name: 'poke', input: { address: 0x3000, bytes: [0x42] } }]) }, ending);
     let acted = false;
     s.on(() => { if (s.claudeActing && s.claudeActing.name === 'poke') acted = true; });
@@ -974,7 +974,7 @@ function askSession({ include = null, stallMs } = {}) {
     text.open();
     const r2 = await within(next);
     check(`M2 a turn that acted and ${how}: claudeActing ends with it, and a later text-only turn is not paused by a key (not acting, status Thinking…)`,
-      acted && r !== 'timeout' && cleared && !during.busyActing && during.paused === false && s.claudePaused === null && during.status === 'thinking'
+      acted && r !== 'timeout' && cleared && !during.busyActing && during.paused === false && s.consent.paused === null && during.status === 'thinking'
       && r2 !== 'timeout' && chat.messages.slice(-1)[0].content === 'Just words.' && !api.refused.length,
       JSON.stringify({ acted, cleared, during, err: chat.error && chat.error.code }));
     s.endChat();

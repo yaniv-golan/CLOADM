@@ -135,10 +135,10 @@ function basicMachine(id, { ok = true } = {}) {
   for (let i = 0; i < 512; i++) m.ram[screen + i] = 0x60;
   if (ok) { m.ram[screen + 64] = 0x0F; m.ram[screen + 65] = 0x0B; }   // "OK" on the third row
   frames(s, 3);
-  s.setClaudeAllowed(true);
+  s.consent.setAllowed(true);
   // load_basic's own card comes up on every call: this page says yes to it (section 5 tests the card itself)
   const cards = [];
-  s.claudeGate = (name) => { cards.push(s.claudePending && s.claudePending.load); Promise.resolve().then(() => s.answerClaude(true)); };
+  s.consent.asker = (name) => { cards.push(s.consent.pending && s.consent.pending.load); Promise.resolve().then(() => s.consent.answer(true)); };
   const chat = s.startAsk({ backend: dead });
   const word = (a) => (s.readByte(a, m) << 8) | s.readByte(a + 1, m);
   return { s, m, chat, L, word, cards, state: () => Emu.state.toJSON(m.snapshot()) };
@@ -192,7 +192,7 @@ function basicMachine(id, { ok = true } = {}) {
   {
     // no ROMs: the stub has no BASIC program memory
     const s = new Emu.Session({ store: Emu.memoryStore() });
-    s.switchMachine('dragon64'); frames(s, 30); s.setClaudeAllowed(true);
+    s.switchMachine('dragon64'); frames(s, 30); s.consent.setAllowed(true);
     const chat = s.startAsk({ backend: dead });
     const before = Emu.state.toJSON(s.shownMachine.snapshot());
     const r = await call(chat, 'load_basic', { program: '10 END' });
@@ -207,9 +207,9 @@ function basicMachine(id, { ok = true } = {}) {
     const { s } = b;
     const seen = [];   // each card: what it says the load is
     let answer = { allow: true };
-    s.claudeGate = () => { const p = s.claudePending; seen.push({ kind: p.kind, load: p.load }); Promise.resolve().then(() => s.answerClaude(answer.allow, { dontAsk: !!answer.dontAsk })); };
+    s.consent.asker = () => { const p = s.consent.pending; seen.push({ kind: p.kind, load: p.load }); Promise.resolve().then(() => s.consent.answer(answer.allow, { dontAsk: !!answer.dontAsk })); };
     const loadOnce = async (program = '10 PRINT 1\n20 END') => { b.chat.snapped = false; return call(b.chat, 'load_basic', { program }); };
-    check('acting is allowed here (the switch is on)', s.claudeAllowed === true);
+    check('acting is allowed here (the switch is on)', s.consent.allowed === true);
     const r1 = await loadOnce();
     check('with acting allowed, load_basic still shows its own card, describing the load (2 lines, 10-20, bytes)', r1.ok && seen.length === 1 && seen[0].kind === 'load'
       && JSON.stringify(seen[0].load) === JSON.stringify({ lines: 2, first: 10, last: 20, bytes: r1.out.bytes }), JSON.stringify(seen));
@@ -222,40 +222,40 @@ function basicMachine(id, { ok = true } = {}) {
       && /do not load it/.test(r3.err.tool.remedy), r3.ok ? '' : r3.err.message);
     answer = { allow: false, dontAsk: true };
     await loadOnce('10 END');
-    check('"Don\'t ask again" with a refusal does not stop the asking', s.claudeLoadNoAsk === false);
+    check('"Don\'t ask again" with a refusal does not stop the asking', s.consent.loadNoAsk === false);
     answer = { allow: true, dontAsk: true };
     const r4 = await loadOnce('10 END');
     const r5 = await loadOnce('20 END');
-    check('"Don\'t ask again this session" with Load it: this load and the next go ahead without a card', r4.ok && r5.ok && seen.length === 5 && s.claudeLoadNoAsk === true);
-    s.setClaudeAllowed(false);
+    check('"Don\'t ask again this session" with Load it: this load and the next go ahead without a card', r4.ok && r5.ok && seen.length === 5 && s.consent.loadNoAsk === true);
+    s.consent.setAllowed(false);
     answer = { allow: true };
     const r6 = await loadOnce('30 END');
-    check('turning the switch off brings the card back', r6.ok && seen.length === 6 && s.claudeLoadNoAsk === false);
+    check('turning the switch off brings the card back', r6.ok && seen.length === 6 && s.consent.loadNoAsk === false);
     // with the switch off "Don't ask again this session" is not offered (the page hides the box) and counts for nothing
     // if it is sent anyway: every load still has its card, so no load goes in silently
     answer = { allow: true, dontAsk: true };
     const r6b = await loadOnce('31 END');
     const r6c = await loadOnce('32 END');
     check('switch off: Load it with "Don\'t ask again" does not stop the asking; the next load has its card too (no silent load)',
-      r6b.ok && r6c.ok && seen.length === 8 && seen.every((x) => x.kind === 'load') && s.claudeLoadNoAsk === false && s.claudeAllowed === false, `${seen.length} ${s.claudeLoadNoAsk}`);
+      r6b.ok && r6c.ok && seen.length === 8 && seen.every((x) => x.kind === 'load') && s.consent.loadNoAsk === false && s.consent.allowed === false, `${seen.length} ${s.consent.loadNoAsk}`);
     // a load that cannot happen is refused with its own code before anyone is asked
     const r7 = await loadOnce('PRINT 1');
     check('a program that cannot load is refused (bad-line-number) without a card', !r7.ok && r7.err.code === C.BAD_LINE_NUMBER && seen.length === 8);
     // no page to ask: nobody can say yes
-    s.claudeGate = null;
+    s.consent.asker = null;
     const r8 = await loadOnce('40 END');
     check('with no page to ask, load_basic is no-consent', !r8.ok && r8.err.code === C.NO_CONSENT);
     // the general switch's card is separate: with the switch off another acting tool asks the consent question
-    s.claudeGate = () => { seen.push({ kind: s.claudePending.kind }); Promise.resolve().then(() => s.answerClaude(false)); };
+    s.consent.asker = () => { seen.push({ kind: s.consent.pending.kind }); Promise.resolve().then(() => s.consent.answer(false)); };
     await call(b.chat, 'poke', { address: 0x3000, bytes: [1] });
     check('other acting tools still get the consent card (kind consent), not the load card', seen[seen.length - 1].kind === 'consent');
     // Stop while the load card is up ends the call as stopped, not as the person's refusal (load-declined)
-    s.setClaudeAllowed(true);
-    s.claudeGate = () => { seen.push({ kind: s.claudePending.kind }); Promise.resolve().then(() => s.stopClaude()); };
+    s.consent.setAllowed(true);
+    s.consent.asker = () => { seen.push({ kind: s.consent.pending.kind }); Promise.resolve().then(() => s.stopClaude()); };
     const beforeStop = b.state(), cardsBefore = seen.length, undoBefore = b.chat.undo.length;
     const r9 = await loadOnce('50 END');
     check('Stop while the load card is up: the error is stopped (not load-declined), nothing changes, no restore point',
-      !r9.ok && r9.err.code === C.STOPPED && seen.length === cardsBefore + 1 && seen[seen.length - 1].kind === 'load' && b.state() === beforeStop && b.chat.undo.length === undoBefore && s.claudePending === null,
+      !r9.ok && r9.err.code === C.STOPPED && seen.length === cardsBefore + 1 && seen[seen.length - 1].kind === 'load' && b.state() === beforeStop && b.chat.undo.length === undoBefore && s.consent.pending === null,
       r9.ok ? 'loaded' : r9.err.code);
   }
 
@@ -263,7 +263,7 @@ function basicMachine(id, { ok = true } = {}) {
   {
     const b = basicMachine('dragon64');
     let asked = 0;
-    b.s.claudeGate = () => { asked++; };
+    b.s.consent.asker = () => { asked++; };
     const r = b.s.loadBasic('20 GOTO 10\n10 PRINT "HI"');
     const bytesNow = Array.from({ length: r.bytes }, (_, i) => b.s.readByte(b.L.start + i, b.m));
     // the same bytes the tool wrote in section 3 for this program on the Dragon (hand-built there)

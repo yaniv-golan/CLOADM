@@ -184,7 +184,7 @@ const ROWS = [
   }, (s) => {
     s.claudeActing = true; s.chat.busy = true;   // (the state the gate leaves while Claude acts)
     const r = s.personInput(s.personMachine);
-    if (r !== true || !s.claudePaused) throw new Error('personInput did not pause Claude');
+    if (r !== true || !s.consent.paused) throw new Error('personInput did not pause Claude');
   }, 'panel'],
   ['press BREAK', () => {}, (s) => s.pressBreak()],
   // snapshots
@@ -581,9 +581,9 @@ function rowMethods() {
   // writes the library or settings only
   const LIBRARY = new Set(['addRoms', 'clearRoms', 'deleteMedia', 'importDriveWireImage', 'importMedia',
     'importSettings', 'listMedia', 'moveMedia', 'newDriveWireImage', 'renameMedia', 'exportRomPack', 'exportSettings',
-    'setClaudeKey', 'clearClaudeKey', 'setClaudeAllowed', 'setLastRun', 'useMediaStore']);
+    'setClaudeKey', 'clearClaudeKey', 'setLastRun', 'useMediaStore']);
   // Session state that belongs to no machine
-  const SESSION = new Set(['answerClaude', 'welcomeSound', 'asMachine', 'connectDriveWireChannel', 'ejectDriveWire', 'endChat', 'emit',
+  const SESSION = new Set(['welcomeSound', 'asMachine', 'connectDriveWireChannel', 'ejectDriveWire', 'endChat', 'emit',
     'on', 'personInput', 'ready', 'reset', 'resume', 'resumeClaude', 'setDisplay', 'startAsk', 'startChat', 'stopClaude',
     'stopRealCoco', 'toSidePanel', 'showChat', 'watchForMenu',
     // chatNote writes a line of the page's own onto the chat channel (the chat screen), never onto the person's machine
@@ -602,8 +602,8 @@ function rowMethods() {
   // the chat machine - and tests/view-order.test.js pins that order.
   // Setters/plain Session fields and page-facing state: they hold no machine of their own (or hold both machines
   // explicitly, like chatMachines), so reading them cannot reach the wrong one.
-  for (const n of ['js', 'constructor', 'claudeView', 'chatView', 'claudePaused', 'claudeAllowed', 'claudePending',
-    'claudeActing', 'claudeStatus', 'claudePoints', 'claudeGate', 'keyStore', 'chatMachines', 'hasClaudeKey',
+  for (const n of ['js', 'constructor', 'claudeView', 'chatView', 'consent',
+    'claudeActing', 'claudeStatus', 'claudePoints', 'keyStore', 'chatMachines', 'hasClaudeKey',
     'chatPromptEmpty', 'labels', 'turbo', 'fastCas', 'fastTape', 'unsavedRecording', 'menuTicket', 'carryOn',
     'lastRun', 'welcomeMenu', 'startMachine', 'caseInsensitive', 'webSerialAvailable', 'realCoco', 'driveWireMounts',
     'driveWireChannels', 'hasAnyRoms', 'hasMultiPak', 'claudeBusyActing', 'lizaFile', 'cartBoard', 'paused', 'display', 'debugger', 'stubRun',

@@ -8,7 +8,7 @@
  * The Side panel / Full screen switch moves the same conversation between them (Session.startChat and
  * Session.toSidePanel). This module is the controller both views use: the backend (js/claude/backend.js on the
  * browser's fetch, with the key from the host key store), the brief, the key, the consent question
- * (Session.claudeGate), Stop, the restore points, and the state the views draw: the reply streaming in, and the
+ * (Session.consent.asker), Stop, the restore points, and the state the views draw: the reply streaming in, and the
  * API key state with its text (the same texts in both views). What Claude did and the restore line are drawn from
  * the conversation itself (js/ui/claude-lines.js).
  * The key is saved only in this browser (cloadm.anthropicKey, js/host/key-store.js), never in the machine, a
@@ -49,15 +49,15 @@ export const PAUSED_CARD_TEXT = Object.freeze({
   load: 'Paused because you pressed a key. Load and resume loads the program and lets Claude go on.',
 });
 // Draw a card's accept button for the pause as it is now: its label, and what a click on it will do (data-resume),
-// so the click does what the button said when it was drawn, never what claudePaused says at click time
+// so the click does what the button said when it was drawn, never what consent.paused says at click time
 export function drawAccept(button, paused, plain, resumeLabel) {
   button.textContent = paused ? resumeLabel : plain;
   button.dataset.resume = paused ? '1' : '';
 }
 // the click on a card's accept button: yes, and Resume too only if the button read "… and resume" (drawAccept)
-export const acceptClick = (session, button, opts = {}) => session.answerClaude(true, { ...opts, resume: button.dataset.resume === '1' });
+export const acceptClick = (session, button, opts = {}) => session.consent.answer(true, { ...opts, resume: button.dataset.resume === '1' });
 
-// what load_basic's card says about the load it asks for (Session.claudePending.load)
+// what load_basic's card says about the load it asks for (Session.consent.pending.load)
 export function loadCardText(load) {
   const span = load.lines === 1 ? `line ${load.first}` : `lines ${load.first} to ${load.last}`;
   return `Claude wants to load a ${load.lines}-line BASIC program (${span}, ${load.bytes} bytes) into your BASIC session. It replaces the program in memory; a restore point is made first, so restoring it brings yours back.`;
@@ -86,12 +86,12 @@ export function setupClaude(page) {
     if (ev === 'claude-stopped') { state.stopped = arg; notify(); }
     if (ev === 'chat' || ev === 'machine' || ev === 'roms') notify();
   });
-  // the page asks; Session.answerClaude gives the answer (the views draw Session.claudePending)
+  // the page asks; Session.consent.answer gives the answer (the views draw Session.consent.pending)
   // a card the side panel would show while the panel is closed or minimised opens it: a question nobody can see
   // would hold the turn with no way to answer it
   // A card raised while a page view is up (Share, the Library, Add ROMs, the Debugger: they hide the panel) closes
   // the view, so the card shows: back to the emulator (page.closeView), where the panel opens on it (panelOnReturn)
-  session.claudeGate = () => {
+  session.consent.asker = () => {
     if (session.claudeView !== 'full' && panel && !panel.shown) { if (viewOpen()) panelOnReturn = true; else panel.open({ focus: false }); }
     if (viewOpen()) page.closeView();
     notify();
@@ -182,7 +182,7 @@ export function setupClaude(page) {
   function activity() {
     const a = session.claudeActing;
     if (!a || !session.claudeBusyActing) return null;
-    if (session.claudePaused) return touchPanel() ? TOUCH_PAUSED_TEXT : CLAUDE_PAUSED_TEXT;
+    if (session.consent.paused) return touchPanel() ? TOUCH_PAUSED_TEXT : CLAUDE_PAUSED_TEXT;
     if (a.name === 'type_text') {
       const m = basicMachine(), all = String(a.input.text || '');
       // the keys not yet pressed: Claude's typing waits in the typist's queue, one paced key at a time
@@ -329,11 +329,11 @@ export function setupClaude(page) {
   $('btnClaudeKeyForget').onclick = () => { forgetKey(); $('claudeKeyInput').value = ''; render(); };
 
   // ---------------- the BASIC session (full screen) ----------------
-  $('chkClaudeTools').onchange = () => session.setClaudeAllowed($('chkClaudeTools').checked);
+  $('chkClaudeTools').onchange = () => session.consent.setAllowed($('chkClaudeTools').checked);
   $('btnClaudeAllow').onclick = () => acceptClick(session, $('btnClaudeAllow'));
-  $('btnClaudeTell').onclick = () => session.answerClaude(false);
+  $('btnClaudeTell').onclick = () => session.consent.answer(false);
   $('btnClaudeLoad').onclick = () => acceptClick(session, $('btnClaudeLoad'), { dontAsk: $('chkClaudeLoadNoAsk').checked });
-  $('btnClaudeLoadNo').onclick = () => session.answerClaude(false);
+  $('btnClaudeLoadNo').onclick = () => session.consent.answer(false);
   const restore = (index) => page.attempt(() => { const r = session.restoreClaude(index); return r ? ['Restored: your BASIC session is as it was before Claude\'s changes.', ...r.notices].join(' ') : null; });
   // the folded action lines the person opened in the card's strip (by turn number)
   const openTurns = new Set();
@@ -398,7 +398,7 @@ export function setupClaude(page) {
     page.cropBorder = phoneChat && session.chatView === 'chat';
     // (and while a card waits for the person, in any view: held sideways the keyboard covers the whole page, the card
     // with it; nothing of Claude's types meanwhile)
-    if (page.touchKeys) page.touchKeys.standAside((phoneChat && form) || !!session.claudePending);
+    if (page.touchKeys) page.touchKeys.standAside((phoneChat && form) || !!session.consent.pending);
     // the panel's offer depends on body.chat-phone (touch-keys.js: a full-screen chat on a phone is not a BASIC
     // machine's screen, and the joystick is not offered there), so a change of it must be applied, not just the
     // class toggled: the stick, FIRE and the switch come and go with it
@@ -410,7 +410,7 @@ export function setupClaude(page) {
     $('claudeHelp').textContent = help;
     $('claudeHelp').hidden = !help;
     // the BASIC session card: consent, the switch, the restore point
-    const pend = session.claudePending;
+    const pend = session.consent.pending;
     const modelName = () => { const m = session.personMachine; return m ? m.profile.name : ''; };
     const loading = !!(pend && pend.kind === 'load');      // load_basic's own card, on every call
     const asking = !!pend && !loading;                     // the consent question
@@ -423,22 +423,22 @@ export function setupClaude(page) {
     if (loading) $('claudeLoadText').textContent = loadCardText(pend.load);
     else $('chkClaudeLoadNoAsk').checked = false;
     // R11: paused while the card waits: "Allow and resume" / "Load and resume", and the line that says why
-    const pausedCard = !!pend && !!session.claudePaused;
+    const pausedCard = !!pend && !!session.consent.paused;
     drawAccept($('btnClaudeAllow'), pausedCard, 'Allow', 'Allow and resume');
     drawAccept($('btnClaudeLoad'), pausedCard, 'Load it', 'Load and resume');
     $('claudeConsentPaused').hidden = !pausedCard;
     if (pausedCard) $('claudeConsentPaused').textContent = PAUSED_CARD_TEXT[loading ? 'load' : 'consent'];
     // "Don't ask again this session" only while the switch is on: with it off every load asks, so the box is not offered
-    $('chkClaudeLoadNoAsk').closest('label').hidden = !session.claudeAllowed;
-    if (!session.claudeAllowed) $('chkClaudeLoadNoAsk').checked = false;
-    $('chkClaudeTools').checked = session.claudeAllowed;
+    $('chkClaudeLoadNoAsk').closest('label').hidden = !session.consent.allowed;
+    if (!session.consent.allowed) $('chkClaudeLoadNoAsk').checked = false;
+    $('chkClaudeTools').checked = session.consent.allowed;
     // the turn's status with Stop, in the bar (on top on a phone too): thinking, a tool running, a card waiting;
     // a card that has just come up is brought into view
     const status = full ? session.claudeStatus : null;
     $('claudeStatus').hidden = !status;
     if (status) $('claudeStatusText').textContent = claudeStatusText(status);
     // the bar is the full screen's only status, so a pause there has its Resume (the side panel's is on the screen)
-    $('btnClaudeResume').hidden = !(status && session.claudePaused);
+    $('btnClaudeResume').hidden = !(status && session.consent.paused);
     if (!pend || !full) shownPending = null;
     else if (pend !== shownPending) { shownPending = pend; $('claudeSession').scrollIntoView({ block: 'center' }); }
     // the card's strip: the latest turn's action lines, then the restore line (R12, R13). Never printed on the chat

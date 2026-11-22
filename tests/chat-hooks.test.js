@@ -71,26 +71,26 @@ function session(machine = 'dragon64') {
     const chat = s.startAsk({ backend: backend() });
     check('startAsk: the Session\'s hooks are set, nothing is patched', hooked(chat) && unpatched(chat));
     const during = [];
-    s.claudeGate = (name) => { during.push(s.claudeTool); s.claudePending.resolve(false); };
+    s.consent.asker = (name) => { during.push(s.claudeTool); s.consent.pending.resolve(false); };
     const before = m.ram[0x3000];
     const r = await call(chat, 'poke', { address: 0x3000, bytes: [(before + 1) & 0xff] });
     check('the gate refuses: the call fails declined and changes nothing', !r.ok && r.err.code === Emu.TOOL_CODES.CONSENT_DECLINED && m.ram[0x3000] === before, r.err && r.err.code);
     check('the gate was asked while the tool ran (claudeTool), and the status cleared after', during.length === 1 && during[0] === 'poke' && s.claudeTool === null && s.claudeCall === null);
     // nobody to ask: no consent
-    s.claudeGate = null;
+    s.consent.asker = null;
     const r2 = await call(chat, 'poke', { address: 0x3000, bytes: [9] });
     check('no page to ask: refused no-consent, unchanged', !r2.ok && r2.err.code === Emu.TOOL_CODES.NO_CONSENT && m.ram[0x3000] === before);
     // allowed: the same path acts
-    s.setClaudeAllowed(true);
+    s.consent.setAllowed(true);
     const r3 = await call(chat, 'poke', { address: 0x3000, bytes: [9] });
     check('allowed: the call acts through the same hooks', r3.ok && m.ram[0x3000] === 9 && s.claudeTool === null);
     // onToolStart tells the page at once: a 'chat' event with the tool's name, while the call is still held (here, by
-    // a card nobody has answered yet) and before the card itself is raised (claudePending, which emits on its own)
-    s.setClaudeAllowed(false);
+    // a card nobody has answered yet) and before the card itself is raised (consent.pending, which emits on its own)
+    s.consent.setAllowed(false);
     let release = null;
-    s.claudeGate = () => { release = () => s.claudePending.resolve(true); };
+    s.consent.asker = () => { release = () => s.consent.pending.resolve(true); };
     const events = [];
-    const off = s.on((ev) => { if (ev === 'chat') events.push({ tool: s.claudeTool, card: !!s.claudePending, done: settled }); });
+    const off = s.on((ev) => { if (ev === 'chat') events.push({ tool: s.claudeTool, card: !!s.consent.pending, done: settled }); });
     let settled = false;
     const held = call(chat, 'poke', { address: 0x3001, bytes: [3] }).then((res) => { settled = true; return res; });
     await settle();
@@ -108,15 +108,15 @@ function session(machine = 'dragon64') {
     const s = session();
     const m = s.shownMachine;
     const chat = s.startAsk({ backend: backend() });
-    s.setClaudeAllowed(true);
+    s.consent.setAllowed(true);
     chat.busy = true;
     s.claudeActing = { name: 'type_text', input: { text: 'x' } };
-    check('paused', s.pauseClaude() && s.claudePaused !== null);
+    check('paused', s.pauseClaude() && s.consent.paused !== null);
     const waiting = call(chat, 'poke', { address: 0x3002, bytes: [7] });
     await settle();
     chat.controller = new AbortController();
     let pausedAtSignal = 'unset';
-    chat.controller.signal.addEventListener('abort', () => { pausedAtSignal = s.claudePaused; });
+    chat.controller.signal.addEventListener('abort', () => { pausedAtSignal = s.consent.paused; });
     chat.abort('Stop');
     const r = await waiting;
     check('abort: the Session ended the pause before the request was aborted', pausedAtSignal === null, String(pausedAtSignal));
@@ -134,8 +134,8 @@ function session(machine = 'dragon64') {
     const hooks = { onAbort: chat.onAbort, onToolStart: chat.onToolStart, onToolEnd: chat.onToolEnd, gate: chat.gate };
     check('install: the BASIC view and back', s.showChat('basic') && s.shownMachine === basic && s.showChat('chat'));
     check('install: the chat keeps the same hooks', Object.entries(hooks).every(([k, f]) => chat[k] === f) && unpatched(chat));
-    s.claudeGate = null;
-    s.setClaudeAllowed(true);
+    s.consent.asker = null;
+    s.consent.setAllowed(true);
     const r = await call(chat, 'poke', { address: 0x3004, bytes: [0x42] });
     check('install: a tool call still goes through the hooks and acts on the BASIC session', r.ok && basic.ram[0x3004] === 0x42 && s.claudeTool === null);
     // a pause still ends on abort after the views moved
@@ -143,14 +143,14 @@ function session(machine = 'dragon64') {
     s.claudeActing = { name: 'type_text', input: { text: 'x' } };
     s.pauseClaude();
     chat.abort();
-    check('install: abort still ends the pause', s.claudePaused === null);
+    check('install: abort still ends the pause', s.consent.paused === null);
     chat.busy = false;
     // adopt (a machine switch) drops the chat; the next one is hooked afresh
     s.switchMachine('coco');
     check('adopt: the chat is dropped', s.chat === null);
     const chat2 = s.startChat({ backend: backend(), channel: new Emu.MemoryChannel(), firmware: FIRMWARE, brief: 'B', tools: true });
     check('adopt: the next chat is hooked, nothing patched', chat2 !== chat && hooked(chat2) && unpatched(chat2) && chat2.onToolStart !== chat.onToolStart);
-    s.setClaudeAllowed(true);
+    s.consent.setAllowed(true);
     const basic2 = s.chatMachines.basic;
     const r2 = await call(chat2, 'poke', { address: 0x3006, bytes: [0x24] });
     check('adopt: the new chat\'s tools act through its hooks', r2.ok && basic2.ram[0x3006] === 0x24 && s.claudeTool === null);
@@ -161,9 +161,9 @@ function session(machine = 'dragon64') {
     s.claudeActing = { name: 'type_text', input: { text: 'x' } };
     s.pauseClaude();
     chat.onAbort();
-    check('adopt: the dropped chat\'s hooks leave the new chat\'s state alone', s.claudeTool === 'mine' && s.claudePaused !== null);
+    check('adopt: the dropped chat\'s hooks leave the new chat\'s state alone', s.claudeTool === 'mine' && s.consent.paused !== null);
     chat2.abort();
-    check('adopt: the new chat\'s abort ends its pause', s.claudePaused === null);
+    check('adopt: the new chat\'s abort ends its pause', s.consent.paused === null);
     chat2.busy = false;
     // Ask Claude after a switch: the same
     s.endChat();
