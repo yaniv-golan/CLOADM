@@ -127,7 +127,8 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   as before; the Debugger screen shows such a stop as "Paused at a write to $XXXX". Documented in `docs/automation.md`
   ("Applying input on a guest write", an example that runs as a test) and `docs/architecture.md`; `tests/writewatch.test.js`.
   The MC-10 now runs a frame through the debugger when one is armed, as the other models do (its `runFrame` dropped the
-  debugger's run, so breakpoints did not stop a running MC-10).
+  debugger's run, so breakpoints did not stop a running MC-10). Observers are on the person's machine: with the Claude chat full
+  screen, the BASIC session running beside it.
 - **A disk controller trace for Node and headless runs.** A developer porting a game had two disk driver bugs that each looked
   like a frozen game, a wrong sector-length bit and data lost to a byte loop too slow, and had to trace `$FF40-$FF43` by hand.
   `session.disk.trace({ limit })` keeps a ring of what the controller did: `command` (the command byte and name, drive, side,
@@ -139,7 +140,8 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   run fails), and `timeout` and `keys-not-taken` errors carry `disk` (an added field; the same `schemaVersion`). The trace
   belongs to the Session, like the serial trace (any number at once), and is never in a snapshot; it changes no emulation: the MAME-verified floppy
   runs hash the same with one on (`tests/disk-trace.test.js`). Documented in `docs/automation.md` ("Tracing the disk
-  controller").
+  controller"). The trace, `status()` and `diagnostics()` are the person's machine's: with the Claude chat full screen, the BASIC
+  session's beside it.
 - **A hot-spot profiler: where the CPU's time goes, and whether it is waiting.** `session.profile({ mode, every, symbols, buckets })`
   charges every CPU cycle (`mode: 'cycles'`, exact: the total is the `cpu.totalCycles` delta, CPU cycles on the CoCo 3 too) or one PC
   every `every` cycles (`'samples'`) to the instruction that spent it; `report({ top })` and `stop()` fold the counts into the
@@ -151,7 +153,8 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   Session's own probe and bus taps, which exist only while a profile runs (1.4 to 1.7 times slower then, `tools/profile-cost.js`;
   nothing otherwise); it is never in a snapshot, and opening one starts it empty. The counts are keyed by CPU address, so banked
   or MMU-mapped code aliases, and the report says so. `docs/automation.md`, "Finding hot spots", has a worked example that runs
-  as a test; `tests/profiler.test.js` checks hand-counted programs on the Dragon 64, CoCo 3 and MC-10.
+  as a test; `tests/profiler.test.js` checks hand-counted programs on the Dragon 64, CoCo 3 and MC-10. A profile counts the person's
+  machine: with the Claude chat full screen, the BASIC session running beside it.
 - **A tape and a WAV for a real Dragon or CoCo, from a binary.** `buildCas(files, { family })` (`js/media/cassette.js`) writes the `.CAS`
   bytes of programs (namefile with its ASCII and gap flags, data and end-of-file blocks, each with its 128-byte leader and checksum; a data file is ASCII and gapped; it replaces `casFile` in
   `js/selftest.js`), and `casToWav` / `casToSamples` take `gaps: 'player'` (the default), `wave: 'sine'|'square'`, `amplitude`,

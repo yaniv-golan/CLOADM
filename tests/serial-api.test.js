@@ -540,10 +540,31 @@ HALT    BRA     HALT
   check('full screen: the subscriber still hears the BASIC machine, both ways', eq(k.tx, [0x41, 0x42, 0x43, 0x44, 0x45]) && eq(k.rx, [0x41, 0x42, 0x43, 0x44, 0x45]), `${k.tx} / ${k.rx}`);
   check('full screen: the trace still records the BASIC machine\'s 6551', tr.events.filter((e) => e.kind === 'tx').map((e) => e.byte).join() === '65,66,67,68,69');
   check('full screen: the listener and traces are on the BASIC machine, not the chat machine', basic.serialPort.listeners.size === 1 && (!chatM.serialPort || chatM.serialPort.listeners.size === 0) && basic.acia.traces.size === 1);
+  // one frame at a time: each runFrames(1) delivers what that frame of the BASIC machine sent and received (nothing is
+  // left waiting for the next frame), stamped with the BASIC machine's frame count, not the chat machine's
+  const frames = [];
+  const fsub = s.serial.subscribe({ tx: (bytes, info) => frames.push({ n: bytes.length, frame: info.frame }) });
+  s.serial.send(Array.from({ length: 40 }, (_, i) => 0x30 + (i % 10)));
+  let eachFrame = true, delivered = 0, stamped = true, distinct = true;
+  for (let f = 0; f < 6; f++) {
+    const before = frames.length;
+    s.runFrames(1);
+    const waiting = s.serial.subs.some((x) => x.tx.length || x.rx.length);
+    if (waiting) eachFrame = false;
+    for (const e of frames.slice(before)) { delivered += e.n; if (e.frame !== basic.frameCount) stamped = false; }
+    if (basic.frameCount === chatM.frameCount) distinct = false;
+  }
+  check('full screen: each runFrames(1) delivers that frame\'s bytes, nothing left waiting for the next', eachFrame && delivered > 0, `${delivered} delivered`);
+  check('full screen: info.frame is the BASIC machine\'s frame count (and differs from the chat machine\'s)', stamped && distinct && frames.length > 0, JSON.stringify(frames.slice(0, 3)));
+  check('full screen: diagnostics() is the BASIC machine\'s (pc, frame, now, cycles) and its serial port',
+    (() => { const d = s.diagnostics(); return d.pc === basic.cpu.pc && d.frame === basic.frameCount && d.now === basic.now() && d.cycles === basic.cpu.totalCycles && d.serial.device.chip === '6551'; })());
+  fsub.unsubscribe();
+  s.runFrames(10);
   s.toSidePanel();
   s.serial.send([0x46]);
   s.runFrames(3);
-  check('back from full screen: still the BASIC machine, every byte once', s.shownMachine === basic && eq(k.tx, [0x41, 0x42, 0x43, 0x44, 0x45, 0x46]) && basic.serialPort.listeners.size === 1, `${k.tx}`);
+  const forty = Array.from({ length: 40 }, (_, i) => 0x30 + (i % 10));
+  check('back from full screen: still the BASIC machine, every byte once', s.shownMachine === basic && eq(k.tx, [0x41, 0x42, 0x43, 0x44, 0x45, ...forty, 0x46]) && basic.serialPort.listeners.size === 1, `${k.tx}`);
   tr.stop();
 }
 

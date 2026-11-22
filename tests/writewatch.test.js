@@ -307,6 +307,39 @@ for (const id of ['dragon64', 'coco3', 'mc10']) {
 }
 
 // ---------------- 8. observers follow the machine; not in snapshots ----------------
+// ---------------- a full-screen chat: observers are on the person's machine ----------------
+// With the Claude chat full screen the chat machine is on screen and the person's (the BASIC session) runs beside it.
+// watchWrites observes the person's machine: docs/examples/framecount.asm on the BASIC session counts FRAME ($3100)
+// once a field, and each INC is one event, stamped with the BASIC machine's frame; 'stop' stops that machine right
+// after the writing instruction, as a debugger stop, and the run goes on from there.
+{
+  const fsx = require('fs'), pathx = require('path');
+  const firmware = new Uint8Array(fsx.readFileSync(pathx.join(__dirname, '..', 'examples/chat.bin')));
+  const prog = Emu.assemble(fsx.readFileSync(pathx.join(__dirname, '..', 'docs/examples/framecount.asm'), 'utf8'), '6809');
+  const fs3 = new Emu.Session({ welcomeMenu: false, store: Emu.memoryStore(), media: new Emu.MemoryMediaStore() });
+  fs3.switchMachine('dragon64', {}, { menu: false });
+  const basic = fs3.shownMachine;
+  fs3.runAssembled(prog);
+  fs3.runFrames(5);
+  fs3.startChat({ backend: new Emu.ClaudeBackend({ fetch: async () => null, apiKey: 'sk-ant-test' }), channel: new Emu.MemoryChannel(), firmware, brief: '', tools: false });
+  const chatM = fs3.shownMachine;
+  const WAITFS = prog.symbols.get('WAITFS'), INCPC = WAITFS + 5, AFTER = WAITFS + 8;   // LDA ext (3), BPL (2), INC ext (3)
+  const evs = [];
+  const w = fs3.watchWrites({ start: 0x3100, end: 0x3100 }, (ev) => { evs.push(ev); return ev.value === 12 ? 'stop' : undefined; });
+  check('full screen: the chat machine on screen, the observer\'s tap on the BASIC session', chatM !== basic && fs3.personMachine === basic && basic.busTaps.writes.length === 1 && chatM.busTaps.writes.length === 0);
+  const n = fs3.runFrames(20);
+  check('full screen: each of the BASIC guest\'s INC FRAME is an event, from its PC, stamped with the BASIC machine\'s frame',
+    evs.length > 3 && evs.every((e, k) => e.pc === INCPC && (k === 0 || e.value === ((evs[k - 1].value + 1) & 0xFF))) && evs[evs.length - 1].frame === basic.frameCount,
+    `${evs.length} events, last ${JSON.stringify(evs[evs.length - 1])}`);
+  check('full screen: \'stop\' at FRAME 12 pauses the run right after that INC on the BASIC machine', fs3.paused && fs3.debug.stopReason.kind === 'write' && basic.ram[0x3100] === 12 && basic.cpu.pc === AFTER && n < 20,
+    `paused ${fs3.paused} pc $${basic.cpu.pc.toString(16)} frame ${basic.ram[0x3100]} ran ${n}`);
+  fs3.debug.resume();
+  fs3.runFrames(3);
+  check('full screen: resumed, the BASIC guest goes on counting', !fs3.paused && basic.ram[0x3100] > 12, `${basic.ram[0x3100]}`);
+  w.remove();
+  check('full screen: removed, neither machine keeps a tap', basic.busTaps.writes.length === 0 && chatM.busTaps.writes.length === 0);
+}
+
 (async () => {
   const s = started('dragon64');
   const ev = [];

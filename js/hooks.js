@@ -1,7 +1,8 @@
 /*
- * HostHooks: the probes and bus taps the Session itself holds (session.hooks), kept across machines. A machine
- * replaced by a switch or a restored snapshot (Session.adopt) gets them all again, in the order they were added,
- * and the machine it replaces loses them. They are host state: no snapshot carries them, and a restored machine
+ * HostHooks: the probes and bus taps the Session itself holds (session.hooks), kept on the person's machine (the
+ * machine in use, or the BASIC session beside a full-screen chat; Session.followPerson). A machine replaced by a
+ * switch or a restored snapshot (Session.adopt) gets them all again, in the order they were added, and the machine
+ * it replaces loses them. They are host state: no snapshot carries them, and a restored machine
  * has none of its own.
  *
  *   hooks.addProbe(fn)                    Machine.addProbe on the machine in use, and on every later one
@@ -9,8 +10,8 @@
  *   hooks.addWriteTap(range, fn, opts)    m.busTaps.addWriteTap, likewise (opts: { old })
  *   hooks.addRunEnd(fn)                   Machine.addRunEnd, likewise
  *   hooks.add(attach)                     anything else kept on the machine in use: attach(m) puts it on m and returns
- *                                         its remove() (the disk controller's traces, session.disk). session.serial
- *                                         keeps a registry of its own, on the person's machine (SerialApi.follow)
+ *                                         its remove() (the serial port's listener and traces, session.serial; the
+ *                                         disk controller's traces, session.disk)
  *
  * Each returns remove(), which takes it off the machine it is on and out of the Session's list (once).
  * Internal: the developer features build on it (the memory-write observer, Session.watchWrites: js/writewatch.js).

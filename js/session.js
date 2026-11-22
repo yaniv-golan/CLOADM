@@ -283,39 +283,32 @@ function execWhenReady(m, file) {
   return { decide, cancel };
 }
 
-// The serial port of the Session's machine (session.serial): the device plugged in, the bytes both ways, and a
+// The serial port of the person's machine (session.serial): the device plugged in, the bytes both ways, and a
 // trace of what the port did. Subscriptions and traces belong to the Session: its hooks registry (session.hooks)
-// puts the port listener and each trace on whichever machine is in use (switchMachine, openSnapshot, a power
-// cycle), and no snapshot holds them.
+// puts the port listener and each trace on the person's machine (switchMachine, openSnapshot, a power cycle; the
+// BASIC session beside a full-screen chat), and no snapshot holds them.
 //
 //   tx(bytes, info): bytes the machine sent, as the device decoded them; rx(bytes, info): bytes the terminal sent,
 //   once each has crossed the wire into the machine (its stop bit ended). bytes is a Uint8Array; info is
 //   { at: [tick of each byte], frame, device }. They come at the end of each frame and on flush(); with
 //   { flush: 'instant' } also before each instruction the CPU starts (a probe, there only while such a
 //   subscriber is), when runFrames returns and when a debugger stops the machine.
-// The port is the PERSON's (personMachine), never the chat machine's: device, attach, send and status act on it, as
-// the Serial port panel does, and the listener and the traces sit on it through the SerialApi's own hooks registry
-// (this.hooks), which follow() moves to whichever machine is the person's. So while the chat is full screen, with the
-// BASIC session running beside it, subscribers still hear the BASIC session's port.
 export class SerialApi {
   constructor(session) {
     this.session = session;
     this.subs = [];                 // in the order subscribed
     this.instantProbe = null;       // remove() of the probe 'instant' subscribers need, while there is one
-    this.hooks = new HostHooks();   // the listener, the traces and the 'instant' probe: on the person's machine
     const listener = {
       tx: (b, at) => { for (const s of this.subs) { s.tx.push(b); s.txAt.push(at); } },
       rx: (b, at) => { for (const s of this.subs) { s.rx.push(b); s.rxAt.push(at); } },
     };
-    this.hooks.add((m) => {
+    session.hooks.add((m) => {
       const p = m.serialPort;
       if (!p) return () => {};
       p.listeners.add(listener);
       return () => p.listeners.delete(listener);
     });
   }
-  // the listener and traces go to the person's machine (Session.install, and before any delivery)
-  follow() { this.hooks.attach(this.session.personMachine); }
   // the device on the port: { chip: '6551' | 'bit-banger', kind: 'none' | 'printer' | 'terminal' | 'loopback', baud,
   // kinds (what can be plugged in) }, or null on machines without one
   get device() {
@@ -371,12 +364,11 @@ export class SerialApi {
   // the probe is on while an 'instant' subscriber is, and only then
   probeIfInstant() {
     const want = this.subs.some((s) => s.instant);
-    if (want && !this.instantProbe) this.instantProbe = this.hooks.addProbe(() => this.ran());
+    if (want && !this.instantProbe) this.instantProbe = this.session.hooks.addProbe(() => this.ran());
     else if (!want && this.instantProbe) { this.instantProbe(); this.instantProbe = null; }
   }
   // deliver every byte completely sent by now, both ways, to every subscriber
   flush() {
-    this.follow();
     const m = this.session.personMachine, p = m && m.serialPort;
     if (p) p.flush(m.now());
     this.deliver();
@@ -390,7 +382,7 @@ export class SerialApi {
   }
   // hand each subscriber (only the 'instant' ones: instantOnly) what it has waiting
   deliver(instantOnly = false) {
-    const m = this.hooks.machine;   // the machine whose port collected the bytes
+    const m = this.session.hooks.machine;   // the machine whose port collected the bytes
     let error = null;
     for (const sub of this.subs.slice()) {
       if (!sub.live || (instantOnly && !sub.instant) || !(sub.tx.length || sub.rx.length)) continue;
@@ -418,8 +410,7 @@ export class SerialApi {
     if (!(Number.isInteger(limit) && limit > 0)) throw new SessionError(`limit is a whole number of events above 0, not ${limit}.`);
     if (registers !== 'writes' && registers !== 'all') throw new SessionError(`registers is 'writes' or 'all', not ${JSON.stringify(registers)}.`);
     const t = new SerialTrace(limit, registers === 'all');
-    this.follow();
-    const stop = this.hooks.add((m) => t.attach(m));
+    const stop = this.session.hooks.add((m) => t.attach(m));
     return {
       get events() { return t.events(); },
       get dropped() { return t.dropped; },
@@ -688,8 +679,9 @@ export class Session {
     this.pendingLands = [];         // { name, at }: names landed that a creation still queued may have to refuse
     this.diskClaims = new Map();   // stored name -> how many creations are making it (claimDiskName: a rename may not take one)
     this.debugger = null;           // created on first use by `debug` (js/debugger.js)
-    // the Session's own probes and bus taps (js/hooks.js), put on whichever machine is in use (install); host state,
-    // never in a snapshot. The memory-write observers (watchWrites, js/writewatch.js) are built on them.
+    // the Session's own probes and bus taps (js/hooks.js), put on the person's machine (install, followPerson): the
+    // machine in use, or the BASIC session beside a full-screen chat. Host state, never in a snapshot. The developer
+    // API is built on them: serial, disk, watchWrites (js/writewatch.js) and profile (js/profiler.js).
     this.hooks = new HostHooks();
     // the serial port's byte streams and diagnostics (SerialApi), its listeners and traces kept on the machine through hooks
     this.serial = new SerialApi(this);
@@ -976,10 +968,8 @@ export class Session {
     if (this.debugger && this.debugger.machine !== m) { this.debugger.detach(); this.debugger = null; }
     let undelivered = null;
     try { this.serial.deliver(); } catch (e) { undelivered = e; }   // what the old machine sent goes out first
-    this.hooks.attach(m);                 // the Session's probes and bus taps move to m (adopt: a switch, a snapshot)
-    this.writeWatch.reset();              // (writes the old machine made are not delivered)
+    this.followPerson(this.personFor(m)); // the Session's hooks move to the person's machine (adopt: a switch, a snapshot)
     this.shownMachine = m;
-    this.serial.follow();                 // the serial listeners and traces: on the person's machine (the BASIC session beside a full-screen chat)
     this.stubRun = this.stubRuns.get(m) || null;   // the record is the machine's, not the Session's (see stubRuns)
     this.applyDisplay();
     this.acc = 0;
@@ -1026,7 +1016,7 @@ export class Session {
   // terminal that the machine has not finished receiving) }, disk: the disk controller's status (DiskApi.status;
   // null without one) }. It changes nothing.
   diagnostics() {
-    const m = this.shownMachine, p = this.personMachine.serialPort;
+    const m = this.personMachine, p = m.serialPort;
     return {
       pc: m.cpu.pc, frame: m.frameCount, now: m.now(), cycles: m.cpu.totalCycles,
       serial: p ? { device: this.serial.device, status: this.serial.status(), queued: p.kind === 'terminal' ? p.queue.length : 0 } : null,
@@ -2972,9 +2962,18 @@ export class Session {
   // The two are the same machine whenever no full-screen chat is open.
   get shownMachine() { return this._shown; }
   set shownMachine(m) { this._shown = m; }
-  get personMachine() {
+  get personMachine() { return this.personFor(this.shownMachine); }
+  // the person's machine when `shown` is on screen: the BASIC session beside a full-screen chat, else `shown`
+  personFor(shown) {
     const c = this.chatMachines;
-    return c && this.shownMachine === c.chat && c.basic !== this.shownMachine ? c.basic : this.shownMachine;
+    return c && shown === c.chat && c.basic !== shown ? c.basic : shown;
+  }
+  // put the Session's hooks (session.hooks: the developer API's probes, taps, serial listeners and traces) on m, the
+  // person's machine; what a machine they leave wrote and had not yet delivered to watchWrites is dropped
+  followPerson(m = this.personMachine) {
+    if (m === this.hooks.machine) return;
+    this.hooks.attach(m);
+    this.writeWatch.reset();
   }
   // where a file the person loads goes: the same machine, and what the load's message says when that is not the
   // machine in use ('' when it is).
@@ -4212,16 +4211,16 @@ export class Session {
   // 'debug'), or the machine waiting for the store (m.stall: the same frame finishes on a later call).
   oneFrame(m, d) {
     this.keys.step(m);
-    const ww = this.writeWatch.active ? this.writeWatch : null;   // (an instruction at a time: a callback may stop it)
-    if (!(d ? d.runFrame() !== false : m.runFrame(ww && ((end) => ww.runTo(m, end))))) {
+    this.followPerson();
+    const ww = this.watchedRun(m);
+    if (!(d ? d.runFrame() !== false : m.runFrame(ww))) {
       this.acc = 0;
       if (!m.stall) this.emit('debug');
       if (m === this.personMachine) this.serial.ran();   // a debugger stop: 'instant' subscribers hear what has crossed
       return false;
     }
     this.pumpChat(m);
-    this.runBeside(m);
-    this.serial.follow();
+    if (!this.runBeside(m)) return false;
     this.serial.deliver();   // the frame's serial bytes from the person's machine (shown, or beside a full-screen chat)
     return true;
   }
@@ -4251,11 +4250,23 @@ export class Session {
     const c = this.chatMachines;
     return c ? (this.shownMachine === c.chat ? c.basic : c.chat) : null;
   }
+  // -> false when a watchWrites callback stopped the machine beside (the person's) part way through its frame
   runBeside() {
     const o = this.besideMachine();
-    if (!o || o.stall) return;
-    o.runFrame();
+    if (!o || o.stall) return true;
+    if (!o.runFrame(this.watchedRun(o))) {
+      this.acc = 0;
+      if (!o.stall) this.emit('debug');
+      return false;
+    }
     this.pumpChat(o);
+    return true;
+  }
+  // the run Machine.runFrame takes for m while a watchWrites observer is registered on it (the person's machine): an
+  // instruction at a time, so a callback may stop it; null otherwise (the machine runs its frame as it always does)
+  watchedRun(m) {
+    const ww = this.writeWatch;
+    return ww.active && m === this.hooks.machine ? (end) => ww.runTo(m, end) : null;
   }
   // (the machine's name is not in it: the app bar shows it on the machine button beside the status)
   statusLine(fps) {

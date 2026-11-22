@@ -283,7 +283,8 @@ for (const [label, config] of [['hardware timing', undefined], ['MAME timing', {
     check('...from where a later attach moves them as usual', mb.probes.length === 1 && mb.busTaps.writes.length === 1 && ma.probes.length === 0 && busIntact(ma));
   }
 
-  // ---------------- 7. the hooks follow the machine on screen through the chat's views ----------------
+  // ---------------- 7. the hooks follow the person's machine through the chat's views ----------------
+  // (the BASIC session: on screen, or running beside a full-screen chat; never the chat machine)
   {
     const fs = require('fs'), path = require('path');
     const FIRMWARE = new Uint8Array(fs.readFileSync(path.join(__dirname, '../examples/chat.bin')));
@@ -297,11 +298,11 @@ for (const [label, config] of [['hardware timing', undefined], ['MAME timing', {
     const off = (m) => m.probes.length === 0 && busIntact(m);
     c.startChat({ backend: backend(), channel: new Emu.MemoryChannel(), firmware: FIRMWARE });
     const chatM = c.shownMachine;
-    check('startChat: the hooks move to the chat machine on screen', chatM !== basic && on(chatM) && off(basic));
+    check('startChat: the chat machine on screen, the hooks stay on the BASIC session beside it', chatM !== basic && c.personMachine === basic && on(basic) && off(chatM) && c.hooks.machine === basic);
     c.showChat('basic');
     check('showChat(basic): back on the BASIC session', c.shownMachine === basic && on(basic) && off(chatM));
     c.showChat('chat');
-    check('showChat(chat): on the chat machine again', c.shownMachine === chatM && on(chatM) && off(basic));
+    check('showChat(chat): the chat machine on screen again, the hooks still on the BASIC session', c.shownMachine === chatM && on(basic) && off(chatM));
     c.toSidePanel();
     check('toSidePanel: on the BASIC session, the chat machine left clean', c.shownMachine === basic && on(basic) && off(chatM));
     c.startChat({ backend: backend(), channel: new Emu.MemoryChannel(), firmware: FIRMWARE });

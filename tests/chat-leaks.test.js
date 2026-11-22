@@ -612,8 +612,8 @@ function rowMethods() {
   // Puppets whose reachability is decided where they live (see the note above): debug (the Debugger view closes the
   // chat, claude.js:283-286), chat (the ChatSession, not a machine), store/roms/index/media/keys/machine (the
   // Session's own services).
-  // serial (SerialApi): its attach and send act on the person's machine (the two serial rows above call them), and its
-  // listener follows the hooks.
+  // serial (SerialApi): it acts on the person's machine (the two serial rows above call attach and send), and its
+  // listener and traces are on the Session's hooks, which follow the person's machine too.
   const OPAQUE = new Set(['debug', 'chat', 'store', 'roms', 'index', 'media', 'keys', 'serial']);
   const missing = [...called].filter(([name]) => !rows.has(name) && !READ.has(name) && !LIBRARY.has(name)
     && !SESSION.has(name) && !UI.has(name) && !OPAQUE.has(name));

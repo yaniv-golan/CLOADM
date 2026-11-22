@@ -1,7 +1,8 @@
 /*
  * WriteWatch: the Session's memory-write observers (session.watchWrites), built on the host hooks (js/hooks.js):
  * a bus write tap per observer, one probe and one run-end hook. Host state: never in a snapshot, and they follow
- * the machine in use (Session.install moves the hooks; adopt calls it).
+ * the person's machine (Session.followPerson moves the hooks; install calls it): the machine in use, or the BASIC
+ * session beside a full-screen chat, whose frame then runs through runTo too (Session.watchedRun).
  *
  *   const w = session.watchWrites({ start, end }, (ev) => { ... });   // start..end inclusive
  *   ev = { address, value, old, pc, at, frame }

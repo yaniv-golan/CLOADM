@@ -78,6 +78,7 @@ const HAND6803 = { MAIN: 2, LOOP: 170, SUBA: 20, SUBA1: 300, SUBB: 190 };
 
 for (const [id, src, cpu, hand] of [['dragon64', PROG6809, '6809', HAND6809], ['coco3', PROG6809, '6809', HAND6809], ['mc10', PROG6803, '6803', HAND6803]]) {
   const s = session(id), res = assemble(src, cpu), sym = res.symbols;
+  const hooksBefore = s.hooks.list.length;   // the Session's own (the serial port's listener)
   s.runAssembled(res);
   s.debug.runUntil(sym.get('MAIN'));
   check(`${id}: the program reached MAIN`, s.shownMachine.cpu.pc === sym.get('MAIN'));
@@ -94,7 +95,7 @@ for (const [id, src, cpu, hand] of [['dragon64', PROG6809, '6809', HAND6809], ['
   }
   check(`${id}: every cycle is in a symbol's range; nothing halted`, r.unattributed === 0 && r.halted === 0 && r.rows.every((x) => x.symbol !== null));
   check(`${id}: a range runs from its symbol to the next one`, row(r, 'SUBA').start === sym.get('SUBA') && row(r, 'SUBA').end === sym.get('SUBA1') - 1);
-  check(`${id}: the stopped profile has no probe and no tap left`, s.shownMachine.pcWatch === null && busIntact(s.shownMachine) && s.hooks.list.length === 0);
+  check(`${id}: the stopped profile has no probe and no tap left`, s.shownMachine.pcWatch === null && busIntact(s.shownMachine) && s.hooks.list.length === hooksBefore);
   check(`${id}: a report after stop is the same`, JSON.stringify(p.report()) === JSON.stringify(r));
 }
 
@@ -276,9 +277,9 @@ for (const id of ['coco', 'coco3']) {
 
 // ---------------- 6. Session: errors, snapshots, host state ----------------
 {
-  const s = session('dragon64');
+  const s = session('dragon64'), hooksBefore = s.hooks.list.length;
   for (const bad of [{ mode: 'fast' }, { every: 0 }, { every: 1.5 }, { buckets: 0 }, { buckets: 0x10001 }]) {
-    check(`profile(${JSON.stringify(bad)}) is refused`, throws(() => s.profile(bad)) && s.hooks.list.length === 0 && s.shownMachine.pcWatch === null);
+    check(`profile(${JSON.stringify(bad)}) is refused`, throws(() => s.profile(bad)) && s.hooks.list.length === hooksBefore && s.shownMachine.pcWatch === null);
   }
   const p = s.profile();
   check('report({ top: 0 }) is refused', throws(() => p.report({ top: 0 })));
@@ -353,6 +354,32 @@ for (const id of ['coco', 'coco3']) {
   const e = cli(['--profile', ':samples']);
   check('cli: --profile needs a file', e.status === 2 && /FILE\[:cycles\|samples\]/.test(e.stderr), e.stderr);
   fs.rmSync(dir, { recursive: true, force: true });
+
+  // ---------------- a full-screen chat: the profile is of the person's machine ----------------
+  // The Claude chat full screen puts its own machine on screen and runs the person's (the BASIC session) beside it.
+  // A profile counts the BASIC session's CPU: its total is that machine's cycle delta (not the chat machine's), and
+  // its hot spot is the BASIC guest's field-sync wait.
+  {
+    const fsx = require('fs'), pathx = require('path');
+    const firmware = new Uint8Array(fsx.readFileSync(pathx.join(__dirname, '..', 'examples/chat.bin')));
+    const prog = Emu.assemble(fsx.readFileSync(pathx.join(__dirname, '..', 'docs/examples/framecount.asm'), 'utf8'), '6809');
+    const fs3 = new Emu.Session({ welcomeMenu: false, store: Emu.memoryStore(), media: new Emu.MemoryMediaStore() });
+    fs3.switchMachine('dragon64', {}, { menu: false });
+    const basic = fs3.shownMachine;
+    fs3.runAssembled(prog);
+    fs3.runFrames(5);
+    fs3.startChat({ backend: new Emu.ClaudeBackend({ fetch: async () => null, apiKey: 'sk-ant-test' }), channel: new Emu.MemoryChannel(), firmware, brief: '', tools: false });
+    const chatM = fs3.shownMachine;
+    const hooksBefore = fs3.hooks.list.length;
+    const b0 = basic.cpu.totalCycles, c0 = chatM.cpu.totalCycles;
+    const p = fs3.profile();
+    check('full screen: the profile\'s probe is on the BASIC session, not the chat machine', basic.probes.length === 1 && chatM.probes.length === 0);
+    fs3.runFrames(10);
+    const r = p.stop();
+    check('full screen: the total is the BASIC machine\'s cycle delta, not the chat machine\'s', r.total === basic.cpu.totalCycles - b0 && r.total !== chatM.cpu.totalCycles - c0, `${r.total} vs ${basic.cpu.totalCycles - b0} / ${chatM.cpu.totalCycles - c0}`);
+    check('full screen: the hot spot is the BASIC guest\'s WAITFS, spinning on $FF03', r.rows[0].symbol === 'WAITFS' && r.rows[0].spin.polls.includes('$FF03'), JSON.stringify(r.rows[0]));
+    check('full screen: stopped, nothing is left on either machine', basic.probes.length === 0 && chatM.probes.length === 0 && fs3.hooks.list.length === hooksBefore);
+  }
 
   console.log(fail ? `\n${fail} FAILED` : '\nall passed');
   process.exitCode = fail ? 1 : 0;

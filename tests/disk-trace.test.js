@@ -410,6 +410,39 @@ NMIH    INC     $3200
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
+// ---------------- a full-screen chat: the trace, the status and diagnostics are the person's ----------------
+// With the Claude chat full screen its own machine is on screen and the person's (the BASIC session) runs beside it.
+// The disk is the person's: a trace started then goes on the BASIC session's controller and records its guest's read,
+// status() and diagnostics() describe that machine, and the chat machine gets nothing.
+{
+  const b = BOARDS.dragonfdc, opts = { cmd: 0x88 };
+  const s = new Emu.Session({ welcomeMenu: false, store: Emu.memoryStore(), media: new Emu.MemoryMediaStore() });
+  s.switchMachine(b.machine, {}, { menu: false });
+  const basic = s.shownMachine, fdc = new Emu.devices.dragonfdc({ rom: new Uint8Array(0x2000) });
+  basic.insertCartridge(fdc);
+  fdc.mount(0, { bytes: images.vdk(40, 2), format: 'vdk', name: 'd0' });
+  s.runAssembled(asm(guest('dragonfdc', opts)));
+  const firmware = new Uint8Array(fs.readFileSync(path.join(__dirname, '..', 'examples/chat.bin')));
+  s.startChat({ backend: new Emu.ClaudeBackend({ fetch: async () => null, apiKey: 'sk-ant-test' }), channel: new Emu.MemoryChannel(), firmware, brief: '', tools: false });
+  const chatM = s.shownMachine;
+  const tr = s.disk.trace();
+  check('full screen: the chat machine is on screen and the trace is on the BASIC session\'s controller, not the chat machine',
+    chatM !== basic && s.personMachine === basic && basic.diskTraces.length === 1 && chatM.diskTraces.length === 0);
+  s.runFrames(30);
+  const done = tr.events.filter((e) => e.kind === 'done');
+  let same = true;
+  for (let i = 0; i < 256; i++) if (basic.ram[0x4000 + i] !== images.sectorByte(0, 0, 1, i)) same = false;
+  check('full screen: the trace records the BASIC guest\'s 256-byte read, and its RAM holds the sector', done.length === 1 && done[0].bytes === 256 && same, JSON.stringify(done));
+  const st = s.disk.status(), d = s.diagnostics();
+  check('full screen: status() is the BASIC session\'s controller (its sector register, peeked)', st && st.controller === fdc.type && st.sector === fdc.wd.peek(2), JSON.stringify(st));
+  check('full screen: diagnostics() is the BASIC session\'s, pc, frame, now and cycles alike (the chat machine\'s differ)',
+    d.pc === basic.cpu.pc && d.frame === basic.frameCount && d.now === basic.now() && d.cycles === basic.cpu.totalCycles
+    && (chatM.frameCount !== basic.frameCount || chatM.cpu.totalCycles !== basic.cpu.totalCycles) && d.disk && d.disk.controller === fdc.type,
+    JSON.stringify({ pc: d.pc, frame: d.frame, basic: basic.frameCount, chat: chatM.frameCount }));
+  tr.stop();
+  check('full screen: stopping the trace leaves both machines without one', basic.diskTraces.length === 0 && chatM.diskTraces.length === 0);
+}
+
 console.log(fail ? `${fail} FAILED` : 'all passed');
 process.exitCode = fail ? 1 : 0;
 })().catch((e) => { console.log(`FAIL ${e.stack}`); process.exitCode = 1; });

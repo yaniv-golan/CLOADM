@@ -703,6 +703,18 @@ console.log('example passed');
 
 `tests/cli.test.js` runs this example and the script above on every test run, so they stay correct.
 
+### Which machine the developer API acts on
+
+A Session has one machine in use, except while the Claude chat is full screen: then the chat's own machine is on
+screen (`shownMachine`) and the person's machine, the BASIC session, runs beside it, a frame for each of the chat's
+(`personMachine`; the two are the same machine otherwise). The developer API always acts on the **person's** machine,
+never the chat machine: `serial` (its device, `send`, subscribers and traces), `disk` (`status` and traces),
+`watchWrites`, `profile` and `diagnostics()`, like the loads, disks and tapes. Their probes, taps and listeners are
+on the Session's hooks registry (`js/hooks.js`), which moves with the person's machine: a full-screen chat opening or
+closing leaves them where they are. The debugger (`debug`) is the exception: it belongs to the machine on screen. A
+`watchWrites` callback that returns `'stop'` on the BASIC session beside a full-screen chat stops that machine right
+after the write and pauses the Session as a debugger stop, as it would with the BASIC session on screen.
+
 ### A complete example that runs from outside the repository
 
 `docs/examples/headless-frame.mjs` is one runnable file that uses only the public modules (`js/emu.js`, and `cli/cloadm.js`
@@ -760,9 +772,8 @@ Any number of subscribers get the same bytes in the order they subscribed; the p
 the serial panel's own. A subscriber may call `send` from `tx` (an echo, a protocol's reply). One that throws is unsubscribed, the
 others still get their bytes, and the error is thrown after them, out of the `runFrames` (or `flush`) that delivered
 it. Subscriptions and traces belong to the Session: `switchMachine`, `openSnapshot` and a power cycle move them to the
-new machine (a hooks registry, `js/hooks.js`, of `session.serial`'s own), and no snapshot holds them (a new Session subscribes
-again). They are on the person's machine: with the Claude chat full screen, they stay on the BASIC session running
-beside it, not on the chat machine. Any number of traces can run at once, each with its own options.
+new machine (the Session's hooks registry, `js/hooks.js`), and no snapshot holds them (a new Session subscribes
+again). They are on the person's machine ([Which machine](#which-machine-the-developer-api-acts-on)). Any number of traces can run at once, each with its own options.
 
 **Why did it stall?** `trace` keeps the last `limit` events in a ring, oldest first (`dropped` counts the ones
 pushed out); `stop()` ends it. Every event is `{ at, frame, pc, kind, ... }`:

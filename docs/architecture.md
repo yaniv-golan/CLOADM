@@ -157,9 +157,10 @@ whole address space for its spin test, all on `session.hooks` and taken off when
 * The debugger's watchpoints are a client: it holds a read tap and a write tap over the whole address space while
   some watchpoint watches that kind of access, and none otherwise, so a debugger with no watchpoints leaves the bus
   as it is.
-* The Session's own probes and taps (`session.hooks`, `js/hooks.js`) follow the machine in use: `Session.install`
-  (called by `adopt`, for a machine switch or an opened snapshot, and by the chat's machine views) takes them off the
-  old machine and puts them on the new one in the order they were added. The move is all or nothing: if one cannot
+* The Session's own probes and taps (`session.hooks`, `js/hooks.js`) follow the person's machine: the machine in
+  use, or the BASIC session running beside a full-screen chat (never the chat machine). `Session.followPerson`
+  (called by `install`, itself called by `adopt` for a machine switch or an opened snapshot and by the chat's machine
+  views) takes them off the old machine and puts them on the new one in the order they were added. The move is all or nothing: if one cannot
   go on the new machine (its bus already shadowed), the ones added are taken off again, all stay on the old
   machine, and the error is thrown. The Session's load detector (the EXEC
   after CLOADM) is a probe on the machine it loads into; it goes when it decides, or when the typist drops the EXEC
