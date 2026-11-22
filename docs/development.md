@@ -122,6 +122,7 @@ node tests/asm.test.js       # assembler encodings + scripted LIZA conversation
 node tests/disasm.test.js    # disassembler: every 6809/6803 opcode against the data sheet, round-trip, data lengths
 node tests/debugger.test.js  # debugger core: breakpoints, watchpoints, stepping, trace, against a free run
 node tests/debug-session.test.js  # the debugger through the Session: lifetime, symbols, errors, snapshots
+node tests/debugger-catchup.test.js  # frames after a long Over, Out or Step: Run goes on at once, identical to a free run
 node tests/halt-held.test.js # CoCo 3 instruction held by HALT: CPU redirected while held; debugger steps, stops, counts
 node tests/halt-replay.test.js # CoCo 3 held instruction run again: exact reads (6309 TFM, all forms), malformed snapshot state
 node tests/coco3-buslog.test.js # CoCo 3 bus log: carried only with a HALT-capable device (logBus), hot-plug, snapshots, the guards

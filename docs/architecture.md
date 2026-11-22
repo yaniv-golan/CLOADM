@@ -85,7 +85,11 @@ debugger (`Debugger.runFrame`), so a running program stops there; the frames it 
 (`tests/debug-session.test.js`). When a breakpoint or watchpoint stops the machine in the middle of a frame, the
 frame stays open with the sound it had made so far, and that sound is played when the frame finishes after you
 resume; while the machine is stopped the speaker is silent, so a stop can be heard as a short gap or click
-(`tests/debug-session.test.js`). The machine's state and timing are unaffected.
+(`tests/debug-session.test.js`). The machine's state and timing are unaffected. A command that runs outside the
+frame loop (Step, Over, Out, Run to) closes each frame its instructions pass, through the machine's own `runFrame`
+with nothing left to run, at the point a free run would close it, and opens the next before an instruction runs; so
+after a long Over the open frame still holds the machine's tick, Run goes on in the next frame, and the frames and
+instructions are those of a free run (`tests/debugger-catchup.test.js`).
 
 **Time between instructions.** A family's `ioTime()` is "the tick at which the current instruction touches the
 bus"; between instructions there is no such access, and it answers `now()` (`Machine.ioTime`, and the CoCo 3's

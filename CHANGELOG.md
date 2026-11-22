@@ -236,6 +236,16 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Fixed
 
+- **Run after a long debugger Over or Out no longer leaves the machine frozen for seconds.** Over, Out, Run to and
+  Step run outside the frame loop, and their frames were not closed as machine time passed them: after an Over of a
+  million instructions the machine was some 170 frames past its open frame, and Run then closed one empty frame per
+  frame of real time (about 3 s) before the program ran again. The debugger now closes each frame its instructions
+  pass, through the machine's own frame path, where a free run would close it, so Run carries on in the next frame
+  and the instructions, frames, picture and sound are exactly those of a free run (`tests/debugger-catchup.test.js`,
+  on the Dragon 64, CoCo 3 and MC-10; the browser check's F5 case now asserts the CPU runs in the first frame after
+  Run). On the MC-10 the frame loop also ran a frame free while a breakpoint or watchpoint was set, so the machine did
+  not stop there; it now runs the frame through the debugger as on the other machines.
+
 - **An embedded CLOADM could open the Claude chat; the chat is no longer available in an embed.**
 - **Two server processes adding ROMs at once could lose index entries.** Every change to the ROM store's index now
   reads it again and writes it while holding a lock file (`index.lock`, broken after ten seconds if its holder died),
