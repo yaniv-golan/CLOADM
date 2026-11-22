@@ -33,7 +33,7 @@ const varsEnd = s6803.symbols.get('OUTBUF') + 200;
 const size = imageEnd - s6803.segments[0].addr;
 console.log(`liza6803: ${size} bytes of code, data and variables from $${s6803.segments[0].addr.toString(16)} ` +
   `to $${(varsEnd - 1).toString(16)}, exec $${s6803.exec.toString(16)}`);
-console.log(`liza (6809): ${Emu.toBinary(s6809).length} bytes as a DragonDOS file`);
+console.log(`liza (6809): ${Emu.toBinary(s6809, { format: 'dragondos' }).length} bytes as a DragonDOS file`);
 
 // the 6803 build must be the shared data file plus the MC-10 code, not a copy of the tables
 check('the 6803 build includes the shared keyword/reply data file', INCLUDE('liza-data.inc') !== null);
@@ -50,7 +50,7 @@ check('the tables appear once, in the data file', /^KEYTAB/m.test(dataInc) && /^
 // a mistake in the split. The title is read from the assembled bytes (FCB "LIZA - A ... THERAPIST",0), not
 // from the source, so it is what the machine would print.
 const title = (asm) => {
-  const a = asm.symbols.get('TITLE'), body = Emu.toBinary(asm);
+  const a = asm.symbols.get('TITLE'), body = Emu.toBinary(asm, { format: 'dragondos' });
   const start = 9 + a - asm.segments[0].addr;     // past the MLOAD header
   let s = '';
   for (let i = start; body[i]; i++) s += String.fromCharCode(body[i]);
@@ -59,7 +59,7 @@ const title = (asm) => {
 const TITLES = { mc10: 'LIZA - AN MC-10 THERAPIST', alice: 'LIZA - AN ALICE THERAPIST' };
 for (const id of ['mc10', 'alice']) check(`${id}: the title names the machine`, title(b6803[id]) === TITLES[id], JSON.stringify(title(b6803[id])));
 {
-  const a = Emu.toBinary(b6803.mc10), b = Emu.toBinary(b6803.alice);
+  const a = Emu.toBinary(b6803.mc10, { format: 'dragondos' }), b = Emu.toBinary(b6803.alice, { format: 'dragondos' });
   const diff = [];
   for (let i = 0; i < Math.max(a.length, b.length); i++) if (a[i] !== b[i]) diff.push(i);
   // "MC-10" vs "ALICE" inside "LIZA - AN ... THERAPIST",0: the MC-10 build is byte-identical to the pre-split
@@ -115,7 +115,7 @@ function converse(profileId, load) {
   return { m, rows, seen: rows.map(flat) };
 }
 const ref = converse('dragon64', (m) => {
-  const d = Emu.formats.identify('liza.bin', Emu.toBinary(s6809));
+  const d = Emu.formats.identify('liza.bin', Emu.toBinary(s6809, { format: 'dragondos' }));
   m.injectAndRun(d.segments, d.exec);
 });
 check('6809 reference: the intro is on screen', /I AM LIZA/.test(ref.seen[0]), ref.seen[0].slice(0, 40));
@@ -202,7 +202,7 @@ function keySession(id, load, title) {
   check(`${id}: ... and stops at BYE's DONE loop`, m.cpu.pc === done, m.cpu.pc.toString(16));
   return out;
 }
-const refLoad = (m) => { const d = Emu.formats.identify('liza.bin', Emu.toBinary(s6809)); m.injectAndRun(d.segments, d.exec); };
+const refLoad = (m) => { const d = Emu.formats.identify('liza.bin', Emu.toBinary(s6809, { format: 'dragondos' })); m.injectAndRun(d.segments, d.exec); };
 refLoad.done = s6809.symbols.get('DONE');
 const refKeys = keySession('dragon64', refLoad, 'LIZA - A DRAGON 64 THERAPIST');
 for (const id of ['mc10', 'alice']) {
@@ -228,7 +228,7 @@ const SCROLL_LINES = ['I need a holiday', 'I feel sad', 'I want a friend', 'My m
 const longLine = 'I feel ' + 'very '.repeat(15) + 'tired';   // well over one 60-character input line
 for (const id of ['mc10', 'alice']) {
   // scrolling: every turn's reply appears, and the screen holds the last 16 rows of the conversation
-  const refM = longSession('dragon64', (m) => { const d = Emu.formats.identify('liza.bin', Emu.toBinary(s6809)); m.injectAndRun(d.segments, d.exec); });
+  const refM = longSession('dragon64', (m) => { const d = Emu.formats.identify('liza.bin', Emu.toBinary(s6809, { format: 'dragondos' })); m.injectAndRun(d.segments, d.exec); });
   const ourM = longSession(id, (m) => m.injectAndRun(b6803[id].segments, b6803[id].exec));
   const refScreens = [], ourScreens = [];
   for (const line of SCROLL_LINES) { refScreens.push(say(refM, line)); ourScreens.push(say(ourM, line)); }

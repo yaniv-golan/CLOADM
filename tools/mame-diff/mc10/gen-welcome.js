@@ -35,7 +35,7 @@ function main() {
   const asm = Emu.assemble(fs.readFileSync(path.join(ROOT, 'examples/welcome6803.asm'), 'utf8'), '6803',
     { include, defines: Object.assign({ HALTCODE: 1, SIX09: 0 }, flags) });
   if (!asm.ok) { console.error(asm.errors); process.exitCode = 1; return; }
-  const image = Emu.toBinary(asm);
+  const image = Emu.toBinary(asm, { format: 'dragondos' });
   if (image[0] !== 0x55) { console.error('the welcome6803 comparison build is not one contiguous block'); process.exitCode = 1; return; }
   const body = image.subarray(9);      // the program bytes, contiguous from LOAD
   if (LOAD + body.length > 0x10000) { console.error('the program runs past the end of memory'); process.exitCode = 1; return; }

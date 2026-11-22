@@ -5,6 +5,8 @@
  * loaded too (js/media/includes.js), so an included file may include another.
  */
 import { assemble, toBinary } from '../asm/assembler.js';
+import { binaryFormat, binaryFormatRefusal } from '../media/detect.js';
+import { WriteError } from '../media/formats.js';
 import { loadIncludes, describeError } from '../media/includes.js';
 import { hex } from '../util.js';
 import { exampleReader } from '../host/example-reader.js';
@@ -86,11 +88,29 @@ export function setupAssemblerPanel(page) {
     page.status(session.runAssembled(res));
     page.focus();
   };
+  // Save writes the file the open machine loads: DragonDOS on a Dragon, DECB on a CoCo. The MC-10 and Alice load .c10 tapes and
+  // have no such file, so Save is off there, and the note says why (the same words as the command line's --assemble)
+  const syncSave = () => {
+    const refusal = session.machine ? binaryFormatRefusal(session.machine.profile) : null;   // (no machine yet while the page starts)
+    $('btnAsmSave').disabled = !!refusal;
+    $('asmSaveNote').textContent = refusal || '';
+    $('asmSaveNote').hidden = !refusal;
+  };
+  syncSave();
+  session.on((ev) => { if (ev === 'machine') syncSave(); });
   $('btnAsmSave').onclick = async () => {
+    const format = binaryFormat(session.machine.profile);
+    if (!format) return;
     const res = lastAsm || await assembleSource();
     if (!res) return;
     const name = ($('asmName').textContent || 'program.asm').replace(/\.[^.]*$/, '') + '.bin';
-    page.download(name, toBinary(res));
+    let bytes;
+    try { bytes = toBinary(res, { format }); } catch (e) {
+      if (!(e instanceof WriteError)) throw e;
+      message(`Cannot save ${name}: ${e.message}`, 'error');
+      return;
+    }
+    page.download(name, bytes);
     page.toast(`Saved ${name}`);
   };
 }

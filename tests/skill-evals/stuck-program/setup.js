@@ -5,4 +5,4 @@ const fs = require('fs'), path = require('path');
 const Emu = require('../../load')();
 const dir = process.argv[2] || '.';
 const src = fs.readFileSync(path.join(__dirname, 'files', 'stuck.asm'), 'utf8');
-fs.writeFileSync(path.join(dir, 'stuck.bin'), Emu.toBinary(Emu.assemble(src, '6809')));
+fs.writeFileSync(path.join(dir, 'stuck.bin'), Emu.toBinary(Emu.assemble(src, '6809'), { format: 'dragondos' }));

@@ -51,7 +51,8 @@ Then, in any order:
 |---|---|
 | `--program welcome\|liza\|demo\|2048\|minesweeper` | a bundled program (no ROMs needed; the demo and the games on a 6809-family machine) |
 | `--load FILE` | a binary, `.cas`, `.wav`, cartridge or BASIC listing, loaded and run as dropping it on the page; a disk image goes in drive 0 |
-| `--asm FILE` | assemble a source file with the bundled assembler, for the machine's CPU, and run it (`INCLUDE`s are read from its folder) |
+| `--asm FILE` | assemble a source file with the bundled assembler, for the machine's CPU, and **run** it (`INCLUDE`s are read from its folder); to write a file instead, see [Assemble to a file](#assemble-to-a-file) |
+| `--symbols FILE` | read a symbol map (what `--assemble --map` writes, or an LWLINK or CMOC map) into the labels `--disasm` shows and `--wait-for pc:LABEL` reaches; it replaces the labels `--asm` gave |
 | `--cart FILE` | plug in a cartridge ROM image |
 | `--tape FILE` | put a `.cas` or `.wav` in the deck without loading it (then type `CLOAD`) |
 | `--disk [N=]FILE` | mount a VDK, JVC/DSK or DMK image in drive N (default 0); needs your disk ROM |
@@ -59,7 +60,7 @@ Then, in any order:
 | `--type TEXT` | type at the keyboard, then run until the machine has taken the keys. `\n` or `{ENTER}` is ENTER; also `{BREAK}`, `{CLEAR}`, `{UP}`, `{DOWN}`, `{LEFT}`, `{RIGHT}`, `{SPACE}`; `\\` is a backslash |
 | `--hold KEYS[:N]` | hold keys down in the keyboard matrix for N frames (default 1), then let go, for programs that read the matrix themselves (games): `RIGHT:10`, `LEFT+SPACE:3`, `{UP}`, `Z:5`. Names are the matrix's: letters, digits, `UP` `DOWN` `LEFT` `RIGHT` `SPACE` `ENTER` `CLEAR` `BREAK` `SHIFT` (and the CoCo 3's `ALT` `CTRL` `F1` `F2`) |
 | `--frames N`, `--seconds S` | run N frames, or S seconds of emulated time |
-| `--wait-for COND` | run until `text:REGEX` is on the screen, `mem:ADDR=VALUE` holds, or the PC reaches `pc:ADDR` (it stops at that instruction); exit 1 at the timeout |
+| `--wait-for COND` | run until `text:REGEX` is on the screen, `mem:ADDR=VALUE` holds, or the PC reaches `pc:ADDR` or `pc:LABEL` (it stops at that instruction; a label comes from `--asm` or `--symbols`, in any letter case); exit 1 at the timeout |
 | `--timeout S` | emulated seconds each later `--wait-for` and `--type` may take (default 10) |
 | `--expect-screen REGEX`, `--expect-mem ADDR=VALUE` | must hold now, or exit 1 |
 | `--expect-screenshot FILE` | the frame must match a reference PNG pixel for pixel, or exit 1 (see [Pictures and sound](#pictures-and-sound)) |
@@ -198,6 +199,42 @@ screen
 ```sh
 node cli/cloadm.js --script test.cloadm --json
 ```
+
+### Assemble to a file
+
+`--asm` assembles **and runs** a program on a machine. `--assemble` only **writes a file** and builds no machine, so it needs no
+ROMs, takes no steps and runs in a fraction of a second, for a build script that hands the binary to something else:
+
+```sh
+node cli/cloadm.js --assemble game.asm --cpu 6809 --format dragondos --out game.bin --map game.map
+node cli/cloadm.js --assemble game.asm --machine coco --out game.bin     # --format decb, and the CPU, come from the model
+node cli/cloadm.js --load game.bin --symbols game.map --wait-for pc:LOOP --expect-mem '$3100=65'   # a second process runs it
+```
+
+| Option | |
+|---|---|
+| `--assemble FILE` | the source; `INCLUDE`s are read from its folder |
+| `--out FILE` | where the binary goes (required) |
+| `--cpu 6809\|6309\|6803\|7000` | the instruction set. With `--machine` it is the model's default (`--cpu` must be one the model has) |
+| `--machine ID` | the model, to take the CPU and the format from |
+| `--format dragondos\|decb\|raw` | **DragonDOS**: `$55 type load length exec $AA` and the data, one contiguous range (a gap between two pieces is zero-filled up to 256 bytes; a bigger one is `bad-media` with the hint `use --format decb`). **decb**: the segmented Color BASIC `LOADM` file, `$00 length address data` per piece and `$FF $00 $00 exec`. **raw**: the bytes of the one contiguous range with no header (the same gap rule). Without `--format` it follows `--machine`: the Dragons get `dragondos`, the CoCos `decb`; the MC-10 and Alice load `.c10` tapes, not binary files, so `--machine mc10` or `alice` is refused (exit 2: "The MC-10 loads .c10 tapes, not binary files: there is no file format to save a program in for it.") whatever `--format` says; for a 6803 program as bytes use `--cpu 6803 --format raw` with no machine. Without `--machine`, `--format` and `--cpu` are required |
+| `--map FILE` | one `NAME $ADDR` line per symbol, sorted by address |
+| `--json` | `{ ok, exit, assemble: { source, cpu, machine, format, out, size, load, exec, segments, map } }`, or `error` as for any run |
+
+The errors are the ones every run has: an unreadable source is `cannot-read`, an assembly error or a gap is `bad-media` (exit 3,
+`errors` listing the lines), a file that cannot be written is `cannot-write`, a wrong or missing option is a usage error
+(exit 2). The Dragon 200-E is a Dragon here (it loads DragonDOS files), although the page's media matching counts it with the CoCos.
+
+`--symbols FILE` is the other half: it reads a map into the session's labels (`--asm` gives the program's own), so `--disasm` puts the
+label before the instruction (`label` and `targetLabel` in `--json`) and `--wait-for pc:LABEL` stops at it. It reads the `NAME $ADDR` lines `--map` writes, plain
+`name address` lines with a hexadecimal address, and an LWLINK `-m` map (`Symbol:` lines); a line it cannot read is `bad-media`
+and names the line. The LWLINK and CMOC forms are the formats as documented, tested on hand-written samples, not on a map from the
+tool itself.
+
+In Node, `toBinary(result, { format: 'dragondos' | 'decb' })` makes the same bytes (the format is required: there is no default,
+because which one a program wants depends on the machine that loads it); `writeDragonDos(segments, exec, { type, maxGap })` (`maxGap` 256 by default, the same limit as the command line) and
+`writeDecb(segments, exec)` in `js/media/formats.js` are the writers behind it, the round-trip partners of `parseDragonDos` and
+`parseDecb`; `formatSymbols`, `parseSymbols` and `lookupSymbol` are in `js/asm/symbols.js`.
 
 ### Output and exit codes
 
@@ -574,6 +611,7 @@ and back when the snapshot is taken). The example does not exercise the machine-
 | `switchMachine(id, config, { menu })`, `machine`, `profiles` | the models and their options |
 | `addRoms(files)`, `machineRoms()`, `runWithoutRoms()` | your ROMs, identified per model |
 | `load(name, bytes, { remember: false })`, `insertTape`, `await importDisk(name, bytes, drive)`, `startLiza`, `startWelcome`, `runAssembled(assemble(src, cpu))` | media and programs |
+| `toBinary(result, { format })`, `writeDragonDos(segments, exec, { type, maxGap })`, `writeDecb(segments, exec)`, `parseSymbols(text)`, `formatSymbols(symbols)`, `setLabels(map)` | a program as a file (`format`: `'dragondos'` or `'decb'`, required) and its symbols |
 | `runFrames(n)` | emulated frames, no clock; `advance(ms)` is the page's real-time pacing |
 | `typeText(text)`, `untypable(text)` | typing; for BREAK, CLEAR and the arrows, `machine.typist.press(key)` with ROMs (the keyboard matrix), and `machine.stubKeys.push(code)` on the built-in firmware (its POLCAT codes: BREAK 3, CLEAR 12, LEFT 8, RIGHT 9, DOWN 10, UP 94) |
 | `screenTextTool(session)`, `screenText()` | the screen as text (the first is the full reader; the second the raw 32x16 VDG page) |

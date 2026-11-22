@@ -79,7 +79,7 @@ const prompt = (sess = s, frames = 60, row = 14) => { sess.runFrames(frames); re
   const s3 = new Emu.Session({ store: Emu.memoryStore(), media: new MemoryMediaStore() });
   s3.switchMachine('dragon64');
   const gen = s3.welcomeGenNow();
-  s3.load('mine.bin', Emu.toBinary(Emu.assemble(' ORG $3000\nL BRA L\n END', '6809')));
+  s3.load('mine.bin', Emu.toBinary(Emu.assemble(' ORG $3000\nL BRA L\n END', '6809'), { format: 'dragondos' }));
   const r = s3.startWelcome(welcome, { greeting: 'first', gen });
   check('welcome: a start overtaken by a load is still refused', r === null && !s3.welcomeRunning, String(r));
 }
