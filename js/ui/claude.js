@@ -32,6 +32,9 @@ const ACTING = new Set(ACTING_TOOL_NAMES);
 // Claude's INCLUDE lines read from the same-origin examples/ folder only (js/host/example-reader.js)
 const include = exampleReader();
 
+// the line on the chat screen once a key is saved: plain ASCII, the chat font has no check mark, and one row (42 columns)
+export const KEY_SAVED_NOTE = 'Key saved. Type below and press ENTER.';
+
 // the API key states and their texts ("API key states")
 export const KEY_TEXT = Object.freeze({
   refused: '[The API key was refused: check it and try again.]',
@@ -232,6 +235,8 @@ export function setupClaude(page) {
       if (panel) panel.close({ keep: true });
       show(true);
       page.status('Chat with Claude: type on the screen and press ENTER.');
+      // no key: say so on the screen itself (the key card is beside it, or above it on a phone, below the fold)
+      if (chat !== had && !session.hasClaudeKey) session.chatNote(`No API key yet: add one ${whereKey()}.`);
       page.focus();
       // without a key the key card comes first where the page stacks (a phone or a tablet), so the page starts at the
       // top rather than at the screen
@@ -310,7 +315,9 @@ export function setupClaude(page) {
     try { saveKey(input.value); input.value = ''; $('claudeKeyMsg').textContent = ''; editingKey = false; }
     catch (e) { $('claudeKeyMsg').textContent = e.message; render(); return; }
     render();
-    // the key is in: typing goes to the chat at once (the focus was left on the page)
+    // the key is in: say so on the screen (the key card is a short line, below the fold on a phone), and typing goes
+    // to the chat at once (the focus was left on the page)
+    if (session.claudeView === 'full') session.chatNote(KEY_SAVED_NOTE);
     if (session.claudeView === 'full') page.focus();
   };
   $('claudeKeyInput').onkeydown = (e) => { if (e.key === 'Enter') $('btnClaudeKeySave').click(); };
