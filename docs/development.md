@@ -153,7 +153,6 @@ node tests/zip.test.js       # ZIP reader and inflate (hand-built archives; zlib
 node tests/rompack.test.js   # ROM pack round trip; ROMs never in settings export or share links
 node tests/detect.test.js    # media detection; disk fixtures made with MAME's imgtool (tests/fixtures/disks)
 node tests/disk.test.js      # disk images: VDK, JVC and DMK to and from flux, hand-derived MFM cells and CRCs, round trips
-node tests/lazy-tracks.test.js   # TEMPORARY (this branch): tracks built on first use give the flux, bits, sectors and saved bytes v0.1.8's eager loader gave (tests/lazy-tracks/disk-eager.mjs, frozen), on four drives with writes and snapshots
 node tests/fdc.test.js       # floppy controller cartridges register by register: commit delays, step rates, index, CRCs, NMI/HALT
 node tests/nmi-arm.test.js   # when a CPU starts taking NMI: on the 6809 LDS, LEAS and TFR r,S arm it and EXG does not; on the 6309 only LDS and LEAS do; an earlier edge is lost
 node tests/disks.test.js     # disks through the Session: stored, mounted and written back by range on the media store, write-protect, download, errors

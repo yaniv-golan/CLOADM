@@ -324,6 +324,32 @@ const notOs9 = (bytes) => { try { return !geo(bytes).os9; } catch (e) { return t
   throws('saving a track without its sectors fails (MAME would crash)', () => Emu.saveDisk(empty, 'vdk'), /sector 1 is missing/);
 }
 
+// ---------------- tracks built on first use (FloppyImage.track): what the drive relies on
+{
+  // a track built after the caller changes the image's bytes is the track as loaded (the drive's flush() commits in
+  // place): compared with a load of an untouched copy, track 5 side 1 never having been read before the change
+  const bytes = images.vdk(10, 2), ref = Emu.loadDisk(bytes.slice(), 'vdk', DRIVE);
+  const img = Emu.loadDisk(bytes, 'vdk', DRIVE);
+  bytes.fill(0x55, 12);
+  const k = 5 * DRIVE.heads + 1;
+  check('lazy track: built after its source bytes change, it is the track as loaded', eq(img.track(k), ref.track(k)));
+  check('lazy track: and its sectors are the image\'s, not the changed bytes', (() => { const sec = Emu.readTrackSectors(img, 5, 1); return sec.length === 18 && sec.every((s) => s.data[0] === images.sectorByte(5, 1, s.sector, 0)); })());
+  // a layout that cannot fit fails at load, not later at the first read: 36 sectors of 256 bytes per track
+  const tooLong = new Uint8Array(3 + 2 * 36 * 256); tooLong.set([36, 1, 1]);
+  let thrown = null, image = null;
+  try { image = Emu.loadDisk(tooLong, 'jvc', DRIVE); } catch (e) { thrown = e.message; }
+  check('lazy track: a track layout too long throws at loadDisk, before any track is read', image === null && /track layout too long/.test(thrown || ''), String(thrown));
+  // the drive writes into the array track(k) returns: on a never-built track, the write is there on the next read
+  const w = Emu.loadDisk(images.vdk(10, 2), 'vdk', DRIVE);
+  const t = w.track(7 * DRIVE.heads);
+  t[0] = Emu.mg(Emu.MG_N, 0);
+  check('lazy track: a write into a newly built track is there on the next track(k) and buffer()', w.track(7 * DRIVE.heads)[0] === Emu.mg(Emu.MG_N, 0) && w.buffer(7, 0) === t);
+  // setTrack on a track never built replaces its builder (loadState restores written tracks this way)
+  const x = [Emu.mg(Emu.MG_N, 0), Emu.mg(Emu.MG_E, 199999999)];
+  w.setTrack(3 * DRIVE.heads + 1, x);
+  check('lazy track: setTrack on an unbuilt track, then track(k) is that flux', w.track(3 * DRIVE.heads + 1) === x);
+}
+
 // ---------------- blank disks (blankDisk): sizes and headers derived here from the formats, then round trips
 {
   const vdk = Emu.blankDisk('vdk', 40, 2);
