@@ -26,6 +26,7 @@ import { cpuFamily } from './cpu/cpus.js';
 import { SpeechSoundPak, SSC_ROM_PROFILE } from './machines/ssc.js';
 import { Debugger, codeDisassembly } from './debugger.js';
 import { HostHooks } from './hooks.js';
+import { WriteWatch } from './writewatch.js';
 import { disassembleBlock } from './asm/disassembler.js';
 import { formats } from './media/formats.js';
 import { Tape } from './media/tape.js';
@@ -375,8 +376,9 @@ export class Session {
     this.diskClaims = new Map();   // stored name -> how many creations are making it (claimDiskName: a rename may not take one)
     this.debugger = null;           // created on first use by `debug` (js/debugger.js)
     // the Session's own probes and bus taps (js/hooks.js), put on whichever machine is in use (install); host state,
-    // never in a snapshot. Internal: no public API yet.
+    // never in a snapshot. The memory-write observers (watchWrites, js/writewatch.js) are built on them.
     this.hooks = new HostHooks();
+    this.writeWatch = new WriteWatch(this);
     this.labels = null;             // symbols of the program in use (the assembler's Map name -> address)
     this.displayCache = null;       // Session.display, once read from the store
     this.unsavedRecording = null;   // a tape recording kept when its machine went (keepRecording), until the page takes it
@@ -567,6 +569,7 @@ export class Session {
   // without a carry-on line -- the page then starts nothing of its own (it used to, and which of the two starts
   // won was an accident).
   switchMachine(id, config, { menu = true, offer = null } = {}) {
+    this.writeWatch.guard('switchMachine');
     if (!Object.hasOwn(profiles, id)) id = 'dragon64';
     let m;
     try {
@@ -604,6 +607,7 @@ export class Session {
   // closes and its debugger goes with it; a debugger m already has (a restored snapshot's breakpoints) becomes the
   // Session's, with the Session's symbols.
   adopt(m) {
+    this.writeWatch.guard('A machine change');
     if (this.machine) { this.flushDisks(); this.keepRecording(); }   // its disks and a recording still running are kept
     this.endWelcome();
     this.dropChat();                      // a chat belongs to the machine it was opened on
@@ -626,6 +630,7 @@ export class Session {
     this.keys.clear();
     if (this.debugger && this.debugger.machine !== m) { this.debugger.detach(); this.debugger = null; }
     this.hooks.attach(m);                 // the Session's probes and bus taps move to m (adopt: a switch, a snapshot)
+    this.writeWatch.reset();              // (writes the old machine made are not delivered)
     this.machine = m;
     this.applyDisplay();
     this.acc = 0;
@@ -1329,6 +1334,7 @@ export class Session {
   }
   // the moment as a file -> { name, bytes }
   async snapshotFile(now = new Date()) {
+    this.writeWatch.guard('snapshotFile');
     const m = this.machine;
     const bytes = await encodeSnapshot(m.snapshot(), { name: m.profile.name, taken: now.toISOString() });
     return { name: `${m.profile.name.replace(/[^A-Za-z0-9]+/g, '')}-${stamp(now)}${SNAPSHOT_EXT}`, bytes };
@@ -1385,6 +1391,7 @@ export class Session {
   // reported as a boot failure 5 s after it comes back. A later Reset or power-on clears the flag, so the
   // watchdog is armed again for it.
   openSnapshot(snap) {
+    this.writeWatch.guard('openSnapshot');
     const roms = this.snapshotRoms(snap), p = profiles[snap.machine];
     // a shared one: its ROM code rebuilt from this browser's own images (snapshotRoms checked they are all here)
     snap = restoreRoms(snap, (crc) => this.imageByCrc(crc, roms));
@@ -2713,6 +2720,15 @@ export class Session {
     return [...bad];
   }
 
+  // ---------------- the memory-write observer ----------------
+  // Observe the CPU's writes to start..end (inclusive): fn({ address, value, old, pc, at, frame }) after the writing
+  // instruction, before the next one (js/writewatch.js) -> { remove() }. The callback may press keys
+  // (machine.setKey), move the joystick (machine.joy) or mouse (machine.mouse), send serial bytes (serialSend) and
+  // poke memory (pokeBytes): each takes effect from the next instruction. Returning 'stop' stops the run there, as a
+  // debugger stop (kind 'write'; debug.resume() or debug.run() goes on). Pokes, the debugger's writes and loads are
+  // not the CPU's bus writes and are not reported. Host state: not in snapshots, kept across machine switches.
+  watchWrites(range, fn) { return this.writeWatch.add(range, fn); }
+
   // ---------------- the Claude chat's machine tools ----------------
   // a side-effect-free byte read for the peek tool: RAM and ROM as the debugger's disassembly sees them
   readByte(addr, m = this.machine) {
@@ -3573,7 +3589,8 @@ export class Session {
   // 'debug'), or the machine waiting for the store (m.stall: the same frame finishes on a later call).
   oneFrame(m, d) {
     this.keys.step(m);
-    if (!(d ? d.runFrame() !== false : m.runFrame())) {
+    const ww = this.writeWatch.active ? this.writeWatch : null;   // (an instruction at a time: a callback may stop it)
+    if (!(d ? d.runFrame() !== false : m.runFrame(ww && ((end) => ww.runTo(m, end))))) {
       this.acc = 0;
       if (!m.stall) this.emit('debug');
       return false;

@@ -205,6 +205,7 @@ const FILES = [
   'js/video/canvas.js',
   'js/video/frame.js',
   'js/video/layout.js',
+  'js/writewatch.js',
   'manifest.webmanifest',
   'play/index.html',
   'roms/index.html'

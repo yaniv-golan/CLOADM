@@ -3,7 +3,9 @@
  * observer and a profiler). Host state, never machine state: nothing here goes in a snapshot.
  *
  *   m.busTaps.addReadTap({ start, end }, fn)    fn(address, value) after each read of start..end (both inclusive)
- *   m.busTaps.addWriteTap({ start, end }, fn)   fn(address, value) after each write there (value: the byte, 0-255)
+ *   m.busTaps.addWriteTap({ start, end }, fn)   fn(address, value) after each write there (value: the byte, 0-255);
+ *                                               with { old: true }, fn(address, value, old): old is the byte the
+ *                                               address read as just before the write (m.peek, no bus cycle)
  *
  * Each returns remove(), which takes that tap off (once; a second call does nothing). Taps on one kind of access
  * run in registration order.
@@ -42,11 +44,11 @@ export class BusTaps {
   rawRead(a) { return Object.getPrototypeOf(this.m).read.call(this.m, a); }
   rawWrite(a, v) { Object.getPrototypeOf(this.m).write.call(this.m, a, v); }
 
-  _add(kind, range, fn, { replays = false } = {}) {
+  _add(kind, range, fn, { replays = false, old = false } = {}) {
     const { start, end } = range || {};
     if (!isAddr(start) || !isAddr(end) || end < start) throw new RangeError(`bus tap: a range is { start, end }, addresses from 0 to $FFFF with start <= end (got ${start}, ${end})`);
     if (typeof fn !== 'function') throw new TypeError('bus tap: fn(address, value) must be a function');
-    const tap = { start, end, fn, replays: !!replays };
+    const tap = { start, end, fn, replays: !!replays, old: kind === 'writes' && !!old };
     this[kind] = [...this[kind], tap];       // a new list: a tap taken off while the taps run doesn't skip another
     this._shadow(kind);
     return () => {
@@ -76,11 +78,18 @@ export class BusTaps {
     } else {
       m.write = this.shadows.write = (a, v) => {
         const replayed = m.replaying();
-        base.call(m, a, v);
-        const taps = this.writes, b = v & 0xFF;
+        const taps = this.writes;
+        // the byte before the write, for a tap that asked for it (only for an address one of them covers)
+        let old = -1;
         for (let i = 0; i < taps.length; i++) {
           const t = taps[i];
-          if (a >= t.start && a <= t.end && (!replayed || t.replays)) t.fn(a, b);
+          if (t.old && a >= t.start && a <= t.end && (!replayed || t.replays)) { old = m.peek(a & 0xFFFF); break; }
+        }
+        base.call(m, a, v);
+        const b = v & 0xFF;
+        for (let i = 0; i < taps.length; i++) {
+          const t = taps[i];
+          if (a >= t.start && a <= t.end && (!replayed || t.replays)) t.fn(a, b, old);
         }
       };
     }

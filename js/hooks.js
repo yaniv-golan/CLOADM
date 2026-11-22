@@ -6,10 +6,11 @@
  *
  *   hooks.addProbe(fn)                    Machine.addProbe on the machine in use, and on every later one
  *   hooks.addReadTap(range, fn)           m.busTaps.addReadTap, likewise
- *   hooks.addWriteTap(range, fn)          m.busTaps.addWriteTap, likewise
+ *   hooks.addWriteTap(range, fn, opts)    m.busTaps.addWriteTap, likewise (opts: { old })
+ *   hooks.addRunEnd(fn)                   Machine.addRunEnd, likewise
  *
  * Each returns remove(), which takes it off the machine it is on and out of the Session's list (once).
- * Internal for now: the developer features (a memory-write observer, a profiler) build on it; no public API yet.
+ * Internal: the developer features build on it (the memory-write observer, Session.watchWrites: js/writewatch.js).
  */
 
 export class HostHooks {
@@ -19,7 +20,8 @@ export class HostHooks {
   }
   addProbe(fn) { return this._add((m) => m.addProbe(fn)); }
   addReadTap(range, fn) { return this._add((m) => m.busTaps.addReadTap(range, fn)); }
-  addWriteTap(range, fn) { return this._add((m) => m.busTaps.addWriteTap(range, fn)); }
+  addWriteTap(range, fn, opts) { return this._add((m) => m.busTaps.addWriteTap(range, fn, opts)); }
+  addRunEnd(fn) { return this._add((m) => m.addRunEnd(fn)); }
   _add(add) {
     const h = { add, remove: null };
     if (this.machine) h.remove = add(this.machine);   // (a bad range or fn throws here, before it is kept)

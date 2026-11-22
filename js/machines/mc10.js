@@ -239,8 +239,8 @@ class Mc10Machine extends Machine {
     if (!deck.motor && ++this.casReads >= 8 && !deck.tape.atEnd()) deck.setMotor(true);
     return deck.level();
   }
-  runFrame() {
-    if (!super.runFrame()) return false;
+  runFrame(runTo = null) {
+    if (!super.runFrame(runTo)) return false;
     const deck = this.deck;
     if (deck.motor && (!deck.tape || deck.tape.atEnd() || this.now() - this.lastCasRead > this.tickHz / 4)) {
       deck.setMotor(false); this.casReads = 0;

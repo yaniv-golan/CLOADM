@@ -122,10 +122,10 @@ call's value is final; a UI POKE or a debugger write made while the machine is p
 and the byte reads as it was until the machine next runs. A read is not deferred: it is serviced in the window, at the held access's time, with its device side effects
 there - a read that releases HALT is what a halted loop waits for (`tests/held-writeio.test.js`).
 
-**Probes and bus taps.** The host observes a running machine through two internal hooks, shared by the
-debugger, the Session and the developer features built on them (a memory-write observer, a profiler). Both are host
-state: never in a snapshot, untouched by a reset, and free when nothing is registered. There is no public API for
-them yet.
+**Probes and bus taps.** The host observes a running machine through internal hooks, shared by the
+debugger, the Session and the developer features built on them (the memory-write observer, `Session.watchWrites`).
+All are host state: never in a snapshot, untouched by a reset, and free when nothing is registered. The one public API
+on them is `watchWrites` (below).
 
 * `machine.addProbe(fn)` → `remove()`. `fn(pc)` runs before each CPU step, in registration order, from the family's
   `runCycles`. `pc` is the address of the instruction about to run, unless an interrupt is taken at that step: then
@@ -142,6 +142,11 @@ them yet.
   own method again, whatever order the taps came off in. Nothing else may shadow those methods: a second observer is
   a tap. `busTaps.rawRead`/`rawWrite` are the family's methods below every tap: the debugger's own memory writes go
   there, so they fire no watchpoint and no tap.
+* `machine.addRunEnd(fn)` → `remove()`. `fn()` runs when a run of instructions ends: in `runFrame` once the frame's
+  instructions are run, before the frame closes (whether it ran free or through a `runTo`), and in the debugger after each
+  instruction it steps. Like the probes, the hooks share one slot (`machine.runEndWatch`), `null` with none.
+* A bus write tap added with `{ old: true }` also gets the byte the address read as just before the write
+  (`machine.peek`, no bus cycle), read only for an address such a tap covers.
 * Each access is reported once. On the CoCo 3, an instruction suspended by the disk controller's HALT runs again from
   its start and replays the accesses it made before the held one (`Coco3Machine.replayRead`/`replayWrite`); those
   were reported when they were made, so taps skip the replay (`Machine.replaying()`). The debugger's taps are the one
@@ -157,6 +162,17 @@ them yet.
   machine, and the error is thrown. The Session's load detector (the EXEC
   after CLOADM) is a probe on the machine it loads into; it goes when it decides, or when the typist drops the EXEC
   it waits to type (`Typist.typeWhen`'s `cancel`: a reset, a later load, a restore point).
+
+* **The memory-write observer** (`Session.watchWrites`, `js/writewatch.js`) is a client of the Session's hooks: a write
+  tap per observer queues `{ address, value, old, pc, at, frame }` during the bus cycle (no callback runs there), and
+  the queue is delivered after the writing instruction completes and before the next one starts: by the probe of the
+  next instruction, by the run-end hook (a write in a frame's last instruction arrives before the frame closes), and,
+  while an observer is registered, by the Session's own run of the frame (`WriteWatch.runTo`, an instruction at a time
+  through `runCycles(end, 1)`), so a callback that returns `'stop'` stops the run there through the debugger's stop path
+  (`kind: 'write'`). Nothing is delivered while a CoCo 3 instruction is held (`machine.cpuHeld`); its writes are reported
+  once, by the taps' `replaying()` rule. `pc` is the probe's (for the bytes an interrupt stacks, the instruction it came
+  before). A callback may set keys, the joystick and mouse, send serial bytes and poke memory; `switchMachine`,
+  `openSnapshot` and `snapshotFile` refuse with a `SessionError` while one runs. `tests/writewatch.test.js` covers it.
 
 `tests/probes.test.js` covers the probes on each CPU family, the taps removed in every order, a watchpoint beside a
 tap, the CoCo 3's held instruction (one tap report and one probe call per access and instruction), and the
