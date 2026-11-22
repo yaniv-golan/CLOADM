@@ -112,6 +112,7 @@ class Machine {
     this.timelineStarted = false;
 
     this.cartPort = null;     // device in the cartridge port (families with a port)
+    this.diskTraces = [];     // (kind, data, at, controller) => void: the disk controller's observers (addDiskTrace); not state
     // the printer: the bytes it has received (a Dragon's parallel port; a serial printer on the bit-banger
     // output of the other machines, through this.bitBanger)
     this.printed = [];
@@ -457,6 +458,7 @@ class Machine {
     if (this.cartPort) this.cartPort.detach();
     this.cartPort = dev;
     dev.attach(this);
+    this.bindDiskTrace();
     this.cartridgeChanged();
     this.devicesAttached();
   }
@@ -469,6 +471,25 @@ class Machine {
     this.devicesAttached();
   }
   cartridgeChanged() { /* family hook: remap the cartridge ROM space */ }
+  // hear the disk controller (js/machines/fdc.js setDiskTrace): the machine's own, the one in the cartridge port or
+  // in a Multi-Pak's slot, and one plugged in later. Any number, in the order added -> remove() (once). With none,
+  // the controller has no hook at all.
+  addDiskTrace(fn) {
+    if (typeof fn !== 'function') throw new TypeError('addDiskTrace: a trace is a function (kind, data, at, controller)');
+    const entry = { fn };
+    this.diskTraces = [...this.diskTraces, entry];
+    this.bindDiskTrace();
+    return () => {
+      if (!this.diskTraces.includes(entry)) return;
+      this.diskTraces = this.diskTraces.filter((e) => e !== entry);
+      this.bindDiskTrace();
+    };
+  }
+  bindDiskTrace() {
+    const list = this.diskTraces, port = this.cartPort;
+    const fn = !list.length ? null : list.length === 1 ? list[0].fn : (kind, data, at, fdc) => { for (const e of list) e.fn(kind, data, at, fdc); };
+    for (const d of [this.fdc, port, ...(port && port.slots ? port.slots : [])]) if (d && typeof d.setDiskTrace === 'function') d.setDiskTrace(fn);
+  }
   // called whenever a device has been attached or detached (a cartridge in or out, a machine restored from a
   // snapshot, a Multi-Pak's slot changed): family hook for what the attached devices decide, such as the CoCo 3's
   // bus log (coco3.js logBus)

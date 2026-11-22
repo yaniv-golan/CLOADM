@@ -19,6 +19,11 @@
  *   read(reg) / write(reg, v)              0 status/command, 1 track, 2 sector, 3 data
  *   setFloppy(drive|null), ddenW(fm)       dden: true = FM (single density), as MAME's dden line
  *   reset()
+ *   peek(reg)                              a register as the CPU would read it, without the read's side effects
+ *   onTrace(kind)                          a diagnostic hook, not state: 'command' when a command takes effect (the
+ *                                          command register holds it), 'done' when a type I, II or III command ends
+ *                                          (commandEnd; the status register holds its result). Null when unused, so
+ *                                          tracing costs one test at each end of a command.
  *
  * Variant parameters are MAME's (wd_fdc.cpp constructors). The WD2797 derives the sector length from the
  * ID field's length code and the command's b flag (calc_sector_size), selects the side with the command's
@@ -229,6 +234,7 @@ export class WD17xx {
     this.forceReady = forceReady;   // the cartridge boards tie READY (set_force_ready); the Dragon Alpha does not
     this.onIntrq = null;
     this.onDrq = null;
+    this.onTrace = null;    // (kind) => void: 'command' / 'done' (see the header); not state
     this.tGen = clock.timer(`${name}.gen`, () => { this.liveSync(); this.doGeneric(); this.generalContinue(); });
     this.tCmd = clock.timer(`${name}.cmd`, () => { this.liveSync(); this.doCmdW(); this.generalContinue(); });
     this.tTrack = clock.timer(`${name}.track`, () => { this.liveSync(); this.doTrackW(); this.generalContinue(); });
@@ -295,7 +301,10 @@ export class WD17xx {
       if (!this.tCmd.enabled()) this.status &= ~S_BUSY;
       this.setIntrq(true);
     }
+    if (this.onTrace) this.onTrace('done');
   }
+  // a command is under way (the BUSY state a force interrupt ends)
+  get busy() { return this.mainState !== ST.IDLE; }
 
   // ---------------- type I
   seekStart(state) {
@@ -564,6 +573,7 @@ export class WD17xx {
   doCmdW() {
     this.command = this.cmdBuffer;
     this.cmdBuffer = -1;
+    if (this.onTrace) this.onTrace('command');
     switch (this.command & 0xf0) {
       case 0x00: this.lastDir = 1; this.seekStart(ST.RESTORE); break;
       case 0x10: this.lastDir = this.data > this.track ? 0 : 1; this.seekStart(ST.SEEK); break;
@@ -595,16 +605,22 @@ export class WD17xx {
   }
   statusR() {
     if (this.intrq && !(this.intrqCond & I_IMM)) this.setIntrq(false);
-    const fl = this.floppy;
-    if (this.statusType1) { if (fl && fl.idxR()) this.status |= S_IP; else this.status &= ~S_IP; }
-    else if (this.drq) this.status |= S_DRQ; else this.status &= ~S_DRQ;
-    if (this.statusType1 && this.v.headControl) { if (this.hld && this.hlt) this.status |= S_HLD; else this.status &= ~S_HLD; }
-    if (this.statusType1) {
-      this.status &= ~(S_TR00 | S_WP);
-      if (fl) { if (fl.wptR()) this.status |= S_WP; if (!fl.trk00R()) this.status |= S_TR00; }
-    }
-    if (this.v.readyHooked) { if (!this.isReady()) this.status |= S_NRDY; else this.status &= ~S_NRDY; }
+    this.status = this.statusValue();
     return this.status;
+  }
+  // the status register with the lines it shows brought up to date, as a read gives it (status_r); changes nothing
+  statusValue() {
+    let st = this.status;
+    const fl = this.floppy;
+    if (this.statusType1) { if (fl && fl.idxR()) st |= S_IP; else st &= ~S_IP; }
+    else if (this.drq) st |= S_DRQ; else st &= ~S_DRQ;
+    if (this.statusType1 && this.v.headControl) { if (this.hld && this.hlt) st |= S_HLD; else st &= ~S_HLD; }
+    if (this.statusType1) {
+      st &= ~(S_TR00 | S_WP);
+      if (fl) { if (fl.wptR()) st |= S_WP; if (!fl.trk00R()) st |= S_TR00; }
+    }
+    if (this.v.readyHooked) { if (!this.isReady()) st |= S_NRDY; else st &= ~S_NRDY; }
+    return st;
   }
   doTrackW() { this.track = this.trackBuffer; this.trackBuffer = -1; }
   trackW(val) {
@@ -629,8 +645,8 @@ export class WD17xx {
     switch (reg) { case 0: return this.statusR() ^ inv; case 1: return this.track ^ inv; case 2: return this.sector ^ inv; case 3: return this.dataR() ^ inv; }
     return 0xff;
   }
-  // peek for debuggers: no side effects; the values as the CPU reads them
-  peek(reg) { return [this.status, this.track, this.sector, this.data][reg & 3] ^ this.v.busInvert; }
+  // peek for debuggers: no side effects (INTRQ and DRQ stay as they are); the values as the CPU reads them
+  peek(reg) { return [this.statusValue(), this.track, this.sector, this.data][reg & 3] ^ this.v.busInvert; }
 
   spinup() {
     if (this.command & 0x08) this.subState = ST.SPINUP_DONE;

@@ -95,7 +95,7 @@ class AlphaMachine extends SamMachine {
     const off = a & 0x0F;
     if (off < 8) return this.pia2.read(off & 3);
     if (off < 12) return 0xFF;                             // modem
-    return this.fdc.wd.read(15 - off);                     // $FF2C data ... $FF2F status
+    return this.fdc.wdRead(15 - off, a);                   // $FF2C data ... $FF2F status
   }
   write(a, v) {
     if (a < 0xFF20 || a >= 0xFF40) { super.write(a, v); return; }
@@ -116,7 +116,7 @@ class AlphaMachine extends SamMachine {
       return;
     }
     if (off < 12) return;                                  // modem
-    this.fdc.wd.write(15 - off, v);
+    this.fdc.wdWrite(15 - off, v, a);
   }
 
   // ---------------- sound: the DAC (and single bit) plus the AY ----------------

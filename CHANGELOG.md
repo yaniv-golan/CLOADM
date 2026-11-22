@@ -128,6 +128,18 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   ("Applying input on a guest write", an example that runs as a test) and `docs/architecture.md`; `tests/writewatch.test.js`.
   The MC-10 now runs a frame through the debugger when one is armed, as the other models do (its `runFrame` dropped the
   debugger's run, so breakpoints did not stop a running MC-10).
+- **A disk controller trace for Node and headless runs.** A developer porting a game had two disk driver bugs that each looked
+  like a frozen game, a wrong sector-length bit and data lost to a byte loop too slow, and had to trace `$FF40-$FF43` by hand.
+  `session.disk.trace({ limit })` keeps a ring of what the controller did: `command` (the command byte and name, drive, side,
+  track, sector, density), `done` (the status, the bytes the CPU took while DRQ was up, the sector length the controller took,
+  `lostData`, `crc`, `rnf`, `writeProtect`; `interrupted` when a force interrupt ended it) and `reg-write` (the WD registers and
+  the drive latch), each with its tick, frame and PC, on the WD2797, WD2791 and WD1773, in the cartridge port, a Multi-Pak or
+  the Dragon Alpha. `session.disk.status()` decodes the controller's status by peeking (a read would clear INTRQ), and
+  `session.diagnostics()` gains `disk`. On the command line, `--disk-trace FILE` writes the trace as JSON Lines (also when the
+  run fails), and `timeout` and `keys-not-taken` errors carry `disk` (an added field; the same `schemaVersion`). The trace
+  belongs to the Session, like the serial trace (any number at once), and is never in a snapshot; it changes no emulation: the MAME-verified floppy
+  runs hash the same with one on (`tests/disk-trace.test.js`). Documented in `docs/automation.md` ("Tracing the disk
+  controller").
 
 ### Changed
 

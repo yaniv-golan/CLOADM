@@ -74,6 +74,7 @@ Then, in any order:
 | `--record-dir DIR` | the same as a PNG per frame, a WAV and an ffconcat list, with no size limit |
 | `--record-stop` | end the recording and write it |
 | `--serial-trace FILE` | trace the serial port from here to the end of the run (the last 65,536 events), written as JSON Lines, one event a line, also when the run fails (see [The serial port from Node](#the-serial-port-from-node)) |
+| `--disk-trace FILE` | trace the disk controller from here to the end of the run (the last 65,536 events), written as JSON Lines, one event a line, also when the run fails (see [Tracing the disk controller](#tracing-the-disk-controller)) |
 | `--peek ADDR[:LEN]` | memory as the CPU sees it, with no side effects |
 | `--poke ADDR=V[,V…]` | write through the memory map (ROM and I/O take nothing) |
 | `--save-snapshot FILE` | the machine as a snapshot file, which the page opens too |
@@ -136,7 +137,8 @@ What each column means, and the way in:
 
 * **Tape**: the cassette deck every model has (`--tape FILE`, `--load FILE.cas`; `insertTape` in Node).
 * **Disk controller**: a cartridge in the cartridge port with your own disk ROM (`--roms`, then `--disk [N=]FILE`);
-  the Dragon Alpha's controller is built in. The MC-10 and Alice have no cartridge port, so no disk.
+  the Dragon Alpha's controller is built in. The MC-10 and Alice have no cartridge port, so no disk. The command line
+  can trace it (`--disk-trace FILE`; [Tracing the disk controller](#tracing-the-disk-controller)).
 * **6551 ACIA** (Dragon 64, 200 and Tano at `$FF04-$FF07`; [the machine notes](machines.md) list the Dragon 64's
   serial port): "with its port" means `session.serial.attach('terminal' | 'loopback' | 'none', { baud })` plugs
   something into its RS-232 port. Plugging in and sending are Node only ([the serial port from
@@ -299,9 +301,9 @@ goes to stderr, with the screen when a condition failed. With `--json` it prints
 
 A failed run adds `error: { kind, code, message, screen }` (`screen` when a condition failed; `errors`, a list of
 `{ line, message }`, when an assembly failed; `screenshot` when an `--expect-screenshot` failed; `machine: { pc,
-frame, cycles }` and `serial` (`session.diagnostics().serial`: the device, the 6551's status decoded, the bytes still
-on their way to the machine; `null` on a model without a serial port) when a `timeout` or `keys-not-taken` stopped
-the run), and `roms` lists how each ROM file given was identified. `machine` is
+frame, cycles }`, `serial` (`session.diagnostics().serial`: the device, the 6551's status decoded, the bytes still
+on their way to the machine; `null` on a model without a serial port) and `disk` (`session.diagnostics().disk`: the
+disk controller's status decoded; `null` without one) when a `timeout` or `keys-not-taken` stopped the run), and `roms` lists how each ROM file given was identified. `machine` is
 `null` when the run stopped before a machine was built. `--registers`, `--disasm` and `--step` give `registers`
 (an object of lower-case names), `instructions` (`address`, `bytes`, `text`, `size`, and `target` where an operand
 points somewhere) and `cycles`; `--asm` gives `exec`, the `segments` written and the program's `symbols`.
@@ -664,7 +666,7 @@ sub.unsubscribe();                       // idempotent
 session.serial.flush();                  // deliver every byte completely sent by now
 const trace = session.serial.trace({ limit: 4096, registers: 'writes' });   // -> { events, dropped, stop() }
 session.serial.status();                 // the 6551's status register, decoded, read without side effects (null on a bit-banger)
-session.diagnostics();                   // { pc, frame, now, cycles, serial: { device, status, queued } }
+session.diagnostics();                   // { pc, frame, now, cycles, serial: { device, status, queued }, disk }
 ```
 
 **Bytes both ways.** `tx` gets the bytes the machine sent, as the printer or terminal plugged in decoded them; `rx`
@@ -706,6 +708,52 @@ as MAME's model does (`tests/serial-api.test.js` checks both against the times w
 nothing when there is none, and does not change the emulation: the MAME-verified runs' hashes are the same with one
 on. On the command line, `--serial-trace FILE` writes the same events as JSON Lines, and a `timeout` or
 `keys-not-taken` error carries `machine` and `serial` ([Output and exit codes](#output-and-exit-codes)).
+
+### Tracing the disk controller
+
+A disk driver with a wrong sector-length bit, or a byte loop too slow for the controller, looks from outside like a
+frozen game. `session.disk` shows what the controller was asked and how each command ended, on every controller:
+the Dragon FDC's WD2797, the Premier (Delta) FDC's WD2791, the CoCo FDC's WD1773 and the Dragon Alpha's built-in
+WD2797, in the cartridge port, in a Multi-Pak's slot or built in.
+
+```js
+const trace = session.disk.trace({ limit: 4096 });   // -> { events, dropped, stop() }
+session.disk.status();                   // the controller's registers and status, decoded, without side effects (null: no controller)
+session.diagnostics().disk;              // the same
+```
+
+`trace` keeps the last `limit` events in a ring, oldest first (`dropped` counts the ones pushed out); `stop()` ends
+it. Every event is `{ at, frame, pc, kind, ... }` (`at` the machine tick, `pc` where the CPU was):
+
+| `kind` | When | Also |
+|---|---|---|
+| `command` | a command takes effect in the controller (its commit delay after the CPU wrote it) | `cmd` (the command byte), `name` (`restore`, `seek`, `step`, `step-in`, `step-out`, `read-sector`, `write-sector`, `read-address`, `read-track`, `write-track`, `force-interrupt`), `drive` (0-3; `null` with none selected), `side`, `track` and `sector` (the registers), `density` (`'single'` or `'double'`) |
+| `done` | a command ended: the controller raised INTRQ, or a force interrupt cut it short (then `interrupted: true`) | `cmd`, `name`, `status` (the status register then), `bytes` (the data register reads or writes the CPU made while DRQ was up), `requested` (the sector's length as the controller took it: from the ID's length code, with the WD2797's `b` flag; 6 for read address, 0 for type I (even when a force interrupt cut it short), `null` when no sector was found, for track commands and when a type II or III command was cut short), `lostData`, `crc`, `rnf` (record not found; seek error for type I), `writeProtect` |
+| `reg-write` | the CPU wrote a controller register or the drive latch | `reg` (`'command'`, `'track'`, `'sector'`, `'data'`, `'latch'`), `addr` (the address written: `$FF40-$FF43` and the latch at `$FF48` on the Dragon FDC, `$FF48-$FF4B` and `$FF40` on the CoCo FDC, `$FF40-$FF43` and `$FF44` on the Premier; `null` for the Alpha's latch, which is the AY-3-8912's port A), `value` (as the CPU wrote it) |
+
+The two bugs in the trace:
+
+* **A wrong sector-length bit.** The WD2797 reads a sector's length from its ID field and the command's `b` flag (bit
+  3): with it set, length code 1 is 256 bytes; without it, 512. A `read-sector` of `$80` on a 256-byte-sector disk
+  ends with `requested: 512` (and usually `crc: true`, the controller having run past the sector's end).
+* **A byte loop too slow.** In double density a byte passes the head every 32 us, about 28 CPU cycles at 0.89 MHz. A
+  loop slower than that ends with `lostData: true` and `bytes` short of `requested`: the controller dropped every
+  byte after the first one the CPU missed.
+
+`status()` decodes the status register as the command type in force gives it (type I: `index`, `track0`,
+`seekError`, `headLoaded`; types II and III: `drq`, `lostData`, `rnf`, `deletedMark`; both: `busy`, `crc`,
+`writeProtect`, `notReady`), with `value`, `controller`, `chip`, `command`, `name`, `track`, `sector`, `data`, the
+INTRQ and DRQ lines (`intrq`, `drqLine`), `drive` and `density`. It peeks: reading the status register clears INTRQ,
+and the trace and `status()` never do. `value` and the registers are the chip's own; the WD2791's data bus is
+inverted, so its CPU reads their complement.
+
+A trace costs one test at each end of a command (and one at each controller register access) when there is none,
+and does not change the emulation: the MAME-verified floppy runs hash the same with one on
+(`tests/disk-trace.test.js`). Any number of traces can run at once, each with its own ring. Like the serial trace,
+they belong to the Session: `switchMachine`, `openSnapshot` and a power cycle move them to the new machine, a disk
+cartridge plugged in later is traced too, and no snapshot holds them. On
+the command line, `--disk-trace FILE` writes the same events as JSON Lines, also when the run fails, and a `timeout`
+or `keys-not-taken` error carries `disk` ([Output and exit codes](#output-and-exit-codes)).
 
 ### A snapshot with a serial peer outside the machine
 
@@ -866,6 +914,7 @@ machine boots from the disk; that path needs a ROM CLOADM does not ship, and is 
 | `machine.frameCount`, `machine.now()`, `machine.tickHz`, `machine.cpu.totalCycles` | emulated time: frames run, the machine's clock (see "What 'cycles' counts" above: the GIME's on the CoCo 3), that clock's rate in Hz, and CPU cycles |
 | `await snapshotFile()`, `await readSnapshot(bytes)`, `openSnapshot(snap)` | snapshots |
 | `serial` (`device`, `attach`, `send`, `subscribe`, `flush`, `trace`, `status`), `diagnostics()` | the serial port: its device, the bytes both ways and when they are delivered, the trace's event kinds and fields, and where the machine is ([the serial port from Node](#the-serial-port-from-node)) |
+| `disk` (`trace`, `status`), `diagnostics().disk` | the disk controller: the trace's event kinds and fields and the status decoded ([Tracing the disk controller](#tracing-the-disk-controller)) |
 | `debug` (`addBreakpoint`, `step`, `registers`, …) | the debugger, as the page's Debugger screen uses it |
 | `watchWrites({ start, end }, fn)` | the memory-write observer ([Applying input on a guest write](#applying-input-on-a-guest-write)) |
 
