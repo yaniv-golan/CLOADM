@@ -45,9 +45,8 @@ cases.push(['coco rate 01', spec('sam').rate('coco'), 17]);
 }
 // floppy controllers in the middle of a transfer (fdc/ firmware): the chip's bit-level state, the drives'
 // rotation, the flux written so far and the slot's pending NMI/HALT timers must all come back.
-// These are checked separately below, one machine per controller: mounting four drives builds their flux from
-// the images, which is the expensive part, so each machine is built once and snapshotted at every point in
-// turn instead of once per point.
+// These are checked separately below, one machine per controller: each machine is built once and snapshotted at
+// every point in turn instead of once per point, so the run up to each point is not repeated.
 const FDC_MIDWAY = { 4: 'read sector', 7: 'write track', 8: 'write sector' };
 const fdcCases = [];
 for (const [id, controller, at, what] of [['dragon64', 'dragonfdc', 104, 4], ['dragon64', 'dragonfdc', 247, 7], ['dragon64', 'dragonfdc', 286, 8],
@@ -140,6 +139,37 @@ for (const [name, t, at] of cases) {
     const b = Emu.restoreSnapshot(Emu.state.fromJSON(text), a.roms);
     check(`vertical scroll, ${what}: restored machine runs identically (trace and frames)`, run(b, t.regs, 40) === continued);
   }
+}
+
+// Disk tracks are built on first use (FloppyImage.track). A snapshot taken mid-transfer, while most of every disk is
+// still unbuilt, restores into a machine whose drives build the tracks the firmware goes on to reach only then. It
+// must run exactly as the machine that was never interrupted, and as a restore that builds every track at once.
+{
+  const t = spec('fdc').trace('dragon64', { controller: 'dragonfdc', regenerate: false });
+  const a = t.machine();
+  const cyls = (m) => t.fdcOf(m).drives.map((d) => d.cyl).join();
+  const before = new Set();
+  for (let f = 0; f < 104; f++) { a.runFrame(); before.add(cyls(a)); }
+  const wd = t.fdcOf(a).wd;
+  check('lazy tracks: snapshot taken during a read sector', wd.mainState === 4 && wd.live.state !== 0, `(main ${wd.mainState} live ${wd.live.state})`);
+  const text = Emu.state.toJSON(a.snapshot());
+  const lazy = Emu.restoreSnapshot(Emu.state.fromJSON(text), a.roms);
+  const eager = Emu.restoreSnapshot(Emu.state.fromJSON(text), a.roms);
+  const allTracks = (m) => t.fdcOf(m).drives.map((d) => (d.image ? JSON.stringify(Array.from({ length: d.image.count }, (_, k) => d.image.track(k))) : ''));
+  allTracks(eager);                                    // every track of every drive built now
+  const after = new Set();
+  const traces = [a, lazy, eager].map((m) => {
+    const frame = m.runFrame.bind(m);
+    m.runFrame = () => { frame(); after.add(cyls(m)); };   // the cylinders each drive is on, frame by frame
+    const h = run(m, t.regs, 200);
+    delete m.runFrame;
+    return h;
+  });
+  check('lazy tracks: the firmware goes on to cylinders it had not reached at the snapshot', [...after].some((c) => !before.has(c)), [...after].join(' / '));
+  check('lazy tracks: restored with tracks built on demand, runs as the uninterrupted machine (trace and frames)', traces[1] === traces[0]);
+  check('lazy tracks: restored with every track built at once, runs the same', traces[2] === traces[0]);
+  const fa = allTracks(a), fl = allTracks(lazy), fe = allTracks(eager);
+  check('lazy tracks: all three end with the same flux on all four drives', fa.every((x, i) => x === fl[i] && x === fe[i]));
 }
 
 // restored in place while the CoCo FDC holds the CPU halted (HALT on DRQ): the old controller's detach must not
@@ -833,13 +863,13 @@ for (const [id, caseNo] of [['coco', 16], ['dragon64', 17]]) {
     d.writeFlux(start, start + span, [start + span / 4n, start + span / 2n, start + (span * 3n) / 4n]);
     d.imageDirty = true;
     d.flush();                                       // commit, as the motor stopping does
-    const before = d.image.data.map((t) => t.slice());
+    const before = Array.from({ length: d.image.count }, (_, k) => d.image.track(k).slice());
     const text = Emu.state.toJSON(fm.snapshot());
     const r = Emu.restoreSnapshot(Emu.state.fromJSON(text), fm.roms);
     const rd = fdcSpec.fdcOf(r).drives[0];
     let differ = 0;
     for (let i = 0; i < before.length; i++) {
-      const a = before[i], b = rd.image.data[i] || [];
+      const a = before[i], b = i < rd.image.count ? rd.image.track(i) : [];
       if (!(a.length === b.length && a.every((v, k) => v === b[k]))) differ++;
     }
     check('a single-density DMK survives a write, commit, snapshot and restore, cell for cell', differ === 0,
@@ -886,9 +916,9 @@ for (const [id, caseNo] of [['coco', 16], ['dragon64', 17]]) {
       const text = Emu.state.toJSON(fm.snapshot());
       const r = Emu.restoreSnapshot(Emu.state.fromJSON(text), fm.roms);
       const rd = fdcSpec.fdcOf(r).drives[0];
-      const flux = JSON.stringify(rd.image.data);
+      const flux = JSON.stringify(Array.from({ length: rd.image.count }, (_, k) => rd.image.track(k)));
       write(rd, 4);
-      return { keptAtMount, text, flux, exported: rd.media.bytes.slice(), live: JSON.stringify(d.image.data) };
+      return { keptAtMount, text, flux, exported: rd.media.bytes.slice(), live: JSON.stringify(Array.from({ length: d.image.count }, (_, k) => d.image.track(k))) };
     };
     const eager = run(true), lazy = run(false);
     check('a single-density DMK is one the drive keeps its mounted bytes for', eager.keptAtMount === true);

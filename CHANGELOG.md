@@ -51,6 +51,13 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   the screen says "Key saved. Type below and press ENTER." (plain ASCII: the chat font has no check mark) and the key card reads "Key saved ✓ · Saved in this browser · Change · Forget". The key
   stays out of machine memory, snapshots, settings exports and the chat screen itself (`tests/claude-session.test.js`
   reads the screen's text and checks the key is not on it).
+- **Mounting a floppy builds only the tracks the machine reads.** A disk image used to be turned into flux, every
+  track and side, the moment it was mounted or a snapshot holding it was restored: about 130 ms for a 180K JVC in
+  Node, now well under 5 ms. Each track is now built the first time the drive reaches it (`FloppyImage.track(k)`), so
+  a mount or a restore checks the image and returns at once, and the time moves to the first read of each track.
+  Errors in the image (a bad header, a DMK ID pointer that misses its mark, a track layout too long to fit) are still
+  reported at mount. The flux, the bits and the sectors every track gives are unchanged, and so are the regression
+  hashes.
 
 ### Fixed
 

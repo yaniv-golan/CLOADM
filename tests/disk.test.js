@@ -9,6 +9,7 @@ const check = (name, cond, detail = '') => { if (!cond) { fail++; console.log(`F
 const throws = (name, fn, re) => { let msg = null; try { fn(); } catch (e) { msg = e.message; } check(name, msg !== null && re.test(msg), msg === null ? 'did not throw' : msg); };
 const eq = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
 const DRIVE = { tracks: 84, heads: 2 };
+const allTracks = (img) => Array.from({ length: img.count }, (_, k) => img.track(k));
 
 // ---------------- MFM cells by hand
 // 4E = 0100 1110; MFM clock bit = 1 only between two data 0s; the track starts with no previous bit (0):
@@ -260,7 +261,7 @@ const notOs9 = (bytes) => { try { return !geo(bytes).os9; } catch (e) { return t
   d.flush();
   check('OS-9 drive: flush keeps the file headerless (no 2-byte JVC header added)', d.media.bytes.length === os9b.length, d.media.bytes.length);
   // everything a 40x2 disk carries, measured BEFORE the guest touches LSN 0 and before the snapshot
-  const side1Of = (dd) => { let n = 0; for (let t = 0; t < 40 && dd.image.heads > 1; t++) n += dd.image.data[t * dd.image.heads + 1].length; return n; };
+  const side1Of = (dd) => { let n = 0; for (let t = 0; t < 40 && dd.image.heads > 1; t++) n += dd.image.track(t * dd.image.heads + 1).length; return n; };
   const side10 = side1Of(d);
   // and a snapshot of a drive whose guest rewrote LSN 0 still restores as the same 40x2 disk
   d.media.bytes.fill(0, 0, 256);
@@ -315,12 +316,38 @@ const notOs9 = (bytes) => { try { return !geo(bytes).os9; } catch (e) { return t
   check('unknown file: no format', Emu.detectDiskFormat(new Uint8Array(1000), 'x.bin') === null);
   check('.vdk without signature: no format', Emu.detectDiskFormat(new Uint8Array(4620), 'x.vdk') === null);
   const img = Emu.loadDisk(images.vdk(2, 1), 'vdk', DRIVE);
-  img.setBuffer(1, 0, []);                                                 // a track with nothing on it
-  img.setBuffer(1, 0, Emu.loadDisk(images.vdk(2, 1), 'vdk', DRIVE).buffer(0, 0));   // track 0's flux on track 1: sectors say track 0
+  img.setTrack(img.heads, []);                                                 // track 1 side 0: nothing on it
+  img.setTrack(img.heads, Emu.loadDisk(images.vdk(2, 1), 'vdk', DRIVE).buffer(0, 0));   // track 0's flux on track 1: sectors say track 0
   check('saving keeps whatever IDs the track has (MAME ignores the ID track)', Emu.saveDisk(img, 'vdk').length === 12 + 2 * 18 * 256);
   const empty = Emu.loadDisk(images.vdk(2, 1), 'vdk', DRIVE);
-  empty.setBuffer(1, 0, [Emu.mg(Emu.MG_N, 0)]);
+  empty.setTrack(empty.heads, [Emu.mg(Emu.MG_N, 0)]);
   throws('saving a track without its sectors fails (MAME would crash)', () => Emu.saveDisk(empty, 'vdk'), /sector 1 is missing/);
+}
+
+// ---------------- tracks built on first use (FloppyImage.track): what the drive relies on
+{
+  // a track built after the caller changes the image's bytes is the track as loaded (the drive's flush() commits in
+  // place): compared with a load of an untouched copy, track 5 side 1 never having been read before the change
+  const bytes = images.vdk(10, 2), ref = Emu.loadDisk(bytes.slice(), 'vdk', DRIVE);
+  const img = Emu.loadDisk(bytes, 'vdk', DRIVE);
+  bytes.fill(0x55, 12);
+  const k = 5 * DRIVE.heads + 1;
+  check('lazy track: built after its source bytes change, it is the track as loaded', eq(img.track(k), ref.track(k)));
+  check('lazy track: and its sectors are the image\'s, not the changed bytes', (() => { const sec = Emu.readTrackSectors(img, 5, 1); return sec.length === 18 && sec.every((s) => s.data[0] === images.sectorByte(5, 1, s.sector, 0)); })());
+  // a layout that cannot fit fails at load, not later at the first read: 36 sectors of 256 bytes per track
+  const tooLong = new Uint8Array(3 + 2 * 36 * 256); tooLong.set([36, 1, 1]);
+  let thrown = null, image = null;
+  try { image = Emu.loadDisk(tooLong, 'jvc', DRIVE); } catch (e) { thrown = e.message; }
+  check('lazy track: a track layout too long throws at loadDisk, before any track is read', image === null && /track layout too long/.test(thrown || ''), String(thrown));
+  // the drive writes into the array track(k) returns: on a never-built track, the write is there on the next read
+  const w = Emu.loadDisk(images.vdk(10, 2), 'vdk', DRIVE);
+  const t = w.track(7 * DRIVE.heads);
+  t[0] = Emu.mg(Emu.MG_N, 0);
+  check('lazy track: a write into a newly built track is there on the next track(k) and buffer()', w.track(7 * DRIVE.heads)[0] === Emu.mg(Emu.MG_N, 0) && w.buffer(7, 0) === t);
+  // setTrack on a track never built replaces its builder (loadState restores written tracks this way)
+  const x = [Emu.mg(Emu.MG_N, 0), Emu.mg(Emu.MG_E, 199999999)];
+  w.setTrack(3 * DRIVE.heads + 1, x);
+  check('lazy track: setTrack on an unbuilt track, then track(k) is that flux', w.track(3 * DRIVE.heads + 1) === x);
 }
 
 // ---------------- blank disks (blankDisk): sizes and headers derived here from the formats, then round trips
@@ -374,7 +401,7 @@ const notOs9 = (bytes) => { try { return !geo(bytes).os9; } catch (e) { return t
   check('remount: the single-density DMK\'s snapshot carried its mounted bytes', !!sdrive(first).mountBytes);
   check('remount: the second image\'s snapshot carries none (a JVC round-trips)', !sdrive(snap).mountBytes);
   const rd = Emu.restoreSnapshot(snap, m.roms).cartPort.drives[0];
-  check('remount: the restored drive has the second image\'s flux, track for track', JSON.stringify(rd.image.data) === JSON.stringify(d.image.data)
+  check('remount: the restored drive has the second image\'s flux, track for track', JSON.stringify(allTracks(rd.image)) === JSON.stringify(allTracks(d.image))
     && eq(rd.media.bytes, jvc));
 }
 
