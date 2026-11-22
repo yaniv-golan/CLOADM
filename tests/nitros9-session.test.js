@@ -33,6 +33,7 @@ const frames = async (s, n, until) => {
 const status = (m) => m.read(NITROS9_STATUS.addr);
 
 (async () => {
+  const { driveHeader } = await import('../js/ui/drives.js');   // the drives card's header (no DOM needed)
   const s = new Session();
   s.switchMachine('coco3', { cpu: '6809', ram: 128, becker: false }, { menu: false });
   await s.importDriveWireImage('boot6809.dsk', makeOs9Disk(Emu, { cpu: '6809' }));
@@ -178,10 +179,17 @@ const status = (m) => m.read(NITROS9_STATUS.addr);
     check('floppy: our floppy loader is the internal ROM', fm.roms.basic === nitros9LoaderRom('floppy') && f.nitros9Loader() === 'floppy' && f.bootStatus().state === 'nitros9');
     await frames(f, 600);
     check('floppy: the loader read the boot track (track 34, side 0) and jumped: its code set $0102', status(fm) === NITROS9_STATUS.jumped && fm.read(0x0102) === 0x5A, `status $${status(fm).toString(16)}`);
+    // a Disk BASIC ROM stored now (our own bytes) is not for this controller while NitrOS-9 runs on it: no reset
+    // puts it in, and the drives card does not say one will
+    f.roms.put('rsdos', 'rom', new Uint8Array(0x2000).fill(0x39), 'disk11.rom');
+    const head = driveHeader(f);
+    check('floppy: a disk ROM stored meanwhile is not waiting for a reset, and the drives card says no disk ROM', !f.diskRomWaiting
+      && head.dos === 'no disk ROM' && head.hint === 'disks work for programs that read them directly', JSON.stringify(head));
     fm.write(NITROS9_STATUS.addr, 0xEE); fm.write(0x0102, 0);
     f.reset();
     await frames(f, 600);
     check('floppy: reset boots it again', status(fm) === NITROS9_STATUS.jumped && fm.read(0x0102) === 0x5A);
+    check('floppy: and leaves the controller without a ROM (NitrOS-9 drives it)', fm.cartPort instanceof Emu.DiskController && fm.cartPort.romBytes === null && !f.diskRomWaiting);
     check('floppy: the link boots NitrOS-9 (nitros9=1), and picks the floppy in drive 0', /nitros9=1/.test(f.shareUrl('https://cloadm.dev/play/')) && (await f.pickNitros9Image('6809')).name === 'floppy9.dsk');
     f.leaveNitros9();
     check('floppy: Back to BASIC takes the ROM-less controller out (the disk stays in the library)', !f.nitros9Running && !f.shownMachine.cartPort && (await f.media.list('disks/')).length === 1);

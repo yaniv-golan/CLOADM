@@ -29,6 +29,20 @@ const driveLabel = (n, file) => file.length > TAIL + 4
   ? `<span class="dh">${n} · ${esc(file.slice(0, -TAIL))}</span><span class="dt">${esc(file.slice(-TAIL))}</span>`
   : `<span class="dh">${n} · ${esc(file)}</span>`;
 
+// The card's header, "Drives · {dos} · {hint}": the disk system in use or the one a mount would plug in; with none,
+// "no disk ROM" (a disk still goes in, on the controller alone). A controller with no ROM says its disk ROM goes in at
+// the next reset only when one is stored for it and a reset would put it in (Session.diskRomWaiting: not while NitrOS-9
+// runs on that controller, whose reset restarts NitrOS-9). -> { dos, hint }
+export function driveHeader(session, st = session.diskStatus()) {
+  const direct = 'disks work for programs that read them directly';
+  if (st.dos && st.dos.bare) {
+    return session.diskRomWaiting ? { dos: `${dosLabel(session.preferredDiskDos().name)} at the next reset`, hint: `${direct} until then` } : { dos: 'no disk ROM', hint: direct };
+  }
+  const dos = st.dos || session.preferredDiskDos();
+  if (!dos) return { dos: 'no disk ROM', hint: direct };
+  return { dos: dos.id === 'builtin' || dos.builtin ? 'built-in' : dosLabel(dos.name), hint: 'click a drive to insert' };
+}
+
 export function setupDrives(page, { openRoms = null } = {}) {
   const { session } = page;
   let open = null;            // the drive whose menu is open
@@ -54,9 +68,9 @@ export function setupDrives(page, { openRoms = null } = {}) {
     $('driveSlot').hidden = !choices.length;
     if (!choices.length) { open = null; $('driveMenu').hidden = true; return; }
     const st = session.diskStatus();
-    const dos = st.dos && !st.dos.bare ? st.dos : session.preferredDiskDos();
-    $('driveDos').textContent = !dos ? 'no disk ROM' : st.dos && st.dos.bare ? `${dosLabel(dos.name)} at the next reset` : dos.id === 'builtin' || dos.builtin ? 'built-in' : dosLabel(dos.name);
-    $('driveHint').textContent = !dos ? 'disks work for programs that read them directly' : st.dos && st.dos.bare ? 'disks work for programs that read them directly until then' : 'click a drive to insert';
+    const head = driveHeader(session, st);
+    $('driveDos').textContent = head.dos;
+    $('driveHint').textContent = head.hint;
     const act = session.diskActivity();
     // the drive whose button has the focus keeps it across the rebuild below
     const a = document.activeElement, had = a && $('drives').contains(a) && a.dataset.drive !== undefined ? a.dataset.drive : null;
