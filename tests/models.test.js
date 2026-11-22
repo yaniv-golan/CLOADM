@@ -115,6 +115,39 @@ check('the CP-400 ROM is the archive name cp400bas.rom', p.roms[0].files.include
   }
 }
 
+// ---- Dragon 200-E: a Dragon in everything but the keyboard legends and the character generator ----
+// MAME 0.264 src/mame/trs/dragon.cpp: dragon200e_state::dragon200e() is dragon64(config) plus the generator, so it has
+// the Dragon 64's cartridge slot (COCOCART_SLOT ... dragon_cart, default "dragon_fdc"), the Dragon parallel printer
+// (dragon_state::pia1_pa_changed: PIA1 PA1 high prints PIA0 port B) and the 6551 with an RS-232 port
+// (RS232_PORT "rs232", whose RXD coco_state::pia1_pb_r reads on PB0 through m_rs232->rxd_r(), coco.cpp).
+{
+  const p = Emu.profiles.dragon200e;
+  check('dragon200e is a Dragon by lineage, whatever its keyboard is called', p.lineage === 'dragon' && p.lineage === Emu.profiles.dragon64.lineage);
+  // the disk cartridges the page offers: the Dragon 64's, never RS-DOS
+  const dos = (id) => { const s = new Emu.Session({ welcomeMenu: false }); s.switchMachine(id, {}, { menu: false }); return s.diskDosChoices().map((c) => c.id); };
+  const d200e = dos('dragon200e'), d64 = dos('dragon64');
+  check('dragon200e offers the Dragon 64\'s disk cartridges (DragonDOS, Delta DOS), not RS-DOS',
+    JSON.stringify(d200e) === JSON.stringify(d64) && d200e.includes('dragondos') && !d200e.includes('rsdos'), `${d200e} vs ${d64}`);
+  // the printer: MAME's parallel port, and no bit-banger
+  const m = Emu.createMachine('dragon200e');
+  m.reset(true);
+  check('dragon200e has no bit-banger (its printer is the Dragon parallel port)', !m.bitBanger);
+  check('dragon200e: reset prints PIA0 port B ($FF), as on the Dragon 64', m.printed.join() === '255', m.printed.join());
+  m.printed.length = 0;
+  m.write(0xFF03, 0x00); m.write(0xFF02, 0xFF); m.write(0xFF03, 0x04);   // PIA0 PB outputs
+  m.write(0xFF21, 0x00); m.write(0xFF20, 0xFE); m.write(0xFF21, 0x04);   // PIA1 PA1-7 outputs
+  m.write(0xFF02, 0x41); m.write(0xFF20, 0x00); m.write(0xFF20, 0x02);   // strobe low, then high: 'A'
+  m.write(0xFF02, 0x42); m.write(0xFF20, 0xFC); m.write(0xFF20, 0xFE);   // 'B'
+  check('dragon200e: PIA1 PA1 high prints PIA0 port B (MAME dragon_state::pia1_pa_changed)', m.printed.join() === '65,66', m.printed.join());
+  // the 6551's port: PB0 is its RXD, idle at mark, and a terminal's start bit reads 0
+  check('dragon200e: the 6551 has its RS-232 port, as the Dragon 64\'s', p.acia === true && p.rs232 === true && !!m.acia);
+  m.write(0xFF23, 0x00); m.write(0xFF22, 0x00); m.write(0xFF23, 0x04);
+  m.acia.attachSerial('terminal', { baud: 1200 });
+  const idle = m.read(0xFF22) & 1;
+  m.acia.port.send([0x00], m.ioTime());
+  check('dragon200e: PIA1 PB0 follows the 6551\'s port (idle 1, a start bit 0)', idle === 1 && (m.read(0xFF22) & 1) === 0);
+}
+
 // ---- RAM options: the CoCo's 4K/16K/32K/64K ----
 // The fitted RAM (MAME's coco12.cpp: RAM over $0000..size-1, everything above it unreadable) and the SAM's
 // M1/M0 mask that mirrors the video address to it (MC6883 data sheet p. 4-645, "Memory Size").

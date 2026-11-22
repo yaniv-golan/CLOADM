@@ -113,7 +113,7 @@ fails when it and the code differ:
 | `dragon32` | `cpu`, `ram`, `hires` | cassette | DragonDOS or Delta DOS | no | no | no |
 | `dragon64` | `cpu`, `ram`, `hires`, `ssc` | cassette | DragonDOS or Delta DOS | yes, with its port | no | no |
 | `dragon200`, `tanodr64` | `cpu`, `ram`, `hires` | cassette | DragonDOS or Delta DOS | yes, with its port | no | no |
-| `dragon200e` | `cpu`, `ram`, `hires`, `inverseVideo` | cassette | Disk BASIC (RS-DOS) [^200e] | chip only, no port | yes [^200e] | no |
+| `dragon200e` | `cpu`, `ram`, `hires`, `inverseVideo` | cassette | DragonDOS or Delta DOS | yes, with its port | no | no |
 | `dgnalpha` | `cpu`, `ram` | cassette | its own, built in (2 drives) | chip only, no port | no | no |
 | `d64plus` | `cpu`, `ram` | cassette | DragonDOS or Delta DOS | chip only, no port | no | no |
 | `coco`, `coco2b` | `cpu`, `ram`, `hires`, `becker`, `ssc` | cassette | Disk BASIC (RS-DOS) | no | yes | yes |
@@ -121,11 +121,6 @@ fails when it and the code differ:
 | `coco3` | `cpu`, `ram`, `hires`, `becker`, `ssc` | cassette | Disk BASIC (RS-DOS) | no | yes | yes |
 | `coco3p` | `cpu`, `ram`, `hires`, `becker` | cassette | Disk BASIC (RS-DOS) | no | yes | yes |
 | `mc10`, `alice` | `cpu`, `ram` | cassette | none (no cartridge port) | no | yes | no |
-
-[^200e]: How the code treats the Dragon 200-E today: it is picked out by its own keyboard layout, so the places that
-    ask "is this a Dragon?" (the disk cartridges it offers, the parallel printer, the serial port) see a CoCo-family
-    machine there: it offers the RS-DOS cartridge and has the bit-banger in place of the Dragons' parallel printer. Its
-    6551 is present but, as on the Alpha and the 64 Plus, its port is not wired to a plug.
 
 What each column means, and the way in:
 

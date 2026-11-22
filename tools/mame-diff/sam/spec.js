@@ -67,6 +67,7 @@ function mameArgs(profile, resolved) {
 
 module.exports = {
   genChargen,
+  withChip,
   inverseCfg,
   family: 'sam',
   // lockstep trace comparison (regenerate: rebuild diag.asm from gen-diag.js first). A machine with less
@@ -249,9 +250,9 @@ end)`,
   printer(profileId, { config = {}, work = `/tmp/mame-diff/${profileId}-printer` } = {}) {
     const Emu = loadEmu(), profile = Emu.profiles[profileId];
     const resolved = Emu.resolveConfig(profileId, Object.assign({ mameCompat: true }, config));
-    const parallel = profile.keyboard === 'dragon';
+    const parallel = profile.lineage === 'dragon';
     const { asm, bank0 } = images(parallel ? 'printer-parallel.asm' : 'printer-serial.asm');
-    const slots = slotData(profile, bank0, bank0);
+    const slots = withChip(profile, slotData(profile, bank0, bank0));
     const files = {};
     for (const sl of profile.roms) for (const f of sl.files) files[f] = slots[sl.id];
     return {
@@ -270,7 +271,7 @@ end)`,
   serial(profileId, { config = {}, work = `/tmp/mame-diff/${profileId}-serial` } = {}) {
     const Emu = loadEmu(), profile = Emu.profiles[profileId];
     if (profile.acia) return this.acia(profileId, { config, work });
-    if (profile.keyboard === 'dragon') throw new Error(`${profileId}: no serial port (the Dragon 32 has a parallel printer port only)`);
+    if (profile.lineage === 'dragon') throw new Error(`${profileId}: no serial port (the Dragon 32 has a parallel printer port only)`);
     const resolved = Emu.resolveConfig(profileId, Object.assign({ mameCompat: true }, config));
     const { asm, bank0 } = images('serial-loopback.asm');
     const slots = slotData(profile, bank0, bank0);
@@ -300,7 +301,7 @@ end)`,
     const Emu = loadEmu(), profile = Emu.profiles[profileId];
     const resolved = Emu.resolveConfig(profileId, Object.assign({ mameCompat: true }, config));
     const { asm, bank0, bank1 } = images('acia.asm');
-    const slots = slotData(profile, bank0, bank1);
+    const slots = withChip(profile, slotData(profile, bank0, bank1));
     const files = {};
     for (const sl of profile.roms) for (const f of sl.files) files[f] = slots[sl.id];
     // the bytes the configuration loop sends, and what comes back (7-bit formats drop bit 7)

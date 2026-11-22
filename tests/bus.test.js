@@ -131,7 +131,8 @@ for (const id of ['coco', 'dragon64']) {
   check('CoCo 3: the same wiring', pb('coco3', true) === 0x04 && pb('coco3', false) === 0x00);
   check('Dragon 64: the same, with serial in idle high ($05 / $01)', pb('dragon64', true) === 0x05 && pb('dragon64', false) === 0x01);
   check('Dragon 32: the same, no serial port ($04 / $00)', pb('dragon32', true) === 0x04 && pb('dragon32', false) === 0x00);
-  check('Dragon 200 and Tano: serial in idle high like the Dragon 64', pb('dragon200', true) === 0x05 && pb('tanodr64', false) === 0x01);
+  check('Dragon 200, 200-E and Tano: serial in idle high like the Dragon 64', pb('dragon200', true) === 0x05 && pb('tanodr64', false) === 0x01
+    && pb('dragon200e', true) === 0x05 && pb('dragon200e', false) === 0x01);
   // MAME's Alpha has a 6551 but no RS-232 port (dgnalpha.cpp: no rs232 device, so m_rs232 is null)
   check('Dragon Alpha: a 6551 but no serial port ($04 / $00)', pb('dgnalpha', true) === 0x04 && pb('dgnalpha', false) === 0x00);
   // bit 0 is the port's RXD itself: a terminal's start bit reads 0

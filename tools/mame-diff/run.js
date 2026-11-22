@@ -2,7 +2,7 @@
 // Compare one machine against MAME. Needs MAME (e.g. `apt install mame`); uses only our own firmware.
 //
 //   node tools/mame-diff/run.js <profile> [--ram <K>] [--video [--artifact N] [--attr] [--composite] [--text]] [--raster [--no-trace] [--keep]] [--vsc [--no-trace] [--keep]] [--printer [--no-trace]] [--serial] [--reset] [--rate|--ops] [--plus] [--plustext [--video]] [--paging [--video]] [--keep-firmware]
-//   node tools/mame-diff/run.js <dragon64|coco|coco3|dgnalpha> --fdc [dragonfdc|premierfdc|cocofdc|multifdc|alphafdc] [--images|--write|--nmi|--multi|--blank <fmt>:<T>x<H>|--halt [--empty]|--nitros9|--bare] [--keep-firmware]
+//   node tools/mame-diff/run.js <dragon64|dragon200e|coco|coco3|dgnalpha> --fdc [dragonfdc|premierfdc|cocofdc|multifdc|alphafdc] [--images|--write|--nmi|--multi|--blank <fmt>:<T>x<H>|--halt [--empty]|--nitros9|--bare] [--keep-firmware]
 //   node tools/mame-diff/run.js <coco|coco3|dragon64|dragon32> --cart <setup> [--audio]
 //
 // Trace mode (default): lockstep instruction trace, registers and cycle counts.
@@ -27,7 +27,7 @@
 // picture under each paging against MAME's (d64plus/run-paging.js).
 // --plustext (Dragon 64 Plus): the 80-column text screens of the screen-text reader (d64plus/plustext.asm, written by
 // d64plus/text-screens.js); with --video, every screen's 640x264 picture against MAME's (d64plus/run-text.js).
-// --fdc: a floppy disk controller cartridge (fdc/: -ext dragon_fdc or premier_fdc on dragon64, -ext fdc on coco and coco3)
+// --fdc: a floppy disk controller cartridge (fdc/: -ext dragon_fdc on dragon64 and dragon200e, premier_fdc on dragon64, -ext fdc on coco and coco3)
 // with our firmware as the DOS ROM, four drives; --images then also compares the disk images MAME and we write;
 // --blank <vdk|jvc|dmk>:<T>x<H> puts a blank disk (js/media/disk.js blankDisk) in drive 0 and runs
 // <board>-format-<T>x<H>.asm, which formats every track (with --images: the formatted images byte for byte;

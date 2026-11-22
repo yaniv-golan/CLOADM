@@ -7,7 +7,8 @@
  *  - tapes: .c10 / .k7 are MC-10 / Alice tapes; Dragon and CoCo tapes share one format, so a .cas file
  *    says nothing about which of the two it is for;
  *  - cartridges: .dgn is a Dragon cartridge, .ccc a CoCo one; other ROM images fit both.
- * Returns { kind, family: 'dragon' | 'coco' | 'mc10' | null, format, reason }.
+ * Returns { kind, family: 'dragon' | 'coco' | 'mc10' | null, format, reason }: a model's `lineage`
+ * (js/machines/profiles.js) is the family it takes media for.
  */
 import { formats } from './formats.js';
 import { detectDiskFormat } from './disk.js';
@@ -15,11 +16,6 @@ import { detectDiskFormat } from './disk.js';
 const SECTOR = 256, SPT = 18;
 const ext = (name) => (name.match(/\.([^.]+)$/) || [])[1]?.toLowerCase() || '';
 
-// the family a model belongs to, for matching media
-export function machineFamily(profile) {
-  if (profile.family === 'mc10') return 'mc10';
-  return profile.keyboard === 'dragon' ? 'dragon' : 'coco';
-}
 export const FAMILY_NAMES = { dragon: 'Dragon', coco: 'CoCo', mc10: 'MC-10' };
 
 // a raw disk image (after any header): DragonDOS or RS-DOS, by their directory tracks

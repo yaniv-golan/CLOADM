@@ -79,7 +79,7 @@ const SPEAKER = '<path d="M3 9h4l5-4v14l-5-4H3z" fill="currentColor"/>';
 const SPEAKER_ON = `<svg viewBox="0 0 24 24" aria-hidden="true">${SPEAKER}<path d="M15.5 8.5a5 5 0 0 1 0 7M18 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`;
 const SPEAKER_OFF = `<svg viewBox="0 0 24 24" aria-hidden="true">${SPEAKER}<path d="M16 9.5l5 5M21 9.5l-5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`;
 // the Machine menu's groups, by keyboard
-const GROUPS = [['Dragon', (p) => p.keyboard.startsWith('dragon')], ['Color Computer', (p) => p.keyboard === 'coco'], ['MC-10', (p) => !p.keyboard.startsWith('dragon') && p.keyboard !== 'coco']];
+const GROUPS = [['Dragon', (p) => p.lineage === 'dragon'], ['Color Computer', (p) => p.lineage === 'coco'], ['MC-10', (p) => p.lineage === 'mc10']];
 const clock = (d) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 // characters still waiting in the machine's typist (a type_text call's keys not yet typed)
 const pendingKeys = (m) => (m.typist ? m.typist.queue.filter((x) => typeof x === 'string' || (x && 'paced' in x)).length : 0);

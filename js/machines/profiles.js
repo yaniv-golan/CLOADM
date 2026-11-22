@@ -2,6 +2,13 @@
  * Model registry (data only). Each profile names its machine family; createMachine(id)
  * instantiates families[profile.family].
  *
+ * `lineage` is the line of computers a model belongs to: 'dragon', 'coco' or 'mc10'. It decides what a model shares
+ * with its line rather than with its hardware family: the media it takes (js/media/detect.js), the disk cartridges it
+ * offers, its BASIC dialect, and, on the SAM machines, the Dragons' parallel printer against the CoCos' bit-banger
+ * (js/machines/sam.js). The keyboard says only which matrix and legends the model has: the Dragon 200-E has its own
+ * legends and is a Dragon (MAME 0.264 src/mame/trs/dragon.cpp: dragon200e_state derives from dragon64_state, and
+ * dragon200e() starts from dragon64()).
+ *
  * ROM slot: { id, label, size, at (CPU address), bank, required, files (usual names, as dumped / used by
  * MAME), aliases (other names in common ROM sets, e.g. XRoar's), crcs (CRC32 of known-good dumps, used only
  * to recognise files) }. Names only help when a file's contents aren't recognised; sizes must still match.
@@ -57,17 +64,17 @@ const P = registry({
   // ---- SAM family: 6809 + SAM + 2 PIAs + MC6847 ----
   dragon32: {
     options: opts(cpu('6809'), ram([32]), hires()),
-    name: 'Dragon 32', family: 'sam', keyboard: 'dragon', video: 'pal', multiPak: true, mame: 'dragon32',
+    name: 'Dragon 32', family: 'sam', lineage: 'dragon', keyboard: 'dragon', video: 'pal', multiPak: true, mame: 'dragon32',
     roms: [slot('basic', 'Dragon 32 BASIC', 0x4000, 0x8000, ['d32.rom'], ['E3879310'], { required: true })],
   },
   dragon64: {
     options: opts(cpu('6809', '6309'), ram([64]), hires(), ssc),
-    name: 'Dragon 64', family: 'sam', keyboard: 'dragon', video: 'pal', acia: true, rs232: true, bankSelect: true, multiPak: true, mame: 'dragon64', mame6309: 'dragon64h',
+    name: 'Dragon 64', family: 'sam', lineage: 'dragon', keyboard: 'dragon', video: 'pal', acia: true, rs232: true, bankSelect: true, multiPak: true, mame: 'dragon64', mame6309: 'dragon64h',
     roms: d64Roms('d64_1.rom', '60A4634C', 'd64_2.rom', '17893A42', ['d64rom1.rom', 'd64tano.rom'], ['d64rom2.rom', 'd64tano2.rom']),
   },
   dragon200: {
     options: opts(cpu('6809'), ram([64]), hires()),
-    name: 'Dragon 200', family: 'sam', keyboard: 'dragon', video: 'pal', acia: true, rs232: true, bankSelect: true, mame: 'dragon200',
+    name: 'Dragon 200', family: 'sam', lineage: 'dragon', keyboard: 'dragon', video: 'pal', acia: true, rs232: true, bankSelect: true, mame: 'dragon200',
     roms: d64Roms('ic18.rom', '84F68BF9', 'ic17.rom', '17893A42'),
   },
   // Dragon 200-E: the Spanish 200 with a character generator ROM fitted in place of the VDG's internal set,
@@ -77,21 +84,21 @@ const P = registry({
   // only the legends differ (the Spanish characters), which is js/machines/keyboards.js's dragon200e.
   dragon200e: {
     options: opts(cpu('6809'), ram([64]), hires(), { inverseVideo: { values: [false, true], default: false } }),
-    name: 'Dragon 200-E', family: 'sam', keyboard: 'dragon200e', video: 'pal', acia: true, bankSelect: true,
+    name: 'Dragon 200-E', family: 'sam', lineage: 'dragon', keyboard: 'dragon200e', video: 'pal', acia: true, rs232: true, bankSelect: true,
     mame: 'dragon200e', charGen: { intExtFromData: true },
     roms: [...d64Roms('ic18_v1.4e.ic34', '95AF0A0A', 'ic17_v1.4e.ic37', '48B985DF'),
       chip('chargen', 'Character generator', 0x1000, ['rom26.ic1'], ['565724BC'])],
   },
   tanodr64: {
     options: opts(cpu('6809', '6309'), ram([64]), hires()),
-    name: 'Tano Dragon 64', family: 'sam', keyboard: 'dragon', video: 'ntsc', acia: true, rs232: true, bankSelect: true, mame: 'tanodr64', mame6309: 'tanodr64h',
+    name: 'Tano Dragon 64', family: 'sam', lineage: 'dragon', keyboard: 'dragon', video: 'ntsc', acia: true, rs232: true, bankSelect: true, mame: 'tanodr64', mame6309: 'tanodr64h',
     roms: d64Roms('d64_1.rom', '60A4634C', 'd64_2.rom', '17893A42', ['d64tano.rom'], ['d64tano2.rom']),
   },
   // Dragon Professional (Alpha): a Dragon 64 with a boot ROM, a third PIA, an AY-3-8912 and a built-in disk
   // interface (js/machines/alpha.js). MAME's ROM set: the boot ROM (v1.0, or v0.4) and a 16K BASIC.
   dgnalpha: {
     options: opts(cpu('6809'), ram([64])),
-    name: 'Dragon Professional (Alpha)', family: 'alpha', keyboard: 'dragon', video: 'pal', acia: true, mame: 'dgnalpha',
+    name: 'Dragon Professional (Alpha)', family: 'alpha', lineage: 'dragon', keyboard: 'dragon', video: 'pal', acia: true, mame: 'dgnalpha',
     roms: [slot('boot', 'Boot ROM', 0x2000, 0xA000, ['alpha_bt_10.rom', 'alpha_bt_04.rom'], ['C3DAB585', 'D6172B56'], { required: true }),
       slot('basic', 'BASIC', 0x4000, 0x8000, ['alpha_ba.rom'], ['84F68BF9'], { bank: 1, required: true })],
   },
@@ -103,35 +110,35 @@ const P = registry({
   // directly, not CPU bus sockets. The real glyphs are only exercised with a user-supplied generator.
   d64plus: {
     options: opts(cpu('6809'), ram([64])),
-    name: 'Dragon 64 Plus', family: 'd64plus', keyboard: 'dragon', video: 'pal', acia: true, bankSelect: true, mame: 'd64plus',
+    name: 'Dragon 64 Plus', family: 'd64plus', lineage: 'dragon', keyboard: 'dragon', video: 'pal', acia: true, bankSelect: true, mame: 'd64plus',
     roms: [...d64Roms('d64_1.rom', '60A4634C', 'd64_2.rom', '17893A42'),
       chip('chargen', 'Character generator (80-column board)', 0x2000, ['chargen.ic22'], ['514F1450']),
       slot('prom', 'Timing PROM (not used)', 0x200, null, ['n82s147an.ic12'], ['92B6728D'], { chip: true })],
   },
   coco: {
     options: opts(cpu('6809', '6309'), ram([4, 16, 32, 64]), hires(), becker, ssc),
-    name: 'CoCo 1/2', family: 'sam', keyboard: 'coco', video: 'ntsc', ca1Low: true, multiPak: true, mame: 'coco', mame6309: 'cocoh',
+    name: 'CoCo 1/2', family: 'sam', lineage: 'coco', keyboard: 'coco', video: 'ntsc', ca1Low: true, multiPak: true, mame: 'coco', mame6309: 'cocoh',
     roms: cocoRoms({ files: ['bas12.rom', 'bas11.rom', 'bas10.rom', 'bas13.rom'], crcs: ['54368805', '6270955A', '00B50AAA', 'D8F4D15E'] },
       { files: ['extbas11.rom', 'extbas10.rom'], crcs: ['A82A6254', '6111A086'] }),
   },
   coco2b: {
     options: opts(cpu('6809'), ram([4, 16, 32, 64]), hires(), becker, ssc),
-    name: 'CoCo 2B', family: 'sam', keyboard: 'coco', video: 'ntsc', vdg: 't1', ca1Low: true, multiPak: true, mame: 'coco2b',
+    name: 'CoCo 2B', family: 'sam', lineage: 'coco', keyboard: 'coco', video: 'ntsc', vdg: 't1', ca1Low: true, multiPak: true, mame: 'coco2b',
     roms: cocoRoms({ files: ['bas13.rom'], crcs: ['D8F4D15E'], aliases: ['bas14.rom'] }, { files: ['extbas11.rom'], crcs: ['A82A6254'] }),
   },
   mx1600: {
     options: opts(cpu('6809'), ram([4, 16, 32, 64]), hires(), becker),
-    name: 'Dynacom MX-1600', clone: true, family: 'sam', keyboard: 'coco', video: 'ntsc', ca1Low: true, multiPak: true, mame: 'mx1600',
+    name: 'Dynacom MX-1600', clone: true, family: 'sam', lineage: 'coco', keyboard: 'coco', video: 'ntsc', ca1Low: true, multiPak: true, mame: 'mx1600',
     roms: cocoRoms({ files: ['mx1600bas.rom'], crcs: ['D918156E'] }, { files: ['mx1600extbas.rom'], crcs: ['322A3D58'] }),
   },
   lzcolor64: {
     options: opts(cpu('6809'), ram([4, 16, 32, 64]), hires(), becker),
-    name: 'LZ Color64', clone: true, family: 'sam', keyboard: 'coco', video: 'ntsc', ca1Low: true, multiPak: true, mame: 'lzcolor64',
+    name: 'LZ Color64', clone: true, family: 'sam', lineage: 'coco', keyboard: 'coco', video: 'ntsc', ca1Low: true, multiPak: true, mame: 'lzcolor64',
     roms: cocoRoms({ files: ['color_basic.ci24'], crcs: ['B0717D71'] }, { files: ['extendido.ci23'], crcs: ['D1B1560D'] }),
   },
   cd6809: {
     options: opts(cpu('6809'), ram([4, 16, 32, 64]), hires(), becker),
-    name: 'Codimex CD-6809', clone: true, family: 'sam', keyboard: 'coco', video: 'ntsc', ca1Low: true, multiPak: true, mame: 'cd6809',
+    name: 'Codimex CD-6809', clone: true, family: 'sam', lineage: 'coco', keyboard: 'coco', video: 'ntsc', ca1Low: true, multiPak: true, mame: 'cd6809',
     roms: cocoRoms({ files: ['cd6809bas84.rom', 'cd6809bas83.rom'], crcs: ['8A9971DA', 'F8E64142'] },
       { files: ['cd6809extbas84.rom', 'cd6809extbas83.rom'], crcs: ['8DC853E2', 'E5D5AA15'] }),
   },
@@ -141,33 +148,33 @@ const P = registry({
   // The name keeps its accent; the stub console folds it for the 32x16 screen (js/machines/stub.js).
   cp400: {
     options: opts(cpu('6809'), ram([4, 16, 32, 64]), hires(), becker),
-    name: 'Prológica CP-400', family: 'sam', keyboard: 'coco', video: 'ntsc', ca1Low: true, mame: 'cp400',
+    name: 'Prológica CP-400', family: 'sam', lineage: 'coco', keyboard: 'coco', video: 'ntsc', ca1Low: true, mame: 'cp400',
     roms: [slot('basic', 'CP 400 BASIC', 0x4000, 0x8000, ['cp400bas.rom'], [], { required: true })],
   },
 
   // ---- GIME family ----
   coco3: {
     options: opts(cpu('6809', '6309'), ram([128, 512]), hires(), becker, ssc),
-    name: 'CoCo 3', family: 'coco3', keyboard: 'coco', video: 'ntsc', multiPak: true, mame: 'coco3', mame6309: 'coco3h',
+    name: 'CoCo 3', family: 'coco3', lineage: 'coco', keyboard: 'coco', video: 'ntsc', multiPak: true, mame: 'coco3', mame6309: 'coco3h',
     roms: [slot('basic', 'Super Extended Color BASIC', 0x8000, 0x8000, ['coco3.rom'], ['B4C88D6C'], { required: true })],
   },
   coco3p: {
     options: opts(cpu('6809'), ram([128, 512]), hires(), becker),
-    name: 'CoCo 3 (PAL)', family: 'coco3', keyboard: 'coco', video: 'pal', mame: 'coco3p',
+    name: 'CoCo 3 (PAL)', family: 'coco3', lineage: 'coco', keyboard: 'coco', video: 'pal', mame: 'coco3p',
     roms: [slot('basic', 'Super Extended Color BASIC', 0x8000, 0x8000, ['coco3p.rom'], ['FF050D80'], { required: true })],
   },
 
   // ---- MC-10 family: 6803 + MC6847 ----
   mc10: {
     options: opts(cpu('6803'), ram([4, 20])),
-    name: 'MC-10', family: 'mc10', textScreen: 0x4000, keyboard: 'mc10', video: 'ntsc', mame: 'mc10', joystick: false,
+    name: 'MC-10', family: 'mc10', textScreen: 0x4000, lineage: 'mc10', keyboard: 'mc10', video: 'ntsc', mame: 'mc10', joystick: false,
     tape: { zeroHz: 1200, oneHz: 2400, pad: false }, basicFeatures: { timer: false, joystk: false, pmode: false },
     roms: [slot('basic', 'Micro Color BASIC', 0x2000, 0xE000, ['mc10.rom'], ['11FDA97E'], { required: true })],
   },
   alice: {
     options: opts(cpu('6803'), ram([4, 20])),
     // MAME's alice uses the MC-10 machine configuration unchanged (MC6847 NTSC, 3.58 MHz / 4)
-    name: 'Matra Alice', family: 'mc10', textScreen: 0x4000, keyboard: 'alice', video: 'ntsc', mame: 'alice', joystick: false,
+    name: 'Matra Alice', family: 'mc10', textScreen: 0x4000, lineage: 'mc10', keyboard: 'alice', video: 'ntsc', mame: 'alice', joystick: false,
     tape: { zeroHz: 1200, oneHz: 2400, pad: false }, basicFeatures: { timer: false, joystk: false, pmode: false },
     roms: [slot('basic', 'BASIC', 0x2000, 0xE000, ['alice.rom'], ['F876ABE9'], { required: true })],
   },
