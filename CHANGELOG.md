@@ -11,9 +11,9 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 ### Added
 
 - **Claude's side panel shows Claude's hand on the machine.** While one of Claude's calls acts on the machine (any
-  tool that is not read-only: typing, keys, loading, switching, reset), the bezel takes Claude's colour and a chip at
-  its top left says what it does, "Claude is typing: DIR↵" with the keys in Claude's colour as they reach the
-  machine; it stays 2 s after the call, and the status line keeps "Claude typed DIR↵ · 12:04". A call that only reads
+  tool that is not read-only: typing, keys, loading, switching, reset), the bezel takes a clay edge (outlined on a
+  light host theme) and a filled clay chip at its top left, in near-black text, says what it does, "Claude is typing:
+  DIR↵", with the keys shown as they reach the machine; the focus ring stays neutral. It stays 2 s after the call, and the status line keeps "Claude typed DIR↵ · 12:04". A call that only reads
   shows a quiet "Claude read the screen" or "Claude read memory" for 1.5 s. Your own keys never show a chip. Each call
   is announced once to screen readers. The tools and their approvals are unchanged.
 - **The side panel's toolbar:** **Programs** (the programs this machine runs without ROMs, its own builds of LIZA and

@@ -62,7 +62,7 @@ const scriptJson = (v) => JSON.stringify(v).replace(/</g, '\\u003c');
 // diagnostics behind Details (closed at first; docs/deploy-connector.md's verify step reads them there). panel.js fills
 // the menus and wires everything; until it runs, the status line says the emulator is starting (or why it did not:
 // errors the person must act on stay on that line).
-const CSS = `:root{color-scheme:dark;--bg:#0B0D0C;--panel:#141816;--line:#263029;--line2:#3A4540;--text:#E8EDE6;--dim:#9AA59C;--claude:#D97757;--focus:#C9D2C8}
+const CSS = `:root{color-scheme:dark;--bg:#0B0D0C;--panel:#141816;--line:#263029;--line2:#3A4540;--text:#E8EDE6;--dim:#9AA59C;--claude:#D97757;--claude-ink:#141413;--claude-edge:#B85C3E;--focus:#C9D2C8}
 *{box-sizing:border-box}html,body{margin:0}
 body{background:var(--bg);color:var(--text);font:13px/1.35 system-ui,-apple-system,"Segoe UI",sans-serif}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
@@ -88,16 +88,17 @@ button:focus-visible,summary:focus-visible{outline:2px solid var(--focus);outlin
 [role="menu"] .group{font-size:11px;color:var(--dim);padding:6px 8px 2px;text-transform:uppercase;letter-spacing:.04em}
 #stage{display:flex;justify-content:center;padding:4px}
 #bezel{position:relative;padding:8px;border-radius:10px;background:linear-gradient(180deg,#3A3F3D,#1C201E);box-shadow:inset 0 1px 0 #ffffff1f}
-#bezel.claude{background:var(--claude)}
+#bezel.claude{box-shadow:inset 0 1px 0 #ffffff1f,0 0 0 2px var(--claude),0 0 16px #D9775799}
+:root[data-theme="light"] #bezel.claude{outline:1px solid var(--claude-edge);outline-offset:2px}
 #screen{display:block;width:320px;height:240px;image-rendering:pixelated;image-rendering:crisp-edges;background:#000;border-radius:3px;outline:none}
 #screen:focus-visible{box-shadow:0 0 0 2px var(--focus)}
 #hint{position:absolute;right:14px;bottom:14px;padding:2px 9px;border-radius:999px;background:#000c;border:1px solid var(--line2);color:var(--text);font-size:12px;pointer-events:none}
 #bezel:focus-within #hint{display:none}
-#chip{position:absolute;left:14px;top:14px;max-width:calc(100% - 28px);padding:3px 9px;border-radius:6px;background:#140C08ee;border:1px solid var(--claude);color:#FFE3D6;font:12px/1.4 ui-monospace,"JetBrains Mono",monospace;white-space:pre;overflow:hidden;text-overflow:ellipsis}
-#chip.read{border-color:var(--line2);color:var(--dim);background:#000c}
+#chip{position:absolute;left:14px;top:14px;max-width:calc(100% - 28px);padding:3px 9px;border-radius:6px;background:var(--claude);color:var(--claude-ink);font:12px/1.4 ui-monospace,"JetBrains Mono",monospace;white-space:pre;overflow:hidden;text-overflow:ellipsis;box-shadow:0 2px 8px #0008}
+#chip.read{border:1px solid var(--line2);color:var(--focus);background:var(--bg)}
 #chip[hidden]{display:none}
-#chip-keys{color:var(--claude);font-weight:600}#chip-left{color:#8a6a5c}
-#chip .cursor{display:inline-block;width:.55em;height:1em;vertical-align:-2px;margin-left:1px;background:var(--claude);animation:blink 1s steps(1) infinite}
+#chip-keys{color:var(--claude-ink);font-weight:700}#chip-left{color:var(--claude-ink);text-decoration:underline dotted}
+#chip .cursor{display:inline-block;width:.55em;height:1em;vertical-align:-2px;margin-left:1px;background:var(--claude-ink);animation:blink 1s steps(1) infinite}
 #chip.read .cursor,#chip.done .cursor,#chip.nokeys .cursor{display:none}
 @keyframes blink{50%{opacity:0}}
 #foot{padding:0 10px 4px;display:flex;flex-wrap:wrap;gap:0 12px;align-items:baseline;min-height:22px}

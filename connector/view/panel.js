@@ -112,6 +112,8 @@ export async function start() {
   const syncMode = () => {
     const c = bridge.hostContext || {}, mode = c.displayMode || 'inline';
     facts.mode = `${mode}${c.containerDimensions ? ` ${JSON.stringify(c.containerDimensions)}` : ''}`;
+    // the host's theme: Claude's colours stay the same in both; on a light host the bezel's Claude edge gets an outline
+    document.documentElement.dataset.theme = c.theme === 'light' ? 'light' : 'dark';
     $('big').hidden = !(mode === 'inline' && Array.isArray(c.availableDisplayModes) && c.availableDisplayModes.includes('fullscreen'));
     fit();
   };

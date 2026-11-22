@@ -402,6 +402,38 @@ async function uiScenario(browser, check, { shots = null } = {}) {
     await page.waitForTimeout(600);
     const own = await v.evaluate(() => ({ shown: window.cloadmView.cue.shown, hidden: document.getElementById('chip').hidden, claude: document.getElementById('bezel').classList.contains('claude'), screen: window.cloadmView.session.screenText().join('\n') }));
     check('connector ui: the person\'s own typing shows no chip and leaves the bezel as it is (and reaches LIZA)', seen.every(Boolean) && own.hidden && !own.claude && own.shown === ended.shown && /> X?HELLO/.test(own.screen), JSON.stringify({ seen, own: Object.assign(own, { screen: own.screen.slice(-200) }) }));
+    // R34, Claude's colour, in the host's light and dark themes: a filled clay chip with near-black text (contrast
+    // ≥ 4.5, keys included), always the word "Claude"; the bezel's clay edge with a #B85C3E outline on a light host
+    // (≥ 3:1 against #FAF9F5); the focus ring neutral, never clay
+    const colours = {};
+    for (const theme of ['light', 'dark']) {
+      await page.evaluate((t) => window.hostContextChanged({ theme: t }), theme);
+      await call('type_text', { machine_id: 'm1', text: 'OK\n' });
+      colours[theme] = await v.evaluate(() => {
+        const rgb = (c) => (c.match(/[\d.]+/g) || []).slice(0, 3).map(Number);
+        const lum = (c) => { const [r, g, b] = rgb(c).map((x) => { x /= 255; return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+        const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return Math.round(((x + 0.05) / (y + 0.05)) * 100) / 100; };
+        const el = (id) => document.getElementById(id), cs = (id) => getComputedStyle(el(id));
+        const bg = cs('chip').backgroundColor;
+        const bezel = cs('bezel');
+        el('programs').focus();
+        const ring = cs('programs').outlineColor;
+        el('screen').focus();
+        const screenRing = getComputedStyle(el('screen')).boxShadow;
+        return { chip: el('chip').textContent, visible: el('chip').checkVisibility(), bg, text: ratio(cs('chip-text').color, bg), keys: ratio(cs('chip-keys').color, bg),
+          outline: bezel.outlineStyle === 'solid' ? bezel.outlineColor : null, edge: bezel.outlineStyle === 'solid' ? ratio(bezel.outlineColor, 'rgb(250, 249, 245)') : null,
+          glow: /217, 119, 87/.test(bezel.boxShadow), ring, screenRing };
+      });
+    }
+    const clay = 'rgb(217, 119, 87)';
+    const r34 = ['light', 'dark'].every((t) => {
+      const c = colours[t];
+      return c.visible && /Claude/.test(c.chip) && c.bg === clay && c.text >= 4.5 && c.keys >= 4.5 && c.glow && c.ring !== clay && !/217, 119, 87/.test(c.screenRing)
+        && (t === 'light' ? c.outline === 'rgb(184, 92, 62)' && c.edge >= 3 : c.outline === null);
+    });
+    check('connector ui: Claude\'s chip is filled clay with near-black text (≥ 4.5:1, its keys too) and says "Claude", in light and dark host themes; the bezel takes a clay edge (outlined #B85C3E, ≥ 3:1, on a light host); the focus ring is never clay',
+      r34, JSON.stringify(colours));
+    await page.evaluate(() => window.hostContextChanged({ theme: 'dark' }));
     check('connector ui: no page errors', !errors.length, errors.join(' | '));
   } finally {
     await ctx.close();
