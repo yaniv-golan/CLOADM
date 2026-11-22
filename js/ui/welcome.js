@@ -84,11 +84,12 @@ export function setupWelcome(page, { showRoms, openClaude }) {
   };
   // A key on the welcome menu that is not one of its numbers (a first-time visitor typing PRINT, or LIST, as on the
   // real machine): the menu takes only numbers, and BASIC needs its ROM. Said once a visit. The menu's numbers, BREAK
-  // (Esc: the games menu's way back), Tab (it moves the focus) and keys held with Ctrl, Alt or Cmd are not such keys.
+  // (Esc: the games menu's way back), Tab (it moves the focus) and keys held with Ctrl, Alt or Cmd are not such keys,
+  // and only while the menu is the screen the keys go to (not the chat, full screen in front of it).
   let menuToldOnce = false;
   const OTHER = new Set(['Enter', 'Backspace', 'Delete', 'Home', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
   addEventListener('keydown', (e) => {
-    if (menuToldOnce || e.repeat || e.ctrlKey || e.altKey || e.metaKey || !session.welcomeRunning || !page.toMachine(e)) return;
+    if (menuToldOnce || e.repeat || e.ctrlKey || e.altKey || e.metaKey || !session.welcomeRunning || !session.welcomeRunningOn || !page.toMachine(e)) return;
     if (!(e.key.length === 1 ? !/[0-9]/.test(e.key) : OTHER.has(e.key))) return;
     menuToldOnce = true;
     page.toast(`This is CLOADM's welcome menu: press a number to choose. Typing BASIC needs your BASIC ROM: {action}. Or press ${LIZA_KEY} for LIZA, a program you can type to.`,
