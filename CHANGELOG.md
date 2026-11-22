@@ -233,6 +233,12 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   Dragons and the CoCos; the MC-10 has no drives, and the Dragon Alpha's own interface is unchanged.
 - **On a phone, a slot holding media comes first** under the keyboard panel (then the cassette, the drives, the
   cartridge), so a mounted disk is never below an empty cassette deck.
+- **Asking Claude opens the side panel beside your machine, whatever is on it.** The header's **Ask Claude**, Ctrl+K's
+  **Ask Claude: "…"** and the panel's openers now open the side panel with the welcome menu on screen too, where they
+  used to open the full-screen chat and put a separate chat machine in place of yours. Your machine stays on screen and
+  keeps running. Only **Chat with Claude, full screen** and the welcome menu's chat item open the full-screen chat.
+  Claude reads your machine's screen and memory with "Let Claude use the emulator" off, as before (a new test,
+  `tests/claude-read-ungated.test.js`, holds this in both views); only typing, POKEs, loading and running ask first.
 
 ### Fixed
 
@@ -346,6 +352,11 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   compared, along with the header's own shape (RIFF/WAVE, the `data` chunk and its size).
 - 2048's, Minesweeper's and the colour demo's "how to play" toast went only after its full time, held while hovered;
   it now goes at the first key, or after 4 s, whichever is first.
+- **Ctrl+K finds a command typed with its punctuation.** Typing a command's label as it reads, such as "Chat with
+  Claude, full screen", found no command: the box split what you typed only at spaces, so "claude," matched nothing,
+  and Enter asked Claude instead. It now splits at punctuation as the labels are. A question, ending in "?", still goes
+  to Claude even when its words match a command: "reset?" asks, with Reset listed beneath, and runs nothing. Only a
+  command's whole label typed with its own "?" runs it.
 
 ### 0.1.8-pre
 
