@@ -20,7 +20,7 @@
  *  - Sound: browsers only allow it after a click or key press, so a hint shows until then; the welcome
  *    program's tune plays once it is unlocked.
  */
-import { $, ESC } from './page.js';
+import { $, ESC, touchPanel } from './page.js';
 import { profiles } from '../machines/profiles.js';
 import { cpuFamily } from '../cpu/cpus.js';
 import { gameKey } from '../session.js';
@@ -43,8 +43,6 @@ export const SHELF = [
 const gameItem = (key) => SHELF.find((x) => x.game === key);
 // the machine question: one button per family people are likely to have had
 const ASK = [['dragon64', 'Dragon 32 / 64'], ['coco', 'CoCo 1 / 2'], ['coco3', 'CoCo 3'], ['mc10', 'MC-10']];
-// the on-screen panel is up (js/ui/touch-keys.js): the hints say "tap", and BREAK is its button, not Esc
-const touchPanel = () => document.body.classList.contains('touch-keys');
 const el = (tag, text, cls) => { const e = document.createElement(tag); if (text != null) e.textContent = text; if (cls) e.className = cls; return e; };
 
 export function setupWelcome(page, { showRoms, openClaude }) {

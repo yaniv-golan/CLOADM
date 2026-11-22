@@ -4,9 +4,7 @@
  *
  * Keys: in landscape on a phone it is the design's split thumb keyboard, the screen between its halves with
  * BREAK, CLEAR, the switch and Menu under it; in portrait (or on a larger touch screen) a ten-column keyboard
- * under the screen, which takes the page's full width (the page scrolls to the keys' foot where the window is
- * short), or, while one of the bundled games runs, the two rows of game keys (arrows, R, F, Y, N, SPACE, ENTER);
- * "Keys ▾" picks either, or hides the panel. Keys go to the machine through HostInput.touch (the KeyQueue holds each press long enough
+ * under the screen. Upright, the screen takes what the panel leaves (UX R30). Keys go to the machine through HostInput.touch (the KeyQueue holds each press long enough
  * for the machine to see it; the no-ROM stub gets the character). SHIFT is sticky: it shifts the next key.
  *
  * Joystick: one stick drives the right joystick (joystick 0, the same one the first gamepad drives): analogue
@@ -19,10 +17,16 @@
  * the split keyboard's halves, which are the two side columns there, as the screen has the height). Two fingers
  * work at once: the stick and FIRE are separate pointers, and each captures its own.
  *
+ * Pad: a D-pad (↑ ↓ ← →, 48 px keys), SPACE, ENTER, BREAK, the running program's extra keys (Minesweeper's F) and
+ * ABC, the keyboard for one key. The switch is Keys | Pad | Stick (Stick only where the machine has a joystick port
+ * and not in the phone's chat). A bundled program opens in the mode it is played with (Session.programControls: 2048
+ * and Minesweeper on the pad, LIZA on the keys; anything else on the keys).
+ *
  * Shown by itself on touch screens (a coarse pointer, touch points without hover, or a first touch); the Input
- * tab's "On-screen keyboard" setting says Automatic, Always or Never, and "Hide keys" (in Keys ▾, or Menu sideways) hides it for the
- * visit (a Keys button brings it back). The mode is remembered per machine (touchMode.<id>), and ?touch= sets it
- * for the visit (js/config.js; never for an embed, which has no panel of its own).
+ * tab's "On-screen keyboard" setting says Automatic, Always or Never, and Hide keys (⌄ in the strip, or Menu sideways)
+ * hides it for the visit (⌨, Show keys, bottom right, brings it back). The mode is remembered per program and machine
+ * (touchMode.<id>.<program>, or touchMode.<id>), and ?touch= sets it for the visit (js/config.js; never for an
+ * embed, which has no panel of its own).
  */
 import { charToKeys } from '../machines/keyboards.js';
 import { touchJoystickOffered, STICK_RADIUS } from '../host/input.js';
@@ -33,10 +37,13 @@ const SPECIAL = {
   '↑': ['UP', 94], '↓': ['DOWN', 10], '←': ['LEFT', 8], ENTER: ['ENTER', 13], SPACE: ['SPACE', 32],
   '→': ['RIGHT', 9], BREAK: ['BREAK', 3], CLEAR: ['CLEAR', 12],
 };
-// the game keys: what 2048 and Minesweeper read (the arrows, R to start again, SPACE and F, Y and N, ENTER), on two
-// rows instead of five, so an upright phone keeps the room for the screen. '' is a gap (the d-pad's corners).
-const PAD = [['', '↑', '', 'R', 'F', 'Y', 'N'], ['←', '↓', '→', 'SPACE', 'ENTER']];
+// Pad mode (UX R30): a D-pad (two rows; '' is a corner), and SPACE, ENTER, BREAK, the running program's own extra
+// keys (Session.programControls: Minesweeper's F) and ABC, the full keyboard for one key
+const DPAD = [['', '↑', ''], ['←', '↓', '→']];
+const PAD_KEYS = ['SPACE', 'ENTER', 'BREAK'];
 const ARROW_NAMES = { '↑': 'Up', '↓': 'Down', '←': 'Left', '→': 'Right' };
+// the panel's modes, in the switch's order; 'joystick' is the switch's Stick (the stored value and ?touch= keep R4's name)
+const MODES = ['keys', 'pad', 'joystick'];
 // the character SHIFT + key types (the Dragon layout's shifted symbols), for the stub
 const SHIFTED = {};
 for (let c = 32; c < 127; c++) { const ch = String.fromCharCode(c), k = charToKeys(ch); if (k && k.shift && !SHIFTED[k.key]) SHIFTED[k.key] = ch; }
@@ -45,7 +52,8 @@ const SPLIT = {
   left: ['1 2 3 4 5 6', '↑ Q W E R T', '↓ A S D F G', 'SHIFT Z X C V B', '_'],
   right: ['7 8 9 0 : -', 'Y U I O P @', 'H J K L ; ENTER', 'N M , . / ←', '_ SHIFT'],
 };
-const FULL = ['1 2 3 4 5 6 7 8 9 0', 'Q W E R T Y U I O P', 'A S D F G H J K L ;', 'Z X C V B N M , . /', 'SHIFT ↑ ↓ ← _ : - @ ENTER'];
+// (→ after ←, UX R30; with it the bottom row overflowed at 320 px, so @ ends the third row)
+const FULL = ['1 2 3 4 5 6 7 8 9 0', 'Q W E R T Y U I O P', 'A S D F G H J K L ; @', 'Z X C V B N M , . /', 'SHIFT ↑ ↓ ← → _ : - ENTER'];
 // joystick mode's key strip: the keys a game that asks "PRESS Y OR N" wants, and the space bar most use to
 // start; ABC opens the full keyboard for one key, then back to the stick
 const STRIP = ['SPACE', 'ENTER', 'BREAK', '1', '2', 'Y', 'N', 'ABC'];
@@ -134,10 +142,18 @@ export function setupTouchKeys(page, { input }) {
   $('touchLeft').append(...rows(SPLIT.left));
   $('touchRight').append(...rows(SPLIT.right));
   $('touchFull').append(...rows(FULL));
-  for (const r of PAD) {
-    const row = document.createElement('div'); row.className = 'tkrow';
-    for (const l of r) row.append(l ? key(l, { arrow: l in ARROW_NAMES }) : Object.assign(document.createElement('span'), { className: 'tkgap' }));
-    $('touchPad').append(row);
+  // the pad: the D-pad, then the keys; the program's extras go between BREAK and ABC (padExtras, from apply())
+  const padArrows = Object.assign(document.createElement('div'), { className: 'padarrows' });
+  for (const r of DPAD) for (const l of r) padArrows.append(l ? key(l, { arrow: true }) : Object.assign(document.createElement('span'), { className: 'tkgap' }));
+  const padKeys = Object.assign(document.createElement('div'), { className: 'padkeys' });
+  const padExtra = Object.assign(document.createElement('span'), { className: 'padextra' });
+  padKeys.append(...PAD_KEYS.map((l) => key(l)), padExtra);
+  $('touchPad').append(padArrows, padKeys);
+  let extrasFor = '';
+  function padExtras(keys) {
+    if (keys.join() === extrasFor) return;
+    extrasFor = keys.join();
+    padExtra.replaceChildren(...keys.map((l) => key(l)));
   }
   for (const [id, label] of [['tkBreak', 'BREAK'], ['tkClear', 'CLEAR']]) $(id).replaceWith(Object.assign(key(label), { id }));
 
@@ -152,11 +168,16 @@ export function setupTouchKeys(page, { input }) {
         Object.assign(document.createElement('span'), { className: 'short', textContent: short })); }
       strip.append(k); continue;
     }
+    strip.append(abc('tkAbc'));
+  }
+  padKeys.append(abc('tkPadAbc'));
+  // ABC: the strip's (joystick mode) and the pad's
+  function abc(id) {
     const b = document.createElement('button');
-    b.type = 'button'; b.id = 'tkAbc'; b.className = 'tk wide'; b.textContent = 'ABC';
+    b.type = 'button'; b.id = id; b.className = 'tk wide abc'; b.textContent = 'ABC';
     b.addEventListener('pointerdown', (e) => { e.preventDefault(); page.audio.start(); showKeysOnce(); });
     b.addEventListener('contextmenu', (e) => e.preventDefault());
-    strip.append(b);
+    return b;
   }
   // ABC: the keyboard comes back for one keypress, then the stick does. A touch has IMPLICIT pointer capture on
   // the button it landed on, so the finger that pressed ABC lifts inside ABC itself: that pointerup says nothing
@@ -181,7 +202,7 @@ export function setupTouchKeys(page, { input }) {
   function leaveOnKey(e) {
     if (!keysOnce) return;
     const t = e.target;
-    if (t.id === 'tkAbc') return;                     // ABC again: the keyboard it shows is already up
+    if (t.closest && t.closest('.abc')) return;       // ABC again: the keyboard it shows is already up
     // a key ends it when it commits (key(), above): a drag that cancels the key leaves the keyboard up
     if (t.closest && t.closest('.tk')) return;
     // Menu and the mode switch are the panel's own controls: leaving them to their handler (the switch ends ABC
@@ -253,7 +274,7 @@ export function setupTouchKeys(page, { input }) {
   addEventListener('pointercancel', fireEnd, true);
   fire.addEventListener('contextmenu', (e) => e.preventDefault());
 
-  // ---- the Keys | Joystick switch: remembered per machine ----
+  // ---- the Keys | Pad | Stick switch: remembered per program and machine ----
   // offered only where the panel is the machine's: not in the phone's full-screen chat (body.chat-phone,
   // js/ui/claude.js), whose keys type into the chat and where a BASIC machine's joystick has no meaning
   const offer = () => touchJoystickOffered(session.machine) && !document.body.classList.contains('chat-phone');
@@ -265,14 +286,23 @@ export function setupTouchKeys(page, { input }) {
   // still driving joy[0]/fire[0] every frame
   const padCount = () => { try { return (navigator.getGamepads ? [...navigator.getGamepads()] : []).filter((p) => p && p.connected !== false).length; } catch (e) { return 0; } };
   let padHere = padCount() > 0, visitMode = null;
-  const wanted = () => visitMode || (session.store.get(`touchMode.${session.machine.id}`) === 'joystick' ? 'joystick' : 'keys');
-  const modus = () => (padHere || !offer() || wanted() !== 'joystick' ? 'keys' : 'joystick');
+  // The mode a program opens in comes from what it is played with (Session.programControls, UX R30): the arrows ->
+  // Pad, a joystick -> Stick, the keyboard (LIZA, BASIC, anything else) -> Keys. The switch's choice is remembered per
+  // program and machine (touchMode.<machine>.<program>), and per machine for no program in particular (R4's
+  // touchMode.<machine>: BASIC, the welcome menu, a file).
+  const program = () => session.programControls;
+  const modeKey = () => { const p = program(); return `touchMode.${session.machine.id}${p ? `.${p.id}` : ''}`; };
+  const modeFor = () => { const p = program(); return !p ? 'keys' : p.input === 'arrows' ? 'pad' : p.input === 'joystick' ? 'joystick' : 'keys'; };
+  const wanted = () => { if (visitMode) return visitMode; const v = session.store.get(modeKey()); return MODES.includes(v) ? v : modeFor(); };
+  // Stick where it is not offered (no port, the phone's chat) or while a gamepad drives the joystick: the program's
+  // own mode if that is the pad, else Keys
+  const modus = () => { if (!session.machine) return 'keys'; const w = wanted(); return w === 'joystick' && (padHere || !offer()) ? (modeFor() === 'pad' ? 'pad' : 'keys') : w; };
   function setMode(mode, { remember = true } = {}) {
     if (!session.machine) return;
     if (keysOnce) leave();   // the switch's own tap ends ABC: the mode it chooses is the one to show
     // using the switch takes the panel out of the link's mode: from here it is the person's choice
     visitMode = null;
-    if (remember) session.store.set(`touchMode.${session.machine.id}`, mode);
+    if (remember) session.store.set(modeKey(), mode);
     for (const b of box.querySelectorAll('[data-touchmode]')) b.setAttribute('aria-pressed', String(b.dataset.touchmode === mode));
     box.dataset.mode = mode;
     // leaving the stick: nothing stays held on the joystick it drove
@@ -292,53 +322,51 @@ export function setupTouchKeys(page, { input }) {
   const touchScreen = () => (touchSeen = touchSeen || coarse.matches || (navigator.maxTouchPoints > 0 && noHover.matches));
   addEventListener('pointerdown', (e) => { if (e.pointerType === 'touch' && !touchSeen) { touchSeen = true; apply(); } }, { capture: true });
   let hidden = false;
-  // the keys' layout: the full keyboard, or the game keys (PAD). The game keys while one of the bundled games runs
-  // (Session.gameRunning: ?start=2048, the menu's PLAY A GAME, Run again), unless the person picks a layout in the
-  // Keys menu; that pick holds until a game starts or is left (then the default fits what runs again).
-  // Held sideways the split keyboard stays (play/index.html leaves #touchPad out there): the screen has its height.
-  let layoutPick = null;
   const sheet = $('tkMenuSheet');
-  const layout = () => layoutPick || (session.gameRunning ? 'pad' : 'full');
-  // a phone held sideways: the app bar gives way to the panel (play/index.html), so the panel's Menu carries the
-  // machine menu and Commands…; elsewhere the app bar has them and the button is the keys' own menu ("Keys ▾")
+  // a phone held sideways: the app bar gives way to the panel (play/index.html), so the panel's button is "Menu",
+  // with the machine picker, Commands… and Hide keys; elsewhere the app bar has its own Menu and the panel's button
+  // is ⌄, Hide keys (never two controls named Menu, UX R30)
   const sideways = matchMedia('(orientation: landscape) and (max-height: 500px)');
   // standing aside: the page has a text field the person types in with the phone's own keyboard (the chat's API
   // key form), so the machine keyboard steps out of its way until the field is gone
   let aside = false;
   const mode = () => session.store.get('touchKeys') || 'auto';
   // is the panel showing the stick now (the page's tap handling and the mouse-as-joystick ask: js/ui/screen.js)
-  const stickActive = () => !box.hidden && !keysOnce && modus() === 'joystick' && offer();
+  const stickActive = () => !box.hidden && !keysOnce && modus() === 'joystick';
 
   let stickWas = false;   // the stick's pieces were showing at the last apply()
   function apply() {
-    const on = !hidden && !aside && (mode() === 'on' || (mode() === 'auto' && touchScreen()));
-    const joy = on && offer();
-    // joystick mode (the classes follow joyMode, not stick): ABC's one keypress takes the stick's pieces away
-    // and brings the keyboard into the joystick mode's grid, never the keys mode's -- whose rows the screen
-    // occupies sideways, and which would put the keyboard over it.
-    const joyMode = joy && modus() === 'joystick';
+    const wantOn = !aside && (mode() === 'on' || (mode() === 'auto' && touchScreen()));
+    const on = wantOn && !hidden;
+    // the mode's classes (joystick, pad) stay up through ABC's one keypress: it takes the stick's or the pad's pieces
+    // away and brings the keyboard into that mode's grid, never the keys mode's -- whose rows the screen occupies
+    // sideways, and which would put the keyboard over it.
+    const m = on ? modus() : 'keys';
+    const joyMode = m === 'joystick', padMode = m === 'pad';
     const stick = joyMode && !keysOnce;
     box.hidden = !on;
-    box.classList.toggle('joystick', !!joyMode);
+    box.classList.toggle('joystick', joyMode);
+    box.classList.toggle('pad', padMode);
     box.classList.toggle('keysonce', keysOnce);
-    // the game keys: keys mode only (joystick mode has its own strip; ABC's one keypress brings the full keyboard)
-    const pad = on && !joyMode && layout() === 'pad';
-    box.classList.toggle('pad', pad);
-    // the menu button's label and items (see `sideways`; a phone's full-screen chat: the way back, js/ui/claude.js)
-    const side = sideways.matches;
-    $('tkMenu').textContent = document.body.classList.contains('chat-phone') ? '← Emulator' : side ? 'Menu' : 'Keys ▾';
-    for (const b of sheet.querySelectorAll('[data-item]')) {
-      const it = b.dataset.item;
-      b.hidden = it === 'menu' || it === 'commands' ? !side : it === 'full' || it === 'pad' ? side || !!joyMode : false;
-      if (it === 'full' || it === 'pad') b.setAttribute('aria-pressed', String(layout() === it));
-    }
-    box.dataset.mode = modus();
+    if (padMode) { const p = program(); padExtras(p ? p.extra : []); }
+    box.dataset.mode = m;
     document.body.classList.toggle('touch-keys', on);
-    document.body.classList.toggle('touch-stick', !!joyMode);
+    document.body.classList.toggle('touch-stick', joyMode);
+    document.body.classList.toggle('touch-pad', padMode);
+    // Hide keys: the page keeps the touch layout's screen (upright, the whole width: play/index.html), and ⌨ (Show keys)
+    // stands bottom right
+    document.body.classList.toggle('touch-hidden', wantOn && hidden);
+    // the menu button (see `sideways`; a phone's full-screen chat: the way back, js/ui/claude.js)
+    const side = sideways.matches, chat = document.body.classList.contains('chat-phone'), tkMenu = $('tkMenu');
+    tkMenu.textContent = chat ? '← Emulator' : side ? 'Menu' : '⌄';
+    if (!chat && !side) tkMenu.setAttribute('aria-label', 'Hide keys'); else tkMenu.removeAttribute('aria-label');
+    if (side && !chat) { tkMenu.setAttribute('aria-controls', 'tkMenuSheet'); tkMenu.setAttribute('aria-expanded', String(!sheet.hidden)); }
+    else { tkMenu.removeAttribute('aria-controls'); tkMenu.removeAttribute('aria-expanded'); sheet.hidden = true; }
     markUndrawn();   // (the touch layout hides the app bar, the drawer and the ports: page.js)
-    // the switch where the panel is, for a machine that has a joystick port
-    $('tkModeSwitch').hidden = !joy;
-    for (const b of box.querySelectorAll('[data-touchmode]')) b.setAttribute('aria-pressed', String(b.dataset.touchmode === modus()));
+    // Keys | Pad | Stick: Stick where the machine has a joystick port of its own and the panel is the machine's
+    $('tkModeSwitch').hidden = !on;
+    box.querySelector('[data-touchmode="joystick"]').hidden = !offer();
+    for (const b of box.querySelectorAll('[data-touchmode]')) b.setAttribute('aria-pressed', String(b.dataset.touchmode === m));
     $('btnShowKeys').hidden = !hidden;   // only after Hide keys (the Input tab has the setting)
     $('selTouchKeys').value = mode();
     // losing the stick for ANY reason (hidden, Keys, a gamepad, ABC) lets go of it here: the pointer handlers
@@ -348,10 +376,25 @@ export function setupTouchKeys(page, { input }) {
     if (stickWas && !stick) { releaseStick(); input.touchFire(false); }
     stickWas = stick;
   }
+  // A phone held upright (UX R30): the panel decides and the screen takes the rest -- the largest 4:3 screen for which
+  // the app bar, the screen, the strip and the panel fit in the visible height, at most the page's width (play/index.html,
+  // "a phone held upright"). What lies above the monitor and from its foot to the panel's is measured here, as CSS
+  // cannot; both are lengths of the page's own content, not of the window, so the stylesheet's 100svh does the rest.
+  // (Unused sideways, where the monitor is fixed between the halves.)
+  const monitor = document.querySelector('.layout > main > .monitor'), root = document.documentElement.style;
+  function fit() {
+    const m = monitor.getBoundingClientRect();
+    root.setProperty('--tk-above', `${Math.round(m.top + scrollY)}px`);
+    // (keys hidden: room for ⌨, Show keys, under the screen's corner)
+    root.setProperty('--tk-below', `${box.hidden ? 56 : Math.round(box.getBoundingClientRect().bottom - m.bottom)}px`);
+  }
+  // (the monitor's own size changes with the result, but neither length depends on it: no loop)
+  new ResizeObserver(fit).observe(document.querySelector('.layout > main'));
+  new ResizeObserver(fit).observe($('appbar'));
+  new ResizeObserver(fit).observe(box);
   // Safari 26 and later on an iPhone draws its bottom toolbar (the floating address bar) OVER the page, and neither
-  // the viewport units nor env(safe-area-inset-bottom) take it out: upright, the page ends with that much room under
-  // the panel, so its last row scrolls clear of the toolbar (.float-bar in play/index.html). Not an installed app (no
-  // toolbar) and not another browser on iOS (theirs is not over the page).
+  // the viewport units nor env(safe-area-inset-bottom) take it out: the panel stops above it (--tk-bar in
+  // play/index.html). Not an installed app (no toolbar) and not another browser on iOS (theirs is not over the page).
   const iosSafari = /iPhone|iPod/.test(navigator.userAgent) && !/CriOS|FxiOS|EdgiOS|OPiOS|GSA\//.test(navigator.userAgent) && /Version\/(\d+)/.exec(navigator.userAgent);
   const standalone = navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
   document.documentElement.classList.toggle('float-bar', !!iosSafari && +iosSafari[1] >= 26 && !standalone);
@@ -360,17 +403,16 @@ export function setupTouchKeys(page, { input }) {
   noHover.addEventListener('change', apply);
   $('selTouchKeys').onchange = (e) => { session.store.set('touchKeys', e.target.value); hidden = false; apply(); };
   $('btnShowKeys').onclick = () => { hidden = false; apply(); };
-  // The panel's menu button. Where the app bar shows (upright, a tablet) it is "Keys ▾": the layout (Full keyboard or
-  // Game keys, in keys mode) and Hide keys; the app bar's own More has the links and Commands…, so the two menus
-  // share nothing. Held sideways the app bar gives way to the panel, so it is "Menu": the machine menu, Commands…
-  // and Hide keys. In a phone's chat (body.chat-phone, js/ui/claude.js) the app bar gives way to the chat bar, so
+  // The panel's menu button (UX R30). Where the app bar shows (upright, a tablet) it is ⌄, Hide keys: the app bar's Menu
+  // is the only Menu. Held sideways the app bar gives way to the panel, so it is "Menu": Machine… (the machine picker),
+  // Commands… and Hide keys. In a phone's chat (body.chat-phone, js/ui/claude.js) the app bar gives way to the chat bar, so
   // it is "← Emulator" and leaves the chat in one tap, as it always has: the way out must not need a second tap.
-  sheet.innerHTML = '<button type="button" data-item="full">Full keyboard</button><button type="button" data-item="pad">Game keys</button>'
-    + '<button type="button" data-item="menu">Machine menu</button><button type="button" data-item="commands">Commands…</button><button type="button" data-item="hide">Hide keys</button>';
+  sheet.innerHTML = '<button type="button" data-item="machine">Machine…</button><button type="button" data-item="commands">Commands…</button><button type="button" data-item="hide">Hide keys</button>';
   const closeSheet = () => { sheet.hidden = true; $('tkMenu').setAttribute('aria-expanded', 'false'); };
   // a disclosure: it opens with the focus on its first button, and Esc gives the focus back to Menu
   $('tkMenu').onclick = () => {
     if (document.body.classList.contains('chat-phone')) { $('btnClaudeBack').click(); return; }
+    if (!sideways.matches) { hidden = true; apply(); $('btnShowKeys').focus(); return; }   // ⌄: Hide keys
     sheet.hidden = !sheet.hidden;
     $('tkMenu').setAttribute('aria-expanded', String(!sheet.hidden));
     if (!sheet.hidden) sheet.querySelector('button:not([hidden])').focus();
@@ -379,10 +421,19 @@ export function setupTouchKeys(page, { input }) {
     const b = e.target.closest('[data-item]');
     if (!b) return;
     closeSheet();
-    if (b.dataset.item === 'menu') $('btnMenu').click();
+    if (b.dataset.item === 'machine') openMachines();
     else if (b.dataset.item === 'commands') $('navCommands').click();
     else if (b.dataset.item === 'hide') { hidden = true; apply(); }
-    else { layoutPick = b.dataset.item; apply(); }
+  };
+  // Machine…: the machine picker (#machineMenu), which lives in the app bar; held sideways the bar gives way to the
+  // panel, so it comes back over the panel (body.machine-pick, play/index.html) while the picker is open
+  function openMachines() {
+    document.body.classList.add('machine-pick');
+    $('machineBtn').click();
+    const menu = $('machineMenu');
+    const done = new MutationObserver(() => { if (menu.hidden) { done.disconnect(); document.body.classList.remove('machine-pick'); } });
+    done.observe(menu, { attributes: true, attributeFilter: ['hidden'] });
+    if (menu.hidden) { done.disconnect(); document.body.classList.remove('machine-pick'); }
   };
   // (open only while it shows: a panel that went away with it open must not take the screen's Esc)
   const sheetOpen = () => !sheet.hidden && sheet.checkVisibility();
@@ -391,10 +442,9 @@ export function setupTouchKeys(page, { input }) {
   // still type: the sheet is above the panel)
   page.outsidePress(sheetOpen, (t) => sheet.contains(t) || $('tkMenu').contains(t), (refocus) => { closeSheet(); if (refocus) $('tkMenu').focus(); });
   // a machine switch: the mode is that machine's own; a machine without a joystick port goes back to the keys
-  // a game starting or left: the layout follows what runs (the person's pick was for what ran before)
+  // a program starting or left: the mode follows what runs (Session.programControls)
   session.on((ev) => {
-    if (ev === 'game' || ev === 'menu') { layoutPick = null; apply(); return; }
-    if (['loaded', 'reset', 'welcome', 'firmware'].includes(ev)) { apply(); return; }
+    if (['program', 'menu', 'loaded', 'reset', 'welcome', 'firmware'].includes(ev)) { apply(); return; }
     if (ev !== 'machine') return;
     // a stick the OLD machine's panel was driving is let go of, so nothing carries over. Only then: a machine whose
     // joystick the mouse or the keyboard joystick drives is the host's, and this panel must not recentre it.

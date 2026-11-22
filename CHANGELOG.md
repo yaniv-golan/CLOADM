@@ -10,30 +10,39 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Changed
 
-- **Phones held upright: the screen at the page's full width, game keys for the games.** The screen was cut down so
-  the whole keyboard fitted under it (about 160 px wide on a small iPhone, 230 on an iPhone 15): too small to read the
-  welcome menu, the 2048 tiles or LIZA. It now takes the page's width and the panel follows under it; where the window
-  is too short the page scrolls (from the screen or the bar: a drag on the keys is still the keys'). While 2048 or
-  Minesweeper runs (`?start=`, PLAY A GAME, the Media tab) the panel shows **game keys** instead of the full keyboard:
-  the arrows as a pad, R, F, Y, N, SPACE and ENTER, on two rows; leaving the game brings the keyboard back. Held
-  sideways nothing changes. The browser check's new group `mobile` covers it (every check failed on v0.1.8).
-- **The touch panel's Menu is "Keys ▾" where the app bar shows, and the phone's app bar Menu is "More".** The two
-  Menus overlapped (Commands… in both). Keys ▾ picks Full keyboard or Game keys and has Hide keys, one tap from the
-  panel; More has the links, Commands… and Share. Held sideways, where the app bar gives way, the panel's Menu keeps
-  the machine menu, Commands… and Hide keys.
+- **A phone held upright: the panel decides, the screen takes the rest (UX R30).** The screen is the largest 4:3 one
+  for which the app bar, the screen, the strip and the panel fit in the visible height, at most the page's width, and
+  the picture fills it (no bezel). The panel has three modes, **Keys | Pad | Stick**: Pad is a D-pad with SPACE,
+  ENTER, BREAK, the program's own keys and ABC (the keyboard for one key), on two rows of 48 px keys; Stick is the touch
+  joystick, where the machine has a port. A bundled program opens in the mode it is played with (a new per-program
+  `controls` field in the Session: 2048 and Minesweeper on the Pad, Minesweeper's with F and Stick offered; LIZA on
+  Keys; anything else on Keys), and the choice is remembered per program and machine. With Pad, Stick or the keys
+  hidden the screen is the page's width (it was 133 px wide on a 320 px phone; 178 at 375x548); with the full keyboard,
+  what fits above it. The full keyboard gains →, after ←; @ ends the third row. Held sideways the keyboard is as it
+  was; Pad there puts the D-pad left of the screen and its keys right.
+- **Hide keys is ⌄ in the strip; ⌨ brings them back.** Upright the strip is [Keys|Pad|Stick] [BREAK] [CLEAR] [⌄], all
+  44 px; after Hide keys a 44 px ⌨ (Show keys) stands bottom right, toasts clear of it.
+- **One Menu.** Upright the strip has no Menu: the app bar's is the only one. Held sideways the panel's Menu stays, its
+  "Machine menu" (which opened nothing there) now **Machine…**, the machine picker over the panel.
+- **The phone's app bar is one row, 48 px, from the first paint**: the machine, Open…, Ask Claude (its icon under
+  360 px) and Menu, every control 44 px. Add ROMs is Menu's first item while the machine has no BASIC, with a dot on
+  Menu; Share is in Menu too, and Menu opens as a sheet over the page, moving nothing. A script in the page's head
+  puts the touch layout on before the first paint, so nothing reflows when the panel arrives.
+- **No automatic install offer on a phone** (owner's decision), upright or sideways: installing stays in the machine
+  menu's Install CLOADM…. Desktops and tablets keep the offer.
 - **The status in the app bar shows the speed only** ("50 fps · 100%"): the machine's name is on the button beside it,
   and at 1440 px the repeated name pushed the speed into an ellipsis.
 
 ### Fixed
 
-- **iPhone SE: "Joystick" was clipped under BREAK.** The panel's toolbar keeps the switch at its own width and shares
-  the rest among BREAK, CLEAR and Keys ▾, now 44 px tall.
-- **The phone's app bar on an iPhone 15:** Menu's label sat at the top of its button, Add ROMs wrapped to a second row,
-  and opening Menu pushed Share into the row. The bar is one row (the machine's name gives way first; Ask Claude is its
-  icon under 480 px), labels are centred, and More opens its links and Share under the row, moving nothing in it.
-  Where the machine's name would be cut short beside it (measured), Add ROMs takes a row of its own.
-- **On a touch screen the games' hint says "tap a key" and "tap BREAK"**, not "press a key" and "BREAK (Esc)"; held
-  sideways it sits on the black glass under the picture instead of over the top keys and the screen.
+- **iPhone SE: "Joystick" was clipped under BREAK.** The switch is Keys | Pad | Stick at its own width, each segment
+  44 px, clear of BREAK at 320 px.
+- **The phone's app bar: Menu's label sat at the top of its button, Add ROMs wrapped to a second row, and opening Menu
+  pushed Share into the row** (seen in Chromium and on a real iPhone in Chrome for iOS). Labels are centred by the
+  buttons' own flex alignment.
+- **Touch words:** the games' and the colour demo's hints say "tap a key" and "tap BREAK" (not "press a key" and
+  "BREAK (Esc)"), and Claude's paused status says "Paused: you tapped a key · Stop ends Claude's turn". A toast sits
+  under the app bar; held sideways it sits on the black glass under the picture, clear of the keys.
 
 ### 0.1.8-pre
 

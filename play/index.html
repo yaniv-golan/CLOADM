@@ -10,6 +10,20 @@
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#0B0D0C">
 <link rel="stylesheet" href="css/tokens.css">
+<script>
+  // (UX R30) the touch layout's class on the body before the first paint, where the on-screen panel will be up (the
+  // Input tab's setting, cloadm.touchKeys, and the same touch-screen test as js/ui/touch-keys.js), so the page does
+  // not reflow when the panel's module arrives; that module owns the class from then on. Not for an embed.
+  (function () {
+    try {
+      var set = localStorage.getItem('cloadm.touchKeys') || 'auto';
+      var touch = matchMedia('(pointer: coarse)').matches || (navigator.maxTouchPoints > 0 && matchMedia('(hover: none)').matches);
+      if (/[?&]embed(=(1|true)?)?(&|$)/.test(location.search) || !(set === 'on' || (set === 'auto' && touch))) return;
+      new MutationObserver(function (r, o) { if (document.body) { document.body.classList.add('touch-keys'); o.disconnect(); } })
+        .observe(document.documentElement, { childList: true });
+    } catch (e) { /* no storage: the module decides */ }
+  })();
+</script>
 <style>
   /* The emulator: dark only. Colours, type and shape from css/tokens.css. */
   /* the page covers the whole display (viewport-fit=cover), so a phone's notch, rounded corners and home indicator
@@ -63,6 +77,7 @@
     .appbar.tight #machineSpec, .appbar.tight #askKbd, .appbar.tight #navCmdKbd { display: none; }
   }
   #btnMenu { display: none; }
+  @media (min-width: 701px) { #navRoms, #navShare { display: none; } }   /* (the app bar's pill and Share button there) */
   /* the machine menu's own row for Install CLOADM… (authored inside #machineMenu; js/ui/machine-panel.js's buildMenu
      keeps it last across rebuilds. The menu floats over the page, so the app bar is the same with or without it) */
   #navInstall { display: flex; justify-content: space-between; grid-column: 1 / -1; width: 100%; background: transparent; border: 0;
@@ -134,7 +149,7 @@
   #screenNotes > div { margin-top: 10px; background: rgba(11, 13, 12, .88); color: var(--text); font-size: 14px; line-height: 20px; padding: 6px 12px;
     border-radius: var(--r-14); text-align: center; max-width: 100%; box-sizing: border-box; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
   #screenNotes > div[hidden], #screenNotes:has(#soundHint:not([hidden])) > #keyHint { display: none; }
-  body.touch-keys #screenNotes, body.chat-phone #screenNotes { display: none; }
+  body:is(.touch-keys, .touch-hidden) #screenNotes, body.chat-phone #screenNotes { display: none; }
   /* Narrow notes column: the widest note on one line is the key hint, 358 px wide (14 px text, padding included), so a column
      of 360 px or more holds every note on one line (44 px). Under 360 px the box is a fixed two lines (64 px, wrapping, at most
      two lines: the sound note and the key hint are 268 px wide at 320 px, which is the narrowest page). The query sits on
@@ -537,14 +552,22 @@
   #touchKeys { display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 4px;
     user-select: none; -webkit-user-select: none; touch-action: manipulation; }
   #touchKeys > #touchFull { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 5px; }
-  /* the game keys (js/ui/touch-keys.js PAD): two rows in the full keyboard's place, while a bundled game runs. A drag
-     there never scrolls the page: a held arrow is a game's whole input */
-  #touchKeys > #touchPad { grid-column: 1 / -1; grid-row: 2; display: none; flex-direction: column; gap: 5px; touch-action: none; }
+  /* Pad mode (js/ui/touch-keys.js): the D-pad left, SPACE, ENTER, BREAK, the program's own keys and ABC right, in the
+     full keyboard's place; keys 48 px and more (UX R30). A drag there never scrolls the page: a held arrow is a game's
+     whole input */
+  #touchKeys > #touchPad { grid-column: 1 / -1; grid-row: 2; display: none; gap: 8px; touch-action: none; }
   #touchKeys.pad > #touchFull { display: none; }
   #touchKeys.pad > #touchPad { display: flex; }
-  #touchKeys #touchPad .tk { height: 52px; min-height: 52px; font-size: 15px; }
+  #touchKeys.keysonce.pad > #touchFull { display: flex; }
+  #touchKeys.keysonce.pad > #touchPad { display: none; }
+  /* two rows of 48 px, so an upright phone keeps the room for a full-width screen: the D-pad's, and SPACE, ENTER,
+     BREAK, the program's keys and ABC three to a row */
+  #touchKeys #touchPad .padarrows { flex: none; display: grid; grid-template-columns: repeat(3, 48px); grid-auto-rows: 48px; gap: 4px; }
+  #touchKeys #touchPad .padkeys { flex: 1; min-width: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: 48px; gap: 4px; }
+  #touchKeys #touchPad .padkeys .tk { font-size: 13px; }
+  #touchKeys #touchPad .padextra { display: contents; }
+  #touchKeys #touchPad .tk { height: auto; min-height: 48px; font-size: 15px; }
   #touchKeys #touchPad .tk[aria-label] { font-size: 24px; }
-  #touchKeys #touchPad .tkgap { flex: 1; min-width: 0; }
   #touchKeys > .tkhalf { display: none; }
   #touchKeys > #touchStrip, #touchKeys > .tkcenter { grid-column: 1 / -1; }
   #touchKeys > #touchStick { grid-column: 1 / span 6; }
@@ -575,7 +598,7 @@
   #touchKeys > .tkcenter > .tkbtns { grid-row: 4; }
   #touchKeys .tkbtns { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
   #touchKeys .tkbtns button { height: 44px; min-height: 44px; border-radius: var(--r-10); font-size: 15px; white-space: nowrap; padding: 0 4px; }
-  body.touch-keys #keyHint, body.touch-keys #soundHint { display: none !important; }   /* a keyboard hint and "click for sound": not on a touch screen (a key tap starts the sound) */
+  body:is(.touch-keys, .touch-hidden) #keyHint, body:is(.touch-keys, .touch-hidden) #soundHint { display: none !important; }   /* a keyboard hint and "click for sound": not on a touch screen (a key tap starts the sound) */
   #touchKeys .tkbtns .tk { font-size: 15px; }
   #touchKeys #tkBreak { background: #B3261E; color: #fff; border: 0; font-weight: 700; box-shadow: none; }
   #touchKeys #tkClear { background: #263029; color: var(--text); border: 0; font-weight: 700; box-shadow: none; }
@@ -604,9 +627,7 @@
   #tkMenuSheet[hidden] { display: none; }
   #tkMenuSheet button { display: block; width: 100%; min-height: 44px; margin: 0; border: 0; border-radius: 7px; background: transparent; color: var(--text); text-align: left; font-size: 15px; padding: 0 12px; }
   #tkMenuSheet button:hover { background: #2A302B; }
-  #tkMenuSheet button[hidden] { display: none; }
-  /* the layout in use (Full keyboard or Game keys) */
-  #tkMenuSheet button[aria-pressed="true"] { color: var(--phosphor); font-weight: 700; box-shadow: inset 3px 0 0 var(--phosphor); }
+
   /* ---- a phone held sideways (or any window under 500 px high) ----
      Keys: the split thumb keyboard, the screen between its halves, and one row under it with BREAK, CLEAR, the
      switch and Menu. Joystick: the stick's zone left, the strip, FIRE and that row right, the screen between. */
@@ -642,7 +663,14 @@
     /* on the shortest windows (653x280) the keys' rows close up a little, so five of them still get 40 px each
        without running into the panel's top padding */
     @media (max-height: 300px) { body.touch-keys #touchKeys > .tkhalf { gap: 3px; } }
-    body.touch-stick #touchKeys > .tkhalf { display: none; }
+    body.touch-stick #touchKeys > .tkhalf, body.touch-pad #touchKeys > .tkhalf { display: none; }
+    /* Pad sideways: the D-pad left of the screen, its keys right, as the stick and FIRE */
+    body.touch-pad #touchKeys > #touchPad { display: contents; }
+    body.touch-pad #touchKeys #touchPad .padarrows { grid-column: 1; grid-row: 1 / span 3; align-self: center; justify-self: center;
+      grid-template-columns: repeat(3, minmax(48px, 64px)); grid-auto-rows: minmax(48px, 64px); }
+    body.touch-pad #touchKeys #touchPad .padkeys { grid-column: 3; grid-row: 1 / span 3; align-self: center; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: 48px; }
+    body.touch-pad #touchKeys.keysonce > .tkhalf { display: flex; }
+    body.touch-pad #touchKeys.keysonce > #touchPad { display: none; }
     body.touch-keys #touchKeys > #touchLeft { grid-column: 1; }
     body.touch-keys #touchKeys > #touchRight { grid-column: 3; }
     /* the halves' rows share the height above the control row: 56 px each where there is room, never under 40 */
@@ -666,7 +694,7 @@
     /* joystick mode, sideways: the screen keeps the column the tube is given; the stick's zone is the left of it
        and the strip and FIRE the right, each as wide as the other (the brief: the left half the stick, the right
        half FIRE and the key strip); the control row is the keys mode's, under all three */
-    body.touch-stick #touchKeys { grid-template-columns: minmax(0, 1fr) minmax(0, min(360px, 44vw)) minmax(0, 1fr); }
+    body.touch-stick #touchKeys, body.touch-pad #touchKeys { grid-template-columns: minmax(0, 1fr) minmax(0, min(360px, 44vw)) minmax(0, 1fr); }
     body.touch-stick #touchKeys > #touchStick { grid-column: 1; grid-row: 1 / span 3; height: auto; align-self: stretch; }
     body.touch-stick #touchKeys > #touchStrip { grid-column: 3; grid-row: 1; align-self: start; }
     /* the strip's eight keys in two rows of four; SPACE, ENTER and BREAK show their short labels (SPC, ENT, BRK:
@@ -675,8 +703,12 @@
     body.touch-stick #touchKeys > #touchStrip .tk .long { display: none; }
     body.touch-stick #touchKeys > #touchStrip .tk .short { display: inline; }
     body.touch-stick #touchKeys > #touchFire { grid-column: 3; grid-row: 2 / span 2; height: auto; align-self: stretch; }
-    body.touch-stick .layout > main > .monitor { width: min(360px, 44vw); }
-    body.touch-stick .tube { width: min(360px, 44vw); }
+    body.touch-stick .layout > main > .monitor, body.touch-pad .layout > main > .monitor { width: min(360px, 44vw); }
+    body.touch-stick .tube, body.touch-pad .tube { width: min(360px, 44vw); }
+    /* Machine… (the panel's Menu): the machine picker lives in the app bar, which comes back over the panel while it is
+       open (js/ui/touch-keys.js) */
+    body.touch-keys.machine-pick .appbar { display: flex !important; position: fixed; z-index: 9; top: 0; left: 0; right: 0; background: var(--ground); }
+    body.touch-keys.machine-pick #btnMenu { display: none; }
   }
   /* ---- the chat, full screen, on a phone (body.chat-phone: js/ui/claude.js, portrait up to 700 px wide or held
      sideways up to 500 px high). The chat is the screen's text, so the screen gets the room: no app bar (the bar's
@@ -1240,30 +1272,32 @@
   }
 
   /* ---- phone ---- */
-  /* One row: the machine, Add ROMs, Open…, Ask Claude and More. The machine's name is the one item that gives way
-     (an ellipsis; its flex basis is 0, so it never wraps the row, and it grows to its own width where there is room);
-     where it would be cut, Add ROMs moves to a row of its own (.rom-below). Under 480 px Ask Claude is its icon (the
-     name stays in the button's text, visually hidden) and the logo, the RAM size and "No BASIC ·" give way. More opens
-     the links and Share as rows of their own under that row, which stays as it was: nothing in it moves. */
+  /* ---- the phone's app bar (UX R30): one row, 48 px, from the first paint ----
+     The machine, Open…, Ask Claude and Menu. The machine's name is the one item that gives way (an ellipsis); under
+     360 px Ask Claude is its icon (the name stays in the button's text, visually hidden). Add ROMs is Menu's first item
+     while the machine has no BASIC, and Menu wears a dot then (js/ui/main.js). Menu opens its one list (Add ROMs,
+     Share, the links) as a sheet under the bar, over the page: nothing in the bar moves. (#appbar: these hold sideways too.) */
   @media (max-width: 700px) {
-    .appbar { padding: 10px 16px; gap: 10px 8px; }
-    #status, .appbar nav, #btnShare { display: none; }
-    .appbar > button { align-items: center; justify-content: center; white-space: nowrap; }
+    #appbar { height: 48px; flex-wrap: nowrap; padding: 2px 8px; gap: 6px; }
+    #status, .appbar nav, #appbar > #btnShare, #appbar > #romPill, #appbar > .logo, #machineSpec { display: none; }
+    #appbar > button { height: 44px; min-height: 44px; min-width: 44px; padding: 0 10px; font-size: 14px; align-items: center; justify-content: center; white-space: nowrap; }
     #machineBtn { order: 0; flex: 1 1 0; min-width: 0; max-width: max-content; gap: 4px; }
     #machineName { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     #machineBtn svg { flex: none; }
-    #romPill { order: 1; flex: none; }
     .appbar .grow { display: none; }
     #btnLoad { order: 2; margin-left: auto; flex: none; }
-    #btnAsk { order: 3; flex: none; }
-    #btnMenu { display: inline-flex; order: 4; flex: none; }
-    .appbar nav { order: 6; }
-    #machineMenu { order: 7; }
-    #btnShare { order: 8; }
-    .appbar.menu-open nav { display: flex; flex-basis: 100%; flex-direction: column; align-items: flex-start; gap: 0; }
-    .appbar.menu-open #btnShare { display: inline-flex; }
+    #appbar > #btnAsk { order: 3; flex: none; }
+    #btnMenu { display: inline-flex; order: 4; flex: none; position: relative; }
+    #btnMenu.dot::after { content: ''; position: absolute; top: 7px; right: 5px; width: 8px; height: 8px; border-radius: 50%; background: var(--orange); }
+    .appbar.menu-open nav { display: flex; position: absolute; z-index: 65; top: 100%; left: 8px; right: 8px; flex-direction: column; align-items: stretch; gap: 0;
+      padding: 8px 16px; background: var(--panel); border: 1px solid var(--line-strong); border-top: 0; border-radius: 0 0 12px 12px; box-shadow: 0 20px 40px rgba(0, 0, 0, .6); }
+    .appbar.menu-open nav a, .appbar.menu-open nav button.navlink { min-height: 44px; display: flex; align-items: center; text-align: left; }
     #machineMenu { left: 8px; right: 8px; width: auto; grid-template-columns: minmax(0, 1fr); max-height: 70vh; }
     .layout { padding: 16px; }
+  }
+  @media (max-width: 359px) {
+    #btnAsk .lbl { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+    #btnAsk svg { display: block; }
   }
   /* a phone held sideways (or any window under 500 px high): the app bar on one row, the screen gets the height;
      Capture & share and the links go behind Menu, as on a phone held upright */
@@ -1280,44 +1314,45 @@
     .plate { display: none; }
   }
   /* Tab means nothing on a touch screen: the screen's focus pill says only where typing goes */
-  body.touch-keys #focusHint .fh-tab { display: none; }
-  /* ---- a phone held upright with the on-screen panel: the screen first, at the page's full width ----
-     The app bar tightens (no logo; "Add ROMs" without "No BASIC ·"), the screen takes the whole width (the monitor is
-     the tube, 4:3, and its 6 px padding; the nameplate gives way), and the panel follows under it: one toolbar row
-     (the switch, then BREAK, CLEAR and Keys ▾, all 44 px high) and the keys (40 px; the game keys' two rows while a
-     game runs). Where the window is too short for all of it the page scrolls; the rest of the page (the controls, the
-     drawer) follows below. */
+  body:is(.touch-keys, .touch-hidden) #focusHint .fh-tab { display: none; }
+  /* ---- a phone held upright with the on-screen panel (UX R30): the panel decides, the screen takes the rest ----
+     The screen is the largest 4:3 one for which the app bar, the screen, the strip and the panel fit in the visible
+     height with the browser's toolbars up (100svh, the small viewport, which is what shows at load; 100vh where it isn't
+     known), at most the page's width: the height less the page above the monitor (--tk-above) and from its foot to the
+     panel's (--tk-below), both measured by js/ui/touch-keys.js, less the home indicator's inset and the layout's 8 px
+     bottom margin (or Safari 26's floating toolbar, --tk-bar, where that is more). The monitor is the tube alone, the
+     picture filling it (no bezel, no nameplate). Pad, Stick and hidden keys leave the full width; the full keyboard
+     what fits above it. The rest of the page (the controls, the drawer) follows below, for scrolling to. */
   @media (orientation: portrait) and (max-width: 700px) {
-    body.touch-keys:not(.chat-phone) .appbar { padding: 6px 10px; gap: 6px; }
-    body.touch-keys:not(.chat-phone) .appbar > .logo, body.touch-keys:not(.chat-phone) #machineSpec, body.touch-keys:not(.chat-phone) #romPill .rp-no { display: none; }
-    body.touch-keys:not(.chat-phone) .appbar > button { min-height: 40px; padding: 0 10px; font-size: 14px; }
-    body.touch-keys:not(.chat-phone) .appbar > #romPill { min-height: 32px; }
-    body.touch-keys:not(.chat-phone) .layout { padding: 8px; gap: 8px; }
-    body.touch-keys:not(.chat-phone) .layout > main { gap: 8px; }
-    body.touch-keys:not(.chat-phone) .monitor { padding: 6px; border-radius: 14px; }
-    body.touch-keys:not(.chat-phone) .tube { border-radius: 12px / 10px; }
-    body.touch-keys:not(.chat-phone) .plate { display: none; }
-    body.touch-keys:not(.chat-phone) .layout > main > .monitor { max-width: none; width: calc(100% - var(--install-room, 0px) * 4 / 3); }
-    /* Safari 26+ on an iPhone: its floating toolbar lies over the page's foot (js/ui/touch-keys.js sets .float-bar);
-       the page ends with room for it, so the last keys scroll clear of it */
-    :root.float-bar body.touch-keys:not(.chat-phone) .layout { padding-bottom: 84px; }
-    /* room for the install offer's strip under the screen, when it is up (js/ui/install.js): the monitor narrows by
-       4/3 of it (above), so its height drops by exactly the gap and nothing under it moves */
+    body:is(.touch-keys, .touch-hidden):not(.chat-phone) .layout { padding: 8px; gap: 8px; }
+    body:is(.touch-keys, .touch-hidden):not(.chat-phone) .layout > main { gap: 8px; }
+    body:is(.touch-keys, .touch-hidden):not(.chat-phone) .monitor { padding: 0; border-radius: 10px; }
+    body:is(.touch-keys, .touch-hidden):not(.chat-phone) .tube { border-radius: 10px; }
+    body:is(.touch-keys, .touch-hidden):not(.chat-phone) #screenWrap { inset: 0; }
+    body:is(.touch-keys, .touch-hidden):not(.chat-phone) .plate { display: none; }
+    body:is(.touch-keys, .touch-hidden):not(.chat-phone) .layout > main > .monitor { max-width: none;
+      width: max(160px, calc(min(100%, (100vh - var(--tk-above, 0px) - var(--tk-below, 0px) - max(var(--safe-b) + 8px, var(--tk-bar, 0px))) * 4 / 3) - var(--install-room, 0px) * 4 / 3));
+      width: max(160px, calc(min(100%, (100svh - var(--tk-above, 0px) - var(--tk-below, 0px) - max(var(--safe-b) + 8px, var(--tk-bar, 0px))) * 4 / 3) - var(--install-room, 0px) * 4 / 3)); }
+    /* Safari 26+ on an iPhone: its floating toolbar lies over the page's foot, uncounted by 100svh and the inset
+       (js/ui/touch-keys.js sets .float-bar); the panel ends this far above the window's bottom edge */
+    :root.float-bar { --tk-bar: 84px; }
+    /* room for the install card's strip under the screen, when the Menu item put it up (js/ui/install.js; the offer
+       itself never shows on a phone): the monitor narrows by 4/3 of it (above), so nothing under it moves */
     body.touch-keys:not(.chat-phone) .layout > main > .monitor { margin-bottom: var(--install-room, 0px); }
-    /* (the keys 40 px: under Apple's 44 pt guideline, which the room upright does not allow with five rows; well over
-       WCAG 2.5.8's 24 px minimum target. The toolbar's buttons and the game keys are 44 and more.) */
+    /* (the keys 40 px: under Apple's 44 pt guideline, which the room upright does not allow with five rows and the
+       screen; well over WCAG 2.5.8's 24 px minimum target. The pad's keys are 48 and more, the strip's controls 44.) */
     body.touch-keys:not(.chat-phone) #touchKeys .tk { height: 40px; min-height: 40px; }
-    body.touch-keys:not(.chat-phone) #touchKeys #touchPad .tk { height: 52px; min-height: 52px; }
+    body.touch-keys:not(.chat-phone) #touchKeys #touchPad .tk { height: auto; min-height: 48px; }
     body.touch-keys:not(.chat-phone) #touchKeys > #touchFull { gap: 4px; }
-    /* one toolbar row above the keys: the switch at its own width (never clipped), then BREAK, CLEAR and Keys ▾
-       sharing the rest; without a joystick port, the buttons alone */
+    /* the strip above the keys: [Keys|Pad|Stick] [BREAK] [CLEAR] [⌄], 44 px high; the switch at its own width (short
+       labels, each segment 44 px or more), BREAK and CLEAR sharing the rest, ⌄ (Hide keys) 44 px square */
     body.touch-keys:not(.chat-phone) #touchKeys > .tkcenter { display: flex; grid-column: 1 / -1; grid-row: 1; gap: 4px; min-width: 0; }
     body.touch-keys:not(.chat-phone) #touchKeys > .tkcenter > .tkbtns { display: contents; }
     body.touch-keys:not(.chat-phone) #touchKeys > .tkcenter > .tkmode { flex: none; }
-    body.touch-keys:not(.chat-phone) #touchKeys .tkmode button { flex: none; min-height: 42px; padding: 0 10px; font-size: 14px; }
-    body.touch-keys:not(.chat-phone) #touchKeys .tkbtns button { flex: 1 1 0; min-width: 0; height: 44px; min-height: 44px; font-size: 14px; padding: 0 2px; }
-    /* a drag on the panel is the keys' own (js/ui/touch-keys.js cancels a key the finger moves off before it commits):
-       the page scrolls from the screen and the bar, never from under a finger meant for a key */
+    body.touch-keys:not(.chat-phone) #touchKeys .tkmode button { flex: none; min-width: 44px; min-height: 44px; padding: 0 6px; font-size: 13px; }
+    body.touch-keys:not(.chat-phone) #touchKeys .tkbtns button { flex: 1 1 0; min-width: 44px; height: 44px; min-height: 44px; font-size: 13px; padding: 0 2px; }
+    body.touch-keys:not(.chat-phone) #touchKeys .tkbtns #tkMenu { flex: none; width: 44px; font-size: 20px; padding: 0; }
+    /* a drag on the panel is the keys' own (js/ui/touch-keys.js cancels a key the finger moves off before it commits) */
     body.touch-keys:not(.chat-phone) #touchKeys { touch-action: none; }
     body.touch-keys:not(.chat-phone) #touchKeys #touchStick, body.touch-keys:not(.chat-phone) #touchKeys #touchFire { height: 150px; }
     /* joystick mode's strip on one row, with the short labels (SPC, ENT, BRK; each name holds both) */
@@ -1326,25 +1361,10 @@
     body.touch-keys:not(.chat-phone) #touchKeys #touchStrip .tk .long { display: none; }
     body.touch-keys:not(.chat-phone) #touchKeys #touchStrip .tk .short { display: inline; }
   }
-  /* the phone's app bar, narrower still (after the upright panel's rules, which it tightens further) */
-  @media (max-width: 480px) {
-    #btnAsk .lbl { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-    #btnAsk { gap: 0; }
-    #btnAsk svg { display: block; }
-    .appbar > .logo, #machineSpec, #romPill .rp-no { display: none; }
-    .appbar, body.touch-keys:not(.chat-phone) .appbar { gap: 8px 4px; }
-    .appbar > button, body.touch-keys:not(.chat-phone) .appbar > button, #appbar #btnAsk { padding: 0 8px; }
-    .appbar > #romPill, body.touch-keys:not(.chat-phone) .appbar > #romPill { padding: 4px 8px; }
-  }
-  /* where the machine's name would be cut short beside Add ROMs (measured: js/ui/main.js sets .rom-below), Add ROMs
-     takes a row of its own under the bar's row (before More's links, so opening them still moves nothing in the first
-     row) */
-  @media (max-width: 700px) {
-    .appbar.rom-below #romPill { order: 5; }
-    /* (the machine at its own width, so Add ROMs, last in the row, is the item that wraps; a very long name still gives
-       way, short of pushing More off the row) */
-    .appbar.rom-below #machineBtn { flex: 0 1 auto; max-width: 45%; }
-  }
+  /* Show keys (⌨): after Hide keys, a 44 px button at the bottom right, clear of a phone's home indicator, always on
+     screen (toasts keep clear of it: js/ui/feedback.js) */
+  #btnShowKeys:not([hidden]) { position: fixed; z-index: 30; right: calc(12px + var(--safe-r)); bottom: calc(12px + var(--safe-b)); width: 44px; height: 44px;
+    min-height: 44px; padding: 0; font-size: 22px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; }
 </style>
 </head>
 <body>
@@ -1381,13 +1401,17 @@ npx serve -l 8000 .</pre>
   <button id="btnShare" title="A link that opens this machine as it is, a clip, a screenshot, a snapshot file; and the embed code">Share</button>
   <button id="btnAsk" aria-pressed="false" aria-controls="ask"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/></svg><span class="lbl">Ask Claude</span> <kbd id="askKbd">Ctrl K</kbd></button>
   <nav aria-label="App">
+    <!-- a phone's Menu: Add ROMs first while the machine has no BASIC, and Share (js/ui/main.js; the app bar's pill and
+         button elsewhere) -->
+    <button id="navRoms" class="navlink" type="button" hidden>Add ROMs</button>
+    <button id="navShare" class="navlink" type="button" title="A link that opens this machine as it is, a clip, a screenshot, a snapshot file; and the embed code">Share</button>
     <a href="play/#library" id="navLibrary">Library</a>
     <a href="play/#debugger" id="navDebugger">Debugger</a>
     <button id="navCommands" class="navlink" type="button">Commands… <kbd id="navCmdKbd">Ctrl K</kbd></button>
     <a href="help/">Help</a>
     <a href="https://github.com/yaniv-golan/cloadm">GitHub</a>
   </nav>
-  <button id="btnMenu" aria-expanded="false" aria-controls="appbar">More</button>
+  <button id="btnMenu" aria-expanded="false" aria-controls="appbar">Menu</button>
   <div id="machineMenu" role="menu" aria-label="Machines" hidden>
     <!-- js/ui/install.js: the browser's own install prompt, or the steps that install it (hidden once installed).
          The menu floats over the page, so the app bar stays the height it was; buildMenu keeps this row last. -->
@@ -1521,7 +1545,7 @@ npx serve -l 8000 .</pre>
          FIRE, then the buttons, all under the screen. Nothing ever lies over #screen (js/ui/touch-keys.js) -->
     <div id="touchKeys" hidden aria-label="On-screen panel">
       <div id="touchFull"></div>
-      <div id="touchPad" aria-label="Game keys"></div>
+      <div id="touchPad" aria-label="Pad"></div>
       <div class="tkhalf" id="touchLeft"></div>
       <div class="tkhalf" id="touchRight"></div>
       <div id="touchStrip" aria-label="Joystick keys"></div>
@@ -1530,7 +1554,8 @@ npx serve -l 8000 .</pre>
       <div class="tkcenter">
         <div class="tkmode" id="tkModeSwitch" role="group" aria-label="Panel mode" hidden>
           <button type="button" data-touchmode="keys" aria-pressed="true">Keys</button>
-          <button type="button" data-touchmode="joystick" aria-pressed="false">Joystick</button></div>
+          <button type="button" data-touchmode="pad" aria-pressed="false">Pad</button>
+          <button type="button" data-touchmode="joystick" aria-pressed="false">Stick</button></div>
         <div class="tkbtns"><button id="tkBreak"></button><button id="tkClear"></button><button id="tkMenu" type="button" aria-expanded="false" aria-controls="tkMenuSheet">Menu</button></div></div>
       <div id="tkMenuSheet" role="group" aria-label="Keys menu" hidden></div>
     </div>
@@ -1544,7 +1569,7 @@ npx serve -l 8000 .</pre>
       <button id="btnPause">Pause</button>
       <button id="btnTurbo" title="Run as fast as possible (never changes the emulated CPU speed)">Turbo</button>
       <button id="btnFull">Fullscreen</button>
-      <button id="btnShowKeys" hidden title="The on-screen keyboard">Keys</button>
+      <button id="btnShowKeys" hidden title="The on-screen keyboard" aria-label="Show keys">⌨</button>
     </div>
     <!-- js/ui/install.js: install CLOADM as an app. Fixed over the page where it covers nothing (the page
          never moves under it): the bottom-right corner, a gutter beside the screen, or a strip under the screen -->

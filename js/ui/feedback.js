@@ -88,7 +88,7 @@ export function createFeedback() {
   // the stylesheet's place holds.
   const region = box.parentNode;
   // (the install offer too: a toast must never cover it, in any of its layouts)
-  const CONTROLS = 'header, .controls, .slots, aside.drawer, #attention, #touchKeys button, #claudeBar, #installOffer, #tapeHud:not([hidden])';
+  const CONTROLS = 'header, .controls, .slots, aside.drawer, #attention, #touchKeys button, #claudeBar, #installOffer, #tapeHud:not([hidden]), #btnShowKeys:not([hidden])';
   const boxes = (sel) => [...document.querySelectorAll(sel)].map((e) => e.getBoundingClientRect()).filter((o) => o.width && o.height);
   const hits = (r, o) => !(r.bottom <= o.top || r.top >= o.bottom || r.right <= o.left || r.left >= o.right);
   // back to the stylesheet's place (a toast that ends, or one placed afresh)
@@ -159,7 +159,10 @@ export function createFeedback() {
     // nowhere it covers no control: the fixed slot at the top of the viewport, kept until the toast goes
     box.classList.remove('compact');
     unplace();
-    region.style.top = phone ? '8px' : '16px'; region.style.bottom = 'auto';
+    // (under the app bar where it shows: UX R30, a toast never covers the bar's buttons)
+    const bar = document.getElementById('appbar'), br = bar.getBoundingClientRect();
+    const under = br.height && br.bottom > 0 && getComputedStyle(bar).display !== 'none' ? br.bottom + 8 : 0;
+    region.style.top = `${Math.round(Math.max(phone ? 8 : 16, under))}px`; region.style.bottom = 'auto';
     region.classList.add('top');
     if (cur) cur.pinned = true;
     seen();

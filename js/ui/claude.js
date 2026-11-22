@@ -22,7 +22,7 @@ import { ACTING_TOOL_NAMES } from '../claude/chat.js';
 import { CLAUDE_PAUSED_TEXT } from '../session.js';
 import { CanvasPresenter } from '../video/canvas.js';
 import { cpuFamily } from '../cpu/cpus.js';
-import { $, ESC, VIEWS, viewOpen, markUndrawn } from './page.js';
+import { $, ESC, VIEWS, viewOpen, markUndrawn, claudeStatusText, touchPanel, TOUCH_PAUSED_TEXT } from './page.js';
 import { chatTurns } from '../claude/history.js';
 import { actionLines, restoreLine } from './claude-lines.js';
 
@@ -179,7 +179,7 @@ export function setupClaude(page) {
   function activity() {
     const a = session.claudeActing;
     if (!a || !session.claudeBusyActing) return null;
-    if (session.claudePaused) return CLAUDE_PAUSED_TEXT;
+    if (session.claudePaused) return touchPanel() ? TOUCH_PAUSED_TEXT : CLAUDE_PAUSED_TEXT;
     if (a.name === 'type_text') {
       const m = basicMachine(), all = String(a.input.text || '');
       // the keys not yet pressed: Claude's typing waits in the typist's queue, one paced key at a time
@@ -426,7 +426,7 @@ export function setupClaude(page) {
     // a card that has just come up is brought into view
     const status = full ? session.claudeStatus : null;
     $('claudeStatus').hidden = !status;
-    if (status) $('claudeStatusText').textContent = status.text;
+    if (status) $('claudeStatusText').textContent = claudeStatusText(status);
     // the bar is the full screen's only status, so a pause there has its Resume (the side panel's is on the screen)
     $('btnClaudeResume').hidden = !(status && session.claudePaused);
     if (!pend || !full) shownPending = null;

@@ -59,10 +59,10 @@ const copyOf = (v) => JSON.parse(JSON.stringify(v));   // (a stored answer is re
 
   // ---- the card's conditions, one at a time ----
   const ok = { installed: false, embed: false, storageUnavailable: false, answer: null, now: t0, prompt: {}, ios: false,
-    view: false, chatFull: false, otherCard: false, menuOpen: false, toast: false, programRunning: true, welcomeRunning: false, visitSeconds: 60 };
+    view: false, chatFull: false, otherCard: false, menuOpen: false, toast: false, programRunning: true, welcomeRunning: false, visitSeconds: 60, phone: false };
   check('every condition met: the card shows', I.cardShows(ok));
   for (const [k, v] of [['installed', true], ['embed', true], ['storageUnavailable', true], ['view', true], ['chatFull', true],
-    ['otherCard', true], ['menuOpen', true], ['toast', true], ['welcomeRunning', true], ['programRunning', false]]) {
+    ['otherCard', true], ['menuOpen', true], ['toast', true], ['welcomeRunning', true], ['programRunning', false], ['phone', true]]) {
     check(`no card with ${k}`, !I.cardShows({ ...ok, [k]: v }));
   }
   check('no card without a prompt, unless it is iOS', !I.cardShows({ ...ok, prompt: null }) && I.cardShows({ ...ok, prompt: null, ios: true }));

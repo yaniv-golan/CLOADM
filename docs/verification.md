@@ -674,13 +674,11 @@ Held upright, the same group loads LIZA at nine phone sizes, each the visible ar
 iPhone SE in Safari (375x548) and Chrome for iOS (375x540), iPhone 13 (390x664, and 390x632 with 47 px above) and
 iPhone 15 (393x659, and 393x628 with 59 px above) with a 34 px home indicator inset, a Pixel 7 in Chrome
 (412x839), and an iPhone 15 and an iPhone SE in Safari 26 (its user agent, 393x852 and 375x667: the page runs under the
-floating toolbar, which no viewport unit or inset counts, so the page ends 84 px lower and the panel scrolls clear of it; the
+floating toolbar, which no viewport unit or inset counts, so the panel must end 84 px above the bottom edge; the
 84 px is a model of that toolbar, which the iOS Simulator's Safari showed it clears by 62 px on the SE and 100 px on
-the 15; removing it leaves ENTER's row under the band on the SE). At load the screen's picture must be at least 80% of the window's width (it was 41% on a
-320 px iPhone SE) and the switch, BREAK, CLEAR and Keys ▾ inside the visual viewport less the insets, 44 px tall. In
-Keys and Joystick mode every key (ENTER's row included), the switch, BREAK, CLEAR and Keys ▾, or the strip, the stick
-and FIRE, must then lie inside it with the page scrolled so the panel's foot is at its bottom (at 650 px and taller,
-outside Safari 26, unscrolled), each key at least 40 px tall and none over the screen. With real touch events (CDP) a drag of 40 px that starts on Q,
+the 15; on the SE, removing it puts ENTER's row under the band). In Keys and Joystick mode every key (ENTER's row included), the switch, BREAK, CLEAR and ⌄, or the
+strip, the stick and FIRE, must lie inside the visual viewport less the insets at load, with the page not scrolled,
+each key at least 40 px tall and none over the screen. With real touch events (CDP) a drag of 40 px that starts on Q,
 and one that starts on SHIFT, must reach neither the machine's matrix (`setKey`) nor the no-ROM stub's queue (SHIFT
 stays off) and must not scroll the page; a tap must press and release Q; a hold must keep W down past a 14 px wobble
 until the finger lifts; a chord (SHIFT held by one finger, Q tapped by another within the hold time) must put SHIFT
@@ -766,21 +764,28 @@ Menu item is gone).
 
 ### Phones and the app bar (the browser check's `mobile` group)
 
-The v0.1.8 UI/UX review's phone and header findings, at Playwright's device sizes with real touch (`hasTouch`,
-`isMobile`); every check failed on v0.1.8 except where said. Upright on an iPhone SE (320 px), an iPhone 15 and a Pixel 7: the screen's
-picture is at least 80% of the page's width (41% on the SE and 58% on the iPhone 15 on v0.1.8; the Pixel 7 was
-already at 84%, so its row guards rather than fails); the panel's toolbar (Keys, Joystick, BREAK, CLEAR, Keys ▾) has no two buttons
-overlapping, none clipped, outside its switch or off the page; BREAK, CLEAR and Keys ▾ are at least 44 px tall. The app
-bar on an iPhone 15 is one row (the machine with its name whole, Add ROMs, Open…, Ask Claude, More), More's label
-centred in its button, and opening More moves nothing in that row; where the machine's name would be cut short (the 320 px SE)
-Add ROMs takes a row of its own. More
-(the links, Commands…, Share) and Keys ▾ (Full keyboard, Game keys, Hide keys) share no item, and Hide keys hides the
-panel. `?start=2048` and `?start=minesweeper`, and a game started from the Media tab, show the game keys (not the full
-keyboard, on screen); their → is the machine's RIGHT; Keys ▾ switches layouts; BREAK back to the welcome menu brings the
-full keyboard back. Sideways (iPhone SE and 15) a game keeps the split keyboard, BREAK, CLEAR and Menu are 44 px, and
-the game's toast says "tap a key" and "tap BREAK", lies inside the window and covers no key and not the screen's text
-(it sits on the black glass under the picture). On an iPad the toast says tap and the game keys show; on a computer the
-toast keeps "press a key" and "BREAK (Esc)". At 1440 and 1024 px the status shows the speed alone, unclipped.
+The v0.1.8 UI/UX review's phone and header findings, as UX R30 (owner-approved) rules them, with real touch
+(`hasTouch`, `isMobile`) at the visible sizes R30 names: 320x460, 375x548 and 393x659 upright, 734x343 sideways. Every
+check failed on v0.1.8 except the guards named here. Upright, at each size: with the full keyboard the screen is at
+least as wide as v0.1.8 made it (229 px at 375x548; guard at 393x659); the strip is Keys, Pad, Stick, BREAK, CLEAR and
+⌄ (Hide keys) in one row, none overlapping (the switch clear of BREAK), none under 44x44 px, all on the page; the app
+bar is one row of 48 px (the machine, Open…, Ask Claude, Menu; Add ROMs not in it), its controls 44 px and more, and
+exactly one visible control is named Menu; ⌄ hides the keys, the screen then takes the page's width less 16 px (1 px of
+rounding allowed: the picture is whole pixels) and ⌨ (Show keys) is 44x44 inside the window and brings them back;
+2048 opens on Pad with the screen at the page's width. The app bar is 48 px at its first paint (an init script reads
+it at the first animation frame) and 2 s later, with the touch class already on. Menu wears a dot while there is no
+BASIC, lists Add ROMs first, then Share, the links and Commands…, opens moving nothing in the bar, and its Add ROMs
+opens Add ROMs. Minesweeper opens on Pad (Up, Left, Down, Right, SPACE, ENTER, BREAK, F, ABC, every key 48 px and
+more, Stick offered); the pad's → and F reach the machine as RIGHT and F; ABC shows the keyboard for one key; Keys
+chosen in Minesweeper is remembered for it on that machine while 2048 still opens on Pad and LIZA on Keys; the MC-10's
+switch is Keys | Pad. The games' toast says "tap a key" and BREAK, never "Esc" or "press", lies under the app bar and
+over no key, upright and sideways; Claude's paused status on touch is "Paused: you tapped a key · Stop ends Claude's
+turn". Guards: on a computer the toast keeps "press a key" and "BREAK (Esc)"; sideways the screen is 250x187 at
+242,52 as on v0.1.8, with one control named Menu. Sideways the panel's Menu has Machine…, Commands… and Hide keys, and
+Machine… opens the machine picker on screen and on top; Esc closes it. No install offer appears on a phone, with the
+prompt held and 120 s of LIZA run, on a first and a second visit (sideways a guard: v0.1.8's offer found no place
+there either); the Install CLOADM… item still opens the browser's install dialog (a guard upright). At 1440 and
+1024 px the status shows the speed alone, unclipped.
 
 ### Menus, focus and what screen readers hear
 

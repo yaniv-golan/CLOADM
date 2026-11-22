@@ -173,20 +173,16 @@ $('btnMenu').onclick = () => {
   session.on((ev) => { if (ev === 'machine') fit(); });
   fit();
 }
-// the phone's app bar (700 px and less, play/index.html): one row while the machine's name fits whole beside Add ROMs;
-// where it would be cut short, Add ROMs takes a row of its own (class "rom-below"). Measured, as above: taken off,
-// then put on if the name is clipped
+// the phone's app bar (700 px and less, play/index.html): Add ROMs is Menu's first item while the app bar's pill is
+// up (the machine has no BASIC), and Menu wears a dot then (UX R30); Share is its item too (the bar has no room)
 {
-  const bar = $('appbar'), name = $('machineName'), phone = matchMedia('(max-width: 700px)');
-  const fit = () => {
-    bar.classList.remove('rom-below');
-    if (phone.matches && !$('romPill').hidden && name.scrollWidth > name.clientWidth + 0.5) bar.classList.add('rom-below');
-  };
-  new ResizeObserver(fit).observe(bar);
-  new MutationObserver(fit).observe($('romPill'), { attributes: true, attributeFilter: ['hidden'] });
-  if (document.fonts) document.fonts.ready.then(fit);
-  session.on((ev) => { if (ev === 'machine') fit(); });
-  fit();
+  const pill = $('romPill'), item = $('navRoms');
+  const sync = () => { item.hidden = pill.hidden; $('btnMenu').classList.toggle('dot', !pill.hidden); };
+  const close = () => { $('appbar').classList.remove('menu-open'); $('btnMenu').setAttribute('aria-expanded', 'false'); };
+  item.onclick = () => { close(); pill.click(); };
+  $('navShare').onclick = () => { close(); $('btnShare').click(); };
+  new MutationObserver(sync).observe(pill, { attributes: true, attributeFilter: ['hidden'] });
+  sync();
 }
 
 // Esc closes the topmost surface that is open (page.onEscape: confirmations, menus, cards, the views, the chat)
