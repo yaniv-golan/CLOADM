@@ -14636,14 +14636,33 @@ async function closedViewsChecks(browser, base, check) {
     check(`closed views: ${sel} opened and closed twice in a row ends closed and inert, the emulator back`, end.hash === '' && end.hidden && end.inert && end.ariaHidden === 'true' && !end.layoutInert, JSON.stringify(end));
   }
   {
-    // the Library opened by address (a page loaded on #library) has its heading focused too
-    const c4 = await browser.newContext({ viewport: { width: 1440, height: 900 }, serviceWorkers: 'block' });
-    const p4 = await c4.newPage();
-    await p4.goto(`${base}?machine=dragon64#library`);
-    await started(p4);
-    check('closed views: a page loaded on #library has its heading focused', await waitFor(p4, () => document.activeElement && document.activeElement.id === 'libHeading'),
-      await p4.evaluate(() => document.activeElement && (document.activeElement.id || document.activeElement.tagName)));
-    await c4.close();
+    // the hashchange handler in js/ui/library.js (the browser's fragment navigation takes the focus after popstate) and its guards:
+    // focus already inside the view stays where it is; a hashchange while the Library is closed leaves nothing focused in it
+    await page.evaluate(() => { location.hash = '#library'; });
+    await waitFor(page, () => document.activeElement && document.activeElement.id === 'libHeading');
+    await page.focus('#btnLibBack');
+    await page.evaluate(() => dispatchEvent(new HashChangeEvent('hashchange')));
+    check('closed views: a hashchange that stays on #library leaves the focus on the control inside it (not back on the heading)', await page.evaluate(() => document.activeElement.id) === 'btnLibBack',
+      await page.evaluate(() => document.activeElement.id));
+    await page.click('#btnLibBack');
+    await waitFor(page, () => location.hash === '' && document.getElementById('library').hidden);
+    await page.evaluate(() => { location.hash = '#share'; });
+    await waitFor(page, () => !document.getElementById('share').hidden);
+    await page.evaluate(() => dispatchEvent(new HashChangeEvent('hashchange')));
+    check('closed views: with the Library closed, a hashchange (to #share) does not leave the focus on #libHeading', await page.evaluate(() => document.activeElement.id) !== 'libHeading',
+      await page.evaluate(() => document.activeElement.id));
+    await page.click('#shareBack');
+    await waitFor(page, () => location.hash === '');
+    // Back and Forward to #library (a traversal, as a typed or assigned address is a navigation): the heading has the focus
+    await page.evaluate(() => { location.hash = '#library'; });
+    await waitFor(page, () => document.activeElement && document.activeElement.id === 'libHeading');
+    await page.goBack();
+    await waitFor(page, () => document.getElementById('library').hidden);
+    await page.goForward();
+    check('closed views: Forward to #library has its heading focused', await waitFor(page, () => document.activeElement && document.activeElement.id === 'libHeading'),
+      await page.evaluate(() => document.activeElement && (document.activeElement.id || document.activeElement.tagName)));
+    await page.goBack();
+    await waitFor(page, () => document.getElementById('library').hidden);
   }
   const again = await lap();
   check('closed views: closed again, Tab is back to the emulator\'s controls only', again.length > 10 && !again.some((x) => x.root), again.filter((x) => x.root).map((x) => `${x.root} ${x.id}`).join(', '));

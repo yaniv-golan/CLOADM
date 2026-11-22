@@ -12,11 +12,12 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 - **An embedded CLOADM could open the Claude chat; the chat is no longer available in an embed.**
 
-- **Opening the Library puts the focus on its heading.** The Library took the focus on its heading when it opened, but opening
-  it by address (`#library`: the header's Library link, the Media tab's link) made the browser navigate to that fragment,
-  and its own focusing steps, which run after the page's `popstate` handler, moved the focus to the viewport (the Library's
-  element has the id `library`), so keyboard and screen-reader users started from the top of the page. The heading now takes
-  the focus again on `hashchange`, which comes after those steps. `closedViews` checks it, and for a page loaded on `#library`.
+- **Opening the Library by address puts the focus on its heading.** The Library takes the focus on its heading when it opens,
+  but when it was opened by a typed or assigned `#library`, or by Back or Forward to it (the header's Library link and the Media
+  tab's link push history state and were not affected), the browser navigated to that fragment and its own focusing steps, which
+  run after the page's `popstate` handler, moved the focus to the viewport (the Library's element has the id `library`), so keyboard
+  and screen-reader users started from the top of the page. The heading now takes the focus again on `hashchange`, which comes
+  after those steps. `closedViews` checks it, the handler's guard (the focus already inside the view stays), and Forward to it.
 
 - **A closed view is out of the keyboard's reach and the accessibility tree by its own state.** Share, the Library, the
   Debugger and Add ROMs were closed only by the `hidden` attribute, which a single stylesheet rule
