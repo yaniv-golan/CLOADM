@@ -163,12 +163,7 @@ async function bareDiskChecks(page, check, { dos }) {
   await page.click('#drives [data-drive="0"]');
   check('disks: a loaded drive\'s menu with no disk ROM has Eject, and the same note', (await buttons()).includes('Eject') && (await buttons()).includes('Insert disk…') && /^No disk ROM:/.test(await text('driveNoRom')),
     JSON.stringify(await buttons()));
-  // its Add disk ROM… opens Your ROMs on the disk ROM's card
-  await page.click('#driveRoms');
-  check('disks: the menu\'s Add disk ROM… opens Your ROMs on the disk ROM card, which says disks still mount without it', await waitFor(page, () => location.hash === '#add-roms'
-    && /Without it, disks still mount for programs that read them directly\./.test(document.getElementById('romDiskCard').textContent)), await page.evaluate(() => location.hash));
-  await page.evaluate(() => { location.hash = ''; });
-  await waitFor(page, () => !document.getElementById('driveSlot').closest('[hidden]') && document.getElementById('driveSlot').checkVisibility());
+  await page.click('#driveClose');
   // Ctrl+K: "mount" finds "Insert a disk…"; the disk commands are there
   await page.click('#screen');
   await page.keyboard.press('Control+k');
@@ -176,20 +171,26 @@ async function bareDiskChecks(page, check, { dos }) {
   await page.keyboard.type('mount');
   const found = await page.evaluate(() => [...document.querySelectorAll('#cmdList [role="option"]')].map((o) => o.textContent));
   check('disks: Ctrl+K "mount" finds "Insert a disk…"', found.some((t) => t.startsWith('Insert a disk…')), JSON.stringify(found));
-  await page.keyboard.press('ArrowDown');
   const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.keyboard.press('Enter')]);
   await chooser.setFiles({ name: 'second.vdk', mimeType: 'application/octet-stream', buffer: Buffer.from(images.vdk(40, 2)) });
   check('disks: its "Insert a disk…" puts the file in the first free drive', await waitFor(page, () => window.emu.session.diskStatus().drives.some((d) => d.drive === 1 && d.file === 'second.vdk')));
   await page.keyboard.press('Control+k');
   await page.keyboard.type('eject disk');
-  await page.keyboard.press('ArrowDown');
   await page.keyboard.press('Enter');
   check('disks: Ctrl+K "Eject disk" takes a disk out', await waitFor(page, () => !window.emu.session.diskStatus().drives.some((d) => d.drive === 1)));
+  await page.click('#drives [data-drive="0"]');
+  // its Add disk ROM… opens Your ROMs on the disk ROM's card
+  await page.click('#driveRoms');
+  check('disks: the menu\'s Add disk ROM… opens Your ROMs on the disk ROM card, which says disks still mount without it', await waitFor(page, () => location.hash === '#add-roms'
+    && /Without it, disks still mount for programs that read them directly\./.test(document.getElementById('romDiskCard').textContent)), await page.evaluate(() => location.hash));
+  await page.evaluate(() => { location.hash = ''; });
+  // (back on the emulator: the ports are no longer inert behind the view, so a file input there can open)
+  await waitFor(page, () => document.getElementById('driveSlot').checkVisibility() && !document.getElementById('fileDisk').closest('[inert]'));
   // a disk ROM dropped now: said, and in at the next power cycle
   await page.evaluate(() => window.emu.feedback.clear());
   await dropFiles(page, [['ddos10.rom', dos]]);
   check('disks: a disk ROM added while the controller has none: the page says it goes in at the next reset or power cycle',
-    await waitFor(page, () => [...window.emu.feedback.pending, { text: document.getElementById('toastText').textContent }].some((t) => /^Your DragonDOS disk ROM goes in at the next reset or power cycle/.test(t.text || ''))
+    await waitFor(page, () => /^ROM added · your DragonDOS disk ROM goes in at the next reset or power cycle/.test(document.getElementById('toastText').textContent)
       && document.querySelector('#driveSlot .title').textContent === 'Drives · DragonDOS at the next reset · disks work for programs that read them directly until then')
       && await page.evaluate(() => !window.emu.session.diskController.romBytes), await text('driveSlot'));
   await page.click('#btnHardReset');
@@ -4187,8 +4188,8 @@ async function feedbackChecks(browser, base, check) {
         && document.getElementById('toastDetails').hidden && /Disks go in on the Dragons and the CoCos/.test(document.getElementById('toastDetails').textContent)));
     await tryClick('#toastAction');
     check(`feedback (${label}): Details shows the rest`, await ev(() => !document.getElementById('toastDetails').hidden));
-    // (back to the Dragon 64 as the visit started it: the welcome menu on, which the checks below expect)
-    await ev(() => window.emu.session.switchMachine('dragon64'));
+    // (back to the Dragon 64 with LOADME running again, as before the error: what Reset below restarts)
+    await page.evaluate((b) => { const s = window.emu.session; s.switchMachine('dragon64', undefined, { menu: false }); s.load('LOADME.BIN', new Uint8Array(b)); }, [...bin]);
     await ev(() => { location.hash = ''; });
 
     if (label === 'desktop') {

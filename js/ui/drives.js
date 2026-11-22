@@ -10,7 +10,7 @@
  *                        offers Insert disk…, New blank disk and From Library… (and Eject), with a note naming the
  *                        disk ROM that DIR and the other disk commands need and "Add disk ROM…"; a mount says the
  *                        same in its toast, with the same button. A disk ROM added meanwhile goes in at the next
- *                        reset or power cycle, and the page says so
+ *                        reset or power cycle: the header says so (the drop's toast and the disk ROM card too)
  *   an insert refused    the reason on the status line and in the drive's menu, which stays open
  *   a write refused      the drive is marked "not saved" in orange (its changes are only in the drive); its menu
  *                        says why and offers Download to keep them; the mark goes when a write succeeds
@@ -34,7 +34,6 @@ export function setupDrives(page, { openRoms = null } = {}) {
   let open = null;            // the drive whose menu is open
   let menuError = null;       // why the last action in the open menu failed
   let library = false;        // the no-disk-ROM menu's "From Library…" row is showing
-  let romWaiting = session.diskRomWaiting;   // a disk ROM is stored for the controller in use, which has none yet
 
   // what a mount said: a disk on the controller alone (no disk ROM) has the toast's "Add disk ROM…"
   const said = (msg) => {
@@ -197,13 +196,6 @@ export function setupDrives(page, { openRoms = null } = {}) {
 
   session.on((ev) => {
     if (ev === 'machine') { open = null; library = false; }
-    // a disk ROM added while the controller in use has none: it goes in at the next reset or power cycle
-    if (ev === 'roms') {
-      const waiting = session.diskRomWaiting;
-      if (waiting && !romWaiting) page.toast(`Your ${dosLabel(session.preferredDiskDos().name)} disk ROM goes in at the next reset or power cycle; until then the disk controller runs without it.`);
-      romWaiting = waiting;
-    }
-    if (ev === 'disks' || ev === 'reset' || ev === 'firmware') romWaiting = session.diskRomWaiting;
     if (ev === 'machine' || ev === 'disks' || ev === 'roms' || ev === 'firmware') render();
     if (ev === 'diskerror') session.diskWritesDone().catch((err) => page.status(err.message, true));
   });
