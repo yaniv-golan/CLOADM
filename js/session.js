@@ -273,24 +273,45 @@ function execWhenReady(m, file) {
   return { decide, cancel };
 }
 
+// What a terminal shows of the bytes it received, as text: 7-bit characters; CR, LF and CR LF end lines; a
+// backspace takes the last character back. (The page's terminal log: js/ui/serial-panel.js.)
+export function terminalText(bytes) {
+  let out = '';
+  for (let i = 0; i < bytes.length; i++) {
+    const c = bytes[i] & 0x7F;
+    if (c === 13) { out += '\n'; if ((bytes[i + 1] & 0x7F) === 10) i++; }
+    else if (c === 10) out += '\n';
+    else if (c === 8) out = out.slice(0, -1);
+    else if (c === 9 || c >= 32) out += String.fromCharCode(c);
+  }
+  return out;
+}
+
 // The serial port of the Session's machine (session.serial): the device plugged in, the bytes both ways, and a
-// trace of what the port did. Subscriptions and traces belong to the Session: a new machine (switchMachine,
-// openSnapshot, a power cycle) gets them again (install), and no snapshot holds them.
+// trace of what the port did. Subscriptions and traces belong to the Session: its hooks registry (session.hooks)
+// puts the port listener and each trace on whichever machine is in use (switchMachine, openSnapshot, a power
+// cycle), and no snapshot holds them.
 //
 //   tx(bytes, info): bytes the machine sent, as the device decoded them; rx(bytes, info): bytes the terminal sent,
 //   once each has crossed the wire into the machine (its stop bit ended). bytes is a Uint8Array; info is
 //   { at: [tick of each byte], frame, device }. They come at the end of each frame and on flush(); with
-//   { flush: 'instant' } also after runFrames, a debugger step and a debugger stop.
+//   { flush: 'instant' } also before each instruction the CPU starts (a probe, there only while such a
+//   subscriber is), when runFrames returns and when a debugger stops the machine.
 export class SerialApi {
   constructor(session) {
     this.session = session;
     this.subs = [];                 // in the order subscribed
-    this.traces = [];               // traces running
-    this.machine = null;            // the machine the port listener is on
-    this.listener = {
+    this.instantProbe = null;       // remove() of the probe 'instant' subscribers need, while there is one
+    const listener = {
       tx: (b, at) => { for (const s of this.subs) { s.tx.push(b); s.txAt.push(at); } },
       rx: (b, at) => { for (const s of this.subs) { s.rx.push(b); s.rxAt.push(at); } },
     };
+    session.hooks.add((m) => {
+      const p = m.serialPort;
+      if (!p) return () => {};
+      p.listeners.add(listener);
+      return () => p.listeners.delete(listener);
+    });
   }
   // the device on the port: { chip: '6551' | 'bit-banger', kind: 'none' | 'printer' | 'terminal' | 'loopback', baud,
   // kinds (what can be plugged in) }, or null on machines without one
@@ -335,12 +356,20 @@ export class SerialApi {
     if (flush !== 'frame' && flush !== 'instant') throw new SessionError(`flush is 'frame' or 'instant', not ${JSON.stringify(flush)}.`);
     const sub = { handlers, instant: flush === 'instant', tx: [], txAt: [], rx: [], rxAt: [], live: true };
     this.subs.push(sub);
+    this.probeIfInstant();
     return { unsubscribe: () => this.drop(sub) };
   }
   drop(sub) {
     if (!sub.live) return;
     sub.live = false;
     this.subs.splice(this.subs.indexOf(sub), 1);
+    this.probeIfInstant();
+  }
+  // the probe is on while an 'instant' subscriber is, and only then
+  probeIfInstant() {
+    const want = this.subs.some((s) => s.instant);
+    if (want && !this.instantProbe) this.instantProbe = this.session.hooks.addProbe(() => this.ran());
+    else if (!want && this.instantProbe) { this.instantProbe(); this.instantProbe = null; }
   }
   // deliver every byte completely sent by now, both ways, to every subscriber
   flush() {
@@ -348,7 +377,7 @@ export class SerialApi {
     if (p) p.flush(this.session.machine.now());
     this.deliver();
   }
-  // after runFrames, a debugger step or stop: 'instant' subscribers hear what has crossed by now
+  // before an instruction, after runFrames or at a debugger stop: 'instant' subscribers hear what has crossed by now
   ran() {
     if (!this.subs.some((s) => s.instant)) return;
     const p = this.session.machine.serialPort;
@@ -374,16 +403,6 @@ export class SerialApi {
     }
     if (error) throw error;
   }
-  // the Session's machine is now m: the subscriptions and traces move to it (what was waiting is dropped: the
-  // Session delivered it first)
-  install(m) {
-    if (this.machine && this.machine.serialPort) this.machine.serialPort.listeners.delete(this.listener);
-    for (const t of this.traces) t.detach();
-    for (const s of this.subs) { s.tx = []; s.txAt = []; s.rx = []; s.rxAt = []; }
-    this.machine = m;
-    if (m.serialPort) m.serialPort.listeners.add(this.listener);
-    for (const t of this.traces) t.attach(m);
-  }
   // record what the port does, in a ring of the last `limit` events, oldest first: { at, frame, pc, kind, ... }.
   // kinds: 'tx-load' (6551: a byte moves to the transmit shift register), 'tx' (a byte sent: the 6551's stop bit
   // ended; the bit-banger's, decoded by the device), 'rx' (a byte received: in the 6551's receive register; across
@@ -395,13 +414,11 @@ export class SerialApi {
     if (!(Number.isInteger(limit) && limit > 0)) throw new SessionError(`limit is a whole number of events above 0, not ${limit}.`);
     if (registers !== 'writes' && registers !== 'all') throw new SessionError(`registers is 'writes' or 'all', not ${JSON.stringify(registers)}.`);
     const t = new SerialTrace(limit, registers === 'all');
-    this.traces.push(t);
-    t.attach(this.session.machine);
-    const api = this;
+    const stop = this.session.hooks.add((m) => t.attach(m));
     return {
       get events() { return t.events(); },
       get dropped() { return t.dropped; },
-      stop() { const i = api.traces.indexOf(t); if (i >= 0) { api.traces.splice(i, 1); t.detach(); } },
+      stop,
     };
   }
   // the 6551's status register as a read would give it (without the read's side effects), decoded; null on a
@@ -414,29 +431,25 @@ export class SerialApi {
   }
 }
 
-// A trace of one machine's serial port (SerialApi.trace): a ring of events. It hears the 6551 through its device's
-// setTrace, and a bit-banger through a port listener; attach and detach leave nothing behind.
+// A trace of a machine's serial port (SerialApi.trace): a ring of events. attach(m) hears the 6551 through its
+// device's addTrace (beside any other trace), or a bit-banger through a port listener, and returns remove(), which
+// leaves nothing behind. The ring outlives a machine: the Session's hooks move the trace to the next one.
 export class SerialTrace {
   constructor(limit, reads = false) {
     this.limit = limit; this.reads = reads;
     this.ring = []; this.head = 0; this.dropped = 0;
-    this.machine = null; this.listener = null;
+    this.machine = null;
   }
   attach(m) {
-    this.detach();
     this.machine = m;
-    if (m.acia && m.serialPort === m.acia.port) m.acia.setTrace((kind, data, at) => this.chip(kind, data, at));
+    let off = () => {};
+    if (m.acia && m.serialPort === m.acia.port) off = m.acia.addTrace((kind, data, at) => this.chip(kind, data, at));
     else if (m.serialPort) {
-      this.listener = { tx: (byte, at) => this.add({ at, kind: 'tx', byte }), rx: (byte, at) => this.add({ at, kind: 'rx', byte }) };
-      m.serialPort.listeners.add(this.listener);
+      const p = m.serialPort, l = { tx: (byte, at) => this.add({ at, kind: 'tx', byte }), rx: (byte, at) => this.add({ at, kind: 'rx', byte }) };
+      p.listeners.add(l);
+      off = () => p.listeners.delete(l);
     }
-  }
-  detach() {
-    const m = this.machine;
-    if (!m) return;
-    if (m.acia) m.acia.setTrace(null);
-    if (this.listener) m.serialPort.listeners.delete(this.listener);
-    this.machine = null; this.listener = null;
+    return () => { off(); if (this.machine === m) this.machine = null; };
   }
   chip(kind, data, at) {
     if (kind === 'reg-read') {
@@ -447,7 +460,7 @@ export class SerialTrace {
       return;
     }
     const e = Object.assign({ at, kind }, data);
-    if (kind !== 'reg-write') e.status = this.machine.acia.chip.peek(1);
+    if (kind !== 'reg-write') e.status = this.machine.acia.chip.peek(1);   // never read(1): that clears the IRQ
     this.add(e);
   }
   last() { return this.ring.length ? this.ring[(this.head + this.ring.length - 1) % this.ring.length] : null; }
@@ -530,14 +543,6 @@ export class Session {
     this.tapeInfo = null;           // the tape in the deck: its block starts and length (tapeStatus)
     this.tapeWatch = null;          // the current or last run of the cassette motor: { done, error } (tapeStatus)
     this.lastPrinted = 0;           // printout length at the last 'printer' event
-    this.terminalBytes = [];        // what the machine has sent to the serial terminal
-    // the serial port's byte streams and diagnostics; the page's terminal log is its first subscriber
-    this.serial = new SerialApi(this);
-    this.serial.subscribe({ tx: (bytes, info) => {
-      if (info.device !== 'terminal') return;
-      for (const b of bytes) this.terminalBytes.push(b);
-      this.emit('serial');
-    } });
     // DriveWire: one server for the session, on its media store (images under DW_PREFIX); attached to the
     // machine's Becker port when it has one. Channels: WebSockets (DriveWireSocket) by channel number.
     this.drivewire = new DriveWireServer({ store: media, namePrefix: DW_PREFIX, sameName: (a, b) => this.sameName(a, b) });
@@ -575,6 +580,8 @@ export class Session {
     // the Session's own probes and bus taps (js/hooks.js), put on whichever machine is in use (install); host state,
     // never in a snapshot. Internal: no public API yet.
     this.hooks = new HostHooks();
+    // the serial port's byte streams and diagnostics (SerialApi), its listeners and traces kept on the machine through hooks
+    this.serial = new SerialApi(this);
     this.labels = null;             // symbols of the program in use (the assembler's Map name -> address)
     this.displayCache = null;       // Session.display, once read from the store
     this.unsavedRecording = null;   // a tape recording kept when its machine went (keepRecording), until the page takes it
@@ -741,10 +748,7 @@ export class Session {
   // lives. Its methods throw SessionError with a message for the user. It shows the symbols of the last assembled
   // program by itself; `setLabels` replaces them.
   get debug() {
-    if (!this.debugger) {
-      this.debugger = new Debugger(this.machine, { symbols: () => this.labels });
-      this.debugger.onRan = () => this.serial.ran();   // a step or a stop: 'instant' serial subscribers hear it
-    }
+    if (!this.debugger) this.debugger = new Debugger(this.machine, { symbols: () => this.labels });
     return this.debugger;
   }
   // a Map name -> address, or a function returning one, for the disassembly; null for plain addresses
@@ -811,13 +815,13 @@ export class Session {
     this.stubRun = null;
     this.warmReset = null;                // a new machine is a power-on: the boot watchdog arms
     if (this.debugger) { this.debugger.detach(); this.debugger = null; }
-    if (m.debugger) { this.debugger = m.debugger; this.debugger.setSymbols(() => this.labels); this.debugger.onRan = () => this.serial.ran(); }
+    if (m.debugger) { this.debugger = m.debugger; this.debugger.setSymbols(() => this.labels); }
     this.store.set('machine', m.id);
     this.install(m);
   }
   // put m on screen (adopt, and the chat's two machines: showChat), with the keyboard and display; the printout
-  // and the serial terminal start over on m. A machine with the Becker port and no server yet gets the Session's
-  // DriveWire server and a fresh link; one that has a server (the chat machine's own, or a machine coming back on
+  // starts over on m (and the page's serial terminal log, its own subscriber, on the 'machine' event). A machine
+  // with the Becker port and no server yet gets the Session's DriveWire server and a fresh link; one that has a server (the chat machine's own, or a machine coming back on
   // screen) keeps it and its link. The caller emits 'machine'.
   install(m) {
     // a restart of the machine Claude acts on, by any path (Reset, a power cycle, a program or cartridge that
@@ -826,16 +830,14 @@ export class Session {
     m.onReset = () => this.stopClaudeFor('the machine restarted', m);
     this.keys.clear();
     if (this.debugger && this.debugger.machine !== m) { this.debugger.detach(); this.debugger = null; }
-    this.hooks.attach(m);                 // the Session's probes and bus taps move to m (adopt: a switch, a snapshot)
+    let undelivered = null;
+    try { this.serial.deliver(); } catch (e) { undelivered = e; }   // what the old machine sent goes out first
+    this.hooks.attach(m);                 // the Session's probes, bus taps and serial listeners move to m (adopt: a switch, a snapshot)
     this.machine = m;
     this.applyDisplay();
     this.acc = 0;
     this.lastRate = this.cpuRate() && this.cpuRate().rate;
     this.lastPrinted = m.printed.length;
-    let undelivered = null;
-    try { this.serial.deliver(); } catch (e) { undelivered = e; }   // what the old machine sent goes out first
-    this.terminalBytes = [];
-    this.serial.install(m);
     if (m.becker && !m.becker.server) { this.drivewire.resetLink(); m.becker.attach(this.drivewire); }
     if (undelivered) throw undelivered;
   }
@@ -871,22 +873,7 @@ export class Session {
   }
 
   // ---------------- serial port (the CoCo's and the MC-10's bit-banger, the Dragon 64's 6551) ----------------
-  // The port itself is `serial` (SerialApi, below): device, attach, send, subscribe, flush, trace, status. The page's
-  // terminal log is its first subscriber: terminalText and clearTerminal read and empty it.
-  // what the machine has sent to the terminal, as text (CR, LF and CR LF end lines)
-  terminalText() {
-    let out = '';
-    const b = this.terminalBytes;
-    for (let i = 0; i < b.length; i++) {
-      const c = b[i] & 0x7F;
-      if (c === 13) { out += '\n'; if ((b[i + 1] & 0x7F) === 10) i++; }
-      else if (c === 10) out += '\n';
-      else if (c === 8) out = out.slice(0, -1);
-      else if (c === 9 || c >= 32) out += String.fromCharCode(c);
-    }
-    return out;
-  }
-  clearTerminal() { this.terminalBytes.length = 0; this.emit('serial'); }
+  // The port itself is `serial` (SerialApi): device, attach, send, subscribe, flush, trace, status.
   // where the machine is, for a report of why something stalled: { pc, frame, now (ticks), cycles (the CPU's
   // total), serial: { device, status (the 6551's, decoded; null on a bit-banger), queued (bytes handed to the
   // terminal that the machine has not finished receiving) } }. It changes nothing.
@@ -3764,6 +3751,7 @@ export class Session {
     if (!(d ? d.runFrame() !== false : m.runFrame())) {
       this.acc = 0;
       if (!m.stall) this.emit('debug');
+      if (m === this.machine) this.serial.ran();   // a debugger stop: 'instant' subscribers hear what has crossed
       return false;
     }
     if (m === this.machine) this.serial.deliver();   // the frame's serial bytes, to every subscriber

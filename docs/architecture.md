@@ -156,7 +156,9 @@ them yet.
   go on the new machine (its bus already shadowed), the ones added are taken off again, all stay on the old
   machine, and the error is thrown. The Session's load detector (the EXEC
   after CLOADM) is a probe on the machine it loads into; it goes when it decides, or when the typist drops the EXEC
-  it waits to type (`Typist.typeWhen`'s `cancel`: a reset, a later load, a restore point).
+  it waits to type (`Typist.typeWhen`'s `cancel`: a reset, a later load, a restore point). `hooks.add(attach)` keeps
+  anything else on the machine in use the same way: `session.serial` keeps its port listener and each trace (the
+  6551's `addTrace`, or a bit-banger port listener) there, and a probe while an `'instant'` subscriber is.
 
 `tests/probes.test.js` covers the probes on each CPU family, the taps removed in every order, a watchpoint beside a
 tap, the CoCo 3's held instruction (one tap report and one probe call per access and instruction), and the

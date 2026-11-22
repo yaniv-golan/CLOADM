@@ -2,17 +2,20 @@
  * The serial port, in the Machine tab (a minimal control): the device on the CoCo's or
  * MC-10's bit-banger (printer, terminal, loopback plug) or on the Dragon 64's 6551 (nothing, terminal, loopback
  * plug), the terminal's baud rate, and the terminal itself: what the machine sends, and a line to type into (Enter
- * sends it, with a CR). The state lives in the Session (serial.device, serial.attach, serial.send, terminalText,
- * clearTerminal).
+ * sends it, with a CR). The port lives in the Session (serial.device, serial.attach, serial.send); the terminal's
+ * log is this panel's own: a subscriber (serial.subscribe) keeping what reached the terminal, emptied by Clear and
+ * when another machine takes over.
  */
 import { $ } from './page.js';
-import { SERIAL_BAUDS } from '../session.js';
+import { SERIAL_BAUDS, terminalText } from '../session.js';
 
 export function setupSerialPanel(page) {
   const { session } = page;
   const baud = $('selBaud');
   for (const b of SERIAL_BAUDS) { const o = document.createElement('option'); o.value = b; o.textContent = `${b} baud`; baud.append(o); }
   const LABELS = { none: 'Nothing', printer: 'Printer', terminal: 'Terminal', loopback: 'Loopback plug' };
+  let log = [];                     // what the machine has sent to the terminal
+  session.serial.subscribe({ tx: (bytes, info) => { if (info.device === 'terminal') { log.push(...bytes); show(); } } });
   function show() {
     const d = session.serial.device;
     $('serialSection').hidden = !d;
@@ -25,7 +28,7 @@ export function setupSerialPanel(page) {
     baud.value = String(d.baud);
     baud.disabled = d.kind !== 'terminal';
     $('terminalBox').hidden = d.kind !== 'terminal';
-    $('terminal').textContent = session.terminalText();
+    $('terminal').textContent = terminalText(log);
     $('terminal').scrollTop = $('terminal').scrollHeight;
   }
   const attach = () => page.attempt(() => session.serial.attach($('selSerial').value, { baud: Number(baud.value) }));
@@ -36,6 +39,9 @@ export function setupSerialPanel(page) {
     e.preventDefault();
     page.attempt(() => { session.serial.send(e.target.value + '\n', { text: true }); e.target.value = ''; });
   };
-  $('btnTermClear').onclick = () => session.clearTerminal();
-  session.on((ev) => { if (ev === 'serial' || ev === 'machine') show(); });
+  $('btnTermClear').onclick = () => { log = []; show(); };
+  session.on((ev) => {
+    if (ev === 'machine') log = [];
+    if (ev === 'serial' || ev === 'machine') show();
+  });
 }

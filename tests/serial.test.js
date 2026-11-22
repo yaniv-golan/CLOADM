@@ -177,6 +177,8 @@ const refused = (fn, re) => { try { fn(); return false; } catch (e) { return e i
   check('Session: sending needs the terminal', refused(() => s.serial.send('X', { text: true }), /Plug in the terminal first/));
   check('Session: unknown device and baud refused', refused(() => s.serial.attach('modem'), /No serial device/) && refused(() => s.serial.attach('terminal', { baud: 1234 }), /not offered/));
   s.serial.attach('terminal', { baud: 1200 });
+  const got = [];
+  s.serial.subscribe({ tx: (b) => got.push(...b) });
   const n = s.serial.send('RUN\n', { text: true }), m = s.machine, bit = m.tickHz / 1200;
   // 'R' = $52 = 0101 0010: start, then 0 1 0 0 1 0 1 0
   const levels = [];
@@ -187,9 +189,9 @@ const refused = (fn, re) => { try { fn(); return false; } catch (e) { return e i
   for (const [at, l] of frames([0x4F, 0x4B, 0x0D, 0x0A, 0x3E], { t0: t, bit })) m.bitBanger.txd(at, l);
   m.bitBanger.flush(t + 60 * bit);
   s.serial.flush();
-  check('Session: what the machine sends shows in the terminal', s.terminalText() === 'OK\n>', JSON.stringify(s.terminalText()));
-  s.clearTerminal();
-  check('Session: Clear empties it', s.terminalText() === '');
+  check('Session: what the machine sends reaches a subscriber, and shows as terminal text', Emu.terminalText(got) === 'OK\n>', JSON.stringify(Emu.terminalText(got)));
+  check('terminalText: 7-bit, CR LF / CR / LF end lines, a backspace takes a character back, other controls dropped',
+    Emu.terminalText([0xC1, 0x42, 0x08, 0x43, 13, 10, 0x44, 13, 0x45, 10, 0x01, 9, 0x46]) === 'AC\nD\nE\n\tF');
   s.switchMachine('dragon32');
   check('Session: the Dragon 32 has no serial port', s.serial.device === null && refused(() => s.serial.attach('terminal'), /has no serial port here/));
 }
@@ -204,6 +206,8 @@ const refused = (fn, re) => { try { fn(); return false; } catch (e) { return e i
   check('Session: the Dragon 64 starts with nothing on its 6551', JSON.stringify(s.serial.device) === JSON.stringify({ chip: '6551', kind: 'none', baud: 9600, kinds: ['none', 'terminal', 'loopback'] }));
   check('Session: no serial printer on a Dragon (it prints on the parallel port)', refused(() => s.serial.attach('printer'), /No serial device "printer" on the Dragon 64/));
   s.serial.attach('terminal', { baud: 9600 });
+  const sentBack = [];
+  s.serial.subscribe({ tx: (b) => sentBack.push(...b) });
   m.write(0xFF07, 0x1E); m.write(0xFF06, 0x0B);
   const sent = [...'HI\r\n'].map((c) => c.charCodeAt(0));
   for (const b of sent) {
@@ -212,7 +216,7 @@ const refused = (fn, re) => { try { fn(); return false; } catch (e) { return e i
   }
   for (let f = 0; f < 3; f++) m.runFrame();
   s.serial.flush();
-  check('Session: what the 6551 sends shows in the terminal', s.terminalText() === 'HI\n', JSON.stringify(s.terminalText()));
+  check('Session: what the 6551 sends reaches a subscriber', Emu.terminalText(sentBack) === 'HI\n', JSON.stringify(Emu.terminalText(sentBack)));
   s.serial.send('Z', { text: true });
   let got = -1;
   for (let g = 0; g < 4000 && got < 0; g++) { m.runCycles(m.cycle + 10); if (m.read(0xFF05) & 0x08) got = m.read(0xFF04); }

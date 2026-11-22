@@ -123,6 +123,8 @@ function session(id, guest, { baud = null, frames = 1 } = {}) {
 }
 // a subscriber that keeps everything
 const keep = () => { const k = { tx: [], txAt: [], rx: [], rxAt: [], calls: 0 }; k.handlers = { tx: (b, i) => { k.calls++; k.tx.push(...b); k.txAt.push(...i.at); k.txInfo = i; }, rx: (b, i) => { k.calls++; k.rx.push(...b); k.rxAt.push(...i.at); } }; return k; };
+// a terminal log as the page's serial panel keeps one: its own subscriber, only what reached the terminal
+const termLog = (s) => { const log = []; s.serial.subscribe({ tx: (b, i) => { if (i.device === 'terminal') log.push(...b); } }); return log; };
 const echoed = (s) => { const end = s.readByte(0x31FE) << 8 | s.readByte(0x31FF); return Array.from({ length: end - 0x4000 }, (_, i) => s.readByte(0x4000 + i)); };
 
 (async () => {
@@ -154,6 +156,7 @@ const echoed = (s) => { const end = s.readByte(0x31FE) << 8 | s.readByte(0x31FF)
   const s = session('dragon64', ECHO6551, { baud: 9600 });
   const a = keep(), b = keep();
   s.serial.subscribe(a.handlers); s.serial.subscribe(b.handlers);
+  const log = termLog(s);
   const t0 = s.machine.now(), bit = s.machine.tickHz / 9600;
   s.serial.send(ALL);
   s.serial.flush();
@@ -162,7 +165,7 @@ const echoed = (s) => { const end = s.readByte(0x31FE) << 8 | s.readByte(0x31FF)
   check('6551: the guest received 00..FF byte-exact', eq(echoed(s), ALL), `${echoed(s).length} bytes`);
   check('6551: rx delivered 00..FF byte-exact', eq(a.rx, ALL), `${a.rx.length}`);
   check('6551: tx delivered the echo, 00..FF byte-exact', eq(a.tx, ALL), `${a.tx.length}`);
-  check('6551: a second subscriber and the terminal log see the same bytes', eq(b.tx, a.tx) && eq(b.rx, a.rx) && eq(s.terminalBytes, a.tx), `${b.tx.length} ${b.rx.length} ${s.terminalBytes.length}`);
+  check('6551: a second subscriber and the terminal log see the same bytes', eq(b.tx, a.tx) && eq(b.rx, a.rx) && eq(log, a.tx), `${b.tx.length} ${b.rx.length} ${log.length}`);
   // each byte arrives when its stop bit ends: the n-th (from 1) at t0 + 10n bit times
   let t = t0, ok = true;
   for (let i = 0; i < 256; i++) { t += 10 * bit; if (a.rxAt[i] !== t) ok = false; }
@@ -183,15 +186,17 @@ const echoed = (s) => { const end = s.readByte(0x31FE) << 8 | s.readByte(0x31FF)
   const t = session('coco', sender(90), { baud: 1200 });
   const c = keep(), d = keep();
   t.serial.subscribe(c.handlers); t.serial.subscribe(d.handlers);
+  const tlog = termLog(t);
   t.runFrames(160);
   check('bit-banger: tx delivered 00..FF byte-exact from the sender', eq(c.tx, ALL), `${c.tx.length}: ${c.tx.slice(0, 8)}`);
-  check('bit-banger: a second subscriber and the terminal log see the same bytes', eq(d.tx, c.tx) && eq(t.terminalBytes.slice(-256), c.tx), `${d.tx.length} ${t.terminalBytes.length}`);
+  check('bit-banger: a second subscriber and the terminal log see the same bytes', eq(d.tx, c.tx) && eq(tlog, c.tx), `${d.tx.length} ${tlog.length}`);
   // the printer: tx subscribers hear what it prints; the terminal log does not
   const p = session('coco', sender(180, [0x48, 0x49, 0x0D]));
   const e = keep();
   p.serial.subscribe(e.handlers);
+  const plog = termLog(p);
   p.runFrames(40);
-  check('bit-banger: with the printer plugged in, tx hears what it prints and the terminal log stays empty', eq(e.tx, [0x48, 0x49, 0x0D]) && eq(p.machine.printed.slice(-3), e.tx) && p.terminalBytes.length === 0 && e.txInfo.device === 'printer', `${e.tx} / ${p.machine.printed}`);
+  check('bit-banger: with the printer plugged in, tx hears what it prints and the terminal log stays empty', eq(e.tx, [0x48, 0x49, 0x0D]) && eq(p.machine.printed.slice(-3), e.tx) && plog.length === 0 && e.txInfo.device === 'printer', `${e.tx} / ${p.machine.printed}`);
 }
 
 // ---------------- unsubscribing, a subscriber that sends, one that throws ----------------
@@ -206,7 +211,7 @@ const echoed = (s) => { const end = s.readByte(0x31FE) << 8 | s.readByte(0x31FF)
   sb.unsubscribe(); sb.unsubscribe();
   s.runFrames(25);
   check('unsubscribing mid-stream: it keeps what came before, the others get everything', n > 0 && n < 256 && eq(b.tx, ALL.slice(0, n)) && eq(a.tx, ALL), `${n} then ${b.tx.length}; ${a.tx.length}`);
-  check('unsubscribe is idempotent: only the terminal log and the other subscriber are left', s.serial.subs.length === 2);
+  check('unsubscribe is idempotent: only the other subscriber is left', s.serial.subs.length === 1);
 }
 {
   const s = session('dragon64', ECHO6551, { baud: 9600 });
@@ -285,7 +290,7 @@ const echoed = (s) => { const end = s.readByte(0x31FE) << 8 | s.readByte(0x31FF)
   check('the subscription survives openSnapshot: 00..FF across it, nothing twice', before > 0 && before < 128 && eq(a.tx, ALL) && eq(a.rx, ALL), `${before} then ${a.tx.length}`);
   const t = new Emu.Session({ welcomeMenu: false });
   t.openSnapshot(await t.readSnapshot(bytes));
-  check('a new Session opening it has only its own terminal log', t.serial.subs.length === 1 && t.serial.device.kind === 'terminal');
+  check('a new Session opening it has no subscriber', t.serial.subs.length === 0 && t.serial.device.kind === 'terminal');
   s.switchMachine('coco', {}, { menu: false });
   s.serial.attach('terminal', { baud: 1200 });
   s.runAssembled(asm(sender(90, [0x55, 0xAA])));
@@ -323,7 +328,7 @@ const echoed = (s) => { const end = s.readByte(0x31FE) << 8 | s.readByte(0x31FF)
   tr.stop(); tr.stop();
   const n = tr.events.length;
   s.serial.send([1, 2, 3]); s.runFrames(5);
-  check('trace: stop() ends it (idempotent), and leaves the chip without a hook', tr.events.length === n && s.machine.acia.trace === null && s.machine.acia.chip.onTrace === null);
+  check('trace: stop() ends it (idempotent), and leaves the chip without a hook', tr.events.length === n && s.machine.acia.trace === null && s.machine.acia.chip.onTrace === null && s.machine.acia.traces.size === 0);
   // a small ring keeps the newest, oldest first, and counts what it dropped
   const r = s.serial.trace({ limit: 8 });
   s.serial.send([0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5]); s.runFrames(5);
@@ -362,6 +367,68 @@ const echoed = (s) => { const end = s.readByte(0x31FE) << 8 | s.readByte(0x31FF)
     ev.map((e) => `${e.kind}${e.byte}`).join() === 'tx49,tx50,rx153' && eq(ev.filter((e) => e.kind === 'tx').map((e) => e.at), a.txAt) && ev[2].at === a.rxAt[0], ev.map((e) => `${e.kind}${e.byte}@${e.at}`).join());
   tr.stop();
   check('bit-banger trace: stop() takes its listener off the port', s.machine.serialPort.listeners.size === 1);
+}
+
+// ---------------- two traces at once ----------------
+{
+  const s = session('dragon64', ECHO6551, { baud: 9600 });
+  const one = s.serial.trace({ registers: 'all' }), two = s.serial.trace();
+  s.serial.send([0x31, 0x32]);
+  s.runFrames(5);
+  const bytes = (t, k) => t.events.filter((e) => e.kind === k).map((e) => e.byte).join();
+  check('two traces at once on the 6551: each sees every byte', bytes(one, 'rx') === '49,50' && bytes(two, 'rx') === '49,50' && bytes(one, 'tx') === '49,50' && bytes(two, 'tx') === '49,50',
+    `${bytes(one, 'rx')} / ${bytes(two, 'rx')}`);
+  check('...each with its own options: reads only in the one that asked', one.events.some((e) => e.kind === 'reg-read') && !two.events.some((e) => e.kind === 'reg-read'));
+  two.stop();
+  s.serial.send([0x33]);
+  s.runFrames(5);
+  check('stopping one leaves the other running', bytes(one, 'rx') === '49,50,51' && bytes(two, 'rx') === '49,50' && s.machine.acia.traces.size === 1);
+  one.stop();
+  check('stopping both leaves the chip without a hook', s.machine.acia.trace === null && s.machine.acia.chip.onTrace === null);
+  // a trace and a second Session-less one on the same machine, and the trace moving with the machine
+  const t = s.serial.trace();
+  s.switchMachine('coco', {}, { menu: false });
+  s.serial.attach('terminal', { baud: 1200 });
+  s.runAssembled(asm(sender(90, [0x77])));
+  s.runFrames(20);
+  check('a trace moves to the next machine (the bit-banger): its tx byte is there', t.events.some((e) => e.kind === 'tx' && e.byte === 0x77));
+  t.stop();
+}
+// ---------------- a trace leaves the chip as it is: the IRQ ----------------
+{
+  // command $09: DTR on, the receive interrupt on, the transmitter on without its interrupt. A byte comes in (the
+  // RDRF interrupt is pending), then the CPU writes the transmit register: a trace that read the status register
+  // (instead of peeking) would clear the pending interrupt and drop the IRQ line
+  const IRQ6551 = `
+        ORG     $3000
+START   ORCC    #$50
+        LDA     #$1E
+        STA     $FF07
+        LDA     #$09
+        STA     $FF06
+W       LDA     $3100
+        BEQ     W
+        LDA     #$55
+        STA     $FF04
+HALT    BRA     HALT
+        END     START`;
+  const run = (traced) => {
+    const s = session('dragon64', IRQ6551, { baud: 9600 });
+    const tr = traced ? s.serial.trace({ registers: 'all' }) : null;
+    s.serial.send([0x41]);
+    s.runFrames(2);
+    const before = { irq: s.machine.acia.chip.irqState, out: s.machine.acia.chip.irq, line: s.machine.interrupts.level('acia', 'irq') };
+    s.pokeBytes(0x3100, [1]);   // the guest writes the transmit register now
+    s.runFrames(3);
+    const c = s.machine.acia.chip;
+    return { before, irqState: c.irqState, irq: c.irq, line: s.machine.interrupts.level('acia', 'irq'), cpuLine: s.machine.cpu.irqLine, chip: JSON.stringify(c.saveState()), events: tr ? tr.events.map((e) => e.kind).join() : '' };
+  };
+  const plain = run(false), traced = run(true);
+  check('the receive interrupt is pending before the transmit write (the case a status read would clear)', plain.before.irq !== 0 && plain.before.out === 0 && plain.before.line === true && plain.line === true, JSON.stringify(plain.before));
+  check('with a trace on, the 6551\'s IRQ state, its IRQ output, the IRQ it drives and the CPU\'s IRQ line are what they are without', traced.irqState === plain.irqState && traced.irq === plain.irq && traced.line === plain.line && traced.cpuLine === plain.cpuLine && plain.irqState !== 0,
+    JSON.stringify([plain.irqState, plain.irq, plain.line, traced.irqState, traced.irq, traced.line]));
+  check('...and the whole chip state is the same', traced.chip === plain.chip);
+  check('...while the trace saw the byte come in and the transmit load', /rx/.test(traced.events) && /tx-load/.test(traced.events), traced.events);
 }
 
 // ---------------- a trace changes nothing: the MAME-verified runs' hashes ----------------

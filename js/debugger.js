@@ -123,7 +123,6 @@ export class Debugger {
     this.wps = [];                 // watchpoints: { start, size, read, write }
     this.log = [];                 // the trace ring buffer, oldest first
     this.steps = 0;                // instructions executed by step()/run()/stepOver()/runToReturn()
-    this.onRan = null;             // () => void after a step and at a stop (the Session's 'instant' serial delivery)
     this.stopped = false;
     this.stopReason = null;
     this.skipBp = null;            // an address whose breakpoint is not to fire again (set by a stop)
@@ -245,7 +244,6 @@ export class Debugger {
     this.stopped = true;
     this.skipBp = this.machine.cpu.pc;   // continuing from here must not stop on the same breakpoint again
     this.stopReason = Object.assign({ kind }, info);
-    if (this.onRan) this.onRan();
   }
   // One CPU step through the machine's own timing, with the trace entry the step produced -> its cycles, or null
   // when no instruction ran: a halted cycle, or an instruction HALT suspended (it runs again, from its start, in a
@@ -371,7 +369,6 @@ export class Debugger {
         continue;
       }
       if (this.hit) { const h = this.hit; this.hit = null; this._stop('watchpoint', h); }
-      else if (this.onRan) this.onRan();
       return cycles;
     }
   }
