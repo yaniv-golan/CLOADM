@@ -10859,14 +10859,23 @@ async function askBesideChecks(browser, base, check) {
   // Ctrl K: a question (ending in "?") goes to Claude even when it matches a command, which is listed beneath; a
   // command typed as a command (no "?", or its whole label) still runs. The command rows press the page's buttons, so
   // a listener on Reset and "Switch off and on" sees whether one ran.
-  for (const [query, want] of [['hard reset?', 'ask'], ['reset?', 'ask'], ['reset', 'btnReset'], ['Chat with Claude, full screen', 'full']]) {
+  // ("What is this code doing?" is a command's whole label with its own "?": it runs that command, which asks Claude
+  // about the code at the program counter; the mocked API records what was sent)
+  for (const [query, want] of [['hard reset?', 'ask'], ['reset?', 'ask'], ['reset', 'btnReset'], ['Chat with Claude, full screen', 'full'], ['What is this code doing?', 'code']]) {
     const L = `askBeside (Ctrl K "${query}")`;
     const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, serviceWorkers: 'block' });
     const page = await ctx.newPage();
-    const errors = [];
+    const errors = [], requests = [];
     page.on('pageerror', (e) => errors.push(e.message));
+    await ctx.route('https://api.anthropic.com/**', async (route) => {
+      const req = route.request();
+      if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
+      requests.push(JSON.parse(req.postData()));
+      try { await route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'text/event-stream' }, body: text('ok') }); } catch (e) { /* stopped */ }
+    });
     await page.goto(`${base}?machine=dragon64`);
     await started(page);
+    await page.evaluate((k) => localStorage.setItem('cloadm.anthropicKey', k), KEY);
     await stubPrompt(page);
     await page.evaluate(() => { window.__pressed = [];
       for (const id of ['btnReset', 'btnHardReset']) document.getElementById(id).addEventListener('click', () => window.__pressed.push(id), true); });
@@ -10879,6 +10888,9 @@ async function askBesideChecks(browser, base, check) {
       const cmd = query === 'hard reset?' ? 'Switch off and on' : 'Reset';
       check(`${L}: the ask row is first and selected, the matching commands listed beneath it`, rows.length > 1 && rows[0].ask && rows[0].sel
         && rows.slice(1).every((r) => !r.ask && !r.sel) && rows.slice(1).some((r) => r.text.startsWith(cmd)), JSON.stringify(rows));
+    } else if (want === 'code') {
+      check(`${L}: the whole label with its own "?" puts the command row first, selected`, rows.length > 1 && !rows[0].ask && rows[0].sel
+        && rows[0].text.startsWith('What is this code doing?') && rows.slice(1).every((r) => !r.sel), JSON.stringify(rows));
     }
     await page.keyboard.press('Enter');
     if (want === 'ask') {
@@ -10889,6 +10901,16 @@ async function askBesideChecks(browser, base, check) {
     } else if (want === 'btnReset') {
       check(`${L}: a command typed as a command still runs (Reset)`, await waitFor(page, () => window.__pressed.join() === 'btnReset', null, 5000)
         && await page.evaluate(() => document.getElementById('ask').hidden), await page.evaluate(() => JSON.stringify(window.__pressed)));
+    } else if (want === 'code') {
+      // the command sends the question with the code at the program counter (Session.codeAt): a header naming the
+      // range, then one "ADDR  BYTES  INSTRUCTION" line per instruction, the first at the range's start
+      const sent = await waitFor(page, () => !!window.emu.session.chat && window.emu.session.chat.messages.length > 0, null, 15000);
+      for (let i = 0; i < 200 && !requests.length; i++) await new Promise((r) => setTimeout(r, 50));
+      const last = requests.length ? requests[0].messages.filter((m) => m.role === 'user').pop() : null;
+      const body = last ? (typeof last.content === 'string' ? last.content : last.content.map((c) => c.text || '').join('')) : '';
+      const m = /^What is this code doing\? \(([0-9A-F]{4})–[0-9A-F]{4}\)\n\n(([0-9A-F]{4})  [0-9A-F]{2}[^\n]*)\n/.exec(body);
+      check(`${L}: Enter runs the command: the request asks "What is this code doing? (" with the disassembly, no button pressed`,
+        sent && !!m && m[1] === m[3] && await page.evaluate(() => !window.__pressed.length && window.emu.session.claudeView === 'panel'), JSON.stringify(body.slice(0, 200)));
     } else {
       check(`${L}: the whole label still runs its command (the full-screen chat)`, await waitFor(page, () => window.emu.session.claudeView === 'full' && !!window.emu.session.chatMachines, null, 15000)
         && await page.evaluate(() => !window.__pressed.length));
