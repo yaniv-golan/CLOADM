@@ -401,13 +401,19 @@ doesn't have is reported in a message (with Details) and the rest of the link st
 | `touch` | `joystick`, `keys` | the on-screen panel's mode on a touch screen: the touch joystick, or the keyboard alone (not for embeds) |
 | `sound`, `fasttape`, `turbo` | `1`, `0` | |
 | `embed` | `1` | the screen alone, for an iframe |
+| `askclaude` | `1` | with `embed=1`: a small **Ask Claude ↗** chip in the screen's corner, which opens this moment in a new tab with the chat (off by default; the Share screen's **Offer 'Ask Claude ↗'**) |
 | `storage` | `opfs`, `fsa`, `fallback` | where ROMs and programs are kept |
 
 Files given by link are fetched by the browser, so their server must allow CORS.
 
 **Embedding.** Put `<iframe src="https://cloadm.dev/play/?embed=1&machine=dragon64">` in a page, include
 `https://cloadm.dev/embed/cloadm.js`, and drive it. The Claude chat is not available when CLOADM is shown inside
-another page, with or without `embed=1`.
+another page, with or without `embed=1`. The full page in a frame offers **Ask Claude ↗** in its app bar instead: a
+link that opens this moment in a new tab, top-level, where the chat runs (`app=claude`, never `embed=1`). A
+screen-only embed draws nothing unless its link has `askclaude=1` (the Share screen's embed builder: **Offer 'Ask
+Claude ↗'**); then a chip in the screen's corner does the same. See [claude.md](claude.md#claude).
+If the host's iframe is sandboxed without `allow-popups-to-escape-sandbox`, the new tab inherits the sandbox and may
+not see the key saved in your browser.
 
 
 ```js

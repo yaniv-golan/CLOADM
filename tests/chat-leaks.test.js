@@ -568,8 +568,10 @@ function rowMethods() {
     // PERSON's deck motor flag; screenAlternative describes the SHOWN screen's text; welcomeGenNow reads the ticket)
     'indexWriteError', 'tapeRunning', 'screenAlternative', 'welcomeGenNow',
     'pickNitros9Image', 'openMedia', 'downloadMedia', 'downloadDisk', 'diskWritesDone', 'printoutFile',
-    // programControls reads the menu watch against the SHOWN machine (the on-screen keys' mode), and changes nothing
-    'programControls']);
+    // programControls reads the menu watch of the SHOWN machine: the touch panel it answers drives what is on screen
+    'programControls',
+    // claudeLink builds the "Ask Claude ↗" link from shareFile and shareUrl (both reads of the shown machine)
+    'claudeLink']);
   // writes the library or settings only
   const LIBRARY = new Set(['addRoms', 'clearRoms', 'deleteMedia', 'importDriveWireImage', 'importMedia',
     'importSettings', 'listMedia', 'moveMedia', 'newDriveWireImage', 'renameMedia', 'exportRomPack', 'exportSettings',

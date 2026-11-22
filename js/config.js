@@ -3,7 +3,7 @@
  * and written back the same way (share links, the embed snippet). Every link points at /play.
  *
  *   parseUrlConfig(search, fallbackMachine) -> { machine, config, display, media, autorun, roms, start, app, nitros9, embed,
- *                                                sound, joy, fastTape, turbo, selftest, errors }
+ *                                                askClaude, sound, joy, fastTape, turbo, selftest, errors }
  *   buildUrl(base, cfg) -> the link for cfg (parseUrlConfig of it gives cfg back)
  *
  * Parameters (URL_PARAMS lists them):
@@ -31,6 +31,8 @@
  *                           keyboard alone); not for embeds (a page the site puts in an iframe has no touch panel)
  *   sound=1|0, fasttape=1|0, turbo=1|0
  *   embed=1                 embed mode: the screen only, driven by the page around it (js/embed-api.js)
+ *   askclaude=1             with embed=1: draw a small "Ask Claude ↗" chip in the screen's corner, a link that opens
+ *                           this moment in a new tab with the chat (js/ui/ask-popout.js). Off by default
  *   storage=opfs|fsa|fallback  where ROMs and programs are kept (js/host/media-store-open.js)
  * Errors are messages for the status line; a bad value is ignored, the rest of the link still applies.
  */
@@ -47,7 +49,7 @@ export const DISPLAY_PARAMS = {
   curvature: { key: 'curvature', range: [0, 100] },
   glow: { key: 'glow', range: [0, 100] },
 };
-const FLAGS = { sound: 'sound', fasttape: 'fastTape', turbo: 'turbo', embed: 'embed', selftest: 'selftest' };
+const FLAGS = { sound: 'sound', fasttape: 'fastTape', turbo: 'turbo', embed: 'embed', selftest: 'selftest', askclaude: 'askClaude' };
 const MEDIA = ['load', 'tape', 'cart'];
 export const URL_PARAMS = ['machine', 'start', 'app', 'nitros9', ...MEDIA, 'autorun', 'rom', ...Object.keys(DISPLAY_PARAMS), 'joy', 'touch', ...Object.keys(FLAGS), 'storage'];
 const STORAGE = ['opfs', 'fsa', 'fallback'];
@@ -136,6 +138,8 @@ export function parseUrlConfig(search, fallbackMachine = 'dragon64') {
     const f = flag(p.get(name));
     if (f === null) errors.push(`${name}=${p.get(name)}: 1 or 0`); else cfg[key] = f;
   }
+  // the corner chip is the embed's: the full page has Ask Claude in its app bar (a link to a new tab when framed)
+  if (cfg.askClaude && cfg.embed !== true) { errors.push('askclaude=1: only with embed=1 (the full page has Ask Claude in its app bar)'); cfg.askClaude = null; }
   return cfg;
 }
 

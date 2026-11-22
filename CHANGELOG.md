@@ -39,6 +39,14 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   contract with the site (`PANEL_API` 3) is unchanged: the field is part of a tool's answer, not of the bridge.
 - A skill eval on the side-panel route, `panel-no-boot-wait` (the agent must not boot or mention boot waits), run on
   `tests/skill-evals/panel-server.mjs`, a stand-in for the panel with its tools and the Worker's instructions.
+- **"Ask Claude ↗" where the chat can't run.** CLOADM shown inside another site's page has no chat (its key card
+  would be on someone else's page). The full page in a frame now keeps its Ask button, as **Ask Claude ↗**: a link
+  that opens CLOADM top-level in a new tab with this machine as it is now (the Share screen's snapshot link, with
+  `app=claude`, never `embed=1`, `rel="noopener noreferrer"`), where the chat runs on the key saved in your browser.
+  With NitrOS-9 running, whose moment can't be carried, it opens a fresh CLOADM with the chat and says so. The new
+  tab waits for you to type; it never starts a turn by itself. A screen-only embed shows nothing unless its link has
+  the new `askclaude=1`, the Share screen's **Offer 'Ask Claude ↗'**: then a small chip in the screen's corner does
+  the same. The browser check's new group `askPopout` covers it.
 
 ### Changed
 
@@ -166,6 +174,12 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   are now only under "On this computer" (both copies). Each server's MCP instructions open with the route ("You are
   driving CLOADM in the person's side panel." or "... on the person's computer."). The side panel's line is in the
   skill's connector essentials, so the connector's Worker must be deployed again (`docs/deploy-connector.md`).
+- **Allow, Save key, Forget and "Let Claude use the emulator" wait half a second.** A press in the first 500 ms after
+  their card shows (or shows again, or the page comes back to the foreground) does nothing and leaves the focus where
+  it is, so a click or key meant for what was there a moment before can't answer them. The card fades in, the
+  controls are marked unavailable to assistive technology until then and announced once they take presses, and they
+  look the same throughout. Window focus doesn't restart the wait, and nothing but the time ends it: a tap works with
+  no pointer movement. The browser check's new group `armGuard` covers it.
 
 ### Fixed
 

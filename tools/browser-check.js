@@ -15097,6 +15097,412 @@ async function closedViewsChecks(browser, base, check) {
   await ctx.close();
 }
 
+// "Ask Claude ↗" (js/ui/ask-popout.js): CLOADM inside another site's page has no chat, and offers a link that opens this
+// moment top-level in a new tab with the chat. A host page on another origin (localhost, the emulator is on 127.0.0.1)
+// frames the full page, a phone-width full page, a NitrOS-9 one and two embeds (without and with askclaude=1). The key is
+// saved first on the emulator's own origin, top-level: the new tab must find it, and the frame (whose storage the
+// browser keeps apart) must never get it. No Claude turn may start: every request to the API is counted.
+async function askPopoutChecks(browser, site, check) {
+  const KEY = 'sk-ant-POPOUT-CHECK-KEY-0123456789';
+  const CARRIED = "Opens CLOADM in a new tab with this machine as it is now. Claude can't run inside another site.";
+  const FRESH = "Opens a fresh CLOADM in a new tab (this program can't be carried over). Claude can't run inside another site.";
+  const host = http.createServer((req, res) => {
+    const u = new URL(req.url, 'http://x/');
+    const src = `${site}play/?${u.searchParams.get('q') || ''}`, w = u.searchParams.get('w') || '1100', h = u.searchParams.get('h') || '760';
+    res.writeHead(200, { 'Content-Type': 'text/html' });
+    res.end(`<!doctype html><title>A retro blog</title><h1>My blog</h1><iframe id="f" src="${src}" width="${w}" height="${h}" allow="gamepad; fullscreen"></iframe>`);
+  });
+  await new Promise((r) => host.listen(0, '127.0.0.1', r));
+  host.unref();
+  const hostAt = (q, w, h) => `http://localhost:${host.address().port}/?q=${encodeURIComponent(q)}${w ? `&w=${w}&h=${h}` : ''}`;
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block' });
+  const errors = [], api = [];
+  ctx.on('page', (p) => p.on('pageerror', (e) => errors.push(`${p.url().slice(0, 60)}: ${e.message}`)));
+  await ctx.route('https://api.anthropic.com/**', (route) => { api.push(route.request().method()); return route.fulfill({ status: 500, body: '{}' }); });
+  // every write a framed page makes to its storage under the key's name (the browser may or may not keep a frame's
+  // storage apart from the site's own: what matters is that the framed page never puts the key there)
+  await ctx.addInitScript(() => {
+    if (window.self === window.top) return;
+    window.__keyWrites = [];
+    const set = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (k, v) { if (/anthropic/i.test(k)) window.__keyWrites.push(k); return set.call(this, k, v); };
+  });
+  // the key, saved in this browser for the emulator's own origin (a top-level visit, as the person saved it)
+  const own = await ctx.newPage();
+  await own.goto(`${site}play/?machine=dragon64`);
+  await started(own);
+  await own.evaluate((k) => localStorage.setItem('cloadm.anthropicKey', k), KEY);
+  await own.close();
+
+  const frameOf = async (page) => {
+    for (let i = 0; i < 400; i++) {
+      const f = page.frames().find((x) => /\/play\//.test(x.url()));
+      if (f && await f.evaluate(() => !!window.emu && window.emu.started === true).catch(() => false)) return f;
+      await page.waitForTimeout(50);
+    }
+    return null;
+  };
+  // the link as it is drawn now, after a refresh (the moment as it is)
+  const linkOf = (f, id) => f.evaluate(async (id) => {
+    if (window.emu.askPopout) await window.emu.askPopout.refresh();
+    const a = document.getElementById(id), r = a.getBoundingClientRect(), bar = document.getElementById('appbar').getBoundingClientRect();
+    const u = a.href ? new URL(a.href) : null;
+    let snap = null;
+    try { snap = u && u.hash ? await window.emu.session.readSnapshotLink(u.hash) : null; } catch (e) { snap = { error: e.message }; }
+    return { text: a.textContent.trim(), shown: a.checkVisibility() && r.width > 0 && r.height > 0, inBar: r.top >= bar.top - 1 && r.bottom <= bar.bottom + 1,
+      query: u && u.search, target: a.target, rel: a.rel, title: a.title, desc: a.getAttribute('aria-description'), carried: a.dataset.carried,
+      app: u && u.searchParams.get('app'), embed: u ? [...u.searchParams.keys()].filter((k) => /embed/.test(k)) : null, machine: u && u.searchParams.get('machine'),
+      nitros9: u && u.searchParams.has('nitros9'), hash: u ? u.hash.slice(0, 3) : null, snapMachine: snap && snap.machine,
+      ask: (() => { const b = document.getElementById('btnAsk'); return b.checkVisibility() && b.getBoundingClientRect().width > 0; })() };
+  }, id);
+  const L = 'askPopout';
+
+  // ---- the full page in a frame: the app bar's Ask is the link ----
+  const page = await ctx.newPage();
+  await page.goto(hostAt('machine=dragon64'));
+  const frame = await frameOf(page);
+  check(`${L}: (the framed page started)`, !!frame);
+  if (!frame) { await ctx.close(); host.close(); return; }
+  // a moment of our own: bytes in RAM the new tab must have too
+  await frame.evaluate(() => { [0xA5, 0x5A, 0x13].forEach((v, i) => window.emu.session.personMachine.poke(0x3000 + i, v)); });
+  const a = await linkOf(frame, 'btnAskPop');
+  check(`${L}: framed: the app bar's button reads "Ask Claude ↗", in the bar, and the chat's own Ask button is gone`, a.text === 'Ask Claude ↗' && a.shown && a.inBar && a.ask === false, JSON.stringify(a));
+  check(`${L}: framed: the href has app=claude, no embed parameter, and the moment's snapshot (#s=) for this machine`,
+    a.app === 'claude' && a.embed && a.embed.length === 0 && a.hash === '#s=' && a.machine === 'dragon64' && a.snapMachine === 'dragon64', JSON.stringify(a));
+  check(`${L}: framed: a new tab with no opener or referrer (target=_blank, rel="noopener noreferrer")`,
+    a.target === '_blank' && a.rel.split(/\s+/).includes('noopener') && a.rel.split(/\s+/).includes('noreferrer'), JSON.stringify({ target: a.target, rel: a.rel }));
+  check(`${L}: framed: its tooltip and description say it opens this machine as it is now, and why`, a.title === CARRIED && a.desc === CARRIED && a.carried === '1', JSON.stringify({ title: a.title, desc: a.desc }));
+  if (shotDir) await page.screenshot({ path: path.join(shotDir, 'ask-popout-framed.png') });
+  // left alone (nobody points at the link, nothing switches the machine), the page makes no snapshot: 10 s of a
+  // running machine with shareFile counted
+  await page.mouse.move(1, 1);
+  await frame.evaluate(() => { if (document.activeElement) document.activeElement.blur(); const s = window.emu.session, f = s.shareFile.bind(s); window.__shares = 0; s.shareFile = (...a) => { window.__shares++; return f(...a); }; });
+  const f0 = await frame.evaluate(() => window.emu.machine.frameCount);
+  await page.waitForTimeout(10000);
+  const idle10 = await frame.evaluate((f0) => ({ shares: window.__shares, frames: window.emu.machine.frameCount - f0 }), f0);
+  check(`${L}: 10 s idle with the machine running: no snapshot is made for the link`, idle10.shares === 0 && idle10.frames > 100, JSON.stringify(idle10));
+  const framedKey = () => frame.evaluate(() => ({ writes: window.__keyWrites.slice(), seen: window.emu.session.keyStore.get(), memory: window.emu.session.keyStore.constructor.name }));
+  const before = await framedKey();
+  const [popup] = await Promise.all([ctx.waitForEvent('page', { timeout: 15000 }), frame.click('#btnAskPop')]);
+  await popup.waitForLoadState();
+  const okPop = await waitFor(popup, () => !!window.emu && window.emu.started === true, null, 60000);
+  const pop = okPop ? await popup.evaluate(() => {
+    const s = window.emu.session, m = s.personMachine;
+    return { top: window.self === window.top, opener: window.opener === null, referrer: document.referrer, offered: !document.body.classList.contains('no-claude'),
+      view: s.claudeView, key: s.keyStore.get(), hasKey: !!s.hasClaudeKey, bytes: [0, 1, 2].map((i) => m.read(0x3000 + i)), machine: m.id,
+      search: location.search, hash: location.hash };
+  }) : null;
+  check(`${L}: the click opens a top-level page (self === top, opener === null, no referrer)`, pop && pop.top && pop.opener && pop.referrer === '', JSON.stringify(pop));
+  check(`${L}: the new tab offers the chat (app=claude, full screen) with the key saved in this browser`, pop && pop.offered && pop.view === 'full' && pop.key === KEY, JSON.stringify(pop));
+  check(`${L}: the new tab opens the frame's moment (same machine, the bytes in RAM)`, pop && pop.machine === 'dragon64' && pop.bytes.join() === '165,90,19', JSON.stringify(pop));
+  // nobody typed: no turn starts (the chat waits for the person), however long it is left
+  await emuFrames(popup, 120);
+  const idle = await popup.evaluate(() => ({ messages: window.emu.session.chat ? window.emu.session.chat.messages.length : -1, busy: window.emu.session.chat && window.emu.session.chat.busy }));
+  check(`${L}: the new tab starts no Claude turn by itself (no request, no message)`, api.length === 0 && idle.messages === 0 && !idle.busy, JSON.stringify({ api, idle }));
+  const after = await framedKey();
+  check(`${L}: the frame never writes the key to its storage, before or after the new tab, and its session (an in-memory store) sees none`,
+    before.writes.length === 0 && before.seen === null && after.writes.length === 0 && after.seen === null && after.memory === 'MemoryKeyStore', JSON.stringify({ before, after }));
+  await popup.close();
+
+  // ---- the same at phone width: the link stands where Ask does, in the one-row bar beside Menu ----
+  const phone = await ctx.newPage();
+  await phone.setViewportSize({ width: 420, height: 900 });
+  await phone.goto(hostAt('machine=dragon64', 390, 844));
+  const pf = await frameOf(phone);
+  const pa = pf ? await linkOf(pf, 'btnAskPop') : null;
+  const menu = pf ? await pf.evaluate(() => { const r = (id) => document.getElementById(id).getBoundingClientRect(), a = r('btnAskPop'), m = r('btnMenu');
+    return { aRight: a.right, mLeft: m.left, h: a.height, menuShown: document.getElementById('btnMenu').checkVisibility() }; }) : null;
+  check(`${L}: framed at phone width: "Ask Claude ↗" is in the bar beside Menu (44 px high), with the same link`,
+    pa && pa.shown && pa.inBar && pa.text === 'Ask Claude ↗' && pa.app === 'claude' && pa.hash === '#s=' && menu.menuShown && menu.aRight <= menu.mLeft + 1 && menu.h >= 44,
+    JSON.stringify({ pa, menu }));
+  if (shotDir) await phone.screenshot({ path: path.join(shotDir, 'ask-popout-phone.png') });
+  await phone.close();
+
+  // ---- NitrOS-9 in the frame: nothing to carry, a fresh CLOADM ----
+  const Emu = require('../tests/load')();
+  const { makeOs9Disk } = require('./nitros9/os9-image.js');
+  const n9 = await ctx.newPage();
+  await n9.goto(hostAt('machine=coco3'));
+  const nf = await frameOf(n9);
+  if (nf) await nf.setInputFiles('#n9File', { name: 'myboot.dsk', mimeType: 'application/octet-stream', buffer: Buffer.from(makeOs9Disk(Emu, { cpu: '6309' })) });
+  const running = nf && await waitFor(nf, () => window.emu.session.nitros9Running, null, 30000);
+  const na = running ? await linkOf(nf, 'btnAskPop') : null;
+  check(`${L}: NitrOS-9 framed: no snapshot in the link (no #s=), app=claude on the CoCo 3, no nitros9= and no embed`,
+    na && na.hash === '' && na.app === 'claude' && na.machine === 'coco3' && !na.nitros9 && na.embed.length === 0, JSON.stringify(na));
+  check(`${L}: NitrOS-9 framed: the "fresh" tooltip and description`, na && na.title === FRESH && na.desc === FRESH && na.carried === '0', JSON.stringify(na && { title: na.title, desc: na.desc }));
+  await n9.close();
+
+  // ---- embeds: no chip unless the snippet asks (askclaude=1) ----
+  const plain = await ctx.newPage();
+  await plain.goto(hostAt('embed=1&machine=dragon64', 640, 480));
+  const ef = await frameOf(plain);
+  const noChip = ef ? await ef.evaluate(() => { const c = document.getElementById('embedAsk'); return { shown: c.checkVisibility(), href: c.getAttribute('href'), cls: document.body.classList.contains('ask-chip'), handle: window.emu.askPopout }; }) : null;
+  check(`${L}: ?embed=1 without askclaude: no chip (nothing drawn, no link)`, noChip && !noChip.shown && noChip.href === null && !noChip.cls && noChip.handle === null, JSON.stringify(noChip));
+  await plain.close();
+  const opted = await ctx.newPage();
+  await opted.goto(hostAt('embed=1&askclaude=1&machine=dragon64', 640, 480));
+  const of = await frameOf(opted);
+  const chip = of ? await linkOf(of, 'embedAsk') : null;
+  const corner = of ? await of.evaluate(() => { const c = document.getElementById('embedAsk').getBoundingClientRect(), s = document.getElementById('screenWrap').getBoundingClientRect();
+    return { right: s.right - c.right, bottom: s.bottom - c.bottom, w: c.width }; }) : null;
+  check(`${L}: ?embed=1&askclaude=1: a chip "Ask Claude ↗" in the screen's bottom-right corner`, chip && chip.shown && chip.text === 'Ask Claude ↗' && corner.right >= 0 && corner.right < 40 && corner.bottom >= 0 && corner.bottom < 40, JSON.stringify({ chip, corner }));
+  check(`${L}: the chip's link follows the same rules (app=claude, no embed, the snapshot, a new tab with noopener)`,
+    chip && chip.app === 'claude' && chip.embed.length === 0 && chip.hash === '#s=' && chip.snapMachine === 'dragon64' && chip.target === '_blank' && /\bnoopener\b/.test(chip.rel) && chip.title === CARRIED, JSON.stringify(chip));
+  if (shotDir) await opted.screenshot({ path: path.join(shotDir, 'ask-popout-embed-chip.png') });
+  const [chipPop] = await Promise.all([ctx.waitForEvent('page', { timeout: 15000 }), of.click('#embedAsk')]);
+  const okChip = await waitFor(chipPop, () => !!window.emu && window.emu.started === true, null, 60000);
+  const cp = okChip ? await chipPop.evaluate(() => ({ top: window.self === window.top, opener: window.opener === null, embed: document.body.classList.contains('embed'), view: window.emu.session.claudeView })) : null;
+  check(`${L}: the chip opens a top-level page with the chat, not an embed`, cp && cp.top && cp.opener && !cp.embed && cp.view === 'full', JSON.stringify(cp));
+  await chipPop.close();
+  await opted.close();
+  check(`${L}: still no Claude request after both new tabs`, api.length === 0, api.join());
+
+  // ---- the Share screen's embed builder: the checkbox puts askclaude=1 in the snippet ----
+  const sh = await ctx.newPage();
+  await sh.goto(`${site}play/?machine=coco`);
+  await started(sh);
+  await sh.click('#btnShare');
+  await waitFor(sh, () => !document.getElementById('share').hidden);
+  await sh.click('#shareEmbed summary');
+  const without = await sh.textContent('#embedFrame');
+  await sh.check('#embedAskClaude');
+  const withIt = await sh.textContent('#embedFrame');
+  check(`${L}: Share → Embed: "Offer 'Ask Claude ↗'" is off by default; checked, the snippet's iframe carries askclaude=1 (with embed=1)`,
+    !/askclaude/.test(without) && /[?&]embed=1/.test(withIt) && /[?&;]askclaude=1/.test(withIt) && /Offer 'Ask Claude ↗'/.test(await sh.textContent('#shareEmbed')), `${without} | ${withIt}`);
+  await sh.close();
+  check(`${L}: no page errors`, !errors.length, errors.join('; '));
+  await ctx.close();
+  host.close();
+}
+
+// The arm guard (js/ui/arm-guard.js): Allow on the consent card, Save key and Forget on the key cards and the "Let Claude
+// use the emulator" switch take no press until their card has been on screen for 500 ms. The window starts when the
+// card shows and again on pageshow and on visibilitychange to visible; not on window focus, and nothing but the time
+// arms it (a touch tap with no pointer movement works). Presses are timed from the moment the guard saw the card
+// (shownAt); a press the browser delivered late (past the window) is retried on a re-armed card rather than counted.
+async function armGuardChecks(browser, base, check) {
+  const KEY = 'sk-ant-ARM-CHECK-KEY-0123456789';
+  const sse = (events) => events.map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join('');
+  const msgStart = { type: 'message_start', message: { id: 'msg', type: 'message', role: 'assistant', model: 'claude-opus-5-5', content: [] } };
+  const text = (t) => sse([msgStart, { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+    { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: t } }, { type: 'content_block_stop', index: 0 },
+    { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: {} }, { type: 'message_stop' }]);
+  const tools = (uses) => sse([msgStart, ...uses.flatMap((u, i) => [
+    { type: 'content_block_start', index: i, content_block: { type: 'tool_use', id: `toolu_${i}`, name: u.name, input: {} } },
+    { type: 'content_block_delta', index: i, delta: { type: 'input_json_delta', partial_json: JSON.stringify(u.input) } },
+    { type: 'content_block_stop', index: i }]), { type: 'message_delta', delta: { stop_reason: 'tool_use' }, usage: {} }, { type: 'message_stop' }]);
+  const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'POST, OPTIONS' };
+  const L = 'armGuard';
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, serviceWorkers: 'block', hasTouch: true });
+  const page = await ctx.newPage();
+  const errors = [], replies = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await ctx.route('https://api.anthropic.com/**', (route) => {
+    if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
+    const r = replies.shift() || { body: text('ok') };
+    return route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'text/event-stream' }, body: r.body });
+  });
+  const ev = (fn, arg) => page.evaluate(fn, arg);
+  // ms since the guard saw the card come on screen (null: off screen)
+  const age = (card) => ev((c) => { const t = window.emu.armGuard.shownAt(document.getElementById(c)); return t === null ? null : performance.now() - t; }, card);
+  const until = async (card, ms) => { const a = await age(card); if (a !== null && a < ms) await page.waitForTimeout(ms - a); };
+  // press `how` on control `sel` of `card` at `at` ms after the card showed; -> the age the press landed at (seen in the
+  // page, in the capture phase before the guard) and whether `done` holds afterwards
+  // cutoff: a press that lands this late (ms after the card showed) is stopped here, before the page sees it, so a
+  // "too soon" press the browser delivered late never takes effect and can be tried again
+  // how: click | tap | enter | space | label (a click on the switch's label text) | enter@ID (Enter in another element)
+  const pressAt = async (card, sel, at, how, done, cutoff = null) => {
+    const [kind, focusId] = how.split('@');
+    // (on the window, in the capture phase: the guard's own listener on the card stops the click before the control)
+    // (one round trip: the page waits until `at` itself and focuses the control for a key, then the press is sent)
+    const box = await ev(async ([s, c0, cut, at, key, focusId, onLabel]) => {
+      window.__landed = null;
+      if (window.__landedFor) removeEventListener('click', window.__landedFor, true);
+      window.__landedFor = (e) => {
+        const c = document.getElementById(s);
+        if (window.__landed !== null || !(e.target === c || e.target.control === c)) return;
+        window.__landed = performance.now();
+        const since = window.emu.armGuard.shownAt(document.getElementById(c0));
+        if (cut !== null && since !== null && window.__landed - since >= cut) { e.preventDefault(); e.stopImmediatePropagation(); }
+      };
+      addEventListener('click', window.__landedFor, true);
+      const since = window.emu.armGuard.shownAt(document.getElementById(c0));
+      if (since !== null) await new Promise((r) => setTimeout(r, Math.max(0, at - (performance.now() - since))));
+      if (key) document.getElementById(focusId || s).focus();
+      const r = (onLabel ? document.getElementById(s).closest('label') : document.getElementById(s)).getBoundingClientRect();
+      // (on a label: near its right end, on the text, away from the box itself)
+      return { x: onLabel ? r.right - 12 : r.left + r.width / 2, y: r.top + r.height / 2 };
+    }, [sel, card, cutoff, at, kind === 'enter' || kind === 'space', focusId || null, kind === 'label']);
+    if (kind === 'tap') await page.touchscreen.tap(box.x, box.y);
+    else if (kind === 'enter') await page.keyboard.press('Enter');
+    else if (kind === 'space') await page.keyboard.press('Space');
+    else await page.mouse.click(box.x, box.y);
+    await painted(page);
+    const landed = await ev(([c]) => (window.__landed === null ? null : window.__landed - window.emu.armGuard.shownAt(document.getElementById(c))), [card]);
+    return { landed, done: await ev(done), focus: await ev(() => document.activeElement && document.activeElement.id),
+      at: await ev(() => { const s = window.emu.session, c = s.chat, m = c && c.messages.slice(-1)[0];
+        return { status: s.claudeStatus, busy: c && c.busy, last: m && JSON.stringify(m.content).slice(0, 160) }; }) };
+  };
+  // a press too soon must do nothing; the browser may deliver one late on a loaded machine, so one that lands at 450 ms
+  // or later is cut off before the page sees it and tried again on the card re-armed by a pageshow (itself one of the
+  // re-arm routes)
+  const tooSoon = async (card, sel, how, done) => {
+    let r = null;
+    for (let i = 0; i < 6; i++) {
+      r = await pressAt(card, sel, 200, how, done, 450);
+      if (r.landed !== null && r.landed < 450) return r;
+      await ev(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
+    }
+    return { ...r, late: true };
+  };
+
+  await page.goto(`${base}?machine=dragon64`);
+  await started(page);
+  await stubPrompt(page);
+  // ---- the key card: Save key ----
+  await page.click('#btnAsk');
+  await waitFor(page, () => document.getElementById('askKeyForm').checkVisibility());
+  const state0 = await ev(() => ({ aria: document.getElementById('btnAskKeySave').getAttribute('aria-disabled'), disabled: document.getElementById('btnAskKeySave').disabled,
+    anim: getComputedStyle(document.getElementById('askKeyForm')).animationName, dur: getComputedStyle(document.getElementById('askKeyForm')).animationDuration,
+    look: (() => { const c = getComputedStyle(document.getElementById('btnAskKeySave')); return `${c.opacity} ${c.backgroundColor} ${c.color}`; })() }));
+  check(`${L}: a card just shown: its control is aria-disabled (never disabled), and the card fades in over 300 ms`,
+    state0.aria === 'true' && state0.disabled === false && state0.anim === 'arm-in' && state0.dur === '0.3s', JSON.stringify(state0));
+  await page.fill('#askKeyInput', KEY);
+  await ev(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
+  const saveSoon = await tooSoon('askKeyForm', 'btnAskKeySave', 'click', () => !!window.emu.session.keyStore.get());
+  check(`${L}: Save key pressed 200 ms after the card shows does nothing, and the focus stays on it`, !saveSoon.late && saveSoon.done === false && saveSoon.focus === 'btnAskKeySave', JSON.stringify(saveSoon));
+  await ev(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
+  const inputSoon = await tooSoon('askKeyForm', 'btnAskKeySave', 'enter@askKeyInput', () => !!window.emu.session.keyStore.get());
+  check(`${L}: Enter in the key box too soon (it presses Save key) does nothing, and the typing stays where it was`,
+    !inputSoon.late && inputSoon.done === false && inputSoon.focus === 'askKeyInput', JSON.stringify(inputSoon));
+  await until('askKeyForm', 520);
+  await waitFor(page, () => document.getElementById('armAnnounce').textContent !== '', null, 5000);
+  const state1 = await ev(() => ({ aria: document.getElementById('btnAskKeySave').getAttribute('aria-disabled'), said: document.getElementById('armAnnounce').textContent,
+    look: (() => { const c = getComputedStyle(document.getElementById('btnAskKeySave')); return `${c.opacity} ${c.backgroundColor} ${c.color}`; })() }));
+  check(`${L}: at 500 ms it takes presses, looking just as it did (no flash), and the card is announced`,
+    state1.aria === null && state1.look === state0.look && state1.said === 'API key form ready.', JSON.stringify({ state0, state1 }));
+  // (a fresh window, so nothing since it started moved a pointer: the presses above were mouse clicks)
+  await ev(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
+  const saveTap = await pressAt('askKeyForm', 'btnAskKeySave', 600, 'tap', () => window.emu.session.keyStore.get() === 'sk-ant-ARM-CHECK-KEY-0123456789');
+  check(`${L}: a touch tap at 600 ms (no pointer movement) saves the key`, saveTap.done === true, JSON.stringify(saveTap));
+
+  // ---- the switch, in the composer: a click too soon leaves it as it was ----
+  // hidden, then shown again: the window starts again with that show. Opened and pressed in one go (a script's click
+  // the instant the card is back), so no timing is involved: an armed card from its first show would take it.
+  // (shown and armed first, so the show below is a second one)
+  if (!(await page.isVisible('#askComposer'))) await page.click('#btnAsk');
+  await waitFor(page, () => window.emu.armGuard.armed(document.getElementById('askComposer')), null, 5000);
+  await page.click('#btnAskClose');
+  await waitFor(page, () => !document.getElementById('askComposer').checkVisibility());
+  const reshown = await ev(() => {
+    document.getElementById('btnAsk').click();
+    const chk = document.getElementById('chkAskMachine'), shownNow = document.getElementById('askComposer').checkVisibility();
+    chk.click();
+    return { shownNow, aria: chk.getAttribute('aria-disabled'), checked: chk.checked, allowed: window.emu.session.claudeAllowed,
+      age: performance.now() - window.emu.armGuard.shownAt(document.getElementById('askComposer')) };
+  });
+  check(`${L}: a card hidden and shown again starts its window again: a press the instant it is back does nothing`,
+    reshown.shownNow && reshown.aria === 'true' && !reshown.checked && !reshown.allowed, JSON.stringify(reshown));
+  await waitFor(page, () => document.getElementById('armAnnounce').textContent === 'Claude settings ready.', null, 5000);
+  check(`${L}: the composer is announced once by its purpose ("Claude settings ready.", no control names repeated)`,
+    await ev(() => document.getElementById('armAnnounce').textContent) === 'Claude settings ready.', await ev(() => document.getElementById('armAnnounce').textContent));
+  await ev(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
+  const swSoon = await tooSoon('askComposer', 'chkAskMachine', 'click', () => document.getElementById('chkAskMachine').checked || window.emu.session.claudeAllowed);
+  check(`${L}: "Let Claude use the emulator" clicked too soon stays off`, !swSoon.late && swSoon.done === false, JSON.stringify(swSoon));
+  const labelSoon = await tooSoon('askComposer', 'chkAskMachine', 'label', () => document.getElementById('chkAskMachine').checked || window.emu.session.claudeAllowed);
+  check(`${L}: … a click on its label text too soon leaves it off too`, !labelSoon.late && labelSoon.done === false, JSON.stringify(labelSoon));
+  const swSpace = await tooSoon('askComposer', 'chkAskMachine', 'space', () => document.getElementById('chkAskMachine').checked || window.emu.session.claudeAllowed);
+  check(`${L}: … and Space on it too soon does nothing either`, !swSpace.late && swSpace.done === false, JSON.stringify(swSpace));
+  const swLate = await pressAt('askComposer', 'chkAskMachine', 600, 'space', () => window.emu.session.claudeAllowed);
+  check(`${L}: Space on the switch at 600 ms turns it on`, swLate.done === true, JSON.stringify(swLate));
+  await page.uncheck('#chkAskMachine');
+  check(`${L}: (and off again)`, await ev(() => !window.emu.session.claudeAllowed));
+
+  // ---- the consent card: Allow ----
+  const consent = async () => {
+    replies.push({ body: tools([{ name: 'type_text', input: { text: 'PRINT 1\n' } }]) }, { body: text('Typed.') });
+    await page.fill('#askInput', 'fix it');
+    await page.press('#askInput', 'Enter');
+    return waitFor(page, () => !!window.emu.session.claudePending && document.getElementById('askConsent').checkVisibility(), null, 15000);
+  };
+  const answered = () => !window.emu.session.claudePending;
+  check(`${L}: (the consent card is up)`, await consent());
+  const allowSoon = await tooSoon('askConsent', 'btnAskAllow', 'click', answered);
+  check(`${L}: Allow clicked 200 ms after the card appears does nothing (the card stays, the focus stays on Allow)`,
+    !allowSoon.late && allowSoon.done === false && allowSoon.focus === 'btnAskAllow' && await page.isVisible('#askConsent'), JSON.stringify(allowSoon));
+  const enterSoon = await tooSoon('askConsent', 'btnAskAllow', 'enter', answered);
+  check(`${L}: Enter on Allow too soon does nothing`, !enterSoon.late && enterSoon.done === false, JSON.stringify(enterSoon));
+  // armed now; the window losing and getting back the focus does not start it again
+  await until('askConsent', 600);
+  await ev(() => { window.dispatchEvent(new FocusEvent('blur')); window.dispatchEvent(new FocusEvent('focus')); document.getElementById('btnAskAllow').blur(); });
+  const afterFocus = await ev(() => ({ armed: window.emu.armGuard.armed(document.getElementById('askConsent')), aria: document.getElementById('btnAskAllow').getAttribute('aria-disabled') }));
+  check(`${L}: blur then focus of the window does not re-arm the card`, afterFocus.armed === true && afterFocus.aria === null, JSON.stringify(afterFocus));
+  // the page coming back does: pageshow, and visibilitychange to visible
+  await ev(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
+  const onShow = await ev(() => ({ armed: window.emu.armGuard.armed(document.getElementById('askConsent')), aria: document.getElementById('btnAskAllow').getAttribute('aria-disabled') }));
+  await until('askConsent', 600);
+  await ev(() => document.dispatchEvent(new Event('visibilitychange')));
+  const onVisible = await ev(() => ({ armed: window.emu.armGuard.armed(document.getElementById('askConsent')), aria: document.getElementById('btnAskAllow').getAttribute('aria-disabled') }));
+  check(`${L}: pageshow and visibilitychange (to visible) each start the window again`,
+    onShow.armed === false && onShow.aria === 'true' && onVisible.armed === false && onVisible.aria === 'true', JSON.stringify({ onShow, onVisible }));
+  const allowEnter = await pressAt('askConsent', 'btnAskAllow', 600, 'enter', answered);
+  check(`${L}: Enter on Allow at 600 ms answers the card`, allowEnter.done === true, JSON.stringify(allowEnter));
+  await waitFor(page, () => window.emu.session.chat && !window.emu.session.chat.busy, null, 15000);
+  await page.uncheck('#chkAskMachine');
+  check(`${L}: (asked again, with the switch off)`, await consent());
+  const allowClick = await pressAt('askConsent', 'btnAskAllow', 600, 'click', answered);
+  check(`${L}: Allow clicked at 600 ms answers the card`, allowClick.done === true, JSON.stringify(allowClick));
+  await waitFor(page, () => window.emu.session.chat && !window.emu.session.chat.busy, null, 15000);
+
+  // ---- Forget (the key line under the composer): too soon keeps the key ----
+  await page.click('#btnAskClose');
+  await page.click('#btnAsk');
+  await waitFor(page, () => document.getElementById('askComposer').checkVisibility());
+  const forgetSoon = await tooSoon('askComposer', 'btnAskKeyForget', 'click', () => !window.emu.session.keyStore.get());
+  check(`${L}: Forget clicked too soon keeps the key`, !forgetSoon.late && forgetSoon.done === false, JSON.stringify(forgetSoon));
+  const forgetLate = await pressAt('askComposer', 'btnAskKeyForget', 600, 'click', () => !window.emu.session.keyStore.get());
+  check(`${L}: Forget at 600 ms forgets it`, forgetLate.done === true, JSON.stringify(forgetLate));
+
+  // ---- the full-screen chat's key card and switch ----
+  await page.goto(`${base}?machine=dragon64&app=claude`);
+  await started(page);
+  await waitFor(page, () => window.emu.session.claudeView === 'full' && document.getElementById('claudeKeyCard').checkVisibility(), null, 15000);
+  await page.fill('#claudeKeyInput', KEY);
+  await ev(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
+  const fsSoon = await tooSoon('claudeKeyCard', 'btnClaudeKeySave', 'click', () => !!window.emu.session.keyStore.get());
+  check(`${L}: full screen: Save key too soon does nothing`, !fsSoon.late && fsSoon.done === false, JSON.stringify(fsSoon));
+  await ev(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
+  const fsTap = await pressAt('claudeKeyCard', 'btnClaudeKeySave', 600, 'tap', () => !!window.emu.session.keyStore.get());
+  check(`${L}: full screen: a tap on Save key at 600 ms saves it`, fsTap.done === true, JSON.stringify(fsTap));
+  await ev(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
+  const toolsSoon = await tooSoon('claudeSession', 'chkClaudeTools', 'click', () => window.emu.session.claudeAllowed);
+  check(`${L}: full screen: the switch clicked too soon stays off`, !toolsSoon.late && toolsSoon.done === false, JSON.stringify(toolsSoon));
+  const toolsLate = await pressAt('claudeSession', 'chkClaudeTools', 600, 'click', () => window.emu.session.claudeAllowed);
+  check(`${L}: full screen: the switch at 600 ms turns on`, toolsLate.done === true, JSON.stringify(toolsLate));
+  // the full-screen consent card: Allow
+  await page.uncheck('#chkClaudeTools');
+  replies.push({ body: tools([{ name: 'type_text', input: { text: 'PRINT 1\n' } }]) }, { body: text('Typed.') });
+  await waitFor(page, () => { const c = window.emu.session.chat; return c && !c.busy && c.channel && c.channel.queued === 0 && window.emu.session.chatView === 'chat'; }, null, 20000);
+  await emuFrames(page, 3);
+  await page.focus('#screen');
+  await page.keyboard.type('fix it');
+  await page.keyboard.press('Enter');
+  check(`${L}: (the full-screen consent card is up)`, await waitFor(page, () => !!window.emu.session.claudePending && document.getElementById('claudeConsentAsk').checkVisibility(), null, 15000));
+  const fsAllowSoon = await tooSoon('claudeConsentAsk', 'btnClaudeAllow', 'click', answered);
+  check(`${L}: full screen: Allow clicked too soon does nothing`, !fsAllowSoon.late && fsAllowSoon.done === false && fsAllowSoon.focus === 'btnClaudeAllow', JSON.stringify(fsAllowSoon));
+  const fsAllow = await pressAt('claudeConsentAsk', 'btnClaudeAllow', 600, 'click', answered);
+  check(`${L}: full screen: Allow at 600 ms answers the card`, fsAllow.done === true, JSON.stringify(fsAllow));
+  await waitFor(page, () => window.emu.session.chat && !window.emu.session.chat.busy, null, 15000);
+  // the full-screen key line: Forget
+  await ev(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
+  const fsForgetSoon = await tooSoon('claudeKeySaved', 'btnClaudeKeyForget', 'click', () => !window.emu.session.keyStore.get());
+  check(`${L}: full screen: Forget clicked too soon keeps the key`, !fsForgetSoon.late && fsForgetSoon.done === false, JSON.stringify(fsForgetSoon));
+  const fsForget = await pressAt('claudeKeySaved', 'btnClaudeKeyForget', 600, 'click', () => !window.emu.session.keyStore.get());
+  check(`${L}: full screen: Forget at 600 ms forgets it`, fsForget.done === true, JSON.stringify(fsForget));
+  check(`${L}: no page errors`, !errors.length, errors.join('; '));
+  await ctx.close();
+}
+
 const GROUPS = (base, site) => [
   ['models', (b) => modelsChecks(b, base, check)],
   ['reset', (b) => resetChecks(b, base, check)],
@@ -15155,6 +15561,8 @@ const GROUPS = (base, site) => [
   ['light', (b) => lightChecks(b, site, check)],
   ['url', (b) => urlChecks(b, base, check)],
   ['embed', (b) => embedChecks(b, site, check)],
+  ['askPopout', (b) => askPopoutChecks(b, site, check)],
+  ['armGuard', (b) => armGuardChecks(b, base, check)],
   ['pwa', (b) => pwaChecks(b, site, check)],
   ['install', (b) => installChecks(b, base, check)],
   ['settings', (b) => settingsChecks(b, base, check)],
