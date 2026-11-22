@@ -55,7 +55,7 @@ export function setupMachinePanel(page, { showRoms }) {
       }
       menu.append(g);
     }
-    // the footer (R28): two menu items after a separator, in the menu's arrow and Tab order like the machines
+    // the footer: two menu items after a separator, in the menu's arrow and Tab order like the machines
     const sep = document.createElement('div'); sep.className = 'sep machines'; sep.setAttribute('role', 'separator');
     const foot = document.createElement('div'); foot.className = 'footer machines'; foot.setAttribute('role', 'none');
     const item = (id, text, fn) => { const b = document.createElement('button'); b.id = id; b.setAttribute('role', 'menuitem'); b.textContent = text; b.onclick = fn; return b; };
@@ -81,7 +81,7 @@ export function setupMachinePanel(page, { showRoms }) {
   }
   const moreBelow = () => menu.classList.toggle('more-below', menu.scrollTop + menu.clientHeight < menu.scrollHeight - 2);
   menu.addEventListener('scroll', moreBelow);
-  // ---- the switch confirmation (R25): it names what the switch takes out, built from the old machine before the
+  // ---- the switch confirmation: it names what the switch takes out, built from the old machine before the
   // switch (Session.takenOut), says which of those stay in the Library, and offers to save a snapshot's own disk ----
   let cancelled = null;   // what Cancel does besides closing (a RAM change puts the select back)
   // "a, b and c"
@@ -219,7 +219,7 @@ export function setupMachinePanel(page, { showRoms }) {
     page.status(`${m.profile.name}: ${done(session.shownMachine.config[key])} (switched off and on)`);
     page.focus();
   };
-  // RAM: asked first, as a machine switch is, naming what comes out (R25); Cancel puts the select back
+  // RAM: asked first, as a machine switch is, naming what comes out; Cancel puts the select back
   $('ramSel').onchange = (e) => {
     const m = session.shownMachine, ram = Number(e.target.value), config = Object.assign({}, session.savedConfig(m.id), { ram });
     confirmSwitch({ name: null, id: m.id, config }, (taken) => {

@@ -130,7 +130,7 @@ export function setupCommandBox(page, claude) {
     box.style.top = phone.matches ? `${top}px` : '';
     box.style.setProperty('--cmd-top', `${top}px`);
   }
-  // the polite count under the box (R15b): said once the typing has paused, not at every key
+  // the polite count under the box: said once the typing has paused, not at every key
   const live = $('cmdLive');
   let liveTimer = null;
   const announce = () => {

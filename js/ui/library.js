@@ -29,7 +29,7 @@ import { availableChoices, openMediaStore } from '../host/media-store-open.js';
 import { FsaMediaStore } from '../host/media-store-fsa.js';
 import { saveFolder, forgetFolder } from '../host/folder-handle.js';
 
-// (ROMs: not items of the Library but one card about Your ROMs, R19 A+)
+// (ROMs: not items of the Library but one card about Your ROMs)
 const KINDS = [['all', 'All'], ['tape', 'Tapes'], ['disk', 'Disks'], ['cart', 'Cartridges'], ['program', 'Programs'], ['snapshot', 'Snapshots'], ['roms', 'ROMs']];
 const KIND_OF = { cas: 'tape', wav: 'tape', disk: 'disk', cart: 'cart', binary: 'program', basictext: 'program' };
 // spine and label colours: the VDG colours the design allows for the Library
@@ -136,7 +136,7 @@ export function setupLibrary(page, { loadProgram, runShelf, changed, showRoms, r
     // the shelves are rebuilt: the item that had focus gets it back, so keys stay with the Library
     const had = document.activeElement && view.contains(document.activeElement) ? document.activeElement.dataset.name : null;
     const shown = shownItems();
-    // (with ROMs stored the filters and the shelves show even in an empty Library: the ROMs chip is there, R19 A+)
+    // (with ROMs stored the filters and the shelves show even in an empty Library: the ROMs chip is there)
     const some = items.length > 0 || session.storedRoms().count > 0;
     $('libEmpty').hidden = items.length > 0;
     $('libFilled').hidden = !some;
@@ -346,7 +346,7 @@ export function setupLibrary(page, { loadProgram, runShelf, changed, showRoms, r
     if (errors.length) { say(text ? `${text}. ${errors.join(' · ')}` : errors.join(' · '), true, text ? { details: errors.join(' · ') } : {}); return; }
     if (!text) { say('Nothing added: no files in what you gave'); return; }
     const one = kept === 1 && items.find((i) => base(i.name) === added[0]);
-    // ROMs only: "Open Your ROMs" (R19 A+)
+    // ROMs only: "Open Your ROMs"
     say(text, false, { action: roms && !kept ? { label: 'Open Your ROMs', run: showRoms } : !isOpen() ? { label: 'Show', run: () => page.openView('#library') } : one ? { label: 'Load', run: () => load(one.name) } : null });
   }
   const pick = () => $('fileLib').click();

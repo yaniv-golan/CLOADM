@@ -7,10 +7,14 @@
 // level 1 to 3. Three branches in one day put new entries into released sections; this is the check that catches it.
 //
 // For each released version with a git tag, the section must be byte-identical to the same section in the tagged
-// CHANGELOG, except for corrections listed by name in the allowlist (each is "this text in the tagged section became
-// that text", with a one-line reason; the tagged text must still contain it, so a list entry cannot go stale).
+// CHANGELOG, except for two things. The maintainers' internal process labels (the patterns tests/private-refs.test.js keeps out of
+// the tree, required from it) are removed from both sides before they are compared, so a
+// released section may lose a label and nothing else. And corrections listed by name in the allowlist (each is "this
+// text in the tagged section became that text", with a one-line reason; the tagged text, labels removed, must still
+// contain it, so a list entry cannot go stale).
 // A release heading: "### 0.1.3-pre", "### 0.1.0 (first public release ...)". Not "### Added" or "### Fixed", which are the
 // subsections of [Unreleased] and are not releases.
+const { stripLabels } = require('./private-refs.test.js');
 const HEADING = /^### (\d+\.\d+\S*)/;
 // A version's section ends at the NEXT VERSION heading or at a level-2/level-1 heading, never at a "### Fixed".
 // It used to end at any level 1-3 heading, so a "### Fixed" block appended inside a released section (before the next
@@ -115,6 +119,10 @@ const ALLOWED_CORRECTIONS = [
       + '- The test gate (`tests/all.js`) fails a suite that exits 0 without printing its summary, so a suite that stops\n'
       + '  part-way on a promise that never settles can no longer count as a pass (found by this: `tests/allsignal.test.js`\n'
       + '  had been exiting silently), and `tests/machine.test.js` now ends with the summary line every suite prints.\n' },
+  { version: '0.1.1-pre',
+    reason: 'labels removed: the clause about a privately tracked list loses its last word with the label, so the clause goes too',
+    from: "brief or issue; contributors don't edit a.",
+    to: 'brief or issue.' },
 ];
 
 const firstDifference = (a, b) => {
@@ -145,7 +153,9 @@ function check({ text, tagText, tags, ci = false, allowed = ALLOWED_CORRECTIONS,
     }
     const was = parse(old);
     if (!(version in was.sections)) { failures.push(`${version}: tag ${tag}'s CHANGELOG.md has no "### ${version}" section`); return; }
-    let want = was.sections[version];
+    // labels removed from both sides (a section written without them is unchanged by this)
+    let want = stripLabels(was.sections[version]);
+    const have = stripLabels(now.sections[version]);
     for (const c of allowed.filter((a) => a.version === version)) {
       if (want.split(c.from).length !== 2) { failures.push(`${version}: the allowed correction "${c.reason}" no longer applies to tag ${tag}'s text (remove it from the list)`); continue; }
       want = want.replace(c.from, () => c.to);
@@ -153,12 +163,12 @@ function check({ text, tagText, tags, ci = false, allowed = ALLOWED_CORRECTIONS,
     compared.push(version);
     // The section's structure first, by name: a heading moved, renamed, added or removed is reported as that, so a
     // "### Fixed" appended inside a released section fails even where the surrounding text still matches.
-    const wasHeads = headingsOf(want), nowHeads = headingsOf(now.sections[version]);
+    const wasHeads = headingsOf(want), nowHeads = headingsOf(have);
     if (wasHeads.join('\n') !== nowHeads.join('\n')) {
       failures.push(`${version} is a released section (tag ${tag}) and its headings changed: released ${JSON.stringify(wasHeads)}, now ${JSON.stringify(nowHeads)}. `
         + 'New entries go under "## [Unreleased]", in a new "### Fixed"/"### Added" above the newest released section.');
-    } else if (now.sections[version] !== want) {
-      failures.push(`${version} is a released section (tag ${tag}) and was changed: ${firstDifference(want, now.sections[version])}. `
+    } else if (have !== want) {
+      failures.push(`${version} is a released section (tag ${tag}) and was changed: ${firstDifference(want, have)}. `
         + 'New entries go under "## [Unreleased]", in a new "### Fixed"/"### Added" above the newest released section.');
     }
   });

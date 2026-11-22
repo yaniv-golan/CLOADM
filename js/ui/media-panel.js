@@ -46,7 +46,7 @@ export function setupMediaPanel(page, { snapshots, disks, nitros9, keep }) {
     if (media.kind === 'disk' && !mm) { audio.start(); await disks.insert(name, bytes); return; }
     if (!mm) { doLoad(name, bytes); return; }
     const m = session.personMachine;
-    // said once (R27): "dgame.dgn is a Dragon cartridge; the CoCo 1/2 may not run it." The family is named only where
+    // said once: "dgame.dgn is a Dragon cartridge; the CoCo 1/2 may not run it." The family is named only where
     // the format doesn't name it, and the reason only where it adds something
     const what = media.format.includes(mm.familyName) ? media.format : `${media.format} for a ${mm.familyName}`;
     const why = media.reason && !media.reason.toLowerCase().includes(media.format.toLowerCase()) ? ` (${media.reason})` : '';

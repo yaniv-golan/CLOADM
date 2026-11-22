@@ -404,7 +404,7 @@ function block(off) {
   // firmware tests opcodes directly and never depends on what the assembler does with a TFM spelling. That was
   // not hypothetical: the encoder used to map both TFM X+,Y and TFM X,Y+ onto 3A, so the mnemonic form ran the
   // 3A case twice and left 3B unexecuted -- a firmware silently testing the wrong instruction while still
-  // reaching HALT. The encoder now rejects every spelling outside the four forms (cloadm-10-6309-disasm), but
+  // reaching HALT. The encoder now rejects every spelling outside the four forms, but
   // raw bytes remain the right choice for a firmware whose job is to exercise the core. The postbyte $12 is
   // source X (1) and destination Y (2) [Atkinson printed p.136 ("the same format as TFR and EXG")].
   for (const [op, srcReg, dstReg, count, slot] of [

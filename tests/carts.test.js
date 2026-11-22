@@ -236,7 +236,7 @@ const image = (banks) => { const b = new Uint8Array(banks * 0x4000); for (let k 
   const MULTI_PAK = {
     // verified: the Multi-Pak was compared here (run.js coco --cart multi)
     coco: true, coco2b: true, mx1600: true, lzcolor64: true, cd6809: true,
-    // verified on cloadm-4-cart-machines (run.js dragon32 / dragon64 / coco3 --cart multi, audio included)
+    // verified against MAME (run.js dragon32 / dragon64 / coco3 --cart multi, audio included)
     dragon32: true, dragon64: true, coco3: true,
     // cartridge port and the same device in MAME, but no comparison of their own yet
     dragon200: false, tanodr64: false, coco3p: false,

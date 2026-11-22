@@ -60,6 +60,10 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Changed
 
+- **Comments, test names and docs describe behaviour, not internal process labels.** Review and ruling IDs and
+  old internal branch names are gone from the code, the tests, the docs and the released sections of this file, and
+  `tests/private-refs.test.js` keeps them out. The CHANGELOG check compares a released section with its tag after
+  removing those labels from both sides; any other difference still fails.
 - **`add_roms` keeps a URL as origin + path.** The store's `index.json` recorded the full URL a ROM came from, query
   string and fragment included, which can hold a token. It now keeps the origin and the path only.
 - **Test and tool tidy-ups, no emulation change.** `tools/mame-diff/tape/spec.js` takes its register lists from
@@ -67,7 +71,7 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   blocks (the worst case is unchanged, 4.99 s), and the comments in `js/host/audio.js` and `tools/browser-check.js`
   say what the sweep covers.
 - Using CLOADM with Claude leads with one default: "Use the connector" (a live side panel on the web and in the desktop
-  app, verified by the owner; phones not yet tested), then the plugin for developers and your own files, a "Which one?"
+  app, verified by the maintainers; phones not yet tested), then the plugin for developers and your own files, a "Which one?"
   table and a "Both on?" note, in the README and at the top of docs/mcp.md. The local server's `boot` and `load`
   descriptions and the skill (both copies) say to prefer the CLOADM side-panel connector for playing or watching with
   the person, and to use the local tools for files, scripting and tests (a description, not a refusal); a new eval,
@@ -131,10 +135,10 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   Worker refuses to start without it. `tests/connector.test.js` and `tests/skill.test.js` fail when the skill's section and
   the built instructions differ, and the skill's two copies stay byte for byte. The Worker must be deployed again
   when that section changes (`docs/deploy-connector.md`).
-- **A phone held upright: the panel decides, the screen takes the rest (UX R30).** The screen is the largest 4:3 one
+- **A phone held upright: the panel decides, the screen takes the rest.** The screen is the largest 4:3 one
   for which the app bar, the screen, the strip and the panel fit in the visible height, at most the page's width, and
   the picture fills it (no bezel). The panel has three modes, **Keys | Pad | Stick**: Pad is a D-pad with SPACE,
-  ENTER, the program's own keys and ABC (the keyboard for one key), on two rows of 48 px keys (BREAK is the strip's, R35); Stick is the touch
+  ENTER, the program's own keys and ABC (the keyboard for one key), on two rows of 48 px keys (BREAK is the strip's); Stick is the touch
   joystick, where the machine has a port. A bundled program opens in the mode it is played with (a new per-program
   `controls` field in the Session: 2048 and Minesweeper on the Pad, Minesweeper's with F and Stick offered; LIZA on
   Keys; anything else on Keys), and the choice is remembered per program and machine. With Pad, Stick or the keys
@@ -150,7 +154,7 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   Menu (whose name then says "Menu, Add ROMs needed"); Share is in Menu too, and Menu opens as a sheet over the page,
   moving nothing, with the focus on its first item. A script in the page's head
   puts the touch layout on before the first paint, so nothing reflows when the panel arrives.
-- **No automatic install offer on a phone** (owner's decision), upright or sideways: Install CLOADM… (in the app bar's
+- **No automatic install offer on a phone**, upright or sideways: Install CLOADM… (in the app bar's
   Menu upright; in the panel's Menu held sideways) installs. Desktops and tablets keep the offer.
 - **The status in the app bar shows the speed only** ("50 fps · 100%"): the machine's name is on the button beside it,
   and at 1200 px the repeated name pushed the speed into an ellipsis. The links go tight first to leave it room; only
@@ -720,7 +724,7 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   the name lands at the END rather than straight after the write: a landing made after the write would let that
   second creation count as a replace and take the name. No product change.
 
-- **Menus and boxes give the focus back** (UX rulings R15–R18). The machine menu closes on `Esc` wherever the focus
+- **Menus and boxes give the focus back**. The machine menu closes on `Esc` wherever the focus
   is (on the screen too, where it used to stay open and `Esc` went to the machine as BREAK), on `Tab` out of it,
   and on a press outside it, and the focus goes back to its button unless the press landed on something that
   takes the focus. The same for the phone's **Menu** links (`Esc` and a tap outside, back to **Menu**; open only
@@ -734,13 +738,13 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   once the typing pauses, and the Library's "N selected" is a polite live region written only when the count
   changes. `js/ui/page.js` `outsidePress` is the one press-outside rule.
 
-- **Every toast is visible** (UX ruling R24). A toast that finds no place on the emulator page where it covers
+- **Every toast is visible**. A toast that finds no place on the emulator page where it covers
   neither a control nor the screen's text no longer waits unseen: it takes a fixed slot at the top of the viewport,
   above everything but the dialogs, keeps that slot until it goes, and its time starts there ("never invisible" wins
   over "never covers a control"). A disk dropped without a disk ROM used to say nothing visible, at desktop and phone
   sizes alike. An error toast is red (`--error`, 4.76:1 on the toast), no longer the orange of a warning.
 
-- **A switch names what comes out** (UX ruling R25). The question before a machine switch now says what the
+- **A switch names what comes out**. The question before a machine switch now says what the
   switch takes out of the machine in use ("Switching to Dragon 32 resets the Dragon 64 and takes out the tape
   GAME.CAS and the disk WORK.VDK in drive 0. They stay in your Library."); a disk that came with a snapshot is named as
   not kept, with **Save to Library** (`Session.keepSnapshotDisk`: stored, and the drive linked to it, as one Library
@@ -750,12 +754,12 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   switch a message says "Switched to Dragon 32. Took out: GAME.CAS, WORK.VDK (drive 0)." (`Session.takenOut`), as does
   a switch made by opening a snapshot.
 
-- **The disk ROM is findable** (UX ruling R26). **Your ROMs** shows a card for the disk ROM on every machine whose
+- **The disk ROM is findable**. **Your ROMs** shows a card for the disk ROM on every machine whose
   cartridge port takes a disk cartridge ("Disk drives (optional): DragonDOS or Delta DOS"; "Disk BASIC (RS-DOS)" on
   the CoCos), none on the Dragon Alpha (its own drives) or the MC-10. A drive's **Add ROMs…** opens Your ROMs on
   that card instead of a bare file chooser. The card is not one of the machine's sockets, which are counted as before.
 
-- **The machine menu and the palette lead to the ROMs** (UX rulings R28, R28b). The machine menu's footer is two
+- **The machine menu and the palette lead to the ROMs**. The machine menu's footer is two
   menu items after a separator, in its arrow and `Tab` order, with the "✓ = BASIC ready" legend beside them: **Add or see ROMs…** (Your ROMs for this machine, the
   focus on its heading) and **RAM, CPU and speed…** (Machine settings, the focus on its heading; on a phone its top
   scrolled into view). Choosing a machine that needs ROMs ends with "Switched to Dragon 64. It needs ROMs for
@@ -764,12 +768,12 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   first in Machine settings, which now has that heading, and its button reads **Add ROMs →** without BASIC and
   **See or add ROMs →** with it. The page says "Machine settings", never "Machine tab".
 
-- **ROMs in the Library** (UX ruling R19 A+). A **ROMs** chip after Snapshots shows one card, not tiles: "Your ROMs:
+- **ROMs in the Library**. A **ROMs** chip after Snapshots shows one card, not tiles: "Your ROMs:
   2 stored, used by Dragon 32 and Dragon 64. Manage them in Your ROMs →", or "No ROMs yet. CLOADM never includes
   ROMs; add your own dumps in Your ROMs →" (`Session.storedRoms`); with ROMs stored the chip is there even when the
   Library holds nothing else. A ROM dropped on the Library says "added to Your ROMs" with **Open Your ROMs**.
 
-- **Copy** (UX ruling R27). The page no longer says "stub": the ROMs row reads "BASIC ready" or "Not added · running
+- **Copy**. The page no longer says "stub": the ROMs row reads "BASIC ready" or "Not added · running
   without ROMs", and Share says the person opening a link "runs it without ROMs". One term, **disk ROM**, replaces
   "DOS ROM" and "disk cartridge ROM" ("Disks need a disk ROM: …"). A file for the other family is described once:
   "dgame.dgn is a Dragon cartridge; the CoCo 1/2 may not run it." with **Open on Dragon 64** and **Load anyway**.
@@ -1144,12 +1148,12 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 #### Changed
 
-- **Restore points: one small line instead of a card after every message** (UX ruling R12). Under the latest turn
+- **Restore points: one small line instead of a card after every message**. Under the latest turn
   that changed the machine: "↶ Restore to 23:58 · Restore points…", the second opening every point (the last 10)
   and what restoring does and doesn't roll back; while a turn runs, "Restore point at 23:58 · Stop first to restore".
   The same line in the side panel, the phone sheet and the full-screen chat; after a restore it moves to the
   previous point's turn. The "✓ restore point made" log line is gone, and nothing calls it Undo.
-- **What Claude did, one line per action under each turn** (UX ruling R13), replacing the activity log: "✓ typed
+- **What Claude did, one line per action under each turn**, replacing the activity log: "✓ typed
   "DIR"", "– didn't type "DIR": you said no", "– typed "DIR", but the machine didn't read the keys", "✗ couldn't
   …", partial pokes and loads, " · undone at 00:02" after a restore; a turn of more than 3 actions folds its ✓ lines
   into one button with the reads counted; a turn that only read says so on a plain line ("read the screen 2×,
@@ -1558,7 +1562,7 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 #### Changed
 
-- AGENTS.md: an item's scope comes from its brief or issue; contributors don't edit a roadmap.
+- AGENTS.md: an item's scope comes from its brief or issue.
 
 ### 0.1.0 (first public release, not tagged yet)
 

@@ -84,7 +84,7 @@ const newSession = (id = 'dragon64') => { const s = new Emu.Session({ store: Emu
   check('1 the chat machine is still the one on screen', s.shownMachine === chatM && s.chatMachines.chat === chatM && s.claudeView === 'full');
 
   // a POKE from the book is the person's: it acts on their machine and never types into the chat firmware, whose
-  // keys are a conversation line (PM ruling)
+  // keys are a conversation line
   {
     // its own session, on the stub by choice: a POKE's line is queued on the stub the way the page's POKE book does it
     const ps = newSession('dragon64'); frames(ps, 5);
@@ -102,7 +102,7 @@ const newSession = (id = 'dragon64') => { const s = new Emu.Session({ store: Emu
       `${msg}; basic keys ${basicKeys.length} chat keys ${chatKeys.length}`);
     check('1 ...and the chat firmware is untouched by it', chatBefore.every((v, i) => v === ps.chatMachines.chat.ram[i]));
   }
-  // a saved snapshot is the person's machine, never the chat firmware (PM ruling)
+  // a saved snapshot is the person's machine, never the chat firmware
   {
     const f = await s.snapshotFile();
     const snap = await s.readSnapshot(f.bytes);
@@ -177,7 +177,7 @@ const newSession = (id = 'dragon64') => { const s = new Emu.Session({ store: Emu
 }
 
 // =====================================================================================
-// 1b. the rest of the person's machine (review round 2): ROMs, tapes by skip, the SSC, the welcome program
+// 1b. the rest of the person's machine: ROMs, tapes by skip, the SSC, the welcome program
 // =====================================================================================
 {
   // a ROM dropped while the chat is full screen is the PERSON's: it boots their BASIC session, and never puts ROMs
@@ -383,7 +383,7 @@ const newSession = (id = 'dragon64') => { const s = new Emu.Session({ store: Emu
 }
 
 {
-  // review round 2, finding 5: a machine SWITCH is a fresh try at the ROMs (the comment said so and the code did
+  // a machine SWITCH is a fresh try at the ROMs (the comment said so and the code did
   // not). Mark the failing ROMs, switch away and back, then a drop must try them again.
   const s = newSession('dragon32');
   s.addRoms([{ name: 'wrong.bin', bytes: new Uint8Array(16 * 1024).fill(0x39) }]);
@@ -475,7 +475,7 @@ const newSession = (id = 'dragon64') => { const s = new Emu.Session({ store: Emu
 }
 
 // =====================================================================================
-// 5. (skipped on the brief's terms) two debuggers on one machine
+// 5. (skipped: no product path reaches it) two debuggers on one machine
 // =====================================================================================
 // Not reproducible through any product path: every public sequence attaches exactly
 // one debugger per machine and one bus read makes exactly one _access call. Nothing is pinned here for it.

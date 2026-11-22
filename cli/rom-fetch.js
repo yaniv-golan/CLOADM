@@ -1,4 +1,4 @@
-// add_roms' downloader: one https URL the person gave, fetched with the checks the owner set (docs/mcp.md, "Adding
+// add_roms' downloader: one https URL the person gave, fetched with the checks set out in (docs/mcp.md, "Adding
 // your ROMs"):
 //  * https only, and no user name or password in the URL;
 //  * the host's every address resolved and checked before connecting, and the connection made to a checked address

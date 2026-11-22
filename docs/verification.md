@@ -764,8 +764,8 @@ Menu item is gone).
 
 ### Phones and the app bar (the browser check's `mobile` group)
 
-The v0.1.8 UI/UX review's phone and header findings, as UX R30 (owner-approved) rules them, with real touch
-(`hasTouch`, `isMobile`) at the visible sizes R30 names: 320x460, 375x548 and 393x659 upright, 734x343 sideways. Every
+The phone and app bar layout, with real touch
+(`hasTouch`, `isMobile`) at the visible sizes it is designed for: 320x460, 375x548 and 393x659 upright, 734x343 sideways. Every
 check failed on v0.1.8 except the guards named here. Upright, at each size: with the full keyboard the screen is at
 least as wide as v0.1.8 made it (229 px at 375x548; guard at 393x659); the strip is Keys, Pad, Stick, BREAK, CLEAR and
 ⌄ (Hide keys) in one row, none overlapping (the switch clear of BREAK), none under 44x44 px, all on the page; the app
@@ -776,7 +776,7 @@ scrolled to the page's foot, ⌨ covers nothing of it; 2048 opens on Pad with th
 it at the first animation frame) and 2 s later, with the touch class already on. Menu wears a dot while there is no
 BASIC (its name then "Menu, Add ROMs needed"), lists Add ROMs first, then Share, the links, Commands… and Install
 CLOADM…, opens moving nothing in the bar with the focus on its first item (Tab goes to the next), and its Add ROMs
-opens Add ROMs. Minesweeper opens on Pad (Up, Left, Down, Right, SPACE, ENTER, F, ABC, no BREAK: the strip's is the only one, UX R35; every key 48 px and
+opens Add ROMs. Minesweeper opens on Pad (Up, Left, Down, Right, SPACE, ENTER, F, ABC, no BREAK: the strip's is the only one; every key 48 px and
 more, Stick offered); the pad's → and F reach the machine as RIGHT and F; ABC shows the keyboard for one key; Keys
 chosen in Minesweeper is remembered for it on that machine while 2048 still opens on Pad and LIZA on Keys; the MC-10's
 switch is Keys | Pad. The games' toast says "tap a key" and BREAK, never "Esc" or "press", lies under the app bar and
@@ -793,7 +793,7 @@ only at 1200 px in a wide fallback font may it be left out (the layout group), n
 
 The page's menus and boxes (the machine menu, the phone's Menu links, a drive's menu, the Ctrl+K box, the touch
 keys' Menu sheet) and the polite live regions (Ctrl+K's match count, the Library's "N selected") have no MAME
-oracle (AGENTS.md 4.6): the oracle is the UX rulings R15-R18. The browser check's group `menuFocus` drives them with
+oracle (AGENTS.md 4.6): the oracle is the focus and announcement behaviour written down here. The browser check's group `menuFocus` drives them with
 real mouse, touch and keyboard events at 1280x720 and at 390x844 with touch, and after every step reads
 `document.activeElement` and whether the surface shows: Tab out of the machine menu closes it; Esc with the focus
 on the screen closes the machine menu (or Menu's links) and gives the focus to its button with no BREAK reaching
@@ -836,24 +836,24 @@ checks), a second `<main>` (16), the ports under the screen a `<div>` instead of
 
 ### The machine and its ROMs: toasts, switches, the disk ROM, the menu, the Library, the copy
 
-UX rulings R24-R28 and R19 A+ have no MAME oracle (AGENTS.md 4.6): the oracle is the rulings themselves, and the
+These have no MAME oracle (AGENTS.md 4.6): the oracle is the behaviour listed below, and the
 browser check's group `uiModel` drives them with real events at 1280x720 and at 390x844 with touch:
 
-* R24: a disk dropped without a disk ROM: the toast's box is inside the viewport and `elementFromPoint` at its centre
+* Every toast is visible: a disk dropped without a disk ROM: the toast's box is inside the viewport and `elementFromPoint` at its centre
   is the toast; it keeps its slot and its time runs. (`feedbackModel` checks the fixed top slot where nothing else is
   free, and that it goes after its 4 s.)
-* R25: the switch confirmation's text for a tape and a cartridge (both in the Library), a tape and a disk, a RAM
+* A switch names what comes out: the switch confirmation's text for a tape and a cartridge (both in the Library), a tape and a disk, a RAM
   change (and Cancel putting the select back), a snapshot's own disk with **Save to Library** (stored and linked),
   DriveWire (not listed, still mounted after the switch); the toasts after the switch. `tests/switch-losses.test.js`
   checks `Session.takenOut` and `Session.keepSnapshotDisk` in Node, the Speech/Sound Pak case included.
-* R26: the disk ROM card's title per machine (none on the Alpha and the MC-10), its `data-disk` mark with the socket
+* The disk ROM card: its title per machine (none on the Alpha and the MC-10), its `data-disk` mark with the socket
   counts unchanged, and a drive's **Add ROMs…** landing on it (in view, focused, on top at its centre).
-* R28, R28b: Ctrl K "roms" Enter (Your ROMs, focus on its heading, nothing scrolled), the palette's top result for
+* The machine menu's footer and Your ROMs: Ctrl K "roms" Enter (Your ROMs, focus on its heading, nothing scrolled), the palette's top result for
   each of its words, the ROMs row first and its label with and without a stored test ROM, the "needs ROMs" toast and
   its action, ↓ from the last machine to both footer items, Esc, and each footer item's focus.
-* R19 A+: the ROMs chip's card with and without ROMs (the count and the machines worked out from `session.roms`),
+* ROMs in the Library: the ROMs chip's card with and without ROMs (the count and the machines worked out from `session.roms`),
   the drop's **Open Your ROMs**, and the card's link. `tests/stored-roms.test.js` checks `Session.storedRoms`.
-* R27: every text node and title, label and placeholder of the page (emulator, machine menu, Your ROMs, Share,
+* The copy: every text node and title, label and placeholder of the page (emulator, machine menu, Your ROMs, Share,
   Library) holds no "stub" and no "Machine tab", and "disk ROM" is the one term; the ROMs row's states, the .dgn
   warning and the snapshot sentence word for word.
 

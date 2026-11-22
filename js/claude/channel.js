@@ -6,7 +6,7 @@
  * them inside the page until that branch lands, and DriveWireChatChannel (below) carries them on a DriveWire
  * virtual serial channel once it does.
  *
- * MemoryChannel follows the DriveWireChannel contract exactly (cloadm-6-drivewire,
+ * MemoryChannel follows the DriveWireChannel contract exactly (
  * js/media/drivewire.js), so swapping in DriveWire later is a one-file change and there is one vocabulary:
  *   onReceive(bytes | null)   what the machine sent (null: the channel closed)
  *   send(bytes) -> {accepted, queued}   bytes toward the machine; never blocks or drops, queues up to capacity

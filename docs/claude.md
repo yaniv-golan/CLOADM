@@ -181,7 +181,7 @@ Two ways to talk to Claude, one conversation:
   they were yours (a key pressed while Claude paused, or only thought), and Claude stops. Only the start itself is exempt
   (asMachine is synchronous; the page fetches the bytes first), so what you do while they are fetched still stops
   Claude. In every case a later Resume types nothing and runs nothing.
-  `node tests/claude-turn-scope.test.js` (R10 cases) and the browser check's `askEscChecks` cover these.
+  `node tests/claude-turn-scope.test.js` (its Esc-while-paused cases) and the browser check's `askEscChecks` cover these.
 * **The turn's status.** While a turn is in progress every view shows what it is doing, with **Stop** beside it
   (`Session.claudeStatus`): *Thinking…* while the reply comes (the model thinking, or streaming text or a long tool
   call that shows no text yet), *Using <tool>…* while a tool runs, *Waiting for your OK* while a card asks (or,
@@ -225,7 +225,7 @@ Two ways to talk to Claude, one conversation:
 * **What is this code doing?** in the Ctrl+K box asks about the code at the program counter: the disassembly and
   the registers go with the question (`Session.codeAt`), and the panel says Claude can read the code and the
   registers. A restore point is made before
-  Claude's first change in each turn. **The restore line** (UX ruling R12, `js/ui/claude-lines.js`): one small, muted
+  Claude's first change in each turn. **The restore line** (`js/ui/claude-lines.js`): one small, muted
   line under the latest turn that changed the machine, "↶ Restore to 23:58 · Restore points…", in the side panel,
   the phone sheet and the full-screen chat's card alike. The first button restores the newest point (its label for
   screen readers: "Restore the machine to 23:58, before Claude's last changes"; never "Undo"); **Restore points…** is
@@ -235,7 +235,7 @@ Two ways to talk to Claude, one conversation:
   since the point." While a turn runs the line reads "Restore point at 23:58 · Stop first to restore", its button
   disabled. Each point records the turn it was taken in (`Session.claudePoints[].turn`), so after a restore the line
   moves to the previous point's turn, or goes when none is left.
-  **What Claude did** (UX ruling R13, `js/claude/actions.js`): under each turn's reply, one small, muted line per
+  **What Claude did** (`js/claude/actions.js`): under each turn's reply, one small, muted line per
   acting call, in order, made from what the call returned or threw, never guessed: "✓ typed "DIR"", "✓ typed 3
   lines", "✓ pressed BREAK", "✓ poked 3 bytes at $0400", "✓ loaded a 12-line BASIC program", "✓ assembled and loaded
   128 bytes at $3000", "✓ ran RUN", "✓ started $3000"; partly done "✓ loaded 120 of 128 bytes at $3000 (8 not
@@ -492,7 +492,7 @@ emulator.
   keyword's round trip, whole-program round trips to the normalised listing, the memory layout and pointers on the
   three families with our own firmware in the BASIC socket, every error, and the consent gate.
   **Not checked automatically:** that a real BASIC lists and runs what `load_basic` wrote. That needs the BASIC
-  ROMs, which no test may use; the owner checks it by hand (manual test step 4 below).
+  ROMs, which no test may use; a maintainer checks it by hand (manual test step 4 below).
 * **Which to use.** The tool descriptions and the brief (`TYPING_POLICY` in `js/claude/chat.js`) tell Claude: type a
   program of 3 lines or fewer with `type_text`; for a longer one, call `load_basic` without asking in prose first
   (its card is the question: nothing loads unless the person agrees there); after either, check with LIST and

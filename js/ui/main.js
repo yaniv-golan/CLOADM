@@ -221,7 +221,7 @@ $('btnMenu').onclick = () => {
   fit();
 }
 // the phone's app bar (700 px and less, play/index.html): Add ROMs is Menu's first item while the app bar's pill is
-// up (the machine has no BASIC), and Menu wears a dot then (UX R30); Share is its item too (the bar has no room)
+// up (the machine has no BASIC), and Menu wears a dot then; Share is its item too (the bar has no room)
 {
   const pill = $('romPill'), item = $('navRoms');
   // (the dot is drawn only: while it is on, Menu's name says what it means)

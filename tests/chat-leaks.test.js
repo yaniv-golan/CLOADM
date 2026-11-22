@@ -112,7 +112,7 @@ const ROWS = [
   // the load path
   ['load a binary (a program dropped on the screen)', () => {}, (s) => s.load('prog.bin', BIN)],
   ['load a .cas tape', () => {}, (s) => s.load('tape.cas', casTape())],
-  ['load a .cas tape with stored ROMs on the stub (the fix-D path)', withRoms, (s) => { s.runWithoutRoms({ menu: false }); s.fastCas = false; return s.load('t.cas', casTape()); }],
+  ['load a .cas tape with stored ROMs on the stub (the stored-ROMs tape path)', withRoms, (s) => { s.runWithoutRoms({ menu: false }); s.fastCas = false; return s.load('t.cas', casTape()); }],
   ['load a raw file with askAddresses', () => {}, (s) => s.load('raw.bin', new Uint8Array(16), { askAddresses: () => ({ load: 0x2000, exec: 0x2000 }) })],
   ['load a BASIC listing (basictext)', withRoms, (s) => s.load('prog.bas', new TextEncoder().encode('10 PRINT 1\n20 GOTO 10\n'))],
   ['load a cartridge', () => {}, (s) => s.load('prog.rom', new Uint8Array(0x2000).fill(0x39))],

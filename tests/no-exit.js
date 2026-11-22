@@ -122,7 +122,7 @@ process.kill = function (pid, sig) {
 // Both events are marked. Most probes in tests/allsummary.test.js drain the event loop, so Node emits `beforeExit`
 // and the latch is already set; the `exit` listener exists for the CRASH path -- an uncaught throw skips `beforeExit`
 // but still runs `exit` handlers -- and the crash probe in 1c is the case that reaches it, so removing this listener
-// turns that probe red (review, 054 item 3).
+// turns that probe red.
 // Writes that bypass process.stdout.write (fs.writeSync(1, ...)) are not marked; no suite here writes that way.
 let shuttingDown = false;
 const originalWrite = process.stdout.write;
@@ -130,7 +130,7 @@ process.stdout.write = function (chunk, ...rest) {
   if (!shuttingDown) return originalWrite.call(this, chunk, ...rest);
   // A non-string chunk is marked on the BYTES, not by stringifying it. String(chunk) turns a Buffer into "233,65"; a
   // latin1 string written back as a string is re-encoded (0xE9 leaves as 0xC3 0xA9). Both spellings change what a
-  // binary write meant. Prefixing the Buffer keeps every byte (review, 054 item 5; probes in allsummary 1c).
+  // binary write meant. Prefixing the Buffer keeps every byte (probes in allsummary 1c).
   if (typeof chunk === 'string') return originalWrite.call(this, '\u0000' + chunk, ...rest);
   return originalWrite.call(this, Buffer.concat([Buffer.from([0]), chunk]), ...rest);
 };
@@ -141,7 +141,7 @@ process.stdout.write = function (chunk, ...rest) {
 // again, and clearing the latch with a setImmediate was tried and is much worse than the problem: the pending
 // setImmediate itself keeps the loop alive, 'beforeExit' fires again, and the process never exits -- every suite in
 // the gate hung until its timeout. So a suite that continues from beforeExit has its continued prints marked, and
-// reads as having printed no summary while running (a NIT from review round 2, kept as a stated limit rather than
+// reads as having printed no summary while running (a known limit, kept as stated rather than
 // traded for a hang). No suite here does that.
 process.on('beforeExit', () => { shuttingDown = true; });
 process.on('exit', () => { shuttingDown = true; });

@@ -529,7 +529,7 @@ function askSession({ include = null, stallMs } = {}) {
     s.endChat();
   }
 
-  // R10 and the page's own machine actions: a Reset, a power cycle, a machine switch or a snapshot load while Claude
+  // Esc while paused and the page's own machine actions: a Reset, a power cycle, a machine switch or a snapshot load while Claude
   // is paused stops Claude: the pause ends, the waiting action is refused, nothing held is ever typed (not into the
   // machine that starts over, not into a new one), the turn ends stopped, and a Resume afterwards does nothing.
   // Reset and power cycle keep the conversation and say why it stopped ('claude-stopped'); a switch or a snapshot
@@ -560,7 +560,7 @@ function askSession({ include = null, stallMs } = {}) {
     for (let i = 0; i < 30; i++) s.advance(1000 / s.shownMachine.fps + 0.01);
     const now = s.shownMachine;
     const keeps = how === 'reset' || how === 'powerCycle';
-    check(`R10 ${how} while Claude is paused stops Claude: pause ended, waiting poke refused, held keys dropped, turn ended stopped, Resume afterwards types nothing`,
+    check(`${how} while Claude is paused stops Claude: pause ended, waiting poke refused, held keys dropped, turn ended stopped, Resume afterwards types nothing`,
       held > 0 && r !== 'timeout' && s.claudePaused === null && m.ram[0x3001] !== 8 && now.ram[0x3001] !== 8 && job && job.status === 'stopped'
       && m.typist.queue.length === 0 && now.typist.queue.length === 0 && !(now.stubKeys && now.stubKeys.length) && chat.error && chat.error.code === 'aborted' && resumed === false
       && !s.claudeBusyActing && (keeps ? s.chat === chat && notes.length === 1 && (how === "reset" ? notes[0] === "you reset the machine" : notes[0] === "the machine restarted")
@@ -594,7 +594,7 @@ function askSession({ include = null, stallMs } = {}) {
       const r = await within(turn);
       const resumed = s.resumeClaude();
       const q = s.shownMachine.typist.queue.length;
-      check(`R10 a restart by ${how} while Claude is paused stops Claude: the waiting poke is refused, Resume afterwards types nothing`,
+      check(`a restart by ${how} while Claude is paused stops Claude: the waiting poke is refused, Resume afterwards types nothing`,
         r !== 'timeout' && s.claudePaused === null && resumed === false && q === 0 && s.shownMachine.ram[0x3001] !== 8 && chat.error && chat.error.code === 'aborted' && job.status === 'stopped',
         JSON.stringify({ r: r === 'timeout' ? r : 'ended', resumed, q, err: chat.error && chat.error.code, job: job && job.status }));
       off();
@@ -628,7 +628,7 @@ function askSession({ include = null, stallMs } = {}) {
         const r = await within(turn);
         const resumed = s.resumeClaude();
         const own = m.typist.queue.filter((c) => c && c.job === job).length;
-        check(`R10 with ROMs, ${how} while Claude is ${paused ? 'paused' : 'typing'} stops Claude: the turn ends stopped, ${paused ? 'the waiting poke is refused, ' : ''}none of Claude's keys are typed into the program`,
+        check(`with ROMs, ${how} while Claude is ${paused ? 'paused' : 'typing'} stops Claude: the turn ends stopped, ${paused ? 'the waiting poke is refused, ' : ''}none of Claude's keys are typed into the program`,
           r !== 'timeout' && s.claudePaused === null && resumed === false && own === 0 && chat.error && chat.error.code === 'aborted' && job.status === 'stopped' && !s.claudeBusyActing
           && (!paused || m.ram[0x3001] !== 8),
           JSON.stringify({ r: r === 'timeout' ? r : 'ended', resumed, own, fromBefore, err: chat.error && chat.error.code, job: job && job.status }));
@@ -659,7 +659,7 @@ function askSession({ include = null, stallMs } = {}) {
       const still = !!s.claudePaused && chat.busy;
       const resumed = s.resumeClaude();
       const r = await within(turn);
-      check(`R10 ${how} (refused) leaves Claude paused, no note; Resume then carries on`,
+      check(`${how} (refused) leaves Claude paused, no note; Resume then carries on`,
         threw && still && resumed === true && !notes.length && r !== 'timeout' && !chat.error && m.ram[0x3001] === 8,
         JSON.stringify({ threw, still, resumed, notes, err: chat.error && chat.error.code }));
       off();
@@ -689,7 +689,7 @@ function askSession({ include = null, stallMs } = {}) {
     const during = { liza: !!liza, busy: chat.busy, err: chat.error && chat.error.code, notes: notes.slice() };
     if (done.open) done.open();
     const r = await within(turn);
-    check('R10 Claude choosing LIZA on the welcome menu (its own key) starts LIZA and its turn goes on: not stopped, no note',
+    check('Claude choosing LIZA on the welcome menu (its own key) starts LIZA and its turn goes on: not stopped, no note',
       during.liza && during.busy && !during.err && !notes.length && r !== 'timeout' && chat.messages.slice(-1)[0].content === 'LIZA is up.', JSON.stringify(during));
     off();
     s.endChat();
@@ -706,7 +706,7 @@ function askSession({ include = null, stallMs } = {}) {
     await until(() => !!s.claudePaused && s.claudePaused.wake.length > 0);
     s.asMachine(() => s.runLiza(ex(s.lizaFile)), s.machineTicket());
     const r = await within(turn);
-    check('R10 a program start the machine asked for while Claude is paused (the person\'s key) stops Claude; Resume afterwards types nothing',
+    check('a program start the machine asked for while Claude is paused (the person\'s key) stops Claude; Resume afterwards types nothing',
       r !== 'timeout' && s.claudePaused === null && s.resumeClaude() === false && s.shownMachine.typist.queue.length === 0 && chat.error && chat.error.code === 'aborted',
       JSON.stringify({ err: chat.error && chat.error.code }));
     off();
@@ -821,7 +821,7 @@ function askSession({ include = null, stallMs } = {}) {
     }
     s.asMachine(() => s.runLiza(ex(s.lizaFile)), ticket);
     const r = await within(turn);
-    check(`R10 a start the machine asked for stops Claude when ${how}`, ticket && r !== 'timeout' && chat.error && chat.error.code === 'aborted' && !s.claudeBusyActing,
+    check(`a start the machine asked for stops Claude when ${how}`, ticket && r !== 'timeout' && chat.error && chat.error.code === 'aborted' && !s.claudeBusyActing,
       JSON.stringify({ ticket: ticket && ticket.claude, err: chat.error && chat.error.code }));
     s.endChat();
   }
@@ -860,7 +860,7 @@ function askSession({ include = null, stallMs } = {}) {
     for (let i = 0; i < 400 && !menu; i++) s.advance(1000 / m.fps + 0.01);
     if (next.open) next.open();
     const r = await within(turn);
-    check(`R10 the menu after the person's BYE in LIZA stops Claude (${how})`, menu && r !== 'timeout' && chat.error && chat.error.code === 'aborted',
+    check(`the menu after the person's BYE in LIZA stops Claude (${how})`, menu && r !== 'timeout' && chat.error && chat.error.code === 'aborted',
       JSON.stringify({ menu, err: chat.error && chat.error.code, ticket: s.menuTicket && s.menuTicket.claude }));
     off();
     s.endChat();
@@ -880,7 +880,7 @@ function askSession({ include = null, stallMs } = {}) {
     const t = s.machineTicket();
     s.answerClaude(false);
     await within(turn);
-    check('R10 a ticket taken while a card waits is not Claude\'s (a key then is the person\'s)', s.claudeBusyActing === false && t.claude === false, JSON.stringify({ claude: t.claude }));
+    check('a ticket taken while a card waits is not Claude\'s (a key then is the person\'s)', s.claudeBusyActing === false && t.claude === false, JSON.stringify({ claude: t.claude }));
     s.endChat();
   }
   {
@@ -892,7 +892,7 @@ function askSession({ include = null, stallMs } = {}) {
     let inner = null;
     s.asMachine(() => { s.asMachine(() => { inner = s.machineDriven; }, { claude: true }); }, null);
     try { s.asMachine(() => { throw new Error('x'); }); } catch (e) { /* expected */ }
-    check('R10 asMachine refuses async work, and its ticket is set only inside it (nested, thrown)', refused && inner && inner.claude === true && s.machineDriven === null);
+    check('asMachine refuses async work, and its ticket is set only inside it (nested, thrown)', refused && inner && inner.claude === true && s.machineDriven === null);
     s.endChat();
   }
   {
@@ -914,7 +914,7 @@ function askSession({ include = null, stallMs } = {}) {
     // (the BASIC session restarting while the chat is on screen: its own onReset, not this.machine's)
     basic.reset(false);
     const r = await within(turn);
-    check('R10 full-screen chat: Reset of the chat machine leaves Claude typing in the BASIC session; a restart of the BASIC session (chat on screen) stops it',
+    check('full-screen chat: Reset of the chat machine leaves Claude typing in the BASIC session; a restart of the BASIC session (chat on screen) stops it',
       onChat && kept.busy && kept.q > 0 && !kept.err && r !== 'timeout' && chat.error && chat.error.code === 'aborted' && basic.typist.queue.length === 0,
       JSON.stringify({ onChat, kept: { busy: kept.busy, q: kept.q }, err: chat.error && chat.error.code }));
     off();
@@ -933,7 +933,7 @@ function askSession({ include = null, stallMs } = {}) {
     s.reset();
     const r = await within(turn);
     for (let i = 0; i < 30; i++) s.advance(1000 / s.shownMachine.fps + 0.01);
-    check('R10 Reset while Claude acts (not paused) stops Claude: the turn ends stopped and its typing is dropped',
+    check('Reset while Claude acts (not paused) stops Claude: the turn ends stopped and its typing is dropped',
       r !== 'timeout' && chat.error && chat.error.code === 'aborted' && m.typist.queue.length === 0 && !s.claudeBusyActing && job.status === 'stopped',
       JSON.stringify({ err: chat.error && chat.error.code, q: m.typist.queue.length, job: job && job.status }));
     off();
@@ -945,7 +945,7 @@ function askSession({ include = null, stallMs } = {}) {
     const notes = [];
     s.on((ev, arg) => { if (ev === 'claude-stopped') notes.push(arg); });
     s.reset(); s.powerCycle();
-    check('R10 Reset and power cycle with Claude idle stop nothing and add no note', s.chat === chat && !notes.length && !chat.error);
+    check('Reset and power cycle with Claude idle stop nothing and add no note', s.chat === chat && !notes.length && !chat.error);
     s.endChat();
   }
 

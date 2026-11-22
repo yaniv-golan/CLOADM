@@ -14,11 +14,11 @@
 //  * C - Resume after A: the waiting call acts, the turn goes on, and its next acting call goes through the gate
 //    again (a card again once the switch is off); the pause and the gate's call state end with the turn, so a key in
 //    a later turn that only answers in text is just the person's key.
-//  * R11 (UX ruling "Allow and resume") - answerClaude(true, { resume: true }) answers and resumes in one step and the
+//  * "Allow and resume" - answerClaude(true, { resume: true }) answers and resumes in one step and the
 //    call acts once; a no while paused acts on nothing and leaves the pause; the switch turned off while a call waits
 //    paused refuses it on Resume (no-consent) whatever consent it relied on, a card answered for it included; the
 //    switch turned on while paused does not resume; while paused the status is the pause's even with a card up.
-// (D, Stop from the #viewClaude pill while a gate card waits, and R11 through the page in the side panel and the
+// (D, Stop from the #viewClaude pill while a gate card waits, and "Allow and resume" through the page in the side panel and the
 // full-screen chat, are page checks: tools/browser-check.js, group askEsc.)
 const Emu = require('./load')();
 const C = Emu.TOOL_CODES;
@@ -114,7 +114,7 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.shownMachine.ram[
     s.answerClaude(true);
     await tick();
     const held = { ram: ram(s, 0x3000, 1), undo: chat.undo.length, busy: chat.busy, paused: !!s.claudePaused, status: s.claudeStatus && s.claudeStatus.phase };
-    // (R11, an intended change: while paused the status is the pause's, not "Waiting for your OK"; the card stays)
+    // (an intended change: while paused the status is the pause's, not "Waiting for your OK"; the card stays)
     check('A1 the person\'s input while the consent card waits (the turn\'s first acting call) pauses Claude; the card stays up, the status is the pause\'s',
       card.pending === 'consent' && card.acting === false && paused === true && status1.phase === 'paused' && status1.text === 'Paused: you pressed a key · Claude\'s next action waits · Esc stops Claude', JSON.stringify({ card, paused, status1 }));
     check('A1 Allow on that card does not act while paused: nothing written, no restore point, the turn waits (status paused)',
@@ -193,7 +193,7 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.shownMachine.ram[
     s.endChat();
   }
 
-  // ================= R11: "Allow and resume" (UX ruling) =================
+  // ================= "Allow and resume" =================
   {
     // answerClaude(true, { resume: true }) answers and resumes in one synchronous step: the call acts once
     // (acted: the poke's byte, or load_basic's end-of-program pointer moved)
@@ -213,7 +213,7 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.shownMachine.ram[
       const sameStep = { paused: !!s.claudePaused, card: !!s.claudePending };
       const r = await within(turn);
       const acted = tool === 'poke' ? landed(s) : ram(s, P + 2, 2) !== ptrs;
-      check(`R11 ${what}: answer with resume: yes and Resume in one synchronous step; the call acts exactly once, one restore point, the turn ends`,
+      check(`allow and resume: ${what}: answer with resume: yes and Resume in one synchronous step; the call acts exactly once, one restore point, the turn ends`,
         before.paused && before.card && !sameStep.paused && r !== 'timeout' && acted && tools.length === 1 && !tools[0].isError && chat.undo.length === 1 && !s.claudePaused,
         JSON.stringify({ before, sameStep, tools, undo: chat.undo.length }));
       s.endChat();
@@ -231,11 +231,11 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.shownMachine.ram[
     s.answerClaude(false, { resume: true });
     await tick();
     const after = { paused: !!s.claudePaused, ram: ram(s, 0x3000, 1), code: tools[0] && tools[0].code, undo: chat.undo.length };
-    check('R11 decline while paused: nothing acts (consent-declined), no restore point, and the pause stays (a no never resumes)',
+    check('allow and resume: decline while paused: nothing acts (consent-declined), no restore point, and the pause stays (a no never resumes)',
       after.paused && after.ram === '0' && after.code === C.CONSENT_DECLINED && after.undo === 0, JSON.stringify(after));
     s.resumeClaude(); await until(() => !!next.open); next.open();
     const r = await within(turn);
-    check('R11 decline while paused: Resume then lets the turn go on to its reply', r !== 'timeout' && !chat.error && ram(s, 0x3000, 1) === '0');
+    check('allow and resume: decline while paused: Resume then lets the turn go on to its reply', r !== 'timeout' && !chat.error && ram(s, 0x3000, 1) === '0');
     s.endChat();
   }
   {
@@ -259,7 +259,7 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.shownMachine.ram[
       const still = !!s.claudePaused;
       s.resumeClaude();
       const r = await within(turn);
-      check(`R11 a call allowed on its card, paused during its check, ${what} while paused, then Resume: refused no-consent, nothing written, no restore point`,
+      check(`allow and resume: a call allowed on its card, paused during its check, ${what} while paused, then Resume: refused no-consent, nothing written, no restore point`,
         paused && still && r !== 'timeout' && tools[0] && tools[0].code === C.NO_CONSENT && ram(s, 0x3000, 2) === '0,0' && chat.undo.length === 0, JSON.stringify({ paused, still, tools }));
       s.endChat();
     }
@@ -413,7 +413,7 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.shownMachine.ram[
     s.setClaudeAllowed(true);
     await tick();
     const held = { paused: !!s.claudePaused, card: !!s.claudePending, ram: ram(s, 0x3000, 1) };
-    check('R11 the switch on while paused (a card up) does not resume: still paused, the card still up, nothing written',
+    check('allow and resume: the switch on while paused (a card up) does not resume: still paused, the card still up, nothing written',
       held.paused && held.card && held.ram === '0', JSON.stringify(held));
     s.stopClaude(); await within(turn);
     s.endChat();
@@ -442,10 +442,10 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.shownMachine.ram[
     s.answerClaude(true);
     await tick();
     const waiting = { status: s.claudeStatus, acting: s.claudeBusyActing, ram: ram(s, 0x3002, 1) };
-    check('R11 paused at a card then declined: while Claude only writes, the status is the one paused text (its next action waits), and Claude is not acting',
+    check('allow and resume: paused at a card then declined: while Claude only writes, the status is the one paused text (its next action waits), and Claude is not acting',
       writing.status.phase === 'paused' && writing.status.text === 'Paused: you pressed a key · Claude\'s next action waits · Esc stops Claude' && writing.acting === false && writing.held === false
       && tools[1] && tools[1].code === C.CONSENT_DECLINED, JSON.stringify(writing));
-    check('R11 ... the next acting call (allowed on its card) waits on the pause: the same paused text, acting again, nothing written',
+    check('allow and resume: ... the next acting call (allowed on its card) waits on the pause: the same paused text, acting again, nothing written',
       waiting.status.text === 'Paused: you pressed a key · Claude\'s next action waits · Esc stops Claude' && waiting.acting === true && waiting.ram === '0', JSON.stringify(waiting));
     s.stopClaude(); await within(turn);
     s.endChat();

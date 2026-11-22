@@ -251,7 +251,7 @@ function pictureRows(m) {
 // ---- 8. the description names the board and its declines ----
 {
   const d = Emu.SCREEN_TEXT_DESCRIPTION;
-  check('description: the 80-column board, its registers, ASCII, and each decline', /Dragon 64 Plus's 80-column screen/.test(d) && /R12\/R13/.test(d)
+  check('description: the 80-column board, its registers, ASCII, and each decline', /Dragon 64 Plus's 80-column screen/.test(d) && /R12\/R13/.test(d)   // the CRTC start address registers
     && /\$20-\$7E are read as ASCII \(P\. Mooney's IC22 EPROM dump/.test(d) && /interlace/.test(d) && /non-output/.test(d) && /fewer than 10 raster lines/.test(d) && /code outside \$20-\$7E/.test(d), d);
 }
 

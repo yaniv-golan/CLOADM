@@ -85,7 +85,7 @@ computer, `node cli/cloadm.js --mcp`); each Claude app uses the one it can.
 
 #### Without the plugin
 
-Add `https://mcp.cloadm.dev/mcp` as a custom connector (no sign-in). You get the side panel but not the skill that teaches Claude to play it well. Already added https://mcp.cloadm.dev/mcp as a custom connector? The plugin's cloadm-panel uses that same connector, so you won't have two; you can keep it. To add the skill on its own, download `cloadm-skill.zip` from the [Releases](https://github.com/yaniv-golan/CLOADM/releases) page and add it in claude.ai under Settings → Capabilities → Skills (steps not yet verified by the owner).
+Add `https://mcp.cloadm.dev/mcp` as a custom connector (no sign-in). You get the side panel but not the skill that teaches Claude to play it well. Already added https://mcp.cloadm.dev/mcp as a custom connector? The plugin's cloadm-panel uses that same connector, so you won't have two; you can keep it. To add the skill on its own, download `cloadm-skill.zip` from the [Releases](https://github.com/yaniv-golan/CLOADM/releases) page and add it in claude.ai under Settings → Capabilities → Skills (steps not yet verified by the maintainers).
 
 Every way to install, in full: [docs/mcp.md](docs/mcp.md#which-way-should-i-install-cloadm-for-claude).
 

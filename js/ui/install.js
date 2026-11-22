@@ -3,13 +3,13 @@
  * their own menu.
  *
  * The card is an offer, not a demand. It appears when all of these hold: CLOADM is not already installed, the page
- * is not an embed, nor a phone in its touch layout (upright or sideways: the owner's decision with UX R30; the Menu
+ * is not an embed, nor a phone in its touch layout (upright or sideways; the Menu
  * item still installs there); the emulator is shown with no view, no full-screen chat, no other card and no open Menu; a real
  * program (LIZA, a binary, a tape, a disk, BASIC) has run for 60 s this visit — never over the welcome menu; and
  * the browser can be asked (Chromium's beforeinstallprompt, held with preventDefault so its mini-infobar does not
  * appear instead, or iOS, which has no install event). At most once a visit.
  *
- * Where it sits (owner's correction 008): a floating card that never moves the page, in the first place that covers
+ * Where it sits: a floating card that never moves the page, in the first place that covers
  * none of the screen, Reset and the machine controls, the app bar or a visible on-screen key (and it never shows
  * with the machine menu open): the bottom-right corner (lifted clear of the screen), the gutter right or left of the
  * screen, or a one-line strip under the screen (a phone held upright, above its keyboard). With no such place the
@@ -150,7 +150,7 @@ export function setupInstall(page, { started = () => true, machineMenu = null } 
   let pending = false;      // an offer deferred for want of room: still owed this visit, tried again on a size change
   let offeredByMenu = false;
   const clock = createRunClock();
-  // a phone in its touch layout, upright or sideways (the owner's decision with UX R30): no offer there, the Menu item
+  // a phone in its touch layout, upright or sideways: no offer there, the Menu item
   // installs
   const phoneSized = [matchMedia('(max-width: 700px)'), matchMedia('(orientation: landscape) and (max-height: 500px)')];
   const touchPhone = () => (document.body.classList.contains('touch-keys') || document.body.classList.contains('touch-hidden')) && phoneSized.some((q) => q.matches);

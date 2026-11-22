@@ -1,7 +1,7 @@
 // Run: node tests/claude-history.test.js
 //
 // What the chat remembers of a turn (AGENTS.md 4.6, Claude chat terminal: no MAME oracle; a mocked fetch only,
-// never the real API; no ROMs). The owner's report: Claude in the Ask panel said it had typed DIR and PROCS, and a
+// never the real API; no ROMs). The report: Claude in the Ask panel said it had typed DIR and PROCS, and a
 // few turns later said it could find no record of doing so. The history kept only each reply's text, and a turn
 // that failed after its tools ran was dropped whole, so the next request held claims and no evidence.
 //
