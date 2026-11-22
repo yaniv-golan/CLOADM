@@ -97,22 +97,29 @@ const cli = (args, opts = {}) => node([path.join(ROOT, 'cli/cloadm.js'), ...args
   }
   const out2 = path.join(TMP, 'two.png'), r2 = runExample(example, out2);
   check('a second run draws the same picture and reports the same numbers (emulated time only)', r2.status === 0 && fs.readFileSync(out2).equals(png1) && r2.stdout.replace(out2, 'X') === r1.stdout.replace(out1, 'X'), r2.stderr);
+  // the JSON line the guide quotes is what the example prints (the PNG path aside)
+  {
+    const quoted = [...doc.matchAll(/```json\n(\{"png":[^\n]*\})\n```/g)].map((m) => JSON.parse(m[1]));
+    const actual = j1 && Object.assign({}, j1, { png: 'out.png' });
+    check('the guide\'s quoted output of headless-frame.mjs is exactly what it prints (every field)', quoted.length === 1 && !!actual && JSON.stringify(quoted[0]) === JSON.stringify(actual), `${JSON.stringify(quoted[0])} vs ${JSON.stringify(actual)}`);
+  }
   // from a copy elsewhere, with CLOADM_DIR (the example's own comment says so)
   const copy = path.join(TMP, 'copy');
   fs.mkdirSync(copy);
-  fs.copyFileSync(example, path.join(copy, 'headless-frame.mjs'));
-  fs.copyFileSync(path.join(exampleDir, 'framecount.asm'), path.join(copy, 'framecount.asm'));
+  fs.copyFileSync(example, path.join(copy, 'headless-frame.mjs'));      // (the .mjs alone: the guest source is read from CLOADM_DIR)
   const out3 = path.join(TMP, 'three.png'), r3 = runExample(path.join(copy, 'headless-frame.mjs'), out3, { CLOADM_DIR: ROOT });
-  check('a copy of the example outside the repository runs with CLOADM_DIR and draws the same picture', r3.status === 0 && fs.readFileSync(out3).equals(png1), r3.stderr);
+  check('a copy of the .mjs alone, outside the repository, runs with CLOADM_DIR and draws the same picture', r3.status === 0 && fs.readFileSync(out3).equals(png1), r3.stderr);
   // mutants of the guest: the example must fail on each
   const mutant = (name, edit) => {
-    const dir = path.join(TMP, name);
-    fs.mkdirSync(dir);
-    fs.copyFileSync(example, path.join(dir, 'headless-frame.mjs'));
+    const root = path.join(TMP, name), dir = path.join(root, 'docs/examples');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.symlinkSync(path.join(ROOT, 'js'), path.join(root, 'js'), 'dir');
+    fs.symlinkSync(path.join(ROOT, 'cli'), path.join(root, 'cli'), 'dir');
     const asm = fs.readFileSync(path.join(exampleDir, 'framecount.asm'), 'utf8'), mutated = edit(asm);
     if (mutated === asm) throw new Error(`mutant ${name} changed nothing`);
     fs.writeFileSync(path.join(dir, 'framecount.asm'), mutated);
-    return runExample(path.join(dir, 'headless-frame.mjs'), path.join(TMP, `${name}.png`), { CLOADM_DIR: ROOT });
+    fs.copyFileSync(example, path.join(dir, 'headless-frame.mjs'));
+    return runExample(path.join(dir, 'headless-frame.mjs'), path.join(TMP, `${name}.png`));
   };
   const noCount = mutant('nocount', (a) => a.replace('        INC     FRAME           ; one tick', '        NOP'));
   check('a guest whose counter never counts makes the example fail (it never reaches 3)', noCount.status !== 0 && /never reached 3/.test(noCount.stderr), noCount.stderr.split('\n')[0]);
@@ -134,19 +141,34 @@ const cli = (args, opts = {}) => node([path.join(ROOT, 'cli/cloadm.js'), ...args
   const keyPng = path.join(TMP, 'key.png');
   const run2 = cli(argv(recipe[1]).map((a) => (a === 'key.png' ? keyPng : a)), { cwd: ROOT });   // (from the repository root, as the guide says; the picture goes to TMP)
   check('the second command line writes the picture (a 320x240 PNG)', run2.status === 0 && fs.existsSync(keyPng) && fs.readFileSync(keyPng).readUInt32BE(16) === 320, run2.stderr);
-  // the cycles the text quotes for a frame
+  // the field rate is the video standard's: every model's CPU cycles and fields a second, against what the text says
   {
-    const per = {};
-    for (const id of ['dragon64', 'coco']) {
+    const PAL = ['dragon32', 'dragon64', 'dragon200', 'dragon200e', 'dgnalpha', 'd64plus', 'coco3p'];
+    const bad = [];
+    for (const id of Object.keys(Emu.profiles)) {
       const s = new Emu.Session({ welcomeMenu: false });
       s.switchMachine(id, {}, { menu: false });
-      s.runFrames(10);
-      const c0 = s.machine.now(); s.runFrames(50);
-      per[id] = [(s.machine.now() - c0) / 50, s.machine.tickHz, +(s.machine.fps).toFixed(2)];
+      const m = s.machine;
+      s.runFrames(5);
+      const c0 = m.cpu.totalCycles; s.runFrames(20);
+      const cycles = Math.round((m.cpu.totalCycles - c0) / 20), fps = +m.fps.toFixed(2), pal = Emu.profiles[id].video === 'pal';
+      if (pal !== PAL.includes(id)) bad.push(`${id}: video ${Emu.profiles[id].video}`);
+      if (pal ? !(cycles === 17784 && (fps === 49.97 || fps === 50.04)) : !(cycles === 14934 && fps === 59.92)) bad.push(`${id}: ${cycles} cycles, ${fps} Hz`);
+      if (id === 'dragon64' && Math.round(m.tickHz) !== 888625) bad.push('dragon64 clock');
+      if (id === 'coco' && Math.round(m.tickHz) !== 894886) bad.push('coco clock');
+      if (id === 'coco3p' && (fps !== 50.04 || Math.round(m.tickHz / 4) !== 889844)) bad.push('coco3p clock');
     }
-    check('"17,784 CPU cycles a frame at 888,625 Hz, 49.97 fields a second" (Dragon 64) and "14,934 at 894,886 Hz, 59.92" (CoCo) are what the machines do',
-      per.dragon64[0] === 17784 && per.dragon64[1] === 888625 && per.dragon64[2] === 49.97 && per.coco[0] === 14934 && Math.round(per.coco[1]) === 894886 && per.coco[2] === 59.92
-      && doc.includes('17,784 CPU cycles a frame at 888,625 Hz, 49.97 fields a second') && doc.includes('14,934 cycles at 894,886 Hz, 59.92 a second'), JSON.stringify(per));
+    check('every model runs the cycles and fields a second its video standard gives (PAL 17,784; NTSC 14,934), the Tano Dragon 64 NTSC and the CoCo 3 (PAL) PAL', !bad.length, bad.join('; '));
+    const para = doc.slice(doc.indexOf('**A video field is the frame.**'), doc.indexOf('**What "cycles" counts.**'));
+    check('the text says so by video standard and names the exceptions with their numbers', /\*\*PAL\*\* machines/.test(para) && /\*\*NTSC\*\* machines/.test(para) && /`coco3p`/.test(para) && /Tano\s+Dragon 64/.test(para)
+      && /17,784 CPU cycles a frame, 49\.97 fields a second on the Dragons\s+\(888,625 Hz\) and 50\.04 on the CoCo 3 \(PAL\) \(889,844 Hz\)/.test(para) && /14,934 cycles a frame, 59\.92 a second \(894,886 Hz\)/.test(para)
+      && !/50 times a second on the Dragons/.test(para));
+    // the CoCo 3 counts machine ticks in four times the CPU cycle, as the text says (machine.now() vs machine.cpu.totalCycles)
+    const s3 = new Emu.Session({ welcomeMenu: false });
+    s3.switchMachine('coco3', {}, { menu: false });
+    s3.runFrames(5);
+    const n0 = s3.machine.now(), c0 = s3.machine.cpu.totalCycles; s3.runFrames(20);
+    check('on the CoCo 3 machine.now() runs 59,736 ticks a frame while the CPU runs 14,934 cycles (the text\'s "what cycles counts")', (s3.machine.now() - n0) / 20 === 59736 && (s3.machine.cpu.totalCycles - c0) / 20 === 14934 && /59,736 a frame NTSC, 71,136 PAL/.test(doc));
   }
 
   // ---------------- the serial peer note ----------------
@@ -170,6 +192,12 @@ const cli = (args, opts = {}) => node([path.join(ROOT, 'cli/cloadm.js'), ...args
   const anchor = '#which-storage-and-serial-paths-each-model-has';
   check('the options row, the machine notes and the game guide link to the table, and the table\'s anchor is its heading',
     doc.includes(`(${anchor})`) && read('docs/machines.md').includes(`automation.md${anchor}`) && read('docs/game-development.md').includes(`automation.md${anchor}`) && doc.includes(heading));
+  const recipeA = '#a-graphics-program-has-no-text-to-wait-on', exampleA = '#a-complete-example-that-runs-from-outside-the-repository';
+  const gd = read('docs/game-development.md'), mc = read('docs/machines.md');
+  check('the recipe and the complete example are linked from the game guide\'s "Wait, don\'t sleep" bullet and its Dragon 64 sentence, and from the Dragon 64 row of the machine notes; their anchors are their headings',
+    gd.split(`automation.md${recipeA}`).length === 3 && gd.split(`automation.md${exampleA}`).length === 3 && mc.includes(`automation.md${recipeA}`) && mc.includes(`automation.md${exampleA}`)
+    && /Wait, don't sleep:\*\*[^\n]*\n[^\n]*\n[^\n]*\[wait on a frame counter in RAM\]/.test(gd) && /Dragon 64 adds a 6551[^\n]*driving a graphics program/.test(gd)
+    && doc.includes('### A graphics program has no text to wait on') && doc.includes('### A complete example that runs from outside the repository'));
   check('the table links to the serial note, and the note\'s anchor is its heading', doc.includes('(#a-snapshot-with-a-serial-peer-outside-the-machine)') && doc.includes('### A snapshot with a serial peer outside the machine'));
 
   fs.rmSync(TMP, { recursive: true, force: true });

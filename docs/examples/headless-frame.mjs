@@ -5,7 +5,8 @@
 // It runs from any directory (it finds the repository from its own path; set CLOADM_DIR=/path/to/cloadm to use it from
 // a copy elsewhere). What it does, each step checked:
 //   1. makes a Session and switches it to a Dragon 64 (the built-in firmware: no ROMs needed)
-//   2. assembles framecount.asm (next to this file) with the bundled assembler and loads the DragonDOS binary
+//   2. assembles docs/examples/framecount.asm (read from the repository, so a copy of this file needs only CLOADM_DIR) with the
+//      bundled assembler and loads the DragonDOS binary
 //   3. waits for the guest's frame counter in RAM, with no text on the screen to wait on
 //   4. holds the SPACE key in the keyboard matrix for two frames
 //   5. steps one frame and reads the raw framebuffer: colour codes plus the colour table
@@ -29,7 +30,7 @@ session.switchMachine('dragon64', {}, { menu: false });
 const m = session.machine;
 
 // 2. a DragonDOS binary from source, loaded and started as dropping it on the page would
-const res = assemble(readFileSync(new URL('framecount.asm', import.meta.url), 'utf8'), m.profile.cpu === '6309' ? '6309' : '6809');
+const res = assemble(readFileSync(new URL('docs/examples/framecount.asm', root), 'utf8'), m.profile.cpu === '6309' ? '6309' : '6809');
 if (!res.ok) fail(res.errors.map((e) => e.message).join('; '));
 const loaded = session.load('framecount.bin', toBinary(res), { remember: false });
 if (!/DragonDOS binary/.test(loaded)) fail(`not loaded as a DragonDOS binary: ${loaded}`);

@@ -59,7 +59,7 @@ last byte; an `EQU` buffer inside the image overwrites the program when it is wr
 this for you: compare the buffer addresses with the image's end (`--asm game.asm --json` reports the program's
 symbols; put a label after the last `RMB` to see where it ends).
 
-The Dragon 64 adds a 6551 ACIA at `$FF04-$FF07` ([which models have which serial path](automation.md#which-storage-and-serial-paths-each-model-has)); the CoCo 3 has its GIME at `$FF90-$FFBF` and puts the CoCo 2
+The Dragon 64 adds a 6551 ACIA at `$FF04-$FF07` ([which models have which serial path](automation.md#which-storage-and-serial-paths-each-model-has); [driving a graphics program on one headless](automation.md#a-graphics-program-has-no-text-to-wait-on) and [a complete Node example](automation.md#a-complete-example-that-runs-from-outside-the-repository)); the CoCo 3 has its GIME at `$FF90-$FFBF` and puts the CoCo 2
 text screen where its registers say (the built-in firmware leaves it at `$0400`).
 
 ## Programs CLOADM loads
@@ -293,7 +293,8 @@ the same frames, screens and sounds on every run. A test is a script of steps:
 
 * **Start the game:** `--load game.bin` (or `--asm game.asm`).
 * **Wait, don't sleep:** `--wait-for 'text:PRESS SPACE'` (the screen text), `--wait-for 'mem:$3005=1'` (a byte),
-  `--wait-for 'pc:$3100'` (an address reached); `--frames N` or `--seconds S` to let time pass.
+  `--wait-for 'pc:$3100'` (an address reached); `--frames N` or `--seconds S` to let time pass. A graphics screen has no text to
+  wait on: [wait on a frame counter in RAM](automation.md#a-graphics-program-has-no-text-to-wait-on), and [a complete Node example](automation.md#a-complete-example-that-runs-from-outside-the-repository) drives one from outside the repository.
 * **Press keys:** `--hold SPACE:2`, `--hold RIGHT:10`, `--hold LEFT+SPACE` (the matrix, for games); `--type 'RUN\n'`
   (typing, for POLCAT and BASIC).
 * **Check:** `--expect-screen 'SCORE 002'`, `--expect-mem '$3003=2'`, `--expect-screenshot ref.png`; any that fails

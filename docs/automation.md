@@ -336,12 +336,19 @@ three, or a hold that waits on the guest's own counter (`--wait-for` on the byte
 frame, each held at least 3 frames (`js/machines/keyqueue.js`), which suits a keyboard routine that reads a character, not a
 sample on a chosen tick.
 
-**A video field is the frame.** The VDG's field sync comes once per frame and is the guest's tick when it waits for it:
-50 times a second on the Dragons (PAL: 17,784 CPU cycles a frame at 888,625 Hz, 49.97 fields a second) and 60 on the CoCos
-(NTSC: 14,934 cycles at 894,886 Hz, 59.92 a second). `--frames`, `--hold` counts and the `frames` in a `--wait-for` result are
-those frames, and a `mem:` condition is checked as each frame ends, so a wait finishes at the first frame boundary at which the
-byte holds, not at the instruction that wrote it (use `--wait-for pc:` to stop at an instruction). A guest that does more than a
-frame's work between field syncs simply ticks slower than the frames run: its counter then advances less than once a frame.
+**A video field is the frame.** The VDG's field sync comes once per frame and is the guest's tick when it waits for it, so the
+rate is the video standard's, not the family's: **PAL** machines (the Dragon 32, 64, 200, 200-E, the Dragon Professional (Alpha)
+and the Dragon 64 Plus, and the **CoCo 3 (PAL)**, `coco3p`) run 17,784 CPU cycles a frame, 49.97 fields a second on the Dragons
+(888,625 Hz) and 50.04 on the CoCo 3 (PAL) (889,844 Hz); **NTSC** machines (the CoCo 1/2, 2B and clones, the CoCo 3, the **Tano
+Dragon 64**, which is NTSC, the MC-10 and the Alice) run 14,934 cycles a frame, 59.92 a second (894,886 Hz). `--frames`,
+`--hold` counts and the `frames` in a `--wait-for` result are those frames, and a `mem:` condition is checked as each frame
+ends, so a wait finishes at the first frame boundary at which the byte holds, not at the instruction that wrote it (use
+`--wait-for pc:` to stop at an instruction). A guest that does more than a frame's work between field syncs simply ticks slower
+than the frames run: its counter then advances less than once a frame.
+
+**What "cycles" counts.** `--step N` reports CPU cycles. `machine.now()` is the machine's own clock, which is the CPU cycle on
+the Dragons, the CoCo 1/2 and the MC-10 but the GIME's clock (four times the 0.89 MHz CPU cycle: 59,736 a frame NTSC, 71,136 PAL)
+on the CoCo 3, where the CPU runs at two speeds; `machine.cpu.totalCycles` counts CPU cycles on every model.
 
 ## For coding agents
 
@@ -452,11 +459,12 @@ console.log('example passed');
 ### A complete example that runs from outside the repository
 
 `docs/examples/headless-frame.mjs` is one runnable file that uses only the public modules (`js/emu.js`, and `cli/cloadm.js`
-for the PNG encoder; no test helper): it makes a Session on a Dragon 64, assembles `framecount.asm` and loads it as a
-DragonDOS binary (`session.load`), waits on the guest's frame counter, holds SPACE in the keyboard matrix, steps a frame,
+for the PNG encoder; no test helper): it makes a Session on a Dragon 64, assembles `docs/examples/framecount.asm` (read from the
+repository) and loads it as a DragonDOS binary (`session.load`), waits on the guest's frame counter, holds SPACE in the keyboard matrix, steps a frame,
 reads the raw framebuffer (`frame.data`: one colour code a pixel; `frame.table`: the RGBA of each code; `frame.active`: where
 the 256x192 picture sits inside the border), writes a PNG and prints what elapsed. It finds the repository from its own
-path, so it runs from any directory; from a copy elsewhere, point `CLOADM_DIR` at the repository:
+path, so it runs from any directory; a copy of the one file anywhere else needs only `CLOADM_DIR` pointing at the repository
+(the guest source and the modules are read from there):
 
 ```sh
 cd /tmp                                              # anywhere
@@ -468,8 +476,8 @@ CLOADM_DIR=/path/to/cloadm node my-copy-of-it.mjs out.png
 {"png":"out.png","frame":[320,240],"picture":{"x":32,"y":24,"width":256,"height":192},"litOnRow96":16,"frames":8,"cycles":142264,"counter":6,"keySeenAtTick":5}
 ```
 
-`tests/dev-docs-headless.test.js` runs it from a temporary directory outside the repository (and from a copy, with
-`CLOADM_DIR`), so it cannot rot. Everything it calls is reachable from `js/emu.js` and `cli/cloadm.js`, but not every call is in
+`tests/dev-docs-headless.test.js` runs it from a temporary directory outside the repository (and from a copy of the `.mjs`
+alone, with `CLOADM_DIR`), and compares the line above with what it prints, so it cannot rot. Everything it calls is reachable from `js/emu.js` and `cli/cloadm.js`, but not every call is in
 the stability table below: `machine.setKey`, `machine.keyPos`, `machine.frameCount`, `machine.now()` and the `Frame`
 fields are what the command line itself uses, and are not promised there.
 
