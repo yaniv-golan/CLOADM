@@ -417,6 +417,8 @@ const emuFrames = async (page, n) => {
 // every key typed so far has been read by the machine (the no-ROM stub's key queue is empty), then a frame
 const keysTaken = async (page) => { await waitFor(page, () => window.emu.machine.stubKeys.length === 0); await emuFrames(page, 2); };
 // the browser has laid out and painted (two animation frames)
+// Install CLOADM… is a link in the app bar (behind Menu where the bar folds its links): press it
+const pressInstall = async (page) => { if (await page.isVisible('#btnMenu')) await page.click('#btnMenu'); await page.click('#navInstall'); };
 const painted = (page) => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
 // n animation frames have passed: n turns of the page's frame loop, the window a check that something does NOT happen
 // (a paused machine stays stopped, nothing is redrawn) waits for. Counted in the page's own ticks, not wall time, so
@@ -658,8 +660,8 @@ async function sscBoardChecks(browser, base, check) {
   check('Speech/Sound Pak: the ROM panel shows its PIC and speech sockets, the PIC required',
     sockets.some((s) => s.id === 'ssc-tms7040' && s.status === 'missing-required') && sockets.some((s) => s.id === 'ssc-sp0256' && s.status === 'missing-optional'),
     JSON.stringify(sockets));
-  // ... but the Pak is an optional cartridge: none of its cards is tagged required (BASIC's red tag), each is titled
-  // "(optional cartridge)", and they come after every one of the machine's sockets
+  // ... but the Pak is an optional cartridge: none of its cards is tagged required (BASIC's red tag), each carries the
+  // optional tag beside its title, and they come after every one of the machine's sockets
   const pakCards = await page.evaluate(() => {
     const cards = [...document.querySelectorAll('#romSockets .socket')];
     const lastMachine = cards.reduce((n, c, i) => (c.dataset.status ? i : n), -1);
@@ -668,8 +670,8 @@ async function sscBoardChecks(browser, base, check) {
       req: !!c.querySelector('.tag.req'), afterMachine: i > lastMachine,
     }));
   });
-  check('Speech/Sound Pak: its ROM cards are optional, not required: titled "(optional cartridge)", tagged optional, below the machine sockets',
-    pakCards.length === 2 && pakCards.every((p) => !p.req && p.tag === 'optional' && /^Speech\/Sound Pak \(optional cartridge\): /.test(p.title) && p.afterMachine),
+  check('Speech/Sound Pak: its ROM cards are optional, not required: titled "Speech/Sound Pak: ...", tagged optional, below the machine sockets',
+    pakCards.length === 2 && pakCards.every((p) => !p.req && p.tag === 'optional' && /^Speech\/Sound Pak: /.test(p.title) && p.afterMachine),
     JSON.stringify(pakCards));
   await page.evaluate(() => { location.hash = ''; });
   await waitFor(page, () => !document.body.classList.contains('roms-open'));
@@ -1967,7 +1969,7 @@ async function visitChecks(browser, base, check) {
   await page.click('#btnRomBack');
   // the shelf runs the colour demo
   await page.click('#shelf :is(a, button):text-is("Colour demo")');
-  check('shelf: the colour demo runs', await waitFor(page, () => /demo\.bin/.test(document.getElementById('toast').textContent)));
+  check('shelf: the colour demo runs', await waitFor(page, () => /^Colour demo loaded$/.test(document.getElementById('toast').textContent)));
   // the machine question, answered once
   // count the menu starts for that answer: the switch starts it ONCE (Session.chooseMachine -> offer 'none'), and
   // the page must start nothing of its own. A second start draws the same screen, so the count is the only witness.
@@ -1994,8 +1996,8 @@ async function visitChecks(browser, base, check) {
   await page.reload();
   await ready(page);
   // (the menu says welcome back and offers the last item; no welcome-back card)
-  await waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[13].includes('CARRY ON'));
-  const back = await page.evaluate(() => ({ machine: window.emu.machine.id, greet: window.emu.session.screenText()[6].trim(), five: window.emu.session.screenText()[13].trim(),
+  await waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[12].includes('CARRY ON'));
+  const back = await page.evaluate(() => ({ machine: window.emu.machine.id, greet: window.emu.session.screenText()[6].trim(), five: window.emu.session.screenText()[12].trim(),
     card: !document.getElementById('welcome').hidden, last: document.getElementById('lastTime').hidden ? null : document.getElementById('lastName').textContent }));
   check('returning: same machine, the menu says WELCOME BACK and offers the last item as 6; "Last time" in the Media tab; no card',
     back.machine === 'coco' && back.greet === 'WELCOME BACK' && back.five === '6 CARRY ON WITH MINE.BIN' && !back.card && back.last === 'mine.bin · CoCo 1/2', JSON.stringify(back));
@@ -2035,8 +2037,8 @@ async function returningChecks(browser, base, check) {
   await shot('back-from-liza');
   // a return visit, no ROMs
   await page.reload(); await ready(page);
-  await waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[13].includes('CARRY ON'));
-  const r = await page.evaluate(() => ({ greet: window.emu.session.screenText()[6].trim(), five: window.emu.session.screenText()[13].trim(), games: window.emu.session.screenText()[12].trim(), press: window.emu.session.screenText()[14].trim(),
+  await waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[12].includes('CARRY ON'));
+  const r = await page.evaluate(() => ({ greet: window.emu.session.screenText()[6].trim(), five: window.emu.session.screenText()[12].trim(), games: window.emu.session.screenText()[11].trim(), press: window.emu.session.screenText()[14].trim(),
     media: (document.querySelector('[role="tab"][aria-controls="panel-media"]').click(), document.getElementById('panel-media').innerText),
     card: !document.getElementById('welcome').hidden, last: document.getElementById('lastTime').hidden ? null : document.getElementById('lastName').textContent,
     shelf: [...document.querySelectorAll('#shelf :is(a, button)')].map((b) => b.textContent).join('|'), pill: getComputedStyle(document.getElementById('romPill')).display !== 'none' && !document.getElementById('romPill').hidden }));
@@ -2184,7 +2186,7 @@ async function cpu6309Checks(browser, base, check) {
     && await ev(() => location.search === ''), await ev(() => location.search));
   check('cpu=6309: the new visit opens on the welcome menu, no error', await menu() && !(await isError()), await msg());
   check('cpu=6309: the new visit offers what ran last (the demo) as option 6, as on the 6809',
-    await waitFor(page, () => window.emu.session.screenText()[13].includes('CARRY ON WITH COLOUR') && window.emu.session.screenText()[14].includes('PRESS 1 TO 6')), await screenText());
+    await waitFor(page, () => window.emu.session.screenText()[12].includes('CARRY ON WITH COLOUR') && window.emu.session.screenText()[14].includes('PRESS 1 TO 6')), await screenText());
   check('cpu=6309: "Colour demo" is still on the shelf (the new visit\'s Media tab keeps it)', /Colour demo/.test(await page.$$eval('#shelf :is(a, button)', (b) => b.map((x) => x.textContent).join('|'))),
     await page.$$eval('#shelf :is(a, button)', (b) => b.map((x) => x.textContent).join('|')));
   check('cpu=6309: no page errors in the whole case', !errors.length, errors.join('; '));
@@ -2279,7 +2281,7 @@ async function powerOnChecks(browser, base, check) {
   // Switch off and on: the welcome menu, greeting the visitor back and offering LIZA again
   await page.click('#btnHardReset');
   check('Switch off and on (no ROMs): the welcome menu, WELCOME BACK, 6 CARRY ON WITH LIZA', await waitFor(page, () => window.emu.session.welcomeRunning
-    && window.emu.session.screenText()[6].trim() === 'WELCOME BACK' && window.emu.session.screenText()[13].trim() === '6 CARRY ON WITH LIZA') && !(await bare()), await text());
+    && window.emu.session.screenText()[6].trim() === 'WELCOME BACK' && window.emu.session.screenText()[12].trim() === '6 CARRY ON WITH LIZA') && !(await bare()), await text());
   await shot('switch-off-and-on');
   // Reset in a binary of the visitor's: it restarts at its exec address (INC $0400 ; BRA $3000)
   await page.setInputFiles('#fileProgram', { name: 'loop.bin', mimeType: 'application/octet-stream', buffer: Buffer.from([0x55, 2, 0x30, 0x00, 0x00, 0x05, 0x30, 0x00, 0xAA, 0x7C, 0x04, 0x00, 0x20, 0xFB]) });
@@ -2337,7 +2339,7 @@ async function powerOnChecks(browser, base, check) {
   // welcome menu; one taken in a program opens in it
   await pickMachine(page, 'dragon64');
   check('back on the Dragon 64, the menu offers its loop.bin again (6 CARRY ON WITH LOOP.BIN)', await waitFor(page, () => window.emu.session.welcomeRunning
-    && window.emu.session.screenText()[13].trim() === '6 CARRY ON WITH LOOP.BIN'), await text());
+    && window.emu.session.screenText()[12].trim() === '6 CARRY ON WITH LOOP.BIN'), await text());
   await stubPrompt(page);
   await waitFor(page, () => window.emu.machine.atStubPrompt() && window.emu.session.screenText().join('').includes('NO ROM LOADED'));
   const bareSnap = await page.evaluate(async () => [...(await window.emu.session.snapshotFile()).bytes]);
@@ -3314,11 +3316,10 @@ async function liza6803Checks(browser, base, check) {
     const greeted = await waitFor(page, () => window.emu.session.screenText().join('').includes('I AM LIZA'));
     check(`${id}: LIZA starts on the stub, with no ROMs`, greeted && !(await page.evaluate(() => window.emu.machine.hasRom)),
       (await screenOf(page)).split('\n')[2]);
-    // the status line names the program, and it is THIS machine's build (its title names the machine): an
-    // un-awaited startLiza would show "[object Promise]" here, and the wrong build would name the other one
-    const fileRe = new RegExp(`liza6803-${id}\\.bin: .*binary`, 'i');
-    check(`${id}: the status names this machine's build`, await waitFor(page, (p) => new RegExp(p, 'i').test(document.getElementById('toast').textContent), fileRe.source),
-      await page.textContent('#toast'));
+    // the status line says "LIZA loaded" (an un-awaited startLiza would show "[object Promise]" here), and the build
+    // that ran is THIS machine's (the status no longer names the file: the Session's lizaFile does)
+    check(`${id}: the status says LIZA loaded, and this machine's build ran`, await waitFor(page, () => document.getElementById('toast').textContent === 'LIZA loaded')
+      && await page.evaluate((f) => window.emu.session.lizaFile === f, `liza6803-${id}.bin`), await page.textContent('#toast'));
     await page.click('#screen');
     await page.keyboard.type('I need a holiday', { delay: 40 });
     await page.keyboard.press('Enter');
@@ -3421,7 +3422,7 @@ async function liza6803Checks(browser, base, check) {
     await page.keyboard.press('1');
     const greeted = await waitFor(page, () => window.emu.session.screenText().join('').includes('I AM LIZA'));
     check('Dragon 64: welcome menu key 1 runs LIZA', greeted, (await screenOf(page)).split('\n')[2]);
-    check('Dragon 64: the status names liza.bin, not a Promise', await waitFor(page, () => /liza\.bin: .*binary/i.test(document.getElementById('toast').textContent)),
+    check('Dragon 64: the status says LIZA loaded, not a Promise', await waitFor(page, () => document.getElementById('toast').textContent === 'LIZA loaded'),
       await page.textContent('#toast'));
     check('Dragon 64: no page errors', !errors.length, errors.join('; '));
     await ctx.close();
@@ -6959,7 +6960,7 @@ async function inputScreenChecks(browser, base, check) {
             edge && e.shown && e.ok, JSON.stringify(e));
         }
         if (lib) { await page.evaluate(() => { location.hash = ''; }); await waitFor(page, () => !document.body.classList.contains('library-open')); }
-        await page.click('#machineBtn'); await page.click('#navInstall');   // (no install prompt: the card with the steps)
+        await pressInstall(page);   // (no install prompt: the card with the steps)
         await waitFor(page, () => !document.getElementById('installOffer').hidden);
         const card = await inside(page, '#installOffer', ins);
         check(`${L}: the install card lies inside the safe area`, card.shown && card.ok, JSON.stringify(card));
@@ -6990,7 +6991,7 @@ async function inputScreenChecks(browser, base, check) {
         await ctx.close();
       }
     }
-    // the install card in the gutter beside the screen (1100x480 is a size where js/ui/install.js picks it)
+    // the install card opened from the app bar's link (under the bar; the offer's gutter place is checked in the install group)
     {
       const L = 'safe area (sideways 1100x480)';
       const ctx = await browser.newContext({ viewport: { width: 1100, height: 480 }, serviceWorkers: 'block' });
@@ -6999,10 +7000,10 @@ async function inputScreenChecks(browser, base, check) {
       await page.goto(`${base}?machine=dragon64&start=liza`);
       await waitFor(page, () => window.emu && window.emu.session.screenText().join('').includes('I AM LIZA'));
       await page.evaluate(() => { const w = document.getElementById('welcome'); if (w) w.hidden = true; window.emu.feedback.clear(); });
-      await page.click('#machineBtn'); await page.click('#navInstall');
+      await pressInstall(page);
       await waitFor(page, () => !document.getElementById('installOffer').hidden);
       const card = await inside(page, '#installOffer', SIDE), where = await page.evaluate(() => window.emu.install.state().placement().where);
-      check(`${L}: the install card, in the gutter beside the screen, lies inside the safe area`, where === 'gutter' && card.shown && card.ok, JSON.stringify({ where, card }));
+      check(`${L}: the install card, under the app bar, lies inside the safe area`, where === 'bar' && card.shown && card.ok, JSON.stringify({ where, card }));
       // 3a is covered by the checks above, not here: a mutation that makes safeArea() ignore the insets turns the
       // toast and command-box checks in this group red, so the inset arithmetic is proven. The install card's own
       // placement cannot add to that - at every width where it is placed, the screen stays centred and the gutter it
@@ -7344,18 +7345,15 @@ async function urlChecks(browser, base, check) {
   check('link: becker=0 turns it off', await ev(() => window.emu.machine.config.becker === false), await msg());
   await open('?machine=zx81');
   check('link: an unknown machine is reported, the page still runs', /machine=zx81: no such machine/.test(await msg()) && await ev(() => !!window.emu.machine.id), await msg());
-  // R8: the error names the machines as the picker shows them (never their ids), and app= / start= say what to try
+  // R8: the error is one short line naming the machine that opened (never an id or a list); app= and start= say what CLOADM has
   {
     const m = await msg();
-    await page.click('#machineBtn');
-    const names = await ev(() => [...document.querySelectorAll('#machineMenu button[data-machine] > span:first-child')].map((n) => n.textContent));
-    await page.keyboard.press('Escape');
-    check('link: the unknown-machine error lists the machine picker\'s display names, not ids', names.length > 5 && names.every((n) => m.includes(n)) && !/dragon64|coco3|mc10/.test(m), JSON.stringify({ names, m }));
+    check('link: the unknown-machine error is short and names the machine that opened (its display name), no list and no ids', /^This link has a setting CLOADM can't use: machine=zx81: no such machine \(opened [^)]+ instead\)$/.test(m) && m.length < 130 && !/dragon64|coco3|mc10/.test(m), m);
   }
   await open('?app=bogus');
-  check('link: app=bogus: "isn\'t something CLOADM has (try app=claude)"', (await msg()).includes("app=bogus isn't something CLOADM has (try app=claude)") && await ev(() => !!window.emu.machine.id), await msg());
+  check('link: app=bogus says what CLOADM has', (await msg()).includes("app=bogus isn't an app CLOADM has (claude)") && await ev(() => !!window.emu.machine.id), await msg());
   await open('?start=bogus');
-  check('link: start=bogus says what to try', (await msg()).includes("start=bogus isn't something CLOADM has (try start=welcome or start=liza or start=2048 or start=minesweeper)"), await msg());
+  check('link: start=bogus says what CLOADM has', (await msg()).includes("start=bogus isn't a start CLOADM has (welcome, liza, 2048, minesweeper)"), await msg());
   // a file at a host that doesn't allow other sites (no CORS header) fails in fetch with a TypeError: plain words, not "Failed to fetch"
   await ctx.route('https://nocors.example/**', (route) => route.abort('failed'));   // what the browser's fetch gives for a cross-origin refusal (Playwright's fulfill adds CORS headers itself, so abort stands in): a TypeError
   await open('?machine=dragon64&load=https://nocors.example/demo.bin');
@@ -7801,6 +7799,178 @@ async function chatScreenChecks(browser, base, check) {
       pipUp && await page.isVisible('#claudePip') && !pip.over.length, JSON.stringify(pip));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `chat-screen-pip-${label}.png`) });
     check(`chat screen (${label}): no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+}
+
+// The copy and small UX fixes of the v0.1.8 UI/UX review (m5, m6, m8, the Add ROMs cards, p2, p3). Each case failed
+// on v0.1.8.
+async function uiCopyChecks(browser, base, check) {
+  const toastText = (page) => page.evaluate(() => { const t = document.getElementById('toast'); return t && !t.hidden ? document.getElementById('toastText').textContent : ''; });
+  const open = async (viewport, url, { init = null } = {}) => {
+    const ctx = await browser.newContext({ viewport, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    if (init) await page.addInitScript(init);
+    await page.goto(`${base}${url}`);
+    return { ctx, page, errors };
+  };
+  const SE = { width: 375, height: 667 };
+  const shot = async (page, name) => { if (shotDir) await page.screenshot({ path: path.join(shotDir, `uicopy-${name}.png`) }); };
+
+  // m5: LIZA's own load says so in words; a file the visitor brings keeps its addresses
+  {
+    const { ctx, page, errors } = await open({ width: 1280, height: 720 }, '?machine=dragon64');
+    await started(page);
+    await waitFor(page, () => window.emu.session.welcomeRunning, null, 15000);
+    await page.focus('#screen');
+    await page.keyboard.press('1');
+    await waitFor(page, () => /LIZA/.test(document.getElementById('toastText').textContent), null, 15000);
+    const liza = await toastText(page);
+    check('m5: starting LIZA from the menu says "LIZA loaded", with no file name, format or addresses', liza === 'LIZA loaded', liza);
+    await shot(page, 'liza-toast');
+    await page.setInputFiles('#fileProgram', { name: 'mine.bin', mimeType: 'application/octet-stream', buffer: Buffer.from([0x55, 0x02, 0x30, 0x00, 0x00, 0x02, 0x30, 0x00, 0xAA, 0x20, 0xFE]) });
+    await waitFor(page, () => /mine\.bin/.test(document.getElementById('toastText').textContent), null, 15000);
+    const mine = await toastText(page);
+    check('m5: a file the visitor brings keeps its format and addresses in the toast', /mine\.bin: DragonDOS binary \$3000-\$3001, exec \$3000/.test(mine), mine);
+    check('m5: no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // m6: the Claude chat without a key says so ON the screen; after Save key, the key card reads "Key saved ✓ · Forget"
+  {
+    const KEY = 'sk-ant-UICOPY-CHECK-KEY-0123456789';
+    const { ctx, page, errors } = await open(SE, '?machine=dragon64&app=claude');
+    await started(page);
+    await waitFor(page, () => window.emu.session.chatView === 'chat', null, 30000);
+    // the chat screen is graphics: its memory is read here with the firmware's own font (tools/chat-font.js)
+    const FONT = require('./chat-font.js'), GLYPHS = [];
+    for (let c = FONT.FIRST; c <= FONT.LAST; c++) GLYPHS.push({ ch: String.fromCharCode(c), g: FONT.table().slice((c - FONT.FIRST) * 8, (c - FONT.FIRST) * 8 + 8) });
+    const chatScreen = async () => {
+      const ram = await page.evaluate(() => Array.from(window.emu.machine.ram.subarray(0x400, 0x400 + 192 * 32)));
+      const rows = [];
+      for (let r = 0; r < 24; r++) {
+        let line = '';
+        for (let c = 0; c < 42; c++) {
+          const cell = [];
+          for (let y = 0; y < 8; y++) { let b = 0; for (let x = 0; x < 6; x++) { const px = c * 6 + x; b = (b << 1) | ((ram[(r * 8 + y) * 32 + (px >> 3)] >> (7 - (px & 7))) & 1); } cell.push(b); }
+          const hit = GLYPHS.find((g) => g.g.every((v, i) => v === cell[i]));
+          line += hit ? hit.ch : (cell.every((v) => !v) ? ' ' : '?');
+        }
+        rows.push(line.trimEnd());
+      }
+      return rows;
+    };
+    // a whole row must match (a glyph the chat font lacks draws as something else, so it fails here)
+    const screenHas = async (line, ms = 30000) => { const end = Date.now() + ms; let rows = []; while (Date.now() < end) { rows = await chatScreen(); if (rows.some((l) => (line instanceof RegExp ? line.test(l) : l === line))) return { ok: true, rows }; await new Promise((r) => setTimeout(r, 200)); } return { ok: false, rows }; };
+    const nokey = await screenHas(/^No API key yet: add one (above|below|on the right)\.$/);
+    const seen = nokey.ok, keyUi = { screen: nokey.rows.join('|'), help: await page.textContent('#claudeHelp') };
+    check('m6: with no key, "No API key yet" is on the chat screen itself (not only in the note beside it)', seen, JSON.stringify(keyUi));
+    await shot(page, 'chat-nokey');
+    await page.fill('#claudeKeyInput', KEY);
+    await page.click('#btnClaudeKeySave');
+    const savedOnScreen = await screenHas('Key saved. Type below and press ENTER.');
+    const saved = await page.evaluate(() => ({ card: !document.getElementById('claudeKeyCard').hidden, row: !document.getElementById('claudeKeySaved').hidden,
+      text: document.getElementById('claudeKeySaved').innerText.replace(/\s+/g, ' ').trim(), forget: !!document.getElementById('btnClaudeKeyForget').offsetParent,
+      field: document.getElementById('claudeKeyInput').value }));
+    check('m6: after Save key the screen says "Key saved. Type below and press ENTER." on one whole row and the key card reads "Key saved ✓ ... Forget" (the field is empty, not a bare placeholder)',
+      savedOnScreen.ok && !saved.card && saved.row && /^Key saved ✓/.test(saved.text) && saved.forget && saved.field === '', JSON.stringify(saved));
+    await shot(page, 'chat-saved');
+    // the key stays out of the machine's memory and the page's snapshot and settings export
+    const rowsNow = await chatScreen();
+    const leak = await page.evaluate((k) => {
+      const s = window.emu.session, has = (u8) => { const b = new TextEncoder().encode(k); outer: for (let i = 0; i + b.length <= u8.length; i++) { for (let j = 0; j < b.length; j++) if (u8[i + j] !== b[j]) continue outer; return true; } return false; };
+      const ms = [s.chatMachines.chat, s.chatMachines.basic];
+      return { ram: ms.some((m) => has(m.ram)), settings: JSON.stringify(s.exportSettings()).includes(k) };
+    }, KEY);
+    // (the chat screen is a bitmap: memory searches cannot see a key drawn on it, so its text is read, rows joined with no separator)
+    leak.screen = rowsNow.join('').includes(KEY) || rowsNow.join('').includes(KEY.slice(0, 12));
+    check('m6: the key is in no machine memory, no settings export and not drawn on the chat screen', !leak.ram && !leak.settings && !leak.screen, JSON.stringify(leak));
+    check('m6: no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // m8: deep links: a short toast, naming what happened
+  {
+    for (const [url, re, what] of [['?machine=nosuch', /^This link has a setting CLOADM can't use: machine=nosuch: no such machine \(opened Dragon 64 instead\)$/, 'machine=nosuch'],
+      ['?start=bogus', /^This link has a setting CLOADM can't use: start=bogus isn't a start CLOADM has \(welcome, liza, 2048, minesweeper\)$/, 'start=bogus']]) {
+      const { ctx, page, errors } = await open({ width: 1280, height: 720 }, url);
+      await started(page);
+      await waitFor(page, () => window.emu.linkDone === true && document.getElementById('toastText').textContent !== '', null, 15000);
+      const t = await toastText(page);
+      check(`m8: ${what}: one short toast (under 130 characters, no list of machines)`, re.test(t) && t.length < 130, `${t.length}: ${t}`);
+      if (what === 'machine=nosuch') await shot(page, 'link-machine');
+      check(`m8: ${what}: no page errors`, !errors.length, errors.join('; '));
+      await ctx.close();
+    }
+    for (const hash of ['#share=junk', '#s=junk']) {
+      const { ctx, page, errors } = await open({ width: 1280, height: 720 }, `?machine=dragon64${hash}`);
+      await started(page);
+      await waitFor(page, () => window.emu.linkDone === true && /share link|snapshot/i.test(document.getElementById('toastText').textContent), null, 15000);
+      const t = await toastText(page);
+      check(`m8: ${hash}: says the share link couldn't be read (never silent), and the junk leaves the address`,
+        /couldn't be read|is damaged/.test(t) && await page.evaluate(() => location.hash === ''), `${t} | ${await page.evaluate(() => location.hash)}`);
+      check(`m8: ${hash}: no page errors`, !errors.length, errors.join('; '));
+      await ctx.close();
+    }
+  }
+
+  // Add ROMs: the "optional" tag stays beside the title (no wrapping under it), and the Pak's title does not repeat it
+  for (const [label, viewport] of [['iPhone SE', SE], ['320 wide', { width: 320, height: 640 }], ['desktop', { width: 1280, height: 720 }]]) {
+    const { ctx, page, errors } = await open(viewport, '?machine=coco');
+    await started(page);
+    await page.selectOption('#selCartBoard', 'ssc').catch(() => {});
+    await page.evaluate(() => { location.hash = '#add-roms'; });
+    await waitFor(page, () => !document.getElementById('romCard').hidden);
+    const cards = await page.evaluate(() => [...document.querySelectorAll('#romSockets .socket')].map((c) => {
+      const t = c.querySelector('strong'), g = c.querySelector('.tag'), tr = t.getBoundingClientRect(), gr = g.getBoundingClientRect();
+      return { id: c.dataset.socket, title: t.textContent, tag: g.textContent, req: g.classList.contains('req'), beside: gr.left >= tr.right - 0.5 && gr.top < tr.bottom && gr.bottom > tr.top,
+        sameRow: Math.abs((gr.top + gr.height / 2) - (tr.top + Math.min(tr.height, gr.height) / 2)) < gr.height };
+    }));
+    const optional = cards.filter((c) => c.tag === 'optional');
+    check(`Add ROMs (${label}): the cards include the optional disk and Pak cards, and BASIC's required tag`, optional.some((c) => c.id === 'disk') && optional.some((c) => c.id.startsWith('ssc-')) && cards.some((c) => c.req), JSON.stringify(cards.map((c) => c.id)));
+    check(`Add ROMs (${label}): every tag sits beside its title, never under it`, cards.every((c) => c.beside), JSON.stringify(cards.filter((c) => !c.beside)));
+    check(`Add ROMs (${label}): the Pak and disk titles do not repeat "optional" next to the tag, and the Pak cards stay below the machine's sockets`,
+      optional.every((c) => !/optional/i.test(c.title)) && cards.findIndex((c) => c.id.startsWith('ssc-')) > cards.findLastIndex((c) => c.req || c.id === 'disk' || !c.id.startsWith('ssc-')), JSON.stringify(cards.map((c) => [c.id, c.title])));
+    await shot(page, `roms-${label.replace(/ /g, '-')}`);
+    check(`Add ROMs (${label}): no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // p2: Install CLOADM… is in the app bar beside Help (behind Menu on a phone), not at the foot of the machine menu, and
+  // its card opens under the bar, near the link
+  for (const [label, viewport] of [['desktop', { width: 1280, height: 720 }], ['phone', SE]]) {
+    const { ctx, page, errors } = await open(viewport, '?machine=dragon64');
+    await started(page);
+    const where = await page.evaluate(() => { const b = document.getElementById('navInstall'); return { inNav: !!b && !!b.closest('.appbar nav'), inMenu: !!b && !!b.closest('#machineMenu'), menuHasInstall: document.getElementById('machineMenu').textContent.includes('Install CLOADM') }; });
+    check(`install (${label}): the entry is in the app bar's links, not in the machine menu`, where.inNav && !where.inMenu && !where.menuHasInstall, JSON.stringify(where));
+    if (label === 'phone') await page.click('#btnMenu');
+    await page.click('#navInstall');
+    await waitFor(page, () => !document.getElementById('installOffer').hidden);
+    await painted(page);
+    const near = await page.evaluate(() => { const c = document.getElementById('installOffer').getBoundingClientRect(), bar = document.getElementById('appbar').getBoundingClientRect(), win = innerHeight;
+      return { cardTop: Math.round(c.top), barBottom: Math.round(bar.bottom), cardBottom: Math.round(c.bottom), win, visible: c.width > 0 && c.bottom <= win && c.top >= 0 }; });
+    check(`install (${label}): the card opens just under the app bar, in view, near the link that opened it (not at the far corner)`,
+      near.visible && near.cardTop >= near.barBottom - 1 && near.cardTop - near.barBottom < 40, JSON.stringify(near));
+    await shot(page, `install-${label}`);
+    check(`install (${label}): no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // p3: the Welcome Back menu: option 6 does not push "PRESS 1 TO 6" against the colour bar (a blank row between them)
+  {
+    const { ctx, page, errors } = await open({ width: 1280, height: 720 }, '?machine=dragon64');
+    await started(page);
+    await waitFor(page, () => window.emu.session.welcomeRunning, null, 15000);
+    await page.evaluate(async () => { const s = window.emu.session, bytes = new Uint8Array(await (await fetch('../examples/welcome.bin')).arrayBuffer()); s.startWelcome(bytes, { greeting: 'back', carryOn: 'LIZA' }); });
+    await waitFor(page, () => window.emu.session.screenText()[12].includes('CARRY ON'), null, 15000);
+    await emuFrames(page, 5);
+    const t = await page.evaluate(() => window.emu.session.screenText().map((l) => l.trim()));
+    check('p3: Welcome Back: options 1 to 5, then "6 CARRY ON WITH LIZA", a blank row, then "PRESS 1 TO 6" (rows 7 to 14)',
+      t[6] === 'WELCOME BACK' && t[7] === '1 TALK TO LIZA' && t[11] === '5 PLAY A GAME' && t[12] === '6 CARRY ON WITH LIZA' && t[13] === '' && t[14] === 'PRESS 1 TO 6', JSON.stringify(t.slice(5, 16)));
+    await shot(page, 'welcome-back');
+    check('p3: no page errors', !errors.length, errors.join('; '));
     await ctx.close();
   }
 }
@@ -12249,8 +12419,8 @@ async function installChecks(browser, base, check) {
   });
   // LIZA running, with the first visit's "Running with no ROMs" box dismissed and its toast gone: the page as it is
   // when the offer has a free hand (the conditions are checked on their own in section 2)
-  // the item lives in the machine menu, which floats: open it and choose the item
-  const chooseInstall = async (page) => { await page.click('#machineBtn'); await page.click('#navInstall'); };
+  // the link is in the app bar (behind Menu on a phone): press it
+  const chooseInstall = pressInstall;
   const liza = async (page) => {
     await waitFor(page, () => window.emu.session.screenText().join('').includes('LIZA'));
     await page.evaluate(() => { const w = document.getElementById('welcome'); if (w) w.hidden = true; window.emu.feedback.clear(); });
@@ -12302,12 +12472,12 @@ async function installChecks(browser, base, check) {
   {
     const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64&start=liza`);
     await liza(page);
-    // (the item lives in the machine menu, which is built when it opens: it is in the page, not hidden by its own rule)
-    check('install: the Menu item is on the page (in the machine menu)',
-      await page.evaluate(() => { const b = document.getElementById('navInstall'); return !!b && b.closest('#machineMenu') === document.getElementById('machineMenu'); }));
+    // (the link is in the app bar's nav: in the page, not hidden by its own rule)
+    check('install: the Install link is on the page (in the app bar\'s nav)',
+      await page.evaluate(() => { const b = document.getElementById('navInstall'); return !!b && b.closest('.appbar nav') === document.querySelector('.appbar nav'); }));
     await skipTo(page, 90);
     check('install: no beforeinstallprompt and no iOS: no card, however long the program ran', !(await cardUp(page)));
-    await page.click('#machineBtn'); await page.click('#navInstall');   // (the item is in the machine menu)
+    await pressInstall(page);   // (the link is in the app bar)
     await painted(page);
     check('install: the Menu item shows the steps for this browser', await cardUp(page) && /browser’s menu/.test(await page.textContent('#installText')));
     check('install: the card says it installs CLOADM "as an app on this device"', /Install CLOADM as an app on this device/.test(await page.textContent('#installText')));
@@ -12777,14 +12947,11 @@ async function installChecks(browser, base, check) {
     await ctx.close();
   }
 
-  // The Install CLOADM… item adds no row to the app bar. It lives in the machine menu, which floats; in the nav it
-  // wrapped the bar onto a second row at 1280 on the reviewer's machine (68 -> 116 px, the screen 49 px lower).
-  // The invariant is 008's own: the bar is exactly as tall with the item as without it, at each width. That holds
-  // whether or not the bar already wraps for its existing links (on CI's fonts the nav wraps at 1280 on its own,
-  // and the item moved into it can fit on that second row), so it cannot depend on font metrics — and it fails if
-  // the item's placement ever costs the bar a row. Proved by moving the item into the nav: on this machine that is
-  // 164 px against 68 at 1280 (and 112 against 68 at 1440), so the mutation fails it; the check itself never
-  // requires the item to be the thing that wraps.
+  // The Install CLOADM… link adds no row to the app bar. It is a link of the nav, and an earlier placement there
+  // wrapped the bar onto a second row at 1280 on the reviewer's machine (68 -> 116 px, the screen 49 px lower); the
+  // bar's tight mode (shorter label "Install", closer links) now takes it back in a wide font.
+  // The invariant is 008's own: the bar is exactly as tall with the link as without it, at each width, whether or not
+  // the bar already wraps for its existing links, so it cannot depend on font metrics.
   for (const [label, viewport] of [['laptop', { width: 1280, height: 720 }], ['desktop', { width: 1440, height: 900 }]]) {
     const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64&start=liza`, { viewport });
     await page.evaluate(() => document.fonts.ready);
@@ -12794,13 +12961,13 @@ async function installChecks(browser, base, check) {
       const appbar = document.getElementById('appbar'), item = document.getElementById('navInstall');
       const h = () => Math.round(appbar.getBoundingClientRect().height);
       const screenTop = () => document.getElementById('screen').getBoundingClientRect().top;
-      const withItem = { h: h(), screen: screenTop(), where: item.closest('#machineMenu') === document.getElementById('machineMenu') };
+      const withItem = { h: h(), screen: screenTop(), where: !!item.closest('.appbar nav') };
       item.style.display = 'none';                 // (removed from the layout, not from where it lives)
       const without = { h: h(), screen: screenTop() };
       item.style.display = '';
       return { withItem, without };
     });
-    check(`install (${label} ${viewport.width}x${viewport.height}): the item costs the app bar no row (${bar.withItem.h} px with it, ${bar.without.h} px without) and sits in the floating machine menu`,
+    check(`install (${label} ${viewport.width}x${viewport.height}): the item costs the app bar no row (${bar.withItem.h} px with it, ${bar.without.h} px without) and sits in the app bar's nav`,
       bar.withItem.where && bar.withItem.h === bar.without.h && Math.abs(bar.withItem.screen - bar.without.screen) < 0.5, JSON.stringify(bar));
     check(`install (${label}): no page errors`, !errors.length, errors.join('; '));
     await ctx.close();
@@ -13260,7 +13427,7 @@ async function installChecks(browser, base, check) {
     await ctx.close();
   }
   // ---- 10l. a menu opening over the card: the card is an offer over the emulator, never over a menu the user is
-  //      reading (and the machine menu holds this very Install item, while the card sits above it at z-index 61 vs 20).
+  //      reading (the card sits above the menus, z-index 61 vs 20).
   //      So it closes — at a size where the two would overlap. ----
   {
     const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64&start=liza`, { viewport: { width: 900, height: 720 } });
@@ -13488,23 +13655,22 @@ async function installChecks(browser, base, check) {
     await ctx.close();
   }
 
-  // ---- 12. the item in the machine menu, on a phone and on a desktop, and that opening the menu moves nothing ----
+  // ---- 12. the link in the app bar, on a phone and on a desktop, and that opening its card moves nothing ----
   for (const [label, opts] of [['phone', { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }], ['desktop', { viewport: { width: 1280, height: 720 } }]]) {
     const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64`, opts);
-    await page.click('#machineBtn');
-    check(`install (${label}): the item is in the machine menu, last, over the page`, await page.isVisible('#navInstall')
-      && await page.evaluate(() => document.getElementById('machineMenu').lastElementChild.id === 'navInstall'));
-    // the menu is built again on every open; the item must still be there, and only once
+    // the link is in the app bar's nav (behind Menu on a phone), once; the machine menu, built again on every open,
+    // does not have it
     await page.click('#machineBtn');
     await page.click('#machineBtn');
-    check(`install (${label}): it survives the menu being built again (one item)`,
-      await page.evaluate(() => document.querySelectorAll('#navInstall').length === 1 && document.getElementById('machineMenu').lastElementChild.id === 'navInstall'));
-    // 008's question is what the CARD does, with nothing else changing. So: show it (the menu closes as it opens, as
-    // it must), then measure with the card up, dismiss it, and measure again — the menu is closed on both sides.
-    await page.click('#navInstall');
+    check(`install (${label}): the link is in the app bar's nav, once, and the machine menu does not have it`,
+      await page.evaluate(() => document.querySelectorAll('#navInstall').length === 1 && !!document.getElementById('navInstall').closest('.appbar nav')
+        && !document.getElementById('machineMenu').querySelector('#navInstall')));
+    // 008's question is what the CARD does, with nothing else changing. So: show it, then measure with the card up,
+    // dismiss it, and measure again.
+    await pressInstall(page);
     await painted(page);
-    check(`install (${label}): choosing it closes the menu and shows the steps`, await cardUp(page)
-      && await page.evaluate(() => document.getElementById('machineMenu').hidden));
+    check(`install (${label}): choosing it shows the steps, with the machine menu and the phone's Menu links closed`, await cardUp(page)
+      && await page.evaluate(() => document.getElementById('machineMenu').hidden && !document.getElementById('appbar').classList.contains('menu-open')));
     const withCard = await page.evaluate(() => ({ h: Math.round(document.getElementById('appbar').getBoundingClientRect().height),
       reset: document.getElementById('btnReset').getBoundingClientRect().top, screen: document.getElementById('screen').getBoundingClientRect().top,
       monitor: document.getElementById('monitor').getBoundingClientRect().top, keys: document.getElementById('touchKeys').getBoundingClientRect().top,
@@ -13533,9 +13699,8 @@ async function installChecks(browser, base, check) {
   {
     const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64`);
     await firePrompt(page);
-    await page.click('#machineBtn');
-    check('install: the Menu item is there with a held prompt', await page.isVisible('#navInstall'));
-    await page.click('#navInstall');
+    check('install: the Install link is there with a held prompt', await page.isVisible('#navInstall'));
+    await pressInstall(page);
     check('install: the Menu item runs the browser\'s own prompt (no card in its way)', await waitFor(page, () => window.__prompted === 1) && !(await cardUp(page)));
     check('install: no page errors', !errors.length, errors.join('; '));
     await ctx.close();
@@ -14019,8 +14184,8 @@ async function uiModelChecks(browser, base, check) {
       const cards = {};
       for (const id of ['dragon64', 'dragon32', 'coco', 'coco3', 'dgnalpha', 'mc10']) cards[id] = await card(id);
       check('R26: Your ROMs shows the disk ROM card: Dragon "DragonDOS or Delta DOS", CoCo "Disk BASIC (RS-DOS)"',
-        cards.dragon64.title === 'Disk drives (optional): DragonDOS or Delta DOS' && cards.dragon32.title === 'Disk drives (optional): DragonDOS or Delta DOS'
-        && cards.coco.title === 'Disk drives (optional): Disk BASIC (RS-DOS)' && cards.coco3.title === 'Disk drives (optional): Disk BASIC (RS-DOS)', JSON.stringify(cards));
+        cards.dragon64.title === 'Disk drives: DragonDOS or Delta DOS' && cards.dragon32.title === 'Disk drives: DragonDOS or Delta DOS'
+        && cards.coco.title === 'Disk drives: Disk BASIC (RS-DOS)' && cards.coco3.title === 'Disk drives: Disk BASIC (RS-DOS)', JSON.stringify(cards));
       check('R26: no disk ROM card for the Dragon Alpha (its own drives) or the MC-10', cards.dgnalpha.title === null && cards.mc10.title === null, JSON.stringify(cards));
       check('R26: the card has its own data-disk mark, not data-status, so the socket counts are the machine\'s own',
         Object.values(cards).every((c) => c.sockets === c.want) && cards.dragon64.disk === 'missing-optional' && cards.dragon64.status === false, JSON.stringify(cards));
@@ -14346,6 +14511,7 @@ const GROUPS = (base, site) => [
   ['askStatus', (b) => askStatusChecks(b, base, check)],
   ['askEsc', (b) => askEscChecks(b, base, check)],
   ['consentFullscreen', (b) => consentFullscreenChecks(b, base, check)],
+  ['uiCopy', (b) => uiCopyChecks(b, base, check)],
   ['welcomeScreen', (b) => welcomeScreenChecks(b, base, check)],
   ['chatScreen', (b) => chatScreenChecks(b, base, check)],
   ['phoneChat', (b) => phoneChatChecks(b, base, check)],
