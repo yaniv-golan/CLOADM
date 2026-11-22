@@ -12,12 +12,14 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 - **The games' 1x text is proportional: a proportional font for legibility; title screen draws one frame slower,
   inside its 30-frame budget.** 2048 and Minesweeper's small text used to draw every character in a fixed four-pixel
-  cell, which made letters a three-pixel cell cannot tell apart — A, H, M, R and W — hard to read. Those five are now
-  drawn five pixels wide and the rest in a cell of the glyph's own width plus one blank column, so the shapes are
-  distinct. A line is not narrower for it: the wide letters add a pixel each, so some lines are a little wider
-  (2048's "JOIN THE TILES TO MAKE 2048" goes from 107 to 113 pixels, still well inside the 128-pixel screen). The
-  small text also changed: "W A S D" is now "WASD", 2048's footer reads "ARROWS  R=NEW  BREAK=QUIT", and
-  Minesweeper's reads "F FLAGS A MINE  R START". In-game redraws are unchanged.
+  cell, which made the letters a three-pixel cell cannot tell apart — A, H, M, R and W — hard to read. Those five are
+  now drawn five pixels wide and the rest in a cell of the glyph's own width plus one blank column, so the shapes are
+  distinct. A line with any of them is up to two pixels per such letter wider, not narrower: 2048's
+  "JOIN THE TILES TO MAKE 2048" (three of them) goes from 107 to 113 pixels, still well inside the 128-pixel screen.
+  Three of the small strings changed to fit: 2048's "ARROWS OR W A S D SLIDE THEM" is now "ARROWS OR WASD SLIDE
+  THEM" (129 pixels would not fit), and both games' footers read "ARROWS  R=NEW  BREAK=QUIT" (2048's and
+  Minesweeper's were "ARROWS MOVE  R NEW  BREAK LEAVES"). Minesweeper's title line became "F FLAGS A MINE  R START".
+  In-game redraws are unchanged.
 
 ### 0.1.8-pre
 

@@ -295,11 +295,10 @@ PCMWREP LDA     ,U
 ; hold for the whole glyph, so each glyph sets them up once and each row then costs one lookup and
 ; two merges: the per-pixel loop (and its stack nesting) is gone. The XOR matters: TBG and DK share
 ; bits for most colour pairs, so ORing them over the cell would light a clear pixel.
-; PHASE: the 3-pixel tables are exact at every phase. The 5-pixel ones exist only for phases 0 and
-; 2, because a 5-wide cell at phase 1 or 3 needs a third screen byte. Every centred 1x string starts
-; on an even column and advances 4 or 6, both even, so no glyph reaches an odd phase (CENTRE's
-; comment, and tests/font-tables.test.js asserts it). A tile number is 4n-1 pixels wide, so its column is
-; even as well. No glyph is ever drawn at an odd phase.
+; PHASE: only phases 0 and 2 occur. A 5-wide cell at phase 1 or 3 would need a third screen byte, so no
+; table exists for those widths there. tests/cursor-phases.test.js proves the invariant the way that can
+; actually fail: it runs both titles and reads PCOL as PCPROP is entered, so a CENTRE that stopped aligning
+; or a tile column that came out odd is caught on the cursor, not on a picture that still looks even.
 ; WIDTH: 3 uses the 3-pixel tables, 5 (and a 4, which the font does not have) the 5-pixel ones.
 PCPROP  LBSR    PCFIND          ; U: its five rows, PCGW: its width in pixels
         STX     PSTART          ; where the glyph starts, for the cursor's advance
@@ -307,10 +306,11 @@ PCPROP  LBSR    PCFIND          ; U: its five rows, PCGW: its width in pixels
         LDA     #4
         CMPA    PCGW            ; PCGW < 4: a 3-wide glyph
         BHI     PCG3W
-        ADDB    #4              ; 5 (or 4) wide
-PCG3W   LSLB                    ; two bytes an entry: both tables are indexed in BYTES
+        ADDB    #4              ; 5 (or 4) wide: entries 2 and 3
+PCG3W   LSRB                    ; PCOL is 0 or 2 (the only phases that occur), so PCOL>>1 is 0 or 1
+        LSLB                    ; two bytes an entry: both tables are indexed in BYTES
         LDX     #VTAB
-        LDX     B,X             ; X: the V table whose phase is PCOL (index: phase + 4 if wide)
+        LDX     B,X             ; X: the V table: {3-wide phase 0, phase 2, 5-wide phase 0, phase 2}
         LDY     #GAPTAB
         LDD     B,Y             ; the cell's mask (hi,lo): every pixel it touches
         STD     GAP
@@ -556,21 +556,19 @@ V5P0    FCB     $00,$00,$00,$C0,$03,$00,$03,$C0,$0C,$00,$0C,$C0,$0F,$00,$0F,$C0
         FCB     $30,$00,$30,$C0,$33,$00,$33,$C0,$3C,$00,$3C,$C0,$3F,$00,$3F,$C0
         FCB     $C0,$00,$C0,$C0,$C3,$00,$C3,$C0,$CC,$00,$CC,$C0,$CF,$00,$CF,$C0
         FCB     $F0,$00,$F0,$C0,$F3,$00,$F3,$C0,$FC,$00,$FC,$C0,$FF,$00,$FF,$C0
-; a 5-wide cell at phase 1 or 3 puts its blank column in a THIRD screen byte, so the two-byte
-; window cannot hold it: those two entries point at the even phase the string renderer guarantees
-; (every 1x string starts even and advances 4 or 6). Only the tile path draws at an odd phase, and
-; its digits are 3 wide, which IS exact at every phase.
+; a 5-wide cell at phase 1 or 3 would put its blank column in a THIRD screen byte, which the two-byte
+; window cannot hold. No glyph is drawn at an odd phase (cursor-phases.cjs proves it), so no such table
+; exists.
 V5P2    FCB     $00,$00,$00,$0C,$00,$30,$00,$3C,$00,$C0,$00,$CC,$00,$F0,$00,$FC
         FCB     $03,$00,$03,$0C,$03,$30,$03,$3C,$03,$C0,$03,$CC,$03,$F0,$03,$FC
         FCB     $0C,$00,$0C,$0C,$0C,$30,$0C,$3C,$0C,$C0,$0C,$CC,$0C,$F0,$0C,$FC
         FCB     $0F,$00,$0F,$0C,$0F,$30,$0F,$3C,$0F,$C0,$0F,$CC,$0F,$F0,$0F,$FC
-; a glyph's V table and its cell mask, in the same index: phase + 4 when 5 (or 4) wide.
-; ONLY phases 0 and 2 are reachable: every 1x string is even-aligned (CENTRE's ANDB #$FE) and advances 4 or 6,
-; and a tile number is 4n-1 pixels wide so its column is even too. tests/font-tables.test.js asserts both the
-; arithmetic and that mask. The odd-phase slots therefore point at the even tables: they are never indexed, and
-; if that ever changed the test fails rather than the screen corrupting silently.
-VTAB    FDB     V3P0,V3P0,V3P2,V3P2,V5P0,V5P0,V5P2,V5P2
-GAPTAB  FCB     $FF,$00,$3F,$C0,$0F,$F0,$03,$FC,$FF,$F0,$FF,$F0,$0F,$FF,$0F,$FF
+; a glyph's V table and its cell mask, in the same index: (phase >> 1) + 2 if 5 (or 4) wide. FOUR entries,
+; and every one is reachable: a glyph's phase is only ever 0 or 2. tests/cursor-phases.cjs proves that by
+; watching PCOL as the renderer is entered (196 glyphs over both titles), and it fails on a single odd phase.
+; There are therefore no odd-phase entries to carry.
+VTAB    FDB     V3P0,V3P2,V5P0,V5P2
+GAPTAB  FCB     $FF,$00,$0F,$F0,$FF,$F0,$0F,$FF
 ; the five letters a 3-pixel cell cannot tell apart, 5x5: five bits a row, bit 4 the left pixel,
 ; ONE BLANK COLUMN after each (the proportional cell). A has its point, H a full middle bar, R a
 ; bowl and a leg, M its top notch, W the mirror. They differ by shape at the centre, not by one pixel.

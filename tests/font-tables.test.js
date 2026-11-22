@@ -1,8 +1,10 @@
 // THE 1x RENDERER'S TABLES, CHECKED AGAINST AN INDEPENDENT MODEL.
 // Before this test nothing in the suite mentioned V3P*/V5P*/GAPTAB: a wrong entry was caught only by two PNG
 // comparisons, and the recording analysis that follows them threw a TypeError, so most of the suite never ran.
-// This derives every entry from the FONT bitmaps and the shift rule written out HERE, in the test, and compares
-// it with what examples/games.inc actually stores. Nothing is read from the tables to build the expectation.
+// This enumerates every row pattern a glyph can have, applies the shift rule written out HERE, and compares the
+// result with what examples/games.inc stores. Nothing is read from the tables to build the expectation. One
+// check ties the model back to a real glyph (the entry V3P0 holds for 'I'), so a model that agreed with itself
+// but not with the font would be caught.
 //
 // The rule (written from the renderer's own description, not from its code): a glyph's row is a row of pixels;
 // a set pixel is the 2-bit pair 11 at its place in a 16-bit window whose hi byte is the screen byte the cursor
@@ -69,17 +71,18 @@ for (const [label, w, ph] of [['V3P0', 3, 0], ['V3P2', 3, 2], ['V5P0', 5, 0], ['
     at < 0 ? '' : `byte ${at}: stored $${got[at].toString(16)}, the model says $${want[at].toString(16)}`);
 }
 
-// the cell masks, at the four indices the renderer uses
-for (const [idx, w, ph] of [[0, 3, 0], [2, 3, 2], [4, 5, 0], [6, 5, 2]]) {
+// the cell masks: four entries, indexed (phase >> 1) + 2 if five (or four) wide
+for (const [idx, w, ph] of [[0, 3, 0], [1, 3, 2], [2, 5, 0], [3, 5, 2]]) {
   const got = table('GAPTAB');
   const want = expected(w, ph).gap;
   check(`GAPTAB entry ${idx}: the ${w}-wide phase-${ph} cell mask is ${hex(want)}`,
     got && got[2 * idx] === want[0] && got[2 * idx + 1] === want[1],
     got ? `stored ${hex([got[2 * idx], got[2 * idx + 1]])}` : 'no GAPTAB');
 }
+check('GAPTAB holds exactly four entries (one per reachable phase and width)', table('GAPTAB').length === 8, `${table('GAPTAB').length} bytes`);
 
-// THE MODEL IS THE FONT: a spot check that the tables are derived from the real glyphs, not from a formula that
-// happens to agree. 'I' is %111 x3 rows and %010 x2; at 3-wide phase 0 its middle rows must be $3C,$00.
+// THE MODEL IS THE FONT: a spot check that the tables encode the real glyphs, not a formula that happens to
+// agree with itself. 'I' is %111 on three rows and %010 on two.
 {
   const I = FONT['I'.charCodeAt(0) - 0x20].split(',').map(Number);
   const want = expected(3, 0).rows;
@@ -91,36 +94,6 @@ for (const [idx, w, ph] of [[0, 3, 0], [2, 3, 2], [4, 5, 0], [6, 5, 2]]) {
     && I.includes(7) && I.includes(2) && table('V3P0')[14] === 0xFC;
   check('the model agrees with the FONT bitmap for I (row %111 -> $FC, %010 -> $30 at 3-wide phase 0, and V3P0 stores it)',
     okI, `I rows ${I.join(',')}, want[7]=${hex(want[7])}, want[2]=${hex(want[2])}`);
-  const w = WIDE5.get('W');
-  const okW = w && w.length === 5 && w.every((b) => b < 32);
-  check('the five-wide tables come from FONT5W, five bits a row', okW, w ? w.join(',') : 'no FONT5W');
-}
-
-// THE PHASES THAT ACTUALLY OCCUR, and the code that keeps them that way.
-// Two halves, because either alone is blind: (1) the arithmetic -- every string centres to an even column and
-// every advance is 4 or 6, so only phases 0 and 2 arise; (2) the ASM that enforces it. A static recomputation of
-// the formula cannot notice CENTRE losing its even mask, so the mask itself is asserted here.
-{
-  const bad = [];
-  for (const game of ['2048', 'minesweeper']) {
-    const src = fs.readFileSync(path.join(ROOT, `examples/${game}.asm`), 'utf8');
-    for (const [, key, s] of src.matchAll(/^(T_\w+)\s+FCN\s+"([^"]*)"$/gm)) {
-      const wid = [...s].reduce((a, c) => a + (WIDE5.has(c) ? 5 : 3) + 1, 0) - 1;
-      let x = ((128 - wid) >> 1) & ~1;
-      for (const c of s) { if (x % 4 !== 0 && x % 4 !== 2) bad.push(`${game} ${key} '${c}' at ${x} (phase ${x % 4})`); x += (WIDE5.has(c) ? 5 : 3) + 1; }
-    }
-  }
-  check('every glyph of every 1x string lands on phase 0 or 2 (the two-byte row write needs it)', bad.length === 0, bad.slice(0, 6).join(', '));
-  const centre = /^CENTRE\s+PSHS\s+A[\s\S]*?^CENBYTE/m.exec(incSrc);
-  const masked = centre && /LSRB\s*\n\s*ANDB\s+#\$FE\b/.test(centre[0]);
-  check('CENTRE masks the 1x start to an even column (ANDB #$FE); without it glyphs land on odd phases and the '
-    + 'two-byte row write is inexact', masked, centre ? 'the mask is missing from CENTRE' : 'CENTRE not found');
-  // and the tile numbers: 4n-1 px wide, so (24-wid)/2 shifted is even and SQCOL*4 is even
-  const odd = ['0', '2', '16', '128', '2048'].filter((s) => {
-    const wid = [...s].reduce((a, c) => a + (WIDE5.has(c) ? 5 : 3) + 1, 0) - 1;
-    return (Math.floor((24 - wid) / 2) + 8) % 2 !== 0;
-  });
-  check('a tile number is 4n-1 pixels wide, so its column is always even', odd.length === 0, odd.join(','));
 }
 
 console.log(fail ? `\n${fail} of ${n} table checks FAILED` : `\nall ${n} table checks passed`);

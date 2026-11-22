@@ -505,7 +505,8 @@ TA1X    LBSR    STRWID          ; 1x is PROPORTIONAL: B is its width in PIXELS
         LDA     #TILEW*4        ; centred in the tile's 24 pixels, and the 1x cursor is a PIXEL
         SUBA    TXTW            ; (a x4 of the byte column put a 4-digit number outside its tile)
         LSRA                    ; no even mask is needed: a digit string is 4n-1 px wide, so (24-width)/2
-                                ; shifted is always even, and SQCOL*4 is even (tests/font-tables.test.js)
+                                ; shifted is always even, and SQCOL*4 is even. tests/cursor-phases.test.js
+                                ; checks the column the renderer ends up with, not this reasoning.
         ADDA    SQCOL
         ADDA    SQCOL
         ADDA    SQCOL
