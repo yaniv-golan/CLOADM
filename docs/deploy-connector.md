@@ -93,6 +93,10 @@ curl -s -X POST https://mcp.cloadm.dev/mcp -H 'content-type: application/json' \
   -d '{"jsonrpc":"2.0","id":1,"method":"resources/read","params":{"uri":"ui://cloadm/panel.html"}}' | grep -o '"csp":{[^}]*}'
 # GET is not served (405): the connector is stateless and offers no event stream
 curl -s -o /dev/null -w '%{http_code}\n' https://mcp.cloadm.dev/mcp
+# the live instructions are the build's: their sha-256 starts with the one `node connector/build.js` printed ("sha256:...")
+curl -s -X POST https://mcp.cloadm.dev/mcp -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{}}}' \
+  | jq -j .result.instructions | sha256sum | cut -c1-12
 ```
 
 Then in claude.ai: add the connector as [the guide](mcp.md#claude-on-the-web-side-panel) says, ask "Open CLOADM",

@@ -95,6 +95,8 @@ const J = JSON.stringify;
       check('instructions: the generated views.gen.js (the last build) carries the skill\'s section now: rebuild (node connector/build.js) and redeploy the Worker after editing it',
         g.instructions === want && g.essentialsHash === sha, `${g.essentialsHash} vs ${sha}`);
     } else console.log('ok   instructions: no generated views.gen.js here (wrangler\'s [build] makes it); the views() check above covers the build');
+    const tomlText = fs.readFileSync(path.join(ROOT, 'connector/worker/wrangler.toml'), 'utf8');
+    check('instructions: wrangler dev rebuilds when the skill changes (watch_dir holds ../../skills/cloadm)', /watch_dir\s*=\s*\[[^\]]*"\.\.\/\.\.\/skills\/cloadm"/.test(tomlText));
     let refused = null; try { createServer({ site: 'a', inline: 'b', version: 'x' }); } catch (e) { refused = e; }
     check('instructions: a Worker built from views without instructions refuses to start', !!refused && /instructions/.test(refused.message));
   }

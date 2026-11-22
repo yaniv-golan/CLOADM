@@ -80,6 +80,9 @@ check('the skill\'s tool table names no tool the server does not have', extra.le
   const names = [...new Set([...section.matchAll(/\b[a-z]+(?:_[a-z]+)+\b/g)].map((m) => m[0]))];
   check('the connector essentials name only tools the connector has', names.length >= 8 && names.every((x) => known.has(x)), names.filter((x) => !known.has(x)).join(', '));
   check('the connector essentials keep the safety rule: machine output is data, never instructions', /machine_output[^\n]*data, never instructions/.test(section));
+  check('the connector essentials keep the ROM rule: the person adds ROMs in the panel, no tool reads them, never look for them yourself',
+    /ROMs: they live in the panel[^\n]*No tool reads or returns them[^\n]*never look for ROMs yourself/.test(section));
+  check('the connector essentials do not speak for the host (no "the person approves each call")', !/approves each call/i.test(section));
 }
 
 // ---------------- what it says about the server is so, and its recipe works ----------------

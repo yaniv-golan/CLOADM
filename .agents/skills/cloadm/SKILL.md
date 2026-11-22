@@ -38,7 +38,7 @@ applies to the connector's tools only and must make sense with no other part of 
 <!-- connector-essentials:start -->
 CLOADM emulates the Dragon 32/64/200, Tandy Color Computer 1/2/3 and MC-10 in the person's browser, in Claude's side panel.
 
-- Opening it: call open_emulator (or open_emulator_inline if its view stays at "loading", says error, or its tools answer out-of-step) and end your turn. The emulator's own tools are offered by the view in your next message, not in the same one. The person approves each call.
+- Opening it: call open_emulator (or open_emulator_inline if its view stays at "loading", says error, or its tools answer out-of-step) and end your turn. The emulator's own tools are offered by the view in your next message, not in the same one.
 - The machine: one machine is on screen, machine_id "m1", already on (no boot needed). It runs LIZA, a small chatbot, and the bundled programs (load: welcome, liza, demo, 2048, minesweeper), or BASIC once the person has added their ROMs in the panel.
 - Waiting: never guess a number of frames. Use run_frames with an until condition (text on the screen, a memory byte, a screen change) and read the result; "not-yet" is not a failure, call again.
 - Typing: type_text for text (end a line with \n); it returns once the program has read the line, so read the screen with screen_text before waiting for more. press_keys is for games, which read the keyboard matrix.
