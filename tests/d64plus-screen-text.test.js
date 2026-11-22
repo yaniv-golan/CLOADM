@@ -12,7 +12,8 @@
 //  * the VDG screen is still read by the VDG reader when the Display tab shows it;
 //  * `base` is the CPU address only while $FFE2 maps the video RAM over $0000-$07FF and the screen does not wrap;
 //  * every decline: an interlace mode, no rows or columns, R1/R6 not less than the totals, wider than 80 columns,
-//    taller than 264 lines, rows shorter than 10 lines, display skew non-output, a code outside $20-$7E;
+//    taller than 264 lines, rows shorter than 10 lines, display skew non-output; a code outside $20-$7E reads as a
+//    counted space;
 //    machine_info agrees;
 //  * reading changes nothing, also mid-frame (the state at once, and the trace and frames after);
 //  * a snapshot restores the same screen and the same answer.
@@ -165,14 +166,20 @@ function pictureRows(m) {
   decline('rows taller than 264 lines', reg(6, 23), /taller than the board's 264-line picture/);
   decline('rows just taller than 264 lines (25 rows of 11 = 275)', (m) => { reg(9, 10)(m); reg(6, 25)(m); }, /taller than the board's 264-line picture/);
   decline('rows of 9 lines (R9 = 8)', reg(9, 8), /shorter than the board's 10-line character/);
+  // a code with no known character does not decline the screen: it reads as a space and is counted, with a note
   for (const code of [0x00, 0x1F, 0x7F, 0x80, 0xFF]) {
-    decline(`code $${code.toString(16)} on screen`, (m) => { m.videoRam[3 * 80 + 5] = code; },
-      new RegExp(`row 3, column 5 holds code \\$${code.toString(16).toUpperCase().padStart(2, '0')}: only codes \\$20-\\$7E are read`));
+    const m = onScreen(0), want = read(m).lines;
+    m.videoRam[3 * 80 + 5] = code;
+    const got = read(m);
+    check(`code $${code.toString(16)} on screen: read as a space at row 3 column 5, the rest unchanged, counted`,
+      got.text === true && J(got.lines) === J(want) && got.unknown === 1 && /1 of the 1760 cells hold a code outside \$20-\$7E/.test(got.note || ''),
+      J({ text: got.text, unknown: got.unknown, note: got.note }));
+    check(`code $${code.toString(16)} on screen: machine_info says readable text`, info(m).video.readable === true);
   }
-  // a code with no character outside the displayed area does not matter
+  // a code with no character outside the displayed area is not on it: not counted
   const m = onScreen(1);
   m.videoRam[0x10] = 0x80; m.videoRam[0x7FF] = 0x00;
-  check('a code with no character outside the screen (before the start, after the last row) is not on it', read(m).text === true);
+  check('a code with no character outside the screen (before the start, after the last row) is not on it', read(m).text === true && read(m).unknown === undefined);
   // the shortest row the board's character fits: R9 = 9, 10 lines (a 7 x 9 matrix below a blank row)
   const r = onScreen(0);
   reg(9, 9)(r);
@@ -251,8 +258,8 @@ function pictureRows(m) {
 // ---- 8. the description names the board and its declines ----
 {
   const d = Emu.SCREEN_TEXT_DESCRIPTION;
-  check('description: the 80-column board, its registers, ASCII, and each decline', /Dragon 64 Plus's 80-column screen/.test(d) && /R12\/R13/.test(d)
-    && /\$20-\$7E are read as ASCII \(P\. Mooney's IC22 EPROM dump/.test(d) && /interlace/.test(d) && /non-output/.test(d) && /fewer than 10 raster lines/.test(d) && /code outside \$20-\$7E/.test(d), d);
+  check('description: the 80-column board, its registers, ASCII, each decline, and unknown codes read as counted spaces', /Dragon 64 Plus's 80-column screen/.test(d) && /R12\/R13/.test(d)
+    && /\$20-\$7E are read as ASCII \(P\. Mooney's IC22 EPROM dump/.test(d) && /interlace/.test(d) && /non-output/.test(d) && /fewer than 10 raster lines/.test(d) && /such a cell reads as a space and `unknown` counts them/.test(d), d);
 }
 
 console.log(`\n${n - fail}/${n} passed`);

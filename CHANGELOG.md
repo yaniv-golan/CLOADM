@@ -74,6 +74,21 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Changed
 
+- **The page's screen text reads every screen Claude's screen_text reads.** `Session.screenText`, which the embed
+  API's `screenText`, the Ask panel, the tape panel and the boot watchdog read, decoded only the VDG's 32x16 page at a
+  fixed address: on the Dragon 64 Plus's 80-column screen it returned the VDG page behind it, on a CoCo 3 GIME text
+  mode (40 or 80 columns, attribute bytes) the bytes at physical `$70400`, and on a CoCo 3 whose page had moved the
+  old page. It now uses screen_text's own reader and gives every row at full width (a screen that is not text still
+  gives the VDG page, as before); the boot watchdog reads the Plus's main screen, where BASIC prints OK.
+- **screen_text reads a CoCo 3 32-column page the MMU has mapped away.** It declined a compatibility-mode text page
+  the memory map showed the CPU elsewhere; it now reads the page where the display reads it, in physical RAM, and
+  answers with `physicalBase` and `base` (the CPU address that shows it, or `null`), as on the GIME text modes.
+- **screen_text reads a Dragon 64 Plus screen with codes outside `$20`-`$7E`.** One such code (a pound sign, the
+  board's solid block) declined the whole 80-column screen; such a cell now reads as a space and `unknown` counts
+  them, with a `note`, as the VDG's semigraphics blocks are counted. `docs/mcp.md`, `docs/claude.md`, the skill and a
+  new eval (`coco3-hidden-screen`) say so; `tests/screen-text-readers.test.js` checks both readers on firmware of our
+  own against the rendered frame.
+
 - **`add_roms` keeps a URL as origin + path.** The store's `index.json` recorded the full URL a ROM came from, query
   string and fragment included, which can hold a token. It now keeps the origin and the path only.
 - **Test and tool tidy-ups, no emulation change.** `tools/mame-diff/tape/spec.js` takes its register lists from

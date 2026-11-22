@@ -578,7 +578,7 @@ and back when the snapshot is taken). The example does not exercise the machine-
 | `load(name, bytes, { remember: false })`, `insertTape`, `await importDisk(name, bytes, drive)`, `startLiza`, `startWelcome`, `runAssembled(assemble(src, cpu))` | media and programs |
 | `runFrames(n)` | emulated frames, no clock; `advance(ms)` is the page's real-time pacing |
 | `typeText(text)`, `untypable(text)` | typing; for BREAK, CLEAR and the arrows, `machine.typist.press(key)` with ROMs (the keyboard matrix), and `machine.stubKeys.push(code)` on the built-in firmware (its POLCAT codes: BREAK 3, CLEAR 12, LEFT 8, RIGHT 9, DOWN 10, UP 94) |
-| `screenTextTool(session.chatTarget())`, `screenText()` | the screen as text (the first is the full reader and takes a tool target, never a Session; the second the raw 32x16 VDG page) |
+| `screenTextTool(session.chatTarget())`, `screenText()` | the screen as text, from one reader (the VDG page, every CoCo 3 GIME text mode, the CoCo 3's page where the display reads it, the Dragon 64 Plus's 80 columns while shown): the first takes a tool target, never a Session, and gives screen_text's answer (trimmed rows, the mode, where it was read); the second gives every row at full width, and on a screen that is not text the 32x16 VDG page as before |
 | `readByte(addr)`, `pokeBytes(addr, bytes)` | memory |
 | `machine.render()`, `frameToRGBA(frame)`, `framePng(frame)` | pictures |
 | `await snapshotFile()`, `await readSnapshot(bytes)`, `openSnapshot(snap)` | snapshots |

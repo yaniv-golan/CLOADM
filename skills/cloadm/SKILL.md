@@ -226,10 +226,14 @@ screenshot to see what happened. To find which keys a program reads, see `refere
   firmware, `reset` restarts the program it last loaded. `power_cycle` clears RAM and starts the machine afresh: BASIC
   with ROMs, the built-in firmware's banner without them; but an inserted cartridge (on this computer) stays in and starts again (to
   be rid of one, boot a new machine).
-- **Text on a VDG screen.** Read it with `screen_text`, not with a screenshot or `peek`: it decodes the VDG's codes
+- **Text on a screen.** Read it with `screen_text`, not with a screenshot or `peek`: it decodes the VDG's codes
   exactly, while the bytes in screen memory are screen codes, not ASCII (`$6A` is `*`, `$63` is `#`, `$60` a space;
-  see `references/hardware.md`). Semigraphics blocks read as spaces and are counted; a graphics mode is declined
-  (`text: false`) - take a screenshot then.
+  see `references/hardware.md`). It also reads every CoCo 3 GIME text mode (40 and 80 columns, attribute bytes
+  stripped and given as `attributes` runs), the CoCo 3's 32-column page where the display reads it even when the MMU
+  shows it to the CPU elsewhere or not at all (`physicalBase`; `base` is null then), and the Dragon 64 Plus's 80
+  columns while `set_display` shows them. Cells with no known character (semigraphics blocks, a Plus code outside
+  $20-$7E) read as spaces and are counted (`semigraphics`, `unknown`); a graphics mode is declined (`text: false`) -
+  take a screenshot then.
 - **Addresses** may be given as decimal integers or hex text (`"$3000"`); `peek`, `disassemble` and `find_bytes`
   answer in hex, but `registers` and the machine summaries (`pc`) give decimal numbers. Convert with care before you
   report one in hex (45040 is `$AFF0`, 12318 is `$301E`), or quote the decimal too.

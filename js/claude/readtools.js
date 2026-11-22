@@ -70,9 +70,10 @@ export function readOnlyTools() {
 }
 
 // ---- screen_text ----
-// The text on the machine's screen, one line per row. There are two readers, one per kind of text screen:
+// The text on the machine's screen, one line per row. There are three readers, one per kind of text screen:
 //  * the MC6847 VDG's 32x16 page (the MC-10, the Dragons, the CoCo 1/2, and the CoCo 3 in its compatibility mode),
-//    walked at a fixed 32-byte stride from the page the display uses, VDG codes decoded;
+//    walked at a fixed 32-byte stride from the page the display uses, VDG codes decoded; on the CoCo 3 the page is
+//    read in physical RAM where the GIME reads it (videoBase()), whatever the memory map shows the CPU;
 //  * the CoCo 3's GIME text modes (32, 40, 64 or 80 columns, with or without attribute bytes), walked by the GIME
 //    itself (gime.textScreen(): the video start, row pitch, horizontal offset, lines per row and the number of rows
 //    the body shows, all from the emulator's own GIME state, never from the CPU-readable registers, which a
@@ -80,13 +81,13 @@ export function readOnlyTools() {
 //  * the Dragon 64 Plus's 80-column board (its HD6845S CRTC), when the Plus screen is the one shown, walked by the
 //    machine's own textScreen() (the same row walk its picture is drawn from: R12/R13, R1, R6, the 2K video RAM's
 //    wrap) and decoded through PLUS_CHARS.
-// Anything else - a graphics mode, a GIME text mode whose rows are too short to show a character, a 6845 set-up the
-// board cannot show whole or a code with no known character - is DECLINED with the mode's name and a reason: no
-// guessing.
+// A cell with no known character (a VDG semigraphics block, a Plus code outside $20-$7E) reads as a space and is
+// counted. Anything else - a graphics mode, a GIME text mode whose rows are too short to show a character, a 6845
+// set-up the board cannot show whole - is DECLINED with the mode's name and a reason: no guessing.
 const CELL_COLS = 32;
 // The description Claude sees. It names the machines and modes the reader covers, and how non-ASCII characters and
 // attributes come back, so a model knows what to expect before it calls.
-export const SCREEN_TEXT_DESCRIPTION = "The text on the machine's screen, one string per row with trailing spaces trimmed (trailing blank rows are left out, so `rows` counts the rows returned, not the rows the screen has). Reads the MC6847 VDG 32x16 text screen (MC-10, Dragon 32/64/200, CoCo 1/2, and the CoCo 3 in its CoCo-compatible mode) and every CoCo 3 GIME text mode, 6809 or 6309: 32, 40, 64 or 80 columns, with or without attribute bytes (as NitrOS-9 and BASIC's WIDTH 40/80 use); on a GIME text mode `screenRows` is how many rows the screen shows. GIME characters $20-$7E are ASCII; the GIME's international characters $00-$1F come back as the Unicode letters they show (Ç ü é â ä à å ç ê ë è ï î ß Ä Å ó æ Æ ô ö ø û ù Ø Ö Ü § £ ± ° ƒ) and $7F as ▒. Attribute bytes are never shown as characters: with attributes on, `attributes` gives each row's runs of fg, bg, underline and blink, where fg and bg are palette slots, not colours (the foreground is palette register 8+fg, the background palette register bg). On the VDG's text screen a cell with bit 7 set is a semigraphics block (BASIC's cursor is one): it reads as a space, and `semigraphics` counts those cells (with a `note`), so a picture made of blocks is not mistaken for an empty screen; screenshot shows it. Returned with the mode's name, `cols`, and where the screen was read from: `base`, the CPU address of the whole screen, given only when the memory map shows all of it to the CPU in one contiguous run (otherwise null: an MMU that splits or hides it, or 256-byte virtual rows), and on a GIME text mode `physicalBase`, its address in the CoCo 3's physical RAM. Declined with text:false and a reason: a graphics mode; a GIME text mode whose rows are too short to show a character (1 or 2 scanlines per row) or that shows no rows ($FF99 lines per field 2); a VDG page the memory map (MMU) has moved away from where the display reads it; and, on the Dragon 64 Plus's 80-column screen, a 6845 set-up the board cannot show whole (no rows or columns, R1 or R6 not less than the totals R0+1 or R4+1, wider than 80 columns or taller than the 264-line picture, fewer than 10 raster lines a row, an interlace mode, R8's display skew set to non-output) or a code outside $20-$7E. The Dragon 64 Plus's 80-column screen (its HD6845S, while the Display tab shows it) is read from the board's 2K video RAM as the CRTC walks it (start address R12/R13 as `startAddress`, R1 columns, R6 rows as `screenRows`, the 2K wrapping), as the next frame draws it; codes $20-$7E are read as ASCII (P. Mooney's IC22 EPROM dump and the Dragon Archive's Compusense character ROM dump both put 'A' at offset $0410, so code c's glyph is at c*16); the board's other codes ($00-$1F other symbols, $7F a solid block, $80-$FF mostly underlined forms of $00-$7F) are not mapped to characters here, so a screen showing one is declined; `base` is its CPU address only while $FFE2 maps the video RAM over $0000-$07FF and the screen does not wrap. Takes no parameters.";
+export const SCREEN_TEXT_DESCRIPTION = "The text on the machine's screen, one string per row with trailing spaces trimmed (trailing blank rows are left out, so `rows` counts the rows returned, not the rows the screen has). Reads the MC6847 VDG 32x16 text screen (MC-10, Dragon 32/64/200, CoCo 1/2, and the CoCo 3 in its CoCo-compatible mode) and every CoCo 3 GIME text mode, 6809 or 6309: 32, 40, 64 or 80 columns, with or without attribute bytes (as NitrOS-9 and BASIC's WIDTH 40/80 use); on a GIME text mode `screenRows` is how many rows the screen shows. GIME characters $20-$7E are ASCII; the GIME's international characters $00-$1F come back as the Unicode letters they show (Ç ü é â ä à å ç ê ë è ï î ß Ä Å ó æ Æ ô ö ø û ù Ø Ö Ü § £ ± ° ƒ) and $7F as ▒. Attribute bytes are never shown as characters: with attributes on, `attributes` gives each row's runs of fg, bg, underline and blink, where fg and bg are palette slots, not colours (the foreground is palette register 8+fg, the background palette register bg). On the VDG's text screen a cell with bit 7 set is a semigraphics block (BASIC's cursor is one): it reads as a space, and `semigraphics` counts those cells (with a `note`), so a picture made of blocks is not mistaken for an empty screen; screenshot shows it. Returned with the mode's name, `cols`, and where the screen was read from: `base`, the CPU address of the whole screen, given only when the memory map shows all of it to the CPU in one contiguous run (otherwise null: an MMU that splits or hides it, or 256-byte virtual rows), and on a CoCo 3 `physicalBase`, its address in the CoCo 3's physical RAM. The CoCo 3's compatibility-mode page is read where the display reads it, in physical RAM (`physicalBase`), also when the memory map (MMU) shows it to the CPU elsewhere or not at all (`base` is then that other address, or null). Declined with text:false and a reason: a graphics mode; a GIME text mode whose rows are too short to show a character (1 or 2 scanlines per row) or that shows no rows ($FF99 lines per field 2); and, on the Dragon 64 Plus's 80-column screen, a 6845 set-up the board cannot show whole (no rows or columns, R1 or R6 not less than the totals R0+1 or R4+1, wider than 80 columns or taller than the 264-line picture, fewer than 10 raster lines a row, an interlace mode, R8's display skew set to non-output). The Dragon 64 Plus's 80-column screen (its HD6845S, while the Display tab shows it) is read from the board's 2K video RAM as the CRTC walks it (start address R12/R13 as `startAddress`, R1 columns, R6 rows as `screenRows`, the 2K wrapping), as the next frame draws it; codes $20-$7E are read as ASCII (P. Mooney's IC22 EPROM dump and the Dragon Archive's Compusense character ROM dump both put 'A' at offset $0410, so code c's glyph is at c*16); the board's other codes ($00-$1F other symbols, $7F a solid block, $80-$FF mostly underlined forms of $00-$7F) are not mapped to characters here: such a cell reads as a space and `unknown` counts them (with a `note`); `base` is its CPU address only while $FFE2 maps the video RAM over $0000-$07FF and the screen does not wrap. Takes no parameters.";
 
 // Whether screen_text can read the screen faithfully, and if not, why. ONE rule, used by screen_text to decide
 // what to answer and by machine_info to report `video.readable`, so the two cannot disagree: `readable === false`
@@ -126,33 +127,77 @@ function toolMachine(target) {
 export function screenTextTool(target) {
   const m = toolMachine(target);
   if (!m) throw new ToolError(TOOL_CODES.NO_MACHINE);
-  const mode = videoMode(m);
+  const r = readScreen(m, target.readByte);
+  if (!r.text) return { text: false, mode: r.mode, lines: [], rows: 0, reason: r.reason };
+  const lines = trimmed(r.rows), { rows: _all, mode, ...fields } = r;
+  if (fields.attributes) fields.attributes = fields.attributes.slice(0, lines.length).map(attributeRuns);
+  // the fields in the order a model has always seen them: what was read, where from, then the rows
+  const { text, cols, base, physicalBase, startAddress, screenRows, attributes, semigraphics, unknown, note } = fields;
+  const out = { text, mode, cols, base };
+  if (physicalBase !== undefined) out.physicalBase = physicalBase;
+  if (startAddress !== undefined) out.startAddress = startAddress;
+  out.lines = lines; out.rows = lines.length;
+  if (screenRows !== undefined) out.screenRows = screenRows;
+  if (attributes) out.attributes = attributes;
+  if (semigraphics) out.semigraphics = semigraphics;
+  if (unknown) out.unknown = unknown;
+  if (note) out.note = note;
+  return out;
+}
+
+// The screen's rows as text, every row the screen shows at its full width (nothing trimmed). This is what
+// Session.screenText returns, and so what the embed API's screenText, the page's Ask panel, the tape panel and the boot
+// watchdog read: the SAME reader as screen_text, so the two cannot disagree on a text screen. A screen screen_text
+// declines (a graphics mode, a set-up it cannot read) gives the profile's VDG page decoded, 16 rows of 32, as this
+// call always has: a ROM that has not set the VDG to text yet (the PIA's power-on $FF selects graphics) can still
+// have printed there, and a caller looking for OK or an error message looks there. `main: true` reads the machine's
+// main screen (the VDG) even while the Dragon 64 Plus shows its 80-column board: BASIC prints OK there, whatever the
+// Display tab shows.
+export function screenRows(m, readByte, { main = false } = {}) {
+  const r = readScreen(m, readByte, { main });
+  if (r.text) return r.rows;
+  const base = m.profile.textScreen || 0x400;
+  return vdgRows((i) => readByte((base + i) & 0xFFFF)).rows;
+}
+
+// One read of the screen: { text: false, mode, reason } or { text: true, mode, cols, base, rows (untrimmed), ... }
+function readScreen(m, readByte, { main = false } = {}) {
+  const mode = videoMode(m, { main });
   const read = screenReadable(mode);
-  if (!read.readable) return { text: false, mode: mode.name, lines: [], rows: 0, reason: read.reason };
+  if (!read.readable) return { text: false, mode: mode.name, reason: read.reason };
   if (mode.gimeText) return gimeText(m, mode);
   if (mode.plusText) return plusText(m, mode);
-  // the base: a machine may put its text screen elsewhere than the profile's default (the CoCo 3's GIME video
-  // base moves with $FF9D-$FF9F). Read from where the display really is, not from a fixed $400.
-  const base = textBase(m, mode);
-  // 16 rows x 32 cells: the VDG family's own geometry, which is the only one this reader can walk (a wider
-  // GIME mode was declined above)
-  const lines = [];
+  // A CoCo 3 in its compatibility mode: the page is read where the display reads it, in physical RAM (videoBase(),
+  // which follows the SAM's page bits and $FF9D), through the GIME's own side-effect-free mem(). Reading it through
+  // the CPU's map instead would read another page whenever the MMU maps that CPU address elsewhere.
+  if (mode.legacyBase != null) {
+    const g = m.gime, at = mode.legacyBase;
+    const r = vdgRows((i) => g.mem(at + i));
+    return { text: true, mode: mode.name, cols: CELL_COLS,
+      base: contiguousCpuBase(g, { base: at, rows: VDG_ROWS, pitch: CELL_COLS, hoff: 0, hven: false }), physicalBase: at, ...r };
+  }
+  // the VDG family: the profile's page, read through the CPU's map (a CoCo 3 whose compatibility-mode base is not
+  // latched yet - between a register write and the next frame - is read here too, from the profile's page)
+  const base = m.profile.textScreen || 0x400;
+  return { text: true, mode: mode.name, cols: CELL_COLS, base, ...vdgRows((i) => readByte((base + i) & 0xFFFF)) };
+}
+// 16 rows x 32 cells: the VDG family's own geometry. A cell with bit 7 set is a semigraphics block, not a character:
+// read as a space, and counted, so a picture made of blocks (or BASIC's cursor) is not taken for an empty screen
+const VDG_ROWS = 16;
+function vdgRows(byte) {
+  const rows = [];
   let blocks = 0;
-  for (let row = 0; row < 16; row++) {
+  for (let row = 0; row < VDG_ROWS; row++) {
     let line = '';
     for (let col = 0; col < CELL_COLS; col++) {
-      const v = target.readByte((base + row * CELL_COLS + col) & 0xFFFF);
+      const v = byte(row * CELL_COLS + col);
       if (v & 0x80) { line += ' '; blocks++; continue; }
       const c = v & 0x3F;
       line += String.fromCharCode(c < 32 ? c + 64 : c);
     }
-    lines.push(line);
+    rows.push(line);
   }
-  const shown = trimmed(lines);
-  // a cell with bit 7 set is a semigraphics block, not a character: read as a space, and counted, so a picture made
-  // of blocks (or BASIC's cursor) is not taken for an empty screen
-  const sg = blocks ? { semigraphics: blocks, note: `${blocks} of the ${16 * CELL_COLS} cells are semigraphics blocks, read as spaces: screenshot shows them` } : {};
-  return { text: true, mode: mode.name, cols: CELL_COLS, base, lines: shown, rows: shown.length, ...sg };
+  return { rows, ...(blocks ? { semigraphics: blocks, note: `${blocks} of the ${VDG_ROWS * CELL_COLS} cells are semigraphics blocks, read as spaces: screenshot shows them` } : {}) };
 }
 
 // the rows as a model reads them: trailing spaces trimmed, trailing blank rows left out (both readers)
@@ -170,10 +215,16 @@ function trimmed(lines) {
 // can move it), and the screen's cells do not wrap round the 2K.
 function plusText(m, mode) {
   const t = mode.plusText;
-  const lines = trimmed(t.codes.map((row) => row.map((c) => PLUS_CHARS[c]).join('')));
-  const out = { text: true, mode: mode.name, cols: t.cols, base: plusCpuBase(m, t), startAddress: t.start, lines, rows: lines.length, screenRows: t.rows };
+  let unknown = 0;
+  const rows = t.codes.map((row) => row.map((c) => { const ch = PLUS_CHARS[c]; if (ch == null) { unknown++; return ' '; } return ch; }).join(''));
+  const out = { text: true, mode: mode.name, cols: t.cols, base: plusCpuBase(m, t), startAddress: t.start, rows, screenRows: t.rows };
+  // a code with no known character reads as a space and is counted (as the VDG's semigraphics are), so a screen of
+  // them is not mistaken for an empty one
+  const notes = [];
+  if (unknown) { out.unknown = unknown; notes.push(`${unknown} of the ${t.rows * t.cols} cells hold a code outside $20-$7E, whose character is not known here: read as spaces, screenshot shows them`); }
   // without the user's character generator the board draws nothing: say so, rather than let the text suggest a picture
-  if (!m.charGen) out.note = 'no character generator ROM is loaded, so the 80-column picture is blank; these are the characters its video RAM holds';
+  if (!m.charGen) notes.push('no character generator ROM is loaded, so the 80-column picture is blank; these are the characters its video RAM holds');
+  if (notes.length) out.note = notes.join('; ');
   return out;
 }
 function plusCpuBase(m, t) {
@@ -190,8 +241,8 @@ function plusCpuBase(m, t) {
 // Dragon Archive's Compusense character ROM dump. Both put 'A' at EPROM offset $0410 and 'a' at $0610: code c's glyph
 // is at c * 16, so codes $20-$7E are ASCII. $00-$1F hold other visible symbols (accented letters, the pound sign and
 // so on), $7F is a solid block and $80-$FF are mostly underlined forms of $00-$7F; this reader gives no character
-// for a code outside $20-$7E (those symbols and the underlining are not mapped here), so a screen showing one is
-// declined rather than guessed. Which half of the generator is used: P. Harvey-Smith's Eagle schematic, traced from
+// for a code outside $20-$7E (those symbols and the underlining are not mapped here): such a cell reads as a space
+// and is counted (`unknown`), never guessed. Which half of the generator is used: P. Harvey-Smith's Eagle schematic, traced from
 // his own DragonPlus board (World of Dragon forum, 7 June 2017, viewtopic.php?p=15826), wires EPROM A0-A3 to the
 // 6845's RA0-RA3, A4-A10 to character bits 0-6, A11 to character bit 7 (through the latch/jumper path) and A12 to a
 // font-select jumper; no 6845 output drives A11 or A12. That wiring is from a traced schematic with known drawing errors; not verified on hardware.
@@ -217,8 +268,8 @@ export const PLUS_CHARS = Object.freeze(Array.from({ length: 256 }, (_, c) => (c
 //   * R1 over 80 or R6 x (R9 + 1) over 264: the board's picture is 80 cells of 8 by 264 lines (MAME's plus_screen,
 //     640 x 264), so part of what the registers address is never shown;
 //   * fewer than 10 raster lines a row (R9 < 9): the board's characters are a 7 x 9 matrix below a blank row
-//     (Compusense's technical notes, p. 4, "Character ROM"), 10 lines, so a shorter row cuts them;
-//   * a code PLUS_CHARS has no character for.
+//     (Compusense's technical notes, p. 4, "Character ROM"), 10 lines, so a shorter row cuts them.
+// A code PLUS_CHARS has no character for does not decline the screen: plusText reads it as a space and counts it.
 function plusMode(m) {
   const reg = m.crtc.reg, t = m.textScreen();
   const name = `HD6845S text (the Dragon Plus), ${t.cols} columns, ${t.rows} rows`;
@@ -232,12 +283,6 @@ function plusMode(m) {
   if (t.cols > 80) return no(`R1 = ${t.cols} columns is wider than the board's picture, which shows 80`);
   if (t.rows * t.perRow > t.height) return no(`${t.rows} rows of ${t.perRow} lines (R6, R9) are taller than the board's ${t.height}-line picture`);
   if (t.perRow < 10) return no(`${t.perRow} raster lines a row (R9 = ${reg[9]}) is shorter than the board's 10-line character (a 7 x 9 matrix below a blank row), so no character is shown whole`);
-  for (let r = 0; r < t.rows; r++) {
-    for (let c = 0; c < t.cols; c++) {
-      const code = t.codes[r][c];
-      if (PLUS_CHARS[code] == null) return no(`row ${r}, column ${c} holds code ${h2(code)}: only codes $20-$7E are read (as ASCII), and no source gives the character the board shows for any other`);
-    }
-  }
   return { text: true, cols: t.cols, name, plusText: t };
 }
 
@@ -250,9 +295,8 @@ function plusMode(m) {
 function gimeText(m, mode) {
   const t = mode.gimeText, chars = GIME.TEXT_CHARS;
   const rows = t.chars.map((c) => Array.from(c, (v) => chars[v & 0x7F]).join(''));
-  const lines = trimmed(rows);
-  const out = { text: true, mode: mode.name, cols: t.cols, base: contiguousCpuBase(m.gime, t), physicalBase: t.base, lines, rows: lines.length, screenRows: t.rows };
-  if (t.attrs) out.attributes = t.attrs.slice(0, lines.length).map(attributeRuns);
+  const out = { text: true, mode: mode.name, cols: t.cols, base: contiguousCpuBase(m.gime, t), physicalBase: t.base, rows, screenRows: t.rows };
+  if (t.attrs) out.attributes = t.attrs;
   return out;
 }
 // One row's attribute bytes as runs of equal attributes. GIME attribute byte (js/chips/gime.js drawText, MAME
@@ -285,21 +329,6 @@ function contiguousCpuBase(gime, t) {
     if (whole) return cpu;
   }
   return null;
-}
-
-// Where the machine's text screen actually starts. The profile's `textScreen` is the VDG family's fixed page; a
-// GIME machine moves it with $FF9D/$FF9E/$FF9F, and the GIME's own videoBase() already decodes those registers
-// (js/chips/gime.js, the same arithmetic MAME's gime_device uses). Using it means a moved base is followed
-// rather than silently reading the old page. Machines without a GIME keep the profile's value.
-//
-// This is where the value becomes an ADDRESS, so it is the ONE place the 16-bit mask belongs: videoBase()'s
-// legacy branch adds SAM bits and can exceed 16 bits (measured: 0x70400 at power-on), while the CPU addresses
-// the page in the low 16. Masking here rather than in videoMode() keeps a single mask on the single path that
-// needs it - two masks guarding one value is how neither of them can be tested.
-function textBase(m, mode) {
-  const gime = m.gime;
-  if (gime && gime.regs && mode.gimeBase != null) return mode.gimeBase & 0xFFFF;
-  return m.profile.textScreen || 0x400;
 }
 
 // ---- machine_info ----
@@ -341,11 +370,11 @@ export function machineInfoTool(target) {
 // read back by a program). In legacy mode the BASE comes from gime.videoBase(), which branches on the frame's
 // latched legacy bit; the two can disagree for the moment between a register write and the next frame start, so
 // the mode and the base are taken to describe the SAME thing by asking videoBase() for its own branch (below).
-function videoMode(m) {
+function videoMode(m, { main = false } = {}) {
   // The d64plus can show the Hitachi HD6845S display instead of the VDG (`view === 'plus'`, which picks the
   // picture render() returns; the board has no register that picks one: MAME shows two screens, the page's
   // Display tab one). While it does, the 80-column board's screen is the one read, never the VDG page behind it.
-  if (m.view === 'plus') return plusMode(m);
+  if (m.view === 'plus' && !main) return plusMode(m);
   const gime = m.gime;
   if (gime && gime.regs) {
     const r = gime.regs;
@@ -368,32 +397,14 @@ function videoMode(m) {
     }
     // legacy: the GIME emulates the VDG, and follows the mode byte the machine writes to its VDG-mode
     // register (gime.js keeps it in `ff22`, as MAME's ff22_write does). Bit 7 is A/G: clear = text.
-    // The base here comes from videoBase()'s LEGACY branch, which adds SAM bits and can exceed 16 bits
-    // (measured: 0x70400 at power-on). It is passed through RAW, unmasked: textBase() is where it becomes an
-    // address and is the one place the mask belongs (see there). Masking in both places would make neither
-    // mask observable, which is exactly how this went untested.
+    // The page is where the display reads it: videoBase()'s LEGACY branch, a PHYSICAL address (the SAM's page bits
+    // and $FF9D; 0x70400 at power-on). readScreen reads it there, from physical RAM, so a page the memory map (MMU)
+    // shows the CPU somewhere else, or nowhere, is still read, and `base` says where the CPU sees it (or null).
+    // videoBase() branches on the frame's latched legacy bit, so it is asked only when that agrees with LCOM; until
+    // the next frame start the profile's page is read through the CPU's map, as before the switch.
     const ag = !!(gime.ff22 & 0x80);
     const raw = (ag || gime.legacy !== true || typeof gime.videoBase !== 'function') ? null : gime.videoBase();
-    // The reader returns a CPU ADDRESS and reads through the machine's map, while the display reads PHYSICAL
-    // memory at videoBase(). Those are the same page only while the map routes the CPU address to it. Under the
-    // power-on default map they agree; with the MMU enabled and a slot remapped they do not, and the reader
-    // would report a page nobody is looking at - the same defect as the Plus-screen case, one layer down. So
-    // rather than assume it, ask the map: if the CPU address's physical destination is not the displayed page
-    // (or is ROM, which physAddr reports as -1), the rows cannot be read faithfully and the mode is declined.
-    if (raw != null && typeof gime.physAddr === 'function') {
-      const cpuBase = raw & 0xFFFF;              // the address the CPU would use for this page
-      const mapped = gime.physAddr(cpuBase);     // where that address actually lands physically
-      if (mapped !== raw) {
-        // render an address as the machine's own $XXXX; a physical address can need five digits on a 512K CoCo 3
-        const at = (n) => (n < 0 ? 'ROM' : `$${n.toString(16).toUpperCase().padStart(n > 0xFFFF ? 5 : 4, '0')}`);
-        return {
-          text: true, readable: false, cols: 32, gimeBase: raw,
-          name: 'GIME legacy: MC6847 text',
-          reason: `the CPU map routes $${cpuBase.toString(16).toUpperCase().padStart(4, '0')} to ${at(mapped)}, but the display reads ${at(raw)}: the memory map (MMU) has moved that page, so the rows cannot be read faithfully`,
-        };
-      }
-    }
-    return { text: !ag, cols: ag ? 0 : 32, gimeBase: raw, name: ag ? `GIME legacy: MC6847 graphics, ${graphicsName(gime.ff22)}` : 'GIME legacy: MC6847 text' };
+    return { text: !ag, cols: ag ? 0 : 32, legacyBase: raw, name: ag ? `GIME legacy: MC6847 graphics, ${graphicsName(gime.ff22)}` : 'GIME legacy: MC6847 text' };
   }
   const vdg = m.vdg;
   if (vdg && vdg.firstMode) {
@@ -432,7 +443,7 @@ function atBasicPrompt(target, mode) {
   if (st.state !== 'ok') return false;
   // a GIME text mode is read by the GIME's own walk, not the VDG page Session.screenText decodes
   const tm = toolMachine(target);
-  const lines = mode.gimeText ? gimeText(tm, mode).lines : mode.plusText ? plusText(tm, mode).lines : target.screenText();
+  const lines = mode.gimeText ? gimeText(tm, mode).rows : mode.plusText ? plusText(tm, mode).rows : target.screenText();
   return lines.some((l) => l.trim() === 'OK');
 }
 

@@ -272,8 +272,10 @@ for (const id of ['mc10', 'dragon32', 'dragon64', 'coco', 'coco2b']) {
   check('description: names the VDG machines', /MC-10/.test(d) && /Dragon/.test(d) && /CoCo 1\/2/.test(d) && /CoCo-compatible mode/.test(d), d);
   check('description: says how non-ASCII characters and attributes come back, and that graphics is declined',
     /Unicode/.test(d) && /▒/.test(d) && /never shown as characters/.test(d) && /graphics mode/.test(d) && /[Dd]eclined/.test(d), d);
-  check('description: every decline is named - rows too short, no rows, the MMU-moved VDG page, the HD6845S',
-    /rows are too short to show a character/.test(d) && /shows no rows/.test(d) && /memory map \(MMU\) has moved/.test(d) && /HD6845S/.test(d), d);
+  check('description: every decline is named - rows too short, no rows, the HD6845S',
+    /rows are too short to show a character/.test(d) && /shows no rows/.test(d) && /HD6845S/.test(d), d);
+  check('description: the CoCo 3 compatibility-mode page is read where the display reads it, whatever the MMU shows the CPU',
+    /read where the display reads it, in physical RAM/.test(d) && /memory map \(MMU\) shows it to the CPU elsewhere or not at all/.test(d) && !/has moved that page/.test(d), d);
   check('description: fg/bg are palette slots, not colours; rows vs screenRows; base only when contiguous',
     /palette slots, not colours/.test(d) && /palette register 8\+fg/.test(d) && /`rows` counts the rows returned/.test(d) && /`screenRows`/.test(d)
     && /contiguous/.test(d), d);
