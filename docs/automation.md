@@ -73,6 +73,7 @@ Then, in any order:
 | `--record FILE` | record the picture and sound from here until `--record-stop` or the end of the run, as one AVI file (see [Recording a clip](#recording-a-clip)) |
 | `--record-dir DIR` | the same as a PNG per frame, a WAV and an ffconcat list, with no size limit |
 | `--record-stop` | end the recording and write it |
+| `--serial-trace FILE` | trace the serial port from here to the end of the run (the last 65,536 events), written as JSON Lines, one event a line, also when the run fails (see [The serial port from Node](#the-serial-port-from-node)) |
 | `--peek ADDR[:LEN]` | memory as the CPU sees it, with no side effects |
 | `--poke ADDR=V[,V…]` | write through the memory map (ROM and I/O take nothing) |
 | `--save-snapshot FILE` | the machine as a snapshot file, which the page opens too |
@@ -137,11 +138,11 @@ What each column means, and the way in:
 * **Disk controller**: a cartridge in the cartridge port with your own disk ROM (`--roms`, then `--disk [N=]FILE`);
   the Dragon Alpha's controller is built in. The MC-10 and Alice have no cartridge port, so no disk.
 * **6551 ACIA** (Dragon 64, 200 and Tano at `$FF04-$FF07`; [the machine notes](machines.md) list the Dragon 64's
-  serial port): "with its port" means `session.attachSerial('terminal' | 'loopback' | 'none', { baud })` plugs something
-  into its RS-232 port. There is no command-line step for serial: it is Node only
-  ([a custom peer](#a-snapshot-with-a-serial-peer-outside-the-machine)).
-* **Bit-banger**: the CoCo's and the MC-10's serial port, driven by the program through PIA1 (`attachSerial('printer' |
-  'terminal' | 'loopback', { baud })`; a serial printer is plugged in by default).
+  serial port): "with its port" means `session.serial.attach('terminal' | 'loopback' | 'none', { baud })` plugs
+  something into its RS-232 port. Plugging in and sending are Node only ([the serial port from
+  Node](#the-serial-port-from-node)); the command line can trace the port (`--serial-trace FILE`).
+* **Bit-banger**: the CoCo's and the MC-10's serial port, driven by the program through PIA1
+  (`session.serial.attach('printer' | 'terminal' | 'loopback', { baud })`; a serial printer is plugged in by default).
 * **Becker port**: `becker=true` (the `?becker=true` of the page) puts the DriveWire port at `$FF41-$FF42`; the
   Dragons have no `becker` option.
 
@@ -297,7 +298,10 @@ goes to stderr, with the screen when a condition failed. With `--json` it prints
 ```
 
 A failed run adds `error: { kind, code, message, screen }` (`screen` when a condition failed; `errors`, a list of
-`{ line, message }`, when an assembly failed; `screenshot` when an `--expect-screenshot` failed), and `roms` lists how each ROM file given was identified. `machine` is
+`{ line, message }`, when an assembly failed; `screenshot` when an `--expect-screenshot` failed; `machine: { pc,
+frame, cycles }` and `serial` (`session.diagnostics().serial`: the device, the 6551's status decoded, the bytes still
+on their way to the machine; `null` on a model without a serial port) when a `timeout` or `keys-not-taken` stopped
+the run), and `roms` lists how each ROM file given was identified. `machine` is
 `null` when the run stopped before a machine was built. `--registers`, `--disasm` and `--step` give `registers`
 (an object of lower-case names), `instructions` (`address`, `bytes`, `text`, `size`, and `target` where an operand
 points somewhere) and `cycles`; `--asm` gives `exec`, the `segments` written and the program's `symbols`.
@@ -560,26 +564,83 @@ CLOADM_DIR=/path/to/cloadm node my-copy-of-it.mjs out.png
 `tests/dev-docs-headless.test.js` runs it from a temporary directory outside the repository (and from a copy of the `.mjs`
 alone, with `CLOADM_DIR`), and compares the line above with what it prints, so it cannot rot. Everything it calls is in the stability table below.
 
+### The serial port from Node
+
+`session.serial` is the serial port of the Session's machine (the Dragon 64, 200 and Tano's 6551; the CoCo's and the
+MC-10's bit-banger), for a program that talks to the guest over the wire: a file server, a modem, a test harness.
+
+```js
+session.serial.device                    // { chip: '6551' | 'bit-banger', kind, baud, kinds } or null (no serial port)
+session.serial.attach('terminal', { baud: 9600 })   // 'none' | 'printer' | 'terminal' | 'loopback' (as kinds lists)
+session.serial.send([0x41, 0x0D])        // a Uint8Array or an array of 0..255 -> the count; anything else is a SessionError
+session.serial.send('RUN\n', { text: true })        // text, newlines as CR, one byte a character
+const sub = session.serial.subscribe({ tx(bytes, info) {}, rx(bytes, info) {} }, { flush: 'frame' });
+sub.unsubscribe();                       // idempotent
+session.serial.flush();                  // deliver every byte completely sent by now
+const trace = session.serial.trace({ limit: 4096, registers: 'writes' });   // -> { events, dropped, stop() }
+session.serial.status();                 // the 6551's status register, decoded, read without side effects (null on a bit-banger)
+session.diagnostics();                   // { pc, frame, now, cycles, serial: { device, status, queued } }
+```
+
+**Bytes both ways.** `tx` gets the bytes the machine sent, as the printer or terminal plugged in decoded them; `rx`
+gets the bytes `send` handed over, each once it has crossed the wire into the machine (its stop bit has ended), not
+when it was sent. `bytes` is a `Uint8Array`; `info` is `{ at, frame, device }`: `at` the machine tick of each byte
+(for `tx` the receiver's last sample, the middle of the stop bit; for `rx` the end of the stop bit), `frame` the frame
+count when it was delivered, `device` the kind plugged in (a `tx` subscriber hears the serial printer too; the page's
+terminal log, the serial panel's own subscriber, keeps only what reached the terminal).
+Delivery is at the end of each frame and on `flush()`; a subscriber with `{ flush: 'instant' }` also gets what has
+crossed before each instruction the CPU starts (a probe on the machine, there only while such a subscriber is: it
+costs a flush an instruction), when `runFrames` returns and when a debugger stops the machine (a breakpoint or
+watchpoint), so it sees a byte by the instruction after the one it crossed in. The loopback plug and `'none'` decode
+nothing, so their subscribers hear nothing (the 6551's trace still does).
+
+Any number of subscribers get the same bytes in the order they subscribed; the page's terminal log is one of them,
+the serial panel's own. A subscriber may call `send` from `tx` (an echo, a protocol's reply). One that throws is unsubscribed, the
+others still get their bytes, and the error is thrown after them, out of the `runFrames` (or `flush`) that delivered
+it. Subscriptions and traces belong to the Session: `switchMachine`, `openSnapshot` and a power cycle move them to the
+new machine (the Session's hooks registry, `js/hooks.js`), and no snapshot holds them (a new Session subscribes
+again). Any number of traces can run at once, each with its own options.
+
+**Why did it stall?** `trace` keeps the last `limit` events in a ring, oldest first (`dropped` counts the ones
+pushed out); `stop()` ends it. Every event is `{ at, frame, pc, kind, ... }`:
+
+| `kind` | When | Also |
+|---|---|---|
+| `tx-load` | the 6551 moves a byte from its transmit data register to the shift register (its start bit begins) | `byte`, `status` |
+| `tx` | a byte has gone out: the 6551's stop bit has ended; on the bit-banger, the device has decoded it | `byte` (`status` on the 6551) |
+| `rx` | a byte has come in: into the 6551's receive data register; across the bit-banger's wire | `byte` (`status` on the 6551) |
+| `overrun` | the 6551 lost a byte: the receive data register was still full | `byte` (the lost one), `status` |
+| `framing`, `parity` | the byte just received has that error (6551) | `byte`, `status` |
+| `reg-write` | the CPU wrote a 6551 register (0 data, 1 programmed reset, 2 command, 3 control) | `reg`, `value` |
+| `reg-read` | with `registers: 'all'`: the CPU read one; a run of the same read giving the same value is one event | `reg`, `value` (what the read returned), `count` |
+
+`status` is the status register as a read would give it; the trace never reads the chip, because a status read
+clears the interrupt and a data read clears RDRF. Back to back, the 6551 receives a byte every 10 bit times (a bit is
+16 clocks of 1.8432 MHz divided by the control register's divider) and sends one every 10 bit times and one clock,
+as MAME's model does (`tests/serial-api.test.js` checks both against the times worked out by hand). A trace costs
+nothing when there is none, and does not change the emulation: the MAME-verified runs' hashes are the same with one
+on. On the command line, `--serial-trace FILE` writes the same events as JSON Lines, and a `timeout` or
+`keys-not-taken` error carries `machine` and `serial` ([Output and exit codes](#output-and-exit-codes)).
+
 ### A snapshot with a serial peer outside the machine
 
 A snapshot holds the machine and the serial device plugged into it. For the terminal that is the device's kind and baud, the
 line level, the **bytes handed to the machine that it has not finished receiving** (`queue`) and the decoder of the byte
 being sent the other way (`tests/state-carts.test.js`: "The serial terminal: a byte on its way to the machine is part of the
 snapshot"; and "The Dragon 64's 6551 ACIA with a loopback plug", a byte shifted out and back when the snapshot is taken). It does **not** hold your peer:
-its own queue (what it has not yet handed over), what it has received, its backing file or the offset in it, or the
-`onReceive` hook (`Session.openSnapshot` makes a new machine and re-plugs only the Session's own terminal log, `terminalBytes`,
-which starts empty). So a peer that must resume has three jobs, in this order:
+its own queue (what it has not yet handed over), what it has received, its backing file or the offset in it, or its
+subscription (in the same Session `openSnapshot` keeps every subscription; a new Session has none). So a peer that must resume has three jobs, in this order:
 
-1. **Freeze.** Stop handing over bytes (no more `serialSend`) and stop the host side. Then `machine.serialPort.flush(machine.now())`:
-   the port decodes what the machine sends lazily, so this delivers every byte the machine has *completely* sent to
-   `onReceive`, and the one in the middle of being sent stays in the decoder (which the snapshot holds) and arrives after the
-   restore (`tests/state-carts.test.js` flushes before it snapshots the bit-banger).
+1. **Freeze.** Stop handing over bytes (no more `send`) and stop the host side. Then `session.serial.flush()`: the port
+   decodes what the machine sends lazily, so this delivers every byte the machine has *completely* sent, and the one in
+   the middle of being sent stays in the decoder (which the snapshot holds) and arrives after the restore
+   (`tests/state-carts.test.js` flushes before it snapshots the bit-banger).
 2. **Save the peer next to the snapshot**, under the same name: the number of bytes it **handed to the machine** (not the
    number the machine has read: the difference is the queue, which is in the snapshot), what it has received and its offset
    in the backing file.
-3. **Resume.** `openSnapshot` in the new Session, hook `serialPort.onReceive` again, rebuild the peer from its saved state and
-   carry on from the byte after the last one it handed over. The queued bytes arrive by themselves; handing them over
-   again would send them twice.
+3. **Resume.** `openSnapshot` in the new Session, subscribe again, rebuild the peer from its saved state and carry on
+   from the byte after the last one it handed over. The queued bytes arrive by themselves; handing them over again
+   would send them twice.
 
 ```js
 // example: serial-peer
@@ -594,7 +655,7 @@ if (!guest.ok) fail('serialrx.asm does not assemble');
 const start = () => {
   const s = new Session({ welcomeMenu: false });
   s.switchMachine('coco', {}, { menu: false });
-  s.attachSerial('terminal', { baud: 1200 });
+  s.serial.attach('terminal', { baud: 1200 });
   s.runAssembled(guest);
   s.runFrames(2);
   return s;
@@ -603,45 +664,49 @@ const received = (s) => String.fromCharCode(...Array.from({ length: s.readByte(0
 
 // the peer: hands the machine three bytes of its file every other frame; its state is how many it has handed over
 class Peer {
-  constructor(session, saved = { sent: 0, got: [] }) {
-    this.session = session; this.sent = saved.sent; this.got = saved.got.slice();
-    session.personMachine.serialPort.onReceive = (b) => this.got.push(b);   // what the machine sends back (this guest sends nothing)
+  constructor(session, saved = { sent: 0, got: [], arrived: 0 }) {
+    this.session = session; this.sent = saved.sent; this.got = saved.got.slice(); this.arrived = saved.arrived;
+    session.serial.subscribe({
+      tx: (bytes) => this.got.push(...bytes),          // what the machine sends back (this guest sends nothing)
+      rx: (bytes) => { this.arrived += bytes.length; },  // what has crossed the wire into the machine
+    });
   }
-  tick() { for (let i = 0; i < 3 && this.sent < FILE.length; i++) this.session.serialSend([FILE[this.sent++]]); }
-  save() { return JSON.parse(JSON.stringify({ sent: this.sent, got: this.got })); }
+  tick() { for (let i = 0; i < 3 && this.sent < FILE.length; i++) this.session.serial.send([FILE[this.sent++]]); }
+  save() { return JSON.parse(JSON.stringify({ sent: this.sent, got: this.got, arrived: this.arrived })); }
 }
 const run = (s, peer, frames) => { for (let f = 0; f < frames; f++) { if (f % 2 === 0) peer.tick(); s.runFrames(1); } };
 
 // the uninterrupted run
-const a = start(); run(a, new Peer(a), 120);
-if (received(a) !== 'HELLO, DRAGON! 0123456789') fail(`uninterrupted: ${received(a)}`);
+const a = start(), pa = new Peer(a); run(a, pa, 120);
+if (received(a) !== 'HELLO, DRAGON! 0123456789' || pa.arrived !== FILE.length) fail(`uninterrupted: ${received(a)}, ${pa.arrived} arrived`);
 
 // frozen part way, in this order: stop feeding, flush the port, snapshot, save the peer
 const s = start(), peer = new Peer(s);
 run(s, peer, 5);
-s.personMachine.serialPort.flush(s.personMachine.now());
+s.serial.flush();
 const snapshot = (await s.snapshotFile()).bytes, saved = peer.save();
-if (s.readByte(0x31FF) >= saved.sent) fail('nothing is on its way to the machine: pick another moment');   // handed over 9, received 8
+if (saved.arrived >= saved.sent) fail('nothing is on its way to the machine: pick another moment');   // handed over 9, 8 across
 
-// resumed: a new Session, the hook again, the peer rebuilt and carrying on from the byte after the last one handed over
+// resumed: a new Session, subscribed again, the peer rebuilt and carrying on from the byte after the last one handed over
 const t = new Session({ welcomeMenu: false });
 t.openSnapshot(await t.readSnapshot(snapshot));
-if (t.personMachine.serialPort.kind !== 'terminal' || t.personMachine.serialPort.baud !== 1200) fail('the terminal is not back');
-run(t, new Peer(t, saved), 120);
-if (received(t) !== received(a)) fail(`resumed: ${received(t)}`);
+if (t.serial.device.kind !== 'terminal' || t.serial.device.baud !== 1200) fail('the terminal is not back');
+const pt = new Peer(t, saved);
+run(t, pt, 120);
+if (received(t) !== received(a) || pt.arrived !== FILE.length) fail(`resumed: ${received(t)}, ${pt.arrived} arrived`);
 
 // resumed from what the machine had READ instead of what the peer had HANDED OVER: the byte on the wire arrives twice
 const u = new Session({ welcomeMenu: false });
 u.openSnapshot(await u.readSnapshot(snapshot));
-run(u, new Peer(u, { sent: s.readByte(0x31FF), got: [] }), 120);
+run(u, new Peer(u, { sent: s.readByte(0x31FF), got: [], arrived: 0 }), 120);
 if (received(u) === received(a) || u.readByte(0x31FF) !== a.readByte(0x31FF) + 1) fail(`the wrong resume should send one byte twice: ${received(u)}`);
 console.log('example passed');
 ```
 
-The example runs on the CoCo's bit-banger because its guest is small. The Dragon 64, 200 and Tano's 6551 has its own port object
-(`machine.serialPort` is it too: `attachSerial`, `serialSend`, `onReceive` and `flush` are the same calls) and its registers and
-shift state are in the snapshot as well (`tests/state-carts.test.js`: "The Dragon 64's 6551 ACIA with a loopback plug", a byte shifted out
-and back when the snapshot is taken). The example does not exercise the machine-to-peer direction: its guest only receives.
+The example runs on the CoCo's bit-banger because its guest is small. The Dragon 64, 200 and Tano's 6551 takes the same
+calls, and its registers and shift state are in the snapshot as well (`tests/state-carts.test.js`: "The Dragon 64's 6551 ACIA
+with a loopback plug", a byte shifted out and back when the snapshot is taken). The example does not exercise the
+machine-to-peer direction: its guest only receives (`tests/serial-api.test.js` runs both directions on both chips).
 
 ### Reading a disk with no DOS ROM
 
@@ -715,6 +780,7 @@ machine boots from the disk; that path needs a ROM CLOADM does not ship, and is 
 | `machine.setKey(name, down)`, the key names `Object.keys(machine.keyPos)` | the keyboard matrix, as a finger holds a key; an unknown name does nothing. The `[row, column]` values of `keyPos` are internal |
 | `machine.frameCount`, `machine.now()`, `machine.tickHz`, `machine.cpu.totalCycles` | emulated time: frames run, the machine's clock (see "What 'cycles' counts" above: the GIME's on the CoCo 3), that clock's rate in Hz, and CPU cycles |
 | `await snapshotFile()`, `await readSnapshot(bytes)`, `openSnapshot(snap)` | snapshots |
+| `serial` (`device`, `attach`, `send`, `subscribe`, `flush`, `trace`, `status`), `diagnostics()` | the serial port: its device, the bytes both ways and when they are delivered, the trace's event kinds and fields, and where the machine is ([the serial port from Node](#the-serial-port-from-node)) |
 | `debug` (`addBreakpoint`, `step`, `registers`, …) | the debugger, as the page's Debugger screen uses it |
 
 Not promoted, although they are reachable: `machine.serialPort`, `pcWatch`, `stubKeys` and the typist's internals (`machine.typist`

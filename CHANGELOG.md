@@ -103,6 +103,20 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   them (those `--asm` gave too) and `--wait-for pc:LABEL` stops at one. New in `js/media/formats.js`: `writeDragonDos(segments, exec, { type, maxGap })` and
   `writeDecb(segments, exec)`, the round-trip partners of `parseDragonDos` and `parseDecb`; new in `js/asm/symbols.js`:
   `parseSymbols`, `formatSymbols`, `lookupSymbol`.
+- **A serial byte-stream API and serial diagnostics for Node and headless runs.** A developer porting a game had to overwrite
+  `machine.serialPort.onReceive`, which also cut off the page's terminal log, and could not see why a transfer stalled.
+  `session.serial` now has the device (`device`, `attach`), `send` (bytes, or text with `{ text: true }`), any number of
+  subscribers (`subscribe({ tx, rx }, { flush: 'frame' | 'instant' })`, in order; the page's terminal log is the serial panel's
+  own; one that throws is unsubscribed and its error thrown after the others ran; they survive `openSnapshot`, `switchMachine` and
+  a power cycle, through the Session's hooks registry, and are never in a snapshot), `flush()`, ring-buffer `trace()`s, any number
+  at once, of what the port did (`tx-load`, `tx`, `rx`, `overrun`,
+  `framing`, `parity`, register writes and, on request, reads, each with its tick, frame and PC; the 6551's status is peeked,
+  never read) and `status()`, the 6551's status decoded. `rx` bytes are delivered once they have crossed the wire, not when sent.
+  `session.diagnostics()` gives the PC, frame, time, cycles and serial port. On the command line, `--serial-trace FILE` writes the
+  trace as JSON Lines (also when the run fails), and `timeout` and `keys-not-taken` errors carry `machine: { pc, frame, cycles }`
+  and `serial` (added fields; the same `schemaVersion`). A trace changes no emulation: the MAME-verified 6551 and printer runs
+  hash the same with one on (`tests/serial-api.test.js`, both chips, every byte 00..FF both ways). Documented in
+  `docs/automation.md` ("The serial port from Node", and the serial-peer note rewritten on it).
 
 ### Changed
 
@@ -278,6 +292,12 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   of more than 256 bytes between two segments unless the caller raises `maxGap` (`examples/chat.bin` does: its blocks sit up to
   1,438 bytes apart). The Assembler tab's Save writes the file the open machine loads: DECB on a CoCo, DragonDOS on a Dragon; on
   the MC-10 and Alice, which load `.c10` tapes, Save is off and says why. `--disasm` now names labels from `--asm` as well.
+- **The Session's serial methods moved to `session.serial`.** `serialDevice` is `serial.device` (its fields now start with
+  `chip`), `attachSerial` is `serial.attach`, and `serialSend` is `serial.send`, which takes bytes, or text with `{ text: true }`, and
+  refuses any value outside 0..255 (`send([256])` used to go out as `$00`). A machine's `SerialPort` has a listener set (`listeners`,
+  `{ tx(byte, at), rx(byte, at) }`) in place of its one `onReceive`. The Web Serial object the DriveWire link uses is
+  `session.webSerial` (it was `session.serial`). The terminal log left the Session: `terminalText()`, `clearTerminal()` and
+  `terminalBytes` are gone; the serial panel keeps its own log as a subscriber, and turns it into text itself (`js/ui/terminal-text.js`).
 
 ### Fixed
 

@@ -183,15 +183,19 @@ const cli = (args, opts = {}) => node([path.join(ROOT, 'cli/cloadm.js'), ...args
   {
     const s = new Emu.Session({ welcomeMenu: false });
     s.switchMachine('dragon64', {}, { menu: false });
-    s.attachSerial('terminal', { baud: 1200 });
-    s.serialSend('OK');
+    s.serial.attach('terminal', { baud: 1200 });
+    const arrived = [];
+    s.serial.subscribe({ rx: (b) => arrived.push(...b) });
+    s.serial.send('OKAY', { text: true });
     s.runFrames(1);
+    s.serial.flush();
     const port = s.personMachine.serialPort;
-    check('the Dragon 64\'s serialPort (the 6551\'s) is the object the note describes: send, onReceive, flush, a queue', typeof port.send === 'function' && typeof port.flush === 'function' && 'onReceive' in port && port === s.personMachine.acia.port && port.queue.length > 0);
+    check('the Dragon 64\'s 6551 takes the same calls: after a frame at 1200 baud part of what was sent has crossed, the rest is queued',
+      s.serial.device.chip === '6551' && arrived.length > 0 && arrived.length < 4 && port.queue.length === 4 - arrived.length, `${arrived.length} across, ${port.queue.length} queued`);
     const t = new Emu.Session({ welcomeMenu: false });
     t.openSnapshot(await t.readSnapshot((await s.snapshotFile()).bytes));
-    check('a snapshot of the Dragon 64 keeps the terminal, its baud and the bytes on their way; the Session re-plugs only its own log',
-      t.personMachine.serialPort.kind === 'terminal' && t.personMachine.serialPort.baud === 1200 && t.personMachine.serialPort.queue.length === port.queue.length && t.terminalBytes.length === 0, `${t.personMachine.serialPort.queue.length} vs ${port.queue.length}`);
+    check('a snapshot of the Dragon 64 keeps the terminal, its baud and the bytes on their way; a new Session has no subscriber',
+      t.serial.device.kind === 'terminal' && t.serial.device.baud === 1200 && t.personMachine.serialPort.queue.length === port.queue.length && t.serial.subs.length === 0, `${t.personMachine.serialPort.queue.length} vs ${port.queue.length}`);
   }
   check('the serial note names the tests it rests on, and they exist', /The serial terminal: a byte on its way to the machine is part of the/.test(read('tests/state-carts.test.js')) && /The Dragon 64's 6551 ACIA with a loopback plug/.test(read('tests/state-carts.test.js')));
 
@@ -205,7 +209,7 @@ const cli = (args, opts = {}) => node([path.join(ROOT, 'cli/cloadm.js'), ...args
     gd.split(`automation.md${recipeA}`).length === 3 && gd.split(`automation.md${exampleA}`).length === 3 && mc.includes(`automation.md${recipeA}`) && mc.includes(`automation.md${exampleA}`)
     && /Wait, don't sleep:\*\*[^\n]*\n[^\n]*\n[^\n]*\[wait on a frame counter in RAM\]/.test(gd) && /Dragon 64 adds a 6551[^\n]*driving a graphics program/.test(gd)
     && doc.includes('### A graphics program has no text to wait on') && doc.includes('### A complete example that runs from outside the repository'));
-  check('the table links to the serial note, and the note\'s anchor is its heading', doc.includes('(#a-snapshot-with-a-serial-peer-outside-the-machine)') && doc.includes('### A snapshot with a serial peer outside the machine'));
+  check('the table links to the serial port\'s section, and its anchor is its heading; the peer note follows it', doc.includes('(#the-serial-port-from-node)') && doc.includes('### The serial port from Node') && doc.indexOf('### A snapshot with a serial peer outside the machine') > doc.indexOf('### The serial port from Node'));
 
   fs.rmSync(TMP, { recursive: true, force: true });
   console.log(fail ? `${fail} FAILED` : `${n}/${n} headless-docs checks passed`);

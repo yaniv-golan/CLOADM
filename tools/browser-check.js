@@ -1389,11 +1389,17 @@ async function printerChecks(browser, base, check) {
   // sends (frames driven onto its TXD here) shows in the terminal
   await page.selectOption('#selSerial', 'terminal');
   await page.selectOption('#selBaud', '9600');
-  check('serial: the terminal is plugged in at 9600 baud', await page.evaluate(() => JSON.stringify(window.emu.session.serialDevice)) === JSON.stringify({ kind: 'terminal', baud: 9600, kinds: ['printer', 'terminal', 'loopback'], chip: 'bit-banger' })
+  check('serial: the terminal is plugged in at 9600 baud', await page.evaluate(() => JSON.stringify(window.emu.session.serial.device)) === JSON.stringify({ chip: 'bit-banger', kind: 'terminal', baud: 9600, kinds: ['printer', 'terminal', 'loopback'] })
     && await page.isVisible('#terminal') && /unplugged/.test(await page.textContent('#printerKind')));
+  // a second subscriber beside the terminal panel (session.serial), kept across the machine switch below
+  await page.evaluate(() => {
+    window.serialSeen = { tx: [], rx: [] };
+    window.emu.session.serial.subscribe({ tx: (b) => window.serialSeen.tx.push(...b), rx: (b) => window.serialSeen.rx.push(...b) });
+  });
   await page.fill('#termInput', 'DIR');
   await page.press('#termInput', 'Enter');
-  check('serial: a typed line goes to the machine, with CR', await page.evaluate(() => window.emu.machine.bitBanger.queue.join(',')) === '68,73,82,13' && await page.inputValue('#termInput') === '');
+  await waitFor(page, () => window.serialSeen.rx.length >= 4, null, 3000);
+  check('serial: a typed line crosses the wire to the machine, with CR (a subscriber\'s rx)', await page.evaluate(() => window.serialSeen.rx.join(',')) === '68,73,82,13' && await page.inputValue('#termInput') === '', await page.evaluate(() => window.serialSeen.rx.join(',')));
   await page.evaluate(() => {
     const m = window.emu.machine, p = m.bitBanger, bit = m.tickHz / 9600;
     let t = m.now();
@@ -1404,6 +1410,7 @@ async function printerChecks(browser, base, check) {
   });
   await waitFor(page, () => document.getElementById('terminal').textContent === 'HI\n', null, 3000);
   check('serial: what the machine sends shows in the terminal', await page.textContent('#terminal') === 'HI\n', JSON.stringify(await page.textContent('#terminal')));
+  check('serial: the subscriber beside the terminal got the same bytes', await page.evaluate(() => window.serialSeen.tx.join(',')) === '72,73,13', await page.evaluate(() => window.serialSeen.tx.join(',')));
   // the Dragon 64's 6551: its own list of devices; a terminal at 9600 baud gets what the chip sends (registers
   // written directly: 9600 baud 8N1, DTR and the transmitter on)
   await pickMachine(page, 'dragon64');
@@ -1414,14 +1421,17 @@ async function printerChecks(browser, base, check) {
   await page.selectOption('#selBaud', '9600');
   await page.evaluate(() => {
     const m = window.emu.machine;
+    window.serialTrace = window.emu.session.serial.trace();
     m.write(0xFF07, 0x1E); m.write(0xFF06, 0x0B);
     window.aciaOut = [0x4F, 0x4B, 0x0D];
     // feed one byte each time the transmit register is empty, between frames
     const frame = m.runFrame.bind(m);
-    m.runFrame = () => { if (window.aciaOut.length && (m.read(0xFF05) & 0x10)) m.write(0xFF04, window.aciaOut.shift()); frame(); };
+    m.runFrame = () => { if (window.aciaOut.length && (m.read(0xFF05) & 0x10)) m.write(0xFF04, window.aciaOut.shift()); return frame(); };
   });
   await waitFor(page, () => document.getElementById('terminal').textContent === 'OK\n', null, 3000);
   check('serial: what the Dragon 64\'s 6551 sends shows in the terminal', await page.textContent('#terminal') === 'OK\n', JSON.stringify(await page.textContent('#terminal')));
+  check('serial: the subscription moved to the Dragon 64 with the switch, and the trace saw the 6551 send', await page.evaluate(() => window.serialSeen.tx.join(',')) === '72,73,13,79,75,13'
+    && await page.evaluate(() => window.serialTrace.events.filter((e) => e.kind === 'tx').map((e) => e.byte).join(',')) === '79,75,13', await page.evaluate(() => window.serialSeen.tx.join(',')));
   await pickMachine(page, 'dragon32');
   await openTab(page, 'Machine');
   check('serial: no serial section on the Dragon 32', await page.isHidden('#serialSection'));

@@ -214,6 +214,8 @@ class Acia6551 extends Device {
     this.signal = 0;           // the clock's level
     this.half = 0n;            // half a clock period in attoseconds (0: stopped)
     this.time = 0;             // the tick of the change the chip is reacting to (for the serial line)
+    this.traces = new Set();   // (kind, data, at) => void: register accesses and character boundaries (addTrace); not state
+    this.trace = null;         // what readIO, writeIO and the chip call: all of them, or null with none
     this.clock = new AttoClock();
     this.tInit = this.clock.timer('init', () => this.clockInit());
     this.tEdge = this.clock.timer('edge', () => this.clockTick());
@@ -265,8 +267,31 @@ class Acia6551 extends Device {
     this.chip.reset();
   }
   // (time-dependent accesses: the machine has run its events up to the access first)
-  readIO(reg, at) { this.time = at; this.chip.setRxd(this.port.rxd(at)); return this.chip.read(reg); }
-  writeIO(reg, v, at) { this.time = at; this.chip.write(reg, v); }
+  readIO(reg, at) {
+    this.time = at; this.chip.setRxd(this.port.rxd(at));
+    const v = this.chip.read(reg);
+    if (this.trace) this.trace('reg-read', { reg: reg & 3, value: v }, at);
+    return v;
+  }
+  writeIO(reg, v, at) {
+    if (this.trace) this.trace('reg-write', { reg: reg & 3, value: v }, at);
+    this.time = at; this.chip.write(reg, v);
+  }
+  // hear the register accesses (the value a read returned: tracing never reads the chip itself) and the chip's
+  // character boundaries (MOS6551 onTrace), as fn(kind, data, at), beside any others -> remove() (once). With none,
+  // the chip's hook and this.trace are null. Nothing here is state.
+  addTrace(fn) {
+    if (typeof fn !== 'function') throw new TypeError('addTrace: a trace is a function');
+    const entry = (kind, data, at) => fn(kind, data, at);
+    this.traces.add(entry);
+    this.tracesChanged();
+    return () => { if (this.traces.delete(entry)) this.tracesChanged(); };
+  }
+  tracesChanged() {
+    const list = [...this.traces];
+    this.trace = !list.length ? null : list.length === 1 ? list[0] : (kind, data, at) => { for (const f of list) f(kind, data, at); };
+    this.chip.onTrace = this.trace ? (kind, byte) => this.trace(kind, { byte }, this.time) : null;
+  }
   saveState() {
     return { chip: this.chip.saveState(), port: this.port.saveState(), signal: this.signal, half: this.half.toString(), clock: this.clock.saveState() };
   }

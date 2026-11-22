@@ -236,8 +236,8 @@ const ROWS = [
   ['disconnect a DriveWire channel', () => {}, (s) => { s.connectDriveWireChannel(0, null); return s.connectDriveWireChannel(0, null); }],
   // (serveRealCoco needs Web Serial, which no test host has: its refusal is the reachable code here)
   ['serve a real CoCo (refused: no Web Serial in a test host)', () => {}, (s) => s.serveRealCoco(115200), 'may-throw:no Web Serial'],
-  ['attach a serial device', () => {}, (s) => s.attachSerial('terminal')],
-  ['send serial text', () => {}, (s) => { s.attachSerial('terminal'); return s.serialSend('hi'); }],
+  ['attach a serial device', () => {}, (s) => s.serial.attach('terminal')],
+  ['send serial text', () => {}, (s) => { s.serial.attach('terminal'); return s.serial.send('hi', { text: true }); }],
   ['assemble and run a program (the assembler panel)', () => {}, (s) => s.runAssembled(Emu.assemble(' ORG $3000\nSTART LDA #$01\n BRA START\n', '6809'))],
   ['boot NitrOS-9 from a floppy image (CoCo 3)', 'coco3', (s) => s.media.write('disks/n9.dsk', NITROS9), (s) => s.bootNitros9('n9.dsk')],
   ['boot NitrOS-9: a name that is not in the library (refused)', 'coco3', () => {}, (s) => s.bootNitros9('not-there.dsk'), 'may-throw:There is no image called not-there'],
@@ -565,7 +565,7 @@ function rowMethods() {
     'machineTicket', 'machinesWithRoms', 'nitros9Images', 'nitros9Loader', 'nitros9On', 'printoutFile', 'printoutText',
     'readSlot', 'readSnapshot', 'readSnapshotLink', 'recentMedia', 'sameName', 'savedConfig', 'screenText',
     'shareFile', 'shareUrl', 'slotBytes', 'snapshotLink', 'snapshotRoms', 'snapshotSwitch', 'sscRoms', 'statusLine',
-    'takenOut', 'tapeStatus', 'terminalText', 'welcomeFile', 'welcomeRunning', 'preferredDiskDos', 'storedRoms',
+    'takenOut', 'tapeStatus', 'welcomeFile', 'welcomeRunning', 'preferredDiskDos', 'storedRoms',
     // (main 1dd66fa: all four are reads/pure. indexWriteError formats a stored-write error; tapeRunning reads the
     // PERSON's deck motor flag; screenAlternative describes the SHOWN screen's text; welcomeGenNow reads the ticket)
     'indexWriteError', 'tapeRunning', 'screenAlternative', 'welcomeGenNow',
@@ -583,7 +583,7 @@ function rowMethods() {
     'importSettings', 'listMedia', 'moveMedia', 'newDriveWireImage', 'renameMedia', 'exportRomPack', 'exportSettings',
     'setClaudeKey', 'clearClaudeKey', 'setClaudeAllowed', 'setLastRun', 'useMediaStore']);
   // Session state that belongs to no machine
-  const SESSION = new Set(['answerClaude', 'clearTerminal', 'welcomeSound', 'asMachine', 'connectDriveWireChannel', 'ejectDriveWire', 'endChat', 'emit',
+  const SESSION = new Set(['answerClaude', 'welcomeSound', 'asMachine', 'connectDriveWireChannel', 'ejectDriveWire', 'endChat', 'emit',
     'on', 'personInput', 'ready', 'reset', 'resume', 'resumeClaude', 'setDisplay', 'startAsk', 'startChat', 'stopClaude',
     'stopRealCoco', 'toSidePanel', 'showChat', 'watchForMenu',
     // chatNote writes a line of the page's own onto the chat channel (the chat screen), never onto the person's machine
@@ -607,12 +607,14 @@ function rowMethods() {
     'chatPromptEmpty', 'labels', 'turbo', 'fastCas', 'fastTape', 'unsavedRecording', 'menuTicket', 'carryOn',
     'lastRun', 'welcomeMenu', 'startMachine', 'caseInsensitive', 'webSerialAvailable', 'realCoco', 'driveWireMounts',
     'driveWireChannels', 'hasAnyRoms', 'hasMultiPak', 'claudeBusyActing', 'lizaFile', 'cartBoard', 'paused', 'display', 'debugger', 'stubRun',
-    'stubChosen', 'serialDevice', 'offersSsc', 'tapeRecording', 'personMachine', 'shownMachine', 'nitros9Running', 'nitros9OnScreen',
+    'stubChosen', 'offersSsc', 'tapeRecording', 'personMachine', 'shownMachine', 'nitros9Running', 'nitros9OnScreen',
     'hasArtifactPhase', 'hasTwoScreens', 'welcomeRunning', 'welcomeRunningOn']) SESSION.add(n);
   // Puppets whose reachability is decided where they live (see the note above): debug (the Debugger view closes the
   // chat, claude.js:283-286), chat (the ChatSession, not a machine), store/roms/index/media/keys/machine (the
   // Session's own services).
-  const OPAQUE = new Set(['debug', 'chat', 'store', 'roms', 'index', 'media', 'keys']);
+  // serial (SerialApi): its attach and send act on the person's machine (the two serial rows above call them), and its
+  // listener follows the hooks.
+  const OPAQUE = new Set(['debug', 'chat', 'store', 'roms', 'index', 'media', 'keys', 'serial']);
   const missing = [...called].filter(([name]) => !rows.has(name) && !READ.has(name) && !LIBRARY.has(name)
     && !SESSION.has(name) && !UI.has(name) && !OPAQUE.has(name));
   check('every Session member the UI calls or reads has a row or a written reason', missing.length === 0,

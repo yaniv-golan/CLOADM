@@ -11,7 +11,7 @@
  * puts no events on the machine's time line and cannot change its timing.
  */
 export class SerialRx {
-  // ticksPerBit: machine ticks per bit (tickHz / baud); onByte(byte): a character received
+  // ticksPerBit: machine ticks per bit (tickHz / baud); onByte(byte, at): a character received, complete at tick at
   constructor(ticksPerBit, onByte) {
     this.ticksPerBit = ticksPerBit;
     this.onByte = onByte;
@@ -45,7 +45,7 @@ export class SerialRx {
       const end = t(8);
       this.start = null;
       this.drop(end);
-      this.onByte(byte);
+      this.onByte(byte, end);
     }
   }
   // forget the edges before tick t (keeping the level they leave)

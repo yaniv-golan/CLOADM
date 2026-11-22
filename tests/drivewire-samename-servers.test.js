@@ -91,7 +91,7 @@ async function build(which, caseInsensitive) {
     return { s, media, server, reached: !!s.shownMachine.becker && s.shownMachine.becker.server === server };
   }
   if (which === 'realCoco') {
-    s.serial = stubSerial().serial;
+    s.webSerial = stubSerial().serial;
     await s.serveRealCoco(115200);
     const server = s.serialLink.server;
     // `server` IS the link's by construction; what can fail is the link being up at all (a refused or closed port)
@@ -203,7 +203,7 @@ const close = async (s) => { if (s.serialLink) await s.stopRealCoco(); if (s.cha
     await s.importDriveWireImage('GAME.DSK', Uint8Array.from({ length: 256 }, (_, i) => i & 0xFF));
     await s.mountDriveWire(0, 'GAME.DSK');
     const stub = stubSerial();
-    s.serial = stub.serial;
+    s.webSerial = stub.serial;
     await s.serveRealCoco(115200);
     const pkt = nameobjMount('game.dsk');
     stub.send(pkt);
