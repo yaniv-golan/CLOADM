@@ -762,9 +762,7 @@ fs.writeFileSync(tmp('media', 'plain.bas'), '10 PRINT "HI"\n');
     try { T.createToolbox(host, { session: { machine: {} } }); } catch (e) { notSession = e.message; }
     check('own session: only a Session', /session must be a Session/.test(notSession), notSession);
     // the games, by name, as on the page (Session.runGame); refused where the page refuses them
-    const pcBefore = '0x' + own.machine.cpu.pc.toString(16);
     const game = await tb.call('load', { machine_id: 'm1', program: '2048' });
-    const pcAfterLoad = '0x' + own.machine.cpu.pc.toString(16);
     const ran = await tb.call('run_frames', { machine_id: 'm1', frames: 100 });
     const graphics = await tb.call('screen_text', { machine_id: 'm1' });
     // THE GAME IS RUNNING. This machine has no user ROMs, so on a CoCo with 64K the built-in key vector at $A000

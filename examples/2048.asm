@@ -504,8 +504,8 @@ TA1X    LBSR    STRWID          ; 1x is PROPORTIONAL: B is its width in PIXELS
         STB     TXTW            ; keep it: the box below is worked out from the pixels
         LDA     #TILEW*4        ; centred in the tile's 24 pixels, and the 1x cursor is a PIXEL
         SUBA    TXTW            ; (a x4 of the byte column put a 4-digit number outside its tile)
-        LSRA
-        ANDA    #$FE            ; EVEN: the 1x renderer's phases are 0 and 2 (CENTRE's rule)
+        LSRA                    ; no even mask is needed: a digit string is 4n-1 px wide, so (24-width)/2
+                                ; shifted is always even, and SQCOL*4 is even (tests/font-tables.test.js)
         ADDA    SQCOL
         ADDA    SQCOL
         ADDA    SQCOL

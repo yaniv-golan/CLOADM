@@ -135,14 +135,13 @@ function titleFrames(s, sym) {
   }
   return Infinity;
 }
-function start(name, { machine = 'dragon64', seed = 0x1234, wait = true } = {}) {
+function start(name, { machine = 'dragon64', seed = 0x1234 } = {}) {
   const s = new Emu.Session({ welcomeMenu: false });
   s.switchMachine(machine, {}, { menu: false });
   s.load(`${name}.bin`, bin(name), { remember: false });
   const m = s.machine, sym = (k) => A[name].symbols.get(k);
   s.runFrames(TITLE_BUDGET);   // the title page drawn, within the budget the game must meet
   m.poke(Emu.GAMES.seed, seed >> 8); m.poke(Emu.GAMES.seed + 1, seed & 0xFF);
-  void wait;
   // a key, then frames until the game waits for the next (ENTROPY counts its polls)
   const settle = () => {
     for (let i = 0; i < 400; i++) {
@@ -476,6 +475,25 @@ const nb = (i) => { const out = []; const x = i & 7, y = i >> 3; for (let dy = -
     check('Minesweeper: the title page is drawn within 30 frames (a slower one eats the first key)', f <= TITLE_BUDGET, `${f} frames`);
   }
   const g = start('minesweeper', { seed: 0x5EED });
+  // THE SAME ALIGNMENT INVARIANT AS 2048'S TITLE, for Minesweeper: every glyph on an even pixel column, and each
+  // string found in exactly one place, at the computed even-aligned centre. Without this only 2048's title was
+  // pinned, so a renderer change could move Minesweeper's text and nothing would say so.
+  {
+    const odd = [], where = [];
+    for (const [line, row, tall, fg, text] of [['T_GOAL1', 96, 2, 3, 'TEN MINES ARE HIDDEN'],
+      ['T_GOAL2', 110, 2, 3, 'OPEN EVERY OTHER SQUARE'], ['T_KEYS1', 132, 1, 1, 'ARROWS MOVE  SPACE OPENS'],
+      ['T_KEYS2', 142, 1, 1, 'F FLAGS A MINE  R START'], ['T_KEYS3', 152, 1, 1, 'A NUMBER: MINES NEXT TO IT'],
+      ['T_PRESS', 174, 1, 2, 'PRESS A KEY TO PLAY']]) {
+      const hs = hits(g.m, row, tall, fg, text);
+      const want = ((128 - strWidth(text)) >> 1) & ~1;
+      if (hs.length !== 1) { where.push(`${line}: ${hs.length} matches (want exactly 1 at ${want})`); odd.push(`${line}: not found`); continue; }
+      const gs = hs[0];
+      if (gs[0].x !== want) where.push(`${line}: starts at ${gs[0].x}, the even-aligned centre is ${want}`);
+      for (const gl of gs) if (gl.x % 2) odd.push(`${line} '${gl.ch}' @${gl.x}`);
+    }
+    check('Minesweeper: every 1x title glyph starts at an even pixel column (the renderer needs phase 0 or 2)', odd.length === 0, odd.join(', '));
+    check('Minesweeper: each 1x title string is found in exactly one place, at the even-aligned centre', where.length === 0, where.join('; '));
+  }
   check('Minesweeper: the title page', textAt(g.m, 96, 2, 3, 'TEN MINES ARE HIDDEN') === 'TEN MINES ARE HIDDEN' && textAt(g.m, 174, 1, 2, 'PRESS A KEY TO PLAY') === 'PRESS A KEY TO PLAY',
     JSON.stringify([textAt(g.m, 96, 2, 3, 'TEN MINES ARE HIDDEN'), textAt(g.m, 174, 1, 2, 'PRESS A KEY TO PLAY')]));
   check('Minesweeper: the second colour set (CSS)', (g.m.pia1.saveState().b.or & 0xF8) === 0xE8);
@@ -850,6 +868,12 @@ WARMS   FCB     $57,$41,$52,$4D,0
   // A burst that holds TWO notes (the flag's C5 then G5, no rest between) reads as their mean, so that one is
   // compared with the mean and each note is checked for what it is by the half-period counts in the edge test.
   const rest = 32 * 320;
+  // ASSERT, don't throw: if the recording is wrong (a table entry changed, a burst missing) these must FAIL and
+  // let the checks after them run. Reading b[0] of an undefined burst threw a TypeError, which aborted the rest
+  // of the suite and made a single wrong table entry look like one PNG failure followed by a crash.
+  if (bursts.length < 10) {
+    check('Minesweeper: the recording holds the ten cues the analysis below measures', false, `only ${bursts.length} burst(s) in the recording`);
+  } else {
   const zc = (b) => { let n = 0; for (let i = b[0] + 1; i <= b[1]; i++) if ((samples[i - 1] < rest) !== (samples[i] < rest)) n++; return n; };
   const hz = (b) => zc(b) / 2 / (len(b) / 44100);
   const near = (v, want) => Math.abs(v - want) / want <= 0.08;
@@ -869,6 +893,7 @@ WARMS   FCB     $57,$41,$52,$4D,0
   check('Minesweeper: the mine is one noise burst of about 150 ms (not three), with many level changes',
     len(bursts[9]) / 44100 > 0.12 && len(bursts[9]) / 44100 < 0.20 && zc(bursts[9]) > 400,
     `${(len(bursts[9]) / 44100 * 1000).toFixed(1)} ms, ${zc(bursts[9])} crossings`);
+  }
   fs.rmSync(dir, { recursive: true, force: true });
 }
 

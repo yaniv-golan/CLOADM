@@ -6,7 +6,7 @@
 ; Screen: the VDG's 128x192 four-colour mode (CG6, PMODE 3 in BASIC), 32 bytes a row, four
 ; pixels a byte (two bits each, the left pixel in bits 7-6), at $0400-$1BFF. Colours 0-3 are
 ; green, yellow, blue, red (CSS 0) or buff, cyan, magenta, orange (CSS 1).
-; Text: our own 3x5 font in a 4-pixel cell (one byte a row), drawn 1x or 2x wide and any number
+; Text: our own 3x5 font (one byte a row), drawn 1x proportional or 2x wide and any number
 ; of rows tall.
 ; Keys: the ROM's POLCAT vector at $A000 (the built-in firmware provides it), so the Dragon and
 ; CoCo keyboard matrices, which differ, are the firmware's business: arrows, SPACE, ENTER and
@@ -297,10 +297,9 @@ PCMWREP LDA     ,U
 ; bits for most colour pairs, so ORing them over the cell would light a clear pixel.
 ; PHASE: the 3-pixel tables are exact at every phase. The 5-pixel ones exist only for phases 0 and
 ; 2, because a 5-wide cell at phase 1 or 3 needs a third screen byte. Every centred 1x string starts
-; on an even column and advances 4 or 6, both even, so no 5-wide glyph reaches an odd phase (CENTRE's
-; comment, and tests/games.test.js asserts it). The tile numbers are drawn at an odd phase, but 3 wide.
-; An odd phase for a wide glyph draws it as its even phase: moved a pixel, never writing outside bytes
-; Y and Y+1, so it cannot corrupt the screen.
+; on an even column and advances 4 or 6, both even, so no glyph reaches an odd phase (CENTRE's
+; comment, and tests/font-tables.test.js asserts it). A tile number is 4n-1 pixels wide, so its column is
+; even as well. No glyph is ever drawn at an odd phase.
 ; WIDTH: 3 uses the 3-pixel tables, 5 (and a 4, which the font does not have) the 5-pixel ones.
 PCPROP  LBSR    PCFIND          ; U: its five rows, PCGW: its width in pixels
         STX     PSTART          ; where the glyph starts, for the cursor's advance
@@ -547,14 +546,12 @@ WIDEW   FCB     $C0,$0C,$C3,$0C,$CC,$CC,$F0,$3C,$C0,$0C        ; #.....#  #..#..
 
 ; pixel masks for one pixel, by its position in a screen byte (0-3): the two bits it sets
 PIXMASK FCB     $C0,$30,$0C,$03
-; The 1x renderer's tables, from the definitional per-pixel model (tests/games.test.js proves the
-; tables against a pixel plotter: a mismatch is a test failure).
+; The 1x renderer's tables. tests/font-tables.test.js derives every entry from the FONT bitmaps and the
+; shift rule written in that test, independently of these bytes, and fails on any difference.
 ; A row's pixels as 2-bit pairs in place, indexed by the RAW font row bits: the row's bit 0 is its
 ; rightmost pixel, so px = w-1-i. 8 entries for 3 wide, 32 for 5.
 V3P0    FCB     $00,$00,$0C,$00,$30,$00,$3C,$00,$C0,$00,$CC,$00,$F0,$00,$FC,$00
-V3P1    FCB     $00,$00,$03,$00,$0C,$00,$0F,$00,$30,$00,$33,$00,$3C,$00,$3F,$00
 V3P2    FCB     $00,$00,$00,$C0,$03,$00,$03,$C0,$0C,$00,$0C,$C0,$0F,$00,$0F,$C0
-V3P3    FCB     $00,$00,$00,$30,$00,$C0,$00,$F0,$03,$00,$03,$30,$03,$C0,$03,$F0
 V5P0    FCB     $00,$00,$00,$C0,$03,$00,$03,$C0,$0C,$00,$0C,$C0,$0F,$00,$0F,$C0
         FCB     $30,$00,$30,$C0,$33,$00,$33,$C0,$3C,$00,$3C,$C0,$3F,$00,$3F,$C0
         FCB     $C0,$00,$C0,$C0,$C3,$00,$C3,$C0,$CC,$00,$CC,$C0,$CF,$00,$CF,$C0
@@ -567,8 +564,12 @@ V5P2    FCB     $00,$00,$00,$0C,$00,$30,$00,$3C,$00,$C0,$00,$CC,$00,$F0,$00,$FC
         FCB     $03,$00,$03,$0C,$03,$30,$03,$3C,$03,$C0,$03,$CC,$03,$F0,$03,$FC
         FCB     $0C,$00,$0C,$0C,$0C,$30,$0C,$3C,$0C,$C0,$0C,$CC,$0C,$F0,$0C,$FC
         FCB     $0F,$00,$0F,$0C,$0F,$30,$0F,$3C,$0F,$C0,$0F,$CC,$0F,$F0,$0F,$FC
-; a glyph's V table and its cell mask, in the same index: phase + 4 when 5 (or 4) wide
-VTAB    FDB     V3P0,V3P1,V3P2,V3P3,V5P0,V5P0,V5P2,V5P2
+; a glyph's V table and its cell mask, in the same index: phase + 4 when 5 (or 4) wide.
+; ONLY phases 0 and 2 are reachable: every 1x string is even-aligned (CENTRE's ANDB #$FE) and advances 4 or 6,
+; and a tile number is 4n-1 pixels wide so its column is even too. tests/font-tables.test.js asserts both the
+; arithmetic and that mask. The odd-phase slots therefore point at the even tables: they are never indexed, and
+; if that ever changed the test fails rather than the screen corrupting silently.
+VTAB    FDB     V3P0,V3P0,V3P2,V3P2,V5P0,V5P0,V5P2,V5P2
 GAPTAB  FCB     $FF,$00,$3F,$C0,$0F,$F0,$03,$FC,$FF,$F0,$FF,$F0,$0F,$FF,$0F,$FF
 ; the five letters a 3-pixel cell cannot tell apart, 5x5: five bits a row, bit 4 the left pixel,
 ; ONE BLANK COLUMN after each (the proportional cell). A has its point, H a full middle bar, R a
