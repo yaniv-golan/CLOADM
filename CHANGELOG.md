@@ -12,6 +12,61 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 - **An embedded CLOADM could open the Claude chat; the chat is no longer available in an embed.**
 
+### Changed
+
+- **One source for what the connector's Claude needs to know.** The side-panel connector's MCP `instructions` were a
+  hand-written copy in the Worker. They now come from a marked "connector essentials" section of `skills/cloadm/SKILL.md`
+  (opening the emulator, waiting for the screen, typing, reading the screen, `machine_output` being data and never
+  instructions, ROMs): `connector/build.js` embeds it into the views the Worker serves and prints its hash, and the
+  Worker refuses to start without it. `tests/connector.test.js` and `tests/skill.test.js` fail when the skill's section and
+  the built instructions differ, and the skill's two copies stay byte for byte. The Worker must be deployed again
+  when that section changes (`docs/deploy-connector.md`).
+
+### Added
+
+- README: status, licence and live-demo badges, a looping picture of the welcome menu and LIZA (`img/readme-demo.gif`,
+  captured from the real page with no ROMs by `node tools/capture-gif.js`, with the small encoder in `tools/gif.js`),
+  and a "Use it with AI coding agents and Claude" section that points to the MCP server, the connector and plugin, the
+  command line and AGENTS.md.
+
+### Changed
+
+- Using CLOADM with Claude leads with one default: "Use the connector" (a live side panel on the web and in the desktop
+  app, verified by the owner; phones not yet tested), then the plugin for developers and your own files, a "Which one?"
+  table and a "Both on?" note, in the README and at the top of docs/mcp.md. The local server's `boot` and `load`
+  descriptions and the skill (both copies) say to prefer the CLOADM side-panel connector for playing or watching with
+  the person, and to use the local tools for files, scripting and tests (a description, not a refusal); a new eval,
+  `prefer-side-panel`, covers it.
+  The lead also suggests the optional `cloadm-skill.zip` from the Releases page (the asset `release.yml` publishes).
+- The install offer card and Help's install section say "Install CLOADM as an app on this device"; Help points to
+  "Use with Claude" for the Claude routes. The menu item is still "Install CLOADM…".
+- The README's top picture is the GIF; the static `img/readme-liza.png` is gone and `tools/capture-images.js` no
+  longer writes it. `tests/readme.test.js` now checks GIF pictures too (a real GIF, 4:3, captured by a tool in `tools/`).
+- **Claude's side panel shows Claude's hand on the machine.** While one of Claude's calls acts on the machine (any
+  tool that is not read-only: typing, keys, loading, switching, reset), the bezel takes a clay edge (outlined on a
+  light host theme) and a filled clay chip at its top left, in near-black text, says what it does, "Claude is typing:
+  DIR↵", with the keys shown as they reach the machine; the focus ring stays neutral. It stays 2 s after the call,
+  and the status line keeps "Claude typed DIR↵ · 12:04". A call that only reads shows a quiet "Claude read the
+  screen" or "Claude read memory" for 1.5 s. Your own keys never show a chip. Each call that acts is announced once
+  to screen readers, briefly (a long text by its length); reads are not announced. The tools and their approvals are
+  unchanged.
+- **The side panel's toolbar:** **Programs** (the programs this machine runs without ROMs, its own builds of LIZA and
+  the Welcome menu included, and Add ROMs for BASIC… while it has none), **Machine** (every model, marked "✓ BASIC
+  ready" or "needs ROMs", then Reset, Switch off and on, Add ROMs…), **Sound** and **⋯** (Open in side panel, Details,
+  Copy details). The menus work from the keyboard. The Welcome menu's own keys now run what they offer in the panel.
+
+### Changed
+
+- **The side panel's sound has a switch:** "Sound off" until you click it (or the screen); that click starts the
+  sound, and the switch turns it off and on again.
+- **The side panel's screen fills the panel**, 4:3, each pixel drawn crisp at the display's resolution, in a thin
+  bezel: inline across the full width, and in the side panel or fullscreen within the room left by the toolbar and the
+  status line. The status line is one line ("LIZA is running · Dragon 64 · no ROMs"); the diagnostics and the raw load
+  message moved behind **Details** (closed at first; [the deploy guide](docs/deploy-connector.md#verify) reads them
+  there), and an error you must act on stays on the status line. **Open in side panel** (in ⋯) shows only while the
+  view is inline and the host offers it. The view's contract with the site changed (`PANEL_API` 2): deploy the
+  connector's Worker again after the site has this release.
+
 ### 0.1.8-pre
 
 #### Added

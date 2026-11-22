@@ -410,7 +410,7 @@ network first and keeps a copy of the whole site). ROMs and programs stay in the
 either way.
 
 **Install it as an app** (`manifest.webmanifest`, `js/ui/install.js`). **Install CLOADM…**, at the foot of the **machine menu** (the machine-name button, top left) runs the browser's own install prompt where there is one and shows the steps
-otherwise; the Help page's **Install as an app** has them for Chrome and Edge on a computer, Chrome on Android,
+otherwise; the Help page's **Install CLOADM as an app on this device** has them for Chrome and Edge on a computer, Chrome on Android,
 Samsung Internet, Firefox on Android, iOS Safari and Chrome or Edge on iOS. Installed, it opens in its own window,
 without the browser's tabs and address bar, and still works offline.
 

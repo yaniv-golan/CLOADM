@@ -8,6 +8,28 @@ them, types, waits for the screen, reads the screen, memory and registers, steps
 machines live in the server for as long as it runs. It needs Node 22.12 or later and a checkout of this repository,
 and nothing else: no npm packages and no build.
 
+## Use with Claude
+
+**Use the connector.** Add `https://mcp.cloadm.dev/mcp` as a custom connector (no sign-in). CLOADM opens in Claude's side panel on the web and in the desktop app (phones not yet tested): you watch, type along, and Claude plays it with you. Nothing to install.
+
+**Optional, recommended:** add the CLOADM skill too, so Claude drives the emulator better: download `cloadm-skill.zip` from the [Releases](https://github.com/yaniv-golan/CLOADM/releases) page and add it in claude.ai under Settings → Capabilities → Skills (steps not yet verified by the owner).
+
+**For developers and your own files: the plugin.** Runs CLOADM on your computer with your ROM files and the ~/CLOADM folder of tapes, disks and snapshots; Claude sees text and screenshots, with no live panel. Needs the Claude desktop app open (Claude Code runs it itself). The install steps are in the reference table below.
+
+**Which one?**
+
+| You want to… | Use |
+|---|---|
+| Play or watch a machine with Claude, live | Connector |
+| Use Claude on a phone or a computer that isn't yours (not yet tested on phones) | Connector |
+| Install nothing | Connector |
+| Open your own tapes, disks or snapshot files | Plugin |
+| Keep results as files (screenshots, saved tapes, disk images) | Plugin |
+| Script it from Claude Code, or run tests | Plugin |
+| Your organisation blocks plugins (desktop) | .mcpb extension |
+
+**Both on?** That's fine. Say "in the side panel" for the connector or "use my files" for the plugin; for play, Claude is told to prefer the side panel. The skill alone, without the plugin, is enough to get Claude's best play on the connector.
+
 ## Which way should I install CLOADM for Claude?
 
 Claude is one app on the web, on phones and on the desktop. There are two main ways to give it CLOADM, and two
@@ -16,16 +38,16 @@ its own marketplace.
 
 | Way | Install | Where the emulator runs | Tested |
 |---|---|---|---|
-| **1. Connector** (most people) | Plugins → Add → "Add custom connector" → name `CLOADM` and URL `https://mcp.cloadm.dev/mcp` → **No sign-in** → Add | in Claude's side panel, in your browser | the view on claude.ai on the web (the prototype); the desktop app and phones not yet |
+| **1. Connector** (most people) | Plugins → Add → "Add custom connector" → name `CLOADM` and URL `https://mcp.cloadm.dev/mcp` → **No sign-in** → Add | in Claude's side panel, in your browser | claude.ai on the web and the desktop app, by the owner; phones not yet |
 | **2. Plugin** (your own files, or Claude Code) | Customize → Plugins → Add → "Add marketplace" → `yaniv-golan/CLOADM` → Add on **Cloadm**; in Claude Code `/plugin marketplace add yaniv-golan/CLOADM`, then `/plugin install cloadm@cloadm-marketplace` | on your computer | Claude Code; the desktop app's plugin path by the owner |
 | 3. `.mcpb` extension (niche) | download `cloadm.mcpb` from the [Releases](https://github.com/yaniv-golan/CLOADM/releases) page and open it | on your computer, Claude Desktop only | |
 | 4. Other agents (Cursor, Codex, Gemini CLI, …) | an MCP entry for `node cli/cloadm.js --mcp`, plus `.agents/skills/` | on your computer | see [below](#cursor-gemini-cli-codex-and-other-mcp-clients) |
 
-**1. Connector.** Works wherever you use Claude, with no computer of your own involved. The emulator runs in Claude's
+**1. Connector.** Works on the web and in the desktop app, with no computer of your own involved. The emulator runs in Claude's
 side panel: you watch the screen and can type into it yourself, and Claude uses the tools on the same machine,
 asking you to approve each call. Nothing to install. Your ROMs are added inside the panel and stay in that browser.
-There are no files: no tapes, disks or snapshots from your computer, and no downloads. Verified with the prototype on
-claude.ai on the web; in the desktop app and on phones it is not yet tested. Details:
+There are no files: no tapes, disks or snapshots from your computer, and no downloads. Verified by the owner on
+claude.ai on the web and in the Claude desktop app (the view opened, Claude typed, LIZA answered); phones are not yet tested. Details:
 [Claude on the web: side panel](#claude-on-the-web-side-panel).
 
 **2. Plugin.** The emulator runs on your computer, so it needs the Claude desktop app installed and open (Claude Code
@@ -387,8 +409,14 @@ account or organization has yet.
 
 1. In a chat with the connector enabled, ask Claude to open the emulator (for example "Open CLOADM"). It calls
    `open_emulator` and the view appears: a Dragon 64 talking as LIZA, or BASIC if you have added ROMs there.
-2. Open the view in the side panel (Claude's expand control, or the view's **Open in side panel** button). Click the
-   screen to type on it yourself.
+2. Open the view in the side panel (Claude's expand control, or **⋯ → Open in side panel** in the view, offered while
+   it is not there already). Click the screen to type on it yourself. The toolbar has **Programs** (what this machine
+   runs without ROMs: LIZA, the Welcome menu, and on the 6809 machines the colour demo, 2048 and Minesweeper),
+   **Machine** (every model, marked "✓ BASIC ready" or "needs ROMs", then Reset, Switch off and on and Add ROMs…),
+   **Sound** ("Sound off" until you click it or the screen: that click starts the sound) and **⋯** (Details, the
+   diagnostics, and Copy details). The line under the screen says what runs. While one of Claude's calls acts on the
+   machine, the bezel takes Claude's colour and a chip says what it does ("Claude is typing: DIR↵"); a call that only
+   reads shows a quiet "Claude read the screen". Your own typing never shows a chip.
 3. In your **next** message, ask for what you want ("type I AM HAPPY and tell me what LIZA says", "play 2048",
    "write a 6809 program that fills the screen and run it"). The view registers its tools after it has loaded, so
    Claude can use them from the next turn, not in the one that opened it. Claude asks you to approve each call.

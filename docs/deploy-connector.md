@@ -18,6 +18,12 @@ answers Claude's MCP requests with two tools and two views, and the emulator the
   Worker newer or older than the site in that number answers `out-of-step` until both match. Deploy the Worker after
   each release that changes `connector/` or `PANEL_API`; a release that changes only `js/` needs no redeploy (the
   emulator's own tool list replaces the one the Worker was built with as soon as the view has loaded).
+  **Deploy the Worker again whenever the skill's connector-essentials section changes** (the text between the
+  `connector-essentials` markers in `skills/cloadm/SKILL.md`): it is the Worker's MCP `instructions`, copied in by
+  `connector/build.js` when the Worker is built (the build prints its sha-256), so a Worker built before the edit keeps
+  serving the old text. The Worker holds no copy of its own; `tests/connector.test.js` and `tests/skill.test.js` fail
+  when the skill's section and what the build serves differ (the connector test also checks the last generated
+  `views.gen.js`), and `.agents/skills/cloadm/` must stay a byte-for-byte copy of `skills/cloadm/`.
 * **CORS on the site.** Module scripts are fetched with CORS from the view's origin (`*.claudemcpcontent.com`).
   GitHub Pages sends `Access-Control-Allow-Origin: *`; check it after the release is live:
 
@@ -87,12 +93,19 @@ curl -s -X POST https://mcp.cloadm.dev/mcp -H 'content-type: application/json' \
   -d '{"jsonrpc":"2.0","id":1,"method":"resources/read","params":{"uri":"ui://cloadm/panel.html"}}' | grep -o '"csp":{[^}]*}'
 # GET is not served (405): the connector is stateless and offers no event stream
 curl -s -o /dev/null -w '%{http_code}\n' https://mcp.cloadm.dev/mcp
+# the live instructions are the build's: their sha-256 starts with the one `node connector/build.js` printed ("sha256:...")
+curl -s -X POST https://mcp.cloadm.dev/mcp -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{}}}' \
+  | jq -j .result.instructions | sha256sum | cut -c1-12
 ```
 
 Then in claude.ai: add the connector as [the guide](mcp.md#claude-on-the-web-side-panel) says, ask "Open CLOADM",
 open the view in the side panel, and in the next message ask Claude to type `I AM HAPPY` and say what LIZA answered.
-The view's status line shows the host, the domains it was granted, the storage it has and what the host asked of it
-(`bridge: init … ms, tools/list ×N, calls ×N, list_changed sent`).
+Under the screen the view says what runs ("LIZA is running · Dragon 64 · no ROMs"); open **Details** (in **⋯**, or
+beside that line) for the diagnostics: the variant, the host, its display mode and container size (`inline`, or
+`fullscreen` in the side panel), the domains it was granted, the storage it has, the sound, what the host asked of it
+(`bridge: init … ms, tools/list ×N, calls ×N, list_changed sent`), and the last load's raw message. **⋯ → Copy
+details** copies them.
 
 ## Roll back or remove
 
