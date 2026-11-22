@@ -141,6 +141,8 @@ const ROWS = [
   // disks
   ['insert a disk', withDos, (s) => s.importDisk('d.vdk', Emu.blankDisk('vdk', 40, 1), 0)],
   ['eject a disk', withDos, async (s) => { await s.importDisk('e.vdk', Emu.blankDisk('vdk', 40, 1), 0); return s.ejectDisk(0); }],
+  ['insert a disk with no disk ROM (the disk controller goes in alone)', () => {}, (s) => s.importDisk('b.vdk', Emu.blankDisk('vdk', 40, 1), 0)],
+  ['take out the cartridge (the disk controller with no ROM)', async (s) => { await s.importDisk('t.vdk', Emu.blankDisk('vdk', 40, 1), 0); }, (s) => s.takeOutCartridge()],
   ['new disk', withDos, (s) => s.newDisk(0, { format: 'vdk', tracks: 40, heads: 1 })],
   ['insert a disk controller', withDos, (s) => s.insertDiskDos('dragondos')],
   ['set write protect', withDos, async (s) => { await s.importDisk('w.vdk', Emu.blankDisk('vdk', 40, 1), 0); return s.setDiskWriteProtect(0, true); }],
@@ -573,7 +575,9 @@ function rowMethods() {
     // claudeLink builds the "Ask Claude ↗" link from shareFile and shareUrl (both reads of the shown machine)
     'claudeLink',
     // menuTicketFor returns the ticket a menu starts with (the Session's menuTicket or the one passed); changes nothing
-    'menuTicketFor']);
+    'menuTicketFor',
+    // bareDiskController and diskRomWaiting read the disk controller of the PERSON's machine (diskMachine); no change
+    'bareDiskController', 'diskRomWaiting']);
   // writes the library or settings only
   const LIBRARY = new Set(['addRoms', 'clearRoms', 'deleteMedia', 'importDriveWireImage', 'importMedia',
     'importSettings', 'listMedia', 'moveMedia', 'newDriveWireImage', 'renameMedia', 'exportRomPack', 'exportSettings',

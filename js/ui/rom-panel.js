@@ -30,7 +30,10 @@ export function setupRomPanel(page) {
     if (onRoms) { if (unrowed.length) page.status(unrowed.join(' · '), true); return; }
     const n = report.restored || loaded.length;
     const what = report.restored ? `${n} ${n === 1 ? 'ROM' : 'ROMs'} restored from your ROM pack` : n ? `${n === 1 ? 'ROM' : `${n} ROMs`} added` : '';
-    const text = [what, ready.length && `${ready.join(', ')} ready`].filter(Boolean).join(' · ');
+    // a disk ROM for the disk controller in use, which went in without one: it goes in at the next reset or power cycle
+    const disk = session.diskRomWaiting && session.preferredDiskDos();
+    const waiting = disk && `your ${disk.name.replace(/ cartridge$/, '')} disk ROM goes in at the next reset or power cycle`;
+    const text = [what, ready.length && `${ready.join(', ')} ready`, waiting].filter(Boolean).join(' · ');
     const extra = [report.ignored.length && `Not ROMs: ${report.ignored.join(', ')}`, ...problems].filter(Boolean);
     if (!text) { page.status(extra.length ? `No ROMs could be used. ${extra.join(' · ')}` : 'No ROMs found', true); return; }
     page.toast(text, extra.length ? { details: extra.join(' · '), error: problems.length > 0 } : {});

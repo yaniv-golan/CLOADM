@@ -632,7 +632,7 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
   const str = (v, name) => { if (typeof v !== 'string' || !v) throw fail('bad-argument', `${name} must be a non-empty path`); return v; };
   add('load', {
     title: 'Load a program',
-    description: 'Load and run a file from the media root, as dropping it on the page does: a binary (.bin), a tape (.cas, or a .wav recording; through BASIC\'s CLOAD with ROMs, straight into memory without), a cartridge (.rom, .ccc), a BASIC listing (.bas: typed in at the keyboard as NEW, the lines and RUN, unless run is false; needs ROMs; the result says what the keyboard typed differently, such as lowercase as uppercase, or could not type) or a disk image (into drive 0; needs the user\'s disk ROM). Or one of the bundled programs by name: "welcome", "liza", "demo", or the games "2048" and "minesweeper" (6809 machines with 32K or more). Returns what was loaded. (load_basic, by contrast, types a listing you give it and never runs it.)' + (own ? '' : ` ${STEER}`),
+    description: 'Load and run a file from the media root, as dropping it on the page does: a binary (.bin), a tape (.cas, or a .wav recording; through BASIC\'s CLOAD with ROMs, straight into memory without), a cartridge (.rom, .ccc), a BASIC listing (.bas: typed in at the keyboard as NEW, the lines and RUN, unless run is false; needs ROMs; the result says what the keyboard typed differently, such as lowercase as uppercase, or could not type) or a disk image (into drive 0; without the user\'s disk ROM, on the disk controller alone, for programs that read the disk directly). Or one of the bundled programs by name: "welcome", "liza", "demo", or the games "2048" and "minesweeper" (6809 machines with 32K or more). Returns what was loaded. (load_basic, by contrast, types a listing you give it and never runs it.)' + (own ? '' : ` ${STEER}`),
     inputSchema: withMachine(objectSchema({ path: PATH('file to load'), program: { type: 'string', enum: PROGRAMS, description: 'a bundled program instead of a file' }, run: { type: 'boolean', description: 'a BASIC listing only: false types it without RUN (default true)' } })),
     annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
     handler: async (args) => {
@@ -678,7 +678,7 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
   });
   add('insert_disk', {
     title: 'Insert a disk',
-    description: 'Put a disk image (VDK, JVC/DSK, DMK) from the media root in a drive; plugs in the disk cartridge, which needs the user\'s disk ROM. Writes the machine makes stay in the emulator: the file is not changed.',
+    description: 'Put a disk image (VDK, JVC/DSK, DMK) from the media root in a drive; plugs in the disk cartridge with the user\'s disk ROM, or without one the disk controller alone (DIR and the other disk commands then do not work; a program that drives the controller itself does). Writes the machine makes stay in the emulator: the file is not changed.',
     inputSchema: withMachine(objectSchema({ path: PATH('disk image'), drive: { type: 'integer', minimum: 0, maximum: 3, description: 'the drive (default 0)' } }, ['path'])),
     annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
     handler: async (args) => {

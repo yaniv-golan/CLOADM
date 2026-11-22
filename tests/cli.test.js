@@ -144,7 +144,7 @@ const target = (s) => ({ machine: s.shownMachine, screenText: () => s.screenText
     [['-m', 'coco', '--load', tmp('prog.bas')], /BASIC listing/],
     [['--cart', path.join(ROOT, 'examples/demo.bin')], /not a cartridge ROM image/],
     [['--disk', tmp('junk.dsk')], /not a disk image CLOADM can read/],
-    [['-m', 'dragon64', '--disk', path.join(ROOT, 'tests/fixtures/disks/dragondos.vdk')], /Disks need a disk ROM/],
+    [['-m', 'mc10', '--disk', path.join(ROOT, 'tests/fixtures/disks/dragondos.vdk')], /has no disk drives/],
     [['-m', 'coco', '--disk', '4=' + tmp('junk.dsk')], /cannot read the disk image 4=/],
     [['--tape', tmp('junk.xyz')], /junk\.xyz: not a tape/],
     [['--asm', tmp('bad.asm')], /bad\.asm: /],

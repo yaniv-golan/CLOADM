@@ -26,8 +26,9 @@ no ROMs. The user supplies their own dumps to the server; never ask for, fetch o
 | `alice` | Matra Alice | 6803 | `alice.rom` | cpu, ram |
 
 Options go in `boot`'s `options`, e.g. `{"cpu": "6309"}` on a Dragon 64, CoCo or CoCo 3, `{"ram": 16}` where the
-model offers it. A disk drive needs the user's disk ROM too (DragonDOS or Disk Extended Color BASIC); without it a
-disk is refused.
+model offers it. DIR and the other disk commands need the user's disk ROM (DragonDOS or Disk Extended Color BASIC);
+without it a disk still goes in, on the disk controller alone, for a program that drives the controller itself (the
+result says so).
 
 ## Without ROMs: the built-in firmware
 

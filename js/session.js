@@ -166,6 +166,8 @@ export const MEDIA_MOVE_WAIT_MS = 30000;
 const HELD = Symbol('held');
 // the disk cartridges each family can take (js/machines/profiles.js cartridgeRoms), the usual one first
 const DISK_DOS = { dragon: ['dragondos', 'deltados'], coco: ['rsdos'] };
+// what a disk mounted without a disk ROM is good for (the end of the mount's message: "level.vdk is in drive 0, ...")
+export const BARE_NOTE = 'on the disk controller only (no disk ROM). Programs that read the disk directly can use it; DIR and other disk commands need your disk ROM.';
 // quick-save slots: how many, and where they live in the media store (in the library, so the Library lists them
 // with the other snapshots)
 export const SNAPSHOT_SLOTS = 3;
@@ -1075,6 +1077,7 @@ export class Session {
     const m = this.shownMachine, again = this.stubRun && this.stubRun.m === m && m.useStub ? this.stubRun : null;
     this.endWelcome();
     this.keys.clear();
+    this.fitDiskRom(m);
     if (again) this.restart(again);
     else { this.setStubRun(m); m.reset(false); this.warmReset = { m, resetAt: m.frameCount }; }
     this.acc = 0;
@@ -1104,6 +1107,7 @@ export class Session {
     // a power cycle keeps what is inserted, as on real hardware, so the Pak's option decides it again from the
     // ROMs that are stored (it is already in the port when nothing has changed)
     this.applySscOption(m);
+    this.fitDiskRom(m);
     m.reset(true);
     this.acc = 0;
     this.poweredOn();
@@ -1977,7 +1981,10 @@ export class Session {
   // that changed (the drive commits them when its motor stops, on eject and before the machine goes away).
   // They never go through the media index, which keeps everything it owns in memory. Writes to the store are
   // chained, so they land in order; diskWritesDone() waits for them.
-  // The disk cartridge (DragonDOS, Delta DOS or Disk BASIC) needs its ROM: the user's, like every other.
+  // The disk cartridge (DragonDOS, Delta DOS or Disk BASIC) runs the user's ROM, like every other. Without one a disk
+  // still mounts: the disk controller goes in with no ROM (its cartridge space reads 00, and it raises no line, so
+  // the program running keeps going), for programs that drive the controller themselves. A disk ROM added later
+  // takes its place at the next reset or power cycle (fitDiskRom).
 
   // where a file the person loads goes: the BASIC session while the Claude chat is full screen (Session.loadTarget)
   // the person's disks go in the same machine, so a disk dropped on the chat screen lands in the drives the person
@@ -2002,6 +2009,58 @@ export class Session {
     if (m.cartPort instanceof MultiPak) return m.cartPort.slots.find((c) => c instanceof DiskController) || null;
     return m.cartPort instanceof DiskController ? m.cartPort : null;
   }
+  // the disk controller in use when it holds no ROM (plugged in for a disk mounted without a disk ROM), or null
+  get bareDiskController() {
+    const fdc = this.diskMachine && this.diskController;
+    return fdc && fdc !== this.diskMachine.fdc && !fdc.romBytes ? fdc : null;
+  }
+  // the disk system a disk mounted without a disk ROM uses: the one last chosen for this family, else the first
+  bareDiskChoice() {
+    const choices = this.diskDosChoices().filter((c) => !c.builtin), saved = this.store.get(`diskDos.${machineFamily(this.diskMachine.profile)}`);
+    return choices.find((c) => c.id === saved) || choices[0] || null;
+  }
+  // The disk controller with no ROM, into an empty cartridge port: no reset, so the program running keeps going (the
+  // board raises no line of its own). A cartridge in the port comes out, and the machine is powered up afresh, as
+  // insertDiskDos does: the program was running from that cartridge.
+  plugBareDiskController(choice) {
+    const m = this.diskMachine;
+    this.flushDisks();
+    const had = !!m.cartPort;
+    m.insertCartridge(new devices[choice.controller]({}));
+    if (had) {
+      this.endWelcome();
+      this.keys.clear();
+      m.reset(true);
+      this.acc = 0;
+      this.poweredOn();
+    }
+    this.emit('disks');
+  }
+  // A disk controller plugged in without a ROM takes the disk ROM the user has added since: called by a reset and a
+  // power cycle, before the machine restarts. The ROM goes into the board's socket when it is the same board; another
+  // board (the Delta DOS cartridge for a Dragon controller) replaces it, with the disks moved across. Not while
+  // NitrOS-9 runs: its floppy boot uses the controller without a ROM on purpose. -> the disk system put in, or null
+  fitDiskRom(m = this.diskMachine) {
+    if (m !== this.diskMachine || this.nitros9Running) return null;
+    const fdc = this.bareDiskController, dos = fdc && this.preferredDiskDos();
+    if (!dos) return null;
+    const rom = this.roms.get(dos.id).rom;
+    if (dos.controller === fdc.type) {
+      fdc.fitRom(rom);
+      m.cartridgeChanged();
+    } else {
+      fdc.flush();
+      const next = new devices[dos.controller]({ rom });
+      const media = fdc.drives.slice(0, Math.min(fdc.fitted, next.fitted)).map((d) => (d.loaded ? d.media : null));
+      m.insertCartridge(next);
+      media.forEach((md, i) => { if (md) next.mount(i, md); });
+    }
+    this.store.set(`diskDos.${machineFamily(m.profile)}`, dos.id);
+    this.emit('disks');
+    return dos;
+  }
+  // a disk ROM stored for the board in use, waiting for the next reset or power cycle to go in (the page says so)
+  get diskRomWaiting() { return !!this.bareDiskController && !this.nitros9Running && !!this.preferredDiskDos(); }
   // plug a disk cartridge in (whatever was in the port comes out) and power the machine up with it
   // ---------------- blank disks (Session.newDisk) ----------------
   // The sizes offered for a new disk: the usual ones of the disk system in use (or the one a mount would plug in),
@@ -2028,7 +2087,7 @@ export class Session {
   async newDisk(drive, { format, tracks, heads }, { name = null, writeProtected = false } = {}) {
     this.checkDrive(drive);
     const type = this.blankDiskController();
-    if (!type) throw new SessionError(`The ${this.diskMachine.profile.name} has no disk drives in CLOADM.`);
+    if (!type) throw new SessionError(`The ${this.diskMachine.profile.name} has no disk drives in CLOADM. Disks go in on the Dragons and the CoCos.`);
     if (!['vdk', 'jvc', 'dmk'].includes(format)) throw new SessionError(`A new disk is a VDK, JVC or DMK image, not "${format}".`);
     const kind = DRIVE_TYPES[FDC_BOARDS[type].drive];
     if (!Number.isInteger(tracks) || tracks < 1 || tracks > Math.min(kind.tracks, 82)) throw new SessionError(`Drive ${drive} takes disks of 1 to ${Math.min(kind.tracks, 82)} tracks, not ${tracks}.`);
@@ -2138,6 +2197,27 @@ export class Session {
     this.poweredOn();
     this.emit('loaded');
     return 'Speech/Sound Pak taken out';
+  }
+  // Whatever is in the cartridge port, taken out (the board menu's "Take out") -> message. The disk controller without
+  // a ROM comes out with the machine running on (it was never part of what runs; its disks stay in the Library); any
+  // other board takes what runs with it, so the machine starts afresh, as on real hardware.
+  takeOutCartridge() {
+    const m = this.personMachine, c = m && m.cartPort;
+    if (!c) throw new SessionError('The cartridge port is empty.');
+    if (c instanceof SpeechSoundPak) return this.ejectSsc();
+    const bare = c === this.bareDiskController, name = bare ? c.plainName : c.name || 'The cartridge';
+    this.flushDisks();
+    m.ejectCartridge();
+    if (!bare) {
+      this.endWelcome();
+      this.keys.clear();
+      m.reset(true);
+      this.acc = 0;
+      this.poweredOn();
+    }
+    this.emit('loaded');
+    this.emit('disks');
+    return `${name} taken out`;
   }
   // set one of the machine's options (through resolveConfig, so an option the model lacks is refused) and
   // remember it with the model's configuration
@@ -2264,12 +2344,9 @@ export class Session {
     if (holder) throw new SessionError(`${holder.name} is already in drive ${holder.drive}${holder.where}.`);
     let fdc = this.diskController;
     if (!fdc && this.diskMachine.cartPort instanceof MultiPak) throw new SessionError('The Multi-Pak has no disk controller: put one in one of its slots first (Multi-Pak…).');
-    const dos = fdc ? null : this.preferredDiskDos();
-    if (!fdc && !dos) {
-      const c = this.diskDosChoices();
-      if (!c.length) throw new SessionError(`The ${this.diskMachine.profile.name} has no disk drives in CLOADM.`);
-      throw new SessionError(`Disks need a disk ROM: ${c.map((x) => `${x.name} (${cartridgeRoms[x.id].roms[0].files[0]})`).join(' or ')}. Load the ROM file first.`);
-    }
+    // the disk cartridge a mount plugs in: the user's disk ROM's, else the controller alone (bare)
+    const dos = fdc ? null : this.preferredDiskDos(), bare = fdc || dos ? null : this.bareDiskChoice();
+    if (!fdc && !dos && !bare) throw new SessionError(`The ${this.diskMachine.profile.name} has no disk drives in CLOADM. Disks go in on the Dragons and the CoCos.`);
     // The image is read once every write is in the store: the drive's own (a disk mounted again in the drive it is
     // in must be the image that drive wrote) and every one queued, a restore's put-back included. The machine runs
     // while the store is read, so the read is taken only if nothing has been queued for THIS image since before the
@@ -2309,8 +2386,9 @@ export class Session {
     if (!format) throw new SessionError(`${base}: not a disk image CLOADM can read (VDK, JVC/DSK or DMK).`);
     fdc = this.diskController;
     if (!fdc) {
-      if (!dos) throw new SessionError(`${base}: the disk cartridge was taken out; mount it again.`);
-      this.insertDiskDos(dos.id); fdc = this.diskController;
+      if (this.diskMachine.cartPort instanceof MultiPak) throw new SessionError(`${base}: the disk cartridge was taken out; mount it again.`);
+      if (dos) this.insertDiskDos(dos.id); else this.plugBareDiskController(bare);
+      fdc = this.diskController;
     }
     if (fdc.drives[drive].loaded) fdc.eject(drive);   // flushed above: nothing more to write
     try {
@@ -2319,7 +2397,9 @@ export class Session {
     } catch (e) { throw new SessionError(`${base}: ${e.message}`); }
     this.checkDiskLater(fdc.drives[drive]);
     this.emit('disks');
-    return `${base} in drive ${drive}${writeProtected ? ' (write-protected)' : ''}`;
+    const wp = writeProtected ? ' (write-protected)' : '';
+    if (fdc === this.bareDiskController) return `${base} is in drive ${drive}${wp}, ${BARE_NOTE}`;
+    return `${base} in drive ${drive}${wp}`;
   }
   // A mounted drive works out whether a snapshot must carry its image as mounted (js/chips/floppy.js, get
   // mountBytes: a round trip through the disk format, about three times the cost of the mount) only when first
@@ -2514,8 +2594,10 @@ export class Session {
     const fdc = this.diskMachine && this.diskController;
     if (!fdc) return { dos: null, count: 4, drives: [] };
     const id = this.diskMachine.fdc === fdc ? 'builtin' : Object.keys(cartridgeRoms).find((k) => cartridgeRoms[k].controller === fdc.type);
+    // bare: the controller holds no ROM (a disk mounted without a disk ROM)
+    const bare = fdc === this.bareDiskController;
     return {
-      dos: { id, name: id === 'builtin' ? fdc.name : cartridgeRoms[id].name },
+      dos: { id, name: id === 'builtin' ? fdc.name : bare ? fdc.plainName : cartridgeRoms[id].name, bare },
       count: fdc.fitted,
       drives: fdc.drives.map((d, i) => (d.loaded ? { drive: i, name: d.media.name, file: d.media.name.split('/').pop(), writeProtected: !!d.wpt, size: d.media.bytes.length, stored: !!d.media.onWrite, unsaved: (d.media.onWrite && this.diskUnsaved.get(d.media.name)) || null } : null)).filter(Boolean),
     };

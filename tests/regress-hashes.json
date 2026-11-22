@@ -852,5 +852,15 @@
     "hash": "478a7335",
     "frames": 240,
     "events": 1012
+  },
+  "trace dragon64 bare": {
+    "hash": "820f84aa",
+    "instructions": 401026,
+    "halted": true
+  },
+  "trace coco bare": {
+    "hash": "e4d254dd",
+    "instructions": 402096,
+    "halted": true
   }
 }

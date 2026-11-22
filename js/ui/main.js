@@ -162,7 +162,7 @@ window.emu.askPopout = claude ? null : setupAskPopout(page, { link, framed: fram
 const welcome = setupWelcome(page, { showRoms, openClaude: () => claude && claude.open() });
 const drawer = setupDrawer(page, { showRoms });
 const openRoms = () => { romSockets.reveal(); $('fileRom').click(); };
-library = setupLibrary(page, { loadProgram: media.loadProgram, runShelf: welcome.runShelf, changed: slots.refresh, showRoms, reconnect });
+library = setupLibrary(page, { loadProgram: media.loadProgram, runShelf: welcome.runShelf, changed: slots.refresh, showRoms, reconnect, diskSaid: disks.said });
 setupTypein(page, { openRoms, isVisible: () => !$('library').hidden });
 setupTapePanel(page);
 setupMultiPakPanel(page, { cartridge: (name) => drawer.cartridge(name) });
@@ -287,12 +287,14 @@ const starting = welcome.start(visit, { fromLink, withMedia: link.roms.length > 
     try { await romPanel.loadRomUrls(link.roms); if (link.selftest) selfTest.run(); }
     catch (e) { page.status(`Could not load ROM from URL: ${e.message}`, true); }
   }
-  // media: fetched (the server must allow CORS), then as if dropped; a tape without autorun just goes in the deck
+  // media: fetched (the server must allow CORS), then as if dropped; a tape without autorun just goes in the deck, a
+  // disk into the first free drive (parseUrlConfig puts disks first, so a program the link loads finds its disk in)
   for (const { kind, url } of link.media) {
     const name = decodeURIComponent(new URL(url, location.href).pathname.split('/').pop()) || kind;
     try {
       const bytes = await page.fetchBytes(url);
       if (kind === 'tape' && !link.autorun) page.attempt(() => session.insertTape(name, bytes));
+      else if (kind === 'disk') await disks.insert(name, bytes);
       else { await media.loadProgram(name, bytes); if (kind === 'cart') drawer.cartridge(name); }
     } catch (e) { page.status(`Could not load ${kind}=${url}: ${linkFetchError(e)}`, true); }
   }

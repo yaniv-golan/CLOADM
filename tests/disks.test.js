@@ -218,7 +218,11 @@ const { check, rejects, failures } = checker();
   // ---------------- no ROM, no drives
   {
     const { s } = session('dragon64', null, 'dragon');
-    await rejects('without a DOS ROM the mount says which ROM is needed', s.importDisk('x.vdk', images.vdk(40, 1), 0), /DragonDOS cartridge \(ddos10\.rom\) or Delta DOS cartridge \(deltados\.rom\)/);
+    // without a disk ROM the disk still goes in, on the controller alone (tests/disk-bare.test.js has the rest)
+    const bare = await s.importDisk('x.vdk', images.vdk(40, 1), 0);
+    check('without a disk ROM the mount goes in on the disk controller alone, and says so', /^x\.vdk is in drive 0, on the disk controller only \(no disk ROM\)/.test(bare)
+      && s.diskStatus().dos.bare && s.diskController.romBytes === null, bare);
+    await s.ejectDisk(0);
     await rejects('insertDiskDos without its ROM', Promise.resolve().then(() => s.insertDiskDos('dragondos')), /needs its ROM \(ddos10\.rom\)/);
     await rejects('a CoCo cartridge on the Dragon is refused', Promise.resolve().then(() => s.insertDiskDos('rsdos')), /can't take the Disk BASIC/);
     s.switchMachine('mc10');

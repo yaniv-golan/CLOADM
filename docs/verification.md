@@ -55,6 +55,7 @@ What each machine's comparison with MAME 0.264 showed when it was verified (the 
 | Tano Dragon 64 on the HD6309 | NMI arming (`--fdc tanodragonfdc --nmi --cpu 6309`): identical, 1,204,410 instructions, HALT reached at 793; also 1,204,410 on MAME 0.264 | – | – |
 | Dragon 64 + Premier FDC (WD2791, `--fdc premierfdc`) | 5,890,277 instructions identical, HALT reached; disk images written byte-identical (`--images`) | – | – |
 | Color Computer + CoCo FDC (WD1773, `--fdc`) | 5,851,757 instructions identical, HALT reached; disk images written byte-identical (`--images`) | – | – |
+| Dragon 64 and Color Computer, the controller with an empty ROM socket (`--fdc --bare`) | identical, HALT reached: dragon64 1,200,945 instructions (HALT at 66,473), coco 1,208,171 (HALT at 66,937) | – | – |
 | Blank disks (`--fdc <controller> --blank <format>:<T>x<H>`) | a blank disk formatted by our firmware: dragonfdc VDK 40 × 1, cocofdc JVC 35 × 1, premierfdc VDK 40 × 1 and dragonfdc DMK 40 × 2 identical in lockstep to HALT (8,750,860, 7,717,543, 8,750,920 and 17,534,051 instructions); formatted images byte-identical for the VDK and JVC ones and for dragonfdc VDK 40 × 2, VDK 80 × 2 and JVC 40 × 2 and cocofdc JVC 40 × 2 (`--images`; MAME cannot save DMK, so the DMK one is checked sector by sector in ours) | – | – |
 | Color Computer 3 + CoCo FDC (WD1773, `coco3 --fdc`) | 5,851,680 instructions identical, HALT reached; disk images written byte-identical (`--images`) | – | – |
 | Color Computer + Multi-Pak with the CoCo FDC in slot 4 (`--fdc multifdc`) | 5,851,742 instructions identical, HALT reached; disk images written byte-identical (`--images`) | – | – |
@@ -857,15 +858,17 @@ checks), a second `<main>` (16), the ports under the screen a `<div>` instead of
 UX rulings R24-R28 and R19 A+ have no MAME oracle (AGENTS.md 4.6): the oracle is the rulings themselves, and the
 browser check's group `uiModel` drives them with real events at 1280x720 and at 390x844 with touch:
 
-* R24: a disk dropped without a disk ROM: the toast's box is inside the viewport and `elementFromPoint` at its centre
-  is the toast; it keeps its slot and its time runs. (`feedbackModel` checks the fixed top slot where nothing else is
+* R24: a disk dropped without a disk ROM: the toast (the disk is in drive 0 on the disk controller alone, with **Add
+  disk ROM…**) has its box inside the viewport and `elementFromPoint` at its centre is the toast; it keeps its slot and
+  its time runs. An error toast (a disk image CLOADM can't read) is red. With that disk in and no tape, the drives
+  card is above the cassette deck on the phone and under the keyboard panel, and after it on the desktop. (`feedbackModel` checks the fixed top slot where nothing else is
   free, and that it goes after its 4 s.)
 * R25: the switch confirmation's text for a tape and a cartridge (both in the Library), a tape and a disk, a RAM
   change (and Cancel putting the select back), a snapshot's own disk with **Save to Library** (stored and linked),
   DriveWire (not listed, still mounted after the switch); the toasts after the switch. `tests/switch-losses.test.js`
   checks `Session.takenOut` and `Session.keepSnapshotDisk` in Node, the Speech/Sound Pak case included.
 * R26: the disk ROM card's title per machine (none on the Alpha and the MC-10), its `data-disk` mark with the socket
-  counts unchanged, and a drive's **Add ROMs…** landing on it (in view, focused, on top at its centre).
+  counts unchanged, and a drive's **Add disk ROM…** landing on it (in view, focused, on top at its centre).
 * R28, R28b: Ctrl K "roms" Enter (Your ROMs, focus on its heading, nothing scrolled), the palette's top result for
   each of its words, the ROMs row first and its label with and without a stored test ROM, the "needs ROMs" toast and
   its action, ↓ from the last machine to both footer items, Esc, and each footer item's focus.
@@ -877,6 +880,33 @@ browser check's group `uiModel` drives them with real events at 1280x720 and at 
 
 Not verified automatically: how the fixed top slot reads to a person on a real phone (screenshots
 `r24-disk-toast-*.png` were looked at).
+
+### A disk without a disk ROM
+
+With no disk ROM a mount plugs the disk controller in with nothing in its ROM socket (`Session.plugBareDiskController`),
+without a reset, and the disk goes in. The program used is ours: `tools/mame-diff/fdc/gen-bare.js` writes one read
+routine (restore, then read track 0 sector 1 of drive 0, every byte taken on DRQ by polling; on the CoCo with NMI on
+INTRQ) in two builds: a ROM build for the MAME comparison below and a RAM build that runs on the built-in firmware.
+
+* `tests/disk-bare.test.js` (Dragon 64 with a VDK, CoCo with a JVC): the mount's message word for word; the board
+  with no ROM, its cartridge space reading 00 and no CART line tied to Q or raised, before and while running; the
+  program loaded first runs on through the mount (frames and its count go on, its code intact), its first read
+  finds no controller and its next one reads the sector, compared with the bytes `images.js`'s formula gives; a
+  snapshot taken in the middle of the transfer restored into a fresh machine runs on identically (registers, cycles,
+  frames) and finishes the read; a disk ROM stored afterwards waits for the next power cycle and then goes into the
+  same board's socket with the disk still in (the Delta DOS ROM on a Dragon: its own board replaces it at a reset,
+  with the disk moved across); **Take out** with the program running on; the MC-10, a Multi-Pak with no
+  controller, a cartridge in the port (it comes out, with a power-up); `disk=` before `load=` in a link; the command
+  box's disk commands; the command line's `--disk` note on stderr and in the JSON, and the guest's read.
+  Mutations that turned it red: the old refusal back; the board tying CART to Q; a reset when the board goes in; no
+  ROM fitted at the power cycle; the link's media in the order given.
+* The browser check's group `disk`: the card and an empty drive's menu with no disk ROM (its buttons and note), the
+  game dropped and then its disk (the toast and **Add disk ROM…**, the cartridge port's name, **Take out**), the game
+  running on and reading the disk (its screen), the loaded drive's menu, **Add disk ROM…** landing on the disk ROM's
+  card, Ctrl+K "mount" → **Insert a disk…** and **Eject disk**, a disk ROM dropped afterwards (the toast, the card)
+  and put in by **Switch off and on**. Group `url`: `load=…&disk=…` in either order runs the game with its disk in
+  (its first read, at its start, succeeds); `disk=` with no link is reported. Groups `media`, `feedback` and
+  `uiModel` follow the new messages, and `uiModel` checks the phone's slot order.
 
 ## The comparisons
 
@@ -965,6 +995,12 @@ names it.
   integer scaling. So composite colour is on from the start, and the CoCo 3 starts on its composite monitor's
   palette; Sharp · RGB switches it to the RGB monitor's.
 
+* `node tools/mame-diff/run.js <dragon64|coco> --fdc --bare` runs `fdc/bare-dragon.asm` or `fdc/bare-coco.asm`
+  (`fdc/gen-bare.js`) as BASIC with the controller's ROM socket empty (MAME's holds 8K of 00, ours no ROM; both read
+  00), drive 0 holding `images.js`'s double-sided disk: a program that reads track 0 sector 1 through the registers
+  and ends in HALT. MAME 0.264: every instruction identical in all registers and cycle counts, and HALT reached:
+  `dragon64 --fdc --bare` 1,200,945 instructions compared (HALT at 66,473), `coco --fdc --bare` 1,208,171 (HALT at
+  66,937). `tests/regress.test.js` replays both (`trace dragon64 bare`, `trace coco bare`).
 * `node tools/mame-diff/run.js <dragon64|coco|coco3> --fdc [dragonfdc|premierfdc|cocofdc|multifdc] [--multi] [--images]` runs the
   floppy disk controller cartridges (`fdc/`: `-ext dragon_fdc` with a WD2797 and `-ext premier_fdc` with a WD2791 on
   the Dragon 64, `-ext fdc` with a WD1773 on the CoCo and the CoCo 3, and `multifdc`: the same CoCo controller in slot 4 of a
