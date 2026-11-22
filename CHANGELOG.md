@@ -184,6 +184,12 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   them, with a `note`, as the VDG's semigraphics blocks are counted. `docs/mcp.md`, `docs/claude.md`, the skill and a
   new eval (`coco3-hidden-screen`) say so; `tests/screen-text-readers.test.js` checks both readers on firmware of our
   own against the rendered frame.
+- **The Session wires Claude's chat through hooks, not by replacing its methods.** `Session.gateTools` used to
+  wrap `chat.abort` and `chat.backend.runTool`; `ChatSession` now has `onAbort` (called before the request is
+  aborted) and `onToolStart` / `onToolEnd` (around every tool call the backend makes, in `ChatSession.serveTool`),
+  and the Session sets those as it already set `gate`, `recheck` and `onTurnEnd`. No behaviour change;
+  `tests/chat-hooks.test.js` covers a gate refusing a tool, the abort order, the hooks across the chat's views and
+  a machine switch, and that no method on the chat is replaced.
 - **`add_roms` keeps a URL as origin + path.** The store's `index.json` recorded the full URL a ROM came from, query
   string and fragment included, which can hold a token. It now keeps the origin and the path only.
 - **Test and tool tidy-ups, no emulation change.** `tools/mame-diff/tape/spec.js` takes its register lists from

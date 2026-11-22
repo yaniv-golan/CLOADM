@@ -526,7 +526,11 @@ emulator.
   wait does (Resume goes on and the re-check runs again; Stop, or Esc/BREAK while paused, is `stopped`), so nothing
   changes while paused; and consent is re-validated. The pause is the Ask panel's turn-scoped one (`Session.personInput`,
   `pauseClaude`, `resumeClaude`, `endClaudePause`): the gate and the re-check wait on it (`pauseWait`), and the turn's
-  end or abort ends it (`endClaudePause`), which refuses the waiting call. An acting call counts as Claude acting from
+  end or abort ends it (`endClaudePause`, from the chat's `onTurnEnd` and `onAbort` hooks; `onAbort` runs before the
+  request is aborted), which refuses the waiting call. The Session wires a chat only through these hooks, set in
+  `gateTools` (`gate`, `recheck`, `onAbort`, `onTurnEnd`, `onRestorePoint`, and `onToolStart` / `onToolEnd`, which
+  bracket every tool call the backend makes for the turn's status); it never replaces a chat's methods
+  (`node tests/chat-hooks.test.js`). An acting call counts as Claude acting from
   its gate to its act (`Session.claudeCall`), so the person's input pauses it there even before Claude's first change
   of the turn; `node tests/claude-ask-acting.test.js` covers the two together. Each call records the consent it relied on: **the card** when
   the person answered a card for this call (Allow on the consent card, or Load it on `load_basic`'s card), which
