@@ -416,7 +416,9 @@ account or organization has yet.
    **Sound** ("Sound off" until you click it or the screen: that click starts the sound) and **⋯** (Details, the
    diagnostics, and Copy details). The line under the screen says what runs. While one of Claude's calls acts on the
    machine, the bezel takes Claude's colour and a chip says what it does ("Claude is typing: DIR↵"); a call that only
-   reads shows a quiet "Claude read the screen". Your own typing never shows a chip.
+   reads shows a quiet "Claude read the screen". Your own typing never shows a chip. On a phone or tablet the view
+   has on-screen keys under the screen (the page's keyboard, CLEAR and BREAK, and **Keys | Stick** for a joystick on a
+   machine with a port); **⋯ → Hide on-screen keys** hides them.
 3. In your **next** message, ask for what you want ("type I AM HAPPY and tell me what LIZA says", "play 2048",
    "write a 6809 program that fills the screen and run it"). The view registers its tools after it has loaded, so
    Claude can use them from the next turn, not in the one that opened it. Claude asks you to approve each call.

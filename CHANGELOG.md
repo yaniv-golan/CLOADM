@@ -11,6 +11,12 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 ### Fixed
 
 - **An embedded CLOADM could open the Claude chat; the chat is no longer available in an embed.**
+- **The side panel on a phone.** Inline in the chat the view was cut to a strip under the toolbar: it now tells the
+  host its height (`ui/notifications/size-changed`, the screen at 4:3 for the width plus the toolbar, the keys and the
+  status line; never measured from the view's own height, so nothing feeds back). In the side panel or fullscreen the
+  app's title chip covered the top of the screen: the view now keeps clear of the insets the host reports
+  (`safeAreaInsets`), or, on a touch screen when it reports none, of the device's safe area and 56 px at the top.
+  Details names the last call Claude made through the view and how it ended, and the size sent.
 
 ### Changed
 
@@ -24,6 +30,11 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Added
 
+- **On-screen keys in Claude's side panel on a phone or tablet**, where tapping the screen brought up no keyboard:
+  the page's keyboard (the same layout and keys, now shared from `js/ui/touch-layout.js`) under the screen, CLEAR and
+  BREAK under it, and on a machine with a joystick port a **Keys | Stick** switch for the key strip, a stick and FIRE.
+  They show on a touch screen (the host says so, or a coarse pointer, or a first touch) and not on a desktop; **⋯ →
+  Hide on-screen keys** hides them. Claude's typing and its chip are unchanged.
 - README: status, licence and live-demo badges, a looping picture of the welcome menu and LIZA (`img/readme-demo.gif`,
   captured from the real page with no ROMs by `node tools/capture-gif.js`, with the small encoder in `tools/gif.js`),
   and a "Use it with AI coding agents and Claude" section that points to the MCP server, the connector and plugin, the
@@ -64,7 +75,7 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   status line. The status line is one line ("LIZA is running · Dragon 64 · no ROMs"); the diagnostics and the raw load
   message moved behind **Details** (closed at first; [the deploy guide](docs/deploy-connector.md#verify) reads them
   there), and an error you must act on stays on the status line. **Open in side panel** (in ⋯) shows only while the
-  view is inline and the host offers it. The view's contract with the site changed (`PANEL_API` 2): deploy the
+  view is inline and the host offers it. The view's contract with the site changed (`PANEL_API` 3): deploy the
   connector's Worker again after the site has this release.
 
 ### 0.1.8-pre

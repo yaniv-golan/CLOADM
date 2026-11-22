@@ -12,7 +12,9 @@
 //    left out; results over 100,000 characters refused; every bundled program file a model can ask for is carried;
 //  * the bridge (connector/view/bridge.js) in a vm, playing the host: ui/initialize is sent as the script runs, before
 //    the emulator exists; tools/list is answered at once; an early call waits for the emulator; list_changed follows
-//    attach; a mismatched PANEL_API is out-of-step, a failed start not-started; a cancelled call gets no reply.
+//    attach; a mismatched PANEL_API is out-of-step, a failed start not-started; a cancelled call gets no reply; the
+//    host context keys it keeps (the phone's insets among them); size-changed; the last call in Details;
+//  * the view's sizing, insets, touch test and the on-screen keys' codes (connector/view/ui.js, js/ui/touch-layout.js).
 // The browser check's `connector` group runs both views in Chromium under the spec's CSP (tools/connector-check.js).
 // Run: node tests/connector.test.js
 const fs = require('fs'), path = require('path'), vm = require('vm');
@@ -334,6 +336,30 @@ const J = JSON.stringify;
     b.deliver({ jsonrpc: '2.0', method: 'ui/notifications/host-context-changed', params: 'not an object' });
     check('bridge: only the context keys the view reads are taken in (displayMode, availableDisplayModes, containerDimensions, theme)',
       J(Object.keys(b.B.hostContext).sort()) === J(['availableDisplayModes', 'displayMode', 'theme']) && b.B.hostContext.displayMode === 'pip' && !('polluted' in b.B.hostContext), J(b.B.hostContext));
+    b.deliver({ jsonrpc: '2.0', method: 'ui/notifications/host-context-changed', params: { safeAreaInsets: { top: 47, right: 0, bottom: 34, left: 0 }, platform: 'mobile', deviceCapabilities: { touch: true, hover: false }, userAgent: 'x', locale: 'en', toolInfo: {} } });
+    check('bridge: a phone host\'s safeAreaInsets, platform and deviceCapabilities are taken in too, and nothing else (userAgent, locale, toolInfo are not)',
+      J(Object.keys(b.B.hostContext).sort()) === J(['availableDisplayModes', 'deviceCapabilities', 'displayMode', 'platform', 'safeAreaInsets', 'theme']) && b.B.hostContext.safeAreaInsets.top === 47, J(b.B.hostContext));
+    const before = b.sent.length;
+    const first = b.B.sizeChanged(390, 612.4), again = b.B.sizeChanged(390, 613), other = b.B.sizeChanged(600, 760), none = b.B.sizeChanged(0, 10);
+    const sizes = b.sent.slice(before);
+    check('bridge: sizeChanged sends ui/notifications/size-changed { width, height } (whole pixels, rounded up), not again for the same size, and nothing for an empty one',
+      first && !again && other && !none && J(sizes) === J([{ jsonrpc: '2.0', method: 'ui/notifications/size-changed', params: { width: 390, height: 613 } }, { jsonrpc: '2.0', method: 'ui/notifications/size-changed', params: { width: 600, height: 760 } }])
+      && /size 600×760 ×2/.test(b.B.describe()), J(sizes));
+  }
+  {
+    const b = bridge();
+    b.reply('ui/initialize', {});
+    b.B.attach({ api: panel.PANEL_API, tools: [{ name: 'screen_text' }], call: async () => ({ content: [], isError: true, structuredContent: { error: { code: 'bad-argument' } } }) });
+    b.deliver({ jsonrpc: '2.0', id: 90, method: 'tools/call', params: { name: 'screen_text', arguments: {} } });
+    await waitFor(() => b.sent.some((m) => m.id === 90));
+    const d1 = b.B.describe();
+    const ok = bridge();
+    ok.reply('ui/initialize', {});
+    ok.B.attach({ api: panel.PANEL_API, tools: [{ name: 'screen_text' }], call: async () => ({ content: [{ type: 'text', text: 'x' }] }) });
+    ok.deliver({ jsonrpc: '2.0', id: 91, method: 'tools/call', params: { name: 'screen_text', arguments: {} } });
+    await waitFor(() => ok.sent.some((m) => m.id === 91));
+    check('bridge: Details names the last call and how it ended ("screen_text error bad-argument", "screen_text ok"), so a call the host never delivered (calls ×0) can be told from one the view refused',
+      /calls ×1, .*last call screen_text error bad-argument \d+ ms/.test(d1) && /last call screen_text ok \d+ ms/.test(ok.B.describe()), `${d1} | ${ok.B.describe()}`);
   }
 
   // ---------------- the view's controls (connector/view/ui.js), the parts without a DOM ----------------
@@ -360,6 +386,22 @@ const J = JSON.stringify;
     const short = say('DIR\n'), mid = say('A'.repeat(100)), long = say('B'.repeat(2000));
     check('announcement: short keys whole, more than 40 cut at 40 with an ellipsis, a long text by its length; none for a read',
       short === 'Claude is typing: DIR↵' && mid === `Claude is typing: ${'A'.repeat(40)}…` && long === 'Claude is typing 2,000 characters' && say('', true) === null, J([short, mid, long]));
+    const phone = { safeAreaInsets: { top: 47.4, right: 0, bottom: 34, left: 0 } };
+    check('insets: the host\'s safeAreaInsets when it gives all four (rounded, kept within 0..200), inline or not, touch or not',
+      J(ui.insets(phone)) === J({ top: '47px', right: '0px', bottom: '34px', left: '0px' }) && J(ui.insets({ displayMode: 'fullscreen', safeAreaInsets: { top: 900, right: -5, bottom: 0, left: 0 } }, { touch: true })) === J({ top: '200px', right: '0px', bottom: '0px', left: '0px' }), J(ui.insets(phone)));
+    const reserve = ui.insets({ displayMode: 'fullscreen' }, { touch: true });
+    check('insets: without them, a touch host in the side panel or fullscreen keeps the device\'s safe area and at least 56 px at the top (a phone app\'s title chip); a desktop, or inline, none; incomplete insets are not used',
+      reserve.top === 'max(env(safe-area-inset-top, 0px), 56px)' && reserve.bottom === 'env(safe-area-inset-bottom, 0px)' && ui.TOP_RESERVE === 56
+      && J(ui.insets({ displayMode: 'fullscreen' })) === J(ui.insets({})) && ui.insets({}).top === '0px' && ui.insets({ displayMode: 'inline' }, { touch: true }).top === '0px'
+      && J(ui.insets({ displayMode: 'fullscreen', safeAreaInsets: { top: 10 } }, { touch: true })) === J(reserve), J(reserve));
+    check('touch: the host\'s platform "mobile" or deviceCapabilities.touch, a coarse pointer, or a touch seen; a host saying touch: false over a coarse pointer',
+      ui.touchHost({ platform: 'mobile' }) && ui.touchHost({ deviceCapabilities: { touch: true } }) && ui.touchHost({}, { coarse: true }) && ui.touchHost({ deviceCapabilities: { touch: false } }, { seen: true })
+      && !ui.touchHost({}) && !ui.touchHost({ platform: 'desktop' }) && !ui.touchHost({ deviceCapabilities: { touch: false } }, { coarse: true }));
+    check('size: the content height is the screen, its padding and what lies around it, rounded up to a whole pixel', ui.contentHeight(282, 24, 120.2) === 427 && ui.contentHeight(ui.screenSize(366).height, 24, 300) === 598);
+    const tl = await imp('js/ui/touch-layout.js');
+    check('keys: what an on-screen key sends (the page\'s and the view\'s): a letter, SHIFT + 1 ("!" for the stub), ENTER, the space bar ("_"), ← as LEFT (backspace 8)',
+      J(tl.keyPress('A')) === J({ names: ['A'], code: 65 }) && J(tl.keyPress('1', true)) === J({ names: ['SHIFT', '1'], code: 33 }) && J(tl.keyPress('ENTER')) === J({ names: ['ENTER'], code: 13 })
+      && J(tl.keyPress('_')) === J({ names: ['SPACE'], code: 32 }) && J(tl.keyPress('←', true)) === J({ names: ['SHIFT', 'LEFT'], code: 8 }) && tl.FULL.join(' ').split(' ').length === 49, J([tl.keyPress('1', true), tl.keyPress('←', true)]));
     const unnamed = offered.filter((t) => !t.annotations.readOnlyHint).filter((t) => /^Claude: /.test(ui.describeCall(t.name, {}, { title: t.title }).now)).map((t) => t.name);
     check('chip: every panel tool that acts (readOnlyHint false) has its own words', !unnamed.length, unnamed.join(','));
   }
@@ -369,7 +411,7 @@ const J = JSON.stringify;
   // the bridge's members and what attach() reads, the CLOADM_VIEW fields and who reads them, the shell's element ids.
   // Its hash is recorded with the PANEL_API it belongs to: change the contract and this fails until PANEL_API is raised
   // (connector/view/tools.js) and the new pair recorded here.
-  const CONTRACT = { api: 2, sha256: '1a39f12bd1d4bf70f938d2651f72cdb2e6514b09b64ea01a7a32ebd5dcee754a' };
+  const CONTRACT = { api: 3, sha256: '032f6a8f7ac8a46dfe50e6b6fbd417fc0d4a1fe7bf5607567d7796229721f80e' };
   {
     const b = bridge();
     const uniq = (re, text) => [...new Set([...text.matchAll(re)].map((m) => m[1]))].sort();

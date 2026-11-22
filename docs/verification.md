@@ -1495,6 +1495,16 @@ Not hardware behaviour, so MAME is not its oracle (AGENTS.md section 4.6). The e
   gone within 3 s, the action line kept), the quiet chip on a read, and none for the person's own keys, also during
   Claude's call. The screen's size and the chip's words are unit-tested in Node (`tests/connector.test.js`). How the
   view looks is reviewed on the screenshots (`--screenshots`).
+* on a phone, in Chromium with touch (the same group): inline, `ui/notifications/size-changed` carries the content's
+  height at 320, 390 and 600 px wide, equal to the body's laid-out height, sent again when the width changes and not
+  again once an auto-sizing host has taken it, and never in the side panel or fullscreen; at 390 x 844 fullscreen the
+  toolbar and the screen start below the host's `safeAreaInsets` (or below the 56 px top reserve when the host gives
+  none), the keys and the status line end above the bottom inset, also at 390 x 640; the on-screen keys show on a touch
+  screen and not on a desktop, a tap on H, I, ENTER reaches LIZA (`screen_text` through the host), the Stick mode, and
+  BREAK once in each mode; a host that asks before each call: an approved call answered after the wait, a denied one
+  leaving the next working. The insets, the touch test, the content height and the keys' codes are unit-tested in Node.
+  How the view feels on a real phone (the app's title chip, the soft keyboard it no longer needs, its approval prompts)
+  is a manual test ([deploy-connector.md](deploy-connector.md), "On a phone").
 
 What only claude.ai can show (its side panel, its approval prompts, what it grants a custom connector) is a manual
 test: [deploy-connector.md](deploy-connector.md), "Verify".

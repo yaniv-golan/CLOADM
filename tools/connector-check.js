@@ -17,6 +17,8 @@
 //   inline    (B, open_emulator_inline): the same handshake and tools with nothing fetched
 //   no-cors   A when the site sends no Access-Control-Allow-Origin: the handshake still comes; calls are not-started
 //   out-of-step A when the site's panel speaks another PANEL_API: calls are out-of-step
+//   phone     the size reported inline (ui/notifications/size-changed), the host's insets in fullscreen, the on-screen
+//             keys on a touch screen, a host that asks before each call (phoneScenario)
 const http = require('http'), fs = require('fs'), path = require('path');
 const { pathToFileURL } = require('url');
 const ROOT = path.join(__dirname, '..');
@@ -38,7 +40,10 @@ f.style.cssText = \`width:\${q.get('w') || 680}px;height:\${q.get('h') || 620}px
 // the panel resized, and the host's context changing (displayMode: the side panel is 'fullscreen')
 window.resizeView = (w, h) => { f.style.width = w + 'px'; f.style.height = h + 'px'; };
 window.hostContextChanged = (params) => post({ method: 'ui/notifications/host-context-changed', params });
-window.hostT = { created: Date.now() }; window.hostLists = []; window.hostLog = [];
+window.hostT = { created: Date.now() }; window.hostLists = []; window.hostLog = []; window.sizes = [];
+// a host that asks the person before each of Claude's calls through the view: the call reaches the view only once
+// approved (after ms), or never (denied: the host answers Claude itself and the view hears nothing)
+window.callApproved = (name, args, { ms = 1500, deny = false } = {}) => new Promise((ok) => setTimeout(() => (deny ? ok({ denied: true }) : callView('tools/call', { name, arguments: args }).then(ok)), ms));
 let id = 1000; const waiting = new Map();
 const post = (m) => f.contentWindow.postMessage(Object.assign({ jsonrpc: '2.0' }, m), '*');
 window.callView = (method, params) => new Promise((ok) => { const i = id++; waiting.set(i, ok); post({ id: i, method, params }); });
@@ -46,7 +51,12 @@ const listTools = () => callView('tools/list', {}).then((r) => { hostLists.push(
 addEventListener('message', (e) => {
   const d = e.data; if (e.source !== f.contentWindow || !d || d.jsonrpc !== '2.0') return;
   hostLog.push(d.method || 'reply');
-  if (d.method === 'ui/initialize') { hostT.initialize = Date.now(); post({ id: d.id, result: { protocolVersion: '2026-01-26', hostInfo: { name: 'host-stub', version: '1' }, hostCapabilities: { sandbox: { csp: JSON.parse(q.get('granted') || '{}') } }, hostContext: Object.assign({ displayMode: q.get('mode') || 'inline', availableDisplayModes: ['inline', 'fullscreen'] }, q.get('dims') ? { containerDimensions: JSON.parse(q.get('dims')) } : {}) } }); }
+  if (d.method === 'ui/initialize') { hostT.initialize = Date.now(); post({ id: d.id, result: { protocolVersion: '2026-01-26', hostInfo: { name: 'host-stub', version: '1' }, hostCapabilities: { sandbox: { csp: JSON.parse(q.get('granted') || '{}') } }, hostContext: Object.assign({ displayMode: q.get('mode') || 'inline', availableDisplayModes: ['inline', 'fullscreen'] }, q.get('dims') ? { containerDimensions: JSON.parse(q.get('dims')) } : {}, JSON.parse(q.get('ctx') || '{}')) } }); }
+  else if (d.method === 'ui/notifications/size-changed') {
+    // an auto-sizing host (inline): the view's frame takes the height it reports (q autosize), as claude.ai's does
+    sizes.push(d.params);
+    if (q.get('autosize')) f.style.height = d.params.height + 'px';
+  }
   else if (d.method === 'ui/notifications/initialized') { hostT.initialized = Date.now(); listTools(); }
   else if (d.method === 'notifications/tools/list_changed') { hostT.listChanged = Date.now(); listTools(); }
   else if (d.method === 'ui/request-display-mode') {
@@ -471,14 +481,145 @@ async function uiScenario(browser, check, { shots = null } = {}) {
   }
 }
 
+// The view on a phone and as an auto-sizing host shows it inline:
+//  * inline, the view reports its content's height (ui/notifications/size-changed) at three widths, and again when
+//    the width changes; the host taking that height changes nothing more (no loop);
+//  * on a touch screen in the side panel or fullscreen, the screen stays clear of the host's insets (safeAreaInsets),
+//    or of the top reserve when the host gives none; the on-screen keys show (and not on a desktop), and a tap on a
+//    key reaches the machine (screen_text, through the host, shows it); the Stick mode and BREAK once in each mode;
+//  * a host that asks the person before each call: an approved call is answered, a denied one leaves the next working.
+async function phoneScenario(browser, check, { shots = null } = {}) {
+  const srv = await start();
+  const g = { resourceDomains: [srv.site], connectDomains: [srv.site] };
+  const url = (q) => `http://claude.localhost:${srv.port}/?${new URLSearchParams(Object.assign({ proxy: `http://ph.sandbox.localhost:${srv.port}/sandbox?uri=${encodeURIComponent('ui://cloadm/panel.html')}`, granted: JSON.stringify(g) }, q))}`;
+  const errors = [];
+  const opened = async (ctxOpts, q) => {
+    const ctx = await browser.newContext(ctxOpts), page = await ctx.newPage();
+    page.on('pageerror', (e) => errors.push(e.message.slice(0, 200)));
+    await page.goto(url(q));
+    const up = await wait(page, () => window.hostT.listChanged, null, 30000);
+    const v = page.frames().find((f) => f.url() === 'about:srcdoc');
+    const ready = up && await wait(v, () => window.cloadmView && window.cloadmView.facts.storage !== '…');
+    return { ctx, page, v, ready };
+  };
+  const shot = async (page, name) => { if (shots) await page.locator('iframe').screenshot({ path: path.join(shots, `connector-phone-${name}.png`) }); };
+  const text = async (page) => { const r = await page.evaluate(() => window.callView('tools/call', { name: 'screen_text', arguments: { machine_id: 'm1' } })); return r.result ? JSON.stringify(r.result.structuredContent) : ''; };
+  try {
+    // ---- inline, an auto-sizing desktop host: the height reported is the content's, at three widths, and again on resize
+    {
+      const { ctx, page, v, ready } = await opened({ viewport: { width: 1000, height: 1200 } }, { w: 320, h: 200, autosize: 1 });
+      check('connector phone: the view starts (inline, auto-sizing host)', ready, errors.join(' | '));
+      const at = [];
+      for (const w of [320, 390, 600]) {
+        await page.evaluate((x) => window.resizeView(x, parseInt(document.querySelector('iframe').style.height, 10)), w);
+        await page.waitForTimeout(400);
+        const n0 = await page.evaluate(() => window.sizes.length);
+        await page.waitForTimeout(1000);
+        const r = await page.evaluate(() => ({ n: window.sizes.length, last: window.sizes[window.sizes.length - 1], frame: document.querySelector('iframe').offsetHeight }));
+        const content = await v.evaluate(() => ({ body: Math.ceil(document.body.getBoundingClientRect().height), vw: innerWidth, vh: innerHeight, cw: document.getElementById('screen').getBoundingClientRect().width, ch: document.getElementById('screen').getBoundingClientRect().height, keys: document.getElementById('keys').hidden }));
+        at.push(Object.assign({ w, n0 }, r, content));
+      }
+      check('connector phone: inline, the view sends ui/notifications/size-changed with its content height at 320, 390 and 600 px wide (the body\'s height, the screen 4:3 at the full width), resent when the width changes, and steady once the host takes it',
+        at.every((a, i) => a.last && a.last.height === a.body && a.last.width === a.w && a.frame === a.body && a.vh === a.body && Math.abs(a.cw / a.ch - 4 / 3) < 0.01 && a.w - a.cw <= 28 && a.n === a.n0 && a.keys && (i === 0 || a.last.height > at[i - 1].last.height)),
+        JSON.stringify(at));
+      const details = await v.evaluate(() => document.getElementById('st').textContent);
+      check('connector phone: Details shows the size sent (size W×H ×n)', /size 600×\d+ ×\d+/.test(details), details.slice(-200));
+      await ctx.close();
+    }
+    // ---- a phone (coarse pointer, touch), inline at 390 wide: the keys show, the host is told the taller height
+    {
+      const { ctx, page, v, ready } = await opened({ viewport: { width: 390, height: 1400 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 }, { w: 390, h: 200, autosize: 1 });
+      await page.waitForTimeout(800);
+      const r = await v.evaluate(() => ({ keys: !document.getElementById('keys').hidden, n: document.querySelectorAll('#keys .k').length, body: Math.ceil(document.body.getBoundingClientRect().height), hint: document.getElementById('hint').checkVisibility(), item: !document.getElementById('keys-item').hidden }));
+      const last = await page.evaluate(() => window.sizes[window.sizes.length - 1]);
+      check('connector phone: on a touch screen the on-screen keys show under the screen (and "Click to type" goes); inline the height reported includes them',
+        ready && r.keys && r.n >= 48 && !r.hint && r.item && last && last.height === r.body, JSON.stringify({ ready, r, last }));
+      await shot(page, 'inline-390');
+      await ctx.close();
+    }
+    // ---- a phone in fullscreen, 390 x 844, the host reporting its insets: the toolbar and the screen below them
+    for (const [name, extra, top] of [['insets', { safeAreaInsets: { top: 64, right: 0, bottom: 34, left: 0 }, platform: 'mobile' }, 64], ['reserve', {}, 56]]) {
+      const { ctx, page, v, ready } = await opened({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 }, { w: 390, h: 844, mode: 'fullscreen', ctx: JSON.stringify(Object.assign({ containerDimensions: { width: 390, height: 844 } }, extra)) });
+      await page.waitForTimeout(600);
+      const geo = await v.evaluate(() => {
+        const r = (id) => document.getElementById(id).getBoundingClientRect();
+        return { vh: innerHeight, bar: r('bar').top, screen: r('screen').top, sb: r('screen').bottom, cw: r('screen').width, ch: r('screen').height, keysTop: r('keys').top, keysBottom: r('keys').bottom, foot: r('foot').bottom, keys: !document.getElementById('keys').hidden };
+      });
+      check(`connector phone: fullscreen at 390 x 844 with ${name === 'insets' ? 'the host\'s safeAreaInsets (top 64, bottom 34)' : 'no insets from the host: the top reserve (56 px)'}, the toolbar and the screen start below the inset, the keys and the status line end above the bottom one, the screen 4:3 and over 300 px wide`,
+        ready && geo.keys && geo.bar >= top && geo.screen >= top && geo.sb <= geo.keysTop && geo.foot <= geo.vh - (name === 'insets' ? 34 : 0) + 1 && Math.abs(geo.cw / geo.ch - 4 / 3) < 0.01 && geo.cw > 300, JSON.stringify(geo));
+      if (name === 'insets') {
+        await shot(page, 'fullscreen-390x844');
+        const sizesInFixed = await page.evaluate(() => window.sizes.length);
+        check('connector phone: in fullscreen the view sends no size-changed (its size is the host\'s)', sizesInFixed === 0, String(sizesInFixed));
+        // a tap on keys reaches the machine (LIZA): H, I, ENTER, through the touch screen
+        const keys = page.frameLocator('iframe').frameLocator('iframe');
+        for (const k of ['H', 'I', 'ENTER']) { await keys.locator(`#keys-full [data-key="${k}"]`).tap(); await page.waitForTimeout(150); }
+        await page.waitForTimeout(500);
+        const st = await text(page);
+        check('connector phone: tapping H, I, ENTER on the on-screen keys types them into the machine (screen_text through the host shows "> HI")', /> HI/.test(st), st.slice(0, 400));
+        // SHIFT is sticky for one key
+        // the Stick mode: the strip, the stick and FIRE; BREAK once in each mode
+        const breaks = () => v.evaluate(() => [...document.querySelectorAll('#keys [data-key="BREAK"]')].filter((b) => b.checkVisibility()).length);
+        const inKeys = await breaks();
+        await keys.locator('#keys-mode [data-mode="stick"]').tap();
+        await page.waitForTimeout(200);
+        const stick = await v.evaluate(() => ({ pad: document.getElementById('keys-stick').checkVisibility(), fire: document.getElementById('keys-fire').checkVisibility(), full: document.getElementById('keys-full').checkVisibility(), mode: window.cloadmView.keys.mode }));
+        const inStick = await breaks();
+        const box = await keys.locator('#keys-fire').boundingBox();
+        await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+        const geo2 = await v.evaluate(() => { const r = (id) => document.getElementById(id).getBoundingClientRect(); return { sb: r('screen').bottom, keysTop: r('keys').top, foot: r('foot').bottom, vh: innerHeight, cw: r('screen').width }; });
+        await shot(page, 'fullscreen-390x844-stick');
+        await keys.locator('#keys-mode [data-mode="keys"]').tap();
+        check('connector phone: Stick shows the strip, the stick and FIRE (not the keyboard); BREAK shows once in each mode; the screen refits above the keys',
+          stick.pad && stick.fire && !stick.full && stick.mode === 'stick' && inKeys === 1 && inStick === 1 && geo2.sb <= geo2.keysTop && geo2.foot <= geo2.vh - 33, JSON.stringify({ stick, inKeys, inStick, geo2 }));
+        // a shorter panel (390 x 640): the screen gives way, so the keys and the status line still fit above the bottom inset
+        await page.evaluate(() => { window.resizeView(390, 640); window.hostContextChanged({ containerDimensions: { width: 390, height: 640 } }); });
+        await page.waitForTimeout(400);
+        const short = await v.evaluate(() => { const r = (id) => document.getElementById(id).getBoundingClientRect(); return { vh: innerHeight, screen: r('screen').top, sb: r('screen').bottom, keysTop: r('keys').top, foot: r('foot').bottom, cw: r('screen').width, ch: r('screen').height }; });
+        check('connector phone: in a shorter panel (390 x 640) the screen shrinks so the keys and the status line still end above the bottom inset, below the top one',
+          short.screen >= 64 && short.sb <= short.keysTop && short.foot <= short.vh - 34 + 1 && Math.abs(short.cw / short.ch - 4 / 3) < 0.01 && short.cw < 300, JSON.stringify(short));
+        await page.evaluate(() => { window.resizeView(390, 844); window.hostContextChanged({ containerDimensions: { width: 390, height: 844 } }); });
+        await page.waitForTimeout(300);
+        // ⋯ hides them and brings them back
+        await v.click('#more'); await v.click('#keys-item');
+        const off = await v.evaluate(() => document.getElementById('keys').hidden);
+        await v.click('#more'); await v.click('#keys-item');
+        const back = await v.evaluate(() => !document.getElementById('keys').hidden);
+        check('connector phone: ⋯ → Hide on-screen keys hides them, Show brings them back', off && back, JSON.stringify({ off, back }));
+        // a host that asks the person first: the approved call is answered after the wait, a denied one changes nothing
+        const approved = await page.evaluate(() => window.callApproved('type_text', { machine_id: 'm1', text: 'OK\n' }, { ms: 1500 }));
+        const denied = await page.evaluate(() => window.callApproved('press_break', { machine_id: 'm1' }, { deny: true }));
+        await page.waitForTimeout(400);
+        const after = await text(page);
+        const last = await v.evaluate(() => window.CLOADM_BRIDGE.log.last);
+        check('connector phone: with a host that asks before each call, an approved call (after 1.5 s) is answered and acts, a denied one never reaches the view, and the next call works; Details names the last call',
+          approved.result && !approved.result.isError && denied.denied && /> OK/.test(after) && /^screen_text ok \d+ ms$/.test(last), JSON.stringify({ approved: approved.result && approved.result.isError, last, after: after.slice(0, 300) }));
+      }
+      await ctx.close();
+    }
+    // ---- a desktop: no keys
+    {
+      const { ctx, v, ready } = await opened({ viewport: { width: 800, height: 900 } }, { w: 600, h: 800, mode: 'fullscreen', ctx: JSON.stringify({ safeAreaInsets: { top: 0, right: 0, bottom: 0, left: 0 } }) });
+      const r = await v.evaluate(() => ({ keys: document.getElementById('keys').hidden, item: document.getElementById('keys-item').hidden, bar: document.getElementById('bar').getBoundingClientRect().top }));
+      check('connector phone: on a desktop (fine pointer, no touch) there are no on-screen keys and no ⋯ item for them; zero insets keep the toolbar at the top', ready && r.keys && r.item && r.bar === 0, JSON.stringify(r));
+      await ctx.close();
+    }
+    check('connector phone: no page errors', !errors.length, errors.join(' | '));
+  } finally {
+    srv.server.close();
+    srv.server.closeAllConnections();
+  }
+}
+
 async function connectorChecks(browser, check, { shots = null } = {}) {
   await scenario(browser, check, 'site', { uri: 'ui://cloadm/panel.html', shots });
   await scenario(browser, check, 'inline', { uri: 'ui://cloadm/inline.html', granted: false, shots, mode: 'fullscreen' });
   await uiScenario(browser, check, { shots });
+  await phoneScenario(browser, check, { shots });
   await scenario(browser, check, 'no-cors', { uri: 'ui://cloadm/panel.html', cors: false });
   await scenario(browser, check, 'out-of-step', { uri: 'ui://cloadm/panel.html', panelApi: 999 });
 }
-module.exports = { connectorChecks, uiScenario, specCsp };
+module.exports = { connectorChecks, uiScenario, phoneScenario, specCsp };
 
 if (require.main === module) {
   (async () => {

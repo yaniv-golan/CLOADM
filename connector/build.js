@@ -80,7 +80,7 @@ const scriptJson = (v) => JSON.stringify(v).replace(/</g, '\\u003c');
 // errors the person must act on stay on that line).
 const CSS = `:root{color-scheme:dark;--bg:#0B0D0C;--panel:#141816;--line:#263029;--line2:#3A4540;--text:#E8EDE6;--dim:#9AA59C;--claude:#D97757;--claude-ink:#141413;--claude-edge:#B85C3E;--focus:#C9D2C8}
 *{box-sizing:border-box}html,body{margin:0}
-body{background:var(--bg);color:var(--text);font:13px/1.35 system-ui,-apple-system,"Segoe UI",sans-serif}
+body{padding:var(--in-t,0) var(--in-r,0) var(--in-b,0) var(--in-l,0);background:var(--bg);color:var(--text);font:13px/1.35 system-ui,-apple-system,"Segoe UI",sans-serif}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 #bar{display:flex;flex-wrap:nowrap;gap:2px;padding:4px 6px;align-items:center;border-bottom:1px solid var(--line);background:var(--panel)}
 #bar .grow{flex:1 1 0}
@@ -123,6 +123,21 @@ button:focus-visible,summary:focus-visible{outline:2px solid var(--focus);outlin
 #details{color:var(--dim);flex:none}#details summary{cursor:pointer;font-size:12px;border-radius:4px;width:max-content;margin-left:auto}
 #details[open]{flex-basis:100%}
 #st,#msg{padding:2px 0;font:11px ui-monospace,monospace;color:var(--dim);word-break:break-word}
+#keys{padding:2px 6px 6px;display:flex;flex-direction:column;gap:4px;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}
+#keys[hidden],#keys [hidden]{display:none!important}
+#keys .kfull{display:flex;flex-direction:column;gap:4px}
+#keys .krow{display:flex;gap:3px}
+#keys .k{flex:1 1 0;min-width:0;height:40px;padding:0;border:1px solid var(--line);border-radius:6px;background:#1C221E;font-weight:600;font-size:15px;touch-action:none;display:inline-flex;flex-direction:column;align-items:center;justify-content:center;line-height:1}
+#keys .k.wide{flex:1.7 1 0;font-size:12px}#keys .k.space{flex:2.4 1 0}#keys .k small{font-size:9px;color:var(--dim)}
+#keys .k.down{background:#3A4540;border-color:var(--focus)}#keys .k[aria-pressed="true"]{background:#26302A;border-color:var(--focus)}
+#keys .kstick{display:flex;gap:6px}
+#keys .kpad{position:relative;flex:1 1 0;height:132px;border:2px dashed var(--line2);border-radius:10px;background:#111412;touch-action:none;overflow:hidden}
+#keys .kknob{position:absolute;left:50%;top:50%;width:52px;height:52px;margin:-26px 0 0 -26px;border-radius:50%;background:#2A302C;border:2px solid var(--line2);pointer-events:none}
+#keys .kknob.live{background:#3A403C;border-color:var(--focus)}
+#keys .kfire{flex:0 0 38%;height:132px;border:0;border-radius:10px;background:#B3261E;color:#fff;font-size:20px;font-weight:800;touch-action:none}
+#keys .kfire.down{background:#7A1B14}
+#keys .kmode{display:flex;flex:2 1 0;border:1px solid var(--line2);border-radius:6px;overflow:hidden}
+#keys .kmode button{flex:1;border:0;border-radius:0;height:38px;padding:0 4px}#keys .kmode button[aria-pressed="true"]{background:#26302A;color:var(--text);font-weight:600}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}`;
 
 function shell(cfg, module) {
@@ -134,11 +149,12 @@ function shell(cfg, module) {
 <button id="sound" aria-pressed="false" disabled><span class="lbl">Sound off</span></button><input id="rom" type="file" multiple hidden>
 <span class="grow"></span>
 <div class="menu"><button id="more" aria-haspopup="menu" aria-expanded="false" aria-controls="more-menu" aria-label="More" disabled>⋯</button><div id="more-menu" role="menu" aria-label="More" hidden>
-<button id="big" role="menuitem" tabindex="-1" hidden>Open in side panel</button><button id="details-item" role="menuitem" tabindex="-1">Details</button><button id="copy" role="menuitem" tabindex="-1">Copy details</button></div></div>
+<button id="big" role="menuitem" tabindex="-1" hidden>Open in side panel</button><button id="keys-item" role="menuitem" tabindex="-1" hidden>Hide on-screen keys</button><button id="details-item" role="menuitem" tabindex="-1">Details</button><button id="copy" role="menuitem" tabindex="-1">Copy details</button></div></div>
 </div>
 <div id="stage"><div id="bezel"><canvas id="screen" tabindex="0" width="320" height="240" aria-label="CLOADM screen. Click or focus to type."></canvas>
 <div id="hint" aria-hidden="true">Click to type</div>
 <div id="chip" aria-hidden="true" hidden><span id="chip-text"></span><span id="chip-keys"></span><span class="cursor"></span><span id="chip-left"></span></div></div></div>
+<div id="keys" aria-label="On-screen keys" hidden></div>
 <div id="foot"><p id="status">Starting CLOADM…</p>
 <details id="details"><summary>Details</summary><div id="msg"></div><div id="st">loading (${cfg.variant})…</div></details></div>
 <div id="announce" class="sr" aria-live="polite"></div>

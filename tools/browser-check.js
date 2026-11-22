@@ -7103,7 +7103,7 @@ async function inputScreenChecks(browser, base, check) {
     const touch = (type, x, y) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y, id: 1, radiusX: 8, radiusY: 8, force: 1 }] });
     const reset = () => page.evaluate(() => { window.pressed = []; window.stubbed = []; window.seen = []; });
     const typed = () => page.evaluate(() => ({ pressed: window.pressed.join(), stubbed: window.stubbed.join(), shift: document.querySelector('#touchFull [data-key="SHIFT"]').getAttribute('aria-pressed') }));
-    const HOLD_MS = await page.evaluate(async () => (await import(new URL('js/ui/touch-keys.js', document.baseURI).href)).HOLD_MS);
+    const HOLD_MS = await page.evaluate(async () => (await import(new URL('js/ui/touch-layout.js', document.baseURI).href)).HOLD_MS);
     // a drag of 40 px up (the owner's scroll), from Q, then from SHIFT; up to three tries for a drag whose first move
     // reached the page within HOLD_MS (a loaded machine can be slower than a finger: that try tests nothing)
     for (const [name, sel] of [['Q', '#touchFull [data-key="Q"]'], ['SHIFT', '#touchFull [data-key="SHIFT"]']]) {

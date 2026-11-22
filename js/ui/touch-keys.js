@@ -22,30 +22,9 @@
  * visit (a Keys button brings it back). The mode is remembered per machine (touchMode.<id>), and ?touch= sets it
  * for the visit (js/config.js; never for an embed, which has no panel of its own).
  */
-import { charToKeys } from '../machines/keyboards.js';
 import { touchJoystickOffered, STICK_RADIUS } from '../host/input.js';
 import { $, ESC, markUndrawn } from './page.js';
-
-// label -> machine key name, and the code the stub reads (ASCII; the arrows as BASIC's codes)
-const SPECIAL = {
-  '↑': ['UP', 94], '↓': ['DOWN', 10], '←': ['LEFT', 8], ENTER: ['ENTER', 13], SPACE: ['SPACE', 32],
-  BREAK: ['BREAK', 3], CLEAR: ['CLEAR', 12],
-};
-// the character SHIFT + key types (the Dragon layout's shifted symbols), for the stub
-const SHIFTED = {};
-for (let c = 32; c < 127; c++) { const ch = String.fromCharCode(c), k = charToKeys(ch); if (k && k.shift && !SHIFTED[k.key]) SHIFTED[k.key] = ch; }
-
-const SPLIT = {
-  left: ['1 2 3 4 5 6', '↑ Q W E R T', '↓ A S D F G', 'SHIFT Z X C V B', '_'],
-  right: ['7 8 9 0 : -', 'Y U I O P @', 'H J K L ; ENTER', 'N M , . / ←', '_ SHIFT'],
-};
-const FULL = ['1 2 3 4 5 6 7 8 9 0', 'Q W E R T Y U I O P', 'A S D F G H J K L ;', 'Z X C V B N M , . /', 'SHIFT ↑ ↓ ← _ : - @ ENTER'];
-// joystick mode's key strip: the keys a game that asks "PRESS Y OR N" wants, and the space bar most use to
-// start; ABC opens the full keyboard for one key, then back to the stick
-const STRIP = ['SPACE', 'ENTER', 'BREAK', '1', '2', 'Y', 'N', 'ABC'];
-const SHORT = { SPACE: 'SPC', ENTER: 'ENT', BREAK: 'BRK' };
-// a key is committed when the finger lifts, or after HOLD_MS still; moving MOVE_PX first cancels it (key(), below)
-export const HOLD_MS = 100, MOVE_PX = 10;
+import { SPLIT, FULL, STRIP, SHORT, HOLD_MS, MOVE_PX, keyPress } from './touch-layout.js';
 
 export function setupTouchKeys(page, { input }) {
   const { session } = page;
@@ -83,12 +62,10 @@ export function setupTouchKeys(page, { input }) {
       if (t === 'SHIFT') { shiftArmed.delete(commit); shift = !shift; for (const s of box.querySelectorAll('[data-key="SHIFT"]')) s.setAttribute('aria-pressed', String(shift)); return; }
       // a chord: SHIFT held down, then a key tapped before SHIFT's own HOLD_MS -- the key is shifted, as it always was
       for (const c of [...shiftArmed]) c();
-      const sp = SPECIAL[t], name = sp ? sp[0] : t;
-      let code = sp ? sp[1] : t.charCodeAt(0);
-      if (shift && !sp && SHIFTED[name]) code = SHIFTED[name].charCodeAt(0);
+      const { names, code } = keyPress(t, shift);
       // (the person's key: Claude acting on this machine pauses first, as for a key on the keyboard)
       session.personInput();
-      input.touch(id, shift ? ['SHIFT', name] : [name], code, true);
+      input.touch(id, names, code, true);
       // ABC's one keypress is this one: the stick comes back after it (queued, so the key is in first)
       if (keysOnce) queueMicrotask(leave);
     };

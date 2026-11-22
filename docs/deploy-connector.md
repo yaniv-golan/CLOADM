@@ -104,8 +104,23 @@ open the view in the side panel, and in the next message ask Claude to type `I A
 Under the screen the view says what runs ("LIZA is running · Dragon 64 · no ROMs"); open **Details** (in **⋯**, or
 beside that line) for the diagnostics: the variant, the host, its display mode and container size (`inline`, or
 `fullscreen` in the side panel), the domains it was granted, the storage it has, the sound, what the host asked of it
-(`bridge: init … ms, tools/list ×N, calls ×N, list_changed sent`), and the last load's raw message. **⋯ → Copy
-details** copies them.
+(`bridge: init … ms, tools/list ×N, calls ×N, list_changed sent, last call screen_text ok 12 ms, size 390×640 ×2`),
+and the last load's raw message. **⋯ → Copy details** copies them.
+
+### On a phone
+
+In the Claude app on an iPhone or Android phone, with the same connector:
+
+1. Ask "Open CLOADM". Inline in the chat the whole view shows: the toolbar, the screen at the full width, the
+   on-screen keys and the status line (the view tells the app its height, `ui/notifications/size-changed`; Details
+   shows `size W×H`).
+2. Open it in the side panel or fullscreen (**⋯ → Open in side panel**). Nothing of the toolbar or the screen is under
+   the app's title chip or the home bar.
+3. Tap **H**, **I**, **ENTER** on the on-screen keys: LIZA shows `> HI` and answers. **Stick** shows the stick and FIRE
+   (on a machine with a joystick port); **⋯ → Hide on-screen keys** hides them.
+4. In the next message ask Claude to read the screen. If the call fails, open **Details**: `calls ×0` means the app
+   never passed the call to the view (the app's side: say whether it asked you to approve it); `last call screen_text
+   error <code>` means the view answered it with that error, which names the cause.
 
 ## Roll back or remove
 
