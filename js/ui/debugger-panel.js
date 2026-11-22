@@ -13,7 +13,7 @@
  */
 import { CanvasPresenter } from '../video/canvas.js';
 import { REGISTER_ORDER, REGISTER_DIGITS, FLAGS } from '../debugger.js';
-import { $ } from './page.js';
+import { $, showView } from './page.js';
 
 const hex2 = (v) => '$' + (v & 0xFF).toString(16).toUpperCase().padStart(2, '0');
 const hex4 = (v) => '$' + (v & 0xFFFF).toString(16).toUpperCase().padStart(4, '0');
@@ -36,7 +36,7 @@ export function setupDebuggerPanel(page) {
   function show() {
     const open = isOpen();
     document.body.classList.toggle('debug-open', open);
-    view.hidden = !open;
+    showView(view, open);
     if (open) refresh();
   }
   page.onView(show);

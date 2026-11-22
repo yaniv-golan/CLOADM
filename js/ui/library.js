@@ -24,7 +24,7 @@
 import { detectMedia, FAMILY_NAMES } from '../media/detect.js';
 import { expand, pickedFiles, droppedFiles } from './files.js';
 import { DISK_PREFIX } from '../session.js';
-import { $ } from './page.js';
+import { $, showView } from './page.js';
 import { availableChoices, openMediaStore } from '../host/media-store-open.js';
 import { FsaMediaStore } from '../host/media-store-fsa.js';
 import { saveFolder, forgetFolder } from '../host/folder-handle.js';
@@ -89,10 +89,17 @@ export function setupLibrary(page, { loadProgram, runShelf, changed, showRoms, r
   function show() {
     const open = isOpen();
     document.body.classList.toggle('library-open', open);
-    view.hidden = !open;
+    showView(view, open);
     if (open) { refresh(); $('libHeading').focus(); }
   }
   page.onView(show);
+  // Navigating to the fragment "#library" (an address typed or assigned, or Back/Forward to it; not page.openView, which
+  // pushes history state) makes the browser run its own focusing steps on the fragment's target, after the popstate that
+  // opened the view (show() above, with the heading focused). The Library's element has the id "library", which is not
+  // focusable, so the browser puts the focus on the viewport (activeElement becomes the body). hashchange comes after those
+  // steps: the heading takes the focus back there, unless the focus is already inside the view (the page has moved it on).
+  // (No isOpen() test: a closed view is hidden and inert by then, and an element that cannot be focused ignores focus().)
+  addEventListener('hashchange', () => { if (!view.contains(document.activeElement)) $('libHeading').focus(); });
   const close = () => {
     setSelecting(false);                  // (leaving ends the Undo toast, and so the delete: js/ui/feedback.js on the view change)
     page.closeView();

@@ -249,6 +249,20 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   in-memory key store, so a key saved in this browser is not reachable there.
 - **The embed API acts on the machine you work on, not the one on screen.** peek, poke, type, screenText,
   powerCycle and info each name that machine, and the ROM check is asked about the same one the call reads.
+- **Opening the Library by address puts the focus on its heading.** The Library takes the focus on its heading when it opens,
+  but when it was opened by a typed or assigned `#library`, or by Back or Forward to it (the header's Library link and the Media
+  tab's link push history state and were not affected), the browser navigated to that fragment and its own focusing steps, which
+  run after the page's `popstate` handler, moved the focus to the viewport (the Library's element has the id `library`), so keyboard
+  and screen-reader users started from the top of the page. The heading now takes the focus again on `hashchange`, which comes
+  after those steps. `closedViews` checks it, the handler's guard (the focus already inside the view stays), and Forward to it.
+- **A closed view is out of the keyboard's reach and the accessibility tree by its own state.** Share, the Library, the
+  Debugger and Add ROMs were closed only by the `hidden` attribute, which a single stylesheet rule
+  (`[hidden] { display: none !important }` in `css/tokens.css`) draws as nothing; without that rule Tab went into a closed
+  Share (its Back link, link field and Copy link). A closed view is now also `inert` and `aria-hidden`, and opening it
+  clears both in the same step (`showView` in `js/ui/page.js`), so the focus a view takes when it opens still lands. The
+  browser check's new group `closedViews` tabs through the page at desktop, tablet and phone sizes with every view
+  closed, and after each view closed by Esc, Back or a link, and requires that focus never lands inside a closed view or
+  a hidden panel, and that an open view's controls are reachable.
 
 ### 0.1.8-pre
 

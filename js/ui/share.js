@@ -16,7 +16,7 @@ import { profiles } from '../machines/profiles.js';
 import { buildUrl } from '../config.js';
 import { needsLine } from '../media/romrefs.js';
 import { CanvasPresenter } from '../video/canvas.js';
-import { $ } from './page.js';
+import { $, showView } from './page.js';
 
 const time = (d) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 const CLIP_SECONDS = 6;
@@ -40,7 +40,7 @@ export function setupShare(page) {
   function show() {
     const open = isOpen();
     document.body.classList.toggle('share-open', open);
-    view.hidden = !open;
+    showView(view, open);
     // opened by address (play/#share) the page is still starting: the view shows, and ready() captures once there is a machine
     if (open && !captured && started) capture().catch((e) => page.status(e.message, true));
     if (open) window.scrollTo(0, 0);
