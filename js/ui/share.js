@@ -50,6 +50,13 @@ export function setupShare(page) {
     page.openView('#share');
   };
 
+  // a closed disclosure's body is `hidden` for real (not only folded by <details>), so a reading mode and assistive
+  // technology see what the screen shows
+  for (const d of view.querySelectorAll('details.disc')) {
+    const body = d.querySelector(':scope > :not(summary)');
+    d.addEventListener('toggle', () => { body.hidden = !d.open; });
+  }
+
   // ---------------- share this moment ----------------
   async function capture() {
     const m = session.machine, frame = m.render();

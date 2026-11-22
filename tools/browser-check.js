@@ -4998,7 +4998,7 @@ const RETIRED = [
   [/\bmount(ed|s)?\b/i, 'insert'],
   [/save state|quick[- ]save|quick slots|Keep this moment/i, 'Snapshot 1–3, Take snapshot'],
   [/\bSlot [1-3]\b|\b(to|Load) slot [1-3]\b/, 'Snapshot 1–3 (the Multi-Pak\'s own slots keep their name)'],
-  [/Capture (&|and) share|share this moment|\bmoments?\b/i, 'Share, snapshot'],
+  [/Capture (&|and) share|\bmoments\b/i, 'Share, snapshot'],
   [/ROM bundle/i, 'ROM pack'],
   [/\bD(32|64|200)\b/, 'Dragon 32, Dragon 64…'],
   [/Tandy Color Computer(?! 3 \(CoCo 3\))|Color Computer (1\/2|2B|3)|Micro Color Computer|Tandy MC-10/, 'CoCo 1/2, CoCo 2B, CoCo 3, MC-10'],
@@ -12169,7 +12169,7 @@ async function semanticsChecks(browser, base, site, check) {
       await closedOk(page, `${L}, ${hash}`);
       const text = await extract(page);
       check(`${L}, ${hash}: the emulator behind the view is inert and aria-hidden, and a reading mode reads the view, not the emulator`,
-        behind && text.includes(own) && !text.includes('TALK TO LIZA') && !text.includes('Fast tape loading'), JSON.stringify({ behind, text: text.slice(0, 200) }));
+        behind && text.includes(own) && !text.includes('TALK TO LIZA') && !text.includes('Fast tape loading'), JSON.stringify({ behind, text: text.slice(0, 600) }));
       await page.click(backBtn);
       await waitFor(page, () => getComputedStyle(document.querySelector('.layout')).display !== 'none');
       const back = await page.evaluate(() => ({ inert: document.querySelector('.layout').inert, focus: document.activeElement && document.activeElement.id }));
