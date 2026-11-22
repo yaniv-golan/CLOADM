@@ -84,6 +84,23 @@ function session(machine = 'dragon64') {
     s.setClaudeAllowed(true);
     const r3 = await call(chat, 'poke', { address: 0x3000, bytes: [9] });
     check('allowed: the call acts through the same hooks', r3.ok && m.ram[0x3000] === 9 && s.claudeTool === null);
+    // onToolStart tells the page at once: a 'chat' event with the tool's name, while the call is still held (here, by
+    // a card nobody has answered yet) and before the card itself is raised (claudePending, which emits on its own)
+    s.setClaudeAllowed(false);
+    let release = null;
+    s.claudeGate = () => { release = () => s.claudePending.resolve(true); };
+    const events = [];
+    const off = s.on((ev) => { if (ev === 'chat') events.push({ tool: s.claudeTool, card: !!s.claudePending, done: settled }); });
+    let settled = false;
+    const held = call(chat, 'poke', { address: 0x3001, bytes: [3] }).then((res) => { settled = true; return res; });
+    await settle();
+    check('a tool start emits \'chat\' with claudeTool set, before the card and before the tool resolves',
+      events.length > 0 && events[0].tool === 'poke' && !events[0].card && !events[0].done && !settled, JSON.stringify(events));
+    release();
+    const r4 = await held;
+    off();
+    check('the held call then acts, and its end emits \'chat\' with the status cleared', r4.ok && m.ram[0x3001] === 3
+      && events.length >= 2 && events[events.length - 1].tool === null, JSON.stringify(events));
   }
 
   // ---- abort ordering through the Session: the pause ends before the request is aborted ----
