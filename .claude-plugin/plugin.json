@@ -20,7 +20,7 @@
   ],
   "icon": "./icons/icon-512.png",
   "mcpServers": {
-    "cloadm-local": {
+    "cloadm": {
       "command": "node",
       "args": [
         "${CLAUDE_PLUGIN_ROOT}/cli/cloadm.js",

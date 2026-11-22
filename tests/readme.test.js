@@ -124,9 +124,13 @@ const PHONE_VIEW_WORKS = false;
       rows.length === 4 && rows[0][0] === 'claude.ai on the web, desktop chat' && rows[0][1] === 'the live side panel (after Connect)'
       && rows[1][0] === 'Desktop Cowork, Claude Code' && rows[1][1] === 'on your computer, with your ROMs and files'
       && rows[2][0] === 'Phone' && /^not yet\b/.test(rows[2][1]) && /^Other agents\b/.test(rows[3][0]) && rows[3][1].includes('`node cli/cloadm.js --mcp`'), JSON.stringify(rows));
-    const after = end >= 0 ? t.slice(end, end + 600) : '';
+    const after = end >= 0 ? t.slice(end, end + 900) : '';
     check(`${f}: "Without the plugin": the connector URL, no sign-in, the side panel but not the skill`,
       after.includes('Add `https://mcp.cloadm.dev/mcp` as a custom connector (no sign-in). You get the side panel but not the skill that teaches Claude to play it well.'));
+    const ALREADY = "Already added https://mcp.cloadm.dev/mcp as a custom connector? The plugin's cloadm-panel uses that same connector, so you won't have two; you can keep it.";
+    const steps = sec.slice(sec.indexOf('2. On the web and in desktop chat'), sec.indexOf('In Cowork and Claude Code'));
+    check(`${f}: the note for a connector already added by hand, under step 2 and under "Without the plugin"`,
+      t.split(ALREADY).length - 1 === 2 && steps.includes(ALREADY) && after.includes(ALREADY));
     const zips = [...new Set([...t.matchAll(/`([\w.-]+\.zip)`/g)].map((m) => m[1]))];
     check(`${f}: names the skill zip, and release.yml publishes that exact file`, zips.length === 1 && rel.includes(`dist/${zips[0]}`), zips.join(','));
     const stale = ['**Use the connector.**', '**For developers and your own files: the plugin.**', '| You want to… | Use |', '**Both on?**', '**Which one?**', 'phones not yet tested', 'The four routes'].filter((w) => t.includes(w));

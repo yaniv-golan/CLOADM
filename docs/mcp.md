@@ -17,6 +17,8 @@ and nothing else: no npm packages and no build.
 2. On the web and in desktop chat: open the plugin's Connectors tab and click **Connect** next to *cloadm-panel*, then
    **Continue**. The emulator then opens in Claude's side panel.
 
+   Already added https://mcp.cloadm.dev/mcp as a custom connector? The plugin's cloadm-panel uses that same connector, so you won't have two; you can keep it.
+
    On phones the plugin and connector install, but the side panel can't be used yet. Use claude.ai on a computer or the desktop app. <!-- phones-not-yet: remove once the side panel works on phones (PHONE_VIEW_WORKS in tests/readme.test.js) -->
 
 In Cowork and Claude Code it runs on your computer instead, with your ROM files and the ~/CLOADM folder; nothing to connect.
@@ -30,12 +32,12 @@ In Cowork and Claude Code it runs on your computer instead, with your ROM files 
 | Phone | not yet. On phones the plugin and connector install, but the side panel can't be used yet. Use claude.ai on a computer or the desktop app. <!-- phones-not-yet: remove once the side panel works on phones (PHONE_VIEW_WORKS in tests/readme.test.js) --> |
 | Other agents (Cursor, Codex, Gemini CLI, …) | the MCP entry for `node cli/cloadm.js --mcp` ([below](#cursor-gemini-cli-codex-and-other-mcp-clients)) |
 
-The plugin's two servers are *cloadm-panel* (the side panel, at `https://mcp.cloadm.dev/mcp`) and *cloadm-local* (on your
+The plugin's two servers are *cloadm-panel* (the side panel, at `https://mcp.cloadm.dev/mcp`) and *cloadm* (on your
 computer, `node cli/cloadm.js --mcp`); each Claude app uses the one it can.
 
 ### Without the plugin
 
-Add `https://mcp.cloadm.dev/mcp` as a custom connector (no sign-in). You get the side panel but not the skill that teaches Claude to play it well. To add the skill on its own, download `cloadm-skill.zip` from the [Releases](https://github.com/yaniv-golan/CLOADM/releases) page and add it in claude.ai under Settings → Capabilities → Skills (steps not yet verified by the owner).
+Add `https://mcp.cloadm.dev/mcp` as a custom connector (no sign-in). You get the side panel but not the skill that teaches Claude to play it well. Already added https://mcp.cloadm.dev/mcp as a custom connector? The plugin's cloadm-panel uses that same connector, so you won't have two; you can keep it. To add the skill on its own, download `cloadm-skill.zip` from the [Releases](https://github.com/yaniv-golan/CLOADM/releases) page and add it in claude.ai under Settings → Capabilities → Skills (steps not yet verified by the owner).
 
 ## Which way should I install CLOADM for Claude?
 
@@ -45,7 +47,7 @@ own marketplace.
 
 | Way | Install | Where the emulator runs | Tested |
 |---|---|---|---|
-| **1. The CLOADM plugin** (most people) | Customize → Plugins → Add marketplace → `yaniv-golan/CLOADM` → Add **CLOADM**; on the web and in desktop chat, then **Connect** next to *cloadm-panel* on the plugin's Connectors tab; in Claude Code `/plugin marketplace add yaniv-golan/CLOADM`, then `/plugin install cloadm@cloadm-marketplace` | web and desktop chat: in Claude's side panel (*cloadm-panel*); Cowork and Claude Code: on your computer (*cloadm-local*) | by the owner: web and desktop chat show *cloadm-panel* with a Connect button and use the side panel; Cowork uses the local server |
+| **1. The CLOADM plugin** (most people) | Customize → Plugins → Add marketplace → `yaniv-golan/CLOADM` → Add **CLOADM**; on the web and in desktop chat, then **Connect** next to *cloadm-panel* on the plugin's Connectors tab; in Claude Code `/plugin marketplace add yaniv-golan/CLOADM`, then `/plugin install cloadm@cloadm-marketplace` | web and desktop chat: in Claude's side panel (*cloadm-panel*); Cowork and Claude Code: on your computer (*cloadm*) | by the owner: web and desktop chat show *cloadm-panel* with a Connect button and use the side panel; Cowork uses the local server |
 | 2. The connector alone (no skill) | Plugins → Add → "Add custom connector" → name `CLOADM` and URL `https://mcp.cloadm.dev/mcp` → **No sign-in** → Add | in Claude's side panel, in your browser | claude.ai on the web and the desktop app, by the owner |
 | 3. `.mcpb` extension (niche) | download `cloadm.mcpb` from the [Releases](https://github.com/yaniv-golan/CLOADM/releases) page and open it | on your computer, Claude Desktop only | |
 | 4. Other agents (Cursor, Codex, Gemini CLI, …) | an MCP entry for `node cli/cloadm.js --mcp`, plus `.agents/skills/` | on your computer | see [below](#cursor-gemini-cli-codex-and-other-mcp-clients) |
@@ -60,7 +62,7 @@ manifest names each server by its id only ([plugins reference](https://code.clau
   are added inside the panel and stay in that browser. There are no files: no tapes, disks or snapshots from your
   computer, and no downloads. Details: [Claude on the web: side panel](#claude-on-the-web-side-panel). Those apps
   ignore the local server.
-- *cloadm-local*, the local server `node ${CLAUDE_PLUGIN_ROOT}/cli/cloadm.js --mcp`. Cowork and Claude Code run it on
+- *cloadm*, the local server `node ${CLAUDE_PLUGIN_ROOT}/cli/cloadm.js --mcp`. Cowork and Claude Code run it on
   your computer (Cowork needs the Claude desktop app open), with your ROM files and the `~/CLOADM` folder for tapes,
   disks, programs and snapshots ([Your ROMs and media folder](#your-roms-and-media-folder)). Claude sees text and
   screenshots; there is no live panel. Nothing to connect.
@@ -121,7 +123,7 @@ Minesweeper run; BASIC does not). The agent skill that teaches an agent to use t
 
 | Host | How |
 |---|---|
-| Claude Code | the plugin from this repository's marketplace (its *cloadm-local* server) |
+| Claude Code | the plugin from this repository's marketplace (its *cloadm* server) |
 | The Claude desktop app | the plugin, from this repository's marketplace (see [The Claude desktop app](#the-claude-desktop-app)): the side panel in chat, the local server in Cowork; or the `.mcpb` extension where plugins are not allowed |
 | Cursor | an MCP server entry pointing at a checkout, plus the skill folder (supported); this repository's marketplace may also install as it is (untested: see below) |
 | Codex (CLI and app), Gemini CLI, other MCP clients | an MCP server entry pointing at a checkout, plus the skill folder; in the Codex app the marketplace is untested (see below) |
@@ -155,7 +157,7 @@ The app reads plugins from your Claude account, not from Claude Code: a plugin i
 3. For chat: open the plugin's Connectors tab and click **Connect** next to *cloadm-panel*, then **Continue**. The
    emulator then opens in Claude's side panel.
 
-(Steps checked by the owner in the desktop app.) Cowork uses the plugin's local server, *cloadm-local* (the app starts
+(Steps checked by the owner in the desktop app.) Cowork uses the plugin's local server, *cloadm* (the app starts
 `node` on your computer), so it runs while the app is open on that computer, which needs Node 22.12 or later on its
 `PATH`.
 

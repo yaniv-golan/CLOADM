@@ -11,8 +11,8 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 ### Changed
 
 - **One CLOADM plugin for Claude, with two servers.** The plugin (still `cloadm`, from the same marketplace) carries
-  the side panel, *cloadm-panel* (`https://mcp.cloadm.dev/mcp`), and the local server, *cloadm-local*
-  (`node cli/cloadm.js --mcp`), and declares `network.hosts: ["mcp.cloadm.dev"]`. On the web and in desktop chat, open
+  the side panel, *cloadm-panel* (`https://mcp.cloadm.dev/mcp`), and the local server, *cloadm*
+  (`node cli/cloadm.js --mcp`; the same id as before, so allowlists naming `mcp__plugin_cloadm_cloadm__*` keep working), and declares `network.hosts: ["mcp.cloadm.dev"]`. On the web and in desktop chat, open
   the plugin's Connectors tab and click **Connect** next to *cloadm-panel*: the emulator opens in Claude's side panel.
   Cowork and Claude Code run it on your computer, with your ROM files and `~/CLOADM`. The plugin manifest shows only
   each server's id (no per-server title), so the docs use the ids. New description: "Play Dragon and Tandy Color
@@ -22,7 +22,8 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   the badge Claude shows for a connector Anthropic hasn't reviewed, a table by where you use Claude (web and desktop
   chat, Cowork and Claude Code, phone, other agents) and "Without the plugin" (the connector alone, without the
   skill). The "Use the connector" lead, its "Which one?" table and "Both on?" are gone. Phones: the plugin and the
-  connector install, but the side panel can't be used there yet.
+  connector install, but the side panel can't be used there yet. A connector added by hand before is the one the plugin's
+  *cloadm-panel* uses, so there is no second one.
 - **The skill knows its route.** Its first step is which route it is on, then its "Side panel" or "On this computer"
   section; the boot waits, the `BUILT-IN STUB` banner, `~/CLOADM`, ROM files, tapes, disks, snapshots and `add_roms`
   are now only under "On this computer" (both copies). Each server's MCP instructions open with the route ("You are

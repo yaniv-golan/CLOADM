@@ -1,7 +1,7 @@
 ---
 name: cloadm
 description: Use whenever the user wants to run, test or debug something on a Dragon 32/64/200, Tandy Color Computer (CoCo 1/2/3), TRS-80 MC-10 or a clone, mentions CLOADM, 6809 or 6803 code, Color BASIC or Dragon BASIC, or .cas/.bin/.vdk/.dsk/.cloadm-state files, or asks to "run this on a Dragon/CoCo", even without saying "emulator". It drives the CLOADM emulator's MCP tools - boot, load, type, wait for the screen, read the screen, memory and registers, hold keys for games, step, disassemble, screenshots and snapshots. Needs the cloadm MCP tools.
-compatibility: Needs CLOADM's MCP tools connected to this agent - the cloadm plugin (its side panel, cloadm-panel, or its local server, cloadm-local), the connector https://mcp.cloadm.dev/mcp, the Claude Desktop extension, or node cli/cloadm.js --mcp.
+compatibility: Needs CLOADM's MCP tools connected to this agent - the cloadm plugin (its side panel, cloadm-panel, or its local server, cloadm), the connector https://mcp.cloadm.dev/mcp, the Claude Desktop extension, or node cli/cloadm.js --mcp.
 license: MIT
 ---
 
@@ -13,7 +13,7 @@ server gives you machines you can boot, type at, run, read and debug. This skill
 ## First: are the tools here?
 
 Look for the CLOADM tools among your tools. Hosts prefix them (`mcp__cloadm__boot`,
-`mcp__plugin_cloadm_cloadm-local__boot`, ...; the side panel's come from its view after `open_emulator`), so look for a group that has a tool to boot a machine, one to list models,
+`mcp__plugin_cloadm_cloadm__boot`, ...; the side panel's come from its view after `open_emulator`), so look for a group that has a tool to boot a machine, one to list models,
 and one that runs frames. If there is none, **stop**: tell the user that this needs the CLOADM MCP server, and
 point them at its install guide (https://github.com/yaniv-golan/CLOADM/blob/main/docs/mcp.md). Do not try to emulate
 the machine yourself, guess what a program would print, or run the emulator some other way unless the user asks for
@@ -224,7 +224,7 @@ screenshot to see what happened. To find which keys a program reads, see `refere
 - **A program that takes over the reset vector needs a power cycle.** With ROMs, `reset` is a warm reset: BASIC
   jumps to a program's own warm-start vector if it set one, so a game can survive the reset button. On the built-in
   firmware, `reset` restarts the program it last loaded. `power_cycle` clears RAM and starts the machine afresh: BASIC
-  with ROMs, the built-in firmware's banner without them; but an inserted cartridge stays in and starts again (to
+  with ROMs, the built-in firmware's banner without them; but an inserted cartridge (on this computer) stays in and starts again (to
   be rid of one, boot a new machine).
 - **Text on a VDG screen.** Read it with `screen_text`, not with a screenshot or `peek`: it decodes the VDG's codes
   exactly, while the bytes in screen memory are screen codes, not ASCII (`$6A` is `*`, `$63` is `#`, `$60` a space;
