@@ -130,12 +130,17 @@ async function bareDiskChecks(page, check, { dos }) {
   // the card and an empty drive's menu with no disk ROM
   check('disks: with no disk ROM the card says "Drives · no disk ROM · disks work for programs that read them directly"',
     await waitFor(page, () => document.querySelector('#driveSlot .title').textContent === 'Drives · no disk ROM · disks work for programs that read them directly'), await text('driveSlot'));
-  await page.click('#drives [data-drive="0"]');
-  const buttons = () => page.evaluate(() => [...document.querySelectorAll('#driveMenu button')].filter((b) => b.checkVisibility()).map((b) => b.textContent));
+  // a drive's menu once it shows (it lists the Library's disks first): its visible buttons, its note, the note's class
+  const menuShown = async (n) => {
+    await page.click(`#drives [data-drive="${n}"]`);
+    await waitFor(page, () => document.getElementById('driveMenu').checkVisibility() && !!document.getElementById('driveNoRom'));
+    return page.evaluate(() => ({ buttons: [...document.querySelectorAll('#driveMenu button')].filter((b) => b.checkVisibility()).map((b) => b.textContent),
+      note: document.getElementById('driveNoRom').textContent.replace(/\s+/g, ' ').trim(), muted: document.getElementById('driveNoRom').classList.contains('muted') }));
+  };
+  const empty = await menuShown(0);
   check('disks: an empty drive\'s menu with no disk ROM: Insert disk…, New blank disk, From Library…, the note and Add disk ROM…',
-    JSON.stringify(await buttons()) === JSON.stringify(['Insert disk…', 'New blank disk', 'From Library…', 'Add disk ROM…', 'Close'])
-    && await text('driveNoRom') === 'No disk ROM: DIR and other disk commands need DragonDOS or Delta DOS (your own file). Add disk ROM…'
-    && await page.evaluate(() => document.getElementById('driveNoRom').classList.contains('muted')), JSON.stringify(await buttons()));
+    JSON.stringify(empty.buttons) === JSON.stringify(['Insert disk…', 'New blank disk', 'From Library…', 'Add disk ROM…', 'Close'])
+    && empty.note === 'No disk ROM: DIR and other disk commands need DragonDOS or Delta DOS (your own file). Add disk ROM…' && empty.muted, JSON.stringify(empty));
   if (shotDir) await page.locator('#driveSlot').screenshot({ path: path.join(shotDir, 'drives-no-rom.png') });
   await page.click('#driveClose');
   // the game first, then its disk
@@ -160,9 +165,9 @@ async function bareDiskChecks(page, check, { dos }) {
   check('disks: its next read finds the disk: READ OK and the sector\'s first bytes', await waitFor(page, (h) => window.emu.session.screenText()[0].startsWith(`READ OK ${h}`), T0S1_HEX), await top());
   if (shotDir) await page.screenshot({ path: path.join(shotDir, 'drives-bare-read.png') });
   // the drive's menu with a disk in: Eject too
-  await page.click('#drives [data-drive="0"]');
-  check('disks: a loaded drive\'s menu with no disk ROM has Eject, and the same note', (await buttons()).includes('Eject') && (await buttons()).includes('Insert disk…') && /^No disk ROM:/.test(await text('driveNoRom')),
-    JSON.stringify(await buttons()));
+  const loaded = await menuShown(0);
+  check('disks: a loaded drive\'s menu with no disk ROM has Eject, and the same note', loaded.buttons.includes('Eject') && loaded.buttons.includes('Insert disk…') && loaded.note === empty.note,
+    JSON.stringify(loaded));
   await page.click('#driveClose');
   // Ctrl+K: "mount" finds "Insert a disk…"; the disk commands are there
   await page.click('#screen');
@@ -171,8 +176,14 @@ async function bareDiskChecks(page, check, { dos }) {
   await page.keyboard.type('mount');
   const found = await page.evaluate(() => [...document.querySelectorAll('#cmdList [role="option"]')].map((o) => o.textContent));
   check('disks: Ctrl+K "mount" finds "Insert a disk…"', found.some((t) => t.startsWith('Insert a disk…')), JSON.stringify(found));
-  const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.keyboard.press('Enter')]);
-  await chooser.setFiles({ name: 'second.vdk', mimeType: 'application/octet-stream', buffer: Buffer.from(images.vdk(40, 2)) });
+  // (the command clicks the drives' file input, for the first free drive; the click is seen in the page rather than
+  // through a file chooser, which a headless browser does not always open from a key press, and the file then goes
+  // in through that input)
+  await page.evaluate(() => { const i = document.getElementById('fileDisk'); window.__diskPicks = []; i.click = () => window.__diskPicks.push(i.dataset.drive); });
+  await page.keyboard.press('Enter');
+  check('disks: its Enter opens the drives\' file input for the first free drive', await waitFor(page, () => window.__diskPicks.join() === '1'), await page.evaluate(() => window.__diskPicks.join()));
+  await page.evaluate(() => { delete document.getElementById('fileDisk').click; });
+  await page.setInputFiles('#fileDisk', { name: 'second.vdk', mimeType: 'application/octet-stream', buffer: Buffer.from(images.vdk(40, 2)) });
   check('disks: its "Insert a disk…" puts the file in the first free drive', await waitFor(page, () => window.emu.session.diskStatus().drives.some((d) => d.drive === 1 && d.file === 'second.vdk')));
   await page.keyboard.press('Control+k');
   await page.keyboard.type('eject disk');
@@ -181,8 +192,8 @@ async function bareDiskChecks(page, check, { dos }) {
   await page.click('#drives [data-drive="0"]');
   // its Add disk ROM… opens Your ROMs on the disk ROM's card
   await page.click('#driveRoms');
-  check('disks: the menu\'s Add disk ROM… opens Your ROMs on the disk ROM card, which says disks still mount without it', await waitFor(page, () => location.hash === '#add-roms'
-    && /Without it, disks still mount for programs that read them directly\./.test(document.getElementById('romDiskCard').textContent)), await page.evaluate(() => location.hash));
+  check('disks: the menu\'s Add disk ROM… opens Your ROMs on the disk ROM card, which says disks still go in without it', await waitFor(page, () => location.hash === '#add-roms'
+    && /Without it, disks still go in, for programs that read them directly\./.test(document.getElementById('romDiskCard').textContent)), await page.evaluate(() => location.hash));
   await page.evaluate(() => { location.hash = ''; });
   // (back on the emulator: the ports are no longer inert behind the view, so a file input there can open)
   await waitFor(page, () => document.getElementById('driveSlot').checkVisibility() && !document.getElementById('fileDisk').closest('[inert]'));
@@ -5201,7 +5212,7 @@ async function stateChecks(browser, site, check) {
   await page.goto(`${site}help/`);
   const help = await page.evaluate(() => document.body.textContent.replace(/\s+/g, ' '));
   check('state: Help doesn\'t call the drives unemulated, and says what a disk needs', !/aren't emulated|not emulated/i.test(help)
-    && /Disk shows nothing\. A disk needs the machine's disk ROM/.test(help), help.match(/Disk shows nothing\.[^.]*\./)?.[0]);
+    && /Disk shows nothing\. DIR and the other disk commands need the machine's disk ROM/.test(help), help.match(/Disk shows nothing\.[^.]*\./)?.[0]);
   check('state: no page errors', !errors.length, errors.join('; '));
   await ctx.close();
 }
