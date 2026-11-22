@@ -400,7 +400,13 @@ reading the compatibility page through the CPU's map or at the power-on `$70400`
 characters, 40 columns read as 80, bit 7 not ignored, the Plus start address ignored, Plus unknown codes not
 counted, `Session.screenText` reading the main screen only, the VDG page or the fallback read through the CPU's map
 (the Plus's `$FFE2` banks, a CoCo 3 slot mapped to ROM), `base` given while a bank hides the page, and the boot
-watchdog reading the shown screen (the 80-column view, with OK on the VDG page). The reader changes no emulation: the regress hashes
+watchdog reading the shown screen (the 80-column view, with OK on the VDG page). A page the SAM's display offset
+moves: firmware of our own on the Dragon 32 and the CoCo 2 writes "OK" at `$0400` and another page at `$0C00`,
+then sets F = 6; the picture must equal a control firmware's that shows the same bytes from `$0400` with F = 2 (so
+the VDG really shows `$0C00`), both readers must read `$0C00` with `base` `$0C00`, the boot watchdog and the Ask
+panel's `?ERROR` check must see only the displayed page, and a 4K counter (M = 00) must wrap F = 8 to `$0000`
+(`base` null). Mutants: the offset ignored, the F bits shifted wrongly (in the SAM or in the reader), the counter size
+ignored, and `base` compared on row 0 only or without the page's last byte. The reader changes no emulation: the regress hashes
 are unchanged. Not covered: a compatibility-mode text row other than 12 lines (`$FF9C` other than `$0F`), where the
 GIME shows more than 16 rows of 32 bytes; the reader reads the first 16.
 

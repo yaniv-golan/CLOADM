@@ -348,9 +348,11 @@ emulator.
   watchdog, the screen canvas's text alternative) use the same reader, `Session.screenText`, which gives every row
   at its full width. It reads three kinds of text screen:
   * **the MC6847 VDG's 32x16 page** (MC-10, Dragon 32/64/200, CoCo 1/2, and the CoCo 3 in its CoCo-compatible
-    mode), from the page the display uses, read where the VDG fetches it, never through the CPU's map: on the Dragon
-    64 Plus the VDG fetches the motherboard RAM whatever `$FFE2` pages in for the CPU, so `base` (`$0400`) is given
-    only while the CPU reads the same 512 bytes there, otherwise `null`. On a CoCo 3 that page is the GIME's own video base (the SAM's page bits
+    mode), from the page the display uses, read where the VDG fetches it, never through the CPU's map. On the Dragon
+    32/64/200 and CoCo 1/2 the page starts at the SAM's display offset (F6-F0 x 512, `$FFC6`-`$FFD3`; BASIC's `$0400`
+    is F = 2), wrapped by the SAM's video counter size (M1-M0), so a page a program has moved is read where it is
+    and `base` names it; on the Dragon 64 Plus the VDG fetches the motherboard RAM whatever `$FFE2` pages in for the CPU, so `base` (`$0400`) is given
+    only while the CPU reads the same 512 bytes there (all of them, every row), otherwise `null`. On a CoCo 3 that page is the GIME's own video base (the SAM's page bits
     and `$FF9D`), a physical address, and it is read there, in physical RAM, as the display reads it: a page the MMU
     shows the CPU somewhere else, or nowhere (or a slot routed to ROM), is still the page on screen. `physicalBase`
     is that address and `base` the CPU address that shows the whole page under the current map, or `null` when no

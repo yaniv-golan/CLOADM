@@ -164,7 +164,9 @@ const targets = (r) => r.targets.map((t) => `${t.machine}/${t.socket}`).sort().j
   for (let i = 0; i < 5 * 50 + 2; i++) s.shownMachine.runFrame();
   const st = s.bootStatus(5);
   check('watchdog: no OK within 5 s -> failed, cause from the socket status', st.state === 'failed' && /Dragon 32 BASIC is wrong\.bin, which isn't recognised/.test(st.cause), st.cause);
-  // BASIC's OK on a line of its own (VDG codes: O=$0F, K=$0B)
+  // BASIC's OK on a line of its own (VDG codes: O=$0F, K=$0B), on the page BASIC shows: the SAM's display offset at
+  // $0400 (F1, $FFC9), which BASIC sets and this RTS-filled ROM does not
+  s.shownMachine.write(0xFFC9, 0);
   s.shownMachine.ram[0x400 + 32 * 3] = 0x0F; s.shownMachine.ram[0x400 + 32 * 3 + 1] = 0x0B;
   for (let c = 2; c < 32; c++) s.shownMachine.ram[0x400 + 32 * 3 + c] = 0x60;
   check('watchdog: OK on the screen -> ok', s.bootStatus(5).state === 'ok' && s.screenText()[3].trim() === 'OK');

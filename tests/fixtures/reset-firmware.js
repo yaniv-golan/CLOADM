@@ -3,7 +3,8 @@
 // at [RSTVEC $72] -> JMP there; else a cold start that clears the screen, prints OK on the top line and waits.
 const BASIC = `
         ORG     $8000
-RESET   LDA     $71
+RESET   STA     $FFC9           ; the SAM's display offset to $0400 (F1): BASIC's reset routine sets up the SAM first
+        LDA     $71
         CMPA    #$55
         BNE     COLD
         LDX     $72
