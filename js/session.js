@@ -3383,8 +3383,7 @@ export class Session {
     // and any abort of the turn (Stop, BREAK on the chat screen) ends a pause first: the action waiting on it
     // (pauseWait, in the gate or the re-check) is refused and the held typing dropped, so a later Resume cannot run
     // what was aborted
-    const abort = chat.abort.bind(chat);
-    chat.abort = (reason) => { if (this.chat === chat) this.endClaudePause(); abort(reason); };
+    chat.onAbort = () => { if (this.chat === chat) this.endClaudePause(); };
     chat.onTurnEnd = () => {
       if (this.chat !== chat) return;
       this.endClaudePause();
@@ -3393,18 +3392,13 @@ export class Session {
     };
     // the tool running now, for the turn's status ("Using type_text…"), and the acting call between its gate and its
     // act (claudeCall), which the person's input pauses (personInput) as it pauses Claude's acting
-    const run = chat.backend.runTool;
-    chat.backend.runTool = async (name, input) => {
-      this.claudeTool = name;
+    chat.onToolStart = (name) => { this.claudeTool = name; this.emit('chat'); };
+    chat.onToolEnd = (name) => {
+      // (a call of a conversation that has since ended does not clear the new one's)
+      if (this.chat !== chat) return;
+      this.claudeCall = null;
+      if (this.claudeTool === name) this.claudeTool = null;
       this.emit('chat');
-      try { return await run(name, input); } finally {
-        // (a call of a conversation that has since ended does not clear the new one's)
-        if (this.chat === chat) {
-          this.claudeCall = null;
-          if (this.claudeTool === name) this.claudeTool = null;
-          this.emit('chat');
-        }
-      }
     };
     // It answers synchronously when nobody has to be asked, so the restore point is the machine at the call itself
     // (no frame runs in between); a question or a pause makes it a promise.

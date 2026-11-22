@@ -204,6 +204,9 @@ export class ChatSession {
     this.onToolUse = onToolUse;  // (name, input, text, isError, value) => void
     this.onChange = null;        // () => void: busy, undo or tools changed (the page's panel)
     this.onTurnEnd = null;       // () => void: a turn has ended, however it ended (the Session's gateTools)
+    this.onAbort = null;         // (reason) => void: abort() was called, before the request is aborted (the Session's gateTools)
+    this.onToolStart = null;     // (name) => void: the backend calls a tool (serveTool), before it runs (the Session's gateTools)
+    this.onToolEnd = null;       // (name) => void: that call has ended, however it ended
     // Each turn's line carries what the views show besides the text (UX ruling R13): `turn` (a number that stays the
     // turn's when older turns are trimmed away), `actions` (one record per acting call, js/claude/actions.js) and
     // `reads` ({ tool: count } for the read-only calls). apiMessages sends none of them.
@@ -217,7 +220,7 @@ export class ChatSession {
     this.error = null;
     this.lineBuf = '';
     if (this.channel) this.channel.onReceive = (bytes) => { if (bytes) this.receive(bytes); };
-    this.backend.runTool = (name, input) => this.runTool(name, input);
+    this.backend.runTool = (name, input) => this.serveTool(name, input);
   }
 
   get tools() { return this.toolsOn ? machineTools() : []; }
@@ -334,7 +337,11 @@ export class ChatSession {
   }
   // BREAK aborts the request in flight (a new AbortController per call); reason, when the page stopped it (a
   // Reset), goes into the status line: "[stopped: you reset the machine]"
-  abort(reason = null) { if (this.controller) { this.abortReason = reason; this.controller.abort(); } }
+  // onAbort runs first, whether or not a request is in flight
+  abort(reason = null) {
+    if (this.onAbort) this.onAbort(reason);
+    if (this.controller) { this.abortReason = reason; this.controller.abort(); }
+  }
   // drop the oldest turns when the conversation nears 64 KiB: whole turns (a person's line up to the next), so a
   // tool_use never loses its tool_result; the newest turn always stays
   trim(limit = 64 * 1024) {
@@ -380,6 +387,11 @@ export class ChatSession {
   // An acting tool runs one way only: the consent gate (this.gate: Session.gateTools sets it; a bare ChatSession's
   // refuses), then its check (refusals, nothing changed), then the pre-act re-check (Stop, a pause, consent
   // withdrawn: this.recheck), then its act inside withRestorePoint. Every failure leaves as a ToolError (asToolError), never as a raw exception.
+  // every call the backend makes: onToolStart and onToolEnd bracket it (the page's "Using type_text…"), runTool does it
+  async serveTool(name, input) {
+    if (this.onToolStart) this.onToolStart(name);
+    try { return await this.runTool(name, input); } finally { if (this.onToolEnd) this.onToolEnd(name); }
+  }
   async runTool(name, input) {
     try {
       const out = await this.callTool(name, input);
