@@ -254,6 +254,9 @@ class Coco3Machine extends Machine {
     }
     return this.busRead(a);
   }
+  // the access the CPU is making is a replayed one (replayRead / replayWrite): made before the step was suspended,
+  // so the bus taps reported it then (js/machines/bustaps.js)
+  replaying() { return this.inStep && this.replayN >= 0 && this.busAt < this.replayN; }
   busRead(a) {
     if (a < 0xFF00) return this.gime.read(a);
     // $FFE0-$FFFF always come from the last 32 bytes of the internal ROM (as MAME maps them)
