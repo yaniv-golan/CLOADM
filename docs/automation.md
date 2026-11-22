@@ -265,7 +265,8 @@ node cli/cloadm.js --load game.bin --symbols game.map --wait-for pc:LOOP --expec
 | `--out FILE` | where the binary goes (required) |
 | `--cpu 6809\|6309\|6803\|7000` | the instruction set. With `--machine` it is the model's default (`--cpu` must be one the model has) |
 | `--machine ID` | the model, to take the CPU and the format from |
-| `--format dragondos\|decb\|raw` | **DragonDOS**: `$55 type load length exec $AA` and the data, one contiguous range (a gap between two pieces is zero-filled up to 256 bytes; a bigger one is `bad-media` with the hint `use --format decb`). **decb**: the segmented Color BASIC `LOADM` file, `$00 length address data` per piece and `$FF $00 $00 exec`. **raw**: the bytes of the one contiguous range with no header (the same gap rule). Without `--format` it follows `--machine`: the Dragons get `dragondos`, the CoCos `decb`; the MC-10 and Alice load `.c10` tapes, not binary files, so `--machine mc10` or `alice` is refused (exit 2: "The MC-10 loads .c10 tapes, not binary files: there is no file format to save a program in for it.") whatever `--format` says; for a 6803 program as bytes use `--cpu 6803 --format raw` with no machine. Without `--machine`, `--format` and `--cpu` are required |
+| `--format dragondos\|decb\|raw\|cas\|wav` | **DragonDOS**: `$55 type load length exec $AA` and the data, one contiguous range (a gap between two pieces is zero-filled up to 256 bytes; a bigger one is `bad-media` with the hint `use --format decb`). **decb**: the segmented Color BASIC `LOADM` file, `$00 length address data` per piece and `$FF $00 $00 exec`. **raw**: the bytes of the one contiguous range with no header (the same gap rule). Without `--format` it follows `--machine`: the Dragons get `dragondos`, the CoCos `decb`; the MC-10 and Alice load `.c10` tapes, not binary files, so `--machine mc10` or `alice` is refused (exit 2: "The MC-10 loads .c10 tapes, not binary files: there is no file format to save a program in for it.") whatever `--format` says (the message adds that `--format cas` or `wav` writes a tape for it, which they do load); for a 6803 program as bytes use `--cpu 6803 --format raw` with no machine. **cas** and **wav** are a tape: see [A tape for a real Dragon or CoCo](#a-tape-for-a-real-dragon-or-coco). Without `--machine`, `--format` and `--cpu` are required |
+| `--name NAME`, `--square` | for `--format cas` or `wav`: the file's name on the tape (up to 8 printable ASCII characters; default the source's file name, upper case) and, for `wav`, a square wave instead of a sine |
 | `--map FILE` | one `NAME $ADDR` line per symbol, sorted by address |
 | `--json` | `{ ok, exit, assemble: { source, cpu, machine, format, out, size, load, exec, segments, map } }`, or `error` as for any run |
 
@@ -969,6 +970,54 @@ machine boots from the disk; that path needs a ROM CLOADM does not ship, and is 
 (`devices.dragonfdc`, `machine.insertCartridge`, `fdc.mount`,
 `blankDisk`, `diskGeometry`) are public from `js/emu.js` but are not in the stability table below.
 
+### A tape for a real Dragon or CoCo
+
+A game that is to be played from a cassette needs a tape file, and for a real tape player a recording of one: leaders of `$55`
+bytes in front of every block, silence around the namefile, a signal of 1200 and 2400 Hz cycles. `buildCas` and `casToWav` make
+both from a binary, and `--assemble --format cas|wav` does it from source:
+
+```sh
+node cli/cloadm.js --assemble game.asm --machine dragon64 --format cas --name GAME --out GAME.cas
+node cli/cloadm.js --assemble game.asm --machine dragon64 --format wav --name GAME --out GAME.wav
+node cli/cloadm.js --assemble game.asm --machine coco --format wav --square --out GAME.wav     # a square wave
+node cli/cloadm.js --assemble game.asm --machine mc10 --format cas --out GAME.c10               # the MC-10's tape: a .c10 file
+```
+
+`docs/examples/bin-to-wav.mjs` is the same in Node, one runnable file with the public modules only (`js/emu.js`), from any directory
+(from a copy elsewhere set `CLOADM_DIR`):
+
+```sh
+node docs/examples/bin-to-wav.mjs outdir       # writes GAME.cas and GAME.wav there
+```
+
+1. `buildCas([{ name, type: 'binary', load, exec, data }], { family })` is the `.CAS` bytes: a namefile block (the name padded to 8, the
+   file type, the ASCII flag, the gap flag, the exec and load addresses), the data in blocks of up to 255 bytes, and an end-of-file block, each
+   with its 128-byte `$55` leader, `$3C`, type, length, checksum and a trailing `$55`: the stream the writer firmware in
+   `tools/mame-diff/tape/csave.asm` writes, which the tape tests check against MAME. Several files go in one list; `type` is `'basic'`,
+   `'data'` or `'binary'` (`ascii: true` for BASIC saved as text; a data file is always ASCII, and text is gapped). `family` is `'dragon'`, `'coco'` or `'mc10'`; the three write the same blocks.
+2. `casToWav(cas, { family, gaps: 'player', wave: 'sine', sampleRate: 44100, amplitude })` is the signal, one cycle per bit, least
+   significant bit first, starting upwards; `wave: 'square'` gives a hard edge. `gaps: 'player'` adds what a tape player does to a
+   `.CAS` file: **2 s of silence at the start, 1 s before each later namefile block and 1 s after each namefile block, and a
+   leader of 128 `$55` bytes in front of the first block, each namefile and the block after it, made up to 128 when the file has
+   fewer**. That is MAME's layout, which the emulated deck plays for a `.CAS` (measured in `tools/mame-diff/tape/gaps.asm`); the
+   code is shared: `tapeGaps(cas, { pad })` says where, the deck (`js/media/tape.js`) plays it and `casToSamples` writes it into the
+   samples, so a WAV is the tape the emulated machine loads. `gaps: 'none'` plays the bytes as they are. The MC-10 family has no
+   motor relay and is not padded: its WAV has no silence, and the 128-byte leader the deck plays in front of its bytes.
+3. `wavToCas` reads it back: the `.CAS` bytes exactly (for the MC-10 family after its own leader), also with noise, speed drift,
+   inverted phase and a DC offset added.
+
+```json
+{"cas":526,"wav":496686,"seconds":5.63,"blocks":3,"file":{"name":"GAME","load":12288,"exec":12288,"bytes":112},"silences":[{"at":0,"seconds":2},{"at":2.76,"seconds":1}]}
+```
+
+`tests/bin-to-tape.test.js` checks the stream byte by byte against blocks written out in the test, the silences and leaders in the
+signal, the exact decode with impairments, and that the emulated deck plays the WAV into our block-reading firmware
+(`tools/mame-diff/tape/cload.asm`, `cload6803.asm`) so that the file's bytes end up in memory on the Dragon 64, Dragon 32, CoCo, CoCo 3, MC-10 and
+Alice; it breaks the code three ways (no leader before the second file, a wrong checksum, the MC-10 padded) and each must fail. MAME
+reads the same WAVs with the same firmware (`node tools/mame-diff/tape/run-tape.js`), and a real Dragon or CoCo has not been
+used: how a given player and a given cable behave is for the person with the hardware. A tape holds one contiguous range per file,
+as `CLOADM` loads it: a program in pieces more than 256 bytes apart is `bad-media`.
+
 ### What is stable
 
 | Stable: kept working, changes noted in the CHANGELOG | |
@@ -978,6 +1027,7 @@ machine boots from the disk; that path needs a ROM CLOADM does not ship, and is 
 | `switchMachine(id, config, { menu })`, `shownMachine`, `personMachine`, `profiles` | the models and their options. `shownMachine` is the machine on screen (and `machine` is gone: it did not say which of the two it meant); `personMachine` is the one the person works on, the same machine unless a full-screen chat is open |
 | `addRoms(files)`, `machineRoms()`, `runWithoutRoms()` | your ROMs, identified per model |
 | `load(name, bytes, { remember: false })`, `insertTape`, `await importDisk(name, bytes, drive)`, `startLiza`, `startWelcome`, `runAssembled(assemble(src, cpu))` | media and programs |
+| `buildCas(files, { family })`, `casToWav(cas, { family, gaps, wave, sampleRate, amplitude })`, `casToSamples(cas, opts)`, `tapeGaps(cas, { pad })`, `wavToCas(wav)` | a program as a `.CAS` tape and as the signal a player plays (see "A tape for a real Dragon or CoCo") |
 | `toBinary(result, { format })`, `writeDragonDos(segments, exec, { type, maxGap })`, `writeDecb(segments, exec)`, `parseSymbols(text)`, `formatSymbols(symbols)`, `setLabels(map)` | a program as a file (`format`: `'dragondos'` or `'decb'`, required) and its symbols |
 | `runFrames(n)` | emulated frames, no clock; `advance(ms)` is the page's real-time pacing |
 | `typeText(text)`, `untypable(text)` | typing; for BREAK, CLEAR and the arrows, `machine.typist.press(key)` with ROMs (the keyboard matrix), and `machine.stubKeys.push(code)` on the built-in firmware (its POLCAT codes: BREAK 3, CLEAR 12, LEFT 8, RIGHT 9, DOWN 10, UP 94) |

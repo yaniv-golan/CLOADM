@@ -112,8 +112,8 @@ async function cliChecks(root, check) {
   for (const [id, name] of [['mc10', 'MC-10'], ['alice', 'Matra Alice']]) {
     for (const extra of [[], ['--format', 'raw'], ['--format', 'dragondos']]) {
       r = cli(['--assemble', small, '--machine', id, ...extra, '--out', 'm.bin']);
-      check(`the ${name} loads .c10 tapes: ${extra.join(' ') || 'no --format'} is refused with the one message, exit 2, nothing written`,
-        r.code === 2 && r.err.trim() === `cloadm: The ${name} loads .c10 tapes, not binary files: there is no file format to save a program in for it.` && !fs.existsSync(path.join(dir, 'm.bin')), r.err);
+      check(`the ${name} loads .c10 tapes: ${extra.join(' ') || 'no --format'} is refused with the one message (and the hint that a tape is what it takes), exit 2, nothing written`,
+        r.code === 2 && r.err.trim() === `cloadm: The ${name} loads .c10 tapes, not binary files: there is no file format to save a program in for it. --format cas or wav writes a tape for it.` && !fs.existsSync(path.join(dir, 'm.bin')), r.err);
     }
   }
   r = cli(['--assemble', small, '--cpu', '6803', '--format', 'raw', '--out', 'm.bin']);

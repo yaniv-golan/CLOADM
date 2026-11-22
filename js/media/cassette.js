@@ -9,7 +9,9 @@
  *   parseWav(bytes)                    -> { sampleRate, channels, bits, samples: Float32Array (mono, -1..1) }
  *   writeWav(samples, sampleRate)      -> 16-bit PCM mono WAV bytes
  *   pcm16(samples)                     -> the 16-bit values writeWav stores (Int16Array)
- *   casToSamples(cas, opts) / casToWav -> the signal: one sine cycle per bit, starting upwards
+ *   buildCas(files, { family })        -> .CAS bytes for programs: namefile, data and end-of-file blocks with their leaders
+ *   tapeGaps(cas, { pad })             -> where a tape player adds silence and leader (the layout js/media/tape.js plays)
+ *   casToSamples(cas, opts) / casToWav -> the signal: one cycle per bit, starting upwards, with a player's gaps
  *   samplesToCas(samples, rate, opts)  -> { bytes, blocks, badBlocks, polarity }: the .CAS bytes in the signal
  *   wavToCas(wavBytes, opts)           -> the same from a WAV file
  *
@@ -82,22 +84,121 @@ export function pcm16(samples) {
   return out;
 }
 
-// one sine cycle per bit, LSB first, starting upwards; silence before and after
-export function casToSamples(cas, { sampleRate = 44100, zeroHz = 1200, oneHz = 2400, amplitude = 0.75, silence = 0.25 } = {}) {
-  const pad = Math.round(sampleRate * silence);
-  let t = 0;   // fractional sample position, so long tapes keep their exact bit rate
-  const cycle0 = sampleRate / zeroHz, cycle1 = sampleRate / oneHz;
-  let total = 0;
-  for (const byte of cas) for (let k = 0; k < 8; k++) total += (byte >> k) & 1 ? cycle1 : cycle0;
-  const out = new Float32Array(pad * 2 + Math.ceil(total) + 1);
-  let i = pad;
-  for (const byte of cas) {
-    for (let k = 0; k < 8; k++) {
-      const len = (byte >> k) & 1 ? cycle1 : cycle0, end = t + len;
-      for (; i - pad < end; i++) out[i] = amplitude * Math.sin(2 * Math.PI * ((i - pad) - t) / len);
-      t = end;
-    }
+// ---------------- building a tape ----------------
+export const TAPE_LEADER = 128;   // $55 bytes a player puts in front of the blocks BASIC looks for (MAME's, js/media/tape.js)
+export const TAPE_SILENCE = 1;    // seconds of silence around a namefile block (twice that at the start)
+// what a family's tape is: the file extension, the bit frequencies, and whether a player pads it with silence and leaders
+// (the MC-10 family has no motor relay: its bytes play as they are)
+export const TAPE_FAMILIES = {
+  dragon: { ext: 'cas', zeroHz: 1200, oneHz: 2400, pad: true },
+  coco: { ext: 'cas', zeroHz: 1200, oneHz: 2400, pad: true },
+  mc10: { ext: 'c10', zeroHz: 1200, oneHz: 2400, pad: false },
+};
+export const CAS_TYPES = { basic: 0x00, data: 0x01, binary: 0x02 };   // a namefile block's file type byte
+
+const casBlock = (type, data, leader = TAPE_LEADER) => {
+  let sum = (type + data.length) & 0xFF;
+  for (const b of data) sum = (sum + b) & 0xFF;
+  return [...new Array(leader).fill(0x55), 0x3C, type, data.length, ...data, sum, 0x55];
+};
+
+// Programs as .CAS bytes, the way BASIC's CSAVE writes them (the stream tools/mame-diff/tape/csave.asm writes, which the tape tests
+// check against MAME): per file a namefile block (the name padded to 8, the file type, the ASCII flag, the gap flag, the exec and load
+// addresses), the data in blocks of up to 255 bytes and an end-of-file block; every block is a 128-byte $55 leader, $3C, type,
+// length, data, checksum and a trailing $55. files: [{ name, type: 'basic' |
+// 'data' | 'binary', load, exec, data, ascii }] (load and exec for a binary; ascii for BASIC saved as text; a data file is ASCII).
+// The three families write the same blocks (the firmware the tape tests verify against MAME writes one stream for the 6809 and the
+// 6803); family says which machines the tape is for and is checked.
+export function buildCas(files, { family = 'dragon' } = {}) {
+  if (!TAPE_FAMILIES[family]) throw new TypeError(`family is dragon, coco or mc10, not ${JSON.stringify(family)}`);
+  if (!Array.isArray(files) || !files.length) throw new TypeError('buildCas needs a list of files');
+  const out = [];
+  for (const f of files) {
+    if (typeof f.name !== 'string' || f.name.length > 8 || ![...f.name].every((c) => c.charCodeAt(0) >= 0x20 && c.charCodeAt(0) < 0x7F)) throw new TypeError(`a tape file's name is up to 8 printable ASCII characters, not ${JSON.stringify(f.name)}`);
+    if (!(f.type in CAS_TYPES)) throw new TypeError(`a tape file's type is basic, data or binary, not ${JSON.stringify(f.type)}`);
+    const addr = (v, what) => { if (v === undefined) return 0; if (!Number.isInteger(v) || v < 0 || v > 0xFFFF) throw new TypeError(`${what} is a 16-bit address, not ${v}`); return v; };
+    if (f.type === 'binary' && (f.load === undefined || f.exec === undefined)) throw new TypeError('a binary tape file needs load and exec addresses');
+    if (f.type === 'data' && f.ascii === false) throw new TypeError('a data file is ASCII (and gapped): it cannot be ascii: false');
+    // the namefile's flags: ASCII ($FF text, $00 tokenised BASIC or binary) and GAPS ($FF when the file is written as ASCII records
+    // with gaps between the blocks, $00 otherwise); a data file is always ASCII, and text is always gapped
+    const load = addr(f.load, 'load'), exec = addr(f.exec, 'exec'), ascii = f.type === 'data' || f.ascii ? 0xFF : 0x00, gapped = ascii, data = Array.from(f.data);
+    const name = [...f.name.padEnd(8)].map((c) => c.charCodeAt(0));
+    out.push(...casBlock(0x00, [...name, CAS_TYPES[f.type], ascii, gapped, exec >> 8, exec & 0xFF, load >> 8, load & 0xFF], TAPE_LEADER));
+    for (let i = 0; i < data.length; i += 255) out.push(...casBlock(0x01, data.slice(i, i + 255)));
+    out.push(...casBlock(0xFF, []));
   }
+  return Uint8Array.from(out);
+}
+
+// What a tape player does to a .CAS image, as MAME's does (measured from what its cassette input delivers to our own firmware,
+// tools/mame-diff/tape/gaps.asm; docs/verification.md): SILENCE * 2 of silence at the start, SILENCE before every later namefile
+// block and after every namefile block, and a leader of at least TAPE_LEADER $55 bytes in front of the first block, every
+// namefile block and the block after each: the file's own leader, made up to that length when it has fewer. With pad false (the
+// MC-10 family) the bytes play as they are after a leader of TAPE_LEADER.
+// -> Map: the index of a byte of the image -> { units: silences (of TAPE_SILENCE) just before it, lead: $55 bytes to add before it }.
+// The deck (js/media/tape.js Tape) plays this layout, and casToSamples writes it into a WAV.
+export function tapeGaps(bytes, { pad = true } = {}) {
+  const before = new Map();
+  const add = (at, units, lead) => {
+    const b = before.get(at) || { units: 0, lead: 0 };
+    before.set(at, { units: b.units + units, lead: Math.max(b.lead, lead) });
+  };
+  if (pad === false) { add(0, 0, TAPE_LEADER); return before; }
+  const blocks = [...casBlocks(bytes)];
+  // the $55 run in front of block i: where it starts, and how long it is (the $55 that ends the block before it is that
+  // block's, played before any silence, as MAME does)
+  const leaderOf = (i) => {
+    const start = blocks[i].start, floor = i > 0 ? Math.min(start, blocks[i - 1].end + 1) : 0;
+    let r = start; while (r > floor && bytes[r - 1] === 0x55) r--;
+    return { at: r, n: start - r };
+  };
+  const want = new Set();
+  blocks.forEach((b, i) => {
+    if (i === 0) want.add(i);
+    if (b.type === 0x00) { want.add(i); if (i + 1 < blocks.length) want.add(i + 1); }
+  });
+  add(0, 2, 0);
+  for (const i of want) {
+    const b = blocks[i], l = leaderOf(i);
+    const units = b.type === 0x00 ? (i === 0 || l.at === 0 ? 0 : 1) : (i > 0 && blocks[i - 1].type === 0x00 ? 1 : 0);
+    add(l.at, units, TAPE_LEADER - l.n);
+  }
+  if (!blocks.length) add(0, 0, TAPE_LEADER);
+  return before;
+}
+
+// The signal of a .CAS image: one cycle per bit, LSB first, starting upwards, a sine (default) or a square wave.
+//   family: dragon | coco | mc10 (default dragon) gives zeroHz, oneHz and pad (below); each can be given to override
+//   gaps: 'player' (default) puts in the silence and leader a player does (tapeGaps), 'none' plays the bytes as they are
+//   wave: 'sine' | 'square'; amplitude 0..1 (default 0.75); sampleRate (default 44100)
+export function casToSamples(cas, { family = 'dragon', sampleRate = 44100, zeroHz, oneHz, pad, amplitude = 0.75, wave = 'sine', gaps = 'player' } = {}) {
+  const fam = TAPE_FAMILIES[family];
+  if (!fam) throw new TypeError(`family is dragon, coco or mc10, not ${JSON.stringify(family)}`);
+  if (wave !== 'sine' && wave !== 'square') throw new TypeError(`wave is sine or square, not ${JSON.stringify(wave)}`);
+  if (gaps !== 'player' && gaps !== 'none') throw new TypeError(`gaps is player or none, not ${JSON.stringify(gaps)}`);
+  zeroHz = zeroHz || fam.zeroHz; oneHz = oneHz || fam.oneHz;
+  const before = gaps === 'player' ? tapeGaps(cas, { pad: pad === undefined ? fam.pad : pad }) : new Map();
+  const cycle0 = sampleRate / zeroHz, cycle1 = sampleRate / oneHz, silence = Math.round(TAPE_SILENCE * sampleRate);
+  // two passes over the same walk: the length first, then the samples; t is a fractional position, so long tapes keep their exact bit rate
+  const walk = (silent, bit) => {
+    let t = 0;
+    const byte = (v) => { for (let k = 0; k < 8; k++) { const len = (v >> k) & 1 ? cycle1 : cycle0; bit(t, len); t += len; } };
+    for (let i = 0; i <= cas.length; i++) {
+      const g = before.get(i);
+      if (g) { if (g.units) { silent(t, g.units * silence); t += g.units * silence; } for (let k = 0; k < g.lead; k++) byte(0x55); }
+      if (i < cas.length) byte(cas[i]);
+    }
+    return t;
+  };
+  const out = new Float32Array(Math.ceil(walk(() => {}, () => {})) + 1);
+  const square = wave === 'square';
+  walk(() => {}, (t, len) => {
+    const end = t + len;
+    for (let i = Math.ceil(t); i < end && i < out.length; i++) {
+      const phase = (i - t) / len;
+      out[i] = amplitude * (square ? (phase < 0.5 ? 1 : -1) : Math.sin(2 * Math.PI * phase));
+    }
+  });
   return out;
 }
 
@@ -125,6 +226,8 @@ function cycles(x, rate, polarity, zeroHz) {
   for (let i = 0; i < n; i++) sq[i + 1] = sq[i] + y[i] * y[i];
   const slow = Math.exp(-1 / (rate * 0.5));
   let level = 0;
+  const rmsAt = new Float32Array(n);
+  for (let i = 0; i < n; i++) { const lo = Math.max(0, i - h), hi = Math.min(n, i + h + 1); rmsAt[i] = Math.sqrt((sq[hi] - sq[lo]) / (hi - lo)); }
   const out = [];
   let state = 0, last = -1, down = -1;
   // where the signal last went through zero in the direction d, at or before sample i
@@ -136,10 +239,10 @@ function cycles(x, rate, polarity, zeroHz) {
   };
   // a run ends (silence or the end of the signal): its last cycle has no next crossing, so it is closed from
   // its first half (the falling crossing comes half a cycle after the rising one)
-  const close = () => { if (last >= 0 && down > last) out.push(last, 2 * (down - last)); state = 0; last = -1; down = -1; };
+  // (a silence also ends the run of bits: a mark between the cycles, a cycle of infinite length, which bitRuns takes as a gap)
+  const close = () => { if (last >= 0) { if (down > last) out.push(last, 2 * (down - last)); out.push(last, Infinity); } state = 0; last = -1; down = -1; };
   for (let i = 0; i < n; i++) {
-    const lo = Math.max(0, i - h), hi = Math.min(n, i + h + 1);
-    const rms = Math.sqrt((sq[hi] - sq[lo]) / (hi - lo));
+    const rms = rmsAt[i];
     level = rms > level ? rms : level * slow;
     if (rms < level * 0.5 || rms < 1e-3) { close(); continue; }
     const s = y[i] * polarity, th = rms * 0.25;
@@ -198,13 +301,20 @@ function bitRuns(cyc, rate, zeroHz, oneHz) {
 
 const byteAt = (bits, p) => { let v = 0; for (let k = 0; k < 8; k++) v |= bits[p + k] << k; return v; };
 
-// a run of bits -> bytes: aligned on the first $55 $3C sync; from the start of the $55 leader before it
+// a run of bits -> bytes: aligned on the first $55 $3C sync; from the start of the $55 leader before it. A run starts after a silence
+// (or where the signal starts) with its leader, and the first cycle of a run is the least certain of the recording: up to three bytes
+// at the very start of the run that are a bit or two off $55 are read as $55, when a leader of at least 16 bytes follows them (a
+// run that starts like $57 $55 $55 $55 $3C is data, and is read as it is).
 function runToBytes(bits) {
   for (let p = 8; p + 8 <= bits.length; p++) {
     if (byteAt(bits, p) !== 0x3C || byteAt(bits, p - 8) !== 0x55) continue;
     let q = p - 8;
     while (q - 8 >= 0 && byteAt(bits, q - 8) === 0x55) q -= 8;
     const out = [];
+    if (q > 0 && q <= 24 && p - q >= 8 * 16) {
+      const lead = Math.floor(q / 8), off = q % 8, near = (v) => { let d = v ^ 0x55, c = 0; for (; d; d &= d - 1) c++; return c <= 2; };
+      if (lead > 0 && Array.from({ length: lead }, (_, k) => byteAt(bits, off + 8 * k)).every(near)) for (let k = 0; k < lead; k++) out.push(0x55);
+    }
     for (let r = q; r + 8 <= bits.length; r += 8) out.push(byteAt(bits, r));
     return out;
   }

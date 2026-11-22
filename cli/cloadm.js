@@ -1195,15 +1195,16 @@ function assembleFile(file, cpu) {
   return res;
 }
 // --assemble FILE --out FILE [--cpu C] [--machine ID] [--format F] [--map FILE] [--json]: assemble to a file and stop. No machine is built.
-const ASSEMBLE_FORMATS = ['dragondos', 'decb', 'raw'];
+const ASSEMBLE_FORMATS = ['dragondos', 'decb', 'raw', 'cas', 'wav'];
+const TAPE_FORMATS = ['cas', 'wav'];
 function assembleOptions(argv) {
-  const o = { json: false, source: null, cpu: null, machine: null, format: null, out: null, map: null };
-  const names = ['assemble', 'cpu', 'machine', 'format', 'out', 'map'];
+  const o = { json: false, square: false, source: null, cpu: null, machine: null, format: null, out: null, map: null, name: null };
+  const names = ['assemble', 'cpu', 'machine', 'format', 'out', 'map', 'name'];
   for (let i = 0; i < argv.length; i++) {
     const m = /^--([a-z][a-z0-9-]*)(?:=([\s\S]*))?$/.exec(argv[i]);
-    if (!m) throw usage(`unexpected argument "${argv[i]}" (--assemble takes ${names.map((n) => `--${n}`).join(', ')} and --json)`, 'unknown-step');
-    if (m[1] === 'json') { if (m[2] != null) throw usage('--json takes nothing'); o.json = true; continue; }
-    if (!names.includes(m[1])) throw usage(`--assemble builds no machine, so it takes ${names.map((n) => `--${n}`).join(', ')} and --json, not --${m[1]}`, 'unknown-step');
+    if (!m) throw usage(`unexpected argument "${argv[i]}" (--assemble takes ${names.map((n) => `--${n}`).join(', ')}, --square and --json)`, 'unknown-step');
+    if (m[1] === 'json' || m[1] === 'square') { if (m[2] != null) throw usage(`--${m[1]} takes nothing`); o[m[1]] = true; continue; }
+    if (!names.includes(m[1])) throw usage(`--assemble builds no machine, so it takes ${names.map((n) => `--${n}`).join(', ')}, --square and --json, not --${m[1]}`, 'unknown-step');
     const value = m[2] != null ? m[2] : argv[++i];
     if (value == null || value === '') throw usage(`--${m[1]} needs ${m[1] === 'cpu' ? 'a CPU' : m[1] === 'machine' ? 'a model id' : m[1] === 'format' ? 'a format' : 'a file'}`);
     const key = m[1] === 'assemble' ? 'source' : m[1];
@@ -1212,6 +1213,8 @@ function assembleOptions(argv) {
   }
   return o;
 }
+// the default name of a program on tape: the source's file name, up to 8 characters, upper case
+const tapeName = (file) => path.basename(file).replace(/\.[^.]*$/, '').toUpperCase().replace(/[^ -~]/g, '').slice(0, 8) || 'PROGRAM';
 function assembleRun(argv) {
   const o = assembleOptions(argv);
   if (!o.out) throw usage('--assemble needs --out FILE (where the binary goes)');
@@ -1220,8 +1223,6 @@ function assembleRun(argv) {
     profile = Emu.profiles[o.machine];
     if (!profile) throw usage(`no machine "${o.machine}" (--list-machines lists them)`, 'bad-option');
   }
-  const refusal = profile && Emu.binaryFormatRefusal(profile);
-  if (refusal) throw usage(refusal);
   if (!profile && !o.cpu) throw usage('--assemble needs --cpu (6809, 6309, 6803 or 7000) or a --machine to take it from');
   if (!profile && !o.format) throw usage(`--assemble needs --format (${ASSEMBLE_FORMATS.join(', ')}) without a --machine to take it from`);
   if (o.format != null && !ASSEMBLE_FORMATS.includes(o.format)) throw usage(`--format is ${ASSEMBLE_FORMATS.join(', ')}, not "${o.format}"`);
@@ -1229,16 +1230,33 @@ function assembleRun(argv) {
   if (profile && o.cpu != null && !profile.options.cpu.values.includes(o.cpu)) throw usage(`the ${profile.name} has a ${profile.options.cpu.values.join(' or ')}, not a ${o.cpu}`, 'bad-option');
   const cpu = o.cpu || profile.options.cpu.default;
   const format = o.format || Emu.binaryFormat(profile);
+  // the MC-10 and Alice load .c10 tapes, not binary files: no binary format, with or without --format (a tape is another thing)
+  const refusal = profile && Emu.binaryFormatRefusal(profile);
+  if (refusal && !TAPE_FORMATS.includes(format)) throw usage(`${refusal} --format cas or wav writes a tape for it.`);
+  const tape = TAPE_FORMATS.includes(format);
+  if (!tape && o.name != null) throw usage('--name is the tape file\'s name: it goes with --format cas or wav');
+  if (format !== 'wav' && o.square) throw usage('--square is the shape of a WAV\'s wave: it goes with --format wav');
+  if (o.name != null && (o.name.length > 8 || ![...o.name].every((c) => c.charCodeAt(0) >= 0x20 && c.charCodeAt(0) < 0x7F))) throw usage(`--name is up to 8 printable ASCII characters, not "${o.name}"`);
   const res = assembleFile(o.source, cpu);
   if (!res.segments.some((g) => g.data.length)) throw media(`${o.source}: the program assembles to no bytes`);
-  let bytes;
+  let bytes, tapeInfo = null;
   try {
-    bytes = format === 'decb' ? Emu.writeDecb(res.segments, res.exec)
-      : format === 'dragondos' ? Emu.writeDragonDos(res.segments, res.exec)
-        : Emu.writeDragonDos(res.segments, res.exec).subarray(9);
+    if (tape) {
+      // a tape file is one contiguous range with its load and exec addresses (CLOADM and EXEC), as a DragonDOS file is
+      const range = Emu.writeDragonDos(res.segments, res.exec), family = profile ? Emu.tapeFamily(profile) : cpu === '6803' ? 'mc10' : 'coco';
+      const name = o.name != null ? o.name : tapeName(o.source), load = (range[2] << 8) | range[3];
+      const cas = Emu.buildCas([{ name, type: 'binary', load, exec: res.exec, data: range.subarray(9) }], { family });
+      const wave = o.square ? 'square' : 'sine';
+      bytes = format === 'cas' ? cas : Emu.casToWav(cas, { family, wave, gaps: 'player' });
+      tapeInfo = Object.assign({ name, family, cas: cas.length }, format === 'wav' ? { wave, sampleRate: 44100, seconds: Math.round((bytes.length - 44) / 2 / 44100 * 100) / 100 } : {});
+    } else {
+      bytes = format === 'decb' ? Emu.writeDecb(res.segments, res.exec)
+        : format === 'dragondos' ? Emu.writeDragonDos(res.segments, res.exec)
+          : Emu.writeDragonDos(res.segments, res.exec).subarray(9);
+    }
   } catch (e) {
     if (!(e instanceof Emu.WriteError)) throw e;
-    throw media(`${o.source}: ${e.message}${e.kind === 'gap' || e.kind === 'overlap' ? '; use --format decb' : ''}`, 'bad-media');
+    throw media(`${o.source}: ${e.message}${e.kind === 'gap' || e.kind === 'overlap' ? (tape ? '; a tape file holds one contiguous range' : '; use --format decb') : ''}`, 'bad-media');
   }
   writeFile(o.out, bytes);
   const symbols = [...res.symbols].filter(([, a]) => Number.isInteger(a) && a >= 0 && a <= 0xFFFF);
@@ -1248,6 +1266,7 @@ function assembleRun(argv) {
     source: o.source, cpu, machine: o.machine, format, out: o.out, size: bytes.length, exec: res.exec, load: lo,
     segments: res.segments.map((g) => ({ address: g.addr, length: g.data.length })),
     map: o.map ? { file: o.map, symbols: symbols.length } : null,
+    tape: tapeInfo,
     json: o.json,
   };
 }
@@ -1264,9 +1283,9 @@ async function main(argv, { out = (t) => process.stdout.write(t + '\n'), err = (
     try {
       const r = assembleRun(argv);
       json = r.json;
-      const result = { source: r.source, cpu: r.cpu, machine: r.machine, format: r.format, out: r.out, size: r.size, load: r.load, exec: r.exec, segments: r.segments, map: r.map };
+      const result = { source: r.source, cpu: r.cpu, machine: r.machine, format: r.format, out: r.out, size: r.size, load: r.load, exec: r.exec, segments: r.segments, map: r.map, tape: r.tape };
       out(json ? JSON.stringify({ ok: true, exit: 0, assemble: result }, null, 2)
-        : `${r.source}: ${r.cpu}, ${r.format}, ${r.size} bytes, load ${Emu.hex(r.load)}, exec ${Emu.hex(r.exec)} -> ${r.out}${r.map ? ` (${r.map.symbols} symbols -> ${r.map.file})` : ''}`);
+        : `${r.source}: ${r.cpu}, ${r.format}, ${r.size} bytes, load ${Emu.hex(r.load)}, exec ${Emu.hex(r.exec)}${r.tape ? `, tape ${r.tape.name} (${r.tape.family}${r.tape.seconds ? `, ${r.tape.seconds} s` : ''})` : ''} -> ${r.out}${r.map ? ` (${r.map.symbols} symbols -> ${r.map.file})` : ''}`);
       return 0;
     } catch (e) {
       const error = asCliError(e);

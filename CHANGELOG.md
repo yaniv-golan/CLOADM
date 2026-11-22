@@ -152,6 +152,17 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   nothing otherwise); it is never in a snapshot, and opening one starts it empty. The counts are keyed by CPU address, so banked
   or MMU-mapped code aliases, and the report says so. `docs/automation.md`, "Finding hot spots", has a worked example that runs
   as a test; `tests/profiler.test.js` checks hand-counted programs on the Dragon 64, CoCo 3 and MC-10.
+- **A tape and a WAV for a real Dragon or CoCo, from a binary.** `buildCas(files, { family })` (`js/media/cassette.js`) writes the `.CAS`
+  bytes of programs (namefile with its ASCII and gap flags, data and end-of-file blocks, each with its 128-byte leader and checksum; a data file is ASCII and gapped; it replaces `casFile` in
+  `js/selftest.js`), and `casToWav` / `casToSamples` take `gaps: 'player'` (the default), `wave: 'sine'|'square'`, `amplitude`,
+  `sampleRate` and `family: 'dragon'|'coco'|'mc10'`. The gaps are the ones MAME's `.CAS` player adds and the emulated deck plays: 2 s of
+  silence at the start, 1 s around each namefile, leaders made up to 128 bytes; `tapeGaps(cas, { pad })` is that layout, shared by
+  the deck (`js/media/tape.js`) and the WAV writer. The MC-10 family stays unpadded. From the command line:
+  `--assemble game.asm --format cas|wav --name GAME --out GAME.wav [--square]` (`--machine mc10` takes the tape formats, and still no binary one).
+  `docs/examples/bin-to-wav.mjs` does it from Node; `tests/bin-to-tape.test.js` checks the stream, the silences and leaders, that
+  `wavToCas` gives the `.CAS` bytes back exactly (also with noise, drift, inverted phase and a DC offset), that the deck plays the WAV
+  into our block-reading firmware and the file's bytes end up in memory, and three breakages of the code (no leader before the second
+  file, a wrong checksum, the MC-10 padded).
 
 ### Changed
 
@@ -333,6 +344,11 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   `{ tx(byte, at), rx(byte, at) }`) in place of its one `onReceive`. The Web Serial object the DriveWire link uses is
   `session.webSerial` (it was `session.serial`). The terminal log left the Session: `terminalText()`, `clearTerminal()` and
   `terminalBytes` are gone; the serial panel keeps its own log as a subscriber, and turns it into text itself (`js/ui/terminal-text.js`).
+- **`Session.tapeWav` and `casToWav` write a tape as a player plays it.** The WAV had silence only at its start and end; it now has the
+  player's gaps (above) and a tape's short leaders made up to 128 bytes, so `wavToCas` of it returns the padded bytes (the
+  `.CAS` of a tape that already has its leaders comes back exactly). `casToSamples`' `silence` option is gone (`gaps: 'none'` is the
+  bytes as they are). The WAV decoder ends a run of bits at a silence and reads up to three damaged bytes (a bit or two off `$55`) at the
+  very start of a run, in front of a leader of at least 16 bytes, as `$55`: the first cycle after a silence is the least certain of a recording.
 
 ### Fixed
 
