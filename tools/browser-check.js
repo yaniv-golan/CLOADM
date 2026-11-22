@@ -14514,7 +14514,7 @@ async function closedViewsChecks(browser, base, check) {
         if (!e || e === document.body) return null;
         if (!window.__tabFirst) window.__tabFirst = e; else if (e === window.__tabFirst) return null;   // a full lap: back at the first stop
         const root = roots.find((r) => e.closest(r));
-        return { id: e.id || e.tagName.toLowerCase(), root: root || '' };
+        return { id: e.id || e.tagName.toLowerCase(), root: root || '', layout: !!e.closest('.layout') };
       }, [...VIEWS.map((v) => v[0]), ...PANELS]);
       if (!at) break;
       seen.push(at);
@@ -14556,9 +14556,16 @@ async function closedViewsChecks(browser, base, check) {
     await painted(page);
     const st = await page.evaluate((s) => { const e = document.querySelector(s); return { inert: e.inert, ariaHidden: e.getAttribute('aria-hidden') }; }, sel);
     check(`closed views: ${sel} open is not inert and not aria-hidden`, !st.inert && st.ariaHidden === null, JSON.stringify(st));
+    // a view that takes the focus when it opens still does (the inert is cleared first, showView)
+    // (the Library's own heading focus is not asserted: after the open the focus is on the page, not on #libHeading, on 99a4bf6 too)
+    const takes = { '#romCard': 'romHeading' }[sel];
+    if (takes) check(`closed views: opening ${sel} focuses its heading (#${takes})`, await waitFor(page, (id) => document.activeElement && document.activeElement.id === id, takes), await page.evaluate(() => document.activeElement && (document.activeElement.id || document.activeElement.tagName)));
     const open = await lap();
-    check(`closed views: with ${sel} open, Tab reaches ${back} inside it and nothing of the emulator behind it`, open.some((x) => x.id === back.slice(1)) && open.every((x) => x.root === sel || (!VIEWS.some((v) => v[0] === x.root))),
-      open.map((x) => `${x.root}${x.id ? ' ' + x.id : ''}`).join(' | ').slice(0, 300));
+    // What an open view covers is the emulator's own content, the .layout (screen, ports, drawer), which js/ui/page.js makes
+    // inert. Share leaves the app bar (the page's navigation: machine, Load, Share, Library...) in reach; the other views replace it.
+    check(`closed views: with ${sel} open, Tab reaches ${back} inside it, no other view, and nothing of the emulator's .layout behind it (Share leaves the app bar, the page's navigation, reachable; the others replace it)`,
+      open.some((x) => x.id === back.slice(1)) && open.every((x) => x.root === sel || !x.root) && !open.some((x) => x.layout) && (sel !== '#share' || await page.evaluate(() => !document.getElementById('appbar').inert && getComputedStyle(document.getElementById('appbar')).display !== 'none')),
+      open.map((x) => `${x.root}${x.layout ? ' .layout' : ''}${x.id ? ' ' + x.id : ''}`).join(' | ').slice(0, 300));
     await page.click(back);
     await waitFor(page, () => location.hash === '');
   }
@@ -14583,6 +14590,24 @@ async function closedViewsChecks(browser, base, check) {
     for (let i = 0; i < 80; i++) { await p3.keyboard.press('Tab'); const r = await p3.evaluate(() => { const e = document.activeElement; return e && e.closest('#share') ? e.id || e.tagName : ''; }); if (r) inside.push(r); }
     check('closed views: a page loaded on #share, then closed: Tab never lands inside Share', !inside.length, inside.join(', '));
     await c3.close();
+  }
+  // focus goes back to the screen when a view closes, by Esc or by Back, and a view opened and closed in quick succession ends closed
+  for (const [sel, hash] of VIEWS.slice(0, 2).concat([VIEWS[3]])) {
+    for (const [how, close] of [['Esc', () => page.keyboard.press('Escape')], ['Back', () => page.goBack()]]) {
+      await page.evaluate((h) => { location.hash = h; }, hash);
+      await waitFor(page, (s) => !document.querySelector(s).hidden, sel);
+      await painted(page);
+      await close();
+      await waitFor(page, (s) => document.querySelector(s).hidden, sel);
+      check(`closed views: ${sel} closed by ${how}: the focus is back on the screen, the view is inert`, await waitFor(page, () => document.activeElement && document.activeElement.id === 'screen')
+        && await page.evaluate((s) => document.querySelector(s).inert, sel), await page.evaluate(() => document.activeElement && (document.activeElement.id || document.activeElement.tagName)));
+    }
+  }
+  for (const [sel, hash] of VIEWS) {
+    await page.evaluate((h) => { location.hash = h; location.hash = ''; location.hash = h; location.hash = ''; }, hash);
+    await page.waitForTimeout(400);
+    const end = await page.evaluate((s) => { const e = document.querySelector(s); return { hash: location.hash, hidden: e.hidden, inert: e.inert, ariaHidden: e.getAttribute('aria-hidden'), layoutInert: document.querySelector('.layout').inert }; }, sel);
+    check(`closed views: ${sel} opened and closed twice in a row ends closed and inert, the emulator back`, end.hash === '' && end.hidden && end.inert && end.ariaHidden === 'true' && !end.layoutInert, JSON.stringify(end));
   }
   const again = await lap();
   check('closed views: closed again, Tab is back to the emulator\'s controls only', again.length > 10 && !again.some((x) => x.root), again.filter((x) => x.root).map((x) => `${x.root} ${x.id}`).join(', '));
