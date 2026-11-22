@@ -15121,31 +15121,46 @@ async function armGuardChecks(browser, base, check) {
   const until = async (card, ms) => { const a = await age(card); if (a !== null && a < ms) await page.waitForTimeout(ms - a); };
   // press `how` on control `sel` of `card` at `at` ms after the card showed; -> the age the press landed at (seen in the
   // page, in the capture phase before the guard) and whether `done` holds afterwards
-  const pressAt = async (card, sel, at, how, done) => {
+  // cutoff: a press that lands this late (ms after the card showed) is stopped here, before the page sees it, so a
+  // "too soon" press the browser delivered late never takes effect and can be tried again
+  const pressAt = async (card, sel, at, how, done, cutoff = null) => {
     // (on the window, in the capture phase: the guard's own listener on the card stops the click before the control)
-    await ev(([s]) => {
+    // (one round trip: the page waits until `at` itself and focuses the control for a key, then the press is sent)
+    const box = await ev(async ([s, c0, cut, at, key]) => {
       window.__landed = null;
       if (window.__landedFor) removeEventListener('click', window.__landedFor, true);
-      window.__landedFor = (e) => { const c = document.getElementById(s); if (window.__landed === null && (e.target === c || e.target.control === c)) window.__landed = performance.now(); };
+      window.__landedFor = (e) => {
+        const c = document.getElementById(s);
+        if (window.__landed !== null || !(e.target === c || e.target.control === c)) return;
+        window.__landed = performance.now();
+        const since = window.emu.armGuard.shownAt(document.getElementById(c0));
+        if (cut !== null && since !== null && window.__landed - since >= cut) { e.preventDefault(); e.stopImmediatePropagation(); }
+      };
       addEventListener('click', window.__landedFor, true);
-    }, [sel]);
-    await until(card, at);
-    const box = await page.locator(`#${sel}`).boundingBox();
+      const since = window.emu.armGuard.shownAt(document.getElementById(c0));
+      if (since !== null) await new Promise((r) => setTimeout(r, Math.max(0, at - (performance.now() - since))));
+      if (key) document.getElementById(s).focus();
+      const r = document.getElementById(s).getBoundingClientRect();
+      return { x: r.left, y: r.top, width: r.width, height: r.height };
+    }, [sel, card, cutoff, at, how === 'enter' || how === 'space']);
     if (how === 'tap') await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
-    else if (how === 'enter') { await ev((s) => document.getElementById(s).focus(), sel); await page.keyboard.press('Enter'); }
-    else if (how === 'space') { await ev((s) => document.getElementById(s).focus(), sel); await page.keyboard.press('Space'); }
+    else if (how === 'enter') await page.keyboard.press('Enter');
+    else if (how === 'space') await page.keyboard.press('Space');
     else await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
     await painted(page);
     const landed = await ev(([c]) => (window.__landed === null ? null : window.__landed - window.emu.armGuard.shownAt(document.getElementById(c))), [card]);
-    return { landed, done: await ev(done), focus: await ev(() => document.activeElement && document.activeElement.id) };
+    return { landed, done: await ev(done), focus: await ev(() => document.activeElement && document.activeElement.id),
+      at: await ev(() => { const s = window.emu.session, c = s.chat, m = c && c.messages.slice(-1)[0];
+        return { status: s.claudeStatus, busy: c && c.busy, last: m && JSON.stringify(m.content).slice(0, 160) }; }) };
   };
-  // a press too soon must do nothing; the browser may deliver one late on a loaded machine, so a late one is retried on
-  // the card re-armed by a pageshow (itself one of the re-arm routes)
+  // a press too soon must do nothing; the browser may deliver one late on a loaded machine, so one that lands at 450 ms
+  // or later is cut off before the page sees it and tried again on the card re-armed by a pageshow (itself one of the
+  // re-arm routes)
   const tooSoon = async (card, sel, how, done) => {
     let r = null;
-    for (let i = 0; i < 4; i++) {
-      r = await pressAt(card, sel, 200, how, done);
-      if (r.landed !== null && r.landed < 500) return r;
+    for (let i = 0; i < 6; i++) {
+      r = await pressAt(card, sel, 200, how, done, 450);
+      if (r.landed !== null && r.landed < 450) return r;
       await ev(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
     }
     return { ...r, late: true };
@@ -15167,6 +15182,7 @@ async function armGuardChecks(browser, base, check) {
   const saveSoon = await tooSoon('askKeyForm', 'btnAskKeySave', 'click', () => !!window.emu.session.keyStore.get());
   check(`${L}: Save key pressed 200 ms after the card shows does nothing, and the focus stays on it`, !saveSoon.late && saveSoon.done === false && saveSoon.focus === 'btnAskKeySave', JSON.stringify(saveSoon));
   await until('askKeyForm', 520);
+  await waitFor(page, () => document.getElementById('armAnnounce').textContent !== '', null, 5000);
   const state1 = await ev(() => ({ aria: document.getElementById('btnAskKeySave').getAttribute('aria-disabled'), said: document.getElementById('armAnnounce').textContent,
     look: (() => { const c = getComputedStyle(document.getElementById('btnAskKeySave')); return `${c.opacity} ${c.backgroundColor} ${c.color}`; })() }));
   check(`${L}: at 500 ms it takes presses, looking just as it did (no flash), and the card is announced`,
