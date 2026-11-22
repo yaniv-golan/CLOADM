@@ -100,6 +100,10 @@ const store = () => { const m = new Map(); return { get: (k) => (m.has(k) ? m.ge
   }
   s.setLastRun('recent', 'other.bin');
   check('carry on: another name does not', s.carryOn === null);
+  for (const name of ['LOOP.CAS', 'loop.cas', 'loop']) {
+    s.setLastRun('recent', name);
+    check(`carry on: the same base name with another extension (${name} for loop.bin) does not`, s.carryOn === null, JSON.stringify(s.carryOn));
+  }
   {
     const t = new Emu.Session({ store: store(), media: new MemoryMediaStore({ caseInsensitive: false }) });
     t.switchMachine('dragon64');
