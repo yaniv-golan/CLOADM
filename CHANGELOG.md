@@ -244,6 +244,11 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 - **Touch words:** the games' and the colour demo's hints say "tap a key" and "tap BREAK" (not "press a key" and
   "BREAK (Esc)"), and Claude's paused status says "Paused: you tapped a key · Stop ends Claude's turn". A toast sits
   under the app bar; held sideways it sits on the black glass under the picture, clear of the keys.
+- **The Claude chat isn't offered when CLOADM is shown inside another site's page**, with or without the embed flag.
+  The chat puts an API key card on the page, and a page that frames CLOADM would see it. Such a page also gets the
+  in-memory key store, so a key saved in this browser is not reachable there.
+- **The embed API acts on the machine you work on, not the one on screen.** peek, poke, type, screenText,
+  powerCycle and info each name that machine, and the ROM check is asked about the same one the call reads.
 
 ### 0.1.8-pre
 

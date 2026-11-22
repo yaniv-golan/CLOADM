@@ -1382,8 +1382,10 @@ export class Session {
   // into RAM (the Dragon 64 in its all-RAM mode, the CoCo 3 always), a program can copy any ROM, and a cartridge's
   // image is someone's ROM too. The embed API's peek asks first (js/embed-api.js): it hands memory to another
   // page as it is. (Shared snapshots take the ROM code out instead: shareFile.)
-  romCodeIn() {
-    const m = this.shownMachine;
+  // `m` is the machine the caller is about to read: the ROM guard must ask the SAME machine as the read, or it passes
+  // for the wrong one (the embed API asks it about the person's machine and reads that one). The default stays the
+  // machine on screen, which is what every existing caller means.
+  romCodeIn(m = this.shownMachine) {
     if (this.nitros9On(m)) return 'nitros9';   // our loader, and the user's NitrOS-9 in RAM (shareFile)
     if (Object.keys(m.romCrcs()).length) return 'roms';
     if (m.cartPort) return 'cartridge';

@@ -477,7 +477,7 @@ const newSession = (id = 'dragon64') => { const s = new Emu.Session({ store: Emu
 // =====================================================================================
 // 5. (skipped on the brief's terms) two debuggers on one machine
 // =====================================================================================
-// Not reproducible through any product path on main (see the state file): every public sequence attaches exactly
+// Not reproducible through any product path: every public sequence attaches exactly
 // one debugger per machine and one bus read makes exactly one _access call. Nothing is pinned here for it.
 
 })().then(() => {

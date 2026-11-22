@@ -7626,6 +7626,61 @@ async function embedChecks(browser, site, check) {
   await emu.evaluate(() => { const m = window.emu.machine, slot = m.profile.roms[0]; m.setRoms({ [slot.id]: new Uint8Array(slot.size || 0x4000).fill(0x39) }); });
   const refused = await page.evaluate(async () => { try { await window.__cloadm.peek(0x400, 4); return null; } catch (e) { return e.message; } });
   check('embed: peek is refused while the machine runs the user\'s ROMs', /not available while the machine runs your own ROMs/.test(refused || ''), refused);
+  // a page that frames /play/ WITHOUT embed=1 is still someone else's page: no chat, no key card, whatever the URL says
+  const framed = await ctx.newPage();
+  await framed.setContent(`<!doctype html><title>a blog</title><iframe id="f" src="${site}play/?machine=dragon64&app=claude" width="900" height="700"></iframe>`);
+  const frame = framed.frames().find((f) => f !== framed.mainFrame());
+  await framed.waitForTimeout(2500);
+  const framedPage = frame ? await frame.evaluate(() => ({
+    framed: window.top !== window, chat: !!window.emu.session.chat, chatMachines: !!window.emu.session.chatMachines,
+    keyCard: (() => { const e = document.getElementById('claudeKeyCard'); if (!e) return false; const r = e.getBoundingClientRect(); return !e.hidden && r.width > 0; })(),
+    keyVisible: window.emu.session.keyStore.get(),
+  })) : null;
+  check('framed without embed=1: the page knows it is framed and offers no chat, no key card',
+    framedPage && framedPage.framed === true && framedPage.chat === false && framedPage.chatMachines === false && framedPage.keyCard === false,
+    JSON.stringify(framedPage));
+
+  // no Claude entry point is left visible: the Ask button and the Commands button are hidden, not dead
+  const buttons = frame ? await frame.evaluate(() => {
+    const vis = (id) => { const e = document.getElementById(id); if (!e) return 'absent'; const r = e.getBoundingClientRect(); return !e.hidden && r.width > 0 && r.height > 0; };
+    const shelf = document.querySelector('[data-shelf="claude"]');
+    return { bodyClass: document.body.classList.contains('no-claude'), ask: vis('btnAsk'), commands: vis('navCommands'),
+      shelf: shelf ? (() => { const r = shelf.getBoundingClientRect(); return !shelf.hidden && r.width > 0; })() : 'absent' };
+  }) : null;
+  check('framed without embed=1: no Claude entry is visible (Ask, Commands and the welcome shelf are hidden, not dead)',
+    buttons && buttons.bodyClass === true && buttons.ask === false && buttons.commands === false && buttons.shelf === false,
+    JSON.stringify(buttons));
+  // A key IN this frame's own storage must be invisible to the framed page's session. Written into the frame first and
+  // the frame reloaded, so the row tests the key store rather than "there was no key anywhere": with the store built
+  // from localStorage regardless of the decision, the session reads it and this goes red.
+  let keyHidden = null;
+  if (frame) {
+    await frame.evaluate(() => { try { localStorage.setItem('cloadm.anthropicKey', 'sk-ant-FRAMED-STORE-SENTINEL'); } catch (e) {} });
+    // re-set the host page rather than reload it: a setContent page has no URL to reload, and re-setting recreates the
+    // iframe. The key survives because it is stored on the PLAY origin, which is what the frame loads again.
+    await framed.setContent(`<!doctype html><title>a blog</title><iframe id="f" src="${site}play/?machine=dragon64&app=claude" width="900" height="700"></iframe>`);
+    await framed.waitForTimeout(3000);
+    const f2 = framed.frames().find((f) => f !== framed.mainFrame());
+    keyHidden = f2 ? await f2.evaluate(() => ({
+      stored: (() => { try { return localStorage.getItem('cloadm.anthropicKey'); } catch (e) { return null; } })(),
+      seen: window.emu && window.emu.session ? window.emu.session.keyStore.get() : '(no session)',
+    })) : null;
+  }
+  check('framed without embed=1: a key stored IN the frame is not visible to its session (in-memory store)',
+    keyHidden && keyHidden.stored === 'sk-ant-FRAMED-STORE-SENTINEL' && keyHidden.seen === null, JSON.stringify(keyHidden));
+
+  // a SANDBOXED frame (allow-scripts, no allow-same-origin) has origin "null", and the browser refuses its ES modules:
+  // the page cannot start there at all, so there is no chat to reach and nothing for this change to guard. Assert the
+  // truthful result - no session, no chat - and do not pretend the page runs.
+  const sandboxed = await ctx.newPage();
+  await sandboxed.setContent(`<!doctype html><title>a blog</title><iframe id="s" sandbox="allow-scripts" src="${site}play/?machine=dragon64&app=claude" width="640" height="480"></iframe>`);
+  await sandboxed.waitForTimeout(2500);
+  const sbFrame = sandboxed.frames().find((f) => /\/play\//.test(f.url()));
+  const sbState = sbFrame ? await sbFrame.evaluate(() => ({
+    started: !!(window.emu && window.emu.session), chat: !!(window.emu && window.emu.session && window.emu.session.chat),
+  })).catch((e) => ({ evalFailed: e.message.slice(0, 80) })) : null;
+  check('sandboxed frame (no allow-same-origin): the page cannot start there, so there is no chat',
+    sbState && !sbState.evalFailed && sbState.started === false && sbState.chat === false, JSON.stringify(sbState));
   check('embed: no page errors', !errors.length, errors.join('; '));
   await ctx.close();
   host.close();

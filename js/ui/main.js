@@ -36,7 +36,7 @@ import { setupSerialPanel } from './serial-panel.js';
 import { setupDriveWirePanel } from './drivewire-panel.js';
 import { setupDisplayPanel } from './display-panel.js';
 import { setupSnapshotPanel } from './snapshot-panel.js';
-import { parseUrlConfig, linkFetchError } from '../config.js';
+import { parseUrlConfig, linkFetchError, claudeOffered } from '../config.js';
 import { setupEmbed } from './embed.js';
 import { setupSettingsFile } from './settings-file.js';
 import { setupClaude } from './claude.js';
@@ -64,12 +64,22 @@ try {
   storageProblem = e;
   mediaStore = new MemoryMediaStore();
 }
+// Whether the Claude chat is offered here at all: a top-level page and no embed flag (js/config.js's claudeOffered).
+// A framed page is someone else's page, and the chat's key card would be on it - that is why this is one decision used
+// by both the key store and the controller, rather than the embed flag alone.
+// "shown inside another page": window.self !== window.top. Reading it is a WindowProxy comparison, which does not throw
+// even in a sandboxed frame (checked), but a page that cannot tell is treated as framed - the decision fails closed.
+const framedInPage = (() => { try { return window.self !== window.top; } catch (e) { return true; } })();
+const chatHere = claudeOffered(link, framedInPage);
+// a page with no chat says so on <body>, so the stylesheet hides the buttons that would open one rather than leaving
+// them on screen doing nothing (play/index.html hides #btnAsk, #navCommands, #claude, #ask, #askRail under this)
+if (!chatHere) document.body.classList.add('no-claude');
 // the Claude API key: this browser's storage only (cloadm.anthropicKey), never a Session setting.
-// An embed gets an in-memory store, never the saved one: no route in an embed may reach a key left in this browser
-// (the chat is not set up there either, but the store is the second lock - a future route that reads keyStore.get()
-// finds nothing).
-const keyStore = link.embed ? new MemoryKeyStore()
-  : (() => { try { return localStorage ? storageKeyStore(localStorage) : new MemoryKeyStore(); } catch (e) { return new MemoryKeyStore(); } })();
+// Where the chat is not offered, the store is in memory, never the saved one: nothing on that page may reach a key
+// left in this browser (the chat is not set up there either, but the store is the second lock - a future route that
+// reads keyStore.get() finds nothing).
+const keyStore = chatHere ? (() => { try { return localStorage ? storageKeyStore(localStorage) : new MemoryKeyStore(); } catch (e) { return new MemoryKeyStore(); } })()
+  : new MemoryKeyStore();
 // embedded (?embed=1): no welcome menu of its own; the embedding page drives a plain machine
 const session = new Session({ store: settings, media: mediaStore, keyStore, welcomeMenu: !link.embed });
 const page = createPage(session, new Audio());
@@ -125,10 +135,10 @@ setupKeyHint(page);
 setupSettingsFile(page);
 const share = setupShare(page);
 const showRoms = () => romSockets.reveal();
-// No Claude chat in an embed. An embedded CLOADM is third-party content in someone else's page, and the chat
-// would put its API key card on that page; with no controller there is no chat machine, no panel and no key card, and
-// the routes that open one (?app=claude, the Ask panel, the command box, a keypress) have nothing to reach.
-const claude = link.embed ? null : setupClaude(page);
+// No Claude chat on a page shown inside someone else's page, whether by the embed flag or by being framed: the chat
+// would put its API key card there. With no controller there is no chat machine, no panel and no key card, and the
+// routes that open one (?app=claude, the Ask panel, the command box, a keypress) have nothing to reach.
+const claude = chatHere ? setupClaude(page) : null;
 // set up only when there is a controller: both modules drive the chat and would throw on null
 if (claude) setupAsk(page, claude);
 if (claude) setupCommandBox(page, claude);

@@ -406,7 +406,9 @@ doesn't have is reported in a message (with Details) and the rest of the link st
 Files given by link are fetched by the browser, so their server must allow CORS.
 
 **Embedding.** Put `<iframe src="https://cloadm.dev/play/?embed=1&machine=dragon64">` in a page, include
-`https://cloadm.dev/embed/cloadm.js`, and drive it:
+`https://cloadm.dev/embed/cloadm.js`, and drive it. The Claude chat is not available when CLOADM is shown inside
+another page, with or without `embed=1`.
+
 
 ```js
 const m = await CLOADM.attach(document.querySelector('iframe'));
