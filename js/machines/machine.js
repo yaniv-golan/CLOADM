@@ -77,6 +77,10 @@ class Machine {
     // machine state: never in a snapshot.
     this.pcWatch = null;
     this.probes = [];
+    // () -> (), called when a run of instructions ends while any run-end hook is registered (addRunEnd): the one hook
+    // itself, or a dispatcher over several; null with none. Host state, like the probes.
+    this.runEndWatch = null;
+    this.runEnds = [];
     // the bus taps (js/machines/bustaps.js): read/write observers over address ranges, host state like the probes
     this.busTaps = new BusTaps(this);
     this.stubConsole = null;
@@ -292,6 +296,25 @@ class Machine {
       this.pcWatch = (pc) => { for (let i = 0; i < fns.length; i++) fns[i](pc); };
     }
   }
+  // Run-end hooks: fn() is called when a run of instructions ends, before the machine goes on (the memory-write
+  // observer delivers the writes of the last instruction there, js/writewatch.js): in runFrame once its instructions
+  // are run, before the frame closes, and by the debugger after each instruction it steps. Host state like the probes,
+  // in registration order; -> remove() (once). With none, runEndWatch is null.
+  addRunEnd(fn) {
+    if (typeof fn !== 'function') throw new TypeError('addRunEnd: a run-end hook is a function');
+    const entry = { fn };
+    this.runEnds = [...this.runEnds, entry];
+    this.runEndsChanged();
+    return () => {
+      if (!this.runEnds.includes(entry)) return;
+      this.runEnds = this.runEnds.filter((e) => e !== entry);
+      this.runEndsChanged();
+    };
+  }
+  runEndsChanged() {
+    const fns = this.runEnds.map((e) => e.fn);
+    this.runEndWatch = fns.length === 0 ? null : fns.length === 1 ? fns[0] : () => { for (let i = 0; i < fns.length; i++) fns[i](); };
+  }
   // The CPU's access being made is one a CoCo 3 instruction resumed after HALT replays (made once already, before
   // it was suspended): the bus taps do not report it again. No other family replays.
   replaying() { return false; }
@@ -333,8 +356,9 @@ class Machine {
       this.frameOpen = true;
     }
     const end = this.frameBase + this.frameCycles;
-    if (runTo) { if (runTo(end) === false) return false; } else this.runCycles(end);
-    if (this.stall) return false;
+    const ran = runTo ? runTo(end) !== false : (this.runCycles(end), true);
+    if (this.runEndWatch !== null) this.runEndWatch();   // (the frame's last instruction is done: before it closes)
+    if (!ran || this.stall) return false;
     this.frameOpen = false;
     this.processEvents(end - 1);
     if (this.serialPort) this.serialPort.flush(end);

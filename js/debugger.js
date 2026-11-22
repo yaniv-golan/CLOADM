@@ -258,6 +258,8 @@ export class Debugger {
     m.runCycles(Infinity, 1);
     if (m.cpuHeld || cpu.stepHalted || (m.cycle === c0 && cpu.totalCycles === t0)) { this.hit = null; return null; }
     const cycles = cpu.totalCycles - t0;
+    // the instruction is done: the run-end hooks (the memory-write observer's delivery, which may stop the run)
+    if (m.runEndWatch !== null) m.runEndWatch();
     this.steps++;
     this.checkedPc = null;         // the next instruction gets its own breakpoint check
     this._record(before, cycles);
@@ -348,6 +350,7 @@ export class Debugger {
       since = -1;
       i++;
       if (this.hit) { const h = this.hit; this.hit = null; this._stop('watchpoint', h); return i; }
+      if (this.stopped) return i;  // a run-end hook stopped it after this instruction (a memory-write observer: 'write')
     }
     this.skipBp = null;
     return max < 0 ? max : i;

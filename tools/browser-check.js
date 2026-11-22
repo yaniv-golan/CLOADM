@@ -3688,8 +3688,29 @@ async function debuggerScreenChecks(browser, base, check) {
       poked === 0x42 && /write {2}\$0600/.test(wps) && watched
       && (await page.textContent('#dbgStatus')).startsWith(`● Stopped by a write of $0600 ($${aReg.toString(16).toUpperCase().padStart(2, '0')}) · at $3FF3`),
       `${poked} ${wps} ${await page.textContent('#dbgStatus')}`);
-    // Over on a call that never returns: the screen stays stopped and says why (it never runs free)
     await page.click('#dbgBps [aria-label^="Remove the watchpoint"]');
+    // (before the Over below, whose million instructions leave the frame loop catching up for seconds)
+    // a memory-write observer's 'stop' (session.watchWrites): the screen says "Paused at a write to", with the address,
+    // the byte and the instruction after the writer; Run goes on and the observer keeps seeing the writes
+    await page.evaluate(() => {
+      const s = window.emu.session, d = s.debug;
+      d.write(0x0E00, [0x4C, 0xB7, 0x06, 0x01, 0x20, 0xFA]);   // LOOP INCA / STA $0601 / BRA LOOP (clear of the stack)
+      d.setRegister('a', 0x10); d.setRegister('cc', d.registers().cc | 0x50); d.setRegister('pc', 0x0E00);
+      window.__writes = [];
+      window.__watch = s.watchWrites({ start: 0x601, end: 0x601 }, (e) => { window.__writes.push(e.value); return e.value === 0x13 && window.__writes.length === 3 ? 'stop' : undefined; });   // (once: A wraps round)
+    });
+    await page.click('#btnDbgRun');
+    const wstop = await waitFor(page, () => window.emu.session.paused && window.emu.session.debug.stopReason.kind === 'write', null, 3000);
+    const wst = await page.evaluate(() => ({ status: document.getElementById('dbgStatus').textContent, pc: window.emu.session.debug.pc, writes: window.__writes.join() }));
+    check('debugger screen: a watchWrites \'stop\' reads "Paused at a write to $0601 ($13)" at the instruction after the store',
+      wstop && /^● Paused at a write to \$0601 \(\$13\) · at \$0E04 · cycle [\d,]+$/.test(wst.status) && wst.pc === 0x0E04 && wst.writes === '17,18,19',
+      JSON.stringify(wst));
+    await page.click('#btnDbgRun');
+    const resumed = await waitFor(page, () => !window.emu.session.paused && window.__writes.length > 20 && document.getElementById('btnDbgRun').textContent === 'Pause F5', null, 3000);
+    await page.click('#btnDbgRun');
+    await page.evaluate(() => window.__watch.remove());
+    check('debugger screen: Run goes on after a write stop, the observer still delivering', resumed, await page.evaluate(() => `${window.__writes.length} ${window.emu.session.paused}`));
+    // Over on a call that never returns: the screen stays stopped and says why (it never runs free)
     await page.evaluate(() => { const d = window.emu.session.debug; d.write(0x3FE0, [0xBD, 0x3F, 0xE5, 0x20, 0xFB, 0x20, 0xFE]); d.setRegister('pc', 0x3FE0); });
     await page.click('#btnDbgOver');
     const limitStatus = await page.textContent('#dbgStatus');

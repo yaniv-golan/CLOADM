@@ -433,6 +433,91 @@ than the frames run: its counter then advances less than once a frame.
 the Dragons, the CoCo 1/2 and the MC-10 but the GIME's clock (four times the 0.89 MHz CPU cycle: 59,736 a frame NTSC, 71,136 PAL)
 on the CoCo 3, where the CPU runs at two speeds; `machine.cpu.totalCycles` counts CPU cycles on every model.
 
+### Applying input on a guest write
+
+Holding keys for whole frames ties input to the video field, not to the guest's own loop. A guest whose tick is not one field
+(or a port compared against another renderer, run for run) reads the input at a different point of its loop each run, and two
+runs that should match drift apart. `session.watchWrites({ start, end }, fn)` calls `fn` for each CPU write to `start`..`end`
+(inclusive) after the writing instruction finishes and before the next one starts, so input can be applied exactly when the
+guest writes its frame-complete marker:
+
+* `fn` gets `{ address, value, old, pc, at, frame }`: the byte written and the one it replaced, the address of the instruction
+  that wrote it, the machine's time of the write (`machine.ioTime()`, in `machine.now()` units) and the frame it was in
+  (`machine.frameCount`). `at` always falls within the writing instruction's own time; on the Dragons and CoCo 1/2 at the slow
+  rate it is the start of the instruction's last cycle for most instructions (the timing checked against MAME; the CPU core
+  counts a push's cycles as it goes, so `PSHU A,B` times its two bytes at its 5th and 6th cycles of 7), at the address-dependent and fast rates the
+  access's own cycle, and on the CoCo 3 the access's time in GIME clocks. A two-byte write (`STD`) or a push (`PSHS`) gives one event a byte, in the order the bus made them.
+* In `fn`, `machine.setKey`, the joystick (`machine.joy`) and mouse (`machine.mouse`), `session.serialSend` and
+  `session.pokeBytes` take effect from the next instruction. Returning `'stop'` stops the run there, as a debugger stop
+  (`session.paused`, `debug.stopReason.kind === 'write'`; `debug.resume()` and `runFrames` go on). `switchMachine`,
+  `openSnapshot` and `snapshotFile` throw a `SessionError` inside `fn`.
+* A write in a frame's last instruction is delivered before that frame ends. On a CoCo 3 instruction held by the disk
+  controller's HALT, each write is reported once, when the instruction completes.
+* Only the CPU's bus writes are reported: `pokeBytes`, a load and the debugger's memory edits are not.
+* `remove()` takes the observer off (a second call does nothing). Observers belong to the Session, not the machine: they move
+  to the new machine on `switchMachine` and `openSnapshot`, and no snapshot carries them. With none registered the machine
+  runs exactly as before; with one, the Session runs each frame an instruction at a time (up to about 1.5 times the work).
+
+This guest is `docs/examples/framecount.asm` with a marker: each tick it counts `FRAME`, writes the count to `DONE`, then reads
+the keyboard and records in `KEYSEEN` and `HELD` the ticks that found SPACE down. The observer presses SPACE as the guest
+writes marker 10 and lets go at marker 12, so exactly ticks 10 and 11 see it, whatever the frame timing:
+
+```js
+// example: input-on-write
+import { Session, assemble } from './js/emu.js';
+
+const fail = (what) => { throw new Error(`example: ${what}`); };
+const res = assemble(`FRAME   EQU     $3100
+KEYSEEN EQU     $3101
+DONE    EQU     $3102
+HELD    EQU     $3103
+        ORG     $3000
+START   ORCC    #$50
+        CLR     FRAME
+        CLR     KEYSEEN
+        CLR     HELD
+TICK    LDA     $FF02           ; wait for the field sync
+WAITFS  LDA     $FF03
+        BPL     WAITFS
+        INC     FRAME
+        LDA     FRAME
+DONEPC  STA     DONE            ; the frame-complete marker
+        LDA     #%01111111      ; keyboard column 7 (SPACE)
+        STA     $FF02
+        LDA     $FF00
+        ANDA    #%00101000
+        CMPA    #%00101000
+        BEQ     NOKEY
+        LDA     FRAME           ; SPACE is down at this tick
+        STA     KEYSEEN
+        INC     HELD
+NOKEY   LDA     #$FF
+        STA     $FF02
+        BRA     TICK
+        END     START`, '6809');
+if (!res.ok) fail(res.errors.map((e) => e.message).join('; '));
+
+const s = new Session({ welcomeMenu: false });
+s.switchMachine('dragon64', {}, { menu: false });
+s.runAssembled(res);
+const m = s.shownMachine, DONEPC = res.symbols.get('DONEPC');
+const w = s.watchWrites({ start: 0x3102, end: 0x3102 }, (ev) => {
+  if (ev.pc !== DONEPC || ev.old !== ((ev.value - 1) & 0xFF)) fail(`unexpected write ${JSON.stringify(ev)}`);
+  if (ev.value === 10) m.setKey('SPACE', true);    // the guest's next keyboard read sees it
+  if (ev.value === 12) m.setKey('SPACE', false);
+  if (ev.value === 15) return 'stop';              // stop right after the marker write
+  return undefined;
+});
+s.runFrames(30);
+if (!s.paused || s.debug.stopReason.kind !== 'write' || s.readByte(0x3100) !== 15) fail('no stop at marker 15');
+if (s.readByte(0x3103) !== 2 || s.readByte(0x3101) !== 11) fail(`SPACE seen ${s.readByte(0x3103)} times, last at tick ${s.readByte(0x3101)}`);
+w.remove();
+s.debug.resume();
+s.runFrames(2);
+if (s.paused || s.readByte(0x3100) !== 16) fail(`after resume, tick ${s.readByte(0x3100)}`);
+console.log('example passed');
+```
+
 ## For coding agents
 
 Writing a game? [Game development](game-development.md) is the guide: the hardware a game uses, a starter game, and
@@ -782,6 +867,7 @@ machine boots from the disk; that path needs a ROM CLOADM does not ship, and is 
 | `await snapshotFile()`, `await readSnapshot(bytes)`, `openSnapshot(snap)` | snapshots |
 | `serial` (`device`, `attach`, `send`, `subscribe`, `flush`, `trace`, `status`), `diagnostics()` | the serial port: its device, the bytes both ways and when they are delivered, the trace's event kinds and fields, and where the machine is ([the serial port from Node](#the-serial-port-from-node)) |
 | `debug` (`addBreakpoint`, `step`, `registers`, …) | the debugger, as the page's Debugger screen uses it |
+| `watchWrites({ start, end }, fn)` | the memory-write observer ([Applying input on a guest write](#applying-input-on-a-guest-write)) |
 
 Not promoted, although they are reachable: `machine.serialPort`, `pcWatch`, `stubKeys` and the typist's internals (`machine.typist`
 beyond `press`, which the typing row names).

@@ -6,12 +6,13 @@
  *
  *   hooks.addProbe(fn)                    Machine.addProbe on the machine in use, and on every later one
  *   hooks.addReadTap(range, fn)           m.busTaps.addReadTap, likewise
- *   hooks.addWriteTap(range, fn)          m.busTaps.addWriteTap, likewise
+ *   hooks.addWriteTap(range, fn, opts)    m.busTaps.addWriteTap, likewise (opts: { old })
+ *   hooks.addRunEnd(fn)                   Machine.addRunEnd, likewise
  *   hooks.add(attach)                     anything else kept on the machine in use: attach(m) puts it on m and returns
  *                                         its remove() (the serial port's listener and traces, session.serial)
  *
  * Each returns remove(), which takes it off the machine it is on and out of the Session's list (once).
- * Internal for now: the developer features (a memory-write observer, a profiler) build on it; no public API yet.
+ * Internal: the developer features build on it (the memory-write observer, Session.watchWrites: js/writewatch.js).
  */
 
 export class HostHooks {
@@ -21,7 +22,8 @@ export class HostHooks {
   }
   addProbe(fn) { return this._add((m) => m.addProbe(fn)); }
   addReadTap(range, fn) { return this._add((m) => m.busTaps.addReadTap(range, fn)); }
-  addWriteTap(range, fn) { return this._add((m) => m.busTaps.addWriteTap(range, fn)); }
+  addWriteTap(range, fn, opts) { return this._add((m) => m.busTaps.addWriteTap(range, fn, opts)); }
+  addRunEnd(fn) { return this._add((m) => m.addRunEnd(fn)); }
   add(attach) {
     if (typeof attach !== 'function') throw new TypeError('hooks.add: attach is a function of the machine');
     return this._add(attach);
