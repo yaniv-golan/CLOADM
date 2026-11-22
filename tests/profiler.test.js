@@ -164,6 +164,12 @@ SCAN    LDAA    #$FE            ; a keyboard scan: strobe a column on port 1 ($0
         STAA    $02
         LDAB    $BFFF
         BRA     SCAN
+RES15   LDAA    $BFFF           ; the same, writing $0015: the first address past the 6803's registers
+        STAA    $15
+        BRA     RES15
+RES13   LDAA    $BFFF           ; the same, writing $0013 (the serial transmit register: on the chip, never the bus)
+        STAA    $13
+        BRA     RES13
 RES     LDAA    $BFFF           ; the same, writing $0018: past the 6803's registers ($0000-$0014), so it reaches the bus
         STAA    $18
         BRA     RES
@@ -189,6 +195,11 @@ COMP    LDAA    0,X
   check('mc10: a keyboard poll is spin, polling $BFFF', key.spin.share > 0.99 && key.spin.polls.join() === '$BFFF', JSON.stringify(key));
   const scan = row(profileAt(s, res, 'SCAN', 3), 'SCAN');
   check('mc10: a keyboard scan writing port 1 ($0002) is spin, polling $BFFF', scan.share > 0.99 && scan.spin.share > 0.99 && scan.spin.polls.join() === '$BFFF', JSON.stringify(scan));
+  const res15 = row(profileAt(s, res, 'RES15', 3), 'RES15'), res13 = row(profileAt(s, res, 'RES13', 3), 'RES13');
+  check('mc10: a write to $0015, the first address past the registers, reaches the bus: a write the profile sees, not spin', res15.share > 0.99 && res15.spin.share === 0, JSON.stringify(res15));
+  check('mc10: a write to $0013 (the serial transmit register) is on-chip: it never reaches the bus, so the wait is still spin', res13.share > 0.99 && res13.spin.share > 0.99, JSON.stringify(res13));
+  const kinds = [0x13, 0x14, 0x15, 0x1F, 0x20].map((a) => s.shownMachine.writeKind(a));
+  check('mc10: a poke below $0015 is refused as I/O (the registers), $0015-$001F and above as undecoded (nothing answers)', JSON.stringify(kinds) === '["io","io","undecoded","undecoded","undecoded"]', JSON.stringify(kinds));
   const res18 = row(profileAt(s, res, 'RES', 3), 'RES');
   check('mc10: a write to the reserved $0018 (past the 6803\'s registers, $0000-$0014) reaches the bus, so the profile sees it as a write: not spin', res18.share > 0.99 && res18.spin.share === 0, JSON.stringify(res18));
   const latch = row(profileAt(s, res, 'LATCH', 3), 'LATCH');
