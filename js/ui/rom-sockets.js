@@ -15,7 +15,7 @@
  * Dropping files anywhere on the screen works as before; dropping on this screen takes them as ROMs. A ROM dropped
  * anywhere that could not be used (wrong size for its name, a socket already filled) opens this screen to say why.
  */
-import { $ } from './page.js';
+import { $, showView } from './page.js';
 
 const kb = (n) => `${n / 1024} KB`;
 // what an optional socket gives you, by socket id (what you miss without it)
@@ -38,7 +38,7 @@ export function setupRomSockets(page, romInput, { confirmSwitch }) {
   function show() {
     const open = isOpen();
     document.body.classList.toggle('roms-open', open);
-    view.hidden = !open;
+    showView(view, open);
     if (!open) offers = [];   // shown once, with the drop they came from: never again from a later visit to this screen
     if (open) { render(); $('romHeading').focus(); }
   }

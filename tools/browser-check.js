@@ -14489,6 +14489,107 @@ async function uiModelChecks(browser, base, check) {
   check('ui model: no page errors', !errors.length, errors.join('; '));
 }
 
+// Closed views stay out of the tab order and the accessibility tree: with every view closed, Tab through the whole page
+// and focus never lands inside a view (Share, the Debugger, Add ROMs, the Library) or a panel that is not shown; with a
+// view open its controls are reachable again. The emulator behind an open view is inert (js/ui/page.js).
+async function closedViewsChecks(browser, base, check) {
+  const VIEWS = [['#share', '#share', '#shareBack'], ['#library', '#library', '#btnLibBack'], ['#debugView', '#debugger', '#btnDbgBack'], ['#romCard', '#add-roms', '#btnRomBack']];
+  const PANELS = ['#ask', '#claude', '#cmdBox', '#snapNeeds', '#lizaOffer', '#mediaOffer', '#installOffer', '#switchConfirm', '#machineMenu'];
+  const errors = [];
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, serviceWorkers: 'block' });
+  const page = await ctx.newPage();
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`${base}?machine=dragon64`);
+  await started(page);
+  // the page's controls in tab order, as the browser walks them: where focus lands on each Tab press, a full lap
+  const lap = async () => {
+    // (focus and the browser's sequential-focus starting point both go back to the top of the page)
+    await page.evaluate(() => { document.body.setAttribute('tabindex', '-1'); document.body.focus(); document.body.removeAttribute('tabindex'); document.activeElement && document.activeElement.blur(); window.scrollTo(0, 0); });
+    await page.evaluate(() => { window.__tabFirst = null; });
+    const seen = [];
+    for (let i = 0; i < 160; i++) {
+      await page.keyboard.press('Tab');
+      const at = await page.evaluate((roots) => {
+        const e = document.activeElement;
+        if (!e || e === document.body) return null;
+        if (!window.__tabFirst) window.__tabFirst = e; else if (e === window.__tabFirst) return null;   // a full lap: back at the first stop
+        const root = roots.find((r) => e.closest(r));
+        return { id: e.id || e.tagName.toLowerCase(), root: root || '' };
+      }, [...VIEWS.map((v) => v[0]), ...PANELS]);
+      if (!at) break;
+      seen.push(at);
+    }
+    return seen;
+  };
+  // (first the other sizes and layouts a person tabs through: the touch layouts and a keyboard on a tablet, phone upright and sideways)
+  for (const [label, opts] of [['tablet', { viewport: { width: 820, height: 1180 }, hasTouch: true }], ['phone', { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }],
+    ['phone sideways', { viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true }]]) {
+    const c2 = await browser.newContext(Object.assign({ serviceWorkers: 'block' }, opts));
+    const p2 = await c2.newPage();
+    await p2.goto(`${base}?machine=dragon64`);
+    await started(p2);
+    const roots = [...VIEWS.map((v) => v[0]), ...PANELS];
+    const stops = [];
+    for (let i = 0; i < 160; i++) {
+      await p2.keyboard.press('Tab');
+      const at = await p2.evaluate((rs) => { const e = document.activeElement; if (!e || e === document.body) return null; const r = rs.find((x) => e.closest(x)); return { id: e.id || e.tagName.toLowerCase(), root: r || '', box: e.getBoundingClientRect().width > 0 }; }, roots);
+      if (at) stops.push(at);
+    }
+    const stray = stops.filter((x) => x.root);
+    check(`closed views (${label}): Tab never lands inside a closed view or hidden panel`, stops.length > 5 && !stray.length, `${stops.length} stops; in a closed view: ${stray.map((x) => `${x.root} ${x.id}`).join(', ')}`);
+    await c2.close();
+  }
+  const closed = await lap();
+  const strays = closed.filter((x) => x.root);
+  check('closed views: with every view closed, Tab never lands inside Share, the Debugger, Add ROMs, the Library or a hidden panel',
+    closed.length > 10 && !strays.length, `${closed.length} stops; in a closed view: ${strays.map((x) => `${x.root} ${x.id}`).join(', ')}`);
+  // each view: the browser's own computed state says it is out of the tab order and the AT tree while closed
+  for (const [sel] of VIEWS) {
+    const st = await page.evaluate((s) => { const e = document.querySelector(s); const c = getComputedStyle(e);
+      return { hidden: e.hidden, display: c.display, visibility: c.visibility, inert: e.inert, ariaHidden: e.getAttribute('aria-hidden') }; }, sel);
+    check(`closed views: ${sel} is closed by its own state: hidden, inert and aria-hidden (not only drawn as nothing by a stylesheet rule)`, st.hidden && st.inert && st.ariaHidden === 'true' && st.display === 'none', JSON.stringify(st));
+  }
+  // each view open: its controls are reachable by keyboard
+  for (const [sel, hash, back] of VIEWS) {
+    await page.evaluate((h) => { location.hash = h; }, hash);
+    await waitFor(page, (s) => { const e = document.querySelector(s); return !e.hidden && getComputedStyle(e).display !== 'none'; }, sel);
+    await painted(page);
+    const st = await page.evaluate((s) => { const e = document.querySelector(s); return { inert: e.inert, ariaHidden: e.getAttribute('aria-hidden') }; }, sel);
+    check(`closed views: ${sel} open is not inert and not aria-hidden`, !st.inert && st.ariaHidden === null, JSON.stringify(st));
+    const open = await lap();
+    check(`closed views: with ${sel} open, Tab reaches ${back} inside it and nothing of the emulator behind it`, open.some((x) => x.id === back.slice(1)) && open.every((x) => x.root === sel || (!VIEWS.some((v) => v[0] === x.root))),
+      open.map((x) => `${x.root}${x.id ? ' ' + x.id : ''}`).join(' | ').slice(0, 300));
+    await page.click(back);
+    await waitFor(page, () => location.hash === '');
+  }
+  // closed by the other ways a view closes (Esc; the browser's Back after a click on the app bar's button; a page loaded on the view, then Back)
+  for (const [how, doClose, opener] of [['Esc', () => page.keyboard.press('Escape'), () => page.click('#btnShare')], ['Back', () => page.goBack(), () => page.click('#btnShare')]]) {
+    await opener();
+    await waitFor(page, () => !document.getElementById('share').hidden);
+    await doClose();
+    await waitFor(page, () => document.getElementById('share').hidden);
+    const lapped = await lap();
+    check(`closed views: Share closed by ${how}: Tab never lands inside it`, lapped.length > 10 && !lapped.some((x) => x.root), lapped.filter((x) => x.root).map((x) => `${x.root} ${x.id}`).join(', '));
+  }
+  {
+    const c3 = await browser.newContext({ viewport: { width: 1440, height: 900 }, serviceWorkers: 'block' });
+    const p3 = await c3.newPage();
+    await p3.goto(`${base}?machine=dragon64#share`);
+    await started(p3);
+    await waitFor(p3, () => !document.getElementById('share').hidden);
+    await p3.evaluate(() => { location.hash = ''; });
+    await waitFor(p3, () => document.getElementById('share').hidden);
+    const inside = [];
+    for (let i = 0; i < 80; i++) { await p3.keyboard.press('Tab'); const r = await p3.evaluate(() => { const e = document.activeElement; return e && e.closest('#share') ? e.id || e.tagName : ''; }); if (r) inside.push(r); }
+    check('closed views: a page loaded on #share, then closed: Tab never lands inside Share', !inside.length, inside.join(', '));
+    await c3.close();
+  }
+  const again = await lap();
+  check('closed views: closed again, Tab is back to the emulator\'s controls only', again.length > 10 && !again.some((x) => x.root), again.filter((x) => x.root).map((x) => `${x.root} ${x.id}`).join(', '));
+  check('closed views: no page errors', !errors.length, errors.join('; '));
+  await ctx.close();
+}
+
 const GROUPS = (base, site) => [
   ['models', (b) => modelsChecks(b, base, check)],
   ['reset', (b) => resetChecks(b, base, check)],
@@ -14567,6 +14668,7 @@ const GROUPS = (base, site) => [
   ['phoneChat', (b) => phoneChatChecks(b, base, check)],
   ['share', (b) => shareChecks(b, base, site, check)],
   ['favicon', (b) => faviconChecks(b, site, check)],
+  ['closedViews', (b) => closedViewsChecks(b, base, check)],
   ['uiModel', (b) => uiModelChecks(b, base, check)],
   ['semantics', (b) => semanticsChecks(b, base, site, check)],
   // (required when the group runs: the shard planner's copy of this file runs --list-groups without it)

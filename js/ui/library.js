@@ -24,7 +24,7 @@
 import { detectMedia, FAMILY_NAMES } from '../media/detect.js';
 import { expand, pickedFiles, droppedFiles } from './files.js';
 import { DISK_PREFIX } from '../session.js';
-import { $ } from './page.js';
+import { $, showView } from './page.js';
 import { availableChoices, openMediaStore } from '../host/media-store-open.js';
 import { FsaMediaStore } from '../host/media-store-fsa.js';
 import { saveFolder, forgetFolder } from '../host/folder-handle.js';
@@ -89,7 +89,7 @@ export function setupLibrary(page, { loadProgram, runShelf, changed, showRoms, r
   function show() {
     const open = isOpen();
     document.body.classList.toggle('library-open', open);
-    view.hidden = !open;
+    showView(view, open);
     if (open) { refresh(); $('libHeading').focus(); }
   }
   page.onView(show);

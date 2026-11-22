@@ -8,6 +8,17 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
+### Fixed
+
+- **A closed view is out of the keyboard's reach and the accessibility tree by its own state.** Share, the Library, the
+  Debugger and Add ROMs were closed only by the `hidden` attribute, which a single stylesheet rule
+  (`[hidden] { display: none !important }` in `css/tokens.css`) draws as nothing; without that rule Tab went into a closed
+  Share (its Back link, link field and Copy link). A closed view is now also `inert` and `aria-hidden`, and opening it
+  clears both in the same step (`showView` in `js/ui/page.js`), so the focus a view takes when it opens still lands. The
+  browser check's new group `closedViews` tabs through the page at desktop, tablet and phone sizes with every view
+  closed, and after each view closed by Esc, Back or a link, and requires that focus never lands inside a closed view or
+  a hidden panel, and that an open view's controls are reachable.
+
 ### Changed
 
 - **The Share screen does one job: send this exact moment.** Under the heading "Share this moment" it now shows the
