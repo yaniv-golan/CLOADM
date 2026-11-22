@@ -767,16 +767,29 @@ fs.writeFileSync(tmp('media', 'plain.bas'), '10 PRINT "HI"\n');
     const pcAfterLoad = '0x' + own.machine.cpu.pc.toString(16);
     const ran = await tb.call('run_frames', { machine_id: 'm1', frames: 100 });
     const graphics = await tb.call('screen_text', { machine_id: 'm1' });
-    // The game must be RUNNING (this machine has no user ROMs, so on a CoCo with 64K the built-in key vector at
-    // $A000 is not there and a single PC sample can land outside the program for 2 frames in every 6 -- measured
-    // on main as well as here). So assert what the label claims: the PC is inside the program on MOST frames,
-    // which a game that had crashed or exited would fail, without depending on the phase of that cycle.
+    // THE GAME IS RUNNING. This machine has no user ROMs, so on a CoCo with 64K the built-in key vector at $A000
+    // is not there: the game's `JSR [POLCAT]` lands in the stub ROM and the PC is OUTSIDE the program for 2 frames
+    // in every 6, on a fixed 2,4,2,4-frame cycle. A single sample therefore says nothing -- the old check read the
+    // PC once at frame 100 and passed only when that frame happened to fall inside the cycle (it does on main; this
+    // branch's title runs one frame longer, so the same sample fell outside and the check went red without anything
+    // about the game changing). Two properties are independent of where the window starts: the game is inside its
+    // own program on most frames, and it keeps COMING BACK into it (a game stuck in the ROM, or one that exited its
+    // loop, does neither). Measured over 300 frames on both trees: 200/300 frames inside (66.7%) and 49-50 returns.
     const bin2048 = fs.readFileSync(path.join(ROOT, 'examples/2048.bin'));
-    const end2048 = bin2048.readUInt16BE(2) + bin2048.readUInt16BE(4);
-    let inProgram = 0;
-    for (let i = 0; i < 30; i++) { await tb.call('run_frames', { machine_id: 'm1', frames: 1 }); const pc = own.machine.cpu.pc; if (pc >= 0x3000 && pc < end2048) inProgram++; }
-    check('load: the bundled game 2048 runs (its board is in a graphics mode)', game.ok && game.data.loaded === '2048' && ran.ok && inProgram >= 20
-      && graphics.ok && graphics.data.machine_output.text === false, J([{ inProgram, end2048: '0x' + end2048.toString(16) }, game, graphics]).slice(0, 300));
+    const progStart = bin2048.readUInt16BE(2), progEnd = progStart + bin2048.readUInt16BE(4);
+    const FRAMES = 300;
+    let inProgram = 0, reentries = 0, wasInside = null;
+    for (let i = 0; i < FRAMES; i++) {
+      await tb.call('run_frames', { machine_id: 'm1', frames: 1 });
+      const pc = own.machine.cpu.pc, nowInside = pc >= progStart && pc < progEnd;
+      if (nowInside) inProgram++;
+      if (nowInside && wasInside === false) reentries++;
+      wasInside = nowInside;
+    }
+    const running = inProgram > FRAMES / 2 && reentries >= 10;
+    check('load: the bundled game 2048 runs (its board is in a graphics mode)', game.ok && game.data.loaded === '2048' && ran.ok && running
+      && graphics.ok && graphics.data.machine_output.text === false,
+      J([{ insideFrames: `${inProgram}/${FRAMES}`, reentries }, game, graphics]).slice(0, 300));
     const mines = await tb.call('load', { machine_id: 'm1', program: 'minesweeper' });
     check('load: minesweeper too', mines.ok && own.machine.cpu.pc >= 0x3000, J(mines).slice(0, 200));
     await tb.call('boot', { model: 'mc10' });
