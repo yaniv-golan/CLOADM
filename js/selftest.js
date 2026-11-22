@@ -6,6 +6,8 @@
 import { assemble } from './asm/assembler.js';
 import { createMachine, profiles } from './machines/profiles.js';
 import { Tape } from './media/tape.js';
+import { buildCas } from './media/cassette.js';
+import { tapeFamily } from './media/detect.js';
 import { crc32 } from './util.js';
 
 import { frameToRGBA } from './video/frame.js';
@@ -22,22 +24,6 @@ const identifyRom = (crc) => {
   for (const p of Object.values(P)) for (const sl of p.roms) if (sl.crcs.includes(crc)) return `${p.name} ${sl.label} - known good dump`;
   return 'unrecognised dump';
 };
-
-// ---- cassette image builder ----
-function casBlock(type, data) {
-  let sum = (type + data.length) & 0xFF;
-  for (const b of data) sum = (sum + b) & 0xFF;
-  return [...new Array(128).fill(0x55), 0x3C, type, data.length, ...data, sum, 0x55];
-}
-function casFile(name, fileType, ascii, load, exec, data) {
-  const nm = [...name.padEnd(8).slice(0, 8)].map((c) => c.charCodeAt(0));
-  const hdr = [...nm, fileType, ascii ? 0xFF : 0x00, ascii ? 0xFF : 0x00, exec >> 8, exec & 0xFF, load >> 8, load & 0xFF];
-  let out = casBlock(0x00, hdr);
-  out = out.concat(new Array(256).fill(0x55)); // inter-block gap leader
-  for (let i = 0; i < data.length; i += 255) out = out.concat(casBlock(0x01, data.slice(i, i + 255)));
-  out = out.concat(casBlock(0xFF, []));
-  return new Uint8Array(out);
-}
 
 // Test program that copies a marker string into RAM and returns to BASIC. It calls no ROM
 // routine, so it works on every machine; the test then checks RAM rather than the screen.
@@ -207,7 +193,7 @@ class SelfTest {
       await this.clearScreen();
       const org = m.config.cpu === '6803' ? 0x4800 : 0x4000;
       const prog = markerProgram(m.config.cpu, org, 'TAPE ML OK');
-      const tape = new Tape(casFile('MLTEST', 2, false, org, org, prog.data), m.tickHz, 'mltest', m.profile.tape);
+      const tape = new Tape(buildCas([{ name: 'MLTEST', type: 'binary', load: org, exec: org, data: prog.data }], { family: tapeFamily(m.profile) }), m.tickHz, 'mltest', m.profile.tape);
       m.deck.insert(tape);
       await this.type('CLOADM:EXEC\r', 0);
       const marked = () => String.fromCharCode(...Array.from({ length: 10 }, (_, i) => m.ram[prog.mark + i])) === 'TAPE ML OK';
@@ -218,7 +204,7 @@ class SelfTest {
     if (this.can.cload) await this.test('CLOAD ASCII BASIC from tape', async () => {
       await this.clearScreen();
       const prog = [...'10 PRINT "TAPE BASIC OK"\r'].map((c) => c.charCodeAt(0));
-      const tape = new Tape(casFile('BASTEST', 0, true, 0, 0, prog), m.tickHz, 'bastest', m.profile.tape);
+      const tape = new Tape(buildCas([{ name: 'BASTEST', type: 'basic', ascii: true, data: prog }], { family: tapeFamily(m.profile) }), m.tickHz, 'bastest', m.profile.tape);
       m.deck.insert(tape);
       await this.type('CLOAD\r', 0);
       let sawMotor = false;
@@ -313,4 +299,4 @@ class SelfTest {
   }
 }
 
-export { SelfTest, casFile, markerProgram, identifyRom };
+export { SelfTest, markerProgram, identifyRom };

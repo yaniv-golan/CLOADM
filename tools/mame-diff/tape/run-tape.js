@@ -4,7 +4,8 @@
 //     js/media/cassette.js, must be exactly the byte stream the firmware writes (tape/spec.js csaveStream).
 //  2. cload: MAME reads files we export with the reader: the .CAS and WAV we capture from our machine running
 //     the writer, and the WAV we export from that .CAS (Session.tapeWav's path). Every one must read back
-//     3 blocks, 255 data bytes with their sum, and no bad checksum, in MAME as on our machine.
+//     3 blocks, 255 data bytes with their sum, and no bad checksum, in MAME as on our machine. Also the WAVs buildCas and casToWav make
+//     for the same program (a sine and a square wave, with a player's gaps).
 // Two firmware pairs: the Dragon/CoCo 6809 pair (csave.asm/cload.asm) and the MC-10 6803 pair
 // (csave6803.asm/cload6803.asm), which reports its counts in memory (the 6803 has one 16-bit register).
 //   node tools/mame-diff/tape/run-tape.js [profile ...]     (default: dragon64 coco mc10)
@@ -95,10 +96,17 @@ for (const id of process.argv.slice(2).length ? process.argv.slice(2) : ['dragon
   const samples = Emu.recordingToSamples(m.deck.stopRecording(), m.tickHz, 44100);
   const ours = Emu.samplesToCas(samples, 44100);
   check(`${id}: our capture of ${f.save} decodes to the bytes written`, Buffer.from(ours.bytes).equals(Buffer.from(expected)));
+  // and the tape buildCas writes for the same program (CLOADM, load and exec $3000, the 255 bytes csave.asm writes) as a WAV a player
+  // would play: a sine and a square wave, with the player's gaps (casToWav)
+  const family = mc10 ? 'mc10' : 'dragon';
+  const built = Emu.buildCas([{ name: 'CLOADM', type: 'binary', load: 0x3000, exec: 0x3000, data: Array.from({ length: 255 }, (_, i) => (11 + 37 * i) & 0xFF) }], { family });
+  check(`${id}: buildCas writes exactly the stream ${f.save} writes`, Buffer.from(built).equals(Buffer.from(expected)));
   const exports = {
     'captured.cas': ours.bytes,
     'captured.wav': Emu.writeWav(samples, 44100),
     'exported.wav': Emu.casToWav(ours.bytes),
+    'built.wav': Emu.casToWav(built, { family }),
+    'built-square.wav': Emu.casToWav(built, { family, wave: 'square' }),
   };
 
   // 2. MAME (and our machine) read them with the reader

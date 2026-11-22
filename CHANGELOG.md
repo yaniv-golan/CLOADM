@@ -31,6 +31,18 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   `writeDecb(segments, exec)`, the round-trip partners of `parseDragonDos` and `parseDecb`; new in `js/asm/symbols.js`:
   `parseSymbols`, `formatSymbols`, `lookupSymbol`.
 
+- **A tape and a WAV for a real Dragon or CoCo, from a binary.** `buildCas(files, { family })` (`js/media/cassette.js`) writes the `.CAS`
+  bytes of programs (namefile, data and end-of-file blocks with their 128-byte leaders and checksums; it replaces `casFile` in
+  `js/selftest.js`), and `casToWav` / `casToSamples` take `gaps: 'player'` (the default), `wave: 'sine'|'square'`, `amplitude`,
+  `sampleRate` and `family: 'dragon'|'coco'|'mc10'`. The gaps are the ones MAME's `.CAS` player adds and the emulated deck plays: 2 s of
+  silence at the start, 1 s around each namefile, leaders made up to 128 bytes; `tapeGaps(cas, { pad })` is that layout, shared by
+  the deck (`js/media/tape.js`) and the WAV writer. The MC-10 family stays unpadded. From the command line:
+  `--assemble game.asm --format cas|wav --name GAME --out GAME.wav [--square]` (`--machine mc10` takes the tape formats, and still no binary one).
+  `docs/examples/bin-to-wav.mjs` does it from Node; `tests/bin-to-tape.test.js` checks the stream, the silences and leaders, that
+  `wavToCas` gives the `.CAS` bytes back exactly (also with noise, drift, inverted phase and a DC offset), that the deck plays the WAV
+  into our block-reading firmware and the file's bytes end up in memory, and three breakages of the code (no leader before the second
+  file, a wrong checksum, the MC-10 padded). MAME is not run here: `run-tape.js` also reads the new WAVs (see "Not verified" in the report).
+
 ### Changed
 
 - **`toBinary(result, { format })` needs the format.** It used to write DragonDOS whenever the program was contiguous, even for a
@@ -39,6 +51,13 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   of more than 256 bytes between two segments unless the caller raises `maxGap` (`examples/chat.bin` does: its blocks sit up to
   1,438 bytes apart). The Assembler tab's Save writes the file the open machine loads: DECB on a CoCo, DragonDOS on a Dragon; on
   the MC-10 and Alice, which load `.c10` tapes, Save is off and says why. `--disasm` now names labels from `--asm` as well.
+
+- **`Session.tapeWav` and `casToWav` write a tape as a player plays it.** The WAV had silence only at its start and end; it now has the
+  player's gaps (above) and a tape's short leaders made up to 128 bytes, so `wavToCas` of it returns the padded bytes (the
+  `.CAS` of a tape that already has its leaders comes back exactly). `casToSamples`' `silence` option is gone (`gaps: 'none'` is the
+  bytes as they are). The WAV decoder ignores noise in the silence of a padded recording (a block's signal is judged against the loudest
+  signal within 8 s, not only the recent past), splits runs at a silence, and reads up to three damaged bytes at the start of a leader
+  as `$55`.
 
 ### Fixed
 

@@ -19,45 +19,15 @@
  * With `pad: false` (the MC-10 family, which has no motor relay) the bytes play as they are after a leader of
  * LEADER bytes.
  */
-import { casBlocks } from './cassette.js';
-
-const LEADER = 128;
-const SILENCE = 1;           // second
+import { tapeGaps, TAPE_LEADER as LEADER, TAPE_SILENCE as SILENCE } from './cassette.js';
 
 // The signal as entries (a duration in ticks and a level) and, for each byte of the image, the entry it starts
 // at: silence and leader made up for a byte come just before it (byteStart points at them).
 function build(bytes, tickHz, opts) {
   const half0 = Math.round(tickHz / (opts.zeroHz || 1200) / 2), half1 = Math.round(tickHz / (opts.oneHz || 2400) / 2);
   const silence = Math.round(SILENCE * tickHz);
-  // what goes in front of a byte: { silence (units), leader (bytes) }
-  const before = new Map();
-  const add = (at, units, lead) => {
-    const b = before.get(at) || { units: 0, lead: 0 };
-    before.set(at, { units: b.units + units, lead: Math.max(b.lead, lead) });
-  };
-  if (opts.pad === false) add(0, 0, LEADER);
-  else {
-    const blocks = [...casBlocks(bytes)];
-    // the $55 run in front of block i: where it starts, and how long it is (the $55 that ends the block before
-    // it is that block's, played before any silence, as MAME does)
-    const leaderOf = (i) => {
-      const start = blocks[i].start, floor = i > 0 ? Math.min(start, blocks[i - 1].end + 1) : 0;
-      let r = start; while (r > floor && bytes[r - 1] === 0x55) r--;
-      return { at: r, n: start - r };
-    };
-    const want = new Set();
-    blocks.forEach((b, i) => {
-      if (i === 0) want.add(i);
-      if (b.type === 0x00) { want.add(i); if (i + 1 < blocks.length) want.add(i + 1); }
-    });
-    add(0, 2, 0);
-    for (const i of want) {
-      const b = blocks[i], l = leaderOf(i);
-      const units = b.type === 0x00 ? (i === 0 || l.at === 0 ? 0 : 1) : (i > 0 && blocks[i - 1].type === 0x00 ? 1 : 0);
-      add(l.at, units, LEADER - l.n);
-    }
-    if (!blocks.length) add(0, 0, LEADER);
-  }
+  // what goes in front of a byte: { units of silence, leader bytes }: the layout a player adds (js/media/cassette.js tapeGaps)
+  const before = tapeGaps(bytes, { pad: opts.pad });
   let count = bytes.length * 16;
   for (const b of before.values()) count += (b.units ? 1 : 0) + Math.max(0, b.lead) * 16;
   const halves = new Uint32Array(count), levels = new Uint8Array(count), byteStart = new Uint32Array(bytes.length + 1);

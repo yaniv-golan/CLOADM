@@ -32,6 +32,12 @@ export function binaryFormat(profile) {
 export function binaryFormatRefusal(profile) {
   return binaryFormat(profile) ? null : `The ${profile.name} loads .c10 tapes, not binary files: there is no file format to save a program in for it.`;
 }
+// the family of tape a model uses: 'mc10' for the MC-10 and Alice (no motor relay: a player does not pad their tapes, and they are
+// .c10 files), 'dragon' for the Dragons, 'coco' for the CoCos (js/media/cassette.js TAPE_FAMILIES)
+export function tapeFamily(profile) {
+  if (profile.family === 'mc10') return 'mc10';
+  return binaryFormat(profile) === 'dragondos' ? 'dragon' : 'coco';
+}
 export const FAMILY_NAMES = { dragon: 'Dragon', coco: 'CoCo', mc10: 'MC-10' };
 
 // a raw disk image (after any header): DragonDOS or RS-DOS, by their directory tracks

@@ -92,7 +92,7 @@ node cli/cloadm.js --asm game.asm --frames 50 --screen      # assemble and run i
 ```
 
 From a script, `assemble(source, '6809')` and `toBinary(result, { format: 'dragondos' })` (`js/emu.js`; `'decb'` for a CoCo) give the binary; the page's
-Assembler tab does the same, in the format of the machine you have open (Save is off on the MC-10 and Alice, which load `.c10` tapes). 6809 points that catch people out:
+Assembler tab does the same, in the format of the machine you have open (Save is off on the MC-10 and Alice, which load `.c10` tapes). For a tape or a WAV for a real machine, `--assemble --format cas|wav` ([a tape for a real Dragon or CoCo](automation.md#a-tape-for-a-real-dragon-or-coco)). 6809 points that catch people out:
 
 * Branches (`BRA`, `BNE`, ...) reach -128..+127 bytes; the assembler says "branch out of range": use `LBRA`, `LBNE`
   or `JMP`.

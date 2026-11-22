@@ -3375,7 +3375,7 @@ export class Session {
     const t = this.machine.deck.tape;
     if (!t) throw new SessionError('There is no tape in the deck.');
     const p = this.machine.profile.tape || {};
-    return { name: t.name.replace(/\.[^.]*$/, '') + '.wav', bytes: casToWav(t.bytes, { zeroHz: p.zeroHz, oneHz: p.oneHz }) };
+    return { name: t.name.replace(/\.[^.]*$/, '') + '.wav', bytes: casToWav(t.bytes, { zeroHz: p.zeroHz, oneHz: p.oneHz, pad: p.pad, gaps: 'player' }) };
   }
 
   // ---------------- recording what the machine writes to tape (CSAVE, CSAVEM, your own writer) ----------------

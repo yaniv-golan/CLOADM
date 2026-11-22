@@ -65,8 +65,18 @@ const second = Uint8Array.from([...new Array(128).fill(0x55), ...block(0, [...'G
   ...new Array(20).fill(0x55), ...block(1, Array.from({ length: 200 }, () => Math.floor(rnd() * 256))), ...new Array(20).fill(0x55), ...block(0xFF, [])]);
 check('the test images parse as tapes', Emu.formats.parseCas(stream).length === 1 && Emu.formats.parseCas(second).length === 1);
 for (const [name, cas] of [['csave stream', stream], ['second image', second]]) {
-  const r = Emu.wavToCas(Emu.casToWav(cas));
-  check(`${name}: our WAV export decodes back to identical bytes`, same(r.bytes, cas) && r.blocks === 3 && r.badBlocks === 0);
+  const r = Emu.wavToCas(Emu.casToWav(cas, { gaps: 'none' }));
+  check(`${name}: our WAV export (gaps none: the bytes as they are) decodes back to identical bytes`, same(r.bytes, cas) && r.blocks === 3 && r.badBlocks === 0);
+}
+{
+  // a player's gaps: the csave stream already has the leaders a player wants, so its WAV (with silence added) decodes to the same bytes;
+  // the second image's 20-byte leaders in front of the namefile and the data block after it are made up to 128, as the deck plays them
+  // (the end-of-file block after a data block keeps its own)
+  const r = Emu.wavToCas(Emu.casToWav(stream));
+  check('csave stream: the WAV with a player\'s gaps decodes back to identical bytes', same(r.bytes, stream) && r.blocks === 3 && r.badBlocks === 0);
+  const p = Emu.wavToCas(Emu.casToWav(second)), t = new Emu.Tape(second, 894886, 'second');
+  const lead = (bytes) => [...Emu.casBlocks(bytes)].map((b) => { let n = 0; while (bytes[b.start - 1 - n] === 0x55) n++; return n; });
+  check('second image: the WAV with a player\'s gaps has the namefile\'s and the next block\'s leaders made up to 128 and the same files', p.blocks === 3 && p.badBlocks === 0 && lead(p.bytes)[0] >= 128 && lead(p.bytes)[1] >= 128 && lead(p.bytes)[2] === 21 && JSON.stringify(Emu.formats.parseCas(p.bytes).map((f) => [f.name, f.data.length])) === JSON.stringify(Emu.formats.parseCas(second).map((f) => [f.name, f.data.length])), lead(p.bytes).join());
 }
 // real-world impairments on the exported signal
 const x = Emu.casToSamples(stream);
@@ -215,10 +225,13 @@ DATAE
     `(${rec.seconds.toFixed(1)} s)`);
   // a WAV recording loads like a .CAS
   s.switchMachine('coco');
-  const msg = s.insertTape('mytape.wav', Emu.casToWav(second));
+  const msg = s.insertTape('mytape.wav', Emu.casToWav(second, { gaps: 'none' }));
   check('Session: insertTape takes a WAV recording, decoded', /decoded from the recording: 3 blocks/.test(msg) && same(s.machine.deck.tape.bytes, second), msg);
   const out = s.tapeWav();
-  check('Session: tapeWav exports the tape in the deck, which decodes back', out.name === 'mytape.wav' && same(Emu.wavToCas(out.bytes).bytes, second));
+  // (tapeWav writes what the deck plays: the tape with a player's gaps, its short leaders made up to 128 bytes)
+  const back = Emu.wavToCas(out.bytes), lead128 = [...Emu.casBlocks(back.bytes)].slice(0, 2).every((b) => { let n = 0; while (back.bytes[b.start - 1 - n] === 0x55) n++; return n >= 128; });
+  check('Session: tapeWav exports the tape in the deck, as a player plays it, and it decodes back to the same files', out.name === 'mytape.wav' && back.blocks === 3 && back.badBlocks === 0 && lead128
+    && JSON.stringify(Emu.formats.parseCas(back.bytes).map((f) => [f.name, f.data.length])) === JSON.stringify(Emu.formats.parseCas(second).map((f) => [f.name, f.data.length])));
   s.machine.deck.eject();
   check('Session: tapeWav with no tape says so', throws(() => s.tapeWav(), /no tape in the deck/));
   const loaded = s.load('game.wav', Emu.casToWav(stream), { remember: false });
