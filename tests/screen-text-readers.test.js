@@ -92,6 +92,7 @@ function plusFirmware(start) {
   e('        ORG     $8000');
   e('RESET   ORCC    #$50'); e('        LDS     #$7F00'); e('        CLRA'); e('        TFR     A,DP');
   e('        STA     $FFDD'); e('        STA     $FFE2');
+  e('        STA     $FFC9');                                         // SAM F1: the VDG page at $0400, as BASIC sets it
   // PIA1 port B as outputs, all 0: the VDG in text mode (as tools/mame-diff/d64plus/plustext.asm sets it)
   for (const l of ['CLR     $FF23', 'LDA     #$F8', 'STA     $FF22', 'LDA     #$34', 'STA     $FF23', 'CLR     $FF22']) e(`        ${l}`);
   const regs = [0x71, 0x50, 0x60, 0x0F, 0x19, 0x04, 0x16, 0x18, 0x00, 0x0B, 0x20, 0x0B, start >> 8, start & 0xFF, 0x3F, 0xFF];
@@ -399,6 +400,17 @@ for (const [name, seeAt, base] of [['no slot maps it', null, null], ['slot 6 map
     check(`Plus VDG page, ${name}: with the 80-column view shown, screenText({ main: true }) still reads OK`, sessionOn(m).screenText({ main: true })[0] === page(0));
     m.view = 'vdg';
   }
+  // `base` needs all 512 bytes, every row, to be the same for the CPU: the video RAM paged over $0000-$07FF holding
+  // the page's row 0 exactly, and something else from row 1 on, still gives null
+  m.write(0xFFE2, 0x01);
+  for (let i = 0; i < 512; i++) m.videoRam[0x400 + i] = i < 32 ? m.ram[0x400 + i] : 0x41;
+  const rowOne = tool(m);
+  check('Plus VDG page, the video RAM paged in with the same row 0 and a different row 1 on: base null, rows still the VDG\'s',
+    m.peek(0x400) === m.ram[0x400] && m.peek(0x420) !== m.ram[0x420] && rowOne.base === null && rowOne.lines[0] === 'OK', J({ base: rowOne.base, line0: rowOne.lines[0] }));
+  for (let i = 0; i < 511; i++) m.videoRam[0x400 + i] = m.ram[0x400 + i];    // all but the very last byte
+  check('Plus VDG page, the video RAM differing only in the page\'s last byte: base still null', tool(m).base === null);
+  m.videoRam[0x5FF] = m.ram[0x5FF];
+  check('Plus VDG page, the video RAM holding the same 512 bytes: base $0400 (the CPU reads the page there)', tool(m).base === 0x400);
   m.write(0xFFE2, 0x00);
 }
 
@@ -408,7 +420,8 @@ for (const [name, seeAt, base] of [['no slot maps it', null, null], ['slot 6 map
   const s = new Emu.Session({ store: { get() { return null; }, set() {}, remove() {} }, welcomeMenu: false });
   s.switchMachine('d64plus', {}, { menu: false });
   const m = s.shownMachine;
-  const r = Emu.assemble(' ORG $8000\nSTART BRA START\n ORG $BFFE\n FDB START\n', '6809');
+  // (it sets the SAM's display offset to $0400, F1 at $FFC9, as BASIC does, so the VDG shows the page OK is put on)
+  const r = Emu.assemble(' ORG $8000\nSTART STA $FFC9\nLOOP BRA LOOP\n ORG $BFFE\n FDB START\n', '6809');
   const bank = romImage(r, 0x8000, 0x4000, 0x12), slots = { chargen: CODEGEN };
   for (const sl of Emu.profiles.d64plus.roms) if (!sl.chip) slots[sl.id] = bank.slice(sl.at - 0x8000, sl.at - 0x8000 + sl.size);
   m.setRoms(slots); m.reset(true);
@@ -449,5 +462,98 @@ for (const [name, seeAt, base] of [['no slot maps it', null, null], ['slot 6 map
   check('reading (screen_text, Session.screenText) changes nothing in the machine', J(m.saveState()) === before);
 }
 
-console.log(`\n${n - fail}/${n} passed`);
-process.exitCode = fail ? 1 : 0;
+// =====================================================================================================================
+// 5. A VDG page the SAM's display offset (F6-F0) has moved, on the Dragon 32 and the CoCo 2
+// =====================================================================================================================
+// Firmware of our own: SAM M = 10 (32K/64K, $FFDD), the VDG in text mode, "OK" written at $0400 (BASIC's page), a page
+// of "MOVED PAGE" text and every VDG code written at $0C00, then the SAM's F bits set to 6 (F1 $FFC9, F2 $FFCB: 6 x 512
+// = $0C00), so the VDG shows $0C00. The control firmware writes the same $0C00 page's bytes at $0400 and leaves F = 2:
+// if the two pictures are identical, the VDG really shows the moved page's text.
+const MOVED = (() => {
+  const p = new Array(512).fill(0x60);
+  const put = (row, data) => data.forEach((b, i) => { p[row * 32 + i] = b; });
+  put(0, bytes('MOVED PAGE AT $0C00').map((c) => c | 0x40));
+  put(2, range(0x00, 32)); put(3, range(0x20, 32)); put(4, range(0x40, 32)); put(5, range(0x60, 32));
+  put(15, bytes('LAST ROW, F = 6').map((c) => c | 0x40));
+  return p;
+})();
+const OK_PAGE = (() => { const p = new Array(512).fill(0x60); p[0] = 0x4F; p[1] = 0x4B; return p; })();
+function samFirmware({ pageAt, fBits, okAt }) {
+  const L = [], e = (x) => L.push(x);
+  e('        ORG     $8000');
+  e('RESET   ORCC    #$50'); e('        LDS     #$7F00'); e('        CLRA'); e('        TFR     A,DP');
+  e('        STA     $FFDD');                                         // SAM M1: 32K/64K
+  for (const l of ['CLR     $FF23', 'LDA     #$F8', 'STA     $FF22', 'LDA     #$34', 'STA     $FF23', 'CLR     $FF22']) e(`        ${l}`);
+  const data = [];
+  if (okAt != null) data.push(...writes(e, range(0, 4).map((k) => [okAt + k * 128, OK_PAGE.slice(k * 128, k * 128 + 128)])));
+  data.push(...writes(e, range(0, 4).map((k) => [pageAt + k * 128, MOVED.slice(k * 128, k * 128 + 128)])));
+  // F6-F0: each bit k set at $FFC7 + 2k, cleared at $FFC6 + 2k
+  for (let k = 0; k < 7; k++) e(`        STA     ${hx(0xFFC6 + 2 * k + ((fBits >> k) & 1), 4)}`);
+  e('HALT    BRA     HALT');
+  tables(e, data);
+  e('        ORG     $BFF2'); e('        FDB     HALT,HALT,HALT,HALT,HALT,HALT,RESET'); e('        END     RESET');
+  return L.join('\n') + '\n';
+}
+function samMachine(id, opts) {
+  const asm = Emu.assemble(samFirmware(opts), '6809');
+  if (!asm.ok) throw new Error(J(asm.errors));
+  const img = romImage(asm, 0x8000, 0x4000, 0x12), slots = {};
+  for (const sl of Emu.profiles[id].roms) if (!sl.chip) slots[sl.id] = img.slice(sl.at - 0x8000, sl.at - 0x8000 + sl.size);
+  const m = Emu.createMachine(id, {});
+  m.setRoms(slots); m.reset(true);
+  runToHalt(m, asm.symbols.get('HALT'));
+  return m;
+}
+const samWant = range(0, 16).map((r) => MOVED.slice(r * 32, r * 32 + 32).map(vdgChar).join(''));
+const frameOf = (m) => J(Array.from(m.render().data));
+
+(async () => {
+  const { machineContext } = await import('../js/ui/ask.js');
+  for (const id of ['dragon32', 'coco2b']) {
+    const m = samMachine(id, { pageAt: 0x0C00, fBits: 6, okAt: 0x0400 });
+    const control = samMachine(id, { pageAt: 0x0400, fBits: 2, okAt: null });
+    check(`${id} SAM page: (setup) the SAM's display offset is $0C00, and $0400 holds OK`, m.sam.displayBase === 0x0C00 && m.ram[0x400] === 0x4F);
+    check(`${id} SAM page: (oracle) the picture is the control's, which shows the same bytes from $0400 with F = 2`,
+      frameOf(m) === frameOf(control) && frameOf(m) !== frameOf(samMachine(id, { pageAt: 0x0C00, fBits: 2, okAt: 0x0400 })));
+    const got = tool(m), sess = sessionOn(m).screenText();
+    check(`${id} SAM page: screen_text reads the page the VDG shows ($0C00), not $0400's OK; base $0C00`,
+      got.text === true && J(got.lines) === J(trim(samWant)) && got.base === 0x0C00, J({ base: got.base, line0: got.lines && got.lines[0] }));
+    check(`${id} SAM page: Session.screenText reads the same 16 rows`, J(sess) === J(samWant), J(sess[0]));
+    check(`${id} SAM page: the control (F = 2) reads the same rows at base $0400`, J(tool(control).lines) === J(trim(samWant)) && tool(control).base === 0x0400);
+    // the readers see only the displayed page: OK at $0400 is not on screen, and the Ask panel's ?ERROR check
+    // (js/ui/ask.js machineContext) finds an error only where it is displayed
+    for (let i = 0; i < 9; i++) m.ram[0x400 + 64 + i] = '?SN ERROR'.charCodeAt(i) & 0x3F | 0x40;
+    check(`${id} SAM page: no row reads OK, and the Ask panel finds no error, while both are only at $0400`,
+      !sessionOn(m).screenText({ main: true }).some((l) => l.trim() === 'OK') && machineContext({ screenText: (mm) => sessionOn(mm).screenText(), nitros9On: () => false }, m).error === null);
+    for (let i = 0; i < 9; i++) m.ram[0xC00 + 64 + i] = '?SN ERROR'.charCodeAt(i) & 0x3F | 0x40;
+    check(`${id} SAM page: the Ask panel finds ?SN ERROR once it is on the displayed page`,
+      machineContext({ screenText: (mm) => sessionOn(mm).screenText(), nitros9On: () => false }, m).error === '?SN ERROR');
+    // the SAM's video counter is sized by M (MC6883 data sheet, "Memory Size"): under a 4K counter (M = 00) an offset
+    // of $1000 (F = 8) wraps to $0000, which is what the VDG shows; the page is not where the CPU sees $1000: base null
+    for (let i = 0; i < 32; i++) m.ram[i] = 'WRAPPED TO $0000 UNDER A 4K SAM '.charCodeAt(i) & 0x3F | 0x40;
+    m.sam.reg = (m.sam.reg & ~(3 << 13) & ~(0x7F << 3)) | (8 << 3);
+    const w = tool(m);
+    check(`${id} SAM page: F = 8 under a 4K counter (M = 00) reads the page the counter wraps to, $0000; base null`,
+      m.sam.displayBase === 0x1000 && w.lines[0] === 'WRAPPED TO $0000 UNDER A 4K SAM' && w.base === null, J({ base: w.base, line0: w.lines && w.lines[0] }));
+  }
+
+  // ---- the boot watchdog sees only the displayed page ----
+  {
+    const st = new Emu.Session({ store: { get() { return null; }, set() {}, remove() {} }, welcomeMenu: false });
+    st.switchMachine('dragon32', {}, { menu: false });
+    const m = st.shownMachine;
+    // a stand-in BASIC of our own that shows the page at $0C00 (F = 6) and loops; it never prints OK
+    const r = Emu.assemble(' ORG $8000\nSTART STA $FFC9\n STA $FFCB\n CLR $FF23\n LDA #$F8\n STA $FF22\n LDA #$34\n STA $FF23\n CLR $FF22\nLOOP BRA LOOP\n ORG $BFFE\n FDB START\n', '6809');
+    m.setRoms({ basic: romImage(r, 0x8000, 0x4000, 0x12) }); m.reset(true);
+    for (let i = 0; i < 3; i++) m.runFrame();
+    for (let i = 0; i < 1024; i++) m.ram[0x400 + i] = 0x60;
+    m.ram[0x400] = 0x4F; m.ram[0x401] = 0x4B;
+    check('watchdog: (setup) the VDG shows $0C00', m.sam.displayBase === 0x0C00);
+    check('watchdog: OK only at $0400, which is not on screen: still booting', st.bootStatus().state === 'booting', J(st.bootStatus()));
+    m.ram[0xC00] = 0x4F; m.ram[0xC01] = 0x4B; for (let i = 2; i < 32; i++) m.ram[0xC00 + i] = 0x60;
+    check('watchdog: OK on the displayed page at $0C00: ok', st.bootStatus().state === 'ok', J(st.bootStatus()));
+  }
+
+  console.log(`\n${n - fail}/${n} passed`);
+  process.exitCode = fail ? 1 : 0;
+})();

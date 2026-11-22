@@ -732,7 +732,8 @@ const stateOf = (s) => JSON.stringify(s.shownMachine.saveState());
   {
     const s = new Emu.Session(); s.switchMachine('dragon64');
     const m = s.shownMachine;
-    const r = Emu.assemble(' ORG $8000\nSTART BRA START\n ORG $BFFE\n FDB START\n', '6809');
+    // it sets the SAM's display offset to $0400 (F1, $FFC9) as BASIC does, so the VDG shows the page OK is put on
+    const r = Emu.assemble(' ORG $8000\nSTART STA $FFC9\nLOOP BRA LOOP\n ORG $BFFE\n FDB START\n', '6809');
     if (!r.ok) throw new Error(`assembling the F10 fixture failed: ${JSON.stringify(r.errors)}`);
     const rom = new Uint8Array(0x4000);
     for (const seg of r.segments) rom.set(seg.data, seg.addr - 0x8000);
