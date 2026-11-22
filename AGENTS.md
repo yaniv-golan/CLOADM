@@ -75,7 +75,9 @@ Which proof levels apply to your kind of change: [section 4, "Which levels apply
 | The agent skill | `skills/cloadm/`, copied byte for byte to `.agents/skills/cloadm/` | Names every tool by what it does; `tests/skill.test.js`; evals in `tests/skill-evals/` |
 | Plugin and extension manifests | `.claude-plugin/`, `mcpb/manifest.json` | One version, from CHANGELOG.md's "Next version" line; `tests/plugin.test.js` |
 
-Every new stateful component goes into the snapshot (`saveState` / `loadState`) and into `tests/state.test.js`.
+Every new stateful component goes into the snapshot (`saveState` / `loadState`) and into the state tests
+(`tests/state.test.js`, or `tests/state-fdc.test.js`, `tests/state-carts.test.js` or `tests/state-tape.test.js` for a
+floppy controller, a cartridge or the cassette).
 
 ## 3. How to work
 
@@ -211,8 +213,9 @@ Headless MAME quirks are already handled in `tools/mame-diff/lib/`. Use them rat
 Traces are large: delete them afterwards and kill stuck `mame` processes. They can fill a disk quickly.
 
 ### 4.5 Snapshots
-New state must survive `saveState` → JSON (`state.toJSON` / `fromJSON`) → `loadState`. Extend
-`tests/state.test.js`: save in the middle of the new activity (a disk transfer, a sound playing, a serial byte in
+New state must survive `saveState` → JSON (`state.toJSON` / `fromJSON`) → `loadState`. Extend the state test that
+holds its area (`tests/state.test.js`, or `state-fdc`, `state-carts` or `state-tape`; a new check's name also goes into
+that suite's list in `tests/state-check-names.json`): save in the middle of the new activity (a disk transfer, a sound playing, a serial byte in
 flight), restore into a fresh machine, and show the instruction trace and frames continue identically to the
 uninterrupted run.
 
