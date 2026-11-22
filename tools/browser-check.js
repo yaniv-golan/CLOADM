@@ -14464,7 +14464,8 @@ async function mobileChecks(browser, base, check) {
         const vis = [...document.querySelectorAll('#appbar > *')].filter((e) => e.checkVisibility() && e.getBoundingClientRect().width > 0);
         const bs = vis.map((e) => ({ id: e.id || e.className, ...e.getBoundingClientRect().toJSON() }));
         const name = (e) => (e.getAttribute('aria-label') || e.textContent).replace(/\s+/g, ' ').trim();
-        const menus = [...document.querySelectorAll('button, a, [role=button]')].filter((e) => e.checkVisibility() && e.getBoundingClientRect().width > 0 && name(e) === 'Menu').length;
+        // (named Menu, or "Menu, Add ROMs needed" while its dot is on)
+        const menus = [...document.querySelectorAll('button, a, [role=button]')].filter((e) => e.checkVisibility() && e.getBoundingClientRect().width > 0 && /^Menu\b/.test(name(e))).length;
         return { ids: bs.map((b) => b.id), oneRow: bs.every((b) => Math.abs((b.top + b.bottom) / 2 - (bs[0].top + bs[0].bottom) / 2) <= 3), h: document.getElementById('appbar').getBoundingClientRect().height,
           small: bs.filter((b) => b.height < 44 - 0.5 || b.width < 44 - 0.5).map((b) => b.id), menus, rom: document.getElementById('romPill').checkVisibility() };
       });
@@ -14478,6 +14479,17 @@ async function mobileChecks(browser, base, check) {
       check(`${L}: ⌄ hides the keys; the screen takes the page's width (${hid.s && Math.round(hid.s.w)} px, at least ${w - 17}); ⌨, Show keys, 44x44 inside the window`,
         hid.mode === 'hidden' && !!hid.s && fullWidth(hid.s.w, w) && !!hid.fab && hid.fab.w >= 44 && hid.fab.h >= 44 && hid.fab.l >= 0 && hid.fab.t >= 0 && hid.fab.r <= w && hid.fab.b <= h && hid.label === 'Show keys', JSON.stringify(hid));
       if (shotDir) await page.screenshot({ path: path.join(shotDir, `mobile-${w}x${h}-hidden.png`) });
+      // and the page ends with room for ⌨: scrolled to its foot, ⌨ lies over no control of the page
+      const under = await page.evaluate(async () => {
+        scrollTo(0, document.documentElement.scrollHeight);
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+        const f = document.getElementById('btnShowKeys').getBoundingClientRect();
+        const cross = (a, b) => a.left < b.right - 0.5 && b.left < a.right - 0.5 && a.top < b.bottom - 0.5 && b.top < a.bottom - 0.5;
+        const ctl = [...document.querySelectorAll('button, a, input, select, .socket, .slots > *, .drawer')].filter((e) => e.id !== 'btnShowKeys' && e.checkVisibility() && e.getBoundingClientRect().width > 0 && cross(f, e.getBoundingClientRect()));
+        scrollTo(0, 0);
+        return ctl.map((e) => e.id || e.className || e.tagName);
+      });
+      check(`${L}: scrolled to the page's foot, ⌨ covers nothing of the page`, hid.mode === 'hidden' && !under.length, JSON.stringify(under));
       await tap(page, '#btnShowKeys');
       check(`${L}: ⌨ brings the keys back`, hid.mode === 'hidden' && await until(page, () => !document.getElementById('touchKeys').hidden));
       if (shotDir) await page.screenshot({ path: path.join(shotDir, `mobile-${w}x${h}-keys.png`) });
@@ -14516,6 +14528,8 @@ async function mobileChecks(browser, base, check) {
   {
     const { ctx, page, errors } = await open({ width: 393, height: 659 }, '?machine=dragon64');
     const dot = await page.evaluate(() => getComputedStyle(document.getElementById('btnMenu'), '::after').content !== 'none');
+    const menuName = await page.getAttribute('#btnMenu', 'aria-label');
+    check('mobile (393x659): the dot on Menu is in its name too: "Menu, Add ROMs needed"', dot && menuName === 'Menu, Add ROMs needed', JSON.stringify({ dot, menuName }));
     const row = () => page.evaluate(() => ['machineBtn', 'btnLoad', 'btnAsk', 'btnMenu'].map((id) => JSON.stringify(document.getElementById(id).getBoundingClientRect())));
     const before = await row();
     await tap(page, '#btnMenu');
@@ -14524,6 +14538,11 @@ async function mobileChecks(browser, base, check) {
     check('mobile (393x659): Menu has a dot while there is no BASIC, and lists Add ROMs first, then Share, the links, Commands… and Install CLOADM…',
       dot && items[0] === 'Add ROMs' && items.includes('Share') && items.includes('Commands…') && items.includes('Library') && items.includes('Install CLOADM…'), JSON.stringify({ dot, items }));
     check('mobile (393x659): opening Menu moves nothing in the bar', JSON.stringify(before) === JSON.stringify(await row()));
+    // the focus on the first item as it opens; Tab goes down the list (not into what Menu hides)
+    const f1 = await page.evaluate(() => document.activeElement.id);
+    await page.keyboard.press('Tab');
+    const f2 = await page.evaluate(() => document.activeElement.id || document.activeElement.textContent.trim());
+    check('mobile (393x659): Menu opens with the focus on its first item (Add ROMs), and Tab goes to the next (Share)', f1 === 'navRoms' && f2 === 'navShare', JSON.stringify({ f1, f2 }));
     await tap(page, '#navRoms');
     check('mobile (393x659): Menu\'s Add ROMs opens Add ROMs', await until(page, () => location.hash === '#add-roms'));
     check('mobile (Menu): no page errors', !errors.length, errors.join('; '));
@@ -14667,12 +14686,13 @@ async function mobileChecks(browser, base, check) {
   }
 
   // ---- m4: the desktop's status shows the speed only (the machine's name is on the button beside it), whole ----
-  for (const width of [1440, 1024]) {
+  for (const width of [1920, 1440, 1024]) {
     const { ctx, page } = await open({ width, height: 900 }, '?machine=dragon64', { touch: false });
     await until(page, () => /fps/.test(document.getElementById('status').textContent));
     const r = await page.evaluate(() => { const e = document.getElementById('status'); return { text: e.textContent, shown: e.checkVisibility(), clipped: e.checkVisibility() && e.scrollWidth > e.clientWidth + 0.5, w: Math.round(e.getBoundingClientRect().width) }; });
-    // (whole, or, where the bar has no room for it, not shown at all: never an ellipsis stub)
-    check(`mobile (desktop ${width} px): the status shows fps and speed without the machine's name, whole or not at all`, !r.clipped && !/Dragon/.test(r.text) && /^\d+ fps · \d+%/.test(r.text) && (r.shown || width >= 1200), JSON.stringify(r));
+    // (in the page font, shown and whole at every one of these widths; "whole or not shown" is only for 1200 px in a wide
+    // fallback font: the layout group)
+    check(`mobile (desktop ${width} px): the status shows fps and speed, shown and whole, without the machine's name`, r.shown && !r.clipped && !/Dragon/.test(r.text) && /^\d+ fps · \d+%/.test(r.text), JSON.stringify(r));
     await ctx.close();
   }
 }

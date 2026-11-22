@@ -146,6 +146,9 @@ $('fileCart').onchange = async (e) => {
 $('btnMenu').onclick = () => {
   const open = $('appbar').classList.toggle('menu-open');
   $('btnMenu').setAttribute('aria-expanded', String(open));
+  // a disclosure: it opens with the focus on its first item (Esc gives it back to Menu), so Tab goes down the list
+  // (the folded links are inert until drawn: markUndrawn now, not on the class change's mutation, so the focus can land)
+  if (open) { markUndrawn(); const first = [...document.querySelectorAll('.appbar nav > :is(a, button)')].find((e) => e.checkVisibility()); if (first) first.focus(); }
 };
 // Open only where it shows: .menu-open matters only while Menu and the links behind it are on the page (the phone and
 // short-landscape layouts); the touch keys' "Machine menu" sets it at any width, and a class left over there must not
@@ -160,14 +163,19 @@ $('btnMenu').onclick = () => {
 
 // the one-row app bar (1200 px and up, play/index.html) when its items do not all fit, in a wide fallback font: the key
 // hints and the machine's RAM size give way (class "tight") before anything wraps. Measured, not guessed: it is taken
-// off, then put on if the links still run past the bar. Then the status (the speed), the one flexible item: shown whole
-// or not at all (class "nostatus"; the v0.1.8 review's m4), never cut to an ellipsis stub
+// off, then put on if the links still run past the bar or leave the status (the speed, the one flexible item) no room
+// to be whole. The speed is then shown whole or, only if tight still leaves it no room, not at all (class "nostatus";
+// the v0.1.8 review's m4), never cut to an ellipsis stub
 {
   const bar = $('appbar'), nav = bar.querySelector('nav'), status = $('status'), wide = matchMedia('(min-width: 1200px)');
+  const over = () => nav.getBoundingClientRect().right > bar.getBoundingClientRect().right + 0.5;
+  const cut = () => status.scrollWidth > status.clientWidth + 0.5;
   const fit = () => {
     bar.classList.remove('tight', 'nostatus');
-    if (wide.matches && nav.getBoundingClientRect().right > bar.getBoundingClientRect().right + 0.5) bar.classList.add('tight');
-    if (wide.matches && status.scrollWidth > status.clientWidth + 0.5) bar.classList.add('nostatus');
+    if (!wide.matches) return;
+    // the links go tight first, for the links or for the speed; only a speed that still cannot be whole goes
+    if (over() || cut()) bar.classList.add('tight');
+    if (cut()) bar.classList.add('nostatus');
   };
   const ro = new ResizeObserver(fit);
   ro.observe(bar); ro.observe(nav);   // the links change width with the font
@@ -181,7 +189,12 @@ $('btnMenu').onclick = () => {
 // up (the machine has no BASIC), and Menu wears a dot then (UX R30); Share is its item too (the bar has no room)
 {
   const pill = $('romPill'), item = $('navRoms');
-  const sync = () => { item.hidden = pill.hidden; $('btnMenu').classList.toggle('dot', !pill.hidden); };
+  // (the dot is drawn only: while it is on, Menu's name says what it means)
+  const sync = () => {
+    item.hidden = pill.hidden;
+    $('btnMenu').classList.toggle('dot', !pill.hidden);
+    if (pill.hidden) $('btnMenu').removeAttribute('aria-label'); else $('btnMenu').setAttribute('aria-label', 'Menu, Add ROMs needed');
+  };
   const close = () => { $('appbar').classList.remove('menu-open'); $('btnMenu').setAttribute('aria-expanded', 'false'); };
   item.onclick = () => { close(); pill.click(); };
   $('navShare').onclick = () => { close(); $('btnShare').click(); };

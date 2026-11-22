@@ -772,9 +772,10 @@ least as wide as v0.1.8 made it (229 px at 375x548; guard at 393x659); the strip
 bar is one row of 48 px (the machine, Open…, Ask Claude, Menu; Add ROMs not in it), its controls 44 px and more, and
 exactly one visible control is named Menu; ⌄ hides the keys, the screen then takes the page's width less 16 px (1 px of
 rounding allowed: the picture is whole pixels) and ⌨ (Show keys) is 44x44 inside the window and brings them back;
-2048 opens on Pad with the screen at the page's width. The app bar is 48 px at its first paint (an init script reads
+scrolled to the page's foot, ⌨ covers nothing of it; 2048 opens on Pad with the screen at the page's width. The app bar is 48 px at its first paint (an init script reads
 it at the first animation frame) and 2 s later, with the touch class already on. Menu wears a dot while there is no
-BASIC, lists Add ROMs first, then Share, the links and Commands…, opens moving nothing in the bar, and its Add ROMs
+BASIC (its name then "Menu, Add ROMs needed"), lists Add ROMs first, then Share, the links, Commands… and Install
+CLOADM…, opens moving nothing in the bar with the focus on its first item (Tab goes to the next), and its Add ROMs
 opens Add ROMs. Minesweeper opens on Pad (Up, Left, Down, Right, SPACE, ENTER, BREAK, F, ABC, every key 48 px and
 more, Stick offered); the pad's → and F reach the machine as RIGHT and F; ABC shows the keyboard for one key; Keys
 chosen in Minesweeper is remembered for it on that machine while 2048 still opens on Pad and LIZA on Keys; the MC-10's
@@ -785,7 +786,8 @@ turn". Guards: on a computer the toast keeps "press a key" and "BREAK (Esc)"; si
 Machine… opens the machine picker on screen and on top; Esc closes it. No install offer appears on a phone, with the
 prompt held and 120 s of LIZA run, on a first and a second visit (sideways a guard: v0.1.8's offer found no place
 there either); Install CLOADM… (in Menu upright, in the panel's Menu sideways) still opens the browser's install dialog (a guard upright). At 1440 and
-1024 px the status shows the speed alone, whole or, where the bar has no room for it, not at all (never an ellipsis stub).
+1024 px and at 1920 px the status shows the speed alone, shown and whole in the page font (the links go tight first);
+only at 1200 px in a wide fallback font may it be left out (the layout group), never cut to a stub.
 
 ### Menus, focus and what screen readers hear
 

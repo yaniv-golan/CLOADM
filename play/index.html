@@ -1367,6 +1367,8 @@
   }
   /* Show keys (⌨): after Hide keys, a 44 px button at the bottom right, clear of a phone's home indicator, always on
      screen (toasts keep clear of it: js/ui/feedback.js) */
+  /* (and the page ends with room for it, so it never sits over the last of the page: the ports, the drawer) */
+  body.touch-hidden { padding-bottom: calc(68px + var(--safe-b)); }
   #btnShowKeys:not([hidden]) { position: fixed; z-index: 30; right: calc(12px + var(--safe-r)); bottom: calc(12px + var(--safe-b)); width: 44px; height: 44px;
     min-height: 44px; padding: 0; font-size: 22px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; }
 </style>

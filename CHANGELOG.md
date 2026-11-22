@@ -26,14 +26,14 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   "Machine menu" (which opened nothing there) now **Machine…**, the machine picker over the panel.
 - **The phone's app bar is one row, 48 px, from the first paint**: the machine, Open…, Ask Claude (its icon under
   360 px) and Menu, every control 44 px. Add ROMs is Menu's first item while the machine has no BASIC, with a dot on
-  Menu; Share is in Menu too, and Menu opens as a sheet over the page, moving nothing. A script in the page's head
+  Menu (whose name then says "Menu, Add ROMs needed"); Share is in Menu too, and Menu opens as a sheet over the page,
+  moving nothing, with the focus on its first item. A script in the page's head
   puts the touch layout on before the first paint, so nothing reflows when the panel arrives.
 - **No automatic install offer on a phone** (owner's decision), upright or sideways: Install CLOADM… (in the app bar's
   Menu upright; in the panel's Menu held sideways) installs. Desktops and tablets keep the offer.
 - **The status in the app bar shows the speed only** ("50 fps · 100%"): the machine's name is on the button beside it,
-  and at 1440 px the repeated name pushed the speed into an ellipsis. Where the one-row bar has no room for the speed
-  either, it is left out rather than cut to a stub.
-
+  and at 1440 px the repeated name pushed the speed into an ellipsis. The links go tight first to leave it room; only
+  where even that leaves none (1200 px in a wide font) is it left out, never cut to a stub.
 - **Copy and small fixes from the v0.1.8 UI review.** Starting LIZA from the welcome menu, or the colour demo from the Media
   tab's shelf, says "LIZA loaded" / "Colour demo loaded" instead of "liza.bin: DragonDOS binary $3000-$3C90, exec $3000" (a file you bring keeps its addresses).
   A link naming a machine CLOADM doesn't have, or a `start=` or `app=` it doesn't know, shows one short toast ("machine=nosuch: no such machine (opened Dragon 64
@@ -45,7 +45,6 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   WITH …", no longer pushes "PRESS 1 TO 6" against the colour bar: the options move up a row and a blank row stays
   above the prompt, as on the MC-10 and Alice. No frame hash changes (the regression firmware never shows the sixth
   option). The browser check's new group `uiCopy` covers each of these.
-
 - **The Claude chat with no key says so on its own screen.** The chat screen used to be an empty black box with a
   `>` prompt, and the "No API key yet" note sat beside it (below the fold on a phone). The line is now on the screen too,
   as the firmware shows a reply (`Session.chatNote`: not the conversation, never what Claude reads), and after Save key
