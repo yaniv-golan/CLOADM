@@ -7606,15 +7606,35 @@ async function embedChecks(browser, site, check) {
   check('framed without embed=1: the page knows it is framed and offers no chat, no key card',
     framedPage && framedPage.framed === true && framedPage.chat === false && framedPage.chatMachines === false && framedPage.keyCard === false,
     JSON.stringify(framedPage));
-  check('framed without embed=1: the key store is in memory, so a saved key is not visible there',
-     framedPage.keyVisible === null, JSON.stringify(framedPage));
+
   // no Claude entry point is left visible: the Ask button and the Commands button are hidden, not dead
   const buttons = frame ? await frame.evaluate(() => {
     const vis = (id) => { const e = document.getElementById(id); if (!e) return 'absent'; const r = e.getBoundingClientRect(); return !e.hidden && r.width > 0 && r.height > 0; };
-    return { bodyClass: document.body.classList.contains('no-claude'), ask: vis('btnAsk'), commands: vis('navCommands') };
+    const shelf = document.querySelector('[data-shelf="claude"]');
+    return { bodyClass: document.body.classList.contains('no-claude'), ask: vis('btnAsk'), commands: vis('navCommands'),
+      shelf: shelf ? (() => { const r = shelf.getBoundingClientRect(); return !shelf.hidden && r.width > 0; })() : 'absent' };
   }) : null;
-  check('framed without embed=1: no Claude button is visible (Ask and Commands are hidden, not dead)',
-    buttons && buttons.bodyClass === true && buttons.ask === false && buttons.commands === false, JSON.stringify(buttons));
+  check('framed without embed=1: no Claude entry is visible (Ask, Commands and the welcome shelf are hidden, not dead)',
+    buttons && buttons.bodyClass === true && buttons.ask === false && buttons.commands === false && buttons.shelf === false,
+    JSON.stringify(buttons));
+  // A key IN this frame's own storage must be invisible to the framed page's session. Written into the frame first and
+  // the frame reloaded, so the row tests the key store rather than "there was no key anywhere": with the store built
+  // from localStorage regardless of the decision, the session reads it and this goes red.
+  let keyHidden = null;
+  if (frame) {
+    await frame.evaluate(() => { try { localStorage.setItem('cloadm.anthropicKey', 'sk-ant-FRAMED-STORE-SENTINEL'); } catch (e) {} });
+    // re-set the host page rather than reload it: a setContent page has no URL to reload, and re-setting recreates the
+    // iframe. The key survives because it is stored on the PLAY origin, which is what the frame loads again.
+    await framed.setContent(`<!doctype html><title>a blog</title><iframe id="f" src="${site}play/?machine=dragon64&app=claude" width="900" height="700"></iframe>`);
+    await framed.waitForTimeout(3000);
+    const f2 = framed.frames().find((f) => f !== framed.mainFrame());
+    keyHidden = f2 ? await f2.evaluate(() => ({
+      stored: (() => { try { return localStorage.getItem('cloadm.anthropicKey'); } catch (e) { return null; } })(),
+      seen: window.emu && window.emu.session ? window.emu.session.keyStore.get() : '(no session)',
+    })) : null;
+  }
+  check('framed without embed=1: a key stored IN the frame is not visible to its session (in-memory store)',
+    keyHidden && keyHidden.stored === 'sk-ant-FRAMED-STORE-SENTINEL' && keyHidden.seen === null, JSON.stringify(keyHidden));
 
   // a SANDBOXED frame (allow-scripts, no allow-same-origin) has origin "null", and the browser refuses its ES modules:
   // the page cannot start there at all, so there is no chat to reach and nothing for this change to guard. Assert the

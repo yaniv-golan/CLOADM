@@ -176,7 +176,7 @@ export function buildUrl(base, cfg) {
 // Whether the in-page Claude chat may be offered. A page shown inside someone else's page is not the person's own visit:
 // the chat puts an API key card on screen, and the page around it would see and drive that. So the chat needs BOTH a
 // top-level page and no embed flag. `framed` is the page's answer to "is this shown inside another page" (in a browser:
-// window.top !== window); a page that cannot tell passes false. It fails CLOSED: anything other than a plain
-// top-level page with no embed gets no chat.
+// window.self !== window.top). It fails CLOSED: only a page that says plainly it is top-level gets the chat, so `true`,
+// `undefined`, or anything else means framed - a page that cannot tell is treated as shown inside another page.
 // (The claude.ai connector view is unaffected: it is its own document, not this page, and it never sets up the chat.)
 export const claudeOffered = (link, framed) => !(link && link.embed) && framed === false;

@@ -1,7 +1,7 @@
 // Run: node tests/embed-person-machine.test.js
 //
 // The embed API acts on the PERSON's machine, never the one on screen, and the ROM guard is asked about that same
-// machine (the scope of ds/embed-chat-guard, (b) and (c) in the state file).
+// machine.
 //
 // Why it matters: with the Claude chat full screen the shown machine is the chat machine, and the embed API used to
 // reach it. The hotfix removed the chat from embeds, so this is now the second lock rather than the first - but the two
