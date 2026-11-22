@@ -536,7 +536,8 @@ class Coco3Machine extends Machine {
           if (hook && cpu.willExecute()) hook();
         }
       }
-      if (this.pcWatch !== null) this.pcWatch(cpu.pc);
+      // (a probe sees each instruction once: a suspended one already had its call when it first started)
+      if (this.pcWatch !== null && !resumed) this.pcWatch(cpu.pc);
       cpu.c = 0;
       this.instrPc = cpu.pc;
       const div = this.div;

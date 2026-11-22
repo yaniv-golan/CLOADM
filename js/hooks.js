@@ -31,11 +31,20 @@ export class HostHooks {
       if (h.remove) { h.remove(); h.remove = null; }
     };
   }
-  // m is the machine in use from now on: everything moves from the old one to it
+  // m is the machine in use from now on: everything moves from the old one to it. All or nothing: if one can't go
+  // on m (a bus tap on a machine whose bus something else shadows), what went on is taken off again, everything
+  // stays on the old machine, and the error is thrown.
   attach(m) {
     if (m === this.machine) return;
-    for (const h of this.list) if (h.remove) { h.remove(); h.remove = null; }
+    const added = [];
+    try {
+      if (m) for (const h of this.list) added.push(h.add(m));
+    } catch (e) {
+      for (const remove of added) remove();
+      throw e;
+    }
+    for (const h of this.list) if (h.remove) h.remove();
+    this.list.forEach((h, i) => { h.remove = m ? added[i] : null; });
     this.machine = m;
-    if (m) for (const h of this.list) h.remove = h.add(m);
   }
 }

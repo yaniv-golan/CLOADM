@@ -77,6 +77,16 @@ for (const id of ['dragon64', 'coco3', 'mc10']) {
   m.runCycles(Infinity, 2);
   check('a probe added from a probe runs from the next instruction on', seen.join('') === 'xyxyc', seen.join(''));
   rx(); ry(); rc();
+  // a probe that removes a later probe while the probes run: that one still runs for this instruction (the dispatch
+  // goes over the list as it was when the instruction started), then no more
+  const seen2 = [];
+  let ryy = null;
+  const rxx = m.addProbe(() => { seen2.push('x'); if (ryy) { ryy(); ryy = null; } });
+  ryy = m.addProbe(() => seen2.push('y'));
+  const rzz = m.addProbe(() => seen2.push('z'));
+  m.runCycles(Infinity, 3);
+  check('a probe removed by an earlier one during dispatch still runs for that instruction, then stops', seen2.join('') === 'xyzxzxz', seen2.join(''));
+  rxx(); rzz();
   // a reset keeps the host's probes (only the Session's load detector goes, with its typist item: tape-load.test.js)
   const c = [];
   const r = m.addProbe((pc) => c.push(pc));
@@ -195,6 +205,10 @@ for (const [label, config] of [['hardware timing', undefined], ['MAME timing', {
   const rd = f.readIO.bind(f);
   f.readIO = (a) => { const v = rd(a); if (a === 0xFF4B) reads.push(v); return v; };
   const rt = m.busTaps.addReadTap({ start: 0xFF4B, end: 0xFF4B }, (a, v) => tapped.push(v));
+  // a probe sees the INC once per execution: each INC reads $FF4B once (before the HALT), so once per controller read,
+  // however often the instruction was suspended and resumed in between
+  let incs = 0;
+  const rpr = m.addProbe((pc) => { if (pc === 0x300F) incs++; });
   const dbg = new Emu.Debugger(m);
   dbg.addWatchpoint(0xFF4B, 1, { read: true, write: false });
   let suspended = 0;
@@ -207,7 +221,9 @@ for (const [label, config] of [['hardware timing', undefined], ['MAME timing', {
   const done = m.haltDefer ? reads.length - 1 : reads.length;
   check(`held INC $FF4B (${label}): the watchpoint beside it still stops once per completed read`,
     watched.length === done && watched.every((v, i) => v === reads[i]), `stops ${watched.length} reads ${reads.length}`);
-  dbg.detach(); rt();
+  check(`held INC $FF4B (${label}): a probe sees each INC once, not again when a suspended one resumes`,
+    incs === reads.length, `probe ${incs} INCs for ${reads.length} controller reads`);
+  dbg.detach(); rt(); rpr();
   check(`held INC $FF4B (${label}): all off, the bus is intact`, busIntact(m));
 }
 
@@ -246,6 +262,54 @@ for (const [label, config] of [['hardware timing', undefined], ['MAME timing', {
   check('taken off the Session: gone from the machine in use too', m2.probes.length === 0 && m2.pcWatch === null && busIntact(m2));
   s.switchMachine('dragon64', undefined, { menu: false });
   check('...and not put on the next one', s.machine.probes.length === 0 && busIntact(s.machine));
+
+  // ---------------- 6. HostHooks.attach is all or nothing ----------------
+  {
+    const hooks = new s.hooks.constructor();
+    const ma = Emu.createMachine('dragon64'), mb = Emu.createMachine('dragon64');
+    hooks.attach(ma);
+    hooks.addProbe(() => {});
+    hooks.addReadTap({ start: 0, end: 0xFFFF }, () => {});
+    hooks.addWriteTap({ start: 0, end: 0xFFFF }, () => {});
+    // mb's write is already shadowed by someone else: the write tap (the last hook) can't go on
+    const own = (a, v) => Object.getPrototypeOf(mb).write.call(mb, a, v);
+    mb.write = own;
+    const threw = throws(() => hooks.attach(mb));
+    check('attach that fails part way throws and puts back nothing on the new machine', threw && mb.probes.length === 0 && mb.pcWatch === null &&
+      !Object.hasOwn(mb, 'read') && mb.write === own && mb.busTaps.reads.length === 0 && mb.busTaps.writes.length === 0);
+    check('...and the hooks stay on the machine they were on', hooks.machine === ma && ma.probes.length === 1 && ma.busTaps.reads.length === 1 && ma.busTaps.writes.length === 1);
+    delete mb.write;
+    hooks.attach(mb);
+    check('...from where a later attach moves them as usual', mb.probes.length === 1 && mb.busTaps.writes.length === 1 && ma.probes.length === 0 && busIntact(ma));
+  }
+
+  // ---------------- 7. the hooks follow the machine on screen through the chat's views ----------------
+  {
+    const fs = require('fs'), path = require('path');
+    const FIRMWARE = new Uint8Array(fs.readFileSync(path.join(__dirname, '../examples/chat.bin')));
+    const backend = () => new Emu.ClaudeBackend({ fetch: async () => null, apiKey: 'sk-test' });
+    const c = new Emu.Session({ store: Emu.memoryStore(), welcomeMenu: false });
+    c.switchMachine('dragon64', undefined, { menu: false });
+    const basic = c.machine;
+    const rp2 = c.hooks.addProbe(() => {});
+    const rw2 = c.hooks.addWriteTap({ start: 0, end: 0xFFFF }, () => {});
+    const on = (m) => m.probes.length === 1 && m.busTaps.writes.length === 1;
+    const off = (m) => m.probes.length === 0 && busIntact(m);
+    c.startChat({ backend: backend(), channel: new Emu.MemoryChannel(), firmware: FIRMWARE });
+    const chatM = c.machine;
+    check('startChat: the hooks move to the chat machine on screen', chatM !== basic && on(chatM) && off(basic));
+    c.showChat('basic');
+    check('showChat(basic): back on the BASIC session', c.machine === basic && on(basic) && off(chatM));
+    c.showChat('chat');
+    check('showChat(chat): on the chat machine again', c.machine === chatM && on(chatM) && off(basic));
+    c.toSidePanel();
+    check('toSidePanel: on the BASIC session, the chat machine left clean', c.machine === basic && on(basic) && off(chatM));
+    c.startChat({ backend: backend(), channel: new Emu.MemoryChannel(), firmware: FIRMWARE });
+    const chatM2 = c.machine;
+    c.endChat();
+    check('endChat: on the BASIC session, the chat machine left clean', c.machine === basic && on(basic) && off(chatM2) && chatM2 !== basic);
+    rp2(); rw2();
+  }
 
   console.log(fail ? `\n${fail} FAILED` : '\nall probe and bus tap tests passed');
   process.exitCode = fail ? 1 : 0;

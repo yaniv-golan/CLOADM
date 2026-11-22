@@ -132,7 +132,9 @@ them yet.
   the handler's first instruction runs instead, and the interrupted one later. The probes share the one
   `machine.pcWatch` slot, which stays `null` with no probe (one test per instruction), holds the probe itself when
   there is one, and a dispatcher only for two or more. A probe added or removed from inside a probe takes effect at
-  the next instruction.
+  the next instruction: one removed by an earlier probe still runs for the instruction under way. Each instruction
+  is probed once: a CoCo 3 instruction suspended by HALT had its call when it first started, and is not probed
+  again when it resumes.
 * `machine.busTaps.addReadTap({ start, end }, fn)` and `addWriteTap({ start, end }, fn)` → `remove()`
   (`js/machines/bustaps.js`). `fn(address, value)` runs after each read or write of an address from `start` to `end`
   (both inclusive) through the machine's `read`/`write`, in registration order. The first tap of a kind shadows
@@ -150,12 +152,15 @@ them yet.
   as it is.
 * The Session's own probes and taps (`session.hooks`, `js/hooks.js`) follow the machine in use: `Session.install`
   (called by `adopt`, for a machine switch or an opened snapshot, and by the chat's machine views) takes them off the
-  old machine and puts them on the new one in the order they were added. The Session's load detector (the EXEC
+  old machine and puts them on the new one in the order they were added. The move is all or nothing: if one cannot
+  go on the new machine (its bus already shadowed), the ones added are taken off again, all stay on the old
+  machine, and the error is thrown. The Session's load detector (the EXEC
   after CLOADM) is a probe on the machine it loads into; it goes when it decides, or when the typist drops the EXEC
   it waits to type (`Typist.typeWhen`'s `cancel`: a reset, a later load, a restore point).
 
 `tests/probes.test.js` covers the probes on each CPU family, the taps removed in every order, a watchpoint beside a
-tap, the CoCo 3's held instruction and the Session's hooks across `openSnapshot` and `switchMachine`;
+tap, the CoCo 3's held instruction (one tap report and one probe call per access and instruction), and the
+Session's hooks across `openSnapshot`, `switchMachine` and the chat's views, with a move that fails part way;
 `tests/tape-load.test.js` loads tapes with other probes beside the load detector.
 
 The **Debugger** screen (`/play/#debugger`) shows the assembler's source, the registers (click to edit) and
