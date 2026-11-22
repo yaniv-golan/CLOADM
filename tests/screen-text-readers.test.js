@@ -19,6 +19,33 @@
 //     generator of our own that draws each code as its own byte, so the picture decodes back to codes;
 //  3. where the screen is: `base` (the CPU address, or null when no slot maps it), `physicalBase`, `startAddress`.
 // Cells with no known character (a VDG semigraphics block, a Plus code outside $20-$7E) read as spaces and are counted.
+//
+// Mutants (each a one-line edit; every one turns this file red - replay them when reviewing):
+//  js/claude/readtools.js
+//   1. compatibility page through the CPU map: in readScreen's legacyBase branch, vdgRows((i) => g.mem(at + i)) ->
+//      vdgRows((i) => readByte(((at & 0xFFFF) + i) & 0xFFFF))
+//   2. compatibility page at the power-on page: g.mem(at + i) -> g.mem(0x70400 + i)
+//   3. attribute bytes read as characters (gimeText: interleave t.attrs into the rows)
+//   4. 40 columns read as 80 (gimeText: pad each row to 80)
+//   5. bit 7 not ignored (gimeText: chars[v & 0x7F] -> chars[v] || ' ')
+//   6. Plus unknown codes not counted (plusText: drop unknown++)
+//   7. Session.screenText main-only: screenRows' `if (r.text) return r.rows;` also refuses HD6845S and GIME native rows
+//   8. VDG rows through the CPU map: readScreen's vdgRows(page.byte) -> vdgRows((i) => readByte(page.addr(i)))
+//   9. fallback through the CPU map: screenRows' vdgRows(page.byte) -> vdgRows((i) => readByte(page.addr(i)))
+//  10. fallback at the profile page: screenRows' vdgPage(m) -> { byte: (i) => m.ram[((m.profile.textScreen || 0x400) + i) & 0xFFFF] }
+//  11. base without the CPU check: base: cpuSees ? page.at : null -> base: page.at
+//  12. SAM offset ignored: vdgPage's at = m.sam.displayBase -> at = m.profile.textScreen || 0x400
+//  13. wrong F shift in the reader: at = m.sam.displayBase -> at = ((m.sam.reg >> 2) & 0x7F) << 9
+//  14. counter size ignored: (at + i) & mask -> (at + i) & 0xFFFF
+//  15. base on row 0 only: the cpuSees loop's i < n -> i < 32
+//  16. base without the last byte: i < n -> i < n - 1
+//  js/session.js
+//  17. Session.screenText always main: { main } -> { main: true }
+//  18. the watchdog reads the shown screen: this.screenText(m, { main: true }) -> this.screenText(m)
+//  js/chips/sam6883.js
+//  19. wrong F shift: displayBase's << 9 -> << 8
+//  js/machines/d64plus.js
+//  20. Plus start address ignored: textScreen()'s ma = this.rowAddress(row) -> ma = row * cols
 const Emu = require('./load')();
 const T = require('../tools/mame-diff/coco3/text-screens.js');
 const { romImage } = require('../tools/mame-diff/lib/firmware.js');
@@ -535,6 +562,23 @@ const frameOf = (m) => J(Array.from(m.render().data));
     const w = tool(m);
     check(`${id} SAM page: F = 8 under a 4K counter (M = 00) reads the page the counter wraps to, $0000; base null`,
       m.sam.displayBase === 0x1000 && w.lines[0] === 'WRAPPED TO $0000 UNDER A 4K SAM' && w.base === null, J({ base: w.base, line0: w.lines && w.lines[0] }));
+  }
+
+  // ---- the fallback for a screen screen_text declines reads the page the SAM selects ----
+  // A graphics mode (screen_text declines it) on a SAM machine: Session.screenText's fallback rows are the page at the
+  // SAM's display offset, not BASIC's $0400; and with the SAM at power-on (F = 0), the page at $0000.
+  for (const id of ['dragon32', 'coco2b']) {
+    const m = samMachine(id, { pageAt: 0x0C00, fBits: 6, okAt: 0x0400 });
+    m.write(0xFF22, 0xF8);                                                // the VDG to RG6 graphics (A/G set)
+    m.runFrame();
+    check(`${id} fallback: (setup) a graphics mode, which screen_text declines`, tool(m).text === false, J(tool(m).mode));
+    const rows = sessionOn(m).screenText(), main = sessionOn(m).screenText({ main: true });
+    check(`${id} fallback: Session.screenText reads the page at the SAM's offset ($0C00), not $0400's OK`,
+      J(rows) === J(samWant) && J(main) === J(samWant), J(rows[0]));
+    for (let k = 0; k < 7; k++) m.write(0xFFC6 + 2 * k, 0);              // F = 0, as at power-on
+    for (let i = 0; i < 32; i++) m.ram[i] = 'PAGE ZERO, WHERE F = 0 POINTS   '.charCodeAt(i) & 0x3F | 0x40;
+    check(`${id} fallback: with F = 0 (a ROM that has not set up the SAM) it reads $0000`,
+      m.sam.displayBase === 0 && sessionOn(m).screenText()[0] === 'PAGE ZERO, WHERE F = 0 POINTS   ', J(sessionOn(m).screenText()[0]));
   }
 
   // ---- the boot watchdog sees only the displayed page ----

@@ -148,9 +148,11 @@ export function screenTextTool(target) {
 // The screen's rows as text, every row the screen shows at its full width (nothing trimmed). This is what
 // Session.screenText returns, and so what the embed API's screenText, the page's Ask panel, the tape panel and the boot
 // watchdog read: the SAME reader as screen_text, so the two cannot disagree on a text screen. A screen screen_text
-// declines (a graphics mode, a set-up it cannot read) gives the profile's VDG page decoded, 16 rows of 32, as this
-// call always has: a ROM that has not set the VDG to text yet (the PIA's power-on $FF selects graphics) can still
-// have printed there, and a caller looking for OK or an error message looks there. `main: true` reads the machine's
+// declines (a graphics mode, a set-up it cannot read) gives the VDG's page decoded, 16 rows of 32: the page vdgPage
+// names, the one the VDG would show in text - on the SAM machines the SAM's display offset, so a ROM that has not set
+// up the SAM yet (F = 0, its power-on state) is read at $0000, not at BASIC's $0400; on the MC-10 and a CoCo 3 the
+// profile's page. A ROM that has not set the VDG to text yet (the PIA's power-on $FF selects graphics) can still have
+// printed there, and a caller looking for OK or an error message looks there. `main: true` reads the machine's
 // main screen (the VDG) even while the Dragon 64 Plus shows its 80-column board: BASIC prints OK there, whatever the
 // Display tab shows.
 export function screenRows(m, readByte, { main = false } = {}) {
