@@ -554,7 +554,7 @@
   #touchKeys { display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 4px;
     user-select: none; -webkit-user-select: none; touch-action: manipulation; }
   #touchKeys > #touchFull { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 5px; }
-  /* Pad mode (js/ui/touch-keys.js): the D-pad left, SPACE, ENTER, BREAK, the program's own keys and ABC right, in the
+  /* Pad mode (js/ui/touch-keys.js): the D-pad left, SPACE (two keys wide), ENTER, the program's own keys and ABC right, in the
      full keyboard's place; keys 48 px and more (UX R30). A drag there never scrolls the page: a held arrow is a game's
      whole input */
   #touchKeys > #touchPad { grid-column: 1 / -1; grid-row: 2; display: none; gap: 8px; touch-action: none; }
@@ -562,11 +562,12 @@
   #touchKeys.pad > #touchPad { display: flex; }
   #touchKeys.keysonce.pad > #touchFull { display: flex; }
   #touchKeys.keysonce.pad > #touchPad { display: none; }
-  /* two rows of 48 px, so an upright phone keeps the room for a full-width screen: the D-pad's, and SPACE, ENTER,
-     BREAK, the program's keys and ABC three to a row */
+  /* two rows of 48 px, so an upright phone keeps the room for a full-width screen: the D-pad's, and SPACE, ENTER, the
+     program's keys and ABC three to a row, SPACE two wide (BREAK is the strip's: UX R35) */
   #touchKeys #touchPad .padarrows { flex: none; display: grid; grid-template-columns: repeat(3, 48px); grid-auto-rows: 48px; gap: 4px; }
   #touchKeys #touchPad .padkeys { flex: 1; min-width: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: 48px; gap: 4px; }
   #touchKeys #touchPad .padkeys .tk { font-size: 13px; }
+  #touchKeys #touchPad .padkeys .tk[data-key="SPACE"] { grid-column: span 2; }
   #touchKeys #touchPad .padextra { display: contents; }
   #touchKeys #touchPad .tk { height: auto; min-height: 48px; font-size: 15px; }
   #touchKeys #touchPad .tk[aria-label] { font-size: 24px; }

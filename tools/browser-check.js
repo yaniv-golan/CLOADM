@@ -14504,6 +14504,21 @@ async function mobileChecks(browser, base, check) {
       const s = await rect(page, '#screen'), k = await rect(page, '#touchKeys');
       check(`${L}, 2048: opens on Pad, the screen the page's width (${s && Math.round(s.w)} px, at least ${w - 17}), the panel on screen`,
         await mode(page) === 'pad' && !!s && fullWidth(s.w, w) && !!k && k.b <= h, JSON.stringify({ s, k }));
+      // UX R35: in Pad mode one control is named BREAK, the strip's; every pad key 48 px and more, none over the strip
+      const pk = await page.evaluate(() => {
+        const name = (e) => (e.getAttribute('aria-label') || e.textContent).replace(/\s+/g, ' ').trim();
+        const breaks = [...document.querySelectorAll('button')].filter((e) => e.checkVisibility() && e.getBoundingClientRect().width > 0 && name(e) === 'BREAK').map((e) => e.id || 'pad');
+        const strip = [...document.querySelectorAll('#tkModeSwitch button, #tkBreak, #tkClear, #tkMenu')].map((e) => e.getBoundingClientRect());
+        const cross = (a, b) => a.left < b.right - 0.5 && b.left < a.right - 0.5 && a.top < b.bottom - 0.5 && b.top < a.bottom - 0.5;
+        const keys = [...document.querySelectorAll('#touchPad .tk')].filter((e) => e.checkVisibility());
+        return { breaks, small: keys.filter((e) => e.getBoundingClientRect().height < 48 - 0.5).map(name), overStrip: keys.filter((e) => strip.some((r) => cross(e.getBoundingClientRect(), r))).map(name) };
+      });
+      check(`${L}, 2048 on Pad: exactly one visible BREAK (the strip's); every pad key 48 px and more, none over the strip`,
+        pk.breaks.join() === 'tkBreak' && !pk.small.length && !pk.overStrip.length, JSON.stringify(pk));
+      if (w === 375) {
+        await tap(page, '#tkBreak');
+        check(`${L}, 2048: the strip's BREAK goes back to the welcome menu`, await until(page, () => window.emu.session.welcomeRunning, null, 15000));
+      }
       if (shotDir) await page.screenshot({ path: path.join(shotDir, `mobile-${w}x${h}-2048-pad.png`) });
       check(`${L}, 2048: no page errors`, !errors.length, errors.join('; '));
       await ctx.close();
@@ -14557,8 +14572,8 @@ async function mobileChecks(browser, base, check) {
       keys: [...document.querySelectorAll('#touchPad .tk')].filter((e) => e.checkVisibility()).map((e) => e.getAttribute('aria-label') || e.textContent.trim()),
       heights: [...document.querySelectorAll('#touchPad .tk')].filter((e) => e.checkVisibility()).map((e) => Math.round(e.getBoundingClientRect().height)),
       stick: document.querySelector('[data-touchmode="joystick"]').checkVisibility() }));
-    check('mobile (Minesweeper): opens on Pad: the D-pad, SPACE, ENTER, BREAK, F (its own key) and ABC, every key 48 px and more; Stick offered',
-      pad.mode === 'pad' && pad.keys.join() === 'Up,Left,Down,Right,SPACE,ENTER,BREAK,F,ABC' && pad.heights.every((x) => x >= 48) && pad.stick, JSON.stringify(pad));
+    check('mobile (Minesweeper): opens on Pad: the D-pad, SPACE, ENTER, F (its own key) and ABC (no BREAK: the strip\'s, UX R35), every key 48 px and more; Stick offered',
+      pad.mode === 'pad' && pad.keys.join() === 'Up,Left,Down,Right,SPACE,ENTER,F,ABC' && pad.heights.every((x) => x >= 48) && pad.stick, JSON.stringify(pad));
     await page.evaluate(() => { const m = window.emu.machine, set = m.setKey.bind(m); window.pressed = []; m.setKey = (k, d) => { window.pressed.push(`${k}${d ? '+' : '-'}`); return set(k, d); }; });
     await tap(page, '#touchPad [data-key="→"]');
     await tap(page, '#touchPad [data-key="F"]');

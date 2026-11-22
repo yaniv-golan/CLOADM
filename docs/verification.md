@@ -772,11 +772,11 @@ least as wide as v0.1.8 made it (229 px at 375x548; guard at 393x659); the strip
 bar is one row of 48 px (the machine, Open…, Ask Claude, Menu; Add ROMs not in it), its controls 44 px and more, and
 exactly one visible control is named Menu; ⌄ hides the keys, the screen then takes the page's width less 16 px (1 px of
 rounding allowed: the picture is whole pixels) and ⌨ (Show keys) is 44x44 inside the window and brings them back;
-scrolled to the page's foot, ⌨ covers nothing of it; 2048 opens on Pad with the screen at the page's width. The app bar is 48 px at its first paint (an init script reads
+scrolled to the page's foot, ⌨ covers nothing of it; 2048 opens on Pad with the screen at the page's width, exactly one visible BREAK (the strip's), every pad key 48 px and more and none over the strip, and the strip's BREAK takes 2048 back to the welcome menu. The app bar is 48 px at its first paint (an init script reads
 it at the first animation frame) and 2 s later, with the touch class already on. Menu wears a dot while there is no
 BASIC (its name then "Menu, Add ROMs needed"), lists Add ROMs first, then Share, the links, Commands… and Install
 CLOADM…, opens moving nothing in the bar with the focus on its first item (Tab goes to the next), and its Add ROMs
-opens Add ROMs. Minesweeper opens on Pad (Up, Left, Down, Right, SPACE, ENTER, BREAK, F, ABC, every key 48 px and
+opens Add ROMs. Minesweeper opens on Pad (Up, Left, Down, Right, SPACE, ENTER, F, ABC, no BREAK: the strip's is the only one, UX R35; every key 48 px and
 more, Stick offered); the pad's → and F reach the machine as RIGHT and F; ABC shows the keyboard for one key; Keys
 chosen in Minesweeper is remembered for it on that machine while 2048 still opens on Pad and LIZA on Keys; the MC-10's
 switch is Keys | Pad. The games' toast says "tap a key" and BREAK, never "Esc" or "press", lies under the app bar and

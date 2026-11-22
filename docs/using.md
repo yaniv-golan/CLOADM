@@ -258,7 +258,7 @@ the emulator, whatever the address (`?app=claude` included) and the history behi
 
 On a phone or tablet an on-screen panel appears under the screen; held sideways it is fixed around the screen. Its ← key
 (marked DEL) is the machine's backspace, and → follows it.
-The **Keys | Pad | Stick** switch picks what the panel is. **Pad** is a D-pad (↑ ↓ ← →) with SPACE, ENTER, BREAK, the
+The **Keys | Pad | Stick** switch picks what the panel is. **Pad** is a D-pad (↑ ↓ ← →) with SPACE, ENTER, the
 running program's own keys (Minesweeper's F) and ABC, which shows the keyboard for one key; held sideways the D-pad is
 left of the screen and its keys right. **Stick** (offered when the machine has a joystick port of its own — not the
 MC-10 or Alice, not when the right port holds a Hi-Res interface or The Rat, and not in the phone's chat) is a

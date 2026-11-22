@@ -17,7 +17,7 @@
  * the split keyboard's halves, which are the two side columns there, as the screen has the height). Two fingers
  * work at once: the stick and FIRE are separate pointers, and each captures its own.
  *
- * Pad: a D-pad (↑ ↓ ← →, 48 px keys), SPACE, ENTER, BREAK, the running program's extra keys (Minesweeper's F) and
+ * Pad: a D-pad (↑ ↓ ← →, 48 px keys), SPACE, ENTER, the running program's extra keys (Minesweeper's F) and
  * ABC, the keyboard for one key. The switch is Keys | Pad | Stick (Stick only where the machine has a joystick port
  * and not in the phone's chat). A bundled program opens in the mode it is played with (Session.programControls: 2048
  * and Minesweeper on the pad, LIZA on the keys; anything else on the keys).
@@ -37,10 +37,10 @@ const SPECIAL = {
   '↑': ['UP', 94], '↓': ['DOWN', 10], '←': ['LEFT', 8], ENTER: ['ENTER', 13], SPACE: ['SPACE', 32],
   '→': ['RIGHT', 9], BREAK: ['BREAK', 3], CLEAR: ['CLEAR', 12],
 };
-// Pad mode (UX R30): a D-pad (two rows; '' is a corner), and SPACE, ENTER, BREAK, the running program's own extra
-// keys (Session.programControls: Minesweeper's F) and ABC, the full keyboard for one key
+// Pad mode (UX R30, R35): a D-pad (two rows; '' is a corner), and SPACE, ENTER, the running program's own extra keys
+// (Session.programControls: Minesweeper's F) and ABC, the full keyboard for one key. BREAK is the strip's alone.
 const DPAD = [['', '↑', ''], ['←', '↓', '→']];
-const PAD_KEYS = ['SPACE', 'ENTER', 'BREAK'];
+const PAD_KEYS = ['SPACE', 'ENTER'];
 const ARROW_NAMES = { '↑': 'Up', '↓': 'Down', '←': 'Left', '→': 'Right' };
 // the panel's modes, in the switch's order; 'joystick' is the switch's Stick (the stored value and ?touch= keep R4's name)
 const MODES = ['keys', 'pad', 'joystick'];
