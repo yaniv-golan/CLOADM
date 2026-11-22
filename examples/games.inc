@@ -546,8 +546,9 @@ WIDEW   FCB     $C0,$0C,$C3,$0C,$CC,$CC,$F0,$3C,$C0,$0C        ; #.....#  #..#..
 
 ; pixel masks for one pixel, by its position in a screen byte (0-3): the two bits it sets
 PIXMASK FCB     $C0,$30,$0C,$03
-; The 1x renderer's tables. tests/font-tables.test.js derives every entry from the FONT bitmaps and the
-; shift rule written in that test, independently of these bytes, and fails on any difference.
+; The 1x renderer's tables. tests/font-tables.test.js ENUMERATES every row pattern a glyph can have, applies
+; the shift rule written out in that test, and compares the result with these bytes; a difference fails. One
+; of its checks reads V3P0's entry for 'I' against the font, so a model that only agreed with itself would fail.
 ; A row's pixels as 2-bit pairs in place, indexed by the RAW font row bits: the row's bit 0 is its
 ; rightmost pixel, so px = w-1-i. 8 entries for 3 wide, 32 for 5.
 V3P0    FCB     $00,$00,$0C,$00,$30,$00,$3C,$00,$C0,$00,$CC,$00,$F0,$00,$FC,$00
@@ -557,15 +558,15 @@ V5P0    FCB     $00,$00,$00,$C0,$03,$00,$03,$C0,$0C,$00,$0C,$C0,$0F,$00,$0F,$C0
         FCB     $C0,$00,$C0,$C0,$C3,$00,$C3,$C0,$CC,$00,$CC,$C0,$CF,$00,$CF,$C0
         FCB     $F0,$00,$F0,$C0,$F3,$00,$F3,$C0,$FC,$00,$FC,$C0,$FF,$00,$FF,$C0
 ; a 5-wide cell at phase 1 or 3 would put its blank column in a THIRD screen byte, which the two-byte
-; window cannot hold. No glyph is drawn at an odd phase (cursor-phases.cjs proves it), so no such table
-; exists.
+; window cannot hold. No glyph is drawn at an odd phase (tests/cursor-phases.test.js proves it by watching
+; the cursor the renderer uses), so no such table exists.
 V5P2    FCB     $00,$00,$00,$0C,$00,$30,$00,$3C,$00,$C0,$00,$CC,$00,$F0,$00,$FC
         FCB     $03,$00,$03,$0C,$03,$30,$03,$3C,$03,$C0,$03,$CC,$03,$F0,$03,$FC
         FCB     $0C,$00,$0C,$0C,$0C,$30,$0C,$3C,$0C,$C0,$0C,$CC,$0C,$F0,$0C,$FC
         FCB     $0F,$00,$0F,$0C,$0F,$30,$0F,$3C,$0F,$C0,$0F,$CC,$0F,$F0,$0F,$FC
 ; a glyph's V table and its cell mask, in the same index: (phase >> 1) + 2 if 5 (or 4) wide. FOUR entries,
-; and every one is reachable: a glyph's phase is only ever 0 or 2. tests/cursor-phases.cjs proves that by
-; watching PCOL as the renderer is entered (196 glyphs over both titles), and it fails on a single odd phase.
+; and every one is reachable: a glyph's phase is only ever 0 or 2. tests/cursor-phases.test.js proves that by
+; watching PCOL as each glyph is drawn (242 glyphs over both titles), and it fails on a single odd phase.
 ; There are therefore no odd-phase entries to carry.
 VTAB    FDB     V3P0,V3P2,V5P0,V5P2
 GAPTAB  FCB     $FF,$00,$0F,$F0,$FF,$F0,$0F,$FF

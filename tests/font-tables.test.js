@@ -23,10 +23,6 @@ for (let i = fontAt; i < incSrc.split('\n').length; i++) {
   if (!m) break;
   FONT.push(m[1].split(',').map((b) => parseInt(b.slice(1), 2)).join(','));
 }
-const WIDE5 = new Map();
-for (const m of incSrc.matchAll(/^FONT5([A-Z])\s+FCB\s+(%[01]{5}(?:,%[01]{5}){4})/gm)) {
-  WIDE5.set(m[1], m[2].split(',').map((b) => parseInt(b.slice(1), 2)).join(',').split(',').map(Number));
-}
 
 // the model: every row pattern this width can produce, as the two screen bytes the renderer must write
 function expected(width, phase) {
