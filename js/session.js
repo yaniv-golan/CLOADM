@@ -339,6 +339,7 @@ export class Session {
     this.bootOk = null;             // the reset after which BASIC's OK was seen
     this.warmReset = null;          // { m, resetAt }: the run that began with the Reset button, not a power-on (bootStatus)
     this.welcome = null;            // the machine running the welcome program
+    this.welcomeFrom = 0;           // its frameCount when the welcome program was loaded (welcomeOnScreen)
     this.welcomeGen = 0;            // bumped by every start: the FIRST start to land wins (a later one is dropped)
     this.menuWatch = null;          // a program that goes back to the welcome menu when left (watchForMenu)
     // What runs on the stub firmware and how to restart it, per machine (Reset; see `reset`). Per machine because
@@ -1574,7 +1575,9 @@ export class Session {
     try { const v = JSON.parse(this.store.get('lastRun') || 'null'); return v && typeof v.kind === 'string' && typeof v.name === 'string' ? v : null; }
     catch (e) { return null; }
   }
-  setLastRun(kind, name) { this.store.set('lastRun', JSON.stringify({ kind, name })); }
+  // emits 'lastrun': a program records itself AFTER its load has emitted 'loaded', so a view of lastRun (the Media
+  // tab's "Last time") follows this event, not 'loaded', and names what Run again runs
+  setLastRun(kind, name) { this.store.set('lastRun', JSON.stringify({ kind, name })); this.emit('lastrun'); }
   // What the welcome menu's carry-on line offers on the machine in use: what ran last, if it runs here. A file only
   // on the machine it was loaded on (and only while its bytes are kept), the colour demo and the games only on a
   // 6809-family CPU, LIZA on every machine (its 6809 or 6803 build). null: no carry-on line.
@@ -3797,6 +3800,7 @@ export class Session {
     for (let i = 0; i <= carry.length; i++) m.poke(w.carry + i, i < carry.length ? carry.charCodeAt(i) : 0);
     this.welcome = m;
     this.welcomeBuild = w;
+    this.welcomeFrom = m.frameCount;   // (welcomeOnScreen: the menu is drawn once a frame has run after this one)
 
     this.emit('welcome');   // (the page's parts that depend on whether the welcome program runs: the quick-save slots)
     if (this.welcomeSoundOn) this.welcomeSound();
@@ -3811,6 +3815,15 @@ export class Session {
   get welcomeRunning() { return this.welcome === this.personMachine; }
   // on the machine on screen (a tap on the menu): what the canvas shows and types into
   get welcomeRunningOn() { return !!this.welcome && this.welcome === this.shownMachine; }
+  // What the page may call "on screen now" (the shelf's tag): the welcome program is not only loaded (welcomeRunning)
+  // but executing and drawn on the screen in use. All of: it is loaded on the person's machine; that machine is the
+  // one shown; the Debugger has not stopped it (paused); and at least one frame has run since it was loaded, so the
+  // picture is the menu's and not what was on screen before (a load runs no frame by itself). A caller with a pause
+  // of its own (the page's Pause button) adds it. Cheap: three comparisons, read once per animation frame.
+  get welcomeOnScreen() {
+    const m = this.welcome;
+    return !!m && m === this.personMachine && m === this.shownMachine && !this.paused && m.frameCount > this.welcomeFrom;
+  }
   // one of the bundled games (2048, Minesweeper) is what runs on this machine now: from runGame until it is left
   // (BREAK), or a load, a reset or a switch ends the watch.
   get gameRunning() { const w = this.menuWatch; return !!w && w.kind === 'game' && w.m === this.shownMachine; }

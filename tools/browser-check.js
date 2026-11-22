@@ -2160,6 +2160,133 @@ async function visitChecks(browser, base, check) {
   await ctx.close();
 }
 
+// What the page says is on screen is what is on screen. Three ways it was not (all on the stub, no ROMs; the tape's
+// "BASIC" is our stand-in, tape/standin.asm, stored with addRoms):
+//  1. the shelf's "Welcome menu · on screen now" followed Session.welcomeRunning ("the menu was loaded"): a menu started
+//     on a machine the Debugger had stopped was "on screen now" while the screen showed something else. The tag now
+//     follows Session.welcomeOnScreen and the page's Pause.
+//  2. the frame loop presented only when a frame ran in advance() or the picture buffer changed, but render() hands
+//     back the same buffer each time: frames run elsewhere (a tape load's restart) never reached the canvas while the
+//     loop ran none (Pause, a Debugger stop). It now also presents when the machine's frame count or cycle moved.
+//  3. "Last time" refreshed on 'loaded', before runLiza/runGame recorded themselves: after 2048 it still named the tape
+//     before, while Run again ran 2048. It follows Session's 'lastrun' now.
+// The invariant, checked after every step below (atRest): the tag is there exactly when the welcome program is
+// executing (loaded, and the machine's frames advance) AND the canvas holds the machine's current frame
+// (window.emu.presented() equals frameToRGBA(m.render())).
+async function onScreenChecks(browser, base, check) {
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 1060 } });
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`${base}?machine=dragon64`); await started(page);
+  await waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[14].includes('PRESS 1 TO'));
+  // the state at rest: settle, then sample the tag and the canvas, let the loop turn, and sample again
+  const atRest = async () => {
+    await ticks(page, 10);
+    return page.evaluate(async () => {
+      const { frameToRGBA } = await import(new URL('js/video/frame.js', document.baseURI).href);
+      const s = window.emu.session, m = s.shownMachine;
+      const drawn = () => { const px = frameToRGBA(m.render()), shown = window.emu.presented(); return !!shown && shown.length === px.length && px.every((v, i) => v === shown[i]); };
+      const tag = () => !!document.querySelector('#shelf [data-shelf="welcome"] .tag.now');
+      const a = { tag: tag(), drawn: drawn(), frames: m.frameCount };
+      await new Promise((r) => { let k = 0; const f = () => (++k >= 20 ? r() : requestAnimationFrame(f)); requestAnimationFrame(f); });
+      const executing = s.welcomeRunning && s.welcome === m && m.frameCount > a.frames;
+      const b = { tag: tag(), drawn: drawn() };
+      return { ok: a.tag === b.tag && b.tag === (executing && a.drawn && b.drawn), tag: b.tag, executing, drawn: a.drawn && b.drawn, paused: s.paused };
+    });
+  };
+  const invariant = async (step, want) => {
+    const r = await atRest();
+    check(`on screen (${step}): "on screen now" ${want ? 'shown' : 'not shown'}, exactly when the menu runs and the canvas shows the machine's frame`,
+      r.ok && r.tag === want && r.drawn, JSON.stringify(r));
+  };
+  const shelfClick = (key) => page.evaluate((k) => document.querySelector(`#shelf :is(a, button)[data-shelf="${k}"], #shelf a[href*="start=${k}"]`).click(), key);
+  const last = () => page.evaluate(() => ({ card: document.getElementById('lastTime').hidden ? null : document.getElementById('lastName').textContent,
+    lastRun: window.emu.session.lastRun && window.emu.session.lastRun.name }));
+  await invariant('the menu at the visit', true);
+
+  // (1) a Debugger stop, back to the emulator, the shelf's Welcome menu
+  await openDebugger(page);
+  await page.click('#btnDbgRun');   // (running: Run is the stop)
+  check('on screen: the Debugger stopped the machine', await waitFor(page, () => window.emu.session.paused));
+  await page.click('#btnDbgBack');
+  await waitFor(page, () => document.getElementById('debugView').hidden);
+  await invariant('stopped in the Debugger, back on the emulator', false);
+  await shelfClick('welcome');
+  await waitFor(page, () => window.emu.session.welcomeRunning);
+  await invariant('the shelf\'s Welcome menu, started on the stopped machine', false);
+  await page.evaluate(() => window.emu.session.resume());
+  await invariant('resumed', true);
+  // the page's Pause holds the frame loop: the menu is not running
+  await page.click('#btnPause');
+  await invariant('Pause', false);
+  await page.click('#btnPause');
+  await invariant('Pause again (Resume)', true);
+
+  // (3) "Last time" names what Run again runs: from the shelf and from the menu's keys
+  await shelfClick('2048');
+  await waitFor(page, () => window.emu.session.gameRunning);
+  let l = await last();
+  check('on screen: 2048 from the shelf: "Last time" names 2048', l.card === '2048' && l.lastRun === '2048', JSON.stringify(l));
+  await invariant('2048 from the shelf', false);
+  await shelfClick('liza');
+  await waitFor(page, () => window.emu.session.screenText().join('').includes('I AM LIZA'));
+  l = await last();
+  check('on screen: LIZA from the shelf: "Last time" names LIZA', l.card === 'LIZA' && l.lastRun === 'LIZA', JSON.stringify(l));
+  await invariant('LIZA from the shelf', false);
+  await shelfClick('welcome');
+  await waitFor(page, () => window.emu.session.welcomeOnScreen);
+  await invariant('the shelf\'s Welcome menu after LIZA', true);
+  // the menu's keys: 5 PLAY A GAME, then 1 (2048)
+  await page.mouse.click(5, 5);
+  await waitFor(page, () => window.emu.machine.ram[0x6005] === 1, null, 20000);   // the tune played: keys are read
+  await page.focus('#screen'); await page.keyboard.press('5');
+  await waitFor(page, () => window.emu.session.screenText().join('').includes('2048'));
+  await ticks(page, 10);
+  await page.keyboard.press('1');
+  await waitFor(page, () => window.emu.session.gameRunning);
+  l = await last();
+  check('on screen: 2048 from the menu\'s keys: "Last time" names 2048', l.card === '2048' && l.lastRun === '2048', JSON.stringify(l));
+  await invariant('2048 from the menu\'s keys', false);
+  // Run again runs what the card names
+  await shelfClick('liza');
+  await waitFor(page, () => window.emu.session.screenText().join('').includes('I AM LIZA'));
+  const named = (await last()).card;
+  await page.evaluate(() => document.getElementById('btnRunAgain').click());
+  const again = await waitFor(page, () => window.emu.session.programControls && window.emu.session.programControls.id === 'liza' && window.emu.session.screenText().join('').includes('I AM LIZA'));
+  check('on screen: Run again runs what "Last time" names (LIZA)', named === 'LIZA' && again, String(named));
+  await invariant('Run again', false);
+
+  // (2) a tape load's restart while the frame loop runs no frames (Pause): the canvas shows the machine's frame
+  await page.evaluate(async () => {
+    const { assemble } = await import(new URL('js/asm/assembler.js', document.baseURI).href);
+    const res = assemble(await (await fetch('tools/mame-diff/tape/standin.asm')).text(), '6809');
+    const s = window.emu.session, m = s.shownMachine, base = Math.min(...m.profile.roms.map((x) => x.at)), end = Math.max(...m.profile.roms.map((x) => x.at + x.size));
+    const img = new Uint8Array(end - base).fill(0x12);
+    for (const sgm of res.segments) if (sgm.addr >= base) img.set(sgm.data.subarray(0, end - sgm.addr), sgm.addr - base);
+    s.addRoms(m.profile.roms.map((sl) => ({ name: sl.files[0], bytes: img.slice(sl.at - base, sl.at - base + sl.size) })));
+  });
+  await shelfClick('welcome');
+  await waitFor(page, () => window.emu.session.welcomeOnScreen && window.emu.machine.useStub, null, 15000);
+  await invariant('the menu, with the stand-in stored', true);
+  await page.click('#btnPause');
+  const startCode = [0x1A, 0x50, 0x86, 0xF8, 0xB7, 0xFF, 0x22, 0xCC, 0x53, 0x54, 0xFD, 0x40, 0x00, 0x20, 0xFE];
+  const blk = (type, data) => { let sum = (type + data.length) & 0xFF; for (const v of data) sum = (sum + v) & 0xFF; return [0x3C, type, data.length, ...data, sum, 0x55]; };
+  const tape = [...Array(128).fill(0x55), ...blk(0, [...Buffer.from('PLAIN   '), 2, 0, 0, 0x0E, 0x00, 0x0E, 0x00]), ...Array(128).fill(0x55), ...blk(1, startCode), ...blk(0xFF, [])];
+  const loaded = await page.evaluate((t) => {
+    const s = window.emu.session, m = s.shownMachine, f0 = m.frameCount;
+    const msg = s.load('plain.cas', new Uint8Array(t));
+    return { msg, ran: m.frameCount - f0, rom: m.hasRom };
+  }, tape);
+  check('on screen: the tape load restarted the machine on the stand-in, running frames itself while paused', loaded.rom && loaded.ran > 0 && /Restarted/.test(loaded.msg), JSON.stringify(loaded));
+  await invariant('the tape load\'s restart, paused', false);
+  await page.click('#btnPause');
+  await invariant('resumed after the tape load', false);
+  if (shotDir) await page.locator('#screenWrap').screenshot({ path: path.join(shotDir, 'on-screen-tape.png') });
+  check('on screen: no page errors', !errors.length, errors.join('; '));
+  await ctx.close();
+}
+
 // Returning visits: leaving LIZA with BYE brings the menu back ("BYE FOR NOW.
 // PICK ANOTHER?"); a returning visitor without ROMs lands on the menu ("WELCOME BACK", 6 CARRY ON WITH LIZA, PRESS 1
 // TO 5), with "Last time · LIZA · Run again" and the menu "on screen now" in the Media tab; key 5 runs LIZA again.
@@ -16077,7 +16204,8 @@ const GROUPS = (base, site) => [
   ['sscBoard', (b) => sscBoardChecks(b, base, check)],
   ['typing', (b) => typingChecks(b, base, check)],
   ['visit', (b) => visitChecks(b, base, check)],
-  ['returning', (b) => returningChecks(b, base, check)],
+  // (with the returning visits: the shelf, "Last time" and Run again; a group of its own would need a shard)
+  ['returning', async (b) => { await returningChecks(b, base, check); await onScreenChecks(b, base, check); }],
   ['powerOn', (b) => powerOnChecks(b, base, check)],
   ['cpu6309', (b) => cpu6309Checks(b, base, check)],
   ['firstVisit', (b) => firstVisitChecks(b, base, check)],

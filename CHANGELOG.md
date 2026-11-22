@@ -242,6 +242,15 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Fixed
 
+- **What the page says is on screen is what is on screen.** The Media tab's "Welcome menu · on screen now" meant only
+  that the menu had been loaded: started on a machine the Debugger had stopped, or while Pause held it, the tag showed
+  while the screen showed something else. It now shows exactly while the welcome program runs on the machine on
+  screen, is not stopped by the Debugger or Pause, and has drawn at least one frame (`Session.welcomeOnScreen`). The
+  screen itself could also lag: frames a load ran by itself (a tape's restart through BASIC) reached the canvas only
+  once the machine ran on, so while it was paused or stopped the canvas kept the picture from before; any frame or
+  instruction run now reaches it. And "Last time" could name the program before: after 2048 or LIZA started it
+  still named the previous one, while Run again ran the new one. It now always names what Run again runs (the
+  Session emits `lastrun` when it records what ran).
 - **An embedded CLOADM could open the Claude chat; the chat is no longer available in an embed.**
 - **Two server processes adding ROMs at once could lose index entries.** Every change to the ROM store's index now
   reads it again and writes it while holding a lock file (`index.lock`, broken after ten seconds if its holder died),
