@@ -59,15 +59,11 @@
     .appbar > .grow { flex: 1 1 0; min-width: 0; }
     .appbar nav { flex-wrap: nowrap; white-space: nowrap; }
     .appbar.tight { gap: 10px 8px; }
-    .appbar.tight nav { gap: 4px 12px; }
-    .appbar.tight #machineSpec, .appbar.tight #askKbd, .appbar.tight #navCmdKbd { display: none; }
+    .appbar.tight nav { gap: 4px 6px; }
+    .appbar.tight #machineSpec, .appbar.tight #askKbd, .appbar.tight #navCmdKbd, .appbar.tight #navInstall .more { display: none; }
   }
   #btnMenu { display: none; }
-  /* the machine menu's own row for Install CLOADM… (authored inside #machineMenu; js/ui/machine-panel.js's buildMenu
-     keeps it last across rebuilds. The menu floats over the page, so the app bar is the same with or without it) */
-  #navInstall { display: flex; justify-content: space-between; grid-column: 1 / -1; width: 100%; background: transparent; border: 0;
-    border-top: 1px solid var(--line); border-radius: 0; padding: 12px 8px 4px; margin-top: 4px; text-align: left; color: var(--text-2); }
-  /* (an author display rule outranks the hidden attribute's, so it is stated: once installed, the row goes) */
+  /* (an author display rule outranks the hidden attribute's, so it is stated: once installed, the link goes) */
   #navInstall[hidden] { display: none; }
   #machineMenu { position: absolute; top: calc(100% - 6px); left: 20px; z-index: 20; width: min(600px, calc(100vw - 40px)); background: var(--panel);
     border: 1px solid var(--line); border-radius: var(--r-14); padding: 14px; box-shadow: 0 20px 50px rgba(0, 0, 0, .6);
@@ -272,6 +268,11 @@
     background: var(--panel); border: 1px solid var(--phosphor); border-radius: var(--r-14); padding: 14px 16px;
     box-shadow: 0 18px 44px rgba(0, 0, 0, .55); display: flex; flex-direction: column; gap: 8px; }
   #installOffer[hidden] { display: none; }
+  /* from the Install CLOADM… link in the app bar: under the bar, at the link's side, wherever the screen and keys are
+     (the user asked for it, so it is a dialog beside what they pressed, not a corner card they have to look for) */
+  body #installOffer.by-bar, body.touch-keys #installOffer.by-bar { top: var(--install-bar-top, 56px); bottom: auto; left: auto; transform: none;
+    right: calc(16px + var(--safe-r)); width: min(360px, calc(100vw - 32px - var(--safe-l) - var(--safe-r))); }
+  @media (max-width: 700px) { body #installOffer.by-bar, body.touch-keys #installOffer.by-bar { left: calc(8px + var(--safe-l)); right: calc(8px + var(--safe-r)); width: auto; } }
   #installOffer strong { font-weight: 600; line-height: 1.4; }
   /* the sentence in two lengths: the strip (below) has one line for it */
   #installText .short { display: none; }
@@ -475,7 +476,11 @@
   #share .sharebtns button { min-height: 44px; }
   #share .disc [hidden] { display: none; }
   #share .disc { border: 1px solid var(--line); border-radius: var(--r-14); padding: 4px 16px; }
-  #share .disc > summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; font-weight: 700; }
+  #share .disc > summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; justify-content: space-between; gap: 12px; font-weight: 700; list-style: none; }
+  #share .disc > summary::-webkit-details-marker { display: none; }
+  /* the open/closed cue (the marker is gone with list-style): a chevron that turns when the disclosure opens */
+  #share .disc > summary::after { content: ""; flex: none; width: 8px; height: 8px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(45deg); transition: transform .15s; margin-right: 4px; }
+  #share .disc[open] > summary::after { transform: rotate(-135deg); }
   #share .disc > summary h2 { font-size: 16px; font-stretch: 100%; line-height: 1.2; font-weight: 700; }
   #share .disc[open] { padding-bottom: 16px; }
   #share .disc[open] > summary { margin-bottom: 8px; }
@@ -488,7 +493,7 @@
     #share figcaption { padding: 4px 12px; flex-direction: row; justify-content: space-between; font-size: 13px; }
     #share .col { gap: 6px; }
     #share h1 { font-size: 20px; }
-    #share p { font-size: 13.5px; line-height: 1.35; }
+    #share p { font-size: 14px; line-height: 1.35; }
     #share .sharebtns button { min-height: 40px; flex: 1 1 0; }
     #share .linkrow input { padding: 9px 12px; }
   }
@@ -772,9 +777,10 @@
   .socket { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-14); padding: 16px 18px; display: flex; gap: 14px; align-items: flex-start; }
   .socket .dot { flex: none; margin-top: 4px; width: 14px; height: 14px; border-radius: 50%; background: var(--line-strong); }
   .socket .body { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
-  .socket .top { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
-  .socket .top strong { font-size: 16px; }
-  .socket .tag { font-size: 14px; color: var(--muted); }
+  /* the tag stays beside the title: a long title wraps inside its own space, never pushes the tag under it */
+  .socket .top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: nowrap; }
+  .socket .top strong { font-size: 16px; min-width: 0; overflow-wrap: anywhere; }
+  .socket .tag { font-size: 14px; color: var(--muted); flex: none; white-space: nowrap; }
   .socket .tag.req { color: var(--orange); }
   .socket .expect { font: 14px var(--font-mono); color: var(--muted); overflow-wrap: anywhere; }
   .socket .state { font-size: 14px; color: var(--muted); }
@@ -1371,13 +1377,12 @@ npx serve -l 8000 .</pre>
     <button id="navCommands" class="navlink" type="button">Commands… <kbd id="navCmdKbd">Ctrl K</kbd></button>
     <a href="help/">Help</a>
     <a href="https://github.com/yaniv-golan/cloadm">GitHub</a>
+    <!-- js/ui/install.js: the browser's own install prompt, or the card with the steps that install it, which opens
+         under the app bar, near this link (hidden once installed) -->
+    <button id="navInstall" class="navlink" type="button">Install<span class="more"> CLOADM…</span></button>
   </nav>
   <button id="btnMenu" aria-expanded="false" aria-controls="appbar">Menu</button>
-  <div id="machineMenu" role="menu" aria-label="Machines" hidden>
-    <!-- js/ui/install.js: the browser's own install prompt, or the steps that install it (hidden once installed).
-         The menu floats over the page, so the app bar stays the height it was; buildMenu keeps this row last. -->
-    <button type="button" id="navInstall" role="menuitem">Install CLOADM…</button>
-  </div>
+  <div id="machineMenu" role="menu" aria-label="Machines" hidden></div>
 </header>
 <!-- js/ui/machine-panel.js confirmSwitch: what the switch resets and takes out (R25), what stays in the Library, and
      an offer to save a snapshot's own disk first -->
@@ -1423,7 +1428,7 @@ npx serve -l 8000 .</pre>
     <div class="bar sharebtns"><button id="btnShareNative" class="primary" hidden>Share…</button><button id="btnShareCopy" class="primary">Copy link</button></div>
   </section>
   <details class="disc" id="shareMore">
-    <summary>More ways to share</summary>
+    <summary><h2 id="moreHeading">More ways to share</h2></summary>
     <div class="bar" hidden>
       <button id="btnShareClip">Save 6-second clip (MP4)</button>
       <button id="btnShareShot">Screenshot (PNG)</button>
@@ -1687,7 +1692,7 @@ npx serve -l 8000 .</pre>
       <div id="claudeKeyMsg" role="status"></div>
     </section>
     <section class="card row" id="claudeKeySaved" hidden>
-      <span><strong>Your Anthropic API key</strong><br><span class="muted" id="claudeKeyTag">Saved in this browser.</span></span>
+      <span><strong>Key saved ✓</strong><br><span class="muted" id="claudeKeyTag">Saved in this browser.</span></span>
       <span><button class="link" id="btnClaudeKeyChange">Change</button> <button class="link" id="btnClaudeKeyForget">Forget</button></span>
     </section>
     <div id="claudeHelp" role="status" hidden></div>

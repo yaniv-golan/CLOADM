@@ -1,18 +1,20 @@
 /*
- * The Share screen: a view of /play/ at #share, like the
- * Library. "Capture & share" captures the moment (the snapshot and the picture at that instant) and opens it.
+ * The Share screen: a view of /play/ at #share, like the Library. The app bar's Share button captures the moment (the
+ * snapshot and the picture at that instant) and opens it. Its one job: send this exact moment to someone.
  *
- * Share this moment: the picture as a link preview; a link that opens exactly here (Session.snapshotLink: the
- * snapshot rides in the URL's fragment, which never reaches a server; js/ui/snapshot-panel.js opens it). The
- * snapshot holds no byte of a ROM or cartridge (Session.shareFile): it names them, and the person opening it needs
- * their own; the card under the link says which;
- * a 6-second clip of the screen (MediaRecorder: MP4 where the browser records it, WebM otherwise, and the button
- * says which); the screenshot at true pixels; the snapshot file; and what someone without the ROMs will see.
- * Embed: the iframe and script for a blog post, written by js/config.js (buildUrl) from the machine, program
- * and options chosen here. (Your settings export/import lives on the Machine tab: js/ui/settings-file.js.)
+ * Top: the picture as a link preview, one line saying what the link does, a ROM line (what the person opening it must add,
+ * or that it runs without ROMs: the snapshot holds no byte of a ROM or cartridge, Session.shareFile names them), the link
+ * (Session.snapshotLink: the snapshot rides in the URL's fragment, which never reaches a server; js/ui/snapshot-panel.js
+ * opens it), Share... (navigator.share, the URL only, where canShare allows it) and Copy link.
+ * "More ways to share" (collapsed): a 6-second clip of the screen (MediaRecorder: MP4 where the browser records it, WebM
+ * otherwise, and the button says which), the screenshot at true pixels, the snapshot file.
+ * "Embed in a web page" (collapsed): the iframe and script for a blog post, written by js/config.js (buildUrl) from the
+ * machine, program and options chosen here.
+ * (The settings export/import lives on the Machine tab: js/ui/settings-file.js.)
  */
 import { profiles } from '../machines/profiles.js';
 import { buildUrl } from '../config.js';
+import { needsLine } from '../media/romrefs.js';
 import { CanvasPresenter } from '../video/canvas.js';
 import { $ } from './page.js';
 
@@ -92,8 +94,7 @@ export function setupShare(page) {
       return;
     }
     $('shareNote').textContent = `Opens on the ${name} exactly as it is now. A snapshot reopens on the same machine, RAM and ROMs.`;
-    const needs = file.needs.map((x) => x.label);
-    if (needs.length) { rom.textContent = 'Needs BASIC ROMs: the person opening it adds their own.'; rom.classList.add('warn'); }
+    if (file.needs.length) { rom.textContent = needsLine(file.needs); rom.classList.add('warn'); }
     else rom.textContent = 'Runs without ROMs, so it opens for anyone.';
     // a tape being recorded is not in the link (its pulse timings could carry ROM code: js/media/romrefs.js)
     if (file.dropped.includes('deck.recording')) note('The tape being recorded is not in the link: it opens with the recorder stopped.');
