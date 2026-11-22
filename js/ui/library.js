@@ -93,6 +93,12 @@ export function setupLibrary(page, { loadProgram, runShelf, changed, showRoms, r
     if (open) { refresh(); $('libHeading').focus(); }
   }
   page.onView(show);
+  // Opening by address ("#library") makes the browser navigate to that fragment, and the Library's own element has the id
+  // "library": after the popstate that opened the view (show() above, with the heading focused) the browser's navigation
+  // runs its own focusing steps on that target, which is not focusable, and puts the focus on the viewport (activeElement
+  // becomes the body). hashchange comes after those steps, so the heading takes the focus back there, unless the focus
+  // is already inside the view (the page has moved it on, as a click does).
+  addEventListener('hashchange', () => { if (isOpen() && !view.contains(document.activeElement)) $('libHeading').focus(); });
   const close = () => {
     setSelecting(false);                  // (leaving ends the Undo toast, and so the delete: js/ui/feedback.js on the view change)
     page.closeView();

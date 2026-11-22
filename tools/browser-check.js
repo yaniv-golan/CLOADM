@@ -14584,8 +14584,7 @@ async function closedViewsChecks(browser, base, check) {
     const st = await page.evaluate((s) => { const e = document.querySelector(s); return { inert: e.inert, ariaHidden: e.getAttribute('aria-hidden') }; }, sel);
     check(`closed views: ${sel} open is not inert and not aria-hidden`, !st.inert && st.ariaHidden === null, JSON.stringify(st));
     // a view that takes the focus when it opens still does (the inert is cleared first, showView)
-    // (the Library's own heading focus is not asserted: after the open the focus is on the page, not on #libHeading, on 99a4bf6 too)
-    const takes = { '#romCard': 'romHeading' }[sel];
+    const takes = { '#library': 'libHeading', '#romCard': 'romHeading' }[sel];
     if (takes) check(`closed views: opening ${sel} focuses its heading (#${takes})`, await waitFor(page, (id) => document.activeElement && document.activeElement.id === id, takes), await page.evaluate(() => document.activeElement && (document.activeElement.id || document.activeElement.tagName)));
     const open = await lap();
     // What an open view covers is the emulator's own content, the .layout (screen, ports, drawer), which js/ui/page.js makes
@@ -14635,6 +14634,16 @@ async function closedViewsChecks(browser, base, check) {
     await page.waitForTimeout(400);
     const end = await page.evaluate((s) => { const e = document.querySelector(s); return { hash: location.hash, hidden: e.hidden, inert: e.inert, ariaHidden: e.getAttribute('aria-hidden'), layoutInert: document.querySelector('.layout').inert }; }, sel);
     check(`closed views: ${sel} opened and closed twice in a row ends closed and inert, the emulator back`, end.hash === '' && end.hidden && end.inert && end.ariaHidden === 'true' && !end.layoutInert, JSON.stringify(end));
+  }
+  {
+    // the Library opened by address (a page loaded on #library) has its heading focused too
+    const c4 = await browser.newContext({ viewport: { width: 1440, height: 900 }, serviceWorkers: 'block' });
+    const p4 = await c4.newPage();
+    await p4.goto(`${base}?machine=dragon64#library`);
+    await started(p4);
+    check('closed views: a page loaded on #library has its heading focused', await waitFor(p4, () => document.activeElement && document.activeElement.id === 'libHeading'),
+      await p4.evaluate(() => document.activeElement && (document.activeElement.id || document.activeElement.tagName)));
+    await c4.close();
   }
   const again = await lap();
   check('closed views: closed again, Tab is back to the emulator\'s controls only', again.length > 10 && !again.some((x) => x.root), again.filter((x) => x.root).map((x) => `${x.root} ${x.id}`).join(', '));
