@@ -333,8 +333,8 @@ for (const rate of [44100, 48000]) {
   const cycles = 17784;
   let slowest = 0, worstAt = '';
   for (const rate of [44100, 48000]) {
-    for (const fps of [49.96766756635178, 59.94, 60]) {
-      for (const bs of [512, 1024]) {
+    for (const fps of [30, 49.96766756635178, 59.94, 60]) {
+      for (const bs of [512, 1024, 2048]) {
         const out = new Stage(rate);
         // fill to just under MAX_MS -- the deepest a queue can be, because push() drops what would exceed it
         let guard = 0;
@@ -361,6 +361,38 @@ for (const rate of [44100, 48000]) {
   check('audio: the settle bound has real headroom over the measured worst case (not merely above it)',
     headroom >= 1.5 && headroom <= 3,
     `SETTLE_MS ${SETTLE_MS} ms / worst ${slowest.toFixed(0)} ms = ${headroom.toFixed(2)}x (${worstAt})`);
+}
+
+// pushTape from a deep queue (fast tape loading pushes real time with no machine frame): the same steering as push().
+// A queue filled 10 ms at a time passes HIGH_MS and enters DRAINING (mode 2); past MAX_MS the push is dropped
+// (`dropped`) instead of queued; and with the card pulling real time against 10 ms pushes the 2% correction brings
+// the queue down to TARGET_MS, where the mode returns to NONE (0) and the ratio is exactly 1 again. RED without the
+// MAX_MS drop in pushTape (nothing dropped, the queue runs past the ceiling) and with pushTape bypassing ratioAt
+// (the mode never leaves NONE and the queue never comes down).
+{
+  const { MAX_MS, TARGET_MS, SETTLE_MS } = require('../js/host/audio.js');
+  const rate = 48000, STEP = 10, per = rate * STEP / 1000;
+  const out = new Stage(rate), ms = () => out.buffered() / rate * 1000;
+  let peak = 0, sawDraining = false, guard = 0;
+  while (out.dropped === 0 && guard++ < 100) {
+    out.pushTape(STEP, null);
+    peak = Math.max(peak, ms());
+    if (out.mode === 2) sawDraining = true;
+  }
+  check('audio: pushTape from a deep queue enters DRAINING (mode 2) once the queue passes the band', sawDraining, `mode ${out.mode}, queue ${ms().toFixed(1)} ms`);
+  check(`audio: pushTape drops a push past MAX_MS (${MAX_MS} ms) instead of queueing it`, out.dropped === 1 && peak > MAX_MS - STEP && peak <= MAX_MS + STEP, `dropped ${out.dropped}, peak ${peak.toFixed(1)} ms`);
+  // real time: the card pulls STEP ms for every STEP ms pushed
+  const block = new Float32Array(per);
+  let t = 0, back = null;
+  while (t < SETTLE_MS && back === null) {
+    out.pushTape(STEP, null); out.pull(block); t += STEP;
+    if (out.mode === 0) back = t;
+  }
+  check('audio: pushTape DRAINING goes back to NONE (2 to 0) once the queue reaches TARGET_MS', back !== null && back <= SETTLE_MS, back === null ? `still mode ${out.mode} at ${ms().toFixed(1)} ms` : `after ${back} ms`);
+  // (pushes are still dropped for the first steps while the queue is above MAX_MS; once settled, none are)
+  const droppedAtNone = out.dropped;
+  for (let i = 0; i < 100; i++) { out.pushTape(STEP, null); out.pull(block); }
+  check(`audio: and the queue settles near TARGET_MS (${TARGET_MS} ms), with nothing more dropped`, Math.abs(ms() - TARGET_MS) <= STEP && out.dropped === droppedAtNone && out.mode === 0, `${ms().toFixed(1)} ms, dropped ${out.dropped}`);
 }
 
 console.log(fail ? `${fail} FAILED` : 'all passed');

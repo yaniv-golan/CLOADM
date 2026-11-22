@@ -6,7 +6,7 @@
 //   node tools/mame-diff/run.js <coco|coco3|dragon64|dragon32> --cart <setup> [--audio]
 //
 // Trace mode (default): lockstep instruction trace, registers and cycle counts.
-// --video: the family's pixel comparison of every display mode; --artifact N sets MAME's and our composite
+// --video: the family's pixel comparison of every display mode (d64plus: its 80-column screen, d64plus/run-video.js); --artifact N sets MAME's and our composite
 // colour option (0 off, 1 Standard, 2 Reverse; default 1, MAME's default). --video --text (coco3, --cpu 6309 for
 // coco3h): the GIME text screens of coco3/text-screens.js, pixels and MAME's glyphs, and the screen-text reader.
 // --raster: mid-line video changes swept across every beam position (<family>/raster.asm, lib/raster.js):
@@ -124,6 +124,12 @@ async function main() {
     // the CoCo 3 GIME text screens and the screen-text reader (coco3/run-text.js)
     if (profile.family !== 'coco3') { console.error('--text: the GIME text screens are a CoCo 3 comparison'); return 2; }
     const r = cp.spawnSync('node', [path.join(__dirname, 'coco3', 'run-text.js'), cpuOpt || '6809'], { stdio: 'inherit' });
+    return r.status === null ? 1 : r.status;
+  }
+  if (args.includes('--video') && profile.family === 'd64plus') {
+    // the Dragon 64 Plus has no run-vdg.js: its own picture is the 80-column screen (d64plus/run-video.js); the base
+    // machine's VDG under paging is --paging --video
+    const r = cp.spawnSync('node', [path.join(__dirname, 'd64plus', 'run-video.js'), profileId], { stdio: 'inherit' });
     return r.status === null ? 1 : r.status;
   }
   if (args.includes('--video')) {

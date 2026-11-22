@@ -1,6 +1,6 @@
 // The Dragon 64 Plus's 80-column screen against MAME, pixel by pixel.
 //
-//   node tools/mame-diff/run.js d64plus --plus-video [--keep]
+//   node tools/mame-diff/run.js d64plus --video
 //
 // Our firmware (plus.asm) programs the CRTC, fills the video RAM bank with character codes and moves the
 // cursor and start address; the screen it leaves is drawn on the CRTC's second and later frames. MAME's

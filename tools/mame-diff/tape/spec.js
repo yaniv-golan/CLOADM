@@ -7,6 +7,7 @@
 // tests/tape.test.js runs them on our machines; run-tape.js runs them in MAME.
 const path = require('path');
 const { loadEmu, assembleFile, romImage } = require('../lib/firmware');
+const { REGS, REGS_6803 } = require('../lib/regs');
 
 // the firmware as the profile's ROM slots; the 6809 pair is a 16K image at $8000 (Dragon 64: both banks the
 // same) and a 32K one on the CoCo 3, whose BASIC socket spans $8000-$FFFF; the 6803 pair an 8K image at $E000
@@ -43,14 +44,12 @@ function csaveStream() {
 // for the regression gate (tests/regress.test.js): the instruction trace of a firmware run on our machine;
 // for the regression gate (tests/regress.test.js): the instruction trace of a firmware run on our machine;
 // the reader reads the tape the writer writes
-const REGS6809 = ['pc', 'a', 'b', 'x', 'y', 'u', 's', 'dp', 'cc'].map((name) => ({ name }));
-const REGS6803 = ['pc', 'a', 'b', 'x', 's', 'cc'].map((name) => ({ name }));
 function trace(profileId, file) {
   const f = firmware(profileId, file), Emu = loadEmu();
   const is6803 = file.includes('6803');
   const load = file.startsWith('cload');
   return {
-    regs: is6803 ? REGS6803 : REGS6809, haltPc: f.haltPc,
+    regs: is6803 ? REGS_6803 : REGS, haltPc: f.haltPc,
     // HALT comes after about 1,076,000 (csave) and 1,500,000 (cload: the tape is played with 2 s of silence at
     // its start and 1 s after the namefile, js/media/tape.js) instructions on the 6809, and 1,165,000 (csave6803)
     // and 1,247,000 (cload6803) on the 6803; cloadm.asm about 2,920,000 (its waits, and 4 s at the end of the tape)
