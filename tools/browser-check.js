@@ -7593,6 +7593,21 @@ async function embedChecks(browser, site, check) {
   await emu.evaluate(() => { const m = window.emu.machine, slot = m.profile.roms[0]; m.setRoms({ [slot.id]: new Uint8Array(slot.size || 0x4000).fill(0x39) }); });
   const refused = await page.evaluate(async () => { try { await window.__cloadm.peek(0x400, 4); return null; } catch (e) { return e.message; } });
   check('embed: peek is refused while the machine runs the user\'s ROMs', /not available while the machine runs your own ROMs/.test(refused || ''), refused);
+  // a page that frames /play/ WITHOUT embed=1 is still someone else's page: no chat, no key card, whatever the URL says
+  const framed = await ctx.newPage();
+  await framed.setContent(`<!doctype html><title>a blog</title><iframe id="f" src="${site}play/?machine=dragon64&app=claude" width="900" height="700"></iframe>`);
+  const frame = framed.frames().find((f) => f !== framed.mainFrame());
+  await framed.waitForTimeout(2500);
+  const framedPage = frame ? await frame.evaluate(() => ({
+    framed: window.top !== window, chat: !!window.emu.session.chat, chatMachines: !!window.emu.session.chatMachines,
+    keyCard: (() => { const e = document.getElementById('claudeKeyCard'); if (!e) return false; const r = e.getBoundingClientRect(); return !e.hidden && r.width > 0; })(),
+    keyVisible: window.emu.session.keyStore.get(),
+  })) : null;
+  check('framed without embed=1: the page knows it is framed and offers no chat, no key card',
+    framedPage && framedPage.framed === true && framedPage.chat === false && framedPage.chatMachines === false && framedPage.keyCard === false,
+    JSON.stringify(framedPage));
+  check('framed without embed=1: the key store is in memory, so a saved key is not visible there',
+     framedPage.keyVisible === null, JSON.stringify(framedPage));
   check('embed: no page errors', !errors.length, errors.join('; '));
   await ctx.close();
   host.close();
