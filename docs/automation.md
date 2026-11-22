@@ -69,6 +69,9 @@ Then, in any order:
 | `--screenshot FILE` | the frame as a PNG |
 | `--wav FILE` | record the machine's sound from here until `--wav-stop` or the end of the run, as a 16-bit mono WAV (see [Pictures and sound](#pictures-and-sound)) |
 | `--wav-stop` | end the recording and write its file |
+| `--record FILE` | record the picture and sound from here until `--record-stop` or the end of the run, as one AVI file (see [Recording a clip](#recording-a-clip)) |
+| `--record-dir DIR` | the same as a PNG per frame, a WAV and an ffconcat list, with no size limit |
+| `--record-stop` | end the recording and write it |
 | `--peek ADDR[:LEN]` | memory as the CPU sees it, with no side effects |
 | `--poke ADDR=V[,V…]` | write through the memory map (ROM and I/O take nothing) |
 | `--save-snapshot FILE` | the machine as a snapshot file, which the page opens too |
@@ -172,6 +175,44 @@ stretch gives the average. Everything is emulated time, so the same run gives th
 node cli/cloadm.js --load game.bin --wait-for 'mem:$3008=14' --wav catch.wav --frames 12 --wav-stop
 cmp catch.wav tests/sound/catch.wav     # a sound effect, as a regression reference
 ```
+
+### Recording a clip
+
+`--record clip.avi` records every frame that runs after it, picture and sound together, until `--record-stop` or the
+end of the run (also when the run fails: the file holds the frames recorded until then). The file is a RIFF AVI 1.0
+with two streams, readable by ffmpeg, VLC and video editors, and needing nothing else to make it (no ffmpeg):
+
+* **video:** 8-bit palettized, uncompressed: the frame's own colour codes and its 256-entry colour table (the frame
+  `--screenshot` saves, unscaled), with a palette-change chunk before any frame whose table changed (the CoCo 3's
+  composite monitor, artifact colours). The frame rate is the machine's exact one, `tickHz / frameCycles` as a
+  fraction: 888625/17784 (about 49.97) on the PAL Dragons, 3579545/59736 (about 59.92) on the NTSC CoCo 1/2 and MC-10.
+* **audio:** 16-bit mono PCM at 44100 Hz, the samples `--wav` makes (see [Pictures and sound](#pictures-and-sound)).
+  Frame k gets the samples from floor(k x 44100 / fps) to floor((k + 1) x 44100 / fps), the remainder carried as an
+  exact fraction, so picture and sound stay in step however long the clip: no resampling and no drift to correct.
+
+Everything is emulated time, so the same command gives the same file, byte for byte. The `record` step's result gives
+`file`, `fps` (the fraction), `rate`, `bits`, and, once written, `frames`, `width`, `height`, `size` and `samples`.
+
+```sh
+node cli/cloadm.js --load game.bin --wait-for 'text:PRESS SPACE' --record attract.avi --seconds 20
+node cli/cloadm.js --script playthrough.cloadm      # a script with record clip.avi ... record-stop around the play
+ffmpeg -i attract.avi -c:v libx264 -pix_fmt yuv420p -vf scale=iw*2:ih*2:flags=neighbor -c:a aac attract.mp4   # to share it
+```
+
+An AVI 1.0 file stops at 1 GiB (about four and a half minutes of a 320x240 Dragon screen): the frame that would pass it ends the
+run with `record-too-big` (exit 3), the file written up to that frame. For longer runs, `--record-dir DIR` records the
+same frames as `DIR/frame00000.png`, `frame00001.png`, ..., the sound as `DIR/sound.wav`, and `DIR/frames.ffconcat`, a
+list for ffmpeg's concat demuxer giving each frame's duration to the microsecond (rounded from the exact start times,
+so the durations add up to the clip's exact length):
+
+```sh
+node cli/cloadm.js --load game.bin --record-dir clip --seconds 600
+ffmpeg -f concat -i clip/frames.ffconcat -i clip/sound.wav -c:v libx264 -pix_fmt yuv420p -c:a aac clip.mp4
+```
+
+A recording keeps one picture size. A frame of another size (the Dragon 64 Plus switched to its 80-column screen with
+`--view plus`) ends the run with `record-size-changed` (exit 3), naming the frame; the frames before it are written.
+Record each part on its own: `--record-stop`, the change, then a new `--record`.
 
 ### Script mode
 

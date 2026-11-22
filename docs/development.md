@@ -122,6 +122,7 @@ node tools/connector-check.js # the connector's two views in Chromium, nested as
 node connector/build.js      # build the connector's views into connector/worker/src/views.gen.js (wrangler deploy runs it; docs/deploy-connector.md)
 node tests/cli-agent.test.js # cli/cloadm.js beyond the basics: --describe, error codes, the debugger steps against the Session's debugger, DriveWire stalls, special keys, script quoting, --view
 node tests/cli-wav.test.js   # --wav: a known DAC pattern's levels and timing, determinism, snapshots mid-sound, the box filter of the level events
+node tests/cli-record.test.js   # --record / --record-dir: an independent AVI reader against frameToRGBA and --wav, the exact rate on every model, mutants, limits, ffprobe if installed
 node tests/cli-screenshot.test.js  # --expect-screenshot (tolerance, diff, PNG layouts, errors) and --hold
 node tests/starter-game.test.js    # the starter game: its build, play script, picture and sound references, and mutants that must fail
 node tests/game-guide.test.js      # docs/game-development.md's programs and commands, run (the settling patterns too, each shown to matter)

@@ -20,6 +20,7 @@ export * from './media/formats.js';
 export * from './media/tape.js';
 export * from './media/deck.js';
 export * from './media/cassette.js';
+export * from './media/avi.js';
 export * from './machines/keyboards.js';
 export { HostInput, DEAD_ZONE, PLAYER_BACK_IN, STICK_RADIUS } from './host/input.js';
 export { AudioOutput } from './host/audio.js';
