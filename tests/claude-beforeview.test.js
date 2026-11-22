@@ -55,7 +55,7 @@ globalThis.window = globalThis;
   // a Session-ish object for setupClaude's scope; none of these is reached by the route under test
   const closed = { toSidePanel: 0, endChat: 0 };
   const session = {
-    claudeView: 'panel', chat: null, chatMachines: null, claudeBusyActing: false, claudePending: null,
+    claudeView: 'panel', chat: null, chatMachines: null, claudeBusyActing: false, consent: { pending: null },
     keyStore: { get: () => null, set() {} }, store: { get: () => null, set() {} }, display: {},
     on() { return () => {}; }, emit() {}, personMachine: { profile: {}, config: {} },
     toSidePanel() { closed.toSidePanel++; this.claudeView = 'panel'; }, endChat() { closed.endChat++; this.chat = null; },

@@ -172,10 +172,10 @@ export function setupAsk(page, claude) {
   $('btnAskFix').onclick = () => claude.ask('Fix it for me');
   $('btnAskRetry').onclick = () => claude.retry();
   $('btnAskAllow').onclick = () => acceptClick(session, $('btnAskAllow'));
-  $('btnAskTell').onclick = () => session.answerClaude(false);
+  $('btnAskTell').onclick = () => session.consent.answer(false);
   $('btnAskLoad').onclick = () => acceptClick(session, $('btnAskLoad'), { dontAsk: $('chkAskLoadNoAsk').checked });
-  $('btnAskLoadNo').onclick = () => session.answerClaude(false);
-  $('chkAskMachine').onchange = () => session.setClaudeAllowed($('chkAskMachine').checked);
+  $('btnAskLoadNo').onclick = () => session.consent.answer(false);
+  $('chkAskMachine').onchange = () => session.consent.setAllowed($('chkAskMachine').checked);
   $('btnAskStop').onclick = () => claude.stop();
   $('btnAskStatusStop').onclick = () => claude.stop();
   $('btnAskPeekStop').onclick = () => claude.stop();
@@ -219,7 +219,7 @@ export function setupAsk(page, claude) {
   // Stop only, not also BREAK. A confirmation, a menu or a card that is open takes the Esc first (page.onEscape).
   // Claude's own card waiting while paused registers no Esc of its own, so Esc there is this Stop (R11): the card is
   // answered stopped (stopClaude), not as a no.
-  page.onEscape(ESC.claude, () => !!session.claudePaused && !pausedNow, () => claude.stop());
+  page.onEscape(ESC.claude, () => !!session.consent.paused && !pausedNow, () => claude.stop());
   // the browser's Fullscreen shows #screenWrap alone: Claude's status with Stop and Resume is in it (#fsClaude).
   // The browser takes Esc there to leave Fullscreen, so leaving it while Claude is paused is that Esc: Stop.
   const fullscreen = () => (document.fullscreenElement || document.webkitFullscreenElement) === $('screenWrap');
@@ -237,7 +237,7 @@ export function setupAsk(page, claude) {
     document.addEventListener(ev, () => {
       const ours = pageLeft;
       if (!fullscreen()) pageLeft = false;
-      if (!fullscreen() && session.claudePaused && !ours) claude.stop();
+      if (!fullscreen() && session.consent.paused && !ours) claude.stop();
       renderActing();
     });
   }
@@ -328,26 +328,26 @@ export function setupAsk(page, claude) {
       $('askSuggest').replaceChildren(...list);
     }
     const lastUser = msgs.filter((m) => m.role === 'user').slice(-1)[0];
-    $('btnAskFix').hidden = !(chat && !chat.busy && lastUser && /^Explain this error/.test(lastUser.content) && msgs.length && msgs.slice(-1)[0].role === 'assistant' && !session.claudeAllowed);
+    $('btnAskFix').hidden = !(chat && !chat.busy && lastUser && /^Explain this error/.test(lastUser.content) && msgs.length && msgs.slice(-1)[0].role === 'assistant' && !session.consent.allowed);
     // consent
-    const pending = session.claudePending;
+    const pending = session.consent.pending;
     const loading = !!(pending && pending.kind === 'load');
     $('askLoad').hidden = !loading;
     if (loading) $('askLoadText').textContent = loadCardText(pending.load);
     else $('chkAskLoadNoAsk').checked = false;
     // "Don't ask again this session" only while the switch is on: with it off every load asks, so the box is not offered
-    $('chkAskLoadNoAsk').closest('label').hidden = !session.claudeAllowed;
-    if (!session.claudeAllowed) $('chkAskLoadNoAsk').checked = false;
+    $('chkAskLoadNoAsk').closest('label').hidden = !session.consent.allowed;
+    if (!session.consent.allowed) $('chkAskLoadNoAsk').checked = false;
     $('askConsent').hidden = !pending || loading;
     if (pending) $('askConsentText').textContent = `To do that, Claude needs to ${pending.name === 'poke' ? 'change memory' : pending.name === 'press_break' ? 'press BREAK' : pending.name === 'assemble_and_load' ? 'load a program into memory' : pending.name === 'run' ? 'start a program' : 'type into BASIC'}. With your permission it can type, POKE, run and press BREAK. You see everything happen on the screen, Stop works at any time, and a restore point is made first so restoring it puts everything back.`;
     // R11: paused while the card waits: "Allow and resume" / "Load and resume", and the line that says why
-    const pausedCard = !!pending && !!session.claudePaused;
+    const pausedCard = !!pending && !!session.consent.paused;
     drawAccept($('btnAskAllow'), pausedCard, 'Allow', 'Allow and resume');
     drawAccept($('btnAskLoad'), pausedCard, 'Load it', 'Load and resume');
     $('askConsentPaused').hidden = !(pausedCard && !loading);
     $('askLoadPaused').hidden = !(pausedCard && loading);
     if (pausedCard) $(loading ? 'askLoadPaused' : 'askConsentPaused').textContent = PAUSED_CARD_TEXT[loading ? 'load' : 'consent'];
-    $('chkAskMachine').checked = session.claudeAllowed;
+    $('chkAskMachine').checked = session.consent.allowed;
     // a card that has just come up is brought into view (a phone's sheet leaves peek for it): the person must see it
     // (or when the panel opens on it)
     // (only once the panel can be seen: not under a page view, which hides the layout)
@@ -367,7 +367,7 @@ export function setupAsk(page, claude) {
     if (closeAfterTurn && !status) { hide(); page.focus(); return; }
     $('askStatus').hidden = !status;
     if (status) $('askStatusText').textContent = claudeStatusText(status);
-    $('btnAskStatusResume').hidden = !(status && session.claudePaused);
+    $('btnAskStatusResume').hidden = !(status && session.consent.paused);
     // the key states
     const msg = k === 'refused' || k === 'rate-limited' || k === 'offline' || k === 'error';
     $('askKeyMsg').hidden = !msg || !!(chat && chat.busy);
@@ -398,11 +398,11 @@ export function setupAsk(page, claude) {
   // the openers under the machine, the pill on the screen, the minimised strip and the phone's peek line
   function renderActing() {
     // (not while a card waits for the person: nothing acts then, and the card needs the sheet open)
-    const busy = session.claudeBusyActing && !session.claudePending && session.claudeView !== 'full';
+    const busy = session.claudeBusyActing && !session.consent.pending && session.claudeView !== 'full';
     const text = claude.activity();
     $('askActing').hidden = !busy;
     if (busy) $('askActingText').textContent = text || 'Claude is using the machine…';
-    $('btnAskResume').hidden = !session.claudePaused;
+    $('btnAskResume').hidden = !session.consent.paused;
     $('monitor').classList.toggle('claude-acting', !!busy);
     if (busy && phone() && open && ask.dataset.height !== 'peek') { ask.dataset.restore = ask.dataset.height; setHeight('peek'); }
     if (!busy && phone() && open && ask.dataset.restore) { setHeight(ask.dataset.restore); delete ask.dataset.restore; }
@@ -417,9 +417,9 @@ export function setupAsk(page, claude) {
     const fs = fullscreen() && !!(status || session.claudeBusyActing);
     $('fsClaude').hidden = !fs;
     // (one line there: the short paused text, which keeps "Esc stops Claude")
-    if (fs) $('fsClaudeText').textContent = session.claudePaused ? (touchPanel() ? TOUCH_PAUSED_TEXT : CLAUDE_PAUSED_SHORT) : (session.claudeBusyActing && text) || claudeStatusText(status) || 'Claude is acting…';
-    $('btnFsResume').hidden = !(fs && session.claudePaused);
-    if (fullscreen() && session.claudePending && document.exitFullscreen && !pageLeft) {
+    if (fs) $('fsClaudeText').textContent = session.consent.paused ? (touchPanel() ? TOUCH_PAUSED_TEXT : CLAUDE_PAUSED_SHORT) : (session.claudeBusyActing && text) || claudeStatusText(status) || 'Claude is acting…';
+    $('btnFsResume').hidden = !(fs && session.consent.paused);
+    if (fullscreen() && session.consent.pending && document.exitFullscreen && !pageLeft) {
       pageLeft = true;
       document.exitFullscreen().catch(() => { pageLeft = false; });
     }
@@ -434,8 +434,8 @@ export function setupAsk(page, claude) {
     document.body.classList.toggle('view-claude', inView);
     document.body.classList.toggle('claude-float', float && !inView);
     if (float) $('viewClaudeText').textContent = claudeStatusText(status) || text || 'Claude is acting…';
-    $('btnViewResume').hidden = !(float && session.claudePaused);
-    $('btnViewAnswer').hidden = !(inView && session.claudePending);
+    $('btnViewResume').hidden = !(float && session.consent.paused);
+    $('btnViewAnswer').hidden = !(inView && session.consent.pending);
     // openers: not while acting, not in full screen
     if (session.claudeView === 'full') { $('askOpeners').hidden = true; return; }
     const ctx = context();

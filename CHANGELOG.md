@@ -187,6 +187,11 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   them, with a `note`, as the VDG's semigraphics blocks are counted. `docs/mcp.md`, `docs/claude.md`, the skill and a
   new eval (`coco3-hidden-screen`) say so; `tests/screen-text-readers.test.js` checks both readers on firmware of our
   own against the rendered frame.
+- **Claude's consent state has its own module.** The switch, the cards, "Don't ask again this session" and the
+  pause's state move from six `claude*` fields on the Session into `Session.consent` (`js/claude/consent.js`), with
+  its decisions as methods (`decide`, `recheck`, `setAllowed`, `answer`, `pause` / `resume` / `endPause`, `wait`);
+  `setClaudeAllowed` and `answerClaude` are now `consent.setAllowed` and `consent.answer`. No behaviour change;
+  snapshots and settings exports are byte-identical to before (`tests/claude-consent.test.js`, with fixtures).
 - **The Session wires Claude's chat through hooks, not by replacing its methods.** `Session.gateTools` used to
   wrap `chat.abort` and `chat.backend.runTool`; `ChatSession` now has `onAbort` (called before the request is
   aborted) and `onToolStart` / `onToolEnd` (around every tool call the backend makes, in `ChatSession.serveTool`),

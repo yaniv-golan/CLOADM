@@ -89,6 +89,7 @@ const FILES = [
   'js/claude/brief.js',
   'js/claude/channel.js',
   'js/claude/chat.js',
+  'js/claude/consent.js',
   'js/claude/history.js',
   'js/claude/readtools.js',
   'js/claude/toolerrors.js',

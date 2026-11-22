@@ -122,7 +122,7 @@ Two ways to talk to Claude, one conversation:
   while the action's own check runs (an `INCLUDE` read), before anything is written; Stop refuses it with nothing
   changed and no restore point. A card that waits while Claude is paused says so ("Paused because you pressed a
   key…") and its accept button reads **Allow and resume** (**Load and resume** on the load card): one click gives
-  consent and resumes (`Session.answerClaude(true, { resume: true })`, one synchronous step; the card says "Allow and
+  consent and resumes (`Session.consent.answer(true, { resume: true })`, one synchronous step; the card says "Allow and
   resume lets Claude go on and act on the machine for the rest of this session" / "Load and resume loads the program
   and lets Claude go on"; the page passes what the
   button said when it was drawn, never the pause at click time, so a key pressed just before a click on plain
@@ -484,7 +484,7 @@ emulator.
   code and no card), a card in either view says what it loads ("a 20-line BASIC program (lines 10 to 200, 313
   bytes)") with **Load it**, **Don't load** (the code `load-declined`; Stop while the card is up is `stopped`) and,
   only while the switch is on, **Don't ask again this session**, which stops the card for the visit until the
-  switch is turned off (`Session.claudeLoadNoAsk`). With the switch off the box is not shown and every load asks.
+  switch is turned off (`Session.consent.loadNoAsk`). With the switch off the box is not shown and every load asks.
   Other acting tools keep the one consent question.
   **For automation:** `Session.loadBasic(program)` and the embed API's `loadBasic(program)` do the same load with no
   card and no restore point, through the same implementation (`js/claude/basicload.js`: `planBasic`, `writeBasic`),
@@ -527,12 +527,16 @@ emulator.
   async check (an INCLUDE read): a stopped turn is `stopped`; Claude paused waits for Resume, as the gate's own pause
   wait does (Resume goes on and the re-check runs again; Stop, or Esc/BREAK while paused, is `stopped`), so nothing
   changes while paused; and consent is re-validated. The pause is the Ask panel's turn-scoped one (`Session.personInput`,
-  `pauseClaude`, `resumeClaude`, `endClaudePause`): the gate and the re-check wait on it (`pauseWait`), and the turn's
+  `pauseClaude`, `resumeClaude`, `endClaudePause`): the gate and the re-check wait on it (`Consent.wait`), and the turn's
   end or abort ends it (`endClaudePause`, from the chat's `onTurnEnd` and `onAbort` hooks; `onAbort` runs before the
   request is aborted), which refuses the waiting call. The Session wires a chat only through these hooks, set in
   `gateTools` (`gate`, `recheck`, `onAbort`, `onTurnEnd`, `onRestorePoint`, and `onToolStart` / `onToolEnd`, which
   bracket every tool call the backend makes for the turn's status); it never replaces a chat's methods
-  (`node tests/chat-hooks.test.js`). An acting call counts as Claude acting from
+  (`node tests/chat-hooks.test.js`). The consent itself (the switch, the cards, "Don't ask again", the pause's
+  state) lives in `Session.consent` (`js/claude/consent.js`): `decide` is the gate's decision, `recheck` the
+  re-check's, `setAllowed` the switch, `answer` a card's answer; the Session's `pauseClaude`, `resumeClaude` and
+  `endClaudePause` do the machine side of a pause and call its `pause`, `resume` and `endPause`. None of it is saved
+  in a snapshot or a settings export (`node tests/claude-consent.test.js`). An acting call counts as Claude acting from
   its gate to its act (`Session.claudeCall`), so the person's input pauses it there even before Claude's first change
   of the turn; `node tests/claude-ask-acting.test.js` covers the two together. Each call records the consent it relied on: **the card** when
   the person answered a card for this call (Allow on the consent card, or Load it on `load_basic`'s card), which

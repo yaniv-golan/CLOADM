@@ -53,7 +53,7 @@ function api(replies) {
 function ask(replies, opts = {}) {
   const s = new Emu.Session({ store: Emu.memoryStore() });
   s.switchMachine('dragon64'); frames(s, 40);
-  s.setClaudeKey(KEY); s.setClaudeAllowed(true);
+  s.setClaudeKey(KEY); s.consent.setAllowed(true);
   const a = api(replies);
   const chat = s.startAsk({ backend: new Emu.ClaudeBackend({ fetch: a.fetch, apiKey: KEY, ...opts }) });
   return { s, chat, a };

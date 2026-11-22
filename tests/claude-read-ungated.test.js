@@ -49,8 +49,8 @@ const READS = [
 // One turn with the switch off: Claude reads with every read-only tool, then tries a poke, which the person declines.
 async function turn(L, s, chat, calls, person) {
   const asked = [];
-  s.claudeGate = (name) => { asked.push(name); Promise.resolve().then(() => s.answerClaude(false)); };
-  check(`${L}: the switch is off`, s.claudeAllowed === false);
+  s.consent.asker = (name) => { asked.push(name); Promise.resolve().then(() => s.consent.answer(false)); };
+  check(`${L}: the switch is off`, s.consent.allowed === false);
   const before = snapText(person);
   await chat.sendLine('What is on my screen? Then put 7 at $3000.');
   const offered = (calls[0] && calls[0].body.tools || []).map((t) => t.name);
@@ -70,7 +70,7 @@ async function turn(L, s, chat, calls, person) {
   check(`${L}: machine_info and disassemble answer with no card`, !byName(2).is_error && !byName(3).is_error, JSON.stringify([byName(2), byName(3)]).slice(0, 200));
   check(`${L}: only the acting tool asked; the person said no and it was refused`, asked.join() === 'poke' && byName(4).is_error
     && /consent-declined/.test(byName(4).content), `${asked.join()} ${JSON.stringify(byName(4))}`);
-  check(`${L}: the person's machine is unchanged by the turn`, s.readByte(0x3000, person) !== 7 && s.claudeAllowed === false);
+  check(`${L}: the person's machine is unchanged by the turn`, s.readByte(0x3000, person) !== 7 && s.consent.allowed === false);
   return before;
 }
 
