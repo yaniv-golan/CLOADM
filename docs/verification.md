@@ -53,6 +53,7 @@ What each machine's comparison with MAME 0.264 showed when it was verified (the 
 | Dragon 64 + Dragon FDC (WD2797, `--fdc`) | 5,833,479 instructions identical, HALT reached; disk images written byte-identical (`--images`); NMI arming (`--fdc --nmi`): identical, HALT reached at instruction 799 | – | – |
 | Dragon 64 running the HD6309 (CPU option 6309) | NMI arming (`--fdc --nmi --cpu 6309`): identical registers and cycle counts, 1,197,190 instructions, HALT reached at 793; also 1,197,190 on MAME 0.264 (container) | – | – |
 | Tano Dragon 64 on the HD6309 | NMI arming (`--fdc tanodragonfdc --nmi --cpu 6309`): identical, 1,204,410 instructions, HALT reached at 793; also 1,204,410 on MAME 0.264 | – | – |
+| Dragon 200-E + Dragon FDC (WD2797, `--fdc dragonfdc`) | 5,839,407 instructions identical, HALT reached at 2,402,179; disk images written byte-identical (`--images`: d0.vdk 368,652 bytes, d1.vdk 184,332 bytes) | – | – |
 | Dragon 64 + Premier FDC (WD2791, `--fdc premierfdc`) | 5,890,277 instructions identical, HALT reached; disk images written byte-identical (`--images`) | – | – |
 | Color Computer + CoCo FDC (WD1773, `--fdc`) | 5,851,757 instructions identical, HALT reached; disk images written byte-identical (`--images`) | – | – |
 | Dragon 64 and Color Computer, the controller with an empty ROM socket (`--fdc --bare`) | identical, HALT reached: dragon64 1,200,945 instructions (HALT at 66,473), coco 1,208,171 (HALT at 66,937) | – | – |
@@ -1001,8 +1002,9 @@ names it.
   and ends in HALT. MAME 0.264: every instruction identical in all registers and cycle counts, and HALT reached:
   `dragon64 --fdc --bare` 1,200,945 instructions compared (HALT at 66,473), `coco --fdc --bare` 1,208,171 (HALT at
   66,937). `tests/regress.test.js` replays both (`trace dragon64 bare`, `trace coco bare`).
-* `node tools/mame-diff/run.js <dragon64|coco|coco3> --fdc [dragonfdc|premierfdc|cocofdc|multifdc] [--multi] [--images]` runs the
-  floppy disk controller cartridges (`fdc/`: `-ext dragon_fdc` with a WD2797 and `-ext premier_fdc` with a WD2791 on
+* `node tools/mame-diff/run.js <dragon64|dragon200e|coco|coco3> --fdc [dragonfdc|premierfdc|cocofdc|multifdc] [--multi] [--images]` runs the
+  floppy disk controller cartridges (`fdc/`: `-ext dragon_fdc` with a WD2797 on the Dragon 64 and the Dragon 200-E (its
+  slot's default, as `dragon.cpp`'s dragon200e() is dragon64()), `-ext premier_fdc` with a WD2791 on
   the Dragon 64, `-ext fdc` with a WD1773 on the CoCo and the CoCo 3, and `multifdc`: the same CoCo controller in slot 4 of a
   Multi-Pak, `-ext multi`, which the front-panel switch selects at reset, so the same firmware runs while every NMI
   and HALT reaches the CPU through the Multi-Pak) with our firmware as the disk ROM
@@ -1113,7 +1115,7 @@ names it.
   written for this project (`sam/printer-parallel.asm` for the Dragons, `sam/printer-serial.asm` for the CoCos,
   `mc10/printer.asm`), runs it in lockstep with MAME to HALT, and compares MAME's printer file (`-prin`) with our
   printout byte for byte; both must also be exactly what the firmware sent. Current results: dragon32, dragon64,
-  dragon200, tanodr64 **300 bytes identical**; coco, coco2b, coco3 and the clones mx1600, lzcolor64, cd6809 **305 identical**; mc10 **306 identical**; every
+  dragon200, dragon200e (3,566,429 instructions identical, HALT at 3,059), tanodr64 **300 bytes identical**; coco, coco2b, coco3 and the clones mx1600, lzcolor64, cd6809 **305 identical**; mc10 **306 identical**; every
   trace identical to HALT.
   * The Dragon prints whenever PIA1 port A is written with PA1 (the strobe) high (MAME `dragon.cpp`), including at
     reset: the PIA's port A becomes inputs, pulled high (`6821pia.cpp` device_reset), so a reset prints PIA0 port B,
@@ -1130,14 +1132,14 @@ names it.
   DCD and CTS low (`rs232/printer.cpp`); the loopback drives DCD and CTS only from DTR and RTS, which these ports
   lack, so they stay high (`rs232/loopback.cpp`). With the CoCo's PIA1 port B as inputs, PB2 is the RAM size sense
   (PIA0 PB6) and PB1 reads 0 (`coco.cpp` pia1_pb_r).
-* On the Dragon 64, 200 and Tano, `--serial` runs `sam/acia.asm` on the 6551 with a loopback plug: the registers
+* On the Dragon 64, 200, 200-E and Tano, `--serial` runs `sam/acia.asm` on the 6551 with a loopback plug: the registers
   after power-on and after a programmed reset; 20 bytes sent and read back at 1200, 9600 and 19200 baud in 6
   word formats (7 and 8 bits, odd, even, mark and space parity, two stop bits), every poll counted so each status
   change is compared to the cycle; the receive and transmit interrupts taken in CWAI; overrun; a break (framing
   error); DTR off stopping the clock. MAME's plug is its patch box (`-rs232 patch`, set in the run's cfg file:
   RxD from TxD, CTS, DSR and DCD held asserted), because the Dragon 64 does not wire the 6551's RTS and DTR to the
   port, so MAME's plain loopback would leave CTS high and the transmitter off. Current results: dragon64, dragon200,
-  tanodr64 **identical to HALT**, all 20 bytes read back as sent. The chip follows MAME's `mos6551.cpp` state for
+  dragon200e (1,186,693 instructions, HALT at 24,876), tanodr64 **identical to HALT**, all 20 bytes read back as sent. The chip follows MAME's `mos6551.cpp` state for
   state, including its clock: 1.8432 MHz divided by the rate, in whole Hz, running only while DTR is on or a byte
   is coming in. This run found that CWAI checks for an interrupt after 16 cycles (opcode, mask, two dead cycles
   and 12 pushes; MAME `base6x09.lst`), not 20: no earlier firmware had an interrupt arrive that soon.

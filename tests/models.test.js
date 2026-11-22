@@ -122,6 +122,9 @@ check('the CP-400 ROM is the archive name cp400bas.rom', p.roms[0].files.include
 // (RS232_PORT "rs232", whose RXD coco_state::pia1_pb_r reads on PB0 through m_rs232->rxd_r(), coco.cpp).
 {
   const p = Emu.profiles.dragon200e;
+  check('every profile names its lineage: dragon, coco or mc10',
+    Object.entries(Emu.profiles).every(([, q]) => ['dragon', 'coco', 'mc10'].includes(q.lineage)),
+    JSON.stringify(Object.entries(Emu.profiles).filter(([, q]) => !['dragon', 'coco', 'mc10'].includes(q.lineage)).map(([id, q]) => [id, q.lineage])));
   check('dragon200e is a Dragon by lineage, whatever its keyboard is called', p.lineage === 'dragon' && p.lineage === Emu.profiles.dragon64.lineage);
   // the disk cartridges the page offers: the Dragon 64's, never RS-DOS
   const dos = (id) => { const s = new Emu.Session({ welcomeMenu: false }); s.switchMachine(id, {}, { menu: false }); return s.diskDosChoices().map((c) => c.id); };

@@ -23,6 +23,8 @@ import { createToolbox, mcpResult, McpToolError } from '../../js/mcp/tools.js';
 // refuses an emulator whose number differs (out-of-step). 2: the toolbar, Details and the host context (the view's UX).
 // 3: the bridge's sizeChanged() and its safe-area, platform and device context keys; the shell's #keys and keys-item.
 export const PANEL_API = 3;
+// the Machine menu's groups, by each profile's lineage (js/machines/profiles.js): every model is in exactly one
+export const MACHINE_GROUPS = Object.freeze([['Dragon', (p) => p.lineage === 'dragon'], ['Color Computer', (p) => p.lineage === 'coco'], ['MC-10', (p) => p.lineage === 'mc10']]);
 export const TEXT_MAX = 100000;
 export const LEFT_OUT = Object.freeze(['close_machine', 'insert_tape', 'insert_disk', 'save_snapshot', 'restore_snapshot', 'add_roms', 'remove_roms']);
 // the bundled programs' files a load by name can ask for (Session.welcomeFile, lizaFile, gameFile and the demo, for

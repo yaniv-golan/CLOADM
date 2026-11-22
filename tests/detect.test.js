@@ -50,6 +50,15 @@ for (const [file, family, format] of [['rsdos.dsk', 'coco', 'RS-DOS disk'], ['rs
   check('a .c10 tape on the MC-10: no offer', s.inspect('t.c10', new Uint8Array(300).fill(0x55)).mismatch === null);
   s.switchMachine('coco');
   check('an MC-10 tape on a CoCo: offer the MC-10', s.inspect('t.c10', new Uint8Array(300).fill(0x55)).mismatch?.suggest === 'mc10');
+  // the Dragon 200-E takes Dragon media (its lineage, not its own keyboard, decides): no offer for a .dgn or a
+  // DragonDOS disk, and a .ccc cartridge or an RS-DOS disk is offered on a CoCo
+  s.switchMachine('dragon200e');
+  check('200-E: a .dgn cartridge, no offer', s.inspect('x.dgn', new Uint8Array(8192)).mismatch === null);
+  check('200-E: a DragonDOS disk, no offer', s.inspect('d.vdk', fixture('dragondos.vdk')).mismatch === null);
+  const ccc = s.inspect('x.ccc', new Uint8Array(8192)).mismatch;
+  check('200-E: a .ccc cartridge, offer a CoCo', ccc && ccc.family === 'coco' && Emu.profiles[ccc.suggest].lineage === 'coco', JSON.stringify(ccc));
+  check('200-E: an RS-DOS disk, offer a CoCo', s.inspect('games.dsk', fixture('rsdos.dsk')).mismatch?.family === 'coco');
+  s.switchMachine('coco');
   let msg = ''; try { s.load('games.dsk', fixture('rsdos.dsk')); } catch (e) { msg = e.message; }
   check('loading a disk as a program says what it is and that it goes in a disk drive', /RS-DOS disk for a CoCo.*go in a disk drive/.test(msg), msg);
 }

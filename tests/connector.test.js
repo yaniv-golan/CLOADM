@@ -37,6 +37,14 @@ const J = JSON.stringify;
   const { GAMES } = await imp('js/session.js');
   const views = build.views();
 
+  // ---------------- the Machine menu's groups ----------------
+  // by lineage, not keyboard: the Dragon 200-E (its own Spanish keyboard) is a Dragon, and every model is in one group
+  const groupsOf = (id) => panel.MACHINE_GROUPS.filter(([, has]) => has(profiles[id])).map(([g]) => g);
+  check('Machine menu: every model is in exactly one group', Object.keys(profiles).every((id) => groupsOf(id).length === 1),
+    J(Object.keys(profiles).filter((id) => groupsOf(id).length !== 1)));
+  check('Machine menu: the Dragon 200-E is under Dragon, with the Dragon 64', J(groupsOf('dragon200e')) === J(['Dragon']) && J(groupsOf('dragon64')) === J(['Dragon']), J(groupsOf('dragon200e')));
+  check('Machine menu: the CoCos, clones and MC-10s are in their own groups', J(['coco', 'cp400', 'coco3', 'mc10', 'alice'].map((id) => groupsOf(id)[0])) === J(['Color Computer', 'Color Computer', 'Color Computer', 'MC-10', 'MC-10']));
+
   // ---------------- the Worker ----------------
   const logged = [];
   const saved = {};
