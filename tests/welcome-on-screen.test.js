@@ -41,6 +41,31 @@ const run = (s, ms = 100) => { let t = 0; return s.advance(ms, { now: () => (t +
   check('on screen: LIZA loaded over the menu: neither running nor on screen', !s.welcomeRunning && !s.welcomeOnScreen && run(s) > 0 && !s.welcomeOnScreen);
 }
 
+// 1b. the machine clauses: the menu loaded on the person's machine is not "on screen now" while another machine is
+// shown (the chat full screen), nor once a machine switch has replaced it
+{
+  const s = session();
+  s.startWelcome(bin('welcome.bin'), { greeting: 'first', gen: s.welcomeGenNow() });
+  run(s);
+  check('on screen: (before the chat) the menu is on screen now', s.welcomeOnScreen);
+  s.startChat({ backend: new Emu.ClaudeBackend({ fetch: async () => null, apiKey: 'sk-ant-test' }), channel: new Emu.MemoryChannel(), firmware: bin('chat.bin') });
+  run(s);
+  check('on screen: the chat full screen: the person\'s menu is still running (welcomeRunning) but not on screen now',
+    s.shownMachine !== s.personMachine && s.welcomeRunning && !s.welcomeOnScreen);
+}
+{
+  const s = session();
+  s.startWelcome(bin('welcome.bin'), { greeting: 'first', gen: s.welcomeGenNow() });
+  run(s);
+  const old = s.personMachine;
+  s.switchMachine('coco', null, { menu: false });
+  run(s);
+  // (the switch ends the menu itself - endWelcome - so this guards the natural path; the chat case above is the one
+  // only the machine clauses catch)
+  check('on screen: after a machine switch the old machine\'s menu is neither running nor on screen now',
+    s.personMachine !== old && old.frameCount > 0 && !s.welcomeRunning && !s.welcomeOnScreen);
+}
+
 // 2. 'lastrun' comes after 'loaded', and a view that follows it names what Run again runs
 {
   const s = session();
