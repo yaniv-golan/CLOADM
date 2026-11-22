@@ -668,6 +668,22 @@ async function phoneScenario(browser, check, { shots = null } = {}) {
       JSON.stringify({ broken, g, kept, stored, reloaded, errors: errors.slice(errs0) }));
       await ctx.close();
     }
+    // ---- the keys' mode follows what the Session says runs (Session.programControls), not only what the view started:
+    // Claude loads Minesweeper (the Pad), and a reset made through the Session leaves the program (back to the Keys)
+    {
+      const { ctx, page, v, ready } = await opened({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }, { w: 390, h: 844, mode: 'fullscreen', ctx: JSON.stringify({ containerDimensions: { width: 390, height: 844 } }) });
+      const mode = () => v.evaluate(() => window.cloadmView.keys.mode);
+      const start = await mode();
+      await page.evaluate(() => window.callView('tools/call', { name: 'load', arguments: { machine_id: 'm1', program: 'minesweeper' } }));
+      await page.waitForTimeout(600);
+      const loaded = await mode();
+      await v.evaluate(() => window.cloadmView.session.powerCycle({ menu: false }));
+      await page.waitForTimeout(600);
+      const left = await mode();
+      check('connector phone: the on-screen keys follow what the Session runs: LIZA on the Keys, Claude\'s load of Minesweeper on the Pad, and a reset made through the Session back on the Keys',
+        ready && start === 'keys' && loaded === 'pad' && left === 'keys', JSON.stringify({ start, loaded, left }));
+      await ctx.close();
+    }
     // ---- a desktop: no keys
     {
       const { ctx, v, ready } = await opened({ viewport: { width: 800, height: 900 } }, { w: 600, h: 800, mode: 'fullscreen', ctx: JSON.stringify({ safeAreaInsets: { top: 0, right: 0, bottom: 0, left: 0 } }) });
@@ -676,6 +692,8 @@ async function phoneScenario(browser, check, { shots = null } = {}) {
       await ctx.close();
     }
     check('connector phone: no page errors', !errors.length, errors.join(' | '));
+  } catch (e) {
+    check('connector phone: the scenario ran to the end', false, String((e && e.stack) || e).slice(0, 400));
   } finally {
     srv.server.close();
     srv.server.closeAllConnections();

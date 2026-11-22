@@ -365,6 +365,10 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   not stop there; it now runs the frame through the debugger as on the other machines. The MCP `screenshot` after a
   `step` that crosses a frame's end shows the frame the step closed, with `mid_frame` true. Frames closed inside a
   debugger command play no sound on the page and are not in a `--wav` recording.
+- **The welcome menu's "carry on" line missed a program whose name differed only in case.** It now uses the store's own case rule: on a case-insensitive store `LOOP.bin` and `loop.bin` are one file.
+- **The "Ask Claude" pop-out link could open an old moment.** It is made fresh on a right click and a middle click too, so "Open in new tab" opens the machine as it is now.
+- **The side-panel view's on-screen keys followed only what the view itself started.** They now follow the program the machine runs, whoever started it (Programs, the Welcome menu's keys or Claude's load), and go back to the keyboard when a load or a reset ends it.
+- **A throwing connector-check scenario now shows as a failing check with the error**, not as a timeout.
 - **An embedded CLOADM could open the Claude chat; the chat is no longer available in an embed.**
 - **Two server processes adding ROMs at once could lose index entries.** Every change to the ROM store's index now
   reads it again and writes it while holding a lock file (`index.lock`, broken after ten seconds if its holder died),

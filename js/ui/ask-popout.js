@@ -58,7 +58,9 @@ export function setupAskPopout(page, { link, framed }) {
     pending = run;
     return run;
   }
-  for (const ev of ['pointerenter', 'focus', 'pointerdown']) a.addEventListener(ev, () => { refresh(); });
+  // (a hover, focus or press, and the ways a link is opened that do not go through a plain click: the context menu's "Open in new tab", a
+  // middle click and a ctrl-click, which the browser takes the href of after these events)
+  for (const ev of ['pointerenter', 'focus', 'pointerdown', 'contextmenu', 'auxclick']) a.addEventListener(ev, () => { refresh(); });
   a.addEventListener('keydown', (e) => { if (e.key === 'Enter') refresh(); });
   // a click before the press's link is ready: wait for it, then open the same way the link would (a new top-level
   // tab with no opener and no referrer). The browser keeps the click's activation for a few seconds, so the tab opens.

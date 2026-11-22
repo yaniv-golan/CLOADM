@@ -161,12 +161,19 @@ export async function start() {
     status(`${where} · Pick something from Programs, or ask Claude to play something.`);
   };
   const running = (program) => { now.program = program; describe(); };
-  // the bundled program running now and what it is played with ({ id, input, extra, joystick }, as
-  // Session.programControls gives it on the page), from what this view started: the on-screen keys' mode follows it
+  // the bundled program the Session runs now and what it is played with ({ id, input, extra, joystick }, as
+  // Session.programControls gives it on the page, where the Welcome menu watches the program): this view's Session
+  // has no menu to watch for, so it follows the Session's own 'program' event, whoever started the program (the
+  // Programs menu, the Welcome menu's keys, Claude's load); a load, a reset, a firmware or machine change ends it.
+  // The on-screen keys' mode follows it.
+  let ran = null;
+  session.on((ev, arg) => {
+    if (ev === 'program') ran = arg;
+    else if (['loaded', 'reset', 'welcome', 'firmware', 'machine'].includes(ev)) ran = null;
+  });
   const programControls = () => {
-    const id = Object.keys(PROGRAM_NAMES).find((k) => PROGRAM_NAMES[k] === now.program);
-    if (id === 'liza') return { id, ...PROGRAM_CONTROLS.liza };
-    return id && GAMES.list[id] ? { id, ...GAMES.list[id].controls } : null;
+    if (ran === 'liza') return { id: ran, ...PROGRAM_CONTROLS.liza };
+    return ran && GAMES.list[ran] ? { id: ran, ...GAMES.list[ran].controls } : null;
   };
   // a SessionError (a game on a machine that cannot run it) -> the status line
   const attempt = (fn) => { try { fn(); } catch (e) { status(e.message, { announce: true }); } };
