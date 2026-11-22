@@ -34,6 +34,15 @@ export function safeArea() {
 // call this at once, so a focus() that follows finds the element no longer inert; a MutationObserver (createPage)
 // covers the rest.
 const UNDRAWN = '.layout, #appbar, #appbar > nav, body > footer, #switchConfirm, .layout > .drawer, .slots';
+// A view (Share, the Library, the Debugger, Add ROMs) shown or closed. A closed view is `hidden`, and also inert and aria-hidden:
+// out of the tab order and the accessibility tree by its own state, not only because a stylesheet rule (css/tokens.css) draws
+// [hidden] as nothing. Open it with the inert cleared in the same step, so the focus a view takes when it opens finds it.
+export function showView(view, open) {
+  view.hidden = !open;
+  view.inert = !open;
+  if (open) view.removeAttribute('aria-hidden'); else view.setAttribute('aria-hidden', 'true');
+}
+
 export function markUndrawn() {
   for (const el of document.querySelectorAll(UNDRAWN)) {
     const off = !el.hidden && getComputedStyle(el).display === 'none';

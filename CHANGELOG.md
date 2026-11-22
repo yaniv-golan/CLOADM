@@ -12,6 +12,45 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 - **An embedded CLOADM could open the Claude chat; the chat is no longer available in an embed.**
 
+- **A closed view is out of the keyboard's reach and the accessibility tree by its own state.** Share, the Library, the
+  Debugger and Add ROMs were closed only by the `hidden` attribute, which a single stylesheet rule
+  (`[hidden] { display: none !important }` in `css/tokens.css`) draws as nothing; without that rule Tab went into a closed
+  Share (its Back link, link field and Copy link). A closed view is now also `inert` and `aria-hidden`, and opening it
+  clears both in the same step (`showView` in `js/ui/page.js`), so the focus a view takes when it opens still lands. The
+  browser check's new group `closedViews` tabs through the page at desktop, tablet and phone sizes with every view
+  closed, and after each view closed by Esc, Back or a link, and requires that focus never lands inside a closed view or
+  a hidden panel, and that an open view's controls are reachable.
+
+### Changed
+
+- **The Share screen does one job: send this exact moment.** Under the heading "Share this moment" it now shows the
+  preview, one line saying what the link does ("Opens on the Dragon 64 exactly as it is now…", or that the link starts
+  NitrOS-9 fresh while NitrOS-9 runs), a ROM line only as needed, the link, and **Share…** (the system share sheet,
+  the URL only, where the browser offers it) with **Copy link** always beside it. The clip, the PNG and the snapshot
+  file (its size now on the button) sit under "More ways to share", and the embed builder under "Embed in a web page";
+  both are collapsed. On a phone the buttons and the link are on the first screen; on a desktop the preview and the
+  actions are side by side. The long ROMs paragraph and the "what the person opening it sees" box are gone, replaced by
+  the ROM line. The settings file moved to the Machine tab (**Settings file**: Export…, Import…).
+
+- **Copy and small fixes from the v0.1.8 UI review.** Starting LIZA from the welcome menu, or the colour demo from the Media
+  tab's shelf, says "LIZA loaded" / "Colour demo loaded" instead of "liza.bin: DragonDOS binary $3000-$3C90, exec $3000" (a file you bring keeps its addresses).
+  A link naming a machine CLOADM doesn't have, or a `start=` or `app=` it doesn't know, shows one short toast ("machine=nosuch: no such machine (opened Dragon 64
+  instead)", not a list of every machine), and `#share=` with anything after it says the share link couldn't be read
+  instead of landing on the welcome menu in silence. On the Add ROMs screen the "optional" tag stays beside the
+  title of the disk and Speech/Sound Pak cards (a long title wraps inside its own space), and neither title repeats
+  "(optional)" beside the tag. **Install CLOADM…** moved from the foot of the machine menu to the app bar, beside Help
+  (behind Menu on a phone), and its card opens under the bar, near the link. The welcome menu's sixth option, "CARRY ON
+  WITH …", no longer pushes "PRESS 1 TO 6" against the colour bar: the options move up a row and a blank row stays
+  above the prompt, as on the MC-10 and Alice. No frame hash changes (the regression firmware never shows the sixth
+  option). The browser check's new group `uiCopy` covers each of these.
+
+- **The Claude chat with no key says so on its own screen.** The chat screen used to be an empty black box with a
+  `>` prompt, and the "No API key yet" note sat beside it (below the fold on a phone). The line is now on the screen too,
+  as the firmware shows a reply (`Session.chatNote`: not the conversation, never what Claude reads), and after Save key
+  the screen says "Key saved. Type below and press ENTER." (plain ASCII: the chat font has no check mark) and the key card reads "Key saved ✓ · Saved in this browser · Change · Forget". The key
+  stays out of machine memory, snapshots, settings exports and the chat screen itself (`tests/claude-session.test.js`
+  reads the screen's text and checks the key is not on it).
+
 ### 0.1.8-pre
 
 #### Added

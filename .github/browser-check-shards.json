@@ -20,7 +20,8 @@
       "cpu6309",
       "backFocus",
       "fold",
-      "semantics"
+      "semantics",
+      "uiCopy"
     ],
     [
       "models",
@@ -62,6 +63,7 @@
       "askFollowup",
       "share",
       "favicon",
+      "closedViews",
       "askStatus"
     ],
     [
