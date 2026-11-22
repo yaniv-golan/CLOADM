@@ -67,7 +67,13 @@ try {
 // Whether the Claude chat is offered here at all: a top-level page and no embed flag (js/config.js's claudeOffered).
 // A framed page is someone else's page, and the chat's key card would be on it - that is why this is one decision used
 // by both the key store and the controller, rather than the embed flag alone.
-const chatHere = claudeOffered(link, window.top !== window);
+// "shown inside another page": window.self !== window.top. Reading it is a WindowProxy comparison, which does not throw
+// even in a sandboxed frame (checked), but a page that cannot tell is treated as framed - the decision fails closed.
+const framedInPage = (() => { try { return window.self !== window.top; } catch (e) { return true; } })();
+const chatHere = claudeOffered(link, framedInPage);
+// a page with no chat says so on <body>, so the stylesheet hides the buttons that would open one rather than leaving
+// them on screen doing nothing (play/index.html hides #btnAsk, #navCommands, #claude, #ask, #askRail under this)
+if (!chatHere) document.body.classList.add('no-claude');
 // the Claude API key: this browser's storage only (cloadm.anthropicKey), never a Session setting.
 // Where the chat is not offered, the store is in memory, never the saved one: nothing on that page may reach a key
 // left in this browser (the chat is not set up there either, but the store is the second lock - a future route that

@@ -7608,6 +7608,26 @@ async function embedChecks(browser, site, check) {
     JSON.stringify(framedPage));
   check('framed without embed=1: the key store is in memory, so a saved key is not visible there',
      framedPage.keyVisible === null, JSON.stringify(framedPage));
+  // no Claude entry point is left visible: the Ask button and the Commands button are hidden, not dead
+  const buttons = frame ? await frame.evaluate(() => {
+    const vis = (id) => { const e = document.getElementById(id); if (!e) return 'absent'; const r = e.getBoundingClientRect(); return !e.hidden && r.width > 0 && r.height > 0; };
+    return { bodyClass: document.body.classList.contains('no-claude'), ask: vis('btnAsk'), commands: vis('navCommands') };
+  }) : null;
+  check('framed without embed=1: no Claude button is visible (Ask and Commands are hidden, not dead)',
+    buttons && buttons.bodyClass === true && buttons.ask === false && buttons.commands === false, JSON.stringify(buttons));
+
+  // a SANDBOXED frame (allow-scripts, no allow-same-origin) has origin "null", and the browser refuses its ES modules:
+  // the page cannot start there at all, so there is no chat to reach and nothing for this change to guard. Assert the
+  // truthful result - no session, no chat - and do not pretend the page runs.
+  const sandboxed = await ctx.newPage();
+  await sandboxed.setContent(`<!doctype html><title>a blog</title><iframe id="s" sandbox="allow-scripts" src="${site}play/?machine=dragon64&app=claude" width="640" height="480"></iframe>`);
+  await sandboxed.waitForTimeout(2500);
+  const sbFrame = sandboxed.frames().find((f) => /\/play\//.test(f.url()));
+  const sbState = sbFrame ? await sbFrame.evaluate(() => ({
+    started: !!(window.emu && window.emu.session), chat: !!(window.emu && window.emu.session && window.emu.session.chat),
+  })).catch((e) => ({ evalFailed: e.message.slice(0, 80) })) : null;
+  check('sandboxed frame (no allow-same-origin): the page cannot start there, so there is no chat',
+    sbState && !sbState.evalFailed && sbState.started === false && sbState.chat === false, JSON.stringify(sbState));
   check('embed: no page errors', !errors.length, errors.join('; '));
   await ctx.close();
   host.close();

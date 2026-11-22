@@ -117,6 +117,8 @@
   body.embed .appbar, body.embed #switchConfirm, body.embed .drawer, body.embed footer, body.embed .controls,
   body.embed .slots, body.embed .hint, body.embed .plate, body.embed #welcome,
   body.embed #claude, body.embed #ask, body.embed #askRail { display: none !important; }
+  /* a page shown inside another page has no Claude chat: its buttons are hidden, not left dead (js/ui/main.js) */
+  body.no-claude #btnAsk, body.no-claude #navCommands, body.no-claude #claude, body.no-claude #ask, body.no-claude #askRail { display: none !important; }
   body.embed .layout { padding: 0; display: block; }
   body.embed .layout > main { gap: 0; }
   body.embed .layout > main > .monitor { max-width: none; border-radius: 0; padding: 0; box-shadow: none; background: #000; }
