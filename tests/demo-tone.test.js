@@ -32,7 +32,7 @@ function runDemo(id, bin) {
   const s = new Emu.Session();
   s.switchMachine(id, undefined, { menu: false });
   s.startWelcome(welcome);
-  const m = s.machine;
+  const m = s.shownMachine;
   for (let i = 0; i < 50; i++) m.runFrame();                         // the welcome menu, as before key 2
   s.load('demo.bin', bin, { remember: false });                       // key 2: the demo starts and prints its text
   const writes = [];                                                  // every CPU write to $FF20: { t (ticks), v }

@@ -55,12 +55,12 @@ const plain = tape({ load: 0x0E00, exec: 0x0E00, data: startCode });
 function session(id) {
   const s = new Emu.Session({ store: Emu.memoryStore(), welcomeMenu: false });
   s.switchMachine(id, undefined, { menu: false });
-  s.machine.setRoms(slotsFor(id)); s.machine.reset(true);
+  s.shownMachine.setRoms(slotsFor(id)); s.shownMachine.reset(true);
   return s;
 }
 // load as a drop does, recording every key the typist presses; run until the program's "ST" (or `seconds`)
 function drop(s, bytes, seconds = 260) {
-  const m = s.machine, keys = [], set = m.setKey.bind(m);
+  const m = s.shownMachine, keys = [], set = m.setKey.bind(m);
   m.setKey = (k, down) => { if (down) keys.push(k); return set(k, down); };
   const msg = s.load('test.cas', bytes, { remember: false });
   let f = 0;
@@ -104,7 +104,7 @@ for (const id of ['dragon64', 'coco']) {
 // ---------------- the restart: the load starts from a machine just switched on ----------------
 {
   // a program that crashed into a loop, with the stack somewhere else: without the restart nothing reads the keys
-  const s = session('dragon64'), m = s.machine;
+  const s = session('dragon64'), m = s.shownMachine;
   for (let i = 0; i < 200; i++) m.runFrame();
   m.injectAndRun([{ addr: 0x3000, data: [0x10, 0xCE, 0x30, 0x00, 0x20, 0xFE] }], 0x3000);   // LDS #$3000; BRA *
   for (let i = 0; i < 10; i++) m.runFrame();
@@ -123,7 +123,7 @@ const pending = (m) => m.typist.queue.some((it) => it && it.decide) || m.pcWatch
 {
   // (a) a raw program dropped while the tape (the long one, $0150-$7DFF) loads, put above what the tape loads; it
   // switches the motor off and waits for a key in ROM, as BASIC at its prompt would
-  const s = session('dragon64'), m = s.machine;
+  const s = session('dragon64'), m = s.shownMachine;
   drop(s, notSelfStarting, 0);                                   // the tape is in, CLOADM typed, EXEC waiting
   for (let i = 0; i < 100; i++) m.runFrame();
   const waiting = pending(m) && m.deck.motor;
@@ -137,7 +137,7 @@ const pending = (m) => m.typist.queue.some((it) => it && it.decide) || m.pcWatch
 }
 {
   // (b) a BASIC listing dropped while the tape loads: only the listing's own keys are typed
-  const s = session('dragon64'), m = s.machine;
+  const s = session('dragon64'), m = s.shownMachine;
   drop(s, notSelfStarting, 0);
   for (let i = 0; i < 100; i++) m.runFrame();
   const keys = [], set = m.setKey.bind(m);
@@ -151,7 +151,7 @@ const pending = (m) => m.typist.queue.some((it) => it && it.decide) || m.pcWatch
 }
 {
   // a reset while the EXEC waits
-  const s = session('dragon64'), m = s.machine;
+  const s = session('dragon64'), m = s.shownMachine;
   drop(s, notSelfStarting, 0);
   const before = pending(m);
   m.reset(true);
@@ -159,7 +159,7 @@ const pending = (m) => m.typist.queue.some((it) => it && it.decide) || m.pcWatch
 }
 {
   // a Claude restore point put back while the EXEC waits
-  const s = session('dragon64'), m = s.machine;
+  const s = session('dragon64'), m = s.shownMachine;
   for (let i = 0; i < 3 * m.fps; i++) m.runFrame();
   const point = m.snapshot();
   drop(s, notSelfStarting, 0);
@@ -189,9 +189,9 @@ for (const [how, toStub] of [
   ['the welcome menu', (s) => s.startWelcome(new Uint8Array(fs.readFileSync(path.join(__dirname, '../examples', s.welcomeFile))), { greeting: 'back' })],
 ]) {
   const s = storedSession('dragon64');
-  const bootable = s.machine.hasRom;
+  const bootable = s.shownMachine.hasRom;
   toStub(s);
-  const stub = s.machine.useStub && s.stubChosen.has('dragon64');
+  const stub = s.shownMachine.useStub && s.stubChosen.has('dragon64');
   const r = drop(s, plain, 30);
   check(`after ${how}, a dropped tape uses the stored ROMs again and loads through BASIC, and the page says so`,
     bootable && stub && r.m.hasRom && !s.stubChosen.has('dragon64') && r.started && r.stage === 'E' && r.keys === `${CLOADM} ${EXEC}`
@@ -226,21 +226,25 @@ for (const [how, toStub] of [
     && /^Your stored ROMs did not start BASIC, so test\.cas went straight into memory\. test\.cas: TEST fast-loaded/.test(r.msg), `${r.msg} | keys ${r.keys}`);
 }
 {
-  // the Claude chat machine (the same model, on the chat firmware, no ROMs): a tape dropped on it does not take the
-  // stored ROMs, and the BASIC session's own no-ROM choice is left as it was
+  // The Claude chat machine (the same model, on the chat firmware, no ROMs) is on screen. A tape dropped then goes
+  // to the BASIC session behind it, not to the chat machine (a load there overwrote the chat firmware:
+  // tests/session-robustness.test.js). So it is loaded as any drop on that BASIC session is, by the BASIC session's
+  // own rules: it runs without ROMs by choice, its stored ROMs boot BASIC, so they are used again for this load.
+  // The chat machine keeps its firmware, and is not the machine the tape went into.
   const s = storedSession('dragon64');
   s.runWithoutRoms({ menu: false });
-  const basic = s.machine;
+  const basic = s.shownMachine;
   s.startChat({ backend: new Emu.ClaudeBackend({ fetch: async () => null, apiKey: 'k' }), channel: new Emu.MemoryChannel(),
     firmware: new Uint8Array(fs.readFileSync(path.join(__dirname, '../examples/chat.bin'))), tools: false });
-  const chat = s.machine;
+  const chat = s.shownMachine;
   const msg = s.load('test.cas', plain, { remember: false });
-  check('a tape dropped on the chat machine does not use the stored ROMs, and the BASIC session stays without them',
-    chat !== basic && chat.useStub && basic.useStub && s.stubChosen.has('dragon64') && !/Using your ROMs again/.test(msg), msg);
+  check('a tape dropped on the chat screen goes to the BASIC session and uses its stored ROMs there; the chat machine keeps its firmware',
+    chat !== basic && chat.useStub && basic.hasRom && !chat.deck.tape && basic.deck.tape
+    && /^Loaded into your BASIC session/.test(msg) && /Using your ROMs again/.test(msg), `${msg} | basic rom=${basic.hasRom} chat tape=${!!chat.deck.tape} basic tape=${!!basic.deck.tape}`);
 }
 {
   // what cancels a load's typing keeps Claude's: a paced job queued before it is still typed
-  const s = session('dragon64'), m = s.machine;
+  const s = session('dragon64'), m = s.shownMachine;
   for (let i = 0; i < 3 * m.fps; i++) m.runFrame();     // the stand-in waits for ENTER, reading column 0
   const keys = [], set = m.setKey.bind(m);
   m.setKey = (k, down) => { if (down) keys.push(k); return set(k, down); };

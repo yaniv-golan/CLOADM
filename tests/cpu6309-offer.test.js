@@ -19,7 +19,7 @@ let fail = 0;
 const check = (name, cond, detail = '') => { if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log('ok   ', name, detail); };
 const ROOT = path.join(__dirname, '..');
 const store = () => { const m = new Map(); return { get: (k) => (m.has(k) ? m.get(k) : null), set: (k, v) => m.set(k, String(v)), remove: (k) => m.delete(k), keys: () => [...m.keys()] }; };
-const frames = (s, k) => { for (let i = 0; i < k; i++) s.advance(1000 / s.machine.fps + 0.01); };
+const frames = (s, k) => { for (let i = 0; i < k; i++) s.advance(1000 / s.shownMachine.fps + 0.01); };
 // the 'menu' events a session emits while `fn` runs, as the page sees them (arg undefined = after a goodbye)
 const menusDuring = (s, fn) => { const got = []; s.on((e, arg) => { if (e === 'menu') got.push(arg || 'bye'); }); fn(); return got; };
 
@@ -35,8 +35,8 @@ for (const id of with6309) {
     const s = new Emu.Session({ store: store() });
     const events = menusDuring(s, () => s.switchMachine(id, { cpu: '6309' }));
     check(`${tag}: switching to it offers the welcome menu, once, as a return ('menu', 'back')`, events.join() === 'back', events.join());
-    check(`${tag}: it is the 6309 on the stub firmware (no ROMs): what the menu is offered for`, s.machine.config.cpu === '6309' && s.machine.useStub === true,
-      `${s.machine.config.cpu} stub ${s.machine.useStub}`);
+    check(`${tag}: it is the 6309 on the stub firmware (no ROMs): what the menu is offered for`, s.shownMachine.config.cpu === '6309' && s.shownMachine.useStub === true,
+      `${s.shownMachine.config.cpu} stub ${s.shownMachine.useStub}`);
   }
 
   // the page's own start: the link's switch asks for no menu (menu: false), then the visit offers it
@@ -74,8 +74,8 @@ for (const id of with6309) {
     const s = new Emu.Session({ store: store() });
     s.switchMachine(id, { cpu: '6309' }, { menu: false });
     // as if its ROMs were loaded: every required slot holds an image (zeros, a stand-in; these tests ship and use no ROM)
-    for (const slot of s.machine.profile.roms) if (slot.required) s.machine.roms[slot.id] = new Uint8Array(slot.size || 0x4000);
-    check(`${tag}: (precondition) with a stand-in in every required ROM slot the machine is off the stub`, s.machine.hasRom && !s.machine.useStub);
+    for (const slot of s.shownMachine.profile.roms) if (slot.required) s.shownMachine.roms[slot.id] = new Uint8Array(slot.size || 0x4000);
+    check(`${tag}: (precondition) with a stand-in in every required ROM slot the machine is off the stub`, s.shownMachine.hasRom && !s.shownMachine.useStub);
     const e2 = menusDuring(s, () => s.offerMenu());
     check(`${tag}: a machine that is not on the stub firmware is not offered the menu`, e2.length === 0, e2.join());
   }

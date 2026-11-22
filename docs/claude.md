@@ -147,7 +147,9 @@ Two ways to talk to Claude, one conversation:
   ends Fullscreen so it can be answered. A **Reset** or a **power cycle** of the machine Claude acts on, while Claude
   acts or is paused, stops Claude first ("[stopped: you reset the machine]" in the conversation); so does any other
   restart of that machine (a program or cartridge that starts, the welcome menu, LIZA, ROMs cleared: the machine's
-  `onReset`), and any program you load or run on it (with ROMs a program starts without a reset). A Reset of the full-screen chat's own screen leaves Claude's work on the BASIC session alone. A
+  `onReset`), and any program you load or run on it (with ROMs a program starts without a reset). A Reset of the full-screen chat's own screen leaves Claude's work on the BASIC session alone: Reset restarts what
+  is on screen (the chat firmware, which comes back running), while **Power** switches off and on the machine you
+  are working on - your BASIC session - and leaves the chat's screen alone. A
   snapshot load or a machine switch replaces the machine and closes the conversation. An Esc held down is one
   press: its autorepeat does not stop Claude, whatever modifier (Shift, AltGr, Caps Lock…) is pressed meanwhile; an
   Esc that only closes a card or a confirmation above the screen is not a key on the machine and pauses nothing.
@@ -282,6 +284,12 @@ emulator.
   goes in while you watch the chat. The chat needs a 6809-family CPU (the 6309 runs the firmware unchanged) and
   32K or more: the firmware uses $0400-$7FFF. On a machine with less the chat opens and the screen stays the stub's,
   so pick a 32K model (the Dragon 64, a 32K CoCo); the chat opens on a Dragon 64 from an MC-10 or Alice.
+  A file dropped while the chat is full screen (a program, a tape, a cartridge, a disk or a ROM) goes to your BASIC
+  session, never the chat machine: the chat machine runs the chat firmware, and a load there would overwrite it and
+  take the chat screen away. The message says where it went, and the drives card shows the BASIC session's drives. A
+  ROM is stored for its model either way, so a ROM dropped here sets up the same model's BASIC session; the chat
+  machine keeps running its firmware and takes the stored ROMs when you go back to BASIC. The POKE book, Remove ROMs,
+  Save snapshot, Skip on the cassette and the welcome menu are the BASIC session's too.
 * **Typing.** A line can be up to 255 characters. It wraps as you type the way replies wrap: a word that doesn't fit
   moves to the next line, a word with no space in it breaks at the character, and a space that falls at the end of a
   full line ends it without being drawn. BACKSPACE goes back across the wraps. A key past the 255th is refused visibly: the screen flashes (the VDG's colour
@@ -558,7 +566,7 @@ emulator.
   | `unknown-machine` | this machine's BASIC is not one load_basic knows: type the program with type_text instead |
   | `load-declined` | the person chose not to load the program: do not load it; offer to type it if it has 3 lines or fewer, or give them the listing |
   | `include-unreadable` | an INCLUDE file could not be read (detail names it and why); nothing was written: put the code it holds into the source itself and call again |
-  | `tool-failed` | the tool failed inside the emulator (detail says how), not because of what you sent: read the machine with machine_info or screen_text before going on, and tell the person; do not repeat the call unchanged |
+  | `tool-failed` | the tool failed inside the emulator (detail says how): read the machine with machine_info or screen_text before going on, and tell the person; do not repeat the call unchanged. (When the detail says the CALL was wrong - it names a tool target, say - fix the call; nothing was read and the machine is fine.) |
   | `not-typable` | the machine cannot take the characters in detail (no key for them on this keyboard, or above $7E, which BASIC cannot store as text): leave them out or use plain ASCII it has (BASIC keywords are uppercase) |
 * **Not yet:** the chat on a real machine over a serial cable (the firmware's DriveWire is the Becker port's; a
   bit-banger DriveWire driver is not written), the CoCo 3's 80-column screen (the CoCo 3 runs the same 256×192

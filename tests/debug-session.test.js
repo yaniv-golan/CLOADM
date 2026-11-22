@@ -39,11 +39,11 @@ const asmRun = (s, text, cpu = '6809', id = 'dragon64', org = 0x3000) => {
   const s = new Emu.Session({ store: Emu.memoryStore() });
   s.switchMachine('dragon64');
   const d1 = s.debug;
-  check('the Session makes a debugger for the machine in use', d1 instanceof Emu.Debugger && d1.machine === s.machine);
+  check('the Session makes a debugger for the machine in use', d1 instanceof Emu.Debugger && d1.machine === s.shownMachine);
   check('the debugger knows the CPU', d1.cpu === '6809', d1.cpu);
   check('asking twice gives the same debugger', s.debug === d1);
   s.switchMachine('coco3');
-  check('switching machine makes a new debugger for the new machine', s.debug !== d1 && s.debug.machine === s.machine);
+  check('switching machine makes a new debugger for the new machine', s.debug !== d1 && s.debug.machine === s.shownMachine);
   check('the old debugger was detached from the old machine', d1._readOrig === null);
   s.switchMachine('mc10');
   check('a 6803 machine gets a 6803 debugger', s.debug.cpu === '6803', s.debug.cpu);
@@ -58,7 +58,7 @@ const asmRun = (s, text, cpu = '6809', id = 'dragon64', org = 0x3000) => {
   const ran = s.debug.run(50);
   check('a breakpoint stops the machine through the Session', s.debug.stopped && s.debug.pc === loop, h(s.debug.pc) + ` after ${ran} instructions`);
   check('the Session reports the stop', s.debug.stopReason.kind === 'breakpoint');
-  check('the Session exposure is the debugger, not a copy', s.debug.read(0x4000) === s.machine.ram[0x4000]);
+  check('the Session exposure is the debugger, not a copy', s.debug.read(0x4000) === s.shownMachine.ram[0x4000]);
   s.debug.resume();
   const stepsBefore = s.debug.steps;
   s.debug.step();
@@ -75,7 +75,7 @@ const asmRun = (s, text, cpu = '6809', id = 'dragon64', org = 0x3000) => {
   for (let i = 0; i < 30 && same; i++) {
     s.debug.step();
     free.cpu.step();
-    if (s.machine.cpu.pc !== free.cpu.pc || s.machine.cpu.a !== free.cpu.a) same = false;
+    if (s.shownMachine.cpu.pc !== free.cpu.pc || s.shownMachine.cpu.a !== free.cpu.a) same = false;
   }
   check('stepping through the Session matches a free run', same);
 }
@@ -130,7 +130,7 @@ const asmRun = (s, text, cpu = '6809', id = 'dragon64', org = 0x3000) => {
   }
   // a CPU no core provides is refused by name (the 6309 and 6803 now have register sets of their own)
   check('a CPU with no core is refused by name', (() => {
-    const m = s.machine;
+    const m = s.shownMachine;
     Object.defineProperty(m, 'config', { value: Object.assign({}, m.config, { cpu: '6800' }), configurable: true });
     const e = err(() => new Emu.Debugger(m));
     Object.defineProperty(m, 'config', { value: m.config, configurable: true });
@@ -142,7 +142,7 @@ const asmRun = (s, text, cpu = '6809', id = 'dragon64', org = 0x3000) => {
 {
   const s = new Emu.Session({ store: Emu.memoryStore() });
   s.switchMachine('dragon64', { cpu: '6309' });
-  check('the 6309 session really runs the 6309 core', s.machine.cpu.constructor.name === 'CPU6309', s.machine.cpu.constructor.name);
+  check('the 6309 session really runs the 6309 core', s.shownMachine.cpu.constructor.name === 'CPU6309', s.shownMachine.cpu.constructor.name);
   const dbg = s.debug;
   check('the 6309 debugger reports the 6309', dbg.cpu === '6309', dbg.cpu);
   // instructions only the 6309 has, one per addressing form, plus SWI3 which the two parts share
@@ -178,9 +178,9 @@ const asmRun = (s, text, cpu = '6809', id = 'dragon64', org = 0x3000) => {
   s.debug.addBreakpoint(r.symbols.get('LOOP'));
   s.debug.addWatchpoint(0x4000, 2, { write: true, read: false });
   s.debug.step(); s.debug.step();
-  const snap = s.machine.snapshot();          // includes the debugger (see js/machines/machine.js)
+  const snap = s.shownMachine.snapshot();          // includes the debugger (see js/machines/machine.js)
   const text = Emu.state.toJSON(snap);
-  const restored = Emu.restoreSnapshot(Emu.state.fromJSON(text), s.machine.roms);
+  const restored = Emu.restoreSnapshot(Emu.state.fromJSON(text), s.shownMachine.roms);
   check('a snapshot carries the breakpoints', JSON.stringify(restored.debugger.breakpoints()) === JSON.stringify(s.debug.breakpoints()),
     JSON.stringify(restored.debugger.breakpoints()));
   check('a snapshot carries the watchpoints', JSON.stringify(restored.debugger.watchpoints()) === JSON.stringify(s.debug.watchpoints()));
@@ -196,7 +196,7 @@ const asmRun = (s, text, cpu = '6809', id = 'dragon64', org = 0x3000) => {
 {
   const fnv = (h, v) => Math.imul(h ^ (v & 0xFFFFFFFF), 0x01000193) >>> 0;
   const hashRun = (s, frames, viaDebugger) => {
-    const m = s.machine; let hh = 0x811C9DC5;
+    const m = s.shownMachine; let hh = 0x811C9DC5;
     m.cpu.trace = (c) => { hh = fnv(hh, c.pc); hh = fnv(hh, c.a); hh = fnv(hh, c.x); hh = fnv(hh, c.totalCycles); };
     for (let f = 0; f < frames; f++) {
       if (viaDebugger) s.debug.runFrame(); else m.runFrame();
@@ -226,18 +226,18 @@ NEXT    BRA     START
   s.on((e) => { if (e === 'debug') events++; });
   const at = r.symbols.get('AFTER');             // LDB $0500, after the fill loop
   s.debug.addBreakpoint(at);
-  const f0 = s.machine.frameCount;
+  const f0 = s.shownMachine.frameCount;
   let ran = 0;
   for (let i = 0; i < 20 && !s.paused; i++) ran += s.advance(20);
   check('advance stops at the breakpoint part way through a frame and says so once', s.paused && s.debug.pc === at && s.debug.stopReason.kind === 'breakpoint'
     && events === 1, `${h(s.debug.pc)} ${JSON.stringify(s.debug.stopReason)} events ${events}`);
-  const frames = s.machine.frameCount;
-  check('while stopped, advance runs nothing', s.advance(100) === 0 && s.machine.frameCount === frames && s.debug.pc === at);
-  const cyc = s.machine.cycle;
+  const frames = s.shownMachine.frameCount;
+  check('while stopped, advance runs nothing', s.advance(100) === 0 && s.shownMachine.frameCount === frames && s.debug.pc === at);
+  const cyc = s.shownMachine.cycle;
   s.resume();
   for (let i = 0; i < 20 && !s.paused; i++) s.advance(20);
   check('after resume it runs on (a whole fill loop) and stops at the same breakpoint the next time round', s.paused && s.debug.pc === at && events === 2
-    && s.machine.cycle - cyc > 5000 && s.machine.frameCount >= f0, `${s.machine.cycle - cyc} cycles`);
+    && s.shownMachine.cycle - cyc > 5000 && s.shownMachine.frameCount >= f0, `${s.shownMachine.cycle - cyc} cycles`);
   // a watchpoint through the frame loop: stops after the instruction that wrote
   s.debug.clearBreakpoints();
   s.debug.addWatchpoint(0x4100, 1, { read: false, write: true });
@@ -287,7 +287,7 @@ for (const [id, cpu, org, text] of [
 ]) {
   const s = new Emu.Session({ store: Emu.memoryStore() });
   const r = asmRun(s, text, cpu, id, org);
-  const m = s.machine, d = s.debug;
+  const m = s.shownMachine, d = s.debug;
   while (m.cycle < 2 ** 24 + 1000) m.runFrame();
   const loop = r.symbols.get('LOOP'), mid = r.symbols.get('MID');
   d.machine.cpu.jump(loop);
@@ -310,7 +310,7 @@ for (const [id, cpu, org, text] of [
 LOOP    NOP
         BRA     LOOP
 `);
-  const m = s.machine, d = s.debug;
+  const m = s.shownMachine, d = s.debug;
   s.advance(1000 / m.fps);                          // a whole frame, so the next one starts fresh
   // part way into a frame, with a sound change, then a stop (as a debugger's runTo does)
   m.runFrame(() => { m.runCycles(m.frameBase + 1000); m.setSoundLevel(0.25); return false; });
@@ -345,16 +345,16 @@ NEXT    BRA     START
   const after = rf.symbols.get('AFTER');
   // the free run's own trace: every instruction's address and the cycle count before it ran
   const log = [];
-  free.machine.cpu.trace = (c) => { if (log.length < 200000) log.push([c.pc, c.totalCycles]); };
-  for (let f = 0; f < 3; f++) free.machine.runFrame();
-  free.machine.cpu.trace = null;
+  free.shownMachine.cpu.trace = (c) => { if (log.length < 200000) log.push([c.pc, c.totalCycles]); };
+  for (let f = 0; f < 3; f++) free.shownMachine.runFrame();
+  free.shownMachine.cpu.trace = null;
   const firstAt = log.findIndex(([pc]) => pc === after);
   dbgd.debug.addBreakpoint(after);
   for (let i = 0; i < 20 && !dbgd.paused; i++) dbgd.advance(20);
   const t = dbgd.debug.trace();
   check('a breakpoint stops the running machine before the very instruction the free run executes there (same cycle count)',
-    firstAt > 0 && dbgd.paused && dbgd.debug.pc === after && dbgd.machine.cpu.totalCycles === log[firstAt][1]
-    && t[t.length - 1].pc === log[firstAt - 1][0], `free ${log[firstAt] && log[firstAt][1]} vs ${dbgd.machine.cpu.totalCycles}`);
+    firstAt > 0 && dbgd.paused && dbgd.debug.pc === after && dbgd.shownMachine.cpu.totalCycles === log[firstAt][1]
+    && t[t.length - 1].pc === log[firstAt - 1][0], `free ${log[firstAt] && log[firstAt][1]} vs ${dbgd.shownMachine.cpu.totalCycles}`);
 
   const RECURSE = `
 START   LDS     #$3F00
@@ -441,7 +441,7 @@ const snapshotBreakpoints = (async () => {
   b.switchMachine('coco');
   b.openSnapshot(await b.readSnapshot(f.bytes));
   check('opening a snapshot through the Session brings its breakpoints and watchpoints back',
-    b.machine.debugger === b.debug && JSON.stringify(b.debug.breakpoints()) === '[12293]' && b.debug.watchpoints().length === 1
+    b.shownMachine.debugger === b.debug && JSON.stringify(b.debug.breakpoints()) === '[12293]' && b.debug.watchpoints().length === 1
     && b.debug.watchpoints()[0].start === 0x4001, JSON.stringify(b.debug.breakpoints()));
 })();
 

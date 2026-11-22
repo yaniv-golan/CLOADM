@@ -204,22 +204,22 @@ DATAE
   const s = new Emu.Session();
   s.switchMachine('dragon64');
   const w = firmware('dragon64', 'csave.asm');
-  s.machine.setRoms(w.slots); s.machine.reset(true);
+  s.shownMachine.setRoms(w.slots); s.shownMachine.reset(true);
   check('Session: not recording at first', !s.tapeRecording);
   s.startTapeRecording();
   check('Session: recording armed', s.tapeRecording);
   let t = 0;
-  for (let i = 0; i < 300 && s.machine.cpu.pc !== w.haltPc; i++) s.advance(20, { now: () => t });
+  for (let i = 0; i < 300 && s.shownMachine.cpu.pc !== w.haltPc; i++) s.advance(20, { now: () => t });
   const rec = s.stopTapeRecording();
   check('Session: stopTapeRecording gives the .CAS bytes written, and their WAV', same(rec.cas, stream) && rec.blocks === 3 && same(Emu.wavToCas(rec.wav).bytes, stream) && !s.tapeRecording,
     `(${rec.seconds.toFixed(1)} s)`);
   // a WAV recording loads like a .CAS
   s.switchMachine('coco');
   const msg = s.insertTape('mytape.wav', Emu.casToWav(second));
-  check('Session: insertTape takes a WAV recording, decoded', /decoded from the recording: 3 blocks/.test(msg) && same(s.machine.deck.tape.bytes, second), msg);
+  check('Session: insertTape takes a WAV recording, decoded', /decoded from the recording: 3 blocks/.test(msg) && same(s.shownMachine.deck.tape.bytes, second), msg);
   const out = s.tapeWav();
   check('Session: tapeWav exports the tape in the deck, which decodes back', out.name === 'mytape.wav' && same(Emu.wavToCas(out.bytes).bytes, second));
-  s.machine.deck.eject();
+  s.shownMachine.deck.eject();
   check('Session: tapeWav with no tape says so', throws(() => s.tapeWav(), /no tape in the deck/));
   const loaded = s.load('game.wav', Emu.casToWav(stream), { remember: false });
   check('Session: load() of a WAV with a machine-code file injects it, as a .CAS', /CLOADM fast-loaded/.test(loaded), loaded);
@@ -244,15 +244,15 @@ DATAE
     const s = new Emu.Session();
     s.switchMachine('dragon64');
     const w = firmware('dragon64', 'csave.asm');
-    s.machine.setRoms(w.slots); s.machine.reset(true);
+    s.shownMachine.setRoms(w.slots); s.shownMachine.reset(true);
     s.startTapeRecording();
     let t = 0;
-    for (let i = 0; i < 300 && s.machine.cpu.pc !== w.haltPc; i++) s.advance(20, { now: () => t });
+    for (let i = 0; i < 300 && s.shownMachine.cpu.pc !== w.haltPc; i++) s.advance(20, { now: () => t });
     return s;
   };
   const s = record();
   const seen = [];
-  s.on((ev) => seen.push(`${ev}:${s.machine.id}`));
+  s.on((ev) => seen.push(`${ev}:${s.shownMachine.id}`));
   s.switchMachine('coco');
   const r = s.unsavedRecording;
   check('switch while recording: the recording is kept, with what was written', r && same(r.cas, stream) && r.blocks === 3 && r.machine === 'Dragon 64', r ? `${r.blocks} blocks from ${r.machine}` : 'none');
@@ -263,7 +263,7 @@ DATAE
   check('switch to the same model while recording: kept too', !!s2.unsavedRecording);
   const s3 = record();
   const stub = new Emu.Session(); stub.switchMachine('dragon64');
-  s3.openSnapshot(Emu.state.fromJSON(Emu.state.toJSON(stub.machine.snapshot())));   // same model: restored in place
+  s3.openSnapshot(Emu.state.fromJSON(Emu.state.toJSON(stub.shownMachine.snapshot())));   // same model: restored in place
   check('a snapshot opened while recording (no switch): the recording is kept', !!s3.unsavedRecording && same(s3.unsavedRecording.cas, stream));
   const s4 = new Emu.Session();
   s4.switchMachine('dragon64');
@@ -287,28 +287,28 @@ DATAE
   // on the stub (no ROMs)
   const s = new Emu.Session();
   s.switchMachine('coco');
-  const ram0 = s.machine.ram.slice(0, 16);
+  const ram0 = s.shownMachine.ram.slice(0, 16);
   let msg = null, err = null;
   try { msg = s.load('scores.cas', dataTape, { remember: false }); } catch (e) { err = e; }
-  check('fast load, DATA file: not poked into memory and run', !err && s.machine.ram.slice(0, 16).every((v, i) => v === ram0[i]) && s.machine.cpu.pc !== 0,
-    err ? err.message : `pc $${s.machine.cpu.pc.toString(16)}`);
-  check('...it is put in the deck, and the message says why it was not loaded', !err && !!s.machine.deck.tape && /SCORES is a DATA file/.test(msg) && /in the deck/.test(msg), msg || (err && err.message));
+  check('fast load, DATA file: not poked into memory and run', !err && s.shownMachine.ram.slice(0, 16).every((v, i) => v === ram0[i]) && s.shownMachine.cpu.pc !== 0,
+    err ? err.message : `pc $${s.shownMachine.cpu.pc.toString(16)}`);
+  check('...it is put in the deck, and the message says why it was not loaded', !err && !!s.shownMachine.deck.tape && /SCORES is a DATA file/.test(msg) && /in the deck/.test(msg), msg || (err && err.message));
   check('fast load, ASCII BASIC on the stub: refused, it needs BASIC to read it', throws(() => s.load('listing.cas', asciiTape, { remember: false }), /BASIC ROM/));
   // with ROMs and fastCas (a stand-in ROM: only what the Session decides is looked at)
   const r = new Emu.Session();
   r.switchMachine('coco');
-  r.machine.setRoms({ bas: new Uint8Array(0x2000).fill(0x12) });
+  r.shownMachine.setRoms({ bas: new Uint8Array(0x2000).fill(0x12) });
   r.fastCas = true;
   msg = r.load('listing.cas', asciiTape, { remember: false });
-  check('fastCas, ASCII BASIC: loaded through BASIC (CLOAD, RUN), not fast-loaded', /loading via BASIC/.test(msg) && r.machine.typist.queue.join('').startsWith('CLOAD\r'), msg);
-  r.machine.typist.clear();
+  check('fastCas, ASCII BASIC: loaded through BASIC (CLOAD, RUN), not fast-loaded', /loading via BASIC/.test(msg) && r.shownMachine.typist.queue.join('').startsWith('CLOAD\r'), msg);
+  r.shownMachine.typist.clear();
   msg = r.load('scores.cas', dataTape, { remember: false });
-  check('fastCas, DATA file: in the deck, nothing typed', /SCORES is a DATA file/.test(msg) && !r.machine.typist.busy && !!r.machine.deck.tape, msg);
+  check('fastCas, DATA file: in the deck, nothing typed', /SCORES is a DATA file/.test(msg) && !r.shownMachine.typist.busy && !!r.shownMachine.deck.tape, msg);
   // and without fastCas (through BASIC): a DATA file is not CLOADed (BASIC would say ?FM ERROR)
   r.fastCas = false;
-  r.machine.typist.clear();
+  r.shownMachine.typist.clear();
   msg = r.load('scores.cas', dataTape, { remember: false });
-  check('through BASIC, DATA file: in the deck, nothing typed', /SCORES is a DATA file/.test(msg) && !r.machine.typist.busy, msg);
+  check('through BASIC, DATA file: in the deck, nothing typed', /SCORES is a DATA file/.test(msg) && !r.shownMachine.typist.busy, msg);
 }
 
 // ---------------- the signal a .CAS file is played as (js/media/tape.js) ----------------

@@ -175,7 +175,7 @@ async function diskChecks(browser, base, check) {
   await page.click('#btnPause');
   await page.click('#btnReset');
   const reachedHalt = await page.evaluate(async (h) => {
-    const s = window.emu.session, m = s.machine, frame = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const s = window.emu.session, m = s.shownMachine, frame = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
     for (let f = 0; f < 3000 && m.cpu.pc !== h; f++) { s.advance(1000 / m.fps, { now: () => performance.now() }); await frame(); }
     return m.cpu.pc === h;
   }, halt);
@@ -1564,7 +1564,7 @@ async function nitros9Checks(browser, base, check) {
     /from myfloppy\.dsk in floppy drive 0/.test(await msg()), await msg());
   await ev(() => window.emu.nitros9Shown());
   check('nitros9 floppy: the CoCo disk controller (no ROM) is in the port, the disk in drive 0, listed as a floppy in the slot',
-    await ev(() => { const s = window.emu.session, c = s.machine.cartPort; return !!c && c.type === 'cocofdc' && !c.romBytes && s.diskStatus().drives.some((d) => d.drive === 0 && d.name === 'disks/myfloppy.dsk'); }) &&
+    await ev(() => { const s = window.emu.session, c = s.shownMachine.cartPort; return !!c && c.type === 'cocofdc' && !c.romBytes && s.diskStatus().drives.some((d) => d.drive === 0 && d.name === 'disks/myfloppy.dsk'); }) &&
     /myfloppy\.dsk \(6809, floppy\)/.test(await page.textContent('#n9Image')) && /running from myfloppy\.dsk/.test(await page.textContent('#n9State')), `${await page.textContent('#n9Image')} | ${await page.textContent('#n9State')}`);
   await page.click('#btnN9Leave');
   check('nitros9 floppy: Back to BASIC takes the ROM-less controller out', await waitFor(page, () => !window.emu.session.nitros9Running && !window.emu.machine.cartPort));
@@ -1856,6 +1856,28 @@ async function romUiChecks(browser, base, check) {
   await page.click('#btnRomBack');
   await page.click('#btnBootStub');
   check('watchdog: "Run without ROMs" runs the stub and the box goes', await waitFor(page, () => !window.emu.machine.hasRom && document.getElementById('bootHelp').hidden));
+  // a restore closes a stale box: put the failing stored ROMs back in (they are still in the library; the box went
+  // only because "Run without ROMs" chose the stub), so the box is up, take a restore point, then undo. An undo is
+  // announced as 'restored' (not 'reset'), which boot-help re-checks on, so the box goes with the run it belonged to.
+  // Driven through the page's Session, the same call the restore line makes. The block leaves the page as it found it
+  // (the stub running, the stored ROMs untouched), which the reload check below depends on.
+  {
+    await page.evaluate(() => { const S = window.emu.session; S.useStoredRoms(S.personMachine); S.powerCycle(); });
+    const shown2 = await waitFor(page, () => !document.getElementById('bootHelp').hidden, null, 30000);
+    check('restore: the box is up again for the failing ROMs', shown2 && /No OK after|isn't recognised|problem in CLOADM/.test(await page.textContent('#bootHelp')));
+    const went = await page.evaluate(() => {
+      const S = window.emu.session;
+      const chat = S.startAsk({ backend: { runTool: async () => ({}), send: async () => {} } });
+      chat.undo.push(S.chatTarget().snapshot());
+      const before = { state: S.bootStatus().state, shown: !document.getElementById('bootHelp').hidden };
+      S.restoreClaude(0);
+      return { before, after: { state: S.bootStatus().state, shown: !document.getElementById('bootHelp').hidden } };
+    });
+    check('restore: an undo takes down the box the run it replaced raised', went.before.shown && !went.after.shown
+      && went.after.state === 'restored', JSON.stringify(went));
+    await page.evaluate(() => { const S = window.emu.session; S.endChat(); S.runWithoutRoms({ menu: false }); });
+    await waitFor(page, () => document.getElementById('bootHelp').hidden && !window.emu.machine.hasRom);
+  }
   // everything survives a reload (re-inject the test CRCs, which live in page memory only)
   await page.goto(`${base}?machine=coco`); await started(page);
   await inject();
@@ -2092,8 +2114,8 @@ async function cpu6309Checks(browser, base, check) {
   });
   const open = async (q, within = 15000) => {
     await page.goto(`${base}${q}`);
-    return waitFor(page, () => window.emu && window.emu.session && window.emu.session.machine
-      && window.emu.session.machine.config.cpu === '6309' && window.emu.machine && window.emu.machine.config.cpu === '6309', null, within);
+    return waitFor(page, () => window.emu && window.emu.session && window.emu.session.shownMachine
+      && window.emu.session.shownMachine.config.cpu === '6309' && window.emu.machine && window.emu.machine.config.cpu === '6309', null, within);
   };
   const msg = () => page.textContent('#toast');
   const ev = (fn) => page.evaluate(fn);
@@ -2163,8 +2185,8 @@ async function cpu6309Checks(browser, base, check) {
   check('cpu=6309: "Back to the menu" starts it afresh, no carry-on option (as on the 6809)', await ev(() => window.emu.session.screenText()[14].includes('PRESS 1 TO 5') && !window.emu.session.screenText().join('').includes('CARRY ON')), await screenText());
   await key('4');
   check('cpu=6309: key 4 opens the Claude chat (no switch to a 6809)', await waitFor(page, () => document.body.classList.contains('claude-open') && window.emu.session.chatView === 'chat', null, 15000), await msg());
-  // the chat machine is the second machine startChat makes; session.machine alone is not evidence (with the bug,
-  // startChat throws and session.machine is still the BASIC machine, which is a 6309 from the URL either way)
+  // the chat machine is the second machine startChat makes; the machine in use alone is not evidence (with the bug,
+  // startChat throws and the machine in use is still the BASIC machine, which is a 6309 from the URL either way)
   check('cpu=6309: the chat machine is the 6309 the visitor chose',
     await ev(() => !!window.emu.session.chatMachines && window.emu.session.chatMachines.chat.config.cpu === '6309'),
     await ev(() => window.emu.session.chatMachines ? window.emu.session.chatMachines.chat.config.cpu : 'no chat machine'));
@@ -2226,8 +2248,8 @@ async function cpu6309Checks(browser, base, check) {
     watch();
   });
   await p3.goto(`${base}?machine=coco3&cpu=6309`);
-  const on6309 = await waitFor(p3, () => window.emu && window.emu.session && window.emu.session.machine && window.emu.session.machine.id === 'coco3'
-    && window.emu.session.machine.config.cpu === '6309' && window.emu.machine && window.emu.machine.config.cpu === '6309', null, 15000);
+  const on6309 = await waitFor(p3, () => window.emu && window.emu.session && window.emu.session.shownMachine && window.emu.session.shownMachine.id === 'coco3'
+    && window.emu.session.shownMachine.config.cpu === '6309' && window.emu.machine && window.emu.machine.config.cpu === '6309', null, 15000);
   check('?machine=coco3&cpu=6309: the link opens a CoCo 3 with the HD6309', on6309, await p3.evaluate(() => (window.emu && window.emu.machine ? `${window.emu.machine.id} ${window.emu.machine.config.cpu}` : 'no machine')));
   const menu3 = await waitFor(p3, () => window.emu.session.welcomeRunning && /PRESS 1 TO [56]/.test(window.emu.session.screenText()[14]), null, 15000);
   check('?machine=coco3&cpu=6309: the welcome menu is offered and on screen', menu3, (await p3.evaluate(() => window.emu.session.screenText())).join('\n'));
@@ -2237,7 +2259,7 @@ async function cpu6309Checks(browser, base, check) {
   await p3.click('#navDebugger');
   await p3.waitForSelector('#debugView:not([hidden])');
   await waitFor(p3, () => document.querySelectorAll('#dbgRegs [data-reg]').length > 0, null, 15000);
-  const dbg3 = await p3.evaluate(() => ({ cls: window.emu.session.machine.cpu.constructor.name, fields: [...document.querySelectorAll('#dbgRegs [data-reg]')].map((e) => e.dataset.reg),
+  const dbg3 = await p3.evaluate(() => ({ cls: window.emu.session.shownMachine.cpu.constructor.name, fields: [...document.querySelectorAll('#dbgRegs [data-reg]')].map((e) => e.dataset.reg),
     names: [...document.querySelectorAll('#dbgRegs')].map((e) => e.textContent).join(' ') }));
   check('?machine=coco3&cpu=6309: the Debugger shows the 6309 registers (E, F, W, Q, V, MD) of that machine',
     dbg3.cls === 'CPU6309' && ['e', 'f', 'w', 'q', 'v', 'md'].every((r) => dbg3.fields.includes(r)), `${dbg3.cls} ${dbg3.fields.join()}`);
@@ -3228,7 +3250,7 @@ async function snapshotChecks(browser, base, check) {
       const s = window.emu.session;
       s.roms.put('dragon32', 'basic', new Uint8Array(rom), 'd32.rom');
       s.switchMachine('dragon32');
-      for (let i = 0; i < 5; i++) s.machine.runFrame();
+      for (let i = 0; i < 5; i++) s.shownMachine.runFrame();
       const f = await s.snapshotFile();
       s.roms.clear('dragon32');
       s.switchMachine('dragon64');
@@ -3547,13 +3569,13 @@ async function debuggerScreenChecks(browser, base, check) {
     // Step with the CPU halted (HALT asserted, as a disk controller does): no instruction runs in the frame it waits,
     // the screen says so, the PC and the trace stay as they were; with HALT released, Step runs one instruction again
     const held = await page.evaluate(() => {
-      const s = window.emu.session, m = s.machine, d = s.debug;
+      const s = window.emu.session, m = s.shownMachine, d = s.debug;
       m.setLine('test', 'halt', true);
       return { pc: d.pc, steps: d.steps, trace: d.log.length };
     });
     await page.click('#btnDbgStep');
     const heldAfter = await page.evaluate(() => { const d = window.emu.session.debug; return { pc: d.pc, steps: d.steps, trace: d.log.length, kind: d.stopReason && d.stopReason.kind, status: document.getElementById('dbgStatus').textContent }; });
-    await page.evaluate(() => window.emu.session.machine.setLine('test', 'halt', false));
+    await page.evaluate(() => window.emu.session.shownMachine.setLine('test', 'halt', false));
     await page.click('#btnDbgStep');
     const freed = await page.evaluate(() => window.emu.session.debug.steps);
     check('debugger screen: Step with HALT asserted waits a frame and says "Halted", PC and trace unchanged; released, Step runs one instruction',
@@ -4672,10 +4694,10 @@ async function tapeHudChecks(browser, base, check) {
     const r = h.getBoundingClientRect(), shown = !h.hidden && getComputedStyle(h).display !== 'none' && r.width > 0;
     const top = shown && document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
     return { shown, noroom: h.classList.contains('noroom'), r: { left: r.left, top: r.top, right: r.right, bottom: r.bottom }, text, vw: innerWidth, vh: innerHeight,
-      onTop: !!top && h.contains(top), fs: !!document.fullscreenElement, playing: window.emu.machine.deck.playing };
+      onTop: !!top && h.contains(top), fs: !!document.fullscreenElement, playing: window.emu.session.personMachine.deck.playing };
   });
   const placedWell = (p) => (p.shown ? p.r.left >= 0 && p.r.top >= 0 && p.r.right <= p.vw && p.r.bottom <= p.vh && p.onTop && !rectsMeet(p.r, p.text) : p.noroom);
-  const tapeIn = (page) => page.evaluate((b) => { window.emu.session.fastTape = false; window.emu.session.insertTape('Space Game.cas', new Uint8Array(b)); window.__motor = setInterval(() => window.emu.machine.deck.setMotor(true), 20); }, bytes);
+  const tapeIn = (page) => page.evaluate((b) => { window.emu.session.fastTape = false; window.emu.session.insertTape('Space Game.cas', new Uint8Array(b)); window.__motor = setInterval(() => window.emu.session.personMachine.deck.setMotor(true), 20); }, bytes);
   for (const [label, opts] of [['desktop', { viewport: { width: 1440, height: 900 } }], ['phone', { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }]]) {
     const errors = [];
     const ctx = await browser.newContext({ ...opts, serviceWorkers: 'block' });
@@ -4685,7 +4707,7 @@ async function tapeHudChecks(browser, base, check) {
     await started(page);
     await waitFor(page, () => window.emu.session.chatView === 'chat' || (window.emu.session.showChat('chat'), false), null, 15000);
     await tapeIn(page);
-    await waitFor(page, () => window.emu.machine.deck.playing && document.getElementById('tapeHud').dataset.state === 'playing', null, 15000);
+    await waitFor(page, () => window.emu.session.personMachine.deck.playing && document.getElementById('tapeHud').dataset.state === 'playing', null, 15000);
     await emuFrames(page, 30);   // the HUD has been placed a few times (four times a second)
     const chat = await hudPlace(page);
     check(`tape HUD (${label}, Claude chat): ${chat.shown ? 'in view, on top, off the chat\'s text' : 'not shown: no place off the chat\'s text'}`, chat.playing && placedWell(chat), JSON.stringify(chat));
@@ -4695,7 +4717,7 @@ async function tapeHudChecks(browser, base, check) {
     await page.goto(`${base}?machine=coco`);
     await started(page);
     await tapeIn(page);
-    await waitFor(page, () => window.emu.machine.deck.playing && !document.getElementById('tapeHud').hidden, null, 15000);
+    await waitFor(page, () => window.emu.session.personMachine.deck.playing && !document.getElementById('tapeHud').hidden, null, 15000);
     const btn = await page.$('#btnFull');
     if (btn && await btn.isVisible()) await btn.click();
     else await page.evaluate(() => document.querySelector('[data-cmd="btnFull"], #btnFull').click());
@@ -5425,11 +5447,11 @@ SUB     INCA
   await page.fill('#asmSource', SRC);
   await page.click('#btnAsmRun');
   // assembled, and run by the page's frame loop to its HALT loop
-  await waitFor(page, () => { const s = window.emu.session; return s.labels.get('HALT') != null && s.machine.cpu.pc === s.labels.get('HALT'); });
+  await waitFor(page, () => { const s = window.emu.session; return s.labels.get('HALT') != null && s.shownMachine.cpu.pc === s.labels.get('HALT'); });
   // the program's symbols, from what runAssembled was given
   const info = await page.evaluate(() => {
     const s = window.emu.session;
-    return { loop: s.labels.get('LOOP'), start: s.labels.get('START'), sub: s.labels.get('SUB'), pc: s.machine.cpu.pc };
+    return { loop: s.labels.get('LOOP'), start: s.labels.get('START'), sub: s.labels.get('SUB'), pc: s.shownMachine.cpu.pc };
   });
   check('debugger: the assembled program shows its symbols to the Session', info.start === 0x3000 && info.loop === 0x3005 && info.sub > info.loop,
     JSON.stringify(info));
@@ -5437,7 +5459,7 @@ SUB     INCA
   // at START (as a debugger's "run from the beginning" does), then sets its breakpoint and runs.
   const stopped = await page.evaluate(({ loop, start }) => {
     const s = window.emu.session;
-    s.machine.cpu.jump(start);
+    s.shownMachine.cpu.jump(start);
     s.debug.addBreakpoint(loop);
     s.debug.run(50);
     return { stopped: s.debug.stopped, pc: s.debug.pc, reason: s.debug.stopReason, paused: s.paused };
@@ -5451,7 +5473,7 @@ SUB     INCA
   const step = await page.evaluate((start) => {
     const d = window.emu.session.debug;
     d.clearBreakpoints();
-    window.emu.session.machine.cpu.jump(start);
+    window.emu.session.shownMachine.cpu.jump(start);
     d.resume();
     const before = d.pc;
     const cycles = d.step();
@@ -5466,7 +5488,7 @@ SUB     INCA
     const s = window.emu.session, d = s.debug;
     d.clearBreakpoints(); d.clearWatchpoints();
     d.addWatchpoint(0x4000, 1, { write: true, read: false });
-    s.machine.cpu.jump(start);
+    s.shownMachine.cpu.jump(start);
     d.resume();
     d.run(200);
     return { stopped: d.stopped, reason: d.stopReason, pc: d.pc };
@@ -5477,8 +5499,8 @@ SUB     INCA
   const snapped = await page.evaluate(async () => {
     const s = window.emu.session, Emu = window.emu.Emu;
     s.debug.addBreakpoint(0x3005);
-    const text = Emu.state.toJSON(s.machine.snapshot());
-    const b = Emu.restoreSnapshot(Emu.state.fromJSON(text), s.machine.roms);
+    const text = Emu.state.toJSON(s.shownMachine.snapshot());
+    const b = Emu.restoreSnapshot(Emu.state.fromJSON(text), s.shownMachine.roms);
     return { bps: b.debugger ? b.debugger.breakpoints() : null };
   });
   check('debugger: a snapshot taken in the page keeps the breakpoints', JSON.stringify(snapped.bps) === '[12293]', JSON.stringify(snapped));
@@ -5500,10 +5522,10 @@ SUB     INCA
     const at = 0x3000;
     // LDQ immediate, AIM direct, TFM and SWI3: the four forms the 6309 adds or shares
     const r = Emu.assemble(' ORG $3000\nSTART LDQ #$11223344\n AIM #$80,<$10\n TFM X+,Y+\n SWI3\n', '6309');
-    s.machine.cpu.jump(at);
+    s.shownMachine.cpu.jump(at);
     for (const [i, b] of [...r.segments[0].data].entries()) s.debug.write(at + i, [b]);
     const d = s.debug;
-    return { cls: s.machine.cpu.constructor.name, cpu: d.cpu, dis: d.disassemble(at, 4).map((i) => i.text),
+    return { cls: s.shownMachine.cpu.constructor.name, cpu: d.cpu, dis: d.disassemble(at, 4).map((i) => i.text),
       regs: 'w' in d.registers() && 'q' in d.registers() && 'md' in d.registers() };
   });
   check('debugger: the 6309 option gives a 6309 core and debugger in the page', r9.cls === 'CPU6309' && r9.cpu === '6309', JSON.stringify(r9));
@@ -5530,7 +5552,7 @@ SUB     INCA
   await pS.waitForSelector('#debugView:not([hidden])');
   await waitFor(pS, () => document.querySelectorAll('#dbgRegs [data-reg]').length > 0);
   const s9 = await pS.evaluate(() => ({
-    cls: window.emu.session.machine.cpu.constructor.name,
+    cls: window.emu.session.shownMachine.cpu.constructor.name,
     fields: [...document.querySelectorAll('#dbgRegs [data-reg]')].map((e) => e.dataset.reg),
     flags: [...document.querySelectorAll('#dbgRegs .cc .flag, #dbgRegs .cc .flag.on')].map((e) => e.textContent),
     qValue: (document.querySelector('[data-reg="q"]') || {}).value,
@@ -5557,17 +5579,17 @@ SUB     INCA
   await waitFor(pS, () => document.querySelector('[data-reg="q"]').value === '$DEADBEEF');
   const qAfter = await pS.evaluate(() => ({
     field: document.querySelector('[data-reg="q"]').value,
-    q: window.emu.session.machine.cpu.q >>> 0,
+    q: window.emu.session.shownMachine.cpu.q >>> 0,
   }));
   check('debugger screen 6309: an edit through the Q field sets it, and the field reads back all four bytes',
     qAfter.q === 0xDEADBEEF && qAfter.field === '$DEADBEEF', JSON.stringify(qAfter));
   // W and V: each writes its own register, and D and X are left alone
-  const before = await pS.evaluate(() => { const c = window.emu.session.machine.cpu; return { d: c.d, x: c.x }; });
+  const before = await pS.evaluate(() => { const c = window.emu.session.shownMachine.cpu; return { d: c.d, x: c.x }; });
   await setField('w', '$1234');
   await setField('v', '$5678');
-  await waitFor(pS, () => window.emu.session.machine.cpu.w === 0x1234 && window.emu.session.machine.cpu.v === 0x5678);
+  await waitFor(pS, () => window.emu.session.shownMachine.cpu.w === 0x1234 && window.emu.session.shownMachine.cpu.v === 0x5678);
   const wv = await pS.evaluate(() => {
-    const c = window.emu.session.machine.cpu;
+    const c = window.emu.session.shownMachine.cpu;
     return { w: c.w, v: c.v, d: c.d, x: c.x, wField: document.querySelector('[data-reg="w"]').value, vField: document.querySelector('[data-reg="v"]').value };
   });
   check('debugger screen 6309: the W and V fields write W and V, leaving D and X alone',
@@ -5584,7 +5606,7 @@ SUB     INCA
     const el = document.querySelector('[data-reg="pc"]');
     el.value = 'START';
     el.dispatchEvent(new Event('change', { bubbles: true }));
-    return { start: r.symbols.get('START'), pc: s.machine.cpu.pc };
+    return { start: r.symbols.get('START'), pc: s.shownMachine.cpu.pc };
   });
   check('debugger screen 6309: typing a label into PC sets it from the program\'s symbols',
     labelSet.pc === labelSet.start && labelSet.start === 0x3000, JSON.stringify(labelSet));
@@ -5597,7 +5619,7 @@ SUB     INCA
     const el = document.querySelector('[data-reg="dp"]');
     el.value = 'PAGE';
     el.dispatchEvent(new Event('change', { bubbles: true }));
-    return s.machine.cpu.dp;
+    return s.shownMachine.cpu.dp;
   });
   check('debugger screen 6309: typing a label into a byte register (DP) sets it', dpLabel === 0x46, '$' + Number(dpLabel).toString(16));
   check('debugger screen 6309: no page errors', !errorsS.length, errorsS.join('; '));
@@ -5620,7 +5642,7 @@ SUB     INCA
     const el = document.querySelector('[data-reg="pc"]');
     el.value = 'START';
     el.dispatchEvent(new Event('change', { bubbles: true }));
-    return { cpu: s.machine.config.cpu, pc: s.machine.cpu.pc };
+    return { cpu: s.shownMachine.config.cpu, pc: s.shownMachine.cpu.pc };
   });
   check('debugger screen 6809: typing a label into PC sets it from the symbols too',
     label6809.cpu === '6809' && label6809.pc === 0x3000, JSON.stringify(label6809));
@@ -6219,7 +6241,7 @@ async function tapeChecks(browser, base, check) {
   await page.evaluate(async () => {
     const { assemble } = await import(new URL('js/asm/assembler.js', document.baseURI).href);
     const res = assemble(await (await fetch('tools/mame-diff/tape/standin.asm')).text(), '6809');
-    const s = window.emu.session, m = s.machine, base = Math.min(...m.profile.roms.map((x) => x.at)), end = Math.max(...m.profile.roms.map((x) => x.at + x.size));
+    const s = window.emu.session, m = s.shownMachine, base = Math.min(...m.profile.roms.map((x) => x.at)), end = Math.max(...m.profile.roms.map((x) => x.at + x.size));
     const img = new Uint8Array(end - base).fill(0x12);
     for (const sgm of res.segments) if (sgm.addr >= base) img.set(sgm.data.subarray(0, end - sgm.addr), sgm.addr - base);
     s.addRoms(m.profile.roms.map((sl) => ({ name: sl.files[0], bytes: img.slice(sl.at - base, sl.at - base + sl.size) })));
@@ -6651,9 +6673,9 @@ async function touchJoystickChecks(browser, base, check) {
     await waitFor(page, () => !document.getElementById('touchKeys').classList.contains('joystick'));
     const keptSwap = await page.evaluate(() => {
       const s = window.emu.session;
-      s.machine.joy[0][0] = 5; s.machine.joy[0][1] = 60; s.machine.fire[0] = true;
+      s.shownMachine.joy[0][0] = 5; s.shownMachine.joy[0][1] = 60; s.shownMachine.fire[0] = true;
       s.emit('machine');
-      return { joy: s.machine.joy[0].slice(), fire: s.machine.fire[0] };
+      return { joy: s.shownMachine.joy[0].slice(), fire: s.shownMachine.fire[0] };
     });
     check('touch joystick: a machine event leaves a joystick the panel was not driving alone',
       keptSwap.joy[0] === 5 && keptSwap.joy[1] === 60 && keptSwap.fire === true, JSON.stringify(keptSwap));
@@ -6662,9 +6684,9 @@ async function touchJoystickChecks(browser, base, check) {
     await waitFor(page, () => document.getElementById('touchKeys').classList.contains('joystick'));
     const releasedSwap = await page.evaluate(() => {
       const s = window.emu.session;
-      s.machine.joy[0][0] = 5; s.machine.joy[0][1] = 60; s.machine.fire[0] = true;
+      s.shownMachine.joy[0][0] = 5; s.shownMachine.joy[0][1] = 60; s.shownMachine.fire[0] = true;
       s.emit('machine');
-      return { joy: s.machine.joy[0].slice(), fire: s.machine.fire[0] };
+      return { joy: s.shownMachine.joy[0].slice(), fire: s.shownMachine.fire[0] };
     });
     check('touch joystick: a machine event with the stick up lets go of it',
       releasedSwap.joy[0] === 32 && releasedSwap.joy[1] === 32 && releasedSwap.fire === false, JSON.stringify(releasedSwap));
@@ -7571,6 +7593,61 @@ async function embedChecks(browser, site, check) {
   await emu.evaluate(() => { const m = window.emu.machine, slot = m.profile.roms[0]; m.setRoms({ [slot.id]: new Uint8Array(slot.size || 0x4000).fill(0x39) }); });
   const refused = await page.evaluate(async () => { try { await window.__cloadm.peek(0x400, 4); return null; } catch (e) { return e.message; } });
   check('embed: peek is refused while the machine runs the user\'s ROMs', /not available while the machine runs your own ROMs/.test(refused || ''), refused);
+  // a page that frames /play/ WITHOUT embed=1 is still someone else's page: no chat, no key card, whatever the URL says
+  const framed = await ctx.newPage();
+  await framed.setContent(`<!doctype html><title>a blog</title><iframe id="f" src="${site}play/?machine=dragon64&app=claude" width="900" height="700"></iframe>`);
+  const frame = framed.frames().find((f) => f !== framed.mainFrame());
+  await framed.waitForTimeout(2500);
+  const framedPage = frame ? await frame.evaluate(() => ({
+    framed: window.top !== window, chat: !!window.emu.session.chat, chatMachines: !!window.emu.session.chatMachines,
+    keyCard: (() => { const e = document.getElementById('claudeKeyCard'); if (!e) return false; const r = e.getBoundingClientRect(); return !e.hidden && r.width > 0; })(),
+    keyVisible: window.emu.session.keyStore.get(),
+  })) : null;
+  check('framed without embed=1: the page knows it is framed and offers no chat, no key card',
+    framedPage && framedPage.framed === true && framedPage.chat === false && framedPage.chatMachines === false && framedPage.keyCard === false,
+    JSON.stringify(framedPage));
+
+  // no Claude entry point is left visible: the Ask button and the Commands button are hidden, not dead
+  const buttons = frame ? await frame.evaluate(() => {
+    const vis = (id) => { const e = document.getElementById(id); if (!e) return 'absent'; const r = e.getBoundingClientRect(); return !e.hidden && r.width > 0 && r.height > 0; };
+    const shelf = document.querySelector('[data-shelf="claude"]');
+    return { bodyClass: document.body.classList.contains('no-claude'), ask: vis('btnAsk'), commands: vis('navCommands'),
+      shelf: shelf ? (() => { const r = shelf.getBoundingClientRect(); return !shelf.hidden && r.width > 0; })() : 'absent' };
+  }) : null;
+  check('framed without embed=1: no Claude entry is visible (Ask, Commands and the welcome shelf are hidden, not dead)',
+    buttons && buttons.bodyClass === true && buttons.ask === false && buttons.commands === false && buttons.shelf === false,
+    JSON.stringify(buttons));
+  // A key IN this frame's own storage must be invisible to the framed page's session. Written into the frame first and
+  // the frame reloaded, so the row tests the key store rather than "there was no key anywhere": with the store built
+  // from localStorage regardless of the decision, the session reads it and this goes red.
+  let keyHidden = null;
+  if (frame) {
+    await frame.evaluate(() => { try { localStorage.setItem('cloadm.anthropicKey', 'sk-ant-FRAMED-STORE-SENTINEL'); } catch (e) {} });
+    // re-set the host page rather than reload it: a setContent page has no URL to reload, and re-setting recreates the
+    // iframe. The key survives because it is stored on the PLAY origin, which is what the frame loads again.
+    await framed.setContent(`<!doctype html><title>a blog</title><iframe id="f" src="${site}play/?machine=dragon64&app=claude" width="900" height="700"></iframe>`);
+    await framed.waitForTimeout(3000);
+    const f2 = framed.frames().find((f) => f !== framed.mainFrame());
+    keyHidden = f2 ? await f2.evaluate(() => ({
+      stored: (() => { try { return localStorage.getItem('cloadm.anthropicKey'); } catch (e) { return null; } })(),
+      seen: window.emu && window.emu.session ? window.emu.session.keyStore.get() : '(no session)',
+    })) : null;
+  }
+  check('framed without embed=1: a key stored IN the frame is not visible to its session (in-memory store)',
+    keyHidden && keyHidden.stored === 'sk-ant-FRAMED-STORE-SENTINEL' && keyHidden.seen === null, JSON.stringify(keyHidden));
+
+  // a SANDBOXED frame (allow-scripts, no allow-same-origin) has origin "null", and the browser refuses its ES modules:
+  // the page cannot start there at all, so there is no chat to reach and nothing for this change to guard. Assert the
+  // truthful result - no session, no chat - and do not pretend the page runs.
+  const sandboxed = await ctx.newPage();
+  await sandboxed.setContent(`<!doctype html><title>a blog</title><iframe id="s" sandbox="allow-scripts" src="${site}play/?machine=dragon64&app=claude" width="640" height="480"></iframe>`);
+  await sandboxed.waitForTimeout(2500);
+  const sbFrame = sandboxed.frames().find((f) => /\/play\//.test(f.url()));
+  const sbState = sbFrame ? await sbFrame.evaluate(() => ({
+    started: !!(window.emu && window.emu.session), chat: !!(window.emu && window.emu.session && window.emu.session.chat),
+  })).catch((e) => ({ evalFailed: e.message.slice(0, 80) })) : null;
+  check('sandboxed frame (no allow-same-origin): the page cannot start there, so there is no chat',
+    sbState && !sbState.evalFailed && sbState.started === false && sbState.chat === false, JSON.stringify(sbState));
   check('embed: no page errors', !errors.length, errors.join('; '));
   await ctx.close();
   host.close();
@@ -7629,7 +7706,7 @@ async function pwaChecks(browser, site, check) {
 // the tube), and whether row 0 holds text in the frame
 const OVERLAYS = '.tube *:not(#screenWrap):not(#screen), #focusHint, #keyHint, #soundHint, #claudePip, #claudePipActing, #toast, #attention';
 const textOverlay = (page) => page.evaluate((OVERLAYS) => {
-  const E = window.emu.Emu, s = window.emu.session, d = s.display, f = s.machine.render();
+  const E = window.emu.Emu, s = window.emu.session, d = s.display, f = s.shownMachine.render();
   const cv = document.getElementById('screen').getBoundingClientRect(), tube = document.querySelector('.tube').getBoundingClientRect();
   const k = d.view === 'crt' ? d.curvature / 100 * 0.12 : 0;
   const toPage = (u, v) => {   // texture uv -> page: c from p = c (1 + k c_other^2), iterated
@@ -7974,8 +8051,8 @@ async function askFollowupChecks(browser, base, check) {
       paused.paused && /Paused/.test(paused.pill) && paused.resume && still === 0 && await page.isVisible('#btnAskStop'), JSON.stringify(paused));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'ask-paused-desktop.png') });
     // compared in the same task as the click: the held keys are queued again, after the person's own
-    const resumed = await page.evaluate(() => { const s = window.emu.session, held = s.claudePaused.held.queue.length, before = s.machine.typist.queue.length;
-      document.getElementById('btnAskResume').click(); return { held, queued: s.machine.typist.queue.length - before, paused: !!s.claudePaused }; });
+    const resumed = await page.evaluate(() => { const s = window.emu.session, held = s.claudePaused.held.queue.length, before = s.personMachine.typist.queue.length;
+      document.getElementById('btnAskResume').click(); return { held, queued: s.personMachine.typist.queue.length - before, paused: !!s.claudePaused }; });
     check('ask (keys): Resume carries on typing where Claude stopped', resumed.held > 50 && resumed.queued === resumed.held && !resumed.paused
       && /Claude is typing/.test(await page.textContent('#askActing')), JSON.stringify(resumed));
     await page.focus('#screen');
@@ -8335,7 +8412,7 @@ async function askFollowupChecks(browser, base, check) {
       const asked = await page.evaluate((qq) => { const s = window.emu.session, mm = /^What is this code doing\? \(([0-9A-F]{4})/.exec(qq), line = /\n\n([0-9A-F]{4}) {2}((?:[0-9A-F]{2} ?)+)/.exec(qq);
         if (!mm || !line) return null;
         const at = parseInt(line[1], 16), bytes = line[2].trim().split(' ').map((h) => parseInt(h, 16));
-        return { at, basic: bytes.every((b, i) => s.readByte(at + i, s.machine) === b), chat: bytes.every((b, i) => window.__chatRam[at + i] === b), pcLine: /PC=([0-9A-F]{4})/.exec(qq)[1] }; }, q);
+        return { at, basic: bytes.every((b, i) => s.readByte(at + i, s.personMachine) === b), chat: bytes.every((b, i) => window.__chatRam[at + i] === b), pcLine: /PC=([0-9A-F]{4})/.exec(qq)[1] }; }, q);
       check(`${L}: "What is this code doing?" in the full screen chat sends the BASIC session's code and registers, not the chat firmware's`,
         !!asked && asked.basic && !asked.chat && asked.pcLine === q.match(/\(([0-9A-F]{4})–/)[1], JSON.stringify([asked, q.slice(0, 120)]));
     }
@@ -8379,7 +8456,7 @@ async function askFollowupChecks(browser, base, check) {
   {
     const { ctx, page, errors, requests, replies } = await open({ width: 1440, height: 900 });
     const ready = await page.evaluate(() => {
-      const s = window.emu.session, m = s.machine, E = window.emu.Emu;
+      const s = window.emu.session, m = s.shownMachine, E = window.emu.Emu;
       const asm = E.assemble(' ORG $8000\nSTART STA $FFC9\n CLR $FF23\n LDA #$F8\n STA $FF22\n LDA #$04\n STA $FF23\n CLR $FF22\nIDLE BRA IDLE\n', '6809');
       const rom = new Uint8Array(0x4000).fill(0xFF); rom.set(asm.segments[0].data, 0);
       m.setRoms({ basic: rom }); m.reset(true); m.cpu.jump(asm.exec);
@@ -8563,7 +8640,7 @@ async function askEscChecks(browser, base, check) {
       window.__pushed = [];
       const tap = (m) => { if (!m || m.__tapped) return; m.__tapped = true; const push = m.stubKeys.push.bind(m.stubKeys); m.stubKeys.push = (...c) => { window.__pushed.push(...c); return push(...c); }; };
       tap(window.emu.machine);
-      window.emu.session.on(() => { tap(window.emu.session.machine); if (window.emu.session.chatMachines) { tap(window.emu.session.chatMachines.basic); tap(window.emu.session.chatMachines.chat); } });
+      window.emu.session.on(() => { tap(window.emu.session.shownMachine); if (window.emu.session.chatMachines) { tap(window.emu.session.chatMachines.basic); tap(window.emu.session.chatMachines.chat); } });
     });
     return { ctx, page, errors, replies };
   }
@@ -9108,7 +9185,7 @@ async function askEscChecks(browser, base, check) {
       const b = [...document.querySelectorAll('#touchKeys .tk')].find((x) => x.dataset.key === '1' && x.getClientRects().length);
       b.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerId: 7, pointerType: 'touch' }));
       setTimeout(() => b.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, pointerId: 7, pointerType: 'touch' })), 120); })],
-    ['a tap on the menu line', { width: 1440, height: 900 }, null, (page) => page.evaluate(() => { const c = document.getElementById('screen'), r = c.getBoundingClientRect(), f = window.emu.session.machine.render();
+    ['a tap on the menu line', { width: 1440, height: 900 }, null, (page) => page.evaluate(() => { const c = document.getElementById('screen'), r = c.getBoundingClientRect(), f = window.emu.session.shownMachine.render();
       c.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: r.left + r.width / 2, clientY: r.top + (24 + 12 * 8 + 6) / f.height * r.height })); })],
   ]) {
     const { ctx, page, errors, replies } = await open(vp, opts || {});
@@ -9739,7 +9816,7 @@ async function askStatusChecks(browser, base, check) {
     // BASIC's shape without a BASIC ROM, as askFollowupChecks (6): our idle firmware in the BASIC socket, an empty
     // program at $1E01 and OK on the screen. "Let Claude use the machine" stays off, as in the report
     await page.evaluate(() => {
-      const s = window.emu.session, m = s.machine, E = window.emu.Emu;
+      const s = window.emu.session, m = s.shownMachine, E = window.emu.Emu;
       const asm = E.assemble(' ORG $8000\nSTART STA $FFC9\n CLR $FF23\n LDA #$F8\n STA $FF22\n LDA #$04\n STA $FF23\n CLR $FF22\nIDLE BRA IDLE\n', '6809');
       const rom = new Uint8Array(0x4000).fill(0xFF); rom.set(asm.segments[0].data, 0);
       m.setRoms({ basic: rom }); m.reset(true); m.cpu.jump(asm.exec);
@@ -10128,12 +10205,12 @@ async function askChecks(browser, base, check) {
     // this removes. If the whole listing had finished, the line would be a ✓ line, not a stop.)
     // The job is in the typist's state, or the queue's first paced item (state is null in the gap between two keys).
     const typingJob = () => {
-      const m = window.emu.session.machine;
+      const m = window.emu.session.personMachine;
       const j = (m.typist.state && m.typist.state.job) || (m.typist.queue[0] && m.typist.queue[0].job) || null;
       return j ? { status: j.status, consumed: j.consumed, requested: j.requested, left: m.typist.queue.length, acting: (window.emu.session.claudeActing || {}).name } : null;
     };
     const armed = await waitFor(page, () => {
-      const m = window.emu.session.machine;
+      const m = window.emu.session.personMachine;
       const j = (m.typist.state && m.typist.state.job) || (m.typist.queue[0] && m.typist.queue[0].job);
       return !!j && j.status === 'typing' && j.consumed >= 1 && m.typist.queue.length > 0 && (window.emu.session.claudeActing || {}).name === 'type_text';
     }, null, 15000);
@@ -10143,7 +10220,7 @@ async function askChecks(browser, base, check) {
     if (armed) await page.click('#btnAskStop');
     // (armed on the left: with no click the listing finishes on its own and this predicate would hold, so a skipped
     // click must fail here, not read as "Stop ended the turn")
-    check(`${L}: Stop ends the turn and the typing; the pill goes`, armed && await waitFor(page, () => { const s = window.emu.session, m = s.machine;
+    check(`${L}: Stop ends the turn and the typing; the pill goes`, armed && await waitFor(page, () => { const s = window.emu.session, m = s.shownMachine;
       return !s.chat.busy && m.stubKeys.length === 0 && document.getElementById('askActing').hidden && !document.getElementById('monitor').classList.contains('claude-acting'); }));
     if (release) { release(); release = null; }
     // R12: one small line under the turn that changed the machine (its action lines above it), in the tab order
@@ -10176,7 +10253,7 @@ async function askChecks(browser, base, check) {
     check(`${L}: and closes it again`, await ev(() => { const more = document.querySelector('#askMessages .restoreline .rl-more'); return more.getAttribute('aria-expanded') === 'false' && document.getElementById(more.getAttribute('aria-controls')).hidden; }));
     // a restore that fails (mocked: the machine refuses the point, as after Forget ROMs): an error toast, nothing changed, the points kept
     check(`${L}: a restore that fails shows why as an error, and changes nothing: machine, points and the card stay`, await ev(() => {
-      const s = window.emu.session, m = s.machine, before = window.emu.Emu.state.toJSON(m.snapshot()), n = s.chat.undo.length;
+      const s = window.emu.session, m = s.personMachine, before = window.emu.Emu.state.toJSON(m.snapshot()), n = s.chat.undo.length;
       m.checkSnapshot = () => { throw new Error('snapshot was taken with a different basic ROM'); };
       try { document.querySelector('#askMessages .restoreline .rl-go').click(); } finally { delete m.checkSnapshot; }
       const t = document.getElementById('toast');
@@ -10193,7 +10270,7 @@ async function askChecks(browser, base, check) {
       s.restorePoint = (m, snap) => [...real(m, snap), notice];
       try { document.querySelector('#askMessages .restoreline .rl-go').click(); } finally { delete s.restorePoint; }
       const t = document.getElementById('toast');
-      return window.emu.Emu.state.toJSON(s.machine.snapshot()) === want && s.chat.undo.length === 0
+      return window.emu.Emu.state.toJSON(s.personMachine.snapshot()) === want && s.chat.undo.length === 0
         && !t.classList.contains('error') && document.getElementById('toastText').textContent === `Restored: the machine is as it was before Claude's changes. ${notice}`;
     }, NOTICE), await page.textContent('#toast'));
     check(`${L}: after the restore the action line says "· undone at HH:MM", and with no point left the restore line goes`, await ev(() => {
@@ -10208,22 +10285,22 @@ async function askChecks(browser, base, check) {
     await ask('Load a little program');
     check(`${L}: with consent off assemble_and_load asks first, and nothing is written`, await waitFor(page, () => !document.getElementById('askConsent').hidden)
       && /load a program into memory/.test(await page.textContent('#askConsent'))
-      && await ev(() => window.emu.session.machine.ram[0x3000] === 0 && window.emu.session.chat.undo.length === 0));
+      && await ev(() => window.emu.session.personMachine.ram[0x3000] === 0 && window.emu.session.chat.undo.length === 0));
     await page.click('#btnAskTell');
     await idle();
-    check(`${L}: "Just tell me the fix": still nothing written, no restore point, and the tool result says why`, await ev(() => window.emu.session.machine.ram[0x3000] === 0 && window.emu.session.chat.undo.length === 0 && !window.emu.session.claudeAllowed)
+    check(`${L}: "Just tell me the fix": still nothing written, no restore point, and the tool result says why`, await ev(() => window.emu.session.personMachine.ram[0x3000] === 0 && window.emu.session.chat.undo.length === 0 && !window.emu.session.claudeAllowed)
       && JSON.stringify(requests[requests.length - 1].messages.slice(-1)[0].content).includes('consent-declined'));
     replies.push({ body: tools([{ name: 'assemble_and_load', input: { source: PROG } }]) }, { body: tools([{ name: 'run', input: { target: '$3000' } }]) }, { body: text('Running.') });
     await ask('Load it and run it');
     await waitFor(page, () => !document.getElementById('askConsent').hidden);
     await page.click('#btnAskAllow');
     await idle();
-    check(`${L}: Allow: the program is loaded (bytes) and run (it writes $4000), in one turn with one restore point`, await waitFor(page, () => window.emu.session.machine.ram[0x4000] === 0x41, null, 8000)
-      && await ev(() => [0x86, 0x41, 0xB7, 0x40, 0x00, 0x20, 0xF9].every((b, i) => window.emu.session.machine.ram[0x3000 + i] === b) && window.emu.session.chat.undo.length === 1)
+    check(`${L}: Allow: the program is loaded (bytes) and run (it writes $4000), in one turn with one restore point`, await waitFor(page, () => window.emu.session.personMachine.ram[0x4000] === 0x41, null, 8000)
+      && await ev(() => [0x86, 0x41, 0xB7, 0x40, 0x00, 0x20, 0xF9].every((b, i) => window.emu.session.personMachine.ram[0x3000 + i] === b) && window.emu.session.chat.undo.length === 1)
       && /\\"bytes\\":7/.test(JSON.stringify(requests[requests.length - 2].messages.slice(-1)[0].content)));
     check(`${L}: Restore puts the machine back: the program and what it wrote are gone`, await ev(() => {
       document.querySelector('#askMessages .restoreline .rl-go').click();
-      const m = window.emu.session.machine;
+      const m = window.emu.session.personMachine;
       return m.ram[0x3000] === 0 && m.ram[0x4000] === 0 && window.emu.session.chat.undo.length === 0;
     }));
     // ---- R13: a busy turn folds its ✓ lines; reads only as counts; R12: the line moves back a point on a restore ----
@@ -10387,19 +10464,19 @@ async function askChecks(browser, base, check) {
     check(`${L}: the machine is running before the zero-key case holds it`, await ev(() => !document.body.classList.contains('paused')));
     await ev(() => document.getElementById('btnPause').click());   // (its handler, not a hit test: the drawer is folded away with the panel open on a phone)
     await waitFor(page, () => document.body.classList.contains('paused'));
-    const framesAtPause = await ev(() => window.emu.session.machine.frameCount);
+    const framesAtPause = await ev(() => window.emu.session.shownMachine.frameCount);
     await ev(() => window.emu.session.setClaudeAllowed(true));    // (Allow turned it on for the visit; the second turn needs it again)
     replies.push({ body: tools([{ name: 'type_text', input: { text: LISTING } }]) });
     await ask('Type the listing in again');
     const askedAgain = await waitFor(page, () => !document.getElementById('askActing').hidden
       && (window.emu.session.claudeActing || {}).name === 'type_text', null, 8000);
     const zeroKey = askedAgain && await waitFor(page, () => {
-      const m = window.emu.session.machine;
+      const m = window.emu.session.personMachine;
       const j = (m.typist.queue[0] && m.typist.queue[0].job) || (m.typist.state && m.typist.state.job);
       return !!j && j.status === 'typing' && j.consumed === 0 && m.typist.queue.length === j.requested;
     }, null, 8000);
     const atStop2 = zeroKey ? await ev(() => {
-      const m = window.emu.session.machine;
+      const m = window.emu.session.personMachine;
       const j = (m.typist.queue[0] && m.typist.queue[0].job) || (m.typist.state && m.typist.state.job);
       return { status: j && j.status, consumed: j && j.consumed, requested: j && j.requested, left: m.typist.queue.length,
         paused: document.body.classList.contains('paused'), frames: m.frameCount };
@@ -10419,8 +10496,8 @@ async function askChecks(browser, base, check) {
     await ev(() => document.getElementById('btnPause').click());  // (the machine runs again)
     await waitFor(page, () => !document.body.classList.contains('paused'));
     check(`${L}: and the keys never typed are dropped, not typed later`, await waitFor(page, () => !window.emu.session.chat.busy
-      && window.emu.session.machine.typist.queue.length === 0 && window.emu.session.machine.stubKeys.length === 0)
-      && (await emuFrames(page, 30), await ev(() => { const m = window.emu.session.machine; return m.typist.queue.length === 0 && m.stubKeys.length === 0 && !window.emu.session.chat.busy; })));
+      && window.emu.session.personMachine.typist.queue.length === 0 && window.emu.session.personMachine.stubKeys.length === 0)
+      && (await emuFrames(page, 30), await ev(() => { const m = window.emu.session.shownMachine; return m.typist.queue.length === 0 && m.stubKeys.length === 0 && !window.emu.session.chat.busy; })));
     check(`${L}: no sideways scroll`, await ev(() => document.documentElement.scrollWidth <= innerWidth));
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
     await ctx.close();
@@ -11322,7 +11399,7 @@ async function claudeChecks(browser, base, check) {
   check('claude: the brief and the machine tools go with it', /CLOADM/.test(sysText(r0.body)) && /Dragon 64/.test(sysText(r0.body)) && r0.body.tools.length === TOOL_COUNT);
   check('claude: the tool results go back in the second request', requests.length === 2 && requests[1].body.messages.slice(-1)[0].content.length === 2);
   check('claude: poke wrote the BASIC session; the chat stays on screen, the BASIC session live in the picture-in-picture', await page.evaluate(() => { const s = window.emu.session, b = s.chatMachines.basic;
-    return b.ram[0x3000] === 1 && b.ram[0x3001] === 2 && b.ram[0x3002] === 3 && s.chatView === 'chat' && s.machine === s.chatMachines.chat
+    return b.ram[0x3000] === 1 && b.ram[0x3001] === 2 && b.ram[0x3002] === 3 && s.chatView === 'chat' && s.shownMachine === s.chatMachines.chat
       && !document.getElementById('claudePip').hidden; }));
   // R12/R13 in full screen: the card's strip holds the turn's action lines and the restore line; neither is ever
   // printed on the chat screen (its frames are the chat firmware's: the channel carried no such text)
@@ -11346,7 +11423,7 @@ async function claudeChecks(browser, base, check) {
   check('claude: Restore puts the BASIC session back exactly to the restore point; the lines say undone and the restore line goes', await page.evaluate(() => {
     const s = window.emu.session, want = window.emu.Emu.state.toJSON(s.chat.undo[s.chat.undo.length - 1]);
     document.querySelector('#claudeRestore .rl-go').click();
-    return window.emu.Emu.state.toJSON(s.chatMachines.basic.snapshot()) === want && s.machine === s.chatMachines.chat
+    return window.emu.Emu.state.toJSON(s.chatMachines.basic.snapshot()) === want && s.shownMachine === s.chatMachines.chat
       && [...document.querySelectorAll('#claudeActions .act')].every((x) => / · undone at \d\d:\d\d$/.test(x.textContent)) && document.querySelector('#claudeRestore .restoreline').hidden;
   }));
   await page.click('#btnClaudeView');
@@ -11395,7 +11472,7 @@ async function claudeChecks(browser, base, check) {
   await started(page);
   check('claude (DriveWire): on a CoCo with the Becker port the firmware finds the server and opens channel 14', await waitFor(page, () => {
     const s = window.emu.session;
-    return !!s.chatServer && s.machine.becker && s.machine.becker.server === s.chatServer && s.chatServer.channels[14].open;
+    return !!s.chatServer && s.chatMachines.chat.becker && s.chatMachines.chat.becker.server === s.chatServer && s.chatServer.channels[14].open;
   }, null, 8000));
   await counted();
   const sent = requests.length;
@@ -11597,7 +11674,7 @@ async function shareChecks(browser, base, site, check) {
       else {
         // the page opened it; and opened again through the Session, compared before a frame runs, it is the moment
         const exact = await rp.evaluate(async (link) => { const s = window.emu.session; s.openSnapshot(await s.readSnapshotLink(new URL(link).hash));
-          return window.emu.Emu.state.toJSON(s.machine.snapshot().state.memory); }, shared.link);
+          return window.emu.Emu.state.toJSON(s.shownMachine.snapshot().state.memory); }, shared.link);
         check('share link, recipient with the same ROMs: it opens, exactly the moment (memory rebuilt from their ROMs)', /Snapshot opened: Dragon 64/.test(r.msg) && exact === held, r.msg);
       }
       await rctx.close();
@@ -13955,7 +14032,7 @@ async function uiModelChecks(browser, base, check) {
       JSON.stringify(await page.evaluate(() => ({ drives: window.emu.session.diskStatus().drives, btn: document.getElementById('btnSwitchSaveDisk').textContent, toast: document.getElementById('toastText').textContent }))));
     await page.click('#btnSwitchCancel');
     // a switch started by opening a snapshot of another machine says what it took out too
-    const d32snap = await page.evaluate(async () => { const s = window.emu.session; s.switchMachine('dragon32'); for (let i = 0; i < 3; i++) s.machine.runFrame();
+    const d32snap = await page.evaluate(async () => { const s = window.emu.session; s.switchMachine('dragon32'); for (let i = 0; i < 3; i++) s.shownMachine.runFrame();
       const f = await s.snapshotFile(); s.switchMachine('dragon64'); s.insertTape('GAME.CAS', new Uint8Array(300).fill(0x55)); window.emu.feedback.clear(); return [...f.bytes]; });
     await dropFiles(page, [['d32moment.cloadm', Buffer.from(d32snap)]]);
     await waitFor(page, () => !document.getElementById('switchConfirm').hidden);

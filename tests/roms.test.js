@@ -135,20 +135,20 @@ const targets = (r) => r.targets.map((t) => `${t.machine}/${t.socket}`).sort().j
     check('ROMs for other machines come back as offers to switch, not errors', res.offers.map((o) => o.machine).sort().join() === 't64,ttano' && res.offers[0].files.join() === 'a,b', JSON.stringify(res.offers));
     const dos = s.addRoms([{ name: 'DDOS11C.ROM', bytes: fake(8 * K, 78) }]);
     check('a DragonDOS ROM is stored for the disk cartridge', dos.cartridges.length === 1 && dos.cartridges[0].id === 'dragondos' && dos.cartridges[0].sockets[0].status === 'loaded-unrecognised' && !dos.offers.length, JSON.stringify(dos.cartridges));
-    check('the machine in use got its ROM and was power cycled', s.machine.hasRom && s.machine.framesSinceReset === 0);
+    check('the machine in use got its ROM and was power cycled', s.shownMachine.hasRom && s.shownMachine.framesSinceReset === 0);
     const st = s.machineRoms().sockets.map((x) => x.status).join(',');
     check('socket status of the machine in use', st === 'verified,missing-optional', st);
     const again = new Emu.Session({ store, media });
     again.switchMachine('ttano');
-    check('ROMs persist through the store and load on switch', again.machine.hasRom && again.machineRoms().sockets.every((x) => x.status === 'verified'));
+    check('ROMs persist through the store and load on switch', again.shownMachine.hasRom && again.machineRoms().sockets.every((x) => x.status === 'verified'));
     again.runWithoutRoms();
-    check('run without ROMs uses the stub and keeps the stored ROMs', !again.machine.hasRom && again.machineRoms('t64').bootable);
+    check('run without ROMs uses the stub and keeps the stored ROMs', !again.shownMachine.hasRom && again.machineRoms('t64').bootable);
     again.switchMachine('t64'); again.switchMachine('ttano');
-    check('the choice holds for this session', !again.machine.hasRom);
+    check('the choice holds for this session', !again.shownMachine.hasRom);
     again.addRoms([{ name: 'b', bytes: D64_2 }]);
-    check('dropping ROMs for that machine ends the stub choice', again.machine.hasRom);
+    check('dropping ROMs for that machine ends the stub choice', again.shownMachine.hasRom);
     again.clearRoms();
-    check('clearRoms forgets only the machine in use', !again.machine.hasRom && again.machineRoms('t64').bootable);
+    check('clearRoms forgets only the machine in use', !again.shownMachine.hasRom && again.machineRoms('t64').bootable);
     check('machinesWithRoms lists set-up machines', again.machinesWithRoms().map((x) => x.id).sort().join(',') === 't64,tcoco');
   } finally { delete base.t64; delete base.ttano; delete base.tcoco; }
 }
@@ -160,19 +160,19 @@ const targets = (r) => r.targets.map((t) => `${t.machine}/${t.socket}`).sort().j
   check('watchdog: the stub is not a boot failure', s.bootStatus().state === 'stub');
   // a deliberately wrong ROM: 16K of RTS ($39) loaded by size; the CPU runs, nothing prints OK
   s.addRoms([{ name: 'wrong.bin', bytes: new Uint8Array(16 * K).fill(0x39) }]);
-  check('watchdog: booting right after power-on', s.machine.hasRom && s.bootStatus(5).state === 'booting');
-  for (let i = 0; i < 5 * 50 + 2; i++) s.machine.runFrame();
+  check('watchdog: booting right after power-on', s.shownMachine.hasRom && s.bootStatus(5).state === 'booting');
+  for (let i = 0; i < 5 * 50 + 2; i++) s.shownMachine.runFrame();
   const st = s.bootStatus(5);
   check('watchdog: no OK within 5 s -> failed, cause from the socket status', st.state === 'failed' && /Dragon 32 BASIC is wrong\.bin, which isn't recognised/.test(st.cause), st.cause);
   // BASIC's OK on a line of its own (VDG codes: O=$0F, K=$0B)
-  s.machine.ram[0x400 + 32 * 3] = 0x0F; s.machine.ram[0x400 + 32 * 3 + 1] = 0x0B;
-  for (let c = 2; c < 32; c++) s.machine.ram[0x400 + 32 * 3 + c] = 0x60;
+  s.shownMachine.ram[0x400 + 32 * 3] = 0x0F; s.shownMachine.ram[0x400 + 32 * 3 + 1] = 0x0B;
+  for (let c = 2; c < 32; c++) s.shownMachine.ram[0x400 + 32 * 3 + c] = 0x60;
   check('watchdog: OK on the screen -> ok', s.bootStatus(5).state === 'ok' && s.screenText()[3].trim() === 'OK');
-  s.machine.ram.fill(0x60, 0x400, 0x600);
+  s.shownMachine.ram.fill(0x60, 0x400, 0x600);
   check('watchdog: stays ok after the screen is cleared', s.bootStatus(5).state === 'ok');
   s.powerCycle();
   check('watchdog: a power cycle starts over', s.bootStatus(5).state === 'booting');
-  check('screenText: MC-10 reads its own text screen', (() => { s.switchMachine('mc10'); s.machine.runFrame(); s.machine.runFrame(); return s.screenText().join('\n').includes('BUILT-IN STUB'); })());
+  check('screenText: MC-10 reads its own text screen', (() => { s.switchMachine('mc10'); s.shownMachine.runFrame(); s.shownMachine.runFrame(); return s.screenText().join('\n').includes('BUILT-IN STUB'); })());
 }
 
 console.log(fail ? `${fail} FAILED` : 'all passed');

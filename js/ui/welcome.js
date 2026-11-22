@@ -66,10 +66,10 @@ export function setupWelcome(page, { showRoms, openClaude }) {
   // (byMachine: the ticket the Session gave when the program asked, Session.machineTicket; null: the person asked)
   const startAs = (byMachine, fn) => (byMachine ? session.asMachine(fn, byMachine) : fn());
   async function runWelcome({ greeting = 'first', carryOn = null } = {}, { ifIdle = false, byMachine = null } = {}) {
-    const m = session.machine, running = session.stubRun, gen = session.welcomeGenNow();
+    const m = session.personMachine, running = session.stubRun, gen = session.welcomeGenNow();
     try {
       const bytes = await page.fetchBytes(`examples/${session.welcomeFile}`);   // this machine's build (6809, or its own 6803 one)
-      if (ifIdle && (session.machine !== m || session.stubRun !== running || session.welcomeRunning)) return;
+      if (ifIdle && (session.personMachine !== m || session.stubRun !== running || session.welcomeRunning)) return;
       // gen: a start whose fetch was overtaken (the menu cleared, a program loaded, a machine switch) is refused
       // in the Session itself, for every caller, so a late start cannot take the screen from what was started then
       startAs(byMachine, () => session.startWelcome(bytes, { greeting, carryOn: carryOn && carryOn.name, gen }));   // (the menu says "PRESS 1 TO 4" itself: not repeated)
@@ -152,7 +152,7 @@ export function setupWelcome(page, { showRoms, openClaude }) {
   // machine restarts, as any RAM change does) and starts LIZA; "Not now" leaves the machine as it is.
   const offer = $('lizaOffer');
   function offerLizaRam(item) {
-    const need = session.lizaNeeds(), name = session.machine.profile.name;
+    const need = session.lizaNeeds(), name = session.personMachine.profile.name;
     $('lizaOfferText').textContent = `LIZA needs the ${need.ram}K RAM option. This ${name} has ${need.have}K.`;
     $('btnLizaRam').textContent = `Switch to ${need.ram}K and run LIZA`;
     $('btnLizaRam').onclick = async () => { offer.hidden = true; session.switchLiza(); await run(item); };
@@ -165,7 +165,7 @@ export function setupWelcome(page, { showRoms, openClaude }) {
   // runs), the programs for this machine's CPU, and the Claude chat. Each one a link can start (the welcome menu,
   // LIZA, the games: ?start=; the chat: ?app=claude) is a real link to it on this machine, so "Copy link" gives the
   // direct link; a plain click runs it here, as a button would (a click with a modifier is left to the browser).
-  const linkTo = (params) => buildUrl(location.href, Object.assign({ machine: session.machine.id, config: session.machine.config }, params));
+  const linkTo = (params) => buildUrl(location.href, Object.assign({ machine: session.personMachine.id, config: session.personMachine.config }, params));
   const entry = (text, params, onclick) => {
     if (!params) { const b = el('button', text); b.onclick = onclick; return b; }
     const a = el('a', text); a.href = linkTo(params);
@@ -177,7 +177,7 @@ export function setupWelcome(page, { showRoms, openClaude }) {
     row.replaceChildren();
     // every machine gets the welcome menu and LIZA (the 6809 or 6803 builds); the colour demo is a 6809 program
     // (the 6309 runs it too: it is in the 6809 instruction-set family)
-    const cpu = session.machine.config.cpu, family = cpuFamily(cpu), need = session.lizaNeeds();
+    const cpu = session.personMachine.config.cpu, family = cpuFamily(cpu), need = session.lizaNeeds();
     {
       const w = entry('Welcome menu', { start: 'welcome' }, () => runWelcome({ greeting: 'back', carryOn: session.carryOn })); w.dataset.shelf = 'welcome';
       w.title = 'The Welcome menu: LIZA, colour and sound, adding ROMs, Claude, games';
@@ -274,7 +274,7 @@ export function setupWelcome(page, { showRoms, openClaude }) {
         if (u.searchParams.has('start')) { u.searchParams.delete('start'); history.replaceState(history.state, '', u.href); }
       };
       session.on(drop);
-    } else if (!withMedia && session.machine.useStub && session.welcomeMenu) {
+    } else if (!withMedia && session.personMachine.useStub && session.welcomeMenu) {
       // Without this machine's ROMs the visit opens on the welcome menu, never the stub's bare screen: the
       // first visit's, or greeting a returning visitor back. A link that only names the machine (the landing page's
       // machine cards) does the same; the machine question is not asked then, the link answered it.
@@ -287,7 +287,7 @@ export function setupWelcome(page, { showRoms, openClaude }) {
   // a program of the no-ROM shelf by name (the Library's empty state)
   function runShelf(name) {
     const item = SHELF.find((x) => x.name === name);
-    if (item.cpu && cpuFamily(session.machine.config.cpu) !== item.cpu) { page.status(`${name} needs a Dragon or a CoCo; pick one from the machine menu.`, true); return; }
+    if (item.cpu && cpuFamily(session.personMachine.config.cpu) !== item.cpu) { page.status(`${name} needs a Dragon or a CoCo; pick one from the machine menu.`, true); return; }
     run(item);
   }
   return { start, runShelf };

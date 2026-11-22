@@ -18,7 +18,7 @@
   let e = await err(() => s.readSnapshot(file(Object.assign({}, good, { machine: 'constructor' }))));
   check('a snapshot of machine "constructor": the unknown-machine message', e instanceof Emu.SessionError && /doesn't have \(constructor\)/.test(e.message), e && `${e.constructor.name}: ${e.message}`);
   e = await err(() => s.switchMachine('constructor'));
-  check('switchMachine("constructor"): falls back like any unknown id', !e && s.machine.id === 'dragon64', e && e.message);
+  check('switchMachine("constructor"): falls back like any unknown id', !e && s.shownMachine.id === 'dragon64', e && e.message);
   e = await err(() => Emu.createMachine('toString'));
   check('createMachine("toString"): unknown machine', e && /unknown machine toString/.test(e.message), e && e.message);
   e = await err(() => Emu.state.fromJSON('{"a":{"$typed":"Object","b64":"AAAA"}}'));

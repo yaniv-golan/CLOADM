@@ -206,7 +206,7 @@ export function setupAsk(page, claude) {
     // (the keys that go to the machine, page.toMachine: on the screen or with the focus on the page's body; an Esc
     // that a card, a confirmation, a menu (the rail's tab) or (off the screen) a view takes is not a key on the machine)
     const mod = { Shift: 'SHIFT', Control: 'CTRL', Alt: 'ALT' }[e.key];
-    if (mod && !e.repeat && page.toMachine(e) && session.machine.keyPos && session.machine.keyPos[mod]) {
+    if (mod && !e.repeat && page.toMachine(e) && session.shownMachine.keyPos && session.shownMachine.keyPos[mod]) {
       if (session.personInput()) { pausedNow = code; modMark = true; }
       return;
     }
@@ -257,8 +257,8 @@ export function setupAsk(page, claude) {
   $('btnAskKeyForget').onclick = () => claude.forgetKey();
   // the openers
   // the emulated machine's name ("Dragon 64", "CoCo 1/2"), as the full screen card says it
-  const modelName = () => { const m = session.chatMachines ? session.chatMachines.basic : session.machine; return m ? m.profile.name : ''; };
-  const context = () => machineContext(session, session.chatMachines ? session.chatMachines.basic : session.machine);
+  const modelName = () => { const m = session.personMachine; return m ? m.profile.name : ''; };
+  const context = () => machineContext(session, session.personMachine);
   $('btnOpenErr').onclick = () => claude.openPanel(`Explain this error: ${context().error}`);
   $('btnOpenProg').onclick = () => claude.openPanel('Help with my program');
 

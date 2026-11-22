@@ -93,18 +93,18 @@ export async function start() {
   try { await session.ready(); } catch (e) { session.useMediaStore(new MemoryMediaStore()); mediaNote = `memory (${e.message})`; }
   const canvas = $('screen');
   const presenter = new CanvasPresenter(canvas);
-  const input = new HostInput(session.machine, session.keys);
+  const input = new HostInput(session.shownMachine, session.keys);
   const audio = new Audio();
   session.on((ev) => {
-    if (ev === 'machine') input.setMachine(session.machine);
+    if (ev === 'machine') input.setMachine(session.shownMachine);
     if (['machine', 'firmware', 'reset', 'loaded'].includes(ev)) audio.discontinuity();
   });
   session.switchMachine('dragon64', undefined, { menu: false });
   const runLiza = () => {
-    if (session.machine.hasRom) session.runWithoutRoms({ menu: false });
+    if (session.shownMachine.hasRom) session.runWithoutRoms({ menu: false });
     say(session.runLiza(files[session.lizaFile]));
   };
-  if (session.machine.hasRom) say('Your ROMs are stored in this panel: BASIC starts. LIZA is one click away.');
+  if (session.shownMachine.hasRom) say('Your ROMs are stored in this panel: BASIC starts. LIZA is one click away.');
   else runLiza();
 
   // the tools: while one runs it drives the machine's frames itself, so the page's own frame loop only draws
@@ -128,7 +128,7 @@ export async function start() {
   let last = performance.now();
   function tick(now) {
     requestAnimationFrame(tick);
-    const m = session.machine;
+    const m = session.shownMachine;
     if (!busy) session.advance(now - last, { onFrame: () => audio.pushFrame(m.audioEvents, m.frameCycles, m.fps), now: () => performance.now() });
     last = now;
     presenter.present(m.render(), session.display, canvas.width, canvas.height);
@@ -148,7 +148,7 @@ export async function start() {
     const got = await Promise.all([...list].map(async (f) => ({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) })));
     try {
       const r = session.addRoms(got);
-      say(r.files.map((f) => `${f.name}: ${f.result}`).join('; ') + (session.machine.hasRom ? ' — BASIC starts.' : ''));
+      say(r.files.map((f) => `${f.name}: ${f.result}`).join('; ') + (session.shownMachine.hasRom ? ' — BASIC starts.' : ''));
     } catch (e) { say(`ROMs: ${e.message}`); }
   }
   $('rom').onchange = (e) => addRoms(e.target.files);

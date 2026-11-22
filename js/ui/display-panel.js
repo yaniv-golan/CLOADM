@@ -19,7 +19,7 @@ export function setupDisplayPanel(page) {
       input.disabled = d.view !== 'crt' || !page.crtAvailable;
     }
     $('selPhase').value = String(d.phase);
-    $('lblPhase').hidden = !session.machine || !session.hasArtifactPhase;
+    $('lblPhase').hidden = !session.shownMachine || !session.hasArtifactPhase;
     $('selPhase').disabled = d.view !== 'crt';
     $('chkInteger').checked = d.integer;
     $('selAspect').value = d.aspect;

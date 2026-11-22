@@ -399,7 +399,7 @@ async function xfer(s, bytes) {
     const ses = new Emu.Session();
     ses.WebSocket = FakeSocket;
     ses.switchMachine('coco', { becker: true });
-    const m = ses.machine;
+    const m = ses.shownMachine;
     const states = [];
     const sock = ses.connectDriveWireChannel(2, 'ws://test/');
     sock.onState = (st, detail) => { states.push(detail); ses.emit('drivewire'); };
@@ -429,7 +429,7 @@ async function xfer(s, bytes) {
   {
     const s = new Emu.Session();
     s.switchMachine('coco', { becker: true });
-    const m = s.machine;
+    const m = s.shownMachine;
     check('Session: the server is on the Becker port of a CoCo with the option', m.becker.server === s.drivewire);
     let msg = '';
     try { await s.importDriveWireImage('odd.dsk', new Uint8Array(300)); } catch (e) { msg = e instanceof Emu.SessionError ? e.message : 'wrong error'; }
@@ -484,7 +484,7 @@ async function xfer(s, bytes) {
     try { s.connectDriveWireChannel(1, 'http://x/'); msg = ''; } catch (e) { msg = e.message; }
     check('Session: a channel connects to a ws:// address', /ws:\/\//.test(msg), msg);
     s.switchMachine('dragon64');
-    check('Session: a machine without the port leaves the server alone', s.machine.becker === null);
+    check('Session: a machine without the port leaves the server alone', s.shownMachine.becker === null);
   }
 
   // ---------------- a channel over a WebSocket (a local test server) ----------------
@@ -495,7 +495,7 @@ async function xfer(s, bytes) {
     const srv = await startWsServer((c) => { conn = c; c.onMessage = (b) => received.push(...b); c.send('HI'); });
     const s = new Emu.Session();
     s.switchMachine('coco', { becker: true });
-    const m = s.machine;
+    const m = s.shownMachine;
     const sock = s.connectDriveWireChannel(4, srv.url);
     // (cond is evaluated once per pass, never again after it holds: a poll consumes what it reads)
     const until = async (cond, ms = 3000) => { const t = Date.now(); for (;;) { if (cond()) return true; if (Date.now() - t > ms) return false; await new Promise((r) => setTimeout(r, 10)); } };

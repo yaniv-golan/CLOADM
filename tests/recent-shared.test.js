@@ -39,7 +39,7 @@ const blobs = (media) => media.listSync('recent/').filter((f) => f.name.endsWith
   const idx = s2.recentMedia().findIndex((r) => r.name === 'renamed.bin');
   let loaded = false;
   try { s2.loadRecent(idx); loaded = true; } catch (e) { loaded = false; }
-  check('eviction: after a reload the renamed copy still loads', loaded && s2.machine.ram[0x3000] === 0x11);
+  check('eviction: after a reload the renamed copy still loads', loaded && s2.shownMachine.ram[0x3000] === 0x11);
 }
 
 // evicting the LAST reference to a CRC must still delete its file (no leak)
@@ -63,7 +63,7 @@ const blobs = (media) => media.listSync('recent/').filter((f) => f.name.endsWith
   ])));
   media.writeSync(`recent/${lower}.bin`, a);
   const s = session({ media });
-  check('old list: the lower-case entry still loads (read normalises the CRC)', /old\.bin/.test(s.loadRecent(0)) && s.machine.ram[0x3000] === 0x11);
+  check('old list: the lower-case entry still loads (read normalises the CRC)', /old\.bin/.test(s.loadRecent(0)) && s.shownMachine.ram[0x3000] === 0x11);
   // loading five more files evicts old.bin; its file must go, whichever case it is stored under
   for (let i = 1; i <= 5; i++) s.load(`z${i}.bin`, prog(20 + i));
   // the file it was stored as is `recent/<lower>.bin`: assert on THAT name, not on an upper-cased listing

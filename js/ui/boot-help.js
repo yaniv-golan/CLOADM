@@ -11,12 +11,22 @@ import { $ } from './page.js';
 
 export const BOOT_SECONDS = 5;
 
+// What the box does when the Session announces something: 'restart' (re-check and watch again: the machine, its
+// firmware or a Reset; the answer may go back to 'booting'), 'recheck' (a restore: check once, so a box raised by
+// the run it replaced goes, without treating the restore as a boot), or null (anything else: nothing to do). Pure
+// and exported so a Node test can hold the rule the page relies on, without a DOM.
+export function bootHelpOn(ev) {
+  if (ev === 'machine' || ev === 'firmware' || ev === 'reset') return 'restart';
+  if (ev === 'restored') return 'recheck';
+  return null;
+}
+
 export function setupBootHelp(page, sockets) {
   const { session } = page;
   let dismissedFor = null;   // the power-on the user dismissed the box for
   const box = $('bootHelp');
   function check() {
-    const st = session.bootStatus(BOOT_SECONDS), m = session.machine;
+    const st = session.bootStatus(BOOT_SECONDS), m = session.shownMachine;
     const resetAt = m.resetAt;
     const takeover = st.state === 'reset' && st.takeover;
     const show = (st.state === 'failed' || takeover) && dismissedFor !== `${m.id}@${resetAt}`;
@@ -38,18 +48,25 @@ export function setupBootHelp(page, sockets) {
   function startWatch() {
     if (unwatch) return;
     unwatch = page.onFrame(() => {
-      if (!session.machine) return;
+      if (!session.shownMachine) return;
       check();
       if (session.bootStatus(BOOT_SECONDS).state !== 'booting') { unwatch(); unwatch = null; }
     });
   }
   startWatch();
   // a new machine, power-on or reset: at once (and watch again if it is booting), so the box never shows
-  // the previous machine's cause
-  session.on((ev) => { if (ev === 'machine' || ev === 'firmware' || ev === 'reset') { check(); startWatch(); } });
+  // the previous machine's cause. A restore ('restored': an opened snapshot, or Claude's undo through
+  // Session.restorePoint) is not one of those and must not be treated as one: it only re-checks, so a box raised by
+  // the run the restore replaced goes. No box comes back for the moment put back: a restored moment is never a
+  // failed boot (bootStatus answers 'restored' for it, never 'failed'), even one taken on a failed boot.
+  session.on((ev) => {
+    const what = bootHelpOn(ev);
+    if (what === 'restart') { check(); startWatch(); }
+    else if (what === 'recheck') check();
+  });
   $('btnBootSockets').onclick = () => { sockets.reveal(); };
   $('btnBootStub').onclick = () => { sockets.runWithoutRoms(); check(); };
   $('btnBootPower').onclick = () => { session.powerCycle({ reason: 'you power cycled the machine' }); page.focus(); };
-  $('btnBootDismiss').onclick = () => { const m = session.machine; dismissedFor = `${m.id}@${m.resetAt}`; check(); };
+  $('btnBootDismiss').onclick = () => { const m = session.shownMachine; dismissedFor = `${m.id}@${m.resetAt}`; check(); };
   return { check };
 }

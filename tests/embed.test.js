@@ -13,7 +13,7 @@ const sent = [];
 const api = new Emu.EmbedApi(s, (m) => sent.push(m));
 let id = 0;
 const call = (method, ...args) => api.handle({ cloadm: 1, id: ++id, method, args });
-const frames = (n) => { for (let i = 0; i < n; i++) s.advance(1000 / s.machine.fps + 0.01); };
+const frames = (n) => { for (let i = 0; i < n; i++) s.advance(1000 / s.shownMachine.fps + 0.01); };
 
 // info, and a reply for every call, by id
 {
@@ -32,17 +32,17 @@ const frames = (n) => { for (let i = 0; i < n; i++) s.advance(1000 / s.machine.f
   sent.length = 0;
   const r = call('load', 'p.bin', [...prog]);
   frames(2);
-  check('load: bytes as an array of numbers, runs', /binary/.test(r.result) && s.machine.ram[0x400] === 0x41, r.result || r.error);
+  check('load: bytes as an array of numbers, runs', /binary/.test(r.result) && s.shownMachine.ram[0x400] === 0x41, r.result || r.error);
   check('load sends a "loaded" event with the info', sent.some((m) => m.event === 'loaded' && m.data.machine === 'dragon64'));
   const u8 = call('load', 'p.bin', prog);
   check('load: a Uint8Array too', !u8.error);
   frames(2);
   check('peek: one byte, and several', JSON.stringify(call('peek', 0x400).result) === '[65]' && JSON.stringify(call('peek', 0x3100, 1).result) === '[126]'
     && call('peek', 0x3000, 4).result.length === 4);
-  s.machine.setRoms({ basic: new Uint8Array(0x4000).fill(0x39) });
+  s.shownMachine.setRoms({ basic: new Uint8Array(0x4000).fill(0x39) });
   check('peek: refused while the user\'s ROMs are loaded (memory can hold ROM code)', /not available while the machine runs your own ROMs/.test(call('peek', 0x400).error)
     && !('result' in call('peek', 0x400)));
-  s.machine.setRoms({ basic: null });
+  s.shownMachine.setRoms({ basic: null });
   check('peek: allowed again on the built-in stub', JSON.stringify(call('peek', 0x400).result) === '[65]');
   {
     const c = new Emu.Session();
@@ -52,7 +52,7 @@ const frames = (n) => { for (let i = 0; i < n; i++) s.advance(1000 / s.machine.f
     check('peek: refused while a cartridge is plugged in', /a cartridge is plugged in/.test(capi.handle({ cloadm: 1, id: 1, method: 'peek', args: [0xC000] }).error));
   }
   check('poke: bytes written, read back', call('poke', 0x5000, [1, 2, 3]).result === 3 && JSON.stringify(call('peek', 0x5000, 3).result) === '[1,2,3]');
-  check('poke: a single number', call('poke', 0x5010, 0x1FF).result === 1 && s.machine.ram[0x5010] === 0xFF);
+  check('poke: a single number', call('poke', 0x5010, 0x1FF).result === 1 && s.shownMachine.ram[0x5010] === 0xFF);
   check('peek/poke: addresses checked', /not an address/.test(call('peek', 70000).error) && /not an address/.test(call('poke', -1, [1]).error)
     && /runs past 65535/.test(call('peek', 0xFFFF, 2).error) && /fit below 65536/.test(call('poke', 0xFFFF, [1, 2]).error));
   check('load: bad arguments are an error reply', /file name and its bytes/.test(call('load', 'x').error) && /file name and its bytes/.test(call('load', 5, [1]).error));
@@ -74,7 +74,7 @@ const frames = (n) => { for (let i = 0; i < n; i++) s.advance(1000 / s.machine.f
 {
   sent.length = 0;
   const r = call('switchMachine', 'coco3', { ram: 128 });
-  check('switchMachine: another model with options', r.result.machine === 'coco3' && r.result.config.ram === 128 && s.machine.id === 'coco3');
+  check('switchMachine: another model with options', r.result.machine === 'coco3' && r.result.config.ram === 128 && s.shownMachine.id === 'coco3');
   check('switchMachine sends a "machine" event', sent.some((m) => m.event === 'machine' && m.data.machine === 'coco3'));
   check('switchMachine: options checked against profile.options', /ram on the CoCo 3 is 128 or 512/.test(call('switchMachine', 'coco3', { ram: 64 }).error)
     && /no option "turbo"/.test(call('switchMachine', 'coco', { turbo: 1 }).error) && /no machine "c64"/.test(call('switchMachine', 'c64').error));
@@ -93,7 +93,7 @@ const frames = (n) => { for (let i = 0; i < n; i++) s.advance(1000 / s.machine.f
   frames(3); api.frame();
   check('no frame events until watched', !sent.some((m) => m.event === 'frame'));
   call('watchFrames', true);
-  const f0 = s.machine.frameCount;
+  const f0 = s.shownMachine.frameCount;
   api.frame();
   const ev = sent.find((m) => m.event === 'frame');
   check('frame events once watched, with the frame number', ev && ev.data.frame === f0);
@@ -105,7 +105,7 @@ const frames = (n) => { for (let i = 0; i < n; i++) s.advance(1000 / s.machine.f
 {
   s.switchMachine('dragon64');
   const r = call('insertTape', 'x.cas', [0x55, 0x55, 0x3C, 0x00, 0x00, 0x00]);
-  check('insertTape: a tape in the deck', !r.error && s.machine.deck.tape && s.machine.deck.tape.name === 'x.cas', r.error || r.result);
+  check('insertTape: a tape in the deck', !r.error && s.shownMachine.deck.tape && s.shownMachine.deck.tape.name === 'x.cas', r.error || r.result);
   check('insertTape: bad arguments', /file name and its bytes/.test(call('insertTape', 'x.cas').error));
 }
 

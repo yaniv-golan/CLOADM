@@ -56,7 +56,7 @@ function chatScreen(s) {
   return out;
 }
 const settle = () => new Promise((r) => setTimeout(r, 5));
-const frames = async (s, k) => { for (let i = 0; i < k; i++) { s.advance(1000 / s.machine.fps + 0.01); if (s.machine.stall) await s.machine.stall; } };
+const frames = async (s, k) => { for (let i = 0; i < k; i++) { s.advance(1000 / s.shownMachine.fps + 0.01); if (s.shownMachine.stall) await s.shownMachine.stall; } };
 // the firmware's own symbols (examples/chat.asm), assembled here
 const include = (name) => { const p = path.join(__dirname, '../examples', name); return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : null; };
 const ASM = Emu.assemble(fs.readFileSync(path.join(__dirname, '../examples/chat.asm'), 'utf8'), '6809', { include });
@@ -68,7 +68,7 @@ function open(bodies, { machine = 'coco', drivewire = true } = {}) {
   s.setClaudeKey(KEY);
   const { fetch, calls } = scripted(bodies);
   const backend = new Emu.ClaudeBackend({ fetch, apiKey: s.keyStore.get() });
-  const basic = s.machine;
+  const basic = s.shownMachine;
   const chat = s.startChat({ backend, firmware: FIRMWARE, brief: 'BRIEF', tools: true, drivewire });
   return { s, chat, calls, basic };
 }
@@ -88,7 +88,7 @@ async function say(s, calls, line, want) {
     const { s, calls, basic } = open([textReply('Hi there, CoCo.'), textReply(long)], { machine: id });
     const log = [];
     s.chatServer.onTransaction = (op, info) => log.push([op, info]);
-    const cm = s.machine;
+    const cm = s.shownMachine;
     check(`${id}: the chat machine has the Becker port and its own DriveWire server, not the BASIC session's`,
       cm !== basic && cm.becker && cm.becker.server === s.chatServer && s.chatServer !== s.drivewire && s.chatServer.drives === s.drivewire.drives);
     await frames(s, 30);
@@ -124,9 +124,9 @@ async function say(s, calls, line, want) {
       && calls[2].body.messages.slice(-1)[0].content === line255, `${calls[2] && calls[2].body.messages.slice(-1)[0].content.length} characters`);
     // the BASIC session on screen and back: the chat's link is kept
     s.showChat('basic'); await frames(s, 2); s.showChat('chat'); await frames(s, 2);
-    check(`${id}: showing the BASIC session and back keeps the chat's server and open channel`, s.machine.becker.server === s.chatServer && s.chatServer.channels[14].open);
+    check(`${id}: showing the BASIC session and back keeps the chat's server and open channel`, s.shownMachine.becker.server === s.chatServer && s.chatServer.channels[14].open);
     s.endChat();
-    check(`${id}: endChat drops the chat's server`, s.chatServer === null && s.machine === basic);
+    check(`${id}: endChat drops the chat's server`, s.chatServer === null && s.shownMachine === basic);
   }
 
   // ---- where there is no Becker port ----
@@ -145,7 +145,7 @@ async function say(s, calls, line, want) {
     const channel = new Emu.MemoryChannel();
     s.startChat({ backend: new Emu.ClaudeBackend({ fetch, apiKey: KEY }), channel, firmware: FIRMWARE });
     await frames(s, 30);
-    check('no Becker port answering: the firmware keeps the mailbox (DWMODE 0)', s.machine.ram[sym('DWMODE')] === 0 && !s.machine.becker);
+    check('no Becker port answering: the firmware keeps the mailbox (DWMODE 0)', s.shownMachine.ram[sym('DWMODE')] === 0 && !s.shownMachine.becker);
     await say(s, calls, 'Mailbox?', 1);
     await frames(s, 60);
     check('... and the chat works over it as before', calls.length === 1 && chatScreen(s).includes('By mailbox.'), JSON.stringify(chatScreen(s).filter(Boolean)));

@@ -123,7 +123,7 @@ export function setupTapePanel(page) {
     const now = performance.now();
     if (!st) { put(hud, 'hidden', true); wasMotor = false; hudTape = null; said = ''; return; }
     // a tape going in (dropped, opened, from a link) shows the HUD for a moment, before (or without) the motor
-    if (session.machine.deck.tape !== hudTape) { hudTape = session.machine.deck.tape; hudUntil = now + HUD_HOLD_MS; }
+    if (session.personMachine.deck.tape !== hudTape) { hudTape = session.personMachine.deck.tape; hudUntil = now + HUD_HOLD_MS; }
     // the HUD shows while the tape plays and HUD_HOLD_MS after it stops or ends (or goes in: hudUntil); at the end
     // of the tape it goes even with the motor still on (BASIC may leave it on)
     const running = st.motor && st.progress < 1;
@@ -148,7 +148,7 @@ export function setupTapePanel(page) {
   }
 
   function update() {
-    const m = session.machine;
+    const m = session.personMachine;
     if (!m) return;
     const st = session.tapeStatus(), rec = session.tapeRecording;
     // moving: the play position changed since the last look (the motor alone says nothing: at the end of the tape,

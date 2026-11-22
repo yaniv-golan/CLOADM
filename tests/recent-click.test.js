@@ -36,7 +36,7 @@ const fresh = ({ media = new MemoryMediaStore(), store = Emu.memoryStore() } = {
   s.load('b.bin', prog('BB', 3));
   const rows = drawer.recentRows(s.recentMedia(), 'dragon64');
   drawer.loadRow(s, rows.find((x) => x.r.name === 'b.bin'));
-  check('recent click: a click loads the row\'s own file', s.machine.ram[0x3000] === 0xBB, `$${s.machine.ram[0x3000].toString(16)}`);
+  check('recent click: a click loads the row\'s own file', s.shownMachine.ram[0x3000] === 0xBB, `$${s.shownMachine.ram[0x3000].toString(16)}`);
 }
 
 // 2. the list CHANGES between drawing the rows and clicking one: another load pushes every row down one. The old
@@ -49,7 +49,7 @@ const fresh = ({ media = new MemoryMediaStore(), store = Emu.memoryStore() } = {
   s.load('c.bin', prog('CC', 4));                                // the list shifts: c.bin 0, b.bin 1, a.bin 2
   const aRow = rows.find((x) => x.r.name === 'a.bin');
   drawer.loadRow(s, aRow);
-  check('recent click: after the list shifted, the click still loads the file the row named', s.machine.ram[0x3000] === 0xAA, `$${s.machine.ram[0x3000].toString(16)} want $aa (the row\'s index ${aRow.i} now holds c.bin)`);
+  check('recent click: after the list shifted, the click still loads the file the row named', s.shownMachine.ram[0x3000] === 0xAA, `$${s.shownMachine.ram[0x3000].toString(16)} want $aa (the row\'s index ${aRow.i} now holds c.bin)`);
 }
 
 // 3. a same-name entry replaced by different bytes while the drawer is open: the row is stale. It must not load the
@@ -63,7 +63,7 @@ const fresh = ({ media = new MemoryMediaStore(), store = Emu.memoryStore() } = {
   s.load('a.bin', prog('EE', 5));                                // the same name, new bytes: a different entry
   // the row named the OLD a.bin: it is still in the list (as the "2nd" copy), so the click must load ITS bytes
   drawer.loadRow(s, oldA);
-  check('recent click: a row of a replaced name still loads the bytes it named', s.machine.ram[0x3000] === 0xAA, `$${s.machine.ram[0x3000].toString(16)} want $aa (the new a.bin is $ee)`);
+  check('recent click: a row of a replaced name still loads the bytes it named', s.shownMachine.ram[0x3000] === 0xAA, `$${s.shownMachine.ram[0x3000].toString(16)} want $aa (the new a.bin is $ee)`);
 }
 
 // 4. evicted while the drawer is open: nothing can be loaded, and it must say so rather than load a neighbour

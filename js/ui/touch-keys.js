@@ -244,7 +244,7 @@ export function setupTouchKeys(page, { input }) {
   // ---- the Keys | Joystick switch: remembered per machine ----
   // offered only where the panel is the machine's: not in the phone's full-screen chat (body.chat-phone,
   // js/ui/claude.js), whose keys type into the chat and where a BASIC machine's joystick has no meaning
-  const offer = () => touchJoystickOffered(session.machine) && !document.body.classList.contains('chat-phone');
+  const offer = () => touchJoystickOffered(session.shownMachine) && !document.body.classList.contains('chat-phone');
   // a gamepad takes the joystick while it is connected (screen.js reads it every frame): the panel shows the
   // keys then, without overwriting the mode the person chose, and the stick comes back when the pad goes.
   // ?touch= (js/config.js) is the visit's own mode for every machine the visit shows: in force until the switch
@@ -253,14 +253,14 @@ export function setupTouchKeys(page, { input }) {
   // still driving joy[0]/fire[0] every frame
   const padCount = () => { try { return (navigator.getGamepads ? [...navigator.getGamepads()] : []).filter((p) => p && p.connected !== false).length; } catch (e) { return 0; } };
   let padHere = padCount() > 0, visitMode = null;
-  const wanted = () => visitMode || (session.store.get(`touchMode.${session.machine.id}`) === 'joystick' ? 'joystick' : 'keys');
+  const wanted = () => visitMode || (session.store.get(`touchMode.${session.shownMachine.id}`) === 'joystick' ? 'joystick' : 'keys');
   const modus = () => (padHere || !offer() || wanted() !== 'joystick' ? 'keys' : 'joystick');
   function setMode(mode, { remember = true } = {}) {
-    if (!session.machine) return;
+    if (!session.shownMachine) return;
     if (keysOnce) leave();   // the switch's own tap ends ABC: the mode it chooses is the one to show
     // using the switch takes the panel out of the link's mode: from here it is the person's choice
     visitMode = null;
-    if (remember) session.store.set(`touchMode.${session.machine.id}`, mode);
+    if (remember) session.store.set(`touchMode.${session.shownMachine.id}`, mode);
     for (const b of box.querySelectorAll('[data-touchmode]')) b.setAttribute('aria-pressed', String(b.dataset.touchmode === mode));
     box.dataset.mode = mode;
     // leaving the stick: nothing stays held on the joystick it drove

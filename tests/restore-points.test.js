@@ -36,7 +36,7 @@ const { MediaStoreError } = require('../js/host/media-store.js');
 
 let fail = 0, n = 0;
 const check = (name, cond, detail = '') => { n++; if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log(`ok   ${name} ${detail}`); };
-const frames = (s, k) => { for (let i = 0; i < k; i++) s.advance(1000 / s.machine.fps + 0.01); };
+const frames = (s, k) => { for (let i = 0; i < k; i++) s.advance(1000 / s.shownMachine.fps + 0.01); };
 // a backend per chat: startAsk binds the backend's runTool to its own chat
 const dead = () => new Emu.ClaudeBackend({ fetch: async () => { throw new Error('no network in this test'); }, apiKey: 'sk-ant-RESTORE-TEST-KEY-0123456789' });
 const call = (chat, name, input = {}) => Promise.resolve(chat.backend.runTool(name, input)).then((out) => ({ ok: true, out }), (err) => ({ ok: false, err }));
@@ -61,7 +61,7 @@ const LAYOUT = { dragon64: { start: 0x1E01, fretop: 0x7E00, p: 0x19 }, coco3: { 
 function basicSession(id, { scan = false } = {}) {
   const s = new Emu.Session({ store: Emu.memoryStore() });
   s.switchMachine(id);
-  const m = s.machine, six = id === 'mc10' ? '6803' : '6809';
+  const m = s.shownMachine, six = id === 'mc10' ? '6803' : '6809';
   const coco3 = id === 'coco3' ? ' LDX #$FFA0\n LDA #$38\nMMU STA ,X+\n INCA\n CMPX #$FFA8\n BNE MMU\n LDA #$CE\n STA $FF90\n LDD #$E000\n STD $FF9D\n' : '';
   const idle6809 = scan ? ' CLR $FF03\n LDA #$FF\n STA $FF02\n LDA #$04\n STA $FF03\n CLR $FF02\n CLR $FF01\n CLR $FF00\n LDA #$04\n STA $FF01\nIDLE LDA $FF00\n BRA IDLE\n' : 'IDLE BRA IDLE\n';
   const idle6803 = scan ? ' LDAA #$FF\n STAA $00\n CLRA\n STAA $02\nIDLE LDAA $BFFF\n BRA IDLE\n' : 'IDLE BRA IDLE\n';
@@ -110,15 +110,15 @@ const ACT = {
     {
       // a twin session left alone is the control: the emulation is deterministic, so after the same frames the two
       // are identical unless the call changed something (typing and BREAK act over the frames after the call)
-      const s = ACT[name].on('dragon64'); const chat = s.startAsk({ backend: dead() }); const m = s.machine;
+      const s = ACT[name].on('dragon64'); const chat = s.startAsk({ backend: dead() }); const m = s.shownMachine;
       const twin = ACT[name].on('dragon64'); twin.startAsk({ backend: dead() });
-      check(`${name}: the twin starts identical`, json(m) === json(twin.machine));
+      check(`${name}: the twin starts identical`, json(m) === json(twin.shownMachine));
       chat.withRestorePoint = () => ({ stubbed: true });
       let r = null; call(chat, name, ACT[name].input('dragon64')).then((x) => { r = x; });
       for (let i = 0; i < 60; i++) { frames(s, 1); frames(twin, 1); await new Promise((res) => setImmediate(res)); }
       r = r || { ok: false, err: { code: 'did not settle' } };
       check(`${name}: with the restore-point path stubbed out the call changes nothing (it acts only through withRestorePoint)`,
-        r.ok && r.out && r.out.stubbed === true && json(m) === json(twin.machine) && chat.undo.length === 0, r.ok ? JSON.stringify(r.out) : r.err.code);
+        r.ok && r.out && r.out.stubbed === true && json(m) === json(twin.shownMachine) && chat.undo.length === 0, r.ok ? JSON.stringify(r.out) : r.err.code);
     }
     // and with it in place, the path runs exactly once per call
     {
@@ -134,7 +134,7 @@ const ACT = {
   for (const id of ['dragon64', 'mc10', 'coco3']) {
     for (const name of Emu.ACTING_TOOL_NAMES) {
       if (!ACT[name]) continue;
-      const s = ACT[name].on(id); const chat = s.startAsk({ backend: dead() }); const m = s.machine;
+      const s = ACT[name].on(id); const chat = s.startAsk({ backend: dead() }); const m = s.shownMachine;
       const was = json(m);
       const r = ACT[name].frames ? await callFrames(s, chat, name, ACT[name].input(id)) : await call(chat, name, ACT[name].input(id));
       frames(s, 5);
@@ -155,7 +155,7 @@ const ACT = {
       const s = new Emu.Session({ store: Emu.memoryStore() }); s.switchMachine('dragon64');
       s.roms.put('dragon64', 'basic', romFor(), 'idle.rom'); s.loadSavedRoms(); s.powerCycle(); frames(s, 10);
       s.setClaudeAllowed(true);
-      const chat = s.startAsk({ backend: dead() }); const m = s.machine;
+      const chat = s.startAsk({ backend: dead() }); const m = s.shownMachine;
       await call(chat, 'poke', { address: 0x3000, bytes: [0x11] });
       chat.snapped = false;    // a second turn: a second point
       await call(chat, 'poke', { address: 0x3001, bytes: [0x22] });
@@ -183,7 +183,7 @@ const ACT = {
     }
     // a restore that passes the checks but fails while loading is rolled back: the machine as it was, points kept
     {
-      const s = stubSession('coco3'); const chat = s.startAsk({ backend: dead() }); const m = s.machine;
+      const s = stubSession('coco3'); const chat = s.startAsk({ backend: dead() }); const m = s.shownMachine;
       await call(chat, 'poke', { address: 0x3000, bytes: [0x33] });
       frames(s, 3);
       const good = chat.undo[0];
@@ -358,7 +358,7 @@ const ACT = {
     {
       const r = await rig(), { s } = r;
       s.startChat({ backend: dead(), channel: new Emu.MemoryChannel(), firmware: CHAT_FW });
-      check('full screen: the chat machine is on screen, the BASIC session keeps its drives', s.machine !== r.m && s.chatTarget().machine === r.m && r.basicStored(0) === true);
+      check('full screen: the chat machine is on screen, the BASIC session keeps its drives', s.shownMachine !== r.m && s.chatTarget().machine === r.m && r.basicStored(0) === true);
       await r.point(); await r.write();
       const lib = images.vdk(40, 2).fill(0x5A, 12);
       const imp = await s.importMedia('work.vdk', lib).then(() => null, (e) => e);
@@ -679,7 +679,7 @@ const ACT = {
   // restore()): a CoCo 3 point in the version 1 layout (no haltDefer) restores; the same state marked as the
   // current version is refused part way through loading and the machine is put back as it was ----
   {
-    const s = stubSession('coco3'), m = s.machine;
+    const s = stubSession('coco3'), m = s.shownMachine;
     const point = m.snapshot();
     frames(s, 5); m.ram[0x3000] ^= 0xFF;
     const after = json(m);

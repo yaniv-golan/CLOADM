@@ -19,7 +19,7 @@ const Emu = require('./load')();
 
 let fail = 0, n = 0;
 const check = (name, cond, detail = '') => { n++; if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log(`ok   ${name} ${detail}`); };
-const frames = (s, k) => { for (let i = 0; i < k; i++) s.advance(1000 / s.machine.fps + 0.01); };
+const frames = (s, k) => { for (let i = 0; i < k; i++) s.advance(1000 / s.shownMachine.fps + 0.01); };
 const KEY = 'sk-ant-HISTORY-TEST-KEY-0123456789';
 
 // the API, scripted: each request takes the next reply. A reply is { sse } (a body), { network } (fetch rejects),
@@ -104,7 +104,7 @@ process.exitCode = 1;
     await line(s, chat, 'first');
     let stopped = false;
     const r = await line(s, chat, 'poke it', act ? () => { if (!stopped && a.bodies.length === 3) { stopped = true; act(s, chat); } } : null);
-    check(`B ${what}: the turn failed (${code}) after the poke landed`, r === null && chat.error && chat.error.code === code && s.machine.ram[0x3000] === 7, chat.error && chat.error.code);
+    check(`B ${what}: the turn failed (${code}) after the poke landed`, r === null && chat.error && chat.error.code === code && s.shownMachine.ram[0x3000] === 7, chat.error && chat.error.code);
     const note = `(Note from the page: this turn ended with ${code} after these tool results.)`;
     check(`B ${what}: the history keeps the line (marked ended), the tool round and the page's note`,
       chat.messages.length === 5 && chat.messages[2].content === 'poke it' && chat.messages[2].ended === code
@@ -137,7 +137,7 @@ process.exitCode = 1;
     await line(s, chat, 'poke twice');
     chat.runTool = inner;
     check('B Stop between two calls of one reply: the first result is kept, the second call is neither run nor kept',
-      chat.error.code === 'aborted' && s.machine.ram[0x3000] === 1 && s.machine.ram[0x3001] === 0 && toolResults(chat.messages).map((b) => b.tool_use_id).join() === 'toolu_C1'
+      chat.error.code === 'aborted' && s.shownMachine.ram[0x3000] === 1 && s.shownMachine.ram[0x3001] === 0 && toolResults(chat.messages).map((b) => b.tool_use_id).join() === 'toolu_C1'
       && !JSON.stringify(chat.messages).includes('toolu_C2'), JSON.stringify(chat.messages));
     await line(s, chat, 'and now?');
     check('B and the next request is one the API accepts', Emu.apiShapeProblem(a.bodies[a.bodies.length - 1].json.messages) === null);

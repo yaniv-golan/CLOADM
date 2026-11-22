@@ -58,7 +58,7 @@ function mockSerial({ refuse = false } = {}) {
   const want = sector(2), ck = want.reduce((a, v) => a + v, 0) & 0xFFFF;
   check('a Read from the CoCo is answered from the same drives the emulated machine has', eq(m.written.splice(0), [0, ck >> 8, ck & 0xFF, ...want]));
   // the emulated machine's Becker port at the same time: its own link, the same drive
-  const em = s.machine;
+  const em = s.shownMachine;
   for (const b of [0x23]) em.write(0xFF42, b);
   const t = []; while (em.read(0xFF41) & 2) t.push(em.read(0xFF42));
   check('the emulated machine\'s link is separate (its TIME answer is not on the cable)', t.length === 6 && m.written.length === 0);

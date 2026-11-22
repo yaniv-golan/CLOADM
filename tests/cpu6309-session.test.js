@@ -23,14 +23,14 @@ const check = (name, cond, detail = '') => { n++; if (!cond) { fail++; console.l
 const ROOT = path.join(__dirname, '..');
 const read = (f) => new Uint8Array(fs.readFileSync(path.join(ROOT, 'examples', f)));
 const welcome = read('welcome.bin'), liza = read('liza.bin'), demo = read('demo.bin');
-const frames = (s, k) => { for (let i = 0; i < k; i++) s.advance(1000 / s.machine.fps + 0.01); };
+const frames = (s, k) => { for (let i = 0; i < k; i++) s.advance(1000 / s.shownMachine.fps + 0.01); };
 const store = () => { const m = new Map(); return { get: (k) => (m.has(k) ? m.get(k) : null), set: (k, v) => m.set(k, String(v)), remove: (k) => m.delete(k), keys: () => [...m.keys()] }; };
 const throws = (fn, re) => { try { fn(); return false; } catch (e) { return re ? re.test(e.message) : true; } };
 // what a machine looks like after running a program: the CPU's whole state and the screen. Running the same
 // 6809 build on a 6309 and on a 6809 must give the same answer here - that is the claim the family model rests
 // on, and it is falsifiable (a 6309 that trapped on an opcode, or ran it wrongly, would differ).
-const snapshotOf = (s) => ({ pc: s.machine.cpu.pc, cc: s.machine.cpu.cc, a: s.machine.cpu.a, b: s.machine.cpu.b, x: s.machine.cpu.x,
-  y: s.machine.cpu.y, u: s.machine.cpu.u, s: s.machine.cpu.s, screen: s.screenText().join('\n') });
+const snapshotOf = (s) => ({ pc: s.shownMachine.cpu.pc, cc: s.shownMachine.cpu.cc, a: s.shownMachine.cpu.a, b: s.shownMachine.cpu.b, x: s.shownMachine.cpu.x,
+  y: s.shownMachine.cpu.y, u: s.shownMachine.cpu.u, s: s.shownMachine.cpu.s, screen: s.screenText().join('\n') });
 // run `file` from the assembly on a fresh machine of model `id` with `cpu`, for `n` frames
 const runOn = (id, cpu, bytes, name, n) => {
   const s = new Emu.Session({ store: store() });
@@ -82,7 +82,7 @@ for (const id of two) {
   check(`${id} 6309: the welcome menu ends where the 6809's does (same CPU state and screen)`,
     JSON.stringify(welcome6309.state) === JSON.stringify(welcome6809.state), `${welcome6309.state.pc.toString(16)} vs ${welcome6809.state.pc.toString(16)}`);
   // the welcome program's mailbox is the 6809 build's address, so its keys are the menu's keys
-  s.machine.stubKeys.push(0x31); frames(s, 2);   // '1'
+  s.shownMachine.stubKeys.push(0x31); frames(s, 2);   // '1'
   check(`${id} 6309: key 1 emits welcome:liza`, events.join() === 'welcome:liza', events.join());
 
   // the demo is offered (a 6809-family program), and so is LIZA
@@ -119,9 +119,9 @@ for (const id of two) {
     // BYE stops at the 6809 build's DONE loop; the watch is the 6809 one, so the menu comes back
     s.typeText('BYE\n');
     let atDone = null;
-    for (let i = 0; i < 400 && atDone === null; i++) { frames(s, 1); if (s.machine.cpu.pc === Emu.Session.LIZA.done['6809']) atDone = i; }
+    for (let i = 0; i < 400 && atDone === null; i++) { frames(s, 1); if (s.shownMachine.cpu.pc === Emu.Session.LIZA.done['6809']) atDone = i; }
     check(`${id} 6309: BYE reaches the 6809 build's DONE loop`, atDone !== null, `at ${atDone}`);
-    frames(s, Math.ceil(s.machine.fps * 3) + 10);
+    frames(s, Math.ceil(s.shownMachine.fps * 3) + 10);
     check(`${id} 6309: the menu comes back after the goodbye`, menus === 1, `menus ${menus}`);
   }
 
@@ -135,7 +135,7 @@ for (const id of two) {
     try { s.startChat({ backend, channel: new Emu.MemoryChannel(), firmware }); }
     catch (e) { return { err: e.message }; }   // refused (e.g. on a CPU with no 6809 family): a failing check, not a crash
     frames(s, 40);
-    const m = s.machine;   // the chat machine, on screen
+    const m = s.shownMachine;   // the chat machine, on screen
     return { cfg: m.config.cpu, pc: m.cpu.pc, md: m.cpu.md, state: { pc: m.cpu.pc, cc: m.cpu.cc, a: m.cpu.a, b: m.cpu.b, x: m.cpu.x, y: m.cpu.y, s: m.cpu.s }, screen: s.screenText().join('\n') };
   };
   for (const id of two) {

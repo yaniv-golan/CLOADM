@@ -47,10 +47,15 @@ export function createPage(session, audio) {
   const canvas = $('screen');
   const feedback = createFeedback();
   const LOAD = `${Date.now()}-${Math.random()}`;   // this page load's mark on the history entries it adds
-  const viewFns = [feedback.viewChanged], stepFns = [];
+  const viewFns = [feedback.viewChanged], stepFns = [], firstFns = [];   // firstFns: the same step, before the views
   let shown = viewOpen() ? location.hash : '';
   function route() {
     const v = viewOpen() ? location.hash : '';
+    // BEFORE the view branch: a beforeView handler runs on EVERY step, the way an `every: true` one does, and for
+    // the same reason. The chat's close is one, and the routes that need it most change no hash at all - Back off
+    // the full-screen chat, Esc off the screen, "← Emulator" (the chat is not a view). Placed inside the branch
+    // below, it would never run on them and the person would be left in a chat Back and Esc cannot leave.
+    for (const fn of firstFns.slice()) fn();
     if (v !== shown) {
       const closed = shown !== '' && v === '';
       shown = v;
@@ -72,7 +77,6 @@ export function createPage(session, audio) {
   addEventListener('resize', markUndrawn);
   const page = {
     session, audio, canvas, feedback,
-    get machine() { return session.machine; },
     // an event's message (a toast; an error: a toast with Details), on the page shown now
     status(msg, isError = false) { feedback.toast(msg, { error: isError }); },
     toast: (text, opts) => feedback.toast(text, opts),
@@ -187,7 +191,12 @@ export function createPage(session, audio) {
     // every: true, on every step (the chat checks whether its entry is still the current one). Both the browser's
     // hashchange and popstate lead here (a browser need not fire hashchange when Back crosses from a pushed entry to
     // a hash, or popstate for a typed #hash), and so do page.openStep and page.toEmulator.
-    onView(fn, { every = false } = {}) { (every ? stepFns : viewFns).push(fn); },
+    // beforeView: a handler that must run BEFORE the view handlers on every step, because it decides what the
+    // view is above. The chat's is the one: opening a view over the full-screen chat closes the chat (its conversation
+    // moves to the side panel), and a view handler that runs first (the Debugger's refresh) would build a debugger on
+    // the chat machine - which the close then detaches, in the same route, so that no one ever sees it. Ordering it
+    // first means the view handlers run after the chat is gone and nothing is built on it to throw away.
+    onView(fn, { every = false, beforeView = false } = {}) { (beforeView ? firstFns : every ? stepFns : viewFns).push(fn); },
 
     // ---- Esc ----
     // Every surface that can be closed registers here: rank (lower is on top: a confirmation over a menu over a

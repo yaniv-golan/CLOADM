@@ -295,8 +295,10 @@ s.runFrames(60);                                  // one second of emulated time
 s.typeText('I need a holiday\n');
 s.runFrames(120);
 
-// the screen, through Claude's screen_text reader (the Session is its target)
-const screen = screenTextTool(s);
+// the screen, through Claude's screen_text reader. Its tools take a TARGET - Session.chatTarget() gives one
+// (the machine in use; the BASIC session if a full-screen chat is open), not the Session itself, which has two
+// machines and says which it means through an accessor
+const screen = screenTextTool(s.chatTarget());
 if (!screen.lines.includes('WHY DO YOU NEED A HOLIDAY?')) fail(`LIZA did not answer: ${screen.lines.join(' | ')}`);
 
 // memory: side-effect-free reads, writes through the memory map (-> how many bytes landed)
@@ -310,7 +312,7 @@ s.runFrames(1);
 if (s.readByte(0x3100) !== 0x2A) fail('the assembled program did not run');
 
 // the picture: a Frame of colour codes and a colour table; frameToRGBA gives the pixels, framePng a PNG file
-const frame = s.machine.render();
+const frame = s.shownMachine.render();
 const rgba = frameToRGBA(frame);
 const png = framePng(frame);
 if (rgba.length !== frame.width * frame.height || png[1] !== 0x50) fail('render');
@@ -321,7 +323,7 @@ const t = new Session({ welcomeMenu: false });
 t.switchMachine('dragon64', {}, { menu: false });
 t.openSnapshot(await t.readSnapshot(bytes));
 s.runFrames(10); t.runFrames(10);
-if (t.machine.id !== 'coco' || !frameToRGBA(t.machine.render()).every((p, i) => p === frameToRGBA(s.machine.render())[i])) fail('snapshot');
+if (t.shownMachine.id !== 'coco' || !frameToRGBA(t.shownMachine.render()).every((p, i) => p === frameToRGBA(s.shownMachine.render())[i])) fail('snapshot');
 console.log('example passed');
 ```
 
@@ -333,12 +335,12 @@ console.log('example passed');
 |---|---|
 | The command line | every step, its argument syntax, the `--json` fields above, the exit codes and error codes; `--describe` gives them all with `schemaVersion`, which goes up when one changes incompatibly |
 | `new Session({ welcomeMenu })` | `false` for scripts: nothing offers the welcome menu |
-| `switchMachine(id, config, { menu })`, `machine`, `profiles` | the models and their options |
+| `switchMachine(id, config, { menu })`, `shownMachine`, `personMachine`, `profiles` | the models and their options. `shownMachine` is the machine on screen (and `machine` is gone: it did not say which of the two it meant); `personMachine` is the one the person works on, the same machine unless a full-screen chat is open |
 | `addRoms(files)`, `machineRoms()`, `runWithoutRoms()` | your ROMs, identified per model |
 | `load(name, bytes, { remember: false })`, `insertTape`, `await importDisk(name, bytes, drive)`, `startLiza`, `startWelcome`, `runAssembled(assemble(src, cpu))` | media and programs |
 | `runFrames(n)` | emulated frames, no clock; `advance(ms)` is the page's real-time pacing |
 | `typeText(text)`, `untypable(text)` | typing; for BREAK, CLEAR and the arrows, `machine.typist.press(key)` with ROMs (the keyboard matrix), and `machine.stubKeys.push(code)` on the built-in firmware (its POLCAT codes: BREAK 3, CLEAR 12, LEFT 8, RIGHT 9, DOWN 10, UP 94) |
-| `screenTextTool(session)`, `screenText()` | the screen as text (the first is the full reader; the second the raw 32x16 VDG page) |
+| `screenTextTool(session.chatTarget())`, `screenText()` | the screen as text (the first is the full reader and takes a tool target, never a Session; the second the raw 32x16 VDG page) |
 | `readByte(addr)`, `pokeBytes(addr, bytes)` | memory |
 | `machine.render()`, `frameToRGBA(frame)`, `framePng(frame)` | pictures |
 | `await snapshotFile()`, `await readSnapshot(bytes)`, `openSnapshot(snap)` | snapshots |

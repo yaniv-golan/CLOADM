@@ -194,7 +194,7 @@ export function setupLibrary(page, { loadProgram, runShelf, changed, showRoms, r
       e.dataTransfer.setData(DRAG_TYPE, t.name);
       e.dataTransfer.setData('text/plain', base(t.name));
       e.dataTransfer.effectAllowed = 'copy';
-      $('typeinDropHint').textContent = `Drop to load ${base(t.name)} into the ${session.machine.profile.name.replace(/^Tandy /, '')}`;
+      $('typeinDropHint').textContent = `Drop to load ${base(t.name)} into the ${session.personMachine.profile.name.replace(/^Tandy /, '')}`;
       view.classList.add('dragging');
     };
     b.ondragend = () => { view.classList.remove('dragging'); $('typeinDrop').classList.remove('over'); };

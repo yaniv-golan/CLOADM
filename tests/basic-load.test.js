@@ -33,7 +33,7 @@ const check = (name, cond, detail = '') => { n++; if (!cond) { fail++; console.l
 const hx = (a) => Array.from(a, (b) => b.toString(16).toUpperCase().padStart(2, '0')).join(' ');
 const bytesOf = (s) => [...s].map((c) => c.charCodeAt(0));
 const same = (a, b) => hx(a) === hx(b);
-const frames = (s, k) => { for (let i = 0; i < k; i++) s.advance(1000 / s.machine.fps + 0.01); };
+const frames = (s, k) => { for (let i = 0; i < k; i++) s.advance(1000 / s.shownMachine.fps + 0.01); };
 const dead = new Emu.ClaudeBackend({ fetch: async () => { throw new Error('no network in this test'); }, apiKey: 'sk-ant-BASIC-TEST-KEY-0123456789' });
 const call = (chat, name, input = {}) => Promise.resolve(chat.backend.runTool(name, input)).then((out) => ({ ok: true, out }), (err) => ({ ok: false, err }));
 
@@ -117,7 +117,7 @@ const LAYOUT = {   // where the test puts BASIC's program and the top of free RA
 function basicMachine(id, { ok = true } = {}) {
   const s = new Emu.Session({ store: Emu.memoryStore() });
   s.switchMachine(id);
-  const m = s.machine, six = id === 'mc10' ? '6803' : '6809';
+  const m = s.shownMachine, six = id === 'mc10' ? '6803' : '6809';
   // the 6809 machines: the VDG text page at $0400 (SAM offset F1, PIA1 port B outputs low: alphanumeric mode),
   // and on the CoCo 3 the MMU and the GIME's video base set the way its BASIC leaves them (task 0 = blocks $38-$3F,
   // the CoCo-compatible mode, video at physical $70400), so the screen reader can read the prompt
@@ -194,10 +194,10 @@ function basicMachine(id, { ok = true } = {}) {
     const s = new Emu.Session({ store: Emu.memoryStore() });
     s.switchMachine('dragon64'); frames(s, 30); s.setClaudeAllowed(true);
     const chat = s.startAsk({ backend: dead });
-    const before = Emu.state.toJSON(s.machine.snapshot());
+    const before = Emu.state.toJSON(s.shownMachine.snapshot());
     const r = await call(chat, 'load_basic', { program: '10 END' });
     check('no ROMs: no-basic, with a remedy that does not assume RUN, nothing changed', !r.ok && r.err.code === C.NO_BASIC && /assemble_and_load/.test(r.err.tool.remedy)
-      && Emu.state.toJSON(s.machine.snapshot()) === before && chat.undo.length === 0, r.ok ? '' : r.err.message);
+      && Emu.state.toJSON(s.shownMachine.snapshot()) === before && chat.undo.length === 0, r.ok ? '' : r.err.message);
   }
 
   // ---- 5. load_basic's own card: on every call, even with acting allowed, until "Don't ask again this session" ----
@@ -276,8 +276,8 @@ function basicMachine(id, { ok = true } = {}) {
     check('Session.loadBasic refuses with the same codes: bad-line-number, not-typable, empty', fails(() => b.s.loadBasic('PRINT')) === C.BAD_LINE_NUMBER
       && fails(() => b.s.loadBasic('10 PRINT "É"')) === C.NOT_TYPABLE && fails(() => b.s.loadBasic('')) === C.EMPTY && fails(() => b.s.loadBasic(7)) === C.EMPTY);
     const stub = new Emu.Session({ store: Emu.memoryStore() }); stub.switchMachine('coco3'); frames(stub, 30);
-    const before = Emu.state.toJSON(stub.machine.snapshot());
-    check('Session.loadBasic with no BASIC ROMs: no-basic, nothing changed', fails(() => stub.loadBasic('10 END')) === C.NO_BASIC && Emu.state.toJSON(stub.machine.snapshot()) === before);
+    const before = Emu.state.toJSON(stub.shownMachine.snapshot());
+    check('Session.loadBasic with no BASIC ROMs: no-basic, nothing changed', fails(() => stub.loadBasic('10 END')) === C.NO_BASIC && Emu.state.toJSON(stub.shownMachine.snapshot()) === before);
     // the embed API: a host's call is answered by id, the result or the coded message
     const sent = [];
     const api = new Emu.EmbedApi(b.s, (msg) => sent.push(msg));

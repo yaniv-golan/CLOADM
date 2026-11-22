@@ -44,8 +44,8 @@ const MACHINES = [
   { id: 'mc10', file: 'welcome6803-mc10.bin', sub: 'TANDY MC-10' },
   { id: 'alice', file: 'welcome6803-alice.bin', sub: 'MATRA ALICE' },
 ];
-const runFrames = (s, n) => { for (let i = 0; i < n; i++) s.advance(1000 / s.machine.fps + 0.01); };
-const pressKey = (s, ch) => { s.machine.stubKeys.push(ch.charCodeAt(0)); runFrames(s, 2); };
+const runFrames = (s, n) => { for (let i = 0; i < n; i++) s.advance(1000 / s.shownMachine.fps + 0.01); };
+const pressKey = (s, ch) => { s.shownMachine.stubKeys.push(ch.charCodeAt(0)); runFrames(s, 2); };
 const BASE = 0x4000;                     // the 6803 machines' 32x16 text screen
 
 // each build is this source assembled with that machine's flags: exactly one of MC10/ALICE is 1
@@ -69,7 +69,7 @@ for (const { id, file, sub } of MACHINES) {
   s.on((e) => { if (e.startsWith('welcome:')) events.push(e); });
   s.startWelcome(bin);
   runFrames(s, 50);
-  const m = s.machine, ram = (a) => m.ram[a];
+  const m = s.shownMachine, ram = (a) => m.ram[a];
   const row = (r) => Array.from({ length: 32 }, (_, i) => ram(BASE + r * 32 + i));
 
   check(`${id}: the welcome program is running`, s.welcomeRunning);
@@ -158,7 +158,7 @@ for (const { id, file } of MACHINES) {
   s.switchMachine(id);
   s.welcomeSound();
   s.startWelcome(read(file));
-  const m = s.machine, latch = new Set(), outside = [];
+  const m = s.shownMachine, latch = new Set(), outside = [];
   const write = m.write.bind(m);
   m.write = (a, v) => { a &= 0xFFFF; if (a === 0xBFFF) latch.add(v); else if (a < 0x4000 && a >= 0x100) outside.push(a); return write(a, v); };
   let f = 0;
