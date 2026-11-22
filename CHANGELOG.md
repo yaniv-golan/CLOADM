@@ -21,6 +21,16 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   in-flight bytes and resuming at the same byte). `tests/dev-docs-headless.test.js` rebuilds the table from the machines, runs the
   example from a temporary directory and from a copy, fails mutants of its guest, and checks the numbers the text quotes.
 
+### Changed
+
+- **The developer API's stable table covers what a headless script needs.** (Documentation and a test; no change to the emulator.)
+  `docs/automation.md`'s "What is stable" table now names `machine.setKey(name, down)` and the key names
+  (`Object.keys(machine.keyPos)`; the `[row, column]` values stay internal), `machine.frameCount`, `machine.now()`,
+  `machine.tickHz` and `machine.cpu.totalCycles`, the `Frame` fields (`width`, `height`, `aspect`, `active`, `data`, `table`) and
+  `framePng(frame, scale)` from `cli/cloadm.js`; `machine.serialPort`, `pcWatch`, `stubKeys` and the typist's internals are
+  listed as not promoted. `tests/dev-docs-headless.test.js` imports each promoted name through its public path and checks its
+  shape, so renaming one fails it.
+
 ### Fixed
 
 - **An embedded CLOADM could open the Claude chat; the chat is no longer available in an embed.**
