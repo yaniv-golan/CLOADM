@@ -18,7 +18,8 @@
 //   no-cors   A when the site sends no Access-Control-Allow-Origin: the handshake still comes; calls are not-started
 //   out-of-step A when the site's panel speaks another PANEL_API: calls are out-of-step
 //   phone     the size reported inline (ui/notifications/size-changed), the host's insets in fullscreen, the on-screen
-//             keys on a touch screen, a host that asks before each call (phoneScenario)
+//             keys on a touch screen (Keys | Pad | Stick, each program's mode, the choice remembered), a host that asks
+//             before each call (phoneScenario)
 const http = require('http'), fs = require('fs'), path = require('path');
 const { pathToFileURL } = require('url');
 const ROOT = path.join(__dirname, '..');
@@ -557,21 +558,33 @@ async function phoneScenario(browser, check, { shots = null } = {}) {
         await page.waitForTimeout(500);
         const st = await text(page);
         check('connector phone: tapping H, I, ENTER on the on-screen keys types them into the machine (screen_text through the host shows "> HI")', /> HI/.test(st), st.slice(0, 400));
-        // SHIFT is sticky for one key
-        // the Stick mode: the strip, the stick and FIRE; BREAK once in each mode
-        const breaks = () => v.evaluate(() => [...document.querySelectorAll('#keys [data-key="BREAK"]')].filter((b) => b.checkVisibility()).length);
-        const inKeys = await breaks();
-        await keys.locator('#keys-mode [data-mode="stick"]').tap();
-        await page.waitForTimeout(200);
-        const stick = await v.evaluate(() => ({ pad: document.getElementById('keys-stick').checkVisibility(), fire: document.getElementById('keys-fire').checkVisibility(), full: document.getElementById('keys-full').checkVisibility(), mode: window.cloadmView.keys.mode }));
-        const inStick = await breaks();
+        // SHIFT is sticky for one key: SHIFT then 1 types "!", SHIFT lets go, and the next key is unshifted
+        await keys.locator('#keys-full [data-key="SHIFT"]').tap();
+        const armedShift = await v.evaluate(() => document.querySelector('#keys-full [data-key="SHIFT"]').getAttribute('aria-pressed'));
+        for (const k of ['1', '2', 'ENTER']) { await keys.locator(`#keys-full [data-key="${k}"]`).tap(); await page.waitForTimeout(150); }
+        await page.waitForTimeout(500);
+        const shifted = await text(page);
+        const afterShift = await v.evaluate(() => document.querySelector('#keys-full [data-key="SHIFT"]').getAttribute('aria-pressed'));
+        check('connector phone: SHIFT is sticky for one key: SHIFT (pressed) then 1 types "!", SHIFT lets go, and the next key (2) is unshifted ("> !2")',
+          armedShift === 'true' && afterShift === 'false' && /> !2(\s|\\n|")/.test(shifted), JSON.stringify({ armedShift, afterShift, shifted: shifted.slice(0, 500) }));
+        // the three modes: Keys, Pad, Stick; in each exactly one BREAK showing, and it is the bottom row's
+        const modeState = () => v.evaluate(() => {
+          const vis = (sel) => [...document.querySelectorAll(sel)].filter((b) => b.checkVisibility());
+          const br = vis('#keys [data-key="BREAK"]');
+          return { mode: window.cloadmView.keys.mode, breaks: br.length, inBottom: br.every((b) => !!b.closest('#keys-bottom')), full: vis('#keys-full').length === 1,
+            pad: vis('#keys-pad').length === 1, stick: vis('#keys-stick').length === 1, fire: vis('#keys-fire').length === 1, strip: vis('#keys-strip .k').map((b) => b.dataset.key || 'ABC'),
+            sw: vis('#keys-mode button').map((b) => b.textContent) };
+        });
+        const modes = { keys: await modeState() };
+        for (const m of ['pad', 'joystick']) { await keys.locator(`#keys-mode [data-mode="${m}"]`).tap(); await page.waitForTimeout(200); modes[m] = await modeState(); if (m === 'joystick') await shot(page, 'fullscreen-390x844-stick'); }
         const box = await keys.locator('#keys-fire').boundingBox();
         await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
         const geo2 = await v.evaluate(() => { const r = (id) => document.getElementById(id).getBoundingClientRect(); return { sb: r('screen').bottom, keysTop: r('keys').top, foot: r('foot').bottom, vh: innerHeight, cw: r('screen').width }; });
-        await shot(page, 'fullscreen-390x844-stick');
         await keys.locator('#keys-mode [data-mode="keys"]').tap();
-        check('connector phone: Stick shows the strip, the stick and FIRE (not the keyboard); BREAK shows once in each mode; the screen refits above the keys',
-          stick.pad && stick.fire && !stick.full && stick.mode === 'stick' && inKeys === 1 && inStick === 1 && geo2.sb <= geo2.keysTop && geo2.foot <= geo2.vh - 33, JSON.stringify({ stick, inKeys, inStick, geo2 }));
+        check('connector phone: Keys | Pad | Stick: Keys the keyboard, Pad the D-pad, Stick the strip (SPACE ENTER 1 2 Y N ABC), the stick and FIRE; in each mode exactly one BREAK shows, in the bottom row; the screen refits above the keys',
+          Object.values(modes).every((x) => x.breaks === 1 && x.inBottom && JSON.stringify(x.sw) === '["Keys","Pad","Stick"]')
+          && modes.keys.full && !modes.keys.pad && modes.pad.pad && !modes.pad.full && !modes.pad.stick && modes.joystick.stick && modes.joystick.fire && !modes.joystick.full
+          && JSON.stringify(modes.joystick.strip) === '["SPACE","ENTER","1","2","Y","N","ABC"]' && geo2.sb <= geo2.keysTop && geo2.foot <= geo2.vh - 33, JSON.stringify({ modes, geo2 }));
         // a shorter panel (390 x 640): the screen gives way, so the keys and the status line still fit above the bottom inset
         await page.evaluate(() => { window.resizeView(390, 640); window.hostContextChanged({ containerDimensions: { width: 390, height: 640 } }); });
         await page.waitForTimeout(400);
@@ -594,7 +607,65 @@ async function phoneScenario(browser, check, { shots = null } = {}) {
         const last = await v.evaluate(() => window.CLOADM_BRIDGE.log.last);
         check('connector phone: with a host that asks before each call, an approved call (after 1.5 s) is answered and acts, a denied one never reaches the view, and the next call works; Details names the last call',
           approved.result && !approved.result.isError && denied.denied && /> OK/.test(after) && /^screen_text ok \d+ ms$/.test(last), JSON.stringify({ approved: approved.result && approved.result.isError, last, after: after.slice(0, 300) }));
+        // each program opens in the mode it is played with: 2048 the Pad, Minesweeper the Pad with F (Stick offered), LIZA the Keys
+        const pickProgram = async (id) => { await v.click('#programs'); await v.click(`#programs-menu [data-program="${id}"]`); await page.waitForTimeout(700); return modeState(); };
+        const extrasOf = () => v.evaluate(() => [...document.querySelectorAll('#keys-pad .kextras .k')].map((b) => b.dataset.key));
+        const g2048 = await pickProgram('2048'), x2048 = await extrasOf();
+        await shot(page, 'fullscreen-390x844-pad');
+        // the Pad's arrows reach the game: SPACE (the Pad's) starts it, then each arrow that can move the tiles moves
+        // them and adds one (a move that cannot changes nothing, so six moves in turn, and most must change the board)
+        // (the board as drawn: a hash of the frame's pixels, since the tiles are graphics, not text)
+        const board = () => v.evaluate(() => { const f = window.cloadmView.session.machine.render(), px = f.data; let h = 0; for (let i = 0; i < px.length; i++) h = (h * 31 + px[i]) | 0; return String(h); });
+        // (only with the Pad up: without it the check below fails rather than the run stopping on a hidden key)
+        const padUp = g2048.mode === 'pad';
+        if (padUp) { await keys.locator('#keys-pad [data-key="SPACE"]').tap(); await page.waitForTimeout(500); }
+        const b0 = await board(), seen = [];
+        for (const k of padUp ? ['←', '↑', '→', '↓', '←', '↑'] : []) { await keys.locator(`#keys-pad [data-key="${k}"]`).tap(); await page.waitForTimeout(400); seen.push(await board()); }
+        const moved = seen.filter((b, i) => b !== (i ? seen[i - 1] : b0)).length;
+        const mines = await pickProgram('minesweeper'), xMines = await extrasOf();
+        const liza = await pickProgram('liza');
+        check('connector phone: a program opens in its own mode: 2048 on the Pad (no extras), Minesweeper on the Pad with F (Stick offered), LIZA on the Keys',
+          g2048.mode === 'pad' && g2048.pad && JSON.stringify(x2048) === '[]' && mines.mode === 'pad' && JSON.stringify(xMines) === '["F"]' && mines.sw.includes('Stick') && liza.mode === 'keys' && liza.full,
+          JSON.stringify({ g2048: g2048.mode, x2048, mines: mines.mode, xMines, sw: mines.sw, liza: liza.mode }));
+        const padNames = await v.evaluate(() => [...document.querySelectorAll('#keys-pad .karrows .k')].map((b) => `${b.getAttribute('aria-label')}:${b.textContent}`));
+        check('connector phone: the Pad\'s SPACE and arrows reach the game (2048 changes on at least four of ←, ↑, →, ↓, ←, ↑), each named by its direction (no DEL on the Pad\'s ←)',
+          moved >= 4 && JSON.stringify(padNames) === '["Up:↑","Left:←","Down:↓","Right:→"]', JSON.stringify({ moved, padNames, seen }));
+        // no Stick where the machine has no joystick port (the MC-10)
+        await v.click('#machine'); await v.click('#machine-menu [data-model="mc10"]'); await page.waitForTimeout(700);
+        const mc10 = await modeState();
+        await v.click('#machine'); await v.click('#machine-menu [data-model="dragon64"]'); await page.waitForTimeout(700);
+        await pickProgram('liza');
+        check('connector phone: on the MC-10 (no joystick port) the switch is Keys | Pad, no Stick, and BREAK still shows once', JSON.stringify(mc10.sw) === '["Keys","Pad"]' && mc10.breaks === 1, JSON.stringify(mc10));
       }
+      await ctx.close();
+    }
+    // ---- the choice is remembered per program: across a reload where the view's storage works; where it throws, for
+    // the view's life only, and silently (no error), back to the program's own mode after a reload
+    for (const broken of [false, true]) {
+      const { ctx, page, v, ready } = await opened({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }, { w: 390, h: 844, mode: 'fullscreen', ctx: JSON.stringify({ containerDimensions: { width: 390, height: 844 } }) });
+      // (a sandbox that refuses storage: every read and write throws, as Safari's does with storage blocked)
+      if (broken) await ctx.addInitScript(() => { if (location.href === 'about:srcdoc') for (const f of ['getItem', 'setItem', 'removeItem']) Storage.prototype[f] = () => { throw new DOMException('storage is off', 'SecurityError'); }; });
+      const keys = page.frameLocator('iframe').frameLocator('iframe');
+      let view = v;
+      if (broken) { await page.reload(); await wait(page, () => window.hostT.listChanged, null, 30000); view = page.frames().find((f) => f.url() === 'about:srcdoc'); await wait(view, () => window.cloadmView && window.cloadmView.facts.storage !== '…'); }
+      const mode = () => view.evaluate(() => window.cloadmView.keys.mode);
+      const pick = async (id) => { await view.click('#programs'); await view.click(`#programs-menu [data-program="${id}"]`); await page.waitForTimeout(600); };
+      const errs0 = errors.length;
+      await keys.locator('#keys-mode [data-mode="pad"]').tap();   // LIZA on the Pad
+      await pick('2048'); const g = await mode();
+      await pick('liza'); const kept = await mode();
+      const stored = await view.evaluate(() => { try { return localStorage.getItem('cloadm.touchMode.dragon64.liza'); } catch (e) { return `throws ${e.name}`; } });
+      await page.reload();
+      await wait(page, () => window.hostT.listChanged, null, 30000);
+      view = page.frames().find((f) => f.url() === 'about:srcdoc');
+      await wait(view, () => window.cloadmView && window.cloadmView.facts.storage !== '…');
+      await pick('liza');
+      const reloaded = await mode();
+      if (!broken) await keys.locator('#keys-mode [data-mode="keys"]').tap();   // (back to LIZA's own mode, for the next run)
+      check(broken ? 'connector phone: with storage that throws, the choice (LIZA on the Pad) holds for the view\'s life, silently (no error), and after a reload LIZA is back on its own mode, the Keys'
+        : 'connector phone: the choice is remembered per program: LIZA on the Pad, 2048 on its own Pad, LIZA still on the Pad, and after a reload of the view too (the view\'s storage)',
+      ready && g === 'pad' && kept === 'pad' && (broken ? reloaded === 'keys' && /^throws SecurityError$/.test(stored) && errors.length === errs0 : reloaded === 'pad' && stored === 'pad'),
+      JSON.stringify({ broken, g, kept, stored, reloaded, errors: errors.slice(errs0) }));
       await ctx.close();
     }
     // ---- a desktop: no keys

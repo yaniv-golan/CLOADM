@@ -447,14 +447,20 @@ const nb = (i) => { const out = []; const x = i & 7, y = i >> 3; for (let dy = -
   const s = new Emu.Session({ store });
   s.switchMachine('dragon64');
   const events = [];
-  s.on((e) => events.push(e));
+  let runningAtGame = null;
+  let controlsAtGame = null;
+  s.on((e) => { events.push(e); if (e === 'program') { runningAtGame = s.gameRunning; controlsAtGame = s.programControls; } });
+  check('Session.gameRunning: false on the welcome menu', s.gameRunning === false);
   s.runGame('minesweeper', bin('minesweeper'));
+  check('Session.runGame emits program, with gameRunning already true for the listeners (the touch panel\'s pad)', runningAtGame === true && s.gameRunning === true, events.join());
+  check('Session.programControls: Minesweeper is played with the arrows, F and a joystick (UX R30, R32)', JSON.stringify(controlsAtGame) === '{"id":"minesweeper","input":"arrows","extra":["F"],"joystick":true}', JSON.stringify(controlsAtGame));
   check('Session.runGame remembers the game as the last run', JSON.stringify(s.lastRun) === '{"kind":"game","name":"Minesweeper"}' && s.carryOn && s.carryOn.name === 'Minesweeper');
   s.runFrames(5); s.machine.stubKeys.push(32); s.runFrames(20); s.machine.stubKeys.push(3); s.runFrames(20);
   check('BREAK in a game: the Session emits menu', events.includes('menu'), events.filter((e) => !/^(frame|status)/.test(e)).join());
+  check('Session.gameRunning: false once the game is left; no program controls on the welcome menu', s.gameRunning === false && s.programControls === null);
   s.startWelcome(bin('welcome'), { greeting: 'back', carryOn: s.carryOn.name });
   s.runFrames(50);
-  check('the welcome menu offers it back as option 6', s.screenText()[13].trim() === '6 CARRY ON WITH MINESWEEPER', s.screenText()[13]);
+  check('the welcome menu offers it back as option 6', s.screenText()[12].trim() === '6 CARRY ON WITH MINESWEEPER', s.screenText()[12]);
   let err = null;
   try { s.gameFile('tetris'); } catch (e) { err = e; }
   check('an unknown game is a SessionError', err instanceof Emu.SessionError);
@@ -474,6 +480,11 @@ const nb = (i) => { const out = []; const x = i & 7, y = i >> 3; for (let dy = -
   }
   s.switchMachine('coco', { ram: 32 });
   check('a 32K CoCo has what the games need', s.gameNeeds() === null);
+  s.runGame('2048', bin('2048'));
+  const was = s.gameRunning;
+  check('Session.programControls: 2048 is played with the arrows alone', JSON.stringify(s.programControls) === '{"id":"2048","input":"arrows","extra":[],"joystick":false}', JSON.stringify(s.programControls));
+  s.switchMachine('dragon64');
+  check('Session.gameRunning: a machine switch ends it (the game ran on the old machine)', was === true && s.gameRunning === false && s.programControls === null);
 }
 
 // BREAK on the title page leaves too; the game puts the SAM's memory size back as it found it (SAMEXIT, set by the

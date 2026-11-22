@@ -47,7 +47,7 @@ const dragonRoms = (s) => s.addRoms([{ name: 'd64_1.rom', bytes: basic }, { name
     s.reset();
     frames(s, 10);
     check(`${id} with ROMs and a game: Reset keeps the machine (${s.machine.profile.name}, ${s.machine.fps} Hz)`,
-      s.machine === m && s.machine.id === id && s.store.get('machine') === id && s.statusLine(m.fps).startsWith(`${Emu.profiles[id].name} ·`));
+      s.machine === m && s.machine.id === id && s.store.get('machine') === id && s.machine.profile.name === Emu.profiles[id].name);
   }
 }
 

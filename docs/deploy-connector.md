@@ -116,8 +116,10 @@ In the Claude app on an iPhone or Android phone, with the same connector:
    shows `size W×H`).
 2. Open it in the side panel or fullscreen (**⋯ → Open in side panel**). Nothing of the toolbar or the screen is under
    the app's title chip or the home bar.
-3. Tap **H**, **I**, **ENTER** on the on-screen keys: LIZA shows `> HI` and answers. **Stick** shows the stick and FIRE
-   (on a machine with a joystick port); **⋯ → Hide on-screen keys** hides them.
+3. Tap **H**, **I**, **ENTER** on the on-screen keys: LIZA shows `> HI` and answers. **Programs → 2048** opens on the
+   **Pad**, and its arrows move the tiles; **Stick** shows the stick and FIRE (on a machine with a joystick port); BREAK
+   is beside the switch in every mode; **⋯ → Hide on-screen keys** hides them. Close the view and open it again: LIZA
+   comes back in the mode you last chose for it.
 4. In the next message ask Claude to read the screen. If the call fails, open **Details**: `calls ×0` means the app
    never passed the call to the view (the app's side: say whether it asked you to approve it); `last call screen_text
    error <code>` means the view answered it with that error, which names the cause.

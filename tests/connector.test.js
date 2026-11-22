@@ -399,9 +399,24 @@ const J = JSON.stringify;
       && !ui.touchHost({}) && !ui.touchHost({ platform: 'desktop' }) && !ui.touchHost({ deviceCapabilities: { touch: false } }, { coarse: true }));
     check('size: the content height is the screen, its padding and what lies around it, rounded up to a whole pixel', ui.contentHeight(282, 24, 120.2) === 427 && ui.contentHeight(ui.screenSize(366).height, 24, 300) === 598);
     const tl = await imp('js/ui/touch-layout.js');
-    check('keys: what an on-screen key sends (the page\'s and the view\'s): a letter, SHIFT + 1 ("!" for the stub), ENTER, the space bar ("_"), ← as LEFT (backspace 8)',
+    check('keys: what an on-screen key sends (the page\'s and the view\'s): a letter, SHIFT + 1 ("!" for the stub), ENTER, the space bar ("_"), ← as LEFT (backspace 8), → as RIGHT (9); the full keyboard\'s 50 keys',
       J(tl.keyPress('A')) === J({ names: ['A'], code: 65 }) && J(tl.keyPress('1', true)) === J({ names: ['SHIFT', '1'], code: 33 }) && J(tl.keyPress('ENTER')) === J({ names: ['ENTER'], code: 13 })
-      && J(tl.keyPress('_')) === J({ names: ['SPACE'], code: 32 }) && J(tl.keyPress('←', true)) === J({ names: ['SHIFT', 'LEFT'], code: 8 }) && tl.FULL.join(' ').split(' ').length === 49, J([tl.keyPress('1', true), tl.keyPress('←', true)]));
+      && J(tl.keyPress('_')) === J({ names: ['SPACE'], code: 32 }) && J(tl.keyPress('←', true)) === J({ names: ['SHIFT', 'LEFT'], code: 8 }) && tl.FULL.join(' ').split(' ').length === 50 && J(tl.keyPress('→')) === J({ names: ['RIGHT'], code: 9 }), J([tl.keyPress('1', true), tl.keyPress('←', true)]));
+    const S = await imp('js/session.js');
+    check('keys: a program\'s mode from what it is played with: the arrows the Pad, a joystick the Stick, the keyboard (and nothing) the Keys; 2048 and Minesweeper the Pad, LIZA the Keys',
+      tl.programMode(null) === 'keys' && tl.programMode({ input: 'arrows' }) === 'pad' && tl.programMode({ input: 'joystick' }) === 'joystick' && tl.programMode({ input: 'keyboard' }) === 'keys'
+      && tl.programMode(S.GAMES.list[2048].controls) === 'pad' && tl.programMode(S.GAMES.list.minesweeper.controls) === 'pad' && J(S.GAMES.list.minesweeper.controls.extra) === '["F"]'
+      && tl.programMode(S.PROGRAM_CONTROLS.liza) === 'keys' && J(tl.MODES) === '["keys","pad","joystick"]' && !tl.DPAD.flat().includes('BREAK') && !tl.PAD_KEYS.includes('BREAK'));
+    const vt = await imp('connector/view/touch.js');
+    const kv = new Map(), works = vt.modeMemory({ getItem: (k) => (kv.has(k) ? kv.get(k) : null), setItem: (k, v) => kv.set(k, v) });
+    works.set('dragon64.liza', 'pad');
+    const thrower = { getItem: () => { throw new Error('SecurityError'); }, setItem: () => { throw new Error('QuotaExceededError'); } };
+    const off = vt.modeMemory(thrower), none = vt.modeMemory(null);
+    let threw = null;
+    try { off.set('dragon64.liza', 'pad'); none.set('x', 'keys'); } catch (e) { threw = e; }
+    check('keys: the choice is kept in the view\'s storage when it works (cloadm.touchMode.<machine>.<program>); when the storage throws, or there is none, in memory, silently; nothing stored is null',
+      kv.get('cloadm.touchMode.dragon64.liza') === 'pad' && vt.modeMemory({ getItem: (k) => kv.get(k) ?? null, setItem() {} }).get('dragon64.liza') === 'pad'
+      && !threw && off.get('dragon64.liza') === 'pad' && none.get('x') === 'keys' && vt.modeMemory(thrower).get('dragon64.liza') === null && works.get('nothing') === null, J([...kv]));
     const unnamed = offered.filter((t) => !t.annotations.readOnlyHint).filter((t) => /^Claude: /.test(ui.describeCall(t.name, {}, { title: t.title }).now)).map((t) => t.name);
     check('chip: every panel tool that acts (readOnlyHint false) has its own words', !unnamed.length, unnamed.join(','));
   }

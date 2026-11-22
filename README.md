@@ -121,7 +121,7 @@ Per-machine notes, RAM options and the chip-by-chip list: [docs/machines.md](doc
 | **Library** | Every tape, disk, cartridge and program you load, kept for next time, in the browser or a folder on your computer; paste a magazine listing and CLOADM types it in | |
 | **Claude** | Chat with Claude full screen on the green screen (phones included), or Ask Claude in a side panel; Claude reads only the emulated machine (its screen text and memory, never anything else on your computer; it says so when it can't read a screen), and acts on it (POKE, typing, loading a BASIC program, BREAK) only with your permission, with undo | The chat over DriveWire to a real machine; the CoCo 3's 80-column chat screen |
 | **Tools** | Assembler, Debugger, POKE book, snapshots; a command line, MCP server and Node API for agents, and a claude.ai connector that runs the emulator in Claude's side panel ([automation](docs/automation.md), [MCP](docs/mcp.md), [side panel](docs/mcp.md#claude-on-the-web-side-panel)) | Step back (rewind) |
-| **Sharing** | Every setting as a URL parameter; a link that opens exactly this moment, a 6-second clip, a true-pixel screenshot; embed code and a JavaScript API; works offline once visited; **Install CLOADM…** at the foot of the **machine menu** (the machine-name button, top left), and a one-time offer once a program has run a minute (its own window, offline) | |
+| **Sharing** | Every setting as a URL parameter; a link that opens exactly this moment, a 6-second clip, a true-pixel screenshot; embed code and a JavaScript API; works offline once visited; **Install CLOADM…** in the app bar beside Help (behind **Menu** on a phone), and a one-time offer once a program has run a minute (its own window, offline) | |
 
 How to load each kind of file, the keys, snapshots, sharing and embedding: [docs/using.md](docs/using.md). Running it from scripts and CI (`node cli/cloadm.js`): [docs/automation.md](docs/automation.md). Writing a game and testing it end to end (keys, screen, pictures, sound), with a starter game: [docs/game-development.md](docs/game-development.md).
 
@@ -208,8 +208,8 @@ areas included) is sent to Anthropic as part of your conversation. More in [docs
   machine-code programs, LIZA, the welcome program and its two games.
 * **Does it work on a phone?** Yes: an on-screen keyboard appears, split for the thumbs when held sideways,
   and a switch turns it into a touch joystick (stick and FIRE) for games.
-* **Does it work offline?** Yes, after one visit. Browsers offer to install it, and **Install CLOADM…** at the foot
-  of the **machine menu** (the machine-name button, top left) makes it an app of its own (its own window, offline);
+* **Does it work offline?** Yes, after one visit. Browsers offer to install it, and **Install CLOADM…** in the app bar
+  beside Help (behind **Menu** on a phone) makes it an app of its own (its own window, offline);
   the page offers it once a program has run for a minute.
 * **Where are my ROMs and programs kept?** In your browser's private storage, or a folder you choose. CLOADM itself never
   uploads them. If you use Claude, what it reads from the machine's memory (ROM areas included) is sent to Anthropic as

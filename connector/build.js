@@ -130,13 +130,16 @@ button:focus-visible,summary:focus-visible{outline:2px solid var(--focus);outlin
 #keys .k{flex:1 1 0;min-width:0;height:40px;padding:0;border:1px solid var(--line);border-radius:6px;background:#1C221E;font-weight:600;font-size:15px;touch-action:none;display:inline-flex;flex-direction:column;align-items:center;justify-content:center;line-height:1}
 #keys .k.wide{flex:1.7 1 0;font-size:12px}#keys .k.space{flex:2.4 1 0}#keys .k small{font-size:9px;color:var(--dim)}
 #keys .k.down{background:#3A4540;border-color:var(--focus)}#keys .k[aria-pressed="true"]{background:#26302A;border-color:var(--focus)}
+#keys .kpadmode{display:flex;gap:8px}
+#keys .karrows{flex:1.3 1 0;display:grid;grid-template-columns:repeat(3,1fr);gap:3px}#keys .karrows .k{height:48px;font-size:20px}
+#keys .kpadkeys{flex:1 1 0;display:grid;grid-template-columns:1fr 1fr;gap:3px;align-content:start}#keys .kpadkeys .k{height:48px}#keys .kextras{display:contents}
 #keys .kstick{display:flex;gap:6px}
 #keys .kpad{position:relative;flex:1 1 0;height:132px;border:2px dashed var(--line2);border-radius:10px;background:#111412;touch-action:none;overflow:hidden}
 #keys .kknob{position:absolute;left:50%;top:50%;width:52px;height:52px;margin:-26px 0 0 -26px;border-radius:50%;background:#2A302C;border:2px solid var(--line2);pointer-events:none}
 #keys .kknob.live{background:#3A403C;border-color:var(--focus)}
 #keys .kfire{flex:0 0 38%;height:132px;border:0;border-radius:10px;background:#B3261E;color:#fff;font-size:20px;font-weight:800;touch-action:none}
 #keys .kfire.down{background:#7A1B14}
-#keys .kmode{display:flex;flex:2 1 0;border:1px solid var(--line2);border-radius:6px;overflow:hidden}
+#keys .kmode{display:flex;flex:2.6 1 0;border:1px solid var(--line2);border-radius:6px;overflow:hidden}
 #keys .kmode button{flex:1;border:0;border-radius:0;height:38px;padding:0 4px}#keys .kmode button[aria-pressed="true"]{background:#26302A;color:var(--text);font-weight:600}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}`;
 

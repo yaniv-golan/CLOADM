@@ -96,11 +96,17 @@ export const WELCOME = Object.freeze({
 // SAM memory size (M, 0-3) the game puts back on leaving (the Session sets the machine's; the SAM can't be read).
 // They need `ram` K: they set the SAM for 64K chips, which a 4K or 16K machine's chips are not.
 export const GAMES = Object.freeze({
-  list: Object.freeze({ 2048: Object.freeze({ file: '2048.bin', name: '2048' }), minesweeper: Object.freeze({ file: 'minesweeper.bin', name: 'Minesweeper' }) }),
+  list: Object.freeze({ 2048: Object.freeze({ file: '2048.bin', name: '2048', controls: Object.freeze({ input: 'arrows', extra: Object.freeze([]), joystick: false }) }),
+    minesweeper: Object.freeze({ file: 'minesweeper.bin', name: 'Minesweeper', controls: Object.freeze({ input: 'arrows', extra: Object.freeze(['F']), joystick: true }) }) }),
   start: 0x3000, seed: 0x3003, done: 0x3005, samExit: 0x3007, ram: 32,
 });
 // Color BASIC's and Dragon BASIC's warm-start flag: $55 there at reset means a warm start (the program kept)
 const BASIC_RSTFLG = 0x71;
+// What a bundled program is played with (UX R30, R32): `input` is 'keyboard', 'arrows' or 'joystick'; `extra`, the keys
+// beside the arrows it reads (Minesweeper's F flags a mine); `joystick`, whether it reads a joystick too. The page's
+// touch panel opens on what it says (arrows: the pad) and offers the stick only where the machine has the port.
+// The games' own entries are in GAMES.list; a program not listed is played on the keyboard.
+export const PROGRAM_CONTROLS = Object.freeze({ liza: Object.freeze({ input: 'keyboard', extra: Object.freeze([]), joystick: false }) });
 // a game's GAMES.list key from its name ('Minesweeper' -> 'minesweeper'), or undefined
 export const gameKey = (name) => Object.keys(GAMES.list).find((k) => GAMES.list[k].name === name);
 // the 6803 welcome's files, per profile: the build's subtitle names the machine it runs on
@@ -3178,6 +3184,16 @@ export class Session {
     this.emit('chat');
     return this.chat;
   }
+  // A line of ours on the chat screen, as the firmware shows a reply (the page's "No API key yet" hint, so it is on the
+  // screen and not only beside it). Not said by anyone: the conversation, its history and Claude never see it.
+  chatNote(text) {
+    const chat = this.chat;
+    // (not while a reply streams: the note would land in the middle of it)
+    if (!chat || !chat.channel || !this.chatMachines || chat.busy) return false;
+    chat.channel.send(new TextEncoder().encode(`${String(text).replace(/[\r\n]+/g, ' ')}\r\n`));
+    chat.channel.send(Uint8Array.of(END_OF_REPLY));
+    return true;
+  }
   // what the chat's tools act on: the BASIC session: beside the chat machine in full screen, else the
   // machine in use. It runs whether or not it is on screen, so acting never swaps the screen (show does nothing):
   // the person watches it live in the picture-in-picture
@@ -3275,6 +3291,7 @@ export class Session {
     const msg = this.load(this.lizaFile, bytes, { remember: false });
     this.setLastRun('liza', 'LIZA');
     this.watchForMenu('liza');
+    this.emit('program', 'liza');
     return msg;
   }
   // A game (GAMES.list key) from its bytes, at once -> the load message. The games are 6809 programs: on another CPU
@@ -3306,6 +3323,8 @@ export class Session {
     if (m.sam) m.poke(GAMES.samExit, m.sam.memSize);
     this.setLastRun('game', GAMES.list[name].name);
     this.watchForMenu('game');
+    if (this.menuWatch) this.menuWatch.game = name;
+    this.emit('program', name);   // (after the watch: gameRunning and programControls hold for the listeners)
     return msg;
   }
   // Leaving a program goes back to the welcome menu: BYE in LIZA (it stops at its DONE
@@ -3492,6 +3511,19 @@ export class Session {
     return `Welcome: press 1 to ${last}`;
   }
   get welcomeRunning() { return this.welcome === this.machine; }
+  // one of the bundled games (2048, Minesweeper) is what runs on this machine now: from runGame until it is left
+  // (BREAK), or a load, a reset or a switch ends the watch.
+  get gameRunning() { const w = this.menuWatch; return !!w && w.kind === 'game' && w.m === this.machine; }
+  // the bundled program running now and what it is played with -> { id, input, extra, joystick }, or null (BASIC, a
+  // file, the welcome menu: the keyboard). id: a GAMES.list key or 'liza' (the touch panel remembers its mode per
+  // program and machine under it)
+  get programControls() {
+    const w = this.menuWatch;
+    if (!w || w.m !== this.machine) return null;
+    if (w.kind === 'game' && GAMES.list[w.game]) return { id: w.game, ...GAMES.list[w.game].controls };
+    if (w.kind === 'liza') return { id: 'liza', ...PROGRAM_CONTROLS.liza };
+    return null;
+  }
   // the welcome build this machine runs: the 6809 file for every 6809-family model (the 6309 included), the
   // machine's own 6803 build on the MC-10 and the Alice (their subtitles differ). The page fetches it by this name.
   get welcomeFile() {
@@ -3605,9 +3637,10 @@ export class Session {
     o.runFrame();
     this.pumpChat(o);
   }
+  // (the machine's name is not in it: the app bar shows it on the machine button beside the status)
   statusLine(fps) {
     const m = this.machine;
-    let s = `${m.profile.name} · ${fps.toFixed(0)} fps · ${(fps / m.fps * 100).toFixed(0)}%`;
+    let s = `${fps.toFixed(0)} fps · ${(fps / m.fps * 100).toFixed(0)}%`;
     const t = m.deck.tape;
     if (t) s += ` · tape ${t.name} ${(t.progress() * 100).toFixed(0)}%${m.deck.motor ? ' ▶' : ''}`;
     return s;

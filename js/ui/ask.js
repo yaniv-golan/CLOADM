@@ -28,7 +28,7 @@
  *   - context openers under the machine: "Explain this error" (a BASIC error on screen, orange) and "Help with my
  *     program" (a BASIC program in memory); clicking one opens the panel and asks.
  */
-import { $, ESC, viewOpen, markUndrawn } from './page.js';
+import { $, ESC, viewOpen, markUndrawn, claudeStatusText, touchPanel, TOUCH_PAUSED_TEXT } from './page.js';
 import { PAUSED_CARD_TEXT, acceptClick, drawAccept, loadCardText } from './claude.js';
 import { CLAUDE_PAUSED_SHORT } from '../session.js';
 import { cpuFamily } from '../cpu/cpus.js';
@@ -365,7 +365,7 @@ export function setupAsk(page, claude) {
     // a sheet the person closed during the turn closes once the turn has ended
     if (closeAfterTurn && !status) { hide(); page.focus(); return; }
     $('askStatus').hidden = !status;
-    if (status) $('askStatusText').textContent = status.text;
+    if (status) $('askStatusText').textContent = claudeStatusText(status);
     $('btnAskStatusResume').hidden = !(status && session.claudePaused);
     // the key states
     const msg = k === 'refused' || k === 'rate-limited' || k === 'offline' || k === 'error';
@@ -406,8 +406,8 @@ export function setupAsk(page, claude) {
     if (busy && phone() && open && ask.dataset.height !== 'peek') { ask.dataset.restore = ask.dataset.height; setHeight('peek'); }
     if (!busy && phone() && open && ask.dataset.restore) { setHeight(ask.dataset.restore); delete ask.dataset.restore; }
     const status = session.claudeStatus;
-    $('askPeekText').textContent = busy ? (text || 'Claude is acting…') : status ? status.text : 'Ask about this machine';
-    $('askStripText').textContent = busy ? (text || 'Claude is acting…') : status ? status.text : 'Ready';
+    $('askPeekText').textContent = busy ? (text || 'Claude is acting…') : status ? claudeStatusText(status) : 'Ask about this machine';
+    $('askStripText').textContent = busy ? (text || 'Claude is acting…') : status ? claudeStatusText(status) : 'Ready';
     // the lowered sheet and the minimised strip keep a Stop while a turn is in progress
     $('btnAskPeekStop').hidden = !status;
     $('btnAskStripStop').hidden = $('askStrip').hidden || !status;
@@ -416,7 +416,7 @@ export function setupAsk(page, claude) {
     const fs = fullscreen() && !!(status || session.claudeBusyActing);
     $('fsClaude').hidden = !fs;
     // (one line there: the short paused text, which keeps "Esc stops Claude")
-    if (fs) $('fsClaudeText').textContent = session.claudePaused ? CLAUDE_PAUSED_SHORT : (session.claudeBusyActing && text) || (status && status.text) || 'Claude is acting…';
+    if (fs) $('fsClaudeText').textContent = session.claudePaused ? (touchPanel() ? TOUCH_PAUSED_TEXT : CLAUDE_PAUSED_SHORT) : (session.claudeBusyActing && text) || claudeStatusText(status) || 'Claude is acting…';
     $('btnFsResume').hidden = !(fs && session.claudePaused);
     if (fullscreen() && session.claudePending && document.exitFullscreen && !pageLeft) {
       pageLeft = true;
@@ -432,7 +432,7 @@ export function setupAsk(page, claude) {
     $('viewClaude').classList.toggle('top', float && !inView && document.body.classList.contains('touch-keys'));
     document.body.classList.toggle('view-claude', inView);
     document.body.classList.toggle('claude-float', float && !inView);
-    if (float) $('viewClaudeText').textContent = (status && status.text) || text || 'Claude is acting…';
+    if (float) $('viewClaudeText').textContent = claudeStatusText(status) || text || 'Claude is acting…';
     $('btnViewResume').hidden = !(float && session.claudePaused);
     $('btnViewAnswer').hidden = !(inView && session.claudePending);
     // openers: not while acting, not in full screen

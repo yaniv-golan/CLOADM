@@ -17,6 +17,14 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   app's title chip covered the top of the screen: the view now keeps clear of the insets the host reports
   (`safeAreaInsets`), or, on a touch screen when it reports none, of the device's safe area and 56 px at the top.
   Details names the last call Claude made through the view and how it ended, and the size sent.
+- **iPhone SE: "Joystick" was clipped under BREAK.** The switch is Keys | Pad | Stick at its own width, each segment
+  44 px, clear of BREAK at 320 px.
+- **The phone's app bar: Menu's label sat at the top of its button, Add ROMs wrapped to a second row, and opening Menu
+  pushed Share into the row** (seen in Chromium and on a real iPhone in Chrome for iOS). Labels are centred by the
+  buttons' own flex alignment.
+- **Touch words:** the games' and the colour demo's hints say "tap a key" and "tap BREAK" (not "press a key" and
+  "BREAK (Esc)"), and Claude's paused status says "Paused: you tapped a key · Stop ends Claude's turn". A toast sits
+  under the app bar; held sideways it sits on the black glass under the picture, clear of the keys.
 
 ### Changed
 
@@ -30,11 +38,15 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Added
 
-- **On-screen keys in Claude's side panel on a phone or tablet**, where tapping the screen brought up no keyboard:
-  the page's keyboard (the same layout and keys, now shared from `js/ui/touch-layout.js`) under the screen, CLEAR and
-  BREAK under it, and on a machine with a joystick port a **Keys | Stick** switch for the key strip, a stick and FIRE.
-  They show on a touch screen (the host says so, or a coarse pointer, or a first touch) and not on a desktop; **⋯ →
-  Hide on-screen keys** hides them. Claude's typing and its chip are unchanged.
+- **On-screen keys in Claude's side panel on a phone or tablet**, where tapping the screen brought up no keyboard. Three
+  modes, as on the page (the layout, the keys and each program's mode now shared from `js/ui/touch-layout.js`):
+  **Keys** (the page's keyboard), **Pad** (a D-pad, SPACE, ENTER, the program's own keys such as Minesweeper's F, and
+  ABC for one key from the keyboard) and **Stick** (SPACE ENTER 1 2 Y N ABC, a stick and FIRE; only on a machine with
+  a joystick port, so not on the MC-10). Under them in every mode: the switch, CLEAR and BREAK, the only BREAK. A
+  program opens in the mode it is played with (2048 and Minesweeper on the Pad, LIZA and anything else on the Keys),
+  and the switch's choice is remembered per program, in the view's storage when it works, else for as long as the view
+  is open. They show on a touch screen (the host says so, or a coarse pointer, or a first touch) and not on a desktop;
+  **⋯ → Hide on-screen keys** hides them. Claude's typing and its chip are unchanged.
 - README: status, licence and live-demo badges, a looping picture of the welcome menu and LIZA (`img/readme-demo.gif`,
   captured from the real page with no ROMs by `node tools/capture-gif.js`, with the small encoder in `tools/gif.js`),
   and a "Use it with AI coding agents and Claude" section that points to the MCP server, the connector and plugin, the
@@ -77,6 +89,50 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   there), and an error you must act on stays on the status line. **Open in side panel** (in ⋯) shows only while the
   view is inline and the host offers it. The view's contract with the site changed (`PANEL_API` 3): deploy the
   connector's Worker again after the site has this release.
+
+### Changed
+
+- **A phone held upright: the panel decides, the screen takes the rest (UX R30).** The screen is the largest 4:3 one
+  for which the app bar, the screen, the strip and the panel fit in the visible height, at most the page's width, and
+  the picture fills it (no bezel). The panel has three modes, **Keys | Pad | Stick**: Pad is a D-pad with SPACE,
+  ENTER, the program's own keys and ABC (the keyboard for one key), on two rows of 48 px keys (BREAK is the strip's, R35); Stick is the touch
+  joystick, where the machine has a port. A bundled program opens in the mode it is played with (a new per-program
+  `controls` field in the Session: 2048 and Minesweeper on the Pad, Minesweeper's with F and Stick offered; LIZA on
+  Keys; anything else on Keys), and the choice is remembered per program and machine. With Pad, Stick or the keys
+  hidden the screen is the page's width (it was 133 px wide on a 320 px phone; 178 at 375x548); with the full keyboard,
+  what fits above it. The full keyboard gains →, after ←; @ ends the third row. Held sideways the keyboard is as it
+  was; Pad there puts the D-pad left of the screen and its keys right.
+- **Hide keys is ⌄ in the strip; ⌨ brings them back.** Upright the strip is [Keys|Pad|Stick] [BREAK] [CLEAR] [⌄], all
+  44 px; after Hide keys a 44 px ⌨ (Show keys) stands bottom right, toasts clear of it.
+- **One Menu.** Upright the strip has no Menu: the app bar's is the only one. Held sideways the panel's Menu stays, its
+  "Machine menu" (which opened nothing there) now **Machine…**, the machine picker over the panel.
+- **The phone's app bar is one row, 48 px, from the first paint**: the machine, Open…, Ask Claude (its icon under
+  360 px) and Menu, every control 44 px. Add ROMs is Menu's first item while the machine has no BASIC, with a dot on
+  Menu (whose name then says "Menu, Add ROMs needed"); Share is in Menu too, and Menu opens as a sheet over the page,
+  moving nothing, with the focus on its first item. A script in the page's head
+  puts the touch layout on before the first paint, so nothing reflows when the panel arrives.
+- **No automatic install offer on a phone** (owner's decision), upright or sideways: Install CLOADM… (in the app bar's
+  Menu upright; in the panel's Menu held sideways) installs. Desktops and tablets keep the offer.
+- **The status in the app bar shows the speed only** ("50 fps · 100%"): the machine's name is on the button beside it,
+  and at 1440 px the repeated name pushed the speed into an ellipsis. The links go tight first to leave it room; only
+  where even that leaves none (1200 px in a wide font) is it left out, never cut to a stub.
+- **Copy and small fixes from the v0.1.8 UI review.** Starting LIZA from the welcome menu, or the colour demo from the Media
+  tab's shelf, says "LIZA loaded" / "Colour demo loaded" instead of "liza.bin: DragonDOS binary $3000-$3C90, exec $3000" (a file you bring keeps its addresses).
+  A link naming a machine CLOADM doesn't have, or a `start=` or `app=` it doesn't know, shows one short toast ("machine=nosuch: no such machine (opened Dragon 64
+  instead)", not a list of every machine), and `#share=` with anything after it says the share link couldn't be read
+  instead of landing on the welcome menu in silence. On the Add ROMs screen the "optional" tag stays beside the
+  title of the disk and Speech/Sound Pak cards (a long title wraps inside its own space), and neither title repeats
+  "(optional)" beside the tag. **Install CLOADM…** moved from the foot of the machine menu to the app bar, beside Help
+  (behind Menu on a phone), and its card opens under the bar, near the link. The welcome menu's sixth option, "CARRY ON
+  WITH …", no longer pushes "PRESS 1 TO 6" against the colour bar: the options move up a row and a blank row stays
+  above the prompt, as on the MC-10 and Alice. No frame hash changes (the regression firmware never shows the sixth
+  option). The browser check's new group `uiCopy` covers each of these.
+- **The Claude chat with no key says so on its own screen.** The chat screen used to be an empty black box with a
+  `>` prompt, and the "No API key yet" note sat beside it (below the fold on a phone). The line is now on the screen too,
+  as the firmware shows a reply (`Session.chatNote`: not the conversation, never what Claude reads), and after Save key
+  the screen says "Key saved. Type below and press ENTER." (plain ASCII: the chat font has no check mark) and the key card reads "Key saved ✓ · Saved in this browser · Change · Forget". The key
+  stays out of machine memory, snapshots, settings exports and the chat screen itself (`tests/claude-session.test.js`
+  reads the screen's text and checks the key is not on it).
 
 ### 0.1.8-pre
 

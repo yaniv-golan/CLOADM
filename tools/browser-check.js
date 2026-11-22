@@ -417,6 +417,8 @@ const emuFrames = async (page, n) => {
 // every key typed so far has been read by the machine (the no-ROM stub's key queue is empty), then a frame
 const keysTaken = async (page) => { await waitFor(page, () => window.emu.machine.stubKeys.length === 0); await emuFrames(page, 2); };
 // the browser has laid out and painted (two animation frames)
+// Install CLOADM… is a link in the app bar (behind Menu where the bar folds its links): press it
+const pressInstall = async (page) => { if (await page.isVisible('#btnMenu')) await page.click('#btnMenu'); await page.click('#navInstall'); };
 const painted = (page) => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
 // n animation frames have passed: n turns of the page's frame loop, the window a check that something does NOT happen
 // (a paused machine stays stopped, nothing is redrawn) waits for. Counted in the page's own ticks, not wall time, so
@@ -658,8 +660,8 @@ async function sscBoardChecks(browser, base, check) {
   check('Speech/Sound Pak: the ROM panel shows its PIC and speech sockets, the PIC required',
     sockets.some((s) => s.id === 'ssc-tms7040' && s.status === 'missing-required') && sockets.some((s) => s.id === 'ssc-sp0256' && s.status === 'missing-optional'),
     JSON.stringify(sockets));
-  // ... but the Pak is an optional cartridge: none of its cards is tagged required (BASIC's red tag), each is titled
-  // "(optional cartridge)", and they come after every one of the machine's sockets
+  // ... but the Pak is an optional cartridge: none of its cards is tagged required (BASIC's red tag), each carries the
+  // optional tag beside its title, and they come after every one of the machine's sockets
   const pakCards = await page.evaluate(() => {
     const cards = [...document.querySelectorAll('#romSockets .socket')];
     const lastMachine = cards.reduce((n, c, i) => (c.dataset.status ? i : n), -1);
@@ -668,8 +670,8 @@ async function sscBoardChecks(browser, base, check) {
       req: !!c.querySelector('.tag.req'), afterMachine: i > lastMachine,
     }));
   });
-  check('Speech/Sound Pak: its ROM cards are optional, not required: titled "(optional cartridge)", tagged optional, below the machine sockets',
-    pakCards.length === 2 && pakCards.every((p) => !p.req && p.tag === 'optional' && /^Speech\/Sound Pak \(optional cartridge\): /.test(p.title) && p.afterMachine),
+  check('Speech/Sound Pak: its ROM cards are optional, not required: titled "Speech/Sound Pak: ...", tagged optional, below the machine sockets',
+    pakCards.length === 2 && pakCards.every((p) => !p.req && p.tag === 'optional' && /^Speech\/Sound Pak: /.test(p.title) && p.afterMachine),
     JSON.stringify(pakCards));
   await page.evaluate(() => { location.hash = ''; });
   await waitFor(page, () => !document.body.classList.contains('roms-open'));
@@ -1698,8 +1700,8 @@ async function resetChecks(browser, base, check) {
   check('reset: Reset warm-starts into the game, RAM kept (W)', await waitFor(page, () => window.emu.session.screenText()[0].startsWith('WWWW')), await top());
   await emuFrames(page, 5);
   const after = await named();
-  check('reset: Reset keeps the machine: header, status line and remembered machine', before.id === 'dragon64' && after.id === 'dragon64' && after.name === 'Dragon 64'
-    && after.stored === 'dragon64' && /^Dragon 64 · /.test(after.status), JSON.stringify({ before, after }));
+  check('reset: Reset keeps the machine: header, status line (the speed; the name is the header\'s) and remembered machine', before.id === 'dragon64' && after.id === 'dragon64' && after.name === 'Dragon 64'
+    && after.stored === 'dragon64' && /^\d+ fps · /.test(after.status), JSON.stringify({ before, after }));
   // 5 s of emulated time after the Reset
   const shown = await waitFor(page, () => !document.getElementById('bootHelp').hidden, null, 30000);
   const box = await page.textContent('#bootHelp');
@@ -1965,7 +1967,7 @@ async function visitChecks(browser, base, check) {
   await page.click('#btnRomBack');
   // the shelf runs the colour demo
   await page.click('#shelf :is(a, button):text-is("Colour demo")');
-  check('shelf: the colour demo runs', await waitFor(page, () => /demo\.bin/.test(document.getElementById('toast').textContent)));
+  check('shelf: the colour demo runs', await waitFor(page, () => /^Colour demo loaded$/.test(document.getElementById('toast').textContent)));
   // the machine question, answered once
   // count the menu starts for that answer: the switch starts it ONCE (Session.chooseMachine -> offer 'none'), and
   // the page must start nothing of its own. A second start draws the same screen, so the count is the only witness.
@@ -1992,8 +1994,8 @@ async function visitChecks(browser, base, check) {
   await page.reload();
   await ready(page);
   // (the menu says welcome back and offers the last item; no welcome-back card)
-  await waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[13].includes('CARRY ON'));
-  const back = await page.evaluate(() => ({ machine: window.emu.machine.id, greet: window.emu.session.screenText()[6].trim(), five: window.emu.session.screenText()[13].trim(),
+  await waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[12].includes('CARRY ON'));
+  const back = await page.evaluate(() => ({ machine: window.emu.machine.id, greet: window.emu.session.screenText()[6].trim(), five: window.emu.session.screenText()[12].trim(),
     card: !document.getElementById('welcome').hidden, last: document.getElementById('lastTime').hidden ? null : document.getElementById('lastName').textContent }));
   check('returning: same machine, the menu says WELCOME BACK and offers the last item as 6; "Last time" in the Media tab; no card',
     back.machine === 'coco' && back.greet === 'WELCOME BACK' && back.five === '6 CARRY ON WITH MINE.BIN' && !back.card && back.last === 'mine.bin · CoCo 1/2', JSON.stringify(back));
@@ -2033,8 +2035,8 @@ async function returningChecks(browser, base, check) {
   await shot('back-from-liza');
   // a return visit, no ROMs
   await page.reload(); await ready(page);
-  await waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[13].includes('CARRY ON'));
-  const r = await page.evaluate(() => ({ greet: window.emu.session.screenText()[6].trim(), five: window.emu.session.screenText()[13].trim(), games: window.emu.session.screenText()[12].trim(), press: window.emu.session.screenText()[14].trim(),
+  await waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[12].includes('CARRY ON'));
+  const r = await page.evaluate(() => ({ greet: window.emu.session.screenText()[6].trim(), five: window.emu.session.screenText()[12].trim(), games: window.emu.session.screenText()[11].trim(), press: window.emu.session.screenText()[14].trim(),
     media: (document.querySelector('[role="tab"][aria-controls="panel-media"]').click(), document.getElementById('panel-media').innerText),
     card: !document.getElementById('welcome').hidden, last: document.getElementById('lastTime').hidden ? null : document.getElementById('lastName').textContent,
     shelf: [...document.querySelectorAll('#shelf :is(a, button)')].map((b) => b.textContent).join('|'), pill: getComputedStyle(document.getElementById('romPill')).display !== 'none' && !document.getElementById('romPill').hidden }));
@@ -2182,7 +2184,7 @@ async function cpu6309Checks(browser, base, check) {
     && await ev(() => location.search === ''), await ev(() => location.search));
   check('cpu=6309: the new visit opens on the welcome menu, no error', await menu() && !(await isError()), await msg());
   check('cpu=6309: the new visit offers what ran last (the demo) as option 6, as on the 6809',
-    await waitFor(page, () => window.emu.session.screenText()[13].includes('CARRY ON WITH COLOUR') && window.emu.session.screenText()[14].includes('PRESS 1 TO 6')), await screenText());
+    await waitFor(page, () => window.emu.session.screenText()[12].includes('CARRY ON WITH COLOUR') && window.emu.session.screenText()[14].includes('PRESS 1 TO 6')), await screenText());
   check('cpu=6309: "Colour demo" is still on the shelf (the new visit\'s Media tab keeps it)', /Colour demo/.test(await page.$$eval('#shelf :is(a, button)', (b) => b.map((x) => x.textContent).join('|'))),
     await page.$$eval('#shelf :is(a, button)', (b) => b.map((x) => x.textContent).join('|')));
   check('cpu=6309: no page errors in the whole case', !errors.length, errors.join('; '));
@@ -2277,7 +2279,7 @@ async function powerOnChecks(browser, base, check) {
   // Switch off and on: the welcome menu, greeting the visitor back and offering LIZA again
   await page.click('#btnHardReset');
   check('Switch off and on (no ROMs): the welcome menu, WELCOME BACK, 6 CARRY ON WITH LIZA', await waitFor(page, () => window.emu.session.welcomeRunning
-    && window.emu.session.screenText()[6].trim() === 'WELCOME BACK' && window.emu.session.screenText()[13].trim() === '6 CARRY ON WITH LIZA') && !(await bare()), await text());
+    && window.emu.session.screenText()[6].trim() === 'WELCOME BACK' && window.emu.session.screenText()[12].trim() === '6 CARRY ON WITH LIZA') && !(await bare()), await text());
   await shot('switch-off-and-on');
   // Reset in a binary of the visitor's: it restarts at its exec address (INC $0400 ; BRA $3000)
   await page.setInputFiles('#fileProgram', { name: 'loop.bin', mimeType: 'application/octet-stream', buffer: Buffer.from([0x55, 2, 0x30, 0x00, 0x00, 0x05, 0x30, 0x00, 0xAA, 0x7C, 0x04, 0x00, 0x20, 0xFB]) });
@@ -2335,7 +2337,7 @@ async function powerOnChecks(browser, base, check) {
   // welcome menu; one taken in a program opens in it
   await pickMachine(page, 'dragon64');
   check('back on the Dragon 64, the menu offers its loop.bin again (6 CARRY ON WITH LOOP.BIN)', await waitFor(page, () => window.emu.session.welcomeRunning
-    && window.emu.session.screenText()[13].trim() === '6 CARRY ON WITH LOOP.BIN'), await text());
+    && window.emu.session.screenText()[12].trim() === '6 CARRY ON WITH LOOP.BIN'), await text());
   await stubPrompt(page);
   await waitFor(page, () => window.emu.machine.atStubPrompt() && window.emu.session.screenText().join('').includes('NO ROM LOADED'));
   const bareSnap = await page.evaluate(async () => [...(await window.emu.session.snapshotFile()).bytes]);
@@ -3151,8 +3153,8 @@ async function snapshotChecks(browser, base, check) {
     const memHash = () => page.evaluate(() => { const m = window.emu.machine.memoryArray(); let h = 0x811C9DC5; for (const v of m) h = Math.imul(h ^ v, 0x01000193) >>> 0; return h; });
     const held = await memHash();
     const screenBefore = await page.evaluate(() => { const c = document.getElementById('screen'); return `${c.style.width} x ${c.style.height}`; });
-    if (label === 'phone') await page.click('#btnMenu');
-    await page.click('#btnShare');
+    // (a phone: Share is an item of Menu, UX R30)
+    if (label === 'phone') { await page.click('#btnMenu'); await page.click('#navShare'); } else await page.click('#btnShare');
     await page.waitForSelector('#share', { state: 'visible' });
     const view = await page.evaluate(() => {
       const c = document.getElementById('sharePicture'), d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data, f = window.emu.machine.render();
@@ -3312,11 +3314,10 @@ async function liza6803Checks(browser, base, check) {
     const greeted = await waitFor(page, () => window.emu.session.screenText().join('').includes('I AM LIZA'));
     check(`${id}: LIZA starts on the stub, with no ROMs`, greeted && !(await page.evaluate(() => window.emu.machine.hasRom)),
       (await screenOf(page)).split('\n')[2]);
-    // the status line names the program, and it is THIS machine's build (its title names the machine): an
-    // un-awaited startLiza would show "[object Promise]" here, and the wrong build would name the other one
-    const fileRe = new RegExp(`liza6803-${id}\\.bin: .*binary`, 'i');
-    check(`${id}: the status names this machine's build`, await waitFor(page, (p) => new RegExp(p, 'i').test(document.getElementById('toast').textContent), fileRe.source),
-      await page.textContent('#toast'));
+    // the status line says "LIZA loaded" (an un-awaited startLiza would show "[object Promise]" here), and the build
+    // that ran is THIS machine's (the status no longer names the file: the Session's lizaFile does)
+    check(`${id}: the status says LIZA loaded, and this machine's build ran`, await waitFor(page, () => document.getElementById('toast').textContent === 'LIZA loaded')
+      && await page.evaluate((f) => window.emu.session.lizaFile === f, `liza6803-${id}.bin`), await page.textContent('#toast'));
     await page.click('#screen');
     await page.keyboard.type('I need a holiday', { delay: 40 });
     await page.keyboard.press('Enter');
@@ -3419,7 +3420,7 @@ async function liza6803Checks(browser, base, check) {
     await page.keyboard.press('1');
     const greeted = await waitFor(page, () => window.emu.session.screenText().join('').includes('I AM LIZA'));
     check('Dragon 64: welcome menu key 1 runs LIZA', greeted, (await screenOf(page)).split('\n')[2]);
-    check('Dragon 64: the status names liza.bin, not a Promise', await waitFor(page, () => /liza\.bin: .*binary/i.test(document.getElementById('toast').textContent)),
+    check('Dragon 64: the status says LIZA loaded, not a Promise', await waitFor(page, () => document.getElementById('toast').textContent === 'LIZA loaded'),
       await page.textContent('#toast'));
     check('Dragon 64: no page errors', !errors.length, errors.join('; '));
     await ctx.close();
@@ -4905,8 +4906,10 @@ async function firstVisitChecks(browser, base, check) {
     const first = await seen();
     // the line under the screen holds one note at a time: "click for sound" first, so no key legend yet; sound starts on the
     // first click, and the key hint takes the line
+    // (a phone's app bar has no room for the pill: Add ROMs is Menu's first item, and Menu wears a dot, UX R30)
+    const phoneCall = label === 'phone' ? await page.evaluate(() => document.getElementById('btnMenu').classList.contains('dot') && !document.getElementById('navRoms').hidden) : null;
     check(`first visit (${label}): one call to add ROMs outside the screen, the sound note on the line under the screen (no key legend yet), no quick-save slots yet`,
-      JSON.stringify(first.romCalls) === '["romPill"]' && JSON.stringify(first.legends) === '[]' && first.sound && !first.quickSave, JSON.stringify(first));
+      (label === 'phone' ? JSON.stringify(first.romCalls) === '[]' && phoneCall : JSON.stringify(first.romCalls) === '["romPill"]') && JSON.stringify(first.legends) === '[]' && first.sound && !first.quickSave, JSON.stringify(first));
     await page.mouse.click(5, 5);
     await waitFor(page, () => document.getElementById('soundHint').hidden, null, 5000);
     const unlocked = await seen();
@@ -5295,12 +5298,14 @@ async function commandsChecks(browser, site, check) {
     await ctx.close();
   }
   {
-    const { ctx, page } = await open({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+    // (held sideways, where the app bar gives way to the panel; upright Commands… is in the app bar's Menu: the
+    // mobile group)
+    const { ctx, page } = await open({ viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true });
     await waitFor(page, () => !document.getElementById('touchKeys').hidden && document.body.classList.contains('touch-keys'));
     await page.tap('#tkMenu');
-    const item = await page.evaluate(() => { const b = document.querySelector('#tkMenuSheet [data-item="commands"]'); return b && b.textContent; });
+    const item = await page.evaluate(() => { const b = document.querySelector('#tkMenuSheet [data-item="commands"]'); return b && b.checkVisibility() && b.textContent; });
     await page.tap('#tkMenuSheet [data-item="commands"]', { timeout: 3000 }).catch(() => {});   // (a missing item is a FAIL below, not a throw)
-    check('commands (touch keys): the keys\' Menu has "Commands…", which opens the box', item === 'Commands…'
+    check('commands (touch keys, sideways): the keys\' Menu has "Commands…", which opens the box', item === 'Commands…'
       && await waitFor(page, () => !document.getElementById('cmdBox').hidden && document.activeElement === document.getElementById('cmdInput') && document.getElementById('tkMenuSheet').hidden), String(item));
     await ctx.close();
   }
@@ -5665,11 +5670,12 @@ async function layoutChecks(browser, base, check) {
     const statusTitle = () => page.evaluate(() => { const e = document.getElementById('status'); return { text: e.textContent, title: e.title }; });
     const t1 = await statusTitle();
     check('layout (1280 x 720): the status text is also its title, so a clipped status can be read on hover', t1.text.length > 0 && t1.title === t1.text, JSON.stringify(t1));
-    // at 1200 in a wide font the status is squeezed the most: something of it still shows, and the bar is still one row
+    // at 1200 in a wide font the status is squeezed the most: the bar is still one row
     await page.setViewportSize({ width: 1200, height: 720 });
     await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
-    const m3 = await measure(), w3 = await page.evaluate(() => document.getElementById('status').getBoundingClientRect().width);
-    check('layout (1200 x 720, wide font): one row, and the status keeps room to show something', oneRow(m3) && w3 >= 16, `${JSON.stringify(m3)} status ${Math.round(w3)}px`);
+    // (the status: whole, or not shown where the bar has no room, never cut to a stub: the v0.1.8 review's m4)
+    const m3 = await measure(), st3 = await page.evaluate(() => { const e = document.getElementById('status'); return { w: e.getBoundingClientRect().width, shown: e.checkVisibility(), whole: e.scrollWidth <= e.clientWidth + 0.5 }; });
+    check('layout (1200 x 720, wide font): one row, and the status whole or not shown (no stub)', oneRow(m3) && (st3.shown ? st3.whole && st3.w >= 16 : true), `${JSON.stringify(m3)} status ${JSON.stringify(st3)}`);
     await ctx.close();
   }
   for (const [label, viewport] of [['desktop', { width: 1440, height: 1000 }], ['phone', { width: 390, height: 844 }]]) {
@@ -5693,7 +5699,8 @@ async function layoutChecks(browser, base, check) {
     check(`layout (${label}): the Dragon picture is shown at 4:3`, Math.abs(aspectD - 4 / 3) < 0.02, aspectD.toFixed(3));
     check(`layout (${label}): one "Runs without ROMs" shelf (Media tab), "Share"`, (await page.$$('#shelf')).length === 1 && await page.evaluate(() => !!document.querySelector('#panel-media #shelf'))
       && await page.textContent('#btnShare') === 'Share');
-    check(`layout (${label}): first visit shows "No BASIC · Add ROMs" and the sound pill`, await page.isVisible('#romPill') && await page.isVisible('#soundHint')
+    check(`layout (${label}): first visit shows "No BASIC · Add ROMs" (a phone: Menu's first item, a dot on Menu) and the sound pill`,
+      (label === 'phone' ? await page.evaluate(() => document.getElementById('btnMenu').classList.contains('dot') && !document.getElementById('navRoms').hidden) : await page.isVisible('#romPill')) && await page.isVisible('#soundHint')
       && /No ROMs needed · click anywhere for sound/.test(await page.textContent('#soundHint')));
     if (label === 'desktop') {
       check('layout (desktop): the screen fills the first view', await page.evaluate(() => { const r = document.getElementById('screen').getBoundingClientRect(); return r.bottom <= innerHeight && r.width >= 640; }));
@@ -6548,7 +6555,7 @@ async function touchJoystickChecks(browser, base, check) {
       return { keys: keys.length, covered, strip: hidden('touchStrip'), stick: hidden('touchStick'), fire: hidden('touchFire'), keyboard: keys.filter((k) => k.getBoundingClientRect().width > 0).length };
     });
     check('touch joystick (upright): with ABC up the strip, the stick and FIRE are hidden and no key is covered',
-      upAbc.keyboard === 49 && upAbc.covered.length === 0 && upAbc.strip && upAbc.stick && upAbc.fire, JSON.stringify(upAbc));
+      upAbc.keyboard === 50 && upAbc.covered.length === 0 && upAbc.strip && upAbc.stick && upAbc.fire, JSON.stringify(upAbc));
     await tapSel(cdp, page, '#touchFull [data-key="Q"]');
     check('touch joystick (upright): one finger: a key tapped after ABC reaches the machine, and the stick returns',
       await waitFor(page, () => window.pressed.includes('Q+') && window.pressed.includes('Q-')) && (await state(page)).stick,
@@ -6696,7 +6703,7 @@ async function touchJoystickChecks(browser, base, check) {
     check('touch joystick: FIRE lets go when its capture is refused and the button is released away from it', down === true && up === false, JSON.stringify({ down, up }));
     await ctx.close();
   }
-  // ---- the MC-10: no switch (no joystick port), and Keys mode only ----
+  // ---- the MC-10: no Stick (no joystick port) ----
   {
     const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
     const page = await ctx.newPage();
@@ -6704,8 +6711,9 @@ async function touchJoystickChecks(browser, base, check) {
     await started(page);
     await waitFor(page, () => !document.getElementById('touchKeys').hidden && document.body.classList.contains('touch-keys'));
     const s = await state(page);
-    check('touch joystick: the MC-10 has no switch and no stick (no joystick port)', !s.switchShown && !s.stick && s.at.touchStick[2] === 0,
-      JSON.stringify({ switchShown: s.switchShown, stick: s.stick }));
+    const stickTab = await page.evaluate(() => document.querySelector('#tkModeSwitch [data-touchmode="joystick"]').checkVisibility());
+    check('touch joystick: the MC-10\'s switch is Keys | Pad, no Stick, and no stick (no joystick port)', s.switchShown && !stickTab && !s.stick && s.at.touchStick[2] === 0,
+      JSON.stringify({ switchShown: s.switchShown, stickTab, stick: s.stick }));
     await ctx.close();
   }
   // and ?touch= is not for embeds (js/config.js): an embedded page has no panel to set
@@ -6847,7 +6855,7 @@ async function inputScreenChecks(browser, base, check) {
           return bad;
         });
         check(`${L}: every control's accessible name contains its visible text (WCAG label in name)`, !ln.length, ln.join('; '));
-        const want = ['BREAK', 'CLEAR', 'Menu', 'Keys', 'Joystick'];
+        const want = ['BREAK', 'CLEAR', 'Menu', 'Keys', 'Pad', 'Stick'];
         check(`${L}: BREAK, CLEAR, the switch and Menu whole, inside the viewport and its safe area, clear of the screen and each other${mode === 'keys' ? '; split keys at least 40 px tall' : '; the strip and FIRE too'}`,
           want.every((n) => lay.names.includes(n)) && (mode === 'keys' ? lay.keys >= 40 : lay.names.includes('Fire') && lay.names.includes('SPACE (SPC)')) && !lay.bad.length && lay.fits, JSON.stringify(lay));
         if (shotDir) await page.screenshot({ path: path.join(shotDir, `touch-landscape-${mode}-${label.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.png`) });
@@ -6937,7 +6945,7 @@ async function inputScreenChecks(browser, base, check) {
             edge && e.shown && e.ok, JSON.stringify(e));
         }
         if (lib) { await page.evaluate(() => { location.hash = ''; }); await waitFor(page, () => !document.body.classList.contains('library-open')); }
-        await page.click('#machineBtn'); await page.click('#navInstall');   // (no install prompt: the card with the steps)
+        await pressInstall(page);   // (no install prompt: the card with the steps)
         await waitFor(page, () => !document.getElementById('installOffer').hidden);
         const card = await inside(page, '#installOffer', ins);
         check(`${L}: the install card lies inside the safe area`, card.shown && card.ok, JSON.stringify(card));
@@ -6968,7 +6976,7 @@ async function inputScreenChecks(browser, base, check) {
         await ctx.close();
       }
     }
-    // the install card in the gutter beside the screen (1100x480 is a size where js/ui/install.js picks it)
+    // the install card opened from the app bar's link (under the bar; the offer's gutter place is checked in the install group)
     {
       const L = 'safe area (sideways 1100x480)';
       const ctx = await browser.newContext({ viewport: { width: 1100, height: 480 }, serviceWorkers: 'block' });
@@ -6977,10 +6985,10 @@ async function inputScreenChecks(browser, base, check) {
       await page.goto(`${base}?machine=dragon64&start=liza`);
       await waitFor(page, () => window.emu && window.emu.session.screenText().join('').includes('I AM LIZA'));
       await page.evaluate(() => { const w = document.getElementById('welcome'); if (w) w.hidden = true; window.emu.feedback.clear(); });
-      await page.click('#machineBtn'); await page.click('#navInstall');
+      await pressInstall(page);
       await waitFor(page, () => !document.getElementById('installOffer').hidden);
       const card = await inside(page, '#installOffer', SIDE), where = await page.evaluate(() => window.emu.install.state().placement().where);
-      check(`${L}: the install card, in the gutter beside the screen, lies inside the safe area`, where === 'gutter' && card.shown && card.ok, JSON.stringify({ where, card }));
+      check(`${L}: the install card, under the app bar, lies inside the safe area`, where === 'bar' && card.shown && card.ok, JSON.stringify({ where, card }));
       // 3a is covered by the checks above, not here: a mutation that makes safeArea() ignore the insets turns the
       // toast and command-box checks in this group red, so the inset arithmetic is proven. The install card's own
       // placement cannot add to that - at every width where it is placed, the screen stays centred and the gutter it
@@ -7020,9 +7028,9 @@ async function inputScreenChecks(browser, base, check) {
   // The owner's report (iPhone, Chrome for iOS, portrait): ENTER's row was under the browser's bottom toolbar. Each
   // size is a phone's visible area with its browser's toolbars up (Safari's and Chrome for iOS's are taken out of the
   // window here; Chrome for iOS leaves the least), with the notch's and home indicator's insets emulated through CDP
-  // (env(safe-area-inset-*)). Every key, the switch, BREAK, CLEAR and Menu (Keys), or the strip, the stick and FIRE
+  // (env(safe-area-inset-*)). Every key, the switch, BREAK, CLEAR and ⌄ (Keys), or the strip, the stick and FIRE
   // (Joystick), must lie inside the visual viewport less the insets, with the page not scrolled, every key at least
-  // 40 px tall, and nothing of the panel over the screen.
+  // 40 px tall, and nothing of the panel over the screen. (UX R30 keeps this: the screen takes what the panel leaves.)
   {
     const PORTRAIT = [['iPhone SE, Safari', { width: 375, height: 548 }, null], ['iPhone SE, Chrome for iOS', { width: 375, height: 540 }, null],
       ['iPhone 13, Safari', { width: 390, height: 664 }, { top: 0, bottom: 34, left: 0, right: 0 }],
@@ -7070,7 +7078,7 @@ async function inputScreenChecks(browser, base, check) {
             safe: [safe.t, safe.b].map(Math.round), screen: [Math.round(screen.r - screen.l), Math.round(screen.b - screen.t)], scrolled: scrollY, sideways: document.documentElement.scrollWidth > innerWidth, bad };
         }, ins);
         const want = mode === 'keys' ? !!lay.enter && lay.names >= 50 : lay.names >= 12;
-        check(`${L}: ${mode === 'keys' ? 'every key (ENTER\'s row included), the switch, BREAK, CLEAR and Menu' : 'the strip, the stick, FIRE, the switch, BREAK, CLEAR and Menu'} inside the visible area less its insets at load, keys at least 40 px, none over the screen`,
+        check(`${L}: ${mode === 'keys' ? 'every key (ENTER\'s row included), the switch, BREAK, CLEAR and ⌄' : 'the strip, the stick, FIRE, the switch, BREAK, CLEAR and ⌄'} inside the visible area less its insets at load, keys at least 40 px, none over the screen`,
           want && !lay.bad.length && lay.scrolled === 0 && !lay.sideways, JSON.stringify(lay));
         if (shotDir) await page.screenshot({ path: path.join(shotDir, `touch-portrait-${mode}-${label.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.png`) });
         check(`${L}: no page errors`, !errors.length, errors.join('; '));
@@ -7322,18 +7330,15 @@ async function urlChecks(browser, base, check) {
   check('link: becker=0 turns it off', await ev(() => window.emu.machine.config.becker === false), await msg());
   await open('?machine=zx81');
   check('link: an unknown machine is reported, the page still runs', /machine=zx81: no such machine/.test(await msg()) && await ev(() => !!window.emu.machine.id), await msg());
-  // R8: the error names the machines as the picker shows them (never their ids), and app= / start= say what to try
+  // R8: the error is one short line naming the machine that opened (never an id or a list); app= and start= say what CLOADM has
   {
     const m = await msg();
-    await page.click('#machineBtn');
-    const names = await ev(() => [...document.querySelectorAll('#machineMenu button[data-machine] > span:first-child')].map((n) => n.textContent));
-    await page.keyboard.press('Escape');
-    check('link: the unknown-machine error lists the machine picker\'s display names, not ids', names.length > 5 && names.every((n) => m.includes(n)) && !/dragon64|coco3|mc10/.test(m), JSON.stringify({ names, m }));
+    check('link: the unknown-machine error is short and names the machine that opened (its display name), no list and no ids', /^This link has a setting CLOADM can't use: machine=zx81: no such machine \(opened [^)]+ instead\)$/.test(m) && m.length < 130 && !/dragon64|coco3|mc10/.test(m), m);
   }
   await open('?app=bogus');
-  check('link: app=bogus: "isn\'t something CLOADM has (try app=claude)"', (await msg()).includes("app=bogus isn't something CLOADM has (try app=claude)") && await ev(() => !!window.emu.machine.id), await msg());
+  check('link: app=bogus says what CLOADM has', (await msg()).includes("app=bogus isn't an app CLOADM has (claude)") && await ev(() => !!window.emu.machine.id), await msg());
   await open('?start=bogus');
-  check('link: start=bogus says what to try', (await msg()).includes("start=bogus isn't something CLOADM has (try start=welcome or start=liza or start=2048 or start=minesweeper)"), await msg());
+  check('link: start=bogus says what CLOADM has', (await msg()).includes("start=bogus isn't a start CLOADM has (welcome, liza, 2048, minesweeper)"), await msg());
   // a file at a host that doesn't allow other sites (no CORS header) fails in fetch with a TypeError: plain words, not "Failed to fetch"
   await ctx.route('https://nocors.example/**', (route) => route.abort('failed'));   // what the browser's fetch gives for a cross-origin refusal (Playwright's fulfill adds CORS headers itself, so abort stands in): a TypeError
   await open('?machine=dragon64&load=https://nocors.example/demo.bin');
@@ -7779,6 +7784,178 @@ async function chatScreenChecks(browser, base, check) {
       pipUp && await page.isVisible('#claudePip') && !pip.over.length, JSON.stringify(pip));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `chat-screen-pip-${label}.png`) });
     check(`chat screen (${label}): no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+}
+
+// The copy and small UX fixes of the v0.1.8 UI/UX review (m5, m6, m8, the Add ROMs cards, p2, p3). Each case failed
+// on v0.1.8.
+async function uiCopyChecks(browser, base, check) {
+  const toastText = (page) => page.evaluate(() => { const t = document.getElementById('toast'); return t && !t.hidden ? document.getElementById('toastText').textContent : ''; });
+  const open = async (viewport, url, { init = null } = {}) => {
+    const ctx = await browser.newContext({ viewport, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    if (init) await page.addInitScript(init);
+    await page.goto(`${base}${url}`);
+    return { ctx, page, errors };
+  };
+  const SE = { width: 375, height: 667 };
+  const shot = async (page, name) => { if (shotDir) await page.screenshot({ path: path.join(shotDir, `uicopy-${name}.png`) }); };
+
+  // m5: LIZA's own load says so in words; a file the visitor brings keeps its addresses
+  {
+    const { ctx, page, errors } = await open({ width: 1280, height: 720 }, '?machine=dragon64');
+    await started(page);
+    await waitFor(page, () => window.emu.session.welcomeRunning, null, 15000);
+    await page.focus('#screen');
+    await page.keyboard.press('1');
+    await waitFor(page, () => /LIZA/.test(document.getElementById('toastText').textContent), null, 15000);
+    const liza = await toastText(page);
+    check('m5: starting LIZA from the menu says "LIZA loaded", with no file name, format or addresses', liza === 'LIZA loaded', liza);
+    await shot(page, 'liza-toast');
+    await page.setInputFiles('#fileProgram', { name: 'mine.bin', mimeType: 'application/octet-stream', buffer: Buffer.from([0x55, 0x02, 0x30, 0x00, 0x00, 0x02, 0x30, 0x00, 0xAA, 0x20, 0xFE]) });
+    await waitFor(page, () => /mine\.bin/.test(document.getElementById('toastText').textContent), null, 15000);
+    const mine = await toastText(page);
+    check('m5: a file the visitor brings keeps its format and addresses in the toast', /mine\.bin: DragonDOS binary \$3000-\$3001, exec \$3000/.test(mine), mine);
+    check('m5: no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // m6: the Claude chat without a key says so ON the screen; after Save key, the key card reads "Key saved ✓ · Forget"
+  {
+    const KEY = 'sk-ant-UICOPY-CHECK-KEY-0123456789';
+    const { ctx, page, errors } = await open(SE, '?machine=dragon64&app=claude');
+    await started(page);
+    await waitFor(page, () => window.emu.session.chatView === 'chat', null, 30000);
+    // the chat screen is graphics: its memory is read here with the firmware's own font (tools/chat-font.js)
+    const FONT = require('./chat-font.js'), GLYPHS = [];
+    for (let c = FONT.FIRST; c <= FONT.LAST; c++) GLYPHS.push({ ch: String.fromCharCode(c), g: FONT.table().slice((c - FONT.FIRST) * 8, (c - FONT.FIRST) * 8 + 8) });
+    const chatScreen = async () => {
+      const ram = await page.evaluate(() => Array.from(window.emu.machine.ram.subarray(0x400, 0x400 + 192 * 32)));
+      const rows = [];
+      for (let r = 0; r < 24; r++) {
+        let line = '';
+        for (let c = 0; c < 42; c++) {
+          const cell = [];
+          for (let y = 0; y < 8; y++) { let b = 0; for (let x = 0; x < 6; x++) { const px = c * 6 + x; b = (b << 1) | ((ram[(r * 8 + y) * 32 + (px >> 3)] >> (7 - (px & 7))) & 1); } cell.push(b); }
+          const hit = GLYPHS.find((g) => g.g.every((v, i) => v === cell[i]));
+          line += hit ? hit.ch : (cell.every((v) => !v) ? ' ' : '?');
+        }
+        rows.push(line.trimEnd());
+      }
+      return rows;
+    };
+    // a whole row must match (a glyph the chat font lacks draws as something else, so it fails here)
+    const screenHas = async (line, ms = 30000) => { const end = Date.now() + ms; let rows = []; while (Date.now() < end) { rows = await chatScreen(); if (rows.some((l) => (line instanceof RegExp ? line.test(l) : l === line))) return { ok: true, rows }; await new Promise((r) => setTimeout(r, 200)); } return { ok: false, rows }; };
+    const nokey = await screenHas(/^No API key yet: add one (above|below|on the right)\.$/);
+    const seen = nokey.ok, keyUi = { screen: nokey.rows.join('|'), help: await page.textContent('#claudeHelp') };
+    check('m6: with no key, "No API key yet" is on the chat screen itself (not only in the note beside it)', seen, JSON.stringify(keyUi));
+    await shot(page, 'chat-nokey');
+    await page.fill('#claudeKeyInput', KEY);
+    await page.click('#btnClaudeKeySave');
+    const savedOnScreen = await screenHas('Key saved. Type below and press ENTER.');
+    const saved = await page.evaluate(() => ({ card: !document.getElementById('claudeKeyCard').hidden, row: !document.getElementById('claudeKeySaved').hidden,
+      text: document.getElementById('claudeKeySaved').innerText.replace(/\s+/g, ' ').trim(), forget: !!document.getElementById('btnClaudeKeyForget').offsetParent,
+      field: document.getElementById('claudeKeyInput').value }));
+    check('m6: after Save key the screen says "Key saved. Type below and press ENTER." on one whole row and the key card reads "Key saved ✓ ... Forget" (the field is empty, not a bare placeholder)',
+      savedOnScreen.ok && !saved.card && saved.row && /^Key saved ✓/.test(saved.text) && saved.forget && saved.field === '', JSON.stringify(saved));
+    await shot(page, 'chat-saved');
+    // the key stays out of the machine's memory and the page's snapshot and settings export
+    const rowsNow = await chatScreen();
+    const leak = await page.evaluate((k) => {
+      const s = window.emu.session, has = (u8) => { const b = new TextEncoder().encode(k); outer: for (let i = 0; i + b.length <= u8.length; i++) { for (let j = 0; j < b.length; j++) if (u8[i + j] !== b[j]) continue outer; return true; } return false; };
+      const ms = [s.chatMachines.chat, s.chatMachines.basic];
+      return { ram: ms.some((m) => has(m.ram)), settings: JSON.stringify(s.exportSettings()).includes(k) };
+    }, KEY);
+    // (the chat screen is a bitmap: memory searches cannot see a key drawn on it, so its text is read, rows joined with no separator)
+    leak.screen = rowsNow.join('').includes(KEY) || rowsNow.join('').includes(KEY.slice(0, 12));
+    check('m6: the key is in no machine memory, no settings export and not drawn on the chat screen', !leak.ram && !leak.settings && !leak.screen, JSON.stringify(leak));
+    check('m6: no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // m8: deep links: a short toast, naming what happened
+  {
+    for (const [url, re, what] of [['?machine=nosuch', /^This link has a setting CLOADM can't use: machine=nosuch: no such machine \(opened Dragon 64 instead\)$/, 'machine=nosuch'],
+      ['?start=bogus', /^This link has a setting CLOADM can't use: start=bogus isn't a start CLOADM has \(welcome, liza, 2048, minesweeper\)$/, 'start=bogus']]) {
+      const { ctx, page, errors } = await open({ width: 1280, height: 720 }, url);
+      await started(page);
+      await waitFor(page, () => window.emu.linkDone === true && document.getElementById('toastText').textContent !== '', null, 15000);
+      const t = await toastText(page);
+      check(`m8: ${what}: one short toast (under 130 characters, no list of machines)`, re.test(t) && t.length < 130, `${t.length}: ${t}`);
+      if (what === 'machine=nosuch') await shot(page, 'link-machine');
+      check(`m8: ${what}: no page errors`, !errors.length, errors.join('; '));
+      await ctx.close();
+    }
+    for (const hash of ['#share=junk', '#s=junk']) {
+      const { ctx, page, errors } = await open({ width: 1280, height: 720 }, `?machine=dragon64${hash}`);
+      await started(page);
+      await waitFor(page, () => window.emu.linkDone === true && /share link|snapshot/i.test(document.getElementById('toastText').textContent), null, 15000);
+      const t = await toastText(page);
+      check(`m8: ${hash}: says the share link couldn't be read (never silent), and the junk leaves the address`,
+        /couldn't be read|is damaged/.test(t) && await page.evaluate(() => location.hash === ''), `${t} | ${await page.evaluate(() => location.hash)}`);
+      check(`m8: ${hash}: no page errors`, !errors.length, errors.join('; '));
+      await ctx.close();
+    }
+  }
+
+  // Add ROMs: the "optional" tag stays beside the title (no wrapping under it), and the Pak's title does not repeat it
+  for (const [label, viewport] of [['iPhone SE', SE], ['320 wide', { width: 320, height: 640 }], ['desktop', { width: 1280, height: 720 }]]) {
+    const { ctx, page, errors } = await open(viewport, '?machine=coco');
+    await started(page);
+    await page.selectOption('#selCartBoard', 'ssc').catch(() => {});
+    await page.evaluate(() => { location.hash = '#add-roms'; });
+    await waitFor(page, () => !document.getElementById('romCard').hidden);
+    const cards = await page.evaluate(() => [...document.querySelectorAll('#romSockets .socket')].map((c) => {
+      const t = c.querySelector('strong'), g = c.querySelector('.tag'), tr = t.getBoundingClientRect(), gr = g.getBoundingClientRect();
+      return { id: c.dataset.socket, title: t.textContent, tag: g.textContent, req: g.classList.contains('req'), beside: gr.left >= tr.right - 0.5 && gr.top < tr.bottom && gr.bottom > tr.top,
+        sameRow: Math.abs((gr.top + gr.height / 2) - (tr.top + Math.min(tr.height, gr.height) / 2)) < gr.height };
+    }));
+    const optional = cards.filter((c) => c.tag === 'optional');
+    check(`Add ROMs (${label}): the cards include the optional disk and Pak cards, and BASIC's required tag`, optional.some((c) => c.id === 'disk') && optional.some((c) => c.id.startsWith('ssc-')) && cards.some((c) => c.req), JSON.stringify(cards.map((c) => c.id)));
+    check(`Add ROMs (${label}): every tag sits beside its title, never under it`, cards.every((c) => c.beside), JSON.stringify(cards.filter((c) => !c.beside)));
+    check(`Add ROMs (${label}): the Pak and disk titles do not repeat "optional" next to the tag, and the Pak cards stay below the machine's sockets`,
+      optional.every((c) => !/optional/i.test(c.title)) && cards.findIndex((c) => c.id.startsWith('ssc-')) > cards.findLastIndex((c) => c.req || c.id === 'disk' || !c.id.startsWith('ssc-')), JSON.stringify(cards.map((c) => [c.id, c.title])));
+    await shot(page, `roms-${label.replace(/ /g, '-')}`);
+    check(`Add ROMs (${label}): no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // p2: Install CLOADM… is in the app bar beside Help (behind Menu on a phone), not at the foot of the machine menu, and
+  // its card opens under the bar, near the link
+  for (const [label, viewport] of [['desktop', { width: 1280, height: 720 }], ['phone', SE]]) {
+    const { ctx, page, errors } = await open(viewport, '?machine=dragon64');
+    await started(page);
+    const where = await page.evaluate(() => { const b = document.getElementById('navInstall'); return { inNav: !!b && !!b.closest('.appbar nav'), inMenu: !!b && !!b.closest('#machineMenu'), menuHasInstall: document.getElementById('machineMenu').textContent.includes('Install CLOADM') }; });
+    check(`install (${label}): the entry is in the app bar's links, not in the machine menu`, where.inNav && !where.inMenu && !where.menuHasInstall, JSON.stringify(where));
+    if (label === 'phone') await page.click('#btnMenu');
+    await page.click('#navInstall');
+    await waitFor(page, () => !document.getElementById('installOffer').hidden);
+    await painted(page);
+    const near = await page.evaluate(() => { const c = document.getElementById('installOffer').getBoundingClientRect(), bar = document.getElementById('appbar').getBoundingClientRect(), win = innerHeight;
+      return { cardTop: Math.round(c.top), barBottom: Math.round(bar.bottom), cardBottom: Math.round(c.bottom), win, visible: c.width > 0 && c.bottom <= win && c.top >= 0 }; });
+    check(`install (${label}): the card opens just under the app bar, in view, near the link that opened it (not at the far corner)`,
+      near.visible && near.cardTop >= near.barBottom - 1 && near.cardTop - near.barBottom < 40, JSON.stringify(near));
+    await shot(page, `install-${label}`);
+    check(`install (${label}): no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // p3: the Welcome Back menu: option 6 does not push "PRESS 1 TO 6" against the colour bar (a blank row between them)
+  {
+    const { ctx, page, errors } = await open({ width: 1280, height: 720 }, '?machine=dragon64');
+    await started(page);
+    await waitFor(page, () => window.emu.session.welcomeRunning, null, 15000);
+    await page.evaluate(async () => { const s = window.emu.session, bytes = new Uint8Array(await (await fetch('../examples/welcome.bin')).arrayBuffer()); s.startWelcome(bytes, { greeting: 'back', carryOn: 'LIZA' }); });
+    await waitFor(page, () => window.emu.session.screenText()[12].includes('CARRY ON'), null, 15000);
+    await emuFrames(page, 5);
+    const t = await page.evaluate(() => window.emu.session.screenText().map((l) => l.trim()));
+    check('p3: Welcome Back: options 1 to 5, then "6 CARRY ON WITH LIZA", a blank row, then "PRESS 1 TO 6" (rows 7 to 14)',
+      t[6] === 'WELCOME BACK' && t[7] === '1 TALK TO LIZA' && t[11] === '5 PLAY A GAME' && t[12] === '6 CARRY ON WITH LIZA' && t[13] === '' && t[14] === 'PRESS 1 TO 6', JSON.stringify(t.slice(5, 16)));
+    await shot(page, 'welcome-back');
+    check('p3: no page errors', !errors.length, errors.join('; '));
     await ctx.close();
   }
 }
@@ -8818,7 +8995,9 @@ async function askEscChecks(browser, base, check) {
     await waitFor(page, () => !!window.emu.session.claudePaused && !document.getElementById('btnFsResume').hidden);
     const paused = { both: await hit(['btnFsResume', 'btnFsStop']), text: await page.textContent('#fsClaudeText'), still: await page.evaluate(() => document.fullscreenElement === document.getElementById('screenWrap')) };
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `ask-fullscreen-paused-${tag.replace(/[ ×]/g, '-')}.png`) });
-    check(`${L}: paused: Resume and Stop are on the fullscreen screen and clickable, the status says Esc stops Claude`, paused.both.every(Boolean) && /Esc stops Claude/.test(paused.text) && paused.still, JSON.stringify(paused));
+    // (on a touch screen the status names Stop instead: there is no Esc to name, UX R30)
+    check(`${L}: paused: Resume and Stop are on the fullscreen screen and clickable, the status says ${opts ? 'Stop ends Claude\'s turn' : 'Esc stops Claude'}`,
+      paused.both.every(Boolean) && (opts ? paused.text === 'Paused: you tapped a key · Stop ends Claude\'s turn' : /Esc stops Claude/.test(paused.text)) && paused.still, JSON.stringify(paused));
     await page.click('#btnFsResume');
     const resumed = await page.evaluate(() => !window.emu.session.claudePaused && window.emu.machine.typist.queue.length > 50);
     await page.focus('#screen');
@@ -8940,11 +9119,14 @@ async function askEscChecks(browser, base, check) {
         await page.evaluate((h) => { location.hash = h; }, view);
         const shown = await waitFor(page, (h) => location.hash === h && !document.getElementById('viewClaude').hidden, view, 8000);
         const r = await page.evaluate(() => ({ text: document.getElementById('viewClaudeText').textContent, resume: !document.getElementById('btnViewResume').hidden,
-          inLayout: !!document.getElementById('viewClaude').closest('.layout'), status: window.emu.session.claudeStatus && window.emu.session.claudeStatus.text }));
+          inLayout: !!document.getElementById('viewClaude').closest('.layout'), status: window.emu.session.claudeStatus && window.emu.session.claudeStatus.text,
+          touch: document.body.classList.contains('touch-keys') }));
         const stop = await clickable(page, '#btnViewStop'), resume = paused ? await clickable(page, '#btnViewResume') : 'n/a', back = await clickable(page, VIEW_BACK[view]);
-        const textOk = paused ? /^Paused.*Esc stops Claude/.test(r.text) : /^(Using type_text…|Thinking…)$/.test(r.text);
+        // (paused on a touch screen: the page's touch text, which names Stop, not Esc: UX R30)
+        const touchPaused = paused && r.touch;
+        const textOk = touchPaused ? r.text === 'Paused: you tapped a key · Stop ends Claude\'s turn' : paused ? /^Paused.*Esc stops Claude/.test(r.text) : /^(Using type_text…|Thinking…)$/.test(r.text);
         check(`${L}: the pill shows the state with Stop${paused ? ' and Resume' : ''}, both clickable, and "← Emulator" is not covered`,
-          shown && !r.inLayout && textOk && r.text === r.status && r.resume === paused && stop === 'ok' && (!paused || resume === 'ok') && back === 'ok', JSON.stringify({ shown, ...r, stop, resume, back }));
+          shown && !r.inLayout && textOk && (touchPaused || r.text === r.status) && r.resume === paused && stop === 'ok' && (!paused || resume === 'ok') && back === 'ok', JSON.stringify({ shown, ...r, stop, resume, back }));
         if (paused) {
           if (resume === 'ok') await page.click('#btnViewResume');
           const resumed = await waitFor(page, () => !window.emu.session.claudePaused && window.emu.session.claudeBusyActing && document.getElementById('btnViewResume').hidden, null, 5000);
@@ -10663,7 +10845,7 @@ async function phoneChatChecks(browser, base, check) {
     check(`phone chat (${label}): and nothing lies over it`, !after.covered.length, JSON.stringify(after.covered));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `phone-chat-${label}-reply.png`) });
     // the way out is always there (PC-M1): upright, the chat bar stays at the top when the page scrolls; either way
-    // the keyboard's Menu is "← Emulator" and leaves the chat
+    // the keyboard's Menu is "← Emulator" and leaves the chat (back on the emulator it is ⌄ upright, Menu sideways)
     if (label === 'portrait') {
       await page.evaluate(() => scrollTo(0, 500));
       check('phone chat (portrait): scrolled down, the chat bar and its "← Emulator" stay at the top', await page.evaluate(() => {
@@ -10674,7 +10856,7 @@ async function phoneChatChecks(browser, base, check) {
     check(`phone chat (${label}): the on-screen keyboard's Menu says "← Emulator"`, await page.textContent('#tkMenu') === '← Emulator');
     await page.tap('#tkMenu');
     check(`phone chat (${label}): and leaves the chat for the emulator`, await waitFor(page, () => !document.body.classList.contains('claude-open') && !/app=claude/.test(location.search)
-      && document.getElementById('tkMenu').textContent === 'Menu'));
+      && document.getElementById('tkMenu').textContent === (innerHeight > innerWidth ? '⌄' : 'Menu')));
     check(`phone chat (${label}): no page errors`, !errors.length, errors.join('; '));
     await ctx.close();
   }
@@ -10689,7 +10871,8 @@ async function phoneChatChecks(browser, base, check) {
     page.on('pageerror', (e) => errors.push(e.message));
     const widths = () => page.evaluate(() => {
       const r = (id) => document.getElementById(id).getBoundingClientRect().width;
-      return { chat: document.body.classList.contains('chat-phone'), stick: r('touchStick'), fire: r('touchFire'), sw: r('tkModeSwitch'), mode: document.getElementById('touchKeys').dataset.mode };
+      return { chat: document.body.classList.contains('chat-phone'), stick: r('touchStick'), fire: r('touchFire'), sw: r('tkModeSwitch'), mode: document.getElementById('touchKeys').dataset.mode,
+        stickTab: r('tkModeSwitch') > 0 && document.querySelector('#tkModeSwitch [data-touchmode="joystick"]').checkVisibility() };
     });
     await page.goto(`${base}?machine=dragon64`);
     await started(page);
@@ -10705,8 +10888,9 @@ async function phoneChatChecks(browser, base, check) {
     await page.setViewportSize({ width: 390, height: 844 });
     await waitFor(page, () => document.body.classList.contains('chat-phone'));
     const phoneChat = await widths();
-    check('phone chat (joystick mode remembered): narrowing into the phone chat hides the stick, FIRE and the switch',
-      tablet.chat === false && tablet.stick > 0 && phoneChat.chat === true && phoneChat.stick === 0 && phoneChat.fire === 0 && phoneChat.sw === 0,
+    // (the switch stays there as Keys | Pad: UX R30 offers no Stick in the phone's chat)
+    check('phone chat (joystick mode remembered): narrowing into the phone chat hides the stick, FIRE and the switch\'s Stick',
+      tablet.chat === false && tablet.stick > 0 && phoneChat.chat === true && phoneChat.stick === 0 && phoneChat.fire === 0 && !phoneChat.stickTab && phoneChat.mode === 'keys',
       JSON.stringify({ tablet, phoneChat }));
     // and back out of the phone breakpoint: the tablet layout is not a phone chat, so the machine's stick is back
     await page.setViewportSize({ width: 820, height: 1180 });
@@ -11471,8 +11655,8 @@ async function shareChecks(browser, base, site, check) {
     // the menu instead), with a marker in memory once the menu is drawn
     await waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[14].includes('PRESS'), null, 60000);
     await page.evaluate(() => window.emu.machine.poke(1030, 42));
-    if (label === 'phone') await page.click('#btnMenu');
-    await page.click('#btnShare');
+    // (a phone: Share is an item of Menu, UX R30)
+    if (label === 'phone') { await page.click('#btnMenu'); await page.click('#navShare'); } else await page.click('#btnShare');
     await page.waitForSelector('#share', { state: 'visible' });
     await page.evaluate(() => document.fonts.ready);
     const lay = await page.evaluate(() => {
@@ -12227,8 +12411,8 @@ async function installChecks(browser, base, check) {
   });
   // LIZA running, with the first visit's "Running with no ROMs" box dismissed and its toast gone: the page as it is
   // when the offer has a free hand (the conditions are checked on their own in section 2)
-  // the item lives in the machine menu, which floats: open it and choose the item
-  const chooseInstall = async (page) => { await page.click('#machineBtn'); await page.click('#navInstall'); };
+  // the link is in the app bar (behind Menu on a phone): press it
+  const chooseInstall = pressInstall;
   const liza = async (page) => {
     await waitFor(page, () => window.emu.session.screenText().join('').includes('LIZA'));
     await page.evaluate(() => { const w = document.getElementById('welcome'); if (w) w.hidden = true; window.emu.feedback.clear(); });
@@ -12244,7 +12428,7 @@ async function installChecks(browser, base, check) {
     const hits = (a, b) => b.width > 0 && b.height > 0 && !(a.bottom <= b.top || a.top >= b.bottom || a.right <= b.left || a.left >= b.right);
     const guarded = [document.getElementById('screen'), document.getElementById('btnReset'), ...document.querySelectorAll('.controls'),
       ...document.querySelectorAll('#appbar > *'), document.getElementById('machineMenu'),
-      ...document.querySelectorAll('#touchKeys button, #touchStick, #tkMenuSheet')].filter((e) => e && e.checkVisibility({ visibilityProperty: true }));
+      ...document.querySelectorAll('#touchKeys button, #touchStick, #tkMenuSheet, #btnShowKeys')].filter((e) => e && e.checkVisibility({ visibilityProperty: true }));
     const name = (e) => e.id || e.textContent.trim().slice(0, 10) || e.className || e.tagName;
     const covered = shown ? guarded.filter((e) => hits(r, e.getBoundingClientRect())).map(name) : [];
     const occluded = [];
@@ -12280,12 +12464,12 @@ async function installChecks(browser, base, check) {
   {
     const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64&start=liza`);
     await liza(page);
-    // (the item lives in the machine menu, which is built when it opens: it is in the page, not hidden by its own rule)
-    check('install: the Menu item is on the page (in the machine menu)',
-      await page.evaluate(() => { const b = document.getElementById('navInstall'); return !!b && b.closest('#machineMenu') === document.getElementById('machineMenu'); }));
+    // (the link is in the app bar's nav: in the page, not hidden by its own rule)
+    check('install: the Install link is on the page (in the app bar\'s nav)',
+      await page.evaluate(() => { const b = document.getElementById('navInstall'); return !!b && b.closest('.appbar nav') === document.querySelector('.appbar nav'); }));
     await skipTo(page, 90);
     check('install: no beforeinstallprompt and no iOS: no card, however long the program ran', !(await cardUp(page)));
-    await page.click('#machineBtn'); await page.click('#navInstall');   // (the item is in the machine menu)
+    await pressInstall(page);   // (the link is in the app bar)
     await painted(page);
     check('install: the Menu item shows the steps for this browser', await cardUp(page) && /browser’s menu/.test(await page.textContent('#installText')));
     check('install: the card says it installs CLOADM "as an app on this device"', /Install CLOADM as an app on this device/.test(await page.textContent('#installText')));
@@ -12401,8 +12585,9 @@ async function installChecks(browser, base, check) {
   }
 
   // ---- 2b. Esc is "Not now" on the Chromium offer and on the iOS one, and the card is never a history entry ----
-  for (const [label, opts] of [['Chromium', {}], ['iOS', { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true,
-    userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1' }]]) {
+  // (iOS on an iPad: a phone has no automatic offer, the owner's decision with UX R30; the mobile group checks that)
+  for (const [label, opts] of [['Chromium', {}], ['iOS', { viewport: { width: 820, height: 1180 }, hasTouch: true, isMobile: true,
+    userAgent: 'Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1' }]]) {
     const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64&start=liza`, opts);
     await liza(page);
     if (label === 'Chromium') await firePrompt(page);
@@ -12486,9 +12671,9 @@ async function installChecks(browser, base, check) {
   }
 
   // ---- 2c'. typing at the machine while the card appears loses no key: half a line typed, the minute passed, the
-  //      rest typed while the card comes up (at 1440x900, and on an upright phone where it is the strip), and LIZA
-  //      has the whole line ----
-  for (const [label, opts] of [['desktop', {}], ['phone', { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }]]) {
+  //      rest typed while the card comes up (at 1440x900, and on a tablet with its touch keys), and LIZA has the whole
+  //      line (a phone has no automatic offer: the mobile group) ----
+  for (const [label, opts] of [['desktop', {}], ['tablet', { viewport: { width: 820, height: 1180 }, hasTouch: true, isMobile: true }]]) {
     const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64&start=liza`, opts);
     await liza(page);
     await firePrompt(page);
@@ -12717,11 +12902,11 @@ async function installChecks(browser, base, check) {
     await ctx.close();
   }
 
-  // ---- 7. iOS: no event at all, and the card is the Share steps ----
+  // ---- 7. iOS (an iPad: a phone has no automatic offer): no event at all, and the card is the Share steps ----
   {
     const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64&start=liza`, {
-      viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true,
-      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+      viewport: { width: 820, height: 1180 }, hasTouch: true, isMobile: true,
+      userAgent: 'Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
     });
     await liza(page);
     await skipTo(page, 90);
@@ -12755,14 +12940,11 @@ async function installChecks(browser, base, check) {
     await ctx.close();
   }
 
-  // The Install CLOADM… item adds no row to the app bar. It lives in the machine menu, which floats; in the nav it
-  // wrapped the bar onto a second row at 1280 on the reviewer's machine (68 -> 116 px, the screen 49 px lower).
-  // The invariant is 008's own: the bar is exactly as tall with the item as without it, at each width. That holds
-  // whether or not the bar already wraps for its existing links (on CI's fonts the nav wraps at 1280 on its own,
-  // and the item moved into it can fit on that second row), so it cannot depend on font metrics — and it fails if
-  // the item's placement ever costs the bar a row. Proved by moving the item into the nav: on this machine that is
-  // 164 px against 68 at 1280 (and 112 against 68 at 1440), so the mutation fails it; the check itself never
-  // requires the item to be the thing that wraps.
+  // The Install CLOADM… link adds no row to the app bar. It is a link of the nav, and an earlier placement there
+  // wrapped the bar onto a second row at 1280 on the reviewer's machine (68 -> 116 px, the screen 49 px lower); the
+  // bar's tight mode (shorter label "Install", closer links) now takes it back in a wide font.
+  // The invariant is 008's own: the bar is exactly as tall with the link as without it, at each width, whether or not
+  // the bar already wraps for its existing links, so it cannot depend on font metrics.
   for (const [label, viewport] of [['laptop', { width: 1280, height: 720 }], ['desktop', { width: 1440, height: 900 }]]) {
     const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64&start=liza`, { viewport });
     await page.evaluate(() => document.fonts.ready);
@@ -12772,13 +12954,13 @@ async function installChecks(browser, base, check) {
       const appbar = document.getElementById('appbar'), item = document.getElementById('navInstall');
       const h = () => Math.round(appbar.getBoundingClientRect().height);
       const screenTop = () => document.getElementById('screen').getBoundingClientRect().top;
-      const withItem = { h: h(), screen: screenTop(), where: item.closest('#machineMenu') === document.getElementById('machineMenu') };
+      const withItem = { h: h(), screen: screenTop(), where: !!item.closest('.appbar nav') };
       item.style.display = 'none';                 // (removed from the layout, not from where it lives)
       const without = { h: h(), screen: screenTop() };
       item.style.display = '';
       return { withItem, without };
     });
-    check(`install (${label} ${viewport.width}x${viewport.height}): the item costs the app bar no row (${bar.withItem.h} px with it, ${bar.without.h} px without) and sits in the floating machine menu`,
+    check(`install (${label} ${viewport.width}x${viewport.height}): the item costs the app bar no row (${bar.withItem.h} px with it, ${bar.without.h} px without) and sits in the app bar's nav`,
       bar.withItem.where && bar.withItem.h === bar.without.h && Math.abs(bar.withItem.screen - bar.without.screen) < 0.5, JSON.stringify(bar));
     check(`install (${label}): no page errors`, !errors.length, errors.join('; '));
     await ctx.close();
@@ -12868,10 +13050,9 @@ async function installChecks(browser, base, check) {
     await ctx.close();
   }
 
-  // ---- 10. a phone held sideways with the on-screen keyboard: the card's only place there is the keyboard's own
-  //      button row (BREAK, CLEAR, the switch, Menu), and those are never hidden for it. No place is clear, so the
-  //      offer waits, unspent, with every key still there; turned upright, the phone has the strip under its screen,
-  //      and the offer comes there, clear of every key. ----
+  // ---- 10. a phone with the on-screen keyboard, held sideways and then upright: no automatic offer there at all (the
+  //      owner's decision with UX R30), and none owed, with every key still there; the same page at a tablet's size
+  //      (still touch) gets the offer, clear of every key ----
   {
     const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64&start=liza`, { viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true });
     await liza(page);
@@ -12882,20 +13063,22 @@ async function installChecks(browser, base, check) {
     const side = await clearReport(page);
     const btns = await page.evaluate(() => ['tkBreak', 'tkClear', 'tkMenu'].filter((id) => {
       const b = document.getElementById(id); return b.checkVisibility({ visibilityProperty: true }) && b.getBoundingClientRect().width > 0; }));
-    check('install (phone, held sideways, keys): no clear place, so the offer is deferred: not up, still owed, nothing stored',
-      !side.shown && side.pending === true && side.stored === null, JSON.stringify(side));
-    check('install (phone, held sideways, keys): BREAK, CLEAR and Menu stay on the screen (never hidden for the card)',
-      btns.length === 3, btns.join(','));
+    check('install (phone, held sideways, keys): no card, none owed, nothing stored; BREAK, CLEAR and Menu there',
+      !side.shown && side.pending === false && side.stored === null && btns.length === 3, JSON.stringify({ side, btns }));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'install-landscape.png') });
-    // upright: the strip under the screen, above the keyboard
     await page.setViewportSize({ width: 390, height: 844 });
-    check('install (phone, turned upright): the deferred offer comes', await waitFor(page, () => !document.getElementById('installOffer').hidden, null, 10000));
-    await emuFrames(page, 2);
+    await emuFrames(page, 30);
     await painted(page);
     const up = await clearReport(page);
-    check('install (phone, turned upright): the card is the strip under the screen, clear of the screen and of every key (real boxes and what is seen)',
-      up.shown && up.where === 'strip' && clearOrOwed(up), JSON.stringify(up));
+    check('install (phone, turned upright): still no card, none owed', !up.shown && up.pending === false && up.stored === null, JSON.stringify(up));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'install-portrait.png') });
+    await page.setViewportSize({ width: 820, height: 1180 });
+    check('install (the same page at a tablet\'s size): the offer comes', await waitFor(page, () => !document.getElementById('installOffer').hidden, null, 10000));
+    await emuFrames(page, 2);
+    await painted(page);
+    const tab = await clearReport(page);
+    check('install (tablet): the card is clear of the screen and of every key (real boxes and what is seen)', tab.shown && clearOrOwed(tab), JSON.stringify(tab));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, 'install-tablet.png') });
     check('install (phone): no page errors', !errors.length, errors.join('; '));
     await ctx.close();
   }
@@ -12963,9 +13146,13 @@ async function installChecks(browser, base, check) {
     const WIDTHS = [480, 700, 900, 1060, 1280, 1500], HEIGHTS = [360, 420, 480, 540, 600, 800, 1000];
     const PORTRAIT_TOUCH = [[390, 844], [412, 915], [360, 740], [390, 768], [480, 768], [600, 900], [360, 900], [700, 1100],
       [360, 600], [412, 600], [600, 600], [700, 768]];
+    // (a phone in its touch layout -- 700 px wide and under, or held sideways under 500 px high -- has no automatic
+    // offer at all: the owner's decision with UX R30; there the oracle is "not shown, not owed". The tablet keeps it.)
+    const TABLET_TOUCH = [[820, 1180], [1024, 1366]];
     const sizes = [...WIDTHS.flatMap((w) => HEIGHTS.map((h) => [w, h, false])), [844, 390, true], [700, 390, true],
-      ...PORTRAIT_TOUCH.map(([w, h]) => [w, h, true])];
-    const shownSomewhere = [], shownTouchUpright = [];
+      ...PORTRAIT_TOUCH.map(([w, h]) => [w, h, true]), ...TABLET_TOUCH.map(([w, h]) => [w, h, true])];
+    const phoneTouch = (w, h, touch) => touch && (w <= 700 || h <= 500);
+    const shownSomewhere = [], shownPhone = [], shownTablet = [];
     for (const [w, h, touch] of sizes) {
       const ctx = await browser.newContext({ viewport: { width: w, height: h }, hasTouch: touch, isMobile: touch, serviceWorkers: 'block' });
       const page = await ctx.newPage();
@@ -12985,22 +13172,23 @@ async function installChecks(browser, base, check) {
       await maybeWaitFor('a size without room keeps the offer pending', page, () => !document.getElementById('installOffer').hidden, null, 2500);
       await painted(page);
       const lay = await clearReport(page);
-      check(`install sweep (${w}x${h}${touch ? ' touch' : ''}): the card is clear of everything (boxes and what is seen), or not shown and still owed`,
-        !errors.length && clearOrOwed(lay), errors.length ? errors.join('; ') : JSON.stringify(lay));
+      const phone = phoneTouch(w, h, touch);
+      check(`install sweep (${w}x${h}${touch ? ' touch' : ''}): ${phone ? 'a phone: no card, and none owed' : 'the card is clear of everything (boxes and what is seen), or not shown and still owed'}`,
+        !errors.length && (phone ? !lay.shown && lay.pending === false && lay.stored === null : clearOrOwed(lay)), errors.length ? errors.join('; ') : JSON.stringify(lay));
       if (lay.shown) shownSomewhere.push(`${w}x${h}`);
-      if (lay.shown && touch && h >= w) shownTouchUpright.push(`${w}x${h}`);
+      if (lay.shown && phone) shownPhone.push(`${w}x${h}`);
+      if (lay.shown && touch && !phone) shownTablet.push(`${w}x${h}`);
       await ctx.close();
     }
     // The "not shown" branch above is a legitimate answer at a size with no room, but by itself it would let a
-    // regression that NEVER shows the card pass every size. Most of the grid has room, so most of it must show.
-    // 48 of 56 show today; the eight that do not are the genuinely cramped sizes (480x360, 480x420, 700x360,
-    // 700x420, 700x480, 900x480, and the two windows held sideways with the keyboard up). A margin of two leaves
-    // room for a layout tweak and still fails any regression that stops placing at a whole class of sizes. Every
-    // upright (or square) touch layout has the strip under its screen, so every one must show.
-    check('install sweep: the card is shown at nearly every size (a regression that stops placing would fail here)',
-      shownSomewhere.length >= sizes.length - 10, `${shownSomewhere.length} of ${sizes.length} shown`);
-    check('install sweep: every upright touch layout shows the card (in the strip, clear of the keys)',
-      shownTouchUpright.length === PORTRAIT_TOUCH.length, `${shownTouchUpright.length} of ${PORTRAIT_TOUCH.length}: ${shownTouchUpright.join(' ')}`);
+    // regression that NEVER shows the card pass every size. Most of the grid has room, so most of it must show: 36 of
+    // its 42 sizes without the keyboard show today; the six that do not are the genuinely cramped sizes (480x360,
+    // 480x420, 700x360, 700x420, 700x480, 900x480). A margin of two leaves room for a layout tweak and still fails any
+    // regression that stops placing at a whole class of sizes. No phone shows it; both tablets do.
+    check('install sweep: the card is shown at nearly every desktop size (a regression that stops placing would fail here)',
+      shownSomewhere.length - shownTablet.length >= WIDTHS.length * HEIGHTS.length - 8, `${shownSomewhere.length - shownTablet.length} of ${WIDTHS.length * HEIGHTS.length} shown`);
+    check('install sweep: no phone in its touch layout shows the card (upright or sideways); both tablets do',
+      !shownPhone.length && shownTablet.length === TABLET_TOUCH.length, JSON.stringify({ shownPhone, shownTablet }));
   }
 
   // ---- 10d. a live resize with the card up: it hides where it cannot fit (keeping the offer) and returns ----
@@ -13092,19 +13280,19 @@ async function installChecks(browser, base, check) {
     await ctx.close();
   }
 
-  // ---- 10p. a layout change with no resize: on an upright phone the card is the strip above the keys; "Hide keys"
-  //      (and then Keys again) changes the page under it without any resize event. The ResizeObserver on the keys
+  // ---- 10p. a layout change with no resize: on a tablet with its touch keys (a phone has no offer); Hide keys (⌄)
+  //      (and then ⌨, Show keys) changes the page under it without any resize event. The ResizeObserver on the keys
   //      and the screen is what re-places it, so the throttle's clock is held (no once-a-second re-check can do it):
   //      after each change, on the settled layout, the card is clear of everything or deferred unspent. ----
   {
-    const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64&start=liza`, { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+    const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64&start=liza`, { viewport: { width: 820, height: 1180 }, hasTouch: true, isMobile: true });
     await liza(page);
     await firePrompt(page);
     await page.evaluate(() => document.fonts.ready);
     await emuFrames(page, 2);
     await skipTo(page, 90);
-    check('install (keys toggled): the card is up, in the strip', await waitFor(page, () => !document.getElementById('installOffer').hidden)
-      && (await clearReport(page)).where === 'strip');
+    check('install (keys toggled): the card is up, clear of everything', await waitFor(page, () => !document.getElementById('installOffer').hidden)
+      && clearOrOwed(await clearReport(page)));
     await page.evaluate(() => window.emu.install.holdRetryClock(true));
     const settledAfter = async (act) => {
       await page.evaluate(act);
@@ -13117,10 +13305,10 @@ async function installChecks(browser, base, check) {
       await painted(page);
       return clearReport(page);
     };
-    const hidden = await settledAfter(() => { document.getElementById('tkMenu').click(); document.querySelector('#tkMenuSheet [data-item="hide"]').click(); });
+    const hidden = await settledAfter(() => document.getElementById('tkMenu').click());
     const hiddenKeys = await page.evaluate(() => document.getElementById('touchKeys').hidden);
-    check('install (keys toggled): with the keys hidden (no resize), the card is clear of everything or deferred unspent',
-      hiddenKeys && clearOrOwed(hidden) && (!hidden.shown || hidden.where !== 'strip'), JSON.stringify({ hiddenKeys, hidden }));
+    check('install (keys toggled): with the keys hidden (no resize), the card is clear of everything (⌨ included) or deferred unspent',
+      hiddenKeys && clearOrOwed(hidden), JSON.stringify({ hiddenKeys, hidden }));
     const shown = await settledAfter(() => document.getElementById('btnShowKeys').click());
     check('install (keys toggled): with the keys back (no resize), the card is clear of every key, or deferred unspent',
       clearOrOwed(shown), JSON.stringify(shown));
@@ -13238,7 +13426,7 @@ async function installChecks(browser, base, check) {
     await ctx.close();
   }
   // ---- 10l. a menu opening over the card: the card is an offer over the emulator, never over a menu the user is
-  //      reading (and the machine menu holds this very Install item, while the card sits above it at z-index 61 vs 20).
+  //      reading (the card sits above the menus, z-index 61 vs 20).
   //      So it closes — at a size where the two would overlap. ----
   {
     const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64&start=liza`, { viewport: { width: 900, height: 720 } });
@@ -13466,23 +13654,22 @@ async function installChecks(browser, base, check) {
     await ctx.close();
   }
 
-  // ---- 12. the item in the machine menu, on a phone and on a desktop, and that opening the menu moves nothing ----
+  // ---- 12. the link in the app bar, on a phone and on a desktop, and that opening its card moves nothing ----
   for (const [label, opts] of [['phone', { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }], ['desktop', { viewport: { width: 1280, height: 720 } }]]) {
     const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64`, opts);
-    await page.click('#machineBtn');
-    check(`install (${label}): the item is in the machine menu, last, over the page`, await page.isVisible('#navInstall')
-      && await page.evaluate(() => document.getElementById('machineMenu').lastElementChild.id === 'navInstall'));
-    // the menu is built again on every open; the item must still be there, and only once
+    // the link is in the app bar's nav (behind Menu on a phone), once; the machine menu, built again on every open,
+    // does not have it
     await page.click('#machineBtn');
     await page.click('#machineBtn');
-    check(`install (${label}): it survives the menu being built again (one item)`,
-      await page.evaluate(() => document.querySelectorAll('#navInstall').length === 1 && document.getElementById('machineMenu').lastElementChild.id === 'navInstall'));
-    // 008's question is what the CARD does, with nothing else changing. So: show it (the menu closes as it opens, as
-    // it must), then measure with the card up, dismiss it, and measure again — the menu is closed on both sides.
-    await page.click('#navInstall');
+    check(`install (${label}): the link is in the app bar's nav, once, and the machine menu does not have it`,
+      await page.evaluate(() => document.querySelectorAll('#navInstall').length === 1 && !!document.getElementById('navInstall').closest('.appbar nav')
+        && !document.getElementById('machineMenu').querySelector('#navInstall')));
+    // 008's question is what the CARD does, with nothing else changing. So: show it, then measure with the card up,
+    // dismiss it, and measure again.
+    await pressInstall(page);
     await painted(page);
-    check(`install (${label}): choosing it closes the menu and shows the steps`, await cardUp(page)
-      && await page.evaluate(() => document.getElementById('machineMenu').hidden));
+    check(`install (${label}): choosing it shows the steps, with the machine menu and the phone's Menu links closed`, await cardUp(page)
+      && await page.evaluate(() => document.getElementById('machineMenu').hidden && !document.getElementById('appbar').classList.contains('menu-open')));
     const withCard = await page.evaluate(() => ({ h: Math.round(document.getElementById('appbar').getBoundingClientRect().height),
       reset: document.getElementById('btnReset').getBoundingClientRect().top, screen: document.getElementById('screen').getBoundingClientRect().top,
       monitor: document.getElementById('monitor').getBoundingClientRect().top, keys: document.getElementById('touchKeys').getBoundingClientRect().top,
@@ -13511,9 +13698,8 @@ async function installChecks(browser, base, check) {
   {
     const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64`);
     await firePrompt(page);
-    await page.click('#machineBtn');
-    check('install: the Menu item is there with a held prompt', await page.isVisible('#navInstall'));
-    await page.click('#navInstall');
+    check('install: the Install link is there with a held prompt', await page.isVisible('#navInstall'));
+    await pressInstall(page);
     check('install: the Menu item runs the browser\'s own prompt (no card in its way)', await waitFor(page, () => window.__prompted === 1) && !(await cardUp(page)));
     check('install: no page errors', !errors.length, errors.join('; '));
     await ctx.close();
@@ -13715,8 +13901,10 @@ async function menuFocusChecks(browser, base, check) {
     const navOut = { pt, nav: await navShown(), cls: await page.evaluate(() => document.getElementById('appbar').classList.contains('menu-open')), focus: await active(page) };
     check(`${L}: a tap outside closes Menu's links, focus on Menu`, !!pt && !navOut.nav && !navOut.cls && navOut.focus === 'btnMenu', JSON.stringify(navOut));
 
-    // R17 (a): the touch keys' Menu is a disclosure for a labelled group of buttons
-    await waitFor(page, () => !document.getElementById('touchKeys').hidden && document.body.classList.contains('touch-keys'));
+    // R17 (a): the touch keys' Menu is a disclosure for a labelled group of buttons. Held sideways (UX R30: upright the
+    // panel has no Menu, the app bar's is the only one), then upright again for the rest
+    await page.setViewportSize({ width: 844, height: 390 });
+    await waitFor(page, () => !document.getElementById('touchKeys').hidden && document.body.classList.contains('touch-keys') && document.getElementById('tkMenu').textContent === 'Menu');
     const roles = await page.evaluate(() => { const s = document.getElementById('tkMenuSheet'), m = document.getElementById('tkMenu');
       return { role: s.getAttribute('role'), label: s.getAttribute('aria-label'), items: s.querySelectorAll('[role="menuitem"]').length, controls: m.getAttribute('aria-controls') }; });
     check(`${L}: the keys' Menu sheet is a group labelled "Keys menu" (no menu role), and Menu controls it`,
@@ -13737,11 +13925,13 @@ async function menuFocusChecks(browser, base, check) {
     if (tap) await page.touchscreen.tap(tap.x, tap.y);
     const sheetOut = { tap, shown: await shown(page, 'tkMenuSheet'), focus: await active(page) };
     check(`${L}: a tap outside the keys' Menu closes it, focus back on Menu`, !!tap && !sheetOut.shown && sheetOut.focus === 'tkMenu', JSON.stringify(sheetOut));
+    await page.setViewportSize({ width: 390, height: 844 });
 
     // A menu counts as open only while it shows. Claude's full-screen chat, opened by keyboard (Ctrl+K), takes the app
     // bar's place on a phone and puts the machine keyboard aside: a machine menu or keys' Menu left open under it does
     // not take the screen's Esc, which on the chat's empty prompt leaves the chat
-    for (const [name, id, open] of [['machine menu', 'machineMenu', () => page.tap('#machineBtn')], ['keys\' Menu', 'tkMenuSheet', () => page.tap('#tkMenu')]]) {
+    // (upright the panel has no Menu of its own (UX R30), so the machine menu is the one left open here)
+    for (const [name, id, open] of [['machine menu', 'machineMenu', () => page.tap('#machineBtn')]]) {
       await open();
       await waitFor(page, (id) => !document.getElementById(id).hidden, id);
       await page.focus('#btnLoad');
@@ -13997,8 +14187,8 @@ async function uiModelChecks(browser, base, check) {
       const cards = {};
       for (const id of ['dragon64', 'dragon32', 'coco', 'coco3', 'dgnalpha', 'mc10']) cards[id] = await card(id);
       check('R26: Your ROMs shows the disk ROM card: Dragon "DragonDOS or Delta DOS", CoCo "Disk BASIC (RS-DOS)"',
-        cards.dragon64.title === 'Disk drives (optional): DragonDOS or Delta DOS' && cards.dragon32.title === 'Disk drives (optional): DragonDOS or Delta DOS'
-        && cards.coco.title === 'Disk drives (optional): Disk BASIC (RS-DOS)' && cards.coco3.title === 'Disk drives (optional): Disk BASIC (RS-DOS)', JSON.stringify(cards));
+        cards.dragon64.title === 'Disk drives: DragonDOS or Delta DOS' && cards.dragon32.title === 'Disk drives: DragonDOS or Delta DOS'
+        && cards.coco.title === 'Disk drives: Disk BASIC (RS-DOS)' && cards.coco3.title === 'Disk drives: Disk BASIC (RS-DOS)', JSON.stringify(cards));
       check('R26: no disk ROM card for the Dragon Alpha (its own drives) or the MC-10', cards.dgnalpha.title === null && cards.mc10.title === null, JSON.stringify(cards));
       check('R26: the card has its own data-disk mark, not data-status, so the socket counts are the machine\'s own',
         Object.values(cards).every((c) => c.sockets === c.want) && cards.dragon64.disk === 'missing-optional' && cards.dragon64.status === false, JSON.stringify(cards));
@@ -14252,6 +14442,306 @@ async function uiModelChecks(browser, base, check) {
   check('ui model: no page errors', !errors.length, errors.join('; '));
 }
 
+// ---- mobile: the v0.1.8 UI/UX review's phone and header findings, as UX R30 (owner-approved) rules them ----
+// Real touch contexts (hasTouch, isMobile) at the VISIBLE sizes R30 names: 320x460, 375x548 and 393x659 upright, 734x343
+// sideways. Each check failed on v0.1.8 (1dd66fa) unless it says it guards something that already held.
+async function mobileChecks(browser, base, check) {
+  const PORTRAIT = [[320, 460], [375, 548], [393, 659]];
+  // (a missing control or a condition that never comes is a FAIL of the check that needs it, not a throw that stops
+  // the group: run on v0.1.8, every check reports)
+  const tap = (page, sel) => page.tap(sel, { timeout: 3000 }).catch(() => {});
+  const until = (page, fn, arg = null, ms = 8000) => page.waitForFunction(fn, arg, { timeout: ms }).then(() => true, () => false);
+  const open = async (viewport, q = '', { touch = true, init = null } = {}) => {
+    const ctx = await browser.newContext({ viewport, hasTouch: touch, isMobile: touch, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(`${e.message} @ ${(e.stack || '').split('\n')[1] || ''}`));
+    if (init) await page.addInitScript(init);
+    await page.goto(`${base}${q}`);
+    // (the welcome menu, or the program the link starts: its toast says so)
+    await until(page, () => window.emu && window.emu.ready && window.emu.machine && (window.emu.session.welcomeRunning || /^(2048|Minesweeper|liza)/i.test(document.getElementById('toastText').textContent)));
+    await painted(page);
+    return { ctx, page, errors };
+  };
+  const rect = (page, sel) => page.evaluate((sel) => { const e = document.querySelector(sel); if (!e || !e.checkVisibility()) return null; const r = e.getBoundingClientRect(); return { l: r.left, t: r.top, r: r.right, b: r.bottom, w: r.width, h: r.height }; }, sel);
+  const mode = (page) => page.evaluate(() => (document.getElementById('touchKeys').hidden ? 'hidden' : document.getElementById('touchKeys').dataset.mode));
+  // (the picture is a whole number of pixels: 1 px of rounding under the width it is given)
+  const fullWidth = (w, vw) => w >= vw - 16 - 1;
+
+  // ---- upright, at each size ----
+  for (const [w, h] of PORTRAIT) {
+    const L = `mobile (${w}x${h}, upright)`;
+    // Keys (the welcome menu): the screen at least what v0.1.8 gave it (229 px at 375x548; the 160 px floor elsewhere)
+    {
+      const { ctx, page, errors } = await open({ width: w, height: h }, '?machine=dragon64');
+      const s = await rect(page, '#screen');
+      check(`${L}, Keys: the screen at least as wide as v0.1.8's (${Math.round(s.w)} px, at least ${w === 375 ? 229 : 160})`, await mode(page) === 'keys' && s.w >= (w === 375 ? 229 : 160), JSON.stringify(s));
+      // the strip: [Keys|Pad|Stick] [BREAK] [CLEAR] [⌄], no two overlapping, all 44 px and more, inside the page
+      const strip = await page.evaluate(() => {
+        const els = [...document.querySelectorAll('#tkModeSwitch button'), ...['tkBreak', 'tkClear', 'tkMenu'].map((id) => document.getElementById(id))].filter((e) => e.checkVisibility());
+        const bs = els.map((e) => { const r = e.getBoundingClientRect(); return { name: e.getAttribute('aria-label') || e.textContent.trim(), l: r.left, t: r.top, r: r.right, b: r.bottom, w: r.width, h: r.height }; });
+        const cross = (a, b) => a.l < b.r - 0.5 && b.l < a.r - 0.5 && a.t < b.b - 0.5 && b.t < a.b - 0.5;
+        const sw = document.getElementById('tkModeSwitch').getBoundingClientRect(), brk = document.getElementById('tkBreak').getBoundingClientRect();
+        return { names: bs.map((b) => b.name), small: bs.filter((b) => b.w < 44 - 0.5 || b.h < 44 - 0.5).map((b) => `${b.name} ${Math.round(b.w)}x${Math.round(b.h)}`),
+          overlaps: bs.flatMap((a, i) => bs.slice(i + 1).filter((b) => cross(a, b)).map((b) => `${a.name}/${b.name}`)),
+          switchMeetsBreak: cross({ l: sw.left, t: sw.top, r: sw.right, b: sw.bottom }, { l: brk.left, t: brk.top, r: brk.right, b: brk.bottom }),
+          off: bs.filter((b) => b.l < 0 || b.r > innerWidth).map((b) => b.name), oneRow: bs.every((b) => Math.abs(b.t - bs[0].t) < 3) };
+      });
+      check(`${L}: the strip is Keys, Pad, Stick, BREAK, CLEAR and ⌄ (Hide keys) in one row, none overlapping (the switch clear of BREAK), none under 44x44 px, all on the page`,
+        strip.names.join() === 'Keys,Pad,Stick,BREAK,CLEAR,Hide keys' && !strip.small.length && !strip.overlaps.length && !strip.switchMeetsBreak && !strip.off.length && strip.oneRow, JSON.stringify(strip));
+      // the app bar: one row of 44 px controls; exactly one visible control named Menu on the page
+      const bar = await page.evaluate(() => {
+        const vis = [...document.querySelectorAll('#appbar > *')].filter((e) => e.checkVisibility() && e.getBoundingClientRect().width > 0);
+        const bs = vis.map((e) => ({ id: e.id || e.className, ...e.getBoundingClientRect().toJSON() }));
+        const name = (e) => (e.getAttribute('aria-label') || e.textContent).replace(/\s+/g, ' ').trim();
+        // (named Menu, or "Menu, Add ROMs needed" while its dot is on)
+        const menus = [...document.querySelectorAll('button, a, [role=button]')].filter((e) => e.checkVisibility() && e.getBoundingClientRect().width > 0 && /^Menu\b/.test(name(e))).length;
+        return { ids: bs.map((b) => b.id), oneRow: bs.every((b) => Math.abs((b.top + b.bottom) / 2 - (bs[0].top + bs[0].bottom) / 2) <= 3), h: document.getElementById('appbar').getBoundingClientRect().height,
+          small: bs.filter((b) => b.height < 44 - 0.5 || b.width < 44 - 0.5).map((b) => b.id), menus, rom: document.getElementById('romPill').checkVisibility() };
+      });
+      check(`${L}: the app bar is one row, 48 px (the machine, Open…, Ask Claude, Menu; Add ROMs not in it), its controls 44 px and more`,
+        bar.ids.join() === 'machineBtn,btnLoad,btnAsk,btnMenu' && bar.oneRow && Math.round(bar.h) === 48 && !bar.small.length && !bar.rom, JSON.stringify(bar));
+      check(`${L}: exactly one visible control named Menu`, bar.menus === 1, JSON.stringify(bar));
+      // Hide keys (⌄): the screen takes the width, ⌨ (Show keys) 44x44 inside the window; ⌨ brings the keys back
+      await tap(page, '#tkMenu');
+      await painted(page);
+      const hid = { mode: await mode(page), s: await rect(page, '#screen'), fab: await rect(page, '#btnShowKeys'), label: await page.getAttribute('#btnShowKeys', 'aria-label') };
+      check(`${L}: ⌄ hides the keys; the screen takes the page's width (${hid.s && Math.round(hid.s.w)} px, at least ${w - 17}); ⌨, Show keys, 44x44 inside the window`,
+        hid.mode === 'hidden' && !!hid.s && fullWidth(hid.s.w, w) && !!hid.fab && hid.fab.w >= 44 && hid.fab.h >= 44 && hid.fab.l >= 0 && hid.fab.t >= 0 && hid.fab.r <= w && hid.fab.b <= h && hid.label === 'Show keys', JSON.stringify(hid));
+      if (shotDir) await page.screenshot({ path: path.join(shotDir, `mobile-${w}x${h}-hidden.png`) });
+      // and the page ends with room for ⌨: scrolled to its foot, ⌨ lies over no control of the page
+      const under = await page.evaluate(async () => {
+        scrollTo(0, document.documentElement.scrollHeight);
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+        const f = document.getElementById('btnShowKeys').getBoundingClientRect();
+        const cross = (a, b) => a.left < b.right - 0.5 && b.left < a.right - 0.5 && a.top < b.bottom - 0.5 && b.top < a.bottom - 0.5;
+        const ctl = [...document.querySelectorAll('button, a, input, select, .socket, .slots > *, .drawer')].filter((e) => e.id !== 'btnShowKeys' && e.checkVisibility() && e.getBoundingClientRect().width > 0 && cross(f, e.getBoundingClientRect()));
+        scrollTo(0, 0);
+        return ctl.map((e) => e.id || e.className || e.tagName);
+      });
+      check(`${L}: scrolled to the page's foot, ⌨ covers nothing of the page`, hid.mode === 'hidden' && !under.length, JSON.stringify(under));
+      await tap(page, '#btnShowKeys');
+      check(`${L}: ⌨ brings the keys back`, hid.mode === 'hidden' && await until(page, () => !document.getElementById('touchKeys').hidden));
+      if (shotDir) await page.screenshot({ path: path.join(shotDir, `mobile-${w}x${h}-keys.png`) });
+      check(`${L}: no page errors`, !errors.length, errors.join('; '));
+      await ctx.close();
+    }
+    // Pad (2048 opens on it): the screen takes the page's width
+    {
+      const { ctx, page, errors } = await open({ width: w, height: h }, '?machine=dragon64&start=2048');
+      await until(page, () => document.getElementById('touchKeys').dataset.mode === 'pad', null, 5000);
+      await painted(page);
+      const s = await rect(page, '#screen'), k = await rect(page, '#touchKeys');
+      check(`${L}, 2048: opens on Pad, the screen the page's width (${s && Math.round(s.w)} px, at least ${w - 17}), the panel on screen`,
+        await mode(page) === 'pad' && !!s && fullWidth(s.w, w) && !!k && k.b <= h, JSON.stringify({ s, k }));
+      // UX R35: in Pad mode one control is named BREAK, the strip's; every pad key 48 px and more, none over the strip
+      const pk = await page.evaluate(() => {
+        const name = (e) => (e.getAttribute('aria-label') || e.textContent).replace(/\s+/g, ' ').trim();
+        const breaks = [...document.querySelectorAll('button')].filter((e) => e.checkVisibility() && e.getBoundingClientRect().width > 0 && name(e) === 'BREAK').map((e) => e.id || 'pad');
+        const strip = [...document.querySelectorAll('#tkModeSwitch button, #tkBreak, #tkClear, #tkMenu')].map((e) => e.getBoundingClientRect());
+        const cross = (a, b) => a.left < b.right - 0.5 && b.left < a.right - 0.5 && a.top < b.bottom - 0.5 && b.top < a.bottom - 0.5;
+        const keys = [...document.querySelectorAll('#touchPad .tk')].filter((e) => e.checkVisibility());
+        return { breaks, small: keys.filter((e) => e.getBoundingClientRect().height < 48 - 0.5).map(name), overStrip: keys.filter((e) => strip.some((r) => cross(e.getBoundingClientRect(), r))).map(name) };
+      });
+      check(`${L}, 2048 on Pad: exactly one visible BREAK (the strip's); every pad key 48 px and more, none over the strip`,
+        pk.breaks.join() === 'tkBreak' && !pk.small.length && !pk.overStrip.length, JSON.stringify(pk));
+      if (w === 375) {
+        await tap(page, '#tkBreak');
+        check(`${L}, 2048: the strip's BREAK goes back to the welcome menu`, await until(page, () => window.emu.session.welcomeRunning, null, 15000));
+      }
+      if (shotDir) await page.screenshot({ path: path.join(shotDir, `mobile-${w}x${h}-2048-pad.png`) });
+      check(`${L}, 2048: no page errors`, !errors.length, errors.join('; '));
+      await ctx.close();
+    }
+  }
+
+  // ---- the header from its first paint: 48 px, one row, the same height 2 s later (the touch class is on before the
+  // first paint: play/index.html's head) ----
+  {
+    const first = () => {
+      new MutationObserver((r, o) => { const b = document.getElementById('appbar'); if (b && document.body) { o.disconnect(); requestAnimationFrame(() => { window.__bar0 = b.getBoundingClientRect().height; window.__touch0 = document.body.classList.contains('touch-keys'); }); } })
+        .observe(document, { childList: true, subtree: true });
+    };
+    const { ctx, page } = await open({ width: 375, height: 548 }, '?machine=dragon64', { init: first });
+    await page.waitForTimeout(2000);
+    const r = await page.evaluate(() => ({ first: window.__bar0, touch0: window.__touch0, now: document.getElementById('appbar').getBoundingClientRect().height }));
+    check('mobile (375x548): the app bar is 48 px at its first paint and 2 s later, the touch layout on from that paint', r.first === 48 && r.now === 48 && r.touch0 === true, JSON.stringify(r));
+    await ctx.close();
+  }
+
+  // ---- Menu: one list, Add ROMs first (the machine has no BASIC) and a dot on Menu; Share and Commands… in it ----
+  {
+    const { ctx, page, errors } = await open({ width: 393, height: 659 }, '?machine=dragon64');
+    const dot = await page.evaluate(() => getComputedStyle(document.getElementById('btnMenu'), '::after').content !== 'none');
+    const menuName = await page.getAttribute('#btnMenu', 'aria-label');
+    check('mobile (393x659): the dot on Menu is in its name too: "Menu, Add ROMs needed"', dot && menuName === 'Menu, Add ROMs needed', JSON.stringify({ dot, menuName }));
+    const row = () => page.evaluate(() => ['machineBtn', 'btnLoad', 'btnAsk', 'btnMenu'].map((id) => JSON.stringify(document.getElementById(id).getBoundingClientRect())));
+    const before = await row();
+    await tap(page, '#btnMenu');
+    await until(page, () => document.getElementById('appbar').classList.contains('menu-open'));
+    const items = await page.evaluate(() => [...document.querySelectorAll('.appbar nav > *')].filter((e) => e.checkVisibility()).map((e) => e.innerText.replace(/\s+/g, ' ').trim()));
+    check('mobile (393x659): Menu has a dot while there is no BASIC, and lists Add ROMs first, then Share, the links, Commands… and Install CLOADM…',
+      dot && items[0] === 'Add ROMs' && items.includes('Share') && items.includes('Commands…') && items.includes('Library') && items.includes('Install CLOADM…'), JSON.stringify({ dot, items }));
+    check('mobile (393x659): opening Menu moves nothing in the bar', JSON.stringify(before) === JSON.stringify(await row()));
+    // the focus on the first item as it opens; Tab goes down the list (not into what Menu hides)
+    const f1 = await page.evaluate(() => document.activeElement.id);
+    await page.keyboard.press('Tab');
+    const f2 = await page.evaluate(() => document.activeElement.id || document.activeElement.textContent.trim());
+    check('mobile (393x659): Menu opens with the focus on its first item (Add ROMs), and Tab goes to the next (Share)', f1 === 'navRoms' && f2 === 'navShare', JSON.stringify({ f1, f2 }));
+    await tap(page, '#navRoms');
+    check('mobile (393x659): Menu\'s Add ROMs opens Add ROMs', await until(page, () => location.hash === '#add-roms'));
+    check('mobile (Menu): no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- what each program opens on; the pad's keys; the choice remembered per program and machine ----
+  {
+    const { ctx, page, errors } = await open({ width: 375, height: 548 }, '?machine=dragon64&start=minesweeper');
+    await until(page, () => document.getElementById('touchKeys').dataset.mode === 'pad', null, 5000);
+    const pad = await page.evaluate(() => ({ mode: document.getElementById('touchKeys').dataset.mode,
+      keys: [...document.querySelectorAll('#touchPad .tk')].filter((e) => e.checkVisibility()).map((e) => e.getAttribute('aria-label') || e.textContent.trim()),
+      heights: [...document.querySelectorAll('#touchPad .tk')].filter((e) => e.checkVisibility()).map((e) => Math.round(e.getBoundingClientRect().height)),
+      stick: document.querySelector('[data-touchmode="joystick"]').checkVisibility() }));
+    check('mobile (Minesweeper): opens on Pad: the D-pad, SPACE, ENTER, F (its own key) and ABC (no BREAK: the strip\'s, UX R35), every key 48 px and more; Stick offered',
+      pad.mode === 'pad' && pad.keys.join() === 'Up,Left,Down,Right,SPACE,ENTER,F,ABC' && pad.heights.every((x) => x >= 48) && pad.stick, JSON.stringify(pad));
+    await page.evaluate(() => { const m = window.emu.machine, set = m.setKey.bind(m); window.pressed = []; m.setKey = (k, d) => { window.pressed.push(`${k}${d ? '+' : '-'}`); return set(k, d); }; });
+    await tap(page, '#touchPad [data-key="→"]');
+    await tap(page, '#touchPad [data-key="F"]');
+    check('mobile (Minesweeper): the pad\'s → is the machine\'s RIGHT, its F is F', await until(page, () => ['RIGHT+', 'RIGHT-', 'F+', 'F-'].every((k) => window.pressed.includes(k))), JSON.stringify(await page.evaluate(() => window.pressed)));
+    // ABC: the keyboard for one key, then the pad
+    await tap(page, '#tkPadAbc');
+    const once = await page.evaluate(() => document.getElementById('touchFull').checkVisibility() && !!document.getElementById('touchPad') && !document.getElementById('touchPad').checkVisibility());
+    await tap(page, '#touchFull [data-key="Q"]');
+    check('mobile (Minesweeper): ABC shows the full keyboard for one key, then the pad comes back', once && await until(page, () => document.getElementById('touchPad')?.checkVisibility() && window.pressed.includes('Q+')));
+    // the choice is remembered for this program on this machine, and only for it
+    await tap(page, '[data-touchmode="keys"]');
+    await page.goto(`${base}?machine=dragon64&start=minesweeper`);
+    await until(page, () => window.emu && window.emu.session && window.emu.machine && window.emu.machine.cpu.pc >= 0x3000);
+    await painted(page);
+    const again = await mode(page);
+    await page.goto(`${base}?machine=dragon64&start=2048`);
+    await until(page, () => window.emu && window.emu.session && window.emu.machine && window.emu.machine.cpu.pc >= 0x3000);
+    await painted(page);
+    const other = await mode(page);
+    await page.goto(`${base}?machine=dragon64&start=liza`);
+    await until(page, () => window.emu && window.emu.machine && /I AM LIZA/.test(window.emu.session.screenText().join('')));
+    await painted(page);
+    const liza = await mode(page);
+    check('mobile: Keys chosen in Minesweeper is remembered for Minesweeper on this machine; 2048 still opens on Pad; LIZA opens on Keys',
+      again === 'keys' && other === 'pad' && liza === 'keys', JSON.stringify({ again, other, liza }));
+    check('mobile (programs): no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+  {
+    const { ctx, page } = await open({ width: 375, height: 548 }, '?machine=mc10');
+    const tabs = await page.evaluate(() => [...document.querySelectorAll('#tkModeSwitch button')].filter((e) => e.checkVisibility()).map((e) => e.textContent));
+    check('mobile (MC-10): the switch is Keys | Pad, no Stick (no joystick port)', tabs.join() === 'Keys,Pad', tabs.join());
+    await ctx.close();
+  }
+
+  // ---- touch words: the games' toast says tap (no Esc, no press); Claude's paused text on touch ----
+  for (const [w, h] of [[375, 548], [734, 343]]) {
+    const { ctx, page } = await open({ width: w, height: h }, '?machine=dragon64&start=2048');
+    await until(page, () => /2048/.test(document.getElementById('toastText').textContent));
+    await painted(page);
+    const t = await page.evaluate(() => {
+      const box = document.getElementById('toast').getBoundingClientRect(), bar = document.getElementById('appbar');
+      const cross = (a, b) => a.left < b.right - 0.5 && b.left < a.right - 0.5 && a.top < b.bottom - 0.5 && b.top < a.bottom - 0.5;
+      const keys = [...document.querySelectorAll('#touchKeys button')].filter((e) => e.checkVisibility() && cross(box, e.getBoundingClientRect())).map((e) => e.textContent.trim());
+      return { text: document.getElementById('toastText').textContent, keys, underBar: !bar.checkVisibility() || box.top >= bar.getBoundingClientRect().bottom - 0.5,
+        inView: box.top >= 0 && box.bottom <= innerHeight && box.left >= 0 && box.right <= innerWidth };
+    });
+    check(`mobile (${w}x${h}, 2048): the toast says tap (no "Esc", no "press"), lies under the app bar and over no key`,
+      /tap a key/.test(t.text) && /BREAK/.test(t.text) && !/Esc|press/.test(t.text) && t.underBar && !t.keys.length && t.inView, JSON.stringify(t));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `mobile-${w}x${h}-toast.png`) });
+    await ctx.close();
+  }
+  {
+    const { ctx, page } = await open({ width: 375, height: 548 }, '?machine=dragon64');
+    const r = await page.evaluate(async () => {
+      const m = await import(new URL('js/ui/page.js', document.baseURI).href), s = await import(new URL('js/session.js', document.baseURI).href);
+      const st = { phase: 'paused', text: s.CLAUDE_PAUSED_TEXT };
+      if (typeof m.claudeStatusText !== 'function') return { touch: null, desk: null };
+      const touch = m.claudeStatusText(st);
+      document.body.classList.remove('touch-keys');
+      const desk = m.claudeStatusText(st);
+      document.body.classList.add('touch-keys');
+      return { touch, desk };
+    });
+    check('mobile: Claude\'s paused status on touch says "Paused: you tapped a key · Stop ends Claude\'s turn" (the keyboard\'s text, with Esc, elsewhere)',
+      r.touch === 'Paused: you tapped a key · Stop ends Claude\'s turn' && /Esc stops Claude/.test(r.desk), JSON.stringify(r));
+    await ctx.close();
+  }
+  // a computer (no touch): the toast keeps the keyboard's words
+  {
+    const { ctx, page } = await open({ width: 1280, height: 800 }, '?machine=dragon64&start=2048', { touch: false });
+    await until(page, () => /2048/.test(document.getElementById('toastText').textContent));
+    const text = await page.evaluate(() => document.getElementById('toastText').textContent);
+    check('mobile (desktop, ?start=2048): the toast still says press a key and BREAK (Esc) (guards: as v0.1.8)', /press a key/.test(text) && /BREAK \(Esc\)/.test(text), text);
+    await ctx.close();
+  }
+
+  // ---- sideways (734x343): the screen as v0.1.8 had it; one Menu; Machine… opens the machine picker ----
+  {
+    const { ctx, page, errors } = await open({ width: 734, height: 343 }, '?machine=dragon64');
+    const s = await rect(page, '#screen');
+    const menus = await page.evaluate(() => [...document.querySelectorAll('button, a')].filter((e) => e.checkVisibility() && e.getBoundingClientRect().width > 0 && (e.getAttribute('aria-label') || e.textContent).trim() === 'Menu').length);
+    check('mobile (734x343, sideways): Keys as before (the screen 250x187 at 242,52, between the halves; guards: as v0.1.8), one control named Menu',
+      await mode(page) === 'keys' && Math.round(s.l) === 242 && Math.round(s.t) === 52 && Math.round(s.w) === 250 && Math.round(s.h) === 187 && menus === 1, JSON.stringify({ s, menus }));
+    await tap(page, '#tkMenu');
+    const items = await page.evaluate(() => [...document.querySelectorAll('#tkMenuSheet button')].filter((e) => e.checkVisibility()).map((e) => e.textContent));
+    await tap(page, '#tkMenuSheet [data-item="machine"]');
+    const picker = await page.evaluate(() => { const m = document.getElementById('machineMenu'), r = m.getBoundingClientRect(); return { shown: !m.hidden && m.checkVisibility() && r.width > 0, inView: r.top >= 0 && r.bottom <= innerHeight + 1, first: document.elementFromPoint(r.left + 40, r.top + 40)?.closest('#machineMenu') === m }; });
+    check('mobile (734x343): the panel\'s Menu has Machine…, Commands…, Install CLOADM… and Hide keys; Machine… opens the machine picker, on screen and on top',
+      items.join() === 'Machine…,Commands…,Install CLOADM…,Hide keys' && picker.shown && picker.inView && picker.first, JSON.stringify({ items, picker }));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, 'mobile-734x343-machine-picker.png') });
+    await page.keyboard.press('Escape');
+    check('mobile (734x343): Esc closes the picker, and the app bar gives way to the panel again', picker.shown && await until(page, () => document.getElementById('machineMenu').hidden && !document.body.classList.contains('machine-pick')
+      && !document.getElementById('appbar').checkVisibility()));
+    check('mobile (734x343): no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- no automatic install offer on a phone (owner's decision): its conditions met, on a second visit too; the
+  // Menu item still shows the steps ----
+  for (const [w, h] of [[375, 548], [734, 343]]) {
+    const { ctx, page, errors } = await open({ width: w, height: h }, '?machine=dragon64&start=liza');
+    const offer = async () => {
+      await until(page, () => window.emu && window.emu.machine && window.emu.session.screenText().join('').includes('LIZA'));
+      await page.evaluate(() => { const w = document.getElementById('welcome'); if (w) w.hidden = true; window.emu.feedback.clear();
+        const e = new Event('beforeinstallprompt', { cancelable: true }); e.prompt = () => { window.__prompted = (window.__prompted || 0) + 1; }; e.userChoice = Promise.resolve({ outcome: 'dismissed' }); window.dispatchEvent(e);
+        window.emu.install.clock.skip(120); });
+      await emuFrames(page, 60);
+      return page.evaluate(() => ({ card: !document.getElementById('installOffer').hidden, prompt: !!window.emu.install.prompt, seconds: window.emu.install.clock.seconds() }));
+    };
+    const one = await offer();
+    await page.reload();
+    await until(page, () => window.emu && window.emu.ready && window.emu.machine);
+    const two = await offer();
+    // (sideways, v0.1.8's offer found no place to stand either: that row guards)
+    check(`mobile (${w}x${h}): no install offer, the prompt held and 120 s of LIZA run, on the first visit and the second`,
+      !one.card && !two.card && one.prompt && two.prompt && one.seconds >= 120 && two.seconds >= 120, JSON.stringify({ one, two }));
+    // Install CLOADM… still installs, by hand: the browser's own install dialog, from the prompt the page holds. Upright
+    // it is an item of the app bar's Menu; held sideways (the bar out of sight) an item of the panel's Menu
+    if (w > h) { await tap(page, '#tkMenu'); await tap(page, '#tkMenuSheet [data-item="install"]'); } else { await tap(page, '#btnMenu'); await tap(page, '#navInstall'); }
+    // (upright a guard: v0.1.8's item, in the machine menu, worked too; sideways it had no way in)
+    check(`mobile (${w}x${h}): the Install CLOADM… item still opens the browser's install dialog`, await until(page, () => window.__prompted >= 1));
+    check(`mobile (${w}x${h}, install): no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- m4: the desktop's status shows the speed only (the machine's name is on the button beside it), whole ----
+  for (const width of [1920, 1440, 1024]) {
+    const { ctx, page } = await open({ width, height: 900 }, '?machine=dragon64', { touch: false });
+    await until(page, () => /fps/.test(document.getElementById('status').textContent));
+    const r = await page.evaluate(() => { const e = document.getElementById('status'); return { text: e.textContent, shown: e.checkVisibility(), clipped: e.checkVisibility() && e.scrollWidth > e.clientWidth + 0.5, w: Math.round(e.getBoundingClientRect().width) }; });
+    // (in the page font, shown and whole at every one of these widths; "whole or not shown" is only for 1200 px in a wide
+    // fallback font: the layout group)
+    check(`mobile (desktop ${width} px): the status shows fps and speed, shown and whole, without the machine's name`, r.shown && !r.clipped && !/Dragon/.test(r.text) && /^\d+ fps · \d+%/.test(r.text), JSON.stringify(r));
+    await ctx.close();
+  }
+}
+
 const GROUPS = (base, site) => [
   ['models', (b) => modelsChecks(b, base, check)],
   ['reset', (b) => resetChecks(b, base, check)],
@@ -14324,6 +14814,7 @@ const GROUPS = (base, site) => [
   ['askStatus', (b) => askStatusChecks(b, base, check)],
   ['askEsc', (b) => askEscChecks(b, base, check)],
   ['consentFullscreen', (b) => consentFullscreenChecks(b, base, check)],
+  ['uiCopy', (b) => uiCopyChecks(b, base, check)],
   ['welcomeScreen', (b) => welcomeScreenChecks(b, base, check)],
   ['chatScreen', (b) => chatScreenChecks(b, base, check)],
   ['phoneChat', (b) => phoneChatChecks(b, base, check)],
@@ -14331,6 +14822,7 @@ const GROUPS = (base, site) => [
   ['favicon', (b) => faviconChecks(b, site, check)],
   ['uiModel', (b) => uiModelChecks(b, base, check)],
   ['semantics', (b) => semanticsChecks(b, base, site, check)],
+  ['mobile', (b) => mobileChecks(b, base, check)],
   // (required when the group runs: the shard planner's copy of this file runs --list-groups without it)
   ['connector', (b) => require('./connector-check').connectorChecks(b, check, { shots: shotDir })],
 ];

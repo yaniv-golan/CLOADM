@@ -8,7 +8,7 @@
 //   B (open_emulator_inline): this file and its whole import graph folded into the view (connector/fold.js).
 // globalThis.CLOADM_VIEW, set by the view's first script: { variant, api, version, tools, programs? } (programs: base64
 // of the bundled programs' files in B; A fetches them from the site, beside js/). No ROM is involved anywhere.
-import { Session, GAMES } from '../../js/session.js';
+import { Session, GAMES, PROGRAM_CONTROLS } from '../../js/session.js';
 import { frameToRGBA } from '../../js/video/frame.js';
 import { HostInput } from '../../js/host/input.js';
 import { localStore } from '../../js/host/storage.js';
@@ -155,11 +155,19 @@ export async function start() {
   const now = { program: null };
   describe = () => {
     const m = session.machine, where = `${m.profile.name} · ${roms(m)}`;
+    if (keys) keys.apply();   // (what runs may have changed: the keys' mode follows it)
     if (now.program) return status(`${now.program} is running · ${where}`);
     if (m.hasRom) return status(`BASIC is running · ${where}`);
     status(`${where} · Pick something from Programs, or ask Claude to play something.`);
   };
   const running = (program) => { now.program = program; describe(); };
+  // the bundled program running now and what it is played with ({ id, input, extra, joystick }, as
+  // Session.programControls gives it on the page), from what this view started: the on-screen keys' mode follows it
+  const programControls = () => {
+    const id = Object.keys(PROGRAM_NAMES).find((k) => PROGRAM_NAMES[k] === now.program);
+    if (id === 'liza') return { id, ...PROGRAM_CONTROLS.liza };
+    return id && GAMES.list[id] ? { id, ...GAMES.list[id].controls } : null;
+  };
   // a SessionError (a game on a machine that cannot run it) -> the status line
   const attempt = (fn) => { try { fn(); } catch (e) { status(e.message, { announce: true }); } };
 
@@ -199,7 +207,6 @@ export async function start() {
   session.on((ev) => {
     if (ev === 'machine') {
       input.setMachine(session.machine);
-      if (keys) keys.apply();
       canvas.setAttribute('aria-label', `${session.machine.profile.name} screen. Click or focus to type.`);
       now.program = null; describe();
     }
@@ -238,6 +245,7 @@ export async function start() {
         const r = await toolbox.call(name, args, { signal, base64: toBase64 });
         if (!r.isError && name === 'load') now.program = a.program ? PROGRAM_NAMES[a.program] || a.program : String(a.path || '').split('/').pop();
         else if (!r.isError && name === 'assemble_and_load') now.program = 'Claude\'s program';
+        if (keys) keys.apply();
         if (!d.read) status(`${d.past}${d.keys || ''} · ${clock(new Date())}`);
         return r;
       } finally {
@@ -262,7 +270,8 @@ export async function start() {
     presenter.present(frame);
   }
   // the on-screen keys, on a touch screen (⋯ hides them and brings them back)
-  keys = touchPanel($('keys'), { session, input, wanted: touch, onPress: () => unlock(), onChange: () => { syncKeysItem(); fit(); } });
+  const storage = (() => { try { return localStorage; } catch (e) { return null; } })();   // (the sandbox may refuse it)
+  keys = touchPanel($('keys'), { session, input, wanted: touch, storage, program: programControls, onPress: () => unlock(), onChange: () => { syncKeysItem(); fit(); } });
   // the toolbar, the keys and the status line stay in view with the screen in a fixed-height view (Details, open,
   // scrolls), inside the insets; inline, the host is told the content's height (computed from the width)
   const bodyPad = () => { const b = getComputedStyle(document.body); return parseFloat(b.paddingTop) + parseFloat(b.paddingBottom); };

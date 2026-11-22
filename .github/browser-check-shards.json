@@ -20,7 +20,9 @@
       "cpu6309",
       "backFocus",
       "fold",
-      "semantics"
+      "semantics",
+      "mobile",
+      "uiCopy"
     ],
     [
       "models",

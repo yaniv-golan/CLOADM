@@ -114,7 +114,7 @@ export function fitScreen(stage, bezel, canvas, { context = () => ({}), reserve 
   fit();
   return fit;
 }
-export const MIN_HEIGHT = 120;
+export const MIN_HEIGHT = 120;   // a view shorter than the toolbar and this scrolls rather than shrink the screen to nothing
 // the view's content height: the screen, its stage's and bezel's padding, and what lies around it
 export const contentHeight = (screenH, padH, around) => Math.ceil(screenH + padH + around);
 
@@ -137,7 +137,7 @@ export function touchHost(ctx = {}, { coarse = false, seen = false } = {}) {
   if (seen || ctx.platform === 'mobile' || caps.touch === true) return true;
   if (caps.touch === false) return false;
   return !!coarse;
-}   // a view shorter than the toolbar and this scrolls rather than shrink the screen to nothing
+}
 
 // Draws each frame into the canvas's backing store (fitScreen sizes it), every machine pixel a block of device
 // pixels: nearest-neighbour, no smoothing. toRGBA(frame, pixels) fills a Uint32Array (js/video/frame.js).
