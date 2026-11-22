@@ -64,8 +64,12 @@ try {
   storageProblem = e;
   mediaStore = new MemoryMediaStore();
 }
-// the Claude API key: this browser's storage only (cloadm.anthropicKey), never a Session setting
-const keyStore = (() => { try { return localStorage ? storageKeyStore(localStorage) : new MemoryKeyStore(); } catch (e) { return new MemoryKeyStore(); } })();
+// the Claude API key: this browser's storage only (cloadm.anthropicKey), never a Session setting.
+// An embed gets an in-memory store, never the saved one: no route in an embed may reach a key left in this browser
+// (the chat is not set up there either, but the store is the second lock - a future route that reads keyStore.get()
+// finds nothing).
+const keyStore = link.embed ? new MemoryKeyStore()
+  : (() => { try { return localStorage ? storageKeyStore(localStorage) : new MemoryKeyStore(); } catch (e) { return new MemoryKeyStore(); } })();
 // embedded (?embed=1): no welcome menu of its own; the embedding page drives a plain machine
 const session = new Session({ store: settings, media: mediaStore, keyStore, welcomeMenu: !link.embed });
 const page = createPage(session, new Audio());
@@ -121,10 +125,14 @@ setupKeyHint(page);
 setupSettingsFile(page);
 const share = setupShare(page);
 const showRoms = () => romSockets.reveal();
-const claude = setupClaude(page);
-setupAsk(page, claude);
-setupCommandBox(page, claude);
-const welcome = setupWelcome(page, { showRoms, openClaude: () => claude.open() });
+// No Claude chat in an embed. An embedded CLOADM is third-party content in someone else's page, and the chat
+// would put its API key card on that page; with no controller there is no chat machine, no panel and no key card, and
+// the routes that open one (?app=claude, the Ask panel, the command box, a keypress) have nothing to reach.
+const claude = link.embed ? null : setupClaude(page);
+// set up only when there is a controller: both modules drive the chat and would throw on null
+if (claude) setupAsk(page, claude);
+if (claude) setupCommandBox(page, claude);
+const welcome = setupWelcome(page, { showRoms, openClaude: () => claude && claude.open() });
 const drawer = setupDrawer(page, { showRoms });
 const openRoms = () => { romSockets.reveal(); $('fileRom').click(); };
 library = setupLibrary(page, { loadProgram: media.loadProgram, runShelf: welcome.runShelf, changed: slots.refresh, showRoms, reconnect });
@@ -228,8 +236,9 @@ const starting = welcome.start(visit, { fromLink, withMedia: link.roms.length > 
   if (location.hash.startsWith('#s=')) await snapshots.takeLink(location.hash);
   // ?nitros9=: NitrOS-9 boots from the user's own DriveWire image (never one in the link)
   if (link.nitros9) await nitros9.fromLink(link.nitros9);
-  // ?app=claude: the chat opens once the link's ROMs are in (the BASIC session kept beside it uses them)
-  if (link.app === 'claude') await claude.open();
+  // ?app=claude: the chat opens once the link's ROMs are in (the BASIC session kept beside it uses them). Not in an
+  // embed: there is no controller there (link.embed, above), and the link's app is refused rather than opened.
+  if (link.app === 'claude' && claude) await claude.open();
   // started: the visit's program (welcome, LIZA) runs and the link's ROMs, media and moment are in (window.emu.ready:
   // storage is open); linkDone: the same moment, kept for the link checks
   window.emu.started = true;

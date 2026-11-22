@@ -63,6 +63,8 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   case, including a page opened straight on the chat or on a view over it. (A first cut of the change above could
   leave the chat open with those three routes, where the screen's keys go to the chat firmware.)
 
+- **An embedded CLOADM could open the Claude chat; the chat is no longer available in an embed.**
+
 ### 0.1.8-pre
 
 #### Added
