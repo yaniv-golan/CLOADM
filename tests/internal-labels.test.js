@@ -17,7 +17,7 @@ const cp = require('child_process'), fs = require('fs'), path = require('path');
 //  * in one of the chip and register files named in REGISTER_FILES (the 6845, SAM, D64 Plus and CoCo board
 //    sources, the screen reader, their MAME firmware and the chip tests), where an R-number is a register;
 //  * anywhere else, by what stands right beside the R-number (excusedAt): a chip name, "register(s)", "reg" or
-//    "rate bit" directly before it (a list such as "CRTC R12/R13", "registers R0-R17" or "CRTC R0 113, R1 80"
+//    "rate bit" directly before it, for the registers that chip has (CHIP_BEFORE) (a list such as "CRTC R12/R13", "registers R0-R17" or "CRTC R0 113, R1 80"
 //    included), "*" before it (TMS7000 indirect), "resistor(s)" directly before or after it, or ".." joining it to
 //    another (R1..R0). Words that name particular 6845 registers excuse only those: before it, "start address",
 //    "address" and "startAddress" R12-R15, "cursor" R10, R11, R14 and R15, "screenRows" R6; after it, "columns" and
@@ -32,7 +32,14 @@ const SEP = '\\s*(?:\\/|,|and|or|to|–|-)\\s*';
 // a list item: "R12", "R9 11" or "R10 $20 (no cursor)" (a register, its value and a note on it)
 const ITEM = 'R\\d{1,2}[a-z]?(?:\\s+\\$?[0-9A-F]{1,4}\\b)?(?:\\s+\\([^()]*\\))?';
 const before = (words) => new RegExp('(?:' + words + ')[\\s\\x60(]+(?:' + ITEM + SEP + ')*$', 'i');
-const CHIP_BEFORE = before('\\b(?:CRTC|MC6845|HD6845S?|6845|SAM|GIME|PSG|AY|AY-3-891[023]|TMS70\\d\\d|SP0256)|\\b(?:registers?|reg|rate bits?)');
+// a chip name or a register word, with the registers it may stand before: the 6845 CRTC and the AY-3-8910 have
+// R0-R17 (the AY's numbered in octal), the SAM's rate bits are R1..R0, the TMS7000's register file is R0-R255
+const R0_17 = /^R(?:\d|1[0-7])$/;
+const CHIP_BEFORE = [
+  [before('\\b(?:CRTC|MC6845|HD6845S?|6845|PSG|AY|AY-3-891[023]|registers?|reg)'), R0_17],
+  [before('\\b(?:SAM|rate bits?)'), /^R[01]$/],
+  [before('\\bTMS70\\d\\d'), /^R(?:\d{1,2}|1\d\d|2[0-4]\d|25[0-5])$/],
+];
 // words that name particular registers, with the registers each may name
 const NAMED_BEFORE = [
   [before('\\b(?:start address|address|startAddress)'), /^R1[2-5]$/],
@@ -51,7 +58,7 @@ function excusedAt(line, start, end, file) {
   if (file && REGISTER_FILES.test(file)) return true;
   const before = line.slice(0, start), after = line.slice(end);
   const regs = line.slice(start, end).split('/').map((r) => r.replace(/[a-z]$/, ''));
-  return CHIP_BEFORE.test(before) || NAMED_BEFORE.some(([re, which]) => re.test(before) && regs.every((r) => which.test(r)))
+  return [...CHIP_BEFORE, ...NAMED_BEFORE].some(([re, which]) => re.test(before) && regs.every((r) => which.test(r)))
     || /\*$/.test(before) || RESISTOR_BEFORE.test(before) || RESISTOR_AFTER.test(after)
     || NAMED_AFTER.some(([re, which]) => re.test(after) && regs.every((r) => which.test(r))) || /^\.\.R\d/.test(after) || /R\d\.\.$/.test(before);
 }
@@ -191,10 +198,10 @@ check('the named look-alikes (registers, resistors, asm labels, gime p13:, w1, t
   JSON.stringify(NAMED.filter((l) => labelsIn(l).length).map((l) => [l, labelsIn(l)])));
 // an R-number is excused only by what stands right beside it: a ruling label elsewhere on a register line is caught
 check('a register beside its chip is excused, a ruling label on the same line is not', labelsIn('// 6845 R12 (UX R30)').includes(1) && labelsIn('// 6845 R12 (R30)').includes(3), labelsIn('// 6845 R12 (UX R30)').join());
-check('...and a bare R30 right after "6845" is excused', !labelsIn('// 6845 R30 x').length);
+check('...and "6845" excuses only its own registers: R17 passes beside it, R30 does not', !labelsIn('// 6845 R17 x').length && labelsIn('// 6845 R30 x').includes(3));
 // what stands right beside the R-number, outside the register files: a chip name, register/reg, *, resistor, ".."
 const BESIDE = ['("Architecture", registers R0-R17):', 'm.load(0x0200, 0x9A, 0x0A);         // LDA *R10', '// AY R15 envelope', '// the PSG R11/R12 period',
-  '// TMS7000 R10', '// TMS7001 R23 port', '// SP0256 R20', '// reg R14 holds it', 'AY-3-8912 R13', 'resistors R10-R15 as 10K', "the sound's resistor R22",
+  '// TMS7000 R10', '// TMS7001 R23 port', 'the TMS7000 R200 file', 'SAM R1 set', '// reg R14 holds it', 'AY-3-8912 R13', 'resistors R10-R15 as 10K', "the sound's resistor R22",
   'the CRTC R12-R15 read-back', 'cursor (R14/R15, R10/R11)', 'R12/R13 start address'];
 check('an R-number with its chip, register, resistor or field right beside it is excused', BESIDE.every((l) => !labelsIn(l).length),
   JSON.stringify(BESIDE.filter((l) => labelsIn(l).length)));
@@ -219,9 +226,10 @@ check('...and a register file still fails on every other kind of label', inFile(
 const OUTSIDE = [['// a fix (R24)', 'js/machines/coco3.js', 3], ['// M2: the GIME timer', 'js/machines/coco3.js', 13], ['// R24: a toast', 'tools/mame-diff/run.js', 12],
   ['// R2: the drive', 'js/machines/dragon.js', 12], ['// R24 rows', 'tests/coco3.test.js', 3], ['// F3: the refusal', 'tests/machine-switch.test.js', 13],
   ['// move the cursor (R24)', 'js/ui/page.js', 3], ['// the share address R24 decided', 'js/ui/share.js', 3], ['// the cursor (R2) fix', 'js/ui/page.js', 12],
-  ['// the start address R30 rule', 'docs/using.md', 3]];
+  ['// the start address R30 rule', 'docs/using.md', 3],
+  ['// the CRTC R40 decided', 'js/ui/page.js', 3], ['// register R24 handler', 'js/ui/page.js', 3], ['// the SAM R24 change', 'js/ui/page.js', 3], ['// AY R30 fix', 'js/ui/page.js', 3]];
 const notCaught = OUTSIDE.filter(([l, file, id]) => !inFile(l, file).includes(id));
-check('only the listed register files are exempt, and "cursor" or "address" excuses only the registers it names', !notCaught.length, JSON.stringify(notCaught));
+check('only the listed register files are exempt, and a chip or register word excuses only the registers it names (CRTC and AY R0-R17, SAM R0-R1, cursor, address)', !notCaught.length, JSON.stringify(notCaught));
 check('...while the 6845 cursor and start address registers still pass beside those words', !labelsIn('cursor (R14/R15, R10/R11)').length
   && !labelsIn('R12/R13 start address').length && !labelsIn('the start address R12/R13').length && !labelsIn('\x60screenRows\x60 (R6)').length);
 
