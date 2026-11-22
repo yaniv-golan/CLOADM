@@ -156,6 +156,7 @@ node tests/disk.test.js      # disk images: VDK, JVC and DMK to and from flux, h
 node tests/fdc.test.js       # floppy controller cartridges register by register: commit delays, step rates, index, CRCs, NMI/HALT
 node tests/nmi-arm.test.js   # when a CPU starts taking NMI: on the 6809 LDS, LEAS and TFR r,S arm it and EXG does not; on the 6309 only LDS and LEAS do; an earlier edge is lost
 node tests/disks.test.js     # disks through the Session: stored, mounted and written back by range on the media store, write-protect, download, errors
+node tests/disk-bare.test.js # a disk without a disk ROM: the controller alone, a program on the built-in firmware reading it, the ROM put in later, a snapshot mid-read, the CLI note
 node tests/disks-mount-race.test.js   # a Library rename, import or delete of the image a mount is reading: it reads again or fails clearly
 node tests/disks-mount-case.test.js   # writes to the image being mounted under its own name or another case spelling, on case-sensitive, case-insensitive and unmeasured stores
 node tests/disks-newdisk.test.js      # a new blank disk formatted by our firmware; newDisk against an import of the same name
@@ -197,6 +198,7 @@ node tools/nitros9/boot-floppy-mame.js <_40d_1.dsk> --cpu 6809 --record tests/fi
 node tools/mame-diff/run.js coco3 --fdc cocofdc --halt   # the controller's HALT and NMI in halted sector reads at 0.89 and 1.78 MHz, with MAME
 node tools/mame-diff/run.js coco3 --fdc cocofdc --halt --empty   # a halted read on a drive with no disk: the CPU held for good, as in MAME
 node tools/mame-diff/run.js coco3 --fdc cocofdc --nitros9 [--cpu 6309]   # the NitrOS-9 floppy loader on a hand-built boot floppy, with MAME
+node tools/mame-diff/run.js dragon64 --fdc --bare   # the controller with an empty ROM socket, driven by a program reading track 0 sector 1 (also coco), with MAME
 node tools/browser-check.js --only nitros9   # Boot NitrOS-9 from the page (the release images when fetched)
 node tools/browser-check.js --only semantics # landmarks, headings, closed surfaces hidden for real, the screen's text alternative, a reading mode (Readability)
 node tools/nitros9/boot-mame.js <image> --cpu 6809 --seconds 30 --type 'dir\r' --at 15 --record tests/fixtures/nitros9/coco3-6809-becker.json   # its MAME reference (also boot.js: the same boot on ours)

@@ -69,7 +69,7 @@ export function setupRomSockets(page, romInput, { confirmSwitch }) {
     const names = c.map((x) => x.name.replace(/ cartridge$/, ''));
     top.append(el('strong', `Disk drives (optional): ${names.join(' or ')}`), el('span', 'optional', 'tag'));
     const state = ready.length ? `✓ ${ready.map((x) => `${x.name.replace(/ cartridge$/, '')} disk ROM`).join(', ')} · ready for disks`
-      : 'Optional: without a disk ROM the drives stay empty. CLOADM doesn\'t include one; add your own dump.';
+      : 'Without it, disks still mount for programs that read them directly. CLOADM doesn\'t include one; add your own dump.';
     body.append(top, el('div', `8 KB · usually ${c.map((x) => x.rom).join(' or ')}`, 'expect'), el('div', state, 'state'));
     card.append(el('span', null, 'dot'), body);
     return [card];

@@ -37,7 +37,7 @@ const ERROR_CODES = Object.freeze({
   'cannot-write': ['media', 'a file could not be written'],
   'bad-media': ['media', 'a file is not what the step needs (format, kind, assembly errors)'],
   'missing-roms': ['media', 'the ROMs given do not include what the model needs to boot'],
-  rejected: ['media', 'the machine refused the media or request (e.g. a BASIC program without BASIC, a disk without a disk ROM)'],
+  rejected: ['media', 'the machine refused the media or request (e.g. a BASIC program without BASIC, a disk on a machine with no drives)'],
   timeout: ['condition', 'a wait-for did not hold within its timeout'],
   'expect-failed': ['condition', 'an expect-* did not hold'],
   'keys-not-taken': ['condition', 'the machine did not read the typed keys within the timeout'],
@@ -174,7 +174,7 @@ const STEPS = {
   cart: { arg: 'FILE', help: 'plug in a cartridge ROM image (an error if the file is not one)', example: '--cart pak.rom', parse: (t) => t },
   tape: { arg: 'FILE', help: 'put a .cas or .wav in the cassette deck without loading it (then type CLOAD)', example: '--tape game.cas', parse: (t) => t },
   disk: {
-    arg: '[N=]FILE', help: 'mount a disk image (VDK, JVC/DSK, DMK) in drive N (default 0); needs your disk ROM', example: '--disk 1=data.dsk',
+    arg: '[N=]FILE', help: 'mount a disk image (VDK, JVC/DSK, DMK) in drive N (default 0); without your disk ROM, on the disk controller alone (for programs that read the disk directly)', example: '--disk 1=data.dsk',
     parse: (t) => { const m = /^([0-3])=(.+)$/.exec(t); return m ? { drive: +m[1], file: m[2] } : { drive: 0, file: t }; },
   },
   type: {
@@ -582,7 +582,7 @@ class Runner {
     const bytes = readFile(file, 'file'), name = path.basename(file);
     const kind = Emu.detectMedia(name, bytes).kind;
     const message = kind === 'disk' ? await s.importDisk(name, bytes, 0) : s.load(name, bytes, { remember: false });
-    return this.record(step, { file, message });
+    return this.record(step, Object.assign({ file, message }, diskNote(message)));
   }
   async asm(step, { file }, s) {
     let src;
@@ -612,7 +612,7 @@ class Runner {
   }
   async disk(step, { drive, file }, s) {
     const message = await s.importDisk(path.basename(file), readFile(file, 'disk image'), drive);
-    return this.record(step, { file, drive, message });
+    return this.record(step, Object.assign({ file, drive, message }, diskNote(message)));
   }
   async type(step, { text, items }, s) {
     const m = this.m;
@@ -816,6 +816,9 @@ const condText = (c) => (c.kind === 'text' ? `text:${c.source}` : c.kind === 'me
 const hex2 = (b) => b.toString(16).toUpperCase().padStart(2, '0');
 
 // a step's result as the human output prints it (null: the step prints nothing)
+// a disk mounted without a disk ROM (on the disk controller alone): the step's result carries the page's note, which
+// the command line also prints to stderr (an added field: the JSON's schemaVersion is unchanged)
+const diskNote = (message) => (typeof message === 'string' && message.endsWith(Emu.BARE_NOTE) ? { note: message } : {});
 function humanText(r) {
   switch (r.step) {
     case 'screen': return r.text ? r.lines.join('\n') : `(no text on the screen: ${r.mode}: ${r.reason})`;
@@ -995,6 +998,7 @@ async function main(argv, { out = (t) => process.stdout.write(t + '\n'), err = (
       const r = await runner.run(step);
       const text = r && !opts.json ? humanText(r) : null;
       if (text != null) out(text);
+      if (r && r.note && !opts.json) err(`cloadm: ${r.note}`);
     }
     runner.start();   // a command line of setup steps only still builds the machine (and checks the ROMs)
     runner.endWav();

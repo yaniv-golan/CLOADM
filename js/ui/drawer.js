@@ -97,12 +97,21 @@ export function setupDrawer(page, { showRoms }) {
     putClass($('btnCart'), 'loaded', loaded);
     // the Pak takes no cartridge image: on that board the button inserts it instead of opening a file
     const onSsc = $('selCartBoard').value === 'ssc';
-    put($('btnCart'), 'textContent', loaded ? (cartName ? `${cartName} · ${m.cartPort.name || 'cartridge'}` : (m.cartPort.name || 'Cartridge'))
+    // the disk controller plugged in for a disk without a disk ROM says so: "Dragon disk controller · no disk ROM"
+    const bare = loaded && m.cartPort === session.bareDiskController;
+    put($('btnCart'), 'textContent', bare ? `${m.cartPort.plainName} · no disk ROM`
+      : loaded ? (cartName ? `${cartName} · ${m.cartPort.name || 'cartridge'}` : (m.cartPort.name || 'Cartridge'))
       : onSsc ? 'Insert the Speech/Sound Pak…' : 'Insert cartridge…');
+    put($('btnCartOut'), 'hidden', !loaded);
+    // what holds media, for the phone's order (play/index.html: a slot with media comes first)
+    putClass($('btnTape').closest('.slot'), 'has-media', !!t);
+    putClass($('driveSlot'), 'has-media', session.diskStatus().drives.length > 0);
+    putClass($('cartSlot'), 'has-media', loaded);
     // the board menu offers the Pak only on the models that take it
     put($('selCartBoard').querySelector('option[value="ssc"]'), 'hidden', !session.offersSsc);
     if (!session.offersSsc && onSsc) { $('selCartBoard').value = 'auto'; session.cartBoard = 'auto'; slots(); }
   }
+  $('btnCartOut').onclick = () => { page.attempt(() => session.takeOutCartridge()); cartName = null; slots(); page.focus(); };
   $('btnCart').onclick = () => {
     if ($('selCartBoard').value === 'ssc') page.attempt(() => session.insertSsc());
     else $('fileCart').click();
@@ -112,6 +121,7 @@ export function setupDrawer(page, { showRoms }) {
 
   session.on((ev) => {
     if (ev === 'machine' || ev === 'loaded') { if (ev === 'machine') cartName = null; recent(); roms(); slots(); }
+    if (ev === 'disks') slots();   // a disk mounted without a disk ROM plugs the controller in, and a reset gives it its ROM
     if (ev === 'roms') { roms(); recent(); }
     // a tape mounted or ejected starts or stops the per-frame refresh of this row. A power cycle ejects the
     // deck and reports 'firmware' (Session.powerCycle -> poweredOn), not 'reset', so it has to be in this list:

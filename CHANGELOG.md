@@ -8,6 +8,30 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
+### Added
+
+- **`?disk=URL` puts a disk in a drive from a link,** before the link's other media: `?load=game.bin&disk=level.vdk`
+  mounts the disk, then loads and runs the game. Ctrl+K gains **Insert a disk…**, **New blank disk** and **Eject
+  disk**; the cartridge port gains **Take out**.
+- **`node tools/mame-diff/run.js <dragon64|coco> --fdc --bare`:** the lockstep comparison with MAME of a program that
+  drives the disk controller with an empty ROM socket (`tools/mame-diff/fdc/gen-bare.js`).
+
+### Changed
+
+- **A disk mounts without the disk ROM.** Until now every way in (a drop, **Open…**, the Library, a drive's menu, the
+  command line's `--disk`, the MCP server) ended in "Disks need a disk ROM… Load the ROM file first." Without your
+  disk ROM the disk controller now goes in on its own, with nothing in its ROM socket, and the disk goes in: a game
+  that drives the controller through its registers reads its level disk on the built-in firmware. It works while a
+  program runs: the controller raises no line by itself, so the program keeps going and its next read finds the
+  disk. `DIR` and the other disk commands still need the disk ROM, and the page says so: the drives card ("Drives ·
+  no disk ROM · disks work for programs that read them directly"), a drive's menu (**Insert disk…**, **New blank
+  disk**, **From Library…**, **Eject**, and a note with **Add disk ROM…**), the mount's toast, the cartridge port
+  ("Dragon disk controller · no disk ROM") and the disk ROM's card in **Your ROMs**. A disk ROM added afterwards goes
+  in at the next reset or power cycle. The command line prints the same note to stderr (`note` in its JSON). On the
+  Dragons and the CoCos; the MC-10 has no drives, and the Dragon Alpha's own interface is unchanged.
+- **On a phone, a slot holding media comes first** under the keyboard panel (then the cassette, the drives, the
+  cartridge), so a mounted disk is never below an empty cassette deck.
+
 ### Fixed
 
 - **An embedded CLOADM could open the Claude chat; the chat is no longer available in an embed.**

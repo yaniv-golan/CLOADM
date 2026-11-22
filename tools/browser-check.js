@@ -107,6 +107,101 @@ function zip(entries) {
   return Buffer.concat([...local, cd, u32(0x06054B50), u16(0), u16(0), u16(entries.length), u16(entries.length), u32(cd.length), u32(off), u16(0)]);
 }
 // a context that records (and blocks) any request to the ROM archive
+// ---------------- a disk without a disk ROM: the disk controller alone ----------------
+// No ROM at all on the Dragon 64. The program is tools/mame-diff/fdc/gen-bare.js's RAM build: it reads track 0 sector 1
+// through the controller's registers and shows "READ OK" and the first bytes on its top line ("NO DISK" without a
+// controller), then reads again each time TRIG is set. The drive card and its menu, a dropped disk (its toast and
+// "Add disk ROM…"), the board in the cartridge port, the program reading the disk mounted while it ran, Ctrl+K's disk
+// commands, a disk ROM dropped afterwards (said, and in at the power cycle), and the board taken out again.
+function bareProgram() {
+  const Emu = require('./mame-diff/lib/firmware').loadEmu(), gen = require('./mame-diff/fdc/gen-bare.js');
+  const r = Emu.assemble(gen.source('dragon', 'ram'), '6809');
+  if (!r.ok) throw new Error(JSON.stringify(r.errors));
+  return { bin: Buffer.from(Emu.toBinary(r)), ADDR: gen.ADDR };
+}
+// track 0 sector 1 as tools/mame-diff/fdc/images.js builds it, the first four bytes in hex as the program shows them
+const T0S1_HEX = [0, 1, 2, 3].map((i) => ((11 + i * 5 + (i >> 4)) & 0xff).toString(16).toUpperCase().padStart(2, '0')).join(' ');
+async function bareDiskChecks(page, check, { dos }) {
+  const images = require('./mame-diff/fdc/images');
+  const { bin, ADDR } = bareProgram();
+  const level = Buffer.from(images.vdk(40, 1));
+  const top = () => page.evaluate(() => window.emu.session.screenText()[0]);
+  const text = (id) => page.evaluate((id) => document.getElementById(id).textContent.replace(/\s+/g, ' ').trim(), id);
+  // the card and an empty drive's menu with no disk ROM
+  check('disks: with no disk ROM the card says "Drives · no disk ROM · disks work for programs that read them directly"',
+    await waitFor(page, () => document.querySelector('#driveSlot .title').textContent === 'Drives · no disk ROM · disks work for programs that read them directly'), await text('driveSlot'));
+  await page.click('#drives [data-drive="0"]');
+  const buttons = () => page.evaluate(() => [...document.querySelectorAll('#driveMenu button')].filter((b) => b.checkVisibility()).map((b) => b.textContent));
+  check('disks: an empty drive\'s menu with no disk ROM: Insert disk…, New blank disk, From Library…, the note and Add disk ROM…',
+    JSON.stringify(await buttons()) === JSON.stringify(['Insert disk…', 'New blank disk', 'From Library…', 'Add disk ROM…', 'Close'])
+    && await text('driveNoRom') === 'No disk ROM: DIR and other disk commands need DragonDOS or Delta DOS (your own file). Add disk ROM…'
+    && await page.evaluate(() => document.getElementById('driveNoRom').classList.contains('muted')), JSON.stringify(await buttons()));
+  if (shotDir) await page.locator('#driveSlot').screenshot({ path: path.join(shotDir, 'drives-no-rom.png') });
+  await page.click('#driveClose');
+  // the game first, then its disk
+  await dropFiles(page, [['reader.bin', bin]]);
+  check('disks: the program runs with no ROM, and its first read finds no controller', await waitFor(page, () => /^NO DISK/.test(window.emu.session.screenText()[0])), await top());
+  const tick = () => page.evaluate((a) => { const m = window.emu.machine; return (m.ram[a] << 8) | m.ram[a + 1]; }, ADDR.TICK);
+  const before = { frame: await page.evaluate(() => window.emu.machine.frameCount), tick: await tick() };
+  await page.evaluate(() => window.emu.feedback.clear());
+  await dropFiles(page, [['level.vdk', level]]);
+  check('disks: a disk dropped with no disk ROM: its toast says where it is and what it is good for, with Add disk ROM…',
+    await toastSeen(page, /^level\.vdk is in drive 0, on the disk controller only \(no disk ROM\)\. Programs that read the disk directly can use it; DIR and other disk commands need your disk ROM\.$/)
+    && await page.evaluate(() => { const a = document.getElementById('toastAction'); return a.textContent === 'Add disk ROM…' && a.checkVisibility() && !document.getElementById('toast').classList.contains('error'); }),
+    await text('toast'));
+  if (shotDir) await page.screenshot({ path: path.join(shotDir, 'drives-bare-toast.png') });
+  check('disks: drive 0 holds it, and the cartridge port shows "Dragon disk controller · no disk ROM" with Take out',
+    await waitFor(page, () => /0 · level\.vdk/.test(document.querySelector('#drives [data-drive="0"]').textContent)
+      && document.getElementById('btnCart').textContent === 'Dragon disk controller · no disk ROM' && document.getElementById('btnCartOut').checkVisibility()),
+    await text('btnCart'));
+  check('disks: the program ran on through the mount (no reset)', await page.evaluate(() => window.emu.machine.frameCount) > before.frame && await tick() > before.tick
+    && await page.evaluate((a) => window.emu.machine.ram[a] === 1, ADDR.DONE));
+  await page.evaluate((a) => { window.emu.machine.ram[a] = 1; }, ADDR.TRIG);
+  check('disks: its next read finds the disk: READ OK and the sector\'s first bytes', await waitFor(page, (h) => window.emu.session.screenText()[0].startsWith(`READ OK ${h}`), T0S1_HEX), await top());
+  if (shotDir) await page.screenshot({ path: path.join(shotDir, 'drives-bare-read.png') });
+  // the drive's menu with a disk in: Eject too
+  await page.click('#drives [data-drive="0"]');
+  check('disks: a loaded drive\'s menu with no disk ROM has Eject, and the same note', (await buttons()).includes('Eject') && (await buttons()).includes('Insert disk…') && /^No disk ROM:/.test(await text('driveNoRom')),
+    JSON.stringify(await buttons()));
+  // its Add disk ROM… opens Your ROMs on the disk ROM's card
+  await page.click('#driveRoms');
+  check('disks: the menu\'s Add disk ROM… opens Your ROMs on the disk ROM card, which says disks still mount without it', await waitFor(page, () => location.hash === '#add-roms'
+    && /Without it, disks still mount for programs that read them directly\./.test(document.getElementById('romDiskCard').textContent)), await page.evaluate(() => location.hash));
+  await page.evaluate(() => { location.hash = ''; });
+  await waitFor(page, () => !document.getElementById('driveSlot').closest('[hidden]') && document.getElementById('driveSlot').checkVisibility());
+  // Ctrl+K: "mount" finds "Insert a disk…"; the disk commands are there
+  await page.click('#screen');
+  await page.keyboard.press('Control+k');
+  await waitFor(page, () => !document.getElementById('cmdBox').hidden);
+  await page.keyboard.type('mount');
+  const found = await page.evaluate(() => [...document.querySelectorAll('#cmdList [role="option"]')].map((o) => o.textContent));
+  check('disks: Ctrl+K "mount" finds "Insert a disk…"', found.some((t) => t.startsWith('Insert a disk…')), JSON.stringify(found));
+  await page.keyboard.press('ArrowDown');
+  const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.keyboard.press('Enter')]);
+  await chooser.setFiles({ name: 'second.vdk', mimeType: 'application/octet-stream', buffer: Buffer.from(images.vdk(40, 2)) });
+  check('disks: its "Insert a disk…" puts the file in the first free drive', await waitFor(page, () => window.emu.session.diskStatus().drives.some((d) => d.drive === 1 && d.file === 'second.vdk')));
+  await page.keyboard.press('Control+k');
+  await page.keyboard.type('eject disk');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  check('disks: Ctrl+K "Eject disk" takes a disk out', await waitFor(page, () => !window.emu.session.diskStatus().drives.some((d) => d.drive === 1)));
+  // a disk ROM dropped now: said, and in at the next power cycle
+  await page.evaluate(() => window.emu.feedback.clear());
+  await dropFiles(page, [['ddos10.rom', dos]]);
+  check('disks: a disk ROM added while the controller has none: the page says it goes in at the next reset or power cycle',
+    await waitFor(page, () => [...window.emu.feedback.pending, { text: document.getElementById('toastText').textContent }].some((t) => /^Your DragonDOS disk ROM goes in at the next reset or power cycle/.test(t.text || ''))
+      && document.querySelector('#driveSlot .title').textContent === 'Drives · DragonDOS at the next reset · disks work for programs that read them directly until then')
+      && await page.evaluate(() => !window.emu.session.diskController.romBytes), await text('driveSlot'));
+  await page.click('#btnHardReset');
+  check('disks: the power cycle puts the disk ROM in: the card says DragonDOS, the disk is still in drive 0', await waitFor(page, () => !!window.emu.session.diskController.romBytes
+    && document.querySelector('#driveSlot .title').textContent === 'Drives · DragonDOS · click a drive to insert'
+    && /0 · level\.vdk/.test(document.querySelector('#drives [data-drive="0"]').textContent) && document.getElementById('btnCart').textContent !== 'Dragon disk controller · no disk ROM'),
+    await text('driveSlot'));
+  // the board can be taken out like any other (then the run below starts from an empty port, as before)
+  await page.click('#btnCartOut');
+  check('disks: Take out empties the cartridge port and the drives', await waitFor(page, () => !window.emu.machine.cartPort && window.emu.session.diskStatus().drives.length === 0
+    && document.getElementById('btnCart').textContent === 'Insert cartridge…' && !document.getElementById('btnCartOut').checkVisibility()));
+}
 // ---------------- floppy disks (on the media store): mount, write from firmware, download ----------------
 // Our own firmware (tools/mame-diff/fdc/gen-diag.js) as the Dragon 64's BASIC (boot.asm) and as the DragonDOS ROM
 // (dragon-write.asm): it writes sector 3 of track 1 on drives 0 and 1 ($11 + 3i, $22 + 3i), reads it back and
@@ -141,12 +236,7 @@ async function diskChecks(browser, base, check) {
     await waitFor(page, ([n, name]) => window.emu.session.diskStatus().drives.some((d) => d.drive === n && d.file === name) || document.getElementById('toast').classList.contains('error'), [n, name]);
   };
   await page.goto(`${base}?machine=dragon64`); await ready(page);
-  // no DOS ROM yet: the header says so, and a drive's menu names the ROM and offers "Add ROMs…"
-  await page.click('#drives [data-drive="0"]');
-  check('disks: without a DOS ROM a drive\'s menu names the ROMs it takes, with Add ROMs…', await waitFor(page, () => /no disk ROM yet/.test(document.getElementById('driveSlot').textContent)
-    && /DragonDOS \(ddos10\.rom\) or Delta DOS \(deltados\.rom\)/.test(document.getElementById('driveMenu').textContent) && !!document.getElementById('driveRoms')), await page.textContent('#driveMenu'));
-  if (shotDir) await page.locator('#driveSlot').screenshot({ path: path.join(shotDir, 'drives-no-rom.png') });
-  await page.click('#driveClose');
+  await bareDiskChecks(page, check, { dos, errors });
   await dropFiles(page, [['d64_1.rom', boot], ['ddos10.rom', dos]]);
   check('disks: our boot firmware and DOS ROM are stored', await waitFor(page, () => window.emu.session.machineRoms('dragon64').bootable && !!window.emu.session.roms.get('dragondos').rom));
   check('disks: the drives card under the screen: DragonDOS, four empty drives "n · Insert disk…"', await waitFor(page, () => !document.getElementById('driveSlot').hidden
@@ -2392,8 +2482,8 @@ async function mediaChecks(browser, base, check) {
   check('media: a disk image for another machine says its format and offers to switch', await waitFor(page, () => !document.getElementById('mediaOffer').hidden
     && /games\.dsk is a RS-DOS disk for a CoCo /.test(document.getElementById('mediaOffer').textContent)), await page.textContent('#mediaOffer'));
   await page.click('#btnMediaAnyway');
-  check('media: a disk image loaded anyway without a DOS ROM says which ROM it needs, in view', await toastSeen(page, /Disks need a disk ROM: DragonDOS cartridge \(ddos10\.rom\)/),
-    await page.textContent('#toast'));
+  check('media: a disk image loaded anyway without a disk ROM goes in on the disk controller alone, and says so in view', await toastSeen(page, /^games\.dsk is in drive 0, on the disk controller only \(no disk ROM\)\./)
+    && await page.evaluate(() => document.getElementById('toastAction').textContent === 'Add disk ROM…'), await page.textContent('#toast'));
   // paste types into LIZA (on the stub)
   await openDebugger(page);
   await page.click('#btnAsmLiza');
@@ -4087,15 +4177,18 @@ async function feedbackChecks(browser, base, check) {
       `raised ${raisedDelete}, ended ${ended}; now: toast "${await ev(() => document.getElementById('toast').textContent)}", stored ${await stored()}, tile ${await tileOf('WORLD.BIN')}`);
     if (await ev(() => !document.getElementById('libSelBar').hidden)) await page.click('#btnLibDone');
 
-    // an error: its first sentence on the toast, the rest under Details (a disk with no DOS ROM)
+    // an error: its first sentence on the toast, the rest under Details (a disk on the MC-10, which has no drives)
     await add('DISK.VDK', vdk);
     await waitFor(page, () => !!document.querySelector('#libTiles [data-name="disks/DISK.VDK"]'));
+    await ev(() => window.emu.session.switchMachine('mc10', undefined, { menu: false }));
     await tryClick('#libTiles [data-name="disks/DISK.VDK"]');
-    check(`feedback (${label}): an error is a toast with Details (first sentence shown, the rest under Details)`, await shownWithin(page, /Disks need a disk ROM/)
+    check(`feedback (${label}): an error is a toast with Details (first sentence shown, the rest under Details)`, await shownWithin(page, /The MC-10 has no disk drives in CLOADM\./)
       && await ev(() => document.getElementById('toast').classList.contains('error') && document.getElementById('toastAction').textContent === 'Details'
-        && document.getElementById('toastDetails').hidden && /Load the ROM file first/.test(document.getElementById('toastDetails').textContent)));
+        && document.getElementById('toastDetails').hidden && /Disks go in on the Dragons and the CoCos/.test(document.getElementById('toastDetails').textContent)));
     await tryClick('#toastAction');
     check(`feedback (${label}): Details shows the rest`, await ev(() => !document.getElementById('toastDetails').hidden));
+    // (back to the Dragon 64 as the visit started it: the welcome menu on, which the checks below expect)
+    await ev(() => window.emu.session.switchMachine('dragon64'));
     await ev(() => { location.hash = ''; });
 
     if (label === 'desktop') {
@@ -7290,6 +7383,8 @@ async function filesHost(ctx) {
     'game.cas': Buffer.from(csaveStream()),
     'pak.ccc': (() => { const b = Buffer.alloc(0x2000, 0x12); b[0] = 0x20; b[1] = 0xFE; return b; })(),   // BRA * at $C000
     'bas12.rom': fake(8192, 71),                                                                          // synthetic, never a real ROM
+    'reader.bin': bareProgram().bin,                                                                      // reads its disk at its start
+    'level.vdk': Buffer.from(require('./mame-diff/fdc/images').vdk(40, 1)),
   };
   await ctx.route('https://files.example/**', (route) => {
     const name = new URL(route.request().url()).pathname.slice(1);
@@ -7485,6 +7580,17 @@ async function urlChecks(browser, base, check) {
   check('embed: the saved key is not visible to the embedded session (an in-memory store)', embedKey.seen === null, JSON.stringify(embedKey));
   await ev(() => localStorage.removeItem('cloadm.anthropicKey'));
   check('embed + app=claude: no page errors', !errors.length, errors.join('; '));
+  // disk=: the disk goes in before the game loads, whichever comes first in the link, so the game's first read (at its
+  // start, with no ROM at all) finds it
+  for (const q of ['load=https://files.example/reader.bin&disk=https://files.example/level.vdk', 'disk=https://files.example/level.vdk&load=https://files.example/reader.bin']) {
+    await open(`?machine=dragon64&${q}`);
+    check(`link: ${q.replace(/https:\/\/files\.example\//g, '')}: the disk is in drive 0 and the game's first read finds it`,
+      await waitFor(page, (h) => window.emu.session.diskStatus().drives.some((d) => d.drive === 0 && d.file === 'level.vdk') && window.emu.session.screenText()[0].startsWith(`READ OK ${h}`), T0S1_HEX)
+      && !await ev(() => document.getElementById('toast').classList.contains('error')), `${await ev(() => window.emu.session.screenText()[0])} / ${await msg()}`);
+  }
+  if (shotDir) await page.screenshot({ path: path.join(shotDir, 'link-load-disk.png') });
+  await open('?machine=dragon64&disk=');
+  check('link: disk= without a link is reported as the other media are', /disk=: not a link to a file/.test(await msg()), await msg());
   check('links: no page errors', !errors.length, errors.join('; '));
   await ctx.close();
 }
@@ -13823,17 +13929,33 @@ async function uiModelChecks(browser, base, check) {
     // ---- R24: a disk dropped with no disk ROM: its toast is in view, on top at its centre ----
     await dropFiles(page, [['games.vdk', fs.readFileSync(path.join(ROOT, 'tests/fixtures/disks/dragondos.vdk'))]]);
     check(`R24 (${label}): a disk dropped without a disk ROM: the toast is inside the viewport and on top at its centre`,
-      await toastSeen(page, /games\.vdk was saved to your Library but not put in drive 0/),
+      await toastSeen(page, /^games\.vdk is in drive 0, on the disk controller only \(no disk ROM\)\. Programs that read the disk directly can use it; DIR and other disk commands need your disk ROM\.$/)
+      && await page.evaluate(() => { const a = document.getElementById('toastAction'); return a.textContent === 'Add disk ROM…' && a.checkVisibility(); }),
       JSON.stringify(await page.evaluate(() => ({ text: document.getElementById('toast').textContent, box: document.getElementById('toast').getBoundingClientRect().toJSON(), pending: window.emu.feedback.pending }))));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `r24-disk-toast-${label}.png`) });
     // its time runs (seen), and it keeps its slot: the same box a few frames later
     const box1 = await page.evaluate(() => JSON.stringify(document.getElementById('toast').getBoundingClientRect()));
     await ticks(page, 5);
-    // an error is red (R24 ruling): the toast's bar is --error (#C42B23), not the orange of a warning
-    const bar = await page.evaluate(() => { const t = document.getElementById('toast'); return { error: t.classList.contains('error'), shadow: getComputedStyle(t).boxShadow }; });
-    check(`R24 (${label}): the error toast is red (its bar is rgb(196, 43, 35)), not orange`, bar.error && /rgb\(196, 43, 35\) 4px 0px 0px 0px inset/.test(bar.shadow) && !/rgb\(255, 154, 46\)/.test(bar.shadow), JSON.stringify(bar));
     check(`R24 (${label}): the toast's time runs (seen) and it keeps its slot`, await page.evaluate(() => window.emu.feedback.pending[0] && window.emu.feedback.pending[0].seen)
       && box1 === await page.evaluate(() => JSON.stringify(document.getElementById('toast').getBoundingClientRect())));
+    // the mounted disk's drives card on a phone: above the empty cassette deck, the slots under the keyboard panel
+    // (play/index.html: a slot holding media comes first); on a desktop the slots keep their order
+    const order = await page.evaluate(() => {
+      const top = (el) => el.getBoundingClientRect().top, tape = document.querySelector('.slots .slot.tape'), drives = document.getElementById('driveSlot');
+      const keys = document.getElementById('touchKeys'), slots = document.querySelector('.slots');
+      return { drivesFirst: top(drives) < top(tape), marked: drives.classList.contains('has-media') && !tape.classList.contains('has-media'),
+        underKeys: !keys.checkVisibility() || keys.getBoundingClientRect().bottom <= slots.getBoundingClientRect().top + 1 };
+    });
+    check(`slots (${label}): with a disk in and no tape, the drives card is ${label === 'phone' ? 'above' : 'after'} the cassette deck${label === 'phone' ? ', under the keyboard panel' : ''}`,
+      order.marked && order.underKeys && order.drivesFirst === (label === 'phone'), JSON.stringify(order));
+    if (shotDir && label === 'phone') await page.locator('.slots').screenshot({ path: path.join(shotDir, 'slots-phone-disk-first.png') });
+    await page.evaluate(() => window.emu.feedback.clear());
+    // an error is red (R24 ruling): the toast's bar is --error (#C42B23), not the orange of a warning (a disk image
+    // CLOADM can't read)
+    await dropFiles(page, [['bad.vdk', Buffer.alloc(5000, 7)]]);
+    await toastSeen(page, /^bad\.vdk: not a disk image CLOADM can read/);
+    const bar = await page.evaluate(() => { const t = document.getElementById('toast'); return { error: t.classList.contains('error'), shadow: getComputedStyle(t).boxShadow }; });
+    check(`R24 (${label}): the error toast is red (its bar is rgb(196, 43, 35)), not orange`, bar.error && /rgb\(196, 43, 35\) 4px 0px 0px 0px inset/.test(bar.shadow) && !/rgb\(255, 154, 46\)/.test(bar.shadow), JSON.stringify(bar));
     await page.evaluate(() => window.emu.feedback.clear());
 
     // ---- R25: a switch names what comes out (tape and cartridge, from the old machine; both stay in the Library) ----
@@ -14232,12 +14354,12 @@ async function uiModelChecks(browser, base, check) {
     // a disk without a disk ROM: the drive's menu and the toast both say "disk ROM"
     await page.evaluate(() => window.emu.feedback.clear());
     await page.click('#drives [data-drive="0"]');
-    const note = await page.evaluate(() => document.getElementById('driveMenu').textContent);
+    const note = await page.evaluate(() => document.getElementById('driveNoRom').textContent.replace(/\s+/g, ' ').trim());
     await page.click('#driveClose');
     await dropFiles(page, [['games.dsk', fs.readFileSync(path.join(ROOT, 'tests/fixtures/disks/rsdos.dsk'))]]);
-    const toast = await toastSeen(page, /Disks need a disk ROM: Disk BASIC \(RS-DOS\) cartridge \(disk11\.rom\)\./);
-    check(`R27 (${label}): without a disk ROM the drive's menu and the toast say "Disks need a disk ROM"`, /Disks need a disk ROM: Disk BASIC \(RS-DOS\) \(disk11\.rom\)\./.test(note) && toast,
-      JSON.stringify({ note, toast }));
+    const toast = await toastSeen(page, /^games\.dsk is in drive 0, on the disk controller only \(no disk ROM\)\. Programs that read the disk directly can use it; DIR and other disk commands need your disk ROM\.$/);
+    check(`R27 (${label}): without a disk ROM the CoCo's drive menu names Disk BASIC, and the toast says "disk ROM"`,
+      note === 'No disk ROM: DIR and other disk commands need Disk BASIC (your own file). Add disk ROM…' && toast, JSON.stringify({ note, toast }));
     await dropFiles(page, [['bas13.rom', fake(8192, 51)], ['extbas11.rom', fake(8192, 52)]]);
     await waitFor(page, () => window.emu.session.machineRoms('coco').bootable);
     if (await page.isVisible('#btnRomSwitchOn')) await page.click('#btnRomSwitchOn');

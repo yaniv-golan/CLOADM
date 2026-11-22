@@ -178,6 +178,9 @@
   .slot { flex: 1 1 260px; min-width: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 14px; display: flex; gap: 14px; align-items: flex-start; }
   .slot[hidden] { display: none; }
   .slot.tape { flex-basis: 280px; }
+  /* on a phone the slots stack under the keyboard panel: a slot holding media first (js/ui/drawer.js marks it
+     has-media), so a mounted disk is never below an empty cassette deck; ties keep the cassette, drives, cartridge order */
+  @media (max-width: 700px) { .slots > .slot.has-media { order: -1; } }
   #cartSlot { flex-basis: 220px; }
   .slot .inner { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
   .slot .title { font-size: 14px; color: var(--muted); }
@@ -1532,7 +1535,7 @@ npx serve -l 8000 .</pre>
       </div>
       <div class="slot" id="driveSlot" hidden>
         <div class="inner" style="flex:1">
-          <div class="title">Drives · <span id="driveDos"></span> · click a drive to insert</div>
+          <div class="title">Drives · <span id="driveDos"></span> · <span id="driveHint">click a drive to insert</span></div>
           <div class="drives" id="drives" role="group" aria-label="Disk drives"></div>
           <div class="drive-menu" id="driveMenu" hidden></div>
           <input type="file" id="fileDisk" accept=".vdk,.dsk,.jvc,.dmk" hidden>
@@ -1556,6 +1559,7 @@ npx serve -l 8000 .</pre>
         <div class="inner" style="flex:1">
           <div class="title">Cartridge port</div>
           <div class="bar"><button class="cart" id="btnCart" aria-label="Cartridge port: insert a cartridge">Insert cartridge…</button>
+            <button id="btnCartOut" hidden>Take out</button>
             <select id="selCartBoard" aria-label="Cartridge board for the next image" title="The board the next cartridge image goes on">
               <option value="auto">Board: automatic</option><option value="pak">Program Pak</option><option value="banked">Banked ROM</option>
               <option value="gmc">Games Master</option><option value="orch90">Orchestra-90</option>
