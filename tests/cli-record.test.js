@@ -290,6 +290,14 @@ async function main() {
     try { for (let i = 0; i < 100; i++) w.addFrame(fr, new Int16Array(882)); } catch (e) { err = e; }
     check('limit: the writer refuses the frame that would pass it', err && err.code === 'too-big' && w.frames > 1 && w.finish().length <= 10000);
   }
+  // ---- riffChunk: RIFF pads odd-length data with one zero byte, which the size field does not count
+  {
+    const odd = Emu.riffChunk('01wb', Uint8Array.from([1, 2, 3])), even = Emu.riffChunk('00db', Uint8Array.from([1, 2, 3, 4]));
+    const b = Buffer.from(odd);
+    check('riffChunk: odd data is padded to an even length with a zero byte', b.length === 12 && b.toString('latin1', 0, 4) === '01wb' && b[8] === 1 && b[9] === 2 && b[10] === 3 && b[11] === 0, b.toString('hex'));
+    check('riffChunk: the size field is the data\'s length, without the pad', b.readUInt32LE(4) === 3);
+    check('riffChunk: even data has no pad', even.length === 12 && Buffer.from(even).readUInt32LE(4) === 4);
+  }
   // ---- --record-dir: a PNG per frame, the WAV, an ffconcat list at the exact rate
   {
     const { decodePng } = require('../cli/cloadm.js');

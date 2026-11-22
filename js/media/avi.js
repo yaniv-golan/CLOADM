@@ -5,6 +5,7 @@
  *   frameRate(tickHz, frameCycles)        -> { num, den }: frames per second as an exact, reduced fraction
  *   sampleClock(sampleRate, { num, den }) -> { next() }: the samples each frame gets, the remainder carried exactly
  *   aviWriter({ rate, sampleRate, maxBytes }).addFrame(frame, samples).finish() -> the file's bytes
+ *   riffChunk(id, data)                   -> one RIFF chunk's bytes, padded to an even length
  *
  * Layout (Microsoft "AVI RIFF File Reference"; the AVIPALCHANGE chunk from vfw.h):
  *   RIFF 'AVI '
@@ -60,8 +61,8 @@ class Out {
   id(s) { return this.u32(fourcc(s)); }
   bytes(a) { this.b.set(a, this.p); this.p += a.length; return this; }
 }
-// one chunk: id, size, data, padded to an even length
-function chunk(id, data) {
+// one RIFF chunk: id, size (the data's, without the pad), data, and a zero pad byte when the data's length is odd
+export function riffChunk(id, data) {
   const o = new Out(8 + data.length + (data.length & 1));
   o.id(id).u32(data.length).bytes(data);
   return o.b;
@@ -105,7 +106,7 @@ class AviWriter {
     if (pc) parts.push(['00pc', pc]);
     parts.push(['00db', pixels]);
     parts.push(['01wb', pcm]);
-    const made = parts.map(([id, data]) => [id, chunk(id, data), data.length]);
+    const made = parts.map(([id, data]) => [id, riffChunk(id, data), data.length]);
     const extra = made.reduce((a, [, c]) => a + c.length, 0);
     const size = this.sizeWith(extra, made.length);
     if (size > this.maxBytes) {

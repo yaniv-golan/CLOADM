@@ -16,7 +16,7 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   palette-change chunk whenever the table changes; 16-bit 44.1 kHz mono PCM, the samples `--wav` makes. The frame rate
   is the machine's exact `tickHz / frameCycles` (888625/17784 on the PAL Dragons), and each frame gets 44100 / fps
   samples with the remainder carried as an exact fraction, so picture and sound never drift; `--wav` now counts its
-  samples per frame the same exact way. The file is written when the run ends, even when it fails, and the same command
+  samples per frame the same exact way, and its output is unchanged. The file is written when the run ends, even when it fails, and the same command
   gives the same bytes. At the AVI 1.0 limit of 1 GiB the run stops with `record-too-big`, suggesting `--record-dir
   DIR`, which writes a PNG per frame, a WAV and an ffconcat list (durations to the microsecond) instead; a frame that
   changes size stops it with `record-size-changed`, naming the frame. `docs/automation.md` has a "Recording a clip"
