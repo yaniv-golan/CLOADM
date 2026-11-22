@@ -186,17 +186,17 @@ class SamMachine extends Machine {
   // used by coco12.cpp and dragon.cpp): bit 2 is the RAM size sense, high with 16K-32K of RAM or, with 32K or
   // more, following PIA0 PB6 (a pin set as an input counts as high: PIA0 port B's three-state value is $FF,
   // tspb_handler); bit 0 is the RS-232 port's received data (rxd_r): on the CoCo the bit-banger's (a serial printer
-  // by default, which holds it low), on the Dragon 64, 200 and Tano (profile rs232) the 6551's port (idle high with
+  // by default, which holds it low), on the Dragon 64, 200, 200-E and Tano (profile rs232) the 6551's port (idle high with
   // nothing connected); the Dragon 32 has no port, and MAME's Alpha has the 6551 but no port (dgnalpha.cpp, so
   // m_rs232 is null), so 0; the other pins read 0
   pb1Input() {
     const k = this.config.ram, p0 = this.pia0;
-    const serial = this.profile.keyboard !== 'dragon' ? () => this.bitBanger.rxd(this.ioTime())
+    const serial = this.profile.lineage !== 'dragon' ? () => this.bitBanger.rxd(this.ioTime())
       : this.profile.rs232 ? () => this.acia.port.rxd(this.ioTime()) : () => 0;
     return () => ((k >= 16 && k < 32) || (k >= 32 && (p0.b.outValue() & 0x40)) ? 0x04 : 0x00) | serial();
   }
   wireIO() {
-    const dragon = this.profile.keyboard === 'dragon';
+    const dragon = this.profile.lineage === 'dragon';
     wireCocoPias(this, { pb1Input: this.pb1Input(), hires: this.config.hires });
     if (dragon) {
       // Dragon parallel printer: PIA1 PA1 is the strobe; each PIA1 port A output with it high prints PIA0's port B

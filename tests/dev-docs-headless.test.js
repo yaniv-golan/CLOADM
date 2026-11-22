@@ -33,7 +33,7 @@ const cli = (args, opts = {}) => node([path.join(ROOT, 'cli/cloadm.js'), ...args
   const after = doc.slice(at).split('\n'), first = after.findIndex((l) => /^\| /.test(l));
   const table = [];
   for (let i = first + 2; i < after.length && /^\| /.test(after[i]); i++) table.push(after[i]);     // (header and rule dropped)
-  const cells = (row) => row.split('|').slice(1, -1).map((c) => c.trim().replace(/\s*\[\^\w+\]/g, ''));
+  const cells = (row) => row.split('|').slice(1, -1).map((c) => c.trim());
   const ids = (cell) => [...cell.matchAll(/`([a-z0-9]+)`/g)].map((m) => m[1]);
   const code = (cell) => [...cell.matchAll(/`([A-Za-z]+)`/g)].map((m) => m[1]);
   // what the code says about one model

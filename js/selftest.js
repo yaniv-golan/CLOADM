@@ -7,7 +7,6 @@ import { assemble } from './asm/assembler.js';
 import { createMachine, profiles } from './machines/profiles.js';
 import { Tape } from './media/tape.js';
 import { buildCas } from './media/cassette.js';
-import { tapeFamily } from './media/detect.js';
 import { crc32 } from './util.js';
 
 import { frameToRGBA } from './video/frame.js';
@@ -193,7 +192,7 @@ class SelfTest {
       await this.clearScreen();
       const org = m.config.cpu === '6803' ? 0x4800 : 0x4000;
       const prog = markerProgram(m.config.cpu, org, 'TAPE ML OK');
-      const tape = new Tape(buildCas([{ name: 'MLTEST', type: 'binary', load: org, exec: org, data: prog.data }], { family: tapeFamily(m.profile) }), m.tickHz, 'mltest', m.profile.tape);
+      const tape = new Tape(buildCas([{ name: 'MLTEST', type: 'binary', load: org, exec: org, data: prog.data }], { family: m.profile.lineage }), m.tickHz, 'mltest', m.profile.tape);
       m.deck.insert(tape);
       await this.type('CLOADM:EXEC\r', 0);
       const marked = () => String.fromCharCode(...Array.from({ length: 10 }, (_, i) => m.ram[prog.mark + i])) === 'TAPE ML OK';
@@ -204,7 +203,7 @@ class SelfTest {
     if (this.can.cload) await this.test('CLOAD ASCII BASIC from tape', async () => {
       await this.clearScreen();
       const prog = [...'10 PRINT "TAPE BASIC OK"\r'].map((c) => c.charCodeAt(0));
-      const tape = new Tape(buildCas([{ name: 'BASTEST', type: 'basic', ascii: true, data: prog }], { family: tapeFamily(m.profile) }), m.tickHz, 'bastest', m.profile.tape);
+      const tape = new Tape(buildCas([{ name: 'BASTEST', type: 'basic', ascii: true, data: prog }], { family: m.profile.lineage }), m.tickHz, 'bastest', m.profile.tape);
       m.deck.insert(tape);
       await this.type('CLOAD\r', 0);
       let sawMotor = false;

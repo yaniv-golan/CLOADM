@@ -7,7 +7,8 @@
  *  - tapes: .c10 / .k7 are MC-10 / Alice tapes; Dragon and CoCo tapes share one format, so a .cas file
  *    says nothing about which of the two it is for;
  *  - cartridges: .dgn is a Dragon cartridge, .ccc a CoCo one; other ROM images fit both.
- * Returns { kind, family: 'dragon' | 'coco' | 'mc10' | null, format, reason }.
+ * Returns { kind, family: 'dragon' | 'coco' | 'mc10' | null, format, reason }: a model's `lineage`
+ * (js/machines/profiles.js) is the family it takes media for.
  */
 import { formats } from './formats.js';
 import { detectDiskFormat } from './disk.js';
@@ -15,28 +16,15 @@ import { detectDiskFormat } from './disk.js';
 const SECTOR = 256, SPT = 18;
 const ext = (name) => (name.match(/\.([^.]+)$/) || [])[1]?.toLowerCase() || '';
 
-// the family a model belongs to, for matching media
-export function machineFamily(profile) {
-  if (profile.family === 'mc10') return 'mc10';
-  return profile.keyboard === 'dragon' ? 'dragon' : 'coco';
-}
-// the binary file format a model loads programs from: 'dragondos' for the Dragons, 'decb' for the CoCos, null for the MC-10
-// and Alice (they load .c10 tapes; a program for them travels in a DragonDOS-style header only for this project's own
-// loader). The 200-E has the Dragon's file format, though machineFamily counts it with the CoCos by its keyboard.
-export function binaryFormat(profile) {
-  if (profile.family === 'mc10') return null;
-  return profile.keyboard === 'dragon' || profile.keyboard === 'dragon200e' ? 'dragondos' : 'decb';
-}
+// the binary file format a model loads programs from, by its lineage: 'dragondos' for the Dragons, 'decb' for the
+// CoCos, null for the MC-10 and Alice (they load .c10 tapes; a program for them travels in a DragonDOS-style header
+// only for this project's own loader)
+const BINARY_FORMATS = { dragon: 'dragondos', coco: 'decb', mc10: null };
+export function binaryFormat(profile) { return BINARY_FORMATS[profile.lineage]; }
 // why a model has no binary file format to save a program in (null: it has one): the one message the command line's --assemble
 // and the Assembler tab's Save both give
 export function binaryFormatRefusal(profile) {
   return binaryFormat(profile) ? null : `The ${profile.name} loads .c10 tapes, not binary files: there is no file format to save a program in for it.`;
-}
-// the family of tape a model uses: 'mc10' for the MC-10 and Alice (no motor relay: a player does not pad their tapes, and they are
-// .c10 files), 'dragon' for the Dragons, 'coco' for the CoCos (js/media/cassette.js TAPE_FAMILIES)
-export function tapeFamily(profile) {
-  if (profile.family === 'mc10') return 'mc10';
-  return binaryFormat(profile) === 'dragondos' ? 'dragon' : 'coco';
 }
 export const FAMILY_NAMES = { dragon: 'Dragon', coco: 'CoCo', mc10: 'MC-10' };
 

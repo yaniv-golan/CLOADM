@@ -369,6 +369,17 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 - **The "Ask Claude" pop-out link could open an old moment.** It is made fresh on a right click and a middle click too, so "Open in new tab" opens the machine as it is now.
 - **The side-panel view's on-screen keys followed only what the view itself started.** They now follow the program the machine runs, whoever started it (Programs, the Welcome menu's keys or Claude's load), and go back to the keyboard when a load or a reset ends it.
 - **A throwing connector-check scenario now shows as a failing check with the error**, not as a timeout.
+- **The Dragon 200-E was treated as a CoCo wherever the code asked "is this a Dragon?".** It was told apart by its
+  keyboard, and its Spanish layout has its own name, so it offered the RS-DOS cartridge instead of DragonDOS and Delta
+  DOS, printed through the CoCo's bit-banger instead of the Dragons' parallel port, read the bit-banger on PIA1 PB0,
+  took CoCo media and BASIC listings, and appeared outside the Dragons in the connector's model list. Its 6551 also
+  had no RS-232 port. MAME 0.264's driver builds it from the Dragon 64 (`src/mame/trs/dragon.cpp`:
+  `dragon200e_state::dragon200e()` starts with `dragon64(config)`, which fits the `dragon_fdc` cartridge slot, the
+  6551 and its `rs232` port; the printer is `dragon_state::pia1_pa_changed`). Each profile now names its `lineage`
+  (`dragon`, `coco` or `mc10`), every such decision reads it, and `machineFamily()` is gone. `tests/models.test.js`
+  and `tests/bus.test.js` check the 200-E's disk cartridges, printer and serial port against the Dragon 64's, and the
+  model table in `docs/automation.md` no longer needs a footnote. `tools/mame-diff/run.js dragon200e --fdc dragonfdc`
+  now runs, and the printer, serial and disk comparisons install the 200-E's character generator, which MAME requires.
 - **An embedded CLOADM could open the Claude chat; the chat is no longer available in an embed.**
 - **Two server processes adding ROMs at once could lose index entries.** Every change to the ROM store's index now
   reads it again and writes it while holding a lock file (`index.lock`, broken after ten seconds if its holder died),

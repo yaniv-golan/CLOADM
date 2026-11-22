@@ -33,7 +33,7 @@ import { disassembleBlock } from './asm/disassembler.js';
 import { formats } from './media/formats.js';
 import { Tape } from './media/tape.js';
 import { casBlocks, casToWav, recordingToSamples, samplesToCas, writeWav } from './media/cassette.js';
-import { FAMILY_NAMES, detectMedia, machineFamily } from './media/detect.js';
+import { FAMILY_NAMES, detectMedia } from './media/detect.js';
 import { MediaIndex, LIBRARY_PREFIX, INDEX_PREFIXES, INDEX_LISTS, romImage, RECENT_LENGTH, isLibraryName, migrateLocalStorage } from './media/library.js';
 import { DriveWireServer, CHANNELS as DW_CHANNELS, WINDOW_BASE as DW_WINDOW_BASE, WINDOW_COUNT as DW_WINDOW_COUNT } from './drivewire/server.js';
 import { DriveWireSocket } from './host/drivewire-ws.js';
@@ -2288,7 +2288,7 @@ export class Session {
     const m = this.diskMachine;
     if (m && m.fdc instanceof DiskController) return [{ id: 'builtin', name: m.fdc.name, controller: m.fdc.type, ready: true, inserted: true, builtin: true }];
     if (!m || !m.hasCartridgePort) return [];
-    const ids = DISK_DOS[machineFamily(m.profile)] || [];
+    const ids = DISK_DOS[m.profile.lineage] || [];
     const fdc = this.diskController;
     return ids.map((id) => ({ id, name: cartridgeRoms[id].name, controller: cartridgeRoms[id].controller, rom: cartridgeRoms[id].roms[0].files[0], ready: !!this.roms.get(id).rom, inserted: !!fdc && fdc.type === cartridgeRoms[id].controller }));
   }
@@ -2307,7 +2307,7 @@ export class Session {
   }
   // the disk system a disk mounted without a disk ROM uses: the one last chosen for this family, else the first
   bareDiskChoice() {
-    const choices = this.diskDosChoices().filter((c) => !c.builtin), saved = this.store.get(`diskDos.${machineFamily(this.diskMachine.profile)}`);
+    const choices = this.diskDosChoices().filter((c) => !c.builtin), saved = this.store.get(`diskDos.${this.diskMachine.profile.lineage}`);
     return choices.find((c) => c.id === saved) || choices[0] || null;
   }
   // The disk controller with no ROM, into an empty cartridge port: no reset, so the program running keeps going (the
@@ -2346,7 +2346,7 @@ export class Session {
       m.insertCartridge(next);
       media.forEach((md, i) => { if (md) next.mount(i, md); });
     }
-    this.store.set(`diskDos.${machineFamily(m.profile)}`, dos.id);
+    this.store.set(`diskDos.${m.profile.lineage}`, dos.id);
     this.emit('disks');
     return dos;
   }
@@ -2435,7 +2435,7 @@ export class Session {
     m.insertCartridge(new devices[choice.controller]({ rom: this.roms.get(id).rom }));
     m.reset(true);
     this.acc = 0;
-    this.store.set(`diskDos.${machineFamily(m.profile)}`, id);
+    this.store.set(`diskDos.${m.profile.lineage}`, id);
     this.poweredOn();
     this.emit('disks');
     return `${choice.name} inserted`;
@@ -2534,7 +2534,7 @@ export class Session {
   }
   // the cartridge a mount plugs in when none is: the last one chosen for this family, else the first with its ROM
   preferredDiskDos() {
-    const choices = this.diskDosChoices(), saved = this.store.get(`diskDos.${machineFamily(this.shownMachine.profile)}`);
+    const choices = this.diskDosChoices(), saved = this.store.get(`diskDos.${this.shownMachine.profile.lineage}`);
     return choices.find((c) => c.id === saved && c.ready) || choices.find((c) => c.ready) || null;
   }
   // The stored name for a disk the user asked for. What follows the prefix is the file's own name -- in the drives,
@@ -3201,7 +3201,7 @@ export class Session {
     } catch (e) { throw new SessionError(`Multi-Pak: ${e.message}`); }
     this.flushDisks();
     const msg = this.startCartridge(mp, `Multi-Pak (${names.map((n, i) => `${i + 1}: ${n}`).join(', ')})`, m);
-    if (dos.length) this.store.set(`diskDos.${machineFamily(m.profile)}`, dos[0].dos);
+    if (dos.length) this.store.set(`diskDos.${m.profile.lineage}`, dos[0].dos);
     this.emit('loaded');
     this.emit('disks');
     return msg;
@@ -3213,9 +3213,9 @@ export class Session {
     const media = detectMedia(name, bytes), m = this.shownMachine;
     let family = media.family;
     if (media.kind === 'cart' && !m.hasCartridgePort && !family) family = 'coco';
-    if (!family || family === machineFamily(m.profile)) return Object.assign(media, { mismatch: null });
+    if (!family || family === m.profile.lineage) return Object.assign(media, { mismatch: null });
     // open it on a machine of that family that can boot BASIC here, else the family's usual model
-    const ready = Object.values(profiles).find((p) => machineFamily(p) === family && isBootable(p, this.roms.get(p.id)));
+    const ready = Object.values(profiles).find((p) => p.lineage === family && isBootable(p, this.roms.get(p.id)));
     const suggest = (ready || profiles[{ dragon: 'dragon64', coco: 'coco', mc10: 'mc10' }[family]]).id;
     return Object.assign(media, { mismatch: { family, familyName: FAMILY_NAMES[family], suggest, suggestName: profiles[suggest].name } });
   }

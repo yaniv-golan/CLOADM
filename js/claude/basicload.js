@@ -9,7 +9,6 @@
  * js/claude/toolerrors.js), so a model, an automation script and an embedding page all get the same code.
  */
 import { BasicError, DIALECTS, buildProgram, parseProgram, readProgram } from '../media/basic.js';
-import { machineFamily } from '../media/detect.js';
 import { runReadOnlyTool } from './readtools.js';
 import { TOOL_CODES, ToolError } from './toolerrors.js';
 
@@ -28,7 +27,7 @@ export function planBasic(t, program) {
   if (program.length > BASIC_PROGRAM_TEXT_MAX) throw new ToolError(TOOL_CODES.TOO_LARGE, `${program.length} characters, at most ${BASIC_PROGRAM_TEXT_MAX}`);
   const m = t.machine;
   if (!m) throw new ToolError(TOOL_CODES.NO_MACHINE);
-  const dialect = DIALECTS[machineFamily(m.profile)];
+  const dialect = DIALECTS[m.profile.lineage];
   if (!dialect) throw new ToolError(TOOL_CODES.UNKNOWN_MACHINE, m.profile.name);
   if (!m.hasRom) throw new ToolError(TOOL_CODES.NO_BASIC, 'the machine runs without ROMs, so there is no BASIC program memory');
   const info = runReadOnlyTool(t, 'machine_info', {});

@@ -1,5 +1,5 @@
 // Comparison spec for the floppy disk controllers: run.js <profile> --fdc [<controller>] [--images].
-// boot.asm replaces the BASIC ROM, <board>.asm the DOS ROM (dragonfdc on dragon64: -ext dragon_fdc, ddos10.rom;
+// boot.asm replaces the BASIC ROM, <board>.asm the DOS ROM (dragonfdc on dragon64 and dragon200e: -ext dragon_fdc, ddos10.rom;
 // premierfdc on dragon64: -ext premier_fdc, deltados.rom; cocofdc on coco and coco3: -ext fdc, disk11.rom (on the CoCo 3
 // boot3.asm replaces the 32K BASIC ROM); multifdc on coco:
 // the same controller in slot 4 of a Multi-Pak, -ext multi, the slot the front-panel switch selects at reset, so the
@@ -11,10 +11,11 @@ const { loadEmu, assembleFile, romImage, writeRoms, writeProfileRoms, mameConfig
 const { REGS } = require('../lib/regs');
 const { workDir } = require('../lib/workdir');
 const images = require('./images');
+const { withChip } = require('../sam/spec');
 
 // by controller; each runs on its profiles, and a profile's first controller is its default
 const SETUPS = {
-  dragonfdc: { profiles: ['dragon64'], board: 'dragon', instructions: 2600000, ext: 'dragon_fdc', device: 'dragon_fdc', rom: 'ddos10.rom', slot: 'dragon_fdc:wd2797', drive: 'qd', type: 'dragonfdc',
+  dragonfdc: { profiles: ['dragon64', 'dragon200e'], board: 'dragon', instructions: 2600000, ext: 'dragon_fdc', device: 'dragon_fdc', rom: 'ddos10.rom', slot: 'dragon_fdc:wd2797', drive: 'qd', type: 'dragonfdc',
     disks: () => [{ name: 'd0.vdk', bytes: images.vdk(40, 2) }, { name: 'd1.vdk', bytes: images.vdk(40, 1), writeProtected: true }, null, { name: 'd3.dmk', bytes: images.dmk(10, 2) }] },
   premierfdc: { profiles: ['dragon64'], board: 'premier', instructions: 2900000, ext: 'premier_fdc', device: 'premier_fdc', rom: 'deltados.rom', slot: 'premier_fdc:wd2791', drive: 'qd', type: 'premierfdc',
     disks: () => [{ name: 'd0.vdk', bytes: images.vdk(40, 2) }, { name: 'd1.vdk', bytes: images.vdk(40, 1), writeProtected: true }, null, { name: 'd3.dmk', bytes: images.dmk(10, 2) }] },
@@ -95,7 +96,7 @@ function slotData(profile, bank0) {
 function machine(profileId, setup, fw, cpu = '6809') {
   const Emu = loadEmu(), profile = Emu.profiles[profileId];
   const m = Emu.createMachine(profileId, { mameCompat: true, cpu });
-  m.setRoms(fw.slots || slotData(profile, fw.boot));
+  m.setRoms(withChip(profile, fw.slots || slotData(profile, fw.boot)));
   let fdc = m.fdc;
   if (!setup.builtin) {
     fdc = new Emu.devices[setup.type]({ rom: fw.bare ? null : fw.dos });
@@ -188,7 +189,8 @@ module.exports = {
     }
     const work = workDir(`${profileId}-${id}${bare ? '-bare' : ''}${write ? '-write' : ''}${halt ? '-halt' : ''}${empty ? '-empty' : ''}${nitros9 ? '-nitros9' : ''}${nmi ? '-nmi' : ''}${multi ? '-multi' : ''}${blank ? `-blank-${blank.format}-${format}` : ''}${cpu === '6309' ? '-6309' : ''}`);
     const fw = firmware(setup.board, regenerate, profile, write, nmi, multi, format, cpu, halt, n9disk, empty, bare);
-    const slots = fw.slots || slotData(profile, fw.boot);
+    // (the 200-E's character generator: the image the sam comparisons install, so MAME has the ROM it requires)
+    const slots = withChip(profile, fw.slots || slotData(profile, fw.boot));
     const system = cpu === '6309' ? profile.mame6309 : profile.mame;
     return {
       label: `${profileId} ${id}${bare ? ' bare' : ''}${write ? ' write' : ''}${halt ? ' halt' : ''}${empty ? ' empty' : ''}${nitros9 ? ' nitros9' : ''}${nmi ? ' nmi' : ''}${multi ? ' multi' : ''}${blank ? ` blank ${blank.format} ${format}` : ''}${cpu === '6309' ? ' (6309)' : ''}`,

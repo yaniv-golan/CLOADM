@@ -1243,7 +1243,7 @@ function assembleRun(argv) {
   try {
     if (tape) {
       // a tape file is one contiguous range with its load and exec addresses (CLOADM and EXEC), as a DragonDOS file is
-      const range = Emu.writeDragonDos(res.segments, res.exec), family = profile ? Emu.tapeFamily(profile) : cpu === '6803' ? 'mc10' : 'coco';
+      const range = Emu.writeDragonDos(res.segments, res.exec), family = profile ? profile.lineage : cpu === '6803' ? 'mc10' : 'coco';
       const name = o.name != null ? o.name : tapeName(o.source), load = (range[2] << 8) | range[3];
       const cas = Emu.buildCas([{ name, type: 'binary', load, exec: res.exec, data: range.subarray(9) }], { family });
       const wave = o.square ? 'square' : 'sine';

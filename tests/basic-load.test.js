@@ -161,12 +161,12 @@ function basicMachine(id, { ok = true } = {}) {
     check(`${id}: the result is {lines,bytes,start,end}`, r.ok && JSON.stringify(r.out) === JSON.stringify({ lines: 2, bytes: want.length, start: L.start, end: L.start + want.length - 1 }), JSON.stringify(r.ok ? r.out : r.err.message));
     const after = L.start + want.length;
     check(`${id}: VARTAB, ARYTAB and ARYEND point just past the program; TXTTAB and FRETOP are unchanged`, word(L.p) === L.start && word(L.p + 2) === after && word(L.p + 4) === after && word(L.p + 6) === after && word(L.p + 8) === L.fretop);
-    check(`${id}: the program lists back as written`, Emu.listProgram((a) => s.readByte(a, m), L.start, Emu.machineFamily(m.profile)) === '10 PRINT "HI"\n20 GOTO 10');
+    check(`${id}: the program lists back as written`, Emu.listProgram((a) => s.readByte(a, m), L.start, m.profile.lineage) === '10 PRINT "HI"\n20 GOTO 10');
     check(`${id}: one restore point, and undo puts the empty program back`, chat.undo.length === 1 && chat.undoLast() && word(L.p + 2) === L.start + 2);
     // a second load replaces the first program (as NEW then the lines)
     chat.snapped = false;
     const r2 = await call(chat, 'load_basic', { program: '5 END' });
-    check(`${id}: a later load replaces the program`, r2.ok && r2.out.lines === 1 && Emu.listProgram((a) => s.readByte(a, m), L.start, Emu.machineFamily(m.profile)) === '5 END');
+    check(`${id}: a later load replaces the program`, r2.ok && r2.out.lines === 1 && Emu.listProgram((a) => s.readByte(a, m), L.start, m.profile.lineage) === '5 END');
   }
 
   // ---- 4. errors: each refused with its code, nothing changed, no restore point ----
