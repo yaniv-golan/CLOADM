@@ -2955,7 +2955,9 @@ export class Session {
   // The two are the same machine whenever no full-screen chat is open.
   get shownMachine() { return this._shown; }
   set shownMachine(m) { this._shown = m; }
-  get personMachine() { return this.personFor(this.shownMachine); }
+  get personMachine() {
+    return this.personFor(this.shownMachine);
+  }
   // the person's machine when `shown` is on screen: the BASIC session beside a full-screen chat, else `shown`
   personFor(shown) {
     const c = this.chatMachines;

@@ -11,9 +11,11 @@
 // scan and calls it; it does not spawn `node tests/chat-leaks.test.js --scan-only`. One spawn per row cost 0.9 s x 31
 // and took this suite to 95 s in CI, past the gate's budget.
 //
-// The shapes are the ones listed under THE BOUNDARY in tests/chat-leaks.test.js. `Reflect.get` and an arbitrary
-// parameter name are NOT here: the first is a general helper that no textual scan can resolve, and the second
-// cannot be told from a plain record without types (the boundary comment says so, and this suite keeps that line).
+// The shapes are the ones listed under THE BOUNDARY in tests/chat-leaks.test.js, CAUGHT and NO LONGER FLAGGED alike;
+// the NOT CAUGHT list there has no row here, on purpose (a row would claim what the reader cannot do).
+//
+// FAST: the scan keeps each file's result by its text (tests/chat-leaks.test.js, scanFile), so a row re-reads only the
+// file it planted; the whole suite is one copy of the tree plus one read per row.
 const fs = require('fs'), path = require('path'), cp = require('child_process'), os = require('os');
 const ROOT = path.join(__dirname, '..');
 
@@ -76,8 +78,8 @@ const CASES = [
     find: 'const at = () => page.evaluate(() => window.emu.machine.frameCount);\n',
     mutateTo: 'const at = () => page.evaluate(() => { window.emu.machine.x = 1; return window.emu.machine.frameCount; });\n', expect: 'allow' },
   // an ALIAS of the accessor is ALLOWED (documented limit, see THE BOUNDARY): reading the shown machine through one is
-  // what ~70 call sites in the page-driving tools do, and telling `m.frameCount` from `m.z = 1` textually is not
-  // something this scan can do reliably. The row records the decision, so a later reader does not "fix" it blind.
+  // what ~70 call sites in the page-driving tools do, and refusing it would need every read told from every write. It
+  // is a policy, not a limit of the reader. The row records the decision, so a later reader does not "fix" it blind.
   { id: 'const m = window.emu.machine (allowed: an alias read, a known limit)', file: 'tools/capture-images.js',
     find: 'const f = window.emu.machine.render(), src = document.createElement(\'canvas\');\n',
     mutateTo: 'const f = window.emu.machine.render(); const mm = window.emu.machine; const z = mm.render();\n', expect: 'allow' },
@@ -106,7 +108,7 @@ const CASES = [
     insert: "    const k = '_shown'; if (this[k]) globalThis.__z = 1;\n" },
   // ---- round-3 review: the shapes a file-wide, per-line or last-one-wins rule let through ----
   // (3a) a destructure of the MACHINE spread over lines, in a page module (the multi-line rule used to live only in
-  // sessionMachineUses, so only js/session.js was covered)
+  // the Session-side scan, so only js/session.js was covered)
   { id: 'a three-line const { machine } = session in a page module', file: 'js/ui/claude.js',
     find: '  }, { every: true, beforeView: true });\n',
     insert: '  const {\n    machine\n  } = session; if (machine) globalThis.__z = 1;\n' },
@@ -129,9 +131,17 @@ const CASES = [
   { id: "const k='_shown' then later const k='x'; this[k] (two bindings, reach first)", file: 'js/session.js',
     find: '  welcomeSound() {\n',
     insert: "    const k = '_shown'; if (this[k]) globalThis.__z = 1;\n  }\n  laterProbe() {\n    const k = 'x'; if (k) globalThis.__z = 2;\n" },
-  { id: "const k='x' then later const k='_shown'; page[k] (two bindings, reach second)", file: 'js/ui/claude.js',
+  // (rewritten with the scoped reader) The row used to plant `const k = 'x'; ... { const k = '_shown'; } if (page[k])`
+  // and require a catch. That expectation was a FALSE POSITIVE: the inner `k` is block-scoped, so `page[k]` is
+  // `page['x']` and reaches nothing. A line scanner had to flag it (it could not see the block); the scoped reader
+  // resolves `k` where it is used. The reach is made real here - one binding REASSIGNED, so `k` may be either value at
+  // the use - and the old plant is kept below as an `allow` row, so the closed false positive is pinned too.
+  { id: "let k='x', later k='_shown'; page[k] (one binding, reassigned before the reach)", file: 'js/ui/claude.js',
     find: '  }, { every: true, beforeView: true });\n',
-    insert: "  const k = 'x'; if (k) globalThis.__z = 2;\n  { const k = '_shown'; } if (page[k]) globalThis.__z = 1;\n", use: 'if (page[k])' },
+    insert: "  let k = 'x'; if (k) globalThis.__z = 2;\n  k = '_shown'; if (page[k]) globalThis.__z = 1;\n", use: 'if (page[k])' },
+  { id: "const k='x', and a block's own const k='_shown'; page[k] is page['x'] (allowed: the old false positive)", file: 'js/ui/claude.js',
+    find: '  }, { every: true, beforeView: true });\n',
+    insert: "  const k = 'x'; if (k) globalThis.__z = 2;\n  { const k = '_shown'; } if (page[k]) globalThis.__z = 1;\n", expect: 'allow' },
   // ---- round 3, the final commit: what a per-line or parenthesis-blind rule still missed ----
   // (item 1) a `//` inside a STRING is not a comment: a naive per-line strip hid the rest of this line, reach and all
   { id: "a // inside a string does not hide the reach on its line", file: 'js/ui/claude.js',
@@ -159,6 +169,75 @@ const CASES = [
   { id: 'const sess5 = (\\n page.session\\n); sess5.machine (a parenthesised holder)', file: 'js/ui/claude.js',
     find: '  }, { every: true, beforeView: true });\n',
     insert: '  const sess5 = (\n    page.session\n  ); if (sess5.machine) globalThis.__z = 1;\n', use: 'if (sess5.machine)' },
+  // ---- the scoped reader (tests/js-reach.js): the shapes THE BOUNDARY used to list as uncatchable by a line scanner ----
+  // Each of these is green under the line scanner of 297b7de (measured: the row run against that scanner) and must be
+  // caught here AT THE PLANTED LINE.
+  // (a) a Session handed to a function of the same file through a parameter of ANY name: the call site gives it
+  { id: 'const spill = (sess) =>\\n sess.machine; spill(page.session) (a parameter, arrow)', file: 'js/ui/claude.js',
+    find: '  }, { every: true, beforeView: true });\n',
+    insert: '  const spill = (sess) =>\n    sess.machine;\n  spill(page.session);\n', use: 'sess.machine' },
+  { id: 'function grab({ machine }) {} grab(session) (a destructured parameter)', file: 'js/ui/claude.js',
+    find: '  }, { every: true, beforeView: true });\n',
+    insert: '  function grab({ machine }) { return machine; }\n  grab(session);\n' },
+  { id: 'this.peekAt(this); peekAt(who) { who._shown } (a Session method given the Session)', file: 'js/session.js',
+    find: '  welcomeSound() {\n',
+    insert: '    this.peekAt(this);\n  }\n  peekAt(who) {\n    if (who._shown) globalThis.__z = 1;\n', use: 'if (who._shown)' },
+  { id: 'new Holder(session); this.s.machine (a class of the file keeps it in a field)', file: 'js/ui/claude.js',
+    find: '  }, { every: true, beforeView: true });\n',
+    insert: '  class Holder { constructor(s) { this.s = s; }\n    poke() { return this.s.machine; } }\n  new Holder(session);\n', use: 'poke()' },
+  // (b) a Session carried in a structure built in the file
+  { id: 'const box = { s: page.session };\\n box.s.machine (an object literal)', file: 'js/ui/claude.js',
+    find: '  }, { every: true, beforeView: true });\n',
+    insert: '  const box = { s: page.session };\n  if (box.s.machine) globalThis.__z = 1;\n', use: 'if (box.s.machine)' },
+  { id: 'const list = [session];\\n list[0].machine (an array literal)', file: 'js/ui/claude.js',
+    find: '  }, { every: true, beforeView: true });\n',
+    insert: '  const list = [session];\n  if (list[0].machine) globalThis.__z = 1;\n', use: 'if (list[0].machine)' },
+  { id: 'const bag = {}; bag.s = session;\\n bag.s.machine (a property assigned later)', file: 'js/ui/claude.js',
+    find: '  }, { every: true, beforeView: true });\n',
+    insert: '  const bag = {}; bag.s = session;\n  if (bag.s.machine) globalThis.__z = 1;\n', use: 'if (bag.s.machine)' },
+  // (c) the field named as a string argument to a general helper
+  { id: "Reflect.get(session, 'machine')", file: 'js/ui/claude.js',
+    find: '  }, { every: true, beforeView: true });\n',
+    insert: "  if (Reflect.get(session, 'machine')) globalThis.__z = 1;\n" },
+  { id: "Object.getOwnPropertyDescriptor(this, '_shown') (in the Session)", file: 'js/session.js',
+    find: '  welcomeSound() {\n',
+    insert: "    if (Object.getOwnPropertyDescriptor(this, '_shown')) globalThis.__z = 1;\n" },
+  // (d) a key built from constants: the reader folds `+` over known strings
+  { id: "const key = 'ma' + 'chine'; session[key] (a folded key)", file: 'js/ui/claude.js',
+    find: '  }, { every: true, beforeView: true });\n',
+    insert: "  const key = 'ma' + 'chine'; if (session[key]) globalThis.__z = 1;\n" },
+  // (e) the FAIL-SAFE false positives THE BOUNDARY listed: a name learned for the whole file is now a binding in its
+  // own scope, so a different binding of the same name elsewhere is not the Session (old: flagged; now: allowed)
+  { id: 'const self = this in one method, (self) => self._shown on a record in another (allowed: a shadowing parameter)', file: 'js/session.js',
+    find: '  welcomeSound() {\n',
+    insert: '    const self = this; if (self) globalThis.__z = 2;\n  }\n  probeRecords(list) {\n    return list.map((self) => self._shown);\n', expect: 'allow' },
+  { id: "const k = 'machine' in a block, for (let k = 0; ...) page[k] (allowed: a different k)", file: 'js/ui/claude.js',
+    find: '  }, { every: true, beforeView: true });\n',
+    insert: "  { const k = 'machine'; if (k) globalThis.__z = 2; }\n  for (let k = 0; k < 2; k++) if (page[k]) globalThis.__z = 1;\n", expect: 'allow' },
+  { id: "const k = 'machine', and an inner block's own const k = 'x'; page[k] there is page['x'] (allowed: the NEAREST binding)", file: 'js/ui/claude.js',
+    find: '  }, { every: true, beforeView: true });\n',
+    insert: "  const k = 'machine'; if (k) globalThis.__z = 2;\n  { const k = 'x'; if (page[k]) globalThis.__z = 1; }\n", expect: 'allow' },
+  // (f) the reader's SELF-CHECK: a file it cannot read whole is reported where the reading broke. An unclosed block
+  // comment hides everything after it - every reach in the rest of the file - so the finding is the comment itself.
+  { id: 'an unclosed /* comment hiding a reach (the self-check reports the file unreadable there)', file: 'js/ui/claude.js',
+    find: '  }, { every: true, beforeView: true });\n',
+    insert: '  /* an unclosed comment\n  if (page.session.machine) globalThis.__z = 1;\n' },
+  // (g) the accessor exemption is exactly the two accessors' own bodies and the constructor's `= null` (review nits):
+  // a reach inside ANOTHER getter of the Session is a reach, and assigning the backing field anything but null is one
+  { id: 'this._shown inside get personMachine() (only get/set shownMachine are exempt)', file: 'js/session.js',
+    find: '  get personMachine() {\n',
+    insert: '    if (this._shown) globalThis.__z = 1;\n' },
+  { id: 'this._shown = globalThis.z in the Session constructor (only `= null` is the field\'s own)', file: 'js/session.js',
+    find: '    this._shown = null;\n',
+    insert: '    this._shown = globalThis.z;\n' },
+  { id: 'this._shown = null outside the constructor (only the constructor\'s clears the field)', file: 'js/session.js',
+    find: '  welcomeSound() {\n',
+    insert: '    this._shown = null; globalThis.__z = 1;\n' },
+  // (h) the fixpoint's limit is a FAIL, not a result: a 46-link alias chain written backwards learns one link per
+  // pass, so it cannot settle in the 40 passes, and the reader reports the file where it was still growing
+  { id: 'an alias chain that does not settle in 40 passes (reported, not silently cut short)', file: 'js/ui/claude.js',
+    find: '  }, { every: true, beforeView: true });\n',
+    insert: '  let q0, q1, q2, q3, q4, q5, q6, q7, q8, q9, q10, q11, q12, q13, q14, q15, q16, q17, q18, q19, q20, q21, q22, q23, q24, q25, q26, q27, q28, q29, q30, q31, q32, q33, q34, q35, q36, q37, q38, q39, q40, q41, q42, q43, q44, q45; q0 = q1; q1 = q2; q2 = q3; q3 = q4; q4 = q5; q5 = q6; q6 = q7; q7 = q8; q8 = q9; q9 = q10; q10 = q11; q11 = q12; q12 = q13; q13 = q14; q14 = q15; q15 = q16; q16 = q17; q17 = q18; q18 = q19; q19 = q20; q20 = q21; q21 = q22; q22 = q23; q23 = q24; q24 = q25; q25 = q26; q26 = q27; q27 = q28; q28 = q29; q29 = q30; q30 = q31; q31 = q32; q32 = q33; q33 = q34; q34 = q35; q35 = q36; q36 = q37; q37 = q38; q38 = q39; q39 = q40; q40 = q41; q41 = q42; q42 = q43; q43 = q44; q44 = q45; q45 = session;\n' },
   // and it dies with the accessor: replace the getter in js/ui/main.js with a plain field and the real tree no longer
   // passes, because tools' `emu.machine` is then reaching a field that is no longer named as the shown machine
   // this row's plant is in js/ui/main.js, but the FINDING it must produce is in the tools: with the accessor gone,
