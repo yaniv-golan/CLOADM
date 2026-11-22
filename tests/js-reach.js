@@ -693,8 +693,8 @@ function analyse(text, opts = {}) {
   const evalSrc = (f) => (f.range ? evalRange(...f.range) : UNKNOWN);
   // The values only grow and are finite, so the fixpoint settles; a file that has not settled within MAX_PASSES is a
   // PROBLEM, reported at the fact that was still growing, never a result: stopping early would leave names unlearned
-  // and their reaches unseen. (A real file settles in a handful of passes; `maxPasses` is for the test that forces it.)
-  const MAX_PASSES = opts.maxPasses || 40;
+  // and their reaches unseen. (A real file settles in at most six passes.)
+  const MAX_PASSES = 40;
   const factTok = (f) => (f.tok !== undefined ? f.tok : f.range ? f.range[0] : f.callee ? f.callee[0]
     : Array.isArray(f.obj) ? f.obj[0] : f.obj !== undefined ? f.obj : f.arr);
   let settled = false, lastGrew = null;
