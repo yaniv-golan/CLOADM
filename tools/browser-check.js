@@ -8067,7 +8067,7 @@ async function firstUseChecks(browser, base, check) {
     mac: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
     ios: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
   };
-  for (const [label, ua, viewport, want] of [['macOS Safari', SAFARI.mac, { width: 1280, height: 800 }, /^In Safari: File → Add to Dock\.$/], ['iOS Safari', SAFARI.ios, { width: 390, height: 844 }, /Share.*Add to Home Screen/]]) {
+  for (const [label, ua, viewport, want] of [['macOS Safari', SAFARI.mac, { width: 1280, height: 800 }, /^In Safari: File → Add to Dock\.$/], ['iOS Safari', SAFARI.ios, { width: 390, height: 844 }, /^Install CLOADM as an app on this device: tap Share, then Add to Home Screen\.Install: Share, Add to Home Screen\.$/]]) {
     const { ctx, page, errors } = await open('?machine=dragon64', { viewport, userAgent: ua });
     await pressInstall(page);
     await waitFor(page, () => !document.getElementById('installOffer').hidden, null, 5000);
@@ -8147,7 +8147,7 @@ async function uiCopyChecks(browser, base, check) {
     }
     const help = await page.textContent('#claudeHelp');
     const seen = nokey.ok && /^\[No API key yet: add one (above|below|on the right)\. Get one at console\.anthropic\.com\.\]$/.test(help), keyUi = { screen: nokey.rows.join('|'), help };
-    check('m6: with no key, "No API key yet: add one … Get one at console.anthropic.com." is on the chat screen itself and in the note beside it', seen, JSON.stringify(keyUi));
+    check('chat key: with no key, "No API key yet: add one … Get one at console.anthropic.com." is on the chat screen itself and in the note beside it', seen, JSON.stringify(keyUi));
     await shot(page, 'chat-nokey');
     await page.fill('#claudeKeyInput', KEY);
     await page.click('#btnClaudeKeySave');

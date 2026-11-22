@@ -95,7 +95,7 @@ const frames = (s, k) => { for (let i = 0; i < k; i++) s.advance(1000 / s.shownM
   if (I) {
     const mac = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15';
     check('Safari on a Mac: "In Safari: File → Add to Dock."', I.STEPS[I.platformOf(mac, false)] === 'In Safari: File → Add to Dock.', I.platformOf(mac, false));
-    check('iOS: "Share" then "Add to Home Screen"', /Share.*Add to Home Screen/.test(I.STEPS[I.platformOf('iPhone', true)]));
+    check('iOS: "Tap Share, then “Add to Home Screen”."', I.STEPS[I.platformOf('iPhone', true)] === 'Tap Share, then “Add to Home Screen”.', I.STEPS[I.platformOf('iPhone', true)]);
   }
 
   // ---- the Help page's "Claude: getting an API key" ----
@@ -106,7 +106,7 @@ const frames = (s, k) => { for (let i = 0; i < k; i++) s.advance(1000 / s.shownM
   check('...with where (console.anthropic.com, API keys)', /href="https:\/\/console\.anthropic\.com\/[^"]*">console\.anthropic\.com<\/a>, under <em>API keys<\/em>/.test(body));
   check('...what it costs (billed to the Anthropic account, the pricing page) and no figures', /billed to your Anthropic account/.test(body) && /href="https:\/\/www\.anthropic\.com\/pricing[^"]*"/.test(body) && !/\$\s?\d|\d+\s?(USD|cents?)/.test(body));
   check('...and Claude without a key (Use with Claude)', /No key\?.*Use CLOADM inside Claude instead.*href="[^"]*docs\/mcp\.md#use-with-claude"/s.test(body));
-  check('Help\'s install section has Safari on a Mac and iOS Safari\'s Share step', /Safari on a Mac\.<\/strong> <span>In Safari: <em>File → Add to Dock<\/em>/.test(help) && /iOS Safari\.<\/strong>.*Share.*Add to Home Screen/s.test(help));
+  check('Help\'s install section has Safari on a Mac and iOS Safari\'s Share step', /Safari on a Mac\.<\/strong> <span>In Safari: <em>File → Add to Dock<\/em>/.test(help) && help.includes('<div><strong>iOS Safari.</strong> <span>Tap <em>Share</em> (the square with an arrow), scroll down and choose\n      <em>Add to Home Screen</em>, then <em>Add</em>.</span></div>'));
 
   console.log(fail ? `${fail} of ${n} FAILED` : `all ${n} passed`);
   process.exitCode = fail ? 1 : 0;

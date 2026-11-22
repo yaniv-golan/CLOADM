@@ -794,7 +794,7 @@ it at the first animation frame) and 2 s later, with the touch class already on.
 BASIC (its name then "Menu (ROMs needed)"), lists "Add ROMs (BASIC needs them)" first with the same dot, then Share,
 Settings…, the links, Commands… and Install CLOADM…, opens moving nothing in the bar with the focus on its first item
 (Tab goes to the next), and its Add ROMs opens Add ROMs; at 390x844 its Settings… brings the settings tabs into view
-with the focus on Display. Minesweeper opens on Pad (Up, Left, Down, Right, SPACE, ENTER, F, ABC, no BREAK: the strip's is the only one, UX R35; every key 48 px and
+with the focus on Display. Minesweeper opens on Pad (Up, Left, Down, Right, SPACE, ENTER, F, ABC, no BREAK: the strip's is the only one; every key 48 px and
 more, Stick offered); the pad's → and F reach the machine as RIGHT and F; ABC shows the keyboard for one key; Keys
 chosen in Minesweeper is remembered for it on that machine while 2048 still opens on Pad and LIZA on Keys; the MC-10's
 switch is Keys | Pad. The games' toast says "tap a key" and BREAK, never "Esc" or "press", lies under the app bar and
