@@ -104,6 +104,6 @@ async function turn(L, s, chat, calls, person) {
     await turn('full screen (welcome menu behind)', s, chat, calls, person);
   }
 
-  console.log(`\n${n - fail}/${n} passed`);
-  process.exit(fail ? 1 : 0);
-})();
+  console.log(`${n - fail}/${n} read-without-the-switch checks passed`);
+  process.exitCode = fail ? 1 : 0;
+})().catch((e) => { console.error('test crashed:', e); process.exitCode = 1; });
