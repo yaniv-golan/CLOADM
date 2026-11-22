@@ -32,7 +32,7 @@ names contain one of the parts, and `node tools/browser-check.js --only <group>[
 | Floppy disks, `js/media/` | `fdc,disk,detect,state` (`disk` also selects the `disks*` suites) | `disk,media` |
 | Cassette | `tape` (also `tape-sound`) | `tape,tapePanel,tapeHud` |
 | Cartridges and sound chips | `bus,carts,ssc,sp0256,ay8910,audio` | `cartridge,sscBoard,audio` |
-| Serial, printer, DriveWire | `serial,acia,drivewire,web-serial` | `driveWire,webSerial,printer` |
+| Serial, printer, DriveWire | `serial,serial-api,acia,drivewire,web-serial` | `driveWire,webSerial,printer` |
 | The assembler (`js/asm/`) | `asm,includes,disasm` | `debugger` |
 | Debugger | `debugger,debug-session,halt` | `debugger,debuggerScreen` |
 | Keyboard and input | `input,keyqueue,keyboard-symbols,touch-joystick,press-break` | `input,inputScreen,touchJoystick,keyboardSymbols,typing` |
@@ -96,6 +96,7 @@ node tests/snapshot.test.js  # snapshot files: format and version, defective fil
 node tests/press-break.test.js # BREAK delivery: our own firmware scans the matrix on dragon64, coco3 and mc10
 node tests/video.test.js     # scanline video: beam position, SAM display counter, mid-line mode splits
 node tests/serial.test.js    # serial line receiver and port devices, PIA output callback, printer paths, the Session's terminal
+node tests/serial-api.test.js # session.serial on the 6551 and the bit-banger: every byte both ways, subscribers, delivery times, the trace (its hashes against the MAME-verified runs), diagnostics, --serial-trace
 node tests/acia.test.js      # the 6551 alone: registers, data sheet rates, frames in every format both ways, errors, interrupts, state
 node tests/drivewire.test.js # the DriveWire server against the DW4 specification, the Becker port, the Session, a WebSocket channel
 node tests/claude-chat-drivewire.test.js # the Claude chat end to end over DriveWire channel 14 on the Becker port (mocked fetch)

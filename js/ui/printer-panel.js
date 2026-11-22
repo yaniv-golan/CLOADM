@@ -14,7 +14,7 @@ export function setupPrinterPanel(page) {
     $('printState').textContent = n ? `${n} byte${n === 1 ? '' : 's'}` : 'nothing yet';
     $('btnPrintSave').disabled = !n;
     $('btnPrintClear').disabled = !n;
-    const serial = session.serialDevice;
+    const serial = session.serial.device;
     $('printerKind').textContent = !serial || serial.chip === '6551' ? 'Parallel printer port'
       : serial.kind === 'printer' ? 'Serial printer on the RS-232 port, 600 baud' : 'Serial printer unplugged (see Serial port)';
   }

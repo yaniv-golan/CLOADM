@@ -11,6 +11,11 @@
  * clockEdge(level) on each edge; the receiver acts on rising edges, the transmitter on falling ones, 16 clocks a
  * bit. The clock runs only while DTR is asserted (command bit 0) or a character is being received
  * (update_divider). Lines: rxd / cts / dsr / dcd inputs (setRxd ...), onTxd / onRts / onDtr / onIrq outputs.
+ *
+ * onTrace(kind, byte), when set, hears the character boundaries (a diagnostic hook, not chip state): 'tx-load' the
+ * transmitter takes a byte from the transmit data register (its start bit begins), 'tx' that byte's stop bit has
+ * ended, 'rx' a received byte goes into the receive data register (with 'framing' and 'parity' after it when it
+ * has those errors), 'overrun' a received byte is lost because the register was still full.
  */
 import { state } from '../util.js';
 
@@ -31,6 +36,7 @@ export class MOS6551 {
     this.onRts = null;      // (level) => void
     this.onDtr = null;      // (level) => void
     this.onClock = null;    // (hz) => void: the internal clock's rate changed (0: stopped)
+    this.onTrace = null;    // (kind, byte) => void: character boundaries (see the header); not state
     this.control = 0; this.command = 0; this.status = 0; this.tdr = 0; this.rdr = 0;
     this.irqState = 0; this.irq = 0;
     this.txd = 0; this.rts = 0; this.dtr = 0;
@@ -178,7 +184,7 @@ export class MOS6551 {
         this.txBits = 0;
         this.txParity = 0;
         if (this.cts) this.txOutput = MARK;
-        else if (!(this.status & SR_TDRE)) { this.txOutput = TXD; this.status |= SR_TDRE; }
+        else if (!(this.status & SR_TDRE)) { this.txOutput = TXD; this.status |= SR_TDRE; if (this.onTrace) this.onTrace('tx-load', this.txShift); }
         else if (this.brk) this.txOutput = BREAK;
         else this.txOutput = MARK;
         if (this.txIrqEnable && this.txOutput !== BREAK) { this.irqState |= IRQ_TDRE; this.updateIrq(); }
@@ -208,7 +214,10 @@ export class MOS6551 {
           if (this.txOutput === BREAK) {
             if (!this.brk) { this.txCounter = 0; this.txState = STOP; this.txOutput = TXD; this.outputTxd(1); }
             else this.txCounter--;
-          } else { this.txState = START; this.txCounter = 0; }
+          } else {
+            if (this.onTrace && this.txOutput === TXD) this.onTrace('tx', this.txShift);
+            this.txState = START; this.txCounter = 0;
+          }
         }
         break;
     }
@@ -253,7 +262,15 @@ export class MOS6551 {
             this.rdr = this.rxShift & 0xFF;   // (an 8-bit register: with 8 bits and parity, the parity bit is shifted in as bit 8)
             if (this.wordlength === 7 && this.parity !== PARITY_NONE) this.rdr &= 0x7F;
             this.status |= SR_RDRF;
-          } else this.status |= SR_OVERRUN;
+            if (this.onTrace) {
+              this.onTrace('rx', this.rdr);
+              if (this.status & SR_FRAMING_ERROR) this.onTrace('framing', this.rdr);
+              if (this.status & SR_PARITY_ERROR) this.onTrace('parity', this.rdr);
+            }
+          } else {
+            this.status |= SR_OVERRUN;
+            if (this.onTrace) this.onTrace('overrun', this.rxShift & 0xFF);
+          }
           if (this.rxIrqEnable) { this.irqState |= IRQ_RDRF; this.updateIrq(); }
           this.rxState = START;
           if (this.dtr) this.updateDivider();

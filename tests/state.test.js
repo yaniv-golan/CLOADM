@@ -383,9 +383,9 @@ for (const [id, family] of [['coco', 'sam'], ['mc10', 'mc10'], ['dragon64', 'sam
 {
   const s = new Emu.Session();
   s.switchMachine('coco');
-  s.attachSerial('terminal', { baud: 1200 });
+  s.serial.attach('terminal', { baud: 1200 });
   const m = s.machine, bit = m.tickHz / 1200;
-  s.serialSend('OK');
+  s.serial.send('OK', { text: true });
   m.runCycles(m.cycle + Math.round(4.5 * bit));
   const saved = Emu.state.fromJSON(Emu.state.toJSON(m.snapshot()));
   const r = Emu.restoreSnapshot(saved, m.roms);

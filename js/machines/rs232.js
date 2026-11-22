@@ -11,8 +11,14 @@
  *             which none of these ports wires out, so they stay high (not asserted) - unless the plug holds them
  *             asserted ({ handshake: 'asserted' }, as MAME's patch box wired that way: the Dragon 64's ACIA, whose
  *             RTS and DTR MAME's dragon64 does not connect, can only transmit with CTS asserted)
- *   terminal  bytes both ways at `baud`, 8N1: what the machine sends is received (onReceive), and send(bytes)
- *             queues bytes the line then carries to the machine, one after another
+ *   terminal  bytes both ways at `baud`, 8N1: what the machine sends is received (the listeners' tx), and
+ *             send(bytes) queues bytes the line then carries to the machine, one after another
+ *
+ * Listeners (`listeners`, a Set of { tx(byte, at), rx(byte, at) }, either optional) see the bytes that cross the
+ * wire, in the order the listeners were added: tx a byte the machine sent, decoded by the printer's or the terminal's
+ * receiver (at: the tick of its last sample, the middle of the stop bit); rx a byte the terminal sent, once its stop
+ * bit has ended (at: that tick), found when the machine reads its RXD (rxd) or the port is flushed. The loopback and
+ * 'none' decode nothing, so they have nothing to tell.
  *
  * Nothing here schedules events: levels are worked out from times, so a device cannot change the machine's
  * timing.
@@ -27,7 +33,7 @@ export class SerialPort {
   constructor(tickHz, onPrint) {
     this.tickHz = tickHz;
     this.onPrint = onPrint;
-    this.onReceive = null;       // terminal: (byte) => void, for bytes the machine sent
+    this.listeners = new Set();  // { tx(byte, at), rx(byte, at) }: the bytes that cross the wire (not state)
     this.attach('printer');
   }
   // plug in a device: 'none', 'printer', 'loopback' (with { handshake: 'open' | 'asserted' }) or 'terminal' (with
@@ -41,7 +47,7 @@ export class SerialPort {
     this.queue = [];                                // terminal: bytes being sent to the machine, in order
     this.txStart = 0;                               // terminal: tick queue[0]'s start bit began
     this.rx = kind === 'loopback' || kind === 'none' ? null : new SerialRx(this.tickHz / this.baud,
-      (b) => { if (this.kind === 'printer') this.onPrint(b); else if (this.onReceive) this.onReceive(b); });
+      (b, at) => { if (this.kind === 'printer') this.onPrint(b); for (const l of this.listeners) if (l.tx) l.tx(b, at); });
   }
   get ticksPerBit() { return this.tickHz / this.baud; }
   // the DCD (carrier detect) level the device gives from reset: the printer and a terminal (MAME's null modem) drive
@@ -63,7 +69,11 @@ export class SerialPort {
     if (this.kind === 'loopback') return this.line;
     // terminal: the queued bytes back to back, each a start bit, 8 data bits (least significant first), a stop bit
     const bit = this.ticksPerBit;
-    while (this.queue.length && at >= this.txStart + 10 * bit) { this.queue.shift(); this.txStart += 10 * bit; }
+    while (this.queue.length && at >= this.txStart + 10 * bit) {
+      const b = this.queue.shift();
+      this.txStart += 10 * bit;
+      this.onDelivered(b, this.txStart);
+    }
     if (!this.queue.length || at < this.txStart) return 1;
     const k = Math.floor((at - this.txStart) / bit);
     return k === 0 ? 0 : k <= 8 ? (this.queue[0] >> (k - 1)) & 1 : 1;
@@ -75,7 +85,13 @@ export class SerialPort {
     if (!this.queue.length) this.txStart = at;
     this.queue.push(...bytes);
   }
-  flush(now) { if (this.rx) this.rx.flush(now); }
+  // a byte has crossed the wire into the machine: its stop bit ended at tick `at`
+  onDelivered(byte, at) { for (const l of this.listeners) if (l.rx) l.rx(byte, at); }
+  // decode what the machine has completely sent by tick `now`, and hand on what has reached it by then
+  flush(now) {
+    if (this.rx) this.rx.flush(now);
+    if (this.kind === 'terminal') this.rxd(now);
+  }
   saveState() {
     return { kind: this.kind, baud: this.baud, handshake: this.handshake, line: this.line, queue: this.queue.slice(), txStart: this.txStart,
       rx: this.rx ? this.rx.saveState() : null };

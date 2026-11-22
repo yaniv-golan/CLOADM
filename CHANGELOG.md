@@ -20,6 +20,27 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   50/60 Hz video field); and a note on snapshotting a machine whose serial peer lives outside it (the freeze order, saving the peer's
   in-flight bytes and resuming at the same byte). `tests/dev-docs-headless.test.js` rebuilds the table from the machines, runs the
   example from a temporary directory and from a copy, fails mutants of its guest, and checks the numbers the text quotes.
+- **A serial byte-stream API and serial diagnostics for Node and headless runs.** A developer porting a game had to overwrite
+  `machine.serialPort.onReceive`, which also cut off the page's terminal log, and could not see why a transfer stalled.
+  `session.serial` now has the device (`device`, `attach`), `send` (bytes, or text with `{ text: true }`), any number of
+  subscribers (`subscribe({ tx, rx }, { flush: 'frame' | 'instant' })`, in order; the page's terminal log is the first; one that
+  throws is unsubscribed and its error thrown after the others ran; they survive `openSnapshot`, `switchMachine` and a power cycle
+  and are never in a snapshot), `flush()`, a ring-buffer `trace()` of what the port did (`tx-load`, `tx`, `rx`, `overrun`,
+  `framing`, `parity`, register writes and, on request, reads, each with its tick, frame and PC; the 6551's status is peeked,
+  never read) and `status()`, the 6551's status decoded. `rx` bytes are delivered once they have crossed the wire, not when sent.
+  `session.diagnostics()` gives the PC, frame, time, cycles and serial port. On the command line, `--serial-trace FILE` writes the
+  trace as JSON Lines (also when the run fails), and `timeout` and `keys-not-taken` errors carry `machine: { pc, frame, cycles }`
+  and `serial` (added fields; the same `schemaVersion`). A trace changes no emulation: the MAME-verified 6551 and printer runs
+  hash the same with one on (`tests/serial-api.test.js`, both chips, every byte 00..FF both ways). Documented in
+  `docs/automation.md` ("The serial port from Node", and the serial-peer note rewritten on it).
+
+### Changed
+
+- **The Session's serial methods moved to `session.serial`.** `serialDevice` is `serial.device` (its fields now start with
+  `chip`), `attachSerial` is `serial.attach`, and `serialSend` is `serial.send`, which takes bytes, or text with `{ text: true }`, and
+  refuses any value outside 0..255 (`send([256])` used to go out as `$00`). A machine's `SerialPort` has a listener set (`listeners`,
+  `{ tx(byte, at), rx(byte, at) }`) in place of its one `onReceive`. The Web Serial object the DriveWire link uses is
+  `session.webSerial` (it was `session.serial`).
 
 ### Fixed
 

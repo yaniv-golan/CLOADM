@@ -52,6 +52,7 @@ const HOLD_LIMIT = 100000;    // most frames one `hold` runs
 // (the page's own output stage, js/host/audio.js AudioOutput, without its DC-blocking filter), times WAV_SCALE: the
 // 6-bit DAC's step is 320 (DAC value d is 320 x d, at most 20160) and the single-bit output adds 10240 (32 DAC steps).
 const WAV_RATE = 44100;
+const SERIAL_TRACE_LIMIT = 65536;   // --serial-trace: the events kept (the newest)
 const WAV_SCALE = 20160;
 
 class CliError extends Error {
@@ -210,6 +211,10 @@ const STEPS = {
     parse: (t) => ({ file: t }),
   },
   'wav-stop': { arg: null, help: 'end the sound recording here and write its file', example: '--wav-stop' },
+  'serial-trace': {
+    arg: 'FILE', help: `trace the serial port from here to the end of the run, written as JSON Lines (one event a line: at, frame, pc, kind, ...) also when the run fails; the last ${SERIAL_TRACE_LIMIT} events are kept`, example: '--serial-trace serial.jsonl',
+    parse: (t) => ({ file: t }),
+  },
   screen: { arg: null, help: 'the text on the screen (the readers Claude\'s screen_text uses); a graphics screen has no text, and says so', example: '--screen' },
   screenshot: {
     arg: 'FILE', help: 'save the frame as a PNG (the frame\'s own pixels, unscaled)', example: '--screenshot out.png',
@@ -467,6 +472,7 @@ class Runner {
     this.tolerance = 0;          // pixels an expect-screenshot may find different
     this.diffFile = null;        // where an expect-screenshot writes its difference picture
     this.wav = null;             // the sound recording under way: { file, out (AudioOutput), chunks, result }
+    this.serialTrace = null;     // the serial trace under way: { file, trace, result }
     this.results = [];
     this.romReport = null;
   }
@@ -535,6 +541,11 @@ class Runner {
   screen() { return Emu.screenTextTool(this.s); }
   // the failure of a condition: exit 1, with the screen for context
   failed(code, message, extra = {}) { return new CliError(code, message, Object.assign({ screen: this.screen() }, extra)); }
+  // a wait that ran out: where the machine is, and its serial port (session.diagnostics), for finding out why
+  stalled(code, message) {
+    const d = this.s.diagnostics();
+    return this.failed(code, message, { machine: { pc: d.pc, frame: d.frame, cycles: d.cycles }, serial: d.serial });
+  }
   record(step, extra = {}) { const r = Object.assign({ step: step.name }, extra); this.results.push(r); return r; }
 
   // run one step -> its result (also recorded in this.results), or null for a setup step
@@ -637,7 +648,7 @@ class Runner {
       if (n >= limit) {
         const left = m.stubKeys.length + m.typist.queue.length;
         m.typist.clear(); m.stubKeys.length = 0;   // what was not taken is dropped, so a later step starts clean
-        throw this.failed('keys-not-taken', `${step.where}: the machine did not take the typed keys within ${secs} s (${left} left)`);
+        throw this.stalled('keys-not-taken', `${step.where}: the machine did not take the typed keys within ${secs} s (${left} left)`);
       }
       await this.frame(); n++;
     }
@@ -660,7 +671,7 @@ class Runner {
       if (!had) d.addBreakpoint(c.address);
       try {
         while (this.m.cpu.pc !== c.address) {
-          if (n >= limit) throw this.failed('timeout', `${what} timed out after ${secs} s (the PC is ${Emu.hex(this.m.cpu.pc)})`);
+          if (n >= limit) throw this.stalled('timeout', `${what} timed out after ${secs} s (the PC is ${Emu.hex(this.m.cpu.pc)})`);
           if (await this.frame()) { n++; continue; }
           if (d.stopReason && d.stopReason.kind === 'breakpoint' && this.m.cpu.pc === c.address) break;
           d.resume();
@@ -671,7 +682,7 @@ class Runner {
       }
     } else {
       while (!this.holds(c)) {
-        if (n >= limit) throw this.failed('timeout', `${what} timed out after ${secs} s`);
+        if (n >= limit) throw this.stalled('timeout', `${what} timed out after ${secs} s`);
         await this.frame(); n++;
       }
     }
@@ -753,6 +764,24 @@ class Runner {
     writeFile(w.file, Emu.writeWav(samples, WAV_RATE));
     Object.assign(w.result, { samples: n, seconds: n / WAV_RATE });
   }
+  // trace the serial port (ending a trace under way): written by endSerialTrace, when the run ends
+  async serialTraceStep(step, { file }) {
+    this.start();
+    this.endSerialTrace();
+    const result = this.record(step, { file, limit: SERIAL_TRACE_LIMIT });
+    this.serialTrace = { file, trace: this.s.serial.trace({ limit: SERIAL_TRACE_LIMIT }), result };
+    return result;
+  }
+  endSerialTrace() {
+    const t = this.serialTrace;
+    if (!t) return;
+    this.serialTrace = null;
+    this.s.serial.flush();
+    const events = t.trace.events;
+    t.trace.stop();
+    writeFile(t.file, Buffer.from(events.map((e) => JSON.stringify(e) + '\n').join('')));
+    Object.assign(t.result, { events: events.length, dropped: t.trace.dropped });
+  }
   async screenStep(step) { return this.record(step, this.screen()); }
   async screenshot(step, { file }) {
     const frame = this.m.render();
@@ -808,7 +837,7 @@ class Runner {
 const STEP_METHODS = {
   'load-snapshot': 'loadSnapshot', program: 'program', load: 'load', asm: 'asm', cart: 'cart', tape: 'tape', disk: 'disk',
   type: 'type', frames: 'frames', seconds: 'seconds', 'wait-for': 'waitFor', 'expect-screen': 'expectScreen',
-  'expect-mem': 'expectMem', 'expect-screenshot': 'expectScreenshot', hold: 'hold', wav: 'wavStep', 'wav-stop': 'wavStop', screen: 'screenStep', screenshot: 'screenshot', peek: 'peek', poke: 'poke',
+  'expect-mem': 'expectMem', 'expect-screenshot': 'expectScreenshot', hold: 'hold', wav: 'wavStep', 'wav-stop': 'wavStop', 'serial-trace': 'serialTraceStep', screen: 'screenStep', screenshot: 'screenshot', peek: 'peek', poke: 'poke',
   registers: 'registers', 'set-register': 'setRegister', disasm: 'disasm', step: 'stepInstructions', reset: 'resetStep',
   'power-cycle': 'powerCycle', view: 'view', 'save-snapshot': 'saveSnapshot', info: 'info',
 };
@@ -887,7 +916,7 @@ function machineList() {
     roms: p.roms.map((r) => ({ id: r.id, label: r.label, required: r.required, files: r.files })),
   }));
 }
-const errorJson = (e) => Object.assign({ kind: e.kind, code: e.code, message: e.message }, e.errors ? { errors: e.errors } : {}, e.screenshot ? { screenshot: e.screenshot } : {}, e.screen ? { screen: e.screen } : {});
+const errorJson = (e) => Object.assign({ kind: e.kind, code: e.code, message: e.message }, e.errors ? { errors: e.errors } : {}, e.screenshot ? { screenshot: e.screenshot } : {}, e.machine ? { machine: e.machine, serial: e.serial } : {}, e.screen ? { screen: e.screen } : {});
 // anything thrown -> a CliError (a bug becomes 'internal' with its stack)
 const asCliError = (e) => (e instanceof CliError ? e : new CliError('internal', `internal error: ${e && e.stack || e}`));
 
@@ -998,9 +1027,11 @@ async function main(argv, { out = (t) => process.stdout.write(t + '\n'), err = (
     }
     runner.start();   // a command line of setup steps only still builds the machine (and checks the ROMs)
     runner.endWav();
+    runner.endSerialTrace();
     return finish(0);
   } catch (e) {
     try { runner.endWav(); } catch (e2) { /* the run already failed: its own error is the one reported */ }
+    try { runner.endSerialTrace(); } catch (e2) { /* the same */ }
     const error = asCliError(e);
     return finish(EXIT[error.kind], error);
   }

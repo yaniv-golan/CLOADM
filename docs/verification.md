@@ -1099,6 +1099,14 @@ names it.
   and the 250 ms transaction timeouts (a Becker port loses no
   bytes, and the machine waits for the store instead). None of this has been tried against a real DriveWire 4
   server or a real CoCo driver (HDB-DOS, NitrOS-9): those need ROMs and software we do not ship.
+* The Session's serial API (`session.serial`: subscribers, `flush`, `trace`, `status`; `tests/serial-api.test.js`)
+  adds no hardware behaviour, so its oracle is the MAME-verified chips themselves and times worked out by hand: every
+  byte 00..FF both ways on the 6551 (an echo guest) and the bit-banger (`docs/examples/serialrx.asm` and a sender),
+  byte-exact; each byte to the machine delivered at the end of its stop bit (t0 + 10n bit times); consecutive bytes
+  the 6551 receives exactly 10 bit times apart (16 clocks of 1.8432 MHz / 12 a bit, at 9600 baud), and those it sends
+  back to back 10 bit times and one clock apart, as MAME's `mos6551.cpp` takes a clock to go from the stop bit to the
+  next byte; a late data register read gives exactly one overrun. With a full trace on (register reads included),
+  `sam/acia.asm` on the Dragon 64 and `sam/printer-serial.asm` on the CoCo give the same regression hashes as without.
 * <a id="web-serial"></a>**Web Serial (a real CoCo on a serial cable) is not verified.** `js/host/web-serial.js` serves DriveWire on a
   serial port the browser opens (8N1, 38400-230400 baud), on the same drives as the emulated machine, through a
   second server so the two links do not mix. `tests/web-serial.test.js` and the browser check run it against a

@@ -214,6 +214,7 @@ class Acia6551 extends Device {
     this.signal = 0;           // the clock's level
     this.half = 0n;            // half a clock period in attoseconds (0: stopped)
     this.time = 0;             // the tick of the change the chip is reacting to (for the serial line)
+    this.trace = null;         // (kind, data, at) => void: register accesses and character boundaries (setTrace); not state
     this.clock = new AttoClock();
     this.tInit = this.clock.timer('init', () => this.clockInit());
     this.tEdge = this.clock.timer('edge', () => this.clockTick());
@@ -265,8 +266,22 @@ class Acia6551 extends Device {
     this.chip.reset();
   }
   // (time-dependent accesses: the machine has run its events up to the access first)
-  readIO(reg, at) { this.time = at; this.chip.setRxd(this.port.rxd(at)); return this.chip.read(reg); }
-  writeIO(reg, v, at) { this.time = at; this.chip.write(reg, v); }
+  readIO(reg, at) {
+    this.time = at; this.chip.setRxd(this.port.rxd(at));
+    const v = this.chip.read(reg);
+    if (this.trace) this.trace('reg-read', { reg: reg & 3, value: v }, at);
+    return v;
+  }
+  writeIO(reg, v, at) {
+    if (this.trace) this.trace('reg-write', { reg: reg & 3, value: v }, at);
+    this.time = at; this.chip.write(reg, v);
+  }
+  // hear the register accesses (the value a read returned: tracing never reads the chip itself) and the chip's
+  // character boundaries (MOS6551 onTrace), as fn(kind, data, at); null stops it. Nothing here is state.
+  setTrace(fn) {
+    this.trace = fn;
+    this.chip.onTrace = fn ? (kind, byte) => fn(kind, { byte }, this.time) : null;
+  }
   saveState() {
     return { chip: this.chip.saveState(), port: this.port.saveState(), signal: this.signal, half: this.half.toString(), clock: this.clock.saveState() };
   }

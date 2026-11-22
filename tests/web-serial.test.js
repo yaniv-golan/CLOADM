@@ -35,20 +35,20 @@ function mockSerial({ refuse = false } = {}) {
   await s.mountDriveWire(0, 'boot.dsk');
 
   const none = new Emu.Session();
-  none.serial = undefined;
+  none.webSerial = undefined;
   let msg = '';
   try { await none.serveRealCoco(57600); } catch (e) { msg = e.message; }
   check('no Web Serial in this browser: a clear refusal', !none.webSerialAvailable && /no Web Serial/.test(msg), msg);
 
   const refused = mockSerial({ refuse: true });
-  s.serial = refused.serial;
+  s.webSerial = refused.serial;
   try { await s.serveRealCoco(57600); msg = ''; } catch (e) { msg = e.message; }
   check('the user picks no port: "No serial port chosen."', msg === 'No serial port chosen.', msg);
   try { await s.serveRealCoco(9600); msg = ''; } catch (e) { msg = e.message; }
   check('a rate the link does not offer is refused', /not offered/.test(msg) && !SERIAL_DW_BAUDS.includes(9600), msg);
 
   const m = mockSerial();
-  s.serial = m.serial;
+  s.webSerial = m.serial;
   await s.serveRealCoco(115200);
   check('the port opens 8N1 at the chosen rate, no flow control', JSON.stringify(m.port.opened) === JSON.stringify({ baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none', flowControl: 'none' }));
   check('the Session shows the real CoCo served', s.realCoco.state === 'open');
@@ -75,7 +75,7 @@ function mockSerial({ refuse = false } = {}) {
   check('stop: the port is closed', m.port.closed && s.realCoco === null);
 
   const u = mockSerial();
-  s.serial = u.serial;
+  s.webSerial = u.serial;
   await s.serveRealCoco(57600);
   u.unplug();
   for (let i = 0; i < 50 && s.realCoco.state === 'open'; i++) await tick();

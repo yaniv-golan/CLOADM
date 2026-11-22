@@ -42,7 +42,7 @@ const { STEPS, ERROR_CODES } = require(CLI);
   check('--describe: every step\'s example parses', !bad.length, bad.map((s) => s.example).join(' | '));
   // the codes the tool raises are the codes it describes: every usage(...,'x'), media(...,'x') and CliError('x' in the source
   const src = fs.readFileSync(CLI, 'utf8');
-  const used = new Set([...src.matchAll(/(?:usage|media)\([^;]*?, '([a-z-]+)'\)/g), ...src.matchAll(/new CliError\('([a-z-]+)'/g), ...src.matchAll(/this\.failed\('([a-z-]+)'/g)].map((m) => m[1]));
+  const used = new Set([...src.matchAll(/(?:usage|media)\([^;]*?, '([a-z-]+)'\)/g), ...src.matchAll(/new CliError\('([a-z-]+)'/g), ...src.matchAll(/this\.(?:failed|stalled)\('([a-z-]+)'/g)].map((m) => m[1]));
   check('every error code the tool raises is a described code', used.size >= 12 && [...used].every((c) => c in ERROR_CODES), [...used].filter((c) => !(c in ERROR_CODES)).join());
   // the guide names every step, mode and error code, so the guide and the tool cannot drift apart
   const doc = fs.readFileSync(path.join(ROOT, 'docs/automation.md'), 'utf8');
