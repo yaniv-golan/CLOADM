@@ -216,6 +216,15 @@ const STEPS = {
     parse: (t) => ({ file: t }),
   },
   'wav-stop': { arg: null, help: 'end the sound recording here and write its file', example: '--wav-stop' },
+  profile: {
+    arg: 'FILE[:cycles|samples]', help: 'profile where the CPU spends its time from here to a profile-stop or the end of the run, by symbol (from asm or symbols; 256-byte pages where none covers), with each range\'s share spent spinning on a poll; cycles (default) counts every cycle exactly, samples one PC every 1000 cycles; FILE gets a text table, or JSON with --json', example: '--profile prof.txt',
+    parse: (t) => {
+      const m = /^(.*?)(?::(cycles|samples))?$/.exec(t);
+      if (!m[1]) throw usage(`profile is FILE[:cycles|samples], not "${t}"`);
+      return { file: m[1], mode: m[2] || 'cycles' };
+    },
+  },
+  'profile-stop': { arg: null, help: 'end the profile here and write its file', example: '--profile-stop' },
   screen: { arg: null, help: 'the text on the screen (the readers Claude\'s screen_text uses); a graphics screen has no text, and says so', example: '--screen' },
   screenshot: {
     arg: 'FILE', help: 'save the frame as a PNG (the frame\'s own pixels, unscaled)', example: '--screenshot out.png',
@@ -473,6 +482,8 @@ class Runner {
     this.tolerance = 0;          // pixels an expect-screenshot may find different
     this.diffFile = null;        // where an expect-screenshot writes its difference picture
     this.wav = null;             // the sound recording under way: { file, out (AudioOutput), chunks, result }
+    this.prof = null;            // the profile under way: { file, p (Profiler), result }
+    this.json = false;           // --json: a profile's file is JSON, else a text table
     this.results = [];
     this.romReport = null;
   }
@@ -763,6 +774,29 @@ class Runner {
     writeFile(w.file, Emu.writeWav(samples, WAV_RATE));
     Object.assign(w.result, { samples: n, seconds: n / WAV_RATE });
   }
+  // start a hot-spot profile (ending one under way): written by endProfile, at profile-stop or when the run ends
+  async profileStep(step, { file, mode }, s) {
+    this.endProfile();
+    const p = s.profile({ mode });
+    const result = this.record(step, { file, mode });
+    this.prof = { file, p, result };
+    return result;
+  }
+  async profileStop(step) {
+    const pr = this.prof;
+    if (!pr) throw usage(`${step.where}: no profile to stop (profile starts one)`);
+    this.endProfile();
+    const { total, halted, unattributed, rows } = pr.result;
+    return this.record(step, { file: pr.file, mode: pr.result.mode, total, halted, unattributed, rows });
+  }
+  endProfile() {
+    const pr = this.prof;
+    if (!pr) return;
+    this.prof = null;
+    const r = pr.p.stop();
+    writeFile(pr.file, this.json ? JSON.stringify(r, null, 2) : `${Emu.profileText(r)}\n`);
+    Object.assign(pr.result, { total: r.total, halted: r.halted, unattributed: r.unattributed, rows: r.rows.length });
+  }
   async screenStep(step) { return this.record(step, this.screen()); }
   async screenshot(step, { file }) {
     const frame = this.m.render();
@@ -828,7 +862,7 @@ class Runner {
 const STEP_METHODS = {
   'load-snapshot': 'loadSnapshot', program: 'program', load: 'load', asm: 'asm', symbols: 'symbols', cart: 'cart', tape: 'tape', disk: 'disk',
   type: 'type', frames: 'frames', seconds: 'seconds', 'wait-for': 'waitFor', 'expect-screen': 'expectScreen',
-  'expect-mem': 'expectMem', 'expect-screenshot': 'expectScreenshot', hold: 'hold', wav: 'wavStep', 'wav-stop': 'wavStop', screen: 'screenStep', screenshot: 'screenshot', peek: 'peek', poke: 'poke',
+  'expect-mem': 'expectMem', 'expect-screenshot': 'expectScreenshot', hold: 'hold', wav: 'wavStep', 'wav-stop': 'wavStop', profile: 'profileStep', 'profile-stop': 'profileStop', screen: 'screenStep', screenshot: 'screenshot', peek: 'peek', poke: 'poke',
   registers: 'registers', 'set-register': 'setRegister', disasm: 'disasm', step: 'stepInstructions', reset: 'resetStep',
   'power-cycle': 'powerCycle', view: 'view', 'save-snapshot': 'saveSnapshot', info: 'info',
 };
@@ -1104,6 +1138,7 @@ async function main(argv, { out = (t) => process.stdout.write(t + '\n'), err = (
       return 0;
     }
     if (!opts.steps.length) throw usage('nothing to do: give steps (--help lists them)', 'no-steps');
+    runner.json = opts.json;
     for (const step of opts.steps) {
       const r = await runner.run(step);
       const text = r && !opts.json ? humanText(r) : null;
@@ -1111,9 +1146,11 @@ async function main(argv, { out = (t) => process.stdout.write(t + '\n'), err = (
     }
     runner.start();   // a command line of setup steps only still builds the machine (and checks the ROMs)
     runner.endWav();
+    runner.endProfile();
     return finish(0);
   } catch (e) {
     try { runner.endWav(); } catch (e2) { /* the run already failed: its own error is the one reported */ }
+    try { runner.endProfile(); } catch (e2) { /* likewise */ }
     const error = asCliError(e);
     return finish(EXIT[error.kind], error);
   }

@@ -70,6 +70,8 @@ Then, in any order:
 | `--screenshot FILE` | the frame as a PNG |
 | `--wav FILE` | record the machine's sound from here until `--wav-stop` or the end of the run, as a 16-bit mono WAV (see [Pictures and sound](#pictures-and-sound)) |
 | `--wav-stop` | end the recording and write its file |
+| `--profile FILE[:cycles\|samples]` | profile where the CPU spends its time from here to `--profile-stop` or the end of the run, by symbol (see [Finding hot spots](#finding-hot-spots)); FILE gets a text table, or JSON with `--json` |
+| `--profile-stop` | end the profile and write its file |
 | `--peek ADDR[:LEN]` | memory as the CPU sees it, with no side effects |
 | `--poke ADDR=V[,V…]` | write through the memory map (ROM and I/O take nothing) |
 | `--save-snapshot FILE` | the machine as a snapshot file, which the page opens too |
@@ -388,6 +390,75 @@ than the frames run: its counter then advances less than once a frame.
 the Dragons, the CoCo 1/2 and the MC-10 but the GIME's clock (four times the 0.89 MHz CPU cycle: 59,736 a frame NTSC, 71,136 PAL)
 on the CoCo 3, where the CPU runs at two speeds; `machine.cpu.totalCycles` counts CPU cycles on every model.
 
+### Finding hot spots
+
+A slow build tells you how many frames it takes, not where they go. A **profile** charges every CPU cycle to the
+instruction that spent it, folds the counts into the program's symbols, and says which of that time was spent
+**spinning**: waiting on a poll rather than computing.
+
+```sh
+node cli/cloadm.js --asm docs/examples/framecount.asm --frames 5 --profile hot.txt --frames 50 --profile-stop
+```
+
+```text
+889199 cycles; halted 0; outside any symbol 0
+ share         count   spin  where
+ 99.9%        888449    99%  WAITFS $3046-$3068  polls $FF02 $FF03
+  0.1%           500     1%  NOKEY $3069-$30FF  polls $FF02 $FF03
+  0.0%           250     8%  TICK $3043-$3045  polls $FF02 $FF03
+(counts are keyed by CPU address: banked or MMU-mapped code that runs at one address is counted together)
+```
+
+Here nearly all the time is the field-sync wait (`WAITFS` polling `$FF03`, PIA0's field-sync flag): the program is
+idle, not slow (`$FF02` is read to clear the flag). A row that is hot and **not** spin is where to optimise.
+
+* **Symbols.** The labels `--asm` gave, or a map read with `--symbols` (`--assemble --map`, an LWLINK or CMOC map), as
+  they are when the profile is written. A symbol's range runs from its address to the next symbol's, at most 4K bytes;
+  addresses no symbol covers are counted in 256-byte pages (`symbol` null), and `unattributed` is their total.
+* **`cycles`** (the default) is exact: the total is the CPU's cycle count over the profile (`cpu.totalCycles`; CPU
+  cycles on the CoCo 3 too, whatever its GIME clock does). **`samples`** takes one PC every 1000 cycles and counts
+  samples. Cycles in which the disk controller's HALT holds the CPU are no instruction's: they are the `(halted)` row.
+  The cycles an interrupt takes to enter (stacking the registers) count to the instruction it interrupted.
+* **Spin.** The instructions are taken 32 at a time; a window is spin when it ran at most 4 distinct instructions,
+  wrote no RAM, and read I/O (`$FF00`-`$FFEF`; on the MC-10 its 6803 registers `$0000`-`$001F` and the keyboard
+  latch `$BFFF`) or read one RAM byte more than once. A row's `spin.share` is the part of its count made in spin
+  windows, and `spin.polls` the addresses those windows read. A delay loop that only counts in a register is compute.
+* **One address space.** The counts are keyed by CPU address: code banked in or mapped by the CoCo 3's MMU at the same
+  address is counted together, and the report says so (`note`).
+* **Cost.** While a profile runs, the machine runs 1.4 to 1.7 times slower (`node tools/profile-cost.js` measures it on
+  the Dragon 64, CoCo 3 and MC-10); with none, nothing is attached and nothing is slower. A profile is host state:
+  no snapshot carries it, and opening a snapshot starts it empty.
+
+From Node, `session.profile({ mode, every, symbols, buckets })` starts one; `report({ top })` reads it at any time and
+`stop()` ends it with its last report: `{ mode, every, total, halted, unattributed, rows, ranges, note }`, each row
+`{ symbol, start, end, count, share, spin: { share, polls } }`, largest first (`top`, default 30, of them). `every`
+is the sample period in cycles; `buckets` (default 4096) the most ranges a report keeps, the smallest beyond it
+summed in one `(other)` row; `symbols` a Map or object of name to address, by default the Session's labels.
+
+```js
+// example: hot-spots
+import { readFileSync } from 'node:fs';
+import { Session, assemble, profileText } from './js/emu.js';
+
+const fail = (what) => { throw new Error(`example: ${what}`); };
+const s = new Session({ welcomeMenu: false });
+s.switchMachine('dragon64', {}, { menu: false });
+s.runAssembled(assemble(readFileSync('docs/examples/framecount.asm', 'utf8'), '6809'));
+s.runFrames(5);                              // past its start (it clears the picture first)
+
+const t0 = s.machine.cpu.totalCycles;
+const p = s.profile();                       // mode 'cycles': every cycle, exactly
+s.runFrames(50);
+const r = p.stop();
+console.log(profileText(r));
+
+if (r.total !== s.machine.cpu.totalCycles - t0) fail('the total is not the CPU\'s cycle count');
+const top = r.rows[0];
+if (top.symbol !== 'WAITFS' || top.share < 0.99) fail(`the hot spot is ${top.symbol}`);
+if (top.spin.share < 0.95 || !top.spin.polls.includes('$FF03')) fail('the field-sync wait is not spin on $FF03');
+console.log('example passed');
+```
+
 ## For coding agents
 
 Writing a game? [Game development](game-development.md) is the guide: the hardware a game uses, a starter game, and
@@ -619,6 +690,7 @@ and back when the snapshot is taken). The example does not exercise the machine-
 | `machine.render()`, `frameToRGBA(frame)`, `framePng(frame)` | pictures |
 | `await snapshotFile()`, `await readSnapshot(bytes)`, `openSnapshot(snap)` | snapshots |
 | `debug` (`addBreakpoint`, `step`, `registers`, …) | the debugger, as the page's Debugger screen uses it |
+| `profile({ mode, every, symbols, buckets })` → `report({ top })`, `stop()`, `profileText(report)` | hot spots ([Finding hot spots](#finding-hot-spots)); the report's fields |
 
 Everything else — the chips, the CPU cores, the machine classes, the scheduler, the snapshot's `state` layout and
 the Claude chat — is internal: it changes whenever the emulation needs it to.

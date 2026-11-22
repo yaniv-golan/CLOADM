@@ -83,6 +83,7 @@ node tests/disasm.test.js    # disassembler: every 6809/6803 opcode against the 
 node tests/debugger.test.js  # debugger core: breakpoints, watchpoints, stepping, trace, against a free run
 node tests/debug-session.test.js  # the debugger through the Session: lifetime, symbols, errors, snapshots
 node tests/probes.test.js    # probes and bus taps: order, removal in any order, the debugger as a client, the CoCo 3 held instruction once, Session hooks across snapshots and switches
+node tests/profiler.test.js  # hot-spot profiler: cycles per routine against hand counts (6809, 6803), total = cpu.totalCycles delta, spin vs compute, FDC HALT, samples, buckets, snapshots, the CLI; node tools/profile-cost.js measures its slowdown
 node tests/halt-held.test.js # CoCo 3 instruction held by HALT: CPU redirected while held; debugger steps, stops, counts
 node tests/halt-replay.test.js # CoCo 3 held instruction run again: exact reads (6309 TFM, all forms), malformed snapshot state
 node tests/coco3-buslog.test.js # CoCo 3 bus log: carried only with a HALT-capable device (logBus), hot-plug, snapshots, the guards

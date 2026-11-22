@@ -26,6 +26,7 @@ import { cpuFamily } from './cpu/cpus.js';
 import { SpeechSoundPak, SSC_ROM_PROFILE } from './machines/ssc.js';
 import { Debugger, codeDisassembly } from './debugger.js';
 import { HostHooks } from './hooks.js';
+import { Profiler } from './profiler.js';
 import { disassembleBlock } from './asm/disassembler.js';
 import { formats } from './media/formats.js';
 import { Tape } from './media/tape.js';
@@ -378,6 +379,7 @@ export class Session {
     // never in a snapshot. Internal: no public API yet.
     this.hooks = new HostHooks();
     this.labels = null;             // symbols of the program in use (the assembler's Map name -> address)
+    this.profiles = new Set();      // the profiles running (profile): an opened snapshot starts them empty
     this.displayCache = null;       // Session.display, once read from the store
     this.unsavedRecording = null;   // a tape recording kept when its machine went (keepRecording), until the page takes it
   }
@@ -550,6 +552,19 @@ export class Session {
   setLabels(symbols) {
     this.labels = symbols;
     if (this.debugger) this.debugger.setSymbols(() => this.labels);
+  }
+  // A hot-spot profile of the machine in use from now on (js/profiler.js): { mode: 'cycles' | 'samples', every,
+  // symbols, buckets } -> a Profiler; p.report({ top }) at any time, p.stop() ends it (with its last report). Its
+  // probe and bus taps are the Session's own (hooks), so it follows a machine switch; an opened snapshot starts it
+  // empty. symbols: a Map or object name -> address, or a function returning one; by default the Session's labels
+  // (the assembled program's, or setLabels) as they are when it reports.
+  profile({ mode = 'cycles', every = 1000, symbols = () => this.labels, buckets = 4096 } = {}) {
+    let p;
+    try { p = new Profiler(this.hooks, { mode, every, symbols, buckets }); } catch (e) { throw new SessionError(e.message); }
+    this.profiles.add(p);
+    const stop = p.stop.bind(p);
+    p.stop = () => { this.profiles.delete(p); return stop(); };
+    return p;
   }
   // a debugger has stopped the machine: the frame loop must not run it on (advance runs nothing then)
   get paused() { return !!(this.debugger && this.debugger.stopped); }
@@ -1393,6 +1408,7 @@ export class Session {
     try { m = restoreSnapshot(snap, Object.fromEntries(p.roms.map((x) => [x.id, roms[x.id] || null]))); }
     catch (e) { throw new SessionError(`This snapshot can't be opened: ${e.message}.`); }
     this.adopt(m);
+    for (const p of this.profiles) p.clear();      // a profile counts what ran from the moment opened
     if (switching) this.store.set(`config.${m.id}`, JSON.stringify(snap.config));
     if (Object.keys(roms).length) { if (!this.nitros9On(m)) this.stubChosen.delete(m.id); } else this.stubChosen.add(m.id);
     this.emit('machine');

@@ -65,6 +65,7 @@ export * from './host/key-store.js';
 export * from './host/example-reader.js';
 export * from './errors.js';
 export * from './debugger.js';
+export { Profiler, profileText } from './profiler.js';
 export { fitPicture, fitActive } from './video/layout.js';
 export { mixColours } from './chips/artifacter.js';
 export * from './media/library.js';

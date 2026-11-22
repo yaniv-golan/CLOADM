@@ -10,6 +10,19 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Added
 
+- **A hot-spot profiler: where the CPU's time goes, and whether it is waiting.** `session.profile({ mode, every, symbols, buckets })`
+  charges every CPU cycle (`mode: 'cycles'`, exact: the total is the `cpu.totalCycles` delta, CPU cycles on the CoCo 3 too) or one PC
+  every `every` cycles (`'samples'`) to the instruction that spent it; `report({ top })` and `stop()` fold the counts into the
+  program's symbols (a symbol covers up to the next one, at most 4K; uncovered addresses in 256-byte pages, totalled as
+  `unattributed`; at most `buckets` ranges, the rest in one `(other)` row) and give each range's **spin** share: the part spent in
+  32-instruction windows of at most 4 instructions that wrote no RAM and polled I/O or one RAM byte, with the addresses polled.
+  Cycles the disk controller's HALT holds the CPU are a `(halted)` row. On the command line, `--profile FILE[:cycles|samples]` …
+  `--profile-stop` writes a text table, or JSON with `--json`, naming ranges from `--asm` or `--symbols`. It runs from the
+  Session's own probe and bus taps, which exist only while a profile runs (1.4 to 1.7 times slower then, `tools/profile-cost.js`;
+  nothing otherwise); it is never in a snapshot, and opening one starts it empty. The counts are keyed by CPU address, so banked
+  or MMU-mapped code aliases, and the report says so. `docs/automation.md`, "Finding hot spots", has a worked example that runs
+  as a test; `tests/profiler.test.js` checks hand-counted programs on the Dragon 64, CoCo 3 and MC-10.
+
 - **Headless developer docs: which paths each model has, a complete Node example, a graphics recipe and a serial note.** (Documentation,
   one example and its test; no change to the emulator.) `docs/automation.md` gains a per-model table of the tape, disk-controller,
   6551, bit-banger and Becker paths, built from `js/machines/profiles.js` (the options example no longer offers `becker=true`
