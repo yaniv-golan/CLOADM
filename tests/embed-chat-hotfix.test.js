@@ -1,6 +1,6 @@
 // Run: node tests/embed-chat-hotfix.test.js
 //
-// PM 137 (hotfix): an embedded CLOADM must not be able to open the Claude chat. In embed mode there is no chat
+// An embedded CLOADM must not be able to open the Claude chat. In embed mode there is no chat
 // machine, no #claude panel, no key card, and no route reaches one: not `?app=claude`, not an EmbedApi call, not a
 // keypress (the chat's own keys handlers are inside setupClaude, which does not run).
 //

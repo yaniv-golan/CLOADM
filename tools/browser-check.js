@@ -7458,7 +7458,7 @@ async function urlChecks(browser, base, check) {
   check('link: embed=1 shows the screen alone', await ev(() => document.body.classList.contains('embed')) && await page.isHidden('.appbar') && await page.isHidden('.drawer')
     && await ev(() => { const r = document.getElementById('screen').getBoundingClientRect(); return r.width > 300; }));
   if (shotDir) await page.screenshot({ path: path.join(shotDir, 'embed-alone.png') });
-  // PM 137: an embed cannot reach the Claude chat. The rule is that ?embed=1&app=claude shows no key card and creates
+  // An embed cannot reach the Claude chat. The rule is that ?embed=1&app=claude shows no key card and creates
   // no chat machine; the routes (the Ask panel, the command box, a keypress) are not set up there at all.
   await open('?machine=dragon64&embed=1&app=claude');
   await page.waitForTimeout(1500);

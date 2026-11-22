@@ -121,7 +121,7 @@ setupKeyHint(page);
 setupSettingsFile(page);
 const share = setupShare(page);
 const showRoms = () => romSockets.reveal();
-// No Claude chat in an embed (PM 137). An embedded CLOADM is third-party content in someone else's page, and the chat
+// No Claude chat in an embed. An embedded CLOADM is third-party content in someone else's page, and the chat
 // would put its API key card on that page; with no controller there is no chat machine, no panel and no key card, and
 // the routes that open one (?app=claude, the Ask panel, the command box, a keypress) have nothing to reach.
 const claude = link.embed ? null : setupClaude(page);
