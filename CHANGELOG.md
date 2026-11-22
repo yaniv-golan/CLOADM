@@ -28,7 +28,7 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   (`Object.keys(machine.keyPos)`; the `[row, column]` values stay internal), `machine.frameCount`, `machine.now()`,
   `machine.tickHz` and `machine.cpu.totalCycles`, the `Frame` fields (`width`, `height`, `aspect`, `active`, `data`, `table`) and
   `framePng(frame, scale)` from `cli/cloadm.js`; `machine.serialPort`, `pcWatch`, `stubKeys` and the typist's internals are
-  listed as not promoted. `tests/dev-docs-headless.test.js` imports each promoted name through its public path and checks its
+  listed as not promoted. `tests/devapi-stable.test.js` imports each promoted name through its public path and checks its
   shape, so renaming one fails it.
 
 ### Fixed

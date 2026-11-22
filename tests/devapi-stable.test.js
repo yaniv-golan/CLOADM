@@ -18,8 +18,8 @@ const check = (name, cond, detail = '') => { n++; if (!cond) { fail++; console.l
   const stable = doc.slice(doc.indexOf('### What is stable'), doc.indexOf('## Packaging'));
 
   const start = (id) => { const s = new Emu.Session({ welcomeMenu: false }); s.switchMachine(id, {}, { menu: false }); return s; };
-  const d64 = start('dragon64'), coco = start('coco'), coco3 = start('coco3');
-  d64.runFrames(3); coco.runFrames(3); coco3.runFrames(3);
+  const d64 = start('dragon64'), coco = start('coco'), coco3 = start('coco3'), mc10 = start('mc10');
+  d64.runFrames(3); coco.runFrames(3); coco3.runFrames(3); mc10.runFrames(3);
 
   // ---------------- the table names each promoted thing ----------------
   for (const name of ['machine.setKey(name, down)', 'Object.keys(machine.keyPos)', 'machine.frameCount', 'machine.now()', 'machine.tickHz',
@@ -29,7 +29,7 @@ const check = (name, cond, detail = '') => { n++; if (!cond) { fail++; console.l
     /Not promoted[^\n]*\n?[^\n]*`machine\.serialPort`, `pcWatch`, `stubKeys`/.test(stable) && /typist/.test(stable.slice(stable.indexOf('Not promoted'))));
 
   // ---------------- keyboard ----------------
-  for (const [id, s] of [['dragon64', d64], ['coco', coco], ['coco3', coco3]]) {
+  for (const [id, s] of [['dragon64', d64], ['coco', coco], ['coco3', coco3], ['mc10', mc10]]) {
     const m = s.machine, names = Object.keys(m.keyPos);
     check(`${id}: setKey is a function of two arguments`, typeof m.setKey === 'function' && m.setKey.length === 2);
     check(`${id}: keyPos has key names whose values are [row, column] pairs, and SPACE and ENTER are among the names`,
@@ -45,7 +45,7 @@ const check = (name, cond, detail = '') => { n++; if (!cond) { fail++; console.l
   }
 
   // ---------------- emulated time ----------------
-  for (const [id, s] of [['dragon64', d64], ['coco', coco], ['coco3', coco3]]) {
+  for (const [id, s] of [['dragon64', d64], ['coco', coco], ['coco3', coco3], ['mc10', mc10]]) {
     const m = s.machine, f0 = m.frameCount, t0 = m.now(), c0 = m.cpu.totalCycles;
     s.runFrames(2);
     check(`${id}: frameCount is a number that goes up by one a frame`, Number.isInteger(f0) && m.frameCount === f0 + 2);
@@ -53,7 +53,7 @@ const check = (name, cond, detail = '') => { n++; if (!cond) { fail++; console.l
     check(`${id}: tickHz is the clock's rate in Hz`, typeof m.tickHz === 'number' && m.tickHz > 800000 && m.tickHz < 8e6, String(m.tickHz));
     check(`${id}: cpu.totalCycles counts CPU cycles and goes up`, Number.isInteger(c0) && m.cpu.totalCycles > c0);
   }
-  check('on the Dragon 64 the machine clock is the CPU cycle (within the instruction in flight)', Math.abs(d64.machine.now() - d64.machine.cpu.totalCycles) <= 30, `${d64.machine.now()} vs ${d64.machine.cpu.totalCycles}`);
+  check('on the Dragon 64 the machine clock is the CPU cycle (they differ by the reset offset, a constant 4 cycles)', Math.abs(d64.machine.now() - d64.machine.cpu.totalCycles) <= 8, `${d64.machine.now()} vs ${d64.machine.cpu.totalCycles}`);
   const g3 = coco3.machine, ratio = (g3.now() - 0) / g3.cpu.totalCycles;
   check('on the CoCo 3 the machine clock is the GIME\'s, 2 to 4 times the CPU cycle count (the CPU runs at two speeds)', ratio > 2 && ratio <= 4.01, String(ratio));
 
