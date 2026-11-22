@@ -94,7 +94,13 @@ export function setupCommandBox(page, claude) {
   function draw() {
     const q = input.value.trim();
     const cmds = matches(q);
-    options = [...cmds.map((c) => ({ kind: 'cmd', c })), ...(q ? [{ kind: 'ask', q }] : [])];
+    // A question (it ends in "?") is for Claude: its row comes first and is the one Enter runs, the commands it
+    // matches listed beneath, so "reset?" asks rather than resets. Only a command's whole label typed with its own
+    // "?" ("What is this code doing?") still runs the command.
+    const label = q.toLowerCase();
+    const question = /\?\s*$/.test(q) && !COMMANDS.some(([l]) => l.toLowerCase() === label);
+    const cmdRows = cmds.map((c) => ({ kind: 'cmd', c })), askRow = q ? [{ kind: 'ask', q }] : [];
+    options = question ? [...askRow, ...cmdRows] : [...cmdRows, ...askRow];
     selected = Math.min(selected, options.length - 1);   // -1: nothing chosen yet (the empty box)
     const out = [];
     if (!q) {
@@ -111,9 +117,9 @@ export function setupCommandBox(page, claude) {
         out.push(box);
       }
     } else {
-      if (cmds.length) out.push(div('group', 'Commands'));
       options.forEach((o, i) => {
         if (o.kind === 'ask') out.push(div('group claude', 'Claude'));
+        else if (o === cmdRows[0]) out.push(div('group', 'Commands'));
         out.push(optionRow(o, i));
       });
     }

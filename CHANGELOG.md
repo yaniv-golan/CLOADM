@@ -201,7 +201,9 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 - **Ctrl+K finds a command typed with its punctuation.** Typing a command's label as it reads, such as "Chat with
   Claude, full screen", found no command: the box split what you typed only at spaces, so "claude," matched nothing,
-  and Enter asked Claude instead. It now splits at punctuation as the labels are.
+  and Enter asked Claude instead. It now splits at punctuation as the labels are. A question, ending in "?", still goes
+  to Claude even when its words match a command: "reset?" asks, with Reset listed beneath, and runs nothing. Only a
+  command's whole label typed with its own "?" runs it.
 - **An embedded CLOADM could open the Claude chat; the chat is no longer available in an embed.**
 - **Two server processes adding ROMs at once could lose index entries.** Every change to the ROM store's index now
   reads it again and writes it while holding a lock file (`index.lock`, broken after ten seconds if its holder died),

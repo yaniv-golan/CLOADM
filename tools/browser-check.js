@@ -10856,6 +10856,46 @@ async function askBesideChecks(browser, base, check) {
       await ctx.close();
     }
   }
+  // Ctrl K: a question (ending in "?") goes to Claude even when it matches a command, which is listed beneath; a
+  // command typed as a command (no "?", or its whole label) still runs. The command rows press the page's buttons, so
+  // a listener on Reset and "Switch off and on" sees whether one ran.
+  for (const [query, want] of [['hard reset?', 'ask'], ['reset?', 'ask'], ['reset', 'btnReset'], ['Chat with Claude, full screen', 'full']]) {
+    const L = `askBeside (Ctrl K "${query}")`;
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}?machine=dragon64`);
+    await started(page);
+    await stubPrompt(page);
+    await page.evaluate(() => { window.__pressed = [];
+      for (const id of ['btnReset', 'btnHardReset']) document.getElementById(id).addEventListener('click', () => window.__pressed.push(id), true); });
+    await page.focus('#screen');
+    await page.keyboard.press('Control+k');
+    await waitFor(page, () => !document.getElementById('cmdBox').hidden);
+    await page.keyboard.type(query);
+    const rows = await page.evaluate(() => [...document.querySelectorAll('#cmdBox [role="option"]')].map((r) => ({ ask: r.classList.contains('ask'), text: r.textContent, sel: r.getAttribute('aria-selected') === 'true' })));
+    if (want === 'ask') {
+      const cmd = query === 'hard reset?' ? 'Switch off and on' : 'Reset';
+      check(`${L}: the ask row is first and selected, the matching commands listed beneath it`, rows.length > 1 && rows[0].ask && rows[0].sel
+        && rows.slice(1).every((r) => !r.ask && !r.sel) && rows.slice(1).some((r) => r.text.startsWith(cmd)), JSON.stringify(rows));
+    }
+    await page.keyboard.press('Enter');
+    if (want === 'ask') {
+      const asked = await waitFor(page, () => !document.getElementById('ask').hidden && window.emu.session.claudeView === 'panel', null, 10000);
+      await emuFrames(page, 5);
+      const pressed = await page.evaluate(() => window.__pressed);
+      check(`${L}: Enter asks Claude in the side panel and runs no command`, asked && !pressed.length, JSON.stringify(pressed));
+    } else if (want === 'btnReset') {
+      check(`${L}: a command typed as a command still runs (Reset)`, await waitFor(page, () => window.__pressed.join() === 'btnReset', null, 5000)
+        && await page.evaluate(() => document.getElementById('ask').hidden), await page.evaluate(() => JSON.stringify(window.__pressed)));
+    } else {
+      check(`${L}: the whole label still runs its command (the full-screen chat)`, await waitFor(page, () => window.emu.session.claudeView === 'full' && !!window.emu.session.chatMachines, null, 15000)
+        && await page.evaluate(() => !window.__pressed.length));
+    }
+    check(`${L}: no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
 }
 
 // Ask Claude on a CoCo 3 in an 80-column GIME text mode with attributes (as NitrOS-9 uses): Claude's screen_text
