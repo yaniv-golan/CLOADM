@@ -57,6 +57,36 @@ as the chip's flip-flop chain (B0-B3 bytes, bit 4 the 16-byte offset in a row, b
 divisions, so a mid-field mode change keeps its address position - which is why such a field is not the same as a
 static picture of the new mode. The CoCo 3's GIME already latched its palette and video registers per scanline.
 
+## Audio output
+
+The machine produces no samples: each frame it records its sound level as `[cycle, level]` events
+(`machine.audioEvents`). The host turns them into sound in `js/host/`, and nothing there feeds back into the machine,
+so the samples the chips make are the same with sound on, off, or played anywhere else.
+
+* `AudioOutput` (`audio.js`, browser-free) averages the level over each sample's window (a box filter), DC-blocks it
+  and writes one chunk a frame to its sink. The command line's `--wav` uses it with no filter and a sink that only
+  collects.
+* On the page the sink is a `PortSink`: chunks go, transferred, through the MessagePort of an `AudioWorkletNode`,
+  whose processor (`audio-worklet.js`, `cloadm-output`) plays them from a `SampleQueue` on the audio thread and
+  reports what it has taken every 4 render quanta. The module imports nothing and is loaded with
+  `audioWorklet.addModule()` from its own URL: no build step, and `sw.js` keeps it for offline use.
+* The ScriptProcessorNode fallback plays the same `SampleQueue` on the page's thread where no worklet module can load.
+  Every supported browser has AudioWorklet, but it needs a secure context, and the connector's inline side-panel view
+  (`connector/fold.js`) runs under a CSP that allows no fetched, `blob:` or `data:` script, so no module can be loaded
+  there. It is made only then, never alongside a working worklet.
+
+Latency is steered to `TARGET_MS` (40 ms) of queued sound:
+
+* inside 10-80 ms a frame is played as it is; outside, it is resampled by a held 2% toward `TARGET_MS` (the slow
+  drift between the machine's clock and the sound card's);
+* **bounded catch-up after a stall.** Too shallow: once the queue has run dry and faded out (a pause, a debugger stop,
+  a stalled or hidden tab), `SampleQueue` re-primes: it plays silence until `TARGET_MS` is queued (or twice that long
+  with something queued, so a lone frame still plays), then fades in, so playback restarts `TARGET_MS` deep at once
+  instead of on one frame. Too deep: past `SKIP_MS` (120 ms) `AudioOutput` drops whole frames until the queue is back
+  to `TARGET_MS`, within `CATCHUP_MS` of real time, moving its filter's input so the next frame doesn't step.
+  `tests/audio.test.js` runs both on a model of the page's clock (`simulate`), `tests/audio-worklet.test.js` the
+  queue and processor, and the browser check's `audio` group the real page.
+
 ## The debugger core
 
 `js/debugger.js` is the debugger behind the Session, browser-free: `session.debug` is one debugger per machine,

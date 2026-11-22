@@ -402,6 +402,14 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   and `tests/bus.test.js` check the 200-E's disk cartridges, printer and serial port against the Dragon 64's, and the
   model table in `docs/automation.md` no longer needs a footnote. `tools/mame-diff/run.js dragon200e --fdc dragonfdc`
   now runs, and the printer, serial and disk comparisons install the 200-E's character generator, which MAME requires.
+- **Sound comes back at once after a pause, a debugger stop or a stalled tab.** After the sound had run dry, the page's
+  frames restarted it one at a time, so the queue sat between empty and one frame for seconds while a 2% correction
+  slowly refilled it. The audio thread's queue now waits, silent, until 40 ms is queued, then fades in (a lone frame
+  still plays, at most 80 ms late). A queue deeper than 120 ms (frames pushed in a burst) now drops whole frames back to
+  40 ms within a quarter of a second, instead of draining at 2% for up to 5 s. The machines' samples are unchanged.
+  The ScriptProcessorNode stays only as the fallback where no AudioWorklet module can load (the connector's inline
+  view, whose policy allows no loaded script, and plain `http://` away from `localhost`). `tests/audio.test.js`
+  measures the recovery on a model of the page's clock; the browser check's `audio` group checks the real page.
 - **An embedded CLOADM could open the Claude chat; the chat is no longer available in an embed.**
 - **Two server processes adding ROMs at once could lose index entries.** Every change to the ROM store's index now
   reads it again and writes it while holding a lock file (`index.lock`, broken after ten seconds if its holder died),

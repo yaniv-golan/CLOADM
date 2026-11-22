@@ -6,10 +6,14 @@
 // running dry (pause, turbo, sound off) and samples coming back. Each case is also run without the protection
 // (the old stage: no re-seed, 0 on underrun) to show the case does pop there. While samples flow, the output
 // is exactly the high-pass of the machine's levels, as before.
-const { AudioOutput, FADE_MS } = require('../js/host/audio.js');
+const { AudioOutput, FADE_MS, SKIP_MS, TARGET_MS, LOW_MS, HIGH_MS, CATCHUP_MS } = require('../js/host/audio.js');
+const { SampleQueue } = require('../js/host/audio-worklet.js');
 // the stage as the page plays it: AudioOutput writing into a SampleQueue (its default sink), which the audio
 // thread pulls (js/host/audio-worklet.js)
 class Stage extends AudioOutput { pull(b) { this.sink.pull(b); } }
+// the same without the queue's re-prime after a gap (js/host/audio-worklet.js), for the checks that line its output
+// up sample by sample with a reference; the re-prime has its own checks (no pop through it, and the catch-up below)
+const plain = (rate) => new Stage(rate, new SampleQueue(rate, { primeMs: 0 }));
 
 let fail = 0;
 const check = (name, cond, detail = '') => { if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log(`ok   ${name} ${detail}`); };
@@ -96,7 +100,7 @@ for (const rate of [44100, 48000]) {
   // machine's levels averaged over each sample (BoxReference), to 1e-6 (the two sum in different orders)
   {
     const script = steady(rate, (i) => (i < 60 ? square(400 + 7 * i, i) : null));
-    const a = play(new Stage(rate), script), b = play(new BoxReference(rate), script);
+    const a = play(plain(rate), script), b = play(new BoxReference(rate), script);
     let worst = a.length === b.length ? 0 : Infinity;
     for (let i = n + 1; i < a.length && worst < Infinity; i++) worst = Math.max(worst, Math.abs(a[i] - b[i]));
     const loud = Math.max(...a.slice(n + 1).map(Math.abs));
@@ -144,12 +148,16 @@ for (const rate of [44100, 48000]) {
     const pause = [['pull', 1024], ['pull', 1024], ['pull', 1024], ['pull', 1024]];
     const resume = steady(rate, (i) => (i < 10 ? flat(1) : null), 0);
     const script = [...before, ...pause, ...resume];
-    const a = play(new Stage(rate), script), b = play(new OldOutput(rate), script);
+    const a = play(plain(rate), script), b = play(new OldOutput(rate), script);
     const k = 1 + 11 * n;     // the first sample after the ring ran dry
     check(`${rate} Hz: the output is high when the ring runs dry`, Math.abs(a[k - 1]) > 0.3, a[k - 1].toFixed(3));
     check(`${rate} Hz: running dry and resuming make no pop`, maxJump(a, k) < BOUND && maxJump(b, k) > 0.3,
       `max step ${maxJump(a, k).toFixed(4)} (old ${maxJump(b, k).toFixed(3)})`);
     check(`${rate} Hz: silent while paused`, a[1 + 9 * n + 4096 - 1] === 0);
+    // the page's queue re-primes after the gap (silence until TARGET_MS is queued, then the fade-in): no pop either
+    const p = play(new Stage(rate), script);
+    check(`${rate} Hz: with the re-prime, running dry and resuming make no pop, and it does wait`, maxJump(p, k) < BOUND && p.slice(k).some((v) => Math.abs(v) > 0.3),
+      `max step ${maxJump(p, k).toFixed(4)}`);
   }
 
   // a tone cut by a pause and resumed: only the tone's own steps, faded
@@ -161,27 +169,36 @@ for (const rate of [44100, 48000]) {
     check(`${rate} Hz: pausing a tone never steps more than the tone itself`, maxJump(a, fade + 2) <= toneStep + 1e-6, `${maxJump(a, fade + 2).toFixed(3)} <= ${toneStep.toFixed(3)}`);
   }
 
-  // a frame dropped to keep latency bounded (the page fell behind) while the level ramps: the next frame carries on
-  // from where the dropped one ended, without a step (the level moved by 0.15 in the frame that was dropped)
+  // a frame dropped by the catch-up while the level ramps: the next frame carries on from where the dropped one
+  // ended, without a step (the level moved by 0.15 in the frame that was dropped). The catch-up has hysteresis: once
+  // more than SKIP_MS is queued it drops every push until the queue is back to TARGET_MS, so the test drains the
+  // queue to just under TARGET_MS (samples still queued: no fade hides a step) before frame 7, and asserts that
+  // frame 6 was dropped and frame 7 rendered. Without that, frame 7 would be dropped too and the carry never tested.
   {
     // the level rises 0.15 a frame in 20 small steps (each 0.0075, an output step of 0.00375: below the bound)
     const ramp = (i) => Array.from({ length: 20 }, (_, k) => [Math.round(k * CYCLES / 20), 0.15 * i + 0.0075 * k]).flat();
     const script = [];
     for (let i = 0; i < 4; i++) script.push(['push', ramp(i)], ['pull', n]);
     for (let i = 4; i < 6; i++) script.push(['push', ramp(i)]);            // two frames ahead
-    script.push(['fill']);                                                   // the ring nearly full: the next push is dropped
-    // frame 6 is dropped; frame 7 arrives while samples are still buffered (no fade hides it), then all plays
-    script.push(['push', ramp(6)], ['pull', 2 * n], ['push', ramp(7)], ['pull', 20000]);
+    script.push(['fill']);                                                   // past SKIP_MS: the next push is dropped
+    script.push(['push', ramp(6)], ['dropped6'], ['drain'], ['push', ramp(7)], ['rendered7'], ['pull', 20000]);
     const run = (out) => {
-      const all = [0];
+      const all = [0], seen = {};
       for (const [op, arg] of script) {
         if (op === 'push') out.push(arg, CYCLES, FPS);
-        else if (op === 'fill') { while (out.buffered() <= rate * 0.15) out.push(flat(out.prevIn), CYCLES, FPS); }
+        else if (op === 'fill') { while (out.buffered() <= rate * SKIP_MS / 1000) out.push(flat(out.prevIn), CYCLES, FPS); seen.before6 = out.dropped; }
+        else if (op === 'dropped6') { seen.dropped6 = out.dropped === seen.before6 + 1 && out.catchingUp; seen.before7 = out.dropped; }
+        else if (op === 'drain') {                                           // to 5 ms under TARGET_MS, still queued
+          const b = new Float32Array(out.buffered() - Math.round(rate * (TARGET_MS - 5) / 1000)); out.pull(b); all.push(...b);
+          seen.drained = out.buffered() > 0 && out.buffered() < rate * TARGET_MS / 1000;
+        } else if (op === 'rendered7') seen.rendered7 = out.dropped === seen.before7 && !out.catchingUp;
         else { const b = new Float32Array(arg); out.pull(b); all.push(...b); }
       }
-      return all;
+      return { all, seen };
     };
-    const a = run(new Stage(rate)), k = 1 + 4 * n + 2 * n;   // from the pulls after the fill
+    const { all: a, seen } = run(new Stage(rate)), k = 1 + 4 * n;   // from the pulls after the fill
+    check(`${rate} Hz: the catch-up drops frame 6, and frame 7, pushed once the queue is under TARGET_MS, is rendered`,
+      seen.dropped6 && seen.drained && seen.rendered7, JSON.stringify(seen));
     check(`${rate} Hz: a dropped frame leaves no step`, a.length > k + 10000 && maxJump(a, k) < BOUND, `max step ${maxJump(a, k).toFixed(4)}`);
   }
 
@@ -189,7 +206,7 @@ for (const rate of [44100, 48000]) {
   {
     const out = new Stage(rate);
     for (let i = 0; i < 100; i++) out.push(flat(0.5), CYCLES, FPS);
-    check(`${rate} Hz: at most 0.15 s and a frame buffered`, out.buffered() <= rate * 0.15 + n, `${out.buffered()} samples`);
+    check(`${rate} Hz: at most SKIP_MS (${SKIP_MS} ms) and a frame buffered`, out.buffered() <= rate * SKIP_MS / 1000 + n, `${out.buffered()} samples`);
   }
 }
 
@@ -232,46 +249,105 @@ for (const [label, fps, cycles] of [['PAL Dragon', 49.96766756635178, 17784], ['
     `${[...sizes].join(',')} avg ${(total / 1000).toFixed(3)}`);
 }
 
-// ---- recovery after a stall ----
-// A page stall leaves the queue deep: the worklet keeps playing while the page cannot push, so when the page comes
-// back there is more queued than TARGET_MS. The steering brings it back by resampling a frame by a little more or
-// fewer samples, and what matters is the RATE: a fixed 0.5% moves the queue by 0.005 x rate samples a second, which
-// is 5 ms of sound a second at every rate, so 60 ms of excess needs 12 s at the very least and in practice much
-// longer, because the correction is proportional and so decays as it approaches the target.
-//
-// The test runs the stage the way the page does: the machine pushes a frame each 1/fps, the card plays a
-// 1024-sample block each 1024/rate, and whichever is due first runs. The queue is warmed to 140 ms (what the real
-// page measured after a 0.8 s stall: 141 ms) and the time to be back inside [10, 80] ms - and to STAY there for
-// 2 s - is the measurement. Main takes 15.7-18.5 s; the correction here takes 4-5 s.
-//
-// Only this one measurement is asserted, and deliberately: measured on both versions, the depth at 20-30 s and the
-// behaviour of a queue that starts EMPTY do not differ between them (from empty both reach 13-16 ms within seconds
-// and stay in the band; at 20-30 s both sit near 60 ms), so a check on either would pass whatever the steering did -
-// a test that cannot fail. The empty-queue case has no defect to fix: what used to be reported as "17-29 ms for
-// seconds after a stall" was the page-side PortSink.buffered() reading low, not the worklet's queue.
+// ---- the bounded catch-up after a stall (mocked clock) ----
+// The page as js/ui/screen.js and Session.advance drive it, on a simulated clock: a requestAnimationFrame tick every
+// 1/60 s adds the elapsed time (at most 200 ms) and runs the frames due (at most 4 a tick, the rest forgotten); the
+// audio thread pulls 128-sample render quanta at the card's rate, and does not stop when the page does. Two stalls:
+//   'freeze'  no tick comes (a GC pause or a busy page, a background tab): the first tick after runs 4 frames at once;
+//   'pause'   ticks come but run no frame, and the Session's accumulator is cleared (a debugger stop, Pause): frames
+//             restart one at a time, as the clock makes them due.
+// Measured for each:
+//   - steady state: the latency inside LOW_MS..HIGH_MS for every quantum, no quantum short, no frame dropped;
+//   - after the stall: the callbacks until sound plays again, bounded by the re-prime's wait: TARGET_MS, plus the
+//     frame and the tick in flight, N = ceil((TARGET_MS + 1000/fps + 1000/60) / quantum); playback restarts exactly
+//     at least TARGET_MS deep; from then on no quantum is short and the queue stays between LOW_MS and SKIP_MS (a
+//     freeze's 4-frame burst can sit a little above HIGH_MS, where the correction, not the catch-up, brings it in).
+// `prime` false runs the same page without the re-prime: after a pause it restarts on one frame and hovers under
+// LOW_MS, between 0 and a frame, for seconds while the 2% correction refills it (the slow refill this replaces);
+// that check is what shows the scenario needs it. A freeze restarts deep enough without it (4 frames at once).
+function simulate({ rate, fps, cycles = 17784, stall = null, stallAt = 2, stallS = 0, seconds = 6, prime = true, deep = 0 }) {
+  const out = new Stage(rate, new SampleQueue(rate, prime ? {} : { primeMs: 0 }));
+  const q = out.sink, Q = 128, quantum = new Float32Array(Q), frameMs = 1000 / fps, ev = [0, 0.3, cycles >> 1, 0.6];
+  let tTick = 0, tQ = 0, acc = 0, last = 0, firstTick = true, deepDone = false;
+  const quanta = [];                         // [time, queued before the pull, samples taken]
+  while (tTick < seconds || tQ < seconds) {
+    if (tTick <= tQ) {
+      const inStall = stallS && tTick >= stallAt && tTick < stallAt + stallS;
+      if (!(inStall && stall === 'freeze')) {
+        const dt = firstTick ? 0 : (tTick - last) * 1000; last = tTick; firstTick = false;
+        if (inStall) acc = 0;                // paused: Session.advance clears its accumulator and runs nothing
+        else {
+          acc += Math.min(dt, 200);
+          let n = 0;
+          while (acc >= frameMs && n < 4) { out.push(ev, cycles, fps); acc -= frameMs; n++; }
+          if (acc > frameMs * 4) acc = 0;
+        }
+      }
+      // deep: frames pushed past the queue's depth at once (the audio thread held as well as the page)
+      if (deep && !deepDone && tTick >= stallAt) { deepDone = true; while (q.buffered() < deep / 1000 * rate) q.write(new Float32Array(Math.round(rate / fps))); }
+      tTick += 1 / 60;
+    } else {
+      const before = q.buffered(), t0 = q.taken;
+      q.pull(quantum);
+      quanta.push([tQ, before, q.taken - t0]);
+      tQ += Q / rate;
+    }
+  }
+  return { out, q, quanta };
+}
 for (const rate of [44100, 48000]) {
-  const fps = 49.96766756635178, cycles = 17784, block = new Float32Array(1024);
-  const out = new Stage(rate);
-  while (out.buffered() < 0.14 * rate) out.push([0, 0.5], cycles, fps);   // the queue a stall leaves
-  const frameDt = 1 / fps, blockDt = 1024 / rate;
-  let tf = 0, tb = 0; const depth = [];
-  while (tf < 30) {
-    if (tf <= tb) { out.push([0, 0.5], cycles, fps); tf += frameDt; }
-    else { out.sink.pull(block); tb += blockDt; depth.push([tb, out.buffered() / rate * 1000]); }
+  for (const fps of [49.96766756635178, 59.92274340431231]) {
+    const tag = `${rate} Hz, ${fps.toFixed(2)} fps`, msOf = (n) => n / rate * 1000;
+    // steady state (after the first second): every quantum full, the latency in the band, nothing dropped
+    {
+      const { out, quanta } = simulate({ rate, fps, seconds: 20 });
+      const after = quanta.filter(([t]) => t > 1);
+      const short = after.filter(([, , n]) => n < 128).length, lo = Math.min(...after.map(([, b]) => msOf(b))), hi = Math.max(...after.map(([, b]) => msOf(b)));
+      check(`catch-up, ${tag}: steady state: no quantum short, the queue inside ${LOW_MS}-${HIGH_MS} ms, nothing dropped`,
+        short === 0 && lo >= LOW_MS && hi <= HIGH_MS && out.dropped === 0, `short ${short}, queue ${lo.toFixed(1)}..${hi.toFixed(1)} ms, dropped ${out.dropped}`);
+    }
+    const N = Math.ceil((TARGET_MS + 1000 / fps + 1000 / 60) / 1000 * rate / 128);
+    for (const stall of ['freeze', 'pause']) {
+      for (const stallS of [0.3, 2]) {
+        const measure = (prime) => {
+          const { quanta } = simulate({ rate, fps, stall, stallS, seconds: 2 + stallS + 4, prime });
+          const end = 2 + stallS;
+          const after = quanta.filter(([t]) => t >= end);
+          const restart = after.findIndex(([, , n]) => n > 0);          // the first quantum that plays again
+          const played = restart < 0 ? [] : after.slice(restart + 1);
+          return {
+            restart, depth: restart < 0 ? 0 : +msOf(after[restart][1]).toFixed(1),
+            short: played.filter(([, , n]) => n < 128).length,
+            outOfBand: played.filter(([, b]) => msOf(b) < LOW_MS || msOf(b) > SKIP_MS).length,
+            dry: quanta.some(([t, b]) => t > 2 && t < end && b === 0),
+          };
+        };
+        const m = measure(true), old = measure(false), name = `catch-up, ${tag}, ${stallS} s ${stall}`;
+        check(`${name}: the queue really ran dry during it`, m.dry);
+        check(`${name}: sound again within N = ${N} callbacks, never short after, the queue between ${LOW_MS} and SKIP_MS (${SKIP_MS} ms)`,
+          m.restart >= 0 && m.restart <= N && m.short === 0 && m.outOfBand === 0, JSON.stringify(m));
+        // (a freeze needs no re-prime: its first tick runs 4 frames at once, so it restarts deep enough by itself)
+        if (stall === 'pause') {
+          check(`${name}: without the re-prime the same stall refills slowly (the queue under ${LOW_MS} ms for many callbacks)`,
+            old.outOfBand > 10, JSON.stringify(old));
+        }
+      }
+    }
+    // deep: more than SKIP_MS queued (the audio thread held as well as the page, then a burst): whole frames are
+    // dropped until it is back to TARGET_MS, within CATCHUP_MS of real time, and it stays in the band after
+    {
+      const deep = SKIP_MS + 4 * 1000 / 30;
+      const { out, quanta } = simulate({ rate, fps, deep, seconds: 2 + 3 });
+      const from = quanta.findIndex(([, b]) => msOf(b) > SKIP_MS);
+      const after = from < 0 ? [] : quanta.slice(from);
+      const peak = from < 0 ? 0 : msOf(after[0][1]);
+      const back = after.findIndex(([, b]) => msOf(b) <= HIGH_MS);
+      const backMs = back < 0 ? Infinity : (after[back][0] - after[0][0]) * 1000;
+      const stays = back >= 0 && after.slice(back).every(([, b, n]) => msOf(b) <= HIGH_MS && msOf(b) >= LOW_MS && n === 128);
+      check(`catch-up, ${tag}: a queue ${peak.toFixed(0)} ms deep is back inside the band within CATCHUP_MS (${CATCHUP_MS.toFixed(0)} ms) and stays, by dropping frames`,
+        peak > SKIP_MS && backMs <= CATCHUP_MS && stays && out.dropped > 0, JSON.stringify({ backMs: +backMs.toFixed(1), dropped: out.dropped, stays }));
+    }
   }
-  const inBand = (m) => m >= 10 && m <= 80;
-  let back = null;
-  for (let i = 0; i < depth.length && back === null; i++) {
-    if (!inBand(depth[i][1])) continue;
-    const stay = depth.filter(([t]) => t >= depth[i][0] && t < depth[i][0] + 2);
-    if (stay.every(([, m]) => inBand(m))) back = depth[i][0];
-  }
-  check(`${rate} Hz: a stall's 140 ms queue is back inside 10-80 ms, and stays, within 8 s`,
-    depth[0][1] > 100 && back !== null && back <= 8,
-    `started ${depth[0][1].toFixed(1)} ms, ${back === null ? 'never settled in the band for 2 s' : `back at ${back.toFixed(2)} s`}`);
-  // 140 ms is already past MAX_MS (150) with a frame on top, so dropping exactly the first frame is the bound
-  // working, not a fault; a second drop would be the recovery falling behind
-  check(`${rate} Hz: at most the one frame the 150 ms bound takes`, out.dropped <= 1, `${out.dropped} dropped`);
 }
 
 // ---- the correction does not warble a queue that keeps crossing into the band ----
@@ -306,9 +382,9 @@ for (const rate of [44100, 48000]) {
 {
   const rate = 44100, fps = 49.96766756635178, cycles = 17784, block = new Float32Array(1024);
   const out = new Stage(rate);
-  // start deep (a stall left the queue far above the band), then let it recover by pulling the card faster than
-  // the machine fills it, sampling the ratio at every frame
-  while (out.buffered() < 0.14 * rate) out.push([0, 0.5], cycles, fps);
+  // start deep (just under SKIP_MS: the deepest the catch-up leaves to the correction), then let it recover by
+  // pulling the card as fast as the machine fills it, sampling the ratio at every frame
+  while (out.buffered() < (SKIP_MS - 1) / 1000 * rate) out.push([0, 0.5], cycles, fps);
   const ratios = []; let tf = 0, tb = 0;
   const frameDt = 1 / fps, blockDt = 1024 / rate;
   while (tf < 60) {
@@ -322,23 +398,23 @@ for (const rate of [44100, 48000]) {
 }
 
 // The bound the browser's tone check waits under must be at least the TRUE worst case, or the check flakes on the
-// slowest start it can see. The worst case is a queue at the ceiling: pushes above MAX_MS are dropped, so the
-// deepest queue that can exist is just under MAX_MS. How long the correction then takes depends on the frame and
-// block schedule: measured over card rates 44.1/48 kHz, 30/49.97/59.94/60 fps and 512/1024/2048-sample blocks,
-// the slowest is 4.99 s (60 fps, 512-sample blocks) -- so this drives those schedules in simulated real time
+// slowest start it can see. The worst case for the correction is a queue just under SKIP_MS: deeper, the catch-up
+// drops frames down to TARGET_MS at once. How long the correction then takes depends on the frame and
+// block schedule, over card rates 44.1/48 kHz, 30/49.97/59.94/60 fps and 512/1024/2048-sample blocks,
+// so this drives those schedules in simulated real time
 // (frames at 1/fps of audio time, the card pulling blocks) and requires NONE within SETTLE_MS. RED if the bound
 // is set below the measurement: it is the guard on the number.
 {
-  const { SETTLE_MS, MAX_MS } = require('../js/host/audio.js');
+  const { SETTLE_MS } = require('../js/host/audio.js');
   const cycles = 17784;
   let slowest = 0, worstAt = '';
   for (const rate of [44100, 48000]) {
     for (const fps of [30, 49.96766756635178, 59.94, 60]) {
       for (const bs of [512, 1024, 2048]) {
         const out = new Stage(rate);
-        // fill to just under MAX_MS -- the deepest a queue can be, because push() drops what would exceed it
+        // fill to just under SKIP_MS -- the deepest queue the correction (not the catch-up) brings back
         let guard = 0;
-        while ((out.buffered() / rate * 1000) < MAX_MS - 1 && guard++ < 4000) out.push([0, 0.5], cycles, fps);
+        while ((out.buffered() / rate + 1 / fps) * 1000 < SKIP_MS && guard++ < 4000) out.push([0, 0.5], cycles, fps);
         const startMs = out.buffered() / rate * 1000;
         const frameDt = 1 / fps, block = new Float32Array(bs), blockDt = bs / rate;
         let tf = 0, tb = 0, settled = null;
@@ -348,7 +424,7 @@ for (const rate of [44100, 48000]) {
         }
         const ms = settled === null ? Infinity : settled * 1000;
         if (ms > slowest) { slowest = ms; worstAt = `${rate} Hz, ${fps} fps, ${bs}-sample blocks, from ${startMs.toFixed(0)} ms`; }
-        check(`${rate} Hz, ${fps} fps, ${bs}-sample blocks: a queue at the ${MAX_MS} ms ceiling settles within SETTLE_MS (${SETTLE_MS} ms)`,
+        check(`${rate} Hz, ${fps} fps, ${bs}-sample blocks: a queue just under SKIP_MS (${SKIP_MS} ms) settles within SETTLE_MS (${SETTLE_MS} ms)`,
           settled !== null && ms <= SETTLE_MS, settled === null ? 'never settled' : `${ms.toFixed(0)} ms`);
       }
     }
@@ -364,13 +440,12 @@ for (const rate of [44100, 48000]) {
 }
 
 // pushTape from a deep queue (fast tape loading pushes real time with no machine frame): the same steering as push().
-// A queue filled 10 ms at a time passes HIGH_MS and enters DRAINING (mode 2); past MAX_MS the push is dropped
-// (`dropped`) instead of queued; and with the card pulling real time against 10 ms pushes the 2% correction brings
-// the queue down to TARGET_MS, where the mode returns to NONE (0) and the ratio is exactly 1 again. RED without the
-// MAX_MS drop in pushTape (nothing dropped, the queue runs past the ceiling) and with pushTape bypassing ratioAt
-// (the mode never leaves NONE and the queue never comes down).
+// A queue filled 10 ms at a time passes HIGH_MS and enters DRAINING (mode 2); past SKIP_MS the catch-up drops the
+// push (`dropped`) instead of queueing it, and keeps dropping until the queue is back to TARGET_MS, where the mode
+// is NONE (0) and the ratio exactly 1 again. RED without the catch-up in pushTape (nothing dropped, the queue runs
+// past SKIP_MS) and with pushTape bypassing ratioAt (the mode never leaves NONE).
 {
-  const { MAX_MS, TARGET_MS, SETTLE_MS } = require('../js/host/audio.js');
+  const { SETTLE_MS } = require('../js/host/audio.js');
   const rate = 48000, STEP = 10, per = rate * STEP / 1000;
   const out = new Stage(rate), ms = () => out.buffered() / rate * 1000;
   let peak = 0, sawDraining = false, guard = 0;
@@ -380,7 +455,7 @@ for (const rate of [44100, 48000]) {
     if (out.mode === 2) sawDraining = true;
   }
   check('audio: pushTape from a deep queue enters DRAINING (mode 2) once the queue passes the band', sawDraining, `mode ${out.mode}, queue ${ms().toFixed(1)} ms`);
-  check(`audio: pushTape drops a push past MAX_MS (${MAX_MS} ms) instead of queueing it`, out.dropped === 1 && peak > MAX_MS - STEP && peak <= MAX_MS + STEP, `dropped ${out.dropped}, peak ${peak.toFixed(1)} ms`);
+  check(`audio: pushTape drops a push past SKIP_MS (${SKIP_MS} ms) instead of queueing it`, out.dropped === 1 && peak > SKIP_MS - STEP && peak <= SKIP_MS + STEP, `dropped ${out.dropped}, peak ${peak.toFixed(1)} ms`);
   // real time: the card pulls STEP ms for every STEP ms pushed
   const block = new Float32Array(per);
   let t = 0, back = null;
@@ -389,7 +464,7 @@ for (const rate of [44100, 48000]) {
     if (out.mode === 0) back = t;
   }
   check('audio: pushTape DRAINING goes back to NONE (2 to 0) once the queue reaches TARGET_MS', back !== null && back <= SETTLE_MS, back === null ? `still mode ${out.mode} at ${ms().toFixed(1)} ms` : `after ${back} ms`);
-  // (pushes are still dropped for the first steps while the queue is above MAX_MS; once settled, none are)
+  // (pushes are still dropped while the catch-up brings the queue to TARGET_MS; once settled, none are)
   const droppedAtNone = out.dropped;
   for (let i = 0; i < 100; i++) { out.pushTape(STEP, null); out.pull(block); }
   check(`audio: and the queue settles near TARGET_MS (${TARGET_MS} ms), with nothing more dropped`, Math.abs(ms() - TARGET_MS) <= STEP && out.dropped === droppedAtNone && out.mode === 0, `${ms().toFixed(1)} ms, dropped ${out.dropped}`);

@@ -59,7 +59,7 @@ const http = require('http'), fs = require('fs'), path = require('path'), os = r
 // the snapshot format this tree writes (the version checks build a newer file from it)
 const { SNAPSHOT_VERSION } = require('../tests/load')();
 // the settle bound is the audio module's own derivation, never a literal here (see SETTLE_MS in js/host/audio.js)
-const { SETTLE_MS } = require('../js/host/audio.js');
+const { SETTLE_MS, TARGET_MS } = require('../js/host/audio.js');
 // Playwright is loaded once the run starts (--list-groups needs no browser, so the CI shard planner runs without it)
 let chromium;
 
@@ -1002,7 +1002,9 @@ async function audioChecks(browser, base, check) {
   const steps = [
     ['load', load], ['power cycle', () => page.click('#btnHardReset')], ['load', load], ['reset', () => page.click('#btnReset')],
     // (paused, no sound plays: the step waits until the output has faded and the context is suspended instead)
-    ['load', load], ['pause', () => page.click('#btnPause'), () => waitFor(page, () => window.emu.audio.ctx.state === 'suspended')], ['resume', () => page.click('#btnPause')],
+    ['load', load], ['pause', () => page.click('#btnPause'), () => waitFor(page, () => window.emu.audio.ctx.state === 'suspended')],
+    // (1.2 s of sound after the resume: the catch-up check below needs a second of it after the restart)
+    ['resume', () => page.click('#btnPause'), async () => { const n0 = await page.evaluate(() => window.played.length); await waitFor(page, (n0) => window.played.length >= n0 + 1.2 * window.emu.audio.ctx.sampleRate, n0, 15000); }],
     ['turbo', () => page.click('#btnTurbo')], ['turbo off', () => page.click('#btnTurbo')],
     ['sound off', () => page.$eval('#chkSound', (c) => c.click())], ['sound on', () => page.$eval('#chkSound', (c) => c.click())],
     ['switch', () => page.evaluate(() => window.emu.session.switchMachine('coco'))], ['load', load], ['switch back', () => page.evaluate(() => window.emu.session.switchMachine('dragon64'))],
@@ -1018,9 +1020,9 @@ async function audioChecks(browser, base, check) {
     // the test put in, instead of a race on how full the page's queue happened to be when the stall began - which
     // is exactly what failed in CI ({"queued":0}: the queue had just been drained).
     // 100 ms, not more: SampleQueue holds CAPACITY_MS = 300 ms and drops the OLDEST samples on overflow, which
-    // would jump `start` and red the drop check for the wrong reason. AudioOutput drops a frame only once more than
-    // MAX_MS = 150 ms is queued, and a frame in flight adds one more, so at most ~170 ms can already be queued;
-    // 170 + 100 = 270 ms leaves 30 ms of headroom under 300. The chunk repeats the last sample written, so it
+    // would jump `start` and red the drop check for the wrong reason. AudioOutput's catch-up drops frames once more
+    // than SKIP_MS = 120 ms is queued, and a frame in flight adds one more, so at most ~140 ms can already be queued;
+    // 140 + 100 = 240 ms leaves 60 ms of headroom under 300. The chunk repeats the last sample written, so it
     // steps nowhere: it continues the queue's own tail, and the no-pop check below covers the stream.
     ['busy page', () => page.evaluate(() => {
       const a = window.emu.audio;
@@ -1051,13 +1053,30 @@ async function audioChecks(browser, base, check) {
     })],
   ];
   const marks = [];
-  for (const [name, act, until = wait] of steps) { marks.push([name, await page.evaluate(() => window.played.length)]); await act(); await until(); }
+  for (const [name, act, until = wait] of steps) { marks.push([name, ...await page.evaluate(() => [window.played.length, window.blocks.length])]); await act(); await until(); }
+  // The bounded catch-up after a pause (js/host/audio-worklet.js SampleQueue's re-prime): paused, the queue ran dry
+  // and faded out; on resume the page's frames restart one at a time, as the clock makes them due. The worklet holds
+  // them, silent, until TARGET_MS is queued, then plays: the first block that plays again starts at least TARGET_MS
+  // deep (less one block's rounding), the gap is counted as a re-prime, and over the second after it no block runs
+  // short. Without the re-prime the queue restarted on one frame and hovered between 0 and a frame for seconds while
+  // the 2% correction refilled it, short block after short block (tests/audio.test.js measures that on a model of
+  // this page; this is the real page).
+  const resumed = await page.evaluate(({ from, to, target }) => {
+    const bs = window.blocks.slice(from, to), rate = window.emu.audio.ctx.sampleRate;
+    const r = bs.findIndex((b) => b.n > 0);
+    if (r < 0) return { restart: -1, blocks: bs.length };
+    const second = bs.slice(r + 1).filter((b) => b.time < bs[r].time + 1);
+    return { restart: r, queued: bs[r].queued, need: Math.floor(target / 1000 * rate) - 128, primed: bs[r].primes > bs[0].primes || bs.some((b) => b.n === 0 && b.queued > 0),
+      second: second.length, short: second.filter((b) => b.n < 128).length, ms: +(1000 * (bs[bs.length - 1].time - bs[r].time)).toFixed(0) };
+  }, { from: marks.find((m) => m[0] === 'resume')[2], to: marks.find((m) => m[0] === 'turbo')[2], target: TARGET_MS });
+  check(`sound: after a pause the worklet restarts at least TARGET_MS (${TARGET_MS} ms) deep and no block runs short for the second after (the bounded catch-up)`,
+    resumed.restart >= 0 && resumed.queued >= resumed.need && resumed.second > 300 && resumed.short === 0, JSON.stringify(resumed));
   const { jump, at, n, peak } = await page.evaluate(() => {
     const p = window.played; let jump = 0, at = 0, peak = 0;
     for (let i = 1; i < p.length; i++) { const d = Math.abs(p[i] - p[i - 1]); if (d > jump) { jump = d; at = i; } peak = Math.max(peak, Math.abs(p[i])); }
     return { jump, at, n: p.length, peak };
   });
-  const where = (marks.filter((m) => m[1] <= at).pop() || ['start'])[0];
+  const where = (marks.filter((m) => m[1] <= at).pop() || ['start'])[0];   // (marks: [name, samples, blocks])
   check('sound: no pop across power cycle, reset, load, pause, turbo, sound off/on, machine switch and a busy page',
     running && n > 48000 && jump < 0.01 && !errors.length, `${n} samples, largest step ${jump.toFixed(4)} (after "${where}"), peak ${peak.toFixed(3)}${errors.length ? ' ' + errors.join('; ') : ''}`);
   // The window is 350 ms on the audio clock, and lies wholly inside the 500 ms spin.
@@ -1126,13 +1145,13 @@ async function audioChecks(browser, base, check) {
   //   - the window must REACH it (`reached`): something played its last sample, which old queued audio cannot do;
   //   - between reaching it and spending it, every block must take its whole quantum (`short === 0`). That is the
   //     starvation rule, and it is what the window's length is for - two different numbers, worth keeping apart:
-  //     as much as MAX_MS (150 ms) plus a frame (~20 ms) can already be queued when the fill goes in, so up to
-  //     ~170 ms can pass before the fill is TOUCHED, and ~170 + 100 = ~270 ms before it is SPENT. The steering aims
+  //     as much as SKIP_MS (120 ms) plus a frame (~20 ms) can already be queued when the fill goes in, so up to
+  //     ~140 ms can pass before the fill is TOUCHED, and ~140 + 100 = ~240 ms before it is SPENT. The steering aims
   //     to keep the queue shallower than that, but `PortSink.buffered()` (js/host/audio.js) reads LOW on purpose -
   //     it subtracts the frames elapsed even when the queue was already empty - so the real worst case is nearer
-  //     MAX_MS + a frame + the fill, ~282 ms rather than a strict 270. Window 250 ms would therefore fail a HEALTHY
+  //     SKIP_MS + a frame + the fill + ~12 ms, ~252 ms rather than a strict 240. Window 250 ms would fail a HEALTHY
   //     thread on a deep queue (the first version of this test did, whenever the queue was deep); 350 ms covers the
-  //     ~282 ms worst case with ~68 ms to spare, and still ends 150 ms inside the spin, where nothing can have been
+  //     ~252 ms worst case with ~98 ms to spare, and still ends 150 ms inside the spin, where nothing can have been
   //     caught up late. This is a margin, not a proof: CI at 44100 saw 102 ms of a 100 ms fill with ~68 ms of slack.
   //   - no sample is dropped from the queue inside the window (`drops === 0`): consecutive blocks run on. This is
   //     NOT "in order" - it is self-consistent by construction and cannot see a reorder - it is the queue not
@@ -1189,10 +1208,10 @@ async function audioChecks(browser, base, check) {
   await wait(); await wait();
   // Wait for the steering to settle: mode NONE (0) means the ratio is exactly 1. The bound is SETTLE_MS from
   // js/host/audio.js, derived there from the module's own constants: the ratio is applied per frame of AUDIO
-  // time, so a queue at the ceiling (MAX_MS) needs about (MAX_MS - TARGET_MS) / RECOVER = 5.5 s to arrive, plus
-  // a stated slack; measured from a 149 ms queue in simulated real time it was 3.95 s at 44.1 kHz and 4.18 s at
-  // 48 kHz for this page's schedule, and tests/audio.test.js sweeps 44.1/48 kHz, 30/49.97/59.94/60 fps and
-  // 512/1024/2048-sample blocks from the ceiling, where the slowest (4.99 s) is what SETTLE_MS is held to.
+  // time, so a queue just under SKIP_MS (deeper, the catch-up drops frames down to TARGET_MS at once) needs about
+  // (SKIP_MS - TARGET_MS) / RECOVER = 4 s to arrive, plus a stated slack; tests/audio.test.js sweeps 44.1/48 kHz,
+  // 30/49.97/59.94/60 fps and 512/1024/2048-sample blocks from just under SKIP_MS and holds SETTLE_MS to 1.5-3x
+  // the slowest.
   // A correction that never converges therefore fails HERE, by name, instead of being waited out.
   const settled = await waitFor(page, () => window.emu.audio && window.emu.audio.out && window.emu.audio.out.mode === 0, null, SETTLE_MS);
   check('sound: the resampler settles (ratio exactly 1) before the tone is measured', settled,
