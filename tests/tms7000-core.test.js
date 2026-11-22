@@ -438,7 +438,7 @@ function machine() {
 
   // indirect: the pointer pair is Rn (LSB) and Rn-1 (MSB) (Figure 6-7)
   m.mem[10] = 0x34; m.mem[9] = 0x12; m.mem[0x1234] = 0x55;
-  m.load(0x0200, 0x9A, 0x0A);         // LDA indirect through register 10
+  m.load(0x0200, 0x9A, 0x0A);         // LDA *R10
   m.step();
   check('indirect addressing takes the pointer from Rn-1:Rn (§6.2.7)', m.a() === 0x55, hex(m.a()));
 

@@ -62,7 +62,7 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 - **Comments, test names and docs describe behaviour, not internal process labels.** Review and ruling IDs and
   old internal branch names are gone from the code, the tests, the docs and the released sections of this file, and
-  `tests/private-refs.test.js` keeps them out. The CHANGELOG check compares a released section with its tag after
+  `tests/internal-labels.test.js` keeps them out. The CHANGELOG check compares a released section with its tag after
   removing those labels from both sides; any other difference still fails.
 - **`add_roms` keeps a URL as origin + path.** The store's `index.json` recorded the full URL a ROM came from, query
   string and fragment included, which can hold a token. It now keeps the origin and the path only.

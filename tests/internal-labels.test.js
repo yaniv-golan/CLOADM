@@ -1,17 +1,19 @@
 // The maintainers' internal process labels stay out of the tree: review and ruling IDs ("UX R30", "R28b", "(R25)"),
 // review-finding tags used as labels, old internal branch names, private planning references. This suite scans every
 // tracked file for them, line by line, and checks each pattern on cases of its own. It is the one file exempt from the
-// scan (it has to spell the labels out), with tools/vendor/ (third-party code).
+// scan (it has to spell the labels out), with tests/private-refs.test.js (the private-reference guard, which spells
+// out what it looks for too) and tools/vendor/ (third-party code).
 //
 // The patterns live here and nowhere else: tests/changelog-guard.js requires this file for them and removes their
 // matches from both sides before it compares a released CHANGELOG section with its tag, so a released section may
 // lose a label and nothing else. Required from another file, it only exports; run, it checks.
-// Run: node tests/private-refs.test.js
+// Run: node tests/internal-labels.test.js
 const cp = require('child_process'), fs = require('fs'), path = require('path');
 
 // Every pattern is applied to one line at a time. Patterns 3 and 4 (a bare R<number>) also match register and
-// resistor names (the 6845 CRTC's R0-R17, the CoCo board's R10-R22), so they skip a line that LINE_EXCLUSION matches.
-const LINE_EXCLUSION = /6845|CRTC|resistor|light pen|raster|cursor (start|end|address)|start address|startAddress|screenRows|\bR\d+ (skew|columns?|rows?)\b|R1[0-7]\/R1[0-7]|R1[2-5] read/i;
+// resistor names (the 6845 CRTC's R0-R17, the CoCo board's R10-R22, the AY-3-8910's R0-R17, the TMS7000's register
+// file), so they skip a line that LINE_EXCLUSION matches: one that names such a chip, a register or a resistor.
+const LINE_EXCLUSION = /6845|CRTC|resistor|light pen|raster|cursor (start|end|address)|start address|startAddress|screenRows|\bR\d+ (skew|columns?|rows?)\b|R1[0-7]\/R1[0-7]|R1[2-5] read|\bAY\b|\bPSG\b|8910|8912|8913|TMS7|SP0256|\bregisters?\b|\breg\b|\*R\d/i;
 
 const PATTERNS = [
   { id: 1, re: /\bUX[ -]?(?:rulings? )?R\d{1,3}[a-z]?\b/ },
@@ -116,6 +118,16 @@ check('the named look-alikes (registers, resistors, asm labels, gime p13:, w1, t
 // the line exclusion covers patterns 3 and 4 only: a register line still fails on a ruling label of another pattern
 check('the line exclusion is for patterns 3 and 4 only: "UX R30" on a 6845 line is still caught', labelsIn('// 6845 R12 (UX R30)').join() === '1');
 check('...and a bare R30 on a 6845 line is not', !labelsIn('// 6845 R30 x').length);
+// the chip and register context: AY-3-8910 and TMS7000 comments keep their own register names
+const CHIP = ['//   amplitude         R10-R12 register bits 0-3 level', '("Architecture", registers R0-R17):', 'm.load(0x0200, 0x9A, 0x0A);         // LDA *R10',
+  '// AY R15 envelope', '// the PSG R11/R12 period', '// TMS7000 R10', '// TMS7001 R23 port', '// SP0256 R20', '// reg R14 holds it', 'AY-3-8912 R13'];
+check('chip and register context excludes a bare R-number (AY, PSG, 8910/8912/8913, TMS7, SP0256, register, reg, *Rn)',
+  CHIP.every((l) => !labelsIn(l).length), JSON.stringify(CHIP.filter((l) => labelsIn(l).length)));
+// ...and the real labels are still caught: the context words are whole words, so play, may, day, regress do not excuse a label
+const STILL = [['// play it (R25)', 3], ['the day R24 landed', 3], ['may R12 apply', 4], ['regress R11', 4], ['(R30) display', 3], ['registered R19 A+', 3],
+  ['// AY: UX R30', 1], ['register (UX ruling R24)', 1], ["register: the owner's decision", 5]];
+const missedStill = STILL.filter(([l, id]) => !labelsIn(l).includes(id));
+check('...and the real labels are still caught beside look-alike words and on chip lines (patterns 1, 2, 5-11 have no exclusion)', !missedStill.length, JSON.stringify(missedStill));
 
 // ---------------- stripLine: what tests/changelog-guard.js compares ----------------
 const STRIP = [
@@ -150,7 +162,7 @@ check('stripLine: a word changed beside a removed label still differs', stripLin
 
 // ---------------- the tree ----------------
 {
-  const EXEMPT = (f) => f === 'tests/private-refs.test.js' || f.startsWith('tools/vendor/');
+  const EXEMPT = (f) => f === 'tests/internal-labels.test.js' || f === 'tests/private-refs.test.js' || f.startsWith('tools/vendor/');
   let files = [];
   try { files = cp.execFileSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20 }).split('\0').filter(Boolean); } catch (e) { /* no git */ }
   check('the tracked files are listed (git ls-files)', files.length > 100, String(files.length));
@@ -172,5 +184,5 @@ check('stripLine: a word changed beside a removed label still differs', stripLin
     hits.length ? `${JSON.stringify(counts)}\n  ${hits.slice(0, 40).join('\n  ')}${hits.length > 40 ? `\n  ... and ${hits.length - 40} more` : ''}` : '');
 }
 
-console.log(fail ? `${fail} FAILED` : 'all private-refs checks passed');
+console.log(fail ? `${fail} FAILED` : 'all internal-labels checks passed');
 process.exitCode = fail ? 1 : 0;

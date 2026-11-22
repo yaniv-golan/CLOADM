@@ -7,14 +7,14 @@
 // level 1 to 3. Three branches in one day put new entries into released sections; this is the check that catches it.
 //
 // For each released version with a git tag, the section must be byte-identical to the same section in the tagged
-// CHANGELOG, except for two things. The maintainers' internal process labels (the patterns tests/private-refs.test.js keeps out of
+// CHANGELOG, except for two things. The maintainers' internal process labels (the patterns tests/internal-labels.test.js keeps out of
 // the tree, required from it) are removed from both sides before they are compared, so a
 // released section may lose a label and nothing else. And corrections listed by name in the allowlist (each is "this
 // text in the tagged section became that text", with a one-line reason; the tagged text, labels removed, must still
 // contain it, so a list entry cannot go stale).
 // A release heading: "### 0.1.3-pre", "### 0.1.0 (first public release ...)". Not "### Added" or "### Fixed", which are the
 // subsections of [Unreleased] and are not releases.
-const { stripLabels } = require('./private-refs.test.js');
+const { stripLabels } = require('./internal-labels.test.js');
 const HEADING = /^### (\d+\.\d+\S*)/;
 // A version's section ends at the NEXT VERSION heading or at a level-2/level-1 heading, never at a "### Fixed".
 // It used to end at any level 1-3 heading, so a "### Fixed" block appended inside a released section (before the next
