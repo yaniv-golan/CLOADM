@@ -244,7 +244,9 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   and the instructions, frames, picture and sound are exactly those of a free run (`tests/debugger-catchup.test.js`,
   on the Dragon 64, CoCo 3 and MC-10; the browser check's F5 case now asserts the CPU runs in the first frame after
   Run). On the MC-10 the frame loop also ran a frame free while a breakpoint or watchpoint was set, so the machine did
-  not stop there; it now runs the frame through the debugger as on the other machines.
+  not stop there; it now runs the frame through the debugger as on the other machines. The MCP `screenshot` after a
+  `step` that crosses a frame's end shows the frame the step closed, with `mid_frame` true. Frames closed inside a
+  debugger command play no sound on the page and are not in a `--wav` recording.
 
 - **An embedded CLOADM could open the Claude chat; the chat is no longer available in an embed.**
 - **Two server processes adding ROMs at once could lose index entries.** Every change to the ROM store's index now

@@ -658,6 +658,33 @@ fs.writeFileSync(tmp('media', 'plain.bas'), '10 PRINT "HI"\n');
     check('screenshot inside a frame (after step): the last complete frame, and it says so', mid.px.equals(before.px) && mid.data.mid_frame === true && before.data.mid_frame === false, J([before.data, mid.data]));
     await v.call('run_frames', Object.assign({ frames: 1 }, V));
     const after = await pixels();
+    // A step that crosses a frame's end: the frame it closed is the last complete one (drawn with the new bottom row,
+    // the beam having passed the top before the poke), and the machine is inside the next one. The oracle: a second
+    // machine doing the same and finishing that frame in the frame loop.
+    const crossed = {};
+    for (const [key, finish] of [['step', { count: 5000 }], ['frames', null]]) {
+      const w = server();
+      await w.init();
+      await w.call('boot', { model: 'coco' });
+      await w.call('run_frames', Object.assign({ frames: 3 }, V));
+      await w.call('assemble_and_load', Object.assign({ source: ' ORG $3800\nL BRA L\n' }, V));
+      await w.call('run', Object.assign({ target: '$3800' }, V));
+      await w.call('run_frames', Object.assign({ frames: 2 }, V));
+      await w.call('step', Object.assign({ count: 2500 }, V));
+      await w.call('poke', Object.assign({ address: 0x400, bytes: fill }, V));
+      await w.call('poke', Object.assign({ address: 0x5E0, bytes: fill }, V));
+      const f0 = { frame: (await w.call('list_machines', {})).data.machines[0].frame };
+      if (finish) await w.call('step', Object.assign(finish, V)); else await w.call('run_frames', Object.assign({ frames: 1 }, V));
+      const r = await w.call('screenshot', V);
+      crossed[key] = { data: r.data, px: pngPixels(Buffer.from(r.res.content.find((c) => c.type === 'image').data, 'base64')), framesBefore: f0.frame, framesAfter: (await w.call('list_machines', {})).data.machines[0].frame };
+      await w.close();
+    }
+    {
+      const s = crossed.step, f = crossed.frames, W0 = s.data.width, r0 = (px, y) => px.subarray(y * W0 * 4, (y + 1) * W0 * 4);
+      check('screenshot after a step that crosses a frame end: mid_frame true, and the frame the step closed (as the frame loop draws it; its bottom row new)',
+        s.framesAfter === s.framesBefore + 1 && s.data.mid_frame === true && f.data.mid_frame === false && s.px.equals(f.px)
+        && !r0(s.px, 30 + 15 * 12).equals(r0(before.px, 30 + 15 * 12)), J([s.framesBefore, s.framesAfter, s.data, f.data, s.px.equals(f.px)]));
+    }
     const W = after.data.width, row = (px, y) => px.subarray(y * W * 4, (y + 1) * W * 4);
     const top = 30, bottom = 30 + 15 * 12;   // inside the first and the last text row (border 24 lines, 12 lines a row)
     check('screenshot after the frame ends: the new frame, top and bottom rows both drawn', after.data.mid_frame === false && !row(after.px, top).equals(row(before.px, top)) && !row(after.px, bottom).equals(row(before.px, bottom)), J(after.data));
