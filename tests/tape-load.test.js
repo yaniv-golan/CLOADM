@@ -77,6 +77,22 @@ for (const id of ['dragon64', 'coco']) {
   check(`${id}: ...and the page says the machine was restarted`, /^Restarted for a clean load\. test\.cas: tape inserted \[TEST \(BINARY\)\] – loading via BASIC$/.test(r.msg), r.msg);
 }
 
+// ---------------- the load detector is one probe among others (Machine.addProbe) ----------------
+// Two other probes on the machine - one the Session's own (s.hooks), one put on the machine directly - while the
+// EXEC waits: the detector neither replaces them nor is replaced (EXEC still typed for a plain tape, still held back
+// for one that starts itself), they see every step the machine makes, and the detector's probe goes once it decides.
+for (const [what, bytes, keys] of [['a plain tape', plain, `${CLOADM} ${EXEC}`], ['a self-starting tape', selfStarting(128), CLOADM]]) {
+  const s = session('dragon64'), m = s.shownMachine;
+  let a = 0, b = 0, most = 0;
+  const ra = s.hooks.addProbe(() => a++), rb = m.addProbe(() => { b++; most = Math.max(most, m.probes.length); });
+  const r = drop(s, bytes);
+  check(`${what} with two other probes on the machine: ${keys === CLOADM ? 'no EXEC' : 'EXEC on its own line'}, the program starts`, r.started && r.keys === keys, `keys ${r.keys}`);
+  check(`...the other probes ran all along, side by side with the detector (3 probes while it waited), which is gone now`,
+    a > 100000 && a === b && most === 3 && m.probes.length === 2, `${a} ${b} most ${most} now ${m.probes.length}`);
+  ra(); rb();
+  check('...and with them off the slot is empty', m.pcWatch === null);
+}
+
 // ---------------- tapes that load over BASIC's RAM ----------------
 {
   const r = drop(session('dragon64'), notSelfStarting);

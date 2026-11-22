@@ -34,7 +34,7 @@ names contain one of the parts, and `node tools/browser-check.js --only <group>[
 | Cartridges and sound chips | `bus,carts,ssc,sp0256,ay8910,audio` | `cartridge,sscBoard,audio` |
 | Serial, printer, DriveWire | `serial,acia,drivewire,web-serial` | `driveWire,webSerial,printer` |
 | The assembler (`js/asm/`) | `asm,includes,disasm` | `debugger` |
-| Debugger | `debugger,debug-session,halt` | `debugger,debuggerScreen` |
+| Debugger | `debugger,debug-session,halt,probes` | `debugger,debuggerScreen` |
 | Keyboard and input | `input,keyqueue,keyboard-symbols,touch-joystick,press-break` | `input,inputScreen,touchJoystick,keyboardSymbols,typing` |
 | `js/session.js`, snapshots | `session,snapshot,state,restore-points` | `snapshot,state` |
 | The Claude chat and Ask Claude | `claude,chat-firmware` | `claude,ask,commands,chatScreen` |
@@ -122,6 +122,7 @@ node tests/asm.test.js       # assembler encodings + scripted LIZA conversation
 node tests/disasm.test.js    # disassembler: every 6809/6803 opcode against the data sheet, round-trip, data lengths
 node tests/debugger.test.js  # debugger core: breakpoints, watchpoints, stepping, trace, against a free run
 node tests/debug-session.test.js  # the debugger through the Session: lifetime, symbols, errors, snapshots
+node tests/probes.test.js    # probes and bus taps: order, removal in any order, the debugger as a client, the CoCo 3 held instruction once, Session hooks across snapshots and switches
 node tests/halt-held.test.js # CoCo 3 instruction held by HALT: CPU redirected while held; debugger steps, stops, counts
 node tests/halt-replay.test.js # CoCo 3 held instruction run again: exact reads (6309 TFM, all forms), malformed snapshot state
 node tests/coco3-buslog.test.js # CoCo 3 bus log: carried only with a HALT-capable device (logBus), hot-plug, snapshots, the guards
