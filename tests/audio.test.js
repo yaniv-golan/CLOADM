@@ -169,27 +169,36 @@ for (const rate of [44100, 48000]) {
     check(`${rate} Hz: pausing a tone never steps more than the tone itself`, maxJump(a, fade + 2) <= toneStep + 1e-6, `${maxJump(a, fade + 2).toFixed(3)} <= ${toneStep.toFixed(3)}`);
   }
 
-  // a frame dropped to keep latency bounded (the page fell behind) while the level ramps: the next frame carries on
-  // from where the dropped one ended, without a step (the level moved by 0.15 in the frame that was dropped)
+  // a frame dropped by the catch-up while the level ramps: the next frame carries on from where the dropped one
+  // ended, without a step (the level moved by 0.15 in the frame that was dropped). The catch-up has hysteresis: once
+  // more than SKIP_MS is queued it drops every push until the queue is back to TARGET_MS, so the test drains the
+  // queue to just under TARGET_MS (samples still queued: no fade hides a step) before frame 7, and asserts that
+  // frame 6 was dropped and frame 7 rendered. Without that, frame 7 would be dropped too and the carry never tested.
   {
     // the level rises 0.15 a frame in 20 small steps (each 0.0075, an output step of 0.00375: below the bound)
     const ramp = (i) => Array.from({ length: 20 }, (_, k) => [Math.round(k * CYCLES / 20), 0.15 * i + 0.0075 * k]).flat();
     const script = [];
     for (let i = 0; i < 4; i++) script.push(['push', ramp(i)], ['pull', n]);
     for (let i = 4; i < 6; i++) script.push(['push', ramp(i)]);            // two frames ahead
-    script.push(['fill']);                                                   // the ring nearly full: the next push is dropped
-    // frame 6 is dropped; frame 7 arrives while samples are still buffered (no fade hides it), then all plays
-    script.push(['push', ramp(6)], ['pull', 2 * n], ['push', ramp(7)], ['pull', 20000]);
+    script.push(['fill']);                                                   // past SKIP_MS: the next push is dropped
+    script.push(['push', ramp(6)], ['dropped6'], ['drain'], ['push', ramp(7)], ['rendered7'], ['pull', 20000]);
     const run = (out) => {
-      const all = [0];
+      const all = [0], seen = {};
       for (const [op, arg] of script) {
         if (op === 'push') out.push(arg, CYCLES, FPS);
-        else if (op === 'fill') { while (out.buffered() <= rate * SKIP_MS / 1000) out.push(flat(out.prevIn), CYCLES, FPS); }
+        else if (op === 'fill') { while (out.buffered() <= rate * SKIP_MS / 1000) out.push(flat(out.prevIn), CYCLES, FPS); seen.before6 = out.dropped; }
+        else if (op === 'dropped6') { seen.dropped6 = out.dropped === seen.before6 + 1 && out.catchingUp; seen.before7 = out.dropped; }
+        else if (op === 'drain') {                                           // to 5 ms under TARGET_MS, still queued
+          const b = new Float32Array(out.buffered() - Math.round(rate * (TARGET_MS - 5) / 1000)); out.pull(b); all.push(...b);
+          seen.drained = out.buffered() > 0 && out.buffered() < rate * TARGET_MS / 1000;
+        } else if (op === 'rendered7') seen.rendered7 = out.dropped === seen.before7 && !out.catchingUp;
         else { const b = new Float32Array(arg); out.pull(b); all.push(...b); }
       }
-      return all;
+      return { all, seen };
     };
-    const a = run(new Stage(rate)), k = 1 + 4 * n + 2 * n;   // from the pulls after the fill
+    const { all: a, seen } = run(new Stage(rate)), k = 1 + 4 * n;   // from the pulls after the fill
+    check(`${rate} Hz: the catch-up drops frame 6, and frame 7, pushed once the queue is under TARGET_MS, is rendered`,
+      seen.dropped6 && seen.drained && seen.rendered7, JSON.stringify(seen));
     check(`${rate} Hz: a dropped frame leaves no step`, a.length > k + 10000 && maxJump(a, k) < BOUND, `max step ${maxJump(a, k).toFixed(4)}`);
   }
 
