@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: panel-no-boot-wait
+expected_outcome: |
+  On the side-panel route (the server's instructions open with "You are driving CLOADM in the person's side panel." and machine_info says route "panel"), the agent uses machine "m1", already on and running LIZA: it does not boot a machine, does not wait for the built-in firmware's banner, and does not tell the person about boot waits, the media folder, ROM files or snapshots.

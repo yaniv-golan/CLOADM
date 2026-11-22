@@ -86,6 +86,7 @@ const J = JSON.stringify;
     const sha = require('crypto').createHash('sha256').update(want || '').digest('hex').slice(0, 12);
     check('instructions: the Worker serves exactly the skill\'s connector essentials section, in every protocol version', !!want && want.length > 500
       && init.body.result.instructions === want && initOld.body.result.instructions === want && views.instructions === want, J(init.body.result.instructions).slice(0, 120));
+    check('instructions: the first line names the route, "You are driving CLOADM in the person\'s side panel."', init.body.result.instructions.split('\n')[0] === 'You are driving CLOADM in the person\'s side panel.', J(init.body.result.instructions.split('\n')[0]));
     check('instructions: the build\'s hash is the section\'s sha-256 (printed by node connector/build.js)', views.essentialsHash === sha && /^[0-9a-f]{12}$/.test(sha), `${views.essentialsHash} ${sha}`);
     const src = fs.readFileSync(path.join(ROOT, 'connector/worker/src/server.js'), 'utf8');
     check('instructions: the Worker holds no copy of its own (no INSTRUCTIONS constant, no instructions literal), it uses the views\'', !/\bINSTRUCTIONS\b/.test(src) && !/instructions:\s*['"`]/.test(src) && /instructions: views\.instructions/.test(src));
@@ -208,6 +209,8 @@ const J = JSON.stringify;
   const st = await ptb.call('screen_text', { machine_id: 'm1' }, { base64: b64 });
   check('panel tools: screen text comes back wrapped as untrusted machine_output, as from the local server', !st.isError && st.structuredContent.untrusted === T.UNTRUSTED_NOTE
     && /LIZA/.test(st.structuredContent.machine_output.lines.join('\n')) && JSON.parse(st.content[0].text).untrusted === T.UNTRUSTED_NOTE, J(st).slice(0, 300));
+  const info = await ptb.call('machine_info', { machine_id: 'm1' }, { base64: b64 });
+  check('panel tools: machine_info reports the route, "panel" (the local server says "local")', !info.isError && info.structuredContent.route === 'panel' && info.structuredContent.model === 'Dragon 64', J(info.structuredContent));
   const path1 = await ptb.call('load', { machine_id: 'm1', path: 'game.bin' }, { base64: b64 });
   const tape = await ptb.call('insert_tape', { machine_id: 'm1', path: 'x.cas' }, { base64: b64 });
   check('panel tools: a file is refused with no-media-root, naming what works; a left-out tool says why', path1.isError && path1.structuredContent.error.code === 'no-media-root'
@@ -403,18 +406,6 @@ const J = JSON.stringify;
   check('no file claims that no ROM byte leaves the panel; the guide says a determined agent can infer ROM contents through execution', !overclaims.length
     && /a\s+determined agent can infer ROM contents through execution/.test(fs.readFileSync(path.join(ROOT, 'docs/mcp.md'), 'utf8')), overclaims.join(', '));
 
-  // the lead: "Use the connector" comes before any plugin heading, and the table has its 7 rows
-  for (const f of ['README.md', 'docs/mcp.md']) {
-    const t = fs.readFileSync(path.join(ROOT, f), 'utf8');
-    const lead = t.indexOf('**Use the connector.**'), plug = t.indexOf('**For developers and your own files: the plugin.**'), tab = t.indexOf('| You want to… | Use |');
-    const rows = tab < 0 ? [] : t.slice(tab).split('\n').slice(2).filter((l) => /^\|/.test(l)).slice(0, 7);
-    const firstPlugin = t.search(/^#{1,3} .*[Pp]lugin/m);
-    check(`${f}: "Use the connector" leads, before the plugin and before any plugin heading; the Which-one table has 7 rows`,
-      lead >= 0 && plug > lead && tab > plug && (firstPlugin < 0 || firstPlugin > lead) && rows.length === 7 && /\| \.mcpb extension \|$/.test(rows[6]) && /not yet tested on phones/.test(rows[1]), `${lead} ${plug} ${tab} ${rows.length}`);
-    const zips = [...new Set([...t.matchAll(/`([\w.-]+\.zip)`/g)].map((m) => m[1]))], rel = fs.readFileSync(path.join(ROOT, '.github/workflows/release.yml'), 'utf8');
-    check(`${f}: names the skill zip, and release.yml publishes that exact file`, zips.length === 1 && rel.includes(`dist/${zips[0]}`), zips.join(','));
-    check(`${f}: says web and the desktop app, and that phones are not yet tested`, /side panel on the web and in the desktop app \(phones not yet tested\)/.test(t));
-  }
   console.log(`${n - fail}/${n} connector checks passed`);
   process.exitCode = fail ? 1 : 0;
 // (straight to stdout: a failure while the Worker is probed comes while console is stubbed)

@@ -97,5 +97,47 @@ check('the generated ROM table is kept', /<!-- rom-table:start[\s\S]*<!-- rom-ta
     `${f && f[1]} / ${pre && pre[1]}`);
 }
 
+// The install story (README.md and docs/mcp.md, "Use with Claude"): one plugin, then Connect for the side panel; a table
+// by where you use Claude; "Without the plugin"; none of the old two-route wording (connector first, plugin for
+// developers, a "You want to…" table, "Both on?").
+// PHONE_VIEW_WORKS: false while the side panel cannot be used on phones. Each doc then carries the phone line twice (in
+// the table and under step 2), each marked with a "phones-not-yet" comment so it is easy to find. The branch that makes
+// the phone view work sets this to true, and this check then fails until both lines and their markers are gone.
+const PHONE_VIEW_WORKS = false;
+{
+  const PHONE = "On phones the plugin and connector install, but the side panel can't be used yet. Use claude.ai on a computer or the desktop app.";
+  const rel = fs.readFileSync(path.join(ROOT, '.github/workflows/release.yml'), 'utf8');
+  for (const f of ['README.md', 'docs/mcp.md']) {
+    const t = fs.readFileSync(path.join(ROOT, f), 'utf8');
+    const h = f === 'README.md' ? '### With Claude' : '## Use with Claude', sub = f === 'README.md' ? '#### Without the plugin' : '### Without the plugin';
+    const at = t.indexOf(`\n${h}\n`), end = t.indexOf(`\n${sub}\n`), sec = at >= 0 && end > at ? t.slice(at, end) : '';
+    check(`${f}: "${h}" leads with the plugin, then step 1 (the marketplace) and step 2 (Connect cloadm-panel, then Continue)`,
+      /^\n#+ [^\n]+\n\n\*\*Install the CLOADM plugin\.\*\* One plugin works everywhere Claude does\.\n/.test(sec)
+      && sec.includes('1. Customize → Plugins → Add marketplace → `yaniv-golan/CLOADM` → Add **CLOADM**.') && sec.includes('`/plugin install cloadm@cloadm-marketplace`')
+      && /2\. On the web and in desktop chat: open the plugin's Connectors tab and click \*\*Connect\*\* next to \*cloadm-panel\*, then\s+\*\*Continue\*\*\. The emulator then opens in Claude's side panel\./.test(sec)
+      && sec.includes('In Cowork and Claude Code it runs on your computer instead, with your ROM files and the ~/CLOADM folder; nothing to connect.'), `${sec.length} characters`);
+    check(`${f}: the badge note (not reviewed, mcp.cloadm.dev, no sign-in, only the emulator, open source)`,
+      sec.includes("Claude shows this for any connector Anthropic hasn't reviewed. CLOADM's runs at mcp.cloadm.dev, needs no sign-in, and sees only the emulator in that panel. Nothing else of yours. It's open source: [source](https://github.com/yaniv-golan/CLOADM/tree/main/connector)."));
+    const tab = sec.indexOf('| Where you use Claude | What you get |');
+    const rows = tab < 0 ? [] : sec.slice(tab).split('\n').slice(2).filter((l) => /^\|/.test(l)).map((l) => l.split('|').slice(1, -1).map((c) => c.trim()));
+    check(`${f}: the table by where: web and desktop chat → the side panel; Cowork and Claude Code → your computer; phone → not yet; other agents → the MCP entry`,
+      rows.length === 4 && rows[0][0] === 'claude.ai on the web, desktop chat' && rows[0][1] === 'the live side panel (after Connect)'
+      && rows[1][0] === 'Desktop Cowork, Claude Code' && rows[1][1] === 'on your computer, with your ROMs and files'
+      && rows[2][0] === 'Phone' && /^not yet\b/.test(rows[2][1]) && /^Other agents\b/.test(rows[3][0]) && rows[3][1].includes('`node cli/cloadm.js --mcp`'), JSON.stringify(rows));
+    const after = end >= 0 ? t.slice(end, end + 600) : '';
+    check(`${f}: "Without the plugin": the connector URL, no sign-in, the side panel but not the skill`,
+      after.includes('Add `https://mcp.cloadm.dev/mcp` as a custom connector (no sign-in). You get the side panel but not the skill that teaches Claude to play it well.'));
+    const zips = [...new Set([...t.matchAll(/`([\w.-]+\.zip)`/g)].map((m) => m[1]))];
+    check(`${f}: names the skill zip, and release.yml publishes that exact file`, zips.length === 1 && rel.includes(`dist/${zips[0]}`), zips.join(','));
+    const stale = ['**Use the connector.**', '**For developers and your own files: the plugin.**', '| You want to… | Use |', '**Both on?**', '**Which one?**', 'phones not yet tested', 'The four routes'].filter((w) => t.includes(w));
+    check(`${f}: none of the old two-route wording`, !stale.length, stale.join(' | '));
+    const phone = t.split(PHONE).length - 1, marked = (t.match(new RegExp(`${PHONE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} <!-- phones-not-yet[^>]*-->`, 'g')) || []).length;
+    const markers = (t.match(/phones-not-yet/g) || []).length;
+    if (PHONE_VIEW_WORKS) check(`${f}: the phone view works (PHONE_VIEW_WORKS), so the phone line and its markers are gone`, phone === 0 && markers === 0, `${phone} lines, ${markers} markers`);
+    else check(`${f}: the phone line, twice (the table and step 2), each marked phones-not-yet`, phone === 2 && marked === 2 && markers === 2
+      && rows.length > 2 && rows[2][1].includes(PHONE) && sec.slice(0, tab).includes(PHONE), `${phone} lines, ${marked} marked, ${markers} markers`);
+  }
+}
+
 console.log(fail ? `${fail} FAILED` : 'all README checks passed');
 process.exitCode = fail ? 1 : 0;

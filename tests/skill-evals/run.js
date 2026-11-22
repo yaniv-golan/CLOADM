@@ -39,9 +39,12 @@ function readCase(name) {
   const settings = m[1], prompt = m[2].trim();
   const maxTurns = Number((/max_turns: (\d+)/.exec(settings) || [])[1] || 40);
   const timeout = Number((/timeout_seconds: (\d+)/.exec(settings) || [])[1] || 900);
+  // server: local (the default, node cli/cloadm.js --mcp) or panel (panel-server.mjs: the side panel's tools and the
+  // Worker's instructions, for a case on the side-panel route)
+  const server = (/^server: (local|panel)$/m.exec(settings) || [])[1] || 'local';
   const graders = fs.readdirSync(path.join(dir, 'graders')).filter((f) => f.endsWith('.md')).sort()
     .map((f) => fs.readFileSync(path.join(dir, 'graders', f), 'utf8').replace(/^---\n[\s\S]*?\n---\n/, '').trim());
-  return { name, dir, prompt, maxTurns, timeout, graders };
+  return { name, dir, prompt, maxTurns, timeout, graders, server };
 }
 
 function run(cmd, argv, { cwd, input, timeoutMs }) {
@@ -71,8 +74,9 @@ async function agentRun(c, arm, k) {
   }
   if (arm === 'with_skill') fs.cpSync(path.join(ROOT, 'skills', 'cloadm'), path.join(proj, '.claude', 'skills', 'cloadm'), { recursive: true });
   const mcp = path.join(runDir, 'mcp.json');
-  fs.writeFileSync(mcp, JSON.stringify({ mcpServers: { cloadm: { command: process.execPath, args: [path.join(ROOT, 'cli', 'cloadm.js'), '--mcp', '--media-root', media] } } }));
-  const prompt = `${c.prompt}\n\n(The emulator's media folder is ${media}.)`;
+  const serverArgs = c.server === 'panel' ? [path.join(HERE, 'panel-server.mjs')] : [path.join(ROOT, 'cli', 'cloadm.js'), '--mcp', '--media-root', media];
+  fs.writeFileSync(mcp, JSON.stringify({ mcpServers: { cloadm: { command: process.execPath, args: serverArgs } } }));
+  const prompt = c.server === 'panel' ? c.prompt : `${c.prompt}\n\n(The emulator's media folder is ${media}.)`;
   const r = await run('claude', ['-p', prompt, '--model', MODEL, '--output-format', 'stream-json', '--verbose',
     '--mcp-config', mcp, '--strict-mcp-config', '--setting-sources', 'project',
     '--tools', 'Read,Glob,Grep,Skill', '--allowedTools', 'mcp__cloadm', 'Read', 'Glob', 'Grep', 'Skill',

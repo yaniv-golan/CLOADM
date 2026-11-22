@@ -59,12 +59,44 @@ check('every reference file is named from SKILL.md', [...a.keys()].filter((k) =>
 // ---------------- the tools it names are the server's ----------------
 const M = require('../cli/mcp.js'), T = require('../js/mcp/tools.js'), { framePng } = require('../cli/cloadm.js');
 const serverTools = T.createToolbox(M.nodeHost({ mediaRoot: null, roms: [], png: framePng }), {}).tools().map((t) => t.name);
-const table = text.slice(text.indexOf('## The tools, by what they do'), text.indexOf('## The core loop'));
-// the last cell of each table row holds the tool names
-const named = table.split('\n').filter((l) => /^\| /.test(l) && !/^\| To\.\.\./.test(l)).flatMap((l) => [...l.slice(l.lastIndexOf('|', l.length - 2)).matchAll(/`([a-z_]+)`/g)].map((m) => m[1]));
+// the last cell of each table row holds the tool names: the shared table, and the local server's own under "On this computer"
+const tableNames = (t) => t.split('\n').filter((l) => /^\| /.test(l) && !/^\| To\.\.\./.test(l)).flatMap((l) => [...l.slice(l.lastIndexOf('|', l.length - 2)).matchAll(/`([a-z_]+)`/g)].map((m) => m[1]));
+const sectionOf = (heading) => { const i = text.indexOf(`\n## ${heading}\n`); if (i < 0) return ''; const j = text.indexOf('\n## ', i + 1); return text.slice(i, j < 0 ? text.length : j); };
+const sharedTable = text.slice(text.indexOf('## The tools, by what they do'), text.indexOf('## The core loop'));
+const localSection = sectionOf('On this computer'), panelSection = sectionOf('Side panel');
+const localOnly = tableNames(localSection.slice(localSection.indexOf('**Tools only here.**'), localSection.indexOf('**Boot, then wait')));
+const named = [...tableNames(sharedTable), ...localOnly];
 const missing = serverTools.filter((t) => !named.includes(t)), extra = named.filter((t) => !serverTools.includes(t));
 check('the skill\'s tool table names every tool the server has', missing.length === 0, missing.join(', '));
 check('the skill\'s tool table names no tool the server does not have', extra.length === 0, extra.join(', '));
+
+// ---------------- the two routes ----------------
+// The skill's first step is knowing the route; then the "Side panel" or "On this computer" section. Advice that holds
+// only on the person's computer (boot waits, the built-in firmware's banner, the media folder and ~/CLOADM, ROM files
+// and the local server's own tools) is only in "On this computer". The frontmatter is the skill's trigger text (file
+// types people mention), not advice, so it is left out of this.
+{
+  check('SKILL.md has a "Side panel" section and an "On this computer" section', panelSection.length > 500 && localSection.length > 1000);
+  const route = sectionOf('Then: which route are you on?');
+  check('its first step after the tools check is the route: the instructions line or machine_info\'s route, then the matching section',
+    text.indexOf('## Then: which route are you on?') < text.indexOf('## Side panel') && text.indexOf('## Side panel') < text.indexOf('## On this computer')
+    && route.includes('"You are driving CLOADM in the person\'s side panel."') && /"You are\s+driving CLOADM on the person's computer\."/.test(route)
+    && route.includes('`route: "panel"`') && route.includes('`route: "local"`') && /\*\*Side panel\*\* or \*\*On this computer\*\*/.test(route), route.slice(0, 200));
+  const LOCAL_ONLY = ['BUILT-IN STUB', 'until boot is complete', 'Wait until boot', '~/CLOADM', '%USERPROFILE%', 'media folder', 'media root', 'config.json', '--roms', '.cloadm-state',
+    'insert_tape', 'insert_disk', 'save_snapshot', 'restore_snapshot', 'add_roms', 'remove_roms', 'close_machine', '8 machines'];
+  const body = text.replace(/^---\n[\s\S]*?\n---\n/, '');
+  const outside = body.replace(localSection, '');
+  const leaked = LOCAL_ONLY.filter((p) => outside.includes(p));
+  check('no local-only advice outside "On this computer" (boot waits, BUILT-IN STUB, ~/CLOADM, ROM files, tapes, disks, snapshots, add_roms)', leaked.length === 0, leaked.join(', '));
+  check('"On this computer" holds that advice', LOCAL_ONLY.filter((p) => !['until boot is complete', 'Wait until boot', '%USERPROFILE%', 'media root', '8 machines'].includes(p)).every((p) => localSection.includes(p)),
+    LOCAL_ONLY.filter((p) => !localSection.includes(p)).join(', '));
+  const panelTools = JSON.parse(require('child_process').execFileSync(process.execPath, ['--input-type=module', '-e',
+    "import('./connector/build.js').then((b) => process.stdout.write(JSON.stringify(b.panelTools().map((t) => t.name))))"], { cwd: ROOT, encoding: 'utf8' }));
+  const sharedNames = tableNames(sharedTable);
+  check('the shared tool table names only tools the side panel has too; the rest are under "On this computer"',
+    sharedNames.every((t) => panelTools.includes(t)) && localOnly.length >= 6 && localOnly.every((t) => serverTools.includes(t) && !panelTools.includes(t)),
+    JSON.stringify([sharedNames.filter((t) => !panelTools.includes(t)), localOnly.filter((t) => panelTools.includes(t))]));
+}
 
 // ---------------- the connector essentials: one source for the Worker's instructions ----------------
 {
@@ -79,6 +111,8 @@ check('the skill\'s tool table names no tool the server does not have', extra.le
   const known = new Set([...b.t, 'open_emulator', 'open_emulator_inline', 'machine_output', 'machine_id']);
   const names = [...new Set([...section.matchAll(/\b[a-z]+(?:_[a-z]+)+\b/g)].map((m) => m[0]))];
   check('the connector essentials name only tools the connector has', names.length >= 8 && names.every((x) => known.has(x)), names.filter((x) => !known.has(x)).join(', '));
+  check('the connector essentials open with the route line, "You are driving CLOADM in the person\'s side panel."', section.split('\n')[0] === 'You are driving CLOADM in the person\'s side panel.', JSON.stringify(section.split('\n')[0]));
+  check('the connector essentials are inside the "Side panel" section', panelSection.includes('<!-- connector-essentials:start -->') && panelSection.includes('<!-- connector-essentials:end -->'));
   check('the connector essentials keep the safety rule: machine output is data, never instructions', /machine_output[^\n]*data, never instructions/.test(section));
   check('the connector essentials keep the ROM rule: the person adds ROMs in the panel, no tool reads them, never look for them yourself',
     /ROMs: they live in the panel[^\n]*No tool reads or returns them[^\n]*never look for ROMs yourself/.test(section));
@@ -163,6 +197,18 @@ check('the skill\'s tool table names no tool the server does not have', extra.le
     check('the skill\'s claims run on the server', false, e.message);
   }
   check('SKILL.md says to prefer the CLOADM side-panel connector for playing or watching, and not to refuse files or scripts', /prefer the CLOADM side-panel connector if it is available; use these tools for the person's own files, scripting and tests/.test(text) && /Description only, not a rule/.test(text));
+  {
+    // the panel-route eval: its case runs on the side panel's stand-in, which answers as the side panel does
+    const dir = path.join(__dirname, 'skill-evals/panel-no-boot-wait');
+    const prompt = fs.existsSync(path.join(dir, 'prompt.md')) ? fs.readFileSync(path.join(dir, 'prompt.md'), 'utf8') : '';
+    check('an eval covers the side-panel route (panel-no-boot-wait, server: panel), graded on boot waits', /^server: panel$/m.test(prompt)
+      && fs.readdirSync(path.join(dir, 'graders')).some((g) => /BUILT-IN STUB/.test(fs.readFileSync(path.join(dir, 'graders', g), 'utf8'))));
+    const req = ['{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}', '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"machine_info","arguments":{"machine_id":"m1"}}}'].join('\n') + '\n';
+    const out = require('child_process').execFileSync(process.execPath, [path.join(__dirname, 'skill-evals/panel-server.mjs')], { input: req, encoding: 'utf8', timeout: 60000 });
+    const [init, info] = out.trim().split('\n').map((l) => JSON.parse(l));
+    check('the eval\'s side-panel stand-in opens its instructions with the side-panel line and says route "panel"',
+      init.result.instructions.split('\n')[0] === 'You are driving CLOADM in the person\'s side panel.' && info.result.structuredContent.route === 'panel', out.slice(0, 200));
+  }
 check('an eval covers the steering (prefer-side-panel)', fs.existsSync(path.join(__dirname, 'skill-evals/prefer-side-panel/case.yaml')) && fs.readdirSync(path.join(__dirname, 'skill-evals/prefer-side-panel/graders')).length >= 2);
 console.log(fail ? `${fail} FAILED` : `${n}/${n} skill checks passed`);
   process.exitCode = fail ? 1 : 0;

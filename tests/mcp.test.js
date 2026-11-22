@@ -161,6 +161,7 @@ fs.writeFileSync(tmp('media', 'plain.bas'), '10 PRINT "HI"\n');
   const init = await s.init('2025-06-18');
   check('initialize: the client\'s version back, tools capability, serverInfo and instructions', init.result.protocolVersion === '2025-06-18' && init.result.capabilities.tools.listChanged === false
     && init.result.serverInfo.name === 'cloadm' && /machine_id/.test(init.result.instructions) && init.result.resultType === 'complete', J(init));
+  check('instructions: the first line names the route, "You are driving CLOADM on the person\'s computer."', init.result.instructions.split('\n')[0] === 'You are driving CLOADM on the person\'s computer.', J(init.result.instructions.split('\n')[0]));
   const unknownVersion = await s.request('initialize', { protocolVersion: '1999-01-01', capabilities: {}, clientInfo: { name: 'x', version: '1' } });
   check('initialize with a version the server does not speak: it answers with its newest handshake version', unknownVersion.result.protocolVersion === '2025-11-25', J(unknownVersion));
   const list = (await s.request('tools/list', {})).result.tools, list2 = (await s.request('tools/list', {})).result.tools;
@@ -265,7 +266,7 @@ fs.writeFileSync(tmp('media', 'plain.bas'), '10 PRINT "HI"\n');
   check('screen_text: byte for byte what the in-page tool gives on the same machine', J(mText.data.machine_output) === J(pageRead(ps, 'screen_text', {}).out));
   check('peek: byte for byte the in-page tool\'s answer', J(mPeek.data.machine_output) === J(pageRead(ps, 'peek', { address: 0x400, length: 64 }).out));
   check('disassemble: byte for byte the in-page tool\'s answer', J(mDis.data.machine_output) === J(pageRead(ps, 'disassemble', { address: 0x3000, count: 12 }).out));
-  check('machine_info: byte for byte the in-page tool\'s answer (not wrapped: the emulator\'s own words)', J(mInfo.data) === J(pageRead(ps, 'machine_info', {}).out), J(mInfo.data));
+  check('machine_info: byte for byte the in-page tool\'s answer (not wrapped: the emulator\'s own words), then the route, "local"', J(mInfo.data) === J(Object.assign({}, pageRead(ps, 'machine_info', {}).out, { route: 'local' })), J(mInfo.data));
   // the same refusals, with the same { code, remedy, detail }
   for (const [name, input] of [['peek', { address: 70000 }], ['peek', { address: 65535, length: 2 }], ['peek', { address: 1, length: 0 }], ['peek', { address: '1024' }], ['disassemble', { address: 0, count: 65 }]]) {
     const mine = await s.call(name, Object.assign({}, input, M)), theirs = pageRead(ps, name, input);
@@ -709,6 +710,7 @@ fs.writeFileSync(tmp('media', 'plain.bas'), '10 PRINT "HI"\n');
   check('--read-only: the instructions name no hidden tool and say read-only mode is on; the full server\'s name only tools it has',
     !hiddenNamed.length && /Read-only mode: input, memory writes, media and snapshots are disabled/.test(rInit.result.instructions) && !/Read-only mode/.test(init.result.instructions)
     && fullNamed.includes('type_text') && fullNamed.includes('press_keys'), J([hiddenNamed, fullNamed]));
+  check('--read-only: the instructions still open with the route line', rInit.result.instructions.split('\n')[0] === require('../cli/mcp.js').LOCAL_ROUTE_LINE, J(rInit.result.instructions.split('\n')[0]));
   check('--read-only: only the tools that leave input, memory and files alone (plus booting, closing and running machines)', J(rl) === J(['list_models', 'list_machines', 'boot', 'close_machine', 'machine_info', 'screen_text', 'peek', 'disassemble', 'find_bytes', 'run_frames', 'registers', 'screenshot', 'set_display']), J(rl));
   await r.call('boot', { model: 'coco' });
   const refused = await r.call('poke', { machine_id: 'm1', address: 0x3000, bytes: [1] }), refusedFile = await r.call('save_snapshot', { machine_id: 'm1', path: 'x.cloadm-state' });
@@ -767,6 +769,9 @@ fs.writeFileSync(tmp('media', 'plain.bas'), '10 PRINT "HI"\n');
     let notSession = null;
     try { T.createToolbox(host, { session: { machine: {} } }); } catch (e) { notSession = e.message; }
     check('own session: only a Session', /session must be a Session/.test(notSession), notSession);
+    let badRoute = null;
+    try { T.createToolbox(host, { route: 'phone' }); } catch (e) { badRoute = e.message; }
+    check('route: only "local" or "panel"', /route must be local or panel/.test(badRoute), badRoute);
     // the games, by name, as on the page (Session.runGame); refused where the page refuses them
     const game = await tb.call('load', { machine_id: 'm1', program: '2048' });
     const ran = await tb.call('run_frames', { machine_id: 'm1', frames: 100 });
