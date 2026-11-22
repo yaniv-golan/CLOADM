@@ -336,6 +336,7 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Fixed
 
+- **The profiler notes put the MC-10 6803's on-chip registers at `$0000`-`$001F`.** They end at `$0014`: `$0015`-`$001F` reach the bus, and the profile counts a write there as a write to memory.
 - **An embedded CLOADM could open the Claude chat; the chat is no longer available in an embed.**
 - **Two server processes adding ROMs at once could lose index entries.** Every change to the ROM store's index now
   reads it again and writes it while holding a lock file (`index.lock`, broken after ten seconds if its holder died),

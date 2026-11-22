@@ -152,7 +152,7 @@ for (const id of ['dragon64', 'coco3']) {
   const delay = row(profileAt(t, res, 'DELAY', 3), 'DELAY');
   check(`${id}: a register countdown is compute (it polls nothing)`, delay.share > 0.99 && delay.spin.share === 0, JSON.stringify(delay));
 }
-{ // the MC-10: the $BF00-$BFFF page (keyboard read, VDG latch write) is I/O; the 6803's own registers ($0000-$001F)
+{ // the MC-10: the $BF00-$BFFF page (keyboard read, VDG latch write) is I/O; the 6803's own registers ($0000-$0014)
   // never reach the bus, so a port-1 strobe is no access the profile sees (and so no RAM write)
   const SPIN6803 = `
         ORG     $4800
@@ -164,6 +164,9 @@ SCAN    LDAA    #$FE            ; a keyboard scan: strobe a column on port 1 ($0
         STAA    $02
         LDAB    $BFFF
         BRA     SCAN
+RES     LDAA    $BFFF           ; the same, writing $0018: past the 6803's registers ($0000-$0014), so it reaches the bus
+        STAA    $18
+        BRA     RES
 LATCH   LDAA    $BFFF           ; a wait that writes the VDG latch back each time
         STAA    $BFFF
         BRA     LATCH
@@ -186,6 +189,8 @@ COMP    LDAA    0,X
   check('mc10: a keyboard poll is spin, polling $BFFF', key.spin.share > 0.99 && key.spin.polls.join() === '$BFFF', JSON.stringify(key));
   const scan = row(profileAt(s, res, 'SCAN', 3), 'SCAN');
   check('mc10: a keyboard scan writing port 1 ($0002) is spin, polling $BFFF', scan.share > 0.99 && scan.spin.share > 0.99 && scan.spin.polls.join() === '$BFFF', JSON.stringify(scan));
+  const res18 = row(profileAt(s, res, 'RES', 3), 'RES');
+  check('mc10: a write to the reserved $0018 (past the 6803\'s registers, $0000-$0014) reaches the bus, so the profile sees it as a write: not spin', res18.share > 0.99 && res18.spin.share === 0, JSON.stringify(res18));
   const latch = row(profileAt(s, res, 'LATCH', 3), 'LATCH');
   check('mc10: a wait that writes the $BFxx latch is still spin', latch.share > 0.99 && latch.spin.share > 0.99, JSON.stringify(latch));
   const page = row(profileAt(s, res, 'PAGE', 3), 'PAGE');

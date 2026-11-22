@@ -41,8 +41,9 @@ const WRAP = 0x100000000;
 const hex = (a, n = 4) => `$${a.toString(16).toUpperCase().padStart(n, '0')}`;
 
 // the address space the spin test counts as I/O: the 6809 machines' $FF00-$FFFF; the MC-10's $BF00-$BFFF page
-// (keyboard read, VDG latch write). The 6803's on-chip registers ($0000-$001F: its ports, timer, serial) and on-chip
-// RAM ($0080-$00FF) never reach the machine's bus (cpu6803.js read8/write8), so the taps see none of their accesses:
+// (keyboard read, VDG latch write). The 6803's on-chip registers ($0000-$0014: its ports, timer, serial, RAM control) and on-chip
+// RAM ($0080-$00FF, while enabled) never reach the machine's bus (cpu6803.js read8/write8), so the taps see none of
+// their accesses ($0013 read and $0015-$001F are not on-chip: they reach the bus, as in MAME's 6803 map):
 // a wait that polls only a 6803 port reads no I/O here, and is counted as compute.
 function ioTest(m) {
   if (m && m.config && m.config.cpu === '6803') return (a) => a >= 0xBF00 && a <= 0xBFFF;

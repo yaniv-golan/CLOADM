@@ -556,8 +556,11 @@ idle, not slow (`$FF02` is read to clear the flag). A row that is hot and **not*
 * **Spin.** The instructions are taken 32 at a time; a window is spin when it ran at most 4 distinct instructions,
   wrote no RAM, and read I/O (`$FF00`-`$FFFF`; on the MC-10 the `$BF00`-`$BFFF` page: keyboard read, VDG latch write) or read one RAM byte more than once. A row's `spin.share` is the part of its count made in spin
   windows, and `spin.polls` the addresses those windows read. A delay loop that only counts in a register is compute.
-  The MC-10's 6803 keeps its ports, timer and serial registers (`$0000`-`$001F`) and its own RAM (`$0080`-`$00FF`)
-  off the machine's bus, so the profile sees no access to them: a wait on a 6803 port alone counts as compute.
+  The MC-10's 6803 keeps its ports, timer, serial and RAM control registers (`$0000`-`$0014`) and its own RAM
+  (`$0080`-`$00FF`, while the RAM control register's RAME bit is set) off the machine's bus, so the profile sees no
+  access to them: a wait on a 6803 port alone counts as compute. The rest of `$0000`-`$001F` (a read of the
+  write-only `$0013`, and `$0015`-`$001F`) is not on the chip: it goes to the bus, where nothing answers, and a write
+  there counts like any write to memory that is not I/O.
 * **One address space.** The counts are keyed by CPU address: code banked in or mapped by the CoCo 3's MMU at the same
   address is counted together, and the report says so (`note`).
 * **Cost.** While a profile runs, the machine runs 1.4 to 1.7 times slower (`node tools/profile-cost.js` measures it on
