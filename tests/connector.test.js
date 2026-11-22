@@ -78,6 +78,28 @@ const J = JSON.stringify;
     init.body.result.protocolVersion === '2025-06-18' && initOld.body.result.protocolVersion === '2025-11-25'
     && J(init.body.result.capabilities.extensions['io.modelcontextprotocol/ui'].mimeTypes) === J([MIME])
     && init.body.result.serverInfo.version === build.version() && (build.version() !== 'unknown') === inCheckout && /next message/.test(init.body.result.instructions), J(init.body));
+  // the connector's instructions have ONE source: the "connector essentials" section of the skill (build.js copies it)
+  {
+    const skill = fs.readFileSync(path.join(ROOT, 'skills/cloadm/SKILL.md'), 'utf8');
+    const m = /<!-- connector-essentials:start -->\n([\s\S]*?)\n<!-- connector-essentials:end -->/.exec(skill);
+    const want = m && m[1].trim();
+    const sha = require('crypto').createHash('sha256').update(want || '').digest('hex').slice(0, 12);
+    check('instructions: the Worker serves exactly the skill\'s connector essentials section, in every protocol version', !!want && want.length > 500
+      && init.body.result.instructions === want && initOld.body.result.instructions === want && views.instructions === want, J(init.body.result.instructions).slice(0, 120));
+    check('instructions: the build\'s hash is the section\'s sha-256 (printed by node connector/build.js)', views.essentialsHash === sha && /^[0-9a-f]{12}$/.test(sha), `${views.essentialsHash} ${sha}`);
+    const src = fs.readFileSync(path.join(ROOT, 'connector/worker/src/server.js'), 'utf8');
+    check('instructions: the Worker holds no copy of its own (no INSTRUCTIONS constant, no instructions literal), it uses the views\'', !/\bINSTRUCTIONS\b/.test(src) && !/instructions:\s*['"`]/.test(src) && /instructions: views\.instructions/.test(src));
+    const gen = path.join(ROOT, 'connector/worker/src/views.gen.js');
+    if (fs.existsSync(gen)) {
+      const g = (await imp('connector/worker/src/views.gen.js')).default;
+      check('instructions: the generated views.gen.js (the last build) carries the skill\'s section now: rebuild (node connector/build.js) and redeploy the Worker after editing it',
+        g.instructions === want && g.essentialsHash === sha, `${g.essentialsHash} vs ${sha}`);
+    } else console.log('ok   instructions: no generated views.gen.js here (wrangler\'s [build] makes it); the views() check above covers the build');
+    const tomlText = fs.readFileSync(path.join(ROOT, 'connector/worker/wrangler.toml'), 'utf8');
+    check('instructions: wrangler dev rebuilds when the skill changes (watch_dir holds ../../skills/cloadm)', /watch_dir\s*=\s*\[[^\]]*"\.\.\/\.\.\/skills\/cloadm"/.test(tomlText));
+    let refused = null; try { createServer({ site: 'a', inline: 'b', version: 'x' }); } catch (e) { refused = e; }
+    check('instructions: a Worker built from views without instructions refuses to start', !!refused && /instructions/.test(refused.message));
+  }
   check('a notification gets 202 and no body', notif.status === 202 && notif.body === null);
   check('a batch (a JSON array) is refused with -32600, also one of 600 reads of the 1 MiB view (nothing is built)', batch.status === 400 && batch.body.error.code === -32600 && /batches/.test(batch.body.error.message)
     && bomb.status === 400 && bomb.body.error.code === -32600 && J(bomb.body).length < 200, J(batch.body));
@@ -172,7 +194,8 @@ const J = JSON.stringify;
   check('panel tools: no ROM store in the panel, so add_roms and remove_roms are not offered (the toolbox would only refuse them)',
     !offered.some((t) => t.name === 'add_roms' || t.name === 'remove_roms') && !!local.add_roms && !!local.remove_roms, offered.map((t) => t.name).join(','));
   check('panel tools: the local server\'s names, schemas and annotations; the file tools and close_machine left out',
-    offered.every((t) => t.name === 'boot' || J(t) === J(local[t.name])) && J(offered.map((t) => t.name)) === J(Object.keys(local).filter((k) => !panel.LEFT_OUT.includes(k)))
+    offered.every((t) => t.name === 'boot' || J(t) === J(t.name === 'load' ? { ...local.load, description: local.load.description.replace(/ For playing or watching a machine with the person, prefer the CLOADM side-panel connector.*$/, '') } : local[t.name])) && J(offered.map((t) => t.name)) === J(Object.keys(local).filter((k) => !panel.LEFT_OUT.includes(k)))
+    && !/side-panel connector/.test(offered.find((t) => t.name === 'load').description) && /side-panel connector/.test(local.load.description)
     && panel.LEFT_OUT.every((k) => local[k]) && J(offered.find((t) => t.name === 'boot').inputSchema) === J(local.boot.inputSchema), offered.map((t) => t.name).join(','));
   const want = ['boot', 'switch_machine', 'type_text', 'press_keys', 'screen_text', 'screenshot', 'peek', 'find_bytes', 'disassemble', 'registers', 'step', 'run', 'run_frames', 'load', 'reset', 'power_cycle'];
   check('panel tools: everything the panel runs is offered', want.every((w) => offered.some((t) => t.name === w)) && offered.length <= 64, want.filter((w) => !offered.some((t) => t.name === w)).join(','));
@@ -292,12 +315,61 @@ const J = JSON.stringify;
     check('bridge: a cancelled call gets no reply', !b.sent.some((m) => m.id === 80));
   }
 
+  {
+    const b = bridge();
+    b.reply('ui/initialize', { hostContext: { displayMode: 'inline', availableDisplayModes: ['inline', 'fullscreen'], theme: 'dark' } });
+    await tick();
+    const seen = [];
+    b.B.onChange(() => seen.push(b.B.hostContext.displayMode));
+    const initial = Object.assign({}, b.B.hostContext);
+    b.deliver({ jsonrpc: '2.0', method: 'ui/notifications/host-context-changed', params: { displayMode: 'fullscreen' } });
+    check('bridge: hostContext starts as ui/initialize\'s and takes each host-context-changed in (the side-panel button reads displayMode)',
+      initial.displayMode === 'inline' && b.B.hostContext.displayMode === 'fullscreen' && b.B.hostContext.theme === 'dark' && J(seen) === J(['fullscreen']), J([initial, b.B.hostContext, seen]));
+    const asked = b.B.requestDisplayMode('inline');
+    const req = b.sent.find((m) => m.method === 'ui/request-display-mode');
+    b.deliver({ jsonrpc: '2.0', id: req.id, result: { mode: 'inline' } });
+    await asked;
+    check('bridge: the mode the host answers a request with is the context\'s at once', J(req.params) === J({ mode: 'inline' }) && b.B.hostContext.displayMode === 'inline', J(b.B.hostContext));
+    b.deliver({ jsonrpc: '2.0', method: 'ui/notifications/host-context-changed', params: { displayMode: 'pip', styles: { variables: { x: 1 } }, toString: 'x', __proto__: { polluted: 1 } } });
+    b.deliver({ jsonrpc: '2.0', method: 'ui/notifications/host-context-changed', params: 'not an object' });
+    check('bridge: only the context keys the view reads are taken in (displayMode, availableDisplayModes, containerDimensions, theme)',
+      J(Object.keys(b.B.hostContext).sort()) === J(['availableDisplayModes', 'displayMode', 'theme']) && b.B.hostContext.displayMode === 'pip' && !('polluted' in b.B.hostContext), J(b.B.hostContext));
+  }
+
+  // ---------------- the view's controls (connector/view/ui.js), the parts without a DOM ----------------
+  {
+    const ui = await imp('connector/view/ui.js');
+    const sizes = [[376, 600], [576, 700], [876, 2000], [876, 400], [100, 2000], [376, null], [876, null]].map(([w, h]) => [w, h, ui.screenSize(w, h)]);
+    const fits = sizes.every(([w, h, s]) => s.width <= w && (h == null || s.height <= h) && Math.abs(s.width / s.height - 4 / 3) < 0.01
+      && (w - s.width < 2 || (h != null && h - s.height < 1)));
+    check('screen: the largest 4:3 picture that fits, to the pixel, in the limiting dimension; with no height given (inline), the full width', fits
+      && J(ui.screenSize(376, null)) === J({ width: 376, height: 282 }) && J(ui.screenSize(876, 400)) === J({ width: 533, height: 400 }), J(sizes));
+    check('screen: the height is fixed in the side panel and fullscreen, or when the host gives one; inline it follows the content',
+      ui.fixedHeight({ displayMode: 'fullscreen' }) && ui.fixedHeight({ displayMode: 'pip' }) && ui.fixedHeight({ displayMode: 'inline', containerDimensions: { height: 500 } })
+      && !ui.fixedHeight({ displayMode: 'inline' }) && !ui.fixedHeight({ displayMode: 'inline', containerDimensions: { maxHeight: 900 } }) && !ui.fixedHeight({}));
+    const names = { model: (id) => ({ coco3: 'CoCo 3' })[id], program: (id) => ({ liza: 'LIZA' })[id] };
+    const typing = ui.describeCall('type_text', { text: 'DIR\n' }), keys = ui.describeCall('press_keys', { keys: ['SHIFT', 'A'] });
+    const load = ui.describeCall('load', { program: 'liza' }, names), sw = ui.describeCall('switch_machine', { model: 'coco3' }, names), reset = ui.describeCall('reset');
+    check('chip: typing says "Claude is typing: " and the keys (Enter as ↵), then "Claude typed "; a load, a switch and a reset say what they did',
+      typing.now === 'Claude is typing: ' && typing.past === 'Claude typed ' && typing.keys === 'DIR↵' && !typing.read && keys.keys === 'SHIFT + A'
+      && load.past === 'Claude loaded LIZA' && !load.keys && sw.past === 'Claude switched to the CoCo 3' && reset.past === 'Claude reset the machine', J([typing, keys, load, sw, reset]));
+    const reads = ['screen_text', 'screenshot', 'peek', 'find_bytes'].map((n) => ui.describeCall(n, {}, { read: true }));
+    check('chip: a reading call is a quiet "Claude read the screen" or "Claude read memory"', reads.every((r) => r.read && !r.keys)
+      && J(reads.map((r) => r.now)) === J(['Claude read the screen', 'Claude read the screen', 'Claude read memory', 'Claude read memory']), J(reads));
+    const say = (keys, read = false) => ui.announcement(Object.assign(ui.describeCall(read ? 'screen_text' : 'type_text', { text: keys }, { read })));
+    const short = say('DIR\n'), mid = say('A'.repeat(100)), long = say('B'.repeat(2000));
+    check('announcement: short keys whole, more than 40 cut at 40 with an ellipsis, a long text by its length; none for a read',
+      short === 'Claude is typing: DIR↵' && mid === `Claude is typing: ${'A'.repeat(40)}…` && long === 'Claude is typing 2,000 characters' && say('', true) === null, J([short, mid, long]));
+    const unnamed = offered.filter((t) => !t.annotations.readOnlyHint).filter((t) => /^Claude: /.test(ui.describeCall(t.name, {}, { title: t.title }).now)).map((t) => t.name);
+    check('chip: every panel tool that acts (readOnlyHint false) has its own words', !unnamed.length, unnamed.join(','));
+  }
+
   // ---------------- the PANEL_API contract ----------------
   // What the view's HTML (built into the Worker) and the emulator module (served by cloadm.dev) expect of each other:
   // the bridge's members and what attach() reads, the CLOADM_VIEW fields and who reads them, the shell's element ids.
   // Its hash is recorded with the PANEL_API it belongs to: change the contract and this fails until PANEL_API is raised
   // (connector/view/tools.js) and the new pair recorded here.
-  const CONTRACT = { api: 1, sha256: '4357f395468efa9c4a3a726ae8f3721ea4a281178a33f404f8ea9728e79cfe70' };
+  const CONTRACT = { api: 2, sha256: '1a39f12bd1d4bf70f938d2651f72cdb2e6514b09b64ea01a7a32ebd5dcee754a' };
   {
     const b = bridge();
     const uniq = (re, text) => [...new Set([...text.matchAll(re)].map((m) => m[1]))].sort();
@@ -310,7 +382,7 @@ const J = JSON.stringify;
       viewFields: [...new Set([...Object.keys(cfgA), ...Object.keys(cfgB)])].sort(),
       cfgReads: uniq(/\bcfg\.(\w+)/g, bridgeSrc + panelSrc),
       panelUsesBridge: uniq(/\bbridge\.(\w+)/g, panelSrc),
-      panelIds: uniq(/\$\('(\w+)'\)/g, panelSrc),
+      panelIds: uniq(/\$\('([\w-]+)'\)/g, panelSrc),
       shellIds,
     };
     const sha = require('crypto').createHash('sha256').update(J(contract)).digest('hex');
@@ -331,6 +403,18 @@ const J = JSON.stringify;
   check('no file claims that no ROM byte leaves the panel; the guide says a determined agent can infer ROM contents through execution', !overclaims.length
     && /a\s+determined agent can infer ROM contents through execution/.test(fs.readFileSync(path.join(ROOT, 'docs/mcp.md'), 'utf8')), overclaims.join(', '));
 
+  // the lead: "Use the connector" comes before any plugin heading, and the table has its 7 rows
+  for (const f of ['README.md', 'docs/mcp.md']) {
+    const t = fs.readFileSync(path.join(ROOT, f), 'utf8');
+    const lead = t.indexOf('**Use the connector.**'), plug = t.indexOf('**For developers and your own files: the plugin.**'), tab = t.indexOf('| You want to… | Use |');
+    const rows = tab < 0 ? [] : t.slice(tab).split('\n').slice(2).filter((l) => /^\|/.test(l)).slice(0, 7);
+    const firstPlugin = t.search(/^#{1,3} .*[Pp]lugin/m);
+    check(`${f}: "Use the connector" leads, before the plugin and before any plugin heading; the Which-one table has 7 rows`,
+      lead >= 0 && plug > lead && tab > plug && (firstPlugin < 0 || firstPlugin > lead) && rows.length === 7 && /\| \.mcpb extension \|$/.test(rows[6]) && /not yet tested on phones/.test(rows[1]), `${lead} ${plug} ${tab} ${rows.length}`);
+    const zips = [...new Set([...t.matchAll(/`([\w.-]+\.zip)`/g)].map((m) => m[1]))], rel = fs.readFileSync(path.join(ROOT, '.github/workflows/release.yml'), 'utf8');
+    check(`${f}: names the skill zip, and release.yml publishes that exact file`, zips.length === 1 && rel.includes(`dist/${zips[0]}`), zips.join(','));
+    check(`${f}: says web and the desktop app, and that phones are not yet tested`, /side panel on the web and in the desktop app \(phones not yet tested\)/.test(t));
+  }
   console.log(`${n - fail}/${n} connector checks passed`);
   process.exitCode = fail ? 1 : 0;
 // (straight to stdout: a failure while the Worker is probed comes while console is stubbed)
