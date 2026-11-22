@@ -62,7 +62,8 @@ export function setupCommandBox(page, claude) {
   // of its other words
   const available = ([, , , id]) => !(typeof id === 'string' && !$(id));
   function matches(q) {
-    const words = q.toLowerCase().split(/\s+/).filter((w) => w && !FILLER.has(w));
+    // split as the labels are, so a label typed with its punctuation ("Chat with Claude, full screen") finds it
+    const words = q.toLowerCase().split(/[^a-z0-9.]+/).filter((w) => w && !FILLER.has(w));
     if (!q) return COMMANDS.filter(available);   // the empty box lists every command there is
     if (!words.length) return [];
     return COMMANDS.filter((c) => {

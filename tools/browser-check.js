@@ -11126,9 +11126,7 @@ async function phoneChatChecks(browser, base, check) {
     await started(page);
     await waitFor(page, () => !document.getElementById('touchKeys').hidden && document.getElementById('touchKeys').dataset.mode === 'joystick');
     // into the full-screen chat at tablet width (not a phone chat yet), then narrow to a phone
-    await page.click('#btnAsk');
-    await page.click('#btnFullFull');
-    await waitFor(page, () => window.emu.session.claudeView === 'full' && document.body.classList.contains('claude-open'));
+    await chatFullScreen(page);
     const tablet = await widths();
     await page.setViewportSize({ width: 390, height: 844 });
     await waitFor(page, () => document.body.classList.contains('chat-phone'));
