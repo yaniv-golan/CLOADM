@@ -372,14 +372,31 @@ async function observed(setup, act, id = 'dragon64', panel = false) {
 // { machine }, roms.js's target { machine }, a step's { machine }) or an element's dataset.machine; those names are
 // listed in NOT_A_SESSION per file with the reason, so a new one cannot join the list without being seen here.
 //
-// THE BOUNDARY (adversarial review of 4018753): a textual scan cannot see a Session that arrives through
-//   * a function PARAMETER of an arbitrary name (`const spill = (sess) => sess.machine`) - a parameter's type is
-//     not in the text, and `function open(snap)` shows why guessing "any parameter" would flag plain records; and
+// THE BOUNDARY. This is a textual scan, and it has a written, measured edge. It sees a use only when the Session or
+// the Page is reached through a NAME it learned (see `holders` below) and the machine is then named `.machine` or
+// `._shown`. What it does NOT catch, each one measured to stay green on the tree this comment was written against
+// (the probe planted the shape in a real file and the suite still reported 96/96; the two known-caught controls in
+// that probe, `this._shown` and `page.session._shown`, do fail, so the probe itself works):
+//   * `this?._shown` and `this['_shown']` - the bracket/optional forms are matched for `.machine`, not for `_shown`;
+//   * `const { _shown } = this` - a destructure of the backing field inside the Session body;
+//   * `const self = this; self._shown` - `this` itself is never learned as a holder;
+//   * `const sess = page.session; sess._shown` (and `sess.machine`) - `page.session` does not make `sess` a holder:
+//     the alias rule reads `= session` / `= page`, not a member of one;
+//   * `const k = '_shown'; session[k]` - a computed key is only reported when it is not a plain identifier, so a
+//     variable holding the name is skipped (a string literal, `session['_shown']`, IS caught);
+//   * `const { _shown: mm } = this.session` and `const { machine } = this.session` in embed-api, and
+//     `const { machine } = session` in cli - a destructure is only learned when the right side is the bare word
+//     `session`/`page`, not `this.session`;
+//   * a Session handed to a function through a PARAMETER of an arbitrary name (`const spill = (sess) => sess.machine`)
+//     - a parameter's type is not in the text, and `function open(snap)` shows why guessing "any parameter" would
+//     flag plain records;
 //   * `Reflect.get(session, 'machine')` / `Object.getOwnPropertyDescriptor`, where the field name is a string
 //     argument to a general helper.
-// Neither shape exists anywhere in the scanned set today (grep: no `Reflect.get(..., 'machine')`). Everything a
-// person writes by hand - `.machine`, `?.machine`, `['machine']`, `` [`machine`] ``, a computed key, an alias, a
-// renamed destructure, `._shown`, and a bare `this.machine` or `this._shown` in the Session - is caught.
+// None of those shapes exists in the scanned set today (grep, and the suite green over it). What it DOES catch, all
+// pinned by a case in this file: `.machine`, `?.machine`, `['machine']`, `` [`machine`] ``, a computed key whose key
+// is not a plain identifier, an alias of the Session or the Page (layered, renamed, comma-only), a renamed
+// destructure from a bare `session`/`page`, `._shown` on a learned holder, and a bare `this.machine` or
+// `this._shown` in the Session body. Widening it to the rest is a follow-up branch, not this one.
 const SESSION_BODY = 'js/session.js';
 const PAGE_MODULES = [SESSION_BODY];
 for (const f of fs.readdirSync(path.join(ROOT, 'js/ui')).filter((n) => n.endsWith('.js')).sort()) PAGE_MODULES.push(`js/ui/${f}`);
@@ -426,6 +443,9 @@ function pageMachineUses() {
     // it showed green: a RENAMED destructure (`const { session: sess2 } = page`), `s = window.emu.session`, and a
     // layered alias. `s` is NOT assumed to be a Session (page.js's onStep uses `s` for a history state): it is a
     // holder only where the source says so.
+    // The limit of this learning, measured and listed under THE BOUNDARY above: an alias must be a BARE name on the
+    // right (`= session`, `= page`, `= anAlias`), or a destructure from a bare `session`/`page`. `page.session` and
+    // `this.session` do NOT make the left side a holder, so `sess = page.session; sess.machine` is missed.
     const holders = new Set(['session', 'page']);
     for (let pass = 0, grew = true; grew; pass++) {
       grew = false;
@@ -470,6 +490,9 @@ function pageMachineUses() {
       // a COMPUTED key on a Session/Page (`session['ma' + 'chine']`) cannot be read textually as the name it makes:
       // any bracket access on one whose key is not a plain identifier is reported instead, since the scan cannot say
       // what it reaches. (`session[x]` and `session['a' + 'b']` both land here; `session['machine']` is caught above.)
+      // The `continue` below SKIPS a plain identifier key, on the assumption that `session[x]` is an array. When `x`
+      // holds a machine's field name (`const k = '_shown'; session[k]`) that assumption is wrong, and the use is
+      // missed - measured, see THE BOUNDARY above. A string literal in the brackets is still caught by the form above.
       for (const m of code.matchAll(/\b([A-Za-z_$][\w$]*)\s*\[\s*([^\]]+?)\s*\]/g)) {
         if (!holders.has(m[1]) || allow.has(m[1])) continue;
         if (/^[A-Za-z_$][\w$]*$/.test(m[2])) continue;     // session[length]: an array, not this object
