@@ -12,6 +12,9 @@
 // `api` must equal CLOADM_VIEW.api, the contract between this view (the Worker's build) and the module (served by
 // cloadm.dev in variant A): when they differ, every call is refused with out-of-step rather than half working.
 // CLOADM_BRIDGE.fail(why) says the emulator could not start: calls are then answered at once with not-started.
+// CLOADM_BRIDGE.hostContext is the host's context as it stands: ui/initialize's hostContext, with each
+// ui/notifications/host-context-changed merged in (the view reads displayMode from it: inline, or the side panel).
+// Only the keys the view uses are kept (CONTEXT_KEYS).
 (() => {
   const cfg = window.CLOADM_VIEW || {};
   const EARLY_WAIT_MS = 15000;   // with the tools' own 25 s limit, inside the host's 45 s per call
@@ -26,13 +29,20 @@
   const ms = () => Date.now() - log.t0;
   let impl = null, failed = null, tools = Array.isArray(cfg.tools) ? cfg.tools : [];
   let settle;
+  // the host context's keys the view reads, copied one by one from what the host sent (nothing else is taken in)
+  const CONTEXT_KEYS = ['displayMode', 'availableDisplayModes', 'containerDimensions', 'theme'];
+  const merge = (base, add) => {
+    const out = Object.assign({}, base);
+    if (add && typeof add === 'object') for (const k of CONTEXT_KEYS) if (Object.prototype.hasOwnProperty.call(add, k)) out[k] = add[k];
+    return out;
+  };
   const ready = new Promise((r) => { settle = r; });
   const listeners = [];
   const changed = () => listeners.forEach((fn) => fn());
   // once both the handshake and the emulator are done, whichever comes last, the host is told the tools changed
   const listChanged = () => { if (log.changed !== null) return; log.changed = ms(); send({ method: 'notifications/tools/list_changed', params: {} }); changed(); };
   const B = window.CLOADM_BRIDGE = {
-    log, host: null,
+    log, host: null, hostContext: {},
     get failed() { return failed; },
     describe: () => `bridge: init ${log.init === null ? 'pending' : typeof log.init === 'number' ? `${log.init} ms` : log.init}, tools/list ×${log.lists}, calls ×${log.calls}, list_changed ${log.changed === null ? 'not sent' : 'sent'}${failed ? `, ${failed.code}` : ''}${log.other.length ? `, other ${log.other.join(' ')}` : ''}`,
     onChange: (fn) => listeners.push(fn),
@@ -50,7 +60,11 @@
       return true;
     },
     fail(why) { if (impl || failed) return; failed = { code: 'not-started', detail: String(why) }; settle(); changed(); },
-    requestDisplayMode: (mode) => rpc('ui/request-display-mode', { mode }),
+    // -> the host's answer ({ mode }: the mode it is in now, which the context takes at once)
+    requestDisplayMode: (mode) => rpc('ui/request-display-mode', { mode }).then((r) => {
+      if (r && typeof r.mode === 'string') { B.hostContext = merge(B.hostContext, { displayMode: r.mode }); changed(); }
+      return r;
+    }),
   };
   const REMEDY = {
     'not-started': 'the emulator in the panel could not start (detail says why): ask the person to reopen the view, or open it with open_emulator_inline, which needs nothing from cloadm.dev',
@@ -82,6 +96,7 @@
     if (d.method === 'tools/list') { log.lists++; changed(); send({ id: d.id, result: { tools } }); return; }
     if (d.method === 'tools/call') { call(d); return; }
     if (d.method === 'ping') { send({ id: d.id, result: {} }); return; }
+    if (d.method === 'ui/notifications/host-context-changed') B.hostContext = merge(B.hostContext, d.params);
     if (d.method === 'notifications/cancelled') { const c = d.params && running.get(d.params.requestId); if (c) c.abort(); return; }
     if (d.method) { log.other.push(d.method.replace(/^ui\/notifications\//, '')); if (log.other.length > 6) log.other.shift(); changed(); }
     if (d.id !== undefined) send({ id: d.id, error: { code: -32601, message: `method not supported: ${d.method}` } });
@@ -92,6 +107,7 @@
     appCapabilities: { tools: { listChanged: true }, availableDisplayModes: ['inline', 'fullscreen'] } })
     .then((r) => {
       log.init = ms(); B.host = r;
+      if (r) B.hostContext = merge(merge({}, r.hostContext), B.hostContext);
       send({ method: 'ui/notifications/initialized', params: {} });
       log.initialized = ms();
       if (impl) listChanged();
