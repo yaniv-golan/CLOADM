@@ -173,6 +173,23 @@ for (const board of ['dragonfdc', 'premierfdc', 'cocofdc']) {
   check('stopped: nothing is hooked', c.trace === null && c.wd.onTrace === null);
 }
 {
+  // any number of traces at once, each its own ring; stopping one leaves the others running
+  const { s, fdc } = session('dragonfdc');
+  const a = s.disk.trace(), b = s.disk.trace({ limit: 2 });
+  s.runAssembled(asm(guest('dragonfdc', { cmd: 0x88 })));
+  s.runFrames(10);
+  const da = a.events.find((e) => e.kind === 'done'), db = b.events.find((e) => e.kind === 'done');
+  check('two traces at once both see the read: 256 bytes each (the byte count is per trace)', da && db && da.bytes === 256 && db.bytes === 256 && a.events.length === 5 && b.events.length === 2 && b.dropped === 3, `${a.events.length} ${b.events.length}`);
+  a.stop();
+  check('one stopped: the other still has the controller hooked', fdc.trace !== null && s.machine.diskTraces.length === 1);
+  b.stop();
+  b.stop();
+  check('both stopped (stop twice is harmless): nothing hooked', fdc.trace === null && fdc.wd.onTrace === null && s.machine.diskTraces.length === 0);
+  let msg = null;
+  try { s.machine.addDiskTrace(null); } catch (e) { msg = e.message; }
+  check('addDiskTrace takes a function', /addDiskTrace/.test(msg || ''));
+}
+{
   // the hook is not state: a snapshot taken with a trace on is the one taken without
   const { s } = session('dragonfdc');
   s.runAssembled(asm(guest('dragonfdc', { cmd: 0x88 })));
@@ -246,7 +263,7 @@ HALT    BRA     HALT
     ['trace dgnalpha alphafdc', 'dgnalpha', { controller: 'alphafdc', regenerate: false }], ['trace coco cocofdc multi', 'coco', { controller: 'cocofdc', regenerate: false, multi: true }]]) {
     const t = spec.trace(id, opts), m = t.machine(), tr = new Emu.DiskTrace(1000000);
     tr.machine = m;
-    m.setDiskTrace((k, d, at, f) => tr.hear(k, d, at, f));
+    m.addDiskTrace((k, d, at, f) => tr.hear(k, d, at, f));
     const names = t.regs.map((r) => r.name);
     let h = 0x811C9DC5, n = 0, c0 = null, halted = false;
     m.cpu.trace = (c) => {

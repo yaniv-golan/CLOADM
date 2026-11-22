@@ -459,25 +459,24 @@ export class SerialTrace {
   events() { return this.ring.slice(this.head).concat(this.ring.slice(0, this.head)).map((e) => Object.assign({}, e)); }
 }
 
-// The disk controller of the Session's machine (session.disk): its status decoded and a trace of its commands. A
-// trace belongs to the Session: a new machine (switchMachine, openSnapshot, a power cycle) gets it again (install),
-// a disk cartridge plugged in later is heard too (Machine.setDiskTrace), and no snapshot holds it.
+// The disk controller of the Session's machine (session.disk): its status decoded and traces of its commands, any
+// number at once. A trace belongs to the Session: a new machine (switchMachine, openSnapshot, a power cycle) gets it
+// again (install), a disk cartridge plugged in later is heard too (Machine.addDiskTrace), and no snapshot holds it.
 const WD_COMMANDS = ['restore', 'seek', 'step', 'step', 'step-in', 'step-in', 'step-out', 'step-out',
   'read-sector', 'read-sector', 'write-sector', 'write-sector', 'read-address', 'force-interrupt', 'read-track', 'write-track'];
 export class DiskApi {
   constructor(session) {
     this.session = session;
-    this.traces = [];               // traces running
-    this.machine = null;            // the machine the sink is on
-    this.sink = (kind, data, at, fdc) => { for (const t of this.traces) t.hear(kind, data, at, fdc); };
+    this.traces = [];               // traces running: { trace (DiskTrace), remove (off this.machine) }
+    this.machine = null;            // the machine they are on
   }
-  // the Session's machine is now m: the traces move to it
+  // the Session's machine is now m: the traces move to it, each its own observer, in the order started
   install(m) {
-    if (this.machine) this.machine.setDiskTrace(null);
+    if (m === this.machine) return;
+    for (const e of this.traces) { if (e.remove) e.remove(); e.trace.machine = m; e.remove = this.hook(m, e.trace); }
     this.machine = m;
-    for (const t of this.traces) t.machine = m;
-    if (this.traces.length) m.setDiskTrace(this.sink);
   }
+  hook(m, t) { return m.addDiskTrace((kind, data, at, fdc) => t.hear(kind, data, at, fdc)); }
   // record what the disk controller does, in a ring of the last `limit` events, oldest first: { at, frame, pc,
   // kind, ... }. kinds: 'command' ({ cmd, name, drive, side, track, sector, density }: a command takes effect),
   // 'done' ({ cmd, name, status, bytes, requested, lostData, crc, rnf, writeProtect }: it ended; with interrupted
@@ -485,19 +484,19 @@ export class DiskApi {
   // latch). -> { events, dropped, stop() }
   trace({ limit = 4096 } = {}) {
     if (!(Number.isInteger(limit) && limit > 0)) throw new SessionError(`limit is a whole number of events above 0, not ${limit}.`);
-    const t = new DiskTrace(limit);
-    t.machine = this.session.machine;
-    this.traces.push(t);
-    if (this.traces.length === 1) this.session.machine.setDiskTrace(this.sink);
+    const t = new DiskTrace(limit), m = this.session.machine;
+    t.machine = m;
+    const entry = { trace: t, remove: this.hook(m, t) };
+    this.traces.push(entry);
     const api = this;
     return {
       get events() { return t.events(); },
       get dropped() { return t.dropped; },
       stop() {
-        const i = api.traces.indexOf(t);
+        const i = api.traces.indexOf(entry);
         if (i < 0) return;
         api.traces.splice(i, 1);
-        if (!api.traces.length && api.machine) api.machine.setDiskTrace(null);
+        entry.remove();
       },
     };
   }

@@ -583,8 +583,9 @@ inverted, so its CPU reads their complement.
 
 A trace costs one test at each end of a command (and one at each controller register access) when there is none,
 and does not change the emulation: the MAME-verified floppy runs hash the same with one on
-(`tests/disk-trace.test.js`). Like the serial trace, it belongs to the Session: `switchMachine`, `openSnapshot` and a
-power cycle move it to the new machine, a disk cartridge plugged in later is traced too, and no snapshot holds it. On
+(`tests/disk-trace.test.js`). Any number of traces can run at once, each with its own ring. Like the serial trace,
+they belong to the Session: `switchMachine`, `openSnapshot` and a power cycle move them to the new machine, a disk
+cartridge plugged in later is traced too, and no snapshot holds them. On
 the command line, `--disk-trace FILE` writes the same events as JSON Lines, also when the run fails, and a `timeout`
 or `keys-not-taken` error carries `disk` ([Output and exit codes](#output-and-exit-codes)).
 

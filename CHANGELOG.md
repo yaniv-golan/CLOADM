@@ -42,7 +42,7 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   the Dragon Alpha. `session.disk.status()` decodes the controller's status by peeking (a read would clear INTRQ), and
   `session.diagnostics()` gains `disk`. On the command line, `--disk-trace FILE` writes the trace as JSON Lines (also when the
   run fails), and `timeout` and `keys-not-taken` errors carry `disk` (an added field; the same `schemaVersion`). The trace
-  belongs to the Session, like the serial trace, and is never in a snapshot; it changes no emulation: the MAME-verified floppy
+  belongs to the Session, like the serial trace (any number at once), and is never in a snapshot; it changes no emulation: the MAME-verified floppy
   runs hash the same with one on (`tests/disk-trace.test.js`). Documented in `docs/automation.md` ("Tracing the disk
   controller").
 
