@@ -37,6 +37,8 @@ import { setupDriveWirePanel } from './drivewire-panel.js';
 import { setupDisplayPanel } from './display-panel.js';
 import { setupSnapshotPanel } from './snapshot-panel.js';
 import { parseUrlConfig, linkFetchError, claudeOffered } from '../config.js';
+import { setupAskPopout } from './ask-popout.js';
+import { setupArmGuard } from './arm-guard.js';
 import { setupEmbed } from './embed.js';
 import { setupSettingsFile } from './settings-file.js';
 import { setupClaude } from './claude.js';
@@ -142,6 +144,20 @@ const claude = chatHere ? setupClaude(page) : null;
 // set up only when there is a controller: both modules drive the chat and would throw on null
 if (claude) setupAsk(page, claude);
 if (claude) setupCommandBox(page, claude);
+// the controls that hand Claude a key or a say over the machine take no press for their card's first moments on screen
+if (claude) {
+  const card = (id, ...controls) => ({ card: $(id), controls: controls.map((c) => $(c)) });
+  const said = $('armAnnounce');
+  window.emu.armGuard = setupArmGuard([
+    card('askConsent', 'btnAskAllow'), card('claudeConsentAsk', 'btnClaudeAllow'),
+    card('askKeyForm', 'btnAskKeySave'), card('claudeKeyCard', 'btnClaudeKeySave'),
+    card('askComposer', 'chkAskMachine', 'btnAskKeyForget'), card('claudeKeySaved', 'btnClaudeKeyForget'),
+    card('claudeSession', 'chkClaudeTools'),
+  ], { announce: (text) => { said.textContent = ''; requestAnimationFrame(() => { said.textContent = text; }); } });
+}
+// where there is no chat because this page is inside another site's page: "Ask Claude ↗" opens it in a new tab
+// (the framed full page's app bar; an embed's corner chip only with askclaude=1)
+window.emu.askPopout = claude ? null : setupAskPopout(page, { link, framed: framedInPage });
 const welcome = setupWelcome(page, { showRoms, openClaude: () => claude && claude.open() });
 const drawer = setupDrawer(page, { showRoms });
 const openRoms = () => { romSockets.reveal(); $('fileRom').click(); };

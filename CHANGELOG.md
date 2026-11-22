@@ -8,6 +8,17 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
+### Added
+
+- **"Ask Claude ↗" where the chat can't run.** CLOADM shown inside another site's page has no chat (its key card
+  would be on someone else's page). The full page in a frame now keeps its Ask button, as **Ask Claude ↗**: a link
+  that opens CLOADM top-level in a new tab with this machine as it is now (the Share screen's snapshot link, with
+  `app=claude`, never `embed=1`, `rel="noopener noreferrer"`), where the chat runs on the key saved in your browser.
+  With NitrOS-9 running, whose moment can't be carried, it opens a fresh CLOADM with the chat and says so. The new
+  tab waits for you to type; it never starts a turn by itself. A screen-only embed shows nothing unless its link has
+  the new `askclaude=1`, the Share screen's **Offer 'Ask Claude ↗'**: then a small chip in the screen's corner does
+  the same. The browser check's new group `askPopout` covers it.
+
 ### Fixed
 
 - **A file dropped while the Claude chat is full screen goes to your BASIC session, not the chat.** The chat runs
@@ -72,6 +83,15 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 - **The embed API acts on the machine you work on, not the one on screen.** peek, poke, type, screenText,
   powerCycle and info each name that machine, and the ROM check is asked about the same one the call reads.
 
+- **iPhone SE: "Joystick" was clipped under BREAK.** The switch is Keys | Pad | Stick at its own width, each segment
+  44 px, clear of BREAK at 320 px.
+- **The phone's app bar: Menu's label sat at the top of its button, Add ROMs wrapped to a second row, and opening Menu
+  pushed Share into the row** (seen in Chromium and on a real iPhone in Chrome for iOS). Labels are centred by the
+  buttons' own flex alignment.
+- **Touch words:** the games' and the colour demo's hints say "tap a key" and "tap BREAK" (not "press a key" and
+  "BREAK (Esc)"), and Claude's paused status says "Paused: you tapped a key · Stop ends Claude's turn". A toast sits
+  under the app bar; held sideways it sits on the black glass under the picture, clear of the keys.
+
 ### Changed
 
 - **The Share screen does one job: send this exact moment.** Under the heading "Share this moment" it now shows the
@@ -125,16 +145,12 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   stays out of machine memory, snapshots, settings exports and the chat screen itself (`tests/claude-session.test.js`
   reads the screen's text and checks the key is not on it).
 
-### Fixed
-
-- **iPhone SE: "Joystick" was clipped under BREAK.** The switch is Keys | Pad | Stick at its own width, each segment
-  44 px, clear of BREAK at 320 px.
-- **The phone's app bar: Menu's label sat at the top of its button, Add ROMs wrapped to a second row, and opening Menu
-  pushed Share into the row** (seen in Chromium and on a real iPhone in Chrome for iOS). Labels are centred by the
-  buttons' own flex alignment.
-- **Touch words:** the games' and the colour demo's hints say "tap a key" and "tap BREAK" (not "press a key" and
-  "BREAK (Esc)"), and Claude's paused status says "Paused: you tapped a key · Stop ends Claude's turn". A toast sits
-  under the app bar; held sideways it sits on the black glass under the picture, clear of the keys.
+- **Allow, Save key, Forget and "Let Claude use the emulator" wait half a second.** A press in the first 500 ms after
+  their card shows (or shows again, or the page comes back to the foreground) does nothing and leaves the focus where
+  it is, so a click or key meant for what was there a moment before can't answer them. The card fades in, the
+  controls are marked unavailable to assistive technology until then and announced once they take presses, and they
+  look the same throughout. Window focus doesn't restart the wait, and nothing but the time ends it: a tap works with
+  no pointer movement. The browser check's new group `armGuard` covers it.
 
 ### 0.1.8-pre
 

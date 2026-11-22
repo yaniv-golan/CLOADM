@@ -1337,14 +1337,28 @@ export class Session {
     return { applied, ignored };
   }
   // share link: the machine and its options as URL parameters (js/config.js), nothing else
-  shareUrl(base) {
+  // extra: more of the link's settings (claudeLink's app=claude), which override the machine's own
+  shareUrl(base, extra = {}) {
     const m = this.shownMachine, config = {};
     // the machine's options, except the ones that describe the comparison or a device in a port rather than
     // the machine: a link opens the model, not the contents of its cartridge slot
     const LOCAL = new Set(['mameCompat', 'hires']);
     for (const [k, v] of Object.entries(m.config)) if (!LOCAL.has(k) && m.profile.options[k]) config[k] = v;
     // NitrOS-9 running: the link boots it from the recipient's own image (never ours, never its name)
-    return buildUrl(base, { machine: m.id, config, nitros9: this.nitros9On(m) });
+    return buildUrl(base, { machine: m.id, config, nitros9: this.nitros9On(m), ...extra });
+  }
+  // The link a page shown inside another site offers in place of the chat ("Ask Claude ↗", js/ui/ask-popout.js): this
+  // moment, as the Share screen's link carries it (snapshotLink), with app=claude, so it opens top-level in a new tab
+  // with the chat. Never embed=1 (buildUrl writes only what it is given). A moment that cannot be carried (NitrOS-9
+  // runs: its memory is the person's own NitrOS-9; or a snapshot that can't be shared) gives a fresh CLOADM on the same
+  // machine with app=claude instead. -> { href, carried }
+  async claudeLink(base) {
+    let file = null;
+    if (!this.nitros9OnScreen) {
+      try { file = await this.shareFile(); } catch (e) { if (!(e instanceof SessionError)) throw e; }
+    }
+    if (!file) return { href: this.shareUrl(base, { app: 'claude', nitros9: null }), carried: false };
+    return { href: `${this.shareUrl(base, { app: 'claude' }).split('#')[0]}#s=${toBase64Url(file.bytes)}`, carried: true };
   }
 
   // ---------------- snapshots ----------------

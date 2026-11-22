@@ -89,6 +89,25 @@ Two ways to talk to Claude, one conversation:
   type come first (each presses the page's own button and is never sent to Claude), **Ask Claude: "…"** is always
   last. Enter runs the command or asks; asking opens the side panel, or full screen while the welcome menu is on
   screen.
+* **Inside another site** (`js/ui/ask-popout.js`) there is no chat: CLOADM framed in someone else's page would put
+  the key card on their page. The app bar's Ask button reads **Ask Claude ↗** instead, in the same place (beside
+  Menu on a phone), and is a link that opens CLOADM top-level in a new tab with `target=_blank` and
+  `rel="noopener noreferrer"`: the moment as the Share screen's link carries it (the snapshot in the fragment) with
+  `app=claude`, and never `embed=1` (`Session.claudeLink`). The new tab reads the key saved in your browser, and the
+  framing page has no handle on it. Its tooltip says "Opens CLOADM in a new tab with this machine as it is now.
+  Claude can't run inside another site." Where the moment can't be carried (NitrOS-9 running, as the Share screen
+  detects) the link opens a fresh CLOADM on the same machine with `app=claude`, and says "Opens a fresh CLOADM in a
+  new tab (this program can't be carried over)." A screen-only embed (`embed=1`) offers nothing unless its snippet
+  asks for the corner chip with `askclaude=1` ([using.md](using.md#links-and-embedding)). The new tab never starts a
+  turn: `app=claude` opens the chat and waits for you to type.
+* **A card's first half second** (`js/ui/arm-guard.js`). The consent card's **Allow**, the key cards' **Save key**
+  and **Forget**, and **Let Claude use the emulator** take no press until their card has been on screen for 500 ms,
+  so a click or key meant for whatever was there a moment before can't answer them. The window starts when the card
+  shows (again when it is shown again) and when the page comes back (`pageshow`, and `visibilitychange` to visible);
+  window focus doesn't restart it, and nothing but the time arms it, so a tap at 600 ms works. Meanwhile the
+  controls are `aria-disabled` (a press does nothing and leaves the focus on them, so a second press works), the card
+  fades in over about 300 ms, and at 500 ms the controls take presses with no change in how they look; the card is
+  then announced to screen readers. A click, a tap, Enter or Space and a label's click are all held to the same rule.
 * **Consent.** Claude can always read the emulated machine (screen text, memory, model and program counter), and nothing outside the emulator; the panel names what it reads. What it reads goes to Anthropic with the conversation, using your key. That includes the machine's memory, so ROM areas Claude peeks at or disassembles are sent too; CLOADM itself never uploads your ROMs, and never puts them in share links or exported settings. Acting
   (POKE, typing, BREAK) needs **Let Claude use the emulator**, off until you allow it: the first time Claude wants to
   act it asks in the conversation (**Allow**, which turns the switch on for the visit, or **Just tell me the fix**,

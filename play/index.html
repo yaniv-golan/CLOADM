@@ -1070,6 +1070,21 @@
   #btnAsk > * { pointer-events: none; }
   #btnAsk kbd { font: 13px var(--font-mono); opacity: .8; background: none; border: 0; padding: 0; color: inherit; box-shadow: none; }
   #btnAsk[aria-pressed="true"] { background: var(--phosphor); border-color: var(--phosphor); color: var(--on-phosphor); }
+  /* "Ask Claude ↗" (js/ui/ask-popout.js): a link that looks like the Ask button, shown only where it replaces it (a framed
+     page: body.claude-popout) and, in an embed that asked for it, the chip in the screen's corner (body.ask-chip) */
+  /* js/ui/arm-guard.js: a guarded card fades in while its controls wait out their first moments (they look the same
+     throughout, so nothing flashes when they start taking presses) */
+  @keyframes arm-in { from { opacity: 0; } to { opacity: 1; } }
+  .arming { animation: arm-in 300ms ease-out; }
+  @media (prefers-reduced-motion: reduce) { .arming { animation: none; } }
+  #btnAskPop, #embedAsk { display: none; }
+  body.claude-popout #btnAskPop { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; background: var(--panel); color: var(--text);
+    border: 1px solid var(--line); border-radius: var(--r-10); padding: 9px 14px; font-size: 15px; min-height: 40px; box-sizing: border-box; text-decoration: none; white-space: nowrap; }
+  body.claude-popout #btnAskPop:hover { border-color: var(--line-strong); }
+  #btnAskPop > * { pointer-events: none; }
+  body.ask-chip #embedAsk { display: inline-block; position: absolute; z-index: 5; right: 8px; bottom: 8px; padding: 4px 10px; border-radius: var(--pill);
+    background: rgba(11, 13, 12, .82); color: var(--text); border: 1px solid var(--line-strong); font: 600 13px/1.4 var(--font-ui); text-decoration: none; }
+  body.ask-chip #embedAsk:hover, body.ask-chip #embedAsk:focus-visible { border-color: var(--phosphor); }
   .viewswitch { display: inline-flex; background: var(--ground); border: 1px solid var(--line); border-radius: 9px; padding: 2px; }
   .viewswitch button { background: transparent; border: 0; border-radius: 7px; padding: 5px 9px; min-height: 30px; font-size: 13px; color: var(--muted); }
   .viewswitch button[aria-pressed="true"] { background: var(--line); color: var(--text); font-weight: 600; }
@@ -1281,7 +1296,7 @@
   @media (max-width: 700px) {
     #btnAsk kbd, #navCmdKbd, #askEmptyCmd { display: none; }
     #btnAsk { order: 1; padding: 0 12px; min-height: 44px; }
-    #btnAsk svg { display: none; }
+    #btnAsk svg, #btnAskPop svg { display: none; }
     /* the bottom sheet: peek, half and full heights */
     /* (clear of a phone's home indicator and rounded corners; a keyboard up is taller than the inset and wins) */
     #ask { position: fixed; left: var(--safe-l); right: var(--safe-r); bottom: max(var(--sheet-bottom, 0px), var(--safe-b)); top: var(--sheet-top, 50vh); width: auto; height: auto; min-height: 0; z-index: 40; border-radius: 16px 16px 0 0;
@@ -1325,6 +1340,7 @@
     .appbar .grow { display: none; }
     #btnLoad { order: 2; margin-left: auto; flex: none; }
     #appbar > #btnAsk { order: 3; flex: none; }
+    body.claude-popout #appbar > #btnAskPop { order: 3; flex: none; height: 44px; min-height: 44px; padding: 0 10px; font-size: 14px; }
     #btnMenu { display: inline-flex; order: 4; flex: none; position: relative; }
     #btnMenu.dot::after { content: ''; position: absolute; top: 7px; right: 5px; width: 8px; height: 8px; border-radius: 50%; background: var(--orange); }
     .appbar.menu-open nav { display: flex; position: absolute; z-index: 65; top: 100%; left: 8px; right: 8px; flex-direction: column; align-items: stretch; gap: 0;
@@ -1336,6 +1352,8 @@
   @media (max-width: 359px) {
     #btnAsk .lbl { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
     #btnAsk svg { display: block; }
+    #btnAskPop svg { display: block; }
+    #btnAskPop .lbl { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   }
   /* a phone held sideways (or any window under 500 px high): the app bar on one row, the screen gets the height;
      Capture & share and the links go behind Menu, as on a phone held upright */
@@ -1440,6 +1458,8 @@ npx serve -l 8000 .</pre>
   <button id="btnLoad" class="primary" title="A program, tape, disk, cartridge or BASIC listing">Open…</button>
   <button id="btnShare" title="A link that opens this machine as it is, a clip, a screenshot, a snapshot file; and the embed code">Share</button>
   <button id="btnAsk" aria-pressed="false" aria-controls="ask"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/></svg><span class="lbl">Ask Claude</span> <kbd id="askKbd">Ctrl K</kbd></button>
+  <!-- js/ui/ask-popout.js: in place of Ask where this page is shown inside another site's page (the chat is off there) -->
+  <a id="btnAskPop"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/></svg><span class="lbl">Ask Claude ↗</span></a>
   <nav aria-label="App">
     <!-- a phone's Menu: Add ROMs first while the machine has no BASIC, and Share (js/ui/main.js; the app bar's pill and
          button elsewhere) -->
@@ -1515,7 +1535,7 @@ npx serve -l 8000 .</pre>
       <div class="fields">
         <label class="stack">Machine<select id="embedMachine"></select></label>
         <label class="stack">Program<input type="url" id="embedProgram" placeholder="https://example.org/tapes/game.cas" spellcheck="false"></label>
-        <div class="checks"><label><input type="checkbox" id="embedAutorun" checked> Autorun</label><label><input type="checkbox" id="embedCrt" checked> CRT</label></div>
+        <div class="checks"><label><input type="checkbox" id="embedAutorun" checked> Autorun</label><label><input type="checkbox" id="embedCrt" checked> CRT</label><label><input type="checkbox" id="embedAskClaude"> Offer 'Ask Claude ↗'</label></div>
       </div>
       <div class="snippet"><pre id="embedFrame"></pre><div class="bar"><button id="btnEmbedFrameCopy">Copy</button></div></div>
       <div class="snippet"><pre id="embedScript"></pre><div class="bar"><button id="btnEmbedScriptCopy">Copy</button></div></div>
@@ -1545,7 +1565,9 @@ npx serve -l 8000 .</pre>
             <span id="hudName"></span><span id="hudState"></span><span class="hudbar" aria-hidden="true"><i id="hudBar"></i></span>
             <button id="btnHudSound" type="button" aria-pressed="true" aria-label="Tape sound" title="Tape sound: hear the tape as it plays"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6h3l4-3v10l-4-3H2z" fill="currentColor"/><path class="on" d="M11 5.5c1.2 1.4 1.2 3.6 0 5M12.8 3.8c2.1 2.4 2.1 6 0 8.4" stroke="currentColor" stroke-width="1.4" fill="none"/><path class="off" d="M11 6l4 4M15 6l-4 4" stroke="currentColor" stroke-width="1.4"/></svg></button>
             <button id="btnHudDeck" type="button" aria-controls="tapePanel">Deck</button></div>
-          <div id="fsClaude" role="status" hidden><span class="dot" aria-hidden="true"></span><span id="fsClaudeText"></span><button id="btnFsResume" hidden>Resume</button><button id="btnFsStop">Stop</button></div></div>
+          <div id="fsClaude" role="status" hidden><span class="dot" aria-hidden="true"></span><span id="fsClaudeText"></span><button id="btnFsResume" hidden>Resume</button><button id="btnFsStop">Stop</button></div>
+          <!-- an embed whose snippet asks for it (askclaude=1): the "Ask Claude ↗" chip, js/ui/ask-popout.js -->
+          <a id="embedAsk">Ask Claude ↗</a></div>
         <!-- Claude acting on the machine: a pulsing ring on the screen and this pill with Stop -->
         <div id="askActing" role="status" hidden><span class="dot" aria-hidden="true"></span><span id="askActingText">Claude is typing…</span><button id="btnAskResume" hidden>Resume</button><button id="btnAskStop">Stop</button></div>
         <div id="bootHelp" hidden role="status"><strong id="bootHelpTitle"></strong><span id="bootHelpText"></span>
@@ -1757,6 +1779,8 @@ npx serve -l 8000 .</pre>
     </div>
   </aside>
   <nav id="askRail" aria-label="Machine settings" hidden></nav>
+  <!-- js/ui/arm-guard.js: a guarded card is announced here once its controls take presses -->
+  <div id="armAnnounce" class="sr-only" role="status" aria-live="polite"></div>
 
   <aside id="claude" aria-label="Chat with Claude" hidden>
     <section class="card" id="claudeKeyCard">
@@ -2237,6 +2261,8 @@ npx serve -l 8000 .</pre>
 <link rel="modulepreload" href="js/ui/drivewire-panel.js">
 <link rel="modulepreload" href="js/ui/display-panel.js">
 <link rel="modulepreload" href="js/ui/snapshot-panel.js">
+<link rel="modulepreload" href="js/ui/ask-popout.js">
+<link rel="modulepreload" href="js/ui/arm-guard.js">
 <link rel="modulepreload" href="js/ui/embed.js">
 <link rel="modulepreload" href="js/ui/settings-file.js">
 <link rel="modulepreload" href="js/ui/claude-lines.js">

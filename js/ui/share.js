@@ -9,7 +9,7 @@
  * "More ways to share" (collapsed): a 6-second clip of the screen (MediaRecorder: MP4 where the browser records it, WebM
  * otherwise, and the button says which), the screenshot at true pixels, the snapshot file.
  * "Embed in a web page" (collapsed): the iframe and script for a blog post, written by js/config.js (buildUrl) from the
- * machine, program and options chosen here.
+ * machine, program and options chosen here ("Offer 'Ask Claude ↗'" adds askclaude=1: the embed's corner chip).
  * (The settings export/import lives on the Machine tab: js/ui/settings-file.js.)
  */
 import { profiles } from '../machines/profiles.js';
@@ -172,6 +172,8 @@ export function setupShare(page) {
     const url = $('embedProgram').value.trim(), cfg = { machine: sel.value, media: [], display: { view: $('embedCrt').checked ? 'crt' : 'sharp' }, embed: true };
     if (url) cfg.media.push({ kind: /\.(cas|wav|c10|k7)(\?|#|$)/i.test(url) ? 'tape' : 'load', url });
     if (url && $('embedAutorun').checked) cfg.autorun = true;
+    // the corner chip that opens this moment with Claude in a new tab (off unless asked for: js/ui/ask-popout.js)
+    if ($('embedAskClaude').checked) cfg.askClaude = true;
     return buildUrl(embedBase(), cfg);
   }
   function renderEmbed() {
@@ -181,7 +183,7 @@ export function setupShare(page) {
     $('embedAutorun').disabled = !$('embedProgram').value.trim();
   }
   function syncEmbed(id) { sel.value = id; renderEmbed(); }
-  for (const id of ['embedMachine', 'embedProgram', 'embedAutorun', 'embedCrt']) $(id).addEventListener('input', renderEmbed);
+  for (const id of ['embedMachine', 'embedProgram', 'embedAutorun', 'embedCrt', 'embedAskClaude']) $(id).addEventListener('input', renderEmbed);
   const copy = (id, btn) => async () => {
     try { await navigator.clipboard.writeText($(id).textContent); $(btn).textContent = 'Copied'; }
     catch (e) { getSelection().selectAllChildren($(id)); $(btn).textContent = 'Press Ctrl+C'; }

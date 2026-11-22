@@ -16,6 +16,7 @@
       "nav",
       "reading",
       "embed",
+      "askPopout",
       "welcomeScreen",
       "cpu6309",
       "backFocus",
@@ -27,6 +28,7 @@
     [
       "models",
       "romUi",
+      "armGuard",
       "reset",
       "mediaBackend",
       "sscBoard",
