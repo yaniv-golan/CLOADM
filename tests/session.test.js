@@ -82,7 +82,7 @@ s.turbo = true;
 let t = 0;
 const n2 = s.advance(16, { now: () => (t += 1) });
 check('turbo runs frames flat out within the time budget', n2 > 5, `(${n2} frames)`);
-check('status line', /^Dragon 64 · \d+ fps/.test(s.statusLine(50)), s.statusLine(50));
+check('status line: fps and speed, without the machine\'s name (the app bar shows that beside it)', /^\d+ fps · \d+%( · tape .*)?$/.test(s.statusLine(50)) && !/Dragon/.test(s.statusLine(50)), s.statusLine(50));
 s.turbo = false;
 // a reset or power cycle drops the frames still owed to real time: no burst of catch-up frames (and sound) after it
 {

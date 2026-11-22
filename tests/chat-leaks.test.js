@@ -567,7 +567,9 @@ function rowMethods() {
     // (main 1dd66fa: all four are reads/pure. indexWriteError formats a stored-write error; tapeRunning reads the
     // PERSON's deck motor flag; screenAlternative describes the SHOWN screen's text; welcomeGenNow reads the ticket)
     'indexWriteError', 'tapeRunning', 'screenAlternative', 'welcomeGenNow',
-    'pickNitros9Image', 'openMedia', 'downloadMedia', 'downloadDisk', 'diskWritesDone', 'printoutFile']);
+    'pickNitros9Image', 'openMedia', 'downloadMedia', 'downloadDisk', 'diskWritesDone', 'printoutFile',
+    // programControls reads the menu watch of the SHOWN machine: the touch panel it answers drives what is on screen
+    'programControls']);
   // writes the library or settings only
   const LIBRARY = new Set(['addRoms', 'clearRoms', 'deleteMedia', 'importDriveWireImage', 'importMedia',
     'importSettings', 'listMedia', 'moveMedia', 'newDriveWireImage', 'renameMedia', 'exportRomPack', 'exportSettings',

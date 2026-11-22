@@ -88,7 +88,7 @@ export function createFeedback() {
   // the stylesheet's place holds.
   const region = box.parentNode;
   // (the install offer too: a toast must never cover it, in any of its layouts)
-  const CONTROLS = 'header, .controls, .slots, aside.drawer, #attention, #touchKeys button, #claudeBar, #installOffer, #tapeHud:not([hidden])';
+  const CONTROLS = 'header, .controls, .slots, aside.drawer, #attention, #touchKeys button, #claudeBar, #installOffer, #tapeHud:not([hidden]), #btnShowKeys:not([hidden])';
   const boxes = (sel) => [...document.querySelectorAll(sel)].map((e) => e.getBoundingClientRect()).filter((o) => o.width && o.height);
   const hits = (r, o) => !(r.bottom <= o.top || r.top >= o.bottom || r.right <= o.left || r.left >= o.right);
   // back to the stylesheet's place (a toast that ends, or one placed afresh)
@@ -124,9 +124,12 @@ export function createFeedback() {
       const f = (cv.dataset.active || '0,0,1,1').split(',').map(Number);
       return { left: c.left + f[0] * c.width, top: c.top + f[1] * c.height, right: c.left + f[2] * c.width, bottom: c.top + f[3] * c.height };
     })() : null;
-    // the band under the text, inside what shows of the screen
+    // the band under the text, inside what shows of the screen. A phone held sideways with the touch keys: the screen
+    // column has the window's height and the picture sits in the middle of its tube, so the band reaches the tube's
+    // foot, the black glass under the picture: the one place there that covers neither the text nor a key
+    const sideKeys = document.body.classList.contains('touch-keys') && matchMedia('(orientation: landscape) and (max-height: 500px)').matches;
     const band = t && t.width && t.height && text ? { left: Math.max(t.left, c.left, area.left) + 8, right: Math.min(t.right, c.right, area.right) - 8,
-      top: text.bottom + 2, bottom: Math.min(t.bottom, c.bottom, area.bottom) - 4 } : null;
+      top: text.bottom + 2, bottom: Math.min(t.bottom, sideKeys ? Infinity : c.bottom, area.bottom) - 4 } : null;
     const offText = controls.concat(text ? [text] : []);
     tries.push([r.left, area.top + (phone ? 8 : 16), true]);
     const put = (x, y, width = null) => {
@@ -156,7 +159,10 @@ export function createFeedback() {
     // nowhere it covers no control: the fixed slot at the top of the viewport, kept until the toast goes
     box.classList.remove('compact');
     unplace();
-    region.style.top = phone ? '8px' : '16px'; region.style.bottom = 'auto';
+    // (under the app bar where it shows: UX R30, a toast never covers the bar's buttons)
+    const bar = document.getElementById('appbar'), br = bar.getBoundingClientRect();
+    const under = br.height && br.bottom > 0 && getComputedStyle(bar).display !== 'none' ? br.bottom + 8 : 0;
+    region.style.top = `${Math.round(Math.max(phone ? 8 : 16, under))}px`; region.style.bottom = 'auto';
     region.classList.add('top');
     if (cur) cur.pinned = true;
     seen();
