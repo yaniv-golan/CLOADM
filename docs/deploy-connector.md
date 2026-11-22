@@ -91,10 +91,11 @@ curl -s -o /dev/null -w '%{http_code}\n' https://mcp.cloadm.dev/mcp
 
 Then in claude.ai: add the connector as [the guide](mcp.md#claude-on-the-web-side-panel) says, ask "Open CLOADM",
 open the view in the side panel, and in the next message ask Claude to type `I AM HAPPY` and say what LIZA answered.
-Under the screen the view says what runs ("LIZA is running on the Dragon 64."); open **Details** beside it for the
-diagnostics: the variant, the host, its display mode (`inline`, or `fullscreen` in the side panel), the domains it was
-granted, the storage it has, the sound, what the host asked of it (`bridge: init … ms, tools/list ×N, calls ×N,
-list_changed sent`), and the last load's raw message.
+Under the screen the view says what runs ("LIZA is running · Dragon 64 · no ROMs"); open **Details** (in **⋯**, or
+beside that line) for the diagnostics: the variant, the host, its display mode and container size (`inline`, or
+`fullscreen` in the side panel), the domains it was granted, the storage it has, the sound, what the host asked of it
+(`bridge: init … ms, tools/list ×N, calls ×N, list_changed sent`), and the last load's raw message. **⋯ → Copy
+details** copies them.
 
 ## Roll back or remove
 

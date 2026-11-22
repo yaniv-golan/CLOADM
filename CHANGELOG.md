@@ -10,24 +10,27 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Added
 
-- **Claude's side panel shows when Claude drives the machine.** While one of Claude's calls types, presses keys,
-  loads a program, switches the model or resets it, a **Claude** pill on the screen says what it does, with the keys
-  it types; it fades after the call (at once with reduced motion). Your own typing never shows it, and the tools and
-  their approvals are unchanged.
-- **The side panel's toolbar:** **Programs** (the Welcome menu, LIZA, 2048, Minesweeper, and BASIC when the model's
-  ROMs are stored; a game a model cannot run says why), **Machine** (every model, grouped, the ones without ROMs
-  marked "no ROMs", and Add ROMs for BASIC), a sound switch that shows that sound is off until a click and turns it
-  on and off, **Add ROMs…**, and **⋯** with Reset. The menus work from the keyboard (arrows, Home, End, Enter,
-  Escape). The Welcome menu's own keys now run what they offer in the panel.
+- **Claude's side panel shows Claude's hand on the machine.** While one of Claude's calls acts on the machine (any
+  tool that is not read-only: typing, keys, loading, switching, reset), the bezel takes Claude's colour and a chip at
+  its top left says what it does, "Claude is typing: DIR↵" with the keys in Claude's colour as they reach the
+  machine; it stays 2 s after the call, and the status line keeps "Claude typed DIR↵ · 12:04". A call that only reads
+  shows a quiet "Claude read the screen" or "Claude read memory" for 1.5 s. Your own keys never show a chip. Each call
+  is announced once to screen readers. The tools and their approvals are unchanged.
+- **The side panel's toolbar:** **Programs** (the programs this machine runs without ROMs, its own builds of LIZA and
+  the Welcome menu included, and Add ROMs for BASIC… while it has none), **Machine** (every model, marked "✓ BASIC
+  ready" or "needs ROMs", then Reset, Switch off and on, Add ROMs…), **Sound** and **⋯** (Open in side panel, Details,
+  Copy details). The menus work from the keyboard. The Welcome menu's own keys now run what they offer in the panel.
 
 ### Changed
 
-- **The side panel's screen fills the panel**, 4:3 and crisp (whole device pixels per line when that is within 10%,
-  else scaled without smoothing), in a bezel, at every panel width, in the side panel and after a resize, with the
-  toolbar and the status line kept in view. The line under it says what runs ("LIZA is running on the Dragon 64.");
-  the diagnostics and the raw load message moved behind **Details** (closed at first; [the deploy
-  guide](docs/deploy-connector.md#verify) reads them there). **Open in side panel** shows only while the view is not
-  in the side panel (the host's display mode). The view's contract with the site changed (`PANEL_API` 2): deploy the
+- **The side panel's sound has a switch:** "Sound off" until you click it (or the screen); that click starts the
+  sound, and the switch turns it off and on again.
+- **The side panel's screen fills the panel**, 4:3, each pixel drawn crisp at the display's resolution, in a thin
+  bezel: inline across the full width, and in the side panel or fullscreen within the room left by the toolbar and the
+  status line. The status line is one line ("LIZA is running · Dragon 64 · no ROMs"); the diagnostics and the raw load
+  message moved behind **Details** (closed at first; [the deploy guide](docs/deploy-connector.md#verify) reads them
+  there), and an error you must act on stays on the status line. **Open in side panel** (in ⋯) shows only while the
+  view is inline and the host offers it. The view's contract with the site changed (`PANEL_API` 2): deploy the
   connector's Worker again after the site has this release.
 
 ### 0.1.8-pre

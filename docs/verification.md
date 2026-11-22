@@ -1485,13 +1485,16 @@ Not hardware behaviour, so MAME is not its oracle (AGENTS.md section 4.6). The e
   allow-forms`) under the CSP the specification builds from the declared `_meta.ui.csp`, with and without CORS on the
   site: typing into LIZA, a game and its screenshot, real keys, storage, ROMs kept in the view's storage and memory
   reads refused while they run (the browser check's `connector` group, `tools/connector-check.js`).
-* the view's own controls, in Chromium (the same group): Details closed at first and opening to every diagnostic;
-  the screen filling the panel 4:3 at 400, 600 and 900 px wide and fitting the height at 900 x 520; **Open in side
-  panel** shown inline and hidden in the side panel (by `ui/notifications/host-context-changed` and by the host's
-  answer to the request); every Programs and Machine item; the menus from the keyboard; the sound switch; the
-  Claude cue on a call that types (with its keys), not on one that reads and never on the person's own keys, and
-  without its fade under reduced motion. The screen's size and the cue's wording are also unit-tested in Node
-  (`tests/connector.test.js`). How the view looks is reviewed on the screenshots (`--screenshots`).
+* the view's own controls, in Chromium (the same group): inline, with the host sizing the view from its content, the
+  screen 4:3 at the full width and the height stable (no resize loop); in the side panel (a fixed height) the screen
+  filling the limiting dimension within 16 px at 400, 600 and 900 px wide and at 900 x 560, the toolbar one row;
+  Details closed at first and opening to every diagnostic; an error to act on (not started, out of step) on the status
+  line; ⋯'s **Open in side panel** only inline with fullscreen offered, and the host's new context after the request;
+  every Programs and Machine item, Programs per machine (a 6803 machine's own builds); the menus from the keyboard;
+  the sound switch; Claude's chip on an acting call (its colour, its keys as they reach the machine, one announcement,
+  gone within 3 s, the action line kept), the quiet chip on a read, and none for the person's own keys, also during
+  Claude's call. The screen's size and the chip's words are unit-tested in Node (`tests/connector.test.js`). How the
+  view looks is reviewed on the screenshots (`--screenshots`).
 
 What only claude.ai can show (its side panel, its approval prompts, what it grants a custom connector) is a manual
 test: [deploy-connector.md](deploy-connector.md), "Verify".

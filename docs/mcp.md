@@ -387,13 +387,14 @@ account or organization has yet.
 
 1. In a chat with the connector enabled, ask Claude to open the emulator (for example "Open CLOADM"). It calls
    `open_emulator` and the view appears: a Dragon 64 talking as LIZA, or BASIC if you have added ROMs there.
-2. Open the view in the side panel (Claude's expand control, or the view's **Open in side panel** button, which it
-   shows only while it is not there already). Click the screen to type on it yourself. The toolbar has **Programs**
-   (the Welcome menu, LIZA, 2048 and Minesweeper, and BASIC when your ROMs are stored), **Machine** (every model;
-   those without ROMs run the built-in programs and are marked "no ROMs"), the sound switch (sound is off until you
-   click), **Add ROMs…**, and **⋯** with **Reset**. The line under the screen says what runs; **Details** beside it
-   has the diagnostics. While one of Claude's calls types, presses keys, loads a program or changes the machine, a
-   **Claude** pill on the screen says so (with the keys it types), so your own typing and Claude's are never confused.
+2. Open the view in the side panel (Claude's expand control, or **⋯ → Open in side panel** in the view, offered while
+   it is not there already). Click the screen to type on it yourself. The toolbar has **Programs** (what this machine
+   runs without ROMs: LIZA, the Welcome menu, and on the 6809 machines the colour demo, 2048 and Minesweeper),
+   **Machine** (every model, marked "✓ BASIC ready" or "needs ROMs", then Reset, Switch off and on and Add ROMs…),
+   **Sound** ("Sound off" until you click it or the screen: that click starts the sound) and **⋯** (Details, the
+   diagnostics, and Copy details). The line under the screen says what runs. While one of Claude's calls acts on the
+   machine, the bezel takes Claude's colour and a chip says what it does ("Claude is typing: DIR↵"); a call that only
+   reads shows a quiet "Claude read the screen". Your own typing never shows a chip.
 3. In your **next** message, ask for what you want ("type I AM HAPPY and tell me what LIZA says", "play 2048",
    "write a 6809 program that fills the screen and run it"). The view registers its tools after it has loaded, so
    Claude can use them from the next turn, not in the one that opened it. Claude asks you to approve each call.

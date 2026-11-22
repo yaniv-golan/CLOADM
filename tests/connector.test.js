@@ -312,20 +312,25 @@ const J = JSON.stringify;
   // ---------------- the view's controls (connector/view/ui.js), the parts without a DOM ----------------
   {
     const ui = await imp('connector/view/ui.js');
-    const sizes = [[356, 600, 1], [556, 600, 2], [856, 2000, 1], [856, 400, 1], [100, 2000, 3]].map(([w, h, dpr]) => [w, h, dpr, ui.screenSize(w, h, { dpr })]);
-    const fills = sizes.every(([w, h, , s]) => s.width <= w && s.height <= h && Math.abs(s.width / s.height - 4 / 3) < 0.01 && (s.width >= ui.SNAP * w || s.height >= ui.SNAP * h));
-    check('screen: the largest 4:3 picture that fits, in width or height, never less than 90% of it', fills, J(sizes));
-    const whole = ui.screenSize(680, 1000, { dpr: 1 }), frac = ui.screenSize(400, 1000, { dpr: 1 }), retina = ui.screenSize(400, 1000, { dpr: 2 });
-    check('screen: whole device pixels per line when that comes within 10% (2 per line in 680 px: 640 x 480; else the full width, pixelated (400 x 300, at DPR 1 and 2)',
-      J(whole) === J({ width: 640, height: 480 }) && J(retina) === J({ width: 400, height: 300 }) && J(frac) === J({ width: 400, height: 300 }), J([whole, retina, frac]));
-    const typing = ui.claudeAction('type_text', { text: 'I AM HAPPY\n' }), keys = ui.claudeAction('press_keys', { keys: ['SHIFT', 'A'] });
-    const load = ui.claudeAction('load', { program: 'liza' }, { program: (id) => ({ liza: 'LIZA' })[id] }), sw = ui.claudeAction('switch_machine', { model: 'coco3' }, { model: (id) => ({ coco3: 'CoCo 3' })[id] });
-    check('cue: typing shows the keys (Enter as ⏎), pressing the keys held, a load and a switch say what', typing.what === 'is typing' && typing.keys === 'I AM HAPPY⏎'
-      && keys.keys === 'SHIFT + A' && load.what === 'is loading LIZA' && load.keys === null && sw.what === 'is switching to the CoCo 3', J([typing, keys, load, sw]));
-    const quiet = ['screen_text', 'screenshot', 'peek', 'registers', 'run_frames', 'step', 'list_models', 'machine_info'].filter((n) => ui.claudeAction(n, {}) !== null);
-    check('cue: none for a call that only reads or lets time pass', !quiet.length, quiet.join(','));
-    const writes = offered.filter((t) => !t.annotations.readOnlyHint && !['run_frames', 'step', 'set_display'].includes(t.name)).filter((t) => ui.claudeAction(t.name, {}) === null).map((t) => t.name);
-    check('cue: every panel tool that changes the machine has one', !writes.length, writes.join(','));
+    const sizes = [[376, 600], [576, 700], [876, 2000], [876, 400], [100, 2000], [376, null], [876, null]].map(([w, h]) => [w, h, ui.screenSize(w, h)]);
+    const fits = sizes.every(([w, h, s]) => s.width <= w && (h == null || s.height <= h) && Math.abs(s.width / s.height - 4 / 3) < 0.01
+      && (w - s.width < 2 || (h != null && h - s.height < 1)));
+    check('screen: the largest 4:3 picture that fits, to the pixel, in the limiting dimension; with no height given (inline), the full width', fits
+      && J(ui.screenSize(376, null)) === J({ width: 376, height: 282 }) && J(ui.screenSize(876, 400)) === J({ width: 533, height: 400 }), J(sizes));
+    check('screen: the height is fixed in the side panel and fullscreen, or when the host gives one; inline it follows the content',
+      ui.fixedHeight({ displayMode: 'fullscreen' }) && ui.fixedHeight({ displayMode: 'pip' }) && ui.fixedHeight({ displayMode: 'inline', containerDimensions: { height: 500 } })
+      && !ui.fixedHeight({ displayMode: 'inline' }) && !ui.fixedHeight({ displayMode: 'inline', containerDimensions: { maxHeight: 900 } }) && !ui.fixedHeight({}));
+    const names = { model: (id) => ({ coco3: 'CoCo 3' })[id], program: (id) => ({ liza: 'LIZA' })[id] };
+    const typing = ui.describeCall('type_text', { text: 'DIR\n' }), keys = ui.describeCall('press_keys', { keys: ['SHIFT', 'A'] });
+    const load = ui.describeCall('load', { program: 'liza' }, names), sw = ui.describeCall('switch_machine', { model: 'coco3' }, names), reset = ui.describeCall('reset');
+    check('chip: typing says "Claude is typing: " and the keys (Enter as ↵), then "Claude typed "; a load, a switch and a reset say what they did',
+      typing.now === 'Claude is typing: ' && typing.past === 'Claude typed ' && typing.keys === 'DIR↵' && !typing.read && keys.keys === 'SHIFT + A'
+      && load.past === 'Claude loaded LIZA' && !load.keys && sw.past === 'Claude switched to the CoCo 3' && reset.past === 'Claude reset the machine', J([typing, keys, load, sw, reset]));
+    const reads = ['screen_text', 'screenshot', 'peek', 'find_bytes'].map((n) => ui.describeCall(n, {}, { read: true }));
+    check('chip: a reading call is a quiet "Claude read the screen" or "Claude read memory"', reads.every((r) => r.read && !r.keys)
+      && J(reads.map((r) => r.now)) === J(['Claude read the screen', 'Claude read the screen', 'Claude read memory', 'Claude read memory']), J(reads));
+    const unnamed = offered.filter((t) => !t.annotations.readOnlyHint).filter((t) => /^Claude: /.test(ui.describeCall(t.name, {}, { title: t.title }).now)).map((t) => t.name);
+    check('chip: every panel tool that acts (readOnlyHint false) has its own words', !unnamed.length, unnamed.join(','));
   }
 
   // ---------------- the PANEL_API contract ----------------
@@ -333,7 +338,7 @@ const J = JSON.stringify;
   // the bridge's members and what attach() reads, the CLOADM_VIEW fields and who reads them, the shell's element ids.
   // Its hash is recorded with the PANEL_API it belongs to: change the contract and this fails until PANEL_API is raised
   // (connector/view/tools.js) and the new pair recorded here.
-  const CONTRACT = { api: 2, sha256: 'ca58b7562b67fecf627f96142c8ecfc2640f6ab3045899aac061b3894b56e1e1' };
+  const CONTRACT = { api: 2, sha256: '1a39f12bd1d4bf70f938d2651f72cdb2e6514b09b64ea01a7a32ebd5dcee754a' };
   {
     const b = bridge();
     const uniq = (re, text) => [...new Set([...text.matchAll(re)].map((m) => m[1]))].sort();
