@@ -3718,11 +3718,23 @@ async function debuggerScreenChecks(browser, base, check) {
     check('debugger screen: Over a call that never returns stops at its limit, says so, and the machine stays stopped',
       /^● Stopped after 1,000,000 instructions without coming back · at \$3FE5/.test(limitStatus)
       && await page.evaluate(() => window.emu.session.paused && window.emu.session.debug.pc === 0x3FE5), limitStatus);
-    // Run and Pause by F5
+    // Run and Pause by F5. That Over ran 1,000,000 instructions (~170 frames of machine time) outside the frame loop:
+    // the guest must run again in the first frame after Run, not after the frame loop has caught up with the machine
+    // (each frame the machine closes is recorded with the cycles its CPU ran in it)
+    await page.evaluate(() => {
+      const m = window.emu.session.shownMachine, orig = m.runFrame;
+      window.__frameCycles = [];
+      m.runFrame = function (...a) { const t = this.cpu.totalCycles, ok = orig.apply(this, a); if (ok) window.__frameCycles.push(this.cpu.totalCycles - t); return ok; };
+      window.__restoreRunFrame = () => { delete m.runFrame; };
+    });
     await page.click('#dbgScreen'); await page.keyboard.press('F5');
     const running = await page.evaluate(() => !window.emu.session.paused && document.getElementById('btnDbgRun').textContent === 'Pause F5');
+    await waitFor(page, () => window.__frameCycles.length >= 3, null, 3000);
     await page.keyboard.press('F5');
-    check('debugger screen: F5 runs and pauses', running && await page.evaluate(() => window.emu.session.paused && /^● Paused at/.test(document.getElementById('dbgStatus').textContent)));
+    const ranFrames = await page.evaluate(() => { window.__restoreRunFrame(); return window.__frameCycles.slice(0, 3); });
+    check('debugger screen: F5 runs and pauses, and after the long Over the guest runs in the first frame after Run (the rest of the open frame), and in every frame after it',
+      running && ranFrames.length === 3 && ranFrames[0] > 0 && ranFrames[1] > 10000 && ranFrames[2] > 10000
+      && await page.evaluate(() => window.emu.session.paused && /^● Paused at/.test(document.getElementById('dbgStatus').textContent)), JSON.stringify(ranFrames));
     // Step with the CPU halted (HALT asserted, as a disk controller does): no instruction runs in the frame it waits,
     // the screen says so, the PC and the trace stay as they were; with HALT released, Step runs one instruction again
     const held = await page.evaluate(() => {

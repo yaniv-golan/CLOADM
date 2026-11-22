@@ -125,6 +125,7 @@ node tests/debug-session.test.js  # the debugger through the Session: lifetime, 
 node tests/probes.test.js    # probes and bus taps: order, removal in any order, the debugger as a client, the CoCo 3 held instruction once, Session hooks across snapshots and switches
 node tests/writewatch.test.js # the memory-write observer (watchWrites): events against the trace, delivery points, input, 'stop', the CoCo 3 held instruction
 node tests/profiler.test.js  # hot-spot profiler: cycles per routine against hand counts (6809, 6803), total = cpu.totalCycles delta, spin vs compute, FDC HALT, samples, buckets, snapshots, the CLI; node tools/profile-cost.js measures its slowdown
+node tests/debugger-catchup.test.js  # frames after a long Over, Out or Step: Run goes on at once, identical to a free run
 node tests/halt-held.test.js # CoCo 3 instruction held by HALT: CPU redirected while held; debugger steps, stops, counts
 node tests/halt-replay.test.js # CoCo 3 held instruction run again: exact reads (6309 TFM, all forms), malformed snapshot state
 node tests/coco3-buslog.test.js # CoCo 3 bus log: carried only with a HALT-capable device (logBus), hot-plug, snapshots, the guards

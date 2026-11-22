@@ -126,8 +126,7 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   Observers are host state: kept across machine switches and opened snapshots, never saved; with none the machine runs exactly
   as before; the Debugger screen shows such a stop as "Paused at a write to $XXXX". Documented in `docs/automation.md`
   ("Applying input on a guest write", an example that runs as a test) and `docs/architecture.md`; `tests/writewatch.test.js`.
-  The MC-10 now runs a frame through the debugger when one is armed, as the other models do (its `runFrame` dropped the
-  debugger's run, so breakpoints did not stop a running MC-10). Observers are on the person's machine: with the Claude chat full
+  Observers are on the person's machine: with the Claude chat full
   screen, the BASIC session running beside it.
 - **A disk controller trace for Node and headless runs.** A developer porting a game had two disk driver bugs that each looked
   like a frozen game, a wrong sector-length bit and data lost to a byte loop too slow, and had to trace `$FF40-$FF43` by hand.
@@ -355,6 +354,17 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Fixed
 
+- **Run after a long debugger Over or Out no longer leaves the machine frozen for seconds.** Over, Out, Run to and
+  Step run outside the frame loop, and their frames were not closed as machine time passed them: after an Over of a
+  million instructions the machine was some 170 frames past its open frame, and Run then closed one empty frame per
+  frame of real time (about 3 s) before the program ran again. The debugger now closes each frame its instructions
+  pass, through the machine's own frame path, where a free run would close it, so Run carries on in the next frame
+  and the instructions, frames, picture and sound are exactly those of a free run (`tests/debugger-catchup.test.js`,
+  on the Dragon 64, CoCo 3 and MC-10; the browser check's F5 case now asserts the CPU runs in the first frame after
+  Run). On the MC-10 the frame loop also ran a frame free while a breakpoint or watchpoint was set, so the machine did
+  not stop there; it now runs the frame through the debugger as on the other machines. The MCP `screenshot` after a
+  `step` that crosses a frame's end shows the frame the step closed, with `mid_frame` true. Frames closed inside a
+  debugger command play no sound on the page and are not in a `--wav` recording.
 - **An embedded CLOADM could open the Claude chat; the chat is no longer available in an embed.**
 - **Two server processes adding ROMs at once could lose index entries.** Every change to the ROM store's index now
   reads it again and writes it while holding a lock file (`index.lock`, broken after ten seconds if its holder died),

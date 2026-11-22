@@ -239,6 +239,7 @@ class Mc10Machine extends Machine {
     if (!deck.motor && ++this.casReads >= 8 && !deck.tape.atEnd()) deck.setMotor(true);
     return deck.level();
   }
+  // (runTo, a debugger's run to the frame's end, goes on to Machine.runFrame: the tape check is after a closed frame)
   runFrame(runTo = null) {
     if (!super.runFrame(runTo)) return false;
     const deck = this.deck;

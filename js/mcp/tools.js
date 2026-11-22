@@ -244,7 +244,8 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
   // The picture a screenshot shows. The video chips draw each line as the beam passes it, so a machine stopped part
   // way through a frame (step, run_frames until a pc) holds a frame half drawn. Before anything that can stop inside
   // a frame, the last complete frame is kept (m.whole); while the machine is still inside the frame after it, that
-  // copy is the picture. A frame that ends, a new machine or a restored one makes render() the picture again.
+  // copy is the picture. A frame that ends, a new machine or a restored one makes render() the picture again. A step
+  // that crosses a frame's end keeps the frame it closed (the step tool).
   const midFrame = (m) => {
     const mm = m.session.shownMachine, w = m.whole;
     return !!w && w.machine === mm && w.frameCount === mm.frameCount && w.cycle !== mm.cycle;
@@ -576,8 +577,13 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
       const m = get(args), d = m.session.debug, n = args.count == null ? 1 : intIn(args.count, 1, STEP_MAX, 'count');
       let ran = 0, cycles = 0, halted = false;
       keepWhole(m);
+      const mm = m.session.shownMachine;
       for (; ran < n; ran++) {
+        const fc = mm.frameCount;
         const c = d.step();
+        // a frame ended in this step (the debugger closes it right after the instruction that reaches its end, before
+        // the next frame draws a line): that frame is now the last complete one
+        if (mm.frameCount !== fc) { m.whole = null; keepWhole(m); }
         if (d.stopped && d.stopReason && d.stopReason.kind === 'halted') { halted = true; break; }
         cycles += c;
       }

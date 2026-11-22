@@ -299,7 +299,7 @@ export class Debugger {
   // Run up to `max` instructions, stopping at a breakpoint (before it runs), at an arrival address
   // (step over / run to / run to return) or after an instruction a watchpoint saw.
   // Continuing from a stop does not stop on the same breakpoint again, so Run moves on from a breakpoint.
-  run(max = 1000000) { return this._go((i) => i < max, max, HELD_FRAMES.run); }
+  run(max = 1000000) { const n = this._go((i) => i < max, max, HELD_FRAMES.run); this._syncFrames(); return n; }
   // Run until the machine's tick reaches `end` (a frame's end: Machine.runFrame(runTo) passes it), stopping as
   // run() does -> true when it got there, false when it stopped first. A machine waiting for the store
   // (m.stall) gives way too, without a stop: Machine.runFrame sees the stall and keeps the frame open.
@@ -314,6 +314,20 @@ export class Debugger {
   get armed() { return this.bps.size > 0 || this.wps.length > 0; }
   // stop the machine where it is, at the next instruction (the front end's Pause)
   halt() { this._stop('halt', { pc: this.machine.cpu.pc }); }
+  // Frame bookkeeping follows machine time. A command that runs outside the frame loop (step, Over, Out, Run to)
+  // closes each frame its instructions pass, through the machine's own runFrame with nothing left to run, at the
+  // point a free run would close it: after the instruction that reaches the frame's end, before the next one starts
+  // (its events, sound, tape, typist and the family's own end-of-frame work included). A frame not yet open is
+  // opened before an instruction runs, as the frame loop opens it. Without this, a long Over left the machine
+  // frames ahead of its open frame, and Run then closed one empty frame per frame of real time before the first
+  // instruction ran again. In the frame loop (runTo) the frame is open and short of its end, so this does nothing.
+  _syncFrames() {
+    const m = this.machine;
+    while (!m.stall) {
+      if (m.cycle < m.frameBase + m.frameCycles) { if (!m.frameOpen) m.runFrame(() => false); return; }
+      m.runFrame(() => true);
+    }
+  }
   // i counts the instructions run (_stepOnce); heldFrames: how long a halted CPU is waited for (0: as long as `more`)
   _go(more, max, heldFrames) {
     const m = this.machine, cpu = m.cpu;
@@ -322,6 +336,7 @@ export class Debugger {
     this.stopped = false; this.stopReason = null; this.hit = null;
     let i = 0, first = true, since = -1;
     while (more(i)) {
+      this._syncFrames();
       // once per instruction, at its start: not again while it waits for HALT's release (it is under way)
       // (an outside change drops an instruction held by HALT: the one at PC is new). An instruction still held is under
       // way: it had its check when it started, or started with no debugger running it, and gets none now
@@ -362,6 +377,7 @@ export class Debugger {
     this.stopped = false; this.stopReason = null; this.hit = null;
     let since = -1;
     for (;;) {
+      this._syncFrames();
       const at = this.machine.cycle;
       const cycles = this._stepOnce();
       if (cycles === null) {
@@ -372,6 +388,7 @@ export class Debugger {
         continue;
       }
       if (this.hit) { const h = this.hit; this.hit = null; this._stop('watchpoint', h); }
+      this._syncFrames();
       return cycles;
     }
   }
