@@ -571,7 +571,9 @@ function rowMethods() {
     // programControls reads the menu watch of the SHOWN machine: the touch panel it answers drives what is on screen
     'programControls',
     // claudeLink builds the "Ask Claude ↗" link from shareFile and shareUrl (both reads of the shown machine)
-    'claudeLink']);
+    'claudeLink',
+    // menuTicketFor returns the ticket a menu starts with (the Session's menuTicket or the one passed); changes nothing
+    'menuTicketFor']);
   // writes the library or settings only
   const LIBRARY = new Set(['addRoms', 'clearRoms', 'deleteMedia', 'importDriveWireImage', 'importMedia',
     'importSettings', 'listMedia', 'moveMedia', 'newDriveWireImage', 'renameMedia', 'exportRomPack', 'exportSettings',

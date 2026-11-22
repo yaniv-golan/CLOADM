@@ -3188,6 +3188,18 @@ export class Session {
     // (not while a card waits: nothing of Claude's is typed then, so the key is the person's)
     return { claude: !!this.chat && this.claudeBusyActing && !this.claudePaused && !this.claudePending, chat: this.chat, controller: this.chat && this.chat.controller, pauses: this.claudePauses };
   }
+  // The ticket the page starts a menu in, by what ASKED for the menu (the 'menu' event's offer). One place decides:
+  //   'none'  the machine question's switch: the person chose a machine, so the menu is the person's and takes no
+  //           ticket -- session.menuTicket is whatever an earlier LIZA BYE left there, and using it for a person's
+  //           own click could start the menu as if Claude had asked (and so keep Claude running when it should stop);
+  //   'back'  a returning visit or a reset, nothing of a program asking: no ticket (the page passed null before);
+  //   null    a program asked (the demo's key, or a LIZA BYE: checkMenuReturn emits 'menu' with no argument): the
+  //           ticket the Session gave when the program asked (this.menuTicket, else the one taken at the event).
+  // The page passes only 'none', 'back' and null.
+  menuTicketFor(offer, asked) {
+    if (offer === 'none' || offer === 'back') return null;
+    return this.menuTicket || asked;
+  }
   machineTicketHolds(t) {
     return !!t && t.claude && !this.claudePaused && t.pauses === this.claudePauses && t.chat === this.chat && t.controller === (this.chat && this.chat.controller);
   }

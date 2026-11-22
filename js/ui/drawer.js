@@ -4,6 +4,7 @@
  * the screen. The Display tab is its own module (display-panel.js).
  */
 import { $, put, putClass } from './page.js';
+import { SessionError } from '../session.js';
 
 // The recent list's rows: the entries for `machine`, each with the index it has in the FULL list. recentMedia()
 // hands out copies, so an index looked up in a second call (indexOf) matches nothing and is always -1; the index
@@ -18,10 +19,14 @@ export const recentRows = (all, machine) => all.map((r, i) => ({ r, i })).filter
 // loading whatever moved into that slot.
 export const loadRow = (session, row) => {
   const now = session.recentMedia();
-  const at = now.findIndex((r) => r.name === row.r.name && r.crc === row.r.crc && r.machine === row.r.machine);
+  // the name by the SESSION's rule (Session.sameName, the store's own case rule), never by ===: on a store that
+  // does not tell cases apart, "GAME.DSK" and "game.dsk" are one name everywhere else in the app, and a row drawn
+  // from one spelling must find the entry under the other.
+  const at = now.findIndex((r) => session.sameName(r.name, row.r.name) && r.crc === row.r.crc && r.machine === row.r.machine);
   // not found: the row was evicted (or its entry replaced) while the drawer was open. Loading by the row's old
-  // index would load whatever moved into that slot -- a different file under the same click. Say it is gone.
-  if (at < 0) throw new Error('That file is no longer in the recent list; open it again.');
+  // index would load whatever moved into that slot -- a different file under the same click. Say it is gone, as a
+  // SessionError: the drawer reports it on its own message line, where a plain Error would go to console.error.
+  if (at < 0) throw new SessionError('That file is no longer in the recent list; open it again.');
   return session.loadRecent(at);
 };
 

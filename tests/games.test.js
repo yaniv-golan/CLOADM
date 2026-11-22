@@ -856,6 +856,16 @@ WARMS   FCB     $57,$41,$52,$4D,0
   const want = JSON.parse(fs.readFileSync(fix('minesweeper-sounds.sha256.json'), 'utf8'));
   const pcm = wav.subarray(44);
   const got = crypto.createHash('sha256').update(pcm).digest('hex');
+  // The fixture records the WAV HEADER's fields too, and they were never checked: a recording that came back at
+  // another rate, or in stereo, or 8-bit, would still have matched a PCM hash taken from its own bytes. They are
+  // read from the header the CLI wrote (not assumed: the hash covers the data from byte 44, so the header is the
+  // only place these live), and compared with the fixture.
+  const hdr = { sampleRate: wav.readUInt32LE(24), channels: wav.readUInt16LE(22), bits: wav.readUInt16LE(34) };
+  const hdrOk = wav.length >= 44 && wav.toString('ascii', 0, 4) === 'RIFF' && wav.toString('ascii', 8, 12) === 'WAVE'
+    && wav.toString('ascii', 36, 40) === 'data' && wav.readUInt32LE(40) === pcm.length
+    && hdr.sampleRate === want.sampleRate && hdr.channels === want.channels && hdr.bits === want.bits;
+  check('Minesweeper: the WAV header of the recording says what the fixture does (RIFF/WAVE, its rate, channels and bits)',
+    hdrOk, `${JSON.stringify(hdr)} vs ${JSON.stringify({ sampleRate: want.sampleRate, channels: want.channels, bits: want.bits })}, data chunk ${wav.length >= 44 ? wav.readUInt32LE(40) : '-'} of ${pcm.length}`);
   check('Minesweeper: its recorded sounds match tests/fixtures/games/minesweeper-sounds.sha256.json (SHA-256 of the PCM)',
     pcm.length === want.pcmBytes && got === want.sha256, `${pcm.length} bytes, ${got}`);
   // A person can listen to the recording, but it is written OUTSIDE the repository: CLOADM_KEEP_WAV names the file.

@@ -101,8 +101,10 @@ export function setupWelcome(page, { showRoms, openClaude }) {
       // 'back'/'bye' as before.
       // the greeting is the Session's decision (Session.greetingFor), so the page and the Node tests share it
       const greeting = arg === 'none' || arg === 'back' ? session.constructor.greetingFor(arg) : 'bye';
+      // the ticket, by what asked for the menu, in ONE place (Session.menuTicketFor): a machine question is always
+      // the person's own act and never takes a ticket left over from an earlier LIZA BYE.
       await runWelcome({ greeting, carryOn: arg === 'back' ? session.carryOn : null },
-        { ifIdle: true, byMachine: arg !== 'back' ? session.menuTicket || asked : null });
+        { ifIdle: true, byMachine: session.menuTicketFor(arg, asked) });
     }
   });
   // what ran last, again: LIZA, the demo, or the file (from the recent list)
