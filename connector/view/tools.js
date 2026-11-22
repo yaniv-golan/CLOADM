@@ -33,7 +33,7 @@ export const NO_FILES = 'Claude\'s side panel has no media folder and reads no f
 // host: the toolbox's host minus files ({ png, program, now, date, yield }); ROMs are already in the Session's store
 export function panelToolbox(session, host) {
   const noFiles = () => { throw new McpToolError('no-media-root', NO_FILES); };
-  const tb = createToolbox(Object.assign({}, host, { roms: () => [], includeReader: null, readMedia: noFiles, writeMedia: noFiles, checkWritable: noFiles }), { session, refuseRomReads: true });
+  const tb = createToolbox(Object.assign({}, host, { roms: () => [], includeReader: null, readMedia: noFiles, writeMedia: noFiles, checkWritable: noFiles }), { session, refuseRomReads: true, route: 'panel' });
   const offered = (name) => tb.has(name) && !LEFT_OUT.includes(name);
   return {
     tools: () => tb.tools().filter((t) => offered(t.name)),

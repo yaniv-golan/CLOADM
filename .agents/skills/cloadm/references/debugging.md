@@ -1,7 +1,7 @@
 # Debugging programs on the emulated machine
 
 The machine stops between tool calls, so everything here is safe to repeat: nothing runs unless you run it.
-Save a snapshot before you poke or step through something you may want to undo.
+On this computer, save a snapshot before you poke or step through something you may want to undo.
 
 ## Stop at an address (a breakpoint)
 
@@ -50,7 +50,7 @@ selects the column (the zero bit), and the `ANDA`/`BITA` mask after the read sel
 keyboard matrix in `references/hardware.md` (the Dragon and the CoCo wire rows differently). A program that uses
 POLCAT gets ASCII codes instead: look for `CMPA #<code>` after the `JSR [$A000]`.
 
-Confirm by experiment: save a snapshot, `press_keys` the key you think it reads for a few frames, check the effect
+Confirm by experiment: save a snapshot (on this computer), `press_keys` the key you think it reads for a few frames, check the effect
 (screen, memory, PC), restore, and try the next.
 
 ## Registers

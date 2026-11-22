@@ -83,11 +83,26 @@ for (const p of J.market.plugins || []) {
     (dir === ROOT || dir.startsWith(ROOT + path.sep)) && !man.error && man.json.name === p.name);
 }
 
-const server = (J.plugin.mcpServers || {}).cloadm || {};
-check('plugin.json: mcpServers.cloadm is node cli/cloadm.js --mcp from the plugin root',
-  server.command === 'node' && JSON.stringify(server.args) === JSON.stringify(['${CLAUDE_PLUGIN_ROOT}/cli/cloadm.js', '--mcp']), JSON.stringify(server));
+// One plugin, two servers (https://code.claude.com/docs/en/plugins-reference: mcpServers is "inline server configs
+// keyed by name", with no per-server display title, so the ids are what people see): cloadm-panel, the side-panel
+// connector, which web and desktop chat offer on the plugin's Connectors tab; cloadm, the local server, which
+// Cowork and Claude Code run on the person's computer. network.hosts declares the host the plugin reaches (the same
+// page: it "doesn't allow or block any host").
+const SERVERS = J.plugin.mcpServers || {};
+check('plugin.json: exactly two servers, cloadm (the local server\'s id since the first release: users\' allowlists name mcp__plugin_cloadm_cloadm__*) and cloadm-panel',
+  JSON.stringify(Object.keys(SERVERS).sort()) === JSON.stringify(['cloadm', 'cloadm-panel']), JSON.stringify(Object.keys(SERVERS)));
+const server = SERVERS.cloadm || {}, panel = SERVERS['cloadm-panel'] || {};
+check('plugin.json: cloadm is node cli/cloadm.js --mcp from the plugin root',
+  server.command === 'node' && JSON.stringify(server.args) === JSON.stringify(['${CLAUDE_PLUGIN_ROOT}/cli/cloadm.js', '--mcp']) && Object.keys(server).length === 2, JSON.stringify(server));
+check('plugin.json: cloadm-panel is the connector over HTTP, https://mcp.cloadm.dev/mcp, and nothing else',
+  panel.type === 'http' && panel.url === 'https://mcp.cloadm.dev/mcp' && Object.keys(panel).length === 2, JSON.stringify(panel));
+check('plugin.json: network.hosts is exactly the connector\'s host, mcp.cloadm.dev',
+  JSON.stringify((J.plugin.network || {}).hosts) === JSON.stringify(['mcp.cloadm.dev']) && new URL(panel.url || 'x:').host === 'mcp.cloadm.dev', JSON.stringify(J.plugin.network));
+const DESCRIPTION = 'Play Dragon and Tandy Color Computer machines with Claude: live in Claude\'s side panel, or on your computer with your own ROMs and files.';
+check('plugin.json: the description says both routes, at most 140 characters', J.plugin.description === DESCRIPTION && DESCRIPTION.length <= 140, `${(J.plugin.description || '').length}: ${J.plugin.description}`);
+check('marketplace.json: the plugin\'s description is plugin.json\'s', (J.market.plugins || [])[0] && J.market.plugins[0].description === J.plugin.description);
 const pluginRoot = (s) => s.replace(/\$\{CLAUDE_PLUGIN_ROOT\}/g, ROOT);
-check('plugin.json: the server script resolves', fs.existsSync(pluginRoot(server.args[0])));
+check('plugin.json: the server script resolves', !!server.args && fs.existsSync(pluginRoot(server.args[0])));
 check('plugin.json: the icon resolves', !J.plugin.icon || (J.plugin.icon.startsWith('./') && fs.existsSync(rel(J.plugin.icon))), J.plugin.icon);
 
 check('mcpb: manifest_version 0.3, a node server whose entry point is cli/cloadm.js',

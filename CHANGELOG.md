@@ -35,6 +35,10 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   and the switch's choice is remembered per program, in the view's storage when it works, else for as long as the view
   is open. They show on a touch screen (the host says so, or a coarse pointer, or a first touch) and not on a desktop;
   **⋯ → Hide on-screen keys** hides them. Claude's typing and its chip are unchanged.
+- `machine_info` returns `route`: `"local"` from the local server, `"panel"` from the side panel's view. The view's
+  contract with the site (`PANEL_API` 3) is unchanged: the field is part of a tool's answer, not of the bridge.
+- A skill eval on the side-panel route, `panel-no-boot-wait` (the agent must not boot or mention boot waits), run on
+  `tests/skill-evals/panel-server.mjs`, a stand-in for the panel with its tools and the Worker's instructions.
 
 ### Changed
 
@@ -143,6 +147,25 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   THEM" (129 pixels would not fit), and both games' footers read "ARROWS  R=NEW  BREAK=QUIT" (2048's and
   Minesweeper's were "ARROWS MOVE  R NEW  BREAK LEAVES"). Minesweeper's title line became "F FLAGS A MINE  R START".
   In-game redraws are unchanged.
+- **One CLOADM plugin for Claude, with two servers.** The plugin (still `cloadm`, from the same marketplace) carries
+  the side panel, *cloadm-panel* (`https://mcp.cloadm.dev/mcp`), and the local server, *cloadm*
+  (`node cli/cloadm.js --mcp`; the same id as before, so allowlists naming `mcp__plugin_cloadm_cloadm__*` keep working), and declares `network.hosts: ["mcp.cloadm.dev"]`. On the web and in desktop chat, open
+  the plugin's Connectors tab and click **Connect** next to *cloadm-panel*: the emulator opens in Claude's side panel.
+  Cowork and Claude Code run it on your computer, with your ROM files and `~/CLOADM`. The plugin manifest shows only
+  each server's id (no per-server title), so the docs use the ids. New description: "Play Dragon and Tandy Color
+  Computer machines with Claude: live in Claude's side panel, or on your computer with your own ROMs and files." The
+  `.mcpb` extension and the other agents' MCP entries are unchanged.
+- The README ("With Claude") and the top of docs/mcp.md lead with "Install the CLOADM plugin": the two steps, a note on
+  the badge Claude shows for a connector Anthropic hasn't reviewed, a table by where you use Claude (web and desktop
+  chat, Cowork and Claude Code, phone, other agents) and "Without the plugin" (the connector alone, without the
+  skill). The "Use the connector" lead, its "Which one?" table and "Both on?" are gone. Phones: the plugin and the
+  connector install, but the side panel can't be used there yet. A connector added by hand before is the one the plugin's
+  *cloadm-panel* uses, so there is no second one.
+- **The skill knows its route.** Its first step is which route it is on, then its "Side panel" or "On this computer"
+  section; the boot waits, the `BUILT-IN STUB` banner, `~/CLOADM`, ROM files, tapes, disks, snapshots and `add_roms`
+  are now only under "On this computer" (both copies). Each server's MCP instructions open with the route ("You are
+  driving CLOADM in the person's side panel." or "... on the person's computer."). The side panel's line is in the
+  skill's connector essentials, so the connector's Worker must be deployed again (`docs/deploy-connector.md`).
 
 ### Fixed
 

@@ -179,8 +179,12 @@ function withPressKeys(e) {
 // readOnly: offer and run only the tools that leave the machines' input, memory and files alone (see READ_ONLY_OK).
 // session: the host's own machine (a Session), the only one these tools serve (see the header); close_machine is not
 // offered then. refuseRomReads: peek, find_bytes and disassemble refuse while Session.romCodeIn() says ROM code can
-// be in memory.
-export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHINES, wallMs = WALL_MS, session: own = null, refuseRomReads = false } = {}) {
+// be in memory. route: where these tools drive the machine, which machine_info reports so the agent (and the skill)
+// can tell: "local" (the local server, node cli/cloadm.js --mcp, on the person's computer) or "panel" (the side-panel
+// connector's view, connector/view/tools.js).
+export const ROUTES = Object.freeze(['local', 'panel']);
+export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHINES, wallMs = WALL_MS, session: own = null, refuseRomReads = false, route = 'local' } = {}) {
+  if (!ROUTES.includes(route)) throw new Error(`createToolbox: route must be ${ROUTES.join(' or ')}`);
   if (own && !(own instanceof Session && own.shownMachine)) throw new Error('createToolbox: session must be a Session with a machine');
   const machines = new Map();   // machine_id -> { id, session, chat }
   let nextId = 1;
@@ -411,7 +415,8 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
       if (signal) { if (signal.aborted) m.chat.controller.abort(); else signal.addEventListener('abort', () => m.chat.controller.abort(), { once: true }); }
       let out;
       try { out = await settle(m, m.chat.callTool(spec.name, input), signal); } catch (e) { throw withPressKeys(e); }
-      if (spec.name === 'machine_info') { const t = tape(m); if (t) out = Object.assign({}, out, { tape: t }); }   // the page's answer, and the deck
+      // the page's answer, the deck, and the route these tools are on
+      if (spec.name === 'machine_info') { const t = tape(m); out = Object.assign({}, out, t ? { tape: t } : {}, { route }); }
       return untrustedOut ? untrusted(out) : out;
     },
   });
