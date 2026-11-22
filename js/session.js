@@ -1581,7 +1581,7 @@ export class Session {
   get carryOn() {
     const last = this.lastRun, m = this.shownMachine;
     if (!last || !m) return null;
-    if (last.kind === 'recent') { const r = this.recentMedia()[0]; return r && r.stored && r.name === last.name && r.machine === m.id ? last : null; }
+    if (last.kind === 'recent') { const r = this.recentMedia()[0]; return r && r.stored && this.sameName(r.name, last.name) && r.machine === m.id ? last : null; }
     if (last.kind === 'demo') return cpuFamily(m.config.cpu) === '6809' ? last : null;
     if (last.kind === 'game') return cpuFamily(m.config.cpu) === '6809' && gameKey(last.name) ? last : null;
     return last;

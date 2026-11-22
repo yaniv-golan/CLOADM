@@ -15567,6 +15567,23 @@ async function askPopoutChecks(browser, site, check) {
   check(`${L}: the frame never writes the key to its storage, before or after the new tab, and its session (an in-memory store) sees none`,
     before.writes.length === 0 && before.seen === null && after.writes.length === 0 && after.seen === null && after.memory === 'MemoryKeyStore', JSON.stringify({ before, after }));
   await popup.close();
+  // the context menu and a middle click take the moment as it is now: after the machine has moved on, either event makes a new link
+  // (ctrl-click, middle-click and "Open in new tab" read the href after them, so a stale one would open an old moment)
+  for (const ev of ['contextmenu', 'auxclick']) {
+    const moved = await frame.evaluate(async (ev) => {
+      const s = window.emu.session, a = document.getElementById('btnAskPop');
+      await window.emu.askPopout.refresh();
+      const before = a.href, f0 = window.emu.machine.frameCount;
+      s.personMachine.poke(0x3100, (s.personMachine.read(0x3100) + 1) & 255);
+      for (let i = 0; i < 100 && window.emu.machine.frameCount < f0 + 5; i++) await new Promise((r) => setTimeout(r, 20));
+      const stale = a.href === before;
+      a.dispatchEvent(new MouseEvent(ev, { bubbles: true, cancelable: true, button: ev === 'auxclick' ? 1 : 2 }));
+      let changed = false;
+      for (let i = 0; i < 100 && !changed; i++) { await new Promise((r) => setTimeout(r, 50)); changed = a.href !== before; }
+      return { stale, changed, frames: window.emu.machine.frameCount - f0 };
+    }, ev);
+    check(`${L}: framed: a ${ev} event on the link after the machine moved on makes a new link (not the old moment)`, moved.stale && moved.changed && moved.frames >= 5, JSON.stringify(moved));
+  }
 
   // ---- the same at phone width: the link stands where Ask does, in the one-row bar beside Menu ----
   const phone = await ctx.newPage();

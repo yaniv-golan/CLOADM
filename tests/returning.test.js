@@ -81,7 +81,8 @@ const store = () => { const m = new Map(); return { get: (k) => (m.has(k) ? m.ge
 // option 5 offers what ran last only where it runs: a file on the machine it was loaded on, the demo on a 6809,
 // LIZA everywhere ("CARRY ON WITH LOOP.BIN" was offered on an MC-10 for a Dragon 64 file)
 {
-  const s = new Emu.Session({ store: store() });
+  const { MemoryMediaStore } = require('../js/host/media-store-memory.js');
+  const s = new Emu.Session({ store: store(), media: new MemoryMediaStore({ caseInsensitive: true }) });
   s.switchMachine('dragon64');
   s.load('loop.bin', new Uint8Array([0x55, 2, 0x30, 0x00, 0x00, 0x01, 0x30, 0x00, 0xAA, 0x39]));
   check('carry on: a file, on the machine it was loaded on', JSON.stringify(s.carryOn) === '{"kind":"recent","name":"loop.bin"}', JSON.stringify(s.carryOn));
@@ -91,6 +92,22 @@ const store = () => { const m = new Map(); return { get: (k) => (m.has(k) ? m.ge
   check('carry on: not on another 6809 machine either', s.carryOn === null);
   s.switchMachine('dragon64');
   check('carry on: back on its machine, offered again', s.carryOn && s.carryOn.name === 'loop.bin');
+  // the name the last run was recorded under and the recent list's row are compared by the store's case rule, not with ===: on a
+  // store that does not tell cases apart (a Mac's or Windows' folder) a name that differs only in case is the same file
+  for (const [what, name] of [['a name that differs only in case', 'LOOP.bin'], ['an extension that differs only in case', 'loop.BIN'], ['both', 'Loop.Bin']]) {
+    s.setLastRun('recent', name);
+    check(`carry on: ${what} (${name} for loop.bin) still carries on`, s.carryOn && s.carryOn.name === name && s.carryOn.kind === 'recent', JSON.stringify(s.carryOn));
+  }
+  s.setLastRun('recent', 'other.bin');
+  check('carry on: another name does not', s.carryOn === null);
+  {
+    const t = new Emu.Session({ store: store(), media: new MemoryMediaStore({ caseInsensitive: false }) });
+    t.switchMachine('dragon64');
+    t.load('loop.bin', new Uint8Array([0x55, 2, 0x30, 0x00, 0x00, 0x01, 0x30, 0x00, 0xAA, 0x39]));
+    t.setLastRun('recent', 'LOOP.bin');
+    check('carry on: on a store that tells cases apart, LOOP.bin is not loop.bin', t.carryOn === null);
+  }
+  s.setLastRun('recent', 'loop.bin');
   s.setLastRun('demo', 'Colour demo');
   s.switchMachine('mc10');
   check('carry on: the colour demo not on the MC-10 (no 6803 build)', s.carryOn === null);
