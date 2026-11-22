@@ -55,6 +55,7 @@ What each machine's comparison with MAME 0.264 showed when it was verified (the 
 | Tano Dragon 64 on the HD6309 | NMI arming (`--fdc tanodragonfdc --nmi --cpu 6309`): identical, 1,204,410 instructions, HALT reached at 793; also 1,204,410 on MAME 0.264 | – | – |
 | Dragon 64 + Premier FDC (WD2791, `--fdc premierfdc`) | 5,890,277 instructions identical, HALT reached; disk images written byte-identical (`--images`) | – | – |
 | Color Computer + CoCo FDC (WD1773, `--fdc`) | 5,851,757 instructions identical, HALT reached; disk images written byte-identical (`--images`) | – | – |
+| Dragon 64 and Color Computer, the controller with an empty ROM socket (`--fdc --bare`) | identical, HALT reached: dragon64 1,200,945 instructions (HALT at 66,473), coco 1,208,171 (HALT at 66,937) | – | – |
 | Blank disks (`--fdc <controller> --blank <format>:<T>x<H>`) | a blank disk formatted by our firmware: dragonfdc VDK 40 × 1, cocofdc JVC 35 × 1, premierfdc VDK 40 × 1 and dragonfdc DMK 40 × 2 identical in lockstep to HALT (8,750,860, 7,717,543, 8,750,920 and 17,534,051 instructions); formatted images byte-identical for the VDK and JVC ones and for dragonfdc VDK 40 × 2, VDK 80 × 2 and JVC 40 × 2 and cocofdc JVC 40 × 2 (`--images`; MAME cannot save DMK, so the DMK one is checked sector by sector in ours) | – | – |
 | Color Computer 3 + CoCo FDC (WD1773, `coco3 --fdc`) | 5,851,680 instructions identical, HALT reached; disk images written byte-identical (`--images`) | – | – |
 | Color Computer + Multi-Pak with the CoCo FDC in slot 4 (`--fdc multifdc`) | 5,851,742 instructions identical, HALT reached; disk images written byte-identical (`--images`) | – | – |
@@ -979,7 +980,9 @@ names it.
 * `node tools/mame-diff/run.js <dragon64|coco> --fdc --bare` runs `fdc/bare-dragon.asm` or `fdc/bare-coco.asm`
   (`fdc/gen-bare.js`) as BASIC with the controller's ROM socket empty (MAME's holds 8K of 00, ours no ROM; both read
   00), drive 0 holding `images.js`'s double-sided disk: a program that reads track 0 sector 1 through the registers
-  and ends in HALT. Not run yet: MAME is not installed where this was written (see the change's report).
+  and ends in HALT. MAME 0.264: every instruction identical in all registers and cycle counts, and HALT reached:
+  `dragon64 --fdc --bare` 1,200,945 instructions compared (HALT at 66,473), `coco --fdc --bare` 1,208,171 (HALT at
+  66,937). `tests/regress.test.js` replays both (`trace dragon64 bare`, `trace coco bare`).
 * `node tools/mame-diff/run.js <dragon64|coco|coco3> --fdc [dragonfdc|premierfdc|cocofdc|multifdc] [--multi] [--images]` runs the
   floppy disk controller cartridges (`fdc/`: `-ext dragon_fdc` with a WD2797 and `-ext premier_fdc` with a WD2791 on
   the Dragon 64, `-ext fdc` with a WD1773 on the CoCo and the CoCo 3, and `multifdc`: the same CoCo controller in slot 4 of a

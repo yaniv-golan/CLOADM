@@ -223,6 +223,10 @@ for (const [id, controller, format, tracks] of [['dragon64', 'dragonfdc', 'vdk',
 for (const [id, controller] of [['dragon64', 'dragonfdc'], ['dragon64', 'premierfdc'], ['coco', 'cocofdc'], ['dgnalpha', 'alphafdc']]) {
   cases.push([`trace ${id} ${controller} write`, () => traceHash(spec('fdc').trace(id, { controller, regenerate: false, write: true }))]);
 }
+// the controller with an empty ROM socket, driven by a program in place of BASIC that reads track 0 sector 1 by
+// polling DRQ (fdc/bare-<board>.asm from gen-bare.js, run.js <dragon64|coco> --fdc --bare; MAME 0.264: identical to
+// HALT, dragon64 1,200,945 instructions compared with HALT at 66,473, coco 1,208,171 with HALT at 66,937)
+for (const id of ['dragon64', 'coco']) cases.push([`trace ${id} bare`, () => traceHash(spec('fdc').trace(id, { regenerate: false, bare: true }))]);
 cases.push(['trace coco multifdc', () => traceHash(spec('fdc').trace('coco', { controller: 'multifdc', regenerate: false }))]);   // the CoCo FDC in Multi-Pak slot 4
 // a NitrOS-9/OS-9 dump on drive 0 (run.js coco --fdc cocofdc-os9 --images): the OS-9 geometry from LSN 0, OS-9's
 // own interleave and gaps, and a headerless save. Its own key, so a change to the OS-9 path moves this and nothing else
