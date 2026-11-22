@@ -737,6 +737,23 @@ line, per element over 2 s (desktop and phone): none with a tape stopped in the 
 (at most 8 a second, the position readouts); the rewrite every frame it replaced was 40-60 a second per element. The panel's
 own checks (`tapePanel`) also find no reel turning at the end of the tape.
 
+### First use (the cold usability test's findings)
+
+What a first-time visitor without the docs meets has no MAME oracle (AGENTS.md 4.6): it is page copy and page
+behaviour, checked against the approved design's own words. `tests/first-use.test.js` (Node) pins the welcome menu's
+prompt against the options it lists ("PRESS 1 TO N", N the highest number on screen) on every build, greeting and
+carry-on, and after the games menu and back; the message of a machine-code tape that loads and starts ("HI.CAS
+loaded ($3000–$30FF) and started at $3000.") and `tapeStatus().started`, which the deck reads ("LOADED · STARTED
+$3000") until the motor runs, the tape is rewound or another goes in, with no other memory above $0800 changed; the
+install steps for Safari on a Mac; and the Help page's "Claude: getting an API key". In Chromium, the browser check's
+first-use checks (run with the `uiCopy` group) drive the real page: a non-number key on the welcome menu shows its
+note, with Add ROMs inside the sentence, exactly once a visit (a number key does not); the API key field's console,
+pricing and Use with Claude links in the chat's card and the Ask panel; a dropped HI.CAS's toast and deck; the switch
+question within 80 px of the machine button with the focus on Switch, directly under the bar at 390x844, and Esc
+cancelling it; a mocked gamepad's toast, once; 2048's toast gone at the first arrow key and the colour demo's gone at
+4 s while hovered; and the install card with macOS and iOS Safari user agents. Menu's Settings… is checked in the
+`mobile` group.
+
 ### Install as an app (the PWA offer)
 
 The **Install CLOADM…** item and the one-time offer card (`js/ui/install.js`) have no MAME oracle (AGENTS.md
@@ -774,9 +791,10 @@ exactly one visible control is named Menu; ⌄ hides the keys, the screen then t
 rounding allowed: the picture is whole pixels) and ⌨ (Show keys) is 44x44 inside the window and brings them back;
 scrolled to the page's foot, ⌨ covers nothing of it; 2048 opens on Pad with the screen at the page's width, exactly one visible BREAK (the strip's), every pad key 48 px and more and none over the strip, and the strip's BREAK takes 2048 back to the welcome menu. The app bar is 48 px at its first paint (an init script reads
 it at the first animation frame) and 2 s later, with the touch class already on. Menu wears a dot while there is no
-BASIC (its name then "Menu, Add ROMs needed"), lists Add ROMs first, then Share, the links, Commands… and Install
-CLOADM…, opens moving nothing in the bar with the focus on its first item (Tab goes to the next), and its Add ROMs
-opens Add ROMs. Minesweeper opens on Pad (Up, Left, Down, Right, SPACE, ENTER, F, ABC, no BREAK: the strip's is the only one, UX R35; every key 48 px and
+BASIC (its name then "Menu (ROMs needed)"), lists "Add ROMs (BASIC needs them)" first with the same dot, then Share,
+Settings…, the links, Commands… and Install CLOADM…, opens moving nothing in the bar with the focus on its first item
+(Tab goes to the next), and its Add ROMs opens Add ROMs; at 390x844 its Settings… brings the settings tabs into view
+with the focus on Display. Minesweeper opens on Pad (Up, Left, Down, Right, SPACE, ENTER, F, ABC, no BREAK: the strip's is the only one; every key 48 px and
 more, Stick offered); the pad's → and F reach the machine as RIGHT and F; ABC shows the keyboard for one key; Keys
 chosen in Minesweeper is remembered for it on that machine while 2048 still opens on Pad and LIZA on Keys; the MC-10's
 switch is Keys | Pad. The games' toast says "tap a key" and BREAK, never "Esc" or "press", lies under the app bar and

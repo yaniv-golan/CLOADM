@@ -66,7 +66,12 @@ export function setupScreen(page, { loadPrograms, roms }) {
   // the left one), so a pad plugged in mid-session just starts working
   // a gamepad, or the mouse as joystick, moved out of its dead zone or fire pressed: the person's input
   input.onPlayer = () => session.personInput();
-  window.addEventListener('gamepadconnected', () => { havePads = true; page.status('Gamepad connected'); });
+  // said once a visit: the first pad is the right joystick (a second one, the left, needs no second toast)
+  let padToldOnce = false;
+  window.addEventListener('gamepadconnected', () => {
+    havePads = true;
+    if (!padToldOnce) { padToldOnce = true; page.status('Gamepad connected: it drives the right joystick.'); }
+  });
   const readPads = () => {
     if (!havePads && !(navigator.getGamepads && [...navigator.getGamepads()].some(Boolean))) return;
     havePads = true;

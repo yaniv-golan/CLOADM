@@ -4541,8 +4541,8 @@ async function tapePanelChecks(browser, base, check) {
       && (await text('tapeEyebrow')) === 'STOPPED · BLOCK 0 OF 34' && await page.isHidden('#btnTapeRetry'), JSON.stringify(err));
     // skip the tape: the program, in memory at once
     await page.click('#btnSkipTape');
-    await waitFor(page, () => /fast-loaded/.test(document.getElementById('toast').textContent));
-    check('tape panel: "Skip the tape" loads it instantly', /deck\.cas: DECK fast-loaded \$3000-\$4F3F, exec \$3000/.test(await text('toast'))
+    await waitFor(page, () => /and started at/.test(document.getElementById('toast').textContent));
+    check('tape panel: "Skip the tape" loads it instantly', /^deck\.cas loaded \(\$3000–\$4F3F\) and started at \$3000\.$/.test(await text('toast'))
       && await page.evaluate((c) => c.every((v, i) => window.emu.machine.ram[0x3000 + i] === v), code), await text('toast'));
     // a power cycle keeps the tape, so the panel stays
     await page.click('#btnHardReset');
@@ -6532,7 +6532,7 @@ async function touchJoystickChecks(browser, base, check) {
     // one toast, not two: screen.js's "Gamepad connected" is the page's word on it, and the panel adds none of
     // its own (a second, different wording here would be the panel's own toast, and is what this fails on)
     check('touch joystick: one gamepad toast, not two',
-      await page.evaluate(() => /^Gamepad connected\.?$/.test(document.getElementById('toastText').textContent.trim())),
+      await page.evaluate(() => /^Gamepad connected: it drives the right joystick\.$/.test(document.getElementById('toastText').textContent.trim())),
       await page.evaluate(() => document.getElementById('toastText').textContent));
     // TWO PADS (M2): one leaving must not bring the stick back while the other is still connected -- that pad
     // overwrites joy[0]/fire[0] every frame, so the stick would be lying about who has the joystick
@@ -7416,7 +7416,7 @@ async function urlChecks(browser, base, check) {
   check('link: tape= puts the tape in the deck, without running it', await waitFor(page, () => document.getElementById('tapeName').textContent === 'game.cas')
     && /Tape game\.cas inserted/.test(await msg()), await msg());
   await open('?machine=dragon64&tape=https://files.example/game.cas&autorun');
-  check('link: tape= with autorun loads and runs it', /game\.cas: CLOADM fast-loaded/.test(await msg()), await msg());
+  check('link: tape= with autorun loads and runs it', /^game\.cas loaded \(\$[0-9A-F]{4}–\$[0-9A-F]{4}\) and started at \$[0-9A-F]{4}\.$/.test(await msg()), await msg());
   await open('?machine=coco&cart=https://files.example/pak.ccc');
   check('link: cart= plugs in a cartridge, which starts', await waitFor(page, () => window.emu.machine.cpu.pc === 0xC000) && /pak\.ccc: Program Pak inserted, running at \$C000/.test(await msg()), await msg());
   await open('?machine=coco&load=https://files.example/missing.bin');
@@ -7910,6 +7910,193 @@ async function chatScreenChecks(browser, base, check) {
 
 // The copy and small UX fixes of the v0.1.8 UI/UX review (m5, m6, m8, the Add ROMs cards, p2, p3). Each case failed
 // on v0.1.8.
+// First use, as a first-time visitor without the docs meets it: a key on the welcome menu that is not one of its
+// numbers says what the menu is, once a visit; the API key field says where a key comes from and what it costs; a
+// machine-code tape that loads and starts says where it went and where it started (toast and deck); the switch
+// question stands under the machine button; a gamepad says which joystick it drives; a game's and the colour demo's
+// "how to play" toast goes at the first key, or after 4 s; the install steps name Safari on a Mac and iOS.
+// (Menu's Settings… at 390x844 is in the mobile group, with the rest of Menu.)
+async function firstUseChecks(browser, base, check) {
+  const L = 'first use';
+  const open = async (url, { viewport = { width: 1280, height: 800 }, userAgent } = {}) => {
+    const ctx = await browser.newContext(Object.assign({ viewport, serviceWorkers: 'block' }, userAgent ? { userAgent } : {}));
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}${url}`);
+    await started(page);
+    return { ctx, page, errors };
+  };
+  const toastText = (page) => page.evaluate(() => (document.getElementById('toast').hidden ? '' : document.getElementById('toastText').textContent));
+  const shot = async (page, name) => { if (shotDir) await page.screenshot({ path: path.join(shotDir, `first-use-${name}.png`) }); };
+  // the focus on the screen without a press (a press is the "next action" that clears a toast, which would make a
+  // check that a key clears it say nothing)
+  const screenFocus = (page) => page.evaluate(() => document.getElementById('screen').focus());
+
+  // ---- the welcome menu: a key that is not one of its numbers ----
+  {
+    const { ctx, page, errors } = await open('?machine=dragon64');
+    await waitFor(page, () => window.emu.session.welcomeRunning);
+    await emuFrames(page, 3);
+    const pill = await page.getAttribute('#romPill', 'title');
+    check(`${L}: the "No BASIC · Add ROMs" pill's title says why`, pill === 'No BASIC: this machine needs its BASIC ROM to type programs', pill);
+    await screenFocus(page);
+    await page.keyboard.press('9');   // a number, if not one of the menu's: no word about it
+    await ticks(page, 10);
+    const afterDigit = await toastText(page);
+    await page.keyboard.press('p');
+    const said = await toastSeen(page, /^This is CLOADM's welcome menu/, 5000);
+    const t = await page.evaluate(() => ({ text: document.getElementById('toastText').textContent,
+      inline: (() => { const b = document.querySelector('#toastText button.inline'); return b ? b.textContent : null; })(), action: document.getElementById('toastAction').hidden }));
+    check(`${L}: a non-number key on the welcome menu shows what the menu is, with Add ROMs in the sentence and LIZA's number (a number key does not)`,
+      afterDigit === '' && said && t.text === "This is CLOADM's welcome menu: press a number to choose. Typing BASIC needs your BASIC ROM: Add ROMs. Or press 1 for LIZA, a program you can type to."
+      && t.inline === 'Add ROMs' && t.action, JSON.stringify({ afterDigit, t }));
+    await shot(page, 'welcome-key');
+    // once a visit: more keys, the toast gone, say nothing more
+    await page.evaluate(() => window.emu.feedback.clear());
+    for (const k of ['l', 'Enter', 'ArrowUp', 'x']) await page.keyboard.press(k);
+    await ticks(page, 20);
+    const again = await toastText(page);
+    check(`${L}: the welcome menu's note shows exactly once a visit`, again === '' && await page.evaluate(() => window.emu.session.welcomeRunning), again);
+    // its Add ROMs opens Add ROMs (a new visit: the note again, once)
+    await page.reload(); await started(page); await waitFor(page, () => window.emu.session.welcomeRunning);
+    await screenFocus(page);
+    await page.keyboard.press('k');
+    await toastSeen(page, /^This is CLOADM's welcome menu/, 5000);
+    await page.click('#toastText button.inline');
+    check(`${L}: the note's Add ROMs opens Add ROMs`, await waitFor(page, () => location.hash === '#add-roms', null, 5000));
+    check(`${L} (welcome): no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- the API key: where to get one, what it costs, and Claude without one ----
+  {
+    const { ctx, page, errors } = await open('?machine=dragon64&app=claude');
+    await waitFor(page, () => document.getElementById('claudeKeyCard').checkVisibility(), null, 15000);
+    const k = await page.evaluate(() => {
+      const one = (id) => { const e = document.getElementById(id); return { text: e.textContent, links: [...e.querySelectorAll('a')].map((a) => [a.textContent, a.href]), shown: e.checkVisibility() }; };
+      const input = document.getElementById('claudeKeyInput').getBoundingClientRect(), get = document.getElementById('claudeKeyGet').getBoundingClientRect();
+      return { card: one('claudeKeyGet'), none: one('claudeNoKey'), ask: one('askKeyGet'), askNone: one('askNoKey'), under: get.top >= input.bottom - 1 && get.top - input.bottom < 40 };
+    });
+    const getText = 'Get a key at console.anthropic.com (API keys). Use is billed to your Anthropic account: see pricing ↗';
+    const consoleLink = (l) => l.length === 2 && l[0][0] === 'console.anthropic.com' && /^https:\/\/console\.anthropic\.com\//.test(l[0][1]) && l[1][0] === 'pricing ↗' && /^https:\/\/www\.anthropic\.com\/pricing/.test(l[1][1]);
+    check(`${L}: under the key field: "${getText}", linking to the console and the pricing page (the chat's card and the Ask panel's form)`,
+      k.card.shown && k.under && k.card.text === getText && consoleLink(k.card.links) && k.ask.text === getText && consoleLink(k.ask.links), JSON.stringify(k));
+    const useWith = (e) => e.text === 'No key? Use CLOADM inside Claude instead: Use with Claude ↗' && e.links.length === 1 && /docs\/mcp\.md#use-with-claude$/.test(e.links[0][1]);
+    check(`${L}: "No key? Use CLOADM inside Claude instead: Use with Claude ↗", linking to the install section`, k.none.shown && useWith(k.none) && useWith(k.askNone), JSON.stringify(k));
+    await shot(page, 'key-card');
+    check(`${L} (key): no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- a machine-code tape that loads and starts: where it went and where it started ----
+  {
+    const { ctx, page, errors } = await open('?machine=dragon64');
+    await waitFor(page, () => window.emu.session.welcomeRunning);
+    const block = (type, data) => { let sum = (type + data.length) & 0xFF; for (const v of data) sum = (sum + v) & 0xFF; return [0x55, 0x3C, type, data.length, ...data, sum]; };
+    const code = [0x20, 0xFE, ...Array(254).fill(0x12)];   // BRA * at $3000, then NOPs: 256 bytes, $3000-$30FF
+    const cas = Buffer.from([...Array(128).fill(0x55), ...block(0, [...Buffer.from('HI      '), 2, 0, 0, 0x30, 0x00, 0x30, 0x00]), ...Array(64).fill(0x55),
+      ...block(1, code.slice(0, 255)), ...block(1, code.slice(255)), ...block(0xFF, [])]);
+    await dropFiles(page, [['HI.CAS', cas]]);
+    const said = await toastSeen(page, /^HI\.CAS loaded/, 10000);
+    await waitFor(page, () => !document.getElementById('tapePanel').hidden && /^LOADED/.test(document.getElementById('tapeEyebrow').textContent), null, 10000);
+    const st = await page.evaluate(() => ({ toast: document.getElementById('toastText').textContent, eyebrow: document.getElementById('tapeEyebrow').textContent, pc: window.emu.machine.cpu.pc }));
+    check(`${L}: a machine-code tape that starts says "HI.CAS loaded ($3000–$30FF) and started at $3000." and the deck "LOADED · STARTED $3000"`,
+      said && st.toast === 'HI.CAS loaded ($3000–$30FF) and started at $3000.' && st.eyebrow === 'LOADED · STARTED $3000' && st.pc === 0x3000, JSON.stringify(st));
+    await shot(page, 'tape-started');
+    check(`${L} (tape): no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- the switch question, under the machine button (and directly under the bar on a phone); Esc cancels ----
+  for (const [label, viewport] of [['desktop', { width: 1280, height: 800 }], ['phone', { width: 390, height: 844 }]]) {
+    const { ctx, page, errors } = await open('?machine=dragon64', { viewport });
+    await page.click('#machineBtn');
+    await waitFor(page, () => !document.getElementById('machineMenu').hidden);
+    await page.click('#machineMenu button[data-machine="coco"]');
+    await waitFor(page, () => !document.getElementById('switchConfirm').hidden);
+    const r = await page.evaluate(() => {
+      const c = document.getElementById('switchConfirm').getBoundingClientRect(), b = document.getElementById('machineBtn').getBoundingClientRect(), bar = document.getElementById('appbar').getBoundingClientRect();
+      const gap = Math.max(0, c.left - b.right, b.left - c.right, c.top - b.bottom, b.top - c.bottom);
+      return { gap, below: c.top >= b.bottom - 8, underBar: Math.abs(c.top - bar.bottom), inView: c.left >= 0 && c.right <= innerWidth && c.bottom <= innerHeight,
+        focus: document.getElementById('switchConfirm').contains(document.activeElement) ? document.activeElement.id : null };
+    });
+    check(`${L} (${label}): the switch question is within 80 px of the machine button, below it${label === 'phone' ? ', directly under the bar' : ''}, with the focus in it`,
+      r.gap <= 80 && r.below && r.inView && r.focus === 'btnSwitch' && (label !== 'phone' || r.underBar <= 2), JSON.stringify(r));
+    await shot(page, `switch-${label}`);
+    await page.keyboard.press('Escape');
+    const after = await page.evaluate(() => ({ hidden: document.getElementById('switchConfirm').hidden, machine: window.emu.machine.id }));
+    check(`${L} (${label}): Esc cancels the switch`, after.hidden && after.machine === 'dragon64', JSON.stringify(after));
+    check(`${L} (switch ${label}): no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- a gamepad: which joystick it drives, said once ----
+  {
+    const { ctx, page, errors } = await open('?machine=dragon64');
+    const connect = () => page.evaluate(() => {
+      const pad = { index: 0, id: 'Mock pad', connected: true, axes: [0, 0], buttons: [{ pressed: false, value: 0 }] };
+      navigator.getGamepads = () => [pad, null, null, null];
+      window.dispatchEvent(new Event('gamepadconnected'));
+    });
+    await connect();
+    const said = await toastSeen(page, /^Gamepad connected/, 5000);
+    const first = await toastText(page);
+    await page.evaluate(() => window.emu.feedback.clear());
+    await connect();
+    await ticks(page, 10);
+    const second = await toastText(page);
+    check(`${L}: a gamepad connecting says "Gamepad connected: it drives the right joystick.", once`,
+      said && first === 'Gamepad connected: it drives the right joystick.' && second === '', JSON.stringify({ first, second }));
+    check(`${L} (gamepad): no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- a game's "how to play" toast goes at its first key; the colour demo's after 4 s, even hovered ----
+  {
+    const { ctx, page, errors } = await open('?machine=dragon64&start=2048');
+    const up = await toastSeen(page, /^2048: press a key to start/, 15000);
+    await screenFocus(page);
+    await page.keyboard.press('ArrowUp');
+    await ticks(page, 2);
+    const left = await toastText(page);
+    check(`${L}: 2048's toast is gone after the first arrow key`, up && left === '', left);
+    check(`${L} (2048): no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+  {
+    const { ctx, page, errors } = await open('?machine=dragon64');
+    await waitFor(page, () => window.emu.session.welcomeRunning);
+    await screenFocus(page);
+    await page.keyboard.press('2');
+    const up = await toastSeen(page, /^Colour demo: press a key/, 15000);
+    const t0 = Date.now();
+    await page.hover('#toast');   // (a hover holds an ordinary toast; this one goes all the same)
+    const gone = await waitFor(page, () => document.getElementById('toast').hidden, null, 6000);
+    const ms = Date.now() - t0;
+    check(`${L}: the colour demo's toast goes after 4 s with no key, even while hovered`, up && gone && ms >= 2500, `${ms} ms`);
+    check(`${L} (demo): no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // ---- installing: Safari on a Mac has its own line, iOS its Share step ----
+  const SAFARI = {
+    mac: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
+    ios: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+  };
+  for (const [label, ua, viewport, want] of [['macOS Safari', SAFARI.mac, { width: 1280, height: 800 }, /^In Safari: File → Add to Dock\.$/], ['iOS Safari', SAFARI.ios, { width: 390, height: 844 }, /^Install CLOADM as an app on this device: tap Share, then Add to Home Screen\.Install: Share, Add to Home Screen\.$/]]) {
+    const { ctx, page, errors } = await open('?machine=dragon64', { viewport, userAgent: ua });
+    await pressInstall(page);
+    await waitFor(page, () => !document.getElementById('installOffer').hidden, null, 5000);
+    const r = await page.evaluate(() => ({ steps: [...document.querySelectorAll('#installSteps li')].map((l) => l.textContent), text: document.getElementById('installText').textContent }));
+    const ok = label === 'iOS Safari' ? want.test(r.text) && !r.steps.length : r.steps.length === 1 && want.test(r.steps[0]);
+    check(`${L}: the install card with ${label}'s user agent says ${want.source.replace(/\\/g, '')}`, ok, JSON.stringify(r));
+    await shot(page, `install-${label.replace(/\W+/g, '-').toLowerCase()}`);
+    check(`${L} (install ${label}): no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+}
+
 async function uiCopyChecks(browser, base, check) {
   const toastText = (page) => page.evaluate(() => { const t = document.getElementById('toast'); return t && !t.hidden ? document.getElementById('toastText').textContent : ''; });
   const open = async (viewport, url, { init = null } = {}) => {
@@ -7969,9 +8156,15 @@ async function uiCopyChecks(browser, base, check) {
     };
     // a whole row must match (a glyph the chat font lacks draws as something else, so it fails here)
     const screenHas = async (line, ms = 30000) => { const end = Date.now() + ms; let rows = []; while (Date.now() < end) { rows = await chatScreen(); if (rows.some((l) => (line instanceof RegExp ? line.test(l) : l === line))) return { ok: true, rows }; await new Promise((r) => setTimeout(r, 200)); } return { ok: false, rows }; };
-    const nokey = await screenHas(/^No API key yet: add one (above|below|on the right)\.$/);
-    const seen = nokey.ok, keyUi = { screen: nokey.rows.join('|'), help: await page.textContent('#claudeHelp') };
-    check('m6: with no key, "No API key yet" is on the chat screen itself (not only in the note beside it)', seen, JSON.stringify(keyUi));
+    // (two rows: the line wraps at the screen's 42 columns; read as the rows run on, a word to a space)
+    const NOKEY = /(^|\s)No API key yet: add one (above|below|on the right)\. Get one at console\.anthropic\.com\.(\s|$)/;
+    const nokey = { ok: false, rows: [] };
+    for (const end = Date.now() + 30000; Date.now() < end && !nokey.ok; await new Promise((r) => setTimeout(r, 200))) {
+      nokey.rows = await chatScreen(); nokey.ok = NOKEY.test(nokey.rows.join(' ').replace(/\s+/g, ' '));
+    }
+    const help = await page.textContent('#claudeHelp');
+    const seen = nokey.ok && /^\[No API key yet: add one (above|below|on the right)\. Get one at console\.anthropic\.com\.\]$/.test(help), keyUi = { screen: nokey.rows.join('|'), help };
+    check('chat key: with no key, "No API key yet: add one … Get one at console.anthropic.com." is on the chat screen itself and in the note beside it', seen, JSON.stringify(keyUi));
     await shot(page, 'chat-nokey');
     await page.fill('#claudeKeyInput', KEY);
     await page.click('#btnClaudeKeySave');
@@ -14792,14 +14985,16 @@ async function mobileChecks(browser, base, check) {
     const { ctx, page, errors } = await open({ width: 393, height: 659 }, '?machine=dragon64');
     const dot = await page.evaluate(() => getComputedStyle(document.getElementById('btnMenu'), '::after').content !== 'none');
     const menuName = await page.getAttribute('#btnMenu', 'aria-label');
-    check('mobile (393x659): the dot on Menu is in its name too: "Menu, Add ROMs needed"', dot && menuName === 'Menu, Add ROMs needed', JSON.stringify({ dot, menuName }));
+    check('mobile (393x659): the dot on Menu is in its name too: "Menu (ROMs needed)"', dot && menuName === 'Menu (ROMs needed)', JSON.stringify({ dot, menuName }));
     const row = () => page.evaluate(() => ['machineBtn', 'btnLoad', 'btnAsk', 'btnMenu'].map((id) => JSON.stringify(document.getElementById(id).getBoundingClientRect())));
     const before = await row();
     await tap(page, '#btnMenu');
     await until(page, () => document.getElementById('appbar').classList.contains('menu-open'));
     const items = await page.evaluate(() => [...document.querySelectorAll('.appbar nav > *')].filter((e) => e.checkVisibility()).map((e) => e.innerText.replace(/\s+/g, ' ').trim()));
-    check('mobile (393x659): Menu has a dot while there is no BASIC, and lists Add ROMs first, then Share, the links, Commands… and Install CLOADM…',
-      dot && items[0] === 'Add ROMs' && items.includes('Share') && items.includes('Commands…') && items.includes('Library') && items.includes('Install CLOADM…'), JSON.stringify({ dot, items }));
+    // the first item says why ROMs, and wears Menu's dot
+    const itemDot = await page.evaluate(() => { const d = document.querySelector('#navRoms .dot'); return !!d && d.checkVisibility() && getComputedStyle(d).backgroundColor === getComputedStyle(document.getElementById('btnMenu'), '::after').backgroundColor; });
+    check('mobile (393x659): Menu has a dot while there is no BASIC, and lists "Add ROMs (BASIC needs them)" first, with the same dot, then Share, Settings…, the links, Commands… and Install CLOADM…',
+      dot && itemDot && items[0] === 'Add ROMs (BASIC needs them)' && items[1] === 'Share' && items[2] === 'Settings…' && items.includes('Commands…') && items.includes('Library') && items.includes('Install CLOADM…'), JSON.stringify({ dot, itemDot, items }));
     check('mobile (393x659): opening Menu moves nothing in the bar', JSON.stringify(before) === JSON.stringify(await row()));
     // the focus on the first item as it opens; Tab goes down the list (not into what Menu hides)
     const f1 = await page.evaluate(() => document.activeElement.id);
@@ -14809,6 +15004,24 @@ async function mobileChecks(browser, base, check) {
     await tap(page, '#navRoms');
     check('mobile (393x659): Menu\'s Add ROMs opens Add ROMs', await until(page, () => location.hash === '#add-roms'));
     check('mobile (Menu): no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+  // ---- Menu's Settings… at 390x844: the drawer's tabs brought into view, the focus on Display ----
+  {
+    const { ctx, page, errors } = await open({ width: 390, height: 844 }, '?machine=dragon64');
+    await tap(page, '#btnMenu');
+    await until(page, () => document.getElementById('appbar').classList.contains('menu-open'));
+    await tap(page, '#navSettings');
+    await until(page, () => document.activeElement && document.activeElement.id === 'tab-display');
+    const st = await page.evaluate(() => {
+      const t = document.getElementById('tab-display'), r = t.getBoundingClientRect();
+      return { focus: document.activeElement.id, selected: t.getAttribute('aria-selected'), panel: !document.getElementById('panel-display').hidden,
+        inView: r.top >= 0 && r.bottom <= innerHeight && r.width > 0, menu: document.getElementById('appbar').classList.contains('menu-open') };
+    });
+    check('mobile (390x844): Menu\'s Settings… brings the settings tabs into view with the focus on Display, its panel open, and Menu closed',
+      st.focus === 'tab-display' && st.selected === 'true' && st.panel && st.inView && !st.menu, JSON.stringify(st));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, 'mobile-settings-menu.png') });
+    check('mobile (Settings…): no page errors', !errors.length, errors.join('; '));
     await ctx.close();
   }
 
@@ -15594,7 +15807,8 @@ const GROUPS = (base, site) => [
   ['askStatus', (b) => askStatusChecks(b, base, check)],
   ['askEsc', (b) => askEscChecks(b, base, check)],
   ['consentFullscreen', (b) => consentFullscreenChecks(b, base, check)],
-  ['uiCopy', (b) => uiCopyChecks(b, base, check)],
+  // (the first-use checks run with the copy's: the same kind of check, and no shard of their own)
+  ['uiCopy', async (b) => { await uiCopyChecks(b, base, check); await firstUseChecks(b, base, check); }],
   ['welcomeScreen', (b) => welcomeScreenChecks(b, base, check)],
   ['chatScreen', (b) => chatScreenChecks(b, base, check)],
   ['phoneChat', (b) => phoneChatChecks(b, base, check)],

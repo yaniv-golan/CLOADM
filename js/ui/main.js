@@ -221,18 +221,28 @@ $('btnMenu').onclick = () => {
   fit();
 }
 // the phone's app bar (700 px and less, play/index.html): Add ROMs is Menu's first item while the app bar's pill is
-// up (the machine has no BASIC), and Menu wears a dot then (UX R30); Share is its item too (the bar has no room)
+// up (the machine has no BASIC), and Menu wears a dot then, as the item does; Settings… and Share are its items too
+// (the bar has no room)
 {
   const pill = $('romPill'), item = $('navRoms');
   // (the dot is drawn only: while it is on, Menu's name says what it means)
   const sync = () => {
     item.hidden = pill.hidden;
     $('btnMenu').classList.toggle('dot', !pill.hidden);
-    if (pill.hidden) $('btnMenu').removeAttribute('aria-label'); else $('btnMenu').setAttribute('aria-label', 'Menu, Add ROMs needed');
+    if (pill.hidden) $('btnMenu').removeAttribute('aria-label'); else $('btnMenu').setAttribute('aria-label', 'Menu (ROMs needed)');
   };
   const close = () => { $('appbar').classList.remove('menu-open'); $('btnMenu').setAttribute('aria-expanded', 'false'); };
   item.onclick = () => { close(); pill.click(); };
   $('navShare').onclick = () => { close(); $('btnShare').click(); };
+  // Settings…: the drawer's tabs are far below the screen on a phone; brought into view, on Display (a person looking
+  // for "settings" is most often after the picture: its look, its size, the colours)
+  $('navSettings').onclick = () => {
+    close();
+    const tab = $('tab-display');
+    tab.click();
+    tab.closest('[role="tablist"]').scrollIntoView({ block: 'start' });
+    tab.focus({ preventScroll: true });
+  };
   new MutationObserver(sync).observe(pill, { attributes: true, attributeFilter: ['hidden'] });
   sync();
 }

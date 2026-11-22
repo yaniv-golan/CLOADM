@@ -199,6 +199,22 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   controls are marked unavailable to assistive technology until then and announced once they take presses, and they
   look the same throughout. Window focus doesn't restart the wait, and nothing but the time ends it: a tap works with
   no pointer movement. The browser check's new group `armGuard` covers it.
+- **First use, from a cold usability test.** A key on the welcome menu that isn't one of its numbers says, once a
+  visit, "This is CLOADM's welcome menu: press a number to choose. Typing BASIC needs your BASIC ROM: [Add ROMs]. Or
+  press 1 for LIZA, a program you can type to." The "No BASIC · Add ROMs" pill's title says "No BASIC: this machine
+  needs its BASIC ROM to type programs".
+- **The Claude API key says where it comes from.** Under the key field (the chat's card and the Ask panel): "Get a key
+  at console.anthropic.com (API keys). Use is billed to your Anthropic account: see pricing ↗", and "No key? Use CLOADM
+  inside Claude instead: Use with Claude ↗". The chat screen's no-key line adds "Get one at console.anthropic.com.".
+  Help has a section, "Claude: getting an API key".
+- **A machine-code tape that loads and starts says so:** "HI.CAS loaded ($3000–$30FF) and started at $3000." (its own
+  name, range and start address), and the deck reads "LOADED · STARTED $3000" until the tape moves on.
+- **On a phone, Menu has Settings…**: it brings the settings tabs into view with the focus on Display. Its first item
+  reads "Add ROMs (BASIC needs them)" with the same dot as Menu, whose name is then "Menu (ROMs needed)".
+- **The machine switch's question stands under the machine button** (directly under the bar on a phone), with the
+  focus in it; Esc cancels it.
+- A gamepad connecting says, once a visit, "Gamepad connected: it drives the right joystick."
+- The install steps give Safari on a Mac a line of its own, "In Safari: File → Add to Dock." (the card and Help).
 
 ### Fixed
 
@@ -310,6 +326,8 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   channels and bits, but only the PCM hash and length were compared, so a recording that came back at another rate,
   in stereo, or 8-bit would still have matched a hash taken from its own bytes. The header's fields are now read and
   compared, along with the header's own shape (RIFF/WAVE, the `data` chunk and its size).
+- 2048's, Minesweeper's and the colour demo's "how to play" toast went only after its full time, held while hovered;
+  it now goes at the first key, or after 4 s, whichever is first.
 
 ### 0.1.8-pre
 

@@ -222,7 +222,7 @@ DATAE
   s.shownMachine.deck.eject();
   check('Session: tapeWav with no tape says so', throws(() => s.tapeWav(), /no tape in the deck/));
   const loaded = s.load('game.wav', Emu.casToWav(stream), { remember: false });
-  check('Session: load() of a WAV with a machine-code file injects it, as a .CAS', /CLOADM fast-loaded/.test(loaded), loaded);
+  check('Session: load() of a WAV with a machine-code file injects it, as a .CAS', /^game\.wav loaded \(\$[0-9A-F]{4}–\$[0-9A-F]{4}\) and started at \$[0-9A-F]{4}\.$/.test(loaded), loaded);
   check('Session: a WAV with no tape in it is refused with the reason', throws(() => s.load('quiet.wav', Emu.writeWav(new Float32Array(4410), 44100)), /no tape blocks found/));
   check('Session: a broken WAV is refused with the reason', throws(() => s.load('bad.wav', Uint8Array.from(Buffer.from('RIFF....WAVEjunk'))), /bad\.wav: WAV file has no format chunk/));
   // a format chunk that claims 16 bytes but the file ends inside it: a WavError, not a RangeError
