@@ -425,7 +425,7 @@ const bytes = (n, seed = 0) => { const b = new Uint8Array(n); let x = seed >>> 0
     const s = new Emu.Session({ store: Emu.memoryStore(), media });
     s.switchMachine('coco');
     s.addRoms([{ name: 'bas12.rom', bytes: new Uint8Array(8192).fill(0x31) }]);
-    s.load('prog.bin', Emu.toBinary(Emu.assemble(' ORG $3000\nL BRA L\n END', '6809')));
+    s.load('prog.bin', Emu.toBinary(Emu.assemble(' ORG $3000\nL BRA L\n END', '6809'), { format: 'dragondos' }));
     await s.index.flush();
     const internal = (await media.list()).map((f) => f.name).filter((n) => !n.startsWith('library/'));
     check('setup: the index has its own blobs (roms/, recent/, meta/)', internal.some((n) => n.startsWith('roms/')) && internal.some((n) => n.startsWith('recent/')), internal.join(','));

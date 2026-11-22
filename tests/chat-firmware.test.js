@@ -34,7 +34,7 @@ const include = (name) => { const p = path.join(ROOT, 'examples', name); return 
 const asm = Emu.assemble(src, '6809', { include });
 check('chat.asm assembles', asm.ok, asm.ok ? '' : JSON.stringify(asm.errors).slice(0, 400));
 const bin = fs.existsSync(path.join(ROOT, 'examples/chat.bin')) ? new Uint8Array(fs.readFileSync(path.join(ROOT, 'examples/chat.bin'))) : null;
-check('the committed chat.bin is the source assembled', !!bin && Buffer.from(Emu.toBinary(asm)).equals(Buffer.from(bin)));
+check('the committed chat.bin is the source assembled', !!bin && Buffer.from(Emu.toBinary(asm, { format: 'dragondos' })).equals(Buffer.from(bin)));
 
 // the screen size from the firmware's own source, and the one the chat tells Claude (CHAT_SCREEN, the brief)
 const equ = (name) => Number((new RegExp(`^${name}\\s+EQU\\s+(\\d+)`, 'm').exec(src) || [])[1]);

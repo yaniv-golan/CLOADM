@@ -1,7 +1,7 @@
 /*
  * Two-pass assembler engine with pluggable instruction sets (./isa6809.js, ./isa6803.js, ./isa7000.js).
  *   assemble(source, cpu, { include }) -> { ok, errors[], segments[{addr,data}], exec, symbols, listing[] }
- *   toBinary(result)      -> DragonDOS binary (contiguous) or DECB segmented binary
+ *   toBinary(result, { format, maxGap }) -> a DragonDOS ('dragondos') or DECB ('decb') binary; the format is required
  * Syntax: [label[:]] mnemonic operand ; comment   (lines starting with * or ; are comments; after a mnemonic that
  *   takes no operand, text is a comment, as in Motorola's assemblers: "LSRA  shift", unless it starts like an operand)
  * Directives: ORG EQU = FCB/DB FDB/DW FCC FCS FCN RMB/DS SETDP INCLUDE END
@@ -12,6 +12,7 @@
 import { AsmError, evalExpr, fit, splitArgs } from './syntax.js';
 import { isa6809 } from './isa6809.js';
 import { registry } from '../util.js';
+import { writeDragonDos, writeDecb } from '../media/formats.js';
 
 import { isa6803 } from './isa6803.js';
 import { isa6309 } from './isa6309.js';
@@ -285,23 +286,11 @@ function conditional(lines, where, symbols) {
   return { text: out, map };
 }
 
-function toBinary(res) {
-  const segs = res.segments;
-  if (!segs.length) return new Uint8Array(0);
-  const lo = segs[0].addr;
-  const hi = Math.max(...segs.map((s) => s.addr + s.data.length));
-  const contiguous = segs.every((s) => s.addr >= lo) && hi - lo <= 0xFFFF;
-  if (contiguous) {
-    const len = hi - lo;
-    const out = new Uint8Array(9 + len);
-    out.set([0x55, 0x02, lo >> 8, lo & 0xFF, len >> 8, len & 0xFF, res.exec >> 8, res.exec & 0xFF, 0xAA]);
-    for (const s of segs) out.set(s.data, 9 + s.addr - lo);
-    return out;
-  }
-  const parts = [];
-  for (const s of segs) parts.push(0, s.data.length >> 8, s.data.length & 0xFF, s.addr >> 8, s.addr & 0xFF, ...s.data);
-  parts.push(0xFF, 0, 0, res.exec >> 8, res.exec & 0xFF);
-  return Uint8Array.from(parts);
+// The assembled program as a file: format 'dragondos' (one contiguous range, small gaps zero-filled) or 'decb' (the segments as
+// they are). There is no default: which one a program wants depends on the machine that loads it, so the caller says.
+function toBinary(res, { format, maxGap } = {}) {
+  if (format !== 'dragondos' && format !== 'decb') throw new Error(`toBinary needs { format: 'dragondos' | 'decb' }, not ${JSON.stringify(format)}`);
+  return format === 'dragondos' ? writeDragonDos(res.segments, res.exec, maxGap == null ? {} : { maxGap }) : writeDecb(res.segments, res.exec);
 }
 
 export { assemble, toBinary };

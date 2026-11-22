@@ -28,7 +28,7 @@ const frames = (n) => { for (let i = 0; i < n; i++) s.advance(1000 / s.machine.f
 
 // running a program and reading the screen and memory
 {
-  const prog = Emu.toBinary(Emu.assemble(' ORG $3000\n LDA #$41\n STA $0400\n LDA #$7E\n STA $3100\nL BRA L\n END', '6809'));
+  const prog = Emu.toBinary(Emu.assemble(' ORG $3000\n LDA #$41\n STA $0400\n LDA #$7E\n STA $3100\nL BRA L\n END', '6809'), { format: 'dragondos' });
   sent.length = 0;
   const r = call('load', 'p.bin', [...prog]);
   frames(2);

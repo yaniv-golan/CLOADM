@@ -59,7 +59,7 @@ const session = () => {
 {
   const s = session();
   const gen = s.welcomeGenNow();
-  s.load('mine.bin', Emu.toBinary(Emu.assemble(' ORG $3000\nL BRA L\n END', '6809')));
+  s.load('mine.bin', Emu.toBinary(Emu.assemble(' ORG $3000\nL BRA L\n END', '6809'), { format: 'dragondos' }));
   const msg = s.startWelcome(welcome('welcome.bin'), { greeting: 'first', gen });
   check('welcome gen: a start overtaken by a load is refused', msg === null && !s.welcomeRunning, String(msg));
 }

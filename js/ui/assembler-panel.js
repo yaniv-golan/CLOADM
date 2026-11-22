@@ -5,6 +5,7 @@
  * loaded too (js/media/includes.js), so an included file may include another.
  */
 import { assemble, toBinary } from '../asm/assembler.js';
+import { binaryFormat } from '../media/detect.js';
 import { loadIncludes, describeError } from '../media/includes.js';
 import { hex } from '../util.js';
 import { exampleReader } from '../host/example-reader.js';
@@ -90,7 +91,8 @@ export function setupAssemblerPanel(page) {
     const res = lastAsm || await assembleSource();
     if (!res) return;
     const name = ($('asmName').textContent || 'program.asm').replace(/\.[^.]*$/, '') + '.bin';
-    page.download(name, toBinary(res));
+    // the file the machine loads: DragonDOS on a Dragon, DECB on a CoCo (the MC-10's programs travel in a DragonDOS header)
+    page.download(name, toBinary(res, { format: binaryFormat(session.machine.profile) || 'dragondos' }));
     page.toast(`Saved ${name}`);
   };
 }

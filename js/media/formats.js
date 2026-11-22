@@ -1,6 +1,56 @@
 /* File formats: DragonDOS .BIN, DECB segmented .BIN, .CAS/.C10/.K7 tape images, WAV tape recordings, cartridges,
    BASIC listings */
 import { casBlocks, wavToCas } from './cassette.js';
+
+// ---------------- writers: the round-trip partners of parseDragonDos and parseDecb ----------------
+// A segment is { addr, data }, as the assembler gives them and the parsers return them.
+// What a writer refuses is a WriteError: `kind` says why ('empty', 'range', 'overlap', 'gap'), `at` and `gap` where.
+export class WriteError extends Error {
+  constructor(kind, message, extra = {}) { super(message); this.name = 'WriteError'; this.kind = kind; Object.assign(this, extra); }
+}
+const word = (v) => [(v >> 8) & 0xFF, v & 0xFF];
+const hex4 = (v) => '$' + v.toString(16).toUpperCase().padStart(4, '0');
+function checkSegments(segments, exec) {
+  if (!segments.length) throw new WriteError('empty', 'nothing to write: the program has no bytes');
+  if (!Number.isInteger(exec) || exec < 0 || exec > 0xFFFF) throw new WriteError('range', `the execution address ${exec} is not a 16-bit address`);
+  for (const g of segments) {
+    if (!Number.isInteger(g.addr) || g.addr < 0 || g.addr + g.data.length > 0x10000) throw new WriteError('range', `a segment of ${g.data.length} bytes at ${g.addr} does not fit in the 64 KiB address space`, { at: g.addr });
+  }
+}
+// DragonDOS binary: $55 type load length exec $AA data. One contiguous range: the segments are put in address order and
+// a gap between two of them is filled with zero bytes, up to maxGap bytes (default: any gap that fits the file's 65535); a larger gap, or segments that
+// overlap, is a WriteError (a segmented format, writeDecb, holds them). type: 2 binary (default), 1 BASIC.
+export function writeDragonDos(segments, exec, { type = 2, maxGap = 0xFFFF } = {}) {
+  checkSegments(segments, exec);
+  if (type !== 1 && type !== 2) throw new WriteError('range', `a DragonDOS file type is 1 (BASIC) or 2 (binary), not ${type}`);
+  const sorted = segments.filter((g) => g.data.length).sort((a, b) => a.addr - b.addr);
+  if (!sorted.length) throw new WriteError('empty', 'nothing to write: the program has no bytes');
+  const lo = sorted[0].addr;
+  let end = lo;
+  for (const g of sorted) {
+    if (g.addr < end) throw new WriteError('overlap', `the segment at ${hex4(g.addr)} overlaps the one before it`, { at: g.addr });
+    if (g.addr - end > maxGap) throw new WriteError('gap', `a gap of ${g.addr - end} bytes (${hex4(end)} to ${hex4(g.addr - 1)}) is more than the ${maxGap} a DragonDOS file zero-fills`, { at: end, gap: g.addr - end });
+    end = g.addr + g.data.length;
+  }
+  const len = end - lo;
+  if (len > 0xFFFF) throw new WriteError('range', `the program spans ${len} bytes, more than a DragonDOS file's 65535`);
+  const out = new Uint8Array(9 + len);
+  out.set([0x55, type, ...word(lo), ...word(len), ...word(exec), 0xAA]);
+  for (const g of sorted) out.set(g.data, 9 + g.addr - lo);
+  return out;
+}
+// DECB (Color BASIC LOADM) segmented binary: ($00 length address data)* $FF $00 $00 exec. The segments stay as they are, in order.
+export function writeDecb(segments, exec) {
+  checkSegments(segments, exec);
+  const parts = [];
+  for (const g of segments) {
+    if (g.data.length > 0xFFFF) throw new WriteError('range', `a segment of ${g.data.length} bytes is more than a DECB block's 65535`, { at: g.addr });
+    parts.push(0x00, ...word(g.data.length), ...word(g.addr), ...g.data);
+  }
+  parts.push(0xFF, 0x00, 0x00, ...word(exec));
+  return Uint8Array.from(parts);
+}
+
 // DragonDOS binary: 0x55 type loadHi loadLo lenHi lenLo execHi execLo 0xAA data...
 function parseDragonDos(b) {
   if (b.length < 9 || b[0] !== 0x55 || b[8] !== 0xAA) return null;
@@ -107,4 +157,4 @@ function identify(name, bytes) {
   return { kind: 'raw', bytes };
 }
 
-export const formats = { parseDragonDos, parseDecb, parseCas, identify };
+export const formats = { parseDragonDos, parseDecb, parseCas, identify, writeDragonDos, writeDecb };

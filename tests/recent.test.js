@@ -24,8 +24,8 @@ const session = ({ media = new MemoryMediaStore() } = {}) => {
   return s;
 };
 // distinct programs with distinct first bytes AND lengths, so a wrong row shows in RAM as well as in the list
-const progA = Emu.toBinary(Emu.assemble(' ORG $3000\n FCB $AA,$AA\nL BRA L\n END', '6809'));
-const progB = Emu.toBinary(Emu.assemble(' ORG $3000\n FCB $BB,$BB,$BB,$BB,$BB\nL BRA L\n END', '6809'));
+const progA = Emu.toBinary(Emu.assemble(' ORG $3000\n FCB $AA,$AA\nL BRA L\n END', '6809'), { format: 'dragondos' });
+const progB = Emu.toBinary(Emu.assemble(' ORG $3000\n FCB $BB,$BB,$BB,$BB,$BB\nL BRA L\n END', '6809'), { format: 'dragondos' });
 
 // ---- 1. the same file loaded twice is one entry ----
 {
@@ -85,7 +85,7 @@ const progB = Emu.toBinary(Emu.assemble(' ORG $3000\n FCB $BB,$BB,$BB,$BB,$BB\nL
   one.load('2048.bin', progA);
   check('recent: a name with one entry is not labelled a copy', one.recentMedia()[0].copy === null);
   // three of one name: the second and third are told apart, and a fourth would be "older copy"
-  const progC = Emu.toBinary(Emu.assemble(' ORG $3000\n FCB $CC,$CC,$CC,$CC,$CC,$CC\nL BRA L\n END', '6809'));
+  const progC = Emu.toBinary(Emu.assemble(' ORG $3000\n FCB $CC,$CC,$CC,$CC,$CC,$CC\nL BRA L\n END', '6809'), { format: 'dragondos' });
   const three = session();
   for (const p of [progA, progB, progC]) three.load('2048.bin', p);
   const t = three.recentMedia();
@@ -146,7 +146,7 @@ const progB = Emu.toBinary(Emu.assemble(' ORG $3000\n FCB $BB,$BB,$BB,$BB,$BB\nL
 // ---- 8. still the last 5, and only their files ----
 {
   const s = session();
-  for (let i = 0; i < 7; i++) s.load(`p${i}.bin`, Emu.toBinary(Emu.assemble(` ORG $3000\n FCB ${i}\nL BRA L\n END`, '6809')));
+  for (let i = 0; i < 7; i++) s.load(`p${i}.bin`, Emu.toBinary(Emu.assemble(` ORG $3000\n FCB ${i}\nL BRA L\n END`, '6809'), { format: 'dragondos' }));
   const blobs = s.media.listSync('recent/').filter((f) => f.name.endsWith('.bin'));
   check('recent: still the last 5, and only their files', s.recentMedia().length === 5 && blobs.length === 5,
     `${s.recentMedia().length} entries, ${blobs.length} blobs`);

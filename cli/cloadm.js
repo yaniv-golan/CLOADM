@@ -102,6 +102,8 @@ function condition(text) {
   if (!m) throw usage(`a wait-for condition is text:REGEX, mem:ADDRESS=VALUE or pc:ADDRESS, not "${text}"`);
   if (m[1] === 'text') return { kind: 'text', source: m[2], re: regex(m[2]) };
   if (m[1] === 'mem') return Object.assign({ kind: 'mem' }, memTest(m[2]));
+  // a label (given by --asm or --symbols) is looked up when the wait runs; anything else is an address
+  if (/^[A-Za-z_.@]/.test(m[2].trim())) return { kind: 'pc', label: m[2].trim() };
   return { kind: 'pc', address: address(m[2]) };
 }
 // Text to type. \n (or \r) is ENTER, \\ a backslash, {NAME} a key that is no character: ENTER, BREAK, CLEAR, UP,
@@ -170,6 +172,10 @@ const STEPS = {
   asm: {
     arg: 'FILE', help: 'assemble a source file with the bundled assembler (for this machine\'s CPU) and run it', example: '--asm hello.asm',
     parse: (t) => ({ file: t }),
+  },
+  symbols: {
+    arg: 'FILE', help: 'read a symbol map (--assemble --map\'s "NAME $ADDR" lines, or an LWLINK or CMOC map) into the labels --disasm shows and --wait-for pc:LABEL reaches, replacing the ones --asm gave', example: '--symbols game.map',
+    parse: (t) => t,
   },
   cart: { arg: 'FILE', help: 'plug in a cartridge ROM image (an error if the file is not one)', example: '--cart pak.rom', parse: (t) => t },
   tape: { arg: 'FILE', help: 'put a .cas or .wav in the cassette deck without loading it (then type CLOAD)', example: '--tape game.cas', parse: (t) => t },
@@ -469,6 +475,7 @@ class Runner {
     this.wav = null;             // the sound recording under way: { file, out (AudioOutput), chunks, result }
     this.results = [];
     this.romReport = null;
+    this.symbolMap = null;       // the labels the last --symbols read
   }
   get m() { return this.s.machine; }
   // the machine, built from the setup steps at the first step that needs it
@@ -585,19 +592,19 @@ class Runner {
     return this.record(step, { file, message });
   }
   async asm(step, { file }, s) {
-    let src;
-    try { src = fs.readFileSync(file, 'utf8'); } catch (e) { throw media(`cannot read the source ${file}: ${e.code || e.message}`, 'cannot-read'); }
-    const dir = path.dirname(file);
-    const include = (n) => { const p = path.join(dir, n); return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : null; };
     const cpu = this.m.config.cpu === '6309' ? '6809' : this.m.config.cpu;
-    const res = Emu.assemble(src, cpu, { include });
-    if (!res.ok) {
-      const errors = res.errors.map((e) => ({ line: e.line || null, message: e.message || String(e) }));
-      throw new CliError('bad-media', `${file}: ${errors.map((e) => (e.line ? `line ${e.line}: ${e.message}` : e.message)).join('; ')}`, { errors });
-    }
+    const res = assembleFile(file, cpu);
     const message = s.runAssembled(res);
     const symbols = Object.fromEntries([...res.symbols].filter(([, a]) => Number.isInteger(a)));
     return this.record(step, { file, exec: res.exec, message, symbols, segments: res.segments.map((g) => ({ address: g.addr, length: g.data.length })) });
+  }
+  // a symbol map (--assemble's --map, or a linker's) replaces the labels --disasm and --wait-for pc:LABEL use
+  async symbols(step, file, s) {
+    let map;
+    try { map = Emu.parseSymbols(Buffer.from(readFile(file, 'symbol map')).toString('utf8')); } catch (e) { if (e instanceof Emu.SymbolsError) throw media(`${file}: ${e.message}`); throw e; }
+    s.setLabels(map);
+    this.symbolMap = map;   // --disasm names labels from a map; the program's own (--asm) are not added to its listing
+    return this.record(step, { file, count: map.size });
   }
   async cart(step, file, s) {
     const bytes = readFile(file, 'cartridge'), name = path.basename(file);
@@ -654,6 +661,11 @@ class Runner {
     const secs = this.timeout, limit = this.framesFor(secs);
     const what = step.where.startsWith('--') ? `wait-for ${condText(c)}` : `${step.where}: wait-for ${condText(c)}`;
     let n = 0;
+    if (c.kind === 'pc' && c.label) {
+      const at = Emu.lookupSymbol(s.labels, c.label);
+      if (at === undefined) throw usage(`${what}: no label ${c.label} (--asm and --symbols give the labels; ${s.labels ? `there are ${s.labels.size}` : 'none are loaded'})`);
+      c = Object.assign({}, c, { address: at });
+    }
     if (c.kind === 'pc') {
       // a breakpoint stops the machine at the instruction, not at the end of a frame
       const d = s.debug, had = d.breakpoints().includes(c.address);
@@ -675,7 +687,7 @@ class Runner {
         await this.frame(); n++;
       }
     }
-    return this.record(step, { condition: condText(c), frames: n, met: true });
+    return this.record(step, Object.assign({ condition: condText(c), frames: n, met: true }, c.label ? { address: c.address } : {}));
   }
   async expectScreen(step, re) {
     const t = this.screen();
@@ -769,7 +781,17 @@ class Runner {
     return this.record(step, { name, value: s.debug.registers()[name] });
   }
   async disasm(step, { address: a, count }, s) {
-    return this.record(step, Emu.disassembleTool(s, { address: a == null ? this.m.cpu.pc : a, count }));
+    const r = Emu.disassembleTool(s, { address: a == null ? this.m.cpu.pc : a, count });
+    // the labels --symbols gave (while they are the session's): `label` on an instruction that has one, `targetLabel` where its operand points at one
+    if (s.labels && s.labels === this.symbolMap && s.labels.size) {
+      const names = new Map();
+      for (const [name, at] of s.labels) if (!names.has(at)) names.set(at, name);
+      for (const i of r.instructions) {
+        if (names.has(i.address)) i.label = names.get(i.address);
+        if (i.target != null && names.has(i.target)) i.targetLabel = names.get(i.target);
+      }
+    }
+    return this.record(step, r);
   }
   async stepInstructions(step, n, s) {
     const d = s.debug;
@@ -806,13 +828,13 @@ class Runner {
   }
 }
 const STEP_METHODS = {
-  'load-snapshot': 'loadSnapshot', program: 'program', load: 'load', asm: 'asm', cart: 'cart', tape: 'tape', disk: 'disk',
+  'load-snapshot': 'loadSnapshot', program: 'program', load: 'load', asm: 'asm', symbols: 'symbols', cart: 'cart', tape: 'tape', disk: 'disk',
   type: 'type', frames: 'frames', seconds: 'seconds', 'wait-for': 'waitFor', 'expect-screen': 'expectScreen',
   'expect-mem': 'expectMem', 'expect-screenshot': 'expectScreenshot', hold: 'hold', wav: 'wavStep', 'wav-stop': 'wavStop', screen: 'screenStep', screenshot: 'screenshot', peek: 'peek', poke: 'poke',
   registers: 'registers', 'set-register': 'setRegister', disasm: 'disasm', step: 'stepInstructions', reset: 'resetStep',
   'power-cycle': 'powerCycle', view: 'view', 'save-snapshot': 'saveSnapshot', info: 'info',
 };
-const condText = (c) => (c.kind === 'text' ? `text:${c.source}` : c.kind === 'mem' ? `mem:${Emu.hex(c.address)}=${Emu.hex(c.value, 2)}` : `pc:${Emu.hex(c.address)}`);
+const condText = (c) => (c.kind === 'text' ? `text:${c.source}` : c.kind === 'mem' ? `mem:${Emu.hex(c.address)}=${Emu.hex(c.value, 2)}` : c.label ? `pc:${c.label}` : `pc:${Emu.hex(c.address)}`);
 const hex2 = (b) => b.toString(16).toUpperCase().padStart(2, '0');
 
 // a step's result as the human output prints it (null: the step prints nothing)
@@ -827,7 +849,7 @@ function humanText(r) {
     case 'info': return `${r.name} (${r.machine}) ${Object.entries(r.config).map(([k, v]) => `${k}=${v}`).join(' ')} · ${r.roms ? 'your ROMs' : 'built-in firmware'} · frame ${r.frame} · PC ${Emu.hex(r.pc)}`;
     case 'registers': return regsText(r.registers);
     case 'step': return regsText(r.registers);
-    case 'disasm': return r.instructions.map((i) => `${Emu.hex(i.address)}  ${i.bytes.padEnd(15)} ${i.text}`).join('\n');
+    case 'disasm': return r.instructions.map((i) => `${i.label ? `${i.label}:\n` : ''}${Emu.hex(i.address)}  ${i.bytes.padEnd(15)} ${i.text}${i.targetLabel ? `  ; ${i.targetLabel}` : ''}`).join('\n');
     default: return null;
   }
 }
@@ -839,9 +861,10 @@ function describe() {
     name: 'cloadm',
     schemaVersion: SCHEMA_VERSION,
     description: 'Dragon 32/64/200, Tandy Color Computer 1/2/3 and MC-10 emulator, headless: run programs, type, wait for the screen, memory or PC, hold keys, read the screen as text, inspect and change memory and registers, save pictures and snapshots, compare the picture with a reference PNG, record the sound as a WAV. Emulated time only: the same inputs give the same results.',
-    usage: ['node cli/cloadm.js [--json] [steps...]', 'node cli/cloadm.js [--json] --script FILE', 'node cli/cloadm.js --describe', 'node cli/cloadm.js --mcp | --serve [--roms PATH] [--media-root DIR] [--read-only]'],
+    usage: ['node cli/cloadm.js [--json] [steps...]', 'node cli/cloadm.js [--json] --script FILE', 'node cli/cloadm.js --assemble FILE --out FILE [--cpu C] [--machine ID] [--format dragondos|decb|raw] [--map FILE] [--json]', 'node cli/cloadm.js --describe', 'node cli/cloadm.js --mcp | --serve [--roms PATH] [--media-root DIR] [--read-only]'],
     modes: {
       'command line': 'steps as options, run in order; --json prints one object { ok, exit, machine, steps, roms?, error? }',
+      assemble: '--assemble FILE --out FILE: assemble to a file and stop; no machine is built (--asm assembles and runs). --cpu or --machine gives the CPU; --format dragondos, decb or raw (default from --machine: Dragons dragondos, CoCos decb); --map FILE writes "NAME $ADDR" lines; --json prints { ok, exit, assemble: { source, cpu, machine, format, out, size, load, exec, segments, map } }',
       script: '--script FILE: one step per line, "name argument" (the rest of the line; one surrounding pair of double quotes is taken off), # comments',
       mcp: '--mcp: a Model Context Protocol server on stdio; its tools and their schemas come from tools/list (docs/mcp.md)',
       serve: '--serve: the MCP tools over JSON lines: { id, tool, arguments } in, { id, ok, result | error } out (docs/mcp.md)',
@@ -863,11 +886,15 @@ function helpText() {
 
 Usage: node cli/cloadm.js [--json] [steps...]
        node cli/cloadm.js [--json] --script FILE
+       node cli/cloadm.js --assemble FILE --out FILE [--cpu C] [--machine ID] [--format dragondos|decb|raw] [--map FILE] [--json]
        node cli/cloadm.js --describe
        node cli/cloadm.js --mcp | --serve [--roms PATH] [--media-root DIR] [--read-only]
 
 Steps run in the order given; machine, option, roms, no-roms and fast-cas come first.
 ${rows.join('\n')}
+  --assemble FILE               assemble FILE to a binary and stop (builds no machine; --asm assembles and RUNS): needs --out FILE and
+                                --cpu 6809|6309|6803|7000 or --machine ID; --format dragondos|decb|raw (default: Dragon dragondos,
+                                CoCo decb; required without --machine); --map FILE writes "NAME $ADDR" lines for --symbols
   --script FILE                 read steps from FILE, one per line: "name argument" (# comments)
   --json                        print one JSON object with every step's result instead of text
   --describe                    the whole interface as JSON: steps, exit and error codes
@@ -961,11 +988,102 @@ async function server(argv, { input, out, err }) {
   return o.mode === 'mcp' ? M.mcp({ toolbox, input, out }) : M.serve({ toolbox, input, out });
 }
 
+// ---------------- assembling ----------------
+// a source file -> the assembler's result (INCLUDEs are read from the source's own folder); an unreadable file or an assembly error is thrown
+function assembleFile(file, cpu) {
+  let src;
+  try { src = fs.readFileSync(file, 'utf8'); } catch (e) { throw media(`cannot read the source ${file}: ${e.code || e.message}`, 'cannot-read'); }
+  const dir = path.dirname(file);
+  const include = (n) => { const p = path.join(dir, n); return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : null; };
+  const res = Emu.assemble(src, cpu, { include });
+  if (!res.ok) {
+    const errors = res.errors.map((e) => ({ line: e.line || null, message: e.message || String(e) }));
+    throw new CliError('bad-media', `${file}: ${errors.map((e) => (e.line ? `line ${e.line}: ${e.message}` : e.message)).join('; ')}`, { errors });
+  }
+  return res;
+}
+// --assemble FILE --out FILE [--cpu C] [--machine ID] [--format F] [--map FILE] [--json]: assemble to a file and stop. No machine is built.
+const ASSEMBLE_FORMATS = ['dragondos', 'decb', 'raw'];
+const ASSEMBLE_GAP = 256;   // the most a DragonDOS file or a raw image zero-fills between two segments
+function assembleOptions(argv) {
+  const o = { json: false, source: null, cpu: null, machine: null, format: null, out: null, map: null };
+  const names = ['assemble', 'cpu', 'machine', 'format', 'out', 'map'];
+  for (let i = 0; i < argv.length; i++) {
+    const m = /^--([a-z][a-z0-9-]*)(?:=([\s\S]*))?$/.exec(argv[i]);
+    if (!m) throw usage(`unexpected argument "${argv[i]}" (--assemble takes ${names.map((n) => `--${n}`).join(', ')} and --json)`, 'unknown-step');
+    if (m[1] === 'json') { if (m[2] != null) throw usage('--json takes nothing'); o.json = true; continue; }
+    if (!names.includes(m[1])) throw usage(`--assemble builds no machine, so it takes ${names.map((n) => `--${n}`).join(', ')} and --json, not --${m[1]}`, 'unknown-step');
+    const value = m[2] != null ? m[2] : argv[++i];
+    if (value == null || value === '') throw usage(`--${m[1]} needs ${m[1] === 'cpu' ? 'a CPU' : m[1] === 'machine' ? 'a model id' : m[1] === 'format' ? 'a format' : 'a file'}`);
+    const key = m[1] === 'assemble' ? 'source' : m[1];
+    if (o[key] != null) throw usage(`--${m[1]} given twice`);
+    o[key] = value;
+  }
+  return o;
+}
+function assembleRun(argv) {
+  const o = assembleOptions(argv);
+  if (!o.out) throw usage('--assemble needs --out FILE (where the binary goes)');
+  let profile = null;
+  if (o.machine != null) {
+    profile = Emu.profiles[o.machine];
+    if (!profile) throw usage(`no machine "${o.machine}" (--list-machines lists them)`, 'bad-option');
+  }
+  if (!profile && !o.cpu) throw usage('--assemble needs --cpu (6809, 6309, 6803 or 7000) or a --machine to take it from');
+  if (!profile && !o.format) throw usage(`--assemble needs --format (${ASSEMBLE_FORMATS.join(', ')}) without a --machine to take it from`);
+  if (o.format != null && !ASSEMBLE_FORMATS.includes(o.format)) throw usage(`--format is ${ASSEMBLE_FORMATS.join(', ')}, not "${o.format}"`);
+  if (o.cpu != null && !Emu.cpuFamily(o.cpu)) throw usage(`--cpu is 6809, 6309, 6803 or 7000, not "${o.cpu}"`);
+  if (profile && o.cpu != null && !profile.options.cpu.values.includes(o.cpu)) throw usage(`the ${profile.name} has a ${profile.options.cpu.values.join(' or ')}, not a ${o.cpu}`, 'bad-option');
+  const cpu = o.cpu || profile.options.cpu.default;
+  let format = o.format;
+  if (!format) {
+    format = Emu.binaryFormat(profile);
+    if (!format) throw usage(`the ${profile.name} loads .c10 tapes, not binaries, so there is no default format: give --format raw (or dragondos, the header this project's own loader reads)`);
+  }
+  const res = assembleFile(o.source, cpu);
+  if (!res.segments.some((g) => g.data.length)) throw media(`${o.source}: the program assembles to no bytes`);
+  let bytes;
+  try {
+    bytes = format === 'decb' ? Emu.writeDecb(res.segments, res.exec)
+      : format === 'dragondos' ? Emu.writeDragonDos(res.segments, res.exec, { maxGap: ASSEMBLE_GAP })
+        : Emu.writeDragonDos(res.segments, res.exec, { maxGap: ASSEMBLE_GAP }).subarray(9);
+  } catch (e) {
+    if (!(e instanceof Emu.WriteError)) throw e;
+    throw media(`${o.source}: ${e.message}${e.kind === 'gap' || e.kind === 'overlap' ? '; use --format decb' : ''}`, 'bad-media');
+  }
+  writeFile(o.out, bytes);
+  const symbols = [...res.symbols].filter(([, a]) => Number.isInteger(a) && a >= 0 && a <= 0xFFFF);
+  if (o.map) writeFile(o.map, Emu.formatSymbols(res.symbols));
+  const lo = Math.min(...res.segments.filter((g) => g.data.length).map((g) => g.addr));
+  return {
+    source: o.source, cpu, machine: o.machine, format, out: o.out, size: bytes.length, exec: res.exec, load: lo,
+    segments: res.segments.map((g) => ({ address: g.addr, length: g.data.length })),
+    map: o.map ? { file: o.map, symbols: symbols.length } : null,
+    json: o.json,
+  };
+}
+
 // ---------------- main ----------------
 async function main(argv, { out = (t) => process.stdout.write(t + '\n'), err = (t) => process.stderr.write(t + '\n'), input = process.stdin } = {}) {
   if (argv.includes('--mcp') || argv.includes('--serve')) {
     // stdout is the protocol's: an error starting the server goes to stderr only
     try { return await server(argv, { input, out, err }); } catch (e) { const error = asCliError(e); err(`cloadm: ${error.message}`); return EXIT[error.kind]; }
+  }
+  if (argv.some((a) => a === '--assemble' || a.startsWith('--assemble='))) {
+    let json = argv.includes('--json');
+    try {
+      const r = assembleRun(argv);
+      json = r.json;
+      const result = { source: r.source, cpu: r.cpu, machine: r.machine, format: r.format, out: r.out, size: r.size, load: r.load, exec: r.exec, segments: r.segments, map: r.map };
+      out(json ? JSON.stringify({ ok: true, exit: 0, assemble: result }, null, 2)
+        : `${r.source}: ${r.cpu}, ${r.format}, ${r.size} bytes, load ${Emu.hex(r.load)}, exec ${Emu.hex(r.exec)} -> ${r.out}${r.map ? ` (${r.map.symbols} symbols -> ${r.map.file})` : ''}`);
+      return 0;
+    } catch (e) {
+      const error = asCliError(e);
+      if (json) out(JSON.stringify({ ok: false, exit: EXIT[error.kind], error: errorJson(error) }, null, 2));
+      else err(`cloadm: ${error.message}`);
+      return EXIT[error.kind];
+    }
   }
   let opts = { json: argv.includes('--json') };
   const runner = new Runner();

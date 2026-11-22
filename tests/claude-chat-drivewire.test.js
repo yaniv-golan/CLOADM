@@ -80,7 +80,7 @@ async function say(s, calls, line, want) {
 
 (async () => {
   check('the firmware\'s DriveWire channel is the one the Session uses', sym('DWCH') === Emu.CHAT_DW_CHANNEL && ASM.ok, `${sym('DWCH')} / ${Emu.CHAT_DW_CHANNEL}`);
-  check('the firmware was rebuilt from its source (examples/chat.bin is chat.asm assembled)', Buffer.from(Emu.toBinary(ASM)).equals(Buffer.from(FIRMWARE)));
+  check('the firmware was rebuilt from its source (examples/chat.bin is chat.asm assembled)', Buffer.from(Emu.toBinary(ASM, { format: 'dragondos' })).equals(Buffer.from(FIRMWARE)));
 
   // ---- the path: DWINIT, SERINIT 14, FASTWRITE, SERREAD / SERREADM, through the Session's chat server ----
   for (const id of ['coco', 'coco2b']) {

@@ -67,6 +67,7 @@ const FILES = [
   'js/asm/isa6803.js',
   'js/asm/isa6809.js',
   'js/asm/isa7000.js',
+  'js/asm/symbols.js',
   'js/asm/syntax.js',
   'js/chips/artifacter.js',
   'js/chips/attoclock.js',

@@ -37,7 +37,8 @@ for (const { name, cpu, source = null, defines = {} } of [
   const res = Emu.assemble(fs.readFileSync(path.join(EX, `${file}.asm`), 'utf8'), cpu, { include, defines });
   // a failed assembly is fatal; `return` is legal here at module top level and leaves the loop
   if (!res.ok) { console.error(res.errors); process.exitCode = 1; return; }
-  const bin = Emu.toBinary(res);
+  // every example ships as a DragonDOS file (also the CoCo's and the MC-10's: the loader reads the header whatever the machine)
+  const bin = Emu.toBinary(res, { format: 'dragondos' });
   fs.writeFileSync(path.join(EX, `${name}.bin`), bin);
   console.log(`examples/${name}.bin: ${bin.length} bytes (${cpu})`);
 }

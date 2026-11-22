@@ -23,7 +23,7 @@ const check = (name, cond, detail = '') => { if (!cond) { fail++; console.log(`F
 
 const s = new Emu.Session({ store: Emu.memoryStore(), media: new MemoryMediaStore(), welcomeMenu: false });
 s.switchMachine('dragon64', {}, { menu: false });
-const prog = (b, n) => Emu.toBinary(Emu.assemble(` ORG $3000\n FCB ${Array(n).fill(`$${b}`).join(',')}\nL BRA L\n END`, '6809'));
+const prog = (b, n) => Emu.toBinary(Emu.assemble(` ORG $3000\n FCB ${Array(n).fill(`$${b}`).join(',')}\nL BRA L\n END`, '6809'), { format: 'dragondos' });
 s.load('a.bin', prog('AA', 2));
 s.load('b.bin', prog('BB', 3));
 s.load('c.bin', prog('CC', 4));

@@ -91,8 +91,8 @@ load on every machine.
 node cli/cloadm.js --asm game.asm --frames 50 --screen      # assemble and run in one step (INCLUDEs from its folder)
 ```
 
-From a script, `assemble(source, '6809')` and `toBinary(result)` (`js/emu.js`) give the binary; the page's
-Assembler tab does the same. 6809 points that catch people out:
+From a script, `assemble(source, '6809')` and `toBinary(result, { format: 'dragondos' })` (`js/emu.js`; `'decb'` for a CoCo) give the binary; the page's
+Assembler tab does the same, in the format of the machine you have open. 6809 points that catch people out:
 
 * Branches (`BRA`, `BNE`, ...) reach -128..+127 bytes; the assembler says "branch out of range": use `LBRA`, `LBNE`
   or `JMP`.

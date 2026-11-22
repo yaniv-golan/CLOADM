@@ -21,7 +21,7 @@ const DEFINES = { MC10: 0, ALICE: 0, SIX09: 1 };
 
 // the committed binary is the source assembled; the fixed entry points are where the Session hooks them
 const asm = Emu.assemble(src, '6809', { include, defines: DEFINES });
-check('welcome.asm assembles to the committed welcome.bin', asm.ok && Buffer.from(Emu.toBinary(asm)).equals(Buffer.from(bin)), asm.errors.join('; '));
+check('welcome.asm assembles to the committed welcome.bin', asm.ok && Buffer.from(Emu.toBinary(asm, { format: 'dragondos' })).equals(Buffer.from(bin)), asm.errors.join('; '));
 // the subtitle comes from the include, and the flags are not optional: with none passed the build fails
 // rather than silently taking some other machine's name
 const noFlags = Emu.assemble(src, '6809', { include });

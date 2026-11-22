@@ -10,7 +10,7 @@ const { crc32 } = require('../js/util.js');
 let fail = 0;
 const check = (name, cond, detail = '') => { if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log(`ok   ${name} ${detail}`); };
 const ROOT = path.join(__dirname, '..');
-const prog = (n) => Emu.toBinary(Emu.assemble(` ORG $3000\n FCB ${Array(n).fill('$11').join(',')}\nL BRA L\n END`, '6809'));
+const prog = (n) => Emu.toBinary(Emu.assemble(` ORG $3000\n FCB ${Array(n).fill('$11').join(',')}\nL BRA L\n END`, '6809'), { format: 'dragondos' });
 const A = prog(2);
 const session = ({ media = new MemoryMediaStore(), store = Emu.memoryStore() } = {}) => {
   const s = new Emu.Session({ store, media, welcomeMenu: false });

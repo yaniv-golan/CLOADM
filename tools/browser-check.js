@@ -822,8 +822,8 @@ const audioNodeCounter = ({ noWorklet = false, badModule = false, hangModule = f
 //   switches keep the one context and the one node (no leak); no ScriptProcessorNode and no deprecation warning.
 async function audioChecks(browser, base, check) {
   const Emu = require('../tests/load')();
-  const bin = [...Emu.toBinary(Emu.assemble(DAC_HIGH, '6809'))];
-  const square = [...Emu.toBinary(Emu.assemble(DAC_SQUARE, '6809'))];
+  const bin = [...Emu.toBinary(Emu.assemble(DAC_HIGH, '6809'), { format: 'dragondos' })];
+  const square = [...Emu.toBinary(Emu.assemble(DAC_SQUARE, '6809'), { format: 'dragondos' })];
   const ctx = await browser.newContext();
   await ctx.addInitScript(audioNodeCounter);
   const page = await ctx.newPage();
@@ -5482,6 +5482,30 @@ SUB     INCA
     return { bps: b.debugger ? b.debugger.breakpoints() : null };
   });
   check('debugger: a snapshot taken in the page keeps the breakpoints', JSON.stringify(snapped.bps) === '[12293]', JSON.stringify(snapped));
+  // the Assembler tab's Save writes the file the open machine loads: DragonDOS on a Dragon, DECB on a CoCo
+  const saveFile = async (pg) => {
+    const [dl] = await Promise.all([pg.waitForEvent('download'), pg.click('#btnAsmSave')]);
+    const f = path.join(os.tmpdir(), `cloadm-asm-${process.pid}.bin`);
+    await dl.saveAs(f);
+    const bytes = [...fs.readFileSync(f)];
+    fs.unlinkSync(f);
+    return { name: dl.suggestedFilename(), bytes };
+  };
+  const dragonSave = await saveFile(page);
+  check('debugger: Save on a Dragon writes a DragonDOS file ($55 type load length exec $AA, then the program\'s bytes)',
+    dragonSave.bytes[0] === 0x55 && dragonSave.bytes[2] === 0x30 && dragonSave.bytes[3] === 0x00 && dragonSave.bytes[8] === 0xAA && dragonSave.bytes[9] === 0x86 && dragonSave.bytes[10] === 0x00
+    && ((dragonSave.bytes[4] << 8) | dragonSave.bytes[5]) === dragonSave.bytes.length - 9, JSON.stringify(dragonSave.bytes.slice(0, 12)));
+  const cocoPage = await ctx.newPage();
+  const cocoErrors = [];
+  cocoPage.on('pageerror', (e) => cocoErrors.push(e.message));
+  await cocoPage.goto(`${base}?machine=coco`); await started(cocoPage);
+  await openDebugger(cocoPage);
+  await cocoPage.fill('#asmSource', SRC);
+  const cocoSave = await saveFile(cocoPage), cb = cocoSave.bytes;
+  check('debugger: Save on a CoCo writes a DECB file ($00 length address data, then $FF $00 $00 and the exec address)',
+    cb[0] === 0x00 && ((cb[1] << 8) | cb[2]) === cb.length - 10 && cb[3] === 0x30 && cb[4] === 0x00 && cb[5] === 0x86 && cb.slice(-5).join(',') === '255,0,0,48,0', JSON.stringify(cb.slice(0, 8)) + JSON.stringify(cb.slice(-6)));
+  check('debugger: the saved file is named after the source', dragonSave.name === 'program.bin' && cocoSave.name === 'program.bin', `${dragonSave.name} ${cocoSave.name}`);
+  check('debugger: no page errors saving', !cocoErrors.length, cocoErrors.join('; '));
   check('debugger: no page errors', !errors.length, errors.join('; '));
   await ctx.close();
 

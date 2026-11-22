@@ -669,7 +669,7 @@ for (const [id, caseNo] of [['coco', 16], ['dragon64', 17]]) {
   s.switchMachine('coco');
   s.addRoms([{ name: 'bas12.rom', bytes: new Uint8Array(8192).fill(0x11) }]);
   const prog = new Uint8Array(400).fill(0x22);
-  s.load('mine.bin', Emu.toBinary(Emu.assemble(' ORG $3000\nL BRA L\n END', '6809')));
+  s.load('mine.bin', Emu.toBinary(Emu.assemble(' ORG $3000\nL BRA L\n END', '6809'), { format: 'dragondos' }));
   for (let i = 0; i < 3; i++) s.machine.runFrame();
   const text = Emu.state.toJSON(s.machine.snapshot());
   const mediaBefore = { roms: s.roms.sockets().length, recent: s.recentMedia().length, blobs: s.media.snapshot().length };

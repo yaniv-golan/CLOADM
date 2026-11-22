@@ -32,7 +32,7 @@ function cli(args) {
   return { code: r.status, out: r.stdout, err: r.stderr, json };
 }
 const SOURCE = fs.readFileSync(path.join(DIR, 'catch.asm'), 'utf8');
-const build = (src) => { const r = Emu.assemble(src, '6809'); if (!r.ok) throw new Error(JSON.stringify(r.errors)); return Buffer.from(Emu.toBinary(r)); };
+const build = (src) => { const r = Emu.assemble(src, '6809'); if (!r.ok) throw new Error(JSON.stringify(r.errors)); return Buffer.from(Emu.toBinary(r, { format: 'dragondos' })); };
 
 // ---- the build ----
 const bin = build(SOURCE);

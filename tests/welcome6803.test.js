@@ -53,7 +53,7 @@ const DEFINES = { mc10: { MC10: 1, ALICE: 0, SIX09: 0, HALTCODE: 0 }, alice: { M
 for (const { id, file, sub } of MACHINES) {
   const bin = read(file);
   const asm = Emu.assemble(src, '6803', { include, defines: DEFINES[id] });
-  check(`${id}: welcome6803.asm assembles to the committed ${file}`, asm.ok && Buffer.from(Emu.toBinary(asm)).equals(Buffer.from(bin)),
+  check(`${id}: welcome6803.asm assembles to the committed ${file}`, asm.ok && Buffer.from(Emu.toBinary(asm, { format: 'dragondos' })).equals(Buffer.from(bin)),
     asm.ok ? '' : JSON.stringify(asm.errors));
   // the fixed entry points the Session hooks, and the mailbox it reads
   const sym = (n) => asm.symbols.get(n);
@@ -124,7 +124,7 @@ for (const { id, file, sub } of MACHINES) {
 for (const { id, file } of MACHINES) {
   const ship = Emu.assemble(src, '6803', { include, defines: Object.assign({}, DEFINES[id], { HALTCODE: 0 }) });
   const comp = Emu.assemble(src, '6803', { include, defines: Object.assign({}, DEFINES[id], { HALTCODE: 1 }) });
-  const a = Emu.toBinary(ship), b = Emu.toBinary(comp);
+  const a = Emu.toBinary(ship, { format: 'dragondos' }), b = Emu.toBinary(comp, { format: 'dragondos' });
   const diff = [];
   for (let i = 0; i < Math.max(a.length, b.length); i++) if (a[i] !== b[i]) diff.push(i);
   const slots = diff.length === 4 && diff[1] - diff[0] === 1 && diff[3] - diff[2] === 1;

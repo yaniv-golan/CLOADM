@@ -32,7 +32,7 @@ const m = session.machine;
 // 2. a DragonDOS binary from source, loaded and started as dropping it on the page would
 const res = assemble(readFileSync(new URL('docs/examples/framecount.asm', root), 'utf8'), m.profile.cpu === '6309' ? '6309' : '6809');
 if (!res.ok) fail(res.errors.map((e) => e.message).join('; '));
-const loaded = session.load('framecount.bin', toBinary(res), { remember: false });
+const loaded = session.load('framecount.bin', toBinary(res, { format: 'dragondos' }), { remember: false });
 if (!/DragonDOS binary/.test(loaded)) fail(`not loaded as a DragonDOS binary: ${loaded}`);
 
 // 3. wait on a memory byte: whole frames, a bound on how long

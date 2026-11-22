@@ -100,7 +100,7 @@ check('the skill\'s tool table names no tool the server does not have', extra.le
       const dir = fsP.mkdtempSync(path.join(os.tmpdir(), 'cloadm-skill-'));
       const Emu = require('./load')();
       const bin = Emu.toBinary(Emu.assemble(['        ORG $3000', 'START   LDX #MSG', '        LDY #$04E6', 'PR      LDA ,X+', '        BEQ SPIN',
-        '        STA ,Y+', '        BRA PR', 'SPIN    INC $3100', '        BRA SPIN', 'MSG     FCC /STUCK/', '        FCB 0', '        END START'].join('\n'), '6809'));
+        '        STA ,Y+', '        BRA PR', 'SPIN    INC $3100', '        BRA SPIN', 'MSG     FCC /STUCK/', '        FCB 0', '        END START'].join('\n'), '6809'), { format: 'dragondos' });
       fsP.writeFileSync(path.join(dir, 'stuck.bin'), bin);
       const tb2 = T.createToolbox(M.nodeHost({ mediaRoot: dir, roms: [], png: framePng }), {});
       const c2 = async (name, args) => { const r = await tb2.call(name, args); if (!r.ok) throw new Error(`${name}: ${JSON.stringify(r.error)}`); return r.data; };

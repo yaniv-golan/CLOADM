@@ -32,7 +32,7 @@ check('clearRoms empties the sockets and the store', !s.machine.hasRom && ![...s
 
 // loading without ROMs
 const prog = Emu.assemble(' ORG $3000\n LDA #$41\n STA $0400\nL BRA L\n END', '6809');
-const bin = Emu.toBinary(prog);
+const bin = Emu.toBinary(prog, { format: 'dragondos' });
 check('binary loads and runs on the stub', /DragonDOS|binary/i.test(s.load('t.bin', bin)) && (() => { s.machine.runFrame(); return s.machine.ram[0x400] === 0x41; })());
 check('BASIC listing needs a ROM', throws(() => s.load('p.bas', new TextEncoder().encode('10 PRINT "HI"\n')), Emu.SessionError));
 check('raw data needs addresses', throws(() => s.load('raw.dat', new Uint8Array([1, 2, 3])), Emu.SessionError));
@@ -106,7 +106,7 @@ s.turbo = false;
   const first = v.visit();
   check('first visit, nothing chosen or recent', first.first && !first.machineChosen && first.recent.length === 0);
   v.switchMachine('dragon64');
-  const prog = Emu.toBinary(Emu.assemble(' ORG $3000\nL BRA L\n END', '6809'));
+  const prog = Emu.toBinary(Emu.assemble(' ORG $3000\nL BRA L\n END', '6809'), { format: 'dragondos' });
   v.load('loop.bin', prog);
   v.load('loop.bin', prog);   // loading again moves it to the front, no duplicate
   v.load('quiet.bin', prog.slice(), { remember: false });
@@ -117,7 +117,7 @@ s.turbo = false;
   w.switchMachine(w.startMachine);
   check('return visit: the last machine is restored', w.machine.id === 'coco');
   check('loadRecent loads the item on the machine it was loaded on', /loop\.bin/.test(w.loadRecent(0)) && w.machine.id === 'dragon64' && w.machine.cpu.pc === 0x3000);
-  for (let i = 0; i < 7; i++) w.load(`p${i}.bin`, Emu.toBinary(Emu.assemble(` ORG $3000\n FCB ${i}\n END`, '6809')));
+  for (let i = 0; i < 7; i++) w.load(`p${i}.bin`, Emu.toBinary(Emu.assemble(` ORG $3000\n FCB ${i}\n END`, '6809'), { format: 'dragondos' }));
   check('recent list keeps the last 5, and only their files', w.recentMedia().length === 5 && media.snapshot().filter((f) => f.name.startsWith('recent/') && f.name.endsWith('.bin')).length === 5);
   const exp = JSON.stringify(w.exportSettings());
   check('settings export holds no stored media files', !/"media\./.test(exp) && !/recent\/|roms\//.test(exp));

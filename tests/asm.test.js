@@ -146,7 +146,7 @@ const include = (name) => { const p = path.join(__dirname, '../examples', name);
 const src = fs.readFileSync(path.join(__dirname, '../examples/liza.asm'), 'utf8');
 const res = Emu.assemble(src, '6809', { include });
 if (!res.ok) { console.log('LIZA errors', res.errors); process.exitCode = 1; return; }   // top-level return: stop here, let Node exit
-const bin = Emu.toBinary(res);
+const bin = Emu.toBinary(res, { format: 'dragondos' });
 console.log(`liza: ${bin.length - 9} bytes, exec $${res.exec.toString(16)}`);
 const m = Emu.createMachine('dragon64');
 const d = Emu.formats.identify('liza.bin', bin);
