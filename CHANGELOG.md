@@ -10,8 +10,8 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Changed
 
-- **Copy and small fixes from the v0.1.8 UI review.** Starting LIZA or the colour demo from the welcome menu says
-  "LIZA loaded" instead of "liza.bin: DragonDOS binary $3000-$3C90, exec $3000" (a file you bring keeps its addresses).
+- **Copy and small fixes from the v0.1.8 UI review.** Starting LIZA from the welcome menu, or the colour demo from the Media
+  tab's shelf, says "LIZA loaded" / "Colour demo loaded" instead of "liza.bin: DragonDOS binary $3000-$3C90, exec $3000" (a file you bring keeps its addresses).
   A link naming a machine CLOADM doesn't have, or a `start=` or `app=` it doesn't know, shows one short toast ("machine=nosuch: no such machine (opened Dragon 64
   instead)", not a list of every machine), and `#share=` with anything after it says the share link couldn't be read
   instead of landing on the welcome menu in silence. On the Add ROMs screen the "optional" tag stays beside the
@@ -25,9 +25,9 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 - **The Claude chat with no key says so on its own screen.** The chat screen used to be an empty black box with a
   `>` prompt, and the "No API key yet" note sat beside it (below the fold on a phone). The line is now on the screen too,
   as the firmware shows a reply (`Session.chatNote`: not the conversation, never what Claude reads), and after Save key
-  the screen says "Key saved ✓" and the key card reads "Key saved ✓ · Saved in this browser · Change · Forget". The key
-  stays out of machine memory, snapshots and settings exports (`tests/claude-session.test.js` checks it with the notes
-  on screen).
+  the screen says "Key saved. Type below and press ENTER." (plain ASCII: the chat font has no check mark) and the key card reads "Key saved ✓ · Saved in this browser · Change · Forget". The key
+  stays out of machine memory, snapshots, settings exports and the chat screen itself (`tests/claude-session.test.js`
+  reads the screen's text and checks the key is not on it).
 
 ### 0.1.8-pre
 

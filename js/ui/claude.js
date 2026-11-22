@@ -32,6 +32,9 @@ const ACTING = new Set(ACTING_TOOL_NAMES);
 // Claude's INCLUDE lines read from the same-origin examples/ folder only (js/host/example-reader.js)
 const include = exampleReader();
 
+// the line on the chat screen once a key is saved: plain ASCII, the chat font has no check mark, and one row (42 columns)
+export const KEY_SAVED_NOTE = 'Key saved. Type below and press ENTER.';
+
 // the API key states and their texts ("API key states")
 export const KEY_TEXT = Object.freeze({
   refused: '[The API key was refused: check it and try again.]',
@@ -314,7 +317,7 @@ export function setupClaude(page) {
     render();
     // the key is in: say so on the screen (the key card is a short line, below the fold on a phone), and typing goes
     // to the chat at once (the focus was left on the page)
-    if (session.claudeView === 'full') session.chatNote('Key saved ✓ Type your message and press ENTER.');
+    if (session.claudeView === 'full') session.chatNote(KEY_SAVED_NOTE);
     if (session.claudeView === 'full') page.focus();
   };
   $('claudeKeyInput').onkeydown = (e) => { if (e.key === 'Enter') $('btnClaudeKeySave').click(); };

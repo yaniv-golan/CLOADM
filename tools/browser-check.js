@@ -7811,27 +7811,31 @@ async function uiCopyChecks(browser, base, check) {
       }
       return rows;
     };
-    const screenHas = async (what, ms = 30000) => { const end = Date.now() + ms; let rows = []; while (Date.now() < end) { rows = await chatScreen(); if (rows.some((l) => l.includes(what))) return { ok: true, rows }; await new Promise((r) => setTimeout(r, 200)); } return { ok: false, rows }; };
-    const nokey = await screenHas('No API key yet');
+    // a whole row must match (a glyph the chat font lacks draws as something else, so it fails here)
+    const screenHas = async (line, ms = 30000) => { const end = Date.now() + ms; let rows = []; while (Date.now() < end) { rows = await chatScreen(); if (rows.some((l) => (line instanceof RegExp ? line.test(l) : l === line))) return { ok: true, rows }; await new Promise((r) => setTimeout(r, 200)); } return { ok: false, rows }; };
+    const nokey = await screenHas(/^No API key yet: add one (above|below|on the right)\.$/);
     const seen = nokey.ok, keyUi = { screen: nokey.rows.join('|'), help: await page.textContent('#claudeHelp') };
     check('m6: with no key, "No API key yet" is on the chat screen itself (not only in the note beside it)', seen, JSON.stringify(keyUi));
     await shot(page, 'chat-nokey');
     await page.fill('#claudeKeyInput', KEY);
     await page.click('#btnClaudeKeySave');
-    const savedOnScreen = await screenHas('Key saved');
+    const savedOnScreen = await screenHas('Key saved. Type below and press ENTER.');
     const saved = await page.evaluate(() => ({ card: !document.getElementById('claudeKeyCard').hidden, row: !document.getElementById('claudeKeySaved').hidden,
       text: document.getElementById('claudeKeySaved').innerText.replace(/\s+/g, ' ').trim(), forget: !!document.getElementById('btnClaudeKeyForget').offsetParent,
       field: document.getElementById('claudeKeyInput').value }));
-    check('m6: after Save key the screen says "Key saved" and the key card reads "Key saved ✓ ... Forget" (the field is empty, not a bare placeholder)',
+    check('m6: after Save key the screen says "Key saved. Type below and press ENTER." on one whole row and the key card reads "Key saved ✓ ... Forget" (the field is empty, not a bare placeholder)',
       savedOnScreen.ok && !saved.card && saved.row && /^Key saved ✓/.test(saved.text) && saved.forget && saved.field === '', JSON.stringify(saved));
     await shot(page, 'chat-saved');
     // the key stays out of the machine's memory and the page's snapshot and settings export
+    const rowsNow = await chatScreen();
     const leak = await page.evaluate((k) => {
       const s = window.emu.session, has = (u8) => { const b = new TextEncoder().encode(k); outer: for (let i = 0; i + b.length <= u8.length; i++) { for (let j = 0; j < b.length; j++) if (u8[i + j] !== b[j]) continue outer; return true; } return false; };
       const ms = [s.chatMachines.chat, s.chatMachines.basic];
       return { ram: ms.some((m) => has(m.ram)), settings: JSON.stringify(s.exportSettings()).includes(k) };
     }, KEY);
-    check('m6: the key is in no machine memory and no settings export', !leak.ram && !leak.settings, JSON.stringify(leak));
+    // (the chat screen is a bitmap: memory searches cannot see a key drawn on it, so its text is read, rows joined with no separator)
+    leak.screen = rowsNow.join('').includes(KEY) || rowsNow.join('').includes(KEY.slice(0, 12));
+    check('m6: the key is in no machine memory, no settings export and not drawn on the chat screen', !leak.ram && !leak.settings && !leak.screen, JSON.stringify(leak));
     check('m6: no page errors', !errors.length, errors.join('; '));
     await ctx.close();
   }
@@ -12364,7 +12368,7 @@ async function installChecks(browser, base, check) {
   });
   // LIZA running, with the first visit's "Running with no ROMs" box dismissed and its toast gone: the page as it is
   // when the offer has a free hand (the conditions are checked on their own in section 2)
-  // the item lives in the machine menu, which floats: open it and choose the item
+  // the link is in the app bar (behind Menu on a phone): press it
   const chooseInstall = pressInstall;
   const liza = async (page) => {
     await waitFor(page, () => window.emu.session.screenText().join('').includes('LIZA'));
@@ -12417,12 +12421,12 @@ async function installChecks(browser, base, check) {
   {
     const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64&start=liza`);
     await liza(page);
-    // (the item lives in the machine menu, which is built when it opens: it is in the page, not hidden by its own rule)
+    // (the link is in the app bar's nav: in the page, not hidden by its own rule)
     check('install: the Install link is on the page (in the app bar\'s nav)',
       await page.evaluate(() => { const b = document.getElementById('navInstall'); return !!b && b.closest('.appbar nav') === document.querySelector('.appbar nav'); }));
     await skipTo(page, 90);
     check('install: no beforeinstallprompt and no iOS: no card, however long the program ran', !(await cardUp(page)));
-    await pressInstall(page);   // (the item is in the machine menu)
+    await pressInstall(page);   // (the link is in the app bar)
     await painted(page);
     check('install: the Menu item shows the steps for this browser', await cardUp(page) && /browser’s menu/.test(await page.textContent('#installText')));
     check('install: the Menu item\'s card has one button (the user asked; no "Not now")', (await buttons(page)).join('|') === 'Got it', (await buttons(page)).join('|'));
@@ -13371,7 +13375,7 @@ async function installChecks(browser, base, check) {
     await ctx.close();
   }
   // ---- 10l. a menu opening over the card: the card is an offer over the emulator, never over a menu the user is
-  //      reading (and the machine menu holds this very Install item, while the card sits above it at z-index 61 vs 20).
+  //      reading (the card sits above the menus, z-index 61 vs 20).
   //      So it closes — at a size where the two would overlap. ----
   {
     const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64&start=liza`, { viewport: { width: 900, height: 720 } });

@@ -3182,9 +3182,10 @@ export class Session {
   // screen and not only beside it). Not said by anyone: the conversation, its history and Claude never see it.
   chatNote(text) {
     const chat = this.chat;
-    if (!chat || !chat.channel || !this.chatMachines) return false;
+    // (not while a reply streams: the note would land in the middle of it)
+    if (!chat || !chat.channel || !this.chatMachines || chat.busy) return false;
     chat.channel.send(new TextEncoder().encode(`${String(text).replace(/[\r\n]+/g, ' ')}\r\n`));
-    if (!chat.busy) chat.channel.send(Uint8Array.of(END_OF_REPLY));
+    chat.channel.send(Uint8Array.of(END_OF_REPLY));
     return true;
   }
   // what the chat's tools act on: the BASIC session: beside the chat machine in full screen, else the
