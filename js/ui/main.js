@@ -146,13 +146,14 @@ if (claude) setupAsk(page, claude);
 if (claude) setupCommandBox(page, claude);
 // the controls that hand Claude a key or a say over the machine take no press for their card's first moments on screen
 if (claude) {
-  const card = (id, ...controls) => ({ card: $(id), controls: controls.map((c) => $(c)) });
+  const card = (label, id, ...controls) => ({ label, card: $(id), controls: controls.map((c) => $(c)) });
   const said = $('armAnnounce');
   window.emu.armGuard = setupArmGuard([
-    card('askConsent', 'btnAskAllow'), card('claudeConsentAsk', 'btnClaudeAllow'),
-    card('askKeyForm', 'btnAskKeySave'), card('claudeKeyCard', 'btnClaudeKeySave'),
-    card('askComposer', 'chkAskMachine', 'btnAskKeyForget'), card('claudeKeySaved', 'btnClaudeKeyForget'),
-    card('claudeSession', 'chkClaudeTools'),
+    card('Claude asks to use the emulator: Allow is ready.', 'askConsent', 'btnAskAllow'),
+    card('Claude asks to use the emulator: Allow is ready.', 'claudeConsentAsk', 'btnClaudeAllow'),
+    card('API key form ready.', 'askKeyForm', 'btnAskKeySave'), card('API key form ready.', 'claudeKeyCard', 'btnClaudeKeySave'),
+    card('Claude settings ready.', 'askComposer', 'chkAskMachine', 'btnAskKeyForget'), card('Claude settings ready.', 'claudeKeySaved', 'btnClaudeKeyForget'),
+    card('Claude settings ready.', 'claudeSession', 'chkClaudeTools'),
   ], { announce: (text) => { said.textContent = ''; requestAnimationFrame(() => { said.textContent = text; }); } });
 }
 // where there is no chat because this page is inside another site's page: "Ask Claude ↗" opens it in a new tab

@@ -7,6 +7,8 @@
  *     sits where Ask does, beside Menu);
  *   - an embed (embed=1) whose snippet opted in with askclaude=1: a small chip in the screen's corner (#embedAsk).
  *     Without the parameter an embed draws nothing.
+ * The link is made when someone points at it, focuses it or presses it, and when the machine changes or is restored; never
+ * on a timer, and not again until the machine has run since the last one (a snapshot costs work).
  * The link is the Share screen's link for this moment (Session.claudeLink: the snapshot in the fragment) with
  * app=claude, never embed=1, opened with target=_blank and rel="noopener noreferrer": the new tab is its own top-level
  * page with no handle back to this one, so it reads the key saved in this browser and the framing page never sees it.
@@ -20,9 +22,6 @@ export const POPOUT_TEXT = Object.freeze({
   carried: "Opens CLOADM in a new tab with this machine as it is now. Claude can't run inside another site.",
   fresh: "Opens a fresh CLOADM in a new tab (this program can't be carried over). Claude can't run inside another site.",
 });
-// how often the link catches up with the machine while nobody points at it (pointing, focus and a press refresh it now)
-const REFRESH_MS = 3000;
-
 // -> the link element in use, or null where neither place applies (a top-level page, or an embed without the opt-in)
 export function setupAskPopout(page, { link, framed }) {
   const { session } = page;
@@ -35,6 +34,9 @@ export function setupAskPopout(page, { link, framed }) {
   // the page's own address, without its query or fragment: buildUrl writes the machine and app=claude onto it
   const base = () => `${location.origin}${location.pathname}`;
   let pending = null, settled = true;
+  // the machine and the frame its last link was made at: a link is made again only once the machine has run since
+  // (nothing is snapshotted while the page sits idle or the machine is paused)
+  let madeFor = null, madeAt = -1;
   const draw = ({ href, carried }) => {
     a.href = href;
     const text = carried ? POPOUT_TEXT.carried : POPOUT_TEXT.fresh;
@@ -42,9 +44,13 @@ export function setupAskPopout(page, { link, framed }) {
     a.setAttribute('aria-description', text);
     a.dataset.carried = carried ? '1' : '0';
   };
-  // the link for the moment as it is now; one at a time (a press while one runs waits for it, then takes a new one)
-  function refresh() {
-    if (!session.shownMachine) return Promise.resolve();
+  // the link for the moment as it is now; one at a time (a press while one runs waits for it, then takes a new one).
+  // force: make it even if the machine has not run (a machine switch or a restore changed the moment without frames)
+  function refresh(force = false) {
+    const m = session.shownMachine;
+    if (!m) return Promise.resolve();
+    if (!force && m === madeFor && m.frameCount === madeAt) return pending || Promise.resolve();
+    madeFor = m; madeAt = m.frameCount;
     settled = false;
     const run = (pending || Promise.resolve()).then(() => session.claudeLink(base())).then(draw)
       .catch((e) => console.warn(`Ask Claude link: ${e.message}`))
@@ -61,9 +67,7 @@ export function setupAskPopout(page, { link, framed }) {
     e.preventDefault();
     pending.then(() => { window.open(a.href, '_blank', 'noopener,noreferrer'); });
   });
-  // without pointing at it (a screen reader's list of links, a long press on a phone) it is a few seconds old at most
-  setInterval(() => { if (!document.hidden && settled) refresh(); }, REFRESH_MS);
-  session.on((ev) => { if (ev === 'machine' || ev === 'restored') refresh(); });
-  refresh();
+  session.on((ev) => { if (ev === 'machine' || ev === 'restored') refresh(true); });
+  refresh(true);
   return { element: a, refresh };
 }

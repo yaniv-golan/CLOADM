@@ -412,6 +412,8 @@ another page, with or without `embed=1`. The full page in a frame offers **Ask C
 link that opens this moment in a new tab, top-level, where the chat runs (`app=claude`, never `embed=1`). A
 screen-only embed draws nothing unless its link has `askclaude=1` (the Share screen's embed builder: **Offer 'Ask
 Claude ↗'**); then a chip in the screen's corner does the same. See [claude.md](claude.md#claude).
+If the host's iframe is sandboxed without `allow-popups-to-escape-sandbox`, the new tab inherits the sandbox and may
+not see the key saved in your browser.
 
 
 ```js

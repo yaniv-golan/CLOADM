@@ -19,7 +19,7 @@
 
 export const ARM_MS = 500;
 
-// cards: [{ card: element, controls: [elements] }]. -> { armed(card), shownAt(card), rearm(), sync() } (the browser check)
+// cards: [{ card: element, controls: [elements], label: what the card is for, said once it takes presses }]. -> { armed(card), shownAt(card), rearm(), sync() } (the browser check)
 export function setupArmGuard(cards, { now = () => performance.now(), announce = null } = {}) {
   const state = new Map();   // card -> { shown, since, timer }
   const shown = (el) => !!el.isConnected && el.checkVisibility();
@@ -38,7 +38,7 @@ export function setupArmGuard(cards, { now = () => performance.now(), announce =
     const st = state.get(entry.card);
     st.timer = null;
     for (const c of entry.controls) c.removeAttribute('aria-disabled');
-    if (announce && shown(entry.card)) announce(entry.label());
+    if (announce && shown(entry.card)) announce(entry.label);
   }
   // a card that has just come on screen starts its window; one that went away forgets it
   function sync() {
@@ -51,10 +51,6 @@ export function setupArmGuard(cards, { now = () => performance.now(), announce =
   }
   for (const entry of cards) {
     state.set(entry.card, { shown: false, since: 0, timer: null });
-    entry.label = entry.label || (() => {
-      const head = entry.card.querySelector('strong, h2, label');
-      return `${head ? head.textContent.trim() : ''}${head ? ': ' : ''}${entry.controls.map((c) => c.textContent.trim() || (c.closest('label') ? c.closest('label').textContent.trim() : '')).filter(Boolean).join(', ')} ready.`;
-    });
     entry.card.addEventListener('click', (e) => {
       const hit = entry.controls.find((c) => c === e.target || c.contains(e.target) || (e.target.control === c));
       if (!hit) return;

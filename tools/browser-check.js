@@ -14994,6 +14994,14 @@ async function askPopoutChecks(browser, site, check) {
     a.target === '_blank' && a.rel.split(/\s+/).includes('noopener') && a.rel.split(/\s+/).includes('noreferrer'), JSON.stringify({ target: a.target, rel: a.rel }));
   check(`${L}: framed: its tooltip and description say it opens this machine as it is now, and why`, a.title === CARRIED && a.desc === CARRIED && a.carried === '1', JSON.stringify({ title: a.title, desc: a.desc }));
   if (shotDir) await page.screenshot({ path: path.join(shotDir, 'ask-popout-framed.png') });
+  // left alone (nobody points at the link, nothing switches the machine), the page makes no snapshot: 10 s of a
+  // running machine with shareFile counted
+  await page.mouse.move(1, 1);
+  await frame.evaluate(() => { if (document.activeElement) document.activeElement.blur(); const s = window.emu.session, f = s.shareFile.bind(s); window.__shares = 0; s.shareFile = (...a) => { window.__shares++; return f(...a); }; });
+  const f0 = await frame.evaluate(() => window.emu.machine.frameCount);
+  await page.waitForTimeout(10000);
+  const idle10 = await frame.evaluate((f0) => ({ shares: window.__shares, frames: window.emu.machine.frameCount - f0 }), f0);
+  check(`${L}: 10 s idle with the machine running: no snapshot is made for the link`, idle10.shares === 0 && idle10.frames > 100, JSON.stringify(idle10));
   const framedKey = () => frame.evaluate(() => ({ writes: window.__keyWrites.slice(), seen: window.emu.session.keyStore.get(), memory: window.emu.session.keyStore.constructor.name }));
   const before = await framedKey();
   const [popup] = await Promise.all([ctx.waitForEvent('page', { timeout: 15000 }), frame.click('#btnAskPop')]);
@@ -15123,10 +15131,12 @@ async function armGuardChecks(browser, base, check) {
   // page, in the capture phase before the guard) and whether `done` holds afterwards
   // cutoff: a press that lands this late (ms after the card showed) is stopped here, before the page sees it, so a
   // "too soon" press the browser delivered late never takes effect and can be tried again
+  // how: click | tap | enter | space | label (a click on the switch's label text) | enter@ID (Enter in another element)
   const pressAt = async (card, sel, at, how, done, cutoff = null) => {
+    const [kind, focusId] = how.split('@');
     // (on the window, in the capture phase: the guard's own listener on the card stops the click before the control)
     // (one round trip: the page waits until `at` itself and focuses the control for a key, then the press is sent)
-    const box = await ev(async ([s, c0, cut, at, key]) => {
+    const box = await ev(async ([s, c0, cut, at, key, focusId, onLabel]) => {
       window.__landed = null;
       if (window.__landedFor) removeEventListener('click', window.__landedFor, true);
       window.__landedFor = (e) => {
@@ -15139,14 +15149,15 @@ async function armGuardChecks(browser, base, check) {
       addEventListener('click', window.__landedFor, true);
       const since = window.emu.armGuard.shownAt(document.getElementById(c0));
       if (since !== null) await new Promise((r) => setTimeout(r, Math.max(0, at - (performance.now() - since))));
-      if (key) document.getElementById(s).focus();
-      const r = document.getElementById(s).getBoundingClientRect();
-      return { x: r.left, y: r.top, width: r.width, height: r.height };
-    }, [sel, card, cutoff, at, how === 'enter' || how === 'space']);
-    if (how === 'tap') await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
-    else if (how === 'enter') await page.keyboard.press('Enter');
-    else if (how === 'space') await page.keyboard.press('Space');
-    else await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+      if (key) document.getElementById(focusId || s).focus();
+      const r = (onLabel ? document.getElementById(s).closest('label') : document.getElementById(s)).getBoundingClientRect();
+      // (on a label: near its right end, on the text, away from the box itself)
+      return { x: onLabel ? r.right - 12 : r.left + r.width / 2, y: r.top + r.height / 2 };
+    }, [sel, card, cutoff, at, kind === 'enter' || kind === 'space', focusId || null, kind === 'label']);
+    if (kind === 'tap') await page.touchscreen.tap(box.x, box.y);
+    else if (kind === 'enter') await page.keyboard.press('Enter');
+    else if (kind === 'space') await page.keyboard.press('Space');
+    else await page.mouse.click(box.x, box.y);
     await painted(page);
     const landed = await ev(([c]) => (window.__landed === null ? null : window.__landed - window.emu.armGuard.shownAt(document.getElementById(c))), [card]);
     return { landed, done: await ev(done), focus: await ev(() => document.activeElement && document.activeElement.id),
@@ -15181,23 +15192,46 @@ async function armGuardChecks(browser, base, check) {
   await ev(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
   const saveSoon = await tooSoon('askKeyForm', 'btnAskKeySave', 'click', () => !!window.emu.session.keyStore.get());
   check(`${L}: Save key pressed 200 ms after the card shows does nothing, and the focus stays on it`, !saveSoon.late && saveSoon.done === false && saveSoon.focus === 'btnAskKeySave', JSON.stringify(saveSoon));
+  await ev(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
+  const inputSoon = await tooSoon('askKeyForm', 'btnAskKeySave', 'enter@askKeyInput', () => !!window.emu.session.keyStore.get());
+  check(`${L}: Enter in the key box too soon (it presses Save key) does nothing, and the typing stays where it was`,
+    !inputSoon.late && inputSoon.done === false && inputSoon.focus === 'askKeyInput', JSON.stringify(inputSoon));
   await until('askKeyForm', 520);
   await waitFor(page, () => document.getElementById('armAnnounce').textContent !== '', null, 5000);
   const state1 = await ev(() => ({ aria: document.getElementById('btnAskKeySave').getAttribute('aria-disabled'), said: document.getElementById('armAnnounce').textContent,
     look: (() => { const c = getComputedStyle(document.getElementById('btnAskKeySave')); return `${c.opacity} ${c.backgroundColor} ${c.color}`; })() }));
   check(`${L}: at 500 ms it takes presses, looking just as it did (no flash), and the card is announced`,
-    state1.aria === null && state1.look === state0.look && /Save key/.test(state1.said), JSON.stringify({ state0, state1 }));
+    state1.aria === null && state1.look === state0.look && state1.said === 'API key form ready.', JSON.stringify({ state0, state1 }));
   // (a fresh window, so nothing since it started moved a pointer: the presses above were mouse clicks)
   await ev(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
   const saveTap = await pressAt('askKeyForm', 'btnAskKeySave', 600, 'tap', () => window.emu.session.keyStore.get() === 'sk-ant-ARM-CHECK-KEY-0123456789');
   check(`${L}: a touch tap at 600 ms (no pointer movement) saves the key`, saveTap.done === true, JSON.stringify(saveTap));
 
   // ---- the switch, in the composer: a click too soon leaves it as it was ----
+  // hidden, then shown again: the window starts again with that show. Opened and pressed in one go (a script's click
+  // the instant the card is back), so no timing is involved: an armed card from its first show would take it.
+  // (shown and armed first, so the show below is a second one)
+  if (!(await page.isVisible('#askComposer'))) await page.click('#btnAsk');
+  await waitFor(page, () => window.emu.armGuard.armed(document.getElementById('askComposer')), null, 5000);
   await page.click('#btnAskClose');
-  await page.click('#btnAsk');
-  await waitFor(page, () => document.getElementById('askComposer').checkVisibility());
+  await waitFor(page, () => !document.getElementById('askComposer').checkVisibility());
+  const reshown = await ev(() => {
+    document.getElementById('btnAsk').click();
+    const chk = document.getElementById('chkAskMachine'), shownNow = document.getElementById('askComposer').checkVisibility();
+    chk.click();
+    return { shownNow, aria: chk.getAttribute('aria-disabled'), checked: chk.checked, allowed: window.emu.session.claudeAllowed,
+      age: performance.now() - window.emu.armGuard.shownAt(document.getElementById('askComposer')) };
+  });
+  check(`${L}: a card hidden and shown again starts its window again: a press the instant it is back does nothing`,
+    reshown.shownNow && reshown.aria === 'true' && !reshown.checked && !reshown.allowed, JSON.stringify(reshown));
+  await waitFor(page, () => document.getElementById('armAnnounce').textContent === 'Claude settings ready.', null, 5000);
+  check(`${L}: the composer is announced once by its purpose ("Claude settings ready.", no control names repeated)`,
+    await ev(() => document.getElementById('armAnnounce').textContent) === 'Claude settings ready.', await ev(() => document.getElementById('armAnnounce').textContent));
+  await ev(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
   const swSoon = await tooSoon('askComposer', 'chkAskMachine', 'click', () => document.getElementById('chkAskMachine').checked || window.emu.session.claudeAllowed);
   check(`${L}: "Let Claude use the emulator" clicked too soon stays off`, !swSoon.late && swSoon.done === false, JSON.stringify(swSoon));
+  const labelSoon = await tooSoon('askComposer', 'chkAskMachine', 'label', () => document.getElementById('chkAskMachine').checked || window.emu.session.claudeAllowed);
+  check(`${L}: … a click on its label text too soon leaves it off too`, !labelSoon.late && labelSoon.done === false, JSON.stringify(labelSoon));
   const swSpace = await tooSoon('askComposer', 'chkAskMachine', 'space', () => document.getElementById('chkAskMachine').checked || window.emu.session.claudeAllowed);
   check(`${L}: … and Space on it too soon does nothing either`, !swSpace.late && swSpace.done === false, JSON.stringify(swSpace));
   const swLate = await pressAt('askComposer', 'chkAskMachine', 600, 'space', () => window.emu.session.claudeAllowed);
@@ -15266,6 +15300,26 @@ async function armGuardChecks(browser, base, check) {
   check(`${L}: full screen: the switch clicked too soon stays off`, !toolsSoon.late && toolsSoon.done === false, JSON.stringify(toolsSoon));
   const toolsLate = await pressAt('claudeSession', 'chkClaudeTools', 600, 'click', () => window.emu.session.claudeAllowed);
   check(`${L}: full screen: the switch at 600 ms turns on`, toolsLate.done === true, JSON.stringify(toolsLate));
+  // the full-screen consent card: Allow
+  await page.uncheck('#chkClaudeTools');
+  replies.push({ body: tools([{ name: 'type_text', input: { text: 'PRINT 1\n' } }]) }, { body: text('Typed.') });
+  await waitFor(page, () => { const c = window.emu.session.chat; return c && !c.busy && c.channel && c.channel.queued === 0 && window.emu.session.chatView === 'chat'; }, null, 20000);
+  await emuFrames(page, 3);
+  await page.focus('#screen');
+  await page.keyboard.type('fix it');
+  await page.keyboard.press('Enter');
+  check(`${L}: (the full-screen consent card is up)`, await waitFor(page, () => !!window.emu.session.claudePending && document.getElementById('claudeConsentAsk').checkVisibility(), null, 15000));
+  const fsAllowSoon = await tooSoon('claudeConsentAsk', 'btnClaudeAllow', 'click', answered);
+  check(`${L}: full screen: Allow clicked too soon does nothing`, !fsAllowSoon.late && fsAllowSoon.done === false && fsAllowSoon.focus === 'btnClaudeAllow', JSON.stringify(fsAllowSoon));
+  const fsAllow = await pressAt('claudeConsentAsk', 'btnClaudeAllow', 600, 'click', answered);
+  check(`${L}: full screen: Allow at 600 ms answers the card`, fsAllow.done === true, JSON.stringify(fsAllow));
+  await waitFor(page, () => window.emu.session.chat && !window.emu.session.chat.busy, null, 15000);
+  // the full-screen key line: Forget
+  await ev(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
+  const fsForgetSoon = await tooSoon('claudeKeySaved', 'btnClaudeKeyForget', 'click', () => !window.emu.session.keyStore.get());
+  check(`${L}: full screen: Forget clicked too soon keeps the key`, !fsForgetSoon.late && fsForgetSoon.done === false, JSON.stringify(fsForgetSoon));
+  const fsForget = await pressAt('claudeKeySaved', 'btnClaudeKeyForget', 600, 'click', () => !window.emu.session.keyStore.get());
+  check(`${L}: full screen: Forget at 600 ms forgets it`, fsForget.done === true, JSON.stringify(fsForget));
   check(`${L}: no page errors`, !errors.length, errors.join('; '));
   await ctx.close();
 }

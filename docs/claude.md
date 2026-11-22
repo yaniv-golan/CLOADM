@@ -107,7 +107,7 @@ Two ways to talk to Claude, one conversation:
   window focus doesn't restart it, and nothing but the time arms it, so a tap at 600 ms works. Meanwhile the
   controls are `aria-disabled` (a press does nothing and leaves the focus on them, so a second press works), the card
   fades in over about 300 ms, and at 500 ms the controls take presses with no change in how they look; the card is
-  then announced to screen readers. A click, a tap, Enter or Space and a label's click are all held to the same rule.
+  then announced to screen readers by its purpose ("Claude settings ready."), once per showing. A click, a tap, Enter or Space and a label's click are all held to the same rule.
 * **Consent.** Claude can always read the emulated machine (screen text, memory, model and program counter), and nothing outside the emulator; the panel names what it reads. What it reads goes to Anthropic with the conversation, using your key. That includes the machine's memory, so ROM areas Claude peeks at or disassembles are sent too; CLOADM itself never uploads your ROMs, and never puts them in share links or exported settings. Acting
   (POKE, typing, BREAK) needs **Let Claude use the emulator**, off until you allow it: the first time Claude wants to
   act it asks in the conversation (**Allow**, which turns the switch on for the visit, or **Just tell me the fix**,
