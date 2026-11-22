@@ -9,7 +9,8 @@
  *   hooks.addWriteTap(range, fn, opts)    m.busTaps.addWriteTap, likewise (opts: { old })
  *   hooks.addRunEnd(fn)                   Machine.addRunEnd, likewise
  *   hooks.add(attach)                     anything else kept on the machine in use: attach(m) puts it on m and returns
- *                                         its remove() (the serial port's listener and traces, session.serial)
+ *                                         its remove() (the disk controller's traces, session.disk). session.serial
+ *                                         keeps a registry of its own, on the person's machine (SerialApi.follow)
  *
  * Each returns remove(), which takes it off the machine it is on and out of the Session's list (once).
  * Internal: the developer features build on it (the memory-write observer, Session.watchWrites: js/writewatch.js).

@@ -138,8 +138,10 @@ fails when it and the code differ:
 What each column means, and the way in:
 
 * **Tape**: the cassette deck every model has (`--tape FILE`, `--load FILE.cas`; `insertTape` in Node).
-* **Disk controller**: a cartridge in the cartridge port with your own disk ROM (`--roms`, then `--disk [N=]FILE`);
-  the Dragon Alpha's controller is built in. The MC-10 and Alice have no cartridge port, so no disk. The command line
+* **Disk controller**: a cartridge in the cartridge port. With your own disk ROM (`--roms`, then `--disk [N=]FILE`) the
+  DOS comes with it; without one, `--disk` (`importDisk` in Node) plugs in the bare controller, with an empty ROM
+  socket, for a program that drives the chip itself ([Reading a disk with no DOS ROM](#reading-a-disk-with-no-dos-rom));
+  `DIR` and the other disk commands need the ROM. The Dragon Alpha's controller is built in. The MC-10 and Alice have no cartridge port, so no disk. The command line
   can trace it (`--disk-trace FILE`; [Tracing the disk controller](#tracing-the-disk-controller)).
 * **6551 ACIA** (Dragon 64, 200 and Tano at `$FF04-$FF07`; [the machine notes](machines.md) list the Dragon 64's
   serial port): "with its port" means `session.serial.attach('terminal' | 'loopback' | 'none', { baud })` plugs
@@ -757,8 +759,9 @@ Any number of subscribers get the same bytes in the order they subscribed; the p
 the serial panel's own. A subscriber may call `send` from `tx` (an echo, a protocol's reply). One that throws is unsubscribed, the
 others still get their bytes, and the error is thrown after them, out of the `runFrames` (or `flush`) that delivered
 it. Subscriptions and traces belong to the Session: `switchMachine`, `openSnapshot` and a power cycle move them to the
-new machine (the Session's hooks registry, `js/hooks.js`), and no snapshot holds them (a new Session subscribes
-again). Any number of traces can run at once, each with its own options.
+new machine (a hooks registry, `js/hooks.js`, of `session.serial`'s own), and no snapshot holds them (a new Session subscribes
+again). They are on the person's machine: with the Claude chat full screen, they stay on the BASIC session running
+beside it, not on the chat machine. Any number of traces can run at once, each with its own options.
 
 **Why did it stall?** `trace` keeps the last `limit` events in a ring, oldest first (`dropped` counts the ones
 pushed out); `stop()` ends it. Every event is `{ at, frame, pc, kind, ... }`:

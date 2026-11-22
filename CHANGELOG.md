@@ -108,7 +108,7 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   `session.serial` now has the device (`device`, `attach`), `send` (bytes, or text with `{ text: true }`), any number of
   subscribers (`subscribe({ tx, rx }, { flush: 'frame' | 'instant' })`, in order; the page's terminal log is the serial panel's
   own; one that throws is unsubscribed and its error thrown after the others ran; they survive `openSnapshot`, `switchMachine` and
-  a power cycle, through the Session's hooks registry, and are never in a snapshot), `flush()`, ring-buffer `trace()`s, any number
+  a power cycle, stay on the person's machine (the BASIC session beside a full-screen chat), and are never in a snapshot), `flush()`, ring-buffer `trace()`s, any number
   at once, of what the port did (`tx-load`, `tx`, `rx`, `overrun`,
   `framing`, `parity`, register writes and, on request, reads, each with its tick, frame and PC; the 6551's status is peeked,
   never read) and `status()`, the 6551's status decoded. `rx` bytes are delivered once they have crossed the wire, not when sent.

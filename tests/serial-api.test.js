@@ -515,6 +515,38 @@ HALT    BRA     HALT
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
+// ---------------- a full-screen chat: the subscriber still hears the person's machine ----------------
+// The Claude chat full screen puts its own machine on screen and runs the person's (the BASIC session) beside it. The
+// serial port is the person's: a subscriber attached on it keeps getting that machine's bytes both ways, and the
+// chat machine's port is left alone.
+{
+  const s = new Emu.Session({ welcomeMenu: false, store: Emu.memoryStore(), media: new Emu.MemoryMediaStore() });
+  s.switchMachine('dragon64', {}, { menu: false });
+  s.serial.attach('terminal', { baud: 9600 });
+  s.runAssembled(asm(ECHO6551));
+  s.runFrames(2);
+  const basic = s.shownMachine, k = keep();
+  s.serial.subscribe(k.handlers);
+  const tr = s.serial.trace();
+  s.serial.send([0x41, 0x42]);
+  s.runFrames(3);
+  check('before the chat: the subscriber hears the BASIC machine echo', eq(k.tx, [0x41, 0x42]) && eq(k.rx, [0x41, 0x42]), `${k.tx} / ${k.rx}`);
+  const firmware = new Uint8Array(fs.readFileSync(path.join(__dirname, '..', 'examples/chat.bin')));
+  s.startChat({ backend: new Emu.ClaudeBackend({ fetch: async () => null, apiKey: 'sk-ant-test' }), channel: new Emu.MemoryChannel(), firmware, brief: '', tools: false });
+  const chatM = s.shownMachine;
+  check('the chat is full screen: another machine on screen, the BASIC session the person\'s', chatM !== basic && s.personMachine === basic);
+  s.serial.send([0x43, 0x44, 0x45]);
+  s.runFrames(5);
+  check('full screen: the subscriber still hears the BASIC machine, both ways', eq(k.tx, [0x41, 0x42, 0x43, 0x44, 0x45]) && eq(k.rx, [0x41, 0x42, 0x43, 0x44, 0x45]), `${k.tx} / ${k.rx}`);
+  check('full screen: the trace still records the BASIC machine\'s 6551', tr.events.filter((e) => e.kind === 'tx').map((e) => e.byte).join() === '65,66,67,68,69');
+  check('full screen: the listener and traces are on the BASIC machine, not the chat machine', basic.serialPort.listeners.size === 1 && (!chatM.serialPort || chatM.serialPort.listeners.size === 0) && basic.acia.traces.size === 1);
+  s.toSidePanel();
+  s.serial.send([0x46]);
+  s.runFrames(3);
+  check('back from full screen: still the BASIC machine, every byte once', s.shownMachine === basic && eq(k.tx, [0x41, 0x42, 0x43, 0x44, 0x45, 0x46]) && basic.serialPort.listeners.size === 1, `${k.tx}`);
+  tr.stop();
+}
+
 console.log(fail ? `${fail} FAILED` : 'all passed');
 process.exitCode = fail ? 1 : 0;
 })().catch((e) => { console.log(`FAIL ${e.stack}`); process.exitCode = 1; });

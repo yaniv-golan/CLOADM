@@ -78,7 +78,6 @@ const HAND6803 = { MAIN: 2, LOOP: 170, SUBA: 20, SUBA1: 300, SUBB: 190 };
 
 for (const [id, src, cpu, hand] of [['dragon64', PROG6809, '6809', HAND6809], ['coco3', PROG6809, '6809', HAND6809], ['mc10', PROG6803, '6803', HAND6803]]) {
   const s = session(id), res = assemble(src, cpu), sym = res.symbols;
-  const hooksBefore = s.hooks.list.length;   // the Session's own (the serial port's listener)
   s.runAssembled(res);
   s.debug.runUntil(sym.get('MAIN'));
   check(`${id}: the program reached MAIN`, s.shownMachine.cpu.pc === sym.get('MAIN'));
@@ -95,7 +94,7 @@ for (const [id, src, cpu, hand] of [['dragon64', PROG6809, '6809', HAND6809], ['
   }
   check(`${id}: every cycle is in a symbol's range; nothing halted`, r.unattributed === 0 && r.halted === 0 && r.rows.every((x) => x.symbol !== null));
   check(`${id}: a range runs from its symbol to the next one`, row(r, 'SUBA').start === sym.get('SUBA') && row(r, 'SUBA').end === sym.get('SUBA1') - 1);
-  check(`${id}: the stopped profile has no probe and no tap left`, s.shownMachine.pcWatch === null && busIntact(s.shownMachine) && s.hooks.list.length === hooksBefore);
+  check(`${id}: the stopped profile has no probe and no tap left`, s.shownMachine.pcWatch === null && busIntact(s.shownMachine) && s.hooks.list.length === 0);
   check(`${id}: a report after stop is the same`, JSON.stringify(p.report()) === JSON.stringify(r));
 }
 
@@ -277,9 +276,9 @@ for (const id of ['coco', 'coco3']) {
 
 // ---------------- 6. Session: errors, snapshots, host state ----------------
 {
-  const s = session('dragon64'), hooksBefore = s.hooks.list.length;
+  const s = session('dragon64');
   for (const bad of [{ mode: 'fast' }, { every: 0 }, { every: 1.5 }, { buckets: 0 }, { buckets: 0x10001 }]) {
-    check(`profile(${JSON.stringify(bad)}) is refused`, throws(() => s.profile(bad)) && s.hooks.list.length === hooksBefore && s.shownMachine.pcWatch === null);
+    check(`profile(${JSON.stringify(bad)}) is refused`, throws(() => s.profile(bad)) && s.hooks.list.length === 0 && s.shownMachine.pcWatch === null);
   }
   const p = s.profile();
   check('report({ top: 0 }) is refused', throws(() => p.report({ top: 0 })));

@@ -293,26 +293,29 @@ function execWhenReady(m, file) {
 //   { at: [tick of each byte], frame, device }. They come at the end of each frame and on flush(); with
 //   { flush: 'instant' } also before each instruction the CPU starts (a probe, there only while such a
 //   subscriber is), when runFrames returns and when a debugger stops the machine.
-// The port is the PERSON's (personMachine): device, attach, send and status act on it, as the Serial port panel does,
-// so with the chat full screen they reach the BASIC session, never the chat machine. The listener and the traces sit on
-// the machine the hooks are on (shownMachine), and flush and delivery read that one; the two are the same machine
-// whenever no full-screen chat is open.
+// The port is the PERSON's (personMachine), never the chat machine's: device, attach, send and status act on it, as
+// the Serial port panel does, and the listener and the traces sit on it through the SerialApi's own hooks registry
+// (this.hooks), which follow() moves to whichever machine is the person's. So while the chat is full screen, with the
+// BASIC session running beside it, subscribers still hear the BASIC session's port.
 export class SerialApi {
   constructor(session) {
     this.session = session;
     this.subs = [];                 // in the order subscribed
     this.instantProbe = null;       // remove() of the probe 'instant' subscribers need, while there is one
+    this.hooks = new HostHooks();   // the listener, the traces and the 'instant' probe: on the person's machine
     const listener = {
       tx: (b, at) => { for (const s of this.subs) { s.tx.push(b); s.txAt.push(at); } },
       rx: (b, at) => { for (const s of this.subs) { s.rx.push(b); s.rxAt.push(at); } },
     };
-    session.hooks.add((m) => {
+    this.hooks.add((m) => {
       const p = m.serialPort;
       if (!p) return () => {};
       p.listeners.add(listener);
       return () => p.listeners.delete(listener);
     });
   }
+  // the listener and traces go to the person's machine (Session.install, and before any delivery)
+  follow() { this.hooks.attach(this.session.personMachine); }
   // the device on the port: { chip: '6551' | 'bit-banger', kind: 'none' | 'printer' | 'terminal' | 'loopback', baud,
   // kinds (what can be plugged in) }, or null on machines without one
   get device() {
@@ -368,25 +371,26 @@ export class SerialApi {
   // the probe is on while an 'instant' subscriber is, and only then
   probeIfInstant() {
     const want = this.subs.some((s) => s.instant);
-    if (want && !this.instantProbe) this.instantProbe = this.session.hooks.addProbe(() => this.ran());
+    if (want && !this.instantProbe) this.instantProbe = this.hooks.addProbe(() => this.ran());
     else if (!want && this.instantProbe) { this.instantProbe(); this.instantProbe = null; }
   }
   // deliver every byte completely sent by now, both ways, to every subscriber
   flush() {
-    const p = this.session.shownMachine.serialPort;
-    if (p) p.flush(this.session.shownMachine.now());
+    this.follow();
+    const m = this.session.personMachine, p = m && m.serialPort;
+    if (p) p.flush(m.now());
     this.deliver();
   }
   // before an instruction, after runFrames or at a debugger stop: 'instant' subscribers hear what has crossed by now
   ran() {
     if (!this.subs.some((s) => s.instant)) return;
-    const p = this.session.shownMachine.serialPort;
-    if (p) p.flush(this.session.shownMachine.now());
+    const m = this.session.personMachine, p = m && m.serialPort;
+    if (p) p.flush(m.now());
     this.deliver(true);
   }
   // hand each subscriber (only the 'instant' ones: instantOnly) what it has waiting
   deliver(instantOnly = false) {
-    const m = this.session.shownMachine;
+    const m = this.hooks.machine;   // the machine whose port collected the bytes
     let error = null;
     for (const sub of this.subs.slice()) {
       if (!sub.live || (instantOnly && !sub.instant) || !(sub.tx.length || sub.rx.length)) continue;
@@ -414,7 +418,8 @@ export class SerialApi {
     if (!(Number.isInteger(limit) && limit > 0)) throw new SessionError(`limit is a whole number of events above 0, not ${limit}.`);
     if (registers !== 'writes' && registers !== 'all') throw new SessionError(`registers is 'writes' or 'all', not ${JSON.stringify(registers)}.`);
     const t = new SerialTrace(limit, registers === 'all');
-    const stop = this.session.hooks.add((m) => t.attach(m));
+    this.follow();
+    const stop = this.hooks.add((m) => t.attach(m));
     return {
       get events() { return t.events(); },
       get dropped() { return t.dropped; },
@@ -971,9 +976,10 @@ export class Session {
     if (this.debugger && this.debugger.machine !== m) { this.debugger.detach(); this.debugger = null; }
     let undelivered = null;
     try { this.serial.deliver(); } catch (e) { undelivered = e; }   // what the old machine sent goes out first
-    this.hooks.attach(m);                 // the Session's probes, bus taps and serial listeners move to m (adopt: a switch, a snapshot)
+    this.hooks.attach(m);                 // the Session's probes and bus taps move to m (adopt: a switch, a snapshot)
     this.writeWatch.reset();              // (writes the old machine made are not delivered)
     this.shownMachine = m;
+    this.serial.follow();                 // the serial listeners and traces: on the person's machine (the BASIC session beside a full-screen chat)
     this.stubRun = this.stubRuns.get(m) || null;   // the record is the machine's, not the Session's (see stubRuns)
     this.applyDisplay();
     this.acc = 0;
@@ -4210,12 +4216,13 @@ export class Session {
     if (!(d ? d.runFrame() !== false : m.runFrame(ww && ((end) => ww.runTo(m, end))))) {
       this.acc = 0;
       if (!m.stall) this.emit('debug');
-      if (m === this.shownMachine) this.serial.ran();   // a debugger stop: 'instant' subscribers hear what has crossed
+      if (m === this.personMachine) this.serial.ran();   // a debugger stop: 'instant' subscribers hear what has crossed
       return false;
     }
-    if (m === this.shownMachine) this.serial.deliver();   // the frame's serial bytes, to every subscriber
     this.pumpChat(m);
     this.runBeside(m);
+    this.serial.follow();
+    this.serial.deliver();   // the frame's serial bytes from the person's machine (shown, or beside a full-screen chat)
     return true;
   }
   // Run `count` frames of emulated time, with no clock: for Node scripts, tests and the command line
