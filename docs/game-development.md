@@ -64,7 +64,7 @@ make the file bigger. The games that refuse 16K (2048 and Minesweeper need 32K) 
 above `$4000` on a 32K machine, where RAM runs to `$7FFF` and the ROM the SAM maps starts at `$8000`. Keep them
 clear of the stack, which grows down from wherever `LDS` puts it.
 
-The Dragon 64 adds a 6551 ACIA at `$FF04-$FF07` ([which models have which serial path](automation.md#which-storage-and-serial-paths-each-model-has); [driving a graphics program on one headless](automation.md#a-graphics-program-has-no-text-to-wait-on) and [a complete Node example](automation.md#a-complete-example-that-runs-from-outside-the-repository)); the CoCo 3 has its GIME at `$FF90-$FFBF` and puts the CoCo 2
+The Dragon 64 adds a 6551 ACIA at `$FF04-$FF07` ([which models have which serial path](automation.md#which-storage-and-serial-paths-each-model-has); [driving a graphics program on one headless](automation.md#a-graphics-program-has-no-text-to-wait-on) and [a complete Node example](automation.md#a-complete-example-that-runs-from-outside-the-repository); [a disk program with no DOS ROM](automation.md#reading-a-disk-with-no-dos-rom)); the CoCo 3 has its GIME at `$FF90-$FFBF` and puts the CoCo 2
 text screen where its registers say (the built-in firmware leaves it at `$0400`).
 
 ## Programs CLOADM loads

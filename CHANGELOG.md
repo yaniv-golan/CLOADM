@@ -71,6 +71,15 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   disk**; the cartridge port gains **Take out**.
 - **`node tools/mame-diff/run.js <dragon64|coco> --fdc --bare`:** the lockstep comparison with MAME of a program that
   drives the disk controller with an empty ROM socket (`tools/mame-diff/fdc/gen-bare.js`).
+- **A Dragon disk example with no DOS ROM.** (Documentation, an example and its test; no change to the emulator.) `docs/automation.md`
+  gains "Reading a disk with no DOS ROM": `docs/examples/disk-read.mjs` runs from outside the repository with the public modules only,
+  builds a VDK in memory with `blankDisk` and `diskGeometry`, plugs the Dragon disk controller into a Dragon 64 without a DOS ROM
+  (`new devices.dragonfdc()`, `insertCartridge`, `mount`), and runs `docs/examples/diskread.asm`, a guest that drives the WD2797 itself
+  through `$FF40-$FF43` (restore, seek, two 256-byte reads polling DRQ), then waits on its done byte and compares RAM with the
+  sectors. The guide also runs the same guest from the command line, where `--disk` with no disk ROM plugs in the bare controller
+  (`--disk t.vdk --asm diskread.asm --wait-for 'mem:$3100=$A5' --peek ...`). `tests/disk-read-example.test.js` runs the example
+  from a temporary directory, against a disk built by hand, and against three broken guests that it must reject, and runs the
+  command line with `--disk` before and after `--asm`.
 
 ### Changed
 
