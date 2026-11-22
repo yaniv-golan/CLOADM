@@ -2,7 +2,7 @@
  * The "Ask Claude or find a command" box:
  * Ctrl+K (Cmd+K on a Mac) anywhere opens it. As you type, the page's commands that match come first, and
  * "Ask Claude: …" is always last; ↑↓ choose, Enter runs the command or asks, Esc closes. A command runs on the page
- * and is never sent to Claude. Asking opens the side panel, or full screen while the welcome menu is on screen.
+ * and is never sent to Claude. Asking opens the side panel, beside the person's machine, whatever is on it.
  * With nothing typed it lists every command, by group, with no row chosen until the first ↓. It also opens from the
  * app bar's "Commands…" (and the touch keys' menu). The command list is the page's own buttons: each entry clicks one, so
  * a command does exactly what its button does; "Take snapshot" (the Glossary's word) saves the snapshot file the
@@ -65,7 +65,8 @@ export function setupCommandBox(page, claude) {
   // of its other words
   const available = ([, , , id]) => !(typeof id === 'string' && !$(id));
   function matches(q) {
-    const words = q.toLowerCase().split(/\s+/).filter((w) => w && !FILLER.has(w));
+    // split as the labels are, so a label typed with its punctuation ("Chat with Claude, full screen") finds it
+    const words = q.toLowerCase().split(/[^a-z0-9.]+/).filter((w) => w && !FILLER.has(w));
     if (!q) return COMMANDS.filter(available);   // the empty box lists every command there is
     if (!words.length) return [];
     return COMMANDS.filter((c) => {
@@ -86,7 +87,7 @@ export function setupCommandBox(page, claude) {
     if (o.kind === 'ask') {
       row.className = 'ask';
       a.textContent = `Ask Claude: "${o.q}"`;
-      h.textContent = session.welcomeRunning ? 'opens full screen' : 'opens the side panel';
+      h.textContent = 'opens the side panel';
     } else { a.textContent = o.c[0]; h.textContent = o.c[1]; }
     row.append(a, h);
     row.onmousemove = () => { if (selected !== i) { selected = i; draw(); } };
@@ -96,7 +97,13 @@ export function setupCommandBox(page, claude) {
   function draw() {
     const q = input.value.trim();
     const cmds = matches(q);
-    options = [...cmds.map((c) => ({ kind: 'cmd', c })), ...(q ? [{ kind: 'ask', q }] : [])];
+    // A question (it ends in "?") is for Claude: its row comes first and is the one Enter runs, the commands it
+    // matches listed beneath, so "reset?" asks rather than resets. Only a command's whole label typed with its own
+    // "?" ("What is this code doing?") still runs the command.
+    const label = q.toLowerCase();
+    const question = /\?\s*$/.test(q) && !COMMANDS.some(([l]) => l.toLowerCase() === label);
+    const cmdRows = cmds.map((c) => ({ kind: 'cmd', c })), askRow = q ? [{ kind: 'ask', q }] : [];
+    options = question ? [...askRow, ...cmdRows] : [...cmdRows, ...askRow];
     selected = Math.min(selected, options.length - 1);   // -1: nothing chosen yet (the empty box)
     const out = [];
     if (!q) {
@@ -113,9 +120,9 @@ export function setupCommandBox(page, claude) {
         out.push(box);
       }
     } else {
-      if (cmds.length) out.push(div('group', 'Commands'));
       options.forEach((o, i) => {
         if (o.kind === 'ask') out.push(div('group claude', 'Claude'));
+        else if (o === cmdRows[0]) out.push(div('group', 'Commands'));
         out.push(optionRow(o, i));
       });
     }
@@ -172,9 +179,9 @@ export function setupCommandBox(page, claude) {
     if (!o) return;
     closeBox({ refocus: o.kind !== 'ask' });
     if (o.kind === 'ask') {
-      // the welcome menu on screen: full screen; otherwise the side panel
-      if (session.welcomeRunning) claude.openFull().then((c) => { if (c) claude.ask(o.q); });
-      else claude.openPanel(o.q);
+      // the side panel, beside the person's machine whatever is on it (only "Chat with Claude, full screen" and the
+      // welcome menu's chat item go full screen)
+      claude.openPanel(o.q);
       return;
     }
     const id = o.c[3];

@@ -89,8 +89,9 @@ Two ways to talk to Claude, one conversation:
   keyboard while you type (the visual viewport).
 * **Ctrl+K** opens "Ask Claude or find a command" (`js/ui/command-box.js`): the page's commands that match what you
   type come first (each presses the page's own button and is never sent to Claude), **Ask Claude: "…"** is always
-  last. Enter runs the command or asks; asking opens the side panel, or full screen while the welcome menu is on
-  screen.
+  last. Enter runs the command or asks (a question ending in "?" puts **Ask Claude** first, so "reset?" asks rather than resets, unless it is a command's whole label); asking opens the side panel beside the
+  machine, whatever is on it (the welcome menu, a game, LIZA). Only **Chat with Claude, full screen** and the welcome
+  menu's chat item open the full-screen chat.
 * **Inside another site** (`js/ui/ask-popout.js`) there is no chat: CLOADM framed in someone else's page would put
   the key card on their page. The app bar's Ask button reads **Ask Claude ↗** instead, in the same place (beside
   Menu on a phone), and is a link that opens CLOADM top-level in a new tab with `target=_blank` and
@@ -342,14 +343,18 @@ emulator.
   request) through the same side-effect-free peek, and returns each instruction's bytes (in hex, `"31 3F"`) with its text. Both read whatever the machine has mapped at the
   address, ROM areas included, and what they return is sent to Anthropic as part of your conversation, like everything else Claude reads. CLOADM
   itself never uploads your ROMs, and never puts them in share links or exported settings.
-  `screen_text` returns the screen's rows as text, trailing spaces trimmed and trailing blank rows left out. It
-  reads three kinds of text screen:
+  `screen_text` returns the screen's rows as text, trailing spaces trimmed and trailing blank rows left out. The
+  page's other readers of the screen (the embed API's `screenText`, the Ask panel, the tape panel, the boot
+  watchdog, the screen canvas's text alternative) use the same reader, `Session.screenText`, which gives every row
+  at its full width. It reads three kinds of text screen:
   * **the MC6847 VDG's 32x16 page** (MC-10, Dragon 32/64/200, CoCo 1/2, and the CoCo 3 in its CoCo-compatible
-    mode), from the page the display uses, when the machine's memory map still routes the CPU to it. On a CoCo 3
-    that page is the GIME's own video base, not a fixed `$400`, masked to the 16 bits a CPU address holds; the
-    reader reads through the CPU's map while the display reads physical memory, and the two are the same page only
-    while the map agrees. When the MMU has moved that page elsewhere (or onto ROM), the tool DECLINES rather than
-    showing a screen nobody is looking at, and the reason names both addresses.
+    mode), from the page the display uses, read where the VDG fetches it, never through the CPU's map: on the Dragon
+    64 Plus the VDG fetches the motherboard RAM whatever `$FFE2` pages in for the CPU, so `base` (`$0400`) is given
+    only while the CPU reads the same 512 bytes there, otherwise `null`. On a CoCo 3 that page is the GIME's own video base (the SAM's page bits
+    and `$FF9D`), a physical address, and it is read there, in physical RAM, as the display reads it: a page the MMU
+    shows the CPU somewhere else, or nowhere (or a slot routed to ROM), is still the page on screen. `physicalBase`
+    is that address and `base` the CPU address that shows the whole page under the current map, or `null` when no
+    slot does.
   * **every CoCo 3 GIME text mode** (6809 or 6309): 32, 40, 64 or 80 columns, with or without attribute bytes, as
     NitrOS-9 and BASIC's `WIDTH 40`/`WIDTH 80` use. The GIME walks the screen itself (`GIME.textScreen()` in
     `js/chips/gime.js`, beside the renderer it follows): the video start (`$FF9B`/`$FF9D`/`$FF9E`), the row pitch
@@ -395,8 +400,9 @@ emulator.
     Compusense character ROM dump. Both put `A` at EPROM offset `$0410` and `a` at `$0610`: code c's glyph is at
     c x 16. `$00`-`$1F` hold other visible symbols (accented letters, the pound sign and so on), `$7F` is a solid
     block and `$80`-`$FF` are mostly underlined forms of `$00`-`$7F`; the reader gives no character for a code
-    outside `$20`-`$7E` and declines a screen that shows one, naming the row, the column and the code, because
-    those symbols and the underlining are not mapped here. Which half of the generator is used: P. Harvey-Smith's
+    outside `$20`-`$7E`, because those symbols and the underlining are not mapped here: such a cell reads as a space
+    and `unknown` counts them, with a `note` (as the VDG's semigraphics blocks are counted), so the rest of the
+    screen is still read and a screen of them is not taken for an empty one. Which half of the generator is used: P. Harvey-Smith's
     Eagle schematic, traced from his own DragonPlus board (World of Dragon forum, 7 June 2017,
     `viewtopic.php?p=15826`), has EPROM A0-A3 on the 6845's RA0-RA3, A4-A10 on character bits 0-6, A11 on character
     bit 7 (through the latch/jumper path) and A12 on a font-select jumper; no 6845 output drives A11 or A12.
@@ -410,7 +416,7 @@ emulator.
     R1 or R6 0 (no characters); R1 not less than R0 + 1 or R6 not less than R4 + 1 (the MC6845 data sheet's
     Nhd < Nht and Nvd < Nvt); more than 80 columns or rows taller than the board's 264-line picture (MAME's
     `plus_screen`, 640 x 264); fewer than 10 raster lines a row (the board's characters are a 7 x 9 matrix below a
-    blank row, Compusense's notes p. 4, so a shorter row cuts them); and a code outside `$20`-`$7E`. The CRTC's
+    blank row, Compusense's notes p. 4, so a shorter row cuts them). The CRTC's
     power-on registers (8 lines a row) are declined that way until a program sets the board up; Compusense's own
     set-up (p. 4: 80 x 24 rows of 11 lines) is read.
 

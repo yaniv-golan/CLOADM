@@ -237,6 +237,7 @@ node tests/workflows-release.test.js      # release.yml packs in a read-only job
 node tests/exitcode.test.js               # no suite or tool forces process.exit() (the Node 25 deadlock), by static scan
 node tests/exitguard.test.js              # the same rule at run time, against every spelling a static scan cannot see
 node tests/screen-alternative.test.js     # the screen canvas's text alternative: screen_text's rows, blank and block screens, a graphics mode, 80-column GIME
+node tests/screen-text-readers.test.js    # screen_text and Session.screenText on our firmware's Dragon 64 Plus 80 columns, GIME 40/80 columns on an MMU-mapped page, a CoCo 3 32-column page the MMU hides; text against the rendered frame
 node tools/mame-diff/run.js <profile>     # lockstep trace comparison with MAME (needs mame; exit 0 = identical)
 node tools/mame-diff/run.js <profile> --video [--artifact N]   # pixel comparison of every display mode with MAME
 node tools/mame-diff/run.js coco3 --video --attr   # the GIME's text attributes, exactly (blank glyphs, so the fonts never show)

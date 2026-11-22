@@ -315,7 +315,8 @@ scan lines) or Sharp · RGB (the pixels as they are); NTSC artifact phase; integ
 * **Dragon 64 Plus:** the Display tab also picks which of its two screens you see, the Dragon's own (MC6847) or
   the 80-column board's (HD6845S). Claude's `screen_text` reads the one shown: the 80-column screen's text comes
   from the board's video RAM, so Claude can read it even without the character generator ROM, which only draws
-  it ([claude.md](claude.md#claude) says what it reads and when it declines).
+  it ([claude.md](claude.md#claude) says what it reads and when it declines). The embed API's `screenText` reads
+  the same screen.
 
 ## The speed POKEs
 

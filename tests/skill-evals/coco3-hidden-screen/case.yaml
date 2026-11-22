@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: coco3-hidden-screen
+expected_outcome: |
+  The program puts up the GIME's 80-column text mode with attribute bytes, on a page the MMU no longer shows to the CPU. The agent reads it with screen_text (which reads the page where the display reads it, and returns the attribute runs) and reports the two rows: "THE ORCHARD GATE OPENS AT 7:45" and "BRING THE BRASS KEY", with BRING underlined.
+context:
+  scaffold_script: place-files.sh

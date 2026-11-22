@@ -665,12 +665,12 @@ const stateOf = (s) => JSON.stringify(s.shownMachine.saveState());
       out.lines[0] === 'K'.repeat(32), JSON.stringify({ row0: out.lines[0] && out.lines[0].slice(0, 4) }));
   }
 
-  // ---- 8e. when the MMU moves that page away, decline rather than show a screen nobody is looking at ----
+  // ---- 8e. when the MMU moves that page away, read it where the display reads it, not where the CPU looks ----
   // The reader returns a CPU ADDRESS and reads through the machine's map; the display reads PHYSICAL memory at
   // videoBase(). 8d above proves those agree under the power-on default map. Turn the MMU on and remap slot 0,
   // and they part company: the display still shows physical 0x70400, while CPU $0400 now lands on physical
-  // $000400. Reading on regardless would report a different page from the one on screen - the same defect as
-  // on the Plus screen, one layer down - so the mode is declined, naming the two addresses.
+  // $000400. Reading through the CPU's map would report a different page from the one on screen, so the page is
+  // read where the display reads it, in physical RAM, and `base` says where (if anywhere) the CPU sees it.
   //
   // The fixture puts DIFFERENT letters at the two pages so a wrong answer is visible as well as countable: the
   // display shows 'S', and a reader that ignored the map would return 'T'.
@@ -692,32 +692,36 @@ const stateOf = (s) => JSON.stringify(s.shownMachine.saveState());
     check('8e fixture: the MMU has moved the page, so the display and CPU $0400 now differ',
       g.physAddr(0x400) !== g.videoBase() && g.physAddr(0x400) === 0x400 && g.videoBase() === 0x70400,
       `physAddr(0x400)=0x${g.physAddr(0x400).toString(16)} videoBase=0x${g.videoBase().toString(16)}`);
+    // The page is read where the display reads it (physical $70400, all 'S'), never through the CPU's map (which
+    // now shows 'T' at $0400); and no CPU slot maps the displayed page, so base is null
     const out = await Emu.runReadOnlyTool(t, 'screen_text', {});
-    check('8e: screen_text declines, naming both addresses - the CPU route and the displayed page',
-      out.text === false && out.rows === 0 && out.lines.length === 0
-      && /MMU/.test(out.reason || '')
-      // the two DIFFERENT addresses, in the reason's own order: "routes $0400 to $0400, but the display reads $70400"
-      && /\$0400 to \$0400/.test(out.reason || '') && /display reads \$70400/.test(out.reason || ''),
-      JSON.stringify(out.reason));
-    // the same rule must reach machine_info: readable false, and atPrompt null because the screen cannot be
-    // decoded (a machine that answered readable:true here would let a model trust rows that are not on screen)
+    const S16 = new Array(16).fill('S'.repeat(32));
+    check('8e: screen_text reads the displayed page from physical RAM (all S), not CPU $0400 (all T); base null, physicalBase $70400',
+      out.text === true && JSON.stringify(out.lines) === JSON.stringify(S16) && out.base === null && out.physicalBase === 0x70400,
+      JSON.stringify({ text: out.text, base: out.base, physicalBase: out.physicalBase, line0: out.lines && out.lines[0] }));
+    // the same rule reaches machine_info: readable, and atPrompt reads the same rows (no OK on them)
     const info = await Emu.runReadOnlyTool(t, 'machine_info', {});
-    check('8e: machine_info.video.readable is false from the same rule, kind stays text, atPrompt is null',
-      info.video.readable === false && info.video.kind === 'text' && info.atPrompt === null,
-      JSON.stringify(info));
-    // ...and putting the map back makes it readable again: the decline follows the map, not a latch
+    check('8e: machine_info.video.readable is true from the same rule, kind text',
+      info.video.readable === true && info.video.kind === 'text', JSON.stringify(info));
+    // the Session's reader (the embed API's screenText, the Ask panel) reads the same page
+    check('8e: Session.screenText reads the displayed page too', JSON.stringify(s.screenText()) === JSON.stringify(S16), JSON.stringify(s.screenText()[0]));
+    // a CPU slot that maps the displayed block gives base: slot 6 ($C000) -> block $38 (physical $70000)
+    g.mmu[6] = 0x38; g.mapSlot(6);
+    const mapped = await Emu.runReadOnlyTool(t, 'screen_text', {});
+    check('8e: slot 6 maps block $38, so base is $C400 and the rows are unchanged',
+      mapped.text === true && mapped.base === 0xC400 && JSON.stringify(mapped.lines) === JSON.stringify(S16), JSON.stringify({ base: mapped.base }));
+    g.mmu[6] = 0x3E; g.mapSlot(6);
+    // ...and with the MMU off again, base is $0400 once more
     g.regs[0] &= ~0x40; g.mapSlot(0);
     const back = await Emu.runReadOnlyTool(t, 'screen_text', {});
-    check('8e: with the MMU off again the same page is readable, so the decline follows the map',
-      back.text === true && back.base === 0x400, JSON.stringify({ text: back.text, base: back.base }));
-    // a page the map sends to ROM is a disagreement too, and physAddr reports it as -1 rather than an address.
-    // Without this the `mapped !== raw` test can be weakened to `mapped !== raw && mapped >= 0` and still pass,
-    // which would read ROM bytes and call them the screen.
+    check('8e: with the MMU off again base is $0400, the same rows',
+      back.text === true && back.base === 0x400 && JSON.stringify(back.lines) === JSON.stringify(S16), JSON.stringify({ text: back.text, base: back.base }));
+    // a slot 0 the map sends to ROM: the display still reads RAM, so the rows are still the page's, never ROM bytes
     g.regs[0] |= 0x40; g.mmu[0] = 0x3C; g.mapSlot(0);      // block $3C is cartridge/ROM territory
     const romOut = await Emu.runReadOnlyTool(t, 'screen_text', {});
-    check('8e: a base the map routes to ROM is declined too, and the reason says ROM',
-      romOut.text === false && /ROM/.test(romOut.reason || '') && /display reads \$70400/.test(romOut.reason || ''),
-      JSON.stringify(romOut.reason));
+    check('8e: slot 0 routed to ROM: the page is still read from RAM where the display reads it, base null',
+      romOut.text === true && JSON.stringify(romOut.lines) === JSON.stringify(S16) && romOut.base === null,
+      JSON.stringify({ text: romOut.text, base: romOut.base }));
   }
 
   // ---- 9b. chatTarget().bootStatus() agrees with Session.bootStatus() ----

@@ -384,6 +384,26 @@ attribute bytes never read as text, `$FF9C` changing neither picture nor reading
 both on the machine as shipped, the VDG machines unchanged). These screens run under `mameCompat`, as every MAME
 comparison does: MAME 0.264 does not apply `$FF9C`'s fine scroll (next).
 
+**The screen-text readers on screens the VDG page reader cannot read.** `tests/screen-text-readers.test.js` runs
+firmware of our own (assembled in the test, no ROM) that writes known text on three screens: the Dragon 64 Plus's
+80-column screen (every code `$00`-`$FF`, from start `$0000` and scrolled three rows), the CoCo 3's GIME text modes
+on a page at physical `$60000` that the firmware writes through one MMU slot and then unmaps (40 columns with
+attributes: all 128 codes with and without bit 7, underline and colours, shown to the CPU at `$C000`; 80 columns
+without, the video start three rows in, shown to the CPU nowhere), and a CoCo 3 compatibility-mode page at physical
+`$60400` (the SAM's page bits and `$FF9D`) while CPU `$0400` holds other text (every VDG code, normal and inverse,
+and a row of semigraphics; mapped nowhere, then at `$C400`). On each, `screen_text` and `Session.screenText` (the
+embed API's `screenText`, the Ask panel, the boot watchdog) must return the rows derived from the firmware's data
+through hand-written character tables, and the rendered frame - the picture the MAME comparisons above verify -
+must show those characters cell by cell: the GIME's cells against its fonts' glyphs (as `run-text.js` 2b does), the
+Plus board's through a character generator of our own that draws each code as its byte. Mutants that turn it red:
+reading the compatibility page through the CPU's map or at the power-on `$70400`, attribute bytes read as
+characters, 40 columns read as 80, bit 7 not ignored, the Plus start address ignored, Plus unknown codes not
+counted, `Session.screenText` reading the main screen only, the VDG page or the fallback read through the CPU's map
+(the Plus's `$FFE2` banks, a CoCo 3 slot mapped to ROM), `base` given while a bank hides the page, and the boot
+watchdog reading the shown screen (the 80-column view, with OK on the VDG page). The reader changes no emulation: the regress hashes
+are unchanged. Not covered: a compatibility-mode text row other than 12 lines (`$FF9C` other than `$0F`), where the
+GIME shows more than 16 rows of 32 bytes; the reader reads the first 16.
+
 **CoCo 3 GIME vertical fine scroll (`$FF9C`, VSC).** Sources: [S1] Sock Master's GIME reference
 (`6809.org.uk/twilight/sock/gime.html`, "FF9C Vertical scroll register - VSC": bits 7-4 unused; consecutive values
 scroll the screen up one scanline at a time where more than one scanline makes up a text row or a graphics row);

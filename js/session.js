@@ -48,7 +48,7 @@ import { inspectOs9Disk, NITROS9_IMAGES_URL } from './media/os9.js';
 import { END_OF_REPLY } from './claude/chat.js';
 import { loadBasic as loadBasicInto, planBasic } from './claude/basicload.js';
 import { transcript } from './claude/history.js';
-import { screenTextTool } from './claude/readtools.js';
+import { screenRows, screenTextTool } from './claude/readtools.js';
 
 // the status of a turn paused by the person's key, in every view that shows it with Resume and Stop (Esc is Stop then)
 // (one text for every paused state, UX R11b: whether a call waits, typing is held, or Claude only writes its reply,
@@ -1546,20 +1546,13 @@ export class Session {
   }
 
   // ---------------- screen and boot watchdog ----------------
-  // the 32x16 text screen as 16 strings (VDG codes to ASCII; semigraphics as spaces)
-  screenText(m = this.shownMachine) {
-    const base = m.profile.textScreen || 0x400, out = [];
-    for (let row = 0; row < 16; row++) {
-      let line = '';
-      for (let col = 0; col < 32; col++) {
-        const v = m.ram[(base + row * 32 + col) & 0xFFFF];
-        if (v & 0x80) { line += ' '; continue; }
-        const c = v & 0x3F;
-        line += String.fromCharCode(c < 32 ? c + 64 : c);
-      }
-      out.push(line);
-    }
-    return out;
+  // The text screen as strings, one per row at its full width, from the one screen reader Claude's screen_text uses
+  // (js/claude/readtools.js screenRows): the VDG's 32x16 page, every CoCo 3 GIME text mode, the CoCo 3's page where
+  // the display reads it whatever the MMU shows the CPU, and the Dragon 64 Plus's 80 columns while shown; a screen it
+  // cannot read as text gives the VDG page, as before. `main: true` reads the main (VDG) screen even while the Plus
+  // board is shown.
+  screenText(m = this.shownMachine, { main = false } = {}) {
+    return screenRows(m, (a) => this.readByte(a, m), { main });
   }
   // The screen as text, for the page's text alternative of the screen canvas (what a screen reader or a reader view
   // gets instead of the picture): the machine on screen read as Claude's screen_text reads it (one reader: every
@@ -1588,7 +1581,7 @@ export class Session {
     if (this.nitros9On(m)) return { state: 'nitros9' };   // our NitrOS-9 loader, not BASIC: no OK to wait for
     const resetAt = m.resetAt;                            // identifies the current power-on or reset
     if (this.bootOk && this.bootOk.m === m && this.bootOk.resetAt === resetAt) return { state: 'ok' };
-    if (this.screenText(m).some((l) => l.trim() === 'OK')) { this.bootOk = { m, resetAt }; return { state: 'ok' }; }
+    if (this.screenText(m, { main: true }).some((l) => l.trim() === 'OK')) { this.bootOk = { m, resetAt }; return { state: 'ok' }; }
     if (m.framesSinceReset < seconds * m.fps) return { state: 'booting' };
     // The watchdog is for a power-on. A moment opened from a snapshot was not one: the program it holds may have
     // taken the screen from BASIC (a game, a program that took over Reset) or never printed OK at all, and coming

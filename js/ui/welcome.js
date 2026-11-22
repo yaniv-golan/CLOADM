@@ -62,8 +62,7 @@ export function setupWelcome(page, { showRoms, openClaude }) {
   // fetch began: anything that started or stopped one since (a Power cycle, a Reset, a program, a snapshot,
   // `stubPrompt` in the browser check) changes `stubRun`, and the start is dropped. `welcomeRunning` alone is not
   // enough: it is FALSE both before the menu starts and after something cleared it, so a fetch that lands after
-  // the page wiped the menu (stubPrompt does, then clicks Ask Claude) would put the menu back - and "Ask Claude"
-  // then opens the full-screen chat instead of the side panel, because that is what the menu asks for.
+  // the page wiped the menu (stubPrompt does) would put the menu back over what the page started.
   // byMachine: the program on the machine asked for it (the 'welcome:*' events, 'menu' after LIZA's BYE or the
   // demo): the start itself runs in Session.asMachine, so keys Claude typed that asked for it do not stop Claude
   // (the fetch before it is outside: what the person does meanwhile still stops Claude)
