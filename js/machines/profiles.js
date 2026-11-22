@@ -104,13 +104,14 @@ const P = registry({
   },
   // Dragon 64 Plus: a Dragon 64 with a second, 80-column board on a Hitachi HD6845S CRTC and its own
   // character generator (MAME's d64plus_state, src/mame/trs/dragon.cpp). Same BASIC ROMs as the 64.
+  // d64plus() starts from dragon64(config), so it has the 64's 6551 with its RS-232 port too.
   // The character generator is required: the 80-column screen has no picture without it. The timing PROM
   // (n82s147an.ic12) is not: MAME refuses to start the machine without its file, but the driver never
   // reads it and neither do we, so CLOADM neither needs nor uses it. Both are chips the machine reads
   // directly, not CPU bus sockets. The real glyphs are only exercised with a user-supplied generator.
   d64plus: {
     options: opts(cpu('6809'), ram([64])),
-    name: 'Dragon 64 Plus', family: 'd64plus', lineage: 'dragon', keyboard: 'dragon', video: 'pal', acia: true, bankSelect: true, mame: 'd64plus',
+    name: 'Dragon 64 Plus', family: 'd64plus', lineage: 'dragon', keyboard: 'dragon', video: 'pal', acia: true, rs232: true, bankSelect: true, mame: 'd64plus',
     roms: [...d64Roms('d64_1.rom', '60A4634C', 'd64_2.rom', '17893A42'),
       chip('chargen', 'Character generator (80-column board)', 0x2000, ['chargen.ic22'], ['514F1450']),
       slot('prom', 'Timing PROM (not used)', 0x200, null, ['n82s147an.ic12'], ['92B6728D'], { chip: true })],

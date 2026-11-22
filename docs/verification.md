@@ -1158,7 +1158,7 @@ names it.
   DCD and CTS low (`rs232/printer.cpp`); the loopback drives DCD and CTS only from DTR and RTS, which these ports
   lack, so they stay high (`rs232/loopback.cpp`). With the CoCo's PIA1 port B as inputs, PB2 is the RAM size sense
   (PIA0 PB6) and PB1 reads 0 (`coco.cpp` pia1_pb_r).
-* On the Dragon 64, 200, 200-E and Tano, `--serial` runs `sam/acia.asm` on the 6551 with a loopback plug: the registers
+* On the Dragon 64, 200, 200-E, 64 Plus and Tano, `--serial` runs `sam/acia.asm` on the 6551 with a loopback plug: the registers
   after power-on and after a programmed reset; 20 bytes sent and read back at 1200, 9600 and 19200 baud in 6
   word formats (7 and 8 bits, odd, even, mark and space parity, two stop bits), every poll counted so each status
   change is compared to the cycle; the receive and transmit interrupts taken in CWAI; overrun; a break (framing
@@ -1169,6 +1169,8 @@ names it.
   state, including its clock: 1.8432 MHz divided by the rate, in whole Hz, running only while DTR is on or a byte
   is coming in. This run found that CWAI checks for an interrupt after 16 cycles (opcode, mask, two dead cycles
   and 12 pushes; MAME `base6x09.lst`), not 20: no earlier firmware had an interrupt arrive that soon.
+  The 64 Plus has the same 6551 and port because MAME's `d64plus()` starts from `dragon64(config)`
+  (`src/mame/trs/dragon.cpp`); its run (`d64plus/spec.js` `serial`) is the same firmware on its own ROM files.
 * `node tools/mame-diff/drivewire/run-dw.js [profile ...]` runs `drivewire/dw.asm`, a DriveWire client that plays a
   script of transactions over the Becker port and logs every byte the server sends: RESET, INIT, NOP, DWINIT, TIME;
   Read, ReRead, Read Extended (a right and a wrong checksum), ReRead Extended, Write (a wrong checksum, a

@@ -73,6 +73,9 @@ function run(profileId, file, { regenerate = false, config = {}, work, seconds, 
 }
 
 module.exports = {
+  // the 6551 and its RS-232 port in loopback: the Dragon 64's acia.asm and spec (d64plus() starts from dragon64(config)),
+  // on this machine's own ROM files (run.js --serial)
+  serial(profileId, opts) { return require('../sam/spec.js').acia(profileId, opts); },
   genChargen,
   family: 'd64plus',
   // The Dragon 64's diagnostic firmware on a Dragon 64 Plus (a 64 Plus is a 64 until software touches the

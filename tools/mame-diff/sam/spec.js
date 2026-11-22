@@ -59,6 +59,7 @@ function machine(profileId, slots, config = {}) {
 function withChip(profile, slots) {
   const out = Object.assign({}, slots);
   if (profile.roms.some((s) => s.chip)) out.chargen = genChargen();
+  for (const sl of profile.roms) if (sl.chip && sl.id !== 'chargen') out[sl.id] = new Uint8Array(sl.size);   // (the Dragon 64 Plus's timing PROM: MAME wants the file, nothing reads it)
   return out;
 }
 function mameArgs(profile, resolved) {
