@@ -27,9 +27,39 @@ for (const name of ['2048', 'minesweeper']) {
   const sym = (k) => a.symbols.get(k);
   check(`${name}: entry $3000, SEED $3003, DONE $3005 (Session GAMES)`, a.exec === Emu.GAMES.start && sym('ENTRY') === Emu.GAMES.start && sym('SEED') === Emu.GAMES.seed && sym('DONE') === Emu.GAMES.done
     && Emu.GAMES.list[name].file === `${name}.bin`);
-  // everything, its variables included, below $4000 (the stack grows down from $3000; the screen is $0400-$1BFF)
-  const top = Math.max(...[...a.symbols.values()].filter((v) => v >= 0x3000 && v < 0x8000));
-  check(`${name}: program and variables between $3000 and $4000`, a.segments.every((s) => s.addr >= 0x3000) && top < 0x4000, `top $${top.toString(16)}`);
+  // The IMAGE below $4000, and the variables in RAM the game's own 32K requirement guarantees.
+  // Why $4000 for the image: $3000-$3FFF is the free RAM above a game on a 16K machine (docs/game-development.md,
+  // "Where a game goes"), so an image ending there runs on every machine. The FILE carries only the image: RMB
+  // reserves addresses and emits no bytes (js/asm/assembler.js, toBinary), so the .bin's length is the image's,
+  // and a game whose image fits may still place variables past $4000.
+  // Why the variables may go above $4000, and where they must stop - the LOWEST of every other user of the RAM:
+  //   * these games REFUSE under 32K: GAMES.ram = 32 (js/session.js:100) and checkGame refuses (js/session.js:3493);
+  //     on a 32K machine RAM is one run 0..32767 (js/machines/sam.js:243 `a < this.ramSize ? this.ram[a]`), so
+  //     $4000-$7FFF is RAM and not ROM;
+  //   * the ROM the SAM maps above 32K starts at $8000 (js/machines/sam.js:246 `a < 0xC000 ? currentRom()[a-0x8000]`),
+  //     so the variables must end below $8000;
+  //   * the game's OWN stack grows down from $3000 (examples/minesweeper.asm:38 `LDS #$3000`, 2048.asm:35), and it
+  //     stays within 32 bytes of it over a whole game (the stack check below measures it), so it never reaches the
+  //     variables: the stack's lowest point ($3000 - 32) is far below $4000;
+  //   * the screen is $0400-$1BFF (examples/games.inc:36-37), below both, and the no-ROM stub's own workspace
+  //     ($02D6-$02DD, js/machines/stub.js:71-75) is below $0400 and is not running while a game is.
+  // So the binding bound is $8000 (the ROM), and the stack is checked separately so a future change cannot grow
+  // the variables into it.
+  // A constant (an EQU: DTITER is 12000, a loop's count) is a number, not an address, and is left out: the
+  // listing says which names an EQU defined.
+  const consts = new Set(a.listing.filter((l) => /(^|\s)(EQU|=)(\s|$)/i.test(l.src)).map((l) => l.src.trim().split(/\s+/)[0].toUpperCase()));
+  const live = [...a.symbols.entries()].filter(([k, v]) => !consts.has(k) && v >= 0x3000);
+  const top = Math.max(0, ...live.map(([, v]) => v));
+  const imgEnd = Math.max(...a.segments.map((s) => s.addr + s.data.length)) - 1;
+  const STACK_TOP = 0x3000, STACK_DEPTH = 32;   // LDS #$3000, and the depth the stack check holds it to
+  const varAddrs = [...new Set(a.listing.filter((l) => /^\S+\s+RMB\s/.test(l.src)).map((l) => l.src.trim().split(/\s+/)[0].toUpperCase()))]
+    .map((k) => a.symbols.get(k)).filter((v) => v !== undefined);
+  check(`${name}: the image ends below $4000 and the variables end below the ROM at $8000`,
+    a.segments.every((s) => s.addr >= 0x3000) && imgEnd < 0x4000 && top < 0x8000,
+    `image ends $${imgEnd.toString(16)}, top variable $${top.toString(16)}`);
+  check(`${name}: no variable reaches the stack's floor ($3000 - ${STACK_DEPTH}); the variables sit above it`,
+    varAddrs.length > 0 && Math.min(...varAddrs) > STACK_TOP - STACK_DEPTH - 1 && Math.max(...varAddrs) === top,
+    `${varAddrs.length} RMB variables, $${Math.min(...varAddrs).toString(16)}..$${Math.max(...varAddrs).toString(16)}, stack floor $${(STACK_TOP - STACK_DEPTH).toString(16)}`);
 }
 
 // ---- the font, read from games.inc: ASCII $20-$5F, five rows of three pixels ----
@@ -142,13 +172,23 @@ function start(name, { machine = 'dragon64', seed = 0x1234 } = {}) {
   const m = s.shownMachine, sym = (k) => A[name].symbols.get(k);
   s.runFrames(TITLE_BUDGET);   // the title page drawn, within the budget the game must meet
   m.poke(Emu.GAMES.seed, seed >> 8); m.poke(Emu.GAMES.seed + 1, seed & 0xFF);
-  // a key, then frames until the game waits for the next (ENTROPY counts its polls)
+  // a key, then frames until the game is looking for the next one. Two kinds of loop: Minesweeper's GLOOP is
+  // entered once a field (its RAWL waits for the field sync, polls POLCAT once, and counts in ENTROPY), and
+  // 2048's GETKEY polls POLCAT in a tight loop until a key comes, counting every poll there. The wait has to
+  // outlast the ACTION too: a key is taken at a field boundary, then dispatched (a move redraws the screen, a
+  // flag plays two notes), and a key queued before that is over would land in the middle of it. So Minesweeper
+  // waits for two field entries with nothing queued (the key's own field and one after it), and 2048 for the
+  // ENTROPY jump only its tight loop makes.
+  const perField = !!sym('RAWL');
   const settle = () => {
+    let idle = 0;
     for (let i = 0; i < 400; i++) {
       const e0 = m.ram[sym('ENTROPY')] * 256 + m.ram[sym('ENTROPY') + 1];
       s.runFrames(1);
       const e1 = m.ram[sym('ENTROPY')] * 256 + m.ram[sym('ENTROPY') + 1];
-      if (!m.stubKeys.length && ((e1 - e0) & 0xFFFF) > 200) return;
+      if (m.stubKeys.length) { idle = 0; continue; }
+      if (perField) { if (((e1 - e0) & 0xFFFF) >= 1 && ++idle >= 2) return; }
+      else if (((e1 - e0) & 0xFFFF) > 200) return;
     }
     throw new Error(`${name}: did not come back for a key`);
   };
@@ -639,6 +679,18 @@ const nb = (i) => { const out = []; const x = i & 7, y = i >> 3; for (let dy = -
   }
   s.switchMachine('coco', { ram: 32 });
   check('a 32K CoCo has what the games need', s.gameNeeds() === null);
+  // Minesweeper too: the SAME refusal is enforced where the game is loaded, which is what makes the variables
+  // above $4000 legitimate (see the image/variable check at the top of this file)
+  {
+    const before = s.shownMachine.ram[0x3000];
+    s.switchMachine('coco', { ram: 16 });
+    let merr = null;
+    try { s.runGame('minesweeper', bin('minesweeper')); } catch (e) { merr = e; }
+    check('Minesweeper is refused on a 16K CoCo, saying why, with nothing loaded',
+      merr instanceof Emu.SessionError && /^Minesweeper needs 32K RAM or more; this CoCo 1\/2 has 16K/.test(merr.message)
+      && s.shownMachine.ram[0x3000] === before, merr && merr.message);
+    s.switchMachine('coco', { ram: 32 });
+  }
   s.runGame('2048', bin('2048'));
   const was = s.gameRunning;
   check('Session.programControls: 2048 is played with the arrows alone', JSON.stringify(s.programControls) === '{"id":"2048","input":"arrows","extra":[],"joystick":false}', JSON.stringify(s.programControls));
@@ -875,14 +927,30 @@ WARMS   FCB     $57,$41,$52,$4D,0
   }
   const samples = [];
   for (let i = 44; i + 1 < wav.length; i += 2) samples.push(wav.readInt16LE(i));
+  // The DAC rests at 0 (the games leave their silence there: a level that changed every field would be heard
+  // as a 50 or 60 Hz tone - see the joystick section of games.inc), so silence is a sample at 0, not at 32
+  // steps, and a burst is any run of samples away from it.
+  const REST = 0;
   const bursts = [];
   let cur = null;
-  samples.forEach((v, i) => { if (v !== 32 * 320) { if (cur && i - cur[1] <= 200) cur[1] = i; else { cur = [i, i]; bursts.push(cur); } } });
+  samples.forEach((v, i) => { if (v !== REST) { if (cur && i - cur[1] <= 200) cur[1] = i; else { cur = [i, i]; bursts.push(cur); } } });
   const len = (b) => b[1] - b[0], full = (b) => { const x = samples.slice(b[0], b[1] + 1); return Math.max(...x) === 63 * 320 && Math.min(...x) <= 320; };
+  // The floor in full() is not decoration: a burst that reaches the top and never comes down is not the
+  // game's square wave, and the DAC's step is 320, so a sample within one step of silence is "at the
+  // bottom". Shown on a synthetic burst, because the real recording has none that stays up (so the
+  // recording alone could not tell the two versions of this predicate apart).
+  {
+    const up = new Array(40).fill(63 * 320), wave = [];
+    for (let i = 0; i < 40; i++) wave.push(i % 2 ? 63 * 320 : 0);
+    const isFull = (x) => { const m = Math.max(...x), n = Math.min(...x); return m === 63 * 320 && n <= 320; };
+    check('Minesweeper: the burst predicate rejects a level that never comes down (the floor is load-bearing)',
+      isFull(wave) === true && isFull(up) === false, `wave ${isFull(wave)}, stuck-high ${isFull(up)}`);
+  }
   const what = bursts.map((b) => `${(b[0] / 44100).toFixed(2)}+${(len(b) / 44100).toFixed(3)}`).join(' ');
   // The cue list, in order: the first square's open tick (E5), two cursor ticks (the right arrow, the down
   // arrow), the low buzz of F on an OPEN square, three cursor ticks to (6,3), the flag's C5-G5 on and off, and
-  // the mine: one noise burst. Every burst is at full swing on the DAC, and every TONE cue has a pitch.
+  // the mine: one noise burst. Every burst is at full swing on the DAC (top to bottom, 63 steps), and every
+  // TONE cue has a pitch.
   check('Minesweeper: the recording is 10 bursts (open tick, 2 cursor ticks, buzz, 3 ticks, 2 flag chirps, the mine), all at full swing',
     bursts.length === 10 && bursts.every(full) && samples.every((v) => v >= 0 && v <= 63 * 320), what);
   // pitch by zero crossings about the rest level, over the burst's span; +-8% covers the DAC's step quantisation.
@@ -916,6 +984,431 @@ WARMS   FCB     $57,$41,$52,$4D,0
     `${(len(bursts[9]) / 44100 * 1000).toFixed(1)} ms, ${zc(bursts[9])} crossings`);
   }
   fs.rmSync(dir, { recursive: true, force: true });
+}
+
+// ================= THE ANALOGUE JOYSTICK'S COMPARATOR =================
+// The games read a joystick by writing a value to the DAC and asking whether the pot is at or above it, so the
+// BOUNDARY is the whole contract: `joy >= dac` sets bit 7 of PIA0 port A. Both axes, both ports, checked either
+// side of the comparator's own level -- not one point in the middle, which a wrong comparison would also pass.
+{
+  const s = new Emu.Session({ welcomeMenu: false });
+  s.switchMachine('coco', {}, { menu: false });
+  const m = s.personMachine;
+  // the ROM's own read: CB2 selects the port, CA2 the axis, the DAC is PIA1 port A bits 7-2
+  // PIA register 0 is the port, 1 the control register; CA2/CB2 are control-register bits 5-3 (0x04 = output
+  // low, 0x0C = output high). The port reads data only when the control register's bit 2 selects the data
+  // direction register, so each port is put in "read the pins" mode once.
+  // C2 as an output in the chip's MANUAL mode: control bit 5 (0x20) sets it to output, bit 4 (0x10) selects
+  // manual, and bit 3 is the level. So 0x34 = output low, 0x3C = output high. (0x04 is neither: it leaves C2
+  // an input, which reads false, so every axis and port select silently did nothing.)
+  const C2_LOW = 0x34, C2_HIGH = 0x3C;
+  // The DAC lives on PIA1 port A, whose pins must be OUTPUTS first: control bit 2 selects the data direction
+  // register, and until it is set the DDR is 0, so a write to register 0 lands in the DDR instead of the output
+  // register and the DAC reads 63 (all pins pulled high). The game's INIT does exactly this.
+  m.pia1.write(1, 0x00);            // CR bit 2 clear: register 0 is the DDR
+  m.pia1.write(0, 0xFE);            // bits 7-1 outputs (the DAC), bit 0 the cassette input
+  m.pia1.write(1, 0x04);            // CR bit 2 set: register 0 is the output register again
+  const comparatorHigh = (port, axis, dac) => {
+    m.pia0.write(3, port ? C2_HIGH : C2_LOW);       // PIA0 CB2: which joystick
+    m.pia0.write(1, axis ? C2_HIGH : C2_LOW);       // PIA0 CA2: which axis
+    m.pia1.write(0, (dac & 0x3F) << 2);             // PIA1 port A: the DAC
+    return (m.pia0.read(0) & 0x80) !== 0;
+  };
+  const cases = [];
+  for (const port of [0, 1]) {
+    for (const axis of [0, 1]) {
+      for (const level of [24, 40]) {          // the two levels the game's own reading uses
+        m.joy[port][axis] = level;
+        cases.push(
+          [port, axis, level, level - 1, true],   // dac below the pot: high
+          [port, axis, level, level, true],       // equal: high, the boundary belongs to the pot
+          [port, axis, level, level + 1, false],  // dac above: low
+        );
+      }
+    }
+  }
+  const bad = [];
+  for (const [port, axis, level, dac, want] of cases) {
+    m.joy[port][axis] = level;
+    const got = comparatorHigh(port, axis, dac);
+    if (got !== want) bad.push(`port ${port} axis ${axis} pot ${level} dac ${dac}: got ${got}, want ${want}`);
+  }
+  check('the joystick comparator: joy >= DAC reads high, either side, on both axes of both ports', bad.length === 0, bad.slice(0, 6).join('; '));
+  // and the port/axis selection really selects: a pot high on one axis must not answer for the other
+  m.joy[0][0] = 63; m.joy[0][1] = 0;
+  const selOk = comparatorHigh(0, 0, 32) === true && comparatorHigh(0, 1, 32) === false;
+  check('the joystick comparator: CA2 selects the axis, so the other axis does not answer for it', selOk,
+    `x63 at dac 32: ${comparatorHigh(0, 0, 32)}, y0 at dac 32: ${comparatorHigh(0, 1, 32)}`);
+  m.joy[0][0] = 63; m.joy[1][0] = 0;
+  const portOk = comparatorHigh(0, 0, 32) === true && comparatorHigh(1, 0, 32) === false;
+  check('the joystick comparator: PIA0 CB2 selects the port, so the other joystick does not answer', portOk,
+    `port0 x63 at dac 32: ${comparatorHigh(0, 0, 32)}, port1 x0 at dac 32: ${comparatorHigh(1, 0, 32)}`);
+  s.close?.();
+}
+
+// ================= MINESWEEPER ON THE JOYSTICK =================
+// The game reads both sticks once a field (RAWL), two comparator tests an axis at DAC 40 and 24, and the
+// stick's steps are counted in fields by the FS flag, at 300 ms and then every 120 ms (15 and 6 fields at
+// 50 Hz, 18 and 7 at 60). Fire: a tap under 400 ms opens on the release, a press of exactly 400 ms (20
+// fields at 50 Hz, 24 at 60) or longer flags on that field, and after a win or a loss fire starts again on
+// its release. The tests below measure the game's own state
+// (CURX/CURY, STATE, FLAGS) after the emulator has run frames, which is the only thing a player sees.
+{
+  // a game in its loop, with the stick where the test puts it; `machine` sets both the field rate and the
+  // axis range (a Dragon is 50 Hz, a CoCo 60)
+  const loop = (machine = 'dragon64') => {
+    const g = start('minesweeper', { machine, seed: 0x5EED });
+    g.press('space');                                   // the title
+    return g;
+  };
+  const cursor = (g) => g.mem('CURX', 2).join(',');
+  // a stick direction as the page sets it: axisValue of +-1 is 63/0, and 32 is centred
+  const RIGHT = 63, LEFT = 0, UP = 0, DOWN = 63, MID = 32;
+
+  // ---- a new direction steps once, then after 300 ms, then every 120 ms; counted in fields ----
+  for (const [machine, hz, firstRepeat, thenEvery, wantSteps] of [['dragon64', 50, 15, 6, 7], ['coco', 60, 18, 7, 7]]) {
+    const g = loop(machine);
+    // walk to x=0 so seven steps fit before the field's edge (the cursor clamps there)
+    for (let i = 0; i < 4; i++) { g.press('left'); }
+    const x0 = g.mem('CURX')[0];
+    g.m.joy[0][0] = RIGHT;
+    const at = [];
+    let last = g.mem('CURX')[0];
+    for (let f = 1; f <= hz; f++) { g.s.runFrames(1); const v = g.mem('CURX')[0]; if (v !== last) { at.push(f); last = v; } }
+    const gaps = at.slice(1).map((v, i) => v - at[i]);
+    check(`Minesweeper stick (${hz} Hz): a held stick steps at field 1, then every ${firstRepeat}, then ${thenEvery} - ${wantSteps} steps in a second`,
+      x0 === 0 && at.length === wantSteps && at[0] === 1 && gaps[0] === firstRepeat && gaps.slice(1).every((d) => d === thenEvery),
+      `x0 ${x0}, steps at ${at.join(',')} (gaps ${gaps.join(',')})`);
+    check(`Minesweeper stick (${hz} Hz): the field rate it detected is the machine's`, g.mem('FSRATE')[0] === (hz === 60 ? 1 : 0), String(g.mem('FSRATE')[0]));
+  }
+
+  // ---- the dead zone: a light push is 24 or 39 on the machine's axis, and neither moves the cursor ----
+  {
+    const g = loop();
+    const seen = [];
+    for (const v of [24, 32, 39, 36, 40, 23]) {
+      g.m.joy[0][0] = v;
+      g.s.runFrames(3);
+      seen.push(`${v}:${cursor(g)}`);
+    }
+    check('Minesweeper stick: 24 to 39 (the page\'s dead zone) does not move the cursor; 40 and 23 do',
+      seen[0] === '24:3,3' && seen[1] === '32:3,3' && seen[2] === '39:3,3' && seen[3] === '36:3,3' && seen[4] === '40:4,3' && seen[5] === '23:3,3', seen.join(' '));
+  }
+
+  // ---- centring the stick ends the press: pushing the SAME way again steps at once and then repeats at
+  // 300 ms, exactly as the first push did. (The bug: GLCENTRE cleared the repeat wait but not the direction
+  // remembered, so a re-push was "the same direction", spent 0 fields as a wait - DEC 0 is $FF - and then
+  // took 256 fields to move.) The cursor starts at (3,3) and two steps fit before the field's edge, which
+  // is all the 300 ms repeat needs; no key is pressed between the two pushes, because a key clears JOYPRE
+  // and would hide the bug. ----
+  for (const [machine, hz, firstRepeat] of [['dragon64', 50, 15], ['coco', 60, 18]]) {
+    const g = loop(machine);
+    const stepsOf = (fields) => {
+      const at = [];
+      let last = g.mem('CURX')[0];
+      for (let f = 1; f <= fields; f++) { g.s.runFrames(1); const v = g.mem('CURX')[0]; if (v !== last) { at.push(f); last = v; } }
+      return at;
+    };
+    g.m.joy[0][0] = RIGHT;
+    const first = stepsOf(firstRepeat + 3);
+    // back to the centre with nothing else touched: a key would clear JOYPRE, and moving the stick the
+    // other way would make the next push a NEW direction, either of which would hide the bug
+    g.m.joy[0][0] = MID;
+    g.s.runFrames(3);
+    const from = g.mem('CURX')[0];
+    g.m.joy[0][0] = RIGHT;
+    const again = stepsOf(firstRepeat + 3);
+    const gaps = again.slice(1).map((v, i) => v - again[i]);
+    check(`Minesweeper stick (${hz} Hz): the same direction pushed again after the centre steps at once, then at ${firstRepeat}`,
+      first.length === 2 && first[0] === 1 && first[1] === 1 + firstRepeat && from === 5 &&
+        again.length === 2 && again[0] === 1 && gaps[0] === firstRepeat,
+      `first push from x=3 at ${first.join(',')}; re-push from x=${from} at ${again.join(',')} (gap ${gaps.join(',')})`);
+  }
+
+  // ---- a restart press longer than the hold time must not leak into the new game. Fire restarts on its
+  // RELEASE, and the field it comes up on is the only one that acts: a 25-field press after a loss starts a
+  // new game and then does nothing, rather than restarting it and opening the centre square. ----
+  {
+    const lose = (machine) => {
+      const g = loop(machine);
+      g.press('space');
+      const f = g.mem('FIELD', 64), mine = f.findIndex((v) => v & 0x80);
+      const [x, y] = g.mem('CURX', 2), keys = [];
+      for (let k = x; k < (mine & 7); k++) keys.push('right'); for (let k = x; k > (mine & 7); k--) keys.push('left');
+      for (let k = y; k < (mine >> 3); k++) keys.push('down'); for (let k = y; k > (mine >> 3); k--) keys.push('up');
+      g.press(...keys, 'space');
+      return g;
+    };
+    for (const [machine, hz] of [['dragon64', 50], ['coco', 60]]) {
+      const g = lose(machine);
+      const lost = g.mem('LOST')[0];
+      g.m.fire[0] = true;
+      g.s.runFrames(Math.round(hz / 2));                 // half a second, well past the 400 ms hold
+      g.m.fire[0] = false;
+      g.s.runFrames(6);
+      check(`Minesweeper fire (${hz} Hz): a half-second press after a loss restarts, and its release does not open a square`,
+        lost === 1 && g.mem('LOST')[0] === 0 && g.mem('OPENED')[0] === 0 && g.mem('PLANTED')[0] === 0 && g.mem('STATE', 64)[27] === 0 && g.mem('FLAGS')[0] === 0,
+        `lost was ${lost}, then LOST ${g.mem('LOST')[0]} OPENED ${g.mem('OPENED')[0]} PLANTED ${g.mem('PLANTED')[0]} STATE27 ${g.mem('STATE', 64)[27]}`);
+    }
+    // ... and after a WIN the same: open every safe square, then a long press restarts without opening
+    {
+      const g = loop('dragon64');
+      g.press('space');
+      const field = g.mem('FIELD', 64);
+      const goTo = (i) => {
+        const [x, y] = g.mem('CURX', 2), keys = [];
+        for (let k = x; k < (i & 7); k++) keys.push('right'); for (let k = x; k > (i & 7); k--) keys.push('left');
+        for (let k = y; k < (i >> 3); k++) keys.push('down'); for (let k = y; k > (i >> 3); k--) keys.push('up');
+        g.press(...keys);
+      };
+      for (let i = 0; i < 64; i++) if (!(field[i] & 0x80)) { goTo(i); g.press('space'); }
+      const won = g.mem('WON')[0];
+      g.m.fire[0] = true;
+      g.s.runFrames(25);
+      g.m.fire[0] = false;
+      g.s.runFrames(6);
+      check('Minesweeper fire: after a win, a half-second press restarts too, and its release does not open a square',
+        won === 1 && g.mem('WON')[0] === 0 && g.mem('OPENED')[0] === 0 && g.mem('PLANTED')[0] === 0 && g.mem('STATE', 64)[27] === 0,
+        `won was ${won}, then WON ${g.mem('WON')[0]} OPENED ${g.mem('OPENED')[0]} PLANTED ${g.mem('PLANTED')[0]} STATE27 ${g.mem('STATE', 64)[27]}`);
+    }
+  }
+
+  // ---- both axes deflected at once is a tie (two comparator tests cannot say which is further out): the
+  // axis that moved last wins, and with nothing moved yet, the x axis - so the first diagonal goes across.
+  // "Last" is since the stick left the centre: centring it is a new press, so a diagonal after that starts
+  // from x again, and the same goes after a key move (the key is not the stick). ----
+  {
+    const g = loop();
+    const diag = () => { g.m.joy[0][0] = RIGHT; g.m.joy[0][1] = DOWN; g.s.runFrames(3); g.m.joy[0][0] = MID; g.m.joy[0][1] = MID; g.s.runFrames(1); };
+    diag();
+    const first = cursor(g);                             // nothing moved yet: x
+    g.press('up');                                       // a key: y moved last
+    const afterUp = cursor(g);
+    diag();
+    const fromKey = cursor(g);                           // the key's y, not the stick's
+    // a key sets its own axis the right way round: y for the arrows up and down, x for left and right.
+    // (MOVE and TONE both return normally - MOVE's JMP TONE is a tail call only in that TONE returns to
+    // MOVE's caller - so JOYLAST is written in the same pass as the move; one frame later is enough.)
+    g.m.stubKeys.push(94); g.s.runFrames(3); const yLast = g.mem('JOYLAST')[0];   // UP
+    g.m.stubKeys.push(9); g.s.runFrames(3); const xLast = g.mem('JOYLAST')[0];    // RIGHT
+    g.s.runFrames(2);
+    check('Minesweeper stick: with both axes deflected the axis that moved last wins (x before anything has)',
+      first === '4,3' && afterUp === '4,2' && fromKey === '4,3' && yLast === 1 && xLast === 0,
+      `${first} / ${afterUp} -> ${fromKey}; up said ${yLast}, right said ${xLast}`);
+  }
+
+  // ---- both sticks move it, and both fire buttons act ----
+  {
+    const g = loop();
+    g.m.joy[1][0] = LEFT;                                // the LEFT joystick, pushed left
+    g.s.runFrames(3);
+    check('Minesweeper stick: the left joystick moves the cursor too', cursor(g) === '2,3', cursor(g));
+    const g2 = loop();
+    g2.m.fire[1] = true; g2.s.runFrames(1); g2.m.fire[1] = false; g2.s.runFrames(3);
+    check('Minesweeper fire: the second button opens on a tap as the first does', g2.mem('STATE', 64)[27] === 1, JSON.stringify(g2.mem('STATE', 64)[27]));
+  }
+
+  // ---- one button: the exact 400 ms boundary. RAWL counts a press's own first field, so a press held
+  // for exactly FW400 fields (20 at 50 Hz, 24 at 60) FLAGS on its last field, and one field less opens on
+  // the release. The old code started the count at 0 on the first field, so 20 opened and 21 flagged.
+  // Fields are counted the way the game counts them - by the ENTROPY byte RAWL moves once a field, not by
+  // frames (a frame holds one field but is not aligned with it), the same measure the settle() helper uses. ----
+  for (const [machine, hz, fw400] of [['dragon64', 50, 20], ['coco', 60, 24]]) {
+    // per FIELD (the ENTROPY byte RAWL moves once a field, not a frame: a frame holds one field but is
+    // not aligned with it), the action the field decided (IN: 'F' is the flag) and the square's state.
+    // The boundary is measured on IN, the action the field itself decided. Measured on the merged build: the
+    // flag's PIXELS are drawn in that same field (the square's glyph bytes change while STATE is still 0), and
+    // the STATE variable follows one field later; so the screen shows the flag when the press is decided, and
+    // only the bookkeeping trails.
+    const press = (n) => {
+      const g = loop(machine);
+      const ent = () => g.mem('ENTROPY', 2)[0] * 256 + g.mem('ENTROPY', 2)[1];
+      let last = ent();
+      g.m.fire[0] = true;
+      const acts = [];
+      for (let f = 1; f <= n; f++) {
+        for (let frame = 0; frame < 20; frame++) { g.s.runFrames(1); const e = ent(); if (e !== last) { last = e; break; } }
+        acts.push(g.mem('IN')[0]);
+      }
+      g.m.fire[0] = false;
+      g.s.runFrames(3);
+      return { g, flagField: acts.indexOf(70) + 1 };
+    };
+    const short = press(fw400 - 1);
+    check(`Minesweeper fire (${hz} Hz): a press of ${fw400 - 1} fields (400 ms less one) never flags, and opens on the release`,
+      short.flagField === 0 && short.g.mem('STATE', 64)[27] === 1 && short.g.mem('FLAGS')[0] === 0 && short.g.mem('OPENED')[0] > 0,
+      `flagged on field ${short.flagField || 'never'}, then STATE27 ${short.g.mem('STATE', 64)[27]} FLAGS ${short.g.mem('FLAGS')[0]} OPENED ${short.g.mem('OPENED')[0]}`);
+    const exact = press(fw400);
+    check(`Minesweeper fire (${hz} Hz): a press of exactly ${fw400} fields (400 ms) FLAGS on its ${fw400}th field, and its release opens nothing`,
+      exact.flagField === fw400 && exact.g.mem('STATE', 64)[27] === 2 && exact.g.mem('FLAGS')[0] === 1 && exact.g.mem('OPENED')[0] === 0,
+      `flagged on field ${exact.flagField || 'never'} (want ${fw400}), then STATE27 ${exact.g.mem('STATE', 64)[27]} FLAGS ${exact.g.mem('FLAGS')[0]} OPENED ${exact.g.mem('OPENED')[0]}`);
+    // a tap well under the hold time still opens, on the release
+    const tap = loop(machine);
+    tap.m.fire[0] = true;
+    tap.s.runFrames(Math.floor(fw400 / 2));
+    const midTap = tap.mem('STATE', 64)[27];
+    tap.m.fire[0] = false;
+    tap.s.runFrames(3);
+    check(`Minesweeper fire (${hz} Hz): a tap under 400 ms opens the square, on the release`, midTap === 0 && tap.mem('STATE', 64)[27] === 1 && tap.mem('FLAGS')[0] === 0,
+      `mid-tap ${midTap}, after the release ${tap.mem('STATE', 64)[27]} flags ${tap.mem('FLAGS')[0]}`);
+  }
+
+  // ---- after a win or a loss, fire starts again (as R does), on its RELEASE ----
+  {
+    const g = loop();
+    g.press('space');                                   // open (3,3): the mines are laid
+    const f2 = g.mem('FIELD', 64);
+    const mine = f2.findIndex((v) => v & 0x80);
+    const [x, y] = g.mem('CURX', 2);
+    const keys = [];
+    for (let k = x; k < (mine & 7); k++) keys.push('right'); for (let k = x; k > (mine & 7); k--) keys.push('left');
+    for (let k = y; k < (mine >> 3); k++) keys.push('down'); for (let k = y; k > (mine >> 3); k--) keys.push('up');
+    g.press(...keys, 'space');
+    const lost = g.mem('LOST')[0] === 1;
+    const opened = g.mem('OPENED')[0];
+    g.m.fire[0] = true; g.s.runFrames(1); g.m.fire[0] = false; g.s.runFrames(4);
+    check('Minesweeper fire: after a loss, fire starts a new game (as R does)',
+      lost && g.mem('LOST')[0] === 0 && g.mem('OPENED')[0] === 0 && g.mem('PLANTED')[0] === 0, `lost was ${lost}, opened was ${opened}`);
+  }
+
+  // ---- a loss BY FIRE stays lost: the tap that opens a mine loses on its release, and the over screen must stay
+  // up while the button is idle. (The release also marks "fire came up this field", which is what restarts a
+  // finished game: if that mark is not cleared at the start of each field, the very next field restarts and the
+  // loss is never seen. Only the sound hash noticed that before, by the timing of the cues.) ----
+  for (const [machine, hz] of [['dragon64', 50], ['coco', 60]]) {
+    const g = loop(machine);
+    g.press('space');                                   // open (3,3) and lay the mines
+    const f = g.mem('FIELD', 64), mine = f.findIndex((v) => v & 0x80);
+    const [x, y] = g.mem('CURX', 2), keys = [];
+    for (let k = x; k < (mine & 7); k++) keys.push('right'); for (let k = x; k > (mine & 7); k--) keys.push('left');
+    for (let k = y; k < (mine >> 3); k++) keys.push('down'); for (let k = y; k > (mine >> 3); k--) keys.push('up');
+    g.press(...keys);
+    // a tap: down a few fields, up (under 400 ms, so it opens rather than flags)
+    g.m.fire[0] = true;
+    g.s.runFrames(3);
+    g.m.fire[0] = false;
+    g.s.runFrames(4);
+    const lostByFire = g.mem('LOST')[0];
+    // idle for several fields with the button up: nothing may restart it
+    g.s.runFrames(hz);
+    check(`Minesweeper fire (${hz} Hz): a tap that opens a mine loses, and the loss stays up while fire is idle`,
+      lostByFire === 1 && g.mem('LOST')[0] === 1 && g.mem('OPENED')[0] > 0 && g.mem('PLANTED')[0] === 10,
+      `lost by the tap ${lostByFire}, a second later LOST ${g.mem('LOST')[0]} OPENED ${g.mem('OPENED')[0]} PLANTED ${g.mem('PLANTED')[0]}`);
+  }
+
+  // ---- the phantom table itself: BOTH machines' row 0 and 1, because which matrix the ROM scans cannot
+  // be told from the game. This is a TABLE check, not a behaviour one, and it has to be: no key in a
+  // Dragon's rows is a key the game acts on ('0'-'/' with fire up do nothing here), so no Dragon phantom
+  // can be shown to matter - only that the table holds those rows if one ever does. The CoCo half IS
+  // behaviour-tested above, where 'F' flags with fire up. ----
+  {
+    // the committed image, at its own addresses (the .bin is a file, its bytes are not addresses)
+    const img = new Uint8Array(0x10000);
+    for (const seg of A.minesweeper.segments) img.set(seg.data, seg.addr);
+    const at = (k) => A.minesweeper.symbols.get(k);
+    const table = [];
+    for (let i = at('PHANTOM'); img[i] !== 0; i++) table.push(img[i]);
+    const dragon = [], coco = [];
+    for (let c = 48; c <= 57; c++) dragon.push(c);
+    for (const c of [58, 59, 44, 45, 46, 47]) dragon.push(c);              // : ; , - . /
+    coco.push(64); for (let c = 65; c <= 79; c++) coco.push(c);            // @ A-G, H-O
+    const want = [...new Set([...dragon, ...coco])].sort((a, b) => a - b);
+    const got = [...table].sort((a, b) => a - b);
+    check('Minesweeper: PHANTOM holds both machines\' matrix rows 0 and 1 (the union), so a ROM of either family is covered',
+      got.join() === want.join() && table.length === want.length,
+      `${table.length} entries: ${table.map((c) => String.fromCharCode(c)).join('')}`);
+    // and none of the game's own keys is in it except F, which a held fire makes moot
+    const gameKeys = ['R', ' '].map((c) => c.charCodeAt(0));
+    check('Minesweeper: the phantom table leaves the game\'s keys alone (only F is in it, and a held fire flags anyway)',
+      !gameKeys.some((k) => table.includes(k)) && table.includes(70),
+      table.includes(70) ? 'F is in the table' : 'F is NOT in the table');
+  }
+
+  // ---- fire never reads as a key: the ROM can hand back a phantom from matrix row 0 or 1 while fire is
+  // down, and those are ignored then (and only then). Which machine's rows those are cannot be known from
+  // the game, so BOTH families' rows are dropped on every machine. The phantom is injected through the
+  // stub's queue, because the no-ROM stub hands out queued keys rather than scanning the matrix, so what
+  // is tested is the game's own filter, which is what a real POLCAT's phantom would meet.
+  // Only the keys that MEAN something with fire up can prove the filter: 'F' is in a CoCo row 0, and 0,
+  // 8 and @ are not game keys at all (dropping them changes nothing), so those cases would pass with the
+  // filter deleted. Each case here is a key the game acts on with fire up, on every family. ----
+  {
+    for (const [machine, key, ch, rows] of [
+      ['dragon64', 70, 'F', 'CoCo row 0 @ A-G - but also a Dragon matrix key: solid on a Dragon'],
+      ['coco', 70, 'F', 'CoCo row 0'],
+      ['coco3p', 70, 'F', 'CoCo row 0 (the CoCo 3 PAL scans the CoCo matrix)'],
+      ['tanodr64', 70, 'F', 'CoCo row 0 (the Tano scans the CoCo matrix: NOT the Dragon table)'],
+    ]) {
+      // the key DOES act with fire up: the control that makes the case non-vacuous
+      const ctl = loop(machine);
+      ctl.m.stubKeys.push(key);
+      ctl.s.runFrames(3);
+      const acts = ctl.mem('STATE', 64)[27] === 2 && ctl.mem('FLAGS')[0] === 1;
+      const g = loop(machine);
+      g.m.fire[0] = true;
+      g.s.runFrames(2);                                 // fire is down and counted
+      const was = g.mem('STATE', 64)[27], fl = g.mem('FLAGS')[0], cur = cursor(g);
+      g.m.stubKeys.push(key);
+      g.s.runFrames(3);
+      check(`Minesweeper fire + a phantom '${ch}' (${rows}): ignored while fire is down, and a real key otherwise`,
+        acts && g.mem('STATE', 64)[27] === was && g.mem('FLAGS')[0] === fl && cursor(g) === cur && g.mem('OPENED')[0] === 0,
+        `with fire up it flags: ${acts}; with fire down ${was}/${fl}/${cur} -> ${g.mem('STATE', 64)[27]}/${g.mem('FLAGS')[0]}/${cursor(g)}`);
+      g.m.fire[0] = false;
+      g.s.runFrames(3);
+    }
+    // keys keep working with fire down: an arrow still moves, and SPACE still opens
+    const a = loop('coco');
+    a.m.fire[0] = true; a.s.runFrames(2);
+    a.m.stubKeys.push(8);                               // LEFT
+    a.s.runFrames(3);
+    check('Minesweeper fire: with fire down the arrows still move the cursor', cursor(a) === '2,3', cursor(a));
+  }
+
+  // ---- the keys the game already had keep working, with the stick still ----
+  {
+    const g = loop();
+    g.press('right', 'right', 'down');
+    const moved = cursor(g);
+    // (F acts on the square under the cursor, (5,4) here, not on (3,3): read the square it flagged)
+    const at = g.mem('CURY')[0] * 8 + g.mem('CURX')[0];
+    g.press('F');
+    const flagged = g.mem('STATE', 64)[at] === 2 && g.mem('FLAGS')[0] === 1;
+    g.press('F');
+    const unflagged = g.mem('STATE', 64)[at] === 0 && g.mem('FLAGS')[0] === 0;
+    g.press('space');
+    const opened = g.mem('OPENED')[0] > 0;
+    g.press('R');
+    check('Minesweeper keys: the arrows, F, SPACE and R still work (the stick is centred)',
+      moved === '5,4' && flagged && unflagged && opened && g.mem('OPENED')[0] === 0 && cursor(g) === '3,3',
+      `moved ${moved}, flagged ${flagged}, unflagged ${unflagged}, opened ${opened}`);
+  }
+
+  // ---- and the buzz the spec is about: with the joystick read every field, a 2 s recording of an idle
+  // stick has no line at the field rate (nor at the other rate) above the noise floor ----
+  {
+    const RATE = 44100;
+    const lineHz = (x, hz) => { let re = 0, im = 0; for (let i = 0; i < x.length; i++) { const t = 2 * Math.PI * hz * i / RATE; re += x[i] * Math.cos(t); im += x[i] * Math.sin(t); } return 2 * Math.hypot(re, im) / x.length; };
+    const record = (machine, fps) => {
+      const s = new Emu.Session({ welcomeMenu: false });
+      s.switchMachine(machine, {}, { menu: false });
+      s.load('minesweeper.bin', bin('minesweeper'), { remember: false });
+      const m = s.personMachine;
+      s.runFrames(30); m.poke(Emu.GAMES.seed, 0x5E); m.poke(Emu.GAMES.seed + 1, 0xED);
+      m.stubKeys.push(32); s.runFrames(60);             // in the game, the stick idle
+      const chunks = [];
+      const out = new Emu.AudioOutput(RATE, { buffered: () => 0, write: (c) => chunks.push(c) }, { highPass: false });
+      for (let f = 0; f < 2 * fps; f++) { m.runFrame(); out.push(m.audioEvents, m.frameCycles, fps); }
+      const n = chunks.reduce((a, c) => a + c.length, 0), x = new Float32Array(n);
+      let at = 0; for (const c of chunks) { x.set(c, at); at += c.length; }
+      return x;
+    };
+    for (const [machine, fps] of [['dragon64', 50], ['coco', 60]]) {
+      const x = record(machine, fps);
+      const a50 = lineHz(x, 50), a60 = lineHz(x, 60);
+      check(`Minesweeper sound (${fps} Hz machine): 2 s of an idle stick has no 50 or 60 Hz line (the joystick read does not buzz)`,
+        a50 < 1e-3 && a60 < 1e-3, `50 Hz ${a50.toExponential(2)}, 60 Hz ${a60.toExponential(2)}`);
+    }
+  }
 }
 
 console.log(fail ? `${fail} of ${n} game checks FAILED` : `all ${n} game checks passed`);

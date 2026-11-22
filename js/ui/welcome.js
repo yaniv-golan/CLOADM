@@ -38,7 +38,7 @@ export const SHELF = [
   { name: 'LIZA', liza: true, title: 'An ELIZA-style conversation program' },
   { name: 'Colour demo', url: 'examples/demo.bin', cpu: '6809', title: 'Graphics and colour demo' },
   { name: '2048', game: '2048', cpu: '6809', title: '2048: slide and join the tiles (arrows; BREAK leaves)' },
-  { name: 'Minesweeper', game: 'minesweeper', cpu: '6809', title: 'Minesweeper: find the ten mines (arrows, SPACE, F; BREAK leaves)' },
+  { name: 'Minesweeper', game: 'minesweeper', cpu: '6809', title: 'Minesweeper: find the ten mines (arrows or joystick; SPACE or fire opens, F or hold fire flags; BREAK leaves)' },
 ];
 const gameItem = (key) => SHELF.find((x) => x.game === key);
 // the machine question: one button per family people are likely to have had

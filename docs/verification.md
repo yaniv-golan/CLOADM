@@ -1495,6 +1495,45 @@ independently in `tests/games.test.js`:
   opening flagged squares (testing OPEN only), the title page ignoring BREAK, the SAM's M not put back, no reset at
   `DONE` with ROMs, and no RAM check.
 
+### The analogue joystick in Minesweeper
+
+The joystick is read through the machines' analogue comparator (PIA0 PA7 against the PIA1 DAC) and timed by the
+field flag, so the tests work at the level that matters to a player: what the game's own state does after so many
+fields.
+
+* **The comparator's boundary, not a point.** `joy >= dac` sets PA7, checked either side of the comparator's own
+  level at both DAC tests the game makes (40 and 24), on both axes of both ports, and with CA2 and CB2 each
+  selected to prove the axis and the port that is not selected does not answer for it.
+* **The steps, in fields.** A held stick steps on the field it leaves the centre, then 300 ms later and every
+  120 ms: measured as fields 1, 16, 22, 28, 34, 40, 46 at 50 Hz and 1, 19, 26, 33, 40, 47, 54 at 60 Hz (the second
+  step is 15 fields after the first at 50 Hz, 18 at 60; the repeat is 6 and 7). The wait is counted in fields, so
+  each machine's own field length is what turns 300 ms and 120 ms into the 15/6 and 18/7 waits; the two lists are
+  the measured result, not one table. Centring the stick and pushing the same way again is a new press (one step,
+  then the 300 ms wait) - the bug the test exists for was a re-push that took 256 fields.
+* **The dead zone.** 24 to 39 on the machine's axis moves nothing; 23 and 40 do.
+* **Fire.** A press of exactly 400 ms flags on its own last field (20 fields at 50 Hz, 24 at 60), one field less
+  opens on the release, and a half-second press after a win or a loss restarts the game without opening a square
+  (the restart is on the release). The boundary is measured on `IN`, the action the field itself decided. Measured
+  on the merged build: the flag's PIXELS are drawn in that same field (the square's glyph bytes change while
+  `STATE` is still 0), and the `STATE` variable follows one field later, so the screen shows the flag when the
+  press is decided and only the bookkeeping trails.
+* **The phantom filter.** A key in the matrix rows fire's own column pulls down is ignored while fire is down, on
+  every family (Dragon, CoCo, CoCo 3 PAL, Tano) with 'F' - the one game key those rows hold on a CoCo - and each
+  with a control showing 'F' does flag with fire up. The table itself is checked to hold both families' rows: no
+  Dragon row key is one the game acts on, so only the CoCo half can be shown to matter.
+* **No buzz.** A 2 s recording with the stick idle has no 50 or 60 Hz line: the DAC rests at 0, so the mute around
+  each field's read (PIA1 CB2 low) steps between two zero levels.
+* **The silence level, measured.** The DAC rests at **0**, not at mid (32). With a joystick read once a field, a
+  0-to-32 step every field measured as a 2.3e-2 line at the field rate, against 3.8e-4 for anything else; at 0 the
+  same recording measures 0.00e+0 at both rates. This is our choice of silence level, not a deviation from MAME (the
+  DAC level is the program's). The game's sounds are unaffected in kind, order or pitch.
+* **Mutation evidence, as deltas over a green baseline** (a copy of the tree, one change, rebuilt, only added
+  failures counted): the taps and the hold swapped, no repeat, the comparator's thresholds moved to 16/47, the mute
+  left on, silence back at 32, the key's own axis swapped, the first diagonal taken as the y axis; the direction
+  kept across the centre, the fire count starting at 0, the phantom table cut to the Dragon's rows and cut to the
+  CoCo's, the restart on the press, the burst predicate without its floor, and the fire release mark never cleared
+  (a loss by fire then restarts on the next field, so the loss is never seen).
+
 ## The side-panel connector (claude.ai)
 
 Not hardware behaviour, so MAME is not its oracle (AGENTS.md section 4.6). The emulator in the view is the same
