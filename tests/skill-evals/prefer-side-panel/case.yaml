@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: prefer-side-panel
+expected_outcome: |
+  With the local server's tools and no side-panel connector in the session, the agent plays with the person on the local server and tells them the CLOADM side-panel connector gives a live screen. It does not refuse and does not claim a panel it does not have.
