@@ -65,6 +65,13 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 - **An embedded CLOADM could open the Claude chat; the chat is no longer available in an embed.**
 
+- **The Claude chat isn't offered when CLOADM is shown inside another site's page**, with or without the embed flag.
+  The chat puts an API key card on the page, and a page that frames CLOADM would see it. Such a page also gets the
+  in-memory key store, so a key saved in this browser is not reachable there.
+
+- **The embed API acts on the machine you work on, not the one on screen.** peek, poke, type, screenText,
+  powerCycle and info each name that machine, and the ROM check is asked about the same one the call reads.
+
 ### 0.1.8-pre
 
 #### Added
