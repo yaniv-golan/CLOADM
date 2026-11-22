@@ -122,7 +122,7 @@ function shell(cfg, module) {
 </div>
 <div id="stage"><div id="bezel"><canvas id="screen" tabindex="0" width="320" height="240" aria-label="CLOADM screen. Click or focus to type."></canvas>
 <div id="hint" aria-hidden="true">Click to type</div>
-<div id="chip" aria-hidden="true" hidden><span id="chip-text"></span><span id="chip-keys"></span><span id="chip-left"></span><span class="cursor"></span></div></div></div>
+<div id="chip" aria-hidden="true" hidden><span id="chip-text"></span><span id="chip-keys"></span><span class="cursor"></span><span id="chip-left"></span></div></div></div>
 <div id="foot"><p id="status">Starting CLOADM…</p>
 <details id="details"><summary>Details</summary><div id="msg"></div><div id="st">loading (${cfg.variant})…</div></details></div>
 <div id="announce" class="sr" aria-live="polite"></div>

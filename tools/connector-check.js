@@ -438,19 +438,26 @@ async function uiScenario(browser, check, { shots = null } = {}) {
         const el = (id) => document.getElementById(id), cs = (id) => getComputedStyle(el(id));
         const bg = cs('chip').backgroundColor;
         const bezel = cs('bezel');
-        el('programs').focus();
-        const ring = cs('programs').outlineColor;
-        el('screen').focus();
-        const screenRing = getComputedStyle(el('screen')).boxShadow;
         return { chip: el('chip').textContent, visible: el('chip').checkVisibility(), bg, text: ratio(cs('chip-text').color, bg), keys: ratio(cs('chip-keys').color, bg),
           outline: bezel.outlineStyle === 'solid' ? bezel.outlineColor : null, edge: bezel.outlineStyle === 'solid' ? ratio(bezel.outlineColor, 'rgb(250, 249, 245)') : null,
-          glow: /217, 119, 87/.test(bezel.boxShadow), ring, screenRing };
+          glow: /217, 119, 87/.test(bezel.boxShadow) };
       });
+      // the focus rings, reached from the keyboard (so :focus-visible holds): Sound → Tab → ⋯ → Tab → the screen
+      await v.focus('#sound');
+      await page.keyboard.press('Tab');
+      const ring = await v.evaluate(() => { const e = document.activeElement; return { id: e.id, visible: e.matches(':focus-visible'), colour: getComputedStyle(e).outlineColor, style: getComputedStyle(e).outlineStyle }; });
+      await page.keyboard.press('Tab');
+      const screenRing = await v.evaluate(() => { const e = document.activeElement; return { id: e.id, visible: e.matches(':focus-visible'), shadow: getComputedStyle(e).boxShadow }; });
+      const token = await v.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--focus').trim().toLowerCase());
+      Object.assign(colours[theme], { ring, screenRing, token });
     }
     const clay = 'rgb(217, 119, 87)';
     const r34 = ['light', 'dark'].every((t) => {
       const c = colours[t];
-      return c.visible && /Claude/.test(c.chip) && c.bg === clay && c.text >= 4.5 && c.keys >= 4.5 && c.glow && c.ring !== clay && !/217, 119, 87/.test(c.screenRing)
+      return c.visible && /Claude/.test(c.chip) && c.bg === clay && c.text >= 4.5 && c.keys >= 4.5 && c.glow
+        && c.ring.id === 'more' && c.ring.visible && c.ring.style === 'solid' && c.ring.colour !== clay
+        && c.screenRing.id === 'screen' && c.screenRing.visible && /rgb/.test(c.screenRing.shadow) && !/217, 119, 87/.test(c.screenRing.shadow)
+        && c.token && c.token !== '#d97757'
         && (t === 'light' ? c.outline === 'rgb(184, 92, 62)' && c.edge >= 3 : c.outline === null);
     });
     check('connector ui: Claude\'s chip is filled clay with near-black text (≥ 4.5:1, its keys too) and says "Claude", in light and dark host themes; the bezel takes a clay edge (outlined #B85C3E, ≥ 3:1, on a light host); the focus ring is never clay',
