@@ -123,7 +123,7 @@ fails when it and the code differ:
 | `dragon200`, `tanodr64` | `cpu`, `ram`, `hires` | cassette | DragonDOS or Delta DOS | yes, with its port | no | no |
 | `dragon200e` | `cpu`, `ram`, `hires`, `inverseVideo` | cassette | DragonDOS or Delta DOS | yes, with its port | no | no |
 | `dgnalpha` | `cpu`, `ram` | cassette | its own, built in (2 drives) | chip only, no port | no | no |
-| `d64plus` | `cpu`, `ram` | cassette | DragonDOS or Delta DOS | chip only, no port | no | no |
+| `d64plus` | `cpu`, `ram` | cassette | DragonDOS or Delta DOS | yes, with its port | no | no |
 | `coco`, `coco2b` | `cpu`, `ram`, `hires`, `becker`, `ssc` | cassette | Disk BASIC (RS-DOS) | no | yes | yes |
 | `mx1600`, `lzcolor64`, `cd6809`, `cp400` | `cpu`, `ram`, `hires`, `becker` | cassette | Disk BASIC (RS-DOS) | no | yes | yes |
 | `coco3` | `cpu`, `ram`, `hires`, `becker`, `ssc` | cassette | Disk BASIC (RS-DOS) | no | yes | yes |

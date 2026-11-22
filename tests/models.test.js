@@ -151,6 +151,20 @@ check('the CP-400 ROM is the archive name cp400bas.rom', p.roms[0].files.include
   check('dragon200e: PIA1 PB0 follows the 6551\'s port (idle 1, a start bit 0)', idle === 1 && (m.read(0xFF22) & 1) === 0);
 }
 
+// The Dragon 64 Plus: MAME's d64plus() starts from dragon64(config) (src/mame/trs/dragon.cpp), so it has the 64's
+// 6551 and its RS-232 port, with PB0 of PIA1 reading the port's RXD.
+{
+  const p = Emu.profiles.d64plus;
+  const m = Emu.createMachine('d64plus');
+  m.reset(true);
+  check('d64plus: the 6551 has its RS-232 port, as the Dragon 64\'s', p.acia === true && p.rs232 === true && !!m.acia);
+  m.write(0xFF23, 0x00); m.write(0xFF22, 0x00); m.write(0xFF23, 0x04);
+  m.acia.attachSerial('terminal', { baud: 1200 });
+  const idle = m.read(0xFF22) & 1;
+  m.acia.port.send([0x00], m.ioTime());
+  check('d64plus: PIA1 PB0 follows the 6551\'s port (idle 1, a start bit 0)', idle === 1 && (m.read(0xFF22) & 1) === 0);
+}
+
 // ---- RAM options: the CoCo's 4K/16K/32K/64K ----
 // The fitted RAM (MAME's coco12.cpp: RAM over $0000..size-1, everything above it unreadable) and the SAM's
 // M1/M0 mask that mirrors the video address to it (MC6883 data sheet p. 4-645, "Memory Size").
