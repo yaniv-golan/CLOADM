@@ -1,18 +1,20 @@
 /*
- * The Share screen: a view of /play/ at #share, like the
- * Library. "Capture & share" captures the moment (the snapshot and the picture at that instant) and opens it.
+ * The Share screen: a view of /play/ at #share, like the Library. The app bar's Share button captures the moment (the
+ * snapshot and the picture at that instant) and opens it. Its one job: send this exact moment to someone.
  *
- * Share this moment: the picture as a link preview; a link that opens exactly here (Session.snapshotLink: the
- * snapshot rides in the URL's fragment, which never reaches a server; js/ui/snapshot-panel.js opens it). The
- * snapshot holds no byte of a ROM or cartridge (Session.shareFile): it names them, and the person opening it needs
- * their own; the card under the link says which;
- * a 6-second clip of the screen (MediaRecorder: MP4 where the browser records it, WebM otherwise, and the button
- * says which); the screenshot at true pixels; the snapshot file; and what someone without the ROMs will see.
- * Embed: the iframe and script for a blog post, written by js/config.js (buildUrl) from the machine, program
- * and options chosen here. Your settings: export and import (js/ui/settings-file.js), never ROMs.
+ * Top: the picture as a link preview, one line saying what the link does, a ROM line (what the person opening it must add,
+ * or that it runs without ROMs: the snapshot holds no byte of a ROM or cartridge, Session.shareFile names them), the link
+ * (Session.snapshotLink: the snapshot rides in the URL's fragment, which never reaches a server; js/ui/snapshot-panel.js
+ * opens it), Share... (navigator.share, the URL only, where canShare allows it) and Copy link.
+ * "More ways to share" (collapsed): a 6-second clip of the screen (MediaRecorder: MP4 where the browser records it, WebM
+ * otherwise, and the button says which), the screenshot at true pixels, the snapshot file.
+ * "Embed in a web page" (collapsed): the iframe and script for a blog post, written by js/config.js (buildUrl) from the
+ * machine, program and options chosen here.
+ * (The settings export/import lives on the Machine tab: js/ui/settings-file.js.)
  */
 import { profiles } from '../machines/profiles.js';
 import { buildUrl } from '../config.js';
+import { needsLine } from '../media/romrefs.js';
 import { CanvasPresenter } from '../video/canvas.js';
 import { $ } from './page.js';
 
@@ -50,6 +52,13 @@ export function setupShare(page) {
     page.openView('#share');
   };
 
+  // a closed disclosure's body is `hidden` for real (not only folded by <details>), so a reading mode and assistive
+  // technology see what the screen shows
+  for (const d of view.querySelectorAll('details.disc')) {
+    const body = d.querySelector(':scope > :not(summary)');
+    d.addEventListener('toggle', () => { body.hidden = !d.open; });
+  }
+
   // ---------------- share this moment ----------------
   async function capture() {
     const m = session.machine, frame = m.render();
@@ -63,33 +72,52 @@ export function setupShare(page) {
     const link = n9 ? session.shareUrl(location.href) : await session.snapshotLink(location.href, file);
     const png = await new Promise((ok) => c.toBlob(ok, 'image/png'));
     captured = { file, png, link, base: file ? file.name.replace(/\.cloadm$/, '') : `${m.profile.name.replace(/[^A-Za-z0-9]+/g, '')}-NitrOS-9` };
-    $('btnShareDownload').disabled = !file;
+    const dl = $('btnShareDownload');
+    dl.disabled = !file;
+    dl.textContent = file ? `Download snapshot (${(file.bytes.length / 1024).toFixed(0)} KB)` : 'Download snapshot';
     const pic = $('sharePicture');
     pic.width = c.width; pic.height = c.height;
     pic.getContext('2d').drawImage(c, 0, 0);
-    $('shareTitle').textContent = `${m.profile.name.replace(/^Tandy /, '')} · CLOADM`;
-    $('shareWhen').textContent = `${location.host || 'cloadm.dev'} · link preview, rendered from the real frame · captured at ${time(new Date())}`;
+    const name = m.profile.name.replace(/^Tandy /, '');
+    $('shareTitle').textContent = `${name} · CLOADM`;
+    $('shareWhen').textContent = `captured ${time(new Date())}`;
     $('shareLink').value = link;
-    $('shareCopied').textContent = file ? `The link holds a ${(file.bytes.length / 1024).toFixed(0)} KB snapshot.` : 'The link boots NitrOS-9; it holds no snapshot.';
+    syncPrimary();
+    // one line under the picture, what the link does; then, only as needed, what the person opening it needs
+    const rom = $('shareRom'), extra = $('shareExtra');
+    rom.textContent = ''; rom.classList.remove('warn'); extra.textContent = '';
+    const note = (text) => { const p = document.createElement('p'); p.textContent = text; extra.append(p); };
     if (!file) {
-      $('shareRecipient').textContent = 'They need their own NitrOS-9 DriveWire image in their library: the link boots NitrOS-9 on the CoCo 3 from it, and holds no part of yours.';
+      $('shareNote').textContent = `The link starts NitrOS-9 fresh on the ${name}; it can't hold this exact moment.`;
+      note('They need their own NitrOS-9 DriveWire image in their library: the link boots NitrOS-9 on the CoCo 3 from it, and holds no part of yours.');
       syncEmbed(m.id);
       return;
     }
-    // what the person opening it needs: their own copies of the ROMs and cartridge it names, or nothing
-    const needs = file.needs.map((x) => x.label);
-    $('shareRecipient').innerHTML = '';
-    if (needs.length) {
-      const b = document.createElement('strong'); b.textContent = `They need their own ${needs.join(' and ')}.`;
-      $('shareRecipient').append(b, ' The link holds none of them, only which ones (and which version) this snapshot used. With the same ones it opens exactly here; without them CLOADM says what to add.');
-    } else $('shareRecipient').textContent = 'It ran without ROMs, so it opens anywhere.';
+    $('shareNote').textContent = `Opens on the ${name} exactly as it is now. A snapshot reopens on the same machine, RAM and ROMs.`;
+    if (file.needs.length) { rom.textContent = needsLine(file.needs); rom.classList.add('warn'); }
+    else rom.textContent = 'Runs without ROMs, so it opens for anyone.';
     // a tape being recorded is not in the link (its pulse timings could carry ROM code: js/media/romrefs.js)
-    if (file.dropped.includes('deck.recording')) $('shareRecipient').append(' The tape being recorded is not in the link: it opens with the recorder stopped.');
+    if (file.dropped.includes('deck.recording')) note('The tape being recorded is not in the link: it opens with the recorder stopped.');
     syncEmbed(m.id);
   }
+  // Share… (the system sheet, the URL only) where the browser can share it; in an embed only if the frame allows web-share
+  const canNative = () => {
+    const url = $('shareLink').value;
+    if (typeof navigator.share !== 'function' || !navigator.canShare?.({ url })) return false;
+    return !document.body.classList.contains('embed') || document.featurePolicy?.allowsFeature?.('web-share') === true;
+  };
+  const syncPrimary = () => {
+    const native = canNative();
+    $('btnShareNative').hidden = !native;
+    $('btnShareNative').classList.toggle('primary', native);
+    $('btnShareCopy').classList.toggle('primary', !native);
+  };
+  $('btnShareNative').onclick = async () => {
+    try { await navigator.share({ url: $('shareLink').value }); }
+    catch (e) { if (e && e.name === 'AbortError') return; page.toast('Could not open the share sheet: copy the link instead'); }
+  };
   $('btnShareCopy').onclick = async () => {
     const url = $('shareLink').value;
-    // a toast on this page ("Share link copied"); the line under the link keeps saying what it holds
     try { await navigator.clipboard.writeText(url); page.toast('Share link copied'); }
     catch (e) { $('shareLink').select(); page.toast('Press Ctrl+C to copy the link'); }
   };

@@ -64,6 +64,14 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   building every track of a 180K VDK takes about 88 ms instead of 122 ms, and restoring a snapshot with four drives
   and building all their tracks 335 ms instead of 499 ms. Every track's flux and every image `saveDisk` writes are
   unchanged byte for byte, and so are the regression hashes.
+- **The Share screen does one job: send this exact moment.** Under the heading "Share this moment" it now shows the
+  preview, one line saying what the link does ("Opens on the Dragon 64 exactly as it is now…", or that the link starts
+  NitrOS-9 fresh while NitrOS-9 runs), a ROM line only as needed, the link, and **Share…** (the system share sheet,
+  the URL only, where the browser offers it) with **Copy link** always beside it. The clip, the PNG and the snapshot
+  file (its size now on the button) sit under "More ways to share", and the embed builder under "Embed in a web page";
+  both are collapsed. On a phone the buttons and the link are on the first screen; on a desktop the preview and the
+  actions are side by side. The long ROMs paragraph and the "what the person opening it sees" box are gone, replaced by
+  the ROM line. The settings file moved to the Machine tab (**Settings file**: Export…, Import…).
 
 ### Fixed
 

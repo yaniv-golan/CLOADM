@@ -582,7 +582,7 @@ a chat with the real one needs a key, so it is done by hand. Chat with the real 
    a few characters and press Esc: the line goes and the chat stays. Press Esc once more on the empty prompt: the chat
    closes and the emulator is back, as with **← Emulator**.
 6. Save a wrong key (`sk-ant-wrong`) and send a line: the help line says the key was refused, and nothing retries.
-7. ← Emulator, then **Capture & share** → Your settings → **Export settings…**: the file holds no key. Back in the chat,
+7. ← Emulator, then the **Machine** tab → **Settings file** → **Export…**: the file holds no key. Back in the chat,
    **Forget key**.
 
 ## LIZA for the 6803 (MC-10, Matra Alice)

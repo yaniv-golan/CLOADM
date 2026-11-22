@@ -375,6 +375,8 @@ const switchText = async (page, want) => { await maybeWaitFor('the text read as 
 const confirmRam = async (page) => { await waitFor(page, () => !document.getElementById('switchConfirm').hidden); await page.click('#btnSwitch'); };
 // open a tab of the settings drawer
 const openTab = (page, name) => page.click(`[role="tab"]:text-is("${name}")`);
+// the Share screen's disclosures ("More ways to share" #shareMore, "Embed in a web page" #shareEmbed) open by their summary, as a person would
+const openDisc = async (page, id) => { if (!(await page.evaluate((i) => document.getElementById(i).open, id))) await page.click(`#${id} > summary`); };
 // The stub firmware's own prompt, for a check that types POKEs into it: a power-on of the machine itself, below the
 // page. The page's Power cycle no longer lands there without ROMs: it starts the welcome menu.
 // It waits for the page's start first (the welcome menu it may be starting would land on top otherwise).
@@ -1515,7 +1517,8 @@ async function nitros9Checks(browser, base, check) {
   const link = await page.inputValue('#shareLink');
   check('nitros9: Share gives a link with nitros9=1 and no snapshot or image name; the snapshot download is off',
     /nitros9=1/.test(link) && /machine=coco3/.test(link) && !/#s=/.test(link) && !/myboot/.test(link) && await page.isDisabled('#btnShareDownload') &&
-    /their own NitrOS-9 DriveWire image/.test(await page.textContent('#shareRecipient')), link);
+    /^The link starts NitrOS-9 fresh on the CoCo 3; it can't hold this exact moment\.$/.test(await page.textContent('#shareNote')) && !/\d KB/.test(await page.textContent('#btnShareDownload')) &&
+    /their own NitrOS-9 DriveWire image/.test(await page.textContent('#shareExtra')), link);
   await page.click('#shareBack');
 
   // ---- the link, in a new page load: the library's image boots again
@@ -3163,12 +3166,12 @@ async function snapshotChecks(browser, base, check) {
       let colours = new Set(); for (let i = 0; i < d.length; i += 4 * 97) colours.add(`${d[i]},${d[i + 1]},${d[i + 2]}`);
       const box = document.getElementById('share').getBoundingClientRect();
       return { w: c.width, h: c.height, fw: f.width, fh: f.height, colours: colours.size, title: document.getElementById('shareTitle').textContent,
-        link: document.getElementById('shareLink').value, recipient: document.getElementById('shareRecipient').textContent,
+        link: document.getElementById('shareLink').value, recipient: document.getElementById('shareRom').textContent, note: document.getElementById('shareNote').textContent, kb: document.getElementById('btnShareDownload').textContent,
         fits: box.left >= 0 && box.right <= innerWidth, scrollX: document.documentElement.scrollWidth <= innerWidth };
     });
-    check(`snapshot (${label}): Share shows the captured picture at true size, the title, a link and what a recipient sees`,
+    check(`snapshot (${label}): Share shows the captured picture at true size, the title, a link, what it does and what a recipient needs`,
       view.w === view.fw && view.h === view.fh && view.colours > 1 && view.title === 'Dragon 64 · CLOADM' && /\/play\/\?machine=dragon64/.test(view.link)
-      && view.recipient === 'It ran without ROMs, so it opens anywhere.' && view.fits && view.scrollX, JSON.stringify(Object.assign({}, view, { link: view.link.slice(0, 80) + '…' })));
+      && view.recipient === 'Runs without ROMs, so it opens for anyone.' && /^Opens on the Dragon 64 exactly as it is now\./.test(view.note) && /^Download snapshot \(\d+ KB\)$/.test(view.kb) && view.fits && view.scrollX, JSON.stringify(Object.assign({}, view, { link: view.link.slice(0, 80) + '…' })));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `share-${label}.png`) });
     // the screen area is hidden behind the share view and the page loop keeps running (paused): the screen keeps
     // its size, so it is there again the moment the view closes (it was shrunk to nothing, review of 4050c58)
@@ -3176,6 +3179,7 @@ async function snapshotChecks(browser, base, check) {
     await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
     const shareBox = await screenBox();
     check(`snapshot (${label}): behind the share view the screen keeps its size`, !/^0px|x 0px$/.test(shareBox) && shareBox === screenBefore, `${screenBefore} -> ${shareBox}`);
+    await openDisc(page, 'shareMore');
     const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#btnShareDownload')]);
     const snapBytes = fs.readFileSync(await dl.path()), snapName = dl.suggestedFilename();
     const json = JSON.parse(zlib.gunzipSync(snapBytes).toString('utf8'));
@@ -5017,7 +5021,7 @@ const RETIRED = [
   [/\bmount(ed|s)?\b/i, 'insert'],
   [/save state|quick[- ]save|quick slots|Keep this moment/i, 'Snapshot 1–3, Take snapshot'],
   [/\bSlot [1-3]\b|\b(to|Load) slot [1-3]\b/, 'Snapshot 1–3 (the Multi-Pak\'s own slots keep their name)'],
-  [/Capture (&|and) share|share this moment|\bmoments?\b/i, 'Share, snapshot'],
+  [/Capture (&|and) share|\bmoments\b/i, 'Share, snapshot'],
   [/ROM bundle/i, 'ROM pack'],
   [/\bD(32|64|200)\b/, 'Dragon 32, Dragon 64…'],
   [/Tandy Color Computer(?! 3 \(CoCo 3\))|Color Computer (1\/2|2B|3)|Micro Color Computer|Tandy MC-10/, 'CoCo 1/2, CoCo 2B, CoCo 3, MC-10'],
@@ -11577,7 +11581,7 @@ async function claudeChecks(browser, base, check) {
   await page.click('#btnClaudeBack');
   check('claude: "← Emulator" leaves full screen (the conversation is kept for the side panel) and the address drops app=claude', await waitFor(page, () => !document.body.classList.contains('claude-open')
     && !window.emu.session.chatMachines && window.emu.session.claudeView === 'panel' && !/app=claude/.test(location.search) && getComputedStyle(document.querySelector('.drawer')).display !== 'none'));
-  await page.click('#btnShare'); await page.waitForSelector('#share', { state: 'visible' });   // Export settings is on the Share screen
+  await openTab(page, 'Machine'); await page.waitForSelector('#btnSettingsExport', { state: 'visible' });   // Export… is on the Machine tab (R33: it left the Share screen)
   const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#btnSettingsExport')]);
   const file = path.join(os.tmpdir(), `cloadm-claude-settings-${process.pid}.json`);
   await dl.saveAs(file);
@@ -11617,7 +11621,7 @@ async function settingsChecks(browser, base, check) {
   await openTab(page, 'Display'); await page.click('#btnSharp');
   await dropFiles(page, [['coco3.rom', fake(32768, 5)]]);
   await waitFor(page, () => window.emu.session.machineRoms('coco3').sockets.some((s) => s.crc));
-  await page.click('#btnShare'); await page.waitForSelector('#share', { state: 'visible' });   // the Share screen
+  await openTab(page, 'Machine'); await page.waitForSelector('#btnSettingsExport', { state: 'visible' });   // Export… is on the Machine tab (R33: it left the Share screen)
   const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#btnSettingsExport')]);
   const file = path.join(os.tmpdir(), `cloadm-settings-${process.pid}.json`);
   await dl.saveAs(file);
@@ -11630,7 +11634,7 @@ async function settingsChecks(browser, base, check) {
   const p2 = await ctx2.newPage();
   await p2.goto(`${base}?machine=dragon64`);
   await waitFor(p2, () => window.emu && window.emu.linkDone);
-  await p2.click('#btnShare'); await p2.waitForSelector('#share', { state: 'visible' });
+  await p2.click('[role="tab"]:text-is("Machine")'); await p2.waitForSelector('#btnSettingsImport', { state: 'visible' });   // Import… is on the Machine tab
   await Promise.all([p2.waitForEvent('load'), p2.setInputFiles('#fileSettings', file)]);
   await waitFor(p2, () => window.emu && window.emu.linkDone);
   check('settings: Import in a fresh profile, then the page reloads with them', await p2.evaluate(() => window.emu.session.display.view === 'sharp'
@@ -11638,13 +11642,104 @@ async function settingsChecks(browser, base, check) {
   check('settings: the imported profile has no ROMs', await p2.evaluate(() => window.emu.session.machinesWithRoms().length === 0));
   await p2.goto(`${base}?machine=dragon64`);
   await waitFor(p2, () => window.emu && window.emu.linkDone);
-  await p2.click('#btnShare'); await p2.waitForSelector('#share', { state: 'visible' });
+  await p2.click('[role="tab"]:text-is("Machine")'); await p2.waitForSelector('#btnSettingsImport', { state: 'visible' });
   await p2.setInputFiles('#fileSettings', { name: 'x.json', mimeType: 'application/json', buffer: Buffer.from('{"name":"not settings"}') });
   check('settings: a file that isn\'t CLOADM settings is refused', await waitFor(p2, () => /not a CLOADM settings file/.test(document.getElementById('toast').textContent)));
   fs.rmSync(file);
   check('settings: no page errors', !errors.length, errors.join('; '));
   await ctx2.close();
   await ctx.close();
+}
+
+// R33, the Share screen's job (send this exact moment): on a 375x548 phone the primary action and the link are on
+// the first screen, the disclosures toggle and keep every action reachable, Share… hands navigator.share just the
+// URL (a cancelled sheet is no error), and without canShare "Copy link" is the primary button
+async function shareScreenChecks(browser, base, check) {
+  const errors = [];
+  const ctx = await browser.newContext({ viewport: { width: 375, height: 548 }, acceptDownloads: true, serviceWorkers: 'block' });
+  // navigator.share as a browser with a share sheet has it; __abort makes the person cancel the sheet
+  await ctx.addInitScript(() => {
+    window.__shared = []; window.__abort = false;
+    navigator.canShare = (d) => !!d && typeof d.url === 'string';
+    navigator.share = async (d) => { window.__shared.push(d); if (window.__abort) throw new DOMException('Share canceled', 'AbortError'); };
+  });
+  const page = await ctx.newPage();
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`${base}?machine=dragon64#share`);   // opened by address: it opens filled
+  await started(page);
+  await waitFor(page, () => !document.getElementById('share').hidden && !!document.getElementById('shareLink').value);
+  const first = await page.evaluate(() => {
+    const r = (id) => document.getElementById(id).getBoundingClientRect(), vis = (b) => b.top >= 0 && b.bottom <= innerHeight && b.left >= 0 && b.right <= innerWidth && b.width > 0;
+    return { tops: ['shareHeading', 'sharePicture', 'shareTitle', 'shareNote', 'shareRom', 'shareLink', 'btnShareCopy'].map((i) => `${i}:${Math.round(r(i).top)}-${Math.round(r(i).bottom)}`).join(' '), bottom: Math.round(r('btnShareCopy').bottom), native: vis(r('btnShareNative')), copy: vis(r('btnShareCopy')), url: vis(r('shareLink')), h: document.documentElement.scrollHeight, vh: innerHeight,
+      pic: r('sharePicture').height, closed: ['shareMore', 'shareEmbed'].every((id) => !document.getElementById(id).open) };
+  });
+  if (shotDir) await page.screenshot({ path: path.join(shotDir, 'share-r33-375x548.png') });
+  check('share R33 (375x548): on open the Share… button, Copy link and the URL are inside the viewport', first.native && first.copy && first.url, JSON.stringify(first));
+  check('share R33 (375x548): with the disclosures closed the page is at most 1.5 screens tall, the preview at most 30vh', first.closed && first.h <= first.vh * 1.5 && first.pic <= first.vh * 0.3 + 1, JSON.stringify(first));
+  // the disclosures
+  const open = (id) => page.evaluate((i) => document.getElementById(i).open, id);
+  const toggles = [];
+  for (const id of ['shareMore', 'shareEmbed']) {
+    const a = await open(id); await page.click(`#${id} > summary`); const b = await open(id); await page.click(`#${id} > summary`); toggles.push([a, b, await open(id)]);
+  }
+  check('share R33: "More ways to share" and "Embed in a web page" open and close from their summaries', JSON.stringify(toggles) === JSON.stringify([[false, true, false], [false, true, false]]), JSON.stringify(toggles));
+  const cue = async (id) => page.evaluate((i) => { const c = getComputedStyle(document.querySelector(`#${i} > summary`), '::after'); return `${c.content}|${c.transform}|${getComputedStyle(document.querySelector(`#${i} > summary`)).listStyleType}`; }, id);
+  const cues = [await cue('shareMore')]; await page.click('#shareMore > summary'); await waitFor(page, () => getComputedStyle(document.querySelector('#shareMore > summary'), '::after').transform !== 'matrix(0.707107, 0.707107, -0.707107, 0.707107, 0, 0)'); await page.waitForTimeout(300); cues.push(await cue('shareMore')); await page.click('#shareMore > summary');
+  check('share R33: each summary shows a chevron that turns when its disclosure is open', cues[0].split('|')[0] === '""' && cues[0].split('|')[1] !== cues[1].split('|')[1] && cues[0].split('|')[2] === 'none', cues.join(' -> '));
+  // everything is still reachable
+  await openDisc(page, 'shareMore');
+  const [clipDl] = await Promise.all([page.waitForEvent('download', { timeout: 30000 }), page.click('#btnShareClip')]);
+  const [snap] = await Promise.all([page.waitForEvent('download'), page.click('#btnShareDownload')]);
+  const [shot] = await Promise.all([page.waitForEvent('download'), page.click('#btnShareShot')]);
+  check('share R33: the clip, the snapshot file (its size on the button) and the PNG are reachable under "More ways to share"',
+    /\.(mp4|webm)$/.test(clipDl.suggestedFilename()) && /\.cloadm$/.test(snap.suggestedFilename()) && /\.png$/.test(shot.suggestedFilename())
+    && /^Download snapshot \(\d+ KB\)$/.test(await page.textContent('#btnShareDownload')), `${clipDl.suggestedFilename()} ${snap.suggestedFilename()} ${shot.suggestedFilename()}`);
+  await openDisc(page, 'shareEmbed');
+  if (shotDir) await page.screenshot({ path: path.join(shotDir, 'share-r33-open.png'), fullPage: true });
+  await page.click('#btnEmbedFrameCopy'); await page.click('#btnEmbedScriptCopy');
+  check('share R33: both embed Copy buttons are reachable (and the embed heading stays in the outline)', await page.isVisible('#btnEmbedFrameCopy') && await page.isVisible('#btnEmbedScriptCopy')
+    && await page.evaluate(() => document.querySelector('#embedHeading').tagName === 'H2'));
+  // Share…: the URL only; a cancelled sheet is not an error
+  const link = await page.inputValue('#shareLink');
+  await page.click('#btnShareNative');
+  const shared = await page.evaluate(() => window.__shared.slice());
+  check('share R33: Share… calls navigator.share with { url } and nothing else', shared.length === 1 && JSON.stringify(Object.keys(shared[0])) === '["url"]' && shared[0].url === link, JSON.stringify(shared).slice(0, 120));
+  await page.evaluate(() => { window.__abort = true; });
+  await page.click('#btnShareNative');
+  await painted(page);
+  check('share R33: cancelling the share sheet (AbortError) shows no error', (await page.evaluate(() => window.__shared.length)) === 2 && !(await page.textContent('#toastText')).trim() && !errors.length, errors.join('; '));
+  await ctx.close();
+  // Copy link, the primary action: the clipboard holds exactly the link in the field, and the page says so
+  const ctxc = await browser.newContext({ viewport: { width: 375, height: 548 }, serviceWorkers: 'block', permissions: ['clipboard-read', 'clipboard-write'] });
+  const pc = await ctxc.newPage();
+  const cerrors = [];
+  pc.on('pageerror', (e) => cerrors.push(e.message));
+  await pc.goto(`${base}?machine=dragon64#share`);
+  await started(pc);
+  await waitFor(pc, () => !!document.getElementById('shareLink').value);
+  await pc.click('#btnShareCopy');
+  const copied = await pc.evaluate(() => navigator.clipboard.readText());
+  check('share R33: Copy link puts exactly the link in the field on the clipboard, and says "Share link copied"',
+    copied.length > 20 && copied === await pc.inputValue('#shareLink') && await waitFor(pc, () => /Share link copied/.test(document.getElementById('toastRegion').textContent)), `${copied.length} chars`);
+  check('share R33: Copy link: no page errors', !cerrors.length, cerrors.join('; '));
+  await ctxc.close();
+  // without canShare: Copy link is the primary button, Share… is absent
+  const ctx2 = await browser.newContext({ viewport: { width: 375, height: 548 }, serviceWorkers: 'block' });
+  await ctx2.addInitScript(() => { navigator.canShare = () => false; });
+  const p2 = await ctx2.newPage();
+  const p2errors = [];
+  p2.on('pageerror', (e) => p2errors.push(e.message));
+  await p2.goto(`${base}?machine=dragon64#share`);
+  await started(p2);
+  await waitFor(p2, () => !!document.getElementById('shareLink').value);
+  check('share R33: where canShare is false, Copy link is the primary button and Share… is not shown', await p2.isHidden('#btnShareNative') && await p2.evaluate(() => document.getElementById('btnShareCopy').classList.contains('primary')));
+  // the settings file lives on the Machine tab now
+  await p2.click('#shareBack');
+  await openTab(p2, 'Machine');
+  check('share R33: Export… and Import… are on the Machine tab, in a "Settings file" row', await p2.isVisible('#btnSettingsExport') && await p2.isVisible('#btnSettingsImport')
+    && /^Settings file/.test(await p2.textContent('#settingsFileRow')));
+  check('share R33: no page errors', !errors.length && !p2errors.length, errors.concat(p2errors).join('; '));
+  await ctx2.close();
 }
 
 // the Share screen: layout at desktop and phone width; the link that carries the moment
@@ -11668,15 +11763,16 @@ async function shareChecks(browser, base, site, check) {
     await page.waitForSelector('#share', { state: 'visible' });
     await page.evaluate(() => document.fonts.ready);
     const lay = await page.evaluate(() => {
-      const cols = [...document.querySelectorAll('#share > .col')].map((c) => c.getBoundingClientRect());
+      const cols = [document.querySelector('#share > .preview'), document.querySelector('#share > .col.main')].map((c) => c.getBoundingClientRect());
+      const discs = [...document.querySelectorAll('#share > .disc')].map((c) => c.getBoundingClientRect());
       return { hash: location.hash, emulatorHidden: getComputedStyle(document.querySelector('.layout')).display === 'none', scrollX: document.documentElement.scrollWidth <= innerWidth,
         side: cols[1].left > cols[0].right - 1, stacked: cols[1].top >= cols[0].bottom - 1,
         heading: document.getElementById('shareHeading').textContent, embed: document.getElementById('embedHeading').textContent,
-        fieldsWide: ['embedMachine', 'embedProgram'].every((id) => { const r = document.getElementById(id).getBoundingClientRect(); return Math.abs(r.left - cols[1].left) < 1 && Math.abs(r.width - cols[1].width) < 1; }) };
+        discsFull: discs.length === 2 && discs.every((r) => r.top >= cols[0].bottom - 1 && r.top >= cols[1].bottom - 1 && r.width > innerWidth * 0.6 * (innerWidth > 860 ? 1 : 0.9)) };
     });
     check(`share (${label}): the Share screen replaces the emulator view, ${label === 'desktop' ? 'two columns' : 'one column'}, no sideways scrolling`,
       lay.hash === '#share' && lay.emulatorHidden && lay.scrollX && (label === 'desktop' ? lay.side : lay.stacked)
-      && lay.heading === 'A link that opens exactly here' && lay.embed === 'Put a machine in your blog post' && lay.fieldsWide, JSON.stringify(lay));
+      && lay.heading === 'Share this moment' && lay.embed === 'Embed in a web page' && lay.discsFull, JSON.stringify(lay));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `share-screen-${label}.png`), fullPage: true });
     if (label === 'phone') { check('share (phone): no page errors', !errors.length, errors.join('; ')); await ctx.close(); continue; }
 
@@ -11708,6 +11804,7 @@ async function shareChecks(browser, base, site, check) {
     await ctx2.close();
 
     // the clip
+    await openDisc(page, 'shareMore');
     const clipLabel = await page.textContent('#btnShareClip');
     const [clip] = await Promise.all([page.waitForEvent('download', { timeout: 30000 }), page.click('#btnShareClip')]);
     const clipBytes = fs.readFileSync(await clip.path());
@@ -11717,6 +11814,7 @@ async function shareChecks(browser, base, site, check) {
       `${clipLabel}: ${clip.suggestedFilename()} ${clipBytes.length} bytes`);
 
     // the embed builder, and the iframe it writes running on another origin
+    await openDisc(page, 'shareEmbed');
     await page.selectOption('#embedMachine', 'coco');
     await page.fill('#embedProgram', 'https://files.example/game.cas');
     await page.check('#embedAutorun'); await page.uncheck('#embedCrt');
@@ -11762,9 +11860,11 @@ async function shareChecks(browser, base, site, check) {
     await page.click('#btnPause');                                      // hold the moment still
     await page.click('#btnShare');
     await page.waitForSelector('#share', { state: 'visible' });
-    const shared = await page.evaluate(() => ({ link: document.getElementById('shareLink').value, recipient: document.getElementById('shareRecipient').textContent }));
-    check('share: with your own ROMs the moment is shared, and the page says the recipient needs their own', /#s=/.test(shared.link)
-      && /They need their own 32K-mode BASIC and 64K-mode BASIC\./.test(shared.recipient) && /holds none of them/.test(shared.recipient), shared.recipient);
+    const shared = await page.evaluate(async () => ({ link: document.getElementById('shareLink').value, recipient: document.getElementById('shareRom').textContent,
+      labels: (await window.emu.session.shareFile()).needs.map((x) => x.label) }));
+    // the line names what the snapshot itself names (its needs' labels), whatever they are
+    check('share: with your own ROMs the moment is shared, and the ROM line names the ROMs the snapshot needs', /#s=/.test(shared.link) && shared.labels.length > 0
+      && shared.recipient === `Needs ${shared.labels.join(' and ')}: the person opening it adds their own.` && /32K-mode BASIC and 64K-mode BASIC/.test(shared.recipient), JSON.stringify(shared));
     const W = 16, uni = (a, k) => a.slice(k, k + W).every((v) => v === a[k]);
     const romWindows = new Set();
     for (const r of Object.values(roms)) for (let k = 0; k + W <= r.length; k++) if (!uni(r, k)) romWindows.add(Buffer.from(r.slice(k, k + W)).toString('hex'));
@@ -11799,6 +11899,7 @@ async function shareChecks(browser, base, site, check) {
     check('share: no page errors', !errors.length, errors.join('; '));
     await ctx.close();
   }
+  await shareScreenChecks(browser, base, check);
 }
 
 // the keyboard belongs to the page unless the screen has focus: Tab moves focus, Enter and Space press the
@@ -12296,11 +12397,12 @@ async function semanticsChecks(browser, base, site, check) {
 
     // the views: each its own main landmark with one h1, the emulator behind it inert and out of a reading mode
     for (const [hash, name, own, backBtn] of [['#library', 'Library', 'Your tapes, disks and cartridges', '#btnLibBack'],
-      ['#share', 'A link that opens exactly here', 'The link holds a snapshot', '#shareBack'], ['#debugger', 'DEBUGGER', 'Breakpoints', '#btnDbgBack'],
+      ['#share', 'Share this moment', 'Opens on the', '#shareBack'], ['#debugger', 'DEBUGGER', 'Breakpoints', '#btnDbgBack'],
       ['#add-roms', 'Give it a BASIC to boot', 'Drop your ROM files here', '#btnRomBack']]) {
       if (label !== 'desktop' && hash !== '#library') continue;   // (the views do not change with the size; the Library stands for them)
       await page.evaluate((h) => { location.hash = h; }, hash);
       await waitFor(page, () => getComputedStyle(document.querySelector('.layout')).display === 'none');
+      if (hash === '#share') await waitFor(page, () => !!document.getElementById('shareNote').textContent);
       const v = await outline(page);
       const behind = await page.evaluate(() => { const l = document.querySelector('.layout'); return l.inert && l.getAttribute('aria-hidden') === 'true'; });
       check(`${L}, ${hash}: one main landmark, the view's ("${name}"), one h1 and the headings in order`,
@@ -12309,7 +12411,7 @@ async function semanticsChecks(browser, base, site, check) {
       await closedOk(page, `${L}, ${hash}`);
       const text = await extract(page);
       check(`${L}, ${hash}: the emulator behind the view is inert and aria-hidden, and a reading mode reads the view, not the emulator`,
-        behind && text.includes(own) && !text.includes('TALK TO LIZA') && !text.includes('Fast tape loading'), JSON.stringify({ behind, text: text.slice(0, 200) }));
+        behind && text.includes(own) && !text.includes('TALK TO LIZA') && !text.includes('Fast tape loading'), JSON.stringify({ behind, text: text.slice(0, 600) }));
       await page.click(backBtn);
       await waitFor(page, () => getComputedStyle(document.querySelector('.layout')).display !== 'none');
       const back = await page.evaluate(() => ({ inert: document.querySelector('.layout').inert, focus: document.activeElement && document.activeElement.id }));
@@ -14406,7 +14508,7 @@ async function uiModelChecks(browser, base, check) {
     await openTab(page, 'Machine');
     const none = await page.textContent('#romState');
     // the snapshot sentence, on Share and by the Snapshots
-    const share = await page.evaluate(() => document.querySelector('#share section p').textContent);
+    const share = await page.evaluate(() => document.getElementById('shareNote').textContent);   // (R33: the one line under the preview)
     const slots = await page.textContent('#slotNote');
     check(`R27 (${label}): the ROMs row says "Not added · running without ROMs"; Share and Snapshots say "A snapshot reopens on the same machine, RAM and ROMs."`,
       none === 'Not added · running without ROMs' && share.includes('A snapshot reopens on the same machine, RAM and ROMs.') && slots === 'A snapshot reopens on the same machine, RAM and ROMs.',

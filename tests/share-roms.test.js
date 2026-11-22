@@ -128,6 +128,13 @@ function withRoms(id, roms, config) {
     const set = windows([pak]);
     check('cartridge: the link holds no 16-byte window of its image', arrays.every((a) => firstWindow(a, set) < 0) && firstWindow(text, set) < 0);
     const snap = await s.readSnapshot(Emu.fromBase64Url(new URL(link).hash.slice(3)));
+    {
+      // the Share screen's ROM line is built from the needs' labels (a fixed "BASIC ROMs" would be wrong for a cartridge)
+      const { needsLine } = await import('../js/media/romrefs.js');
+      const needs = (await s.shareFile()).needs;
+      check('cartridge: the ROM line says "Needs the cartridge: ..." from the label', needsLine(needs) === 'Needs the cartridge: the person opening it adds their own.', needsLine(needs));
+      check('ROM line: several needs joined by their labels; none, no line', needsLine([{ label: '32K-mode BASIC' }, { label: '64K-mode BASIC' }]) === 'Needs 32K-mode BASIC and 64K-mode BASIC: the person opening it adds their own.' && needsLine([]) === '');
+    }
     check('cartridge: named by CRC as "the cartridge"', snap.share.images.some((x) => x.kind === 'cartridge' && x.crc === Emu.crc32(pak))
       && snap.share.placed.some((p) => p.path === 'cartridge.state.bytes'));
     const without = new Emu.Session({ store: Emu.memoryStore() });
