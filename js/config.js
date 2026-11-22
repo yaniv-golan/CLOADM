@@ -66,10 +66,10 @@ export function parseUrlConfig(search, fallbackMachine = 'dragon64') {
 
   // a NitrOS-9 link without a machine means the CoCo 3, where it boots
   const id = p.get('machine') ?? (p.has('nitros9') ? NITROS9_MACHINES[0] : null);
-  // (the names the machine picker shows, not the ids a link uses: a person reads the message, and typed an id)
-  if (id !== null && !profiles[id]) errors.push(`machine=${id}: no such machine (the machines are ${Object.values(profiles).map((p) => p.name).join(', ')})`);
+  // (the fallback machine opens, and the message says which: the list of every machine made a toast of a whole paragraph)
   cfg.machine = id !== null && profiles[id] ? id : null;
   const profile = profiles[cfg.machine || fallbackMachine] || profiles.dragon64;
+  if (id !== null && !profiles[id]) errors.push(`machine=${id}: no such machine (opened ${profile.name} instead)`);
 
   // the model's options, checked against its values
   const options = profile.options || {};
@@ -88,9 +88,9 @@ export function parseUrlConfig(search, fallbackMachine = 'dragon64') {
   }
 
   const start = p.get('start');
-  if (start !== null) { if (STARTS.includes(start)) cfg.start = start; else errors.push(`start=${start} isn't something CLOADM has (try start=${STARTS.join(' or start=')})`); }
+  if (start !== null) { if (STARTS.includes(start)) cfg.start = start; else errors.push(`start=${start} isn't a start CLOADM has (${STARTS.join(', ')})`); }
   const app = p.get('app');
-  if (app !== null) { if (APPS.includes(app)) cfg.app = app; else errors.push(`app=${app} isn't something CLOADM has (try app=${APPS.join(' or app=')})`); }
+  if (app !== null) { if (APPS.includes(app)) cfg.app = app; else errors.push(`app=${app} isn't an app CLOADM has (${APPS.join(', ')})`); }
   // both: the app wins (it takes the screen), and start= is not run behind it
   if (cfg.app && cfg.start) { errors.push(`start=${cfg.start} is ignored: app=${cfg.app} opens instead`); cfg.start = null; }
   // nitros9: true (the image the user has) or an image's name; only where NitrOS-9 boots (the CoCo 3)

@@ -557,6 +557,41 @@ async function say(s, calls, line, want) {
     check('the settings export holds no key', !exp.includes(KEY) && !/sk-ant/.test(exp));
   }
 
+  // ---- a line of the page's own on the chat screen (chatNote): the no-key hint and the key-saved line ----
+  {
+    const { s, chat, calls, basic } = open([textReply('Hi.')]);
+    frames(s, 150);
+    check('chatNote puts the page\'s line on the chat screen, as a reply is shown', s.chatNote('No API key yet: add one above.')
+      && (frames(s, 150), chatScreen(s.shownMachine).some((l) => l.includes('No API key yet: add one above.'))), chatScreen(s.shownMachine).join('|'));
+    check('chatNote is nobody\'s words: not in the conversation Claude reads, and the prompt is back after it',
+      chat.messages.length === 0 && chatScreen(s.shownMachine).some((l) => l.trim().startsWith('>')), JSON.stringify(chat.messages));
+    // the key-saved line is plain ASCII (the chat font has no check mark: it would draw blank cells) and fits one row;
+    // the WHOLE row is compared, so a glyph the font lacks turns the row into something else and fails
+    const SAVED = 'Key saved. Type below and press ENTER.';
+    s.chatNote(SAVED);
+    frames(s, 150);
+    check('chatNote: the key-saved line shows whole on one row of the chat screen', chatScreen(s.shownMachine).some((l) => l === SAVED) && SAVED.length <= 42 && /^[\x20-\x7E]+$/.test(SAVED), chatScreen(s.shownMachine).join('|'));
+    s.chatNote('A check mark \u2713 has no glyph.');
+    frames(s, 150);
+    check('chatNote: a character the chat font lacks does not draw as itself, so the whole-row comparison above fails on it (why the line is ASCII)',
+      chatScreen(s.shownMachine).some((l) => l.startsWith('A check mark')) && !chatScreen(s.shownMachine).some((l) => l === 'A check mark \u2713 has no glyph.'), chatScreen(s.shownMachine).join('|'));
+    s.chatNote('one line\r\nsecond line?');
+    frames(s, 150);
+    check('chatNote stays one line (a line break in it is a space)', chatScreen(s.shownMachine).some((l) => l === 'one line second line?'), chatScreen(s.shownMachine).join('|'));
+    // the chat screen is a bitmap, so a search of memory for the key's bytes cannot see it on the screen: the screen's
+    // text, rows joined with no separator (a key wrapped over rows is still found), must not hold the key
+    const screenText = () => chatScreen(s.shownMachine).join('');
+    const has = (u8) => Buffer.from(u8).includes(Buffer.from(KEY));
+    check('with the notes on screen, neither machine holds the key, no snapshot has it, the settings export has none, and the chat screen does not show it',
+      !has(basic.ram) && !has(s.chatMachines.chat.ram) && !snapText(basic).includes(KEY) && !snapText(s.chatMachines.chat).includes(KEY)
+      && !JSON.stringify(s.exportSettings()).includes(KEY) && !screenText().includes(KEY) && !screenText().includes(KEY.slice(0, 12)), screenText().slice(0, 300));
+    chat.busy = true;
+    check('chatNote is refused while a reply streams (it would land in the middle of it)', s.chatNote('x') === false);
+    chat.busy = false;
+    s.endChat();
+    check('chatNote with no chat open does nothing', s.chatNote('x') === false);
+  }
+
   console.log(`${n - fail}/${n} Claude session checks passed`);
   process.exitCode = fail ? 1 : 0;
 })().catch((e) => { console.error('test crashed:', e); process.exitCode = 1; });

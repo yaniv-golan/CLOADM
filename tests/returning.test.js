@@ -37,9 +37,9 @@ const store = () => { const m = new Map(); return { get: (k) => (m.has(k) ? m.ge
   frames(s, 50);
   let t = s.screenText();
   check('back: "WELCOME BACK" under the title, centred', t[6] === '          WELCOME BACK          ', JSON.stringify(t[6]));
-  check('back: option 6 "CARRY ON WITH LIZA" (its number in inverse video) under 5 PLAY A GAME, then "PRESS 1 TO 6"', t[13].trim() === '6 CARRY ON WITH LIZA'
-    && s.shownMachine.ram[0x400 + 13 * 32 + 4] === 0x36 && t[14].trim() === 'PRESS 1 TO 6' && t[12].trim() === '5 PLAY A GAME' && t[11].trim() === '4 CHAT WITH CLAUDE'
-    && t[7].trim() === '' && t[8].trim() === '1 TALK TO LIZA', JSON.stringify(t.slice(6, 15)));
+  check('back: option 6 "CARRY ON WITH LIZA" (its number in inverse video) under 5 PLAY A GAME (the options moved up a row), a blank row, then "PRESS 1 TO 6" (not against the colour bar)', t[12].trim() === '6 CARRY ON WITH LIZA'
+    && s.shownMachine.ram[0x400 + 12 * 32 + 4] === 0x36 && t[13].trim() === '' && t[14].trim() === 'PRESS 1 TO 6' && t[11].trim() === '5 PLAY A GAME' && t[10].trim() === '4 CHAT WITH CLAUDE'
+    && t[7].trim() === '1 TALK TO LIZA' && t[8].trim() === '2 COLOUR AND SOUND', JSON.stringify(t.slice(6, 15)));
   s.shownMachine.stubKeys.push(0x36); frames(s, 2);
   check('back: key 6 emits welcome:carryon', events.join() === 'welcome:carryon', events.join());
   s.startWelcome(welcome, { greeting: 'bye' });
@@ -53,10 +53,10 @@ const store = () => { const m = new Map(); return { get: (k) => (m.has(k) ? m.ge
   frames(s, 50);
   t = s.screenText();
   check('first: the first visit\'s subtitle; option 6 cut at a word to fit (26 characters at most)', t[6].trim() === 'DRAGON AND COLOR COMPUTER'
-    && t[13].trim() === '6 CARRY ON WITH A VERY LONG', JSON.stringify(t[13]));
+    && t[12].trim() === '6 CARRY ON WITH A VERY LONG', JSON.stringify(t[12]));
   s.startWelcome(welcome, { carryOn: 'SUPERCALIFRAGILISTIC.CAS' });
   frames(s, 50);
-  check('a name with no space to cut at is cut at the edge', s.screenText()[13].trim() === '6 CARRY ON WITH SUPERCALIFRA', JSON.stringify(s.screenText()[13]));
+  check('a name with no space to cut at is cut at the edge', s.screenText()[12].trim() === '6 CARRY ON WITH SUPERCALIFRA', JSON.stringify(s.screenText()[12]));
   let err = null;
   try { s.startWelcome(welcome, { greeting: 'hello' }); } catch (e) { err = e; }
   check('an unknown greeting is a SessionError', err instanceof Emu.SessionError, err && err.message);

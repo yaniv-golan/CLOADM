@@ -67,7 +67,7 @@ export function setupRomSockets(page, romInput, { confirmSwitch }) {
     card.dataset.disk = ready.length ? 'loaded' : 'missing-optional';
     const body = el('div', null, 'body'), top = el('div', null, 'top');
     const names = c.map((x) => x.name.replace(/ cartridge$/, ''));
-    top.append(el('strong', `Disk drives (optional): ${names.join(' or ')}`), el('span', 'optional', 'tag'));
+    top.append(el('strong', `Disk drives: ${names.join(' or ')}`), el('span', 'optional', 'tag'));
     const state = ready.length ? `✓ ${ready.map((x) => `${x.name.replace(/ cartridge$/, '')} disk ROM`).join(', ')} · ready for disks`
       : 'Optional: without a disk ROM the drives stay empty. CLOADM doesn\'t include one; add your own dump.';
     body.append(top, el('div', `8 KB · usually ${c.map((x) => x.rom).join(' or ')}`, 'expect'), el('div', state, 'state'));
@@ -91,13 +91,13 @@ export function setupRomSockets(page, romInput, { confirmSwitch }) {
       // The Speech/Sound Pak's own sockets: a cartridge board with its own ROM, not part of the machine's. They
       // carry data-ssc rather than data-status so they are a separate list from the machine's sockets (the page's
       // browser check reads the machine's sockets by [data-status]). The Pak itself is an optional cartridge, so its
-      // cards are titled and tagged optional, like the disk card, and come last: a ROM the Pak needs (data-ssc
+      // cards carry the optional tag beside their titles (the words are not repeated in them), like the disk card, and come last: a ROM the Pak needs (data-ssc
       // "missing-required") is still not one the machine needs, and a red "required" beside BASIC's read as if it were.
       const card = el('div', null, 'socket');
       card.dataset.socket = `ssc-${s.id}`;
       card.dataset.ssc = s.status === 'loaded' ? 'loaded' : s.required ? 'missing-required' : 'missing-optional';
       const body = el('div', null, 'body'), top = el('div', null, 'top');
-      top.append(el('strong', `Speech/Sound Pak (optional cartridge): ${s.label}`), el('span', 'optional', 'tag'));
+      top.append(el('strong', `Speech/Sound Pak: ${s.label}`), el('span', 'optional', 'tag'));
       const state = s.status === 'loaded' ? '✓ loaded'
         : s.required ? 'Only for the Speech/Sound Pak: without it the Pak cannot be inserted; it plays its music side from this ROM.'
           : 'Optional: speech is not implemented yet, so the Pak plays music without it.';

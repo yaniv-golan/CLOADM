@@ -575,7 +575,9 @@ function rowMethods() {
   // Session state that belongs to no machine
   const SESSION = new Set(['answerClaude', 'clearTerminal', 'welcomeSound', 'asMachine', 'connectDriveWireChannel', 'ejectDriveWire', 'endChat', 'emit',
     'on', 'personInput', 'ready', 'reset', 'resume', 'resumeClaude', 'setDisplay', 'startAsk', 'startChat', 'stopClaude',
-    'stopRealCoco', 'toSidePanel', 'showChat', 'watchForMenu']);
+    'stopRealCoco', 'toSidePanel', 'showChat', 'watchForMenu',
+    // chatNote writes a line to the chat channel (the chat firmware's screen), never to the person's machine
+    'chatNote']);
   // page concerns, not machine actions
   const UI = new Set(['mediaError', 'visit']);
   const rows = rowMethods();

@@ -33,10 +33,8 @@ export function setupMachinePanel(page, { showRoms }) {
   const btn = $('machineBtn'), menu = $('machineMenu'), confirm = $('switchConfirm');
   let pending = null;   // what Switch does
 
-  // the rows of buildMenu, kept so it can clear them without the rows that are not its own (js/ui/install.js keeps
-  // its Install CLOADM… row in the menu, last, across builds)
   function buildMenu() {
-    menu.querySelectorAll(':scope > .machines').forEach((g) => g.remove());
+    menu.replaceChildren();
     // every profile is in exactly one section (groupProfiles is exhaustive; a new model cannot go missing)
     for (const [name, list] of groupProfiles(availableProfiles())) {
       const g = document.createElement('div'); g.className = 'machines';
@@ -68,8 +66,6 @@ export function setupMachinePanel(page, { showRoms }) {
     foot.append(item('menuRoms', 'Add or see ROMs…', () => { openMenu(false); showRoms(); }),
       item('menuSettings', 'RAM, CPU and speed…', () => { openMenu(false); machineSettings(); }), legend);
     menu.append(sep, foot);
-    // the rows that are not buildMenu's own go after its own (js/ui/install.js's Install CLOADM… row, kept last)
-    for (const el of [...menu.children].filter((e) => !e.classList.contains('machines'))) menu.append(el);
   }
   function openMenu(open) {
     if (open) buildMenu();

@@ -152,8 +152,8 @@ export function setupInstall(page, { started = () => true, machineMenu = null } 
 
   const save = (v) => { answer = v; if (!storageUnavailable) store.set(INSTALL_KEY, JSON.stringify(v)); };
   const platform = () => platformOf(navigator.userAgent || '', ios);
-  // The item sits in the machine menu; choosing it closes that menu (through the panel's own close, so its state
-  // stays in one place), and the phone's nav menu if that is what showed it.
+  // The link sits in the app bar's nav (behind Menu on a phone); choosing it closes the machine menu if that is open
+  // (through the panel's own close, so its state stays in one place), and the phone's nav menu if that showed it.
   const closeMenu = () => {
     $('appbar').classList.remove('menu-open'); $('btnMenu').setAttribute('aria-expanded', 'false');
     if (machineMenu) machineMenu.close(); else $('machineMenu').hidden = true;
@@ -193,7 +193,7 @@ export function setupInstall(page, { started = () => true, machineMenu = null } 
     // The card goes away unshown when this size has no place that covers nothing (place() reads the real box, so a
     // card it cannot measure is not a place). An OFFER keeps the visit's one showing for a size that has room; the
     // Menu item's own card is never deferred — the user asked for it, so it stays up whatever it covers.
-    const spot = place();
+    const spot = how === 'menu' ? placeByBar() : place();
     if (spot === null && how === 'offer') { defer(); return false; }
     pending = false;
     // Focus only when the user asked for the card (the Menu item). The automatic offer must not take the keyboard
@@ -264,7 +264,7 @@ export function setupInstall(page, { started = () => true, machineMenu = null } 
   }
   // Where the card can go at this size -> { rect, where } or null when no candidate is clear.
   let placements = 0;   // how many times a place was worked out (the browser check's per-frame test reads it)
-  const PLACES = ['gutter', 'gutter-left', 'strip'];
+  const PLACES = ['gutter', 'gutter-left', 'strip', 'by-bar'];
   // The strip's room: a phone held upright fits its screen and keys to the window with no band between them
   // (play/index.html, "a phone held upright"), so the strip asks for one: --install-room shrinks the screen by that
   // much and leaves it as a gap under it, the keys where they were; the strip goes under the monitor's bezel (its box
@@ -319,6 +319,15 @@ export function setupInstall(page, { started = () => true, machineMenu = null } 
     if (!spot) { card.classList.remove(...PLACES); card.style.setProperty('--install-lift', cornerLift); }
     return spot;
   }
+  // The Install CLOADM… link's own card: under the app bar, at the link's side, whatever it covers (see place() for the
+  // offer, which keeps off the screen and the controls). The user asked for it, and a link in the bar is where they look.
+  function placeByBar() {
+    setRoom(0);
+    card.classList.remove(...PLACES); card.classList.add('by-bar');
+    card.style.setProperty('--install-lift', '0px');
+    card.style.setProperty('--install-bar-top', `${Math.round($('appbar').getBoundingClientRect().bottom + 6)}px`);
+    return { rect: rectOf(), where: 'bar' };
+  }
   // No place at this size: put the card away, but the deferral does not spend the visit's one showing — the offer is
   // still owed, and a resize (or retryPending) tries again when there is room. The Menu's own card is never deferred:
   // the user asked for it.
@@ -332,7 +341,8 @@ export function setupInstall(page, { started = () => true, machineMenu = null } 
   // asked for it, and defer() would owe an offer the user never got.
   const replant = (force) => {
     if (card.hidden) { retryPending(retryNow(), force); return; }
-    if (place() === null && !offeredByMenu) defer();
+    if (offeredByMenu) placeByBar();
+    else if (place() === null) defer();
   };
   // ... measured once the layout has settled. A resize is followed by more layout: the screen's canvas is sized from
   // the frame loop after the area's ResizeObserver has run (js/ui/screen.js), so a card placed in the resize event
@@ -419,7 +429,7 @@ export function setupInstall(page, { started = () => true, machineMenu = null } 
   page.onEscape(ESC.card, () => !card.hidden && !viewOpen() && offeredByMenu, () => close());
   if (menuItem) menuItem.onclick = (e) => {
     e.preventDefault();
-    closeMenu();                                    // (the machine menu it sits in)
+    closeMenu();                                    // (the phone's nav it sits in, and the machine menu)
     if (installed) return;
     pending = false;                                                         // (the user asked: nothing is owed now)
     if (deferred) { shownThisVisit = true; close(); runPrompt(); return; }   // Chromium: the browser's own dialog
@@ -511,7 +521,7 @@ export function setupInstall(page, { started = () => true, machineMenu = null } 
       placement: () => {
         const r = rectOf();
         if (!r.width) return { where: 'unmeasured', rect: null, covered: [] };
-        return { where: card.classList.contains('strip') ? 'strip' : card.classList.contains('gutter') || card.classList.contains('gutter-left') ? 'gutter' : 'corner',
+        return { where: card.classList.contains('by-bar') ? 'bar' : card.classList.contains('strip') ? 'strip' : card.classList.contains('gutter') || card.classList.contains('gutter-left') ? 'gutter' : 'corner',
           rect: [Math.round(r.left), Math.round(r.top), Math.round(r.right), Math.round(r.bottom)],
           covered: OBSTACLES().filter((e) => hit(r, e.getBoundingClientRect())).map((e) => e.id || e.className || e.tagName) };
       },

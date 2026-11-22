@@ -254,5 +254,7 @@ const starting = welcome.start(visit, { fromLink, withMedia: link.roms.length > 
   window.emu.started = true;
   share.ready();
   window.emu.linkDone = true;
-  if (link.errors.length) page.status(`This link has settings CLOADM can't use: ${link.errors.join('; ')}`, true);
+  if (link.errors.length) page.status(`This link has ${link.errors.length === 1 ? 'a setting' : 'settings'} CLOADM can't use: ${link.errors.join('; ')}`, true);
+  // "#share=…" (a share link's moment follows #s=): not one the page reads, and it said nothing
+  else if (/^#share./.test(location.hash)) { page.status("This share link couldn't be read.", true); history.replaceState(null, '', location.pathname + location.search); }
 })();

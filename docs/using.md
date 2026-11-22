@@ -25,7 +25,7 @@ How to load programs, tapes, disks and cartridges, the keys, snapshots, sharing 
 * **Wrong disk type:** CLOADM tells a DragonDOS disk from an RS-DOS one by its directory track and says which
   machine it is for. A disk needs the machine's disk ROM (the DragonDOS or Delta cartridge, or Disk BASIC); the
   drives under the screen say which one is missing, and their **Add ROMs…** opens **Your ROMs** on the disk ROM's
-  card ("Disk drives (optional): DragonDOS or Delta DOS"; on a CoCo, "Disk BASIC (RS-DOS)").
+  card ("Disk drives: DragonDOS or Delta DOS", tagged optional; on a CoCo, "Disk BASIC (RS-DOS)").
 * **Wrong symbols when typing:** the keyboard has two modes (Input tab). **Translated** types what you type, so
   the shifted symbols follow your PC keyboard (`:` is `:` though your keyboard needs Shift for it and the
   machine does not; the machine's SHIFT follows the character, and your Shift still shifts letters and the
@@ -107,7 +107,7 @@ The [README](../README.md#what-works) has the short version of this table.
 | **Games** | 2048 and Minesweeper, written for CLOADM, on every 6809 model with 32K or more, with or without ROMs ([details](#games)) | |
 | **Input** | Keyboard in two modes (translated: the character typed; positional: the physical key), keyboard joystick, gamepads (two joysticks, dead zone), the Tandy and CoCo Max 3 Hi-Res interfaces, the CoCo 3 "The Rat" mouse, the CoCo Max Hi-Res module, mouse as the right joystick; an on-screen keyboard on phones and tablets (split for the thumbs when held sideways) and a touch joystick with FIRE, a tappable welcome menu | |
 | **Tools** | Assembler, Debugger, snapshots, POKE book; a command line, MCP server and Node API for CI and agents ([Automation](automation.md), [MCP](mcp.md)) | Step back (rewind) |
-| **Links, embedding, offline** | Every setting as a URL parameter (machine, RAM, CPU, a program, tape or cartridge to load, display, input); the Share screen: a link that opens this machine exactly as it is, a 6-second clip, a true-pixel screenshot, the snapshot file, and the embed code for a blog post; embed mode with a JavaScript API; works offline once visited; **Install CLOADM…** at the foot of the **machine menu** (the machine-name button, top left) runs the browser's own prompt where there is one and shows the steps elsewhere, with a one-time offer once a program has run a minute; settings export and import (never ROMs) | A touch keyboard in embeds |
+| **Links, embedding, offline** | Every setting as a URL parameter (machine, RAM, CPU, a program, tape or cartridge to load, display, input); the Share screen: Share… or Copy link for a link that opens this machine exactly as it is, and under "More ways to share" a 6-second clip, a true-pixel screenshot and the snapshot file, plus the embed code for a blog post; embed mode with a JavaScript API; works offline once visited; **Install CLOADM…** in the app bar, beside Help (behind **Menu** on a phone), runs the browser's own prompt where there is one and shows the steps elsewhere, with a one-time offer once a program has run a minute; settings export and import (never ROMs) | A touch keyboard in embeds |
 
 ### Games
 
@@ -341,7 +341,12 @@ pre-release build, whose snapshots it does not read (the format is in [architect
 snapshots in this browser's storage (as `library/snapshots/slot-N.cloadm`, so the Library lists them under
 Snapshots); loading one works like opening a snapshot file.
 
-The **Share screen**: **Capture & share** opens it: the link there carries the moment itself (the snapshot rides in the
+The **Share screen** has one job: send this exact moment to someone. The app bar's **Share** opens it. **Share…** (where the browser has a
+share sheet; it hands over the link only) or **Copy link** is the main button, and Copy link stays beside Share… because a link
+with a snapshot can pass 1000 characters and some share targets cut it short. Under **More ways to share**: a 6-second clip,
+a true-pixel screenshot and the snapshot file (its size is on the button); under **Embed in a web page**: the embed code. A
+line under the picture says what the link does, and a ROM line says whether the person opening it needs their own ROMs. While NitrOS-9 runs
+the link starts NitrOS-9 fresh instead (no snapshot file). The link there carries the moment itself (the snapshot rides in the
 fragment after `#s=`, which browsers never send to a server, so the link is long: about 4 to 10 KB), and the
 embed builder writes the iframe and script for the machine, program and options you pick.
 
@@ -361,7 +366,7 @@ The references ride in the snapshot's `share` field, which only shared moments h
 
 ## Settings
 
-Share screen → Your settings → **Export settings…** saves your settings (machines and their options, display,
+Machine tab → **Settings file** → **Export…** saves your settings (machines and their options, display,
 the choices you made) as `cloadm-settings.json`; **Import…** in another browser takes them up. ROMs and stored
 programs are never in that file, and are ignored if someone adds them.
 
@@ -413,7 +418,7 @@ After one visit CLOADM works without a network (`sw.js`, a service worker that a
 network first and keeps a copy of the whole site). ROMs and programs stay in the browser's own storage
 either way.
 
-**Install it as an app** (`manifest.webmanifest`, `js/ui/install.js`). **Install CLOADM…**, at the foot of the **machine menu** (the machine-name button, top left) runs the browser's own install prompt where there is one and shows the steps
+**Install it as an app** (`manifest.webmanifest`, `js/ui/install.js`). **Install CLOADM…**, in the app bar beside Help (behind **Menu** on a phone), runs the browser's own install prompt where there is one and shows the steps
 otherwise; the Help page's **Install as an app** has them for Chrome and Edge on a computer, Chrome on Android,
 Samsung Internet, Firefox on Android, iOS Safari and Chrome or Edge on iOS. Installed, it opens in its own window,
 without the browser's tabs and address bar, and still works offline.

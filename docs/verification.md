@@ -758,7 +758,7 @@ them or not up with the offer still owed and nothing stored.
 
 Not verified automatically: a real install prompt (Chromium's dialog cannot be driven, so `prompt()` is mocked),
 and iOS's Add to Home Screen. Manually: in Chrome on a computer, run a program for a minute and choose **Install**
-on the card, then **Install CLOADM…** in the machine menu; on an iPhone in Safari, wait for the card, follow
+on the card, then **Install CLOADM…** in the app bar (behind **Menu** on a phone); on an iPhone in Safari, wait for the card, follow
 Share → Add to Home Screen, and open CLOADM from the home screen (it starts without the browser's bars and the
 Menu item is gone).
 
