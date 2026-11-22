@@ -362,6 +362,8 @@ export function setupTouchKeys(page, { input }) {
     if (!chat && !side) tkMenu.setAttribute('aria-label', 'Hide keys'); else tkMenu.removeAttribute('aria-label');
     if (side && !chat) { tkMenu.setAttribute('aria-controls', 'tkMenuSheet'); tkMenu.setAttribute('aria-expanded', String(!sheet.hidden)); }
     else { tkMenu.removeAttribute('aria-controls'); tkMenu.removeAttribute('aria-expanded'); sheet.hidden = true; }
+    const install = sheet.querySelector('[data-item="install"]');
+    if (install) install.hidden = $('navInstall').hidden;
     markUndrawn();   // (the touch layout hides the app bar, the drawer and the ports: page.js)
     // Keys | Pad | Stick: Stick where the machine has a joystick port of its own and the panel is the machine's
     $('tkModeSwitch').hidden = !on;
@@ -405,9 +407,12 @@ export function setupTouchKeys(page, { input }) {
   $('btnShowKeys').onclick = () => { hidden = false; apply(); };
   // The panel's menu button (UX R30). Where the app bar shows (upright, a tablet) it is ⌄, Hide keys: the app bar's Menu
   // is the only Menu. Held sideways the app bar gives way to the panel, so it is "Menu": Machine… (the machine picker),
-  // Commands… and Hide keys. In a phone's chat (body.chat-phone, js/ui/claude.js) the app bar gives way to the chat bar, so
+  // Commands…, Install CLOADM… (the app bar's link, out of sight there) and Hide keys. In a phone's chat (body.chat-phone, js/ui/claude.js) the app bar gives way to the chat bar, so
   // it is "← Emulator" and leaves the chat in one tap, as it always has: the way out must not need a second tap.
-  sheet.innerHTML = '<button type="button" data-item="machine">Machine…</button><button type="button" data-item="commands">Commands…</button><button type="button" data-item="hide">Hide keys</button>';
+  sheet.innerHTML = '<button type="button" data-item="machine">Machine…</button><button type="button" data-item="commands">Commands…</button>'
+    + '<button type="button" data-item="install">Install CLOADM…</button><button type="button" data-item="hide">Hide keys</button>';
+  // (Install CLOADM… is the app bar's link, which held sideways is out of sight: here too, while it is offered)
+  new MutationObserver(apply).observe($('navInstall'), { attributes: true, attributeFilter: ['hidden'] });
   const closeSheet = () => { sheet.hidden = true; $('tkMenu').setAttribute('aria-expanded', 'false'); };
   // a disclosure: it opens with the focus on its first button, and Esc gives the focus back to Menu
   $('tkMenu').onclick = () => {
@@ -423,6 +428,7 @@ export function setupTouchKeys(page, { input }) {
     closeSheet();
     if (b.dataset.item === 'machine') openMachines();
     else if (b.dataset.item === 'commands') $('navCommands').click();
+    else if (b.dataset.item === 'install') $('navInstall').click();
     else if (b.dataset.item === 'hide') { hidden = true; apply(); }
   };
   // Machine…: the machine picker (#machineMenu), which lives in the app bar; held sideways the bar gives way to the

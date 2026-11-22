@@ -21,7 +21,8 @@
       "backFocus",
       "fold",
       "semantics",
-      "mobile"
+      "mobile",
+      "uiCopy"
     ],
     [
       "models",

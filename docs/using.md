@@ -25,7 +25,7 @@ How to load programs, tapes, disks and cartridges, the keys, snapshots, sharing 
 * **Wrong disk type:** CLOADM tells a DragonDOS disk from an RS-DOS one by its directory track and says which
   machine it is for. A disk needs the machine's disk ROM (the DragonDOS or Delta cartridge, or Disk BASIC); the
   drives under the screen say which one is missing, and their **Add ROMs…** opens **Your ROMs** on the disk ROM's
-  card ("Disk drives (optional): DragonDOS or Delta DOS"; on a CoCo, "Disk BASIC (RS-DOS)").
+  card ("Disk drives: DragonDOS or Delta DOS", tagged optional; on a CoCo, "Disk BASIC (RS-DOS)").
 * **Wrong symbols when typing:** the keyboard has two modes (Input tab). **Translated** types what you type, so
   the shifted symbols follow your PC keyboard (`:` is `:` though your keyboard needs Shift for it and the
   machine does not; the machine's SHIFT follows the character, and your Shift still shifts letters and the
@@ -107,7 +107,7 @@ The [README](../README.md#what-works) has the short version of this table.
 | **Games** | 2048 and Minesweeper, written for CLOADM, on every 6809 model with 32K or more, with or without ROMs ([details](#games)) | |
 | **Input** | Keyboard in two modes (translated: the character typed; positional: the physical key), keyboard joystick, gamepads (two joysticks, dead zone), the Tandy and CoCo Max 3 Hi-Res interfaces, the CoCo 3 "The Rat" mouse, the CoCo Max Hi-Res module, mouse as the right joystick; an on-screen keyboard on phones and tablets (split for the thumbs when held sideways) and a touch joystick with FIRE, a tappable welcome menu | |
 | **Tools** | Assembler, Debugger, snapshots, POKE book; a command line, MCP server and Node API for CI and agents ([Automation](automation.md), [MCP](mcp.md)) | Step back (rewind) |
-| **Links, embedding, offline** | Every setting as a URL parameter (machine, RAM, CPU, a program, tape or cartridge to load, display, input); the Share screen: a link that opens this machine exactly as it is, a 6-second clip, a true-pixel screenshot, the snapshot file, and the embed code for a blog post; embed mode with a JavaScript API; works offline once visited; **Install CLOADM…** at the foot of the **machine menu** (the machine-name button, top left) runs the browser's own prompt where there is one and shows the steps elsewhere, with a one-time offer once a program has run a minute; settings export and import (never ROMs) | A touch keyboard in embeds |
+| **Links, embedding, offline** | Every setting as a URL parameter (machine, RAM, CPU, a program, tape or cartridge to load, display, input); the Share screen: a link that opens this machine exactly as it is, a 6-second clip, a true-pixel screenshot, the snapshot file, and the embed code for a blog post; embed mode with a JavaScript API; works offline once visited; **Install CLOADM…** in the app bar, beside Help (behind **Menu** on a phone), runs the browser's own prompt where there is one and shows the steps elsewhere, with a one-time offer once a program has run a minute; settings export and import (never ROMs) | A touch keyboard in embeds |
 
 ### Games
 
@@ -286,7 +286,7 @@ MC-10 or Alice, not when the right port holds a Hi-Res interface or The Rat, and
   that is left — the page's whole width with Pad, Stick or the keys hidden. **⌄** hides the keys; **⌨** at the bottom
   right brings them back. The app bar is one row: the machine, Open…, Ask Claude and **Menu** (Add ROMs is Menu's
   first item while the machine has no BASIC, and Menu shows a dot then). On a touch screen the hints say "tap a key"
-  and "tap BREAK", and the install offer never appears on a phone (Install CLOADM… in the machine menu installs).
+  and "tap BREAK", and the install offer never appears on a phone (Install CLOADM…, in Menu, or in the panel's Menu held sideways, installs).
   A key types when your finger lifts, or once it has rested on the key a moment (so a held key works in
   games); a finger that slides off it first types nothing, so a drag or a scroll that starts on the keyboard never
   presses a key. The joystick strip's keys (SPC, ENT, BRK, 1, 2, Y, N) work the same way, so held
@@ -419,7 +419,7 @@ After one visit CLOADM works without a network (`sw.js`, a service worker that a
 network first and keeps a copy of the whole site). ROMs and programs stay in the browser's own storage
 either way.
 
-**Install it as an app** (`manifest.webmanifest`, `js/ui/install.js`). **Install CLOADM…**, at the foot of the **machine menu** (the machine-name button, top left) runs the browser's own install prompt where there is one and shows the steps
+**Install it as an app** (`manifest.webmanifest`, `js/ui/install.js`). **Install CLOADM…**, in the app bar beside Help (behind **Menu** on a phone), runs the browser's own install prompt where there is one and shows the steps
 otherwise; the Help page's **Install as an app** has them for Chrome and Edge on a computer, Chrome on Android,
 Samsung Internet, Firefox on Android, iOS Safari and Chrome or Edge on iOS. Installed, it opens in its own window,
 without the browser's tabs and address bar, and still works offline.

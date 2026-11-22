@@ -44,7 +44,7 @@ const newSession = (id) => {
     s.reset();
     frames(s, 50);
     const t = s.screenText();
-    check('reset: the welcome menu restarts, WELCOME BACK and 6 CARRY ON WITH LIZA', s.welcomeRunning && t[6].trim() === 'WELCOME BACK' && t[13].trim() === '6 CARRY ON WITH LIZA',
+    check('reset: the welcome menu restarts, WELCOME BACK and 6 CARRY ON WITH LIZA', s.welcomeRunning && t[6].trim() === 'WELCOME BACK' && t[12].trim() === '6 CARRY ON WITH LIZA',
       JSON.stringify(t.slice(6, 15)));
     check('reset: the welcome menu asks for no other menu', !menus.length, menus.join());
   }

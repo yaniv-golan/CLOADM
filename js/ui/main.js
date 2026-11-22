@@ -160,15 +160,19 @@ $('btnMenu').onclick = () => {
 
 // the one-row app bar (1200 px and up, play/index.html) when its items do not all fit, in a wide fallback font: the key
 // hints and the machine's RAM size give way (class "tight") before anything wraps. Measured, not guessed: it is taken
-// off, then put on if the links still run past the bar
+// off, then put on if the links still run past the bar. Then the status (the speed), the one flexible item: shown whole
+// or not at all (class "nostatus"; the v0.1.8 review's m4), never cut to an ellipsis stub
 {
-  const bar = $('appbar'), nav = bar.querySelector('nav'), wide = matchMedia('(min-width: 1200px)');
+  const bar = $('appbar'), nav = bar.querySelector('nav'), status = $('status'), wide = matchMedia('(min-width: 1200px)');
   const fit = () => {
-    bar.classList.remove('tight');
+    bar.classList.remove('tight', 'nostatus');
     if (wide.matches && nav.getBoundingClientRect().right > bar.getBoundingClientRect().right + 0.5) bar.classList.add('tight');
+    if (wide.matches && status.scrollWidth > status.clientWidth + 0.5) bar.classList.add('nostatus');
   };
   const ro = new ResizeObserver(fit);
   ro.observe(bar); ro.observe(nav);   // the links change width with the font
+  // (the speed's text changes as it runs: whether it fits is asked again then)
+  new MutationObserver(fit).observe(status, { childList: true, characterData: true, subtree: true });
   if (document.fonts) document.fonts.ready.then(fit);
   session.on((ev) => { if (ev === 'machine') fit(); });
   fit();
@@ -246,5 +250,7 @@ const starting = welcome.start(visit, { fromLink, withMedia: link.roms.length > 
   window.emu.started = true;
   share.ready();
   window.emu.linkDone = true;
-  if (link.errors.length) page.status(`This link has settings CLOADM can't use: ${link.errors.join('; ')}`, true);
+  if (link.errors.length) page.status(`This link has ${link.errors.length === 1 ? 'a setting' : 'settings'} CLOADM can't use: ${link.errors.join('; ')}`, true);
+  // "#share=…" (a share link's moment follows #s=): not one the page reads, and it said nothing
+  else if (/^#share./.test(location.hash)) { page.status("This share link couldn't be read.", true); history.replaceState(null, '', location.pathname + location.search); }
 })();

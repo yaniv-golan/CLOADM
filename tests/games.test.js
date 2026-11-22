@@ -460,7 +460,7 @@ const nb = (i) => { const out = []; const x = i & 7, y = i >> 3; for (let dy = -
   check('Session.gameRunning: false once the game is left; no program controls on the welcome menu', s.gameRunning === false && s.programControls === null);
   s.startWelcome(bin('welcome'), { greeting: 'back', carryOn: s.carryOn.name });
   s.runFrames(50);
-  check('the welcome menu offers it back as option 6', s.screenText()[13].trim() === '6 CARRY ON WITH MINESWEEPER', s.screenText()[13]);
+  check('the welcome menu offers it back as option 6', s.screenText()[12].trim() === '6 CARRY ON WITH MINESWEEPER', s.screenText()[12]);
   let err = null;
   try { s.gameFile('tetris'); } catch (e) { err = e; }
   check('an unknown game is a SessionError', err instanceof Emu.SessionError);

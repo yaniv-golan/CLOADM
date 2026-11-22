@@ -73,16 +73,13 @@
     .appbar > .grow { flex: 1 1 0; min-width: 0; }
     .appbar nav { flex-wrap: nowrap; white-space: nowrap; }
     .appbar.tight { gap: 10px 8px; }
-    .appbar.tight nav { gap: 4px 12px; }
-    .appbar.tight #machineSpec, .appbar.tight #askKbd, .appbar.tight #navCmdKbd { display: none; }
+    .appbar.tight nav { gap: 4px 6px; }
+    .appbar.tight #machineSpec, .appbar.tight #askKbd, .appbar.tight #navCmdKbd, .appbar.tight #navInstall .more { display: none; }
+    .appbar.nostatus > #status { display: none; }
   }
   #btnMenu { display: none; }
   @media (min-width: 701px) { #navRoms, #navShare { display: none; } }   /* (the app bar's pill and Share button there) */
-  /* the machine menu's own row for Install CLOADM… (authored inside #machineMenu; js/ui/machine-panel.js's buildMenu
-     keeps it last across rebuilds. The menu floats over the page, so the app bar is the same with or without it) */
-  #navInstall { display: flex; justify-content: space-between; grid-column: 1 / -1; width: 100%; background: transparent; border: 0;
-    border-top: 1px solid var(--line); border-radius: 0; padding: 12px 8px 4px; margin-top: 4px; text-align: left; color: var(--text-2); }
-  /* (an author display rule outranks the hidden attribute's, so it is stated: once installed, the row goes) */
+  /* (an author display rule outranks the hidden attribute's, so it is stated: once installed, the link goes) */
   #navInstall[hidden] { display: none; }
   #machineMenu { position: absolute; top: calc(100% - 6px); left: 20px; z-index: 20; width: min(600px, calc(100vw - 40px)); background: var(--panel);
     border: 1px solid var(--line); border-radius: var(--r-14); padding: 14px; box-shadow: 0 20px 50px rgba(0, 0, 0, .6);
@@ -287,6 +284,11 @@
     background: var(--panel); border: 1px solid var(--phosphor); border-radius: var(--r-14); padding: 14px 16px;
     box-shadow: 0 18px 44px rgba(0, 0, 0, .55); display: flex; flex-direction: column; gap: 8px; }
   #installOffer[hidden] { display: none; }
+  /* from the Install CLOADM… link in the app bar: under the bar, at the link's side, wherever the screen and keys are
+     (the user asked for it, so it is a dialog beside what they pressed, not a corner card they have to look for) */
+  body #installOffer.by-bar, body.touch-keys #installOffer.by-bar { top: var(--install-bar-top, 56px); bottom: auto; left: auto; transform: none;
+    right: calc(16px + var(--safe-r)); width: min(360px, calc(100vw - 32px - var(--safe-l) - var(--safe-r))); }
+  @media (max-width: 700px) { body #installOffer.by-bar, body.touch-keys #installOffer.by-bar { left: calc(8px + var(--safe-l)); right: calc(8px + var(--safe-r)); width: auto; } }
   #installOffer strong { font-weight: 600; line-height: 1.4; }
   /* the sentence in two lengths: the strip (below) has one line for it */
   #installText .short { display: none; }
@@ -627,6 +629,7 @@
   #tkMenuSheet[hidden] { display: none; }
   #tkMenuSheet button { display: block; width: 100%; min-height: 44px; margin: 0; border: 0; border-radius: 7px; background: transparent; color: var(--text); text-align: left; font-size: 15px; padding: 0 12px; }
   #tkMenuSheet button:hover { background: #2A302B; }
+  #tkMenuSheet button[hidden] { display: none; }
 
   /* ---- a phone held sideways (or any window under 500 px high) ----
      Keys: the split thumb keyboard, the screen between its halves, and one row under it with BREAK, CLEAR, the
@@ -790,9 +793,10 @@
   .socket { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-14); padding: 16px 18px; display: flex; gap: 14px; align-items: flex-start; }
   .socket .dot { flex: none; margin-top: 4px; width: 14px; height: 14px; border-radius: 50%; background: var(--line-strong); }
   .socket .body { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
-  .socket .top { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
-  .socket .top strong { font-size: 16px; }
-  .socket .tag { font-size: 14px; color: var(--muted); }
+  /* the tag stays beside the title: a long title wraps inside its own space, never pushes the tag under it */
+  .socket .top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: nowrap; }
+  .socket .top strong { font-size: 16px; min-width: 0; overflow-wrap: anywhere; }
+  .socket .tag { font-size: 14px; color: var(--muted); flex: none; white-space: nowrap; }
   .socket .tag.req { color: var(--orange); }
   .socket .expect { font: 14px var(--font-mono); color: var(--muted); overflow-wrap: anywhere; }
   .socket .state { font-size: 14px; color: var(--muted); }
@@ -1410,13 +1414,12 @@ npx serve -l 8000 .</pre>
     <button id="navCommands" class="navlink" type="button">Commands… <kbd id="navCmdKbd">Ctrl K</kbd></button>
     <a href="help/">Help</a>
     <a href="https://github.com/yaniv-golan/cloadm">GitHub</a>
+    <!-- js/ui/install.js: the browser's own install prompt, or the card with the steps that install it, which opens
+         under the app bar, near this link (hidden once installed) -->
+    <button id="navInstall" class="navlink" type="button">Install<span class="more"> CLOADM…</span></button>
   </nav>
   <button id="btnMenu" aria-expanded="false" aria-controls="appbar">Menu</button>
-  <div id="machineMenu" role="menu" aria-label="Machines" hidden>
-    <!-- js/ui/install.js: the browser's own install prompt, or the steps that install it (hidden once installed).
-         The menu floats over the page, so the app bar stays the height it was; buildMenu keeps this row last. -->
-    <button type="button" id="navInstall" role="menuitem">Install CLOADM…</button>
-  </div>
+  <div id="machineMenu" role="menu" aria-label="Machines" hidden></div>
 </header>
 <!-- js/ui/machine-panel.js confirmSwitch: what the switch resets and takes out (R25), what stays in the Library, and
      an offer to save a snapshot's own disk first -->
@@ -1733,7 +1736,7 @@ npx serve -l 8000 .</pre>
       <div id="claudeKeyMsg" role="status"></div>
     </section>
     <section class="card row" id="claudeKeySaved" hidden>
-      <span><strong>Your Anthropic API key</strong><br><span class="muted" id="claudeKeyTag">Saved in this browser.</span></span>
+      <span><strong>Key saved ✓</strong><br><span class="muted" id="claudeKeyTag">Saved in this browser.</span></span>
       <span><button class="link" id="btnClaudeKeyChange">Change</button> <button class="link" id="btnClaudeKeyForget">Forget</button></span>
     </section>
     <div id="claudeHelp" role="status" hidden></div>

@@ -758,7 +758,7 @@ them or not up with the offer still owed and nothing stored.
 
 Not verified automatically: a real install prompt (Chromium's dialog cannot be driven, so `prompt()` is mocked),
 and iOS's Add to Home Screen. Manually: in Chrome on a computer, run a program for a minute and choose **Install**
-on the card, then **Install CLOADM…** in the machine menu; on an iPhone in Safari, wait for the card, follow
+on the card, then **Install CLOADM…** in the app bar (behind **Menu** on a phone); on an iPhone in Safari, wait for the card, follow
 Share → Add to Home Screen, and open CLOADM from the home screen (it starts without the browser's bars and the
 Menu item is gone).
 
@@ -781,11 +781,11 @@ chosen in Minesweeper is remembered for it on that machine while 2048 still open
 switch is Keys | Pad. The games' toast says "tap a key" and BREAK, never "Esc" or "press", lies under the app bar and
 over no key, upright and sideways; Claude's paused status on touch is "Paused: you tapped a key · Stop ends Claude's
 turn". Guards: on a computer the toast keeps "press a key" and "BREAK (Esc)"; sideways the screen is 250x187 at
-242,52 as on v0.1.8, with one control named Menu. Sideways the panel's Menu has Machine…, Commands… and Hide keys, and
+242,52 as on v0.1.8, with one control named Menu. Sideways the panel's Menu has Machine…, Commands…, Install CLOADM… and Hide keys, and
 Machine… opens the machine picker on screen and on top; Esc closes it. No install offer appears on a phone, with the
 prompt held and 120 s of LIZA run, on a first and a second visit (sideways a guard: v0.1.8's offer found no place
-there either); the Install CLOADM… item still opens the browser's install dialog (a guard upright). At 1440 and
-1024 px the status shows the speed alone, unclipped.
+there either); Install CLOADM… (in Menu upright, in the panel's Menu sideways) still opens the browser's install dialog (a guard upright). At 1440 and
+1024 px the status shows the speed alone, whole or, where the bar has no room for it, not at all (never an ellipsis stub).
 
 ### Menus, focus and what screen readers hear
 

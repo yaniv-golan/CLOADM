@@ -133,7 +133,8 @@ export function setupWelcome(page, { showRoms, openClaude }) {
       if (item.liza) {
         session.checkLiza();
         const bytes = await page.fetchBytes(`examples/${session.lizaFile}`);
-        page.status(startAs(byMachine, () => session.runLiza(bytes)));
+        startAs(byMachine, () => session.runLiza(bytes));
+        page.status('LIZA loaded');   // (our own program: no addresses; those are for files the visitor brings)
       } else if (item.game) {
         session.checkGame(item.game);   // (another CPU, or under 32K: says so before fetching anything)
         const bytes = await page.fetchBytes(`examples/${session.gameFile(item.game)}`);
@@ -142,7 +143,8 @@ export function setupWelcome(page, { showRoms, openClaude }) {
           : `${item.name}: press a key to start; BREAK (Esc) goes back to the menu`);
       } else {
         const bytes = await page.fetchBytes(item.url);
-        page.status(startAs(byMachine, () => session.load(item.url.split('/').pop(), bytes, { remember: false })));
+        startAs(byMachine, () => session.load(item.url.split('/').pop(), bytes, { remember: false }));
+        page.status(`${item.name} loaded`);
         session.setLastRun('demo', item.name);
         session.watchForMenu('demo');
       }

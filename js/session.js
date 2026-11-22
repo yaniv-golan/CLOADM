@@ -3184,6 +3184,16 @@ export class Session {
     this.emit('chat');
     return this.chat;
   }
+  // A line of ours on the chat screen, as the firmware shows a reply (the page's "No API key yet" hint, so it is on the
+  // screen and not only beside it). Not said by anyone: the conversation, its history and Claude never see it.
+  chatNote(text) {
+    const chat = this.chat;
+    // (not while a reply streams: the note would land in the middle of it)
+    if (!chat || !chat.channel || !this.chatMachines || chat.busy) return false;
+    chat.channel.send(new TextEncoder().encode(`${String(text).replace(/[\r\n]+/g, ' ')}\r\n`));
+    chat.channel.send(Uint8Array.of(END_OF_REPLY));
+    return true;
+  }
   // what the chat's tools act on: the BASIC session: beside the chat machine in full screen, else the
   // machine in use. It runs whether or not it is on screen, so acting never swaps the screen (show does nothing):
   // the person watches it live in the picture-in-picture
