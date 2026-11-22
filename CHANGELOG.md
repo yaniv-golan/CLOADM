@@ -10,6 +10,15 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Added
 
+- **Minesweeper plays with a joystick.** Either joystick moves the cursor: one step as the stick leaves the centre,
+  then again after 300 ms and every 120 ms while it is held (counted in fields, at the machine's own 50 or 60 Hz;
+  centring the stick and pushing the same way again is a new press). Either fire button opens the square under the
+  cursor with a tap (released in under 400 ms), on the release, and puts a flag on it when held 400 ms or more, at
+  that moment; after a win or a loss fire starts a new game as R does, when the button is released, so a long press
+  does not carry into the new game. The game reads the stick with the sound off, so the reading makes no buzz, and
+  while fire is down it ignores the keys fire's own matrix rows can make it read as pressed. The keyboard works as
+  before: the arrows, SPACE or ENTER to open, F to flag, R to start again, BREAK to leave. The shelf's line for the
+  game says so.
 - README: status, licence and live-demo badges, a looping picture of the welcome menu and LIZA (`img/readme-demo.gif`,
   captured from the real page with no ROMs by `node tools/capture-gif.js`, with the small encoder in `tools/gif.js`),
   and a "Use it with AI coding agents and Claude" section that points to the MCP server, the connector and plugin, the

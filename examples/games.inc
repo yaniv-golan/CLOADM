@@ -68,8 +68,8 @@ GINIT   PSHS    A
         STA     PIA1DB          ; CoCo RAM size, printer: not ours to change)
         LDA     #$3C            ; back to the data register, CB2 high
         STA     PIA1CRB
-        LDA     #$80            ; DAC at mid level
-        STA     PIA1DA
+        CLRA                    ; the DAC at 0: silence (see the joystick section: a level that
+        STA     PIA1DA          ; changed every field would be heard as a 50 or 60 Hz tone)
         PULS    A
 ; colour set A: $00 or $08 (CSS)
 GMODE   PSHS    A
@@ -497,7 +497,7 @@ SNDLY   DECB
         EORA    #$F8            ; $FC <-> $04
         DEC     SPULSES
         BNE     SNHALF
-        LDA     #$80
+        CLRA                    ; and back to silence (the DAC's lowest: no step follows it)
         STA     PIA1DA
         PULS    D,X,PC
 ; NOISE: B*256 random levels on the DAC, A = the delay between them (a rumble when large)
@@ -523,7 +523,7 @@ NSDLY   DECB
         BNE     NSLOOP
         DEC     SPULSES
         BNE     NSOUT
-        LDA     #$80
+        CLRA                    ; and back to silence (the DAC's lowest: no step follows it)
         STA     PIA1DA
         PULS    D,X,PC
 ; PLAY: notes at U (delay, half periods; a 0 delay ends)
@@ -534,6 +534,176 @@ PLLP    LDA     ,U+
         BSR     TONE
         BRA     PLLP
 PLEND   PULS    D,U,PC
+
+
+; ---- the analogue joystick ----
+; PIA0 CB2 picks the joystick (0 the right, 1 the left), PIA0 CA2 its axis (0 x, 1 y); PIA1 port A bits
+; 7-2 are the DAC and PIA0 PA7 the comparator, high while the pot is at or above the DAC. Two tests an
+; axis, at DAC 40 and 24, put the middle between them: 40 or more is a push one way and below 24 the other
+; way, and 24 to 39 is centred (32 is where a stick rests, and a light push, 24 or 39, is the dead zone's
+; edge). With only two tests there is no measure of HOW FAR past a threshold a pot is, so neither of two
+; deflected axes is "the more deflected": the axis that moved the cursor last wins, and on the first move
+; (nothing moved yet) the x axis.
+; PIA0 CA2 and CB2 are also the sound mux, so a reading leaves them both low (the DAC selected, as GINIT
+; leaves them) and the DAC at 0, the games' silence. PIA1 CB2 is low (sound off) for the whole reading, so
+; no DAC write it makes can be heard - and because the level is 0 on both sides of that mute, the mute
+; itself is silent. (An earlier design put the DAC back at mid, 32, between reads; with a joystick read
+; once a field that is a 0-to-32 step every field, measured as a 2.3e-2 line at the field rate against
+; 3.8e-4 for anything else, so silence is 0 instead. Same for GINIT and the ends of TONE and NOISE.)
+SELCA2  FCB     $34,$3C         ; CA2 low: the x axis; high: y (C2 an output in the chip's manual mode)
+SELCB2  FCB     $34,$3C         ; CB2 low: joystick 0; high: joystick 1
+; an axis's reading (0 centred, 1 towards 63, 2 towards 0) as a direction (0 none, 1 up, 2 down, 3 left, 4 right)
+DIRX    FCB     0,4,3           ; x: centred, right, left
+DIRY    FCB     0,2,1           ; y: centred, down, up
+FRATES  FCB     15,6,20,0       ; 50 Hz: 300 ms, 120 ms and 400 ms in fields ...
+        FCB     18,7,24,0       ; ... and at 60 Hz (four bytes an entry, indexed by the rate)
+
+; JOYINIT: the key columns as outputs (BASIC has them so), so $FF deselects them all; the joystick read
+; on the x axis of joystick 0; and the DAC at 0, silence
+JOYINIT LDA     #$30            ; PIA0 port B: the DDR
+        STA     PIA0CRB
+        LDA     #$FF
+        STA     PIA0DB          ; all eight columns outputs
+        LDA     #$34            ; the data register; CB2 low: joystick 0
+        STA     PIA0CRB
+        STA     PIA0CRA         ; CA2 low: the x axis
+        CLRA
+        STA     PIA1DA          ; the DAC at 0
+        STA     JOYDIR
+        STA     JOYWAIT
+        STA     FIRECNT
+        STA     JOYLAST         ; the x axis: the rule for the first move with both axes deflected
+        STA     JRESULT
+        RTS
+; JCMP: B = the DAC level (0-63) -> the negative flag from PIA0 PA7 (set: the pot is at or above the DAC)
+JCMP    TFR     B,A
+        LSLA
+        LSLA                    ; the DAC is in bits 7-2
+        STA     PIA1DA
+        LDA     PIA0DA          ; PA7: the comparator
+        RTS
+; JOYAXIS: B = the joystick (0 or 1), A = the axis (0 x, 1 y) -> A = 0 centred, 1 towards 63, 2 towards 0
+JOYAXIS PSHS    B,X
+        STA     JOYAX
+        STB     JOYPORT
+        LDX     #SELCA2
+        LDA     JOYAX
+        LDA     A,X
+        STA     PIA0CRA
+        LDX     #SELCB2
+        LDB     JOYPORT
+        LDB     B,X
+        STB     PIA0CRB
+        LDB     #40
+        BSR     JCMP
+        BMI     JYHI
+        LDB     #24
+        BSR     JCMP
+        BMI     JYMID
+        LDA     #2              ; below 24
+        PULS    B,X,PC
+JYHI    LDA     #1              ; 40 or more
+        PULS    B,X,PC
+JYMID   CLRA                    ; 24 to 39
+        PULS    B,X,PC
+; JSTICK: B = the joystick -> A = the direction it asks for now (0 none, 1 up, 2 down, 3 left, 4 right)
+JSTICK  PSHS    B
+        CLRA
+        JSR     JOYAXIS         ; x (JOYAXIS leaves B as it was)
+        STA     JDX
+        LDA     #1
+        LDB     ,S
+        JSR     JOYAXIS         ; y
+        STA     JDY
+        LDX     #DIRX           ; the x axis as a direction, by the tables below
+        LDB     JDX
+        LDA     B,X
+        STA     JDX
+        LDX     #DIRY           ; and the y axis
+        LDB     JDY
+        LDA     B,X
+        STA     JDY
+        LDA     JDX             ; the x axis deflected?
+        LDB     JDY
+        TSTA
+        BEQ     JSY             ; no: the y axis answers (or nothing)
+        TSTB
+        BEQ     JSX             ; only x
+        TST     JOYLAST         ; both: the axis that moved last, x when none has
+        BNE     JSY
+JSX     PULS    B,PC
+JSY     TFR     B,A
+        PULS    B,PC
+; JOYREAD: the direction either joystick asks for, the right one first -> A (0 none, 1 up, 2 down, 3 left, 4 right)
+JOYREAD PSHS    A,B,X
+        LDA     #$34            ; PIA1 CB2 low: sound off
+        STA     PIA1CRB
+        CLRB
+        BSR     JSTICK
+        TSTA
+        BNE     JRDONE
+        LDB     #1
+        BSR     JSTICK
+JRDONE  STA     JRESULT         ; the result, until the mux is back
+        LDA     #$34            ; the mux back to the DAC, joystick 0's x axis
+        STA     PIA0CRB
+        STA     PIA0CRA
+        CLRA                    ; the DAC back to 0 BEFORE the sound comes on: the last comparator
+        STA     PIA1DA          ; test left it at 24 or 40, and that would be a held tone
+        LDA     #$3C            ; CB2 high: sound on again (the level is 0 either side)
+        STA     PIA1CRB
+        PULS    A,B,X           ; (this restores the CALLER's A: the result must be loaded after it)
+        LDA     JRESULT
+        RTS
+; JOYFIRE: the fire buttons with every column deselected -> A bit 0 joystick 0, bit 1 joystick 1 (1 = down)
+JOYFIRE LDA     #$FF
+        STA     PIA0DB          ; all columns deselected: PA0/PA1 show the fire buttons alone
+        LDA     PIA0DA
+        ANDA    #$03
+        EORA    #$03            ; a button pulls its row low
+        RTS
+
+; ---- the field rate ----
+; DETECT: 50 or 60 Hz, once -> FSRATE (0 = 50 Hz, 1 = 60 Hz) and FW300, FW120, FW400 (the fields 300 ms,
+; 120 ms and 400 ms take). The CPU cycle is the same on every machine the games run on (894886 Hz) and a
+; field is not, so a loop of CPU cycles is the clock the fields are counted against.
+; The loop: LDA extended 6, BPL 3, LEAY -1,Y 5, BNE 3 = 17 cycles an iteration when FS is clear and
+; 29 when it is set (two more extended accesses), so ~17+ a fraction. MEASURED, not argued: 16000
+; iterations held 15 fields at 50 Hz and 18 at 60, i.e. 16000 iterations = 15.3 fields at 50 Hz. A window
+; of DTITER (12000) therefore holds 11.5 fields at 50 Hz and 13.7 at 60; with the flag sampled at a loop
+; boundary the counts are 11-12 and 13-14, and DTEDGE (12) lies between them.
+; FS is cleared as it is counted, as VSYNC clears it, so the flag is not left set for the next reader.
+DETECT  PSHS    A,B,X,Y
+        CLR     FSCNT
+        LDY     #DTITER
+        JSR     VSYNC           ; from a field boundary: the window starts with one
+DTLOOP  LDA     PIA0CRB
+        BPL     DTNONE
+        LDA     PIA0DB          ; clear FS, and count the field
+        INC     FSCNT
+DTNONE  LEAY    -1,Y
+        BNE     DTLOOP
+        LDA     FSCNT
+        STA     FLDLEN          ; kept for the tests: the fields a window of DTITER iterations held
+        CMPA    #DTEDGE
+        BLO     DT50
+        LDA     #1
+        BRA     DTSET
+DT50    CLRA
+DTSET   STA     FSRATE
+        LSLA
+        LSLA                    ; four bytes an entry
+        LDX     #FRATES
+        LEAX    A,X
+        LDA     ,X
+        STA     FW300
+        LDA     1,X
+        STA     FW120
+        LDA     2,X
+        STA     FW400
+        PULS    A,B,X,Y,PC
+DTITER  EQU     12000           ; the window in loop iterations (measured: 15.3 fields at 50 Hz per 16000)
+DTEDGE  EQU     12              ; the fields a window holds at 50 Hz (below) and at 60 (at or above)
 
 ; pixel masks for the font: bits 2-0 of a font row -> the pixels they set (two bits each)
 MASK1   FCB     $00,$0C,$30,$3C,$C0,$CC,$F0,$FC
@@ -674,3 +844,20 @@ PCREP   RMB     1
 PCTMP   RMB     1
 SDELAY  RMB     1
 SPULSES RMB     1
+; the joystick and the field rate
+JOYPORT RMB     1               ; the joystick being read
+JOYAX   RMB     1               ; and the axis
+JRESULT RMB     1               ; a joystick read's result while its select lines are put back
+JOYDIR  RMB     1               ; the direction wanted: 0 none 1 up 2 down 3 left 4 right
+JOYWAIT RMB     1               ; fields before the next repeat step
+JOYLAST RMB     1               ; the axis of the last move: 0 x, 1 y
+JDX     RMB     1
+JDAXIS  RMB     1               ; an axis held across a call that does not return normally
+JDY     RMB     1
+FIRECNT RMB     1               ; the fields fire has been down
+FSRATE  RMB     1               ; 0 for 50 Hz, 1 for 60
+FSCNT   RMB     1
+FLDLEN  RMB     1               ; DETECT's measurement: the fields a window held
+FW300   RMB     1               ; 300 ms in fields
+FW120   RMB     1               ; 120 ms
+FW400   RMB     1               ; 400 ms: a tap is shorter than this and a hold is not

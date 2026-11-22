@@ -1,8 +1,8 @@
 {
   "what": "SHA-256 of the PCM samples of Minesweeper's recorded sounds (the WAV's data chunk, i.e. the file from byte 44 on; the 44-byte header is not hashed because it carries no sound).",
-  "why": "The recording itself is not committed: media files (.wav) are refused by the repository's pre-push guard, and a fixture a person can open is not needed, only a strict proof that the sounds are unchanged. Re-recorded after the 1x font tables shrank: the binaries lost 15 bytes (3417 to 3402, and 3445 to 3430), which moves instruction timing slightly, so each sound begins a fraction of a sample earlier or later inside the WAV's sample windows. The WAV averages the machine's level over each sample's window, so a burst's edge values change a little while its note, length and peak do not. The random seed is not the cause: the test pokes SEED=$5EED, RANDOMIZE therefore takes the SEED branch, never reads the counter, and RSEED ends up $5EED in both builds. Measured: every cue's pitch within one zero crossing, its length within one sample, its peak identical (20160); the recording is byte-identical run to run, and byte-identical when an unrelated delay in the script moves by five frames.",
-  "sha256": "d42db406f6d11dc04d9c70faab1af6f64c4897ec51b25c77c33d394b9264c939",
-  "pcmBytes": 231232,
+  "why": "The recording itself is not committed: media files (.wav) are refused by the repository's pre-push guard, and a fixture a person can open is not needed, only a strict proof that the sounds are unchanged. Re-recorded after the font and joystick work: the binaries changed a few bytes, which moves instruction timing slightly, so a cue can begin a few samples later inside the WAV's sample windows. Measured, burst by burst, against the previous recording: starts move by 0 to 8 samples (most by 0 to 2), the recording's length is unchanged (238294 bytes), and a few sample values differ slightly because the WAV averages the machine's level over each sample's window. Note, length and peak are unchanged: every cue's pitch is within one zero crossing of where it was, its length within one sample, its peak identical (20160).",
+  "sha256": "f0b989cf93adcd6ca128beb96b60743b393d471df8a98df82bf7a9aaa1c4dfbc",
+  "pcmBytes": 238294,
   "sampleRate": 44100,
   "channels": 1,
   "bits": 16,

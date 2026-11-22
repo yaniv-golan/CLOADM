@@ -4,8 +4,12 @@
 ; the Dragon 32/64/200, Tano, CoCo 1/2/3 and clones. The 128x192 four-colour screen in its second
 ; colour set (buff, cyan, magenta, orange); the shared routines are in games.inc.
 ;
-; An 8x8 field with 10 mines. Keys: the arrows move, SPACE or ENTER opens a square, F puts a
-; flag on it or takes it off, R starts again, BREAK leaves (back to the text screen, then DONE).
+; An 8x8 field with 10 mines. The arrows move, and so does either joystick (one step as it leaves the
+; centre, then again after 300 ms and every 120 ms while it is held). SPACE or ENTER opens a square, and so
+; does a tap of either fire button, on the release; F puts a flag on it or takes it off, and so does a hold
+; of fire for 400 ms, at that moment. R starts again (and so does fire, once the game is won or lost);
+; BREAK leaves (back to the text screen, then DONE). Each joystick is read with the sound off, so the
+; reading makes no buzz; a key that fire's own row makes look pressed is ignored while fire is down.
 ; An open square shows how many of its eight neighbours hide a mine; a square with none opens
 ; its neighbours too, and so on (a queue of squares, never recursion: the stack stays put). The
 ; mines are laid when the first square is opened, never on it or next to it, so the first square
@@ -36,7 +40,11 @@ START   ORCC    #$50            ; no interrupts
         STD     ENTROPY
         LDA     #CSS
         JSR     GINIT
-        JSR     TITLE
+        JSR     JOYINIT         ; the key columns as outputs, the joystick on its x axis, the DAC at silence
+        JSR     DETECT          ; 50 or 60 Hz, once, BEFORE the title: it is a loop of CPU cycles waiting on
+                                ; the field flag, and run after the title it would hold the field back a
+                                ; further 0.3 s with nothing on the screen
+        JSR     TITLE           ; (DETECT only reads the PIA, so the field being drawn is no matter)
         JSR     RANDOMIZE
 
 ; ---- a new game ----
@@ -54,37 +62,177 @@ NGCLR   CLR     ,X+
         CLR     WON
         CLR     OPENED
         CLR     FLAGS
+        CLR     JOYDIR
+        CLR     JOYPRE
+        CLR     JOYWAIT
+        CLR     FIREDN
+        CLR     FIRECNT
+        CLR     FIREREL
         JSR     FRAME
 
-; ---- the game loop ----
-GLOOP   JSR     GETKEY
+; ---- the game loop: one field of input, then whatever it asked for ----
+; The stick steps once as it leaves the centre, then after 300 ms, then every 120 ms. The wait starts with
+; the step it follows: a new direction's step sets 300 ms, a repeat's sets 120 ms. A field of input that
+; takes no step spends one field of the wait, so at 50 Hz the steps are at fields 1, 16, 22, 28 ... - the
+; first step and then every 6 fields, the 300 ms one 15 fields after the first (18 and 7 at 60 Hz).
+GLOOP   BSR     RAWL
+        LDA     JOYDIR
+        BEQ     GLCENTRE        ; a centred stick: no step, and nothing to repeat
+        CMPA    JOYPRE
+        BEQ     GLSAME
+        STA     JOYPRE          ; a new direction: one step now, then 300 ms
+        LDA     FW300
+        STA     JOYWAIT
+        BRA     GLSTEP
+GLCENTRE
+        CLR     JOYWAIT
+        CLR     JOYPRE          ; the centre is no direction: pushing the SAME way again is a new press
+        BRA     GLKEY
+GLSAME  DEC     JOYWAIT         ; the same direction: a repeat is due when the wait runs out
+        BNE     GLKEY
+GLREP   LDA     FW120
+        STA     JOYWAIT
+GLSTEP  LDA     JOYDIR          ; the direction now: the new one, or the repeat of the same
+        PSHS    A               ; kept for the axis below (PSHS leaves A alone)
+        LDB     #2
+        MUL
+        ADDD    #JOYDIRS
+        TFR     D,X
+        JSR     MOVE
+        PULS    A               ; MOVE redraws and plays a tick; the stack is balanced here, so this returns
+        CMPA    #2              ; up and down are the y axis; left and right are x
+        BHI     GLX
+        LDA     #1
+        BRA     GLLAST
+GLX     CLRA
+GLLAST  STA     JOYLAST
+GLKEY   TST     LOST            ; over: fire RESTARTS, on its RELEASE: the press that ends a game must
+        BNE     GLOVER          ; be let go first, or a long one carries into the new game as a tap
+        TST     WON
+        BNE     GLOVER
+        BRA     GLKEYS
+GLOVER  LDA     FIREREL         ; the field fire came up on, if it did
+        BEQ     GLKEYS          ; still down (or not pressed yet): nothing, however long
+        LBRA    NEWGAME
+GLKEYS  LDA     IN
         CMPA    #K_BREAK
         LBEQ    QUIT
         CMPA    #'R
-        BEQ     NEWGAME
+        LBEQ    NEWGAME
         TST     LOST
-        BNE     GLOOP           ; over: R or BREAK only
+        BNE     GLOOP           ; over: R, BREAK or fire only
         TST     WON
         BNE     GLOOP
-        LDX     #KEYMOVE        ; a move: key, dx, dy (0 ends)
-GLMOVE  LDB     ,X+
-        BEQ     GLACT
-        CMPA    -1,X
-        BEQ     GLGO
-        LEAX    2,X
-        BRA     GLMOVE
-GLGO    JSR     MOVE
+        JSR     DISPATCH
         BRA     GLOOP
-GLACT   CMPA    #$20
-        BEQ     GLOPEN
+
+; RAWL: one field of input -> IN (a key, a fire action, or 0) and JOYDIR (the stick, either joystick).
+; The poll counts in ENTROPY as GETKEY's does, once a field rather than in a tight loop.
+RAWL    PSHS    D,X,Y
+RLWAIT  JSR     VSYNC
+        CLR     FIREREL         ; "fire came up on THIS field": the over screen restarts on it (GLOVER)
+        LDD     ENTROPY
+        ADDD    #1
+        STD     ENTROPY
+        JSR     [POLCAT]
+        BEQ     RLNOKEY
+        JSR     KEYOK           ; 0 (Z set) for a key fire's rows 0 and 1 make phantom
+        BEQ     RLNOKEY
+        STA     KEYIN
+        BRA     RLFIRE
+RLNOKEY CLR     KEYIN
+RLFIRE  JSR     JOYFIRE
+        TSTA
+        BNE     RLDOWN
+        TST     FIREDN
+        BEQ     RLJOY           ; not pressed, or released before it counted
+        CLR     FIREDN
+        LDA     #1
+        STA     FIREREL         ; it came up this field
+        LDA     FIRECNT
+        CMPA    FW400
+        BHS     RLJOY           ; a hold: it flagged on its 400 ms field, and the release does nothing
+        LDA     #$20            ; a tap: OPEN on the release
+        STA     FIREIN
+        BRA     RLJOY
+RLDOWN  TST     FIREDN
+        BNE     RLCOUNT
+        LDA     #1
+        STA     FIREDN
+        STA     FIRECNT         ; the field it went down on is the first of the count: a press held for
+        BRA     RLJOY           ; exactly 400 ms flags, and 400 ms less one opens
+RLCOUNT LDA     FIRECNT
+        CMPA    FW400
+        BHS     RLJOY           ; already flagged: once a hold
+        INCA
+        STA     FIRECNT
+        CMPA    FW400
+        BNE     RLJOY
+        LDA     #'F             ; held for 400 ms: FLAG now, with its sound
+        STA     FIREIN
+RLJOY   JSR     JOYREAD
+        STA     JOYDIR
+        LDA     KEYIN           ; a key wins the field; otherwise fire's action
+        BNE     RLDONE
+        LDA     FIREIN
+RLDONE  STA     IN
+        CLR     FIREIN
+        PULS    D,X,Y,PC
+
+; KEYOK: A = the key the ROM's POLCAT gave. While fire is down, a key in matrix row 0 or 1 is not a key:
+; pulling PA0 or PA1 down for fire makes those rows read as pressed, so the ROM can hand one back. The rows
+; are not the same on every machine (a Dragon's row 0 is '0'-'7' and row 1 '8'-'/', a CoCo's row 0 @ and
+; A-G and row 1 H-O), and which table applies cannot be known from the game, so BOTH are dropped: the union
+; costs only 'F' while fire is down, which is no loss because a held fire flags anyway. R, BREAK, the
+; arrows, SPACE, ENTER and the rest are never in those rows, so no real key is affected.
+KEYOK   TST     FIREDN
+        BEQ     KYKEEP
+        LDX     #PHANTOM
+KYLOOP  LDB     ,X+
+        BEQ     KYKEEP
+        PSHS    A
+        CMPB    ,S+
+        BNE     KYLOOP
+        CLRA
+KYKEEP  TSTA                    ; the caller tests Z: the key, or none, not the loop's last load
+        RTS
+
+; DISPATCH: the key or fire action in IN, with the game on
+DISPATCH LDA    IN
+        CMPA    #$20
+        BEQ     DSPOPEN
         CMPA    #K_ENTER
-        BEQ     GLOPEN
+        BEQ     DSPOPEN
         CMPA    #'F
-        BNE     GLOOP
+        BNE     DSPMOVE
         JSR     FLAG
-        BRA     GLOOP
-GLOPEN  JSR     REVEAL
-        BRA     GLOOP
+        RTS
+DSPOPEN JSR     REVEAL
+        RTS
+DSPMOVE LDX     #KEYMOVE
+DSM1    LDB     ,X+             ; the key, then its dx and dy (a 0 key ends the table)
+        BEQ     DSPNONE
+        CMPA    -1,X
+        BNE     DSM2
+        ; The axis, from the entry's dy, before the call: MOVE (and TONE, which it jumps to last) uses
+        ; A, B and X, so the value cannot stay in one of them across it. MOVE's own stack is balanced
+        ; before its JMP TONE, so that jump returns to MOVE's caller as an RTS would.
+        LDA     #0
+        LDB     1,X             ; the dy of THIS entry (a key at ,X+ leaves X on its dx)
+        TSTB
+        BEQ     DSMX
+        LDA     #1
+DSMX    STA     JDAXIS
+        JSR     MOVE
+        LDA     JDAXIS
+DSMLAST STA     JOYLAST
+        CLR     JOYPRE          ; a key's move is not the stick's: a stick still pushed steps AGAIN on the next
+        LDA     FW300           ; field (measured: the key's step, then the stick's, one field apart), and the
+        STA     JOYWAIT         ; 300 ms wait then counts from that stick step
+        RTS
+DSM2    LEAX    2,X
+        BRA     DSM1
+DSPNONE RTS
 
 QUIT    JSR     GTEXT
         JMP     DONE
@@ -680,6 +828,14 @@ SQDONE  RTS
 ; ---- data ----
 ; keys that move: key, dx, dy (0 ends)
 KEYMOVE FCB     K_UP,0,-1,K_DOWN,0,1,K_LEFT,-1,0,K_RIGHT,1,0,0
+; the stick's directions as MOVE's (dx, dy): index 1-4 is up, down, left, right; dy non-zero means the y axis
+JOYDIRS FCB     0,0,0,-1,0,1,-1,0,1,0
+; the keys fire's matrix rows 0 and 1 make phantom, and that a POLCAT with ROMs can hand back, which the
+; game ignores while fire is down. Both machines' rows, because which one the ROM scans cannot be known:
+; a Dragon's row 0 is '0'-'7' and row 1 '8'-'/', a CoCo's row 0 is @ and A-G and row 1 H-O. R, BREAK, the
+; arrows, SPACE, ENTER and the rest are never in those rows.
+PHANTOM FCB     '0,'1,'2,'3,'4,'5,'6,'7,'8,'9,':,';,44,'-,'.,'/,'@,'A,'B,'C,'D,'E,'F,'G,'H,'I,'J,'K,'L,'M,'N,'O,0
+; (44 is the comma: a character literal for it cannot be written in a comma-separated FCB list)
 ; the eight neighbours: dx, dy
 DELTAS  FCB     -1,-1,0,-1,1,-1,-1,0,1,0,-1,1,0,1,1,1
 ; each kind's background fill: hidden cyan, flag on cyan, open buff, mine buff, the mine that went off orange
@@ -760,5 +916,11 @@ SQNUM   RMB     1
 SQCUR   RMB     1
 SQADDR  RMB     2
 OLDSQ   RMB     1
+IN      RMB     1               ; the game loop's action this field: a key, or a fire action, or 0
+KEYIN   RMB     1
+FIREIN  RMB     1
+FIREDN  RMB     1               ; fire has been down since ...
+FIREREL RMB     1               ; ... and came UP on this field (the over screen restarts on that: GLOVER)
+JOYPRE  RMB     1               ; the direction the stick had last field
 
         END     ENTRY
