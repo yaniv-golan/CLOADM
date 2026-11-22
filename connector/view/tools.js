@@ -21,7 +21,8 @@ import { createToolbox, mcpResult, McpToolError } from '../../js/mcp/tools.js';
 // with panel.js (served from cloadm.dev in variant A). Raise it whenever either side's expectations of the other
 // change: the bridge's attach(), fail() and hostContext, CLOADM_VIEW's fields, the shell's element ids. The bridge
 // refuses an emulator whose number differs (out-of-step). 2: the toolbar, Details and the host context (the view's UX).
-export const PANEL_API = 2;
+// 3: the bridge's sizeChanged() and its safe-area, platform and device context keys; the shell's #keys and keys-item.
+export const PANEL_API = 3;
 export const TEXT_MAX = 100000;
 export const LEFT_OUT = Object.freeze(['close_machine', 'insert_tape', 'insert_disk', 'save_snapshot', 'restore_snapshot', 'add_roms', 'remove_roms']);
 // the bundled programs' files a load by name can ask for (Session.welcomeFile, lizaFile, gameFile and the demo, for

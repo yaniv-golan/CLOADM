@@ -34,6 +34,14 @@ export function safeArea() {
 // call this at once, so a focus() that follows finds the element no longer inert; a MutationObserver (createPage)
 // covers the rest.
 const UNDRAWN = '.layout, #appbar, #appbar > nav, body > footer, #switchConfirm, .layout > .drawer, .slots';
+// the on-screen panel is up (js/ui/touch-keys.js): the page's words say "tap", and BREAK is its button, not Esc
+export const touchPanel = () => document.body.classList.contains('touch-keys');
+// Claude's turn paused by the person's key, on a touch screen (UX R30): there is no Esc to name there, so it says what
+// Stop does; one text, short enough for every place that shows it. The Session's own text stays as it is (it is
+// browser-free and names Esc): the page chooses.
+export const TOUCH_PAUSED_TEXT = 'Paused: you tapped a key · Stop ends Claude\'s turn';
+// a status's text (Session.claudeStatus), as the page shows it
+export const claudeStatusText = (status) => (status && status.phase === 'paused' && touchPanel() ? TOUCH_PAUSED_TEXT : status && status.text);
 export function markUndrawn() {
   for (const el of document.querySelectorAll(UNDRAWN)) {
     const off = !el.hidden && getComputedStyle(el).display === 'none';

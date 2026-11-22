@@ -8,7 +8,7 @@
 //   B (open_emulator_inline): this file and its whole import graph folded into the view (connector/fold.js).
 // globalThis.CLOADM_VIEW, set by the view's first script: { variant, api, version, tools, programs? } (programs: base64
 // of the bundled programs' files in B; A fetches them from the site, beside js/). No ROM is involved anywhere.
-import { Session, GAMES } from '../../js/session.js';
+import { Session, GAMES, PROGRAM_CONTROLS } from '../../js/session.js';
 import { frameToRGBA } from '../../js/video/frame.js';
 import { HostInput } from '../../js/host/input.js';
 import { localStore } from '../../js/host/storage.js';
@@ -18,7 +18,8 @@ import { Audio } from '../../js/host/audio.js';
 import { McpToolError } from '../../js/mcp/tools.js';
 import { profiles } from '../../js/machines/profiles.js';
 import { panelToolbox, PANEL_API, PROGRAM_FILES } from './tools.js';
-import { menu, menuItem, fitScreen, CrispPresenter, describeCall, announcement, chip } from './ui.js';
+import { menu, menuItem, fitScreen, CrispPresenter, describeCall, announcement, chip, insets, touchHost } from './ui.js';
+import { touchPanel } from './touch.js';
 
 export { PANEL_API };
 const loadedAt = performance.now();   // this module's code began (all of its imports loaded): the browser check compares the handshake with it
@@ -107,7 +108,12 @@ export async function start() {
     const c = r.hostCapabilities && r.hostCapabilities.sandbox && r.hostCapabilities.sandbox.csp;
     facts.csp = `resourceDomains ${JSON.stringify(c ? c.resourceDomains ?? null : null)}, connectDomains ${JSON.stringify(c ? c.connectDomains ?? null : null)}`;
   };
-  let fit = () => {}, describe = () => {};
+  let fit = () => {}, describe = () => {}, keys = null;
+  // a touch screen (the host says so, a coarse pointer, or a touch seen): the on-screen keys, and the insets a phone
+  // app's own controls take in the side panel or fullscreen
+  const coarse = matchMedia('(pointer: coarse)');
+  let touchSeen = false;
+  const touch = () => touchHost(bridge.hostContext || {}, { coarse: coarse.matches, seen: touchSeen });
   // the side-panel item only inline, where the host offers fullscreen (the side panel); the screen refits to the mode
   const syncMode = () => {
     const c = bridge.hostContext || {}, mode = c.displayMode || 'inline';
@@ -115,6 +121,9 @@ export async function start() {
     // the host's theme: Claude's colours stay the same in both; on a light host the bezel's Claude edge gets an outline
     document.documentElement.dataset.theme = c.theme === 'light' ? 'light' : 'dark';
     $('big').hidden = !(mode === 'inline' && Array.isArray(c.availableDisplayModes) && c.availableDisplayModes.includes('fullscreen'));
+    const pad = insets(c, { touch: touch() }), root = document.documentElement.style;
+    for (const [k, v] of [['--in-t', pad.top], ['--in-r', pad.right], ['--in-b', pad.bottom], ['--in-l', pad.left]]) if (root.getPropertyValue(k) !== v) root.setProperty(k, v);
+    if (keys) keys.apply();
     fit();
   };
   // an emulator the bridge refused (another PANEL_API) or a start that failed: on the status line, not in Details
@@ -146,11 +155,19 @@ export async function start() {
   const now = { program: null };
   describe = () => {
     const m = session.shownMachine, where = `${m.profile.name} · ${roms(m)}`;
+    if (keys) keys.apply();   // (what runs may have changed: the keys' mode follows it)
     if (now.program) return status(`${now.program} is running · ${where}`);
     if (m.hasRom) return status(`BASIC is running · ${where}`);
     status(`${where} · Pick something from Programs, or ask Claude to play something.`);
   };
   const running = (program) => { now.program = program; describe(); };
+  // the bundled program running now and what it is played with ({ id, input, extra, joystick }, as
+  // Session.programControls gives it on the page), from what this view started: the on-screen keys' mode follows it
+  const programControls = () => {
+    const id = Object.keys(PROGRAM_NAMES).find((k) => PROGRAM_NAMES[k] === now.program);
+    if (id === 'liza') return { id, ...PROGRAM_CONTROLS.liza };
+    return id && GAMES.list[id] ? { id, ...GAMES.list[id].controls } : null;
+  };
   // a SessionError (a game on a machine that cannot run it) -> the status line
   const attempt = (fn) => { try { fn(); } catch (e) { status(e.message, { announce: true }); } };
 
@@ -228,6 +245,7 @@ export async function start() {
         const r = await toolbox.call(name, args, { signal, base64: toBase64 });
         if (!r.isError && name === 'load') now.program = a.program ? PROGRAM_NAMES[a.program] || a.program : String(a.path || '').split('/').pop();
         else if (!r.isError && name === 'assemble_and_load') now.program = 'Claude\'s program';
+        if (keys) keys.apply();
         if (!d.read) status(`${d.past}${d.keys || ''} · ${clock(new Date())}`);
         return r;
       } finally {
@@ -251,8 +269,22 @@ export async function start() {
     if (frame.height !== lines) { lines = frame.height; fit(); }
     presenter.present(frame);
   }
-  // the toolbar and the status line stay in view with the screen in a fixed-height view (Details, open, scrolls)
-  fit = fitScreen($('stage'), $('bezel'), canvas, { context: () => bridge.hostContext || {}, reserve: () => $('bar').offsetHeight + ($('details').open ? $('status').offsetHeight + 4 : $('foot').offsetHeight) });
+  // the on-screen keys, on a touch screen (⋯ hides them and brings them back)
+  const storage = (() => { try { return localStorage; } catch (e) { return null; } })();   // (the sandbox may refuse it)
+  keys = touchPanel($('keys'), { session, input, wanted: touch, storage, program: programControls, onPress: () => unlock(), onChange: () => { syncKeysItem(); fit(); } });
+  // the toolbar, the keys and the status line stay in view with the screen in a fixed-height view (Details, open,
+  // scrolls), inside the insets; inline, the host is told the content's height (computed from the width)
+  const bodyPad = () => { const b = getComputedStyle(document.body); return parseFloat(b.paddingTop) + parseFloat(b.paddingBottom); };
+  const keysH = () => ($('keys').hidden ? 0 : $('keys').offsetHeight);
+  fit = fitScreen($('stage'), $('bezel'), canvas, {
+    context: () => bridge.hostContext || {},
+    reserve: () => bodyPad() + $('bar').offsetHeight + keysH() + ($('details').open ? $('status').offsetHeight + 4 : $('foot').offsetHeight),
+    around: () => bodyPad() + $('bar').offsetHeight + keysH() + $('foot').offsetHeight,
+    onSize: ({ width, height }) => bridge.sizeChanged(width, height),
+  });
+  $('details').addEventListener('toggle', () => fit());
+  coarse.addEventListener('change', () => syncMode());
+  addEventListener('pointerdown', (e) => { if (e.pointerType === 'touch' && !touchSeen) { touchSeen = true; syncMode(); } }, { capture: true });
   requestAnimationFrame(tick);
 
   // sound: off until a click (browsers allow it only after one); the switch shows which, and its click is the gesture
@@ -264,6 +296,13 @@ export async function start() {
     facts.audio = !audio.ctx ? 'off until a click' : `${on ? 'on' : 'muted'}, ${audio.path}${audio.fallback ? ` (${audio.fallback})` : ''}`;
     show();
   };
+  function syncKeysItem() {
+    const item = $('keys-item');
+    item.hidden = !touch();
+    item.textContent = keys && keys.hidden ? 'Show on-screen keys' : 'Hide on-screen keys';
+    $('hint').hidden = !!(keys && keys.shown);   // (the keys are the way to type: "Click to type" would mislead)
+  }
+  syncKeysItem();
   const unlock = () => { const first = !audio.ctx; audio.start(); if (first) { session.welcomeSound(); setTimeout(syncSound, 3500); } syncSound(); };
   syncSound();
   $('sound').onclick = () => {
@@ -340,8 +379,9 @@ export async function start() {
     status(ok ? 'Details copied.' : 'Could not copy: open Details and select the text.', { announce: true, brief: true });
   };
   menu($('more'), $('more-menu'), {
-    onOpen: () => { $('details-item').textContent = $('details').open ? 'Hide details' : 'Details'; },
+    onOpen: () => { $('details-item').textContent = $('details').open ? 'Hide details' : 'Details'; syncKeysItem(); },
     onPick: (item) => {
+      if (item.id === 'keys-item') return keys.setHidden(!keys.hidden);
       if (item.id === 'big') bridge.requestDisplayMode('fullscreen').then((r) => say(`mode: ${r.mode}`), (er) => say(`refused: ${er.message || er}`));
       else if (item.id === 'details-item') { $('details').open = !$('details').open; if ($('details').open) $('details').firstElementChild.focus(); }
       else if (item.id === 'copy') copyDetails();
@@ -369,5 +409,5 @@ export async function start() {
   refused();
   facts.storage = `${await probeStorage()}; media store ${mediaNote}`;
   show();
-  window.cloadmView = { session, toolbox, facts, loadedAt, audio, cue };   // for the browser check
+  window.cloadmView = { session, toolbox, facts, loadedAt, audio, cue, keys };   // for the browser check
 }

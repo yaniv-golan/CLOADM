@@ -3,7 +3,8 @@
  * their own menu.
  *
  * The card is an offer, not a demand. It appears when all of these hold: CLOADM is not already installed, the page
- * is not an embed; the emulator is shown with no view, no full-screen chat, no other card and no open Menu; a real
+ * is not an embed, nor a phone in its touch layout (upright or sideways: the owner's decision with UX R30; the Menu
+ * item still installs there); the emulator is shown with no view, no full-screen chat, no other card and no open Menu; a real
  * program (LIZA, a binary, a tape, a disk, BASIC) has run for 60 s this visit — never over the welcome menu; and
  * the browser can be asked (Chromium's beforeinstallprompt, held with preventDefault so its mini-infobar does not
  * appear instead, or iOS, which has no install event). At most once a visit.
@@ -91,7 +92,7 @@ export function isIos(win) {
 }
 // Every condition for an automatic offer, in one place: the oracle's list, with no room to forget one.
 export function cardShows(s) {
-  return !s.installed && !s.embed && !s.storageUnavailable
+  return !s.installed && !s.embed && !s.storageUnavailable && !s.phone
     && mayOffer(s.answer, s.now)
     && (!!s.prompt || !!s.ios)
     && !s.view && !s.chatFull && !s.otherCard && !s.menuOpen && !s.toast
@@ -149,6 +150,10 @@ export function setupInstall(page, { started = () => true, machineMenu = null } 
   let pending = false;      // an offer deferred for want of room: still owed this visit, tried again on a size change
   let offeredByMenu = false;
   const clock = createRunClock();
+  // a phone in its touch layout, upright or sideways (the owner's decision with UX R30): no offer there, the Menu item
+  // installs
+  const phoneSized = [matchMedia('(max-width: 700px)'), matchMedia('(orientation: landscape) and (max-height: 500px)')];
+  const touchPhone = () => (document.body.classList.contains('touch-keys') || document.body.classList.contains('touch-hidden')) && phoneSized.some((q) => q.matches);
 
   const save = (v) => { answer = v; if (!storageUnavailable) store.set(INSTALL_KEY, JSON.stringify(v)); };
   const platform = () => platformOf(navigator.userAgent || '', ios);
@@ -225,11 +230,11 @@ export function setupInstall(page, { started = () => true, machineMenu = null } 
   // Measure, don't compute: each candidate is a class the stylesheet knows, applied and then READ — the real box after
   // the class is on. No arithmetic about insets or expected sizes, so a stylesheet change cannot leave these numbers
   // stale (which is how the gutter came to do nothing above 500 px).
-  // Every visible on-screen key is one (letters, BREAK, CLEAR, Menu, the Keys|Joystick switch, the stick and FIRE,
-  // the panel's own menu), in every layout: the card never sits over something the user presses. (The machine menu
+  // Every visible on-screen key is one (letters, BREAK, CLEAR, Menu, the Keys|Pad|Stick switch, the stick and FIRE,
+  // the panel's own menu, and ⌨ after Hide keys), in every layout: the card never sits over something the user presses. (The machine menu
   // is not here: a menu opening takes the card away — onMenu below — and the card waits while one is open.)
   const OBSTACLES = () => [$('screen'), $('btnReset'), ...document.querySelectorAll('.controls'), ...document.querySelectorAll('#appbar > *'),
-    ...document.querySelectorAll('#touchKeys button, #touchStick, #tkMenuSheet')]
+    ...document.querySelectorAll('#touchKeys button, #touchStick, #tkMenuSheet, #btnShowKeys')]
     .filter((e) => e && e.checkVisibility({ visibilityProperty: true }));
   const hit = (a, b) => !!a && !!b && !!b.width && !!a.width
     && !(a.bottom <= b.top || a.top >= b.bottom || a.right <= b.left || a.left >= b.right);
@@ -379,7 +384,7 @@ export function setupInstall(page, { started = () => true, machineMenu = null } 
       installed, embed: document.body.classList.contains('embed'), storageUnavailable,
       answer, now: Date.now(), prompt: deferred, ios, view: viewOpen(), chatFull: session.claudeView === 'full',
       otherCard: otherCard(), menuOpen: menuOpen(), toast: !!page.feedback.current,
-      programRunning: programRunning(), welcomeRunning: session.welcomeRunning, visitSeconds: clock.seconds(),
+      programRunning: programRunning(), welcomeRunning: session.welcomeRunning, visitSeconds: clock.seconds(), phone: touchPhone(),
     }) && show('offer')) shownThisVisit = true;
   }
   // A view (Library, Share, Add ROMs, Debugger) takes the page: the card would be hidden under it with the layout, so
@@ -498,7 +503,7 @@ export function setupInstall(page, { started = () => true, machineMenu = null } 
       installed, embed: document.body.classList.contains('embed'), storageUnavailable,
       answer, now: Date.now(), prompt: deferred, ios, view: viewOpen(), chatFull: session.claudeView === 'full',
       otherCard: otherCard(), menuOpen: menuOpen(), toast: !!page.feedback.current,
-      programRunning: programRunning(), welcomeRunning: session.welcomeRunning, visitSeconds: clock.seconds(),
+      programRunning: programRunning(), welcomeRunning: session.welcomeRunning, visitSeconds: clock.seconds(), phone: touchPhone(),
     })) {
       // shownThisVisit is spent only when the card really appears: a size with no room defers it, and the offer stays
       // pending for this visit (retryPending above tries again, at most once a second, or at once on a resize)

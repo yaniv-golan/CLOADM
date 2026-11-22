@@ -257,13 +257,16 @@ chat takes its place; the conversation moves to the side panel, which reopens wh
 the emulator, whatever the address (`?app=claude` included) and the history behind it.
 
 On a phone or tablet an on-screen panel appears under the screen; held sideways it is fixed around the screen. Its ← key
-(marked DEL) is the machine's backspace.
-The **Keys | Joystick** switch (shown when the machine has a joystick port of its own — not the MC-10 or Alice, and
-not when the right port holds a Hi-Res interface or The Rat) turns it into a **touch joystick**:
+(marked DEL) is the machine's backspace, and → follows it.
+The **Keys | Pad | Stick** switch picks what the panel is. **Pad** is a D-pad (↑ ↓ ← →) with SPACE, ENTER, the
+running program's own keys (Minesweeper's F) and ABC, which shows the keyboard for one key; held sideways the D-pad is
+left of the screen and its keys right. **Stick** (offered when the machine has a joystick port of its own — not the
+MC-10 or Alice, not when the right port holds a Hi-Res interface or The Rat, and not in the phone's chat) is a
+**touch joystick**:
 
 * One stick, on the **right** joystick (the one the first gamepad drives), analogue over the machines' 0–63 with a
   small dead zone, no eight-way snap. Touch down anywhere in the zone to set its centre; about 56 px of travel is
-  full deflection. In Keys mode held sideways the panel is the split thumb keyboard; in Joystick mode the stick fills
+  full deflection. In Keys mode held sideways the panel is the split thumb keyboard; in Stick mode the stick fills
   the left, and the key strip (SPACE, ENTER, BREAK, 1, 2, Y, N, ABC; sideways SPACE, ENTER and BREAK read SPC, ENT and
   BRK) and a large FIRE the right. Either way BREAK, CLEAR, the switch and Menu are one row along the bottom, clear of a
   phone's notch and home indicator. Upright the switch,
@@ -272,12 +275,19 @@ not when the right port holds a Hi-Res interface or The Rat) turns it into a **t
   returns. The stick and FIRE can be held at once.
 * FIRE is the joystick's button bit, so it shares a keyboard row line as a real stick's fire button does, and on the
   CoCo 3 it raises the keyboard interrupt. A gamepad connecting stands the touch stick down until it disconnects.
-  The mode is remembered per machine, and `?touch=joystick` or `?touch=keys` sets it for the visit.
-* Keys mode: the keyboard splits for your thumbs, BREAK, CLEAR, the switch and Menu sit under it. `SHIFT` shifts the
-  next key. **Hide keys** is in the panel's Menu. Input tab → On-screen keyboard: Automatic, Always or Never.
+* A program opens in the mode it is played with: 2048 and Minesweeper on Pad, LIZA, BASIC and anything else on Keys.
+  The switch's choice is remembered per program and machine, and `?touch=joystick` or `?touch=keys` sets it for the
+  visit.
+* Keys mode: held sideways the keyboard splits for your thumbs, BREAK, CLEAR, the switch and Menu sit under it (Menu
+  has Machine… — the machine picker —, Commands… and **Hide keys**). `SHIFT` shifts the next key. Input tab →
+  On-screen keyboard: Automatic, Always or Never.
 * On a phone held upright the whole panel fits on screen with the browser's toolbars up, the row with ENTER included:
-  the switch, BREAK, CLEAR and Menu share one row between the screen and the keys, and the screen takes the height
-  that is left. A key types when your finger lifts, or once it has rested on the key a moment (so a held key works in
+  the strip [Keys|Pad|Stick] [BREAK] [CLEAR] [⌄] lies between the screen and the keys, and the screen takes the room
+  that is left — the page's whole width with Pad, Stick or the keys hidden. **⌄** hides the keys; **⌨** at the bottom
+  right brings them back. The app bar is one row: the machine, Open…, Ask Claude and **Menu** (Add ROMs is Menu's
+  first item while the machine has no BASIC, and Menu shows a dot then). On a touch screen the hints say "tap a key"
+  and "tap BREAK", and the install offer never appears on a phone (Install CLOADM…, in Menu, or in the panel's Menu held sideways, installs).
+  A key types when your finger lifts, or once it has rested on the key a moment (so a held key works in
   games); a finger that slides off it first types nothing, so a drag or a scroll that starts on the keyboard never
   presses a key. The joystick strip's keys (SPC, ENT, BRK, 1, 2, Y, N) work the same way, so held
   they register after about 100 ms; the stick and FIRE act at once.
@@ -287,7 +297,7 @@ not when the right port holds a Hi-Res interface or The Rat) turns it into a **t
 
 ## Commands
 
-`Ctrl+K` (`⌘K` on a Mac), or **Commands…** in the app bar (behind **Menu** on a phone, and in the touch keys' Menu), opens the
+`Ctrl+K` (`⌘K` on a Mac), or **Commands…** in the app bar (behind **Menu** on a phone, and in the touch keys' Menu held sideways), opens the
 command box. With nothing typed it lists every command by group (Claude, Files, Views, Settings, Machine); `↓` chooses one, `Enter`
 runs it. Type to filter, or type a question for Claude. Commands run on the page and are never sent to Claude. The
 [Help page](../help/) lists the commands, the shortcuts and what Claude can read and do.

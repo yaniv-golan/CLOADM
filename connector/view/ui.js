@@ -1,6 +1,8 @@
 // The side-panel view's controls, apart from the emulator (connector/view/panel.js wires them to the Session):
 //   menu()      a menu button and its role="menu" list, for the mouse and the keyboard;
-//   fitScreen() the emulated screen sized to the panel, keeping its 4:3 picture and its pixels crisp;
+//   fitScreen() the emulated screen sized to the panel, keeping its 4:3 picture and its pixels crisp, and the view's
+//               content size for a host that sizes the view from it (inline);
+//   insets()    the room the host's own controls take at the view's edges (a phone's title chip, the home bar);
 //   activity()  the cue that Claude, not the person, is driving the machine.
 // The elements are the view's (connector/build.js's shell), passed in by panel.js.
 
@@ -85,10 +87,15 @@ export function screenSize(availW, availH = null, { aspect = 4 / 3 } = {}) {
 export const fixedHeight = (ctx = {}) => (ctx.displayMode && ctx.displayMode !== 'inline') || typeof (ctx.containerDimensions || {}).height === 'number';
 
 // Keeps canvas as large as the view allows: the stage's width; with a fixed height (fixedHeight(context())) also the
-// view's height less reserve() (the toolbar and the status line), with a maxHeight from the host as a cap; minus the
-// stage's and the bezel's padding. The canvas's backing store is its CSS size times devicePixelRatio, so the
-// presenter draws each pixel crisp. Called on every resize of the view and by the caller (a mode or model change).
-export function fitScreen(stage, bezel, canvas, { context = () => ({}), reserve = () => 0 } = {}) {
+// view's height less reserve() (the toolbar, the status line, the on-screen keys and the insets), with a maxHeight
+// from the host as a cap; minus the stage's and the bezel's padding. The canvas's backing store is its CSS size times
+// devicePixelRatio, so the presenter draws each pixel crisp. Called on every resize of the view and by the caller (a
+// mode or model change).
+// Where the host sizes the view from its content (not fixedHeight), onSize({ width, height }) gets the content's
+// height, computed from the width alone: the screen at 4:3 plus its padding plus around() (the toolbar, the status
+// line, the keys, the insets: elements whose height does not depend on the view's). The view's own height is never
+// read there, so the host's answer cannot feed back into it.
+export function fitScreen(stage, bezel, canvas, { context = () => ({}), reserve = () => 0, around = reserve, onSize = null } = {}) {
   const fit = () => {
     const s = getComputedStyle(stage), b = getComputedStyle(bezel);
     const px = (st, a, z) => parseFloat(st[a]) + parseFloat(st[z]);
@@ -97,17 +104,40 @@ export function fitScreen(stage, bezel, canvas, { context = () => ({}), reserve 
     const ctx = context(), max = (ctx.containerDimensions || {}).maxHeight;
     const total = fixedHeight(ctx) ? innerHeight : typeof max === 'number' ? max : null;
     const size = screenSize(w, total == null ? null : Math.max(MIN_HEIGHT, total - reserve() - padH));
-    canvas.style.width = `${size.width}px`;
-    canvas.style.height = `${size.height}px`;
-    const dpr = devicePixelRatio || 1;
-    canvas.width = Math.round(size.width * dpr);
-    canvas.height = Math.round(size.height * dpr);
+    const dpr = devicePixelRatio || 1, bw = Math.round(size.width * dpr), bh = Math.round(size.height * dpr);
+    // (a canvas's backing store is cleared and allocated again by any write to its size: only when it changes)
+    if (canvas.style.width !== `${size.width}px` || canvas.style.height !== `${size.height}px`) { canvas.style.width = `${size.width}px`; canvas.style.height = `${size.height}px`; }
+    if (canvas.width !== bw || canvas.height !== bh) { canvas.width = bw; canvas.height = bh; }
+    if (onSize && !fixedHeight(ctx)) onSize({ width: document.documentElement.clientWidth, height: contentHeight(size.height, padH, around()) });
   };
   addEventListener('resize', fit);
   fit();
   return fit;
 }
 export const MIN_HEIGHT = 120;   // a view shorter than the toolbar and this scrolls rather than shrink the screen to nothing
+// the view's content height: the screen, its stage's and bezel's padding, and what lies around it
+export const contentHeight = (screenH, padH, around) => Math.ceil(screenH + padH + around);
+
+// The room at each edge the host's own controls cover, as CSS lengths for the view's padding. The host's
+// safeAreaInsets (MCP Apps hostContext) when it gives them, in px, kept within 0..MAX_INSET; otherwise, on a touch host
+// in the side panel or fullscreen, the device's own safe area (env(safe-area-inset-*)) and at least TOP_RESERVE at the
+// top, where a phone app floats its title chip over the view; otherwise none. -> { top, right, bottom, left }
+export const TOP_RESERVE = 56, MAX_INSET = 200;
+export function insets(ctx = {}, { touch = false } = {}) {
+  const a = ctx.safeAreaInsets, n = (v) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(MAX_INSET, Math.max(0, Math.round(v))) : null);
+  const given = a && typeof a === 'object' ? ['top', 'right', 'bottom', 'left'].map((k) => n(a[k])) : null;
+  if (given && given.every((v) => v !== null)) return { top: `${given[0]}px`, right: `${given[1]}px`, bottom: `${given[2]}px`, left: `${given[3]}px` };
+  if (touch && fixedHeight(ctx)) return { top: `max(env(safe-area-inset-top, 0px), ${TOP_RESERVE}px)`, right: 'env(safe-area-inset-right, 0px)', bottom: 'env(safe-area-inset-bottom, 0px)', left: 'env(safe-area-inset-left, 0px)' };
+  return { top: '0px', right: '0px', bottom: '0px', left: '0px' };
+}
+// Is the view on a touch screen? The host says so (platform "mobile", deviceCapabilities.touch), or the pointer is
+// coarse, or a touch was seen. A host that says touch: false is believed over the media query.
+export function touchHost(ctx = {}, { coarse = false, seen = false } = {}) {
+  const caps = ctx.deviceCapabilities && typeof ctx.deviceCapabilities === 'object' ? ctx.deviceCapabilities : {};
+  if (seen || ctx.platform === 'mobile' || caps.touch === true) return true;
+  if (caps.touch === false) return false;
+  return !!coarse;
+}
 
 // Draws each frame into the canvas's backing store (fitScreen sizes it), every machine pixel a block of device
 // pixels: nearest-neighbour, no smoothing. toRGBA(frame, pixels) fills a Uint32Array (js/video/frame.js).

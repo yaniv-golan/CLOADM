@@ -676,7 +676,7 @@ iPhone 15 (393x659, and 393x628 with 59 px above) with a 34 px home indicator in
 (412x839), and an iPhone 15 and an iPhone SE in Safari 26 (its user agent, 393x852 and 375x667: the page runs under the
 floating toolbar, which no viewport unit or inset counts, so the panel must end 84 px above the bottom edge; the
 84 px is a model of that toolbar, which the iOS Simulator's Safari showed it clears by 62 px on the SE and 100 px on
-the 15; on the SE, removing it puts ENTER's row under the band). In Keys and Joystick mode every key (ENTER's row included), the switch, BREAK, CLEAR and Menu, or the
+the 15; on the SE, removing it puts ENTER's row under the band). In Keys and Joystick mode every key (ENTER's row included), the switch, BREAK, CLEAR and ⌄, or the
 strip, the stick and FIRE, must lie inside the visual viewport less the insets at load, with the page not scrolled,
 each key at least 40 px tall and none over the screen. With real touch events (CDP) a drag of 40 px that starts on Q,
 and one that starts on SHIFT, must reach neither the machine's matrix (`setKey`) nor the no-ROM stub's queue (SHIFT
@@ -761,6 +761,33 @@ and iOS's Add to Home Screen. Manually: in Chrome on a computer, run a program f
 on the card, then **Install CLOADM…** in the app bar (behind **Menu** on a phone); on an iPhone in Safari, wait for the card, follow
 Share → Add to Home Screen, and open CLOADM from the home screen (it starts without the browser's bars and the
 Menu item is gone).
+
+### Phones and the app bar (the browser check's `mobile` group)
+
+The v0.1.8 UI/UX review's phone and header findings, as UX R30 (owner-approved) rules them, with real touch
+(`hasTouch`, `isMobile`) at the visible sizes R30 names: 320x460, 375x548 and 393x659 upright, 734x343 sideways. Every
+check failed on v0.1.8 except the guards named here. Upright, at each size: with the full keyboard the screen is at
+least as wide as v0.1.8 made it (229 px at 375x548; guard at 393x659); the strip is Keys, Pad, Stick, BREAK, CLEAR and
+⌄ (Hide keys) in one row, none overlapping (the switch clear of BREAK), none under 44x44 px, all on the page; the app
+bar is one row of 48 px (the machine, Open…, Ask Claude, Menu; Add ROMs not in it), its controls 44 px and more, and
+exactly one visible control is named Menu; ⌄ hides the keys, the screen then takes the page's width less 16 px (1 px of
+rounding allowed: the picture is whole pixels) and ⌨ (Show keys) is 44x44 inside the window and brings them back;
+scrolled to the page's foot, ⌨ covers nothing of it; 2048 opens on Pad with the screen at the page's width, exactly one visible BREAK (the strip's), every pad key 48 px and more and none over the strip, and the strip's BREAK takes 2048 back to the welcome menu. The app bar is 48 px at its first paint (an init script reads
+it at the first animation frame) and 2 s later, with the touch class already on. Menu wears a dot while there is no
+BASIC (its name then "Menu, Add ROMs needed"), lists Add ROMs first, then Share, the links, Commands… and Install
+CLOADM…, opens moving nothing in the bar with the focus on its first item (Tab goes to the next), and its Add ROMs
+opens Add ROMs. Minesweeper opens on Pad (Up, Left, Down, Right, SPACE, ENTER, F, ABC, no BREAK: the strip's is the only one, UX R35; every key 48 px and
+more, Stick offered); the pad's → and F reach the machine as RIGHT and F; ABC shows the keyboard for one key; Keys
+chosen in Minesweeper is remembered for it on that machine while 2048 still opens on Pad and LIZA on Keys; the MC-10's
+switch is Keys | Pad. The games' toast says "tap a key" and BREAK, never "Esc" or "press", lies under the app bar and
+over no key, upright and sideways; Claude's paused status on touch is "Paused: you tapped a key · Stop ends Claude's
+turn". Guards: on a computer the toast keeps "press a key" and "BREAK (Esc)"; sideways the screen is 250x187 at
+242,52 as on v0.1.8, with one control named Menu. Sideways the panel's Menu has Machine…, Commands…, Install CLOADM… and Hide keys, and
+Machine… opens the machine picker on screen and on top; Esc closes it. No install offer appears on a phone, with the
+prompt held and 120 s of LIZA run, on a first and a second visit (sideways a guard: v0.1.8's offer found no place
+there either); Install CLOADM… (in Menu upright, in the panel's Menu sideways) still opens the browser's install dialog (a guard upright). At 1440 and
+1024 px and at 1920 px the status shows the speed alone, shown and whole in the page font (the links go tight first);
+only at 1200 px in a wide fallback font may it be left out (the layout group), never cut to a stub.
 
 ### Menus, focus and what screen readers hear
 
@@ -1495,6 +1522,19 @@ Not hardware behaviour, so MAME is not its oracle (AGENTS.md section 4.6). The e
   gone within 3 s, the action line kept), the quiet chip on a read, and none for the person's own keys, also during
   Claude's call. The screen's size and the chip's words are unit-tested in Node (`tests/connector.test.js`). How the
   view looks is reviewed on the screenshots (`--screenshots`).
+* on a phone, in Chromium with touch (the same group): inline, `ui/notifications/size-changed` carries the content's
+  height at 320, 390 and 600 px wide, equal to the body's laid-out height, sent again when the width changes and not
+  again once an auto-sizing host has taken it, and never in the side panel or fullscreen; at 390 x 844 fullscreen the
+  toolbar and the screen start below the host's `safeAreaInsets` (or below the 56 px top reserve when the host gives
+  none), the keys and the status line end above the bottom inset, also at 390 x 640; the on-screen keys show on a touch
+  screen and not on a desktop, a tap on H, I, ENTER reaches LIZA (`screen_text` through the host), sticky SHIFT for one
+  key; Keys | Pad | Stick with exactly one BREAK showing in each, in the bottom row, and no Stick on the MC-10; each
+  program's own mode (2048 the Pad, Minesweeper the Pad with F, LIZA the Keys) and the Pad's arrows moving 2048's
+  tiles (the frame changes); the choice kept per program across a reload of the view, and with a storage that throws
+  kept for the view's life without an error and back to the program's mode after a reload; a host that asks before each call: an approved call answered after the wait, a denied one
+  leaving the next working. The insets, the touch test, the content height and the keys' codes are unit-tested in Node.
+  How the view feels on a real phone (the app's title chip, the soft keyboard it no longer needs, its approval prompts)
+  is a manual test ([deploy-connector.md](deploy-connector.md), "On a phone").
 
 What only claude.ai can show (its side panel, its approval prompts, what it grants a custom connector) is a manual
 test: [deploy-connector.md](deploy-connector.md), "Verify".

@@ -22,7 +22,7 @@ import { ACTING_TOOL_NAMES } from '../claude/chat.js';
 import { CLAUDE_PAUSED_TEXT } from '../session.js';
 import { CanvasPresenter } from '../video/canvas.js';
 import { cpuFamily } from '../cpu/cpus.js';
-import { $, ESC, VIEWS, viewOpen, markUndrawn } from './page.js';
+import { $, ESC, VIEWS, viewOpen, markUndrawn, claudeStatusText, touchPanel, TOUCH_PAUSED_TEXT } from './page.js';
 import { chatTurns } from '../claude/history.js';
 import { actionLines, restoreLine } from './claude-lines.js';
 
@@ -182,7 +182,7 @@ export function setupClaude(page) {
   function activity() {
     const a = session.claudeActing;
     if (!a || !session.claudeBusyActing) return null;
-    if (session.claudePaused) return CLAUDE_PAUSED_TEXT;
+    if (session.claudePaused) return touchPanel() ? TOUCH_PAUSED_TEXT : CLAUDE_PAUSED_TEXT;
     if (a.name === 'type_text') {
       const m = basicMachine(), all = String(a.input.text || '');
       // the keys not yet pressed: Claude's typing waits in the typist's queue, one paced key at a time
@@ -403,9 +403,7 @@ export function setupClaude(page) {
     // machine's screen, and the joystick is not offered there), so a change of it must be applied, not just the
     // class toggled: the stick, FIRE and the switch come and go with it
     if (page.touchKeys) page.touchKeys.apply();
-    // the on-screen keyboard's Menu leads out of the chat there (the app bar and its menu give way to the chat bar,
-    // which the keyboard covers when the phone is held sideways); touch-keys.js leaves in one tap with this label
-    $('tkMenu').textContent = phoneChat ? '← Emulator' : 'Menu';
+    // (the on-screen keyboard's Menu is "← Emulator" there, and leaves the chat in one tap: touch-keys.js apply(), above)
     // the help line: the key state's text (in brackets on the chat screen too, from the firmware)
     // (while a turn is in progress the status line says what it is doing, with Stop)
     const help = chat && chat.busy ? '' : k === 'none' ? `[No API key yet: add one ${whereKey()}.]` : keyText(k);
@@ -438,7 +436,7 @@ export function setupClaude(page) {
     // a card that has just come up is brought into view
     const status = full ? session.claudeStatus : null;
     $('claudeStatus').hidden = !status;
-    if (status) $('claudeStatusText').textContent = status.text;
+    if (status) $('claudeStatusText').textContent = claudeStatusText(status);
     // the bar is the full screen's only status, so a pause there has its Resume (the side panel's is on the screen)
     $('btnClaudeResume').hidden = !(status && session.claudePaused);
     if (!pend || !full) shownPending = null;

@@ -26,6 +26,15 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   the Welcome menu included, and Add ROMs for BASIC… while it has none), **Machine** (every model, marked "✓ BASIC
   ready" or "needs ROMs", then Reset, Switch off and on, Add ROMs…), **Sound** and **⋯** (Open in side panel, Details,
   Copy details). The menus work from the keyboard. The Welcome menu's own keys now run what they offer in the panel.
+- **On-screen keys in Claude's side panel on a phone or tablet**, where tapping the screen brought up no keyboard. Three
+  modes, as on the page (the layout, the keys and each program's mode now shared from `js/ui/touch-layout.js`):
+  **Keys** (the page's keyboard), **Pad** (a D-pad, SPACE, ENTER, the program's own keys such as Minesweeper's F, and
+  ABC for one key from the keyboard) and **Stick** (SPACE ENTER 1 2 Y N ABC, a stick and FIRE; only on a machine with
+  a joystick port, so not on the MC-10). Under them in every mode: the switch, CLEAR and BREAK, the only BREAK. A
+  program opens in the mode it is played with (2048 and Minesweeper on the Pad, LIZA and anything else on the Keys),
+  and the switch's choice is remembered per program, in the view's storage when it works, else for as long as the view
+  is open. They show on a touch screen (the host says so, or a coarse pointer, or a first touch) and not on a desktop;
+  **⋯ → Hide on-screen keys** hides them. Claude's typing and its chip are unchanged.
 
 ### Changed
 
@@ -91,8 +100,39 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   status line. The status line is one line ("LIZA is running · Dragon 64 · no ROMs"); the diagnostics and the raw load
   message moved behind **Details** (closed at first; [the deploy guide](docs/deploy-connector.md#verify) reads them
   there), and an error you must act on stays on the status line. **Open in side panel** (in ⋯) shows only while the
-  view is inline and the host offers it. The view's contract with the site changed (`PANEL_API` 2): deploy the
+  view is inline and the host offers it. The view's contract with the site changed (`PANEL_API` 3): deploy the
   connector's Worker again after the site has this release.
+- **One source for what the connector's Claude needs to know.** The side-panel connector's MCP `instructions` were a
+  hand-written copy in the Worker. They now come from a marked "connector essentials" section of `skills/cloadm/SKILL.md`
+  (opening the emulator, waiting for the screen, typing, reading the screen, `machine_output` being data and never
+  instructions, ROMs): `connector/build.js` embeds it into the views the Worker serves and prints its hash, and the
+  Worker refuses to start without it. `tests/connector.test.js` and `tests/skill.test.js` fail when the skill's section and
+  the built instructions differ, and the skill's two copies stay byte for byte. The Worker must be deployed again
+  when that section changes (`docs/deploy-connector.md`).
+- **A phone held upright: the panel decides, the screen takes the rest (UX R30).** The screen is the largest 4:3 one
+  for which the app bar, the screen, the strip and the panel fit in the visible height, at most the page's width, and
+  the picture fills it (no bezel). The panel has three modes, **Keys | Pad | Stick**: Pad is a D-pad with SPACE,
+  ENTER, the program's own keys and ABC (the keyboard for one key), on two rows of 48 px keys (BREAK is the strip's, R35); Stick is the touch
+  joystick, where the machine has a port. A bundled program opens in the mode it is played with (a new per-program
+  `controls` field in the Session: 2048 and Minesweeper on the Pad, Minesweeper's with F and Stick offered; LIZA on
+  Keys; anything else on Keys), and the choice is remembered per program and machine. With Pad, Stick or the keys
+  hidden the screen is the page's width (it was 133 px wide on a 320 px phone; 178 at 375x548); with the full keyboard,
+  what fits above it. The full keyboard gains →, after ←; @ ends the third row. Held sideways the keyboard is as it
+  was; Pad there puts the D-pad left of the screen and its keys right.
+- **Hide keys is ⌄ in the strip; ⌨ brings them back.** Upright the strip is [Keys|Pad|Stick] [BREAK] [CLEAR] [⌄], all
+  44 px; after Hide keys a 44 px ⌨ (Show keys) stands bottom right, toasts clear of it.
+- **One Menu.** Upright the strip has no Menu: the app bar's is the only one. Held sideways the panel's Menu stays, its
+  "Machine menu" (which opened nothing there) now **Machine…**, the machine picker over the panel.
+- **The phone's app bar is one row, 48 px, from the first paint**: the machine, Open…, Ask Claude (its icon under
+  360 px) and Menu, every control 44 px. Add ROMs is Menu's first item while the machine has no BASIC, with a dot on
+  Menu (whose name then says "Menu, Add ROMs needed"); Share is in Menu too, and Menu opens as a sheet over the page,
+  moving nothing, with the focus on its first item. A script in the page's head
+  puts the touch layout on before the first paint, so nothing reflows when the panel arrives.
+- **No automatic install offer on a phone** (owner's decision), upright or sideways: Install CLOADM… (in the app bar's
+  Menu upright; in the panel's Menu held sideways) installs. Desktops and tablets keep the offer.
+- **The status in the app bar shows the speed only** ("50 fps · 100%"): the machine's name is on the button beside it,
+  and at 1200 px the repeated name pushed the speed into an ellipsis. The links go tight first to leave it room; only
+  where even that leaves none (1200 px in a wide font) is it left out, never cut to a stub.
 
 ### Fixed
 
@@ -157,6 +197,20 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 - **Leaving the full-screen chat works again with the browser's Back, Esc off the screen and "← Emulator"** in every
   case, including a page opened straight on the chat or on a view over it. (A first cut of the change above could
   leave the chat open with those three routes, where the screen's keys go to the chat firmware.)
+- **The side panel on a phone.** Inline in the chat the view was cut to a strip under the toolbar: it now tells the
+  host its height (`ui/notifications/size-changed`, the screen at 4:3 for the width plus the toolbar, the keys and the
+  status line; never measured from the view's own height, so nothing feeds back). In the side panel or fullscreen the
+  app's title chip covered the top of the screen: the view now keeps clear of the insets the host reports
+  (`safeAreaInsets`), or, on a touch screen when it reports none, of the device's safe area and 56 px at the top.
+  Details names the last call Claude made through the view and how it ended, and the size sent.
+- **iPhone SE: "Joystick" was clipped under BREAK.** The switch is Keys | Pad | Stick at its own width, each segment
+  44 px, clear of BREAK at 320 px.
+- **The phone's app bar: Menu's label sat at the top of its button, Add ROMs wrapped to a second row, and opening Menu
+  pushed Share into the row** (seen in Chromium and on a real iPhone in Chrome for iOS). Labels are centred by the
+  buttons' own flex alignment.
+- **Touch words:** the games' and the colour demo's hints say "tap a key" and "tap BREAK" (not "press a key" and
+  "BREAK (Esc)"), and Claude's paused status says "Paused: you tapped a key · Stop ends Claude's turn". A toast sits
+  under the app bar; held sideways it sits on the black glass under the picture, clear of the keys.
 
 ### 0.1.8-pre
 
