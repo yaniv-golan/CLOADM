@@ -467,13 +467,13 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.shownMachine.ram[
     let err = null;
     try { act(api); } catch (e) { err = e; }
     const r = { paused: !!s.claudePaused, landed: landed(s, ptrs), err: err && err.message };
-    check(`person's input: the embed API's ${what} while Claude's call waits at its card pauses Claude, then does what it was asked`, r.paused && r.landed && !err, JSON.stringify(r));
+    check(`the person's input: the embed API's ${what} while Claude's call waits at its card pauses Claude, then does what it was asked`, r.paused && r.landed && !err, JSON.stringify(r));
     s.answerClaude(true);
     await tick();
-    check(`person's input: after the embed ${what}: Allow (plain) does not act past the pause`, ram(s, 0x3000, 1) === '0' && chat.undo.length === 0 && !!s.claudePaused);
+    check(`the person's input: after the embed ${what}: Allow (plain) does not act past the pause`, ram(s, 0x3000, 1) === '0' && chat.undo.length === 0 && !!s.claudePaused);
     s.stopClaude();
     await within(turn);
-    check(`person's input: after the embed ${what}: Stop ends the call stopped`, tools[0] && tools[0].code === C.STOPPED);
+    check(`the person's input: after the embed ${what}: Stop ends the call stopped`, tools[0] && tools[0].code === C.STOPPED);
     s.endChat();
   }
   {
@@ -481,7 +481,7 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.shownMachine.ram[
     const { s } = stubAsk();
     const api = new Emu.EmbedApi(s, () => {});
     api.poke(0x3100, [1]);
-    check('person's input: the embed API\'s poke with no turn in progress pauses nothing', !s.claudePaused && s.shownMachine.ram[0x3100] === 1);
+    check('the person\'s input: the embed API\'s poke with no turn in progress pauses nothing', !s.claudePaused && s.shownMachine.ram[0x3100] === 1);
     s.endChat();
   }
 
@@ -507,7 +507,7 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.shownMachine.ram[
     input.setGamepad(0, pad(0, 0, false));
     input.setGamepad(0, pad(0, -0.7, false));       // back to centre, then out again: a new deflection
     const again = calls;
-    check('person's input: joystick hook: idle polling and noise inside the dead zone are not the person\'s input; a fire press and a deflection out of the dead zone are, once each',
+    check('the person\'s input: joystick hook: idle polling and noise inside the dead zone are not the person\'s input; a fire press and a deflection out of the dead zone are, once each',
       idle === 0 && fired === 1 && held === 1 && moved === 2 && stays === 2 && again === 3, JSON.stringify({ idle, fired, held, moved, stays, again }));
     // hysteresis: resting at the edge of the dead zone with jitter fires once; back in only below 0.8 x DEAD_ZONE
     input.setGamepad(0, pad(0, 0, false));
@@ -516,7 +516,7 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.shownMachine.ram[
     const jitter = calls - before;
     input.setGamepad(0, pad(Emu.PLAYER_BACK_IN * D - 0.01, 0, false));   // in again
     input.setGamepad(0, pad(D + 0.01, 0, false));                       // a new deflection
-    check('person's input: joystick hook: a stick jittering across the dead zone\'s edge fires once (hysteresis), and again only after it came back below 0.8 x the dead zone',
+    check('the person\'s input: joystick hook: a stick jittering across the dead zone\'s edge fires once (hysteresis), and again only after it came back below 0.8 x the dead zone',
       jitter === 1 && calls - before === 2, JSON.stringify({ jitter, total: calls - before }));
     // one state per source: the mouse as joystick and pad 0 drive the same joystick without resetting each other
     input.setGamepad(0, pad(0.9, 0, false));          // the pad is out (a new deflection? it was out already: no)
@@ -527,7 +527,7 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.shownMachine.ram[
     input.player('mouse', 0.9, 0, false);             // the mouse's own deflection: once
     input.player('mouse', 0.95, 0.1, false);          // still out: nothing
     const mouse = calls - padOut;
-    check('person's input: joystick hook: each source has its own state (the mouse at the centre does not make the pad\'s held deflection fire again); the mouse\'s deflection fires once',
+    check('the person\'s input: joystick hook: each source has its own state (the mouse at the centre does not make the pad\'s held deflection fire again); the mouse\'s deflection fires once',
       shared === 0 && mouse === 1, JSON.stringify({ shared, mouse }));
     // the state ends with the pad and with the machine: a pad unplugged (clearGamepad) or a machine switched
     // (setMachine) and then pushed out again is a new push
@@ -542,7 +542,7 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.shownMachine.ram[
     input.setGamepad(0, pad(0.9, 0, false));
     input.player('mouse', 0.9, 0, false);
     const afterSwitch = calls - c1;
-    check('person's input: joystick hook: pad out, unplugged (clearGamepad), out again fires once more; pad and mouse out, the machine switched (setMachine), out again each fire once more',
+    check('the person\'s input: joystick hook: pad out, unplugged (clearGamepad), out again fires once more; pad and mouse out, the machine switched (setMachine), out again each fire once more',
       afterClear === 1 && afterSwitch === 2, JSON.stringify({ afterClear, afterSwitch }));
     // the touch stick and its FIRE (js/ui/touch-keys.js) are the source 'touch': a drag out of the dead zone or a FIRE
     // press fires once each, with the pads' hysteresis; resting and jitter at the edge do not
@@ -561,7 +561,7 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.shownMachine.ram[
     input.touchFire(false);
     input.touchStick(R * 0.8, 0);                                                   // out again after the release
     const tAgain = calls - t0;
-    check('person's input: joystick hook, touch: resting and jitter at the dead zone\'s edge are nothing; a drag out and a FIRE press fire once each; out again after a release fires again',
+    check('the person\'s input: joystick hook, touch: resting and jitter at the dead zone\'s edge are nothing; a drag out and a FIRE press fire once each; out again after a release fires again',
       rest === 0 && out1 === 1 && tJitter === 1 && tFire === 2 && tAgain === 3, JSON.stringify({ rest, out1, tJitter, tFire, tAgain }));
   }
 

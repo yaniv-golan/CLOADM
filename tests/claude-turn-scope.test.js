@@ -737,7 +737,7 @@ function askSession({ include = null, stallMs } = {}) {
     for (let i = 0; i < 600 && !liza; i++) { s.advance(1000 / s.shownMachine.fps + 0.01); await sleep(0); }
     if (next.open) next.open();
     const r = await within(turn);
-    check(`person's input: the person's ${how} while Claude acts at the welcome menu pauses Claude, and LIZA it starts stops Claude's turn (not Claude's ticket)`,
+    check(`the person's input: the person's ${how} while Claude acts at the welcome menu pauses Claude, and LIZA it starts stops Claude's turn (not Claude's ticket)`,
       before === 'thinking' && paused && phase === 'paused' && !!liza && r !== 'timeout' && chat.error && chat.error.code === 'aborted' && !s.claudeBusyActing,
       JSON.stringify({ before, paused, phase, liza: !!liza, err: chat.error && chat.error.code }));
     off();
@@ -759,7 +759,7 @@ function askSession({ include = null, stallMs } = {}) {
     const again = s.personInput();
     next.open();
     await within(turn);
-    check('person's input: a POKE typed from the book pauses Claude; Claude\'s own RUN (queueText) and input to another machine do not; once paused, more input makes no new pause',
+    check('the person\'s input: a POKE typed from the book pauses Claude; Claude\'s own RUN (queueText) and input to another machine do not; once paused, more input makes no new pause',
       !ownRun && other === false && poke && again === false && s.claudePauses === pauses, JSON.stringify({ ownRun, other, poke, again }));
     s.endChat();
   }
@@ -779,7 +779,7 @@ function askSession({ include = null, stallMs } = {}) {
     const paused = !!s.claudePaused;
     next.open();
     await within(turn);
-    check('person's input: a POKE from the book stored at once on the stub (a program running) pauses Claude', /^Done:/.test(msg) && paused, JSON.stringify({ msg, paused }));
+    check('the person\'s input: a POKE from the book stored at once on the stub (a program running) pauses Claude', /^Done:/.test(msg) && paused, JSON.stringify({ msg, paused }));
     s.endChat();
   }
   {
@@ -793,7 +793,7 @@ function askSession({ include = null, stallMs } = {}) {
     const thinking = s.personInput();
     think.open();
     await within(turn);
-    check('person's input: with no turn, or a turn that only thinks, the person\'s input pauses nothing', !idle && thinking === false && !s.claudePaused, JSON.stringify({ idle, thinking }));
+    check('the person\'s input: with no turn, or a turn that only thinks, the person\'s input pauses nothing', !idle && thinking === false && !s.claudePaused, JSON.stringify({ idle, thinking }));
     s.endChat();
   }
   // the ticket is taken when the program asks (the page does it as the event comes): a start it asks for after
