@@ -1,6 +1,6 @@
 // Run: node tests/view-order.test.js
 //
-// PM 124's second touch: the full-screen chat's close is registered by js/ui/claude.js ITSELF with
+// The full-screen chat's close is registered by js/ui/claude.js ITSELF with
 // `{ every: true, beforeView: true }`, and that option is load-bearing. This drives the REAL setupClaude and the
 // real page route over a small DOM stub, so deleting the option in claude.js turns this red - which the stand-in
 // handlers in tests/view-order.test.js cannot do, because they never load claude.js.

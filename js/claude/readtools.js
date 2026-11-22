@@ -108,7 +108,7 @@ export function screenReadable(mode) {
 // caller with its own machine builds. A Session is NOT one: it says which machine it means through an accessor
 // (shownMachine / personMachine), and a tool that guessed would read the chat machine when it meant the person's.
 // Passing a Session here is refused by name rather than read through (a Session used to satisfy this by having a
-// `machine` field, which is exactly the unclassified reach PM 124 asks to end).
+// `machine` field, which is exactly the unclassified reach this classification ends).
 function toolMachine(target) {
   if (!target || typeof target !== 'object') return null;
   // A Session (or anything like one) is a CALLER's mistake, and the model must be told so: a plain Error would be

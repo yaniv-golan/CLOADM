@@ -1,6 +1,6 @@
 /* The ROM self-test card: runs js/selftest.js on the PERSON's machine's ROMs and shows the report. The ROMs are the
  * person's (a drop, a link, the ROMs tab), and with the chat full screen the chat machine runs the stub: asking it
- * would say "load the ROMs first" over ROMs that are loaded, so this asks personMachine (PM 124). */
+ * would say "load the ROMs first" over ROMs that are loaded, so this asks personMachine. */
 import { SelfTest } from '../selftest.js';
 import { $ } from './page.js';
 

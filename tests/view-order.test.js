@@ -1,7 +1,7 @@
 // Run: node tests/view-order.test.js
 //
 // The page's route, driven in Node with a small DOM stub: which handlers run, and in what order, when a view opens
-// over the full-screen chat. The property is one the Debugger found (PM 124): a view's handler (the Debugger's
+// over the full-screen chat. The property is one the Debugger found: a view's handler (the Debugger's
 // refresh -> session.debug) must not run while the chat is still open, because the chat is closed in the same step
 // and a debugger built on the chat machine would be detached a moment later - built to be thrown away. So the
 // chat's close runs BEFORE the view handlers (page.onView's beforeView), and this pins it: a route that ran the view

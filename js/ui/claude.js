@@ -284,7 +284,7 @@ export function setupClaude(page) {
   let panelOnReturn = false;
   // BEFORE the view handlers (page.onView's beforeView): a view opened over the full-screen chat closes it, so a
   // view that builds on the machine in use (the Debugger's refresh, session.debug) must find the BASIC session
-  // already back - never the chat machine, which would be detached again a moment later (PM 124).
+  // already back - never the chat machine, which would be detached again a moment later.
   page.onView(() => {
     if (page.onStep('claudeChat')) return;
     if (document.body.classList.contains('claude-open')) { const byView = viewOpen(); close(); if (byView) panelOnReturn = true; }

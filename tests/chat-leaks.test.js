@@ -357,7 +357,7 @@ async function observed(setup, act, id = 'dragon64', panel = false) {
   return out;
 }
 
-// THE TWO ACCESSORS, ENFORCED (PM 124). Inside the Session and in every page module a bare `this.machine` or
+// THE TWO ACCESSORS, ENFORCED. Inside the Session and in every page module a bare `this.machine` or
 // `session.machine` does not exist: the field is `_shown` on the Session, and the only names for a machine are
 // shownMachine (the machine ON SCREEN: the picture, the keyboard, the frame loop, a debugger) and personMachine (the
 // PERSON's own work: files, ROMs, the POKE book, the welcome program, LIZA, disks). This is the bug class of the whole
@@ -587,7 +587,7 @@ function rowMethods() {
   // Session members whose puppets the UI drives: the MEMBER is classified, and the puppet is covered by that (the
   // reason is written where its reachability is decided). debug: opening the Debugger view closes the chat BEFORE
   // the view's handler builds anything (page.onView's beforeView, js/ui/claude.js), so the debugger is never built on
-  // the chat machine - and tests/view-order.test.js pins that order (PM 124).
+  // the chat machine - and tests/view-order.test.js pins that order.
   // Setters/plain Session fields and page-facing state: they hold no machine of their own (or hold both machines
   // explicitly, like chatMachines), so reading them cannot reach the wrong one.
   for (const n of ['js', 'constructor', 'claudeView', 'chatView', 'claudePaused', 'claudeAllowed', 'claudePending',

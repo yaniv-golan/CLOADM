@@ -2555,7 +2555,7 @@ export class Session {
   // machine-internal paths (the frame loop, the shown screen, the keyboard, the display, the chat itself) keep using
   // this.shownMachine, and say so where they do. One target, read here, rather than an `on:` argument threaded through
   // each caller - which is what made the first cut of this fix patchy.
-  // THE TWO ACCESSORS (0.1.9, PM 124). Every use of a machine in this file and in js/ui says which of the two it
+  // THE TWO ACCESSORS (0.1.9). Every use of a machine in this file and in js/ui says which of the two it
   // means, and there is no third way to reach one: the field itself is `_shown`, which nothing outside these two
   // getters touches, and a test (tests/chat-leaks.test.js, rawMachineUses) fails on a bare `this.machine` or a bare
   // `session.machine`.

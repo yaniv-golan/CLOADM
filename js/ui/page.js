@@ -195,7 +195,7 @@ export function createPage(session, audio) {
     // view is above. The chat's is the one: opening a view over the full-screen chat closes the chat (its conversation
     // moves to the side panel), and a view handler that runs first (the Debugger's refresh) would build a debugger on
     // the chat machine - which the close then detaches, in the same route, so that no one ever sees it. Ordering it
-    // first means the view handlers run after the chat is gone and nothing is built on it to throw away (PM 124).
+    // first means the view handlers run after the chat is gone and nothing is built on it to throw away.
     onView(fn, { every = false, beforeView = false } = {}) { (beforeView ? firstFns : every ? stepFns : viewFns).push(fn); },
 
     // ---- Esc ----
