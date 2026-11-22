@@ -405,6 +405,92 @@ const notOs9 = (bytes) => { try { return !geo(bytes).os9; } catch (e) { return t
     && eq(rd.media.bytes, jvc));
 }
 
+// ---------------- the cell buffers a track builder writes into (CellBuffer) and the flux positions (fluxPosition)
+{
+  // a buffer holds exactly its capacity without growing, and the push past it doubles it, keeping every cell
+  const b = new Emu.CellBuffer(4);
+  const first = b.cells;
+  for (let i = 0; i < 4; i++) b.push(0xa0000000 + i);
+  check('cell buffer: filled to its exact capacity, it has not grown', b.cells === first && b.cells.length === 4 && b.length === 4);
+  b.push(0xfffffffe);
+  check('cell buffer: one push past capacity doubles it and keeps every cell, the new one included',
+    b.cells.length === 8 && b.length === 5 && eq(Array.from(b.cells.subarray(0, 5)), [0xa0000000, 0xa0000001, 0xa0000002, 0xa0000003, 0xfffffffe]), Array.from(b.cells).join());
+  const c = new Emu.CellBuffer(1);
+  for (let i = 0; i < 1000; i++) c.push(i * 4099);
+  check('cell buffer: grown ten times from 1, it holds all 1000 cells in order', c.cells.length === 1024 && c.length === 1000 && Array.from(c.cells.subarray(0, 1000)).every((v, i) => v === i * 4099));
+  throws('cell buffer: a capacity of 0 is refused', () => new Emu.CellBuffer(0), /capacity/);
+
+  // floor(200,000,000 * t / total), worked here in BigInt, against the Number arithmetic, where 200,000,000 * t
+  // passes 2^53 (t and total up to just under 2^36, and t = total)
+  const R = 200000000n;
+  const cases = [[0, 1], [1, 3], [12345, 100000000], [2 ** 28 - 1, 2 ** 28 - 1], [2 ** 28 - 1, 2 ** 28 + 12345], [123456789, 260080000], [2 ** 36 - 2, 2 ** 36 - 1], [2 ** 35 + 77, 2 ** 36 - 1]];
+  let seed = 7;
+  for (let i = 0; i < 2000; i++) {
+    seed = (seed * 1103515245 + 12345) >>> 0;
+    const total = 1 + (seed % (2 ** 31)) * 16 + (i & 15);
+    seed = (seed * 1103515245 + 12345) >>> 0;
+    cases.push([Math.floor((seed / 2 ** 32) * total), total]);
+  }
+  // and quotients just off a whole number, where a rounded product lands on the wrong side: t with 200,000,000 * t
+  // one more or one less than a multiple of total (t = -1/200,000,000 or +1/200,000,000 modulo total)
+  const inverse = (a, m) => {
+    let [r0, r1, s0, s1] = [a % m, m, 1n, 0n];
+    while (r1) { const q = r0 / r1; [r0, r1] = [r1, r0 - q * r1]; [s0, s1] = [s1, s0 - q * s1]; }
+    return r0 === 1n ? ((s0 % m) + m) % m : null;
+  };
+  for (let total = 2n ** 35n + 1n, n = 0; n < 100; total += 2n) {
+    const inv = inverse(R, total);
+    if (inv === null) continue;
+    cases.push([Number((total - inv) % total), Number(total)], [Number(inv), Number(total)]);
+    n++;
+  }
+  const bad = cases.filter(([t, total]) => Emu.fluxPosition(t, total) !== Number((R * BigInt(t)) / BigInt(total)));
+  check(`flux positions: exact against BigInt over ${cases.length} cases, 2^53 and beyond in the product`, !bad.length, JSON.stringify(bad.slice(0, 3)));
+}
+
+// DMK tracks with no ID marks, whose cells are worked out here by hand from the track bytes, and the flux from those
+// cells in BigInt (generate_track_from_levels: a flux change at the middle of each 1 cell, scaled to 200,000,000 per
+// revolution). Single density: 32 cells a byte (each FM bit, clock 1 then data, as the cell pair b,0), so the
+// buffer of 16 cells a byte that buildDmkTrack starts with holds a 0x100-byte track exactly (128 bytes of data after
+// the IDAM table) and grows for 0x101. Double density at 0x3FFF, the longest DMK track: 260,080 cells, where
+// 200,000,000 * t passes 2^53.
+{
+  const dmkOf = (tsize, sd, fill) => {
+    const out = new Uint8Array(16 + 2 * tsize);
+    out[1] = 1; out[2] = tsize & 0xff; out[3] = tsize >> 8; out[4] = sd ? 0x40 : 0;
+    for (let h = 0; h < 2; h++) for (let i = 0x80; i < tsize; i++) out[16 + h * tsize + i] = fill(i, h);
+    return out;
+  };
+  const fmCells = (bytes) => bytes.flatMap((v) => Array.from({ length: 8 }, (_, k) => [1, 0, (v >> (7 - k)) & 1, 0]).flat());
+  const mfmCells = (bytes) => {
+    let prev = 0;
+    return bytes.flatMap((v) => Array.from({ length: 8 }, (_, k) => { const d = (v >> (7 - k)) & 1, c = prev || d ? 0 : 1; prev = d; return [c, d]; }).flat());
+  };
+  const fluxOf = (cells) => {
+    const total = BigInt(cells.length * 1000), out = [];
+    cells.forEach((c, i) => { if (c) out.push(Number((200000000n * BigInt(i * 1000 + 500)) / total)); });
+    return out;
+  };
+  const cases = [
+    ['single density 0x100 (the starting buffer exactly)', 0x100, true, fmCells],
+    ['single density 0x101 (one byte past it: grown)', 0x101, true, fmCells],
+    ['single density 0xCC0 (nearly twice the starting buffer)', 0xcc0, true, fmCells],
+    ['double density 0x3FFF (the longest track)', 0x3fff, false, mfmCells],
+  ];
+  for (const [what, tsize, sd, enc] of cases) {
+    const fill = (i, h) => (i * 37 + h * 101 + (i >> 5)) & 0xff;
+    const img = Emu.loadDisk(dmkOf(tsize, sd, fill), 'dmk', DRIVE);
+    const bytes = (h) => Array.from({ length: tsize - 0x80 }, (_, j) => fill(0x80 + j, h));
+    for (let h = 0; h < 2; h++) {
+      const flux = img.buffer(0, h);
+      const want = fluxOf(enc(bytes(h)));
+      check(`DMK ${what}, side ${h}: the flux is the hand-made cells, ${want.length} changes`,
+        flux.length === want.length && flux.every((v, i) => Emu.mgType(v) === Emu.MG_F && Emu.mgTime(v) === want[i]),
+        `${flux.length} vs ${want.length}, first difference at ${flux.findIndex((v, i) => Emu.mgTime(v) !== want[i])}`);
+    }
+  }
+}
+
 // ---------------- MAME's time arithmetic (attotime) where it rounds
 import('../js/chips/attotime.js').then((A) => {
   check('attotime / 2 rounds half up', A.div(5n, 2) === 3n && A.div(4n, 2) === 2n);

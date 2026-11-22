@@ -93,7 +93,25 @@ export class FloppyImage {
 }
 
 // ---------------------------------------------------------------- cell level buffers (flopimg.cpp)
-const bitR = (buf, off) => mgType(buf[off]) === MG_1;
+// The cells a track builder writes (MAME's std::vector<uint32_t> of level codes), in a Uint32Array that doubles when
+// full, so building a track allocates a handful of buffers instead of one array slot per cell. A cell is
+// mg(MG_0 or MG_1, size): at most 5 * 2^28 + 2^28 - 1 < 2^32, so it fits a Uint32 exactly.
+export class CellBuffer {
+  constructor(capacity) {
+    if (!Number.isInteger(capacity) || capacity < 1) throw new RangeError(`cell buffer capacity ${capacity}`);
+    this.cells = new Uint32Array(capacity);
+    this.length = 0;
+  }
+  push(v) {
+    if (this.length === this.cells.length) {
+      const grown = new Uint32Array(this.cells.length * 2);
+      grown.set(this.cells);
+      this.cells = grown;
+    }
+    this.cells[this.length++] = v;
+  }
+}
+const bitR = (buf, off) => mgType(buf.cells[off]) === MG_1;
 function bitW(buf, val, size) { buf.push(mg(val ? MG_1 : MG_0, size)); }
 function rawW(buf, n, val, size = 1000) { for (let i = n - 1; i >= 0; i--) bitW(buf, (val >>> i) & 1, size); }
 function mfmW(buf, n, val, size = 1000) {
@@ -115,20 +133,39 @@ function calcCrcCcitt(buf, start, end) {
   }
   return res & 0xffff;
 }
-// normalize_times + generate_track_from_levels: cells -> flux positions over one revolution
+// floor(REVOLUTION * t / total) in Numbers, exactly (MAME computes it in 64-bit integers). REVOLUTION * t itself can
+// pass 2^53 (t < 2^28 and REVOLUTION < 2^28), so t is split as th * 2^16 + tl and the division done in two steps:
+// with q = floor(REVOLUTION * th / total) and r its remainder,
+//   REVOLUTION * t / total = q * 2^16 + (r * 2^16 + REVOLUTION * tl) / total.
+// Every value formed is an integer below 2^53, which a Number holds exactly; % of two such integers is exact, and so
+// is (x - x % total) / total, a division with no remainder. The bounds: th < 2^12, so REVOLUTION * th < 2^40;
+// r < total < 2^36, so r * 2^16 < 2^52; REVOLUTION * tl < 2^44, so r * 2^16 + REVOLUTION * tl < 2^53; and the
+// result is at most REVOLUTION (t <= total). total < 2^36 holds for every track, and levelsToFlux checks it: a
+// WD track is 100,000 cells of 1000 units; the longest DMK track, 0x3FFF bytes, is under 16,383 steps of at most
+// 128 cells (a 48-cell IAM, a 48-cell mark, a 32-cell FM byte) plus at most 4 * 16,383 MFM pad bytes of 16 cells,
+// under 3.2 million cells of 1000 units, so total < 2^32.
+const SPLIT = 0x10000;
+export function fluxPosition(t, total) {
+  const th = Math.floor(t / SPLIT), tl = t - th * SPLIT;
+  const a = REVOLUTION * th, r = a % total, q = (a - r) / total;
+  const b = r * SPLIT + REVOLUTION * tl, r2 = b % total;
+  return q * SPLIT + (b - r2) / total;
+}
+// normalize_times + generate_track_from_levels: cells (a CellBuffer) -> flux positions over one revolution
 function levelsToFlux(levels) {
   const dest = [];
+  const cells = levels.cells, n = levels.length;
   let total = 0;
-  for (const e of levels) {
-    const bit = mgType(e), t = mgTime(e);
+  for (let i = 0; i < n; i++) {
+    const e = cells[i], bit = mgType(e), t = mgTime(e);
     if (bit === MG_1) dest.push(mg(MG_F, total + (t >> 1)));
     else if (bit !== MG_0) dest.push(mg(bit, total));
     total += t;
   }
-  const big = BigInt(total);
+  if (total >= 2 ** 36) throw new RangeError(`a track of ${total} time units is beyond the exact flux arithmetic`);
   for (let i = 0; i < dest.length; i++) {
     const t = mgTime(dest[i]);
-    const pos = total === REVOLUTION / 2 ? t * 2 : Number((BigInt(REVOLUTION) * BigInt(t)) / big);
+    const pos = total === REVOLUTION / 2 ? t * 2 : fluxPosition(t, total);
     dest[i] = mg(mgType(dest[i]), pos);
   }
   return dest;
@@ -143,7 +180,7 @@ function wdTrackEnd(cellCount, count, totalSize, gap1, gap2) {
 }
 // build_pc_track_mfm with gap 4a = -1 (build_wd_track_mfm). sects: [{ track, head, sector, size, data, deleted, badCrc }]
 function buildWdTrackMfm(cellCount, sects, gap3, gap1, gap2) {
-  const td = [];
+  const td = new CellBuffer(cellCount);   // the track ends at exactly cellCount cells
   for (let i = 0; i < gap1; i++) mfmW(td, 8, 0x4e);
   let totalSize = 0;
   for (const s of sects) totalSize += s.data ? s.data.length : (128 << s.size);
@@ -488,7 +525,7 @@ function loadDmk(bytes, g, drive) {
 function buildDmkTrack(td, tsize, isSd) {
   const fmStride = isSd ? 1 : 2;
   let fmLoss = 0;
-  const raw = [];
+  const raw = new CellBuffer(tsize * 16);   // a double-density track's data bytes; marks and FM grow it
   const markLocation = new Array(129).fill(-1), markValue = new Array(129).fill(0xfe), markIsMfm = new Array(129).fill(!isSd);
   let iamLocation = -1, markCount = 0;
   let tho = 0;
