@@ -361,7 +361,10 @@ guest writes its frame-complete marker:
 
 * `fn` gets `{ address, value, old, pc, at, frame }`: the byte written and the one it replaced, the address of the instruction
   that wrote it, the machine's time of the write (`machine.ioTime()`, in `machine.now()` units) and the frame it was in
-  (`machine.frameCount`). A two-byte write (`STD`) or a push (`PSHS`) gives one event a byte, in the order the bus made them.
+  (`machine.frameCount`). `at` always falls within the writing instruction's own time; on the Dragons and CoCo 1/2 at the slow
+  rate it is the start of the instruction's last cycle for most instructions (the timing checked against MAME; the CPU core
+  counts a push's cycles as it goes, so `PSHU A,B` times its two bytes at its 5th and 6th cycles of 7), at the address-dependent and fast rates the
+  access's own cycle, and on the CoCo 3 the access's time in GIME clocks. A two-byte write (`STD`) or a push (`PSHS`) gives one event a byte, in the order the bus made them.
 * In `fn`, `machine.setKey`, the joystick (`machine.joy`) and mouse (`machine.mouse`), `session.serialSend` and
   `session.pokeBytes` take effect from the next instruction. Returning `'stop'` stops the run there, as a debugger stop
   (`session.paused`, `debug.stopReason.kind === 'write'`; `debug.resume()` and `runFrames` go on). `switchMachine`,

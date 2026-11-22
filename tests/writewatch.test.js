@@ -4,7 +4,7 @@
 // write"). Oracles: the program's own instructions (STA extended writes A; STD extended A then B; PSHU A,B pushes B to
 // U-1 then A to U-2) read from the debugger's trace, cross-checked with its write watchpoint; the time of each write
 // from a separate bus tap reading the machine's access time (ioTime, MAME-verified) at the write, which must fall in
-// the instruction's own cycles as the trace counts them; the guest's own record of
+// the instruction's own time on the SAM's three rates and the CoCo 3's two speeds; the guest's own record of
 // what its keyboard read saw; an unobserved run of the same machine for "changes nothing"; the disk controller's HALT
 // for the CoCo 3's held instruction (set-up as in tests/probes.test.js).
 const Emu = require('./load')();
@@ -40,52 +40,80 @@ const SYM = WRITER.symbols;
 const PC_STA = SYM.get('LOOP'), PC_STD = PC_STA + 5, PC_PSHU = PC_STD + 3;
 const started = (id = 'dragon64') => { const s = session(id); s.runAssembled(WRITER); s.runFrames(1); return s; };
 
-// ---------------- 1. the events are the program's writes, as the data sheet and the debugger's trace give them ----------------
-{
-  const s = started();
+// ---------------- 1. the events are the program's writes, as the debugger's trace gives them ----------------
+// ev.at is the machine's ioTime at the write. On the SAM machines at the slow rate it is the instruction's start plus the
+// CPU core's cycle count at the access, less one: the start of the instruction's last cycle for an instruction whose count
+// the core charges whole at its start (STA, STD: the model checked against MAME), and the count so far for one it charges
+// as it goes (PSHU: its pushes at its 5th and 6th cycles of 7). At the address-dependent and fast rates it is the access's
+// own cycle through the SAM's stepTime; on the CoCo 3 it is in GIME clocks. In every case it falls in the instruction's own
+// time, from the tick it started at to the tick the next one starts at.
+const RATES = [
+  ['dragon64', 'slow rate', null], ['dragon64', 'address-dependent rate', 0xFFD7], ['dragon64', 'fast rate', 0xFFD9],
+  ['coco3', '0.89 MHz', null], ['coco3', '1.79 MHz', 0xFFD9],
+];
+for (const [id, rate, poke] of RATES) {
+  const s = started(id);
   const m = s.machine, d = s.debug;
+  if (poke !== null) m.write(poke, 0);
   const events = [];
   const w = s.watchWrites({ start: MARK, end: MARK + 3 }, (ev) => events.push(ev));
-  // the oracle: step 300 instructions with the debugger; from each trace entry (pc, registers before, cycles) and the
-  // cycle it started at, the writes the data sheet says the instruction makes; the write watchpoint cross-checks the
-  // first one of each instruction
+  // the oracle: step 300 instructions with the debugger; from each trace entry (pc, registers before, cycles) the writes
+  // the instruction makes; the write watchpoint cross-checks the first one of each instruction
   d.addWatchpoint(MARK, 4, { read: false, write: true });
   const mem = [0, 1, 2, 3].map((i) => s.readByte(MARK + i));
   const expected = [], times = [];
   const rt = m.busTaps.addWriteTap({ start: MARK, end: MARK + 3 }, () => times.push(m.ioTime()));
-  let watched = 0, agree = 0;
+  let watched = 0, agree = 0, timed = true, lastCycle = true;
   for (let i = 0; i < 300; i++) {
     const c0 = m.cycle, frame = m.frameCount;
     d.step();
-    const t = d.trace().at(-1);
+    const c1 = m.cycle, t = d.trace().at(-1);
     const out = [];
     const wr = (address, value) => {
       const at = times[expected.length + out.length];
-      if (!(at >= c0 && at < c0 + t.cycles)) out.bad = true;
+      if (!(at >= c0 && at < c1) || (out.length && at < out.at(-1).at)) timed = false;
+      if (t.pc === PC_PSHU ? at !== c0 + 4 + out.length : at !== c1 - 1) lastCycle = false;
       out.push({ address, value, old: mem[address - MARK], pc: t.pc, at, frame }); mem[address - MARK] = value;
     };
     if (t.pc === PC_STA) wr(MARK, t.a);
     else if (t.pc === PC_STD) { wr(MARK, t.a); wr(MARK + 1, 0x34); }
     else if (t.pc === PC_PSHU) { wr(t.u - 1, t.b); wr(t.u - 2, t.a); }
-    if (out.bad) check(`instruction ${i} at ${t.pc.toString(16)}: its writes are timed within its own cycles`, false);
     if (out.length) {
-      check(`instruction ${i}: the data sheet's cycle count (${t.cycles})`, t.cycles === { [PC_STA]: 5, [PC_STD]: 6, [PC_PSHU]: 7 }[t.pc]);
+      if (t.cycles !== { [PC_STA]: 5, [PC_STD]: 6, [PC_PSHU]: 7 }[t.pc]) check(`${id} ${rate}: instruction ${i}: the data sheet's cycle count (${t.cycles})`, false);
       watched++;
       const r = d.stopReason;
       if (r && r.kind === 'watchpoint' && r.address === out[0].address && r.value === out[0].value) agree++;
     }
     expected.push(...out);
   }
-  check('the debugger\'s write watchpoint saw the first write of every writing instruction', watched > 100 && agree === watched, `${agree}/${watched}`);
-  check('the events are the writes the trace gives, timed as the bus made them: address, value, old, pc, at, frame, in bus order',
-    events.length === expected.length && events.every((e, i) => key(e) === key(expected[i])),
+  const tag = `${id} ${rate}`;
+  check(`${tag}: the debugger's write watchpoint saw the first write of every writing instruction`, watched > 100 && agree === watched, `${agree}/${watched}`);
+  check(`${tag}: the events are the writes the trace gives: address, value, old, pc, at, frame, in bus order`,
+    events.length === expected.length && times.length === expected.length && events.every((e, i) => key(e) === key(expected[i])),
     `${events.length} vs ${expected.length}: ${events.slice(0, 3).map(key)} / ${expected.slice(0, 3).map(key)}`);
-  check('every write was timed', times.length === expected.length);
+  check(`${tag}: each write is timed within its own instruction, in bus order`, timed);
+  if (id === 'dragon64' && poke === null) check(`${tag}: STA and STD writes at the start of the instruction's last cycle; PSHU's at its 5th and 6th`, lastCycle);
+  if (id === 'dragon64' && poke !== null) check(`${tag}: not every write at the last cycle (the access's own cycle)`, !lastCycle);
   rt();
   w.remove();
   w.remove();
   d.clearWatchpoints();
-  check('removed (twice): no probe, no run-end hook, the bus intact', m.pcWatch === null && m.runEndWatch === null && busIntact(m));
+  check(`${tag}: removed (twice): no probe, no run-end hook, the bus intact`, m.pcWatch === null && m.runEndWatch === null && busIntact(m));
+}
+
+// ---------------- 1b. remove() inside a callback ----------------
+// An observer that removes itself on the STD's first byte gets nothing more, not even the STD's second byte (already
+// queued); another observer of the same bytes still gets both.
+{
+  const s = started('dragon64');
+  const a = [], b = [];
+  const wa = s.watchWrites({ start: MARK, end: MARK + 1 }, (e) => { a.push(e); if (e.pc === PC_STD) wa.remove(); });
+  s.watchWrites({ start: MARK, end: MARK + 1 }, (e) => b.push(e));
+  s.runFrames(2);
+  const std = b.filter((e) => e.pc === PC_STD);
+  check('an observer removed in its callback gets nothing more, not the rest of the instruction\'s writes either',
+    a.length === 2 && a[0].pc === PC_STA && a[1].pc === PC_STD && a[1].address === MARK, a.map(key).join(' | '));
+  check('the other observer still gets both bytes of every STD', std.length > 100 && std.length % 2 === 0 && std.every((e, i) => e.address === MARK + (i & 1)));
 }
 
 // ---------------- 2. a stepped run and free runs give identical events ----------------

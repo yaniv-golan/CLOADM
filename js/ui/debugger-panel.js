@@ -77,6 +77,7 @@ export function setupDebuggerPanel(page) {
     const r = d.stopReason || {}, at = where(d.pc);
     st.textContent = r.kind === 'breakpoint' ? `● Stopped at breakpoint · ${at} · cycle ${cyc}`
       : r.kind === 'watchpoint' ? `● Stopped by a ${r.access} of ${hex4(r.address)} (${hex2(r.value)}) · at ${at} · cycle ${cyc}`
+      : r.kind === 'write' ? `● Paused at a write to ${hex4(r.address)} (${hex2(r.value)}) · at ${at} · cycle ${cyc}`
         : r.kind === 'until' ? `● Stopped at ${at} (${lastAction === 'out' ? 'returned' : 'stepped over'}) · cycle ${cyc}`
           : r.kind === 'halted' ? `● Halted at ${at}: the CPU waits for HALT's release (no instruction ran in a ${lastAction === 'step' ? 'frame' : '2 seconds'}) · cycle ${cyc}`
           : r.kind === 'limit' ? `● Stopped after ${r.instructions.toLocaleString('en-US')} instructions without ${lastAction === 'out' ? 'returning' : 'coming back'} · at ${at} · cycle ${cyc}`

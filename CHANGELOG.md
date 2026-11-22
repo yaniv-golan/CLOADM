@@ -28,7 +28,7 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   from the next instruction; returning `'stop'` stops the run there as a debugger stop (`kind: 'write'`); a write in a frame's
   last instruction arrives before the frame ends; a CoCo 3 instruction held by HALT reports each write once. Pokes are not
   reported. Observers are host state: kept across machine switches and opened snapshots, never saved; with none the machine
-  runs exactly as before. Documented in `docs/automation.md` ("Applying input on a guest write", an example that runs as a
+  runs exactly as before; the Debugger screen shows such a stop as "Paused at a write to $XXXX". Documented in `docs/automation.md` ("Applying input on a guest write", an example that runs as a
   test) and `docs/architecture.md`; `tests/writewatch.test.js`. The MC-10 now runs a frame through the debugger when one is
   armed, as the other models do (its `runFrame` dropped the debugger's run, so breakpoints did not stop a running MC-10).
 
