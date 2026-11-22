@@ -482,7 +482,7 @@ TILEAT  STA     TVAL
 TAFULL  JSR     AT
         JSR     BOX
         LDA     TVAL
-        BEQ     TADONE          ; an empty square has no number
+        LBEQ    TADONE          ; an empty square has no number (the block grew past a short branch)
         LDB     #7              ; the number: its text (7 bytes a value)
         MUL
         ADDD    #NUMBERS-7
@@ -490,17 +490,33 @@ TAFULL  JSR     AT
         JSR     STRLEN          ; one or two digits 2x wide, more 1x
         CLR     TWIDE
         CMPB    #2
-        BHI     TANARROW
+        BHI     TA1X
         INC     TWIDE
-        LSLB
-TANARROW
+        LSLB                    ; 2x: its width in bytes (8 pixels a glyph)
         STB     TXTW
-        LDA     #TILEW          ; centred: the column (6-width)/2 in
+        LDA     #TILEW          ; centred: the column (6-width)/2 in, in BYTES
         SUBA    TXTW
         LSRA
         ADDA    SQCOL
         STA     TXTCOL
-        LDA     TXTW            ; its box: a byte more each side, inside the tile
+        BRA     TABOX
+TA1X    LBSR    STRWID          ; 1x is PROPORTIONAL: B is its width in PIXELS
+        STB     TXTW            ; keep it: the box below is worked out from the pixels
+        LDA     #TILEW*4        ; centred in the tile's 24 pixels, and the 1x cursor is a PIXEL
+        SUBA    TXTW            ; (a x4 of the byte column put a 4-digit number outside its tile)
+        LSRA
+        ANDA    #$FE            ; EVEN: the 1x renderer's phases are 0 and 2 (CENTRE's rule)
+        ADDA    SQCOL
+        ADDA    SQCOL
+        ADDA    SQCOL
+        ADDA    SQCOL           ; SQCOL is a byte column: four pixels
+        STA     TXTCOL
+        LDA     TXTW            ; its box is in BYTES: round the pixels up, 4 to a byte, and
+        ADDA    #3              ; count the cell's blank column
+        LSRA
+        LSRA
+        STA     TXTW
+TABOX   LDA     TXTW            ; its box: a byte more each side, inside the tile
         ADDA    #2
         CMPA    #TILEW
         BLS     TABOXW

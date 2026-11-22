@@ -762,11 +762,21 @@ fs.writeFileSync(tmp('media', 'plain.bas'), '10 PRINT "HI"\n');
     try { T.createToolbox(host, { session: { machine: {} } }); } catch (e) { notSession = e.message; }
     check('own session: only a Session', /session must be a Session/.test(notSession), notSession);
     // the games, by name, as on the page (Session.runGame); refused where the page refuses them
+    const pcBefore = '0x' + own.machine.cpu.pc.toString(16);
     const game = await tb.call('load', { machine_id: 'm1', program: '2048' });
+    const pcAfterLoad = '0x' + own.machine.cpu.pc.toString(16);
     const ran = await tb.call('run_frames', { machine_id: 'm1', frames: 100 });
     const graphics = await tb.call('screen_text', { machine_id: 'm1' });
-    check('load: the bundled game 2048 runs (its board is in a graphics mode)', game.ok && game.data.loaded === '2048' && ran.ok && own.machine.cpu.pc >= 0x3000 && own.machine.cpu.pc < 0x3C00
-      && graphics.ok && graphics.data.machine_output.text === false, J([game, graphics]).slice(0, 300));
+    // The game must be RUNNING (this machine has no user ROMs, so on a CoCo with 64K the built-in key vector at
+    // $A000 is not there and a single PC sample can land outside the program for 2 frames in every 6 -- measured
+    // on main as well as here). So assert what the label claims: the PC is inside the program on MOST frames,
+    // which a game that had crashed or exited would fail, without depending on the phase of that cycle.
+    const bin2048 = fs.readFileSync(path.join(ROOT, 'examples/2048.bin'));
+    const end2048 = bin2048.readUInt16BE(2) + bin2048.readUInt16BE(4);
+    let inProgram = 0;
+    for (let i = 0; i < 30; i++) { await tb.call('run_frames', { machine_id: 'm1', frames: 1 }); const pc = own.machine.cpu.pc; if (pc >= 0x3000 && pc < end2048) inProgram++; }
+    check('load: the bundled game 2048 runs (its board is in a graphics mode)', game.ok && game.data.loaded === '2048' && ran.ok && inProgram >= 20
+      && graphics.ok && graphics.data.machine_output.text === false, J([{ inProgram, end2048: '0x' + end2048.toString(16) }, game, graphics]).slice(0, 300));
     const mines = await tb.call('load', { machine_id: 'm1', program: 'minesweeper' });
     check('load: minesweeper too', mines.ok && own.machine.cpu.pc >= 0x3000, J(mines).slice(0, 200));
     await tb.call('boot', { model: 'mc10' });

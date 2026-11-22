@@ -48,24 +48,27 @@ const FONT = (() => {
 check('the font has the 64 characters $20-$5F', FONT.size === 64, String(FONT.size));
 
 // ---- the 1x font is PROPORTIONAL: a glyph's own width plus one blank column, so neighbours never touch ----
-// FONT5: the five letters a 3-pixel cell cannot tell apart, drawn five pixels wide (games.inc).
+// FONT5A/FONT5H/...: the letters a 3-pixel cell cannot tell apart, drawn five pixels wide (games.inc), one
+// label each, five rows of five bits. A letter that is not there is 3 wide, so the set is READ, not assumed.
 const WIDE5 = (() => {
-  const src = include('games.inc'), at = src.indexOf('FONT5   FCB');
-  if (at < 0) return new Map();
-  const rows = [];
-  for (const line of src.slice(at).split('\n')) {
-    const m = /FCB\s+(%[01]{5}(?:,%[01]{5}){4})/.exec(line);
-    if (!m) break;
-    rows.push(m[1].split(',').map((b) => parseInt(b.slice(1), 2)).join(','));
+  const src = include('games.inc'), map = new Map();
+  for (const m of src.matchAll(/^FONT5([A-Z])\s+FCB\s+(%[01]{5}(?:,%[01]{5}){4})/gm)) {
+    map.set(m[1], m[2].split(',').map((b) => parseInt(b.slice(1), 2)).join(','));
   }
-  const map = new Map();
-  rows.forEach((r, i) => { if (!map.has(r)) map.set(r, String.fromCharCode('AHRMW'.charCodeAt(0) + i)); });
   return map;
 })();
 const glyphWidth = (ch) => (WIDE5.has(ch) ? 5 : 3);
 const strWidth = (s) => [...s].reduce((n, c) => n + glyphWidth(c) + 1, 0) - 1;   // the last glyph has no blank column after it
-check('the wide letters are A, H, M, R and W, five pixels wide', [...WIDE5.values()].join('') === 'AHRMW' && WIDE5.size === 5,
-  JSON.stringify([...WIDE5.values()].join('')));
+// the tables are read by NAME, so assert every one of them is there: a renamed label would otherwise leave
+// this map empty and every string would silently read as 3-wide.
+{
+  const src = include('games.inc');
+  const labels = [...src.matchAll(/^FONT5([A-Z])\s+FCB/gm)].map((m) => m[1]).sort().join('');
+  check('games.inc has a five-wide glyph table for each of A, H, R, M and W (read by name)', labels === 'AHMRW',
+    `found ${JSON.stringify(labels)}, ${WIDE5.size} parsed`);
+}
+check('the wide letters are A, H, M, R and W, five pixels wide', [...WIDE5.keys()].sort().join('') === 'AHMRW' && WIDE5.size === 5,
+  JSON.stringify([...WIDE5.keys()].sort().join('')));
 for (const game of ['2048', 'minesweeper']) {
   const src = fs.readFileSync(path.join(ROOT, `examples/${game}.asm`), 'utf8');
   const long = [...src.matchAll(/^(T_\w+)\s+FCN\s+"([^"]+)"$/gm)]
@@ -73,19 +76,42 @@ for (const game of ['2048', 'minesweeper']) {
   check(`${game}: every string fits the 128-pixel line (the 1x font is proportional)`, long.length === 0, long.join(', '));
 }
 // the 1x text on pixel row y of the bitmap, from pixel column `from` to `to`, in colour `fg`: a glyph is five
-// pixels wide (WIDE5) or three (FONT), one blank column after each, so the cursor lands on every glyph's first pixel
-const textAt = (m, y, tall = 1, fg = 3, from = 0, to = 128) => {
-  const pixel = (px, row) => ((m.ram[0x400 + (y + row * tall) * 32 + (px >> 2)] >> (6 - 2 * (px & 3))) & 3) === fg;
-  const cols = (x, w) => { const g = []; for (let k = 0; k < 5; k++) { let bits = 0; for (let p = 0; p < w; p++) if (pixel(x + p, k)) bits = (bits << 1) | 1; g.push(bits); } return g.join(','); };
+// pixels wide (WIDE5) or three (FONT), one blank column after each, so the cursor lands on every glyph's first
+// pixel. The text begins at the first ink column in the band, wherever the proportional layout put it.
+const inkAt = (m, y, tall, fg) => (px, row) => ((m.ram[0x400 + (y + row * tall) * 32 + (px >> 2)] >> (6 - 2 * (px & 3))) & 3) === fg;
+// A glyph can start on a column with no ink (J's left column is blank) and a 1x string can start at an odd
+// pixel column, so the reader tries EVERY column and keeps the one where the WHOLE expected string decodes.
+// sliding the expected text is what makes it unambiguous; it returns the glyphs and their true x.
+const decodeAt = (m, y, tall, fg, x0, text) => {
+  const pixel = inkAt(m, y, tall, fg);
+  // NOTE: shift on EVERY pixel, set or clear. Shifting only on ink ('if (pixel) bits = (bits<<1)|1')
+  // drops the clear pixels and turns 1,0,1 into 1,1 — every glyph with a blank column then reads wrong.
+  const cols = (x, w) => { const g = []; for (let k = 0; k < 5; k++) { let bits = 0; for (let p = 0; p < w; p++) bits = (bits << 1) | (pixel(x + p, k) ? 1 : 0); g.push(bits); } return g.join(','); };
   const three = (s) => { const g = s.split(',').map(Number); const out = []; for (const v of g) { let b = 0; for (let p = 0; p < 3; p++) if ((v >> (2 - p)) & 1) b |= 4 >> p; out.push(b); } return out.join(','); };
-  let s = '', x = from;
-  while (x + 2 < to) {
-    const five = cols(x, 5), wide = [...WIDE5].find(([, v]) => v === five);
-    if (wide) { s += wide[0]; x += 6; continue; }
-    s += FONT.get(three(cols(x, 3))) || '?'; x += 4;
+  const out = [];
+  let x = x0;
+  for (const ch of text) {
+    const w = glyphWidth(ch) === 5 ? 5 : 3;
+    const got = w === 5 ? [...WIDE5].find(([, v]) => v === cols(x, 5))?.[0] : FONT.get(three(cols(x, 3)));
+    if (got !== ch) return null;
+    out.push({ x, ch });
+    x += w + 1;
   }
-  return s.trim();
+  return out;
 };
+// find where `text` was drawn in the band. The slide only FINDS the string (a glyph can start on a blank column,
+// e.g. J, so the start is not the first ink). Every candidate is then pinned by its COLUMN and required to be
+// UNIQUE: `hits` is every column that matches, so a caller can assert there is exactly one. A looser match would
+// show up as a second hit, and the tests below fail on that rather than accepting it.
+const hits = (m, y, tall, fg, text, from = 0, to = 128) => {
+  const out = [];
+  for (let x0 = from; x0 + strWidth(text) <= to; x0++) { const g = decodeAt(m, y, tall, fg, x0, text); if (g) out.push(g); }
+  return out;
+};
+const place = (m, y, tall, fg, text, from = 0, to = 128) => { const h = hits(m, y, tall, fg, text, from, to); return h.length === 1 ? h[0] : null; };
+// every glyph of the text in the band, where it actually was: { x, ch }
+const glyphsAt = (m, y, tall = 1, fg = 3, text, from = 0, to = 128) => place(m, y, tall, fg, text, from, to);
+const textAt = (m, y, tall = 1, fg = 3, text, from = 0, to = 128) => (place(m, y, tall, fg, text, from, to) ? text : '?');
 
 // ---- the random numbers, as games.inc documents them ----
 class Rng {
@@ -96,13 +122,27 @@ class Rng {
 
 // ---- running a game in a Session ----
 const KEY = { up: 94, down: 10, left: 8, right: 9, space: 32, enter: 13, break: 3 };
-function start(name, { machine = 'dragon64', seed = 0x1234 } = {}) {
+// how many frames the title page takes to finish. 30 is the budget the games must meet: the old fixed-cell
+// renderer drew the title well inside it, and a renderer that misses it EATS the first key (the page is still
+// drawing when the player presses). Measured per game by `titleFrames`, and asserted in the title test.
+const TITLE_BUDGET = 30;
+function titleFrames(s, sym) {
+  // TITLE ends by polling GETKEY; ENTROPY only moves once the game loop runs. Watch it come alive.
+  for (let f = 1; f <= 400; f++) {
+    s.runFrames(1);
+    const e = s.machine.ram[sym('ENTROPY')] * 256 + s.machine.ram[sym('ENTROPY') + 1];
+    if (e) return f;
+  }
+  return Infinity;
+}
+function start(name, { machine = 'dragon64', seed = 0x1234, wait = true } = {}) {
   const s = new Emu.Session({ welcomeMenu: false });
   s.switchMachine(machine, {}, { menu: false });
   s.load(`${name}.bin`, bin(name), { remember: false });
   const m = s.machine, sym = (k) => A[name].symbols.get(k);
-  s.runFrames(30);   // the title page drawn
+  s.runFrames(TITLE_BUDGET);   // the title page drawn, within the budget the game must meet
   m.poke(Emu.GAMES.seed, seed >> 8); m.poke(Emu.GAMES.seed + 1, seed & 0xFF);
+  void wait;
   // a key, then frames until the game waits for the next (ENTROPY counts its polls)
   const settle = () => {
     for (let i = 0; i < 400; i++) {
@@ -152,16 +192,73 @@ const bcd = (bytes) => Number(bytes.map((x) => x.toString(16).padStart(2, '0')).
 const show = (b) => b.map((v) => (v ? 2 ** v : '.')).join(' ');
 
 {
+  // the title page must be DRAWN within the budget, or the player's first key is eaten while it still draws
+  {
+    const s = new Emu.Session({ welcomeMenu: false });
+    s.switchMachine('dragon64', {}, { menu: false });
+    s.load('2048.bin', bin('2048'), { remember: false });
+    const f = titleFrames(s, (k) => A['2048'].symbols.get(k));
+    s.close?.();
+    check('2048: the title page is drawn within 30 frames (a slower one eats the first key)', f <= TITLE_BUDGET, `${f} frames`);
+  }
   const g = start('2048', { seed: 0xBEEF });
-  check('2048: the title page', textAt(g.m, 108, 2, 2) === 'JOIN THE TILES TO MAKE 2048' && textAt(g.m, 172, 1, 3) === 'PRESS A KEY TO PLAY',
-    JSON.stringify([textAt(g.m, 108, 2, 2), textAt(g.m, 172, 1, 3)]));
+  check('2048: the title page', textAt(g.m, 108, 2, 2, 'JOIN THE TILES TO MAKE 2048') === 'JOIN THE TILES TO MAKE 2048'
+    && textAt(g.m, 172, 1, 3, 'PRESS A KEY TO PLAY') === 'PRESS A KEY TO PLAY',
+    JSON.stringify([textAt(g.m, 108, 2, 2, 'JOIN THE TILES TO MAKE 2048'), textAt(g.m, 172, 1, 3, 'PRESS A KEY TO PLAY')]));
+  // THE 1x ALIGNMENT INVARIANT: every glyph of every 1x line starts at an even pixel column (phase 0 or 2), AND
+  // the string starts exactly where an even-aligned CENTRE would put it: start = (128 - width) >> 2 << 1. The
+  // slide only FINDS the string; the start column is then pinned against the formula and required to be UNIQUE,
+  // so a looser reader (one that accepted the string at another column) fails here instead of passing.
+  {
+    const odd = [], where = [];
+    for (const [line, row, tall, fg, text] of [['T_JOIN', 108, 2, 2, 'JOIN THE TILES TO MAKE 2048'],
+      ['T_KEYS1', 130, 1, 2, 'ARROWS OR WASD SLIDE THEM'], ['T_KEYS2', 140, 1, 2, 'R STARTS AGAIN'],
+      ['T_KEYS3', 150, 1, 2, 'BREAK LEAVES'], ['T_PRESS', 172, 1, 3, 'PRESS A KEY TO PLAY']]) {
+      const hs = hits(g.m, row, tall, fg, text);
+      const want = ((128 - strWidth(text)) >> 1) & ~1;          // even-aligned centre
+      // not found is a FAILURE, not "skip": an empty list must not make the parity check pass by doing nothing
+      if (hs.length !== 1) { where.push(`${line}: ${hs.length} matches (want exactly 1 at ${want})`); odd.push(`${line}: not found`); continue; }
+      const gs = hs[0];
+      if (gs[0].x !== want) where.push(`${line}: starts at ${gs[0].x}, the even-aligned centre is ${want}`);
+      for (const gl of gs) if (gl.x % 2) odd.push(`${line} '${gl.ch}' @${gl.x}`);
+    }
+    check('2048: every 1x title glyph starts at an even pixel column (the renderer needs phase 0 or 2)', odd.length === 0, odd.join(', '));
+    check('2048: each 1x title string is found in exactly one place, at the even-aligned centre', where.length === 0, where.join('; '));
+  }
   check('2048: the four-colour 128x192 mode at $0400 (VDG CG6, SAM V=6, F=2)', (g.m.pia1.saveState().b.or & 0xF8) === 0xE0 && (g.m.sam.reg & 0x3FF) === (6 | (2 << 3)));
   g.press('space');
   const rng = new Rng(0xBEEF);
   let model = new Array(16).fill(0), score = 0;
   spawn(model, rng); spawn(model, rng);
   check('2048: a new game has the two tiles the seed gives', show(g.mem('BOARD', 16)) === show(model), `${show(g.mem('BOARD', 16))} / ${show(model)}`);
-  check('2048: the game screen (keys on the footer)', textAt(g.m, 185, 1, 2) === 'ARROWS MOVE  R NEW  BREAK LEAVES', textAt(g.m, 185, 1, 2));
+  check('2048: the game screen (keys on the footer)', textAt(g.m, 185, 1, 2, 'ARROWS  R=NEW  BREAK=QUIT') === 'ARROWS  R=NEW  BREAK=QUIT', textAt(g.m, 185, 1, 2, 'ARROWS  R=NEW  BREAK=QUIT'));
+  // THE TILE'S NUMBER IS INSIDE THE TILE AND CENTRED IN IT. Sampled from a FRESH session still on the title
+  // page: the game board has only two tiles, so doing this after g.press('space') looked at empty squares and
+  // the check could not fail. SQCOL and TILEW are BYTE quantities: tile n starts at pixel SQCOL*4, 24 px wide.
+  // The digits are NOT one colour: STYLES gives the demo tiles different text colours (tile 2's is 3, the
+  // others 2), so "the number's colour" is read per tile as "anything that is not the tile's own body", which
+  // is what the eye sees and what survives a palette change.
+  {
+    const g2 = start('2048', { seed: 0xBEEF });          // a fresh session, still on the title page
+    const px = (x, y) => (g2.m.ram[0x400 + y * 32 + (x >> 2)] >> (6 - 2 * (x & 3))) & 3;
+    const bad = [];
+    for (const [i, val, digits] of [[0, 2, 1], [1, 16, 2], [2, 128, 3], [3, 2048, 4]]) {
+      const sqcol = 2 + 7 * i, x0 = sqcol * 4, x1 = x0 + 23;
+      const xa = x0 + 4, xb = x1 - 4, ya = 74, yb = 83;   // inside the border, the digits' own band
+      // the tile's body colour: the most common colour in the band. Anything else is digit ink.
+      const hist = [0, 0, 0, 0];
+      for (let y = ya; y <= yb; y++) for (let x = xa; x <= xb; x++) hist[px(x, y)]++;
+      const body = hist.indexOf(Math.max(...hist));
+      let n = 0, lo = -1, hi = -1;
+      for (let y = ya; y <= yb; y++) for (let x = xa; x <= xb; x++) if (px(x, y) !== body) { n++; if (lo < 0) lo = x; hi = x; }
+      if (!n) { bad.push(`${val}: no digits in its box (px ${x0}..${x1})`); continue; }
+      // CENTRED: the ink's midpoint is within a pixel of the box's, for every digit count (a stale x4 of the
+      // byte column lands a 4-digit number hard against one edge, which "present" alone would have accepted)
+      const want = x0 + 11.5, got = (lo + hi) / 2;
+      if (Math.abs(got - want) > 1.5) bad.push(`${val} (${digits} digits): ink centred at ${got}, the box's centre is ${want}`);
+    }
+    check('2048: a tile\'s number is inside its own box and centred in it (the 1x column is converted from bytes)', bad.length === 0, bad.join('; '));
+  }
   // a known game: 60 moves from the seed, the board and the score after each one as the rules give
   const dirs = ['left', 'up', 'right', 'down'];
   let same = true, firstBad = '', merges = 0;
@@ -177,8 +274,17 @@ const show = (b) => b.map((v) => (v ? 2 ** v : '.')).join(' ');
   // the score on the screen: six digits, leading zeros as spaces, red, 10 rows tall at byte 14
   // the score on the screen: digits centered in the score's cell (bytes 14-19, i.e. pixels 56-79) and the best
   // score's (bytes 22-27, pixels 88-111), red, 10 rows tall
-  const shown = [textAt(g.m, 7, 2, 3, 56, 80), textAt(g.m, 7, 2, 3, 88, 112)], labels = textAt(g.m, 1, 1, 2, 48, 128);
-  check('2048: the score and the best score are shown', shown[0] === String(score) && shown[1] === String(score) && labels === 'SCORE   BEST', JSON.stringify([shown, labels]));
+  const shown = [textAt(g.m, 7, 2, 3, String(score), 56, 80), textAt(g.m, 7, 2, 3, String(score), 88, 112)];
+  // SCORE and BEST are two SEPARATE strings, printed at bytes 14 and 22 (14*4 and 22*4 pixels). Reading them as
+  // one run of text only worked while every cell was the same width: the proportional font changes the gap
+  // between them, so a single 'SCORE   BEST' literal pinned fixed-cell spacing rather than the labels being
+  // right. Split, each label must be found at EXACTLY its own column — "each appears somewhere" would accept a
+  // label drawn at the wrong byte, which is what this check exists to catch.
+  const sAt = glyphsAt(g.m, 1, 1, 2, 'SCORE', 0, 128), bAt = glyphsAt(g.m, 1, 1, 2, 'BEST', 0, 128);
+  const scoreLabel = sAt && sAt[0].x === 14 * 4, bestLabel = bAt && bAt[0].x === 22 * 4;
+  check('2048: the score and the best score are shown, each label at its own column (14 and 22 in bytes)',
+    shown[0] === String(score) && shown[1] === String(score) && scoreLabel && bestLabel,
+    JSON.stringify([shown, sAt ? sAt[0].x : null, bAt ? bAt[0].x : null, 'want 56 and 88']));
   check('2048: MOVES counts the moves that changed the board', g.mem('MOVES', 2)[1] > 30);
 
   // a join doubles a tile, once per move: 2 2 2 2 -> 4 4, and 4 4 . . -> 8
@@ -199,7 +305,7 @@ const show = (b) => b.map((v) => (v ? 2 ** v : '.')).join(' ');
   // 2048 made: said once, and play goes on
   pokeBoard([10, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
   g.press('left');
-  check('2048: joining two 1024s makes 2048 and says so', g.mem('BOARD')[0] === 11 && g.mem('WONSEEN')[0] === 1 && textAt(g.m, 185) === 'YOU MADE 2048! PLAY ON', textAt(g.m, 185));
+  check('2048: joining two 1024s makes 2048 and says so', g.mem('BOARD')[0] === 11 && g.mem('WONSEEN')[0] === 1 && textAt(g.m, 185, 1, 3, 'YOU MADE 2048! PLAY ON') === 'YOU MADE 2048! PLAY ON', textAt(g.m, 185, 1, 3, 'YOU MADE 2048! PLAY ON'));
   const moves = g.mem('MOVES', 2)[1];
   g.press('right');
   check('2048: play goes on after 2048', g.mem('MOVES', 2)[1] === moves + 1 && g.mem('BOARD', 16).includes(11) && g.mem('LOST')[0] === 0);
@@ -228,7 +334,7 @@ const show = (b) => b.map((v) => (v ? 2 ** v : '.')).join(' ');
   g.press('R');
   pokeBoard(last);
   g.press('right');
-  check('2048: no move left: game over', g.mem('LOST')[0] === 1 && textAt(g.m, 185) === 'NO MOVES LEFT. R PLAYS AGAIN', textAt(g.m, 185));
+  check('2048: no move left: game over', g.mem('LOST')[0] === 1 && textAt(g.m, 185, 1, 3, 'NO MOVES LEFT. R PLAYS AGAIN') === 'NO MOVES LEFT. R PLAYS AGAIN', textAt(g.m, 185, 1, 3, 'NO MOVES LEFT. R PLAYS AGAIN'));
   const frozen = show(g.mem('BOARD', 16));
   g.press('left', 'up');
   check('2048: after game over the arrows do nothing', show(g.mem('BOARD', 16)) === frozen);
@@ -361,16 +467,24 @@ const nb = (i) => { const out = []; const x = i & 7, y = i >> 3; for (let dy = -
   check('Minesweeper: 40 games: the first square is safe, no mine next to it, ten mines, every count right, the flood opens what the rules open', safe, detail);
 }
 {
+  {
+    const s = new Emu.Session({ welcomeMenu: false });
+    s.switchMachine('dragon64', {}, { menu: false });
+    s.load('minesweeper.bin', bin('minesweeper'), { remember: false });
+    const f = titleFrames(s, (k) => A.minesweeper.symbols.get(k));
+    s.close?.();
+    check('Minesweeper: the title page is drawn within 30 frames (a slower one eats the first key)', f <= TITLE_BUDGET, `${f} frames`);
+  }
   const g = start('minesweeper', { seed: 0x5EED });
-  check('Minesweeper: the title page', textAt(g.m, 96, 2, 3) === 'TEN MINES ARE HIDDEN' && textAt(g.m, 174, 1, 2) === 'PRESS A KEY TO PLAY',
-    JSON.stringify([textAt(g.m, 96, 2, 3), textAt(g.m, 174, 1, 2)]));
+  check('Minesweeper: the title page', textAt(g.m, 96, 2, 3, 'TEN MINES ARE HIDDEN') === 'TEN MINES ARE HIDDEN' && textAt(g.m, 174, 1, 2, 'PRESS A KEY TO PLAY') === 'PRESS A KEY TO PLAY',
+    JSON.stringify([textAt(g.m, 96, 2, 3, 'TEN MINES ARE HIDDEN'), textAt(g.m, 174, 1, 2, 'PRESS A KEY TO PLAY')]));
   check('Minesweeper: the second colour set (CSS)', (g.m.pia1.saveState().b.or & 0xF8) === 0xE8);
   // the stack: a pattern under it, to see how deep it goes over a whole game
   // (below where S is now: the game waits in GETKEY, its return addresses above S)
   const s0 = g.m.cpu.s;
   for (let a = 0x1C00; a < s0; a++) g.m.poke(a, 0x5A);
   g.press('space');
-  check('Minesweeper: the game screen', textAt(g.m, 16) === 'SPACE OPENS  F FLAGS' && textAt(g.m, 2, 2, 3) === '10', JSON.stringify([textAt(g.m, 16), textAt(g.m, 2, 2, 3)]));
+  check('Minesweeper: the game screen', textAt(g.m, 16, 1, 3, 'SPACE OPENS  F FLAGS') === 'SPACE OPENS  F FLAGS' && textAt(g.m, 2, 2, 3, '10') === '10', JSON.stringify([textAt(g.m, 16, 1, 3, 'SPACE OPENS  F FLAGS'), textAt(g.m, 2, 2, 3, '10')]));
   // the cursor stays on the field
   g.press('up', 'up', 'up', 'up', 'left', 'left', 'left', 'left');
   check('Minesweeper: the cursor stops at the corner', g.mem('CURX', 2).join() === '0,0');
@@ -378,11 +492,11 @@ const nb = (i) => { const out = []; const x = i & 7, y = i >> 3; for (let dy = -
   check('Minesweeper: and moves back to the middle', g.mem('CURX', 2).join() === '3,3');
   // a flag before the first square: on and off
   g.press('F');
-  check('Minesweeper: F flags a hidden square; the counter says 9', g.mem('STATE', 64)[27] === 2 && g.mem('FLAGS')[0] === 1 && textAt(g.m, 2, 2, 3) === '09');
+  check('Minesweeper: F flags a hidden square; the counter says 9', g.mem('STATE', 64)[27] === 2 && g.mem('FLAGS')[0] === 1 && textAt(g.m, 2, 2, 3, '09') === '09');
   g.press('space');
   check('Minesweeper: a flagged square does not open', g.mem('STATE', 64)[27] === 2 && g.mem('OPENED')[0] === 0 && g.mem('PLANTED')[0] === 0);
   g.press('F');
-  check('Minesweeper: F again takes the flag off', g.mem('STATE', 64)[27] === 0 && g.mem('FLAGS')[0] === 0 && textAt(g.m, 2, 2, 3) === '10');
+  check('Minesweeper: F again takes the flag off', g.mem('STATE', 64)[27] === 0 && g.mem('FLAGS')[0] === 0 && textAt(g.m, 2, 2, 3, '10') === '10');
   g.press('enter');   // ENTER opens as SPACE does
   check('Minesweeper: ENTER opens the square', g.mem('STATE', 64)[27] === 1 && g.mem('PLANTED')[0] === 10);
   g.press('F');
@@ -400,13 +514,13 @@ const nb = (i) => { const out = []; const x = i & 7, y = i >> 3; for (let dy = -
   // flag every mine but one first (at most ten flags: an eleventh is refused)
   const mines = field.map((v, i) => (v & 0x80 ? i : -1)).filter((i) => i >= 0);
   for (const i of mines) { goTo(i); g.press('F'); }
-  check('Minesweeper: ten flags on the ten mines; the counter says 00', g.mem('FLAGS')[0] === 10 && textAt(g.m, 2, 2, 3) === '00');
+  check('Minesweeper: ten flags on the ten mines; the counter says 00', g.mem('FLAGS')[0] === 10 && textAt(g.m, 2, 2, 3, '00') === '00');
   const extra = g.mem('STATE', 64).findIndex((v) => v === 0);
   goTo(extra); g.press('F');
   check('Minesweeper: an eleventh flag is refused', g.mem('STATE', 64)[extra] === 0 && g.mem('FLAGS')[0] === 10);
   for (let i = 0; i < 64; i++) if (!(field[i] & 0x80) && g.mem('STATE', 64)[i] === 0) { goTo(i); g.press('space'); }
   check('Minesweeper: opening the 54 safe squares wins', g.mem('WON')[0] === 1 && g.mem('OPENED')[0] === 54 && g.mem('LOST')[0] === 0
-    && textAt(g.m, 16) === 'ALL CLEAR! R PLAYS AGAIN', textAt(g.m, 16));
+    && textAt(g.m, 16, 1, 3, 'ALL CLEAR! R PLAYS AGAIN') === 'ALL CLEAR! R PLAYS AGAIN', textAt(g.m, 16, 1, 3, 'ALL CLEAR! R PLAYS AGAIN'));
   // the stack: how far below $3000 it went, and nothing between the screen and it was touched
   let low = 0x3000;
   for (let a = 0x1C00; a < s0; a++) if (g.m.ram[a] !== 0x5A) { low = a; break; }
@@ -420,7 +534,7 @@ const nb = (i) => { const out = []; const x = i & 7, y = i >> 3; for (let dy = -
   g.press('space');
   const f2 = g.mem('FIELD', 64), boom = f2.findIndex((v) => v & 0x80);
   goTo(boom); g.press('space');
-  check('Minesweeper: opening a mine loses: BOOM', g.mem('LOST')[0] === 1 && g.mem('BOOMSQ')[0] === boom && textAt(g.m, 16) === 'BOOM! R PLAYS AGAIN', textAt(g.m, 16));
+  check('Minesweeper: opening a mine loses: BOOM', g.mem('LOST')[0] === 1 && g.mem('BOOMSQ')[0] === boom && textAt(g.m, 16, 1, 3, 'BOOM! R PLAYS AGAIN') === 'BOOM! R PLAYS AGAIN', textAt(g.m, 16, 1, 3, 'BOOM! R PLAYS AGAIN'));
   // the mines show: the one that went off on orange, the others on buff; the field's pixels say which
   const sq = (i) => 0x400 + (24 + 20 * (i >> 3) + 9) * 32 + 4 + 3 * (i & 7);   // a row through the sprite's middle
   const other = f2.findIndex((v, i) => (v & 0x80) && i !== boom);

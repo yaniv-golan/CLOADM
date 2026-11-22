@@ -8,6 +8,18 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
+### Changed
+
+- **The games' 1x text is proportional: a proportional font for legibility; title screen draws one frame slower,
+  inside its 30-frame budget.** 2048 and Minesweeper's small text used to draw every character in a fixed four-pixel
+  cell, which made letters a three-pixel cell cannot tell apart — A, H, M, R and W — hard to read. They are now
+  drawn five pixels wide, in a cell of the glyph's own width plus one blank column, so each line is narrower and
+  the shapes are distinct. The title page's five lines now draw in 12 and 14 frames (from 11 and 13), still well
+  inside the 30-frame budget the games must meet; in-game redraws are unchanged. Their reference pictures and the
+  recorded-sound hash are re-recorded: the pictures because the glyph shapes and even-aligned start columns changed
+  (only the 1x text rows of each move), and the sound because the title ends a frame later, which shifts each tone
+  by 0 to 6 samples (at most 0.14 ms) within the recording without changing any pitch or length.
+
 ### 0.1.8-pre
 
 #### Added

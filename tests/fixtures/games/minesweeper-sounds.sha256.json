@@ -1,11 +1,12 @@
 {
   "what": "SHA-256 of the PCM samples of Minesweeper's recorded sounds (the WAV's data chunk, i.e. the file from byte 44 on; the 44-byte header is not hashed because it carries no sound).",
-  "why": "The recording itself is not committed: media files (.wav) are refused by the repository's pre-push guard, and a fixture a person can open is not needed, only a strict proof that the sounds are unchanged.",
-  "sha256": "92c5eb1532ad5f094541c25a7d871209db03e79c2b519b6743b1d6823db06e61",
+  "why": "The recording itself is not committed: media files (.wav) are refused by the repository's pre-push guard, and a fixture a person can open is not needed, only a strict proof that the sounds are unchanged. Re-recorded for the proportional 1x font: the title now draws one frame later, so the tones start 0-6 samples (<=0.14 ms) later in the recording window. Every burst keeps its pitch (within 0.1%) and length (+-1 sample), and the final mine starts at the same sample with the same length, so no sound changed; only its phase within a frame moved.",
+  "sha256": "e311525d419b9d94f5c772fa6cae1a92232c1269912fbc541e5b356513c4c41d",
   "pcmBytes": 231232,
   "sampleRate": 44100,
   "channels": 1,
   "bits": 16,
   "command": "node cli/cloadm.js -m dragon64 --program minesweeper --frames 30 --poke $3003=$5E,$ED --type ' ' --frames 20 --wav OUT.wav --type ' ' --frames 20 --type '{RIGHT}{DOWN}F' --frames 20 --type '{UP}{RIGHT}{RIGHT}' --frames 5 --type F --frames 10 --type F --frames 10 --type ' ' --frames 60 --wav-stop",
-  "listen": "To hear it, run that command with OUT.wav set to a path outside this repository (the same sequence tests/games.test.js runs). Nothing is written into the repo."
+  "listen": "To hear it, run that command with OUT.wav set to a path outside this repository (the same sequence tests/games.test.js runs). Nothing is written into the repo.",
+  "note": "Phase shift is expected and documented; the sound itself is unchanged."
 }
