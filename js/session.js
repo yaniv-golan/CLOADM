@@ -26,6 +26,7 @@ import { cartridgeRoms, createMachine, profiles, resolveConfig, restoreSnapshot 
 import { cpuFamily } from './cpu/cpus.js';
 import { SpeechSoundPak, SSC_ROM_PROFILE } from './machines/ssc.js';
 import { Debugger, codeDisassembly } from './debugger.js';
+import { HostHooks } from './hooks.js';
 import { disassembleBlock } from './asm/disassembler.js';
 import { formats } from './media/formats.js';
 import { Tape } from './media/tape.js';
@@ -249,16 +250,18 @@ function validSetting(k, v) {
 // keys, and on one that loads over BASIC's line buffer an EXEC typed on the CLOADM line would be lost: so EXEC goes
 // on a line of its own, typed once the tape has stopped and the CPU has stayed in the ROM space ($8000 up: BASIC,
 // a cartridge, or BASIC copied to RAM there in 64K mode) for EXEC_IDLE frames, and never once the CPU has fetched an
-// instruction from the loaded program (Machine.pcWatch, every instruction; pages 0 and 1, where BASIC keeps routines
+// instruction from the loaded program (a probe, Machine.addProbe: every instruction; pages 0 and 1, where BASIC keeps routines
 // and hooks it runs itself, do not count). It gives up (types nothing) if the tape never starts or BASIC never
 // settles.
 const EXEC_IDLE = 25, EXEC_START_FRAMES = 600, EXEC_SETTLE_FRAMES = 500;
+// -> { decide, cancel } for Typist.typeWhen: the probe goes when decide() settles, or when the typist drops the EXEC
+// (a reset, a later load: Typist.clear / dropTyped call cancel).
 function execWhenReady(m, file) {
   const from = Math.max(file.load, 0x0200), to = file.load + file.data.length;
   let frames = 0, ran = false, settle = 0, idle = 0, tookOver = false;
-  m.pcWatch = (pc) => { if (pc >= from && pc < to) tookOver = true; };
-  const done = (verdict) => { m.pcWatch = null; return verdict; };
-  return () => {
+  const cancel = m.addProbe((pc) => { if (pc >= from && pc < to) tookOver = true; });
+  const done = (verdict) => { cancel(); return verdict; };
+  const decide = () => {
     frames++;
     if (tookOver) return done('drop');
     if (m.deck.motor) { ran = true; settle = 0; idle = 0; return 'wait'; }
@@ -267,26 +270,34 @@ function execWhenReady(m, file) {
     if (idle >= EXEC_IDLE) return done('type');
     return ++settle > EXEC_SETTLE_FRAMES ? done('drop') : 'wait';
   };
+  return { decide, cancel };
 }
 
 // The serial port of the Session's machine (session.serial): the device plugged in, the bytes both ways, and a
-// trace of what the port did. Subscriptions and traces belong to the Session: a new machine (switchMachine,
-// openSnapshot, a power cycle) gets them again (install), and no snapshot holds them.
+// trace of what the port did. Subscriptions and traces belong to the Session: its hooks registry (session.hooks)
+// puts the port listener and each trace on whichever machine is in use (switchMachine, openSnapshot, a power
+// cycle), and no snapshot holds them.
 //
 //   tx(bytes, info): bytes the machine sent, as the device decoded them; rx(bytes, info): bytes the terminal sent,
 //   once each has crossed the wire into the machine (its stop bit ended). bytes is a Uint8Array; info is
 //   { at: [tick of each byte], frame, device }. They come at the end of each frame and on flush(); with
-//   { flush: 'instant' } also after runFrames, a debugger step and a debugger stop.
+//   { flush: 'instant' } also before each instruction the CPU starts (a probe, there only while such a
+//   subscriber is), when runFrames returns and when a debugger stops the machine.
 export class SerialApi {
   constructor(session) {
     this.session = session;
     this.subs = [];                 // in the order subscribed
-    this.traces = [];               // traces running
-    this.machine = null;            // the machine the port listener is on
-    this.listener = {
+    this.instantProbe = null;       // remove() of the probe 'instant' subscribers need, while there is one
+    const listener = {
       tx: (b, at) => { for (const s of this.subs) { s.tx.push(b); s.txAt.push(at); } },
       rx: (b, at) => { for (const s of this.subs) { s.rx.push(b); s.rxAt.push(at); } },
     };
+    session.hooks.add((m) => {
+      const p = m.serialPort;
+      if (!p) return () => {};
+      p.listeners.add(listener);
+      return () => p.listeners.delete(listener);
+    });
   }
   // the device on the port: { chip: '6551' | 'bit-banger', kind: 'none' | 'printer' | 'terminal' | 'loopback', baud,
   // kinds (what can be plugged in) }, or null on machines without one
@@ -331,12 +342,20 @@ export class SerialApi {
     if (flush !== 'frame' && flush !== 'instant') throw new SessionError(`flush is 'frame' or 'instant', not ${JSON.stringify(flush)}.`);
     const sub = { handlers, instant: flush === 'instant', tx: [], txAt: [], rx: [], rxAt: [], live: true };
     this.subs.push(sub);
+    this.probeIfInstant();
     return { unsubscribe: () => this.drop(sub) };
   }
   drop(sub) {
     if (!sub.live) return;
     sub.live = false;
     this.subs.splice(this.subs.indexOf(sub), 1);
+    this.probeIfInstant();
+  }
+  // the probe is on while an 'instant' subscriber is, and only then
+  probeIfInstant() {
+    const want = this.subs.some((s) => s.instant);
+    if (want && !this.instantProbe) this.instantProbe = this.session.hooks.addProbe(() => this.ran());
+    else if (!want && this.instantProbe) { this.instantProbe(); this.instantProbe = null; }
   }
   // deliver every byte completely sent by now, both ways, to every subscriber
   flush() {
@@ -344,7 +363,7 @@ export class SerialApi {
     if (p) p.flush(this.session.machine.now());
     this.deliver();
   }
-  // after runFrames, a debugger step or stop: 'instant' subscribers hear what has crossed by now
+  // before an instruction, after runFrames or at a debugger stop: 'instant' subscribers hear what has crossed by now
   ran() {
     if (!this.subs.some((s) => s.instant)) return;
     const p = this.session.machine.serialPort;
@@ -370,16 +389,6 @@ export class SerialApi {
     }
     if (error) throw error;
   }
-  // the Session's machine is now m: the subscriptions and traces move to it (what was waiting is dropped: the
-  // Session delivered it first)
-  install(m) {
-    if (this.machine && this.machine.serialPort) this.machine.serialPort.listeners.delete(this.listener);
-    for (const t of this.traces) t.detach();
-    for (const s of this.subs) { s.tx = []; s.txAt = []; s.rx = []; s.rxAt = []; }
-    this.machine = m;
-    if (m.serialPort) m.serialPort.listeners.add(this.listener);
-    for (const t of this.traces) t.attach(m);
-  }
   // record what the port does, in a ring of the last `limit` events, oldest first: { at, frame, pc, kind, ... }.
   // kinds: 'tx-load' (6551: a byte moves to the transmit shift register), 'tx' (a byte sent: the 6551's stop bit
   // ended; the bit-banger's, decoded by the device), 'rx' (a byte received: in the 6551's receive register; across
@@ -391,13 +400,11 @@ export class SerialApi {
     if (!(Number.isInteger(limit) && limit > 0)) throw new SessionError(`limit is a whole number of events above 0, not ${limit}.`);
     if (registers !== 'writes' && registers !== 'all') throw new SessionError(`registers is 'writes' or 'all', not ${JSON.stringify(registers)}.`);
     const t = new SerialTrace(limit, registers === 'all');
-    this.traces.push(t);
-    t.attach(this.session.machine);
-    const api = this;
+    const stop = this.session.hooks.add((m) => t.attach(m));
     return {
       get events() { return t.events(); },
       get dropped() { return t.dropped; },
-      stop() { const i = api.traces.indexOf(t); if (i >= 0) { api.traces.splice(i, 1); t.detach(); } },
+      stop,
     };
   }
   // the 6551's status register as a read would give it (without the read's side effects), decoded; null on a
@@ -410,45 +417,37 @@ export class SerialApi {
   }
 }
 
-// A trace of one machine's serial port (SerialApi.trace): a ring of events. It hears the 6551 through its device's
-// setTrace, and a bit-banger through a port listener; attach and detach leave nothing behind.
+// A trace of a machine's serial port (SerialApi.trace): a ring of events. attach(m) hears the 6551 through its
+// device's addTrace (beside any other trace), or a bit-banger through a port listener, and returns remove(), which
+// leaves nothing behind. The ring outlives a machine: the Session's hooks move the trace to the next one.
 export class SerialTrace {
   constructor(limit, reads = false) {
     this.limit = limit; this.reads = reads;
     this.ring = []; this.head = 0; this.dropped = 0;
-    this.machine = null; this.listener = null;
   }
+  // everything it records on m names m itself: no machine is shared between attachments, so a hook registry that
+  // takes this off a machine it could not finish moving to leaves the one it stays on recording
   attach(m) {
-    this.detach();
-    this.machine = m;
-    if (m.acia && m.serialPort === m.acia.port) m.acia.setTrace((kind, data, at) => this.chip(kind, data, at));
-    else if (m.serialPort) {
-      this.listener = { tx: (byte, at) => this.add({ at, kind: 'tx', byte }), rx: (byte, at) => this.add({ at, kind: 'rx', byte }) };
-      m.serialPort.listeners.add(this.listener);
-    }
+    if (m.acia && m.serialPort === m.acia.port) return m.acia.addTrace((kind, data, at) => this.chip(m, kind, data, at));
+    if (!m.serialPort) return () => {};
+    const p = m.serialPort, l = { tx: (byte, at) => this.add(m, { at, kind: 'tx', byte }), rx: (byte, at) => this.add(m, { at, kind: 'rx', byte }) };
+    p.listeners.add(l);
+    return () => p.listeners.delete(l);
   }
-  detach() {
-    const m = this.machine;
-    if (!m) return;
-    if (m.acia) m.acia.setTrace(null);
-    if (this.listener) m.serialPort.listeners.delete(this.listener);
-    this.machine = null; this.listener = null;
-  }
-  chip(kind, data, at) {
+  chip(m, kind, data, at) {
     if (kind === 'reg-read') {
       if (!this.reads) return;
       const last = this.last();
       if (last && last.kind === 'reg-read' && last.reg === data.reg && last.value === data.value) { last.count++; return; }
-      this.add({ at, kind, reg: data.reg, value: data.value, count: 1 });
+      this.add(m, { at, kind, reg: data.reg, value: data.value, count: 1 });
       return;
     }
     const e = Object.assign({ at, kind }, data);
-    if (kind !== 'reg-write') e.status = this.machine.acia.chip.peek(1);
-    this.add(e);
+    if (kind !== 'reg-write') e.status = m.acia.chip.peek(1);   // never read(1): that clears the IRQ
+    this.add(m, e);
   }
   last() { return this.ring.length ? this.ring[(this.head + this.ring.length - 1) % this.ring.length] : null; }
-  add(e) {
-    const m = this.machine;
+  add(m, e) {
     const ev = Object.assign({ at: e.at, frame: m.frameCount, pc: m.cpu.pc }, e);
     if (this.ring.length < this.limit) { this.ring.push(ev); return; }
     this.ring[this.head] = ev;
@@ -460,23 +459,15 @@ export class SerialTrace {
 }
 
 // The disk controller of the Session's machine (session.disk): its status decoded and traces of its commands, any
-// number at once. A trace belongs to the Session: a new machine (switchMachine, openSnapshot, a power cycle) gets it
-// again (install), a disk cartridge plugged in later is heard too (Machine.addDiskTrace), and no snapshot holds it.
+// number at once. A trace belongs to the Session: its hooks (js/hooks.js) move it to a new machine (switchMachine,
+// openSnapshot, a power cycle), a disk cartridge plugged in later is heard too (Machine.addDiskTrace), and no
+// snapshot holds it.
 const WD_COMMANDS = ['restore', 'seek', 'step', 'step', 'step-in', 'step-in', 'step-out', 'step-out',
   'read-sector', 'read-sector', 'write-sector', 'write-sector', 'read-address', 'force-interrupt', 'read-track', 'write-track'];
 export class DiskApi {
   constructor(session) {
     this.session = session;
-    this.traces = [];               // traces running: { trace (DiskTrace), remove (off this.machine) }
-    this.machine = null;            // the machine they are on
   }
-  // the Session's machine is now m: the traces move to it, each its own observer, in the order started
-  install(m) {
-    if (m === this.machine) return;
-    for (const e of this.traces) { if (e.remove) e.remove(); e.trace.machine = m; e.remove = this.hook(m, e.trace); }
-    this.machine = m;
-  }
-  hook(m, t) { return m.addDiskTrace((kind, data, at, fdc) => t.hear(kind, data, at, fdc)); }
   // record what the disk controller does, in a ring of the last `limit` events, oldest first: { at, frame, pc,
   // kind, ... }. kinds: 'command' ({ cmd, name, drive, side, track, sector, density }: a command takes effect),
   // 'done' ({ cmd, name, status, bytes, requested, lostData, crc, rnf, writeProtect }: it ended; with interrupted
@@ -484,20 +475,12 @@ export class DiskApi {
   // latch). -> { events, dropped, stop() }
   trace({ limit = 4096 } = {}) {
     if (!(Number.isInteger(limit) && limit > 0)) throw new SessionError(`limit is a whole number of events above 0, not ${limit}.`);
-    const t = new DiskTrace(limit), m = this.session.machine;
-    t.machine = m;
-    const entry = { trace: t, remove: this.hook(m, t) };
-    this.traces.push(entry);
-    const api = this;
+    const t = new DiskTrace(limit);
+    const stop = this.session.hooks.add((m) => t.attach(m));
     return {
       get events() { return t.events(); },
       get dropped() { return t.dropped; },
-      stop() {
-        const i = api.traces.indexOf(entry);
-        if (i < 0) return;
-        api.traces.splice(i, 1);
-        entry.remove();
-      },
+      stop,
     };
   }
   // the controller's registers as the CPU would read them (peeked: INTRQ and DRQ stay as they are), the status
@@ -519,33 +502,37 @@ export class DiskApi {
   }
 }
 
-// A trace of one machine's disk controller (DiskApi.trace): a ring of events.
+// A trace of a machine's disk controller (DiskApi.trace): a ring of events. attach(m) hears m's controller through
+// Machine.addDiskTrace (beside any other trace) and returns remove(), which leaves nothing behind. The ring outlives
+// a machine: the Session's hooks move the trace to the next one.
 export class DiskTrace {
   constructor(limit) {
     this.limit = limit;
     this.ring = []; this.head = 0; this.dropped = 0;
-    this.machine = null;
     this.pending = null;            // the command under way: { cmd, bytes }
   }
-  hear(kind, data, at, fdc) {
+  // everything it records on m names m itself: no machine is shared between attachments, so a hook registry that
+  // takes this off a machine it could not finish moving to leaves the one it stays on recording
+  attach(m) { return m.addDiskTrace((kind, data, at, fdc) => this.hear(m, kind, data, at, fdc)); }
+  hear(m, kind, data, at, fdc) {
     const wd = fdc.wd;
-    if (kind === 'reg-write') { this.add(Object.assign({ at, kind }, data)); return; }
+    if (kind === 'reg-write') { this.add(m, Object.assign({ at, kind }, data)); return; }
     if (kind === 'taken') { if (this.pending) this.pending.bytes++; return; }
     if (kind === 'command') {
       // a force interrupt ends the command under way (wd17xx.js interruptStart)
-      if ((wd.command & 0xf0) === 0xd0 && wd.busy && this.pending) this.done(at, fdc, this.pending.cmd, true);
+      if ((wd.command & 0xf0) === 0xd0 && wd.busy && this.pending) this.done(m, at, fdc, this.pending.cmd, true);
       const cmd = wd.command, type2 = !!(cmd & 0x80);
       const drive = wd.floppy ? fdc.drives.indexOf(wd.floppy) : null;
       // the WD2797 selects the side with a type II/III command's S flag; elsewhere the drive's side line holds it
       const side = type2 && wd.v.sideControl ? (cmd & 0x02 ? 1 : 0) : wd.floppy ? wd.floppy.ss : null;
       this.pending = (cmd & 0xf0) === 0xd0 ? null : { cmd, bytes: 0 };
-      this.add({ at, kind, cmd, name: WD_COMMANDS[cmd >> 4], drive, side, track: wd.track, sector: wd.sector, density: wd.dden ? 'single' : 'double' });
+      this.add(m, { at, kind, cmd, name: WD_COMMANDS[cmd >> 4], drive, side, track: wd.track, sector: wd.sector, density: wd.dden ? 'single' : 'double' });
       return;
     }
-    if (kind === 'done') this.done(at, fdc, wd.command, false);
+    if (kind === 'done') this.done(m, at, fdc, wd.command, false);
   }
   // the command ends: its result from the status register (computed, never read) and the bytes the CPU took
-  done(at, fdc, cmd, interrupted) {
+  done(m, at, fdc, cmd, interrupted) {
     const wd = fdc.wd, p = this.pending, st = wd.statusValue();
     const type1 = !(cmd & 0x80), op = cmd & 0xf0;
     this.pending = null;
@@ -558,10 +545,9 @@ export class DiskTrace {
     const e = { at, kind: 'done', cmd, name: WD_COMMANDS[cmd >> 4], status: st, bytes: p && p.cmd === cmd ? p.bytes : null, requested,
       lostData: !type1 && !!(st & 0x04), crc: !!(st & 0x08), rnf: !!(st & 0x10), writeProtect: !!(st & 0x40) };
     if (interrupted) e.interrupted = true;
-    this.add(e);
+    this.add(m, e);
   }
-  add(e) {
-    const m = this.machine;
+  add(m, e) {
     const ev = Object.assign({ at: e.at, frame: m.frameCount, pc: m.cpu.pc }, e);
     if (this.ring.length < this.limit) { this.ring.push(ev); return; }
     this.ring[this.head] = ev;
@@ -639,16 +625,6 @@ export class Session {
     this.tapeInfo = null;           // the tape in the deck: its block starts and length (tapeStatus)
     this.tapeWatch = null;          // the current or last run of the cassette motor: { done, error } (tapeStatus)
     this.lastPrinted = 0;           // printout length at the last 'printer' event
-    this.terminalBytes = [];        // what the machine has sent to the serial terminal
-    // the serial port's byte streams and diagnostics; the page's terminal log is its first subscriber
-    this.serial = new SerialApi(this);
-    // the disk controller's status and trace (DiskApi)
-    this.disk = new DiskApi(this);
-    this.serial.subscribe({ tx: (bytes, info) => {
-      if (info.device !== 'terminal') return;
-      for (const b of bytes) this.terminalBytes.push(b);
-      this.emit('serial');
-    } });
     // DriveWire: one server for the session, on its media store (images under DW_PREFIX); attached to the
     // machine's Becker port when it has one. Channels: WebSockets (DriveWireSocket) by channel number.
     this.drivewire = new DriveWireServer({ store: media, namePrefix: DW_PREFIX, sameName: (a, b) => this.sameName(a, b) });
@@ -683,6 +659,13 @@ export class Session {
     this.pendingLands = [];         // { name, at }: names landed that a creation still queued may have to refuse
     this.diskClaims = new Map();   // stored name -> how many creations are making it (claimDiskName: a rename may not take one)
     this.debugger = null;           // created on first use by `debug` (js/debugger.js)
+    // the Session's own probes and bus taps (js/hooks.js), put on whichever machine is in use (install); host state,
+    // never in a snapshot. Internal: no public API yet.
+    this.hooks = new HostHooks();
+    // the serial port's byte streams and diagnostics (SerialApi), its listeners and traces kept on the machine through hooks
+    this.serial = new SerialApi(this);
+    // the disk controller's status and traces (DiskApi), its traces kept on the machine through hooks
+    this.disk = new DiskApi(this);
     this.labels = null;             // symbols of the program in use (the assembler's Map name -> address)
     this.displayCache = null;       // Session.display, once read from the store
     this.unsavedRecording = null;   // a tape recording kept when its machine went (keepRecording), until the page takes it
@@ -849,10 +832,7 @@ export class Session {
   // lives. Its methods throw SessionError with a message for the user. It shows the symbols of the last assembled
   // program by itself; `setLabels` replaces them.
   get debug() {
-    if (!this.debugger) {
-      this.debugger = new Debugger(this.machine, { symbols: () => this.labels });
-      this.debugger.onRan = () => this.serial.ran();   // a step or a stop: 'instant' serial subscribers hear it
-    }
+    if (!this.debugger) this.debugger = new Debugger(this.machine, { symbols: () => this.labels });
     return this.debugger;
   }
   // a Map name -> address, or a function returning one, for the disassembly; null for plain addresses
@@ -919,13 +899,13 @@ export class Session {
     this.stubRun = null;
     this.warmReset = null;                // a new machine is a power-on: the boot watchdog arms
     if (this.debugger) { this.debugger.detach(); this.debugger = null; }
-    if (m.debugger) { this.debugger = m.debugger; this.debugger.setSymbols(() => this.labels); this.debugger.onRan = () => this.serial.ran(); }
+    if (m.debugger) { this.debugger = m.debugger; this.debugger.setSymbols(() => this.labels); }
     this.store.set('machine', m.id);
     this.install(m);
   }
   // put m on screen (adopt, and the chat's two machines: showChat), with the keyboard and display; the printout
-  // and the serial terminal start over on m. A machine with the Becker port and no server yet gets the Session's
-  // DriveWire server and a fresh link; one that has a server (the chat machine's own, or a machine coming back on
+  // starts over on m (and the page's serial terminal log, its own subscriber, on the 'machine' event). A machine
+  // with the Becker port and no server yet gets the Session's DriveWire server and a fresh link; one that has a server (the chat machine's own, or a machine coming back on
   // screen) keeps it and its link. The caller emits 'machine'.
   install(m) {
     // a restart of the machine Claude acts on, by any path (Reset, a power cycle, a program or cartridge that
@@ -934,16 +914,14 @@ export class Session {
     m.onReset = () => this.stopClaudeFor('the machine restarted', m);
     this.keys.clear();
     if (this.debugger && this.debugger.machine !== m) { this.debugger.detach(); this.debugger = null; }
+    let undelivered = null;
+    try { this.serial.deliver(); } catch (e) { undelivered = e; }   // what the old machine sent goes out first
+    this.hooks.attach(m);                 // the Session's probes, bus taps and serial listeners move to m (adopt: a switch, a snapshot)
     this.machine = m;
     this.applyDisplay();
     this.acc = 0;
     this.lastRate = this.cpuRate() && this.cpuRate().rate;
     this.lastPrinted = m.printed.length;
-    let undelivered = null;
-    try { this.serial.deliver(); } catch (e) { undelivered = e; }   // what the old machine sent goes out first
-    this.terminalBytes = [];
-    this.serial.install(m);
-    this.disk.install(m);
     if (m.becker && !m.becker.server) { this.drivewire.resetLink(); m.becker.attach(this.drivewire); }
     if (undelivered) throw undelivered;
   }
@@ -979,22 +957,7 @@ export class Session {
   }
 
   // ---------------- serial port (the CoCo's and the MC-10's bit-banger, the Dragon 64's 6551) ----------------
-  // The port itself is `serial` (SerialApi, below): device, attach, send, subscribe, flush, trace, status. The page's
-  // terminal log is its first subscriber: terminalText and clearTerminal read and empty it.
-  // what the machine has sent to the terminal, as text (CR, LF and CR LF end lines)
-  terminalText() {
-    let out = '';
-    const b = this.terminalBytes;
-    for (let i = 0; i < b.length; i++) {
-      const c = b[i] & 0x7F;
-      if (c === 13) { out += '\n'; if ((b[i + 1] & 0x7F) === 10) i++; }
-      else if (c === 10) out += '\n';
-      else if (c === 8) out = out.slice(0, -1);
-      else if (c === 9 || c >= 32) out += String.fromCharCode(c);
-    }
-    return out;
-  }
-  clearTerminal() { this.terminalBytes.length = 0; this.emit('serial'); }
+  // The port itself is `serial` (SerialApi): device, attach, send, subscribe, flush, trace, status.
   // where the machine is, for a report of why something stalled: { pc, frame, now (ticks), cycles (the CPU's
   // total), serial: { device, status (the 6551's, decoded; null on a bit-banger), queued (bytes handed to the
   // terminal that the machine has not finished receiving) }, disk: the disk controller's status (DiskApi.status;
@@ -2788,12 +2751,11 @@ export class Session {
     this.loadSavedRoms();
     this.emit('roms');
   }
-  // What a load typed into m, or is still waiting to type (the EXEC after CLOADM, and its watch on the loaded
-  // program), is dropped when something else starts on m: a later load, a program injected, a restore point.
-  // Otherwise that EXEC would be typed into whatever runs next.
+  // What a load typed into m, or is still waiting to type (the EXEC after CLOADM, and its probe on the loaded
+  // program, which the typist drops with it), is dropped when something else starts on m: a later load, a program
+  // injected, a restore point. Otherwise that EXEC would be typed into whatever runs next.
   cancelLoadTyping(m) {
     m.typist.dropTyped();
-    m.pcWatch = null;
   }
   restartForLoad(m) {
     this.powerCycle({ menu: false, reason: 'you loaded a program' });
@@ -2860,7 +2822,8 @@ export class Session {
             m.deck.insert(tape);
             if (first.fileType === 2) {
               m.typist.type('CLOADM\r');
-              m.typist.typeWhen(execWhenReady(m, first), 'EXEC\r');
+              const exec = execWhenReady(m, first);
+              m.typist.typeWhen(exec.decide, 'EXEC\r', exec.cancel);
             } else { m.typist.type('CLOAD\r'); m.typist.waitTape(); m.typist.type('RUN\r'); }
             return `${again ? `Using your ROMs again to load ${name} through BASIC. ` : ''}Restarted for a clean load. ${name}: tape inserted [${list}] – loading via BASIC`;
           }
@@ -3874,6 +3837,7 @@ export class Session {
     if (!(d ? d.runFrame() !== false : m.runFrame())) {
       this.acc = 0;
       if (!m.stall) this.emit('debug');
+      if (m === this.machine) this.serial.ran();   // a debugger stop: 'instant' subscribers hear what has crossed
       return false;
     }
     if (m === this.machine) this.serial.deliver();   // the frame's serial bytes, to every subscriber

@@ -44,7 +44,7 @@ const asmRun = (s, text, cpu = '6809', id = 'dragon64', org = 0x3000) => {
   check('asking twice gives the same debugger', s.debug === d1);
   s.switchMachine('coco3');
   check('switching machine makes a new debugger for the new machine', s.debug !== d1 && s.debug.machine === s.machine);
-  check('the old debugger was detached from the old machine', d1._readOrig === null);
+  check('the old debugger was detached from the old machine', !d1.attached && !Object.hasOwn(d1.machine, 'read') && !Object.hasOwn(d1.machine, 'write'));
   s.switchMachine('mc10');
   check('a 6803 machine gets a 6803 debugger', s.debug.cpu === '6803', s.debug.cpu);
 }

@@ -122,6 +122,49 @@ call's value is final; a UI POKE or a debugger write made while the machine is p
 and the byte reads as it was until the machine next runs. A read is not deferred: it is serviced in the window, at the held access's time, with its device side effects
 there - a read that releases HALT is what a halted loop waits for (`tests/held-writeio.test.js`).
 
+**Probes and bus taps.** The host observes a running machine through two internal hooks, shared by the
+debugger, the Session and the developer features built on them (a memory-write observer, a profiler). Both are host
+state: never in a snapshot, untouched by a reset, and free when nothing is registered. There is no public API for
+them yet.
+
+* `machine.addProbe(fn)` → `remove()`. `fn(pc)` runs before each CPU step, in registration order, from the family's
+  `runCycles`. `pc` is the address of the instruction about to run, unless an interrupt is taken at that step: then
+  the handler's first instruction runs instead, and the interrupted one later. The probes share the one
+  `machine.pcWatch` slot, which stays `null` with no probe (one test per instruction), holds the probe itself when
+  there is one, and a dispatcher only for two or more. A probe added or removed from inside a probe takes effect at
+  the next instruction: one removed by an earlier probe still runs for the instruction under way. Each instruction
+  is probed once: a CoCo 3 instruction suspended by HALT had its call when it first started, and is not probed
+  again when it resumes.
+* `machine.busTaps.addReadTap({ start, end }, fn)` and `addWriteTap({ start, end }, fn)` → `remove()`
+  (`js/machines/bustaps.js`). `fn(address, value)` runs after each read or write of an address from `start` to `end`
+  (both inclusive) through the machine's `read`/`write`, in registration order. The first tap of a kind shadows
+  `machine.read` (or `write`) with an instance property; the last one removed deletes it, so the bus is the family's
+  own method again, whatever order the taps came off in. Nothing else may shadow those methods: a second observer is
+  a tap. `busTaps.rawRead`/`rawWrite` are the family's methods below every tap: the debugger's own memory writes go
+  there, so they fire no watchpoint and no tap.
+* Each access is reported once. On the CoCo 3, an instruction suspended by the disk controller's HALT runs again from
+  its start and replays the accesses it made before the held one (`Coco3Machine.replayRead`/`replayWrite`); those
+  were reported when they were made, so taps skip the replay (`Machine.replaying()`). The debugger's taps are the one
+  exception (`{ replays: true }`): a watchpoint hit belongs to the instruction that completes, so the debugger drops
+  what a suspended run saw and takes the accesses again from the run that completes it, as described above.
+* The debugger's watchpoints are a client: it holds a read tap and a write tap over the whole address space while
+  some watchpoint watches that kind of access, and none otherwise, so a debugger with no watchpoints leaves the bus
+  as it is.
+* The Session's own probes and taps (`session.hooks`, `js/hooks.js`) follow the machine in use: `Session.install`
+  (called by `adopt`, for a machine switch or an opened snapshot, and by the chat's machine views) takes them off the
+  old machine and puts them on the new one in the order they were added. The move is all or nothing: if one cannot
+  go on the new machine (its bus already shadowed), the ones added are taken off again, all stay on the old
+  machine, and the error is thrown. The Session's load detector (the EXEC
+  after CLOADM) is a probe on the machine it loads into; it goes when it decides, or when the typist drops the EXEC
+  it waits to type (`Typist.typeWhen`'s `cancel`: a reset, a later load, a restore point). `hooks.add(attach)` keeps
+  anything else on the machine in use the same way: `session.serial` keeps its port listener and each trace (the
+  6551's `addTrace`, or a bit-banger port listener) there, and a probe while an `'instant'` subscriber is.
+
+`tests/probes.test.js` covers the probes on each CPU family, the taps removed in every order, a watchpoint beside a
+tap, the CoCo 3's held instruction (one tap report and one probe call per access and instruction), and the
+Session's hooks across `openSnapshot`, `switchMachine` and the chat's views, with a move that fails part way;
+`tests/tape-load.test.js` loads tapes with other probes beside the load detector.
+
 The **Debugger** screen (`/play/#debugger`) shows the assembler's source, the registers (click to edit) and
 condition codes, the machine's screen, the disassembly around the program counter (click a line for a
 breakpoint), the breakpoints and watchpoints (add one by address or label), memory (click a byte to edit it or

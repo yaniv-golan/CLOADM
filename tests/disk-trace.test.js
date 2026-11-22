@@ -190,6 +190,24 @@ for (const board of ['dragonfdc', 'premierfdc', 'cocofdc']) {
   check('addDiskTrace takes a function', /addDiskTrace/.test(msg || ''));
 }
 {
+  // the Session's hooks move a trace all or nothing: a hook that refuses the next machine keeps every hook, the
+  // trace too, on the machine in use, and the trace goes on recording there (it names that machine, not a shared one)
+  const { s } = session('dragonfdc');
+  const tr = s.disk.trace(), first = s.machine;
+  const bad = Emu.createMachine('dragon64');
+  const refuse = s.hooks.add((m) => { if (m === bad) throw new Error('this hook refuses that machine'); return () => {}; });
+  let refusedMsg = null;
+  try { s.hooks.attach(bad); } catch (e) { refusedMsg = e.message; }
+  s.runAssembled(asm(guest('dragonfdc', { cmd: 0x88 })));
+  s.runFrames(10);
+  const d = tr.events.find((e) => e.kind === 'done');
+  check('a hook refusing the next machine leaves the disk trace recording on the machine it stayed on',
+    refusedMsg === 'this hook refuses that machine' && s.machine === first && bad.diskTraces.length === 0 && first.diskTraces.length === 1 && d && d.bytes === 256 && d.pc >= 0x3000 && d.pc < 0x3100 && d.frame > 0,
+    `${refusedMsg}; ${JSON.stringify(d)}`);
+  refuse(); tr.stop();
+  check('...and stopped, it is off the machine', first.diskTraces.length === 0);
+}
+{
   // the hook is not state: a snapshot taken with a trace on is the one taken without
   const { s } = session('dragonfdc');
   s.runAssembled(asm(guest('dragonfdc', { cmd: 0x88 })));
@@ -262,8 +280,7 @@ HALT    BRA     HALT
     ['trace dragon64 premierfdc', 'dragon64', { controller: 'premierfdc', regenerate: false }], ['trace coco3 cocofdc halt', 'coco3', { halt: true }],
     ['trace dgnalpha alphafdc', 'dgnalpha', { controller: 'alphafdc', regenerate: false }], ['trace coco cocofdc multi', 'coco', { controller: 'cocofdc', regenerate: false, multi: true }]]) {
     const t = spec.trace(id, opts), m = t.machine(), tr = new Emu.DiskTrace(1000000);
-    tr.machine = m;
-    m.addDiskTrace((k, d, at, f) => tr.hear(k, d, at, f));
+    tr.attach(m);
     const names = t.regs.map((r) => r.name);
     let h = 0x811C9DC5, n = 0, c0 = null, halted = false;
     m.cpu.trace = (c) => {

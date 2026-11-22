@@ -194,8 +194,8 @@ const cli = (args, opts = {}) => node([path.join(ROOT, 'cli/cloadm.js'), ...args
       s.serial.device.chip === '6551' && arrived.length > 0 && arrived.length < 4 && port.queue.length === 4 - arrived.length, `${arrived.length} across, ${port.queue.length} queued`);
     const t = new Emu.Session({ welcomeMenu: false });
     t.openSnapshot(await t.readSnapshot((await s.snapshotFile()).bytes));
-    check('a snapshot of the Dragon 64 keeps the terminal, its baud and the bytes on their way; a new Session has only its own log',
-      t.serial.device.kind === 'terminal' && t.serial.device.baud === 1200 && t.machine.serialPort.queue.length === port.queue.length && t.terminalBytes.length === 0 && t.serial.subs.length === 1, `${t.machine.serialPort.queue.length} vs ${port.queue.length}`);
+    check('a snapshot of the Dragon 64 keeps the terminal, its baud and the bytes on their way; a new Session has no subscriber',
+      t.serial.device.kind === 'terminal' && t.serial.device.baud === 1200 && t.machine.serialPort.queue.length === port.queue.length && t.serial.subs.length === 0, `${t.machine.serialPort.queue.length} vs ${port.queue.length}`);
   }
   check('the serial note names the tests it rests on, and they exist', /The serial terminal: a byte on its way to the machine is part of the/.test(read('tests/state.test.js')) && /The Dragon 64's 6551 ACIA with a loopback plug/.test(read('tests/state.test.js')));
 

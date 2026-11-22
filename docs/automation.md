@@ -511,16 +511,19 @@ gets the bytes `send` handed over, each once it has crossed the wire into the ma
 when it was sent. `bytes` is a `Uint8Array`; `info` is `{ at, frame, device }`: `at` the machine tick of each byte
 (for `tx` the receiver's last sample, the middle of the stop bit; for `rx` the end of the stop bit), `frame` the frame
 count when it was delivered, `device` the kind plugged in (a `tx` subscriber hears the serial printer too; the page's
-terminal log, `terminalText()`, keeps only what reached the terminal). Delivery is at the end of each frame and on
-`flush()`; a subscriber with `{ flush: 'instant' }` also gets what has crossed after `runFrames`, a debugger `step`
-and a debugger stop (a breakpoint or watchpoint), so it sees a byte at the instruction that read it. The loopback
-plug and `'none'` decode nothing, so their subscribers hear nothing (the 6551's trace still does).
+terminal log, the serial panel's own subscriber, keeps only what reached the terminal).
+Delivery is at the end of each frame and on `flush()`; a subscriber with `{ flush: 'instant' }` also gets what has
+crossed before each instruction the CPU starts (a probe on the machine, there only while such a subscriber is: it
+costs a flush an instruction), when `runFrames` returns and when a debugger stops the machine (a breakpoint or
+watchpoint), so it sees a byte by the instruction after the one it crossed in. The loopback plug and `'none'` decode
+nothing, so their subscribers hear nothing (the 6551's trace still does).
 
-Any number of subscribers get the same bytes in the order they subscribed; the page's terminal log is simply the
-first. A subscriber may call `send` from `tx` (an echo, a protocol's reply). One that throws is unsubscribed, the
+Any number of subscribers get the same bytes in the order they subscribed; the page's terminal log is one of them,
+the serial panel's own. A subscriber may call `send` from `tx` (an echo, a protocol's reply). One that throws is unsubscribed, the
 others still get their bytes, and the error is thrown after them, out of the `runFrames` (or `flush`) that delivered
 it. Subscriptions and traces belong to the Session: `switchMachine`, `openSnapshot` and a power cycle move them to the
-new machine, and no snapshot holds them (a new Session subscribes again).
+new machine (the Session's hooks registry, `js/hooks.js`), and no snapshot holds them (a new Session subscribes
+again). Any number of traces can run at once, each with its own options.
 
 **Why did it stall?** `trace` keeps the last `limit` events in a ring, oldest first (`dropped` counts the ones
 pushed out); `stop()` ends it. Every event is `{ at, frame, pc, kind, ... }`:
@@ -596,8 +599,7 @@ line level, the **bytes handed to the machine that it has not finished receiving
 being sent the other way (`tests/state.test.js`: "The serial terminal: a byte on its way to the machine is part of the
 snapshot"; and "The Dragon 64's 6551 ACIA with a loopback plug", a byte shifted out and back when the snapshot is taken). It does **not** hold your peer:
 its own queue (what it has not yet handed over), what it has received, its backing file or the offset in it, or its
-subscription (in the same Session `openSnapshot` keeps every subscription; a new Session has only its own terminal
-log, `terminalBytes`, which starts empty). So a peer that must resume has three jobs, in this order:
+subscription (in the same Session `openSnapshot` keeps every subscription; a new Session has none). So a peer that must resume has three jobs, in this order:
 
 1. **Freeze.** Stop handing over bytes (no more `send`) and stop the host side. Then `session.serial.flush()`: the port
    decodes what the machine sends lazily, so this delivers every byte the machine has *completely* sent, and the one in

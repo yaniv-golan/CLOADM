@@ -31,6 +31,7 @@
  *   - set Family.BASIC_POINTERS (address of BASIC's TXTTAB) for loadBasicProgram
  *   - call this.processEvents(this.ioTime()) before any I/O access whose result depends on time
  */
+import { BusTaps } from './bustaps.js';
 import { BeckerPort } from './becker.js';
 import { devices } from './bus.js';
 import { keyboards } from './keyboards.js';
@@ -71,9 +72,13 @@ class Machine {
     this.colScans = new Uint32Array(8);
     this.stubKeepCase = false;     // the stub's POLCAT hands over typed lower case as is (the chat firmware)
     this.pcHooks = new Map();   // pc -> fn, run when the instruction at pc is about to execute, while stubActive()
-    // pc -> (), called with the address of every instruction the CPU fetches while set (an observation for the
-    // Session, not machine state: the EXEC after a tape load watches for the loaded program running; a reset drops it)
+    // pc -> (), called with the address of every instruction before it runs while any probe is registered (addProbe):
+    // the one probe itself, or a dispatcher over several; null with none, so runCycles pays one test. Host state, not
+    // machine state: never in a snapshot.
     this.pcWatch = null;
+    this.probes = [];
+    // the bus taps (js/machines/bustaps.js): read/write observers over address ranges, host state like the probes
+    this.busTaps = new BusTaps(this);
     this.stubConsole = null;
 
     this.deck = new CassetteDeck(() => this.now());
@@ -189,7 +194,7 @@ class Machine {
     if (hard) this.ram.fill(0);
     this.clearKeys();
     this.typist.clear('machine-restarted');   // Claude's typing ends: the machine restarted under it (not a Stop)
-    this.pcWatch = null;                      // (and an EXEC waiting for a load with it)
+    // (an EXEC waiting for a load goes with the typist's queue, and its probe with it: Typist.clear)
     this.stubKeys = [];
     this.resetHardware(hard);
     this.cpu.reset(hard);
@@ -260,6 +265,37 @@ class Machine {
   }
   fireEvent(e) { this.handlers[e.name](e.arg, e.at); }
   startTimeline() { /* family hook: schedule the first video events */ }
+
+  // ---------------- probes ----------------
+  // Observers of the instruction stream for the host (the Session's load detector; later the profiler): fn(pc) is
+  // called before every instruction the CPU starts, in registration order, from runCycles. Not machine state: a
+  // probe never goes in a snapshot, a reset leaves it, and the Session puts its own back on a new machine
+  // (HostHooks). -> remove(), which takes this registration off (once; a second call does nothing). With no
+  // probe, pcWatch is null; with one it is that probe (no dispatcher between), and a probe added or removed while
+  // the probes run takes effect from the next instruction.
+  addProbe(fn) {
+    if (typeof fn !== 'function') throw new TypeError('addProbe: a probe is a function of the pc');
+    const entry = { fn };
+    this.probes = [...this.probes, entry];
+    this.probesChanged();
+    return () => {
+      if (!this.probes.includes(entry)) return;
+      this.probes = this.probes.filter((e) => e !== entry);
+      this.probesChanged();
+    };
+  }
+  probesChanged() {
+    const list = this.probes;
+    if (list.length === 0) this.pcWatch = null;
+    else if (list.length === 1) this.pcWatch = list[0].fn;
+    else {
+      const fns = list.map((e) => e.fn);
+      this.pcWatch = (pc) => { for (let i = 0; i < fns.length; i++) fns[i](pc); };
+    }
+  }
+  // The CPU's access being made is one a CoCo 3 instruction resumed after HALT replays (made once already, before
+  // it was suspended): the bus taps do not report it again. No other family replays.
+  replaying() { return false; }
 
   // ---------------- frame loop ----------------
   // Run instructions until the tick reaches `end` (or at most `steps` instructions: the debugger's single step)
