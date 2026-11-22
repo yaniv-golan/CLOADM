@@ -412,8 +412,8 @@ emulator.
     power-on registers (8 lines a row) are declined that way until a program sets the board up; Compusense's own
     set-up (p. 4: 80 x 24 rows of 11 lines) is read.
 
-    The R8 decline is sourced from Hitachi, "HD6845S, HD68A45S, HD68B45S" data sheet, Interlace and Skew Register
-    (R8), Tables 4-6, PDF p. 11 (the printed page numbers are cropped in the archived scan). Bits 1-0 are 00 and 10
+    The R8 decline is sourced from Hitachi, "HD6845S, HD68A45S, HD68B45S" data sheet, Interlace and Skew
+    Register (R8), Tables 4-6, PDF p. 11 (the printed page numbers are cropped in the archived scan). Bits 1-0 are 00 and 10
     non-interlace, 01 interlace sync and 11 interlace sync and video. Bits 5-4 (display skew) and 7-6 (cursor skew)
     are 00 none, 01 one character, 10 two characters and 11 non-output. A skew of 1 or 2 characters only moves the
     picture, so it is read. Neither our renderer nor MAME 0.264 models skew, so the 80-column picture is not moved

@@ -600,7 +600,7 @@ const bytes = (n, seed = 0) => { const b = new Uint8Array(n); let x = seed >>> 0
     check('and it says so once, because the failed measurement is recorded (not retried on every call)',
       warnings.length === 1 && /case sensitivity/.test(warnings[0]), warnings.join(' | '));
     check('flipCase swaps every ASCII letter and nothing else', iface.flipCase('GAME.dsk') === 'game.DSK' && iface.flipCase('a1-_ Z') === 'A1-_ z');
-    // F1: a store may hold a name this project does not write (a non-ASCII file in the user's own folder, say),
+    // A name this project does not write: a store may hold a name this project does not write (a non-ASCII file in the user's own folder, say),
     // and stat() refuses to ask about it. Such a name must not be the one the question is put with: it is passed
     // over, and the next usable name answers. (Before this, one such file settled "folding" for good on an exact
     // folder, so two genuinely different disks could be refused forever.)
@@ -781,7 +781,7 @@ function opfsRoot({ fold }) {
 }
 
   // ---- the real backends, measured against a folder that decides for itself ----
-  // The probe tests above use Map doubles whose stat echoes what was asked, which is why two review rounds found
+  // The probe tests above use Map doubles whose stat echoes what was asked, which is why earlier probes found
   // shape after shape of wrong probe. These drive the REAL backends over a folder whose folding is its own fact, in
   // every arrangement that matters: one file, two genuinely different files that are each other's case (including
   // a directory whose own spelling differs), and nothing at all.

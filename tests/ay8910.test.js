@@ -4,8 +4,8 @@
 //   noise frequency   fN = fCLOCK / (16 NP), NP 5 bits                                         (3.3, eq. 2)
 //   envelope          one cycle of 16 steps takes 256 EP clocks (fE = fCLOCK / (256 EP))       (3.6, eq. 4)
 //   mixer             R7 bits 0-2 tone off, 3-5 noise off (active low enables); bit 6 port A output (3.4, 3.7)
-//   amplitude         R10-R12 register bits 0-3 level, bit 4 M: the envelope instead (3.5)
-//   envelope shapes   R15 register bits CONT, ATT, ALT, HOLD; the 10 distinct waveforms of figure 7      (3.6)
+//   amplitude         R10-R12 bits 0-3 level, bit 4 M: the envelope instead (3.5)
+//   envelope shapes   R15 bits CONT, ATT, ALT, HOLD; the 10 distinct waveforms of figure 7      (3.6)
 // The chip runs as MAME's stream does, one step per 8 clocks; the noise register and output levels follow
 // MAME 0.264 (ay8910.cpp), which the Dragon Alpha comparison checks against MAME's own recording
 // (tools/mame-diff/alpha/sound-compare.js).

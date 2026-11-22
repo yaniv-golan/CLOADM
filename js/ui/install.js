@@ -465,7 +465,7 @@ export function setupInstall(page, { started = () => true, machineMenu = null } 
   // come back to even before it has been read.
   function programRunning() {
     // ONE machine throughout: the person's (the getters below - welcomeRunning, nitros9Running - are person-framed,
-    // so asking this.machine for the deck and the drives mixed the two, review 0.1.9 round 2)
+    // so asking this.machine for the deck and the drives mixed the two)
     const m = session.personMachine;
     // nothing has run before the visit's own program has started: the first frame or two are the page setting up
     if (!m || !started() || session.paused || document.body.classList.contains('paused')) return false;

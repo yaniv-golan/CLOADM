@@ -6534,7 +6534,7 @@ async function touchJoystickChecks(browser, base, check) {
     check('touch joystick: one gamepad toast, not two',
       await page.evaluate(() => /^Gamepad connected\.?$/.test(document.getElementById('toastText').textContent.trim())),
       await page.evaluate(() => document.getElementById('toastText').textContent));
-    // TWO PADS (M2): one leaving must not bring the stick back while the other is still connected -- that pad
+    // TWO PADS: one leaving must not bring the stick back while the other is still connected -- that pad
     // overwrites joy[0]/fire[0] every frame, so the stick would be lying about who has the joystick
     await page.evaluate(() => {
       const mk = (index) => ({ index, id: `Mock pad ${index}`, connected: true, axes: [0, 0], buttons: [{ pressed: false, value: 0 }] });
@@ -7395,7 +7395,7 @@ async function urlChecks(browser, base, check) {
   check('link: becker=0 turns it off', await ev(() => window.emu.machine.config.becker === false), await msg());
   await open('?machine=zx81');
   check('link: an unknown machine is reported, the page still runs', /machine=zx81: no such machine/.test(await msg()) && await ev(() => !!window.emu.machine.id), await msg());
-  // R8: the error is one short line naming the machine that opened (never an id or a list); app= and start= say what CLOADM has
+  // The error is one short line naming the machine that opened (never an id or a list); app= and start= say what CLOADM has
   {
     const m = await msg();
     check('link: the unknown-machine error is short and names the machine that opened (its display name), no list and no ids', /^This link has a setting CLOADM can't use: machine=zx81: no such machine \(opened [^)]+ instead\)$/.test(m) && m.length < 130 && !/dragon64|coco3|mc10/.test(m), m);
@@ -7839,8 +7839,8 @@ async function welcomeScreenChecks(browser, base, check) {
 
 // The full screen Claude chat's screen (a recording dry run, Dragon 64 without BASIC ROMs): nothing lies over the
 // chat's text, before typing (keyboard focus, a first visit) or after a reply has scrolled it, and row 0 stays
-// wholly in view through the CRT's curvature (U3); BASIC's key hint, the no-ROMs pill and the no-ROMs card are not
-// shown with the chat on screen (U2, M2), at every viewport
+// wholly in view through the CRT's curvature; BASIC's key hint, the no-ROMs pill and the no-ROMs card are not
+// shown with the chat on screen, at every viewport
 async function chatScreenChecks(browser, base, check) {
   const sse = (events) => events.map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join('');
   const msgStart = { type: 'message_start', message: { id: 'msg', type: 'message', role: 'assistant', model: 'claude-opus-5-5', content: [] } };
@@ -9619,8 +9619,8 @@ async function askEscChecks(browser, base, check) {
     await page.evaluate(() => { window.emu.session.chat.sendLine('hello'); });
     const cleared = await waitFor(page, () => !window.emu.session.chat.busy && /Hello again\./.test(document.getElementById('askMessages').textContent), null, 8000);
     const note = await page.textContent('#askMessages');
-    check('askEsc (M2): a turn started outside the panel\'s box clears the last turn\'s "[stopped]" note', cleared && !/\[stopped/.test(note), note.slice(-80));
-    check('askEsc (M2): no page errors', !errors.length, errors.join('; '));
+    check('askEsc (turn note): a turn started outside the panel\'s box clears the last turn\'s "[stopped]" note', cleared && !/\[stopped/.test(note), note.slice(-80));
+    check('askEsc (turn note): no page errors', !errors.length, errors.join('; '));
     await ctx.close();
   }
 
@@ -9722,7 +9722,7 @@ async function askEscChecks(browser, base, check) {
       check(off ? `${L}: Resume: the call is refused (the switch went off while it waited), nothing written, no restore point`
         : `${L}: Resume: the call acts once`, off ? bytes === '0,0' && after.undo === 0 : bytes === '85,170' && after.undo === 1, JSON.stringify({ bytes, ...after }));
       if (off) {
-        // F3: the refusal was that pause's: the switch back on, the turn's next acting call (held reply released),
+        // The refusal was that pause's: the switch back on, the turn's next acting call (held reply released),
         // paused by a key during its INCLUDE read and resumed, acts once (one restore point)
         await page.click(u.sw);
         const sw = await page.evaluate(() => window.emu.session.claudeAllowed);
@@ -9769,7 +9769,7 @@ async function askEscChecks(browser, base, check) {
         isFull && asked && paused && left && r.paused && r.card && r.busy && r.leaves === 1, JSON.stringify({ isFull, asked, paused, left, ...r }));
       await page.evaluate(() => window.emu.session.stopClaude());
       if (replies.held) { replies.held.release(); replies.held = null; }
-      // F2: that page leave is over; a later leave the person makes while Claude is paused stops Claude as before
+      // That page leave is over; a later leave the person makes while Claude is paused stops Claude as before
       await waitFor(page, () => !window.emu.session.chat.busy, null, 5000);
       await page.evaluate(() => { delete document.exitFullscreen; window.emu.session.setClaudeAllowed(true); });
       replies.length = 0;   // (the stopped turn never asked for its last reply)
@@ -10841,7 +10841,7 @@ async function askPlusTextChecks(browser, base, check) {
     const m = window.emu.machine;
     m.videoRam.fill(0x20);
     for (const [at, t] of cells) for (let i = 0; i < t.length; i++) m.videoRam[at + i] = t.charCodeAt(i);
-    // R0 113, R1 80, R2 96, R3 $0F, R4 25, R5 4, R6 22, R7 24, R8 0, R9 11, R10 $20 (no cursor), R11 11, R12/R13 $0050
+    // CRTC R0 113, R1 80, R2 96, R3 $0F, R4 25, R5 4, R6 22, R7 24, R8 0, R9 11, R10 $20 (no cursor), R11 11, R12/R13 $0050
     [0x71, 0x50, 0x60, 0x0F, 0x19, 0x04, 0x16, 0x18, 0x00, 0x0B, 0x20, 0x0B, 0x00, 0x50].forEach((v, r) => { m.write(0xFFE0, r); m.write(0xFFE1, v); });
   }, CELLS);
   await emuFrames(page, 3);
@@ -10980,7 +10980,7 @@ async function phoneChatChecks(browser, base, check) {
     check(`phone chat (${label}): no page errors`, !errors.length, errors.join('; '));
     await ctx.close();
   }
-  // M1: the phone's full-screen chat is not a BASIC machine's screen, so a remembered Joystick mode must not put
+  // The phone's full-screen chat is not a BASIC machine's screen, so a remembered Joystick mode must not put
   // the stick, FIRE or the switch there. The path that shows it needs no machine event: the full-screen chat on a
   // tablet (chat-phone false), then the window narrowing across the phone breakpoint (chat-phone true) -- the class
   // flips with no session event, so only claude.js's own apply() hides the panel. Fails without that call.
@@ -11054,7 +11054,7 @@ async function phoneChatChecks(browser, base, check) {
     check('tablet chat (820 x 1180): no key: the key field is on screen, above the screen, and the help line says "above"', tab.input && tab.above && /add one above/.test(tab.help), JSON.stringify(tab));
     await ctx.close();
   }
-  // U4: a phone held sideways without the on-screen keyboard (or any window under 500 px high): the app bar is one
+  // A phone held sideways without the on-screen keyboard (or any window under 500 px high): the app bar is one
   // row, Capture & share and the links behind Menu, and the screen takes the height (it was 181 px under two rows)
   {
     const ctx = await browser.newContext({ viewport: { width: 844, height: 390 }, serviceWorkers: 'block' });
@@ -11190,11 +11190,11 @@ async function emulatorBackChecks(browser, base, check) {
     await close('#btnClaudeBack');
     check(`emulator back: chat → Debugger → "← Emulator" → chat again → ${how} shows the emulator`, await onEmulator(), await where());
   }
-  // R2: a view opened from the full-screen chat moves the conversation to the side panel, closed while the view is up;
+  // A view opened from the full-screen chat moves the conversation to the side panel, closed while the view is up;
   // coming back to the emulator, by "← Emulator", Esc or Back, reopens the Ask panel on the same conversation. A view
   // opened from the plain emulator leaves the panel closed. Wide (the app bar's links open the views) and narrow (under
   // 700 px the full-screen chat hides the app bar, so Ctrl K is the way to a view; Add ROMs has none there).
-  const MARK = 'R2-MARK-conversation';
+  const MARK = 'VIEW-MARK-conversation';
   const panelState = (mark) => page.evaluate((mark) => {
     const s = window.emu.session, ask = document.getElementById('ask');
     return { open: !ask.hidden && document.body.classList.contains('ask-open'), view: s.claudeView, same: s.chat === window.__r2chat,
@@ -11258,7 +11258,7 @@ async function emulatorBackChecks(browser, base, check) {
   await ctx.close();
 }
 
-// R7: the controls under the screen stay put on a first visit. #screenNotes is one line of fixed height with one note
+// The controls under the screen stay put on a first visit. #screenNotes is one line of fixed height with one note
 // in it at a time ("click for sound", then the key hint, then nothing), and the monitor leaves room for it, so Reset is
 // inside the window and does not move when a note comes or goes (sound starts, the key hint finishes, the boot help
 // shows and hides).
@@ -11326,7 +11326,7 @@ async function foldChecks(browser, base, check) {
   for (const id of ['dragon32', 'coco2', 'coco3', 'mc10']) await run(`1366x768 ${id}`, { width: 1366, height: 768 }, `?machine=${id}`);
 }
 
-// R7b: every note under the screen is shown whole. The notes line is one line (44 px) when its container is at least
+// Every note under the screen is shown whole. The notes line is one line (44 px) when its container is at least
 // 360 px wide, otherwise a fixed two-line box (64 px); in both, nothing is cut off, nothing leaves the box, and Reset
 // stays where it is for both notes. A touch screen has no notes line at all.
 async function noteFitChecks(browser, base, check) {
@@ -11384,7 +11384,7 @@ async function noteFitChecks(browser, base, check) {
   await tctx.close();
 }
 
-// R6: Esc in the full-screen chat escalates. On the chat screen it is BREAK while a reply streams (it stops the reply)
+// Esc in the full-screen chat escalates. On the chat screen it is BREAK while a reply streams (it stops the reply)
 // or while a line is typed (the firmware drops it); on an empty, idle prompt it leaves the chat as "← Emulator" does.
 // The API is mocked (page.route); a reply is "streaming" while the route holds the request open.
 async function escChatChecks(browser, base, check) {
@@ -11630,7 +11630,7 @@ async function claudeChecks(browser, base, check) {
   check('claude: poke wrote the BASIC session; the chat stays on screen, the BASIC session live in the picture-in-picture', await page.evaluate(() => { const s = window.emu.session, b = s.chatMachines.basic;
     return b.ram[0x3000] === 1 && b.ram[0x3001] === 2 && b.ram[0x3002] === 3 && s.chatView === 'chat' && s.shownMachine === s.chatMachines.chat
       && !document.getElementById('claudePip').hidden; }));
-  // R12/R13 in full screen: the card's strip holds the turn's action lines and the restore line; neither is ever
+  // The restore and action lines in full screen: the card's strip holds the turn's action lines and the restore line; neither is ever
   // printed on the chat screen (its frames are the chat firmware's: the channel carried no such text)
   check('claude: the BASIC session card shows the turn\'s action lines, glyphs hidden from screen readers', await page.evaluate(() => {
     const a = [...document.querySelectorAll('#claudeActions .act')];
@@ -12103,9 +12103,9 @@ async function focusChecks(browser, base, check) {
 }
 
 // the phone's machine menu reaches the window's bottom and fades while more models are
-// below, the last one reachable by scrolling (U5); from a fresh load the header is one Shift+Tab from the screen (M1);
-// Esc closes every view, panel, menu, card and the full-screen chat, and is BREAK only on the screen (U7, R2-U3);
-// every view adds one history entry, so Back returns to the emulator (R2-U4)
+// below, the last one reachable by scrolling; from a fresh load the header is one Shift+Tab from the screen;
+// Esc closes every view, panel, menu, card and the full-screen chat, and is BREAK only on the screen;
+// every view adds one history entry, so Back returns to the emulator
 async function uiQaChecks(browser, base, check) {
   {
     const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
@@ -12179,7 +12179,7 @@ async function uiQaChecks(browser, base, check) {
   await page.focus('#screen'); await page.keyboard.press('Escape');
   check('Esc on the screen is still the machine\'s BREAK', await waitFor(page, () => window.reached.length > 0));
 
-  // R2-U4: every view adds one history entry: Back from it returns to the emulator, and so does "← Emulator" from a
+  // Every view adds one history entry: Back from it returns to the emulator, and so does "← Emulator" from a
   // view opened over another view (one entry above the emulator, not two)
   // (in a new tab: history.length stops counting at 50, and the surfaces' openers follow the variable \`page\`)
   await page.close();

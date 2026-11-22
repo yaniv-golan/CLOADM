@@ -265,7 +265,7 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.shownMachine.ram[
     }
   }
   {
-    // F3: the refusal belongs to the pause it was made in: with the switch back on in the same turn the next acting
+    // The refusal belongs to the pause it was made in: with the switch back on in the same turn the next acting
     // call acts, and the first call of the next turn, paused and resumed, acts
     let s = null, reading = null;
     const include = async () => { s.personInput(); await new Promise((r) => { reading = r; }); return ' FCB $55,$AA\n'; };
@@ -286,7 +286,7 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.shownMachine.ram[
     second.open();
     const r1 = await within(turn);
     const undo1 = chat.undo.length;
-    check('F3 the switch back on in the same turn: the next acting call acts (ok, one restore point)',
+    check('refusal in its pause: the switch back on in the same turn: the next acting call acts (ok, one restore point)',
       refused === C.NO_CONSENT && r1 !== 'timeout' && tools[1] && !tools[1].isError && ram(s, 0x3010, 1) === '17' && undo1 === 1, JSON.stringify({ refused, tools, undo1 }));
     // the next turn: its first call paused (a key while its INCLUDE is read) and resumed acts
     reading = null;
@@ -297,12 +297,12 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.shownMachine.ram[
     reading(); await tick();
     s.resumeClaude();
     const r2 = await within(turn2);
-    check('F3 the next turn: its first call, paused and resumed, acts (ok, one more restore point)',
+    check('refusal in its pause: the next turn: its first call, paused and resumed, acts (ok, one more restore point)',
       paused2 && r2 !== 'timeout' && tools[2] && !tools[2].isError && ram(s, 0x3020, 2) === '85,170' && chat.undo.length === undo1 + 1, JSON.stringify({ paused2, t: tools[2], undo: chat.undo.length }));
     s.endChat();
   }
   {
-    // F3 (same turn, a pause on the second call itself): refused in one pause, then the switch on, a second call
+    // The same turn, a pause on the second call itself: refused in one pause, then the switch on, a second call
     // paused during its own check and resumed acts
     let s = null, reading = null, n = 0;
     const include = async () => { n++; s.personInput(); await new Promise((r) => { reading = r; }); return ' FCB $55,$AA\n'; };
@@ -325,12 +325,12 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.shownMachine.ram[
     reading(); await tick();
     s.resumeClaude();
     const r = await within(turn);
-    check('F3 same turn: refused once (switch off during its pause), then with the switch back on the next call, paused and resumed, acts (ok, undo 1)',
+    check('refusal in its pause: same turn: refused once (switch off during its pause), then with the switch back on the next call, paused and resumed, acts (ok, undo 1)',
       tools[0].code === C.NO_CONSENT && paused && r !== 'timeout' && tools[1] && !tools[1].isError && ram(s, 0x3030, 2) === '85,170' && chat.undo.length === 1, JSON.stringify({ tools, undo: chat.undo.length }));
     s.endChat();
   }
   {
-    // F4: the switch off while Claude's typing is held by a pause: Resume types none of it, and the call fails
+    // The switch off while Claude's typing is held by a pause: Resume types none of it, and the call fails
     // no-consent (withdrawing consent stops all of Claude's input to the machine)
     const { s, chat, replies, tools } = stubAsk();
     s.setClaudeAllowed(true);
@@ -347,7 +347,7 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.shownMachine.ram[
     const right = { queue: m.typist.queue.length, stub: m.stubKeys.length };
     for (let i = 0; i < 60; i++) { frames(s, 1); await tick(1); }
     const r = await within(turn);
-    check('F4 the switch off while typing is held: Resume puts none of it back (the held keys are dropped), the call fails no-consent, nothing more is typed',
+    check('switch off while typing is held: the switch off while typing is held: Resume puts none of it back (the held keys are dropped), the call fails no-consent, nothing more is typed',
       paused && heldN > 0 && right.queue === 0 && r !== 'timeout' && tools[0] && tools[0].code === C.NO_CONSENT && m.typist.queue.length === 0 && m.stubKeys.length === 0,
       JSON.stringify({ paused, heldN, right, tools }));
     s.endChat();
@@ -367,13 +367,13 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.shownMachine.ram[
     s.stopClaude();
     const r = await within(turn);
     const left = { queue: m.typist.queue.length, stub: m.stubKeys.length };
-    check('F4 revoked then Stop: the call is stopped (not no-consent), nothing stays queued',
+    check('switch off while typing is held: revoked then Stop: the call is stopped (not no-consent), nothing stays queued',
       paused && r !== 'timeout' && tools[0] && tools[0].code === C.STOPPED && left.queue === 0 && left.stub === 0, JSON.stringify({ tools, left }));
     s.setClaudeAllowed(true);
     replies.length = 0;   // (the stopped turn never asked for its last reply)
     replies.push({ body: toolReply('poke', { address: 0x3050, bytes: [0x77] }) }, { body: textReply('Done.') });
     const r2 = await within(chat.sendLine('poke'));
-    check('F4 ... and the next turn acts', r2 !== 'timeout' && tools[1] && !tools[1].isError && s.shownMachine.ram[0x3050] === 0x77 && !s.claudePaused, JSON.stringify(tools[1]));
+    check('switch off while typing is held: ... and the next turn acts', r2 !== 'timeout' && tools[1] && !tools[1].isError && s.shownMachine.ram[0x3050] === 0x77 && !s.claudePaused, JSON.stringify(tools[1]));
     s.endChat();
   }
   {
@@ -451,7 +451,7 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.shownMachine.ram[
     s.endChat();
   }
 
-  // ================= F2: the embed API's changes are the person's input =================
+  // ================= the embed API's changes are the person's input =================
   for (const [what, rig, act, landed] of [
     ['poke', stubAsk, (api) => api.poke(0x3100, [0x42]), (s) => s.shownMachine.ram[0x3100] === 0x42],
     ['loadBasic', basicAsk, (api) => api.loadBasic('10 PRINT "E"'), (s, ptrs) => ram(s, P + 2, 2) !== ptrs],
@@ -467,13 +467,13 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.shownMachine.ram[
     let err = null;
     try { act(api); } catch (e) { err = e; }
     const r = { paused: !!s.claudePaused, landed: landed(s, ptrs), err: err && err.message };
-    check(`F2 the embed API's ${what} while Claude's call waits at its card pauses Claude, then does what it was asked`, r.paused && r.landed && !err, JSON.stringify(r));
+    check(`person's input: the embed API's ${what} while Claude's call waits at its card pauses Claude, then does what it was asked`, r.paused && r.landed && !err, JSON.stringify(r));
     s.answerClaude(true);
     await tick();
-    check(`F2 after the embed ${what}: Allow (plain) does not act past the pause`, ram(s, 0x3000, 1) === '0' && chat.undo.length === 0 && !!s.claudePaused);
+    check(`person's input: after the embed ${what}: Allow (plain) does not act past the pause`, ram(s, 0x3000, 1) === '0' && chat.undo.length === 0 && !!s.claudePaused);
     s.stopClaude();
     await within(turn);
-    check(`F2 after the embed ${what}: Stop ends the call stopped`, tools[0] && tools[0].code === C.STOPPED);
+    check(`person's input: after the embed ${what}: Stop ends the call stopped`, tools[0] && tools[0].code === C.STOPPED);
     s.endChat();
   }
   {
@@ -481,11 +481,11 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.shownMachine.ram[
     const { s } = stubAsk();
     const api = new Emu.EmbedApi(s, () => {});
     api.poke(0x3100, [1]);
-    check('F2 the embed API\'s poke with no turn in progress pauses nothing', !s.claudePaused && s.shownMachine.ram[0x3100] === 1);
+    check('person's input: the embed API\'s poke with no turn in progress pauses nothing', !s.claudePaused && s.shownMachine.ram[0x3100] === 1);
     s.endChat();
   }
 
-  // ================= F2: the joystick hook (gamepads, the mouse as joystick, the touch stick and FIRE) =================
+  // ================= the joystick hook (gamepads, the mouse as joystick, the touch stick and FIRE) =================
   {
     const m = { joy: [[32, 32], [32, 32]], fire: [false, false] };
     const input = new Emu.HostInput(m, { set() {} });
@@ -507,7 +507,7 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.shownMachine.ram[
     input.setGamepad(0, pad(0, 0, false));
     input.setGamepad(0, pad(0, -0.7, false));       // back to centre, then out again: a new deflection
     const again = calls;
-    check('F2 joystick hook: idle polling and noise inside the dead zone are not the person\'s input; a fire press and a deflection out of the dead zone are, once each',
+    check('person's input: joystick hook: idle polling and noise inside the dead zone are not the person\'s input; a fire press and a deflection out of the dead zone are, once each',
       idle === 0 && fired === 1 && held === 1 && moved === 2 && stays === 2 && again === 3, JSON.stringify({ idle, fired, held, moved, stays, again }));
     // hysteresis: resting at the edge of the dead zone with jitter fires once; back in only below 0.8 x DEAD_ZONE
     input.setGamepad(0, pad(0, 0, false));
@@ -516,7 +516,7 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.shownMachine.ram[
     const jitter = calls - before;
     input.setGamepad(0, pad(Emu.PLAYER_BACK_IN * D - 0.01, 0, false));   // in again
     input.setGamepad(0, pad(D + 0.01, 0, false));                       // a new deflection
-    check('F2 joystick hook: a stick jittering across the dead zone\'s edge fires once (hysteresis), and again only after it came back below 0.8 x the dead zone',
+    check('person's input: joystick hook: a stick jittering across the dead zone\'s edge fires once (hysteresis), and again only after it came back below 0.8 x the dead zone',
       jitter === 1 && calls - before === 2, JSON.stringify({ jitter, total: calls - before }));
     // one state per source: the mouse as joystick and pad 0 drive the same joystick without resetting each other
     input.setGamepad(0, pad(0.9, 0, false));          // the pad is out (a new deflection? it was out already: no)
@@ -527,7 +527,7 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.shownMachine.ram[
     input.player('mouse', 0.9, 0, false);             // the mouse's own deflection: once
     input.player('mouse', 0.95, 0.1, false);          // still out: nothing
     const mouse = calls - padOut;
-    check('F2 joystick hook: each source has its own state (the mouse at the centre does not make the pad\'s held deflection fire again); the mouse\'s deflection fires once',
+    check('person's input: joystick hook: each source has its own state (the mouse at the centre does not make the pad\'s held deflection fire again); the mouse\'s deflection fires once',
       shared === 0 && mouse === 1, JSON.stringify({ shared, mouse }));
     // the state ends with the pad and with the machine: a pad unplugged (clearGamepad) or a machine switched
     // (setMachine) and then pushed out again is a new push
@@ -542,7 +542,7 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.shownMachine.ram[
     input.setGamepad(0, pad(0.9, 0, false));
     input.player('mouse', 0.9, 0, false);
     const afterSwitch = calls - c1;
-    check('F2 joystick hook: pad out, unplugged (clearGamepad), out again fires once more; pad and mouse out, the machine switched (setMachine), out again each fire once more',
+    check('person's input: joystick hook: pad out, unplugged (clearGamepad), out again fires once more; pad and mouse out, the machine switched (setMachine), out again each fire once more',
       afterClear === 1 && afterSwitch === 2, JSON.stringify({ afterClear, afterSwitch }));
     // the touch stick and its FIRE (js/ui/touch-keys.js) are the source 'touch': a drag out of the dead zone or a FIRE
     // press fires once each, with the pads' hysteresis; resting and jitter at the edge do not
@@ -561,7 +561,7 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.shownMachine.ram[
     input.touchFire(false);
     input.touchStick(R * 0.8, 0);                                                   // out again after the release
     const tAgain = calls - t0;
-    check('F2 joystick hook, touch: resting and jitter at the dead zone\'s edge are nothing; a drag out and a FIRE press fire once each; out again after a release fires again',
+    check('person's input: joystick hook, touch: resting and jitter at the dead zone\'s edge are nothing; a drag out and a FIRE press fire once each; out again after a release fires again',
       rest === 0 && out1 === 1 && tJitter === 1 && tFire === 2 && tAgain === 3, JSON.stringify({ rest, out1, tJitter, tFire, tAgain }));
   }
 

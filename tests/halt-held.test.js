@@ -284,7 +284,7 @@ for (const [label, prog, x, fast, outside] of [
   ['INC held at 0.89 MHz', null, 0, false, 0xFFD9],
   // at 1.78 MHz, X = $FFD8: the STD slows the CPU, then its write to $FFD9 is held
   ['STD ,X held after it slowed the CPU', STD_HELD(0xD9), 0xFFD8, true, 0xFFD9],
-  // at 0.89 MHz, X = $FFD9: the STD speeds the CPU up (R1), its write to $FFDA is held; the outside write then sets R0,
+  // at 0.89 MHz, X = $FFD9: the STD speeds the CPU up (SAM R1), its write to $FFDA is held; the outside write then sets R0,
   // which the GIME reports but which leaves the rate fast: the halted time after the STD's write counts at 1.78 MHz
   ['STD ,X held after it sped the CPU up, then R0 set from outside', STD_HELD(0xD8), 0xFFD9, true, 0xFFD7],
 ]) {

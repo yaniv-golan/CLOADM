@@ -56,7 +56,7 @@ const { synthNitrOs9Floppy } = require('./fixtures/nitros9-synth.js');
 const NITROS9 = synthNitrOs9Floppy();
 
 // Real bytes for the rows that need them, so every row REACHES the code whose routing it is there to check (a row
-// that throws before that point proves nothing - the round-2 reviewer's finding). The games and LIZA are the
+// that throws before that point proves nothing). The games and LIZA are the
 // project's own example programs; the DOS ROM is our own firmware (tools/mame-diff/fdc/dragon-write.asm), assembled
 // here as an 8K $C000 image in place of the DragonDOS cartridge's ROM - no real ROM is used, as AGENTS requires.
 const { assembleFile, romImage } = require('../tools/mame-diff/lib/firmware');

@@ -1,6 +1,6 @@
 // Run: node tests/claude-actions.test.js
 //
-// What the page shows of Claude's actions and restore points browser-free: the action
+// What the page shows of Claude's actions and restore points, browser-free: the action
 // record each acting call leaves on its turn (js/claude/actions.js, ChatSession.noteAction), the line a person reads
 // for it, the folding of a busy turn, and the restore points' turns. No ROMs, no network: a Dragon 64 without ROMs
 // (the stub takes typed keys, reads no BREAK) and a mocked API. AGENTS.md 4.6: no MAME oracle for page copy; the

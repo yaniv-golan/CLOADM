@@ -318,7 +318,7 @@ its segment means follow the levels. Per segment: the pitch within 1% (all are e
 within 0.5% of the first segment's RMS. The DAC's half swing and upper half match to 0.01% (RMS) and 0.08% (mean), the
 single-bit sound to 0.06% and 0.24%, on all three machines. The single-bit sound adds 32 DAC steps
 (`js/machines/cocopia.js`), the weight of the DAC's top bit: the Tandy service manual's parts list gives the DAC's
-resistors R10-R15 as 10K to 324K and the single-bit sound's R22 as 10K (as MAME 0.264's `coco12.cpp` cites it; the
+resistors R10-R15 as 10K to 324K and the single-bit sound's resistor R22 as 10K (as MAME 0.264's `coco12.cpp` cites it; the
 manual itself was not available to this check), and MAME's level matches (it was 31.5 steps, which this comparison finds
 1.50% off and fails; `tests/cli-wav.test.js` pins it at 10240 alone and 30400 with DAC 63). A mutation
 that moves the DAC's upper half up one step fails the mean check alone (0.71% to 1.04%).
@@ -530,7 +530,7 @@ tests cover from the data sheet and MAME's `crtc_update_row()`. The real 80-colu
 `d64plus/plustext.asm` (written by `d64plus/text-screens.js`), which puts up six screens: 80 columns from `$0000`,
 40 columns from `$0100`, a start scrolled three rows, a start at `$07C0` that wraps round the 2K video RAM, a 14-bit
 start `$2850` that mirrors `$0050`, and 64 columns of 20 rows of 13 lines; each clears the video RAM, writes its
-text (some of it where the start skips it), sets R1, R6, R9 and R12/R13 and holds for ten fields; then text goes
+text (some of it where the start skips it), sets CRTC R1, R6, R9 and R12/R13 and holds for ten fields; then text goes
 on the MC6847 page. Against 0.264 under `mameCompat`: 334,449 instructions to HALT, registers and cycle counts
 identical (`trace d64plus plustext.asm` in the regression gate). `run.js d64plus --plustext --video` compares each
 screen's picture with MAME's, every pixel (MAME sizes its screen to R1 x 8 by R6 x (R9 + 1); ours must be dark

@@ -1,12 +1,12 @@
 // Run: node tests/claude-turn-scope.test.js
 //
 // What a turn with Claude leaves behind ends with the turn, and nothing it leaves can wedge the chat:
-//  * M1 - Stop while assemble_and_load reads an INCLUDE that never arrives ends the read and the turn; the page's
+//  * Stop while assemble_and_load reads an INCLUDE that never arrives ends the read and the turn; the page's
 //    reader (js/host/example-reader.js) passes the turn's signal to fetch and has its own timeout, after which the
 //    tool fails with include-unreadable and the turn goes on; a reader that ignores the signal still lets Stop stop;
-//  * M2 - a pause made by the person's key belongs to its turn: when the turn ends (finished, failed, stopped) the
+//  * a pause made by the person's key belongs to its turn: when the turn ends (finished, failed, stopped) the
 //    pause ends, what it held back is never typed, and the next turn does not start paused; no pause outside a turn;
-//  * E - an empty reply (a turn of tool calls only, a refusal, whitespace) is not recorded, and Stop before any
+//  * an empty reply (a turn of tool calls only, a refusal, whitespace) is not recorded, and Stop before any
 //    text, a stream that fails or stalls mid-reply leave a history the API accepts. The mocked API here refuses
 //    what the Messages API refuses (an empty assistant message, a blank text block, a tool_use without its
 //    tool_result, a tool_result without its tool_use, a first message that is not the user's) with a 400, so a
@@ -124,7 +124,7 @@ function askSession({ include = null, stallMs } = {}) {
 }
 
 (async () => {
-  // ================= M1: an INCLUDE that never arrives =================
+  // ================= an INCLUDE that never arrives =================
   {
     // the reader on its own: the fetch gets a signal, Stop and the timeout each end a read that never answers
     const seen = [];
@@ -135,14 +135,14 @@ function askSession({ include = null, stallMs } = {}) {
     await sleep(20);
     ctl.abort();
     const r = await p;
-    check('M1 reader: Stop ends a read whose fetch never answers (error code aborted), and the fetch\'s own signal is aborted',
+    check('INCLUDE reader: Stop ends a read whose fetch never answers (error code aborted), and the fetch\'s own signal is aborted',
       r !== 'timeout' && r.e && r.e.code === 'aborted' && seen[0].signal && seen[0].signal.aborted && seen[0].url === 'examples/hang.asm', JSON.stringify(r));
     const t = Date.now();
     // (timeoutMs 200 against >= 195: a timer can fire a millisecond early by Date.now(); the point is the code)
     const r2 = await within(Emu.exampleReader(never, 'examples/', { timeoutMs: 200 })('slow.asm'), 3000);
-    check('M1 reader: with no Stop, a read that never answers ends at the timeout (error code timeout)', r2 !== 'timeout' && r2.e && r2.e.code === 'timeout' && Date.now() - t >= 195
+    check('INCLUDE reader: with no Stop, a read that never answers ends at the timeout (error code timeout)', r2 !== 'timeout' && r2.e && r2.e.code === 'timeout' && Date.now() - t >= 195
       && seen[1].signal.aborted, JSON.stringify(r2));
-    check('M1 reader: the default timeout is 15 s', Emu.INCLUDE_TIMEOUT_MS === 15000);
+    check('INCLUDE reader: the default timeout is 15 s', Emu.INCLUDE_TIMEOUT_MS === 15000);
     // a fetch that follows the spec and rejects (AbortError) the moment its signal aborts: still timeout / aborted
     const spec = (url, init) => new Promise((resolve, reject) => init.signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))));
     const rt = await within(Emu.exampleReader(spec, 'examples/', { timeoutMs: 40 })('t.asm'), 3000);
@@ -150,18 +150,18 @@ function askSession({ include = null, stallMs } = {}) {
     const ra = within(Emu.exampleReader(spec, 'examples/', { timeoutMs: 60000 })('s.asm', { signal: sc.signal }), 3000);
     sc.abort();
     const rs = await ra;
-    check('M1 reader: with a fetch that rejects at once on abort, the timeout is still timeout and Stop still aborted (not a missing file)',
+    check('INCLUDE reader: with a fetch that rejects at once on abort, the timeout is still timeout and Stop still aborted (not a missing file)',
       rt.e && rt.e.code === 'timeout' && rs.e && rs.e.code === 'aborted', JSON.stringify([rt, rs]));
     // a body that never finishes is a hang too
     const slowBody = () => Promise.resolve({ ok: true, text: () => new Promise(() => {}) });
     const r3 = await within(Emu.exampleReader(slowBody, 'examples/', { timeoutMs: 60 })('body.asm'), 3000);
-    check('M1 reader: a body that never finishes ends at the timeout too', r3 !== 'timeout' && r3.e && r3.e.code === 'timeout', JSON.stringify(r3));
+    check('INCLUDE reader: a body that never finishes ends at the timeout too', r3 !== 'timeout' && r3.e && r3.e.code === 'timeout', JSON.stringify(r3));
     // what still works as before: a file, a missing one, a refused name (no request), a failed connection
     const files = { 'a.asm': ' FCB 1\n' };
     const fake = (url) => { seen.push({ url }); const name = url.slice('examples/'.length); return Promise.resolve(files[name] != null ? new Response(files[name]) : new Response('', { status: 404 })); };
     const rd = Emu.exampleReader(fake);
     const before = seen.length;
-    check('M1 reader: a file reads, a missing file and a failed connection are null, an unsafe name is null without a request',
+    check('INCLUDE reader: a file reads, a missing file and a failed connection are null, an unsafe name is null without a request',
       await rd('a.asm') === ' FCB 1\n' && await rd('b.asm') === null && await rd('../x') === null && seen.length === before + 2
       && await Emu.exampleReader(() => Promise.reject(new TypeError('fetch failed')))('c.asm') === null);
   }
@@ -174,18 +174,18 @@ function askSession({ include = null, stallMs } = {}) {
     const ram = s.shownMachine.ram[0x3000];
     replies.push({ body: toolReply([{ name: 'assemble_and_load', input: { source: ' INCLUDE "hang.asm"\n FCB 9\n', org: 0x3000 } }]) }, { body: textReply('should not be asked') });
     const turn = chat.sendLine('assemble it');
-    check('M1 turn: the read is under way, with the status Using assemble_and_load…', await until(() => fetched.length === 1)
+    check('INCLUDE turn: the read is under way, with the status Using assemble_and_load…', await until(() => fetched.length === 1)
       && s.claudeStatus && s.claudeStatus.text === 'Using assemble_and_load…', JSON.stringify(s.claudeStatus));
     s.stopClaude();
     const r = await within(turn);
-    check('M1 turn: Stop ends the turn (stopped), the fetch is aborted, the tool fails stopped, nothing is written, no further request',
+    check('INCLUDE turn: Stop ends the turn (stopped), the fetch is aborted, the tool fails stopped, nothing is written, no further request',
       r !== 'timeout' && r.v === null && chat.error && chat.error.code === 'aborted' && !chat.busy && s.claudeStatus === null && fetched[0].aborted
       && tools.length === 1 && tools[0].isError && tools[0].value.code === Emu.TOOL_CODES.STOPPED && s.shownMachine.ram[0x3000] === ram && api.calls.length === 1,
       `${r === 'timeout' ? 'the turn hung' : ''} ${chat.error && chat.error.code} calls ${api.calls.length} ${tools.map((x) => x.value && x.value.code)}`);
     replies.length = 0;
     replies.push({ body: textReply('Here again.') });
     await within(chat.sendLine('hello?'));
-    check('M1 turn: the next line is answered', chat.messages.slice(-1)[0].content === 'Here again.' && !api.refused.length, api.refused.join('; '));
+    check('INCLUDE turn: the next line is answered', chat.messages.slice(-1)[0].content === 'Here again.' && !api.refused.length, api.refused.join('; '));
     s.endChat();
   }
   {
@@ -196,7 +196,7 @@ function askSession({ include = null, stallMs } = {}) {
     replies.push({ body: toolReply([{ name: 'assemble_and_load', input: { source: ' INCLUDE "hang.asm"\n', org: 0x3000 } }]) }, { body: textReply('The include file could not be read.') });
     const r = await within(chat.sendLine('assemble it'), 3000);
     const result = api.calls[1] && api.calls[1].body.messages.slice(-1)[0].content[0];
-    check('M1 timeout: the tool fails include-unreadable naming the file, the model is told so, and the turn ends with its reply',
+    check('INCLUDE timeout: the tool fails include-unreadable naming the file, the model is told so, and the turn ends with its reply',
       r !== 'timeout' && r.v && tools[0].isError && tools[0].value.code === Emu.TOOL_CODES.INCLUDE_UNREADABLE && /hang\.asm/.test(tools[0].value.tool.detail)
       && result && result.is_error && JSON.parse(result.content).error.code === 'include-unreadable'
       && chat.messages.slice(-1)[0].content === 'The include file could not be read.' && !chat.busy && s.claudeStatus === null, JSON.stringify(result));
@@ -210,7 +210,7 @@ function askSession({ include = null, stallMs } = {}) {
     s.setClaudeAllowed(true);
     replies.push({ body: toolReply([{ name: 'assemble_and_load', input: { source: ' INCLUDE "a.asm"\n INCLUDE "b.asm"\n INCLUDE "c.asm"\n', org: 0x3000 } }]) }, { body: textReply('No.') });
     await within(chat.sendLine('assemble it'), 3000);
-    check('M1 timeout with three INCLUDEs: one read is waited for, the call fails include-unreadable naming it', asked.join() === 'examples/a.asm'
+    check('INCLUDE timeout with three INCLUDEs: one read is waited for, the call fails include-unreadable naming it', asked.join() === 'examples/a.asm'
       && tools[0].value.code === Emu.TOOL_CODES.INCLUDE_UNREADABLE && /a\.asm/.test(tools[0].value.tool.detail), asked.join());
     s.endChat();
   }
@@ -224,11 +224,11 @@ function askSession({ include = null, stallMs } = {}) {
     await until(() => asked === 1);
     s.stopClaude();
     const r = await within(turn);
-    check('M1 deaf reader: Stop ends the turn even though the read never ends', r !== 'timeout' && chat.error && chat.error.code === 'aborted' && !chat.busy);
+    check('INCLUDE deaf reader: Stop ends the turn even though the read never ends', r !== 'timeout' && chat.error && chat.error.code === 'aborted' && !chat.busy);
     s.endChat();
   }
 
-  // ================= M2: the pause belongs to its turn =================
+  // ================= the pause belongs to its turn =================
   const pausedTurn = async (s, chat, replies, reply) => {
     const m = s.shownMachine;
     s.setClaudeAllowed(true);
@@ -248,7 +248,7 @@ function askSession({ include = null, stallMs } = {}) {
   for (const [how, reply, code] of [['finishes', { body: textReply('Done.') }, null], ['fails', { status: 500, json: { type: 'error', error: { type: 'api_error', message: 'boom' } } }, 'server-error']]) {
     const { s, chat, replies, api } = askSession();
     const { paused, during, r, job, m } = await pausedTurn(s, chat, replies, reply);
-    check(`M2 a turn that ${how} while paused: the pause ends with it, nothing it held is typed, the held typing ends stopped`,
+    check(`pause per turn: a turn that ${how} while paused: the pause ends with it, nothing it held is typed, the held typing ends stopped`,
       paused && during && during.phase === 'paused' && r !== 'timeout' && s.claudePaused === null && job.status === 'stopped'
       && m.typist.queue.length === 0 && (code ? chat.error && chat.error.code === code : !chat.error), `${JSON.stringify(during)} ${chat.error && chat.error.code}`);
     // the next turn does not start paused: its status is Thinking…, and an acting tool runs without waiting for a Resume
@@ -261,7 +261,7 @@ function askSession({ include = null, stallMs } = {}) {
     const status = s.claudeStatus;
     next.open();
     const r2 = await within(turn);
-    check(`M2 after a turn that ${how} while paused, the next turn is not paused: Thinking…, and its poke runs without a Resume`,
+    check(`pause per turn: after a turn that ${how} while paused, the next turn is not paused: Thinking…, and its poke runs without a Resume`,
       status && status.phase === 'thinking' && r2 !== 'timeout' && m.ram[0x3000] === ((ram + 1) & 0xFF) && chat.messages.slice(-1)[0].content === 'Poked.' && !api.refused.length,
       `${JSON.stringify(status)} ${r2 === 'timeout' ? 'the turn hung' : ''}`);
     s.endChat();
@@ -279,11 +279,11 @@ function askSession({ include = null, stallMs } = {}) {
     s.pauseClaude();
     s.stopClaude();
     const r = await within(turn);
-    check('M2 Stop while paused: the turn ends stopped and the pause with it', r !== 'timeout' && s.claudePaused === null && job.status === 'stopped' && chat.error.code === 'aborted');
+    check('pause per turn: Stop while paused: the turn ends stopped and the pause with it', r !== 'timeout' && s.claudePaused === null && job.status === 'stopped' && chat.error.code === 'aborted');
     // after the turn: Claude's typing still going in, a key does not pause (there is no turn to resume)
     s.typeTextPaced('10 PRINT 1\n', s.shownMachine);
     s.claudeActing = { name: 'type_text', input: { text: '10 PRINT 1\n' } };
-    check('M2 no turn in progress: pauseClaude does nothing, so no pause can carry into the next turn', !chat.busy && s.claudeBusyActing && s.pauseClaude() === false && s.claudePaused === null);
+    check('pause per turn: no turn in progress: pauseClaude does nothing, so no pause can carry into the next turn', !chat.busy && s.claudeBusyActing && s.pauseClaude() === false && s.claudePaused === null);
     s.endChat();
   }
 
@@ -499,7 +499,7 @@ function askSession({ include = null, stallMs } = {}) {
     const held = { poked: s.shownMachine.ram[0x3001], busy: chat.busy, paused: !!s.claudePaused };
     s.resumeClaude();
     const r = await within(turn);
-    check('M2 a key while a card waits pauses Claude (Claude acted this turn), the card stays up; Allow does not act while paused; Resume acts and the turn ends',
+    check('pause per turn: a key while a card waits pauses Claude (Claude acted this turn), the card stays up; Allow does not act while paused; Resume acts and the turn ends',
       during.acting && during.paused === true && during.state && during.card && held.poked === 0 && held.busy && held.paused
       && s.shownMachine.ram[0x3001] === 2 && r !== 'timeout' && chat.messages.slice(-1)[0].content === 'Done.', JSON.stringify({ during, held }));
     s.endChat();
@@ -523,7 +523,7 @@ function askSession({ include = null, stallMs } = {}) {
     const r = await within(turn);
     const resumed = s.resumeClaude();
     await sleep(20);
-    check('M2 an abort while paused (BREAK) ends the pause: the waiting poke is refused, nothing held is typed, the turn ends stopped, Resume after it does nothing',
+    check('pause per turn: an abort while paused (BREAK) ends the pause: the waiting poke is refused, nothing held is typed, the turn ends stopped, Resume after it does nothing',
       r !== 'timeout' && s.claudePaused === null && m.ram[0x3001] !== 8 && job && job.status === 'stopped' && m.typist.queue.length === 0 && chat.error && chat.error.code === 'aborted' && resumed === false,
       JSON.stringify({ waiting, r: r === 'timeout' ? r : 'ended', ram: m.ram[0x3001], job: job && job.status, err: chat.error && chat.error.code }));
     if (typeof off === 'function') off();
@@ -713,7 +713,7 @@ function askSession({ include = null, stallMs } = {}) {
     off();
     s.endChat();
   }
-  // F2: every way the person's input reaches the machine Claude acts on pauses Claude, as a key on the screen does,
+  // Every way the person's input reaches the machine Claude acts on pauses Claude, as a key on the screen does,
   // so the ticket counts only Claude's own typing: the person's text (Session.typeText: a paste, the type-in panel,
   // a tap on the welcome menu, a POKE from the book, the embed API) and the person's keys (Session.personInput: the
   // keyboard on the screen or the page's body, the on-screen keys). Claude's own typing (typeTextPaced, and RUN for
@@ -737,7 +737,7 @@ function askSession({ include = null, stallMs } = {}) {
     for (let i = 0; i < 600 && !liza; i++) { s.advance(1000 / s.shownMachine.fps + 0.01); await sleep(0); }
     if (next.open) next.open();
     const r = await within(turn);
-    check(`F2 the person's ${how} while Claude acts at the welcome menu pauses Claude, and LIZA it starts stops Claude's turn (not Claude's ticket)`,
+    check(`person's input: the person's ${how} while Claude acts at the welcome menu pauses Claude, and LIZA it starts stops Claude's turn (not Claude's ticket)`,
       before === 'thinking' && paused && phase === 'paused' && !!liza && r !== 'timeout' && chat.error && chat.error.code === 'aborted' && !s.claudeBusyActing,
       JSON.stringify({ before, paused, phase, liza: !!liza, err: chat.error && chat.error.code }));
     off();
@@ -759,7 +759,7 @@ function askSession({ include = null, stallMs } = {}) {
     const again = s.personInput();
     next.open();
     await within(turn);
-    check('F2 a POKE typed from the book pauses Claude; Claude\'s own RUN (queueText) and input to another machine do not; once paused, more input makes no new pause',
+    check('person's input: a POKE typed from the book pauses Claude; Claude\'s own RUN (queueText) and input to another machine do not; once paused, more input makes no new pause',
       !ownRun && other === false && poke && again === false && s.claudePauses === pauses, JSON.stringify({ ownRun, other, poke, again }));
     s.endChat();
   }
@@ -779,7 +779,7 @@ function askSession({ include = null, stallMs } = {}) {
     const paused = !!s.claudePaused;
     next.open();
     await within(turn);
-    check('F2 a POKE from the book stored at once on the stub (a program running) pauses Claude', /^Done:/.test(msg) && paused, JSON.stringify({ msg, paused }));
+    check('person's input: a POKE from the book stored at once on the stub (a program running) pauses Claude', /^Done:/.test(msg) && paused, JSON.stringify({ msg, paused }));
     s.endChat();
   }
   {
@@ -793,7 +793,7 @@ function askSession({ include = null, stallMs } = {}) {
     const thinking = s.personInput();
     think.open();
     await within(turn);
-    check('F2 with no turn, or a turn that only thinks, the person\'s input pauses nothing', !idle && thinking === false && !s.claudePaused, JSON.stringify({ idle, thinking }));
+    check('person's input: with no turn, or a turn that only thinks, the person\'s input pauses nothing', !idle && thinking === false && !s.claudePaused, JSON.stringify({ idle, thinking }));
     s.endChat();
   }
   // the ticket is taken when the program asks (the page does it as the event comes): a start it asks for after
@@ -950,7 +950,7 @@ function askSession({ include = null, stallMs } = {}) {
     s.endChat();
   }
 
-  // ================= M2: what the turn did on the machine ends with it =================
+  // ================= what the turn did on the machine ends with it =================
   // A turn that acted (a real poke through the gate), then ends: finished, stopped, failed, stalled. Afterwards
   // claudeActing is clear, and a later turn that only answers in text is not acting: a key does not pause it.
   for (const [how, ending, stall] of [['finishes', { body: textReply('Poked.') }], ['is stopped', { gate: true, body: textReply('late') }],
@@ -973,7 +973,7 @@ function askSession({ include = null, stallMs } = {}) {
     const during = { busyActing: s.claudeBusyActing, paused: s.pauseClaude(), status: s.claudeStatus && s.claudeStatus.phase };
     text.open();
     const r2 = await within(next);
-    check(`M2 a turn that acted and ${how}: claudeActing ends with it, and a later text-only turn is not paused by a key (not acting, status Thinking…)`,
+    check(`pause per turn: a turn that acted and ${how}: claudeActing ends with it, and a later text-only turn is not paused by a key (not acting, status Thinking…)`,
       acted && r !== 'timeout' && cleared && !during.busyActing && during.paused === false && s.claudePaused === null && during.status === 'thinking'
       && r2 !== 'timeout' && chat.messages.slice(-1)[0].content === 'Just words.' && !api.refused.length,
       JSON.stringify({ acted, cleared, during, err: chat.error && chat.error.code }));

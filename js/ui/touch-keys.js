@@ -257,8 +257,8 @@ export function setupTouchKeys(page, { input }) {
   let padHere = padCount() > 0, visitMode = null;
   // The mode a program opens in comes from what it is played with (Session.programControls): the arrows ->
   // Pad, a joystick -> Stick, the keyboard (LIZA, BASIC, anything else) -> Keys. The switch's choice is remembered per
-  // program and machine (touchMode.<machine>.<program>), and per machine for no program in particular (R4's
-  // touchMode.<machine>: BASIC, the welcome menu, a file).
+  // program and machine (touchMode.<machine>.<program>), and per machine for no program in particular (the
+  // per-machine touchMode.<machine>: BASIC, the welcome menu, a file).
   const program = () => session.programControls;
   const modeKey = () => { const p = program(); return `touchMode.${session.shownMachine.id}${p ? `.${p.id}` : ''}`; };
   const modeFor = () => programMode(program());

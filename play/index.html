@@ -1155,7 +1155,7 @@
   #askConsent p { margin: 0; font-size: 14px; line-height: 1.5; color: var(--text-2); }
   .askcard .muted { font-size: 13px; }
   .pointnote { font-size: 12px; margin-top: 4px; }
-  /* R12/R13: the small muted lines under a turn (js/ui/claude-lines.js) */
+  /* the restore and action lines: the small muted lines under a turn (js/ui/claude-lines.js) */
   .actions { display: flex; flex-direction: column; gap: 2px; margin: -6px 0 0 12px; font-size: var(--text-min); line-height: 1.5; color: var(--muted); }
   .actions[hidden], .restoreline[hidden], .rl-list[hidden], .rl-wait[hidden], .rl-more[hidden], .restoreline .rl-go .glyph:empty { display: none; }
   .actions .act, .actions .act-reads { overflow-wrap: anywhere; }
@@ -1267,7 +1267,7 @@
   #claudeViewRow[hidden] { display: none; }
   #claudeViewRow { align-items: center; justify-content: center; }
   /* the chat on screen (its firmware needs no ROM, and BASIC's keys mean nothing to it): no key hint, no
-     "No BASIC" pill and no "Running with no ROMs" card (M2) */
+     "No BASIC" pill and no "Running with no ROMs" card */
   body.chat-screen #keyHint, body.chat-screen #romPill, body.chat-screen #welcome { display: none !important; }
   #claude .card.row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
   #claude .card.row[hidden], #claudeKeyCard[hidden], #claudeConsentAsk[hidden], #claudeRestore[hidden] { display: none; }

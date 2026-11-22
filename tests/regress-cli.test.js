@@ -16,7 +16,7 @@ const ROOT = path.join(__dirname, '..');
 const WORK = fs.mkdtempSync(path.join(os.tmpdir(), 'cloadm-regress-cli-'));
 const cleanup = () => { try { fs.rmSync(WORK, { recursive: true, force: true }); } catch (e) { /* best effort */ } };
 process.on('exit', cleanup);
-// F5: a signal is not 'exit'. Under all.js this file may be interrupted (a timeout, a cancelled run), and a SIGINT or
+// A signal is not 'exit'. Under all.js this file may be interrupted (a timeout, a cancelled run), and a SIGINT or
 // SIGTERM would otherwise leave a `cloadm-regress-cli-*` copy in the temp directory for good. NOT process.exit():
 // tests/exitcode.test.js forbids it in every suite and tool (Node 25.2.1 deadlocks in it under load), so the handler
 // removes the copy, takes ITSELF OFF, and re-sends the same signal - the default disposition then runs and the
@@ -24,7 +24,7 @@ process.on('exit', cleanup);
 for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
   process.once(sig, () => { cleanup(); process.kill(process.pid, sig); });
 }
-// F3: TRACKED FILES ONLY. This used to tar the whole repository root, which in the main checkout is 592 MB taking
+// TRACKED FILES ONLY. This used to tar the whole repository root, which in the main checkout is 592 MB taking
 // about 26 s - .git is 140 MB of that, and .claude/worktrees holds every other worktree - copied twice whenever
 // all.js ran two of these at once. `git ls-files` is the tracked tree exactly: the same 464 files, 7.7 MB, 0.28 s,
 // and it cannot pick up .git, .claude, node_modules or anything else untracked. -z keeps a path containing a space

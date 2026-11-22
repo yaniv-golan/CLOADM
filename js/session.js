@@ -102,7 +102,7 @@ export const GAMES = Object.freeze({
 });
 // Color BASIC's and Dragon BASIC's warm-start flag: $55 there at reset means a warm start (the program kept)
 const BASIC_RSTFLG = 0x71;
-// What a bundled program is played with : `input` is 'keyboard', 'arrows' or 'joystick'; `extra`, the keys
+// What a bundled program is played with: `input` is 'keyboard', 'arrows' or 'joystick'; `extra`, the keys
 // beside the arrows it reads (Minesweeper's F flags a mine); `joystick`, whether it reads a joystick too. The page's
 // touch panel opens on what it says (arrows: the pad) and offers the stick only where the machine has the port.
 // The games' own entries are in GAMES.list; a program not listed is played on the keyboard.
@@ -806,7 +806,7 @@ export class Session {
   nitros9On(m = this.shownMachine) { return !!this.nitros9Loader(m); }
   // Is NitrOS-9 running on the machine the PERSON is working on? personMachine, not this.shownMachine: with the chat full
   // screen this.shownMachine is the chat machine, which never has the loader, so this answered false and the NitrOS-9 panel
-  // hid **Leave** - the fixed leaveNitros9 could not be reached (review 0.1.9 round 1). The readers that mean the
+  // hid **Leave** - the fixed leaveNitros9 could not be reached. The readers that mean the
   // person's machine are the ROMs row and pill, the nitros9 panel and install's "a program is running".
   // Share is NOT one of them: it pairs a picture of the machine ON SCREEN with a link to that same machine
   // (js/ui/share.js capture, and shareUrl below), so it asks nitros9OnScreen.
@@ -3745,7 +3745,7 @@ export class Session {
     this.welcomeSoundOn = true;
     // the PERSON's machine, the same machine welcomeRunning now means: it poked this.shownMachine, so with the chat open
     // the 1 went into the CHAT firmware's $6004 (inside chat.bin's $6000 load range) and the person's menu never got
-    // its sound (review 0.1.9 round 3). The welcome build is the person's machine's build, as startWelcome sets it.
+    // its sound. The welcome build is the person's machine's build, as startWelcome sets it.
     if (this.welcomeRunning) this.welcome.poke(this.welcomeBuild.soundOk, 1);
   }
   endWelcome() {
@@ -3761,7 +3761,7 @@ export class Session {
   flushWelcome() {
     if (!this.welcomeRunning) return;
     // the same pair as welcomeSound: the gate is the person's machine (welcomeRunning) and this is what it reads and
-    // clears - this.shownMachine's $6003 is chat firmware code with the chat open (review 0.1.9 round 3)
+    // clears - this.shownMachine's $6003 is chat firmware code with the chat open
     const m = this.welcome, at = this.welcomeBuild.event, key = m.peek ? m.peek(at) : m.ram[at];
     if (!key) return;
     m.poke(at, 0);
