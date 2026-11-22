@@ -14,27 +14,46 @@ const cp = require('child_process'), fs = require('fs'), path = require('path');
 // register and resistor names: the 6845 CRTC's R0-R17, the SAM's rate bits R1..R0, the AY-3-8910's R0-R17, the
 // TMS7000's register file, the CoCo board's resistors. Those are excused in two ways only, never by a word elsewhere
 // on the line:
-//  * in a chip or register file (REGISTER_FILES: js/chips, js/cpu, js/machines, tools/mame-diff and the chip tests),
-//    where an R-number is a register;
-//  * anywhere else, by what stands right beside the R-number (excusedAt): a chip name, "register(s)", "reg", "rate
-//    bit", "start address", "address" or "cursor" directly before it (a list such as "CRTC R12/R13", "registers
-//    R0-R17" or "CRTC R0 113, R1 80" included), "*" before it (TMS7000 indirect), "resistor(s)" directly before or
-//    after it, "columns", "rows", "codes", "skew", "read-back" or "start address" directly after it, or ".." joining it to another
-//    (R1..R0).
+//  * in one of the chip and register files named in REGISTER_FILES (the 6845, SAM, D64 Plus and CoCo board
+//    sources, the screen reader, their MAME firmware and the chip tests), where an R-number is a register;
+//  * anywhere else, by what stands right beside the R-number (excusedAt): a chip name, "register(s)", "reg" or
+//    "rate bit" directly before it (a list such as "CRTC R12/R13", "registers R0-R17" or "CRTC R0 113, R1 80"
+//    included), "*" before it (TMS7000 indirect), "resistor(s)" directly before or after it, or ".." joining it to
+//    another (R1..R0). Words that name particular 6845 registers excuse only those: before it, "start address",
+//    "address" and "startAddress" R12-R15, "cursor" R10, R11, R14 and R15, "screenRows" R6; after it, "columns" and
+//    "codes" R1, "rows" R4, R6 and R9, "skew" R8, "read-back" R12-R17, "start address" R12 and R13.
 // Pattern 13 (finding IDs such as M1) is not applied in REGISTER_FILES, where M1/M0 are the SAM's memory size bits.
-const REGISTER_FILES = /^(?:js\/chips\/|js\/cpu\/|js\/machines\/|tools\/mame-diff\/|js\/claude\/readtools\.js$|tests\/(?:mc6845|ay8910|tms7000[\w-]*|d64plus[\w-]*|samrate|sammem|models|machine|coco3[\w-]*|cpu[\w-]*|gime[\w-]*|sp0256[\w-]*|claude-readtools)\.test\.js$)/;
+const REGISTER_FILES = new RegExp('^(?:' + [
+  'js/chips/mc6845\\.js', 'js/machines/(?:d64plus|sam|cocopia)\\.js', 'js/claude/readtools\\.js',
+  'tools/mame-diff/d64plus/[^/]+', 'tools/mame-diff/sam/(?:fastvid\\.asm|run-fastvid\\.js)', 'tools/mame-diff/coco3/gen-diag\\.js',
+  'tests/(?:mc6845|ay8910|tms7000-core|d64plus|d64plus-screen-text|samrate|sammem|models|machine)\\.test\\.js',
+].join('|') + ')$');
 const SEP = '\\s*(?:\\/|,|and|or|to|–|-)\\s*';
 // a list item: "R12", "R9 11" or "R10 $20 (no cursor)" (a register, its value and a note on it)
 const ITEM = 'R\\d{1,2}[a-z]?(?:\\s+\\$?[0-9A-F]{1,4}\\b)?(?:\\s+\\([^()]*\\))?';
-const CHIP_BEFORE = new RegExp('(?:\\b(?:CRTC|MC6845|HD6845S?|6845|SAM|GIME|PSG|AY|AY-3-891[023]|TMS70\\d\\d|SP0256)|\\b(?:registers?|reg|rate bits?|start address|address|cursor|screenRows|startAddress))[\\s\\x60(]+(?:' + ITEM + SEP + ')*$', 'i');
+const before = (words) => new RegExp('(?:' + words + ')[\\s\\x60(]+(?:' + ITEM + SEP + ')*$', 'i');
+const CHIP_BEFORE = before('\\b(?:CRTC|MC6845|HD6845S?|6845|SAM|GIME|PSG|AY|AY-3-891[023]|TMS70\\d\\d|SP0256)|\\b(?:registers?|reg|rate bits?)');
+// words that name particular registers, with the registers each may name
+const NAMED_BEFORE = [
+  [before('\\b(?:start address|address|startAddress)'), /^R1[2-5]$/],
+  [before('\\bcursor'), /^R1[0145]$/],
+  [before('\\bscreenRows'), /^R6$/],
+];
 const RESISTOR_BEFORE = new RegExp('\\bresistors?\\s+(?:R\\d{1,2}' + SEP + ')*$', 'i');
 const RESISTOR_AFTER = new RegExp('^(?:' + SEP + 'R\\d{1,2})*\\s+resistors?\\b', 'i');
-const WORD_AFTER = new RegExp('^(?:' + SEP + 'R\\d{1,2})*\\s+(?:columns?|rows?|codes|skew|read-?back|start address)\\b', 'i');
+// words after a register that name what it holds, with the registers each may follow
+const after = (words) => new RegExp('^(?:' + SEP + 'R\\d{1,2})*\\s+(?:' + words + ')\\b', 'i');
+const NAMED_AFTER = [
+  [after('columns?|codes'), /^R1$/], [after('rows?'), /^R[469]$/], [after('skew'), /^R8$/],
+  [after('read-?back'), /^R1[2-7]$/], [after('start address'), /^R1[23]$/],
+];
 function excusedAt(line, start, end, file) {
   if (file && REGISTER_FILES.test(file)) return true;
   const before = line.slice(0, start), after = line.slice(end);
-  return CHIP_BEFORE.test(before) || /\*$/.test(before) || RESISTOR_BEFORE.test(before) || RESISTOR_AFTER.test(after)
-    || WORD_AFTER.test(after) || /^\.\.R\d/.test(after) || /R\d\.\.$/.test(before);
+  const regs = line.slice(start, end).split('/').map((r) => r.replace(/[a-z]$/, ''));
+  return CHIP_BEFORE.test(before) || NAMED_BEFORE.some(([re, which]) => re.test(before) && regs.every((r) => which.test(r)))
+    || /\*$/.test(before) || RESISTOR_BEFORE.test(before) || RESISTOR_AFTER.test(after)
+    || NAMED_AFTER.some(([re, which]) => re.test(after) && regs.every((r) => which.test(r))) || /^\.\.R\d/.test(after) || /R\d\.\.$/.test(before);
 }
 
 const PATTERNS = [
@@ -145,7 +164,7 @@ const NEGATIVE = {
   1: ['UX: the panel decides', 'UX R', 'a CRTC R12 read'],
   2: ['the rule says', 'a ruler', 'R12 rule'],
   3: ['$R30', 'PR25', 'R2D2', 'a.R30 b', '#R24'],
-  4: ['R12/R13 start address', 'cursor (R14/R15, R10/R11)', 'the CRTC R10 blink bits', 'R12 rows', 'R1 and R9'],
+  4: ['R12/R13 start address', 'cursor (R14/R15, R10/R11)', 'the CRTC R10 blink bits', 'R6 rows', 'R1 and R9'],
   5: ['the owning machine', 'owners', 'CODEOWNERS'],
   6: ['BEQ PM1', 'PM2      RTS', '3 PM', 'PMODE 4'],
   7: ['printed p13: bits', 'map: 1', 'm6809: the CPU', 'fix-up'],
@@ -195,6 +214,16 @@ check('...and the same lines are labels anywhere else (tools/browser-check.js, j
   inFile('// R1: every cycle fast', 'tools/browser-check.js').includes(12) && inFile('//   amplitude         R10-R12 bits 0-3 level', 'js/ui/page.js').includes(4)
   && inFile('// M1: the phone', 'tools/browser-check.js').includes(13));
 check('...and a register file still fails on every other kind of label', inFile('// UX R30 (the owner)', 'js/chips/mc6845.js').join() === '1,5');
+// the register files are named one by one: a machine, a MAME tool or a test that is not about registers is read as
+// any other file, and the words that name particular registers excuse only those registers
+const OUTSIDE = [['// a fix (R24)', 'js/machines/coco3.js', 3], ['// M2: the GIME timer', 'js/machines/coco3.js', 13], ['// R24: a toast', 'tools/mame-diff/run.js', 12],
+  ['// R2: the drive', 'js/machines/dragon.js', 12], ['// R24 rows', 'tests/coco3.test.js', 3], ['// F3: the refusal', 'tests/machine-switch.test.js', 13],
+  ['// move the cursor (R24)', 'js/ui/page.js', 3], ['// the share address R24 decided', 'js/ui/share.js', 3], ['// the cursor (R2) fix', 'js/ui/page.js', 12],
+  ['// the start address R30 rule', 'docs/using.md', 3]];
+const notCaught = OUTSIDE.filter(([l, file, id]) => !inFile(l, file).includes(id));
+check('only the listed register files are exempt, and "cursor" or "address" excuses only the registers it names', !notCaught.length, JSON.stringify(notCaught));
+check('...while the 6845 cursor and start address registers still pass beside those words', !labelsIn('cursor (R14/R15, R10/R11)').length
+  && !labelsIn('R12/R13 start address').length && !labelsIn('the start address R12/R13').length && !labelsIn('\x60screenRows\x60 (R6)').length);
 
 // ---------------- stripLine: what tests/changelog-guard.js compares ----------------
 const STRIP = [

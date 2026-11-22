@@ -347,7 +347,7 @@ const ram = (s, a, k) => Array.from({ length: k }, (_, i) => s.shownMachine.ram[
     const right = { queue: m.typist.queue.length, stub: m.stubKeys.length };
     for (let i = 0; i < 60; i++) { frames(s, 1); await tick(1); }
     const r = await within(turn);
-    check('switch off while typing is held: the switch off while typing is held: Resume puts none of it back (the held keys are dropped), the call fails no-consent, nothing more is typed',
+    check('the switch off while typing is held: Resume puts none of it back (the held keys are dropped), the call fails no-consent, nothing more is typed',
       paused && heldN > 0 && right.queue === 0 && r !== 'timeout' && tools[0] && tools[0].code === C.NO_CONSENT && m.typist.queue.length === 0 && m.stubKeys.length === 0,
       JSON.stringify({ paused, heldN, right, tools }));
     s.endChat();
