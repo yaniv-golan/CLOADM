@@ -400,6 +400,11 @@ async function observed(setup, act, id = 'dragon64', panel = false) {
 //     * a `//` inside a string, template or regex is not a comment;
 //     * a file the reader cannot read whole (an unclosed comment, string, template or regex, an unmatched bracket) is
 //       reported where the reading broke - an unclosed `/*` would otherwise hide every reach after it;
+//     * the exemption for the backing field is exact: only the bodies of `get shownMachine` / `set shownMachine` and
+//       the Session constructor's `this._shown = null` are the field's own. A reach in any other accessor (`get personMachine`)
+//       or `this._shown = <anything but null>` is a reach;
+//     * a file whose values do not settle within the reader's pass limit is reported where they were still growing
+//       (a real file settles in at most six passes; the limit is forty);
 //     * `emu.machine` / `window.emu.machine`, but ONLY in the page-driving tools and only while `js/ui/main.js`
 //       defines it as the named shown-machine accessor - and `emu.session.machine` anywhere is an ordinary reach.
 //
@@ -416,7 +421,13 @@ async function observed(setup, act, id = 'dragon64', panel = false) {
 //       (`page.onView((s) => s.machine)` - the caller is not in this file, so the parameter has no known argument);
 //     * values that go through code the reader does not follow: a Map/Set, a function's RETURN value, a spread, a
 //       destructuring ASSIGNMENT (`({ machine } = session)` - declarations and parameters are read), a getter;
-//     * a key that comes from run-time data (input, a computed string that is not constant), and eval/with/Function;
+//     * a key that comes from run-time data (input, a computed string that is not constant), and eval/with/Function.
+//       A computed key that is an EXPRESSION is reported (the reader cannot say it is not a reach), but a key that is a
+//       single NAME the reader knows nothing about - `session[k]` with `k` a parameter, or `k = location.hash` - is
+//       not: such a name is far more often an index than a field name, and flagging every one would bury the scan;
+//     * a value handed to a SETTER: `obj.p = session` where `p` is a `set p(v)` does not reach `v` (the reader binds a
+//       parameter at a call, and an assignment is not one) - nor, in the Session, `this.shownMachine = x` reaching the
+//       setter's own `this._shown = m`, which is the accessor's body and exempt as such;
 //     * an ALIAS of the one licensed accessor, `const m = window.emu.machine`: allowed in the page-driving tools by
 //       POLICY (about seventy call sites read the shown machine through one), not for want of a parser.
 const SESSION_BODY = 'js/session.js';

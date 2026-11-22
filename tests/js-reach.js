@@ -25,7 +25,11 @@
 // A REACH is then `.machine` / `?.machine` / `['machine']` / `._shown` / a computed key whose value includes one of
 // those names, a destructure of either out of a holder (declaration or parameter), or Reflect.get/set/has/
 // getOwnPropertyDescriptor/defineProperty or Object.getOwnPropertyDescriptor/defineProperty on a holder with such a key.
-// A computed key on a holder whose value the reader cannot pin down is reported as such (it cannot say it is not one).
+// A computed key on a holder whose value the reader cannot pin down is reported as such - when it is an EXPRESSION
+// (`session['ma' + x]`, `session[0]`) or a name that may hold a string constant AND something unknown. A key that is a
+// single name the reader knows nothing about (`session[k]` with `k` a parameter, or `k = location.hash`) is NOT
+// reported: such a name is far more often an index than a field name, and THE BOUNDARY in tests/chat-leaks.test.js
+// lists it under NOT CAUGHT.
 'use strict';
 
 const KW_BEFORE_REGEX = new Set(['return', 'typeof', 'case', 'in', 'of', 'new', 'delete', 'void', 'throw', 'instanceof',
@@ -492,6 +496,11 @@ function analyse(text, opts = {}) {
   // ---- reports ----
   const findings = new Map();
   const say = (k, what) => { const key = `${T(k).line}|${what}`; if (!findings.has(key)) findings.set(key, { line: T(k).line, what }); };
+  // the method (or function) a token is in: the nearest non-arrow function and its class
+  const methodOf = (k) => {
+    for (let s = scopes[scopeAt[k]]; s; s = s.parent >= 0 ? scopes[s.parent] : null) if (s.kind === 'fn' && !s.arrow) return s;
+    return null;
+  };
   const exempt = (k) => {
     if (!opts.exempt) return false;
     for (let s = scopes[scopeAt[k]]; s; s = s.parent >= 0 ? scopes[s.parent] : null) {
@@ -505,7 +514,10 @@ function analyse(text, opts = {}) {
     if (!holderKinds(vals, name).length) return;
     if (exempt(k)) return;
     // the constructor's own `this._shown = null` is the field's declaration, not a reach
-    if (name === '_shown' && opts.sessionClass && isP(k + 1, '=') && isId(k + 2, 'null')) return;
+    if (name === '_shown' && opts.sessionClass && isP(k + 1, '=') && isId(k + 2, 'null')) {
+      const m = methodOf(k), c = m && classOfFn(m);
+      if (m && m.name === 'constructor' && c && c.name === opts.sessionClass) return;
+    }
     say(k, text);
   }
   // a key on a holder: its value names a reach, or it cannot be pinned down
@@ -573,7 +585,7 @@ function analyse(text, opts = {}) {
     const end = pattern(k, [], leaves, keys);
     for (const l of leaves) {
       const b = declare(scope, l.name);
-      facts.push({ kind: 'leaf', b, src, path: l.path, def: l.def || null });
+      facts.push({ kind: 'leaf', b, src, path: l.path, def: l.def || null, tok: l.tok });
     }
     if (keys.length) patternChecks.push({ open: k, keys, src });
     return end;
@@ -679,12 +691,20 @@ function analyse(text, opts = {}) {
   sessionCls = sessionScope();
   // ---- the fixpoint ----
   const evalSrc = (f) => (f.range ? evalRange(...f.range) : UNKNOWN);
-  for (let pass = 0; pass < 40; pass++) {
+  // The values only grow and are finite, so the fixpoint settles; a file that has not settled within MAX_PASSES is a
+  // PROBLEM, reported at the fact that was still growing, never a result: stopping early would leave names unlearned
+  // and their reaches unseen. (A real file settles in a handful of passes; `maxPasses` is for the test that forces it.)
+  const MAX_PASSES = opts.maxPasses || 40;
+  const factTok = (f) => (f.tok !== undefined ? f.tok : f.range ? f.range[0] : f.callee ? f.callee[0]
+    : Array.isArray(f.obj) ? f.obj[0] : f.obj !== undefined ? f.obj : f.arr);
+  let settled = false, lastGrew = null;
+  for (let pass = 0; pass < MAX_PASSES; pass++) {
     changed = false;
     for (let q = 0; q < facts.length; q++) {
       const f = facts[q];
       if (f.deps) { let stale = false; for (const c of f.deps) if ((c.stamp || 0) > f.at) { stale = true; break; } if (!stale) continue; }
       deps = new Set(); f.at = clock;
+      const before = clock;
       if (f.kind === 'bind') addAll(f.b.vals, evalSrc(f));
       else if (f.kind === 'leaf') {
         const v = f.path === null ? UNKNOWN : memberPath(f.src(), f.path);
@@ -723,8 +743,13 @@ function analyse(text, opts = {}) {
         }
       }
       f.deps = deps; deps = null;
+      if (clock !== before) lastGrew = f;
     }
-    if (!changed) break;
+    if (!changed) { settled = true; break; }
+  }
+  if (!settled) {
+    problems.push({ line: lastGrew ? T(factTok(lastGrew)).line : 1, what: `the values did not settle in ${MAX_PASSES} passes` });
+    return { findings: [], problems, tokens: N };
   }
 
   // ---- the reaches ----

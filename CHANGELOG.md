@@ -85,7 +85,9 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   scan-suite row required a catch on a block-scoped `k` that reaches nothing; that expectation was a false positive,
   so the row now reassigns one binding and the old plant is an `allow` row. The per-file list of names that "are not
   a Session" is gone, since the reader follows values. `tests/chat-leaks-scan.test.js` has 15 new rows, each green
-  under the line scanner. It reads only the planted file per row, which takes it from about 23 s to about 2 s.
+  under the line scanner, and four more that pin the backing field's exemption (only the two accessors' bodies and the
+  Session constructor's `this._shown = null`) and require a file whose values do not settle within the reader's pass
+  limit to fail rather than pass. It reads only the planted file per row, which takes it from about 23 s to about 2 s.
 - **`add_roms` keeps a URL as origin + path.** The store's `index.json` recorded the full URL a ROM came from, query
   string and fragment included, which can hold a token. It now keeps the origin and the path only.
 - **Test and tool tidy-ups, no emulation change.** `tools/mame-diff/tape/spec.js` takes its register lists from

@@ -222,6 +222,22 @@ const CASES = [
   { id: 'an unclosed /* comment hiding a reach (the self-check reports the file unreadable there)', file: 'js/ui/claude.js',
     find: '  }, { every: true, beforeView: true });\n',
     insert: '  /* an unclosed comment\n  if (page.session.machine) globalThis.__z = 1;\n' },
+  // (g) the accessor exemption is exactly the two accessors' own bodies and the constructor's `= null` (review nits):
+  // a reach inside ANOTHER getter of the Session is a reach, and assigning the backing field anything but null is one
+  { id: 'this._shown inside get personMachine() (only get/set shownMachine are exempt)', file: 'js/session.js',
+    find: '  get personMachine() {\n',
+    insert: '    if (this._shown) globalThis.__z = 1;\n' },
+  { id: 'this._shown = globalThis.z in the Session constructor (only `= null` is the field\'s own)', file: 'js/session.js',
+    find: '    this._shown = null;\n',
+    insert: '    this._shown = globalThis.z;\n' },
+  { id: 'this._shown = null outside the constructor (only the constructor\'s clears the field)', file: 'js/session.js',
+    find: '  welcomeSound() {\n',
+    insert: '    this._shown = null; globalThis.__z = 1;\n' },
+  // (h) the fixpoint's limit is a FAIL, not a result: a 46-link alias chain written backwards learns one link per
+  // pass, so it cannot settle in the 40 passes, and the reader reports the file where it was still growing
+  { id: 'an alias chain that does not settle in 40 passes (reported, not silently cut short)', file: 'js/ui/claude.js',
+    find: '  }, { every: true, beforeView: true });\n',
+    insert: '  let q0, q1, q2, q3, q4, q5, q6, q7, q8, q9, q10, q11, q12, q13, q14, q15, q16, q17, q18, q19, q20, q21, q22, q23, q24, q25, q26, q27, q28, q29, q30, q31, q32, q33, q34, q35, q36, q37, q38, q39, q40, q41, q42, q43, q44, q45; q0 = q1; q1 = q2; q2 = q3; q3 = q4; q4 = q5; q5 = q6; q6 = q7; q7 = q8; q8 = q9; q9 = q10; q10 = q11; q11 = q12; q12 = q13; q13 = q14; q14 = q15; q15 = q16; q16 = q17; q17 = q18; q18 = q19; q19 = q20; q20 = q21; q21 = q22; q22 = q23; q23 = q24; q24 = q25; q25 = q26; q26 = q27; q27 = q28; q28 = q29; q29 = q30; q30 = q31; q31 = q32; q32 = q33; q33 = q34; q34 = q35; q35 = q36; q36 = q37; q37 = q38; q38 = q39; q39 = q40; q40 = q41; q41 = q42; q42 = q43; q43 = q44; q44 = q45; q45 = session;\n' },
   // and it dies with the accessor: replace the getter in js/ui/main.js with a plain field and the real tree no longer
   // passes, because tools' `emu.machine` is then reaching a field that is no longer named as the shown machine
   // this row's plant is in js/ui/main.js, but the FINDING it must produce is in the tools: with the accessor gone,
