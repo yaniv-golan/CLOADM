@@ -565,6 +565,53 @@ The example runs on the CoCo's bit-banger because its guest is small. The Dragon
 shift state are in the snapshot as well (`tests/state.test.js`: "The Dragon 64's 6551 ACIA with a loopback plug", a byte shifted out
 and back when the snapshot is taken). The example does not exercise the machine-to-peer direction: its guest only receives.
 
+### Reading a disk with no DOS ROM
+
+A Dragon disk program that runs its own disk code (a game that loads its levels, a loader of your own) needs the Dragon disk
+**controller**, not a DOS. The two are separate parts: the controller is the WD2797 chip and its latch at `$FF40-$FF4F`; DragonDOS is a
+ROM in the cartridge (`ddos10.rom`, yours to supply) whose code boots from the disk and gives BASIC its `LOAD` and `DIR`. With a DOS
+ROM the machine boots from the disk and the DOS drives the chip for you. Without one, nothing drives the chip but your program:
+the cartridge space reads `00`, BASIC has no disk commands, and the guest does a restore, a seek and the reads itself.
+
+`docs/examples/disk-read.mjs` is one runnable file, public modules only (`js/emu.js`), no test helper, that does it from any directory
+(from a copy elsewhere set `CLOADM_DIR`):
+
+```sh
+node docs/examples/disk-read.mjs
+```
+
+1. **A disk in memory.** `blankDisk('vdk', 40, 1)` makes a 40-track single-sided VDK image; `diskGeometry(bytes, 'vdk')` says where a
+   sector sits in the file (`headerSize`, `sectors`, `firstSector`, `sectorSize`), and the example writes a known pattern into every
+   sector.
+2. **A controller with no ROM.** `new devices.dragonfdc()` is the Dragon controller cartridge without a ROM image;
+   `machine.insertCartridge(fdc)` plugs it in and `fdc.mount(0, { bytes, format: 'vdk', name })` puts the disk in drive 0. (The
+   Session's own `importDisk` goes through the disk library and insists on a DOS ROM, so it refuses here.)
+3. **A guest that drives the chip.** `docs/examples/diskread.asm` (6809, built-in firmware) sets the drive latch (`$FF48`: drive 0,
+   motor on, double density, NMI off), restores, reads track 0 sector 1, seeks to track 2 and reads sector 5, each 256 bytes with the
+   read-sector command `$88` and a DRQ polling loop on `$FF40`/`$FF43`, then writes `$A5` to a done byte. The read command's bit 3
+   matters: on a WD2797 it says that the ID's length code 1 means 256 bytes (without it the same code means 512). The loop has to
+   take a byte every 28 CPU cycles (double density at 0.89 MHz), or the chip sets *lost data*; the guest's loop takes 26 at most.
+4. **The host waits on the byte, and compares.** `session.runAssembled(assemble(...))` runs the guest; the example runs frames
+   until `$3100` is `$A5` (bounded), then checks, for each read, that the controller's status shows no error, that the guest took
+   exactly 256 bytes, and that RAM holds the sector's bytes. It prints the elapsed frames and CPU cycles:
+
+```json
+{"reads":[{"track":0,"sector":1,"at":"$3200","bytes":256,"match":true,"status":"$00"},{"track":2,"sector":5,"at":"$3300","bytes":256,"match":true,"status":"$00"}],"frames":13,"cycles":231185}
+```
+
+The numbers are emulated time, so they are the same on every run: the disk turns at 300 rpm, so 13 frames (0.26 s) are mostly the head
+stepping to track 2 and the wait for each sector to come round. `tests/disk-read-example.test.js` runs the example from a temporary
+directory, and runs it against three broken guests (the wrong sector-length bit, one byte too few, no seek), each of which it must
+reject. A guest that asks for a sector the disk does not have never sees DRQ; a program for real use also watches the busy bit
+or a timer.
+
+**From the command line this does not work today.** `--disk` mounts through the Session, which needs a DOS ROM to plug the controller
+in: `node cli/cloadm.js --disk t.vdk --asm diskread.asm` with no ROMs stops with exit 3, `Disks need a disk ROM: DragonDOS
+cartridge (ddos10.rom) or Delta DOS cartridge (deltados.rom)`, whatever the order of the steps. With a DragonDOS ROM given
+(`--roms DIR --disk t.vdk`) the Session plugs the controller in itself; that path needs a ROM CLOADM does not ship, and is not run here. A
+command-line way to plug the bare controller in, with no ROM, does not exist. The Node names the example uses (`devices.dragonfdc`, `machine.insertCartridge`, `fdc.mount`,
+`blankDisk`, `diskGeometry`) are public from `js/emu.js` but are not in the stability table below.
+
 ### What is stable
 
 | Stable: kept working, changes noted in the CHANGELOG | |
