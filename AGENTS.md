@@ -75,7 +75,9 @@ Which proof levels apply to your kind of change: [section 4, "Which levels apply
 | The agent skill | `skills/cloadm/`, copied byte for byte to `.agents/skills/cloadm/` | Names every tool by what it does; `tests/skill.test.js`; evals in `tests/skill-evals/` |
 | Plugin and extension manifests | `.claude-plugin/`, `mcpb/manifest.json` | One version, from CHANGELOG.md's "Next version" line; `tests/plugin.test.js` |
 
-Every new stateful component goes into the snapshot (`saveState` / `loadState`) and into `tests/state.test.js`.
+Every new stateful component goes into the snapshot (`saveState` / `loadState`) and into the state tests
+(`tests/state.test.js`, or `tests/state-fdc.test.js`, `tests/state-carts.test.js` or `tests/state-tape.test.js` for a
+floppy controller, a cartridge or the cassette).
 
 ## 3. How to work
 
@@ -103,7 +105,8 @@ A program under `examples/` (a demo, a game, a tool that runs on the built-in fi
 1. The source, `examples/<name>.asm` or `examples/<name>/<name>.asm`; your own code, no ROM code.
 2. An entry in the list in `tools/build-examples.js`, then `node tools/build-examples.js`. It writes the `.bin` and
    brings `sw.js`'s offline file list up to date; commit both. (A served file added any other way needs `node
-   tools/pwa-files.js --write`, or `tests/pwa.test.js` fails.)
+   tools/pwa-files.js --write`, or `tests/pwa.test.js` fails.) The one exception to the list is `examples/demo.bin`,
+   which `tools/build-demo.js` builds from its hand-encoded source: it predates the list and stays out of it.
 3. A test, `tests/<name>.test.js`, with real assertions: a play script (`.cloadm`) run through `cli/cloadm.js` on
    each machine it supports (`--expect-screen`, `--expect-mem`, `--expect-screenshot`, `--wav`), and mutants of the
    program that must fail it ([docs/game-development.md](docs/game-development.md) and
@@ -119,7 +122,10 @@ A change is done only when every applicable level below passes. Your report (sec
 
 **The gate is a green CI run on the exact commit.** Every push to `main` and to contributor branches (`claude/**`,
 `ds/**`) runs the `tests` workflow (`.github/workflows/tests.yml`) once on the pushed head; for a branch with another
-name, run it by hand (Actions → tests → Run workflow). It runs `node tests/all.js` and every group of
+name, run it by hand (Actions → tests → Run workflow). A pull request into `main` also runs it, on the merge result
+GitHub builds for the PR (`refs/pull/N/merge`): that run's SHA is a merge commit, so it is the proof that merging the
+branch keeps `main` green, not the proof for the branch -- report the run on the pushed head. It runs
+`node tests/all.js` and every group of
 the browser check, split over parallel shards that together must cover every group. Its final job, `gates`, is
 green only if all of them passed, and its summary gives the commit SHA and tree hash (`git rev-parse HEAD^{tree}`).
 That run, on the SHA you report, is the proof for levels 4.1, 4.2 and 4.7. Run the same commands locally while you
@@ -208,8 +214,9 @@ Headless MAME quirks are already handled in `tools/mame-diff/lib/`. Use them rat
 Traces are large: delete them afterwards and kill stuck `mame` processes. They can fill a disk quickly.
 
 ### 4.5 Snapshots
-New state must survive `saveState` → JSON (`state.toJSON` / `fromJSON`) → `loadState`. Extend
-`tests/state.test.js`: save in the middle of the new activity (a disk transfer, a sound playing, a serial byte in
+New state must survive `saveState` → JSON (`state.toJSON` / `fromJSON`) → `loadState`. Extend the state test that
+holds its area (`tests/state.test.js`, or `state-fdc`, `state-carts` or `state-tape`; a new check's name also goes into
+that suite's list in `tests/state-check-names.json`): save in the middle of the new activity (a disk transfer, a sound playing, a serial byte in
 flight), restore into a fresh machine, and show the instruction trace and frames continue identically to the
 uninterrupted run.
 

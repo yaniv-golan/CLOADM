@@ -224,7 +224,7 @@ export function setupDrives(page, { openRoms = null } = {}) {
     return n;
   };
   // none of this machine's drives can take a disk: say so, as a mount would
-  const noDrives = () => { if (session.diskDosChoices().length) return false; page.status(`The ${session.machine.profile.name} has no disk drives in CLOADM. Disks go in on the Dragons and the CoCos.`, true); return true; };
+  const noDrives = () => { if (session.diskDosChoices().length) return false; page.status(`The ${session.personMachine.profile.name} has no disk drives in CLOADM. Disks go in on the Dragons and the CoCos.`, true); return true; };
   // said: what a mount elsewhere (the Library) reports, with the same toast. pick, blank and eject: the command box's
   // "Insert a disk…", "New blank disk" and "Eject disk", on the first free drive (eject: the last drive with a disk)
   const api = {

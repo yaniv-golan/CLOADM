@@ -1,4 +1,6 @@
-/* The ROM self-test card: runs js/selftest.js on the current machine's ROMs and shows the report. */
+/* The ROM self-test card: runs js/selftest.js on the PERSON's machine's ROMs and shows the report. The ROMs are the
+ * person's (a drop, a link, the ROMs tab), and with the chat full screen the chat machine runs the stub: asking it
+ * would say "load the ROMs first" over ROMs that are loaded, so this asks personMachine. */
 import { SelfTest } from '../selftest.js';
 import { $ } from './page.js';
 
@@ -6,7 +8,7 @@ export function setupSelfTestPanel(page) {
   const { session } = page;
   let running = false;
   async function run() {
-    const m = session.machine;
+    const m = session.personMachine;
     if (running) return;
     if (!m.hasRom) { page.status(`Load the ${m.profile.name} ROMs first (ROMs… or ?rom=URL), then run the self-test.`, true); return; }
     running = true;

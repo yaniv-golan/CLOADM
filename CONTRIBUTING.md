@@ -11,10 +11,24 @@ regression hashes, the comparison with MAME for anything the hardware does, and 
 Found a problem? [Open an issue](https://github.com/yaniv-golan/cloadm/issues). Missing a name in the credits?
 A pull request adding it to [CREDITS.md](CREDITS.md) is always welcome.
 
+Everyone here follows the [Code of Conduct](CODE_OF_CONDUCT.md). Security problems are reported privately, never in
+an issue: use GitHub's **Report a vulnerability** button (see [SECURITY.md](SECURITY.md)).
+
 ### What CI runs, and what it does not
 
-Every push and pull request runs two jobs: `node tests/all.js` (every suite, the regression hashes included) and
-`node tools/browser-check.js` (the real pages in headless Chromium). Both run on a pinned `ubuntu-24.04` image.
+Every push to `main`, `claude/**` or `ds/**` runs the gates on the pushed commit. A pull request into `main` runs
+them too, on the merge result GitHub builds for it (`refs/pull/N/merge`), not on the branch head: the push run is
+the proof for the branch, and the PR run is the proof that merging it keeps `main` green. Either way the gates are
+`node tests/all.js` (every suite, the regression hashes included) and `node tools/browser-check.js` (the real pages in
+headless Chromium), with the browser check split over four parallel shards, all on a pinned `ubuntu-24.04` image.
+
+The run's jobs are `browser-check shards are complete` (every browser-check group is in exactly one shard),
+`node tests/all.js`, `browser check <shard>` (one per shard), and `gates`, which is green only if every other job
+passed; its summary is where the commit, its tree hash and each job's counts are read.
+
+Other branches run on demand (Actions → tests → Run workflow). The workflows are read like any other code, and every
+action in them is pinned to a commit SHA: `tests/workflows.test.js` checks that, and that `pull_request_target` is
+never used.
 
 CI has **no MAME and no ROMs**. That is deliberate and should stay that way: nothing in CI needs a copyrighted ROM and
 nothing downloads one. So the comparisons with MAME (`tools/mame-diff/run.js`,

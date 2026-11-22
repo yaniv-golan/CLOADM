@@ -15,7 +15,7 @@ export function setupScreen(page, { loadPrograms, roms }) {
   page.crtAvailable = presenter.crt;
   // HostInput maps keys, gamepads and the mouse; its held keys go through the Session's KeyQueue, so a fast
   // typist's keys are applied in order at frame starts and none is lost (js/machines/keyqueue.js)
-  const input = new HostInput(session.machine, session.keys);
+  const input = new HostInput(session.shownMachine, session.keys);
   const pads = new Gamepads();
   let havePads = false;
   const applyInputSettings = () => {
@@ -23,7 +23,7 @@ export function setupScreen(page, { loadPrograms, roms }) {
     input.joyKeys = session.store.get('keyboardJoystick') === '1';
   };
   session.on((ev) => {
-    if (ev === 'machine') { input.setMachine(session.machine); applyInputSettings(); }
+    if (ev === 'machine') { input.setMachine(session.shownMachine); applyInputSettings(); }
     // the machine's sound level jumps for a reason that isn't sound: the output carries on from where it was
     if (['machine', 'firmware', 'reset', 'loaded'].includes(ev)) audio.discontinuity();
   });
@@ -95,7 +95,7 @@ export function setupScreen(page, { loadPrograms, roms }) {
     // ran while paused too. document.hidden is the exception -- nothing needs updating on a hidden page.
     if (document.hidden) return;
     page.tickUi();
-    const m = session.machine;
+    const m = session.shownMachine;
     let ran = 0;
     if (!paused) {
       readPads();
@@ -168,19 +168,19 @@ export function setupScreen(page, { loadPrograms, roms }) {
     const x = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
     const y = Math.max(0, Math.min(1, (e.clientY - r.top) / r.height));
     input.setMouse({ x, y, left: input.mouse.left, right: input.mouse.right });
-    if ($('chkJoy').checked && !touchStickUp()) { input.player('mouse', x * 2 - 1, y * 2 - 1, input.mouse.left); const joy = session.machine.joy[0]; joy[0] = Math.round(x * 63); joy[1] = Math.round(y * 63); }
+    if ($('chkJoy').checked && !touchStickUp()) { input.player('mouse', x * 2 - 1, y * 2 - 1, input.mouse.left); const joy = session.shownMachine.joy[0]; joy[0] = Math.round(x * 63); joy[1] = Math.round(y * 63); }
   });
   canvas.addEventListener('mousedown', (e) => {
     input.setMouse({ x: input.mouse.x, y: input.mouse.y, left: true, right: input.mouse.right });
-    if ($('chkJoy').checked && !touchStickUp()) { input.player('mouse', input.mouse.x * 2 - 1, input.mouse.y * 2 - 1, true); session.machine.fire[0] = true; mouseFire = true; e.preventDefault(); }
+    if ($('chkJoy').checked && !touchStickUp()) { input.player('mouse', input.mouse.x * 2 - 1, input.mouse.y * 2 - 1, true); session.shownMachine.fire[0] = true; mouseFire = true; e.preventDefault(); }
     audio.start();
   });
   window.addEventListener('mouseup', () => {
     input.setMouse({ x: input.mouse.x, y: input.mouse.y, left: false, right: input.mouse.right });
-    if (mouseFire) { mouseFire = false; session.machine.fire[0] = false; input.player('mouse', input.mouse.x * 2 - 1, input.mouse.y * 2 - 1, false); }
+    if (mouseFire) { mouseFire = false; session.shownMachine.fire[0] = false; input.player('mouse', input.mouse.x * 2 - 1, input.mouse.y * 2 - 1, false); }
   });
   canvas.addEventListener('contextmenu', (e) => {
-    if (!session.machine.cartPort || session.machine.cartPort.type !== 'cocomax') return;
+    if (!session.shownMachine.cartPort || session.shownMachine.cartPort.type !== 'cocomax') return;
     e.preventDefault();
     input.setMouse({ x: input.mouse.x, y: input.mouse.y, left: input.mouse.left, right: true });
   });
@@ -224,9 +224,9 @@ export function setupScreen(page, { loadPrograms, roms }) {
   // games menu), so the tapped row's cell there says which key it is. While the touch stick is showing, the
   // person is playing a game, not choosing a menu line: no tap goes to the menu then.
   canvas.addEventListener('pointerup', (e) => {
-    if (!session.welcomeRunning) return;
+    if (!session.welcomeRunningOn) return;   // the machine ON SCREEN: this handler taps and types on session.shownMachine
     if (touchStickUp()) return;
-    const m = session.machine, r = canvas.getBoundingClientRect(), f = m.render();
+    const m = session.shownMachine, r = canvas.getBoundingClientRect(), f = m.render();
     const row = Math.floor(((e.clientY - r.top) / r.height * f.height - 24) / 12);
     if (row < 0 || row > 15) return;
     const cell = m.peek((m.profile.textScreen || 0x400) + row * 32 + 4);

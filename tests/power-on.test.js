@@ -20,9 +20,9 @@ const ROOT = path.join(__dirname, '..');
 const read = (f) => new Uint8Array(fs.readFileSync(path.join(ROOT, 'examples', f)));
 const welcome = read('welcome.bin'), liza = read('liza.bin'), liza6803 = read('liza6803-mc10.bin');
 const welcome6803 = { mc10: read('welcome6803-mc10.bin'), alice: read('welcome6803-alice.bin') };
-const frames = (s, k) => { for (let i = 0; i < k; i++) s.advance(1000 / s.machine.fps + 0.01); };
+const frames = (s, k) => { for (let i = 0; i < k; i++) s.advance(1000 / s.shownMachine.fps + 0.01); };
 const store = () => { const m = new Map(); return { get: (k) => (m.has(k) ? m.get(k) : null), set: (k, v) => m.set(k, String(v)), remove: (k) => m.delete(k), keys: () => [...m.keys()] }; };
-const type = (s, text) => { for (const c of text) { s.machine.stubKeys.push(c.charCodeAt(0)); frames(s, 3); } };
+const type = (s, text) => { for (const c of text) { s.shownMachine.stubKeys.push(c.charCodeAt(0)); frames(s, 3); } };
 const screen = (s) => s.screenText().join('\n');
 // a DragonDOS binary at $3000: INC $0400 ; BRA $3000 (it counts in the screen's first cell, forever)
 const LOOP = new Uint8Array([0x55, 2, 0x30, 0x00, 0x00, 0x05, 0x30, 0x00, 0xAA, 0x7C, 0x04, 0x00, 0x20, 0xFB]);
@@ -40,11 +40,11 @@ const newSession = (id) => {
     const { s, menus } = newSession('dragon64');
     s.startWelcome(welcome, { greeting: 'back', carryOn: 'LIZA' });
     frames(s, 50);
-    s.machine.poke(0x400 + 7 * 32, 0x20);   // something on the screen the menu didn't draw
+    s.shownMachine.poke(0x400 + 7 * 32, 0x20);   // something on the screen the menu didn't draw
     s.reset();
     frames(s, 50);
     const t = s.screenText();
-    check('reset: the welcome menu restarts, WELCOME BACK and 6 CARRY ON WITH LIZA', s.welcomeRunning && t[6].trim() === 'WELCOME BACK' && t[13].trim() === '6 CARRY ON WITH LIZA',
+    check('reset: the welcome menu restarts, WELCOME BACK and 6 CARRY ON WITH LIZA', s.welcomeRunning && t[6].trim() === 'WELCOME BACK' && t[12].trim() === '6 CARRY ON WITH LIZA',
       JSON.stringify(t.slice(6, 15)));
     check('reset: the welcome menu asks for no other menu', !menus.length, menus.join());
   }
@@ -66,13 +66,13 @@ const newSession = (id) => {
     const { s, menus } = newSession('dragon64');
     s.load('loop.bin', LOOP);
     frames(s, 5);
-    s.machine.poke(0x3001, 0x05);           // INC $0500 now: the program changed in memory
+    s.shownMachine.poke(0x3001, 0x05);           // INC $0500 now: the program changed in memory
     frames(s, 2);
     s.reset();
     frames(s, 2);
-    const pc = s.machine.cpu.pc;
-    check('reset: a binary restarts at its exec address with its own bytes', s.machine.ram[0x3001] === 0x04 && pc >= 0x3000 && pc <= 0x3004 && !menus.length,
-      `pc ${pc.toString(16)} $3001=${s.machine.ram[0x3001]} ${menus.join()}`);
+    const pc = s.shownMachine.cpu.pc;
+    check('reset: a binary restarts at its exec address with its own bytes', s.shownMachine.ram[0x3001] === 0x04 && pc >= 0x3000 && pc <= 0x3004 && !menus.length,
+      `pc ${pc.toString(16)} $3001=${s.shownMachine.ram[0x3001]} ${menus.join()}`);
     // a binary loaded into a machine with ROMs isn't the stub's to restart: there, reset is BASIC's
   }
   // Reset with nothing to restart: the welcome menu
@@ -89,11 +89,11 @@ const newSession = (id) => {
     s.switchMachine('coco');
     check('switching to a machine without ROMs: the welcome menu', menus.join() === 'back', menus.join());
     s.reset();
-    check('reset after switching machine: not the old machine\'s program; the welcome menu', menus.join() === 'back,back' && s.machine.ram[0x3000] !== 0x7C, menus.join());
+    check('reset after switching machine: not the old machine\'s program; the welcome menu', menus.join() === 'back,back' && s.shownMachine.ram[0x3000] !== 0x7C, menus.join());
     s.addRoms([{ name: 'd32.rom', bytes: new Uint8Array(0x4000).fill(0x12) }]);
     menus.length = 0;
     s.switchMachine('dragon32');
-    check('switching to a machine with its ROMs: BASIC, no menu', !menus.length && s.machine.hasRom, menus.join());
+    check('switching to a machine with its ROMs: BASIC, no menu', !menus.length && s.shownMachine.hasRom, menus.join());
   }
   // Switch off and on: the welcome menu, whatever ran
   {
@@ -112,13 +112,13 @@ const newSession = (id) => {
     check('with ROMs: no menu on adding them', !menus.length, menus.join());
     s.powerCycle();
     s.reset();
-    check('with ROMs: switch off and on and reset are BASIC\'s (no menu)', !menus.length && s.machine.hasRom, menus.join());
+    check('with ROMs: switch off and on and reset are BASIC\'s (no menu)', !menus.length && s.shownMachine.hasRom, menus.join());
     s.runWithoutRoms();
-    check('"Run without ROMs": the welcome menu', menus.join() === 'back' && s.machine.useStub, menus.join());
+    check('"Run without ROMs": the welcome menu', menus.join() === 'back' && s.shownMachine.useStub, menus.join());
     s.addRoms([{ name: 'd32.rom', bytes: new Uint8Array(0x4000).fill(0x12) }]);
     menus.length = 0;
     s.clearRoms();
-    check('"Remove ROMs": the welcome menu', menus.join() === 'back' && s.machine.useStub, menus.join());
+    check('"Remove ROMs": the welcome menu', menus.join() === 'back' && s.shownMachine.useStub, menus.join());
   }
   // starting the welcome menu itself (on a machine with ROMs it goes to the stub first) asks for no other menu
   {
@@ -136,10 +136,10 @@ const newSession = (id) => {
     frames(s, 50);
     let t = s.screenText();
     check(`${id}: the 6803 menu greets WELCOME BACK and offers 5 CARRY ON WITH LIZA (its digit inverse), PRESS 1 TO 5`, t[6] === '          WELCOME BACK          '
-      && t[12].trim() === '5 CARRY ON WITH LIZA' && s.machine.ram[0x4000 + 12 * 32 + 4] === 0x35 && t[13].trim() === '' && t[14].trim() === 'PRESS 1 TO 5', JSON.stringify(t.slice(6, 15)));
+      && t[12].trim() === '5 CARRY ON WITH LIZA' && s.shownMachine.ram[0x4000 + 12 * 32 + 4] === 0x35 && t[13].trim() === '' && t[14].trim() === 'PRESS 1 TO 5', JSON.stringify(t.slice(6, 15)));
     const keys = [];
     s.on((e) => { if (e.startsWith('welcome:')) keys.push(e); });
-    s.machine.stubKeys.push(0x35); frames(s, 2);
+    s.shownMachine.stubKeys.push(0x35); frames(s, 2);
     check(`${id}: key 5 emits welcome:carryon`, keys.join() === 'welcome:carryon', keys.join());
     s.reset();
     frames(s, 50);
@@ -151,7 +151,7 @@ const newSession = (id) => {
     check(`${id}: BYE FOR NOW. PICK ANOTHER? and no option 5; key 5 does nothing`, t[7].trim() === 'BYE FOR NOW. PICK ANOTHER?' && t[13].trim() === '' && t[14].trim() === 'PRESS 1 TO 4',
       JSON.stringify(t.slice(7, 15)));
     keys.length = 0;
-    s.machine.stubKeys.push(0x35); frames(s, 2);
+    s.shownMachine.stubKeys.push(0x35); frames(s, 2);
     check(`${id}: without option 5, key 5 does nothing`, !keys.length, keys.join());
   }
   {
@@ -175,11 +175,11 @@ const newSession = (id) => {
     const { s, menus } = newSession('dragon64');
     frames(s, 10);
     type(s, 'POKE 1030,42\r');
-    check('the stub\'s prompt is what runs', s.machine.atStubPrompt() && s.machine.ram[1030] === 42);
+    check('the stub\'s prompt is what runs', s.shownMachine.atStubPrompt() && s.shownMachine.ram[1030] === 42);
     const a = await s.readSnapshot((await s.snapshotFile()).bytes);
     s.load('loop.bin', LOOP);
     frames(s, 3);
-    check('a program is not the stub\'s prompt', !s.machine.atStubPrompt());
+    check('a program is not the stub\'s prompt', !s.shownMachine.atStubPrompt());
     const b = await s.readSnapshot((await s.snapshotFile()).bytes);
     menus.length = 0;
     s.openSnapshot(a);
@@ -187,13 +187,13 @@ const newSession = (id) => {
     menus.length = 0;
     s.openSnapshot(b);
     frames(s, 2);
-    check('opening a snapshot of a program: the program, no menu', !menus.length && s.machine.cpu.pc >= 0x3000 && s.machine.cpu.pc <= 0x3004, menus.join());
+    check('opening a snapshot of a program: the program, no menu', !menus.length && s.shownMachine.cpu.pc >= 0x3000 && s.shownMachine.cpu.pc <= 0x3004, menus.join());
   }
   // the 6803 stub's prompt and a console call from it
   {
     const { s } = newSession('mc10');
     frames(s, 10);
-    check('MC-10: the stub\'s prompt is what runs', s.machine.atStubPrompt());
+    check('MC-10: the stub\'s prompt is what runs', s.shownMachine.atStubPrompt());
   }
   // the POKE book on the welcome menu: done at once, not typed into the menu
   {
@@ -205,10 +205,10 @@ const newSession = (id) => {
     const i = s.pokeBook().findIndex((p) => p.text === 'POKE 65495,0');
     const msg = s.typePoke(i);
     frames(s, 30);
-    check('POKE book on the welcome menu: the SAM rate is set, no menu key pressed, the menu still runs', s.machine.sam.rate === 1 && !keys.length && s.welcomeRunning
-      && msg === 'Done: POKE 65495,0', `${msg} rate ${s.machine.sam.rate} ${keys.join()}`);
+    check('POKE book on the welcome menu: the SAM rate is set, no menu key pressed, the menu still runs', s.shownMachine.sam.rate === 1 && !keys.length && s.welcomeRunning
+      && msg === 'Done: POKE 65495,0', `${msg} rate ${s.shownMachine.sam.rate} ${keys.join()}`);
     s.typePoke(s.pokeBook().findIndex((p) => p.text === 'POKE 65494,0'));
-    check('…and back to normal speed', s.machine.sam.rate === 0);
+    check('…and back to normal speed', s.shownMachine.sam.rate === 0);
   }
   // embedded (?embed=1: Session({ welcomeMenu: false })): the host drives a plain machine, so no menu is asked for on a
   // power-on, a reset, a switch, Remove ROMs or leaving LIZA; Reset still restarts what runs

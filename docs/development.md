@@ -42,7 +42,7 @@ names contain one of the parts, and `node tools/browser-check.js --only <group>[
 | `connector/` (the side-panel connector) | `connector,mcp,skill` | `connector` |
 | `examples/` (a program or game) | `pwa,starter-game,game-guide,welcome` and the example's own suite | `pwa` (and the group that offers it) |
 | `js/ui/`, `play/`, `css/`, `index.html` | `session,readme,screen-alternative` | the panel's groups and `semantics`, then the whole check |
-| Docs (`README.md`, `docs/`) | `readme,romdocs,game-guide` | none |
+| Docs (`README.md`, `docs/`) | `readme,romdocs,game-guide,dev-docs-headless` | none |
 | `CHANGELOG.md` | `changelog` | none |
 | The test runner (`tests/all.js`, `suite-verdict.js`, `no-exit.js`) | `allsummary,allsignal,exitguard,exitcode` | none |
 | `tools/browser-check*.js`, `.github/` | `browser-check` | the groups it touches |
@@ -63,18 +63,58 @@ When a full run fails, its last line names the failing suites (`FAILED: a.test.j
 Contributors follow [AGENTS.md](../AGENTS.md): the rules, where code goes, and the proof required before a change
 counts as done.
 
-CI (`.github/workflows/tests.yml`) runs the gates once per push, on the pushed head of `main` and of `claude/**` and
-`ds/**` branches (other branches: Actions → tests → Run workflow): `node tests/all.js`, and the browser check split into parallel shards (`--only <groups>`, listed in
-`.github/browser-check-shards.json`). `node .github/scripts/browser-check-shards.js` fails if a browser-check group
-is in no shard, in two, or isn't a group (it reads the groups from `node tools/browser-check.js --list-groups`, the
-`GROUPS` table itself); run it after adding a group, and add the group to a shard. A green run's
+CI (`.github/workflows/tests.yml`) runs the gates on every push to `main` and to contributor branches (`claude/**`,
+`ds/**`) on the pushed commit, and on every pull request into `main` on the merge result GitHub builds for it
+(`refs/pull/N/merge`, so that run's SHA is a merge commit, not the branch head). Other branches: Actions → tests →
+Run workflow. The gates are `node tests/all.js` and the browser check split into parallel shards
+(`--only <groups>`, listed in `.github/browser-check-shards.json`). The run's jobs are `browser-check shards are
+complete` (and the matrix it plans), `node tests/all.js`, one `browser check <shard>` per shard, and `gates`, which
+is green only if every other job passed. `node .github/scripts/browser-check-shards.js` fails if a browser-check
+group is in no shard, in two, or isn't a group (it reads the groups from `node tools/browser-check.js --list-groups`,
+the `GROUPS` table itself); run it after adding a group, and add the group to a shard. A green run's
 `gates` summary (commit SHA, tree hash, each job's counts) is the definition of done; see AGENTS.md section 4.
+Every action in the workflows is pinned to a commit SHA with its release tag beside it, and `pull_request_target` is
+never used; `node tests/workflows.test.js` holds both, and `.github/dependabot.yml` proposes the bumps weekly.
+`node tests/workflows-release.test.js` holds `release.yml`'s shape: it runs the gates (`release.yml` calls
+`tests.yml` in place) before anything is packed; the unpinned `npx` code runs in a job with no write scope; the
+attestation covers the assets and runs no third-party code; and the notes are the tagged version's CHANGELOG section,
+checked before anything is signed.
+
+**The site** is deployed by `pages.yml`, on a `workflow_run` of the gates: when `tests` finishes successfully for a
+push to `main`, it deploys exactly the SHA those gates ran on (`github.event.workflow_run.head_sha`), and nothing else
+does -- not a branch, a pull request or a tag. A red `main` never publishes, and an older commit cannot overwrite a
+newer deploy (it refuses unless `main` still points at the commit it gated). It is a separate workflow because a
+CALLED workflow's jobs may not request more than the caller grants, and `release.yml` calls `tests.yml` with
+`contents: read`; a deploy job inside `tests.yml` would be refused at load time and every tag release would die.
+
+**It does nothing until you switch Pages over.** The job's guard includes `vars.PAGES_VIA_ACTIONS == 'true'`, a
+repository variable that does not exist yet, so every run skips and legacy Pages keeps serving `main` as it does today.
+Merging it therefore changes nothing, and merge order does not matter. (The `github-pages` environment allows `main`,
+so once a deploy does run, a `main` push's deploy is accepted.)
+
+**Publishing the site: the owner's procedure, in this order.**
+1. **Settings -> Pages -> Source = "GitHub Actions"**. The legacy build stops publishing `main` from this point.
+2. **Settings -> Secrets and variables -> Actions -> Variables -> New variable**: `PAGES_VIA_ACTIONS` = `true`. From
+   here a successful `main` push deploys.
+3. **Re-run the latest green `tests` run on `main`** (Actions -> tests -> the run -> *Re-run all jobs* on its first
+   attempt), or push any commit; then open <https://cloadm.dev> and check the site is the new build.
+   Expect a short gap between steps 1 and 3 -- from the source switch until the first deploy lands, nothing publishes
+   the site -- so do steps 1 and 3 back to back.
+
+**A dry run of the release, after this lands on `main`**: GitHub -> Actions -> **release** -> *Run workflow* -> branch
+**main**, leave `dry_run` **checked** (it is the default) -> *Run workflow*. Dispatching it from a TAG with `dry_run`
+unchecked PUBLISHES that tag -- the dry run is only a dry run because it is started from a branch with the box on.
+It runs the gates, packs the extension, checks the artifact hand-off, and checks the notes for `CHANGELOG.md`'s current
+"Next version" line -- and skips `attest` and `publish` by their own `if:` conditions, so no Release is created and no
+write scope is used.
+
 Don't run anything else on the machine while the browser check runs: it is timing-sensitive under load.
 
 ```
 node tests/all.js            # every suite below in a worker pool (--jobs N to cap it), one line each, the regression gate included (exit 0 = all passed, and every suite must also have printed its summary line: one that exits 0 half done is a failure); a failing run ends with FAILED: <the suites>; --only <part>[,...] runs a subset, marked as not the gate
-node tools/browser-check.js  # the real pages in Chromium: the landing page (desktop and phone) and /play/: every model, LIZA end to end, the file:// notice, Capture & share and opening snapshots, the favicon and no missing file requested by any page; the feedback model (toasts on the page the user is on, cleared by the next action, Undo, Details, desktop and phone). Every "← Emulator", Esc and Back return to the emulator, from `/play/` and `?app=claude`, after a reload and from a page loaded on a view (`--only emulatorBack`). `--only feedback,library` runs just those groups (an unknown group is an error); see "What the gates' results mean" below
+node tools/browser-check.js  # the real pages in Chromium: the landing page (desktop and phone) and /play/: every model, LIZA end to end, the file:// notice, Share and opening snapshots, the favicon and no missing file requested by any page; the feedback model (toasts on the page the user is on, cleared by the next action, Undo, Details, desktop and phone). Every "← Emulator", Esc and Back return to the emulator, from `/play/` and `?app=claude`, after a reload and from a page loaded on a view (`--only emulatorBack`). `--only feedback,library` runs just those groups (an unknown group is an error); see "What the gates' results mean" below
 node tools/capture-images.js # recapture img/*.png (site and README pictures) from the emulator, with no ROMs
+node tools/capture-gif.js    # recapture img/readme-demo.gif (the README's looping picture), with no ROMs; tools/gif.js is its encoder
 node tests/cpu.test.js       # 6809 instruction tests, scripted (all tests load js/emu.js via tests/load.js)
 node tests/opcodes.test.js   # 126 instructions table-driven from the MC6809 data sheet: result, flags and cycles
 node tests/machine.test.js   # headless machine test with the stub firmware and demo
@@ -92,6 +132,9 @@ node tests/mc10.test.js      # MC-10: 6803 core, assembler plugin, machine
 node tests/sp0256.test.js    # SP0256 speech chip: sequencer, paging, branches, handshake, RCU, timing (GI design spec)
 node tests/liza6803.test.js  # LIZA for the 6803: same conversation as the 6809 build on mc10 and alice; BREAK, CLEAR, backspace
 node tests/state.test.js     # snapshots: save mid-run and part-way along a swept line, restore, identical frames
+node tests/state-fdc.test.js # the same for floppy controllers mid-transfer, one machine per controller (the slow part of the old state suite)
+node tests/state-carts.test.js  # the same for cartridges, a Multi-Pak and the Speech/Sound Pak mid-activity
+node tests/state-tape.test.js   # the same for the cassette deck: a recording in progress, a tape being played
 node tests/snapshot.test.js  # snapshot files: format and version, defective files, every model opened elsewhere, ROMs by CRC, switching, slots
 node tests/press-break.test.js # BREAK delivery: our own firmware scans the matrix on dragon64, coco3 and mc10
 node tests/video.test.js     # scanline video: beam position, SAM display counter, mid-line mode splits
@@ -113,18 +156,20 @@ node tests/reset.test.js     # Reset: never changes the machine, keeps RAM for a
 node tests/snapshot-boot.test.js   # a snapshot opened is not a power-on: no boot failure after it, while a real power-on still has one
 node tests/cli.test.js       # cli/cloadm.js as a child process: exit codes, --json, wait-for, typing, screen text, PNG pixels, snapshots, scripts, the guide's examples
 node tests/skill.test.js     # the agent skill: the .agents copy identical, frontmatter, its tool table equal to the server's, its claims and PMODE 4 recipe run on the server
-node tests/skill-evals/run.js # the skill's evals with and without it: real, billed Claude runs (needs the claude CLI), not in tests/all.js
+node tests/skill-evals/run.js # the skill's evals with and without it: real, billed Claude runs (needs the claude CLI), not in tests/all.js; a case with `server: panel` runs on the side panel's stand-in, tests/skill-evals/panel-server.mjs
 node tests/plugin.test.js    # the plugin, marketplace and Claude Desktop extension manifests: one version, paths, placeholders, the tool list, the server starting as each starts it
 node tests/mcp.test.js       # the MCP server over stdio: both protocol eras, every tool's results and errors against the in-page tools, handles, --read-only, the media root, cancellation, --serve
 node tests/mcp-roms.test.js  # add_roms / remove_roms with stand-in ROMs: a local https server (a CA made for the run), every URL refusal (http, private/loopback/CGNAT/link-local, redirects, size, timeout, not a ROM), data, the media root, consent (elicitation), the store across restarts, --read-only, no ROM bytes in results
+node tests/rom-store.test.js  # the add_roms store: a URL kept as origin + path (no query or fragment), two processes adding at once lose no entry, a stale lock is broken
 node tests/connector.test.js # the side-panel connector (connector/): the Worker over HTTP, both views and their CSP, the folded emulator identical to the plain modules, the panel's tools equal to the server's, the 100k limit, the bridge's protocol in a vm
-node tools/connector-check.js # the connector's two views in Chromium, nested as Claude nests them under the spec's CSP, with a host stub: handshake first, list_changed, the tools, keys, storage, ROMs kept and refused to memory reads, no CORS, out of step (the browser check's `connector` group)
+node tools/connector-check.js # the connector's two views in Chromium, nested as Claude nests them under the spec's CSP, with a host stub: handshake first, list_changed, the tools, keys, storage, ROMs kept and refused to memory reads, no CORS, out of step, and the view's controls (Details, the screen's fit inline and in the side panel, ⋯'s side-panel item, the menus, sound, Claude's chip), and on a phone (the size it reports inline, the host's insets, the on-screen keys in their three modes and the choice remembered, a host that asks before each call) (the browser check's `connector` group)
 node connector/build.js      # build the connector's views into connector/worker/src/views.gen.js (wrangler deploy runs it; docs/deploy-connector.md)
 node tests/cli-agent.test.js # cli/cloadm.js beyond the basics: --describe, error codes, the debugger steps against the Session's debugger, DriveWire stalls, special keys, script quoting, --view
 node tests/cli-wav.test.js   # --wav: a known DAC pattern's levels and timing, determinism, snapshots mid-sound, the box filter of the level events
 node tests/cli-screenshot.test.js  # --expect-screenshot (tolerance, diff, PNG layouts, errors) and --hold
 node tests/starter-game.test.js    # the starter game: its build, play script, picture and sound references, and mutants that must fail
 node tests/game-guide.test.js      # docs/game-development.md's programs and commands, run (the settling patterns too, each shown to matter)
+node tests/dev-docs-headless.test.js  # docs/automation.md's per-model table (rebuilt from the machines), the example docs/examples/headless-frame.mjs run from outside the repository, the recipe and the serial-peer note
 node tests/config.test.js    # URL parameters: every one checked (options against each model), bad values reported, links written and read back
 node tests/embed.test.js     # the embed API through its message protocol: calls, errors, events, frames
 node tests/pwa.test.js       # the service worker keeps every file the site serves (and build-examples.js keeps the list current); the manifest and its icons
@@ -173,11 +218,14 @@ node tests/cpu6309-session.test.js # the HD6309 runs the 6809 builds: welcome me
 node tests/returning.test.js # returning visits: greetings, carry-on (option 6; 5 on the 6803 build), what ran last, back to the menu from LIZA (BYE or BREAK) and the demo
 node tests/power-on.test.js  # without ROMs: Reset restarts what runs; power-on, a machine switch and a snapshot of the stub's prompt bring the welcome menu (6809 and 6803)
 node tests/welcome6803.test.js # the 6803 welcome on mc10 and alice: raw screen cells, per-machine subtitle, keys, the two builds differ only at the HALT
-node tests/regress.test.js                # fast gate: trace and frame hashes of the diagnostic firmware (seconds, no MAME; tests/all.js runs it too; --count prints the number of cases)
+node tests/regress.test.js                # the trace and frame hashes of the diagnostic firmware, against their recorded values (no MAME needed; about a minute of work on one core, and tests/all.js runs it in parallel shards; --count prints the number of cases, --only <name or /regex/> runs some of them, e.g. --only dragon64 while changing one thing)
+node tools/check-times.js --times tests/tape-load.test.js   # per-check times of one suite (a copy is timed, biggest first is the caller's job): name, ms, share of the suite
+node tools/measure-regress-cost.js        # re-measure the regress shard constants on this machine (every case alone, then a fit): prints TRACE_S and FRAME_S for tests/regress-shards.js; --limit N for a quick check that it runs
 node tests/allsummary.test.js             # the gate itself: the FAILED: line and --only subset runs; a suite that exits 0 without printing its summary (a pending promise, or one printed only from an exit handler) fails; a suite that prints a "FAIL " line and exits 0 fails; normal suites pass; summaries printed from every writer and quote style are read; fixtures stay out
 node tests/fastloop.test.js               # the fast-loop table above: every suite pattern selects a suite, every group exists; AGENTS.md's Start-here scripts exist
 node tests/allsignal.test.js              # a signal to the gate stops every suite and exits 128+n; nothing survives
-node tests/changelog.test.js              # a released CHANGELOG section equals the same section in its git tag (named corrections aside); needs the tags (CI fetches them, `git fetch --tags` locally: without them it prints a SKIP line per tag)
+node tests/changelog.test.js              # a released CHANGELOG section equals the same section in its git tag (named corrections aside), and every release uses Keep a Changelog headings (Added/Changed/Fixed); needs the tags (CI fetches them, `git fetch --tags` locally: without them it prints a SKIP line per tag)
+node tests/workflows-release.test.js      # release.yml packs in a read-only job, checks the notes before attesting, checks the artifact hand-off on every run, and its dry run cannot publish; pages.yml publishes main only after the gates, on a main push, once PAGES_VIA_ACTIONS is set
 node tests/exitcode.test.js               # no suite or tool forces process.exit() (the Node 25 deadlock), by static scan
 node tests/exitguard.test.js              # the same rule at run time, against every spelling a static scan cannot see
 node tests/screen-alternative.test.js     # the screen canvas's text alternative: screen_text's rows, blank and block screens, a graphics mode, 80-column GIME
@@ -185,6 +233,7 @@ node tools/mame-diff/run.js <profile>     # lockstep trace comparison with MAME 
 node tools/mame-diff/run.js <profile> --video [--artifact N]   # pixel comparison of every display mode with MAME
 node tools/mame-diff/run.js coco3 --video --attr   # the GIME's text attributes, exactly (blank glyphs, so the fonts never show)
 node tools/mame-diff/run.js coco3 --video --text [--cpu 6309]   # the GIME text screens, and Claude's screen_text on them
+node tools/mame-diff/run.js d64plus --video      # the Dragon 64 Plus's 80-column screen, every pixel (d64plus/run-video.js)
 node tools/mame-diff/run.js d64plus --plustext [--video]   # the Dragon 64 Plus's 80-column text screens (lockstep; --video: every pixel)
 node tools/mame-diff/run.js d64plus --paging [--video]   # the Dragon 64 Plus's $FFE2 paging: $04 is the motherboard RAM, the VDG never sees a bank (lockstep; --video: every pixel)
 node tools/mame-diff/run.js coco3 --video --composite [--artifact N]   # the CoCo 3 on MAME's composite monitor (BPI, MOCH, artifact colours)

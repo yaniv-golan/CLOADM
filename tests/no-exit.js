@@ -19,9 +19,24 @@
 // The rule: the entry script really is inside this repo's tools/ directory. Resolved, not matched against the
 // text, so a helper at tests/tools/foo.js cannot fall under it and every nested tool
 // (tools/mame-diff/run.js) is covered by it. An `-e` child has no entry script at all, so it stays guarded.
-const ENTRY = process.argv[1] ? require('path').resolve(process.argv[1]) : '';
-const TOOLS = require('path').join(__dirname, '..', 'tools') + require('path').sep;
-if (ENTRY.startsWith(TOOLS)) return;   // a tool, not a suite or a child of one: leave process.exit alone
+//
+// Resolved means REAL paths on both sides. __dirname is already a real path (Node resolves a required module
+// through symlinks), while argv[1] is the spelling the caller typed: a temp directory can reach us through a
+// symlinked path, so the same file arrives under two different spellings, and a prefix comparison between them
+// mismatches. That made a tool under a resolved path look like a suite, which fails it for exiting 0 -- the
+// direction that breaks a working tool. A path that cannot be resolved (already gone) is compared as given, so the
+// guard still decides.
+//
+// An `-e` child has no entry script: process.argv[1] is absent, and it must not be resolved anyway --
+// fs.realpathSync('') returns the CWD, so a realpath of the empty string would make an `-e` child's "entry" its
+// current directory, and run from inside tools/ (cd tools/mame-diff) it would be exempted as a tool. That is a
+// process with no entry script at all, which the rule has always guarded; it is guarded here by not resolving.
+const path = require('path'), fs = require('fs');
+const real = (p) => { try { return fs.realpathSync(p); } catch (e) { return p; } };
+const ARGV1 = process.argv[1] ? path.resolve(process.argv[1]) : '';
+const ENTRY = ARGV1 ? real(ARGV1) : '';     // no entry script: no path, and never the cwd
+const TOOLS = path.join(real(path.join(__dirname, '..')), 'tools') + path.sep;
+if (ENTRY && ENTRY.startsWith(TOOLS)) return;   // a tool, not a suite or a child of one: leave process.exit alone
 
 const REPORT = () => {
   const stack = new Error('process.exit called').stack || '';

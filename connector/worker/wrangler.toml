@@ -12,7 +12,8 @@ routes = [{ pattern = "mcp.cloadm.dev", custom_domain = true }]
 [observability]
 enabled = false
 
-# the two views, from connector/view/ and js/ (connector/build.js; folding for the self-contained view only)
+# the two views, from connector/view/ and js/ (connector/build.js; folding for the self-contained view only), and the
+# instructions, from the skill's connector-essentials section (skills/cloadm/SKILL.md): a change there rebuilds `wrangler dev`
 [build]
 command = "node ../build.js"
-watch_dir = ["../view", "../../js"]
+watch_dir = ["../view", "../../js", "../../skills/cloadm"]

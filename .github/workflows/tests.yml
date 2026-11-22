@@ -1,8 +1,15 @@
-# The gates, once per push, on the pushed head commit: every push to main and to contributor branches (claude/**,
-# ds/**), and on demand for any other branch (workflow_dispatch). A green run on a commit is the definition of done for that exact commit (AGENTS.md section 4):
+# The gates, on the commit the run checks out: every push to main and to contributor branches (claude/**,
+# ds/**) gates the pushed head, and every pull request into main gates the MERGE of that pull request into main
+# (GitHub's refs/pull/N/merge, so the `gates` summary's SHA is a merge commit, not the branch head -- the run is
+# proof for the result of merging, which is what main would receive, not for the branch on its own).
+# On demand for any other branch (workflow_dispatch). A green run on a commit is the definition of done for that exact commit (AGENTS.md section 4):
 # `node tests/all.js` (which includes the regression gate) and every group of the browser check, split over parallel
 # shards. The final job, "gates", is green only if every other job passed; its summary gives the commit, its tree
 # hash and each job's pass/fail/skip counts, so a reviewer can match the run to the tree they read.
+#
+# Every action is pinned to a full commit SHA with the release tag it is as a comment beside it: a tag can be moved
+# to other code, a SHA cannot. Dependabot (.github/dependabot.yml) proposes the bump, with the tag. Never pin to a
+# branch, `main` or a shorthand like v7, and never use pull_request_target: this workflow runs contributor code.
 #
 # No MAME and no ROMs: the project's hardware verification runs locally (node tools/mame-diff/run.js <profile>,
 # with a MAME install), and every suite here runs on firmware written for this project or on synthetic images.
@@ -12,22 +19,42 @@
 # Playwright is a development tool, not a runtime dependency (AGENTS.md rule 1.2): it is installed here only to
 # drive the pages, and the site itself stays plain ES modules with no build step.
 #
-# This workflow deploys nothing: the published site is GitHub Pages' own build of main, outside this file.
+# This workflow deploys nothing, and cannot: every job here is contents: read. The site is deployed by pages.yml, on a
+# workflow_run of this one, because a called workflow's jobs may not ask for more than the caller grants (release.yml
+# calls this file to gate a tag, with contents: read).
 name: tests
 
 on:
   push:
     branches: [main, 'claude/**', 'ds/**']
+  # A pull request runs the gates too, so a branch whose push did not run (another account, a disabled workflow)
+  # is still gated before it merges, and the PR shows its own check. It gates the MERGE result (refs/pull/N/merge),
+  # not the branch head; the push run on the branch remains the proof for the branch itself. A fork's run uses the
+  # fork's own workflow file and a read-only, secret-free token, so it is a signal from the contributor, not the
+  # gate: the run on the branch after it lands is.
+  # `pull_request`, never `pull_request_target`: this runs contributor code, and only with the read-only token below,
+  # which `pull_request_target` would replace with the base repository's token and secrets.
+  pull_request:
+    branches: [main]
   workflow_dispatch:
+  # Called in place by release.yml, so a tag runs the same gates on the tagged commit before anything is published.
+  # A reusable workflow runs only when its `on:` says so, and a caller cannot grant it more than the caller has: the
+  # caller's `permissions` here is read-only, so the release's `gates` job gets exactly the token a branch run does.
+  workflow_call:
 
 # On a contributor branch a newer push cancels the run still in progress for an older commit of the same branch:
 # that commit is superseded, and its result would verify nothing anyone reviews. On main every commit gets its own
 # group (the SHA is in the name), so a main run is never cancelled, nor dropped from the queue by a later one.
-# A re-run (run_attempt > 1), which may be of an older commit, waits for the branch's run in progress rather than
-# cancelling it.
+# A pull request groups on refs/pull/N/merge, so a newer commit of the same PR supersedes the older run -- the same
+# rule as a contributor branch, with the PR's merge ref as the branch.
+# A RE-RUN (run_attempt > 1) never cancels anything, on any event: a re-run of an older commit exists precisely
+# because someone wants that commit's result, and cancelling the newest head's run to make room would take away the
+# run whose `gates` job is the answer being waited for.
+# The event name is in the group because a push to a branch and the pull_request for the same ref could otherwise
+# share one group and one would cancel the other.
 concurrency:
-  group: tests-${{ github.ref }}${{ github.ref == 'refs/heads/main' && format('-{0}', github.sha) || '' }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.run_attempt == 1 }}
+  group: tests-${{ github.event_name }}-${{ github.ref }}${{ github.ref == 'refs/heads/main' && format('-{0}', github.sha) || '' }}
+  cancel-in-progress: ${{ github.run_attempt == 1 && github.ref != 'refs/heads/main' }}
 
 # Read-only: the workflow runs the suites and uploads artifacts, and needs to write nothing else.
 permissions:
@@ -41,10 +68,10 @@ jobs:
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       # The same pinned Node as the suites: the check runs `tools/browser-check.js --list-groups`, which loads the
       # emulator's ES modules through require().
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
         with:
           node-version: '22'
       # Fails if a browser-check group is in no shard, in two, or isn't a group at all; the matrix below is built
@@ -65,10 +92,10 @@ jobs:
     steps:
       # The whole history, with its tags: tests/changelog.test.js compares each released section of CHANGELOG.md with
       # the same section in its release tag, and a shallow checkout has no tags (the test fails on CI without them).
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
         with:
           node-version: '22'
       - name: Run every suite
@@ -83,7 +110,7 @@ jobs:
             "$(grep -cE '^pass  [^ ]+\.test\.js ' all.log || true)" "$(grep -cE '^FAIL  [^ ]+\.test\.js ' all.log || true)" "-" > counts/suites.md
           cat counts/suites.md >> "$GITHUB_STEP_SUMMARY"
       - if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: counts-suites
           path: counts/
@@ -99,8 +126,8 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.shards.outputs.matrix) }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
         with:
           node-version: '22'
       # Playwright (and the browser it drives) is not committed: there is no package.json by design, so it is
@@ -112,7 +139,7 @@ jobs:
       # The browser download is cached on the Playwright version and the runner image (chromium is built per Ubuntu
       # release); a miss downloads it below, a hit makes that step a no-op.
       - name: Cache the Playwright browser
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
         with:
           path: ~/.cache/ms-playwright
           key: playwright-1.63.0-ubuntu-24.04-chromium
@@ -145,7 +172,7 @@ jobs:
           cat "counts/pages-${{ matrix.shard }}.md" >> "$GITHUB_STEP_SUMMARY"
           grep -i '^skip' check.log >> "$GITHUB_STEP_SUMMARY" || true
       - if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: counts-pages-${{ matrix.shard }}
           path: counts/
@@ -153,7 +180,7 @@ jobs:
       # looked at, and the green run is the proof a reviewer reads.
       - name: Keep the screenshots
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: browser-check-screenshots-${{ matrix.shard }}
           retention-days: 14
@@ -171,12 +198,12 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       # pinned like the others: the shard count below comes from `tools/browser-check.js --list-groups`
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
         with:
           node-version: '22'
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
         with:
           pattern: counts-*
           path: counts
@@ -206,3 +233,4 @@ jobs:
           test "${{ needs.shards.result }}" = success
           test "${{ needs.suites.result }}" = success
           test "${{ needs.pages.result }}" = success
+

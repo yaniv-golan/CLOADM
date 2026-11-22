@@ -36,11 +36,13 @@ const FOLDER_BYTES_MAX = 16 << 20;   // and bytes in all; the rest are reported 
 // open flags: never through a link in the last part of the path (the directories are already real paths), and never
 // waiting (a FIFO opens at once and is then refused by fstat)
 const { O_RDONLY, O_WRONLY, O_CREAT, O_NOFOLLOW = 0, O_NONBLOCK = 0 } = fs.constants;
+const LOCAL_ROUTE_LINE = 'You are driving CLOADM on the person\'s computer.';
 // What the server tells a client about itself: built from the tools it offers, so a --read-only server never names a
 // tool the client cannot see (an agent told about type_text that it cannot find takes the server for broken)
 function instructions(toolbox) {
   const has = (name) => toolbox.has(name);
-  const lines = ['CLOADM emulates the Dragon 32/64/200, Tandy Color Computer 1/2/3 and MC-10.'];
+  // the first line says which route this is (the skill's first step); the connector's Worker opens with its own
+  const lines = [LOCAL_ROUTE_LINE, 'CLOADM emulates the Dragon 32/64/200, Tandy Color Computer 1/2/3 and MC-10.'];
   if (!has('poke')) lines.push('Read-only mode: input, memory writes, media and snapshots are disabled, and their tools are not offered. Boot machines, let them go on with run_frames, and read them.');
   lines.push('Start with boot (list_models gives the models and their options); every other machine tool takes the machine_id it returns. BASIC needs the user\'s ROMs (boot says whether it has them); without them a machine runs the built-in firmware.'
     + (has('add_roms') ? ' add_roms stores ROMs the user gives you (a file in the media root, a URL or an upload they provided in this conversation; never one you found).' : '')
@@ -384,4 +386,4 @@ async function serve({ toolbox, input, out }) {
   return 0;
 }
 
-module.exports = { mcp, serve, nodeHost, MODERN_VERSIONS, LEGACY_VERSIONS, instructions };
+module.exports = { mcp, serve, nodeHost, MODERN_VERSIONS, LEGACY_VERSIONS, instructions, LOCAL_ROUTE_LINE };

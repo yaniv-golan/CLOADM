@@ -1,0 +1,15 @@
+{
+  "name": "f4-head-three-hash",
+  "note": "A \"### Fixed\" block immediately under the \"### 9.9-pre\" line, before its own #### Added. MEASURED: the guard already catches this, because truncating the section removes tagged text, so the comparison differs. Kept as a control.",
+  "version": "9.9-pre",
+  "tags": [
+    "v9.9-pre",
+    "v9.8-pre"
+  ],
+  "expect": {
+    "now": "FAIL",
+    "afterFix": "FAIL"
+  },
+  "tagged": "# Changelog\n\n## [Unreleased]\n\nNext version: 9.9-pre.\n\n### 9.9-pre\n\n#### Added\n\n- the released feature\n\n#### Changed\n\n- the released change\n\n#### Fixed\n\n- the released fix one\n- the released fix two\n\n### 9.8-pre\n\n#### Added\n\n- the older feature\n",
+  "candidate": "# Changelog\n\n## [Unreleased]\n\nNext version: 9.9-pre.\n\n### 9.9-pre\n\n### Fixed\n\n- stray head\n\n#### Added\n\n- the released feature\n\n#### Changed\n\n- the released change\n\n#### Fixed\n\n- the released fix one\n- the released fix two\n\n### 9.8-pre\n\n#### Added\n\n- the older feature\n"
+}

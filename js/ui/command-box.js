@@ -46,7 +46,9 @@ async function takeSnapshot(page) {
   try {
     const f = await page.session.snapshotFile();
     page.download(f.name, f.bytes, 'application/gzip');
-    page.status(`Saved ${f.name}. Drop it on CLOADM to restore it.`);
+    // with the chat full screen the file is the BASIC session behind it, and the message says so (Session.snapshotFile)
+    page.status(f.saved ? `Saved ${f.saved} as ${f.name}: the chat is what is on screen, and the chat is not in a snapshot. Drop it on CLOADM to restore it.`
+      : `Saved ${f.name}. Drop it on CLOADM to restore it.`);
   } catch (e) { page.status(e.message, true); }
 }
 

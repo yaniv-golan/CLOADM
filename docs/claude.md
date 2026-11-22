@@ -89,6 +89,25 @@ Two ways to talk to Claude, one conversation:
   type come first (each presses the page's own button and is never sent to Claude), **Ask Claude: "…"** is always
   last. Enter runs the command or asks; asking opens the side panel, or full screen while the welcome menu is on
   screen.
+* **Inside another site** (`js/ui/ask-popout.js`) there is no chat: CLOADM framed in someone else's page would put
+  the key card on their page. The app bar's Ask button reads **Ask Claude ↗** instead, in the same place (beside
+  Menu on a phone), and is a link that opens CLOADM top-level in a new tab with `target=_blank` and
+  `rel="noopener noreferrer"`: the moment as the Share screen's link carries it (the snapshot in the fragment) with
+  `app=claude`, and never `embed=1` (`Session.claudeLink`). The new tab reads the key saved in your browser, and the
+  framing page has no handle on it. Its tooltip says "Opens CLOADM in a new tab with this machine as it is now.
+  Claude can't run inside another site." Where the moment can't be carried (NitrOS-9 running, as the Share screen
+  detects) the link opens a fresh CLOADM on the same machine with `app=claude`, and says "Opens a fresh CLOADM in a
+  new tab (this program can't be carried over)." A screen-only embed (`embed=1`) offers nothing unless its snippet
+  asks for the corner chip with `askclaude=1` ([using.md](using.md#links-and-embedding)). The new tab never starts a
+  turn: `app=claude` opens the chat and waits for you to type.
+* **A card's first half second** (`js/ui/arm-guard.js`). The consent card's **Allow**, the key cards' **Save key**
+  and **Forget**, and **Let Claude use the emulator** take no press until their card has been on screen for 500 ms,
+  so a click or key meant for whatever was there a moment before can't answer them. The window starts when the card
+  shows (again when it is shown again) and when the page comes back (`pageshow`, and `visibilitychange` to visible);
+  window focus doesn't restart it, and nothing but the time arms it, so a tap at 600 ms works. Meanwhile the
+  controls are `aria-disabled` (a press does nothing and leaves the focus on them, so a second press works), the card
+  fades in over about 300 ms, and at 500 ms the controls take presses with no change in how they look; the card is
+  then announced to screen readers by its purpose ("Claude settings ready."), once per showing. A click, a tap, Enter or Space and a label's click are all held to the same rule.
 * **Consent.** Claude can always read the emulated machine (screen text, memory, model and program counter), and nothing outside the emulator; the panel names what it reads. What it reads goes to Anthropic with the conversation, using your key. That includes the machine's memory, so ROM areas Claude peeks at or disassembles are sent too; CLOADM itself never uploads your ROMs, and never puts them in share links or exported settings. Acting
   (POKE, typing, BREAK) needs **Let Claude use the emulator**, off until you allow it: the first time Claude wants to
   act it asks in the conversation (**Allow**, which turns the switch on for the visit, or **Just tell me the fix**,
@@ -147,7 +166,9 @@ Two ways to talk to Claude, one conversation:
   ends Fullscreen so it can be answered. A **Reset** or a **power cycle** of the machine Claude acts on, while Claude
   acts or is paused, stops Claude first ("[stopped: you reset the machine]" in the conversation); so does any other
   restart of that machine (a program or cartridge that starts, the welcome menu, LIZA, ROMs cleared: the machine's
-  `onReset`), and any program you load or run on it (with ROMs a program starts without a reset). A Reset of the full-screen chat's own screen leaves Claude's work on the BASIC session alone. A
+  `onReset`), and any program you load or run on it (with ROMs a program starts without a reset). A Reset of the full-screen chat's own screen leaves Claude's work on the BASIC session alone: Reset restarts what
+  is on screen (the chat firmware, which comes back running), while **Power** switches off and on the machine you
+  are working on - your BASIC session - and leaves the chat's screen alone. A
   snapshot load or a machine switch replaces the machine and closes the conversation. An Esc held down is one
   press: its autorepeat does not stop Claude, whatever modifier (Shift, AltGr, Caps Lock…) is pressed meanwhile; an
   Esc that only closes a card or a confirmation above the screen is not a key on the machine and pauses nothing.
@@ -282,6 +303,12 @@ emulator.
   goes in while you watch the chat. The chat needs a 6809-family CPU (the 6309 runs the firmware unchanged) and
   32K or more: the firmware uses $0400-$7FFF. On a machine with less the chat opens and the screen stays the stub's,
   so pick a 32K model (the Dragon 64, a 32K CoCo); the chat opens on a Dragon 64 from an MC-10 or Alice.
+  A file dropped while the chat is full screen (a program, a tape, a cartridge, a disk or a ROM) goes to your BASIC
+  session, never the chat machine: the chat machine runs the chat firmware, and a load there would overwrite it and
+  take the chat screen away. The message says where it went, and the drives card shows the BASIC session's drives. A
+  ROM is stored for its model either way, so a ROM dropped here sets up the same model's BASIC session; the chat
+  machine keeps running its firmware and takes the stored ROMs when you go back to BASIC. The POKE book, Remove ROMs,
+  Save snapshot, Skip on the cassette and the welcome menu are the BASIC session's too.
 * **Typing.** A line can be up to 255 characters. It wraps as you type the way replies wrap: a word that doesn't fit
   moves to the next line, a word with no space in it breaks at the character, and a space that falls at the end of a
   full line ends it without being drawn. BACKSPACE goes back across the wraps. A key past the 255th is refused visibly: the screen flashes (the VDG's colour
@@ -558,7 +585,7 @@ emulator.
   | `unknown-machine` | this machine's BASIC is not one load_basic knows: type the program with type_text instead |
   | `load-declined` | the person chose not to load the program: do not load it; offer to type it if it has 3 lines or fewer, or give them the listing |
   | `include-unreadable` | an INCLUDE file could not be read (detail names it and why); nothing was written: put the code it holds into the source itself and call again |
-  | `tool-failed` | the tool failed inside the emulator (detail says how), not because of what you sent: read the machine with machine_info or screen_text before going on, and tell the person; do not repeat the call unchanged |
+  | `tool-failed` | the tool failed inside the emulator (detail says how): read the machine with machine_info or screen_text before going on, and tell the person; do not repeat the call unchanged. (When the detail says the CALL was wrong - it names a tool target, say - fix the call; nothing was read and the machine is fine.) |
   | `not-typable` | the machine cannot take the characters in detail (no key for them on this keyboard, or above $7E, which BASIC cannot store as text): leave them out or use plain ASCII it has (BASIC keywords are uppercase) |
 * **Not yet:** the chat on a real machine over a serial cable (the firmware's DriveWire is the Becker port's; a
   bit-banger DriveWire driver is not written), the CoCo 3's 80-column screen (the CoCo 3 runs the same 256×192
@@ -582,7 +609,7 @@ a chat with the real one needs a key, so it is done by hand. Chat with the real 
    a few characters and press Esc: the line goes and the chat stays. Press Esc once more on the empty prompt: the chat
    closes and the emulator is back, as with **← Emulator**.
 6. Save a wrong key (`sk-ant-wrong`) and send a line: the help line says the key was refused, and nothing retries.
-7. ← Emulator, then **Capture & share** → Your settings → **Export settings…**: the file holds no key. Back in the chat,
+7. ← Emulator, then the **Machine** tab → **Settings file** → **Export…**: the file holds no key. Back in the chat,
    **Forget key**.
 
 ## LIZA for the 6803 (MC-10, Matra Alice)

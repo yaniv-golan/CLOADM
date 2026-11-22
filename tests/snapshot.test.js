@@ -32,7 +32,7 @@ const picture = (m) => { let h = 0x811C9DC5; for (const v of m.render().data) h 
   // ---------------- the file ----------------
   const s = new Emu.Session({ store: kv() });
   s.switchMachine('dragon64');
-  for (let f = 0; f < 20; f++) s.machine.runFrame();
+  for (let f = 0; f < 20; f++) s.shownMachine.runFrame();
   const file = await s.snapshotFile(new Date('2026-11-14T16:30:05.250Z'));
   check('file name: model and time, .cloadm', file.name === 'Dragon64-20261114-163005.cloadm', file.name);
   check('file is gzip', file.bytes[0] === 0x1F && file.bytes[1] === 0x8B);
@@ -83,17 +83,17 @@ const picture = (m) => { let h = 0x811C9DC5; for (const v of m.render().data) h 
     const a = new Emu.Session({ store: kv() });
     a.switchMachine(id);
     a.typeText('POKE 1024,65\n');                 // the stub carries out POKE lines: some activity on screen
-    for (let f = 0; f < 37; f++) a.machine.runFrame();
-    const before = picture(a.machine);
+    for (let f = 0; f < 37; f++) a.shownMachine.runFrame();
+    const before = picture(a.shownMachine);
     const f = await a.snapshotFile();
     const b = new Emu.Session({ store: kv() });
     b.switchMachine(id === 'dragon64' ? 'coco' : 'dragon64');
     const snap = await b.readSnapshot(f.bytes);
     const sw = b.snapshotSwitch(snap);
     b.openSnapshot(snap);
-    const shown = picture(b.machine);
-    const cont = run(a.machine, 30), restored = run(b.machine, 30);
-    check(`${id}: opened elsewhere, it asked to switch, shows the same picture and runs identically`, sw && sw.machine === id && b.machine.id === id
+    const shown = picture(b.shownMachine);
+    const cont = run(a.shownMachine, 30), restored = run(b.shownMachine, 30);
+    check(`${id}: opened elsewhere, it asked to switch, shows the same picture and runs identically`, sw && sw.machine === id && b.shownMachine.id === id
       && shown === before && cont === restored, `(${(f.bytes.length / 1024).toFixed(1)} KB)`);
   }
 
@@ -102,14 +102,14 @@ const picture = (m) => { let h = 0x811C9DC5; for (const v of m.render().data) h 
     const a = new Emu.Session({ store: kv() });
     a.switchMachine('coco');
     a.insertTape('t.cas', new Uint8Array(4096).fill(0x55));
-    a.machine.deck.motor = true;
+    a.shownMachine.deck.motor = true;
     a.typeText('POKE 65495,0\n');
-    for (let f = 0; f < 40; f++) a.machine.runFrame();
+    for (let f = 0; f < 40; f++) a.shownMachine.runFrame();
     const b = new Emu.Session({ store: kv() });
     b.openSnapshot(await b.readSnapshot((await a.snapshotFile()).bytes));
-    const t = b.machine.deck.tape;
-    check('tape in the deck: same name and position; SAM rate 01 kept; then identical', t && t.name === 't.cas' && b.machine.deck.time === a.machine.deck.time
-      && b.machine.sam.rate === 1 && b.cpuRate().rate === 1 && run(a.machine, 20) === run(b.machine, 20), `${a.machine.deck.time}`);
+    const t = b.shownMachine.deck.tape;
+    check('tape in the deck: same name and position; SAM rate 01 kept; then identical', t && t.name === 't.cas' && b.shownMachine.deck.time === a.shownMachine.deck.time
+      && b.shownMachine.sam.rate === 1 && b.cpuRate().rate === 1 && run(a.shownMachine, 20) === run(b.shownMachine, 20), `${a.shownMachine.deck.time}`);
   }
 
   // the Dragon 64 Plus's own state: the two 32K banks, the 2K video RAM and the plus picture, taken
@@ -118,7 +118,7 @@ const picture = (m) => { let h = 0x811C9DC5; for (const v of m.render().data) h 
     const a = new Emu.Session({ store: kv() });
     a.switchMachine('d64plus');
     a.setDisplay({ screen: 'plus' });
-    const m = a.machine;
+    const m = a.shownMachine;
     // the plus screen, with the CRTC programmed and characters in the video RAM bank
     for (const [r, v] of [[0, 113], [1, 80], [4, 25], [5, 4], [6, 22], [9, 11], [13, 0]]) { m.write(0xFFE0, r); m.write(0xFFE1, v); }
     m.write(0xFFE2, 0x01);
@@ -131,17 +131,17 @@ const picture = (m) => { let h = 0x811C9DC5; for (const v of m.render().data) h 
     for (let f = 0; f < 20; f++) m.runFrame();      // stop somewhere inside a CRTC frame
     const banks = [m.pramBank, m.vramBank], pre = picture(m), videoByte = m.videoRam[0x100];
     const f = await a.snapshotFile();
-    const cont = run(a.machine, 30);
+    const cont = run(a.shownMachine, 30);
     const b = new Emu.Session({ store: kv() });
     b.switchMachine('d64plus');
     b.setDisplay({ screen: 'plus' });               // the host chooses the view (the Display tab), not the snapshot
     b.openSnapshot(await b.readSnapshot(f.bytes));
-    const r = b.machine;
+    const r = b.shownMachine;
     check('Dragon 64 Plus: the banks, the video RAM and the plus picture are in the snapshot',
       r.pramBank === banks[0] && r.vramBank === banks[1] && r.videoRam[0x100] === videoByte
       && r.plusRam[0x1000] === 0x20 && r.ram[0x1000] === 0x10 && r.crtc.reg[0] === 113 && picture(r) === pre,
       `(bank ${banks[0]}, video ${banks[1]}, ${(f.bytes.length / 1024).toFixed(1)} KB)`);
-    check('Dragon 64 Plus: the restored machine draws and runs identically from mid-frame', run(b.machine, 30) === cont);
+    check('Dragon 64 Plus: the restored machine draws and runs identically from mid-frame', run(b.shownMachine, 30) === cont);
   }
 
   // ---------------- versions and missing state ----------------
@@ -153,7 +153,7 @@ const picture = (m) => { let h = 0x811C9DC5; for (const v of m.render().data) h 
       Emu.SNAPSHOT_OLDEST >= 1 && Emu.SNAPSHOT_VERSION >= Emu.SNAPSHOT_OLDEST);
     const a = new Emu.Session({ store: kv() });
     a.switchMachine('coco');
-    for (let f = 0; f < 10; f++) a.machine.runFrame();
+    for (let f = 0; f < 10; f++) a.shownMachine.runFrame();
     const snap = await a.readSnapshot((await a.snapshotFile()).bytes);
     let e = throws(() => Emu.createMachine('coco').restore(structuredClone(snap)));
     check('Machine.restore: the current version is read', !e, e && e.message);
@@ -236,8 +236,8 @@ const picture = (m) => { let h = 0x811C9DC5; for (const v of m.render().data) h 
     const a = new Emu.Session({ store: kv() });
     a.roms.put('dragon32', 'basic', basic, 'd32.rom');
     a.switchMachine('dragon32');
-    for (let f = 0; f < 10; f++) a.machine.runFrame();
-    check('the snapshot names the ROM by CRC, never its bytes', !a.machine.useStub);
+    for (let f = 0; f < 10; f++) a.shownMachine.runFrame();
+    check('the snapshot names the ROM by CRC, never its bytes', !a.shownMachine.useStub);
     const bytes = (await a.snapshotFile()).bytes, text = zlib.gunzipSync(Buffer.from(bytes)).toString();
     const crc = Emu.crc32(basic);
     check('...', JSON.parse(text).roms.basic === crc && !text.includes(Buffer.from(basic.subarray(0, 48)).toString('base64')));
@@ -246,21 +246,21 @@ const picture = (m) => { let h = 0x811C9DC5; for (const v of m.render().data) h 
     const snap = await b.readSnapshot(bytes);
     let e = throws(() => b.openSnapshot(snap));
     check('no ROMs here: refused, saying what it needs, and the machine in use is unchanged', e instanceof Emu.SnapshotRomsError && e.machine === 'dragon32'
-      && e.message === 'This snapshot needs Dragon 32 BASIC. Add ROMs once and it opens right here.' && b.machine.id === 'dragon64', e && e.message);
+      && e.message === 'This snapshot needs Dragon 32 BASIC. Add ROMs once and it opens right here.' && b.shownMachine.id === 'dragon64', e && e.message);
     b.roms.put('dragon32', 'basic', other);
     e = throws(() => b.openSnapshot(snap));
     check('another ROM version: refused with both CRCs', e instanceof Emu.SnapshotRomsError && /another version of Dragon 32 BASIC \(it ran with CRC [0-9A-F]{8}, yours is [0-9A-F]{8}\)/.test(e.message), e && e.message);
     b.roms.put('dragon32', 'basic', basic);
     b.openSnapshot(snap);
-    check('with the same ROM: opens and runs identically', b.machine.id === 'dragon32' && !b.machine.useStub && run(a.machine, 20) === run(b.machine, 20));
+    check('with the same ROM: opens and runs identically', b.shownMachine.id === 'dragon32' && !b.shownMachine.useStub && run(a.shownMachine, 20) === run(b.shownMachine, 20));
     // a stub snapshot opened where ROMs are stored: on the stub (and the machine says so), identical
     const c = new Emu.Session({ store: kv() });
     c.switchMachine('dragon32');
     c.runWithoutRoms();
-    for (let f = 0; f < 10; f++) c.machine.runFrame();
+    for (let f = 0; f < 10; f++) c.shownMachine.runFrame();
     const stubSnap = await b.readSnapshot((await c.snapshotFile()).bytes);
     b.openSnapshot(stubSnap);
-    check('a stub snapshot opens on the stub where ROMs are stored', b.machine.useStub && b.stubChosen.has('dragon32') && run(c.machine, 20) === run(b.machine, 20));
+    check('a stub snapshot opens on the stub where ROMs are stored', b.shownMachine.useStub && b.stubChosen.has('dragon32') && run(c.shownMachine, 20) === run(b.shownMachine, 20));
     // the core refuses a ROM set that differs either way
     const m = Emu.createMachine('dragon32');
     check('Machine.restore: refused with an extra ROM the snapshot ran without', /without basic ROM/.test((throws(() => { m.setRoms({ basic }); m.restore(stubSnap); }) || {}).message));
@@ -278,12 +278,12 @@ const picture = (m) => { let h = 0x811C9DC5; for (const v of m.render().data) h 
     a.switchMachine('coco3');
     check('other model: switch to it', a.snapshotSwitch(snap).text === 'MC-10 (4K)');
     a.openSnapshot(snap);
-    check('opened: the MC-10 with 4K, remembered as its config', a.machine.id === 'mc10' && a.machine.config.ram === 4 && a.savedConfig('mc10').ram === 4);
+    check('opened: the MC-10 with 4K, remembered as its config', a.shownMachine.id === 'mc10' && a.shownMachine.config.ram === 4 && a.savedConfig('mc10').ram === 4);
     check('Machine.restore: other config refused', !!throws(() => Emu.createMachine('mc10', { ram: 20 }).restore(snap)));
     // a config the model can't take is not remembered: the machine falls back to its defaults
     const st = kv(), d = new Emu.Session({ store: st });
     d.switchMachine('dragon32', { ram: 999 });
-    check('switchMachine with a config the model can\'t take: defaults, nothing remembered', d.machine.config.ram === 32 && st.get('config.dragon32') === null, st.get('config.dragon32'));
+    check('switchMachine with a config the model can\'t take: defaults, nothing remembered', d.shownMachine.config.ram === 32 && st.get('config.dragon32') === null, st.get('config.dragon32'));
   }
 
   // ---------------- a snapshot that can't be restored changes nothing ----------------
@@ -292,27 +292,27 @@ const picture = (m) => { let h = 0x811C9DC5; for (const v of m.render().data) h 
   {
     const a = new Emu.Session({ store: kv() });
     a.switchMachine('coco2b');
-    for (let f = 0; f < 5; f++) a.machine.runFrame();
+    for (let f = 0; f < 5; f++) a.shownMachine.runFrame();
     const good = await a.readSnapshot((await a.snapshotFile()).bytes);
     const store = kv(), b = new Emu.Session({ store });
     b.switchMachine('dragon64');
-    for (let f = 0; f < 5; f++) b.machine.runFrame();
-    const before = b.machine, h = picture(before), pc = before.cpu.pc, keys = JSON.stringify(store.keys().sort().map((k) => [k, store.get(k)]));
+    for (let f = 0; f < 5; f++) b.shownMachine.runFrame();
+    const before = b.shownMachine, h = picture(before), pc = before.cpu.pc, keys = JSON.stringify(store.keys().sort().map((k) => [k, store.get(k)]));
     const bad = structuredClone(good);
     bad.state.memory = bad.state.memory.slice(0, 100);
     const e = throws(() => b.openSnapshot(bad));
     check('a snapshot that fails to restore: refused as a SessionError', e instanceof Emu.SessionError && /memory size/.test(e.message), e && `${e.constructor.name}: ${e.message}`);
-    check('...the machine in use is the same object, untouched', b.machine === before && b.machine.id === 'dragon64' && picture(b.machine) === h && b.machine.cpu.pc === pc);
+    check('...the machine in use is the same object, untouched', b.shownMachine === before && b.shownMachine.id === 'dragon64' && picture(b.shownMachine) === h && b.shownMachine.cpu.pc === pc);
     check('...nothing remembered changed (machine, config)', JSON.stringify(store.keys().sort().map((k) => [k, store.get(k)])) === keys);
     check('...the stub choice is unchanged', !b.stubChosen.has('coco2b') && !b.stubChosen.has('dragon64'));
     // the same machine and config (no switch): the machine in use is not touched either
     const c = new Emu.Session({ store: kv() });
     c.switchMachine('coco2b');
-    for (let f = 0; f < 5; f++) c.machine.runFrame();
-    const cm = c.machine, ch = picture(cm), cpc = cm.cpu.pc;
-    check('same model, damaged snapshot: refused, the machine untouched', throws(() => c.openSnapshot(bad)) instanceof Emu.SessionError && c.machine === cm && picture(cm) === ch && cm.cpu.pc === cpc);
+    for (let f = 0; f < 5; f++) c.shownMachine.runFrame();
+    const cm = c.shownMachine, ch = picture(cm), cpc = cm.cpu.pc;
+    check('same model, damaged snapshot: refused, the machine untouched', throws(() => c.openSnapshot(bad)) instanceof Emu.SessionError && c.shownMachine === cm && picture(cm) === ch && cm.cpu.pc === cpc);
     b.openSnapshot(good);
-    check('then the good one opens', b.machine.id === 'coco2b' && run(a.machine, 10) === run(b.machine, 10));
+    check('then the good one opens', b.shownMachine.id === 'coco2b' && run(a.shownMachine, 10) === run(b.shownMachine, 10));
   }
 
   // ---------------- the machine a snapshot opens on is the Session's like any other ----------------
@@ -320,17 +320,17 @@ const picture = (m) => { let h = 0x811C9DC5; for (const v of m.render().data) h 
   {
     const a = new Emu.Session({ store: kv() });
     a.switchMachine('coco', { becker: true });
-    for (let f = 0; f < 5; f++) a.machine.runFrame();
+    for (let f = 0; f < 5; f++) a.shownMachine.runFrame();
     const snap = await a.readSnapshot((await a.snapshotFile()).bytes);
     const b = new Emu.Session({ store: kv() });
     b.switchMachine('dragon64');
     b.openSnapshot(snap);
-    check('opened with a Becker port: it is attached to the Session\'s DriveWire server', !!b.machine.becker && b.machine.becker.server === b.drivewire);
+    check('opened with a Becker port: it is attached to the Session\'s DriveWire server', !!b.shownMachine.becker && b.shownMachine.becker.server === b.drivewire);
     const c = new Emu.Session({ store: kv() });
     c.switchMachine('coco', { becker: true });
-    const before = c.machine;
+    const before = c.shownMachine;
     c.openSnapshot(snap);           // the same model and config: no switch, but a new machine all the same
-    check('...also when no switch was needed', c.machine !== before && c.machine.becker.server === c.drivewire);
+    check('...also when no switch was needed', c.shownMachine !== before && c.shownMachine.becker.server === c.drivewire);
   }
 
   // ---------------- breakpoints and watchpoints come back with the snapshot ----------------
@@ -348,8 +348,8 @@ const picture = (m) => { let h = 0x811C9DC5; for (const v of m.render().data) h 
     b.openSnapshot(snap);
     check('opened: the breakpoints are the Session debugger\'s', JSON.stringify(b.debug.breakpoints()) === '[33059]', JSON.stringify(b.debug.breakpoints()));
     check('...and the watchpoints', JSON.stringify(b.debug.watchpoints()) === JSON.stringify([{ start: 0x400, size: 4, read: false, write: true }]), JSON.stringify(b.debug.watchpoints()));
-    check('...the debugger is the machine\'s and shows the Session\'s symbols', b.debug.machine === b.machine && b.machine.debugger === b.debug
-      && (b.machine.poke(0x3000, 0x7E), b.machine.poke(0x3001, 0x81), b.machine.poke(0x3002, 0x23), /HERE/.test(b.debug.disassemble(0x3000, 1)[0].text)), b.debug.disassemble(0x3000, 1)[0].text);
+    check('...the debugger is the machine\'s and shows the Session\'s symbols', b.debug.machine === b.shownMachine && b.shownMachine.debugger === b.debug
+      && (b.shownMachine.poke(0x3000, 0x7E), b.shownMachine.poke(0x3001, 0x81), b.shownMachine.poke(0x3002, 0x23), /HERE/.test(b.debug.disassemble(0x3000, 1)[0].text)), b.debug.disassemble(0x3000, 1)[0].text);
     // a snapshot without a debugging setup clears the old machine's breakpoints
     const c = new Emu.Session({ store: kv() });
     c.switchMachine('dragon64');
@@ -369,7 +369,7 @@ const picture = (m) => { let h = 0x811C9DC5; for (const v of m.render().data) h 
     const a = new Emu.Session({ store: kv(), media });
     a.switchMachine('coco2b');
     check('three empty slots', JSON.stringify(await a.listSlots()) === '[{"n":1,"empty":true},{"n":2,"empty":true},{"n":3,"empty":true}]');
-    for (let f = 0; f < 15; f++) a.machine.runFrame();
+    for (let f = 0; f < 15; f++) a.shownMachine.runFrame();
     await a.saveSlot(2);
     const list = await a.listSlots();
     check('slot 2 holds the CoCo 2B, a snapshot file in the library (library/snapshots/), so the Library lists it',
@@ -379,7 +379,7 @@ const picture = (m) => { let h = 0x811C9DC5; for (const v of m.render().data) h 
     b.switchMachine('dragon64');
     const snap = await b.readSlot(2);
     b.openSnapshot(snap);
-    check('after a reload, slot 2 opens the same moment', b.machine.id === 'coco2b' && run(a.machine, 20) === run(b.machine, 20));
+    check('after a reload, slot 2 opens the same moment', b.shownMachine.id === 'coco2b' && run(a.shownMachine, 20) === run(b.shownMachine, 20));
     check('empty slot: says so', /Snapshot 1 is empty/.test((await rejects(b.readSlot(1))).message));
     check('no snapshot 4', /no snapshot 4/.test((await rejects(b.saveSlot(4))).message));
     check('no snapshot 1.5', /no snapshot 1\.5/.test(((await rejects(b.saveSlot(1.5))) || {}).message) && !(await media.stat('library/snapshots/slot-1.5.cloadm')));
@@ -410,19 +410,19 @@ const picture = (m) => { let h = 0x811C9DC5; for (const v of m.render().data) h 
   {
     const s = new Emu.Session();
     s.switchMachine('coco3', { ram: 128 });
-    for (let i = 0; i < 30; i++) s.machine.runFrame();
-    s.machine.poke(0x2000, 0x5A);
+    for (let i = 0; i < 30; i++) s.shownMachine.runFrame();
+    s.shownMachine.poke(0x2000, 0x5A);
     const link = await s.snapshotLink('https://cloadm.dev/play/?start=liza#share');
     const u = new URL(link);
     check('share link: /play/ with the machine and its options, the snapshot after #s= in base64url',
       u.pathname === '/play/' && u.search === '?machine=coco3&cpu=6809&ram=128&becker=0&ssc=none' && /^#s=[A-Za-z0-9_-]+$/.test(u.hash), link.slice(0, 90));
-    const ref = run(s.machine, 0);
+    const ref = run(s.shownMachine, 0);
     const b = new Emu.Session();
     b.switchMachine('dragon64');
     const snap = await b.readSnapshotLink(u.hash);
     b.openSnapshot(snap);
-    check('share link: read back in a fresh Session, the same machine, config and memory', b.machine.id === 'coco3' && b.machine.config.ram === 128
-      && run(b.machine, 0) === ref && b.machine.peek(0x2000) === 0x5A);
+    check('share link: read back in a fresh Session, the same machine, config and memory', b.shownMachine.id === 'coco3' && b.shownMachine.config.ram === 128
+      && run(b.shownMachine, 0) === ref && b.shownMachine.peek(0x2000) === 0x5A);
     check('share link: no #s= is no snapshot', (await b.readSnapshotLink('#share')) === null && (await b.readSnapshotLink('')) === null);
     const cut = await rejects(b.readSnapshotLink(u.hash.slice(0, u.hash.length - 300)));
     const bad = await rejects(b.readSnapshotLink('#s=not*base64!'));
@@ -432,7 +432,7 @@ const picture = (m) => { let h = 0x811C9DC5; for (const v of m.render().data) h 
     // with ROMs or a cartridge the link is made too, without their bytes (tests/share-roms.test.js checks the bytes)
     const r = new Emu.Session();
     r.switchMachine('dragon64');
-    r.machine.setRoms({ basic: fake(0x4000, 7) });
+    r.shownMachine.setRoms({ basic: fake(0x4000, 7) });
     const withRoms = await r.readSnapshotLink(new URL(await r.snapshotLink('https://cloadm.dev/play/')).hash);
     check('share link: with your own ROMs, made; it names them by CRC', withRoms.roms.basic === Emu.crc32(fake(0x4000, 7))
       && withRoms.share.images.some((x) => x.kind === 'rom' && x.crc === withRoms.roms.basic));

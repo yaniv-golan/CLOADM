@@ -74,7 +74,7 @@ function withRoms(id, roms, config) {
   ]) {
     const profile = Emu.profiles[id];
     const roms = Object.fromEntries(profile.roms.map((r, k) => [r.id, standIn(r.size || 0x4000, 101 + k * 37)]));
-    const s = withRoms(id, roms, config), m = s.machine;
+    const s = withRoms(id, roms, config), m = s.shownMachine;
     for (let i = 0; i < 20; i++) m.runFrame();
     place(m, roms);
     m.ram.set(roms[profile.roms[0].id].subarray(0x400, 0xC00), 0x3000);   // and a program that copied part of it
@@ -95,23 +95,23 @@ function withRoms(id, roms, config) {
     // the same ROMs: the moment opens exactly
     const r = withRoms(id, roms, config);
     r.openSnapshot(snap);
-    check(`${id}: with the same ROMs it opens exactly (the whole snapshot is equal)`, snapText(r.machine) === snapText(m));
-    check(`${id}: and both run on identically`, run(r.machine, 30) === run(m, 30));
+    check(`${id}: with the same ROMs it opens exactly (the whole snapshot is equal)`, snapText(r.shownMachine) === snapText(m));
+    check(`${id}: and both run on identically`, run(r.shownMachine, 30) === run(m, 30));
 
     // no ROMs: the needs-ROMs message names them
     const none = new Emu.Session({ store: Emu.memoryStore() });
     none.switchMachine(id, config);
     const needs = (() => { try { none.openSnapshot(snap); return null; } catch (e) { return e; } })();
     check(`${id}: without the ROMs, the needs-ROMs message names them and nothing opens`, needs instanceof Emu.SnapshotRomsError
-      && profile.roms.every((x) => needs.message.includes(x.label)) && none.machine.id === id && !none.machine.hasRom, needs && needs.message);
+      && profile.roms.every((x) => needs.message.includes(x.label)) && none.shownMachine.id === id && !none.shownMachine.hasRom, needs && needs.message);
 
     // another version of a ROM: refused, not loaded
     const other = Object.assign({}, roms, { [profile.roms[0].id]: standIn(profile.roms[0].size || 0x4000, 999) });
     const o = withRoms(id, other, config);
-    const before = snapText(o.machine);
+    const before = snapText(o.shownMachine);
     const mismatch = (() => { try { o.openSnapshot(snap); return null; } catch (e) { return e; } })();
     check(`${id}: another version of a ROM is refused with a clear message, and the machine is untouched`, mismatch instanceof Emu.SnapshotRomsError
-      && /another version of/.test(mismatch.message) && /CRC/.test(mismatch.message) && snapText(o.machine) === before, mismatch && mismatch.message);
+      && /another version of/.test(mismatch.message) && /CRC/.test(mismatch.message) && snapText(o.shownMachine) === before, mismatch && mismatch.message);
   }
 
   // a cartridge: its image is named, never carried; the recipient's own copy (a program they loaded) fills it in
@@ -121,13 +121,20 @@ function withRoms(id, roms, config) {
     const s = new Emu.Session({ store: Emu.memoryStore() });
     s.switchMachine('coco');
     s.load('game.ccc', pak);
-    for (let i = 0; i < 10; i++) s.machine.runFrame();
-    s.machine.ram.set(pak.subarray(0x100, 0x500), 0x2000);   // a copy of part of it in RAM
+    for (let i = 0; i < 10; i++) s.shownMachine.runFrame();
+    s.shownMachine.ram.set(pak.subarray(0x100, 0x500), 0x2000);   // a copy of part of it in RAM
     const link = await s.snapshotLink('https://cloadm.dev/play/');
     const { text, arrays } = linkContents(link);
     const set = windows([pak]);
     check('cartridge: the link holds no 16-byte window of its image', arrays.every((a) => firstWindow(a, set) < 0) && firstWindow(text, set) < 0);
     const snap = await s.readSnapshot(Emu.fromBase64Url(new URL(link).hash.slice(3)));
+    {
+      // the Share screen's ROM line is built from the needs' labels (a fixed "BASIC ROMs" would be wrong for a cartridge)
+      const { needsLine } = await import('../js/media/romrefs.js');
+      const needs = (await s.shareFile()).needs;
+      check('cartridge: the ROM line says "Needs the cartridge: ..." from the label', needsLine(needs) === 'Needs the cartridge: the person opening it adds their own.', needsLine(needs));
+      check('ROM line: several needs joined by their labels; none, no line', needsLine([{ label: '32K-mode BASIC' }, { label: '64K-mode BASIC' }]) === 'Needs 32K-mode BASIC and 64K-mode BASIC: the person opening it adds their own.' && needsLine([]) === '');
+    }
     check('cartridge: named by CRC as "the cartridge"', snap.share.images.some((x) => x.kind === 'cartridge' && x.crc === Emu.crc32(pak))
       && snap.share.placed.some((p) => p.path === 'cartridge.state.bytes'));
     const without = new Emu.Session({ store: Emu.memoryStore() });
@@ -143,16 +150,16 @@ function withRoms(id, roms, config) {
     const plain = new Emu.Session({ store: Emu.memoryStore() });
     plain.switchMachine('coco');
     plain.load('my copy.ccc', pak);
-    plain.openSnapshot(s.machine.snapshot());
-    check('cartridge: with their own copy it opens exactly as the full snapshot does', snapText(own.machine) === snapText(plain.machine));
-    check('cartridge: and both run on identically', run(own.machine, 30) === run(plain.machine, 30));
+    plain.openSnapshot(s.shownMachine.snapshot());
+    check('cartridge: with their own copy it opens exactly as the full snapshot does', snapText(own.shownMachine) === snapText(plain.shownMachine));
+    check('cartridge: and both run on identically', run(own.shownMachine, 30) === run(plain.shownMachine, 30));
   }
 
   // ROM bytes outside memory: the printout (a plain array), DriveWire's print buffer and a channel queue (plain
   // arrays in the Becker port's state) and a tape being recorded (pulse timings, left out)
   {
     const roms = { bas: standIn(0x2000, 11), extbas: standIn(0x2000, 23) };
-    const s = withRoms('coco', roms, { becker: true }), m = s.machine;
+    const s = withRoms('coco', roms, { becker: true }), m = s.shownMachine;
     for (let i = 0; i < 10; i++) m.runFrame();
     m.printed.push(...roms.bas.subarray(0x200, 0x600));                     // a program printed the ROM
     s.drivewire.printBuffer.push(...roms.extbas.subarray(0x100, 0x300));   // and sent it to the DriveWire printer
@@ -177,8 +184,8 @@ function withRoms(id, roms, config) {
     check('recording: a tape being recorded is left out of the shared moment', snap.state.deck.recording === null && snap.share.dropped.includes('deck.recording'));
     const r = withRoms('coco', roms, { becker: true });
     r.openSnapshot(snap);
-    check('printout: with the same ROMs the printout comes back byte for byte', Buffer.from(r.machine.printed).equals(Buffer.from(m.printed)));
-    const full = JSON.parse(before), back = JSON.parse(snapText(r.machine));
+    check('printout: with the same ROMs the printout comes back byte for byte', Buffer.from(r.shownMachine.printed).equals(Buffer.from(m.printed)));
+    const full = JSON.parse(before), back = JSON.parse(snapText(r.shownMachine));
     delete full.state.deck.recording; delete back.state.deck.recording;
     check('printout: and everything else is the moment (all but the recording left out)', JSON.stringify(back) === JSON.stringify(full));
   }

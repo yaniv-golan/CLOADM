@@ -84,7 +84,7 @@ const keyEvent = (ch) => ({ key: ch === '\n' ? 'Enter' : ch, code: ch === '\n' ?
 
 function typeFast(s, kb, text, overlap, perAdvance = 5) {
   const ev = hostEventsFor(text, overlap);
-  const frameMs = 1000 / s.machine.fps;
+  const frameMs = 1000 / s.shownMachine.fps;
   for (let i = 0; i < ev.length; i += perAdvance) {
     for (const [what, ch] of ev.slice(i, i + perAdvance)) { if (what === 'down') kb.keydown(keyEvent(ch)); else kb.keyup(keyEvent(ch)); }
     s.advance(frameMs + 0.001);
@@ -93,8 +93,8 @@ function typeFast(s, kb, text, overlap, perAdvance = 5) {
 
 // run frames until the queue is empty and a few more
 function drain(s) {
-  for (let i = 0; i < 2000 && s.keys.pending; i++) s.advance(1000 / s.machine.fps + 0.001);
-  for (let i = 0; i < 10; i++) s.advance(1000 / s.machine.fps + 0.001);
+  for (let i = 0; i < 2000 && s.keys.pending; i++) s.advance(1000 / s.shownMachine.fps + 0.001);
+  for (let i = 0; i < 10; i++) s.advance(1000 / s.shownMachine.fps + 0.001);
 }
 
 // the keys a program reads now: for each column driven low on its own, the rows pulled low
@@ -111,7 +111,7 @@ for (const id of ['dragon64', 'coco', 'coco3', 'mc10']) {
   for (const overlap of [false, true]) {
     const s = new Emu.Session();
     s.switchMachine(id);
-    const m = s.machine;
+    const m = s.shownMachine;
     const kb = new HostInput(m, s.keys);
     const text = 'HELLO, WORLD! I TYPE "FAST" 1122 TOO\n';
     // watch the matrix at every frame start, after the queue has run
@@ -145,8 +145,8 @@ for (const id of ['dragon64', 'coco', 'coco3']) {
   const s = new Emu.Session();
   s.switchMachine(id);
   s.load('liza.bin', liza, { remember: false });
-  const kb = new HostInput(s.machine, s.keys);
-  for (let i = 0; i < 120; i++) s.advance(1000 / s.machine.fps + 0.001);
+  const kb = new HostInput(s.shownMachine, s.keys);
+  for (let i = 0; i < 120; i++) s.advance(1000 / s.shownMachine.fps + 0.001);
   const typed = 'I feel happy, really';
   typeFast(s, kb, typed, true, 8);
   drain(s);
@@ -158,13 +158,13 @@ for (const id of ['dragon64', 'coco', 'coco3']) {
 {
   const s = new Emu.Session();
   s.switchMachine('dragon64');
-  const kb = new HostInput(s.machine, s.keys);
+  const kb = new HostInput(s.shownMachine, s.keys);
   kb.keydown(keyEvent('A')); kb.keyup(keyEvent('A')); kb.keydown(keyEvent('B'));
   s.reset();
   check('reset drops queued keys', s.keys.pending === 0);
   kb.keyup(keyEvent('B'));
-  s.advance(1000 / s.machine.fps + 0.001);
-  check('a release after the reset does not press anything', matrixKeys(s.machine).size === 0 && s.keys.pending === 0);
+  s.advance(1000 / s.shownMachine.fps + 0.001);
+  check('a release after the reset does not press anything', matrixKeys(s.shownMachine).size === 0 && s.keys.pending === 0);
   kb.keydown(keyEvent('A'));
   s.switchMachine('coco');
   check('a machine switch drops them', s.keys.pending === 0 && s.keys.down.size === 0);

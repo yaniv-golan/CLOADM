@@ -1,0 +1,15 @@
+{
+  "name": "f6-bare-bullet",
+  "note": "Positive control: a bare bullet appended to the existing \"#### Fixed\" list.",
+  "version": "9.9-pre",
+  "tags": [
+    "v9.9-pre",
+    "v9.8-pre"
+  ],
+  "expect": {
+    "now": "FAIL",
+    "afterFix": "FAIL"
+  },
+  "tagged": "# Changelog\n\n## [Unreleased]\n\nNext version: 9.9-pre.\n\n### 9.9-pre\n\n#### Added\n\n- the released feature\n\n#### Changed\n\n- the released change\n\n#### Fixed\n\n- the released fix one\n- the released fix two\n\n### 9.8-pre\n\n#### Added\n\n- the older feature\n",
+  "candidate": "# Changelog\n\n## [Unreleased]\n\nNext version: 9.9-pre.\n\n### 9.9-pre\n\n#### Added\n\n- the released feature\n\n#### Changed\n\n- the released change\n\n#### Fixed\n\n- the released fix one\n- the released fix two\n- a stray bullet\n\n### 9.8-pre\n\n#### Added\n\n- the older feature\n"
+}

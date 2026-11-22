@@ -15,7 +15,7 @@
  * Dropping files anywhere on the screen works as before; dropping on this screen takes them as ROMs. A ROM dropped
  * anywhere that could not be used (wrong size for its name, a socket already filled) opens this screen to say why.
  */
-import { $ } from './page.js';
+import { $, showView } from './page.js';
 
 const kb = (n) => `${n / 1024} KB`;
 // what an optional socket gives you, by socket id (what you miss without it)
@@ -38,7 +38,7 @@ export function setupRomSockets(page, romInput, { confirmSwitch }) {
   function show() {
     const open = isOpen();
     document.body.classList.toggle('roms-open', open);
-    view.hidden = !open;
+    showView(view, open);
     if (!open) offers = [];   // shown once, with the drop they came from: never again from a later visit to this screen
     if (open) { render(); $('romHeading').focus(); }
   }
@@ -67,7 +67,7 @@ export function setupRomSockets(page, romInput, { confirmSwitch }) {
     card.dataset.disk = ready.length ? 'loaded' : 'missing-optional';
     const body = el('div', null, 'body'), top = el('div', null, 'top');
     const names = c.map((x) => x.name.replace(/ cartridge$/, ''));
-    top.append(el('strong', `Disk drives (optional): ${names.join(' or ')}`), el('span', 'optional', 'tag'));
+    top.append(el('strong', `Disk drives: ${names.join(' or ')}`), el('span', 'optional', 'tag'));
     const state = ready.length ? `✓ ${ready.map((x) => `${x.name.replace(/ cartridge$/, '')} disk ROM`).join(', ')} · ${session.diskRomWaiting ? 'goes in at the next reset or power cycle (the disk controller in use has none yet)' : 'ready for disks'}`
       : 'Without it, disks still go in, for programs that read them directly. CLOADM doesn\'t include one; add your own dump.';
     body.append(top, el('div', `8 KB · usually ${c.map((x) => x.rom).join(' or ')}`, 'expect'), el('div', state, 'state'));
@@ -76,8 +76,8 @@ export function setupRomSockets(page, romInput, { confirmSwitch }) {
   }
   // drawn only while the screen is open (show() draws it on opening)
   function render() {
-    if (!isOpen() || !session.machine) return;
-    const m = session.machine, info = session.machineRoms(), name = m.profile.name;
+    if (!isOpen() || !session.personMachine) return;
+    const m = session.personMachine, info = session.machineRoms(m.id), name = m.profile.name;   // the person's machine
     $('romMachine').textContent = name.toUpperCase();
     $('romSockets').replaceChildren(...info.sockets.map((s) => {
       const card = el('div', null, 'socket');
@@ -91,13 +91,13 @@ export function setupRomSockets(page, romInput, { confirmSwitch }) {
       // The Speech/Sound Pak's own sockets: a cartridge board with its own ROM, not part of the machine's. They
       // carry data-ssc rather than data-status so they are a separate list from the machine's sockets (the page's
       // browser check reads the machine's sockets by [data-status]). The Pak itself is an optional cartridge, so its
-      // cards are titled and tagged optional, like the disk card, and come last: a ROM the Pak needs (data-ssc
+      // cards carry the optional tag beside their titles (the words are not repeated in them), like the disk card, and come last: a ROM the Pak needs (data-ssc
       // "missing-required") is still not one the machine needs, and a red "required" beside BASIC's read as if it were.
       const card = el('div', null, 'socket');
       card.dataset.socket = `ssc-${s.id}`;
       card.dataset.ssc = s.status === 'loaded' ? 'loaded' : s.required ? 'missing-required' : 'missing-optional';
       const body = el('div', null, 'body'), top = el('div', null, 'top');
-      top.append(el('strong', `Speech/Sound Pak (optional cartridge): ${s.label}`), el('span', 'optional', 'tag'));
+      top.append(el('strong', `Speech/Sound Pak: ${s.label}`), el('span', 'optional', 'tag'));
       const state = s.status === 'loaded' ? '✓ loaded'
         : s.required ? 'Only for the Speech/Sound Pak: without it the Pak cannot be inserted; it plays its music side from this ROM.'
           : 'Optional: speech is not implemented yet, so the Pak plays music without it.';
@@ -159,7 +159,7 @@ export function setupRomSockets(page, romInput, { confirmSwitch }) {
     on.textContent = `Switch on the ${name}`;
   }
   $('btnRomSwitchOn').onclick = () => {
-    const m = session.machine;
+    const m = session.personMachine;
     if (m.useStub) { session.stubChosen.delete(m.id); session.switchMachine(m.id); }
     page.status(`${m.profile.name}: switched on with its ROMs`);
     close();
@@ -186,7 +186,7 @@ export function setupRomSockets(page, romInput, { confirmSwitch }) {
     if (ev === 'machine' || ev === 'roms' || ev === 'firmware' || ev === 'reset') render();
   });
   $('btnRunStub').onclick = () => runWithoutRoms();
-  function runWithoutRoms() { session.runWithoutRoms(); render(); page.status(`${session.machine.profile.name}: running without ROMs`); }
+  function runWithoutRoms() { session.runWithoutRoms(); render(); page.status(`${session.personMachine.profile.name}: running without ROMs`); }
   // open this screen (the header's pill, the Machine tab, the boot help, the Welcome menu's key 3); to: 'disk' lands
   // on the disk ROM's card (a drive's Add ROMs…): scrolled into view, with the focus
   function reveal({ to = null } = {}) {

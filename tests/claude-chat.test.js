@@ -306,16 +306,16 @@ const json = (status, body) => () => new Response(JSON.stringify(body), { status
     const s = new Emu.Session({ store: Emu.memoryStore(), keyStore });
     s.switchMachine('dragon64');
     s.setClaudeKey(KEY);
-    for (let i = 0; i < 3; i++) s.machine.runFrame();
+    for (let i = 0; i < 3; i++) s.shownMachine.runFrame();
     check('setClaudeKey stores the key host-side, not in the emulated machine', s.keyStore.get() === KEY);
-    const snapText = Emu.state.toJSON(s.machine.snapshot());
+    const snapText = Emu.state.toJSON(s.shownMachine.snapshot());
     check('a snapshot does not contain the key', !snapText.includes(KEY));
     const exp = JSON.stringify(s.exportSettings());
     check('a settings export does not contain the key', !exp.includes(KEY) && !/sk-ant/.test(exp), exp.slice(0, 80));
     const share = s.shareUrl('https://cloadm.dev/play/');
     check('a share link does not contain the key', !share.includes(KEY) && !/key/i.test(new URL(share).search), share);
     // the machine's 64K of RAM does not contain it either
-    const ramHasKey = Buffer.from(s.machine.ram).includes(Buffer.from(KEY));
+    const ramHasKey = Buffer.from(s.shownMachine.ram).includes(Buffer.from(KEY));
     check('the emulated machine memory does not contain the key', !ramHasKey);
   }
 
@@ -438,8 +438,8 @@ const json = (status, body) => () => new Response(JSON.stringify(body), { status
     const fs = require('fs');
     const s = new Emu.Session();
     s.switchMachine('dragon64');
-    for (let i = 0; i < 30; i++) s.advance(1000 / s.machine.fps + 0.01);
-    const basic = s.machine;
+    for (let i = 0; i < 30; i++) s.advance(1000 / s.shownMachine.fps + 0.01);
+    const basic = s.shownMachine;
     const turns = [];   // each turn: [[tool, input], ...]
     const backend = { send: async () => { for (const [name, input] of turns.shift() || []) await backend.runTool(name, input); return { text: 'Done.', stopReason: 'end_turn' }; } };
     const firmware = new Uint8Array(fs.readFileSync(path.join(__dirname, '../examples/chat.bin')));
@@ -450,7 +450,7 @@ const json = (status, body) => () => new Response(JSON.stringify(body), { status
     const turn = async (...calls) => {
       turns.push(calls);
       let done = false; const p = chat.sendLine('do it').then(() => { done = true; });
-      for (let i = 0; i < 4000 && !done; i++) { s.advance(1000 / s.machine.fps + 0.01); await new Promise((r) => setImmediate(r)); }
+      for (let i = 0; i < 4000 && !done; i++) { s.advance(1000 / s.shownMachine.fps + 0.01); await new Promise((r) => setImmediate(r)); }
       await p;
     };
     // a poke, then undo: the byte goes back to what it was
@@ -486,13 +486,13 @@ const json = (status, body) => () => new Response(JSON.stringify(body), { status
     const s = new Emu.Session();
     s.switchMachine('d64plus');
     s.setDisplay({ screen: 'plus' });
-    const basic = s.machine;
+    const basic = s.shownMachine;
     check('d64plus: the 80-column screen chosen for BASIC', basic.view === 'plus');
     const backend = { send: async () => ({ text: 'Hi.', stopReason: 'end_turn' }) };
     const firmware = new Uint8Array(fs.readFileSync(path.join(__dirname, '../examples/chat.bin')));
     s.startChat({ backend, channel: new Emu.MemoryChannel(), firmware, tools: false });
-    for (let i = 0; i < 60; i++) s.advance(1000 / s.machine.fps + 0.01);
-    const chat = s.machine;
+    for (let i = 0; i < 60; i++) s.advance(1000 / s.shownMachine.fps + 0.01);
+    const chat = s.shownMachine;
     // what is drawn: lit pixels in the frame, and in row 0 the prompt alone (its cell, nothing after it)
     const lit = (f, x0, y0, x1, y1) => { const px = Emu.frameToRGBA(f); let n = 0;
       for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) if ((px[y * f.width + x] & 0xff00) > 0x8000) n++; return n; };
@@ -503,11 +503,11 @@ const json = (status, body) => () => new Response(JSON.stringify(body), { status
     check('d64plus, plus chosen: the chat screen is drawn (lit pixels), its prompt in row 0', all > 0 && prompt > 0 && rest === 0, `${all} lit, prompt ${prompt}, rest of row 0 ${rest}`);
     check('d64plus: the setting stays the person\'s (plus)', s.display.screen === 'plus');
     s.showChat('basic');
-    check('d64plus: "Show my BASIC session" shows the BASIC session on its 80-column screen', s.machine === basic && basic.view === 'plus');
+    check('d64plus: "Show my BASIC session" shows the BASIC session on its 80-column screen', s.shownMachine === basic && basic.view === 'plus');
     s.showChat('chat');
-    check('d64plus: back to the chat, its VDG screen again', s.machine === chat && chat.view === 'vdg');
+    check('d64plus: back to the chat, its VDG screen again', s.shownMachine === chat && chat.view === 'vdg');
     s.endChat();
-    check('d64plus: after the chat, the BASIC session on its 80-column screen', s.machine === basic && basic.view === 'plus');
+    check('d64plus: after the chat, the BASIC session on its 80-column screen', s.shownMachine === basic && basic.view === 'plus');
   }
 
   // ---- prompt caching ----

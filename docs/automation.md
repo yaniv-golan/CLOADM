@@ -40,7 +40,7 @@ Every option is a **step**, run in the order given. The machine setup comes firs
 | Step | What it does |
 |---|---|
 | `--machine ID` (`-m`) | the model, default `dragon64`; `--list-machines` lists the ids, their options and ROM files |
-| `--option KEY=VALUE` (`-o`) | a machine option, checked against the model: `ram=16`, `cpu=6309`, `becker=true`, … |
+| `--option KEY=VALUE` (`-o`) | a machine option, checked against the model: `ram=16` (the CoCo 1/2: 4, 16, 32 or 64), `cpu=6309` (the models with a 6309 variant), `hires=max3-right`, …; `becker=true` is **CoCo-family only**. Each model offers its own set (`--list-machines`; [which model has which](#which-storage-and-serial-paths-each-model-has)): the Dragon 64 has `cpu`, `ram`, `hires` and `ssc`, and `-o becker=true` on it is `bad-option` (exit 2) |
 | `--roms PATH` | your ROM dumps: a file, a ROM pack `.zip` or a directory (repeatable). Without it the machine runs the built-in firmware |
 | `--no-roms` | the built-in firmware even with ROMs given |
 | `--fast-cas` | `.cas` programs go straight into memory instead of through BASIC's `CLOAD` |
@@ -100,6 +100,46 @@ CoCo 3, so a display stretches them to 4:3. They are the colours `machine.render
 artifact-colour display effects. A picture is the last frame the video chip drew, while `--screen` and `--peek` read
 memory now: a program that changes the screen part way through a frame shows the change in the next picture, so
 run a frame (`--frames 1`) before a screenshot of something that just changed.
+
+### Which storage and serial paths each model has
+
+Options and paths differ by model, so a command that works on one machine can be refused on another. Machine options are
+checked against the model (`bad-option` names what it has: `the Dragon 64 has no option "becker" (it has cpu, ram, hires, ssc)`).
+This table is built from `js/machines/profiles.js` and the machines themselves, and `tests/dev-docs-headless.test.js`
+fails when it and the code differ:
+
+| Model | Options | Tape | Disk controller (a cartridge; your own ROM) | 6551 ACIA | Bit-banger serial port | Becker port (DriveWire) |
+|---|---|---|---|---|---|---|
+| `dragon32` | `cpu`, `ram`, `hires` | cassette | DragonDOS or Delta DOS | no | no | no |
+| `dragon64` | `cpu`, `ram`, `hires`, `ssc` | cassette | DragonDOS or Delta DOS | yes, with its port | no | no |
+| `dragon200`, `tanodr64` | `cpu`, `ram`, `hires` | cassette | DragonDOS or Delta DOS | yes, with its port | no | no |
+| `dragon200e` | `cpu`, `ram`, `hires`, `inverseVideo` | cassette | Disk BASIC (RS-DOS) [^200e] | chip only, no port | yes [^200e] | no |
+| `dgnalpha` | `cpu`, `ram` | cassette | its own, built in (2 drives) | chip only, no port | no | no |
+| `d64plus` | `cpu`, `ram` | cassette | DragonDOS or Delta DOS | chip only, no port | no | no |
+| `coco`, `coco2b` | `cpu`, `ram`, `hires`, `becker`, `ssc` | cassette | Disk BASIC (RS-DOS) | no | yes | yes |
+| `mx1600`, `lzcolor64`, `cd6809`, `cp400` | `cpu`, `ram`, `hires`, `becker` | cassette | Disk BASIC (RS-DOS) | no | yes | yes |
+| `coco3` | `cpu`, `ram`, `hires`, `becker`, `ssc` | cassette | Disk BASIC (RS-DOS) | no | yes | yes |
+| `coco3p` | `cpu`, `ram`, `hires`, `becker` | cassette | Disk BASIC (RS-DOS) | no | yes | yes |
+| `mc10`, `alice` | `cpu`, `ram` | cassette | none (no cartridge port) | no | yes | no |
+
+[^200e]: How the code treats the Dragon 200-E today: it is picked out by its own keyboard layout, so the places that
+    ask "is this a Dragon?" (the disk cartridges it offers, the parallel printer, the serial port) see a CoCo-family
+    machine there: it offers the RS-DOS cartridge and has the bit-banger in place of the Dragons' parallel printer. Its
+    6551 is present but, as on the Alpha and the 64 Plus, its port is not wired to a plug.
+
+What each column means, and the way in:
+
+* **Tape**: the cassette deck every model has (`--tape FILE`, `--load FILE.cas`; `insertTape` in Node).
+* **Disk controller**: a cartridge in the cartridge port with your own disk ROM (`--roms`, then `--disk [N=]FILE`);
+  the Dragon Alpha's controller is built in. The MC-10 and Alice have no cartridge port, so no disk.
+* **6551 ACIA** (Dragon 64, 200 and Tano at `$FF04-$FF07`; [the machine notes](machines.md) list the Dragon 64's
+  serial port): "with its port" means `session.attachSerial('terminal' | 'loopback' | 'none', { baud })` plugs something
+  into its RS-232 port. There is no command-line step for serial: it is Node only
+  ([a custom peer](#a-snapshot-with-a-serial-peer-outside-the-machine)).
+* **Bit-banger**: the CoCo's and the MC-10's serial port, driven by the program through PIA1 (`attachSerial('printer' |
+  'terminal' | 'loopback', { baud })`; a serial printer is plugged in by default).
+* **Becker port**: `becker=true` (the `?becker=true` of the page) puts the DriveWire port at `$FF41-$FF42`; the
+  Dragons have no `becker` option.
 
 ### Pictures and sound
 
@@ -221,6 +261,96 @@ inputs therefore give the same frames, screens and pictures on every run and eve
 `--timeout` are emulated seconds: a 50 Hz machine runs 50 frames a second. `--save-snapshot` records the time it was
 taken; set `SOURCE_DATE_EPOCH` (seconds since 1970) for byte-identical snapshot files.
 
+### A graphics program has no text to wait on
+
+`--wait-for text:` needs something on the screen to read, and a graphics program has none: its screen is a bitmap. Wait on
+something it does keep in memory instead. The guest here, `docs/examples/framecount.asm` (a PMODE 4 screen, 6809, no
+ROMs), adds one to a byte at `$3100` on every video field and, once a tick, reads the keyboard matrix: with SPACE down it
+records that tick's counter in `$3101` and inverts one byte of the picture on row 96. So the byte is the clock to wait on,
+and the key is visible in the picture and in `$3101`:
+
+```sh
+node cli/cloadm.js --asm docs/examples/framecount.asm --wait-for 'mem:$3100=3' --hold SPACE:2 --wait-for 'mem:$3100=7' --expect-mem '$3101=5' --step 200 --json
+node cli/cloadm.js --asm docs/examples/framecount.asm --wait-for 'mem:$3100=3' --hold SPACE:2 --frames 1 --screenshot key.png
+```
+
+The first command's `--json` steps (trimmed) are:
+
+```json
+{ "step": "wait-for", "condition": "mem:$3100=$03", "frames": 5, "met": true }
+{ "step": "hold", "keys": ["SPACE"], "frames": 2 }
+{ "step": "wait-for", "condition": "mem:$3100=$07", "frames": 2, "met": true }
+{ "step": "expect-mem", "address": 12545, "value": 5, "met": true }
+{ "step": "step", "instructions": 200, "cycles": 800 }
+```
+
+`frames` is what each run step ran (the counter took 5 frames to reach 3: the guest first clears its 6 KiB picture, which takes
+about two and a half frames); `--info` gives the machine's frame count so far (`frame`), and `--step N` gives the `cycles`
+those N instructions took. Everything is emulated time, so the same command gives the same numbers on every run. The same
+recipe in Node: wait on the byte, hold the key, wait for the next counter value, capture a PNG, and read the elapsed frames and
+CPU cycles (`machine.frameCount`, and `machine.now()`, the machine's own cycle count):
+
+```js
+// example: frame-counter
+import { readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { Session, assemble } from './js/emu.js';
+import { framePng } from './cli/cloadm.js';
+
+const fail = (what) => { throw new Error(`example: ${what}`); };
+const s = new Session({ welcomeMenu: false });
+s.switchMachine('dragon64', {}, { menu: false });
+const m = s.shownMachine;
+const res = assemble(readFileSync('docs/examples/framecount.asm', 'utf8'), '6809');
+if (!res.ok) fail(res.errors.map((e) => e.message).join('; '));
+s.runAssembled(res);
+
+// wait on a byte of the guest's memory: whole frames, with a bound; what elapsed comes back
+const waitFor = (addr, value, maxFrames = 300) => {
+  const at = { frames: m.frameCount, cycles: m.now() };
+  while (s.readByte(addr) !== value) { if (m.frameCount - at.frames > maxFrames) fail(`address ${addr} never became ${value}`); s.runFrames(1); }
+  return { frames: m.frameCount - at.frames, cycles: m.now() - at.cycles };
+};
+const boot = waitFor(0x3100, 3);                   // the guest's counter, with no text on the screen
+m.setKey('SPACE', true);                           // a key down in the keyboard matrix, as a finger would hold it
+s.runFrames(2);                                    // the guest's next two ticks both read it
+m.setKey('SPACE', false);
+const next = waitFor(0x3100, 7);                   // the next counter value we want
+if (s.readByte(0x3101) !== 5) fail(`SPACE was last seen at tick ${s.readByte(0x3101)}, not 5`);
+const png = framePng(m.render());                  // the last frame the video chip drew
+if (png[1] !== 0x50 || png.readUInt32BE(16) !== 320 || png.readUInt32BE(20) !== 240) fail('not a 320x240 PNG');
+writeFileSync(join(tmpdir(), 'framecount-key.png'), png);
+if (boot.frames !== 5 || next.frames !== 2) fail(`elapsed frames ${boot.frames} and ${next.frames}`);
+if (next.cycles < 2 * 17700 || next.cycles > 2 * 17800) fail(`2 frames took ${next.cycles} cycles`);   // 17,784 a frame on the Dragon 64
+console.log('example passed');
+```
+
+**Input is latched at the guest's tick, not at the video field.** The guest samples the keyboard matrix once per tick, so
+what it "presses" is the matrix's state at that instant; a key that goes down and up between two ticks is never seen. The
+harness changes the matrix straight away (`--hold` and `machine.setKey` set the key before the frames run and let go after
+them), so a key held for N frames is there for every tick inside them. A guest that ticks on every field (as this one polls
+the field-sync flag) sees a hold of one frame; a guest that works for three fields between samples needs a hold of at least
+three, or a hold that waits on the guest's own counter (`--wait-for` on the byte that says it has read the keys).
+`--type` and `typeText` are different: they go through a key queue that applies changes at frame starts, one new press a
+frame, each held at least 3 frames (`js/machines/keyqueue.js`), which suits a keyboard routine that reads a character, not a
+sample on a chosen tick.
+
+**A video field is the frame.** The VDG's field sync comes once per frame and is the guest's tick when it waits for it, so the
+rate is the video standard's, not the family's. **PAL** machines (`dragon32`, `dragon64`, `dragon200`, `dragon200e`, `dgnalpha`,
+`d64plus`: the Dragons but the Tano; and `coco3p`, the CoCo 3 (PAL)) run 17,784 CPU cycles a frame, 49.97 fields a second on the
+Dragons (888,625 Hz) and 50.04 on the CoCo 3 (PAL) (889,844 Hz). **NTSC** machines (`coco`, `coco2b`, `mx1600`, `lzcolor64`,
+`cd6809`, `cp400`: the CoCo 1/2, 2B and clones; `coco3`; `tanodr64`, the Tano Dragon 64, which is NTSC; and `mc10` and `alice`) run
+14,934 cycles a frame, 59.92 a second (894,886 Hz). `--frames`,
+`--hold` counts and the `frames` in a `--wait-for` result are those frames, and a `mem:` condition is checked as each frame
+ends, so a wait finishes at the first frame boundary at which the byte holds, not at the instruction that wrote it (use
+`--wait-for pc:` to stop at an instruction). A guest that does more than a frame's work between field syncs simply ticks slower
+than the frames run: its counter then advances less than once a frame.
+
+**What "cycles" counts.** `--step N` reports CPU cycles. `machine.now()` is the machine's own clock, which is the CPU cycle on
+the Dragons, the CoCo 1/2 and the MC-10 but the GIME's clock (four times the 0.89 MHz CPU cycle: 59,736 a frame NTSC, 71,136 PAL)
+on the CoCo 3, where the CPU runs at two speeds; `machine.cpu.totalCycles` counts CPU cycles on every model.
+
 ## For coding agents
 
 Writing a game? [Game development](game-development.md) is the guide: the hardware a game uses, a starter game, and
@@ -295,8 +425,10 @@ s.runFrames(60);                                  // one second of emulated time
 s.typeText('I need a holiday\n');
 s.runFrames(120);
 
-// the screen, through Claude's screen_text reader (the Session is its target)
-const screen = screenTextTool(s);
+// the screen, through Claude's screen_text reader. Its tools take a TARGET - Session.chatTarget() gives one
+// (the machine in use; the BASIC session if a full-screen chat is open), not the Session itself, which has two
+// machines and says which it means through an accessor
+const screen = screenTextTool(s.chatTarget());
 if (!screen.lines.includes('WHY DO YOU NEED A HOLIDAY?')) fail(`LIZA did not answer: ${screen.lines.join(' | ')}`);
 
 // memory: side-effect-free reads, writes through the memory map (-> how many bytes landed)
@@ -310,7 +442,7 @@ s.runFrames(1);
 if (s.readByte(0x3100) !== 0x2A) fail('the assembled program did not run');
 
 // the picture: a Frame of colour codes and a colour table; frameToRGBA gives the pixels, framePng a PNG file
-const frame = s.machine.render();
+const frame = s.shownMachine.render();
 const rgba = frameToRGBA(frame);
 const png = framePng(frame);
 if (rgba.length !== frame.width * frame.height || png[1] !== 0x50) fail('render');
@@ -321,11 +453,119 @@ const t = new Session({ welcomeMenu: false });
 t.switchMachine('dragon64', {}, { menu: false });
 t.openSnapshot(await t.readSnapshot(bytes));
 s.runFrames(10); t.runFrames(10);
-if (t.machine.id !== 'coco' || !frameToRGBA(t.machine.render()).every((p, i) => p === frameToRGBA(s.machine.render())[i])) fail('snapshot');
+if (t.shownMachine.id !== 'coco' || !frameToRGBA(t.shownMachine.render()).every((p, i) => p === frameToRGBA(s.shownMachine.render())[i])) fail('snapshot');
 console.log('example passed');
 ```
 
 `tests/cli.test.js` runs this example and the script above on every test run, so they stay correct.
+
+### A complete example that runs from outside the repository
+
+`docs/examples/headless-frame.mjs` is one runnable file that uses only the public modules (`js/emu.js`, and `cli/cloadm.js`
+for the PNG encoder; no test helper): it makes a Session on a Dragon 64, assembles `docs/examples/framecount.asm` (read from the
+repository) and loads it as a DragonDOS binary (`session.load`), waits on the guest's frame counter, holds SPACE in the keyboard matrix, steps a frame,
+reads the raw framebuffer (`frame.data`: one colour code a pixel; `frame.table`: the RGBA of each code; `frame.active`: where
+the 256x192 picture sits inside the border), writes a PNG and prints what elapsed. It finds the repository from its own
+path, so it runs from any directory; a copy of the one file anywhere else needs only `CLOADM_DIR` pointing at the repository
+(the guest source and the modules are read from there):
+
+```sh
+cd /tmp                                              # anywhere
+node /path/to/cloadm/docs/examples/headless-frame.mjs out.png
+CLOADM_DIR=/path/to/cloadm node my-copy-of-it.mjs out.png
+```
+
+```json
+{"png":"out.png","frame":[320,240],"picture":{"x":32,"y":24,"width":256,"height":192},"litOnRow96":16,"frames":8,"cycles":142264,"counter":6,"keySeenAtTick":5}
+```
+
+`tests/dev-docs-headless.test.js` runs it from a temporary directory outside the repository (and from a copy of the `.mjs`
+alone, with `CLOADM_DIR`), and compares the line above with what it prints, so it cannot rot. Everything it calls is reachable from `js/emu.js` and `cli/cloadm.js`, but not every call is in
+the stability table below: `machine.setKey`, `machine.keyPos`, `machine.frameCount`, `machine.now()` and the `Frame`
+fields are what the command line itself uses, and are not promised there.
+
+### A snapshot with a serial peer outside the machine
+
+A snapshot holds the machine and the serial device plugged into it. For the terminal that is the device's kind and baud, the
+line level, the **bytes handed to the machine that it has not finished receiving** (`queue`) and the decoder of the byte
+being sent the other way (`tests/state-carts.test.js`: "The serial terminal: a byte on its way to the machine is part of the
+snapshot"; and "The Dragon 64's 6551 ACIA with a loopback plug", a byte shifted out and back when the snapshot is taken). It does **not** hold your peer:
+its own queue (what it has not yet handed over), what it has received, its backing file or the offset in it, or the
+`onReceive` hook (`Session.openSnapshot` makes a new machine and re-plugs only the Session's own terminal log, `terminalBytes`,
+which starts empty). So a peer that must resume has three jobs, in this order:
+
+1. **Freeze.** Stop handing over bytes (no more `serialSend`) and stop the host side. Then `machine.serialPort.flush(machine.now())`:
+   the port decodes what the machine sends lazily, so this delivers every byte the machine has *completely* sent to
+   `onReceive`, and the one in the middle of being sent stays in the decoder (which the snapshot holds) and arrives after the
+   restore (`tests/state-carts.test.js` flushes before it snapshots the bit-banger).
+2. **Save the peer next to the snapshot**, under the same name: the number of bytes it **handed to the machine** (not the
+   number the machine has read: the difference is the queue, which is in the snapshot), what it has received and its offset
+   in the backing file.
+3. **Resume.** `openSnapshot` in the new Session, hook `serialPort.onReceive` again, rebuild the peer from its saved state and
+   carry on from the byte after the last one it handed over. The queued bytes arrive by themselves; handing them over
+   again would send them twice.
+
+```js
+// example: serial-peer
+import { readFileSync } from 'node:fs';
+import { Session, assemble } from './js/emu.js';
+
+const fail = (what) => { throw new Error(`example: ${what}`); };
+const FILE = [...'HELLO, DRAGON! 0123456789'].map((c) => c.charCodeAt(0));   // the peer's backing "file"
+// the guest: a 1200-baud receiver on the CoCo's bit-banger that keeps what it receives at $3200 (COUNT at $31FF)
+const guest = assemble(readFileSync('docs/examples/serialrx.asm', 'utf8'), '6809');
+if (!guest.ok) fail('serialrx.asm does not assemble');
+const start = () => {
+  const s = new Session({ welcomeMenu: false });
+  s.switchMachine('coco', {}, { menu: false });
+  s.attachSerial('terminal', { baud: 1200 });
+  s.runAssembled(guest);
+  s.runFrames(2);
+  return s;
+};
+const received = (s) => String.fromCharCode(...Array.from({ length: s.readByte(0x31FF) }, (_, i) => s.readByte(0x3200 + i)));
+
+// the peer: hands the machine three bytes of its file every other frame; its state is how many it has handed over
+class Peer {
+  constructor(session, saved = { sent: 0, got: [] }) {
+    this.session = session; this.sent = saved.sent; this.got = saved.got.slice();
+    session.personMachine.serialPort.onReceive = (b) => this.got.push(b);   // what the machine sends back (this guest sends nothing)
+  }
+  tick() { for (let i = 0; i < 3 && this.sent < FILE.length; i++) this.session.serialSend([FILE[this.sent++]]); }
+  save() { return JSON.parse(JSON.stringify({ sent: this.sent, got: this.got })); }
+}
+const run = (s, peer, frames) => { for (let f = 0; f < frames; f++) { if (f % 2 === 0) peer.tick(); s.runFrames(1); } };
+
+// the uninterrupted run
+const a = start(); run(a, new Peer(a), 120);
+if (received(a) !== 'HELLO, DRAGON! 0123456789') fail(`uninterrupted: ${received(a)}`);
+
+// frozen part way, in this order: stop feeding, flush the port, snapshot, save the peer
+const s = start(), peer = new Peer(s);
+run(s, peer, 5);
+s.personMachine.serialPort.flush(s.personMachine.now());
+const snapshot = (await s.snapshotFile()).bytes, saved = peer.save();
+if (s.readByte(0x31FF) >= saved.sent) fail('nothing is on its way to the machine: pick another moment');   // handed over 9, received 8
+
+// resumed: a new Session, the hook again, the peer rebuilt and carrying on from the byte after the last one handed over
+const t = new Session({ welcomeMenu: false });
+t.openSnapshot(await t.readSnapshot(snapshot));
+if (t.personMachine.serialPort.kind !== 'terminal' || t.personMachine.serialPort.baud !== 1200) fail('the terminal is not back');
+run(t, new Peer(t, saved), 120);
+if (received(t) !== received(a)) fail(`resumed: ${received(t)}`);
+
+// resumed from what the machine had READ instead of what the peer had HANDED OVER: the byte on the wire arrives twice
+const u = new Session({ welcomeMenu: false });
+u.openSnapshot(await u.readSnapshot(snapshot));
+run(u, new Peer(u, { sent: s.readByte(0x31FF), got: [] }), 120);
+if (received(u) === received(a) || u.readByte(0x31FF) !== a.readByte(0x31FF) + 1) fail(`the wrong resume should send one byte twice: ${received(u)}`);
+console.log('example passed');
+```
+
+The example runs on the CoCo's bit-banger because its guest is small. The Dragon 64, 200 and Tano's 6551 has its own port object
+(`machine.serialPort` is it too: `attachSerial`, `serialSend`, `onReceive` and `flush` are the same calls) and its registers and
+shift state are in the snapshot as well (`tests/state-carts.test.js`: "The Dragon 64's 6551 ACIA with a loopback plug", a byte shifted out
+and back when the snapshot is taken). The example does not exercise the machine-to-peer direction: its guest only receives.
 
 ### What is stable
 
@@ -333,12 +573,12 @@ console.log('example passed');
 |---|---|
 | The command line | every step, its argument syntax, the `--json` fields above, the exit codes and error codes; `--describe` gives them all with `schemaVersion`, which goes up when one changes incompatibly |
 | `new Session({ welcomeMenu })` | `false` for scripts: nothing offers the welcome menu |
-| `switchMachine(id, config, { menu })`, `machine`, `profiles` | the models and their options |
+| `switchMachine(id, config, { menu })`, `shownMachine`, `personMachine`, `profiles` | the models and their options. `shownMachine` is the machine on screen (and `machine` is gone: it did not say which of the two it meant); `personMachine` is the one the person works on, the same machine unless a full-screen chat is open |
 | `addRoms(files)`, `machineRoms()`, `runWithoutRoms()` | your ROMs, identified per model |
 | `load(name, bytes, { remember: false })`, `insertTape`, `await importDisk(name, bytes, drive)`, `startLiza`, `startWelcome`, `runAssembled(assemble(src, cpu))` | media and programs |
 | `runFrames(n)` | emulated frames, no clock; `advance(ms)` is the page's real-time pacing |
 | `typeText(text)`, `untypable(text)` | typing; for BREAK, CLEAR and the arrows, `machine.typist.press(key)` with ROMs (the keyboard matrix), and `machine.stubKeys.push(code)` on the built-in firmware (its POLCAT codes: BREAK 3, CLEAR 12, LEFT 8, RIGHT 9, DOWN 10, UP 94) |
-| `screenTextTool(session)`, `screenText()` | the screen as text (the first is the full reader; the second the raw 32x16 VDG page) |
+| `screenTextTool(session.chatTarget())`, `screenText()` | the screen as text (the first is the full reader and takes a tool target, never a Session; the second the raw 32x16 VDG page) |
 | `readByte(addr)`, `pokeBytes(addr, bytes)` | memory |
 | `machine.render()`, `frameToRGBA(frame)`, `framePng(frame)` | pictures |
 | `await snapshotFile()`, `await readSnapshot(bytes)`, `openSnapshot(snap)` | snapshots |

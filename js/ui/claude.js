@@ -22,7 +22,7 @@ import { ACTING_TOOL_NAMES } from '../claude/chat.js';
 import { CLAUDE_PAUSED_TEXT } from '../session.js';
 import { CanvasPresenter } from '../video/canvas.js';
 import { cpuFamily } from '../cpu/cpus.js';
-import { $, ESC, VIEWS, viewOpen, markUndrawn } from './page.js';
+import { $, ESC, VIEWS, viewOpen, markUndrawn, claudeStatusText, touchPanel, TOUCH_PAUSED_TEXT } from './page.js';
 import { chatTurns } from '../claude/history.js';
 import { actionLines, restoreLine } from './claude-lines.js';
 
@@ -31,6 +31,9 @@ const FIRMWARE_URL = 'examples/chat.bin';
 const ACTING = new Set(ACTING_TOOL_NAMES);
 // Claude's INCLUDE lines read from the same-origin examples/ folder only (js/host/example-reader.js)
 const include = exampleReader();
+
+// the line on the chat screen once a key is saved: plain ASCII, the chat font has no check mark, and one row (42 columns)
+export const KEY_SAVED_NOTE = 'Key saved. Type below and press ENTER.';
 
 // the API key states and their texts ("API key states")
 export const KEY_TEXT = Object.freeze({
@@ -94,7 +97,7 @@ export function setupClaude(page) {
     notify();
   };
 
-  const basicMachine = () => (session.chatMachines ? session.chatMachines.basic : session.machine);
+  const basicMachine = () => session.personMachine;
   // the brief for the view the replies are read in (the full-screen chat's screen, or this panel), from the BASIC
   // session's real state: what runs on it, and its own screen
   const brief = (view) => {
@@ -179,7 +182,7 @@ export function setupClaude(page) {
   function activity() {
     const a = session.claudeActing;
     if (!a || !session.claudeBusyActing) return null;
-    if (session.claudePaused) return CLAUDE_PAUSED_TEXT;
+    if (session.claudePaused) return touchPanel() ? TOUCH_PAUSED_TEXT : CLAUDE_PAUSED_TEXT;
     if (a.name === 'type_text') {
       const m = basicMachine(), all = String(a.input.text || '');
       // the keys not yet pressed: Claude's typing waits in the typist's queue, one paced key at a time
@@ -211,15 +214,15 @@ export function setupClaude(page) {
     if (session.claudeView === 'full') { panelOnReturn = false; session.showChat('chat'); show(true); return session.chat; }
     if (opening) return opening;
     opening = (async () => {
-      if (cpuFamily(session.machine.config.cpu) !== '6809') {
+      if (cpuFamily(session.shownMachine.config.cpu) !== '6809') {
         if (session.chat) session.endChat();
-        page.status(`The chat firmware needs a 6809, so the chat opens on a Dragon 64 (the ${session.machine.profile.name} has a ${session.machine.config.cpu}).`);
+        page.status(`The chat firmware needs a 6809, so the chat opens on a Dragon 64 (the ${session.shownMachine.profile.name} has a ${session.shownMachine.config.cpu}).`);
         session.switchMachine('dragon64');
       }
       const firmware = await page.fetchBytes(FIRMWARE_URL);
       // a machine with the Becker port on talks to the chat over DriveWire, as a real one would; otherwise the
       // firmware's mailbox carries it
-      const drivewire = !!session.machine.config.becker;
+      const drivewire = !!session.shownMachine.config.becker;
       const had = session.chat;
       const chat = session.startChat({ backend: had ? had.backend : backend(), channel: drivewire ? undefined : new MemoryChannel(), firmware, brief: brief('full'), drivewire, include });
       if (chat !== had) wire(chat);
@@ -232,6 +235,8 @@ export function setupClaude(page) {
       if (panel) panel.close({ keep: true });
       show(true);
       page.status('Chat with Claude: type on the screen and press ENTER.');
+      // no key: say so on the screen itself (the key card is beside it, or above it on a phone, below the fold)
+      if (chat !== had && !session.hasClaudeKey) session.chatNote(`No API key yet: add one ${whereKey()}.`);
       page.focus();
       // without a key the key card comes first where the page stacks (a phone or a tablet), so the page starts at the
       // top rather than at the screen
@@ -282,11 +287,14 @@ export function setupClaude(page) {
   // view closes ("← Emulator", Esc, Back), so a pending question, a streaming reply or Claude acting is there to see.
   // A view opened from the plain emulator never sets this.
   let panelOnReturn = false;
+  // BEFORE the view handlers (page.onView's beforeView): a view opened over the full-screen chat closes it, so a
+  // view that builds on the machine in use (the Debugger's refresh, session.debug) must find the BASIC session
+  // already back - never the chat machine, which would be detached again a moment later.
   page.onView(() => {
     if (page.onStep('claudeChat')) return;
     if (document.body.classList.contains('claude-open')) { const byView = viewOpen(); close(); if (byView) panelOnReturn = true; }
     else if (opened && new URL(location.href).searchParams.get('app') === 'claude') show(false);
-  }, { every: true });
+  }, { every: true, beforeView: true });
   page.onView(() => {
     if (viewOpen() || !panelOnReturn) return;
     panelOnReturn = false;
@@ -310,7 +318,9 @@ export function setupClaude(page) {
     try { saveKey(input.value); input.value = ''; $('claudeKeyMsg').textContent = ''; editingKey = false; }
     catch (e) { $('claudeKeyMsg').textContent = e.message; render(); return; }
     render();
-    // the key is in: typing goes to the chat at once (the focus was left on the page)
+    // the key is in: say so on the screen (the key card is a short line, below the fold on a phone), and typing goes
+    // to the chat at once (the focus was left on the page)
+    if (session.claudeView === 'full') session.chatNote(KEY_SAVED_NOTE);
     if (session.claudeView === 'full') page.focus();
   };
   $('claudeKeyInput').onkeydown = (e) => { if (e.key === 'Enter') $('btnClaudeKeySave').click(); };
@@ -370,7 +380,7 @@ export function setupClaude(page) {
   }
 
   function render() {
-    if (!session.machine) return;         // (the page has no machine until it starts)
+    if (!session.shownMachine) return;         // (the page has no machine until it starts)
     const chat = session.chat, k = keyState(), full = session.claudeView === 'full';
     // the chat machine on the big screen: the page hides what is about BASIC (its key hint, the no-ROMs pill and card)
     document.body.classList.toggle('chat-screen', document.body.classList.contains('claude-open') && session.chatView === 'chat');
@@ -393,9 +403,7 @@ export function setupClaude(page) {
     // machine's screen, and the joystick is not offered there), so a change of it must be applied, not just the
     // class toggled: the stick, FIRE and the switch come and go with it
     if (page.touchKeys) page.touchKeys.apply();
-    // the on-screen keyboard's Menu leads out of the chat there (the app bar and its menu give way to the chat bar,
-    // which the keyboard covers when the phone is held sideways); touch-keys.js leaves in one tap with this label
-    $('tkMenu').textContent = phoneChat ? '← Emulator' : 'Menu';
+    // (the on-screen keyboard's Menu is "← Emulator" there, and leaves the chat in one tap: touch-keys.js apply(), above)
     // the help line: the key state's text (in brackets on the chat screen too, from the firmware)
     // (while a turn is in progress the status line says what it is doing, with Stop)
     const help = chat && chat.busy ? '' : k === 'none' ? `[No API key yet: add one ${whereKey()}.]` : keyText(k);
@@ -403,7 +411,7 @@ export function setupClaude(page) {
     $('claudeHelp').hidden = !help;
     // the BASIC session card: consent, the switch, the restore point
     const pend = session.claudePending;
-    const modelName = () => { const m = session.chatMachines ? session.chatMachines.basic : session.machine; return m ? m.profile.name : ''; };
+    const modelName = () => { const m = session.personMachine; return m ? m.profile.name : ''; };
     const loading = !!(pend && pend.kind === 'load');      // load_basic's own card, on every call
     const asking = !!pend && !loading;                     // the consent question
     $('claudeSession').classList.toggle('asking', !!pend);
@@ -428,7 +436,7 @@ export function setupClaude(page) {
     // a card that has just come up is brought into view
     const status = full ? session.claudeStatus : null;
     $('claudeStatus').hidden = !status;
-    if (status) $('claudeStatusText').textContent = status.text;
+    if (status) $('claudeStatusText').textContent = claudeStatusText(status);
     // the bar is the full screen's only status, so a pause there has its Resume (the side panel's is on the screen)
     $('btnClaudeResume').hidden = !(status && session.claudePaused);
     if (!pend || !full) shownPending = null;

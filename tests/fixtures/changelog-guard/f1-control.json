@@ -1,0 +1,15 @@
+{
+  "name": "f1-control",
+  "note": "No change: the candidate is the tagged text. Must pass both before and after any fix.",
+  "version": "9.9-pre",
+  "tags": [
+    "v9.9-pre",
+    "v9.8-pre"
+  ],
+  "expect": {
+    "now": "PASS",
+    "afterFix": "PASS"
+  },
+  "tagged": "# Changelog\n\n## [Unreleased]\n\nNext version: 9.9-pre.\n\n### 9.9-pre\n\n#### Added\n\n- the released feature\n\n#### Changed\n\n- the released change\n\n#### Fixed\n\n- the released fix one\n- the released fix two\n\n### 9.8-pre\n\n#### Added\n\n- the older feature\n",
+  "candidate": "# Changelog\n\n## [Unreleased]\n\nNext version: 9.9-pre.\n\n### 9.9-pre\n\n#### Added\n\n- the released feature\n\n#### Changed\n\n- the released change\n\n#### Fixed\n\n- the released fix one\n- the released fix two\n\n### 9.8-pre\n\n#### Added\n\n- the older feature\n"
+}

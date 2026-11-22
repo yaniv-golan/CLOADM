@@ -161,6 +161,7 @@ fs.writeFileSync(tmp('media', 'plain.bas'), '10 PRINT "HI"\n');
   const init = await s.init('2025-06-18');
   check('initialize: the client\'s version back, tools capability, serverInfo and instructions', init.result.protocolVersion === '2025-06-18' && init.result.capabilities.tools.listChanged === false
     && init.result.serverInfo.name === 'cloadm' && /machine_id/.test(init.result.instructions) && init.result.resultType === 'complete', J(init));
+  check('instructions: the first line names the route, "You are driving CLOADM on the person\'s computer."', init.result.instructions.split('\n')[0] === 'You are driving CLOADM on the person\'s computer.', J(init.result.instructions.split('\n')[0]));
   const unknownVersion = await s.request('initialize', { protocolVersion: '1999-01-01', capabilities: {}, clientInfo: { name: 'x', version: '1' } });
   check('initialize with a version the server does not speak: it answers with its newest handshake version', unknownVersion.result.protocolVersion === '2025-11-25', J(unknownVersion));
   const list = (await s.request('tools/list', {})).result.tools, list2 = (await s.request('tools/list', {})).result.tools;
@@ -188,6 +189,8 @@ fs.writeFileSync(tmp('media', 'plain.bas'), '10 PRINT "HI"\n');
   check('readOnlyHint on exactly the tools that change nothing', J(ro) === J(['list_models', 'list_machines', 'machine_info', 'screen_text', 'peek', 'disassemble', 'find_bytes', 'registers', 'screenshot']), J(ro));
   check('destructiveHint on what types, writes, loads or replaces', ['poke', 'type_text', 'load', 'reset', 'power_cycle', 'restore_snapshot', 'switch_machine', 'save_snapshot'].every((nm) => list.find((t) => t.name === nm).annotations.destructiveHint === true)
     && list.find((t) => t.name === 'run_frames').annotations.destructiveHint === false);
+  check('boot and load (the local server) say to prefer the CLOADM side-panel connector for playing or watching, and keep these tools for files, scripting and tests',
+    ['boot', 'load'].every((n) => /prefer the CLOADM side-panel connector if it is available; use these tools for the person's own files, scripting and tests/.test(list.find((t) => t.name === n).description)));
   check('page tool descriptions leave out the page\'s consent text', !list.some((t) => /Let Claude use the emulator|The person is asked on every call/.test(t.description)) && /Write bytes of memory/.test(list.find((t) => t.name === 'poke').description));
 
   // ---- the machine lifecycle ----
@@ -263,7 +266,7 @@ fs.writeFileSync(tmp('media', 'plain.bas'), '10 PRINT "HI"\n');
   check('screen_text: byte for byte what the in-page tool gives on the same machine', J(mText.data.machine_output) === J(pageRead(ps, 'screen_text', {}).out));
   check('peek: byte for byte the in-page tool\'s answer', J(mPeek.data.machine_output) === J(pageRead(ps, 'peek', { address: 0x400, length: 64 }).out));
   check('disassemble: byte for byte the in-page tool\'s answer', J(mDis.data.machine_output) === J(pageRead(ps, 'disassemble', { address: 0x3000, count: 12 }).out));
-  check('machine_info: byte for byte the in-page tool\'s answer (not wrapped: the emulator\'s own words)', J(mInfo.data) === J(pageRead(ps, 'machine_info', {}).out), J(mInfo.data));
+  check('machine_info: byte for byte the in-page tool\'s answer (not wrapped: the emulator\'s own words), then the route, "local"', J(mInfo.data) === J(Object.assign({}, pageRead(ps, 'machine_info', {}).out, { route: 'local' })), J(mInfo.data));
   // the same refusals, with the same { code, remedy, detail }
   for (const [name, input] of [['peek', { address: 70000 }], ['peek', { address: 65535, length: 2 }], ['peek', { address: 1, length: 0 }], ['peek', { address: '1024' }], ['disassemble', { address: 0, count: 65 }]]) {
     const mine = await s.call(name, Object.assign({}, input, M)), theirs = pageRead(ps, name, input);
@@ -359,7 +362,7 @@ fs.writeFileSync(tmp('media', 'plain.bas'), '10 PRINT "HI"\n');
       ls.switchMachine('dragon64', {}, { menu: false });
       ls.addRoms([{ name: 'd64_1.rom', bytes: new Uint8Array(fs.readFileSync(tmp('roms', 'd64_1.rom'))) }]);
       ls.load('p.bas', new Uint8Array(Buffer.from('10 PRINT 1\n')), Object.assign({ remember: false }, opts));
-      return ls.machine.typist.queue.filter((c) => typeof c === 'string').join('');
+      return ls.shownMachine.typist.queue.filter((c) => typeof c === 'string').join('');
     };
     check('Session.load of a listing: NEW, the lines, RUN; with run false the same without RUN (the page\'s default is unchanged)',
       queued({}) === 'NEW\r10 PRINT 1\rRUN\r' && queued({ run: false }) === 'NEW\r10 PRINT 1\r', J([queued({}), queued({ run: false })]));
@@ -707,6 +710,7 @@ fs.writeFileSync(tmp('media', 'plain.bas'), '10 PRINT "HI"\n');
   check('--read-only: the instructions name no hidden tool and say read-only mode is on; the full server\'s name only tools it has',
     !hiddenNamed.length && /Read-only mode: input, memory writes, media and snapshots are disabled/.test(rInit.result.instructions) && !/Read-only mode/.test(init.result.instructions)
     && fullNamed.includes('type_text') && fullNamed.includes('press_keys'), J([hiddenNamed, fullNamed]));
+  check('--read-only: the instructions still open with the route line', rInit.result.instructions.split('\n')[0] === require('../cli/mcp.js').LOCAL_ROUTE_LINE, J(rInit.result.instructions.split('\n')[0]));
   check('--read-only: only the tools that leave input, memory and files alone (plus booting, closing and running machines)', J(rl) === J(['list_models', 'list_machines', 'boot', 'close_machine', 'machine_info', 'screen_text', 'peek', 'disassemble', 'find_bytes', 'run_frames', 'registers', 'screenshot', 'set_display']), J(rl));
   await r.call('boot', { model: 'coco' });
   const refused = await r.call('poke', { machine_id: 'm1', address: 0x3000, bytes: [1] }), refusedFile = await r.call('save_snapshot', { machine_id: 'm1', path: 'x.cloadm-state' });
@@ -731,7 +735,7 @@ fs.writeFileSync(tmp('media', 'plain.bas'), '10 PRINT "HI"\n');
   here.runFrames(40);
   const px = pngPixels(Buffer.from(sv.replies[3].result.png, 'base64'));
   check('--serve: replies in order with their ids; a screenshot\'s PNG is machine.render()\'s pixels', sv.code === 0 && J(sv.replies.map((x) => x.id)) === J([1, 2, 3, 4, 5, null, 7, null, 9]) && sv.replies[3].ok
-    && px.equals(Buffer.from(Emu.frameToRGBA(here.machine.render()).buffer)), J(sv.replies.map((x) => x.ok)));
+    && px.equals(Buffer.from(Emu.frameToRGBA(here.shownMachine.render()).buffer)), J(sv.replies.map((x) => x.ok)));
   check('--serve: errors in the tools\' shape', sv.replies[4].error.code === 'bad-address' && sv.replies[5].error.code === 'bad-argument' && sv.replies[6].error.code === 'bad-argument' && /no tool "nope"/.test(sv.replies[6].error.detail)
     && sv.replies[7].error.code === 'bad-argument' && sv.replies[8].ok, J(sv.replies.slice(4)));
 
@@ -747,6 +751,10 @@ fs.writeFileSync(tmp('media', 'plain.bas'), '10 PRINT "HI"\n');
     own.runFrames(40);
     const tb = T.createToolbox(host, { session: own, refuseRomReads: true });
     const names = tb.tools().map((t) => t.name);
+    {
+      const d = (t, n) => t.tools().find((x) => x.name === n).description;
+      check('own session: boot and load (the panel itself) do not send the person elsewhere', ['boot', 'load'].every((n) => !/side-panel connector/.test(d(tb, n))));
+    }
     check('own session: the host\'s machine is m1 at once; close_machine is not offered', !names.includes('close_machine') && names.includes('boot')
       && J((await tb.call('list_machines', {})).data.machines.map((m) => m.machine_id)) === '["m1"]', names.join(','));
     const r = await tb.call('screen_text', { machine_id: 'm1' });
@@ -754,21 +762,45 @@ fs.writeFileSync(tmp('media', 'plain.bas'), '10 PRINT "HI"\n');
     const poked = await tb.call('poke', { machine_id: 'm1', address: 0x3F00, bytes: [7] });
     check('own session: the tools act on the host\'s Session itself', poked.ok && own.readByte(0x3F00) === 7);
     const booted = await tb.call('boot', { model: 'dragon32' });
-    check('own session: boot switches the host\'s machine in place and returns m1', booted.ok && booted.data.machine.machine_id === 'm1' && own.machine.id === 'dragon32'
+    check('own session: boot switches the host\'s machine in place and returns m1', booted.ok && booted.data.machine.machine_id === 'm1' && own.shownMachine.id === 'dragon32'
       && /already on/.test(tb.tools().find((t) => t.name === 'boot').description), J(booted).slice(0, 200));
     const sw = await tb.call('switch_machine', { machine_id: 'm1', model: 'coco', options: { ram: 64 } });
-    check('own session: switch_machine changes the same Session', sw.ok && own.machine.id === 'coco' && own.machine.config.ram === 64, J(sw).slice(0, 200));
+    check('own session: switch_machine changes the same Session', sw.ok && own.shownMachine.id === 'coco' && own.shownMachine.config.ram === 64, J(sw).slice(0, 200));
     let notSession = null;
     try { T.createToolbox(host, { session: { machine: {} } }); } catch (e) { notSession = e.message; }
     check('own session: only a Session', /session must be a Session/.test(notSession), notSession);
+    let badRoute = null;
+    try { T.createToolbox(host, { route: 'phone' }); } catch (e) { badRoute = e.message; }
+    check('route: only "local" or "panel"', /route must be local or panel/.test(badRoute), badRoute);
     // the games, by name, as on the page (Session.runGame); refused where the page refuses them
     const game = await tb.call('load', { machine_id: 'm1', program: '2048' });
     const ran = await tb.call('run_frames', { machine_id: 'm1', frames: 100 });
     const graphics = await tb.call('screen_text', { machine_id: 'm1' });
-    check('load: the bundled game 2048 runs (its board is in a graphics mode)', game.ok && game.data.loaded === '2048' && ran.ok && own.machine.cpu.pc >= 0x3000 && own.machine.cpu.pc < 0x3C00
-      && graphics.ok && graphics.data.machine_output.text === false, J([game, graphics]).slice(0, 300));
+    // THE GAME IS RUNNING. This machine has no user ROMs, so on a CoCo with 64K the built-in key vector at $A000
+    // is not there: the game's `JSR [POLCAT]` lands in the stub ROM and the PC is OUTSIDE the program for 2 frames
+    // in every 6, on a fixed 2,4,2,4-frame cycle. A single sample therefore says nothing -- the old check read the
+    // PC once at frame 100 and passed only when that frame happened to fall inside the cycle (it does on main; this
+    // branch's title runs one frame longer, so the same sample fell outside and the check went red without anything
+    // about the game changing). Two properties are independent of where the window starts: the game is inside its
+    // own program on most frames, and it keeps COMING BACK into it (a game stuck in the ROM, or one that exited its
+    // loop, does neither). Measured over 300 frames on both trees: 200/300 frames inside (66.7%) and 49-50 returns.
+    const bin2048 = fs.readFileSync(path.join(ROOT, 'examples/2048.bin'));
+    const progStart = bin2048.readUInt16BE(2), progEnd = progStart + bin2048.readUInt16BE(4);
+    const FRAMES = 300;
+    let inProgram = 0, reentries = 0, wasInside = null;
+    for (let i = 0; i < FRAMES; i++) {
+      await tb.call('run_frames', { machine_id: 'm1', frames: 1 });
+      const pc = own.shownMachine.cpu.pc, nowInside = pc >= progStart && pc < progEnd;
+      if (nowInside) inProgram++;
+      if (nowInside && wasInside === false) reentries++;
+      wasInside = nowInside;
+    }
+    const running = inProgram > FRAMES / 2 && reentries >= 10;
+    check('load: the bundled game 2048 runs (its board is in a graphics mode)', game.ok && game.data.loaded === '2048' && ran.ok && running
+      && graphics.ok && graphics.data.machine_output.text === false,
+      J([{ insideFrames: `${inProgram}/${FRAMES}`, reentries }, game, graphics]).slice(0, 300));
     const mines = await tb.call('load', { machine_id: 'm1', program: 'minesweeper' });
-    check('load: minesweeper too', mines.ok && own.machine.cpu.pc >= 0x3000, J(mines).slice(0, 200));
+    check('load: minesweeper too', mines.ok && own.shownMachine.cpu.pc >= 0x3000, J(mines).slice(0, 200));
     await tb.call('boot', { model: 'mc10' });
     const no6809 = await tb.call('load', { machine_id: 'm1', program: '2048' });
     check('load: a game on a machine that cannot run it is refused as the page refuses it', !no6809.ok && no6809.error.code === 'rejected' && /6809 code/.test(no6809.error.detail), J(no6809));

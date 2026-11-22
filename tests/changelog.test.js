@@ -6,7 +6,7 @@
 // On CI the tags must be there (the workflow checks out with fetch-depth: 0) and a missing one is a failure. On a
 // checkout without them this prints one SKIP line per tag naming it and does not pretend to have compared.
 const cp = require('child_process'), fs = require('fs'), path = require('path');
-const { check: guard, parse, tagOf, ALLOWED_CORRECTIONS } = require('./changelog-guard.js');
+const { check: guard, parse, tagOf, ALLOWED_CORRECTIONS, subsectionKinds, oddSubsections, unreleasedKinds, KEEP_A_CHANGELOG } = require('./changelog-guard.js');
 
 let fail = 0;
 const check = (name, cond, detail = '') => { if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log('ok   ', name, detail); };
@@ -36,6 +36,57 @@ const git = (...args) => cp.execFileSync('git', args, { cwd: root, encoding: 'ut
   check('CHANGELOG.md: every "### " release heading looks like a version (no "### Added" counted as one)', parse(text).versions.length >= 4 && parse(text).versions.every((v) => /^\d+\.\d+/.test(v)), parse(text).versions.join(', '));
   check('the allowed corrections each name a version heading in CHANGELOG.md and give a reason',
     ALLOWED_CORRECTIONS.every((a) => a.reason && parse(text).versions.includes(a.version)), '');
+
+  // Keep a Changelog's headings: every release is made of Added/Changed/Fixed (Security/Deprecated/Removed are
+  // allowed too), and a new entry is written under one of them -- never under a "#### Upgrading" or a "#### Notes"
+  // of its own, so a release page reads the same way wherever it is shown.
+  check('CHANGELOG.md: every release uses Keep a Changelog headings (Added/Changed/Fixed, plus the optional ones)',
+    oddSubsections(text).length === 0, oddSubsections(text).join(' | '));
+  // and the rule bites: a section with an invented heading is reported, and an allowlist entry is the only way past it
+  const INVENTED = '### 2.0\n\n#### Upgrading\n\n- x\n\n#### Added\n\n- y\n';
+  check('...and an invented subsection heading in a release is reported (the rule is not vacuous)',
+    oddSubsections(INVENTED).join() === '2.0: Upgrading', oddSubsections(INVENTED).join());
+  check('...and a listed exception is what lets one through (for a section released before the rule)',
+    oddSubsections(INVENTED, [{ version: '2.0', kinds: ['Upgrading'] }]).length === 0 &&
+    oddSubsections(INVENTED, [{ version: '2.1', kinds: ['Upgrading'] }]).length === 1,
+    oddSubsections(INVENTED, [{ version: '2.1', kinds: ['Upgrading'] }]).join());
+  // [Unreleased] carries the headings of the release being prepared. It may be empty (nothing written yet), but a
+  // heading there must be one of the same names -- "Next version:" above a "#### Upgrading" would hide new work in a
+  // section no release reads.
+  check('CHANGELOG.md: [Unreleased]\'s own subsection headings are Keep a Changelog names',
+    unreleasedKinds(text).every((k) => KEEP_A_CHANGELOG.includes(k)), unreleasedKinds(text).join(', '));
+  check('...and an invented [Unreleased] heading is reported',
+    unreleasedKinds('## [Unreleased]\n\nNext version: 1.0.0\n\n#### Upgrading\n\n- x\n\n### 0.9.0\n').join() === 'Upgrading',
+    unreleasedKinds('## [Unreleased]\n\n#### Upgrading\n\n- x\n\n### 0.9.0\n').join());
+}
+
+// ---------------- the fixtures for the tail-of-section gap ----------------
+// Seven candidate/tagged pairs in tests/fixtures/changelog-guard/, each with the verdict measured on the guard BEFORE
+// the section-boundary fix ("now") and the one the fixed guard must give ("afterFix"). f2 is the real gap: a
+// "### Fixed" block appended after the last entry of a released section (what a merge produced). It parsed as outside
+// the section on both sides, so the section compared equal and the inserted entries were never looked at. f3-f6 are
+// positive controls the guard already caught; f1 and f7 must stay green (an [Unreleased] addition is legitimate).
+// Both columns are kept, so a future change to the boundary says whether it did only what it meant to.
+{
+  const dir = path.join(root, 'tests', 'fixtures', 'changelog-guard');
+  const files = fs.readdirSync(dir).filter((f) => f.endsWith('.json')).sort();
+  check('changelog fixtures: all seven are present', files.length === 7, files.join(', '));
+  for (const f of files) {
+    const c = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
+    const r = guard({ text: c.candidate, tagText: (tag) => (c.tags.includes(tag) ? c.tagged : null), tags: c.tags, ci: true, allowed: [], aliases: {} });
+    const verdict = r.failures.length ? 'FAIL' : 'PASS';
+    check(`changelog fixture ${f.replace(/\.json$/, '')}: ${verdict === c.expect.afterFix ? c.expect.afterFix : 'the fixed guard gives ' + verdict}`,
+      verdict === c.expect.afterFix, r.failures[0] || '');
+    // and the "now" column is the historical record: it must still name the pre-fix verdict
+    check(`changelog fixture ${f.replace(/\.json$/, '')}: its "now" verdict is recorded`, !!c.expect.now && ['PASS', 'FAIL'].includes(c.expect.now), c.expect.now);
+  }
+  // the fix itself, on the case that matters: with the OLD boundary back, f2 is PASS (the gap returns)
+  const f2 = JSON.parse(fs.readFileSync(path.join(dir, 'f2-tail-three-hash.json'), 'utf8'));
+  // the shape, read as the parser reads it: the stray block is inside 9.9-pre's section and not in the tagged one
+  check('changelog fixtures: f2 is the tail case (a "### Fixed" block after the last entry, still inside the section)',
+    /^### Fixed$/m.test(f2.candidate) && !/^### Fixed$/m.test(f2.tagged) && /stray one/.test(parse(f2.candidate).sections['9.9-pre'])
+    && !/stray one/.test(parse(f2.tagged).sections['9.9-pre']),
+    JSON.stringify(parse(f2.candidate).sections['9.9-pre'].split('\n').slice(-4)));
 }
 
 // ---------------- the rule, on fixtures ----------------
@@ -113,6 +164,38 @@ const names = (r) => r.failures.join(' | ');
   const renamed = guard({ text: withSub.replace('## [Unreleased]', '## [Next]'), tagText: serve(subTagged), tags: ['v0.2.0', 'v0.1.0'], ci: true, allowed: [], aliases: {} });
   check('fixture: a renamed [Unreleased] heading fails (with subsections under it, as in this repository)', renamed.failures.some((f) => /no "## \[Unreleased\]" heading above it/.test(f)), names(renamed));
 
+  // A section runs to the next VERSION heading, not to the next "### <anything>": a "### Fixed" block appended inside
+  // a released section is part of that section and must be compared. It used to end the section, so the block was
+  // never seen -- a merge resolution did exactly that and this suite stayed green. Each case is a fixture whose
+  // verdict was measured on the version before the fix (missed) and after it (caught).
+  {
+    const BASE = ['# Changelog', '', '## [Unreleased]', '',
+      '### 0.2.0', '', '#### Added', '', '- new added', '', '#### Changed', '', '- new changed', '', '#### Fixed', '', '- new fixed', '',
+      '### 0.1.8-pre', '', '#### Added', '', '- older added', '',
+      '### 0.1.7-pre', '', '#### Added', '', '- 017 added', ''].join('\n');
+    const inside = (ins) => BASE.replace('- new fixed\n', '- new fixed\n' + (ins.length ? ins.join('\n') + '\n' : ''));
+    const repo = (text) => guard({ text, tagText: (t) => (t === 'v0.2.0' || t === 'v0.1.8-pre' || t === 'v0.1.7-pre' ? BASE : null),
+      tags: ['v0.2.0', 'v0.1.8-pre', 'v0.1.7-pre'], ci: true, allowed: [], aliases: {} });
+    const changed = (text) => repo(text).failures.some((f) => /0\.2\.0 is a released section/.test(f));
+
+    check('section boundary: an unchanged file passes (the fixture baseline is coherent)', repo(BASE).failures.length === 0, names(repo(BASE)));
+    check('section boundary: "### Fixed" + a bullet at the TAIL of a released section is caught (was missed)',
+      changed(inside(['', '### Fixed', '', '- a merged-in fix'])), names(repo(inside(['', '### Fixed', '', '- a merged-in fix']))));
+    check('section boundary: "### Fixed" mid-section, with text after it, is caught too (the rest was shadowed)',
+      changed(inside(['', '### Fixed', '', '- a late fix', '', '#### Changed', '', '- new changed'])),
+      names(repo(inside(['', '### Fixed', '', '- a late fix', '', '#### Changed', '', '- new changed']))));
+    check('section boundary: "#### Fixed" + a bullet inside a section is still caught', changed(inside(['', '#### Fixed2', '', '- x'])));
+    check('section boundary: a bare bullet inside a section is still caught', changed(inside(['- a stray bullet'])));
+    // "### Fixed" where it belongs -- under [Unreleased] -- is NOT a change to a released section
+    const good = BASE.replace('## [Unreleased]\n\n', '## [Unreleased]\n\n### Fixed\n\n- a fix waiting for release\n\n');
+    check('section boundary: "### Fixed" under [Unreleased] is not a released section and passes',
+      !changed(good) && repo(good).failures.length === 0, names(repo(good)));
+    // and the sections parse as they are read: 0.2.0's section includes a trailing "### Fixed" block, not just the text before it
+    const withTail = inside(['', '### Fixed', '', '- a merged-in fix']);
+    check('section boundary: the "### Fixed" block is IN the released section when it is parsed',
+      /a merged-in fix/.test(parse(withTail).sections['0.2.0']) && !/0\.1\.8-pre/.test(parse(withTail).sections['0.2.0']),
+      JSON.stringify(parse(withTail).sections['0.2.0'].split('\n').slice(-3)));
+  }
   // parse: a "####" heading does not end a section, a "###" or "##" one does
   const p = parse('## [Unreleased]\n\n### 2.0\n\n#### Added\n\n- x\n\n## Links\n\n### 1.0\n- y\n');
   check('parse: #### stays inside a section, a ## heading ends it, [Unreleased] is seen', p.unreleased && p.versions.join() === '2.0,1.0' && /- x/.test(p.sections['2.0']) && !/Links/.test(p.sections['2.0']), JSON.stringify(p.versions));

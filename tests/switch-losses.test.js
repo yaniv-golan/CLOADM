@@ -35,7 +35,7 @@ const cart = new Uint8Array(8192).fill(0x12); cart[0] = 0x20; cart[1] = 0xFE;   
     check('a tape and a disk: both named, the disk with its drive and stored (in the Library)',
       json(out) === json([{ kind: 'tape', name: 'GAME.CAS' }, { kind: 'disk', name: 'WORK.VDK', drive: 0, stored: true }]), json(out));
     check('a RAM change (the same model) takes out the same', json(s.takenOut('dragon64', { ram: 64 })) === json(out));
-    check('takenOut only reports: the machine still has them', !!s.machine.deck.tape && s.diskStatus().drives.length === 1);
+    check('takenOut only reports: the machine still has them', !!s.shownMachine.deck.tape && s.diskStatus().drives.length === 1);
 
     // ---- a snapshot's own disk: stored false; keepSnapshotDisk puts it in the Library and links the drive
     const snap = await s.readSnapshot((await s.snapshotFile()).bytes);
@@ -48,7 +48,7 @@ const cart = new Uint8Array(8192).fill(0x12); cart[0] = 0x20; cart[1] = 0xFE;   
     const msg = await s.keepSnapshotDisk(0);
     check('keepSnapshotDisk says so', msg === 'Saved WORK.VDK to your Library', msg);
     check('... the image is in the Library, byte for byte', same(await media.read('disks/WORK.VDK'), bytes));
-    check('... and the drive is linked to it (stored, a store link for its writes)', s.diskStatus().drives[0].stored === true && s.storedDisks(s.machine).length === 1);
+    check('... and the drive is linked to it (stored, a store link for its writes)', s.diskStatus().drives[0].stored === true && s.storedDisks(s.shownMachine).length === 1);
     await rejects('a disk already in the Library is refused', s.keepSnapshotDisk(0), /WORK\.VDK is already in your Library/);
     await rejects('an empty drive is refused', s.keepSnapshotDisk(1), /Drive 1 is empty/);
     // a name the Library already has belongs to another disk: refused, nothing overwritten
@@ -135,7 +135,7 @@ const cart = new Uint8Array(8192).fill(0x12); cart[0] = 0x20; cart[1] = 0xFE;   
     media.write = write;
     const d = s.diskStatus().drives[0];
     check('a refused write: Save to Library fails with the store\'s reason', refused instanceof Error && /No space left/.test(refused.message), refused instanceof Error ? refused.message : String(refused));
-    check('... and the drive is unlinked again: not stored, no store link, under its snapshot name', d.stored === false && s.storedDisks(s.machine).length === 0, JSON.stringify(d));
+    check('... and the drive is unlinked again: not stored, no store link, under its snapshot name', d.stored === false && s.storedDisks(s.shownMachine).length === 0, JSON.stringify(d));
     const again = await s.keepSnapshotDisk(0).then((m) => m, (e) => e);
     check('... so a retry saves it', again === 'Saved WORK.VDK to your Library' && s.diskStatus().drives[0].stored === true, String(again && again.message || again));
   }
@@ -155,8 +155,8 @@ const cart = new Uint8Array(8192).fill(0x12); cart[0] = 0x20; cart[1] = 0xFE;   
     s.roms.put('ssc', 'tms7040', new Uint8Array(TMS7040_ROM_SIZE).fill(0xFF), 'pic.rom');
     s.insertSsc();
     check('the Pak is in', s.sscInserted);
-    check('a RAM change keeps the Pak (its ssc option puts it back): not listed', json(s.takenOut('coco', Object.assign({}, s.machine.config, { ram: 16 }))) === '[]',
-      json(s.takenOut('coco', Object.assign({}, s.machine.config, { ram: 16 }))));
+    check('a RAM change keeps the Pak (its ssc option puts it back): not listed', json(s.takenOut('coco', Object.assign({}, s.shownMachine.config, { ram: 16 }))) === '[]',
+      json(s.takenOut('coco', Object.assign({}, s.shownMachine.config, { ram: 16 }))));
     check('a model without it: the Pak is taken out, as a cartridge', json(s.takenOut('dragon32')) === json([{ kind: 'cartridge', name: null }]), json(s.takenOut('dragon32')));
   }
 

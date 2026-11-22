@@ -26,7 +26,7 @@ How to load programs, tapes, disks and cartridges, the keys, snapshots, sharing 
   machine it is for. `DIR` and the other disk commands need the machine's disk ROM (the DragonDOS or Delta
   cartridge, or Disk BASIC). Without it a disk still goes in, on the disk controller alone, for programs that read
   the disk themselves; the drives under the screen say so, and **Add disk ROM…** (in a drive's menu and in the
-  mount's message) opens **Your ROMs** on the disk ROM's card ("Disk drives (optional): DragonDOS or Delta DOS"; on a
+  mount's message) opens **Your ROMs** on the disk ROM's card ("Disk drives: DragonDOS or Delta DOS", tagged optional; on a
   CoCo, "Disk BASIC (RS-DOS)").
 * **Wrong symbols when typing:** the keyboard has two modes (Input tab). **Translated** types what you type, so
   the shifted symbols follow your PC keyboard (`:` is `:` though your keyboard needs Shift for it and the
@@ -109,7 +109,7 @@ The [README](../README.md#what-works) has the short version of this table.
 | **Games** | 2048 and Minesweeper, written for CLOADM, on every 6809 model with 32K or more, with or without ROMs ([details](#games)) | |
 | **Input** | Keyboard in two modes (translated: the character typed; positional: the physical key), keyboard joystick, gamepads (two joysticks, dead zone), the Tandy and CoCo Max 3 Hi-Res interfaces, the CoCo 3 "The Rat" mouse, the CoCo Max Hi-Res module, mouse as the right joystick; an on-screen keyboard on phones and tablets (split for the thumbs when held sideways) and a touch joystick with FIRE, a tappable welcome menu | |
 | **Tools** | Assembler, Debugger, snapshots, POKE book; a command line, MCP server and Node API for CI and agents ([Automation](automation.md), [MCP](mcp.md)) | Step back (rewind) |
-| **Links, embedding, offline** | Every setting as a URL parameter (machine, RAM, CPU, a program, tape, cartridge or disk to load, display, input); the Share screen: a link that opens this machine exactly as it is, a 6-second clip, a true-pixel screenshot, the snapshot file, and the embed code for a blog post; embed mode with a JavaScript API; works offline once visited; **Install CLOADM…** at the foot of the **machine menu** (the machine-name button, top left) runs the browser's own prompt where there is one and shows the steps elsewhere, with a one-time offer once a program has run a minute; settings export and import (never ROMs) | A touch keyboard in embeds |
+| **Links, embedding, offline** | Every setting as a URL parameter (machine, RAM, CPU, a program, tape, cartridge or disk to load, display, input); the Share screen: Share… or Copy link for a link that opens this machine exactly as it is, and under "More ways to share" a 6-second clip, a true-pixel screenshot and the snapshot file, plus the embed code for a blog post; embed mode with a JavaScript API; works offline once visited; **Install CLOADM…** in the app bar, beside Help (behind **Menu** on a phone), runs the browser's own prompt where there is one and shows the steps elsewhere, with a one-time offer once a program has run a minute; settings export and import (never ROMs) | A touch keyboard in embeds |
 
 ### Games
 
@@ -259,13 +259,16 @@ chat takes its place; the conversation moves to the side panel, which reopens wh
 the emulator, whatever the address (`?app=claude` included) and the history behind it.
 
 On a phone or tablet an on-screen panel appears under the screen; held sideways it is fixed around the screen. Its ← key
-(marked DEL) is the machine's backspace.
-The **Keys | Joystick** switch (shown when the machine has a joystick port of its own — not the MC-10 or Alice, and
-not when the right port holds a Hi-Res interface or The Rat) turns it into a **touch joystick**:
+(marked DEL) is the machine's backspace, and → follows it.
+The **Keys | Pad | Stick** switch picks what the panel is. **Pad** is a D-pad (↑ ↓ ← →) with SPACE, ENTER, the
+running program's own keys (Minesweeper's F) and ABC, which shows the keyboard for one key; held sideways the D-pad is
+left of the screen and its keys right. **Stick** (offered when the machine has a joystick port of its own — not the
+MC-10 or Alice, not when the right port holds a Hi-Res interface or The Rat, and not in the phone's chat) is a
+**touch joystick**:
 
 * One stick, on the **right** joystick (the one the first gamepad drives), analogue over the machines' 0–63 with a
   small dead zone, no eight-way snap. Touch down anywhere in the zone to set its centre; about 56 px of travel is
-  full deflection. In Keys mode held sideways the panel is the split thumb keyboard; in Joystick mode the stick fills
+  full deflection. In Keys mode held sideways the panel is the split thumb keyboard; in Stick mode the stick fills
   the left, and the key strip (SPACE, ENTER, BREAK, 1, 2, Y, N, ABC; sideways SPACE, ENTER and BREAK read SPC, ENT and
   BRK) and a large FIRE the right. Either way BREAK, CLEAR, the switch and Menu are one row along the bottom, clear of a
   phone's notch and home indicator. Upright the switch,
@@ -274,12 +277,19 @@ not when the right port holds a Hi-Res interface or The Rat) turns it into a **t
   returns. The stick and FIRE can be held at once.
 * FIRE is the joystick's button bit, so it shares a keyboard row line as a real stick's fire button does, and on the
   CoCo 3 it raises the keyboard interrupt. A gamepad connecting stands the touch stick down until it disconnects.
-  The mode is remembered per machine, and `?touch=joystick` or `?touch=keys` sets it for the visit.
-* Keys mode: the keyboard splits for your thumbs, BREAK, CLEAR, the switch and Menu sit under it. `SHIFT` shifts the
-  next key. **Hide keys** is in the panel's Menu. Input tab → On-screen keyboard: Automatic, Always or Never.
+* A program opens in the mode it is played with: 2048 and Minesweeper on Pad, LIZA, BASIC and anything else on Keys.
+  The switch's choice is remembered per program and machine, and `?touch=joystick` or `?touch=keys` sets it for the
+  visit.
+* Keys mode: held sideways the keyboard splits for your thumbs, BREAK, CLEAR, the switch and Menu sit under it (Menu
+  has Machine… — the machine picker —, Commands… and **Hide keys**). `SHIFT` shifts the next key. Input tab →
+  On-screen keyboard: Automatic, Always or Never.
 * On a phone held upright the whole panel fits on screen with the browser's toolbars up, the row with ENTER included:
-  the switch, BREAK, CLEAR and Menu share one row between the screen and the keys, and the screen takes the height
-  that is left. A key types when your finger lifts, or once it has rested on the key a moment (so a held key works in
+  the strip [Keys|Pad|Stick] [BREAK] [CLEAR] [⌄] lies between the screen and the keys, and the screen takes the room
+  that is left — the page's whole width with Pad, Stick or the keys hidden. **⌄** hides the keys; **⌨** at the bottom
+  right brings them back. The app bar is one row: the machine, Open…, Ask Claude and **Menu** (Add ROMs is Menu's
+  first item while the machine has no BASIC, and Menu shows a dot then). On a touch screen the hints say "tap a key"
+  and "tap BREAK", and the install offer never appears on a phone (Install CLOADM…, in Menu, or in the panel's Menu held sideways, installs).
+  A key types when your finger lifts, or once it has rested on the key a moment (so a held key works in
   games); a finger that slides off it first types nothing, so a drag or a scroll that starts on the keyboard never
   presses a key. The joystick strip's keys (SPC, ENT, BRK, 1, 2, Y, N) work the same way, so held
   they register after about 100 ms; the stick and FIRE act at once.
@@ -289,7 +299,7 @@ not when the right port holds a Hi-Res interface or The Rat) turns it into a **t
 
 ## Commands
 
-`Ctrl+K` (`⌘K` on a Mac), or **Commands…** in the app bar (behind **Menu** on a phone, and in the touch keys' Menu), opens the
+`Ctrl+K` (`⌘K` on a Mac), or **Commands…** in the app bar (behind **Menu** on a phone, and in the touch keys' Menu held sideways), opens the
 command box. With nothing typed it lists every command by group (Claude, Files, Views, Settings, Machine); `↓` chooses one, `Enter`
 runs it. Type to filter, or type a question for Claude. Commands run on the page and are never sent to Claude. The
 [Help page](../help/) lists the commands, the shortcuts and what Claude can read and do.
@@ -329,7 +339,9 @@ soon as you add it. A snapshot of another model or RAM size asks before switchin
 power-on: whatever the program on screen is doing (a game, a program that took over Reset), opening a snapshot
 never brings up the "No OK after 5 seconds" box. **Switch off and on** and adding ROMs are power-ons again, with
 their box as before; **Reset** keeps RAM and never reports a failed boot - if a program holds BASIC's warm-start
-vector it says "A program took over Reset" and offers **Switch off and on**, and otherwise shows no box.
+vector it says "A program took over Reset" and offers **Switch off and on**, and otherwise shows no box. Restoring
+(Claude's undo included) takes down a box the run it replaced had raised, and no box comes back for the moment put
+back: a restored moment is never reported as a failed boot, even one taken on a boot that had failed.
 
 **Switching machine or RAM** asks first and names what comes out: "Switching to Dragon 32 resets the Dragon 64
 and takes out the tape GAME.CAS, the cartridge and the disk WORK.VDK in drive 0." Tapes, cartridges and disks from your
@@ -341,7 +353,12 @@ pre-release build, whose snapshots it does not read (the format is in [architect
 snapshots in this browser's storage (as `library/snapshots/slot-N.cloadm`, so the Library lists them under
 Snapshots); loading one works like opening a snapshot file.
 
-The **Share screen**: **Capture & share** opens it: the link there carries the moment itself (the snapshot rides in the
+The **Share screen** has one job: send this exact moment to someone. The app bar's **Share** opens it. **Share…** (where the browser has a
+share sheet; it hands over the link only) or **Copy link** is the main button, and Copy link stays beside Share… because a link
+with a snapshot can pass 1000 characters and some share targets cut it short. Under **More ways to share**: a 6-second clip,
+a true-pixel screenshot and the snapshot file (its size is on the button); under **Embed in a web page**: the embed code. A
+line under the picture says what the link does, and a ROM line says whether the person opening it needs their own ROMs. While NitrOS-9 runs
+the link starts NitrOS-9 fresh instead (no snapshot file). The link there carries the moment itself (the snapshot rides in the
 fragment after `#s=`, which browsers never send to a server, so the link is long: about 4 to 10 KB), and the
 embed builder writes the iframe and script for the machine, program and options you pick.
 
@@ -361,7 +378,7 @@ The references ride in the snapshot's `share` field, which only shared moments h
 
 ## Settings
 
-Share screen → Your settings → **Export settings…** saves your settings (machines and their options, display,
+Machine tab → **Settings file** → **Export…** saves your settings (machines and their options, display,
 the choices you made) as `cloadm-settings.json`; **Import…** in another browser takes them up. ROMs and stored
 programs are never in that file, and are ignored if someone adds them.
 
@@ -387,12 +404,20 @@ doesn't have is reported in a message (with Details) and the rest of the link st
 | `touch` | `joystick`, `keys` | the on-screen panel's mode on a touch screen: the touch joystick, or the keyboard alone (not for embeds) |
 | `sound`, `fasttape`, `turbo` | `1`, `0` | |
 | `embed` | `1` | the screen alone, for an iframe |
+| `askclaude` | `1` | with `embed=1`: a small **Ask Claude ↗** chip in the screen's corner, which opens this moment in a new tab with the chat (off by default; the Share screen's **Offer 'Ask Claude ↗'**) |
 | `storage` | `opfs`, `fsa`, `fallback` | where ROMs and programs are kept |
 
 Files given by link are fetched by the browser, so their server must allow CORS.
 
 **Embedding.** Put `<iframe src="https://cloadm.dev/play/?embed=1&machine=dragon64">` in a page, include
-`https://cloadm.dev/embed/cloadm.js`, and drive it:
+`https://cloadm.dev/embed/cloadm.js`, and drive it. The Claude chat is not available when CLOADM is shown inside
+another page, with or without `embed=1`. The full page in a frame offers **Ask Claude ↗** in its app bar instead: a
+link that opens this moment in a new tab, top-level, where the chat runs (`app=claude`, never `embed=1`). A
+screen-only embed draws nothing unless its link has `askclaude=1` (the Share screen's embed builder: **Offer 'Ask
+Claude ↗'**); then a chip in the screen's corner does the same. See [claude.md](claude.md#claude).
+If the host's iframe is sandboxed without `allow-popups-to-escape-sandbox`, the new tab inherits the sandbox and may
+not see the key saved in your browser.
+
 
 ```js
 const m = await CLOADM.attach(document.querySelector('iframe'));
@@ -412,8 +437,8 @@ After one visit CLOADM works without a network (`sw.js`, a service worker that a
 network first and keeps a copy of the whole site). ROMs and programs stay in the browser's own storage
 either way.
 
-**Install it as an app** (`manifest.webmanifest`, `js/ui/install.js`). **Install CLOADM…**, at the foot of the **machine menu** (the machine-name button, top left) runs the browser's own install prompt where there is one and shows the steps
-otherwise; the Help page's **Install as an app** has them for Chrome and Edge on a computer, Chrome on Android,
+**Install it as an app** (`manifest.webmanifest`, `js/ui/install.js`). **Install CLOADM…**, in the app bar beside Help (behind **Menu** on a phone), runs the browser's own install prompt where there is one and shows the steps
+otherwise; the Help page's **Install CLOADM as an app on this device** has them for Chrome and Edge on a computer, Chrome on Android,
 Samsung Internet, Firefox on Android, iOS Safari and Chrome or Edge on iOS. Installed, it opens in its own window,
 without the browser's tabs and address bar, and still works offline.
 

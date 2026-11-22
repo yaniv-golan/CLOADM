@@ -564,7 +564,7 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
       s.switchMachine('coco3');
       await s.importDriveWireImage('boot.dsk', makeOs9Disk(Emu, { cpu: '6809' }));
       await s.importMedia('HOLD.BIN', bin);
-      const wasMachine = s.machine;
+      const wasMachine = s.shownMachine;
       s.drivewire.output.push(0xA5);        // a byte for the guest on the link: a switch to the Becker port drops it
       // bootNitros9's first awaited read, held: the boot is inside its reads while the move starts
       const gate = deferred();
@@ -590,8 +590,8 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
       check('a boot whose reads are in flight when the move starts: nothing was mounted, and the move completed',
         !(mvRes instanceof Error) && s.driveWireMounts.length === 0, `${mvRes && mvRes.message} mounts=${JSON.stringify(s.driveWireMounts)}`);
       check('a boot whose reads are in flight when the move starts: the machine was not switched, and the link kept its state',
-        s.machine === wasMachine && !s.machine.config.becker && JSON.stringify(s.drivewire.output) === '[165]',
-        `same=${s.machine === wasMachine} becker=${s.machine.config.becker} output=${JSON.stringify(s.drivewire.output)}`);
+        s.shownMachine === wasMachine && !s.shownMachine.config.becker && JSON.stringify(s.drivewire.output) === '[165]',
+        `same=${s.shownMachine === wasMachine} becker=${s.shownMachine.config.becker} output=${JSON.stringify(s.drivewire.output)}`);
       s.drivewire.output.length = 0;
     }
     // a floppy boot that also has to turn the Becker port on: the switch comes first, then the controller goes in,
@@ -608,10 +608,10 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
       // the debugger paused, the welcome menu's stub run
       const dbg = s.debug;
       dbg.addBreakpoint(0x1234);
-      dbg._stop('break', { pc: s.machine.cpu.pc });
+      dbg._stop('break', { pc: s.shownMachine.cpu.pc });
       s.inject([{ addr: 0x3000, data: new Uint8Array([0x20, 0xFE]) }], 0x3000);   // a stub program (BRA *)
       const stub = s.stubRun;
-      const was = { machine: s.machine, profile: s.machine.id, cpu: s.machine.config.cpu, becker: s.machine.config.becker, cart: s.machine.cartPort };
+      const was = { machine: s.shownMachine, profile: s.shownMachine.id, cpu: s.shownMachine.config.cpu, becker: s.shownMachine.config.becker, cart: s.shownMachine.cartPort };
       check('a floppy boot whose reads are in flight: the machine is not yet set up to boot it (the switch and the controller come after the reads)',
         was.profile === 'coco3' && was.becker === false && s.diskController === null, `${was.profile} becker=${was.becker} controller=${!!s.diskController}`);
       // the boot's awaited read of the floppy image, held
@@ -637,10 +637,10 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
         e instanceof Emu.SessionError && /library is being moved/.test(e.message), e ? e.message : 'accepted');
       // the machine is unchanged: same machine object, same CPU and Becker setting, no cartridge plugged in, no drive
       check('a refused floppy boot: the machine is exactly as it was (not switched, no controller in the port)',
-        s.machine === was.machine && s.machine.id === was.profile && s.machine.config.cpu === was.cpu &&
-          s.machine.config.becker === was.becker && s.machine.cartPort === was.cart &&
+        s.shownMachine === was.machine && s.shownMachine.id === was.profile && s.shownMachine.config.cpu === was.cpu &&
+          s.shownMachine.config.becker === was.becker && s.shownMachine.cartPort === was.cart &&
           s.diskStatus().drives.length === 0,
-        `same machine=${s.machine === was.machine} profile=${s.machine.id}/${was.profile} cpu=${s.machine.config.cpu}/${was.cpu} becker=${s.machine.config.becker}/${was.becker} cart=${!!s.machine.cartPort} drives=${s.diskStatus().drives.length} | ${mvRes && mvRes.message}`);
+        `same machine=${s.shownMachine === was.machine} profile=${s.shownMachine.id}/${was.profile} cpu=${s.shownMachine.config.cpu}/${was.cpu} becker=${s.shownMachine.config.becker}/${was.becker} cart=${!!s.shownMachine.cartPort} drives=${s.diskStatus().drives.length} | ${mvRes && mvRes.message}`);
       check('a refused floppy boot: the debugger kept its breakpoint and stays paused, and the welcome menu\'s stub run is kept',
         s.debugger === dbg && dbg.breakpoints().join() === String(0x1234) && s.paused === true && stub !== null && s.stubRun === stub,
         `same debugger=${s.debugger === dbg} bps=${dbg.breakpoints()} paused=${s.paused} stub=${stub !== null}/${s.stubRun === stub}`);
@@ -658,7 +658,7 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
         ? makeOs9Disk(Emu, { driver: 'rb1773', port: 'floppy', sides: 2, sectors: 1440, cpu: '6309' })
         : makeOs9Disk(Emu, { cpu: '6809' }));
       await s.importMedia('HOLD.BIN', bin);
-      const was = s.machine;
+      const was = s.shownMachine;
       // the mount's own stat of the image (not the boot's read) is held: the boot is past its post-reads check
       const statGate = deferred();
       let heldStat = false;
@@ -670,8 +670,8 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
       const boot = s.bootNitros9(image.split('/')[1], kind === 'floppy' ? 'disk' : 'drivewire').then((m) => m, (e) => e);
       await settle();
       check(`[${kind}, inside the mount] the boot has rebuilt the machine and is inside its mount's stat`,
-        s.machine !== was && heldStat && (kind === 'floppy' ? !!s.diskController : s.machine.config.becker === true),
-        `switched=${s.machine !== was} held=${heldStat}`);
+        s.shownMachine !== was && heldStat && (kind === 'floppy' ? !!s.diskController : s.shownMachine.config.becker === true),
+        `switched=${s.shownMachine !== was} held=${heldStat}`);
       const mv = refuse(s.moveMedia(to));
       await settle();
       check(`[${kind}, inside the mount] the move is waiting for the boot`, s.movingMedia === true && s.media === from);
@@ -696,7 +696,7 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
     const from = new Emu.MemoryMediaStore(), to = new Emu.MemoryMediaStore();
     const s = await rig(from);
     s.switchMachine('coco3');
-    s.switchMachine('coco3', Object.assign({}, s.machine.config, { becker: true }));
+    s.switchMachine('coco3', Object.assign({}, s.shownMachine.config, { becker: true }));
     await s.importDriveWireImage('pub.dsk', new Uint8Array(512));
     await from.write('disks/pub.dsk', new Uint8Array(161280));
     await s.importMedia('HOLD.BIN', bin);
@@ -735,7 +735,7 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
       const copyGate = deferred();
       to.__write = to.write.bind(to);
       to.write = async (nm, b) => { await copyGate.p; return to.__write(nm, b); };
-      const was = s.machine;
+      const was = s.shownMachine;
       const boot = refuse(s.addAndBootNitros9(file, bytes));
       await settle();
       const mv = refuse(s.moveMedia(to));
@@ -746,7 +746,7 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
         e instanceof Emu.SessionError && e.message === `${file} was saved to your Library but not booted: The library is being moved: try again once it is done.`,
         e ? e.message : 'booted');
       check(`[${kind}] ...and it was: the image is stored, the machine untouched`,
-        same(await from.read(stored), bytes) && s.machine === was && s.driveWireMounts.length === 0);
+        same(await from.read(stored), bytes) && s.shownMachine === was && s.driveWireMounts.length === 0);
       copyGate.resolve();
       const r = await mv;
       check(`[${kind}] ...and the move carries it`, !r && s.media === to && same(await to.read(stored), bytes), r && r.message);

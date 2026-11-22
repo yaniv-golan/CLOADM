@@ -17,7 +17,10 @@ const { MemoryMediaStore } = require('../js/host/media-store-memory.js');
 const drawer = (() => {
   const src = fs.readFileSync(path.join(__dirname, '../js/ui/drawer.js'), 'utf8')
     .replace(/^import .*$/mg, '').replace(/^export /mg, '');
-  return new Function(`${src}\nreturn { recentRows, loadRow };`)();
+  // the module imports SessionError from ../session.js (for loadRow's "gone from the list" error): the import lines
+  // are stripped here, so the real class is handed in, or the error would not be the type the page reports on its
+  // own message line rather than in the console.
+  return new Function('SessionError', `${src}\nreturn { recentRows, loadRow };`)(Emu.SessionError);
 })();
 
 let fail = 0;
@@ -36,7 +39,7 @@ const fresh = ({ media = new MemoryMediaStore(), store = Emu.memoryStore() } = {
   s.load('b.bin', prog('BB', 3));
   const rows = drawer.recentRows(s.recentMedia(), 'dragon64');
   drawer.loadRow(s, rows.find((x) => x.r.name === 'b.bin'));
-  check('recent click: a click loads the row\'s own file', s.machine.ram[0x3000] === 0xBB, `$${s.machine.ram[0x3000].toString(16)}`);
+  check('recent click: a click loads the row\'s own file', s.shownMachine.ram[0x3000] === 0xBB, `$${s.shownMachine.ram[0x3000].toString(16)}`);
 }
 
 // 2. the list CHANGES between drawing the rows and clicking one: another load pushes every row down one. The old
@@ -49,7 +52,7 @@ const fresh = ({ media = new MemoryMediaStore(), store = Emu.memoryStore() } = {
   s.load('c.bin', prog('CC', 4));                                // the list shifts: c.bin 0, b.bin 1, a.bin 2
   const aRow = rows.find((x) => x.r.name === 'a.bin');
   drawer.loadRow(s, aRow);
-  check('recent click: after the list shifted, the click still loads the file the row named', s.machine.ram[0x3000] === 0xAA, `$${s.machine.ram[0x3000].toString(16)} want $aa (the row\'s index ${aRow.i} now holds c.bin)`);
+  check('recent click: after the list shifted, the click still loads the file the row named', s.shownMachine.ram[0x3000] === 0xAA, `$${s.shownMachine.ram[0x3000].toString(16)} want $aa (the row\'s index ${aRow.i} now holds c.bin)`);
 }
 
 // 3. a same-name entry replaced by different bytes while the drawer is open: the row is stale. It must not load the
@@ -63,7 +66,7 @@ const fresh = ({ media = new MemoryMediaStore(), store = Emu.memoryStore() } = {
   s.load('a.bin', prog('EE', 5));                                // the same name, new bytes: a different entry
   // the row named the OLD a.bin: it is still in the list (as the "2nd" copy), so the click must load ITS bytes
   drawer.loadRow(s, oldA);
-  check('recent click: a row of a replaced name still loads the bytes it named', s.machine.ram[0x3000] === 0xAA, `$${s.machine.ram[0x3000].toString(16)} want $aa (the new a.bin is $ee)`);
+  check('recent click: a row of a replaced name still loads the bytes it named', s.shownMachine.ram[0x3000] === 0xAA, `$${s.shownMachine.ram[0x3000].toString(16)} want $aa (the new a.bin is $ee)`);
 }
 
 // 4. evicted while the drawer is open: nothing can be loaded, and it must say so rather than load a neighbour
@@ -76,6 +79,34 @@ const fresh = ({ media = new MemoryMediaStore(), store = Emu.memoryStore() } = {
   try { drawer.loadRow(s, rows[0]); } catch (e) { msg = e.message; }
   check('recent click: a row evicted while the drawer is open says the file is gone (loads no neighbour)',
     !!msg && /no longer (stored|in the recent list)/.test(msg), String(msg));
+  // and the error is a SessionError, which is what makes page.attempt put it on the drawer's message line instead
+  // of also logging it as an unexpected error (js/ui/page.js attempt)
+  let err = null;
+  try { drawer.loadRow(s, rows[0]); } catch (e) { err = e; }
+  check('recent click: "gone from the list" is a SessionError (the drawer reports it, the console does not)', err instanceof Emu.SessionError, err && err.constructor.name);
+}
+
+// 5. the row's name is compared by the SESSION's rule (Session.sameName: the store's own case rule), not by ===.
+// A store that does not tell cases apart has one entry for "GAME.DSK" and "game.dsk"; a row drawn from one spelling
+// must find the entry -- the same way every guard in the Session compares names.
+{
+  const ci = fresh({ media: new MemoryMediaStore({ caseInsensitive: true }) });   // a case-folding store, as APFS is
+  ci.load('GAME.BIN', prog('AA', 2), { remember: true });
+  const rows = drawer.recentRows(ci.recentMedia(), 'dragon64');
+  const row = rows.find((x) => x.r.name === 'GAME.BIN');
+  const other = { r: Object.assign({}, row.r, { name: 'game.bin' }), i: row.i };   // the same entry, other spelling
+  let loaded = null;
+  try { drawer.loadRow(ci, other); loaded = ci.personMachine.ram[0x3000]; } catch (e) { loaded = e.message; }
+  check('recent click: a row found under another spelling of its name loads (names by Session.sameName, not ===)',
+    loaded === 0xAA, String(loaded));
+  // the control: a case-SENSITIVE store (two names), the same row is not the same file, and says so
+  const cs = fresh();
+  cs.load('GAME.BIN', prog('AA', 2), { remember: true });
+  const csRow = drawer.recentRows(cs.recentMedia(), 'dragon64').find((x) => x.r.name === 'GAME.BIN');
+  let msg = null;
+  try { drawer.loadRow(cs, { r: Object.assign({}, csRow.r, { name: 'game.bin' }), i: csRow.i }); } catch (e) { msg = e.message; }
+  check('recent click: on a case-sensitive store the two spellings are two names, so the stale row says it is gone',
+    /no longer in the recent list/.test(String(msg)), String(msg));
 }
 
 console.log(fail ? `${fail} FAILED` : 'all recent-click checks passed');

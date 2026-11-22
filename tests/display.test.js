@@ -14,27 +14,27 @@ const throws = (fn, re) => { try { fn(); return false; } catch (e) { return e in
   s.switchMachine('coco');
   check('defaults: CRT, phase 1 (MAME\'s default), curvature 35, glow 55, no integer scaling, 4:3, the main screen',
     JSON.stringify(s.display) === JSON.stringify({ view: 'crt', phase: 1, curvature: 35, glow: 55, integer: false, aspect: '4:3', screen: 'main' }));
-  check('CRT: the CoCo shows artifact colours with the chosen phase', s.machine.vdg.artifact === 1);
+  check('CRT: the CoCo shows artifact colours with the chosen phase', s.shownMachine.vdg.artifact === 1);
   s.setDisplay({ phase: 2 });
-  check('phase 2 reaches the VDG', s.machine.vdg.artifact === 2);
+  check('phase 2 reaches the VDG', s.shownMachine.vdg.artifact === 2);
   s.setDisplay({ view: 'sharp' });
-  check('Sharp: composite colour off', s.machine.vdg.artifact === 0);
+  check('Sharp: composite colour off', s.shownMachine.vdg.artifact === 0);
   s.setDisplay({ curvature: 0, glow: 100, integer: true, aspect: 'fill' });
   // remembered: a new Session on the same store
   const s2 = new Emu.Session({ store });
   s2.switchMachine('coco');
   check('settings are remembered', JSON.stringify(s2.display) === JSON.stringify({ view: 'sharp', phase: 2, curvature: 0, glow: 100, integer: true, aspect: 'fill', screen: 'main' }));
-  check('and applied to a new machine', s2.machine.vdg.artifact === 0);
+  check('and applied to a new machine', s2.shownMachine.vdg.artifact === 0);
   s2.setDisplay({ view: 'crt' });
   s2.switchMachine('mc10');
-  check('the MC-10 takes the phase on a switch', s2.machine.vdg.artifact === 2 && s2.hasArtifactPhase);
+  check('the MC-10 takes the phase on a switch', s2.shownMachine.vdg.artifact === 2 && s2.hasArtifactPhase);
   s2.switchMachine('dragon64');
-  check('the Dragon 64 (PAL): composite on, no phase choice', s2.machine.vdg.artifact !== 0 && s2.machine.vdg.pal && !s2.hasArtifactPhase);
+  check('the Dragon 64 (PAL): composite on, no phase choice', s2.shownMachine.vdg.artifact !== 0 && s2.shownMachine.vdg.pal && !s2.hasArtifactPhase);
   s2.switchMachine('coco3');
-  check('the CoCo 3: CRT shows the composite monitor, with artifact colours at the chosen phase', s2.machine.monitor === 'composite'
-    && s2.machine.gime.artifact === 2 && s2.hasArtifactPhase);
+  check('the CoCo 3: CRT shows the composite monitor, with artifact colours at the chosen phase', s2.shownMachine.monitor === 'composite'
+    && s2.shownMachine.gime.artifact === 2 && s2.hasArtifactPhase);
   s2.setDisplay({ view: 'sharp' });
-  check('the CoCo 3: Sharp shows the RGB monitor, no artifact colours', s2.machine.monitor === 'rgb' && s2.machine.gime.artifact === 0);
+  check('the CoCo 3: Sharp shows the RGB monitor, no artifact colours', s2.shownMachine.monitor === 'rgb' && s2.shownMachine.gime.artifact === 0);
   s2.switchMachine('coco3p');
   check('the PAL CoCo 3: no NTSC phase choice', !s2.hasArtifactPhase);
   s2.switchMachine('coco3');
@@ -62,7 +62,7 @@ const throws = (fn, re) => { try { fn(); return false; } catch (e) { return e in
   const old = Emu.memoryStore(); old.set('display', 'sharp');
   const s = new Emu.Session({ store: old }); s.switchMachine('coco');
   check('the old "display" setting is carried over and removed', s.display.view === 'sharp' && s.display.phase === 1 && old.get('display') === null
-    && JSON.parse(old.get('display.settings')).view === 'sharp' && s.machine.vdg.artifact === 0);
+    && JSON.parse(old.get('display.settings')).view === 'sharp' && s.shownMachine.vdg.artifact === 0);
   const both = Emu.memoryStore(); both.set('display', 'sharp'); both.set('display.settings', JSON.stringify({ view: 'crt', glow: 20 }));
   const s2 = new Emu.Session({ store: both }); s2.switchMachine('coco');
   check('newer settings win over the old key, which is removed', s2.display.view === 'crt' && s2.display.glow === 20 && both.get('display') === null);
@@ -75,24 +75,24 @@ const throws = (fn, re) => { try { fn(); return false; } catch (e) { return e in
   s.switchMachine('dragon64');
   check('a one-screen machine offers no second screen', !s.hasTwoScreens);
   s.setDisplay({ screen: 'plus' });       // accepted and remembered, but nothing to apply it to
-  check('... and the setting does not reach it', s.machine.view === undefined && s.machine.render().width === Emu.MC6847.WIDTH);
+  check('... and the setting does not reach it', s.shownMachine.view === undefined && s.shownMachine.render().width === Emu.MC6847.WIDTH);
   // (a fresh store: this one now remembers 'plus' for whatever opens next)
   const fresh = new Emu.Session({ store: Emu.memoryStore() });
   fresh.switchMachine('d64plus');
-  check('the Dragon 64 Plus has two, and opens on the Dragon\'s own screen', fresh.hasTwoScreens && fresh.machine.view === 'vdg' && fresh.machine.render().width === 320);
+  check('the Dragon 64 Plus has two, and opens on the Dragon\'s own screen', fresh.hasTwoScreens && fresh.shownMachine.view === 'vdg' && fresh.shownMachine.render().width === 320);
   s.switchMachine('d64plus');
-  check('a remembered "plus" is applied on the switch', s.machine.view === 'plus');
+  check('a remembered "plus" is applied on the switch', s.shownMachine.view === 'plus');
   s.setDisplay({ screen: 'plus' });
-  check('choosing the 80-column screen changes what render() returns', s.machine.view === 'plus' && s.machine.render().width === 640 && s.machine.render().height === 264);
+  check('choosing the 80-column screen changes what render() returns', s.shownMachine.view === 'plus' && s.shownMachine.render().width === 640 && s.shownMachine.render().height === 264);
   s.setDisplay({ screen: 'main' });
-  check('and back', s.machine.view === 'vdg' && s.machine.render().width === 320);
+  check('and back', s.shownMachine.view === 'vdg' && s.shownMachine.render().width === 320);
   s.setDisplay({ screen: 'plus' });
   // a new Session on the same store: remembered, and applied on the switch
   const s2 = new Emu.Session({ store }); s2.switchMachine('d64plus');
-  check('the choice is remembered and applied when the machine opens', s2.display.screen === 'plus' && s2.machine.view === 'plus');
+  check('the choice is remembered and applied when the machine opens', s2.display.screen === 'plus' && s2.shownMachine.view === 'plus');
   // switching away and back keeps it
   s2.switchMachine('coco'); s2.switchMachine('d64plus');
-  check('it survives a machine switch', s2.machine.view === 'plus');
+  check('it survives a machine switch', s2.shownMachine.view === 'plus');
   let e = null;
   try { s2.setDisplay({ screen: 'tv' }); } catch (err) { e = err; }
   check('an unknown screen is refused', e instanceof Emu.SessionError, e && e.message);

@@ -16,15 +16,19 @@
       "nav",
       "reading",
       "embed",
+      "askPopout",
       "welcomeScreen",
       "cpu6309",
       "backFocus",
       "fold",
-      "semantics"
+      "semantics",
+      "mobile",
+      "uiCopy"
     ],
     [
       "models",
       "romUi",
+      "armGuard",
       "reset",
       "mediaBackend",
       "sscBoard",
@@ -62,6 +66,7 @@
       "askFollowup",
       "share",
       "favicon",
+      "closedViews",
       "askStatus"
     ],
     [

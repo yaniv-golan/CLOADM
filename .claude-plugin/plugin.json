@@ -1,7 +1,7 @@
 {
   "name": "cloadm",
   "version": "0.1.8-pre",
-  "description": "Dragon, Tandy Color Computer and MC-10 emulator as an MCP server: boot machines, run programs, type, read the screen, memory and registers, step the CPU and take screenshots.",
+  "description": "Play Dragon and Tandy Color Computer machines with Claude: live in Claude's side panel, or on your computer with your own ROMs and files.",
   "author": {
     "name": "Yaniv Golan",
     "url": "https://github.com/yaniv-golan"
@@ -26,9 +26,15 @@
         "${CLAUDE_PLUGIN_ROOT}/cli/cloadm.js",
         "--mcp"
       ]
+    },
+    "cloadm-panel": {
+      "type": "http",
+      "url": "https://mcp.cloadm.dev/mcp"
     }
   },
   "network": {
-    "hosts": []
+    "hosts": [
+      "mcp.cloadm.dev"
+    ]
   }
 }

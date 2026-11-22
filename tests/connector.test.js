@@ -12,7 +12,9 @@
 //    left out; results over 100,000 characters refused; every bundled program file a model can ask for is carried;
 //  * the bridge (connector/view/bridge.js) in a vm, playing the host: ui/initialize is sent as the script runs, before
 //    the emulator exists; tools/list is answered at once; an early call waits for the emulator; list_changed follows
-//    attach; a mismatched PANEL_API is out-of-step, a failed start not-started; a cancelled call gets no reply.
+//    attach; a mismatched PANEL_API is out-of-step, a failed start not-started; a cancelled call gets no reply; the
+//    host context keys it keeps (the phone's insets among them); size-changed; the last call in Details;
+//  * the view's sizing, insets, touch test and the on-screen keys' codes (connector/view/ui.js, js/ui/touch-layout.js).
 // The browser check's `connector` group runs both views in Chromium under the spec's CSP (tools/connector-check.js).
 // Run: node tests/connector.test.js
 const fs = require('fs'), path = require('path'), vm = require('vm');
@@ -78,6 +80,29 @@ const J = JSON.stringify;
     init.body.result.protocolVersion === '2025-06-18' && initOld.body.result.protocolVersion === '2025-11-25'
     && J(init.body.result.capabilities.extensions['io.modelcontextprotocol/ui'].mimeTypes) === J([MIME])
     && init.body.result.serverInfo.version === build.version() && (build.version() !== 'unknown') === inCheckout && /next message/.test(init.body.result.instructions), J(init.body));
+  // the connector's instructions have ONE source: the "connector essentials" section of the skill (build.js copies it)
+  {
+    const skill = fs.readFileSync(path.join(ROOT, 'skills/cloadm/SKILL.md'), 'utf8');
+    const m = /<!-- connector-essentials:start -->\n([\s\S]*?)\n<!-- connector-essentials:end -->/.exec(skill);
+    const want = m && m[1].trim();
+    const sha = require('crypto').createHash('sha256').update(want || '').digest('hex').slice(0, 12);
+    check('instructions: the Worker serves exactly the skill\'s connector essentials section, in every protocol version', !!want && want.length > 500
+      && init.body.result.instructions === want && initOld.body.result.instructions === want && views.instructions === want, J(init.body.result.instructions).slice(0, 120));
+    check('instructions: the first line names the route, "You are driving CLOADM in the person\'s side panel."', init.body.result.instructions.split('\n')[0] === 'You are driving CLOADM in the person\'s side panel.', J(init.body.result.instructions.split('\n')[0]));
+    check('instructions: the build\'s hash is the section\'s sha-256 (printed by node connector/build.js)', views.essentialsHash === sha && /^[0-9a-f]{12}$/.test(sha), `${views.essentialsHash} ${sha}`);
+    const src = fs.readFileSync(path.join(ROOT, 'connector/worker/src/server.js'), 'utf8');
+    check('instructions: the Worker holds no copy of its own (no INSTRUCTIONS constant, no instructions literal), it uses the views\'', !/\bINSTRUCTIONS\b/.test(src) && !/instructions:\s*['"`]/.test(src) && /instructions: views\.instructions/.test(src));
+    const gen = path.join(ROOT, 'connector/worker/src/views.gen.js');
+    if (fs.existsSync(gen)) {
+      const g = (await imp('connector/worker/src/views.gen.js')).default;
+      check('instructions: the generated views.gen.js (the last build) carries the skill\'s section now: rebuild (node connector/build.js) and redeploy the Worker after editing it',
+        g.instructions === want && g.essentialsHash === sha, `${g.essentialsHash} vs ${sha}`);
+    } else console.log('ok   instructions: no generated views.gen.js here (wrangler\'s [build] makes it); the views() check above covers the build');
+    const tomlText = fs.readFileSync(path.join(ROOT, 'connector/worker/wrangler.toml'), 'utf8');
+    check('instructions: wrangler dev rebuilds when the skill changes (watch_dir holds ../../skills/cloadm)', /watch_dir\s*=\s*\[[^\]]*"\.\.\/\.\.\/skills\/cloadm"/.test(tomlText));
+    let refused = null; try { createServer({ site: 'a', inline: 'b', version: 'x' }); } catch (e) { refused = e; }
+    check('instructions: a Worker built from views without instructions refuses to start', !!refused && /instructions/.test(refused.message));
+  }
   check('a notification gets 202 and no body', notif.status === 202 && notif.body === null);
   check('a batch (a JSON array) is refused with -32600, also one of 600 reads of the 1 MiB view (nothing is built)', batch.status === 400 && batch.body.error.code === -32600 && /batches/.test(batch.body.error.message)
     && bomb.status === 400 && bomb.body.error.code === -32600 && J(bomb.body).length < 200, J(batch.body));
@@ -146,8 +171,8 @@ const J = JSON.stringify;
     s.runFrames(100);
     s.typeText('I AM HAPPY\n');
     s.runFrames(400);
-    const f = s.machine.render();
-    return { text: s.screenText().join('\n'), frames: s.machine.frameCount, pixels: Buffer.from(f.data).toString('base64') };
+    const f = s.shownMachine.render();
+    return { text: s.screenText().join('\n'), frames: s.shownMachine.frameCount, pixels: Buffer.from(f.data).toString('base64') };
   }
   const folded = await run((await loadFolded('js/session.js', 'export const Session = __ENTRY__.Session;\n')).Session);
   const plain = await run(Session);
@@ -172,7 +197,8 @@ const J = JSON.stringify;
   check('panel tools: no ROM store in the panel, so add_roms and remove_roms are not offered (the toolbox would only refuse them)',
     !offered.some((t) => t.name === 'add_roms' || t.name === 'remove_roms') && !!local.add_roms && !!local.remove_roms, offered.map((t) => t.name).join(','));
   check('panel tools: the local server\'s names, schemas and annotations; the file tools and close_machine left out',
-    offered.every((t) => t.name === 'boot' || J(t) === J(local[t.name])) && J(offered.map((t) => t.name)) === J(Object.keys(local).filter((k) => !panel.LEFT_OUT.includes(k)))
+    offered.every((t) => t.name === 'boot' || J(t) === J(t.name === 'load' ? { ...local.load, description: local.load.description.replace(/ For playing or watching a machine with the person, prefer the CLOADM side-panel connector.*$/, '') } : local[t.name])) && J(offered.map((t) => t.name)) === J(Object.keys(local).filter((k) => !panel.LEFT_OUT.includes(k)))
+    && !/side-panel connector/.test(offered.find((t) => t.name === 'load').description) && /side-panel connector/.test(local.load.description)
     && panel.LEFT_OUT.every((k) => local[k]) && J(offered.find((t) => t.name === 'boot').inputSchema) === J(local.boot.inputSchema), offered.map((t) => t.name).join(','));
   const want = ['boot', 'switch_machine', 'type_text', 'press_keys', 'screen_text', 'screenshot', 'peek', 'find_bytes', 'disassemble', 'registers', 'step', 'run', 'run_frames', 'load', 'reset', 'power_cycle'];
   check('panel tools: everything the panel runs is offered', want.every((w) => offered.some((t) => t.name === w)) && offered.length <= 64, want.filter((w) => !offered.some((t) => t.name === w)).join(','));
@@ -185,6 +211,8 @@ const J = JSON.stringify;
   const st = await ptb.call('screen_text', { machine_id: 'm1' }, { base64: b64 });
   check('panel tools: screen text comes back wrapped as untrusted machine_output, as from the local server', !st.isError && st.structuredContent.untrusted === T.UNTRUSTED_NOTE
     && /LIZA/.test(st.structuredContent.machine_output.lines.join('\n')) && JSON.parse(st.content[0].text).untrusted === T.UNTRUSTED_NOTE, J(st).slice(0, 300));
+  const info = await ptb.call('machine_info', { machine_id: 'm1' }, { base64: b64 });
+  check('panel tools: machine_info reports the route, "panel" (the local server says "local")', !info.isError && info.structuredContent.route === 'panel' && info.structuredContent.model === 'Dragon 64', J(info.structuredContent));
   const path1 = await ptb.call('load', { machine_id: 'm1', path: 'game.bin' }, { base64: b64 });
   const tape = await ptb.call('insert_tape', { machine_id: 'm1', path: 'x.cas' }, { base64: b64 });
   check('panel tools: a file is refused with no-media-root, naming what works; a left-out tool says why', path1.isError && path1.structuredContent.error.code === 'no-media-root'
@@ -292,12 +320,116 @@ const J = JSON.stringify;
     check('bridge: a cancelled call gets no reply', !b.sent.some((m) => m.id === 80));
   }
 
+  {
+    const b = bridge();
+    b.reply('ui/initialize', { hostContext: { displayMode: 'inline', availableDisplayModes: ['inline', 'fullscreen'], theme: 'dark' } });
+    await tick();
+    const seen = [];
+    b.B.onChange(() => seen.push(b.B.hostContext.displayMode));
+    const initial = Object.assign({}, b.B.hostContext);
+    b.deliver({ jsonrpc: '2.0', method: 'ui/notifications/host-context-changed', params: { displayMode: 'fullscreen' } });
+    check('bridge: hostContext starts as ui/initialize\'s and takes each host-context-changed in (the side-panel button reads displayMode)',
+      initial.displayMode === 'inline' && b.B.hostContext.displayMode === 'fullscreen' && b.B.hostContext.theme === 'dark' && J(seen) === J(['fullscreen']), J([initial, b.B.hostContext, seen]));
+    const asked = b.B.requestDisplayMode('inline');
+    const req = b.sent.find((m) => m.method === 'ui/request-display-mode');
+    b.deliver({ jsonrpc: '2.0', id: req.id, result: { mode: 'inline' } });
+    await asked;
+    check('bridge: the mode the host answers a request with is the context\'s at once', J(req.params) === J({ mode: 'inline' }) && b.B.hostContext.displayMode === 'inline', J(b.B.hostContext));
+    b.deliver({ jsonrpc: '2.0', method: 'ui/notifications/host-context-changed', params: { displayMode: 'pip', styles: { variables: { x: 1 } }, toString: 'x', __proto__: { polluted: 1 } } });
+    b.deliver({ jsonrpc: '2.0', method: 'ui/notifications/host-context-changed', params: 'not an object' });
+    check('bridge: only the context keys the view reads are taken in (displayMode, availableDisplayModes, containerDimensions, theme)',
+      J(Object.keys(b.B.hostContext).sort()) === J(['availableDisplayModes', 'displayMode', 'theme']) && b.B.hostContext.displayMode === 'pip' && !('polluted' in b.B.hostContext), J(b.B.hostContext));
+    b.deliver({ jsonrpc: '2.0', method: 'ui/notifications/host-context-changed', params: { safeAreaInsets: { top: 47, right: 0, bottom: 34, left: 0 }, platform: 'mobile', deviceCapabilities: { touch: true, hover: false }, userAgent: 'x', locale: 'en', toolInfo: {} } });
+    check('bridge: a phone host\'s safeAreaInsets, platform and deviceCapabilities are taken in too, and nothing else (userAgent, locale, toolInfo are not)',
+      J(Object.keys(b.B.hostContext).sort()) === J(['availableDisplayModes', 'deviceCapabilities', 'displayMode', 'platform', 'safeAreaInsets', 'theme']) && b.B.hostContext.safeAreaInsets.top === 47, J(b.B.hostContext));
+    const before = b.sent.length;
+    const first = b.B.sizeChanged(390, 612.4), again = b.B.sizeChanged(390, 613), other = b.B.sizeChanged(600, 760), none = b.B.sizeChanged(0, 10);
+    const sizes = b.sent.slice(before);
+    check('bridge: sizeChanged sends ui/notifications/size-changed { width, height } (whole pixels, rounded up), not again for the same size, and nothing for an empty one',
+      first && !again && other && !none && J(sizes) === J([{ jsonrpc: '2.0', method: 'ui/notifications/size-changed', params: { width: 390, height: 613 } }, { jsonrpc: '2.0', method: 'ui/notifications/size-changed', params: { width: 600, height: 760 } }])
+      && /size 600×760 ×2/.test(b.B.describe()), J(sizes));
+  }
+  {
+    const b = bridge();
+    b.reply('ui/initialize', {});
+    b.B.attach({ api: panel.PANEL_API, tools: [{ name: 'screen_text' }], call: async () => ({ content: [], isError: true, structuredContent: { error: { code: 'bad-argument' } } }) });
+    b.deliver({ jsonrpc: '2.0', id: 90, method: 'tools/call', params: { name: 'screen_text', arguments: {} } });
+    await waitFor(() => b.sent.some((m) => m.id === 90));
+    const d1 = b.B.describe();
+    const ok = bridge();
+    ok.reply('ui/initialize', {});
+    ok.B.attach({ api: panel.PANEL_API, tools: [{ name: 'screen_text' }], call: async () => ({ content: [{ type: 'text', text: 'x' }] }) });
+    ok.deliver({ jsonrpc: '2.0', id: 91, method: 'tools/call', params: { name: 'screen_text', arguments: {} } });
+    await waitFor(() => ok.sent.some((m) => m.id === 91));
+    check('bridge: Details names the last call and how it ended ("screen_text error bad-argument", "screen_text ok"), so a call the host never delivered (calls ×0) can be told from one the view refused',
+      /calls ×1, .*last call screen_text error bad-argument \d+ ms/.test(d1) && /last call screen_text ok \d+ ms/.test(ok.B.describe()), `${d1} | ${ok.B.describe()}`);
+  }
+
+  // ---------------- the view's controls (connector/view/ui.js), the parts without a DOM ----------------
+  {
+    const ui = await imp('connector/view/ui.js');
+    const sizes = [[376, 600], [576, 700], [876, 2000], [876, 400], [100, 2000], [376, null], [876, null]].map(([w, h]) => [w, h, ui.screenSize(w, h)]);
+    const fits = sizes.every(([w, h, s]) => s.width <= w && (h == null || s.height <= h) && Math.abs(s.width / s.height - 4 / 3) < 0.01
+      && (w - s.width < 2 || (h != null && h - s.height < 1)));
+    check('screen: the largest 4:3 picture that fits, to the pixel, in the limiting dimension; with no height given (inline), the full width', fits
+      && J(ui.screenSize(376, null)) === J({ width: 376, height: 282 }) && J(ui.screenSize(876, 400)) === J({ width: 533, height: 400 }), J(sizes));
+    check('screen: the height is fixed in the side panel and fullscreen, or when the host gives one; inline it follows the content',
+      ui.fixedHeight({ displayMode: 'fullscreen' }) && ui.fixedHeight({ displayMode: 'pip' }) && ui.fixedHeight({ displayMode: 'inline', containerDimensions: { height: 500 } })
+      && !ui.fixedHeight({ displayMode: 'inline' }) && !ui.fixedHeight({ displayMode: 'inline', containerDimensions: { maxHeight: 900 } }) && !ui.fixedHeight({}));
+    const names = { model: (id) => ({ coco3: 'CoCo 3' })[id], program: (id) => ({ liza: 'LIZA' })[id] };
+    const typing = ui.describeCall('type_text', { text: 'DIR\n' }), keys = ui.describeCall('press_keys', { keys: ['SHIFT', 'A'] });
+    const load = ui.describeCall('load', { program: 'liza' }, names), sw = ui.describeCall('switch_machine', { model: 'coco3' }, names), reset = ui.describeCall('reset');
+    check('chip: typing says "Claude is typing: " and the keys (Enter as ↵), then "Claude typed "; a load, a switch and a reset say what they did',
+      typing.now === 'Claude is typing: ' && typing.past === 'Claude typed ' && typing.keys === 'DIR↵' && !typing.read && keys.keys === 'SHIFT + A'
+      && load.past === 'Claude loaded LIZA' && !load.keys && sw.past === 'Claude switched to the CoCo 3' && reset.past === 'Claude reset the machine', J([typing, keys, load, sw, reset]));
+    const reads = ['screen_text', 'screenshot', 'peek', 'find_bytes'].map((n) => ui.describeCall(n, {}, { read: true }));
+    check('chip: a reading call is a quiet "Claude read the screen" or "Claude read memory"', reads.every((r) => r.read && !r.keys)
+      && J(reads.map((r) => r.now)) === J(['Claude read the screen', 'Claude read the screen', 'Claude read memory', 'Claude read memory']), J(reads));
+    const say = (keys, read = false) => ui.announcement(Object.assign(ui.describeCall(read ? 'screen_text' : 'type_text', { text: keys }, { read })));
+    const short = say('DIR\n'), mid = say('A'.repeat(100)), long = say('B'.repeat(2000));
+    check('announcement: short keys whole, more than 40 cut at 40 with an ellipsis, a long text by its length; none for a read',
+      short === 'Claude is typing: DIR↵' && mid === `Claude is typing: ${'A'.repeat(40)}…` && long === 'Claude is typing 2,000 characters' && say('', true) === null, J([short, mid, long]));
+    const phone = { safeAreaInsets: { top: 47.4, right: 0, bottom: 34, left: 0 } };
+    check('insets: the host\'s safeAreaInsets when it gives all four (rounded, kept within 0..200), inline or not, touch or not',
+      J(ui.insets(phone)) === J({ top: '47px', right: '0px', bottom: '34px', left: '0px' }) && J(ui.insets({ displayMode: 'fullscreen', safeAreaInsets: { top: 900, right: -5, bottom: 0, left: 0 } }, { touch: true })) === J({ top: '200px', right: '0px', bottom: '0px', left: '0px' }), J(ui.insets(phone)));
+    const reserve = ui.insets({ displayMode: 'fullscreen' }, { touch: true });
+    check('insets: without them, a touch host in the side panel or fullscreen keeps the device\'s safe area and at least 56 px at the top (a phone app\'s title chip); a desktop, or inline, none; incomplete insets are not used',
+      reserve.top === 'max(env(safe-area-inset-top, 0px), 56px)' && reserve.bottom === 'env(safe-area-inset-bottom, 0px)' && ui.TOP_RESERVE === 56
+      && J(ui.insets({ displayMode: 'fullscreen' })) === J(ui.insets({})) && ui.insets({}).top === '0px' && ui.insets({ displayMode: 'inline' }, { touch: true }).top === '0px'
+      && J(ui.insets({ displayMode: 'fullscreen', safeAreaInsets: { top: 10 } }, { touch: true })) === J(reserve), J(reserve));
+    check('touch: the host\'s platform "mobile" or deviceCapabilities.touch, a coarse pointer, or a touch seen; a host saying touch: false over a coarse pointer',
+      ui.touchHost({ platform: 'mobile' }) && ui.touchHost({ deviceCapabilities: { touch: true } }) && ui.touchHost({}, { coarse: true }) && ui.touchHost({ deviceCapabilities: { touch: false } }, { seen: true })
+      && !ui.touchHost({}) && !ui.touchHost({ platform: 'desktop' }) && !ui.touchHost({ deviceCapabilities: { touch: false } }, { coarse: true }));
+    check('size: the content height is the screen, its padding and what lies around it, rounded up to a whole pixel', ui.contentHeight(282, 24, 120.2) === 427 && ui.contentHeight(ui.screenSize(366).height, 24, 300) === 598);
+    const tl = await imp('js/ui/touch-layout.js');
+    check('keys: what an on-screen key sends (the page\'s and the view\'s): a letter, SHIFT + 1 ("!" for the stub), ENTER, the space bar ("_"), ← as LEFT (backspace 8), → as RIGHT (9); the full keyboard\'s 50 keys',
+      J(tl.keyPress('A')) === J({ names: ['A'], code: 65 }) && J(tl.keyPress('1', true)) === J({ names: ['SHIFT', '1'], code: 33 }) && J(tl.keyPress('ENTER')) === J({ names: ['ENTER'], code: 13 })
+      && J(tl.keyPress('_')) === J({ names: ['SPACE'], code: 32 }) && J(tl.keyPress('←', true)) === J({ names: ['SHIFT', 'LEFT'], code: 8 }) && tl.FULL.join(' ').split(' ').length === 50 && J(tl.keyPress('→')) === J({ names: ['RIGHT'], code: 9 }), J([tl.keyPress('1', true), tl.keyPress('←', true)]));
+    const S = await imp('js/session.js');
+    check('keys: a program\'s mode from what it is played with: the arrows the Pad, a joystick the Stick, the keyboard (and nothing) the Keys; 2048 and Minesweeper the Pad, LIZA the Keys',
+      tl.programMode(null) === 'keys' && tl.programMode({ input: 'arrows' }) === 'pad' && tl.programMode({ input: 'joystick' }) === 'joystick' && tl.programMode({ input: 'keyboard' }) === 'keys'
+      && tl.programMode(S.GAMES.list[2048].controls) === 'pad' && tl.programMode(S.GAMES.list.minesweeper.controls) === 'pad' && J(S.GAMES.list.minesweeper.controls.extra) === '["F"]'
+      && tl.programMode(S.PROGRAM_CONTROLS.liza) === 'keys' && J(tl.MODES) === '["keys","pad","joystick"]' && !tl.DPAD.flat().includes('BREAK') && !tl.PAD_KEYS.includes('BREAK'));
+    const vt = await imp('connector/view/touch.js');
+    const kv = new Map(), works = vt.modeMemory({ getItem: (k) => (kv.has(k) ? kv.get(k) : null), setItem: (k, v) => kv.set(k, v) });
+    works.set('dragon64.liza', 'pad');
+    const thrower = { getItem: () => { throw new Error('SecurityError'); }, setItem: () => { throw new Error('QuotaExceededError'); } };
+    const off = vt.modeMemory(thrower), none = vt.modeMemory(null);
+    let threw = null;
+    try { off.set('dragon64.liza', 'pad'); none.set('x', 'keys'); } catch (e) { threw = e; }
+    check('keys: the choice is kept in the view\'s storage when it works (cloadm.touchMode.<machine>.<program>); when the storage throws, or there is none, in memory, silently; nothing stored is null',
+      kv.get('cloadm.touchMode.dragon64.liza') === 'pad' && vt.modeMemory({ getItem: (k) => kv.get(k) ?? null, setItem() {} }).get('dragon64.liza') === 'pad'
+      && !threw && off.get('dragon64.liza') === 'pad' && none.get('x') === 'keys' && vt.modeMemory(thrower).get('dragon64.liza') === null && works.get('nothing') === null, J([...kv]));
+    const unnamed = offered.filter((t) => !t.annotations.readOnlyHint).filter((t) => /^Claude: /.test(ui.describeCall(t.name, {}, { title: t.title }).now)).map((t) => t.name);
+    check('chip: every panel tool that acts (readOnlyHint false) has its own words', !unnamed.length, unnamed.join(','));
+  }
+
   // ---------------- the PANEL_API contract ----------------
   // What the view's HTML (built into the Worker) and the emulator module (served by cloadm.dev) expect of each other:
   // the bridge's members and what attach() reads, the CLOADM_VIEW fields and who reads them, the shell's element ids.
   // Its hash is recorded with the PANEL_API it belongs to: change the contract and this fails until PANEL_API is raised
   // (connector/view/tools.js) and the new pair recorded here.
-  const CONTRACT = { api: 1, sha256: '4357f395468efa9c4a3a726ae8f3721ea4a281178a33f404f8ea9728e79cfe70' };
+  const CONTRACT = { api: 3, sha256: '032f6a8f7ac8a46dfe50e6b6fbd417fc0d4a1fe7bf5607567d7796229721f80e' };
   {
     const b = bridge();
     const uniq = (re, text) => [...new Set([...text.matchAll(re)].map((m) => m[1]))].sort();
@@ -310,7 +442,7 @@ const J = JSON.stringify;
       viewFields: [...new Set([...Object.keys(cfgA), ...Object.keys(cfgB)])].sort(),
       cfgReads: uniq(/\bcfg\.(\w+)/g, bridgeSrc + panelSrc),
       panelUsesBridge: uniq(/\bbridge\.(\w+)/g, panelSrc),
-      panelIds: uniq(/\$\('(\w+)'\)/g, panelSrc),
+      panelIds: uniq(/\$\('([\w-]+)'\)/g, panelSrc),
       shellIds,
     };
     const sha = require('crypto').createHash('sha256').update(J(contract)).digest('hex');

@@ -7,6 +7,19 @@ Give the evidence below and no claims beyond it. Delete a section's hint once yo
 
 Files touched and a one-paragraph design summary. Related issue, if any: #
 
+## Evidence
+
+AGENTS.md section 4 makes a green CI run on the exact commit the proof, not a description of one. Give the run, the
+commit and the tree it verified, so a reviewer can match this description to the code they read.
+
+- CI run on the branch head: <URL>, attempt <n> (attempt 1 unless the STATUS says why not)
+- Commit: `<git rev-parse HEAD>`
+- Tree: `<git rev-parse 'HEAD^{tree}'>`
+
+A run on this pull request itself gates the merge result GitHub builds (`refs/pull/N/merge`), whose SHA is a merge
+commit: that is evidence that merging keeps `main` green, not evidence for the branch. Report the push run, whose
+`gates` job summary prints the commit and tree above.
+
 ## Commands run and their results
 
 Short excerpts of the output, not just "passed".
@@ -19,7 +32,8 @@ Short excerpts of the output, not just "passed".
 
 ## New tests and firmware
 
-What each new test file, case or firmware source covers.
+What each new test file, case or firmware source covers, and how each was shown to be able to fail (the mutation
+that turns it red).
 
 ## Deviations from MAME
 

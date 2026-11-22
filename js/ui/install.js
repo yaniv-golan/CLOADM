@@ -3,7 +3,8 @@
  * their own menu.
  *
  * The card is an offer, not a demand. It appears when all of these hold: CLOADM is not already installed, the page
- * is not an embed; the emulator is shown with no view, no full-screen chat, no other card and no open Menu; a real
+ * is not an embed, nor a phone in its touch layout (upright or sideways: the owner's decision with UX R30; the Menu
+ * item still installs there); the emulator is shown with no view, no full-screen chat, no other card and no open Menu; a real
  * program (LIZA, a binary, a tape, a disk, BASIC) has run for 60 s this visit — never over the welcome menu; and
  * the browser can be asked (Chromium's beforeinstallprompt, held with preventDefault so its mini-infobar does not
  * appear instead, or iOS, which has no install event). At most once a visit.
@@ -91,7 +92,7 @@ export function isIos(win) {
 }
 // Every condition for an automatic offer, in one place: the oracle's list, with no room to forget one.
 export function cardShows(s) {
-  return !s.installed && !s.embed && !s.storageUnavailable
+  return !s.installed && !s.embed && !s.storageUnavailable && !s.phone
     && mayOffer(s.answer, s.now)
     && (!!s.prompt || !!s.ios)
     && !s.view && !s.chatFull && !s.otherCard && !s.menuOpen && !s.toast
@@ -149,11 +150,15 @@ export function setupInstall(page, { started = () => true, machineMenu = null } 
   let pending = false;      // an offer deferred for want of room: still owed this visit, tried again on a size change
   let offeredByMenu = false;
   const clock = createRunClock();
+  // a phone in its touch layout, upright or sideways (the owner's decision with UX R30): no offer there, the Menu item
+  // installs
+  const phoneSized = [matchMedia('(max-width: 700px)'), matchMedia('(orientation: landscape) and (max-height: 500px)')];
+  const touchPhone = () => (document.body.classList.contains('touch-keys') || document.body.classList.contains('touch-hidden')) && phoneSized.some((q) => q.matches);
 
   const save = (v) => { answer = v; if (!storageUnavailable) store.set(INSTALL_KEY, JSON.stringify(v)); };
   const platform = () => platformOf(navigator.userAgent || '', ios);
-  // The item sits in the machine menu; choosing it closes that menu (through the panel's own close, so its state
-  // stays in one place), and the phone's nav menu if that is what showed it.
+  // The link sits in the app bar's nav (behind Menu on a phone); choosing it closes the machine menu if that is open
+  // (through the panel's own close, so its state stays in one place), and the phone's nav menu if that showed it.
   const closeMenu = () => {
     $('appbar').classList.remove('menu-open'); $('btnMenu').setAttribute('aria-expanded', 'false');
     if (machineMenu) machineMenu.close(); else $('machineMenu').hidden = true;
@@ -162,9 +167,9 @@ export function setupInstall(page, { started = () => true, machineMenu = null } 
   // fill the card: the browser's prompt where there is one, else the steps that do it
   function fill({ offer }) {
     const p = platform();
-    textLong.textContent = deferred ? 'Install CLOADM: opens in its own window and works offline.'
-      : ios ? 'Install CLOADM: tap Share, then Add to Home Screen.'
-        : 'CLOADM installs from your browser’s menu: it opens in its own window and works offline.';
+    textLong.textContent = deferred ? 'Install CLOADM as an app on this device: it opens in its own window and works offline.'
+      : ios ? 'Install CLOADM as an app on this device: tap Share, then Add to Home Screen.'
+        : 'Install CLOADM as an app on this device, from your browser’s menu: it opens in its own window and works offline.';
     // the strip's one line (a phone held upright: the band between the screen and the keys has room for one)
     textShort.textContent = deferred ? 'Install CLOADM as an app?' : ios ? 'Install: Share, Add to Home Screen.' : 'Install from the browser menu.';
     // the steps below the sentence, for a browser that installs from its own menu (iOS's sentence is the step, so
@@ -193,7 +198,7 @@ export function setupInstall(page, { started = () => true, machineMenu = null } 
     // The card goes away unshown when this size has no place that covers nothing (place() reads the real box, so a
     // card it cannot measure is not a place). An OFFER keeps the visit's one showing for a size that has room; the
     // Menu item's own card is never deferred — the user asked for it, so it stays up whatever it covers.
-    const spot = place();
+    const spot = how === 'menu' ? placeByBar() : place();
     if (spot === null && how === 'offer') { defer(); return false; }
     pending = false;
     // Focus only when the user asked for the card (the Menu item). The automatic offer must not take the keyboard
@@ -225,11 +230,11 @@ export function setupInstall(page, { started = () => true, machineMenu = null } 
   // Measure, don't compute: each candidate is a class the stylesheet knows, applied and then READ — the real box after
   // the class is on. No arithmetic about insets or expected sizes, so a stylesheet change cannot leave these numbers
   // stale (which is how the gutter came to do nothing above 500 px).
-  // Every visible on-screen key is one (letters, BREAK, CLEAR, Menu, the Keys|Joystick switch, the stick and FIRE,
-  // the panel's own menu), in every layout: the card never sits over something the user presses. (The machine menu
+  // Every visible on-screen key is one (letters, BREAK, CLEAR, Menu, the Keys|Pad|Stick switch, the stick and FIRE,
+  // the panel's own menu, and ⌨ after Hide keys), in every layout: the card never sits over something the user presses. (The machine menu
   // is not here: a menu opening takes the card away — onMenu below — and the card waits while one is open.)
   const OBSTACLES = () => [$('screen'), $('btnReset'), ...document.querySelectorAll('.controls'), ...document.querySelectorAll('#appbar > *'),
-    ...document.querySelectorAll('#touchKeys button, #touchStick, #tkMenuSheet')]
+    ...document.querySelectorAll('#touchKeys button, #touchStick, #tkMenuSheet, #btnShowKeys')]
     .filter((e) => e && e.checkVisibility({ visibilityProperty: true }));
   const hit = (a, b) => !!a && !!b && !!b.width && !!a.width
     && !(a.bottom <= b.top || a.top >= b.bottom || a.right <= b.left || a.left >= b.right);
@@ -264,7 +269,7 @@ export function setupInstall(page, { started = () => true, machineMenu = null } 
   }
   // Where the card can go at this size -> { rect, where } or null when no candidate is clear.
   let placements = 0;   // how many times a place was worked out (the browser check's per-frame test reads it)
-  const PLACES = ['gutter', 'gutter-left', 'strip'];
+  const PLACES = ['gutter', 'gutter-left', 'strip', 'by-bar'];
   // The strip's room: a phone held upright fits its screen and keys to the window with no band between them
   // (play/index.html, "a phone held upright"), so the strip asks for one: --install-room shrinks the screen by that
   // much and leaves it as a gap under it, the keys where they were; the strip goes under the monitor's bezel (its box
@@ -319,6 +324,15 @@ export function setupInstall(page, { started = () => true, machineMenu = null } 
     if (!spot) { card.classList.remove(...PLACES); card.style.setProperty('--install-lift', cornerLift); }
     return spot;
   }
+  // The Install CLOADM… link's own card: under the app bar, at the link's side, whatever it covers (see place() for the
+  // offer, which keeps off the screen and the controls). The user asked for it, and a link in the bar is where they look.
+  function placeByBar() {
+    setRoom(0);
+    card.classList.remove(...PLACES); card.classList.add('by-bar');
+    card.style.setProperty('--install-lift', '0px');
+    card.style.setProperty('--install-bar-top', `${Math.round($('appbar').getBoundingClientRect().bottom + 6)}px`);
+    return { rect: rectOf(), where: 'bar' };
+  }
   // No place at this size: put the card away, but the deferral does not spend the visit's one showing — the offer is
   // still owed, and a resize (or retryPending) tries again when there is room. The Menu's own card is never deferred:
   // the user asked for it.
@@ -332,7 +346,8 @@ export function setupInstall(page, { started = () => true, machineMenu = null } 
   // asked for it, and defer() would owe an offer the user never got.
   const replant = (force) => {
     if (card.hidden) { retryPending(retryNow(), force); return; }
-    if (place() === null && !offeredByMenu) defer();
+    if (offeredByMenu) placeByBar();
+    else if (place() === null) defer();
   };
   // ... measured once the layout has settled. A resize is followed by more layout: the screen's canvas is sized from
   // the frame loop after the area's ResizeObserver has run (js/ui/screen.js), so a card placed in the resize event
@@ -369,7 +384,7 @@ export function setupInstall(page, { started = () => true, machineMenu = null } 
       installed, embed: document.body.classList.contains('embed'), storageUnavailable,
       answer, now: Date.now(), prompt: deferred, ios, view: viewOpen(), chatFull: session.claudeView === 'full',
       otherCard: otherCard(), menuOpen: menuOpen(), toast: !!page.feedback.current,
-      programRunning: programRunning(), welcomeRunning: session.welcomeRunning, visitSeconds: clock.seconds(),
+      programRunning: programRunning(), welcomeRunning: session.welcomeRunning, visitSeconds: clock.seconds(), phone: touchPhone(),
     }) && show('offer')) shownThisVisit = true;
   }
   // A view (Library, Share, Add ROMs, Debugger) takes the page: the card would be hidden under it with the layout, so
@@ -419,7 +434,7 @@ export function setupInstall(page, { started = () => true, machineMenu = null } 
   page.onEscape(ESC.card, () => !card.hidden && !viewOpen() && offeredByMenu, () => close());
   if (menuItem) menuItem.onclick = (e) => {
     e.preventDefault();
-    closeMenu();                                    // (the machine menu it sits in)
+    closeMenu();                                    // (the phone's nav it sits in, and the machine menu)
     if (installed) return;
     pending = false;                                                         // (the user asked: nothing is owed now)
     if (deferred) { shownThisVisit = true; close(); runPrompt(); return; }   // Chromium: the browser's own dialog
@@ -449,11 +464,13 @@ export function setupInstall(page, { started = () => true, machineMenu = null } 
   // drive: the brief lists "LIZA, a binary, a tape, a disk, or BASIC with ROMs", and a tape or disk is something to
   // come back to even before it has been read.
   function programRunning() {
-    const m = session.machine;
+    // ONE machine throughout: the person's (the getters below - welcomeRunning, nitros9Running - are person-framed,
+    // so asking this.machine for the deck and the drives mixed the two, review 0.1.9 round 2)
+    const m = session.personMachine;
     // nothing has run before the visit's own program has started: the first frame or two are the page setting up
     if (!m || !started() || session.paused || document.body.classList.contains('paused')) return false;
     if (session.welcomeRunning) return false;
-    if (session.nitros9Running) return true;
+    if (session.nitros9Running) return true;   // the person's machine (as the getter now says)
     if (m.deck && m.deck.tape) return true;                                  // a tape in the deck
     if (m.diskController && session.diskStatus().drives.length) return true;  // a disk in a drive (only when one is fitted)
     return !m.atStubPrompt();
@@ -486,7 +503,7 @@ export function setupInstall(page, { started = () => true, machineMenu = null } 
       installed, embed: document.body.classList.contains('embed'), storageUnavailable,
       answer, now: Date.now(), prompt: deferred, ios, view: viewOpen(), chatFull: session.claudeView === 'full',
       otherCard: otherCard(), menuOpen: menuOpen(), toast: !!page.feedback.current,
-      programRunning: programRunning(), welcomeRunning: session.welcomeRunning, visitSeconds: clock.seconds(),
+      programRunning: programRunning(), welcomeRunning: session.welcomeRunning, visitSeconds: clock.seconds(), phone: touchPhone(),
     })) {
       // shownThisVisit is spent only when the card really appears: a size with no room defers it, and the offer stays
       // pending for this visit (retryPending above tries again, at most once a second, or at once on a resize)
@@ -509,7 +526,7 @@ export function setupInstall(page, { started = () => true, machineMenu = null } 
       placement: () => {
         const r = rectOf();
         if (!r.width) return { where: 'unmeasured', rect: null, covered: [] };
-        return { where: card.classList.contains('strip') ? 'strip' : card.classList.contains('gutter') || card.classList.contains('gutter-left') ? 'gutter' : 'corner',
+        return { where: card.classList.contains('by-bar') ? 'bar' : card.classList.contains('strip') ? 'strip' : card.classList.contains('gutter') || card.classList.contains('gutter-left') ? 'gutter' : 'corner',
           rect: [Math.round(r.left), Math.round(r.top), Math.round(r.right), Math.round(r.bottom)],
           covered: OBSTACLES().filter((e) => hit(r, e.getBoundingClientRect())).map((e) => e.id || e.className || e.tagName) };
       },

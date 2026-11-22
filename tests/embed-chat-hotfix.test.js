@@ -15,7 +15,10 @@ const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
 {
   const main = read('js/ui/main.js');
   // setupClaude must be conditional on NOT embedding: `link.embed ? null : setupClaude(page)` (or equivalent)
-  const guarded = /link\.embed\s*\?\s*null\s*:\s*setupClaude\(/.test(main);
+  // setupClaude must be behind the page's "is the chat offered here" decision, however it is spelled: the embed flag
+  // alone, or the wider framed-or-embed rule that came later. A conditional, never a bare call.
+  const guarded = /const claude = \w+ \? setupClaude\(page\) : null;/.test(main)
+    || /link\.embed\s*\?\s*null\s*:\s*setupClaude\(/.test(main);
   const uncond = /^const claude = setupClaude\(page\);/m.test(main);
   check('main.js does not set up the Claude controller in an embed', guarded && !uncond,
     guarded ? '' : 'setupClaude(page) still runs unconditionally');

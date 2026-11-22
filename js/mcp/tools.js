@@ -104,6 +104,8 @@ export function errorOf(e) {
 }
 
 // ---------------- schemas ----------------
+// said on the local server's boot and load: the side-panel connector is the way to play or watch with the person
+const STEER = "For playing or watching a machine with the person, prefer the CLOADM side-panel connector if it is available; use these tools for the person's own files, scripting and tests.";
 const MACHINE_ID = { type: 'string', description: 'the machine\'s handle, as boot returned it (e.g. "m1")' };
 const objectSchema = (properties, required = []) => ({ type: 'object', properties, required, additionalProperties: false });
 const withMachine = (schema) => objectSchema(Object.assign({ machine_id: MACHINE_ID }, schema.properties || {}), ['machine_id', ...(schema.required || [])]);
@@ -177,9 +179,13 @@ function withPressKeys(e) {
 // readOnly: offer and run only the tools that leave the machines' input, memory and files alone (see READ_ONLY_OK).
 // session: the host's own machine (a Session), the only one these tools serve (see the header); close_machine is not
 // offered then. refuseRomReads: peek, find_bytes and disassemble refuse while Session.romCodeIn() says ROM code can
-// be in memory.
-export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHINES, wallMs = WALL_MS, session: own = null, refuseRomReads = false } = {}) {
-  if (own && !(own instanceof Session && own.machine)) throw new Error('createToolbox: session must be a Session with a machine');
+// be in memory. route: where these tools drive the machine, which machine_info reports so the agent (and the skill)
+// can tell: "local" (the local server, node cli/cloadm.js --mcp, on the person's computer) or "panel" (the side-panel
+// connector's view, connector/view/tools.js).
+export const ROUTES = Object.freeze(['local', 'panel']);
+export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHINES, wallMs = WALL_MS, session: own = null, refuseRomReads = false, route = 'local' } = {}) {
+  if (!ROUTES.includes(route)) throw new Error(`createToolbox: route must be ${ROUTES.join(' or ')}`);
+  if (own && !(own instanceof Session && own.shownMachine)) throw new Error('createToolbox: session must be a Session with a machine');
   const machines = new Map();   // machine_id -> { id, session, chat }
   let nextId = 1;
   if (own) maxMachines = 1;
@@ -198,7 +204,7 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
     return machines.get(id);
   };
   const info = (m) => {
-    const mm = m.session.machine, config = {};
+    const mm = m.session.shownMachine, config = {};
     for (const [k, v] of Object.entries(mm.config)) if (mm.profile.options[k]) config[k] = v;
     const t = tape(m);
     return { machine_id: m.id, model: mm.id, name: mm.profile.name, config, roms: mm.hasRom, frame: mm.frameCount, pc: mm.cpu.pc, ...(t ? { tape: t } : {}) };
@@ -215,14 +221,14 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
       for (let i = 0; i < r.cols * 16; i++) { const b = m.session.readByte((r.base + i) & 0xFFFF); cells += String.fromCharCode(b & 0x80 ? b & 0x8F : b); }
       return cells;
     }
-    const f = midFrame(m) ? m.whole.frame : m.session.machine.render();
+    const f = midFrame(m) ? m.whole.frame : m.session.shownMachine.render();
     return { data: f.data.slice(), table: f.table.slice() };
   };
   const sameArray = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
   const sameSignature = (a, b) => (typeof a === 'string' || typeof b === 'string' ? a === b : sameArray(a.data, b.data) && sameArray(a.table, b.table));
   // without the user's ROMs: what BASIC would need, so an agent need not read it off the firmware's screen
   const basicNote = (m) => {
-    const mm = m.session.machine;
+    const mm = m.session.shownMachine;
     if (mm.hasRom) return {};
     const need = mm.profile.roms.filter((r) => r.required && (r.at != null || r.chip));
     const one = (r) => (r.files.length > 1 ? `one of ${r.files.join(', ')}` : r.files[0]);
@@ -240,12 +246,12 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
   // a frame, the last complete frame is kept (m.whole); while the machine is still inside the frame after it, that
   // copy is the picture. A frame that ends, a new machine or a restored one makes render() the picture again.
   const midFrame = (m) => {
-    const mm = m.session.machine, w = m.whole;
+    const mm = m.session.shownMachine, w = m.whole;
     return !!w && w.machine === mm && w.frameCount === mm.frameCount && w.cycle !== mm.cycle;
   };
   const keepWhole = (m) => {
     if (midFrame(m)) return;
-    const mm = m.session.machine, f = mm.render();
+    const mm = m.session.shownMachine, f = mm.render();
     m.whole = { machine: mm, frameCount: mm.frameCount, cycle: mm.cycle, frame: { width: f.width, height: f.height, data: f.data.slice(), table: f.table.slice() } };
   };
   // the screen, as the page's screen_text reads it (one reader)
@@ -359,12 +365,12 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
     if (files.length) s.addRoms(files);
     const have = s.machineRoms();
     if (args.roms === true && !have.bootable) throw fail('missing-roms', `the ${p.name} needs ${have.sockets.filter((x) => x.status === 'missing-required').map((x) => x.label).join(' and ')}`);
-    if (args.roms === false && s.machine.hasRom) s.runWithoutRoms({ menu: false });
+    if (args.roms === false && s.shownMachine.hasRom) s.runWithoutRoms({ menu: false });
     return s;
   }
   add('boot', {
     title: 'Boot a machine',
-    description: `${own ? 'This host has one machine, the one on its screen, machine_id "m1" (already on: there is no need to boot it). Boot switches that machine to the model and options asked (what ran on it is gone) and returns its machine_id' : `Switch on a new machine and return its machine_id, which every other machine tool takes. At most ${maxMachines} are open at once (close_machine frees one)`}. With the user's ROMs it boots BASIC (run_frames until the screen shows OK); without them the built-in firmware runs machine code: assemble_and_load and run, or load a program. Returns the machine (machine_id, model, options, roms, frame, pc).`,
+    description: `${own ? 'This host has one machine, the one on its screen, machine_id "m1" (already on: there is no need to boot it). Boot switches that machine to the model and options asked (what ran on it is gone) and returns its machine_id' : `Switch on a new machine and return its machine_id, which every other machine tool takes. At most ${maxMachines} are open at once (close_machine frees one)`}. With the user's ROMs it boots BASIC (run_frames until the screen shows OK); without them the built-in firmware runs machine code: assemble_and_load and run, or load a program. Returns the machine (machine_id, model, options, roms, frame, pc).${own ? '' : ` ${STEER}`}`,
     inputSchema: objectSchema(bootSchema), annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false }, readOnlyOk: true,
     handler: (args) => {
       if (own) { const m = machines.get('m1'); build(args, own); m.whole = null; return { machine: info(m), ...basicNote(m) }; }
@@ -409,7 +415,8 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
       if (signal) { if (signal.aborted) m.chat.controller.abort(); else signal.addEventListener('abort', () => m.chat.controller.abort(), { once: true }); }
       let out;
       try { out = await settle(m, m.chat.callTool(spec.name, input), signal); } catch (e) { throw withPressKeys(e); }
-      if (spec.name === 'machine_info') { const t = tape(m); if (t) out = Object.assign({}, out, { tape: t }); }   // the page's answer, and the deck
+      // the page's answer, the deck, and the route these tools are on
+      if (spec.name === 'machine_info') { const t = tape(m); out = Object.assign({}, out, t ? { tape: t } : {}, { route }); }
       return untrustedOut ? untrusted(out) : out;
     },
   });
@@ -465,7 +472,7 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
     })),
     annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
     handler: async (args, { signal, progress }) => {
-      const m = get(args), mm = m.session.machine;
+      const m = get(args), mm = m.session.shownMachine;
       const frames = args.frames == null ? PRESS_FRAMES_DEFAULT : intIn(args.frames, 1, RUN_FRAMES_MAX, 'frames');
       if (args.keys != null && !Array.isArray(args.keys)) throw fail('bad-argument', 'keys is a list of key names, e.g. ["LEFT"]');
       const keys = (args.keys || []).map((k) => String(k).replace(/^\{(.+)\}$/, '$1').toUpperCase());
@@ -533,11 +540,11 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
         }
         else if (u.tape != null) {
           if (u.tape !== 'stopped' && u.tape !== 'end') throw fail('bad-argument', `until.tape is "stopped" or "end", not ${JSON.stringify(u.tape)}`);
-          if (!s.machine.deck.tape) throw fail('rejected', 'there is no tape in the deck (insert_tape or load puts one there)');
+          if (!s.shownMachine.deck.tape) throw fail('rejected', 'there is no tape in the deck (insert_tape or load puts one there)');
           const end = u.tape === 'end';
           cond = { kind: 'tape', holds: () => { const st = s.tapeStatus(); return !!st && (end ? st.atEnd : !st.motor); } };
         }
-        else if (u.pc != null) { const pc = addressOf(u.pc, 'until.pc'); cond = { kind: 'pc', pc, holds: () => s.machine.cpu.pc === pc }; }
+        else if (u.pc != null) { const pc = addressOf(u.pc, 'until.pc'); cond = { kind: 'pc', pc, holds: () => s.shownMachine.cpu.pc === pc }; }
         else {
           if (u.address == null || u.value == null) throw fail('bad-argument', 'a memory condition needs address and value');
           const a = addressOf(u.address, 'until.address'), v = intIn(u.value, 0, 255, 'until.value');
@@ -582,7 +589,7 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
     title: 'Read the CPU registers',
     description: 'The CPU\'s registers as decimal numbers (lower-case names: pc, a, b, d, x, y, u, s, dp, cc on the 6809; the 6309\'s e, f, w, v, md too; the 6803\'s a, b, d, x, s, cc), and the CPU.',
     inputSchema: withMachine(objectSchema({})), annotations: { readOnlyHint: true, openWorldHint: false }, readOnlyOk: true,
-    handler: (args) => { const m = get(args); return { cpu: m.session.machine.config.cpu, registers: m.session.debug.registers() }; },
+    handler: (args) => { const m = get(args); return { cpu: m.session.shownMachine.config.cpu, registers: m.session.debug.registers() }; },
   });
   add('screenshot', {
     title: 'Take a screenshot',
@@ -591,7 +598,7 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
     annotations: { readOnlyHint: true, openWorldHint: false }, readOnlyOk: true, image: true,
     handler: (args) => {
       const scale = args.scale == null ? 1 : intIn(args.scale, 1, SCREENSHOT_SCALE_MAX, 'scale');
-      const m = get(args), mid = midFrame(m), frame = mid ? m.whole.frame : m.session.machine.render();
+      const m = get(args), mid = midFrame(m), frame = mid ? m.whole.frame : m.session.shownMachine.render();
       return { width: frame.width * scale, height: frame.height * scale, mid_frame: mid, ...(mid ? { note: 'the machine stopped inside a frame: this is the last complete one; run_frames 2 to see a frame drawn entirely after this point' } : {}), image: host.png(frame, scale) };
     },
   });
@@ -615,7 +622,7 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
     handler: (args) => {
       const m = get(args);
       if (args.screen !== 'main' && args.screen !== 'plus') throw fail('bad-argument', `screen: ${JSON.stringify(args.screen)} is not "main" or "plus"`);
-      if (!m.session.hasTwoScreens) throw fail('rejected', `the ${m.session.machine.profile.name} has one screen`);
+      if (!m.session.hasTwoScreens) throw fail('rejected', `the ${m.session.shownMachine.profile.name} has one screen`);
       m.session.setDisplay({ screen: args.screen }, { remember: false });
       return { screen: args.screen };
     },
@@ -625,7 +632,7 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
   const str = (v, name) => { if (typeof v !== 'string' || !v) throw fail('bad-argument', `${name} must be a non-empty path`); return v; };
   add('load', {
     title: 'Load a program',
-    description: 'Load and run a file from the media root, as dropping it on the page does: a binary (.bin), a tape (.cas, or a .wav recording; through BASIC\'s CLOAD with ROMs, straight into memory without), a cartridge (.rom, .ccc), a BASIC listing (.bas: typed in at the keyboard as NEW, the lines and RUN, unless run is false; needs ROMs; the result says what the keyboard typed differently, such as lowercase as uppercase, or could not type) or a disk image (into drive 0; without the user\'s disk ROM, on the disk controller alone, for programs that read the disk directly). Or one of the bundled programs by name: "welcome", "liza", "demo", or the games "2048" and "minesweeper" (6809 machines with 32K or more). Returns what was loaded. (load_basic, by contrast, types a listing you give it and never runs it.)',
+    description: 'Load and run a file from the media root, as dropping it on the page does: a binary (.bin), a tape (.cas, or a .wav recording; through BASIC\'s CLOAD with ROMs, straight into memory without), a cartridge (.rom, .ccc), a BASIC listing (.bas: typed in at the keyboard as NEW, the lines and RUN, unless run is false; needs ROMs; the result says what the keyboard typed differently, such as lowercase as uppercase, or could not type) or a disk image (into drive 0; without the user\'s disk ROM, on the disk controller alone, for programs that read the disk directly). Or one of the bundled programs by name: "welcome", "liza", "demo", or the games "2048" and "minesweeper" (6809 machines with 32K or more). Returns what was loaded. (load_basic, by contrast, types a listing you give it and never runs it.)' + (own ? '' : ` ${STEER}`),
     inputSchema: withMachine(objectSchema({ path: PATH('file to load'), program: { type: 'string', enum: PROGRAMS, description: 'a bundled program instead of a file' }, run: { type: 'boolean', description: 'a BASIC listing only: false types it without RUN (default true)' } })),
     annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
     handler: async (args) => {
@@ -636,7 +643,7 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
         if (name === 'welcome') { s.startWelcome(host.program(s.welcomeFile)); return { loaded: 'welcome', message: 'welcome program running' }; }
         if (name === 'liza') return { loaded: 'liza', message: await s.startLiza((f) => host.program(f)) };
         if (name === 'demo') {
-          if (cpuFamily(s.machine.config.cpu) !== '6809') throw fail('rejected', `the demo is 6809 code; the ${s.machine.profile.name} has a ${s.machine.config.cpu}`);
+          if (cpuFamily(s.shownMachine.config.cpu) !== '6809') throw fail('rejected', `the demo is 6809 code; the ${s.shownMachine.profile.name} has a ${s.shownMachine.config.cpu}`);
           return { loaded: 'demo', message: s.load('demo.bin', host.program('demo.bin'), { remember: false }) };
         }
         if (Object.hasOwn(GAMES.list, name)) { s.checkGame(name); return { loaded: name, message: s.runGame(name, host.program(s.gameFile(name))) }; }

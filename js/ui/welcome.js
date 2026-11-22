@@ -20,7 +20,7 @@
  *  - Sound: browsers only allow it after a click or key press, so a hint shows until then; the welcome
  *    program's tune plays once it is unlocked.
  */
-import { $, ESC } from './page.js';
+import { $, ESC, touchPanel } from './page.js';
 import { profiles } from '../machines/profiles.js';
 import { cpuFamily } from '../cpu/cpus.js';
 import { gameKey } from '../session.js';
@@ -66,10 +66,10 @@ export function setupWelcome(page, { showRoms, openClaude }) {
   // (byMachine: the ticket the Session gave when the program asked, Session.machineTicket; null: the person asked)
   const startAs = (byMachine, fn) => (byMachine ? session.asMachine(fn, byMachine) : fn());
   async function runWelcome({ greeting = 'first', carryOn = null } = {}, { ifIdle = false, byMachine = null } = {}) {
-    const m = session.machine, running = session.stubRun, gen = session.welcomeGenNow();
+    const m = session.personMachine, running = session.stubRun, gen = session.welcomeGenNow();
     try {
       const bytes = await page.fetchBytes(`examples/${session.welcomeFile}`);   // this machine's build (6809, or its own 6803 one)
-      if (ifIdle && (session.machine !== m || session.stubRun !== running || session.welcomeRunning)) return;
+      if (ifIdle && (session.personMachine !== m || session.stubRun !== running || session.welcomeRunning)) return;
       // gen: a start whose fetch was overtaken (the menu cleared, a program loaded, a machine switch) is refused
       // in the Session itself, for every caller, so a late start cannot take the screen from what was started then
       startAs(byMachine, () => session.startWelcome(bytes, { greeting, carryOn: carryOn && carryOn.name, gen }));   // (the menu says "PRESS 1 TO 4" itself: not repeated)
@@ -86,7 +86,8 @@ export function setupWelcome(page, { showRoms, openClaude }) {
     else if (ev === 'welcome:demo') {
       await run(SHELF[1], { byMachine: asked });
       showBack(true);
-      page.status('Colour demo: press a key to start it; another key goes back to the menu');
+      page.status(touchPanel() ? 'Colour demo: tap a key to start it; another tap goes back to the menu'
+        : 'Colour demo: press a key to start it; another key goes back to the menu');
     } else if (ev === 'welcome:roms') showRoms();
     else if (ev === 'welcome:claude') await openClaude();
     else if (ev === 'welcome:carryon') await runAgain({ byMachine: asked });
@@ -100,8 +101,10 @@ export function setupWelcome(page, { showRoms, openClaude }) {
       // 'back'/'bye' as before.
       // the greeting is the Session's decision (Session.greetingFor), so the page and the Node tests share it
       const greeting = arg === 'none' || arg === 'back' ? session.constructor.greetingFor(arg) : 'bye';
+      // the ticket, by what asked for the menu, in ONE place (Session.menuTicketFor): a machine question is always
+      // the person's own act and never takes a ticket left over from an earlier LIZA BYE.
       await runWelcome({ greeting, carryOn: arg === 'back' ? session.carryOn : null },
-        { ifIdle: true, byMachine: arg !== 'back' ? session.menuTicket || asked : null });
+        { ifIdle: true, byMachine: session.menuTicketFor(arg, asked) });
     }
   });
   // what ran last, again: LIZA, the demo, or the file (from the recent list)
@@ -132,15 +135,18 @@ export function setupWelcome(page, { showRoms, openClaude }) {
       if (item.liza) {
         session.checkLiza();
         const bytes = await page.fetchBytes(`examples/${session.lizaFile}`);
-        page.status(startAs(byMachine, () => session.runLiza(bytes)));
+        startAs(byMachine, () => session.runLiza(bytes));
+        page.status('LIZA loaded');   // (our own program: no addresses; those are for files the visitor brings)
       } else if (item.game) {
         session.checkGame(item.game);   // (another CPU, or under 32K: says so before fetching anything)
         const bytes = await page.fetchBytes(`examples/${session.gameFile(item.game)}`);
         startAs(byMachine, () => session.runGame(item.game, bytes));
-        page.status(`${item.name}: press a key to start; BREAK (Esc) goes back to the menu`);
+        page.status(touchPanel() ? `${item.name}: tap a key to play; tap BREAK for the menu`
+          : `${item.name}: press a key to start; BREAK (Esc) goes back to the menu`);
       } else {
         const bytes = await page.fetchBytes(item.url);
-        page.status(startAs(byMachine, () => session.load(item.url.split('/').pop(), bytes, { remember: false })));
+        startAs(byMachine, () => session.load(item.url.split('/').pop(), bytes, { remember: false }));
+        page.status(`${item.name} loaded`);
         session.setLastRun('demo', item.name);
         session.watchForMenu('demo');
       }
@@ -152,7 +158,7 @@ export function setupWelcome(page, { showRoms, openClaude }) {
   // machine restarts, as any RAM change does) and starts LIZA; "Not now" leaves the machine as it is.
   const offer = $('lizaOffer');
   function offerLizaRam(item) {
-    const need = session.lizaNeeds(), name = session.machine.profile.name;
+    const need = session.lizaNeeds(), name = session.personMachine.profile.name;
     $('lizaOfferText').textContent = `LIZA needs the ${need.ram}K RAM option. This ${name} has ${need.have}K.`;
     $('btnLizaRam').textContent = `Switch to ${need.ram}K and run LIZA`;
     $('btnLizaRam').onclick = async () => { offer.hidden = true; session.switchLiza(); await run(item); };
@@ -165,7 +171,7 @@ export function setupWelcome(page, { showRoms, openClaude }) {
   // runs), the programs for this machine's CPU, and the Claude chat. Each one a link can start (the welcome menu,
   // LIZA, the games: ?start=; the chat: ?app=claude) is a real link to it on this machine, so "Copy link" gives the
   // direct link; a plain click runs it here, as a button would (a click with a modifier is left to the browser).
-  const linkTo = (params) => buildUrl(location.href, Object.assign({ machine: session.machine.id, config: session.machine.config }, params));
+  const linkTo = (params) => buildUrl(location.href, Object.assign({ machine: session.personMachine.id, config: session.personMachine.config }, params));
   const entry = (text, params, onclick) => {
     if (!params) { const b = el('button', text); b.onclick = onclick; return b; }
     const a = el('a', text); a.href = linkTo(params);
@@ -177,7 +183,7 @@ export function setupWelcome(page, { showRoms, openClaude }) {
     row.replaceChildren();
     // every machine gets the welcome menu and LIZA (the 6809 or 6803 builds); the colour demo is a 6809 program
     // (the 6309 runs it too: it is in the 6809 instruction-set family)
-    const cpu = session.machine.config.cpu, family = cpuFamily(cpu), need = session.lizaNeeds();
+    const cpu = session.personMachine.config.cpu, family = cpuFamily(cpu), need = session.lizaNeeds();
     {
       const w = entry('Welcome menu', { start: 'welcome' }, () => runWelcome({ greeting: 'back', carryOn: session.carryOn })); w.dataset.shelf = 'welcome';
       w.title = 'The Welcome menu: LIZA, colour and sound, adding ROMs, Claude, games';
@@ -274,7 +280,7 @@ export function setupWelcome(page, { showRoms, openClaude }) {
         if (u.searchParams.has('start')) { u.searchParams.delete('start'); history.replaceState(history.state, '', u.href); }
       };
       session.on(drop);
-    } else if (!withMedia && session.machine.useStub && session.welcomeMenu) {
+    } else if (!withMedia && session.personMachine.useStub && session.welcomeMenu) {
       // Without this machine's ROMs the visit opens on the welcome menu, never the stub's bare screen: the
       // first visit's, or greeting a returning visitor back. A link that only names the machine (the landing page's
       // machine cards) does the same; the machine question is not asked then, the link answered it.
@@ -287,7 +293,7 @@ export function setupWelcome(page, { showRoms, openClaude }) {
   // a program of the no-ROM shelf by name (the Library's empty state)
   function runShelf(name) {
     const item = SHELF.find((x) => x.name === name);
-    if (item.cpu && cpuFamily(session.machine.config.cpu) !== item.cpu) { page.status(`${name} needs a Dragon or a CoCo; pick one from the machine menu.`, true); return; }
+    if (item.cpu && cpuFamily(session.personMachine.config.cpu) !== item.cpu) { page.status(`${name} needs a Dragon or a CoCo; pick one from the machine menu.`, true); return; }
     run(item);
   }
   return { start, runShelf };

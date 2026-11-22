@@ -33,7 +33,7 @@ const NOTE = 'on the disk controller only (no disk ROM). Programs that read the 
 const T0S1 = Array.from({ length: 256 }, (_, i) => (11 + i * 5 + (i >> 4)) & 0xff);
 const program = (board) => { const r = Emu.assemble(gen.source(board, 'ram'), '6809'); if (!r.ok) throw new Error(JSON.stringify(r.errors)); return Emu.toBinary(r); };
 const word = (m, a) => (m.ram[a] << 8) | m.ram[a + 1];
-const frames = (s, n) => { for (let i = 0; i < n; i++) s.machine.runFrame(); };
+const frames = (s, n) => { for (let i = 0; i < n; i++) s.shownMachine.runFrame(); };
 const topLine = (s) => s.screenText()[0];
 
 const CASES = [
@@ -48,7 +48,7 @@ const CASES = [
   for (const c of CASES) {
     const s = new Emu.Session({ media: new MemoryMediaStore() });
     s.switchMachine(c.id, undefined, { menu: false });
-    const m = s.machine;
+    const m = s.shownMachine;
     check(`${c.id}: no ROMs, no disk ROM stored, no controller`, m.useStub && !s.diskDosChoices().some((x) => x.ready) && s.diskController === null && s.diskStatus().dos === null);
     // the game first
     s.load('reader.bin', program(c.board));
@@ -136,11 +136,11 @@ const CASES = [
     s.load('reader.bin', program('dragon'));
     frames(s, 5);
     await s.importDisk('level.vdk', images.vdk(40, 1), 0);
-    const f0 = s.machine.frameCount, t0 = word(s.machine, ADDR.TICK);
+    const f0 = s.shownMachine.frameCount, t0 = word(s.shownMachine, ADDR.TICK);
     const said = s.takeOutCartridge();
     frames(s, 5);
-    check('takeOutCartridge: the board with no ROM comes out and the program runs on', said === 'Dragon disk controller taken out' && s.machine.cartPort === null
-      && s.diskStatus().drives.length === 0 && s.machine.frameCount === f0 + 5 && word(s.machine, ADDR.TICK) > t0, said);
+    check('takeOutCartridge: the board with no ROM comes out and the program runs on', said === 'Dragon disk controller taken out' && s.shownMachine.cartPort === null
+      && s.diskStatus().drives.length === 0 && s.shownMachine.frameCount === f0 + 5 && word(s.shownMachine, ADDR.TICK) > t0, said);
     check('the disk stays in the Library', (await s.listDisks()).some((d) => d.name === 'disks/level.vdk'));
     let err = null;
     try { s.takeOutCartridge(); } catch (e) { err = e.message; }
@@ -150,7 +150,7 @@ const CASES = [
     try { await s.importDisk('x.vdk', images.vdk(40, 1), 0); } catch (e) { err = e.message; }
     check('the MC-10 has no disk drives', /no disk drives/.test(err || ''), err);
     s.switchMachine('coco', undefined, { menu: false });
-    s.machine.insertCartridge(new Emu.devices.multi([null, null, null, null]));
+    s.shownMachine.insertCartridge(new Emu.devices.multi([null, null, null, null]));
     err = null;
     try { await s.importDisk('y.dsk', images.jvc(35, 1), 0); } catch (e) { err = e.message; }
     check('a Multi-Pak with no controller in a slot still refuses', /Multi-Pak has no disk controller/.test(err || ''), err);
@@ -162,11 +162,11 @@ const CASES = [
   {
     const s = new Emu.Session({ media: new MemoryMediaStore() });
     s.switchMachine('coco', undefined, { menu: false });
-    s.machine.insertCartridge(new Emu.devices.rom(new Uint8Array(0x2000).fill(0x12)));
+    s.shownMachine.insertCartridge(new Emu.devices.rom(new Uint8Array(0x2000).fill(0x12)));
     let fw = 0;
     s.on((e) => { if (e === 'firmware') fw++; });
     await s.importDisk('z.dsk', images.jvc(35, 1), 0);
-    check('a cartridge in the port comes out for the board, and the machine is powered up', s.bareDiskController === s.machine.cartPort && fw === 1);
+    check('a cartridge in the port comes out for the board, and the machine is powered up', s.bareDiskController === s.shownMachine.cartPort && fw === 1);
   }
 
   // ---- the link: disk= mounts before load= (whatever order the link gives them); unknown parameters as before

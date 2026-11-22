@@ -27,8 +27,17 @@ for (const n of [1, 2, 3, 4, 5, 8]) {
 const withNew = [...names, 'a new case'];
 const s4 = assignShards(withNew, recorded, 4);
 check('a new case (no recorded value) is in a shard too', Number.isInteger(s4.get('a new case')) && s4.size === withNew.length);
+// the constants are measured (tools/measure-regress-cost.js); this pins the SHAPE and that they match the ones the
+// tool measured, so a change to them is deliberate and shows here
 check('cost: a trace by its instructions, a video run by its frames, else 1',
-  caseCost({ instructions: 4e6 }) === 12 && Math.abs(caseCost({ frames: 1000 }) - 1.9) < 1e-9 && caseCost({ hash: 'x' }) === 1 && caseCost(undefined) === 1);
+  Math.abs(caseCost({ instructions: 4e6 }) - 4e6 * 0.59e-6) < 1e-9
+  && Math.abs(caseCost({ frames: 1000 }) - 1000 * 0.58e-3) < 1e-9
+  && caseCost({ hash: 'x' }) === 1 && caseCost(undefined) === 1,
+  `${caseCost({ instructions: 4e6 })} ${caseCost({ frames: 1000 })}`);
+// and a 4-million-instruction trace must still outweigh a 1000-frame video run, as it did before: a big floppy
+// trace is seconds, a short video run is under a second
+check('cost: the order between a big trace and a short video run is unchanged',
+  caseCost({ instructions: 4e6 }) > caseCost({ frames: 1000 }) * 3, `${caseCost({ instructions: 4e6 })} vs ${caseCost({ frames: 1000 })}`);
 
 console.log(fail ? `${fail} FAILED` : 'all passed');
 process.exitCode = fail ? 1 : 0;

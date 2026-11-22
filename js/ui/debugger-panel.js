@@ -13,7 +13,7 @@
  */
 import { CanvasPresenter } from '../video/canvas.js';
 import { REGISTER_ORDER, REGISTER_DIGITS, FLAGS } from '../debugger.js';
-import { $ } from './page.js';
+import { $, showView } from './page.js';
 
 const hex2 = (v) => '$' + (v & 0xFF).toString(16).toUpperCase().padStart(2, '0');
 const hex4 = (v) => '$' + (v & 0xFFFF).toString(16).toUpperCase().padStart(4, '0');
@@ -36,7 +36,7 @@ export function setupDebuggerPanel(page) {
   function show() {
     const open = isOpen();
     document.body.classList.toggle('debug-open', open);
-    view.hidden = !open;
+    showView(view, open);
     if (open) refresh();
   }
   page.onView(show);
@@ -70,7 +70,7 @@ export function setupDebuggerPanel(page) {
 
   // ---------------- what the screen shows ----------------
   function status() {
-    const d = session.debug, m = session.machine, cyc = Math.floor(m.cpu.totalCycles).toLocaleString('en-US');
+    const d = session.debug, m = session.shownMachine, cyc = Math.floor(m.cpu.totalCycles).toLocaleString('en-US');
     const st = $('dbgStatus');
     st.classList.toggle('stopped', d.stopped);
     if (!d.stopped) { st.textContent = `● Running · cycle ${cyc}`; return; }
@@ -88,7 +88,7 @@ export function setupDebuggerPanel(page) {
     b.classList.toggle('primary', stopped);
   }
   function registers() {
-    const d = session.debug, cpu = session.machine.config.cpu, regs = d.registers(), box = $('dbgRegs');
+    const d = session.debug, cpu = session.shownMachine.config.cpu, regs = d.registers(), box = $('dbgRegs');
     box.replaceChildren();
     for (const r of REGISTER_ORDER[cpu]) {
       const cell = el('label', null, 'reg');
@@ -136,7 +136,7 @@ export function setupDebuggerPanel(page) {
       row.onclick = () => { if (bps.has(l.addr)) d.removeBreakpoint(l.addr); else d.addBreakpoint(l.addr); refresh(); };
       return row;
     }));
-    $('dbgCpu').textContent = session.machine.config.cpu;
+    $('dbgCpu').textContent = session.shownMachine.config.cpu;
   }
   function breakpoints() {
     const d = session.debug, rows = [];
@@ -190,7 +190,7 @@ export function setupDebuggerPanel(page) {
     }) : [el('div', 'Step or stop at a breakpoint: the instructions the debugger ran appear here.', 'muted')]));
   }
   function refresh() {
-    if (!isOpen() || !session.machine) return;
+    if (!isOpen() || !session.shownMachine) return;
     status(); runButton(); registers(); disassembly(); breakpoints(); memory(); trace();
   }
 
@@ -256,8 +256,8 @@ export function setupDebuggerPanel(page) {
   let lastSlow = 0;
   const loop = (now) => {
     requestAnimationFrame(loop);
-    if (!isOpen() || !session.machine) return;
-    screen.present(session.machine.render());
+    if (!isOpen() || !session.shownMachine) return;
+    screen.present(session.shownMachine.render());
     // (the registers only while none is being edited)
     if (!session.debug.stopped && now - lastSlow > 250) { lastSlow = now; status(); runButton(); if (!view.contains(document.activeElement) || !document.activeElement.dataset.reg) registers(); }
   };

@@ -11,7 +11,7 @@ const K = 1024;
 
 const { BASIC, GAME, build } = require('./fixtures/reset-firmware');
 const { basic, basic64, game } = build(Emu);
-const frames = (s, n) => { for (let i = 0; i < n; i++) s.machine.runFrame(); };
+const frames = (s, n) => { for (let i = 0; i < n; i++) s.shownMachine.runFrame(); };
 const top = (s) => s.screenText()[0].slice(0, 4);
 const dragonRoms = (s) => s.addRoms([{ name: 'd64_1.rom', bytes: basic }, { name: 'd64_2.rom', bytes: basic64 }]);
 
@@ -22,12 +22,12 @@ const dragonRoms = (s) => s.addRoms([{ name: 'd64_1.rom', bytes: basic }, { name
   for (const id of Object.keys(Emu.profiles)) {
     s.switchMachine(id);
     frames(s, 3);
-    const before = { id: s.machine.id, name: s.machine.profile.name, config: JSON.stringify(s.machine.config), stored: s.store.get('machine') };
-    const m = s.machine;
+    const before = { id: s.shownMachine.id, name: s.shownMachine.profile.name, config: JSON.stringify(s.shownMachine.config), stored: s.store.get('machine') };
+    const m = s.shownMachine;
     s.reset();
     frames(s, 3);
-    const after = { id: s.machine.id, name: s.machine.profile.name, config: JSON.stringify(s.machine.config), stored: s.store.get('machine') };
-    if (s.machine !== m || JSON.stringify(after) !== JSON.stringify(before)) bad.push(`${id}: ${JSON.stringify(before)} -> ${JSON.stringify(after)}`);
+    const after = { id: s.shownMachine.id, name: s.shownMachine.profile.name, config: JSON.stringify(s.shownMachine.config), stored: s.store.get('machine') };
+    if (s.shownMachine !== m || JSON.stringify(after) !== JSON.stringify(before)) bad.push(`${id}: ${JSON.stringify(before)} -> ${JSON.stringify(after)}`);
   }
   check(`Reset keeps the machine, its model and options, on all ${Object.keys(Emu.profiles).length} models (no ROMs)`, !bad.length, bad.join('; '));
 }
@@ -43,11 +43,11 @@ const dragonRoms = (s) => s.addRoms([{ name: 'd64_1.rom', bytes: basic }, { name
     s.fastCas = true;
     s.inject(game, 0x4022);
     frames(s, 5);
-    const m = s.machine;
+    const m = s.shownMachine;
     s.reset();
     frames(s, 10);
-    check(`${id} with ROMs and a game: Reset keeps the machine (${s.machine.profile.name}, ${s.machine.fps} Hz)`,
-      s.machine === m && s.machine.id === id && s.store.get('machine') === id && s.statusLine(m.fps).startsWith(`${Emu.profiles[id].name} ·`));
+    check(`${id} with ROMs and a game: Reset keeps the machine (${s.shownMachine.profile.name}, ${s.shownMachine.fps} Hz)`,
+      s.shownMachine === m && s.shownMachine.id === id && s.store.get('machine') === id && s.shownMachine.profile.name === Emu.profiles[id].name);
   }
 }
 
@@ -60,17 +60,17 @@ const dragonRoms = (s) => s.addRoms([{ name: 'd64_1.rom', bytes: basic }, { name
   check('power-on: our BASIC stand-in prints OK', top(s) === 'OK  ' && s.bootStatus().state === 'ok', top(s));
   s.inject(game, 0x4022);
   frames(s, 5);
-  check('the game runs (G) and holds the warm-start vector', top(s) === 'GGGG' && s.machine.ram[0x71] === 0x55);
+  check('the game runs (G) and holds the warm-start vector', top(s) === 'GGGG' && s.shownMachine.ram[0x71] === 0x55);
   s.reset();
   frames(s, 5);
-  check('Reset: RAM kept and BASIC\'s reset routine jumps through the vector into the game (W)', top(s) === 'WWWW' && s.machine.ram[0x4022] === 0x1A, top(s));
+  check('Reset: RAM kept and BASIC\'s reset routine jumps through the vector into the game (W)', top(s) === 'WWWW' && s.shownMachine.ram[0x4022] === 0x1A, top(s));
   check('Reset: booting at first', s.bootStatus(5).state === 'booting');
   frames(s, 5 * 50 + 2);
   const st = s.bootStatus(5);
   check('Reset into the game: no OK is not a boot failure but a takeover', st.state === 'reset' && st.takeover === true, JSON.stringify(st));
   s.powerCycle();
   frames(s, 10);
-  check('Switch off and on: RAM cleared, BASIC cold-starts (OK)', top(s) === 'OK  ' && s.machine.ram[0x71] === 0 && s.bootStatus().state === 'ok');
+  check('Switch off and on: RAM cleared, BASIC cold-starts (OK)', top(s) === 'OK  ' && s.shownMachine.ram[0x71] === 0 && s.bootStatus().state === 'ok');
   // a Reset that BASIC answers with OK (the flag cleared by the cold start): ok, as before
   s.reset();
   frames(s, 10);
@@ -116,10 +116,10 @@ const dragonRoms = (s) => s.addRoms([{ name: 'd64_1.rom', bytes: basic }, { name
   s.addRoms([{ name: 'wrong.bin', bytes: new Uint8Array(16 * K).fill(0x39) }]);
   frames(s, 2);
   s.reset();
-  s.machine.ram[0x71] = 0x55; s.machine.ram[0x72] = 0x30; s.machine.ram[0x73] = 0x00; s.machine.ram[0x3000] = 0x39;
+  s.shownMachine.ram[0x71] = 0x55; s.shownMachine.ram[0x72] = 0x30; s.shownMachine.ram[0x73] = 0x00; s.shownMachine.ram[0x3000] = 0x39;
   frames(s, 5 * 50 + 2);
   check('takeover needs a NOP at the vector, as BASIC does', s.bootStatus(5).takeover === false);
-  s.machine.ram[0x3000] = 0x12;
+  s.shownMachine.ram[0x3000] = 0x12;
   check('... and is reported once there is one', s.bootStatus(5).takeover === true);
 }
 

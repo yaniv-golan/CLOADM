@@ -58,7 +58,7 @@ for (const x of rows) {
   t.switchMachine('dragon64', {}, { menu: false });
   t.loadRecent(x.i);
   const want = x.r.name === 'a.bin' ? 0xAA : x.r.name === 'b.bin' ? 0xBB : 0xCC;
-  check(`recent rows: row ${x.i} (${x.r.name}) loads its own bytes`, t.machine.ram[0x3000] === want, `$${t.machine.ram[0x3000].toString(16)} want $${want.toString(16)}`);
+  check(`recent rows: row ${x.i} (${x.r.name}) loads its own bytes`, t.shownMachine.ram[0x3000] === want, `$${t.shownMachine.ram[0x3000].toString(16)} want $${want.toString(16)}`);
 }
 
 console.log(fail ? `${fail} FAILED` : 'all recent-row checks passed');

@@ -46,8 +46,8 @@ function putRoms(s, machine, dos, board) {
   if (dos) s.roms.put(dos, 'rom', w.rom, 'firmware.rom');
   return w.halt;
 }
-const runToHalt = (s, halt, frames = 600) => { let f = 0; while (s.machine.cpu.pc !== halt && f < frames) { s.machine.runFrame(); f++; } return s.machine.cpu.pc === halt; };
-const log = (s) => s.machine.ram.slice(0x6000, 0x6000 + 32);
+const runToHalt = (s, halt, frames = 600) => { let f = 0; while (s.shownMachine.cpu.pc !== halt && f < frames) { s.shownMachine.runFrame(); f++; } return s.shownMachine.cpu.pc === halt; };
+const log = (s) => s.shownMachine.ram.slice(0x6000, 0x6000 + 32);
 
 
 // a fresh pass/fail count for one suite file: check(), rejects() and failures() (each suite prints its own summary)

@@ -29,7 +29,7 @@ export class EmbedApi {
   }
   // what is running
   info() {
-    const m = this.session.machine;
+    const m = this.session.personMachine;
     const config = {};
     for (const [k, v] of Object.entries(m.config)) if (m.profile.options[k]) config[k] = v;
     return { machine: m.id, name: m.profile.name, config, roms: m.hasRom, frame: m.frameCount };
@@ -41,7 +41,7 @@ export class EmbedApi {
     // one load/insertTape/poke make at this layer rather than an extra pause: defence in depth, so the embed API's
     // acting methods all state the person's input the same way.
     this.session.personInput();
-    return this.session.typeText(text);
+    return this.session.typeText(text, this.session.personMachine);
   }
   // a BASIC program listing into program memory, as a tape load would, without typing it (Session.loadBasic: needs
   // BASIC at its OK prompt) -> { lines, bytes, start, end }; a refusal is the error, e.g. "no-basic: ..."
@@ -62,8 +62,11 @@ export class EmbedApi {
     this.session.personInput();
     return this.session.insertTape(name, b);
   }
+  // Session.reset() restarts the machine ON SCREEN, by design (the screen's Reset restarts what runs on screen, and
+  // tests/chat-leaks.test.js pins that). In an embed no chat can exist, so the shown machine IS the person's: this is
+  // the same machine either way, and the call is left as the one the page's own Reset makes.
   reset() { this.session.reset(); return this.info(); }
-  powerCycle() { this.session.powerCycle(); return this.info(); }
+  powerCycle() { this.session.powerCycle({ on: this.session.personMachine }); return this.info(); }
   // another model or options, checked against profile.options
   switchMachine(id, config = {}) {
     const p = profiles[id];
@@ -79,11 +82,12 @@ export class EmbedApi {
   // memory as the CPU sees it (no side effects) -> array of bytes
   // memory, never while ROM code can be in it (Session.romCodeIn): the page around the iframe is someone else's
   peek(addr, length = 1) {
-    const why = this.session.romCodeIn();
+    const m = this.session.personMachine;
+    const why = this.session.romCodeIn(m);
     if (why) throw new SessionError(`peek is not available while ${why === 'roms' ? 'the machine runs your own ROMs' : why === 'nitros9' ? 'NitrOS-9 runs from your own image' : 'a cartridge is plugged in'}: its memory can hold copies of ROM code, which CLOADM never hands out.`);
     addrOf(addr);
     if (!Number.isInteger(length) || length < 1 || addr + length > 0x10000) throw new SessionError('peek: length runs past 65535');
-    const m = this.session.machine, out = [];
+    const out = [];
     for (let a = addr; a < addr + length; a++) out.push(m.peek ? m.peek(a) : m.ram[a]);
     return out;
   }
@@ -94,15 +98,18 @@ export class EmbedApi {
     if (!b || addr + b.length > 0x10000) throw new SessionError('poke: give bytes that fit below 65536');
     // (the embedding page's calls are the person's input: Claude acting on the machine pauses first, Session.personInput)
     this.session.personInput();
-    for (let i = 0; i < b.length; i++) this.session.machine.poke(addr + i, b[i] & 0xFF);
+    const m = this.session.personMachine;
+    for (let i = 0; i < b.length; i++) m.poke(addr + i, b[i] & 0xFF);
     return b.length;
   }
-  screenText() { return this.session.screenText(); }
+  screenText() { return this.session.screenText(this.session.personMachine); }
   // display settings for this page only (never stored)
   setDisplay(changes) { return Object.assign({}, this.session.setDisplay(changes, { remember: false })); }
   watchFrames(on = true) { this.frames = !!on; return this.frames; }
   // after each emulated frame (the bridge calls it)
-  frame() { if (this.frames) this.send({ cloadm: 1, event: 'frame', data: { frame: this.session.machine.frameCount } }); }
+  // the frame tick: the machine ON SCREEN, by design - this event means "a frame was drawn", and the host watches it to
+  // know the picture moved. It is not an action on either machine, so it is the one method that names shownMachine.
+  frame() { if (this.frames) this.send({ cloadm: 1, event: 'frame', data: { frame: this.session.shownMachine.frameCount } }); }
 
   // one message from the host -> its reply (also sent); anything not a CLOADM call -> null
   handle(msg) {

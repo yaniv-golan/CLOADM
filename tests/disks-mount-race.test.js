@@ -131,7 +131,7 @@ const { check, failures } = checker();
       const drive0 = s.diskController.drives[0];
       let dirty = false;
       const reads = raceFirstRead(media, 'disks/p0.vdk', async () => {
-        for (let f = 0; f < 600 && !drive0.imageDirty; f++) s.machine.runFrame();
+        for (let f = 0; f < 600 && !drive0.imageDirty; f++) s.shownMachine.runFrame();
         dirty = drive0.imageDirty;
       });
       const out = await s.mountDisk(0, 'p0.vdk').then((m) => m, (e) => e);

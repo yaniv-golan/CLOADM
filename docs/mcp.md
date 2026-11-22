@@ -8,32 +8,73 @@ them, types, waits for the screen, reads the screen, memory and registers, steps
 machines live in the server for as long as it runs. It needs Node 22.12 or later and a checkout of this repository,
 and nothing else: no npm packages and no build.
 
+## Use with Claude
+
+**Install the CLOADM plugin.** One plugin works everywhere Claude does.
+
+1. Customize → Plugins → Add marketplace → `yaniv-golan/CLOADM` → Add **CLOADM**. In Claude Code:
+   `/plugin marketplace add yaniv-golan/CLOADM`, then `/plugin install cloadm@cloadm-marketplace`.
+2. On the web and in desktop chat: open the plugin's Connectors tab and click **Connect** next to *cloadm-panel*, then
+   **Continue**. The emulator then opens in Claude's side panel.
+
+   Already added https://mcp.cloadm.dev/mcp as a custom connector? The plugin's cloadm-panel uses that same connector, so you won't have two; you can keep it.
+
+   On phones the plugin and connector install, but the side panel can't be used yet. Use claude.ai on a computer or the desktop app. <!-- phones-not-yet: remove once the side panel works on phones (PHONE_VIEW_WORKS in tests/readme.test.js) -->
+
+In Cowork and Claude Code it runs on your computer instead, with your ROM files and the ~/CLOADM folder; nothing to connect.
+
+**The badge next to *cloadm-panel*.** Claude shows this for any connector Anthropic hasn't reviewed. CLOADM's runs at mcp.cloadm.dev, needs no sign-in, and sees only the emulator in that panel. Nothing else of yours. It's open source: [source](https://github.com/yaniv-golan/CLOADM/tree/main/connector).
+
+| Where you use Claude | What you get |
+|---|---|
+| claude.ai on the web, desktop chat | the live side panel (after Connect) |
+| Desktop Cowork, Claude Code | on your computer, with your ROMs and files |
+| Phone | not yet. On phones the plugin and connector install, but the side panel can't be used yet. Use claude.ai on a computer or the desktop app. <!-- phones-not-yet: remove once the side panel works on phones (PHONE_VIEW_WORKS in tests/readme.test.js) --> |
+| Other agents (Cursor, Codex, Gemini CLI, …) | the MCP entry for `node cli/cloadm.js --mcp` ([below](#cursor-gemini-cli-codex-and-other-mcp-clients)) |
+
+The plugin's two servers are *cloadm-panel* (the side panel, at `https://mcp.cloadm.dev/mcp`) and *cloadm* (on your
+computer, `node cli/cloadm.js --mcp`); each Claude app uses the one it can.
+
+### Without the plugin
+
+Add `https://mcp.cloadm.dev/mcp` as a custom connector (no sign-in). You get the side panel but not the skill that teaches Claude to play it well. Already added https://mcp.cloadm.dev/mcp as a custom connector? The plugin's cloadm-panel uses that same connector, so you won't have two; you can keep it. To add the skill on its own, download `cloadm-skill.zip` from the [Releases](https://github.com/yaniv-golan/CLOADM/releases) page and add it in claude.ai under Settings → Capabilities → Skills (steps not yet verified by the owner).
+
 ## Which way should I install CLOADM for Claude?
 
-Claude is one app on the web, on phones and on the desktop. There are two main ways to give it CLOADM, and two
-for special cases. "Marketplace" is not a separate way: it is just where the plugin is listed, and this repository is
-its own marketplace.
+Claude is one app on the web, on phones and on the desktop. The plugin is the way for Claude; the other three are for
+special cases. "Marketplace" is not a separate way: it is just where the plugin is listed, and this repository is its
+own marketplace.
 
 | Way | Install | Where the emulator runs | Tested |
 |---|---|---|---|
-| **1. Connector** (most people) | Plugins → Add → "Add custom connector" → name `CLOADM` and URL `https://mcp.cloadm.dev/mcp` → **No sign-in** → Add | in Claude's side panel, in your browser | the view on claude.ai on the web (the prototype); the desktop app and phones not yet |
-| **2. Plugin** (your own files, or Claude Code) | Customize → Plugins → Add → "Add marketplace" → `yaniv-golan/CLOADM` → Add on **Cloadm**; in Claude Code `/plugin marketplace add yaniv-golan/CLOADM`, then `/plugin install cloadm@cloadm-marketplace` | on your computer | Claude Code; the desktop app's plugin path by the owner |
+| **1. The CLOADM plugin** (most people) | Customize → Plugins → Add marketplace → `yaniv-golan/CLOADM` → Add **CLOADM**; on the web and in desktop chat, then **Connect** next to *cloadm-panel* on the plugin's Connectors tab; in Claude Code `/plugin marketplace add yaniv-golan/CLOADM`, then `/plugin install cloadm@cloadm-marketplace` | web and desktop chat: in Claude's side panel (*cloadm-panel*); Cowork and Claude Code: on your computer (*cloadm*) | by the owner: web and desktop chat show *cloadm-panel* with a Connect button and use the side panel; Cowork uses the local server |
+| 2. The connector alone (no skill) | Plugins → Add → "Add custom connector" → name `CLOADM` and URL `https://mcp.cloadm.dev/mcp` → **No sign-in** → Add | in Claude's side panel, in your browser | claude.ai on the web and the desktop app, by the owner |
 | 3. `.mcpb` extension (niche) | download `cloadm.mcpb` from the [Releases](https://github.com/yaniv-golan/CLOADM/releases) page and open it | on your computer, Claude Desktop only | |
 | 4. Other agents (Cursor, Codex, Gemini CLI, …) | an MCP entry for `node cli/cloadm.js --mcp`, plus `.agents/skills/` | on your computer | see [below](#cursor-gemini-cli-codex-and-other-mcp-clients) |
 
-**1. Connector.** Works wherever you use Claude, with no computer of your own involved. The emulator runs in Claude's
-side panel: you watch the screen and can type into it yourself, and Claude uses the tools on the same machine,
-asking you to approve each call. Nothing to install. Your ROMs are added inside the panel and stay in that browser.
-There are no files: no tapes, disks or snapshots from your computer, and no downloads. Verified with the prototype on
-claude.ai on the web; in the desktop app and on phones it is not yet tested. Details:
-[Claude on the web: side panel](#claude-on-the-web-side-panel).
+**1. The CLOADM plugin.** One plugin with the skill and two servers (`.claude-plugin/plugin.json`). The plugin
+manifest names each server by its id only ([plugins reference](https://code.claude.com/docs/en/plugins-reference):
+`mcpServers` holds "server configs keyed by name"; no per-server title), so those ids are what Claude shows:
 
-**2. Plugin.** The emulator runs on your computer, so it needs the Claude desktop app installed and open (Claude Code
-runs it itself). Claude sessions on the web and on your phone can then use it too while that computer is on (how the
-app shares a computer's local tools; not yet tested with CLOADM). With the app closed the tools are not available
-(inferred, not tested). It uses your ROM files and the `~/CLOADM` folder for tapes, disks, programs and snapshots
-([Your ROMs and media folder](#your-roms-and-media-folder)). Claude sees text and screenshots; there is no live
-panel. The plugin includes the skill that teaches Claude how to drive the emulator.
+- *cloadm-panel*, the remote server `https://mcp.cloadm.dev/mcp`. On the web and in desktop chat it is on the plugin's
+  Connectors tab with a **Connect** button; after **Connect** and **Continue**, the emulator runs in Claude's side
+  panel: you watch the screen and can type into it yourself, and Claude uses the tools on the same machine. Your ROMs
+  are added inside the panel and stay in that browser. There are no files: no tapes, disks or snapshots from your
+  computer, and no downloads. Details: [Claude on the web: side panel](#claude-on-the-web-side-panel). Those apps
+  ignore the local server.
+- *cloadm*, the local server `node ${CLAUDE_PLUGIN_ROOT}/cli/cloadm.js --mcp`. Cowork and Claude Code run it on
+  your computer (Cowork needs the Claude desktop app open), with your ROM files and the `~/CLOADM` folder for tapes,
+  disks, programs and snapshots ([Your ROMs and media folder](#your-roms-and-media-folder)). Claude sees text and
+  screenshots; there is no live panel. Nothing to connect.
+
+The manifest also declares the one host the plugin reaches, `network.hosts: ["mcp.cloadm.dev"]` (the same page: the
+field "doesn't allow or block any host"). Each server tells Claude which one it is: its instructions open with "You are
+driving CLOADM in the person's side panel." or "You are driving CLOADM on the person's computer.", and `machine_info`
+returns `route: "panel"` or `route: "local"`; the skill reads that first and follows its "Side panel" or "On this
+computer" section.
+
+**2. The connector alone.** The side panel without the plugin, for an account that can add a custom connector but not
+a plugin. You get the panel but not the skill that teaches Claude to play it well.
 
 **3. `.mcpb` extension.** For a Claude desktop app where your organisation does not allow plugins or marketplaces, or
 if you want a settings form for the ROM and media folders. Desktop only, and without the skill.
@@ -82,11 +123,11 @@ Minesweeper run; BASIC does not). The agent skill that teaches an agent to use t
 
 | Host | How |
 |---|---|
-| Claude Code | the plugin from this repository's marketplace |
-| The Claude desktop app | the plugin, from this repository's marketplace (see [The Claude desktop app](#the-claude-desktop-app)); or the `.mcpb` extension where plugins are not allowed |
+| Claude Code | the plugin from this repository's marketplace (its *cloadm* server) |
+| The Claude desktop app | the plugin, from this repository's marketplace (see [The Claude desktop app](#the-claude-desktop-app)): the side panel in chat, the local server in Cowork; or the `.mcpb` extension where plugins are not allowed |
 | Cursor | an MCP server entry pointing at a checkout, plus the skill folder (supported); this repository's marketplace may also install as it is (untested: see below) |
 | Codex (CLI and app), Gemini CLI, other MCP clients | an MCP server entry pointing at a checkout, plus the skill folder; in the Codex app the marketplace is untested (see below) |
-| claude.ai on the web | the remote connector `https://mcp.cloadm.dev/mcp`, in Claude's side panel (see [Claude on the web: side panel](#claude-on-the-web-side-panel)) |
+| claude.ai on the web | the plugin (its *cloadm-panel* server, after **Connect**), or the remote connector `https://mcp.cloadm.dev/mcp` alone, in Claude's side panel (see [Claude on the web: side panel](#claude-on-the-web-side-panel)) |
 
 ### Claude Code
 
@@ -112,11 +153,13 @@ The app reads plugins from your Claude account, not from Claude Code: a plugin i
 `claude plugin install` stays on that computer and does not reach the app. In the app:
 
 1. In the sidebar, **Customize** → the **Plugins** tab → **Add** → **Add marketplace**, and enter `yaniv-golan/CLOADM`.
-2. **Add** on the **Cloadm** plugin (or just ask for it in a chat).
-3. The app says "This plugin includes local MCP servers … cloadm": click **Continue**.
+2. **Add** on the **CLOADM** plugin (or just ask for it in a chat).
+3. For chat: open the plugin's Connectors tab and click **Connect** next to *cloadm-panel*, then **Continue**. The
+   emulator then opens in Claude's side panel.
 
-(Steps checked by the owner in the desktop app.) The server is a local one (the app starts `node` on your computer),
-so it runs while the app is open on that computer, which needs Node 22.12 or later on its `PATH`.
+(Steps checked by the owner in the desktop app.) Cowork uses the plugin's local server, *cloadm* (the app starts
+`node` on your computer), so it runs while the app is open on that computer, which needs Node 22.12 or later on its
+`PATH`.
 
 The plugin's root is the repository, so it must not have a top-level `bin/` directory: Cowork and claude.ai refuse
 a plugin that has one ([plugins reference](https://code.claude.com/docs/en/plugins-reference), "Standard layout";
@@ -128,7 +171,9 @@ Download `cloadm.mcpb` from the [Releases](https://github.com/yaniv-golan/CLOADM
 it onto Settings → Extensions). The app asks for a **media folder** (required: the only folder the tools read and
 write) and a **ROM folder** (optional), and passes them as `--media-root` and `--roms`. The bundle holds only the
 server (`cli/`, `js/` and the bundled programs); it has no npm packages and no ROMs. It is made from
-`mcpb/manifest.json` when a version is tagged (`.github/workflows/release.yml`).
+`mcpb/manifest.json` when a version is tagged (`.github/workflows/release.yml`), and only after the same gates a
+branch runs have passed on the tagged commit; each asset carries a build-provenance attestation, which
+`gh attestation verify cloadm.mcpb --repo yaniv-golan/CLOADM` checks.
 
 To run a checkout instead, add it to `claude_desktop_config.json` (Settings → Developer → Edit Config):
 
@@ -212,6 +257,8 @@ inside a chat, from one of three sources, and keeps them in the server's own ROM
 | `url` | `url` | an https URL you gave the agent |
 | `data` | `data`, `name` | the base64 bytes of a file you uploaded in the chat, and its file name |
 
+The store records where a ROM came from: a URL as origin + path only (never its query or fragment). Two servers may share it; changes are serialised by a lock file (`index.lock`), and an index that is not valid JSON is moved aside as `index.json.corrupt-<time>` before the next change.
+
 The safety rules, all enforced by the server:
 
 - **Only what you gave.** The tool's description tells the agent to use it only with a file, folder, URL or upload
@@ -264,7 +311,7 @@ are open at once.
 | `boot` | a new machine: `model`, `options`, `roms` (true: your ROMs, false: the built-in firmware) → its `machine_id` | allowed |
 | `switch_machine` | another model or options behind the same `machine_id` | |
 | `close_machine` | switch it off and forget the handle | allowed |
-| `machine_info` | the page's tool: model, RAM, CPU, video mode, whether BASIC is at its prompt, PC; plus, while a tape is in the deck, `tape`: its motor, position (byte of the image and percent), block, whether it is at the end (also in every tool's `machine` summary) | yes |
+| `machine_info` | the page's tool: model, RAM, CPU, video mode, whether BASIC is at its prompt, PC; `route`, `"local"` here (`"panel"` in the side panel); plus, while a tape is in the deck, `tape`: its motor, position (byte of the image and percent), block, whether it is at the end (also in every tool's `machine` summary) | yes |
 | `screen_text` | the page's tool: the text on the screen (VDG, every CoCo 3 GIME text mode, the Dragon 64 Plus's 80 columns); on the VDG, `semigraphics` counts the cells that are blocks rather than characters | yes |
 | `peek` | the page's tool: memory as the CPU sees it, up to 256 bytes a call, as hex rows of 16 (`"$0400: 4C 49 …"`) | yes |
 | `disassemble` | the page's tool: instructions in the machine's own instruction set, up to 64 a call | yes |
@@ -378,7 +425,7 @@ On claude.ai the emulator runs in Claude's side panel, in your browser, through 
 `https://mcp.cloadm.dev/mcp` (a small stateless server with no sign-in: it serves the view and keeps nothing). Claude
 then uses the same machine tools as above on the machine you see.
 
-**Add it** (once): in claude.ai, **Plugins → Add → "Add custom connector"**, name `CLOADM`, URL
+**Add it** (once): install the CLOADM plugin and **Connect** *cloadm-panel* ([Use with Claude](#use-with-claude)); or, without the plugin, in claude.ai **Plugins → Add → "Add custom connector"**, name `CLOADM`, URL
 `https://mcp.cloadm.dev/mcp`, choose **No sign-in**, then **Add**. On a Team or Enterprise plan an owner may have to add it
 under Organization settings → Connectors. Interactive views and app tools are a claude.ai feature that not every
 account or organization has yet.
@@ -387,8 +434,18 @@ account or organization has yet.
 
 1. In a chat with the connector enabled, ask Claude to open the emulator (for example "Open CLOADM"). It calls
    `open_emulator` and the view appears: a Dragon 64 talking as LIZA, or BASIC if you have added ROMs there.
-2. Open the view in the side panel (Claude's expand control, or the view's **Open in side panel** button). Click the
-   screen to type on it yourself.
+2. Open the view in the side panel (Claude's expand control, or **⋯ → Open in side panel** in the view, offered while
+   it is not there already). Click the screen to type on it yourself. The toolbar has **Programs** (what this machine
+   runs without ROMs: LIZA, the Welcome menu, and on the 6809 machines the colour demo, 2048 and Minesweeper),
+   **Machine** (every model, marked "✓ BASIC ready" or "needs ROMs", then Reset, Switch off and on and Add ROMs…),
+   **Sound** ("Sound off" until you click it or the screen: that click starts the sound) and **⋯** (Details, the
+   diagnostics, and Copy details). The line under the screen says what runs. While one of Claude's calls acts on the
+   machine, the bezel takes Claude's colour and a chip says what it does ("Claude is typing: DIR↵"); a call that only
+   reads shows a quiet "Claude read the screen". Your own typing never shows a chip. On a phone or tablet the view
+   has on-screen keys under the screen: **Keys | Pad | Stick** (the keyboard; a D-pad with SPACE, ENTER and the game's
+   own keys; a stick and FIRE where the machine has a joystick port), with CLEAR and BREAK beside the switch. A game
+   opens on the Pad, LIZA on the Keys, and your choice is remembered per program; **⋯ → Hide on-screen keys** hides
+   them.
 3. In your **next** message, ask for what you want ("type I AM HAPPY and tell me what LIZA says", "play 2048",
    "write a 6809 program that fills the screen and run it"). The view registers its tools after it has loaded, so
    Claude can use them from the next turn, not in the one that opened it. Claude asks you to approve each call.

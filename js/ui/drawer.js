@@ -4,6 +4,7 @@
  * the screen. The Display tab is its own module (display-panel.js).
  */
 import { $, put, putClass } from './page.js';
+import { SessionError } from '../session.js';
 
 // The recent list's rows: the entries for `machine`, each with the index it has in the FULL list. recentMedia()
 // hands out copies, so an index looked up in a second call (indexOf) matches nothing and is always -1; the index
@@ -18,10 +19,14 @@ export const recentRows = (all, machine) => all.map((r, i) => ({ r, i })).filter
 // loading whatever moved into that slot.
 export const loadRow = (session, row) => {
   const now = session.recentMedia();
-  const at = now.findIndex((r) => r.name === row.r.name && r.crc === row.r.crc && r.machine === row.r.machine);
+  // the name by the SESSION's rule (Session.sameName, the store's own case rule), never by ===: on a store that
+  // does not tell cases apart, "GAME.DSK" and "game.dsk" are one name everywhere else in the app, and a row drawn
+  // from one spelling must find the entry under the other.
+  const at = now.findIndex((r) => session.sameName(r.name, row.r.name) && r.crc === row.r.crc && r.machine === row.r.machine);
   // not found: the row was evicted (or its entry replaced) while the drawer was open. Loading by the row's old
-  // index would load whatever moved into that slot -- a different file under the same click. Say it is gone.
-  if (at < 0) throw new Error('That file is no longer in the recent list; open it again.');
+  // index would load whatever moved into that slot -- a different file under the same click. Say it is gone, as a
+  // SessionError: the drawer reports it on its own message line, where a plain Error would go to console.error.
+  if (at < 0) throw new SessionError('That file is no longer in the recent list; open it again.');
   return session.loadRecent(at);
 };
 
@@ -48,7 +53,7 @@ export function setupDrawer(page, { showRoms }) {
   // Media: what was loaded on this machine before
   function recent() {
     const list = $('recentList');
-    const items = recentRows(session.recentMedia(), session.machine.id);
+    const items = recentRows(session.recentMedia(), session.personMachine.id);
     list.replaceChildren();
     // empty: hidden while "Last time" shows above it (the CSS), as the two would contradict each other
     for (const el of [list, $('recentHead')]) el.classList.toggle('recent-empty', !items.length);
@@ -74,7 +79,7 @@ export function setupDrawer(page, { showRoms }) {
   // Machine settings: the ROM summary, first in the panel (R28b), its button "Add ROMs →" without BASIC and "See or
   // add ROMs →" with it; the header pill when the machine in use has no BASIC
   function roms() {
-    const r = session.machineRoms(), m = session.machine;
+    const r = session.machineRoms(), m = session.personMachine;   // the person's machine (the BASIC session while the chat is on screen)
     $('romState').textContent = session.nitros9Running ? 'Not used · NitrOS-9 runs on CLOADM\'s own loader' : !m.useStub ? 'BASIC ready' : r.bootable ? 'Loaded · running without ROMs for now' : 'Not added · running without ROMs';
     $('btnManageRoms').textContent = r.bootable ? 'See or add ROMs →' : 'Add ROMs →';
     $('romPill').hidden = r.bootable || session.nitros9Running;   // NitrOS-9 needs no ROM
@@ -85,7 +90,7 @@ export function setupDrawer(page, { showRoms }) {
   // slots under the screen: the cassette deck and the cartridge port
   let cartName = null;
   function slots() {
-    const m = session.machine, t = m.deck.tape;
+    const m = session.personMachine, t = m.deck.tape;
     // (refreshed every frame while a tape is in: each part is written only when it changes, put/putClass)
     put($('tapeName'), 'textContent', t ? t.name : 'No tape · Insert tape…');
     // a button that can't work is disabled with the reason, not clicked and complained about
@@ -134,9 +139,9 @@ export function setupDrawer(page, { showRoms }) {
   // row changes without an event. Replaces a 500 ms setInterval that ran for the whole session.
   let unwatch = null;
   function watchTape() {
-    const t = session.machine && session.machine.deck.tape;
+    const t = session.personMachine && session.personMachine.deck.tape;
     if (t) {
-      if (!unwatch) unwatch = page.onFrame(() => { if (session.machine) slots(); });
+      if (!unwatch) unwatch = page.onFrame(() => { if (session.personMachine) slots(); });
     } else if (unwatch) { unwatch(); unwatch = null; }
   }
   watchTape();

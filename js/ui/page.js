@@ -34,6 +34,23 @@ export function safeArea() {
 // call this at once, so a focus() that follows finds the element no longer inert; a MutationObserver (createPage)
 // covers the rest.
 const UNDRAWN = '.layout, #appbar, #appbar > nav, body > footer, #switchConfirm, .layout > .drawer, .slots';
+// the on-screen panel is up (js/ui/touch-keys.js): the page's words say "tap", and BREAK is its button, not Esc
+export const touchPanel = () => document.body.classList.contains('touch-keys');
+// Claude's turn paused by the person's key, on a touch screen (UX R30): there is no Esc to name there, so it says what
+// Stop does; one text, short enough for every place that shows it. The Session's own text stays as it is (it is
+// browser-free and names Esc): the page chooses.
+export const TOUCH_PAUSED_TEXT = 'Paused: you tapped a key · Stop ends Claude\'s turn';
+// a status's text (Session.claudeStatus), as the page shows it
+export const claudeStatusText = (status) => (status && status.phase === 'paused' && touchPanel() ? TOUCH_PAUSED_TEXT : status && status.text);
+// A view (Share, the Library, the Debugger, Add ROMs) shown or closed. A closed view is `hidden`, and also inert and aria-hidden:
+// out of the tab order and the accessibility tree by its own state, not only because a stylesheet rule (css/tokens.css) draws
+// [hidden] as nothing. Open it with the inert cleared in the same step, so the focus a view takes when it opens finds it.
+export function showView(view, open) {
+  view.hidden = !open;
+  view.inert = !open;
+  if (open) view.removeAttribute('aria-hidden'); else view.setAttribute('aria-hidden', 'true');
+}
+
 export function markUndrawn() {
   for (const el of document.querySelectorAll(UNDRAWN)) {
     const off = !el.hidden && getComputedStyle(el).display === 'none';
@@ -47,10 +64,15 @@ export function createPage(session, audio) {
   const canvas = $('screen');
   const feedback = createFeedback();
   const LOAD = `${Date.now()}-${Math.random()}`;   // this page load's mark on the history entries it adds
-  const viewFns = [feedback.viewChanged], stepFns = [];
+  const viewFns = [feedback.viewChanged], stepFns = [], firstFns = [];   // firstFns: the same step, before the views
   let shown = viewOpen() ? location.hash : '';
   function route() {
     const v = viewOpen() ? location.hash : '';
+    // BEFORE the view branch: a beforeView handler runs on EVERY step, the way an `every: true` one does, and for
+    // the same reason. The chat's close is one, and the routes that need it most change no hash at all - Back off
+    // the full-screen chat, Esc off the screen, "← Emulator" (the chat is not a view). Placed inside the branch
+    // below, it would never run on them and the person would be left in a chat Back and Esc cannot leave.
+    for (const fn of firstFns.slice()) fn();
     if (v !== shown) {
       const closed = shown !== '' && v === '';
       shown = v;
@@ -72,7 +94,6 @@ export function createPage(session, audio) {
   addEventListener('resize', markUndrawn);
   const page = {
     session, audio, canvas, feedback,
-    get machine() { return session.machine; },
     // an event's message (a toast; an error: a toast with Details), on the page shown now
     status(msg, isError = false) { feedback.toast(msg, { error: isError }); },
     toast: (text, opts) => feedback.toast(text, opts),
@@ -187,7 +208,12 @@ export function createPage(session, audio) {
     // every: true, on every step (the chat checks whether its entry is still the current one). Both the browser's
     // hashchange and popstate lead here (a browser need not fire hashchange when Back crosses from a pushed entry to
     // a hash, or popstate for a typed #hash), and so do page.openStep and page.toEmulator.
-    onView(fn, { every = false } = {}) { (every ? stepFns : viewFns).push(fn); },
+    // beforeView: a handler that must run BEFORE the view handlers on every step, because it decides what the
+    // view is above. The chat's is the one: opening a view over the full-screen chat closes the chat (its conversation
+    // moves to the side panel), and a view handler that runs first (the Debugger's refresh) would build a debugger on
+    // the chat machine - which the close then detaches, in the same route, so that no one ever sees it. Ordering it
+    // first means the view handlers run after the chat is gone and nothing is built on it to throw away.
+    onView(fn, { every = false, beforeView = false } = {}) { (beforeView ? firstFns : every ? stepFns : viewFns).push(fn); },
 
     // ---- Esc ----
     // Every surface that can be closed registers here: rank (lower is on top: a confirmation over a menu over a

@@ -89,10 +89,10 @@ const { check, rejects, failures } = checker();
     await s.mountDisk(0, 'fresh.vdk');
     await s.mountDisk(1, 'other.vdk');
     let f = 0;
-    while (!s.diskController.drives[0].imageDirty && f < 600) { s.machine.runFrame(); f++; }
-    check('mid-run: drive 0 holds written flux not yet committed (motor still on)', s.diskController.drives[0].imageDirty && s.machine.cpu.pc !== halt);
+    while (!s.diskController.drives[0].imageDirty && f < 600) { s.shownMachine.runFrame(); f++; }
+    check('mid-run: drive 0 holds written flux not yet committed (motor still on)', s.diskController.drives[0].imageDirty && s.shownMachine.cpu.pc !== halt);
     // let the write finish its sector, then switch machines with the motor still running
-    for (let i = 0; i < 3; i++) s.machine.runFrame();
+    for (let i = 0; i < 3; i++) s.shownMachine.runFrame();
     s.switchMachine('coco');
     await s.diskWritesDone();
     check('switching machines commits the old machine\'s disks to the store', same(await media.read('disks/fresh.vdk'), expectImage(d1, 12, 1, pattern(0x11))));
@@ -148,19 +148,19 @@ const { check, rejects, failures } = checker();
     s.roms.put('dgnalpha', 'boot', romImage(a, 0xA000, 0x2000, 0x00), 'boot.rom');
     s.roms.put('dgnalpha', 'basic', new Uint8Array(0x4000).fill(0x12), 'basic.rom');
     s.roms.put('dragondos', 'rom', new Uint8Array(0x2000), 'ddos10.rom');   // a DOS ROM stored: still not used
-    s.loadSavedRoms(); s.machine.reset(true);
+    s.loadSavedRoms(); s.shownMachine.reset(true);
     const d0 = images.vdk(40, 2), d1 = images.vdk(40, 1);
     check('Alpha: the only disk choice is the built-in interface', s.diskDosChoices().map((c) => c.id).join() === 'builtin' && s.diskStatus().dos.id === 'builtin' && s.driveCount === 2);
     await s.importDisk('alpha0.vdk', d0, 0);
     await s.importDisk('alpha1.vdk', d1, 1);
-    check('Alpha: mounting uses the built-in drives; no cartridge goes in', s.machine.cartPort === null && s.diskController === s.machine.fdc && s.diskStatus().drives.length === 2);
+    check('Alpha: mounting uses the built-in drives; no cartridge goes in', s.shownMachine.cartPort === null && s.diskController === s.shownMachine.fdc && s.diskStatus().drives.length === 2);
     await rejects('Alpha: drive 2 is not fitted', s.importDisk('x.vdk', d1, 2), /no drive 2 \(drives 0 to 1\)/);
     await rejects('Alpha: insertDiskDos is refused, the interface is built in', Promise.resolve().then(() => s.insertDiskDos('builtin')), /built in/);
     await rejects('Alpha: a DragonDOS cartridge is not offered', Promise.resolve().then(() => s.insertDiskDos('dragondos')), /can't take the DragonDOS/);
     let lit = false;
     const halt = a.symbols.get('HALT');
-    for (let f = 0; f < 600 && s.machine.cpu.pc !== halt; f++) { s.machine.runFrame(); if (s.diskActivity()[0]) lit = true; }
-    check('Alpha: the write firmware reaches HALT', s.machine.cpu.pc === halt);
+    for (let f = 0; f < 600 && s.shownMachine.cpu.pc !== halt; f++) { s.shownMachine.runFrame(); if (s.diskActivity()[0]) lit = true; }
+    check('Alpha: the write firmware reaches HALT', s.shownMachine.cpu.pc === halt);
     check('the drive light comes on while drive 0 works, and is off once the firmware stops', lit && !s.diskActivity().some(Boolean));
     s.flushDisks();
     await s.diskWritesDone();
@@ -175,14 +175,14 @@ const { check, rejects, failures } = checker();
     const { s, media, halt } = session('dragon64', 'dragondos', 'dragon');
     const pak = { name: 'game.rom', bytes: new Uint8Array(0x4000).map((_, i) => (i * 5 + 1) & 0xff) };
     const msg = s.insertMultiPak([pak, null, null, { dos: 'dragondos' }]);
-    const mp = s.machine.cartPort;
+    const mp = s.shownMachine.cartPort;
     check('Multi-Pak: a DragonDOS controller in slot 4 next to a Program Pak in slot 1', mp.type === 'multi' && mp.cart(1).type === 'rom' && mp.cart(4).type === 'dragonfdc'
       && /Multi-Pak \(1: game\.rom, 2: empty, 3: empty, 4: DragonDOS cartridge\)/.test(msg), msg);
     check('Multi-Pak: the drives use the controller in the slot', s.diskController === mp.cart(4) && s.diskStatus().dos.id === 'dragondos' && s.driveCount === 4);
     const d0 = images.vdk(40, 2), d1 = images.vdk(40, 1);
     await s.importDisk('mp0.vdk', d0, 0);
     await s.importDisk('mp1.vdk', d1, 1);
-    check('Multi-Pak: mounting keeps the Multi-Pak in the port (no DOS cartridge replaces it)', s.machine.cartPort === mp && s.diskStatus().drives.length === 2);
+    check('Multi-Pak: mounting keeps the Multi-Pak in the port (no DOS cartridge replaces it)', s.shownMachine.cartPort === mp && s.diskStatus().drives.length === 2);
     check('Multi-Pak: the writer firmware (the DOS ROM in slot 4, the switch on slot 4) reaches HALT', runToHalt(s, halt));
     s.flushDisks();
     await s.diskWritesDone();
@@ -191,17 +191,17 @@ const { check, rejects, failures } = checker();
     await rejects('Multi-Pak: two disk controllers are refused', Promise.resolve().then(() => s.insertMultiPak([{ dos: 'dragondos' }, null, null, { dos: 'dragondos' }])), /one disk controller/);
     await rejects('Multi-Pak: a controller of another family is refused', Promise.resolve().then(() => s.insertMultiPak([null, null, null, { dos: 'rsdos' }])), /slot 4: the Dragon 64 can't take the Disk BASIC/);
     await rejects('Multi-Pak: a controller without its ROM is refused, naming the ROM', Promise.resolve().then(() => s.insertMultiPak([null, null, null, { dos: 'deltados' }])), /slot 4: the Delta DOS cartridge needs its ROM \(deltados\.rom\)/);
-    check('Multi-Pak: after the refusals the first Multi-Pak is still in', s.machine.cartPort === mp);
+    check('Multi-Pak: after the refusals the first Multi-Pak is still in', s.shownMachine.cartPort === mp);
     s.insertMultiPak([pak, null, null, null]);
     await rejects('Multi-Pak: with no controller in it, a mount is refused rather than replacing the Multi-Pak', s.importDisk('mp2.vdk', d1, 0), /The Multi-Pak has no disk controller/);
-    check('... and the Multi-Pak stays in the port', s.machine.cartPort.type === 'multi' && s.diskController === null);
+    check('... and the Multi-Pak stays in the port', s.shownMachine.cartPort.type === 'multi' && s.diskController === null);
   }
   {
     // the CoCo: Disk BASIC's controller in slot 2 with the switch on slot 2 (MAME offers slot 4 only; the Multi-Pak
     // routes SCS and CTS to every slot alike)
     const { s, media, halt } = session('coco', 'rsdos', 'coco');
     s.insertMultiPak([null, { dos: 'rsdos' }, null, null], { switchSlot: 2 });
-    check('Multi-Pak (CoCo): the controller in slot 2', s.diskController === s.machine.cartPort.cart(2) && s.diskStatus().dos.id === 'rsdos');
+    check('Multi-Pak (CoCo): the controller in slot 2', s.diskController === s.shownMachine.cartPort.cart(2) && s.diskStatus().dos.id === 'rsdos');
     const d0 = images.jvc(40, 2);
     await s.importDisk('mpcoco.dsk', d0, 0);
     await s.importDisk('mpcoco1.vdk', images.vdk(40, 1), 1);
@@ -328,7 +328,7 @@ const { check, rejects, failures } = checker();
       await s.disksChecked();
       const checked = drives.every((d) => d.pendingBytes === null);
       const t = performance.now();
-      const snap = s.machine.snapshot();
+      const snap = s.shownMachine.snapshot();
       const ms = performance.now() - t;
       return { checked, ms, text: Emu.state.toJSON(snap), kept: drives.map((d) => !!d.mountBytes) };
     };

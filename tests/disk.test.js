@@ -9,6 +9,7 @@ const check = (name, cond, detail = '') => { if (!cond) { fail++; console.log(`F
 const throws = (name, fn, re) => { let msg = null; try { fn(); } catch (e) { msg = e.message; } check(name, msg !== null && re.test(msg), msg === null ? 'did not throw' : msg); };
 const eq = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
 const DRIVE = { tracks: 84, heads: 2 };
+const allTracks = (img) => Array.from({ length: img.count }, (_, k) => img.track(k));
 
 // ---------------- MFM cells by hand
 // 4E = 0100 1110; MFM clock bit = 1 only between two data 0s; the track starts with no previous bit (0):
@@ -260,7 +261,7 @@ const notOs9 = (bytes) => { try { return !geo(bytes).os9; } catch (e) { return t
   d.flush();
   check('OS-9 drive: flush keeps the file headerless (no 2-byte JVC header added)', d.media.bytes.length === os9b.length, d.media.bytes.length);
   // everything a 40x2 disk carries, measured BEFORE the guest touches LSN 0 and before the snapshot
-  const side1Of = (dd) => { let n = 0; for (let t = 0; t < 40 && dd.image.heads > 1; t++) n += dd.image.data[t * dd.image.heads + 1].length; return n; };
+  const side1Of = (dd) => { let n = 0; for (let t = 0; t < 40 && dd.image.heads > 1; t++) n += dd.image.track(t * dd.image.heads + 1).length; return n; };
   const side10 = side1Of(d);
   // and a snapshot of a drive whose guest rewrote LSN 0 still restores as the same 40x2 disk
   d.media.bytes.fill(0, 0, 256);
@@ -315,12 +316,38 @@ const notOs9 = (bytes) => { try { return !geo(bytes).os9; } catch (e) { return t
   check('unknown file: no format', Emu.detectDiskFormat(new Uint8Array(1000), 'x.bin') === null);
   check('.vdk without signature: no format', Emu.detectDiskFormat(new Uint8Array(4620), 'x.vdk') === null);
   const img = Emu.loadDisk(images.vdk(2, 1), 'vdk', DRIVE);
-  img.setBuffer(1, 0, []);                                                 // a track with nothing on it
-  img.setBuffer(1, 0, Emu.loadDisk(images.vdk(2, 1), 'vdk', DRIVE).buffer(0, 0));   // track 0's flux on track 1: sectors say track 0
+  img.setTrack(img.heads, []);                                                 // track 1 side 0: nothing on it
+  img.setTrack(img.heads, Emu.loadDisk(images.vdk(2, 1), 'vdk', DRIVE).buffer(0, 0));   // track 0's flux on track 1: sectors say track 0
   check('saving keeps whatever IDs the track has (MAME ignores the ID track)', Emu.saveDisk(img, 'vdk').length === 12 + 2 * 18 * 256);
   const empty = Emu.loadDisk(images.vdk(2, 1), 'vdk', DRIVE);
-  empty.setBuffer(1, 0, [Emu.mg(Emu.MG_N, 0)]);
+  empty.setTrack(empty.heads, [Emu.mg(Emu.MG_N, 0)]);
   throws('saving a track without its sectors fails (MAME would crash)', () => Emu.saveDisk(empty, 'vdk'), /sector 1 is missing/);
+}
+
+// ---------------- tracks built on first use (FloppyImage.track): what the drive relies on
+{
+  // a track built after the caller changes the image's bytes is the track as loaded (the drive's flush() commits in
+  // place): compared with a load of an untouched copy, track 5 side 1 never having been read before the change
+  const bytes = images.vdk(10, 2), ref = Emu.loadDisk(bytes.slice(), 'vdk', DRIVE);
+  const img = Emu.loadDisk(bytes, 'vdk', DRIVE);
+  bytes.fill(0x55, 12);
+  const k = 5 * DRIVE.heads + 1;
+  check('lazy track: built after its source bytes change, it is the track as loaded', eq(img.track(k), ref.track(k)));
+  check('lazy track: and its sectors are the image\'s, not the changed bytes', (() => { const sec = Emu.readTrackSectors(img, 5, 1); return sec.length === 18 && sec.every((s) => s.data[0] === images.sectorByte(5, 1, s.sector, 0)); })());
+  // a layout that cannot fit fails at load, not later at the first read: 36 sectors of 256 bytes per track
+  const tooLong = new Uint8Array(3 + 2 * 36 * 256); tooLong.set([36, 1, 1]);
+  let thrown = null, image = null;
+  try { image = Emu.loadDisk(tooLong, 'jvc', DRIVE); } catch (e) { thrown = e.message; }
+  check('lazy track: a track layout too long throws at loadDisk, before any track is read', image === null && /track layout too long/.test(thrown || ''), String(thrown));
+  // the drive writes into the array track(k) returns: on a never-built track, the write is there on the next read
+  const w = Emu.loadDisk(images.vdk(10, 2), 'vdk', DRIVE);
+  const t = w.track(7 * DRIVE.heads);
+  t[0] = Emu.mg(Emu.MG_N, 0);
+  check('lazy track: a write into a newly built track is there on the next track(k) and buffer()', w.track(7 * DRIVE.heads)[0] === Emu.mg(Emu.MG_N, 0) && w.buffer(7, 0) === t);
+  // setTrack on a track never built replaces its builder (loadState restores written tracks this way)
+  const x = [Emu.mg(Emu.MG_N, 0), Emu.mg(Emu.MG_E, 199999999)];
+  w.setTrack(3 * DRIVE.heads + 1, x);
+  check('lazy track: setTrack on an unbuilt track, then track(k) is that flux', w.track(3 * DRIVE.heads + 1) === x);
 }
 
 // ---------------- blank disks (blankDisk): sizes and headers derived here from the formats, then round trips
@@ -374,8 +401,94 @@ const notOs9 = (bytes) => { try { return !geo(bytes).os9; } catch (e) { return t
   check('remount: the single-density DMK\'s snapshot carried its mounted bytes', !!sdrive(first).mountBytes);
   check('remount: the second image\'s snapshot carries none (a JVC round-trips)', !sdrive(snap).mountBytes);
   const rd = Emu.restoreSnapshot(snap, m.roms).cartPort.drives[0];
-  check('remount: the restored drive has the second image\'s flux, track for track', JSON.stringify(rd.image.data) === JSON.stringify(d.image.data)
+  check('remount: the restored drive has the second image\'s flux, track for track', JSON.stringify(allTracks(rd.image)) === JSON.stringify(allTracks(d.image))
     && eq(rd.media.bytes, jvc));
+}
+
+// ---------------- the cell buffers a track builder writes into (CellBuffer) and the flux positions (fluxPosition)
+{
+  // a buffer holds exactly its capacity without growing, and the push past it doubles it, keeping every cell
+  const b = new Emu.CellBuffer(4);
+  const first = b.cells;
+  for (let i = 0; i < 4; i++) b.push(0xa0000000 + i);
+  check('cell buffer: filled to its exact capacity, it has not grown', b.cells === first && b.cells.length === 4 && b.length === 4);
+  b.push(0xfffffffe);
+  check('cell buffer: one push past capacity doubles it and keeps every cell, the new one included',
+    b.cells.length === 8 && b.length === 5 && eq(Array.from(b.cells.subarray(0, 5)), [0xa0000000, 0xa0000001, 0xa0000002, 0xa0000003, 0xfffffffe]), Array.from(b.cells).join());
+  const c = new Emu.CellBuffer(1);
+  for (let i = 0; i < 1000; i++) c.push(i * 4099);
+  check('cell buffer: grown ten times from 1, it holds all 1000 cells in order', c.cells.length === 1024 && c.length === 1000 && Array.from(c.cells.subarray(0, 1000)).every((v, i) => v === i * 4099));
+  throws('cell buffer: a capacity of 0 is refused', () => new Emu.CellBuffer(0), /capacity/);
+
+  // floor(200,000,000 * t / total), worked here in BigInt, against the Number arithmetic, where 200,000,000 * t
+  // passes 2^53 (t and total up to just under 2^36, and t = total)
+  const R = 200000000n;
+  const cases = [[0, 1], [1, 3], [12345, 100000000], [2 ** 28 - 1, 2 ** 28 - 1], [2 ** 28 - 1, 2 ** 28 + 12345], [123456789, 260080000], [2 ** 36 - 2, 2 ** 36 - 1], [2 ** 35 + 77, 2 ** 36 - 1]];
+  let seed = 7;
+  for (let i = 0; i < 2000; i++) {
+    seed = (seed * 1103515245 + 12345) >>> 0;
+    const total = 1 + (seed % (2 ** 31)) * 16 + (i & 15);
+    seed = (seed * 1103515245 + 12345) >>> 0;
+    cases.push([Math.floor((seed / 2 ** 32) * total), total]);
+  }
+  // and quotients just off a whole number, where a rounded product lands on the wrong side: t with 200,000,000 * t
+  // one more or one less than a multiple of total (t = -1/200,000,000 or +1/200,000,000 modulo total)
+  const inverse = (a, m) => {
+    let [r0, r1, s0, s1] = [a % m, m, 1n, 0n];
+    while (r1) { const q = r0 / r1; [r0, r1] = [r1, r0 - q * r1]; [s0, s1] = [s1, s0 - q * s1]; }
+    return r0 === 1n ? ((s0 % m) + m) % m : null;
+  };
+  for (let total = 2n ** 35n + 1n, n = 0; n < 100; total += 2n) {
+    const inv = inverse(R, total);
+    if (inv === null) continue;
+    cases.push([Number((total - inv) % total), Number(total)], [Number(inv), Number(total)]);
+    n++;
+  }
+  const bad = cases.filter(([t, total]) => Emu.fluxPosition(t, total) !== Number((R * BigInt(t)) / BigInt(total)));
+  check(`flux positions: exact against BigInt over ${cases.length} cases, 2^53 and beyond in the product`, !bad.length, JSON.stringify(bad.slice(0, 3)));
+}
+
+// DMK tracks with no ID marks, whose cells are worked out here by hand from the track bytes, and the flux from those
+// cells in BigInt (generate_track_from_levels: a flux change at the middle of each 1 cell, scaled to 200,000,000 per
+// revolution). Single density: 32 cells a byte (each FM bit, clock 1 then data, as the cell pair b,0), so the
+// buffer of 16 cells a byte that buildDmkTrack starts with holds a 0x100-byte track exactly (128 bytes of data after
+// the IDAM table) and grows for 0x101. Double density at 0x3FFF, the longest DMK track: 260,080 cells, where
+// 200,000,000 * t passes 2^53.
+{
+  const dmkOf = (tsize, sd, fill) => {
+    const out = new Uint8Array(16 + 2 * tsize);
+    out[1] = 1; out[2] = tsize & 0xff; out[3] = tsize >> 8; out[4] = sd ? 0x40 : 0;
+    for (let h = 0; h < 2; h++) for (let i = 0x80; i < tsize; i++) out[16 + h * tsize + i] = fill(i, h);
+    return out;
+  };
+  const fmCells = (bytes) => bytes.flatMap((v) => Array.from({ length: 8 }, (_, k) => [1, 0, (v >> (7 - k)) & 1, 0]).flat());
+  const mfmCells = (bytes) => {
+    let prev = 0;
+    return bytes.flatMap((v) => Array.from({ length: 8 }, (_, k) => { const d = (v >> (7 - k)) & 1, c = prev || d ? 0 : 1; prev = d; return [c, d]; }).flat());
+  };
+  const fluxOf = (cells) => {
+    const total = BigInt(cells.length * 1000), out = [];
+    cells.forEach((c, i) => { if (c) out.push(Number((200000000n * BigInt(i * 1000 + 500)) / total)); });
+    return out;
+  };
+  const cases = [
+    ['single density 0x100 (the starting buffer exactly)', 0x100, true, fmCells],
+    ['single density 0x101 (one byte past it: grown)', 0x101, true, fmCells],
+    ['single density 0xCC0 (nearly twice the starting buffer)', 0xcc0, true, fmCells],
+    ['double density 0x3FFF (the longest track)', 0x3fff, false, mfmCells],
+  ];
+  for (const [what, tsize, sd, enc] of cases) {
+    const fill = (i, h) => (i * 37 + h * 101 + (i >> 5)) & 0xff;
+    const img = Emu.loadDisk(dmkOf(tsize, sd, fill), 'dmk', DRIVE);
+    const bytes = (h) => Array.from({ length: tsize - 0x80 }, (_, j) => fill(0x80 + j, h));
+    for (let h = 0; h < 2; h++) {
+      const flux = img.buffer(0, h);
+      const want = fluxOf(enc(bytes(h)));
+      check(`DMK ${what}, side ${h}: the flux is the hand-made cells, ${want.length} changes`,
+        flux.length === want.length && flux.every((v, i) => Emu.mgType(v) === Emu.MG_F && Emu.mgTime(v) === want[i]),
+        `${flux.length} vs ${want.length}, first difference at ${flux.findIndex((v, i) => Emu.mgTime(v) !== want[i])}`);
+    }
+  }
 }
 
 // ---------------- MAME's time arithmetic (attotime) where it rounds

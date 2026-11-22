@@ -41,46 +41,77 @@ export const mgTime = (v) => v & TIME_MASK;
 export const mg = (type, time) => type * 0x10000000 + time;
 export const REVOLUTION = 200000000;
 
-// A disk as the drive sees it: per track and head, the flux transitions (MAME's cell_data).
+// A disk as the drive sees it: per track and head, the flux transitions (MAME's cell_data). Track k is track
+// (k / heads), head (k % heads). A loader does not build the flux up front: it leaves a builder for each track
+// (lazy()), and track(k) runs it the first time that track is asked for, so a mount costs the tracks the guest
+// reaches rather than every track on the disk. A builder reads only what the loader handed it (its own copy of the
+// image bytes), so when a track is built makes no difference to the flux it gets.
 export class FloppyImage {
+  #cells;
   constructor(tracks, heads) {
     this.tracks = tracks;
     this.heads = heads;
-    this.data = [];
-    for (let i = 0; i < tracks * heads; i++) this.data.push([]);
+    this.#cells = [];
+    for (let i = 0; i < tracks * heads; i++) this.#cells.push([]);
   }
+  get count() { return this.#cells.length; }
+  #index(k) {
+    if (!Number.isInteger(k) || k < 0 || k >= this.#cells.length) throw new DiskFormatError(`no track index ${k} on this drive`);
+    return k;
+  }
+  // the flux of track index k, built now if it has not been yet; the drive writes into the array it returns
+  track(k) {
+    let c = this.#cells[this.#index(k)];
+    if (typeof c === 'function') { c = c(); this.#cells[k] = c; }
+    return c;
+  }
+  setTrack(k, flux) { this.#cells[this.#index(k)] = flux; }
+  // track index k is built by build() when it is first read
+  lazy(k, build) { this.#cells[this.#index(k)] = build; }
   buffer(track, head) {
     if (track < 0 || track >= this.tracks || head < 0 || head >= this.heads) throw new DiskFormatError(`no track ${track} side ${head} on this drive`);
-    return this.data[track * this.heads + head];
+    return this.track(track * this.heads + head);
   }
-  setBuffer(track, head, buf) { this.buffer(track, head); this.data[track * this.heads + head] = buf; }
-  // floppy_image::get_actual_geometry: the highest track and head that hold anything
+  // floppy_image::get_actual_geometry: the highest track and head that hold anything (building what it looks at)
   actualGeometry() {
     let maxt = this.tracks - 1;
     for (; maxt >= 0; maxt--) {
       let any = false;
-      for (let h = 0; h < this.heads; h++) if (this.data[maxt * this.heads + h].length) { any = true; break; }
+      for (let h = 0; h < this.heads; h++) if (this.track(maxt * this.heads + h).length) { any = true; break; }
       if (any) break;
     }
     let maxh = -1;
     if (maxt >= 0) {
       for (maxh = this.heads - 1; maxh >= 0; maxh--) {
         let any = false;
-        for (let t = 0; t <= maxt; t++) if (this.data[t * this.heads + maxh].length) { any = true; break; }
+        for (let t = 0; t <= maxt; t++) if (this.track(t * this.heads + maxh).length) { any = true; break; }
         if (any) break;
       }
     }
     return { tracks: maxt + 1, heads: maxh + 1 };
   }
-  clone() {
-    const c = new FloppyImage(this.tracks, this.heads);
-    c.data = this.data.map((b) => b.slice());
-    return c;
-  }
 }
 
 // ---------------------------------------------------------------- cell level buffers (flopimg.cpp)
-const bitR = (buf, off) => mgType(buf[off]) === MG_1;
+// The cells a track builder writes (MAME's std::vector<uint32_t> of level codes), in a Uint32Array that doubles when
+// full, so building a track allocates a handful of buffers instead of one array slot per cell. A cell is
+// mg(MG_0 or MG_1, size): at most 5 * 2^28 + 2^28 - 1 < 2^32, so it fits a Uint32 exactly.
+export class CellBuffer {
+  constructor(capacity) {
+    if (!Number.isInteger(capacity) || capacity < 1) throw new RangeError(`cell buffer capacity ${capacity}`);
+    this.cells = new Uint32Array(capacity);
+    this.length = 0;
+  }
+  push(v) {
+    if (this.length === this.cells.length) {
+      const grown = new Uint32Array(this.cells.length * 2);
+      grown.set(this.cells);
+      this.cells = grown;
+    }
+    this.cells[this.length++] = v;
+  }
+}
+const bitR = (buf, off) => mgType(buf.cells[off]) === MG_1;
 function bitW(buf, val, size) { buf.push(mg(val ? MG_1 : MG_0, size)); }
 function rawW(buf, n, val, size = 1000) { for (let i = n - 1; i >= 0; i--) bitW(buf, (val >>> i) & 1, size); }
 function mfmW(buf, n, val, size = 1000) {
@@ -102,33 +133,58 @@ function calcCrcCcitt(buf, start, end) {
   }
   return res & 0xffff;
 }
-// normalize_times + generate_track_from_levels: cells -> flux positions over one revolution
+// floor(REVOLUTION * t / total) in Numbers, exactly (MAME computes it in 64-bit integers). REVOLUTION * t itself can
+// pass 2^53 (t < 2^28 and REVOLUTION < 2^28), so t is split as th * 2^16 + tl and the division done in two steps:
+// with q = floor(REVOLUTION * th / total) and r its remainder,
+//   REVOLUTION * t / total = q * 2^16 + (r * 2^16 + REVOLUTION * tl) / total.
+// Every value formed is an integer below 2^53, which a Number holds exactly; % of two such integers is exact, and so
+// is (x - x % total) / total, a division with no remainder. The bounds: th < 2^12, so REVOLUTION * th < 2^40;
+// r < total < 2^36, so r * 2^16 < 2^52; REVOLUTION * tl < 2^44, so r * 2^16 + REVOLUTION * tl < 2^53; and the
+// result is at most REVOLUTION (t <= total). total < 2^36 holds for every track, and levelsToFlux checks it: a
+// WD track is 100,000 cells of 1000 units; the longest DMK track, 0x3FFF bytes, is under 16,383 steps of at most
+// 128 cells (a 48-cell IAM, a 48-cell mark, a 32-cell FM byte) plus at most 4 * 16,383 MFM pad bytes of 16 cells,
+// under 3.2 million cells of 1000 units, so total < 2^32.
+const SPLIT = 0x10000;
+export function fluxPosition(t, total) {
+  const th = Math.floor(t / SPLIT), tl = t - th * SPLIT;
+  const a = REVOLUTION * th, r = a % total, q = (a - r) / total;
+  const b = r * SPLIT + REVOLUTION * tl, r2 = b % total;
+  return q * SPLIT + (b - r2) / total;
+}
+// normalize_times + generate_track_from_levels: cells (a CellBuffer) -> flux positions over one revolution
 function levelsToFlux(levels) {
   const dest = [];
+  const cells = levels.cells, n = levels.length;
   let total = 0;
-  for (const e of levels) {
-    const bit = mgType(e), t = mgTime(e);
+  for (let i = 0; i < n; i++) {
+    const e = cells[i], bit = mgType(e), t = mgTime(e);
     if (bit === MG_1) dest.push(mg(MG_F, total + (t >> 1)));
     else if (bit !== MG_0) dest.push(mg(bit, total));
     total += t;
   }
-  const big = BigInt(total);
+  if (total >= 2 ** 36) throw new RangeError(`a track of ${total} time units is beyond the exact flux arithmetic`);
   for (let i = 0; i < dest.length; i++) {
     const t = mgTime(dest[i]);
-    const pos = total === REVOLUTION / 2 ? t * 2 : Number((BigInt(REVOLUTION) * BigInt(t)) / big);
+    const pos = total === REVOLUTION / 2 ? t * 2 : fluxPosition(t, total);
     dest[i] = mg(mgType(dest[i]), pos);
   }
   return dest;
 }
 
+// the cell where the last sector of a build_wd_track_mfm track ends; a layout past cellCount cannot be built (loadDisk
+// checks this at load, before any track is built)
+function wdTrackEnd(cellCount, count, totalSize, gap1, gap2) {
+  const etpos = gap1 * 16 + (count * (12 + 3 + 5 + 2 + gap2 + 12 + 3 + 1 + 2) + totalSize) * 16;
+  if (etpos > cellCount) throw new DiskFormatError(`track layout too long (${etpos} cells, ${cellCount} available)`);
+  return etpos;
+}
 // build_pc_track_mfm with gap 4a = -1 (build_wd_track_mfm). sects: [{ track, head, sector, size, data, deleted, badCrc }]
 function buildWdTrackMfm(cellCount, sects, gap3, gap1, gap2) {
-  const td = [];
+  const td = new CellBuffer(cellCount);   // the track ends at exactly cellCount cells
   for (let i = 0; i < gap1; i++) mfmW(td, 8, 0x4e);
   let totalSize = 0;
   for (const s of sects) totalSize += s.data ? s.data.length : (128 << s.size);
-  const etpos = td.length + (sects.length * (12 + 3 + 5 + 2 + gap2 + 12 + 3 + 1 + 2) + totalSize) * 16;
-  if (etpos > cellCount) throw new DiskFormatError(`track layout too long (${etpos} cells, ${cellCount} available)`);
+  const etpos = wdTrackEnd(cellCount, sects.length, totalSize, gap1, gap2);
   if (etpos + gap3 * 16 * (sects.length - 1) > cellCount) gap3 = Math.floor((cellCount - etpos) / 16 / (sects.length - 1));
   for (let i = 0; i < sects.length; i++) {
     const s = sects[i];
@@ -385,42 +441,52 @@ export function detectDiskFormat(bytes, name = '') {
 // ---------------------------------------------------------------- load
 const JVC_INTERLEAVE = [0, 11, 4, 15, 8, 1, 12, 5, 16, 9, 2, 13, 6, 17, 10, 3, 14, 7];
 const sizeCode = (n) => Math.log2(n / 128);
+const TRACK_CELLS = 100000;   // a 2 us cell at 300 rpm
 
 // An OS-9 image's geometry is read from its own first sector (os9Geometry), which a snapshot cannot re-derive once
 // the guest has written LSN 0: the drive passes the geometry it mounted with as `geometry` on restore.
+// Every check that can reject the image runs here; the tracks themselves are built on first use (FloppyImage.lazy),
+// from a copy of the bytes taken now, so the caller may change `bytes` afterwards (the drive's flush() does).
 export function loadDisk(bytes, format, drive, geometry = null) {
   const g = geometry || diskGeometry(bytes, format);
-  if (format === 'dmk') return loadDmk(bytes, g, drive);
+  const src = bytes.slice();
+  if (format === 'dmk') return loadDmk(src, g, drive);
   if (g.tracks > drive.tracks) throw new DiskFormatError(`the image has ${g.tracks} tracks; the drive has ${drive.tracks}`);
   if (g.heads > drive.heads) throw new DiskFormatError(`the image has ${g.heads} sides; the drive has ${drive.heads}`);
+  const [gap3, gap1, gap2] = g.os9 ? [OS9_GAPS[2], OS9_GAPS[0], OS9_GAPS[1]] : [22, 32, 24];
+  if (g.tracks && g.heads) wdTrackEnd(TRACK_CELLS, g.sectors, g.sectors * g.sectorSize, gap1, gap2);   // every track has this layout
   const image = new FloppyImage(drive.tracks, drive.heads);
   let off = g.headerSize;
   for (let t = 0; t < g.tracks; t++) {
     for (let h = 0; h < g.heads; h++) {
       const trackBase = off;
       off += g.sectors * g.sectorSize;
-      const sects = new Array(g.sectors);
-      const size = format === 'vdk' ? 1 : sizeCode(g.sectorSize);
-      for (let i = 0; i < g.sectors; i++) {
-        const data = (k) => bytes.slice(trackBase + k * g.sectorSize, trackBase + (k + 1) * g.sectorSize);
-        const s = (sector, slot, k) => { sects[slot] = { track: t, head: h, sector, size, data: data(k), deleted: false, badCrc: false }; };
-        if (g.os9) {
-          // os9_dsk.cpp:279 with wd177x_dsk.cpp:92-101: track position i holds sector per_sector_id[i], and that
-          // sector's bytes are the (id-1)-th slot of the track in the file, because build_sector_description
-          // offsets each sector's data by how many sector IDs sort before it
-          s(OS9_IDS[i], i, OS9_IDS[i] - 1);
-        } else if (format === 'jvc' && g.sectors === 18) {
-          // jvc_dsk.cpp:235-251: file offset i holds sector (1 + i), placed at track position interleave[i]
-          s(g.firstSector + i, JVC_INTERLEAVE[i], i);
-        } else {
-          s(g.firstSector + i, i, i);
-        }
-      }
-      // build_wd_track_mfm(cell_count, sector_count, sects, gap_3, gap_1, gap_2): OS-9's gaps are 20/18/28, JVC's 22/32/24
-      image.setBuffer(t, h, g.os9 ? buildWdTrackMfm(100000, sects, OS9_GAPS[2], OS9_GAPS[0], OS9_GAPS[1]) : buildWdTrackMfm(100000, sects, 22, 32, 24));
+      image.lazy(t * drive.heads + h, () => buildSectorTrack(src, format, g, t, h, trackBase, gap3, gap1, gap2));
     }
   }
   return image;
+}
+// one track of a VDK or JVC (or OS-9) image, whose sectors start at trackBase in bytes
+function buildSectorTrack(bytes, format, g, t, h, trackBase, gap3, gap1, gap2) {
+  const sects = new Array(g.sectors);
+  const size = format === 'vdk' ? 1 : sizeCode(g.sectorSize);
+  for (let i = 0; i < g.sectors; i++) {
+    const data = (k) => bytes.slice(trackBase + k * g.sectorSize, trackBase + (k + 1) * g.sectorSize);
+    const s = (sector, slot, k) => { sects[slot] = { track: t, head: h, sector, size, data: data(k), deleted: false, badCrc: false }; };
+    if (g.os9) {
+      // os9_dsk.cpp:279 with wd177x_dsk.cpp:92-101: track position i holds sector per_sector_id[i], and that
+      // sector's bytes are the (id-1)-th slot of the track in the file, because build_sector_description
+      // offsets each sector's data by how many sector IDs sort before it
+      s(OS9_IDS[i], i, OS9_IDS[i] - 1);
+    } else if (format === 'jvc' && g.sectors === 18) {
+      // jvc_dsk.cpp:235-251: file offset i holds sector (1 + i), placed at track position interleave[i]
+      s(g.firstSector + i, JVC_INTERLEAVE[i], i);
+    } else {
+      s(g.firstSector + i, i, i);
+    }
+  }
+  // build_wd_track_mfm(cell_count, sector_count, sects, gap_3, gap_1, gap_2): OS-9's gaps are 20/18/28, JVC's 22/32/24
+  return buildWdTrackMfm(TRACK_CELLS, sects, gap3, gap1, gap2);
 }
 
 // dmk_dsk.cpp load (MFM and FM tracks)
@@ -439,7 +505,6 @@ function loadDmk(bytes, g, drive) {
   if (g.heads > drive.heads) throw new DiskFormatError(`the image has ${g.heads} sides; the drive has ${drive.heads}`);
   const image = new FloppyImage(drive.tracks, drive.heads);
   const { trackLength: tsize, heads } = g;
-  const isSd = g.singleDensity, fmStride = isSd ? 1 : 2;
   for (let track = 0; track < g.tracks; track++) {
     for (let head = 0; head < heads; head++) {
       const base = 16 + (heads * track + head) * tsize;
@@ -451,71 +516,76 @@ function loadDmk(bytes, g, drive) {
         const o = e & 0x3fff;
         if (o >= tsize || td[o] !== 0xfe) throw new DiskFormatError(`DMK track ${track} side ${head}: IDAM pointer ${k} does not point at an ID mark`);
       }
-      let fmLoss = 0;
-      const raw = [];
-      const markLocation = new Array(129).fill(-1), markValue = new Array(129).fill(0xfe), markIsMfm = new Array(129).fill(!isSd);
-      let iamLocation = -1, markCount = 0;
-      let tho = 0;
-      let trackOffset = u16le(td, tho) & 0x3fff;
-      let idamIsMfm = !!(td[tho + 1] & 0x80);
-      tho += 2;
-      while (trackOffset !== 0 && trackOffset >= 0x83 && trackOffset < tsize && tho < 0x80) {
-        const markOffset = idamIsMfm ? 3 : 0;
-        markLocation[markCount] = trackOffset - markOffset; markValue[markCount] = 0xfe; markIsMfm[markCount] = idamIsMfm; markCount++;
-        const stride = idamIsMfm ? 1 : fmStride;
-        for (let i = trackOffset + 10 * stride; i < trackOffset + 53 * stride; i++) {
-          if (td[i] >= 0xf8 && td[i] <= 0xfb) {
-            if (!idamIsMfm || u16le(td, i - 2) === 0xa1a1) {
-              markLocation[markCount] = i - markOffset; markValue[markCount] = td[i]; markIsMfm[markCount] = idamIsMfm; markCount++;
-              break;
-            }
-          }
-        }
-        idamIsMfm = !!(td[tho + 1] & 0x80);
-        trackOffset = u16le(td, tho) & 0x3fff;
-        tho += 2;
-      }
-      if (markCount > 0) markIsMfm[markCount] = markIsMfm[markCount - 1];
-      for (let i = markLocation[0] - 1; i >= 3; i--) {
-        if (td[i] === 0xfc && (isSd || u16le(td, i - 2) === 0xc2c2)) { iamLocation = i - (isSd ? 0 : 3); break; }
-      }
-      let curMark = 0;
-      let encMfm = markIsMfm[curMark];
-      for (let offset = 0x80; offset < tsize; offset++) {
-        if (offset === iamLocation) {
-          if (!isSd) { rawW(raw, 16, 0x5224); rawW(raw, 16, 0x5224); rawW(raw, 16, 0x5224); offset += 3; }
-          else { rawW(raw, 32, wideFm(0xf77a)); offset += fmStride; }
-        }
-        if (offset + 8 >= markLocation[curMark]) {
-          const ne = markIsMfm[curMark];
-          if (ne !== encMfm) encMfm = ne;
-        }
-        if (offset === markLocation[curMark] || (!encMfm && offset - fmStride + 1 === markLocation[curMark])) {
-          if (encMfm) {
-            rawW(raw, 16, 0x4489); rawW(raw, 16, 0x4489); rawW(raw, 16, 0x4489);
-            offset += 3;
-            if (fmStride === 1) fmLoss += 3;
-          } else {
-            const mark = { 0xfb: 0xf56f, 0xfa: 0xf56e, 0xf9: 0xf56b, 0xf8: 0xf56a, 0xfe: 0xf57e }[markValue[curMark]] || 0xf56f;
-            rawW(raw, 32, wideFm(mark));
-            offset += fmStride;
-          }
-          curMark++;
-        }
-        if (encMfm) {
-          if (fmStride === 1) fmLoss++;
-          mfmW(raw, 8, offset < tsize ? td[offset] : 0xff);
-        } else rawW(raw, 32, dataToWideFm(offset < tsize ? td[offset] : 0xff));
-        if (!encMfm) offset += fmStride - 1;
-      }
-      if (fmLoss !== 0) {
-        if (encMfm) for (let j = 0; j < fmLoss; j++) mfmW(raw, 8, 0x4e);
-        else for (let j = 0; j < (fmLoss >> 1); j++) rawW(raw, 32, dataToWideFm(0xff));
-      }
-      image.setBuffer(track, head, levelsToFlux(raw));
+      image.lazy(track * drive.heads + head, () => buildDmkTrack(td, tsize, g.singleDensity));
     }
   }
   return image;
+}
+// one DMK track (td: its bytes, IDAM table first) as flux
+function buildDmkTrack(td, tsize, isSd) {
+  const fmStride = isSd ? 1 : 2;
+  let fmLoss = 0;
+  const raw = new CellBuffer(tsize * 16);   // a double-density track's data bytes; marks and FM grow it
+  const markLocation = new Array(129).fill(-1), markValue = new Array(129).fill(0xfe), markIsMfm = new Array(129).fill(!isSd);
+  let iamLocation = -1, markCount = 0;
+  let tho = 0;
+  let trackOffset = u16le(td, tho) & 0x3fff;
+  let idamIsMfm = !!(td[tho + 1] & 0x80);
+  tho += 2;
+  while (trackOffset !== 0 && trackOffset >= 0x83 && trackOffset < tsize && tho < 0x80) {
+    const markOffset = idamIsMfm ? 3 : 0;
+    markLocation[markCount] = trackOffset - markOffset; markValue[markCount] = 0xfe; markIsMfm[markCount] = idamIsMfm; markCount++;
+    const stride = idamIsMfm ? 1 : fmStride;
+    for (let i = trackOffset + 10 * stride; i < trackOffset + 53 * stride; i++) {
+      if (td[i] >= 0xf8 && td[i] <= 0xfb) {
+        if (!idamIsMfm || u16le(td, i - 2) === 0xa1a1) {
+          markLocation[markCount] = i - markOffset; markValue[markCount] = td[i]; markIsMfm[markCount] = idamIsMfm; markCount++;
+          break;
+        }
+      }
+    }
+    idamIsMfm = !!(td[tho + 1] & 0x80);
+    trackOffset = u16le(td, tho) & 0x3fff;
+    tho += 2;
+  }
+  if (markCount > 0) markIsMfm[markCount] = markIsMfm[markCount - 1];
+  for (let i = markLocation[0] - 1; i >= 3; i--) {
+    if (td[i] === 0xfc && (isSd || u16le(td, i - 2) === 0xc2c2)) { iamLocation = i - (isSd ? 0 : 3); break; }
+  }
+  let curMark = 0;
+  let encMfm = markIsMfm[curMark];
+  for (let offset = 0x80; offset < tsize; offset++) {
+    if (offset === iamLocation) {
+      if (!isSd) { rawW(raw, 16, 0x5224); rawW(raw, 16, 0x5224); rawW(raw, 16, 0x5224); offset += 3; }
+      else { rawW(raw, 32, wideFm(0xf77a)); offset += fmStride; }
+    }
+    if (offset + 8 >= markLocation[curMark]) {
+      const ne = markIsMfm[curMark];
+      if (ne !== encMfm) encMfm = ne;
+    }
+    if (offset === markLocation[curMark] || (!encMfm && offset - fmStride + 1 === markLocation[curMark])) {
+      if (encMfm) {
+        rawW(raw, 16, 0x4489); rawW(raw, 16, 0x4489); rawW(raw, 16, 0x4489);
+        offset += 3;
+        if (fmStride === 1) fmLoss += 3;
+      } else {
+        const mark = { 0xfb: 0xf56f, 0xfa: 0xf56e, 0xf9: 0xf56b, 0xf8: 0xf56a, 0xfe: 0xf57e }[markValue[curMark]] || 0xf56f;
+        rawW(raw, 32, wideFm(mark));
+        offset += fmStride;
+      }
+      curMark++;
+    }
+    if (encMfm) {
+      if (fmStride === 1) fmLoss++;
+      mfmW(raw, 8, offset < tsize ? td[offset] : 0xff);
+    } else rawW(raw, 32, dataToWideFm(offset < tsize ? td[offset] : 0xff));
+    if (!encMfm) offset += fmStride - 1;
+  }
+  if (fmLoss !== 0) {
+    if (encMfm) for (let j = 0; j < fmLoss; j++) mfmW(raw, 8, 0x4e);
+    else for (let j = 0; j < (fmLoss >> 1); j++) rawW(raw, 32, dataToWideFm(0xff));
+  }
+  return levelsToFlux(raw);
 }
 
 // ---------------------------------------------------------------- blank disks

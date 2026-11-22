@@ -12,6 +12,12 @@
 // `api` must equal CLOADM_VIEW.api, the contract between this view (the Worker's build) and the module (served by
 // cloadm.dev in variant A): when they differ, every call is refused with out-of-step rather than half working.
 // CLOADM_BRIDGE.fail(why) says the emulator could not start: calls are then answered at once with not-started.
+// CLOADM_BRIDGE.hostContext is the host's context as it stands: ui/initialize's hostContext, with each
+// ui/notifications/host-context-changed merged in (the view reads displayMode from it: inline, or the side panel; the
+// insets the host's own controls cover, safeAreaInsets; and whether it is a phone, platform and deviceCapabilities).
+// Only the keys the view uses are kept (CONTEXT_KEYS).
+// CLOADM_BRIDGE.sizeChanged(width, height) tells the host the view's content size (ui/notifications/size-changed), for
+// a host that sizes the view from its content (inline); the same size twice is sent once.
 (() => {
   const cfg = window.CLOADM_VIEW || {};
   const EARLY_WAIT_MS = 15000;   // with the tools' own 25 s limit, inside the host's 45 s per call
@@ -22,19 +28,26 @@
   const rpc = (method, params) => new Promise((ok, no) => { const id = rid++; waiting.set(id, { ok, no }); send({ id, method, params }); });
   // an error in the toolbox's shape ({ code, remedy, detail }), as an MCP tool result
   const refusal = (code, remedy, detail) => ({ content: [{ type: 'text', text: JSON.stringify({ error: { code, remedy, detail } }) }], structuredContent: { error: { code, remedy, detail } }, isError: true });
-  const log = { t0: Date.now(), initSent: null, initSentAt: null, init: null, initialized: null, lists: 0, calls: 0, changed: null, other: [] };
+  const log = { t0: Date.now(), initSent: null, initSentAt: null, init: null, initialized: null, lists: 0, calls: 0, changed: null, other: [], last: null, sizes: 0, size: null };
   const ms = () => Date.now() - log.t0;
   let impl = null, failed = null, tools = Array.isArray(cfg.tools) ? cfg.tools : [];
   let settle;
+  // the host context's keys the view reads, copied one by one from what the host sent (nothing else is taken in)
+  const CONTEXT_KEYS = ['displayMode', 'availableDisplayModes', 'containerDimensions', 'theme', 'safeAreaInsets', 'platform', 'deviceCapabilities'];
+  const merge = (base, add) => {
+    const out = Object.assign({}, base);
+    if (add && typeof add === 'object') for (const k of CONTEXT_KEYS) if (Object.prototype.hasOwnProperty.call(add, k)) out[k] = add[k];
+    return out;
+  };
   const ready = new Promise((r) => { settle = r; });
   const listeners = [];
   const changed = () => listeners.forEach((fn) => fn());
   // once both the handshake and the emulator are done, whichever comes last, the host is told the tools changed
   const listChanged = () => { if (log.changed !== null) return; log.changed = ms(); send({ method: 'notifications/tools/list_changed', params: {} }); changed(); };
   const B = window.CLOADM_BRIDGE = {
-    log, host: null,
+    log, host: null, hostContext: {},
     get failed() { return failed; },
-    describe: () => `bridge: init ${log.init === null ? 'pending' : typeof log.init === 'number' ? `${log.init} ms` : log.init}, tools/list ×${log.lists}, calls ×${log.calls}, list_changed ${log.changed === null ? 'not sent' : 'sent'}${failed ? `, ${failed.code}` : ''}${log.other.length ? `, other ${log.other.join(' ')}` : ''}`,
+    describe: () => `bridge: init ${log.init === null ? 'pending' : typeof log.init === 'number' ? `${log.init} ms` : log.init}, tools/list ×${log.lists}, calls ×${log.calls}, list_changed ${log.changed === null ? 'not sent' : 'sent'}${log.last ? `, last call ${log.last}` : ''}${log.size ? `, size ${log.size.join('×')} ×${log.sizes}` : ''}${failed ? `, ${failed.code}` : ''}${log.other.length ? `, other ${log.other.join(' ')}` : ''}`,
     onChange: (fn) => listeners.push(fn),
     attach(x) {
       if (impl || failed) return false;
@@ -50,15 +63,35 @@
       return true;
     },
     fail(why) { if (impl || failed) return; failed = { code: 'not-started', detail: String(why) }; settle(); changed(); },
-    requestDisplayMode: (mode) => rpc('ui/request-display-mode', { mode }),
+    sizeChanged(width, height) {
+      const w = Math.ceil(width), h = Math.ceil(height);
+      if (!(w > 0 && h > 0) || (log.size && log.size[0] === w && log.size[1] === h)) return false;
+      log.size = [w, h]; log.sizes++;
+      send({ method: 'ui/notifications/size-changed', params: { width: w, height: h } });
+      changed();
+      return true;
+    },
+    // -> the host's answer ({ mode }: the mode it is in now, which the context takes at once)
+    requestDisplayMode: (mode) => rpc('ui/request-display-mode', { mode }).then((r) => {
+      if (r && typeof r.mode === 'string') { B.hostContext = merge(B.hostContext, { displayMode: r.mode }); changed(); }
+      return r;
+    }),
   };
   const REMEDY = {
     'not-started': 'the emulator in the panel could not start (detail says why): ask the person to reopen the view, or open it with open_emulator_inline, which needs nothing from cloadm.dev',
     'out-of-step': 'the connector and the cloadm.dev site are from different releases: open the view with open_emulator_inline (self-contained), and tell the person the connector needs redeploying',
     'not-ready': 'the emulator was still starting: call the tool again',
   };
+  // the last call's name and outcome, for Details ("screen_text ok 12 ms", "type_text error not-started"): what the
+  // person reads to tell a call the host never delivered (calls ×0) from one the view answered with an error
+  const done = (name, t0, r) => {
+    const e = r && r.isError && r.structuredContent && r.structuredContent.error;
+    log.last = `${name} ${r && r.isError ? `error ${(e && e.code) || '?'}` : 'ok'} ${ms() - t0} ms`;
+    changed();
+    return r;
+  };
   async function call(d) {
-    const p = d.params || {};
+    const p = d.params || {}, t0 = ms();
     log.calls++; changed();
     if (!tools.some((t) => t.name === p.name)) return send({ id: d.id, error: { code: -32602, message: `unknown tool: ${p.name}` } });
     const ctl = new AbortController();
@@ -67,12 +100,12 @@
       let timer;
       await Promise.race([ready, new Promise((r) => { timer = setTimeout(r, EARLY_WAIT_MS); })]);
       clearTimeout(timer);
-      if (failed) return send({ id: d.id, result: refusal(failed.code, REMEDY[failed.code], failed.detail) });
-      if (!impl) return send({ id: d.id, result: refusal('not-ready', REMEDY['not-ready'], `not ready after ${EARLY_WAIT_MS / 1000} s`) });
+      if (failed) return send({ id: d.id, result: done(p.name, t0, refusal(failed.code, REMEDY[failed.code], failed.detail)) });
+      if (!impl) return send({ id: d.id, result: done(p.name, t0, refusal('not-ready', REMEDY['not-ready'], `not ready after ${EARLY_WAIT_MS / 1000} s`)) });
       const result = await impl.call(p.name, p.arguments || {}, { signal: ctl.signal });
-      if (!ctl.signal.aborted) send({ id: d.id, result });
+      if (!ctl.signal.aborted) send({ id: d.id, result: done(p.name, t0, result) });
     } catch (err) {
-      send({ id: d.id, result: refusal('tool-failed', 'the panel failed to run the tool (detail says why)', String((err && err.message) || err)) });
+      send({ id: d.id, result: done(p.name, t0, refusal('tool-failed', 'the panel failed to run the tool (detail says why)', String((err && err.message) || err))) });
     } finally { running.delete(d.id); }
   }
   addEventListener('message', (e) => {
@@ -82,6 +115,7 @@
     if (d.method === 'tools/list') { log.lists++; changed(); send({ id: d.id, result: { tools } }); return; }
     if (d.method === 'tools/call') { call(d); return; }
     if (d.method === 'ping') { send({ id: d.id, result: {} }); return; }
+    if (d.method === 'ui/notifications/host-context-changed') B.hostContext = merge(B.hostContext, d.params);
     if (d.method === 'notifications/cancelled') { const c = d.params && running.get(d.params.requestId); if (c) c.abort(); return; }
     if (d.method) { log.other.push(d.method.replace(/^ui\/notifications\//, '')); if (log.other.length > 6) log.other.shift(); changed(); }
     if (d.id !== undefined) send({ id: d.id, error: { code: -32601, message: `method not supported: ${d.method}` } });
@@ -92,6 +126,7 @@
     appCapabilities: { tools: { listChanged: true }, availableDisplayModes: ['inline', 'fullscreen'] } })
     .then((r) => {
       log.init = ms(); B.host = r;
+      if (r) B.hostContext = merge(merge({}, r.hostContext), B.hostContext);
       send({ method: 'ui/notifications/initialized', params: {} });
       log.initialized = ms();
       if (impl) listChanged();

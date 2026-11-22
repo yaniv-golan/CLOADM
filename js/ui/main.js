@@ -36,7 +36,9 @@ import { setupSerialPanel } from './serial-panel.js';
 import { setupDriveWirePanel } from './drivewire-panel.js';
 import { setupDisplayPanel } from './display-panel.js';
 import { setupSnapshotPanel } from './snapshot-panel.js';
-import { parseUrlConfig, linkFetchError } from '../config.js';
+import { parseUrlConfig, linkFetchError, claudeOffered } from '../config.js';
+import { setupAskPopout } from './ask-popout.js';
+import { setupArmGuard } from './arm-guard.js';
 import { setupEmbed } from './embed.js';
 import { setupSettingsFile } from './settings-file.js';
 import { setupClaude } from './claude.js';
@@ -64,19 +66,29 @@ try {
   storageProblem = e;
   mediaStore = new MemoryMediaStore();
 }
+// Whether the Claude chat is offered here at all: a top-level page and no embed flag (js/config.js's claudeOffered).
+// A framed page is someone else's page, and the chat's key card would be on it - that is why this is one decision used
+// by both the key store and the controller, rather than the embed flag alone.
+// "shown inside another page": window.self !== window.top. Reading it is a WindowProxy comparison, which does not throw
+// even in a sandboxed frame (checked), but a page that cannot tell is treated as framed - the decision fails closed.
+const framedInPage = (() => { try { return window.self !== window.top; } catch (e) { return true; } })();
+const chatHere = claudeOffered(link, framedInPage);
+// a page with no chat says so on <body>, so the stylesheet hides the buttons that would open one rather than leaving
+// them on screen doing nothing (play/index.html hides #btnAsk, #navCommands, #claude, #ask, #askRail under this)
+if (!chatHere) document.body.classList.add('no-claude');
 // the Claude API key: this browser's storage only (cloadm.anthropicKey), never a Session setting.
-// An embed gets an in-memory store, never the saved one: no route in an embed may reach a key left in this browser
-// (the chat is not set up there either, but the store is the second lock - a future route that reads keyStore.get()
-// finds nothing).
-const keyStore = link.embed ? new MemoryKeyStore()
-  : (() => { try { return localStorage ? storageKeyStore(localStorage) : new MemoryKeyStore(); } catch (e) { return new MemoryKeyStore(); } })();
+// Where the chat is not offered, the store is in memory, never the saved one: nothing on that page may reach a key
+// left in this browser (the chat is not set up there either, but the store is the second lock - a future route that
+// reads keyStore.get() finds nothing).
+const keyStore = chatHere ? (() => { try { return localStorage ? storageKeyStore(localStorage) : new MemoryKeyStore(); } catch (e) { return new MemoryKeyStore(); } })()
+  : new MemoryKeyStore();
 // embedded (?embed=1): no welcome menu of its own; the embedding page drives a plain machine
 const session = new Session({ store: settings, media: mediaStore, keyStore, welcomeMenu: !link.embed });
 const page = createPage(session, new Audio());
 // a background write that fails (full storage, permission refused) must reach the user, not vanish
 session.index.writeError = (name, e) => page.status(session.indexWriteError(name, e), true);
 // the handle exists before the awaited init, so anything watching the page sees it at once
-window.emu = { session, profiles, Emu, feedback: page.feedback, ready: false, started: false, audio: page.audio, audioRunning: () => page.audio.running, get machine() { return session.machine; },
+window.emu = { session, profiles, Emu, feedback: page.feedback, ready: false, started: false, audio: page.audio, audioRunning: () => page.audio.running, get machine() { return session.shownMachine; },
   // the input layer, for the browser check (keyboard modes, the keyboard joystick and the gamepads)
   get input() { return screen.input; }, readPads: () => screen.readPads() };
 try {
@@ -125,13 +137,28 @@ setupKeyHint(page);
 setupSettingsFile(page);
 const share = setupShare(page);
 const showRoms = () => romSockets.reveal();
-// No Claude chat in an embed. An embedded CLOADM is third-party content in someone else's page, and the chat
-// would put its API key card on that page; with no controller there is no chat machine, no panel and no key card, and
-// the routes that open one (?app=claude, the Ask panel, the command box, a keypress) have nothing to reach.
-const claude = link.embed ? null : setupClaude(page);
+// No Claude chat on a page shown inside someone else's page, whether by the embed flag or by being framed: the chat
+// would put its API key card there. With no controller there is no chat machine, no panel and no key card, and the
+// routes that open one (?app=claude, the Ask panel, the command box, a keypress) have nothing to reach.
+const claude = chatHere ? setupClaude(page) : null;
 // set up only when there is a controller: both modules drive the chat and would throw on null
 if (claude) setupAsk(page, claude);
 if (claude) setupCommandBox(page, claude);
+// the controls that hand Claude a key or a say over the machine take no press for their card's first moments on screen
+if (claude) {
+  const card = (label, id, ...controls) => ({ label, card: $(id), controls: controls.map((c) => $(c)) });
+  const said = $('armAnnounce');
+  window.emu.armGuard = setupArmGuard([
+    card('Claude asks to use the emulator: Allow is ready.', 'askConsent', 'btnAskAllow'),
+    card('Claude asks to use the emulator: Allow is ready.', 'claudeConsentAsk', 'btnClaudeAllow'),
+    card('API key form ready.', 'askKeyForm', 'btnAskKeySave'), card('API key form ready.', 'claudeKeyCard', 'btnClaudeKeySave'),
+    card('Claude settings ready.', 'askComposer', 'chkAskMachine', 'btnAskKeyForget'), card('Claude settings ready.', 'claudeKeySaved', 'btnClaudeKeyForget'),
+    card('Claude settings ready.', 'claudeSession', 'chkClaudeTools'),
+  ], { announce: (text) => { said.textContent = ''; requestAnimationFrame(() => { said.textContent = text; }); } });
+}
+// where there is no chat because this page is inside another site's page: "Ask Claude ↗" opens it in a new tab
+// (the framed full page's app bar; an embed's corner chip only with askclaude=1)
+window.emu.askPopout = claude ? null : setupAskPopout(page, { link, framed: framedInPage });
 const welcome = setupWelcome(page, { showRoms, openClaude: () => claude && claude.open() });
 const drawer = setupDrawer(page, { showRoms });
 const openRoms = () => { romSockets.reveal(); $('fileRom').click(); };
@@ -154,6 +181,9 @@ $('fileCart').onchange = async (e) => {
 $('btnMenu').onclick = () => {
   const open = $('appbar').classList.toggle('menu-open');
   $('btnMenu').setAttribute('aria-expanded', String(open));
+  // a disclosure: it opens with the focus on its first item (Esc gives it back to Menu), so Tab goes down the list
+  // (the folded links are inert until drawn: markUndrawn now, not on the class change's mutation, so the focus can land)
+  if (open) { markUndrawn(); const first = [...document.querySelectorAll('.appbar nav > :is(a, button)')].find((e) => e.checkVisibility()); if (first) first.focus(); }
 };
 // Open only where it shows: .menu-open matters only while Menu and the links behind it are on the page (the phone and
 // short-landscape layouts); the touch keys' "Machine menu" sets it at any width, and a class left over there must not
@@ -168,18 +198,43 @@ $('btnMenu').onclick = () => {
 
 // the one-row app bar (1200 px and up, play/index.html) when its items do not all fit, in a wide fallback font: the key
 // hints and the machine's RAM size give way (class "tight") before anything wraps. Measured, not guessed: it is taken
-// off, then put on if the links still run past the bar
+// off, then put on if the links still run past the bar or leave the status (the speed, the one flexible item) no room
+// to be whole. The speed is then shown whole or, only if tight still leaves it no room, not at all (class "nostatus";
+// the v0.1.8 review's m4), never cut to an ellipsis stub
 {
-  const bar = $('appbar'), nav = bar.querySelector('nav'), wide = matchMedia('(min-width: 1200px)');
+  const bar = $('appbar'), nav = bar.querySelector('nav'), status = $('status'), wide = matchMedia('(min-width: 1200px)');
+  const over = () => nav.getBoundingClientRect().right > bar.getBoundingClientRect().right + 0.5;
+  const cut = () => status.scrollWidth > status.clientWidth + 0.5;
   const fit = () => {
-    bar.classList.remove('tight');
-    if (wide.matches && nav.getBoundingClientRect().right > bar.getBoundingClientRect().right + 0.5) bar.classList.add('tight');
+    bar.classList.remove('tight', 'nostatus');
+    if (!wide.matches) return;
+    // the links go tight first, for the links or for the speed; only a speed that still cannot be whole goes
+    if (over() || cut()) bar.classList.add('tight');
+    if (cut()) bar.classList.add('nostatus');
   };
   const ro = new ResizeObserver(fit);
   ro.observe(bar); ro.observe(nav);   // the links change width with the font
+  // (the speed's text changes as it runs: whether it fits is asked again then)
+  new MutationObserver(fit).observe(status, { childList: true, characterData: true, subtree: true });
   if (document.fonts) document.fonts.ready.then(fit);
   session.on((ev) => { if (ev === 'machine') fit(); });
   fit();
+}
+// the phone's app bar (700 px and less, play/index.html): Add ROMs is Menu's first item while the app bar's pill is
+// up (the machine has no BASIC), and Menu wears a dot then (UX R30); Share is its item too (the bar has no room)
+{
+  const pill = $('romPill'), item = $('navRoms');
+  // (the dot is drawn only: while it is on, Menu's name says what it means)
+  const sync = () => {
+    item.hidden = pill.hidden;
+    $('btnMenu').classList.toggle('dot', !pill.hidden);
+    if (pill.hidden) $('btnMenu').removeAttribute('aria-label'); else $('btnMenu').setAttribute('aria-label', 'Menu, Add ROMs needed');
+  };
+  const close = () => { $('appbar').classList.remove('menu-open'); $('btnMenu').setAttribute('aria-expanded', 'false'); };
+  item.onclick = () => { close(); pill.click(); };
+  $('navShare').onclick = () => { close(); $('btnShare').click(); };
+  new MutationObserver(sync).observe(pill, { attributes: true, attributeFilter: ['hidden'] });
+  sync();
 }
 
 // Esc closes the topmost surface that is open (page.onEscape: confirmations, menus, cards, the views, the chat)
@@ -246,5 +301,7 @@ const starting = welcome.start(visit, { fromLink, withMedia: link.roms.length > 
   window.emu.started = true;
   share.ready();
   window.emu.linkDone = true;
-  if (link.errors.length) page.status(`This link has settings CLOADM can't use: ${link.errors.join('; ')}`, true);
+  if (link.errors.length) page.status(`This link has ${link.errors.length === 1 ? 'a setting' : 'settings'} CLOADM can't use: ${link.errors.join('; ')}`, true);
+  // "#share=…" (a share link's moment follows #s=): not one the page reads, and it said nothing
+  else if (/^#share./.test(location.hash)) { page.status("This share link couldn't be read.", true); history.replaceState(null, '', location.pathname + location.search); }
 })();

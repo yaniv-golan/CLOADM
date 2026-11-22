@@ -3,7 +3,7 @@
  * and written back the same way (share links, the embed snippet). Every link points at /play.
  *
  *   parseUrlConfig(search, fallbackMachine) -> { machine, config, display, media, autorun, roms, start, app, nitros9, embed,
- *                                                sound, joy, fastTape, turbo, selftest, errors }
+ *                                                askClaude, sound, joy, fastTape, turbo, selftest, errors }
  *   buildUrl(base, cfg) -> the link for cfg (parseUrlConfig of it gives cfg back)
  *
  * Parameters (URL_PARAMS lists them):
@@ -34,6 +34,8 @@
  *                           keyboard alone); not for embeds (a page the site puts in an iframe has no touch panel)
  *   sound=1|0, fasttape=1|0, turbo=1|0
  *   embed=1                 embed mode: the screen only, driven by the page around it (js/embed-api.js)
+ *   askclaude=1             with embed=1: draw a small "Ask Claude ↗" chip in the screen's corner, a link that opens
+ *                           this moment in a new tab with the chat (js/ui/ask-popout.js). Off by default
  *   storage=opfs|fsa|fallback  where ROMs and programs are kept (js/host/media-store-open.js)
  * Errors are messages for the status line; a bad value is ignored, the rest of the link still applies.
  */
@@ -50,7 +52,7 @@ export const DISPLAY_PARAMS = {
   curvature: { key: 'curvature', range: [0, 100] },
   glow: { key: 'glow', range: [0, 100] },
 };
-const FLAGS = { sound: 'sound', fasttape: 'fastTape', turbo: 'turbo', embed: 'embed', selftest: 'selftest' };
+const FLAGS = { sound: 'sound', fasttape: 'fastTape', turbo: 'turbo', embed: 'embed', selftest: 'selftest', askclaude: 'askClaude' };
 const MEDIA = ['load', 'tape', 'cart', 'disk'];
 export const URL_PARAMS = ['machine', 'start', 'app', 'nitros9', ...MEDIA, 'autorun', 'rom', ...Object.keys(DISPLAY_PARAMS), 'joy', 'touch', ...Object.keys(FLAGS), 'storage'];
 const STORAGE = ['opfs', 'fsa', 'fallback'];
@@ -69,10 +71,10 @@ export function parseUrlConfig(search, fallbackMachine = 'dragon64') {
 
   // a NitrOS-9 link without a machine means the CoCo 3, where it boots
   const id = p.get('machine') ?? (p.has('nitros9') ? NITROS9_MACHINES[0] : null);
-  // (the names the machine picker shows, not the ids a link uses: a person reads the message, and typed an id)
-  if (id !== null && !profiles[id]) errors.push(`machine=${id}: no such machine (the machines are ${Object.values(profiles).map((p) => p.name).join(', ')})`);
+  // (the fallback machine opens, and the message says which: the list of every machine made a toast of a whole paragraph)
   cfg.machine = id !== null && profiles[id] ? id : null;
   const profile = profiles[cfg.machine || fallbackMachine] || profiles.dragon64;
+  if (id !== null && !profiles[id]) errors.push(`machine=${id}: no such machine (opened ${profile.name} instead)`);
 
   // the model's options, checked against its values
   const options = profile.options || {};
@@ -91,9 +93,9 @@ export function parseUrlConfig(search, fallbackMachine = 'dragon64') {
   }
 
   const start = p.get('start');
-  if (start !== null) { if (STARTS.includes(start)) cfg.start = start; else errors.push(`start=${start} isn't something CLOADM has (try start=${STARTS.join(' or start=')})`); }
+  if (start !== null) { if (STARTS.includes(start)) cfg.start = start; else errors.push(`start=${start} isn't a start CLOADM has (${STARTS.join(', ')})`); }
   const app = p.get('app');
-  if (app !== null) { if (APPS.includes(app)) cfg.app = app; else errors.push(`app=${app} isn't something CLOADM has (try app=${APPS.join(' or app=')})`); }
+  if (app !== null) { if (APPS.includes(app)) cfg.app = app; else errors.push(`app=${app} isn't an app CLOADM has (${APPS.join(', ')})`); }
   // both: the app wins (it takes the screen), and start= is not run behind it
   if (cfg.app && cfg.start) { errors.push(`start=${cfg.start} is ignored: app=${cfg.app} opens instead`); cfg.start = null; }
   // nitros9: true (the image the user has) or an image's name; only where NitrOS-9 boots (the CoCo 3)
@@ -141,6 +143,8 @@ export function parseUrlConfig(search, fallbackMachine = 'dragon64') {
     const f = flag(p.get(name));
     if (f === null) errors.push(`${name}=${p.get(name)}: 1 or 0`); else cfg[key] = f;
   }
+  // the corner chip is the embed's: the full page has Ask Claude in its app bar (a link to a new tab when framed)
+  if (cfg.askClaude && cfg.embed !== true) { errors.push('askclaude=1: only with embed=1 (the full page has Ask Claude in its app bar)'); cfg.askClaude = null; }
   return cfg;
 }
 
@@ -177,3 +181,11 @@ export function buildUrl(base, cfg) {
   if (cfg.storage) s.set('storage', cfg.storage);
   return u.toString();
 }
+
+// Whether the in-page Claude chat may be offered. A page shown inside someone else's page is not the person's own visit:
+// the chat puts an API key card on screen, and the page around it would see and drive that. So the chat needs BOTH a
+// top-level page and no embed flag. `framed` is the page's answer to "is this shown inside another page" (in a browser:
+// window.self !== window.top). It fails CLOSED: only a page that says plainly it is top-level gets the chat, so `true`,
+// `undefined`, or anything else means framed - a page that cannot tell is treated as shown inside another page.
+// (The claude.ai connector view is unaffected: it is its own document, not this page, and it never sets up the chat.)
+export const claudeOffered = (link, framed) => !(link && link.embed) && framed === false;

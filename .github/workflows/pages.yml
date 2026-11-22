@@ -1,0 +1,101 @@
+# The site at cloadm.dev: main's tree, but only after the gates have passed on that exact commit.
+#
+# This is a `workflow_run` on the gates, not a job inside them. The reason is a permission rule: a workflow that is
+# CALLED can grant its jobs no more than the CALLER grants at the call site, and GitHub validates that when the
+# workflow LOADS -- before any job's `if:` is evaluated. The release workflow calls tests.yml to gate a tag with
+# contents: read only, so a deploy job inside tests.yml asking for pages: write and id-token: write would have been
+# refused at startup, and every tag release would have died before running. Keeping the deploy out of tests.yml keeps
+# that file read-only end to end, and the two write scopes live here and nowhere else.
+#
+# THE GUARDS, all required, each compared exactly in tests/workflows.test.js:
+#   - the gates finished with conclusion == 'success' (a red main never publishes);
+#   - the event that started them was a push (not a pull request or a workflow_dispatch);
+#   - that push was to main (a branch, tag or PR run deploys nothing);
+# and the tree published is `github.event.workflow_run.head_sha` -- the commit the gates actually ran on -- checked out
+# by that SHA, passed to the script through env: and never interpolated into a run: block.
+#
+# One at a time, and the concurrency is on the JOB, not the workflow. At workflow level it would queue EVERY run of this
+# file in group `pages` -- including a branch's or a pull request's, which this job then skips -- and a queued branch
+# run would cancel a PENDING main deploy and deploy nothing. On the job, only a deploy that will really happen takes
+# the group. cancel-in-progress is FALSE because a deploy cancelled half way can leave the site in whatever state it
+# reached; a newer main deploy supersedes an older PENDING one through the queue, killing nothing in flight.
+#
+# Nothing is built: the site is the repository as committed.
+#
+# IT DOES NOTHING UNTIL THE OWNER SWITCHES PAGES OVER. The guard includes `vars.PAGES_VIA_ACTIONS == 'true'`, a
+# repository variable that does not exist yet, so every run skips and legacy Pages keeps serving main exactly as it
+# does today. That is deliberate: it means merging this changes nothing, and the order of merging and switching
+# cannot matter. The owner's procedure is in docs/development.md ("Publishing the site").
+#
+# Every action is pinned to a full commit SHA with its release tag beside it, as in tests.yml.
+name: pages
+
+on:
+  workflow_run:
+    # This must match tests.yml's `name:` exactly: a workflow_run on a name that does not exist never fires.
+    workflows: [tests]
+    types: [completed]
+
+# Read-only by default; the one job asks for its two scopes.
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    # The whole guard, as one expression. A failing gate run, a pull request, a branch or a tag all fail it.
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      vars.PAGES_VIA_ACTIONS == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pages: write        # the deployment
+      id-token: write     # the OIDC token deploy-pages exchanges for it
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    # Only a deploy that will really run takes the group (see the header).
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    steps:
+      # The commit the gates ran on, by SHA: the published bytes are the gated bytes.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - name: Stage the site
+        id: stage
+        env:
+          PUBLISHED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          # The checkout is the gate's own commit: refuse to publish anything else.
+          test "$(git rev-parse HEAD)" = "$PUBLISHED_SHA" || { echo "checked out $(git rev-parse HEAD), gated $PUBLISHED_SHA"; exit 1; }
+          # ...and refuse to publish it if main has moved on. A re-run of an older main's gates, or an out-of-order
+          # completion, would otherwise put stale bytes over a newer deploy: only the commit main points at now goes out.
+          # A SUPERSEDED run SKIPS, it does not fail: main has moved on, so there is nothing wrong with this run and
+          # nothing to publish. (HEAD above is different: if the checkout is not the gated commit, that IS a fault.)
+          main_now=$(git ls-remote origin refs/heads/main | cut -f1)
+          if [ "$main_now" != "$PUBLISHED_SHA" ]; then
+            echo "::notice::main is at $main_now, this run gated $PUBLISHED_SHA: a newer commit is published, so this run skips"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+          mkdir site
+          git archive HEAD | tar -x -C site
+          rm -rf site/.github site/.git site/tests site/tools
+          test -f site/.nojekyll || { echo ".nojekyll is missing: Pages would run Jekyll over the site"; exit 1; }
+          test -f site/CNAME || { echo "CNAME is missing: the custom domain would be lost"; exit 1; }
+          test -f site/index.html && test -f site/play/index.html || { echo "the landing page or /play/ is missing"; exit 1; }
+          echo "staged $PUBLISHED_SHA ($(du -sh site | cut -f1))"
+      - if: steps.stage.outputs.publish == 'true'
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9  # v5.0.0
+        with:
+          path: site
+      - if: steps.stage.outputs.publish == 'true'
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346  # v5.0.1

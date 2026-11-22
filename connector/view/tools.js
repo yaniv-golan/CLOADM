@@ -19,9 +19,10 @@ import { createToolbox, mcpResult, McpToolError } from '../../js/mcp/tools.js';
 
 // The contract between the view's HTML (bridge.js and the CLOADM_VIEW config, built into the Worker) and this module
 // with panel.js (served from cloadm.dev in variant A). Raise it whenever either side's expectations of the other
-// change: the bridge's attach() and fail(), CLOADM_VIEW's fields, the shell's element ids. The bridge refuses an
-// emulator whose number differs (out-of-step).
-export const PANEL_API = 1;
+// change: the bridge's attach(), fail() and hostContext, CLOADM_VIEW's fields, the shell's element ids. The bridge
+// refuses an emulator whose number differs (out-of-step). 2: the toolbar, Details and the host context (the view's UX).
+// 3: the bridge's sizeChanged() and its safe-area, platform and device context keys; the shell's #keys and keys-item.
+export const PANEL_API = 3;
 export const TEXT_MAX = 100000;
 export const LEFT_OUT = Object.freeze(['close_machine', 'insert_tape', 'insert_disk', 'save_snapshot', 'restore_snapshot', 'add_roms', 'remove_roms']);
 // the bundled programs' files a load by name can ask for (Session.welcomeFile, lizaFile, gameFile and the demo, for
@@ -32,7 +33,7 @@ export const NO_FILES = 'Claude\'s side panel has no media folder and reads no f
 // host: the toolbox's host minus files ({ png, program, now, date, yield }); ROMs are already in the Session's store
 export function panelToolbox(session, host) {
   const noFiles = () => { throw new McpToolError('no-media-root', NO_FILES); };
-  const tb = createToolbox(Object.assign({}, host, { roms: () => [], includeReader: null, readMedia: noFiles, writeMedia: noFiles, checkWritable: noFiles }), { session, refuseRomReads: true });
+  const tb = createToolbox(Object.assign({}, host, { roms: () => [], includeReader: null, readMedia: noFiles, writeMedia: noFiles, checkWritable: noFiles }), { session, refuseRomReads: true, route: 'panel' });
   const offered = (name) => tb.has(name) && !LEFT_OUT.includes(name);
   return {
     tools: () => tb.tools().filter((t) => offered(t.name)),

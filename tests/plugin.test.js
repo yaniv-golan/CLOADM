@@ -47,9 +47,22 @@ function cmp(a, b) {
 }
 check('semver order: 0.1.7-pre > 0.1.6-pre > 0.1.6-alpha, 0.1.7 > 0.1.7-pre, 0.2.0 > 0.1.10',
   cmp('0.1.7-pre', '0.1.6-pre') > 0 && cmp('0.1.6-pre', '0.1.6-alpha') > 0 && cmp('0.1.7', '0.1.7-pre') > 0 && cmp('0.2.0', '0.1.10') > 0 && cmp('1.0.0', '1.0.0') === 0);
-// the newest released heading ("### 0.1.6-pre"); the next version is never older than it
-const newest = (/^### (\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)\b/m.exec(changelog) || [])[1];
+// the newest released heading ("### 0.1.6-pre"); the next version is never older than it. "Newest" is the greatest
+// by SEMVER, not the first in the file: headings are written newest first, but a section inserted out of order (or a
+// release cut in a hurry) must not make a guard read as satisfied by whichever heading happens to come first.
+const headingsOf = (text) => [...text.matchAll(/^### (\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)\b/gm)].map((m) => m[1]);
+const newestOf = (heads) => heads.reduce((a, b) => (a === undefined ? b : (cmp(b, a) > 0 ? b : a)), undefined);
+const headings = headingsOf(changelog);
+const newest = newestOf(headings);
+check('CHANGELOG.md has release headings to compare with', headings.length > 0, headings.slice(0, 3).join(', '));
 check('the next version is not older than the newest release in CHANGELOG.md', !!newest && !!NEXT && SEMVER.test(NEXT) && cmp(NEXT, newest) >= 0, `${NEXT} vs ${newest}`);
+// THE CHECK ABOVE IS NOT VACUOUS ONLY IF "newest" IS NOT "first": exercise the REAL newestOf() on a list whose
+// greatest is not first, so a revert to first-match would be caught here rather than by a copy of the reduce.
+{
+  const outOfOrder = headingsOf('### 0.1.8-pre\n### 0.2.0\n### 0.1.7-pre\n');
+  check('...and newestOf() takes the greatest by semver, not the first heading in the file',
+    outOfOrder[0] !== '0.2.0' && newestOf(outOfOrder) === '0.2.0', `first=${outOfOrder[0]} newest=${newestOf(outOfOrder)}`);
+}
 
 check('plugin.json has the next version', J.plugin.version === NEXT, `${J.plugin.version} vs ${NEXT}`);
 check('mcpb/manifest.json has the next version', J.mcpb.version === NEXT, `${J.mcpb.version} vs ${NEXT}`);
@@ -70,11 +83,26 @@ for (const p of J.market.plugins || []) {
     (dir === ROOT || dir.startsWith(ROOT + path.sep)) && !man.error && man.json.name === p.name);
 }
 
-const server = (J.plugin.mcpServers || {}).cloadm || {};
-check('plugin.json: mcpServers.cloadm is node cli/cloadm.js --mcp from the plugin root',
-  server.command === 'node' && JSON.stringify(server.args) === JSON.stringify(['${CLAUDE_PLUGIN_ROOT}/cli/cloadm.js', '--mcp']), JSON.stringify(server));
+// One plugin, two servers (https://code.claude.com/docs/en/plugins-reference: mcpServers is "inline server configs
+// keyed by name", with no per-server display title, so the ids are what people see): cloadm-panel, the side-panel
+// connector, which web and desktop chat offer on the plugin's Connectors tab; cloadm, the local server, which
+// Cowork and Claude Code run on the person's computer. network.hosts declares the host the plugin reaches (the same
+// page: it "doesn't allow or block any host").
+const SERVERS = J.plugin.mcpServers || {};
+check('plugin.json: exactly two servers, cloadm (the local server\'s id since the first release: users\' allowlists name mcp__plugin_cloadm_cloadm__*) and cloadm-panel',
+  JSON.stringify(Object.keys(SERVERS).sort()) === JSON.stringify(['cloadm', 'cloadm-panel']), JSON.stringify(Object.keys(SERVERS)));
+const server = SERVERS.cloadm || {}, panel = SERVERS['cloadm-panel'] || {};
+check('plugin.json: cloadm is node cli/cloadm.js --mcp from the plugin root',
+  server.command === 'node' && JSON.stringify(server.args) === JSON.stringify(['${CLAUDE_PLUGIN_ROOT}/cli/cloadm.js', '--mcp']) && Object.keys(server).length === 2, JSON.stringify(server));
+check('plugin.json: cloadm-panel is the connector over HTTP, https://mcp.cloadm.dev/mcp, and nothing else',
+  panel.type === 'http' && panel.url === 'https://mcp.cloadm.dev/mcp' && Object.keys(panel).length === 2, JSON.stringify(panel));
+check('plugin.json: network.hosts is exactly the connector\'s host, mcp.cloadm.dev',
+  JSON.stringify((J.plugin.network || {}).hosts) === JSON.stringify(['mcp.cloadm.dev']) && new URL(panel.url || 'x:').host === 'mcp.cloadm.dev', JSON.stringify(J.plugin.network));
+const DESCRIPTION = 'Play Dragon and Tandy Color Computer machines with Claude: live in Claude\'s side panel, or on your computer with your own ROMs and files.';
+check('plugin.json: the description says both routes, at most 140 characters', J.plugin.description === DESCRIPTION && DESCRIPTION.length <= 140, `${(J.plugin.description || '').length}: ${J.plugin.description}`);
+check('marketplace.json: the plugin\'s description is plugin.json\'s', (J.market.plugins || [])[0] && J.market.plugins[0].description === J.plugin.description);
 const pluginRoot = (s) => s.replace(/\$\{CLAUDE_PLUGIN_ROOT\}/g, ROOT);
-check('plugin.json: the server script resolves', fs.existsSync(pluginRoot(server.args[0])));
+check('plugin.json: the server script resolves', !!server.args && fs.existsSync(pluginRoot(server.args[0])));
 check('plugin.json: the icon resolves', !J.plugin.icon || (J.plugin.icon.startsWith('./') && fs.existsSync(rel(J.plugin.icon))), J.plugin.icon);
 
 check('mcpb: manifest_version 0.3, a node server whose entry point is cli/cloadm.js',
@@ -87,8 +115,9 @@ const release = fs.readFileSync(rel('.github/workflows/release.yml'), 'utf8');
 const staged = ((/git archive HEAD ([^|]+)\|/.exec(release) || [])[1] || '').trim().split(/\s+/);
 check('release.yml stages cli, js, examples and the manifest\'s icon into the bundle',
   ['cli', 'js', 'examples'].every((d) => staged.includes(d)) && staged.includes(J.mcpb.icon) && /cp mcpb\/manifest\.json stage\/manifest\.json/.test(release), staged.join(' '));
-check('release.yml runs on tags v* only, and checks the tag against the manifests',
-  /on:\s*\n\s*push:\s*\n\s*tags: \['v\*'\]/.test(release) && !/branches:/.test(release) && /test "v\$v" = "\$GITHUB_REF_NAME"/.test(release));
+check('release.yml runs on tags v* only (plus a hand-started dry run), and checks the tag against the manifests',
+  /on:\s*\n\s*push:\s*\n\s*tags: \['v\*'\]/.test(release) && !/branches:/.test(release)
+  && /workflow_dispatch:/.test(release) && /test "\$have" = "\$v"/.test(release));
 
 const uc = J.mcpb.user_config || {};
 check('mcpb: user_config has the media folder (directory, required) and the ROM folder (directory, optional)',

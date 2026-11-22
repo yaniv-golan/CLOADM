@@ -99,7 +99,7 @@ export function setupRomPanel(page) {
   $('folderRom').onchange = async (e) => { const l = pickedFiles(e.target); e.target.value = ''; await take(l); };
   $('btnRomFolder').onclick = () => $('folderRom').click();
   $('btnRomPack').onclick = saveRomPack;
-  $('btnRomClear').onclick = () => page.attempt(() => { session.clearRoms(); changed(null); return `${session.machine.profile.name}: ROMs removed – running without ROMs`; });
+  $('btnRomClear').onclick = () => page.attempt(() => { session.clearRoms(); changed(null); return `${session.personMachine.profile.name}: ROMs removed – running without ROMs`; });
 
   // ?rom=URL: ROMs the user hosts (CORS required). The ROM archive is never requested.
   async function loadRomUrls(urls) {
