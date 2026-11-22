@@ -22,6 +22,8 @@
 import { $, safeArea } from './page.js';
 
 const SHORT = 4000, LONG = 8000, WAIT = 60000;
+// where a toast's action button stands inside its sentence (toast text 'Typing BASIC needs your BASIC ROM: {action}.')
+const INLINE = '{action}';
 export const currentView = () => ({ '#library': 'library', '#add-roms': 'roms', '#share': 'share' }[location.hash] || 'emulator');
 // where an attention card sits on each page: over the screen on the emulator, under the header elsewhere
 const ATTENTION_HOME = { emulator: () => document.querySelector('#monitor .tube'), library: () => document.querySelector('#library .libhead'), roms: () => document.querySelector('#romCard .libhead'), share: () => document.querySelector('#share > header') };
@@ -62,10 +64,17 @@ export function createFeedback() {
     cur = t;
     t.seen = false;
     t.left = t.action || t.details ? LONG : SHORT;
-    textEl.textContent = t.text;
+    // an action named in the sentence itself ("… your BASIC ROM: [Add ROMs]. Or …"): its button stands where the
+    // text says {action}, so the sentence reads on through it; otherwise it follows the text
+    const at = t.action ? t.text.indexOf(INLINE) : -1;
+    if (at >= 0) {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'inline'; b.textContent = t.action.label;
+      b.onclick = (e) => { e.stopPropagation(); if (cur !== t) return; end('action'); t.action.run(); };
+      textEl.replaceChildren(t.text.slice(0, at), b, t.text.slice(at + INLINE.length));
+    } else textEl.textContent = t.text;
     box.classList.toggle('error', !!t.error);
-    actEl.hidden = !t.action && !t.details;
-    actEl.textContent = t.action ? t.action.label : t.details ? 'Details' : '';
+    actEl.hidden = (!t.action || at >= 0) && !t.details;
+    actEl.textContent = t.action && at < 0 ? t.action.label : t.details ? 'Details' : '';
     detEl.hidden = true;
     moreEl.textContent = t.details || '';
     box.hidden = false;
@@ -176,6 +185,7 @@ export function createFeedback() {
   function toast(text, { error = false, action = null, details, view = currentView(), onEnd = null } = {}) {
     if (details === undefined && error && !action) [text, details] = splitDetails(String(text));
     const t = { text: String(text), error, action, details: details || null, view, onEnd, raised: Date.now() };
+    if (!action) t.text = t.text.replace(INLINE, '');
     if (view !== currentView()) {
       const old = waiting.get(view);
       if (old && old.onEnd) old.onEnd('replaced');
@@ -253,7 +263,10 @@ export function createFeedback() {
   return {
     toast, attention, resolve, viewChanged,
     clear: () => end('cleared'),
-    get current() { return cur ? { text: cur.text, error: cur.error, view: cur.view } : null; },
+    // this toast goes now, if it is still the one up (a hint its program's first key has made moot); a newer one stays
+    dismiss: (t) => { if (t && cur === t) end('cleared'); },
+    // (text: with the action's label where an inline action stands, as the toast reads)
+    get current() { return cur ? { text: cur.text.replace(INLINE, cur.action ? cur.action.label : ''), error: cur.error, view: cur.view } : null; },
     // the toast up, and whether its time is running (seen)
     get pending() { return (cur ? [cur] : []).map((t) => ({ text: t.text, seen: !!t.seen })); },
     get attentionText() { return att ? att.text : null; },

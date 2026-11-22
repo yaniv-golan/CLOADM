@@ -260,7 +260,7 @@ const userMedia = (async () => {
   // skip the tape: the program on it, in memory at once
   const msg = t.skipTape();
   check('skipTape: the program is loaded instantly (in memory, running), the rest of the tape stays in the deck',
-    /panel\.cas: PANEL fast-loaded \$3000-\$30C7, exec \$3000/.test(msg) && code.every((v, i) => m.ram[0x3000 + i] === v) && m.cpu.pc >= 0x3000 && m.cpu.pc < 0x30C8
+    /^panel\.cas loaded \(\$3000–\$30C7\) and started at \$3000\.$/.test(msg) && code.every((v, i) => m.ram[0x3000 + i] === v) && m.cpu.pc >= 0x3000 && m.cpu.pc < 0x30C8
     && t.shownMachine.deck.tape && t.shownMachine.deck.tape.name === 'panel.cas' && t.fastCas === false, msg);
   t.shownMachine.deck.eject();
   check('skipTape without a tape: refused', (() => { try { t.skipTape(); return false; } catch (e) { return e instanceof Emu.SessionError; } })());
@@ -274,7 +274,7 @@ const userMedia = (async () => {
     let msg;                                    // a failure is a FAIL line, not a crash of the whole suite
     try { msg = w.skipTape(); } catch (e) { msg = `threw: ${e.message}`; }
     check('skipTape on a tape from a WAV recording: loads the decoded blocks (under panel.cas)', inDeck === 'panel.wav'
-      && /panel\.cas: PANEL fast-loaded \$3000-\$30C7, exec \$3000/.test(msg) && code.every((v, i) => w.shownMachine.ram[0x3000 + i] === v), msg);
+      && /^panel\.cas loaded \(\$3000–\$30C7\) and started at \$3000\.$/.test(msg) && code.every((v, i) => w.shownMachine.ram[0x3000 + i] === v), msg);
   }
   // a BASIC tape with no BASIC ROM: refused before the power cycle, so the tape and the machine are as they were
   {

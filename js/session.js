@@ -348,6 +348,7 @@ export class Session {
     this.welcomeSoundOn = false;    // audio unlocked: the welcome program may play its tune
     this.tapeInfo = null;           // the tape in the deck: its block starts and length (tapeStatus)
     this.tapeWatch = null;          // the current or last run of the cassette motor: { done, error } (tapeStatus)
+    this.tapeStarted = null;        // a machine-code tape fast-loaded and started: { tape, exec } (tapeStatus started)
     this.lastPrinted = 0;           // printout length at the last 'printer' event
     this.terminalBytes = [];        // what the machine has sent to the serial terminal
     // DriveWire: one server for the session, on its media store (images under DW_PREFIX); attached to the
@@ -2740,10 +2741,13 @@ export class Session {
         } else {
           const seg = { addr: first.load, data: first.data };
           this.inject([seg], first.exec, m);
-          msg = `${name}: ${first.name} fast-loaded ${describeSegments([seg], first.exec)}`;
+          const range = `${hex(first.load)}–${hex((first.load + first.data.length - 1) & 0xFFFF)}`;
+          msg = first.exec != null ? `${name} loaded (${range}) and started at ${hex(first.exec)}.` : `${name} loaded (${range}).`;
         }
         tape.seekByte(first.end);       // the rest stays in the deck for multi-part loaders
         m.deck.insert(tape);
+        // the deck says so too (tapeStatus started), until the tape moves on or another goes in
+        if (first.fileType === 2 && first.exec != null) this.tapeStarted = { tape, exec: first.exec };
         return where(note + msg);
       }
 
@@ -3602,11 +3606,12 @@ export class Session {
     this.unsavedRecording = Object.assign(r, { machine: this.shownMachine.profile.name });
     this.emit('recording');
   }
-  rewindTape() { const t = this.personMachine.deck.tape; if (t) t.seekByte(0); this.tapeWatch = null; return !!t; }
+  rewindTape() { const t = this.personMachine.deck.tape; if (t) t.seekByte(0); this.tapeWatch = null; this.tapeStarted = null; return !!t; }
 
   // ---------------- the cassette panel ----------------
   // What the deck is doing -> null without a tape, else { name, block, blocks, progress, seconds, duration,
-  // position, length, atEnd, motor, playing, realSpeed, error }. block counts the tape's blocks (js/media/cassette.js
+  // position, length, atEnd, motor, playing, realSpeed, error, started }. started is the exec address of a machine-code
+  // file the drop fast-loaded and started, until the tape moves on; block counts the tape's blocks (js/media/cassette.js
   // casBlocks) the play position has reached; position is that place as a byte of the image (0 to length, the leader
   // the deck adds before it counting as 0); seconds is how far into the tape that is at real speed. error is the block
   // number where BASIC stopped with ?IO ERROR: a run of the motor that ends with that on the last lines of
@@ -3621,6 +3626,8 @@ export class Session {
     }
     const info = this.tapeInfo, at = t.bytePosition();
     const block = info.blocks.filter((start) => start <= at).length;
+    // fast-loaded and started: true until the tape moves on (the motor runs: the program reads the rest) or is taken out
+    if (this.tapeStarted && (this.tapeStarted.tape !== t || deck.motor)) this.tapeStarted = null;
     // read errors: watch each run of the motor
     if (deck.motor) { if (!this.tapeWatch || this.tapeWatch.done) this.tapeWatch = { done: false, error: null }; }
     else if (this.tapeWatch && !this.tapeWatch.done) {
@@ -3631,6 +3638,7 @@ export class Session {
       name: t.name, block, blocks: info.blocks.length, progress: t.progress(), seconds: t.progress() * info.duration, duration: info.duration,
       position: Math.max(0, Math.min(t.bytes.length, at)), length: t.bytes.length, atEnd: t.atEnd(),
       motor: deck.motor, playing: deck.playing, realSpeed: !this.fastTape, error: this.tapeWatch ? this.tapeWatch.error : null,
+      started: this.tapeStarted ? this.tapeStarted.exec : null,
     };
   }
   // Skip the tape: load what is on it instantly instead (the machine is power cycled first, so whatever BASIC

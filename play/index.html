@@ -78,7 +78,7 @@
     .appbar.nostatus > #status { display: none; }
   }
   #btnMenu { display: none; }
-  @media (min-width: 701px) { #navRoms, #navShare { display: none; } }   /* (the app bar's pill and Share button there) */
+  @media (min-width: 701px) { #navRoms, #navShare, #navSettings { display: none; } }   /* (the app bar's pill and Share button there) */
   /* (an author display rule outranks the hidden attribute's, so it is stated: once installed, the link goes) */
   #navInstall[hidden] { display: none; }
   #machineMenu { position: absolute; top: calc(100% - 6px); left: 20px; z-index: 20; width: min(600px, calc(100vw - 40px)); background: var(--panel);
@@ -101,8 +101,9 @@
   #machineMenu .footer { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 16px; }
   #machineMenu .footer button { width: auto; flex: 1 1 200px; color: var(--text-2); }
   #machineMenu .footer .legend { align-self: center; margin-left: auto; padding: 0 8px; font-size: 14px; color: var(--text-2); white-space: nowrap; }
-  #switchConfirm { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; background: var(--warn-panel);
-    border-bottom: 1px solid var(--orange); padding: 12px 20px; }
+  #switchConfirm { position: absolute; top: calc(100% - 6px); left: 20px; z-index: 21; width: min(560px, calc(100vw - 40px)); box-sizing: border-box;
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; background: var(--warn-panel);
+    border: 1px solid var(--orange); border-radius: var(--r-14); padding: 12px 16px; box-shadow: 0 20px 50px rgba(0, 0, 0, .6); }
   #switchConfirm[hidden] { display: none; }
   #switchConfirm button { border-radius: var(--pill); }
   #btnSwitchCancel { background: transparent; border: 0; text-decoration: underline; }
@@ -234,6 +235,7 @@
   #toast.error { box-shadow: inset 4px 0 0 var(--error), inset 0 0 0 1px var(--error), 0 8px 24px rgba(0, 0, 0, .45); padding-left: 18px; }
   #toastText { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
   #toastAction { background: #0B0D0C; color: #E8EDE6; border: 0; border-radius: 8px; padding: 6px 10px; font-weight: 700; min-height: 0; }
+  #toastText button.inline { background: #0B0D0C; color: #E8EDE6; border: 0; border-radius: 6px; padding: 0 8px; font: inherit; font-weight: 700; min-height: 0; }
   #toastDetails { flex-basis: 100%; font-size: 14px; color: #2A302C; overflow-wrap: anywhere; }
   @media (max-width: 700px) { #toastRegion { left: calc(8px + var(--safe-l)); right: calc(8px + var(--safe-r)); bottom: calc(8px + var(--safe-b));
     transform: none; width: auto; max-width: none; } }
@@ -438,6 +440,8 @@
   #claudeKeyCard.warn { border-color: var(--orange); }
   #claudeKeyCard.warn .tag { color: var(--orange); }
   #claudeKeyCard label { display: block; font-size: 14px; color: var(--muted); margin-bottom: 4px; }
+  .keyget { margin: 6px 0 0; font-size: 13px; line-height: 1.5; color: var(--muted); }
+  .keyget a { color: var(--text); }
   #claudeKeyInput { width: 100%; box-sizing: border-box; background: var(--panel-deep); color: var(--text); border: 1px solid var(--line);
     border-radius: var(--r-10); padding: 10px; font: 15px var(--font-mono); margin-bottom: 10px; }
   #claudeKeyMsg, #claudeBasicNote { font-size: 14px; color: var(--muted); }
@@ -1343,10 +1347,12 @@
     body.claude-popout #appbar > #btnAskPop { order: 3; flex: none; height: 44px; min-height: 44px; padding: 0 10px; font-size: 14px; }
     #btnMenu { display: inline-flex; order: 4; flex: none; position: relative; }
     #btnMenu.dot::after { content: ''; position: absolute; top: 7px; right: 5px; width: 8px; height: 8px; border-radius: 50%; background: var(--orange); }
+    #navRoms .dot { display: inline-block; width: 8px; height: 8px; margin-left: 8px; border-radius: 50%; background: var(--orange); flex: none; }
     .appbar.menu-open nav { display: flex; position: absolute; z-index: 65; top: 100%; left: 8px; right: 8px; flex-direction: column; align-items: stretch; gap: 0;
       padding: 8px 16px; background: var(--panel); border: 1px solid var(--line-strong); border-top: 0; border-radius: 0 0 12px 12px; box-shadow: 0 20px 40px rgba(0, 0, 0, .6); }
     .appbar.menu-open nav a, .appbar.menu-open nav button.navlink { min-height: 44px; display: flex; align-items: center; text-align: left; }
     #machineMenu { left: 8px; right: 8px; width: auto; grid-template-columns: minmax(0, 1fr); max-height: 70vh; }
+    #switchConfirm { top: 100%; left: 8px; right: 8px; width: auto; }
     .layout { padding: 16px; }
   }
   @media (max-width: 359px) {
@@ -1453,7 +1459,7 @@ npx serve -l 8000 .</pre>
     <span class="spec" id="machineSpec"></span>
     <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="m3 4.5 3 3 3-3"/></svg></button>
   <span id="status" aria-live="off"></span>
-  <button id="romPill" hidden><span class="rp-no">No BASIC · </span>Add ROMs</button>
+  <button id="romPill" title="No BASIC: this machine needs its BASIC ROM to type programs" hidden><span class="rp-no">No BASIC · </span>Add ROMs</button>
   <span class="grow"></span>
   <button id="btnLoad" class="primary" title="A program, tape, disk, cartridge or BASIC listing">Open…</button>
   <button id="btnShare" title="A link that opens this machine as it is, a clip, a screenshot, a snapshot file; and the embed code">Share</button>
@@ -1461,10 +1467,11 @@ npx serve -l 8000 .</pre>
   <!-- js/ui/ask-popout.js: in place of Ask where this page is shown inside another site's page (the chat is off there) -->
   <a id="btnAskPop"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/></svg><span class="lbl">Ask Claude ↗</span></a>
   <nav aria-label="App">
-    <!-- a phone's Menu: Add ROMs first while the machine has no BASIC, and Share (js/ui/main.js; the app bar's pill and
-         button elsewhere) -->
-    <button id="navRoms" class="navlink" type="button" hidden>Add ROMs</button>
+    <!-- a phone's Menu: Add ROMs first while the machine has no BASIC (with Menu's dot beside it), Share and Settings… (the
+         drawer's tabs, far down the page there) (js/ui/main.js; the app bar's pill and button elsewhere) -->
+    <button id="navRoms" class="navlink" type="button" hidden>Add ROMs (BASIC needs them)<span class="dot" aria-hidden="true"></span></button>
     <button id="navShare" class="navlink" type="button" title="A link that opens this machine as it is, a clip, a screenshot, a snapshot file; and the embed code">Share</button>
+    <button id="navSettings" class="navlink" type="button">Settings…</button>
     <a href="play/#library" id="navLibrary">Library</a>
     <a href="play/#debugger" id="navDebugger">Debugger</a>
     <button id="navCommands" class="navlink" type="button">Commands… <kbd id="navCmdKbd">Ctrl K</kbd></button>
@@ -1476,13 +1483,13 @@ npx serve -l 8000 .</pre>
   </nav>
   <button id="btnMenu" aria-expanded="false" aria-controls="appbar">Menu</button>
   <div id="machineMenu" role="menu" aria-label="Machines" hidden></div>
+  <!-- js/ui/machine-panel.js confirmSwitch: what the switch resets and takes out, what stays in the Library, and an
+         offer to save a snapshot's own disk first; anchored under the machine button (directly under the bar on a phone) -->
+  <div id="switchConfirm" role="alertdialog" aria-label="Switch machine" aria-describedby="switchText" hidden>
+    <span id="switchText"></span>
+    <div class="bar"><button id="btnSwitchSaveDisk" hidden>Save to Library</button><button id="btnSwitch" class="warn">Switch</button><button id="btnSwitchCancel">Cancel</button></div>
+  </div>
 </header>
-<!-- js/ui/machine-panel.js confirmSwitch: what the switch resets and takes out (R25), what stays in the Library, and
-     an offer to save a snapshot's own disk first -->
-<div id="switchConfirm" role="alertdialog" aria-label="Switch machine" aria-describedby="switchText" hidden>
-  <span id="switchText"></span>
-  <div class="bar"><button id="btnSwitchSaveDisk" hidden>Save to Library</button><button id="btnSwitch" class="warn">Switch</button><button id="btnSwitchCancel">Cancel</button></div>
-</div>
 
 <!-- Ctrl+K / Cmd+K anywhere ("Ctrl K box"): matching commands first, then "Ask Claude: …" -->
 <div id="cmdBox" role="dialog" aria-label="Ask Claude or find a command" hidden>
@@ -1768,7 +1775,9 @@ npx serve -l 8000 .</pre>
     <div id="askStatus" role="status" hidden><span class="dot" aria-hidden="true"></span><span id="askStatusText">Thinking…</span><button id="btnAskStatusResume" hidden>Resume</button><button id="btnAskStatusStop">Stop</button></div>
     <div id="askKeyForm" hidden>
       <label>Your Anthropic API key<input id="askKeyInput" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-…"></label>
+      <p class="keyget muted" id="askKeyGet">Get a key at <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a> (API keys). Use is billed to your Anthropic account: see <a href="https://www.anthropic.com/pricing#api" target="_blank" rel="noopener">pricing ↗</a></p>
       <div class="bar"><button id="btnAskKeySave" class="primary">Save key</button><span class="muted" id="askKeyErr" role="status"></span></div>
+      <p class="keyget muted" id="askNoKey">No key? Use CLOADM inside Claude instead: <a href="https://github.com/yaniv-golan/CLOADM/blob/main/docs/mcp.md#use-with-claude" target="_blank" rel="noopener">Use with Claude ↗</a></p>
       <p class="muted"><strong>Your key stays yours.</strong> Stored only in this browser. The emulated machine never sees it, and it's left out of snapshots, share links and exported settings.</p>
     </div>
     <div id="askComposer" hidden>
@@ -1786,7 +1795,9 @@ npx serve -l 8000 .</pre>
     <section class="card" id="claudeKeyCard">
       <label for="claudeKeyInput">Your Anthropic API key</label>
       <input id="claudeKeyInput" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-…">
+      <p class="keyget" id="claudeKeyGet">Get a key at <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a> (API keys). Use is billed to your Anthropic account: see <a href="https://www.anthropic.com/pricing#api" target="_blank" rel="noopener">pricing ↗</a></p>
       <div class="bar"><button id="btnClaudeKeySave" class="primary">Save key</button></div>
+      <p class="keyget" id="claudeNoKey">No key? Use CLOADM inside Claude instead: <a href="https://github.com/yaniv-golan/CLOADM/blob/main/docs/mcp.md#use-with-claude" target="_blank" rel="noopener">Use with Claude ↗</a></p>
       <p><strong>Your key stays yours.</strong> Stored only in this browser. The emulated machine never sees it, and it's left out of snapshots, share links and exported settings.</p>
       <div id="claudeKeyMsg" role="status"></div>
     </section>

@@ -81,7 +81,7 @@ export function setupMachinePanel(page, { showRoms }) {
   }
   const moreBelow = () => menu.classList.toggle('more-below', menu.scrollTop + menu.clientHeight < menu.scrollHeight - 2);
   menu.addEventListener('scroll', moreBelow);
-  // ---- the switch confirmation (R25): it names what the switch takes out, built from the old machine before the
+  // ---- the switch confirmation: it names what the switch takes out, built from the old machine before the
   // switch (Session.takenOut), says which of those stay in the Library, and offers to save a snapshot's own disk ----
   let cancelled = null;   // what Cancel does besides closing (a RAM change puts the select back)
   // "a, b and c"
@@ -140,8 +140,20 @@ export function setupMachinePanel(page, { showRoms }) {
     pending = () => onSwitch(items, tookOut(items));
     cancelled = onCancel;
     confirm.hidden = false;
+    place();
     $('btnSwitch').focus();
   }
+  // The question stands under the button that asked it: the machine button, the confirmation's left edge at the
+  // button's (kept inside the bar); on a phone the stylesheet puts it directly under the bar, edge to edge
+  function place() {
+    confirm.style.left = '';
+    if (matchMedia('(max-width: 700px)').matches) return;
+    const bar = confirm.offsetParent;
+    if (!bar) return;
+    const left = Math.max(8, Math.min(btn.offsetLeft, bar.clientWidth - confirm.offsetWidth - 8));
+    confirm.style.left = `${left}px`;
+  }
+  addEventListener('resize', () => { if (!confirm.hidden) place(); });
   // after a switch: what it switched to, what came out, and (a "needs ROMs" row) that it needs ROMs, with Add ROMs
   const switched = (taken) => {
     const needs = !session.machineRoms().bootable;
