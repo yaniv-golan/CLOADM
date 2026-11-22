@@ -3,7 +3,9 @@
 // The screen-text readers - Claude's screen_text (the chat and MCP tool) and Session.screenText (the embed API's
 // screenText, the Ask panel, the tape panel and the boot watchdog) - on the three screens the VDG page reader cannot
 // read: the Dragon 64 Plus's HD6845S 80-column screen, the CoCo 3's GIME native text modes (40 and 80 columns, with and
-// without attribute bytes) and a CoCo 3 compatibility-mode text page the MMU has mapped away from where the CPU looks.
+// without attribute bytes) and a CoCo 3 compatibility-mode text page the MMU has mapped away from where the CPU looks;
+// and the main (VDG) page read where the VDG fetches it: under the Dragon 64 Plus's banks, by the boot watchdog while
+// the 80-column view is shown, and on a CoCo 3 screen that is not text with ROM mapped where the CPU would look.
 //
 // Each case is firmware of our own (assembled here, no ROM) that writes known text: every code of the character set,
 // attributes, a scrolled or moved page. Three things are checked on each, at the same moment:
@@ -90,6 +92,8 @@ function plusFirmware(start) {
   e('        ORG     $8000');
   e('RESET   ORCC    #$50'); e('        LDS     #$7F00'); e('        CLRA'); e('        TFR     A,DP');
   e('        STA     $FFDD'); e('        STA     $FFE2');
+  // PIA1 port B as outputs, all 0: the VDG in text mode (as tools/mame-diff/d64plus/plustext.asm sets it)
+  for (const l of ['CLR     $FF23', 'LDA     #$F8', 'STA     $FF22', 'LDA     #$34', 'STA     $FF23', 'CLR     $FF22']) e(`        ${l}`);
   const regs = [0x71, 0x50, 0x60, 0x0F, 0x19, 0x04, 0x16, 0x18, 0x00, 0x0B, 0x20, 0x0B, start >> 8, start & 0xFF, 0x3F, 0xFF];
   regs.forEach((v, r) => { e(`        LDA     #${r}`); e('        STA     $FFE0'); e(`        LDA     #${hx(v)}`); e('        STA     $FFE1'); });
   e('        LDA     #$01'); e('        STA     $FFE2');                // the video RAM over $0000-$07FF
@@ -367,6 +371,74 @@ for (const [name, seeAt, base] of [['no slot maps it', null, null], ['slot 6 map
   check(`CoCo 3 compatibility page, ${name}: Session.screenText reads the same 16 rows`, J(sess) === J(want), J(sess.slice(0, 3)));
   check(`CoCo 3 compatibility page, ${name}: the rendered picture shows the expected glyph in every text cell`,
     legacyCellsBad(m, page) === 0, `${legacyCellsBad(m, page)} cells differ`);
+}
+
+// =====================================================================================================================
+// 4. The main (VDG) page is read where the VDG fetches it, not through the CPU's map
+// =====================================================================================================================
+// The Dragon 64 Plus's $FFE2 pages the 2K video RAM (bit 0) or bank A/B (bits 1-2) in under $8000 for the CPU, but the
+// MC6847 always fetches the motherboard RAM (js/machines/d64plus.js). So with "OK" on the VDG page and a bank in, the
+// VDG still shows OK: the readers must say so, and `base` is null while the CPU reads something else at $0400.
+{
+  const m = plusMachine(0x0000);
+  m.view = 'vdg';
+  const page = (r) => `OK${' '.repeat(30)}`;
+  for (let i = 0; i < 512; i++) m.ram[0x400 + i] = 0x60;            // inverse spaces (BASIC's green screen)
+  m.ram[0x400] = 0x4F; m.ram[0x401] = 0x4B;                           // OK, row 0
+  check('(setup) the banks reach memory: this is the hardware model, not mameCompat', m.banksReachMemory === true);
+  for (const [name, v] of [['no bank', 0x00], ['the video RAM over $0000-$07FF ($FFE2 = $01)', 0x01], ['bank A ($FFE2 = $02)', 0x02], ['bank B ($FFE2 = $06)', 0x06]]) {
+    m.write(0xFFE2, v);
+    const got = tool(m), main = sessionOn(m).screenText({ main: true });
+    const cpuOther = m.peek(0x400) !== 0x4F;
+    check(`Plus VDG page, ${name}: screen_text and Session.screenText read OK where the VDG fetches it`,
+      got.text === true && got.lines[0] === 'OK' && main[0] === page(0), J({ tool: got.lines && got.lines[0], session: main[0] }));
+    check(`Plus VDG page, ${name}: base is $0400 only while the CPU reads the same page there (${cpuOther ? 'it does not' : 'it does'})`,
+      got.base === (cpuOther ? null : 0x400), J({ base: got.base, cpu400: m.peek(0x400) }));
+    // and the Plus view shows the board while the watchdog's main:true reads this page
+    m.view = 'plus';
+    check(`Plus VDG page, ${name}: with the 80-column view shown, screenText({ main: true }) still reads OK`, sessionOn(m).screenText({ main: true })[0] === page(0));
+    m.view = 'vdg';
+  }
+  m.write(0xFFE2, 0x00);
+}
+
+// ---- the boot watchdog reads the main screen while the Plus shows its 80 columns ----
+// A stand-in ROM of our own that never prints (it loops), so OK is put on the VDG page by hand, as BASIC prints it.
+{
+  const s = new Emu.Session({ store: { get() { return null; }, set() {}, remove() {} }, welcomeMenu: false });
+  s.switchMachine('d64plus', {}, { menu: false });
+  const m = s.shownMachine;
+  const r = Emu.assemble(' ORG $8000\nSTART BRA START\n ORG $BFFE\n FDB START\n', '6809');
+  const bank = romImage(r, 0x8000, 0x4000, 0x12), slots = { chargen: CODEGEN };
+  for (const sl of Emu.profiles.d64plus.roms) if (!sl.chip) slots[sl.id] = bank.slice(sl.at - 0x8000, sl.at - 0x8000 + sl.size);
+  m.setRoms(slots); m.reset(true);
+  m.runFrame();
+  // the board set up as the firmware above sets it (80 x 22), so the 80-column screen is readable text, blank
+  [0x71, 0x50, 0x60, 0x0F, 0x19, 0x04, 0x16, 0x18, 0x00, 0x0B, 0x20, 0x0B, 0, 0, 0x3F, 0xFF].forEach((v, r) => { m.write(0xFFE0, r); m.write(0xFFE1, v); });
+  m.videoRam.fill(0x20);
+  m.view = 'plus';
+  check('(setup) the 80-column screen shown is readable, blank text: what the shown-screen reader would read',
+    tool(m).mode === 'HD6845S text (the Dragon Plus), 80 columns, 22 rows' && tool(m).text === true && tool(m).lines.length === 0, J(tool(m)));
+  check('(setup) the stand-in ROM counts as BASIC and has not printed OK: booting', m.hasRom && s.bootStatus().state === 'booting', J(s.bootStatus()));
+  for (let i = 0; i < 32; i++) m.ram[0x400 + i] = 0x60;
+  m.ram[0x400] = 0x4F; m.ram[0x401] = 0x4B;
+  check('the 80-column view is shown and OK is on the VDG page: bootStatus() is ok (the watchdog reads the main screen)',
+    m.view === 'plus' && s.bootStatus().state === 'ok', J(s.bootStatus()));
+}
+
+// ---- a CoCo 3 screen screen_text declines still gives the page from RAM, never the ROM a slot maps ----
+// Session.screenText's fallback for a screen that is not text (here a compatibility-mode graphics mode) is the
+// profile's page as the display RAM holds it (physical $70400), whatever CPU slot 0 maps: here ROM.
+{
+  const m = cocoMachine(legacyFirmware(null));
+  const g = m.gime;
+  for (let i = 0; i < 512; i++) g.ram[(0x70400 + i) & g.ramMask] = 0x4B;   // K
+  g.ff22 = 0x80;                                                          // graphics: screen_text declines
+  g.regs[0] |= 0x40; g.mmu[0] = 0x3C; g.mapSlot(0);                       // slot 0 -> ROM
+  check('(setup) a graphics mode, and CPU $0400 is ROM', tool(m).text === false && g.physAddr(0x400) === -1);
+  const rows = sessionOn(m).screenText();
+  check('CoCo 3 fallback: Session.screenText reads the page at physical $70400 (all K), not the ROM slot 0 maps',
+    rows.length === 16 && rows.every((l) => l === 'K'.repeat(32)), J(rows[0]));
 }
 
 // ---- the readers agree with each other and change nothing ----

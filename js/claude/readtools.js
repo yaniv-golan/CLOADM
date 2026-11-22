@@ -156,8 +156,16 @@ export function screenTextTool(target) {
 export function screenRows(m, readByte, { main = false } = {}) {
   const r = readScreen(m, readByte, { main });
   if (r.text) return r.rows;
-  const base = m.profile.textScreen || 0x400;
-  return vdgRows((i) => readByte((base + i) & 0xFFFF)).rows;
+  const base = m.profile.textScreen || 0x400, fetch = vdgFetch(m);
+  return vdgRows((i) => fetch((base + i) & 0xFFFF)).rows;
+}
+// Where the VDG fetches the profile's page: the video hardware's own read, never the CPU's map. The SAM machines
+// fetch through displayByte() (on the Dragon 64 Plus the motherboard RAM, whatever $FFE2 pages in for the CPU:
+// js/machines/d64plus.js); the MC-10's VDG and a CoCo 3 whose compatibility base is not latched yet read `ram`, the
+// address-space view of the RAM the display uses (on the CoCo 3, physical $70000-$7FFFF, where the power-on page is).
+function vdgFetch(m) {
+  if (typeof m.displayByte === 'function') return (a) => m.displayByte(a);
+  return (a) => m.ram[a & 0xFFFF];
 }
 
 // One read of the screen: { text: false, mode, reason } or { text: true, mode, cols, base, rows (untrimmed), ... }
@@ -176,10 +184,14 @@ function readScreen(m, readByte, { main = false } = {}) {
     return { text: true, mode: mode.name, cols: CELL_COLS,
       base: contiguousCpuBase(g, { base: at, rows: VDG_ROWS, pitch: CELL_COLS, hoff: 0, hven: false }), physicalBase: at, ...r };
   }
-  // the VDG family: the profile's page, read through the CPU's map (a CoCo 3 whose compatibility-mode base is not
-  // latched yet - between a register write and the next frame - is read here too, from the profile's page)
-  const base = m.profile.textScreen || 0x400;
-  return { text: true, mode: mode.name, cols: CELL_COLS, base, ...vdgRows((i) => readByte((base + i) & 0xFFFF)) };
+  // the VDG family: the profile's page, read where the VDG fetches it (vdgFetch), never through the CPU's map, which
+  // can page something else in (the Dragon 64 Plus's banks); a CoCo 3 whose compatibility-mode base is not latched
+  // yet - between a register write and the next frame - is read here too, from the profile's page. `base` is the CPU
+  // address only while the CPU reads the same 512 bytes there; otherwise null.
+  const base = m.profile.textScreen || 0x400, fetch = vdgFetch(m);
+  let cpuSees = true;
+  for (let i = 0; cpuSees && i < VDG_ROWS * CELL_COLS; i++) cpuSees = readByte((base + i) & 0xFFFF) === fetch((base + i) & 0xFFFF);
+  return { text: true, mode: mode.name, cols: CELL_COLS, base: cpuSees ? base : null, ...vdgRows((i) => fetch((base + i) & 0xFFFF)) };
 }
 // 16 rows x 32 cells: the VDG family's own geometry. A cell with bit 7 set is a semigraphics block, not a character:
 // read as a space, and counted, so a picture made of blocks (or BASIC's cursor) is not taken for an empty screen

@@ -397,7 +397,9 @@ must show those characters cell by cell: the GIME's cells against its fonts' gly
 Plus board's through a character generator of our own that draws each code as its byte. Mutants that turn it red:
 reading the compatibility page through the CPU's map or at the power-on `$70400`, attribute bytes read as
 characters, 40 columns read as 80, bit 7 not ignored, the Plus start address ignored, Plus unknown codes not
-counted, and `Session.screenText` reading the main screen only. The reader changes no emulation: the regress hashes
+counted, `Session.screenText` reading the main screen only, the VDG page or the fallback read through the CPU's map
+(the Plus's `$FFE2` banks, a CoCo 3 slot mapped to ROM), `base` given while a bank hides the page, and the boot
+watchdog reading the shown screen (the 80-column view, with OK on the VDG page). The reader changes no emulation: the regress hashes
 are unchanged. Not covered: a compatibility-mode text row other than 12 lines (`$FF9C` other than `$0F`), where the
 GIME shows more than 16 rows of 32 bytes; the reader reads the first 16.
 

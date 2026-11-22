@@ -79,7 +79,9 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   fixed address: on the Dragon 64 Plus's 80-column screen it returned the VDG page behind it, on a CoCo 3 GIME text
   mode (40 or 80 columns, attribute bytes) the bytes at physical `$70400`, and on a CoCo 3 whose page had moved the
   old page. It now uses screen_text's own reader and gives every row at full width (a screen that is not text still
-  gives the VDG page, as before); the boot watchdog reads the Plus's main screen, where BASIC prints OK.
+  gives the VDG page, as before); the boot watchdog reads the Plus's main screen, where BASIC prints OK. The VDG page
+  is read where the VDG fetches it, not through the CPU's map, so a Dragon 64 Plus bank paged in at `$FFE2` or a
+  CoCo 3 slot mapped to ROM does not change what is read.
 - **screen_text reads a CoCo 3 32-column page the MMU has mapped away.** It declined a compatibility-mode text page
   the memory map showed the CPU elsewhere; it now reads the page where the display reads it, in physical RAM, and
   answers with `physicalBase` and `base` (the CPU address that shows it, or `null`), as on the GIME text modes.
