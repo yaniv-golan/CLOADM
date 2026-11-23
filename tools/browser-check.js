@@ -8235,6 +8235,59 @@ async function chatScreenChecks(browser, base, check) {
   }
 }
 
+// Long lines typed on the chat screen through the keyboard reach the API byte for byte: a 200-character line typed at
+// the prompt, and one typed while the previous reply still comes down the mailbox (the firmware keeps those keys in
+// its type-ahead ring and types them once the prompt is back; it used to drop them, sending only the line's tail).
+async function chatLongLineChecks(browser, base, check) {
+  const L = 'chat screen (long lines)';
+  const sse = (events) => events.map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join('');
+  const text = (t) => sse([{ type: 'message_start', message: { id: 'msg', type: 'message', role: 'assistant', model: 'claude-opus-5-5', content: [] } },
+    { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }, { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: t } },
+    { type: 'content_block_stop', index: 0 }, { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: {} }, { type: 'message_stop' }]);
+  const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'POST, OPTIONS' };
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, serviceWorkers: 'block' });
+  const requests = [];
+  // the second reply is long enough (about 300 bytes, a byte a frame) to still be coming while the next line is typed
+  const replies = [text('Short answer.'), text(Array.from({ length: 10 }, (_, i) => `Reply line ${i + 1} still coming.`).join('\n')), text('ok')];
+  await ctx.route('https://api.anthropic.com/**', (route) => {
+    if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
+    requests.push(JSON.parse(route.request().postData()));
+    return route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'text/event-stream' }, body: replies.shift() || text('ok') });
+  });
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.addInitScript(() => localStorage.setItem('cloadm.anthropicKey', 'sk-ant-BROWSER-CHECK-KEY-0123456789'));
+  await page.goto(`${base}?machine=dragon64&app=claude`);
+  await started(page);
+  const idle = () => waitFor(page, () => { const c = window.emu.session.chat; return c && !c.busy && c.channel.queued === 0 && window.emu.session.chatView === 'chat'; }, null, 30000);
+  await idle();
+  await emuFrames(page, 3);
+  await page.focus('#screen');
+  const lastLine = (n) => requests[n] && requests[n].messages.slice(-1)[0].content;
+  // 1. at the prompt
+  const one = ('Tell me the top line before you answer, then explain the screen of the Dragon 64 in a few words. ').repeat(3).slice(0, 199) + '?';
+  await page.keyboard.type(one, { delay: 5 });
+  await page.keyboard.press('Enter');
+  await waitFor(page, () => window.emu.session.chat.busy || window.emu.session.chat.messages.length > 0, null, 20000);
+  await idle();
+  check(`${L}: a 200-character line typed on the screen reaches the API byte for byte`, requests.length >= 1 && lastLine(0) === one, JSON.stringify(lastLine(0)));
+  // 2. typed while a reply is still coming down: the firmware waits (WAIT) and the keys are kept
+  await page.keyboard.type('next', { delay: 5 });
+  await page.keyboard.press('Enter');
+  const waiting = await waitFor(page, () => window.emu.session.readByte(0x6037, window.emu.session.chatMachines.chat) === 1 && window.emu.session.chat.channel.queued > 0, null, 20000);
+  const two = ('Type ahead: this line is typed while the reply before it still comes, and it must arrive whole. ').repeat(3).slice(0, 199) + '!';
+  await page.keyboard.type(two, { delay: 5 });
+  const stillComing = await page.evaluate(() => window.emu.session.chat.channel.queued > 0 || window.emu.session.chat.busy);
+  await page.keyboard.press('Enter');
+  const sent = await waitFor(page, (want) => { const c = window.emu.session.chat; return c.messages.some((m) => m.role === 'user' && m.content === want); }, two, 60000);
+  check(`${L}: a 200-character line typed while the previous reply still comes reaches the API whole once it has ended (not just its tail)`,
+    waiting && stillComing && sent && lastLine(2) === two, JSON.stringify({ waiting, stillComing, got: lastLine(2) }));
+  if (shotDir) await page.screenshot({ path: path.join(shotDir, 'chat-screen-long-lines.png') });
+  check(`${L}: no page errors`, !errors.length, errors.join('; '));
+  await ctx.close();
+}
+
 // The copy and small UX fixes of the v0.1.8 UI/UX review (m5, m6, m8, the Add ROMs cards, p2, p3). Each case failed
 // on v0.1.8.
 // First use, as a first-time visitor without the docs meets it: a key on the welcome menu that is not one of its
@@ -16383,7 +16436,7 @@ const GROUPS = (base, site) => [
   // (the first-use checks run with the copy's: the same kind of check, and no shard of their own)
   ['uiCopy', async (b) => { await uiCopyChecks(b, base, check); await firstUseChecks(b, base, check); }],
   ['welcomeScreen', (b) => welcomeScreenChecks(b, base, check)],
-  ['chatScreen', (b) => chatScreenChecks(b, base, check)],
+  ['chatScreen', async (b) => { await chatScreenChecks(b, base, check); await chatLongLineChecks(b, base, check); }],
   ['phoneChat', (b) => phoneChatChecks(b, base, check)],
   ['share', (b) => shareChecks(b, base, site, check)],
   ['favicon', (b) => faviconChecks(b, site, check)],

@@ -20,6 +20,8 @@
 //    past the limit is refused visibly: the screen flashes
 //    (the VDG's CSS bit, green to buff, for about a tenth of a second) instead of the key being dropped silently;
 //  * "Thinking..." shows until the first byte of the reply arrives.
+//  * keys typed while a reply comes (from ENTER until its $04) are kept, in order, and typed at the prompt once it is
+//    back, so a line typed ahead arrives whole; BREAK typed then is not kept (on the page it stops the reply).
 const fs = require('fs'), path = require('path');
 const Emu = require('./load')();
 
@@ -296,6 +298,61 @@ const LONG = Array.from({ length: 255 }, (_, i) => CHARS[(i * 7) % CHARS.length]
   s.enter();
   const sent = s.toBackend.map((b) => String.fromCharCode(b)).join('');
   check('the line sent is what was kept', sent === `${'x'.repeat(35)}Yz\r`, JSON.stringify(sent));
+}
+
+// ---- 12. keys typed while a reply comes are kept, and typed once the prompt is back ----
+// A line typed before the reply has ended (a script, or a person typing ahead) used to lose every key until the
+// $04: only the tail of the line was sent. Now the keys wait in the firmware's type-ahead ring.
+const AHEAD = ('Tell me the top line before you answer. Then say what the CoCo is, and why a long line wraps across rows on its screen. ').repeat(2).slice(0, 200);
+// (0x04: END_OF_REPLY, js/claude/chat.js: the reply has ended)
+const endReply = (s, text) => { s.channel.send(new TextEncoder().encode(`${text}\r`)); s.channel.send(Uint8Array.of(0x04)); };
+const sentText = (s) => s.toBackend.map((b) => String.fromCharCode(b)).join('');
+{
+  const s = start();
+  s.run(30);
+  s.type('first'); s.enter();
+  const before = sentText(s);
+  // the whole 200-character line and its ENTER, typed (one key every 2 frames) while the reply has not come yet
+  s.type(AHEAD);
+  s.machine.stubKeys.push(13); s.run(3);
+  check('keys typed while the reply is awaited are not taken yet: nothing more is sent, the screen still waits',
+    sentText(s) === before && /Thinking\.\.\./.test(s.screen().join(' ')) && s.machine.stubKeys.length === 0,
+    JSON.stringify({ sent: sentText(s).slice(before.length), queue: s.machine.stubKeys.length }));
+  endReply(s, 'ok');
+  for (let i = 0; i < 800 && sentText(s).length < before.length + AHEAD.length + 1; i++) s.run(1);
+  check('once the reply ends, the 200-character line typed ahead reaches the backend byte for byte, then CR',
+    sentText(s) === `${before}${AHEAD}\r`, JSON.stringify(sentText(s).slice(before.length, before.length + 40)));
+  const rows = s.screen(), at = rows.findIndex((r) => r.startsWith('> Tell'));
+  check('and it was laid out on the screen as it is when typed at the prompt', at > 0 && onScreen(rows.slice(at), typedLayout(AHEAD)), JSON.stringify(rows.slice(at, at + 3)));
+}
+{
+  // BREAK while a reply comes is the page's (Esc stops the reply): it is not kept for the next line
+  const s = start();
+  s.run(30);
+  s.type('first'); s.enter();
+  const before = sentText(s);
+  s.type('abc'); s.machine.stubKeys.push(3); s.run(2); s.type('xyz');
+  endReply(s, 'ok');
+  s.run(80);
+  s.enter();
+  check('BREAK typed while the reply comes is not kept; the keys around it are', sentText(s) === `${before}abcxyz\r`, JSON.stringify(sentText(s).slice(before.length)));
+}
+{
+  // the ring holds 255 keys, as the line does: the 256th typed ahead is refused (the screen flashes), not kept
+  const s = start();
+  s.run(30);
+  s.type('first'); s.enter();
+  const css = [];
+  const m = s.machine, w = m.write.bind(m);
+  m.write = (a, v) => { if (a === 0xFF22) css.push(v & 0x08); return w(a, v); };
+  for (let i = 0; i < 256; i++) m.stubKeys.push(0x61 + (i % 26));
+  s.run(20);
+  m.write = w;
+  const flashed = css.includes(0x08);
+  endReply(s, 'ok');
+  s.run(120);
+  check('256 keys typed ahead: 255 are kept, the screen flashes for the 256th, and the line holds all 255',
+    flashed && m.ram[Emu.CHAT_STATE.blen] === 255, `flash ${flashed}, BLEN ${m.ram[Emu.CHAT_STATE.blen]}`);
 }
 
 console.log(`${n - fail}/${n} chat firmware checks passed`);

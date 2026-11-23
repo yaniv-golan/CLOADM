@@ -772,6 +772,30 @@ fs.writeFileSync(tmp('media', 'plain.bas'), '10 PRINT "HI"\n');
   check('--serve: errors in the tools\' shape', sv.replies[4].error.code === 'bad-address' && sv.replies[5].error.code === 'bad-argument' && sv.replies[6].error.code === 'bad-argument' && /no tool "nope"/.test(sv.replies[6].error.detail)
     && sv.replies[7].error.code === 'bad-argument' && sv.replies[8].ok, J(sv.replies.slice(4)));
 
+  // ---------------- a call that runs into the wall-time limit (a host too slow to finish it) ----------------
+  // type_text of 150 keys on a host whose clock runs 20 ms a frame, with a 2 s limit: it is stopped part way. It must
+  // say so (time-limit, "N of 150 keys typed"), never cut the text silently or blame the person ("stopped").
+  {
+    const T = await import(require('url').pathToFileURL(path.join(ROOT, 'js/mcp/tools.js')).href);
+    const programs = (f) => new Uint8Array(fs.readFileSync(path.join(ROOT, 'examples', path.basename(f))));
+    let t = 0;
+    const host = { roms: () => [], png: () => new Uint8Array(0), program: programs, now: () => (t += 20), date: () => new Date(0), yield: () => new Promise(setImmediate),
+      readMedia() { throw new T.McpToolError('no-media-root'); }, writeMedia() { throw new T.McpToolError('no-media-root'); } };
+    const own = new Emu.Session({ welcomeMenu: false });
+    own.switchMachine('dragon64', {}, { menu: false });
+    own.startWelcome(programs(own.welcomeFile));
+    own.runFrames(40);
+    const tb = T.createToolbox(host, { session: own, wallMs: 2000 });
+    const m = own.shownMachine, before = m.stubKeysTaken;
+    const r = await tb.call('type_text', { machine_id: 'm1', text: 'L'.repeat(150) });
+    const got = /^(\d+) of 150 keys typed before the time limit; the rest was not typed$/.exec((r.error && r.error.detail) || '');
+    const typed = m.stubKeysTaken - before;
+    check('type_text past the wall-time limit: time-limit, saying how many of the keys went in (not "stopped": nobody stopped it)',
+      !r.ok && r.error.code === 'time-limit' && /time limit/.test(r.error.remedy) && !!got && Number(got[1]) > 0 && Number(got[1]) < 150 && Number(got[1]) === typed, J(r).slice(0, 300));
+    own.runFrames(200);
+    check('... and nothing more goes in after it returns', m.stubKeysTaken - before === typed && m.stubKeys.length === 0 && !m.typist.busy, `${m.stubKeysTaken - before} vs ${typed}`);
+  }
+
   // ---------------- a host that has its own machine (Claude's side panel, connector/view/) ----------------
   {
     const T = await import(require('url').pathToFileURL(path.join(ROOT, 'js/mcp/tools.js')).href);

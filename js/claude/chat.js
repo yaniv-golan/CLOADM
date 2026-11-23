@@ -485,7 +485,7 @@ export class ChatSession {
       : { requested: job.requested, consumed: job.consumed, lines_requested: job.linesRequested, lines_delivered: job.linesDelivered };
     if (job.status === 'done' || (read && job.status === 'not-consumed' && job.consumed === job.requested)) return report;
     // (delivered: how many keys went in before the stop, so the page can tell "stopped before" from "while")
-    if (job.status === 'stopped') throw Object.assign(new ToolError(TOOL_CODES.STOPPED, `${job.consumed} of ${job.requested} keys typed`), { delivered: job.consumed });
+    if (job.status === 'stopped') throw Object.assign(new ToolError(TOOL_CODES.STOPPED, `${job.consumed} of ${job.requested} keys typed`), { delivered: job.consumed, requested: job.requested });
     // the machine reset under the typing (Machine.reset): not a Stop, so the model is not told the person stopped it
     if (job.status === 'machine-restarted') throw Object.assign(new ToolError(TOOL_CODES.MACHINE_RESTARTED, `${job.consumed} of ${job.requested} keys typed`), { delivered: job.consumed });
     // the person turned the switch off while the typing was held by a pause: the rest was dropped

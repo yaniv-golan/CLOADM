@@ -9,7 +9,8 @@
 ; 255 characters, wrapped as you type the way replies wrap: a word that
 ; does not fit moves to the next line; BACKSPACE goes back across the
 ; wraps; a key past the limit flashes the screen instead of being
-; taken), sends
+; taken; keys typed while a reply comes wait in a type-ahead ring,
+; TABUF, and are typed once the prompt is back), sends
 ; each line over the byte channel to the chat backend, shows
 ; "Thinking...", and displays the reply as bytes arrive. Replies wrap
 ; at a word boundary; a word longer than a whole line is broken at 42
@@ -99,8 +100,11 @@ RXHEAD  FCB     0               ; RXBUF: next byte to take
 RXTAIL  FCB     0               ; RXBUF: next free place
 DWWAIT  FCB     0               ; passes left before the next SERREAD
 DWCNT   FCB     0               ; SERREADM: bytes to read
+TAHEAD  FCB     0               ; TABUF: next key to take
+TATAIL  FCB     0               ; TABUF: next free place (TAHEAD = TATAIL: nothing typed ahead)
         ORG     $7100
 RXBUF   RMB     256
+TABUF   RMB     256             ; keys typed, taken in order once the prompt is back (255 at most: one place stays free)
         ORG     $6040
 LBUF    RMB     48
 IBUF    RMB     255             ; the typed line: up to 255 characters (BLEN, SLEN and SPOS are bytes)
@@ -110,6 +114,8 @@ START   ORCC    #$50
         LDS     #$6000
         CLR     RXSTAT
         CLR     RXDATA
+        CLR     TAHEAD          ; nothing typed ahead
+        CLR     TATAIL
         JSR     DWPROBE
         JSR     GM7
         LDX     #PROMPT
@@ -122,9 +128,32 @@ START   ORCC    #$50
 MAIN    JSR     SENDNEXT        ; a pending line goes out one byte per pass; never waits on the page
         JSR     [POLCAT]
         TSTA
+        BEQ     MAINK
+        ; every key goes into the type-ahead ring, so one typed while a reply comes is kept, not dropped: it is
+        ; taken once the prompt is back, in the order typed. BREAK while a reply comes is the page's (it stops
+        ; the reply), so it is not kept for the next line.
+        TST     WAIT
+        BEQ     MAINQ
+        CMPA    #3
         BEQ     MAIN2
-        TST     WAIT            ; while a reply comes, keys are not taken (BREAK stops it on the page)
+MAINQ   LDB     TATAIL
+        INCB
+        CMPB    TAHEAD
+        LBEQ    FULL            ; the ring is full: refused visibly, as a key past the 255th is
+        LDX     #TABUF
+        LDB     TATAIL
+        ABX                     ; (unsigned: B,X would go backwards from the 128th place)
+        STA     ,X
+        INC     TATAIL
+MAINK   TST     WAIT            ; while a reply comes, typed keys wait in the ring
         BNE     MAIN2
+        LDB     TAHEAD
+        CMPB    TATAIL
+        BEQ     MAIN2           ; nothing typed
+        LDX     #TABUF
+        ABX
+        LDA     ,X
+        INC     TAHEAD
         CMPA    #13
         LBEQ    ENTER
         CMPA    #8
@@ -154,7 +183,7 @@ TYP1    LDX     #IBUF
         BCS     MAIN2
 TYP2    JSR     ECHO            ; typed text shows at once
 MAIN2   JSR     POLLCH
-        BEQ     MAIN
+        LBEQ    MAIN
         CMPA    #4
         BEQ     MAINEOT
         CMPA    #13

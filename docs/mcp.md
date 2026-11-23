@@ -349,7 +349,9 @@ switch and cards are replaced by your MCP client's approval of each call.
 
 **Time.** `run_frames` and anything that types run in emulated time and stop after a frame limit or about 25 seconds
 of real time, whichever comes first; `run_frames` then answers `"status": "not-yet"` with the screen, and the agent
-calls again. A call never blocks for longer. Cancelling a call (`notifications/cancelled`) stops the machine where it
+calls again. Typing that reaches the 25 seconds (a long `type_text` on a host too slow to finish it) is stopped there and
+fails `time-limit`, whose detail says how many of the keys went in ("40 of 150 keys typed before the time limit"): nothing
+more goes in afterwards, and the rest is sent in shorter calls. A call never blocks for longer. Cancelling a call (`notifications/cancelled`) stops the machine where it
 is, and the call gets no reply, as the protocol asks. A `run_frames` call given a `progressToken` sends
 `notifications/progress` as frames pass. The same calls give the same results: nothing in the emulation reads the
 clock.
@@ -388,6 +390,7 @@ which only the server has. The others use these:
 | `rejected` | the machine refused (a disk on a machine with no drives, a format it does not know, …); nothing changed |
 | `read-only` | the server runs with `--read-only` |
 | `cancelled` | the call was cancelled (on `--serve`; MCP sends no reply) |
+| `time-limit` | the call ran for its whole time limit (about 25 s of real time) and was stopped there: detail says how much went in (`type_text`: "N of M keys typed") |
 | `not-a-rom` | `add_roms`: nothing given is a ROM CLOADM recognises; nothing stored |
 | `too-large` | `add_roms`: a file over 1 MiB or a ZIP over 4 MiB |
 | `refused-url` | `add_roms`: not https, credentials in the URL, an address that is not public (also after a redirect), or more than 3 redirects |

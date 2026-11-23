@@ -238,7 +238,8 @@ screenshot to see what happened. To find which keys a program reads, see `refere
   answer in hex, but `registers` and the machine summaries (`pc`) give decimal numbers. Convert with care before you
   report one in hex (45040 is `$AFF0`, 12318 is `$301E`), or quote the decimal too.
 - **Limits.** `run_frames` runs at most 3000 frames and about 25 s of real time per call (`"not-yet"` then: call
-  again).
+  again). Typing stopped by those 25 s fails `time-limit`, saying how many keys went in: read the screen and type
+  the rest in a shorter call.
 
 ## When you report back
 

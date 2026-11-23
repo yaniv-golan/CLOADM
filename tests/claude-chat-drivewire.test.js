@@ -122,6 +122,16 @@ async function say(s, calls, line, want) {
     await say(s, calls, line255, 3);
     check(`${id}: a 255-character typed line reaches the backend byte for byte over DriveWire`, calls.length === 3
       && calls[2].body.messages.slice(-1)[0].content === line255, `${calls[2] && calls[2].body.messages.slice(-1)[0].content.length} characters`);
+    // a 200-character line typed while that reply (399 bytes) still comes down the channel: the firmware keeps the
+    // keys (its type-ahead ring) and sends the line whole once the reply has ended, not just its tail
+    const ahead = ('Tell me the top line before you answer. Then say what the CoCo is, and why a long line wraps. ').repeat(3).slice(0, 199) + '?';   // (not ending in a space: a line's trailing spaces are not sent)
+    const streaming = s.chat.busy || s.chatServer.channels[14].queue.length > 0;
+    await say(s, calls, ahead, 4);
+    check(`${id}: a 200-character line typed while a reply streams reaches the backend byte for byte over DriveWire`, streaming && calls.length === 4
+      && calls[3].body.messages.slice(-1)[0].content === ahead, `streaming ${streaming}; ${JSON.stringify(calls[3] && calls[3].body.messages.slice(-1)[0].content)}`);
+    const keyIn = (mem) => Buffer.from(mem).includes(Buffer.from(KEY, 'latin1'));
+    check(`${id}: the API key is in neither machine's memory (the chat's, with its type-ahead ring, nor the BASIC session's)`,
+      !keyIn(cm.ram) && !keyIn(basic.ram) && !keyIn(cm.snapshot ? Emu.state.toJSON(cm.snapshot()) : ''));
     // the BASIC session on screen and back: the chat's link is kept
     s.showChat('basic'); await frames(s, 2); s.showChat('chat'); await frames(s, 2);
     check(`${id}: showing the BASIC session and back keeps the chat's server and open channel`, s.shownMachine.becker.server === s.chatServer && s.chatServer.channels[14].open);

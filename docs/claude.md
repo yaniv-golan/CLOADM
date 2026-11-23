@@ -316,6 +316,9 @@ emulator.
   moves to the next line, a word with no space in it breaks at the character, and a space that falls at the end of a
   full line ends it without being drawn. BACKSPACE goes back across the wraps. A key past the 255th is refused visibly: the screen flashes (the VDG's colour
   set switches from green to buff for about a tenth of a second) instead of the key being dropped without notice.
+  You can type ahead: keys typed while a reply is still coming (or while Claude uses its tools, or a card waits) are
+  kept and typed at the prompt once the reply has ended, so a line typed then is sent whole. BREAK (Esc) while a reply
+  comes only stops the reply; it is not kept for the next line.
 * **The screen.** 256×192 two-colour graphics (VDG GM7, SAM mode 6 at `$0400`, the SAM's memory size set to 64K as
   BASIC sets it), 42 columns by 24 rows with this project's own 6×8 font. Typed lower case reaches the firmware as
   typed (the stub hands every other program upper case, as BASIC's keyboard does).

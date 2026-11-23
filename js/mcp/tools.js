@@ -80,6 +80,7 @@ export const MCP_ERRORS = Object.freeze({
   rejected: 'the machine refused (detail says why); nothing changed',
   'read-only': 'this server was started with --read-only: it observes machines but does not type, write memory, load media or write files',
   cancelled: 'the call was cancelled; the machine stopped where it was',
+  'time-limit': `the call ran for its whole time limit (about ${WALL_MS / 1000} s of real time, on a host too slow to finish it) and was stopped there; part of it may have gone in (detail says how much): read the screen, then send the rest in shorter calls`,
   'not-a-rom': 'nothing in it is a ROM CLOADM knows (by its contents, or its usual file name and size; list_models gives the names): nothing was stored. Ask the person for the right file',
   'too-large': `a ROM file is at most ${ROM_FILE_MAX >> 20} MiB and a ZIP of ROMs at most ${ROM_ZIP_MAX >> 20} MiB: nothing was stored`,
   'refused-url': 'add_roms fetches only an https URL to a public address: http, user names or passwords in the URL, addresses that are not public (loopback, link-local, private, CGNAT, documentation, IPv4-mapped and the like, also after a redirect) and more than 3 redirects are refused. Use only a URL the person gave you',
@@ -295,7 +296,13 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
       // so this is a machine too slow to get there; stop the typing so nothing more goes in later
       m.chat.controller.abort();
       await runWhile(m, { frames: 2, done: () => settled });
-      if (!settled) throw fail('rejected', 'the call did not finish within the time limit');
+      if (!settled) throw fail('time-limit', 'the call did not finish');
+      // stopped by the limit, not by the person: say so, and how much went in (never a silent cut, never "the
+      // person stopped Claude")
+      if (error && error.code === 'stopped') {
+        throw fail('time-limit', error.delivered != null && error.requested != null
+          ? `${error.delivered} of ${error.requested} keys typed before the time limit; the rest was not typed` : 'stopped at the time limit');
+      }
     }
     if (signal && signal.aborted && error && error.code === 'stopped') throw fail('cancelled', error.tool && error.tool.detail);
     if (error) throw error;
