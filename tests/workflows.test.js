@@ -117,7 +117,7 @@ function actionRefs(text) {
       if (!v || v.startsWith('{')) throw new Error(`cannot read the uses value at line ${i + 1}: ${lines[i].trim()}`);
       // the release tag lives in the line's comment -- whether it follows the value or the closing brace of a flow
       // map (`{ uses: x@sha }  # v7.0.1` / `{ uses: x@sha  # v7.0.1 }`): one comment on a line with one uses: names it
-      // the tag itself is the first token of the comment: `# v7.0.1`, `# v4.3.0, with: { path: x }`, `# v7.0.1 }`
+      // the tag itself is the first token of the comment: `# v7.0.1`, `# v6.1.0, with: { path: x }`, `# v7.0.1 }`
       const comment = /#\s*(v\S+)/.exec(lines[i]);
       refs.push(Object.assign(pin(v), { comment: comment ? comment[1].replace(/[},;\]]+$/, '') : '' }));
     }
@@ -317,6 +317,53 @@ const MIN_USES = 23;   // tests.yml 13 + release.yml 7 + pages.yml 3, measured w
   check(`every workflow's action references are found in total (at least ${MIN_USES})`, total >= MIN_USES, `${total} found`);
 }
 
+// One action, one version. An action used in two workflows with two different pins is a bump applied to one file and
+// not the other (or a tag comment that was not updated with the SHA): each pin is a valid SHA with a valid tag
+// comment, so the per-reference check above passes both, and the mismatched workflows drift apart silently (one runs
+// the old action, one the new). Read across EVERY file, keyed by the repository the action comes from -- a vendored
+// action (`./...`) has no version to agree on.
+function actionVersions(texts) {
+  const byAction = new Map();
+  for (const [f, text] of texts) for (const u of usesOf(text)) {
+    if (verdictOf(u) !== 'pinned') continue;
+    const at = u.target.lastIndexOf('@'), repo = u.target.slice(0, at).toLowerCase();
+    if (!byAction.has(repo)) byAction.set(repo, []);
+    byAction.get(repo).push({ file: f, sha: u.ref, tag: u.comment });
+  }
+  return byAction;
+}
+// THE RULE, in one place, so the check and its own test cannot drift apart: an action disagrees with itself when its
+// uses do not all carry the SAME (SHA, tag) pair. Both halves matter -- a SHA bumped without its tag comment leaves a
+// reader believing the old version, which is the same lie as an unapplied bump -- so a pair, not just the SHA.
+function disagreements(byAction) {
+  const out = [];
+  for (const [repo, uses] of byAction) {
+    const pins = new Set(uses.map((u) => `${u.sha} # ${u.tag}`));
+    if (pins.size > 1) out.push(`${repo}: ${uses.map((u) => `${u.file}@${u.tag}`).join(' vs ')}`);
+  }
+  return out;
+}
+{
+  const byAction = actionVersions(files.map((f) => [f, read(f)]));
+  const disagree = disagreements(byAction);
+  check('every action is pinned to one SHA and tag everywhere it is used (a bump applied to one workflow and not another)',
+    disagree.length === 0, disagree.join(' | ') || `${byAction.size} actions`);
+  // ...and the rule BITES, through the same function the real check calls: two SHAs for one action is a disagreement,
+  // one SHA in both is not, a SHA bumped while its tag comment is not is a disagreement, and three uses split 2-1 is a
+  // disagreement too (the size is 2, which a check written `> 2` would call consistent).
+  const S1 = '1'.repeat(40), S2 = '2'.repeat(40), S3 = '3'.repeat(40);
+  const group = (uses) => new Map([['actions/cache', uses.map(([sha, tag], i) => ({ file: `${i}.yml`, sha, tag }))]]);
+  const cases = [
+    ['one SHA and tag everywhere', group([[S1, 'v6.1.0'], [S1, 'v6.1.0']]), 0],
+    ['a bump applied to one file and not another', group([[S1, 'v6.1.0'], [S2, 'v6.0.0']]), 1],
+    ['a SHA bumped and its tag comment left behind', group([[S1, 'v6.1.0'], [S1, 'v6.0.0']]), 1],
+    ['three uses split two to one', group([[S1, 'v6.1.0'], [S1, 'v6.1.0'], [S2, 'v6.0.0']]), 1],
+  ];
+  const bad = cases.filter(([, g, want]) => disagreements(g).length !== want);
+  check('...and it calls exactly these one pin, two pins, a stale tag comment and a 2-1 split what they are',
+    bad.length === 0, bad.map(([n, , w]) => `${n} (wanted ${w})`).join(' | '));
+}
+
 // ---- the readers' own blind spots, each a shape that would ship an unpinned action or a dangerous trigger green ----
 {
   const cases = [
@@ -327,7 +374,7 @@ const MIN_USES = 23;   // tests.yml 13 + release.yml 7 + pages.yml 3, measured w
     ['a SHA with no tag comment', '- uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1', 'no-tag-comment'],
     ['a SHA with a non-tag comment', '- uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # main', 'no-tag-comment'],
     ['a pinned action', '- uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1', 'pinned'],
-    ['an indented pinned step', '        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0', 'pinned'],
+    ['an indented pinned step', '        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0', 'pinned'],
     ['a flow-map step', '- { uses: actions/checkout@v7 }', 'not-a-sha'],
     ['a flow-map step with more keys', '- { name: x, uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1 }', 'pinned'],
     ['a local action', '- uses: ./.github/actions/local', 'local'],
@@ -359,7 +406,7 @@ const MIN_USES = 23;   // tests.yml 13 + release.yml 7 + pages.yml 3, measured w
       // a flow step that carries its own flow map: the inner braces must not be mistaken for the step's end
       ['- { name: x, uses: actions/checkout@v7, with: { fetch-depth: 0 } }', 'not-a-sha'],
       ['- { uses: actions/cache@v4, with: { path: x, key: y } }', 'not-a-sha'],
-      ['- { uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0, with: { path: x } }', 'pinned'],
+      ['- { uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0, with: { path: x } }', 'pinned'],
       // a brace in the TRAILING comment must not be taken for the step's end (the round-3 regression)
       ['- { uses: actions/checkout@v7 }  # pinned per {org}/{repo}', 'not-a-sha'],
       ['- { uses: actions/checkout@v7 }  # pinned: ${{ matrix.node }}', 'not-a-sha'],

@@ -197,6 +197,17 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Changed
 
+- **The CI workflows' cache and artifact actions are on their current major versions**: `actions/cache` from 4.3.0 to
+  6.1.0 and `actions/download-artifact` from 7.0.0 to 8.0.2, both pinned to a commit SHA with the tag beside it as
+  the repository pins every action. `actions/cache` now runs on Node 24 (a runner 2.327.1 or newer, which
+  GitHub-hosted runners are) and restores the existing entries unchanged: its cache-version salt is the same, so the
+  Playwright browser and the .deb cache do not start cold. `actions/download-artifact` refuses a download whose hash
+  does not match what the service reports (`digest-mismatch` now defaults to `error`) instead of warning, and no longer
+  tries to unzip a file it did not download as a zip; every artifact this repository uploads is zipped by
+  `upload-artifact`, and each download here names one artifact with a `path:`, which still unpacks directly into it.
+  `node tests/workflows.test.js` now also holds that an action carries the same SHA and the same tag comment everywhere it
+  is used, so a bump applied to one workflow and not another -- or a SHA changed without its tag comment -- fails rather
+  than leaving two versions running.
 - **A phone's ports and power are four chips under the keyboard.** With the on-screen keys on (or hidden for now), one
   row of chips sits under the keyboard panel, in a fixed order: Tape, Disks, Cartridge and Power, each saying what is
   in it (Empty, the file name, "2 disks"; Running or Paused) and outlined while it holds media. Each opens its sheet,

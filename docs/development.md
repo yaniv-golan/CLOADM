@@ -100,7 +100,9 @@ the `browser-check-timings` artifact (merge it to rebalance: `--merge` keeps a s
 `tests/suite-times.json` from a passing whole run (`--timings FILE` writes one run's or one part's times elsewhere). A green run's `gates` summary (commit SHA, tree hash, each job's counts) is the
 definition of done; see AGENTS.md section 4.
 Every action in the workflows is pinned to a commit SHA with its release tag beside it, and `pull_request_target` is
-never used; `node tests/workflows.test.js` holds both, and `.github/dependabot.yml` proposes the bumps weekly.
+never used; `node tests/workflows.test.js` holds both, and that an action used in more than one workflow carries the
+same SHA in each (so a bump cannot be applied to one file and not another). `.github/dependabot.yml` proposes the
+bumps weekly.
 `node tests/workflows-release.test.js` holds `release.yml`'s shape: it runs the gates (`release.yml` calls
 `tests.yml` in place) before anything is packed; the unpinned `npx` code runs in a job with no write scope; the
 attestation covers the assets and runs no third-party code; and the notes are the tagged version's CHANGELOG section,
