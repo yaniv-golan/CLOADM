@@ -2065,6 +2065,20 @@ async function romUiChecks(browser, base, check) {
   await ctx.close();
 }
 
+// R46: the tune's DAC edges, counted on the page: the welcome tune drives the DAC to its high level ($FC), which no
+// other part of the menu does, so any high-level event in a machine frame's audio events while this runs is the tune.
+// (A frame loop of its own over the machine's own per-frame buffer: nothing here depends on the sound being unlocked.)
+const countTune = (page) => page.evaluate(() => {
+  window.__tune = 0;
+  if (window.__tuneLoop) return;
+  window.__tuneLoop = true;
+  const loop = () => {
+    const ev = window.emu.session.shownMachine.audioEvents;
+    for (let k = 2; k < ev.length; k += 2) if (ev[k + 1] > 0.9) window.__tune++;
+    requestAnimationFrame(loop);
+  };
+  requestAnimationFrame(loop);
+});
 async function visitChecks(browser, base, check) {
   const ctx = await browser.newContext();
   const page = await ctx.newPage();
@@ -2080,6 +2094,13 @@ async function visitChecks(browser, base, check) {
   check('first visit: "Runs without ROMs" is the welcome menu (on screen now), our programs and the Claude chat', (await page.$$eval('#shelf :is(a, button)', (b) => b.map((x) => x.textContent).join())) === 'Welcome menu on screen now,LIZA,Colour demo,2048,Minesweeper,Chat with Claude',
     await page.$$eval('#shelf :is(a, button)', (b) => b.map((x) => x.textContent).join()));
   check('first visit: "No BASIC · Add ROMs" in the header and the machine question', await page.isVisible('#romPill') && await page.isVisible('#askMachine'));
+  // R46: the tune plays only when the person asked for the menu. The visit's own menu leaves the firmware's PLAYED flag
+  // ($6005, the 6809 build) at 0 (a few frames in, once START has cleared it), so its tune is still to play once the
+  // sound is unlocked
+  check('first visit: the visit\'s own welcome menu leaves PLAYED at 0 (its tune plays once the sound is unlocked)',
+    await waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.shownMachine.frameCount > 10)
+      && await page.evaluate(() => window.emu.session.shownMachine.ram[0x6005] === 0),
+    String(await page.evaluate(() => window.emu.session.shownMachine.ram[0x6005])));
   check('first visit: "click for sound" until a click or key, no tune yet', await page.isVisible('#soundHint') && !(await page.evaluate(() => window.emu.audioRunning()))
     && await page.evaluate(() => window.emu.machine.ram[0x6004]) === 0);
   await shot('first', '.layout > main');
@@ -2103,8 +2124,14 @@ async function visitChecks(browser, base, check) {
   await key('2');
   check('welcome: 2 runs the colour demo', await waitFor(page, () => /Colour demo: press a key/.test(document.getElementById('toast').textContent) && window.emu.machine.cpu.pc >= 0x4000 && window.emu.machine.cpu.pc < 0x4200 && !window.emu.session.welcomeRunning));
   check('welcome: "Back to the menu" shows while the demo runs', await page.isVisible('#btnWelcomeBack'));
+  await countTune(page);
   await page.click('#btnWelcomeBack');
   check('welcome: "Back to the menu" returns to the menu, and hides', await menu() && await page.isHidden('#btnWelcomeBack'));
+  // R46: back from the demo the menu is silent (the page's button passes the reason 'return'): PLAYED is set a few frames in
+  check('welcome: the menu back from the demo is silent (PLAYED is 1 within a few frames: R46)',
+    await waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.shownMachine.ram[0x6005] === 1));
+  await page.waitForTimeout(3500);
+  check('welcome: ... and it plays no tune (no high-level DAC event in 3.5 s)', await page.evaluate(() => window.__tune) === 0, String(await page.evaluate(() => window.__tune)));
   // the games: 5 opens the games menu, 1 and 2 start 2048 and Minesweeper (the 128x192 four-colour screen), their
   // keys change the screen, and BREAK (Esc) comes back to the menu. The frame is summed in the page: a key that
   // the game took redraws it.
@@ -2170,9 +2197,18 @@ async function visitChecks(browser, base, check) {
       s.__counted = true;
     }
   });
+  await countTune(page);
   await page.click('#askMachine button[data-machine="coco"]');
   check('machine question: switches machine and the welcome program runs there', await waitFor(page, () => window.emu.machine.id === 'coco' && window.emu.session.welcomeRunning && window.emu.session.screenText()[14].includes('PRESS 1 TO 5'))
     && !(await page.$('#askMachine')));
+  // ... and a menu the page starts after a machine switch is silent: PLAYED is 1 a few frames after it (the firmware clears
+  // it at START, the Session sets it after the first frame), whether or not the click unlocked the sound
+  check('machine question: the menu after the switch is silent (PLAYED is 1 at $6005 within a few frames: R46)',
+    await waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.shownMachine.ram[0x6005] === 1),
+    String(await page.evaluate(() => window.emu.session.shownMachine.ram[0x6005])));
+  await page.waitForTimeout(3500);
+  check('machine question: ... and it plays no tune, the click that unlocked the sound included (no high-level DAC event in 3.5 s)',
+    await page.evaluate(() => window.__tune) === 0, String(await page.evaluate(() => window.__tune)));
   check('machine question: the menu is started exactly once (no second start from the page)',
     await page.evaluate(() => window.__starts) === 1, String(await page.evaluate(() => window.__starts)));
   // ... and the START it makes carries no machine ticket: a machine question is the person's own act, so the menu

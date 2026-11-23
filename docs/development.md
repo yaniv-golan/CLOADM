@@ -219,6 +219,7 @@ node tests/alpha.test.js     # the Dragon Alpha's wiring: ROM banks, PIA2, the A
 node tools/build-demo.js     # rebuild examples/demo.bin
 node tools/build-examples.js # rebuild examples/liza.bin, liza6803-{mc10,alice}.bin, welcome.bin, welcome6803-{mc10,alice}.bin, chat.bin and starter-game/catch.bin from their .asm sources, then bring sw.js's offline file list up to date
 node tests/welcome.test.js   # welcome program on every 6809 model: screen, menu keys and events, the tune on the DAC
+node tests/welcome-tune.test.js   # when the welcome tune plays (R46): the visit and Programs play it; a switch, Reset, a power cycle and a return are silent; both builds
 node tests/demo-tone.test.js # the welcome demo plays one short clean tone (440-880 Hz, 0.3-0.5 s, $80 +/- amp), then nothing on the DAC; the bars are as defined (Dragon 64, CoCo, CoCo 3)
 node tests/privacy-copy.test.js # the ROM privacy copy (README, docs, front, /roms, Help, play) says both halves: CLOADM never uploads ROMs; what Claude reads from memory, ROM areas included, goes to Anthropic
 node tests/cpu6309-offer.test.js   # the welcome menu is offered on every 6309 model ('menu', 'back'), and the file it fetches is the 6809 build (welcome.bin), as the 6809 gets

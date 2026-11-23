@@ -624,7 +624,7 @@ class Runner {
   async program(step, name, s) {
     const example = (f) => readFile(path.join(ROOT, 'examples', f), 'program');
     let message;
-    if (name === 'welcome') { s.startWelcome(example(s.welcomeFile)); message = 'welcome program running'; }
+    if (name === 'welcome') { s.startWelcome(example(s.welcomeFile), { reason: 'shelf' }); message = 'welcome program running'; }
     else if (name === 'liza') message = await s.startLiza(example);
     else if (Emu.GAMES.list[name]) {
       try { message = s.runGame(name, example(s.gameFile(name))); } catch (e) { if (e instanceof Emu.SessionError) throw media(e.message, 'rejected'); throw e; }

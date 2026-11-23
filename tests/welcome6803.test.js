@@ -157,7 +157,7 @@ for (const { id, file } of MACHINES) {
   const s = new Emu.Session();
   s.switchMachine(id);
   s.welcomeSound();
-  s.startWelcome(read(file));
+  s.startWelcome(read(file), { reason: 'visit' });   // (a visit's tune: after a switch it is silent, tests/welcome-tune.test.js)
   const m = s.shownMachine, latch = new Set(), outside = [];
   const write = m.write.bind(m);
   m.write = (a, v) => { a &= 0xFFFF; if (a === 0xBFFF) latch.add(v); else if (a < 0x4000 && a >= 0x100) outside.push(a); return write(a, v); };

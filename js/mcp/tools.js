@@ -646,7 +646,7 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
       if ((args.path == null) === (args.program == null)) throw fail('bad-argument', 'give path or program, one of them');
       if (args.program != null) {
         const name = args.program;
-        if (name === 'welcome') { s.startWelcome(host.program(s.welcomeFile)); return { loaded: 'welcome', message: 'welcome program running' }; }
+        if (name === 'welcome') { s.startWelcome(host.program(s.welcomeFile), { reason: 'shelf' }); return { loaded: 'welcome', message: 'welcome program running' }; }
         if (name === 'liza') return { loaded: 'liza', message: await s.startLiza((f) => host.program(f)) };
         if (name === 'demo') {
           if (cpuFamily(s.shownMachine.config.cpu) !== '6809') throw fail('rejected', `the demo is 6809 code; the ${s.shownMachine.profile.name} has a ${s.shownMachine.config.cpu}`);

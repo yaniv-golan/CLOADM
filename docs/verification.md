@@ -910,6 +910,10 @@ browser check's group `uiModel` drives them with real events at 1280x720 and at 
 * R27: every text node and title, label and placeholder of the page (emulator, machine menu, Your ROMs, Share,
   Library) holds no "stub" and no "Machine tab", and "disk ROM" is the one term; the ROMs row's states, the .dgn
   warning and the snapshot sentence word for word.
+* R46: the welcome tune plays only when the person asked for the menu (the visit's own start and Programs' Welcome menu,
+  once the sound is unlocked); a machine switch, Reset, a power cycle and a return from LIZA, a game or the demo are silent.
+  `tests/welcome-tune.test.js` measures the DAC (the MC-10's latch) over about 3 s of frames on both firmware builds; the browser
+  check's group `visit` reads the firmware's PLAYED flag and counts the tune's DAC events after a page switch and a return.
 
 Not verified automatically: how the fixed top slot reads to a person on a real phone (screenshots
 `r24-disk-toast-*.png` were looked at).

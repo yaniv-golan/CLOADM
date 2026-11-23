@@ -54,7 +54,7 @@ export function setupWelcome(page, { showRoms, openClaude }) {
   const box = $('welcome');
   const back = $('btnWelcomeBack');   // shown while the colour demo started from the menu runs
   const showBack = (on) => { back.hidden = !on; };
-  back.onclick = () => { showBack(false); runWelcome(); };
+  back.onclick = () => { showBack(false); runWelcome({}, { reason: 'return' }); };
 
   // greeting: 'first', 'back' or 'bye'; on a returning visit the menu offers what ran last as option 5
   // ifIdle: only if nothing else started while the menu's bytes were fetched (the Session asked for it, then a
@@ -94,14 +94,16 @@ export function setupWelcome(page, { showRoms, openClaude }) {
     page.toast(`This is CLOADM's welcome menu: press a number to choose. Typing BASIC needs your BASIC ROM: {action}. Or press ${LIZA_KEY} for LIZA, a program you can type to.`,
       { action: { label: 'Add ROMs', run: showRoms } });
   });
-  async function runWelcome({ greeting = 'first', carryOn = null } = {}, { ifIdle = false, byMachine = null } = {}) {
+  // reason: why it starts (Session WELCOME_REASONS: R46, the tune plays only for 'visit' and 'shelf'); the menu the Session
+  // offered (a switch, a Reset, a return: the 'menu' event) comes without one and the Session knows why
+  async function runWelcome({ greeting = 'first', carryOn = null } = {}, { ifIdle = false, byMachine = null, reason = undefined } = {}) {
     const m = session.personMachine, running = session.stubRun, gen = session.welcomeGenNow();
     try {
       const bytes = await page.fetchBytes(`examples/${session.welcomeFile}`);   // this machine's build (6809, or its own 6803 one)
       if (ifIdle && (session.personMachine !== m || session.stubRun !== running || session.welcomeRunning)) return;
       // gen: a start whose fetch was overtaken (the menu cleared, a program loaded, a machine switch) is refused
       // in the Session itself, for every caller, so a late start cannot take the screen from what was started then
-      startAs(byMachine, () => session.startWelcome(bytes, { greeting, carryOn: carryOn && carryOn.name, gen }));   // (the menu says "PRESS 1 TO 4" itself: not repeated)
+      startAs(byMachine, () => session.startWelcome(bytes, { greeting, carryOn: carryOn && carryOn.name, gen, reason }));   // (the menu says "PRESS 1 TO 4" itself: not repeated)
     } catch (e) { page.status(`Welcome: ${e.message}`, true); }
     page.focus();
     shelf();
@@ -214,7 +216,7 @@ export function setupWelcome(page, { showRoms, openClaude }) {
     // (the 6309 runs it too: it is in the 6809 instruction-set family)
     const cpu = session.personMachine.config.cpu, family = cpuFamily(cpu), need = session.lizaNeeds();
     {
-      const w = entry('Welcome menu', { start: 'welcome' }, () => runWelcome({ greeting: 'back', carryOn: session.carryOn })); w.dataset.shelf = 'welcome';
+      const w = entry('Welcome menu', { start: 'welcome' }, () => runWelcome({ greeting: 'back', carryOn: session.carryOn }, { reason: 'shelf' })); w.dataset.shelf = 'welcome';
       w.title = 'The Welcome menu: LIZA, colour and sound, adding ROMs, Claude, games';
       if (session.welcomeRunning) { w.append(' ', el('span', 'on screen now', 'tag now')); w.setAttribute('aria-current', 'true'); }
       row.append(w);
@@ -298,7 +300,7 @@ export function setupWelcome(page, { showRoms, openClaude }) {
       // Alice the Session refuses and the status line says why.
       if (program === 'liza') await run(SHELF[0]);
       else if (gameItem(program)) await run(gameItem(program));
-      else await runWelcome(menu);
+      else await runWelcome(menu, { reason: 'visit' });
       // As ?app=claude is the address while the chat is open (js/ui/page.js), ?start= is while the program it
       // started runs: a reload starts it again. Once something else takes the machine (the program is left for the
       // menu, a switch, a load, the menu or another program started) the address drops it, so a reload or Back to
@@ -314,7 +316,7 @@ export function setupWelcome(page, { showRoms, openClaude }) {
       // first visit's, or greeting a returning visitor back. A link that only names the machine (the landing page's
       // machine cards) does the same; the machine question is not asked then, the link answered it.
       if (v.first && !session.hasAnyRoms) firstVisit(!v.machineChosen && !fromLink);
-      await runWelcome(menu);
+      await runWelcome(menu, { reason: 'visit' });
     }
     shelf();
     lastTime();
