@@ -50,9 +50,18 @@ const prompt = (sess = s, frames = 60, row = 14) => { sess.runFrames(frames); re
   // title row, not "WELCOME BACK". (main's handler started the menu with runWelcome()'s default greeting, 'first'.)
   // The greeting is BEHAVIOUR, not a string in the page: Session.greetingFor decides it (the page calls it), and
   // the machine question's answer must produce the first-visit screen, not WELCOME BACK.
-  check('welcome: the machine question\'s greeting is the first visit\'s', Emu.Session.greetingFor('none') === 'first', JSON.stringify(Emu.Session.greetingFor('none')));
-  check('welcome: and every other offer greets a returning visitor', Emu.Session.greetingFor('back') === 'back' && Emu.Session.greetingFor(null) === 'back');
-  s2.startWelcome(welcome, { greeting: Emu.Session.greetingFor('none'), carryOn: null });
+  check('welcome: the machine question\'s greeting is the first visit\'s', s2.greetingFor('none') === 'first', JSON.stringify(s2.greetingFor('none')));
+  check('welcome: and every other offer greets a returning visitor', s2.greetingFor('back') === 'back' && s2.greetingFor(null) === 'back');
+  // a visit that began as the browser's first never greets "back" (a machine picked in the header menu, the shelf's
+  // Welcome menu): only a later visit does
+  const store = Emu.memoryStore();
+  const visit1 = new Emu.Session({ store, media: new MemoryMediaStore() });
+  check('welcome: the first visit is recognised', visit1.visit().first && visit1.greetingFor('back') === 'first' && visit1.greetingFor(null) === 'first');
+  visit1.setLastRun('liza', 'LIZA');
+  check('welcome: ...until something has run in it: then the menu greets "back"', visit1.greetingFor('back') === 'back' && visit1.greetingFor('none') === 'first');
+  const visit2 = new Emu.Session({ store, media: new MemoryMediaStore() });
+  check('welcome: the next visit in that browser is a returning one: "back"', !visit2.visit().first && visit2.greetingFor('back') === 'back' && visit2.greetingFor('none') === 'first');
+  s2.startWelcome(welcome, { greeting: s2.greetingFor('none'), carryOn: null });
   check('welcome: the machine question\'s menu shows the first-visit title, not WELCOME BACK',
     prompt(s2, 60, 6) === 'DRAGON AND COLOR COMPUTER', prompt(s2, 60, 6));
 

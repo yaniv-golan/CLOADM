@@ -922,7 +922,7 @@ up to date with the data and lists exactly the 17 models `availableProfiles()` o
 every ROM socket's label and file names. Browser check, group `uiModel` (1280x720 and 390x844): with no ROMs, the top
 line and no tags or legend, and that line as the menu's aria-describedby (none once ROMs are stored); the band above
 the footer fading into the panel's colour, with no mask over the page; every section's subtitle as the data words it; every item's aria-description its
-description, and no live region; **Which one is mine? →** a menu item linking `help/#machines`; on the desktop arrow
+description, and no live region; **Which one is mine? ↗** a menu item linking `help/#machines` that closes the menu when used; the footer standing below the models' own scrolling box, the last model (the CP-400) whole and on top when scrolled to the end; on the desktop arrow
 focus changing the footer line to the focused item's description (aria-hidden), and hovering the CD-6809 showing its
 line in view at the menu's foot; on the phone no footer line but the subtitles and the link; with a synthetic Dragon
 32 BASIC stored, the tags on every row and ✓ exactly on the machines `machineRoms` calls bootable; the link opening
@@ -1180,7 +1180,7 @@ browser check's group `uiModel` drives them with real events at 1280x720 and at 
   "on screen now", the focus in it; the Media tab left with only the tape options; the sheet's order, Last time at the
   top, then the no-ROM card, the shelf, Recent, Snapshots with its heading and note, the Library link), then 2048 from
   it: two taps, the sheet closed and the game running; the palette's "Programs" found by programs, games, demos, liza
-  and run, with Last time (2048) the sheet's first item after; on a desktop the palette's "Programs" selecting the
+  and run, with 2048 marked "on screen now" and no Last time while it runs, and Last time (2048) the sheet's first item after a reset; on a desktop the palette's "Programs" selecting the
   Media tab from Display with the focus on the shelf's first item; "Chat with Claude" from the sheet closing it. No Menu label with its words run together, upright, sideways (the keys' Menu), at
   393 x 659 (`mobile`) and in the desktop app bar at 1440 and 900 px: every two drawn letters with a space between them
   in the text stand apart on the screen. The media file pickers' accept values, exactly: their extensions and

@@ -210,6 +210,22 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Changed
 
+- **A phone's Cassette deck sheet closes when the program starts.** Load it now (the button in the toast after a tape goes
+  in with no BASIC to type CLOAD into) and Skip the tape close the sheet, so the screen shows the program starting. In the
+  sheet the slot's small deck picture is left out, since the big cassette is right there; the empty line "No tape · Insert
+  tape…" is a real button, and on a touch screen the hint says "tap the deck to insert", not "click".
+- **The machine menu's footer no longer stands over a model.** The models scroll in a box of their own above the footer
+  ("Add or see ROMs…", "RAM, CPU and speed…", "Which one is mine?"), so the last one, the CP-400 under KITS, is whole when
+  the list is scrolled to its end, and the fade above the footer says there is more. "Which one is mine?" ends in ↗
+  (it opens Help in a new tab) and closes the menu.
+- **Opening a program file says what happened first.** The toast reads "minesweeper.bin loaded and started." and keeps the
+  format and addresses ("DragonDOS binary $3000-$3FE6, exec $3000") under Details. The Session's message for the same load
+  has the same two parts.
+- **"On screen now" and "Last time" follow what the screen shows.** The program last run (a file from Open…, LIZA, the
+  colour demo, a game) is marked "on screen now" on its row (in "Recent on this machine" for a file, on the shelf for ours)
+  while it runs, and "Last time · Run again" is hidden then; a reset, the welcome menu, another program, a machine switch,
+  Pause or a Debugger stop bring the card back and take the mark off. The welcome menu's tag waits until the menu is drawn,
+  where it used to show a few tenths of a second early on a freshly switched machine (the CoCo 3's screen was still blank).
 - **The side panel's tool list fits the host's limit.** claude.ai drops a tool list whose input schemas together pass
   8 KB, and the panel's were 11.1 KB. The panel now lists its tools through one compaction of the toolbox's own schemas
   (`compactTool`, `connector/view/tools.js`): 7.5 KB. The parameter that names the machine (`machine_id`) carries no
@@ -416,6 +432,10 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Fixed
 
+- **A first visit is not greeted "WELCOME BACK" while nothing has run in it.** Picking a machine in the header menu, or
+  the shelf's Welcome menu, on the browser's first visit shows the title screen; once a program has run, or on a later
+  visit, the menu says it. (`Session.greetingFor` is now a method of the session, which knows whether the visit began
+  as the first.)
 - The side panel's view no longer tells the host its size before it has sent `ui/notifications/initialized`: the latest
   size waits, and one `ui/notifications/size-changed` follows it.
 - **The catch-up check after a pause holds the worklet's own contract.** The check failed CI on a

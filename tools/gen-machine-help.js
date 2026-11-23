@@ -2,7 +2,7 @@
 // Writes the Help page's list of machines (help/index.html, between its machines markers) from the data: every model
 // the machine menu offers, in the menu's sections with their subtitles (js/machines/menu.js GROUPS, SUBTITLES), what
 // each model is (DESCRIPTIONS) and the ROMs it takes, by the names Your ROMs uses (each socket's label, whether it is
-// needed, and its usual file names, from js/machines/profiles.js). The machine menu's "Which one is mine? →" links here.
+// needed, and its usual file names, from js/machines/profiles.js). The machine menu's "Which one is mine? ↗" links here.
 //
 //   node tools/gen-machine-help.js           write help/index.html
 //   node tools/gen-machine-help.js --check   exit 1 if it is out of date (tests/machine-menu.test.js runs this too)

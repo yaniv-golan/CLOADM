@@ -85,18 +85,18 @@
   #navInstall[hidden] { display: none; }
   #navInstall .ell { display: none; }   /* (Menu's "Install…" on a phone) */
   #machineMenu { position: absolute; top: calc(100% - 6px); left: 20px; z-index: 20; width: min(600px, calc(100vw - 40px)); background: var(--panel);
-    border: 1px solid var(--line); border-radius: var(--r-14); padding: 14px; box-shadow: 0 20px 50px rgba(0, 0, 0, .6);
-    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; max-height: 80vh; overflow-y: auto; }
+    border: 1px solid var(--line); border-radius: var(--r-14); padding: 14px 14px 0; box-shadow: 0 20px 50px rgba(0, 0, 0, .6);
+    display: flex; flex-direction: column; max-height: 80vh; overflow: hidden; }
+  /* the models scroll in their own box above the footer, which never stands over one */
+  #machineMenu .menulist { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-bottom: 12px; }
   #machineMenu[hidden] { display: none; }
   /* an empty recent list says "Nothing loaded yet": not under a "Last time" (drawer.js marks it) */
   #lastTime:not([hidden]) ~ .recent-empty { display: none; }
   /* more models below the fold (machine-panel.js sets it while the list can scroll further): the bottom fades */
-  /* (the footer stays at the bottom, so the models fade into the panel's colour above it, never into the page) */
-  #machineMenu .footer::before { content: ''; position: absolute; left: 0; right: 0; bottom: 100%; height: 48px; pointer-events: none;
+  /* (the models fade into the panel's colour above the footer's rule while more are below, never into the page) */
+  #machineMenu .sep::before { content: ''; position: absolute; left: 0; right: 0; bottom: 100%; height: 48px; pointer-events: none;
     background: linear-gradient(transparent, var(--panel)); opacity: 0; }
-  #machineMenu.more-below .footer::before { opacity: 1; }
-  /* the footer stays in view while the models scroll: its line for the model under the pointer or the focus too */
-  #machineMenu .footer { position: sticky; isolation: isolate; bottom: -14px; background: var(--panel); padding-bottom: 14px; margin-bottom: -14px; z-index: 1; }
+  #machineMenu.more-below .sep::before { opacity: 1; }
   #machineMenu .group-name { font-size: 14px; letter-spacing: .06em; color: var(--muted); padding: 2px 8px 0; }
   #machineMenu .group-sub { font-size: 13px; color: var(--text-3); padding: 0 8px 6px; }
   #menuNoRoms { grid-column: 1 / -1; margin: 0; padding: 4px 8px 8px; font-size: 15px; color: var(--text-2); }
@@ -110,8 +110,9 @@
   #machineMenu .tag { font-size: 14px; color: var(--muted); white-space: nowrap; }
   #machineMenu .tag.ready { color: var(--phosphor); }
   /* the footer: a separator, then "Add or see ROMs…" and "RAM, CPU and speed…", menu items like the machines */
-  #machineMenu .sep { grid-column: 1 / -1; border-top: 1px solid var(--line); }
-  #machineMenu .footer { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 16px; }
+  #machineMenu .sep { flex: none; position: relative; border-top: 1px solid var(--line); }
+  /* the footer stays in view while the models scroll: its line for the model under the pointer or the focus too */
+  #machineMenu .footer { flex: none; display: flex; flex-wrap: wrap; gap: 4px 16px; padding: 12px 0 14px; }
   #machineMenu .footer button { width: auto; flex: 1 1 200px; color: var(--text-2); }
   #machineMenu .footer .legend { align-self: center; margin-left: auto; padding: 0 8px; font-size: 14px; color: var(--text-2); white-space: nowrap; }
   #switchConfirm { position: absolute; top: calc(100% - 6px); left: 20px; z-index: 21; width: min(560px, calc(100vw - 40px)); box-sizing: border-box;
@@ -233,6 +234,8 @@
   .deck { flex: none; width: 110px; height: 70px; display: flex; align-items: center; justify-content: center; gap: 22px; background: #1E1E1E;
     border: 1px solid var(--line-strong); border-radius: var(--r-10); padding: 0; }
   /* the slot's deck is a still picture: the one deck that moves is the cassette panel's (#tapePanel) */
+  #btnTapeName { font-weight: 700; text-align: left; }
+  @media (pointer: coarse) { #btnTapeName { min-height: 44px; } }
   .reel { width: 30px; height: 30px; border-radius: 50%; border: 5px dotted #D8D8D8; }
   button.rec { color: var(--orange); }
   button.rec[aria-pressed="true"] { background: var(--orange); border-color: var(--orange); color: var(--on-orange); }
@@ -417,6 +420,8 @@
   #recentList button.row { width: 100%; border: 0; text-align: left; color: var(--text); }
   /* two rows of one name with different bytes: the older one says which copy it is */
   #recentList .copy { color: var(--muted); font-size: 14px; padding: 0 6px; }
+  #recentList .tag.now { color: var(--muted); font-size: 14px; margin-right: auto; }
+  #recentList [aria-current="true"] { box-shadow: inset 0 0 0 1px var(--phosphor); }
   #slotList { display: flex; flex-direction: column; gap: 6px; }
   #slotList .row { color: var(--text); padding: 6px 6px 6px 12px; }
   #slotList button { min-height: 36px; padding: 6px 12px; }
@@ -1407,7 +1412,8 @@
     .appbar.menu-open nav #navHelp { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
     .appbar.menu-open #navInstall .more { display: none; }
     .appbar.menu-open #navInstall .ell { display: inline; }
-    #machineMenu { left: 8px; right: 8px; width: auto; grid-template-columns: minmax(0, 1fr); max-height: 70vh; }
+    #machineMenu { left: 8px; right: 8px; width: auto; max-height: 70vh; }
+    #machineMenu .menulist { grid-template-columns: minmax(0, 1fr); }
     #switchConfirm { top: 100%; left: 8px; right: 8px; width: auto; }
     .layout { padding: 16px; }
   }
@@ -1516,6 +1522,8 @@
   :is(#sheetCart, #sheetPorts) #cartSlot > .inner > .title { display: none; }
   :is(#sheetTape, #sheetPorts) #tapePanel .deckhead { display: none; }
   :is(#sheetTape, #sheetPorts) #tapePanel { margin: 0; }
+  /* the sheet has the big cassette: the slot's small deck picture would repeat it (the line below it inserts a tape) */
+  :is(#sheetTape, #sheetPorts) .slot.tape > .deck { display: none; }
   #sheetPower .sheetbody { flex-direction: row; flex-wrap: wrap; }
   /* Settings: from the screen's foot to the window's (js/ui/phone-sheets.js sets --sheet-h, at least half the window),
      so the screen shows what a Display setting does; Expand takes the whole height */
@@ -1774,7 +1782,7 @@ npx serve -l 8000 .</pre>
         <button class="deck" id="btnTape" aria-label="Cassette deck: insert a tape"><span class="reel"></span><span class="reel"></span></button>
         <div class="inner">
           <div class="title">Cassette · <span id="tapeState">click the deck to insert</span></div>
-          <div class="name" id="tapeName">No tape</div>
+          <div class="name" id="tapeName"><button type="button" id="btnTapeName" class="link">No tape · Insert tape…</button></div>
           <div class="bar"><button id="btnRewind">Rewind</button><button id="btnEjectTape">Eject</button>
             <button id="btnRecord" class="rec" aria-pressed="false" title="Record what the machine writes to tape (CSAVE, CSAVEM) as a .CAS file">Record</button>
             <button id="btnTapeWav" title="Save the tape in the deck, or the last recording, as a WAV file">Save .WAV</button></div>

@@ -2811,19 +2811,23 @@ async function onScreenChecks(browser, base, check) {
       const tag = () => !!document.querySelector('#shelf [data-shelf="welcome"] .tag.now');
       const a = { tag: tag(), drawn: drawn(), frames: m.frameCount };
       await new Promise((r) => { let k = 0; const f = () => (++k >= 20 ? r() : requestAnimationFrame(f)); requestAnimationFrame(f); });
-      const executing = s.welcomeRunning && s.welcome === m && m.frameCount > a.frames;
+      // (executing: the menu program runs; it is "on screen" once its prompt is drawn, which takes it a good number of frames)
+      const executing = s.welcomeRunning && s.welcome === m && m.frameCount > a.frames && s.screenText(m).some((r) => r.includes('PRESS 1 TO'));
       const b = { tag: tag(), drawn: drawn() };
       return { ok: a.tag === b.tag && b.tag === (executing && a.drawn && b.drawn), tag: b.tag, executing, drawn: a.drawn && b.drawn, paused: s.paused };
     });
   };
   const invariant = async (step, want) => {
+    // (the menu draws itself some frames after it starts, and the tag waits for that: sample once it is drawn)
+    if (want) await waitFor(page, () => window.emu.session.welcomeOnScreen, null, 20000);
     const r = await atRest();
     check(`on screen (${step}): "on screen now" ${want ? 'shown' : 'not shown'}, exactly when the menu runs and the canvas shows the machine's frame`,
       r.ok && r.tag === want && r.drawn, JSON.stringify(r));
   };
   const shelfClick = (key) => page.evaluate((k) => document.querySelector(`#shelf :is(a, button)[data-shelf="${k}"], #shelf a[href*="start=${k}"]`).click(), key);
   const last = () => page.evaluate(() => ({ card: document.getElementById('lastTime').hidden ? null : document.getElementById('lastName').textContent,
-    lastRun: window.emu.session.lastRun && window.emu.session.lastRun.name }));
+    lastRun: window.emu.session.lastRun && window.emu.session.lastRun.name,
+    marked: [...document.querySelectorAll('#shelf [aria-current="true"], #recentList [aria-current="true"]')].map((e) => e.textContent.replace(/\s*on screen now$/, '').replace(/load again$/, '').trim()) }));
   await invariant('the menu at the visit', true);
 
   // (1) a Debugger stop, back to the emulator, the shelf's Welcome menu
@@ -2852,16 +2856,20 @@ async function onScreenChecks(browser, base, check) {
   await shelfClick('2048');
   await waitFor(page, () => window.emu.session.gameRunning);
   let l = await last();
-  check('on screen: 2048 from the shelf: "Last time" names 2048', l.card === '2048' && l.lastRun === '2048', JSON.stringify(l));
+  check('on screen: 2048 from the shelf: recorded as what ran last, marked "on screen now" on the shelf, and no "Last time" card while it runs',
+    l.card === null && l.lastRun === '2048' && l.marked.join() === '2048', JSON.stringify(l));
   await invariant('2048 from the shelf', false);
   await shelfClick('liza');
   await waitFor(page, () => window.emu.session.screenText().join('').includes('I AM LIZA'));
   l = await last();
-  check('on screen: LIZA from the shelf: "Last time" names LIZA', l.card === 'LIZA' && l.lastRun === 'LIZA', JSON.stringify(l));
+  check('on screen: LIZA from the shelf: recorded, marked "on screen now" on the shelf, and no "Last time" card while it runs',
+    l.card === null && l.lastRun === 'LIZA' && l.marked.join() === 'LIZA', JSON.stringify(l));
   await invariant('LIZA from the shelf', false);
   await shelfClick('welcome');
   await waitFor(page, () => window.emu.session.welcomeOnScreen);
   await invariant('the shelf\'s Welcome menu after LIZA', true);
+  l = await last();
+  check('on screen: back on the menu, "Last time" is back and names LIZA, and only the menu is marked', l.card === 'LIZA' && l.marked.join() === 'Welcome menu', JSON.stringify(l));
   // the menu's keys: 5 PLAY A GAME, then 1 (2048)
   await page.mouse.click(5, 5);
   await waitFor(page, () => window.emu.machine.ram[0x6005] === 1, null, 20000);   // the tune played: keys are read
@@ -2871,16 +2879,60 @@ async function onScreenChecks(browser, base, check) {
   await page.keyboard.press('1');
   await waitFor(page, () => window.emu.session.gameRunning);
   l = await last();
-  check('on screen: 2048 from the menu\'s keys: "Last time" names 2048', l.card === '2048' && l.lastRun === '2048', JSON.stringify(l));
+  check('on screen: 2048 from the menu\'s keys: recorded, marked on the shelf, no "Last time" card', l.card === null && l.lastRun === '2048' && l.marked.join() === '2048', JSON.stringify(l));
   await invariant('2048 from the menu\'s keys', false);
   // Run again runs what the card names
   await shelfClick('liza');
   await waitFor(page, () => window.emu.session.screenText().join('').includes('I AM LIZA'));
+  await shelfClick('welcome');
+  await waitFor(page, () => window.emu.session.welcomeOnScreen);
   const named = (await last()).card;
   await page.evaluate(() => document.getElementById('btnRunAgain').click());
   const again = await waitFor(page, () => window.emu.session.programControls && window.emu.session.programControls.id === 'liza' && window.emu.session.screenText().join('').includes('I AM LIZA'));
   check('on screen: Run again runs what "Last time" names (LIZA)', named === 'LIZA' && again, String(named));
   await invariant('Run again', false);
+
+  // (4) Open… a program file (minesweeper.bin): the toast leads with what happened, "Last time" hides while it runs, its
+  // row in "Recent on this machine" says "on screen now"; each way out brings "Last time" back and takes the mark off
+  const mines = path.join(ROOT, 'examples', 'minesweeper.bin');
+  const state = () => page.evaluate(() => ({ card: document.getElementById('lastTime').hidden ? null : document.getElementById('lastName').textContent,
+    rows: [...document.querySelectorAll('#recentList .row')].map((r) => [r.firstChild.textContent, !!r.querySelector('.tag.now'), r.getAttribute('aria-current')]),
+    shelf: [...document.querySelectorAll('#shelf [aria-current="true"]')].map((e) => e.textContent.replace(/\s*on screen now$/, '')) }));
+  await shelfClick('welcome');
+  await waitFor(page, () => window.emu.session.welcomeOnScreen);
+  await page.setInputFiles('#fileProgram', mines);
+  await waitFor(page, () => /minesweeper\.bin loaded/.test(document.getElementById('toastText').textContent));
+  const open = await page.evaluate(() => ({ text: document.getElementById('toastText').textContent, more: document.getElementById('toastDetails').textContent }));
+  check('open: the toast leads with "minesweeper.bin loaded and started.", the format and addresses second (under Details)',
+    open.text === 'minesweeper.bin loaded and started.' && open.more === 'DragonDOS binary $3000-$3FE6, exec $3000', JSON.stringify(open));
+  let st = await state();
+  check('open: while it runs there is no "Last time" card, and its recent row says "on screen now"',
+    st.card === null && st.rows.length === 1 && st.rows[0][0] === 'minesweeper.bin' && st.rows[0][1] && st.rows[0][2] === 'true', JSON.stringify(st));
+  await page.click('#btnReset');
+  await waitFor(page, () => !document.getElementById('lastTime').hidden);
+  st = await state();
+  check('open: a reset takes it off the screen: "Last time" is back (minesweeper.bin) and no row is marked', /^minesweeper\.bin/.test(st.card) && !st.rows[0][1], JSON.stringify(st));
+  await page.setInputFiles('#fileProgram', mines);
+  await waitFor(page, () => document.getElementById('lastTime').hidden);
+  await shelfClick('welcome');
+  await waitFor(page, () => window.emu.session.welcomeOnScreen && !document.getElementById('lastTime').hidden);
+  st = await state();
+  check('open: the welcome menu takes it off the screen: "Last time" is back and no row is marked', !st.rows[0][1] && /^minesweeper\.bin/.test(st.card), JSON.stringify(st));
+  await page.setInputFiles('#fileProgram', mines);
+  await waitFor(page, () => document.getElementById('lastTime').hidden);
+  await shelfClick('2048');
+  await waitFor(page, () => window.emu.session.gameRunning);
+  st = await state();
+  check('open: another program (2048) takes it over: its recent row is not marked, 2048 is marked on the shelf, no card', !st.rows[0][1] && st.shelf.join() === '2048' && st.card === null, JSON.stringify(st));
+  await page.setInputFiles('#fileProgram', mines);
+  await waitFor(page, () => document.getElementById('lastTime').hidden);
+  await page.click('#btnPause');
+  await waitFor(page, () => !document.getElementById('lastTime').hidden);
+  st = await state();
+  check('open: Pause: the program is not running, "Last time" is back and the row is not marked', !st.rows[0][1] && /^minesweeper\.bin/.test(st.card), JSON.stringify(st));
+  await page.click('#btnPause');
+  await waitFor(page, () => document.getElementById('lastTime').hidden);
+  check('open: resumed, it is on screen again: no card, row marked', (await state()).rows[0][1] && (await state()).card === null);
 
   // (2) a tape load's restart while the frame loop runs no frames (Pause): the canvas shows the machine's frame
   await page.evaluate(async () => {
@@ -2908,6 +2960,26 @@ async function onScreenChecks(browser, base, check) {
   await page.click('#btnPause');
   await invariant('resumed after the tape load', false);
   if (shotDir) await page.locator('#screenWrap').screenshot({ path: path.join(shotDir, 'on-screen-tape.png') });
+  // (5) a machine switch on a first visit: the new machine's menu is not "on screen now" while its screen has no menu
+  // on it, and the visit is never greeted "WELCOME BACK"
+  {
+    const c2 = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const p2 = await c2.newPage();
+    p2.on('pageerror', (e) => errors.push(e.message));
+    await p2.goto(`${base}`); await started(p2);
+    await waitFor(p2, () => window.emu.session.welcomeOnScreen);
+    await p2.evaluate(() => { window.__viol = 0; window.__watch = true; const f = () => { const t = !!document.querySelector('#shelf [data-shelf="welcome"] .tag.now'); if (t && !window.emu.session.screenText().some((r) => r.includes('PRESS 1 TO'))) window.__viol++; if (window.__watch) requestAnimationFrame(f); }; f(); });
+    await p2.click('#machineBtn');
+    await p2.click('#machineMenu [data-machine="coco3"]');
+    await waitFor(p2, () => !document.getElementById('switchConfirm').hidden);
+    await p2.click('#btnSwitch');
+    await waitFor(p2, () => window.emu.machine.id === 'coco3' && window.emu.session.welcomeOnScreen, null, 20000);
+    const viol = await p2.evaluate(() => { window.__watch = false; return window.__viol; });
+    check('switch: "Welcome menu · on screen now" never showed while the new machine\'s screen had no menu on it', viol === 0, String(viol));
+    const rows = await p2.evaluate(() => window.emu.session.screenText().map((r) => r.trim()).filter(Boolean));
+    check('first visit: a machine picked in the header menu is greeted with the title, not "WELCOME BACK"', rows.includes('DRAGON AND COLOR COMPUTER') && !rows.includes('WELCOME BACK'), JSON.stringify(rows));
+    await c2.close();
+  }
   check('on screen: no page errors', !errors.length, errors.join('; '));
   await ctx.close();
 }
@@ -5037,11 +5109,16 @@ async function phoneChecks(browser, base, check) {
   await page.keyboard.type('programs');
   await page.keyboard.press('Enter');
   const palProg = await waitFor(page, () => document.getElementById('sheetPrograms').open);
-  // after 2048, Last time shows, the first thing in the sheet
+  // while 2048 runs there is no Last time card (it is marked on the shelf instead), so the sheet starts at the shelf's
+  // heading or the no-ROM card; once the machine is reset, Last time (2048) is back as the sheet's first item
+  const runningTop = await page.evaluate(() => { const d = document.getElementById('sheetPrograms'), first = [...d.querySelectorAll('.sheetbody > *')].find((e) => e.checkVisibility());
+    return { first: first && first.id, card: !document.getElementById('lastTime').checkVisibility(), marked: [...d.querySelectorAll('#shelf [aria-current="true"]')].map((e) => e.textContent) }; });
+  await page.evaluate(() => window.emu.session.reset());
+  await waitFor(page, () => document.getElementById('lastTime').checkVisibility());
   const lastTop = await page.evaluate(() => { const d = document.getElementById('sheetPrograms'), first = [...d.querySelectorAll('.sheetbody > *')].find((e) => e.checkVisibility());
     return { first: first && first.id, name: document.getElementById('lastName').textContent, top: Math.round(first.getBoundingClientRect().top - d.querySelector('.sheetbody').getBoundingClientRect().top) }; });
-  check('phone: the palette\'s "Programs" (found by programs, games, demos, liza, run) opens the Programs sheet, Last time (2048) at its top',
-    palProg && viaPalette.every((x) => x[1]) && lastTop.first === 'lastTime' && lastTop.name === '2048', JSON.stringify({ viaPalette, lastTop }));
+  check('phone: the palette\'s "Programs" (found by programs, games, demos, liza, run) opens the Programs sheet: 2048 marked "on screen now" and no Last time while it runs, Last time (2048) at the top after a reset',
+    palProg && viaPalette.every((x) => x[1]) && runningTop.first !== 'lastTime' && runningTop.card && runningTop.marked.join() === '2048 on screen now' && lastTop.first === 'lastTime' && lastTop.name === '2048', JSON.stringify({ viaPalette, runningTop, lastTop }));
   // the full-screen chat opened from a sheet (the Programs sheet's "Chat with Claude") closes the sheet (a key stored,
   // so the chat needs no key form and the keys stay up: the sheet closes because the chat opened)
   await page.evaluate(() => localStorage.setItem('cloadm.anthropicKey', 'sk-ant-PHONE-CHECK-0123456789'));
@@ -5080,10 +5157,10 @@ async function phoneChecks(browser, base, check) {
     await waitFor(p, () => document.getElementById('sheetPorts').open);
     const ports = await p.evaluate(() => { const d = document.getElementById('sheetPorts'), r = d.getBoundingClientRect();
       return { title: d.querySelector('h2').textContent, r: [r.left, r.top, r.width, r.height].map(Math.round), vw: innerWidth, vh: innerHeight, focus: document.activeElement.id,
-        tabs: [...d.querySelectorAll('[role="tab"]')].map((t) => [t.textContent, Math.round(t.getBoundingClientRect().height)]), tape: document.getElementById('btnTape').checkVisibility() }; });
+        tabs: [...d.querySelectorAll('[role="tab"]')].map((t) => [t.textContent, Math.round(t.getBoundingClientRect().height)]), tape: document.getElementById('btnTapeName').checkVisibility() }; });
     if (shotDir) await p.screenshot({ path: path.join(shotDir, 'phone-sideways-ports.png') });
     await p.tap('#portTabDisks');
-    const disks = await p.evaluate(() => ({ drives: document.getElementById('driveSlot').checkVisibility(), tape: document.getElementById('btnTape').checkVisibility(), open: document.getElementById('sheetPorts').open }));
+    const disks = await p.evaluate(() => ({ drives: document.getElementById('driveSlot').checkVisibility(), tape: document.getElementById('btnTapeName').checkVisibility(), open: document.getElementById('sheetPorts').open }));
     await p.tap('#portTabCart');
     const cart = await p.evaluate(() => document.getElementById('cartSlot').checkVisibility() && document.getElementById('btnCart').checkVisibility());
     await p.keyboard.press('Escape');
@@ -6382,6 +6459,45 @@ async function tapePanelChecks(browser, base, check) {
       check(`tape, no BASIC (${label}): no page errors`, !errors.length, errors.join('; '));
       await ctx.close();
     }
+    // phone portrait: the Cassette deck sheet has the big cassette only (no small reel icon), its empty line is a real
+    // button, the hint says "tap"; Load it now and Skip the tape close the sheet so the program's start is seen
+    {
+      const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+      const page = await ctx.newPage();
+      const errors = [];
+      page.on('pageerror', (e) => errors.push(e.message));
+      await page.goto(`${base}?machine=dragon64`);
+      await ready(page);
+      await stubPrompt(page);
+      await page.tap('#chipTape');
+      await waitFor(page, () => document.getElementById('sheetTape').open);
+      const empty = await page.evaluate(() => { const b = document.getElementById('btnTapeName'), r = b.getBoundingClientRect();
+        return { tag: b.tagName, text: b.textContent, h: Math.round(r.height), vis: b.checkVisibility(), reels: document.getElementById('btnTape').checkVisibility(),
+          hint: document.getElementById('tapeState').textContent, inSheet: document.getElementById('sheetTape').contains(b) }; });
+      check('tape sheet (phone): "No tape · Insert tape…" is a button in the sheet, at least 44 px tall, and the hint says "tap the deck"',
+        empty.tag === 'BUTTON' && empty.text === 'No tape · Insert tape…' && empty.vis && empty.inSheet && empty.h >= 44 && /^tap the deck to insert$/.test(empty.hint), JSON.stringify(empty));
+      check('tape sheet (phone): the slot\'s small deck picture (the reels) is not shown in the sheet', !empty.reels, JSON.stringify(empty));
+      const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.tap('#btnTapeName')]);
+      await chooser.setFiles(path.join(small, 'nobasic.cas'));
+      await waitFor(page, () => /is in the deck/.test(document.getElementById('toast').textContent));
+      const cassette = await page.evaluate(() => { const c = document.querySelector('#sheetTape #tapePanel .cassette'); return !!c && c.checkVisibility(); });
+      check('tape sheet (phone): the big cassette stays in the sheet; the line then names the tape', cassette && await page.evaluate(() => document.getElementById('tapeName').textContent === 'nobasic.cas'));
+      if (shotDir) await page.screenshot({ path: path.join(shotDir, 'tape-sheet-phone.png') });
+      await page.tap('#toastText button.inline');
+      check('tape sheet (phone): Load it now closes the sheet, and the program has started', await waitFor(page, () => !document.getElementById('sheetTape').open && window.emu.machine.read(0x3100) === 0x42, null, 15000), await page.textContent('#toast'));
+      // Skip the tape (a second tape, no BASIC still): from inside the sheet
+      await page.evaluate(() => window.emu.session.switchMachine('dragon64'));
+      await stubPrompt(page);
+      await page.tap('#chipTape');
+      await waitFor(page, () => document.getElementById('sheetTape').open);
+      await page.evaluate(async (b) => { window.emu.session.insertTape('again.cas', new Uint8Array(b)); }, [...fs.readFileSync(path.join(small, 'nobasic.cas'))]);
+      await waitFor(page, () => !document.getElementById('btnSkipTape').hidden && document.getElementById('btnSkipTape').checkVisibility());
+      await page.tap('#btnSkipTape');
+      check('tape sheet (phone): Skip the tape closes the sheet, and the program has started', await waitFor(page, () => !document.getElementById('sheetTape').open && window.emu.machine.read(0x3100) === 0x42, null, 15000));
+      // Rewind (and every other control) leaves the sheet open
+      check('tape sheet (phone): no page errors', !errors.length, errors.join('; '));
+      await ctx.close();
+    }
     {
       const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
       const page = await ctx.newPage();
@@ -6673,10 +6789,10 @@ async function tapeExtrasChecks(browser, base, check) {
       check(`tape extras (${label}, touch): the slot's Rewind, Eject, Record and Save .WAV are at least 44 px tall`, heights.length === 4 && heights.every(([, h]) => h >= 44), JSON.stringify(heights));
     }
     await page.click('#btnEjectTape');
-    check(`tape extras (${label}): the slot's Eject (next to Rewind, disabled with no tape) ejects: deck hidden, toast, focus on the deck button`,
+    check(`tape extras (${label}): the slot's Eject (next to Rewind, disabled with no tape) ejects: deck hidden, toast, focus on the deck button (in the phone's sheet, where the deck picture is left out, the "Insert tape…" button)`,
       disabled && Math.abs(box.b.top - box.r.top) < 4 && box.b.left > box.r.left
       && await waitFor(page, () => !window.emu.machine.deck.tape && document.getElementById('tapePanel').hidden && /^Tape ejected\.$/.test(document.getElementById('toastText').textContent)
-        && document.activeElement === document.getElementById('btnTape') && document.getElementById('tapeName').textContent === 'No tape · Insert tape…'), JSON.stringify(box));
+        && document.activeElement === document.getElementById(document.getElementById('btnTape').checkVisibility() ? 'btnTape' : 'btnTapeName') && document.getElementById('tapeName').textContent === 'No tape · Insert tape…'), JSON.stringify(box));
     check(`tape extras (${label}): no page errors`, !errors.length, errors.join('; '));
     await ctx.close();
   }
@@ -10825,7 +10941,9 @@ async function uiCopyChecks(browser, base, check) {
     await page.setInputFiles('#fileProgram', { name: 'mine.bin', mimeType: 'application/octet-stream', buffer: Buffer.from([0x55, 0x02, 0x30, 0x00, 0x00, 0x02, 0x30, 0x00, 0xAA, 0x20, 0xFE]) });
     await waitFor(page, () => /mine\.bin/.test(document.getElementById('toastText').textContent), null, 15000);
     const mine = await toastText(page);
-    check('load toast: a file the visitor brings keeps its format and addresses in the toast', /mine\.bin: DragonDOS binary \$3000-\$3001, exec \$3000/.test(mine), mine);
+    const mineMore = await page.evaluate(() => document.getElementById('toastDetails').textContent);
+    check('load toast: a file the visitor brings leads with "mine.bin loaded and started.", its format and addresses second (under Details)',
+      mine === 'mine.bin loaded and started.' && mineMore === 'DragonDOS binary $3000-$3001, exec $3000', `${mine} | ${mineMore}`);
     check('load toast: no page errors', !errors.length, errors.join('; '));
     await ctx.close();
   }
@@ -15317,14 +15435,14 @@ async function uiQaChecks(browser, base, check) {
     await page.goto(`${base}?machine=dragon64`); await ready(page);
     await page.click('#machineBtn');
     await waitFor(page, () => !document.getElementById('machineMenu').hidden);
-    const m = await page.evaluate(() => { const el = document.getElementById('machineMenu'), r = el.getBoundingClientRect();
-      return { bottom: r.bottom, vh: innerHeight, scrolls: el.scrollHeight > el.clientHeight, fade: el.classList.contains('more-below') }; });
+    const m = await page.evaluate(() => { const el = document.getElementById('machineMenu'), r = el.getBoundingClientRect(), box = el.querySelector('.menulist');
+      return { bottom: r.bottom, vh: innerHeight, scrolls: box.scrollHeight > box.clientHeight, fade: el.classList.contains('more-below') }; });
     check('phone: the machine menu reaches the bottom of the window and fades while more models are below',
       m.scrolls && m.fade && m.bottom > m.vh - 24 && m.bottom <= m.vh, JSON.stringify(m));
-    const last = await page.evaluate(() => { const el = document.getElementById('machineMenu'); el.scrollTop = el.scrollHeight;
+    const last = await page.evaluate(() => { const el = document.getElementById('machineMenu'), box = el.querySelector('.menulist'); box.scrollTop = box.scrollHeight;
       const b = [...el.querySelectorAll('button[data-machine]')].pop(); return b.dataset.machine; });
     await waitFor(page, () => !document.getElementById('machineMenu').classList.contains('more-below'));
-    const end = await page.evaluate((id) => { const el = document.getElementById('machineMenu'), r = el.getBoundingClientRect(),
+    const end = await page.evaluate((id) => { const el = document.getElementById('machineMenu'), r = el.querySelector('.menulist').getBoundingClientRect(),
       b = el.querySelector(`button[data-machine="${id}"]`).getBoundingClientRect();
       return { inside: b.top >= r.top && b.bottom <= r.bottom + 1, fade: el.classList.contains('more-below') }; }, last);
     check('phone: scrolled to the end, the last model is in view and the fade is gone', end.inside && !end.fade, JSON.stringify(end));
@@ -18091,7 +18209,7 @@ async function uiModelChecks(browser, base, check) {
     await ctx.close();
   }
   // ---- the machine menu: one "No ROMs yet" line instead of 17 tags, a subtitle per section, the footer's line for the
-  // model under the focus or the pointer (each item's aria-description), "Which one is mine? →" to Help's list ----
+  // model under the focus or the pointer (each item's aria-description), "Which one is mine? ↗" to Help's list ----
   for (const [label, opts] of SIZES) {
     const ctx = await browser.newContext(Object.assign({ serviceWorkers: 'block' }, opts));
     const page = await ctx.newPage();
@@ -18111,7 +18229,7 @@ async function uiModelChecks(browser, base, check) {
         about: (() => { const a = document.getElementById('menuAbout'); return { shown: a.checkVisibility(), text: a.textContent, hidden: a.getAttribute('aria-hidden') }; })(),
         describedBy: (() => { const id = m.getAttribute('aria-describedby'), d = id && document.getElementById(id); return d ? d.textContent : null; })(),
         // the fade above the footer: into the panel's colour (the footer's ::before), never a mask showing the page through
-        fade: (() => { const f = getComputedStyle(m.querySelector('.footer'), '::before'), panel = getComputedStyle(m).backgroundColor;
+        fade: (() => { const f = getComputedStyle(m.querySelector('.sep'), '::before'), panel = getComputedStyle(m).backgroundColor;
           return { mask: getComputedStyle(m).maskImage || getComputedStyle(m).webkitMaskImage || 'none', image: f.backgroundImage, panel }; })(),
         live: !!m.querySelector('[aria-live]') };
     });
@@ -18127,7 +18245,19 @@ async function uiModelChecks(browser, base, check) {
       none.describedBy === 'No ROMs yet: every machine needs its own ROMs for BASIC.', String(none.describedBy));
     check(`machine menu (${label}): the band above the footer fades into the panel's colour, with no mask over the page`,
       none.fade.mask === 'none' && none.fade.image.includes(none.fade.panel.replace(/\)$/, '')), JSON.stringify(none.fade));
-    check(`machine menu (${label}): the footer has "Which one is mine? →" to help/#machines, a menu item`, none.which === 'Which one is mine? →|help/#machines|menuitem', String(none.which));
+    check(`machine menu (${label}): the footer has "Which one is mine? ↗" to help/#machines, a menu item`, none.which === 'Which one is mine? ↗|help/#machines|menuitem', String(none.which));
+    // the footer never stands over a model: it sits below the models' own scrolling box, and scrolled to the end the
+    // last model (the CP-400, under KITS) is whole, and what is on top at its centre
+    const reach = await page.evaluate(() => {
+      const m = document.getElementById('machineMenu'), box = m.querySelector('.menulist'), f = m.querySelector('.footer');
+      box.scrollTop = box.scrollHeight;
+      const b = [...m.querySelectorAll('button[data-machine]')].pop(), r = b.getBoundingClientRect(), at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      const out = { last: b.dataset.machine, boxBottom: box.getBoundingClientRect().bottom, footTop: f.getBoundingClientRect().top, bottom: r.bottom, top: r.top, boxTop: box.getBoundingClientRect().top, onTop: !!at && b.contains(at) };
+      box.scrollTop = 0;
+      return out;
+    });
+    check(`machine menu (${label}): the footer stands below the models, and scrolled to the end the last one (CP-400) is whole and not behind it`,
+      reach.last === 'cp400' && reach.boxBottom <= reach.footTop + 1 && reach.bottom <= reach.boxBottom + 1 && reach.top >= reach.boxTop && reach.onTop, JSON.stringify(reach));
     // arrow focus: the footer line follows (visual only), and it matches the focused item's description
     await page.keyboard.press('ArrowDown');
     const f1 = await page.evaluate(() => [document.activeElement.getAttribute('aria-description'), document.getElementById('menuAbout').textContent]);
@@ -18163,8 +18293,9 @@ async function uiModelChecks(browser, base, check) {
     // the link: Help's list of the machines, in a new tab
     const [help] = await Promise.all([ctx.waitForEvent('page'), page.click('#menuWhich')]);
     await help.waitForLoadState();
+    check(`machine menu (${label}): using "Which one is mine? ↗" closes the menu behind the new tab`, await page.evaluate(() => document.getElementById('machineMenu').hidden && document.getElementById('machineBtn').getAttribute('aria-expanded') === 'false'));
     const listed = await help.evaluate(() => ({ hash: location.hash, models: document.querySelectorAll('#machines ~ dl dt[id^="machine-"]').length, head: !!document.getElementById('machines') }));
-    check(`machine menu (${label}): "Which one is mine? →" opens Help at #machines, which lists all 17 models`, listed.hash === '#machines' && listed.head && listed.models === 17, JSON.stringify(listed));
+    check(`machine menu (${label}): "Which one is mine? ↗" opens Help at #machines, which lists all 17 models`, listed.hash === '#machines' && listed.head && listed.models === 17, JSON.stringify(listed));
     if (shotDir) await help.screenshot({ path: path.join(shotDir, `help-machines-${label}.png`) });
     await ctx.close();
   }
