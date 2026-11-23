@@ -190,6 +190,72 @@ function remember(idx, name, crc) {
       kind === 'recent' ? b.recentMedia().length === 1 && !!b.recentData(K.HELD0001) : !!b.image(b.socketCrc('dragon64', 'basic') || ''));
   }
 
+  // ---- a change this page makes while a refresh is reading is not wiped, nor taken for another page's ----
+  // (review of 81046a7: refresh checked for queued changes before its read and took the list after it)
+  for (const held of ['roms/sockets.json', 'image']) {
+    class HeldRead extends SlowStore {
+      read(name) { if (this.hold && (held === 'image' ? /^roms\/.*\.rom$/.test(name) : name === held)) { const h = this.hold; return h.then(() => super.read(name)); } return super.read(name); }
+    }
+    const st = new HeldRead();
+    const a = new MediaIndex(st), b = new MediaIndex(st);
+    await a.load(); await b.load();
+    a.putSocket('coco2', 'basic', K.OTHR0001); a.putImage(K.OTHR0001, B.OTHR0001);
+    await a.flush();
+    let release; st.hold = new Promise((r) => { release = r; });
+    const p = b.refresh();   // reads the stored sockets (and, below, the image they name)
+    for (let i = 0; i < 30; i++) await new Promise((r) => setImmediate(r));
+    b.putSocket('dragon64', 'basic', K.MINE0001); b.putImage(K.MINE0001, B.MINE0001);   // this page's own, meanwhile
+    release(); st.hold = null;
+    await p;
+    check(`refresh held at ${held}: this page's own socket set meanwhile stays in memory`, b.socketCrc('dragon64', 'basic') === K.MINE0001, JSON.stringify(b.sockets));
+    check(`refresh held at ${held}: ... and is not marked as changed in another tab`, !b.changedElsewhere.has('dragon64:basic'), [...b.changedElsewhere].join());
+    await b.flush();
+    check(`refresh held at ${held}: once written, both pages' sockets are stored and this page has both`,
+      (await stored(st, ROM_SOCKETS, {})).dragon64?.basic === K.MINE0001 && (await stored(st, ROM_SOCKETS, {})).coco2?.basic === K.OTHR0001
+      && b.socketCrc('coco2', 'basic') === K.OTHR0001 && b.socketCrc('dragon64', 'basic') === K.MINE0001, JSON.stringify(b.sockets));
+  }
+
+  // ---- the same for this page's own write: its merged list is not taken over a change made during its reads ----
+  {
+    class HeldImage extends SlowStore {
+      read(name) { if (this.hold && /^roms\/.*\.rom$/.test(name)) { const h = this.hold; return h.then(() => super.read(name)); } return super.read(name); }
+    }
+    const st = new HeldImage();
+    const a = new MediaIndex(st), b = new MediaIndex(st);
+    await a.load(); await b.load();
+    b.putSocket('coco2', 'basic', K.OTHR0002); b.putImage(K.OTHR0002, B.OTHR0002);
+    await b.flush();
+    let release; st.hold = new Promise((r) => { release = r; });
+    a.putSocket('dragon64', 'basic', K.MINE0002);   // its merged list names b's image, which a reads (held)
+    for (let i = 0; i < 40; i++) await new Promise((r) => setImmediate(r));
+    a.putSocket('dragon64', 'basic64', K.MINE0003); // meanwhile
+    const during = a.socketCrc('dragon64', 'basic64');
+    release(); st.hold = null;
+    for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r));
+    const after = a.socketCrc('dragon64', 'basic64');
+    await a.flush();
+    check('own write: a socket set while its merged list was being read stays in memory throughout', during === K.MINE0003 && after === K.MINE0003, `${during} ${after}`);
+    check('own write: ... and is never marked as changed in another tab', !a.changedElsewhere.has('dragon64:basic64') && !a.changedElsewhere.has('dragon64:basic'), [...a.changedElsewhere].join());
+  }
+
+  // ---- a page that loads while another is writing a blob does not keep the empty bytes ----
+  {
+    const st = new SlowStore();
+    await st.write(ROM_SOCKETS, new TextEncoder().encode(JSON.stringify({ dragon64: { basic: K.LOAD0001 } })));
+    await st.write(RECENT_LIST, new TextEncoder().encode(JSON.stringify([entry('L.BIN', K.LOAD0002)])));
+    await st.write(romImage(K.LOAD0001), new Uint8Array(0));     // created by the other page, not filled yet
+    await st.write(recentFile(K.LOAD0002), new Uint8Array(0));
+    const c = new MediaIndex(st); await c.load();
+    const sync = new MemoryMediaStore();
+    sync.writeSync(romImage(K.LOAD0001), new Uint8Array(0));
+    const d = new MediaIndex(sync);   // synchronous: loaded in the constructor
+    check('load: an image or recent file whose bytes do not match its CRC yet is not taken (asynchronous and synchronous)',
+      !c.image(K.LOAD0001) && !c.recentData(K.LOAD0002) && !d.image(K.LOAD0001));
+    await st.write(romImage(K.LOAD0001), B.LOAD0001); await st.write(recentFile(K.LOAD0002), B.LOAD0002);
+    await c.refresh();
+    check('load: ... so the next message reads them again, whole', !!c.image(K.LOAD0001) && !!c.recentData(K.LOAD0002));
+  }
+
   // ---- RomLibrary.put stores the socket before the image, so a collect elsewhere cannot catch the image alone ----
   // The other index's collect holds the lock and is stopped between reading the sockets and listing the images; the
   // ROM is put meanwhile. Stored socket-first, its socket step waits for the lock and its image is not written yet, so

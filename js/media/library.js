@@ -172,12 +172,13 @@ export class MediaIndex {
     this.recentBytes.clear();
     for (const f of await this.store.list('roms/')) {
       const m = /^roms\/([0-9A-Fa-f]+)\.rom$/.exec(f.name);
-      if (m) this.images.set(m[1].toUpperCase(), await this.store.read(f.name));
+      // (only a whole one: another page may be writing it now, and a blob taken here is never read again: _adopt)
+      if (m) { const b = await this.store.read(f.name); if (whole(b, m[1])) this.images.set(m[1].toUpperCase(), b); }
     }
     this.recentFiles.clear();
     for (const f of await this.store.list('recent/')) {
       const m = /^recent\/([0-9A-Fa-f]+)\.bin$/.exec(f.name);
-      if (m) { this.recentBytes.set(m[1].toUpperCase(), await this.store.read(f.name)); this.recentFiles.set(m[1].toUpperCase(), f.name); }
+      if (m) { const b = await this.store.read(f.name); if (whole(b, m[1])) { this.recentBytes.set(m[1].toUpperCase(), b); this.recentFiles.set(m[1].toUpperCase(), f.name); } }
     }
     this.ready = true;
     return this;
@@ -195,12 +196,12 @@ export class MediaIndex {
     this.recentBytes.clear();
     for (const f of s.listSync('roms/')) {
       const m = /^roms\/([0-9A-Fa-f]+)\.rom$/.exec(f.name);
-      if (m) this.images.set(m[1].toUpperCase(), read(f.name));
+      if (m) { const b = read(f.name); if (whole(b, m[1])) this.images.set(m[1].toUpperCase(), b); }
     }
     this.recentFiles.clear();
     for (const f of s.listSync('recent/')) {
       const m = /^recent\/([0-9A-Fa-f]+)\.bin$/.exec(f.name);
-      if (m) { this.recentBytes.set(m[1].toUpperCase(), read(f.name)); this.recentFiles.set(m[1].toUpperCase(), f.name); }
+      if (m) { const b = read(f.name); if (whole(b, m[1])) { this.recentBytes.set(m[1].toUpperCase(), b); this.recentFiles.set(m[1].toUpperCase(), f.name); } }
     }
     this.ready = true;
     return this;
@@ -304,7 +305,8 @@ export class MediaIndex {
         await this._locked(async () => {
           const merged = change(parse((await readOrNull(this.store, name)) || new Uint8Array(0), LIST_EMPTY[name]()));
           await this.store.write(name, json(merged));
-          if (this.queued[name] === 1) await this._adopt(name, merged);   // nothing of ours queued behind it
+          // nothing of ours queued behind it, when it starts and again when its reads are done
+          if (this.queued[name] === 1) await this._adopt(name, merged, () => this.queued[name] === 1);
         });
         this._post(what);
       } finally { this.queued[name]--; }
@@ -315,27 +317,33 @@ export class MediaIndex {
   // FIRST and the list put in place after, in one step: a list put in place before its reads were done was seen by a
   // panel redrawn meanwhile naming a program whose bytes were not there yet ("no longer stored"), and by nothing that
   // said so afterwards until the reads were done.
-  async _adopt(name, list) {
+  // `mayTake()` is asked again once the reads are done, just before anything is put in place: a change of this list
+  // that this page made during the reads is in memory, and taking the stored list then would wipe it (and mark it as
+  // another page's change). The blobs read are kept either way: they are named by their contents. -> taken
+  async _adopt(name, list, mayTake = () => true) {
     let got = false;   // an image read now: a socket another page stored before its image (putSocket) can be used now
     if (name === ROM_SOCKETS) {
       const images = new Map();
       for (const crc of socketCrcs(list)) if (!this.images.has(crc)) { const b = await readOrNull(this.store, romImage(crc)); if (whole(b, crc)) images.set(crc, b); }
-      const was = this._held(name);
       for (const [crc, b] of images) { this.images.set(crc, b); got = true; }
+      if (!mayTake()) { if (got) this._say('images', null); return false; }
+      const was = this._held(name);
       this.sockets = list;
       this._took(name, was, got);
-    } else if (name === ROM_NAMES) { const was = this._held(name); this.names = list; this._took(name, was); }
+    } else if (name === ROM_NAMES) { if (!mayTake()) return false; const was = this._held(name); this.names = list; this._took(name, was); }
     else {
       const recent = this._readRecent(list), bytes = new Map();
       for (const r of recent) if (r.stored && !this.recentBytes.has(r.crc)) {
         const b = await readOrNull(this.store, recentFile(r.crc));
         if (whole(b, r.crc)) bytes.set(r.crc, b);
       }
-      const was = this._held(name);
       for (const [crc, b] of bytes) { this.recentBytes.set(crc, b); this.recentFiles.set(crc, recentFile(crc)); }
+      if (!mayTake()) return false;
+      const was = this._held(name);
       this.recent = recent;
       this._took(name, was);
     }
+    return true;
   }
   _adoptSync(name, list) {
     const was = this._held(name);
@@ -384,7 +392,7 @@ export class MediaIndex {
         if (this.queued[name]) continue;
         const list = parse((await readOrNull(this.store, name)) || new Uint8Array(0), LIST_EMPTY[name]());
         const before = JSON.stringify(name === ROM_SOCKETS ? this.sockets : name === ROM_NAMES ? this.names : this.recent);
-        await this._adopt(name, list);
+        await this._adopt(name, list, () => !this.queued[name]);   // (asked again after its reads: see _adopt)
         const after = JSON.stringify(name === ROM_SOCKETS ? this.sockets : name === ROM_NAMES ? this.names : this.recent);
         if (before !== after) changed.add(name === RECENT_LIST ? 'recent' : 'roms');
       }

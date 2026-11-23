@@ -524,7 +524,9 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   running machine keeps the old one until you switch off and on" (`Session.romElsewhere`), the machine is not touched,
   and switching off and on then takes what is stored. Another tab's image or recent file is taken only once its bytes
   match its CRC: OPFS shows a file empty until its write closes, and a tab that read it then kept the empty bytes. A list
-  another tab stored is put in place only together with the files it names, never before they are read. `tests/media-multitab.test.js` (two indexes on one store,
+  another tab stored is put in place only together with the files it names, never before they are read, and not over
+  a change this tab made while they were being read; a tab opening while another writes a file does not keep it half
+  written. `tests/media-multitab.test.js` (two indexes on one store,
   asynchronous and synchronous, interleaved; two Sessions with a channel) and the browser check's `librarySelect`
   group (two tabs on real OPFS: add in one and see it in the other, a ROM, delete with Undo across tabs).
 - **The TMS7000 assembler encoded `DJNZ Rn,@LABEL` (and every jump written with an `@`) as offset 0.** A relative jump takes a plain label or address; `@` marks an address operand (`CALL @LABEL`), so a jump written with it is now an error that says so, for all 38 relative forms (the jumps, DJNZ, BTJO/BTJZ and BTJOP/BTJZP). An undefined jump target is an error too (it encoded offset 0), and so is a target further than -128..127 from the next instruction (the offset wrapped to a different place); the message gives the distance.

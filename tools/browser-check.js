@@ -4055,8 +4055,14 @@ async function librarySelectChecks(browser, base, check) {
     const shelf = (p) => p.evaluate(() => [...document.querySelectorAll('#libTiles .tile, #libTapes .spine')].map((x) => x.dataset.name.split('/').pop()).sort().join());
     const tile = (name) => `#library [data-name="library/${name}"]`;
     await a.setInputFiles('#fileLib', ['DEMO.BIN', 'LIZA.BIN'].map((n) => path.join(tmp, n)));
+    // once A has both stored, B shows them within about a second (2 s allowed, for a loaded runner), and says nothing
+    await waitFor(a, async () => (await window.emu.session.library.listMedia()).length === 2);
+    const t0 = Date.now();
     const seen = await waitFor(b, () => document.querySelectorAll('#libTiles .tile, #libTapes .spine').length === 2, null, 10000);
-    check(`${L}: items added in one tab appear on the other's shelf, without a reload (storage: ${kind})`, kind === 'opfs' && seen && await shelf(b) === 'DEMO.BIN,LIZA.BIN', `${kind} ${await shelf(b)}`);
+    const took = Date.now() - t0;
+    check(`${L}: items added in one tab appear on the other's shelf within about a second, without a reload (storage: ${kind})`,
+      kind === 'opfs' && seen && took < 2000 && await shelf(b) === 'DEMO.BIN,LIZA.BIN', `${kind} ${took} ms ${await shelf(b)}`);
+    check(`${L}: ... quietly: no toast in the other tab`, await b.isHidden('#toast'), await b.textContent('#toast'));
     // a ROM stored in one tab: the other's index has it, and its Library counts it
     await a.evaluate(() => { const m = window.emu.session.shownMachine; window.emu.session.roms.put(m.id, m.profile.roms[0].id, new Uint8Array(8192).fill(0x12), 'stand-in.rom'); });
     const romSeen = await waitFor(b, () => { const s = window.emu.session, m = s.shownMachine; return !!s.index.image(s.index.socketCrc(m.id, m.profile.roms[0].id) || '') && s.storedRoms().count === 1; }, null, 10000);
@@ -4114,6 +4120,13 @@ async function librarySelectChecks(browser, base, check) {
     await b.evaluate(() => window.emu.session.powerCycle());
     const fresh = await waitFor(b, () => /^Waiting for a file/.test(document.querySelector('#romSockets [data-socket="basic"] .state').textContent), null, 10000);
     check(`${L}: switched off and on, the machine takes what is stored now and the row is an ordinary empty socket`, fresh && await b.evaluate(() => !window.emu.session.personMachine.romCrcs().basic), JSON.stringify(await row()));
+    // a program loaded in A is in B's recent programs, with its bytes, quietly
+    await a.evaluate(() => window.emu.session.load('RECENT.BIN', new Uint8Array([0x55, 2, 0x30, 0x00, 0x00, 0x01, 0x30, 0x00, 0xAA, 0x39])));
+    const t1 = Date.now();
+    const recent = await waitFor(b, () => { const s = window.emu.session, r = s.library.recentMedia().find((x) => x.name === 'RECENT.BIN'); return !!r && !!s.index.recentData(r.crc); }, null, 10000);
+    const tookRecent = Date.now() - t1;
+    check(`${L}: a program loaded in one tab is in the other's recent programs, with its bytes, within about a second, with no toast`,
+      recent && tookRecent < 2000 && await b.isHidden('#toast'), `${tookRecent} ms`);
     check(`${L}: no page errors and no dialog boxes`, !errors.length, errors.join('; '));
     await ctx.close();
   }
