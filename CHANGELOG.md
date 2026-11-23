@@ -42,6 +42,18 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   make one file, named after the first. The toast says "Saved HELLO.CAS to your Library (2 files)." with **Download**;
   with "Download and open files" chosen it is downloaded under that name instead. A recording kept at a machine
   switch is offered and saved the same way (`Session.recordingName`).
+- **2048's tiles slide.** A move's tiles travel to where they land over three fields, each drawn in the square it
+  is passing through, then the joined squares flash once in a fill no tile has, and then the new tile pops in. Every
+  moving tile is drawn at each field (one is never left blank while another passes over its square), and the pop is
+  part of the animation too: a key during it ends it at once. Only
+  the moving tiles' own rectangles are redrawn, so the picture stays whole without a second screen page. Each field
+  is one field sync (VSYNC), one ENTROPY tick and one POLCAT poll - a field clock of the animation's own, which
+  is what lets a test see each field (the game's key wait ticks ENTROPY per poll and has no sync); a key pressed at any
+  point ends the animation at once and is played as the next move, drawn whole. Keys pressed during one animation
+  are queued four deep and all played, in order (a fifth is dropped), and a key queued behind R survives the new game. `tests/games-slide.test.js` checks
+  the intermediate squares, the flash (its `$AA`/`$55` highlight for one field), the pop (small then full, from
+  the geometry), each tile drawn with its own value as it moves (a tile that joins becomes the merged value only
+  on the flash), their order, and a key during the slide.
 - **Minesweeper plays with a joystick.** Either joystick moves the cursor: one step as the stick leaves the centre,
   then again after 300 ms and every 120 ms while it is held (counted in fields, at the machine's own 50 or 60 Hz;
   centring the stick and pushing the same way again is a new press). Either fire button opens the square under the
