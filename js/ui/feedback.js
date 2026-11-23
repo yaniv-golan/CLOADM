@@ -95,8 +95,6 @@ export function createFeedback() {
       const inline = textEl.querySelector ? textEl.querySelector('button') : null;
       const to = sameAction ? (at >= 0 ? inline : actEl) : box;
       if (to && document.activeElement !== to) to.focus({ preventScroll: true });
-      // (should the browser still have dropped it as the old toast's text went)
-      if (!box.contains(document.activeElement)) box.focus({ preventScroll: true });
     }
     follow(t);      // its timer starts when it is first in view (seen)
   }

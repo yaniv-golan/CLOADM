@@ -904,7 +904,8 @@ browser check's group `uiModel` drives them with real events at 1280x720 and at 
   leaves. One announcement per toast (the live region's text changes once for each). The provisional pin: a toast
   raised as a sheet (a `.controls` element shrinking in 150 ms) opens is in view in its first frame in the top slot,
   in the free place once the transition ends, with no animation, and its rect is the same in every 50 ms sample from
-  350 ms on; a focused provisional toast keeps the slot. `tests/feedback-toasts.test.js` checks the same rules in Node,
+  350 ms on; a focused provisional toast keeps the slot, and one that lands in the slot already focused is still provisional
+  past 300 ms, taking a place that opened meanwhile once the focus leaves. `tests/feedback-toasts.test.js` checks the same rules in Node,
   with the 300 ms limit and a hovered provisional toast.
 * R25: the switch confirmation's text for a tape and a cartridge (both in the Library), a tape and a disk, a RAM
   change (and Cancel putting the select back), a snapshot's own disk with **Save to Library** (stored and linked),

@@ -324,6 +324,19 @@ globalThis.matchMedia = () => ({ matches: false });
       state.hover = false; document.activeElement = null;
       fb.clear();
     }
+    // landed in the slot while already hovered or focused, nothing moving: it stays provisional past 300 ms, and takes
+    // a place that opened meanwhile once it is let go (the pin is made final only when it is not held)
+    for (const how of ['hovered', 'focused']) {
+      reset(false); fb = fresh();
+      if (how === 'hovered') state.hover = true; else { fb.toast('Before'); document.activeElement = inside; }
+      fb.toast('Landed held');
+      advance(400); frame(); frame();
+      shrink(); frame();
+      check(`R45 pin: a toast that lands in the slot ${how} stays there past 300 ms while ${how}`, top() && fb.current.text === 'Landed held');
+      state.hover = false; document.activeElement = null; frame();
+      check(`R45 pin: ... and, let go, takes the place that opened (it was still provisional)`, !top() && fb.current !== null);
+      fb.clear();
+    }
     controls = [];
   }
 

@@ -4246,6 +4246,30 @@ async function provisionalPinChecks(browser, base, check, state, frames) {
   check('feedback R45: a focused provisional toast is not moved (it keeps the top slot)',
     f.first.top && f.samples.every((x) => x.up && x.top && x.rect === f.samples[0].rect), JSON.stringify(f.samples.slice(-2)));
   await page.evaluate(() => { document.activeElement.blur(); window.emu.feedback.clear(); document.getElementById('fbSheet').remove(); });
+
+  // landed in the slot while already focused (it replaced a focused toast), nothing moving: past 300 ms it is still
+  // provisional, so a place that opened meanwhile is taken once the focus leaves (the pin is final only when not held)
+  const held = await page.evaluate(() => new Promise((res) => {
+    scrollTo(0, 0); window.emu.feedback.clear();
+    window.emu.feedback.toast('Focused first');
+    document.getElementById('toast').focus();
+    const sh = document.createElement('div');
+    sh.className = 'controls'; sh.id = 'fbSheet'; sh.style.cssText = 'position:fixed;left:0;right:0;top:0;height:100vh;z-index:1;background:#222';
+    document.body.append(sh);
+    window.emu.feedback.toast('Landed while focused');
+    const reg = document.getElementById('toastRegion'), r = { first: reg.classList.contains('top'), focus: document.activeElement.id };
+    setTimeout(() => {
+      sh.style.height = '80px';
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        r.heldAfter400 = reg.classList.contains('top');
+        document.activeElement.blur();
+        requestAnimationFrame(() => requestAnimationFrame(() => { r.afterRelease = reg.classList.contains('top'); r.up = !document.getElementById('toast').hidden; res(r); }));
+      }));
+    }, 400);
+  }));
+  check('feedback R45: a toast that lands in the top slot while focused stays there past 300 ms, and once let go takes the place that opened meanwhile',
+    held.first && held.focus === 'toast' && held.heldAfter400 && !held.afterRelease && held.up, JSON.stringify(held));
+  await page.evaluate(() => { window.emu.feedback.clear(); document.getElementById('fbSheet').remove(); });
   await ctx.close();
 }
 
