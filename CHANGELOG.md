@@ -552,7 +552,7 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   (`Session.menuTicketFor`): a machine question takes none, a `BYE` takes the `BYE`'s, and a returning visit takes
   none.
 - **A Recent row is found by the session's own name rule, and its "gone from the list" error is a `SessionError`.**
-  The row was matched with `===` where the rest of the app compares names with `session.library.sameName` (the store's own
+  The row was matched with `===` where the rest of the app compares names with `Session.sameName` (the store's own
   case rule), so on a store that does not tell cases apart a row drawn as `GAME.BIN` could not find `game.bin`. The
   error was a plain `Error`; it is now `SessionError`, so a caller can tell it from a fault (the page already showed
   it on the drawer's message line either way).
@@ -750,7 +750,7 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   still says where, and a name with a space or a file dropped under a path (`dir/work.vdk`, Windows separators) is
   named once by its own file name - and a library file dropped under a path reports the name the Library lists
   (`dir/prog.bin`, not just the leaf). The page's background-write notice takes its wording from the Session too
-  (`session.library.indexWriteError`), so a failed ROM write is named once. One rule for the library import, a new blank
+  (`Session.indexWriteError`), so a failed ROM write is named once. One rule for the library import, a new blank
   disk, a mount and the DriveWire box. The quota and not-found messages already wrote their own sentence and are
   unchanged. `tests/store-error-names.test.js`.
 
