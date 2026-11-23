@@ -555,7 +555,7 @@ export class Session {
   // lives. Its methods throw SessionError with a message for the user. It shows the symbols of the last assembled
   // program by itself; `setLabels` replaces them.
   get debug() {
-    if (!this.debugger) this.debugger = new Debugger(this.shownMachine, { symbols: () => this.labels });
+    if (!this.debugger) this.watchStops(this.debugger = new Debugger(this.shownMachine, { symbols: () => this.labels }));
     return this.debugger;
   }
   // a Map name -> address, or a function returning one, for the disassembly; null for plain addresses
@@ -581,6 +581,10 @@ export class Session {
     this.emit('released', pc);
     return pc;
   }
+  // Every stop the Debugger makes (its Pause, a step, a breakpoint or watchpoint, a run limit, MCP's step) is a
+  // ('debugger-stopped', machine) event: what is in flight on that machine when it stops - Claude's keys - ends then
+  // (ChatSession.keys, through the chat target's onStopped) rather than waiting behind the stop.
+  watchStops(d) { d.onStop = () => this.emit('debugger-stopped', d.machine); }
   // Is machine m stopped by the Debugger (R44's stop)? -> { pc, kind } (where, and Debugger.stopReason's kind), or
   // null. The one test both sides use: the person's typing (refuseTyping) and Claude's and the MCP tools that need the
   // machine to run or read keys (the chat target's stopped(): ChatSession.callTool, and js/mcp/tools.js).
@@ -669,7 +673,7 @@ export class Session {
     const stoppedAt = this.debugger && this.debugger.stopped ? this.debugger.pc : null;
     if (this.debugger) { this.debugger.detach(); this.debugger = null; }
     if (stoppedAt != null) this.emit('released', stoppedAt);
-    if (m.debugger) { this.debugger = m.debugger; this.debugger.setSymbols(() => this.labels); }
+    if (m.debugger) { this.debugger = m.debugger; this.debugger.setSymbols(() => this.labels); this.watchStops(this.debugger); }
     // the machines left behind keep no state in the Session: their ROM-failure sets go (a switch back is a fresh
     // try) and their stub-restart records with them (the record of a Machine that is gone cannot come back)
     for (const [mm] of this.bootFailed) if (mm !== this.shownMachine && mm !== m) this.bootFailed.delete(mm);
@@ -3550,6 +3554,8 @@ export class Session {
       run: (t) => this.runAt(t, basic()),
       // stopped by the Debugger -> { pc, kind }, else null (Session.stoppedOn): the tools that must run it refuse
       stopped: () => this.stoppedOn(basic()),
+      // fn() at every Debugger stop of this machine -> a function that stops listening
+      onStopped: (fn) => this.on((ev, m) => { if (ev === 'debugger-stopped' && m === basic()) fn(); }),
       // a restore point: when it was taken and the drives linked to the media store at that moment (their links)
       snapshot: () => { const snap = basic().snapshot(); this.claudePointInfo.set(snap, { at: Date.now(), disks: this.storedDisks(basic()) }); return snap; },
       // the same guarded path as restoreClaude -> restorePoint's notices

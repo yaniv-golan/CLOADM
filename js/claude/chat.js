@@ -419,7 +419,7 @@ export class ChatSession {
   markUndone(fromSeq, at = Date.now()) {
     for (const m of this.messages) {
       for (const rec of (m && m.actions) || []) {
-        const changed = rec.outcome === 'done' || rec.outcome === 'partial' || (['stopped', 'not-read', 'restarted'].includes(rec.outcome) && rec.delivered > 0);
+        const changed = rec.outcome === 'done' || rec.outcome === 'partial' || (['stopped', 'not-read', 'restarted', 'debugger-stopped'].includes(rec.outcome) && rec.delivered > 0);
         if (rec.seq >= fromSeq && !rec.undoneAt && changed) rec.undoneAt = at;
       }
     }
@@ -487,8 +487,11 @@ export class ChatSession {
     const signal = this.controller && this.controller.signal;
     const onAbort = () => { t.machine.typist.dropJob(job); job.end('stopped'); };
     if (signal) { if (signal.aborted) onAbort(); else signal.addEventListener('abort', onAbort, { once: true }); }
+    // a Debugger stop ends it too: the keys not typed yet are dropped, not left to go in after Resume
+    const off = t.onStopped ? t.onStopped(() => { t.machine.typist.dropJob(job); job.end('machine-stopped'); }) : null;
     await job.promise;
     if (signal) signal.removeEventListener('abort', onAbort);
+    if (off) off();
     const report = job.key ? { requested: job.requested, consumed: job.consumed }
       : { requested: job.requested, consumed: job.consumed, lines_requested: job.linesRequested, lines_delivered: job.linesDelivered };
     if (job.status === 'done' || (read && job.status === 'not-consumed' && job.consumed === job.requested)) return report;
@@ -496,6 +499,11 @@ export class ChatSession {
     if (job.status === 'stopped') throw Object.assign(new ToolError(TOOL_CODES.STOPPED, `${job.consumed} of ${job.requested} keys typed`), { delivered: job.consumed });
     // the machine reset under the typing (Machine.reset): not a Stop, so the model is not told the person stopped it
     if (job.status === 'machine-restarted') throw Object.assign(new ToolError(TOOL_CODES.MACHINE_RESTARTED, `${job.consumed} of ${job.requested} keys typed`), { delivered: job.consumed });
+    // the Debugger stopped the machine while the keys went in: the rest was dropped (delivered: how many went in)
+    if (job.status === 'machine-stopped') {
+      const at = t.stopped ? t.stopped() : null;
+      throw Object.assign(new ToolError(TOOL_CODES.MACHINE_STOPPED, `${at ? `stopped in the Debugger at ${hex(at.pc)} (${at.kind})` : 'stopped in the Debugger'} while the keys went in: ${job.consumed} of ${job.requested} keys typed, the rest dropped`), { delivered: job.consumed });
+    }
     // the person turned the switch off while the typing was held by a pause: the rest was dropped
     if (job.status === 'no-consent') throw new ToolError(TOOL_CODES.NO_CONSENT, `${job.consumed} of ${job.requested} keys typed`);
     const at = job.at;

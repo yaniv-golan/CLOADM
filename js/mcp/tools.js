@@ -274,8 +274,10 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
 
   // Run frames until `done()` is true, `frames` have run, the wall-time limit passes or the call is cancelled.
   // -> { frames, why: 'done' | 'frames' | 'wall' }. A machine waiting for the store (a DriveWire read) is waited for.
-  // keep: the run may stop inside a frame (a breakpoint), so the last complete frame is kept before each one
-  async function runWhile(m, { frames, done = () => false, signal, progress, keep = false }) {
+  // keep: the run may stop inside a frame (a breakpoint), so the last complete frame is kept before each one.
+  // A Debugger stop during the run: ownStop() says whether it is the call's own (run_frames' until.pc breakpoint),
+  // which ends the run as done; any other (the person's Pause or breakpoint) fails the call with machine-stopped.
+  async function runWhile(m, { frames, done = () => false, signal, progress, keep = false, ownStop = () => false }) {
     const s = m.session, t0 = host.now();
     let n = 0;
     for (;;) {
@@ -286,7 +288,10 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
       if (keep) keepWhole(m);
       const ran = s.runFrames(1);
       if (ran) n++;
-      else if (s.paused) return { frames: n, why: 'done' };   // a breakpoint stopped it (run_frames' pc condition)
+      else if (s.paused) {
+        if (ownStop()) return { frames: n, why: 'done' };   // the call's own breakpoint (run_frames' pc condition)
+        notStopped(m);                                        // stopped by the Debugger part-way: machine-stopped
+      }
       if (progress && n % 50 === 0 && ran) progress(n, frames);
       await host.yield();
     }
@@ -296,7 +301,13 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
     let settled = false, value, error;
     promise.then((v) => { settled = true; value = v; }, (e) => { settled = true; error = e; });
     await host.yield();   // a tool that needs no frames (a read) has settled by now
-    await runWhile(m, { frames: Infinity, done: () => settled, signal: null });
+    // (a Debugger stop part-way ends the page's typing itself with machine-stopped, through the chat target's
+    // onStopped; should the run see the stop first, the typing is stopped here and the call fails the same way)
+    try { await runWhile(m, { frames: Infinity, done: () => settled, signal: null }); } catch (e) {
+      if (!settled) { m.chat.controller.abort(); await host.yield(); }
+      if (settled && error) throw error;
+      throw e;
+    }
     if (!settled) {
       // past the wall-time limit: the page's own pacing ends a key nobody reads after PACE.timeoutFrames frames,
       // so this is a machine too slow to get there; stop the typing so nothing more goes in later
@@ -564,8 +575,11 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
       let r;
       if (cond && cond.kind === 'pc') {
         const d = s.debug, had = d.breakpoints().includes(cond.pc);
+        // the stop this call may resume is its own: its breakpoint at cond.pc, hit there. A stop the person makes
+        // meanwhile (Pause, another breakpoint) is theirs: the call fails machine-stopped and leaves it stopped
+        const own = () => d.stopped && !!d.stopReason && d.stopReason.kind === 'breakpoint' && d.pc === cond.pc;
         if (!had) d.addBreakpoint(cond.pc);
-        try { r = await runWhile(m, { frames, done: cond.holds, signal, progress, keep: true }); } finally { if (!had) d.removeBreakpoint(cond.pc); d.resume(); }
+        try { r = await runWhile(m, { frames, done: cond.holds, signal, progress, keep: true, ownStop: own }); } finally { if (!had) d.removeBreakpoint(cond.pc); if (own()) d.resume(); }
       } else r = await runWhile(m, { frames, done: cond ? cond.holds : () => false, signal, progress });
       // A condition on the screen is read from video memory, which the picture follows a frame behind: the beam drew
       // the lines it had passed before the program wrote them. One more frame draws what the condition saw, so a
@@ -595,7 +609,9 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
         if (d.stopped && d.stopReason && d.stopReason.kind === 'halted') { halted = true; break; }
         cycles += c;
       }
-      if (wasStopped) d.halt(); else d.resume();
+      // (stopped before: it stays stopped, with the reason the steps gave - a watchpoint hit, the CPU held - or as a
+      // halt when they gave none; step() itself leaves the debugger running between instructions)
+      if (wasStopped) { if (!d.stopped) d.halt(); } else d.resume();
       return { instructions: ran, cycles, registers: d.registers(), ...(halted ? { halted: true } : {}) };
     },
   });

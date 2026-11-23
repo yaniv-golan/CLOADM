@@ -8963,6 +8963,40 @@ async function askFollowupChecks(browser, base, check) {
     await ctx.close();
   }
 
+  // ---- (1a) the Debugger stops the machine while Claude's keys go in (its Pause makes this same call, Debugger.halt):
+  // the keys not typed yet are dropped, the model is told machine-stopped with how far it got, the panel's line says
+  // so, and after Resume nothing more is typed ----
+  {
+    const { ctx, page, errors, replies, requests } = await open({ width: 1440, height: 900 });
+    await page.click('#btnAsk');
+    replies.push({ body: tools([{ name: 'type_text', input: { text: LISTING } }]) }, { hold: true, body: text('Stopped.') });
+    await page.fill('#askInput', 'Type a long listing for me');
+    await page.press('#askInput', 'Enter');
+    await waitFor(page, () => !document.getElementById('askConsent').hidden);
+    await page.click('#btnAskAllow');
+    await waitFor(page, () => !document.getElementById('askActing').hidden && window.emu.machine.typist.queue.length > 100, null, 8000);
+    // queued before the stop, and right after it (the same task: the drop is synchronous with the stop)
+    const atStop = await page.evaluate(() => { const m = window.emu.machine, before = m.typist.queue.length; window.emu.session.debug.halt();
+      return { before, queued: m.typist.queue.length, paused: window.emu.session.paused }; });
+    for (let i = 0; i < 100 && requests.length < 2; i++) await ticks(page, 2);
+    const sent = requests[1];
+    const result = sent ? sent.messages.slice(-1)[0].content[0] : null;
+    let err = null; try { err = JSON.parse(result.content).error; } catch (e) { /* not JSON */ }
+    const after = await page.evaluate(() => ({ queued: window.emu.machine.typist.queue.length, stub: window.emu.machine.stubKeys.length }));
+    check('ask (Debugger stop): stopped while Claude types, the rest of the keys is dropped and the model is told machine-stopped, with how far it got',
+      atStop.before > 100 && atStop.queued === 0 && atStop.paused && result && result.is_error === true && err && err.code === 'machine-stopped' && /keys typed, the rest dropped/.test(err.detail)
+      && after.queued === 0, JSON.stringify({ atStop, after, err }).slice(0, 400));
+    check('ask (Debugger stop): the panel\'s line says the Debugger stopped the machine part-way',
+      await waitFor(page, () => /then the Debugger stopped the machine/.test(document.getElementById('ask').textContent), null, 5000));
+    await page.click('#btnStripResume');
+    await emuFrames(page, 60);
+    const resumed = await page.evaluate(() => ({ queued: window.emu.machine.typist.queue.length, stub: window.emu.machine.stubKeys.length, paused: window.emu.session.paused }));
+    check('ask (Debugger stop): after Resume nothing more of the listing is typed', !resumed.paused && resumed.queued === 0 && resumed.stub === 0, JSON.stringify(resumed));
+    if (replies.held) replies.held.release();
+    check('ask (Debugger stop): no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
   // ---- (1b) a pause belongs to its turn: a key pressed while Claude thinks after acting pauses it; the reply
   // finishes; the next turn is not paused (no "Paused" status, no Resume needed) and its action runs ----
   {

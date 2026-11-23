@@ -795,6 +795,20 @@ fs.writeFileSync(tmp('media', 'plain.bas'), '10 PRINT "HI"\n');
       const stepped = await tbs.call('step', Object.assign({}, id, { count: 3 }));
       check('stopped: step steps (3 instructions) and leaves the machine stopped, where the steps ended', stepped.ok && stepped.data.instructions === 3 && st.paused
         && st.debug.pc !== pc0 && stepped.data.registers.pc === st.debug.pc, J(stepped).slice(0, 200));
+      // the stop step leaves keeps the reason the steps gave: a watchpoint hit stays a watchpoint stop (not a halt)
+      {
+        const asm = Emu.assemble(' ORG $3000\nGO LDA #1\n STA $3100\n BRA GO\n', '6809');
+        st.pokeBytes(0x3000, [...asm.segments[0].data]);
+        st.shownMachine.cpu.jump(0x3000);
+        st.debug.addWatchpoint(0x3100, 1, { read: false, write: true });
+        const w = await tbs.call('step', Object.assign({}, id, { count: 2 }));
+        check('stopped: step that hits a watchpoint leaves the machine stopped with the watchpoint as the reason',
+          w.ok && st.paused && st.debug.stopReason.kind === 'watchpoint' && st.debug.stopReason.address === 0x3100, J([w, st.debug.stopReason]).slice(0, 240));
+        st.debug.clearWatchpoints();
+        // (the welcome program again, which reads the keys the checks below type: a launch, so it releases the stop)
+        st.startWelcome(programs(st.welcomeFile));
+        st.runFrames(40);
+      }
       st.resume();
       const typed = await tbs.call('type_text', Object.assign({}, id, { text: '1' }));
       const ranOn = await tbs.call('run_frames', Object.assign({}, id, { frames: 5 }));
@@ -806,6 +820,53 @@ fs.writeFileSync(tmp('media', 'plain.bas'), '10 PRINT "HI"\n');
       st.debug.halt();
       const reset = await tbs.call('reset', id);
       check('stopped: a launch (reset) releases the stop, and the machine runs', reset.ok && !st.paused && (await tbs.call('run_frames', Object.assign({}, id, { frames: 3 }))).ok);
+    }
+    // ---- a stop made DURING a call (the review's probe: a host whose yield, called once a frame while a call runs,
+    // makes the Debugger stop after a few frames, as the person's Pause would): the call fails machine-stopped with
+    // where it stopped, whatever was in flight is dropped, and the person's stop is left as it is
+    {
+      const st = new Emu.Session({ welcomeMenu: false });
+      st.switchMachine('dragon64', {}, { menu: false });
+      st.runLiza(programs(st.lizaFile));
+      st.runFrames(150);
+      let haltIn = 0;
+      const probe = Object.assign({}, host, { yield: () => { if (haltIn > 0 && --haltIn === 0) st.debug.halt(); return new Promise(setImmediate); } });
+      const tbp = T.createToolbox(probe, { session: st });
+      const id = { machine_id: 'm1' }, m = st.shownMachine;
+      const midCall = async (tool, args, n = 5) => { st.resume(); haltIn = n; const r = await tbp.call(tool, Object.assign({}, id, args)); haltIn = 0; return r; };
+      const where = (r) => !r.ok && r.error.code === 'machine-stopped' && /^stopped in the Debugger at \$[0-9A-F]{4} \(halt\)/.test(r.error.detail || '');
+      for (const [label, args] of [['run_frames', { frames: 200 }], ['run_frames until text', { frames: 200, until: { text: 'NEVER ON SCREEN' } }]]) {
+        const f0 = m.frameCount;
+        const r = await midCall('run_frames', args);
+        check(`mid-call stop: ${label} fails machine-stopped (not ok, not "not-yet"), and the machine stays stopped`, where(r) && st.paused && m.frameCount - f0 < 200, J(r).slice(0, 240));
+      }
+      {
+        const r = await midCall('run_frames', { frames: 200, until: { pc: 0x0001 } });
+        check('mid-call stop: run_frames until pc fails machine-stopped, does NOT resume the person\'s stop, and takes its breakpoint away',
+          where(r) && st.paused && !st.debug.breakpoints().includes(0x0001), J(r).slice(0, 240));
+      }
+      {
+        // its own stop: a pc the program reaches is met, and the machine runs on
+        st.resume(); st.runFrames(2); st.debug.halt(); const pc = st.debug.pc; st.resume();
+        const r = await tbp.call('run_frames', Object.assign({}, id, { frames: 200, until: { pc } }));
+        check('run_frames until pc: its own breakpoint stop is met and resumed, as before', r.ok && r.data.status === 'met' && !st.paused, J(r).slice(0, 200));
+      }
+      {
+        const held = new Map(), set = m.setKey.bind(m);
+        m.setKey = (k, down) => { held.set(k, down); return set(k, down); };
+        const r = await midCall('press_keys', { keys: ['A'], frames: 200 });
+        m.setKey = set;
+        check('mid-call stop: press_keys fails machine-stopped and lets go of the keys', where(r) && st.paused && held.get('A') === false, J(r).slice(0, 240));
+      }
+      {
+        const text = 'I FEEL QUITE WELL TODAY THANK YOU VERY MUCH\n';
+        const r = await midCall('type_text', { text }, 8);
+        const m2 = /(\d+) of (\d+) keys typed, the rest dropped/.exec((r.error && r.error.detail) || '');
+        const queued = m.typist.queue.length + m.stubKeys.length;
+        st.resume(); st.runFrames(100);
+        check('mid-call stop: type_text fails machine-stopped (not a time-out), saying how many keys went in; the rest is dropped and none goes in after Resume',
+          where(r) && m2 && +m2[1] < +m2[2] && +m2[2] === text.length && queued === 0 && m.typist.queue.length === 0 && m.stubKeys.length === 0, J({ r, queued }).slice(0, 300));
+      }
     }
     let notSession = null;
     try { T.createToolbox(host, { session: { machine: {} } }); } catch (e) { notSession = e.message; }

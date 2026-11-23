@@ -27,7 +27,7 @@ class PacedJob {
     this.consumed = 0;                  // keys the machine read while they were held (stub: took from its queue)
     this.linesRequested = chars.filter((c) => c === '\r').length;
     this.linesDelivered = 0;            // Enters consumed
-    this.status = 'typing';             // 'typing' | 'done' | 'not-consumed' | 'stopped' | 'machine-restarted' | 'no-consent' (consent withdrawn while held)
+    this.status = 'typing';             // 'typing' | 'done' | 'not-consumed' | 'stopped' | 'machine-restarted' | 'no-consent' (consent withdrawn while held) | 'machine-stopped' (the Debugger stopped it: the rest is dropped)
     this.at = null;                     // where it failed: { index, char, phase }
     this.promise = new Promise((resolve) => { this.resolve = resolve; });
   }

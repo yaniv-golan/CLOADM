@@ -271,6 +271,23 @@ process.exitCode = 1;
     s.resume();
     const r = await modelCall(s, 'type_text', { text: 'A' }, allow, true);
     check('stopped: after Resume, type_text types again', r.isError === false && r.json && r.json.consumed === 1, r.raw);
+    // the pre-act re-check: the Debugger stops the machine while the consent card waits, then the person allows it:
+    // the call is refused there, synchronously with the change, and nothing is typed (O1)
+    {
+      const s2 = stub();
+      const keys0 = s2.shownMachine.stubKeys.length;
+      const r2 = await modelCall(s2, 'type_text', { text: 'AB' }, (ss) => { ss.claudeGate = () => { Promise.resolve().then(() => { ss.debug.halt(); ss.answerClaude(true); }); }; });
+      check('stopped: halted while the consent card waits, then allowed: machine-stopped at the re-check, nothing typed or queued',
+        r2.isError === true && r2.json && r2.json.error.code === C.MACHINE_STOPPED && s2.shownMachine.stubKeys.length === keys0 && s2.shownMachine.typist.queue.length === 0, r2.raw);
+    }
+    // load_basic writes memory only: it works on a stopped machine with BASIC (our stand-in BASIC fixture) and leaves
+    // it stopped (O2)
+    {
+      const s3 = stopped(basic)();
+      const r3 = await modelCall(s3, 'load_basic', { program: '10 PRINT "HI"\n20 GOTO 10' }, loadYes);
+      check('stopped: load_basic loads into a stopped machine\'s BASIC and leaves it stopped', r3.isError === false && r3.json && r3.json.lines === 2 && s3.paused
+        && s3.readByte(START + 2) === 0 && s3.readByte(START + 3) === 10, r3.raw);
+    }
   }
   {
     const r = await modelCall(stub(), 'format_disk', {}, allow);

@@ -14,6 +14,8 @@
  *   stopped     the person pressed Stop: `delivered` keys (the ToolError's count) tells "before" from "while" (–)
  *   restarted   the machine reset while the keys went in (machine-restarted, with `delivered`): not a Stop (–)
  *   not-read    the keys went down but the machine did not read them all: the not-consumed code, with `delivered` (–)
+ *   debugger-stopped  the Debugger had the machine stopped, or stopped it while the keys went in (machine-stopped,
+ *               with `delivered`): what was not typed was dropped (–)
  *   error       anything else, with the line a person reads for it (failureText) (✗)
  */
 import { TOOL_CODES } from './toolerrors.js';
@@ -63,6 +65,7 @@ export function actionRecord(tool, input, { result = null, err = null, time = Da
     else if (code === TOOL_CODES.STOPPED) { rec.outcome = 'stopped'; rec.delivered = Number(err.delivered) || 0; }
     else if (code === TOOL_CODES.MACHINE_RESTARTED) { rec.outcome = 'restarted'; rec.delivered = Number(err.delivered) || 0; }
     else if (code === TOOL_CODES.NOT_CONSUMED) { rec.outcome = 'not-read'; rec.delivered = Number(err.delivered) || 0; }
+    else if (code === TOOL_CODES.MACHINE_STOPPED) { rec.outcome = 'debugger-stopped'; rec.delivered = Number(err.delivered) || 0; }
     else { rec.outcome = 'error'; rec.failure = failureText(err); }
     return rec;
   }
@@ -124,6 +127,8 @@ export function actionLine(rec) {
     case 'stopped': glyph = '–'; text = `stopped ${rec.delivered > 0 ? 'while' : 'before'} ${ing} ${obj}`; break;
     // ("– typed "1", then the machine restarted"; with nothing typed yet, the restart came first)
     case 'restarted': glyph = '–'; text = rec.delivered > 0 ? `${rec.tool === 'run' ? 'typed' : done} ${obj}, then the machine restarted` : `the machine restarted before ${ing} ${obj}`; break;
+    // ("– typed part of "HELLO", then the Debugger stopped the machine"; refused while stopped: nothing typed)
+    case 'debugger-stopped': glyph = '–'; text = rec.delivered > 0 ? `${rec.tool === 'run' ? 'typed' : done} part of ${obj}, then the Debugger stopped the machine` : `didn't ${base} ${obj}: the Debugger has the machine stopped`; break;
     case 'not-read': glyph = '–'; text = `${rec.tool === 'run' ? 'typed' : done} ${obj}, but the machine didn't read the ${rec.tool === 'press_break' ? 'key' : 'keys'}`; break;
     default: glyph = '✗'; text = `couldn't ${base} ${obj}: ${rec.failure || 'failed'}`; break;
   }

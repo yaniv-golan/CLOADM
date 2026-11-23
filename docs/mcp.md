@@ -364,10 +364,15 @@ offer them again, run in a worker with a timeout.
 the tools that must run it or press its keys refuse rather than queue behind the stop or seem to work: `type_text`,
 `press_break`, `run` (a jump too), `press_keys` and `run_frames` fail with `machine-stopped`, whose detail says where
 it stopped (`stopped in the Debugger at $C0F3 (breakpoint)`) and whose remedy says how it goes on: the person presses
-Resume, or Run in the Debugger. The person's own typing is refused the same way then. Reading works as usual and
-leaves the machine stopped: `machine_info`, `screen_text`, `peek`, `disassemble`, `find_bytes`, `registers` and
+Resume, or Run in the Debugger. The person's own typing is refused the same way then. A stop made while one of those
+calls runs ends it the same way: `run_frames` and `press_keys` fail `machine-stopped` (the keys are let go, and
+`run_frames` with `until.pc` resumes only a stop its own breakpoint made, never the person's), and `type_text`,
+`press_break` and `run "RUN"` drop the keys not typed yet and fail `machine-stopped`, whose detail says how many went
+in (`12 of 45 keys typed, the rest dropped`); nothing more goes in after Resume. Reading works as usual and leaves the
+machine stopped: `machine_info`, `screen_text`, `peek`, `disassemble`, `find_bytes`, `registers` and
 `screenshot`; so do the tools that only write memory (`poke`, `assemble_and_load`, `load_basic`), and `step`, which
-steps as the Debugger's Step does and leaves the machine stopped where it ended. What a tool starts runs: `load`,
+steps as the Debugger's Step does and leaves the machine stopped where it ended (with the reason its steps gave, a
+watchpoint hit say, or as a pause). What a tool starts runs: `load`,
 `insert_disk`, `reset`, `power_cycle`, `boot` and a machine switch release the stop (the breakpoints stay set), as the
 page's own Run again, Reset and drops do. A file that is refused starts nothing, and the stop stays.
 
