@@ -3,7 +3,7 @@
 // offline use; the source note names the pinned commit; and the version the page shows is the pin's.
 // No id Software data is involved: the level disk is Freedoom's (tools/wyrmfire-vendor.js builds it).
 const fs = require('fs'), path = require('path'), crypto = require('crypto');
-const { WYRMFIRE_PIN: PIN, wyrmfireSourceUrl } = require('../js/wyrmfire/pin.js');
+const { WYRMFIRE_PIN: PIN, wyrmfireSourceUrl, FREEDOOM_CREDIT } = require('../js/wyrmfire/pin.js');
 const { pwaFiles } = require('../tools/pwa-files.js');
 
 const ROOT = path.join(__dirname, '..');
@@ -55,8 +55,33 @@ check('the pin: a version, a 40-hex commit, the Dragon 64 with the bare DragonDO
   const wads = all.filter((p) => { const b = fs.readFileSync(p); return /\.wad$/i.test(p) || ['IWAD', 'PWAD'].includes(b.toString('latin1', 0, 4)); });
   check('no WAD is served', !wads.length, wads.join(' '));
   const disks = all.filter((p) => /\.(vdk|dsk|jvc|dmk)$/i.test(p)).map((p) => path.relative(ROOT, p));
-  check('the only level disk is the pinned Freedoom one', disks.length === 1 && disks[0] === PIN.files.level.path, disks.join(' '));
+  check('the only level disks are the pinned Freedoom ones (.vdk and .dsk)', disks.sort().join() === [PIN.files.levelDsk.path, PIN.files.level.path].sort().join(), disks.join(' '));
 }
+// the .dsk is the .vdk's sectors, byte for byte, behind a JVC header saying 18 sectors and 2 sides (80 tracks)
+{
+  const vdk = fs.readFileSync(path.join(ROOT, PIN.files.level.path)), dsk = fs.readFileSync(path.join(ROOT, PIN.files.levelDsk.path));
+  check('the .dsk: a JVC header (18 sectors, 2 sides), then the .vdk\'s sectors byte for byte', dsk[0] === 18 && dsk[1] === 2 && dsk.subarray(2).equals(vdk.subarray(12)));
+}
+// Help -> WYRMFIRE: the version, the credit (FREEDOOM_CREDIT, the one constant), the licences and the two downloads
+{
+  const help = fs.readFileSync(path.join(ROOT, 'help/index.html'), 'utf8');
+  check('Help shows the pinned version and the one Freedoom credit', help.includes(`<span id="wyrmVersion">${PIN.version}</span>`) && help.includes(`<span id="wyrmCredit">${FREEDOOM_CREDIT}</span>`));
+  check('Help links the GPL, Freedoom\'s licence and credits, and the .vdk and .dsk', [PIN.files.licence, PIN.files.freedoomCopying, PIN.files.freedoomCredits, PIN.files.freedoomMusic, PIN.files.level, PIN.files.levelDsk]
+    .every((f) => help.includes(`href="${f.path}"`)));
+}
+// the .dsk plays: the engine on the bare controller with the .dsk in drive 0 draws its first in-game picture
+(async () => {
+  const Emu = require('./load')();
+  const s = new Emu.Session({ welcomeMenu: false });
+  s.switchMachine('dragon64', { ram: 64 }, { menu: false });
+  const m = s.personMachine, fdc = new Emu.devices.dragonfdc({});
+  m.insertCartridge(fdc);
+  fdc.mount(0, { bytes: new Uint8Array(fs.readFileSync(path.join(ROOT, PIN.files.levelDsk.path))), format: 'jvc', name: 'L.DSK', writeProtected: true });
+  s.load('WYRMFIRE.BIN', new Uint8Array(fs.readFileSync(path.join(ROOT, PIN.files.engine.path))), { remember: false });
+  let f = 0;
+  while (s.readByte(0x200) === 0 && f < 3000) { m.setKey('ENTER', f % 50 < 25); s.runFrames(1); f++; }
+  check('the .dsk boots in CLOADM: the engine draws its first in-game picture, health 100', s.readByte(0x200) > 0 && s.readByte(0x204) === 100, `${f} fields`);
+  console.log(fail ? `${fail} FAILED` : 'all passed');
+  process.exitCode = fail ? 1 : 0;
+})().catch((e) => { console.log(`FAIL ${e.stack}`); process.exitCode = 1; });
 
-console.log(fail ? `${fail} FAILED` : 'all passed');
-process.exitCode = fail ? 1 : 0;

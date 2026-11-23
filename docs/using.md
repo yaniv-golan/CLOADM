@@ -164,6 +164,12 @@ level from a disk, free software under the GNU GPL version 3 or later. CLOADM se
   WAD is loaded: it's id Software's game data." WYRMFIRE is not affiliated with id Software. DOOM is a trademark of id
   Software LLC.
 
+Help → WYRMFIRE also says what it does and doesn't do (E1M1 only; 6.4 pictures a second within a part of the level and
+about a second to load the next, measured in CLOADM headless), and offers the Freedoom disk to keep as `.vdk` or `.dsk`
+(JVC, 720K) with `WYRMFIRE.BIN`, for a real Dragon 64 with a WD2797 DragonDOS-compatible controller and an 80-track
+double-sided drive (untested on real hardware). A level made from your own WAD is never offered for download.
+In Share, an option that is off stays listed with its reason beside it.
+
 Sources and licences: `examples/wyrmfire/SOURCE.txt`, `COPYING-GPL-3.0.txt`, `freedoom/COPYING.txt`; Help → WYRMFIRE.
 
 

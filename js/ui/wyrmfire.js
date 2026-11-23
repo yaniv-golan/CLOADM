@@ -22,7 +22,7 @@
  * Software"), what is off ("no snapshots; with your own WAD, no clips and no Claude screen reads"), and the way to
  * play the person's own WAD.
  */
-import { WYRMFIRE_PIN as PIN, wyrmfireSourceUrl } from '../wyrmfire/pin.js';
+import { WYRMFIRE_PIN as PIN, wyrmfireSourceUrl, FREEDOOM_CREDIT } from '../wyrmfire/pin.js';
 import { checkWad, convertErrorText, WAD_TEXT, WAD_MAX_MB, WadCheckError } from '../wyrmfire/wad-check.js';
 import { profiles } from '../machines/profiles.js';
 import { $, touchPanel } from './page.js';
@@ -48,7 +48,7 @@ export const WYRM_TEXT = Object.freeze({
   sideways: 'Turn sideways for a bigger view',
   keys: 'WYRMFIRE: Enter skips the music. Arrows move and turn, Z and X strafe, Space fires, E opens doors.',
   switchPurpose: ' to play WYRMFIRE',
-  level: 'Level: Freedoom (BSD)',
+  level: FREEDOOM_CREDIT,
 });
 // the credits line: WYRMFIRE <version> · Source ↗ · Level from Freedoom ↗ · Not affiliated with id Software
 export const creditParts = () => [

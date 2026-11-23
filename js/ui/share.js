@@ -94,7 +94,7 @@ export function setupShare(page) {
     const link = n9 ? session.shareUrl(location.href) : await session.snapshotLink(location.href, file);
     const png = await new Promise((ok) => c.toBlob(ok, 'image/png'));
     setShots(false);
-    $('btnShareDownload').title = '';
+    why('shareDownloadWhy', '');
     captured = { file, png, link, base: file ? file.name.replace(/\.cloadm$/, '') : `${m.profile.name.replace(/[^A-Za-z0-9]+/g, '')}-NitrOS-9` };
     const dl = $('btnShareDownload');
     dl.disabled = !file;
@@ -124,11 +124,12 @@ export function setupShare(page) {
     if (file.dropped.includes('deck.recording')) note('The tape being recorded is not in the link: it opens with the recorder stopped.');
     syncEmbed(m.id);
   }
-  function setShots(off, why = '') {
-    $('btnShareShot').disabled = off; $('btnShareShot').title = why;
-    if (kind) { clipBtn.disabled = off; clipBtn.title = why; }
-    const r = $('shareShotsOff');
-    r.textContent = why; r.hidden = !off;
+  // An option that is off stays listed, disabled, with its reason beside it (never hidden)
+  function why(id, text) { const w = $(id); w.textContent = text || ''; w.hidden = !text; }
+  function setShots(off, reason = '') {
+    $('btnShareShot').disabled = off;
+    why('shareShotWhy', off ? reason : '');
+    if (kind) { clipBtn.disabled = off; why('shareClipWhy', off ? reason : ''); }
   }
   async function captureWyrmfire(m, frame, own) {
     const c = document.createElement('canvas');
@@ -139,7 +140,8 @@ export function setupShare(page) {
     // the files say whose level it is: "-freedoom" on the name, and the PNG carries the credit line
     captured = { file: null, png, link, base: `WYRMFIRE-${m.profile.name.replace(/[^A-Za-z0-9]+/g, '')}-freedoom`, wyrmfire: true };
     const dl = $('btnShareDownload');
-    dl.disabled = true; dl.textContent = 'Download snapshot'; dl.title = WYRMFIRE_TEXT.snapshots;
+    dl.disabled = true; dl.textContent = 'Download snapshot';
+    why('shareDownloadWhy', WYRMFIRE_TEXT.snapshots);
     const pic = $('sharePicture');
     pic.width = c.width; pic.height = c.height;
     pic.getContext('2d').drawImage(c, 0, 0);
@@ -150,8 +152,7 @@ export function setupShare(page) {
     $('shareNote').textContent = WYRM_TEXT.share;
     const rom = $('shareRom'), extra = $('shareExtra');
     rom.textContent = ''; rom.classList.remove('warn'); extra.textContent = '';
-    const p = document.createElement('p'); p.textContent = WYRMFIRE_TEXT.snapshots; extra.append(p);
-    setShots(own, own ? WYRMFIRE_TEXT.userClips : '');
+    setShots(own, WYRMFIRE_TEXT.userClips);
     syncEmbed(m.id);
   }
   // Share… (the system sheet, the URL only) where the browser can share it; in an embed only if the frame allows web-share

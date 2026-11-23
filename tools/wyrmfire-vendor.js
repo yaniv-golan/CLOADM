@@ -66,6 +66,9 @@ async function main() {
   if (conv.VERSION !== PIN.converterVersion) die(`converter VERSION ${conv.VERSION}, the pin says ${PIN.converterVersion}`);
   const { disk, info } = await conv.convertAsync(new Uint8Array(wad), { map: PIN.freedoom.map, sha256: PIN.freedoom.wadSha256 });
   want(PIN.files.level, Buffer.from(disk));
+  // the same disk as a JVC .dsk, written by CLOADM's own disk code (Help -> WYRMFIRE offers both)
+  const { loadDisk, saveDisk } = require('../js/media/disk.js');
+  want(PIN.files.levelDsk, Buffer.from(saveDisk(loadDisk(disk, 'vdk', { tracks: 80, heads: 2 }), 'jvc')));
   console.log(`level ${PIN.freedoom.map}: ${info.diskBytes} bytes, ${info.regions} regions, sha256 ${info.sha256}`);
 
   for (const [p, b] of out) { fs.mkdirSync(path.dirname(path.join(ROOT, p)), { recursive: true }); fs.writeFileSync(path.join(ROOT, p), b); console.log(`${p}: ${b.length} bytes`); }

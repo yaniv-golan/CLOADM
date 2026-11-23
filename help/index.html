@@ -198,12 +198,32 @@
       uses the exit, 1 2 3 pick the fist, pistol or shotgun, D toggles the wall hatching, Enter skips a tune and restarts after
       the end. On a touch screen the Pad has FIRE and USE as its two big buttons.</span></div>
     <div><strong>The level.</strong> <span>Map E1M1 of <a href="https://freedoom.github.io">Freedoom</a> 0.13.0, Copyright © 2001-2024
-      Contributors to the Freedoom project, under the BSD 3-Clause licence: <a href="examples/wyrmfire/freedoom/COPYING.txt">the licence</a>,
+      Contributors to the Freedoom project, under the BSD 3-Clause licence (<span id="wyrmCredit">Level: Freedoom (BSD)</span>): <a href="examples/wyrmfire/freedoom/COPYING.txt">the licence</a>,
       <a href="examples/wyrmfire/freedoom/CREDITS.txt">credits</a>, <a href="examples/wyrmfire/freedoom/CREDITS-MUSIC.txt">music credits</a>.</span></div>
     <div><strong>Your own DOOM?</strong> <span>Have DOOM (the 1993 game)? Drop your DOOM1.WAD or DOOM.WAD on the page, or use
       <em>Your ROMs → Your game files</em>. Your WAD stays in this browser: it's converted here and never uploaded. Only the converted
       level is kept, never the WAD, and it is never in a share link, the Library or a settings export. WYRMFIRE is not affiliated
       with id Software. DOOM is a trademark of id Software LLC.</span></div>
+    <div id="wyrmfireFacts"><strong>What it does and doesn't do.</strong> <span>It plays one level: map E1M1, the first level of
+      episode 1 (of Freedoom, or of your own DOOM1.WAD or DOOM.WAD); not the other maps, and not Doom II-format WADs. It runs on
+      a Dragon 64 (64K, PAL) without ROMs, reading its level from an 80-track double-sided disk through a WD2797 DragonDOS-compatible
+      controller, which it drives itself: the level stays in the drive and parts of it load as you move. Walls and floors are
+      line drawings; the monsters, the weapons (fist, pistol, shotgun) and two status-bar faces are 1-bit sprites, its
+      sounds 6-bit samples at 4 kHz, its music the opening seconds of three tunes, one voice each. Doors and the exit work. Speed: <span id="wyrmFps">6.4 pictures a second</span> while you stay in one part of the level, with a pause of
+      about 1 second (49 fields median, 63 at most) each time a new part loads from the disk: measured in CLOADM headless (its
+      Node API, a Dragon 64 at 50 fields a second) with WYRMFIRE 0.1.0's route bot walking E1M1 of the Freedoom level from the
+      start to the exit (342 pictures in 3,692 fields, 4.6 a second overall).</span></div>
+    <div id="wyrmfireDownloads"><strong>The Freedoom disk, to keep.</strong> <span>The level disk CLOADM plays, as
+      <a href="examples/wyrmfire/freedoom-e1m1.vdk" download="WYRMFIRE-freedoom-e1m1.vdk">VDK</a> or
+      <a href="examples/wyrmfire/freedoom-e1m1.dsk" download="WYRMFIRE-freedoom-e1m1.dsk">DSK (JVC)</a> (720K, 80 tracks, 2 sides),
+      with the engine <a href="examples/wyrmfire/wyrmfire.bin" download="WYRMFIRE.BIN">WYRMFIRE.BIN</a>, its
+      <a href="examples/wyrmfire/COPYING-GPL-3.0.txt">GPL</a> and Freedoom's <a href="examples/wyrmfire/freedoom/COPYING.txt">licence</a>.
+      Level: Freedoom (BSD). A level made from your own WAD is never offered for download.</span></div>
+    <div id="wyrmfireHardware"><strong>On a real Dragon 64?</strong> <span><em>Untested on real hardware.</em> It needs a WD2797
+      DragonDOS-compatible disk controller (the Dragon Data cartridge or a compatible one) and an 80-track double-sided drive:
+      a Gotek drive emulator given the .dsk, or a real 720K floppy written from it. Load WYRMFIRE.BIN as a
+      DragonDOS binary (it loads and starts at $0C00) with the level disk in drive 0, and keep the disk in. DriveWire can't
+      serve it: the engine reads the disk through the controller's registers itself.</span></div>
     <div><strong>What's off while it runs?</strong> <span>Snapshots. With your own WAD, also clips, screenshots and Claude reading the
       screen or memory: that level is id Software's game data.</span></div>
   </section>

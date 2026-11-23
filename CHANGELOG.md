@@ -28,7 +28,10 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
   affiliated with id Software"; snapshots are off ("Snapshots are off while WYRMFIRE runs."); Share gives
   `?start=wyrmfire` ("Opens WYRMFIRE from the start, with the Freedoom level."); a Freedoom screenshot or clip carries
   "-freedoom" and "Level: Freedoom (BSD)". On a touch screen it opens on Pad with FIRE and USE as two big buttons, and
-  upright suggests once "Turn sideways for a bigger view". Help → WYRMFIRE links the GPL and Freedoom's licence.
+  upright suggests once "Turn sideways for a bigger view". In Share, the options that are off stay listed, each with its
+  reason beside it. Help → WYRMFIRE links the GPL and Freedoom's licence, offers the Freedoom disk as `.vdk` and `.dsk`
+  (JVC) with the engine (real hardware: "Untested on real hardware"), and says what it does and doesn't do, with its
+  speed measured in CLOADM headless (6.4 pictures a second within a part of the level; about 1 s to load the next).
 - **Your own DOOM WAD in WYRMFIRE, converted in the browser.** Have DOOM (the 1993 game)? The strip's **Use your
   DOOM1.WAD or DOOM.WAD…**, **Your ROMs → Your game files**, or a `.wad` dropped anywhere: the WAD is checked
   (`js/wyrmfire/wad-check.js`), converted by WYRMFIRE's converter in a worker (the only GPL code the page runs), and

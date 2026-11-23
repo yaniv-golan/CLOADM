@@ -5186,7 +5186,8 @@ async function phoneChecks(browser, base, check) {
       controls: [...document.querySelector('.controls[aria-label="Machine controls"]').children].map((e) => e.id),
       drawer: [...document.querySelector('.layout > .drawer').children].map((e) => e.id || e.getAttribute('role')), welcome: document.getElementById('welcome').parentElement.className,
       media: [...document.getElementById('panel-media').children].map((e) => e.id || e.className || e.tagName) }));
-    const baseline = [[71, 849, 900, 254], [1041, 88, 364, 803]];
+    // (the drawer is 90 px taller than it was: the "Runs without ROMs" shelf has WYRMFIRE's two-line row since)
+    const baseline = [[71, 849, 900, 254], [1041, 88, 364, 893]];
     const before = { rects: await rects(), order: await order() };
     const setKeys = (v) => p.evaluate((v) => { const s = document.getElementById('selTouchKeys'); s.value = v; s.dispatchEvent(new Event('change')); }, v);
     await setKeys('on');
@@ -6007,6 +6008,8 @@ async function feedbackChecks(browser, base, check) {
       const classRecords = await ev(async () => {
         const region = document.getElementById('toastRegion');
         // pin a toast first: grow the controls the decision avoids until no free place exists, raise, wait for the pin
+        // (from the top of the page: scrolled down to the slots, the window can show the gap above .controls)
+        scrollTo(0, 0);
         const grown = [...document.querySelectorAll('header, .controls, .slots, aside.drawer')];
         const saved = grown.map((e) => e.style.minHeight);
         for (const e of grown) e.style.minHeight = `${innerHeight + 400}px`;
@@ -10390,10 +10393,15 @@ async function wyrmfireChecks(browser, site, check) {
     // Share: the link, the note, the Freedoom credit on the files
     await page.click('#btnShare');
     await waitFor(page, () => location.hash === '#share' && document.getElementById('shareLink').value !== '');
-    const sh = await page.evaluate(() => ({ link: document.getElementById('shareLink').value, note: document.getElementById('shareNote').textContent, when: document.getElementById('shareWhen').textContent,
-      shot: document.getElementById('btnShareShot').disabled, dl: document.getElementById('btnShareDownload').disabled }));
-    check('wyrmfire: Share gives ?start=wyrmfire, "Opens WYRMFIRE from the start, with the Freedoom level.", the Freedoom credit; no snapshot file',
-      new URL(sh.link).search === '?start=wyrmfire' && !new URL(sh.link).hash && sh.note === 'Opens WYRMFIRE from the start, with the Freedoom level.' && sh.when === 'Level: Freedoom (BSD)' && !sh.shot && sh.dl, JSON.stringify(sh));
+    // each option: present, enabled or not, and the reason shown beside it
+    const opts = () => page.evaluate(() => Object.fromEntries([['clip', 'btnShareClip', 'shareClipWhy'], ['shot', 'btnShareShot', 'shareShotWhy'], ['file', 'btnShareDownload', 'shareDownloadWhy']]
+      .map(([k, b, w]) => { const btn = document.getElementById(b), why = document.getElementById(w); return [k, { there: !!btn && btn.isConnected, off: btn.disabled, why: why.hidden ? '' : why.textContent }]; })));
+    const sh = await page.evaluate(() => ({ link: document.getElementById('shareLink').value, note: document.getElementById('shareNote').textContent, when: document.getElementById('shareWhen').textContent }));
+    const o1 = await opts();
+    check('wyrmfire: Share gives ?start=wyrmfire, "Opens WYRMFIRE from the start, with the Freedoom level.", the Freedoom credit',
+      new URL(sh.link).search === '?start=wyrmfire' && !new URL(sh.link).hash && sh.note === 'Opens WYRMFIRE from the start, with the Freedoom level.' && sh.when === 'Level: Freedoom (BSD)', JSON.stringify(sh));
+    check('wyrmfire: Share: the snapshot file is still listed, off, with "Snapshots are off while WYRMFIRE runs." beside it; the screenshot and clip are on',
+      o1.file.there && o1.file.off && o1.file.why === 'Snapshots are off while WYRMFIRE runs.' && o1.shot.there && !o1.shot.off && !o1.shot.why && o1.clip.there && !o1.clip.why, JSON.stringify(o1));
     await page.click('#shareMore summary');
     const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#btnShareShot')]);
     const shotPng = fs.readFileSync(await dl.path());
@@ -10492,10 +10500,12 @@ async function wyrmfireChecks(browser, site, check) {
     check('wyrmfire: own WAD: the settings export has none of it', await page.evaluate(() => !/WYRMFIRE|DOOM1|games\//.test(JSON.stringify(window.emu.session.exportSettings()))));
     await page.click('#btnShare');
     await waitFor(page, () => location.hash === '#share' && document.getElementById('shareLink').value !== '');
-    const sh = await page.evaluate(() => ({ link: document.getElementById('shareLink').value, shot: document.getElementById('btnShareShot').disabled, clip: document.getElementById('btnShareClip').disabled,
-      why: document.getElementById('shareShotsOff').textContent }));
-    check('wyrmfire: own WAD: Share gives ?start=wyrmfire (the Freedoom level); screenshot and clip are off, saying why',
-      new URL(sh.link).search === '?start=wyrmfire' && sh.shot && sh.clip && sh.why === T.clips, JSON.stringify(sh));
+    const sh = await page.evaluate(() => Object.fromEntries([['clip', 'btnShareClip', 'shareClipWhy'], ['shot', 'btnShareShot', 'shareShotWhy'], ['file', 'btnShareDownload', 'shareDownloadWhy']]
+      .map(([k, b, w]) => { const btn = document.getElementById(b), why = document.getElementById(w); return [k, { there: !!btn && btn.isConnected, off: btn.disabled, why: why.hidden ? '' : why.textContent }]; })));
+    const link = await page.evaluate(() => document.getElementById('shareLink').value);
+    check('wyrmfire: own WAD: Share gives ?start=wyrmfire (the Freedoom level); the clip, screenshot and snapshot file are all listed, off, each with its reason beside it',
+      new URL(link).search === '?start=wyrmfire' && sh.clip.there && sh.clip.off && sh.clip.why === T.clips && sh.shot.there && sh.shot.off && sh.shot.why === T.clips
+      && sh.file.there && sh.file.off && sh.file.why === 'Snapshots are off while WYRMFIRE runs.', JSON.stringify(sh));
     if (shotDir) { await page.click('#shareMore summary'); await page.screenshot({ path: path.join(shotDir, 'wyrmfire-share-own.png') }); }
     await page.goBack();
     await page.evaluate(() => document.querySelector('#gameFileList button:nth-of-type(2)').click());
@@ -10515,6 +10525,30 @@ async function wyrmfireChecks(browser, site, check) {
     check('wyrmfire: a phone opens on Pad: FIRE (Space) and USE (E) as the big buttons, Z X 1 2 3 among the keys', pad && pad.big.join() === 'FIRE:SPACE,USE:E' && pad.extra.join() === 'Z,X,1,2,3', JSON.stringify(pad));
     check('wyrmfire: upright, the one-time hint "Turn sideways for a bigger view"', await waitFor(page, () => /Turn sideways for a bigger view/.test(document.getElementById('toast').textContent)));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'wyrmfire-phone.png') });
+    await ctx.close();
+  }
+  // ---- Help -> WYRMFIRE: the licences, the Freedoom disk to keep (never a level of the person's own), the facts ----
+  {
+    const ctx = await browser.newContext({ serviceWorkers: 'block' });
+    const page = await newPage(ctx);
+    await page.goto(`${site}help/#wyrmfire`);
+    const h = await page.evaluate(() => {
+      const sec = document.getElementById('wyrmfire').closest('section');
+      return { links: [...sec.querySelectorAll('a')].map((a) => [a.textContent, new URL(a.href).pathname, a.getAttribute('download')]), text: sec.innerText.replace(/\s+/g, ' '),
+        credit: document.getElementById('wyrmCredit').textContent };
+    });
+    const has = (p, dl) => h.links.some(([, path, d]) => path === `/${p}` && (dl === undefined || d === dl));
+    check('wyrmfire: Help links the GPL and Freedoom\'s licence and credits', has(PIN.files.licence.path) && has(PIN.files.freedoomCopying.path) && has(PIN.files.freedoomCredits.path) && has(PIN.files.freedoomMusic.path), JSON.stringify(h.links));
+    check('wyrmfire: Help offers the Freedoom disk as .vdk and .dsk downloads, with the engine', has(PIN.files.level.path, 'WYRMFIRE-freedoom-e1m1.vdk') && has(PIN.files.levelDsk.path, 'WYRMFIRE-freedoom-e1m1.dsk') && has(PIN.files.engine.path, 'WYRMFIRE.BIN'));
+    check('wyrmfire: Help\'s downloads are only the pinned files (never a level of the person\'s own WAD, never anything from Your game files)',
+      h.links.filter(([, , d]) => d !== null).every(([, p]) => Object.values(PIN.files).some((f) => `/${f.path}` === p)) && !h.links.some(([, p]) => /games\//.test(p)), JSON.stringify(h.links));
+    for (const f of [PIN.files.level, PIN.files.levelDsk]) {
+      const got = await page.evaluate(async (p) => { const b = new Uint8Array(await (await fetch(`../${p}`)).arrayBuffer()); return [...new Uint8Array(await crypto.subtle.digest('SHA-256', b))].map((x) => x.toString(16).padStart(2, '0')).join(''); }, f.path);
+      check(`wyrmfire: Help's ${f.path.split('.').pop()} download is the pinned file`, got === f.sha256, got);
+    }
+    check('wyrmfire: Help: the Freedoom credit (one constant), "Untested on real hardware", the facts and where the speed was measured',
+      h.credit === require('../js/wyrmfire/pin.js').FREEDOOM_CREDIT && /Untested on real hardware\./.test(h.text) && /It plays one level: map E1M1/.test(h.text)
+      && /measured in CLOADM headless/.test(h.text) && /DOOM is a trademark of id Software LLC\./.test(h.text), h.text.slice(0, 300));
     await ctx.close();
   }
   check('wyrmfire: no page errors', !errors.length, errors.join('; '));
@@ -11132,7 +11166,7 @@ async function uiCopyChecks(browser, base, check) {
   // deep links: a short toast, naming what happened
   {
     for (const [url, re, what] of [['?machine=nosuch', /^This link has a setting CLOADM can't use: machine=nosuch: no such machine \(opened Dragon 64 instead\)$/, 'machine=nosuch'],
-      ['?start=bogus', /^This link has a setting CLOADM can't use: start=bogus isn't a start CLOADM has \(welcome, liza, 2048, minesweeper\)$/, 'start=bogus']]) {
+      ['?start=bogus', /^This link has a setting CLOADM can't use: start=bogus isn't a start CLOADM has \(welcome, liza, 2048, minesweeper, wyrmfire\)$/, 'start=bogus']]) {
       const { ctx, page, errors } = await open({ width: 1280, height: 720 }, url);
       await started(page);
       await waitFor(page, () => window.emu.linkDone === true && document.getElementById('toastText').textContent !== '', null, 15000);

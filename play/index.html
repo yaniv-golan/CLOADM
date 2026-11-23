@@ -295,6 +295,9 @@
   #wyrmStrip a { color: var(--phosphor); }
   #wyrmLevel { margin-top: 6px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
   #gameFiles { margin-top: 18px; }
+  /* a Share option that is off says why beside it (WYRMFIRE: snapshots; the person's own WAD: picture and clip) */
+  .shareopt { display: inline-flex; flex-direction: column; gap: 2px; max-width: 18em; }
+  .shareopt .why[hidden] { display: none; }
   #gameFiles .gamefile { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; }
   #shelf .sub { display: flex; flex-direction: column; font-size: 14px; color: var(--text-2); font-weight: 400; }
   #shelf .sub .credit { color: var(--muted); font-size: 13px; }
@@ -1661,10 +1664,9 @@ npx serve -l 8000 .</pre>
   <details class="disc" id="shareMore">
     <summary><h2 id="moreHeading">More ways to share</h2></summary>
     <div class="bar" hidden>
-      <button id="btnShareClip">Save 6-second clip (MP4)</button>
-      <button id="btnShareShot">Screenshot (PNG)</button>
-      <button id="btnShareDownload">Download snapshot</button>
-      <p class="muted small" id="shareShotsOff" hidden></p>
+      <span class="shareopt"><button id="btnShareClip">Save 6-second clip (MP4)</button><span class="why muted small" id="shareClipWhy" hidden></span></span>
+      <span class="shareopt"><button id="btnShareShot">Screenshot (PNG)</button><span class="why muted small" id="shareShotWhy" hidden></span></span>
+      <span class="shareopt"><button id="btnShareDownload">Download snapshot</button><span class="why muted small" id="shareDownloadWhy" hidden></span></span>
     </div>
   </details>
   <details class="disc" id="shareEmbed">

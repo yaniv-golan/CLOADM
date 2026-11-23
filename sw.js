@@ -46,6 +46,7 @@ const FILES = [
   'examples/wyrmfire/SOURCE.txt',
   'examples/wyrmfire/converter/worker.js',
   'examples/wyrmfire/converter/wyrmfire-convert.js',
+  'examples/wyrmfire/freedoom-e1m1.dsk',
   'examples/wyrmfire/freedoom-e1m1.vdk',
   'examples/wyrmfire/freedoom/COPYING.txt',
   'examples/wyrmfire/freedoom/CREDITS-MUSIC.txt',
