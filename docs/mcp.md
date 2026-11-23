@@ -515,9 +515,11 @@ nothing else, and the site sends `Access-Control-Allow-Origin: *`). **Open CLOAD
 reach cloadm.dev.") carries all of the emulator's code, about 1 MiB, and loads nothing from anywhere.
 
 The small view watches its own load. It counts as blocked when the host's `ui/initialize` answer has
-`hostCapabilities.sandbox.csp` without `https://cloadm.dev` in its `resourceDomains`, when the browser reports a
-`securitypolicyviolation` for cloadm.dev, when the import of `panel.js` fails, or when nothing has loaded after about
-8 s (a load that arrives later still starts). Then the status line says "This app can't reach cloadm.dev here. Ask
+`hostCapabilities.sandbox.csp` without cloadm.dev in its `resourceDomains` (written with or without the scheme or a
+trailing slash), when the browser reports a `securitypolicyviolation` for cloadm.dev, when the import of `panel.js`
+fails, or when nothing has loaded after about 8 s (unless the host's csp allows cloadm.dev: then it is only slow). The
+first and the last are only signs: if `panel.js` loads after all, the view starts, and Claude is told on the same
+channel that it loaded and to keep using it. Then the status line says "This app can't reach cloadm.dev here. Ask
 Claude to open the offline copy.", every tool call answers `blocked`, and Claude is told: by `ui/message` when the host
 offers it (`hostCapabilities.message`), else by `ui/update-model-context` when it offers that. **Details** names the
 cause and the channel (`blocked: … · reported: message`), and, for every host, its `serverTools` and

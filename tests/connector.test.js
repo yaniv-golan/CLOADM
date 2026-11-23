@@ -429,12 +429,42 @@ const J = JSON.stringify;
     await tick();
     const m = v.sent.find((x) => x.method === 'ui/message'), r = await v.call(90);
     check('reach: a host whose csp has resourceDomains null: the status line says it can\'t reach cloadm.dev, and Details says why and how it was reported',
-      v.R.MESSAGE === MESSAGE && v.els.status.textContent === MESSAGE && v.els.status.className === 'error' && v.els.announce.textContent === MESSAGE
-      && /^blocked: the host does not allow https:\/\/cloadm\.dev .*resourceDomains null.* · reported: message · bridge: /.test(v.els.st.textContent), J(v.els));
+      v.R.MESSAGE === MESSAGE && v.els.status?.textContent === MESSAGE && v.els.status?.className === 'error' && v.els.announce?.textContent === MESSAGE
+      && /^blocked: the host does not allow https:\/\/cloadm\.dev .*resourceDomains null.* · reported: message · bridge: /.test(v.els.st?.textContent), J(v.els));
     check('reach: ... Claude is told at once, by ui/message, to open the offline copy without asking',
       !!m && m.params.role === 'user' && m.params.content.length === 1 && /open_emulator_inline/.test(m.params.content[0].text) && /No need to ask/.test(m.params.content[0].text) && v.R.reported === 'message', J(m));
-    check('reach: ... and every call is answered "blocked", its remedy the offline copy', errOf(r) && errOf(r).code === 'blocked' && /open_emulator_inline/.test(errOf(r).remedy) && /resourceDomains null/.test(errOf(r).detail), J(r));
-    check('reach: ... the emulator\'s module, if it came after all, is not taken', v.B.attach({ api: panel.PANEL_API, tools: [], call: async () => ({ content: [] }) }) === false);
+    check('reach: ... and every call is answered "blocked", its remedy the offline copy', errOf(r) && errOf(r).code === 'blocked' && /open_emulator_inline/.test(errOf(r).remedy) && /resourceDomains null/.test(errOf(r)?.detail), J(r));
+    // the host's word alone is a soft block: should the module load after all, it attaches and Claude is told so
+    v.R.loaded();
+    const took = v.B.attach({ api: panel.PANEL_API, tools: [{ name: 'screen_text' }], call: async () => ({ content: [{ type: 'text', text: 'loaded after all' }] }) });
+    const back = v.sent.filter((x) => x.method === 'ui/message');
+    const r2 = await v.call(93);
+    check('reach: ... a block on the host\'s csp alone is soft: a module that loads after all attaches, serves calls, and Claude is told on the same channel to keep this view',
+      took && v.R.blocked === null && back.length === 2 && /loaded after all/.test(back[1].params.content[0].text) && /keep using this view/.test(back[1].params.content[0].text)
+      && v.R.reported === 'message, then taken back' && r2.result.content[0].text === 'loaded after all' && v.els.status?.textContent !== MESSAGE, J([took, back.map((m) => m.params.content[0].text), v.R.reported]));
+  }
+  for (const spelled of ['https://cloadm.dev/', 'cloadm.dev', 'CLOADM.DEV/', 'https://CloadM.dev']) {
+    // the site written another way by the host is still the site
+    const v = reach({ caps: { sandbox: { csp: { resourceDomains: [spelled] } }, message: {} } });
+    await tick();
+    check(`reach: a host that allows the site written ${J(spelled)} is not blocked (no message, no report)`, v.R.blocked === null && !v.sent.some((x) => x.method === 'ui/message') && !(v.els.status && v.els.status.textContent === MESSAGE), J([v.R.blocked, v.sent.map((x) => x.method)]));
+  }
+  {
+    // a soft block then a hard sign (the import fails): hard, and a late module is not taken
+    const v = reach({ caps: { sandbox: { csp: { resourceDomains: ['https://elsewhere.example'] } }, message: {} } });
+    await tick();
+    const softly = v.R.blocked;
+    v.R.importFailed(new Error('Failed to fetch dynamically imported module'));
+    const r = await v.call(94);
+    check('reach: a soft block (the csp) gives way to a hard one (the import failed): calls say so, a module after that is not taken, and Claude was told once',
+      /does not allow/.test(softly) && /import of panel\.js failed/.test(v.R.blocked) && /import of panel\.js failed/.test(errOf(r)?.detail)
+      && v.B.attach({ api: panel.PANEL_API, tools: [], call: async () => ({ content: [] }) }) === false && v.sent.filter((x) => x.method === 'ui/message').length === 1, J([softly, v.R.blocked]));
+  }
+  {
+    // slow, but the host allows the site: no timeout block (a failed import would still count)
+    const v = reach({ caps: { sandbox: { csp: { resourceDomains: [ORIGIN] } }, message: {} }, waitMs: 20 });
+    await new Promise((r) => setTimeout(r, 60));
+    check('reach: no timeout block when the host\'s csp allows the site (slow is not blocked)', v.R.blocked === null && !v.sent.some((x) => x.method === 'ui/message'), J(v.R.blocked));
   }
   {
     // the host lets cloadm.dev in: nothing to say
@@ -469,7 +499,7 @@ const J = JSON.stringify;
     await tick();
     const r = await v.call(91);
     check('reach: a failed import is a block, in place of the not-started from the same load; with no channel offered, the tool results say it',
-      before === 0 && v.R.reported === 'tool results only' && errOf(r).code === 'blocked' && /import of panel\.js failed/.test(errOf(r).detail) && v.els.status.textContent === MESSAGE, J([v.R.reported, r]));
+      before === 0 && v.R.reported === 'tool results only' && errOf(r)?.code === 'blocked' && /import of panel\.js failed/.test(errOf(r)?.detail) && v.els.status?.textContent === MESSAGE, J([v.R.reported, r]));
   }
   {
     // nothing loaded in time: blocked; the module arriving after all still starts
@@ -479,8 +509,11 @@ const J = JSON.stringify;
     v.R.loaded();
     const took = v.B.attach({ api: panel.PANEL_API, tools: [{ name: 'screen_text' }], call: async () => ({ content: [{ type: 'text', text: 'late but here' }] }) });
     const r = await v.call(92);
+    const msgs = v.sent.filter((x) => x.method === 'ui/message').map((x) => x.params.content[0].text);
     check('reach: nothing loaded within the wait is a block (reported), and a module that arrives later still attaches and serves calls',
       /nothing loaded from https:\/\/cloadm\.dev within/.test(late) && !!m && took && v.R.blocked === null && r.result.content[0].text === 'late but here', J([late, r]));
+    check('reach: ... and Claude, told to open the offline copy, is then told the view loaded after all and to keep it',
+      msgs.length === 2 && /open_emulator_inline/.test(msgs[0]) && /loaded after all/.test(msgs[1]) && /keep using this view/.test(msgs[1]) && !/open_emulator_inline/.test(msgs[1]), J(msgs));
   }
 
   // ---------------- the view's controls (connector/view/ui.js), the parts without a DOM ----------------

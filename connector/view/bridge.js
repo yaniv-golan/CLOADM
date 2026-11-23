@@ -65,9 +65,9 @@
       return true;
     },
     // code 'blocked' (./reach.js: the site is out of reach) takes the place of a not-started from the same load; a soft
-    // one (only slow so far) gives way to an emulator that attaches after all
+    // one (only a sign so far) gives way to an emulator that attaches after all, or to a harder failure
     fail(why, { code = 'not-started', soft = false } = {}) {
-      if (impl || (failed && !(code === 'blocked' && failed.code === 'not-started'))) return;
+      if (impl || (failed && !failed.soft && !(code === 'blocked' && failed.code === 'not-started'))) return;
       failed = { code, detail: String(why), soft }; settle(); changed();
     },
     sizeChanged(width, height) {
