@@ -48,7 +48,7 @@ const PATTERNS = [
   { id: 'session-link', what: 'a link to a Claude session', re: new RegExp(J('claude\\.ai', '\\/code\\/session')) },
   { id: 'private-repo', what: 'the private planning repository', re: new RegExp(J('cloadm', '-private'), 'i') },
   { id: 'local-path', what: 'a path on a developer machine or a cloud container', re: new RegExp(J('\\/home', '\\/user\\b|\\/tmp', '\\/claude-|\\/root', '\\/\\.ccr\\b')) },
-  // a home directory on macOS or Windows: the Users folder at the root (that spelling only: "/users/…" is another path), or
+  // a home directory on macOS or Windows: the Users folder at the root (that spelling only: the folder in lowercase is another path), or
   // under a drive letter (either slash, any case: Windows paths do not care)
   { id: 'home-path', what: 'a home directory on a Mac or a Windows machine', re: new RegExp(J('(?<![\\w.-])\\/Users', '\\/[A-Za-z][\\w.-]*|\\b[A-Za-z]:[\\\\\\/][Uu][Ss][Ee][Rr][Ss]', '[\\\\\\/]')) },
   { id: 'worktree', what: 'a worktree path', re: new RegExp(J('\\.claude', '\\/worktrees\\b')) },
@@ -112,10 +112,10 @@ const NEGATIVE = {
   session: ['the session ends', 'session_id', J('a session', '_01 prefix')],
   'session-link': ['claude.ai/code', 'claude.ai/settings', 'https://claude.ai/'],
   'private-repo': ['the private planning', 'cloadm.dev', 'cloadm-panel'],
-  'local-path': ['/home/runner/work/CLOADM', 'the user home', '/tmp/cloadm-nitros9', 'os.tmpdir()'],
+  'local-path': [J('/ho', 'me/runner/work/CLOADM'), 'the user home', '/tmp/cloadm-nitros9', 'os.tmpdir()'],
   worktree: ['a worktree', 'git worktree add', 'worktrees'],
   worker: ['const w1 = 3', 'W2 is held', 'a Web Worker', 'the runner', 'service-worker events'],
-  'home-path': ['/home/runner/work', 'the Users list', 'api/Users', 'https://site.com/x/Users', 'D:\\games\\x', 'fooUsers/x', '/users/jane/x', '/users/jane', 'Users/jane'],
+  'home-path': [J('/ho', 'me/runner/work'), 'the Users list', 'api/Users', 'https://site.com/x/Users', 'D:\\games\\x', 'fooUsers/x', J('/us', 'ers/jane/x'), J('/us', 'ers/jane'), 'Users/jane'],
   branch: ['refs/heads/main', 'origin/main', 'refs/heads/ds/**', 'origin/claude/**', 'branches: [main, "claude/**", "ds/**"]', 'js/claude/brief.js', '@anthropic-ai/claude-code', 'skills/claude', 'the ds/** glob', J('claude', '/v0.2-stage'), J('merged into claude', '/v0.1.9-stage'), J('on `claude', '/v0.2-stage` and `main`'), 'upstream/main', 'refs/remotes/upstream/main', 'src/ds/x.js', 'lib/claude/helper.js'],
   planning: [J('at 10 P', 'M 2026 we met'), J('P', 'M 1999'), 'PMODE 4', '3 PM', 'npm 12', '2pm 3',
     [J('P', 'M1     BITA    #KRIGHT'), 'examples/starter-game/catch.asm'], [J('        BEQ     P', 'M1'), 'examples/starter-game/catch.asm'],
@@ -123,7 +123,7 @@ const NEGATIVE = {
     J('2 P', 'M-4 P', 'M'), J('between 9 and 5 P', 'M-6')],
   inbox: [J('the $7000 key mail', 'box 1'), J('mail', 'box at $7000, byte 2'), J('in', 'box zero'), 'the mailbox', J('in', 'box1234567')],
   'inbox-path': ['to-local/x', '/to-local/', '/to-locals/12'],
-  bus: ['/tmp/cloadm-nitros9', 'cloadm-regress-cli-x', '~/cloadm', 'cloadm-panel', '/home/runner/work/CLOADM', '/home/jane/cloadm', '/home/jane/cloadm.dev'],
+  bus: ['/tmp/cloadm-nitros9', 'cloadm-regress-cli-x', '~/cloadm', 'cloadm-panel', J('/ho', 'me/runner/work/CLOADM'), J('/ho', 'me/jane/cloadm'), J('/ho', 'me/jane/cloadm.dev')],
   'local-md': [['CLAUDE.md', 'AGENTS.md'], ['local.md', 'docs/x.md'], [J('CLAUDE.', 'local.md'), '.gitignore']],
   email: [J('yaniv-golan', '@users.noreply.github.com'), 'playwright@1.63.0', J('https://user', '@host.com/x'), J('https://user:pass', '@host.com/'),
     J('someone', '@example.com'), J('a', '@b.example'), J('x', '@site.test'), J('y', '@z.invalid'), J('z', '@machine.localhost'), '@types/node', 'npm i x@latest', J('noreply', '@anthropic.com'), J('Co-Authored-By: Claude <noreply', '@anthropic.com>'), J('git clone git', '@github.com:owner/repo.git'), J('see user', '@example.com.'), J('mailto:a', '@example.org')],
