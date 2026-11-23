@@ -108,8 +108,8 @@ TONE3   MOV     %$00,A
 * ---- a delay between tones so each is heard: R0 counts 0..255 while R1 counts 7 outer passes ----
 PAUSE   MOV     %$FF,R0
         MOV     %$07,R1
-PLOOP   DJNZ    R0,@PLOOP
-        DJNZ    R1,@PLOOP
+PLOOP   DJNZ    R0,PLOOP
+        DJNZ    R1,PLOOP
         RETS
 
 * ---- vectors: INT3 at >FFF8/>FFF9, reset at >FFFE/>FFFF (Table 3-12)

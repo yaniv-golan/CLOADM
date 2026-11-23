@@ -470,6 +470,7 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Fixed
 
+- **The TMS7000 assembler encoded `DJNZ Rn,@LABEL` (and every jump written with an `@`) as offset 0.** A relative jump takes a plain label or address; `@` marks an address operand (`CALL @LABEL`), so a jump written with it is now an error that says so, for all 38 relative forms (the jumps, DJNZ, BTJO/BTJZ and BTJOP/BTJZP). An undefined jump target is an error too (it encoded offset 0), and so is a target further than -128..127 from the next instruction (the offset wrapped to a different place); the message gives the distance.
 - **A disk in a drive counts toward the install offer.** The page's "program in use" test (the one the
   offer to install CLOADM as an app waits a minute of) asked the machine for a disk controller it never has, so a disk
   waiting in a drive at the bare prompt never counted; it now asks the drives (`session.drives.controllerOf`). The
