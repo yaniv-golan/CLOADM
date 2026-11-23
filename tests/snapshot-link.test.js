@@ -151,4 +151,4 @@ const link = (box, version = 1) => new Uint8Array(Buffer.concat([Buffer.from([ve
 
   console.log(fail ? `${fail} FAILED` : 'all passed');
   process.exitCode = fail ? 1 : 0;
-})();
+})().catch((e) => { console.log('FAIL the suite threw:', e.stack); process.exitCode = 1; });

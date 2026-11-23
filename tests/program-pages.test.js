@@ -134,4 +134,4 @@ const colours = (d) => Array.from(d.pixels, (i) => d.palette[i].join(','));
 
   console.log(fail ? `${fail} FAILED` : 'all passed');
   process.exitCode = fail ? 1 : 0;
-})();
+})().catch((e) => { console.log('FAIL the suite threw:', e.stack); process.exitCode = 1; });
