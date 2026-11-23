@@ -418,6 +418,15 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
 
 - The side panel's view no longer tells the host its size before it has sent `ui/notifications/initialized`: the latest
   size waits, and one `ui/notifications/size-changed` follows it.
+- **The catch-up check after a pause holds the worklet's own contract.** The check failed CI on a
+  single short block: the worklet starting its underrun fade on a queue a slow runner had stalled for a moment
+  - its specified, inaudible dip ("a dip that refills before the fade reaches 0 is not a gap"), with the same
+  run's no-pop, tolerance-0 and fade checks all green through it. The check's "no short block at all" was a
+  proxy for the pathology it was written for (the shallow restart's train of shorts) and it over-fired. It now
+  classifies by the contract, in one function shared by the check and its tests so they cannot drift: a train
+  (2 or more shorts), a short whose gap completed (the worklet's re-prime count is up) and a shallow restart all
+  FAIL, and a lone short PASSES only when the samples played through it step within the no-pop bound - accepted
+  only when provably click-free by the product's own measure.
 - **The file pickers on a phone offer Files, not photos.** The pickers for programs, tapes, disks, cartridges, the
   Library and NitrOS-9 images name the extensions they take and application/octet-stream, so a phone still offers a
   file whose type it does not know (a .cas, a .vdk), and none asks for images: Open… no longer offers the Photo Library

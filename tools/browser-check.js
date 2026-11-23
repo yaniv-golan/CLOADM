@@ -60,6 +60,8 @@ const http = require('http'), fs = require('fs'), path = require('path'), os = r
 const { SNAPSHOT_VERSION } = require('../tests/load')();
 // the settle bound is the audio module's own derivation, never a literal here (see SETTLE_MS in js/host/audio.js)
 const { SETTLE_MS, TARGET_MS } = require('../js/host/audio.js');
+// the bounded catch-up check's short-block contract, shared with tests/audio-short.test.js (see :1237's comment)
+const { classifyShort } = require('./browser-check-audio');
 // Playwright is loaded once the run starts (--list-groups needs no browser, so the CI shard planner runs without it)
 let chromium;
 
@@ -1230,20 +1232,42 @@ async function audioChecks(browser, base, check) {
   // The bounded catch-up after a pause (js/host/audio-worklet.js SampleQueue's re-prime): paused, the queue ran dry
   // and faded out; on resume the page's frames restart one at a time, as the clock makes them due. The worklet holds
   // them, silent, until TARGET_MS is queued, then plays: the first block that plays again starts at least TARGET_MS
-  // deep (less one block's rounding), the gap is counted as a re-prime, and over the second after it no block runs
-  // short. Without the re-prime the queue restarted on one frame and hovered between 0 and a frame for seconds while
-  // the 2% correction refilled it, short block after short block (tests/audio.test.js measures that on a model of
-  // this page; this is the real page).
+  // deep (less one block's rounding), the gap is counted as a re-prime, and the blocks of the second after it are
+  // held to the worklet's own contract. THE CONTRACT (audio-worklet.js, SampleQueue's header): "A dip that refills
+  // before the fade reaches 0 is not a gap: it fades back in as before, with no wait." So the second after the
+  // restart FAILS on: a train of short blocks (2 or more - without the re-prime the queue restarted on one frame
+  // and hovered between 0 and a frame for seconds while the 2% correction refilled it, short block after short
+  // block; tests/audio.test.js measures that on a model of this page, this is the real page), a short whose gap
+  // completed (a later block's `primes` count is up: the fade reached 0, silence, a re-prime - the click risk,
+  // whatever the short count), a restart shallower than TARGET_MS, and a single short is accepted only when the
+  // samples played through it step by at most the no-pop bound (0.01, the same bound the no-pop check holds the
+  // whole stream to): a dip is passed only when provably click-free by the product's own measure. The
+  // classification itself is tools/browser-check-audio.js's classifyShort, shared with tests/audio-short.test.js
+  // so the check and its tests can never drift; every verdict there is this function's, on a real SampleQueue.
+  // The records are the ONE shape both use ({ n, primes, step }, the last window record marked endOfWindow),
+  // and they run on to the NEXT MARK (turbo), past the window: the classifier reads `primes` to the end of
+  // the records, so a short at the window's edge whose fade completes a block later is still a gap.
   const resumed = await page.evaluate(({ from, to, target }) => {
     const bs = window.blocks.slice(from, to), rate = window.emu.audio.ctx.sampleRate;
     const r = bs.findIndex((b) => b.n > 0);
     if (r < 0) return { restart: -1, blocks: bs.length };
-    const second = bs.slice(r + 1).filter((b) => b.time < bs[r].time + 1);
-    return { restart: r, queued: bs[r].queued, need: Math.floor(target / 1000 * rate) - 128, primed: bs[r].primes > bs[0].primes || bs.some((b) => b.n === 0 && b.queued > 0),
-      second: second.length, short: second.filter((b) => b.n < 128).length, ms: +(1000 * (bs[bs.length - 1].time - bs[r].time)).toFixed(0) };
+    // the window: the second after the restart; the records: the window PLUS everything after it, to the mark
+    const windowEnd = bs.findIndex((b) => b.time >= bs[r].time + 1);
+    const end = windowEnd < 0 ? bs.length : windowEnd;
+    const records = bs.slice(r + 1);
+    const second = records.slice(0, end - r - 1);
+    // the tap's out samples are compacted to the largest step through each block (the classifier's measure),
+    // computed where the samples are - the page never ships them whole
+    const stepOf = (b) => { let s = 0; if (b.out) for (let i = 1; i < b.out.length; i++) s = Math.max(s, Math.abs(b.out[i] - b.out[i - 1])); return s; };
+    const shape = records.map((b, i) => ({ n: b.n, primes: b.primes, step: stepOf(b), endOfWindow: i === end - r - 2 || (windowEnd < 0 && i === records.length - 1) }));
+    return { restart: r, primes0: bs[r].primes, queued: bs[r].queued, need: Math.floor(target / 1000 * rate) - 128, primed: bs[r].primes > bs[0].primes || bs.some((b) => b.n === 0 && b.queued > 0),
+      second: second.length, short: second.filter((b) => b.n < 128).length, ms: +(1000 * (bs[bs.length - 1].time - bs[r].time)).toFixed(0),
+      records: shape };
   }, { from: marks.find((m) => m[0] === 'resume')[2], to: marks.find((m) => m[0] === 'turbo')[2], target: TARGET_MS });
-  check(`sound: after a pause the worklet restarts at least TARGET_MS (${TARGET_MS} ms) deep and no block runs short for the second after (the bounded catch-up)`,
-    resumed.restart >= 0 && resumed.queued >= resumed.need && resumed.second > 300 && resumed.short === 0, JSON.stringify(resumed));
+  const verdict = resumed.restart >= 0 ? classifyShort(resumed.records, { need: resumed.need, queued: resumed.queued, primes0: resumed.primes0 }) : null;
+  check(`sound: after a pause the worklet restarts at least TARGET_MS (${TARGET_MS} ms) deep, and the second after holds the re-prime's contract (no short train, no completed gap, a lone dip only when click-free)`,
+    resumed.restart >= 0 && resumed.second > 300 && !!verdict && verdict.ok,
+    JSON.stringify({ ...resumed, records: undefined, verdict: verdict && verdict.verdict, short: verdict && verdict.short, maxStep: verdict && verdict.maxStep }));
   const { jump, at, n, peak, welcome } = await page.evaluate(() => {
     const p = window.played; let jump = 0, at = 0, peak = 0;
     for (let i = 1; i < p.length; i++) { const d = Math.abs(p[i] - p[i - 1]); if (d > jump) { jump = d; at = i; } peak = Math.max(peak, Math.abs(p[i])); }

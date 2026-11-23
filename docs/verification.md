@@ -876,7 +876,14 @@ pause without the re-prime refilling slowly, and a 250 ms queue back inside the 
 AudioWorklet's queue and processor with hand-derived values (`tests/audio-worklet.test.js`: order, underrun to exact
 silence, the re-prime's wait and its bound, bounded drop-oldest, the MessagePort sink), and the real page in Chromium
 (browser check, group `audio`; samples captured through the processor's tap, its copy of every block it plays):
-after a pause it restarts at least `TARGET_MS` deep with no short block for the second after;
+after a pause it restarts at least `TARGET_MS` deep and the second after holds the re-prime's contract, classified
+by one shared function (`classifyShort`, `tools/browser-check-audio.js`, the same code its model tests assert
+against): a train of short blocks (2 or more - the shallow restart's hover), a short whose gap completed (a later
+block's `primes` count up: the fade reached 0, silence, a re-prime) and a restart shallower than `TARGET_MS` all
+FAIL, and a lone short block PASSES only when the samples played through it step within the no-pop bound - the
+worklet's specified dip ("a dip that refills before the fade reaches 0 is not a gap", `js/host/audio-worklet.js`),
+accepted only when provably click-free by the product's own measure (`tests/audio-short.test.js` drives a real
+`SampleQueue` through each verdict on the page's own clock-driven schedule);
 after the unlock an AudioWorkletNode plays and no ScriptProcessorNode is made (no deprecation warning); through
 loads, resets, pause, turbo, sound off, machine switches and a 200 ms busy page, every sample the worklet plays at
 full gain equals the one the output stage made (tolerance 0) and no step exceeds 0.01; after an underrun the fade out and
