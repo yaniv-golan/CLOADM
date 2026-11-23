@@ -74,6 +74,16 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Changed
 
+- **A Debugger stop stays a stop on the emulator, and says so** (UX ruling R44). Going back from the Debugger keeps
+  the machine stopped. The Pause button reads Resume, a strip above the screen says why and where ("Stopped at
+  breakpoint $C0F3.") with Resume and Open Debugger, and the status line reads "Stopped in the Debugger" (or "Paused"
+  for the page's own Pause) instead of a speed it could no longer measure. Resume on the button, the strip or the
+  Debugger's F5 ends both kinds of pause. Run again, a program from Runs without ROMs, Open or a drop (a program, tape
+  or disk), a disk put in from the Library, Reset, Switch off and on and a machine switch release the stop in the
+  Session (a refused file starts nothing and leaves it), so what Claude and the MCP
+  server start runs too; the breakpoints stay set, and the toast adds "The Debugger's stop at $C0F3 was released."
+  Typing while stopped (keys, a tap on the welcome menu, a paste, the Type-in panel) is refused with one toast per
+  stop, rather than queued behind the stop.
 - **`add_roms` keeps a URL as origin + path.** The store's `index.json` recorded the full URL a ROM came from, query
   string and fragment included, which can hold a token. It now keeps the origin and the path only.
 - **Test and tool tidy-ups, no emulation change.** `tools/mame-diff/tape/spec.js` takes its register lists from

@@ -25,6 +25,7 @@ import { setupMediaPanel } from './media-panel.js';
 import { setupDrives } from './drives.js';
 import { setupAssemblerPanel } from './assembler-panel.js';
 import { setupDebuggerPanel } from './debugger-panel.js';
+import { setupDebuggerStop } from './debugger-stop.js';
 import { setupSelfTestPanel } from './selftest-panel.js';
 import { setupPokePanel } from './poke-panel.js';
 import { setupDrawer } from './drawer.js';
@@ -129,6 +130,7 @@ window.emu.nitros9Shown = () => nitros9.shown();   // (the browser check: the pa
 const media = setupMediaPanel(page, { snapshots, disks, nitros9, keep: (name, bytes) => library && library.keep(name, bytes) });
 setupAssemblerPanel(page);
 setupDebuggerPanel(page);
+setupDebuggerStop(page);
 const selfTest = setupSelfTestPanel(page);
 const screen = setupScreen(page, { loadPrograms: media.loadPrograms, roms: romPanel });
 // ?touch=joystick|keys (js/config.js): the on-screen panel's mode for this visit, taken up when the machine

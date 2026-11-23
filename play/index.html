@@ -255,6 +255,11 @@
   body:has(#keyHint:not([hidden])) .layout .hint { display: none; }
   #lizaOffer { display: flex; flex-direction: column; gap: 6px; background: var(--panel); border: 1px solid var(--phosphor); border-radius: var(--r-14); padding: 12px 16px; font-size: 15px; }
   #lizaOffer[hidden] { display: none; }
+  /* R44: a Debugger stop, directly above the monitor (js/ui/debugger-stop.js); between the header and the screen on a phone */
+  #dbgStrip { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; background: var(--panel); border: 1px solid var(--orange); border-radius: var(--r-14); padding: 8px 12px 8px 16px; font-size: 15px; }
+  #dbgStrip[hidden] { display: none; }
+  #dbgStripText { flex: 1 1 16em; min-width: 0; }
+  #dbgStrip button { min-height: 44px; border-radius: var(--pill); }
   #lizaOffer .bar { margin-top: 6px; }
   #lizaOffer button { border-radius: var(--pill); }
   #shelf .tag { font-size: 14px; color: var(--orange); font-weight: 600; }
@@ -1566,6 +1571,9 @@ npx serve -l 8000 .</pre>
     <div id="mediaOffer" hidden><span id="mediaOfferText"></span>
       <div class="bar"><button id="btnMediaSwitch" class="primary"></button><button id="btnMediaAnyway">Load anyway</button></div></div>
 
+    <!-- R44: the machine stopped in the Debugger (js/ui/debugger-stop.js): why and where, Resume and Open Debugger -->
+    <div id="dbgStrip" role="status" hidden><span id="dbgStripText"></span>
+      <button id="btnStripResume" type="button" class="primary">Resume</button><button id="btnStripDebugger" type="button">Open Debugger</button></div>
     <div class="monitor crt" id="monitor" data-family="dragon">
       <div class="tube">
         <div id="screenWrap"><canvas id="screen" tabindex="0" role="application" aria-label="The emulated screen. Click it, then type. Tab leaves it."><pre id="screenAlt">The screen is blank.</pre></canvas>
@@ -2266,6 +2274,7 @@ npx serve -l 8000 .</pre>
 <link rel="modulepreload" href="js/ui/drives.js">
 <link rel="modulepreload" href="js/ui/assembler-panel.js">
 <link rel="modulepreload" href="js/ui/debugger-panel.js">
+<link rel="modulepreload" href="js/ui/debugger-stop.js">
 <link rel="modulepreload" href="js/ui/selftest-panel.js">
 <link rel="modulepreload" href="js/ui/poke-panel.js">
 <link rel="modulepreload" href="js/ui/drawer.js">
