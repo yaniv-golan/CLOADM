@@ -126,5 +126,31 @@ for (const [shape, want] of Object.entries(ENV_SHAPES)) {
   check('saveState / loadState (through JSON) continue sample for sample', same);
 }
 
+// ---- single output (the Speech/Sound Pak's AY-3-8913, coco_ssc.cpp's AY8910_SINGLE_OUTPUT)
+// The expected values are MAME 0.264's own recording, not this code: `coco -ext ssc -wavwrite` with ssc-tone.asm
+// (volumes A = 12, B = 6, C = 0, the Pak's x2 gain, 32767 full scale) held four levels for about 120,000 samples
+// each, recorded in docs/verification.md: 10,371 (both tones low), 11,110 (B high), 16,407 (A high), 16,994 (both).
+{
+  const { aySingleLevel } = require('../js/chips/ay8910.js');
+  const lsb = (levels) => Math.trunc(Math.fround(2 * aySingleLevel(levels)) * 32767);
+  const got = [[0, 0, 0], [0, 6, 0], [12, 0, 0], [12, 6, 0]].map(lsb);
+  check('single output: the four levels MAME recorded for volumes 12 and 6', got.join() === '10371,11110,16407,16994', got.join());
+  // the network is not a sum: the steps 739, 5297 and 587 are what MAME recorded, and no affine map of a sum fits them
+  check('single output: the levels do not add (A+B above silence < A above it + B above it)',
+    got[3] - got[0] < (got[2] - got[0]) + (got[1] - got[0]), got.join());
+  const ay = new AY8910({ output: 'single' });
+  reg(ay, 7, 0x3F); reg(ay, 8, 12); reg(ay, 9, 6);
+  const o = new Float32Array(1);
+  check('single output: step() writes the one output', ay.step(o)[0] === aySingleLevel([12, 6, 0]));
+  // an envelope channel counts as driving even at step 0 (MAME's 3D table: n counts a channel on the envelope),
+  // so it is not the level of a silent fixed-volume channel
+  check('single output: an envelope channel at level 0 is not a silent channel',
+    aySingleLevel([0, 0, 0], [true, false, false]) > aySingleLevel([0, 0, 0]));
+  let threw = null;
+  try { new AY8910({ output: 'stereo' }); } catch (e) { threw = e; }
+  check('an unknown output mode is refused', threw && /unknown output mode/.test(threw.message), threw && threw.message);
+  check('the legacy table is unchanged for the Alpha (default mode)', new AY8910().output === 'legacy');
+}
+
 console.log(fail ? `${fail} failed` : 'all passed');
 process.exitCode = fail ? 1 : 0;

@@ -497,8 +497,8 @@ function host() {
   const { buildAsm } = require('../tools/mame-diff/ssc/gen-roms.js');
   const { romImage } = require('../tools/mame-diff/lib/firmware.js');
   // one machine with our tone firmware in the Pak, so the AY has something to say
-  const { toneFirmware } = require('../tools/mame-diff/ssc/audio.js');
-  const { AY_VOLUME } = require('../js/chips/ay8910.js');
+  const { toneFirmware } = require('../tools/mame-diff/ssc/gen-roms.js');
+  const { aySingleLevel } = require('../js/chips/ay8910.js');
   const m = Emu.createMachine('coco', { mameCompat: true });
   m.setRoms({ bas: romImage(buildAsm({ mux: true }), 0xA000, 0x2000, 0x12), extbas: new Uint8Array(0x2000).fill(0x12) });
   m.insertCartridge(new Emu.SpeechSoundPak({ tms7040Rom: toneFirmware(), sp0256Rom: new Uint8Array(0x800) }));
@@ -514,10 +514,10 @@ function host() {
   // "set/reset mode, C2 low".
   const setC2 = (port, v) => { port.cr = (port.cr & 0x07) | 0x20 | 0x10 | (v ? 0x08 : 0); };
   // what the card reports to the mixer: the gate decides it, so this observes the SOUND PATH. Note the AY's
-  // silence is not zero - AY_VOLUME[0] is -0.125, so an all-zero-volume channel sums to 3 * -0.125 = -0.375 - and
-  // that is what makes "level !== 0" useless on its own. The audible case below therefore requires the level to
-  // DIFFER from that silence constant, and the closed cases require it to EQUAL it.
-  const SILENCE = 3 * AY_VOLUME[0];
+  // silence is not zero - its single output with every channel at 0 is 0.158 of the supply, times the Pak's gain
+  // of 2 - and that is what makes "level !== 0" useless on its own. The audible case below therefore requires the
+  // level to DIFFER from that silence constant, and the closed cases require it to be 0.
+  const SILENCE = 2 * aySingleLevel([0, 0, 0]);
   const reported = () => { m.cartPort.ayLevel = NaN; m.cartPort.stepAy(); return m.cartPort.ayLevel; };
   // a channel is audible when a tone or noise path is on AND its volume is non-zero; volEnabled alone is only the
   // waveform gate (ay8910.js:118), so it is true with every volume at 0
@@ -539,7 +539,7 @@ function host() {
   ]) {
     setup();
     const l = reported();
-    // a closed gate means the card contributes NOTHING: stepAy reports 0, not the AY's own -0.375 idle level
+    // a closed gate means the card contributes NOTHING: stepAy reports 0, not the AY's own idle level
     check(`${label}: the card contributes silence to the mixer`,
       !m.cartPort.muxSelectsCart() && l === 0, `level ${l} (expected 0), mux selects ${m.cartPort.muxSelectsCart()}`);
   }
@@ -553,8 +553,8 @@ function host() {
 // or the gate finds no PIA and lets the card through unmuted.
 {
   const Emu = require('../tests/load.js')();
-  const { AY_VOLUME } = require('../js/chips/ay8910.js');
-  const { toneFirmware } = require('../tools/mame-diff/ssc/audio.js');
+  const { aySingleLevel } = require('../js/chips/ay8910.js');
+  const { toneFirmware } = require('../tools/mame-diff/ssc/gen-roms.js');
   const { buildAsm } = require('../tools/mame-diff/ssc/gen-roms.js');
   const { romImage } = require('../tools/mame-diff/lib/firmware.js');
   const m = Emu.createMachine('coco', { mameCompat: true });
@@ -573,7 +573,7 @@ function host() {
     `volumes ${inSlot.ay.regs.slice(8, 11).join(',')}`);
   setC2(m.pia1.b, true); setC2(m.pia0.b, true); setC2(m.pia0.a, false);
   check('Multi-Pak: with the mux selecting the cartridge, the slotted Pak is heard',
-    inSlot.muxSelectsCart() && Math.abs(reported() - 3 * AY_VOLUME[0]) > 1e-9, `level ${inSlot.ayLevel}`);
+    inSlot.muxSelectsCart() && Math.abs(reported() - 2 * aySingleLevel([0, 0, 0])) > 1e-9, `level ${inSlot.ayLevel}`);
   setC2(m.pia0.a, true);                               // all three high: another source
   check('Multi-Pak: with the mux selecting another source, the slotted Pak is silent',
     !inSlot.muxSelectsCart() && reported() === 0, `level ${inSlot.ayLevel}`);
@@ -591,7 +591,7 @@ function host() {
   const Emu = require('../tests/load.js')();
   const { buildAsm } = require('../tools/mame-diff/ssc/gen-roms.js');
   const { romImage } = require('../tools/mame-diff/lib/firmware.js');
-  const { toneFirmware } = require('../tools/mame-diff/ssc/audio.js');
+  const { toneFirmware } = require('../tools/mame-diff/ssc/gen-roms.js');
   for (const fast of [false, true]) {
     const m = Emu.createMachine('coco', { mameCompat: true });
     m.setRoms({ bas: romImage(buildAsm({ mux: true }), 0xA000, 0x2000, 0x12), extbas: new Uint8Array(0x2000).fill(0x12) });
@@ -608,14 +608,21 @@ function host() {
     pak.catchUp();
     m.cartSound = orig;
     const distinct = new Set(rows.map((r) => r.stamp)).size;
-    let worst = 0;
-    for (const r of rows) worst = Math.max(worst, Math.abs(r.stamp - r.cardPos));
+    // A sample is stamped with the start of its own period, AY_DIV (4) card cycles long, which ends inside the PIC
+    // instruction just run (js/machines/ssc.js stepCard; measured against MAME's -wavwrite). So every stamp is on
+    // the AY's 4-cycle grid, is not after the card's position when it is reported, and is less than one
+    // instruction (the TMS7000's longest is under 60 cycles) plus a period before it.
+    let worst = 0, offGrid = 0;
+    for (const r of rows) {
+      worst = Math.max(worst, r.cardPos - r.stamp);
+      if ((r.stamp - rows[0].stamp) % 4 !== 0 || r.stamp > r.cardPos) offGrid++;
+    }
     const label = fast ? 'fast rate' : 'normal rate';
     check(`AY timestamps (${label}): the rate really changed`, fast ? rateBits === 1 : rateBits === 0, `SAM rate bits ${rateBits}`);
     check(`AY timestamps (${label}): several changes in one batch, each with its OWN stamp`,
       rows.length >= 2 && distinct === rows.length, `${rows.length} changes, ${distinct} distinct stamps`);
-    check(`AY timestamps (${label}): each stamp is its sample's card position`, worst < 0.01,
-      `worst |stamp - cardPos| ${worst}`);
+    check(`AY timestamps (${label}): each stamp is its sample's period start, within the instruction just run`,
+      offGrid === 0 && worst < 64, `${offGrid} off the 4-cycle grid or ahead of the card, worst cardPos - stamp ${worst}`);
   }
 }
 

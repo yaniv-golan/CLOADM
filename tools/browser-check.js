@@ -761,7 +761,7 @@ async function cartridgeChecks(browser, base, check) {
 // lockstep with MAME matched (CoCo 1/2, CoCo 2B, CoCo 3, Dragon 64), the Insert button runs OUR tone firmware as
 // the PIC, and the machine's music path runs. Every ROM here is built by our own tools (tools/mame-diff/ssc/), never a real dump.
 async function sscBoardChecks(browser, base, check) {
-  const { toneFirmware } = require('../tools/mame-diff/ssc/audio.js');
+  const { toneFirmware } = require('../tools/mame-diff/ssc/gen-roms.js');
   const ctx = await browser.newContext();
   const page = await ctx.newPage();
   const errors = [];
