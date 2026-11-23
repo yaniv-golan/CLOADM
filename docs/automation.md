@@ -718,7 +718,8 @@ session's. A
 full-screen chat it freezes that machine right after the write, while the chat machine keeps running and the page says
 "Your machine stopped on a write to $XXXX; return to it to debug". When the BASIC session is back on screen (the side
 panel, or the chat closed) the stop is its debugger's: `session.paused`, `debug.stopReason.kind === 'write'`, and
-`debug.step()` and `debug.resume()` act on it.
+`debug.step()` and `debug.resume()` act on it. A restart of that machine or a new program on it (a reset, a power
+cycle, a load, `runAssembled`) releases the stop: the machine runs again and no stale stop comes back with it.
 
 ### A complete example that runs from outside the repository
 

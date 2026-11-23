@@ -360,6 +360,59 @@ for (const id of ['dragon64', 'coco3', 'mc10']) {
   check('full screen: removed, neither machine keeps a tap', basic.busTaps.writes.length === 0 && chatM.busTaps.writes.length === 0);
 }
 
+// ---------------- a restart or a new program releases a write stop held beside a full-screen chat ----------------
+// The stop is about the program that wrote. A power cycle, a load or runAssembled on the frozen BASIC session starts
+// something new there: the stop is dropped, the machine runs again, and the side panel shows no stale write stop. A
+// machine switch replaces the machine, so its stop goes too.
+{
+  const fsx = require('fs'), pathx = require('path');
+  const firmware = new Uint8Array(fsx.readFileSync(pathx.join(__dirname, '..', 'examples/chat.bin')));
+  const prog = Emu.assemble(fsx.readFileSync(pathx.join(__dirname, '..', 'docs/examples/framecount.asm'), 'utf8'), '6809');
+  const LOOP = Emu.assemble(' ORG $3800\nL INC $3900\n BRA L\n END L', '6809');
+  // a Dragon 64 running framecount.asm, a full-screen chat, and a watchWrites 'stop' at FRAME 12 that froze it. With
+  // roms, the machine runs this project's own reset firmware (tests/fixtures/reset-firmware.js) as its BASIC: a
+  // program started there is not a reset (the built-in firmware's start is one, and a reset releases the stop too)
+  const { basic: FAKE_BASIC, basic64: FAKE_BASIC64 } = require('./fixtures/reset-firmware').build(Emu);
+  const frozen = (roms = false) => {
+    const s = new Emu.Session({ welcomeMenu: false, store: Emu.memoryStore(), media: new Emu.MemoryMediaStore() });
+    s.switchMachine('dragon64', {}, { menu: false });
+    if (roms) { s.addRoms([{ name: 'd64_1.rom', bytes: FAKE_BASIC }, { name: 'd64_2.rom', bytes: FAKE_BASIC64 }]); s.powerCycle({ menu: false }); s.runFrames(5); }
+    if (s.shownMachine.useStub === roms) throw new Error(roms ? 'the reset firmware is not in' : 'not on the built-in firmware');
+    const basic = s.shownMachine;
+    s.runAssembled(prog);
+    s.runFrames(5);
+    s.startChat({ backend: new Emu.ClaudeBackend({ fetch: async () => null, apiKey: 'sk-ant-test' }), channel: new Emu.MemoryChannel(), firmware, brief: '', tools: false });
+    s.watchWrites({ start: 0x3100, end: 0x3100 }, (ev) => (ev.value === 12 ? 'stop' : undefined));
+    s.runFrames(20);
+    if (!s.pendingStop || s.pendingStop.machine !== basic) throw new Error('no write stop to release');
+    return { s, basic };
+  };
+  // after the action: no stop kept, the BASIC session runs on beside the chat, and the side panel shows no write stop
+  const released = (label, act, runs, roms = false) => {
+    const { s, basic } = frozen(roms);
+    const resets = basic.resetAt;
+    act(s, basic);
+    if (roms && basic.resetAt !== resets) throw new Error(`${label}: the machine was reset, so this does not test the start on its own`);
+    const c0 = basic.cpu.totalCycles;
+    s.runFrames(3);
+    const ran = basic.cpu.totalCycles > c0 && runs(basic);
+    s.toSidePanel();
+    const r = s.debugger && s.debugger.stopReason;
+    check(`${label}: the write stop is released, the BASIC session runs again, and the side panel shows no stale write stop`,
+      !s.pendingStop && ran && !s.paused && !(r && r.kind === 'write'), JSON.stringify({ pending: !!s.pendingStop, ran, paused: s.paused, reason: r }));
+  };
+  released('full screen, power cycle', (s) => s.powerCycle({ menu: false }), () => true);
+  released('full screen, a load', (s) => s.load('loop.bin', Emu.toBinary(LOOP, { format: 'dragondos' }), { remember: false }), (m) => m.ram[0x3900] !== 0);
+  released('full screen, runAssembled', (s) => s.runAssembled(LOOP), (m) => m.ram[0x3900] !== 0);
+  released('full screen, a load with ROMs (no reset)', (s) => s.load('loop.bin', Emu.toBinary(LOOP, { format: 'dragondos' }), { remember: false }), (m) => m.ram[0x3900] !== 0, true);
+  released('full screen, runAssembled with ROMs (no reset)', (s) => s.runAssembled(LOOP), (m) => m.ram[0x3900] !== 0, true);
+  {
+    const { s } = frozen();
+    s.switchMachine('coco', {}, { menu: false });
+    check('a machine switch drops the write stop of the machine it replaces', !s.pendingStop && !s.paused && !(s.debugger && s.debugger.stopped));
+  }
+}
+
 (async () => {
   const s = started('dragon64');
   const ev = [];
