@@ -208,7 +208,8 @@ says how many ROMs are stored and which machines use them, with a link to **Your
 dropped on the Library goes there too, and its message offers **Open Your ROMs**); below it each stored ROM image has
 a tile with its file name, its size, what uses it ("Used by Dragon 64, Tano Dragon 64", or a disk cartridge) and
 **Remove**. Remove takes it out of every socket at once, so a reload can't bring it back, and its message ("Removed
-d64_1.rom.") offers **Undo** for 8 s, which puts it back in every socket it was in. A machine running that ROM is not
+d64_1.rom.") offers **Undo** for 8 s, which puts it back in every socket it was in (except one you have put another ROM in since: that one stays, and
+the message says so). A machine running that ROM is not
 reset: it keeps it until you switch it off and on (the message's second line offers that), and its socket in **Your
 ROMs** reads "Removed · still in the running machine".
 Its magazine rack links the

@@ -15387,6 +15387,11 @@ async function uiModelChecks(browser, base, check) {
       t1 && t1.shown && t1.action === 'Undo' && t1.also === 'The Dragon 64 keeps it until you switch off and on.Switch off and on'
       && JSON.stringify(after) === JSON.stringify(['d32.rom|16 KB|Used by Dragon 32|Remove']) && stored[0] === null && stored[1] === null && runs,
       JSON.stringify({ t1, after, runs }));
+    // the running machine is untouched: the same ROM bytes in its socket, and it keeps running (frames and cycles go on)
+    const run0 = await page.evaluate(() => ({ f: window.emu.machine.frameCount, c: window.emu.machine.cpu.totalCycles }));
+    const sameRom = await page.evaluate((want) => { const r = window.emu.machine.roms.basic; return !!r && Array.from(r).join() === want; }, original[0]);
+    check(`ROM tiles (${label}): after the Remove the machine runs on with the removed ROM, its bytes unchanged in its socket`, sameRom
+      && await waitFor(page, (r) => window.emu.machine.frameCount > r.f + 10 && window.emu.machine.cpu.totalCycles > r.c, run0));
     check(`ROM tiles (${label}): the focus moves to the remaining tile's Remove`, await page.evaluate(() => document.activeElement && document.activeElement.dataset.remove !== undefined));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `rom-tiles-removed-${label}.png`) });
     // the toast stays while it has the focus (more than its 8 s)

@@ -58,6 +58,16 @@ const screenBytes = (m) => Array.from({ length: 512 }, (_, i) => m.read(0x0400 +
     s.restoreRom(r);
     check('restoreRom (Undo): every socket back, byte-identical, with its name',
       same(s.roms.get('dragon64').basic, d64) && same(s.roms.get('tanodr64').basic, d64) && s.roms.fileName(crc) === 'd64_1.rom' && s.romFiles().length === 3);
+    // a socket given another ROM after the Remove keeps it: Undo fills only the sockets still empty, and says which not
+    const r2 = s.removeRom(crc), other = standIn(9);
+    s.roms.put('dragon64', 'basic', other, 'new.rom');
+    const back = s.restoreRom(r2);
+    s.roms.collect();
+    check('Undo never replaces a ROM put in since: the Dragon 64 keeps new.rom (still stored after a collect), the Tano gets d64_1 back',
+      same(s.roms.get('dragon64').basic, other) && same(s.roms.get('tanodr64').basic, d64) && s.roms.fileName(s.romFiles().find((x) => x.name === 'new.rom').crc) === 'new.rom',
+      JSON.stringify(s.romFiles().map((x) => [x.name, x.users])));
+    check('...and it says which socket it skipped: "Dragon 64 32K-mode BASIC"', JSON.stringify(back.skipped.map((x) => x.name)) === JSON.stringify(['Dragon 64 32K-mode BASIC'])
+      && JSON.stringify(back.restored.map((x) => x.owner)) === JSON.stringify(['tanodr64']), JSON.stringify(back));
     let threw = null;
     try { s.removeRom('DEADBEEF'); } catch (e) { threw = e.message; }
     check('removeRom of a CRC not stored is refused', threw === 'That ROM is not stored.', threw);
@@ -106,6 +116,14 @@ const screenBytes = (m) => Array.from({ length: 512 }, (_, i) => m.read(0x0400 +
       check('removing the disk ROM the cartridge in use runs: still running until a switch off and on', r.running === 'Dragon 64' && cart.romBytes && s.romsStillRunning().has(crc));
       s.powerCycle();
       check('after a switch off and on the disk cartridge has no ROM', !s.shownMachine.cartPort || !s.shownMachine.cartPort.romBytes);
+      // Undo now: the ROM is stored again and the cartridge in the port gets it back, the machine restarted with it
+      const events = [];
+      s.on((ev) => events.push(ev));
+      s.restoreRom(r);
+      const c2 = s.shownMachine.cartPort;
+      check('Undo after the switch off and on: the disk cartridge has its ROM again, byte for byte, and the machine restarted',
+        !!(c2 && c2.romBytes) && same(Array.from(c2.romBytes), Array.from(dos)) && events.includes('firmware') && s.romFiles().some((f) => f.name === 'ddos10.rom'),
+        JSON.stringify({ rom: !!(c2 && c2.romBytes), events }));
     }
   }
 

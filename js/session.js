@@ -1359,16 +1359,27 @@ export class Session {
     this.emit('roms');
     return Object.assign(removed, { running });
   }
-  // Undo a removeRom: the image goes back into every socket it was in, byte for byte. A machine that still runs it
-  // forgets it was removed; one that was switched off and on since without it loads it back and restarts, as a drop
-  // of that ROM would.
+  // Undo a removeRom: the image goes back, byte for byte, into every socket it was in that is still empty; a socket
+  // given another ROM since keeps that one (skipped). A machine that still runs the image forgets it was removed; one
+  // switched off and on since without it (in its own sockets, or a disk cartridge left without its ROM) takes it back
+  // and restarts, as a drop of that ROM would.
+  // -> { restored, skipped: [{ owner, socket, name: "Dragon 64 BASIC" }] }
   restoreRom(removed) {
     this.library.checkNotMoving();
-    this.roms.restore(removed);
+    const { restored, skipped } = this.roms.restore(removed);
+    const owners = romOwners(), named = (s) => Object.assign({ name: `${owners[s.owner].name} ${owners[s.owner].roms.find((x) => x.id === s.socket).label}` }, s);
     const m = this.personMachine, left = this.romsLeft.get(m);
-    if (left && left.has(removed.crc)) left.delete(removed.crc);
-    else if (removed.sockets.some((s) => s.owner === m.id) && !this.stubChosen.has(m.id)) { this.loadSavedRoms(m); this.powerCycle({ on: m }); }
+    const mine = restored.some((s) => s.owner === m.id), cartridge = restored.some((s) => cartridgeRoms[s.owner]) && !!this.drives.bareController;
+    if (left && left.has(removed.crc)) {
+      // still running it: forgotten as removed, unless one of its own sockets kept another ROM (that one goes in at the
+      // next switch off and on)
+      if (!skipped.some((s) => s.owner === m.id)) left.delete(removed.crc);
+    } else if ((mine && !this.stubChosen.has(m.id)) || cartridge) {
+      if (mine) this.loadSavedRoms(m);
+      this.powerCycle({ on: m });
+    }
     this.emit('roms');
+    return { restored: restored.map(named), skipped: skipped.map(named) };
   }
   // the CRCs of the ROMs m runs now: its own sockets and its cartridge's ROM
   runningRomCrcs(m) {

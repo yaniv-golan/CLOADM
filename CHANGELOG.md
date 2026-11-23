@@ -14,7 +14,9 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   is a tile: its file name, its size, "Used by Dragon 64, Tano Dragon 64" (a disk cartridge is named too, "DragonDOS
   cartridge") and **Remove** (44 px). Remove takes the image out of every socket that holds it at once, so a reload
   can't bring it back; the toast "Removed d64_1.rom." offers **Undo** for 8 s (kept while it has the focus), which
-  puts the same bytes back in every socket. The machine running that ROM is not reset: it keeps it until it is
+  puts the same bytes back in every socket that is still empty (a socket given another ROM since keeps it, and the
+  page says so: "Restored d64_1.rom (Dragon 64 32K-mode BASIC already had another ROM)"); a disk cartridge switched
+  off and on without its ROM since gets it back. The machine running that ROM is not reset: it keeps it until it is
   switched off and on, the toast's second line says so ("The Dragon 64 keeps it until you switch off and on.") with
   **Switch off and on**, and its socket in **Your ROMs** reads "Removed · still in the running machine". A disk
   cartridge's ROM comes out the same way. The ROMs chip and its card ("No ROMs yet. CLOADM never includes ROMs; add

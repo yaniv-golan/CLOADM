@@ -212,7 +212,12 @@ export function setupLibrary(page, { loadProgram, runShelf, changed, showRoms, r
     (to || view.querySelector('[data-kind-filter="roms"]')).focus();
     page.toast(`Removed ${r.name || f.name}.`, {
       action: { label: 'Undo', run: () => {
-        try { session.restoreRom(r); } catch (e) { page.status(e.message, true); return; }
+        let back;
+        try { back = session.restoreRom(r); } catch (e) { page.status(e.message, true); return; }
+        // a socket given another ROM since keeps it: said, rather than silently not restored
+        const kept = back.skipped.map((x) => x.name), and = (l) => (l.length < 2 ? l.join('') : `${l.slice(0, -1).join(', ')} and ${l[l.length - 1]}`);
+        if (kept.length) page.status(back.restored.length ? `Restored ${r.name || f.name} (${and(kept)} already had another ROM)`
+          : `${r.name || f.name} was not restored: ${and(kept)} already had another ROM`);
         const b = view.querySelector(`[data-remove="${r.crc}"]`); if (b) b.focus();
       } },
       also: r.running ? { text: `The ${r.running} keeps it until you switch off and on.`,

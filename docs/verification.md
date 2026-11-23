@@ -917,9 +917,12 @@ browser check's group `uiModel` drives them with real events at 1280x720 and at 
   "Removed · still in the running machine"; the toast's Switch off and on leaves the machine without ROMs; a ROM the
   machine doesn't use gets no second line; after a reload the removed ROMs are gone. `tests/rom-remove.test.js`
   checks it in Node with NOP stand-in ROMs: each image once in `romFiles` with its users, removal from every socket
-  written to the store (a library loaded again from it lacks the image), Undo byte for byte, a running machine's
+  written to the store (a library loaded again from it lacks the image), Undo byte for byte (never over a ROM put in a socket since: that one stays,
+  after a collect too, and the skipped socket is named; a disk cartridge switched off and on without its ROM gets it
+  back, with a restart), a running machine's
   registers, cycles and screen identical to a twin's for 30 frames after the removal, still running it after a
-  reset, without ROMs after a switch off and on, and a disk cartridge's ROM taken out at the switch off and on.
+  reset, without ROMs after a switch off and on, and a disk cartridge's ROM taken out at the switch off and on. On
+  the page, after the Remove the machine's socket still holds the same bytes and its frames and cycles go on.
 * R27: every text node and title, label and placeholder of the page (emulator, machine menu, Your ROMs, Share,
   Library) holds no "stub" and no "Machine tab", and "disk ROM" is the one term; the ROMs row's states, the .dgn
   warning and the snapshot sentence word for word.
