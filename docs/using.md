@@ -407,6 +407,7 @@ doesn't have is reported in a message (with Details) and the rest of the link st
 | `embed` | `1` | the screen alone, for an iframe |
 | `askclaude` | `1` | with `embed=1`: a small **Ask Claude ↗** chip in the screen's corner, which opens this moment in a new tab with the chat (off by default; the Share screen's **Offer 'Ask Claude ↗'**) |
 | `storage` | `opfs`, `fsa`, `fallback` | where ROMs and programs are kept |
+| `ai` | `kapai` | experiment: the Claude chat through Kapai instead of your own key ([claude.md](claude.md#experiment-kapai)) |
 
 Files given by link are fetched by the browser, so their server must allow CORS.
 

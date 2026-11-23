@@ -54,10 +54,12 @@ export const DISPLAY_PARAMS = {
 };
 const FLAGS = { sound: 'sound', fasttape: 'fastTape', turbo: 'turbo', embed: 'embed', selftest: 'selftest', askclaude: 'askClaude' };
 const MEDIA = ['load', 'tape', 'cart', 'disk'];
-export const URL_PARAMS = ['machine', 'start', 'app', 'nitros9', ...MEDIA, 'autorun', 'rom', ...Object.keys(DISPLAY_PARAMS), 'joy', 'touch', ...Object.keys(FLAGS), 'storage'];
+export const URL_PARAMS = ['machine', 'start', 'app', 'nitros9', ...MEDIA, 'autorun', 'rom', ...Object.keys(DISPLAY_PARAMS), 'joy', 'touch', ...Object.keys(FLAGS), 'storage', 'ai'];
 const STORAGE = ['opfs', 'fsa', 'fallback'];
 const STARTS = ['welcome', 'liza', '2048', 'minesweeper'];
 const APPS = ['claude'];
+// EXPERIMENT: ?ai=kapai sends the Claude chat through Kapai (js/host/kapai.js); without it the chat is as before
+const AIS = ['kapai'];
 const TOUCH_MODES = ['joystick', 'keys'];
 
 // '' (present without a value), 1/0, true/false -> boolean; anything else -> null
@@ -66,7 +68,7 @@ const isUrl = (v) => { try { return !!new URL(v, 'https://cloadm.dev/'); } catch
 
 export function parseUrlConfig(search, fallbackMachine = 'dragon64') {
   const p = new URLSearchParams(search), errors = [];
-  const cfg = { machine: null, config: {}, display: {}, media: [], autorun: false, roms: [], start: null, app: null, nitros9: null, joy: null, touch: null, storage: null, errors };
+  const cfg = { machine: null, config: {}, display: {}, media: [], autorun: false, roms: [], start: null, app: null, nitros9: null, joy: null, touch: null, storage: null, ai: null, errors };
   for (const k of Object.values(FLAGS)) cfg[k] = null;
 
   // a NitrOS-9 link without a machine means the CoCo 3, where it boots
@@ -96,6 +98,8 @@ export function parseUrlConfig(search, fallbackMachine = 'dragon64') {
   if (start !== null) { if (STARTS.includes(start)) cfg.start = start; else errors.push(`start=${start} isn't a start CLOADM has (${STARTS.join(', ')})`); }
   const app = p.get('app');
   if (app !== null) { if (APPS.includes(app)) cfg.app = app; else errors.push(`app=${app} isn't an app CLOADM has (${APPS.join(', ')})`); }
+  const ai = p.get('ai');
+  if (ai !== null) { if (AIS.includes(ai)) cfg.ai = ai; else errors.push(`ai=${ai} isn't an AI service CLOADM has (${AIS.join(', ')})`); }
   // both: the app wins (it takes the screen), and start= is not run behind it
   if (cfg.app && cfg.start) { errors.push(`start=${cfg.start} is ignored: app=${cfg.app} opens instead`); cfg.start = null; }
   // nitros9: true (the image the user has) or an image's name; only where NitrOS-9 boots (the CoCo 3)

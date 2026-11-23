@@ -140,6 +140,8 @@ const showRoms = () => romSockets.reveal();
 // No Claude chat on a page shown inside someone else's page, whether by the embed flag or by being framed: the chat
 // would put its API key card there. With no controller there is no chat machine, no panel and no key card, and the
 // routes that open one (?app=claude, the Ask panel, the command box, a keypress) have nothing to reach.
+// EXPERIMENT ?ai=kapai: which AI service the chat uses (js/ui/claude.js)
+page.aiService = link.ai;
 const claude = chatHere ? setupClaude(page) : null;
 // set up only when there is a controller: both modules drive the chat and would throw on null
 if (claude) setupAsk(page, claude);

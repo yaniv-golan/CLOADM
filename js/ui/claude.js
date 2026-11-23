@@ -15,6 +15,7 @@
  * snapshot, a share link or a settings export.
  */
 import { ClaudeBackend } from '../claude/backend.js';
+import { lazyKapaiBackend } from '../host/kapai.js';
 import { claudeBrief } from '../claude/brief.js';
 import { MemoryChannel } from '../claude/channel.js';
 import { exampleReader } from '../host/example-reader.js';
@@ -65,6 +66,7 @@ export function loadCardText(load) {
 
 export function setupClaude(page) {
   const { session } = page;
+  const ai = page.aiService || null;   // EXPERIMENT: 'kapai' (?ai=kapai) or null, the default backend
   // what the views draw besides the conversation itself
   const state = {
     text: '',          // the reply streaming in
@@ -105,7 +107,11 @@ export function setupClaude(page) {
     const software = session.nitros9On(m) ? 'nitros9' : m.hasRom ? 'basic' : 'none';
     return claudeBrief({ machine: m.profile.name, ram: m.config.ram, cpu: m.config.cpu, software, family: m.profile.family, edition: 'cloadm.dev', tools: true, view });
   };
-  const backend = () => new ClaudeBackend({ fetch: (url, init) => fetch(url, init), apiKey: session.keyStore.get() || '' });
+  // EXPERIMENT ?ai=kapai: the chat runs through Kapai (js/host/kapai.js), which needs no key of the person's; a saved
+  // key is its "own AI". Without the parameter, the default backend, as before.
+  const backend = () => (ai === 'kapai'
+    ? lazyKapaiBackend({ keyStore: session.keyStore, openKeySettings: () => notify() })
+    : new ClaudeBackend({ fetch: (url, init) => fetch(url, init), apiKey: session.keyStore.get() || '' }));
   function wire(chat) {
     // a turn starting, from either view's box or the full-screen chat's own lines (the firmware's channel): what the
     // panel said about the last turn ("[stopped: …]", a failed question, no reply) is that turn's, not this one's
@@ -165,7 +171,7 @@ export function setupClaude(page) {
   function stop() { session.stopClaude(); state.stopped = true; notify(); }
   // the API key state: none | saved | refused | rate-limited | offline | error (another failure, its own text)
   function keyState() {
-    if (!session.hasClaudeKey) return 'none';
+    if (!session.hasClaudeKey && ai !== 'kapai') return 'none';
     const e = session.chat && session.chat.error;
     if (!e || e.code === 'aborted') return 'saved';
     return { 'invalid-key': 'refused', 'rate-limited': 'rate-limited', network: 'offline', 'no-key': 'none' }[e.code] || 'error';
@@ -236,7 +242,7 @@ export function setupClaude(page) {
       show(true);
       page.status('Chat with Claude: type on the screen and press ENTER.');
       // no key: say so on the screen itself (the key card is beside it, or above it on a phone, below the fold)
-      if (chat !== had && !session.hasClaudeKey) session.chatNote(`No API key yet: add one ${whereKey()}. Get one at console.anthropic.com.`);
+      if (chat !== had && !session.hasClaudeKey && ai !== 'kapai') session.chatNote(`No API key yet: add one ${whereKey()}. Get one at console.anthropic.com.`);
       page.focus();
       // without a key the key card comes first where the page stacks (a phone or a tablet), so the page starts at the
       // top rather than at the screen

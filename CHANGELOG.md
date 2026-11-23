@@ -10,6 +10,13 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Added
 
+- **Experiment: the Claude chat through Kapai (`?ai=kapai`).** Opt-in only; without the parameter nothing changes.
+  The side panel and the full-screen chat run their turns through Kapai, a hosted AI layer, with CLOADM's own machine
+  tools in the SDK's tool loop (`js/claude/kapai-backend.js`, `js/host/kapai.js`). Every tool call still goes
+  through the consent gate (`js/claude/consent.js`): Kapai never runs a tool. The vendor's one-file SDK build is
+  vendored unchanged in `js/host/kapai/` and loaded with a dynamic import only under `?ai=kapai`. A saved Anthropic
+  key becomes Kapai's "own AI". `tests/claude-kapai.test.js` covers it on a mocked Kapai; see
+  [docs/claude.md](docs/claude.md#experiment-kapai).
 - **Minesweeper plays with a joystick.** Either joystick moves the cursor: one step as the stick leaves the centre,
   then again after 300 ms and every 120 ms while it is held (counted in fields, at the machine's own 50 or 60 Hz;
   centring the stick and pushing the same way again is a new press). Either fire button opens the square under the

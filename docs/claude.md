@@ -630,6 +630,40 @@ a chat with the real one needs a key, so it is done by hand. Chat with the real 
 7. ← Emulator, then the **Machine** tab → **Settings file** → **Export…**: the file holds no key. Back in the chat,
    **Forget key**.
 
+## Experiment: Kapai
+
+An experiment, not a feature: `?ai=kapai` (for example `play/?app=claude&ai=kapai`) sends the Claude chat through
+Kapai, a hosted AI layer whose SDK runs the model and meters use per install, instead of the Anthropic API with your
+own key. Without the parameter the chat is exactly as described above.
+
+* **Where.** `js/ui/claude.js` builds the backend: `ClaudeBackend` as before, or under `?ai=kapai` a
+  `KapaiBackend` (`js/claude/kapai-backend.js`) on the Kapai client from `js/host/kapai.js`. It has the same
+  contract as `ClaudeBackend`, so the side panel and the full-screen chat (whose firmware lines reach the same
+  `ChatSession`) both use it.
+* **The SDK.** The vendor's one-file browser build, `js/host/kapai/kapai-sdk-0.1.0-e250ded4.mjs` (`@kapai/sdk`
+  0.1.0, MIT), vendored unchanged and checked against its published SHA-256 (in `js/host/kapai.js`). It imports no
+  other file, so there is no build step. It is loaded with a dynamic `import()` on the first turn under `?ai=kapai`
+  only. The publishable key in `js/host/kapai.js` is public by design: it names the app and gives no access.
+* **Tools and consent.** CLOADM's tools are sent in Kapai's shape (`parameters` for `input_schema`). The loop is the
+  SDK's `runTools`, given a `respond` built on the client's `stream()`, so text still shows as it arrives. Each call
+  the model makes is a handler that calls `ChatSession.serveTool`, the same gate as the default path: reads run, and
+  every acting tool asks (or uses the switch) through `js/claude/consent.js`. Kapai never runs a tool. A tool error
+  reaches the model as the same coded JSON. The turn ends after 9 requests at most, as in `ClaudeBackend`. Stop aborts
+  the request in flight.
+* **The conversation** is kept in the Messages form (`js/claude/history.js`) and converted for each request; an
+  assistant turn's thinking blocks travel on its first call as `providerData`, which Kapai's server never receives.
+* **Your own key.** A saved Anthropic key is Kapai's "own AI" (`KapaiOwnAI.appManaged`): CLOADM keeps the key and
+  sends those requests itself, through `ClaudeBackend`'s own request. Kapai's SDK decides per request, by the app's
+  policy in Kapai's dashboard, whether the key or Kapai answers. Under the default policy ("outage only") the key
+  answers only while Kapai is down, so with `?ai=kapai` your messages go to Kapai. The key itself never leaves
+  CLOADM's code.
+* **Errors** get the chat's own texts: tool calls not enabled for the app ("This feature is not on for this app
+  yet."), the request limits, input too long, the service unavailable.
+* **Tests.** `node tests/claude-kapai.test.js` runs it all on a mocked Kapai with the real SDK loop: the tool
+  conversion, the conversation both ways, a turn on a real Session (consent asked for acting tools, a declined poke
+  changing nothing), tool errors, the round limit, Stop at a card, the error mapping, the own-key adapter on a
+  mocked Messages API, and the URL parameter. Requests to Kapai's servers are manual tests only.
+
 ## LIZA for the 6803 (MC-10, Matra Alice)
 
 The 6803 build is not board-level hardware, so MAME is not its oracle. It is held to the 6809 build: on the MC-10 and
