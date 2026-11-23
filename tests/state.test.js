@@ -61,7 +61,11 @@ async function linkMoments() {
     const continued = run(a, t.regs, 40);
     const b = Emu.restoreSnapshot(fromLink, a.roms), c = Emu.restoreSnapshot(fromFile, a.roms);
     for (const k of t.keys || []) { b.setKey(k, true); c.setKey(k, true); }
-    const blank = b.render().data.every((v) => v === 0);
+    // restored in place over a machine showing a picture (the file's moment, its frame drawn): the link's clears it
+    const shown = Emu.restoreSnapshot(Emu.state.fromJSON(Emu.state.toJSON(snap)), a.roms);
+    const hadPicture = shown.render().data.some((v) => v !== 0);
+    shown.restore(await Emu.decodeSnapshotLink(await Emu.encodeSnapshotLink(snap, meta)));
+    const blank = hadPicture && b.render().data.every((v) => v === 0) && shown.render().data.every((v) => v === 0);
     b.runFrame(); c.runFrame();
     const { width, height } = b.render(), pb = b.render().data, pc = c.render().data;
     // the last row that differs: every row down to it is still cleared (all 0: the beam had passed it when the moment
