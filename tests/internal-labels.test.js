@@ -175,7 +175,7 @@ const POSITIVE = {
   3: ['(R25)', '// R24: a toast the user can see', 'R19 A+', 'R28b', 'R33, the Share screen'],
   4: ["check('R10 Reset while paused'", '// R11: paused while the card waits', '(R12, R13)', 'R16 (b): Tab out'],
   5: ["the owner's decision", 'verified by the owner', 'The owner reviews everything', '(owner-approved)'],
-  6: ['(PM ruling)', 'PM-3', 'PM #12', 'PM_7'],
+  6: [J('(P', 'M ruling)'), J('P', 'M-3'), J('P', 'M #12'), J('P', 'M_7')],
   7: ["check('m5: LIZA loaded'", '// p2: Install CLOADM', '  // ---- m4: the status', 'the v0.1.8 UI/UX review', '(the fix-D path)'],
   8: ['(review, 054 item 1)', 'Review 054 item 3'],
   9: ['fixed on cloadm-10-6309-disasm', 'cloadm-6-drivewire', 'cloadm-14b-x', "the owner's correction 008"],
