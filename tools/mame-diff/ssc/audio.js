@@ -6,8 +6,9 @@
 //
 // Two checks, both required:
 //   1. WRITE TIMES. Every AY data write, its time on MAME's clock (a Lua tap on the PIC's port C) against ours:
-//      the same count, and each within half a card cycle (the two clocks differ by 0.25 Hz in 894,886, under 0.4
-//      cycle over the run). This is where the card's timing is pinned exactly.
+//      the same count, and each within half a card cycle (the two clocks differ by 0.25 Hz in 894,886, which drifts
+//      a third of a cycle over the 1.33 s program; measured worst 0.456 cycle, on the CoCo 3). This is where the
+//      card's timing is pinned exactly.
 //   2. LEVELS. Our machine's sound path, rendered through the port of MAME's resampler the cartridge comparisons
 //      use (cart/audio.js), against MAME's recording at 48 kHz, 2 channels, within 2 LSB - compared at every
 //      sample where BOTH recordings hold one value for three samples running, from the later of 20 ms (MAME's
