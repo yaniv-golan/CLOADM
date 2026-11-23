@@ -470,6 +470,18 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Fixed
 
+- **Two tabs no longer lose each other's ROMs, Library items or recent programs.** Every change to the media index
+  (which ROM is in which socket, the ROMs' file names, the recent list) wrote this tab's whole list over the stored
+  one, so with two tabs open the last writer won and silently dropped what the other had added, Undo included. Now each
+  change re-reads the stored list under a lock all tabs share (`navigator.locks`; one per store in Node), applies only
+  that change and writes the result (`MediaIndex`, js/media/library.js): the same socket changed in two tabs ends as
+  the change made last, and nothing else is lost. A collect removes only images no stored socket uses (a socket is now
+  stored before its image), and a recent program's file stays while the stored list still names it. A BroadcastChannel
+  tells the other tabs what changed (`Session.mediaShare`, `mediaElsewhere`): their index reads the lists again and
+  their panels redraw (`'roms'`, and the new `'recent'` and `'library'` events), quietly, with no message. The
+  in-memory fallback is each tab's own and says nothing. `tests/media-multitab.test.js` (two indexes on one store,
+  asynchronous and synchronous, interleaved; two Sessions with a channel) and the browser check's `librarySelect`
+  group (two tabs on real OPFS: add in one and see it in the other, a ROM, delete with Undo across tabs).
 - **A disk in a drive counts toward the install offer.** The page's "program in use" test (the one the
   offer to install CLOADM as an app waits a minute of) asked the machine for a disk controller it never has, so a disk
   waiting in a drive at the bare prompt never counted; it now asks the drives (`session.drives.controllerOf`). The

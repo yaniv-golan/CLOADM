@@ -4041,6 +4041,46 @@ async function librarySelectChecks(browser, base, check) {
     check(`${L}: no page errors and no dialog boxes`, !errors.length, errors.join('; '));
     await ctx.close();
   }
+
+  // Two tabs on one origin share the Library (real OPFS; Session.mediaShare: one lock, a BroadcastChannel). What one
+  // adds the other shows without a reload; a delete with Undo leaves the other tab alone until it is final.
+  {
+    const L = 'library in two tabs';
+    const errors = [];
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 980 } });
+    const [a, b] = [await ctx.newPage(), await ctx.newPage()];
+    for (const p of [a, b]) { p.on('pageerror', (e) => errors.push(e.message)); p.on('dialog', (d) => { errors.push(`a ${d.type()} box: ${d.message()}`); d.dismiss(); }); }
+    for (const p of [a, b]) { await p.goto(`${base}?machine=dragon64#library`); await ready(p); }
+    const kind = await a.evaluate(() => window.emu.session.media.kind);
+    const shelf = (p) => p.evaluate(() => [...document.querySelectorAll('#libTiles .tile, #libTapes .spine')].map((x) => x.dataset.name.split('/').pop()).sort().join());
+    const tile = (name) => `#library [data-name="library/${name}"]`;
+    await a.setInputFiles('#fileLib', ['DEMO.BIN', 'LIZA.BIN'].map((n) => path.join(tmp, n)));
+    const seen = await waitFor(b, () => document.querySelectorAll('#libTiles .tile, #libTapes .spine').length === 2, null, 10000);
+    check(`${L}: items added in one tab appear on the other's shelf, without a reload (storage: ${kind})`, kind === 'opfs' && seen && await shelf(b) === 'DEMO.BIN,LIZA.BIN', `${kind} ${await shelf(b)}`);
+    // a ROM stored in one tab: the other's index has it, and its Library counts it
+    await a.evaluate(() => { const m = window.emu.session.shownMachine; window.emu.session.roms.put(m.id, m.profile.roms[0].id, new Uint8Array(8192).fill(0x12), 'stand-in.rom'); });
+    const romSeen = await waitFor(b, () => { const s = window.emu.session, m = s.shownMachine; return !!s.index.image(s.index.socketCrc(m.id, m.profile.roms[0].id) || '') && s.storedRoms().count === 1; }, null, 10000);
+    check(`${L}: a ROM stored in one tab is in the other's ROM list, and its Library counts it`, romSeen, JSON.stringify(await b.evaluate(() => window.emu.session.storedRoms())));
+    // delete in A, then Undo: B keeps the item all along
+    const del = async () => { await a.click('#btnLibSelect'); await a.click(tile('DEMO.BIN')); await a.click('#btnLibDelete'); };
+    await del();
+    await new Promise((r) => setTimeout(r, 1500));
+    const pendingA = await shelf(a), pendingB = await shelf(b);
+    await a.click('#toastAction');
+    await waitFor(a, (sel) => !!document.querySelector(sel), tile('DEMO.BIN'));
+    await new Promise((r) => setTimeout(r, 1500));
+    check(`${L}: a delete in one tab hides the item there at once, while the other tab keeps it`, pendingA === 'LIZA.BIN' && pendingB === 'DEMO.BIN,LIZA.BIN', `${pendingA} | ${pendingB}`);
+    check(`${L}: Undo in that tab brings it back, and the other tab never lost it (nor did the store)`, await shelf(a) === 'DEMO.BIN,LIZA.BIN' && await shelf(b) === 'DEMO.BIN,LIZA.BIN'
+      && (await b.evaluate(async () => (await window.emu.session.library.listMedia()).some((x) => x.name === 'library/DEMO.BIN'))), `${await shelf(a)} | ${await shelf(b)}`);
+    // delete again and let the toast end: the other tab drops it once the delete is done
+    await del();
+    const ended = await waitFor(a, () => document.getElementById('toast').hidden, null, 30000);
+    const dropped = ended && await waitFor(b, (sel) => !document.querySelector(sel), tile('DEMO.BIN'), 10000);
+    check(`${L}: once the delete is final, the other tab drops the item too (no reload, no message)`, dropped && await shelf(b) === 'LIZA.BIN' && await b.isHidden('#toast'), `${await shelf(b)}`);
+    if (shotDir) await b.screenshot({ path: path.join(shotDir, 'library-two-tabs.png') });
+    check(`${L}: no page errors and no dialog boxes`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
   fs.rmSync(tmp, { recursive: true });
 }
 

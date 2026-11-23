@@ -171,8 +171,9 @@ export class RomLibrary {
   // name: the file it came from, shown in socket status and boot help
   put(machine, socket, bytes, name = null) {
     const crc = crc32(bytes);
-    this.index.putImage(crc, bytes, name);
+    // the socket first: another page's collect then keeps the image it names (MediaIndex.putSocket)
     this.index.putSocket(machine, socket, crc);
+    this.index.putImage(crc, bytes, name);
   }
   fileName(crc) { return this.index.fileName(crc); }
   // { socketId: Uint8Array } for a machine

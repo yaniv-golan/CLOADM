@@ -38,7 +38,7 @@ names contain one of the parts, and `node tools/browser-check.js --only <group>[
 | Keyboard and input | `input,keyqueue,keyboard-symbols,touch-joystick,press-break` | `input,inputScreen,touchJoystick,keyboardSymbols,typing` |
 | `js/session.js`, snapshots | `session,snapshot,state,restore-points,writewatch` | `snapshot,state` |
 | `js/drives.js` (the floppy drives) | `session-drives,disks,disks-newdisk,disk-bare,disks-mount-case,disks-mount-race,restore-points` | `disk,driveWire` |
-| `js/library.js` (the media library) | `session-library,storage-move,move-inflight,library-case,recent,store-error-names` | `library` |
+| `js/library.js` (the media library) | `session-library,storage-move,move-inflight,library-case,recent,store-error-names,media-store,media-index-settled,media-multitab` | `library,librarySelect` |
 | The Claude chat and Ask Claude | `claude,chat-firmware` | `claude,ask,commands,chatScreen` |
 | `cli/` (the command line and the MCP server) | `cli,mcp,game-guide,starter-game` | none |
 | `connector/` (the side-panel connector) | `connector,mcp,skill` | `connector` |
@@ -214,6 +214,7 @@ node tests/session-drives.test.js  # session.drives (js/drives.js): what it move
 node tests/session-library.test.js  # session.library (js/library.js): what it moved from the Session is byte-identical to before (fixtures), none of the old names is left, and its wiring (DriveWire, a store change, a move)
 node tests/storage-move.test.js  # moving the library to another store: what is copied, kept, merged (ROM sockets and names), refused; reconnecting a folder copies only this visit's files
 node tests/media-store.test.js  # storage layer: the MediaStore contract, random access, quota, localStorage migration
+node tests/media-multitab.test.js  # two tabs on one store: interleaved index writes lose nothing, the same socket ends as the last change, collect and recent files are safe, and the channel between two Sessions
 node tests/mame-lib.test.js    # the MAME runner: a failed start or exit status stops a comparison; the timeout only warns
 node tests/audio.test.js     # audio output stage: sound unchanged, no pop at unlock, reset, machine switch, pause and resume; the bounded catch-up after a stall on a mocked clock
 node tests/audio-worklet.test.js  # the AudioWorklet path: queue order, underrun to silence, the re-prime after a gap, bounded drop-oldest, the MessagePort sink, the processor

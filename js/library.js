@@ -73,7 +73,7 @@ export class MediaLibrary {
     this.session.media = media;
     this._caseInsensitive = startingCase(media);
     this.mediaSince = Date.now();   // when this visit started using the store: reconnecting copies what it wrote since
-    this.session.index = new MediaIndex(media);
+    this.session.index = new MediaIndex(media, this.session.indexShare(media));
     this.session.index.writeError = writeError;
     this.session.roms.index = this.session.index;
   }
@@ -165,7 +165,9 @@ export class MediaLibrary {
     try {
       const p = (async () => run())();
       p.then(() => {}, () => {});   // its failure is the caller's (below), not a rejection nothing listens to
-      return await p;
+      const r = await p;
+      this.session.mediaPost('library');   // the other pages on this store list their Library again
+      return r;
     } finally { this.movingOps.delete(settled); settle(); }
   }
   async copyMedia(store, reconnecting) {
@@ -241,7 +243,11 @@ export class MediaLibrary {
     //  - a RE-NAMED copy of the same bytes keeps its own entry too: a hash-only key would swallow it.
     // A stored CRC may be in either case (an older build wrote it lower case); the index normalises the
     // entries it reads, and compared here case-insensitively they are the same blob.
-    const list = this.session.index.recentMedia().filter((r) => !(this.sameName(r.name, name) && String(r.crc).toUpperCase() === crc));
+    const before = this.session.index.recentMedia();   // what the list was: setRecent stores only what this load changed
+    const same = (r) => this.sameName(r.name, name) && String(r.crc).toUpperCase() === crc;
+    const list = before.filter((r) => !same(r)), replaced = before.filter(same);
+    // (the oldest pushed off the end: on the stored list, the merge's own end decides, since another tab may have
+    // moved one of them up)
     const dropped = list.splice(RECENT_LENGTH - 1);
     list.unshift({ name, crc, size: bytes.length, machine: this.session.shownMachine.id, stored: bytes.length <= 1 << 20 });
     const entry = list[0];
@@ -253,11 +259,13 @@ export class MediaLibrary {
       // entry with the same CRC. So an evicted entry's file may still be the only copy for a survivor, and dropping
       // it would leave that row stored:true with nothing behind it (measured: the row then fails to load, even
       // after a reload). Only a CRC no surviving entry references is deleted.
+      // (dropped after the list is stored: the index keeps a file the stored list still names, and another page's
+      // list may name it too)
       const kept = new Set(list.map((r) => String(r.crc).toUpperCase()));
-      for (const old of dropped) if (!kept.has(String(old.crc).toUpperCase())) this.session.index.dropRecent(old.crc);
       try { if (entry.stored) this.session.index.putRecent(crc, bytes); }
       catch (e) { if (!(e && e.code === 'quota')) throw e; entry.stored = false; this.session.index.recentBytes.delete(crc); }
-      this.session.index.setRecent(list);
+      this.session.index.setRecent(list, { previous: before, removed: replaced });
+      for (const old of dropped) if (!kept.has(String(old.crc).toUpperCase())) this.session.index.dropRecent(old.crc);
     };
     if (this.movingMedia) {
       this.session.index.recentBytes.set(crc, bytes); this.session.index.recent = list;   // this visit's list at once

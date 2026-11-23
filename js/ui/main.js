@@ -83,7 +83,12 @@ if (!chatHere) document.body.classList.add('no-claude');
 const keyStore = chatHere ? (() => { try { return localStorage ? storageKeyStore(localStorage) : new MemoryKeyStore(); } catch (e) { return new MemoryKeyStore(); } })()
   : new MemoryKeyStore();
 // embedded (?embed=1): no welcome menu of its own; the embedding page drives a plain machine
-const session = new Session({ store: settings, media: mediaStore, keyStore, welcomeMenu: !link.embed });
+// other tabs of this origin on the same store: one lock for the media index's lists, and a channel to say what changed
+const mediaShare = {
+  locks: (typeof navigator !== 'undefined' && navigator.locks) || null,
+  channel: typeof BroadcastChannel === 'function' ? new BroadcastChannel('cloadm-media') : null,
+};
+const session = new Session({ store: settings, media: mediaStore, keyStore, welcomeMenu: !link.embed, mediaShare });
 const page = createPage(session, new Audio());
 // a background write that fails (full storage, permission refused) must reach the user, not vanish
 session.index.writeError = (name, e) => page.status(session.library.indexWriteError(name, e), true);

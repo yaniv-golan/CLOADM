@@ -549,8 +549,13 @@ export class Session {
   // Session never asks for the welcome menu (power-on, reset, a switch, leaving LIZA); the bare stub stays
   // mediaMoveWaitMs: how long the library's moveMedia waits for the Library operations under way
   // (MEDIA_MOVE_WAIT_MS, js/library.js); a test sets it short to prove the wait is bounded
-  constructor({ store = memoryStore(), media = new MemoryMediaStore(), keyStore = null, welcomeMenu = true, mediaMoveWaitMs = MEDIA_MOVE_WAIT_MS } = {}) {
+  constructor({ store = memoryStore(), media = new MemoryMediaStore(), keyStore = null, welcomeMenu = true, mediaMoveWaitMs = MEDIA_MOVE_WAIT_MS, mediaShare = null } = {}) {
     this.welcomeMenu = welcomeMenu;
+    // Other pages of this origin on the same store (the page passes { locks: navigator.locks, channel: a
+    // BroadcastChannel }): the index takes the lock to change its lists and says what it changed on the channel, and
+    // what another page says there is read back in (mediaElsewhere). None in Node or for an embedder.
+    this.mediaShare = mediaShare;
+    if (mediaShare && mediaShare.channel) mediaShare.channel.onmessage = (e) => { this.mediaElsewhere(e.data).catch(() => {}); };
     this.store = store;
     this.media = media;
     // the media library on that store (js/library.js): listing, import, rename and delete, the recent list, the
@@ -575,7 +580,7 @@ export class Session {
     this.chatMachines = null;       // while a chat is open: { chat, basic } (startChat)
     this.chatServer = null;         // the chat machine's own DriveWire server (startChat with drivewire)
     this.chatView = null;           // which of them is on screen: 'chat' | 'basic'
-    this.index = new MediaIndex(media);
+    this.index = new MediaIndex(media, this.indexShare(media));
     this._shown = null;
     this.turbo = false;
     this.fastTape = true;       // run flat out while the tape is playing
@@ -667,6 +672,27 @@ export class Session {
     if (this.serialLink && this.serialLink.server) out.push(this.serialLink.server);
     if (this.chatServer) out.push(this.chatServer);
     return out.filter((s) => s);
+  }
+  // ---------------- other pages on the same store ----------------
+  // What a MediaIndex on `store` shares with other pages: only a store they can open too (OPFS, a picked folder). An
+  // in-memory store (the fallback, Node) is this page's own, and there is nothing to tell anyone.
+  indexShare(store) {
+    const share = this.mediaShare;
+    if (!share || store.synchronous || (store.kind !== 'opfs' && store.kind !== 'fsa')) return {};
+    return { locks: share.locks || null, post: (what) => this.mediaPost(what, store) };
+  }
+  // tell the other pages that `what` changed in the store: 'roms' | 'recent' (the index), 'library' (its files)
+  mediaPost(what, store = this.media) {
+    const ch = this.mediaShare && this.mediaShare.channel;
+    if (!ch || store.synchronous || (store.kind !== 'opfs' && store.kind !== 'fsa')) return;
+    try { ch.postMessage({ store: store.kind, what }); } catch (e) { /* a closed channel: nothing to tell */ }
+  }
+  // Another page changed the store this one uses: the index reads its lists again, and the panels hear what changed
+  // ('roms', 'recent', 'library': the Library's files). Nothing is said on screen; the panels show the new state.
+  async mediaElsewhere(msg) {
+    if (!msg || msg.store !== this.media.kind || this.media.synchronous) return;
+    if (msg.what === 'library') { this.emit('library'); return; }
+    for (const what of await this.index.refresh()) this.emit(what);
   }
   on(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); }
   emit(event, arg) { for (const fn of this.listeners) fn(event, arg); }
