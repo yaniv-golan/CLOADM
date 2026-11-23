@@ -98,12 +98,12 @@ const PATTERNS = [
   // a ruling's sub-labels: "R44 b5", "(R44 b1)", "R44 (b4)", "R44, b4", and one opening a comment ("// b3: ",
   // "//  (b4) "), and a bare one in prose ("the launch (b4) releases", "(b1, b3)"). A variable named so is not one:
   // a call's or a keyword's parentheses ("mixCodes(c0, c1)", "catch (e2)", "if (c0)", "return (d1)")
-  // (also in capitals: "(B4)"; and not where a hex digit, a register pair, a case label or an addressing mode stands in the
-  // parentheses: "the hex digits (a5)", "register pair (d1)", "case (b4):", "LDA (a1),Y": the two phrases and the
-  // 6809/6803/6309 mnemonics that take an operand are named, nothing wider. An all-capitals word before it is not
-  // enough: "TODO (b4)", "NOTE (b4)", "FIXME (c2)" and "the CPU (b4) path" are labels, as are "the bits (b4)" and
-  // "its value (c2)")
-  { id: 17, re: /\bR\d+,? \(?[a-e]\d\)?(?![\w(])|(?:\/\/|\/\*)\s*(?:\([a-e]\d\)\s|[a-e]\d:\s)|(?<![\w$)\],(])(?<![,(] )(?<!\b(?:catch|if|while|for|switch|return|typeof|await|yield|new|[Cc]ase|hex digits?|register pairs?) )(?<!\b(?:LD[A-Z]|ST[A-Z]|LEA[A-Z]|JMP|JSR|CMP[A-Z]|ADD[A-Z]|SUB[A-Z]|ADC[A-Z]|SBC[A-Z]|AND[ABR]|ANDCC|OR[ABR]|ORCC|EOR[ABR]|BIT[A-Z]|INC|DEC|CLR|COM|NEG|TST|NOP) )\([a-eA-E]\d(?:,\s*[a-eA-E]\d)*\)(?!,\s?[XYUSD]\b)/ },
+  // (also in capitals: "(B4)"; and not where a hex digit, a register pair or a case label stands in the parentheses:
+  // "the hex digits (a5)", "register pair (d1)", and "case (b4):" with its colon: only those two phrases and the label
+  // with a colon are named, nothing wider. A word of any kind before it is not enough: "TODO (b4)", "NOTE (b4)",
+  // "FIXME (c2)", "the CPU (b4) path", "the TST (b4) step", "in that case (b4) wins", "the bits (b4)" and "its value
+  // (c2)" are labels)
+  { id: 17, re: /\bR\d+,? \(?[a-e]\d\)?(?![\w(])|(?:\/\/|\/\*)\s*(?:\([a-e]\d\)\s|[a-e]\d:\s)|(?<![\w$)\],(])(?<![,(] )(?<!\b(?:catch|if|while|for|switch|return|typeof|await|yield|new|hex digits?|register pairs?) )(?!(?<=[Cc]ase )\([a-eA-E]\d\):)\([a-eA-E]\d(?:,\s*[a-eA-E]\d)*\)/ },
   // a ticket or pull request named as the source ("PR-4", "PR #12", "issue #3", "see #40", "(#123)"); a number
   // inside a quoted title of another project's change ('"raster timing (#16698)"' in MAME's log) is that project's
   { id: 18, re: /\bPR(?:-| ?#)\d+\b|\b(?:issue|ticket|bug) #\d+\b|\bsee #\d+\b|\(#\d+\)(?!["'])/i },
@@ -195,7 +195,7 @@ const POSITIVE = {
     "const MARK = 'D2-MARK-conversation';", 'window.__d2chat = s.chat', '  // D3: a reload while a view'],
   16: ['as the UX lead asked', 'the PM lead decided', 'the reviewer said so', 'what the reviewers found', 'The reviewer flagged it'],
   17: ['// R44 (b4): a launch', '(R44 b1): the button', "check('R44 b5: typing", '(UX ruling R44, b4)', '//  (b4) Reset, a power cycle', '// b3: the status line', 'the launch (b4) releases the stop', '(b4) Reset', 'see (b1, b3) above', '* (c2) the strip',
-    'the launch (B4) releases the stop', '(B4) Reset', 'as UX (b4) said', '// TODO (b4): the stop', 'see the NOTE (b4) above', 'FIXME (c2)', 'the CPU (b4) path', 'the bits (b4) set the mode', 'its value (c2) decides', 'the two bytes (e1) hold it', 'a XYZ (a3) case', 'see (B1, C3) above', 'the strip (A2) shows', 'the button (b4), too', 'later (e5) too'],
+    'the launch (B4) releases the stop', '(B4) Reset', 'as UX (b4) said', '// TODO (b4): the stop', 'see the NOTE (b4) above', 'FIXME (c2)', 'the CPU (b4) path', 'the bits (b4) set the mode', 'its value (c2) decides', 'the two bytes (e1) hold it', 'a XYZ (a3) case', 'the TST (b4) step', 'the STA (b1) rule', 'said in COM (c2)', 'in that case (b4) wins', 'see (B1, C3) above', 'the strip (A2) shows', 'the button (b4), too', 'later (e5) too'],
   18: ['fixed in PR-4', 'see PR #12', 'as issue #3 says', 'see #40 for why', 'a race (#123) in the mount', 'ticket #7'],
 };
 const NEGATIVE = {
@@ -220,7 +220,7 @@ const NEGATIVE = {
   16: ['the lead line', 'a UX question', 'the reviewer: a person', 'reviewers read the diff'],
   17: ['catch (e2) { }', 'mixCodes(c0, c1)', 'twoFrames(c2);', 'const b1 = 3', 'f(a5)', 'R44 rows', 'if (c0) x();', 'while (d1 > 0)', 'return (d1)',
     'x = typeof (a1)', 'mix(c0)(c1)', 'arr[0](b2)', 'await (d3)', 'new (b4)', 'f(x, (c1))',
-    'the hex digits (a5) are the low byte', 'a register pair (d1) holds it', 'case (b4): the button', 'LDA (a1),Y', 'LDB (B2),X', 'JMP (b2)', 'the pointer (a1),Y is indexed', ],
+    'the hex digits (a5) are the low byte', 'a register pair (d1) holds it', 'case (b4): the button',  ],
   18: ['"trs/coco: raster timing (#16698)" (Oct 2026)', 'color: #000;', 'PR1     STA', '#C42B23', 'the issue is', 'press #'],
 };
 for (const p of PATTERNS) {
