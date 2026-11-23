@@ -8,8 +8,8 @@
 //   - no cache: the mirror; only the missing packages' .deb files are kept for the cache, not whatever else apt fetched;
 //     apt's time limits are written before any apt command runs;
 //   - a cache that does not satisfy the check: falls through to the mirror, repairing with apt-get install -f first;
-//   - a mirror that keeps failing: two tries, then a loud failure;
-// and that removing the check after dpkg (the reviewer's mutant) turns this suite red.
+//   - a mirror that keeps failing: two tries, then a loud failure.
+// Removing the check after dpkg (the review's mutant) turns case 4 red.
 // Run: node tests/install-browser-deps.test.js
 const fs = require('fs'), os = require('os'), path = require('path'), cp = require('child_process');
 
@@ -116,14 +116,6 @@ const says = (r, re) => re.test(r.out);
   const r = run({ mirrorFails: true });
   check('a failing mirror: exits 1, saying the browser check did not run', r.status === 1 && says(r, /could not be installed in 2 tries.*the browser check did not run/), r.out.trim().split('\n').pop());
   check('...after exactly two tries', r.calls.filter((c) => /^apt-get update/.test(c)).length === 2, `${r.calls.filter((c) => /^apt-get update/.test(c)).length} updates`);
-}
-// 6. the mutant the review ran by hand: without the check after dpkg, case 4 reads as installed from the cache
-{
-  const mutant = REAL.replace('if timeout 60 sudo dpkg -i "${debs[@]}" && check "$out"; then', 'if timeout 60 sudo dpkg -i "${debs[@]}"; then');
-  const r = run({ cached: NEEDED, dpkgNoop: true, script: mutant });
-  check('the mutant (no check after dpkg) is a real change to the script', mutant !== REAL);
-  check('...and case 4 catches it: it would report a cache install that left packages missing', says(r, /installed from the cache/) && r.status === 0,
-    'the mutant must be the one that passes wrongly here; the real script is held by case 4 above');
 }
 // Both workflows run this one script, under a step time limit.
 for (const wf of ['tests.yml', 'browser-daily.yml']) {

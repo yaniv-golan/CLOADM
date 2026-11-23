@@ -16,9 +16,9 @@
 #
 # Time limits: every command that can wait on the network or on dpkg has its own `timeout` (which signals its whole
 # process group), and apt drops a stalled connection after 30 s. Worst case by design, with every limit reached:
-# 120 (chromium) + 2 x 60 (check before and after the cache) + 60 (dpkg) + 60 (apt-get -f)
-# + 2 tries x (60 update + 300 install-deps + 60 check + 60 dpkg --configure + PAUSE 10) = 1340 s, about 22.3 minutes:
-# under the step's 25-minute limit and the job's 30.
+# 300 (chromium: ~170 MB on a browser-cache miss, at the slowest mirror speed seen) + 2 x 60 (check before and after
+# the cache) + 60 (dpkg) + 30 (apt-get -f) + 2 tries x (60 update + 300 install-deps + 60 check + 30 dpkg --configure
+# + PAUSE 10) = 1430 s, about 23.8 minutes: under the step's 25-minute limit and the job's 30.
 set -u
 DEBS_DIR="${DEBS_DIR:-$HOME/playwright-debs}"
 APT_CONF="${APT_CONF:-/etc/apt/apt.conf.d/99ci-apt}"
@@ -30,7 +30,7 @@ check() { timeout 60 npx playwright install-deps --dry-run chromium > "$1" 2>&1;
 missing() { sed -n 's/^  \([a-z0-9][a-z0-9.+-]*\)$/\1/p' "$1"; }
 
 out=$(mktemp)
-timeout 120 npx playwright install chromium || { echo "OS packages: the chromium download failed or timed out"; exit 1; }
+timeout 300 npx playwright install chromium || { echo "OS packages: the chromium download failed or timed out"; exit 1; }
 if check "$out"; then echo "OS packages: all present, nothing to install"; exit 0; fi
 need=$(missing "$out")
 
@@ -47,7 +47,7 @@ if [ -n "$need" ] && [ "${#debs[@]}" -gt 0 ]; then
     echo "OS packages: installed from the cache (${#debs[@]} .deb files)"; exit 0
   fi
   echo "OS packages: the cache did not cover them; installing from the mirror"
-  timeout 60 sudo apt-get install -f -y || true   # repair whatever dpkg left half-installed
+  timeout 30 sudo apt-get install -f -y || true   # repair whatever dpkg left half-installed
 fi
 
 # 3. from the mirror
@@ -59,7 +59,7 @@ for try in 1 2; do
     echo "OS packages: installed from the mirror; $kept .deb files kept for the cache"
     exit 0
   fi
-  echo "OS packages: try $try failed or timed out"; timeout 60 sudo dpkg --configure -a || true; sleep "$PAUSE"
+  echo "OS packages: try $try failed or timed out"; timeout 30 sudo dpkg --configure -a || true; sleep "$PAUSE"
 done
 echo "OS packages: could not be installed in 2 tries (see above); the browser check did not run"
 exit 1
