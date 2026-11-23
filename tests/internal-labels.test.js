@@ -1,14 +1,16 @@
 // The maintainers' internal process labels stay out of the tree: review and ruling IDs ("UX R30", "R28b", "(R25)"),
 // review-finding tags used as labels, old internal branch names, private planning references. This suite scans every
 // tracked file for them, line by line, and checks each pattern on cases of its own. It is the one file exempt from the
-// scan (it has to spell the labels out), with tests/private-paths.test.js (the private-reference guard, which
-// spells out what it looks for too) and tools/vendor/ (third-party code).
+// scan (it has to spell the labels out), with tools/vendor/ (third-party code). tests/private-paths.test.js, the
+// private-reference guard, builds its patterns from parts and is scanned like any other file.
 //
 // The patterns live here and nowhere else: tests/changelog-guard.js requires this file for them and removes their
 // matches from both sides before it compares a released CHANGELOG section with its tag, so a released section may
 // lose a label and nothing else. Required from another file, it only exports; run, it checks.
 // Run: node tests/internal-labels.test.js
 const cp = require('child_process'), fs = require('fs'), path = require('path');
+// joins parts, so a name tests/private-paths.test.js keeps out of the tree is not written whole in this file
+const J = (...parts) => parts.join('');
 
 // Every pattern is applied to one line at a time. The ones marked rNumber (3, 4 and 12: an R<number>) also match
 // register and resistor names: the 6845 CRTC's R0-R17, the SAM's rate bits R1..R0, the AY-3-8910's R0-R17, the
@@ -74,7 +76,7 @@ const PATTERNS = [
   { id: 7, re: /(?:\/\/ |---- |check\(["'`]|^\s*)[mp]\d{1,2}: |UI\/UX review|\bfix-[A-Z]\b/ },
   { id: 8, re: /\b[Rr]eview,? \d{3} item \d+/ },
   { id: 9, re: /\bcloadm-\d+[a-z]?(?:-[a-z0-9]+)+|\bcorrection \d{3}\b/ },
-  { id: 10, re: /cloadm-private|session_01\w{10,}|claude\.ai\/code\/session|\bmaintainers track\b|\b[Rr]oadmap\b/ },
+  { id: 10, re: new RegExp(J('cloadm', '-private|session_01\\w{10,}|claude\\.ai\\/code\\/session|\\bmaintainers track\\b|\\b[Rr]oadmap\\b')) },
   { id: 11, re: /\bbrief's terms\b|\bw[1-9]'s\b|\b[Ww]ave [0-9]\b/ },
   // an R-number of any size where a label stands: opening a comment, a bracket, a list or a test name, and closed
   // as a label is ("R2: ", "R4's", "(R6)", "R12/R13: ", "R2-U3", "(R1, R2)")
@@ -174,8 +176,8 @@ const POSITIVE = {
   7: ["check('m5: LIZA loaded'", '// p2: Install CLOADM', '  // ---- m4: the status', 'the v0.1.8 UI/UX review', '(the fix-D path)'],
   8: ['(review, 054 item 1)', 'Review 054 item 3'],
   9: ['fixed on cloadm-10-6309-disasm', 'cloadm-6-drivewire', 'cloadm-14b-x', "the owner's correction 008"],
-  10: ['github.com/yaniv-golan/cloadm-private', 'claude.ai/code/session_01ABCDEFGHIJKLMNOP', 'the maintainers track one privately', 'a roadmap', 'Roadmap'],
-  11: ["(skipped on the brief's terms)", "w1's branch", 'Wave 2', 'wave 3'],
+  10: [J('github.com/yaniv-golan/cloadm', '-private'), J('claude.ai', '/code/session', '_01ABCDEFGHIJKLMNOP'), 'the maintainers track one privately', 'a roadmap', 'Roadmap'],
+  11: ["(skipped on the brief's terms)", J('w1', "'s branch"), 'Wave 2', 'wave 3'],
   12: ['// R2: a view opened from the chat', '/* R12/R13: the small muted lines */', '// R7b: every note', '(R4\'s touchMode)', '(U7, R2-U3)',
     '// R2-U4: every view', "check('R2 a view'", '(R6)', '(R1, R2)'],
   13: ['// F3: the refusal belongs', "check('M1 reader: Stop ends'", '// ---- 5. F2/F6: the write', '//  * M1 - Stop while', '(U2, M2)',
@@ -195,7 +197,7 @@ const NEGATIVE = {
   3: ['$R30', 'PR25', 'R2D2', 'a.R30 b', '#R24'],
   4: ['R12/R13 start address', 'cursor (R14/R15, R10/R11)', 'the CRTC R10 blink bits', 'R6 rows', 'R1 and R9'],
   5: ['the owning machine', 'owners', 'CODEOWNERS', "the Owner's Manual says", 'the Owner field of the record', "the owner's manual"],
-  6: ['BEQ PM1', 'PM2      RTS', '3 PM', 'PMODE 4'],
+  6: [J('BEQ P', 'M1'), J('P', 'M2      RTS'), '3 PM', 'PMODE 4'],
   7: ['printed p13: bits', 'map: 1', 'm6809: the CPU', 'fix-up'],
   8: ['review 54 items', 'reviewed item 1'],
   9: ['cloadm.dev', 'cloadm-panel', 'a correction 08'],
@@ -220,7 +222,7 @@ for (const p of PATTERNS) {
   check(`pattern ${p.id} leaves its look-alikes`, neg.length >= 2 && !wrong.length, JSON.stringify(wrong));
 }
 // the named look-alikes match no pattern at all
-const NAMED = ['R12/R13 start address', 'cursor (R14/R15, R10/R11)', 'BEQ PM1', 'printed p13: bits', 'const w1 =', 'cloadm.dev',
+const NAMED = ['R12/R13 start address', 'cursor (R14/R15, R10/R11)', J('BEQ P', 'M1'), 'printed p13: bits', 'const w1 =', 'cloadm.dev',
   '// the data sheet\'s CRTC field widths: R4, R6 and R7', '(m2: our firmware in its socket)', 'resistors R10-R22'];
 check('the named look-alikes (registers, resistors, asm labels, gime p13:, w1, the domain) match no pattern', NAMED.every((l) => !labelsIn(l).length),
   JSON.stringify(NAMED.filter((l) => labelsIn(l).length).map((l) => [l, labelsIn(l)])));
@@ -294,7 +296,7 @@ check('stripLine: a word changed beside a removed label still differs', stripLin
 
 // ---------------- the tree ----------------
 {
-  const EXEMPT = (f) => f === 'tests/internal-labels.test.js' || f === 'tests/private-paths.test.js' || f.startsWith('tools/vendor/');
+  const EXEMPT = (f) => f === 'tests/internal-labels.test.js' || f.startsWith('tools/vendor/');
   let files = [];
   try { files = cp.execFileSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20 }).split('\0').filter(Boolean); } catch (e) { /* no git */ }
   check('the tracked files are listed (git ls-files)', files.length > 100, String(files.length));
