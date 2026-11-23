@@ -72,8 +72,9 @@ const lib = require('./browser-check-lib');
 const run = lib.makeRun();
 const { check, skip } = run;
 const shotDir = (() => { const i = process.argv.indexOf('--screenshots'); return i > 0 ? process.argv[i + 1] : null; })();
-// --timings FILE: after the run, write each group's wall seconds there as JSON ({ "groups": { name: seconds } }), the
-// input .github/scripts/browser-check-shards.js --plan balances the CI shards from (.github/browser-check-timings.json)
+// --timings FILE: after the run, write each group's wall seconds there as JSON ({ "groups": { name: seconds } }); node
+// .github/scripts/browser-check-shards.js --merge FILE takes them into .github/browser-check-timings.json, from which
+// --write plans the CI shards
 const timingsFile = (() => { const i = process.argv.indexOf('--timings'); return i > 0 ? process.argv[i + 1] : null; })();
 
 // a static server like the real host: a folder serves its index.html, and a folder named without its
