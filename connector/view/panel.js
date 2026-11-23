@@ -85,7 +85,7 @@ const pendingKeys = (m) => (m.typist ? m.typist.queue.filter((x) => typeof x ===
 export async function start() {
   const cfg = globalThis.CLOADM_VIEW || {};
   const bridge = globalThis.CLOADM_BRIDGE;
-  const facts = { variant: cfg.variant || '?', host: '…', mode: '…', csp: '…', storage: '…', audio: 'off until a click' };
+  const facts = { variant: cfg.variant || '?', host: '…', mode: '…', csp: '…', serverTools: '…', serverResources: '…', storage: '…', audio: 'off until a click' };
   const show = () => { $('st').textContent = `${Object.entries(facts).map(([k, v]) => `${k}: ${v}`).join(' · ')} · ${bridge.describe()}`; };
   // the raw message (a load's, the ROMs'), for Details; the person sees the status line
   const say = (t) => { $('msg').textContent = t; };
@@ -105,6 +105,10 @@ export async function start() {
     facts.host = (r.hostInfo && r.hostInfo.name) || '?';
     const c = r.hostCapabilities && r.hostCapabilities.sandbox && r.hostCapabilities.sandbox.csp;
     facts.csp = `resourceDomains ${JSON.stringify(c ? c.resourceDomains ?? null : null)}, connectDomains ${JSON.stringify(c ? c.connectDomains ?? null : null)}`;
+    // whether the host lets the view call the connector's own tools and read its resources (an in-view fallback needs them)
+    const caps = r.hostCapabilities || {};
+    facts.serverTools = JSON.stringify(caps.serverTools ?? null);
+    facts.serverResources = JSON.stringify(caps.serverResources ?? null);
   };
   let fit = () => {}, describe = () => {}, keys = null;
   // a touch screen (the host says so, a coarse pointer, or a touch seen): the on-screen keys, and the insets a phone
@@ -128,8 +132,9 @@ export async function start() {
   const refused = () => {
     const f = bridge.failed;
     if (!f) return false;
-    status(f.code === 'out-of-step' ? 'This connector and cloadm.dev are from different releases: ask Claude to open the emulator with open_emulator_inline, and the connector\'s owner to redeploy it.'
-      : `CLOADM could not start: ${f.detail}. Ask Claude to open it again, or with open_emulator_inline.`, { error: true });
+    status(f.code === 'out-of-step' ? 'This connector and cloadm.dev are from different releases: ask Claude to open the offline copy, and the connector\'s owner to redeploy it.'
+      : f.code === 'blocked' ? globalThis.CLOADM_REACH.MESSAGE
+        : `CLOADM could not start: ${f.detail}. Ask Claude to open it again, or to open the offline copy.`, { error: true });
     return true;
   };
   bridge.onChange(() => { hostFacts(); syncMode(); show(); });

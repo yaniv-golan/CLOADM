@@ -184,6 +184,18 @@ function withPressKeys(e) {
 // can tell: "local" (the local server, node cli/cloadm.js --mcp, on the person's computer) or "panel" (the side-panel
 // connector's view, connector/view/tools.js).
 export const ROUTES = Object.freeze(['local', 'panel']);
+// The page's tools' titles, as a host shows them: plain verbs, no server or product prefix (the other tools give theirs
+// where they are added). A page tool without one here is an error, so every tool keeps a title.
+export const PAGE_TITLES = Object.freeze({
+  machine_info: 'Read the machine\'s details', screen_text: 'Read the screen', peek: 'Read memory', disassemble: 'Disassemble memory',
+  poke: 'Write to memory', type_text: 'Type text', load_basic: 'Load a BASIC program', press_break: 'Press BREAK',
+  assemble_and_load: 'Assemble and load code', run: 'Start the code',
+});
+function pageTitle(name) {
+  if (!Object.hasOwn(PAGE_TITLES, name)) throw new Error(`createToolbox: the page tool ${name} has no title in PAGE_TITLES`);
+  return PAGE_TITLES[name];
+}
+
 export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHINES, wallMs = WALL_MS, session: own = null, refuseRomReads = false, route = 'local' } = {}) {
   if (!ROUTES.includes(route)) throw new Error(`createToolbox: route must be ${ROUTES.join(' or ')}`);
   if (own && !(own instanceof Session && own.shownMachine)) throw new Error('createToolbox: session must be a Session with a machine');
@@ -435,7 +447,7 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
 
   // ---- the page's tools ----
   const pageTool = (spec, { readOnly: ro, destructive = true, untrustedOut = false }) => add(spec.name, {
-    title: spec.name.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase()),
+    title: pageTitle(spec.name),
     description: forMcp(spec.description),
     inputSchema: Object.assign(withMachine(spec.input_schema), { additionalProperties: false }),
     annotations: ro ? { readOnlyHint: true, openWorldHint: false } : { readOnlyHint: false, destructiveHint: destructive, openWorldHint: false },

@@ -10,7 +10,9 @@
 // handshake comes first), then the emulator as a module:
 //   A, "site" (open_emulator):          one import of ORIGIN/connector/view/panel.js, which brings js/ from beside it:
 //                                       the glue and the emulator always come from one release of the site. Its
-//                                       _meta.ui.csp declares ORIGIN only. This view is not folded.
+//                                       _meta.ui.csp declares ORIGIN only. This view is not folded. It also carries
+//                                       ./view/reach.js, which tells a blocked load (the host keeps ORIGIN out) to
+//                                       the person and to Claude, who then opens B.
 //   B, "inline" (open_emulator_inline): panel.js and its whole graph folded into the view (./fold.js), with the
 //                                       bundled programs inline: nothing is fetched, and no CSP is declared.
 // CLOADM_VIEW.tools is the panel's tool list as this build saw it, for the bridge to answer tools/list before the
@@ -143,7 +145,7 @@ button:focus-visible,summary:focus-visible{outline:2px solid var(--focus);outlin
 #keys .kmode button{flex:1;border:0;border-radius:0;height:38px;padding:0 4px}#keys .kmode button[aria-pressed="true"]{background:#26302A;color:var(--text);font-weight:600}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}`;
 
-function shell(cfg, module) {
+function shell(cfg, module, extra = '') {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CLOADM</title>
 <style>${CSS}</style></head><body>
 <div id="bar" role="toolbar" aria-label="CLOADM">
@@ -164,7 +166,7 @@ function shell(cfg, module) {
 <script>globalThis.CLOADM_VIEW = ${scriptJson(cfg)};</script>
 <script>
 ${fs.readFileSync(path.join(here, 'view/bridge.js'), 'utf8')}</script>
-<script>const startFailed = (why) => { document.getElementById('st').textContent = 'error: ' + why; const s = document.getElementById('status'); s.className = 'error'; s.textContent = window.cloadmView ? 'Something went wrong: ' + why : 'CLOADM could not start: ' + why + '. Ask Claude to open it again, or with open_emulator_inline.'; document.getElementById('announce').textContent = s.textContent; CLOADM_BRIDGE.fail(why); };
+${extra}<script>const startFailed = (why) => { if (window.CLOADM_REACH && CLOADM_REACH.blocked) return; document.getElementById('st').textContent = 'error: ' + why; const s = document.getElementById('status'); s.className = 'error'; s.textContent = window.cloadmView ? 'Something went wrong: ' + why : 'CLOADM could not start: ' + why + '. Ask Claude to open it again, or to open the offline copy.'; document.getElementById('announce').textContent = s.textContent; CLOADM_BRIDGE.fail(why); };
 addEventListener('error', (e) => startFailed(e.message || (e.target && (e.target.src || e.target.href)) || String(e)), true);
 addEventListener('unhandledrejection', (e) => startFailed(String((e.reason && e.reason.message) || e.reason)));</script>
 ${module}
@@ -174,8 +176,10 @@ ${module}
 export function views({ origin = ORIGIN } = {}) {
   const instructions = essentials();
   const base = { api: PANEL_API, version: version(), tools: panelTools() };
+  // A watches its own load (./view/reach.js): a host that keeps it from the site gets the offline copy instead
+  const reach = `<script>\n${fs.readFileSync(path.join(here, 'view/reach.js'), 'utf8').replace('__ORIGIN__', JSON.stringify(origin))}</script>\n`;
   const site = shell(Object.assign({ variant: 'site' }, base),
-    `<script type="module">import(${JSON.stringify(`${origin}/connector/view/panel.js`)}).then((m) => m.start()).catch((e) => startFailed(e.message));</script>`);
+    `<script type="module">import(${JSON.stringify(`${origin}/connector/view/panel.js`)}).then((m) => { CLOADM_REACH.loaded(); return m.start(); }, (e) => CLOADM_REACH.importFailed(e)).catch((e) => startFailed(e.message));</script>`, reach);
   const { code, modules } = fold(path.join(here, 'view/panel.js'), { tail: '__ENTRY__.start().catch((e) => startFailed(e.message));\n' });
   const inline = shell(Object.assign({ variant: 'inline', programs: programs() }, base), `<script type="module">\n${code}</script>`);
   return { site, inline, modules, version: base.version, tools: base.tools, instructions, essentialsHash: essentialsHash(instructions) };

@@ -11,7 +11,8 @@
 // The emulator's module plugs in with CLOADM_BRIDGE.attach({ api, tools, call(name, args, { signal }) -> result }).
 // `api` must equal CLOADM_VIEW.api, the contract between this view (the Worker's build) and the module (served by
 // cloadm.dev in variant A): when they differ, every call is refused with out-of-step rather than half working.
-// CLOADM_BRIDGE.fail(why) says the emulator could not start: calls are then answered at once with not-started.
+// CLOADM_BRIDGE.fail(why) says the emulator could not start: calls are then answered at once with not-started
+// (fail(why, { code: 'blocked' }) from ./reach.js: the site is out of reach, and the remedy names the offline copy).
 // CLOADM_BRIDGE.hostContext is the host's context as it stands: ui/initialize's hostContext, with each
 // ui/notifications/host-context-changed merged in (the view reads displayMode from it: inline, or the side panel; the
 // insets the host's own controls cover, safeAreaInsets; and whether it is a phone, platform and deviceCapabilities).
@@ -50,7 +51,8 @@
     describe: () => `bridge: init ${log.init === null ? 'pending' : typeof log.init === 'number' ? `${log.init} ms` : log.init}, tools/list ×${log.lists}, calls ×${log.calls}, list_changed ${log.changed === null ? 'not sent' : 'sent'}${log.last ? `, last call ${log.last}` : ''}${log.size ? `, size ${log.size.join('×')} ×${log.sizes}` : ''}${failed ? `, ${failed.code}` : ''}${log.other.length ? `, other ${log.other.join(' ')}` : ''}`,
     onChange: (fn) => listeners.push(fn),
     attach(x) {
-      if (impl || failed) return false;
+      if (impl || (failed && !failed.soft)) return false;
+      failed = null;
       if (!x || x.api !== cfg.api) {
         failed = { code: 'out-of-step', detail: `this connector's view speaks panel API ${cfg.api}, the emulator code it loaded speaks ${x && x.api}` };
         settle(); changed(); return false;
@@ -62,7 +64,12 @@
       changed();
       return true;
     },
-    fail(why) { if (impl || failed) return; failed = { code: 'not-started', detail: String(why) }; settle(); changed(); },
+    // code 'blocked' (./reach.js: the site is out of reach) takes the place of a not-started from the same load; a soft
+    // one (only a sign so far) gives way to an emulator that attaches after all, or to a harder failure
+    fail(why, { code = 'not-started', soft = false } = {}) {
+      if (impl || (failed && !failed.soft && !(code === 'blocked' && failed.code === 'not-started'))) return;
+      failed = { code, detail: String(why), soft }; settle(); changed();
+    },
     sizeChanged(width, height) {
       const w = Math.ceil(width), h = Math.ceil(height);
       if (!(w > 0 && h > 0) || (log.size && log.size[0] === w && log.size[1] === h)) return false;
@@ -78,8 +85,9 @@
     }),
   };
   const REMEDY = {
-    'not-started': 'the emulator in the panel could not start (detail says why): ask the person to reopen the view, or open it with open_emulator_inline, which needs nothing from cloadm.dev',
-    'out-of-step': 'the connector and the cloadm.dev site are from different releases: open the view with open_emulator_inline (self-contained), and tell the person the connector needs redeploying',
+    'not-started': 'the emulator in the panel could not start (detail says why): ask the person to reopen the view, or open the offline copy (open_emulator_inline), which needs nothing from cloadm.dev',
+    'out-of-step': 'the connector and the cloadm.dev site are from different releases: open the offline copy (open_emulator_inline), and tell the person the connector needs redeploying',
+    blocked: 'this app does not let the panel load its code from cloadm.dev (detail says how it was blocked): open the offline copy (open_emulator_inline) now, without asking; it needs nothing from cloadm.dev',
     'not-ready': 'the emulator was still starting: call the tool again',
   };
   // the last call's name and outcome, for Details ("screen_text ok 12 ms", "type_text error not-started"): what the

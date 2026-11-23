@@ -34,7 +34,7 @@ answers Claude's MCP requests with two tools and two views, and the emulator the
   ```
 
 * **Node 22.12 or later** where you deploy: wrangler's build step runs `node ../build.js`, which builds both views
-  from `connector/view/` and `js/` (it folds the emulator into the self-contained view; nothing else is built).
+  from `connector/view/` and `js/` (it folds the emulator into the offline copy; nothing else is built).
 
 ## Deploy
 

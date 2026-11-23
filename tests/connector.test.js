@@ -119,6 +119,23 @@ const J = JSON.stringify;
   check('tools/list: the two server tools, each opening its view, no arguments, read-only',
     J(tools.map((t) => [t.name, t._meta.ui.resourceUri])) === J([['open_emulator', 'ui://cloadm/panel.html'], ['open_emulator_inline', 'ui://cloadm/inline.html']])
     && tools.every((t) => t.inputSchema.type === 'object' && J(t.inputSchema.properties) === '{}' && t.annotations.readOnlyHint), J(tools).slice(0, 300));
+  // what people see: the server is "CLOADM side panel" (cloadm-panel, the plugin's id for it); the tools' titles are
+  // plain verbs; Open CLOADM comes first, the offline copy only after a blocked load
+  check('names: serverInfo is cloadm-panel, "CLOADM side panel"', init.body.result.serverInfo.name === 'cloadm-panel' && init.body.result.serverInfo.title === 'CLOADM side panel', J(init.body.result.serverInfo));
+  check('names: "Open CLOADM" and "Open CLOADM (offline copy)", each with its description, the title in annotations too',
+    J(tools.map((t) => [t.title, t.description, t.annotations.title])) === J([
+      ['Open CLOADM', 'Opens the CLOADM emulator in a panel beside the chat. Use this first.', 'Open CLOADM'],
+      ['Open CLOADM (offline copy)', 'Only if Open CLOADM showed a blank or blocked panel: opens a larger copy that doesn\'t need to reach cloadm.dev.', 'Open CLOADM (offline copy)']]), J(tools.map((t) => t.title)));
+  check('names: Open CLOADM\'s answer says to open the offline copy without asking if the panel is blank or blocked; the offline copy\'s does not',
+    /blocked, open the offline copy \(open_emulator_inline\) without asking/.test(calls[0].body.result.content[0].text) && !/open_emulator_inline/.test(calls[1].body.result.content[0].text), calls[0].body.result.content[0].text.slice(-200));
+  {
+    // every tool of both servers (the stdio server's toolbox, the panel's) has a title, a plain verb with no prefix
+    const all = [...T.createToolbox({ roms: () => [] }, {}).tools(), ...build.panelTools(), ...tools];
+    const bad = all.filter((t) => !(typeof t.title === 'string' && /^[A-Z][a-z]/.test(t.title) && !/CLOADM:|^Claude|^cloadm|_/.test(t.title)));
+    check('names: every tool of both servers has a title that starts with a verb, with no server prefix or tool name', all.length > 40 && !bad.length, J(bad.map((t) => [t.name, t.title])));
+    check('names: the page tools read as people say them ("Type text", "Read the screen", "Read memory")',
+      J(['type_text', 'screen_text', 'peek'].map((n) => build.panelTools().find((t) => t.name === n).title)) === J(['Type text', 'Read the screen', 'Read memory']));
+  }
   check('tools/call: says the app tools come in the next message, on machine m1', calls.every((c) => /next message/.test(c.body.result.content[0].text) && /"m1"/.test(c.body.result.content[0].text)));
   check('tools/call: the app tools are not server tools', unknown.body.error.code === -32602);
   check('resources: both views, as MCP Apps HTML', J(rlist.body.result.resources.map((r) => [r.uri, r.mimeType])) === J([['ui://cloadm/panel.html', MIME], ['ui://cloadm/inline.html', MIME]])
@@ -378,6 +395,136 @@ const J = JSON.stringify;
     await waitFor(() => ok.sent.some((m) => m.id === 91));
     check('bridge: Details names the last call and how it ended ("screen_text error bad-argument", "screen_text ok"), so a call the host never delivered (calls ×0) can be told from one the view refused',
       /calls ×1, .*last call screen_text error bad-argument \d+ ms/.test(d1) && /last call screen_text ok \d+ ms/.test(ok.B.describe()), `${d1} | ${ok.B.describe()}`);
+  }
+
+  // ---------------- a blocked load (connector/view/reach.js, in Open CLOADM's view), in a vm with the bridge ----------------
+  const reachSrc = fs.readFileSync(path.join(ROOT, 'connector/view/reach.js'), 'utf8');
+  check('reach: Open CLOADM\'s view carries the detector, after the bridge and before the module; the offline copy does not',
+    views.site.indexOf('CLOADM_REACH = {') > views.site.indexOf('CLOADM_BRIDGE = {') && views.site.indexOf('CLOADM_REACH = {') < views.site.indexOf('<script type="module">')
+    && views.site.includes(`const ORIGIN = ${J(ORIGIN)};`) && /\.then\(\(m\) => \{ CLOADM_REACH\.loaded\(\); return m\.start\(\); \}, \(e\) => CLOADM_REACH\.importFailed\(e\)\)/.test(views.site)
+    && !views.inline.includes('CLOADM_REACH = {'));
+  // host: the ui/initialize answer's hostCapabilities, or null to answer later; waitMs stands in for 8 s
+  function reach({ caps = null, waitMs = 8000 } = {}) {
+    const sent = [], handlers = [], docHandlers = [], els = {};
+    const elem = (id) => (els[id] = els[id] || { id, textContent: '', className: '' });
+    const parent = { postMessage: (m) => sent.push(JSON.parse(J(m))) };
+    const win = { CLOADM_VIEW: { api: panel.PANEL_API, tools: [{ name: 'screen_text' }], version: 'v' }, parent };
+    const document = { getElementById: elem, addEventListener: (t, fn) => { if (t === 'securitypolicyviolation') docHandlers.push(fn); } };
+    const ctx = vm.createContext({ window: win, document, addEventListener: (t, fn) => { if (t === 'message') handlers.push(fn); }, setTimeout, clearTimeout, AbortController, Date, performance, Promise, JSON, String, Array, Object, Map });
+    win.window = win;
+    vm.runInContext(bridgeSrc, ctx);
+    vm.runInContext(reachSrc.replace('__ORIGIN__', J(ORIGIN)).replace('const WAIT_MS = 8000;', `const WAIT_MS = ${waitMs};`), ctx);
+    const deliver = (data) => handlers.forEach((fn) => fn({ source: parent, data }));
+    const init = (c) => { const m = sent.find((x) => x.method === 'ui/initialize'); deliver({ jsonrpc: '2.0', id: m.id, result: { hostInfo: { name: 'stub' }, hostCapabilities: c } }); };
+    if (caps) init(caps);
+    const violate = (blockedURI) => docHandlers.forEach((fn) => fn({ blockedURI, effectiveDirective: 'script-src-elem' }));
+    const call = async (id) => { deliver({ jsonrpc: '2.0', id, method: 'tools/call', params: { name: 'screen_text', arguments: {} } }); await waitFor(() => sent.some((m) => m.id === id)); return sent.find((m) => m.id === id); };
+    return { sent, init, violate, call, els, R: win.CLOADM_REACH, B: win.CLOADM_BRIDGE };
+  }
+  const errOf = (r) => r && r.result && r.result.structuredContent && r.result.structuredContent.error;
+  const MESSAGE = 'This app can\'t reach cloadm.dev here. Ask Claude to open the offline copy.';
+  {
+    // the host keeps cloadm.dev out: resourceDomains null
+    const v = reach({ caps: { sandbox: { csp: { resourceDomains: null, connectDomains: null } }, message: {} } });
+    await tick();
+    const m = v.sent.find((x) => x.method === 'ui/message'), r = await v.call(90);
+    check('reach: a host whose csp has resourceDomains null: the status line says it can\'t reach cloadm.dev, and Details says why and how it was reported',
+      v.R.MESSAGE === MESSAGE && v.els.status?.textContent === MESSAGE && v.els.status?.className === 'error' && v.els.announce?.textContent === MESSAGE
+      && /^blocked: the host does not allow https:\/\/cloadm\.dev .*resourceDomains null.* · reported: message · bridge: /.test(v.els.st?.textContent), J(v.els));
+    check('reach: ... Claude is told at once, by ui/message, to open the offline copy without asking',
+      !!m && m.params.role === 'user' && m.params.content.length === 1 && /open_emulator_inline/.test(m.params.content[0].text) && /No need to ask/.test(m.params.content[0].text) && v.R.reported === 'message', J(m));
+    check('reach: ... and every call is answered "blocked", its remedy the offline copy', errOf(r) && errOf(r).code === 'blocked' && /open_emulator_inline/.test(errOf(r).remedy) && /resourceDomains null/.test(errOf(r)?.detail), J(r));
+    // the host's word alone is a soft block: should the module load after all, it attaches and Claude is told so
+    v.R.loaded();
+    const took = v.B.attach({ api: panel.PANEL_API, tools: [{ name: 'screen_text' }], call: async () => ({ content: [{ type: 'text', text: 'loaded after all' }] }) });
+    const back = v.sent.filter((x) => x.method === 'ui/message');
+    const r2 = await v.call(93);
+    check('reach: ... a block on the host\'s csp alone is soft: a module that loads after all attaches, serves calls, and Claude is told on the same channel to keep this view',
+      took && v.R.blocked === null && back.length === 2 && /loaded after all/.test(back[1].params.content[0].text) && /keep using this view/.test(back[1].params.content[0].text) && !/slow/.test(back[1].params.content[0].text)
+      && v.R.reported === 'message, then taken back' && r2.result.content[0].text === 'loaded after all' && v.els.status?.textContent !== MESSAGE, J([took, back.map((m) => m.params.content[0].text), v.R.reported]));
+  }
+  for (const spelled of ['https://cloadm.dev/', 'cloadm.dev', 'CLOADM.DEV/', 'https://CloadM.dev']) {
+    // the site written another way by the host is still the site
+    const v = reach({ caps: { sandbox: { csp: { resourceDomains: [spelled] } }, message: {} } });
+    await tick();
+    check(`reach: a host that allows the site written ${J(spelled)} is not blocked (no message, no report)`, v.R.blocked === null && !v.sent.some((x) => x.method === 'ui/message') && !(v.els.status && v.els.status.textContent === MESSAGE), J([v.R.blocked, v.sent.map((x) => x.method)]));
+  }
+  {
+    // a soft block then a hard sign (the import fails): hard, and a late module is not taken
+    const v = reach({ caps: { sandbox: { csp: { resourceDomains: ['https://elsewhere.example'] } }, message: {} } });
+    await tick();
+    const softly = v.R.blocked;
+    v.R.importFailed(new Error('Failed to fetch dynamically imported module'));
+    const r = await v.call(94);
+    check('reach: a soft block (the csp) gives way to a hard one (the import failed): calls say so, a module after that is not taken, and Claude was told once',
+      /does not allow/.test(softly) && /import of panel\.js failed/.test(v.R.blocked) && /import of panel\.js failed/.test(errOf(r)?.detail)
+      && v.B.attach({ api: panel.PANEL_API, tools: [], call: async () => ({ content: [] }) }) === false && v.sent.filter((x) => x.method === 'ui/message').length === 1, J([softly, v.R.blocked]));
+  }
+  {
+    // the wait runs out before the handshake, and the handshake then allows the site: the block is taken back unsaid
+    const v = reach({ waitMs: 20 });
+    await waitFor(() => v.R.blocked);
+    const during = { blocked: v.R.blocked, status: v.els.status?.textContent, failed: v.B.failed };
+    v.init({ sandbox: { csp: { resourceDomains: [ORIGIN] } }, message: {}, updateModelContext: {} });
+    await tick();
+    check('reach: a wait that ran out before a handshake that allows the site is taken back: nothing sent to Claude, the bridge never failed, the status line cleared',
+      /nothing loaded/.test(during.blocked) && during.status === MESSAGE && during.failed === null && v.R.blocked === null && v.R.reported === null
+      && !v.sent.some((x) => /^ui\/(message|update-model-context)$/.test(x.method)) && v.B.failed === null && v.els.status?.textContent !== MESSAGE, J([during, v.R.blocked, v.sent.map((x) => x.method)]));
+  }
+  {
+    // slow, but the host allows the site: no timeout block (a failed import would still count)
+    const v = reach({ caps: { sandbox: { csp: { resourceDomains: [ORIGIN] } }, message: {} }, waitMs: 20 });
+    await new Promise((r) => setTimeout(r, 60));
+    check('reach: no timeout block when the host\'s csp allows the site (slow is not blocked)', v.R.blocked === null && !v.sent.some((x) => x.method === 'ui/message'), J(v.R.blocked));
+  }
+  {
+    // the host lets cloadm.dev in: nothing to say
+    const v = reach({ caps: { sandbox: { csp: { resourceDomains: [ORIGIN], connectDomains: [ORIGIN] } }, message: {}, updateModelContext: {} }, waitMs: 40 });
+    await tick();
+    v.violate('https://elsewhere.example/x.js');
+    const before = { blocked: v.R.blocked, handshake: !!v.B.host };
+    v.R.loaded();
+    await new Promise((r) => setTimeout(r, 80));
+    check('reach: a host that allows cloadm.dev, a load in time, a violation for another site: no message, no report, no failure',
+      before.handshake && before.blocked === null && v.R.blocked === null && v.R.reported === null && !v.sent.some((x) => /^ui\/(message|update-model-context)$/.test(x.method)) && !v.els.status && !v.B.failed, J([before, v.sent.map((x) => x.method)]));
+  }
+  {
+    // no csp from the host, so nothing is concluded from it; a policy violation for the site is
+    const v = reach({ caps: { updateModelContext: {} } });
+    await tick();
+    const quiet = v.R.blocked === null;
+    v.violate(`${ORIGIN}/connector/view/panel.js`);
+    const u = v.sent.find((x) => x.method === 'ui/update-model-context');
+    check('reach: no csp from the host is not a block; a securitypolicyviolation for cloadm.dev is, told through ui/update-model-context when that is what the host offers',
+      quiet && /policy blocked https:\/\/cloadm\.dev\/connector\/view\/panel\.js \(script-src-elem\)/.test(v.R.blocked) && !!u && /open_emulator_inline/.test(u.params.content[0].text)
+      && !v.sent.some((x) => x.method === 'ui/message') && v.R.reported === 'model context', J([v.R.blocked, u]));
+  }
+  {
+    // the import fails before the handshake (the view's error handler said not-started first): blocked takes its place,
+    // and the report waits for the host
+    const v = reach();
+    v.B.fail('Failed to fetch dynamically imported module');
+    v.R.importFailed(new Error('Failed to fetch dynamically imported module'));
+    const before = v.sent.filter((x) => /^ui\/(message|update-model-context)$/.test(x.method)).length;
+    v.init({});
+    await tick();
+    const r = await v.call(91);
+    check('reach: a failed import is a block, in place of the not-started from the same load; with no channel offered, the tool results say it',
+      before === 0 && v.R.reported === 'tool results only' && errOf(r)?.code === 'blocked' && /import of panel\.js failed/.test(errOf(r)?.detail) && v.els.status?.textContent === MESSAGE, J([v.R.reported, r]));
+  }
+  {
+    // nothing loaded in time: blocked; the module arriving after all still starts
+    const v = reach({ caps: { message: {} }, waitMs: 30 });
+    await waitFor(() => v.R.blocked);
+    const late = v.R.blocked, m = v.sent.find((x) => x.method === 'ui/message');
+    v.R.loaded();
+    const took = v.B.attach({ api: panel.PANEL_API, tools: [{ name: 'screen_text' }], call: async () => ({ content: [{ type: 'text', text: 'late but here' }] }) });
+    const r = await v.call(92);
+    const msgs = v.sent.filter((x) => x.method === 'ui/message').map((x) => x.params.content[0].text);
+    check('reach: nothing loaded within the wait is a block (reported), and a module that arrives later still attaches and serves calls',
+      /nothing loaded from https:\/\/cloadm\.dev within/.test(late) && !!m && took && v.R.blocked === null && r.result.content[0].text === 'late but here', J([late, r]));
+    check('reach: ... and Claude, told to open the offline copy, is then told the view loaded after all and to keep it',
+      msgs.length === 2 && /open_emulator_inline/.test(msgs[0]) && /loaded after all/.test(msgs[1]) && /keep using this view/.test(msgs[1]) && !/slow/.test(msgs[1]) && !/open_emulator_inline/.test(msgs[1]), J(msgs));
   }
 
   // ---------------- the view's controls (connector/view/ui.js), the parts without a DOM ----------------

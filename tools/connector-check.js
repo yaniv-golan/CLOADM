@@ -15,7 +15,9 @@
 //             a real click and real keys; storage; ROMs added in the panel persist across a reload, and then memory
 //             reads are refused (no tool returns ROM memory directly)
 //   inline    (B, open_emulator_inline): the same handshake and tools with nothing fetched
-//   no-cors   A when the site sends no Access-Control-Allow-Origin: the handshake still comes; calls are not-started
+//   no-cors   A when the site sends no Access-Control-Allow-Origin: the handshake still comes; the import fails, so
+//             the view says it can't reach cloadm.dev, tells Claude by ui/message, and calls answer blocked
+//   kept-out  A on a host whose csp has resourceDomains null: the same, from the host's own answer
 //   out-of-step A when the site's panel speaks another PANEL_API: calls are out-of-step
 //   phone     the size reported inline (ui/notifications/size-changed), the host's insets in fullscreen, the on-screen
 //             keys on a touch screen (Keys | Pad | Stick, each program's mode, the choice remembered), a host that asks
@@ -52,7 +54,8 @@ const listTools = () => callView('tools/list', {}).then((r) => { hostLists.push(
 addEventListener('message', (e) => {
   const d = e.data; if (e.source !== f.contentWindow || !d || d.jsonrpc !== '2.0') return;
   hostLog.push(d.method || 'reply');
-  if (d.method === 'ui/initialize') { hostT.initialize = Date.now(); post({ id: d.id, result: { protocolVersion: '2026-01-26', hostInfo: { name: 'host-stub', version: '1' }, hostCapabilities: { sandbox: { csp: JSON.parse(q.get('granted') || '{}') } }, hostContext: Object.assign({ displayMode: q.get('mode') || 'inline', availableDisplayModes: ['inline', 'fullscreen'] }, q.get('dims') ? { containerDimensions: JSON.parse(q.get('dims')) } : {}, JSON.parse(q.get('ctx') || '{}')) } }); }
+  if (d.method === 'ui/initialize') { hostT.initialize = Date.now(); post({ id: d.id, result: { protocolVersion: '2026-01-26', hostInfo: { name: 'host-stub', version: '1' }, hostCapabilities: Object.assign({ sandbox: { csp: JSON.parse(q.get('granted') || '{}') } }, JSON.parse(q.get('caps') || '{}')), hostContext: Object.assign({ displayMode: q.get('mode') || 'inline', availableDisplayModes: ['inline', 'fullscreen'] }, q.get('dims') ? { containerDimensions: JSON.parse(q.get('dims')) } : {}, JSON.parse(q.get('ctx') || '{}')) } }); }
+  else if (d.method === 'ui/message') { (window.hostMessages = window.hostMessages || []).push(d.params); post({ id: d.id, result: {} }); }
   else if (d.method === 'ui/notifications/size-changed') {
     // an auto-sizing host (inline): the view's frame takes the height it reports (q autosize), as claude.ai's does
     sizes.push(d.params);
@@ -89,7 +92,8 @@ fetch('view' + location.search).then((r) => r.text()).then((html) => {
 
 // one server, three sites by Host. opts.cors: the site sends Access-Control-Allow-Origin; opts.panelApi: the site's
 // connector/view/tools.js says this PANEL_API instead
-async function start({ cors = true, panelApi = null } = {}) {
+// keep: a csp the host grants instead of what the resource declares (the host keeps the site out), or null
+async function start({ cors = true, panelApi = null, keep = null } = {}) {
   const build = await import(pathToFileURL(path.join(ROOT, 'connector/build.js')).href);
   const { createServer } = await import(pathToFileURL(path.join(ROOT, 'connector/worker/src/server.js')).href);
   let worker = null, csps = [];
@@ -101,7 +105,7 @@ async function start({ cors = true, panelApi = null } = {}) {
         const r = await (await worker.fetch(new Request('https://w/mcp', { method: 'POST', body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'resources/read', params: { uri: url.searchParams.get('uri') } }) }))).json();
         const c = r.result.contents[0];
         if (url.pathname === '/view') { res.writeHead(200, { 'content-type': 'text/html' }); res.end(c.text); return; }
-        const csp = specCsp(c._meta && c._meta.ui && c._meta.ui.csp);
+        const csp = specCsp(keep || (c._meta && c._meta.ui && c._meta.ui.csp));
         csps.push(csp);
         res.writeHead(200, { 'content-type': 'text/html', 'content-security-policy': csp }); res.end(SANDBOX_HTML); return;
       }
@@ -129,14 +133,16 @@ async function start({ cors = true, panelApi = null } = {}) {
 
 const wait = (page, fn, arg, ms = 20000) => page.waitForFunction(fn, arg, { timeout: ms }).then(() => true, () => false);
 
-async function scenario(browser, check, name, { uri, cors = true, panelApi = null, granted = true, shots = null, mode = 'inline' }) {
-  const srv = await start({ cors, panelApi });
+const BLOCKED = 'This app can\'t reach cloadm.dev here. Ask Claude to open the offline copy.';
+// granted: true (the site's domains), false (none: {}), or a csp object as the host gives it; caps: more host capabilities
+async function scenario(browser, check, name, { uri, cors = true, panelApi = null, granted = true, caps = { message: {} }, shots = null, mode = 'inline' }) {
+  const srv = await start({ cors, panelApi, keep: granted !== true && granted !== false ? granted : null });
   const ctx = await browser.newContext({ viewport: { width: 700, height: 660 } });
   const page = await ctx.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message.slice(0, 200)));
-  const g = granted ? { resourceDomains: [srv.site], connectDomains: [srv.site] } : {};
-  const open = (conv) => page.goto(`http://claude.localhost:${srv.port}/?${new URLSearchParams({ proxy: `http://${conv}.sandbox.localhost:${srv.port}/sandbox?uri=${encodeURIComponent(uri)}`, granted: JSON.stringify(g), mode })}`);
+  const g = granted === true ? { resourceDomains: [srv.site], connectDomains: [srv.site] } : granted === false ? {} : granted;
+  const open = (conv) => page.goto(`http://claude.localhost:${srv.port}/?${new URLSearchParams({ proxy: `http://${conv}.sandbox.localhost:${srv.port}/sandbox?uri=${encodeURIComponent(uri)}`, granted: JSON.stringify(g), caps: JSON.stringify(caps), mode })}`);
   const view = () => page.frames().find((f) => f.url() === 'about:srcdoc');
   const call = (tool, args = {}) => page.evaluate(([n, a]) => window.callView('tools/call', { name: n, arguments: a }), [tool, args]);
   const data = (r) => (r && r.result ? r.result.structuredContent : null);
@@ -145,21 +151,43 @@ async function scenario(browser, check, name, { uri, cors = true, panelApi = nul
     const handshake = await wait(page, () => window.hostT.initialized && window.hostLists.length >= 1);
     check(`connector ${name}: the view shakes hands (ui/initialize, initialized) and the host lists its tools`, handshake, JSON.stringify(await page.evaluate(() => [window.hostT, window.hostLog])));
     const v = view();
-    check(`connector ${name}: the view runs under the spec's CSP for its declared domains`, srv.csps.length === 1 && (uri.includes('inline') ? !srv.csps[0].includes('cloadm.localhost') : srv.csps[0].includes(`script-src 'self' 'unsafe-inline' ${srv.site};`)), srv.csps[0]);
-    if (name === 'no-cors' || name === 'out-of-step') {
+    check(`connector ${name}: the view runs under the spec's CSP for its declared domains`, srv.csps.length === 1 && (uri.includes('inline') || name === 'kept-out' ? !srv.csps[0].includes('cloadm.localhost') : srv.csps[0].includes(`script-src 'self' 'unsafe-inline' ${srv.site};`)), srv.csps[0]);
+    if (name === 'no-cors' || name === 'kept-out') {
+      // Open CLOADM's view out of reach of the site (no CORS; a host whose csp has resourceDomains null): the person is
+      // told to ask for the offline copy, Claude is told by ui/message, and calls answer blocked
+      await wait(page, () => window.hostLog.includes('ui/message'), null, 10000);
+      const r = await call('screen_text', { machine_id: 'm1' });
+      const e = data(r) && data(r).error;
+      const st = await v.evaluate(() => document.getElementById('st').textContent);
+      const line = await v.evaluate(() => ({ text: document.getElementById('status').textContent, shown: document.getElementById('status').checkVisibility(), error: document.getElementById('status').className === 'error', st: document.getElementById('st').checkVisibility() }));
+      check(`connector ${name}: the status line says "${BLOCKED}" (not only in Details, which stays closed)`, line.shown && line.error && !line.st && line.text === BLOCKED, JSON.stringify(line));
+      check(`connector ${name}: Details says how it was blocked and that Claude was told by ui/message`,
+        (name === 'no-cors' ? /^blocked: the import of panel\.js failed/ : /^blocked: (the host does not allow http:\/\/cloadm\.localhost:\d+ \(sandbox csp resourceDomains null\)|the host's policy blocked http:\/\/cloadm\.localhost|the import of panel\.js failed)/).test(st) && / · reported: message · /.test(st), st);
+      const msg = await page.evaluate(() => window.hostMessages);
+      check(`connector ${name}: the host got one ui/message asking Claude to open the offline copy`, Array.isArray(msg) && msg.length === 1 && msg[0].role === 'user' && /open_emulator_inline/.test(msg[0].content[0].text), JSON.stringify(msg));
+      check(`connector ${name}: the host still has its full tool list, and a call is answered blocked at once, naming the offline copy`,
+        e && e.code === 'blocked' && /open_emulator_inline/.test(e.remedy) && (await page.evaluate(() => window.hostLists[0].length)) > 20, JSON.stringify(r).slice(0, 300));
+      if (shots) await page.screenshot({ path: path.join(shots, `connector-${name}.png`) });
+      return;
+    }
+    if (name === 'out-of-step') {
       const r = await call('screen_text', { machine_id: 'm1' });
       const code = data(r) && data(r).error && data(r).error.code;
       const st = await v.evaluate(() => document.getElementById('st').textContent);
-      check(`connector ${name}: the host still gets its handshake and full tool list, and a call is answered ${name === 'no-cors' ? 'not-started' : 'out-of-step'} at once`,
-        code === (name === 'no-cors' ? 'not-started' : 'out-of-step') && (await page.evaluate(() => window.hostLists[0].length)) > 20, `${JSON.stringify(r).slice(0, 300)} ${st}`);
+      check(`connector ${name}: the host still gets its handshake and full tool list, and a call is answered out-of-step at once`,
+        code === 'out-of-step' && (await page.evaluate(() => window.hostLists[0].length)) > 20, `${JSON.stringify(r).slice(0, 300)} ${st}`);
       const line = await v.evaluate(() => ({ text: document.getElementById('status').textContent, shown: document.getElementById('status').checkVisibility(), error: document.getElementById('status').className === 'error', st: document.getElementById('st').checkVisibility() }));
-      if (name === 'no-cors') check('connector no-cors: the reason is in Details', /error: .*(fetch|import|module)/i.test(st), st);
       check(`connector ${name}: the error the person must act on is on the status line, not only in Details (which stays closed)`, line.shown && line.error && !line.st
-        && (name === 'no-cors' ? /^CLOADM could not start: .*open_emulator_inline/.test(line.text) : /different releases.*open_emulator_inline/.test(line.text)), JSON.stringify(line));
+        && /different releases.*offline copy/.test(line.text), JSON.stringify(line));
       return;
     }
     const running = await wait(v, () => window.cloadmView && window.cloadmView.facts.storage !== '…');
     check(`connector ${name}: the emulator starts in the view`, running, `${await v.evaluate(() => document.getElementById('st').textContent)} ${errors.join(' | ')}`);
+    if (uri.includes('panel')) {
+      const quiet = await v.evaluate(() => ({ blocked: window.CLOADM_REACH.blocked, status: document.getElementById('status').textContent }));
+      check(`connector ${name}: a host that allows the site: no "can't reach" message and no ui/message`, quiet.blocked === null && !/can't reach/.test(quiet.status)
+        && !(await page.evaluate(() => window.hostLog.includes('ui/message'))), JSON.stringify(quiet));
+    }
     await wait(page, () => window.hostT.listChanged && window.hostLists.length >= 2, null, 10000);
     const t = await page.evaluate(() => ({ hostT: window.hostT, lists: window.hostLists }));
     const order = await v.evaluate(() => ({ init: window.CLOADM_BRIDGE.log.initSentAt, module: window.cloadmView.loadedAt }));
@@ -273,7 +301,7 @@ async function uiScenario(browser, check, { shots = null } = {}) {
     await v.click('#more'); await v.click('#details-item');
     const after = await v.evaluate(() => ({ open: document.getElementById('details').open, st: document.getElementById('st').checkVisibility(), text: document.getElementById('st').textContent, msg: document.getElementById('msg').textContent }));
     check('connector ui: ⋯ → Details opens every diagnostic (variant, host, mode, csp, storage, audio, bridge) and the raw load line', after.open && after.st
-      && ['variant: site', 'host: host-stub', 'mode: inline', 'csp: resourceDomains', 'storage: localStorage ok', 'audio: off until a click', 'bridge: init', 'list_changed sent'].every((x) => after.text.includes(x)) && /liza\.bin: .*exec \$3000/.test(after.msg), JSON.stringify(after));
+      && ['variant: site', 'host: host-stub', 'mode: inline', 'csp: resourceDomains', 'serverTools: null', 'serverResources: null', 'storage: localStorage ok', 'audio: off until a click', 'bridge: init', 'list_changed sent'].every((x) => after.text.includes(x)) && /liza\.bin: .*exec \$3000/.test(after.msg), JSON.stringify(after));
     const hint = await v.evaluate(() => { const p = document.querySelector('#details p.approve'); return { shown: !!p && p.checkVisibility(), text: p ? p.textContent : null }; });
     check('connector ui: Details says that on the Claude iOS app the connector must be set to "Manually approve" (a call the app blocks never reaches the view)', hint.shown
       && hint.text === 'On the Claude iOS app, set the CLOADM connector\'s Permission to "Manually approve" so Claude can type into and run the machine; read-only tools work either way.', JSON.stringify(hint));
@@ -708,7 +736,8 @@ async function connectorChecks(browser, check, { shots = null } = {}) {
   await scenario(browser, check, 'inline', { uri: 'ui://cloadm/inline.html', granted: false, shots, mode: 'fullscreen' });
   await uiScenario(browser, check, { shots });
   await phoneScenario(browser, check, { shots });
-  await scenario(browser, check, 'no-cors', { uri: 'ui://cloadm/panel.html', cors: false });
+  await scenario(browser, check, 'no-cors', { uri: 'ui://cloadm/panel.html', cors: false, shots });
+  await scenario(browser, check, 'kept-out', { uri: 'ui://cloadm/panel.html', granted: { resourceDomains: null, connectDomains: null }, shots });
   await scenario(browser, check, 'out-of-step', { uri: 'ui://cloadm/panel.html', panelApi: 999 });
 }
 module.exports = { connectorChecks, uiScenario, phoneScenario, specCsp };

@@ -34,10 +34,12 @@ In Cowork and Claude Code it runs on your computer instead, with your ROM files 
 
 The plugin's two servers are *cloadm-panel* (the side panel, at `https://mcp.cloadm.dev/mcp`) and *cloadm* (on your
 computer, `node cli/cloadm.js --mcp`); each Claude app uses the one it can.
+Claude lists the plugin as **CLOADM**. The side panel's server calls itself *CLOADM side panel*, and the one on your
+computer *CLOADM on this computer*, the name the Desktop extension has too.
 
 ### Without the plugin
 
-Add `https://mcp.cloadm.dev/mcp` as a custom connector (no sign-in). You get the side panel but not the skill that teaches Claude to play it well. Already added https://mcp.cloadm.dev/mcp as a custom connector? The plugin's cloadm-panel uses that same connector, so you won't have two; you can keep it. To add the skill on its own, download `cloadm-skill.zip` from the [Releases](https://github.com/yaniv-golan/CLOADM/releases) page and add it in claude.ai under Settings → Capabilities → Skills (steps not yet verified by the maintainers).
+Add `https://mcp.cloadm.dev/mcp` as a custom connector and name it **CLOADM** (no sign-in). You get the side panel but not the skill that teaches Claude to play it well. Already added https://mcp.cloadm.dev/mcp as a custom connector? The plugin's cloadm-panel uses that same connector, so you won't have two; you can keep it. To add the skill on its own, download `cloadm-skill.zip` from the [Releases](https://github.com/yaniv-golan/CLOADM/releases) page and add it in claude.ai under Settings → Capabilities → Skills (steps not yet verified by the maintainers).
 
 ## Which way should I install CLOADM for Claude?
 
@@ -452,7 +454,9 @@ account or organization has yet.
 **Use it:**
 
 1. In a chat with the connector enabled, ask Claude to open the emulator (for example "Open CLOADM"). It calls
-   `open_emulator` and the view appears: a Dragon 64 talking as LIZA, or BASIC if you have added ROMs there.
+   **Open CLOADM** (`open_emulator`) and the view appears: a Dragon 64 talking as LIZA, or BASIC if you have added ROMs
+   there. If the app keeps the view from reaching cloadm.dev, the view says "This app can't reach cloadm.dev here. Ask
+   Claude to open the offline copy." and tells Claude so, and Claude opens **Open CLOADM (offline copy)** instead.
 2. Open the view in the side panel (Claude's expand control, or **⋯ → Open in side panel** in the view, offered while
    it is not there already). Click the screen to type on it yourself. The toolbar has **Programs** (what this machine
    runs without ROMs: LIZA, the Welcome menu, and on the 6809 machines the colour demo, 2048 and Minesweeper),
@@ -499,21 +503,35 @@ Errors the panel adds to the [ones above](#results-and-errors):
 | Code | Meaning |
 |---|---|
 | `too-long` | the result is over 100,000 characters: ask for less (a shorter `peek` or `disassemble`, a narrower `find_bytes`, a smaller screenshot `scale`) |
-| `not-started` | the emulator in the view could not start (`detail` says why: cloadm.dev unreachable, for example) |
+| `blocked` | the app keeps the view from loading its code from cloadm.dev (`detail` says how): open the offline copy (`open_emulator_inline`) |
+| `not-started` | the emulator in the view could not start (`detail` says why) |
 | `not-ready` | a call came before the emulator had started, and it did not start within 15 s: call again |
 | `out-of-step` | the connector and the cloadm.dev site are from different releases (see below) |
 
-**Two views.** `open_emulator` (the default) is a small view whose emulator code comes from cloadm.dev
-(`_meta.ui.csp` declares `https://cloadm.dev` and nothing else, and the site sends `Access-Control-Allow-Origin: *`).
-`open_emulator_inline` carries all of the emulator's code, about 1 MiB, and loads nothing from anywhere: Claude uses
-it when the first view stays at "loading" or says `error`.
+**Two views.** **Open CLOADM** (`open_emulator`, "Opens the CLOADM emulator in a panel beside the chat. Use this
+first.") is a small view whose emulator code comes from cloadm.dev (`_meta.ui.csp` declares `https://cloadm.dev` and
+nothing else, and the site sends `Access-Control-Allow-Origin: *`). **Open CLOADM (offline copy)**
+(`open_emulator_inline`, "Only if Open CLOADM showed a blank or blocked panel: opens a larger copy that doesn't need to
+reach cloadm.dev.") carries all of the emulator's code, about 1 MiB, and loads nothing from anywhere.
+
+The small view watches its own load. It counts as blocked when the host's `ui/initialize` answer has
+`hostCapabilities.sandbox.csp` without cloadm.dev in its `resourceDomains` (written with or without the scheme or a
+trailing slash), when the browser reports a `securitypolicyviolation` for cloadm.dev, when the import of `panel.js`
+fails, or when nothing has loaded after about 8 s (unless the host's csp allows cloadm.dev: then it is only slow). The
+first and the last are only signs: if `panel.js` loads after all, the view starts, and Claude is told on the same
+channel that it loaded and to keep using it. A wait that runs out before the host has answered `ui/initialize` is not
+reported until it does, and is dropped unsaid when that answer allows cloadm.dev. Then the status line says "This app can't reach cloadm.dev here. Ask
+Claude to open the offline copy.", every tool call answers `blocked`, and Claude is told: by `ui/message` when the host
+offers it (`hostCapabilities.message`), else by `ui/update-model-context` when it offers that. **Details** names the
+cause and the channel (`blocked: … · reported: message`), and, for every host, its `serverTools` and
+`serverResources` capabilities, which say whether a host could call the connector's own tools from inside the view.
 
 **Releases.** The first view loads `connector/view/panel.js` from cloadm.dev, which loads `js/` from beside it, so the
 glue between the view and the emulator always comes from the same release of the site as the emulator itself. What
 the connector itself carries (the bridge that talks to Claude, and the tool list Claude sees before the emulator has
 loaded) is checked against the site's with a version number, `PANEL_API` (`connector/view/tools.js`): when they
 differ, the tools answer `out-of-step` rather than half working, and the emulator's own tool list replaces the
-connector's as soon as it has loaded. The self-contained view has no such dependency. The connector's server and its
+connector's as soon as it has loaded. The offline copy has no such dependency. The connector's server and its
 deployment: [deploy-connector.md](deploy-connector.md).
 
 **Privacy.** The connector's server receives Claude's requests for its tool list and its views, nothing more: what you

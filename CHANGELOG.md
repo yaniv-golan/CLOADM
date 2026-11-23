@@ -10,6 +10,19 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Added
 
+- **Open CLOADM, and the offline copy only when needed.** The side panel's two tools are now **Open CLOADM**
+  (`open_emulator`, "Opens the CLOADM emulator in a panel beside the chat. Use this first.") and **Open CLOADM
+  (offline copy)** (`open_emulator_inline`, for a blank or blocked panel only). The small view watches its own load:
+  when the host's `ui/initialize` answer leaves cloadm.dev out of `hostCapabilities.sandbox.csp.resourceDomains`, the
+  browser reports a policy violation for cloadm.dev, the import of `panel.js` fails, or nothing has loaded after about
+  8 s (unless the host's csp allows cloadm.dev), it says "This app can't reach cloadm.dev here. Ask Claude to open
+  the offline copy.", answers every call `blocked`, and tells Claude by `ui/message` (or `ui/update-model-context`)
+  so Claude opens the offline copy without being asked. A block on the host's csp or the wait alone gives way when
+  `panel.js` loads after all, and Claude is then told to keep using that view. Details also shows the host's `serverTools` and `serverResources` capabilities.
+- **The names people see.** The plugin is **CLOADM**; the side panel's server is *CLOADM side panel*
+  (`cloadm-panel`), the local server *CLOADM on this computer* (`cloadm-files`), which is also the Desktop
+  extension's name. Every tool's title is a plain verb ("Type text", "Read the screen", "Read memory"). Adding the
+  connector by hand: name it **CLOADM**.
 - **Side panel on the Claude iOS app: "Manually approve".** With the CLOADM connector's Permission on its default
   setting, the iOS app blocks the panel's tools that are not read-only (type_text and the rest) without showing a
   prompt. The panel's **Details**, the side-panel guide (`docs/mcp.md`) and the phone check in

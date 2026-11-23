@@ -74,6 +74,11 @@ check('marketplace.json gives no version that differs', marketVersions.every((v)
 
 // ---------------- names and paths ----------------
 check('plugin.json: name "cloadm"', J.plugin.name === 'cloadm');
+// what people see: the plugin is "CLOADM" (its id stays cloadm), the Desktop extension is the local server, "CLOADM on
+// this computer", as that server's own title says (cli/mcp.js)
+check('plugin.json: displayName "CLOADM"', J.plugin.displayName === 'CLOADM', JSON.stringify(J.plugin.displayName));
+check('mcpb: display_name "CLOADM on this computer", the local server\'s title',
+  J.mcpb.display_name === 'CLOADM on this computer' && /title: 'CLOADM on this computer'/.test(fs.readFileSync(rel('cli/mcp.js'), 'utf8')), JSON.stringify(J.mcpb.display_name));
 check('marketplace.json: name "cloadm-marketplace", an owner, one plugin "cloadm" at "./" with a description',
   J.market.name === 'cloadm-marketplace' && J.market.owner && J.market.owner.name && Array.isArray(J.market.plugins) &&
   J.market.plugins.length === 1 && J.market.plugins[0].name === 'cloadm' && J.market.plugins[0].source === './' && !!J.market.plugins[0].description);
@@ -178,7 +183,7 @@ function launch(command, args, home) {
     child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' }) + '\n');
   });
 }
-const answered = (r) => r.msgs.length >= 2 && r.msgs[0] && r.msgs[0].id === 1 && r.msgs[0].result && r.msgs[0].result.serverInfo.name === 'cloadm' &&
+const answered = (r) => r.msgs.length >= 2 && r.msgs[0] && r.msgs[0].id === 1 && r.msgs[0].result && r.msgs[0].result.serverInfo.name === 'cloadm-files' &&
   r.msgs[1] && r.msgs[1].id === 2 && r.msgs[1].result && r.msgs[1].result.tools.length === serverTools.length;
 
 (async () => {
