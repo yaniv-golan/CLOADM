@@ -893,9 +893,15 @@ class Coco3Machine extends Machine {
     COMPAT_PALETTE.forEach((c, i) => w(0xFFB0 + i, c));
     w(0xFF01, 0x00); w(0xFF00, 0x00); w(0xFF01, 0x34);
     w(0xFF03, 0x00); w(0xFF02, 0xFF); w(0xFF03, 0x35);   // FS IRQ enabled
+    // PIA1 port A: mark (PA1, the RS-232 out, high) in the output register BEFORE the DDR makes PA1 an output, as a
+    // printer routine leaves the line between characters; made an output with 0 there, the line dropped to space and
+    // the 600-baud serial printer read the drop as a start bit and printed a NUL at every start (MAME 0.264 too:
+    // tools/mame-diff/sam/printer-stubinit.asm, run.js coco --printer --stub-init).
+    // (A CoCo 3's PA1 is always the RS-232 out.)
+    w(0xFF21, 0x34); w(0xFF20, 0x82);
     w(0xFF21, 0x00); w(0xFF20, 0xFE); w(0xFF21, 0x34);   // motor off
     w(0xFF23, 0x00); w(0xFF22, 0xFE); w(0xFF23, 0x3C);   // sound enabled
-    w(0xFF20, 0x80); w(0xFF22, 0x04);                    // DAC mid, text mode
+    w(0xFF20, 0x82); w(0xFF22, 0x04);                    // DAC mid (and the RS-232 out still at mark), text mode
     for (let b = 0; b < 7; b++) w(0xFFC6 + b * 2 + (b === 1 ? 1 : 0), 0);  // SAM F = 2: text at $0400
     // secondary vectors at $FEEE..$FEFD jump to the CoCo 1/2 RAM vectors at $0100..$010F
     const pv = [0x0100, 0x0103, 0x010F, 0x010C, 0x0106, 0x0109];

@@ -269,6 +269,7 @@ node tools/mame-diff/run.js coco3 --video --composite [--artifact N]   # the CoC
 node tools/mame-diff/run.js <profile> --raster  # mid-line video changes swept across every beam position, against MAME
 node tools/mame-diff/run.js coco3 --vsc   # the GIME's vertical fine scroll ($FF9C): lockstep, every case's pixels, our scroll against MAME's pictures
 node tools/mame-diff/run.js <profile> --printer # printer output byte for byte against MAME's printer file
+node tools/mame-diff/run.js coco --printer --stub-init # the same, with PIA1 set up as the no-ROM stub sets it up: nothing printed before the first byte
 node tools/mame-diff/run.js <profile> --serial  # the bit-banger (or the Dragon 64's 6551) in lockstep with MAME's loopback plug
 node tools/mame-diff/drivewire/run-dw.js [profile ...] [--no-trace]  # DriveWire over the Becker port: lockstep with MAME (TCP to our server), and byte for byte
 node tools/nitros9/fetch.js && node tests/nitros9.test.js   # NitrOS-9 boot test (images fetched to a cache, never committed; tests/os9.test.js, tests/nitros9-session.test.js and the browser check's nitros9 group use them too, and skip without them)

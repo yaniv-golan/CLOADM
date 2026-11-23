@@ -436,6 +436,12 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Fixed
 
+- **A printout on a CoCo no longer starts with a NUL.** The no-ROM stub made PIA1's PA1 (the RS-232 out) an output
+  while its output register held 0, so the line dropped to space at every start and the 600-baud serial printer
+  printed a $00 before anything a program sent (MAME 0.264 prints the same from that order). The stub now puts mark
+  there first, as a printer routine leaves the line, on every CoCo-lineage model and the CoCo 3; the Dragons, whose
+  port A is the parallel printer's, are unchanged. `run.js coco --printer --stub-init` compares the stub's start with
+  MAME byte for byte; `tests/stub-printer.test.js` checks the printed bytes.
 - **A disk in a drive counts toward the install offer.** The page's "program in use" test (the one the
   offer to install CLOADM as an app waits a minute of) asked the machine for a disk controller it never has, so a disk
   waiting in a drive at the bare prompt never counted; it now asks the drives (`session.drives.controllerOf`). The

@@ -1161,6 +1161,13 @@ names it.
   * The serial printers sample each bit at its middle, 1.5 to 9.5 bit times after the start edge, as MAME's
     `diserial.cpp` does (`js/machines/serial.js`). Making the line an output while it holds 0 is a start bit:
     the firmware sets the output register before the DDR.
+  * `run.js coco --printer --stub-init` runs `sam/printer-stubinit.asm`, which sets PIA1 up exactly as CLOADM's
+    no-ROM stub does (`js/machines/sam.js` and `coco3.js` stubInit) before the same print. Before 0.2 the stub made
+    PA1 an output with 0 in its output register, then wrote $80: MAME 0.264 and ours both printed one NUL before the
+    first byte (306 bytes identical, the extra one a $00), so every program started on the stub had a printout
+    beginning with $00. The stub now puts mark in the output register first: **305 bytes identical**, nothing
+    before the first byte sent, trace identical to HALT (3,211,861 instructions). `tests/stub-printer.test.js`
+    checks the printed bytes of every CoCo-lineage stub, and that the Dragons' stub prints only the reset's byte.
 
 * `node tools/mame-diff/run.js <profile> --serial` runs `sam/serial-loopback.asm` (`mc10/serial-loopback.asm`) with
   a loopback plug on the bit-banger, in lockstep with MAME's `-rs232 loopback`: the firmware sends 13 bytes as

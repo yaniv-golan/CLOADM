@@ -248,11 +248,14 @@ end)`,
       machine: () => machine(profileId, slots, config), frames: 80 };
   },
   // printer firmware (lib/printer.js): the Dragons' parallel port, or the bit-banger's serial printer on the others
-  printer(profileId, { config = {}, work = `/tmp/mame-diff/${profileId}-printer` } = {}) {
+  // stubInit: printer-stubinit.asm instead of printer-serial.asm (the bit-banger set up as CLOADM's no-ROM stub sets it
+  // up: the printer must receive nothing from that start; CoCo 1/2)
+  printer(profileId, { config = {}, work = `/tmp/mame-diff/${profileId}-printer`, stubInit = false } = {}) {
     const Emu = loadEmu(), profile = Emu.profiles[profileId];
     const resolved = Emu.resolveConfig(profileId, Object.assign({ mameCompat: true }, config));
     const parallel = profile.lineage === 'dragon';
-    const { asm, bank0 } = images(parallel ? 'printer-parallel.asm' : 'printer-serial.asm');
+    if (stubInit && parallel) throw new Error(`${profileId}: --stub-init is the bit-banger's serial printer (a CoCo 1/2)`);
+    const { asm, bank0 } = images(parallel ? 'printer-parallel.asm' : stubInit ? 'printer-stubinit.asm' : 'printer-serial.asm');
     const slots = withChip(profile, slotData(profile, bank0, bank0));
     const files = {};
     for (const sl of profile.roms) for (const f of sl.files) files[f] = slots[sl.id];
