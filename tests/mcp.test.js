@@ -178,6 +178,15 @@ fs.writeFileSync(tmp('media', 'plain.bas'), '10 PRINT "HI"\n');
       || (t.annotations.readOnlyHint && (t.annotations.destructiveHint || !t.annotations.idempotentHint))
       || (!['list_models', 'list_machines', 'boot', 'add_roms', 'remove_roms'].includes(t.name) && !(sc.required || []).includes('machine_id'));
   });
+  // (besides the schemas being closed: the toolbox itself refuses an argument a tool does not take, by name)
+  {
+    const refused = [];
+    for (const t of list) {
+      const r = await s.call(t.name, { machine_id: 'm1', zz_not_a_parameter: 1 });
+      if (!(r.res.isError && r.error.code === 'bad-argument' && /"zz_not_a_parameter"/.test(r.error.detail || ''))) refused.push(`${t.name}: ${r.error && r.error.code}`);
+    }
+    check('every tool refuses an argument it does not take, naming it', !refused.length, refused.slice(0, 4).join('; '));
+  }
   check('tools/list: every schema an object root, closed, required inside properties; names, titles; all four hints on every tool (read-only ones idempotent, not destructive; openWorldHint only on add_roms, which fetches a URL); machine_id required', !badSchema.length, badSchema.map((t) => t.name).join());
   const pageSchemaSame = [...Emu.readOnlyTools(), ...Emu.actingTools()].every((p) => {
     const t = list.find((x) => x.name === p.name), props = Object.assign({}, t.inputSchema.properties);
