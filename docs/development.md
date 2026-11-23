@@ -59,6 +59,15 @@ gates are still required:
 When a full run fails, its last line names the failing suites (`FAILED: a.test.js, b.test.js`); rerun just those with
 `--only` while you fix them, then the full gate again.
 
+### Before you push
+
+`node tools/affected.js [<base>]` prints the two `--only` commands for the files changed since `<base>` (default
+`origin/main`): this table, as data. A page file no row knows (`js/ui/`, `css/`, `play/`) adds a fixed smoke set of
+groups (`models,semantics,pwa,uiQa,layout`). `node tools/prepush.js [--base <ref>]` is the author's checklist in one
+go: those suites and groups, then the full `node tests/all.js`; `sw.js`'s file list in step; `CHANGELOG.md` changed
+only under `[Unreleased]`; the two skill copies identical; a noreply `user.email`; the release tags present (fetched if
+not); and a report skeleton with the levels the change doesn't need marked not applicable. Neither is the gate.
+
 ## Tests and tools
 
 Contributors follow [AGENTS.md](../AGENTS.md): the rules, where code goes, and the proof required before a change

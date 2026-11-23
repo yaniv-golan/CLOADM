@@ -10,8 +10,11 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Added
 
-- `node tools/affected.js [<base>]` prints the `--only` suites and browser-check groups for a diff (docs/development.md's
-  fast-loop table, as data; `tests/affected.test.js` holds every file under `js/` to at least one of them).
+- Two tools for contributors: `node tools/affected.js [<base>]` prints the `--only` suites and browser-check groups
+  for a diff (docs/development.md's fast-loop table, as data; `tests/affected.test.js` holds every file under `js/` to
+  at least one of them), and `node tools/prepush.js` runs the author's checklist before a push (the affected suites
+  and groups, the full gate, `sw.js`'s file list, CHANGELOG edits only under `[Unreleased]`, the skill copies, a
+  noreply email, the release tags, and a report skeleton).
 - **Minesweeper plays with a joystick.** Either joystick moves the cursor: one step as the stick leaves the centre,
   then again after 300 ms and every 120 ms while it is held (counted in fields, at the machine's own 50 or 60 Hz;
   centring the stick and pushing the same way again is a new press). Either fire button opens the square under the

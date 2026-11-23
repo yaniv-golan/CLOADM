@@ -92,6 +92,7 @@ const AREAS = [
   { paths: ['tools/mame-diff/', 'tests/regress-hashes.json', 'tests/regress-shards.js', 'tests/regress-record.js'], suites: ['regress', 'mame-lib'], groups: [] },
   { paths: ['AGENTS.md', 'CLAUDE.md', 'CONTRIBUTING.md'], suites: ['fastloop', 'readme'], groups: [] },
   { paths: ['tools/affected.js'], suites: ['affected', 'fastloop'], groups: [] },
+  { paths: ['tools/prepush.js'], suites: ['prepush'], groups: [] },
 ];
 
 // The groups a page change gets when no row knows the panel's own: they load every model, read the page's
