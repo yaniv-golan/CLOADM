@@ -9924,6 +9924,21 @@ async function urlChecks(browser, base, check) {
   const msg = () => page.textContent('#toast');
   const ev = (fn, arg) => page.evaluate(fn, arg);
 
+  // the program pages (tools/program-cards.js): each sends the visitor to /play/?start=<program>, and its preview
+  // picture is served
+  for (const name of ['2048', 'liza', 'minesweeper']) {
+    const root = new URL('../', base).href;
+    await page.goto(`${root}${name}/`);
+    await page.waitForURL(/\/play\/\?start=/, { timeout: 15000 }).catch(() => {});   // the redirect, before the page is polled
+    const arrived = await waitFor(page, () => /\/play\/$/.test(location.pathname) && !!window.emu && window.emu.linkDone === true, null, 15000);
+    const where = await ev(() => location.pathname + location.search);
+    // (what the Session records once a program runs: LIZA, or the game by name)
+    const ran = arrived && await waitFor(page, (n) => { const r = window.emu.session.lastRun; return !!r && (n === 'liza' ? r.kind === 'liza' : r.kind === 'game' && r.name.toLowerCase() === n); }, name, 15000);
+    const card = await page.request.get(`${root}img/card-${name}.png`);
+    const png = card.ok() ? await card.body() : Buffer.alloc(0);
+    check(`link: the ${name} page opens /play/?start=${name}, the program runs, and its 1200x630 card is served`,
+      arrived && where === `/play/?start=${name}` && ran && png.length > 24 && png.readUInt32BE(16) === 1200 && png.readUInt32BE(20) === 630, `${where} ${png.length} bytes`);
+  }
   await open('?machine=coco3&cpu=6809&ram=512');
   check('link: machine=, cpu= and ram= (profile.options)', await ev(() => window.emu.machine.id === 'coco3' && window.emu.machine.config.ram === 512 && window.emu.machine.config.cpu === '6809'));
   await open('?machine=coco3&ram=48&foo=1');
@@ -15166,7 +15181,12 @@ async function shareChecks(browser, base, site, check) {
     const W = 16, uni = (a, k) => a.slice(k, k + W).every((v) => v === a[k]);
     const romWindows = new Set();
     for (const r of Object.values(roms)) for (let k = 0; k + W <= r.length; k++) if (!uni(r, k)) romWindows.add(Buffer.from(r.slice(k, k + W)).toString('hex'));
-    const decoded = Emu.state.fromJSON(zlib.gunzipSync(Buffer.from(new URL(shared.link).hash.slice(3), 'base64url')).toString('utf8'));
+    // the #z= link unpacked here with Node's zlib (a version byte, then deflate-raw of: u32 skeleton length, the JSON
+    // skeleton, the arrays' bytes), each { $bin, o, n } back as its bytes
+    const zbytes = Buffer.from(new URL(shared.link).hash.slice(3), 'base64url'), zbox = zlib.inflateRawSync(zbytes.subarray(1));
+    const zj = zbox.readUInt32LE(0), zbin = zbox.subarray(4 + zj);
+    const decoded = JSON.parse(zbox.subarray(4, 4 + zj).toString('utf8'), (k, v) => (v && typeof v === 'object' && typeof v.$bin === 'string' ? new Uint8Array(zbin.subarray(v.o, v.o + v.n)) : v));
+    decoded.$whole = new Uint8Array(zbin);   // and every byte of the array area, whatever names it
     const leaks = [];
     const scan = (v, at) => { if (ArrayBuffer.isView(v)) { const a = [...new Uint8Array(v.buffer, v.byteOffset, v.byteLength)]; for (let k = 0; k + W <= a.length; k++) if (!uni(a, k) && romWindows.has(Buffer.from(a.slice(k, k + W)).toString('hex'))) { leaks.push(`${at}@${k}`); break; } }
       else if (v && typeof v === 'object') for (const [key, x] of Object.entries(v)) scan(x, `${at}.${key}`); };

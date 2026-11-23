@@ -104,7 +104,7 @@ function checked(snap) {
 
 // ---------------- the compact link form (#z=) ----------------
 // A share link's moment (Session.snapshotLink writes '#z=' + base64url of these bytes):
-//   byte 0      the link format's version, LINK_VERSION (1)
+//   byte 0      the link format's version, LINK_VERSION (1); 2 to 31 are kept for later versions, which a page says are newer
 //   bytes 1...  deflate-raw (RFC 1951, no header or checksum) of the container:
 //     u32 little-endian J, the length of the skeleton
 //     J bytes     the skeleton: UTF-8 JSON of the snapshot { format, version, machine, name, taken, config, roms, state,
@@ -153,7 +153,8 @@ export async function encodeSnapshotLink(snap, { name, taken }) {
 export async function decodeSnapshotLink(bytes, { maxBytes = SNAPSHOT_MAX_BYTES } = {}) {
   const damaged = () => new SnapshotError('This link\'s snapshot is damaged: it was cut short or changed on the way.');
   if (!bytes || bytes.length < 2) throw damaged();
-  if (bytes[0] > LINK_VERSION) throw new SnapshotError(`This link was made by a newer CLOADM (link format ${bytes[0]}; this page reads ${LINK_VERSION}). Reload the page to update it.`);
+  // a version byte a little past ours is a newer CLOADM's; anything else is not a link this page wrote
+  if (bytes[0] > LINK_VERSION && bytes[0] < 32) throw new SnapshotError(`This link was made by a newer CLOADM (link format ${bytes[0]}; this page reads ${LINK_VERSION}). Reload the page to update it.`);
   if (bytes[0] !== LINK_VERSION) throw damaged();
   let box;
   try { box = await gunzipAtMost(bytes.subarray(1), maxBytes, 'deflate-raw'); } catch (e) { throw damaged(); }

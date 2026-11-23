@@ -121,6 +121,8 @@ const link = (box, version = 1) => new Uint8Array(Buffer.concat([Buffer.from([ve
       'not base64url': '#z=not*base64!',
       'one byte': '#z=AQ',
       'empty': '#z=',
+      'version 200 (not a version a CLOADM writes)': '#z=' + Emu.toBase64Url(Uint8Array.from([200, ...Emu.fromBase64Url(good.slice(3)).subarray(1)])),
+      'junk ("junk")': '#z=junk',
       'version 0': '#z=' + Emu.toBase64Url(Uint8Array.from([0, ...Emu.fromBase64Url(good.slice(3)).subarray(1)])),
       'not deflate': '#z=' + Buffer.from([1, 0xFF, 0xFF, 0xFF, 0xFF]).toString('base64url'),
       'a length past the end': '#z=' + Buffer.from(link(Buffer.concat([u32(1000), Buffer.from('{}')]))).toString('base64url'),
