@@ -257,7 +257,9 @@ speech chip's sequencer (`js/chips/sp0256.js`, stage 2) runs one step per sample
 instruction set, the parameter decode for every load in all four modes, repeat counts with SETMODE's high bits,
 interpolation, deltas, PAUSE, JSR/RTS and PAGE, the LRQ/SBY handshake, and LRQ on the PIC's INT1. Its bit order is
 the one an unreversed AL2 dump speaks in (LSB first, branch addresses most significant bit first; GI's binary
-notation agrees). Both sides run our own images: the speech program from `ssc/sp0256-asm.js` (`ssc/gen-speak.js`:
+notation agrees). Both sides run our own images: the speech program from `ssc/sp0256-asm.js`, installed in MAME
+under the AL2's file name, `sp0256-al2.bin`, but always our own generated image, never a real SP0256-AL2, which is
+copyrighted and never fetched, recreated or used here (AGENTS.md hard rule 1) (`ssc/gen-speak.js`:
 50 allophones, one test each, each ending in a marker load whose timing a misframed field would change), a PIC
 program that loads allophones 1-50 as the chip's LRQ asks for them, and a 6809 program that reads `$FF7E` once the
 last load is made. Two checks, both passing on MAME 0.264:

@@ -1,4 +1,5 @@
-// sp0256-asm.js: our own assembler for SP0256 programs, so the speech chip can be tested and compared with MAME on
+// sp0256-asm.js: our own assembler for SP0256 programs (its images are what the comparisons install as
+// "sp0256-al2.bin", MAME's file name; never a real AL2), so the speech chip can be tested and compared with MAME on
 // images this project builds (AGENTS.md hard rule 1: the SP0256-AL2's program is copyrighted and never used here).
 //
 // The image is the AL2's 2 KB, at $1000-$17FF of the chip's address space (MAME's coco_ssc region; the Pak's

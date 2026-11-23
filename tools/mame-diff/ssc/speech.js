@@ -63,6 +63,7 @@ function mame(profileId, seconds = SECONDS) {
   fs.rmSync(work, { recursive: true, force: true });
   const roms = machineRoms(profile);
   writeRoms(work, profile.mame, Object.fromEntries(profile.roms.map((r) => [r.files[0], roms[r.id]])));
+  // both are OUR images under MAME's file names: never a real SP0256-AL2 or PIC dump (AGENTS.md hard rule 1)
   writeRoms(work, 'coco_ssc', { 'pic-7040-510.bin': speakPic(), 'sp0256-al2.bin': speechImage() });
   const lua = `
 local m = manager.machine

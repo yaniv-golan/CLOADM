@@ -3,9 +3,11 @@
 //   build/pic-7040-510.bin   4 KB  our own TMS7040 firmware (ssc-pic.asm), assembled by our assembler
 //   build/sp0256-al2.bin     2 KB  our own SP0256 program (sp0256-asm.js), eight short allophone entries
 //
-// Neither is a real dump. At run time a user supplies their own copies of both under these names; these exist
-// so MAME and the tests can run the same bytes without one, through MAME's checksum-mismatch path (AGENTS.md
-// hard rule 1 and tools/mame-diff/lib/).
+// Neither is a real dump. "sp0256-al2.bin" here is ALWAYS our own generated image, installed under the file name
+// MAME's coco_ssc romset expects: never a real SP0256-AL2 (its program is copyrighted; AGENTS.md hard rule 1), and
+// nothing in this project fetches, recreates or reads one. At run time a user supplies their own copies of both
+// under these names; these exist so MAME and the tests can run the same bytes without one, through MAME's
+// checksum-mismatch path (tools/mame-diff/lib/).
 //
 // The SP0256 program is built by sp0256-asm.js, in the chip's own encoding (js/chips/sp0256.js: bits LSB first,
 // entry n at $1000 + 2n).
