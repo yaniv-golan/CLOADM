@@ -26,7 +26,9 @@ of one module per panel over a Session, and an embedding page can drive a Sessio
 | `js/media/` | File formats (`Emu.formats`), the cassette signal (`Emu.Tape`) and deck (`Emu.CassetteDeck`, which also records what the machine writes), `cassette.js`: WAV read and write, the signal of a `.CAS`, and decoding a signal back to `.CAS`, disk images (`disk.js`: VDK, JVC, DMK to and from flux tracks), and the media index and its one-time migration (`js/media/library.js`) |
 | `js/host/` | Browser keyboard mapping, audio output (the browser-free output stage `AudioOutput`; `audio-worklet.js`, the AudioWorklet processor and the `SampleQueue` it plays, which samples reach as transferred chunks through its MessagePort), small settings in localStorage, and the media storage backends (OPFS, File System Access, the download/import fallback) |
 | `js/asm/` | Two-pass assembler engine (`Emu.assemble(src, cpu)`) with one instruction-set plugin per CPU (`Emu.isa['6809']`, …), and the disassembler (`Emu.disassemble(cpu, addr, { peek, labelOf })`) with one opcode table per CPU (`js/asm/dis6809.js`, `js/asm/dis6803.js`, `js/asm/dis7000.js`) |
+| `js/machines/halt-replay.js` | The CoCo 3's HALT inside an instruction (`machine.halt`, a `HaltReplay`): where HALT arrived and was released in the last step, an I/O access waiting for the release, an instruction held past the end of a run and run again with its bus accesses replayed, and the outside writes queued while one is held. `js/machines/coco3.js` keeps the bus decode and the run loop, which use it |
 | `js/debugger.js`, `js/session.js`, `js/selftest.js` | The debugger (`Emu.Debugger`, reached through `Session.debug`), the DOM-free front end and the ROM self-test |
+| `js/drives.js` | The floppy drives of a Session (`Emu.DiskDrives`, `session.drives`): the disk controller and cartridge, blank disks, mounts from the media store and the writes back to it, the drives' status, and the links a restore point relinks |
 | `js/library.js` | The media library of a Session (`Emu.MediaLibrary`, `session.library`): what the person keeps in the media store (list, open, download, rename, delete, import), the recent list, disk-name creations one at a time, the store's case rule (`sameName`), and moving the library to another store |
 | `js/mcp/tools.js`, `cli/mcp.js` | The machine tools for MCP clients, transport-neutral (one table of name, schema, annotations and handler; the in-page Claude's tools run through the page's own path), and their stdio transports: the MCP server and `--serve` ([mcp.md](mcp.md)) |
 | `cli/cloadm.js` | The command-line tool: a Session in Node, run in emulated frames (`Session.runFrames`) with no clock, steps from the command line or a script, one step table described by `--describe` ([automation.md](automation.md)) |
@@ -152,7 +154,7 @@ released (`docs/verification.md`, CoCo 3 floppy HALT).
 **Writes from outside during a held access.** While that suspended instruction's events run, the CoCo 3 holds the
 machine at the held access's time (`heldIo`, above). A write from outside the CPU reaching the bus there would land
 in a state no instruction may see: a rate write (`$FFD6`-`$FFD9`) would drop the suspended instruction from inside
-its own event, before its halted cycles were charged. Such a write is queued (`Coco3Machine.outsideWrite`) and made at the machine's own
+its own event, before its halted cycles were charged. Such a write is queued (`HaltReplay.outsideWrite`) and made at the machine's own
 time - usually by the same run's after-loop flush, or `runCycles`' next top if a stall held it - where one made while
 parked lands, so the machine ends identically either way. The queue is carried in the machine's snapshot as `outsideWrites` (snapshot version 3; a version 1 or
 2 file has none and restores owing none), and a run that throws on its way out of the window
@@ -190,7 +192,7 @@ whole address space for its spin test, all on `session.hooks` and taken off when
 * A bus write tap added with `{ old: true }` also gets the byte the address read as just before the write
   (`machine.peek`, no bus cycle), read only for an address such a tap covers.
 * Each access is reported once. On the CoCo 3, an instruction suspended by the disk controller's HALT runs again from
-  its start and replays the accesses it made before the held one (`Coco3Machine.replayRead`/`replayWrite`); those
+  its start and replays the accesses it made before the held one (`HaltReplay.replayRead`/`replayWrite`); those
   were reported when they were made, so taps skip the replay (`Machine.replaying()`). The debugger's taps are the one
   exception (`{ replays: true }`): a watchpoint hit belongs to the instruction that completes, so the debugger drops
   what a suspended run saw and takes the accesses again from the run that completes it, as described above.

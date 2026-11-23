@@ -18,7 +18,7 @@
 //               while it does, and the Dragon's CART (DRQ) reaching the CPU only while CTS selects slot 4 (that
 //               part runs from RAM, as the ROM it runs from is switched out)
 //   <board>-format-<T>x<H>.asm  (dragon, premier, coco) formats a blank disk of T tracks and H sides in drive 0
-//               (the blank disks of Session.newDisk, js/media/disk.js blankDisk): reads sector 1 of track 0 and
+//               (the blank disks of DiskDrives.newDisk, js/media/disk.js blankDisk): reads sector 1 of track 0 and
 //               sector 18 of the last track and side first (what the blank holds), then a write track on every
 //               track and side, 18 sectors of 256 bytes numbered 1-18 with the track and side in their IDs and
 //               data that names the track and side (FILLS), logging each status; reads both back at the end

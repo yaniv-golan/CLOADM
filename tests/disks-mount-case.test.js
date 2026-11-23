@@ -23,18 +23,18 @@ const { check, failures } = checker();
     };
     const setup = async () => {
       const { s, media } = session('dragon64', 'dragondos', 'dragon');
-      await s.importDisk('x.vdk', images.vdk(40, 2), 0);
-      await s.ejectDisk(0);                        // drive 0 free for the mount
+      await s.drives.importImage('x.vdk', images.vdk(40, 2), 0);
+      await s.drives.eject(0);                        // drive 0 free for the mount
       return { s, media };
     };
     // the same, with the roles swapped: mount the ALREADY-lower-case name while drive 1 keeps writing the upper-case
     // one (a count kept under the lower-cased name would put the other file's writes on this mount's budget).
     {
       const { s, media } = session('dragon64', 'dragondos', 'dragon');
-      await s.importDisk('WORK.DSK', images.vdk(40, 1), 1);
-      await s.importDisk('work.dsk', images.vdk(40, 2), 0);
-      await s.ejectDisk(0);
-      const other = s.diskController.drives[1];
+      await s.drives.importImage('WORK.DSK', images.vdk(40, 1), 1);
+      await s.drives.importImage('work.dsk', images.vdk(40, 2), 0);
+      await s.drives.eject(0);
+      const other = s.drives.controller.drives[1];
       let reads = 0;
       const realRange = media.readRange.bind(media);
       media.readRange = async (name, ...a) => {
@@ -42,13 +42,13 @@ const { check, failures } = checker();
         if (name === 'disks/work.dsk') {
           reads++;
           other.media.onWrite(0x100 + 0x10 * reads, new Uint8Array([0x5A]), other.media.bytes.length);
-          await s.diskWritesDone().catch(() => {});
+          await s.drives.writesDone().catch(() => {});
         }
         return out;
       };
-      const out = await s.mountDisk(0, 'work.dsk').then((m) => m, (e) => e);
+      const out = await s.drives.mount(0, 'work.dsk').then((m) => m, (e) => e);
       media.readRange = realRange;
-      const d = s.diskController.drives[0];
+      const d = s.drives.controller.drives[0];
       check('mounting the lower-case name while the other file\'s spelling folds onto it is written throughout: it still mounts',
         out === 'work.dsk in drive 0' && d.loaded, `${out instanceof Error ? out.message : out}; reads=${reads}`);
       check('... having read once (the two spellings are two stored files here)', reads === 1, `reads=${reads}`);
@@ -60,8 +60,8 @@ const { check, failures } = checker();
     // changes and spend the mount's budget: without let-up the mount gives up after four reads, clearly and bounded.
     {
       const { s, media } = session('dragon64', 'dragondos', 'dragon', { storeOpts: { caseInsensitive: true } });
-      await s.importDisk('work.dsk', images.vdk(40, 2), 0);
-      await s.ejectDisk(0);
+      await s.drives.importImage('work.dsk', images.vdk(40, 2), 0);
+      await s.drives.eject(0);
       let reads = 0;
       const realRange = media.readRange;
       // each read of the image is followed by a write to it under the OTHER spelling (the link names WORK.DSK). The
@@ -71,27 +71,27 @@ const { check, failures } = checker();
         if (name === 'disks/work.dsk' && reads < 20) {
           reads++;
           const cur = await media.read('disks/work.dsk');
-          s.diskLink('disks/WORK.DSK')(0x100, new Uint8Array([reads & 0xFF]), cur.length);
-          await s.diskWritesDone().catch(() => {});
+          s.drives.link('disks/WORK.DSK')(0x100, new Uint8Array([reads & 0xFF]), cur.length);
+          await s.drives.writesDone().catch(() => {});
         }
         return out;
       };
-      const out = await s.mountDisk(0, 'work.dsk').then((m) => m, (e) => e);
+      const out = await s.drives.mount(0, 'work.dsk').then((m) => m, (e) => e);
       media.readRange = realRange;
       check('a case-insensitive store whose image keeps changing under another spelling: the mount gives up clearly',
         out instanceof Emu.SessionError && /kept writing while it was read; try again/.test(out.message),
         out instanceof Error ? out.message : String(out));
       check('... after 4 reads (the first and three more: one limit, because these are this image\'s own writes)',
         reads === 4, `reads=${reads}`);
-      check('... and nothing was mounted', !s.diskController.drives[0].loaded);
+      check('... and nothing was mounted', !s.drives.controller.drives[0].loaded);
     }
     // A write under the other spelling that is STILL LANDING when the read returns must not be missed (a case-
     // insensitive store). Pass 1 has a byte-neutral rewrite (a byte comparison would be fooled by it); pass 2's
     // real write is queued as that read finishes, so the mount must count it rather than look at bytes.
     {
       const { s, media } = session('dragon64', 'dragondos', 'dragon', { storeOpts: { caseInsensitive: true } });
-      await s.importDisk('work.dsk', images.vdk(40, 2), 0);
-      await s.ejectDisk(0);
+      await s.drives.importImage('work.dsk', images.vdk(40, 2), 0);
+      await s.drives.eject(0);
       let reads = 0;
       const realRange = media.readRange;
       media.readRange = async (name, ...a) => {
@@ -100,17 +100,17 @@ const { check, failures } = checker();
           reads++;
           if (reads === 1) {
             const cur = await media.read('disks/work.dsk');
-            s.diskLink('disks/WORK.DSK')(0x100, cur.slice(0x100, 0x104), cur.length);
-            await s.diskWritesDone().catch(() => {});
+            s.drives.link('disks/WORK.DSK')(0x100, cur.slice(0x100, 0x104), cur.length);
+            await s.drives.writesDone().catch(() => {});
           } else if (reads === 2) {
-            s.diskLink('disks/WORK.DSK')(0x400, new Uint8Array([0x77, 0x77, 0x77, 0x77]), (await media.stat('disks/work.dsk')).size);
+            s.drives.link('disks/WORK.DSK')(0x400, new Uint8Array([0x77, 0x77, 0x77, 0x77]), (await media.stat('disks/work.dsk')).size);
           }
         }
         return out;
       };
-      const out = await s.mountDisk(0, 'work.dsk').then((m) => m, (e) => e);
+      const out = await s.drives.mount(0, 'work.dsk').then((m) => m, (e) => e);
       media.readRange = realRange;
-      const d = s.diskController.drives[0], stored = await media.read('disks/work.dsk');
+      const d = s.drives.controller.drives[0], stored = await media.read('disks/work.dsk');
       check('a write under another spelling that lands after the read returns is not missed (case-insensitive store)',
         out === 'work.dsk in drive 0' && d.loaded && !!d.media && d.media.bytes[0x400] === 0x77 && same(d.media.bytes, stored),
         `${out instanceof Error ? out.message : out}; reads=${reads}; mounted=${d.loaded}${d.media ? `; byte=${d.media.bytes[0x400]}` : ''}`);
@@ -121,14 +121,14 @@ const { check, failures } = checker();
     for (const caseInsensitive of [false, true]) {
       const { s, media } = session('dragon64', 'dragondos', 'dragon', { storeOpts: { caseInsensitive } });
       const a = images.vdk(40, 2);
-      await s.importDisk('a.vdk', a, 0); await s.ejectDisk(0);
-      if (!caseInsensitive) { await s.importDisk('A.vdk', images.vdk(40, 2), 1); await s.ejectDisk(1); }
+      await s.drives.importImage('a.vdk', a, 0); await s.drives.eject(0);
+      if (!caseInsensitive) { await s.drives.importImage('A.vdk', images.vdk(40, 2), 1); await s.drives.eject(1); }
       const reads = raceFirstRead(media, 'disks/a.vdk', async () => {
-        s.diskLink('disks/A.vdk')(0x300, new Uint8Array([0x5A]), a.length);
-        await s.diskWritesDone().catch(() => {});
+        s.drives.link('disks/A.vdk')(0x300, new Uint8Array([0x5A]), a.length);
+        await s.drives.writesDone().catch(() => {});
       });
-      const out = await s.mountDisk(0, 'a.vdk').then((m) => m, (e) => e);
-      const d = s.diskController.drives[0], stored = await media.read('disks/a.vdk');
+      const out = await s.drives.mount(0, 'a.vdk').then((m) => m, (e) => e);
+      const d = s.drives.controller.drives[0], stored = await media.read('disks/a.vdk');
       const held = d.loaded && same(d.media.bytes, stored);
       if (!caseInsensitive) {
         check('case-sensitive store: a write to A.vdk during a.vdk\'s mount does not re-read it, and the drive holds a.vdk as stored',
@@ -145,12 +145,12 @@ const { check, failures } = checker();
     for (const caseInsensitive of [false, true]) {
       const { s, media } = session('dragon64', 'dragondos', 'dragon', { storeOpts: { caseInsensitive } });
       const a = images.vdk(40, 2);
-      await s.importDisk('a.vdk', a, 0); await s.ejectDisk(0);
+      await s.drives.importImage('a.vdk', a, 0); await s.drives.eject(0);
       const reads = raceFirstRead(media, 'disks/a.vdk', async () => {
-        s.diskLink('disks/a.vdk')(0x500, new Uint8Array([0x66]), a.length);   // queued, not waited for
+        s.drives.link('disks/a.vdk')(0x500, new Uint8Array([0x66]), a.length);   // queued, not waited for
       });
-      const out = await s.mountDisk(0, 'a.vdk').then((m) => m, (e) => e);
-      const d = s.diskController.drives[0], stored = await media.read('disks/a.vdk');
+      const out = await s.drives.mount(0, 'a.vdk').then((m) => m, (e) => e);
+      const d = s.drives.controller.drives[0], stored = await media.read('disks/a.vdk');
       check(`an own-name write queued as the read returns is not missed: the drive holds the new bytes (${caseInsensitive ? 'case-insensitive' : 'case-sensitive'} store)`,
         out === 'a.vdk in drive 0' && reads() === 2 && d.loaded && d.media.bytes[0x500] === 0x66 && same(d.media.bytes, stored),
         `${out instanceof Error ? out.message : out}; reads=${reads()}`);
@@ -162,22 +162,22 @@ const { check, failures } = checker();
     {
       const { s, media } = session('dragon64', 'dragondos', 'dragon', { storeOpts: { caseInsensitive: false } });
       const a = images.vdk(40, 2);
-      await s.importDisk('a.vdk', a, 0); await s.ejectDisk(0);
-      await s.importDisk('A.vdk', images.vdk(40, 2), 1); await s.ejectDisk(1);
+      await s.drives.importImage('a.vdk', a, 0); await s.drives.eject(0);
+      await s.drives.importImage('A.vdk', images.vdk(40, 2), 1); await s.drives.eject(1);
       const realList = media.list.bind(media);
       let injected = false;
       media.list = async (...x) => {
-        if (!injected) { injected = true; s.diskLink('disks/a.vdk')(0x700, new Uint8Array([0x3C]), a.length); }
+        if (!injected) { injected = true; s.drives.link('disks/a.vdk')(0x700, new Uint8Array([0x3C]), a.length); }
         return realList(...x);
       };
       raceFirstRead(media, 'disks/a.vdk', async () => {
-        s.diskLink('disks/A.vdk')(0x300, new Uint8Array([0x5A]), a.length);
-        await s.diskWritesDone().catch(() => {});
+        s.drives.link('disks/A.vdk')(0x300, new Uint8Array([0x5A]), a.length);
+        await s.drives.writesDone().catch(() => {});
       });
-      const out = await s.mountDisk(0, 'a.vdk').then((m) => m, (e) => e);
+      const out = await s.drives.mount(0, 'a.vdk').then((m) => m, (e) => e);
       media.list = realList;
-      await s.diskWritesDone().catch(() => {});
-      const d = s.diskController.drives[0], stored = await media.read('disks/a.vdk');
+      await s.drives.writesDone().catch(() => {});
+      const d = s.drives.controller.drives[0], stored = await media.read('disks/a.vdk');
       check('finding 1 probe: an own-name write in the window after the change check does not leave the drive on stale bytes',
         out === 'a.vdk in drive 0' && d.loaded && same(d.media.bytes, stored),
         `${out instanceof Error ? out.message : out}; injected=${injected}; drive[0x700]=${d.loaded ? d.media.bytes[0x700] : '-'}; stored[0x700]=${stored[0x700]}`);
@@ -187,15 +187,15 @@ const { check, failures } = checker();
     {
       const { s, media } = session('dragon64', 'dragondos', 'dragon', { storeOpts: { caseInsensitive: false } });
       const a = images.vdk(40, 2);
-      await s.importDisk('a.vdk', a, 0); await s.ejectDisk(0);
-      await s.importDisk('A.vdk', images.vdk(40, 2), 1); await s.ejectDisk(1);
+      await s.drives.importImage('a.vdk', a, 0); await s.drives.eject(0);
+      await s.drives.importImage('A.vdk', images.vdk(40, 2), 1); await s.drives.eject(1);
       const reads = raceFirstRead(media, 'disks/a.vdk', async () => {
-        s.diskLink('disks/A.vdk')(0x300, new Uint8Array([0x5A]), a.length);
-        s.diskLink('disks/a.vdk')(0x600, new Uint8Array([0x44]), a.length);
-        await s.diskWritesDone().catch(() => {});
+        s.drives.link('disks/A.vdk')(0x300, new Uint8Array([0x5A]), a.length);
+        s.drives.link('disks/a.vdk')(0x600, new Uint8Array([0x44]), a.length);
+        await s.drives.writesDone().catch(() => {});
       });
-      const out = await s.mountDisk(0, 'a.vdk').then((m) => m, (e) => e);
-      const d = s.diskController.drives[0], stored = await media.read('disks/a.vdk');
+      const out = await s.drives.mount(0, 'a.vdk').then((m) => m, (e) => e);
+      const d = s.drives.controller.drives[0], stored = await media.read('disks/a.vdk');
       check('case-sensitive store, own name and another spelling both written in one read: the mount re-reads and holds the new bytes',
         out === 'a.vdk in drive 0' && reads() === 2 && d.loaded && same(d.media.bytes, stored) && stored[0x600] === 0x44 && stored[0x300] !== 0x5A,
         `${out instanceof Error ? out.message : out}; reads=${reads()}`);
@@ -216,16 +216,16 @@ const { check, failures } = checker();
       await s.ready();                       // the index of an asynchronous store loads first, then the ROMs go in
       putRoms(s, 'dragon64', 'dragondos', 'dragon');
       const a = images.vdk(40, 2);
-      await s.importDisk('a.vdk', a, 0); await s.ejectDisk(0);
+      await s.drives.importImage('a.vdk', a, 0); await s.drives.eject(0);
       if (!fold) await media.write('disks/A.vdk', images.vdk(40, 2));
       check(`setup: the store's rule is unmeasured and the Session takes it as case-insensitive (store ${fold ? 'folds' : 'keeps spellings apart'})`,
         media.caseMeasured !== true && s.library.caseInsensitive === true);
       const reads = raceFirstRead(media, 'disks/a.vdk', async () => {
-        s.diskLink('disks/A.vdk')(0x300, new Uint8Array([0x5A]), a.length);
-        await s.diskWritesDone().catch(() => {});
+        s.drives.link('disks/A.vdk')(0x300, new Uint8Array([0x5A]), a.length);
+        await s.drives.writesDone().catch(() => {});
       });
-      const out = await s.mountDisk(0, 'a.vdk').then((m) => m, (e) => e);
-      const d = s.diskController.drives[0], stored = await media.read('disks/a.vdk');
+      const out = await s.drives.mount(0, 'a.vdk').then((m) => m, (e) => e);
+      const d = s.drives.controller.drives[0], stored = await media.read('disks/a.vdk');
       check(`unmeasured store (${fold ? 'in fact folds' : 'in fact keeps spellings apart'}): another spelling's write re-reads, and the drive holds the stored bytes`,
         out === 'a.vdk in drive 0' && reads() === 2 && d.loaded && same(d.media.bytes, stored) && (stored[0x300] === 0x5A) === fold,
         `${out instanceof Error ? out.message : out}; reads=${reads()}`);
@@ -242,20 +242,20 @@ const { check, failures } = checker();
       await s.ready();
       putRoms(s, 'dragon64', 'dragondos', 'dragon');
       const a = images.vdk(40, 2);
-      await s.importDisk('a.vdk', a, 0); await s.ejectDisk(0);
+      await s.drives.importImage('a.vdk', a, 0); await s.drives.eject(0);
       await media.write('disks/A.vdk', images.vdk(40, 2));
-      s.diskLink('disks/A.vdk')(0x300, new Uint8Array([0x5A]), a.length);
-      await s.diskWritesDone();
+      s.drives.link('disks/A.vdk')(0x300, new Uint8Array([0x5A]), a.length);
+      await s.drives.writesDone();
       const unmeasured = s.library.caseInsensitive === true && media.caseMeasured !== true;
       let measured = null;
       const reads = raceFirstRead(media, 'disks/a.vdk', async () => {
         measurable = true;
         measured = await s.library.refreshCase();
-        s.diskLink('disks/a.vdk')(0x900, new Uint8Array([0x42]), a.length);
-        await s.diskWritesDone().catch(() => {});
+        s.drives.link('disks/a.vdk')(0x900, new Uint8Array([0x42]), a.length);
+        await s.drives.writesDone().catch(() => {});
       });
-      const out = await s.mountDisk(0, 'a.vdk').then((m) => m, (e) => e);
-      const d = s.diskController.drives[0], stored = await media.read('disks/a.vdk');
+      const out = await s.drives.mount(0, 'a.vdk').then((m) => m, (e) => e);
+      const d = s.drives.controller.drives[0], stored = await media.read('disks/a.vdk');
       check('the store is measured case-sensitive during the read and the image changes once: the mount still reads again (one rule per pass)',
         unmeasured && measured === false && out === 'a.vdk in drive 0' && reads() === 2 && d.loaded && d.media.bytes[0x900] === 0x42 && same(d.media.bytes, stored),
         `${out instanceof Error ? out.message : out}; unmeasured=${unmeasured}; measured=${measured}; reads=${reads()}`);
@@ -263,19 +263,19 @@ const { check, failures } = checker();
     // mounting under UPPER case while the write comes in lower case, on a case-insensitive store: the mount re-reads
     {
       const { s, media } = session('dragon64', 'dragondos', 'dragon', { storeOpts: { caseInsensitive: true } });
-      await s.importDisk('upper.vdk', images.vdk(40, 1), 1); await s.ejectDisk(1);
+      await s.drives.importImage('upper.vdk', images.vdk(40, 1), 1); await s.drives.eject(1);
       let reads = 0;
       const realRange = media.readRange;
       media.readRange = async (name, ...a) => {
         const out = await realRange(name, ...a);
         if (name === 'disks/UPPER.vdk' && ++reads === 1) {
-          s.diskLink('disks/upper.vdk')(0x300, new Uint8Array([0x5A]), 12 + 40 * 1 * 18 * 256);
-          await s.diskWritesDone().catch(() => {});
+          s.drives.link('disks/upper.vdk')(0x300, new Uint8Array([0x5A]), 12 + 40 * 1 * 18 * 256);
+          await s.drives.writesDone().catch(() => {});
         }
         return out;
       };
-      const out = await s.mountDisk(0, 'disks/UPPER.vdk').then((m) => m, (e) => e);
-      const d = s.diskController.drives[0];
+      const out = await s.drives.mount(0, 'disks/UPPER.vdk').then((m) => m, (e) => e);
+      const d = s.drives.controller.drives[0];
       check('mounting under UPPER case, a change queued under lower case: the mount re-reads (case-insensitive store)',
         reads === 2 && d.loaded && d.media.bytes[0x300] === 0x5A && same(d.media.bytes, await media.read('disks/upper.vdk')),
         `${out instanceof Error ? out.message : out}; reads=${reads}`);

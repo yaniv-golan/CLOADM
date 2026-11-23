@@ -59,10 +59,12 @@ local space9 = m.devices[":maincpu"].spaces["program"]
 local spacep = pic.spaces["program"]
 local ncmd, portd, prevc = 0, 0, 0
 local rows = {}
+-- the taps are kept in a global: MAME removes a tap whose handle is collected
+TAPS = TAPS or {}
 local function tag() return tostring(ncmd) end
-space9:install_write_tap(0xFF7E, 0xFF7E, "cmd", function(off, data, mask) ncmd = ncmd + 1 end)
-spacep:install_write_tap(0x010A, 0x010A, "portd", function(off, data, mask) portd = data & 0xff end)
-spacep:install_write_tap(0x0108, 0x0108, "portc", function(off, data, mask)
+TAPS[1] = space9:install_write_tap(0xFF7E, 0xFF7E, "cmd", function(off, data, mask) ncmd = ncmd + 1 end)
+TAPS[2] = spacep:install_write_tap(0x010A, 0x010A, "portd", function(off, data, mask) portd = data & 0xff end)
+TAPS[3] = spacep:install_write_tap(0x0108, 0x0108, "portc", function(off, data, mask)
   local d = data & 0xff
   if (d & ${C_ACS}) == 0 then
     local bdir = (d & ${C_BDR}) ~= 0

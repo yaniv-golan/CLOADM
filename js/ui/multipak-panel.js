@@ -31,7 +31,7 @@ export function setupMultiPakPanel(page, { cartridge }) {
   };
   // the disk controllers this machine's family takes, in every slot's board menu
   const diskOptions = () => {
-    const choices = session.diskDosChoices().filter((c) => !c.builtin);
+    const choices = session.drives.dosChoices().filter((c) => !c.builtin);
     for (let n = 1; n <= 4; n++) {
       const sel = $(`selMpBoard${n}`), was = sel.value;
       for (const o of [...sel.options]) if (o.value.startsWith('dos:')) o.remove();

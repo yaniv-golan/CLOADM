@@ -1,0 +1,289 @@
+{
+ "report": {
+  "choices": [
+   {
+    "id": "dragondos",
+    "name": "DragonDOS cartridge",
+    "controller": "dragonfdc",
+    "rom": "ddos10.rom",
+    "ready": true,
+    "inserted": false
+   },
+   {
+    "id": "deltados",
+    "name": "Delta DOS cartridge",
+    "controller": "premierfdc",
+    "rom": "deltados.rom",
+    "ready": false,
+    "inserted": false
+   }
+  ],
+  "import0": "work.vdk in drive 0",
+  "import1": "other.vdk in drive 1",
+  "controller": "dragonfdc",
+  "count": 4,
+  "preferred": "dragondos",
+  "listed": [
+   "disks/other.vdk",
+   "disks/work.vdk"
+  ],
+  "poke": true,
+  "points": 1,
+  "halted": true,
+  "written": [
+   {
+    "name": "disks/other.vdk",
+    "size": 184332,
+    "sha": "80b3f978b19e6e036cf9f06fad580cad7773985e67fcefa4ab76cd31d90f9b54"
+   },
+   {
+    "name": "disks/work.vdk",
+    "size": 368652,
+    "sha": "3a37e8bd1e71f5dc4d9469f5062f8aa60f27d7e6cd26757218cafbbe1ff342d0"
+   }
+  ],
+  "restore": {
+   "notices": []
+  },
+  "restored": [
+   {
+    "name": "disks/other.vdk",
+    "size": 184332,
+    "sha": "f197eee599cc3283f06236c05c029f4e1d1346e46741f57ac9c3cad43895ffbe"
+   },
+   {
+    "name": "disks/work.vdk",
+    "size": 368652,
+    "sha": "ad13334e0c9b51f0d5694f990f44bcde6ab445d5e7056a8ab094ea986c79394b"
+   }
+  ],
+  "statusAfterRestore": {
+   "dos": {
+    "id": "dragondos",
+    "name": "DragonDOS cartridge",
+    "bare": false
+   },
+   "count": 4,
+   "drives": [
+    {
+     "drive": 0,
+     "name": "disks/work.vdk",
+     "file": "work.vdk",
+     "writeProtected": false,
+     "size": 368652,
+     "stored": true,
+     "unsaved": null
+    },
+    {
+     "drive": 1,
+     "name": "disks/other.vdk",
+     "file": "other.vdk",
+     "writeProtected": false,
+     "size": 184332,
+     "stored": true,
+     "unsaved": null
+    }
+   ]
+  },
+  "halted2": true,
+  "rewritten": [
+   {
+    "name": "disks/other.vdk",
+    "size": 184332,
+    "sha": "80b3f978b19e6e036cf9f06fad580cad7773985e67fcefa4ab76cd31d90f9b54"
+   },
+   {
+    "name": "disks/work.vdk",
+    "size": 368652,
+    "sha": "3a37e8bd1e71f5dc4d9469f5062f8aa60f27d7e6cd26757218cafbbe1ff342d0"
+   }
+  ],
+  "blank": "New blank disk: blank.vdk in drive 2",
+  "download": {
+   "name": "work.vdk",
+   "sha": "3a37e8bd1e71f5dc4d9469f5062f8aa60f27d7e6cd26757218cafbbe1ff342d0"
+  },
+  "status": {
+   "dos": {
+    "id": "dragondos",
+    "name": "DragonDOS cartridge",
+    "bare": false
+   },
+   "count": 4,
+   "drives": [
+    {
+     "drive": 0,
+     "name": "disks/work.vdk",
+     "file": "work.vdk",
+     "writeProtected": false,
+     "size": 368652,
+     "stored": true,
+     "unsaved": null
+    },
+    {
+     "drive": 1,
+     "name": "disks/other.vdk",
+     "file": "other.vdk",
+     "writeProtected": true,
+     "size": 184332,
+     "stored": true,
+     "unsaved": null
+    },
+    {
+     "drive": 2,
+     "name": "disks/blank.vdk",
+     "file": "blank.vdk",
+     "writeProtected": false,
+     "size": 184332,
+     "stored": true,
+     "unsaved": null
+    }
+   ]
+  },
+  "activity": [
+   false,
+   false,
+   false,
+   false
+  ],
+  "settings": "{\"format\":\"cloadm-settings\",\"version\":1,\"settings\":{\"keyboardMode\":\"positional\",\"machine\":\"dragon64\"}}",
+  "snapshotName": "Dragon64-20260102-030405.cloadm",
+  "opened": "Snapshot opened: Dragon 64",
+  "statusOpened": {
+   "dos": {
+    "id": "dragondos",
+    "name": "DragonDOS cartridge",
+    "bare": false
+   },
+   "count": 4,
+   "drives": [
+    {
+     "drive": 0,
+     "name": "disks/work.vdk",
+     "file": "work.vdk",
+     "writeProtected": false,
+     "size": 368652,
+     "stored": false,
+     "unsaved": null
+    },
+    {
+     "drive": 1,
+     "name": "disks/other.vdk",
+     "file": "other.vdk",
+     "writeProtected": true,
+     "size": 184332,
+     "stored": false,
+     "unsaved": null
+    },
+    {
+     "drive": 2,
+     "name": "disks/blank.vdk",
+     "file": "blank.vdk",
+     "writeProtected": false,
+     "size": 184332,
+     "stored": false,
+     "unsaved": null
+    }
+   ]
+  },
+  "kept": "refused: Your Library already has a disk named work.vdk; download this one instead.",
+  "keptBlank": "Saved blank.vdk to your Library",
+  "statusKept": {
+   "dos": {
+    "id": "dragondos",
+    "name": "DragonDOS cartridge",
+    "bare": false
+   },
+   "count": 4,
+   "drives": [
+    {
+     "drive": 0,
+     "name": "disks/work.vdk",
+     "file": "work.vdk",
+     "writeProtected": false,
+     "size": 368652,
+     "stored": false,
+     "unsaved": null
+    },
+    {
+     "drive": 1,
+     "name": "disks/other.vdk",
+     "file": "other.vdk",
+     "writeProtected": true,
+     "size": 184332,
+     "stored": false,
+     "unsaved": null
+    },
+    {
+     "drive": 2,
+     "name": "disks/blank.vdk",
+     "file": "blank.vdk",
+     "writeProtected": false,
+     "size": 184332,
+     "stored": true,
+     "unsaved": null
+    }
+   ]
+  },
+  "stored": [
+   {
+    "name": "disks/blank.vdk",
+    "size": 184332,
+    "sha": "b6d7fb0c14619723337cd9090a249743f7198896242adc4cadfdf45944bf2bc0"
+   },
+   {
+    "name": "disks/other.vdk",
+    "size": 184332,
+    "sha": "80b3f978b19e6e036cf9f06fad580cad7773985e67fcefa4ab76cd31d90f9b54"
+   },
+   {
+    "name": "disks/work.vdk",
+    "size": 368652,
+    "sha": "3a37e8bd1e71f5dc4d9469f5062f8aa60f27d7e6cd26757218cafbbe1ff342d0"
+   }
+  ],
+  "moved": {
+   "copied": 7,
+   "kept": 0
+  },
+  "remount": "work.vdk in drive 0",
+  "movedStore": [
+   {
+    "name": "disks/blank.vdk",
+    "size": 184332,
+    "sha": "b6d7fb0c14619723337cd9090a249743f7198896242adc4cadfdf45944bf2bc0"
+   },
+   {
+    "name": "disks/other.vdk",
+    "size": 184332,
+    "sha": "80b3f978b19e6e036cf9f06fad580cad7773985e67fcefa4ab76cd31d90f9b54"
+   },
+   {
+    "name": "disks/work.vdk",
+    "size": 368652,
+    "sha": "3a37e8bd1e71f5dc4d9469f5062f8aa60f27d7e6cd26757218cafbbe1ff342d0"
+   }
+  ],
+  "final": {
+   "dos": {
+    "id": "dragondos",
+    "name": "DragonDOS cartridge",
+    "bare": false
+   },
+   "count": 4,
+   "drives": [
+    {
+     "drive": 0,
+     "name": "disks/work.vdk",
+     "file": "work.vdk",
+     "writeProtected": false,
+     "size": 368652,
+     "stored": true,
+     "unsaved": null
+    }
+   ]
+  }
+ },
+ "machine": "50352fba64650c411df86b283881e1827ffbcaf65552c6b9b776f05954ab6243",
+ "snapshotFile": "6deb86febfaf109a07d582f506d05ed2d845c8d0c1fb713d724dd409a5f6d48a"
+}

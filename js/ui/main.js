@@ -106,8 +106,8 @@ if (storageProblem) page.feedback.attention(`Your stored files could not be open
 // writes are best-effort until flush(): ask for them to settle before the page goes away, but do not
 // pretend that holds the page open — a reload can still overtake the last write
 // disks too: the drives hand what was written to the store
-addEventListener('pagehide', () => { session.flushDisks(); session.index.flush().catch(() => {}); });
-document.addEventListener('visibilitychange', () => { if (document.hidden) { session.flushDisks(); session.index.flush().catch(() => {}); } });
+addEventListener('pagehide', () => { session.drives.flush(); session.index.flush().catch(() => {}); });
+document.addEventListener('visibilitychange', () => { if (document.hidden) { session.drives.flush(); session.index.flush().catch(() => {}); } });
 window.emu.storageChoices = availableChoices();
 const machinePanel = setupMachinePanel(page, { showRoms: () => romSockets.reveal() });
 setupPokePanel(page);

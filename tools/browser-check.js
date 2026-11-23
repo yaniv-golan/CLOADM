@@ -54,7 +54,7 @@
 // The emulator is served at /play/; the landing page at / is checked at desktop and phone width: its links
 // resolve, "Try it now" opens the welcome program, the machine cards and "Talk to LIZA" open the emulator.
 //
-//   node tools/browser-check.js [--screenshots DIR]
+//   node tools/browser-check.js [--only g1,g2] [--screenshots DIR] [--timings FILE]
 const http = require('http'), fs = require('fs'), path = require('path'), os = require('os'), zlib = require('zlib');
 // the snapshot format this tree writes (the version checks build a newer file from it)
 const { SNAPSHOT_VERSION } = require('../tests/load')();
@@ -72,6 +72,10 @@ const lib = require('./browser-check-lib');
 const run = lib.makeRun();
 const { check, skip } = run;
 const shotDir = (() => { const i = process.argv.indexOf('--screenshots'); return i > 0 ? process.argv[i + 1] : null; })();
+// --timings FILE: after the run, write each group's wall seconds there as JSON ({ "groups": { name: seconds } }); node
+// .github/scripts/browser-check-shards.js --merge FILE takes them into .github/browser-check-timings.json, from which
+// --write plans the CI shards
+const timingsFile = (() => { const i = process.argv.indexOf('--timings'); return i > 0 ? process.argv[i + 1] : null; })();
 
 // a static server like the real host: a folder serves its index.html, and a folder named without its
 // trailing slash redirects to it (/play -> /play/). Every path it can't serve is recorded: no page may ask for a
@@ -187,11 +191,11 @@ async function bareDiskChecks(page, check, { dos }) {
   check('disks: its Enter opens the drives\' file input for the first free drive', await waitFor(page, () => window.__diskPicks.join() === '1'), await page.evaluate(() => window.__diskPicks.join()));
   await page.evaluate(() => { delete document.getElementById('fileDisk').click; });
   await page.setInputFiles('#fileDisk', { name: 'second.vdk', mimeType: 'application/octet-stream', buffer: Buffer.from(images.vdk(40, 2)) });
-  check('disks: its "Insert a disk…" puts the file in the first free drive', await waitFor(page, () => window.emu.session.diskStatus().drives.some((d) => d.drive === 1 && d.file === 'second.vdk')));
+  check('disks: its "Insert a disk…" puts the file in the first free drive', await waitFor(page, () => window.emu.session.drives.status().drives.some((d) => d.drive === 1 && d.file === 'second.vdk')));
   await page.keyboard.press('Control+k');
   await page.keyboard.type('eject disk');
   await page.keyboard.press('Enter');
-  check('disks: Ctrl+K "Eject disk" takes a disk out', await waitFor(page, () => !window.emu.session.diskStatus().drives.some((d) => d.drive === 1)));
+  check('disks: Ctrl+K "Eject disk" takes a disk out', await waitFor(page, () => !window.emu.session.drives.status().drives.some((d) => d.drive === 1)));
   await page.click('#drives [data-drive="0"]');
   // its Add disk ROM… opens Your ROMs on the disk ROM's card
   await page.click('#driveRoms');
@@ -206,15 +210,15 @@ async function bareDiskChecks(page, check, { dos }) {
   check('disks: a disk ROM added while the controller has none: the page says it goes in at the next reset or power cycle',
     await waitFor(page, () => /^ROM added · your DragonDOS disk ROM goes in at the next reset or power cycle/.test(document.getElementById('toastText').textContent)
       && document.querySelector('#driveSlot .title').textContent === 'Drives · DragonDOS at the next reset · disks work for programs that read them directly until then')
-      && await page.evaluate(() => !window.emu.session.diskController.romBytes), await text('driveSlot'));
+      && await page.evaluate(() => !window.emu.session.drives.controller.romBytes), await text('driveSlot'));
   await page.click('#btnHardReset');
-  check('disks: the power cycle puts the disk ROM in: the card says DragonDOS, the disk is still in drive 0', await waitFor(page, () => !!window.emu.session.diskController.romBytes
+  check('disks: the power cycle puts the disk ROM in: the card says DragonDOS, the disk is still in drive 0', await waitFor(page, () => !!window.emu.session.drives.controller.romBytes
     && document.querySelector('#driveSlot .title').textContent === 'Drives · DragonDOS · click a drive to insert'
     && /0 · level\.vdk/.test(document.querySelector('#drives [data-drive="0"]').textContent) && document.getElementById('btnCart').textContent !== 'Dragon disk controller · no disk ROM'),
     await text('driveSlot'));
   // the board can be taken out like any other (then the run below starts from an empty port, as before)
   await page.click('#btnCartOut');
-  check('disks: Take out empties the cartridge port and the drives', await waitFor(page, () => !window.emu.machine.cartPort && window.emu.session.diskStatus().drives.length === 0
+  check('disks: Take out empties the cartridge port and the drives', await waitFor(page, () => !window.emu.machine.cartPort && window.emu.session.drives.status().drives.length === 0
     && document.getElementById('btnCart').textContent === 'Insert cartridge…' && !document.getElementById('btnCartOut').checkVisibility()));
 }
 // ---------------- floppy disks (on the media store): mount, write from firmware, download ----------------
@@ -248,7 +252,7 @@ async function diskChecks(browser, base, check) {
     const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.click('#driveFile')]);
     await chooser.setFiles({ name, mimeType: 'application/octet-stream', buffer });
     // done when the drive holds it or the status line says why not
-    await waitFor(page, ([n, name]) => window.emu.session.diskStatus().drives.some((d) => d.drive === n && d.file === name) || document.getElementById('toast').classList.contains('error'), [n, name]);
+    await waitFor(page, ([n, name]) => window.emu.session.drives.status().drives.some((d) => d.drive === n && d.file === name) || document.getElementById('toast').classList.contains('error'), [n, name]);
   };
   await page.goto(`${base}?machine=dragon64`); await ready(page);
   await bareDiskChecks(page, check, { dos, errors });
@@ -261,9 +265,9 @@ async function diskChecks(browser, base, check) {
   if (shotDir) await page.locator('#driveSlot').screenshot({ path: path.join(shotDir, 'drives-empty.png') });
   await insertFile(0, 'work.vdk', d0);
   check('disks: a file into drive 0 through its menu, with the DragonDOS cartridge', await waitFor(page, () => /work\.vdk in drive 0/.test(document.getElementById('toast').textContent)
-    && window.emu.session.diskStatus().dos.id === 'dragondos' && /0 · work\.vdk/.test(document.querySelector('#drives [data-drive="0"]').textContent)), await msg());
+    && window.emu.session.drives.status().dos.id === 'dragondos' && /0 · work\.vdk/.test(document.querySelector('#drives [data-drive="0"]').textContent)), await msg());
   await insertFile(1, 'locked.vdk', d1, true);
-  check('disks: drive 1 write-protected from its menu (WP on the drive)', await waitFor(page, () => { const d = window.emu.session.diskStatus().drives[1]; return d && d.file === 'locked.vdk' && d.writeProtected; })
+  check('disks: drive 1 write-protected from its menu (WP on the drive)', await waitFor(page, () => { const d = window.emu.session.drives.status().drives[1]; return d && d.file === 'locked.vdk' && d.writeProtected; })
     && /write-protected/.test(await page.textContent('#drives [data-drive="1"]')));
   // the activity light: watch the LEDs while the firmware runs (Reset: the power-up with the cartridge started it
   // before drive 1 had its disk)
@@ -292,7 +296,7 @@ async function diskChecks(browser, base, check) {
     const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('disks');
     return Array.from(new Uint8Array(await (await (await dir.getFileHandle(file)).getFile()).arrayBuffer()));
   }, file);
-  await page.evaluate(() => window.emu.session.diskWritesDone());
+  await page.evaluate(() => window.emu.session.drives.writesDone());
   check('disks: the stored image in OPFS has the written sector, the rest unchanged', Buffer.from(await opfs('work.vdk')).equals(want0));
   check('disks: the write-protected image in OPFS is unchanged', Buffer.from(await opfs('locked.vdk')).equals(d1));
   await openDrive(0);
@@ -304,14 +308,14 @@ async function diskChecks(browser, base, check) {
   check('disks: Download gives the written image, byte for byte', download.suggestedFilename() === 'work.vdk' && fs.readFileSync(saved).equals(want0));
   fs.unlinkSync(saved);
   await page.check('#driveWp');
-  check('disks: write-protect from a loaded drive\'s menu', await waitFor(page, () => window.emu.session.diskStatus().drives[0].writeProtected));
+  check('disks: write-protect from a loaded drive\'s menu', await waitFor(page, () => window.emu.session.drives.status().drives[0].writeProtected));
   // a reload: the image is still in the library (disks/); insert it again from the menu, download it again
   await page.reload(); await ready(page);
   await openDrive(2);
   check('disks: after a reload an empty drive offers the stored disks', await waitFor(page, () => !document.getElementById('driveStoredRow').hidden && /work\.vdk/.test(document.getElementById('driveStored').textContent)));
   await page.selectOption('#driveStored', 'disks/work.vdk');
   await page.click('#driveMount');
-  check('disks: a disk from the library goes into drive 2', await waitFor(page, () => { const d = window.emu.session.diskStatus().drives.find((x) => x.drive === 2); return d && d.file === 'work.vdk'; }));
+  check('disks: a disk from the library goes into drive 2', await waitFor(page, () => { const d = window.emu.session.drives.status().drives.find((x) => x.drive === 2); return d && d.file === 'work.vdk'; }));
   await openDrive(2);
   const [again] = await Promise.all([page.waitForEvent('download'), page.click('#driveDownload')]);
   await again.saveAs(saved);
@@ -319,7 +323,7 @@ async function diskChecks(browser, base, check) {
   fs.unlinkSync(saved);
   await openDrive(2);
   await page.click('#driveEject');
-  check('disks: Eject empties the drive ("2 · Insert disk…" again)', await waitFor(page, () => !window.emu.session.diskStatus().drives.some((x) => x.drive === 2)
+  check('disks: Eject empties the drive ("2 · Insert disk…" again)', await waitFor(page, () => !window.emu.session.drives.status().drives.some((x) => x.drive === 2)
     && document.querySelector('#drives [data-drive="2"]').textContent === '2 · Insert disk…'));
   // a file that is no disk image: refused on the status line, nothing stored
   await insertFile(3, 'notes.dsk', Buffer.alloc(1000, 7));
@@ -338,7 +342,7 @@ async function diskChecks(browser, base, check) {
     && await page.evaluate(() => document.querySelector('#driveNewFormat option[value="dmk"]').disabled && document.getElementById('driveNewFormat').value === 'vdk'));
   if (shotDir) await page.locator('#driveSlot').screenshot({ path: path.join(shotDir, 'drives-new-blank.png') });
   await page.click('#driveNew');
-  check('disks: New blank disk stores disk-1.vdk and puts it in the drive', await waitFor(page, () => { const d = window.emu.session.diskStatus().drives.find((x) => x.drive === 1); return d && d.file === 'disk-1.vdk'; })
+  check('disks: New blank disk stores disk-1.vdk and puts it in the drive', await waitFor(page, () => { const d = window.emu.session.drives.status().drives.find((x) => x.drive === 1); return d && d.file === 'disk-1.vdk'; })
     && /1 · disk-1\.vdk/.test(await page.textContent('#drives [data-drive="1"]')), await msg());
   await openDrive(1);
   const [nd] = await Promise.all([page.waitForEvent('download'), page.click('#driveDownload')]);
@@ -355,11 +359,11 @@ async function diskChecks(browser, base, check) {
   if (await page.evaluate(() => !!document.getElementById('driveEject'))) { await page.click('#driveEject'); await openDrive(1); }
   const race = await page.evaluate(async () => {
     const s = window.emu.session, name = 'race.vdk';
-    const p1 = s.newDisk(1, { format: 'vdk', tracks: 40, heads: 1 }, { name }).then((m) => ({ ok: true, m }), (e) => ({ ok: false, m: e.message }));
-    const p2 = s.importDisk(name, window.emu.Emu.blankDisk('vdk', 40, 2), 2).then((m) => ({ ok: true, m }), (e) => ({ ok: false, m: e.message }));
+    const p1 = s.drives.newDisk(1, { format: 'vdk', tracks: 40, heads: 1 }, { name }).then((m) => ({ ok: true, m }), (e) => ({ ok: false, m: e.message }));
+    const p2 = s.drives.importImage(name, window.emu.Emu.blankDisk('vdk', 40, 2), 2).then((m) => ({ ok: true, m }), (e) => ({ ok: false, m: e.message }));
     const [a, b] = await Promise.all([p1, p2]);
-    const after = (await s.listDisks()).filter((d) => d.name === 'disks/race.vdk');
-    return { a, b, added: after.length, size: after[0] && after[0].size, drives: s.diskStatus().drives.map((d) => `${d.drive}:${d.file}`) };
+    const after = (await s.drives.list()).filter((d) => d.name === 'disks/race.vdk');
+    return { a, b, added: after.length, size: after[0] && after[0].size, drives: s.drives.status().drives.map((d) => `${d.drive}:${d.file}`) };
   }).catch((e) => ({ error: e.message }));
   check('disks (Session on the real OPFS store): a new blank disk and an import of its name started together: one stored (the blank), one refused',
     !race.error && race.a.ok && !race.b.ok && race.b.m === 'There is already a disk named race.vdk in your library: choose another name.'
@@ -376,7 +380,7 @@ async function diskChecks(browser, base, check) {
   await page.click('#btnMpInsert');
   check('disks: Multi-Pak inserted with the controller in slot 4; the drives card uses it, its drives empty', await waitFor(page, () => {
     const c = window.emu.machine.cartPort;
-    return c && c.type === 'multi' && c.cart(4) && c.cart(4).type === 'dragonfdc' && window.emu.session.diskController === c.cart(4)
+    return c && c.type === 'multi' && c.cart(4) && c.cart(4).type === 'dragonfdc' && window.emu.session.drives.controller === c.cart(4)
       && /Drives · DragonDOS/.test(document.getElementById('driveSlot').textContent) && document.querySelectorAll('#drives .drive.loaded').length === 0;
   }), await msg());
   await insertFile(0, 'mpak.vdk', d0);
@@ -398,12 +402,12 @@ async function diskChecks(browser, base, check) {
     && document.querySelectorAll('#drives [data-drive]').length === 2), await page.textContent('#driveSlot'));
   await insertFile(0, 'alpha.vdk', d0);
   await insertFile(1, 'alpha1.vdk', d1);
-  check('disks: Alpha: disks go into the built-in drives, no cartridge plugged in', await waitFor(page, () => window.emu.session.diskStatus().drives.length === 2 && window.emu.machine.cartPort === null));
+  check('disks: Alpha: disks go into the built-in drives, no cartridge plugged in', await waitFor(page, () => window.emu.session.drives.status().drives.length === 2 && window.emu.machine.cartPort === null));
   // the store refuses the writes: the drive is marked "not saved" and its menu says why; Download still has them
   await page.evaluate(() => { const st = window.emu.session.media; st.__writeRange = st.writeRange; st.writeRange = () => Promise.reject(Object.assign(new Error('the disk is full'), { code: 'quota' })); });
   await page.click('#btnReset');
   check('disks: Alpha: the firmware reaches HALT', await waitFor(page, (h) => window.emu.machine.cpu.pc === h, aw.symbols.get('HALT'), 20000));
-  await page.evaluate(() => window.emu.session.flushDisks());
+  await page.evaluate(() => window.emu.session.drives.flush());
   check('disks: a refused write marks the drive "not saved" in orange', await waitFor(page, () => { const b = document.querySelector('#drives [data-drive="0"]'); return b.classList.contains('unsaved') && /not saved/.test(b.textContent); }));
   await openDrive(0);
   check('disks: ... and its menu says why and that Download keeps the changes', /No space left .*Download keeps them/.test(await page.textContent('#driveMenu')), await page.textContent('#driveMenu'));
@@ -761,7 +765,7 @@ async function cartridgeChecks(browser, base, check) {
 // lockstep with MAME matched (CoCo 1/2, CoCo 2B, CoCo 3, Dragon 64), the Insert button runs OUR tone firmware as
 // the PIC, and the machine's music path runs. Every ROM here is built by our own tools (tools/mame-diff/ssc/), never a real dump.
 async function sscBoardChecks(browser, base, check) {
-  const { toneFirmware } = require('../tools/mame-diff/ssc/audio.js');
+  const { toneFirmware } = require('../tools/mame-diff/ssc/gen-roms.js');
   const ctx = await browser.newContext();
   const page = await ctx.newPage();
   const errors = [];
@@ -1769,7 +1773,7 @@ async function nitros9Checks(browser, base, check) {
     /from myfloppy\.dsk in floppy drive 0/.test(await msg()), await msg());
   await ev(() => window.emu.nitros9Shown());
   check('nitros9 floppy: the CoCo disk controller (no ROM) is in the port, the disk in drive 0, listed as a floppy in the slot',
-    await ev(() => { const s = window.emu.session, c = s.shownMachine.cartPort; return !!c && c.type === 'cocofdc' && !c.romBytes && s.diskStatus().drives.some((d) => d.drive === 0 && d.name === 'disks/myfloppy.dsk'); }) &&
+    await ev(() => { const s = window.emu.session, c = s.shownMachine.cartPort; return !!c && c.type === 'cocofdc' && !c.romBytes && s.drives.status().drives.some((d) => d.drive === 0 && d.name === 'disks/myfloppy.dsk'); }) &&
     /myfloppy\.dsk \(6809, floppy\)/.test(await page.textContent('#n9Image')) && /running from myfloppy\.dsk/.test(await page.textContent('#n9State')), `${await page.textContent('#n9Image')} | ${await page.textContent('#n9State')}`);
   await page.click('#btnN9Leave');
   check('nitros9 floppy: Back to BASIC takes the ROM-less controller out', await waitFor(page, () => !window.emu.session.nitros9Running && !window.emu.machine.cartPort));
@@ -1807,7 +1811,7 @@ async function nitros9Checks(browser, base, check) {
     await p2.goto(`${base}?machine=coco3&cpu=6809&ram=128`);
     await waitFor(p2, () => window.emu && window.emu.linkDone, null, 15000);
     await p2.setInputFiles('#n9File', file(LONG, makeOs9Disk(Emu, { cpu: '6309', driver: 'rb1773', port: 'floppy', sides: 2, sectors: 1440 })));
-    const up = await waitForFrames(p2, () => window.emu.session.nitros9Loader() === 'floppy' && window.emu.session.diskStatus().drives.some((d) => d.drive === 0 && d.file === 'nos96309l2v030300coco3_40d_1.dsk'), null, 900);
+    const up = await waitForFrames(p2, () => window.emu.session.nitros9Loader() === 'floppy' && window.emu.session.drives.status().drives.some((d) => d.drive === 0 && d.file === 'nos96309l2v030300coco3_40d_1.dsk'), null, 900);
     await p2.evaluate(() => window.emu.nitros9Shown());
     const m = await p2.evaluate(() => {
       const r = (e) => e.getBoundingClientRect(), sel = document.getElementById('n9Image'), card = document.getElementById('nitros9Slot'), t = document.querySelector('#drives .drive.loaded');
@@ -2103,6 +2107,20 @@ async function romUiChecks(browser, base, check) {
   await ctx.close();
 }
 
+// R46: the tune's DAC edges, counted on the page: the welcome tune drives the DAC to its high level ($FC), which no
+// other part of the menu does, so any high-level event in a machine frame's audio events while this runs is the tune.
+// (A frame loop of its own over the machine's own per-frame buffer: nothing here depends on the sound being unlocked.)
+const countTune = (page) => page.evaluate(() => {
+  window.__tune = 0;
+  if (window.__tuneLoop) return;
+  window.__tuneLoop = true;
+  const loop = () => {
+    const ev = window.emu.session.shownMachine.audioEvents;
+    for (let k = 2; k < ev.length; k += 2) if (ev[k + 1] > 0.9) window.__tune++;
+    requestAnimationFrame(loop);
+  };
+  requestAnimationFrame(loop);
+});
 async function visitChecks(browser, base, check) {
   const ctx = await browser.newContext();
   const page = await ctx.newPage();
@@ -2118,6 +2136,13 @@ async function visitChecks(browser, base, check) {
   check('first visit: "Runs without ROMs" is the welcome menu (on screen now), our programs and the Claude chat', (await page.$$eval('#shelf :is(a, button)', (b) => b.map((x) => x.textContent).join())) === 'Welcome menu on screen now,LIZA,Colour demo,2048,Minesweeper,Chat with Claude',
     await page.$$eval('#shelf :is(a, button)', (b) => b.map((x) => x.textContent).join()));
   check('first visit: "No BASIC · Add ROMs" in the header and the machine question', await page.isVisible('#romPill') && await page.isVisible('#askMachine'));
+  // R46: the tune plays only when the person asked for the menu. The visit's own menu leaves the firmware's PLAYED flag
+  // ($6005, the 6809 build) at 0 (a few frames in, once START has cleared it), so its tune is still to play once the
+  // sound is unlocked
+  check('first visit: the visit\'s own welcome menu leaves PLAYED at 0 (its tune plays once the sound is unlocked)',
+    await waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.shownMachine.frameCount > 10)
+      && await page.evaluate(() => window.emu.session.shownMachine.ram[0x6005] === 0),
+    String(await page.evaluate(() => window.emu.session.shownMachine.ram[0x6005])));
   check('first visit: "click for sound" until a click or key, no tune yet', await page.isVisible('#soundHint') && !(await page.evaluate(() => window.emu.audioRunning()))
     && await page.evaluate(() => window.emu.machine.ram[0x6004]) === 0);
   await shot('first', '.layout > main');
@@ -2141,8 +2166,14 @@ async function visitChecks(browser, base, check) {
   await key('2');
   check('welcome: 2 runs the colour demo', await waitFor(page, () => /Colour demo: press a key/.test(document.getElementById('toast').textContent) && window.emu.machine.cpu.pc >= 0x4000 && window.emu.machine.cpu.pc < 0x4200 && !window.emu.session.welcomeRunning));
   check('welcome: "Back to the menu" shows while the demo runs', await page.isVisible('#btnWelcomeBack'));
+  await countTune(page);
   await page.click('#btnWelcomeBack');
   check('welcome: "Back to the menu" returns to the menu, and hides', await menu() && await page.isHidden('#btnWelcomeBack'));
+  // R46: back from the demo the menu is silent (the page's button passes the reason 'return'): PLAYED is set a few frames in
+  check('welcome: the menu back from the demo is silent (PLAYED is 1 within a few frames: R46)',
+    await waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.shownMachine.ram[0x6005] === 1));
+  await page.waitForTimeout(3500);
+  check('welcome: ... and it plays no tune (no high-level DAC event in 3.5 s)', await page.evaluate(() => window.__tune) === 0, String(await page.evaluate(() => window.__tune)));
   // the games: 5 opens the games menu, 1 and 2 start 2048 and Minesweeper (the 128x192 four-colour screen), their
   // keys change the screen, and BREAK (Esc) comes back to the menu. The frame is summed in the page: a key that
   // the game took redraws it.
@@ -2208,9 +2239,18 @@ async function visitChecks(browser, base, check) {
       s.__counted = true;
     }
   });
+  await countTune(page);
   await page.click('#askMachine button[data-machine="coco"]');
   check('machine question: switches machine and the welcome program runs there', await waitFor(page, () => window.emu.machine.id === 'coco' && window.emu.session.welcomeRunning && window.emu.session.screenText()[14].includes('PRESS 1 TO 5'))
     && !(await page.$('#askMachine')));
+  // ... and a menu the page starts after a machine switch is silent: PLAYED is 1 a few frames after it (the firmware clears
+  // it at START, the Session sets it after the first frame), whether or not the click unlocked the sound
+  check('machine question: the menu after the switch is silent (PLAYED is 1 at $6005 within a few frames: R46)',
+    await waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.shownMachine.ram[0x6005] === 1),
+    String(await page.evaluate(() => window.emu.session.shownMachine.ram[0x6005])));
+  await page.waitForTimeout(3500);
+  check('machine question: ... and it plays no tune, the click that unlocked the sound included (no high-level DAC event in 3.5 s)',
+    await page.evaluate(() => window.__tune) === 0, String(await page.evaluate(() => window.__tune)));
   check('machine question: the menu is started exactly once (no second start from the page)',
     await page.evaluate(() => window.__starts) === 1, String(await page.evaluate(() => window.__starts)));
   // ... and the START it makes carries no machine ticket: a machine question is the person's own act, so the menu
@@ -2884,10 +2924,10 @@ async function mediaBackendChecks(browser, base, check) {
         s.roms.put('rsdos', 'rom', new Uint8Array(0x2000).fill(0x39), 'disk11.rom');
         // a blank 40-track single-sided VDK, from the format's layout (no ROM and no sector read needed)
         const vdk = () => { const b = new Uint8Array(12 + 40 * 18 * 256); b[0] = 0x64; b[1] = 0x6B; b[2] = 12; b[8] = 40; b[9] = 1; return b; };
-        await s.importDisk('GAME.DSK', vdk(), 0);
+        await s.drives.importImage('GAME.DSK', vdk(), 0);
         // what the FOLDER says, asked of the store itself: is GAME.DSK and game.dsk one entry?
         const alias = !!(await media.stat('disks/game.dsk'));
-        const mounted = await s.mountDisk(1, 'game.dsk').then(() => null, (e) => e.message);
+        const mounted = await s.drives.mount(1, 'game.dsk').then(() => null, (e) => e.message);
         const del = await s.library.deleteMedia('disks/game.dsk').then(() => null, (e) => e.message);
         const renamed = await s.library.renameMedia('disks/game.dsk', 'other.dsk').then((x) => 'ok', (e) => e.message);
         // and the guard's answer must be the folder's, both ways round
@@ -2940,13 +2980,13 @@ async function mediaBackendChecks(browser, base, check) {
         // The drive holds the OTHER spelling: on a folding store mountDisk's stat finds the one stored file, so the
         // drive says game.dsk while the library lists GAME.DSK. A card that compares names with === would then
         // offer a disk that is already in a drive. On a plain store the other spelling is a separate file.
-        await s.mountDisk(0, fold ? 'disks/game.dsk' : 'disks/GAME.DSK');
+        await s.drives.mount(0, fold ? 'disks/game.dsk' : 'disks/GAME.DSK');
         s.emit('disks');
         // open drive 1's menu through the card and read what it offers
         document.querySelector('#drives [data-drive="1"]').click();
         await new Promise((r) => setTimeout(r, 50));
         const offered = [...document.querySelectorAll('#driveStored option')].map((o) => o.value);
-        return { fold, offered, held: s.diskStatus().drives.map((d) => d.name), listed: (await s.listDisks()).map((d) => d.name), measured: s.library.caseInsensitive };
+        return { fold, offered, held: s.drives.status().drives.map((d) => d.name), listed: (await s.drives.list()).map((d) => d.name), measured: s.library.caseInsensitive };
       }, fold);
       // folding: GAME.DSK and game.DSK are one stored file and that file is in drive 0, so only OTHER.DSK is on
       // offer; plain: they are two files, the drive holds one of them, so the other and OTHER.DSK are
@@ -4143,6 +4183,355 @@ async function feedbackModelChecks(browser, base, check) {
       order.join('|') === 'Second, newer' && !await page.evaluate(() => document.getElementById('toastRegion').classList.contains('top')), JSON.stringify(order));
     await ctx.close();
   }
+  await toastReplaceChecks(browser, base, check, state, frames);
+  await provisionalPinChecks(browser, base, check, state, frames);
+  await occlusionChecks(browser, base, check);
+}
+
+// UX R47: a control's part under an opaque overlay ([data-occludes]: the Ask sheet, the attention card) may be covered
+// by a toast; the overlay's own controls never are; an overlay occludes only once settled; on a phone the toast never
+// goes over the sheet (the header band); under a modal dialog the toast is in the top layer and only the dialog's
+// controls count. One announcement per toast throughout.
+async function occlusionChecks(browser, base, check) {
+  const announce = (page) => page.evaluate(() => {
+    window.__ann = [];
+    const txt = document.getElementById('toastText');
+    new MutationObserver(() => { const t = txt.textContent; if (t && t !== window.__ann[window.__ann.length - 1]) window.__ann.push(t); })
+      .observe(document.getElementById('toastRegion'), { subtree: true, childList: true, characterData: true });
+  });
+  // raise a toast; its first frame and a sample every 50 ms to 700 ms: the toast's rect, the top slot, and what it meets
+  const raise = (page, text) => page.evaluate((text) => new Promise((res) => {
+    const reg = document.getElementById('toastRegion'), box = document.getElementById('toast'), ask = document.getElementById('ask');
+    const CONTROLS = 'header, .controls, .slots, aside.drawer, #attention, #touchKeys button, #claudeBar, #installOffer, #tapeHud:not([hidden]), #btnShowKeys:not([hidden])';
+    const hits = (r, o) => !(r.bottom <= o.top || r.top >= o.bottom || r.right <= o.left || r.left >= o.right);
+    const sub = (r, h) => { if (!hits(r, h)) return [r]; const top = Math.max(r.top, h.top), bottom = Math.min(r.bottom, h.bottom);
+      return [{ left: r.left, right: r.right, top: r.top, bottom: h.top }, { left: r.left, right: r.right, top: h.bottom, bottom: r.bottom },
+        { left: r.left, right: h.left, top, bottom }, { left: h.right, right: r.right, top, bottom }].filter((p) => p.right > p.left && p.bottom > p.top); };
+    const look = (t0) => {
+      const b = box.getBoundingClientRect(), a = ask.getBoundingClientRect(), sheet = !ask.hidden && a.width && a.height ? a : null;
+      // the parts of the page's controls that show (less the sheet), and the sheet's own controls
+      const visible = [...document.querySelectorAll(CONTROLS)].filter((e) => !ask.contains(e)).flatMap((e) => { const r = e.getBoundingClientRect();
+        return r.width && r.height ? (sheet ? sub(r, sheet) : [r]) : []; });
+      const own = [...ask.querySelectorAll('button, a[href], input, select, textarea, [role="tab"]')].map((e) => e.getBoundingClientRect()).filter((o) => o.width && o.height);
+      const slots = document.querySelector('.slots').getBoundingClientRect();
+      return { ms: Math.round(performance.now() - t0), up: !box.hidden, top: reg.classList.contains('top'), rect: [b.left, b.top, b.right, b.bottom].map(Math.round).join(','),
+        onVisibleControl: visible.some((o) => hits(b, o)), onSheetControl: own.some((o) => hits(b, o)), onSheet: !!sheet && hits(b, sheet),
+        onCoveredSlots: !!sheet && hits(b, slots) && hits(b, sheet), sheetOverSlots: !!sheet && hits(sheet, slots) };
+    };
+    const t0 = performance.now();
+    window.emu.feedback.toast(text);
+    const samples = [];
+    requestAnimationFrame(() => { const first = look(t0);
+      const iv = setInterval(() => { samples.push(look(t0)); if (performance.now() - t0 >= 700) { clearInterval(iv); res({ first, samples }); } }, 50); });
+  }), text);
+  const stable = (p) => { const late = p.samples.filter((x) => x.ms >= 350); return late.length >= 5 && late.every((x) => x.up && x.rect === late[0].rect); };
+  // every [data-occludes] element shown: opacity 1 on it and its ancestors, and an opaque background
+  const opaque = (page) => page.evaluate(() => [...document.querySelectorAll('[data-occludes]')].filter((e) => { const r = e.getBoundingClientRect(); return !e.hidden && r.width && r.height; })
+    .map((e) => { let op = 1; for (let n = e; n && n.nodeType === 1; n = n.parentElement) op *= parseFloat(getComputedStyle(n).opacity);
+      const m = /rgba?\(([^)]+)\)/.exec(getComputedStyle(e).backgroundColor), parts = m ? m[1].split(/[,\s/]+/).filter(Boolean).map(Number) : [];
+      return { id: e.id, opacity: op, alpha: parts.length === 4 ? parts[3] : parts.length === 3 ? 1 : 0, animating: e.getAnimations().length }; }));
+
+  // ---- a phone with the touch keys, the Ask sheet at peek: the toast in the header band ----
+  {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    await page.goto(`${base}?machine=dragon64`);
+    await started(page);
+    await page.evaluate(() => { scrollTo(0, 0); window.emu.feedback.clear(); document.getElementById('btnAsk').click(); });
+    await waitFor(page, () => !document.getElementById('ask').hidden);
+    await page.evaluate(() => { const h = document.getElementById('askHandle'); while (document.getElementById('ask').dataset.height !== 'peek') h.click(); });
+    await page.waitForTimeout(400);
+    await announce(page);
+    // (a toast too tall for the band under the screen's text, as one with an error's sentence often is)
+    const long = 'A toast long enough to wrap onto several lines on a phone, too tall for the band under the screen text, so that only the header band is left for it';
+    const p = await raise(page, long);
+    const bar = await page.evaluate(() => Math.round(document.getElementById('appbar').getBoundingClientRect().bottom));
+    const last = p.samples[p.samples.length - 1];
+    check('feedback R47 (phone, touch keys, sheet at peek): the toast is in the header band (top slot under the bar), over neither the sheet nor its controls, and still from 350 ms on',
+      p.first.up && last.top && +last.rect.split(',')[1] === bar + 8 && !last.onSheet && !last.onSheetControl && stable(p), JSON.stringify({ bar, first: p.first, last }));
+    const o = await opaque(page);
+    check('feedback R47: the guard: every opaque overlay shown (the sheet at peek) has opacity 1 and an opaque background', o.length >= 1 && o.every((x) => x.opacity === 1 && x.alpha === 1), JSON.stringify(o));
+    check('feedback R47 (phone): one announcement', JSON.stringify(await page.evaluate(() => window.__ann)) === JSON.stringify([long]), JSON.stringify(await page.evaluate(() => window.__ann)));
+    // the phone rule on its own: the sheet closed, an opaque overlay with no button along the bottom over a control
+    // there: the toast does not go over it (it would, on the covered control, anywhere but on a phone)
+    const ph = await page.evaluate(() => new Promise((res) => {
+      window.emu.feedback.clear(); document.getElementById('btnAskClose').click();
+      const c = document.createElement('div'); c.className = 'controls'; c.id = 'fbCtl'; c.style.cssText = 'position:fixed;left:0;right:0;bottom:0;height:300px;z-index:1';
+      const o = document.createElement('div'); o.id = 'fbOver'; o.dataset.occludes = ''; o.style.cssText = 'position:fixed;left:0;right:0;bottom:0;height:300px;z-index:2;background:#111';
+      document.body.append(c, o);
+      window.emu.feedback.toast('Short');
+      requestAnimationFrame(() => { const t = document.getElementById('toast').getBoundingClientRect(), r = o.getBoundingClientRect();
+        res({ up: !document.getElementById('toast').hidden, toast: [t.left, t.top, t.right, t.bottom].map(Math.round), overOverlay: t.bottom > r.top }); });
+    }));
+    check('feedback R47 (phone): the toast never goes over an opaque sheet, even one that hides a control and has no button',
+      ph.up && !ph.overOverlay, JSON.stringify(ph));
+    await ctx.close();
+  }
+
+  // ---- 900 px: the side panel over part of the slots: a free place that may meet the covered part, never a control
+  // that shows and never the sheet's controls ----
+  {
+    const ctx = await browser.newContext({ viewport: { width: 900, height: 800 }, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    await page.goto(`${base}?machine=dragon64`);
+    await started(page);
+    await page.evaluate(() => { scrollTo(0, 0); window.emu.feedback.clear(); document.getElementById('btnAsk').click(); });
+    await waitFor(page, () => !document.getElementById('ask').hidden && document.getElementById('ask').getBoundingClientRect().width > 0);
+    await page.waitForTimeout(400);
+    // (scrolled so the slots are under the panel's lower half)
+    await page.evaluate(() => { const s = document.querySelector('.slots').getBoundingClientRect(); scrollBy(0, Math.max(0, s.top - 300)); });
+    await page.waitForTimeout(200);
+    await announce(page);
+    const p = await raise(page, 'Saved to the Library.');
+    const last = p.samples[p.samples.length - 1];
+    check('feedback R47 (900 px, the panel over part of the slots): the toast is in a free place: no control that shows and none of the panel\'s controls under it, still from 350 ms on',
+      last.sheetOverSlots && last.up && !last.top && !last.onVisibleControl && !last.onSheetControl && stable(p), JSON.stringify(last));
+    // the attention card shown too: the guard holds for both overlays
+    await page.evaluate(() => window.emu.feedback.attention('Something to act on'));
+    const o = await opaque(page);
+    check('feedback R47: the guard: the panel and the attention card are each fully opaque (opacity 1, background alpha 1)',
+      o.length === 2 && o.every((x) => x.opacity === 1 && x.alpha === 1), JSON.stringify(o));
+    await page.evaluate(() => window.emu.feedback.resolve());
+    check('feedback R47 (900 px): one announcement', JSON.stringify(await page.evaluate(() => window.__ann)) === '["Saved to the Library."]');
+    await ctx.close();
+  }
+
+  // ---- no occlusion mid-transition; a modal dialog (a test page: the page's own sheets are not dialogs yet) ----
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    await page.goto(`${base}?machine=dragon64`);
+    await started(page);
+    await announce(page);
+    // a control over the whole window and an opaque overlay sliding over it in 150 ms: while it slides it hides nothing
+    // (the toast takes the top slot), and once settled the toast is in its own place over the covered control
+    const m = await page.evaluate(() => new Promise((res) => {
+      scrollTo(0, 0); window.emu.feedback.clear();
+      const c = document.createElement('div'); c.className = 'controls'; c.id = 'fbCtl'; c.style.cssText = 'position:fixed;inset:0;z-index:1';
+      const o = document.createElement('div'); o.id = 'fbOver'; o.dataset.occludes = '';
+      o.style.cssText = 'position:fixed;inset:0;z-index:2;background:#111;transform:translateY(60%);transition:transform 150ms linear';
+      document.body.append(c, o); o.getBoundingClientRect();
+      o.style.transform = 'none';
+      const reg = document.getElementById('toastRegion'), t0 = performance.now(), out = [];
+      window.emu.feedback.toast('Over a sliding sheet');
+      requestAnimationFrame(() => { out.push({ ms: Math.round(performance.now() - t0), top: reg.classList.contains('top'), moving: o.getAnimations().length });
+        setTimeout(() => { out.push({ ms: Math.round(performance.now() - t0), top: reg.classList.contains('top'), moving: o.getAnimations().length }); res(out); }, 500); });
+    }));
+    check('feedback R47: an overlay occludes nothing while in its own transition (top slot in frame 1), and once settled the toast is in its own place',
+      m[0].top && m[0].moving > 0 && !m[1].top && m[1].moving === 0, JSON.stringify(m));
+    await page.evaluate(() => { window.emu.feedback.clear(); document.getElementById('fbCtl').remove(); document.getElementById('fbOver').remove(); });
+
+    // each rule on its own, on a page where it alone decides: a control over the whole window under a settled opaque
+    // overlay, with a button of the overlay's own where the toast would go (desktop: the toast goes clear of the
+    // button, not to the top slot); then a phone, the overlay along the bottom with no button: the toast is not over it
+    const own = await page.evaluate(() => new Promise((res) => {
+      scrollTo(0, 0); window.emu.feedback.clear();
+      const c = document.createElement('div'); c.className = 'controls'; c.id = 'fbCtl'; c.style.cssText = 'position:fixed;inset:0;z-index:1';
+      const o = document.createElement('div'); o.id = 'fbOver'; o.dataset.occludes = ''; o.style.cssText = 'position:fixed;inset:0;z-index:2;background:#111';
+      document.body.append(c, o);
+      window.emu.feedback.toast('Probe');
+      const b0 = document.getElementById('toast').getBoundingClientRect();
+      window.emu.feedback.clear();
+      const btn = document.createElement('button'); btn.textContent = 'Stop';
+      btn.style.cssText = `position:fixed;left:${b0.left}px;top:${b0.top}px;width:${b0.width}px;height:${b0.height}px`;
+      o.append(btn);
+      window.emu.feedback.toast('Probe, again');
+      requestAnimationFrame(() => { const t = document.getElementById('toast').getBoundingClientRect(), r = btn.getBoundingClientRect();
+        res({ top: document.getElementById('toastRegion').classList.contains('top'), onButton: !(t.bottom <= r.top || t.top >= r.bottom || t.right <= r.left || t.left >= r.right) }); });
+    }));
+    check('feedback R47: an opaque overlay\'s own button where the toast would go: the toast is clear of it, in a free place over the covered control',
+      !own.top && !own.onButton, JSON.stringify(own));
+    await page.evaluate(() => { window.emu.feedback.clear(); document.getElementById('fbCtl').remove(); document.getElementById('fbOver').remove(); });
+
+    const centre = () => page.evaluate(() => { const b = document.getElementById('toast').getBoundingClientRect(), at = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+      return { up: !document.getElementById('toast').hidden, onTop: !!at && !!at.closest('#toast'), popover: document.getElementById('toastRegion').matches(':popover-open'), at: at && (at.id || at.tagName) }; });
+    const frames2 = () => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true)))));
+    await page.evaluate(() => { const d = document.createElement('dialog'); d.id = 'fbDialog';
+      d.style.cssText = 'width:100vw;height:100vh;max-width:none;max-height:none;margin:0;padding:0;border:0;background:#222';
+      d.innerHTML = '<button id="fbDialogOk" style="position:absolute;right:20px;top:20px">OK</button>'; document.body.append(d);
+      window.emu.feedback.toast('Up before the dialog'); });
+    await frames2(page);
+    await page.evaluate(() => document.getElementById('fbDialog').showModal());
+    await frames2(page);
+    const before = await centre();
+    await page.evaluate(() => window.emu.feedback.toast('Raised under the dialog'));
+    await frames2(page);
+    const during = await centre();
+    check('feedback R47: a modal dialog opened while a toast is up: the toast is in the top layer, above it (elementFromPoint at its centre is the toast)', before.up && before.onTop && before.popover, JSON.stringify(before));
+    check('feedback R47: a toast raised while a modal dialog is open is above it too, in its own place (only the dialog\'s controls count)', during.up && during.onTop && !await page.evaluate(() => document.getElementById('toastRegion').classList.contains('top')), JSON.stringify(during));
+    await page.evaluate(() => { document.getElementById('fbDialog').close(); });
+    await frames2(page);
+    const after = await page.evaluate(() => ({ popover: document.getElementById('toastRegion').hasAttribute('popover'), up: !document.getElementById('toast').hidden }));
+    check('feedback R47: the dialog closed: the toast leaves the top layer and stays up', !after.popover && after.up, JSON.stringify(after));
+    const ann = await page.evaluate(() => window.__ann);
+    check('feedback R47: one announcement per toast (sliding sheet, the probe left up, before the dialog, under it; the probe measured and cleared in one task is never shown)', ann.join('|') === 'Over a sliding sheet|Probe, again|Up before the dialog|Raised under the dialog', JSON.stringify(ann));
+    await page.evaluate(() => { window.emu.feedback.clear(); document.getElementById('fbDialog').remove(); });
+    await ctx.close();
+  }
+}
+
+// UX R45: a new toast replaces a focused or hovered one without hiding the box. With the focus inside the box the new
+// one starts paused (its full time runs from the focusout), and the focus stays on the action button only for the
+// same action object, else it goes to the box, so an Enter meant for the old action fires nothing; with the pointer
+// over it, it is paused until the pointer leaves. One announcement per toast (the live region's text changes once).
+async function toastReplaceChecks(browser, base, check, state, frames) {
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, serviceWorkers: 'block' });
+  const page = await ctx.newPage();
+  await page.goto(`${base}?machine=dragon64`);
+  await started(page);
+  // the announcements: each change of the live region's text to a new non-empty one
+  await page.evaluate(() => {
+    window.__ann = []; window.__runs = [];
+    const txt = document.getElementById('toastText');
+    new MutationObserver(() => { const t = txt.textContent; if (t && t !== window.__ann[window.__ann.length - 1]) window.__ann.push(t); })
+      .observe(document.getElementById('toastRegion'), { subtree: true, childList: true, characterData: true });
+    window.__act = (name) => ({ label: 'Undo', run() { window.__runs.push(name); } });
+    scrollTo(0, 0); window.emu.feedback.clear();
+  });
+  // raise one while the focus is where the test put it: the focus in the same task and one frame later, and every
+  // write of the box's hidden attribute
+  const replace = (text, action) => page.evaluate(([text, action]) => new Promise((res) => {
+    const box = document.getElementById('toast'), toggles = [];
+    const mo = new MutationObserver((ms) => { for (const m of ms) toggles.push(m.oldValue); });
+    mo.observe(box, { attributes: true, attributeFilter: ['hidden'], attributeOldValue: true });
+    const at = (e) => (e === document.body || !e ? 'body' : e.id || e.tagName);
+    window.emu.feedback.toast(text, { action: action === 'same' ? window.__a : action ? window.__act(action) : null });
+    const sameTask = at(document.activeElement);
+    requestAnimationFrame(() => { toggles.push(...mo.takeRecords().map((m) => m.oldValue)); mo.disconnect();
+      res({ sameTask, afterFrame: at(document.activeElement), toggles: toggles.length }); });
+  }), [text, action]);
+  const focusUndo = async (text) => {
+    await page.evaluate((text) => { window.__a = window.__act('A'); window.emu.feedback.toast(text, { action: window.__a }); }, text);
+    await frames(page);
+    await page.focus('#toastAction');
+  };
+
+  // another action (equal label, other object): the focus to the box, B kept while focused, Enter fires nothing
+  await focusUndo('Deleted a.bin');
+  const r1 = await replace('Deleted b.bin', 'B');
+  await page.waitForTimeout(10000);
+  const s1 = await state(page);
+  const active1 = await page.evaluate(() => document.activeElement.id);
+  await page.keyboard.press('Enter');
+  const afterEnter = await page.evaluate(() => ({ runs: window.__runs.slice(), up: !document.getElementById('toast').hidden }));
+  check('feedback R45: a toast replacing a focused one with another action: the box never hides, the focus is on the box (never the body, in the same task and a frame later)',
+    r1.toggles === 0 && r1.sameTask === 'toast' && r1.afterFrame === 'toast', JSON.stringify(r1));
+  check('feedback R45: ... it is still up 10 s later, the focus still on the box, and Enter fires no action',
+    s1.up && s1.seen && s1.text === 'Deleted b.bin' && active1 === 'toast' && afterEnter.runs.length === 0 && afterEnter.up, JSON.stringify({ s1, active1, afterEnter }));
+  await page.keyboard.press('Shift+Tab');
+  const left = await page.evaluate(() => !document.getElementById('toast').contains(document.activeElement));
+  const t0 = Date.now();
+  await page.waitForTimeout(6500);
+  const stillUp = !await page.isHidden('#toast');
+  const gone = await waitFor(page, () => document.getElementById('toast').hidden, null, 6000);
+  check('feedback R45: ... after the focus leaves (Shift+Tab) it has its full 8 s: up 6.5 s later, gone by about 8 s', left && stillUp && gone && Date.now() - t0 >= 7000,
+    `${Date.now() - t0} ms, left ${left}, up at 6.5 s ${stillUp}`);
+
+  // the same action object: the focus stays on the button and Enter runs it
+  await focusUndo('Deleted c.bin');
+  const r2 = await replace('Deleted c.bin and d.bin', 'same');
+  await page.keyboard.press('Enter');
+  const runs2 = await page.evaluate(() => window.__runs.slice());
+  check('feedback R45: a toast with the same action object keeps the focus on its button, and Enter runs it',
+    r2.toggles === 0 && r2.sameTask === 'toastAction' && r2.afterFrame === 'toastAction' && runs2.join() === 'A', JSON.stringify({ r2, runs2 }));
+
+  // no action: the focus to the box
+  await focusUndo('Deleted e.bin');
+  const r3 = await replace('Saved.', null);
+  check('feedback R45: a toast with no action replacing a focused one takes the focus to the box', r3.toggles === 0 && r3.sameTask === 'toast' && r3.afterFrame === 'toast', JSON.stringify(r3));
+  await page.evaluate(() => { document.activeElement.blur(); window.emu.feedback.clear(); });
+
+  // hover: the replacement stays while the pointer is over it, then its full 4 s
+  await page.evaluate(() => window.emu.feedback.toast('Hovered toast A'));
+  await frames(page);
+  await page.hover('#toast');
+  await page.evaluate(() => window.emu.feedback.toast('Hovered toast B'));
+  await page.waitForTimeout(10000);
+  const h = await state(page);
+  await page.mouse.move(700, 450);
+  const h0 = Date.now();
+  await page.waitForTimeout(3000);
+  const hUp = !await page.isHidden('#toast');
+  const hGone = await waitFor(page, () => document.getElementById('toast').hidden, null, 6000);
+  check('feedback R45: a toast replacing a hovered one stays while hovered (10 s), and has its full 4 s after the pointer leaves',
+    h.up && h.text === 'Hovered toast B' && hUp && hGone && Date.now() - h0 >= 3500, JSON.stringify({ h, hUp, ms: Date.now() - h0 }));
+
+  const ann = await page.evaluate(() => window.__ann);
+  check('feedback R45: one announcement per toast (the live region\'s text changes once for each)',
+    ann.join('|') === 'Deleted a.bin|Deleted b.bin|Deleted c.bin|Deleted c.bin and d.bin|Deleted e.bin|Saved.|Hovered toast A|Hovered toast B', JSON.stringify(ann));
+  await ctx.close();
+}
+
+// UX R45: the top slot is a provisional pin. A toast raised while a sheet (a control) is still opening, with no place
+// free yet, is in the top slot in the frame it appears in; once the sheet's own transition ends (300 ms at most) it
+// moves to the free place, with no animation, and stays there. A focused provisional toast is not moved.
+async function provisionalPinChecks(browser, base, check, state, frames) {
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, serviceWorkers: 'block' });
+  const page = await ctx.newPage();
+  await page.goto(`${base}?machine=dragon64`);
+  await started(page);
+  // a sheet over the whole window shrinking to a band at the top in 150 ms; the toast is raised as it starts
+  const raise = (text, focus) => page.evaluate(([text, focus]) => new Promise((res) => {
+    scrollTo(0, 0); window.emu.feedback.clear();
+    document.getElementById('fbSheet')?.remove();
+    const sh = document.createElement('div');
+    sh.className = 'controls'; sh.id = 'fbSheet';
+    sh.style.cssText = 'position:fixed;left:0;right:0;top:0;height:100vh;z-index:1;background:#222;transition:height 150ms linear';
+    document.body.append(sh); sh.getBoundingClientRect();
+    sh.style.height = '80px';
+    const ann = [], txt = document.getElementById('toastText'), reg = document.getElementById('toastRegion'), box = document.getElementById('toast');
+    new MutationObserver(() => { if (txt.textContent && txt.textContent !== ann[ann.length - 1]) ann.push(txt.textContent); })
+      .observe(reg, { subtree: true, childList: true, characterData: true });
+    const t0 = performance.now();
+    window.emu.feedback.toast(text);
+    if (focus) box.focus();
+    const samples = [];
+    const look = () => { const b = box.getBoundingClientRect();
+      return { ms: Math.round(performance.now() - t0), top: reg.classList.contains('top'), up: !box.hidden, rect: [b.left, b.top, b.right, b.bottom].map(Math.round).join(','),
+        inView: b.top >= 0 && b.bottom <= innerHeight, anims: reg.getAnimations({ subtree: true }).length }; };
+    requestAnimationFrame(() => {
+      const first = look();
+      const iv = setInterval(() => { samples.push(look()); if (performance.now() - t0 >= 700) { clearInterval(iv); res({ first, samples, ann }); } }, 50);
+    });
+  }), [text, focus]);
+
+  const p = await raise('Raised as a sheet opens', false);
+  const late = p.samples.filter((x) => x.ms >= 350);
+  check('feedback R45: a toast raised as a sheet opens is in view in its first frame, in the top slot',
+    p.first.up && p.first.top && p.first.inView, JSON.stringify(p.first));
+  check('feedback R45: ... once the sheet\'s transition ends it is in the free place, and from 350 ms on its place never changes (sampled every 50 ms)',
+    late.length >= 5 && late.every((x) => x.up && !x.top && x.inView && x.rect === late[0].rect), JSON.stringify(p.samples));
+  check('feedback R45: ... moved with no animation, and announced once', p.samples.every((x) => x.anims === 0) && p.ann.join('|') === 'Raised as a sheet opens', JSON.stringify(p.ann));
+
+  const f = await raise('Focused as a sheet opens', true);
+  check('feedback R45: a focused provisional toast is not moved (it keeps the top slot)',
+    f.first.top && f.samples.every((x) => x.up && x.top && x.rect === f.samples[0].rect), JSON.stringify(f.samples.slice(-2)));
+  await page.evaluate(() => { document.activeElement.blur(); window.emu.feedback.clear(); document.getElementById('fbSheet').remove(); });
+
+  // landed in the slot while already focused (it replaced a focused toast), nothing moving: past 300 ms it is still
+  // provisional, so a place that opened meanwhile is taken once the focus leaves (the pin is final only when not held)
+  const held = await page.evaluate(() => new Promise((res) => {
+    scrollTo(0, 0); window.emu.feedback.clear();
+    window.emu.feedback.toast('Focused first');
+    document.getElementById('toast').focus();
+    const sh = document.createElement('div');
+    sh.className = 'controls'; sh.id = 'fbSheet'; sh.style.cssText = 'position:fixed;left:0;right:0;top:0;height:100vh;z-index:1;background:#222';
+    document.body.append(sh);
+    window.emu.feedback.toast('Landed while focused');
+    const reg = document.getElementById('toastRegion'), r = { first: reg.classList.contains('top'), focus: document.activeElement.id };
+    setTimeout(() => {
+      sh.style.height = '80px';
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        r.heldAfter400 = reg.classList.contains('top');
+        document.activeElement.blur();
+        requestAnimationFrame(() => requestAnimationFrame(() => { r.afterRelease = reg.classList.contains('top'); r.up = !document.getElementById('toast').hidden; res(r); }));
+      }));
+    }, 400);
+  }));
+  check('feedback R45: a toast that lands in the top slot while focused stays there past 300 ms, and once let go takes the place that opened meanwhile',
+    held.first && held.focus === 'toast' && held.heldAfter400 && !held.afterRelease && held.up, JSON.stringify(held));
+  await page.evaluate(() => { window.emu.feedback.clear(); document.getElementById('fbSheet').remove(); });
+  await ctx.close();
 }
 
 async function feedbackChecks(browser, base, check) {
@@ -4506,8 +4895,8 @@ async function libraryChecks(browser, base, check) {
     await page.evaluate(() => { location.hash = '#library'; });
     await waitFor(page, () => !!document.querySelector('#libTiles .tile[data-name="disks/UTILS.DSK"]'));
     await page.click('#libTiles .tile[data-name="disks/UTILS.DSK"]');
-    await waitFor(page, () => window.emu.session.diskStatus().drives.length === 1);
-    const mounted = await page.evaluate(() => ({ drives: window.emu.session.diskStatus().drives.map((d) => `${d.drive}:${d.name}`).join(), lib: document.getElementById('library').hidden,
+    await waitFor(page, () => window.emu.session.drives.status().drives.length === 1);
+    const mounted = await page.evaluate(() => ({ drives: window.emu.session.drives.status().drives.map((d) => `${d.drive}:${d.name}`).join(), lib: document.getElementById('library').hidden,
       msg: document.getElementById('toast').textContent }));
     check('library: clicking a disk mounts it in a drive and returns to the emulator', mounted.drives === '0:disks/UTILS.DSK' && mounted.lib && mounted.msg === 'UTILS.DSK in drive 0',
       JSON.stringify(mounted));
@@ -4528,7 +4917,7 @@ async function libraryChecks(browser, base, check) {
     check('library: a disk in a drive can be neither renamed nor deleted, and the status says which drive holds it',
       /^UTILS\.DSK is in drive 0; eject it before you rename it/.test(renameMsg) && /^UTILS\.DSK is in drive 0; eject it before you delete it/.test(deleteMsg) && still && stillSelected,
       `${renameMsg} | ${deleteMsg}`);
-    await page.evaluate(() => window.emu.session.ejectDisk(0));
+    await page.evaluate(() => window.emu.session.drives.eject(0));
     await page.click('#btnLibDelete');
     await waitFor(page, () => !document.querySelector('#libTiles .tile[data-name="disks/UTILS.DSK"]'));
     // leaving the Library ends the Undo toast: the delete is done then
@@ -5102,7 +5491,7 @@ async function libraryStorageChecks(base, check) {
   await page.evaluate(() => { const s = window.emu.session; s.roms.put('rsdos', 'rom', new Uint8Array(0x2000).fill(0x39), 'disk11.rom'); s.switchMachine('coco'); });
   await openLib();
   await drag('#libTiles .tile[data-name="disks/UTILS.DSK"]', '#typeinDrop');
-  check('drag: a disk tile dropped on the screen goes into a drive', await waitFor(page, () => window.emu.session.diskStatus().drives.map((d) => `${d.drive}:${d.name}`).join() === '0:disks/UTILS.DSK')
+  check('drag: a disk tile dropped on the screen goes into a drive', await waitFor(page, () => window.emu.session.drives.status().drives.map((d) => `${d.drive}:${d.name}`).join() === '0:disks/UTILS.DSK')
     && await page.isHidden('#library'), await msg());
 
   // ---- where it is kept ----
@@ -5110,7 +5499,7 @@ async function libraryStorageChecks(base, check) {
   await page.click('#libStorageChoices .choice[data-storage="fallback"]');
   await waitFor(page, () => /^Eject the disks first/.test(document.getElementById('toast').textContent));
   check('storage: refused while a stored disk is in a drive, saying which', await kind() === 'opfs' && /^Eject the disks first \(drive 0: UTILS\.DSK\)/.test(await msg()), await msg());
-  await page.evaluate(() => window.emu.session.ejectDisk(0));
+  await page.evaluate(() => window.emu.session.drives.eject(0));
   await page.click('#libStorageChoices .choice[data-storage="fsa"]');
   await settled(/^Your library is now kept in the folder/);
   const moved = await page.evaluate(async () => {
@@ -7838,7 +8227,7 @@ async function urlChecks(browser, base, check) {
   for (const q of ['load=https://files.example/reader.bin&disk=https://files.example/level.vdk', 'disk=https://files.example/level.vdk&load=https://files.example/reader.bin']) {
     await open(`?machine=dragon64&${q}`);
     check(`link: ${q.replace(/https:\/\/files\.example\//g, '')}: the disk is in drive 0 and the game's first read finds it`,
-      await waitFor(page, (h) => window.emu.session.diskStatus().drives.some((d) => d.drive === 0 && d.file === 'level.vdk') && window.emu.session.screenText()[0].startsWith(`READ OK ${h}`), T0S1_HEX)
+      await waitFor(page, (h) => window.emu.session.drives.status().drives.some((d) => d.drive === 0 && d.file === 'level.vdk') && window.emu.session.screenText()[0].startsWith(`READ OK ${h}`), T0S1_HEX)
       && !await ev(() => document.getElementById('toast').classList.contains('error')), `${await ev(() => window.emu.session.screenText()[0])} / ${await msg()}`);
   }
   if (shotDir) await page.screenshot({ path: path.join(shotDir, 'link-load-disk.png') });
@@ -9986,24 +10375,76 @@ async function askEscChecks(browser, base, check) {
     await ctx.close();
   }
 
-  // ---- (5d) from a second review: a toast over the bottom of a phone while only the sheet's Stop shows does not make the
+  // ---- (5d) from a second review: a toast raised while a turn runs and the sheet's Stop shows does not make the
   // pill come and go (#viewClaude moves the toasts up); a modifier let go in another window leaves no mark (the next Esc stops); the rail's tab closes with a page
   // view; held sideways at 1100 px or more with the touch keyboard on, a Stop can be clicked, and a card makes the
   // keyboard stand aside ----
-  {
-    const { ctx, page, errors, replies } = await open({ width: 390, height: 844 });
-    const L = 'askEsc (a toast over the sheet\'s Stop)';
+  // UX R47: a toast never covers the sheet's own controls (its Stop among them), so the "toast over the Stop" this case
+  // was written for cannot form in any layout. What it checks now, in the two layouts where the sheet overlays the page:
+  // on a phone (the sheet at peek) the toast is in the header band, pinned at the top under the bar; at 900 px (the
+  // side panel over the page) and on a phone it covers none of the sheet's controls, no Stop among them, the pill
+  // does not come and go, and a Stop can be reached.
+  for (const [tag, viewport] of [['phone, sheet at peek', { width: 390, height: 844 }], ['900 px, side panel over the page', { width: 900, height: 800 }]]) {
+    const { ctx, page, errors, replies } = await open(viewport);
+    const L = `askEsc (a toast while the sheet's Stop shows, ${tag})`, phone = viewport.width <= 700;
     await page.evaluate(() => document.getElementById('btnAsk').click());
     replies.push({ hold: true, body: text('ok') });
     await page.evaluate(() => { window.emu.session.chat.sendLine('hello'); });
-    await page.evaluate(() => document.getElementById('btnAskClose').click());   // (during a turn the sheet goes to peek)
-    await waitFor(page, () => document.getElementById('ask').dataset.height === 'peek' && !document.getElementById('btnAskPeekStop').hidden, null, 5000);
+    if (phone) {
+      await page.evaluate(() => document.getElementById('btnAskClose').click());   // (during a turn the sheet goes to peek)
+      await waitFor(page, () => document.getElementById('ask').dataset.height === 'peek' && !document.getElementById('btnAskPeekStop').hidden, null, 5000);
+    } else await waitFor(page, () => !document.getElementById('askStatus').hidden && document.getElementById('ask').getBoundingClientRect().width > 0, null, 5000);
+    // SETTLE BEFORE RAISING. `dataset.height === 'peek'` is set the instant the sheet is ASKED to peek; its layout
+    // follows a frame or two later. Raising the toast inside that window lets place() decide from rects that are about
+    // to change. So wait until the rects place() reads stop changing -- two consecutive samples that agree -- before
+    // raising the toast (the sheet included: it decides what is covered, R47).
+    await waitFor(page, () => {
+      const sel = 'header, .controls, .slots, aside.drawer, #attention, #touchKeys button, #claudeBar, #installOffer, #tapeHud:not([hidden]), [data-occludes]';
+      const key = [...document.querySelectorAll(sel)].map((e) => { const r = e.getBoundingClientRect();
+        return [r.left, r.top, r.right, r.bottom].map(Math.round).join(','); }).join('|')
+        + '#' + ['#screen', '#monitor .tube'].map((s) => { const e = document.querySelector(s); if (!e) return '';
+          const r = e.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom].map(Math.round).join(','); }).join('|');
+      const same = window.__settleKey === key;
+      window.__settleKey = key;
+      return same;
+    }, null, 5000);
     await page.evaluate(() => { window.__flips = 0; let was = document.getElementById('viewClaude').hidden;
       window.__obs = new MutationObserver(() => { const h = document.getElementById('viewClaude').hidden; if (h !== was) { window.__flips++; was = h; } });
       window.__obs.observe(document.getElementById('viewClaude'), { attributes: true }); window.emu.feedback.toast('A toast over the bottom of the window, long enough to wrap onto several lines on a phone, so that it lies over the sheet\'s Stop button at the bottom edge of the window for as long as it shows'); });
     await emuFrames(page, 90);
     const flips = await page.evaluate(() => window.__flips);
+    // where the toast is: measure the TOAST (#toast), not #toastRegion (the positioning wrapper can span the viewport)
+    const where = await page.evaluate(() => {
+      const reg = document.getElementById('toastRegion'), box = document.getElementById('toast'), tr = box.getBoundingClientRect();
+      const meets = (o) => !(tr.bottom <= o.top || tr.top >= o.bottom || tr.right <= o.left || tr.left >= o.right);
+      const sheetControls = [...document.querySelectorAll('#ask button, #ask a[href], #ask input, #ask textarea, #ask select, #ask [role="tab"]')]
+        .map((e) => e.getBoundingClientRect()).filter((o) => o.width && o.height);
+      const bar = document.getElementById('appbar').getBoundingClientRect();
+      return { up: !box.hidden, pinned: reg.classList.contains('top'), toast: [tr.left, tr.top, tr.right, tr.bottom].map(Math.round), barBottom: Math.round(bar.bottom),
+        onSheetControl: sheetControls.some(meets), onSheet: meets(document.getElementById('ask').getBoundingClientRect()) };
+    });
+    if (phone) check(`${L}: the toast is in the header band (pinned at the top, under the bar), not over the sheet`,
+      where.up && where.pinned && where.toast[1] === where.barBottom + 8 && !where.onSheet, JSON.stringify(where));
+    // (at 900 px whether this long toast finds a free place or pins under the bar depends on how many lines it wraps to,
+    // which depends on the fonts: either is right; feedbackModel checks the free place with a short toast)
+    check(`${L}: the toast covers none of the sheet's controls (no Stop under a toast, R47)`, where.up && !where.onSheetControl, JSON.stringify(where));
     check(`${L}: the pill does not come and go while the toast shows`, flips <= 1, `flips ${flips}`);
+    // THE INVARIANT THE PILL EXISTS FOR: while the turn runs, the person must be able to reach a Stop. A pill that has
+    // gone while NOTHING can be clicked is worse than one that flashes. Assert it against the page.
+    const reach = await page.evaluate(() => {
+      const ids = ['btnAskStatusStop', 'btnAskStripStop', 'btnAskStop', 'btnAskPeekStop', 'btnFsStop', 'btnClaudeStop', 'btnPipStop', 'btnViewStop'];
+      const out = [];
+      for (const id of ids) {
+        const e = document.getElementById(id);
+        if (!e || e.hidden) continue;
+        const r = e.getBoundingClientRect();
+        if (!r.width || !r.height || r.bottom <= 0 || r.right <= 0 || r.top >= innerHeight || r.left >= innerWidth) continue;
+        const x = r.left + r.width / 2, y = r.top + r.height / 2, at = document.elementFromPoint(x, y);
+        out.push({ id, reachable: !!at && (at === e || e.contains(at) || !!at.closest('#viewClaude')) });
+      }
+      return { any: out.some((o) => o.reachable), pill: !document.getElementById('viewClaude').hidden, stops: out };
+    });
+    check(`${L}: a Stop is still reachable while the toast shows (the pill's whole reason)`, reach.any, JSON.stringify(reach));
     await page.evaluate(() => window.emu.session.stopClaude());
     if (replies.held) replies.held.release();
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
@@ -10967,14 +11408,14 @@ async function askChecks(browser, base, check) {
       return t.classList.contains('error') && document.getElementById('toastText').textContent === "Can't restore that point (snapshot was taken with a different basic ROM): nothing was changed, and your restore points are kept."
         && window.emu.Emu.state.toJSON(m.snapshot()) === before && s.chat.undo.length === n && n > 0;
     }) && !(await ev(() => document.querySelector('#askMessages .restoreline').hidden)), await page.textContent('#toast'));
-    // (mocked: Session.restorePoint, the one restore path, reports a disk the Library has changed since the point, as
+    // (mocked: DiskDrives.restorePoint, the one restore path, reports a disk the Library has changed since the point, as
     // tests/restore-points.test.js shows it does; no disk system here, since that needs a DOS ROM)
     const NOTICE = "Drive 0 was changed since this point; the restored disk isn't saved to the Library. Download it to keep it.";
     check(`${L}: Restore puts the machine back exactly to the restore point, and the panel shows the disk notice with it`, await ev((notice) => {
       const s = window.emu.session, want = window.emu.Emu.state.toJSON(s.chat.undo[s.chat.undo.length - 1]);
-      const real = s.restorePoint.bind(s);
-      s.restorePoint = (m, snap) => [...real(m, snap), notice];
-      try { document.querySelector('#askMessages .restoreline .rl-go').click(); } finally { delete s.restorePoint; }
+      const real = s.drives.restorePoint.bind(s.drives);
+      s.drives.restorePoint = (m, snap) => [...real(m, snap), notice];
+      try { document.querySelector('#askMessages .restoreline .rl-go').click(); } finally { delete s.drives.restorePoint; }
       const t = document.getElementById('toast');
       return window.emu.Emu.state.toJSON(s.personMachine.snapshot()) === want && s.chat.undo.length === 0
         && !t.classList.contains('error') && document.getElementById('toastText').textContent === `Restored: the machine is as it was before Claude's changes. ${notice}`;
@@ -12898,9 +13339,13 @@ async function uiQaChecks(browser, base, check) {
   // (with a line typed, BREAK has something to do: the firmware drops the line; the empty, idle prompt is leave-the-chat, in escChatChecks)
   await page.focus('#screen'); await emuFrames(page, 3); await page.keyboard.type('x');
   const typed = await waitFor(page, () => window.emu.session.readByte(0x6013, window.emu.session.chatMachines.chat) === 1);
-  await page.keyboard.press('Escape'); await emuFrames(page, 3);
-  check('in the full-screen chat, Esc on the screen with a line typed is BREAK (the line is dropped) and keeps the chat open', typed
-    && await page.evaluate(() => window.emu.session.claudeView === 'full' && window.emu.session.readByte(0x6013, window.emu.session.chatMachines.chat) === 0));
+  // wait for the firmware to drop the line rather than reading it after a fixed few frames: under load those frames
+  // can pass before the chat machine has run its BREAK handling, which flaked this check. An Esc that does nothing
+  // never clears the byte, so waitFor times out and the check still fails.
+  await page.keyboard.press('Escape');
+  const dropped = await waitFor(page, () => window.emu.session.readByte(0x6013, window.emu.session.chatMachines.chat) === 0);
+  check('in the full-screen chat, Esc on the screen with a line typed is BREAK (the line is dropped) and keeps the chat open', typed && dropped
+    && await page.evaluate(() => window.emu.session.claudeView === 'full'));
   await page.focus('#btnFullSide'); await page.keyboard.press('Escape');
   check('in the full-screen chat, Esc off the screen closes it', await waitFor(page, () => window.emu.session.claudeView !== 'full' && document.getElementById('claude').hidden));
   // and takes the chat's history step back, as "← Emulator" and the browser's Back do (phone-chat's leave()): the
@@ -13092,6 +13537,24 @@ async function semanticsChecks(browser, base, site, check) {
     const text = (n) => (n.role && n.role.value === 'StaticText' ? n.name.value : '') + (n.childIds || []).map((c) => text(byId.get(c))).join('');
     return { count: app.length, name: app[0] && app[0].name && app[0].name.value, text: app[0] ? text(app[0]) : '' };
   };
+  // The screen's text in the accessibility tree and the screen's own text, read at ONE moment. A running machine can
+  // change the screen between two reads (LIZA's cursor blinks after its prompt), and the page copies the screen's text
+  // into #screenAlt only about once a second, so a tree read and a later read of the screen can honestly differ (a CI
+  // failure: the tree held the greeting ending in ">", the second read did not). So the machine is paused (the page's own
+  // Pause: its once-a-second copy goes on while it is paused), the copy is waited for, the tree, the screen and the copy
+  // are read, and the machine is let go again. The comparison stays exact: nothing moves between the reads.
+  const frozenScreen = async (page) => {
+    const toggle = () => page.evaluate(() => document.getElementById('btnPause').click());   // (hidden on a phone held sideways: a click on it still works)
+    await toggle();
+    try {
+      await waitFor(page, () => document.getElementById('screenAlt').textContent === window.emu.session.screenAlternative());
+      const ax = await screenAx(page);
+      const live = await page.evaluate(() => window.emu.session.screenAlternative());
+      const copy = await page.evaluate(() => document.getElementById('screenAlt').textContent);
+      const paused = await page.evaluate(() => window.emu.session.paused || document.getElementById('btnPause').classList.contains('active'));
+      return { ax, live, copy, paused };
+    } finally { await toggle(); }
+  };
   // what a reading mode extracts: Readability on a copy of the document, as the page is now
   const extract = async (page) => {
     if (!await page.evaluate(() => typeof window.Readability === 'function')) await page.addScriptTag({ path: READER });
@@ -13134,10 +13597,10 @@ async function semanticsChecks(browser, base, site, check) {
     check(`${L}: the headings: one h1 naming the machine, none skipped`, inOrder(o.headings) && o.headings[0][1] === 'Dragon 64', JSON.stringify(o.headings));
 
     // the screen: an application named as before, its text alternative the screen's text
-    const ax = await screenAx(page);
-    const alt = await page.evaluate(() => window.emu.session.screenAlternative());
+    const { ax, live: alt, copy, paused } = await frozenScreen(page);
     check(`${L}: the screen is one application, named, its text alternative the screen's text in the accessibility tree`,
-      ax.count === 1 && ax.name === 'The emulated screen. Click it, then type. Tab leaves it.' && norm(ax.text) === norm(alt) && /1 TALK TO LIZA/.test(ax.text), JSON.stringify(ax));
+      ax.count === 1 && ax.name === 'The emulated screen. Click it, then type. Tab leaves it.' && paused && norm(ax.text) === norm(alt) && norm(copy) === norm(alt) && /1 TALK TO LIZA/.test(ax.text),
+      JSON.stringify({ ax, live: alt, copy, paused }));
 
     // closed surfaces, as the page starts and after each has been opened and closed again
     await closedOk(page, `${L}, as it starts`);
@@ -13205,8 +13668,11 @@ async function semanticsChecks(browser, base, site, check) {
       await page.keyboard.press('1');
       const follows = await waitFor(page, () => /LIZA/.test(window.emu.session.screenAlternative()) && !/TALK TO LIZA/.test(window.emu.session.screenAlternative())
         && document.getElementById('screenAlt').textContent === window.emu.session.screenAlternative());
-      const ax2 = await screenAx(page);
-      check(`${L}: the text alternative follows the screen (LIZA started from the menu)`, follows && norm(ax2.text) === norm(await page.evaluate(() => window.emu.session.screenAlternative())), JSON.stringify(ax2.text.slice(0, 120)));
+      // (the tree and the screen are read at one moment, the machine paused: LIZA's cursor must not move between them)
+      const fr = await frozenScreen(page);
+      check(`${L}: the text alternative follows the screen (LIZA started from the menu)`,
+        follows && fr.paused && /LIZA/.test(fr.live) && !/TALK TO LIZA/.test(fr.live) && norm(fr.ax.text) === norm(fr.live) && norm(fr.copy) === norm(fr.live),
+        JSON.stringify({ follows, paused: fr.paused, ax: fr.ax.text.slice(0, 160), live: fr.live.slice(0, 160), copy: fr.copy.slice(0, 160) }));
       // Ask Claude's side panel (off the welcome menu it opens beside the machine): a complementary landmark while open,
       // hidden for real once closed
       await page.click('#btnAsk'); await waitFor(page, () => !document.getElementById('ask').hidden);
@@ -13438,6 +13904,26 @@ async function installChecks(browser, base, check) {
     await skipTo(page, 200);
     check('install: no card over the welcome menu (the program clock does not run on it)', !(await cardUp(page))
       && (await page.evaluate(() => window.emu.install.clock.seconds())) === 0, String(await page.evaluate(() => window.emu.install.clock.seconds())));
+    await ctx.close();
+  }
+  // a disk in a drive is something to come back to, even at the bare prompt with nothing running (programRunning:
+  // asked through the drives; a Machine has no disk controller of its own, and asking it for one never found a disk)
+  {
+    const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64`);
+    await stubPrompt(page);
+    await waitFor(page, () => window.emu.machine.atStubPrompt());
+    await emuFrames(page, 2);
+    const bare = await page.evaluate(() => window.emu.install.state().programRunning);
+    await page.evaluate(() => window.emu.session.drives.importImage('stay.vdk', window.emu.Emu.blankDisk('vdk', 40, 1), 0));
+    await emuFrames(page, 2);
+    const withDisk = await page.evaluate(() => ({ running: window.emu.install.state().programRunning, prompt: window.emu.machine.atStubPrompt(), drives: window.emu.session.drives.status().drives.length }));
+    await page.evaluate(() => window.emu.session.drives.eject(0));
+    await emuFrames(page, 2);
+    const ejected = await page.evaluate(() => window.emu.install.state().programRunning);
+    check('install: at the bare prompt nothing counts as a program; a disk in a drive does; ejected, it no longer does',
+      bare === false && withDisk.running === true && withDisk.prompt === true && withDisk.drives === 1 && ejected === false,
+      JSON.stringify({ bare, withDisk, ejected }));
+    check('install: no page errors', !errors.length, errors.join('; '));
     await ctx.close();
   }
   // ---- 2a. a background tab runs no program: the clock settles when the page is hidden ----
@@ -14978,7 +15464,7 @@ async function uiModelChecks(browser, base, check) {
     await waitFor(page, () => !!window.emu.session.roms.get('dragondos').rom);
     await page.evaluate(() => window.emu.session.switchMachine('dragon64'));
     await dropFiles(page, [['WORK.VDK', Buffer.from(images.vdk(40, 1))]]);
-    await waitFor(page, () => window.emu.session.diskStatus().drives.some((d) => d.file === 'WORK.VDK' && d.stored));
+    await waitFor(page, () => window.emu.session.drives.status().drives.some((d) => d.file === 'WORK.VDK' && d.stored));
     await page.setInputFiles('#fileTape', { name: 'GAME.CAS', mimeType: 'application/octet-stream', buffer: Buffer.alloc(300, 0x55) });
     await waitFor(page, async () => (await window.emu.session.library.listMedia()).some((x) => /GAME\.CAS$/.test(x.name)));
     await page.click('#machineBtn');
@@ -14989,7 +15475,7 @@ async function uiModelChecks(browser, base, check) {
       asked === 'Switching to CoCo 1/2 resets the Dragon 64 and takes out the tape GAME.CAS and the disk WORK.VDK in drive 0. They stay in your Library.', asked);
     // Cancel: nothing changes
     await page.click('#btnSwitchCancel');
-    check('R25: Cancel keeps the machine and its media', await page.evaluate(() => window.emu.machine.id === 'dragon64' && window.emu.session.diskStatus().drives.length === 1 && !!window.emu.machine.deck.tape));
+    check('R25: Cancel keeps the machine and its media', await page.evaluate(() => window.emu.machine.id === 'dragon64' && window.emu.session.drives.status().drives.length === 1 && !!window.emu.machine.deck.tape));
 
     // a RAM change asks the same way (it asked nothing), and Cancel puts the select back
     await page.evaluate(() => window.emu.session.switchMachine('coco'));
@@ -15013,10 +15499,10 @@ async function uiModelChecks(browser, base, check) {
     // a snapshot's own disk: not kept by a switch; the confirm offers to save it to the Library first
     await page.evaluate(() => window.emu.session.switchMachine('dragon64'));
     await dropFiles(page, [['SNAP.VDK', Buffer.from(images.vdk(40, 1))]]);
-    await waitFor(page, () => window.emu.session.diskStatus().drives.some((d) => d.file === 'SNAP.VDK'));
-    const snap = await page.evaluate(async () => { const s = window.emu.session, f = await s.snapshotFile(); await s.ejectDisk(0); await s.library.deleteMedia('disks/SNAP.VDK'); return [...f.bytes]; });
+    await waitFor(page, () => window.emu.session.drives.status().drives.some((d) => d.file === 'SNAP.VDK'));
+    const snap = await page.evaluate(async () => { const s = window.emu.session, f = await s.snapshotFile(); await s.drives.eject(0); await s.library.deleteMedia('disks/SNAP.VDK'); return [...f.bytes]; });
     await dropFiles(page, [['moment.cloadm', Buffer.from(snap)]]);
-    await waitFor(page, () => window.emu.session.diskStatus().drives.some((d) => d.file === 'SNAP.VDK' && !d.stored));
+    await waitFor(page, () => window.emu.session.drives.status().drives.some((d) => d.file === 'SNAP.VDK' && !d.stored));
     await page.click('#machineBtn');
     await page.click('#machineMenu button[data-machine="dragon32"]');
     await waitFor(page, () => !document.getElementById('switchConfirm').hidden);
@@ -15027,32 +15513,32 @@ async function uiModelChecks(browser, base, check) {
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'r25-snapshot-disk.png') });
     await page.click('#btnSwitchSaveDisk');
     check('R25: Save to Library stores the snapshot\'s disk and links the drive to it; the confirm stays up, its button saying "Saved to Library"', await waitFor(page, async () => (await window.emu.session.library.listMedia()).some((x) => x.name === 'disks/SNAP.VDK')
-        && window.emu.session.diskStatus().drives[0].stored) && await page.isVisible('#switchConfirm') && await page.evaluate(() => window.emu.machine.id === 'dragon64')
+        && window.emu.session.drives.status().drives[0].stored) && await page.isVisible('#switchConfirm') && await page.evaluate(() => window.emu.machine.id === 'dragon64')
       && await waitFor(page, () => { const b = document.getElementById('btnSwitchSaveDisk'); return b.textContent === 'Saved to Library' && b.disabled; }), JSON.stringify(await page.evaluate(async () => ({ toast: document.getElementById('toastText').textContent,
-        lib: (await window.emu.session.library.listMedia()).map((x) => x.name), drives: window.emu.session.diskStatus().drives, confirm: !document.getElementById('switchConfirm').hidden, id: window.emu.machine.id }))));
+        lib: (await window.emu.session.library.listMedia()).map((x) => x.name), drives: window.emu.session.drives.status().drives, confirm: !document.getElementById('switchConfirm').hidden, id: window.emu.machine.id }))));
     await page.click('#btnSwitchCancel');
 
     // Save to Library with two snapshot disks, the second refused once: the retry saves only the one still unsaved
     // (it used to stop on the first, already in the Library)
     await page.evaluate(() => window.emu.session.switchMachine('dragon64'));
     await dropFiles(page, [['A.VDK', Buffer.from(images.vdk(40, 1))]]);
-    await waitFor(page, () => window.emu.session.diskStatus().drives.some((d) => d.file === 'A.VDK'));
-    await page.evaluate(async (b) => { await window.emu.session.importDisk('B.VDK', new Uint8Array(b), 1); }, [...images.vdk(40, 1)]);
-    const snap2 = await page.evaluate(async () => { const s = window.emu.session, f = await s.snapshotFile(); await s.ejectDisk(0); await s.ejectDisk(1);
+    await waitFor(page, () => window.emu.session.drives.status().drives.some((d) => d.file === 'A.VDK'));
+    await page.evaluate(async (b) => { await window.emu.session.drives.importImage('B.VDK', new Uint8Array(b), 1); }, [...images.vdk(40, 1)]);
+    const snap2 = await page.evaluate(async () => { const s = window.emu.session, f = await s.snapshotFile(); await s.drives.eject(0); await s.drives.eject(1);
       await s.library.deleteMedia('disks/A.VDK'); await s.library.deleteMedia('disks/B.VDK'); return [...f.bytes]; });
     await dropFiles(page, [['two.cloadm', Buffer.from(snap2)]]);
-    await waitFor(page, () => window.emu.session.diskStatus().drives.filter((d) => !d.stored).length === 2);
-    await page.evaluate(() => { const s = window.emu.session, keep = s.keepSnapshotDisk.bind(s); let once = true;
-      s.keepSnapshotDisk = (d) => { if (d === 1 && once) { once = false; return Promise.reject(new Error('No space left (test)')); } return keep(d); }; });
+    await waitFor(page, () => window.emu.session.drives.status().drives.filter((d) => !d.stored).length === 2);
+    await page.evaluate(() => { const s = window.emu.session, keep = s.drives.keepSnapshot.bind(s.drives); let once = true;
+      s.drives.keepSnapshot = (d) => { if (d === 1 && once) { once = false; return Promise.reject(new Error('No space left (test)')); } return keep(d); }; });
     await page.click('#machineBtn');
     await page.click('#machineMenu button[data-machine="dragon32"]');
     await waitFor(page, () => !document.getElementById('switchConfirm').hidden && !document.getElementById('btnSwitchSaveDisk').hidden);
     await page.click('#btnSwitchSaveDisk');
-    await waitFor(page, () => !document.getElementById('btnSwitchSaveDisk').disabled && window.emu.session.diskStatus().drives.find((d) => d.drive === 0).stored);
+    await waitFor(page, () => !document.getElementById('btnSwitchSaveDisk').disabled && window.emu.session.drives.status().drives.find((d) => d.drive === 0).stored);
     await page.click('#btnSwitchSaveDisk');
     check('R25: Save to Library retried after a failure on the second disk saves it, skipping the first (already saved)',
-      await waitFor(page, () => window.emu.session.diskStatus().drives.every((d) => d.stored) && document.getElementById('btnSwitchSaveDisk').textContent === 'Saved to Library'),
-      JSON.stringify(await page.evaluate(() => ({ drives: window.emu.session.diskStatus().drives, btn: document.getElementById('btnSwitchSaveDisk').textContent, toast: document.getElementById('toastText').textContent }))));
+      await waitFor(page, () => window.emu.session.drives.status().drives.every((d) => d.stored) && document.getElementById('btnSwitchSaveDisk').textContent === 'Saved to Library'),
+      JSON.stringify(await page.evaluate(() => ({ drives: window.emu.session.drives.status().drives, btn: document.getElementById('btnSwitchSaveDisk').textContent, toast: document.getElementById('toastText').textContent }))));
     await page.click('#btnSwitchCancel');
     // a switch started by opening a snapshot of another machine says what it took out too
     const d32snap = await page.evaluate(async () => { const s = window.emu.session; s.switchMachine('dragon32'); for (let i = 0; i < 3; i++) s.shownMachine.runFrame();
@@ -15061,7 +15547,7 @@ async function uiModelChecks(browser, base, check) {
     await waitFor(page, () => !document.getElementById('switchConfirm').hidden);
     await page.click('#btnSwitch');
     check('R25: a switch made by opening a snapshot says what it took out', await toastSeen(page, /^Snapshot opened: Dragon 32, without ROMs\. Took out: GAME\.CAS\.$/),
-      JSON.stringify(await page.evaluate(() => ({ toast: document.getElementById('toastText').textContent, id: window.emu.machine.id, drives: window.emu.session.diskStatus().drives.length }))));
+      JSON.stringify(await page.evaluate(() => ({ toast: document.getElementById('toastText').textContent, id: window.emu.machine.id, drives: window.emu.session.drives.status().drives.length }))));
 
     // DriveWire: its disks are the Session's, not listed, and still mounted after the switch
     await page.evaluate(() => window.emu.session.switchMachine('coco3', Object.assign(window.emu.session.savedConfig('coco3'), { becker: true })));
@@ -16364,4 +16850,9 @@ const GROUPS = (base, site) => [
     server.closeAllConnections();   // (kept-alive connections would hold the run open after its summary)
   }
   process.exitCode = run.summary();
+  if (timingsFile) {
+    const groups = {};
+    for (const g of run.groups) if (g.name !== 'missing files') groups[g.name] = Math.round(g.seconds * 10) / 10;
+    fs.writeFileSync(timingsFile, JSON.stringify({ groups }, null, 2) + '\n');
+  }
 })();

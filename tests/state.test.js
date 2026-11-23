@@ -285,13 +285,13 @@ async function sscMidCommand() {
     let n = 0;
     while (p.busy && n < 200000) { m.runCycles(m.cycle + 2); n++; }
     p.readIO(0xFF7E);
-    return { n, busy: p.busy, pc: p.tms7040.pc, ib: p.sp0256.ib };
+    return { n, busy: p.busy, pc: p.tms7040.pc, sp: JSON.stringify(p.sp0256.saveState()) };
   };
   const fa = finish(a), fb = finish(b);
   check('ssc: the busy flag is set with a command part way through', busyMid, `(busy at snapshot: ${busyMid})`);
   check('ssc: the restored card finishes the command in the same time and state',
-    !fa.busy && !fb.busy && fb.pc === fa.pc && fb.ib === fa.ib && Math.abs(fb.n - fa.n) <= 4,
-    `(${fa.n} vs ${fb.n} cycles, pc ${fa.pc.toString(16)} vs ${fb.pc.toString(16)}, allophone ${fa.ib}/${fb.ib})`);
+    !fa.busy && !fb.busy && fb.pc === fa.pc && fb.sp === fa.sp && Math.abs(fb.n - fa.n) <= 4,
+    `(${fa.n} vs ${fb.n} cycles, pc ${fa.pc.toString(16)} vs ${fb.pc.toString(16)}, SP0256 ${fa.sp === fb.sp ? 'same' : `${fa.sp} / ${fb.sp}`})`);
   await sscMidTone();
 }
 
@@ -300,7 +300,7 @@ async function sscMidCommand() {
 // waveform and the samples differ. The test plays the tone firmware for a while, snapshots, restores, and then
 // requires the two machines' audio-event streams to be IDENTICAL from that point on.
 async function sscMidTone() {
-  const { toneFirmware } = require('../tools/mame-diff/ssc/audio.js');
+  const { toneFirmware } = require('../tools/mame-diff/ssc/gen-roms.js');
   const { buildAsm } = require('../tools/mame-diff/ssc/gen-roms.js');
   const { romImage } = require('../tools/mame-diff/lib/firmware.js');
   const mk = () => {
@@ -317,8 +317,8 @@ async function sscMidTone() {
   // A channel must actually be AUDIBLE. Two weaker forms do not establish that, and both were measured failing:
   //   tones.some(period > 0)  - a period with every volume at 0 is silent;
   //   volEnabled.some(...)    - volEnabled is the waveform/noise gate only (ay8910.js:118) and ignores volume.
-  // So this requires a waveform gate that is ON *and* a non-zero volume register for that channel. AY_VOLUME[0]
-  // is -0.125, so silence is not zero and cannot be tested by "!== 0" either.
+  // So this requires a waveform gate that is ON *and* a non-zero volume register for that channel. The AY's
+  // single output is 0.158 with every channel at 0, so silence is not zero and cannot be tested by "!== 0" either.
   const audible = ayMid.volEnabled.some((on, c) => on && ayMid.regs[8 + c] !== 0);
   check('ssc audio: a tone is playing when the snapshot is taken', audible,
     `periods ${ayMid.tones.map((t) => t.period).join(',')} volumes ${ayMid.regs.slice(8, 11).join(',')} enabled ${ayMid.volEnabled.join(',')}`);

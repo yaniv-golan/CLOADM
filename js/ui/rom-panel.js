@@ -31,7 +31,7 @@ export function setupRomPanel(page) {
     const n = report.restored || loaded.length;
     const what = report.restored ? `${n} ${n === 1 ? 'ROM' : 'ROMs'} restored from your ROM pack` : n ? `${n === 1 ? 'ROM' : `${n} ROMs`} added` : '';
     // a disk ROM for the disk controller in use, which went in without one: it goes in at the next reset or power cycle
-    const disk = session.diskRomWaiting && session.preferredDiskDos();
+    const disk = session.drives.romWaiting && session.drives.preferredDos();
     const waiting = disk && `your ${disk.name.replace(/ cartridge$/, '')} disk ROM goes in at the next reset or power cycle`;
     const text = [what, ready.length && `${ready.join(', ')} ready`, waiting].filter(Boolean).join(' · ');
     const extra = [report.ignored.length && `Not ROMs: ${report.ignored.join(', ')}`, ...problems].filter(Boolean);

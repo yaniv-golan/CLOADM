@@ -56,7 +56,7 @@ export function setupBootHelp(page, sockets) {
   startWatch();
   // a new machine, power-on or reset: at once (and watch again if it is booting), so the box never shows
   // the previous machine's cause. A restore ('restored': an opened snapshot, or Claude's undo through
-  // Session.restorePoint) is not one of those and must not be treated as one: it only re-checks, so a box raised by
+  // DiskDrives.restorePoint) is not one of those and must not be treated as one: it only re-checks, so a box raised by
   // the run the restore replaced goes. No box comes back for the moment put back: a restored moment is never a
   // failed boot (bootStatus answers 'restored' for it, never 'failed'), even one taken on a failed boot.
   session.on((ev) => {

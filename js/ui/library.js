@@ -226,11 +226,11 @@ export function setupLibrary(page, { loadProgram, runShelf, changed, showRoms, r
     loading = name; render();
     try {
       if (name.startsWith(DISK_PREFIX)) {
-        const st = session.diskStatus();
+        const st = session.drives.status();
         let drive = 0;
         while (drive < st.count - 1 && st.drives.some((d) => d.drive === drive)) drive++;
         let msg;
-        try { msg = await session.mountDisk(drive, name); } catch (e) { page.status(e.message, true); return; }
+        try { msg = await session.drives.mount(drive, name); } catch (e) { page.status(e.message, true); return; }
         close();
         diskSaid(msg);
         return;
@@ -274,7 +274,7 @@ export function setupLibrary(page, { loadProgram, runShelf, changed, showRoms, r
   // Rename: a name field on the item itself; Enter saves, Esc cancels. A disk in a drive is refused at once.
   $('btnLibRename').onclick = () => {
     const n = one();
-    try { session.checkNotInDrive(n, 'rename'); } catch (e) { page.status(e.message, true); return; }
+    try { session.drives.checkNotInDrive(n, 'rename'); } catch (e) { page.status(e.message, true); return; }
     renaming = n;
     render();
   };
@@ -309,7 +309,7 @@ export function setupLibrary(page, { loadProgram, runShelf, changed, showRoms, r
   // closing the page
   $('btnLibDelete').onclick = () => {
     const list = [...selected];
-    try { for (const n of list) session.checkNotInDrive(n, 'delete'); } catch (e) { page.status(e.message, true); return; }
+    try { for (const n of list) session.drives.checkNotInDrive(n, 'delete'); } catch (e) { page.status(e.message, true); return; }
     const mine = { names: list };
     pending = mine;
     setSelecting(false);

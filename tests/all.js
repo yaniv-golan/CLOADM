@@ -6,7 +6,21 @@
 // passed", ...): a suite that stops halfway -- the usual cause is a promise that never settles, which does not
 // hang but lets Node drain the event loop and exit 0 -- prints no summary and is failed by name.
 //
-//   node tests/all.js [--jobs N] [--only <pattern>[,<pattern>...]]
+//   node tests/all.js [--jobs N] [--only <pattern>[,<pattern>...] | --shard i/n] [--timings FILE] [--record-times]
+//   node tests/all.js --list
+//
+// --shard i/n (1 <= i <= n) runs the i-th of n disjoint parts of the gate, for CI, which runs the n parts on n
+// runners at once. The parts are planned from tests/suite-times.json (each suite's measured seconds; a suite not in
+// it counts 1 s), longest suite first onto the part with the least time so far, so every suite is in exactly one
+// part whatever the times say: stale times only unbalance the parts. The part holding regress.test.js checks the
+// regression gate's completeness as the whole run does. The last line is "shard i/n: <k> of <total> suites run, ..."
+// and the CI `gates` job (.github/scripts/suite-shards.js) checks that the parts' suite lines are, together, every
+// suite `--list` prints, each once, and that the parts' counts sum to the total. A part alone is NOT the gate.
+//
+// --list prints the gate's suites, one per line, and runs nothing. --timings FILE writes each suite's seconds there
+// as JSON ({ "suites": { name: seconds } }). --record-times rewrites tests/suite-times.json itself from a whole run
+// (not --only, not --shard), only if it passed, keeping its "//" note: that one file plans the CI parts (--shard) and
+// the order every run starts its suites in (longest first, below).
 //
 // --only runs just the suites whose file name contains one of the patterns (a quick loop while developing; see
 // docs/development.md, "The fast loop"). Such a run is NOT the gate: its summary says so, and the regression gate's
@@ -42,8 +56,47 @@ const onlyArg = (() => {
   return v && !v.startsWith('--') ? v : '';
 })();
 const onlyPats = onlyArg === null ? null : onlyArg.split(',').map((p) => p.trim()).filter(Boolean);
-const files = onlyPats ? allFiles.filter((f) => onlyPats.some((p) => f.includes(p))) : allFiles;
-if (onlyPats && !files.length) {
+// tests/suite-times.json: { "//": a note, "suites": { name: seconds } }, from a whole run. It plans the CI parts
+// (shardOf) and the order the units start in (below); --record-times rewrites it. Missing or unreadable: no times.
+const TIMES_FILE = path.join(__dirname, 'suite-times.json');
+function recordedTimes() {
+  try {
+    const j = JSON.parse(fs.readFileSync(TIMES_FILE, 'utf8'));
+    return { note: typeof j['//'] === 'string' ? j['//'] : null, suites: j && typeof j.suites === 'object' && j.suites ? j.suites : {} };
+  } catch (e) { return { note: null, suites: {} }; }
+}
+const RECORD = process.argv.includes('--record-times');
+// --shard i/n: the i-th of n parts (see the top of this file)
+const shardArg = (() => {
+  const i = process.argv.indexOf('--shard');
+  if (i < 0) return null;
+  const m = /^(\d+)\/(\d+)$/.exec(process.argv[i + 1] || '');
+  const k = m ? Number(m[1]) : 0, n = m ? Number(m[2]) : 0;
+  return m && n >= 1 && k >= 1 && k <= n ? { k, n } : { error: `--shard needs i/n with 1 <= i <= n, not ${JSON.stringify(process.argv[i + 1] || '')}` };
+})();
+// The parts: longest suite first, onto the part with the least time so far (ties: the lower part); deterministic,
+// and every suite lands in exactly one part.
+function shardOf(names, n) {
+  const times = recordedTimes().suites;   // none: 1 s each
+  const cost = (f) => (Number.isFinite(times[f]) && times[f] > 0 ? times[f] : 1);
+  const load = new Array(n).fill(0), part = new Map();
+  for (const f of [...names].sort((a, b) => cost(b) - cost(a) || (a < b ? -1 : 1))) {
+    let k = 0;
+    for (let j = 1; j < n; j++) if (load[j] < load[k] - 1e-9) k = j;
+    part.set(f, k + 1);
+    load[k] += cost(f);
+  }
+  return part;
+}
+const files = onlyPats ? allFiles.filter((f) => onlyPats.some((p) => f.includes(p)))
+  : shardArg && !shardArg.error ? (() => { const part = shardOf(allFiles, shardArg.n); return allFiles.filter((f) => part.get(f) === shardArg.k); })()
+    : allFiles;
+const timingsFile = (() => { const i = process.argv.indexOf('--timings'); return i > 0 ? process.argv[i + 1] : null; })();
+const usage = shardArg && shardArg.error ? shardArg.error : shardArg && onlyPats ? '--shard and --only cannot be combined'
+  : RECORD && (onlyPats || shardArg) ? '--record-times needs a full run: the times of a subset run or of one part are not the gate\'s' : null;
+if (process.argv.includes('--list')) console.log(allFiles.join('\n'));
+else if (usage) { console.error(usage); process.exitCode = 2; }
+else if (onlyPats && !files.length) {
   console.error(onlyPats.length ? `--only ${onlyArg}: no suite name contains ${onlyPats.length > 1 ? 'any of these' : 'this'}; suites are tests/*.test.js`
     : '--only needs a pattern: node tests/all.js --only <part of a suite name>[,<another>]');
   process.exitCode = 2;
@@ -89,43 +142,48 @@ function report(f) {
 // work. Below 4 cores it runs unsharded, as sharding there only competes for the same cores.
 const SHARDS = { 'regress.test.js': jobs >= 4 ? 4 : 1 };
 
-function runOne(f) {
+// The work, as pool slots: one per process. A sharded suite is n units, one per shard, so each regress shard takes a
+// slot of the pool like any other suite instead of four processes riding on one worker's slot (which ran up to
+// jobs + 3 processes at once on `jobs` cores). A suite's result is recorded when its last unit finishes.
+function unitsOf(f) {
   const n = SHARDS[f] || 1;
-  if (n > 1) return runSharded(f, n);
+  return n > 1 ? Array.from({ length: n }, (_, i) => ({ f, argv: ['--shard', `${i}/${n}`], i, n })) : [{ f, argv: [], i: 0, n: 1 }];
+}
+const pending = new Map();   // file -> { t0, parts }
+function runUnit(u) {
   return new Promise((resolve) => {
-    const t0 = Date.now();
-    // an unsharded suite records its own result, exactly as a sharded one does; forgetting this is how a
-    // suite line (and so a failure) can go missing from the run
-    spawnSuite(f, [], (ok, out) => {
-      results.set(f, { ok, seconds: (Date.now() - t0) / 1000, output: out });
-      if (!ok) failed++;
-      flush();
+    if (!pending.has(u.f)) pending.set(u.f, { t0: Date.now(), parts: new Array(u.n).fill(null) });
+    const st = pending.get(u.f);
+    // an unsharded suite records its own result, exactly as a sharded one does; forgetting this is how a suite line
+    // (and so a failure) can go missing from the run
+    spawnSuite(u.f, u.argv, (ok, out) => {
+      st.parts[u.i] = { ok, out };
+      if (st.parts.every(Boolean)) {
+        // the shards' exits decide the suite's result, and their combined output is what the failing-suite tail shows
+        const allOk = st.parts.every((p) => p.ok);
+        results.set(u.f, { ok: allOk, seconds: (Date.now() - st.t0) / 1000, output: st.parts.map((p) => p.out).join('\n') });
+        if (!allOk) failed++;
+        flush();
+      }
       resolve();
     });
   });
 }
 
-// Run a suite's shards at once. Each is a separate process; their exits decide the suite's result, and their
-// combined output is what the failing-suite tail shows.
-function runSharded(f, n) {
-  return new Promise((resolve) => {
-    const t0 = Date.now();
-    const parts = new Array(n).fill(null);
-    let done = 0;
-    for (let i = 0; i < n; i++) {
-      spawnSuite(f, ['--shard', `${i}/${n}`], (ok, out) => {
-        parts[i] = { ok, out };
-        if (++done < n) return;
-        const allOk = parts.every((p) => p && p.ok);
-        const output = parts.map((p) => p.out).join('\n');
-        results.set(f, { ok: allOk, seconds: (Date.now() - t0) / 1000, output });
-        if (!allOk) failed++;
-        flush();
-        resolve();
-      });
-    }
-  });
-}
+// Longest first: the units start in order of their recorded time (tests/suite-times.json's seconds per suite from a
+// whole run; a shard is its suite's time over the shard count), so the long suites are not the last ones started and
+// the pool does not end with one core busy and the rest idle. The order only changes when each suite starts: the
+// output is still printed in file order (flush), and what each suite checks is the same. A suite the file does not
+// list (a new one) is taken as one of the long ones, so it starts early rather than late. A missing or unreadable
+// file leaves file order.
+// `node tests/all.js --record-times` rewrites the file from the run it just made (a full run only, and only if it
+// passed); the times are a scheduling hint, so a stale file costs wall time, never correctness.
+const times = recordedTimes().suites;
+const known = Object.values(times).filter((t) => typeof t === 'number');
+const unknownTime = known.length ? Math.max(...known) : 0;
+const timeOf = (f) => (typeof times[f] === 'number' ? times[f] : unknownTime);
+const units = files.flatMap(unitsOf).map((u, k) => ({ ...u, k, cost: timeOf(u.f) / u.n }))
+  .sort((a, b) => b.cost - a.cost || a.k - b.k);
 
 // A suite that never exits must not hang the gate. Each process is killed after its timeout and the suite
 // reported as a failure that says so.
@@ -233,13 +291,13 @@ function spawnSuite(f, argv, done) {
   });
 }
 
-// A fixed set of workers, each taking the next unclaimed file: no more than `jobs` suites run at once, and no
-// file is started twice.
+// A fixed set of workers, each taking the next unclaimed unit: no more than `jobs` processes run at once, and no
+// unit is started twice.
 async function worker() {
   for (;;) {
     const i = next++;
-    if (i >= files.length) return;
-    await runOne(files[i]);
+    if (i >= units.length) return;
+    await runUnit(units[i]);
   }
 }
 
@@ -315,8 +373,27 @@ function failedLine(regOk) {
 }
 
 (async () => {
-  if (!files.length) return;           // --only selected nothing: reported above, exit 2
-  await Promise.all(Array.from({ length: Math.min(jobs, files.length) }, worker));
+  // --list, a usage error or an --only that selected nothing (reported above, exit 2); a shard may be empty when
+  // there are more parts than suites, and then reports 0 suites run
+  if (process.argv.includes('--list') || usage || (!files.length && !shardArg)) return;
+  await Promise.all(Array.from({ length: Math.min(jobs, units.length) }, worker));
+  if (timingsFile) {
+    const suites = {};
+    for (const f of files) if (results.has(f)) suites[f] = Math.round(results.get(f).seconds * 10) / 10;
+    fs.writeFileSync(timingsFile, JSON.stringify({ suites }, null, 2) + '\n');
+  }
+  if (shardArg) {
+    // One part of the gate: the regression gate's completeness is checked in the part that runs it, and the last
+    // line names the part and its count, which the CI gates job adds up across the parts.
+    const reg = files.includes(REGRESS) ? await regressIncluded() : { ok: true, line: null };
+    if (reg.line) console.log(reg.line);
+    const what = `shard ${shardArg.k}/${shardArg.n}: ${files.length} of ${allFiles.length} suites run,`;
+    console.log(failed ? `${what} ${failed} FAILED` : reg.ok ? `${what} all passed` : `${what} all exited 0, but the regression gate is incomplete: FAILED`);
+    const fl = failedLine(reg.ok);
+    if (fl) console.log(fl);
+    process.exitCode = failed || !reg.ok ? 1 : 0;
+    return;
+  }
   if (onlyPats) {
     // A subset run: the regression gate's completeness is checked only when its suite was selected, and the summary
     // can never be mistaken for the full gate's ("all N suites passed").
@@ -338,4 +415,14 @@ function failedLine(regOk) {
   const fl = failedLine(reg.ok);
   if (fl) console.log(fl);
   process.exitCode = bad ? 1 : 0;
+  if (RECORD) {
+    if (bad) console.log(`--record-times: not written, the run failed (${path.basename(TIMES_FILE)} is unchanged)`);
+    else {
+      const suites = {};
+      for (const f of files) suites[f] = Math.round(results.get(f).seconds * 10) / 10;
+      const note = recordedTimes().note;
+      fs.writeFileSync(TIMES_FILE, JSON.stringify(Object.assign(note ? { '//': note } : {}, { suites }), null, 2) + '\n');
+      console.log(`--record-times: ${files.length} suite times written to tests/${path.basename(TIMES_FILE)}`);
+    }
+  }
 })();

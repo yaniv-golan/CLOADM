@@ -446,9 +446,11 @@ const MIN_USES = 23;   // tests.yml 13 + release.yml 7 + pages.yml 3, measured w
   const names = Object.values(jobNames(tests));
   const keys = jobKeys(tests);
   check('the job keys are read from under jobs:', keys.includes('suites') && keys.includes('gates') && keys.includes('pages'), keys.join(' | '));
-  for (const job of ['browser-check shards are complete', 'node tests/all.js', 'gates']) {
+  for (const job of ['browser-check shards are complete', 'gates']) {
     check(`tests.yml has a job named "${job}" (the docs and the PR template name it)`, names.includes(job), names.join(' | '));
   }
+  check('tests.yml names a "node tests/all.js <part>" job family (tests/all.js --shard i/n)', names.some((n) => /^node tests\/all\.js \$\{\{\s*matrix\.shard\s*\}\}$/.test(n)),
+    names.join(' | '));
   check('tests.yml names a "browser check <shard>" job family', names.some((n) => /^browser check \$\{\{\s*matrix\.shard\s*\}\}$/.test(n)),
     names.filter((n) => /browser check/.test(n)).join(' | '));
   // A RE-RUN must never cancel: cancelling the newest head's run on behalf of an older commit's re-run takes away
@@ -476,6 +478,50 @@ const MIN_USES = 23;   // tests.yml 13 + release.yml 7 + pages.yml 3, measured w
   {
     const trap = 'jobs:\n  a:\n    name: run\n    steps:\n      - name: gates\n        run: echo\n';
     check('...and a step named "gates" is not read as the gates job', !Object.values(jobNames(trap)).includes('gates'), JSON.stringify(jobNames(trap)));
+  }
+}
+
+// The gates job is what turns the parts into one verdict, so its wiring is held here: it needs every job it judges,
+// runs the all.js completeness check on the parts' logs (the only thing that catches a planning bug that drops a
+// suite while every part passes), requires each needed job's success, and exits with the status it collected.
+// Each rule is read from the gates job's own lines, comments stripped; the mutants below show each one can fail.
+function gatesProblems(text) {
+  const lines = text.split('\n');
+  const start = lines.findIndex((l) => /^  gates:\s*$/.test(l));
+  if (start < 0) return ['no gates job'];
+  let end = lines.findIndex((l, i) => i > start && /^ {2}\S/.test(l));
+  if (end < 0) end = lines.length;
+  const body = lines.slice(start + 1, end).map(stripComment).filter((l) => l.trim()).map((l) => l.trim());
+  const has = (re) => body.some((l) => re.test(l));
+  const problems = [];
+  const needs = (body.find((l) => /^needs:/.test(l)) || '').replace(/^needs:\s*/, '');
+  const needed = needs.replace(/[[\]\s]/g, '').split(',').filter(Boolean).sort().join(',');
+  if (needed !== 'pages,shards,suites') problems.push(`needs is [${needed}], not [shards, suites, pages]`);
+  if (!has(/^node \.github\/scripts\/suite-shards\.js counts\/all-\*\.log \|\| status=1$/)) problems.push('does not run suite-shards.js on counts/all-*.log with || status=1');
+  for (const job of ['shards', 'suites', 'pages']) {
+    if (!has(new RegExp(`^test "\\$\\{\\{ needs\\.${job}\\.result \\}\\}" = success \\|\\| status=1$`))) problems.push(`does not require needs.${job}.result == success`);
+  }
+  if (!has(/^test "\$have" = "\$want" \|\| status=1$/)) problems.push('does not require every browser shard to have reported');
+  const run = body.filter((l) => !/^(- |uses:|with:|name:|if:|path:|pattern:|merge-multiple:|if-no-files-found:|node-version:)/.test(l));
+  if (!body.includes('exit $status')) problems.push('does not end its summary step with exit $status');
+  else if (run.indexOf('exit $status') < run.findIndex((l) => /suite-shards\.js/.test(l))) problems.push('exit $status comes before the checks');
+  return problems;
+}
+{
+  const tests = read('tests.yml');
+  const real = gatesProblems(tests);
+  check('the gates job needs every job, runs the all.js completeness check, requires each success and exits with the status', real.length === 0, real.join(' | '));
+  const mutants = {
+    'M6: a job dropped from needs': (t) => t.replace('needs: [shards, suites, pages]', 'needs: [shards, pages]'),
+    'M7: the suites result not required': (t) => t.replace(/^ *test "\$\{\{ needs\.suites\.result \}\}" = success \|\| status=1\n/m, ''),
+    'M8: the completeness check not run': (t) => t.replace(/^ *node \.github\/scripts\/suite-shards\.js counts\/all-\*\.log \|\| status=1\n/m, ''),
+    'the completeness check run without || status=1': (t) => t.replace('counts/all-*.log || status=1', 'counts/all-*.log || true'),
+    'the browser shard count not required': (t) => t.replace('test "$have" = "$want" || status=1', 'test "$have" = "$want" || true'),
+    'no exit $status': (t) => t.replace(/^ *exit \$status\n/m, ''),
+  };
+  for (const [what, mutate] of Object.entries(mutants)) {
+    const m = mutate(tests);
+    check(`...and fails on ${what}`, m !== tests && gatesProblems(m).length > 0, gatesProblems(m).join(' | '));
   }
 }
 
