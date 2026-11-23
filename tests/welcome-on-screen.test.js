@@ -31,11 +31,16 @@ const run = (s, ms = 100) => { let t = 0; return s.advance(ms, { now: () => (t +
   s.debug.halt();
   check('on screen: a Debugger stop: still loaded, no longer on screen now', s.paused && s.welcomeRunning && !s.welcomeOnScreen);
   check('on screen: ...and the frame loop runs nothing', run(s) === 0 && !s.welcomeOnScreen);
-  // the bug's path: back from the Debugger (still stopped), the shelf's "Welcome menu" starts the menu again
-  s.startWelcome(bin('welcome.bin'), { greeting: 'back', gen: s.welcomeGenNow() });
-  check('on screen: the menu started on a stopped machine is loaded but not on screen now', s.welcomeRunning && s.paused && !s.welcomeOnScreen);
+  // a stop the Debugger made on the menu itself: resumed, it is on screen again at once (frames ran before the stop)
   s.resume();
-  check('on screen: resumed, the first frame draws it: on screen now', !s.welcomeOnScreen && run(s) > 0 && s.welcomeOnScreen);
+  check('on screen: resumed, the menu is on screen now again', run(s) > 0 && s.welcomeOnScreen);
+  // the shelf's "Welcome menu" on a stopped machine: a launch, which releases the stop (UX ruling R44, b4); the
+  // menu just loaded is not on screen until its first frame
+  s.debug.halt();
+  s.startWelcome(bin('welcome.bin'), { greeting: 'back', gen: s.welcomeGenNow() });
+  check('on screen: the menu started on a stopped machine releases the stop, and is not on screen until a frame runs',
+    s.welcomeRunning && !s.paused && !s.welcomeOnScreen);
+  check('on screen: ...its first frame draws it: on screen now', run(s) > 0 && s.welcomeOnScreen);
   // a program loaded over it: not the menu
   s.runLiza(bin('liza.bin'));
   check('on screen: LIZA loaded over the menu: neither running nor on screen', !s.welcomeRunning && !s.welcomeOnScreen && run(s) > 0 && !s.welcomeOnScreen);

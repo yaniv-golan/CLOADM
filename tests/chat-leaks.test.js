@@ -936,7 +936,10 @@ const REQUIRED = require.main !== module;
     'on', 'personInput', 'ready', 'reset', 'resume', 'resumeClaude', 'setDisplay', 'startAsk', 'startChat', 'stopClaude',
     'stopRealCoco', 'toSidePanel', 'showChat', 'watchForMenu',
     // chatNote writes a line of the page's own onto the chat channel (the chat screen), never onto the person's machine
-    'chatNote']);
+    'chatNote',
+    // refuseTyping (R44) reads whether the Debugger stopped the machine on screen and emits the page's toast; it
+    // queues and changes nothing on either machine
+    'refuseTyping']);
   // page concerns, not machine actions
   const UI = new Set(['mediaError', 'visit']);
   const rows = rowMethods();

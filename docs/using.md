@@ -471,6 +471,22 @@ Writing a game: [Game development](game-development.md) covers the memory map, t
 modes, DAC sound and frame timing, with a starter game (`examples/starter-game/catch.asm`, which runs with no ROMs)
 and how to test a game from the command line.
 
+## A Debugger stop on the emulator
+
+A stop in the **Debugger** (its Pause, a step, a breakpoint or watchpoint, a run that reached its limit) stays when
+you go back to the emulator: the machine is not run on behind your back. The emulator says so in three places: the
+**Pause** button reads **Resume**; a strip above the screen (between the header and the screen on a phone) says why
+and where ("Stopped at breakpoint $C0F3.", "Stopped: the watchpoint on $0400 was written at $C0F3."), with
+**Resume** and **Open Debugger**; and the status line reads "Stopped in the Debugger" (or "Paused" for the page's own
+Pause) instead of a speed. Resume, wherever you press it (the button, the strip, the Debugger's F5), ends either kind
+of pause.
+
+Starting something runs it: Run again, a program from Runs without ROMs, Open or a dropped program, tape or disk,
+Reset, Switch off and on and a machine switch each release the stop (the toast adds "The Debugger's stop at $C0F3 was
+released.") and end the page's Pause. Your breakpoints stay set. The same holds for what Claude or the MCP server
+starts. While the machine is stopped, typing is refused rather than kept for later (keys, a tap on the welcome menu,
+a paste): a toast says "The machine is stopped: press Resume, then type." once per stop.
+
 ## ROM self-test
 
 The Dragon ROMs aren't distributed with the emulator. Anyone who has them can verify the emulator against them:

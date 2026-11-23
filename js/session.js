@@ -339,6 +339,7 @@ export class Session {
     this.bootOk = null;             // the reset after which BASIC's OK was seen
     this.warmReset = null;          // { m, resetAt }: the run that began with the Reset button, not a power-on (bootStatus)
     this.welcome = null;            // the machine running the welcome program
+    this.typingRefusedFor = null;   // the Debugger stop the person was last told typing is refused for (refuseTyping)
     this.welcomeFrom = 0;           // its frameCount when the welcome program was loaded (welcomeOnScreen)
     this.welcomeGen = 0;            // bumped by every start: the FIRST start to land wins (a later one is dropped)
     this.menuWatch = null;          // a program that goes back to the welcome menu when left (watchForMenu)
@@ -566,6 +567,30 @@ export class Session {
   get paused() { return !!(this.debugger && this.debugger.stopped); }
   // continue the machine from where the debugger stopped it
   resume() { if (this.debugger) this.debugger.resume(); }
+  // UX ruling R44 (b4): a launch - Reset, a power cycle, a load (a program, a tape, the welcome menu, LIZA, a game,
+  // Run again), a disk put in from a drop or Open, a machine switch - runs what it starts, for the page, the MCP server
+  // and Claude alike. It emits 'launch' (the page lets go of its own Pause on it) and releases a Debugger stop on the
+  // machine it starts (a stop on another machine stays); the breakpoints stay set. -> the PC the released stop was
+  // at, or null; a release also emits ('released', pc), for the page's "The Debugger's stop at $C0F3 was released."
+  launch(m = this.shownMachine) {
+    this.emit('launch');
+    const d = this.debugger;
+    if (!d || !d.stopped || d.machine !== m) return null;
+    const pc = d.pc;
+    d.resume();
+    this.emit('released', pc);
+    return pc;
+  }
+  // R44 (b5): the person's typing while the Debugger has the machine stopped is refused, not queued (keys, a tap on
+  // the welcome menu, its carry-on line, a paste, typed text): the machine reads nothing while stopped, so typing
+  // would only pile up behind the stop. -> true when refused; emits 'typing-refused' once per stop (the stop's reason
+  // object is new for every stop) for the page's one toast.
+  refuseTyping(m = this.shownMachine) {
+    const d = this.debugger;
+    if (!d || !d.stopped || d.machine !== m) return false;
+    if (this.typingRefusedFor !== d.stopReason) { this.typingRefusedFor = d.stopReason; this.emit('typing-refused'); }
+    return true;
+  }
 
   // ---------------- machine ----------------
   get startMachine() { return this.store.get('machine') || 'dragon64'; }
@@ -630,7 +655,11 @@ export class Session {
     this.dropChat();                      // a chat belongs to the machine it was opened on
     if (chat) this.clearStubRuns([chat.chat, chat.basic]);
     this.warmReset = null;                // a new machine is a power-on: the boot watchdog arms
+    // (R44: a machine switch is a launch too; a Debugger stop goes with the machine it was on)
+    const stoppedAt = this.debugger && this.debugger.stopped ? this.debugger.pc : null;
     if (this.debugger) { this.debugger.detach(); this.debugger = null; }
+    this.emit('launch');
+    if (stoppedAt != null) this.emit('released', stoppedAt);
     if (m.debugger) { this.debugger = m.debugger; this.debugger.setSymbols(() => this.labels); }
     // the machines left behind keep no state in the Session: their ROM-failure sets go (a switch back is a fresh
     // try) and their stub-restart records with them (the record of a Machine that is gone cannot come back)
@@ -1075,6 +1104,7 @@ export class Session {
   // wipe the chat firmware rather than restart it.
   reset() {
     this.stopClaudeFor('you reset the machine');
+    this.launch();
     const m = this.shownMachine, again = this.stubRun && this.stubRun.m === m && m.useStub ? this.stubRun : null;
     this.endWelcome();
     this.keys.clear();
@@ -1101,6 +1131,7 @@ export class Session {
     // session, so a load there stops Claude (as before); in the side panel the conversation acts on the machine it
     // runs beside, so its reply goes on - the decision this makes deliberate rather than incidental.
     this.stopClaudeFor(reason, m);
+    this.launch(m);
     this.endWelcome();
     this.setStubRun(m);
     this.keys.clear();
@@ -2293,6 +2324,7 @@ export class Session {
     const format = detectDiskFormat(bytes, base);
     if (!format) throw new SessionError(`${base}: not a disk image CLOADM can read (VDK, JVC/DSK or DMK).`);
     try { diskGeometry(bytes, format); } catch (e) { throw new SessionError(`${base}: ${e.message}`); }
+    this.launch(this.diskMachine);   // (R44: a disk put in from a drop or Open is a launch)
     return this.claimingDiskName(full, () => this.createExclusive((askedAt) => this.importDiskStored(full, base, bytes, drive, writeProtected, askedAt)));
   }
   // the stored part of importDisk, run as one creation. askedAt: the landing count when this creation was asked
@@ -2761,6 +2793,7 @@ export class Session {
     if (media.kind === 'disk') {
       throw new SessionError(`${name}: ${media.format}${media.family ? ` for a ${FAMILY_NAMES[media.family]}` : ''}. Disk images go in a disk drive, not into memory.`);
     }
+    this.launch(m);   // (R44: what is loaded runs)
     const d = formats.identify(name, bytes);
     switch (d.kind) {
       case 'binary':
@@ -2928,6 +2961,7 @@ export class Session {
   // line typed there is a line of the conversation - by design. (A caller that means the person's BASIC session
   // while the chat is open names it: typeText(text, session.personMachine).)
   typeText(text, m = this.shownMachine) {
+    if (this.refuseTyping(m)) return 0;   // (R44: nothing is queued behind a Debugger stop)
     this.personInput(m);
     return this.queueText(text, m);
   }
@@ -3956,9 +3990,11 @@ export class Session {
     this.pumpChat(o);
   }
   // (the machine's name is not in it: the app bar shows it on the machine button beside the status)
-  statusLine(fps) {
+  // held: the page's own Pause. R44 (b3): stopped or paused, the line says so in place of the speed, which would be
+  // stale (no frames run); fps null: running again, the speed not measured yet ("Running")
+  statusLine(fps, held = false) {
     const m = this.shownMachine;
-    let s = `${fps.toFixed(0)} fps · ${(fps / m.fps * 100).toFixed(0)}%`;
+    let s = this.paused ? 'Stopped in the Debugger' : held ? 'Paused' : fps == null ? 'Running' : `${fps.toFixed(0)} fps · ${(fps / m.fps * 100).toFixed(0)}%`;
     const t = m.deck.tape;
     if (t) s += ` · tape ${t.name} ${(t.progress() * 100).toFixed(0)}%${m.deck.motor ? ' ▶' : ''}`;
     return s;
