@@ -4892,8 +4892,7 @@ async function tapeExtrasChecks(browser, base, check) {
       && await page.textContent('#tapeEyebrow');
     check(`tape extras (${label}): a 3-file tape says "LOADING · FILE 2 OF 3 · BLOCK n OF 9"`, !!eyebrow, eyebrow || await page.textContent('#tapeEyebrow'));
     if (shotDir) await page.locator('#tapePanel').screenshot({ path: path.join(shotDir, `tape-extras-file2-${label}.png`) });
-    await page.click('#btnPause');
-    // Rewind through the palette
+    // Rewind through the palette (still paused: a running machine would play the tape on from the start at once)
     await runRow('rewind the tape', 'Rewind the tape');
     check(`tape extras (${label}): "Rewind the tape" rewinds it`, await waitFor(page, () => window.emu.machine.deck.tape.progress() < 0.05));
     // Eject through the palette, while the motor runs (a CLOAD waiting): the deck goes, the motor stays on
@@ -4903,6 +4902,7 @@ async function tapeExtrasChecks(browser, base, check) {
       await waitFor(page, () => !window.emu.machine.deck.tape && document.getElementById('tapePanel').hidden && /^Tape ejected\.$/.test(document.getElementById('toastText').textContent)
         && document.activeElement === document.getElementById('btnTape') && window.emu.machine.deck.motor),
       JSON.stringify(await page.evaluate(() => ({ active: document.activeElement.id, toast: document.getElementById('toastText').textContent }))));
+    await page.click('#btnPause');   // running again
     const gone = await palette('tape');
     await close();
     check(`tape extras (${label}): with the tape out, Rewind and Eject leave the palette`, !gone.includes('Eject the tape') && !gone.includes('Rewind the tape'), JSON.stringify(gone));
