@@ -4107,6 +4107,154 @@ async function feedbackModelChecks(browser, base, check) {
   }
   await toastReplaceChecks(browser, base, check, state, frames);
   await provisionalPinChecks(browser, base, check, state, frames);
+  await occlusionChecks(browser, base, check);
+}
+
+// UX R47: a control's part under an opaque overlay ([data-occludes]: the Ask sheet, the attention card) may be covered
+// by a toast; the overlay's own controls never are; an overlay occludes only once settled; on a phone the toast never
+// goes over the sheet (the header band); under a modal dialog the toast is in the top layer and only the dialog's
+// controls count. One announcement per toast throughout.
+async function occlusionChecks(browser, base, check) {
+  const announce = (page) => page.evaluate(() => {
+    window.__ann = [];
+    const txt = document.getElementById('toastText');
+    new MutationObserver(() => { const t = txt.textContent; if (t && t !== window.__ann[window.__ann.length - 1]) window.__ann.push(t); })
+      .observe(document.getElementById('toastRegion'), { subtree: true, childList: true, characterData: true });
+  });
+  // raise a toast; its first frame and a sample every 50 ms to 700 ms: the toast's rect, the top slot, and what it meets
+  const raise = (page, text) => page.evaluate((text) => new Promise((res) => {
+    const reg = document.getElementById('toastRegion'), box = document.getElementById('toast'), ask = document.getElementById('ask');
+    const CONTROLS = 'header, .controls, .slots, aside.drawer, #attention, #touchKeys button, #claudeBar, #installOffer, #tapeHud:not([hidden]), #btnShowKeys:not([hidden])';
+    const hits = (r, o) => !(r.bottom <= o.top || r.top >= o.bottom || r.right <= o.left || r.left >= o.right);
+    const sub = (r, h) => { if (!hits(r, h)) return [r]; const top = Math.max(r.top, h.top), bottom = Math.min(r.bottom, h.bottom);
+      return [{ left: r.left, right: r.right, top: r.top, bottom: h.top }, { left: r.left, right: r.right, top: h.bottom, bottom: r.bottom },
+        { left: r.left, right: h.left, top, bottom }, { left: h.right, right: r.right, top, bottom }].filter((p) => p.right > p.left && p.bottom > p.top); };
+    const look = (t0) => {
+      const b = box.getBoundingClientRect(), a = ask.getBoundingClientRect(), sheet = !ask.hidden && a.width && a.height ? a : null;
+      // the parts of the page's controls that show (less the sheet), and the sheet's own controls
+      const visible = [...document.querySelectorAll(CONTROLS)].filter((e) => !ask.contains(e)).flatMap((e) => { const r = e.getBoundingClientRect();
+        return r.width && r.height ? (sheet ? sub(r, sheet) : [r]) : []; });
+      const own = [...ask.querySelectorAll('button, a[href], input, select, textarea, [role="tab"]')].map((e) => e.getBoundingClientRect()).filter((o) => o.width && o.height);
+      const slots = document.querySelector('.slots').getBoundingClientRect();
+      return { ms: Math.round(performance.now() - t0), up: !box.hidden, top: reg.classList.contains('top'), rect: [b.left, b.top, b.right, b.bottom].map(Math.round).join(','),
+        onVisibleControl: visible.some((o) => hits(b, o)), onSheetControl: own.some((o) => hits(b, o)), onSheet: !!sheet && hits(b, sheet),
+        onCoveredSlots: !!sheet && hits(b, slots) && hits(b, sheet), sheetOverSlots: !!sheet && hits(sheet, slots) };
+    };
+    const t0 = performance.now();
+    window.emu.feedback.toast(text);
+    const samples = [];
+    requestAnimationFrame(() => { const first = look(t0);
+      const iv = setInterval(() => { samples.push(look(t0)); if (performance.now() - t0 >= 700) { clearInterval(iv); res({ first, samples }); } }, 50); });
+  }), text);
+  const stable = (p) => { const late = p.samples.filter((x) => x.ms >= 350); return late.length >= 5 && late.every((x) => x.up && x.rect === late[0].rect); };
+  // every [data-occludes] element shown: opacity 1 on it and its ancestors, and an opaque background
+  const opaque = (page) => page.evaluate(() => [...document.querySelectorAll('[data-occludes]')].filter((e) => { const r = e.getBoundingClientRect(); return !e.hidden && r.width && r.height; })
+    .map((e) => { let op = 1; for (let n = e; n && n.nodeType === 1; n = n.parentElement) op *= parseFloat(getComputedStyle(n).opacity);
+      const m = /rgba?\(([^)]+)\)/.exec(getComputedStyle(e).backgroundColor), parts = m ? m[1].split(/[,\s/]+/).filter(Boolean).map(Number) : [];
+      return { id: e.id, opacity: op, alpha: parts.length === 4 ? parts[3] : parts.length === 3 ? 1 : 0, animating: e.getAnimations().length }; }));
+
+  // ---- a phone with the touch keys, the Ask sheet at peek: the toast in the header band ----
+  {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    await page.goto(`${base}?machine=dragon64`);
+    await started(page);
+    await page.evaluate(() => { scrollTo(0, 0); window.emu.feedback.clear(); document.getElementById('btnAsk').click(); });
+    await waitFor(page, () => !document.getElementById('ask').hidden);
+    await page.evaluate(() => { const h = document.getElementById('askHandle'); while (document.getElementById('ask').dataset.height !== 'peek') h.click(); });
+    await page.waitForTimeout(400);
+    await announce(page);
+    // (a toast too tall for the band under the screen's text, as one with an error's sentence often is)
+    const long = 'A toast long enough to wrap onto several lines on a phone, too tall for the band under the screen text, so that only the header band is left for it';
+    const p = await raise(page, long);
+    const bar = await page.evaluate(() => Math.round(document.getElementById('appbar').getBoundingClientRect().bottom));
+    const last = p.samples[p.samples.length - 1];
+    check('feedback R47 (phone, touch keys, sheet at peek): the toast is in the header band (top slot under the bar), over neither the sheet nor its controls, and still from 350 ms on',
+      p.first.up && last.top && +last.rect.split(',')[1] === bar + 8 && !last.onSheet && !last.onSheetControl && stable(p), JSON.stringify({ bar, first: p.first, last }));
+    const o = await opaque(page);
+    check('feedback R47: the guard: every opaque overlay shown (the sheet at peek) has opacity 1 and an opaque background', o.length >= 1 && o.every((x) => x.opacity === 1 && x.alpha === 1), JSON.stringify(o));
+    check('feedback R47 (phone): one announcement', JSON.stringify(await page.evaluate(() => window.__ann)) === JSON.stringify([long]), JSON.stringify(await page.evaluate(() => window.__ann)));
+    await ctx.close();
+  }
+
+  // ---- 900 px: the side panel over part of the slots: a free place that may meet the covered part, never a control
+  // that shows and never the sheet's controls ----
+  {
+    const ctx = await browser.newContext({ viewport: { width: 900, height: 800 }, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    await page.goto(`${base}?machine=dragon64`);
+    await started(page);
+    await page.evaluate(() => { scrollTo(0, 0); window.emu.feedback.clear(); document.getElementById('btnAsk').click(); });
+    await waitFor(page, () => !document.getElementById('ask').hidden && document.getElementById('ask').getBoundingClientRect().width > 0);
+    await page.waitForTimeout(400);
+    // (scrolled so the slots are under the panel's lower half)
+    await page.evaluate(() => { const s = document.querySelector('.slots').getBoundingClientRect(); scrollBy(0, Math.max(0, s.top - 300)); });
+    await page.waitForTimeout(200);
+    await announce(page);
+    const p = await raise(page, 'Saved to the Library.');
+    const last = p.samples[p.samples.length - 1];
+    check('feedback R47 (900 px, the panel over part of the slots): the toast is in a free place: no control that shows and none of the panel\'s controls under it, still from 350 ms on',
+      last.sheetOverSlots && last.up && !last.top && !last.onVisibleControl && !last.onSheetControl && stable(p), JSON.stringify(last));
+    // the attention card shown too: the guard holds for both overlays
+    await page.evaluate(() => window.emu.feedback.attention('Something to act on'));
+    const o = await opaque(page);
+    check('feedback R47: the guard: the panel and the attention card are each fully opaque (opacity 1, background alpha 1)',
+      o.length === 2 && o.every((x) => x.opacity === 1 && x.alpha === 1), JSON.stringify(o));
+    await page.evaluate(() => window.emu.feedback.resolve());
+    check('feedback R47 (900 px): one announcement', JSON.stringify(await page.evaluate(() => window.__ann)) === '["Saved to the Library."]');
+    await ctx.close();
+  }
+
+  // ---- no occlusion mid-transition; a modal dialog (a test page: the page's own sheets are not dialogs yet) ----
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    await page.goto(`${base}?machine=dragon64`);
+    await started(page);
+    await announce(page);
+    // a control over the whole window and an opaque overlay sliding over it in 150 ms: while it slides it hides nothing
+    // (the toast takes the top slot), and once settled the toast is in its own place over the covered control
+    const m = await page.evaluate(() => new Promise((res) => {
+      scrollTo(0, 0); window.emu.feedback.clear();
+      const c = document.createElement('div'); c.className = 'controls'; c.id = 'fbCtl'; c.style.cssText = 'position:fixed;inset:0;z-index:1';
+      const o = document.createElement('div'); o.id = 'fbOver'; o.dataset.occludes = '';
+      o.style.cssText = 'position:fixed;inset:0;z-index:2;background:#111;transform:translateY(60%);transition:transform 150ms linear';
+      document.body.append(c, o); o.getBoundingClientRect();
+      o.style.transform = 'none';
+      const reg = document.getElementById('toastRegion'), t0 = performance.now(), out = [];
+      window.emu.feedback.toast('Over a sliding sheet');
+      requestAnimationFrame(() => { out.push({ ms: Math.round(performance.now() - t0), top: reg.classList.contains('top'), moving: o.getAnimations().length });
+        setTimeout(() => { out.push({ ms: Math.round(performance.now() - t0), top: reg.classList.contains('top'), moving: o.getAnimations().length }); res(out); }, 500); });
+    }));
+    check('feedback R47: an overlay occludes nothing while in its own transition (top slot in frame 1), and once settled the toast is in its own place',
+      m[0].top && m[0].moving > 0 && !m[1].top && m[1].moving === 0, JSON.stringify(m));
+    await page.evaluate(() => { window.emu.feedback.clear(); document.getElementById('fbCtl').remove(); document.getElementById('fbOver').remove(); });
+
+    const centre = () => page.evaluate(() => { const b = document.getElementById('toast').getBoundingClientRect(), at = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+      return { up: !document.getElementById('toast').hidden, onTop: !!at && !!at.closest('#toast'), popover: document.getElementById('toastRegion').matches(':popover-open'), at: at && (at.id || at.tagName) }; });
+    const frames2 = () => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true)))));
+    await page.evaluate(() => { const d = document.createElement('dialog'); d.id = 'fbDialog';
+      d.style.cssText = 'width:100vw;height:100vh;max-width:none;max-height:none;margin:0;padding:0;border:0;background:#222';
+      d.innerHTML = '<button id="fbDialogOk" style="position:absolute;right:20px;top:20px">OK</button>'; document.body.append(d);
+      window.emu.feedback.toast('Up before the dialog'); });
+    await frames2(page);
+    await page.evaluate(() => document.getElementById('fbDialog').showModal());
+    await frames2(page);
+    const before = await centre();
+    await page.evaluate(() => window.emu.feedback.toast('Raised under the dialog'));
+    await frames2(page);
+    const during = await centre();
+    check('feedback R47: a modal dialog opened while a toast is up: the toast is in the top layer, above it (elementFromPoint at its centre is the toast)', before.up && before.onTop && before.popover, JSON.stringify(before));
+    check('feedback R47: a toast raised while a modal dialog is open is above it too, in its own place (only the dialog\'s controls count)', during.up && during.onTop && !await page.evaluate(() => document.getElementById('toastRegion').classList.contains('top')), JSON.stringify(during));
+    await page.evaluate(() => { document.getElementById('fbDialog').close(); });
+    await frames2(page);
+    const after = await page.evaluate(() => ({ popover: document.getElementById('toastRegion').hasAttribute('popover'), up: !document.getElementById('toast').hidden }));
+    check('feedback R47: the dialog closed: the toast leaves the top layer and stays up', !after.popover && after.up, JSON.stringify(after));
+    const ann = await page.evaluate(() => window.__ann);
+    check('feedback R47: one announcement per toast (sliding sheet, before the dialog, under it)', ann.join('|') === 'Over a sliding sheet|Up before the dialog|Raised under the dialog', JSON.stringify(ann));
+    await page.evaluate(() => { window.emu.feedback.clear(); document.getElementById('fbDialog').remove(); });
+    await ctx.close();
+  }
 }
 
 // UX R45: a new toast replaces a focused or hovered one without hiding the box. With the focus inside the box the new
@@ -10114,25 +10262,31 @@ async function askEscChecks(browser, base, check) {
     await ctx.close();
   }
 
-  // ---- (5d) from a second review: a toast over the bottom of a phone while only the sheet's Stop shows does not make the
+  // ---- (5d) from a second review: a toast raised while a turn runs and the sheet's Stop shows does not make the
   // pill come and go (#viewClaude moves the toasts up); a modifier let go in another window leaves no mark (the next Esc stops); the rail's tab closes with a page
   // view; held sideways at 1100 px or more with the touch keyboard on, a Stop can be clicked, and a card makes the
   // keyboard stand aside ----
-  {
-    const { ctx, page, errors, replies } = await open({ width: 390, height: 844 });
-    const L = 'askEsc (a toast over the sheet\'s Stop)';
+  // UX R47: a toast never covers the sheet's own controls (its Stop among them), so the "toast over the Stop" this case
+  // was written for cannot form in any layout. What it checks now, in the two layouts where the sheet overlays the page:
+  // on a phone (the sheet at peek) the toast is in the header band, pinned at the top under the bar; at 900 px (the
+  // side panel over the page) it is in a free place clear of the sheet's controls; in both it covers no Stop, the pill
+  // does not come and go, and a Stop can be reached.
+  for (const [tag, viewport] of [['phone, sheet at peek', { width: 390, height: 844 }], ['900 px, side panel over the page', { width: 900, height: 800 }]]) {
+    const { ctx, page, errors, replies } = await open(viewport);
+    const L = `askEsc (a toast while the sheet's Stop shows, ${tag})`, phone = viewport.width <= 700;
     await page.evaluate(() => document.getElementById('btnAsk').click());
     replies.push({ hold: true, body: text('ok') });
     await page.evaluate(() => { window.emu.session.chat.sendLine('hello'); });
-    await page.evaluate(() => document.getElementById('btnAskClose').click());   // (during a turn the sheet goes to peek)
-    await waitFor(page, () => document.getElementById('ask').dataset.height === 'peek' && !document.getElementById('btnAskPeekStop').hidden, null, 5000);
+    if (phone) {
+      await page.evaluate(() => document.getElementById('btnAskClose').click());   // (during a turn the sheet goes to peek)
+      await waitFor(page, () => document.getElementById('ask').dataset.height === 'peek' && !document.getElementById('btnAskPeekStop').hidden, null, 5000);
+    } else await waitFor(page, () => !document.getElementById('askStatus').hidden && document.getElementById('ask').getBoundingClientRect().width > 0, null, 5000);
     // SETTLE BEFORE RAISING. `dataset.height === 'peek'` is set the instant the sheet is ASKED to peek; its layout
     // follows a frame or two later. Raising the toast inside that window lets place() decide from rects that are about
-    // to change: measured, the toast then pinned to the top slot about once in ten runs instead of landing over the
-    // Stop, and the check's premise ("a toast over the sheet's Stop") silently did not exist. So wait until the rects
-    // place() reads stop changing -- two consecutive samples that agree -- before raising the toast.
+    // to change. So wait until the rects place() reads stop changing -- two consecutive samples that agree -- before
+    // raising the toast (the sheet included: it decides what is covered, R47).
     await waitFor(page, () => {
-      const sel = 'header, .controls, .slots, aside.drawer, #attention, #touchKeys button, #claudeBar, #installOffer, #tapeHud:not([hidden])';
+      const sel = 'header, .controls, .slots, aside.drawer, #attention, #touchKeys button, #claudeBar, #installOffer, #tapeHud:not([hidden]), [data-occludes]';
       const key = [...document.querySelectorAll(sel)].map((e) => { const r = e.getBoundingClientRect();
         return [r.left, r.top, r.right, r.bottom].map(Math.round).join(','); }).join('|')
         + '#' + ['#screen', '#monitor .tube'].map((s) => { const e = document.querySelector(s); if (!e) return '';
@@ -10146,20 +10300,20 @@ async function askEscChecks(browser, base, check) {
       window.__obs.observe(document.getElementById('viewClaude'), { attributes: true }); window.emu.feedback.toast('A toast over the bottom of the window, long enough to wrap onto several lines on a phone, so that it lies over the sheet\'s Stop button at the bottom edge of the window for as long as it shows'); });
     await emuFrames(page, 90);
     const flips = await page.evaluate(() => window.__flips);
-    // PRECONDITION: the check is about a toast that COVERS the Stop, so prove it does before judging the pill.
-    // Without this it passes vacuously whenever the toast pins to the top slot instead -- the designed answer when no
-    // free place exists, and on a 390 px phone the usual one. Measure the TOAST (#toast), not #toastRegion: the region
-    // is the positioning wrapper and can span the viewport, so a region-based hit-test reports "covers the Stop" for a
-    // toast pinned at the top.
-    const covers = await page.evaluate(() => {
-      const reg = document.getElementById('toastRegion'), box = document.getElementById('toast'), stop = document.getElementById('btnAskPeekStop');
-      const tr = box.getBoundingClientRect(), sr = stop.getBoundingClientRect();
-      const x = sr.left + sr.width / 2, y = sr.top + sr.height / 2, at = document.elementFromPoint(x, y);
-      const onStop = !!at && (at === box || box.contains(at));
-      return { pinned: reg.classList.contains('top'), toast: [tr.left, tr.top, tr.right, tr.bottom].map(Math.round),
-        stop: [sr.left, sr.top, sr.right, sr.bottom].map(Math.round), onStop };
+    // where the toast is: measure the TOAST (#toast), not #toastRegion (the positioning wrapper can span the viewport)
+    const where = await page.evaluate(() => {
+      const reg = document.getElementById('toastRegion'), box = document.getElementById('toast'), tr = box.getBoundingClientRect();
+      const meets = (o) => !(tr.bottom <= o.top || tr.top >= o.bottom || tr.right <= o.left || tr.left >= o.right);
+      const sheetControls = [...document.querySelectorAll('#ask button, #ask a[href], #ask input, #ask textarea, #ask select, #ask [role="tab"]')]
+        .map((e) => e.getBoundingClientRect()).filter((o) => o.width && o.height);
+      const bar = document.getElementById('appbar').getBoundingClientRect();
+      return { up: !box.hidden, pinned: reg.classList.contains('top'), toast: [tr.left, tr.top, tr.right, tr.bottom].map(Math.round), barBottom: Math.round(bar.bottom),
+        onSheetControl: sheetControls.some(meets), onSheet: meets(document.getElementById('ask').getBoundingClientRect()) };
     });
-    check(`${L}: setup: the toast covers the Stop button (the scenario the check names)`, covers.onStop, JSON.stringify(covers));
+    if (phone) check(`${L}: the toast is in the header band (pinned at the top, under the bar), not over the sheet`,
+      where.up && where.pinned && where.toast[1] === where.barBottom + 8 && !where.onSheet, JSON.stringify(where));
+    else check(`${L}: the toast is in a free place, clear of the sheet's controls`, where.up && !where.pinned && !where.onSheetControl, JSON.stringify(where));
+    check(`${L}: the toast covers none of the sheet's controls (no Stop under a toast, R47)`, where.up && !where.onSheetControl, JSON.stringify(where));
     check(`${L}: the pill does not come and go while the toast shows`, flips <= 1, `flips ${flips}`);
     // THE INVARIANT THE PILL EXISTS FOR: while the turn runs, the person must be able to reach a Stop. A pill that has
     // gone while NOTHING can be clicked is worse than one that flashes. Assert it against the page.

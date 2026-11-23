@@ -69,17 +69,32 @@ const focusCalls = [];
 const els = {};
 const get = (id) => (els[id] = els[id] || new El(id));
 const box = get('toast'); box.kids = []; box.matches = (sel) => sel === ':hover' && state.hover;
+let boxRect = null;   // (R47's phone case sets where the stylesheet puts the toast)
+box.getBoundingClientRect = () => boxRect || { left: 400, top: 600, width: 300, height: 40, right: 700, bottom: 640 };
 const region = new El('toastRegion'); box.parentNode = region;
+const body = { insertBefore(el) { el.parentNode = body; } };
+region.parentNode = body; region.nextSibling = null;
+const layer = { open: false, shows: 0, attr: false };
+Object.assign(region, { showPopover() { layer.open = true; layer.shows++; }, hidePopover() { layer.open = false; },
+  matches: (sel) => sel === ':popover-open' && layer.open, removeAttribute(a) { if (a === 'popover') layer.attr = false; } });
+Object.defineProperty(region, 'popover', { set: (v) => { layer.attr = !!v; }, get: () => (layer.attr ? 'manual' : null) });
 const inside = new El('toastButton'); box.kids.push(inside);   // something inside the toast that can hold the focus
 const outside = new El('somewhere else');
 const state = { hover: false };
 // the page's controls, for the placement tests: [{ rect, animations }] (none by default)
 let controls = [];
+// R47: opaque overlays ([data-occludes]) and a modal dialog, each with its own buttons
+let overlays = [], modal = null;
+const rectOf = (left, top, right, bottom) => ({ left, top, right, bottom, width: right - left, height: bottom - top });
+const overlay = (id, r, buttons = [], running = false) => ({ id, hidden: false, r, running, getBoundingClientRect() { return this.r; },
+  getAnimations() { return this.running ? [{ playState: 'running', pending: false, effect: { getComputedTiming: () => ({ endTime: 200 }) } }] : []; },
+  contains: () => false, querySelectorAll: () => buttons.map((b) => ({ getBoundingClientRect: () => b })) });
 const control = (rect, running = false) => ({ getBoundingClientRect: () => rect.r, getAnimations: () => (rect.running ? [{ playState: 'running', pending: false, effect: { getComputedTiming: () => ({ endTime: 200 }) } }] : []), rect });
 const docListeners = {};
 globalThis.document = {
   getElementById: get,
-  querySelectorAll: (sel) => (sel.includes('.controls') ? controls : []), querySelector: () => null,
+  querySelectorAll: (sel) => (sel.includes('.controls') ? controls : sel === '[data-occludes]' ? overlays : sel === 'dialog:modal' && modal ? [modal] : []),
+  querySelector: () => null,
   body: { classList: new ClassList() },
   documentElement: {},
   activeElement: null,
@@ -338,6 +353,60 @@ globalThis.matchMedia = () => ({ matches: false });
       fb.clear();
     }
     controls = [];
+  }
+
+  // ---- R47: what an opaque overlay covers, its own controls, the phone's sheet and a modal dialog ----
+  {
+    const top = () => region.classList.contains('top');
+    const placed = () => region.style.left || region.style.top || '';
+    // a control over the whole window, all of it under an opaque overlay: the toast may cover that part
+    const all = { r: rectOf(0, 0, 1280, 720), running: false };
+    controls = [control(all)];
+    overlays = [overlay('ask', rectOf(0, 0, 1280, 720), [rectOf(1200, 0, 1280, 40)])];
+    let fb = fresh();
+    fb.toast('Over the sheet');
+    check('R47: the part of a control under an opaque overlay is not avoided (the toast is in its own place, not pinned)', !top() && placed() === '' && fb.pending[0].seen, JSON.stringify(region.style));
+    fb.clear();
+    // not settled yet: an overlay still in its own animation hides nothing (the toast takes the slot, provisionally)
+    overlays[0].running = true; fb = fresh();
+    fb.toast('Sheet still moving');
+    check('R47: an overlay in its own animation occludes nothing yet (the toast is in the top slot)', top());
+    overlays[0].running = false; frame();
+    check('R47: ... and once it has settled the toast takes the place it frees (provisional pin)', !top());
+    fb.clear();
+    // the overlay's own buttons are avoided: one where the toast would go sends it elsewhere along the bottom edge
+    overlays = [overlay('ask', rectOf(0, 0, 1280, 720), [rectOf(380, 590, 720, 650)])]; fb = fresh();
+    fb.toast('Not over the Stop');
+    const x = parseFloat(region.style.left);
+    check('R47: the overlay\'s own controls are avoided in their own right (the toast moves along the bottom edge, clear of the button)',
+      !top() && region.style.top === '600px' && (x + 300 <= 380 || x >= 720), JSON.stringify(region.style));
+    fb.clear();
+    // a phone: never over the sheet, even where it hides a control and has no button
+    globalThis.innerWidth = 390; globalThis.innerHeight = 844; boxRect = rectOf(8, 700, 382, 740);
+    all.r = rectOf(16, 600, 374, 1100);
+    overlays = [overlay('ask', rectOf(0, 680, 390, 844))]; fb = fresh();
+    fb.toast('Phone, sheet at peek');
+    check('R47: on a phone the toast does not go over the sheet: it goes to the top', region.style.top === '8px' && !top(), JSON.stringify(region.style));
+    fb.clear();
+    globalThis.innerWidth = 1280; globalThis.innerHeight = 720; boxRect = null;
+    // a modal dialog: only its controls count, and the region goes into the top layer after it, out when it closes
+    all.r = rectOf(0, 0, 1280, 720); overlays = [];
+    fb = fresh(); layer.shows = 0;
+    fb.toast('Before the dialog');
+    check('R47: with no dialog the region is not a popover', !layer.attr && !layer.open && top());
+    fb.clear();
+    fb.toast('Under a dialog?');
+    const closers = [];
+    modal = { querySelectorAll: () => [{ getBoundingClientRect: () => rectOf(0, 0, 100, 40) }], append(el) { el.parentNode = modal; }, addEventListener: (ev, fn) => closers.push(fn) };
+    frame();
+    check('R47: a modal dialog opened while a toast is up: the region moves into it and is shown as a popover after it (the top layer)',
+      layer.attr && layer.open && layer.shows === 1 && region.parentNode === modal);
+    fb.clear();
+    fb.toast('In the dialog');
+    check('R47: under a modal dialog only its controls count (the page\'s controls do not pin the toast)', !top() && placed() === '' && layer.open);
+    modal = null; closers.forEach((fn) => fn());
+    check('R47: the dialog closed: the region leaves the top layer and goes back where it was, at once (its close event)', !layer.attr && !layer.open && region.parentNode === body);
+    fb.clear(); controls = [];
   }
 
   // ---- dismissal ----

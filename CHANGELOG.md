@@ -179,6 +179,12 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   is free, but while a control that decides its place is still in its own animation (a sheet opening), for 300 ms at
   most, it moves to a free place as soon as one opens (its position only, with no animation); after that it never
   moves. A hovered or focused toast is not moved.
+- **A toast may cover what an opaque sheet already hides, never the sheet's own buttons (UX R47).** The part of a
+  control under the Ask sheet or the attention card (marked `data-occludes`, each fully opaque) no longer keeps a
+  toast away; the sheet's Stop, Done and tabs always do, and a sheet still sliding hides nothing until it has settled.
+  On a phone a toast never goes over the sheet: with no other place it takes the band under the header, as before.
+  While a modal dialog is open the toast moves into it, in the top layer above its contents, where it can be clicked,
+  and only the dialog's controls keep it away.
 - **The page's screen text reads every screen Claude's screen_text reads.** `Session.screenText`, which the embed
   API's `screenText`, the Ask panel, the tape panel and the boot watchdog read, decoded only the VDG's 32x16 page at a
   fixed address: on the Dragon 64 Plus's 80-column screen it returned the VDG page behind it, on a CoCo 3 GIME text
