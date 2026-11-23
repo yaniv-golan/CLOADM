@@ -8,7 +8,8 @@
 //  * a securitypolicyviolation for a URL on ORIGIN;
 //  * the import of panel.js fails (CLOADM_REACH.importFailed, called by the view's module);
 //  * nothing has loaded after WAIT_MS, unless the host's csp allows ORIGIN (then it is only slow). Soft too: a load that
-//    arrives later still starts, and Claude is told on the same channel that the view loaded after all.
+//    arrives later still starts, and Claude is told on the same channel that the view loaded after all. Before the
+//    handshake it is held back: a handshake that then allows ORIGIN drops it with nothing said.
 // Then the status line says so, the bridge answers every call with "blocked" (its remedy names the offline copy), and
 // the host is told where Claude reads it: ui/message when the host offers it (hostCapabilities.message), else
 // ui/update-model-context when it offers that. Details shows which (reported: ...).
@@ -18,7 +19,7 @@
   const WAIT_MS = 8000;
   const MESSAGE = 'This app can\'t reach cloadm.dev here. Ask Claude to open the offline copy.';
   const B = window.CLOADM_BRIDGE;
-  let loaded = false, blocked = null, soft = false, reported = null, timer = null;
+  let loaded = false, blocked = null, soft = false, byTimeout = false, failPending = false, reported = null, timer = null;
   const doc = typeof document === 'undefined' ? null : document;
   const el = (id) => (doc ? doc.getElementById(id) : null);
   let rid = 0;
@@ -41,12 +42,15 @@
   // soft: only a sign so far (the host's csp, or slowness), so an emulator that loads after all still attaches and the
   // block is taken back; hard: the load really failed (a policy violation, a failed import), which a soft block gives
   // way to
-  function block(why, { soft: weak = false } = {}) {
+  // a soft block from the wait alone, before the handshake, reaches the bridge only once the host has answered: the
+  // answer can still show the host allows the site, and then it is taken back with nothing said
+  function block(why, { soft: weak = false, timeout = false } = {}) {
     if (loaded || (blocked && !(soft && !weak))) return;
     const first = !blocked;
-    blocked = why; soft = weak;
+    blocked = why; soft = weak; byTimeout = timeout;
     clearTimeout(timer);
-    B.fail(why, { code: 'blocked', soft: weak });
+    failPending = timeout && !B.host;
+    if (!failPending) B.fail(why, { code: 'blocked', soft: weak });
     if (first) {
       const s = el('status');
       if (s) { s.className = 'error'; s.textContent = MESSAGE; }
@@ -63,18 +67,21 @@
   const sandboxCsp = () => (B.host && B.host.hostCapabilities && B.host.hostCapabilities.sandbox && B.host.hostCapabilities.sandbox.csp) || null;
   B.onChange(() => {
     const csp = sandboxCsp();
+    if (B.host && blocked && soft && byTimeout && !loaded && allows(csp)) recover();
+    if (B.host && failPending) { failPending = false; B.fail(blocked, { code: 'blocked', soft }); }
     if (csp && !loaded && !blocked && !allows(csp)) block(`the host does not allow ${ORIGIN} (sandbox csp resourceDomains ${JSON.stringify(csp.resourceDomains ?? null)})`, { soft: true });
     report();
   });
   if (doc) doc.addEventListener('securitypolicyviolation', (e) => { if (String(e.blockedURI || '').startsWith(ORIGIN)) block(`the host's policy blocked ${e.blockedURI} (${e.effectiveDirective || e.violatedDirective})`); });
   // slow, not blocked, when the host has said it allows the site: then only a failed import or a violation counts
-  timer = setTimeout(() => { if (!allows(sandboxCsp())) block(`nothing loaded from ${ORIGIN} within ${WAIT_MS / 1000} s`, { soft: true }); }, WAIT_MS);
-  // panel.js arrived after a soft block: take it back, where Claude was told
+  timer = setTimeout(() => { if (!allows(sandboxCsp())) block(`nothing loaded from ${ORIGIN} within ${WAIT_MS / 1000} s`, { soft: true, timeout: true }); }, WAIT_MS);
+  // a soft block taken back (panel.js arrived after all, or the late handshake allows the site): where Claude was told,
+  // it is told that too
   function recover() {
-    blocked = null; soft = false;
+    blocked = null; soft = false; byTimeout = false; failPending = false;
     const s = el('status');
     if (s && s.textContent === MESSAGE) { s.className = ''; s.textContent = 'Starting CLOADM…'; }
-    const content = [{ type: 'text', text: 'CLOADM\'s panel loaded after all (it was only slow): keep using this view; the offline copy is not needed.' }];
+    const content = [{ type: 'text', text: 'CLOADM\'s panel loaded after all: keep using this view; the offline copy is not needed.' }];
     if (reported === 'message') send('ui/message', { role: 'user', content });
     else if (reported === 'model context') send('ui/update-model-context', { content });
     if (reported) reported += ', then taken back';

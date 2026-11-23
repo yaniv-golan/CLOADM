@@ -519,7 +519,8 @@ The small view watches its own load. It counts as blocked when the host's `ui/in
 trailing slash), when the browser reports a `securitypolicyviolation` for cloadm.dev, when the import of `panel.js`
 fails, or when nothing has loaded after about 8 s (unless the host's csp allows cloadm.dev: then it is only slow). The
 first and the last are only signs: if `panel.js` loads after all, the view starts, and Claude is told on the same
-channel that it loaded and to keep using it. Then the status line says "This app can't reach cloadm.dev here. Ask
+channel that it loaded and to keep using it. A wait that runs out before the host has answered `ui/initialize` is not
+reported until it does, and is dropped unsaid when that answer allows cloadm.dev. Then the status line says "This app can't reach cloadm.dev here. Ask
 Claude to open the offline copy.", every tool call answers `blocked`, and Claude is told: by `ui/message` when the host
 offers it (`hostCapabilities.message`), else by `ui/update-model-context` when it offers that. **Details** names the
 cause and the channel (`blocked: … · reported: message`), and, for every host, its `serverTools` and

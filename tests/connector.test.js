@@ -440,7 +440,7 @@ const J = JSON.stringify;
     const back = v.sent.filter((x) => x.method === 'ui/message');
     const r2 = await v.call(93);
     check('reach: ... a block on the host\'s csp alone is soft: a module that loads after all attaches, serves calls, and Claude is told on the same channel to keep this view',
-      took && v.R.blocked === null && back.length === 2 && /loaded after all/.test(back[1].params.content[0].text) && /keep using this view/.test(back[1].params.content[0].text)
+      took && v.R.blocked === null && back.length === 2 && /loaded after all/.test(back[1].params.content[0].text) && /keep using this view/.test(back[1].params.content[0].text) && !/slow/.test(back[1].params.content[0].text)
       && v.R.reported === 'message, then taken back' && r2.result.content[0].text === 'loaded after all' && v.els.status?.textContent !== MESSAGE, J([took, back.map((m) => m.params.content[0].text), v.R.reported]));
   }
   for (const spelled of ['https://cloadm.dev/', 'cloadm.dev', 'CLOADM.DEV/', 'https://CloadM.dev']) {
@@ -459,6 +459,17 @@ const J = JSON.stringify;
     check('reach: a soft block (the csp) gives way to a hard one (the import failed): calls say so, a module after that is not taken, and Claude was told once',
       /does not allow/.test(softly) && /import of panel\.js failed/.test(v.R.blocked) && /import of panel\.js failed/.test(errOf(r)?.detail)
       && v.B.attach({ api: panel.PANEL_API, tools: [], call: async () => ({ content: [] }) }) === false && v.sent.filter((x) => x.method === 'ui/message').length === 1, J([softly, v.R.blocked]));
+  }
+  {
+    // the wait runs out before the handshake, and the handshake then allows the site: the block is taken back unsaid
+    const v = reach({ waitMs: 20 });
+    await waitFor(() => v.R.blocked);
+    const during = { blocked: v.R.blocked, status: v.els.status?.textContent, failed: v.B.failed };
+    v.init({ sandbox: { csp: { resourceDomains: [ORIGIN] } }, message: {}, updateModelContext: {} });
+    await tick();
+    check('reach: a wait that ran out before a handshake that allows the site is taken back: nothing sent to Claude, the bridge never failed, the status line cleared',
+      /nothing loaded/.test(during.blocked) && during.status === MESSAGE && during.failed === null && v.R.blocked === null && v.R.reported === null
+      && !v.sent.some((x) => /^ui\/(message|update-model-context)$/.test(x.method)) && v.B.failed === null && v.els.status?.textContent !== MESSAGE, J([during, v.R.blocked, v.sent.map((x) => x.method)]));
   }
   {
     // slow, but the host allows the site: no timeout block (a failed import would still count)
@@ -513,7 +524,7 @@ const J = JSON.stringify;
     check('reach: nothing loaded within the wait is a block (reported), and a module that arrives later still attaches and serves calls',
       /nothing loaded from https:\/\/cloadm\.dev within/.test(late) && !!m && took && v.R.blocked === null && r.result.content[0].text === 'late but here', J([late, r]));
     check('reach: ... and Claude, told to open the offline copy, is then told the view loaded after all and to keep it',
-      msgs.length === 2 && /open_emulator_inline/.test(msgs[0]) && /loaded after all/.test(msgs[1]) && /keep using this view/.test(msgs[1]) && !/open_emulator_inline/.test(msgs[1]), J(msgs));
+      msgs.length === 2 && /open_emulator_inline/.test(msgs[0]) && /loaded after all/.test(msgs[1]) && /keep using this view/.test(msgs[1]) && !/slow/.test(msgs[1]) && !/open_emulator_inline/.test(msgs[1]), J(msgs));
   }
 
   // ---------------- the view's controls (connector/view/ui.js), the parts without a DOM ----------------
