@@ -245,6 +245,9 @@
   /* js/ui/feedback.js: a toast with no free place takes this fixed slot at the top (never invisible); above everything
      but the dialogs (the Ctrl K box, 70) */
   #toastRegion.top { z-index: 62; }
+  /* over a modal dialog the region is a manual popover in the top layer (js/ui/feedback.js, UX R47): none of the
+     popover's own look, and none of its insets beyond what the rules above set (this rule is weaker than them) */
+  :where(#toastRegion)[popover] { top: auto; right: auto; margin: 0; padding: 0; border: 0; background: transparent; color: inherit; overflow: visible; }
   #attention { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; background: var(--warn-panel);
     color: var(--text); border: 1px solid var(--orange); border-radius: var(--r-10); padding: 10px 12px; font-size: 15px; margin: 8px 0; }
   #attention[hidden] { display: none; }
@@ -1739,7 +1742,7 @@ npx serve -l 8000 .</pre>
   </main>
 
   <!-- Ask Claude (a bottom sheet on a phone) -->
-  <aside id="ask" aria-label="Ask Claude" hidden data-height="half">
+  <aside id="ask" aria-label="Ask Claude" hidden data-height="half" data-occludes>
     <div id="askGrip" aria-hidden="true" title="Drag to resize (320–560 px)"><span></span></div>
     <button id="askHandle" aria-label="Change the height of Ask Claude"><span></span></button>
     <div class="askhead">
@@ -2046,7 +2049,7 @@ npx serve -l 8000 .</pre>
 <!-- Claude's status with Stop (and Resume while paused, Answer while a card waits) on the page views (Share, the Library, Add ROMs, the Debugger), which hide the emulator: outside .layout so every view shows it -->
 <div id="viewClaude" role="status" hidden><span class="dot" aria-hidden="true"></span><span id="viewClaudeText"></span><button id="btnViewAnswer" hidden>Answer</button><button id="btnViewResume" hidden>Resume</button><button id="btnViewStop">Stop</button></div>
 <div id="toastRegion" role="status" aria-live="polite"><div id="toast" hidden><span id="toastText"></span><button id="toastAction" type="button" hidden></button><div id="toastDetails" hidden></div></div></div>
-<div id="attention" hidden><span id="attentionText"></span><span class="bar"><button id="attentionAction" class="primary" hidden></button><button id="attentionClose">Dismiss</button></span></div>
+<div id="attention" hidden data-occludes><span id="attentionText"></span><span class="bar"><button id="attentionAction" class="primary" hidden></button><button id="attentionClose">Dismiss</button></span></div>
 <div id="library" role="main" aria-labelledby="libHeading" hidden>
   <div class="libhead"><a href="play/" id="btnLibBack">← Emulator</a><strong class="wordmark">LIBRARY</strong><span class="grow"></span><a href="help/">Help</a></div>
   <div class="libgrid">

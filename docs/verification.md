@@ -975,6 +975,29 @@ browser check's group `uiModel` drives them with real events at 1280x720 and at 
   its time runs. An error toast (a disk image CLOADM can't read) is red. With that disk in and no tape, the drives
   card is above the cassette deck on the phone and under the keyboard panel, and after it on the desktop. (`feedbackModel` checks the fixed top slot where nothing else is
   free, and that it goes after its 4 s.)
+* R45 (`feedbackModel`, 1440x900): a toast replacing a focused one leaves the box up (a `MutationObserver` records no
+  `hidden` write) and the focus never on the body (in the same task and a frame later); with another action (an equal
+  label, another object) the focus is on the box, the new toast is up 10 s later and Enter fires nothing, and after
+  Shift+Tab it goes 8 s later; with the same action object the focus stays on the button and Enter runs it; with no
+  action the focus is on the box. A toast replacing a hovered one stays 10 s, then has its full 4 s after the pointer
+  leaves. One announcement per toast (the live region's text changes once for each). The provisional pin: a toast
+  raised as a sheet (a `.controls` element shrinking in 150 ms) opens is in view in its first frame in the top slot,
+  in the free place once the transition ends, with no animation, and its rect is the same in every 50 ms sample from
+  350 ms on; a focused provisional toast keeps the slot, and one that lands in the slot already focused is still provisional
+  past 300 ms, taking a place that opened meanwhile once the focus leaves. `tests/feedback-toasts.test.js` checks the same rules in Node,
+  with the 300 ms limit and a hovered provisional toast.
+* R47 (`feedbackModel`): at 390x844 with touch and the Ask sheet at peek, a toast too tall for the band under the screen
+  text is in the header band (the top slot under the 48 px bar), over neither the sheet nor its controls, its rect the
+  same from 350 ms on; at 900x800 with the side panel over part of the slots, the toast is in a free place that meets
+  no control part that shows and none of the panel's controls; the guard: every shown `[data-occludes]` element (the
+  sheet at peek, the panel, the attention card) has opacity 1 up its ancestors and a background alpha of 1; an
+  opaque overlay sliding in over a control occludes nothing until its transition ends (top slot in frame 1, its own
+  place after); a test `<dialog>` opened with `showModal()` over a toast, and a toast raised under it: in both
+  `elementFromPoint` at the toast's centre is the toast, and the region leaves the dialog and the top layer when it
+  closes; one announcement per toast. `askEsc` (5d) now runs the turn on a phone (header band, no Stop covered) and at
+  900 px (none of the panel's controls covered): the "toast over the Stop" it was written for cannot form under
+  R47, and in both the pill does not come and go and a Stop can be reached. `tests/feedback-toasts.test.js` checks each
+  rule in Node.
 * R25: the switch confirmation's text for a tape and a cartridge (both in the Library), a tape and a disk, a RAM
   change (and Cancel putting the select back), a snapshot's own disk with **Save to Library** (stored and linked),
   DriveWire (not listed, still mounted after the switch); the toasts after the switch. `tests/switch-losses.test.js`
