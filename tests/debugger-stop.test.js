@@ -88,5 +88,60 @@ for (const [what, act] of [
   check('R44 b5: a new stop tells again, once', events.filter(([ev]) => ev === 'typing-refused').length === 2);
 }
 
-console.log(fail ? `${fail} FAILED` : 'all debugger-stop checks passed');
-process.exitCode = fail ? 1 : 0;
+// b4: a load is a launch only once it is accepted. A refused one leaves the stop (and the page's Pause) as it was.
+for (const [what, name, bytes] of [
+  ['a .wav that is no recording', 'noise.wav', new Uint8Array(64).fill(0x41)],
+  ['a BASIC listing on a machine with no BASIC ROM', 'prog.bas', new TextEncoder().encode('10 PRINT "HI"\n20 GOTO 10\n')],
+]) {
+  const { s, events, pc } = stopped();
+  let threw = null;
+  try { s.load(name, bytes, { remember: false }); } catch (e) { threw = e; }
+  check(`R44 b4: ${what} is refused`, threw instanceof Emu.SessionError, String(threw));
+  check(`R44 b4: ...and keeps the stop where it was: no 'released', no 'launch'`, s.paused && s.debug.pc === pc
+    && !events.some(([ev]) => ev === 'released' || ev === 'launch'), JSON.stringify(events.map(([ev]) => ev)));
+}
+// b4: a launch on ANOTHER machine leaves this machine's stop in place (a power cycle of another machine: the chat's
+// own power, or a load's target that is not the machine on screen)
+{
+  const { s, events, pc } = stopped();
+  const other = s.shownMachine;
+  s.switchMachine('coco', null, { menu: false });   // (a fresh machine on screen; the old one is "another machine")
+  s.debug.halt();
+  events.length = 0;
+  s.powerCycle({ menu: false, on: other, reason: 'test' });
+  check('R44 b4: a power cycle of another machine leaves the stop on the machine on screen', s.paused && !events.some(([ev]) => ev === 'released'),
+    JSON.stringify({ paused: s.paused, events: events.map(([ev]) => ev), pc }));
+}
+
+(async () => {
+  // b4 (the reviewer's F4): a disk the person puts in - from the Library or a drive's menu (mountDisk), or a drop or
+  // Open (importDisk, which mounts) - is a launch, once it is in; a refused mount leaves the stop
+  const s = new Emu.Session({ store: Emu.memoryStore(), media: new MemoryMediaStore() });
+  await s.ready();
+  s.switchMachine('dragon64', null, { menu: false });
+  s.runLiza(bin('liza.bin'));
+  run(s, 200);
+  const disk = Emu.blankDisk('vdk', 40, 1);
+  await s.importDisk('stored.vdk', disk, 0);
+  await s.ejectDisk(0);
+  const events = [];
+  s.on((ev, arg) => events.push([ev, arg]));
+  s.debug.halt();
+  let refused = null;
+  try { await s.mountDisk(0, 'nosuch.vdk'); } catch (e) { refused = e; }
+  check('R44 b4: a refused mount (no such disk) keeps the stop and says nothing', refused instanceof Emu.SessionError && s.paused
+    && !events.some(([ev]) => ev === 'released'), String(refused));
+  const pc = s.debug.pc;
+  await s.mountDisk(0, 'stored.vdk');
+  let r = events.filter(([ev]) => ev === 'released');
+  check('R44 b4: a disk mounted from the Library (mountDisk) is a launch: the stop is released, once, with its PC', !s.paused && r.length === 1 && r[0][1] === pc, JSON.stringify(r));
+  await s.ejectDisk(0);
+  s.debug.halt();
+  events.length = 0;
+  await s.importDisk('dropped.vdk', Emu.blankDisk('vdk', 40, 1), 1);
+  r = events.filter(([ev]) => ev === 'released');
+  check('R44 b4: a disk dropped or opened (importDisk) is a launch too, released once', !s.paused && r.length === 1, JSON.stringify(r));
+
+  console.log(fail ? `${fail} FAILED` : 'all debugger-stop checks passed');
+  process.exitCode = fail ? 1 : 0;
+})();

@@ -464,7 +464,8 @@ async function pickMachine(page, id) {
   await page.click(`#machineMenu button[data-machine="${id}"]`);
   if (await page.isVisible('#switchConfirm')) await page.click('#btnSwitch');
   await waitFor(page, (id) => window.emu.machine.id === id, id);
-  // a couple of frames of the new machine; a paused one runs none (the switch keeps the pause), so it is only drawn
+  // a couple of frames of the new machine; a paused one runs none, so it is only drawn (a switch ends the page's Pause,
+  // UX ruling R44, but a check may pause again before the frames are waited for)
   if (await page.evaluate(() => document.body.classList.contains('paused') || window.emu.session.paused)) await painted(page); else await emuFrames(page, 2);
 }
 // the Debugger screen (#debugger), where the assembler lives
@@ -5755,6 +5756,24 @@ async function debuggerStopChecks(browser, base, check) {
   check('R44 1: ...the strip says where, with Resume and Open Debugger (role=status)', r.strip === `Stopped in the Debugger at ${hex4(r.pc)}.` && r.resume && r.open && r.role === 'status', JSON.stringify(r));
   check('R44 1: ...the status line reads "Stopped in the Debugger", no fps', r.status === 'Stopped in the Debugger' && !/fps/.test(r.status), r.status);
   if (shotDir) await page.screenshot({ path: path.join(shotDir, 'debugger-stop-strip.png') });
+  // b2: the strip is written once per stop (role=status announces each write): nothing in it changes over 30 turns
+  // of the frame loop; and Esc, on the page or on the screen, does not dismiss it
+  const writes = await page.evaluate(async () => {
+    let n = 0;
+    const o = new MutationObserver((list) => { n += list.length; });
+    o.observe(document.getElementById('dbgStrip'), { subtree: true, childList: true, characterData: true, attributes: true });
+    await new Promise((r) => { let k = 0; const f = () => (++k >= 30 ? r() : requestAnimationFrame(f)); requestAnimationFrame(f); });
+    o.disconnect();
+    return n;
+  });
+  check('R44 b2: the strip is written once per stop: no change to it over 30 frames', writes === 0, String(writes));
+  await page.evaluate(() => document.activeElement && document.activeElement.blur());
+  await page.keyboard.press('Escape');
+  await page.focus('#screen');
+  await page.keyboard.press('Escape');
+  await ticks(page, 5);
+  r = await ui();
+  check('R44 b2: Esc (on the page, then on the screen) does not dismiss the strip', r.stopped && r.strip === `Stopped in the Debugger at ${hex4(r.pc)}.` && r.resume, JSON.stringify(r));
   // 2. the strip's Resume
   await page.click('#btnStripResume');
   const ran = await runs();
@@ -5802,12 +5821,26 @@ async function debuggerStopChecks(browser, base, check) {
 
   // 4. each launch while stopped runs, says the stop was released, and keeps the breakpoints
   const prog = [0x55, 2, 0x30, 0x00, 0x00, 0x02, 0x30, 0x00, 0xAA, 0x20, 0xFE];
-  for (const [what, act] of [
+  // a drop that is refused is no launch: the stop stays, and no toast says it was released
+  {
+    const pc = await page.evaluate(() => { const d = window.emu.session.debug; d.halt(); return d.pc; });
+    const n = (await toasts()).length;
+    await dropFiles(page, [['noise.wav', Buffer.alloc(64, 0x41)]]);
+    await waitFor(page, (n) => window.__toasts.length > n, n, 10000);
+    await ticks(page, 5);
+    const t = (await toasts()).slice(n);
+    r = await ui();
+    check('R44 b4: a refused drop (a .wav with no tape in it) keeps the stop; its toast says nothing was released',
+      r.stopped && r.pc === pc && t.length > 0 && !t.some((x) => /was released/.test(x)) && r.strip !== null, JSON.stringify({ t, r }));
+  }
+  for (const [what, act, opt] of [
     ['Run again', () => page.evaluate(() => document.getElementById('btnRunAgain').click())],
     ['a shelf item (2048)', () => shelfClick('2048')],
     ['a dropped .bin', () => dropFiles(page, [['prog.bin', Buffer.from(prog)]])],
     ['Reset', () => page.click('#btnReset')],
     ['Switch off and on', () => page.click('#btnHardReset')],
+    // (last: the switch replaces the machine, and its Debugger with its breakpoints goes with it)
+    ['a machine switch', () => pickMachine(page, 'dragon32'), { breakpoints: false }],
   ]) {
     const pc = await page.evaluate(() => { const d = window.emu.session.debug; if (!d.stopped) d.halt(); return d.pc; });
     const n = (await toasts()).length;
@@ -5815,9 +5848,9 @@ async function debuggerStopChecks(browser, base, check) {
     const go = await waitFor(page, () => !window.emu.session.paused, null, 10000) && await runs();
     await ticks(page, 3);
     const said = (await toasts()).slice(n).some((t) => t.includes(`The Debugger's stop at ${hex4(pc)} was released.`));
-    const kept = await page.evaluate(() => window.emu.session.debug.breakpoints().includes(0xBFF0));
+    const kept = !(opt && opt.breakpoints === false) ? await page.evaluate(() => window.emu.session.debug.breakpoints().includes(0xBFF0)) : true;
     r = await ui();
-    check(`R44 4: ${what} while stopped runs, the toast says the stop was released, the breakpoints stay`, go && said && kept && r.strip === null && r.button === 'Pause',
+    check(`R44 4: ${what} while stopped runs, the toast says the stop was released${opt ? '' : ', the breakpoints stay'}`, go && said && kept && r.strip === null && r.button === 'Pause',
       JSON.stringify({ go, said, kept, r, toasts: (await toasts()).slice(n) }));
   }
   await page.evaluate(() => window.emu.session.debug.clearBreakpoints());
@@ -5860,6 +5893,24 @@ async function debuggerStopChecks(browser, base, check) {
   const toldTap = (await toasts()).slice(n6).filter((t) => t === 'The machine is stopped: press Resume, then type.').length;
   check('R44 6: a tap on the welcome menu while stopped is refused: nothing typed, one toast, still stopped on the menu', tapRow >= 0 && tap.keys === keys6 && tap.menu && tap.stopped && toldTap === 1, JSON.stringify({ tapRow, keys6, tap, toldTap }));
   await page.click('#btnStripResume');
+  // 6c. the Type-in panel while stopped (BASIC needed: a Dragon 64 with NOP-filled stand-in ROMs, which run on but
+  // whose keys the typist still feeds): refused, no job, no "Typed in", one toast
+  await page.evaluate(() => { const s = window.emu.session, f = (n) => new Uint8Array(0x4000).fill(n); s.addRoms([{ name: 'd64_1.rom', bytes: f(0x12) }, { name: 'd64_2.rom', bytes: f(0x12) }]); s.switchMachine('dragon64'); });
+  await waitFor(page, () => window.emu.machine.id === 'dragon64' && !window.emu.machine.useStub, null, 10000);
+  await page.evaluate(() => { location.hash = '#library'; });
+  await page.waitForSelector('#typeinSource', { state: 'visible' });
+  await page.fill('#typeinSource', '10 PRINT "HI"\n20 GOTO 10\n');
+  await page.evaluate(() => window.emu.session.debug.halt());
+  const nT = (await toasts()).length;
+  await page.click('#btnTypein');
+  await ticks(page, 20);
+  const ti = await page.evaluate(() => { const m = window.emu.machine; return { queued: m.typist.queue.length, busy: !!m.typist.busy, progress: document.getElementById('typeinProgress').textContent,
+    enabled: !document.getElementById('btnTypein').disabled }; });
+  const tT = (await toasts()).slice(nT);
+  check('R44 6: the Type-in panel while stopped: refused, nothing queued, no job and no "Typed in", one toast',
+    ti.queued === 0 && !ti.busy && !/Typed in|^Line /.test(ti.progress) && ti.enabled && tT.filter((t) => t === 'The machine is stopped: press Resume, then type.').length === 1,
+    JSON.stringify({ ti, tT }));
+  await page.evaluate(() => { location.hash = ''; window.emu.session.resume(); });
   check('R44: no page errors', !errors.length, errors.join('; '));
   await ctx.close();
 

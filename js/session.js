@@ -2325,7 +2325,6 @@ export class Session {
     const format = detectDiskFormat(bytes, base);
     if (!format) throw new SessionError(`${base}: not a disk image CLOADM can read (VDK, JVC/DSK or DMK).`);
     try { diskGeometry(bytes, format); } catch (e) { throw new SessionError(`${base}: ${e.message}`); }
-    this.launch(this.diskMachine);   // (R44: a disk put in from a drop or Open is a launch)
     return this.claimingDiskName(full, () => this.createExclusive((askedAt) => this.importDiskStored(full, base, bytes, drive, writeProtected, askedAt)));
   }
   // the stored part of importDisk, run as one creation. askedAt: the landing count when this creation was asked
@@ -2433,6 +2432,10 @@ export class Session {
     } catch (e) { throw new SessionError(`${base}: ${e.message}`); }
     this.checkDiskLater(fdc.drives[drive]);
     this.emit('disks');
+    // R44 (b4): a disk the person puts in - from a drop, Open, the Library, a drive's menu - is a launch, once it is in
+    // (a mount that is refused leaves a Debugger stop and the page's Pause as they were). A held mount is the
+    // Session's own work (NitrOS-9's boot disk going in as part of its start), not one of the person's.
+    if (!held) this.launch(this.diskMachine);
     const wp = writeProtected ? ' (write-protected)' : '';
     if (fdc === this.bareDiskController) return `${base} is in drive ${drive}${wp}, ${BARE_NOTE}`;
     return `${base} in drive ${drive}${wp}`;
@@ -2794,16 +2797,21 @@ export class Session {
     if (media.kind === 'disk') {
       throw new SessionError(`${name}: ${media.format}${media.family ? ` for a ${FAMILY_NAMES[media.family]}` : ''}. Disk images go in a disk drive, not into memory.`);
     }
-    this.launch(m);   // (R44: what is loaded runs)
+    // (R44: what is loaded runs. A load is a launch only once it is accepted: each branch below calls go() after its
+    // own refusals, so a refused file - a .wav with no tape in it, BASIC with no ROM - leaves a Debugger stop and the
+    // page's Pause as they were. A restart through BASIC is a power cycle, which launches by itself.)
+    const go = () => this.launch(m);
     const d = formats.identify(name, bytes);
     switch (d.kind) {
       case 'binary':
         if (d.basic) {
           if (!m.hasRom) throw this.needsRom('A BASIC program');
+          go();
           takeOver();
           m.loadBasicProgram(d.segments[0].data, d.segments[0].addr);
           return where(`${name}: ${d.format}, ${d.segments[0].data.length} bytes – RUN`);
         }
+        go();
         this.inject(d.segments, d.exec, m);
         return where(`${name}: ${d.format} ${describeSegments(d.segments, d.exec)}`);
 
@@ -2818,6 +2826,7 @@ export class Session {
         // other type) is read by a program (OPEN "I",#-1 and INPUT #-1): it goes in the deck, nothing is typed
         // or run (CLOAD would stop with ?FM ERROR, and poking it into memory would run data as code).
         if (first.fileType !== 0 && first.fileType !== 2) {
+          go();
           this.cancelLoadTyping(m);
           m.deck.insert(tape);
           return where(`${name}: ${first.name} is a ${first.typeName} file, which a program reads (OPEN "I",#-1); it is in the deck`);
@@ -2854,11 +2863,13 @@ export class Session {
         let msg;
         if (first.fileType === 0) {
           if (!m.hasRom) throw this.needsRom('A BASIC tape');
+          go();
           takeOver();
           m.loadBasicProgram(first.data);
           msg = `${name}: ${first.name} (BASIC) fast-loaded – RUN`;
         } else {
           const seg = { addr: first.load, data: first.data };
+          go();
           this.inject([seg], first.exec, m);
           const range = `${hex(first.load)}–${hex((first.load + first.data.length - 1) & 0xFFFF)}`;
           msg = first.exec != null ? `${name} loaded (${range}) and started at ${hex(first.exec)}.` : `${name} loaded (${range}).`;
@@ -2875,12 +2886,14 @@ export class Session {
         this.flushDisks();
         let dev;
         try { dev = cartridgeFor(bytes, this.cartBoard); } catch (e) { throw new SessionError(`${name}: ${e.message}`); }
+        go();
         this.cartFiles.set(dev, name);
         return where(this.startCartridge(dev, `${name}: ${dev.name}`, m));
       }
 
       case 'basictext':
         if (!m.hasRom) throw this.needsRom('A BASIC listing');
+        go();
         takeOver();
         m.ensureBooted();
         m.typist.type('NEW\r' + d.text.replace(/\r\n?/g, '\n').split('\n').filter((l) => l.trim()).join('\r') + (run ? '\rRUN\r' : '\r'));
@@ -2889,6 +2902,7 @@ export class Session {
       default: {
         const a = askAddresses && askAddresses(name, bytes.length);
         if (!a) throw new SessionError(`${name}: unknown format (${bytes.length} bytes)`);
+        go();
         const seg = { addr: a.load, data: bytes };
         this.inject([seg], a.exec, m);
         return where(`${name}: raw ${describeSegments([seg], a.exec)}`);

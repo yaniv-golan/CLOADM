@@ -360,8 +360,9 @@ row), and `"ignore_case": true` matches whatever the case. There are no pattern 
 every frame can backtrack for seconds on one screen, and limiting the patterns did not close that. A later version may
 offer them again, run in a worker with a timeout.
 
-**A stop the page's Debugger made.** What a tool starts runs: `load`, `reset` and a machine switch release a stop
-that the person made in the Debugger (the breakpoints stay set), as the page's own Run again, Reset and drops do.
+**A stop the page's Debugger made.** What a tool starts runs: `load`, `insert_disk`, `reset`, `power_cycle` and a
+machine switch release a stop that the person made in the Debugger (the breakpoints stay set), as the page's own Run
+again, Reset and drops do. A file that is refused starts nothing, and the stop stays.
 
 ### Results and errors
 
