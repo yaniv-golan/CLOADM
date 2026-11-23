@@ -32,7 +32,6 @@
  * Browser-free: js/emu.js still loads in Node.
  */
 import { MediaStoreError } from '../host/media-store.js';
-import { crc32 } from '../util.js';
 
 export const ROM_SOCKETS = 'roms/sockets.json';
 export const ROM_NAMES = 'roms/names.json';
@@ -57,10 +56,12 @@ const parse = (bytes, fallback) => { try { return JSON.parse(dec.decode(bytes));
 // what each list is when it is not stored yet (a fresh value each time: a merge changes it)
 const LIST_EMPTY = { [ROM_SOCKETS]: () => ({}), [ROM_NAMES]: () => ({}), [RECENT_LIST]: () => [] };
 const socketCrcs = (sockets) => { const out = new Set(); for (const m of Object.values(sockets || {})) for (const crc of Object.values(m || {})) out.add(crc); return out; };
-// Another page's blob is taken only once it is whole: a store can show a file before its bytes are in (OPFS creates an
-// empty file and fills it when the write closes), and a blob is named by its contents' CRC. One that does not match yet
-// is read again on that page's next message (it says so once the write has closed).
-const whole = (bytes, crc) => !!bytes && crc32(bytes) === String(crc).toUpperCase();
+// Another page's blob is taken only once its bytes are in: OPFS and a picked folder write through createWritable, which
+// shows the file EMPTY from the moment it is created until the write closes, and then puts the whole file in place at
+// once. No ROM image or program is empty, so an empty one is a write still under way, read again on that page's next
+// message (it says so once the write has closed). (Not a CRC check: a blob's name need not be its CRC32 -- the
+// localStorage migration keeps the key it was stored under.)
+const whole = (bytes) => !!bytes && bytes.length > 0;
 const recentKey = (r) => `${r.name}\0${String(r.crc).toUpperCase()}`;
 // The lock every page on the origin takes to change the index's lists (navigator.locks), and, where there is no such
 // thing (Node, an embedder), one per store in this process: what two indexes on one store in one process share.
@@ -173,12 +174,12 @@ export class MediaIndex {
     for (const f of await this.store.list('roms/')) {
       const m = /^roms\/([0-9A-Fa-f]+)\.rom$/.exec(f.name);
       // (only a whole one: another page may be writing it now, and a blob taken here is never read again: _adopt)
-      if (m) { const b = await this.store.read(f.name); if (whole(b, m[1])) this.images.set(m[1].toUpperCase(), b); }
+      if (m) { const b = await this.store.read(f.name); if (whole(b)) this.images.set(m[1].toUpperCase(), b); }
     }
     this.recentFiles.clear();
     for (const f of await this.store.list('recent/')) {
       const m = /^recent\/([0-9A-Fa-f]+)\.bin$/.exec(f.name);
-      if (m) { const b = await this.store.read(f.name); if (whole(b, m[1])) { this.recentBytes.set(m[1].toUpperCase(), b); this.recentFiles.set(m[1].toUpperCase(), f.name); } }
+      if (m) { const b = await this.store.read(f.name); if (whole(b)) { this.recentBytes.set(m[1].toUpperCase(), b); this.recentFiles.set(m[1].toUpperCase(), f.name); } }
     }
     this.ready = true;
     return this;
@@ -196,12 +197,12 @@ export class MediaIndex {
     this.recentBytes.clear();
     for (const f of s.listSync('roms/')) {
       const m = /^roms\/([0-9A-Fa-f]+)\.rom$/.exec(f.name);
-      if (m) { const b = read(f.name); if (whole(b, m[1])) this.images.set(m[1].toUpperCase(), b); }
+      if (m) { const b = read(f.name); if (whole(b)) this.images.set(m[1].toUpperCase(), b); }
     }
     this.recentFiles.clear();
     for (const f of s.listSync('recent/')) {
       const m = /^recent\/([0-9A-Fa-f]+)\.bin$/.exec(f.name);
-      if (m) { const b = read(f.name); if (whole(b, m[1])) { this.recentBytes.set(m[1].toUpperCase(), b); this.recentFiles.set(m[1].toUpperCase(), f.name); } }
+      if (m) { const b = read(f.name); if (whole(b)) { this.recentBytes.set(m[1].toUpperCase(), b); this.recentFiles.set(m[1].toUpperCase(), f.name); } }
     }
     this.ready = true;
     return this;
@@ -324,7 +325,7 @@ export class MediaIndex {
     let got = false;   // an image read now: a socket another page stored before its image (putSocket) can be used now
     if (name === ROM_SOCKETS) {
       const images = new Map();
-      for (const crc of socketCrcs(list)) if (!this.images.has(crc)) { const b = await readOrNull(this.store, romImage(crc)); if (whole(b, crc)) images.set(crc, b); }
+      for (const crc of socketCrcs(list)) if (!this.images.has(crc)) { const b = await readOrNull(this.store, romImage(crc)); if (whole(b)) images.set(crc, b); }
       for (const [crc, b] of images) { this.images.set(crc, b); got = true; }
       if (!mayTake()) { if (got) this._say('images', null); return false; }
       const was = this._held(name);
@@ -335,7 +336,7 @@ export class MediaIndex {
       const recent = this._readRecent(list), bytes = new Map();
       for (const r of recent) if (r.stored && !this.recentBytes.has(r.crc)) {
         const b = await readOrNull(this.store, recentFile(r.crc));
-        if (whole(b, r.crc)) bytes.set(r.crc, b);
+        if (whole(b)) bytes.set(r.crc, b);
       }
       for (const [crc, b] of bytes) { this.recentBytes.set(crc, b); this.recentFiles.set(crc, recentFile(crc)); }
       if (!mayTake()) return false;
@@ -350,13 +351,13 @@ export class MediaIndex {
     let got = false;   // an image read now: a socket another page stored before its image (putSocket) can be used now
     if (name === ROM_SOCKETS) {
       this.sockets = list;
-      for (const crc of socketCrcs(list)) if (!this.images.has(crc)) { const b = this._readSync(romImage(crc)); if (whole(b, crc)) { this.images.set(crc, b); got = true; } }
+      for (const crc of socketCrcs(list)) if (!this.images.has(crc)) { const b = this._readSync(romImage(crc)); if (whole(b)) { this.images.set(crc, b); got = true; } }
     } else if (name === ROM_NAMES) this.names = list;
     else {
       this.recent = this._readRecent(list);
       for (const r of this.recent) if (r.stored && !this.recentBytes.has(r.crc)) {
         const b = this._readSync(recentFile(r.crc));
-        if (whole(b, r.crc)) { this.recentBytes.set(r.crc, b); this.recentFiles.set(r.crc, recentFile(r.crc)); }
+        if (whole(b)) { this.recentBytes.set(r.crc, b); this.recentFiles.set(r.crc, recentFile(r.crc)); }
       }
     }
     this._took(name, was, got);

@@ -26,8 +26,8 @@ const dec = new TextDecoder();
 const stored = async (st, name, fallback) => { try { return JSON.parse(dec.decode(await st.read(name))); } catch (e) { return fallback; } };
 const has = async (st, name) => !!(await st.stat(name));
 const bytes = (n) => new Uint8Array([n, n + 1, n + 2]);
-// Images and recent files are named by their contents' CRC (the index takes another page's blob only when it matches):
-// K.<label> is the CRC of a stand-in made for that label, B.<label> or byCrc(crc) its bytes.
+// Images and recent files are named by their contents' CRC: K.<label> is the CRC of a stand-in made for that label,
+// B.<label> or byCrc(crc) its bytes.
 const { crc32 } = require('../js/util.js');
 const made = new Map(), byLabel = new Map();
 const stand = (label) => { if (!byLabel.has(label)) { const b = new TextEncoder().encode(`stand-in ${label}`); byLabel.set(label, b); made.set(crc32(b), b); } return byLabel.get(label); };
@@ -161,7 +161,7 @@ function remember(idx, name, crc) {
     await st.write(ROM_SOCKETS, new TextEncoder().encode(JSON.stringify({ dragon64: { basic: K.HALF0001 } })));
     await st.write(romImage(K.HALF0001), new Uint8Array(0));   // created, not yet filled
     await a.refresh();
-    check('half-written: an image whose bytes do not match its CRC yet is not taken', a.socketCrc('dragon64', 'basic') === K.HALF0001 && !a.image(K.HALF0001));
+    check('half-written: an image still empty (its write not closed yet) is not taken', a.socketCrc('dragon64', 'basic') === K.HALF0001 && !a.image(K.HALF0001));
     await st.write(romImage(K.HALF0001), B.HALF0001);         // the write closes; the other page says so again
     said.length = 0;
     await a.refresh();
@@ -249,7 +249,7 @@ function remember(idx, name, crc) {
     const sync = new MemoryMediaStore();
     sync.writeSync(romImage(K.LOAD0001), new Uint8Array(0));
     const d = new MediaIndex(sync);   // synchronous: loaded in the constructor
-    check('load: an image or recent file whose bytes do not match its CRC yet is not taken (asynchronous and synchronous)',
+    check('load: an image or recent file still empty (another page\'s write not closed yet) is not taken (asynchronous and synchronous)',
       !c.image(K.LOAD0001) && !c.recentData(K.LOAD0002) && !d.image(K.LOAD0001));
     await st.write(romImage(K.LOAD0001), B.LOAD0001); await st.write(recentFile(K.LOAD0002), B.LOAD0002);
     await c.refresh();

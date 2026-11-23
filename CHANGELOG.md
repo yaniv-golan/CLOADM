@@ -523,7 +523,7 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   ROM another tab removed or replaced, the row says "Removed · still in the running machine" or "Replaced · the
   running machine keeps the old one until you switch off and on" (`Session.romElsewhere`), the machine is not touched,
   and switching off and on then takes what is stored. Another tab's image or recent file is taken only once its bytes
-  match its CRC: OPFS shows a file empty until its write closes, and a tab that read it then kept the empty bytes. A list
+  are in: OPFS shows a file empty until its write closes, and a tab that read it then kept the empty bytes. A list
   another tab stored is put in place only together with the files it names, never before they are read, and not over
   a change this tab made while they were being read; a tab opening while another writes a file does not keep it half
   written. `tests/media-multitab.test.js` (two indexes on one store,
