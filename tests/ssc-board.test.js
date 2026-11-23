@@ -4,8 +4,8 @@
 // (tests/ssc.test.js). What this file pins:
 //   * which models offer the Pak and which refuse it, and the message a refusal gives;
 //   * the PIC ROM's three states - missing, wrong size, present - through the Session;
-//   * that the Pak inserts and PLAYS with no SP0256 allophone ROM, because speech is not implemented (its ROM
-//     socket is optional, and the card must not require it);
+//   * that the Pak inserts and PLAYS with no SP0256 allophone ROM (its ROM socket is optional: speech needs it,
+//     music does not), and the message says which of the two it plays;
 //   * that the Pak survives insert -> snapshot -> restore as the port's board;
 //   * that the cartridge board entry refuses a cartridge IMAGE (the Pak has no image socket).
 //
@@ -88,7 +88,7 @@ const storeSscRoms = (s, { pic = PIC, sp = SP_ROM } = {}) => {
   storeSscRoms(s, { pic: PIC, sp: SP_ROM });
   const msg = s.insertSsc();
   check('the PIC ROM present: the Pak inserts', s.sscInserted && s.shownMachine.cartPort.type === 'ssc', String(s.sscInserted));
-  check('...and the message says music only', /music only/.test(msg) && /speech is not implemented/.test(msg), msg);
+  check('...and the message says music and speech (the allophone ROM is loaded)', msg === 'Speech/Sound Pak inserted (music and speech)', msg);
   check('...and the option is remembered as music', s.shownMachine.config.ssc === 'music', s.shownMachine.config.ssc);
   check('...and the Pak is the port\'s board, with its label', s.shownMachine.cartPort.name === 'Speech/Sound Pak', s.shownMachine.cartPort.name);
   // eject: the port empties and the option goes back
@@ -104,8 +104,11 @@ const storeSscRoms = (s, { pic = PIC, sp = SP_ROM } = {}) => {
   // the PIC's firmware has written the mixer and volumes.
   const s = await session();
   storeSscRoms(s, { pic: PIC, sp: null });
-  const e = throws(() => s.insertSsc());
+  let msg = '';
+  const e = throws(() => { msg = s.insertSsc(); });
   check('no speech ROM: the Pak inserts anyway', !e && s.sscInserted, e ? e.message : '');
+  check('...and the message says plainly that it plays music only, and how to add speech',
+    msg === 'Speech/Sound Pak inserted (music only: add the SP0256-AL2 allophone ROM in the ROM panel for speech)', msg);
   const pak = s.shownMachine.cartPort;
   check('...its SP0256 carries no allophone data (the documented empty case, not a zero-filled image)',
     pak.sp0256Data === null, String(pak.sp0256Data));
@@ -144,7 +147,7 @@ const storeSscRoms = (s, { pic = PIC, sp = SP_ROM } = {}) => {
   const e = throws(() => Emu.cartridgeFor(new Uint8Array(0x100), 'ssc'));
   check('a cartridge image on the ssc board is refused, saying it takes none',
     e && /takes no cartridge image/.test(e.message) && /ROM panel/.test(e.message), e ? e.message : 'did not throw');
-  check('the board is named for the menu, music only', /music only/.test(Emu.CART_BOARDS.ssc.name) && /speech not yet/.test(Emu.CART_BOARDS.ssc.name), Emu.CART_BOARDS.ssc.name);
+  check('the board is named for the menu, plainly', Emu.CART_BOARDS.ssc.name === 'Speech/Sound Pak', Emu.CART_BOARDS.ssc.name);
   // and the Session refuses the board choice with the same reason
   const s = await session();
   s.cartBoard = 'ssc';

@@ -17,7 +17,9 @@ let fail = 0, n = 0;
 const check = (name, cond, detail = '') => { n++; if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log('ok   ', name, detail); };
 
 const PARTS = ['state', 'state-fdc', 'state-carts', 'state-tape'];
-const BEFORE = 224;   // the checks the unsplit tests/state.test.js ran (its ok lines), on this branch's base
+// the checks the unsplit tests/state.test.js ran (its ok lines) when it was split, 224, plus every check added to a
+// slice since, each also named in the manifest: the Speech/Sound Pak's three mid-speech checks (state.test.js)
+const BEFORE = 224 + 3;
 
 const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, 'state-check-names.json'), 'utf8'));
 

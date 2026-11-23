@@ -1,8 +1,7 @@
 /*
  * General Instrument SP0256 / SP0256A-AL2 speech processor: the microsequencer, its parameter decode and its timing
- * (stage 2). The 12-pole filter and the output are stage 3; this file produces the sample CLOCK of the chip - when an
- * instruction runs, how long its parameters are held, when the address-load request (LRQ) and the standby pin (SBY)
- * change - but not the sample VALUES.
+ * (stage 2), and the excitation, the 12-pole filter and the output (stage 3): when an instruction runs, how long its
+ * parameters are held, when the address-load request (LRQ) and the standby pin (SBY) change, and every sample's value.
  *
  * SOURCES
  *  - GI "SP0256 Design Objective Specification", Document Control #0380-20, rev 1981 ("GI sheet N"): the instruction
@@ -15,6 +14,8 @@
  *    and the oracle (AGENTS.md 4.4): every behaviour below that GI's documents do not settle is MAME's, and is
  *    checked against MAME by tools/mame-diff/ssc (docs/verification.md). No MAME code is copied: this is our own
  *    implementation of the behaviour, and the parameter table below is restated in our own form.
+ *  - GI "SP0250 Applications Manual", June 1982: the coefficient quantization (COEFFICIENTS below), and the filter
+ *    as six second-order stages, each fed back through its B and 2F coefficients.
  *  - The allophone ROM (the AL2's program) is copyrighted and is NOT part of this project: the caller supplies an
  *    image, as with the BASIC ROMs. Tests and comparisons use images built by tools/mame-diff/ssc/sp0256-asm.js.
  *
@@ -47,6 +48,35 @@ export const XTAL = 3120000;
 // and at odds with its own "~10kHz samples" comment; used only under config.mameCompat (docs/verification.md,
 // "Deviations from MAME").
 export const SAMPLE_CLOCKS = { hardware: 312, mame: 336 };
+
+/*
+ * THE OUTPUT (stage 3, MAME's model)
+ * Each sample has an excitation: voiced, the amplitude on the impulse sample and 0 between; unvoiced, plus or minus
+ * the amplitude, as the low bit of a 15-bit shift register (taps 0x4001) says. The six filter stages' delays are
+ * cleared at each impulse, and at each unvoiced repeat. The excitation then runs through the six stages in turn, each
+ * adding (B x its older delay) >> 9 and (F x its newer delay) >> 8, all in 16-bit arithmetic that wraps, and the
+ * last stage's value, held to the 14-bit range -8192..8191 and multiplied by 4, is the chip's output: -32768..32764
+ * of full scale 32768 (MAME's HIGH_QUALITY output; the DAC's real width is not modelled). The amplitude register is
+ * a 3-bit exponent over a 5-bit mantissa: (A & 31) << (A >> 5). While halted the chip keeps its last amplitude,
+ * pitch and coefficients (only its registers are cleared), so an unvoiced sound goes on as noise, and a voiced one
+ * falls silent (its stale pitch still counts impulses, but each is the step that spends the halted chip's one repeat,
+ * which is not a sample): MAME's behaviour, and what the comparison holds us to.
+ */
+// The coefficient quantization: a 7-bit code's magnitude (0..511 of 512), from the SP0250 Applications Manual's
+// table, which steps by 8 up to 297, then by 4 to 425, by 2 to 481 and by 1 to 511. Built here from those steps
+// (MAME restates the same 128 values; tests/sp0256.test.js checks the breakpoints).
+const COEFFICIENTS = Int16Array.from({ length: 128 }, (_, k) => {
+  if (k === 0) return 0;
+  if (k <= 37) return 8 * k + 1;
+  if (k <= 69) return 297 + 4 * (k - 37);
+  if (k <= 97) return 425 + 2 * (k - 69);
+  return 481 + (k - 97);
+});
+// a coefficient register (8 bits, sign and magnitude in two's complement form) to its filter multiplier: a set sign
+// bit gives the magnitude of the code's negation, positive; a clear one gives its own, negative
+export const coefficient = (v) => ((v & 0x80) ? COEFFICIENTS[(-v) & 0x7f] : -COEFFICIENTS[v & 0x7f]);
+const s16 = (v) => (v << 16) >> 16;
+const OUT_MAX = 8191, OUT_MIN = -8192;
 
 const ROM_BASE = 0x1000;          // the AL2's 2 KB, in the chip's address space
 const NOISE_PERIOD = 64;          // samples per repeat in unvoiced mode, and a PAUSE's period
@@ -127,13 +157,17 @@ const rev8 = (v) => (rev4(v & 15) << 4) | rev4(v >> 4);
 const s8 = (v) => (v << 24) >> 24;                    // to a signed byte, as the chip's 8-bit registers hold it
 
 const STATE = ['pc', 'stack', 'page', 'mode', 'halted', 'lrq', 'ald', 'sby', 'silent', 'r', 'rpt', 'cnt', 'per', 'amp',
-  'interp', 'rng'];
+  'interp', 'rng', 'b', 'f', 'z', 'out'];
+const ARRAYS = ['r', 'b', 'f', 'z'];
 
 export class SP0256 {
   // rom: the 2 KB program image at $1000 (null: no data, every fetch reads 0)
   constructor({ rom = null } = {}) {
     this.rom = rom;
     this.r = new Uint8Array(16);
+    this.b = new Int16Array(6);    // the stages' B and F multipliers (decoded at each load)
+    this.f = new Int16Array(6);
+    this.z = new Int16Array(12);   // each stage's two delays: z[2j] the newer, z[2j + 1] the older
     this.reset();
   }
 
@@ -154,6 +188,8 @@ export class SP0256 {
     this.amp = 0;
     this.interp = false;
     this.rng = 1;                // the unvoiced excitation's 15-bit shift register
+    this.b.fill(0); this.f.fill(0); this.z.fill(0);
+    this.out = 0;                // the last sample's output, -32768..32764
   }
 
   // ---------------- host interface ----------------
@@ -180,30 +216,47 @@ export class SP0256 {
   }
 
   // ---------------- one sample ----------------
-  // Advance one sample period: run the sequencer when the repeat count has run out, then the excitation.
+  // Advance one sample period: run the sequencer when the repeat count has run out, then the excitation and the
+  // filter. Returns the sample's output (also left in `out`), -32768..32764 of 32768.
   sample() {
     for (;;) {
       if (this.rpt <= 0) this.micro();
-      if (this.excite()) return;
+      const x = this.excite();
+      if (x !== null) return (this.out = this.filter(x));
     }
   }
 
-  // One step of the excitation. False when the repeat count runs out on it: that step is not a sample.
+  // One step of the excitation: its value, or null when the repeat count runs out on it (that step is not a sample).
   excite() {
-    let interpolate = false;
+    let interpolate = false, x = 0;
     if (this.per) {
-      if (this.cnt <= 0) { this.cnt += this.per; this.rpt--; interpolate = this.interp; }
+      if (this.cnt <= 0) { this.cnt += this.per; this.rpt--; interpolate = this.interp; x = this.amp; this.z.fill(0); }
       else this.cnt--;
     } else {
-      if (--this.cnt <= 0) { interpolate = this.interp; this.cnt = NOISE_PERIOD; this.rpt--; }
-      this.rng = (this.rng >>> 1) ^ (this.rng & 1 ? 0x4001 : 0);
+      if (--this.cnt <= 0) { interpolate = this.interp; this.cnt = NOISE_PERIOD; this.rpt--; this.z.fill(0); }
+      const bit = this.rng & 1;
+      this.rng = (this.rng >>> 1) ^ (bit ? 0x4001 : 0);
+      x = bit ? this.amp : -this.amp;
     }
     if (interpolate) {
       this.r[AM] += this.r[IA];
       this.r[PR] += this.r[IP];
       this.decodeAmpPer();
     }
-    return this.rpt > 0;
+    return this.rpt > 0 ? x : null;
+  }
+
+  // The six second-order stages, then the output limit (THE OUTPUT, above).
+  filter(x) {
+    let v = x;                    // the excitation is at most 31 << 7 either way: inside 16 bits
+    const z = this.z;
+    for (let j = 0; j < 6; j++) {
+      v = s16(v + ((this.b[j] * z[2 * j + 1]) >> 9));
+      v = s16(v + ((this.f[j] * z[2 * j]) >> 8));
+      z[2 * j + 1] = z[2 * j];
+      z[2 * j] = v;
+    }
+    return Math.min(OUT_MAX, Math.max(OUT_MIN, v)) * 4;
   }
 
   decodeAmpPer() {
@@ -259,6 +312,7 @@ export class SP0256 {
       this.loadFields(op);
       if (op === OP.PAUSE) { this.silent = true; this.r[PR] = NOISE_PERIOD; }
       this.decodeAmpPer();
+      for (let j = 0; j < 6; j++) { this.b[j] = coefficient(this.r[B0 + 2 * j]); this.f[j] = coefficient(this.r[F0 + 2 * j]); }
       this.cnt = 0;
       this.interp = !!(this.r[IA] || this.r[IP]);
       return;
@@ -283,12 +337,15 @@ export class SP0256 {
 
   saveState() {
     const s = state.save(this, STATE);
-    s.r = Array.from(this.r);
+    for (const k of ARRAYS) s[k] = Array.from(this[k]);
     return s;
   }
   loadState(s) {
-    state.load(this, s, STATE.filter((k) => k !== 'r'));
-    if (!('r' in s)) throw new Error('snapshot: missing "r"');
-    this.r.set(s.r);
+    state.load(this, s, STATE.filter((k) => !ARRAYS.includes(k)));
+    for (const k of ARRAYS) {
+      if (!(k in s)) throw new Error(`snapshot: missing "${k}"`);
+      if (s[k].length !== this[k].length) throw new Error(`snapshot: "${k}" has ${s[k].length} entries, not ${this[k].length}`);
+      this[k].set(s[k]);
+    }
   }
 }

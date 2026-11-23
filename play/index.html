@@ -211,7 +211,7 @@
   .mpLabel { min-width: 3.5em; color: var(--text-2); }
   .mpRow button:not(.primary) { max-width: 12em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .mpRow select { min-width: 0; max-width: 100%; text-overflow: ellipsis; }
-  /* the cartridge port's board menu: its longest label ("Speech/Sound Pak (music only; speech not yet)") is wider
+  /* the cartridge port's board menu: a long label can be wider
      than a phone, and a <select> is as wide as its widest option unless told otherwise, which pushed the page
      sideways. Constrain it the way the Multi-Pak's board menus already are. */
   #selCartBoard { min-width: 0; max-width: 100%; text-overflow: ellipsis; }
@@ -1691,7 +1691,7 @@ npx serve -l 8000 .</pre>
             <select id="selCartBoard" aria-label="Cartridge board for the next image" title="The board the next cartridge image goes on">
               <option value="auto">Board: automatic</option><option value="pak">Program Pak</option><option value="banked">Banked ROM</option>
               <option value="gmc">Games Master</option><option value="orch90">Orchestra-90</option>
-              <option value="ssc">Speech/Sound Pak (music only; speech not yet)</option></select></div>
+              <option value="ssc">Speech/Sound Pak</option></select></div>
           <details id="mpak"><summary>Multi-Pak…</summary>
             <div class="mpSlots">
               <div class="mpRow"><span class="mpLabel">Slot 1</span><button id="btnMpSlot1" aria-label="Multi-Pak slot 1: choose a cartridge image">Empty</button>

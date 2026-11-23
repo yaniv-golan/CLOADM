@@ -71,6 +71,16 @@ const C_BSY = 0x80;   // busy line back to the CoCo
 // its own route to the speaker is 1.0, which set_sound_enable() turns to 0.0 while the mux does not select the
 // Pak (muxSelectsCart below). So what reaches the speaker is 2.0 x the AY's output, or nothing.
 const AY_GAIN = 2.0;
+// coco_ssc.cpp: SP0256_GAIN 1.75, the speech chip's route to the Pak's speaker. Its output is -32768..32764 of 32768
+// (js/chips/sp0256.js, THE OUTPUT), so the Pak's speech level is out / 32768 x 1.75.
+const SP_GAIN = 1.75;
+// The speech chip's samples reach the sound path SP_LAG sample periods after the start of the period they belong to.
+// A sample is made on the chip's own grid, when its period ends (or, for a status read or an address load, when it
+// starts: spRun), up to a PIC instruction after the AY's samples for the same moment have been reported; the sound
+// path takes levels in time order, so a speech sample is stamped where nothing before it can still arrive: two
+// periods on, which is after the card's position whenever it is made. About 0.2 ms; docs/verification.md,
+// "Deviations from MAME".
+const SP_LAG = 2n;
 // Card cycles per AY sample: the AY's input clock is twice the card's cycle rate (DERIVED_CLOCK(2, 1), and the
 // TMS7040's divider of 2 is the PIC's own), and MAME streams it at that clock / 8. See TIMING above.
 const AY_DIV = 4;
@@ -87,11 +97,10 @@ const SSC_ROM_PROFILE = { id: 'ssc', kind: 'cartridge', name: 'Speech/Sound Pak'
 
 class SpeechSoundPak extends SlotDevice {
   // { tms7040Rom, sp0256Rom }: the user's dumps. The PIC's ROM is required (the card cannot run without it); the
-  // SP0256's allophone data is OPTIONAL, because speech makes no sound yet (docs/verification.md, "The Speech/Sound
-  // Pak's SP0256 timing": the sequencer runs, the filter is not there). With no allophone ROM the SP0256 is present
-  // on the card's control bus - its LRQ and SBY lines still work - but every fetch reads 0, an RTS, so an allophone
-  // ends at once; the music side works and the speech side stays silent. That is the
-  // documented empty case, and it is explicit: the card and its snapshot record which of the two it is.
+  // SP0256's allophone data is OPTIONAL: without it the Pak plays its music and stays silent where it would speak.
+  // With no allophone ROM the SP0256 is present on the card's control bus - its LRQ and SBY lines still work - but
+  // every fetch reads 0, an RTS, so an allophone ends at once and makes no sound. That is the documented empty case,
+  // and it is explicit: the card and its snapshot record which of the two it is.
   constructor({ tms7040Rom = null, sp0256Rom = null, firmware = null, sp0256Data = null } = {}) {
     super('ssc');
     // The verification substitutions are explicit: a caller testing or comparing with MAME passes ours,
@@ -132,6 +141,12 @@ class SpeechSoundPak extends SlotDevice {
     // MAME gives the Pak a speaker of its own (`ssc_audio`), and its recording sums every speaker, which is the
     // same as adding the Pak's level to the machine's.
     this.ayLevel = 0;
+    // The speech chip's level, and its changes not yet passed to the sound path: [tick, level] in time order, each
+    // stamped SP_LAG periods after its sample's start (spLevelAt). They are passed on in time order with the AY's
+    // (flushSpeech), so the host hears one level, the sum.
+    this.spLevel = 0;
+    this.spQueue = [];
+    this.spQueued = 0;      // the level of the queue's last entry (or spLevel when it is empty)
     // the card's timer must exist before loadState, because the clock restores into registered timers
     this.picTimer = this.clock.timer('ssc.pic', () => this.tickCard());
     this.lines.set('cart', 'clear');   // the Pak does not autostart (MAME leaves CART alone)
@@ -188,6 +203,8 @@ class SpeechSoundPak extends SlotDevice {
     // the speech chip's samples continue on its own grid from where the card starts, and its reset leaves LRQ high,
     // which MAME puts on the PIC's INT1 at once (sp0256 device_reset: m_drq_cb(1))
     this.spNext = this.host ? this.spFirstAt(this.attosAt(this.cardPos)) : 0n;
+    this.spQueue.length = 0;
+    this.spQueued = this.spLevel;
     this.spLrq = !this.sp0256.lrq;
     this.spLines();
     this.scheduleTick();
@@ -448,11 +465,41 @@ class SpeechSoundPak extends SlotDevice {
     for (;;) {
       const edge = mode === 'access' ? this.spStart(this.spNext, g) : this.spStart(this.spNext + 1n, g);
       if (mode === 'timer' ? edge > t : edge >= t) break;
-      this.sp0256.sample();
+      const out = this.sp0256.sample();
+      this.speechLevel(this.spNext, g, out);
       this.spNext++;
       this.spLines();
     }
   }
+  // Speech sample i's output, as a level change for the sound path at its stamp (SP_LAG periods after its start). The
+  // sound mux gates it as it gates the AY (muxSelectsCart; coco_ssc.cpp set_sound_enable sets both outputs' gain).
+  speechLevel(i, g, out) {
+    const level = this.muxSelectsCart() ? out / 32768 * SP_GAIN : 0;
+    if (level === this.spQueued || !this.host) return;
+    this.spQueued = level;
+    const origin = BigInt(Math.round(this.host.powerOnTick()));
+    let at = origin + this.spStart(i + SP_LAG, g) / this.host.unitAttos;
+    if (at < this.cardPos) at = this.cardPos;    // never behind what the AY has already reported
+    this.spQueue.push([Number(at), level]);
+  }
+  // Pass the queued speech levels stamped before `tick` to the sound path, each as the Pak's sum with the AY.
+  flushSpeech(tick) {
+    const q = this.spQueue;
+    let n = 0;
+    while (n < q.length && q[n][0] < tick) {
+      this.spLevel = q[n][1];
+      this.reportLevel(q[n][0]);
+      n++;
+    }
+    if (n) q.splice(0, n);
+  }
+  // the Pak's level, the AY's plus the speech chip's, to the host's sound path
+  reportLevel(at) {
+    // a host without cartSound (a minimal test harness that only drives the card's clock) has no sound path
+    if (this.host && typeof this.host.cartSound === 'function') this.host.cartSound(at, this.ayLevel + this.spLevel);
+  }
+  // before the machine closes a frame: every speech level stamped in it
+  syncAudio(tick) { this.flushSpeech(tick); }
   // the SP0256's LRQ drives the PIC's INT1 (coco_ssc.cpp: data_request_callback().set_inputline(INT1)): asserted
   // while the chip is ready for an address
   spLines() {
@@ -507,6 +554,7 @@ class SpeechSoundPak extends SlotDevice {
     this.ay.step(this.ayOut);
     // AY_GAIN is a power of two, so the product is exact in MAME's 32-bit float as well as here
     const level = this.muxSelectsCart() ? AY_GAIN * this.ayOut[0] : 0;
+    this.flushSpeech(Number(at) + 1);   // the speech levels up to this sample first, so the host hears them in order
     if (level === this.ayLevel) return;
     this.ayLevel = level;
     // Report the change at the SAMPLE'S OWN time, not at the I/O access time. catchUp() runs many samples in one
@@ -515,16 +563,12 @@ class SpeechSoundPak extends SlotDevice {
     // stamp. cardPos is the card's position in machine ticks and advances with every sample, so it IS the time
     // this sample happened; convert it to a tick the way the Games Master does (clock.tickOf), which is exact
     // and, unlike tickAt(-1), does not depend on where the 6809 happens to be.
-    // a host without cartSound (a minimal test harness that only drives the card's clock) has no sound path;
-    // report only to hosts that have one
-    if (this.host && typeof this.host.cartSound === 'function') {
-      // cardPos IS the machine tick this sample happened at, so it is passed through unchanged. Building it as
-      // tickAt(cardPos - tickAt(0)) is not equivalent: SamMachine.tickAt (js/machines/sam.js:465-468) converts
-      // units to ticks at the CURRENT SAM rate, so composing it with a difference of ticks scales the answer by
-      // that period. Measured at the fast rate, that form put every stamp 1,387 ticks from its sample's cardPos;
-      // passing cardPos puts them 0 from it at both rates.
-      this.host.cartSound(Number(at), level);
-    }
+    // cardPos IS the machine tick this sample happened at, so it is passed through unchanged. Building it as
+    // tickAt(cardPos - tickAt(0)) is not equivalent: SamMachine.tickAt (js/machines/sam.js:465-468) converts
+    // units to ticks at the CURRENT SAM rate, so composing it with a difference of ticks scales the answer by
+    // that period. Measured at the fast rate, that form put every stamp 1,387 ticks from its sample's cardPos;
+    // passing cardPos puts them 0 from it at both rates.
+    this.reportLevel(Number(at));
   }
   tickCard() {
     if (!this.host) return;
@@ -541,6 +585,7 @@ class SpeechSoundPak extends SlotDevice {
       cardPos: this.cardPos.toString(),   // the card's position in time, so a restored card resumes in step
       ayLevel: this.ayLevel, ayDiv: this.ayDiv, ay: this.ay.saveState(),
       spNext: this.spNext.toString(), spLrq: this.spLrq,
+      spLevel: this.spLevel, spQueued: this.spQueued, spQueue: this.spQueue.map((e) => e.slice()),
       pic: this.tms7040.saveState(), sp: this.sp0256.saveState(),
     });
   }
@@ -553,7 +598,9 @@ class SpeechSoundPak extends SlotDevice {
     // The AY's state is checked before any chip's state is applied, so a damaged snapshot is refused with
     // state.load's message (`snapshot: missing "ay"`) instead of restoring part of the card. `ay` is a whole
     // object the AY loads itself, so its check has the same message shape.
-    state.load(this, s, ['ayLevel', 'ayDiv', 'spLrq']);
+    state.load(this, s, ['ayLevel', 'ayDiv', 'spLrq', 'spLevel', 'spQueued']);
+    if (!Array.isArray(s.spQueue)) throw new Error('snapshot: missing "spQueue"');
+    this.spQueue = s.spQueue.map((e) => [Number(e[0]), Number(e[1])]);
     if (!('spNext' in s)) throw new Error('snapshot: missing "spNext"');
     this.spNext = BigInt(s.spNext);
     if (!('ay' in s)) throw new Error('snapshot: missing "ay"');

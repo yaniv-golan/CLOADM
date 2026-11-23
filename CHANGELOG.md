@@ -10,6 +10,14 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Added
 
+- **The Speech/Sound Pak speaks.** Its SP0256 now turns its parameters into sound: the pitch impulses or noise, the
+  six-stage filter with the chip's coefficient table, and its output, at MAME's level, through the cartridge sound
+  mux with the Pak's music. It speaks from your own allophone ROM (the SP0256-AL2's), which you add in the ROM panel;
+  CLOADM never includes one. Compared with MAME 0.264 on our own speech image (`node
+  tools/mame-diff/ssc/speech-audio.js`): every sample within 1 LSB of MAME's recording on the CoCo 1/2, CoCo 2B,
+  CoCo 3 and Dragon 64, and the test suite holds MAME's recording so this is checked without MAME. The board menu now
+  names it simply "Speech/Sound Pak"; without the allophone ROM, the ROM panel and the insert message say it plays
+  music only. The Pak's sound-activity status bit is still a stub.
 - **Minesweeper plays with a joystick.** Either joystick moves the cursor: one step as the stick leaves the centre,
   then again after 300 ms and every 120 ms while it is held (counted in fields, at the machine's own 50 or 60 Hz;
   centring the stick and pushing the same way again is a new press). Either fire button opens the square under the

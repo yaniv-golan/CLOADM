@@ -2440,8 +2440,8 @@ export class Session {
   // ---------------- the Speech/Sound Pak ----------------
   // The Pak is a cartridge-port board, offered where the machine's profile has the `ssc` option: the CoCo 1/2,
   // CoCo 2B, CoCo 3 and the Dragon 64 (each with its own `--ssc` lockstep against MAME). The PIC (TMS7040) ROM is
-  // the user's, like BASIC and DOS; the board's speech half is not implemented yet, so it is described as music
-  // only everywhere it is offered.
+  // the user's, like BASIC and DOS, and so is the SP0256's allophone ROM, which is optional: the Pak speaks with it,
+  // and plays music only without it (the insert message and the ROM panel say which).
   get offersSsc() { return !!(this.personMachine && this.personMachine.profile.options && this.personMachine.profile.options.ssc); }
   // is the Pak in the cartridge port? (also when it arrived through a restored snapshot)
   get sscInserted() { return !!this.personMachine && this.personMachine.cartPort instanceof SpeechSoundPak; }
@@ -2452,8 +2452,8 @@ export class Session {
   }
   // plug the Pak in (whatever was in the port comes out) and power the machine up with it. The `ssc` option is set
   // too, so the choice is remembered with the machine's configuration and the Pak comes back on the next start.
-  // Only the PIC's ROM is required: speech is not implemented, so the SP0256's allophone data is optional and the
-  // card runs its music side without it (js/machines/ssc.js).
+  // Only the PIC's ROM is required: the SP0256's allophone data is optional, and without it the card plays its music
+  // and stays silent where it would speak (js/machines/ssc.js).
   insertSsc() {
     const m = this.personMachine;
     if (!m) throw new SessionError('There is no machine to put the Speech/Sound Pak in.');
@@ -2472,7 +2472,8 @@ export class Session {
     this.acc = 0;
     this.poweredOn();
     this.emit('loaded');
-    return 'Speech/Sound Pak inserted (music only; speech is not implemented yet)';
+    return stored.sp0256 ? 'Speech/Sound Pak inserted (music and speech)'
+      : 'Speech/Sound Pak inserted (music only: add the SP0256-AL2 allophone ROM in the ROM panel for speech)';
   }
   // take it out and leave the machine on its own ROMs
   ejectSsc() {

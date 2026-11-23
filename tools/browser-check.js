@@ -768,17 +768,21 @@ async function sscBoardChecks(browser, base, check) {
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto(`${base}?machine=coco`);
   await started(page);
-  // the board menu names it, music only, and offers it on the CoCo
+  // the board menu names it plainly and offers it on the CoCo
   const menu = await page.evaluate(() => {
     const o = document.querySelector('#selCartBoard option[value="ssc"]');
     return o ? { text: o.textContent, hidden: o.hidden } : null;
   });
-  check('Speech/Sound Pak: the board menu names it "music only; speech not yet", offered on the CoCo',
-    menu && /music only/.test(menu.text) && /speech not yet/.test(menu.text) && menu.hidden === false, JSON.stringify(menu));
+  check('Speech/Sound Pak: the board menu names it "Speech/Sound Pak", offered on the CoCo',
+    menu && menu.text === 'Speech/Sound Pak' && menu.hidden === false, JSON.stringify(menu));
   // the ROM panel shows the Pak's PIC socket (required) and its optional speech socket
   await openRoms(page);
   const sockets = await page.evaluate(() => [...document.querySelectorAll('#romSockets .socket')]
-    .map((c) => ({ id: c.dataset.socket, status: c.dataset.ssc })).filter((s) => s.id && s.id.startsWith('ssc-')));
+    .map((c) => ({ id: c.dataset.socket, status: c.dataset.ssc, state: (c.querySelector('.state') || {}).textContent }))
+    .filter((s) => s.id && s.id.startsWith('ssc-')));
+  check('Speech/Sound Pak: the speech socket says what it is for: the Pak speaks from it, plays music only without it',
+    sockets.some((s) => s.id === 'ssc-sp0256' && s.state === 'Optional: the Pak speaks from this ROM; without it, it plays music only.'),
+    JSON.stringify(sockets));
   check('Speech/Sound Pak: the ROM panel shows its PIC and speech sockets, the PIC required',
     sockets.some((s) => s.id === 'ssc-tms7040' && s.status === 'missing-required') && sockets.some((s) => s.id === 'ssc-sp0256' && s.status === 'missing-optional'),
     JSON.stringify(sockets));
@@ -825,8 +829,9 @@ async function sscBoardChecks(browser, base, check) {
     return { msg: document.getElementById('toast').textContent, type: c && c.type, name: c && c.name,
       btn: document.getElementById('btnCart').textContent, hasAy: !!(c && c.ay), sp: c && c.sp0256Data };
   });
-  check('Speech/Sound Pak: our tone firmware as the PIC; the Pak goes in (music, no speech ROM needed)',
-    ins.type === 'ssc' && ins.name === 'Speech/Sound Pak' && ins.hasAy && ins.sp === null && /Speech\/Sound Pak inserted/.test(ins.msg),
+  check('Speech/Sound Pak: our tone firmware as the PIC; the Pak goes in (music, no speech ROM needed), and says music only',
+    ins.type === 'ssc' && ins.name === 'Speech/Sound Pak' && ins.hasAy && ins.sp === null &&
+    ins.msg.includes('Speech/Sound Pak inserted (music only: add the SP0256-AL2 allophone ROM in the ROM panel for speech)'),
     JSON.stringify(ins));
   // the card's own clock runs the PIC, whose tone firmware programs the AY: the AY's mixer leaves its reset value
   const plays = await waitFor(page, () => {
@@ -893,6 +898,35 @@ async function sscBoardChecks(browser, base, check) {
   check('Speech/Sound Pak: inserts on the Dragon 64 and its PIC programs the AY there',
     bootable && dragonPak.type === 'ssc' && /Speech\/Sound Pak/.test(dragonPak.btn) && dragonPlays && dragonRegs.mixer !== 0 && dragonRegs.volA > 0,
     JSON.stringify({ bootable, pak: dragonPak, regs: dragonRegs }));
+  // SPEECH through the page, back on the CoCo: our own speech image (tools/mame-diff/ssc/gen-voice.js, never a real
+  // SP0256-AL2) added through the ROM panel's file input as the allophone ROM, its PIC program as the PIC ROM, and
+  // a 6809 program that opens the sound mux (gen-ay.js) as BASIC. The Pak says it plays music and speech, and the
+  // speech reaches the machine's sound path: hundreds of distinct levels within seconds (the AY alone, idle, gives
+  // one). The levels themselves are compared with MAME by tools/mame-diff/ssc/speech-audio.js and tests/ssc.test.js.
+  const { voicePic, voiceImage } = require('../tools/mame-diff/ssc/gen-voice.js');
+  const { ayHost } = require('../tools/mame-diff/ssc/gen-ay.js');
+  await page.evaluate(() => window.emu.session.switchMachine('coco'));
+  await page.waitForFunction(() => window.emu.machine && window.emu.machine.profile.id === 'coco', null, { timeout: 15000 });
+  await page.setInputFiles('#fileRom', [
+    { name: 'pic-7040-510.bin', mimeType: 'application/octet-stream', buffer: Buffer.from(voicePic()) },
+    { name: 'sp0256-al2.bin', mimeType: 'application/octet-stream', buffer: Buffer.from(voiceImage()) },
+    { name: 'bas12.rom', mimeType: 'application/octet-stream', buffer: Buffer.from(romImage(ayHost(), 0xA000, 0x2000, 0x12)) },
+  ]);
+  await waitFor(page, () => window.emu.session.sscRoms().every((s) => s.status === 'loaded'), null, 8000);
+  const spoken = await page.evaluate(() => {
+    const s = window.emu.session;
+    const msg = s.insertSsc();
+    const m = window.emu.machine;
+    window.__speechLevels = new Set();
+    const cartSound = m.cartSound.bind(m);
+    m.cartSound = (tick, level) => { window.__speechLevels.add(level); return cartSound(tick, level); };
+    return { msg, sp: m.cartPort.sp0256Data ? m.cartPort.sp0256Data.length : 0 };
+  });
+  const speaks = await waitFor(page, () => window.__speechLevels.size > 300, null, 15000);
+  const heard = await page.evaluate(() => window.__speechLevels.size);
+  check('Speech/Sound Pak: with an allophone ROM it says music and speech, and the speech reaches the sound path',
+    spoken.msg === 'Speech/Sound Pak inserted (music and speech)' && spoken.sp === 2048 && speaks,
+    JSON.stringify({ ...spoken, levels: heard }));
   check('Speech/Sound Pak: no page errors', errors.length === 0, errors.join('; '));
   await ctx.close();
 }

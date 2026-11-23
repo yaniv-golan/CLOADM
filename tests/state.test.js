@@ -293,6 +293,7 @@ async function sscMidCommand() {
     !fa.busy && !fb.busy && fb.pc === fa.pc && fb.sp === fa.sp && Math.abs(fb.n - fa.n) <= 4,
     `(${fa.n} vs ${fb.n} cycles, pc ${fa.pc.toString(16)} vs ${fb.pc.toString(16)}, SP0256 ${fa.sp === fb.sp ? 'same' : `${fa.sp} / ${fb.sp}`})`);
   await sscMidTone();
+  await sscMidSpeech();
 }
 
 // The AY's own state, mid-tone: the tone phase counters, the noise RNG, the envelope step, the level last
@@ -345,6 +346,53 @@ async function sscMidTone() {
   if (!same) for (let i = 0; i < Math.min(ea.length, eb.length); i++) if (ea[i] !== eb[i]) { firstDiff = i; break; }
   check('ssc audio: the restored Pak plays on identically, level change for level change', same,
     same ? `${ea.length} events` : `${ea.length} vs ${eb.length} events, first difference at ${firstDiff} (${ea[firstDiff]} vs ${eb[firstDiff]})`);
+}
+
+// The speech chip's own state, mid-allophone: its sequencer, excitation and filter (the six stages' coefficients and
+// delays, the noise register, the last output) and the Pak's speech levels not yet passed to the sound path have to
+// survive save/load. gen-voice.js's image (as recorded) plays from the PIC's reset with the mux open (gen-ay.js's 6809 program);
+// the snapshot is taken while it speaks, and the two machines' audio must then be IDENTICAL.
+async function sscMidSpeech() {
+  // gen-voice.js's images as MAME's recording has them (tests/ssc.test.js checks the generator still builds them)
+  const rec = require('./fixtures/ssc/voice-mame.json');
+  const voicePic = () => new Uint8Array(Buffer.from(rec.pic, 'base64'));
+  const voiceImage = () => new Uint8Array(Buffer.from(rec.image, 'base64'));
+  const { ayHost } = require('../tools/mame-diff/ssc/gen-ay.js');
+  const { romImage } = require('../tools/mame-diff/lib/firmware.js');
+  const host = ayHost();
+  const m = Emu.createMachine('coco', { mameCompat: true });
+  m.setRoms(Object.fromEntries(Emu.profiles.coco.roms.map((r) => [r.id, romImage(host, r.at, r.size, 0x12)])));
+  m.insertCartridge(new Emu.SpeechSoundPak({ tms7040Rom: voicePic(), sp0256Rom: voiceImage() }));
+  m.reset(true);
+  const a = m;
+  for (let f = 0; f < 23; f++) a.runFrame();       // about 0.38 s: the image is part way through its tests
+  // stop part way through a frame, so the snapshot holds speech levels not yet passed to the sound path
+  a.runCycles(a.cycle + 7000);
+  const sp = a.cartPort.sp0256;
+  check('ssc speech: an allophone is sounding when the snapshot is taken', !sp.halted && sp.rpt > 0 && sp.out !== 0 &&
+    a.cartPort.spQueue.length > 0, `halted ${sp.halted}, rpt ${sp.rpt}, out ${sp.out}, queued ${a.cartPort.spQueue.length}`);
+  const text = Emu.state.toJSON(a.snapshot());
+  const b = Emu.restoreSnapshot(Emu.state.fromJSON(text), a.roms);
+  const rb = b.cartPort.sp0256;
+  const same = (x, y) => JSON.stringify(Array.from(x)) === JSON.stringify(Array.from(y));
+  check('ssc speech: the filter\'s coefficients, delays, noise register and output survive',
+    same(rb.b, sp.b) && same(rb.f, sp.f) && same(rb.z, sp.z) && rb.rng === sp.rng && rb.out === sp.out &&
+    JSON.stringify(b.cartPort.spQueue) === JSON.stringify(a.cartPort.spQueue),
+    `z ${Array.from(rb.z).join(',')} vs ${Array.from(sp.z).join(',')}`);
+  const run = (mm) => {
+    const ev = [];
+    for (let f = 0; f < 30; f++) {
+      mm.runFrame();
+      for (let i = 0; i < mm.audioEvents.length; i += 2) ev.push(`${mm.audioEvents[i]}:${mm.audioEvents[i + 1].toFixed(9)}`);
+    }
+    return ev;
+  };
+  const ea = run(a), eb = run(b);
+  const ok = ea.length === eb.length && ea.every((x, i) => x === eb[i]);
+  let firstDiff = -1;
+  if (!ok) for (let i = 0; i < Math.min(ea.length, eb.length); i++) if (ea[i] !== eb[i]) { firstDiff = i; break; }
+  check('ssc speech: the restored Pak speaks on identically, level change for level change', ok && ea.length > 1000,
+    ok ? `${ea.length} events` : `${ea.length} vs ${eb.length} events, first difference at ${firstDiff} (${ea[firstDiff]} vs ${eb[firstDiff]})`);
 }
 
 // NitrOS-9 booted from the page (Session.bootNitros9): our loader in the CoCo 3's ROM socket, the boot disk in

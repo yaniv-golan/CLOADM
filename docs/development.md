@@ -133,7 +133,7 @@ node tests/held-writeio.test.js # a write from outside during a held access: que
 node tests/coco3.test.js     # CoCo 3: MMU, GIME interrupts, timer, speed, video
 node tests/gime-vsc.test.js  # CoCo 3: the GIME's vertical fine scroll ($FF9C), line by line against rows worked out from the sources
 node tests/mc10.test.js      # MC-10: 6803 core, assembler plugin, machine
-node tests/sp0256.test.js    # SP0256 speech chip: bit order, every instruction, handshake, timing, our assembler
+node tests/sp0256.test.js    # SP0256 speech chip: bit order, every instruction, handshake, timing, our assembler, the filter and output
 node tests/liza6803.test.js  # LIZA for the 6803: same conversation as the 6809 build on mc10 and alice; BREAK, CLEAR, backspace
 node tests/state.test.js     # snapshots: save mid-run and part-way along a swept line, restore, identical frames
 node tests/state-fdc.test.js # the same for floppy controllers mid-transfer, one machine per controller (the slow part of the old state suite)
@@ -262,6 +262,8 @@ node tools/browser-check.js --only semantics # landmarks, headings, closed surfa
 node tools/nitros9/boot-mame.js <image> --cpu 6809 --seconds 30 --type 'dir\r' --at 15 --record tests/fixtures/nitros9/coco3-6809-becker.json   # its MAME reference (also boot.js: the same boot on ours)
 node tools/mame-diff/run.js <profile> --rate    # SAM CPU rate firmware (sam/rate.asm) in lockstep with MAME (mameCompat)
 node tools/mame-diff/run.js <profile> --ops     # every instruction class at the SAM rates (sam/ops.asm), with MAME
+node tools/mame-diff/ssc/speech.js <profile>    # the Speech/Sound Pak's SP0256 timing: address loads and status reads against MAME (coco, coco2b, coco3, dragon64)
+node tools/mame-diff/ssc/speech-audio.js <profile>   # the SP0256's sound on our own image (gen-voice.js) against MAME's -wavwrite at 9,285 Hz, within 1 LSB
 node tools/mame-diff/run.js <profile> --pia1b   # PIA1 port B's input pins (RAM size sense, serial in), with MAME (SAM machines, the Alpha and CoCo 3)
 node tools/mame-diff/run.js <profile> --reset [--cpu 6309]   # the Reset button (sam/reset.asm): MAME's soft reset and ours, RAM kept, BASIC's warm-start vector taken and refused (SAM machines; the 6309 on dragon64h, tanodr64h)
 node tools/mame-diff/run.js dragon64 --fdc --images   # floppy controllers in lockstep with MAME, then the disk images byte for byte (also --fdc premierfdc, coco, coco3, dgnalpha --fdc alphafdc; --write: the mounting tests' firmware; --nmi: when the 6809 starts taking NMI; --multi: in a Multi-Pak's slot 4 with the Multi-Pak firmware; --blank vdk:40x1: a new blank disk formatted, add --no-trace for images only)

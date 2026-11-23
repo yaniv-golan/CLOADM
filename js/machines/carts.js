@@ -260,7 +260,7 @@ const CART_BOARDS = registry({
   banked: { name: 'Banked ROM cartridge', max: 0x20000 },
   gmc: { name: 'Games Master Cartridge', max: 0x20000 },
   orch90: { name: 'Orchestra-90', max: 0x2000 },
-  ssc: { name: 'Speech/Sound Pak (music only; speech not yet)', max: 0, imageRuns: false },
+  ssc: { name: 'Speech/Sound Pak', max: 0, imageRuns: false },
 });
 const ORCH90_CRC = '15FB39AF';               // crc32() gives upper-case hex
 function cartridgeFor(bytes, board = 'auto') {

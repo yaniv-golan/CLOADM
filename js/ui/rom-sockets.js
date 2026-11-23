@@ -99,8 +99,8 @@ export function setupRomSockets(page, romInput, { confirmSwitch }) {
       const body = el('div', null, 'body'), top = el('div', null, 'top');
       top.append(el('strong', `Speech/Sound Pak: ${s.label}`), el('span', 'optional', 'tag'));
       const state = s.status === 'loaded' ? '✓ loaded'
-        : s.required ? 'Only for the Speech/Sound Pak: without it the Pak cannot be inserted; it plays its music side from this ROM.'
-          : 'Optional: speech is not implemented yet, so the Pak plays music without it.';
+        : s.required ? 'Only for the Speech/Sound Pak: without it the Pak cannot be inserted.'
+          : 'Optional: the Pak speaks from this ROM; without it, it plays music only.';
       body.append(top, el('div', `${kb(s.size)} · usually ${s.files[0]}`, 'expect'), el('div', state, 'state'));
       card.append(el('span', null, 'dot'), body);
       return card;

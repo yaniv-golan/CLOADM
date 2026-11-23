@@ -1,4 +1,4 @@
-// The SP0256 sequencer and its timing (js/chips/sp0256.js, stage 2). The ROMs here are written out byte by byte from
+// The SP0256 sequencer and its timing (js/chips/sp0256.js, stage 2), and its output (stage 3, at the end). The ROMs here are written out byte by byte from
 // the encoding (bits LSB first; an instruction is its 4-bit immediate, then its 4-bit opcode; branch addresses most
 // significant bit first), and every expected count is worked out by hand from the timing rules, in the comments:
 //   - a sample() call runs the sequencer when the repeat count is spent, then one excitation step;
@@ -183,6 +183,80 @@ const VOICED = [0x10, 0x72, 0x08, 0x0A, 0x00];
   delete s.r;
   try { mk().loadState(s); } catch (e) { threw = e.message; }
   is('a snapshot without the registers is refused', threw, 'snapshot: missing "r"');
+}
+
+// ---------------------------------------------------------------- the output (stage 3)
+// The coefficient table's breakpoints, from the SP0250 Applications Manual's quantization: steps of 8 to 297 (code
+// 37), of 4 to 425 (69), of 2 to 481 (97), of 1 to 511 (127). A clear sign bit gives a negative multiplier of the
+// code's magnitude; a set one, the positive magnitude of the code's two's complement negation.
+{
+  const { coefficient } = require('../js/chips/sp0256.js');
+  is('coefficients at the breakpoints, sign clear (negative)', [0, 1, 37, 38, 69, 70, 97, 98, 127].map(coefficient),
+    [-0, -9, -297, -301, -425, -427, -481, -482, -511]);
+  // 0xFF negates to 1 (9), 0x81 to 127 (511), 0x80 to 0 (0), 0xDB to 37 (297)
+  is('coefficients with the sign bit set (positive)', [0xFF, 0x81, 0x80, 0xDB].map(coefficient), [9, 511, 0, 297]);
+}
+// The filter, worked by hand: v = x; for each stage v += (B x older) >> 9, v += (F x newer) >> 8, then the stage's
+// delays shift (older = newer, newer = v); the output is v held to -8192..8191, times 4.
+{
+  const c = new SP0256();
+  c.f[0] = 128;                                                     // stage 0: v += newer / 2
+  is('one stage, F = 128: 1000, then 0, 0 in: 4000, 2000, 1000 out', [c.filter(1000), c.filter(0), c.filter(0)], [4000, 2000, 1000]);
+  c.reset(); c.f[0] = 128; c.b[0] = -256;                          // and v += -older / 2
+  is('the same with B = -256: the third is 250 - 500 = -250, x 4', [c.filter(1000), c.filter(0), c.filter(0)], [4000, 2000, -1000]);
+  c.reset(); c.b[0] = -1; c.z[1] = 1;                               // (-1 x 1) >> 9 rounds down, to -1
+  is('a product is shifted with its sign: (-1 x 1) >> 9 is -1', c.filter(0), -4);
+  c.reset();
+  is('the output is held to 14 bits: 3000, 9000, -9000 in give 12000, 32764, -32768', [c.filter(3000), c.filter(9000), c.filter(-9000)], [12000, 32764, -32768]);
+  c.reset(); c.f[0] = 256; c.z[0] = 30000;                          // 10000 + 30000 = 40000 wraps to -25536
+  is('the stages add in 16 bits that wrap: 10000 + 30000 is -25536, held to -8192', c.filter(10000), -32768);
+}
+// The excitation, worked by hand from the state it starts in.
+{
+  const c = new SP0256();
+  c.per = 5; c.cnt = 0; c.rpt = 5; c.amp = 100; c.z.fill(7);
+  is('voiced: the impulse is the amplitude, and it clears the stages\' delays', [c.excite(), Array.from(c.z), c.cnt, c.rpt], [100, Array(12).fill(0), 5, 4]);
+  is('voiced: between impulses the excitation is 0', c.excite(), 0);
+  c.reset(); c.per = 0; c.cnt = 1; c.rpt = 5; c.amp = 50; c.rng = 1; c.z.fill(7);
+  // rng 1: bit 1 -> +50, rng (1 >> 1) ^ 0x4001 = 0x4001; that call also spends a repeat (the count reached 0) and
+  // clears the delays. rng 2: bit 0 -> -50, rng 1.
+  is('unvoiced: the noise bit gives +amplitude, the register shifts with taps 0x4001, a repeat clears the delays',
+    [c.excite(), c.rng, c.rpt, c.cnt, Array.from(c.z)], [50, 0x4001, 4, 64, Array(12).fill(0)]);
+  c.rng = 2;
+  is('unvoiced: a 0 bit gives -amplitude', [c.excite(), c.rng], [-50, 1]);
+}
+// Halted, the chip keeps its last amplitude, pitch and coefficients (MAME's behaviour): a voiced sound falls silent,
+// an unvoiced one goes on as noise until the next address. One LOAD_C (mode 0) each, then RTS.
+{
+  const halt = (pitch) => {
+    const img = assemble([{ entry: 1, to: 'a' }, { label: 'a' }, { op: 'SETMODE', mode: 0 },
+      { op: 'LOAD_C', repeat: 1, fields: [20, pitch, 3, 2, 3, 2, 3, 2, 5, 3, 9, 4] }, { op: 'RTS' }]).image;
+    const c = new SP0256({ rom: img });
+    c.loadAddress(1);
+    callsUntil(c, () => c.sby);
+    const after = [];
+    for (let k = 0; k < 3000; k++) after.push(c.sample());
+    return after;
+  };
+  const voiced = halt(60), noise = halt(0);
+  // the stale pitch still counts impulses, but each one is the step that spends the halted chip's one repeat, which is
+  // not a sample: nothing new is heard
+  is('halted after a voiced sound: silent from then on (its impulses are never output)', voiced.every((v) => v === 0), true);
+  is('halted after an unvoiced sound: the noise goes on', noise.slice(-500).filter((v) => v !== 0).length > 400, true);
+}
+// the output's state in a snapshot
+{
+  const c = new SP0256();
+  c.b[2] = -301; c.f[5] = 9; c.z[7] = -1234; c.out = 812; c.rng = 0x1234;
+  const d = new SP0256();
+  d.loadState(JSON.parse(JSON.stringify(c.saveState())));
+  is('a snapshot keeps the coefficients, the delays, the noise register and the output',
+    [d.b[2], d.f[5], d.z[7], d.out, d.rng], [-301, 9, -1234, 812, 0x1234]);
+  const bad = JSON.parse(JSON.stringify(c.saveState()));
+  bad.z = bad.z.slice(1);
+  let threw = null;
+  try { d.loadState(bad); } catch (e) { threw = e.message; }
+  is('a snapshot with the wrong number of delays is refused', threw, 'snapshot: "z" has 11 entries, not 12');
 }
 
 console.log(fail ? `${fail} failed` : 'all passed');

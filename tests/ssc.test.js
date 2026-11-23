@@ -237,8 +237,8 @@ function host() {
 // the SP0256-AL2's allophone data (2 KB), so the device must be constructible with them, refuse to run
 // without them, and reject an image of the wrong size with a message that names the problem.
 {
-  // The PIC's ROM is required: the card cannot run without it. The SP0256's allophone data is NOT required any
-  // more (speech is not implemented, so the music side must run without it). Its absence is the
+  // The PIC's ROM is required: the card cannot run without it. The SP0256's allophone data is NOT required (the
+  // music side runs without it; speech needs it). Its absence is the
   // documented empty case, kept as null rather than a zero-filled image so a snapshot can tell the two apart.
   let threw = null;
   try {
@@ -807,6 +807,71 @@ function host() {
     check(`SP0256 timing (${profileId}): every $FF7E change on MAME's 6809 read`,
       JSON.stringify(O.status) === JSON.stringify(M.status), `ours ${JSON.stringify(O.status)}, MAME's ${JSON.stringify(M.status)}`);
   }
+}
+
+// ---------------------------------------------------------------------------------------------------
+// The SP0256's SOUND against MAME's own recording. tests/fixtures/ssc/voice-mame.json holds what MAME 0.264 recorded
+// (-wavwrite at the chip's 9,285 Hz) playing gen-voice.js's speech image and PIC program with the sound mux open, on
+// coco and dragon64, with the two images it ran. Those samples come from MAME, not from this code. The CI has no
+// MAME, so this is what keeps the excitation, the coefficient table, the six filter stages, the noise, interpolation,
+// the halted chip's behaviour, the Pak's gain and the speech level's place in the machine's sound path as MAME has
+// them. Same rule as tools/mame-diff/ssc/speech-audio.js: every sample within 1 LSB, ours k against MAME's k + 1.
+// To re-record: run speech-audio.js's mame() for each profile and store its samples with the images it ran.
+{
+  const rec = require('./fixtures/ssc/voice-mame.json');
+  const sa = require('../tools/mame-diff/ssc/speech-audio.js');
+  const { voiceImage, voicePic, tests } = require('../tools/mame-diff/ssc/gen-voice.js');
+  const image = new Uint8Array(Buffer.from(rec.image, 'base64')), pic = new Uint8Array(Buffer.from(rec.pic, 'base64'));
+  // gen-voice.js runs this project's chip to choose its values, so a broken chip can make it build something else,
+  // or nothing; the comparisons below run the recorded images either way
+  let imageSame = false, why = '';
+  try {
+    imageSame = Buffer.from(voiceImage()).equals(Buffer.from(image)) && Buffer.from(voicePic()).equals(Buffer.from(pic));
+    if (!imageSame) why = 'they differ: re-record tests/fixtures/ssc/voice-mame.json with MAME';
+  } catch (e) { why = `gen-voice.js failed: ${e.message}`; }
+  check('SP0256 sound: gen-voice.js still builds the speech image and PIC program MAME\'s recording was made with',
+    imageSame, imageSame ? `${image.length} + ${pic.length} bytes identical` : why);
+  for (const profileId of ['coco', 'dragon64']) {
+    const b = Buffer.from(rec[profileId].samples, 'base64');
+    const M = new Int16Array(b.buffer, b.byteOffset, b.length / 2);
+    const O = sa.ours(profileId, { pic, image });
+    const r = sa.compareSamples(O.samples, M);
+    check(`SP0256 sound (${profileId}): every sample within ${sa.TOLERANCE} LSB of MAME's recording`,
+      r.over === 0 && r.compared > 15000 && r.distinct > 1000 && O.loads === tests().length,
+      `${r.compared} samples from ${r.from}, worst ${r.worst} LSB, ${r.over} over${r.firstBad >= 0 ? `, first at ${r.firstBad}: ours ${O.samples[r.firstBad]}, MAME's ${M[r.firstBad + 1]}` : ''}; ${O.loads} loads`);
+  }
+}
+
+// ---------------------------------------------------------------------------------------------------
+// The speech level on the machine's sound path, on the hardware grid (no mameCompat: 10 kHz) and through the sound
+// mux. coco_ssc.cpp set_sound_enable sets the SP0256's output gain to 1 or 0 with the AY's, so speech is heard only
+// while the mux selects the cartridge: gen-voice.js's image plays the same way under gen-ay.js's 6809 program, which
+// opens the mux, and gen-speak.js's, which never does.
+{
+  // the images MAME's recording was made with (above), so this does not depend on gen-voice.js building
+  const rec = require('./fixtures/ssc/voice-mame.json');
+  const voicePic = () => new Uint8Array(Buffer.from(rec.pic, 'base64'));
+  const voiceImage = () => new Uint8Array(Buffer.from(rec.image, 'base64'));
+  const { ayHost } = require('../tools/mame-diff/ssc/gen-ay.js');
+  const { speakHost } = require('../tools/mame-diff/ssc/gen-speak.js');
+  const { romImage } = require('../tools/mame-diff/lib/firmware.js');
+  const levels = (host) => {
+    const m = Emu.createMachine('coco');
+    m.setRoms(Object.fromEntries(Emu.profiles.coco.roms.map((r) => [r.id, romImage(host, r.at, r.size, 0x12)])));
+    m.insertCartridge(new Emu.SpeechSoundPak({ tms7040Rom: voicePic(), sp0256Rom: voiceImage() }));
+    m.reset(true);
+    const seen = new Set();
+    let samples = 0;
+    const sample = m.cartPort.sp0256.sample.bind(m.cartPort.sp0256);
+    m.cartPort.sp0256.sample = () => { samples++; return sample(); };
+    for (let f = 0; f < 60; f++) { m.runFrame(); for (let i = 1; i < m.audioEvents.length; i += 2) seen.add(m.audioEvents[i]); }
+    return { seen: seen.size, samples, seconds: 60 / m.fps };
+  };
+  const open = levels(ayHost()), closed = levels(speakHost('coco'));
+  check('speech on the hardware grid: 10,000 samples a second, and the speech is heard (mux open)',
+    Math.abs(open.samples / open.seconds - 10000) < 15 && open.seen > 1000, `${open.samples} samples in ${open.seconds.toFixed(3)} s, ${open.seen} levels`);
+  check('speech with the mux closed: the chip speaks but the sound path stays at one level', closed.samples > 9000 && closed.seen === 1,
+    `${closed.samples} samples, ${closed.seen} levels`);
 }
 
 console.log(`${n - fail}/${n} SSC checks passed`);
