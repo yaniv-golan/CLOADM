@@ -287,8 +287,9 @@ cases.push(['trace dragon32 cart multi', () => traceHash(spec('cart').trace('dra
 //            sound-activity circuit, dips low for a while after an allophone load on EVERY model; the firmware
 //            reads it at a fixed 18.384 ms after that load on every model too; 18.4 ms falls inside the CoCo 3's
 //            dip and outside the CoCo 1/2's and 2B's. This emulator stubs the circuit (soundActive is never set
-//            true, js/machines/ssc.js:107), so we read the bit high everywhere. Why the dip sits at a different
-//            offset on the CoCo 3 is NOT established. So this key is NOT claimed as MAME-verified. It is kept
+//            true, in the SpeechSoundPak constructor, js/machines/ssc.js), so we read the bit high everywhere.
+//            The Pak's clock ran 4 times fast on the CoCo 3 when this was first measured; fixed, and $0405 still
+//            differs, so it is the stubbed circuit, known and open. So this key is NOT claimed as MAME-verified. It is kept
 //            because it is still a real diagnostic run of our own card (AGENTS 4.4.7) and because the gap it
 //            records is the one the README calls out; when the SP0256's audio - and with it the SAC - is
 //            implemented, re-run the comparison and replace this note with the result.

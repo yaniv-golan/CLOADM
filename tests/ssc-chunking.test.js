@@ -16,7 +16,7 @@ const PIC = buildPic(), SP = buildSp0256();
 
 // a card on a host whose clock we drive by hand (ioTime is the card's machine time, AGENTS section 2)
 function makeCard(startAt) {
-  const host = { ioTime: () => Number(now), clockUnits: () => Number(now), unitAttos: 1n, schedule() {}, cancel() {} };
+  const host = { ioTime: () => Number(now), clockUnits: () => Number(now), unitAttos: 1n, tickHz: 894886.25, cartClockHz: 894886.25, schedule() {}, cancel() {} };
   let now = startAt;
   const p = new Emu.SpeechSoundPak({ tms7040Rom: PIC, sp0256Rom: SP });
   p.host = host;

@@ -129,6 +129,12 @@ function packBits(entries, size) {
   return bytes;
 }
 
+// ssc-tone.asm, our PIC program that plays three tone pairs per command: the tests' and the browser check's
+// sound source (it waits on the CoCo's commands, so it is not the MAME audio case: gen-ay.js is).
+function toneFirmware() {
+  return romImage(assembleFile(path.join(HERE, 'ssc-tone.asm'), '7000'), 0xF000, 0x1000, 0xFF);
+}
+
 function buildSp0256() {
   return packBits(ENTRIES, 0x800);
 }
@@ -145,4 +151,4 @@ if (require.main === module) {
 
 // The same two images come back in memory for tests and machines, so nothing is read back from disk: the
 // bytes a test uses are the bytes the build produced.
-module.exports = { buildPic, buildSp0256, buildAsm, ENTRIES, WORK, OUT, IOCNT0_MASKED, IOCNT0_INT3_ENABLED };
+module.exports = { buildPic, buildSp0256, toneFirmware, buildAsm, ENTRIES, WORK, OUT, IOCNT0_MASKED, IOCNT0_INT3_ENABLED };

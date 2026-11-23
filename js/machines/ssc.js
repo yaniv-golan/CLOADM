@@ -31,8 +31,8 @@
  * image by name. For verification the project substitutes its own TMS7040 firmware and hand-built SP0256 data
  * (tools/mame-diff/ssc/); those stand in for the user's files in MAME and in the tests, and never replace them.
  *
- * TIMING. The PIC and the AY-8913 run at the SAME machine-cycle rate as the 6809, not half of it. The
- * chain, from MAME's source:
+ * TIMING. The PIC runs at the SAME machine-cycle rate as the 6809, not half of it; the AY-8913's stream runs at
+ * a quarter of it. The chain, from MAME's source:
  *   - coco_ssc.cpp line 170 `TMS7040(config, m_tms7040, DERIVED_CLOCK(2, 1))`, and lines 186/190 give the
  *     AY-8913 and the SAC the same DERIVED_CLOCK(2, 1). DERIVED_CLOCK is parent x num / den (device.h line 37
  *     and device.cpp's calculate_derived_clock), so at the CoCo's 894,886.25 Hz the input clock is
@@ -41,8 +41,11 @@
  *     `execute_clocks_to_cycles: (clocks + m_divider - 1) / m_divider`. The TMS7040 therefore counts one
  *     machine cycle per TWO input clocks: 1,789,772.5 / 2 = 894,886.25 cycles a second, exactly the 6809's
  *     rate.
- * So the card advances one cycle per machine cycle. The AY's stream is that rate divided by 8 (MAME streams
- * the AY at clock/8), and the SP0256 runs on the same cycle base. The card's timer is on the machine's
+ * So the card advances one cycle per machine cycle. The AY has no such divider: ay8910.cpp device_start
+ * allocates its stream at `master_clock / 8` with master_clock = clock(), the full 1,789,772.5 Hz, so it makes
+ * one sample per FOUR card cycles (223,721.6 a second). (An earlier revision stepped it every 8 card cycles;
+ * measured against MAME's -wavwrite with ssc-tone.asm, that played every tone at half MAME's frequency.) The
+ * SP0256 runs on the same cycle base. The card's timer is on the machine's
  * scheduler through SlotDevice's AttoClock, and catchUp() runs it to the machine's current time before any
  * access (AGENTS section 2), so it advances whether or not the 6809 is touching the card. The PIC's position
  * in time is part of saveState.
@@ -61,6 +64,15 @@ const C_RCS = 0x10;   // static RAM chip select (0 = selected)
 const C_ALD = 0x20;   // SP0256 address load
 const C_ACS = 0x40;   // AY chip select (0 = selected)
 const C_BSY = 0x80;   // busy line back to the CoCo
+
+// coco_ssc.cpp:59 `#define AY8913_GAIN 2.0`, the AY's route into the sound activity circuit (coco_ssc.cpp:182).
+// The SAC passes its input through unchanged (cocossc_sac_device::sound_stream_update copies each sample) and
+// its own route to the speaker is 1.0, which set_sound_enable() turns to 0.0 while the mux does not select the
+// Pak (muxSelectsCart below). So what reaches the speaker is 2.0 x the AY's output, or nothing.
+const AY_GAIN = 2.0;
+// Card cycles per AY sample: the AY's input clock is twice the card's cycle rate (DERIVED_CLOCK(2, 1), and the
+// TMS7040's divider of 2 is the PIC's own), and MAME streams it at that clock / 8. See TIMING above.
+const AY_DIV = 4;
 
 const TMS7040_ROM_SIZE = 0x1000;   // the PIC's region is 4 KB (coco_ssc.cpp ROM_REGION(0x1000, PIC_TAG))
 const SP0256_ROM_SIZE = 0x800;     // the AL2 data, loaded at 0x1000 within the 0x10000 SP0256 region
@@ -107,12 +119,14 @@ class SpeechSoundPak extends SlotDevice {
     this.soundActive = false;   // the SAC's envelope follower is above its threshold
     this.sacEnvelope = 0;
     this.cardPos = 0n;      // where the card's clock has run to, in machine ticks
-    this.ayDiv = 0;         // the AY's clock/8 stream divider
-    this.ayOut = new Float32Array(3);   // the AY's three channel outputs, one sample
-    // The AY's mixed level as the machine's sound path last heard it. The chip's three channels are summed,
-    // as MAME routes an AY8913's single output: AY_VOLUME already returns MAME's sample scale (-0.25..0.375),
-    // and the sum is reported to the host the way the Games Master and the Orchestra-90 report theirs
-    // (Machine.cartSound), so the Pak sounds through the machine's one audio path and not a second one.
+    this.ayDiv = 0;         // card cycles into the AY's current sample period (0: the next cycle starts a sample)
+    this.ayWrites = null;   // the AY bus writes of the PIC instruction being run (toAy), applied at its end
+    this.ayOut = new Float32Array(1);   // the AY's one output (single-output mode), one sample
+    // The Pak's level as the machine's sound path last heard it: the AY's single output times AY_GAIN, or 0
+    // while the sound mux does not select the Pak. It is reported to the host the way the Games Master and the
+    // Orchestra-90 report theirs (Machine.cartSound), so the Pak sounds through the machine's one audio path.
+    // MAME gives the Pak a speaker of its own (`ssc_audio`), and its recording sums every speaker, which is the
+    // same as adding the Pak's level to the machine's.
     this.ayLevel = 0;
     // the card's timer must exist before loadState, because the clock restores into registered timers
     this.picTimer = this.clock.timer('ssc.pic', () => this.tickCard());
@@ -121,7 +135,9 @@ class SpeechSoundPak extends SlotDevice {
   }
 
   buildChips() {
-    this.ay = new AY8910();
+    // coco_ssc.cpp:180-182: the AY-3-8913 is built with set_flags(AY8910_SINGLE_OUTPUT), so MAME mixes its three
+    // channels as one resistor network (js/chips/ay8910.js, 'single'), and routes it to the SAC with AY_GAIN.
+    this.ay = new AY8910({ output: 'single' });
     this.sp0256 = new SP0256({ rom: this.sp0256Data });
     // the PIC: our CPU7000 core on the user's (or the verification) image, with the peripheral file hooked
     this.tms7040 = new CPU7000({ read: (a) => this.readPic(a), write: (a, v) => this.writePic(a, v) });
@@ -160,7 +176,11 @@ class SpeechSoundPak extends SlotDevice {
     // SlotDevice.reset(hard) disarms every timer, so the card's own clock has to be armed again here; without
     // this the card never ticks after a power-on reset and every command would time out.
     this.ayDiv = 0;
-    this.cardPos = this.host ? BigInt(Math.floor(this.host.ioTime())) : 0n;
+    // At power-on the card starts at the machine's power-on origin, as MAME resets its devices at time 0: not at
+    // the CPU's first instruction, which is resetOffset ticks later (4 on the SAM machines). Measured against MAME
+    // (gen-ay.js, a Lua tap on the PIC's port C): starting at the CPU's first instruction put every PIC write 4
+    // cycles late. A soft reset happens where the machine is.
+    this.cardPos = this.host ? BigInt(Math.floor(hard ? this.host.powerOnTick() : this.host.ioTime())) : 0n;
     this.scheduleTick();
   }
 
@@ -246,8 +266,8 @@ class SpeechSoundPak extends SlotDevice {
     }
     // AY-3-8913, gated by its chip select (bit 6 clear)
     if ((data & C_ACS) === 0) {
-      if ((data & (C_BDR | C_BC1)) === (C_BDR | C_BC1)) this.ay.addressW(this.portD);         // BDIR=1 BC1=1: latch address
-      else if ((data & C_BDR) === C_BDR && (data & C_BC1) === 0) this.ay.dataW(this.portD);  // BDIR=1 BC1=0: write data
+      if ((data & (C_BDR | C_BC1)) === (C_BDR | C_BC1)) this.toAy(this.ay.addressW, this.portD);         // BDIR=1 BC1=1: latch address
+      else if ((data & C_BDR) === C_BDR && (data & C_BC1) === 0) this.toAy(this.ay.dataW, this.portD);  // BDIR=1 BC1=0: write data
     }
     // SP0256: a falling edge of ALD, with the allophone number below 64
     if ((prev & C_ALD) === C_ALD && (data & C_ALD) === 0 && this.portD < 64) this.sp0256.loadAddress(this.portD);
@@ -288,10 +308,12 @@ class SpeechSoundPak extends SlotDevice {
     this.scheduleTick();
   }
 
-  // The card counts one machine cycle per machine cycle. Its input clock is twice the CoCo's
-  // (DERIVED_CLOCK(2, 1)) but tms7000.cpp line 125 divides it by 2 before counting cycles, so its cycle rate
-  // is the 6809's exactly (see the TIMING note at the top).
-  cardTicksPerCycle() { return 1; }
+  // Machine ticks per card cycle. The card counts one cycle per cycle of the cartridge slot's clock: its input
+  // clock is twice the slot's (DERIVED_CLOCK(2, 1)) but tms7000.cpp line 125 divides it by 2 before counting cycles
+  // (see the TIMING note at the top). The slot's clock is the host's cartClockHz, fixed whatever the CPU's speed. On
+  // the SAM machines a tick is that cycle (1); on the CoCo 3 a tick is a GIME clock, a quarter of it (4). An earlier revision returned 1 everywhere, so on the CoCo 3 the card ran 4 times
+  // fast: measured with gen-ay.js, its AY program ended at 0.33 s where MAME's ends at 1.33 s.
+  cardTicksPerCycle() { return this.host ? Math.max(1, Math.round(this.host.tickHz / this.host.cartClockHz)) : 1; }
   scheduleTick() {
     if (!this.host || !this.picTimer) return;
     this.picTimer.adjust(BigInt(this.cardTicksPerCycle()) * this.host.unitAttos);
@@ -316,25 +338,76 @@ class SpeechSoundPak extends SlotDevice {
     let guard = 0;
     while (this.cardPos < now && guard++ < 200000) this.stepCard();
   }
+  // An AY bus write made by the PIC's current instruction reaches the chip at the END of that instruction:
+  // stepCard collects it and applies it once the AY has run through the instruction's cycles. MAME's TMS7000
+  // core charges an instruction's cycles before it executes it (tms7000op.cpp, e.g. am_i2p: `m_icount -= 11`
+  // and then the port write), so the write's time is the instruction's end, and the AY's stream is brought up
+  // to that time, on the old registers, before the write lands. Applying it at the instruction's start put
+  // every AY change several card cycles early against MAME's -wavwrite (gen-ay.js). Outside stepCard (a test
+  // driving the decode directly) there is no instruction, and the write lands at once.
+  toAy(fn, v) {
+    if (this.ayWrites) this.ayWrites.push([fn, v]);
+    else fn.call(this.ay, v);
+  }
   stepCard() {
     // one PIC instruction takes the cycles it takes: the card's position advances by the instruction's own
     // cycle count, not by one per instruction, or the card would run far ahead of the 6809 (an ISR of ~30
     // instructions would appear to complete in 30 cycles when it needs a few hundred).
+    this.ayWrites = [];
     const cycles = this.tms7040.step();
-    this.cardPos += BigInt(Math.max(1, cycles));
-    // the AY's stream and the SP0256 are stepped for each cycle the PIC took
+    const writes = this.ayWrites;
+    this.ayWrites = null;
+    const start = this.cardPos, k = this.cardTicksPerCycle();
+    this.cardPos += BigInt(Math.max(1, cycles) * k);
+    // the AY's stream and the SP0256 are stepped for each cycle the PIC took. An AY sample is made at the START of
+    // its period (every AY_DIV card cycles from power-on, MAME's sample k at time k / stream rate) and stamped with
+    // that start: it is the level for its whole period. This instruction's AY writes land after the loop, at the
+    // instruction's end T, so every sample that started before T plays the old registers and the first one to
+    // start at or after T plays the new. That is MAME's order: a write calls the stream's update() up to T, and a
+    // stream view's end index rounds UP (sound.h read_stream_view: time_to_buffer_index(end, true)), so the
+    // sample in progress at T is made before the register changes. Measured against MAME's -wavwrite (gen-ay.js):
+    // giving that sample the new value instead put tone channels half a period out of phase after a period
+    // change, and stamping a sample at its period's end put every level change one AY sample late.
+    //
+    // config.mameCompat: MAME's AY samples fall on its own grid instead (mameAySamples below), so they are made
+    // there, by the same rule: every sample that starts before the instruction's end, before its writes.
+    const grid = this.host && this.host.config && this.host.config.mameCompat;
+    if (grid) this.mameAySamples(start, this.cardPos);
     for (let i = 0; i < Math.max(1, cycles); i++) {
-      if (this.ay.step) {
-        // the AY's stream is the card clock / 8 (MAME streams an AY8913 at clock/8)
-        if (++this.ayDiv >= 8) { this.ayDiv = 0; this.stepAy(); }
+      if (!grid) {
+        if (this.ayDiv === 0) this.stepAy(start + BigInt(i * k));
+        this.ayDiv = (this.ayDiv + 1) % AY_DIV;
       }
       if (this.sp0256.step) this.sp0256.step();
     }
+    for (const [fn, v] of writes) fn.call(this.ay, v);
   }
-  // One AY sample, and the level it leaves on the machine's sound path. The chip returns its three channels
-  // separately (MAME's ay8910 streams one output; an AY8913 is single-output), so they are summed here, and the
-  // host is told only when the sum changes - the same "report level changes" contract the Games Master and the
-  // Orchestra-90 use, so the mixer sees the Pak exactly as it sees them.
+  // MAME's AY sample grid (config.mameCompat; a deviation documented in docs/verification.md). On the hardware the
+  // AY makes one sample per AY_DIV card cycles. MAME keeps device clocks as whole hertz: the Pak is 894,886 Hz
+  // (the slot's 894,886.25 truncated; 888,625 on the Dragon), the AY DERIVED_CLOCK(2, 1) of that, 1,789,772 Hz, and
+  // its stream clock / 8 = 223,721 samples a second (integer division; 4 card cycles would be 223,721.56). A stream
+  // sample's start is counted within each second, `second + index x period` with the period 1e18 / rate
+  // attoseconds truncated (sound.cpp stream_buffer, time_to_buffer_index). So MAME's grid slips about half a sample
+  // a second against the card's cycles, and a write near a sample boundary lands one sample later than on the
+  // hardware grid: measured with gen-ay.js at 1.008 s, that put a tone half a period out of phase. Here the samples
+  // whose MAME start is in [from, to) (machine ticks) are made, each stamped with the tick its start falls in.
+  mameAySamples(from, to) {
+    const host = this.host, unit = host.unitAttos, origin = BigInt(Math.round(host.powerOnTick()));
+    const rate = BigInt(Math.floor(Math.floor(host.cartClockHz) * 2 / 8)), sec = 10n ** 18n, period = sec / rate;
+    const attosOf = (tick) => (tick - origin) * unit;
+    // the first sample starting at or after `t`: time_to_buffer_index rounding up, within t's second
+    const firstAt = (t) => (t / sec) * rate + ((t % sec) + period - 1n) / period;
+    const startOf = (i) => (i / rate) * sec + (i % rate) * period;
+    const end = attosOf(to);
+    for (let i = firstAt(attosOf(from)); ; i++) {
+      const t = startOf(i);
+      if (t >= end) break;
+      this.stepAy(origin + t / unit);
+    }
+  }
+  // One AY sample, and the level it leaves on the machine's sound path: the chip's single output times AY_GAIN.
+  // The host is told only when the level changes - the same "report level changes" contract the Games Master
+  // and the Orchestra-90 use, so the mixer sees the Pak exactly as it sees them.
   //
   // THE SOUND MUX GATES THE PAK, AND ONLY THE PAK. MAME's CoCo routes cartridge audio to the speaker only when
   // its sound mux selects it: soundmux_status() is SOUNDMUX_ENABLE (PIA1 CB2) | SOUNDMUX_SEL1 (PIA0 CA2) |
@@ -350,9 +423,11 @@ class SpeechSoundPak extends SlotDevice {
     if (!p0 || !p1) return true;     // no PIA (a bare device in a test): nothing to gate on, so sound as before
     return p1.b.c2() && p0.b.c2() && !p0.a.c2();
   }
-  stepAy() {
+  // at: the machine tick this sample falls on (the card's position, by default)
+  stepAy(at = this.cardPos) {
     this.ay.step(this.ayOut);
-    const level = this.muxSelectsCart() ? this.ayOut[0] + this.ayOut[1] + this.ayOut[2] : 0;
+    // AY_GAIN is a power of two, so the product is exact in MAME's 32-bit float as well as here
+    const level = this.muxSelectsCart() ? AY_GAIN * this.ayOut[0] : 0;
     if (level === this.ayLevel) return;
     this.ayLevel = level;
     // Report the change at the SAMPLE'S OWN time, not at the I/O access time. catchUp() runs many samples in one
@@ -369,7 +444,7 @@ class SpeechSoundPak extends SlotDevice {
       // units to ticks at the CURRENT SAM rate, so composing it with a difference of ticks scales the answer by
       // that period. Measured at the fast rate, that form put every stamp 1,387 ticks from its sample's cardPos;
       // passing cardPos puts them 0 from it at both rates.
-      this.host.cartSound(Number(this.cardPos), level);
+      this.host.cartSound(Number(at), level);
     }
   }
   tickCard() {

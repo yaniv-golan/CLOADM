@@ -52,6 +52,8 @@ function host() {
     ioTime: () => Math.round(h.t),
     clockUnits: () => Math.round(h.t),
     tickAt: (u) => Math.round(h.t) + u,
+    powerOnTick: () => 0,
+    cartClockHz: 1e6,   // the port's clock equals tickHz: one tick per card cycle, as on the SAM machines
     schedule(at, name, arg) {
       h.q.push({ at, name, arg, seq: h.seq++ });
       h.q.sort((a, b) => a.at - b.at || a.seq - b.seq);
@@ -497,8 +499,8 @@ function host() {
   const { buildAsm } = require('../tools/mame-diff/ssc/gen-roms.js');
   const { romImage } = require('../tools/mame-diff/lib/firmware.js');
   // one machine with our tone firmware in the Pak, so the AY has something to say
-  const { toneFirmware } = require('../tools/mame-diff/ssc/audio.js');
-  const { AY_VOLUME } = require('../js/chips/ay8910.js');
+  const { toneFirmware } = require('../tools/mame-diff/ssc/gen-roms.js');
+  const { aySingleLevel } = require('../js/chips/ay8910.js');
   const m = Emu.createMachine('coco', { mameCompat: true });
   m.setRoms({ bas: romImage(buildAsm({ mux: true }), 0xA000, 0x2000, 0x12), extbas: new Uint8Array(0x2000).fill(0x12) });
   m.insertCartridge(new Emu.SpeechSoundPak({ tms7040Rom: toneFirmware(), sp0256Rom: new Uint8Array(0x800) }));
@@ -514,10 +516,10 @@ function host() {
   // "set/reset mode, C2 low".
   const setC2 = (port, v) => { port.cr = (port.cr & 0x07) | 0x20 | 0x10 | (v ? 0x08 : 0); };
   // what the card reports to the mixer: the gate decides it, so this observes the SOUND PATH. Note the AY's
-  // silence is not zero - AY_VOLUME[0] is -0.125, so an all-zero-volume channel sums to 3 * -0.125 = -0.375 - and
-  // that is what makes "level !== 0" useless on its own. The audible case below therefore requires the level to
-  // DIFFER from that silence constant, and the closed cases require it to EQUAL it.
-  const SILENCE = 3 * AY_VOLUME[0];
+  // silence is not zero - its single output with every channel at 0 is 0.158 of the supply, times the Pak's gain
+  // of 2 - and that is what makes "level !== 0" useless on its own. The audible case below therefore requires the
+  // level to DIFFER from that silence constant, and the closed cases require it to be 0.
+  const SILENCE = 2 * aySingleLevel([0, 0, 0]);
   const reported = () => { m.cartPort.ayLevel = NaN; m.cartPort.stepAy(); return m.cartPort.ayLevel; };
   // a channel is audible when a tone or noise path is on AND its volume is non-zero; volEnabled alone is only the
   // waveform gate (ay8910.js:118), so it is true with every volume at 0
@@ -539,7 +541,7 @@ function host() {
   ]) {
     setup();
     const l = reported();
-    // a closed gate means the card contributes NOTHING: stepAy reports 0, not the AY's own -0.375 idle level
+    // a closed gate means the card contributes NOTHING: stepAy reports 0, not the AY's own idle level
     check(`${label}: the card contributes silence to the mixer`,
       !m.cartPort.muxSelectsCart() && l === 0, `level ${l} (expected 0), mux selects ${m.cartPort.muxSelectsCart()}`);
   }
@@ -553,8 +555,8 @@ function host() {
 // or the gate finds no PIA and lets the card through unmuted.
 {
   const Emu = require('../tests/load.js')();
-  const { AY_VOLUME } = require('../js/chips/ay8910.js');
-  const { toneFirmware } = require('../tools/mame-diff/ssc/audio.js');
+  const { aySingleLevel } = require('../js/chips/ay8910.js');
+  const { toneFirmware } = require('../tools/mame-diff/ssc/gen-roms.js');
   const { buildAsm } = require('../tools/mame-diff/ssc/gen-roms.js');
   const { romImage } = require('../tools/mame-diff/lib/firmware.js');
   const m = Emu.createMachine('coco', { mameCompat: true });
@@ -573,7 +575,7 @@ function host() {
     `volumes ${inSlot.ay.regs.slice(8, 11).join(',')}`);
   setC2(m.pia1.b, true); setC2(m.pia0.b, true); setC2(m.pia0.a, false);
   check('Multi-Pak: with the mux selecting the cartridge, the slotted Pak is heard',
-    inSlot.muxSelectsCart() && Math.abs(reported() - 3 * AY_VOLUME[0]) > 1e-9, `level ${inSlot.ayLevel}`);
+    inSlot.muxSelectsCart() && Math.abs(reported() - 2 * aySingleLevel([0, 0, 0])) > 1e-9, `level ${inSlot.ayLevel}`);
   setC2(m.pia0.a, true);                               // all three high: another source
   check('Multi-Pak: with the mux selecting another source, the slotted Pak is silent',
     !inSlot.muxSelectsCart() && reported() === 0, `level ${inSlot.ayLevel}`);
@@ -591,7 +593,7 @@ function host() {
   const Emu = require('../tests/load.js')();
   const { buildAsm } = require('../tools/mame-diff/ssc/gen-roms.js');
   const { romImage } = require('../tools/mame-diff/lib/firmware.js');
-  const { toneFirmware } = require('../tools/mame-diff/ssc/audio.js');
+  const { toneFirmware } = require('../tools/mame-diff/ssc/gen-roms.js');
   for (const fast of [false, true]) {
     const m = Emu.createMachine('coco', { mameCompat: true });
     m.setRoms({ bas: romImage(buildAsm({ mux: true }), 0xA000, 0x2000, 0x12), extbas: new Uint8Array(0x2000).fill(0x12) });
@@ -608,15 +610,151 @@ function host() {
     pak.catchUp();
     m.cartSound = orig;
     const distinct = new Set(rows.map((r) => r.stamp)).size;
-    let worst = 0;
-    for (const r of rows) worst = Math.max(worst, Math.abs(r.stamp - r.cardPos));
+    // A sample is stamped with the start of its own period, AY_DIV (4) card cycles long, which ends inside the PIC
+    // instruction just run (js/machines/ssc.js stepCard; measured against MAME's -wavwrite). So every stamp is on
+    // the AY's 4-cycle grid, is not after the card's position when it is reported, and is less than one
+    // instruction (the TMS7000's longest is under 60 cycles) plus a period before it.
+    let worst = 0, offGrid = 0;
+    for (const r of rows) {
+      worst = Math.max(worst, r.cardPos - r.stamp);
+      if ((r.stamp - rows[0].stamp) % 4 !== 0 || r.stamp > r.cardPos) offGrid++;
+    }
     const label = fast ? 'fast rate' : 'normal rate';
     check(`AY timestamps (${label}): the rate really changed`, fast ? rateBits === 1 : rateBits === 0, `SAM rate bits ${rateBits}`);
     check(`AY timestamps (${label}): several changes in one batch, each with its OWN stamp`,
       rows.length >= 2 && distinct === rows.length, `${rows.length} changes, ${distinct} distinct stamps`);
-    check(`AY timestamps (${label}): each stamp is its sample's card position`, worst < 0.01,
-      `worst |stamp - cardPos| ${worst}`);
+    check(`AY timestamps (${label}): each stamp is its sample's period start, within the instruction just run`,
+      offGrid === 0 && worst < 64, `${offGrid} off the 4-cycle grid or ahead of the card, worst cardPos - stamp ${worst}`);
   }
+}
+
+// ---------------------------------------------------------------------------------------------------
+// The card's clock against MAME's: the first AY write of gen-ay.js's program happens 129 card cycles after
+// power-on and the second 216 after it. Those are MAME 0.264's own figures (a Lua tap on the PIC's port C,
+// `coco -ext ssc`, the time of each write times 894,886 Hz); 129 is also the sum of the program's first
+// instructions' cycle counts. Two bugs this pins:
+// the card starting at the CPU's first instruction instead of the power-on origin (it read 133), and the card
+// counting one cycle per machine tick on the CoCo 3, where a tick is a quarter of one (it ran 4 times fast).
+{
+  const { ourMachine } = require('../tools/mame-diff/ssc/audio.js');
+  for (const profileId of ['coco', 'coco3']) {
+    const m = ourMachine(profileId);
+    const pak = m.cartPort;
+    // in TIME, as card cycles of the port's 894,886 Hz clock: ticks x cartClockHz / tickHz (not the code's own
+    // ticks-per-cycle, which a wrong rate would cancel out of)
+    const writes = [];
+    const orig = pak.ay.dataW;
+    pak.ay.dataW = function (v) {
+      writes.push(Math.round(Number(pak.cardPos - BigInt(m.powerOnTick())) * m.cartClockHz / m.tickHz));
+      return orig.call(this, v);
+    };
+    for (let f = 0; f < 3; f++) m.runFrame();
+    check(`card clock (${profileId}): the first AY write is 129 card cycles after power-on, as in MAME`,
+      writes[0] === 129, `${writes[0]}`);
+    // and the second at MAME's 216 (the same tap)
+    check(`card clock (${profileId}): the second AY write at 216, as in MAME`, writes[1] === 216, `${writes[1]}`);
+  }
+}
+
+// ---------------------------------------------------------------------------------------------------
+// The AY's sample grid. On the hardware the AY makes one sample per 4 card cycles, so the first 894,886 card cycles
+// (about a second) hold samples starting at 0, 4, ... 894,884: 223,722. MAME keeps clocks as whole hertz and runs
+// the stream at 1,789,772 / 8 = 223,721 samples a second, each 1e18 / 223,721 = 4,469,853,075,929 attoseconds,
+// while 894,886 card cycles of 1e18 / 894,886 attoseconds end at 999,999,999,999,449,554: 223,721 sample starts
+// fall before that. config.mameCompat follows MAME's grid (docs/verification.md, "Deviations from MAME"); without
+// it the hardware's. Both counted from the samples' stamps, the tick each sample starts in.
+{
+  const Emu = require('../tests/load.js')();
+  const { romImage } = require('../tools/mame-diff/lib/firmware.js');
+  const { ayPic, ayHost } = require('../tools/mame-diff/ssc/gen-ay.js');
+  const { buildSp0256 } = require('../tools/mame-diff/ssc/gen-roms.js');
+  for (const [mameCompat, want] of [[false, 223722], [true, 223721]]) {
+    const m = Emu.createMachine('coco', { mameCompat });
+    m.setRoms(Object.fromEntries(Emu.profiles.coco.roms.map((r) => [r.id, romImage(ayHost(), r.at, r.size, 0x12)])));
+    m.insertCartridge(new Emu.SpeechSoundPak({ tms7040Rom: ayPic(), sp0256Rom: buildSp0256() }));
+    m.reset(true);
+    const pak = m.cartPort, origin = BigInt(m.powerOnTick());
+    let count = 0;
+    const stepAy = pak.stepAy.bind(pak);
+    pak.stepAy = (at) => { if (at - origin < 894886n) count++; return stepAy(at); };
+    while (pak.cardPos - origin < 894886n + 100n) m.runFrame();
+    const label = mameCompat ? 'mameCompat: MAME\'s whole-hertz stream' : 'hardware: every 4 card cycles';
+    check(`AY sample grid (${label}): ${want} samples start in the first 894,886 card cycles`, count === want, `${count}`);
+  }
+}
+
+// ---------------------------------------------------------------------------------------------------
+// The Pak's AY output as the machine hears it: MAME's single-output network at the Pak's gain of 2
+// ---------------------------------------------------------------------------------------------------
+// ssc-tone.asm plays channel A at volume 12 and B at 6 (C silent) with the mux open, so the Pak's level moves among
+// the four combinations of the two square waves. MAME 0.264's -wavwrite of the same firmware holds exactly four
+// levels (docs/verification.md, "The Speech/Sound Pak's AY sound"): 10,371, 11,110, 16,407 and 16,994 LSB of 32,767.
+// Those are the expected values, from MAME's recording, not from this code. The CI has no MAME, so this is what
+// keeps the Pak on its single output at gain 2 there: three legacy channel levels added, or the gain left out, give
+// other numbers.
+{
+  const Emu = require('../tests/load.js')();
+  const { buildAsm, toneFirmware } = require('../tools/mame-diff/ssc/gen-roms.js');
+  const { romImage } = require('../tools/mame-diff/lib/firmware.js');
+  const m = Emu.createMachine('coco', { mameCompat: true });
+  m.setRoms({ bas: romImage(buildAsm({ mux: true }), 0xA000, 0x2000, 0x12), extbas: new Uint8Array(0x2000).fill(0x12) });
+  m.insertCartridge(new Emu.SpeechSoundPak({ tms7040Rom: toneFirmware(), sp0256Rom: new Uint8Array(0x800) }));
+  m.reset(true);
+  const levels = new Set();
+  const cartSound = m.cartSound.bind(m);
+  m.cartSound = (tick, level) => { if (level !== 0) levels.add(Math.trunc(Math.fround(level) * 32767)); return cartSound(tick, level); };
+  for (let f = 0; f < 120; f++) m.runFrame();
+  const got = [...levels].sort((a, b) => a - b);
+  check('the Pak\'s AY levels are MAME\'s four: 10371, 11110, 16407, 16994 LSB (single output, gain 2)',
+    JSON.stringify(got) === JSON.stringify([10371, 11110, 16407, 16994]), got.join(','));
+}
+
+// ---------------------------------------------------------------------------------------------------
+// An AY write lands after the samples that started before it
+// ---------------------------------------------------------------------------------------------------
+// On the hardware grid (no mameCompat) the AY makes a sample every 4 card cycles from power-on, at 0, 4, 8, ...
+// A register write takes effect at the end of the PIC instruction that makes it (T, in card cycles), so the first
+// sample to play the new value is the first to START at or after T: its stamp is T rounded up to a multiple of 4.
+// In gen-ay.js's fixed-level steps every level change comes from the AY write just before it (a write that leaves
+// the level as it was is followed by none), so each change must carry the stamp its latest write gives. A write applied before the instruction's samples are made
+// would put the change on a sample that started before T (MAME's order: docs/verification.md, "When a write lands").
+{
+  const Emu = require('../tests/load.js')();
+  const { romImage } = require('../tools/mame-diff/lib/firmware.js');
+  const { ayPic, ayHost } = require('../tools/mame-diff/ssc/gen-ay.js');
+  const { buildSp0256 } = require('../tools/mame-diff/ssc/gen-roms.js');
+  const m = Emu.createMachine('coco', {});
+  m.setRoms(Object.fromEntries(Emu.profiles.coco.roms.map((r) => [r.id, romImage(ayHost(), r.at, r.size, 0x12)])));
+  m.insertCartridge(new Emu.SpeechSoundPak({ tms7040Rom: ayPic(), sp0256Rom: buildSp0256() }));
+  m.reset(true);
+  const pak = m.cartPort;
+  let pending = null, pairs = 0, wrong = 0, firstWrong = '';
+  // T is taken from the PIC, independently of when the card applies the write: the instruction that decodes an AY
+  // data write (toAy is called inside it) ends at its start plus its cycles. The latest such end is kept; a write
+  // that changed nothing is replaced by the next.
+  let wrote = false;
+  const toAy = pak.toAy.bind(pak);
+  pak.toAy = (fn, v) => { if (fn === pak.ay.dataW) wrote = true; return toAy(fn, v); };
+  const step = pak.tms7040.step.bind(pak.tms7040);
+  pak.tms7040.step = () => {
+    const start = Number(pak.cardPos);
+    const cycles = step();
+    if (wrote) { pending = start + cycles; wrote = false; }
+    return cycles;
+  };
+  const cartSound = m.cartSound.bind(m);
+  m.cartSound = (tick, level) => {
+    if (pending !== null) {
+      const want = Math.ceil(pending / 4) * 4;
+      pairs++;
+      if (tick !== want) { wrong++; if (!firstWrong) firstWrong = `write at ${pending}: change stamped ${tick}, want ${want}`; }
+      pending = null;
+    }
+    return cartSound(tick, level);
+  };
+  for (let f = 0; f < 30; f++) m.runFrame();      // the fixed-level steps: about the first 0.4 s
+  check('each AY write first sounds on the first sample to start at or after its instruction\'s end',
+    pairs > 50 && wrong === 0, `${pairs} writes, ${wrong} wrong${firstWrong ? `; ${firstWrong}` : ''}`);
 }
 
 console.log(`${n - fail}/${n} SSC checks passed`);

@@ -117,9 +117,11 @@ const storeSscRoms = (s, { pic = PIC, sp = SP_ROM } = {}) => {
   pak.ay.writeReg(0, 0x8E); pak.ay.writeReg(1, 0x00);   // channel A period low 8 bits
   // The card's reported level is gated by the CoCo's sound mux, which this firmware-driven test never opens, so
   // the AY's OWN output is what to measure here: that is the music path the speech ROM plays no part in.
-  let level = 0;
-  for (let k = 0; k < 4000; k++) { pak.ay.step(pak.ayOut); level = Math.max(level, Math.abs(pak.ayOut[0])); }
-  check('...the AY sounds without any speech ROM (music path independent of it)', level > 0, `peak level ${level}`);
+  // The AY's single output is not 0 even when silent (0.158 with every channel at 0), so "sounds" means the output
+  // MOVES: a square wave on channel A swings between two levels.
+  let lo = Infinity, hi = -Infinity;
+  for (let k = 0; k < 4000; k++) { pak.ay.step(pak.ayOut); lo = Math.min(lo, pak.ayOut[0]); hi = Math.max(hi, pak.ayOut[0]); }
+  check('...the AY sounds without any speech ROM (music path independent of it)', hi - lo > 0.05, `swing ${lo} to ${hi}`);
   // the card runs: frames advance with no error, which is what "plays" means at this level
   check('...and the machine runs frames with the Pak in', !throws(() => { for (let f = 0; f < 3; f++) s.shownMachine.runFrame(); }));
 }

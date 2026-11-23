@@ -94,6 +94,7 @@ class Machine {
     this.cartLevel = 0;
 
     // Time: one absolute tick counter (CPU cycles, or GIME clocks on the CoCo 3), never rebased.
+    this.powerOnAt = 0;       // the frame origin of the last power-on (powerOnTick)
     this.cycle = 0;           // now, in ticks
     this.inStep = false;      // an instruction is running: between cycles of runCycles, false (see ioTime)
     this.frameBase = 0;       // tick at which the current frame started
@@ -206,6 +207,7 @@ class Machine {
       // power-on: video timing restarts at the frame origin; the CPU starts resetOffset ticks later
       this.queue = [];
       this.cycle = this.frameBase + this.resetOffset;
+      this.powerOnAt = this.frameBase;
       this.timelineStarted = true;
       this.startTimeline(true);
     }
@@ -216,6 +218,13 @@ class Machine {
     // not machine state, so not in the snapshot
     if (this.onReset) this.onReset(hard);
   }
+
+  // The tick MAME's machine time starts from at the last power-on: that power-on's frame origin, resetOffset ticks
+  // before the CPU's first instruction (MAME resets its devices at time 0; the CPU starts later). A device that
+  // runs a clock of its own from power-on (a cartridge's processor) starts it here, not at the CPU's first
+  // instruction. Coco3Machine adds MAME's one-cycle lag. Set by reset(hard) before the cartridge port's reset; a
+  // restored machine keeps the value it was constructed with (only a power-on reads it, and it sets it first).
+  powerOnTick() { return this.powerOnAt; }
 
   // ---------------- events ----------------
   now() { return this.cycle; }
@@ -438,6 +447,9 @@ class Machine {
   // CPU cycles a slot holds its lines back (coco.cpp machine_start: set_line_delay), counted in the slot's clock
   get lineDelays() { return LINE_DELAYS; }
   get slotHz() { return this.tickHz; }
+  // The cartridge port's own clock: what a cartridge's processor is clocked from (MAME's slot device clock). It
+  // does not follow a CPU speed-up, unlike slotHz, which counts the slot's line delays in CPU cycles.
+  get cartClockHz() { return this.tickHz; }
 
   // ---------------- bus ----------------
   setLine(source, line, level) {

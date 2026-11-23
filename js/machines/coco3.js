@@ -169,6 +169,8 @@ class Coco3Machine extends Machine {
   // driver's clock (6883sam.cpp
   // update_cpu_clock: m_cpu->owner()->set_unscaled_clock), so at 1.78 MHz the delays are half as long.
   get slotHz() { return this.masterHz / (this.gime.fast ? 16 : 32); }
+  // the cartridge port's clock is the normal-speed CPU clock whatever the GIME's rate (MAME's ext slot: 894.88 kHz)
+  get cartClockHz() { return this.masterHz / 32; }
   cartridgeChanged() { this.gime.cartridgeChanged(); }
   get monitor() { return this.gime.monitor; }
   set monitor(v) { this.gime.monitor = v === 'composite' ? 'composite' : 'rgb'; }
@@ -430,6 +432,8 @@ class Coco3Machine extends Machine {
   // per tick short of MAME, 11 ps after 4 seconds. MAME's machine time counts 4 cycles before the first
   // instruction (as on the SAM machines, sam.js clockUnits), one fewer than our video origin (resetOffset 20 ticks).
   clockUnits() { return super.clockUnits() - (this.config.mameCompat ? MAME_TIME_LAG : 0); }
+  // MAME's time 0, in ticks: MAME_TIME_LAG GIME clocks (one CPU cycle) after our frame origin, as clockUnits counts
+  powerOnTick() { return super.powerOnTick() + (this.config.mameCompat ? MAME_TIME_LAG : 0); }
   // Start of the current access cycle (the CPU counts the cycles of the instruction so far). Between instructions
   // there is no cycle in progress, and cycleCount holds the last step's, so it is now (see Machine.ioTime): an
   // outside write through syncIoMame would otherwise end a slice a whole instruction past its access.
