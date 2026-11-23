@@ -4118,6 +4118,95 @@ async function librarySelectChecks(browser, base, check) {
     check(`${L}: no page errors and no dialog boxes`, !errors.length, errors.join('; '));
     await ctx.close();
   }
+
+  // Two tabs on one origin share the Library (real OPFS; Session.mediaShare: one lock, a BroadcastChannel). What one
+  // adds the other shows without a reload; a delete with Undo leaves the other tab alone until it is final.
+  {
+    const L = 'library in two tabs';
+    const errors = [];
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 980 } });
+    const [a, b] = [await ctx.newPage(), await ctx.newPage()];
+    for (const p of [a, b]) { p.on('pageerror', (e) => errors.push(e.message)); p.on('dialog', (d) => { errors.push(`a ${d.type()} box: ${d.message()}`); d.dismiss(); }); }
+    for (const p of [a, b]) { await p.goto(`${base}?machine=dragon64#library`); await ready(p); }
+    const kind = await a.evaluate(() => window.emu.session.media.kind);
+    const shelf = (p) => p.evaluate(() => [...document.querySelectorAll('#libTiles .tile, #libTapes .spine')].map((x) => x.dataset.name.split('/').pop()).sort().join());
+    const tile = (name) => `#library [data-name="library/${name}"]`;
+    await a.setInputFiles('#fileLib', ['DEMO.BIN', 'LIZA.BIN'].map((n) => path.join(tmp, n)));
+    // once A has both stored, B shows them within about a second (2 s allowed, for a loaded runner), and says nothing
+    await waitFor(a, async () => (await window.emu.session.library.listMedia()).length === 2);
+    const t0 = Date.now();
+    const seen = await waitFor(b, () => document.querySelectorAll('#libTiles .tile, #libTapes .spine').length === 2, null, 10000);
+    const took = Date.now() - t0;
+    check(`${L}: items added in one tab appear on the other's shelf within about a second, without a reload (storage: ${kind})`,
+      kind === 'opfs' && seen && took < 2000 && await shelf(b) === 'DEMO.BIN,LIZA.BIN', `${kind} ${took} ms ${await shelf(b)}`);
+    check(`${L}: ... quietly: no toast in the other tab`, await b.isHidden('#toast'), await b.textContent('#toast'));
+    // a ROM stored in one tab: the other's index has it, and its Library counts it
+    await a.evaluate(() => { const m = window.emu.session.shownMachine; window.emu.session.roms.put(m.id, m.profile.roms[0].id, new Uint8Array(8192).fill(0x12), 'stand-in.rom'); });
+    const romSeen = await waitFor(b, () => { const s = window.emu.session, m = s.shownMachine; return !!s.index.image(s.index.socketCrc(m.id, m.profile.roms[0].id) || '') && s.storedRoms().count === 1; }, null, 10000);
+    check(`${L}: a ROM stored in one tab is in the other's ROM list, and its Library counts it`, romSeen, JSON.stringify(await b.evaluate(() => window.emu.session.storedRoms())));
+    // delete in A, then Undo: B keeps the item all along
+    const del = async () => { await a.click('#btnLibSelect'); await a.click(tile('DEMO.BIN')); await a.click('#btnLibDelete'); };
+    await del();
+    await new Promise((r) => setTimeout(r, 1500));
+    const pendingA = await shelf(a), pendingB = await shelf(b);
+    await a.click('#toastAction');
+    await waitFor(a, (sel) => !!document.querySelector(sel), tile('DEMO.BIN'));
+    await new Promise((r) => setTimeout(r, 1500));
+    check(`${L}: a delete in one tab hides the item there at once, while the other tab keeps it`, pendingA === 'LIZA.BIN' && pendingB === 'DEMO.BIN,LIZA.BIN', `${pendingA} | ${pendingB}`);
+    check(`${L}: Undo in that tab brings it back, and the other tab never lost it (nor did the store)`, await shelf(a) === 'DEMO.BIN,LIZA.BIN' && await shelf(b) === 'DEMO.BIN,LIZA.BIN'
+      && (await b.evaluate(async () => (await window.emu.session.library.listMedia()).some((x) => x.name === 'library/DEMO.BIN'))), `${await shelf(a)} | ${await shelf(b)}`);
+    // delete again and let the toast end: the other tab drops it once the delete is done
+    await del();
+    const ended = await waitFor(a, () => document.getElementById('toast').hidden, null, 30000);
+    const dropped = ended && await waitFor(b, (sel) => !document.querySelector(sel), tile('DEMO.BIN'), 10000);
+    check(`${L}: once the delete is final, the other tab drops the item too (no reload, no message)`, dropped && await shelf(b) === 'LIZA.BIN' && await b.isHidden('#toast'), `${await shelf(b)}`);
+    if (shotDir) await b.screenshot({ path: path.join(shotDir, 'library-two-tabs.png') });
+    // The ROM screen in B while A changes a socket: the row says "Changed in another tab" until the screen closes, and
+    // while B's machine still runs the ROM A replaced or removed, the row says so; B's machine is not touched.
+    // (stand-in images: one byte value repeated, the socket's size; no ROM code)
+    await b.evaluate(() => { location.hash = '#add-roms'; });
+    await waitFor(b, () => !document.getElementById('romCard').hidden);
+    const put = (fill, file) => a.evaluate(([v, f]) => { const s = window.emu.session; s.roms.put('dragon64', 'basic', new Uint8Array(16384).fill(v), f); }, [fill, file]);
+    const row = () => b.evaluate(() => { const r = document.querySelector('#romSockets [data-socket="basic"]'); return r ? { state: r.querySelector('.state').textContent, note: r.querySelector('.elsewhere') ? r.querySelector('.elsewhere').textContent : '' } : null; });
+    const other = () => b.evaluate(() => { const r = document.querySelector('#romSockets [data-socket="basic64"]'); return r && !r.querySelector('.elsewhere'); });
+    await put(0x12, 'one.rom');
+    const marked = await waitFor(b, () => { const r = document.querySelector('#romSockets [data-socket="basic"] .elsewhere'); return !!r && /one\.rom/.test(document.querySelector('#romSockets [data-socket="basic"] .state').textContent); }, null, 10000);
+    let r = await row();
+    check(`${L}: the ROM screen marks the socket another tab changed, quietly ("Changed in another tab"), and only that row`, marked && r.note === 'Changed in another tab' && await other()
+      && await b.evaluate(() => getComputedStyle(document.querySelector('#romSockets .elsewhere')).fontStyle === 'italic') && await b.isHidden('#toast'), JSON.stringify(r));
+    // B starts its machine on that ROM; A then replaces it, then removes it
+    await b.evaluate(() => window.emu.session.switchMachine('dragon64'));
+    const runs = await b.evaluate(() => window.emu.session.personMachine.romCrcs().basic || null);
+    await put(0x34, 'two.rom');
+    const replaced = await waitFor(b, () => /^Replaced · the running machine keeps the old one until you switch off and on$/.test(document.querySelector('#romSockets [data-socket="basic"] .state').textContent), null, 10000);
+    r = await row();
+    check(`${L}: replaced in another tab while this machine runs it: "Replaced · the running machine keeps the old one until you switch off and on", and the machine keeps it`,
+      replaced && r.note === 'Changed in another tab' && !!runs && await b.evaluate(() => window.emu.session.personMachine.romCrcs().basic || null) === runs, JSON.stringify(r));
+    if (shotDir) await b.screenshot({ path: path.join(shotDir, 'roms-replaced-in-another-tab.png') });
+    await a.evaluate(() => window.emu.session.clearRoms());
+    const removed = await waitFor(b, () => document.querySelector('#romSockets [data-socket="basic"] .state').textContent === 'Removed · still in the running machine', null, 10000);
+    check(`${L}: removed in another tab: "Removed · still in the running machine", and the machine still has it`,
+      removed && await b.evaluate(() => window.emu.session.personMachine.romCrcs().basic || null) === runs, JSON.stringify(await row()));
+    // closing the screen ends the "Changed in another tab" lines; the running machine's state stays until it is switched off and on
+    await b.click('#btnRomBack');
+    await waitFor(b, () => document.getElementById('romCard').hidden);
+    await b.evaluate(() => { location.hash = '#add-roms'; });
+    await waitFor(b, () => !document.getElementById('romCard').hidden);
+    r = await row();
+    check(`${L}: reopened, the ROM screen no longer says "Changed in another tab", while the row still says what the machine runs`, r.note === '' && r.state === 'Removed · still in the running machine', JSON.stringify(r));
+    await b.evaluate(() => window.emu.session.powerCycle());
+    const fresh = await waitFor(b, () => /^Waiting for a file/.test(document.querySelector('#romSockets [data-socket="basic"] .state').textContent), null, 10000);
+    check(`${L}: switched off and on, the machine takes what is stored now and the row is an ordinary empty socket`, fresh && await b.evaluate(() => !window.emu.session.personMachine.romCrcs().basic), JSON.stringify(await row()));
+    // a program loaded in A is in B's recent programs, with its bytes, quietly
+    await a.evaluate(() => window.emu.session.load('RECENT.BIN', new Uint8Array([0x55, 2, 0x30, 0x00, 0x00, 0x01, 0x30, 0x00, 0xAA, 0x39])));
+    const t1 = Date.now();
+    const recent = await waitFor(b, () => { const s = window.emu.session, r = s.library.recentMedia().find((x) => x.name === 'RECENT.BIN'); return !!r && !!s.index.recentData(r.crc); }, null, 10000);
+    const tookRecent = Date.now() - t1;
+    check(`${L}: a program loaded in one tab is in the other's recent programs, with its bytes, within about a second, with no toast`,
+      recent && tookRecent < 2000 && await b.isHidden('#toast'), `${tookRecent} ms`);
+    check(`${L}: no page errors and no dialog boxes`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
   fs.rmSync(tmp, { recursive: true });
 }
 

@@ -597,7 +597,9 @@ const REQUIRED = require.main !== module;
     // bareDiskController and diskRomWaiting read the disk controller of the PERSON's machine (diskMachine); no change
     'drives.bareController', 'drives.romWaiting',
     // sscBoardLabel reads the stored ROMs (whether the Pak's speech ROM is in the library); no machine
-    'sscBoardLabel']);
+    'sscBoardLabel',
+    // romElsewhere reads the PERSON's machine's ROM CRCs against the stored socket another tab changed; no change
+    'romElsewhere']);
   // writes the library or settings only
   // (removeRom and restoreRom act on the PERSON's machine, as addRoms does: never the chat machine)
   const LIBRARY = new Set(['addRoms', 'clearRoms', 'removeRom', 'restoreRom', 'deleteMedia', 'importDriveWireImage', 'importMedia',

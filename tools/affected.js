@@ -53,7 +53,7 @@ const AREAS = [
     suites: ['session-drives', 'disks', 'disks-newdisk', 'disk-bare', 'disks-mount-case', 'disks-mount-race', 'restore-points'], groups: ['disk', 'driveWire'] },
   { row: '`js/library.js` (the media library)',
     paths: ['js/library.js', 'js/media/library.js', 'js/host/media-store', 'js/host/folder-handle.js', 'js/host/storage.js', 'js/ui/library.js'],
-    suites: ['session-library', 'storage-move', 'move-inflight', 'library-case', 'recent', 'store-error-names', 'store-races'], groups: ['library'] },
+    suites: ['session-library', 'storage-move', 'move-inflight', 'library-case', 'recent', 'store-error-names', 'media-store', 'media-index-settled', 'media-multitab', 'store-races'], groups: ['library', 'librarySelect', 'mediaBackend'] },
   { row: 'The Claude chat and Ask Claude',
     paths: ['js/claude/', 'js/host/claude-brief.md', 'js/host/key-store.js', 'js/ui/claude.js', 'js/ui/claude-lines.js', 'js/ui/ask.js', 'js/ui/ask-popout.js', 'js/ui/command-box.js'],
     suites: ['claude', 'chat-firmware'], groups: ['claude', 'ask', 'commands', 'chatScreen'] },

@@ -544,6 +544,26 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   and why, rather than a bare folder or a path; a case-only rename on a store that does not tell cases apart names
   the new name without the folder typed; Save to Library of a disk with no file name, or with a name that is not a
   disk image's file name, says which and what to do.
+- **Two tabs no longer lose each other's ROMs, Library items or recent programs.** Every change to the media index
+  (which ROM is in which socket, the ROMs' file names, the recent list) wrote this tab's whole list over the stored
+  one, so with two tabs open the last writer won and silently dropped what the other had added, Undo included. Now each
+  change re-reads the stored list under a lock all tabs share (`navigator.locks`; one per store in Node), applies only
+  that change and writes the result (`MediaIndex`, js/media/library.js): the same socket changed in two tabs ends as
+  the change made last, and nothing else is lost. A collect removes only images no stored socket uses (a socket is now
+  stored before its image), and a recent program's file stays while the stored list still names it. A BroadcastChannel
+  tells the other tabs what changed (`Session.mediaShare`, `mediaElsewhere`): their index reads the lists again and
+  their panels redraw (`'roms'`, and the new `'recent'` and `'library'` events), quietly, with no message. The
+  in-memory fallback is each tab's own and says nothing. On the ROM screen a socket another tab changed while it
+  is open says so quietly ("Changed in another tab", until the screen closes); if the running machine still has the
+  ROM another tab removed or replaced, the row says "Removed · still in the running machine" or "Replaced · the
+  running machine keeps the old one until you switch off and on" (`Session.romElsewhere`), the machine is not touched,
+  and switching off and on then takes what is stored. Another tab's image or recent file is taken only once its bytes
+  are in: OPFS shows a file empty until its write closes, and a tab that read it then kept the empty bytes. A list
+  another tab stored is put in place only together with the files it names, never before they are read, and not over
+  a change this tab made while they were being read; a tab opening while another writes a file does not keep it half
+  written. `tests/media-multitab.test.js` (two indexes on one store,
+  asynchronous and synchronous, interleaved; two Sessions with a channel) and the browser check's `librarySelect`
+  group (two tabs on real OPFS: add in one and see it in the other, a ROM, delete with Undo across tabs).
 - **The TMS7000 assembler encoded `DJNZ Rn,@LABEL` (and every jump written with an `@`) as offset 0.** A relative jump takes a plain label or address; `@` marks an address operand (`CALL @LABEL`), so a jump written with it is now an error that says so, for all 38 relative forms (the jumps, DJNZ, BTJO/BTJZ and BTJOP/BTJZP). An undefined jump target is an error too (it encoded offset 0), and so is a target further than -128..127 from the next instruction (the offset wrapped to a different place); the message gives the distance.
 - **A printout on a CoCo no longer starts with a NUL.** The no-ROM stub made PIA1's PA1 (the RS-232 out) an output
   while its output register held 0, so the line dropped to space at every start and the 600-baud serial printer
