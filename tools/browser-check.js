@@ -11690,6 +11690,10 @@ async function askEscChecks(browser, base, check) {
     // ten frames) lands against the toast's placement, so a loop that depends on its own last output showed in about one run
     // in four. Twenty toasts in a row, each raised, kept up for 90 frames and cleared, on this one page: none may make the
     // pill come and go (at most one change of the pill per toast, never two).
+    // (What turns it red: the two halves of the fix removed together. A toast kept in its natural bottom place covers the
+    // Stop (the placement checks above fail, the pill checks stay green), and the pill decided from the page as the class
+    // left it instead of the reference state (the `claude-float` line in js/ui/ask.js) is green too while the toast
+    // stays off the Stop; both together make the loop, 8 or 9 changes of the pill per toast.)
     const reps = await page.evaluate(async () => {
       const v = document.getElementById('viewClaude'), frames = (n) => new Promise((done) => { let k = 0; const f = () => (++k >= n ? done() : requestAnimationFrame(f)); f(); });
       const words = 'A toast over the bottom of the window, long enough to wrap onto several lines on a phone, so that it lies over the sheet\'s Stop button at the bottom edge of the window for as long as it shows';
