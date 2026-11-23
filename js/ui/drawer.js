@@ -96,6 +96,8 @@ export function setupDrawer(page, { showRoms }) {
     // a button that can't work is disabled with the reason, not clicked and complained about
     put($('btnRewind'), 'disabled', !t);
     put($('btnRewind'), 'title', t ? 'Back to the start of the tape' : 'No tape inserted');
+    put($('btnEjectTape'), 'disabled', !t);
+    put($('btnEjectTape'), 'title', t ? 'Take the tape out of the deck' : 'No tape inserted');
     put($('tapeState'), 'textContent', !t ? 'click the deck to insert' : m.deck.motor ? `motor on · ${(t.progress() * 100).toFixed(0)}%` : `stopped · ${(t.progress() * 100).toFixed(0)}%`);
     put($('cartSlot'), 'hidden', !m.hasCartridgePort);
     const loaded = !!(m.hasCartridgePort && m.cartPort);

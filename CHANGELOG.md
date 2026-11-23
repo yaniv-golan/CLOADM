@@ -15,6 +15,45 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   at least one of them), and `node tools/prepush.js` runs the author's checklist before a push (the affected suites
   and groups, the full gate, `sw.js`'s file list, CHANGELOG edits only under `[Unreleased]`, the skill copies, a
   noreply email, the release tags, and a report skeleton).
+- **Ctrl+K finds more, forgives typos and switches machines.** New commands: **Help** (the Help page in a new tab),
+  **Switch machine…** (the machine menu; also "computer" and "model"), and **Switch to <model>** for every model,
+  found by its name ("coco 3"), which asks first through the machine menu's confirmation; a query
+  that says "switch" or "machine" without naming a model gets the one **Switch machine…** row. **Your ROMs** also
+  answers to "delete", "remove" and "forget", and **Help** to "guide" and "how". A word of 4 letters or more may be one
+  letter off a word's start, its first letter kept ("rset" finds Reset, "setings" and "setin" the settings). Matches at
+  the start of a word of the name come first, then those in a command's other words, then the near misses, each in
+  the list's order; up to 8 commands (was 6), Ask Claude last; the matched part is highlighted (`<mark>`), and each
+  option's accessible name is its plain label. `↓` on the last row goes to the first, `↑` with none chosen to the
+  last. Every command stays listed, as the tape's do: **Eject disk** with no disk in is muted ("No disk in"; choosing it
+  says "No disk in any drive."), and **Switch to** the model you are using is muted ("Running now"; choosing it says
+  "You're using the Dragon 64 now."), after the rows that apply. (`rankCommands`, `listCommands`, `switchCommands`.)
+- **Tape: Eject, the tape commands in Ctrl+K, and recordings kept in the Library.** The cassette slot has **Eject**
+  beside **Rewind** (on touch, the slot's buttons are at least 44 px tall) (`Session.ejectTape`, which emits `'tape'` and clears the tape watch as a rewind does): the deck
+  goes with the tape, the focus goes to the slot's deck button, and the page says "Tape ejected."; a program waiting
+  on the tape (BASIC's CLOAD) keeps waiting, as on a real machine. Ctrl+K has **Insert a tape…** (the tape picker:
+  .cas and .wav), **Rewind the tape** and **Eject the tape**. Every command is always listed: one that doesn't apply
+  now (Rewind, Eject or Save the tape as .WAV with no tape in) is a muted row whose second line says why not ("No tape
+  in"), aria-disabled but still selectable, listed after the rows that apply; choosing it keeps the box open, runs
+  nothing, and its row and the box's live region say why, once ("No tape in the deck."). On a tape of more than one file
+  the deck says which is loading: "LOADING · FILE 2 OF 3 · BLOCK 4 OF 31". **Stop and save .CAS** no longer
+  downloads "recording.cas": the recording goes into the Library named after the first file in its header, trimmed,
+  with the characters a file name can't take as "_" (`CSAVE "HELLO"` saves HELLO.CAS, "A/B" saves A_B.CAS), or
+  "Recording HH-MM.cas" with no name; a name already there gets " (2)" (`MediaLibrary.uniqueName`); several CSAVEs
+  make one file, named after the first. The toast says "Saved HELLO.CAS to your Library (2 files)." with **Download**;
+  with "Download and open files" chosen it is downloaded under that name instead. A recording kept at a machine
+  switch is offered and saved the same way (`Session.recordingName`).
+- **2048's tiles slide.** A move's tiles travel to where they land over three fields, each drawn in the square it
+  is passing through, then the joined squares flash once in a fill no tile has, and then the new tile pops in. Every
+  moving tile is drawn at each field (one is never left blank while another passes over its square), and the pop is
+  part of the animation too: a key during it ends it at once. Only
+  the moving tiles' own rectangles are redrawn, so the picture stays whole without a second screen page. Each field
+  is one field sync (VSYNC), one ENTROPY tick and one POLCAT poll - a field clock of the animation's own, which
+  is what lets a test see each field (the game's key wait ticks ENTROPY per poll and has no sync); a key pressed at any
+  point ends the animation at once and is played as the next move, drawn whole. Keys pressed during one animation
+  are queued four deep and all played, in order (a fifth is dropped), and a key queued behind R survives the new game. `tests/games-slide.test.js` checks
+  the intermediate squares, the flash (its `$AA`/`$55` highlight for one field), the pop (small then full, from
+  the geometry), each tile drawn with its own value as it moves (a tile that joins becomes the merged value only
+  on the flash), their order, and a key during the slide.
 - **Minesweeper plays with a joystick.** Either joystick moves the cursor: one step as the stick leaves the centre,
   then again after 300 ms and every 120 ms while it is held (counted in fields, at the machine's own 50 or 60 Hz;
   centring the stick and pushing the same way again is a new press). Either fire button opens the square under the
@@ -487,6 +526,7 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   match its CRC: OPFS shows a file empty until its write closes, and a tab that read it then kept the empty bytes. `tests/media-multitab.test.js` (two indexes on one store,
   asynchronous and synchronous, interleaved; two Sessions with a channel) and the browser check's `librarySelect`
   group (two tabs on real OPFS: add in one and see it in the other, a ROM, delete with Undo across tabs).
+- **The TMS7000 assembler encoded `DJNZ Rn,@LABEL` (and every jump written with an `@`) as offset 0.** A relative jump takes a plain label or address; `@` marks an address operand (`CALL @LABEL`), so a jump written with it is now an error that says so, for all 38 relative forms (the jumps, DJNZ, BTJO/BTJZ and BTJOP/BTJZP). An undefined jump target is an error too (it encoded offset 0), and so is a target further than -128..127 from the next instruction (the offset wrapped to a different place); the message gives the distance.
 - **A disk in a drive counts toward the install offer.** The page's "program in use" test (the one the
   offer to install CLOADM as an app waits a minute of) asked the machine for a disk controller it never has, so a disk
   waiting in a drive at the bare prompt never counted; it now asks the drives (`session.drives.controllerOf`). The

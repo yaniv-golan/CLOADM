@@ -831,6 +831,51 @@ snapshot. The page (browser check, group `tapeHud`, desktop and phone): on by de
 Sound switched off nothing at all is sent to the output while the tape plays (`tests/tape-sound.test.js` checks the
 same gate in Node). How it sounds is a matter of ear, not checked automatically.
 
+### The tape's extras: Eject, the Ctrl+K tape commands, several files, recordings named
+
+No MAME oracle (AGENTS.md 4.6): page behaviour. `tests/tape-extras.test.js` records real CSAVEs, the project's writer
+firmware (`tools/mame-diff/tape/csave.asm`) running as the Dragon 32's ROM with the name in its namefile block changed
+per case: "HELLO" names HELLO.CAS, a blank name and an empty recording "Recording HH-MM.cas", "A/B" A_B.CAS (and
+every other forbidden character "_"), two runs in one recording one file named after the first with 2 files;
+`MediaLibrary.uniqueName` gives "HELLO (2).CAS" and "(3)" once the names are taken. A 2-file tape reports file 2 of 2
+past its second namefile block. `Session.ejectTape` empties the deck, emits `'tape'`, clears the tape watch, and
+with the motor on resets nothing: the machine runs on and the motor stays on. Browser check, group `tapePanel`
+(1440x900 and 390x844): Ctrl+K without a tape lists **Insert a tape…** (which opens the tape picker, .cas and .wav),
+then Rewind, Eject and Save the tape as .WAV muted ("No tape in", aria-disabled, no disabled attribute, after every row
+that applies); choosing each of them keeps the box open, changes nothing, puts its reason on its row and says it once
+in the live region; with a tape, "rewind" and "eject" find them, not muted; a 3-file tape reads "LOADING · FILE 2 OF 3 ·
+BLOCK 4 OF 9"; **Rewind the tape** rewinds; **Eject the tape**, with the motor on, hides the deck, says "Tape
+ejected." and leaves the focus on the slot's deck button with the motor still on; the commands are then muted
+again; the slot's **Eject** sits beside **Rewind**, is disabled with no tape, and ejects the same way. Group `tape`:
+the writer firmware's recording is saved to the Library as CLOADM.CAS, byte for byte, and the toast's **Download**
+saves the same bytes under that name; the recording kept at a machine switch is offered as CLOADM.CAS and saved as
+"CLOADM (2).CAS"; both are on the Library's shelf after a reload. Two runs of the writer in one recording save one
+CLOADM.CAS, and the toast says "(2 files)"; with `?storage=fallback` ("Download and open files") the recording is
+downloaded as CLOADM.CAS and nothing is kept. On the touch phone the slot's Rewind, Eject, Record and Save .WAV are at
+least 44 px tall.
+
+### Ctrl+K: ranking, typos, the machines, Help
+
+No MAME oracle (page behaviour). `tests/command-rank.test.js` runs `rankCommands` on the page's own command list
+with the models' "Switch to" rows: "rset" gives Reset first, "setings" and "setin" a settings command, "coco 3"
+Switch to CoCo 3, "help", "guide" and "how" Help, "delete rom", "forget" and "remove rom" Your ROMs, "eject" with a
+tape and no disk Eject the tape; "xyzzy" nothing; "switch" and "machine" the one Switch machine… row and no model
+rows; every model has its row by its name, the running one muted ("Running now", "You're using the <model> now.") and after
+the ones that apply; "eject" with only a tape gives Eject the tape, then Eject disk muted ("No disk in"), with both in
+both apply in the list's order, with neither both muted; Rewind and Save the tape as .WAV say their reasons, the WAV
+not with a recording; a synthetic list shows the tiers (label
+start in list order, then other words, then a near miss); 3-letter words are not forgiven and a near miss keeps its
+first letter; the marks are the matched parts of the label. `tests/disk-bare.test.js` checks Eject disk's state and reason
+with no disk in. Browser check, group `commands` (1280x720 and 390x844): the same first rows, selected; at most 8
+commands then Ask Claude; the marks and the option's accessible name (the plain label, found by role and exact name);
+↓ wrapping from the last row to the first and ↑ from none chosen to the last; "coco 3" Enter opening the switch
+confirmation naming the CoCo 3, Cancel keeping the Dragon 64; Switch machine… opening the machine menu; Help opening
+`help/` in a new tab; the empty box's list with Switch machine… and Help last; every label in Help; the running
+Dragon 64's row muted "Running now" after the other Dragon 64s, reached with the arrows, and Enter on it keeping the
+box open, putting "You're using the Dragon 64 now." on the row, saying it once in the live region and switching
+nothing; "eject" with a tape in giving Eject the tape, then Eject disk muted; every muted row in the empty box
+aria-disabled and reached by the arrows.
+
 ### The tape HUD and the cassette panel
 
 Browser check, groups `tapeHud` and `tapePanel`. At 1440x900, 820x1180, 390x844 and 844x390 (touch at the last three),
@@ -1710,6 +1755,70 @@ independently in `tests/games.test.js`:
   board and BCD score in memory match after every move; joins happen once per move; a move that changes nothing brings
   no tile; a full board with only a vertical join left is not over; a stuck board is over (both checked on the model
   first); 2048 is announced once and play goes on; the same game on the Dragon 32, CoCo, CoCo 3 and 6309.
+* 2048's animation, `tests/games-slide.test.js` (16 checks), at the field clock the tests read (the ENTROPY byte, which
+  every field of the slide AND of the pop ticks once - both take a VSYNC, which the key wait does not; the pop is also
+  sampled per frame so its own fields can be seen): a tile travelling three squares is drawn in each square it passes
+  over, so a row's ink takes more than two shapes over the fields; the joined tile is drawn for exactly one field in the
+  `$AA`/`$55` fill that no tile
+  style has, between its own looks (read from the box's dominant even-row and odd-row bytes); a new tile is SMALL
+  (the pop's 4x20 = 80 inked bytes) for frames after an empty slot, then FULL (6x34 = 204), both sizes derived from
+  the geometry; a tile mid-slide carries the mover's OWN value, not a merged one (a 4's `$FF` body on the columns it
+  crosses, and a joining tile - a 2 crossing three squares to join a 2, a 4 to join a 4 - showing what it WAS, `$55`
+  or `$FF`, never the `$FF` or `$77` of the value the join makes); the board in memory is the move's rule state with
+  exactly one tile added, unchanged by how it was drawn; a key pressed mid-slide ends it at once (no intermediate
+  shape after it) and is played as the next move, which puts the tile where that key sends it; a key during the
+  POP ends it at once too, and keys pressed during one animation are queued four deep and all played, in order
+  (the queue's depth and oldest-first order are checked directly, and on a CoCo 3 whose RAM is garbage at
+  power-on); nothing is left behind (a square a mover has left shows no ink on that field); the flash lasts one
+  field, measured in machine cycles against the machine's own `frameCycles` (`d/F = 0.999` on a 50 Hz Dragon and a
+  60 Hz CoCo); and the order is slide, then flash, then pop.
+
+  **Every mutant, with its exact edit and what it was measured to redden.** Every row was measured in a separate
+  worktree at `b985014`. The rows depend only on `tests/` and `examples/`, and those are the same at `b985014` as at
+  this commit (`git diff b985014 HEAD -- tests examples` is empty): every later commit edits this file alone.
+  To reproduce one: apply the edit,
+  `node tools/build-examples.js`, then `node tests/games-slide.test.js` and `node tests/games.test.js`.
+  "slide N" = N of the 16 checks in `tests/games-slide.test.js` fail; "game N" = N of the 151 in
+  `tests/games.test.js`.
+
+  | # | The edit | Measured at b985014 |
+  |---|---|---|
+  | R01 no `SLIDE` | `GLSLIDE`: `JSR SLIDE` -> `NOP` | slide 9, game 0: crossed squares, merged-tile flash, order, one-field flash, mover values (h, i, k), flash duration, nothing left behind. (On (p) this fails only because the slide never runs, so there are no movers: (p) is not catching a trail here.) |
+  | R02 vertical step | in `SPOS`, delete the two `LSLA` after `LDA MSTEP` (a column step of 1, not 4) | slide 1: crossed squares |
+  | R03 skip a middle square | the second `SPSTEP` line (`FCB 1,1,2`) becomes `FCB 1,2,3` | slide 1: crossed squares |
+  | R04 a vanished tile | `SLPASS` becomes two passes. First pass: for each mover, `JSR SPOS`; `BEQ` past a mover that did not move this field, otherwise empty its `MPREV`. Second pass: for each mover, `JSR SPOS`; `BEQ` past one that did not move, otherwise draw `MTMP`. (Both passes skip unmoved movers; the blanking is unconditional for movers that did move.) | slide 1: every mover on its square (k) |
+  | R05 flash on wrong squares | in FLASH's paint loop, the `LDB B,X` commented "in B for SQPOS" becomes `LDA B,X` (NOT the restore loop's `LDB B,X`, commented "in B for DRAWSQ") | slide 1: the flash field |
+  | R06 only the first join flashes | after the first `JSR BOX`, `LBRA FLTICK` | slide 1: the flash field |
+  | R07 a field between the boxes | the paint loop has one `JSR BOX`; put `JSR SLFIELD` right after it, before `INC MI` | slide 2: the flash field, flash duration |
+  | R08 a field before the restore | the first instruction under `FLGO` becomes `JSR SLFIELD`, before the `LDA #1` that is there | slide 2: the flash field, flash duration |
+  | R09 a VSYNC before the restore | the first instruction under `FLGO` becomes `JSR VSYNC`, before the `LDA #1` that is there | slide 1: flash duration (d/F = 1.995) |
+  | R10 the pop never small | `SPPUT`: `LDA #1 / STA POP` -> `CLR POP` | slide 3: order, pop sizes, pop is cuttable |
+  | R11 the pop drawn full size | the pop box `#TILEW`/`#TILEH` instead of `-2`/`-14` | slide 3 (cut, order, pop sizes), game 1 (the board picture) |
+  | R12 the pop never cuttable | replace `SPWAIT`'s `LDA #3` with `LDB #3`, and the body `PSHS A / JSR SLFIELD / LDA KQN / PULS A / BNE SPDONE / DECA / BNE SPWAIT` with `JSR VSYNC / DECB / BNE SPWAIT` (three bare VSYNCs) | slide 2: order, pop is cuttable |
+  | R13 R drops the queue | in NEWGAME, immediately after `CLR WONSEEN` (before the `CLR SKIPPED` there), insert `CLR KQN` | slide 1: keys queued behind R |
+  | R14 queue depth 1 | `CMPB #4` -> `CMPB #1` in KQPUSH | slide 2 (keys behind R, queue depth), game 1 (the board picture) |
+  | R15 a broken queue shift | in KQPOP, `LDA 1,X` -> `LDA ,X` | slide 2 (keys behind R, queue depth), game 1 (the board picture) |
+  | R16 the queue not cleared at START | remove `CLR KQN` from START | slide 1: queue depth (the CoCo 3 leg) |
+  | R17 a joining tile reads the board | in `SPOS`, replace `LDB MI / LDX #MVF / LDA B,X` with `LDA MTO / LDX #BOARD / LDA A,X` | slide 2: joining tile, every mover on its square |
+  | R18 every mover drawn as a 2 | in `SPTILE`, `LDA MV` -> `LDA #1` | slide 3: mover values (h), joining tile (i), every mover on its square (k) |
+  | R19 two new tiles | a second `JSR SPAWN` after `GLDONE` | slide 3 (rule state, key mid-slide, pop is cuttable), game 6 |
+  | R20 a 2 drawn as a 4 | in `DRAWSQ`, after `LDA B,X`: `CMPA #1 / BNE DQ0 / LDA #2` and a new label `DQ0` before `JSR TILEAT` | slide 1 (the cut check), game 1 (the board picture) |
+  | R21 no flash at all | `JSR FLASH` -> `NOP` | slide 3: order, the flash field, flash duration |
+  | R22 a trail of copies | in SLPASS's clear pass, `LDB SPKEEP / JSR SPEMPTY` becomes `LDB SPKEEP / NOP / NOP / NOP` (a vacated square is never emptied; three NOPs keep the code size) | slide 1: nothing is left behind (a square with no mover on it keeps 204 bytes of ink) |
+
+  **Two product defects were found in review and fixed, each now checked:** a tile could vanish for a whole field - a
+  mover that stayed put was not redrawn after another mover blanked its square - so the per-field draw now draws every
+  mover and empties a square only when no mover is on it, and the check requires, per field, each mover's own body on
+  the square the model puts it. And the pop could
+  not be cut - its three fields ran blind - so each pop field now takes a VSYNC, an ENTROPY tick and a POLCAT poll like
+  the slide's, and a check presses a key during the pop and requires the move applied within one field. A third: the
+  slide read a mover's value off the post-move board, so a tile that merged slid in already showing the merged value;
+  the per-mover `MVF` table (filled from the row before it is packed) fixes it, and the joining-tile check turns red
+  when the slide reads the board again. A fourth: the flash loaded the join square into the wrong register, so squares
+  0..MRGN-1 always flashed; the check above names it.
+  **A part-painted frame is expected:** a tile is drawn one square at a time and a field's draw takes part of a frame,
+  so a single frame can show a tile partly painted; the next field completes it. It is not a wrong value or a missing
+  tile (that is the defect above, checked), and the checks read the body byte of the rows already drawn.
 * Minesweeper: over 40 seeds the first square is safe with no mine next to it, ten mines, every count right, and the
   flood opens exactly what the rules open; flags (at most ten, not on open squares, a flagged square does not open);
   a scripted win and a loss; the stack stays within 32 bytes of $3000 over a whole game (a queue, never recursion); a
@@ -1732,6 +1841,13 @@ independently in `tests/games.test.js`:
   games menu's keys) each turn `tests/games.test.js` or `tests/welcome.test.js` red, and so do five more: the flood
   opening flagged squares (testing OPEN only), the title page ignoring BREAK, the SAM's M not put back, no reset at
   `DONE` with ROMs, and no RAM check.
+* Where a game's image and variables may reach: both games REFUSE a 16K machine (`GAMES.ram = 32`, and `checkGame`
+  refuses), so the 16K bound (`$4000`) does not apply to them. `tests/games.test.js` holds them instead to their real
+  bound, the 32K machine's RAM top and ROM base: image and variables below `$8000`. It also records every display
+  base the SAM's F register is set to across the scripted game (`displayBase = F6..F0 * 512`,
+  `js/chips/sam6883.js:101`) and requires the pages shown to be exactly `$0400` while the image and the variables stay
+  clear of each page's 6K. Three deliberate breakages each turn it red by name: an image crossing `$8000`, a variable
+  placed at the stack's floor (`$2FDF`), and a second page shown over the image (`$3000`).
 
 ### The analogue joystick in Minesweeper
 

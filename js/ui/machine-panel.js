@@ -243,5 +243,6 @@ export function setupMachinePanel(page, { showRoms }) {
   $('chkBecker').onchange = (e) => change('becker', () => e.target.checked, (v) => `Becker port ${v ? 'on' : 'off'}`)(e);
   // `close` is openMenu(false): the item js/ui/install.js keeps in the menu closes it through this, rather than
   // setting the same two attributes a second time
-  return { confirmSwitch, close: () => openMenu(false) };
+  // (the command box's "Switch machine…" opens the menu; its "Switch to <model>" picks one, through the confirmation)
+  return { confirmSwitch, close: () => openMenu(false), open: () => openMenu(true), pick };
 }

@@ -496,6 +496,16 @@ export class MediaLibrary {
       return await this.libraryOp(() => (full.startsWith(DISK_PREFIX) ? this.session.drives.storeChange(op, full) : op()));
     } catch (e) { throw this.mediaError(e, name, full); }
   }
+  // A name not yet taken in the library (by the store's case rule): `name` itself, else "NAME (2).CAS", "NAME (3).CAS"
+  // and so on (importMedia replaces a file of the same name, so a new file that must not replace one asks here first)
+  async uniqueName(name) {
+    const taken = (await this.listMedia()).map((st) => st.name.split('/').pop());
+    const dot = name.lastIndexOf('.'), stem = dot > 0 ? name.slice(0, dot) : name, ext = dot > 0 ? name.slice(dot) : '';
+    for (let n = 1; ; n++) {
+      const cand = n === 1 ? name : `${stem} (${n})${ext}`;
+      if (!taken.some((t) => this.sameName(t, cand))) return cand;
+    }
+  }
   // take a file the user picked into the library under `name`; ROM images go through identification, so
   // they land in the index's own sockets rather than being written as an opaque blob; disk images go under
   // DISK_PREFIX, where the drives find them

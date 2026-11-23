@@ -2858,12 +2858,32 @@ export class Session {
     this.emit('recording');
   }
   rewindTape() { const t = this.personMachine.deck.tape; if (t) t.seekByte(0); this.tapeWatch = null; this.tapeStarted = null; return !!t; }
+  // Take the tape out of the deck. A program waiting on the tape (BASIC's CLOAD) is left waiting, as on a real
+  // machine with the cassette taken out; nothing is reset. -> whether there was a tape
+  ejectTape() {
+    const deck = this.personMachine.deck, had = !!deck.tape;
+    deck.eject();
+    this.tapeWatch = null; this.tapeStarted = null;
+    this.emit('tape');
+    return had;
+  }
+  // The file a tape recording is saved as -> { name, files: the number of files written to it }. It is named after
+  // the first file's name in its header (as CSAVE "HELLO" wrote it): trimmed, with the characters a file name can't
+  // take replaced by "_", as NAME.CAS; with no header or a blank name, "Recording HH-MM.cas" (the time now). Several
+  // files recorded in one go make one tape, named after the first. (The library may already hold the name:
+  // library.uniqueName gives the one to use.)
+  static recordingName(cas, now = new Date()) {
+    const files = formats.identify('recording.cas', cas).files || [];
+    const first = files.length ? files[0].name.replace(/[\u0000-\u001f\\/:*?"<>|]/g, '_').trim() : '';
+    const pad = (n) => String(n).padStart(2, '0');
+    return { name: first ? `${first}.CAS` : `Recording ${pad(now.getHours())}-${pad(now.getMinutes())}.cas`, files: files.length };
+  }
 
   // ---------------- the cassette panel ----------------
-  // What the deck is doing -> null without a tape, else { name, block, blocks, progress, seconds, duration,
+  // What the deck is doing -> null without a tape, else { name, block, blocks, file, files, progress, seconds, duration,
   // position, length, atEnd, motor, playing, realSpeed, error, started }. started is the exec address of a machine-code
   // file the drop fast-loaded and started, until the tape moves on; block counts the tape's blocks (js/media/cassette.js
-  // casBlocks) the play position has reached; position is that place as a byte of the image (0 to length, the leader
+  // casBlocks) the play position has reached, file the files (namefile blocks) it has reached, of files; position is that place as a byte of the image (0 to length, the leader
   // the deck adds before it counting as 0); seconds is how far into the tape that is at real speed. error is the block
   // number where BASIC stopped with ?IO ERROR: a run of the motor that ends with that on the last lines of
   // the screen (the ROM's own report, so it needs the text screen of a Dragon, CoCo 1/2 or MC-10).
@@ -2872,11 +2892,14 @@ export class Session {
     if (!t) { this.tapeWatch = null; return null; }
     deck.sync();
     if (!this.tapeInfo || this.tapeInfo.tape !== t) {
-      this.tapeInfo = { tape: t, blocks: Array.from(casBlocks(t.bytes), (b) => b.start), duration: t.seconds() };
+      const all = Array.from(casBlocks(t.bytes));
+      // files: where each file's namefile block starts (a tape of several files says which one is playing)
+      this.tapeInfo = { tape: t, blocks: all.map((b) => b.start), files: all.filter((b) => b.ok && b.type === 0x00).map((b) => b.start), duration: t.seconds() };
       this.tapeWatch = null;
     }
     const info = this.tapeInfo, at = t.bytePosition();
     const block = info.blocks.filter((start) => start <= at).length;
+    const file = info.files.filter((start) => start <= at).length;
     // fast-loaded and started: true until the tape moves on (the motor runs: the program reads the rest) or is taken out
     if (this.tapeStarted && (this.tapeStarted.tape !== t || deck.motor)) this.tapeStarted = null;
     // read errors: watch each run of the motor
@@ -2886,7 +2909,7 @@ export class Session {
       this.tapeWatch = { done: true, error: /\?IO ERROR/.test(last) ? Math.max(1, block) : null };
     }
     return {
-      name: t.name, block, blocks: info.blocks.length, progress: t.progress(), seconds: t.progress() * info.duration, duration: info.duration,
+      name: t.name, block, blocks: info.blocks.length, file, files: info.files.length, progress: t.progress(), seconds: t.progress() * info.duration, duration: info.duration,
       position: Math.max(0, Math.min(t.bytes.length, at)), length: t.bytes.length, atEnd: t.atEnd(),
       motor: deck.motor, playing: deck.playing, realSpeed: !this.fastTape, error: this.tapeWatch ? this.tapeWatch.error : null,
       started: this.tapeStarted ? this.tapeStarted.exec : null,

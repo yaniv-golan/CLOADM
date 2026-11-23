@@ -200,6 +200,8 @@
   .slot .inner { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
   .slot .title { font-size: 14px; color: var(--muted); }
   .slot .name { font-weight: 700; overflow-wrap: anywhere; }
+  /* on touch the slots' buttons (Rewind, Eject, Record, Save .WAV) are at least 44 px tall */
+  @media (pointer: coarse) { .slot .bar button { min-height: 44px; } }
   /* The NitrOS-9 image list: one full-width row in the card, never wider than it (a long release file name would
      push it out past the card's edge); the closed list clips the end with an ellipsis, the open list and the
      title (set with the choice) show the whole name. */
@@ -1112,6 +1114,7 @@
   #cmdInput { flex: 1; min-width: 0; background: transparent; border: 0; color: var(--text); font: inherit; font-size: 17px; padding: 4px 0; outline: none; box-shadow: none; }
   .cmdhead kbd { font: 13px var(--font-mono); color: var(--muted); }
   #cmdList { flex: 1 1 auto; min-height: 0; max-height: 100%; overflow: auto; overscroll-behavior: contain; }
+  #cmdList mark { background: transparent; color: var(--phosphor); font-weight: 700; }
   #cmdList .cmdnote { padding: 0 16px 6px; font-size: 13px; color: var(--muted); }
   #cmdList .group { padding: 8px 16px 4px; font-size: 13px; color: var(--muted); }
   #cmdList .group + [role="option"] { }
@@ -1119,6 +1122,9 @@
   #cmdList [role="option"] { display: flex; justify-content: space-between; gap: 12px; padding: 11px 16px; font-size: 15px; cursor: pointer; }
   #cmdList [role="option"] .hint { color: var(--muted); font-size: 14px; text-align: right; }
   #cmdList [role="option"][aria-selected="true"] { background: var(--line); }
+  /* a command that doesn't apply now: its state in italics; once chosen, why, readable */
+  #cmdList [role="option"].off .hint { font-style: italic; }
+  #cmdList [role="option"].off .hint.why { font-style: normal; color: var(--text-2); }
   #cmdList [role="option"].ask { color: var(--green); }
   #cmdList .cmdgroup + .cmdgroup { border-top: 1px solid var(--line); }
   .cmdfoot { padding: 10px 16px; border-top: 1px solid var(--line); font-size: 13px; color: var(--muted); }
@@ -1660,7 +1666,7 @@ npx serve -l 8000 .</pre>
         <div class="inner">
           <div class="title">Cassette · <span id="tapeState">click the deck to insert</span></div>
           <div class="name" id="tapeName">No tape</div>
-          <div class="bar"><button id="btnRewind">Rewind</button>
+          <div class="bar"><button id="btnRewind">Rewind</button><button id="btnEjectTape">Eject</button>
             <button id="btnRecord" class="rec" aria-pressed="false" title="Record what the machine writes to tape (CSAVE, CSAVEM) as a .CAS file">Record</button>
             <button id="btnTapeWav" title="Save the tape in the deck, or the last recording, as a WAV file">Save .WAV</button></div>
         </div>
