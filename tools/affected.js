@@ -7,9 +7,10 @@
 //   node tools/affected.js --files a,b,...   the given repository paths instead of a diff
 //   node tools/affected.js ... --json        { files, suites, groups, unmapped, notes } instead of the commands
 //
-// It prints the two `--only` commands (tests/all.js and tools/browser-check.js) for the fast loop. It is never the
-// gate: the full `node tests/all.js`, the whole browser check for anything the page runs, and a green CI run are
-// still required (docs/development.md, "The fast loop"; tools/prepush.js runs the author's checklist).
+// It prints the two `--only` commands (tests/all.js and tools/browser-check.js) for the fast loop. The suites are not
+// the gate: the local gate is the full `node tests/all.js` plus the browser-check groups the change touches (the
+// second command), and the gate is a green CI run, attempt 1, which runs every group (AGENTS.md 4.7; docs/development.md,
+// "The fast loop"; tools/prepush.js runs the author's checklist).
 //
 // A path under js/ui/, css/, play/ or index.html that no row maps to a panel's groups adds SMOKE, a fixed set of
 // groups that load the page and check its general shape. tests/affected.test.js holds every file under js/ to at

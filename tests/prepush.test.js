@@ -89,7 +89,9 @@ try {
     f.w('css/new.css', 'a {}');
     const r = prepush(f.dir);
     check('a served file sw.js does not list: FAIL with the fix, exit 1', r.status === 1 && /^FAIL sw\.js is out of step .*pwa-files\.js --write/m.test(r.out), line(r.out, /sw\.js/));
-    check('...and the report: a page file changed, so 4.7 applies', /4\.7 browser check: the CI run above/.test(r.out), line(r.out, /4\.7/));
+    check('...and the report: a page file changed, so 4.7 applies: the CI run, and locally the groups it touches (not a whole local check)',
+      /4\.7 browser check: the CI run above \(attempt 1 runs every group\); locally node tools\/browser-check\.js --only models,semantics,pwa,uiQa,layout$/m.test(r.out)
+      && !/whole (browser )?check/.test(r.out), line(r.out, /4\.7/));
   }
   {
     const f = fixture({ tag: false });

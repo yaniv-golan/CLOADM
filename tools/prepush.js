@@ -79,7 +79,7 @@ function levels(files, r) {
     ['4.4 MAME lockstep', hw.length ? `TODO: node tools/mame-diff/run.js <profile> for each affected profile (${hw.join(', ')})` : na('no hardware behaviour changed')],
     ['4.5 snapshots', hw.length ? 'TODO if this adds machine state (tests/state*.test.js); otherwise not applicable, and why' : na('no machine state changed')],
     ['4.6 other oracle', hw.length ? 'TODO if MAME cannot be the oracle; otherwise not applicable' : na('nothing MAME cannot check')],
-    ['4.7 browser check', page.length ? `the CI run above${r.groups.length ? `; locally node tools/browser-check.js --only ${r.groups.join(',')}, then the whole check` : ''}` : na('nothing the page runs changed')],
+    ['4.7 browser check', page.length ? `the CI run above (attempt 1 runs every group)${r.groups.length ? `; locally node tools/browser-check.js --only ${r.groups.join(',')}` : ''}` : na('nothing the page runs changed')],
   ];
 }
 function reportSkeleton(files, r) {
@@ -132,7 +132,7 @@ function main(argv) {
     if (results.some((x) => x.level === 'FAIL')) say('SKIP', 'the full node tests/all.js', 'fix the affected suites first');
     else if (run(process.execPath, ['tests/all.js'], repo)) say('ok', 'the full node tests/all.js');
     else say('FAIL', 'the full node tests/all.js');
-    if (files.some((f) => PAGE.test(f))) say('NOTE', 'the page changed: run the whole browser check, alone on the machine, before you push');
+    if (files.some((f) => PAGE.test(f))) say('NOTE', `the page changed: the local browser gate is the groups it touches${r.groups.length ? ` (node tools/browser-check.js --only ${r.groups.join(',')})` : ''}, alone on the machine; CI attempt 1 runs every group (AGENTS.md 4.7)`);
   }
 
   // 2. sw.js's file list
