@@ -109,6 +109,7 @@ export function setupWelcome(page, { showRoms, openClaude }) {
   }
   session.on(async (ev, arg) => {
     if (ev === 'machine' || ev === 'loaded') { showBack(false); lastTime(); return; }
+    if (ev === 'lastrun') { lastTime(); return; }   // (recorded after 'loaded': the card names what Run again runs)
     // (what the menu or a program asks for: byMachine, so a key Claude typed does not stop Claude)
     const asked = session.machineTicket();   // (taken now, when the program asks: whose keys they were)
     if (ev === 'welcome:liza') await run(SHELF[0], { byMachine: asked });
@@ -197,7 +198,7 @@ export function setupWelcome(page, { showRoms, openClaude }) {
   $('btnLizaRamCancel').onclick = () => { offer.hidden = true; page.focus(); };
   page.onEscape(ESC.card, () => !offer.hidden, () => $('btnLizaRamCancel').click());
   // "Runs without ROMs" in the drawer's Media tab: the welcome menu ("on screen now" while it
-  // runs), the programs for this machine's CPU, and the Claude chat. Each one a link can start (the welcome menu,
+  // runs and is drawn: onScreen below), the programs for this machine's CPU, and the Claude chat. Each one a link can start (the welcome menu,
   // LIZA, the games: ?start=; the chat: ?app=claude) is a real link to it on this machine, so "Copy link" gives the
   // direct link; a plain click runs it here, as a button would (a click with a modifier is left to the browser).
   const linkTo = (params) => buildUrl(location.href, Object.assign({ machine: session.personMachine.id, config: session.personMachine.config }, params));
@@ -216,7 +217,8 @@ export function setupWelcome(page, { showRoms, openClaude }) {
     {
       const w = entry('Welcome menu', { start: 'welcome' }, () => runWelcome({ greeting: 'back', carryOn: session.carryOn })); w.dataset.shelf = 'welcome';
       w.title = 'The Welcome menu: LIZA, colour and sound, adding ROMs, Claude, games';
-      if (session.welcomeRunning) { w.append(' ', el('span', 'on screen now', 'tag now')); w.setAttribute('aria-current', 'true'); }
+      tagged = onScreen();
+      if (tagged) { w.append(' ', el('span', 'on screen now', 'tag now')); w.setAttribute('aria-current', 'true'); }
       row.append(w);
     }
     for (const item of SHELF.filter((x) => !x.cpu || x.cpu === family)) {
@@ -231,6 +233,13 @@ export function setupWelcome(page, { showRoms, openClaude }) {
   }
   // the 20K offer belongs to the machine that was on; the welcome menu's "on screen now" follows what runs
   session.on((ev) => { if (ev === 'machine') offer.hidden = true; if (['machine', 'loaded', 'reset', 'firmware'].includes(ev)) shelf(); });
+  // "on screen now" is what the screen shows, not what was loaded: the welcome program executing and drawn
+  // (Session.welcomeOnScreen) while the page's Pause is off. That changes without an event (the menu's first frame,
+  // a Debugger stop or step, Pause), so the frame loop compares it with the tag shown and redraws the shelf only
+  // when they differ: one getter read per animation frame.
+  let tagged = false;
+  const onScreen = () => session.welcomeOnScreen && !page.paused;
+  page.onFrame(() => { if (onScreen() !== tagged) shelf(); });
   function firstVisit(askMachine) {
     box.replaceChildren();
     box.dataset.kind = 'first';

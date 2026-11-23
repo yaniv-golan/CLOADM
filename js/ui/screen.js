@@ -90,7 +90,7 @@ export function setupScreen(page, { loadPrograms, roms }) {
   // the page's "Tape sound" (js/host/tape-sound.js): the tape's signal over each frame, read from the deck after it
   const tapeListener = new TapeListener();
   const tapeFrame = (m) => { const ev = tapeListener.frame(m.deck, m.frameCycles); return ev ? { events: ev, cycles: m.frameCycles } : null; };
-  let shown = { picture: null, display: null, width: 0, height: 0, steps: -1, restores: 0 };
+  let shown = { picture: null, frames: -1, cycle: -1, display: null, width: 0, height: 0, steps: -1, restores: 0 };
   let altTime = -Infinity, alt = null;
   function tick(now) {
     requestAnimationFrame(tick);
@@ -116,10 +116,14 @@ export function setupScreen(page, { loadPrograms, roms }) {
       }
       fpsFrames += ran;
     }
+    // frames/cycle: the machine's own generation. render() hands back the SAME buffer each time, refilled by every
+    // frame, so its identity says nothing about frames run outside advance() (a tape load's restart, a menu start):
+    // any frame or instruction run since the last present, by whatever ran it, presents again.
     const picture = m.render(), box = fit(picture), display = session.display, steps = session.debugger ? session.debugger.steps : 0, restores = presenter.restores;
-    if (ran || picture !== shown.picture || display !== shown.display || box.width !== shown.width || box.height !== shown.height || steps !== shown.steps || restores !== shown.restores) {
+    const frames = m.frameCount, cycle = m.cycle;
+    if (ran || picture !== shown.picture || frames !== shown.frames || cycle !== shown.cycle || display !== shown.display || box.width !== shown.width || box.height !== shown.height || steps !== shown.steps || restores !== shown.restores) {
       presenter.present(picture, display, box.width, box.height);
-      shown = { picture, display, width: box.width, height: box.height, steps, restores };
+      shown = { picture, frames, cycle, display, width: box.width, height: box.height, steps, restores };
     }
     // the canvas's text alternative (#screenAlt, its fallback content): the screen as text for a screen reader or a
     // reader view, at most once a second, and written only when it changed
@@ -244,6 +248,7 @@ export function setupScreen(page, { loadPrograms, roms }) {
   $('btnHardReset').onclick = () => { session.powerCycle({ reason: 'you power cycled the machine' }); page.focus(); };
   $('btnPause').onclick = () => {
     paused = !paused;
+    page.paused = paused;   // (the shelf's "on screen now": a paused machine is not running the menu)
     document.body.classList.toggle('paused', paused);
     $('btnPause').textContent = paused ? 'Resume' : 'Pause';
     $('btnPause').classList.toggle('active', paused);
@@ -259,5 +264,5 @@ export function setupScreen(page, { loadPrograms, roms }) {
   const goFull = wrap.requestFullscreen || wrap.webkitRequestFullscreen;
   if (!goFull) $('btnFull').style.display = 'none';
   else $('btnFull').onclick = () => { Promise.resolve(goFull.call(wrap)).catch(() => page.status('Fullscreen is not available here', true)); };
-  return { input, readPads };
+  return { input, readPads, presented: () => presenter.pixels };
 }

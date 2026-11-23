@@ -90,7 +90,10 @@ session.index.writeError = (name, e) => page.status(session.indexWriteError(name
 // the handle exists before the awaited init, so anything watching the page sees it at once
 window.emu = { session, profiles, Emu, feedback: page.feedback, ready: false, started: false, audio: page.audio, audioRunning: () => page.audio.running, get machine() { return session.shownMachine; },
   // the input layer, for the browser check (keyboard modes, the keyboard joystick and the gamepads)
-  get input() { return screen.input; }, readPads: () => screen.readPads() };
+  get input() { return screen.input; }, readPads: () => screen.readPads(),
+  // what the screen presented last, as RGBA (both presenters keep it), for the browser check's "the canvas shows
+  // the machine's current frame" (onScreenChecks)
+  presented: () => screen.presented() };
 try {
   await session.ready();
 } catch (e) {

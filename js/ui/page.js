@@ -143,6 +143,8 @@ export function createPage(session, audio) {
       return () => { const i = page.frameWork.indexOf(fn); if (i >= 0) page.frameWork.splice(i, 1); };
     },
     frameWork: [],
+    // the Pause button holds the frame loop (js/ui/screen.js sets this): nothing runs, whatever is loaded
+    paused: false,
     // run the frame callbacks; called once per animation frame by the screen loop, even when the machine ran
     // no frame (the things they follow can change without one, e.g. audio unlocking). A callback that returns
     // false is dropped. Iterating a copy lets a callback remove itself while it runs.
