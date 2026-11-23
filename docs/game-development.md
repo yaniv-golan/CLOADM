@@ -60,9 +60,20 @@ this for you: compare the buffer addresses with the image's end (`--asm game.asm
 symbols; put a label after the last `RMB` to see where it ends).
 
 `RMB` reserves addresses but emits no bytes, so a game's file length is its IMAGE only: a large buffer does not
-make the file bigger. The games that refuse 16K (2048 and Minesweeper need 32K) may therefore keep their buffers
-above `$4000` on a 32K machine, where RAM runs to `$7FFF` and the ROM the SAM maps starts at `$8000`. Keep them
-clear of the stack, which grows down from wherever `LDS` puts it.
+make the file bigger. Where a game's image and buffers must stop depends on the machines it runs on.
+
+For a game that runs on a 16K machine, `$3000-$3FFF` is the room above it: an image ending at `$4000` runs there,
+and the starter game is built that way.
+
+The games that REFUSE 16K (2048 and Minesweeper need 32K: `GAMES.ram = 32`, `js/session.js`, and `checkGame`
+refuses a 16K machine) are never run on a 16K machine, so `$4000` does not apply to them. On the 32K machine they
+run on, RAM is `$0000-$7FFF` (SAM's `memRead`, `js/machines/sam.js`, `r < this.ramSize ? this.ram[r]`) and the ROM
+the SAM maps above it starts at `$8000` (`a < 0xC000 ? currentRom()[a-0x8000]`). Their real bound is therefore
+**image and variables below `$8000`**, and clear of the stack (which grows down from `$3000`). A game that also
+shows a 128x192 four-colour screen may change SAM's F register to a second 6K page (`displayBase = F6..F0 * 512`,
+`js/chips/sam6883.js:101`); any page it shows must be kept clear of the image and the variables too.
+`tests/games.test.js` checks all of that: the image and the variables below `$8000`, the variables above the
+stack's floor, and (watching the SAM's F register over a scripted game) every page shown clear of both.
 
 The Dragon 64 adds a 6551 ACIA at `$FF04-$FF07` ([which models have which serial path](automation.md#which-storage-and-serial-paths-each-model-has); [driving a graphics program on one headless](automation.md#a-graphics-program-has-no-text-to-wait-on) and [a complete Node example](automation.md#a-complete-example-that-runs-from-outside-the-repository); [a disk program with no DOS ROM](automation.md#reading-a-disk-with-no-dos-rom)); the CoCo 3 has its GIME at `$FF90-$FFBF` and puts the CoCo 2
 text screen where its registers say (the built-in firmware leaves it at `$0400`).
@@ -463,6 +474,20 @@ reads includes from the source's folder).
 * **No recursion.** Minesweeper's flood fill keeps a queue of squares in a 64-byte table (a square joins it once, as
   it opens), so the stack never grows with the size of the empty area; `tests/games.test.js` fills the RAM below the
   stack with a pattern and shows it stays within 32 bytes of `$3000` over a whole game.
+* **An animation without a second screen page.** 2048's slide redraws only each moving tile's rectangle, in the square
+  it has reached at each field (a column 0-3, or rows 0, 4, 8, 12). Each field is drawn first, then a square a
+  mover has left is painted empty - but only when no mover is on it that field, so a tile left standing on a square
+  another mover crosses keeps showing; nothing is left behind and the rest of the board never moves (a check
+  requires every square a mover has left to be empty on that field). The
+  pack records each mover as a (from, to) pair and the tile's own value before the pack (`MFR`, `MVF`), so a tile
+  that joins slides in showing what it was and becomes the merged value only on the flash, and a frame is never read
+  back to know what to draw. Each field is one `VSYNC`, one ENTROPY tick and one POLCAT poll - a field clock of the
+  animation's own, which is what lets a test see each field (a turn-based game's key wait ticks ENTROPY per poll and
+  has no sync) - and a key ends the animation at once and is played as the next move. Keys pressed during one
+  animation are QUEUED (KQ/KQN, four deep) and played in order once it ends, so LEFT, R, LEFT all arrive; the
+  queue is cleared once, in START, never by R, or a key queued behind R would be dropped; a fifth key in one
+  animation is dropped (the newest). No 6K second page is needed,
+  so the image and the variables stay clear of the one page the screen uses.
 * **Sound that is easy to check.** `TONE` writes `$FC` and `$04` in turn with a half period of `5 x D + 22` cycles;
   `NOISE` sends LFSR values to the DAC. Both run with the game stopped, as the starter game's do.
 

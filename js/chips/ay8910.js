@@ -1,7 +1,8 @@
 /*
  * General Instrument AY-3-8910 / AY-3-8912 programmable sound generator, as MAME 0.264 emulates it
  * (src/devices/sound/ay8910.cpp, ay8910.h; the plain AY type: 4-bit volumes, 16-step envelope at half rate,
- * no expanded mode). Used by the Dragon Alpha (AY-3-8912: port A only).
+ * no expanded mode). Used by the Dragon Alpha (AY-3-8912: port A only) and the Speech/Sound Pak (AY-3-8913,
+ * single output).
  *
  * Registers (latched address, then data): 0-5 tone periods A/B/C (fine, coarse 4 bits), 6 noise period
  * (5 bits), 7 enable (tone bits 0-2 and noise bits 3-5 active low, port A/B output bits 6/7), 8-10 volumes
@@ -12,10 +13,17 @@
  * calls it with the register (output) or $FF (input), as does the first write to register 7 after reset.
  * Reading register 14 takes portARead().
  *
- * Sound: step() advances the generators by one sample of MAME's stream (clock / 8) and returns the three
- * channel outputs, each from MAME's legacy output table (build_single_table, normalised: -0.125 for silence
- * up to 0.375 at volume 15). Channel output = (tone | tone disabled) & (noise | noise disabled), so a
- * channel with both disabled outputs its volume level (how sampled sound is played).
+ * Sound: step() advances the generators by one sample of MAME's stream (clock / 8). A channel is gated by
+ * (tone | tone disabled) & (noise | noise disabled), so a channel with both disabled outputs its volume level
+ * (how sampled sound is played). What step() writes depends on the output mode, fixed at construction:
+ *  - 'legacy' (the default; MAME's AY8910_LEGACY_OUTPUT, the Dragon Alpha's AY-3-8912): three outputs, one per
+ *    channel, each from MAME's legacy table (build_single_table, normalised: -0.125 for silence up to 0.375 at
+ *    volume 15).
+ *  - 'single' (MAME's AY8910_SINGLE_OUTPUT alone, as coco_ssc.cpp:181 builds the Speech/Sound Pak's
+ *    AY-3-8913): ONE output, out[0]. The three channels' output resistors meet at one pin, so the level is
+ *    the resistor network as a whole (MAME's build_3D_table), not a sum of three channel levels. set_flags()
+ *    replaces the default LEGACY flag, so the table is NOT normalised: it is the divider ratio itself, 0.158
+ *    with every channel off up to 0.562 with all three at volume 15 (aySingleLevel below).
  */
 import { state } from '../util.js';
 
@@ -37,10 +45,44 @@ function volumeTable(rl = 1000) {
 }
 export const AY_VOLUME = volumeTable();
 
+// The single-output level (MAME's build_3D_table with normalize = 0, zero_is_off = 1, rl = 1000 and the AY's
+// envelope resistors equal to its volume resistors). The three channels' resistor ladders are in parallel
+// between the supply and a 1 kOhm load, so the output is the divider ratio rw / rt of the whole network. A
+// channel counts as driving (its pull-up resistor in the network) when its level is not 0 OR it is on the
+// envelope - so an envelope channel at step 0 is not the same as a silent fixed-volume channel. MAME keeps its
+// samples as 32-bit floats, so the table is a Float32Array. Index: env bits (one per channel) << 12, then the
+// three 4-bit levels, channel C highest.
+function singleTable(rl = 1000) {
+  const tab = new Float32Array(8 << 12);
+  for (let e = 0; e < 8; e++) {
+    for (let j = 0; j < 0x1000; j++) {
+      const lv = [j & 15, (j >> 4) & 15, j >> 8];
+      let n = 0, rw = 0, rt = 3 / PARAM.rDown + 1 / rl;
+      for (let c = 0; c < 3; c++) {
+        if (lv[c] !== 0 || (e >> c) & 1) n++;
+        rw += 1 / PARAM.res[lv[c]];
+        rt += 1 / PARAM.res[lv[c]];
+      }
+      rw += n / PARAM.rUp;
+      rt += n / PARAM.rUp;
+      tab[(e << 12) | j] = rw / rt;
+    }
+  }
+  return tab;
+}
+let SINGLE = null;
+// levels: [a, b, c] (0-15, the level each channel puts on its ladder); env: [a, b, c] booleans
+export function aySingleLevel(levels, env = [false, false, false]) {
+  if (!SINGLE) SINGLE = singleTable();
+  return SINGLE[((env[0] ? 1 : 0) | (env[1] ? 2 : 0) | (env[2] ? 4 : 0)) << 12 | levels[0] | levels[1] << 4 | levels[2] << 8];
+}
+
 const STATE = ['active', 'latch', 'regs', 'lastEnable', 'tones', 'envs', 'prescaleNoise', 'countNoise', 'rng', 'volEnabled'];
 
 export class AY8910 {
-  constructor({ portAWrite = null, portARead = () => 0xff } = {}) {
+  constructor({ portAWrite = null, portARead = () => 0xff, output = 'legacy' } = {}) {
+    if (output !== 'legacy' && output !== 'single') throw new Error(`AY8910: unknown output mode "${output}"`);
+    this.output = output;
     this.portAWrite = portAWrite;
     this.portARead = portARead;
     this.regs = new Array(16).fill(0);
@@ -128,6 +170,16 @@ export class AY8910 {
         }
       }
       e.volume = e.step ^ e.attack;
+    }
+    if (this.output === 'single') {
+      const lv = [0, 0, 0], env = [false, false, false];
+      for (let c = 0; c < 3; c++) {
+        const t = this.tones[c];
+        env[c] = (t.volume & 0x10) !== 0;
+        lv[c] = this.volEnabled[c] ? (env[c] ? this.envs[0].volume : t.volume & 0x0f) : 0;
+      }
+      out[0] = aySingleLevel(lv, env);
+      return out;
     }
     for (let c = 0; c < 3; c++) {
       const t = this.tones[c];

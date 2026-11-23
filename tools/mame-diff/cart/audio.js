@@ -49,18 +49,18 @@ function readWav(file) {
   return { rate: fmt.rate, channels: ch, frames: n };
 }
 
-// MAME's default resampler from `inRate` to 48 kHz over output samples [0, n), the input given as a function of
-// the input sample index (values already scaled as floats). Output sample j of second s starts at s + j x sra
-// attoseconds (stream_buffer index_time); updates come every 1/50 s of machine time (sound_manager's timer), and
-// each one starts its output run from the exact time, as resampler_sound_update does.
-function resample(input, inRate, n, latencySamples = null) {
-  const sra = ATTO / BigInt(OUT_RATE);                       // HZ_TO_ATTOSECONDS(48000), truncated
+// MAME's default resampler from `inRate` to `outRate` (48 kHz by default) over output samples [0, n), the input
+// given as a function of the input sample index (values already scaled as floats). Output sample j of second s
+// starts at s + j x sra attoseconds (stream_buffer index_time); updates come every 1/50 s of machine time
+// (sound_manager's timer), and each one starts its output run from the exact time, as resampler_sound_update does.
+function resample(input, inRate, n, latencySamples = null, outRate = OUT_RATE) {
+  const sra = ATTO / BigInt(outRate);                        // HZ_TO_ATTOSECONDS(outRate), truncated
   const ina = ATTO / BigInt(inRate);
-  const step = f32(f32(inRate) / f32(OUT_RATE));
+  const step = f32(f32(inRate) / f32(outRate));
   const stepinv = f32(1.0 / step);
   const latency = BigInt(latencySamples ?? 1 + Math.trunc(step)) * ina;
   const out = new Float32Array(n);
-  const timeOf = (j) => BigInt(Math.floor(j / OUT_RATE)) * ATTO + BigInt(j % OUT_RATE) * sra;
+  const timeOf = (j) => BigInt(Math.floor(j / outRate)) * ATTO + BigInt(j % outRate) * sra;
   // the update periods: sound_manager::update every 1/50 s, each covering floor(period / sra) samples
   const updAttos = ATTO / 50n;
   let last = 0n, j = 0, k = 1n;

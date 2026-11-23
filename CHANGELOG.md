@@ -23,6 +23,73 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   model with what it is and the ROMs it takes by the names Your ROMs uses, generated from the data by
   `node tools/gen-machine-help.js`. The descriptions are data in `js/machines/menu.js` (`SUBTITLES`, `DESCRIPTIONS`,
   `describe`), each stating only what its cited MAME 0.264 driver lines say.
+- **The Speech/Sound Pak speaks.** Its SP0256 now turns its parameters into sound: the pitch impulses or noise, the
+  six-stage filter with the chip's coefficient table, and its output, at MAME's level, through the cartridge sound
+  mux with the Pak's music. It speaks from your own allophone ROM (the SP0256-AL2's), which you add in the ROM panel;
+  CLOADM never includes one. Compared with MAME 0.264 on our own speech image (`node
+  tools/mame-diff/ssc/speech-audio.js`): every sample within 1 LSB of MAME's recording on the CoCo 1/2, CoCo 2B,
+  CoCo 3 and Dragon 64, and the test suite holds MAME's recording so this is checked without MAME. Without the
+  speech ROM the board menu says "Speech/Sound Pak (music; speech needs your SP0256-AL2 ROM)" and the ROM panel says
+  what the ROM is for; when a program first speaks without it, one toast a session says so, with a way to add it. The
+  Pak's sound-activity status bit is still a stub.
+- Two tools for contributors: `node tools/affected.js [<base>]` prints the `--only` suites and browser-check groups
+  for a diff (docs/development.md's fast-loop table, as data; `tests/affected.test.js` holds every file under `js/` to
+  at least one of them), and `node tools/prepush.js` runs the author's checklist before a push (the affected suites
+  and groups, the full gate, `sw.js`'s file list, CHANGELOG edits only under `[Unreleased]`, the skill copies, a
+  noreply email, the release tags, and a report skeleton).
+- **Ctrl+K finds more, forgives typos and switches machines.** New commands: **Help** (the Help page in a new tab),
+  **Switch machine…** (the machine menu; also "computer" and "model"), and **Switch to <model>** for every model,
+  found by its name ("coco 3"), which asks first through the machine menu's confirmation; a query
+  that says "switch" or "machine" without naming a model gets the one **Switch machine…** row. **Your ROMs** also
+  answers to "delete", "remove" and "forget", and **Help** to "guide" and "how". A word of 4 letters or more may be one
+  letter off a word's start, its first letter kept ("rset" finds Reset, "setings" and "setin" the settings). Matches at
+  the start of a word of the name come first, then those in a command's other words, then the near misses, each in
+  the list's order; up to 8 commands (was 6), Ask Claude last; the matched part is highlighted (`<mark>`), and each
+  option's accessible name is its plain label. `↓` on the last row goes to the first, `↑` with none chosen to the
+  last. Every command stays listed, as the tape's do: **Eject disk** with no disk in is muted ("No disk in"; choosing it
+  says "No disk in any drive."), and **Switch to** the model you are using is muted ("Running now"; choosing it says
+  "You're using the Dragon 64 now."), after the rows that apply. (`rankCommands`, `listCommands`, `switchCommands`.)
+- **Tape: Eject, the tape commands in Ctrl+K, and recordings kept in the Library.** The cassette slot has **Eject**
+  beside **Rewind** (on touch, the slot's buttons are at least 44 px tall) (`Session.ejectTape`, which emits `'tape'` and clears the tape watch as a rewind does): the deck
+  goes with the tape, the focus goes to the slot's deck button, and the page says "Tape ejected."; a program waiting
+  on the tape (BASIC's CLOAD) keeps waiting, as on a real machine. Ctrl+K has **Insert a tape…** (the tape picker:
+  .cas and .wav), **Rewind the tape** and **Eject the tape**. Every command is always listed: one that doesn't apply
+  now (Rewind, Eject or Save the tape as .WAV with no tape in) is a muted row whose second line says why not ("No tape
+  in"), aria-disabled but still selectable, listed after the rows that apply; choosing it keeps the box open, runs
+  nothing, and its row and the box's live region say why, once ("No tape in the deck."). On a tape of more than one file
+  the deck says which is loading: "LOADING · FILE 2 OF 3 · BLOCK 4 OF 31". **Stop and save .CAS** no longer
+  downloads "recording.cas": the recording goes into the Library named after the first file in its header, trimmed,
+  with the characters a file name can't take as "_" (`CSAVE "HELLO"` saves HELLO.CAS, "A/B" saves A_B.CAS), or
+  "Recording HH-MM.cas" with no name; a name already there gets " (2)" (`MediaLibrary.uniqueName`); several CSAVEs
+  make one file, named after the first. The toast says "Saved HELLO.CAS to your Library (2 files)." with **Download**;
+  with "Download and open files" chosen it is downloaded under that name instead. A recording kept at a machine
+  switch is offered and saved the same way (`Session.recordingName`).
+- **2048's tiles slide.** A move's tiles travel to where they land over three fields, each drawn in the square it
+  is passing through, then the joined squares flash once in a fill no tile has, and then the new tile pops in. Every
+  moving tile is drawn at each field (one is never left blank while another passes over its square), and the pop is
+  part of the animation too: a key during it ends it at once. Only
+  the moving tiles' own rectangles are redrawn, so the picture stays whole without a second screen page. Each field
+  is one field sync (VSYNC), one ENTROPY tick and one POLCAT poll - a field clock of the animation's own, which
+  is what lets a test see each field (the game's key wait ticks ENTROPY per poll and has no sync); a key pressed at any
+  point ends the animation at once and is played as the next move, drawn whole. Keys pressed during one animation
+  are queued four deep and all played, in order (a fifth is dropped), and a key queued behind R survives the new game. `tests/games-slide.test.js` checks
+  the intermediate squares, the flash (its `$AA`/`$55` highlight for one field), the pop (small then full, from
+  the geometry), each tile drawn with its own value as it moves (a tile that joins becomes the merged value only
+  on the flash), their order, and a key during the slide.
+- **Remove one ROM from the Library.** Under the Library's **ROMs** chip (never under **All**) each stored ROM image
+  is a tile: its file name, its size, "Used by Dragon 64, Tano Dragon 64" (a disk cartridge is named too, "DragonDOS
+  cartridge") and **Remove** (44 px). Remove takes the image out of every socket that holds it at once, so a reload
+  can't bring it back; the toast "Removed d64_1.rom." offers **Undo** for 8 s (kept while it has the focus), which
+  puts the same bytes back in every socket that is still empty (a socket given another ROM since keeps it, and the
+  page says so: "Restored d64_1.rom (Dragon 64 32K-mode BASIC already had another ROM)"); a disk cartridge switched
+  off and on without its ROM since gets it back. The machine running that ROM is not reset: it keeps it until it is
+  switched off and on, the toast's second line says so ("The Dragon 64 keeps it until you switch off and on.") with
+  **Switch off and on**, and its socket in **Your ROMs** reads "Removed · still in the running machine". A disk
+  cartridge's ROM comes out the same way. The ROMs chip and its card ("No ROMs yet. CLOADM never includes ROMs; add
+  your own in Your ROMs →") now show in an empty Library too (the card says "your own", not "your own dumps": the
+  page's glossary keeps "dump" as a verb only). New: `Session.romFiles`, `removeRom`,
+  `restoreRom` and `romsStillRunning`, `RomLibrary.usedBy`, `remove` and `restore`, the index's `removeImage`, and a
+  toast's optional second line with its own action (`also`).
 - **Minesweeper plays with a joystick.** Either joystick moves the cursor: one step as the stick leaves the centre,
   then again after 300 ms and every 120 ms while it is held (counted in fields, at the machine's own 50 or 60 Hz;
   centring the stick and pushing the same way again is a new press). Either fire button opens the square under the
@@ -194,6 +261,26 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   (`browser-daily.yml`, not a gate) runs the whole browser check in one process on `claude/v0.2-stage` and `main`.
   AGENTS.md 4.7: the local gate is `tests/all.js` plus the browser-check groups a change touches; CI attempt 1 is the
   full browser gate and is never re-run.
+- `node tests/all.js` starts the suites longest first, from the times in `tests/suite-times.json` (the file
+  `--shard` plans its parts from, rewritten by `--record-times` after a passing whole run), and counts each regress shard as a slot of the pool; it still prints in
+  file order. `tests/move-inflight.test.js`'s "refused move" case now mounts a stored disk and checks the move's own
+  refusal: it never had a disk in a drive, so it passed on the move's 30 s wait running out; it also has a 50 ms bound
+  of its own, so a refusal that goes missing fails at once.
+- **A new toast replaces a focused or hovered one without a flash.** The box stays up (no frame without it,
+  no focus dropped, one announcement). With the focus inside it the new toast starts paused, its full 4 s (8 s with
+  an action) running from the moment the focus leaves; the focus stays on the action button only when the new toast
+  carries the same action, otherwise it moves to the toast itself, so an Enter meant for the old action fires nothing.
+  Under the pointer the new toast is paused until the pointer leaves.
+- **A toast in the top slot is pinned provisionally.** It still shows there in its first frame when no place
+  is free, but while a control that decides its place is still in its own animation (a sheet opening), for 300 ms at
+  most, it moves to a free place as soon as one opens (its position only, with no animation); after that it never
+  moves. A hovered or focused toast is not moved.
+- **A toast may cover what an opaque sheet already hides, never the sheet's own buttons.** The part of a
+  control under the Ask sheet or the attention card (marked `data-occludes`, each fully opaque) no longer keeps a
+  toast away; the sheet's Stop, Done and tabs always do, and a sheet still sliding hides nothing until it has settled.
+  On a phone a toast never goes over such a sheet: with no other place it takes the band under the header, as before.
+  While a modal dialog is open the toast moves into it, in the top layer above its contents, where it can be clicked,
+  and only the dialog's controls keep it away.
 - **The page's screen text reads every screen Claude's screen_text reads.** `Session.screenText`, which the embed
   API's `screenText`, the Ask panel, the tape panel and the boot watchdog read, decoded only the VDG's 32x16 page at a
   fixed address: on the Dragon 64 Plus's 80-column screen it returned the VDG page behind it, on a CoCo 3 GIME text
@@ -212,6 +299,15 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   them, with a `note`, as the VDG's semigraphics blocks are counted. `docs/mcp.md`, `docs/claude.md`, the skill and a
   new eval (`coco3-hidden-screen`) say so; `tests/screen-text-readers.test.js` checks both readers on firmware of our
   own against the rendered frame.
+- **The CoCo 3's HALT inside an instruction has its own module.** Where HALT arrived and was released in the last
+  step, an I/O access waiting for its release, an instruction held past the end of a run and run again with its bus
+  accesses replayed, and the outside writes queued while one is held move from `js/machines/coco3.js` into
+  `js/machines/halt-replay.js` (`machine.halt`, a `HaltReplay`), under the same names (`machine.haltDefer` is now
+  `machine.halt.haltDefer`). The machine keeps the bus decode and the run loop, and the Machine interface
+  (`replaying`, `cpuHeld`, `cpuCheck`, `stepN`). No behaviour change: the regression hashes are unchanged, the MAME
+  comparisons on the CoCo 3 (`run.js coco3`, `--fdc cocofdc` with `--halt`, `--halt --empty` and `--nitros9` on both
+  CPUs, `--video`) are identical, and snapshots taken while an instruction is held are byte-identical to before
+  (`tests/halt-replay-split.test.js`, with fixtures).
 - **The floppy drives have their own module.** The disk controller and disk cartridge, new blank disks, mounting,
   ejecting and write-protecting, the writes back to the media store, the drives' status and the links a restore point
   keeps move from the Session into `session.drives` (`js/drives.js`, `Emu.DiskDrives`), with shorter names:
@@ -328,10 +424,10 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   Worker refuses to start without it. `tests/connector.test.js` and `tests/skill.test.js` fail when the skill's section and
   the built instructions differ, and the skill's two copies stay byte for byte. The Worker must be deployed again
   when that section changes (`docs/deploy-connector.md`).
-- **A phone held upright: the panel decides, the screen takes the rest (UX R30).** The screen is the largest 4:3 one
+- **A phone held upright: the panel decides, the screen takes the rest.** The screen is the largest 4:3 one
   for which the app bar, the screen, the strip and the panel fit in the visible height, at most the page's width, and
   the picture fills it (no bezel). The panel has three modes, **Keys | Pad | Stick**: Pad is a D-pad with SPACE,
-  ENTER, the program's own keys and ABC (the keyboard for one key), on two rows of 48 px keys (BREAK is the strip's, R35); Stick is the touch
+  ENTER, the program's own keys and ABC (the keyboard for one key), on two rows of 48 px keys (BREAK is the strip's); Stick is the touch
   joystick, where the machine has a port. A bundled program opens in the mode it is played with (a new per-program
   `controls` field in the Session: 2048 and Minesweeper on the Pad, Minesweeper's with F and Stick offered; LIZA on
   Keys; anything else on Keys), and the choice is remembered per program and machine. With Pad, Stick or the keys
@@ -449,10 +545,42 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Fixed
 
+- **The TMS7000 assembler encoded `DJNZ Rn,@LABEL` (and every jump written with an `@`) as offset 0.** A relative jump takes a plain label or address; `@` marks an address operand (`CALL @LABEL`), so a jump written with it is now an error that says so, for all 38 relative forms (the jumps, DJNZ, BTJO/BTJZ and BTJOP/BTJZP). An undefined jump target is an error too (it encoded offset 0), and so is a target further than -128..127 from the next instruction (the offset wrapped to a different place); the message gives the distance.
+- **A printout on a CoCo no longer starts with a NUL.** The no-ROM stub made PIA1's PA1 (the RS-232 out) an output
+  while its output register held 0, so the line dropped to space at every start and the 600-baud serial printer
+  printed a $00 before anything a program sent (MAME 0.264 prints the same from that order). The stub now puts mark
+  there first, as a printer routine leaves the line, on every CoCo-lineage model and the CoCo 3; the Dragons, whose
+  port A is the parallel printer's, are unchanged. `run.js coco --printer --stub-init` compares the stub's start with
+  MAME byte for byte; `tests/stub-printer.test.js` checks the printed bytes.
+- **A printout on an MC-10 or Alice no longer starts with a stray byte.** Their no-ROM stub wrote port 2's DDR before
+  its data register, so P20 (the serial printer's line) dropped to space for a moment and the printer printed a $FF
+  at power-on, or garbled a program's first byte. The stub now writes the data register first; and the 6803 itself
+  now drives port 2 only once its data register has been written, as MAME's m6801 does, so a program that sets the DDR
+  first prints no stray byte either (the flag lives in the 6803's state; a file saved before it restores as driven).
+  `run.js mc10 --printer --stub-init` and `--glitch` (and `alice`, `coco`) give the bytes MAME 0.264 prints, identical.
 - **A disk in a drive counts toward the install offer.** The page's "program in use" test (the one the
   offer to install CLOADM as an app waits a minute of) asked the machine for a disk controller it never has, so a disk
   waiting in a drive at the bare prompt never counted; it now asks the drives (`session.drives.controllerOf`). The
   browser check's `install` group puts a disk in at the bare prompt and takes it out again.
+- **The Speech/Sound Pak's speech chip now runs its program at the right speed.** Its SP0256 sequencer reads the
+  allophone ROM in the order a real dump is stored, decodes every instruction and parameter field, and steps once per
+  sample on its own 3.12 MHz clock (10 kHz), holding each set of parameters for its pitch periods; its ready line now
+  reaches the Pak's microcontroller. Compared with MAME 0.264 on our own speech image (`node
+  tools/mame-diff/ssc/speech.js`): every address load and every status change lands at MAME's time on the CoCo 1/2,
+  CoCo 2B, CoCo 3 and Dragon 64, and the test suite checks MAME's recorded times on the CoCo 1/2 and Dragon 64 without
+  MAME. Speech is still silent: the filter that turns the parameters into sound is next.
+- **The Speech/Sound Pak's music now sounds as MAME's does.** Its AY-3-8913 had three faults, each found by a new
+  comparison with MAME 0.264's `-wavwrite` (`node tools/mame-diff/ssc/audio.js`): it played every tone an octave low
+  (its stream ran at half its clock's rate), its levels were three channel levels added where the chip has one
+  output network (MAME's single-output table, at the Pak's gain of 2), and a register write reached it a few
+  cycles early. The Pak's own clock was also wrong: on the CoCo 3 it ran 4 times fast, and on every model it
+  started 4 cycles after power-on. On the CoCo 1/2, CoCo 2B, CoCo 3 and Dragon 64 every AY write now lands at
+  MAME's time and every steady level matches MAME's recording exactly. The CoCo 3 `$0405` difference in the
+  interrupt comparison remains (the sound-activity bit, which is still a stub), and speech is still not implemented.
+- Two flaky checks: `tests/allsignal.test.js` looked for surviving processes once, the instant the runner exited, and
+  could still see a just-killed one; it now asks again for up to 5 s (a real survivor still fails it). The browser
+  check's "Esc on the screen with a line typed is BREAK" read the chat after a fixed three frames; it now waits for the
+  line to be dropped.
 - **The Dragon 64 Plus had the 6551 but no RS-232 port.** Like the Dragon 64 (MAME's `d64plus()` starts from `dragon64()`), it now has the port: PIA1 PB0 reads its RXD, idle high.
 - **Two debuggers could end up on one machine.** A `Debugger` made directly on a machine that already had one left both attached, so a watched write counted twice and the snapshot carried a different debugger from the one the Session drove. A machine now has one debugger: a new one takes the old one's place, `session.debug` returns the one the machine already carries, and adopting the machine already shown keeps its debugger.
 - **Run after a long debugger Over or Out no longer leaves the machine frozen for seconds.** Over, Out, Run to and

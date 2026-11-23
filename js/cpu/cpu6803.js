@@ -89,6 +89,12 @@ class CPU6803 {
 
   resetPeripherals() {
     this.ddr.fill(0);
+    // port 2 drives nothing until its data register has been written (or the output compare drives P21): MAME 0.264
+    // m6801.cpp write_port2 returns while !m_port2_written, which reset clears (device_reset) and a data write sets
+    // (p2_data_w). The MC6803's data registers are not set by reset, so making P20 an output before writing its data
+    // has no defined level on the hardware; MAME drives none, and nor do we (a stub or program that sets the DDR
+    // first then prints no stray start bit: tools/mame-diff/mc10/printer-glitch.asm).
+    this.p2Written = false;
     this.p3csr = 0;
     this.tcsr = 0; this.pend = 0;
     this.ocr = 0xFFFF; this.icr = 0; this.latch09 = 0;
@@ -116,7 +122,14 @@ class CPU6803 {
   // the on-chip RAM (iram) is a view into the machine's memory and is saved with it; the next
   // timer event times are derived (calcNext)
   saveState() { return state.save(this, CPU6803.STATE); }
-  loadState(s) { state.load(this, s, CPU6803.STATE); this.calcNext(); }
+  // A file saved before p2Written existed has none: it was saved by a build that always drove port 2, so it restores
+  // as written (true), keeping that behaviour. A current file always carries it. (This adds a field to the 6803's
+  // state only; a 6809/6309/7000 snapshot is unchanged, so SNAPSHOT_VERSION does not move.)
+  loadState(s) {
+    if (!('p2Written' in s)) s = Object.assign({ p2Written: true }, s);
+    state.load(this, s, CPU6803.STATE);
+    this.calcNext();
+  }
 
   get d() { return (this.a << 8) | this.b; }
   set d(v) { this.a = (v >> 8) & 0xFF; this.b = v & 0xFF; }
@@ -140,6 +153,7 @@ class CPU6803 {
         this.tcsr |= OCF; this.pend |= OCF;
         if (this.ddr[1] & 0x02) { // output compare drives P21 when it is an output
           this.port[1] = (this.port[1] & ~0x02) | ((this.tcsr & OLVL) << 1);
+          this.p2Written = true;   // (MAME m6801.cpp: the output compare sets m_port2_written too)
           this.writePort(1);
         }
       } else {
@@ -170,6 +184,7 @@ class CPU6803 {
 
   // ---------------- on-chip registers ----------------
   writePort(n) {
+    if (n === 1 && !this.p2Written) return;
     const ddr = this.ddr[n];
     if (this.bus.portWrite) this.bus.portWrite(n + 1, ((this.port[n] & ddr) | (~ddr & 0xFF)) & (n === 1 ? 0x1F : 0xFF), ddr);
   }
@@ -215,7 +230,7 @@ class CPU6803 {
         return;
       }
       case 0x02: this.port[0] = v; this.writePort(0); return;
-      case 0x03: this.port[1] = v; this.writePort(1); return;
+      case 0x03: this.port[1] = v; this.p2Written = true; this.writePort(1); return;
       case 0x06: this.port[2] = v; this.writePort(2); return;
       case 0x07: this.port[3] = v; this.writePort(3); return;
       case 0x08: { const t = this.ioTime(); this.timerSync(t); this.tcsr = (v & 0x1F) | (this.tcsr & 0xE0); this.pend &= this.tcsr; return; }
@@ -567,6 +582,6 @@ CPU6803.CYCLES = CYC;
 CPU6803.ILLEGAL = ILLEGAL;
 CPU6803.STATE = ['a', 'b', 'x', 's', 'pc', 'cc', 'irqLine', 'nmiPending', 'waiting', 'shadow', 'deferred', 'deferMe', 'c', 't0',
   'totalCycles', 'modeBits', 'ddr', 'port', 'p3csr', 'tcsr', 'pend', 'ocr', 'icr', 'latch09', 'tin', 'rmcr', 'trcsr', 'rdr', 'tdr',
-  'ramc', 'ctBase', 'tBase', 'ocDone', 'ovDone'];
+  'ramc', 'ctBase', 'tBase', 'ocDone', 'ovDone', 'p2Written'];
 
 export { CPU6803 };

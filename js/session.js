@@ -55,6 +55,16 @@ import { screenRows, screenTextTool } from './claude/readtools.js';
 // its next action waits; "Esc stops Claude" is never dropped)
 export const CLAUDE_PAUSED_TEXT = 'Paused: you pressed a key · Claude\'s next action waits · Esc stops Claude';
 // the same where it must fit one line (the browser Fullscreen's pill)
+// The Speech/Sound Pak's words for its speech ROM (the SP0256-AL2's allophone data, the user's own and optional):
+// the board menu's label without it and with it, the ROM panel's line for its socket, and the one notice a session
+// gives when a program speaks with no speech ROM (checkSpeechRom; the page adds an "Add ROMs" button).
+export const SSC_TEXT = Object.freeze({
+  boardNoSpeech: 'Speech/Sound Pak (music; speech needs your SP0256-AL2 ROM)',
+  board: 'Speech/Sound Pak',
+  romMissing: 'Optional: the SP0256-AL2 speech ROM. Without it the Pak plays music and stays silent for speech. CLOADM never includes it; add your own copy.',
+  romLoaded: 'SP0256-AL2 speech ROM ✓ · the Pak speaks.',
+  speechNoRom: 'This program is speaking, but there\'s no speech ROM: add your own SP0256-AL2 ROM in Your ROMs.',
+});
 export const CLAUDE_PAUSED_SHORT = 'Paused: you pressed a key · Esc stops Claude';
 // a message's text: a string, or the text blocks of a content array
 import { RomLibrary, identifyRoms, isBootable, isRomPack, looksLikeRom, makeRomPack, restoreRomPack, socketStatus } from './roms.js';
@@ -589,6 +599,7 @@ export class Session {
     this.acc = 0;
     this.keys = new KeyQueue();     // host key presses for the matrix, applied at frame starts (keyqueue.js)
     this.roms = new RomLibrary(this.index, romOwners);
+    this.romsLeft = new WeakMap();   // machine -> CRCs removed from storage that it still runs (removeRom)
     this.stubChosen = new Set();    // machines the user chose to run without ROMs this session
     // The stored-ROM CRCs that did not start BASIC, per machine (Map<Machine, Set<crcs>>): a fresh try is a power-on
     // or a switch, which forgets them (poweredOn clears every machine's; adopt forgets the machine left behind), and
@@ -612,6 +623,7 @@ export class Session {
     this.tapeWatch = null;          // the current or last run of the cassette motor: { done, error } (tapeStatus)
     this.tapeStarted = null;        // a machine-code tape fast-loaded and started: { tape, exec } (tapeStatus started)
     this.lastPrinted = 0;           // printout length at the last 'printer' event
+    this.speechRomNoted = false;    // 'speech-rom' has been emitted (once a session: checkSpeechRom)
     // DriveWire: one server for the session, on its media store (images under DW_PREFIX); attached to the
     // machine's Becker port when it has one. Channels: WebSockets (DriveWireSocket) by channel number.
     this.drivewire = new DriveWireServer({ store: media, namePrefix: DW_PREFIX, sameName: (a, b) => this.library.sameName(a, b) });
@@ -837,6 +849,18 @@ export class Session {
   checkPrinter() {
     const n = this.shownMachine.printed.length;
     if (n !== this.lastPrinted) { this.lastPrinted = n; this.emit('printer'); }
+  }
+  // A program on the shown machine has asked the Speech/Sound Pak to speak, and the Pak has no allophone ROM: emit
+  // 'speech-rom' once in this Session's life (SPEECH_ROM_NOTE is what the page says). Checked after every frame,
+  // however the frames were run (the page's clock, Claude's tools, MCP, scripts), so it is raised once whoever ran
+  // the program. The Pak may be in the port or in a Multi-Pak slot.
+  checkSpeechRom() {
+    if (this.speechRomNoted) return;
+    const port = this.shownMachine.cartPort;
+    const paks = port instanceof SpeechSoundPak ? [port] : port && Array.isArray(port.slots) ? port.slots.filter((c) => c instanceof SpeechSoundPak) : [];
+    if (!paks.some((p) => p.spokeWithoutRom)) return;
+    this.speechRomNoted = true;
+    this.emit('speech-rom');
   }
 
   // ---------------- serial port (the CoCo's and the MC-10's bit-banger, the Dragon 64's 6551) ----------------
@@ -1219,6 +1243,7 @@ export class Session {
     // runs beside, so its reply goes on - the decision this makes deliberate rather than incidental.
     this.stopClaudeFor(reason, m);
     this.endWelcome();
+    this.dropRemovedRoms(m);
     this.setStubRun(m);
     this.keys.clear();
     this.drives.flush();
@@ -1230,6 +1255,16 @@ export class Session {
     this.acc = 0;
     this.poweredOn();
     if (menu) this.offerMenu(null, 'reset');
+  }
+  // ROMs removed from storage while m ran them come out now, at a switch off and on: its sockets are filled again
+  // from what is stored, and a disk cartridge whose ROM was removed is left without one
+  dropRemovedRoms(m) {
+    const left = this.romsLeft.get(m);
+    if (!left || !left.size) return;
+    this.romsLeft.delete(m);
+    if (Object.values(m.romCrcs()).some((c) => left.has(c))) this.loadSavedRoms(m);
+    const cart = m.cartPort;
+    if (cart && cart.romBytes && cart.romBytes.length && left.has(crc32(cart.romBytes)) && cart.fitRom) { cart.fitRom(null); m.cartridgeChanged(); }
   }
   // no ROMs, nothing running: the welcome menu, greeting the visitor back (the page has its bytes)
   // The event's argument is how the menu is offered: 'back' (a returning visit) or 'bye' (back from a program) as
@@ -1319,6 +1354,65 @@ export class Session {
     const sockets = this.roms.sockets(), owners = romOwners();
     return { count: new Set(sockets.map((x) => x.crc)).size, users: [...new Set(sockets.map((x) => x.owner))].map((id) => owners[id].name) };
   }
+  // The Library's ROM tiles: each image stored, once -> [{ crc, name, size, owners: [id], users: [name] }], in the
+  // order of the first owner (profile order: the machines, then the cartridges). name: the file it came from, or
+  // "ROM <CRC>" when none was kept.
+  romFiles() {
+    const owners = romOwners();
+    return [...new Set(this.roms.sockets().map((s) => s.crc))].map((crc) => {
+      const ids = this.roms.usedBy(crc);
+      return { crc, name: this.roms.fileName(crc) || `ROM ${crc}`, size: this.roms.image(crc).length, owners: ids, users: ids.map((id) => owners[id].name) };
+    });
+  }
+  // Remove one ROM image from every socket that holds it, at once (the index writes it to the store). A machine
+  // running it keeps it, as a chip already in its socket, until it is next switched off and on (powerCycle drops it
+  // then): the machine is not reset. -> { crc, name, bytes, sockets, running: the name of the person's machine when
+  // it runs this image (in its own sockets or its cartridge's), else null }: what restoreRom needs for Undo.
+  removeRom(crc) {
+    this.library.checkNotMoving();
+    const removed = this.roms.remove(crc);
+    if (!removed) throw new SessionError('That ROM is not stored.');
+    const m = this.personMachine;
+    let running = null;
+    if (this.runningRomCrcs(m).has(crc)) {
+      if (!this.romsLeft.has(m)) this.romsLeft.set(m, new Set());
+      this.romsLeft.get(m).add(crc);
+      running = m.profile.name;
+    }
+    this.emit('roms');
+    return Object.assign(removed, { running });
+  }
+  // Undo a removeRom: the image goes back, byte for byte, into every socket it was in that is still empty; a socket
+  // given another ROM since keeps that one (skipped). A machine that still runs the image forgets it was removed; one
+  // switched off and on since without it (in its own sockets, or a disk cartridge left without its ROM) takes it back
+  // and restarts, as a drop of that ROM would.
+  // -> { restored, skipped: [{ owner, socket, name: "Dragon 64 BASIC" }] }
+  restoreRom(removed) {
+    this.library.checkNotMoving();
+    const { restored, skipped } = this.roms.restore(removed);
+    const owners = romOwners(), named = (s) => Object.assign({ name: `${owners[s.owner].name} ${owners[s.owner].roms.find((x) => x.id === s.socket).label}` }, s);
+    const m = this.personMachine, left = this.romsLeft.get(m);
+    const mine = restored.some((s) => s.owner === m.id), cartridge = restored.some((s) => cartridgeRoms[s.owner]) && !!this.drives.bareController;
+    if (left && left.has(removed.crc)) {
+      // still running it: forgotten as removed, unless one of its own sockets kept another ROM (that one goes in at the
+      // next switch off and on)
+      if (!skipped.some((s) => s.owner === m.id)) left.delete(removed.crc);
+    } else if ((mine && !this.stubChosen.has(m.id)) || cartridge) {
+      if (mine) this.loadSavedRoms(m);
+      this.powerCycle({ on: m });
+    }
+    this.emit('roms');
+    return { restored: restored.map(named), skipped: skipped.map(named) };
+  }
+  // the CRCs of the ROMs m runs now: its own sockets and its cartridge's ROM
+  runningRomCrcs(m) {
+    const out = new Set(Object.values(m.romCrcs()));
+    const cart = m.cartPort && m.cartPort.romBytes;
+    if (cart && cart.length) out.add(crc32(cart));
+    return out;
+  }
+  // the ROMs removed from storage that m still runs (Your ROMs: "Removed · still in the running machine")
+  romsStillRunning(m = this.personMachine) { return new Set(this.romsLeft.get(m) || []); }
   machinesWithRoms() {
     return Object.keys(profiles).map((id) => this.machineRoms(id)).filter((x) => x.sockets.some((s) => s.status !== 'missing-required' && s.status !== 'missing-optional'));
   }
@@ -1717,11 +1811,13 @@ export class Session {
   // ---------------- the Speech/Sound Pak ----------------
   // The Pak is a cartridge-port board, offered where the machine's profile has the `ssc` option: the CoCo 1/2,
   // CoCo 2B, CoCo 3 and the Dragon 64 (each with its own `--ssc` lockstep against MAME). The PIC (TMS7040) ROM is
-  // the user's, like BASIC and DOS; the board's speech half is not implemented yet, so it is described as music
-  // only everywhere it is offered.
+  // the user's, like BASIC and DOS, and so is the SP0256's allophone ROM, which is optional: the Pak speaks with it,
+  // and plays music only without it (the insert message and the ROM panel say which).
   get offersSsc() { return !!(this.personMachine && this.personMachine.profile.options && this.personMachine.profile.options.ssc); }
   // is the Pak in the cartridge port? (also when it arrived through a restored snapshot)
   get sscInserted() { return !!this.personMachine && this.personMachine.cartPort instanceof SpeechSoundPak; }
+  // the board menu's name for the Pak: whether its speech ROM is stored (SSC_TEXT)
+  get sscBoardLabel() { return this.roms.get('ssc').sp0256 ? SSC_TEXT.board : SSC_TEXT.boardNoSpeech; }
   // what is needed to put the Pak in: [{ id, label, size, files, status }] from the stored ROMs
   sscRoms() {
     const stored = this.roms.get('ssc');
@@ -1729,8 +1825,8 @@ export class Session {
   }
   // plug the Pak in (whatever was in the port comes out) and power the machine up with it. The `ssc` option is set
   // too, so the choice is remembered with the machine's configuration and the Pak comes back on the next start.
-  // Only the PIC's ROM is required: speech is not implemented, so the SP0256's allophone data is optional and the
-  // card runs its music side without it (js/machines/ssc.js).
+  // Only the PIC's ROM is required: the SP0256's allophone data is optional, and without it the card plays its music
+  // and stays silent where it would speak (js/machines/ssc.js).
   insertSsc() {
     const m = this.personMachine;
     if (!m) throw new SessionError('There is no machine to put the Speech/Sound Pak in.');
@@ -1749,7 +1845,8 @@ export class Session {
     this.acc = 0;
     this.poweredOn();
     this.emit('loaded');
-    return 'Speech/Sound Pak inserted (music only; speech is not implemented yet)';
+    return stored.sp0256 ? 'Speech/Sound Pak inserted (music and speech)'
+      : 'Speech/Sound Pak inserted (music only: add your own SP0256-AL2 ROM in Your ROMs for speech)';
   }
   // take it out and leave the machine on its own ROMs
   ejectSsc() {
@@ -2812,12 +2909,32 @@ export class Session {
     this.emit('recording');
   }
   rewindTape() { const t = this.personMachine.deck.tape; if (t) t.seekByte(0); this.tapeWatch = null; this.tapeStarted = null; return !!t; }
+  // Take the tape out of the deck. A program waiting on the tape (BASIC's CLOAD) is left waiting, as on a real
+  // machine with the cassette taken out; nothing is reset. -> whether there was a tape
+  ejectTape() {
+    const deck = this.personMachine.deck, had = !!deck.tape;
+    deck.eject();
+    this.tapeWatch = null; this.tapeStarted = null;
+    this.emit('tape');
+    return had;
+  }
+  // The file a tape recording is saved as -> { name, files: the number of files written to it }. It is named after
+  // the first file's name in its header (as CSAVE "HELLO" wrote it): trimmed, with the characters a file name can't
+  // take replaced by "_", as NAME.CAS; with no header or a blank name, "Recording HH-MM.cas" (the time now). Several
+  // files recorded in one go make one tape, named after the first. (The library may already hold the name:
+  // library.uniqueName gives the one to use.)
+  static recordingName(cas, now = new Date()) {
+    const files = formats.identify('recording.cas', cas).files || [];
+    const first = files.length ? files[0].name.replace(/[\u0000-\u001f\\/:*?"<>|]/g, '_').trim() : '';
+    const pad = (n) => String(n).padStart(2, '0');
+    return { name: first ? `${first}.CAS` : `Recording ${pad(now.getHours())}-${pad(now.getMinutes())}.cas`, files: files.length };
+  }
 
   // ---------------- the cassette panel ----------------
-  // What the deck is doing -> null without a tape, else { name, block, blocks, progress, seconds, duration,
+  // What the deck is doing -> null without a tape, else { name, block, blocks, file, files, progress, seconds, duration,
   // position, length, atEnd, motor, playing, realSpeed, error, started }. started is the exec address of a machine-code
   // file the drop fast-loaded and started, until the tape moves on; block counts the tape's blocks (js/media/cassette.js
-  // casBlocks) the play position has reached; position is that place as a byte of the image (0 to length, the leader
+  // casBlocks) the play position has reached, file the files (namefile blocks) it has reached, of files; position is that place as a byte of the image (0 to length, the leader
   // the deck adds before it counting as 0); seconds is how far into the tape that is at real speed. error is the block
   // number where BASIC stopped with ?IO ERROR: a run of the motor that ends with that on the last lines of
   // the screen (the ROM's own report, so it needs the text screen of a Dragon, CoCo 1/2 or MC-10).
@@ -2826,11 +2943,14 @@ export class Session {
     if (!t) { this.tapeWatch = null; return null; }
     deck.sync();
     if (!this.tapeInfo || this.tapeInfo.tape !== t) {
-      this.tapeInfo = { tape: t, blocks: Array.from(casBlocks(t.bytes), (b) => b.start), duration: t.seconds() };
+      const all = Array.from(casBlocks(t.bytes));
+      // files: where each file's namefile block starts (a tape of several files says which one is playing)
+      this.tapeInfo = { tape: t, blocks: all.map((b) => b.start), files: all.filter((b) => b.ok && b.type === 0x00).map((b) => b.start), duration: t.seconds() };
       this.tapeWatch = null;
     }
     const info = this.tapeInfo, at = t.bytePosition();
     const block = info.blocks.filter((start) => start <= at).length;
+    const file = info.files.filter((start) => start <= at).length;
     // fast-loaded and started: true until the tape moves on (the motor runs: the program reads the rest) or is taken out
     if (this.tapeStarted && (this.tapeStarted.tape !== t || deck.motor)) this.tapeStarted = null;
     // read errors: watch each run of the motor
@@ -2840,7 +2960,7 @@ export class Session {
       this.tapeWatch = { done: true, error: /\?IO ERROR/.test(last) ? Math.max(1, block) : null };
     }
     return {
-      name: t.name, block, blocks: info.blocks.length, progress: t.progress(), seconds: t.progress() * info.duration, duration: info.duration,
+      name: t.name, block, blocks: info.blocks.length, file, files: info.files.length, progress: t.progress(), seconds: t.progress() * info.duration, duration: info.duration,
       position: Math.max(0, Math.min(t.bytes.length, at)), length: t.bytes.length, atEnd: t.atEnd(),
       motor: deck.motor, playing: deck.playing, realSpeed: !this.fastTape, error: this.tapeWatch ? this.tapeWatch.error : null,
       started: this.tapeStarted ? this.tapeStarted.exec : null,
@@ -3006,6 +3126,7 @@ export class Session {
       this.acc = 0;
       this.checkRate();
       this.checkPrinter();
+      this.checkSpeechRom();
       this.flushWelcome();
       this.checkMenuReturn();
       return n;
@@ -3019,7 +3140,7 @@ export class Session {
       this.acc -= frameMs; n++;
     }
     if (this.acc > frameMs * 4) this.acc = 0;
-    if (n) { this.checkRate(); this.checkPrinter(); }
+    if (n) { this.checkRate(); this.checkPrinter(); this.checkSpeechRom(); }
     this.flushWelcome();
     this.checkMenuReturn();
     return n;
@@ -3054,6 +3175,7 @@ export class Session {
       n++;
       this.checkRate();
       this.checkPrinter();
+      this.checkSpeechRom();
       this.flushWelcome();
       this.checkMenuReturn();
     }

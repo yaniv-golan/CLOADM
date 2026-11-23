@@ -91,15 +91,40 @@ try {
     const m = run({ timings: { ...realTimings, groups: { ...realTimings.groups, zzOld: 9 } }, args: ['--merge', t] });
     assert.strictEqual(m.status, 0, m.stdout + m.stderr);
     const merged = readJson(last.timings).groups;
-    assert.strictEqual(merged.nav, 777, 'the measured time replaces the old one');
+    // the smoothed average, computed here from the definition rather than by the script: s * measured + (1 - s) * old
+    const a = realTimings.smoothing, ema = Math.round((a * 777 + (1 - a) * realTimings.groups.nav) * 10) / 10;
+    assert.ok(a > 0 && a < 1, `the committed smoothing is a real average, not a replacement: ${a}`);
+    assert.strictEqual(merged.nav, ema, `a timed group moves by the smoothing weight toward the measured time (${realTimings.groups.nav} -> ${ema}), not to it`);
+    assert.ok(merged.nav < 777, 'one noisy run does not set the time');
     assert.strictEqual(merged.favicon, realTimings.groups.favicon, 'an unmeasured group keeps its time');
     assert.ok(!('zzGone' in merged) && !('zzOld' in merged), 'groups the check does not have are dropped');
     assert.ok(readJson(last.shards).shards.flat().includes('nav') && readJson(last.shards).shards.flat().length === groups.length, 'the written plan holds every group');
     const env = { ...process.env, BROWSER_CHECK: path.join(dir, 'tools', `browser-check-${n}.js`), BROWSER_CHECK_SHARDS: last.shards, BROWSER_CHECK_TIMINGS: last.timings };
     const after = cp.spawnSync(process.execPath, [script], { env, encoding: 'utf8' });
     assert.strictEqual(after.status, 0, `after --merge the shards are the plan: ${after.stderr}`);
-    console.log('ok   --merge updates the measured groups, keeps the rest, drops unknown ones and writes the plan');
+    console.log(`ok   --merge averages the measured groups (nav ${realTimings.groups.nav} + 777 -> ${ema}), keeps the rest, drops unknown ones and writes the plan`);
   }
+  // A group new to the check (in GROUPS, not yet timed) takes its first measured time as it is, and the plan written
+  // from it passes the shards check; two runs then average in order.
+  {
+    const withNew = realCheck.replace(guard('favicon'), (l) => `${l}\n  ['zzNewGroup', (b) => faviconChecks(b, site, check)],`);
+    const t1 = path.join(dir, 'new1.json'), t2 = path.join(dir, 'new2.json');
+    fs.writeFileSync(t1, JSON.stringify({ groups: { zzNewGroup: 40 } }));
+    fs.writeFileSync(t2, JSON.stringify({ groups: { zzNewGroup: 60 } }));
+    const m = run({ check: withNew, args: ['--merge', t1] });
+    assert.strictEqual(m.status, 0, m.stdout + m.stderr);
+    assert.strictEqual(readJson(last.timings).groups.zzNewGroup, 40, 'an untimed group takes its measured time');
+    const env = { ...process.env, BROWSER_CHECK: path.join(dir, 'tools', `browser-check-${n}.js`), BROWSER_CHECK_SHARDS: last.shards, BROWSER_CHECK_TIMINGS: last.timings };
+    const plan = cp.spawnSync(process.execPath, [script], { env, encoding: 'utf8' });
+    assert.strictEqual(plan.status, 0, `the plan with the new group passes the shards check: ${plan.stderr}`);
+    const again = cp.spawnSync(process.execPath, [script, '--merge', t2], { env, encoding: 'utf8' });
+    assert.strictEqual(again.status, 0, again.stdout + again.stderr);
+    const a = realTimings.smoothing;
+    assert.strictEqual(readJson(last.timings).groups.zzNewGroup, Math.round((a * 60 + (1 - a) * 40) * 10) / 10, 'a second run averages with the first');
+    console.log('ok   an untimed new group takes its first time, the plan passes, and the next run averages with it');
+  }
+  fails(run({ timings: { ...realTimings, smoothing: 0 } }), /"smoothing" must be a number in \(0, 1\]/, 'no smoothing weight');
+  fails(run({ timings: { ...realTimings, smoothing: 1.5 } }), /"smoothing" must be a number in \(0, 1\]/, 'a smoothing weight above 1');
 
   // --shard N 'list': the --only argument a shard job is about to pass must be exactly its shard's list.
   const first = realShards.shards[0].join(',');

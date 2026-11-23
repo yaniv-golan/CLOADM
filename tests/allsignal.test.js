@@ -38,6 +38,20 @@ const survivors = () => {
   return (r.stdout || '') .split('\n').filter(Boolean).filter((pid) => pid !== String(process.pid));
 };
 const sweep = () => { try { cp.spawnSync('pkill', ['-f', TOKEN]); } catch (e) {} };
+// The runner SIGKILLs each suite's process group and then exits, but a killed process lingers for a moment until
+// the kernel tears it down and init reaps it, and pgrep still lists it until then. Reading survivors once, right as
+// the runner exits, flaked under load for exactly that reason. So ask again until nothing is left, for up to
+// SURVIVOR_WAIT_MS: a process the kill really missed (a child in its own process group, say) is still there at the
+// end and the check fails with its pid, so this bounds the wait without loosening what is checked.
+const SURVIVOR_WAIT_MS = 5000;
+async function settledSurvivors(probe) {
+  const until = Date.now() + SURVIVOR_WAIT_MS;
+  for (;;) {
+    const left = probe();
+    if (!left.length || Date.now() >= until) return left;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+}
 
 // Start the runner, wait until the hang suite is up, send `sig`, and report the exit code and any survivors.
 // Run the runner directly and send it the signal. Node reports a signal death as { code: null, signal }, which is
@@ -59,9 +73,9 @@ function run(sig, waitMs = 6000, runnerPath = path.join(tests, 'all.js')) {
     let sent = false, giveUp = null;
     // listen from the start: a runner that exits before the signal is a failure reported as such (early: true),
     // not an exit nobody hears, which would end this file silently with status 0
-    p.on('exit', (code, signal) => {
+    p.on('exit', async (code, signal) => {
       clearTimeout(wait); clearTimeout(giveUp);
-      const left = survivors();
+      const left = await settledSurvivors(survivors);
       sweep();
       done({ code: code === null && signal ? 128 + SIG_NO[signal] : code, signal, left, early: !sent });
     });
@@ -173,7 +187,8 @@ process.on('beforeExit', () => { if (!finished) { finished = true; console.log('
       // (loud, but a 4-minute kill for what should be a fast, named failure). run() above handles the same case.
       p.on('error', (e) => { clearTimeout(giveUp); done({ code: null, signal: null, error: e.message }); });
     });
-    const left = survivorsOf();
+    // the same bounded wait as above: an error string from pgrep is not "empty", so it is returned at the deadline
+    const left = await settledSurvivors(survivorsOf);
     sweepTok();
     fs.rmSync(d2, { recursive: true, force: true });
     check('SIGINT while the gate waits for regress --count leaves no count child behind', left === '',

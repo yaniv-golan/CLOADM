@@ -184,7 +184,7 @@ for (const id of ['dragon64', 'coco3', 'mc10']) {
 
 // ---------------- 4. the CoCo 3's instruction held by HALT: each access reported once ----------------
 // INC $FF4B on a drive that never brings DRQ: HALT holds its write, the frame ends, the instruction is suspended and
-// later runs again from its start, replaying the read of $FF4B it made before the HALT (coco3.js replayRead). The
+// later runs again from its start, replaying the read of $FF4B it made before the HALT (js/machines/halt-replay.js replayRead). The
 // controller sees each read once; a tap must report it once too. (Set-up: tests/halt-held.test.js.)
 for (const [label, config] of [['hardware timing', undefined], ['MAME timing', { mameCompat: true }], ['6309', { cpu: '6309' }]]) {
   const m = Emu.createMachine('coco3', config);
@@ -214,11 +214,11 @@ for (const [label, config] of [['hardware timing', undefined], ['MAME timing', {
   let suspended = 0;
   for (let fr = 0; fr < 400 && reads.length < 50; fr++) {
     if (!dbg.runFrame()) { watched.push(dbg.stopReason.value); dbg.resume(); }
-    if (m.haltDefer) suspended++;
+    if (m.halt.haltDefer) suspended++;
   }
   check(`held INC $FF4B (${label}): the tap reports each controller read once, with its value, though suspended ${suspended} times`,
     suspended > 0 && reads.length >= 50 && tapped.length === reads.length && tapped.every((v, i) => v === reads[i]), `tap ${tapped.length} controller ${reads.length}`);
-  const done = m.haltDefer ? reads.length - 1 : reads.length;
+  const done = m.halt.haltDefer ? reads.length - 1 : reads.length;
   check(`held INC $FF4B (${label}): the watchpoint beside it still stops once per completed read`,
     watched.length === done && watched.every((v, i) => v === reads[i]), `stops ${watched.length} reads ${reads.length}`);
   check(`held INC $FF4B (${label}): a probe sees each INC once, not again when a suspended one resumes`,

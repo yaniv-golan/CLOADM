@@ -16,6 +16,7 @@
  * anywhere that could not be used (wrong size for its name, a socket already filled) opens this screen to say why.
  */
 import { $, showView } from './page.js';
+import { SSC_TEXT } from '../session.js';
 
 const kb = (n) => `${n / 1024} KB`;
 // what an optional socket gives you, by socket id (what you miss without it)
@@ -48,7 +49,8 @@ export function setupRomSockets(page, romInput, { confirmSwitch }) {
   $('btnRomJustLooking').onclick = close;
 
   // ---------------- the sockets ----------------
-  function socketState(s) {
+  function socketState(s, left) {
+    if (left) return 'Removed · still in the running machine';
     if (s.status === 'verified') return `✓ ${s.file || 'loaded'} · Recognised`;
     if (s.status === 'loaded-unrecognised') return `◆ ${s.file || 'loaded'} · loaded, not recognised`;
     if (s.status === 'missing-required') return 'Waiting for a file. Without it there is no BASIC: the machine runs without ROMs, machine-code programs only.';
@@ -78,13 +80,17 @@ export function setupRomSockets(page, romInput, { confirmSwitch }) {
   function render() {
     if (!isOpen() || !session.personMachine) return;
     const m = session.personMachine, info = session.machineRoms(m.id), name = m.profile.name;   // the person's machine
+    // a socket whose ROM was removed from storage while the machine runs it (it keeps it until switched off and on)
+    const still = session.romsStillRunning(m), running = m.romCrcs();
+    const left = (s) => !s.crc && still.has(running[s.id]);
     $('romMachine').textContent = name.toUpperCase();
     $('romSockets').replaceChildren(...info.sockets.map((s) => {
       const card = el('div', null, 'socket');
       card.dataset.socket = s.id; card.dataset.status = s.status;
+      if (left(s)) card.dataset.left = 'running';
       const body = el('div', null, 'body'), top = el('div', null, 'top');
       top.append(el('strong', s.label), el('span', s.required ? 'required' : 'optional', s.required ? 'tag req' : 'tag'));
-      body.append(top, el('div', `${kb(s.size)} · usually ${s.files.concat(s.aliases).join(' or ')}`, 'expect'), el('div', socketState(s), 'state'));
+      body.append(top, el('div', `${kb(s.size)} · usually ${s.files.concat(s.aliases).join(' or ')}`, 'expect'), el('div', socketState(s, left(s)), 'state'));
       card.append(el('span', null, 'dot'), body);
       return card;
     }), ...diskCard(), ...(session.offersSsc ? session.sscRoms().map((s) => {
@@ -98,9 +104,10 @@ export function setupRomSockets(page, romInput, { confirmSwitch }) {
       card.dataset.ssc = s.status === 'loaded' ? 'loaded' : s.required ? 'missing-required' : 'missing-optional';
       const body = el('div', null, 'body'), top = el('div', null, 'top');
       top.append(el('strong', `Speech/Sound Pak: ${s.label}`), el('span', 'optional', 'tag'));
-      const state = s.status === 'loaded' ? '✓ loaded'
-        : s.required ? 'Only for the Speech/Sound Pak: without it the Pak cannot be inserted; it plays its music side from this ROM.'
-          : 'Optional: speech is not implemented yet, so the Pak plays music without it.';
+      // the speech ROM's two lines are SSC_TEXT's (js/session.js), the words the page uses for it everywhere
+      const state = s.id === 'sp0256' ? (s.status === 'loaded' ? SSC_TEXT.romLoaded : SSC_TEXT.romMissing)
+        : s.status === 'loaded' ? '✓ loaded'
+          : 'Only for the Speech/Sound Pak: without it the Pak cannot be inserted.';
       body.append(top, el('div', `${kb(s.size)} · usually ${s.files[0]}`, 'expect'), el('div', state, 'state'));
       card.append(el('span', null, 'dot'), body);
       return card;

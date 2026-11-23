@@ -18,7 +18,7 @@ class Device {
   get cartLineFollowsQ() { return false; }
   // whether the device can assert HALT on its slot (only the CoCo FDC's `cocofdc`: "HALT enable" in the drive select
   // latch, while the data register waits for DRQ). A machine with none attached need not keep the CoCo 3's bus log
-  // (js/machines/coco3.js logBus), and one that gets such a device later starts it from the devicesAttached hook.
+  // (js/machines/halt-replay.js logBus), and one that gets such a device later starts it from the devicesAttached hook.
   // A Multi-Pak answers for the cartridges in its slots.
   get canHalt() { return false; }
   saveState() { return {}; }

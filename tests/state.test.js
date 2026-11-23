@@ -46,6 +46,26 @@ for (const [name, t, at] of cases) {
   }
 }
 
+// The 6803's port 2 drives nothing until its data register has been written (p2Written, saved in the 6803's state; a
+// 6809/6309/7000 snapshot is unchanged, so this needs no SNAPSHOT_VERSION bump). Snapshot at power-on of the glitch
+// firmware (tools/mame-diff/mc10/printer-glitch.asm), which sets port 2's DDR before its data: the field is false,
+// and the restored machine, from that same point, prints exactly what the original prints (one $FF from the firmware's
+// later glitch, then the print). A file saved before this field existed (none) restores as written, its old behaviour.
+{
+  const t = require('../tools/mame-diff/mc10/spec.js').printer('mc10', { glitch: true });
+  const a = t.machine();
+  const snap = a.snapshot();
+  const text = Emu.state.toJSON(snap);
+  const printAll = (m) => { for (let f = 0; f < 600 && m.read(t.doneAddr) !== 0xFF; f++) m.runFrame(); for (let f = 0; f < 30; f++) m.runFrame(); return Array.from(m.printed).join(); };
+  const b = Emu.restoreSnapshot(Emu.state.fromJSON(text), a.roms);
+  const orig = printAll(a), rest = printAll(b);
+  check('mc10: a snapshot before port 2 is written restores with it unwritten, and prints what the original prints',
+    snap.state.cpu.p2Written === false && orig === rest && orig.split(',').length === 307, `${orig.split(',').length} / ${rest.split(',').length} bytes`);
+  const old = JSON.parse(text); delete old.state.cpu.p2Written;
+  const c = Emu.restoreSnapshot(Emu.state.fromJSON(JSON.stringify(old)), a.roms);
+  check('mc10: a snapshot with no p2Written (an older file) restores with port 2 already written, its old behaviour', c.cpu.p2Written === true);
+}
+
 (async () => {
   const dw = require('../tools/mame-diff/drivewire/spec.js');
   const { MemoryMediaStore } = require('../js/host/media-store-memory.js');
@@ -285,14 +305,15 @@ async function sscMidCommand() {
     let n = 0;
     while (p.busy && n < 200000) { m.runCycles(m.cycle + 2); n++; }
     p.readIO(0xFF7E);
-    return { n, busy: p.busy, pc: p.tms7040.pc, ib: p.sp0256.ib };
+    return { n, busy: p.busy, pc: p.tms7040.pc, sp: JSON.stringify(p.sp0256.saveState()) };
   };
   const fa = finish(a), fb = finish(b);
   check('ssc: the busy flag is set with a command part way through', busyMid, `(busy at snapshot: ${busyMid})`);
   check('ssc: the restored card finishes the command in the same time and state',
-    !fa.busy && !fb.busy && fb.pc === fa.pc && fb.ib === fa.ib && Math.abs(fb.n - fa.n) <= 4,
-    `(${fa.n} vs ${fb.n} cycles, pc ${fa.pc.toString(16)} vs ${fb.pc.toString(16)}, allophone ${fa.ib}/${fb.ib})`);
+    !fa.busy && !fb.busy && fb.pc === fa.pc && fb.sp === fa.sp && Math.abs(fb.n - fa.n) <= 4,
+    `(${fa.n} vs ${fb.n} cycles, pc ${fa.pc.toString(16)} vs ${fb.pc.toString(16)}, SP0256 ${fa.sp === fb.sp ? 'same' : `${fa.sp} / ${fb.sp}`})`);
   await sscMidTone();
+  await sscMidSpeech();
 }
 
 // The AY's own state, mid-tone: the tone phase counters, the noise RNG, the envelope step, the level last
@@ -300,7 +321,7 @@ async function sscMidCommand() {
 // waveform and the samples differ. The test plays the tone firmware for a while, snapshots, restores, and then
 // requires the two machines' audio-event streams to be IDENTICAL from that point on.
 async function sscMidTone() {
-  const { toneFirmware } = require('../tools/mame-diff/ssc/audio.js');
+  const { toneFirmware } = require('../tools/mame-diff/ssc/gen-roms.js');
   const { buildAsm } = require('../tools/mame-diff/ssc/gen-roms.js');
   const { romImage } = require('../tools/mame-diff/lib/firmware.js');
   const mk = () => {
@@ -317,8 +338,8 @@ async function sscMidTone() {
   // A channel must actually be AUDIBLE. Two weaker forms do not establish that, and both were measured failing:
   //   tones.some(period > 0)  - a period with every volume at 0 is silent;
   //   volEnabled.some(...)    - volEnabled is the waveform/noise gate only (ay8910.js:118) and ignores volume.
-  // So this requires a waveform gate that is ON *and* a non-zero volume register for that channel. AY_VOLUME[0]
-  // is -0.125, so silence is not zero and cannot be tested by "!== 0" either.
+  // So this requires a waveform gate that is ON *and* a non-zero volume register for that channel. The AY's
+  // single output is 0.158 with every channel at 0, so silence is not zero and cannot be tested by "!== 0" either.
   const audible = ayMid.volEnabled.some((on, c) => on && ayMid.regs[8 + c] !== 0);
   check('ssc audio: a tone is playing when the snapshot is taken', audible,
     `periods ${ayMid.tones.map((t) => t.period).join(',')} volumes ${ayMid.regs.slice(8, 11).join(',')} enabled ${ayMid.volEnabled.join(',')}`);
@@ -345,6 +366,53 @@ async function sscMidTone() {
   if (!same) for (let i = 0; i < Math.min(ea.length, eb.length); i++) if (ea[i] !== eb[i]) { firstDiff = i; break; }
   check('ssc audio: the restored Pak plays on identically, level change for level change', same,
     same ? `${ea.length} events` : `${ea.length} vs ${eb.length} events, first difference at ${firstDiff} (${ea[firstDiff]} vs ${eb[firstDiff]})`);
+}
+
+// The speech chip's own state, mid-allophone: its sequencer, excitation and filter (the six stages' coefficients and
+// delays, the noise register, the last output) and the Pak's speech levels not yet passed to the sound path have to
+// survive save/load. gen-voice.js's image (as recorded) plays from the PIC's reset with the mux open (gen-ay.js's 6809 program);
+// the snapshot is taken while it speaks, and the two machines' audio must then be IDENTICAL.
+async function sscMidSpeech() {
+  // gen-voice.js's images as MAME's recording has them (tests/ssc.test.js checks the generator still builds them)
+  const rec = require('./fixtures/ssc/voice-mame.json');
+  const voicePic = () => new Uint8Array(Buffer.from(rec.pic, 'base64'));
+  const voiceImage = () => new Uint8Array(Buffer.from(rec.image, 'base64'));
+  const { ayHost } = require('../tools/mame-diff/ssc/gen-ay.js');
+  const { romImage } = require('../tools/mame-diff/lib/firmware.js');
+  const host = ayHost();
+  const m = Emu.createMachine('coco', { mameCompat: true });
+  m.setRoms(Object.fromEntries(Emu.profiles.coco.roms.map((r) => [r.id, romImage(host, r.at, r.size, 0x12)])));
+  m.insertCartridge(new Emu.SpeechSoundPak({ tms7040Rom: voicePic(), sp0256Rom: voiceImage() }));
+  m.reset(true);
+  const a = m;
+  for (let f = 0; f < 23; f++) a.runFrame();       // about 0.38 s: the image is part way through its tests
+  // stop part way through a frame, so the snapshot holds speech levels not yet passed to the sound path
+  a.runCycles(a.cycle + 7000);
+  const sp = a.cartPort.sp0256;
+  check('ssc speech: an allophone is sounding when the snapshot is taken', !sp.halted && sp.rpt > 0 && sp.out !== 0 &&
+    a.cartPort.spQueue.length > 0, `halted ${sp.halted}, rpt ${sp.rpt}, out ${sp.out}, queued ${a.cartPort.spQueue.length}`);
+  const text = Emu.state.toJSON(a.snapshot());
+  const b = Emu.restoreSnapshot(Emu.state.fromJSON(text), a.roms);
+  const rb = b.cartPort.sp0256;
+  const same = (x, y) => JSON.stringify(Array.from(x)) === JSON.stringify(Array.from(y));
+  check('ssc speech: the filter\'s coefficients, delays, noise register and output survive',
+    same(rb.b, sp.b) && same(rb.f, sp.f) && same(rb.z, sp.z) && rb.rng === sp.rng && rb.out === sp.out &&
+    JSON.stringify(b.cartPort.spQueue) === JSON.stringify(a.cartPort.spQueue),
+    `z ${Array.from(rb.z).join(',')} vs ${Array.from(sp.z).join(',')}`);
+  const run = (mm) => {
+    const ev = [];
+    for (let f = 0; f < 30; f++) {
+      mm.runFrame();
+      for (let i = 0; i < mm.audioEvents.length; i += 2) ev.push(`${mm.audioEvents[i]}:${mm.audioEvents[i + 1].toFixed(9)}`);
+    }
+    return ev;
+  };
+  const ea = run(a), eb = run(b);
+  const ok = ea.length === eb.length && ea.every((x, i) => x === eb[i]);
+  let firstDiff = -1;
+  if (!ok) for (let i = 0; i < Math.min(ea.length, eb.length); i++) if (ea[i] !== eb[i]) { firstDiff = i; break; }
+  check('ssc speech: the restored Pak speaks on identically, level change for level change', ok && ea.length > 1000,
+    ok ? `${ea.length} events` : `${ea.length} vs ${eb.length} events, first difference at ${firstDiff} (${ea[firstDiff]} vs ${eb[firstDiff]})`);
 }
 
 // NitrOS-9 booted from the page (Session.bootNitros9): our loader in the CoCo 3's ROM socket, the boot disk in

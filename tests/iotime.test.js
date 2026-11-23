@@ -123,7 +123,7 @@ for (const [id, config, prog] of [...longStep, mc10]) {
     const start = m.cycle;
     const seen = [];
     const orig = m.ioTime.bind(m);
-    m.ioTime = () => { const v = orig(); seen.push({ inStep: m.inStep, v, cycle: m.cycle, cc: m.cpu.cycleCount, c: m.cpu.c, shift: m.ioShift }); return v; };
+    m.ioTime = () => { const v = orig(); seen.push({ inStep: m.inStep, v, cycle: m.cycle, cc: m.cpu.cycleCount, c: m.cpu.c, shift: m.halt ? m.halt.ioShift : undefined }); return v; };
     between(m);                              // the TFM
     m.ioTime = orig;
     const div = id === 'coco3' ? m.div : 1;
@@ -177,8 +177,8 @@ for (const [id, config, prog] of [...longStep, mc10]) {
   const t = spec.trace('coco3', { controller: 'cocofdc', halt: true, empty: true });
   const m = t.machine();
   let frames = 0;
-  while (frames < 400) { m.runFrame(); frames++; if (m.haltDefer && !m.inStep && m.cpu.cycleCount === 0) break; }
-  const d = m.haltDefer;
+  while (frames < 400) { m.runFrame(); frames++; if (m.halt.haltDefer && !m.inStep && m.cpu.cycleCount === 0) break; }
+  const d = m.halt.haltDefer;
   check('a real instruction is suspended and parked by the controller\'s HALT', !!d && !m.inStep && m.cpu.cycleCount === 0,
     `frames ${frames}, cycle ${m.cycle}, cycleCount ${m.cpu.cycleCount}`);
   const parkedCycle = m.cycle;
@@ -194,10 +194,10 @@ for (const [id, config, prog] of [...longStep, mc10]) {
 
   // held: run the suspended instruction's events again and read ioTime() inside one
   const held = [];
-  m.on('held-probe', () => held.push({ inStep: m.inStep, heldIo: m.heldIo, v: m.ioTime(), cycle: m.cycle }));
+  m.on('held-probe', () => held.push({ inStep: m.inStep, heldIo: m.halt.heldIo, v: m.ioTime(), cycle: m.cycle }));
   m.schedule(m.cycle + 1, 'held-probe');
   m.runFrame();
-  const want = m.haltDefer ? m.haltDefer.s + m.haltDefer.n * m.div - 1 : d.s + d.n * m.div - 1;
+  const want = m.halt.haltDefer ? m.halt.haltDefer.s + m.halt.haltDefer.n * m.div - 1 : d.s + d.n * m.div - 1;
   check('held: an event run by haltResume sees the held access\'s time, d.s + d.n*div - 1',
     held.length > 0 && held.every((h) => !h.inStep && h.heldIo && h.v === want),
     held.length ? `in-event ioTime ${held[0].v}, expected ${want}` : 'no held event ran');
@@ -205,12 +205,12 @@ for (const [id, config, prog] of [...longStep, mc10]) {
   // The held state must be let go again: heldIo is a call-stack flag, so once the events have run the machine is
   // parked and must answer the machine's time. A version that sets heldIo and never clears it passes every check
   // above and poisons every later access, so this is checked on its own.
-  const parkedAgain = !!m.haltDefer && !m.inStep && m.cpu.cycleCount === 0;
+  const parkedAgain = !!m.halt.haltDefer && !m.inStep && m.cpu.cycleCount === 0;
   check('after the held events run, the machine is parked again', parkedAgain,
-    `haltDefer ${!!m.haltDefer}, inStep ${m.inStep}, cycleCount ${m.cpu.cycleCount}`);
+    `haltDefer ${!!m.halt.haltDefer}, inStep ${m.inStep}, cycleCount ${m.cpu.cycleCount}`);
   check('after the held events run, heldIo is cleared and ioTime/accessStart are the machine time',
-    !m.heldIo && m.ioTime() === m.cycle && m.accessStart() === m.cycle,
-    `heldIo ${m.heldIo}, ioTime ${m.ioTime()}, accessStart ${m.accessStart()}, cycle ${m.cycle}`);
+    !m.halt.heldIo && m.ioTime() === m.cycle && m.accessStart() === m.cycle,
+    `heldIo ${m.halt.heldIo}, ioTime ${m.ioTime()}, accessStart ${m.accessStart()}, cycle ${m.cycle}`);
 
   // A handler that throws out of haltRun must not leave heldIo set either (the finally, not the happy path).
   // The event is queued and then taken off the queue in the handler's own throw path, so nothing is left for the
@@ -222,8 +222,8 @@ for (const [id, config, prog] of [...longStep, mc10]) {
   try { m.runFrame(); } catch (e) { caught = e; }
   check('a throwing held event propagates out of runFrame', caught !== null, String(caught && caught.message));
   check('...and leaves heldIo cleared and the machine timed at its own clock',
-    m.heldIo === false && m.ioTime() === m.cycle && m.accessStart() === m.cycle,
-    `heldIo ${m.heldIo}, ioTime ${m.ioTime()}, accessStart ${m.accessStart()}, cycle ${m.cycle}`);
+    m.halt.heldIo === false && m.ioTime() === m.cycle && m.accessStart() === m.cycle,
+    `heldIo ${m.halt.heldIo}, ioTime ${m.ioTime()}, accessStart ${m.accessStart()}, cycle ${m.cycle}`);
   check('...with no io-probe or held event left queued by the throw',
     !m.queue.some((e) => e.name === 'held-throw'),
     `queue names ${[...new Set(m.queue.map((e) => e.name))].join(',')}`);
@@ -231,8 +231,8 @@ for (const [id, config, prog] of [...longStep, mc10]) {
   let later = null;
   try { m.runFrame(); } catch (e) { later = e; }
   check('...and the machine runs on afterwards with the machine\'s own time',
-    later === null && !m.heldIo && m.ioTime() === m.cycle,
-    later ? `threw ${later.message}` : `heldIo ${m.heldIo}, ioTime ${m.ioTime()}, cycle ${m.cycle}`);
+    later === null && !m.halt.heldIo && m.ioTime() === m.cycle,
+    later ? `threw ${later.message}` : `heldIo ${m.halt.heldIo}, ioTime ${m.ioTime()}, cycle ${m.cycle}`);
 }
 
 // ---- 7. the CoCo 3's accessStart() has the same contract (it ends a MAME-compat slice) ----

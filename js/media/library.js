@@ -293,6 +293,17 @@ export class MediaIndex {
     for (const m of this.changed.sockets) for (const crc of Object.values(this.sockets[m] || {})) out.add(crc);
     return out;
   }
+  // take one image out of every socket that holds it, and the image with it -> [{ machine, socket }] it was in
+  removeImage(crc) {
+    const was = [];
+    for (const [machine, sockets] of Object.entries(this.sockets)) for (const [socket, c] of Object.entries(sockets)) {
+      if (c !== crc) continue;
+      delete sockets[socket]; was.push({ machine, socket });
+      this.changed.sockets.add(machine);
+    }
+    this.collect();
+    return was;
+  }
   clearMachine(machine) { this.sockets[machine] = {}; this.changed.sockets.add(machine); this._write(ROM_SOCKETS, json(this.sockets)); }
 
   // Write this index into another store's copy of it (MediaLibrary.moveMedia), merged rather than replaced: the files

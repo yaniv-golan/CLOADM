@@ -14,7 +14,12 @@
 //   node .github/scripts/browser-check-shards.js --write    # rewrite the shard file from the timings
 //   node .github/scripts/browser-check-shards.js --merge t1.json [t2.json ...]
 //        # take the group times from `node tools/browser-check.js --timings tN.json` runs into the timings file
-//        # (those groups only), drop groups the check no longer has, then --write
+//        # (those groups only), drop groups the check no longer has, then --write. A group already timed keeps a
+//        # smoothed time, an exponential moving average: new = s * measured + (1 - s) * old, with s the file's
+//        # "smoothing" (0 < s <= 1). One noisy run then moves a group by only s of its error (a group's time on CI varies
+//        # 20-30% between runs, measured 2026-11-23), so it cannot swing the plan. A group with no time yet takes its
+//        # measured time as it is. The files are applied in the order given (oldest run first); a group measured in
+//        # two of them is averaged twice.
 //   node .github/scripts/browser-check-shards.js --merge-out OUT t1.json ...   # the same merge into OUT, nothing else
 //        # written (the CI `gates` job uses it to publish the run's own times)
 //
@@ -63,11 +68,14 @@ if ((mi > 0 || mo > 0) && !errors.length) {
   const out = mo > 0 ? process.argv[mo + 1] : TIMINGS;
   const inputs = process.argv.slice((mo > 0 ? mo : mi) + (mo > 0 ? 2 : 1)).filter((a) => !a.startsWith('--'));
   if (!inputs.length) { console.error('--merge needs one or more files written by node tools/browser-check.js --timings FILE'); process.exitCode = 2; return; }
+  const alpha = timings.smoothing;
+  if (!(Number.isFinite(alpha) && alpha > 0 && alpha <= 1)) { console.error(`${rel(TIMINGS)}: "smoothing" must be a number in (0, 1], not ${JSON.stringify(alpha)}`); process.exitCode = 2; return; }
   const groups = {};
   for (const g of known) if (g in timings.groups) groups[g] = timings.groups[g];
   for (const f of inputs) {
     for (const [g, s] of Object.entries(JSON.parse(fs.readFileSync(f, 'utf8')).groups || {})) {
-      if (known.includes(g) && Number.isFinite(s) && s >= 0) groups[g] = s;
+      if (!known.includes(g) || !Number.isFinite(s) || s < 0) continue;
+      groups[g] = g in groups ? Math.round((alpha * s + (1 - alpha) * groups[g]) * 10) / 10 : s;
     }
   }
   const sorted = Object.fromEntries(known.filter((g) => g in groups).map((g) => [g, groups[g]]));
@@ -80,6 +88,7 @@ if ((mi > 0 || mo > 0) && !errors.length) {
 
 // The timings must time every group the check has, and only those, with a whole number of shards to spread them over.
 if (!errors.length) {
+  if (!(Number.isFinite(timings.smoothing) && timings.smoothing > 0 && timings.smoothing <= 1)) errors.push(`${rel(TIMINGS)}: "smoothing" must be a number in (0, 1], not ${JSON.stringify(timings.smoothing)}`);
   if (!Number.isInteger(timings.shards) || timings.shards < 1) errors.push(`${rel(TIMINGS)}: "shards" must be a whole number of CI shards, not ${JSON.stringify(timings.shards)}`);
   const g = timings.groups || {};
   const untimed = known.filter((n) => !Number.isFinite(g[n]) || g[n] < 0);
