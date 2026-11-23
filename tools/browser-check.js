@@ -4893,9 +4893,9 @@ async function tapeExtrasChecks(browser, base, check) {
     const empty = await rowsNow();
     const row = (l) => empty.find((r) => r.label === l);
     await close();
-    // (the box shows at most 6 commands: "tape" matches more, so the muted ones that fit are shown, after the others)
-    check(`tape extras (${label}): with no tape, Ctrl+K "tape" lists "Insert a tape…" and, muted after the rows that apply ("No tape in", aria-disabled, no disabled attribute), Rewind`,
-      row('Insert a tape…') && !row('Insert a tape…').off && ['Rewind the tape'].every((l) => row(l) && row(l).off && row(l).line === 'No tape in' && !row(l).disabledAttr)
+    // (the box shows at most 8 commands: "tape" matches seven, so all three muted rows show, after the others)
+    check(`tape extras (${label}): with no tape, Ctrl+K "tape" lists "Insert a tape…" and, muted after the rows that apply ("No tape in", aria-disabled, no disabled attribute), Rewind, Eject and Save .WAV`,
+      row('Insert a tape…') && !row('Insert a tape…').off && ['Rewind the tape', 'Eject the tape', 'Save the tape as .WAV'].every((l) => row(l) && row(l).off && row(l).line === 'No tape in' && !row(l).disabledAttr)
       && empty.filter((r) => r.off).every((r) => r.line === 'No tape in' && !r.disabledAttr)
       && empty.findIndex((r) => r.off) > empty.findIndex((r) => r.label === 'Insert a tape…') && empty.filter((r) => !/^Ask Claude/.test(r.label)).every((r, i, a) => !r.off || a.slice(i).every((x) => x.off)),
       JSON.stringify(empty));
