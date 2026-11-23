@@ -66,10 +66,11 @@ end`).join('\n'),
     };
   },
   // printer firmware (lib/printer.js): the serial printer on port 2 bit 0
-  printer(profileId, { config = {}, work = `/tmp/mame-diff/${profileId}-printer` } = {}) {
+  // stubInit: printer-stubinit.asm, the ports set up in the no-ROM stub's order, then the same print
+  printer(profileId, { config = {}, work = `/tmp/mame-diff/${profileId}-printer`, stubInit = false } = {}) {
     const Emu = loadEmu(), profile = Emu.profiles[profileId];
     const resolved = Emu.resolveConfig(profileId, Object.assign({ mameCompat: true }, config));
-    const asm = assembleFile(path.join(__dirname, 'printer.asm'), '6803');
+    const asm = assembleFile(path.join(__dirname, stubInit ? 'printer-stubinit.asm' : 'printer.asm'), '6803');
     const rom = romImage(asm, 0xE000, 0x2000, 0x01);
     return {
       label: profileId, system: profile.mame, work, seconds: 12, args: mameConfigArgs(resolved),

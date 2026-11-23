@@ -1168,6 +1168,12 @@ names it.
     beginning with $00. The stub now puts mark in the output register first: **305 bytes identical**, nothing
     before the first byte sent, trace identical to HALT (3,211,861 instructions). `tests/stub-printer.test.js`
     checks the printed bytes of every CoCo-lineage stub, and that the Dragons' stub prints only the reset's byte.
+  * `run.js mc10 --printer --stub-init` (and `alice`) runs `mc10/printer-stubinit.asm`, ports set up as the MC-10 and
+    Alice stub sets them up (`js/machines/mc10.js` stubInit). Before 0.2 the stub wrote port 2's DDR before its data
+    register: P20 drove 0 for a moment, and CLOADM's printer took it for a start bit (a stub left idle printed one $FF;
+    after it this firmware's first byte came out $7F, not the $00 sent), while MAME 0.264 printed the bytes as sent.
+    The stub now writes the data register first: **306 bytes identical** on both, nothing before the first byte,
+    trace identical to HALT (3,584,013 instructions compared). `tests/stub-printer.test.js` checks both stubs.
 
 * `node tools/mame-diff/run.js <profile> --serial` runs `sam/serial-loopback.asm` (`mc10/serial-loopback.asm`) with
   a loopback plug on the bit-banger, in lockstep with MAME's `-rs232 loopback`: the firmware sends 13 bytes as

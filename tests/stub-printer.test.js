@@ -12,6 +12,10 @@
 //    data bits least significant first, stop bit, 600 baud), started on the stub, prints exactly "OK";
 //  * the Dragons, whose port A is the parallel printer's, print what they printed before: the one byte every reset
 //    prints (MAME's too: tools/mame-diff/sam/spec.js printer, atReset), and nothing from the stub.
+//  * the MC-10 and the Alice: their stub wrote port 2's DDR before its data register, so P20 (the serial printer's
+//    line) dropped to space and they printed a $FF at power-on and at every injectAndRun (MAME printed nothing:
+//    tools/mame-diff/mc10/printer-stubinit.asm, run.js mc10 --printer --stub-init). They print nothing at power-on,
+//    and a program of our own (6803) that prints "OK" on P20 at 600 baud prints exactly "OK".
 const Emu = require('./load')();
 
 let fail = 0, n = 0;
@@ -77,6 +81,55 @@ for (const id of dragons) {
   m.reset(true);
   frames(m, 60);
   check(`${id}: the Dragon stub prints only the byte a reset prints`, Array.from(m.printed).join() === '255', JSON.stringify(Array.from(m.printed)));
+}
+
+// "OK" on the MC-10's P20 at 600 baud (the SEND/BITT routine of tools/mame-diff/mc10/printer.asm, in RAM at $5000);
+// $5100 = $FF once done
+const PRINT_OK_6803 = `
+        ORG     $5000
+START   SEI
+        LDAA    #'O
+        BSR     SEND
+        LDAA    #'K
+        BSR     SEND
+        LDAA    #$FF
+        STAA    $5100
+DONE    BRA     DONE
+SEND    STAA    $5102
+        CLRB
+        BSR     BITT
+        LDAB    #8
+        STAB    $5103
+DATA    CLRB
+        LSR     $5102
+        BCC     ZERO
+        LDAB    #$01
+ZERO    BSR     BITT
+        DEC     $5103
+        BNE     DATA
+        LDAB    #$01
+        BSR     BITT
+        RTS
+BITT    STAB    $03
+        LDX     #243
+WAIT    DEX
+        BNE     WAIT
+        RTS
+`;
+const prog6803 = Emu.assemble(PRINT_OK_6803, '6803');
+check('the 6803 printing program assembles', prog6803.ok && prog6803.segments.length > 0, JSON.stringify(prog6803.errors));
+for (const id of ['mc10', 'alice']) {
+  const m = Emu.createMachine(id, {});
+  m.reset(true);
+  frames(m, 60);
+  check(`${id}: the stub prints nothing at power-on`, m.printed.length === 0, JSON.stringify(Array.from(m.printed)));
+  const p = Emu.createMachine(id, {});
+  p.reset(true);
+  p.injectAndRun(prog6803.segments, 0x5000);
+  frames(p, 60);
+  const done = p.read(0x5100) === 0xFF;
+  check(`${id}: a program started on the stub prints exactly "OK", nothing before it`,
+    done && Array.from(p.printed).join() === '79,75', `done ${done}, printed ${JSON.stringify(Array.from(p.printed))}`);
 }
 
 console.log(`\n${n - fail}/${n} stub printer checks passed`);

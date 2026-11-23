@@ -331,7 +331,11 @@ class Mc10Machine extends Machine {
   stubInit() {
     const cpu = this.cpu;
     cpu.write8(0x00, 0xFF); cpu.write8(0x02, 0xFF);   // port 1: keyboard strobes, all high
-    cpu.write8(0x01, 0x01); cpu.write8(0x03, 0x01);   // port 2: P20 (cassette out) is an output
+    // port 2: P20 (the cassette out and the serial printer's line) is an output. Its data register first: with the
+    // DDR first, P20 drives the register's 0 for a moment, the line drops to space, and the printer takes the drop for
+    // a start bit (one $FF printed at power-on and at every injectAndRun). Data first, as the printer firmware does
+    // (tools/mame-diff/mc10/printer.asm, printer-stubinit.asm).
+    cpu.write8(0x03, 0x01); cpu.write8(0x01, 0x01);
     this.write(0xBFFF, 0x00);                          // text mode, sound low
     cpu.s = this.ramEnd - 1;
     cpu.cc = 0xC0 | CPU6803.FLAGS.I;

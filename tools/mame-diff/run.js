@@ -18,7 +18,8 @@
 // (coco3/spec.js vsc); --no-trace and --keep as for --raster.
 // --printer: the printer firmware's output, byte for byte against MAME's -prin file (lib/printer.js), after
 // a lockstep run to HALT (--no-trace skips it).
-// --printer --stub-init (CoCo): sam/printer-stubinit.asm, PIA1 set up as CLOADM's no-ROM stub sets it up, then the same print.
+// --printer --stub-init (CoCo, MC-10, Alice): sam/ or mc10/printer-stubinit.asm, the printer port set up as CLOADM's no-ROM
+//   stub sets it up, then the same print.
 // --serial: the bit-banger serial port (or the 6551) in loopback, in lockstep with MAME's -rs232 loopback; then
 // every byte sent must have been read back.
 // --rate / --ops (SAM family): the CPU rate firmware (sam/rate.asm, sam/ops.asm) instead of diag.asm; MAME

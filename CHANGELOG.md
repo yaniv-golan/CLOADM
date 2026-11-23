@@ -442,6 +442,10 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   there first, as a printer routine leaves the line, on every CoCo-lineage model and the CoCo 3; the Dragons, whose
   port A is the parallel printer's, are unchanged. `run.js coco --printer --stub-init` compares the stub's start with
   MAME byte for byte; `tests/stub-printer.test.js` checks the printed bytes.
+- **A printout on an MC-10 or Alice no longer starts with a stray byte.** Their no-ROM stub wrote port 2's DDR before
+  its data register, so P20 (the serial printer's line) dropped to space for a moment and the printer printed a $FF
+  at power-on, or garbled a program's first byte. The stub now writes the data register first, as the printer firmware
+  does; `run.js mc10 --printer --stub-init` (and `alice`) gives the 306 bytes MAME 0.264 prints, identical.
 - **A disk in a drive counts toward the install offer.** The page's "program in use" test (the one the
   offer to install CLOADM as an app waits a minute of) asked the machine for a disk controller it never has, so a disk
   waiting in a drive at the bare prompt never counted; it now asks the drives (`session.drives.controllerOf`). The
