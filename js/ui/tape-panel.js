@@ -1,6 +1,7 @@
 /*
  * The cassette panel, under the screen while a tape
- * is in the deck or the deck is recording: what the deck is doing (LOADING · BLOCK 14 OF 31, a read error, end
+ * is in the deck or the deck is recording: what the deck is doing (LOADING · BLOCK 14 OF 31, or LOADING · FILE 2 OF 3 ·
+ * BLOCK 4 OF 31 on a tape of several files, a read error, end
  * of tape), the cassette with its label and reels (the tape winds from left to right as it plays), the tape's
  * bytes as a waveform strip coloured up to the play position, the progress stripe in the VDG colours, the
  * counter, the bit frequencies, the motor, how fast it is going, and two controls: real speed (the Media tab's
@@ -181,7 +182,7 @@ export function setupTapePanel(page) {
     put(eyebrow, 'textContent', st.error ? `READ ERROR · BLOCK ${st.error} OF ${st.blocks}`
       : st.started != null ? `LOADED · STARTED ${hex(st.started)}`   // (a machine-code file the drop loaded and started)
         : st.progress >= 1 ? `END OF TAPE · ${st.blocks} BLOCKS`
-          : st.motor ? `${rec ? 'RECORDING · ' : ''}LOADING · BLOCK ${Math.max(1, st.block)} OF ${st.blocks}`
+          : st.motor ? `${rec ? 'RECORDING · ' : ''}LOADING · ${st.files > 1 ? `FILE ${Math.max(1, st.file)} OF ${st.files} · ` : ''}BLOCK ${Math.max(1, st.block)} OF ${st.blocks}`
             : `STOPPED · BLOCK ${st.block} OF ${st.blocks}`);
     put(panel.dataset, 'state', st.error ? 'error' : st.progress >= 1 ? 'end' : st.motor ? 'playing' : 'stopped');
     put($('tapeLabel'), 'textContent', st.name);

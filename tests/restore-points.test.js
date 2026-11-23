@@ -690,7 +690,7 @@ const ACT = {
       e instanceof Emu.SessionError && /missing "haltDefer".*put back as it was/.test(e.message) && json(m) === after, e ? e.message : 'restored');
     const e1 = throwsMsg(() => s.drives.restorePoint(m, v1));
     check('restorePoint: a version 1 point (no haltDefer) restores, nothing suspended, the state is the point\'s',
-      e1 === null && m.haltDefer === null && m.restoringVersion === Emu.SNAPSHOT_VERSION
+      e1 === null && m.halt.haltDefer === null && m.restoringVersion === Emu.SNAPSHOT_VERSION
       && JSON.stringify(m.saveState()) === JSON.stringify(point.state), e1 ? e1.message : '');
   }
 

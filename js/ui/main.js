@@ -4,7 +4,7 @@
  * landing page's "Try it now" and "Talk to LIZA", media to load, rom=URL, display, input, embed=1, ...).
  * The page is served at /play/ with <base href="../">.
  */
-import { Session } from '../session.js';
+import { Session, SSC_TEXT } from '../session.js';
 import * as Emu from '../emu.js';
 import { profiles } from '../machines/profiles.js';
 import { Audio } from '../host/audio.js';
@@ -83,7 +83,12 @@ if (!chatHere) document.body.classList.add('no-claude');
 const keyStore = chatHere ? (() => { try { return localStorage ? storageKeyStore(localStorage) : new MemoryKeyStore(); } catch (e) { return new MemoryKeyStore(); } })()
   : new MemoryKeyStore();
 // embedded (?embed=1): no welcome menu of its own; the embedding page drives a plain machine
-const session = new Session({ store: settings, media: mediaStore, keyStore, welcomeMenu: !link.embed });
+// other tabs of this origin on the same store: one lock for the media index's lists, and a channel to say what changed
+const mediaShare = {
+  locks: (typeof navigator !== 'undefined' && navigator.locks) || null,
+  channel: typeof BroadcastChannel === 'function' ? new BroadcastChannel('cloadm-media') : null,
+};
+const session = new Session({ store: settings, media: mediaStore, keyStore, welcomeMenu: !link.embed, mediaShare });
 const page = createPage(session, new Audio());
 // a background write that fails (full storage, permission refused) must reach the user, not vanish
 session.index.writeError = (name, e) => page.status(session.library.indexWriteError(name, e), true);
@@ -143,7 +148,7 @@ const showRoms = () => romSockets.reveal();
 const claude = chatHere ? setupClaude(page) : null;
 // set up only when there is a controller: both modules drive the chat and would throw on null
 if (claude) setupAsk(page, claude);
-if (claude) setupCommandBox(page, claude);
+if (claude) setupCommandBox(page, claude, machinePanel);
 // the controls that hand Claude a key or a say over the machine take no press for their card's first moments on screen
 if (claude) {
   const card = (label, id, ...controls) => ({ label, card: $(id), controls: controls.map((c) => $(c)) });
@@ -162,6 +167,8 @@ window.emu.askPopout = claude ? null : setupAskPopout(page, { link, framed: fram
 const welcome = setupWelcome(page, { showRoms, openClaude: () => claude && claude.open() });
 const drawer = setupDrawer(page, { showRoms });
 const openRoms = () => { romSockets.reveal(); $('fileRom').click(); };
+// a program spoke on the Speech/Sound Pak with no speech ROM: once a session (Session.checkSpeechRom), with the way in
+session.on((ev) => { if (ev === 'speech-rom') page.toast(SSC_TEXT.speechNoRom, { action: { label: 'Add ROMs', run: () => romSockets.reveal() } }); });
 library = setupLibrary(page, { loadProgram: media.loadProgram, runShelf: welcome.runShelf, changed: slots.refresh, showRoms, reconnect, diskSaid: disks.said });
 setupTypein(page, { openRoms, isVisible: () => !$('library').hidden });
 setupTapePanel(page);

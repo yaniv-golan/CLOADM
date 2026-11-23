@@ -1,4 +1,4 @@
-// The CoCo 3's instruction held by the disk controller's HALT (js/machines/coco3.js haltWait / haltSuspend) seen from
+// The CoCo 3's instruction held by the disk controller's HALT (js/machines/halt-replay.js haltWait / haltSuspend) seen from
 // outside the CPU: the CPU redirected while an instruction is suspended (a jump, a loader, the debugger setting a
 // register, a snapshot), and the debugger running, stepping and watching across a held instruction.
 //
@@ -49,7 +49,7 @@ for (const [label, config] of [['hardware timing', undefined], ['MAME timing', {
     start(0xAA, 1, INC_LOOP);
     OTHER.forEach((b, i) => m.poke(0x3100 + i, b));
     for (let i = 0; i < 5; i++) m.runFrame();
-    const was = !!m.haltDefer && m.cpu.pc === HELD_INC && m.cpu.haltLine;
+    const was = !!m.halt.haltDefer && m.cpu.pc === HELD_INC && m.cpu.haltLine;
     let fdcReads = 0, fdcWrites = 0, piaReads = [];
     const rd = f.readIO.bind(f), wr = f.writeIO.bind(f), prd = m.pia0.read.bind(m.pia0);
     f.readIO = (a) => { if (a === 0xFF4B) fdcReads++; return rd(a); };
@@ -74,7 +74,7 @@ for (const [label, config] of [['hardware timing', undefined], ['MAME timing', {
     for (let i = 0; i < 3; i++) m.runFrame();
     if (!reset) {
       check(`redirect while suspended (${label}, ${how}): no instruction runs while HALT is asserted, none held`,
-        was && ran === 0 && m.haltDefer === null && m.cpu.haltLine && m.cpu.pc === target, `was ${was} ran ${ran} defer ${!!m.haltDefer} pc ${hex(m.cpu.pc)} halt ${m.cpu.haltLine}`);
+        was && ran === 0 && m.halt.haltDefer === null && m.cpu.haltLine && m.cpu.pc === target, `was ${was} ran ${ran} defer ${!!m.halt.haltDefer} pc ${hex(m.cpu.pc)} halt ${m.cpu.haltLine}`);
       FORCE_INTERRUPT(m);
       for (let i = 0; i < 2; i++) m.runFrame();
     }
@@ -85,7 +85,7 @@ for (const [label, config] of [['hardware timing', undefined], ['MAME timing', {
     } else {
       // a register set: the INC runs again from its start, its read of $FF4B made again (not replayed), then its write
       check(`redirect while suspended (${label}, ${how}): after the release the INC runs from its start, its read made again`,
-        fdcReads >= 1 && fdcWrites >= 1 && m.haltDefer === null && m.cpu.a === 0x12, `reads ${fdcReads} writes ${fdcWrites} a ${hex(m.cpu.a)}`);
+        fdcReads >= 1 && fdcWrites >= 1 && m.halt.haltDefer === null && m.cpu.a === 0x12, `reads ${fdcReads} writes ${fdcWrites} a ${hex(m.cpu.a)}`);
     }
     m.cpu.trace = null;
     if (dbg) dbg.detach();
@@ -100,7 +100,7 @@ for (const [label, config] of [['hardware timing', undefined], ['6309', { cpu: '
     const { m, f, start } = machine(config);
     start(0xAA, 1, INC_LOOP);
     for (let i = 0; i < 5; i++) m.runFrame();
-    const was = !!m.haltDefer;
+    const was = !!m.halt.haltDefer;
     let fdcReads = 0, fdcWrites = 0, piaReads = [];
     const rd = f.readIO.bind(f), wr = f.writeIO.bind(f), prd = m.pia0.read.bind(m.pia0);
     f.readIO = (a) => { if (a === 0xFF4B) fdcReads++; return rd(a); };
@@ -113,7 +113,7 @@ for (const [label, config] of [['hardware timing', undefined], ['6309', { cpu: '
     else if (how === 'Debugger.write elsewhere') dbg.write(0x5800, [1, 2, 3]);
     else dbg.setRegister('pc', m.cpu.pc);
     for (let i = 0; i < 3; i++) dbg.runFrame();
-    const kept = !!m.haltDefer;
+    const kept = !!m.halt.haltDefer;
     FORCE_INTERRUPT(m);
     for (let i = 0; i < 2; i++) dbg.runFrame();
     if (over) {
@@ -121,7 +121,7 @@ for (const [label, config] of [['hardware timing', undefined], ['6309', { cpu: '
         was && !kept && piaReads.length >= 1 && m.ram[0x5000] === piaReads[0] && fdcWrites === 0 && fdcReads === 0, `kept ${kept} $5000 ${hex(m.ram[0x5000])} pia ${piaReads.map(hex)} r/w ${fdcReads}/${fdcWrites}`);
     } else {
       check(`a suspended INC (${label}, ${how}): kept; after the release it completes with its read replayed, not made again (one write more than reads as the loop runs on)`,
-        was && kept && fdcReads > 0 && fdcWrites === fdcReads + 1 && m.haltDefer === null, `kept ${kept} r/w ${fdcReads}/${fdcWrites}`);
+        was && kept && fdcReads > 0 && fdcWrites === fdcReads + 1 && m.halt.haltDefer === null, `kept ${kept} r/w ${fdcReads}/${fdcWrites}`);
     }
     dbg.detach();
   }
@@ -145,7 +145,7 @@ for (const how of ['cpu.a written', 'Machine.jump to the same PC']) {
   for (let i = 0; i < 3 && !stopped; i++) stopped = !dbg.runFrame();
   m.cpu.trace = null;
   check(`a suspended INC dropped by ${how}, a breakpoint on it: stops before it runs again`,
-    stopped && dbg.stopReason.kind === 'breakpoint' && m.cpu.pc === HELD_INC && ran === 0 && m.haltDefer === null, `stopped ${stopped} ${JSON.stringify(dbg.stopReason)} ran ${ran}`);
+    stopped && dbg.stopReason.kind === 'breakpoint' && m.cpu.pc === HELD_INC && ran === 0 && m.halt.haltDefer === null, `stopped ${stopped} ${JSON.stringify(dbg.stopReason)} ran ${ran}`);
   dbg.detach();
 }
 
@@ -156,8 +156,8 @@ const idleCycle = (write) => {
   const { m, f, start } = machine();
   start(0xAA, 1, [0x8E, 0xFF, 0x4B, 0x6C, 0x84, 0x20, 0xFC]);   // LDX #$FF4B; INC ,X ($3012); BRA
   for (let i = 0; i < 5; i++) m.runFrame();
-  const held = !!m.haltDefer && m.cpu.pc === 0x3012;
-  const idle = [...m.haltDefer.mem].filter((v, i) => i % 2 === 0).includes(0x3014);
+  const held = !!m.halt.haltDefer && m.cpu.pc === 0x3012;
+  const idle = [...m.halt.haltDefer.mem].filter((v, i) => i % 2 === 0).includes(0x3014);
   let reads = 0;
   const rd = f.readIO.bind(f);
   f.readIO = (a) => { if (a === 0xFF4B) reads++; return rd(a); };
@@ -166,7 +166,7 @@ const idleCycle = (write) => {
   m.runFrame();
   if (write) dbg.write(0x3014, [0x20]);
   m.runFrame();
-  const kept = !!m.haltDefer;
+  const kept = !!m.halt.haltDefer;
   const t = [];
   m.cpu.trace = (c) => { if (t.length < 400) t.push(c.pc, c.totalCycles); };
   FORCE_INTERRUPT(m); m.runFrame();
@@ -193,7 +193,7 @@ for (const how of ['pointer', 'elsewhere', 'none']) {
     if (how === 'pointer') mm.poke(0x4001, 0x4A);
     else if (how === 'elsewhere') mm.poke(0x3013, 0xFD);
     mm.runFrame();
-    const kept = !!mm.haltDefer;
+    const kept = !!mm.halt.haltDefer;
     const t = [];
     mm.cpu.trace = (c) => { if (t.length < 50) t.push(c.pc, c.totalCycles); };
     FORCE_INTERRUPT(mm); mm.runFrame(); mm.runFrame();
@@ -224,7 +224,7 @@ for (const how of ['snapshot round trip', 'debugger made while held']) {
   const before = stops;
   for (let i = 0; i < 5; i++) if (!dbg.runFrame()) { stops++; dbg.resume(); }
   check(`breakpoint on a suspended INC, ${how}: no stop while it is under way`,
-    (how === 'snapshot round trip' ? before === 1 : before === 0) && stops === before && !!m.haltDefer && m.cpu.pc === HELD_INC, `stops ${before}/${stops} held ${!!m.haltDefer}`);
+    (how === 'snapshot round trip' ? before === 1 : before === 0) && stops === before && !!m.halt.haltDefer && m.cpu.pc === HELD_INC, `stops ${before}/${stops} held ${!!m.halt.haltDefer}`);
   dbg.detach();
 }
 
@@ -261,14 +261,14 @@ for (const how of ['snapshot round trip', 'debugger made while held']) {
     0x12, 0xED, 0x84, 0x20, 0xFE].forEach((b, i) => m.poke(0x3000 + i, b));
   m.cpu.x = 0xFFD8; m.cpu.pc = 0x3000; m.cpu.cc |= 0x50;
   for (let i = 0; i < 5; i++) m.runFrame();
-  const d = m.haltDefer, sc = d ? d.speedChange : -1, s0 = d ? d.s : 0, oldDiv = m.div, c0 = m.cycle, t0 = m.cpu.totalCycles;
+  const d = m.halt.haltDefer, sc = d ? d.speedChange : -1, s0 = d ? d.s : 0, oldDiv = m.div, c0 = m.cycle, t0 = m.cpu.totalCycles;
   m.cpu.a ^= 1;                                        // the drop
   m.cpuCheck();
   const added = m.cpu.totalCycles - t0, want = sc + Math.round((c0 - (s0 + sc * oldDiv)) / 4);
   const t1 = m.cpu.totalCycles, c1 = m.cycle;
   for (let i = 0; i < 2; i++) m.runFrame();
   check('a dropped instruction that slowed the CPU: its halted time counts at the old rate to its write, the new one after',
-    sc >= 0 && oldDiv === 2 && m.div === 4 && !m.gime.fast && m.haltDefer === null && added === want && (m.cpu.totalCycles - t1) * 4 === m.cycle - c1,
+    sc >= 0 && oldDiv === 2 && m.div === 4 && !m.gime.fast && m.halt.haltDefer === null && added === want && (m.cpu.totalCycles - t1) * 4 === m.cycle - c1,
     `speedChange ${sc} div ${oldDiv}->${m.div} added ${added} want ${want}, after: ${m.cpu.totalCycles - t1} cycles in ${m.cycle - c1} ticks`);
 }
 
@@ -291,7 +291,7 @@ for (const [label, prog, x, fast, outside] of [
   const { m, start } = machine();
   if (prog) { prog.forEach((b, i) => m.poke(0x3000 + i, b)); m.cpu.x = x; m.cpu.pc = 0x3000; m.cpu.cc |= 0x50; } else start(0xAA, 1, INC_LOOP);
   for (let i = 0; i < 5; i++) m.runFrame();
-  const d = m.haltDefer, sc = d ? d.speedChange : -1, s0 = d ? d.s : 0, oldDiv = m.div, c0 = m.cycle, t0 = m.cpu.totalCycles;
+  const d = m.halt.haltDefer, sc = d ? d.speedChange : -1, s0 = d ? d.s : 0, oldDiv = m.div, c0 = m.cycle, t0 = m.cpu.totalCycles;
   const midDiv = sc >= 0 ? (m.gime.fast ? 2 : 4) : oldDiv;   // the rate the instruction's own write set
   const dbg = new Emu.Debugger(m);
   dbg.write(outside, [0]);
@@ -300,7 +300,7 @@ for (const [label, prog, x, fast, outside] of [
   const t1 = m.cpu.totalCycles, c1 = m.cycle;
   for (let i = 0; i < 2; i++) m.runFrame();
   check(`an outside ${hex(outside)} while an instruction is suspended (${label}): dropped, its halted time counted, the CPU at 1.78 MHz`,
-    !!d && (sc >= 0) === fast && m.haltDefer === null && m.gime.fast && m.div === 2 && added === want && (m.cpu.totalCycles - t1) * 2 === m.cycle - c1,
+    !!d && (sc >= 0) === fast && m.halt.haltDefer === null && m.gime.fast && m.div === 2 && added === want && (m.cpu.totalCycles - t1) * 2 === m.cycle - c1,
     `held ${!!d} speedChange ${sc} div ${oldDiv}->${m.div} added ${added} want ${want}, after: ${m.cpu.totalCycles - t1} cycles in ${m.cycle - c1} ticks`);
   FORCE_INTERRUPT(m);
   for (let i = 0; i < 2; i++) m.runFrame();
@@ -321,14 +321,14 @@ for (const [label, prog, x, fast, outside] of [
   const { m: b, start: sb } = machine();
   sb(0xAA, 1, INC_LOOP);
   for (let i = 0; i < 5; i++) b.runFrame();
-  const wasHeld = !!b.haltDefer;
+  const wasHeld = !!b.halt.haltDefer;
   b.loadState(Emu.state.fromJSON(snap));
   const ta = [], tb = [];
   a.cpu.trace = (c) => ta.push(c.pc, c.a, c.x, c.totalCycles);
   b.cpu.trace = (c) => tb.push(c.pc, c.a, c.x, c.totalCycles);
   for (let i = 0; i < 20; i++) { a.runFrame(); b.runFrame(); }
   check('a snapshot loaded over a suspended instruction: the restored machine runs as the original (trace)',
-    wasHeld && b.haltDefer === null && ta.length > 1000 && ta.length === tb.length && ta.every((v, i) => v === tb[i]), `${ta.length} vs ${tb.length}`);
+    wasHeld && b.halt.haltDefer === null && ta.length > 1000 && ta.length === tb.length && ta.every((v, i) => v === tb[i]), `${ta.length} vs ${tb.length}`);
 }
 
 // ---------------- 2. the debugger across a held instruction ----------------
@@ -414,7 +414,7 @@ for (const [label, config] of [['hardware timing', undefined], ['MAME timing', {
     const steps0 = dbg.steps, log0 = dbg.log.length, frame0 = m.frameCount, s0 = stops;
     for (let i = 0; i < 100; i++) if (!dbg.runFrame()) { stops++; dbg.resume(); }
     check(`debugger Run on an empty drive, breakpoint ${where} (${label}): 100 frames, no stop, no instruction counted`,
-      (where === 'elsewhere' ? s0 === 0 : s0 === 1) && stops === s0 && dbg.steps === steps0 && dbg.log.length === log0 && m.frameCount - frame0 === 100 && !!m.haltDefer && m.cpu.pc === HELD,
+      (where === 'elsewhere' ? s0 === 0 : s0 === 1) && stops === s0 && dbg.steps === steps0 && dbg.log.length === log0 && m.frameCount - frame0 === 100 && !!m.halt.haltDefer && m.cpu.pc === HELD,
       `stops ${s0}/${stops} steps ${dbg.steps - steps0} log ${dbg.log.length - log0} frames ${m.frameCount - frame0}`);
     dbg.detach();
   }
@@ -435,7 +435,7 @@ for (const [label, config] of [['hardware timing', undefined], ['MAME timing', {
       if (!dbg.runFrame()) { hits.push(dbg.stopReason.value); dbg.resume(); }
     }
     // (the last read may be in an instruction that hasn't completed: its hit comes with its completion)
-    const done = m.haltDefer ? reads.length - 1 : reads.length;
+    const done = m.halt.haltDefer ? reads.length - 1 : reads.length;
     check(`debugger read watchpoint on a held INC $FF4B (${label}): ${hits.length} stops for ${reads.length} controller reads, the same values`,
       reads.length >= 50 && hits.length === done && hits.every((v, i) => v === reads[i]), `hits ${hits.length} reads ${reads.length}`);
     dbg.detach();
@@ -463,7 +463,7 @@ for (const [label, config] of [['hardware timing', undefined], ['MAME timing', {
     if (!disk) {
       check(`debugger run to return over a read on an empty drive (${label}): stops 'halted' after two seconds, ${traced} instructions, not a million`,
         into && r.kind === 'halted' && m.cpu.pc === 0x3200 && m.cpu.haltLine && traced === 0 && m.cycle - c0 >= 120 * m.frameCycles && m.cycle - c0 < 122 * m.frameCycles && ms < 5000,
-        `into ${into} halt ${m.cpu.haltLine} held ${!!m.haltDefer} traced ${traced} kind ${r.kind} pc ${hex(m.cpu.pc)} frames ${((m.cycle - c0) / m.frameCycles).toFixed(1)} ${ms} ms`);
+        `into ${into} halt ${m.cpu.haltLine} held ${!!m.halt.haltDefer} traced ${traced} kind ${r.kind} pc ${hex(m.cpu.pc)} frames ${((m.cycle - c0) / m.frameCycles).toFixed(1)} ${ms} ms`);
       // the 'limit' count is completed instructions only: a run to an address the program never reaches
       // (counted as cpu.execute completes: the held LDA, traced when it started, completes in it; and the NMI the
       // Force Interrupt's INTRQ brings, whose entry the debugger counts as a step, as it always has)
@@ -480,7 +480,7 @@ for (const [label, config] of [['hardware timing', undefined], ['MAME timing', {
       check(`debugger run to an address after the release (${label}): its limit counts the instructions completed`, dbg.stopReason.kind === 'limit' && dbg.stopReason.instructions === 500 && l === 500, `${JSON.stringify(dbg.stopReason)} traced ${l}`);
     } else {
       check(`debugger run to return over a held read with the disk (${label}): returns at the caller, the traced instructions only`,
-        into && r.kind === 'until' && m.cpu.pc === 0x3012 && traced === 3 && m.haltDefer === null, `kind ${r.kind} pc ${hex(m.cpu.pc)} traced ${traced}`);
+        into && r.kind === 'until' && m.cpu.pc === 0x3012 && traced === 3 && m.halt.haltDefer === null, `kind ${r.kind} pc ${hex(m.cpu.pc)} traced ${traced}`);
     }
     dbg.detach();
   }

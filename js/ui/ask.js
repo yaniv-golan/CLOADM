@@ -428,6 +428,15 @@ export function setupAsk(page, claude) {
     // welcome menu is Add ROMs), and in any layout where no other Stop can be reached (the drawer's strip is hidden
     // under a phone's touch keyboard held sideways, for one). On a page view a waiting card has Answer.
     const need = !!(status || session.claudeBusyActing), inView = viewOpen() && need;
+    // Measure in the REFERENCE state -- not floating -- then apply the answer. `body.claude-float` moves #toastRegion
+    // (play/index.html:1140, bottom 8px -> 96px), which can lift a toast in its natural place OFF the very Stop whose
+    // being covered is the reason to float. Deciding from whatever state the class is in makes the answer depend on its
+    // own last output: float lifts the toast, the lifted toast leaves the Stop reachable, the next tick hides the pill,
+    // the toast falls back over the Stop, and the pill returns -- the flash on and off that `flips <= 1` forbids, while
+    // a turn runs and a toast is up. Dropping the class before measuring makes one page state always give one answer,
+    // so it settles: floated while a toast covers the last Stop (the lift is then part of the fix and it stays), not
+    // floated when a Stop is reachable anyway.
+    document.body.classList.remove('claude-float');
     const float = need && (inView || !STOPS.some(reachable));
     $('viewClaude').hidden = !float;
     $('viewClaude').classList.toggle('top', float && !inView && document.body.classList.contains('touch-keys'));

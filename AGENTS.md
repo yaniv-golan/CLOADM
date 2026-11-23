@@ -262,7 +262,8 @@ container (no test suites, builds, MAME or a second browser check).
 `.github/browser-check-timings.json`, and the `shards` job fails if the file is not that plan or a group is in no
 shard, in two, or untimed. A new group is timed with `node tools/browser-check.js --only <group> --timings t.json`,
 then `node .github/scripts/browser-check-shards.js --merge t.json` (which also writes the shards). To rebalance from
-CI's own times, `--merge` the `browser-check-timings` artifact of a green run.
+CI's own times, `--merge` the `browser-check-timings` artifact of a green run (a smoothed average: one noisy run moves
+a group's time by only the file's `"smoothing"` weight).
 
 ## 5. Oracle per area
 

@@ -344,7 +344,19 @@ const pnum = (s) => +/^P(\d+)$/i.exec(s)[1];
 // (Section 6.2.5 and Table 6-1: offset = ta - pcn, pcn being the next instruction's address). The
 // operand is an address, as the manual's programs write it ("JMP THERE"), not a raw offset.
 const relOf = (s, ctx, bytes) => {
-  const r = evalAt(s, ctx);
+  // A jump has one addressing mode, the offset, and no operand prefix: "@" belongs to the address operands (CALL
+  // @LABEL, BR @LABEL, LDA @LABEL) and means nothing here. It is not an expression, so it would evaluate to nothing
+  // and encode as offset 0 (a jump to the next instruction) without a word.
+  const t = (s || '').trim();
+  if (t.startsWith('@')) throw new AsmError(`a jump's target is written as a plain label or address ("${t.slice(1).trim()}"), not with @: @ marks an address operand, as in CALL @LABEL, and a relative jump takes none`);
+  // The target is evaluated here, not through evalAt: that one turns an error into "not yet", which is right for an
+  // address operand in pass 1 and wrong in pass 2, where an undefined symbol then encoded as offset 0 without a word.
+  let r = null;
+  if (ctx && ctx.ev) { try { r = ctx.ev(s); } catch (e) { if (ctx.pass === 2) throw e; } }
   if (!r || r.unresolved) return 0;   // pass 1: the instruction's length is what it would be either way
-  return (r.value - (ctx.pc + bytes)) & 0xFF;
+  const off = r.value - (ctx.pc + bytes);
+  // the offset is one signed byte (Section 6.2.5): a target further than -128..127 from the next instruction cannot
+  // be reached, and wrapped to the byte it jumped somewhere else
+  if (ctx.pass === 2 && (off < -128 || off > 127)) throw new AsmError(`jump out of range: the target is ${off} bytes from the next instruction, and a jump reaches -128 to 127`);
+  return off & 0xFF;
 };

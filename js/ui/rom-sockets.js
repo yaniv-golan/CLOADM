@@ -16,6 +16,7 @@
  * anywhere that could not be used (wrong size for its name, a socket already filled) opens this screen to say why.
  */
 import { $, showView } from './page.js';
+import { SSC_TEXT } from '../session.js';
 
 const kb = (n) => `${n / 1024} KB`;
 // what an optional socket gives you, by socket id (what you miss without it)
@@ -32,6 +33,9 @@ export function setupRomSockets(page, romInput, { confirmSwitch }) {
   const view = $('romCard');
   let offers = [];      // [{ machine, name, files }] from the last drop, until this screen closes or the machine restarts
   let found = null;     // the last drop's per-file results
+  // 'machine:socket' rows another tab changed while this screen was open: they say so, quietly, until it closes (a
+  // socket changing under the person's eyes, unexplained, looks like a bug)
+  const elsewhere = new Set();
 
   // ---------------- open and close (#add-roms) ----------------
   const isOpen = () => location.hash === '#add-roms';
@@ -39,7 +43,7 @@ export function setupRomSockets(page, romInput, { confirmSwitch }) {
     const open = isOpen();
     document.body.classList.toggle('roms-open', open);
     showView(view, open);
-    if (!open) offers = [];   // shown once, with the drop they came from: never again from a later visit to this screen
+    if (!open) { offers = []; elsewhere.clear(); }   // shown once, with the drop they came from: never again from a later visit to this screen
     if (open) { render(); $('romHeading').focus(); }
   }
   page.onView(show);
@@ -48,7 +52,17 @@ export function setupRomSockets(page, romInput, { confirmSwitch }) {
   $('btnRomJustLooking').onclick = close;
 
   // ---------------- the sockets ----------------
-  function socketState(s) {
+  // what the running machine still has of a socket's ROM: one this page removed from storage (RomLibrary.remove,
+  // Session.romsStillRunning), or one another tab removed or replaced (Session.romElsewhere). The machine is not
+  // touched, so the row says what it runs
+  const RUNNING = {
+    removed: 'Removed · still in the running machine',
+    replaced: 'Replaced · the running machine keeps the old one until you switch off and on',
+  };
+  function socketState(s, machine, left) {
+    if (left) return RUNNING.removed;
+    const kept = session.romElsewhere(machine, s.id);
+    if (kept) return RUNNING[kept];
     if (s.status === 'verified') return `✓ ${s.file || 'loaded'} · Recognised`;
     if (s.status === 'loaded-unrecognised') return `◆ ${s.file || 'loaded'} · loaded, not recognised`;
     if (s.status === 'missing-required') return 'Waiting for a file. Without it there is no BASIC: the machine runs without ROMs, machine-code programs only.';
@@ -78,13 +92,18 @@ export function setupRomSockets(page, romInput, { confirmSwitch }) {
   function render() {
     if (!isOpen() || !session.personMachine) return;
     const m = session.personMachine, info = session.machineRoms(m.id), name = m.profile.name;   // the person's machine
+    // a socket whose ROM was removed from storage while the machine runs it (it keeps it until switched off and on)
+    const still = session.romsStillRunning(m), running = m.romCrcs();
+    const left = (s) => !s.crc && still.has(running[s.id]);
     $('romMachine').textContent = name.toUpperCase();
     $('romSockets').replaceChildren(...info.sockets.map((s) => {
       const card = el('div', null, 'socket');
       card.dataset.socket = s.id; card.dataset.status = s.status;
+      if (left(s)) card.dataset.left = 'running';
       const body = el('div', null, 'body'), top = el('div', null, 'top');
       top.append(el('strong', s.label), el('span', s.required ? 'required' : 'optional', s.required ? 'tag req' : 'tag'));
-      body.append(top, el('div', `${kb(s.size)} · usually ${s.files.concat(s.aliases).join(' or ')}`, 'expect'), el('div', socketState(s), 'state'));
+      body.append(top, el('div', `${kb(s.size)} · usually ${s.files.concat(s.aliases).join(' or ')}`, 'expect'), el('div', socketState(s, m.id, left(s)), 'state'));
+      if (elsewhere.has(`${m.id}:${s.id}`)) body.append(el('div', 'Changed in another tab', 'elsewhere muted'));
       card.append(el('span', null, 'dot'), body);
       return card;
     }), ...diskCard(), ...(session.offersSsc ? session.sscRoms().map((s) => {
@@ -98,9 +117,10 @@ export function setupRomSockets(page, romInput, { confirmSwitch }) {
       card.dataset.ssc = s.status === 'loaded' ? 'loaded' : s.required ? 'missing-required' : 'missing-optional';
       const body = el('div', null, 'body'), top = el('div', null, 'top');
       top.append(el('strong', `Speech/Sound Pak: ${s.label}`), el('span', 'optional', 'tag'));
-      const state = s.status === 'loaded' ? '✓ loaded'
-        : s.required ? 'Only for the Speech/Sound Pak: without it the Pak cannot be inserted; it plays its music side from this ROM.'
-          : 'Optional: speech is not implemented yet, so the Pak plays music without it.';
+      // the speech ROM's two lines are SSC_TEXT's (js/session.js), the words the page uses for it everywhere
+      const state = s.id === 'sp0256' ? (s.status === 'loaded' ? SSC_TEXT.romLoaded : SSC_TEXT.romMissing)
+        : s.status === 'loaded' ? '✓ loaded'
+          : 'Only for the Speech/Sound Pak: without it the Pak cannot be inserted.';
       body.append(top, el('div', `${kb(s.size)} · usually ${s.files[0]}`, 'expect'), el('div', state, 'state'));
       card.append(el('span', null, 'dot'), body);
       return card;
@@ -181,7 +201,8 @@ export function setupRomSockets(page, romInput, { confirmSwitch }) {
     render();
   });
   // a drop's offers are about that moment: a new machine, a power-on or a reset ends them
-  session.on((ev) => {
+  session.on((ev, arg) => {
+    if (ev === 'roms' && arg && arg.elsewhere && isOpen()) for (const x of arg.elsewhere) elsewhere.add(`${x.machine}:${x.socket}`);
     if (ev === 'machine' || ev === 'firmware' || ev === 'reset') offers = [];
     if (ev === 'machine' || ev === 'roms' || ev === 'firmware' || ev === 'reset') render();
   });

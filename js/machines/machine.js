@@ -94,6 +94,7 @@ class Machine {
     this.cartLevel = 0;
 
     // Time: one absolute tick counter (CPU cycles, or GIME clocks on the CoCo 3), never rebased.
+    this.powerOnAt = 0;       // the frame origin of the last power-on (powerOnTick)
     this.cycle = 0;           // now, in ticks
     this.inStep = false;      // an instruction is running: between cycles of runCycles, false (see ioTime)
     this.frameBase = 0;       // tick at which the current frame started
@@ -206,6 +207,7 @@ class Machine {
       // power-on: video timing restarts at the frame origin; the CPU starts resetOffset ticks later
       this.queue = [];
       this.cycle = this.frameBase + this.resetOffset;
+      this.powerOnAt = this.frameBase;
       this.timelineStarted = true;
       this.startTimeline(true);
     }
@@ -216,6 +218,13 @@ class Machine {
     // not machine state, so not in the snapshot
     if (this.onReset) this.onReset(hard);
   }
+
+  // The tick MAME's machine time starts from at the last power-on: that power-on's frame origin, resetOffset ticks
+  // before the CPU's first instruction (MAME resets its devices at time 0; the CPU starts later). A device that
+  // runs a clock of its own from power-on (a cartridge's processor) starts it here, not at the CPU's first
+  // instruction. Coco3Machine adds MAME's one-cycle lag. Set by reset(hard) before the cartridge port's reset; a
+  // restored machine keeps the value it was constructed with (only a power-on reads it, and it sets it first).
+  powerOnTick() { return this.powerOnAt; }
 
   // ---------------- events ----------------
   now() { return this.cycle; }
@@ -438,6 +447,9 @@ class Machine {
   // CPU cycles a slot holds its lines back (coco.cpp machine_start: set_line_delay), counted in the slot's clock
   get lineDelays() { return LINE_DELAYS; }
   get slotHz() { return this.tickHz; }
+  // The cartridge port's own clock: what a cartridge's processor is clocked from (MAME's slot device clock). It
+  // does not follow a CPU speed-up, unlike slotHz, which counts the slot's line delays in CPU cycles.
+  get cartClockHz() { return this.tickHz; }
 
   // ---------------- bus ----------------
   setLine(source, line, level) {
@@ -492,7 +504,7 @@ class Machine {
   }
   // called whenever a device has been attached or detached (a cartridge in or out, a machine restored from a
   // snapshot, a Multi-Pak's slot changed): family hook for what the attached devices decide, such as the CoCo 3's
-  // bus log (coco3.js logBus)
+  // bus log (js/machines/halt-replay.js logBus)
   devicesAttached() { }
 
   // ---------------- state (snapshots) ----------------
@@ -635,7 +647,7 @@ class Machine {
   // start executing at addr, from outside the program (a tool, a loader)
   jump(addr) { this.cpu.jump(addr); this.cpuRedirected(); }
   // The CPU's registers were changed from outside: by a jump or the debugger. A family that keeps an instruction under
-  // way between steps drops it here (the CoCo 3's instruction held by HALT, js/machines/coco3.js haltCancel); the base
+  // way between steps drops it here (the CoCo 3's instruction held by HALT, js/machines/halt-replay.js haltCancel); the base
   // class keeps none. The count tells the debugger that the instruction at the PC is a new one (js/debugger.js).
   cpuRedirected() { this.redirects++; }
   // an outside change made without cpuRedirected (a register written directly, memory the instruction under way had
@@ -655,14 +667,14 @@ class Machine {
 //   * a bump that renames, removes or changes the meaning of state sets SNAPSHOT_OLDEST to the new version.
 // Files from pre-release builds carry a different `format` identifier; js/media/snapshot.js refuses them by it.
 //   1: the first layout.
-//   2: the CoCo 3 adds `haltDefer`, an instruction HALT suspended (js/machines/coco3.js haltSuspend, with its bus
+//   2: the CoCo 3 adds `haltDefer`, an instruction HALT suspended (js/machines/halt-replay.js haltSuspend, with its bus
 //      accesses so far, `log`, and the memory they touched, `mem`), or null; a version 1 file has none, and its machine restores with no instruction
 //      suspended (none was, in version 1).
 //   3: a tape in the deck adds `layout` (2): its position counts the entries of the signal js/media/tape.js plays,
 //      silence and made-up leaders included. A version 1 or 2 file has none; its position counted a 128-byte leader
 //      and then the image's bytes, and the tape restores at the same byte of the image (Tape.fromState). And the
 //      CoCo 3 adds `outsideWrites`, the writes from outside the CPU queued while an instruction was held
-//      (js/machines/coco3.js outsideWrite); a version 1 or 2 file has none and restores owing none (none could be
+//      (js/machines/halt-replay.js outsideWrite); a version 1 or 2 file has none and restores owing none (none could be
 //      queued before this build held them).
 //   4: the CoCo 3's GIME adds `vsc`, the vertical fine scroll ($FF9C) latched at the start of the field
 //      (js/chips/gime.js vscLine). A version 1 to 3 file has none and restores with 0, as no field scrolled before

@@ -27,26 +27,19 @@ for (const name of ['2048', 'minesweeper']) {
   const sym = (k) => a.symbols.get(k);
   check(`${name}: entry $3000, SEED $3003, DONE $3005 (Session GAMES)`, a.exec === Emu.GAMES.start && sym('ENTRY') === Emu.GAMES.start && sym('SEED') === Emu.GAMES.seed && sym('DONE') === Emu.GAMES.done
     && Emu.GAMES.list[name].file === `${name}.bin`);
-  // The IMAGE below $4000, and the variables in RAM the game's own 32K requirement guarantees.
-  // Why $4000 for the image: $3000-$3FFF is the free RAM above a game on a 16K machine (docs/game-development.md,
-  // "Where a game goes"), so an image ending there runs on every machine. The FILE carries only the image: RMB
-  // reserves addresses and emits no bytes (js/asm/assembler.js, toBinary), so the .bin's length is the image's,
-  // and a game whose image fits may still place variables past $4000.
-  // Why the variables may go above $4000, and where they must stop - the LOWEST of every other user of the RAM:
-  //   * these games REFUSE under 32K: GAMES.ram = 32 (js/session.js:100) and checkGame refuses (js/session.js:3493);
-  //     on a 32K machine RAM is one run 0..32767 (js/machines/sam.js:243 `a < this.ramSize ? this.ram[a]`), so
-  //     $4000-$7FFF is RAM and not ROM;
+  // The IMAGE and the variables below the 32K top, and clear of the stack and of every page the game shows.
+  // CORRECTION: this used to hold the IMAGE below $4000 ("the free RAM above a game on a 16K machine"). That
+  // guarded a configuration these games already REFUSE: they need 32K (GAMES.ram = 32, js/session.js:100, and
+  // checkGame refuses a 16K machine, js/session.js:3493; the refusal is tested below). On the 32K machine they run
+  // on, $4000-$7FFF is RAM, so the $4000 bound was never the games' real one. The real bounds:
   //   * the ROM the SAM maps above 32K starts at $8000 (js/machines/sam.js:246 `a < 0xC000 ? currentRom()[a-0x8000]`),
-  //     so the variables must end below $8000;
+  //     and RAM is $0000-$7FFF on a 32K machine (js/machines/sam.js:243 `r < this.ramSize ? this.ram[r]`): the
+  //     image and the variables must end below $8000. The FILE carries only the image: RMB reserves addresses and
+  //     emits no bytes (js/asm/assembler.js, toBinary), so a game's file length is its image's;
   //   * the game's OWN stack grows down from $3000 (examples/minesweeper.asm:38 `LDS #$3000`, 2048.asm:35), and it
   //     stays within 32 bytes of it over a whole game (the stack check below measures it), so it never reaches the
-  //     variables: the stack's lowest point ($3000 - 32) is far below $4000;
-  //   * the screen is $0400-$1BFF (examples/games.inc:36-37), below both, and the no-ROM stub's own workspace
-  //     ($02D6-$02DD, js/machines/stub.js:71-75) is below $0400 and is not running while a game is.
-  // So the binding bound is $8000 (the ROM), and the stack is checked separately so a future change cannot grow
-  // the variables into it.
-  // A constant (an EQU: DTITER is 12000, a loop's count) is a number, not an address, and is left out: the
-  // listing says which names an EQU defined.
+  //     variables: the stack grows down from $3000 to at most $2FE0 (32 bytes, tested below) and the image
+  //     starts at $3000, so they meet by only a few bytes - the image's own start is what keeps them apart.
   const consts = new Set(a.listing.filter((l) => /(^|\s)(EQU|=)(\s|$)/i.test(l.src)).map((l) => l.src.trim().split(/\s+/)[0].toUpperCase()));
   const live = [...a.symbols.entries()].filter(([k, v]) => !consts.has(k) && v >= 0x3000);
   const top = Math.max(0, ...live.map(([, v]) => v));
@@ -54,8 +47,8 @@ for (const name of ['2048', 'minesweeper']) {
   const STACK_TOP = 0x3000, STACK_DEPTH = 32;   // LDS #$3000, and the depth the stack check holds it to
   const varAddrs = [...new Set(a.listing.filter((l) => /^\S+\s+RMB\s/.test(l.src)).map((l) => l.src.trim().split(/\s+/)[0].toUpperCase()))]
     .map((k) => a.symbols.get(k)).filter((v) => v !== undefined);
-  check(`${name}: the image ends below $4000 and the variables end below the ROM at $8000`,
-    a.segments.every((s) => s.addr >= 0x3000) && imgEnd < 0x4000 && top < 0x8000,
+  check(`${name}: the image and the variables end below the ROM at $8000 (a 32K machine's RAM top)`,
+    a.segments.every((s) => s.addr >= 0x3000) && imgEnd < 0x8000 && top < 0x8000,
     `image ends $${imgEnd.toString(16)}, top variable $${top.toString(16)}`);
   check(`${name}: no variable reaches the stack's floor ($3000 - ${STACK_DEPTH}); the variables sit above it`,
     varAddrs.length > 0 && Math.min(...varAddrs) > STACK_TOP - STACK_DEPTH - 1 && Math.max(...varAddrs) === top,
@@ -180,11 +173,12 @@ function start(name, { machine = 'dragon64', seed = 0x1234 } = {}) {
   // waits for two field entries with nothing queued (the key's own field and one after it), and 2048 for the
   // ENTROPY jump only its tight loop makes.
   const perField = !!sym('RAWL');
-  const settle = () => {
+  const settle = (onFrame) => {
     let idle = 0;
     for (let i = 0; i < 400; i++) {
       const e0 = m.ram[sym('ENTROPY')] * 256 + m.ram[sym('ENTROPY') + 1];
       s.runFrames(1);
+      if (onFrame) onFrame();
       const e1 = m.ram[sym('ENTROPY')] * 256 + m.ram[sym('ENTROPY') + 1];
       if (m.stubKeys.length) { idle = 0; continue; }
       if (perField) { if (((e1 - e0) & 0xFFFF) >= 1 && ++idle >= 2) return; }
@@ -193,7 +187,14 @@ function start(name, { machine = 'dragon64', seed = 0x1234 } = {}) {
     throw new Error(`${name}: did not come back for a key`);
   };
   // BREAK stops the game at DONE: no more polls to wait for
-  const press = (...keys) => { for (const k of keys) { m.stubKeys.push(typeof k === 'string' ? (KEY[k] || k.charCodeAt(0)) : k); if (k === 'break') s.runFrames(10); else settle(); } };
+  const press = (...keys) => {
+    // a trailing function is a per-frame hook, called while waiting for the first key's action to settle
+    const onFrame = typeof keys[keys.length - 1] === 'function' ? keys.pop() : null;
+    for (const k of keys) {
+      m.stubKeys.push(typeof k === 'string' ? (KEY[k] || k.charCodeAt(0)) : k);
+      if (k === 'break') s.runFrames(10); else settle(onFrame);
+    }
+  };
   const mem = (k, len = 1) => Array.from(m.ram.slice(sym(k), sym(k) + len));
   return { s, m, sym, press, settle, mem };
 }
@@ -298,18 +299,51 @@ const show = (b) => b.map((v) => (v ? 2 ** v : '.')).join(' ');
     }
     check('2048: a tile\'s number is inside its own box and centred in it (the 1x column is converted from bytes)', bad.length === 0, bad.join('; '));
   }
-  // a known game: 60 moves from the seed, the board and the score after each one as the rules give
+  // a known game: 60 moves from the seed, the board and the score after each one as the rules give.
+  // Every display base the SAM's F register is set to is recorded too (js/chips/sam6883.js:101,
+  // displayBase = F6..F0 * 512): a 128x192 four-colour screen is 6K, and a game that showed a SECOND page would
+  // have to keep the image and the variables out of it.
+  const pages = new Set();
+  const watchPages = () => pages.add(g.m.sam.displayBase);
+  // A page switched and RESTORED inside one frame is invisible to a per-frame displayBase sample (every
+  // sample point sees the restored page, but a player sees a flash of garbage). So the SAM's F-bit registers
+  // ($FFC6-$FFD3) are watched on the bus: the game's own setup sets F=2 once at start, and after that no CPU
+  // write there may change F while a move plays. The tap reports a real STA, not a poke.
+  const fWrites = [];
+  const fWatch = g.s.watchWrites({ start: 0xFFC6, end: 0xFFD3 }, (e) => {
+    fWrites.push('$' + e.address.toString(16) + '=' + e.value + ' (frame ' + e.frame + ')');
+  });
   const dirs = ['left', 'up', 'right', 'down'];
   let same = true, firstBad = '', merges = 0;
   for (let i = 0; i < 60 && same; i++) {
     const d = i % 7 === 3 ? 'right' : dirs[(i * 3) % 4] === 'down' && i % 2 ? 'left' : dirs[(i * 3) % 4];
     const r = move(model, d);
     if (r.changed) { model = r.board; score += r.score; spawn(model, rng); if (r.score) merges++; }
-    g.press(d === 'up' ? 'W' : d);   // W A S D as well as the arrows
+    // W A S D as well as the arrows; watchPages runs on EVERY frame of the move's animation, so a page
+    // switched and restored DURING the slide is seen (a sample once per move would miss it).
+    watchPages();
+    g.press(d === 'up' ? 'W' : d, watchPages);
     const got = g.mem('BOARD', 16), sc = bcd(g.mem('SCORE', 3));
     if (show(got) !== show(model) || sc !== score) { same = false; firstBad = `move ${i} ${d}: ${show(got)} score ${sc}, model ${show(model)} score ${score}`; }
   }
+  fWatch.remove();
+  check('2048: no SAM F-bit write during play changes the display page (a page switched and restored mid-frame would flash garbage)',
+    fWrites.length === 0, fWrites.slice(0, 5).join('; ') || 'no F-bit writes during play');
   check('2048: 60 scripted moves give the board and score of the rules', same && merges > 10, firstBad || `${merges} moves joined tiles, score ${score}`);
+  // (i) the pages shown are exactly {$0400}. A second page added later fails HERE, so it is added deliberately.
+  const cgPages = [...pages].sort((a, b) => a - b);
+  const PAGE6K = 0x1800;
+  check('2048: the pages the game shows are exactly $0400 (a second page is added deliberately)',
+    cgPages.length === 1 && cgPages[0] === 0x400, cgPages.map((p) => '$' + p.toString(16)).join(', ') || 'none seen');
+  // (ii) for EVERY page shown, the image and the variables stay out of its 6K. Data-driven: a second page is
+  // checked automatically the moment (i) is updated to allow it.
+  {
+    const a = A['2048'], segLo = Math.min(...a.segments.map((s) => s.addr)), segHi = Math.max(...a.segments.map((s) => s.addr + s.data.length)) - 1;
+    const vars = [...a.symbols.entries()].filter(([k, v]) => v >= 0x3000 && !(a.listing.some((l) => new RegExp(`^${k}\\s+(EQU|=)`, 'i').test(l.src.trim()))));
+    const hit = cgPages.filter((p) => (segLo < p + PAGE6K && segHi >= p) || vars.some(([, v]) => v >= p && v < p + PAGE6K));
+    check('2048: for every page shown, the image and the variables are clear of its 6K', hit.length === 0,
+      `pages ${cgPages.map((p) => '$' + p.toString(16)).join(', ')}; image $${segLo.toString(16)}..$${segHi.toString(16)}; ${vars.length} variables from $${Math.min(...vars.map(([, v]) => v)).toString(16)}`);
+  }
   // the score on the screen: six digits, leading zeros as spaces, red, 10 rows tall at byte 14
   // the score on the screen: digits centered in the score's cell (bytes 14-19, i.e. pixels 56-79) and the best
   // score's (bytes 22-27, pixels 88-111), red, 10 rows tall
@@ -908,6 +942,8 @@ WARMS   FCB     $57,$41,$52,$4D,0
   const want = JSON.parse(fs.readFileSync(fix('minesweeper-sounds.sha256.json'), 'utf8'));
   const pcm = wav.subarray(44);
   const got = crypto.createHash('sha256').update(pcm).digest('hex');
+  check('Minesweeper: its recorded sounds match tests/fixtures/games/minesweeper-sounds.sha256.json (SHA-256 of the PCM)',
+    pcm.length === want.pcmBytes && got === want.sha256, `${pcm.length} bytes, ${got}`);
   // The fixture records the WAV HEADER's fields too, and they were never checked: a recording that came back at
   // another rate, or in stereo, or 8-bit, would still have matched a PCM hash taken from its own bytes. They are
   // read from the header the CLI wrote (not assumed: the hash covers the data from byte 44, so the header is the
@@ -918,8 +954,6 @@ WARMS   FCB     $57,$41,$52,$4D,0
     && hdr.sampleRate === want.sampleRate && hdr.channels === want.channels && hdr.bits === want.bits;
   check('Minesweeper: the WAV header of the recording says what the fixture does (RIFF/WAVE, its rate, channels and bits)',
     hdrOk, `${JSON.stringify(hdr)} vs ${JSON.stringify({ sampleRate: want.sampleRate, channels: want.channels, bits: want.bits })}, data chunk ${wav.length >= 44 ? wav.readUInt32LE(40) : '-'} of ${pcm.length}`);
-  check('Minesweeper: its recorded sounds match tests/fixtures/games/minesweeper-sounds.sha256.json (SHA-256 of the PCM)',
-    pcm.length === want.pcmBytes && got === want.sha256, `${pcm.length} bytes, ${got}`);
   // A person can listen to the recording, but it is written OUTSIDE the repository: CLOADM_KEEP_WAV names the file.
   if (process.env.CLOADM_KEEP_WAV && wav.length) {
     fs.writeFileSync(process.env.CLOADM_KEEP_WAV, wav);

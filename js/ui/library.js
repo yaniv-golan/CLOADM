@@ -29,7 +29,7 @@ import { availableChoices, openMediaStore } from '../host/media-store-open.js';
 import { FsaMediaStore } from '../host/media-store-fsa.js';
 import { saveFolder, forgetFolder } from '../host/folder-handle.js';
 
-// (ROMs: not items of the Library but one card about Your ROMs, R19 A+)
+// (ROMs: not items of the Library: one card about Your ROMs, and under the ROMs chip a tile per stored image)
 const KINDS = [['all', 'All'], ['tape', 'Tapes'], ['disk', 'Disks'], ['cart', 'Cartridges'], ['program', 'Programs'], ['snapshot', 'Snapshots'], ['roms', 'ROMs']];
 const KIND_OF = { cas: 'tape', wav: 'tape', disk: 'disk', cart: 'cart', binary: 'program', basictext: 'program' };
 // spine and label colours: the VDG colours the design allows for the Library
@@ -122,12 +122,18 @@ export function setupLibrary(page, { loadProgram, runShelf, changed, showRoms, r
     meta.set(st.name, out);
     return out;
   }
+  // Two can run at once (another tab's changes arrive as they are made: Session.mediaElsewhere), so each builds its own
+  // list and only the latest one started is shown: filling the shared list from both doubled every item.
+  let listing = 0;
   async function refresh() {
+    const mine = ++listing;
     let list;
     try { list = await session.library.listMedia(); } catch (e) { page.status(session.library.mediaError(e, 'the library').message, true); list = []; }
+    const got = [];
+    for (const st of list) got.push(Object.assign({ name: st.name }, await describe(st)));
+    if (mine !== listing) return;   // a later listing has started: it is the one to show
     changed();
-    items = [];
-    for (const st of list) items.push(Object.assign({ name: st.name }, await describe(st)));
+    items = got;
     for (const n of [...selected]) if (!items.some((i) => i.name === n)) selected.delete(n);
     render();
   }
@@ -136,15 +142,15 @@ export function setupLibrary(page, { loadProgram, runShelf, changed, showRoms, r
     // the shelves are rebuilt: the item that had focus gets it back, so keys stay with the Library
     const had = document.activeElement && view.contains(document.activeElement) ? document.activeElement.dataset.name : null;
     const shown = shownItems();
-    // (with ROMs stored the filters and the shelves show even in an empty Library: the ROMs chip is there, R19 A+)
-    const some = items.length > 0 || session.storedRoms().count > 0;
-    $('libEmpty').hidden = items.length > 0;
-    $('libFilled').hidden = !some;
-    $('libFilters').hidden = !some;
+    // (the filters show even in an empty Library: the ROMs chip is always there, and an empty Library shows the ROMs
+    // card under its empty state)
     const roms = kind === 'roms';
+    $('libEmpty').hidden = items.length > 0 || roms;
+    $('libFilled').hidden = !items.length || roms;
     $('libNone').hidden = !items.length || shown.length > 0 || roms;
-    $('libRomsBox').hidden = !roms;
-    if (roms) romsCard();
+    $('libRomsBox').hidden = !roms && items.length > 0;
+    romsCard(roms);
+    $('btnLibSelect').hidden = !items.length || roms;   // (nothing to select: an empty Library, or the ROM tiles)
     const tapes = shown.filter((i) => i.kind === 'tape'), rest = shown.filter((i) => i.kind !== 'tape');
     $('libTapesBox').hidden = !tapes.length;
     $('libTilesBox').hidden = !rest.length;
@@ -177,14 +183,57 @@ export function setupLibrary(page, { loadProgram, runShelf, changed, showRoms, r
     if (field) { field.focus(); field.setSelectionRange(0, field.value.replace(/\.[^.]*$/, '').length); }
     else if (had) { const b = [...view.querySelectorAll('[data-name]')].find((x) => x.dataset.name === had); if (b) b.focus(); }
   }
-  // the ROMs chip's card: how many ROMs are stored and what uses them, or that there are none; the link opens Your ROMs
-  function romsCard() {
+  // the ROMs card: how many ROMs are stored and what uses them, or that there are none; the link opens Your ROMs.
+  // Under the ROMs chip (never under All), a tile per stored image: its file name, size, the machines and cartridges
+  // that use it, and Remove.
+  function romsCard(tiles) {
     const r = session.storedRoms(), and = (l) => (l.length < 2 ? l.join('') : `${l.slice(0, -1).join(', ')} and ${l[l.length - 1]}`);
-    $('libRomsText').textContent = r.count ? `Your ROMs: ${r.count} stored, used by ${and(r.users)}. Manage them in` : 'No ROMs yet. CLOADM never includes ROMs; add your own dumps in';
+    $('libRomsText').textContent = r.count ? `Your ROMs: ${r.count} stored, used by ${and(r.users)}. Manage them in` : 'No ROMs yet. CLOADM never includes ROMs; add your own in';
     $('libRomsLink').textContent = 'Your ROMs →';
+    const had = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.remove : null;
+    $('libRomTiles').replaceChildren(...(tiles ? session.romFiles().map(romTile) : []));
+    if (had) { const b = view.querySelector(`[data-remove="${had}"]`); if (b) b.focus(); }
+  }
+  const sizeOf = (n) => (n % 1024 ? `${n} bytes` : `${n / 1024} KB`);
+  function romTile(f) {
+    const t = el('li', null, 'romtile');
+    t.dataset.crc = f.crc;
+    const b = el('button', 'Remove', 'libbtn danger');
+    b.dataset.remove = f.crc;
+    b.setAttribute('aria-label', `Remove ${f.name}`);
+    b.onclick = () => removeRom(f);
+    t.append(el('strong', f.name, 'name'), el('span', sizeOf(f.size), 'size'), el('span', `Used by ${f.users.join(', ')}`, 'users'), b);
+    return t;
+  }
+  // Remove: at once (the store is written now, so a reload cannot bring it back); the toast's Undo puts the bytes,
+  // kept in memory until then, back in every socket they were in. A machine running the ROM keeps it until it is
+  // switched off and on, and the toast's second line offers that.
+  function removeRom(f) {
+    const list = session.romFiles(), at = list.findIndex((x) => x.crc === f.crc);
+    let r;
+    try { r = session.removeRom(f.crc); } catch (e) { page.status(e.message, true); return; }
+    // the focus goes to the next tile's Remove (the previous one's after the last), or the ROMs chip when none is left
+    const next = list[at + 1] || list[at - 1];
+    const to = next && view.querySelector(`[data-remove="${next.crc}"]`);
+    (to || view.querySelector('[data-kind-filter="roms"]')).focus();
+    page.toast(`Removed ${r.name || f.name}.`, {
+      action: { label: 'Undo', run: () => {
+        let back;
+        try { back = session.restoreRom(r); } catch (e) { page.status(e.message, true); return; }
+        // a socket given another ROM since keeps it: said, rather than silently not restored
+        const kept = back.skipped.map((x) => x.name), and = (l) => (l.length < 2 ? l.join('') : `${l.slice(0, -1).join(', ')} and ${l[l.length - 1]}`);
+        if (kept.length) page.status(back.restored.length ? `Restored ${r.name || f.name} (${and(kept)} already had another ROM)`
+          : `${r.name || f.name} was not restored: ${and(kept)} already had another ROM`);
+        const b = view.querySelector(`[data-remove="${r.crc}"]`); if (b) b.focus();
+      } },
+      also: r.running ? { text: `The ${r.running} keeps it until you switch off and on.`,
+        action: { label: 'Switch off and on', run: () => session.powerCycle({ reason: 'you power cycled the machine' }) } } : null,
+    });
   }
   $('libRomsLink').onclick = (e) => { e.preventDefault(); showRoms(); };
   session.on((ev) => { if (ev === 'roms' && isOpen()) render(); });
+  // another tab added, renamed or removed Library items: list them again (an item this tab is deleting stays hidden)
+  session.on((ev) => { if (ev === 'library' && isOpen()) refresh(); });
   // an item on the shelf: its button (a click loads it, or in select mode selects it), the tick box, and the name
   // field while it is being renamed
   function item(t, b) {
