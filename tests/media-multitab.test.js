@@ -256,6 +256,31 @@ function remember(idx, name, crc) {
     check('load: ... so the next message reads them again, whole', !!c.image(K.LOAD0001) && !!c.recentData(K.LOAD0002));
   }
 
+  // ---- a blob whose name is not its CRC32 is kept: only an empty one counts as a write still under way ----
+  // (the localStorage migration keeps the key a ROM was stored under: js/media/library.js migrateLocalStorage)
+  {
+    const named = 'AAAA1111', recentNamed = 'BBBB2222', img = B.NAMED001, prog = B.NAMED002;
+    check('(the stand-ins really are not named by their CRC)', crc32(img) !== named && crc32(prog) !== recentNamed);
+    const fill = async (st) => {
+      await st.write(ROM_SOCKETS, new TextEncoder().encode(JSON.stringify({ dragon64: { basic: named } })));
+      await st.write(RECENT_LIST, new TextEncoder().encode(JSON.stringify([entry('OLD.BIN', recentNamed)])));
+      await st.write(romImage(named), img); await st.write(recentFile(recentNamed), prog);
+    };
+    const st = new SlowStore(); await fill(st);
+    const c = new MediaIndex(st); await c.load();
+    const sync = new MemoryMediaStore(); await fill(sync);
+    const d = new MediaIndex(sync);
+    check('migrated names: load() and loadSync() keep an image and a recent file whose names are not their CRC32',
+      !!c.image(named) && !!c.recentData(recentNamed) && !!d.image(named) && !!d.recentData(recentNamed));
+    // another tab: an index loaded before they were stored takes them through _adopt (refresh)
+    const st2 = new SlowStore();
+    const e = new MediaIndex(st2); await e.load();
+    await fill(st2);
+    await e.refresh();
+    check('migrated names: another tab\'s refresh (_adopt) keeps them too', !!e.image(named) && !!e.recentData(recentNamed)
+      && e.socketCrc('dragon64', 'basic') === named && e.recentMedia().length === 1);
+  }
+
   // ---- RomLibrary.put stores the socket before the image, so a collect elsewhere cannot catch the image alone ----
   // The other index's collect holds the lock and is stopped between reading the sockets and listing the images; the
   // ROM is put meanwhile. Stored socket-first, its socket step waits for the lock and its image is not written yet, so
