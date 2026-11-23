@@ -232,7 +232,7 @@ async function bareDiskChecks(page, check, { dos }) {
   // its Add disk ROM… opens Your ROMs on the disk ROM's card
   await page.click('#driveRoms');
   check('disks: the menu\'s Add disk ROM… opens Your ROMs on the disk ROM card, which says disks still go in without it', await waitFor(page, () => location.hash === '#add-roms'
-    && /Without it, disks still go in, for programs that read them directly\./.test(document.getElementById('romDiskCard').textContent)), await page.evaluate(() => location.hash));
+    && /Without it, disks still go in, for programs that read them directly\. CLOADM doesn't include one; add your own copy\./.test(document.getElementById('romDiskCard').textContent)), await page.evaluate(() => location.hash));
   await page.evaluate(() => { location.hash = ''; });
   // (back on the emulator: the ports are no longer inert behind the view, so a file input there can open)
   await waitFor(page, () => document.getElementById('driveSlot').checkVisibility() && !document.getElementById('fileDisk').closest('[inert]'));
@@ -6456,7 +6456,15 @@ async function glossaryChecks(browser, site, check) {
   await scan('/play/ Add ROMs');
   await page.evaluate(() => { location.hash = '#library'; });
   await waitFor(page, () => !document.getElementById('library').hidden);
+  // the empty Library's ROMs card is filled in when the Library has rendered: scan it only once it is there and shown
+  // (it is what says "add your own copy"), then again under the ROMs filter, where the same card sits above the tiles
+  const romsCardShown = () => { const b = document.getElementById('libRomsBox'), t = document.getElementById('libRomsText'); return !b.hidden && b.getClientRects().length > 0 && /ROMs/.test(t.textContent); };
+  await waitFor(page, romsCardShown);
+  check('glossary: the empty Library shows its ROMs card, and it is among the words scanned', /No ROMs yet\. CLOADM never includes ROMs; add your own in/.test(await words()), (await words()).slice(0, 300));
   await scan('/play/ Library');
+  await page.click('#libKinds [data-kind-filter="roms"]');
+  await waitFor(page, romsCardShown);
+  await scan('/play/ Library, ROMs filter');
   await page.evaluate(() => { location.hash = ''; });
   await page.click('#btnShare');
   await waitFor(page, () => location.hash === '#share' && !document.getElementById('share').hidden);
@@ -9684,6 +9692,119 @@ async function chatScreenChecks(browser, base, check) {
     check(`chat screen (${label}): no page errors`, !errors.length, errors.join('; '));
     await ctx.close();
   }
+}
+
+// The chat on a 16K CoCo: refused (its firmware uses $0400-$7FFF), and the page says why in its status line, "Chat: The
+// chat needs 32K of memory or more; ...", instead of opening a chat screen that stays dead. Nothing is switched.
+async function chatRamChecks(browser, base, check) {
+  const L = 'chat on a 16K CoCo';
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, serviceWorkers: 'block' });
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.addInitScript(() => localStorage.setItem('cloadm.anthropicKey', 'sk-ant-BROWSER-CHECK-KEY-0123456789'));
+  await page.goto(`${base}?machine=coco&ram=16&app=claude`);
+  await started(page);
+  const said = await waitFor(page, () => { const t = document.getElementById('toast'); return t && !t.hidden && /^Chat: The chat needs 32K of memory or more/.test(document.getElementById('toastText').textContent); }, null, 20000);
+  // (an error's first sentence is the status line; the rest is behind its Details button: js/ui/feedback.js splitDetails)
+  const shown = await page.evaluate(() => ({ text: document.getElementById('toastText').textContent, details: document.getElementById('toastDetails').textContent,
+    button: !document.getElementById('toastAction').hidden && document.getElementById('toastAction').textContent }));
+  const state = await page.evaluate(() => ({ full: window.emu.session.claudeView === 'full', chat: !!window.emu.session.chatMachines, id: window.emu.session.shownMachine.id, ram: window.emu.session.shownMachine.config.ram }));
+  check(`${L}: the status line says the chat needs 32K, and its Details say how to get it`,
+    said && shown.text === 'Chat: The chat needs 32K of memory or more; this CoCo 1/2 has 16K.' && shown.button === 'Details'
+    && shown.details === 'Give it 32K or more in its settings, or use a Dragon 32 or 64.', JSON.stringify(shown));
+  check(`${L}: no chat screen opens and the machine is left as it was`, !state.full && !state.chat && state.id === 'coco' && state.ram === 16, JSON.stringify(state));
+  if (shotDir) await page.screenshot({ path: path.join(shotDir, 'chat-ram-refused.png') });
+  check(`${L}: no page errors`, !errors.length, errors.join('; '));
+  await ctx.close();
+}
+
+// Long lines typed on the chat screen through the keyboard reach the API byte for byte: a 300-character line typed at
+// the prompt, and one typed while the previous reply still comes down the mailbox (the firmware keeps those keys in
+// its type-ahead ring and types them once the prompt is back; it used to drop them, sending only the line's tail).
+async function chatLongLineChecks(browser, base, check) {
+  const L = 'chat screen (long lines)';
+  const sse = (events) => events.map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join('');
+  const text = (t) => sse([{ type: 'message_start', message: { id: 'msg', type: 'message', role: 'assistant', model: 'claude-opus-5-5', content: [] } },
+    { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }, { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: t } },
+    { type: 'content_block_stop', index: 0 }, { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: {} }, { type: 'message_stop' }]);
+  const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'POST, OPTIONS' };
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, serviceWorkers: 'block' });
+  const requests = [];
+  // the second reply is long enough (about 300 bytes, a byte a frame) to still be coming while the next line is typed
+  const replies = [text('Short answer.'), text(Array.from({ length: 10 }, (_, i) => `Reply line ${i + 1} still coming.`).join('\n')), text('ok')];
+  await ctx.route('https://api.anthropic.com/**', (route) => {
+    if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
+    requests.push(JSON.parse(route.request().postData()));
+    return route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'text/event-stream' }, body: replies.shift() || text('ok') });
+  });
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.addInitScript(() => localStorage.setItem('cloadm.anthropicKey', 'sk-ant-BROWSER-CHECK-KEY-0123456789'));
+  await page.goto(`${base}?machine=dragon64&app=claude`);
+  await started(page);
+  const idle = () => waitFor(page, () => { const c = window.emu.session.chat; return c && !c.busy && c.channel.queued === 0 && window.emu.session.chatView === 'chat'; }, null, 30000);
+  // the chat screen as text, read only once it has settled: a scroll copies the screen over several frames, and a frame
+  // caught part way shows the row at the copy's edge twice (a "Thinking..." seen twice in a screenshot was one of those)
+  const FONT = require('./chat-font.js'), GLYPHS = [];
+  for (let c = FONT.FIRST; c <= FONT.LAST; c++) GLYPHS.push({ ch: String.fromCharCode(c), g: Array.from(FONT.table().slice((c - FONT.FIRST) * 8, (c - FONT.FIRST) * 8 + 8)) });
+  const rowsNow = () => page.evaluate((G) => {
+    const ram = window.emu.machine.ram.subarray(0x400, 0x400 + 192 * 32), rows = [];
+    for (let r = 0; r < 24; r++) {
+      let line = '';
+      for (let c = 0; c < 42; c++) {
+        const cell = [];
+        for (let y = 0; y < 8; y++) { let b = 0; for (let x = 0; x < 6; x++) { const px = c * 6 + x; b = (b << 1) | ((ram[(r * 8 + y) * 32 + (px >> 3)] >> (7 - (px & 7))) & 1); } cell.push(b); }
+        const hit = G.find((g) => g.g.every((v, i) => v === cell[i]));
+        line += hit ? hit.ch : (cell.every((v) => !v) ? ' ' : '?');
+      }
+      rows.push(line.trimEnd());
+    }
+    return rows;
+  }, GLYPHS);
+  // settled: the turn over, and the screen the same over 20 frames (longer than a scroll)
+  const settled = async () => { await idle(); let a = await rowsNow(); for (let i = 0; i < 10; i++) { await emuFrames(page, 20); const b = await rowsNow(); if (b.join('\n') === a.join('\n')) return b; a = b; } return a; };
+  // one "Thinking..." for the turn whose line ends on row `end`, then the reply's first row
+  const oneThinking = (rows, end, reply) => rows[end + 1] === 'Thinking...' && rows[end + 2] === reply && rows.filter((r) => r === 'Thinking...').length === rows.filter((r, i) => i > 0 && r !== 'Thinking...' && rows[i - 1] === 'Thinking...').length;
+  await idle();
+  await emuFrames(page, 3);
+  await page.focus('#screen');
+  const lastLine = (n) => requests[n] && requests[n].messages.slice(-1)[0].content;
+  // 1. at the prompt
+  const one = ('Tell me the top line before you answer, then explain the screen of the Dragon 64 in a few words. ').repeat(4).slice(0, 299) + '?';   // (past the old 255)
+  await page.keyboard.type(one, { delay: 5 });
+  await page.keyboard.press('Enter');
+  await waitFor(page, () => window.emu.session.chat.busy || window.emu.session.chat.messages.length > 0, null, 20000);
+  const after1 = await settled();
+  check(`${L}: a 300-character line typed on the screen reaches the API byte for byte`, requests.length >= 1 && lastLine(0) === one, JSON.stringify(lastLine(0)));
+  {
+    const end = after1.findIndex((r) => r.endsWith('Tell me ?'));
+    check(`${L}: the turn shows one "Thinking..." under the line, then the reply`, end > 0 && oneThinking(after1, end, 'Short answer.')
+      && after1.filter((r) => r === 'Thinking...').length === 1, JSON.stringify(after1.filter(Boolean)));
+  }
+  // 2. typed while a reply is still coming down: the firmware waits (WAIT) and the keys are kept
+  await page.keyboard.type('next', { delay: 5 });
+  await page.keyboard.press('Enter');
+  const waiting = await waitFor(page, () => window.emu.session.readByte(window.emu.Emu.CHAT_STATE.wait, window.emu.session.chatMachines.chat) === 1 && window.emu.session.chat.channel.queued > 0, null, 20000);
+  const two = ('Type ahead: this line is typed while the reply before it still comes, and it must arrive whole. ').repeat(3).slice(0, 199) + '!';
+  await page.keyboard.type(two, { delay: 5 });
+  const stillComing = await page.evaluate(() => window.emu.session.chat.channel.queued > 0 || window.emu.session.chat.busy);
+  await page.keyboard.press('Enter');
+  const sent = await waitFor(page, (want) => { const c = window.emu.session.chat; return c.messages.some((m) => m.role === 'user' && m.content === want); }, two, 60000);
+  check(`${L}: a 200-character line typed while the previous reply still comes reaches the API whole once it has ended (not just its tail)`,
+    waiting && stillComing && sent && lastLine(2) === two, JSON.stringify({ waiting, stillComing, got: lastLine(2) }));
+  const after3 = await settled();
+  {
+    const end = after3.findIndex((r) => r.endsWith('Type ah!'));
+    const thinking = after3.filter((r) => r === 'Thinking...').length;
+    check(`${L}: every turn on the screen shows one "Thinking...", the type-ahead line's too (then its reply)`,
+      end > 0 && oneThinking(after3, end, 'ok') && thinking >= 2 && !after3.some((r, i) => r === 'Thinking...' && after3[i + 1] === 'Thinking...'),
+      JSON.stringify(after3.filter(Boolean)));
+  }
+  if (shotDir) await page.screenshot({ path: path.join(shotDir, 'chat-screen-long-lines.png') });   // (settled: no scroll part way)
+  check(`${L}: no page errors`, !errors.length, errors.join('; '));
+  await ctx.close();
 }
 
 // The copy and small UX fixes made after v0.1.8 (LIZA's load toast, the chat key states, deep-link toasts, the
@@ -13662,7 +13783,7 @@ async function escChatChecks(browser, base, check) {
   const L = 'chat Esc';
   const where = () => page.evaluate(() => ({ full: window.emu.session.claudeView === 'full', open: document.body.classList.contains('claude-open'), url: location.pathname + location.search + location.hash,
     focus: document.activeElement && (document.activeElement.id || document.activeElement.tagName), busy: !!(window.emu.session.chat && window.emu.session.chat.busy),
-    blen: window.emu.session.chatMachines ? window.emu.session.readByte(0x6013, window.emu.session.chatMachines.chat) : null }));
+    blen: window.emu.session.chatMachines ? ((s, m) => s.readByte(window.emu.Emu.CHAT_STATE.blen, m) * 256 + s.readByte(window.emu.Emu.CHAT_STATE.blen + 1, m))(window.emu.session, window.emu.session.chatMachines.chat) : null }));
   const idle = () => waitFor(page, () => window.emu.session.chatPromptEmpty === true, null, 15000);
   const left = () => waitFor(page, () => window.emu.session.claudeView !== 'full' && document.getElementById('claude').hidden && !/app=claude/.test(location.search), null, 5000);
   const openChat = async () => {
@@ -14474,12 +14595,12 @@ async function uiQaChecks(browser, base, check) {
   const stepped = await page.evaluate(() => !!(history.state && history.state.claudeChat));
   // (with a line typed, BREAK has something to do: the firmware drops the line; the empty, idle prompt is leave-the-chat, in escChatChecks)
   await page.focus('#screen'); await emuFrames(page, 3); await page.keyboard.type('x');
-  const typed = await waitFor(page, () => window.emu.session.readByte(0x6013, window.emu.session.chatMachines.chat) === 1);
+  const typed = await waitFor(page, () => ((s, m) => s.readByte(window.emu.Emu.CHAT_STATE.blen, m) * 256 + s.readByte(window.emu.Emu.CHAT_STATE.blen + 1, m))(window.emu.session, window.emu.session.chatMachines.chat) === 1);
   // wait for the firmware to drop the line rather than reading it after a fixed few frames: under load those frames
   // can pass before the chat machine has run its BREAK handling, which flaked this check. An Esc that does nothing
   // never clears the byte, so waitFor times out and the check still fails.
   await page.keyboard.press('Escape');
-  const dropped = await waitFor(page, () => window.emu.session.readByte(0x6013, window.emu.session.chatMachines.chat) === 0);
+  const dropped = await waitFor(page, () => ((s, m) => s.readByte(window.emu.Emu.CHAT_STATE.blen, m) * 256 + s.readByte(window.emu.Emu.CHAT_STATE.blen + 1, m))(window.emu.session, window.emu.session.chatMachines.chat) === 0);
   check('in the full-screen chat, Esc on the screen with a line typed is BREAK (the line is dropped) and keeps the chat open', typed && dropped
     && await page.evaluate(() => window.emu.session.claudeView === 'full'));
   await page.focus('#btnFullSide'); await page.keyboard.press('Escape');
@@ -18094,7 +18215,7 @@ const GROUPS = (base, site) => [
   // (the first-use checks run with the copy's: the same kind of check, and no shard of their own)
   ['uiCopy', async (b) => { await uiCopyChecks(b, base, check); await firstUseChecks(b, base, check); }],
   ['welcomeScreen', (b) => welcomeScreenChecks(b, base, check)],
-  ['chatScreen', (b) => chatScreenChecks(b, base, check)],
+  ['chatScreen', async (b) => { await chatScreenChecks(b, base, check); await chatLongLineChecks(b, base, check); await chatRamChecks(b, base, check); }],
   ['phoneChat', (b) => phoneChatChecks(b, base, check)],
   ['share', (b) => shareChecks(b, base, site, check)],
   ['favicon', (b) => faviconChecks(b, site, check)],

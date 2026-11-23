@@ -179,9 +179,9 @@ export const ACTING_TOOL_NAMES = Object.freeze(Object.keys(ACTING));
 // The chat firmware's channel mailbox (examples/chat.asm): two status/data pairs, one each way.
 export const CHAT_CHANNEL = Object.freeze({ rx: 0x7000, tx: 0x7002 });
 // Two of the firmware's variables, read by the page to tell whether BREAK would do anything (Esc on an empty, idle
-// prompt leaves the chat instead): BLEN, the characters on the typed line, and WAIT, set from ENTER until the reply
-// ends. tests/chat-firmware.test.js ties these addresses to the assembled source.
-export const CHAT_STATE = Object.freeze({ blen: 0x6013, wait: 0x6037 });
+// prompt leaves the chat instead): BLEN, the characters on the typed line (16 bits, high byte first), and WAIT, set
+// from ENTER until the reply ends. tests/chat-firmware.test.js ties these addresses to the assembled source.
+export const CHAT_STATE = Object.freeze({ blen: 0x700D, wait: 0x6031 });
 // The chat firmware's screen (examples/chat.asm, COLS and ROWS): 42 columns of the 6x8 font in 256x192 graphics,
 // 24 rows, on every machine (there is no 80-column CoCo 3 mode yet). tests/chat-firmware.test.js ties these to
 // the source, so the brief can't tell Claude a width the screen doesn't have.
@@ -508,7 +508,7 @@ export class ChatSession {
       : { requested: job.requested, consumed: job.consumed, lines_requested: job.linesRequested, lines_delivered: job.linesDelivered };
     if (job.status === 'done' || (read && job.status === 'not-consumed' && job.consumed === job.requested)) return report;
     // (delivered: how many keys went in before the stop, so the page can tell "stopped before" from "while")
-    if (job.status === 'stopped') throw Object.assign(new ToolError(TOOL_CODES.STOPPED, `${job.consumed} of ${job.requested} keys typed`), { delivered: job.consumed });
+    if (job.status === 'stopped') throw Object.assign(new ToolError(TOOL_CODES.STOPPED, `${job.consumed} of ${job.requested} keys typed`), { delivered: job.consumed, requested: job.requested });
     // the machine reset under the typing (Machine.reset): not a Stop, so the model is not told the person stopped it
     if (job.status === 'machine-restarted') throw Object.assign(new ToolError(TOOL_CODES.MACHINE_RESTARTED, `${job.consumed} of ${job.requested} keys typed`), { delivered: job.consumed });
     // the Debugger stopped the machine while the keys went in: the rest was dropped (delivered: how many went in)

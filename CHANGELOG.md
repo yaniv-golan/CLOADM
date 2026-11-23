@@ -191,6 +191,8 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
   so does `step`, which before resumed it. Launches (`load`, `insert_disk`, `reset`, `power_cycle`) still release
   the stop. The skill (and the side panel's instructions, which the connector's Worker serves once it is deployed
   again) says what to do with `machine-stopped`, and a new eval covers it.
+- The disk ROM card in Your ROMs says "add your own copy" where it said "add your own dump"; the files you add are ROMs,
+  and "dump" is kept as the verb for reading a machine's ROMs out.
 - **The welcome menu's tune plays only when you asked for the menu.** It plays once the sound is unlocked for the visit's own menu and for the Welcome menu chosen from Programs; it is silent after a machine switch (a RAM or CPU change, the machine question, an opened snapshot), Reset, a power cycle, and when the menu comes back from LIZA, a game or the demo. The Session decides, so Claude's and MCP's switches are silent too.
 - **Faster CI gates, and shards that cannot go stale.** `node tests/all.js` runs in CI as three parts on three runners
   (`--shard i/n`, planned from `tests/suite-times.json`), and the `gates` job checks from their logs that together
@@ -212,6 +214,8 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
   an action) running from the moment the focus leaves; the focus stays on the action button only when the new toast
   carries the same action, otherwise it moves to the toast itself, so an Enter meant for the old action fires nothing.
   Under the pointer the new toast is paused until the pointer leaves.
+  With the focus on the button of the toast's second line, the focus moves to the toast itself, even when the new
+  toast carries the same action; and a new toast without a second line leaves none of the old one behind.
 - **A toast in the top slot is pinned provisionally.** It still shows there in its first frame when no place
   is free, but while a control that decides its place is still in its own animation (a sheet opening), for 300 ms at
   most, it moves to a free place as soon as one opens (its position only, with no animation); after that it never
@@ -321,6 +325,42 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Fixed
 
+- **A long line typed on the chat screen goes whole, up to 1024 characters.** The chat firmware's line held 255
+  characters (its lengths were single bytes) and the keys after the 255th were not sent: a 269-character prompt
+  arrived as its first 255, and the screen only flashed. The line now holds 1024 (16-bit lengths, the buffer at
+  `$7300`); a line longer than the screen scrolls it as it is typed, and BACKSPACE brings back the rows that have
+  scrolled off. A key past the 1024th is refused with a notice on the row under the line, "[Full: 1024 characters.
+  ENTER sends it.]", and the flash. `tests/chat-long-lines.test.js` sends lines of 256, 269, 1000 and 1025 characters
+  through the Session on the Dragon 64, the CoCo and the CoCo 3, over the mailbox and DriveWire.
+- **The chat on a CoCo with 4K or 16K is refused, saying why.** Its firmware uses $0400-$7FFF, so on less memory it
+  loaded into memory that was not there and the chat screen stayed dead. `startChat` now refuses below 32K: "The chat
+  needs 32K of memory or more; this CoCo 1/2 has 16K. Give it 32K or more in its settings, or use a Dragon 32 or
+  64." The page shows it in its status line.
+- **The chat screen scrolls in fewer frames.** It copies two bytes a move (about 40% fewer cycles), so the frames
+  drawn while a scroll is part way, which show the row at the copy's edge twice, last less long.
+- **A line typed on the chat screen while a reply is still coming is kept whole.** The chat firmware used to ignore
+  every key from ENTER until the reply had ended, so a line typed ahead (by a person or a script, while Claude
+  answered, used its tools or waited at a consent card) lost its start and only its tail was sent. The keys now wait
+  in the firmware's type-ahead ring (2047 keys; a key past it flashes the screen) and are typed at the prompt once the reply has ended, in the order typed. BREAK while a reply comes
+  still only stops the reply. `tests/chat-firmware.test.js`, `tests/claude-chat-drivewire.test.js` and the
+  `chatScreen` browser check type 200-character lines and check the bytes the backend receives.
+- **A call stopped by the MCP server's 25 s time limit says so.** A long `type_text` on a host too slow to finish it
+  was stopped part way and reported `stopped`, "the person stopped Claude", which nobody had. It now fails
+  `time-limit`, with how many of the keys went in ("40 of 150 keys typed before the time limit; the rest was not
+  typed", or "...; the call did not finish" when even stopping it does not end the call), and nothing more goes in
+  afterwards (docs/mcp.md, the skill).
+- **A real CoCo's and the chat's DriveWire writes wait for a Library move.** A guest's named-object create over
+  Web Serial (Serve a real CoCo) or the full-screen chat's DriveWire wrote the store outside the Library's guard:
+  a move started meanwhile did not wait for it, and the new object was left in the place the move had left; a create
+  or a mount asked while the move copied went ahead. Every DriveWire server now has the Becker port's guard: a create
+  is a Library operation the move waits for, and both are answered "no such object" while the move copies.
+- **Adding a NitrOS-9 floppy image and Save to Library store their disk as a creation, like an import.** A rename
+  onto the name while the save was under way is refused, and a save asked behind a rename of that name refuses
+  instead of writing over the renamed image.
+- **Clearer rename refusals.** A blank new name (or "disks/" alone) and a ".." name say "<name> was not renamed:"
+  and why, rather than a bare folder or a path; a case-only rename on a store that does not tell cases apart names
+  the new name without the folder typed; Save to Library of a disk with no file name, or with a name that is not a
+  disk image's file name, says which and what to do.
 - **Two tabs no longer lose each other's ROMs, Library items or recent programs.** Every change to the media index
   (which ROM is in which socket, the ROMs' file names, the recent list) wrote this tab's whole list over the stored
   one, so with two tabs open the last writer won and silently dropped what the other had added, Undo included. Now each
@@ -354,6 +394,14 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
   now drives port 2 only once its data register has been written, as MAME's m6801 does, so a program that sets the DDR
   first prints no stray byte either (the flag lives in the 6803's state; a file saved before it restores as driven).
   `run.js mc10 --printer --stub-init` and `--glitch` (and `alice`, `coco`) give the bytes MAME 0.264 prints, identical.
+- **Claude's screen reading follows every CoCo 3 compatibility-mode text screen.** In compatibility (VDG) mode the
+  reader always walked 16 rows, as if `$FF9C` held BASIC's `$0F` (12 lines a row). A program that sets fewer lines a
+  row shows more rows - 24 at 8 lines, and on a 200- or 225-line body one or three more than 16 even at 12 lines,
+  with the last row cut short - and `screen_text` and the Session's reader now give exactly the rows the picture shows,
+  from the GIME's own walk of that screen (`GIME.legacyTextScreen`), checked row for row and cell for cell against the
+  rendered frame. Rows under 8 lines show no glyph whole and are declined, as the GIME's own text reader declines
+  them. The `coco3 --video` comparison gains compatibility text at `$FF9C` `$03`, `$02`, `$0B` and `$0A`, on a 192-
+  and a 200-line body.
 - **A disk in a drive counts toward the install offer.** The page's "program in use" test (the one the
   offer to install CLOADM as an app waits a minute of) asked the machine for a disk controller it never has, so a disk
   waiting in a drive at the bare prompt never counted; it now asks the drives (`session.drives.controllerOf`). The

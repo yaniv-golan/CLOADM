@@ -3,28 +3,37 @@
 // The screen-text readers - Claude's screen_text (the chat and MCP tool) and Session.screenText (the embed API's
 // screenText, the Ask panel, the tape panel and the boot watchdog) - on the three screens the VDG page reader cannot
 // read: the Dragon 64 Plus's HD6845S 80-column screen, the CoCo 3's GIME native text modes (40 and 80 columns, with and
-// without attribute bytes) and a CoCo 3 compatibility-mode text page the MMU has mapped away from where the CPU looks;
-// and the main (VDG) page read where the VDG fetches it: under the Dragon 64 Plus's banks, by the boot watchdog while
-// the 80-column view is shown, and on a CoCo 3 screen that is not text with ROM mapped where the CPU would look.
+// without attribute bytes), a CoCo 3 compatibility-mode text page the MMU has mapped away from where the CPU looks, and
+// that same page at every $FF9C (lines a row) and body height; and the main (VDG) page read where the VDG fetches it:
+// under the Dragon 64 Plus's banks, by the boot watchdog while the 80-column view is shown, and on a CoCo 3 screen that
+// is not text with ROM mapped where the CPU would look.
 //
 // Each case is firmware of our own (assembled here, no ROM) that writes known text: every code of the character set,
-// attributes, a scrolled or moved page. Three things are checked on each, at the same moment:
+// attributes, a scrolled or moved page, a page with more rows than 16. Three things are checked on each, at the same
+// moment:
 //  1. both readers return the rows the firmware wrote, derived here from the firmware's own data through literal
 //     character tables written by hand (never by running the reader); Session.screenText gives every row at full
 //     width, screen_text trims them;
 //  2. the rendered frame shows those same characters, cell by cell: our picture of these modes is the one MAME
-//     verifies (the regress hashes and `node tools/mame-diff/run.js coco3 --video --text`, `d64plus --plustext
+//     verifies (the regress hashes and `node tools/mame-diff/run.js coco3 --video --text --compat`, `d64plus --plustext
 //     --video`), so the text is checked against what the hardware displays. The GIME cells are compared with the
-//     GIME font's glyph for the expected character (as run-text.js 2b does); the Plus board's with a character
-//     generator of our own that draws each code as its own byte, so the picture decodes back to codes;
+//     GIME font's glyph for the expected character (as run-text.js 2b does); the compatibility-mode rows with the
+//     frame's own row bands, ceil(body / lines a row) of them, so the count and the last cut row are checked too; the
+//     Plus board's with a character generator of our own that draws each code as its own byte, so the picture decodes
+//     back to codes;
 //  3. where the screen is: `base` (the CPU address, or null when no slot maps it), `physicalBase`, `startAddress`.
 // Cells with no known character (a VDG semigraphics block, a Plus code outside $20-$7E) read as spaces and are counted.
 //
 // Mutants (each a one-line edit; every one turns this file red - replay them when reviewing):
 //  js/claude/readtools.js
-//   1. compatibility page through the CPU map: in readScreen's legacyBase branch, vdgRows((i) => g.mem(at + i)) ->
+//   1. compatibility page through the CPU map: in readScreen's legacyBase branch, compatRows(t.chars) ->
 //      vdgRows((i) => readByte(((at & 0xFFFF) + i) & 0xFFFF))
-//   2. compatibility page at the power-on page: g.mem(at + i) -> g.mem(0x70400 + i)
+//   2. compatibility page at the power-on page: GIME.legacyTextScreen's this.videoBase() -> 0x70400
+//   2b. compatibility rows a fixed 16: compatRows(t.chars) -> compatRows(t.chars.slice(0, 16)) (section 3b)
+//   2c. compatibility rows a fixed 12-line row: GIME.legacyTextScreen's COMPAT_TEXT_LPR[regs[12] & 0x0F] -> 12 (3b)
+//   2d. short compatibility rows not declined: videoMode's `if (lpr < 8) return ...` -> `if (lpr < 0) return ...` (3b)
+//   2e. the 8-line boundary declined too: `if (lpr < 8)` -> `if (lpr <= 8)` (3b's 8-line case: 24 rows at 192, 25 at
+//       200, 29 at 225; 9 checks red by name)
 //   3. attribute bytes read as characters (gimeText: interleave t.attrs into the rows)
 //   4. 40 columns read as 80 (gimeText: pad each row to 80)
 //   5. bit 7 not ignored (gimeText: chars[v & 0x7F] -> chars[v] || ' ')
@@ -399,6 +408,144 @@ for (const [name, seeAt, base] of [['no slot maps it', null, null], ['slot 6 map
   check(`CoCo 3 compatibility page, ${name}: Session.screenText reads the same 16 rows`, J(sess) === J(want), J(sess.slice(0, 3)));
   check(`CoCo 3 compatibility page, ${name}: the rendered picture shows the expected glyph in every text cell`,
     legacyCellsBad(m, page) === 0, `${legacyCellsBad(m, page)} cells differ`);
+}
+
+// =====================================================================================================================
+// 3b. The CoCo 3's compatibility-mode (VDG) text screen at every $FF9C, and a 200- or 225-line screen
+// =====================================================================================================================
+// In compatibility mode $FF9C sets the lines each text row takes (js/chips/gime.js COMPAT_TEXT_LPR: $0F is 12 lines,
+// $03 is 8, $0B is 4, $0A is 1, and so on), and $FF99 bits 5-6 set how many lines the body draws (192, 200 or 225).
+// The screen therefore shows ceil(body / lpr) rows, not always 16: 24 rows at 8 lines a row on a 192-line screen, 25
+// on a 200-line one, 17 rows at 12 lines a row where the body is 200 lines, and so on. The reader walked a fixed 16.
+// Rows under 8 lines are declined, as below.
+// Oracle, per screen: the rendered FRAME, row by row and cell by cell. Our picture of these modes is the one MAME
+// verifies (`node tools/mame-diff/run.js coco3 --video --compat` compares 'compat text' pixel for pixel); each row
+// band in the frame is lpr scanlines from the body's first line, and every cell must show the glyph of the character
+// the reader returns for that row and column. The expected text is derived here from the page bytes and the character
+// table, never from the reader, and the row count from the frame's own geometry (topBorder/body/lpr), never from the
+// reader either. Rows under 8 lines show no glyph whole, so the reader declines them (as the GIME native reader does
+// for $FF98 lines per row under 8): that is checked too.
+const LPR_COMPAT = [11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 4, 3, 2, 1, 12];   // js/chips/gime.js COMPAT_TEXT_LPR
+// A page of 32 rows, each a distinctive label then a letter, so a misaligned or missing row is visible.
+function tallPage() {
+  const p = new Array(32 * 32).fill(0x60);
+  const put = (row, data) => data.forEach((b, i) => { p[row * 32 + i] = b; });
+  for (let r = 0; r < 32; r++) {
+    const lbl = bytes(`ROW ${String(r).padStart(2, '0')} `).map((c) => c | 0x40);
+    put(r, [...lbl, ...range(0, 32 - lbl.length).map(() => 0x40 + (r % 26))]);
+  }
+  return p;
+}
+// Legacy mode at physical $60000 ($FF9D = $C0), the SAM's page at $0400, `ff9c` lines a row, `ff99` resolution; the
+// page is 32 rows, written through CPU slot 0 mapped to block $30.
+function tallCompatFirmware(ff9c, ff99) {
+  const L = [], e = (s) => L.push(s);
+  cocoStart(e);
+  e('        LDA     #$C0'); e('        STA     $FF90');                // compatibility mode, MMU on
+  e('        CLR     $FF22');                                         // VDG text
+  e('        STA     $FFC9');                                         // SAM F1: the page at $0400
+  e('        LDA     #$C0'); e('        STA     $FF9D'); e('        CLR     $FF9E');
+  e(`        LDA     #${hx(ff99)}`); e('        STA     $FF99');         // 192, 200 or 225 lines of body
+  e(`        LDA     #${hx(ff9c)}`); e('        STA     $FF9C');         // lines a text row
+  e('        LDA     #$30'); e('        STA     $FFA0');                // slot 0 -> block $30
+  const page = tallPage();
+  const data = writes(e, range(0, 8).map((k) => [0x0400 + k * 128, page.slice(k * 128, k * 128 + 128)]));
+  cocoEnd(e, data);
+  return L.join('\n') + '\n';
+}
+// The rows the FRAME shows, derived from the GIME's own geometry (not the reader): the body's first line is
+// topBorder - 1 (recordBody's y = physical - 1 - pad), each row band is lpr lines, the body runs ceil(body/lpr) rows,
+// the last perhaps cut short.
+const frameRowBands = (g, lpr) => ({ first: g.topBorder - 1, count: Math.ceil(g.body / lpr), lpr });
+// Every cell of every row band in the frame shows the glyph of `rows[r][c]` (the character read back from the page
+// through the table below), over the scanlines the band actually has, or the cell is blank (an inverse space's glyph
+// is empty). Returns the number of cells that do not. `bg` per cell is its top-left pixel, so the test does not need
+// the palette; a cell is "lit" where it differs from that pixel. `inverse` is the page byte's bit 6, which the GIME
+// draws as the glyph XOR $FF.
+function compatFrameBad(m, rows, lpr) {
+  const f = m.render(), W = f.width, H = f.height, { first, count } = frameRowBands(m.gime, lpr);
+  const bodyEnd = Math.min(H, first + m.gime.body);
+  const font = Emu.GIME.LOWRES_FONT;
+  let bad = 0;
+  for (let r = 0; r < count; r++) {
+    const by = first + r * lpr, lines = Math.min(lpr, bodyEnd - by, 12);
+    const line = rows[r] || '';
+    for (let c = 0; c < 32; c++) {
+      const bx = 64 + c * 16, ch = line[c] || ' ';
+      // the character back to its font code and its inverse bit: the row carries what the reader gave, so the code
+      // comes from the same 64-character table (bit 6 is not part of the character the reader returns)
+      const code = ch >= '@' && ch <= '_' ? ch.charCodeAt(0) - 64 : ch >= ' ' && ch <= '?' ? ch.charCodeAt(0) : -1;
+      if (code < 0) { bad++; continue; }
+      const bg = f.data[by * W + bx];
+      let same = true;
+      for (let y = 0; same && y < lines; y++) {
+        const bits = font[code * 12 + y];
+        for (let x = 0; x < 16; x++) {
+          const lit = !!(bits & (0x80 >> Math.floor(x / 2)));
+          if ((f.data[(by + y) * W + bx + x] !== bg) !== lit) { same = false; break; }
+        }
+      }
+      if (!same) bad++;
+    }
+  }
+  return bad;
+}
+// The page's rows as the reader should give them: page byte -> character, bit 7 a semigraphics block (a space).
+const tallWant = (page) => range(0, 32).map((r) => page.slice(r * 32, r * 32 + 32).map(vdgChar).join(''));
+// $FF9C values whose rows are 8 lines or more: a glyph is 12 lines, so a shorter row shows only its top lines and no
+// character whole - the same rule the GIME native reader applies ($FF98 lines per row under 8 is declined). Measured
+// on our own font: every glyph's ink ends by line 7, so at 8 lines ($FF9C $03) all 63 are shown whole, at 7 only 10,
+// at 4 only 2, at 1 none. 8 is the boundary: it is READ, and 7 and below are declined (a `<= 8` decline must not pass).
+const READABLE_FF9C = [0x0F, 0x03, 0x02, 0x01, 0x00];   // 12, 8, 9, 10, 11 lines a row
+for (const [res, ff99] of [['192', 0x00], ['200', 0x20], ['225', 0x60]]) {
+  for (const ff9c of READABLE_FF9C) {
+    const lpr = LPR_COMPAT[ff9c & 0x0F], page = tallPage(), all = tallWant(page);
+    const m = cocoMachine(tallCompatFirmware(ff9c, ff99));
+    m.runFrame(); m.runFrame();
+    const { count } = frameRowBands(m.gime, lpr);
+    const want = all.slice(0, count);                       // the rows the screen shows, from the frame's geometry
+    const got = tool(m), sess = sessionOn(m).screenText();
+    const label = `CoCo 3 compatibility ${res} lines, ${lpr} lines a row ($FF9C ${hx(ff9c)})`;
+    check(`${label}: (setup) the body shows ${count} rows (${m.gime.body} lines / ${lpr}) and the page has them all written`,
+      m.gime.body === { '192': 192, '200': 200, '225': 225 }[res] && count === Math.ceil(m.gime.body / lpr) && all.length === 32);
+    check(`${label}: screen_text reads the ${count} rows the screen shows, row for row`,
+      got.text === true && J(got.lines) === J(trim(want)), J({ rows: got.lines && got.lines.length, want: count, first: got.lines && got.lines[0], last: got.lines && got.lines[got.lines.length - 1] }));
+    check(`${label}: Session.screenText gives the same ${count} rows at full width, and screenRows is ${count}`,
+      J(sess) === J(want) && got.screenRows === count, J({ sess: sess.length, screenRows: got.screenRows, want: count }));
+    check(`${label}: the rendered frame shows the reader's character in every cell of every row it reports`,
+      compatFrameBad(m, sess, lpr) === 0, `${compatFrameBad(m, sess, lpr)} cells of the frame do not match`);
+  }
+}
+
+// $FF9C rows shorter than a glyph (1 to 7 lines) show no character whole: the reader declines, as the GIME native
+// reader declines rows under 8 lines, rather than return rows of glyph fragments. The frame really shows fragments:
+// at 1 line a row none of the 63 glyphs is whole, so there is no text to read.
+for (const ff9c of [0x04, 0x0B, 0x0A, 0x0C, 0x0D, 0x0E]) {   // 7, 4, 1, 3, 2, 1 lines a row (all under 8)
+  const lpr = LPR_COMPAT[ff9c & 0x0F];
+  const m = cocoMachine(tallCompatFirmware(ff9c, 0x00));
+  m.runFrame(); m.runFrame();
+  const got = tool(m), sess = sessionOn(m).screenText();
+  const info = Emu.runReadOnlyTool({ machine: m, readByte: (a) => m.peek(a) }, 'machine_info', {});
+  check(`CoCo 3 compatibility at ${lpr} lines a row ($FF9C ${hx(ff9c)}): a text mode, declined, no rows (no glyph shown whole)`,
+    got.text === false && /MC6847 text/.test(got.mode) && new RegExp(`draws ${lpr} scanline`).test(got.reason || '') && got.rows === 0
+    && /no character is shown whole/.test(got.reason || ''), J(got));
+  check(`CoCo 3 compatibility at ${lpr} lines a row: machine_info says kind text but not readable`, info.video.kind === 'text' && info.video.readable === false, J(info.video));
+  // Session.screenText's fallback still shows the page it decodes (a screen screen_text declines), as a VDG page of 16 rows
+  check(`CoCo 3 compatibility at ${lpr} lines a row: Session.screenText keeps its VDG fallback, 16 rows`, sess.length === 16, J(sess.length));
+}
+
+// A 12-line-row screen is 16 rows on 192 lines but 17 on 200 (a last row cut short to 8 lines) and 19 on 225 (the last
+// row 9 lines): the cut is shown, and read.
+{
+  const page = tallPage(), all = tallWant(page);
+  for (const [res, ff99, rows] of [['200', 0x20, 17], ['225', 0x60, 19]]) {
+    const m = cocoMachine(tallCompatFirmware(0x0F, ff99));
+    m.runFrame(); m.runFrame();
+    const want = all.slice(0, rows);
+    check(`CoCo 3 compatibility ${res} lines, 12 lines a row: the last row (cut to ${({ '200': 8, '225': 9 })[res]} lines) is shown and read`,
+      sessionOn(m).screenText().length === rows && J(sessionOn(m).screenText()) === J(want) && compatFrameBad(m, want, 12) === 0,
+      J({ got: sessionOn(m).screenText().length, want: rows }));
+  }
 }
 
 // =====================================================================================================================

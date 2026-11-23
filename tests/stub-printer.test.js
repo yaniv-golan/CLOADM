@@ -132,6 +132,30 @@ for (const id of ['mc10', 'alice']) {
     done && Array.from(p.printed).join() === '79,75', `done ${done}, printed ${JSON.stringify(Array.from(p.printed))}`);
 }
 
+// ---- the 6803's output compare drives P21 and counts as a write to port 2 ----
+// MAME 0.264 m6801.cpp (the output compare's handler, which sets OLVL on the P21 pin): the compare drives port 2 and
+// sets m_port2_written, so a printer line that has had its DDR set but no data register write starts being driven
+// once the compare fires. js/cpu/cpu6803.js timerSync does the same (p2Written), and port 2 is then written with
+// P21 at OLVL.
+{
+  const compare = (ddr2, olvl) => {
+    const writes = [];
+    const cpu = new Emu.CPU6803({ read: () => 0xFF, write: () => {}, portWrite: (n, v, d) => writes.push([n, v, d]) });
+    cpu.regWrite(0x01, ddr2);        // port 2's DDR first: nothing is driven yet (no data register write)
+    const before = writes.length, flagBefore = cpu.p2Written;
+    cpu.regWrite(0x08, olvl);        // TCSR: OLVL
+    cpu.regWrite(0x0B, 0x00); cpu.regWrite(0x0C, 0x10);   // OCR = $0010
+    cpu.timerSync(0x2000);           // the counter has passed the compare
+    return { before, flagBefore, flag: cpu.p2Written, ocf: !!(cpu.tcsr & 0x40), writes: writes.slice(before) };
+  };
+  const hi = compare(0x02, 1), lo = compare(0x02, 0), inp = compare(0x01, 1);
+  check('6803: a DDR write alone drives nothing and sets no p2Written (the premise)', hi.before === 0 && !hi.flagBefore);
+  check('6803: the output compare with P21 an output sets p2Written, as MAME\'s m6801 does', hi.flag && hi.ocf, JSON.stringify(hi));
+  check('6803: ... and drives port 2 with P21 at OLVL = 1', hi.writes.length === 1 && hi.writes[0][0] === 2 && (hi.writes[0][1] & 0x02) === 0x02, JSON.stringify(hi.writes));
+  check('6803: ... and with P21 at OLVL = 0 (the line is still driven, low)', lo.flag && lo.writes.length === 1 && (lo.writes[0][1] & 0x02) === 0, JSON.stringify(lo.writes));
+  check('6803: the compare with P21 an input (only P20 an output) drives nothing and sets no p2Written', inp.ocf && !inp.flag && inp.writes.length === 0, JSON.stringify(inp));
+}
+
 // ---- glitches on the printer line, against what MAME 0.264 recorded ----
 // The glitch firmware (tools/mame-diff/{mc10,sam}/printer-glitch.asm, run.js <profile> --printer --glitch) drops the
 // line for a few cycles once it idles at mark, then prints every byte value and its text; on the MC-10 and the Alice

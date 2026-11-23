@@ -568,6 +568,22 @@ we do:
 | 1986 and 1987 GIMEs | one model | one model | nothing: unknown |
 | Compatibility mode | lines per row from `$FF9C` (S5's SG modes) | the same | S2, S5, MAME |
 
+The compatibility-mode text at `$FF9C` values other than BASIC's `$0F` is in the pixel comparison: `run.js coco3
+--video` puts up `compat text` at 8, 9, 4 and 1 lines a row (S5's 3-, 2- and 1-line SG settings and the 8-line
+setting) on a 192-line body and 8 lines on a 200-line one, as well as BASIC's 12. Each is compared with MAME cell for
+cell, a cell tall as `$FF9C` says, so a screen showing 24, 22, 48, 192 or 25 rows (not 16) is checked where it differs.
+Result against MAME 0.264: 0 of 5 different - the 1-line screen pixel-identical, the other four identical apart from
+our own font design (the instructions differ per cell, glyphs do not). The reader that follows these rows
+(`GIME.legacyTextScreen`) is checked against our own frame, row for row and cell for cell, in
+`tests/screen-text-readers.test.js` section 3b; it DECLINES rows under 8 lines ($FF9C 4-9 and $0B-$0E), where a glyph
+is shown only in part, with the same answer and reason the GIME native reader gives rows under 8 scanlines.
+
+That comparison's own per-cell grid had a bug these cases found: it took the body to start at picture line 24 and be
+192 lines tall, right for a 192-line screen only. On a 200- or 225-line screen (`$FF99` bits 5-6) the top border is 23
+or 8 lines, the body starts at line 22 or 7, and the grid straddled two text rows, so a two-colour cell read as three
+and a correct picture was reported different. It now takes the start and the height from `$FF99` (24/192, 22/200,
+7/225); the whole `--video` suite then passes with 0 different of 49.
+
 `run.js coco3 --vsc` (`coco3/gen-vsc.js`, our firmware in `coco3/vsc-1.asm` to `vsc-5.asm`) puts up 60 cases:
 8-line text and double-height (2-line) graphics with VSC stepped through 0-15, 9-, 10- and 11-line text, 8- and
 11-line graphics, 1-line rows (LPR 0 and 1), LPR 7, the 200- and 225-line resolutions, and VSC written mid-field (in
@@ -1150,6 +1166,31 @@ browser check's group `uiModel` drives them with real events at 1280x720 and at 
 
 Not verified automatically: how the fixed top slot reads to a person on a real phone (screenshots
 `r24-disk-toast-*.png` were looked at).
+
+### Library writes from every door: guest creates, saves and renames
+
+No MAME oracle (AGENTS.md 4.6): these are the Library's own ordering rules, and the oracle is each race played out
+with the loser held inside the await where its check had already passed. `tests/store-races.test.js`:
+* A guest's DriveWire named-object call over each server the Session builds besides the Becker port's (a real CoCo on
+  Web Serial, through a mocked `navigator.serial`; the full-screen chat's): a CREATE whose write is in flight when a
+  move starts is a Library operation the move waits for, after which the move is refused naming the guest's drive and
+  the object is in the store the session still uses; a CREATE or a MOUNT asked while the move copies is answered 0,
+  hands out no drive and writes neither place. Every server comes from one constructor
+  (`Session.newDriveWireServer`), which wires both guards.
+* addAndBootNitros9's floppy save and Save to Library (`drives.keepSnapshot`) store their disks/ name as one creation
+  (`library.createDisk`, the same path as a dropped disk image): a rename onto the name while the save is held is
+  refused ("a disk is being made under that name") and both images keep their bytes; a save asked behind a rename of
+  that name in flight refuses ("There is already a disk named n9.dsk in your library"), leaving the renamed image as
+  it was; an import asked during Save to Library refuses, and so does one asked while either save is still in its
+  case probe after the write (the landing comes at the creation's end, not before its write).
+* The words: a case-only rename on a store that does not tell cases apart names the new name without the folder
+  typed ("so work.vdk and WORK.VDK are the same name"); a blank new name, "disks/" alone and a ".." segment are
+  refused naming the item ("work.vdk was not renamed: the new name is blank (empty or only spaces).", "... ".." is
+  not a name a file can have."), each word for word, with the store unchanged; Save to Library of a disk with no
+  file name says so and what to do, and of one whose name is not a disk image's file name ("sub/x.vdk") says why.
+On the stage branch 30 of its first 45 checks fail. Each guard bypassed on its own (the real CoCo's server or the chat's
+built without the guards, either guard dropped, either save back to a plain Library operation, the creation's claim
+or its landing check dropped, the landing moved before the write, each message reverted) turns it red.
 
 ### A disk without a disk ROM
 

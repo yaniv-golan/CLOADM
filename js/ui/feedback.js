@@ -123,7 +123,7 @@ export function createFeedback() {
     // focusout), and the focus stays on the action button only if the new toast carries the same action (the same
     // object); otherwise it moves to the box itself, so an Enter meant for the old action fires nothing
     const focused = !box.hidden && cur ? document.activeElement : null, hadFocus = !!focused && box.contains(focused);
-    const sameAction = hadFocus && focused !== box && !!t.action && t.action === cur.action;
+    const sameAction = hadFocus && focused !== box && !alsoEl.contains(focused) && !!t.action && t.action === cur.action;
     end('replaced');
     cur = t;
     t.seen = false;
@@ -150,7 +150,7 @@ export function createFeedback() {
       const b = document.createElement('button'); b.type = 'button'; b.textContent = t.also.action.label;
       b.onclick = (e) => { e.stopPropagation(); if (cur !== t) return; end('action'); t.also.action.run(); };
       alsoEl.replaceChildren(el('span', t.also.text), b);
-    }
+    } else alsoEl.replaceChildren();
     box.hidden = false;
     if (hadFocus) {
       const inline = textEl.querySelector ? textEl.querySelector('button') : null;

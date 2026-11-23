@@ -464,6 +464,35 @@ class GIME {
     }
     return { cols, attr, lpr, vsc, rows, base, pitch, hoff, hven: !!(r[15] & 0x80), chars, attrs };
   }
+  // The compatibility-mode (VDG) text screen as the next frame will draw it, from the registers: null unless the
+  // GIME is emulating the VDG in a text mode ($FF90 LCOM latched for the frame, $FF22 bit 7 A/G clear). It follows
+  // recordBody()'s legacy branch line for line:
+  //  * each text row is COMPAT_TEXT_LPR[$FF9C & 0x0F] scanlines ($0F, as BASIC sets it, is 12; $03 is 8; $0A is 1),
+  //    and the body shows its own line count ($FF99 bits 5-6: 192, 200 or 225), so the screen has
+  //    ceil(lines / lpr) rows, the last perhaps cut short - 16 rows at 12 lines on 192 lines, but 24 at 8 lines,
+  //    25 on a 200-line screen at 8 lines, 19 at 12 lines on 225, and so on;
+  //  * a row's 32 cells are the 32 bytes from the video start (this.videoPos, latched at the field's start, the same
+  //    physical address videoBase() gives), 32 bytes apart, read from physical RAM through mem().
+  // Returns { cols, lpr, rows, base, pitch, hoff, hven, chars: [Uint8Array(32)] }, the codes as stored (bit 6 inverse
+  // and bit 7 semigraphics included), with pitch 32 and no horizontal offset or virtual rows, so a caller can ask
+  // contiguousCpuBase() whether the CPU sees the whole screen in one run. Reads only: no register, counter or memory
+  // changes.
+  legacyTextScreen() {
+    if (!this.legacy || (this.ff22 & 0x80)) return null;
+    const lpr = COMPAT_TEXT_LPR[this.regs[12] & 0x0F];
+    const lines = Math.max(0, Math.min(this.topBorder + this.body, this.untilRetrace, HEIGHT + 1 + this.pad) - this.topBorder);
+    const rows = lines ? Math.ceil(lines / lpr) : 0, base = this.videoBase(), chars = [];
+    for (let row = 0, at = base; row < rows; row++, at += 32) {
+      const c = new Uint8Array(32);
+      for (let i = 0; i < 32; i++) c[i] = this.mem(at + i);
+      chars.push(c);
+    }
+    return { cols: 32, lpr, rows, base, pitch: 32, hoff: 0, hven: false, chars };
+  }
+  // The lines each text row takes in compatibility text mode, from $FF9C as it stands (COMPAT_TEXT_LPR). Unlike
+  // legacyTextScreen() this needs no latched frame: a reader deciding whether the rows can be read at all asks this,
+  // so it answers the same before and after the frame that latches the mode.
+  get compatTextLpr() { return COMPAT_TEXT_LPR[this.regs[12] & 0x0F]; }
   // HS rising edge: record the line that just ended and advance the scanline counter.
   // Returns true if HS is seen by the PIA (not on PAL padding lines).
   // Sets this.fsNext to the field sync level due at the HS fall, or null for no change.

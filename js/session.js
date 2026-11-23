@@ -636,13 +636,7 @@ export class Session {
     this.speechRomNoted = false;    // 'speech-rom' has been emitted (once a session: checkSpeechRom)
     // DriveWire: one server for the session, on its media store (images under DW_PREFIX); attached to the
     // machine's Becker port when it has one. Channels: WebSockets (DriveWireSocket) by channel number.
-    this.drivewire = new DriveWireServer({ store: media, namePrefix: DW_PREFIX, sameName: (a, b) => this.library.sameName(a, b) });
-    // a guest's named-object call reaches the store: a create writes it, and a mount hands the guest a drive it
-    // then writes through - refused while the library is being copied, so neither can be lost to the move (the
-    // reply is the protocol's "no such object")
-    this.drivewire.mayWrite = () => !this.library.movingMedia;
-    // ...and a create's write runs as a Library operation, so the move waits for it and it cannot begin mid-copy
-    this.drivewire.openLibraryOp = (run) => this.library.libraryOp(run);
+    this.drivewire = this.newDriveWireServer({ store: media });
     this.dwSockets = new Map();
     this.WebSocket = globalThis.WebSocket;
     this.webSerial = globalThis.navigator && globalThis.navigator.serial;   // Web Serial (a mock in tests)
@@ -689,6 +683,19 @@ export class Session {
   // Every DriveWire server this Session built and still holds: the Becker port's, the one a real CoCo is served
   // from (while it is open), and the chat's (while it is up). One list, so a change to where the library is kept
   // reaches them all (moveMedia).
+  // A DriveWire server on the Session's drives' store, with the Library's guard on a guest's writes. Every server the
+  // Session builds comes from here (the Becker port's, serveRealCoco's and the chat's), because each one lets a guest
+  // write the store: a named-object call reaches it (a create writes it, and a mount hands the guest a drive it then
+  // writes through), refused while the library is being copied, so neither can be lost to the move (the reply is the
+  // protocol's "no such object"); and a create's write runs as a Library operation, so a move waits for it and it
+  // cannot begin mid-copy. A server built without them (serveRealCoco's, before this) let a real CoCo's CREATE write
+  // into the store a move was copying, out of the move's sight.
+  newDriveWireServer(opts = {}) {
+    const server = new DriveWireServer(Object.assign({ store: this.media, namePrefix: DW_PREFIX, sameName: (a, b) => this.library.sameName(a, b) }, opts));
+    server.mayWrite = () => !this.library.movingMedia;
+    server.openLibraryOp = (run) => this.library.libraryOp(run);
+    return server;
+  }
   dwServers() {
     const out = [this.drivewire];
     if (this.serialLink && this.serialLink.server) out.push(this.serialLink.server);
@@ -1097,11 +1104,12 @@ export class Session {
     if (r.reason) throw new SessionError(`${name}: ${r.reason}`);
     if (r.boot === 'floppy') {
       const full = this.drives.storeName(name);
-      // through the disk queue, like every other write to a stored image: a mount reading this name meanwhile
-      // re-reads for it, and the drives' writes are ordered against it
+      // one creation of a disks/ name, like an import (library.createDisk: the name claimed, its turn, the landing),
+      // written through the disk queue like every other write to a stored image: a mount reading this name
+      // meanwhile re-reads for it, and the drives' writes are ordered against it
       this.library.checkNotMoving();
       const base = full.slice(DISK_PREFIX.length);
-      try { await this.library.libraryOp(() => this.drives.storeChange(() => this.media.write(full, bytes), full)); } catch (e) { throw this.library.mediaError(e, base, full); }
+      try { await this.library.createDisk(full, () => this.drives.storeChange(() => this.media.write(full, bytes), full)); } catch (e) { throw this.library.mediaError(e, base, full); }
       return this.bootSaved(base, 'disk');
     }
     return this.bootSaved(await this.importDriveWireImage(name, bytes), 'drivewire');
@@ -1198,7 +1206,7 @@ export class Session {
   get webSerialAvailable() { return webSerialAvailable(this.webSerial); }
   async serveRealCoco(baud) {
     if (this.serialLink && this.serialLink.state === 'open') throw new SessionError('A real CoCo is already being served.');
-    const server = new DriveWireServer({ store: this.media, namePrefix: DW_PREFIX, clock: this.drivewire.clock, sameName: (a, b) => this.library.sameName(a, b) });
+    const server = this.newDriveWireServer({ clock: this.drivewire.clock });
     server.drives = this.drivewire.drives;
     const link = new SerialDriveWireLink(server, { serial: this.webSerial, onState: () => this.emit('drivewire') });
     try { await link.open(baud); } catch (e) { throw new SessionError(e.name === 'NotFoundError' ? 'No serial port chosen.' : e.message); }
@@ -2452,7 +2460,7 @@ export class Session {
   get chatPromptEmpty() {
     const cm = this.chatMachines && this.chatView === 'chat' && this.chatMachines.chat;
     if (!cm || !this.chat || this.chat.busy) return false;
-    return this.readByte(CHAT_STATE.blen, cm) === 0 && this.readByte(CHAT_STATE.wait, cm) === 0;
+    return this.readByte(CHAT_STATE.blen, cm) === 0 && this.readByte(CHAT_STATE.blen + 1, cm) === 0 && this.readByte(CHAT_STATE.wait, cm) === 0;
   }
   get hasClaudeKey() { return !!this.keyStore.get(); }
   // Ask Claude: the conversation without the chat machine, shown in the side
@@ -2755,6 +2763,11 @@ export class Session {
     if (!firmware) throw new SessionError('The chat needs its firmware (examples/chat.bin).');
     if (cpuFamily(basic.config.cpu) !== '6809') throw new SessionError(`The chat firmware needs a 6809; the ${basic.profile.name} has a ${basic.config.cpu}.`);
     if (drivewire && !basic.profile.options.becker) throw new SessionError(`The ${basic.profile.name} has no Becker port, so the chat cannot use DriveWire there.`);
+    // the firmware lives at $6000-$7FFF and draws at $0400: with 4K or 16K it would load into memory that is not there
+    // (a dead screen), so it is refused, saying how to get the memory
+    if (basic.config.ram < 32) {
+      throw new SessionError(`The chat needs 32K of memory or more; this ${basic.profile.name} has ${basic.config.ram}K. Give it 32K or more in its settings, or use a Dragon 32 or 64.`);
+    }
     const kept = this.chat && !this.chatMachines ? this.chat : null;   // the side panel's conversation moves here
     if (!kept) this.dropChat();
     // the welcome program, if it runs, stays on the BASIC session: closing the chat comes back to its menu
@@ -2765,7 +2778,7 @@ export class Session {
     if (drivewire) chatConfig.becker = true; else delete chatConfig.becker;
     const chatMachine = createMachine(basic.id, chatConfig);
     if (drivewire) {
-      this.chatServer = new DriveWireServer({ store: this.media, namePrefix: DW_PREFIX, clock: this.drivewire.clock, sameName: (a, b) => this.library.sameName(a, b) });
+      this.chatServer = this.newDriveWireServer({ clock: this.drivewire.clock });
       this.chatServer.drives = this.drivewire.drives;
       this.chatServer.onPrint = this.dwPrint(chatMachine);   // the chat machine's prints are its own, too
       chatMachine.becker.attach(this.chatServer);
