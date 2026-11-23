@@ -58,40 +58,40 @@ const block = async (name, fn) => {
   // ---- 1. the same disk name in another case on drive 2 is refused, naming drive 1 ----
   await block('1 the same disk name in another case on drive 2 is refused, naming drive 1', async () => {
     const { s } = await session({ caseInsensitive: true });
-    await s.importDisk('GAME.DSK', vdk(), 0);
-    const r = await refuses(s.mountDisk(1, 'game.dsk'), /GAME\.DSK is already in drive 0/);
+    await s.drives.importImage('GAME.DSK', vdk(), 0);
+    const r = await refuses(s.drives.mount(1, 'game.dsk'), /GAME\.DSK is already in drive 0/);
     check('case-insensitive: GAME.DSK in drive 0 refuses game.dsk in drive 1, naming the drive and the stored spelling', r.refused, r.message);
-    check('case-insensitive: and nothing was mounted in drive 1', s.diskStatus().drives.length === 1 && s.diskStatus().drives[0].file === 'GAME.DSK');
+    check('case-insensitive: and nothing was mounted in drive 1', s.drives.status().drives.length === 1 && s.drives.status().drives[0].file === 'GAME.DSK');
     // the exact match still behaves as before
-    const exact = await refuses(s.mountDisk(1, 'GAME.DSK'), /GAME\.DSK is already in drive 0/);
+    const exact = await refuses(s.drives.mount(1, 'GAME.DSK'), /GAME\.DSK is already in drive 0/);
     check('case-insensitive: the exact name is refused as before', exact.refused, exact.message);
   });
   {
     const { s } = await session({ caseInsensitive: false });
-    await s.importDisk('GAME.DSK', vdk(), 0);
+    await s.drives.importImage('GAME.DSK', vdk(), 0);
     // the store really has both names, so the only question is whether the GUARD lets the pair into two drives
     await s.library.importMedia('game.dsk', vdk());
-    const msg = await s.mountDisk(1, 'game.dsk').then((m) => m, (e) => `ERR ${e.message}`);
+    const msg = await s.drives.mount(1, 'game.dsk').then((m) => m, (e) => `ERR ${e.message}`);
     check('case-sensitive: game.dsk is another disk and mounts in drive 1 (today\'s behaviour kept)', /game\.dsk in drive 1$/.test(msg), msg);
-    check('case-sensitive: two drives hold the two names', s.diskStatus().drives.map((d) => d.file).join() === 'GAME.DSK,game.dsk');
+    check('case-sensitive: two drives hold the two names', s.drives.status().drives.map((d) => d.file).join() === 'GAME.DSK,game.dsk');
   }
 
   // ---- 2. import over a mounted disk in another case is refused ----
   await block('2 import over a mounted disk in another case is refused', async () => {
     const { s, media } = await session({ caseInsensitive: true });
-    await s.importDisk('GAME.DSK', vdk(), 0);
+    await s.drives.importImage('GAME.DSK', vdk(), 0);
     const before = (await media.read('disks/GAME.DSK')).slice();
     const r = await refuses(s.library.importMedia('game.dsk', vdk()), /is in drive 0; eject it before you replace it/);
     check('case-insensitive: importing over a disk mounted in another case is refused', r.refused, r.message);
     check('case-insensitive: and the mounted image is untouched', (await media.read('disks/GAME.DSK')).every((v, i) => v === before[i]));
-    const i2 = await refuses(s.importDisk('game.dsk', vdk(), 1), /is in drive 0; eject it there first/);
+    const i2 = await refuses(s.drives.importImage('game.dsk', vdk(), 1), /is in drive 0; eject it there first/);
     check('case-insensitive: importDisk into another drive is refused the same way', i2.refused, i2.message);
   });
   {
     const { s, media } = await session({ caseInsensitive: false });
-    await s.importDisk('GAME.DSK', vdk(), 0);
+    await s.drives.importImage('GAME.DSK', vdk(), 0);
     const before = (await media.read('disks/GAME.DSK')).slice();
-    const msg = await s.importDisk('game.dsk', vdk(), 1).then((m) => m, (e) => `ERR ${e.message}`);
+    const msg = await s.drives.importImage('game.dsk', vdk(), 1).then((m) => m, (e) => `ERR ${e.message}`);
     check('case-sensitive: importing game.dsk over GAME.DSK in a drive is allowed, as two files', /game\.dsk in drive 1$/.test(msg), msg);
     check('case-sensitive: the disk in drive 0 is untouched by the import of the other name', (await media.read('disks/GAME.DSK')).every((v, i) => v === before[i]));
   }
@@ -99,26 +99,26 @@ const block = async (name, fn) => {
   // ---- 3. rename and delete of a mounted disk in another case are refused ----
   await block('3 rename and delete of a mounted disk in another case are refused', async () => {
     const { s } = await session({ caseInsensitive: true });
-    await s.importDisk('GAME.DSK', vdk(), 0);
+    await s.drives.importImage('GAME.DSK', vdk(), 0);
     const ren = await refuses(s.library.renameMedia('disks/game.dsk', 'OTHER.DSK'), /is in drive 0; eject it before you rename it/);
     const del = await refuses(s.library.deleteMedia('disks/game.dsk'), /is in drive 0; eject it before you delete it/);
     check('case-insensitive: a mounted disk cannot be renamed or deleted under its other-case name', ren.refused && del.refused, `${ren.message} | ${del.message}`);
     check('case-insensitive: the refusal names the stored spelling when the caller used another', /game\.dsk \(stored as GAME\.DSK\) is in drive 0/.test(ren.message), ren.message);
-    check('case-insensitive: the disk is still there and still in the drive', (await names(s)) === 'disks/GAME.DSK' && s.diskStatus().drives[0].file === 'GAME.DSK');
+    check('case-insensitive: the disk is still there and still in the drive', (await names(s)) === 'disks/GAME.DSK' && s.drives.status().drives[0].file === 'GAME.DSK');
     // checkNotInDrive is what the Library panel calls before it even opens the rename field, and it is synchronous
-    let syncThrown = null; try { s.checkNotInDrive('disks/game.dsk', 'rename'); } catch (e) { syncThrown = e; }
+    let syncThrown = null; try { s.drives.checkNotInDrive('disks/game.dsk', 'rename'); } catch (e) { syncThrown = e; }
     check('case-insensitive: the Library\'s synchronous checkNotInDrive refuses the other case too', syncThrown instanceof Emu.SessionError, syncThrown && syncThrown.message);
-    let syncOk = true; try { s.checkNotInDrive('disks/OTHER.DSK', 'rename'); } catch (e) { syncOk = false; }
+    let syncOk = true; try { s.drives.checkNotInDrive('disks/OTHER.DSK', 'rename'); } catch (e) { syncOk = false; }
     check('case-insensitive: checkNotInDrive still lets an unrelated name through', syncOk);
   });
   {
     const { s } = await session({ caseInsensitive: false });
-    await s.importDisk('GAME.DSK', vdk(), 0);
+    await s.drives.importImage('GAME.DSK', vdk(), 0);
     await s.library.importMedia('game.dsk', vdk());
     const ren = await s.library.renameMedia('disks/game.dsk', 'OTHER.DSK').then(() => null, (e) => e);
     check('case-sensitive: what the drive holds is not what the other case names, so the guard does not refuse the rename',
       ren === null || !/is in drive/.test(ren.message), ren && ren.message);
-    let syncOk = true; try { s.checkNotInDrive('disks/game.dsk', 'rename'); } catch (e) { syncOk = false; }
+    let syncOk = true; try { s.drives.checkNotInDrive('disks/game.dsk', 'rename'); } catch (e) { syncOk = false; }
     check('case-sensitive: checkNotInDrive lets the other case through (it is another file here)', syncOk);
   }
 
@@ -130,30 +130,30 @@ const block = async (name, fn) => {
     const { s, media } = await session({ caseInsensitive: true });
     const first = vdk(); first[12] = 0x11;           // a recognisable image in the drive
     const second = vdk(); second[12] = 0x22;          // the file being imported over it
-    await s.importDisk('GAME.DSK', first, 0);
-    check('3b: drive 0 holds GAME.DSK', s.diskStatus().drives.length === 1 && s.diskStatus().drives[0].file === 'GAME.DSK');
-    const msg = await s.importDisk('game.dsk', second, 0).then((m) => m, (e) => `ERR ${e.message}`);
+    await s.drives.importImage('GAME.DSK', first, 0);
+    check('3b: drive 0 holds GAME.DSK', s.drives.status().drives.length === 1 && s.drives.status().drives[0].file === 'GAME.DSK');
+    const msg = await s.drives.importImage('game.dsk', second, 0).then((m) => m, (e) => `ERR ${e.message}`);
     check('3b: re-importing under the other spelling is accepted, not refused by the holder check', !/^ERR /.test(msg), msg);
     const stored = await media.read('disks/GAME.DSK');
     check('3b: the store now holds the NEW bytes under the name the disk already had',
       stored[12] === 0x22, `byte 12 = ${stored[12]}`);
     check('3b: and drive 0 still holds that one disk',
-      s.diskStatus().drives.length === 1 && s.diskStatus().drives[0].drive === 0);
+      s.drives.status().drives.length === 1 && s.drives.status().drives[0].drive === 0);
   });
 
   // ---- 4. newDisk: a name already there in another case is refused, and the auto-name skips it ----
   await block('4 newDisk: a name already there in another case is refused, and the auto-name skips it', async () => {
     const { s } = await session({ caseInsensitive: true });
-    await s.newDisk(0, { format: 'vdk', tracks: 40, heads: 1 }, { name: 'disk-1.vdk' });
-    const r = await refuses(s.newDisk(1, { format: 'vdk', tracks: 40, heads: 1 }, { name: 'DISK-1.VDK' }), /There is already a disk named disk-1\.vdk/);
+    await s.drives.newDisk(0, { format: 'vdk', tracks: 40, heads: 1 }, { name: 'disk-1.vdk' });
+    const r = await refuses(s.drives.newDisk(1, { format: 'vdk', tracks: 40, heads: 1 }, { name: 'DISK-1.VDK' }), /There is already a disk named disk-1\.vdk/);
     check('case-insensitive: newDisk refuses a name that is another case of a stored disk, naming the stored spelling', r.refused, r.message);
-    const auto = await s.newDisk(1, { format: 'vdk', tracks: 40, heads: 1 }).then((m) => m, (e) => `ERR ${e.message}`);
+    const auto = await s.drives.newDisk(1, { format: 'vdk', tracks: 40, heads: 1 }).then((m) => m, (e) => `ERR ${e.message}`);
     check('case-insensitive: the auto-named new disk is disk-2, not another disk-1', /disk-2\.vdk in drive 1/.test(auto) && (await names(s)) === 'disks/disk-1.vdk,disks/disk-2.vdk', `${auto} | ${await names(s)}`);
   });
   {
     const { s } = await session({ caseInsensitive: false });
-    await s.newDisk(0, { format: 'vdk', tracks: 40, heads: 1 }, { name: 'disk-1.vdk' });
-    const ok = await s.newDisk(1, { format: 'vdk', tracks: 40, heads: 1 }, { name: 'DISK-1.VDK' }).then((m) => m, (e) => `ERR ${e.message}`);
+    await s.drives.newDisk(0, { format: 'vdk', tracks: 40, heads: 1 }, { name: 'disk-1.vdk' });
+    const ok = await s.drives.newDisk(1, { format: 'vdk', tracks: 40, heads: 1 }, { name: 'DISK-1.VDK' }).then((m) => m, (e) => `ERR ${e.message}`);
     check('case-sensitive: DISK-1.VDK is a different name and is accepted', /DISK-1\.VDK in drive 1/.test(ok), ok);
   }
 
@@ -236,12 +236,12 @@ const block = async (name, fn) => {
       await s.ready();                      // an empty store: nothing to ask about, so the safe answer
       s.switchMachine('coco');
       s.roms.put('rsdos', 'rom', new Uint8Array(0x2000).fill(0x39), 'disk11.rom');
-      await s.importDisk('GAME.DSK', vdk(), 0);
+      await s.drives.importImage('GAME.DSK', vdk(), 0);
       // the question is stat(game.dsk) of GAME.DSK, case-flipped: that is exactly the name the write put in
       check(`importDisk onto an empty ${fold ? 'folding' : 'plain'} store: measured from the name it wrote`,
         media.caseMeasured === true && s.library.caseInsensitive === fold && media.stats.includes('DISKS/game.dsk'), media.stats.join(' '));
       // and the guard now stops the other case from reaching a second drive
-      const again = await s.mountDisk(1, 'game.dsk').then(() => null, (e) => e.message);
+      const again = await s.drives.mount(1, 'game.dsk').then(() => null, (e) => e.message);
       check(`importDisk onto an empty ${fold ? 'folding' : 'plain'} store: the guard agrees with the store's answer`,
         fold ? /is already in drive 0/.test(again || '') : again !== null && !/is already in drive/.test(again), String(again));
     }
@@ -333,8 +333,8 @@ const block = async (name, fn) => {
       media.caseInsensitive === false && s.library.caseInsensitive === false, `session=${s.library.caseInsensitive} store=${media.caseInsensitive}`);
     s.switchMachine('coco');
     s.roms.put('rsdos', 'rom', new Uint8Array(0x2000).fill(0x39), 'disk11.rom');
-    await s.importDisk('GAME.DSK', vdk(), 0);
-    const second = await s.importDisk('game.DSK', vdk(), 1).then((m) => m, (e) => `ERR ${e.message}`);
+    await s.drives.importImage('GAME.DSK', vdk(), 0);
+    const second = await s.drives.importImage('game.DSK', vdk(), 1).then((m) => m, (e) => `ERR ${e.message}`);
     check('a case-sensitive folder: a genuinely different game.dsk is not refused as though the drive held it',
       /game\.DSK in drive 1$/.test(second), second);
   });

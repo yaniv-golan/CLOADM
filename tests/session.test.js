@@ -182,7 +182,7 @@ const userMedia = (async () => {
   u.switchMachine('coco');
   u.roms.put('rsdos', 'rom', new Uint8Array(0x2000).fill(0x39), 'disk11.rom');
   await u.library.importMedia('WORK.DSK', dsk);
-  await u.mountDisk(1, 'disks/WORK.DSK');
+  await u.drives.mount(1, 'disks/WORK.DSK');
   const refuse = async (p) => p.then(() => null, (e) => e);
   const ren = await refuse(u.library.renameMedia('disks/WORK.DSK', 'OTHER.DSK'));
   const del = await refuse(u.library.deleteMedia('disks/WORK.DSK'));
@@ -191,7 +191,7 @@ const userMedia = (async () => {
     [ren, del, rep].every((e) => e instanceof Emu.SessionError) && /WORK\.DSK is in drive 1; eject it before you rename it/.test(ren.message)
     && /before you delete it/.test(del.message) && /before you replace it/.test(rep.message)
     && (await u.library.listMedia()).map((x) => x.name).join() === 'disks/WORK.DSK,library/HELLO.BIN', `${ren && ren.message} | ${del && del.message}`);
-  await u.ejectDisk(1);
+  await u.drives.eject(1);
   await u.library.renameMedia('disks/WORK.DSK', 'WORK2.DSK');
   check('media: once ejected it can be renamed', (await u.library.listMedia()).map((x) => x.name).join() === 'disks/WORK2.DSK,library/HELLO.BIN');
 })();

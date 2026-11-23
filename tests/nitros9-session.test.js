@@ -175,7 +175,7 @@ const status = (m) => m.read(NITROS9_STATUS.addr);
     check('floppy: kept with the library\'s disks, and listed as a floppy', (await f.media.list('disks/')).some((e) => e.name === 'disks/floppy9.dsk') &&
       (await f.nitros9Images()).some((x) => x.name === 'floppy9.dsk' && x.store === 'disk' && x.boot === 'floppy' && !x.reason));
     check('floppy: the CoCo disk controller with no ROM of its own, the image in drive 0',
-      fm.cartPort instanceof Emu.DiskController && fm.cartPort.type === 'cocofdc' && !fm.cartPort.romBytes && f.diskStatus().drives.some((d) => d.drive === 0 && d.name === 'disks/floppy9.dsk'));
+      fm.cartPort instanceof Emu.DiskController && fm.cartPort.type === 'cocofdc' && !fm.cartPort.romBytes && f.drives.status().drives.some((d) => d.drive === 0 && d.name === 'disks/floppy9.dsk'));
     check('floppy: our floppy loader is the internal ROM', fm.roms.basic === nitros9LoaderRom('floppy') && f.nitros9Loader() === 'floppy' && f.bootStatus().state === 'nitros9');
     await frames(f, 600);
     check('floppy: the loader read the boot track (track 34, side 0) and jumped: its code set $0102', status(fm) === NITROS9_STATUS.jumped && fm.read(0x0102) === 0x5A, `status $${status(fm).toString(16)}`);
@@ -183,13 +183,13 @@ const status = (m) => m.read(NITROS9_STATUS.addr);
     // puts it in, and the drives card does not say one will
     f.roms.put('rsdos', 'rom', new Uint8Array(0x2000).fill(0x39), 'disk11.rom');
     const head = driveHeader(f);
-    check('floppy: a disk ROM stored meanwhile is not waiting for a reset, and the drives card says no disk ROM', !f.diskRomWaiting
+    check('floppy: a disk ROM stored meanwhile is not waiting for a reset, and the drives card says no disk ROM', !f.drives.romWaiting
       && head.dos === 'no disk ROM' && head.hint === 'disks work for programs that read them directly', JSON.stringify(head));
     fm.write(NITROS9_STATUS.addr, 0xEE); fm.write(0x0102, 0);
     f.reset();
     await frames(f, 600);
     check('floppy: reset boots it again', status(fm) === NITROS9_STATUS.jumped && fm.read(0x0102) === 0x5A);
-    check('floppy: and leaves the controller without a ROM (NitrOS-9 drives it)', fm.cartPort instanceof Emu.DiskController && fm.cartPort.romBytes === null && !f.diskRomWaiting);
+    check('floppy: and leaves the controller without a ROM (NitrOS-9 drives it)', fm.cartPort instanceof Emu.DiskController && fm.cartPort.romBytes === null && !f.drives.romWaiting);
     check('floppy: the link boots NitrOS-9 (nitros9=1), and picks the floppy in drive 0', /nitros9=1/.test(f.shareUrl('https://cloadm.dev/play/')) && (await f.pickNitros9Image('6809')).name === 'floppy9.dsk');
     f.leaveNitros9();
     check('floppy: Back to BASIC takes the ROM-less controller out (the disk stays in the library)', !f.nitros9Running && !f.shownMachine.cartPort && (await f.media.list('disks/')).length === 1);
@@ -208,8 +208,8 @@ const status = (m) => m.read(NITROS9_STATUS.addr);
     q.switchMachine('coco3', { cpu: '6809', ram: 128, becker: false }, { menu: false });
     const disk = makeOs9Disk(Emu, { driver: 'rb1773', port: 'floppy', sides: 2, sectors: 1440 });
     const calls = [];
-    const realChange = q.diskStoreChange.bind(q);
-    q.diskStoreChange = (op, name) => { calls.push({ name, queuedBefore: q.diskQueued }); return realChange(op, name); };
+    const realChange = q.drives.storeChange.bind(q.drives);
+    q.drives.storeChange = (op, name) => { calls.push({ name, queuedBefore: q.drives.queued }); return realChange(op, name); };
     const said = await q.addAndBootNitros9('queued9.dsk', disk);
     check('floppy image: the write is queued through diskStoreChange under disks/<name> (not a direct media write)',
       calls.length === 1 && calls[0].name === 'disks/queued9.dsk', `${JSON.stringify(calls)} | ${said}`);
@@ -239,7 +239,7 @@ const status = (m) => m.read(NITROS9_STATUS.addr);
     // This one can only fail if the stub stops matching, and it exists so that such a change fails in 5 s instead
     // of hanging on `booting` forever.
     let settledWhileHeld = 'resolved';
-    await Promise.race([q2.diskWritesSettled().then(() => {}, () => {}), new Promise((r) => setTimeout(() => { settledWhileHeld = 'waiting'; r(); }, 50))]);
+    await Promise.race([q2.drives.writesSettled().then(() => {}, () => {}), new Promise((r) => setTimeout(() => { settledWhileHeld = 'waiting'; r(); }, 50))]);
     check('floppy image: the disk queue does not settle while that write is held (it is in the chain, not alongside it)',
       held && settledWhileHeld === 'waiting', `${held ? '' : 'write not held; '}${settledWhileHeld}`);
     if (release) release();

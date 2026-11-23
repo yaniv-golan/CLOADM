@@ -60,7 +60,7 @@ const same = (a, b) => !!a && !!b && a.length === b.length && a.every((v, i) => 
     const why = 'permission was refused';
     const media = new FailingStore(); media.failOn = 'disks/work.vdk'; media.err = PATH_FIRST('disks/work.vdk', why);
     const s = await session(media);
-    const r = await q(s.importDisk('work.vdk', A(), 0));
+    const r = await q(s.drives.importImage('work.vdk', A(), 0));
     // the caller's name, then the store's reason -- the path the store led with is the same name and is dropped
     check('a reason that leads with the name is not repeated in front of it',
       !r.ok && r.m === `work.vdk: ${why}`, r.m);
@@ -69,7 +69,7 @@ const same = (a, b) => !!a && !!b && a.length === b.length && a.every((v, i) => 
     const why = 'The browser said no';
     const media = new FailingStore(); media.failOn = 'disks/work.vdk'; media.err = PATH_INSIDE('disks/work.vdk', why);
     const s = await session(media);
-    const r = await q(s.importDisk('work.vdk', A(), 0));
+    const r = await q(s.drives.importImage('work.vdk', A(), 0));
     // the reason does not lead with the name, so the name goes in front with the reason intact: the path in the
     // reason is how CLOADM stores the file, which is not the name the person asked for
     check('a reason that mentions the stored path elsewhere keeps it, behind the person\'s name',
@@ -79,7 +79,7 @@ const same = (a, b) => !!a && !!b && a.length === b.length && a.every((v, i) => 
     // a store failure that names nothing: the name must still be there (the branch's original job)
     const media = new FailingStore(); media.failOn = 'disks/work.vdk'; media.err = new MediaStoreError('io', 'the write failed');
     const s = await session(media);
-    const r = await q(s.importDisk('work.vdk', A(), 0));
+    const r = await q(s.drives.importImage('work.vdk', A(), 0));
     check('a refusal that names nothing is reported with the name and the reason', !r.ok && r.m === 'work.vdk: the write failed', r.m);
   }
   {
@@ -90,9 +90,9 @@ const same = (a, b) => !!a && !!b && a.length === b.length && a.every((v, i) => 
     const s1 = await mk(); s1.media.failOn = 'disks/work.vdk';
     const s2 = await mk(); s2.media.failOn = 'disks/work.vdk';
     const s3 = await mk(); s3.media.failOn = 'disks/blank.vdk'; s3.media.err = PATH_FIRST('disks/blank.vdk', why);
-    const m1 = (await q(s1.importDisk('work.vdk', A(), 0))).m;
+    const m1 = (await q(s1.drives.importImage('work.vdk', A(), 0))).m;
     const m2 = (await q(s2.library.importMedia('work.vdk', A()))).m;
-    const m3 = (await q(s3.newDisk(0, { format: 'vdk', tracks: 40, heads: 1 }, { name: 'blank.vdk' }))).m;
+    const m3 = (await q(s3.drives.newDisk(0, { format: 'vdk', tracks: 40, heads: 1 }, { name: 'blank.vdk' }))).m;
     check('importDisk, importMedia and newDisk all report the same refused write the same way',
       m1 === `work.vdk: ${why}` && m2 === m1 && m3 === `blank.vdk: ${why}`, `${m1} | ${m2} | ${m3}`);
     // the same import given as a PATH (a browser may hand over a relative path, and Windows separators too): the
@@ -118,7 +118,7 @@ const same = (a, b) => !!a && !!b && a.length === b.length && a.every((v, i) => 
     const realRange = media.readRange.bind(media);
     media.readRange = async (name, ...a) => { if (name === 'disks/work.vdk') throw PATH_FIRST(name, why); return realRange(name, ...a); };
     await media.writeSync('disks/work.vdk', A());
-    const r = await q(s.mountDisk(0, 'work.vdk'));
+    const r = await q(s.drives.mount(0, 'work.vdk'));
     check('a refused read is reported under the store\'s reason once (it led with the same name)',
       !r.ok && r.m === `work.vdk: ${why}`, r.m);
     // a rename that fails at its DESTINATION: the destination's path is where it failed, and it is kept
@@ -179,7 +179,7 @@ const same = (a, b) => !!a && !!b && a.length === b.length && a.every((v, i) => 
     const media = new MemoryMediaStore({ caseInsensitive: true });   // a folder on APFS/NTFS: 'disks/' is its own name
     const s = await session(media);
     for (const given of ['disks/', 'disks\\', 'disks//']) {
-      const r = await q(s.importDisk(given, A(), 0));
+      const r = await q(s.drives.importImage(given, A(), 0));
       check(`importDisk ${JSON.stringify(given)}: refused as a name with nothing after the prefix`,
         !r.ok && r.m === 'A disk image needs a name.', r.m);
     }
@@ -193,22 +193,22 @@ const same = (a, b) => !!a && !!b && a.length === b.length && a.every((v, i) => 
       !imf.ok && imf.m === 'A file needs a name.', imf.m);
     check('... and nothing was stored under a prefix-only name',
       !(await media.list()).some((e) => e.name.endsWith('/')), JSON.stringify((await media.list()).map((e) => e.name)));
-    const nd = await q(s.newDisk(0, { format: 'vdk', tracks: 40, heads: 1 }, { name: 'disks/' }));
+    const nd = await q(s.drives.newDisk(0, { format: 'vdk', tracks: 40, heads: 1 }, { name: 'disks/' }));
     check('newDisk {name: "disks/"}: refused the same way', !nd.ok && nd.m === 'A disk image needs a name.', nd.m);
-    const mt = await q(s.mountDisk(0, 'disks/'));
+    const mt = await q(s.drives.mount(0, 'disks/'));
     check('mountDisk "disks/": refused the same way', !mt.ok && mt.m === 'A disk image needs a name.', mt.m);
     check('nothing was written: the store holds no bare prefix', (await media.list()).length === 0, JSON.stringify((await media.list()).map((e) => e.name)));
     // the names that DO have a base are unaffected, at every door
     const s2 = await session(new MemoryMediaStore());
-    const okImport = await q(s2.importDisk('a.vdk', A(), 0));
-    const okNew = await q(s2.newDisk(1, { format: 'vdk', tracks: 40, heads: 1 }, { name: 'b.vdk' }));
-    const okMount = await q(s2.mountDisk(1, 'b.vdk'));
+    const okImport = await q(s2.drives.importImage('a.vdk', A(), 0));
+    const okNew = await q(s2.drives.newDisk(1, { format: 'vdk', tracks: 40, heads: 1 }, { name: 'b.vdk' }));
+    const okMount = await q(s2.drives.mount(1, 'b.vdk'));
     check('a name with a base still works at all three doors',
       okImport.ok && okNew.ok && okMount.ok && okImport.m === 'a.vdk in drive 0' && okNew.m === 'New blank disk: b.vdk in drive 1' && okMount.m === 'b.vdk in drive 1',
       `${okImport.m} | ${okNew.m} | ${okMount.m}`);
     // and no name asked is still a name chosen (the empty label is not the empty name)
     const s3 = await session(new MemoryMediaStore());
-    const auto = await q(s3.newDisk(0, { format: 'vdk', tracks: 40, heads: 1 }));
+    const auto = await q(s3.drives.newDisk(0, { format: 'vdk', tracks: 40, heads: 1 }));
     check('no name asked: still chooses one', auto.ok && /^New blank disk: disk-\d+\.vdk in drive 0$/.test(auto.m), auto.m);
   }
   // Every base that is not a file name is refused at every door: a trailing separator, whitespace only, and the
@@ -218,12 +218,12 @@ const same = (a, b) => !!a && !!b && a.length === b.length && a.every((v, i) => 
     const media = new MemoryMediaStore();
     const s = await session(media);
     for (const given of ['disks/a/', 'disks/a//', 'disks/a\\', ' ', 'disks/ ', 'disks/.', 'disks/..', 'x/..', 'disks/./']) {
-      const r = await q(s.importDisk(given, B(), 0));
+      const r = await q(s.drives.importImage(given, B(), 0));
       check(`importDisk ${JSON.stringify(given)}: refused as a name`, !r.ok && r.m === 'A disk image needs a name.', r.m || 'accepted');
     }
-    const nd = await q(s.newDisk(0, { format: 'vdk', tracks: 40, heads: 1 }, { name: 'disks/ ' }));
+    const nd = await q(s.drives.newDisk(0, { format: 'vdk', tracks: 40, heads: 1 }, { name: 'disks/ ' }));
     check('newDisk "disks/ ": refused as a name', !nd.ok && nd.m === 'A disk image needs a name.', nd.m || 'accepted');
-    const mt = await q(s.mountDisk(0, 'disks/..'));
+    const mt = await q(s.drives.mount(0, 'disks/..'));
     check('mountDisk "disks/..": refused as a name', !mt.ok && mt.m === 'A disk image needs a name.', mt.m || 'accepted');
     const im = await q(s.library.importMedia('x/..', B()));
     check('importMedia "x/..": refused as a name', !im.ok && im.m === 'A disk image needs a name.', im.m || 'accepted');
@@ -236,18 +236,18 @@ const same = (a, b) => !!a && !!b && a.length === b.length && a.every((v, i) => 
       await m2.writeSync('disks/ a.vdk', A());
       await m2.writeSync('disks/b.vdk ', B());
       const s2 = await session(m2);
-      const mnt = await q(s2.mountDisk(0, ' a.vdk'));
-      const mnt2 = await q(s2.mountDisk(1, 'disks/b.vdk '));
+      const mnt = await q(s2.drives.mount(0, ' a.vdk'));
+      const mnt2 = await q(s2.drives.mount(1, 'disks/b.vdk '));
       check('a disk stored as " a.vdk" still mounts (names with surrounding spaces are names)',
         mnt.ok && same(await read(m2, 'disks/ a.vdk'), A()), mnt.m || 'refused');
       check('... and one stored as "b.vdk " mounts too', mnt2.ok && same(await read(m2, 'disks/b.vdk '), B()), mnt2.m || 'refused');
-      const im = await q(s2.importDisk('c.vdk ', B(), 1));
+      const im = await q(s2.drives.importImage('c.vdk ', B(), 1));
       check('... and a disk may be imported under a name with a trailing space', im.ok && im.m === 'c.vdk  in drive 1', im.m || 'refused');
       const pm = await q(s2.library.importMedia(' prog.bin', new Uint8Array(4)));
       check('... and a library file under a name with a leading space', pm.ok, pm.m || 'refused');
     }
     // a leading dot is a file name, not a segment: it stays allowed
-    const okDot = await q(s.importDisk('disks/.vdk', B(), 0));
+    const okDot = await q(s.drives.importImage('disks/.vdk', B(), 0));
     check('... but a file whose name starts with a dot is a name', okDot.ok && okDot.m === '.vdk in drive 0', okDot.m || 'refused');
   }
 
@@ -285,15 +285,15 @@ const same = (a, b) => !!a && !!b && a.length === b.length && a.every((v, i) => 
     await media.writeSync('disks/ ', A());
     await media.writeSync('disks/sub/x.vdk', B());
     const s = await session(media);
-    const a = await q(s.mountDisk(0, 'disks/ '));
-    const b = await q(s.mountDisk(1, 'disks/sub/x.vdk'));
+    const a = await q(s.drives.mount(0, 'disks/ '));
+    const b = await q(s.drives.mount(1, 'disks/sub/x.vdk'));
     check('a stored blank name ("disks/ ") still mounts (it is not a name being made)', a.ok && a.m === '  in drive 0', a.m || 'refused');
     check('a stored nested name ("disks/sub/x.vdk") still mounts, as it did on main', b.ok && b.m === 'sub/x.vdk in drive 1', b.m || 'refused');
     // (a bare name is the file's own name, as on main: 'x.vdk' names disks/x.vdk, not disks/sub/x.vdk)
-    const c = await q(s.mountDisk(1, 'x.vdk'));
+    const c = await q(s.drives.mount(1, 'x.vdk'));
     check('... a bare name is the leaf, as on main (so x.vdk is not the nested file)', !c.ok && /no longer stored/.test(c.m), c.m || 'mounted something');
     // but MAKING such a name is still refused, at every door
-    const mk2 = await q(s.importDisk('disks/sub/y.vdk', A(), 0));
+    const mk2 = await q(s.drives.importImage('disks/sub/y.vdk', A(), 0));
     check('... while MAKING a nested name is still refused', !mk2.ok, mk2.m || 'accepted');
   }
 

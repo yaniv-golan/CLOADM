@@ -7,8 +7,8 @@
 // The Session builds one with itself as its `session` (as session.disk and session.serial are): the store handle
 // (session.media), the media index (session.index) and the ROM library stay the Session's, since they are services
 // it hands to others; this re-points them when the library moves (useMediaStore). The floppy drives are the
-// Session's too: the library asks it which disk a drive holds (diskHolder, checkNotInDrive) and has it queue a
-// disk image's change behind the drives' writes (diskStoreChange). Nothing here is saved in a snapshot or a
+// Session's too: the library asks it which disk a drive holds (drives.holder, checkNotInDrive) and has it queue a
+// disk image's change behind the drives' writes (drives.storeChange). Nothing here is saved in a snapshot or a
 // settings export.
 import { SessionError } from './errors.js';
 import { detectCaseSync, measureOnce } from './host/media-store.js';
@@ -110,7 +110,7 @@ export class MediaLibrary {
       // that stopped answering (a disks/ rename or import runs in the disks' chain too), and neither may hang the
       // move for good. One deadline for both: the whole wait is bounded by mediaMoveWaitMs, not twice it
       const deadline = Date.now() + this.mediaMoveWaitMs;
-      await this.boundedWait(this.session.diskWritesSettled(), 'The drives are still writing to the library', deadline);
+      await this.boundedWait(this.session.drives.writesSettled(), 'The drives are still writing to the library', deadline);
       await this.libraryWritesSettled(waiting, deadline);
       // ...and checked again now that they have: an operation the move waited for can have left a drive mounted
       // on the old store (the guest's DriveWire create hands out its drive inside its Library operation). Copying
@@ -123,7 +123,7 @@ export class MediaLibrary {
   // a move is refused while a drive reads and writes a stored image where the library is kept now: a disk in a
   // floppy drive, or a DriveWire drive (the user's mount, or the guest's named object)
   checkNoStoredMounts() {
-    const busy = this.session.diskMachines().flatMap(({ machine, where }) => this.session.storedDisks(machine).map((d) => `drive ${d.drive}${where}: ${d.name.split('/').pop()}`))
+    const busy = this.session.drives.machines().flatMap(({ machine, where }) => this.session.drives.stored(machine).map((d) => `drive ${d.drive}${where}: ${d.name.split('/').pop()}`))
       .concat(this.session.driveWireMounts.map((d) => `DriveWire drive ${d.drive}: ${d.name}`));
     if (busy.length) throw new SessionError(`Eject the disks first (${busy.join(', ')}): they are read and written where the library is kept now.`);
   }
@@ -315,7 +315,7 @@ export class MediaLibrary {
   // js/host/media-store.js) GAME.DSK and game.dsk are one file, so they are one name to every guard below.
   // ci: the rule to compare by (default: the store's rule now); a caller that must compare twice by one rule passes it
   sameName(a, b, ci = this.caseInsensitive) { return ci ? String(a).toLowerCase() === String(b).toLowerCase() : a === b; }
-  // A new disk (newDisk) and an import (importDisk, importMedia) make a name that did not exist, and each checks
+  // A new disk (newDisk) and an import (drives.importImage, importMedia) make a name that did not exist, and each checks
   // the library before it writes. The check and the write are apart by awaits -- the listing of what is stored,
   // the wait for the drives' writes -- so two creations can both pass the check, and the later write replaces the
   // earlier one's bytes under the same name: a blank disk held at its read-back was replaced by an import of its
@@ -328,7 +328,7 @@ export class MediaLibrary {
   // serialised.
   // -> what op returns
   // The creation in flight runs op, then the next one runs. newDisk does not come back through here: it holds the
-  // turn already and calls the stored half (importDiskStored) directly, because re-entering would wait on its own
+  // turn already and calls the stored half (drives.importStored) directly, because re-entering would wait on its own
   // turn and never finish.
   //
   // Two creations of one name must not both pass their check: the later write replaces the earlier one's bytes
@@ -337,7 +337,7 @@ export class MediaLibrary {
   //   * a creation asked while a creation of that name was in flight is a second creation of it: if that one lands
   //     the name, this one refuses;
   //   * an import asked after the name is already in the library is a replace (a disk in a drive taking a newer
-  //     copy of itself), which is what importDisk has always done, and stays allowed.
+  //     copy of itself), which is what drives.importImage has always done, and stays allowed.
   // Names are compared with this.sameName -- the store's own rule (CASE in js/host/media-store.js) -- never with a
   // key computed once: the store's rule can be learned (refreshCase) between asking and landing, and a key made
   // under one rule then compared under another reopens the hole. The names in flight are kept as the raw strings
@@ -349,7 +349,7 @@ export class MediaLibrary {
   // hung store write already holds a mount or a library move: giving up on the wait would not stop the write, which
   // could then land, mount and claim the name alongside the creations let in after it. An honest wait keeps the
   // one-at-a-time guarantee; a store that never answers is the store backend's to fix.
-  // A disk creation's name, claimed while it is being made (newDisk, importDisk, importMedia): the name it will
+  // A disk creation's name, claimed while it is being made (newDisk, drives.importImage, importMedia): the name it will
   // write, marked BEFORE the creation's first await that can let another Library action in, and released when it
   // ends. A rename onto a claimed name is refused instead of racing the write. A newDisk with no name has none to
   // claim until its listing has picked one; that far a rename cannot be blocked, and a name the listing picked is
@@ -440,7 +440,7 @@ export class MediaLibrary {
   async renameMedia(from, to) {
     const src = this.libName(from), prefix = src.startsWith(DISK_PREFIX) ? DISK_PREFIX : LIBRARY_PREFIX;
     this.checkNotMoving();
-    this.session.checkNotInDrive(src, 'rename');
+    this.session.drives.checkNotInDrive(src, 'rename');
     const dst = this.libName(to.startsWith(DISK_PREFIX) || to.startsWith(LIBRARY_PREFIX) ? to : prefix + to);
     if (!dst.startsWith(prefix)) throw new SessionError(`${to}: a ${prefix === DISK_PREFIX ? 'disk image' : 'library item'} stays where it is`);
     // The destination is a name this operation MAKES, so a disk image's must be a file's own name, as every other
@@ -466,7 +466,7 @@ export class MediaLibrary {
     }
     const op = () => this.session.media.rename(src, dst);
     const run = async () => {
-      const r = await this.libraryOp(() => (src.startsWith(DISK_PREFIX) ? this.session.diskStoreChange(op, [src, dst]) : op()));
+      const r = await this.libraryOp(() => (src.startsWith(DISK_PREFIX) ? this.session.drives.storeChange(op, [src, dst]) : op()));
       // the rename took `dst`: land it, so a creation queued behind this one sees the name as taken (landedRace)
       // and refuses, rather than reading it as a deliberate replace and writing its own bytes over the renamed
       // image. And it vacated `src`: a creation queued behind must not read an earlier landing of that name as
@@ -481,10 +481,10 @@ export class MediaLibrary {
   async deleteMedia(name) {
     const full = this.libName(name);
     this.checkNotMoving();
-    this.session.checkNotInDrive(full, 'delete');
+    this.session.drives.checkNotInDrive(full, 'delete');
     const op = () => this.session.media.remove(full);
     try {
-      return await this.libraryOp(() => (full.startsWith(DISK_PREFIX) ? this.session.diskStoreChange(op, full) : op()));
+      return await this.libraryOp(() => (full.startsWith(DISK_PREFIX) ? this.session.drives.storeChange(op, full) : op()));
     } catch (e) { throw this.mediaError(e, name, full); }
   }
   // take a file the user picked into the library under `name`; ROM images go through identification, so
@@ -495,13 +495,13 @@ export class MediaLibrary {
     if (this.session.constructor.isRom(name, bytes)) return { roms: this.session.addRoms([{ name, bytes }]) };
     // the file's own name is the last segment; anything that is not a file name (a path ending in a separator, a
     // whitespace-only name, '.', '..') leaves nothing to name the file with. A disk image is refused as a disk
-    // (diskStoreName's rule, reached through this door too); anything else is refused as a file -- what it is is
+    // (drives.storeName's rule, reached through this door too); anything else is refused as a file -- what it is is
     // decided by its bytes, not by the missing name.
     const base = name.split(/[\\/]/).pop();
     const kind = detectMedia(base, bytes).kind;
     if (!base || !isDiskFileName(base)) throw new SessionError(kind === 'disk' ? 'A disk image needs a name.' : 'A file needs a name.');
     const target = kind === 'disk' ? DISK_PREFIX + base : this.libName(name);
-    this.session.checkNotInDrive(target, 'replace');   // synchronous, so it needs no creation's turn: a disk in a drive is not replaced
+    this.session.drives.checkNotInDrive(target, 'replace');   // synchronous, so it needs no creation's turn: a disk in a drive is not replaced
     // non-disk media (programs, ROMs) are made by writes that replace, so they take no creation's turn; a disk
     // image may replace one of its name, but not take a name a new disk (or another import) is making: it runs as
     // one creation, ordered behind that one, and checks again (createExclusive)
@@ -515,9 +515,9 @@ export class MediaLibrary {
       // than replacing it
       const raced = this.landedRace(target, askedAt);
       if (raced) throw new SessionError(`There is already a disk named ${raced.slice(DISK_PREFIX.length)} in your library: choose another name.`);
-      this.session.checkNotInDrive(target, 'replace');   // again, now no creation of the name is in flight
-      const r = await (disk ? this.session.diskStoreChange(() => this.session.media.write(target, bytes), target) : this.session.media.write(target, bytes));
-      // stored: landed however the rest ends, and only at the end (as importDiskStored)
+      this.session.drives.checkNotInDrive(target, 'replace');   // again, now no creation of the name is in flight
+      const r = await (disk ? this.session.drives.storeChange(() => this.session.media.write(target, bytes), target) : this.session.media.write(target, bytes));
+      // stored: landed however the rest ends, and only at the end (as drives.importStored)
       // the store has a name now: on an empty store that is the first chance to put its case rule to the test (a
       // read of the store it was written to, so inside the same Library operation)
       try { await this.refreshCase(); } finally { if (disk) this.creationLanded(target); }

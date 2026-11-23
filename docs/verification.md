@@ -899,7 +899,7 @@ browser check's group `uiModel` drives them with real events at 1280x720 and at 
 * R25: the switch confirmation's text for a tape and a cartridge (both in the Library), a tape and a disk, a RAM
   change (and Cancel putting the select back), a snapshot's own disk with **Save to Library** (stored and linked),
   DriveWire (not listed, still mounted after the switch); the toasts after the switch. `tests/switch-losses.test.js`
-  checks `Session.takenOut` and `Session.keepSnapshotDisk` in Node, the Speech/Sound Pak case included.
+  checks `Session.takenOut` and `DiskDrives.keepSnapshot` in Node, the Speech/Sound Pak case included.
 * R26: the disk ROM card's title per machine (none on the Alpha and the MC-10), its `data-disk` mark with the socket
   counts unchanged, and a drive's **Add disk ROM…** landing on it (in view, focused, on top at its centre).
 * R28, R28b: Ctrl K "roms" Enter (Your ROMs, focus on its heading, nothing scrolled), the palette's top result for
@@ -916,7 +916,7 @@ Not verified automatically: how the fixed top slot reads to a person on a real p
 
 ### A disk without a disk ROM
 
-With no disk ROM a mount plugs the disk controller in with nothing in its ROM socket (`Session.plugBareDiskController`),
+With no disk ROM a mount plugs the disk controller in with nothing in its ROM socket (`DiskDrives.plugBareController`),
 without a reset, and the disk goes in. The program used is ours: `tools/mame-diff/fdc/gen-bare.js` writes one read
 routine (restore, then read track 0 sector 1 of drive 0, every byte taken on DRQ by polling; on the CoCo with NMI on
 INTRQ) in two builds: a ROM build for the MAME comparison below and a RAM build that runs on the built-in firmware.

@@ -188,6 +188,17 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   them, with a `note`, as the VDG's semigraphics blocks are counted. `docs/mcp.md`, `docs/claude.md`, the skill and a
   new eval (`coco3-hidden-screen`) say so; `tests/screen-text-readers.test.js` checks both readers on firmware of our
   own against the rendered frame.
+- **The floppy drives have their own module.** The disk controller and disk cartridge, new blank disks, mounting,
+  ejecting and write-protecting, the writes back to the media store, the drives' status and the links a restore point
+  keeps move from the Session into `session.drives` (`js/drives.js`, `Emu.DiskDrives`), with shorter names:
+  `importDisk` is now `drives.importImage`, `mountDisk` `drives.mount`, `ejectDisk` `drives.eject`, `setDiskWriteProtect`
+  `drives.setWriteProtect`, `diskStatus` `drives.status`, `diskActivity` `drives.activity`, `listDisks` `drives.list`,
+  `downloadDisk` `drives.download`, `diskWritesDone` `drives.writesDone`, `flushDisks` `drives.flush`, `insertDiskDos`
+  `drives.insertDos`, `diskDosChoices` `drives.dosChoices`, `blankDiskChoices` `drives.blankChoices`,
+  `keepSnapshotDisk` `drives.keepSnapshot`, `diskController` `drives.controller`, `driveCount` `drives.count`;
+  `newDisk`, `checkDrive` and `checkNotInDrive` keep theirs. `BARE_NOTE` is exported from the new module. No
+  behaviour change; the disks a machine writes, a restore point's relinking, the status, the settings export and
+  snapshots are byte-identical to before (`tests/session-drives.test.js`, with fixtures).
 - **The media library has its own module.** Listing, opening, downloading, renaming, deleting and importing what
   the person keeps, the recent list, the creations of disk names (one at a time, with the names they claim), the
   store's rule for upper and lower case, and moving the library to another store move from the Session into

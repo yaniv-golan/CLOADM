@@ -37,6 +37,7 @@ names contain one of the parts, and `node tools/browser-check.js --only <group>[
 | Debugger | `debugger,debug-session,halt,probes,writewatch` | `debugger,debuggerScreen` |
 | Keyboard and input | `input,keyqueue,keyboard-symbols,touch-joystick,press-break` | `input,inputScreen,touchJoystick,keyboardSymbols,typing` |
 | `js/session.js`, snapshots | `session,snapshot,state,restore-points,writewatch` | `snapshot,state` |
+| `js/drives.js` (the floppy drives) | `session-drives,disks,disks-newdisk,disk-bare,disks-mount-case,disks-mount-race,restore-points` | `disk,driveWire` |
 | `js/library.js` (the media library) | `session-library,storage-move,move-inflight,library-case,recent,store-error-names` | `library` |
 | The Claude chat and Ask Claude | `claude,chat-firmware` | `claude,ask,commands,chatScreen` |
 | `cli/` (the command line and the MCP server) | `cli,mcp,game-guide,starter-game` | none |
@@ -184,6 +185,7 @@ node tests/embed.test.js     # the embed API through its message protocol: calls
 node tests/pwa.test.js       # the service worker keeps every file the site serves (and build-examples.js keeps the list current); the manifest and its icons
 node tests/install.test.js   # the install offer's rules: stored answers, Not now twice, a dismissed prompt, who is offered, the 60 s clock, each browser's steps
 node tests/settings.test.js  # settings export and import round trip; ROMs and programs never in it, ignored if added
+node tests/session-drives.test.js  # session.drives (js/drives.js): what it moved from the Session is byte-identical to before (fixtures: mounts, a restore point, writes, a snapshot), none of the old names is left, and the Session's mount key
 node tests/session-library.test.js  # session.library (js/library.js): what it moved from the Session is byte-identical to before (fixtures), none of the old names is left, and its wiring (DriveWire, a store change, a move)
 node tests/storage-move.test.js  # moving the library to another store: what is copied, kept, merged (ROM sockets and names), refused; reconnecting a folder copies only this visit's files
 node tests/media-store.test.js  # storage layer: the MediaStore contract, random access, quota, localStorage migration

@@ -1,4 +1,4 @@
-// A disk without a disk ROM: the disk controller goes in alone (Session.mountDisk), on the Dragon 64 (the Dragon
+// A disk without a disk ROM: the disk controller goes in alone (DiskDrives.mount), on the Dragon 64 (the Dragon
 // controller, a VDK) and the CoCo (the CoCo controller, a JVC .dsk). No ROM at all: the machine runs the built-in
 // firmware, and the program is tools/mame-diff/fdc/gen-bare.js's RAM build, which drives the controller through its
 // registers (restore, read track 0 sector 1 by polling DRQ) as a game reading its own level disk does. The same read
@@ -49,7 +49,7 @@ const CASES = [
     const s = new Emu.Session({ media: new MemoryMediaStore() });
     s.switchMachine(c.id, undefined, { menu: false });
     const m = s.shownMachine;
-    check(`${c.id}: no ROMs, no disk ROM stored, no controller`, m.useStub && !s.diskDosChoices().some((x) => x.ready) && s.diskController === null && s.diskStatus().dos === null);
+    check(`${c.id}: no ROMs, no disk ROM stored, no controller`, m.useStub && !s.drives.dosChoices().some((x) => x.ready) && s.drives.controller === null && s.drives.status().dos === null);
     // the game first
     s.load('reader.bin', program(c.board));
     frames(s, 20);
@@ -59,17 +59,17 @@ const CASES = [
     // then the disk, with no disk ROM
     let events = 0;
     s.on((e) => { if (e === 'disks') events++; });
-    const msg = await s.importDisk(c.file, c.image(), 0).catch((e) => `refused: ${e.message}`);
+    const msg = await s.drives.importImage(c.file, c.image(), 0).catch((e) => `refused: ${e.message}`);
     check(`${c.id}: the mount's message is the toast's, word for word`, msg === `${c.file} is in drive 0, ${NOTE}`, msg);
     check(`${c.id}: Session.BARE_NOTE is that note`, Emu.BARE_NOTE === NOTE);
-    const fdc = s.diskController;
-    check(`${c.id}: the ${c.controller} is in the cartridge port with no ROM`, !!fdc && m.cartPort === fdc && fdc.type === c.controller && fdc.romBytes === null && fdc.rom() === null && s.bareDiskController === fdc);
-    check(`${c.id}: diskStatus says bare, with the board's own name`, s.diskStatus().dos.bare === true && s.diskStatus().dos.name === c.plain && s.diskStatus().drives[0].file === c.file, JSON.stringify(s.diskStatus().dos));
+    const fdc = s.drives.controller;
+    check(`${c.id}: the ${c.controller} is in the cartridge port with no ROM`, !!fdc && m.cartPort === fdc && fdc.type === c.controller && fdc.romBytes === null && fdc.rom() === null && s.drives.bareController === fdc);
+    check(`${c.id}: diskStatus says bare, with the board's own name`, s.drives.status().dos.bare === true && s.drives.status().dos.name === c.plain && s.drives.status().drives[0].file === c.file, JSON.stringify(s.drives.status().dos));
     check(`${c.id}: the cartridge space reads 00`, [0xC000, 0xD000, 0xFEFF].every((a) => s.readByte(a) === 0x00));
     check(`${c.id}: the board ties no CART line to Q and raises none`, !fdc.cartLineFollowsQ && fdc.lines.value('cart') !== 'q' && !fdc.lines.level('cart') && !m.interrupts.asserted('firq'),
       `${fdc.lines.value('cart')} ${fdc.lines.level('cart')}`);
     check(`${c.id}: a 'disks' event for the board and the mount`, events >= 1);
-    check(`${c.id}: no disk ROM is waiting for a reset`, !s.diskRomWaiting);
+    check(`${c.id}: no disk ROM is waiting for a reset`, !s.drives.romWaiting);
     // the game was not reset: it runs on, and its next read succeeds
     frames(s, 5);
     check(`${c.id}: the program keeps running through the mount (no reset: frames and its count go on, its code intact)`,
@@ -106,12 +106,12 @@ const CASES = [
     const dosRom = new Uint8Array(0x2000).fill(0x39);
     s.roms.put(c.dos, 'rom', dosRom, c.rom);
     s.emit('roms');
-    check(`${c.id}: a disk ROM added is waiting for the next reset or power cycle`, s.diskRomWaiting && s.diskController === fdc && fdc.romBytes === null && s.readByte(0xC000) === 0x00);
+    check(`${c.id}: a disk ROM added is waiting for the next reset or power cycle`, s.drives.romWaiting && s.drives.controller === fdc && fdc.romBytes === null && s.readByte(0xC000) === 0x00);
     s.powerCycle({ menu: false });
     check(`${c.id}: the power cycle puts it in the board's socket: the same board, the disk still in drive 0`,
-      s.diskController === fdc && !!fdc.romBytes && s.readByte(0xC000) === 0x39 && fdc.drives[0].loaded && s.diskStatus().drives[0].file === c.file);
-    check(`${c.id}: and the drives card now names the disk ROM`, s.diskStatus().dos.bare === false && s.diskStatus().dos.id === c.dos && !s.diskRomWaiting && s.bareDiskController === null);
-    const msg2 = await s.mountDisk(1, c.file === 'level.vdk' ? 'level.vdk' : 'level.dsk').catch((e) => e.message);
+      s.drives.controller === fdc && !!fdc.romBytes && s.readByte(0xC000) === 0x39 && fdc.drives[0].loaded && s.drives.status().drives[0].file === c.file);
+    check(`${c.id}: and the drives card now names the disk ROM`, s.drives.status().dos.bare === false && s.drives.status().dos.id === c.dos && !s.drives.romWaiting && s.drives.bareController === null);
+    const msg2 = await s.drives.mount(1, c.file === 'level.vdk' ? 'level.vdk' : 'level.dsk').catch((e) => e.message);
     check(`${c.id}: a mount with the disk ROM in says no more than where the disk is`, /already in drive 0/.test(msg2), msg2);
   }
 
@@ -119,14 +119,14 @@ const CASES = [
   {
     const s = new Emu.Session({ media: new MemoryMediaStore() });
     s.switchMachine('dragon64', undefined, { menu: false });
-    await s.importDisk('level.vdk', images.vdk(40, 1), 0);
-    const bare = s.diskController;
+    await s.drives.importImage('level.vdk', images.vdk(40, 1), 0);
+    const bare = s.drives.controller;
     s.roms.put('deltados', 'rom', new Uint8Array(0x2000).fill(0x12), 'deltados.rom');
-    check('Delta DOS added: waiting for the next reset', s.diskRomWaiting && s.diskController === bare);
+    check('Delta DOS added: waiting for the next reset', s.drives.romWaiting && s.drives.controller === bare);
     s.reset();
-    const fdc = s.diskController;
+    const fdc = s.drives.controller;
     check('a reset puts the Premier board in its place, with the disk moved across', fdc !== bare && fdc.type === 'premierfdc' && !!fdc.romBytes && fdc.drives[0].loaded
-      && s.diskStatus().drives[0].file === 'level.vdk' && s.diskStatus().dos.id === 'deltados' && s.readByte(0xC000) === 0x12);
+      && s.drives.status().drives[0].file === 'level.vdk' && s.drives.status().dos.id === 'deltados' && s.readByte(0xC000) === 0x12);
   }
 
   // ---- the board comes out with the program running on; no drives on the MC-10; a Multi-Pak still needs a controller
@@ -135,27 +135,27 @@ const CASES = [
     s.switchMachine('dragon64', undefined, { menu: false });
     s.load('reader.bin', program('dragon'));
     frames(s, 5);
-    await s.importDisk('level.vdk', images.vdk(40, 1), 0);
+    await s.drives.importImage('level.vdk', images.vdk(40, 1), 0);
     const f0 = s.shownMachine.frameCount, t0 = word(s.shownMachine, ADDR.TICK);
     const said = s.takeOutCartridge();
     frames(s, 5);
     check('takeOutCartridge: the board with no ROM comes out and the program runs on', said === 'Dragon disk controller taken out' && s.shownMachine.cartPort === null
-      && s.diskStatus().drives.length === 0 && s.shownMachine.frameCount === f0 + 5 && word(s.shownMachine, ADDR.TICK) > t0, said);
-    check('the disk stays in the Library', (await s.listDisks()).some((d) => d.name === 'disks/level.vdk'));
+      && s.drives.status().drives.length === 0 && s.shownMachine.frameCount === f0 + 5 && word(s.shownMachine, ADDR.TICK) > t0, said);
+    check('the disk stays in the Library', (await s.drives.list()).some((d) => d.name === 'disks/level.vdk'));
     let err = null;
     try { s.takeOutCartridge(); } catch (e) { err = e.message; }
     check('an empty port says so', err === 'The cartridge port is empty.', err);
     s.switchMachine('mc10', undefined, { menu: false });
     err = null;
-    try { await s.importDisk('x.vdk', images.vdk(40, 1), 0); } catch (e) { err = e.message; }
+    try { await s.drives.importImage('x.vdk', images.vdk(40, 1), 0); } catch (e) { err = e.message; }
     check('the MC-10 has no disk drives', /no disk drives/.test(err || ''), err);
     s.switchMachine('coco', undefined, { menu: false });
     s.shownMachine.insertCartridge(new Emu.devices.multi([null, null, null, null]));
     err = null;
-    try { await s.importDisk('y.dsk', images.jvc(35, 1), 0); } catch (e) { err = e.message; }
+    try { await s.drives.importImage('y.dsk', images.jvc(35, 1), 0); } catch (e) { err = e.message; }
     check('a Multi-Pak with no controller in a slot still refuses', /Multi-Pak has no disk controller/.test(err || ''), err);
     s.switchMachine('dgnalpha', undefined, { menu: false });
-    check('the Dragon Alpha keeps its built-in interface', s.diskStatus().dos.id === 'builtin' && !s.diskStatus().dos.bare);
+    check('the Dragon Alpha keeps its built-in interface', s.drives.status().dos.id === 'builtin' && !s.drives.status().dos.bare);
   }
 
   // ---- a disk inserted while a cartridge game runs from the port: the board replaces it, and the machine powers up
@@ -165,8 +165,8 @@ const CASES = [
     s.shownMachine.insertCartridge(new Emu.devices.rom(new Uint8Array(0x2000).fill(0x12)));
     let fw = 0;
     s.on((e) => { if (e === 'firmware') fw++; });
-    await s.importDisk('z.dsk', images.jvc(35, 1), 0);
-    check('a cartridge in the port comes out for the board, and the machine is powered up', s.bareDiskController === s.shownMachine.cartPort && fw === 1);
+    await s.drives.importImage('z.dsk', images.jvc(35, 1), 0);
+    check('a cartridge in the port comes out for the board, and the machine is powered up', s.drives.bareController === s.shownMachine.cartPort && fw === 1);
   }
 
   // ---- the link: disk= mounts before load= (whatever order the link gives them); unknown parameters as before

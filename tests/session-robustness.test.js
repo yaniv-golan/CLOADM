@@ -145,10 +145,10 @@ const newSession = (id = 'dragon64') => { const s = new Emu.Session({ store: Emu
   chatOn(s);
   const chatM = s.chatMachines.chat, before = chatM.ram.slice();
   // a real VDK image; the Dragon Alpha has its disk interface built in, so the mount can go either machine's way
-  await s.importDisk('real.vdk', Emu.blankDisk('vdk', 40, 1), 0);
-  check('1 a disk dropped on the chat screen is mounted in the person\'s drives', s.diskStatus().drives.length === 1
-    && s.diskControllerOf(s.chatMachines.basic).drives[0].loaded && !s.diskControllerOf(chatM).drives[0].loaded,
-    JSON.stringify(s.diskStatus().drives));
+  await s.drives.importImage('real.vdk', Emu.blankDisk('vdk', 40, 1), 0);
+  check('1 a disk dropped on the chat screen is mounted in the person\'s drives', s.drives.status().drives.length === 1
+    && s.drives.controllerOf(s.chatMachines.basic).drives[0].loaded && !s.drives.controllerOf(chatM).drives[0].loaded,
+    JSON.stringify(s.drives.status().drives));
   check('1 ...and the chat firmware is untouched by it', before.every((v, i) => v === chatM.ram[i]));
   // a garbage file is still refused as a disk, before any machine
   const why = (() => { try { s.load('disk.vdk', new Uint8Array(0x1000)); return 'loaded'; } catch (e) { return e.message; } })();
@@ -163,17 +163,17 @@ const newSession = (id = 'dragon64') => { const s = new Emu.Session({ store: Emu
   s.switchMachine('dgnalpha'); frames(s, 5);
   chatOn(s);
   const chatM = s.chatMachines.chat;
-  check('1 (Alpha) the chat machine has a disk controller of its own', !!s.diskControllerOf(chatM));
-  check('1 (Alpha) diskStatus is the person\'s: the BASIC session\'s drives', s.diskMachine === s.chatMachines.basic && s.diskStatus().drives.length === 0);
+  check('1 (Alpha) the chat machine has a disk controller of its own', !!s.drives.controllerOf(chatM));
+  check('1 (Alpha) diskStatus is the person\'s: the BASIC session\'s drives', s.drives.targetMachine === s.chatMachines.basic && s.drives.status().drives.length === 0);
   const vdk = Emu.blankDisk('vdk', 40, 1);
-  const msg = await s.importDisk('game.vdk', vdk, 0);
+  const msg = await s.drives.importImage('game.vdk', vdk, 0);
   check('1 (Alpha) a disk dropped on the chat screen mounts in the BASIC session', /in drive 0/.test(msg), msg);
-  const basicDrives = s.diskControllerOf(s.chatMachines.basic).drives.filter((d) => d.loaded);
-  const chatDrives = s.diskControllerOf(chatM).drives.filter((d) => d.loaded);
+  const basicDrives = s.drives.controllerOf(s.chatMachines.basic).drives.filter((d) => d.loaded);
+  const chatDrives = s.drives.controllerOf(chatM).drives.filter((d) => d.loaded);
   check('1 (Alpha) ...the BASIC session holds it and the chat machine does not', basicDrives.length === 1 && chatDrives.length === 0,
     `basic=${basicDrives.length} chat=${chatDrives.length}`);
-  check('1 (Alpha) ...and the drives card (diskStatus) shows it', s.diskStatus().drives.length === 1 && s.diskStatus().drives[0].file === 'game.vdk',
-    JSON.stringify(s.diskStatus().drives));
+  check('1 (Alpha) ...and the drives card (diskStatus) shows it', s.drives.status().drives.length === 1 && s.drives.status().drives[0].file === 'game.vdk',
+    JSON.stringify(s.drives.status().drives));
 }
 
 // =====================================================================================
@@ -468,7 +468,7 @@ const newSession = (id = 'dragon64') => { const s = new Emu.Session({ store: Emu
   chat.undo.push(s.chatTarget().snapshot());
   s.restoreClaude(0);
   const after = s.bootStatus(5);
-  // the decision: no takeover offer after an undo. The reason is in Session.restorePoint (the point put back is
+  // the decision: no takeover offer after an undo. The reason is in DiskDrives.restorePoint (the point put back is
   // the moment Claude was asked to restore; the advice from the run the undo took away is not brought back).
   check('4 after an undo the answer is restored, never the takeover offer', after.state === 'restored' && !after.takeover,
     JSON.stringify(after));

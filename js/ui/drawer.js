@@ -103,14 +103,14 @@ export function setupDrawer(page, { showRoms }) {
     // the Pak takes no cartridge image: on that board the button inserts it instead of opening a file
     const onSsc = $('selCartBoard').value === 'ssc';
     // the disk controller plugged in for a disk without a disk ROM says so: "Dragon disk controller · no disk ROM"
-    const bare = loaded && m.cartPort === session.bareDiskController;
+    const bare = loaded && m.cartPort === session.drives.bareController;
     put($('btnCart'), 'textContent', bare ? `${m.cartPort.plainName} · no disk ROM`
       : loaded ? (cartName ? `${cartName} · ${m.cartPort.name || 'cartridge'}` : (m.cartPort.name || 'Cartridge'))
       : onSsc ? 'Insert the Speech/Sound Pak…' : 'Insert cartridge…');
     put($('btnCartOut'), 'hidden', !loaded);
     // what holds media, for the phone's order (play/index.html: a slot with media comes first)
     putClass($('btnTape').closest('.slot'), 'has-media', !!t);
-    putClass($('driveSlot'), 'has-media', session.diskStatus().drives.length > 0);
+    putClass($('driveSlot'), 'has-media', session.drives.status().drives.length > 0);
     putClass($('cartSlot'), 'has-media', loaded);
     // the board menu offers the Pak only on the models that take it
     put($('selCartBoard').querySelector('option[value="ssc"]'), 'hidden', !session.offersSsc);

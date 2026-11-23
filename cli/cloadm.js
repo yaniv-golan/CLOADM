@@ -637,7 +637,7 @@ class Runner {
   async load(step, file, s) {
     const bytes = readFile(file, 'file'), name = path.basename(file);
     const kind = Emu.detectMedia(name, bytes).kind;
-    const message = kind === 'disk' ? await s.importDisk(name, bytes, 0) : s.load(name, bytes, { remember: false });
+    const message = kind === 'disk' ? await s.drives.importImage(name, bytes, 0) : s.load(name, bytes, { remember: false });
     return this.record(step, Object.assign({ file, message }, diskNote(message)));
   }
   async asm(step, { file }, s) {
@@ -666,7 +666,7 @@ class Runner {
     return this.record(step, { file, message: s.insertTape(name, bytes) });
   }
   async disk(step, { drive, file }, s) {
-    const message = await s.importDisk(path.basename(file), readFile(file, 'disk image'), drive);
+    const message = await s.drives.importImage(path.basename(file), readFile(file, 'disk image'), drive);
     return this.record(step, Object.assign({ file, drive, message }, diskNote(message)));
   }
   async type(step, { text, items }, s) {

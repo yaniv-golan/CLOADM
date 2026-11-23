@@ -100,6 +100,7 @@ const FILES = [
   'js/cpu/cpu7000.js',
   'js/cpu/cpus.js',
   'js/debugger.js',
+  'js/drives.js',
   'js/drivewire/byte-queue.js',
   'js/drivewire/server.js',
   'js/embed-api.js',
