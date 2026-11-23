@@ -772,6 +772,21 @@ the writer firmware's recording is saved to the Library as CLOADM.CAS, byte for 
 saves the same bytes under that name; the recording kept at a machine switch is offered as CLOADM.CAS and saved as
 "CLOADM (2).CAS"; both are on the Library's shelf after a reload.
 
+### Ctrl+K: ranking, typos, the machines, Help
+
+No MAME oracle (page behaviour). `tests/command-rank.test.js` runs `rankCommands` on the page's own command list
+with the models' "Switch to" rows: "rset" gives Reset first, "setings" and "setin" a settings command, "coco 3"
+Switch to CoCo 3, "help", "guide" and "how" Help, "delete rom", "forget" and "remove rom" Your ROMs, "eject" with a
+tape and no disk Eject the tape; "xyzzy" nothing; "switch" and "machine" the one Switch machine… row and no model
+rows; the running model never has a row and every other has one by its name; a synthetic list shows the tiers (label
+start in list order, then other words, then a near miss); 3-letter words are not forgiven and a near miss keeps its
+first letter; the marks are the matched parts of the label. `tests/disk-bare.test.js` checks that Eject disk is listed
+only with a disk in. Browser check, group `commands` (1280x720 and 390x844): the same first rows, selected; at most 8
+commands then Ask Claude; the marks and the option's accessible name (the plain label, found by role and exact name);
+↓ wrapping from the last row to the first and ↑ from none chosen to the last; "coco 3" Enter opening the switch
+confirmation naming the CoCo 3, Cancel keeping the Dragon 64; Switch machine… opening the machine menu; Help opening
+`help/` in a new tab; the empty box's list with Switch machine… and Help last; every label in Help.
+
 ### The tape HUD and the cassette panel
 
 Browser check, groups `tapeHud` and `tapePanel`. At 1440x900, 820x1180, 390x844 and 844x390 (touch at the last three),

@@ -181,11 +181,14 @@ const CASES = [
 
   // ---- the command box: "Insert a disk…", "New blank disk", "Eject disk"
   {
-    const { COMMANDS } = await import('../js/ui/command-box.js').catch(() => ({}));
-    const words = (q) => (COMMANDS || []).filter(([label, , more]) => q.split(' ').every((w) => `${label} ${more}`.toLowerCase().split(/[^a-z0-9.]+/).some((h) => h.startsWith(w)))).map((x) => x[0]);
+    const { COMMANDS, rankCommands } = await import('../js/ui/command-box.js').catch(() => ({}));
+    const words = (q) => (rankCommands ? rankCommands(COMMANDS, q) : []).map((r) => r.c[0]);
     check('Ctrl+K: "mount" finds "Insert a disk…"', words('mount').includes('Insert a disk…'), JSON.stringify(words('mount')));
     check('Ctrl+K: "disk", "drive", "vdk" and "dsk" find it too', ['disk', 'drive', 'vdk', 'dsk'].every((w) => words(w).includes('Insert a disk…')));
     check('Ctrl+K: "New blank disk" and "Eject disk" are there', words('blank').includes('New blank disk') && words('eject').includes('Eject disk'));
+    const eject = (COMMANDS || []).find((c) => c[0] === 'Eject disk');
+    check('Ctrl+K: "Eject disk" is listed only while a disk is in, as the tape\'s Eject', !!eject && typeof eject[5] === 'function'
+      && eject[5]({ session: { drives: { status: () => ({ drives: [] }) } } }) === false && eject[5]({ session: { drives: { status: () => ({ drives: [{ drive: 0 }] }) } } }) === true);
   }
 
   // ---- the command line: --disk with no disk ROM

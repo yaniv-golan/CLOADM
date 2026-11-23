@@ -10,6 +10,16 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Added
 
+- **Ctrl+K finds more, forgives typos and switches machines.** New commands: **Help** (the Help page in a new tab),
+  **Switch machine…** (the machine menu; also "computer" and "model"), and **Switch to <model>** for every model but
+  the one running, found by its name ("coco 3"), which asks first through the machine menu's confirmation; a query
+  that says "switch" or "machine" without naming a model gets the one **Switch machine…** row. **Your ROMs** also
+  answers to "delete", "remove" and "forget", and **Help** to "guide" and "how". A word of 4 letters or more may be one
+  letter off a word's start, its first letter kept ("rset" finds Reset, "setings" and "setin" the settings). Matches at
+  the start of a word of the name come first, then those in a command's other words, then the near misses, each in
+  the list's order; up to 8 commands (was 6), Ask Claude last; the matched part is highlighted (`<mark>`), and each
+  option's accessible name is its plain label. `↓` on the last row goes to the first, `↑` with none chosen to the
+  last. **Eject disk** is listed only while a disk is in, as the tape's Eject. (`rankCommands`, `switchCommands`.)
 - **Tape: Eject, the tape commands in Ctrl+K, and recordings kept in the Library.** The cassette slot has **Eject**
   beside **Rewind** (`Session.ejectTape`, which emits `'tape'` and clears the tape watch as a rewind does): the deck
   goes with the tape, the focus goes to the slot's deck button, and the page says "Tape ejected."; a program waiting

@@ -5589,14 +5589,14 @@ async function commandsChecks(browser, site, check) {
   // written out here rather than read from COMMANDS (the page's own list is checked against them)
   const WANT = [
     ['Claude', ['Chat with Claude, full screen', 'What is this code doing?']],
-    ['Files', ['Take snapshot', 'Open a program, tape, disk or cartridge…', 'Insert a disk…', 'New blank disk', 'Eject disk', 'Insert a tape…', 'Save the tape as .WAV', 'Record to tape', 'Share']],
+    ['Files', ['Take snapshot', 'Open a program, tape, disk or cartridge…', 'Insert a disk…', 'New blank disk', 'Insert a tape…', 'Save the tape as .WAV', 'Record to tape', 'Share']],
     ['Views', ['Open the Library', 'Open the Debugger']],
     ['Settings', ['Your ROMs', 'Display settings', 'Input settings', 'POKEs', 'Machine settings']],   // (Your ROMs: R28b)
-    ['Machine', ['Pause or resume', 'Turbo', 'Fullscreen', 'Reset', 'Switch off and on']],
+    ['Machine', ['Pause or resume', 'Turbo', 'Fullscreen', 'Reset', 'Switch off and on', 'Switch machine…', 'Help']],
   ];
   const LABELS = WANT.flatMap(([, l]) => l);
-  // listed only while a tape is in the deck (the box above has none)
-  const WITH_TAPE = ['Rewind the tape', 'Eject the tape'];
+  // listed only while a tape is in the deck, or a disk in a drive (the box above has neither)
+  const WITH_TAPE = ['Eject disk', 'Rewind the tape', 'Eject the tape'];
   const CLAUDE_NOTE = "Claude reads this emulated machine's screen text and memory, and acts on it only with your permission.";
   const FOOT = 'Type to filter, or type a question for Claude. Commands run here and are never sent to Claude.';
   const errors = [];
@@ -5646,7 +5646,7 @@ async function commandsChecks(browser, site, check) {
     for (let i = 1; i < LABELS.length; i++) await page.keyboard.press('ArrowDown');
     const end = await page.evaluate(() => { const l = document.getElementById('cmdList'), lr = l.getBoundingClientRect(), o = document.querySelector('#cmdList [role="option"][aria-selected="true"]'), r = o.getBoundingClientRect();
       return { text: o.firstChild.textContent, top: r.top, bottom: r.bottom, lTop: lr.top, lBottom: lr.bottom, scrolled: l.scrollTop }; });
-    check(`${L}: ↓ to the last row scrolls it into view`, end.text === 'Switch off and on' && end.scrolled > 0 && end.top >= end.lTop - 1 && end.bottom <= end.lBottom + 1, JSON.stringify(end));
+    check(`${L}: ↓ to the last row scrolls it into view`, end.text === 'Help' && end.scrolled > 0 && end.top >= end.lTop - 1 && end.bottom <= end.lBottom + 1, JSON.stringify(end));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `commands-${label}.png`) });
     await page.keyboard.press('Escape');
     // typing still filters, the first match selected and "Ask Claude" last
@@ -5749,6 +5749,76 @@ async function commandsChecks(browser, site, check) {
         'A restore point is made first.', 'What Claude reads goes to Anthropic with your key.'].every((t) => help.text.includes(t)) && !/Every action is listed in the chat/.test(help.text),
       help.h2.join('|'));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'help-commands.png'), fullPage: true });
+    await ctx.close();
+  }
+  // typo tolerance, ranking, the models, Help, the synonyms, the wrap keys and the marks, at the desktop and phone sizes
+  for (const [label, viewport] of [['1280x720', { width: 1280, height: 720 }], ['phone', { width: 390, height: 844 }]]) {
+    const L = `commands (${label})`;
+    const { ctx, page } = await open({ viewport });
+    const query = async (q) => {
+      if (await page.isHidden('#cmdBox')) { await page.click('#screen'); await page.keyboard.press('Control+k'); await waitFor(page, () => !document.getElementById('cmdBox').hidden); }
+      await page.fill('#cmdInput', q);
+      return page.evaluate(() => [...document.querySelectorAll('#cmdList [role="option"]')].map((o) => ({ text: o.firstChild.textContent, name: o.getAttribute('aria-label'),
+        marks: [...o.querySelectorAll('mark')].map((m) => m.textContent), sel: o.getAttribute('aria-selected') === 'true' })));
+    };
+    const firsts = {};
+    for (const q of ['rset', 'setings', 'setin', 'coco 3', 'help', 'delete rom', 'switch']) firsts[q] = (await query(q))[0];
+    check(`${L}: "rset" -> Reset, "setings" and "setin" -> a Settings command, "coco 3" -> Switch to CoCo 3, "help" -> Help, "delete rom" -> Your ROMs, first and selected`,
+      firsts.rset.text === 'Reset' && /settings$/.test(firsts.setings.text) && /settings$/.test(firsts.setin.text) && firsts['coco 3'].text === 'Switch to CoCo 3'
+      && firsts.help.text === 'Help' && firsts['delete rom'].text === 'Your ROMs' && Object.values(firsts).every((f) => f.sel), JSON.stringify(firsts));
+    const sw = await query('switch');
+    check(`${L}: "switch" names no model: one "Switch machine…" row and no "Switch to" rows`, sw.some((r) => r.text === 'Switch machine…') && !sw.some((r) => /^Switch to/.test(r.text)), JSON.stringify(sw.map((r) => r.text)));
+    const own = await query('dragon 64');
+    check(`${L}: the running Dragon 64 is never a "Switch to" row; the other Dragon 64s are`, !own.some((r) => r.text === 'Switch to Dragon 64') && own.some((r) => r.text === 'Switch to Tano Dragon 64'), JSON.stringify(own.map((r) => r.text)));
+    const none = await query('xyzzy');
+    check(`${L}: "xyzzy": only Ask Claude`, none.length === 1 && /^Ask Claude: "xyzzy"/.test(none[0].text), JSON.stringify(none));
+    // at most 8 commands, Ask Claude last
+    const many = await query('s');
+    check(`${L}: at most 8 commands, then Ask Claude`, many.length <= 9 && many.length >= 8 && /^Ask Claude/.test(many[many.length - 1].text), JSON.stringify(many.map((r) => r.text)));
+    // marks: the matched part in <mark>, the option's accessible name the plain label
+    const coco = (await query('coco 3'))[0];
+    const acc = await page.evaluate(() => { const o = document.querySelector('#cmdList [role="option"]'); return o.getAttribute('aria-label'); });
+    const roleName = await page.getByRole('option', { name: 'Switch to CoCo 3', exact: true }).count();
+    check(`${L}: the matched parts are marked ("CoCo", "3"); the option's name is the plain label, no mark text in it`,
+      JSON.stringify(coco.marks) === JSON.stringify(['CoCo', '3']) && acc === 'Switch to CoCo 3' && roleName === 1, JSON.stringify({ coco, acc, roleName }));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `commands-marks-${label}.png`) });
+    // wrap: ↓ on the last row goes to the first
+    const rows = await query('reset');
+    for (let i = 0; i < rows.length; i++) await page.keyboard.press('ArrowDown');
+    const wrapped = await page.evaluate(() => document.querySelector('#cmdList [aria-selected="true"]').firstChild.textContent);
+    check(`${L}: ↓ on the last row goes back to the first`, wrapped === rows[0].text, JSON.stringify({ wrapped, rows: rows.map((r) => r.text) }));
+    // ↑ with nothing chosen (the empty box) goes to the last row
+    await page.fill('#cmdInput', '');
+    await page.keyboard.press('ArrowUp');
+    const last = await page.evaluate(() => { const o = [...document.querySelectorAll('#cmdList [role="option"]')]; return [o[o.length - 1].firstChild.textContent, o[o.length - 1].getAttribute('aria-selected')]; });
+    check(`${L}: ↑ with nothing chosen goes to the last row`, last[0] === 'Help' && last[1] === 'true', JSON.stringify(last));
+    // "coco 3" Enter: the machine menu's confirmation, naming the CoCo 3; Cancel leaves the Dragon 64
+    await query('coco 3');
+    await page.keyboard.press('Enter');
+    check(`${L}: "Switch to CoCo 3" asks first, through the machine menu's confirmation`, await waitFor(page, () => !document.getElementById('switchConfirm').hidden
+      && document.getElementById('switchName').textContent === 'CoCo 3' && document.activeElement === document.getElementById('btnSwitch')));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `commands-switch-confirm-${label}.png`) });
+    await page.click('#btnSwitchCancel');
+    check(`${L}: Cancel keeps the Dragon 64`, await waitFor(page, () => document.getElementById('switchConfirm').hidden && window.emu.machine.id === 'dragon64'));
+    // "Switch machine…" opens the machine menu
+    await query('switch');
+    const at = (await query('switch')).findIndex((r) => r.text === 'Switch machine…');
+    for (let i = 0; i < at; i++) await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('Enter');
+    check(`${L}: "Switch machine…" opens the machine menu`, await waitFor(page, () => !document.getElementById('machineMenu').hidden && document.getElementById('machineMenu').contains(document.activeElement)));
+    await page.keyboard.press('Escape');
+    // Help: the guide in a new tab
+    await query('help');
+    const [tab] = await Promise.all([ctx.waitForEvent('page'), page.keyboard.press('Enter')]);
+    await tab.waitForLoadState();
+    check(`${L}: "Help" opens the guide in a new tab`, /\/help\/$/.test(new URL(tab.url()).pathname), tab.url());
+    await tab.close();
+    // "eject" with a tape in (no disk): Eject the tape first
+    await page.setInputFiles('#fileTape', { name: 't.cas', mimeType: 'application/octet-stream', buffer: Buffer.from([...Array(128).fill(0x55), 0x3C, 0xFF, 0, 0xFF]) });
+    await waitFor(page, () => !!window.emu.machine.deck.tape);
+    const ej = await query('eject');
+    check(`${L}: "eject" with a tape in and no disk -> Eject the tape first, no Eject disk`, ej[0].text === 'Eject the tape' && !ej.some((r) => r.text === 'Eject disk'), JSON.stringify(ej.map((r) => r.text)));
+    await page.keyboard.press('Escape');
     await ctx.close();
   }
   check('commands: no page errors', !errors.length, errors.join('; '));
