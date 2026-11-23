@@ -199,7 +199,7 @@ for (const id of models) {
   check('welcome: welcomeGenNow gives a generation to hand back', Number.isInteger(g), JSON.stringify(g));
 
   // (a) something takes the machine while the bytes are on the way: the start is refused
-  t.endWelcome();                                  // what stubPrompt, a load, a switch or a Reset all do
+  t.endWelcome(t.shownMachine);                    // what stubPrompt, a load, a switch or a Reset all do
   const out = t.startWelcome(bin, { gen: g });
   check('welcome: a start whose fetch was overtaken starts nothing', out === null && !t.welcomeRunning,
     `returned ${JSON.stringify(out)}, welcomeRunning ${t.welcomeRunning}`);
@@ -217,7 +217,7 @@ for (const id of models) {
 
   // (d) a caller that passes no generation is unaffected (the Session's own paths: endWelcome + restart, tests)
   const g4 = t.welcomeGenNow();
-  t.endWelcome();
+  t.endWelcome(t.shownMachine);
   check('welcome: a start with no generation given still starts (the Session\'s own paths)', t.startWelcome(bin) !== null && t.welcomeRunning);
 }
 

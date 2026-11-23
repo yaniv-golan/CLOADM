@@ -205,7 +205,7 @@ const store = () => { const m = new Map(); return { get: (k) => (m.has(k) ? m.ge
     let menus = 0;
     s.on((e) => { if (e === 'menu') menus++; });
     s.load('demo.bin', demo, { remember: false });
-    s.watchForMenu('demo');
+    s.watchForMenu('demo', s.personMachine);
     frames(s, 20);
     s.shownMachine.stubKeys.push(0x20); frames(s, 20);
     check('demo: the key that starts it doesn\'t leave it', menus === 0 && s.menuWatch && s.menuWatch.drawing);
@@ -213,7 +213,7 @@ const store = () => { const m = new Map(); return { get: (k) => (m.has(k) ? m.ge
     check('demo: a key while it draws asks for the menu, and the key is dropped', menus === 1 && s.shownMachine.stubKeys.length === 0 && s.menuWatch === null);
     // another load ends a watch
     s.load('demo.bin', demo, { remember: false });
-    s.watchForMenu('demo');
+    s.watchForMenu('demo', s.personMachine);
     s.load('hello.bin', new Uint8Array([0x55, 2, 0x30, 0x00, 0x00, 0x01, 0x30, 0x00, 0xAA, 0x39]), { remember: false });
     check('loading something else ends the watch', s.menuWatch === null);
   }

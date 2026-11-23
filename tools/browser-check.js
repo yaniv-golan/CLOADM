@@ -569,7 +569,7 @@ const openDisc = async (page, id) => { if (!(await page.evaluate((i) => document
 // It waits for the page's start first (the welcome menu it may be starting would land on top otherwise).
 const stubPrompt = async (page) => {
   await waitFor(page, () => window.emu && window.emu.started);
-  await page.evaluate(() => { const s = window.emu.session; s.endWelcome(); s.stubRun = null; s.keys.clear(); window.emu.machine.reset(true); });
+  await page.evaluate(() => { const s = window.emu.session; s.endWelcome(s.shownMachine); s.stubRun = null; s.keys.clear(); window.emu.machine.reset(true); });
 };
 // The full-screen chat as a person opens it from anywhere: Ctrl K, "Chat with Claude, full screen" (asking Claude, the
 // header's button included, opens the side panel instead, whatever is on the screen)
@@ -2476,15 +2476,85 @@ async function visitChecks(browser, base, check) {
   await page.waitForTimeout(3500);
   check('welcome: ... and it plays no tune (no high-level DAC event in 3.5 s)', await page.evaluate(() => window.__tune) === 0, String(await page.evaluate(() => window.__tune)));
   // the games: 5 opens the games menu, 1 and 2 start 2048 and Minesweeper (the 128x192 four-colour screen), their
-  // keys change the screen, and BREAK (Esc) comes back to the menu. The frame is summed in the page: a key that
-  // the game took redraws it.
-  const frameSum = () => page.evaluate(() => { const d = window.emu.machine.render().data; let h = 0; for (let i = 0; i < d.length; i += 3) h = (h * 31 + d[i]) >>> 0; return h; });
+  // keys change the game, and BREAK (Esc) comes back to the menu.
+  //
+  // A key's effect is read from the PROGRAM'S OWN STATE, never from the clock or a fixed number of frames. The old
+  // test compared frame hashes, which was a coin toss for two reasons:
+  //  * the game seeds its random numbers from ENTROPY, and GETKEY counts one per keyboard poll while the title page
+  //    waits for its key (examples/games.inc, RANDOMIZE), so how long the test takes to press that key decides the
+  //    board. On some boards a direction moves nothing (its lines are already packed against the edge) and no frame
+  //    changes: over 201 title-page timings, ArrowUp was a no-op on 5 of them.
+  //  * a frame hash is a statement about the whole picture, not about the move, so any redraw satisfies it.
+  // The seed is therefore poked first (GAMES.seed, the field the games' own Node tests use), which fixes the board,
+  // and each press is confirmed by what the game itself records: 2048 counts a change in MOVES, Minesweeper moves
+  // its cursor (CURX, CURY). Then the game is waited on until it is back at its key wait.
   const graphics = () => page.evaluate(() => (window.emu.machine.pia1.saveState().b.or & 0x80) !== 0);
+  // the picture, summed, and a wait for it to differ from a sum taken before the key. With the seed fixed a pressed
+  // direction always changes the board, so the picture MUST differ: the original assertion, now deterministic.
+  const frameSum = () => page.evaluate(() => { const d = window.emu.machine.render().data; let h = 0; for (let i = 0; i < d.length; i += 3) h = (h * 31 + d[i]) >>> 0; return h; });
+  const frameDiffers = (was) => waitFor(page, (b) => { const d = window.emu.machine.render().data; let h = 0; for (let i = 0; i < d.length; i += 3) h = (h * 31 + d[i]) >>> 0; return h !== b; }, was);
+  // The picture of a game that has STOPPED drawing, for a "before" reading. A picture taken mid-draw makes a
+  // difference check pass on the tail of that draw whatever the move did - which is how a game that counted a move
+  // without drawing it slipped past the first version of this check.
+  // Two things must hold, and neither alone is enough:
+  //  * the program is at its key wait: a game draws its page and then waits in GETKEY, which counts one per keyboard
+  //    poll in ENTROPY. (Two equal readings are not enough here: the title's first frames are identical while it is
+  //    still drawing.)
+  //  * the picture has stopped changing: GETKEY is reached before the rest of the loop runs, so on the 2048 side the
+  //    key wait can be met while SCORES and CHKWIN are still drawing.
+  // Both are CHECKED, not assumed: if either fails the baseline picture cannot be trusted, and returning it silently
+  // would let the difference check after the key pass whatever the move did. So this fails loudly by name, with
+  // which half failed, and still returns its last picture so the run goes on.
+  const drawnAndWaiting = async (s, at) => {
+    const start = await page.evaluate((e) => window.emu.machine.ram[e] * 256 + window.emu.machine.ram[e + 1], s.ENTROPY);
+    const waiting = await waitFor(page, ([e, b]) => window.emu.machine.ram[e] * 256 + window.emu.machine.ram[e + 1] !== b, [s.ENTROPY, start]);
+    // Sampled INSIDE the page, one reading per distinct machine frame. Reading from the Node side instead lets a
+    // period-two animation through: each round trip covers its own, always-even number of frames, so the samples
+    // land on the same phase and a screen redrawn on alternate fields reads as settled.
+    const samples = await page.evaluate((n) => new Promise((res) => {
+      const out = [];
+      let last = -1;
+      const step = () => {
+        const fc = window.emu.machine.frameCount;
+        if (fc === last) return setTimeout(step, 4);
+        last = fc;
+        const d = window.emu.machine.render().data;
+        let h = 0;
+        for (let i = 0; i < d.length; i += 3) h = (h * 31 + d[i]) >>> 0;
+        out.push(h);
+        if (out.length >= n) res(out); else setTimeout(step, 4);
+      };
+      step();
+    }), 12);
+    // settled = three equal readings IN A ROW at the end. A screen may still be finishing its last frames when the
+    // wait begins (the key wait is met before SCORES and CHKWIN run), so the first samples may differ. Three in a
+    // row cannot come from an animation of period two or more, which is what a title redrawn on alternate fields is.
+    const still = samples.length >= 3 && samples.slice(-3).every((h) => h === samples[samples.length - 1]);
+    check(`games: ${at}: the picture before the key is taken from a settled screen`, waiting && still,
+      waiting ? (still ? 'at its key wait, picture stopped' : `the picture never settled over ${samples.length} frames`) : 'the game never reached its key wait');
+    return samples[samples.length - 1];
+  };
+  // A game's symbols come from its own source, assembled in the page and cached. Its INCLUDE is read the way the
+  // source declares it, so a symbol cannot drift from the code on screen.
+  const gameSyms = {};
+  const symsFor = async (name) => {
+    if (gameSyms[name]) return gameSyms[name];
+    gameSyms[name] = await page.evaluate(async (n) => {
+      const src = await (await fetch(`examples/${n}.asm`)).text();
+      const files = {};
+      for (const m of src.matchAll(/^\s*INCLUDE\s+"([^"]+)"/gm)) files[m[1]] = await (await fetch(`examples/${m[1]}`)).text();
+      const a = window.emu.Emu.assemble(src, '6809', { include: (f) => files[f] });
+      if (!a.ok) throw new Error(`${n}.asm did not assemble: ${JSON.stringify(a.errors)}`);
+      const want = ['SEED', 'BOARD', 'MOVES', 'KQN', 'POP', 'CURX', 'CURY', 'SELECT', 'PLANTED', 'OPENED', 'ENTROPY'];
+      return Object.fromEntries(want.filter((k) => a.symbols.has(k)).map((k) => [k, a.symbols.get(k)]));
+    }, name.toLowerCase());
+    return gameSyms[name];
+  };
   await key('5');
   check('welcome: 5 PLAY A GAME opens the games menu, NEW GAMES FOR AN OLD MACHINE', await waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[6].trim() === 'NEW GAMES FOR AN OLD MACHINE'
     && window.emu.session.screenText()[8].trim() === '1 2048' && window.emu.session.screenText()[9].trim() === '2 MINESWEEPER'));
   if (shotDir) await page.locator('#screenWrap').screenshot({ path: path.join(shotDir, 'welcome-games.png') });
-  for (const [k, name, moves] of [['1', '2048', ['ArrowLeft', 'ArrowUp']], ['2', 'Minesweeper', ['ArrowRight', 'ArrowDown']]]) {
+  for (const [k, name, presses] of [['1', '2048', ['ArrowLeft', 'ArrowUp']], ['2', 'Minesweeper', ['ArrowRight', 'ArrowDown']]]) {
     if (k === '2') {
       await key('5');
       await waitFor(page, () => window.emu.session.screenText()[6].trim() === 'NEW GAMES FOR AN OLD MACHINE');
@@ -2493,20 +2563,88 @@ async function visitChecks(browser, base, check) {
     check(`games: ${k} starts ${name} on its title page (the four-colour screen)`, await waitFor(page, (n) => !window.emu.session.welcomeRunning
       && (window.emu.machine.pia1.saveState().b.or & 0x80) !== 0 && new RegExp(`^${n}: press a key`).test(document.getElementById('toast').textContent), name) && await graphics(),
       await page.textContent('#toast'));
-    await page.waitForTimeout(300);
+    const s = await symsFor(name);
+    // the title page is waiting for its key: poke the seed now, before the key lets the game read it (RANDOMIZE)
+    await page.evaluate(([a, v]) => { window.emu.machine.poke(a, v >> 8); window.emu.machine.poke(a + 1, v & 0xFF); }, [s.SEED, 2]);
     if (shotDir) await page.locator('#screenWrap').screenshot({ path: path.join(shotDir, `games-${name.toLowerCase()}-title.png`) });
-    let before = await frameSum();
+    // the title page, complete and waiting for its key, read BEFORE the key that leaves it
+    const titlePic = await drawnAndWaiting(s, `${name}, the title page`);
     await key(' ');
-    check(`games: ${name}: a key leaves the title page for the game (the screen changes)`, await waitFor(page, (b) => {
-      const d = window.emu.machine.render().data; let h = 0; for (let i = 0; i < d.length; i += 3) h = (h * 31 + d[i]) >>> 0; return h !== b; }, before));
-    await page.waitForTimeout(300);
-    if (k === '2') { await key(' '); await page.waitForTimeout(300); }   // Minesweeper: open the first square
-    for (const mv of moves) {
-      before = await frameSum();
+    // on the board, read two ways: its own state (2048 has drawn its two starting tiles; Minesweeper's board is up,
+    // its cursor in the middle, where its title page has none), AND the picture, which must differ from the title's.
+    check(`games: ${name}: a key leaves the title page for the game (its state)`, await waitFor(page, ([n, b, x, y]) => {
+      const ram = window.emu.machine.ram;
+      if (n === '2048') { let c = 0; for (let i = 0; i < 16; i++) if (ram[b + i]) c++; return c >= 2; }
+      // Minesweeper's NEWGAME puts the cursor in the middle; the title page has none (the RAM is 0 there)
+      return ram[x] === 3 && ram[y] === 3;
+    }, [name, s.BOARD, s.CURX, s.CURY]));
+    check(`games: ${name}: a key leaves the title page for the game (the screen changes)`, await frameDiffers(titlePic));
+    // Minesweeper: open the first square (the mines are laid lazily, by this open)
+    if (k === '2') {
+      await key(' ');
+      check('games: Minesweeper: opening a square lays the mines and opens ground',
+        await waitFor(page, ([p, o]) => window.emu.machine.ram[p] > 0 && window.emu.machine.ram[o] > 0, [s.PLANTED, s.OPENED]));
+    }
+    // the game's own statement that it is waiting, not mid-animation. 2048: nothing queued, no pop running.
+    // Minesweeper: SELECT is recomputed from the cursor every pass of its loop, so SELECT = CURY*8+CURX means it
+    // has caught up. Both are bounded in the game, so a slow page takes more machine frames, never a different result.
+    // 2048 back at its key wait: its GETKEY polls in a tight loop and counts every poll in ENTROPY, so a frame in
+    // which ENTROPY jumps by hundreds is one spent waiting for a key (the signal tests/games.test.js uses). KQN=0
+    // and POP=0 is NOT enough - both clear before the pop's final redraw, so the picture can still change four
+    // frames after they say "idle", which is what made the settled-baseline check fail intermittently.
+    // Minesweeper recomputes SELECT from the cursor every pass of its loop, so SELECT = CURY*8+CURX means caught up.
+    const ent = () => page.evaluate((e) => window.emu.machine.ram[e] * 256 + window.emu.machine.ram[e + 1], s.ENTROPY);
+    // The difference MUST be masked to 16 bits, as tests/games.test.js masks it: ENTROPY is a word in the machine's
+    // RAM and wraps, running at about 494 a frame while GETKEY polls, so it goes round every ~133 frames. If `was`
+    // is taken near $FFFF the unmasked difference goes NEGATIVE and the wait times out - a false red, not a
+    // slow game. A known value just below the wrap is poked in by the "settled baseline survives the ENTROPY wrap"
+    // check below, which fails without this mask.
+    const settled = (from) => name === '2048'
+      ? waitFor(page, ([e, was]) => ((window.emu.machine.ram[e] * 256 + window.emu.machine.ram[e + 1] - was) & 0xFFFF) > 200, [s.ENTROPY, from])
+      : waitFor(page, ([cx, cy, sel]) => window.emu.machine.ram[sel] === ((window.emu.machine.ram[cy] * 8) + window.emu.machine.ram[cx]), [s.CURX, s.CURY, s.SELECT]);
+    for (const mv of presses) {
+      await settled(await ent());
+      // EVERY 16-bit word in this block, and why only one of them needs a mask. Checked so a wrap cannot hide here:
+      //  * ENTROPY (the settle above) WRAPS: it is a free-running word the game increments every poll of its key
+      //    loop, ~494 a frame. Masked, and proved by the "survives ENTROPY wrapping" check below.
+      //  * the `waiting` test in drawnAndWaiting compares for INEQUALITY only, so a wrap is just another change:
+      //    no arithmetic, nothing to mask.
+      //  * MOVES (2048) is reset to 0 by NEWGAME and only ever incremented, once per move that changed the board.
+      //    It cannot reach $FFFF in a run of this test, and the comparison is `>`, so even a wrap would be a
+      //    change in the right direction.
+      //  * CURX/CURY (Minesweeper) are 0..7 by construction: MOVE rejects any step that would reach 8 (`CMPA #8 /
+      //    BHS MVNONE`), so the packed word is 0..$0707 and cannot wrap.
+      // TWO separate readings before the key, and they are not interchangeable: `was` is the game's own state (a word),
+      // `pic` is the summed picture. The screen check must compare the picture with `pic`; comparing it with `was`
+      // would be a hash against a move count, which is never equal and so can never fail.
+      const was = name === '2048'
+        ? await page.evaluate((m) => window.emu.machine.ram[m] * 256 + window.emu.machine.ram[m + 1], s.MOVES)
+        : await page.evaluate(([x, y]) => (window.emu.machine.ram[x] << 8) | window.emu.machine.ram[y], [s.CURX, s.CURY]);
+      const pic = await drawnAndWaiting(s, `${name}, before ${mv}`);
       await key(mv);
-      check(`games: ${name}: ${mv} changes the screen`, await waitFor(page, (b) => {
-        const d = window.emu.machine.render().data; let h = 0; for (let i = 0; i < d.length; i += 3) h = (h * 31 + d[i]) >>> 0; return h !== b; }, before));
-      await page.waitForTimeout(200);
+      if (name === '2048') {
+        check(`games: 2048: ${mv} is taken (the game's MOVE counter goes up)`, await waitFor(page, ([m, w]) =>
+          window.emu.machine.ram[m] * 256 + window.emu.machine.ram[m + 1] > w, [s.MOVES, was]));
+        check(`games: 2048: ${mv} finishes and the game waits for the next key`, await settled(await ent()));
+      } else {
+        check(`games: Minesweeper: ${mv} is taken (the game's cursor moves)`, await waitFor(page, ([x, y, w]) =>
+          ((window.emu.machine.ram[x] << 8) | window.emu.machine.ram[y]) !== w, [s.CURX, s.CURY, was]));
+        check(`games: Minesweeper: ${mv} settles (the cursor and SELECT agree, the game is waiting)`, await settled(await ent()));
+      }
+      // the board the move made is DRAWN: the picture must differ from the one before the key. Both games redraw
+      // inside the move itself, so this is not a race with a later frame - a game that counted the move without
+      // drawing it fails here.
+      check(`games: ${name}: ${mv} changes the screen (the board it moved)`, await frameDiffers(pic));
+    }
+    // ENTROPY is a 16-bit word and WRAPS while GETKEY polls (about every 133 frames at ~494 a frame), so the
+    // settle difference must be masked to 16 bits, as tests/games.test.js masks it. Planting a value just below
+    // the wrap proves the mask is there: with `was` at $FF00, the unmasked difference is negative for ever (the
+    // value can never exceed 65535, so it can never climb back past was+200) and the wait times out; masked, it
+    // passes on the very next frame. Measured: masked true after 1 frame, unmasked never true in 2000 frames.
+    if (name === '2048') {
+      await page.evaluate((e) => { window.emu.machine.poke(e, 0xFF); window.emu.machine.poke(e + 1, 0x00); }, s.ENTROPY);
+      check('games: 2048: the settle survives ENTROPY wrapping past $FFFF (the difference is masked to 16 bits)',
+        await settled(0xFF00));
     }
     if (shotDir) await page.locator('#screenWrap').screenshot({ path: path.join(shotDir, `games-${name.toLowerCase()}-play.png`) });
     await key('Escape');
@@ -2516,6 +2654,36 @@ async function visitChecks(browser, base, check) {
   check('games: the last game is what the next visit\'s menu carries on with', await page.evaluate(() => JSON.stringify(window.emu.session.carryOn)) === '{"kind":"game","name":"Minesweeper"}');
   await key('1');
   check('welcome: 1 runs LIZA', await waitFor(page, () => window.emu.session.screenText().join('').includes('I AM LIZA')));
+  // THE BUG'S ORDER: LIZA is running and watched, then the chat is opened (the page's own route: Ctrl+K, then Full
+  // screen), then closed, then BYE. The chat's machine and the BASIC session run side by side, and opening the chat
+  // must not take away the BASIC session's return to the menu (Session endWelcome per machine, and checkMenuReturn
+  // waiting while another machine is on screen). With the bug the BYE leaves the goodbye on the screen and no menu
+  // comes - and, before that, the watch is already gone as soon as the chat opens.
+  {
+    const watched = await waitFor(page, () => window.emu.session.menuWatch && window.emu.session.menuWatch.kind === 'liza'
+      && window.emu.session.menuWatch.m === window.emu.session.shownMachine);
+    check('welcome: LIZA is running and watched on its own machine before the chat', watched);
+    // (the page's Ask Claude button, which is openPanel -> Full screen. Ctrl+K would work too - it is a window
+    // capture listener for ctrlKey/metaKey - but the button states the route without depending on a shortcut)
+    await page.click('#btnAsk');
+    check('welcome: Ask Claude opens the side panel', await waitFor(page, () => !document.getElementById('ask').hidden, null, 10000));
+    await page.click('#btnAskFull');
+    check('welcome: Full screen opens the chat on a machine of its own', await waitFor(page, () => document.body.classList.contains('claude-open')
+      && window.emu.session.chatView === 'chat' && !!window.emu.session.chatMachines, null, 15000),
+      await page.textContent('#toast'));
+    check('welcome: opening the chat leaves LIZA\'s watch on the BASIC session', await page.evaluate(() => window.emu.session.menuWatch
+      && window.emu.session.menuWatch.kind === 'liza' && window.emu.session.menuWatch.m !== window.emu.session.shownMachine),
+      await page.evaluate(() => JSON.stringify({ watch: window.emu.session.menuWatch && window.emu.session.menuWatch.kind })));
+    await page.click('#btnClaudeBack');
+    check('welcome: "← Emulator" comes back to the machine LIZA runs on, still watched', await waitFor(page, () => !document.body.classList.contains('claude-open')
+      && !window.emu.session.chatMachines && window.emu.session.menuWatch && window.emu.session.menuWatch.kind === 'liza'
+      && window.emu.session.menuWatch.m === window.emu.session.shownMachine, null, 15000));
+    await page.focus('#screen'); await page.keyboard.type('BYE', { delay: 60 }); await page.keyboard.press('Enter');
+    // the goodbye lasts LIZA_BYE_SECONDS of MACHINE time: bounded in machine frames, as returningChecks does
+    check('welcome: BYE in LIZA, watched before the chat, still returns to the welcome menu', await waitForFrames(page, () => window.emu.session.welcomeRunning
+      && window.emu.session.screenText()[6].trim() === 'BYE FOR NOW. PICK ANOTHER?', null, 400),
+      await page.evaluate(() => window.emu.session.screenText().slice(5, 8).join(' | ')));
+  }
   // "No BASIC · Add ROMs" opens Add ROMs, whose "Choose files…" opens the ROM file picker
   await page.click('#romPill');
   check('first visit: "No BASIC · Add ROMs" opens Add ROMs', await waitFor(page, romsOpen));
@@ -2887,6 +3055,29 @@ async function cpu6309Checks(browser, base, check) {
   await page.click('#btnClaudeBack');
   check('cpu=6309: "← Emulator" comes back to the welcome menu on the 6309', await waitFor(page, () => !document.body.classList.contains('claude-open') && window.emu.session.welcomeRunning && window.emu.machine.config.cpu === '6309'), await msg());
 
+  // LIZA watched FIRST, then the chat opened (the Ask Claude button, then Full screen - a digit typed while LIZA
+  // runs would be a line to LIZA), then closed, then BYE. The chat runs on a machine of its own while the BASIC
+  // session keeps running beside it, and opening it must not take away that session's return to the menu (Session's
+  // endWelcome per machine, and checkMenuReturn waiting while another machine is on screen).
+  await key('1');
+  check('cpu=6309 (liza then chat then BYE): key 1 runs LIZA', await waitFor(page, () => window.emu.session.screenText().join('').includes('I AM LIZA'), null, 20000));
+  check('cpu=6309 (liza then chat then BYE): LIZA is watched on its own machine before the chat', await waitFor(page, () => window.emu.session.menuWatch
+    && window.emu.session.menuWatch.kind === 'liza' && window.emu.session.menuWatch.m === window.emu.session.shownMachine));
+  await page.click('#btnAsk');
+  await waitFor(page, () => !document.getElementById('ask').hidden, null, 10000);
+  await page.click('#btnAskFull');
+  check('cpu=6309 (liza then chat then BYE): Full screen opens the chat', await waitFor(page, () => document.body.classList.contains('claude-open')
+    && window.emu.session.chatView === 'chat' && !!window.emu.session.chatMachines, null, 15000), await msg());
+  check('cpu=6309 (liza then chat then BYE): the watch stays on the BASIC session, not the chat machine', await page.evaluate(() => window.emu.session.menuWatch
+    && window.emu.session.menuWatch.m !== window.emu.session.shownMachine && window.emu.session.menuWatch.m === window.emu.session.personMachine));
+  await page.click('#btnClaudeBack');
+  check('cpu=6309 (liza then chat then BYE): "← Emulator" comes back to LIZA, still watched', await waitFor(page, () => !document.body.classList.contains('claude-open')
+    && !window.emu.session.chatMachines && window.emu.session.menuWatch && window.emu.session.menuWatch.kind === 'liza'
+    && window.emu.session.menuWatch.m === window.emu.session.shownMachine, null, 15000));
+  await page.focus('#screen'); await page.keyboard.type('BYE', { delay: 60 }); await page.keyboard.press('Enter');
+  check('cpu=6309 (liza then chat then BYE): BYE after the chat still returns to the welcome menu', await waitForFrames(page, () => window.emu.session.welcomeRunning
+    && window.emu.session.screenText()[6].trim() === 'BYE FOR NOW. PICK ANOTHER?', null, 400), await screenText());
+
   // a new visit with NO parameters: the 6309 choice must come from storage, not from the link (reloading the
   // current URL would keep `?cpu=6309` in the address and prove nothing). The demo ran, so the menu offers it as
   // option 6 ("PRESS 1 TO 6"), exactly as the 6809 would.
@@ -2897,8 +3088,13 @@ async function cpu6309Checks(browser, base, check) {
   check('cpu=6309: a visit with no parameters at all keeps the 6309 choice (from storage)', await waitFor(page, () => window.emu.machine && window.emu.machine.config.cpu === '6309')
     && await ev(() => location.search === ''), await ev(() => location.search));
   check('cpu=6309: the new visit opens on the welcome menu, no error', await menu() && !(await isError()), await msg());
-  check('cpu=6309: the new visit offers what ran last (the demo) as option 6, as on the 6809',
-    await waitFor(page, () => window.emu.session.screenText()[12].includes('CARRY ON WITH COLOUR') && window.emu.session.screenText()[14].includes('PRESS 1 TO 6')), await screenText());
+  // (the carry-on names what ran last in the visit before. This group's last run before the reload is LIZA - the
+  // liza-then-chat case above leaves it as lastRun - so the line is "6 CARRY ON WITH LIZA", at the menu's own rows:
+  // row 12 is the carry-on line and row 14 the "PRESS 1 TO 6" line, whatever the greeting (measured in
+  // tests/returning.test.js: rows 6 to 12, a blank 13, then 14)
+  check('cpu=6309: the new visit offers what ran last (LIZA) as option 6, as on the 6809',
+    await waitFor(page, () => window.emu.session.screenText()[12].trim() === '6 CARRY ON WITH LIZA'
+      && window.emu.session.screenText()[13].trim() === '' && window.emu.session.screenText()[14].trim() === 'PRESS 1 TO 6'), await screenText());
   check('cpu=6309: "Colour demo" is still on the shelf (the new visit\'s Media tab keeps it)', /Colour demo/.test(await page.$$eval('#shelf :is(a, button)', (b) => b.map((x) => x.textContent).join('|'))),
     await page.$$eval('#shelf :is(a, button)', (b) => b.map((x) => x.textContent).join('|')));
   check('cpu=6309: no page errors in the whole case', !errors.length, errors.join('; '));
@@ -6125,6 +6321,68 @@ async function tapePanelChecks(browser, base, check) {
   bytes.push(...block(0xFF, []));
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cloadm-tape-'));
   fs.writeFileSync(path.join(tmp, 'deck.cas'), Buffer.from(bytes));
+  // The tape's toast and the deck's line about BASIC's own S and F follow whether BASIC runs (Node: tests/tape-no-basic.test.js).
+  // No BASIC (the stub): "<name> is in the deck. There's no BASIC to type CLOAD into: [Load it now]", the button inline in the
+  // sentence, visible, inside the screen and big enough to tap on a phone; Load it now loads the tape's program and starts it;
+  // the S-and-F line is hidden. BASIC running (our stand-in ROMs, as the reset group uses): the old toast, no button, the line shown.
+  {
+    const small = fs.mkdtempSync(path.join(os.tmpdir(), 'cloadm-tape-nobasic-'));
+    const prog = [0x86, 0x42, 0xB7, 0x31, 0x00, 0x20, 0xFE];   // LDA #$42, STA $3100, BRA *
+    fs.writeFileSync(path.join(small, 'nobasic.cas'), Buffer.from([...Array(128).fill(0x55), ...block(0, [...Buffer.from('NOBASIC '), 2, 0, 0, 0x30, 0x00, 0x30, 0x00]), ...Array(16).fill(0x55), ...block(1, prog), ...block(0xFF, [])]));
+    const fw = require('../tests/fixtures/reset-firmware').build(require('../tests/load')());
+    const toastOf = (page) => page.evaluate(() => { const a = document.querySelector('#toastText button.inline'), r = a ? a.getBoundingClientRect() : null;
+      return { text: document.getElementById('toastText').textContent.replace(/\s+/g, ' ').trim(), action: a ? a.textContent : null, visible: !!a && a.checkVisibility(),
+        error: document.getElementById('toast').classList.contains('error'), rect: r && { top: r.top, bottom: r.bottom, left: r.left, right: r.right, w: r.width, h: r.height }, vw: innerWidth, vh: innerHeight }; });
+    for (const [label, viewport] of [['desktop', { width: 1440, height: 900 }], ['phone', { width: 390, height: 844 }]]) {
+      const ctx = await browser.newContext({ viewport, hasTouch: label === 'phone' });
+      const page = await ctx.newPage();
+      const errors = [];
+      page.on('pageerror', (e) => errors.push(e.message));
+      await page.goto(`${base}?machine=dragon64`);
+      await ready(page);
+      await stubPrompt(page);
+      await page.setInputFiles('#fileTape', path.join(small, 'nobasic.cas'));
+      await waitFor(page, () => /is in the deck/.test(document.getElementById('toast').textContent));
+      const toast = await toastOf(page);
+      check(`tape, no BASIC (${label}): the toast says "nobasic.cas is in the deck. There's no BASIC to type CLOAD into: [Load it now]"`,
+        toast.text === "nobasic.cas is in the deck. There's no BASIC to type CLOAD into: Load it now" && toast.action === 'Load it now' && toast.visible && !toast.error, JSON.stringify(toast));
+      const r = toast.rect;
+      check(`tape, no BASIC (${label}): the Load it now button is inside the screen${label === 'phone' ? ' and at least 44 px tall' : ''}`,
+        !!r && r.left >= 0 && r.right <= toast.vw && r.top >= 0 && r.bottom <= toast.vh && r.w > 0 && (label !== 'phone' || r.h >= 44), JSON.stringify(r));
+      await waitFor(page, () => !document.getElementById('tapePanel').hidden);
+      check(`tape, no BASIC (${label}): the deck does not talk about BASIC's own S and F`, await page.isHidden('#tapeBasicNote'), await page.evaluate(() => document.getElementById('tapeBasicNote').checkVisibility() + ''));
+      if (shotDir) await page.screenshot({ path: path.join(shotDir, `tape-no-basic-${label}.png`) });
+      if (label === 'phone') await page.tap('#toastText button.inline'); else await page.click('#toastText button.inline');
+      const started = await waitFor(page, () => window.emu.machine.read(0x3100) === 0x42 && /started at/.test(document.getElementById('toast').textContent), null, 15000);
+      check(`tape, no BASIC (${label}): Load it now loads the program and starts it, and the usual start toast follows`, started, await page.textContent('#toast'));
+      check(`tape, no BASIC (${label}): no page errors`, !errors.length, errors.join('; '));
+      await ctx.close();
+    }
+    {
+      const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+      const page = await ctx.newPage();
+      const errors = [];
+      page.on('pageerror', (e) => errors.push(e.message));
+      await page.goto(`${base}?machine=dragon64`);
+      await ready(page);
+      await page.evaluate((b) => {
+        const crc = (bytes) => { let c = -1; for (const v of bytes) { c ^= v; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; } return ((c ^ -1) >>> 0).toString(16).toUpperCase().padStart(8, '0'); }
+        for (const id of ['dragon64', 'tanodr64']) window.emu.profiles[id].roms[0].crcs.push(crc(b));
+      }, [...fw.basic]);
+      await dropFiles(page, [['d64_1.rom', Buffer.from(fw.basic)], ['d64_2.rom', Buffer.from(fw.basic64)]]);
+      await waitFor(page, () => window.emu.session.bootStatus().state === 'ok' && window.emu.machine.id === 'dragon64');
+      await page.setInputFiles('#fileTape', path.join(small, 'nobasic.cas'));
+      await waitFor(page, () => /nobasic\.cas inserted/.test(document.getElementById('toast').textContent));
+      const toast = await toastOf(page);
+      check('tape, BASIC running: the toast is "Tape nobasic.cas inserted. Type CLOAD or CLOADM." with no button in it',
+        toast.text === 'Tape nobasic.cas inserted. Type CLOAD or CLOADM.' && toast.action === null, JSON.stringify(toast));
+      await waitFor(page, () => !document.getElementById('tapePanel').hidden);
+      check("tape, BASIC running: the deck's line about BASIC's own S and F is shown", await page.isVisible('#tapeBasicNote') && /BASIC's own S and F/.test(await page.textContent('#tapeBasicNote')));
+      check('tape, BASIC running: no page errors', !errors.length, errors.join('; '));
+      await ctx.close();
+    }
+    fs.rmSync(small, { recursive: true, force: true });
+  }
   for (const [label, viewport] of [['desktop', { width: 1440, height: 900 }], ['phone', { width: 390, height: 844 }]]) {
     const errors = [];
     const ctx = await browser.newContext({ viewport });
@@ -7993,7 +8251,10 @@ async function layoutChecks(browser, base, check) {
     // under at least one section, with no empty section
     check(`layout (${label}): machine menu lists every model exactly once under a section`,
       groups.length > 0 && new Set(listed).size === all.length && all.every((id) => listed.includes(id)), `${groups.join()} | ${listed.join(' ')}`);
-    check(`layout (${label}): no ROMs: every model says it needs them`, (await page.$$eval('#machineMenu .tag', (t) => t.map((x) => x.textContent))).filter((t) => t === 'needs ROMs').length === all.length);
+    // no ROMs: one line at the top says every machine needs them, instead of a tag on each row (uiModel checks the tags
+    // once ROMs are stored)
+    check(`layout (${label}): no ROMs: one line says every machine needs its own ROMs, and no row has a tag`,
+      await page.textContent('#menuNoRoms') === 'No ROMs yet: every machine needs its own ROMs for BASIC.' && (await page.$$eval('#machineMenu [data-machine] .tag', (t) => t.length)) === 0);
     check(`layout (${label}): the CP 400 is in the menu (it matched no section before)`, listed.includes('cp400'), listed.join(' '));
     await shot('machine-menu');
     // a switch asks first; Cancel keeps the machine; Escape closes the menu
@@ -8455,7 +8716,7 @@ async function tapeChecks(browser, base, check) {
   check('tape: Save .WAV saves the recording as it was written, which decodes to the same bytes', wav.suggestedFilename() === 'recording.wav' && Buffer.from(fromWav.bytes).equals(Buffer.from(stream)));
   // a WAV recording inserted as a tape, then exported again
   await page.setInputFiles('#fileTape', { name: 'game.wav', mimeType: 'audio/wav', buffer: Buffer.from(Emu.casToWav(stream)) });
-  check('tape: a WAV recording goes in the deck, decoded', await waitFor(page, () => /game\.wav inserted \(decoded from the recording: 3 blocks\)/.test(document.getElementById('toast').textContent))
+  check('tape: a WAV recording goes in the deck, decoded', await waitFor(page, () => /^game\.wav is in the deck \(decoded from the recording: 3 blocks\)\. There's no BASIC to type CLOAD into/.test(document.getElementById('toast').textContent))   // (the stub: no BASIC; the WAV is decoded, its blocks counted in tests/session.test.js)
     && await waitFor(page, () => document.getElementById('tapeName').textContent === 'game.wav'), await page.textContent('#toast'));
   const [wav2] = await Promise.all([page.waitForEvent('download'), page.click('#btnTapeWav')]);
   check('tape: Save .WAV exports the tape in the deck', wav2.suggestedFilename() === 'game.wav' && Buffer.from(Emu.wavToCas(new Uint8Array(fs.readFileSync(await wav2.path()))).bytes).equals(Buffer.from(stream)));
@@ -8609,7 +8870,7 @@ async function keyboardSymbolsChecks(browser, base, check) {
     await ready(page);
     // the welcome menu would take the typed digits (and could start after the load): end it first, as stubPrompt does
     await waitFor(page, () => window.emu && window.emu.started);
-    await page.evaluate(() => window.emu.session.endWelcome());
+    await page.evaluate(() => window.emu.session.endWelcome(window.emu.session.shownMachine));
     await page.evaluate((bin) => window.emu.session.load('keyecho.bin', new Uint8Array(bin), { remember: false }), [...keyechoBinary(Emu, id)]);
     await waitFor(page, () => window.emu.machine.ram[(window.emu.machine.profile.textScreen || 0x400)] === 0x60);
     const text = printable(Emu, id);
@@ -9694,7 +9955,7 @@ async function urlChecks(browser, base, check) {
   check('link: load= fetches a program and runs it', await waitFor(page, () => /demo\.bin/.test(document.getElementById('toast').textContent) && window.emu.machine.cpu.pc >= 0x4000), await msg());
   await open('?machine=dragon64&tape=https://files.example/game.cas');
   check('link: tape= puts the tape in the deck, without running it', await waitFor(page, () => document.getElementById('tapeName').textContent === 'game.cas')
-    && /Tape game\.cas inserted/.test(await msg()), await msg());
+    && /^game\.cas is in the deck\. There's no BASIC to type CLOAD into/.test(await msg()), await msg());
   await open('?machine=dragon64&tape=https://files.example/game.cas&autorun');
   check('link: tape= with autorun loads and runs it', /^game\.cas loaded \(\$[0-9A-F]{4}–\$[0-9A-F]{4}\) and started at \$[0-9A-F]{4}\.$/.test(await msg()), await msg());
   await open('?machine=coco&cart=https://files.example/pak.ccc');
@@ -10238,9 +10499,17 @@ async function chatLongLineChecks(browser, base, check) {
   const requests = [];
   // the second reply is long enough (about 300 bytes, a byte a frame) to still be coming while the next line is typed
   const replies = [text('Short answer.'), text(Array.from({ length: 10 }, (_, i) => `Reply line ${i + 1} still coming.`).join('\n')), text('ok')];
-  await ctx.route('https://api.anthropic.com/**', (route) => {
+  // The second reply is HELD until the check has typed its line (release2): "the reply is still coming" is then true by
+  // construction (the turn is in flight, nothing has come down yet) at the moment of typing, however fast the page runs or
+  // slowly the keys are typed. Before, the reply was given at once and the firmware's byte a frame had to outlast the
+  // typing: on a fast frame clock it did not (CI run 45208557707: stillComing false). `holdSecond` is what the mutant
+  // flips (a reply that is not held ends before the line is typed).
+  let release2 = null; const gate2 = new Promise((go) => { release2 = go; });
+  const holdSecond = true;
+  await ctx.route('https://api.anthropic.com/**', async (route) => {
     if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
     requests.push(JSON.parse(route.request().postData()));
+    if (requests.length === 2 && holdSecond) await gate2;
     return route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'text/event-stream' }, body: replies.shift() || text('ok') });
   });
   const page = await ctx.newPage();
@@ -10291,14 +10560,17 @@ async function chatLongLineChecks(browser, base, check) {
   // 2. typed while a reply is still coming down: the firmware waits (WAIT) and the keys are kept
   await page.keyboard.type('next', { delay: 5 });
   await page.keyboard.press('Enter');
-  const waiting = await waitFor(page, () => window.emu.session.readByte(window.emu.Emu.CHAT_STATE.wait, window.emu.session.chatMachines.chat) === 1 && window.emu.session.chat.channel.queued > 0, null, 20000);
+  const waiting = await waitFor(page, () => window.emu.session.readByte(window.emu.Emu.CHAT_STATE.wait, window.emu.session.chatMachines.chat) === 1 && (window.emu.session.chat.busy || window.emu.session.chat.channel.queued > 0), null, 20000);
   const two = ('Type ahead: this line is typed while the reply before it still comes, and it must arrive whole. ').repeat(3).slice(0, 199) + '!';
   await page.keyboard.type(two, { delay: 5 });
   const stillComing = await page.evaluate(() => window.emu.session.chat.channel.queued > 0 || window.emu.session.chat.busy);
+  // the premise, asserted on its own: a line typed after the reply had ended would pass the check below for nothing
+  check(`${L}: (premise) the previous reply is still coming when the 200-character line has been typed`, stillComing === true, JSON.stringify({ waiting, stillComing }));
+  release2();
   await page.keyboard.press('Enter');
   const sent = await waitFor(page, (want) => { const c = window.emu.session.chat; return c.messages.some((m) => m.role === 'user' && m.content === want); }, two, 60000);
   check(`${L}: a 200-character line typed while the previous reply still comes reaches the API whole once it has ended (not just its tail)`,
-    waiting && stillComing && sent && lastLine(2) === two, JSON.stringify({ waiting, stillComing, got: lastLine(2) }));
+    waiting && sent && lastLine(2) === two, JSON.stringify({ waiting, got: lastLine(2) }));
   const after3 = await settled();
   {
     const end = after3.findIndex((r) => r.endsWith('Type ah!'));
@@ -10897,6 +11169,11 @@ async function askFollowupChecks(browser, base, check) {
     await waitFor(page, () => !document.getElementById('askConsent').hidden);
     await page.click('#btnAskAllow');
     await waitFor(page, () => !document.getElementById('askActing').hidden && window.emu.machine.typist.queue.length > 100, null, 8000);
+    // "part-way" needs keys already typed: the queue fills a moment before the machine reads its first key (1 or 2 keys
+    // were in by the stop on one machine, and none on another, where the panel then rightly says "didn't type ...: the
+    // Debugger has the machine stopped"). So wait until the queue has started to drain, with most of it still there.
+    const q0 = await page.evaluate(() => window.emu.machine.typist.queue.length);
+    await waitFor(page, (start) => { const n = window.emu.machine.typist.queue.length; return n < start - 40 && n > 100; }, q0, 20000);
     // queued before the stop, and right after it (the same task: the drop is synchronous with the stop)
     const atStop = await page.evaluate(() => { const m = window.emu.machine, before = m.typist.queue.length; window.emu.session.debug.halt();
       return { before, queued: m.typist.queue.length, paused: window.emu.session.paused }; });
@@ -10908,6 +11185,7 @@ async function askFollowupChecks(browser, base, check) {
     check('ask (Debugger stop): stopped while Claude types, the rest of the keys is dropped and the model is told machine-stopped, with how far it got',
       atStop.before > 100 && atStop.queued === 0 && atStop.paused && result && result.is_error === true && err && err.code === 'machine-stopped' && /keys typed, the rest dropped/.test(err.detail)
       && after.queued === 0, JSON.stringify({ atStop, after, err }).slice(0, 400));
+    check('ask (Debugger stop): (premise) some keys were typed before the stop, so it is part-way', !!err && /: [1-9]\d* of \d+ keys typed, the rest dropped/.test(err.detail || ''), err && err.detail);
     check('ask (Debugger stop): the panel\'s line says the Debugger stopped the machine part-way',
       await waitFor(page, () => /then the Debugger stopped the machine/.test(document.getElementById('ask').textContent), null, 5000));
     await page.click('#btnStripResume');
@@ -12191,6 +12469,29 @@ async function askEscChecks(browser, base, check) {
     // which depends on the fonts: either is right; feedbackModel checks the free place with a short toast)
     check(`${L}: the toast covers none of the sheet's controls (no Stop under a toast)`, where.up && !where.onSheetControl, JSON.stringify(where));
     check(`${L}: the pill does not come and go while the toast shows`, flips <= 1, `flips ${flips}`);
+    // ... and again and again. One run of that scenario passes or fails by the luck of when the pill's re-evaluation (every
+    // ten frames) lands against the toast's placement, so a loop that depends on its own last output showed in about one run
+    // in four. Twenty toasts in a row, each raised, kept up for 90 frames and cleared, on this one page: none may make the
+    // pill come and go (at most one change of the pill per toast, never two).
+    // (What turns it red: the two halves of the fix removed together. A toast kept in its natural bottom place covers the
+    // Stop (the placement checks above fail, the pill checks stay green), and the pill decided from the page as the class
+    // left it instead of the reference state (the `claude-float` line in js/ui/ask.js) is green too while the toast
+    // stays off the Stop; both together make the loop, 8 or 9 changes of the pill per toast.)
+    const reps = await page.evaluate(async () => {
+      const v = document.getElementById('viewClaude'), frames = (n) => new Promise((done) => { let k = 0; const f = () => (++k >= n ? done() : requestAnimationFrame(f)); f(); });
+      const words = 'A toast over the bottom of the window, long enough to wrap onto several lines on a phone, so that it lies over the sheet\'s Stop button at the bottom edge of the window for as long as it shows';
+      const flips = [];
+      for (let i = 0; i < 20; i++) {
+        window.emu.feedback.clear(); await frames(6);
+        let n = 0, was = v.hidden; const obs = new MutationObserver(() => { if (v.hidden !== was) { n++; was = v.hidden; } });
+        obs.observe(v, { attributes: true });
+        window.emu.feedback.toast(`${words} (${i})`); await frames(90);
+        obs.disconnect(); flips.push(n);
+      }
+      window.emu.feedback.clear();
+      return flips;
+    });
+    check(`${L}: 20 toasts in a row: the pill never comes and goes for any of them`, reps.length === 20 && reps.every((n) => n <= 1), JSON.stringify(reps));
     // THE INVARIANT THE PILL EXISTS FOR: while the turn runs, the person must be able to reach a Stop. A pill that has
     // gone while NOTHING can be clicked is worse than one that flashes. Assert it against the page.
     const reach = await page.evaluate(() => {
@@ -17033,6 +17334,9 @@ async function menuFocusChecks(browser, base, check) {
       const inDebugger = await debuggerByKeys();
       const under = await page.evaluate((id) => { const m = document.getElementById(id); return { open: !m.hidden, shows: m.checkVisibility() }; }, id);
       await page.keyboard.press('Escape');
+      // (Esc goes back through the history when the view was pushed above the emulator: the hash is settled on popstate,
+      // after the key, so wait for it, bounded, before reading; an Esc that does not close the Debugger times out here)
+      await waitFor(page, () => location.hash === '' && document.getElementById('debugView').hidden, null, 5000);
       const after = { inDebugger, under, hash: await page.evaluate(() => location.hash), debug: await shown(page, 'debugView') };
       check(`${L}: the ${name} open, the Debugger opened by keyboard over it: one Esc closes the Debugger`, inDebugger && under.open && !under.shows && after.hash === '' && !after.debug,
         JSON.stringify(after));
@@ -17760,6 +18064,84 @@ async function uiModelChecks(browser, base, check) {
     await page.evaluate(() => { if (window.emu.machine.useStub) { window.emu.session.stubChosen.delete('coco'); window.emu.session.switchMachine('coco'); } location.hash = ''; });
     await openTab(page, 'Machine');
     check(`copy (${label}): with BASIC in use the ROMs row says "BASIC ready"`, await waitFor(page, () => document.getElementById('romState').textContent === 'BASIC ready'), await page.textContent('#romState'));
+    await ctx.close();
+  }
+  // ---- the machine menu: one "No ROMs yet" line instead of 17 tags, a subtitle per section, the footer's line for the
+  // model under the focus or the pointer (each item's aria-description), "Which one is mine? →" to Help's list ----
+  for (const [label, opts] of SIZES) {
+    const ctx = await browser.newContext(Object.assign({ serviceWorkers: 'block' }, opts));
+    const page = await ctx.newPage();
+    page.on('pageerror', (e) => errors.push(`${label}: ${e.message}`));
+    await page.goto(`${base}?machine=dragon64`); await started(page);
+    const menuState = () => page.evaluate(async () => {
+      const m = document.getElementById('machineMenu'), { SUBTITLES, describe } = await import(new URL('js/machines/menu.js', document.baseURI).href);
+      const items = [...m.querySelectorAll('[data-machine]')];
+      return { top: (() => { const t = document.getElementById('menuNoRoms'); return t && t.checkVisibility() ? t.textContent : null; })(),
+        tags: items.map((b) => (b.querySelector('.tag') ? b.querySelector('.tag').textContent : null)),
+        ids: items.map((b) => b.dataset.machine),
+        legend: m.querySelector('.legend').checkVisibility(),
+        subs: [...m.querySelectorAll('.machines')].filter((g) => g.querySelector('.group-name')).map((g) => [g.querySelector('.group-name').textContent, g.querySelector('.group-sub') && g.querySelector('.group-sub').checkVisibility() ? g.querySelector('.group-sub').textContent : null]),
+        want: SUBTITLES,
+        described: items.every((b) => b.getAttribute('aria-description') === describe(window.emu.profiles[b.dataset.machine])),
+        which: (() => { const a = document.getElementById('menuWhich'); return a && a.checkVisibility() && [a.textContent, a.getAttribute('href'), a.getAttribute('role')].join('|'); })(),
+        about: (() => { const a = document.getElementById('menuAbout'); return { shown: a.checkVisibility(), text: a.textContent, hidden: a.getAttribute('aria-hidden') }; })(),
+        describedBy: (() => { const id = m.getAttribute('aria-describedby'), d = id && document.getElementById(id); return d ? d.textContent : null; })(),
+        // the fade above the footer: into the panel's colour (the footer's ::before), never a mask showing the page through
+        fade: (() => { const f = getComputedStyle(m.querySelector('.footer'), '::before'), panel = getComputedStyle(m).backgroundColor;
+          return { mask: getComputedStyle(m).maskImage || getComputedStyle(m).webkitMaskImage || 'none', image: f.backgroundImage, panel }; })(),
+        live: !!m.querySelector('[aria-live]') };
+    });
+    await page.click('#machineBtn');
+    await waitFor(page, () => !document.getElementById('machineMenu').hidden);
+    const none = await menuState();
+    check(`machine menu (${label}): no ROMs stored: one line at the top, "No ROMs yet: every machine needs its own ROMs for BASIC.", and no tags (no legend)`,
+      none.top === 'No ROMs yet: every machine needs its own ROMs for BASIC.' && none.tags.length === 17 && none.tags.every((t) => t === null) && !none.legend, JSON.stringify(none));
+    check(`machine menu (${label}): every section shows its subtitle, as the data words it`,
+      none.subs.length === 5 && none.subs.every(([g, sub]) => sub === none.want[g]), JSON.stringify(none.subs));
+    check(`machine menu (${label}): every item carries its description as aria-description; no live region`, none.described && !none.live);
+    check(`machine menu (${label}): with no ROMs a screen reader hears the "No ROMs yet" line as the menu's description (aria-describedby)`,
+      none.describedBy === 'No ROMs yet: every machine needs its own ROMs for BASIC.', String(none.describedBy));
+    check(`machine menu (${label}): the band above the footer fades into the panel's colour, with no mask over the page`,
+      none.fade.mask === 'none' && none.fade.image.includes(none.fade.panel.replace(/\)$/, '')), JSON.stringify(none.fade));
+    check(`machine menu (${label}): the footer has "Which one is mine? →" to help/#machines, a menu item`, none.which === 'Which one is mine? →|help/#machines|menuitem', String(none.which));
+    // arrow focus: the footer line follows (visual only), and it matches the focused item's description
+    await page.keyboard.press('ArrowDown');
+    const f1 = await page.evaluate(() => [document.activeElement.getAttribute('aria-description'), document.getElementById('menuAbout').textContent]);
+    await page.keyboard.press('ArrowDown');
+    const f2 = await page.evaluate(() => [document.activeElement.getAttribute('aria-description'), document.getElementById('menuAbout').textContent]);
+    const ab = await menuState();
+    if (label === 'phone') {
+      check(`machine menu (${label}): no footer line on a phone (the description stays the item's aria-description); subtitles and the link show`,
+        !ab.about.shown && ab.subs.every(([, sub]) => !!sub) && !!ab.which && !!f2[0], JSON.stringify(ab.about));
+    } else {
+      check(`machine menu (${label}): arrow focus changes the footer line, which is the focused item's description, hidden from screen readers`,
+        f1[0] && f1[0] === f1[1] && f2[0] === f2[1] && f1[1] !== f2[1] && ab.about.shown && ab.about.hidden === 'true', JSON.stringify({ f1, f2, about: ab.about }));
+      await page.hover('[data-machine="cd6809"]');
+      check(`machine menu (${label}): hovering a model shows its line, in view at the menu's foot (on top at its centre): "Codimex CD-6809: a CoCo clone, 1983."`,
+        await waitFor(page, () => { const a = document.getElementById('menuAbout'), r = a.getBoundingClientRect(), e = document.elementFromPoint(r.left + 20, r.top + r.height / 2);
+          return a.textContent === 'Codimex CD-6809: a CoCo clone, 1983.' && r.bottom <= innerHeight && r.top >= 0 && !!e && a.contains(e); }),
+        JSON.stringify(await page.evaluate(() => document.getElementById('menuAbout').getBoundingClientRect().toJSON())));
+      if (shotDir) await page.screenshot({ path: path.join(shotDir, `machine-menu-noroms-${label}.png`) });
+    }
+    if (label === 'phone' && shotDir) await page.screenshot({ path: path.join(shotDir, `machine-menu-noroms-${label}.png`) });
+    await page.keyboard.press('Escape');
+    // one ROM set stored (a synthetic Dragon 32 BASIC, matched by its usual name): the tags come back, ✓ only where it boots
+    await dropFiles(page, [['d32.rom', fake(16384, 81)]]);
+    await waitFor(page, () => window.emu.session.storedRoms().count === 1);
+    await page.click('#machineBtn');
+    await waitFor(page, () => !document.getElementById('machineMenu').hidden);
+    const one = await menuState();
+    const boots = await page.evaluate(() => Object.keys(window.emu.profiles).filter((id) => window.emu.session.machineRoms(id).bootable));
+    check(`machine menu (${label}): with one ROM set stored, no top line, the tags on every row and ✓ only on the machines it boots (${boots.join(', ')})`,
+      one.top === null && one.describedBy === null && one.legend && one.tags.every((t) => t === '✓' || t === 'needs ROMs')
+      && one.ids.every((id, i) => (one.tags[i] === '✓') === boots.includes(id)) && boots.length >= 1, JSON.stringify({ tags: one.tags, boots }));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `machine-menu-roms-${label}.png`) });
+    // the link: Help's list of the machines, in a new tab
+    const [help] = await Promise.all([ctx.waitForEvent('page'), page.click('#menuWhich')]);
+    await help.waitForLoadState();
+    const listed = await help.evaluate(() => ({ hash: location.hash, models: document.querySelectorAll('#machines ~ dl dt[id^="machine-"]').length, head: !!document.getElementById('machines') }));
+    check(`machine menu (${label}): "Which one is mine? →" opens Help at #machines, which lists all 17 models`, listed.hash === '#machines' && listed.head && listed.models === 17, JSON.stringify(listed));
+    if (shotDir) await help.screenshot({ path: path.join(shotDir, `help-machines-${label}.png`) });
     await ctx.close();
   }
   check('ui model: no page errors', !errors.length, errors.join('; '));

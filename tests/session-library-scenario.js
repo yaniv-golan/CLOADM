@@ -21,14 +21,19 @@ const sha = (b) => crypto.createHash('sha256').update(Buffer.from(b)).digest('he
 const PROGRAM = new Uint8Array([0x55, 2, 0x30, 0, 0, 3, 0x30, 0, 0xAA, 0x12, 0x20, 0xFE]);
 // every file a store holds, by name, with its size and the hash of its bytes (no times: they are the clock's). A
 // quick-save slot's file carries the moment it was taken, so it is hashed as the snapshot it decodes to without that.
+// A snapshot file is gzip, and what the compressor writes is the machine's own (the header's operating system byte, and
+// a different deflate implementation gives other bytes and another length for the same contents): so a snapshot file
+// is counted by what it holds, the length of the state text it decodes to without `taken`, never by its stored size.
+const snapText = async (bytes) => { const snap = await Emu.decodeSnapshot(bytes); delete snap.taken; return Emu.state.toJSON(snap); };
+const reportSize = async (store, f) => (f.name.endsWith('.cloadm') ? (await snapText(await store.read(f.name))).length : f.size);
 async function storeReport(store) {
   const out = [];
   for (const prefix of ['library/', 'disks/', 'drivewire/', 'roms/', 'recent/', 'meta/']) {
     for (const f of await store.list(prefix)) {
       const bytes = await store.read(f.name);
       let hash = sha(bytes);
-      if (f.name.endsWith('.cloadm')) { const snap = await Emu.decodeSnapshot(bytes); delete snap.taken; hash = sha(Emu.state.toJSON(snap)); }
-      out.push({ name: f.name, size: f.size, sha: hash });
+      if (f.name.endsWith('.cloadm')) hash = sha(await snapText(bytes));
+      out.push({ name: f.name, size: await reportSize(store, f), sha: hash });
     }
   }
   return out.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
@@ -54,7 +59,7 @@ async function scenario(lib) {
   await lib(s).renameMedia('disks/GAME.DSK', 'TOOLS.DSK');
   await lib(s).renameMedia('library/HELLO.BIN', 'HI.BIN');
   await lib(s).deleteMedia('library/notes/readme.txt');
-  report.listing = (await lib(s).listMedia()).map((f) => ({ name: f.name, size: f.size }));
+  report.listing = await Promise.all((await lib(s).listMedia()).map(async (f) => ({ name: f.name, size: await reportSize(media, f) })));
   report.opened = sha(await lib(s).openMedia('disks/TOOLS.DSK'));
   const dl = await lib(s).downloadMedia('library/HI.BIN');
   report.download = { name: dl.name, sha: sha(dl.bytes) };
@@ -65,7 +70,7 @@ async function scenario(lib) {
   report.recent = lib(s).recentMedia();
   // a quick-save slot and the settings
   report.slot = await s.saveSlot(2);
-  report.slots = (await s.listSlots()).map((x) => ({ n: x.n, empty: !!x.empty, machine: x.machine || null, size: x.size || null }));
+  report.slots = await Promise.all((await s.listSlots()).map(async (x) => ({ n: x.n, empty: !!x.empty, machine: x.machine || null, size: x.size ? (await snapText(await media.read(`library/snapshots/slot-${x.n}.cloadm`))).length : null })));
   report.settings = JSON.stringify(s.exportSettings());
   // the moment
   const file = await s.snapshotFile(NOW);
@@ -79,7 +84,7 @@ async function scenario(lib) {
   await s.drives.eject(1);
   report.moved = await lib(s).moveMedia(there);
   report.movedStore = await storeReport(there);
-  report.after = (await lib(s).listMedia()).map((f) => ({ name: f.name, size: f.size }));
+  report.after = await Promise.all((await lib(s).listMedia()).map(async (f) => ({ name: f.name, size: await reportSize(there, f) })));
   report.remount = await s.drives.mount(0, 'work.vdk');
   report.movedDisk = sha(await there.read('disks/work.vdk'));
   return { snapshotFile: file.bytes, machine, report, s };

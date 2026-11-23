@@ -1,5 +1,5 @@
 // The welcome generation ticket: a start whose bytes were overtaken must be refused, but the start itself must
-// NOT invalidate its own ticket. startWelcome -> runWithoutRoms -> powerCycle calls endWelcome(), which bumps the
+// NOT invalidate its own ticket. startWelcome -> runWithoutRoms -> powerCycle calls endWelcome(m), which bumps the
 // ticket the caller just took, so a start on a machine that is not yet on the stub returns null and the menu never
 // appears (measured: after a machine switch, the visit check waits 30 s for "PRESS 1 TO 5" and never sees it).
 const fs = require('fs'), path = require('path');

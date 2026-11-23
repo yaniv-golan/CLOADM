@@ -96,7 +96,7 @@ export class DiskDrives {
     const had = !!m.cartPort;
     m.insertCartridge(new devices[choice.controller]({}));
     if (had) {
-      this.session.endWelcome();
+      this.session.endWelcome(m);   // the machine the controller is going into (the person's), not the one on screen
       this.session.keys.clear();
       m.reset(true);
       this.session.acc = 0;
@@ -207,7 +207,7 @@ export class DiskDrives {
     if (!choice) throw new SessionError(`The ${m.profile.name} can't take ${cartridgeRoms[id] ? `the ${cartridgeRoms[id].name}` : `"${id}"`}.`);
     if (!choice.ready) throw new SessionError(`The ${choice.name} needs its ROM (${cartridgeRoms[id].roms[0].files.join(', ')}). Load the ROM file first.`);
     this.flush();
-    this.session.endWelcome();
+    this.session.endWelcome(m);     // the machine the controller is going into (the person's), not the one on screen
     this.session.keys.clear();
     m.insertCartridge(new devices[choice.controller]({ rom: this.session.roms.get(id).rom }));
     m.reset(true);

@@ -197,6 +197,7 @@ export function setupTapePanel(page) {
     if ($('btnRealSpeed').getAttribute('aria-pressed') !== String(st.realSpeed)) $('btnRealSpeed').setAttribute('aria-pressed', String(st.realSpeed));
     put($('btnRealSpeed'), 'textContent', `Real speed: ${st.realSpeed ? 'on' : 'off'}`);
     put($('btnSkipTape'), 'hidden', st.progress >= 1);
+    put($('tapeBasicNote'), 'hidden', !session.basicRunning);   // BASIC's S and F: only while BASIC runs
     put($('btnTapeRetry'), 'hidden', !st.error);
     if (!panel.classList.contains('folded')) drawWave(st);
   }

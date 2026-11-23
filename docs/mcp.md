@@ -330,7 +330,7 @@ are open at once.
 | `reset`, `power_cycle` | the reset button; off and on (RAM cleared) | |
 | `set_display` | which of the Dragon 64 Plus's screens is shown (`main` or `plus`) | allowed |
 | `load` | run a file from the media root (binary, tape, cartridge, BASIC listing, disk into drive 0) or a bundled program (`welcome`, `liza`, `demo`, or the games `2048` and `minesweeper`). A listing is typed as NEW, its lines and RUN (`run: false` leaves out RUN), and the result says what the keyboard typed differently (`changed`) or could not type (`dropped`) | |
-| `insert_tape`, `insert_disk` | a tape in the deck, a disk in a drive (without your disk ROM, on the disk controller alone: programs that read the disk directly can use it, DIR and the other disk commands cannot) | |
+| `insert_tape`, `insert_disk` | a tape in the deck (with no BASIC running its message says there is no BASIC to type CLOAD into), a disk in a drive (without your disk ROM, on the disk controller alone: programs that read the disk directly can use it, DIR and the other disk commands cannot) | |
 | `save_snapshot`, `restore_snapshot` | the whole machine to a file under the media root, and back. `save_snapshot` writes only names ending `.cloadm-state`, replaces an existing file only if it is a snapshot, and never writes the server's config file | |
 | `add_roms` | store your own ROMs from the media root, an https URL or an upload (`source` `media`, `url` or `data`), with the checks in [Adding your ROMs](#adding-your-roms); only with a source you gave the agent | |
 | `remove_roms` | forget stored ROMs by name, or all of them | |
@@ -468,6 +468,10 @@ account or organization has yet.
 3. In your **next** message, ask for what you want ("type I AM HAPPY and tell me what LIZA says", "play 2048",
    "write a 6809 program that fills the screen and run it"). The view registers its tools after it has loaded, so
    Claude can use them from the next turn, not in the one that opened it. Claude asks you to approve each call.
+   **On the Claude iOS app**, set the CLOADM connector's **Permission** to **Manually approve** so Claude can type into
+   and run the machine: with the default setting the app blocks every tool that is not read-only without showing a
+   prompt (Claude may report that the call needed your approval and none came). Read-only tools work either way. The
+   view never sees a call the app blocked, so it cannot warn you itself; the same note is under **Details**.
 
 **The tools in the panel** are the ones in [The tools](#the-tools), with the same names, arguments and results
 (`machine_output` with its `untrusted` note included), run by the view on the machine on screen:

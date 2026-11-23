@@ -221,6 +221,7 @@ node tests/audio-worklet.test.js  # the AudioWorklet path: queue order, underrun
 node tests/keyqueue.test.js  # fast typing: bursts read back from the keyboard matrix on every family and typed into LIZA, in order and complete
 node tests/roms.test.js      # ROM identification across machines (synthetic images only), library, offers
 node tools/gen-rom-docs.js   # regenerate docs/roms.md from the profiles (tests/romdocs.test.js checks it)
+node tools/gen-machine-help.js   # regenerate Help's list of machines from the menu data (tests/machine-menu.test.js checks it)
 node tools/gen-page-preload.js  # regenerate the <link rel="modulepreload"> list in play/index.html (tests/pagepreload.test.js checks it)
 node tools/page-load.js      # how long /play/ takes to start over a throttled link: modulepreload's effect (see below)
 node tools/flicker-measure.js # a .cas dropped on stored ROMs, first visit vs repeat: DOM mutations, layout shifts, canvas
@@ -260,6 +261,7 @@ node tests/cpu6309-session.test.js # the HD6309 runs the 6809 builds: welcome me
 node tests/returning.test.js # returning visits: greetings, carry-on (option 6; 5 on the 6803 build), what ran last, back to the menu from LIZA (BYE or BREAK) and the demo
 node tests/welcome-on-screen.test.js # "on screen now" (Session.welcomeOnScreen: the menu loaded on the machine shown, not stopped by the Debugger, and drawn) and 'lastrun', which "Last time" follows; the page side is the browser check's returning group (onScreenChecks)
 node tests/debugger-stop.test.js # a Debugger stop in the Session: Reset, a power cycle, a load and a switch release a Debugger stop (breakpoints kept, 'launch' and 'released' emitted), typing while stopped is refused once per stop, the status line says Stopped or Paused; the page side is the browser check's debugger group (debuggerStopChecks)
+node tests/menu-return.test.js # a program's return to the menu survives the chat: BYE in LIZA and the demo's key after the full-screen chat opened and closed, the watch waiting while the chat machine is on screen, Reset restarting what ran on each machine
 node tests/power-on.test.js  # without ROMs: Reset restarts what runs; power-on, a machine switch and a snapshot of the stub's prompt bring the welcome menu (6809 and 6803)
 node tests/welcome6803.test.js # the 6803 welcome on mc10 and alice: raw screen cells, per-machine subtitle, keys, the two builds differ only at the HALT
 node tests/regress.test.js                # the trace and frame hashes of the diagnostic firmware, against their recorded values (no MAME needed; about a minute of work on one core, and tests/all.js runs it in parallel shards; --count prints the number of cases, --only <name or /regex/> runs some of them, e.g. --only dragon64 while changing one thing)

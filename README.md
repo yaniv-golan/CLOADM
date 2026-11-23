@@ -116,7 +116,7 @@ that won't load, a disk that shows nothing and the keyboard.
 | **MC-10** | MC-10, Matra Alice | 6803 · MC6847 | ✅ trace · ✅ video 20/20 on the MC-10 |
 | **CLONES** | Dynacom MX-1600, LZ Color64, Codimex CD-6809 | 6809 · MC6847 | ✅ trace |
 
-Pick the machine from the menu at the top left of the emulator. RAM, CPU and the CPU rate are in Machine settings (in the settings drawer, or **RAM, CPU and speed…** in the machine menu).
+Pick the machine from the menu at the top left of the emulator: each section says what it holds, the model under the pointer or the focus is described at its foot, and **Which one is mine? →** opens [Help's list of the machines](help/#machines) with the ROMs each one takes. RAM, CPU and the CPU rate are in Machine settings (in the settings drawer, or **RAM, CPU and speed…** in the machine menu).
 Per-machine notes, RAM options and the chip-by-chip list: [docs/machines.md](docs/machines.md).
 
 ## What works

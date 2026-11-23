@@ -327,14 +327,14 @@ function decideWithHostileDom(I) {
     const fb = loadFeedback(w);
     w.box._rect = { left: 8, top: 760, right: 382, bottom: 800, width: 374, height: 40 };
     raise(fb, 'pinned first'); w.frame(); w.frame();
-    check('setup (B1): a toast with nowhere free pinned, leaving class="top" on the region', w.region.classList.contains('top'),
+    check('setup: a toast with nowhere free pinned, leaving class="top" on the region', w.region.classList.contains('top'),
       `top=${w.region.classList.contains('top')}`);
     // Now a toast that lands at a PLACED spot. The phone's top-edge attempt (area.top+8) needs a free row, so shrink
     // the covering control to leave the top clear: with the region still carrying 'top', placedAt must clear it.
     Object.assign(w.controls[0], { top: 300, bottom: 800, height: 500 });
     fb.clear(); w.frame();
     raise(fb, 'placed after pinned'); w.frame(); w.frame();
-    check('setup (B1): the second toast is placed, not pinned', !w.region.classList.contains('top') && w.region.style.left !== '',
+    check('setup: the second toast is placed, not pinned', !w.region.classList.contains('top') && w.region.style.left !== '',
       `top=${w.region.classList.contains('top')} left=${JSON.stringify(w.region.style.left)}`);
     const clsBase = w.classWrites('toastRegion').length;
     for (let i = 0; i < 60; i++) w.frame();
@@ -348,13 +348,13 @@ function decideWithHostileDom(I) {
     const fb = loadFeedback(w);
     fb.toast('something failed', { error: true });
     w.frame(); w.frame();
-    check('setup (B2): the error toast left class="error" on the toast', w.box.classList.contains('error'),
+    check('setup: the error toast left class="error" on the toast', w.box.classList.contains('error'),
       `error=${w.box.classList.contains('error')}`);
     w.box._rect = { left: 248, top: 300, right: 873, bottom: 340, width: 625, height: 40 };   // a free place: natural
     fb.toast('a natural one');   // (show() clears error, then place decides natural)
     w.frame(); w.frame();
     const I = fb.readPlacementInputs();
-    check('setup (B2): the second toast decided the natural branch', (globalThis.__decide(I) || {}).kind === 'natural',
+    check('setup: the second toast decided the natural branch', (globalThis.__decide(I) || {}).kind === 'natural',
       (globalThis.__decide(I) || {}).kind);
     const clsBase = w.classWrites('toast').length;
     for (let i = 0; i < 60; i++) w.frame();

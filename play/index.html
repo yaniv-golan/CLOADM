@@ -91,8 +91,18 @@
   /* an empty recent list says "Nothing loaded yet": not under a "Last time" (drawer.js marks it) */
   #lastTime:not([hidden]) ~ .recent-empty { display: none; }
   /* more models below the fold (machine-panel.js sets it while the list can scroll further): the bottom fades */
-  #machineMenu.more-below { -webkit-mask-image: linear-gradient(#000 calc(100% - 48px), transparent); mask-image: linear-gradient(#000 calc(100% - 48px), transparent); }
-  #machineMenu .group-name { font-size: 14px; letter-spacing: .06em; color: var(--muted); padding: 2px 8px 6px; }
+  /* (the footer stays at the bottom, so the models fade into the panel's colour above it, never into the page) */
+  #machineMenu .footer::before { content: ''; position: absolute; left: 0; right: 0; bottom: 100%; height: 48px; pointer-events: none;
+    background: linear-gradient(transparent, var(--panel)); opacity: 0; }
+  #machineMenu.more-below .footer::before { opacity: 1; }
+  /* the footer stays in view while the models scroll: its line for the model under the pointer or the focus too */
+  #machineMenu .footer { position: sticky; isolation: isolate; bottom: -14px; background: var(--panel); padding-bottom: 14px; margin-bottom: -14px; z-index: 1; }
+  #machineMenu .group-name { font-size: 14px; letter-spacing: .06em; color: var(--muted); padding: 2px 8px 0; }
+  #machineMenu .group-sub { font-size: 13px; color: var(--text-3); padding: 0 8px 6px; }
+  #menuNoRoms { grid-column: 1 / -1; margin: 0; padding: 4px 8px 8px; font-size: 15px; color: var(--text-2); }
+  #menuWhich { align-self: center; padding: 10px 8px; min-height: 44px; box-sizing: border-box; display: inline-flex; align-items: center; color: var(--phosphor); }
+  #menuAbout { flex-basis: 100%; margin: 0; padding: 0 8px 4px; min-height: 1.4em; font-size: 14px; color: var(--text-2); }
+  @media (max-width: 700px) { #menuAbout { display: none; } }
   #machineMenu button { display: flex; width: 100%; justify-content: space-between; gap: 10px; text-align: left; background: transparent;
     border: 0; border-radius: var(--r-8); padding: 8px; min-height: 40px; }
   #machineMenu button:hover { background: var(--line); }
@@ -247,6 +257,8 @@
   /* a touch screen: the toast's buttons (Undo, Switch off and on…) are full-size tap targets */
   body:is(.touch-keys, .touch-hidden) #toastAction, body:is(.touch-keys, .touch-hidden) #toastText button.inline { min-height: 44px; }
   body:is(.touch-keys, .touch-hidden) #toastText button.inline { display: inline-flex; align-items: center; vertical-align: middle; }
+  /* on a phone the button standing in the sentence is a tap target: 44 px high */
+  @media (pointer: coarse), (max-width: 600px) { #toastText button.inline { min-height: 44px; padding: 0 14px; } }
   #toastDetails { flex-basis: 100%; font-size: 14px; color: #2A302C; overflow-wrap: anywhere; }
   #toastAlso { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; overflow-wrap: anywhere; }
   #toastAlso[hidden] { display: none; }
@@ -1837,8 +1849,8 @@ npx serve -l 8000 .</pre>
         <div class="bar"><button id="btnRealSpeed" class="pill" aria-pressed="false">Real speed: off</button>
           <button id="btnSkipTape" class="pill">Skip the tape (load instantly)</button>
           <button id="btnTapeRetry" class="pill warn" hidden>Rewind and try again</button></div>
-        <p class="muted">The screen shows BASIC's own S and F in its top-left corner while it searches and finds, and the line on
-          the screen's border says where the tape is. Tape sound (its switch there, or the Media tab) plays the tape as a recorder's
+        <p class="muted"><span id="tapeBasicNote">The screen shows BASIC's own S and F in its top-left corner while it searches and finds, and the line on
+          the screen's border says where the tape is.</span> Tape sound (its switch there, or the Media tab) plays the tape as a recorder's
           speaker would. Turn on real speed to load at the original pace. A read error marks the block and offers a rewind, as it once taught us to adjust the volume.</p>
       </div>
     </section>

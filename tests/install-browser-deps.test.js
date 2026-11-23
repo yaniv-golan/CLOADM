@@ -26,6 +26,53 @@ const fs = require('fs'), os = require('os'), path = require('path'), cp = requi
 
 let fail = 0;
 const check = (name, cond, detail = '') => { if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log(`ok   ${name} ${detail}`); };
+// the one place a summary is printed (a suite has exactly one summary-shaped output: tests/allsummary.test.js), for the run
+// that skips and the run that does not
+function done(what) { console.log(fail ? `${fail} FAILED` : `all ${what} passed`); process.exitCode = fail ? 1 : 0; }
+// The script runs only on Linux runners and the test drives it with setsid and /proc (the lock holders and the process
+// groups it checks are Linux's): on a machine without them (macOS) the test says SKIP with that reason instead of failing
+// with "setsid: command not found". On CI (CI set, on Linux) it never takes that path: a missing setsid there is a failure.
+// -> the reason to skip, or null to run; throws when CI on Linux lacks what the test needs
+const NEEDS = 'needs Linux: setsid and /proc';
+function skipReason({ platform, env, haveSetsid, haveProc }) {
+  if (haveSetsid && haveProc) return null;
+  if (platform === 'linux' && env.CI) throw new Error(`CI on Linux must run this test, but ${haveSetsid ? '' : 'setsid '}${haveProc ? '' : '/proc '}is missing`);
+  return NEEDS;
+}
+{
+  const probe = { platform: 'linux', env: {}, haveSetsid: true, haveProc: true };
+  const throws = (o) => { try { skipReason(Object.assign({}, probe, o)); return false; } catch (e) { return /CI on Linux must run/.test(e.message); } };
+  check('skip rule: setsid and /proc present: run', skipReason(probe) === null);
+  check('skip rule: no setsid on a Mac (no CI): skip, with the reason', skipReason(Object.assign({}, probe, { platform: 'darwin', haveSetsid: false, haveProc: false })) === NEEDS);
+  check('skip rule: no setsid on Linux outside CI: skip, with the reason', skipReason(Object.assign({}, probe, { haveSetsid: false })) === NEEDS);
+  check('skip rule: CI on Linux without setsid is a failure, never a skip', throws({ env: { CI: '1' }, haveSetsid: false }));
+  check('skip rule: CI on Linux without /proc is a failure, never a skip', throws({ env: { CI: '1' }, haveProc: false }));
+  check('skip rule: CI on a Mac is not Linux: skip', skipReason(Object.assign({}, probe, { platform: 'darwin', env: { CI: '1' }, haveSetsid: false })) === NEEDS);
+}
+{
+  let reason;
+  try {
+    reason = skipReason({ platform: process.platform, env: process.env,
+      haveSetsid: cp.spawnSync('sh', ['-c', 'command -v setsid >/dev/null']).status === 0, haveProc: fs.existsSync('/proc/self/fd') });
+  } catch (e) { check('this machine can run the test (CI never skips it)', false, e.message); process.exitCode = 1; return; }
+  if (reason) {
+    console.log(`SKIP ${reason}`);
+    // (the suites' verdict wants a summary line last: the skip rule's own cases are what ran)
+    done('skip-rule checks');
+    return;   // (module scope: nothing below runs)
+  }
+}
+// the skip path end to end, as a machine without setsid takes it (an empty PATH here: no setsid, no sh to find it with): the
+// SKIP line, a summary last as the suites' verdict wants it (tests/suite-verdict.js), exit 0; and on CI (CI set, on Linux)
+// a failure, never that path
+if (process.platform === 'linux') {
+  const suiteVerdict = require('./suite-verdict');
+  const run = (env) => cp.spawnSync(process.execPath, [__filename], { encoding: 'utf8', env: Object.assign({ PATH: '/nonexistent' }, env) });
+  const noCi = run({}), ci = run({ CI: '1' });
+  check('a machine without setsid: the run prints SKIP with the reason, a summary last, and exits 0',
+    noCi.status === 0 && /^SKIP needs Linux: setsid and \/proc$/m.test(noCi.stdout) && suiteVerdict.hasSummary(noCi.stdout), `${noCi.status} ${noCi.stdout.split('\n').slice(-3).join(' | ')}`);
+  check('CI on Linux without setsid: the run fails (a FAIL line, exit 1) and never prints SKIP', ci.status === 1 && /^FAIL /m.test(ci.stdout) && !/^SKIP /m.test(ci.stdout), `${ci.status} ${ci.stdout.split('\n').slice(-2).join(' | ')}`);
+}
 const SCRIPT = path.join(__dirname, '..', '.github', 'scripts', 'install-browser-deps.sh');
 const REAL = fs.readFileSync(SCRIPT, 'utf8');
 const NEEDED = ['fonts-unifont', 'xfonts-utils'];   // what Playwright's list needs that the "image" lacks
@@ -226,5 +273,4 @@ for (const wf of ['tests.yml', 'browser-daily.yml']) {
     /timeout-minutes: \d+\n\s+run: \.github\/scripts\/install-browser-deps\.sh/.test(t) && /key: playwright-debs-[\d.]+-\$\{\{ steps\.image\.outputs\.image \}\}/.test(t));
 }
 
-console.log(fail ? `${fail} FAILED` : 'all passed');
-process.exitCode = fail ? 1 : 0;
+done('install-browser-deps checks');

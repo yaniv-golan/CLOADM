@@ -274,6 +274,9 @@ async function uiScenario(browser, check, { shots = null } = {}) {
     const after = await v.evaluate(() => ({ open: document.getElementById('details').open, st: document.getElementById('st').checkVisibility(), text: document.getElementById('st').textContent, msg: document.getElementById('msg').textContent }));
     check('connector ui: ⋯ → Details opens every diagnostic (variant, host, mode, csp, storage, audio, bridge) and the raw load line', after.open && after.st
       && ['variant: site', 'host: host-stub', 'mode: inline', 'csp: resourceDomains', 'storage: localStorage ok', 'audio: off until a click', 'bridge: init', 'list_changed sent'].every((x) => after.text.includes(x)) && /liza\.bin: .*exec \$3000/.test(after.msg), JSON.stringify(after));
+    const hint = await v.evaluate(() => { const p = document.querySelector('#details p.approve'); return { shown: !!p && p.checkVisibility(), text: p ? p.textContent : null }; });
+    check('connector ui: Details says that on the Claude iOS app the connector must be set to "Manually approve" (a call the app blocks never reaches the view)', hint.shown
+      && hint.text === 'On the Claude iOS app, set the CLOADM connector\'s Permission to "Manually approve" so Claude can type into and run the machine; read-only tools work either way.', JSON.stringify(hint));
     await v.click('#more'); await v.click('#copy');
     await page.waitForTimeout(300);
     const copied = await v.evaluate(() => document.getElementById('status').textContent);

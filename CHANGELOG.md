@@ -10,6 +10,27 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Added
 
+- **Side panel on the Claude iOS app: "Manually approve".** With the CLOADM connector's Permission on its default
+  setting, the iOS app blocks the panel's tools that are not read-only (type_text and the rest) without showing a
+  prompt. The panel's **Details**, the side-panel guide (`docs/mcp.md`) and the phone check in
+  `docs/deploy-connector.md` now say to set the connector to **Manually approve**; the connector's instructions (the
+  skill's connector essentials, so the Worker's instructions hash changes) tell Claude to say the same when a call
+  fails for want of an approval that never came. The view cannot warn by itself: a call the app blocks never reaches
+  it, the app's tool-input and tool-result notifications carry no call id, and nothing tells the view about a
+  call the app blocked.
+- **The machine menu says what each machine is.** With no ROMs stored at all, one line at the top, "No ROMs yet:
+  every machine needs its own ROMs for BASIC.", replaces the 17 "needs ROMs" tags; the ✓ / needs ROMs tags come back
+  once any ROMs are stored. Each section has a subtitle (DRAGON "Dragon Data's machines and their Spanish and US
+  versions", COCO "Tandy's Color Computers", MC-10 "Tandy's MC-10 and the French Matra Alice", CLONES "Brazilian
+  copies of the CoCo", KITS naming what it holds, today the Prológica CP-400). The footer, kept in view while the
+  models scroll, shows one line for the model under the pointer or the focus ("Codimex CD-6809: a CoCo clone,
+  1983."), visual only: each item carries the same words as its aria-description (none on a phone); with no ROMs a
+  screen reader hears the "No ROMs yet" line as the menu's description. The models fade into the panel above the
+  footer. The
+  footer's new **Which one is mine? →** opens Help's new **Which machine is mine?** section (`help/#machines`), every
+  model with what it is and the ROMs it takes by the names Your ROMs uses, generated from the data by
+  `node tools/gen-machine-help.js`. The descriptions are data in `js/machines/menu.js` (`SUBTITLES`, `DESCRIPTIONS`,
+  `describe`), each stating only what its cited MAME 0.264 driver lines say.
 - **The Speech/Sound Pak speaks.** Its SP0256 now turns its parameters into sound: the pitch impulses or noise, the
   six-stage filter with the chip's coefficient table, and its output, at MAME's level, through the cartridge sound
   mux with the Pak's music. It speaks from your own allophone ROM (the SP0256-AL2's), which you add in the ROM panel;
@@ -210,6 +231,10 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
   1 disk", "Paused"), and wears a dot while media is in ("Menu (media inserted)"). Turning the phone with a sheet open
   keeps it open on the same tab. Upright the keys' strip has no Menu of its own any more (the app bar's is the one
   Menu): Hide keys is in the Power sheet.
+- **A tape put in with no BASIC running says so.** With no ROMs in use, or before BASIC has printed OK, the toast reads
+  "<name> is in the deck. There's no BASIC to type CLOAD into: Load it now", and Load it now loads the tape's program and
+  starts it (the same as Skip the tape). With BASIC running the toast is as before, and the deck's line about BASIC's
+  own S and F shows only then.
 - **Booting NitrOS-9 releases a Debugger stop**, as the other launches do: an accepted boot releases it once and
   the machine runs; a refused boot (a Multi-Pak in the port, say) keeps it. The boot's own held mount of its disk
   launches nothing by itself.
@@ -365,6 +390,14 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
   and the camera on an iPhone.
 - **Menu's "Install…" label on a phone keeps its space**: it read "InstallCLOADM…" (the space before "CLOADM…" was
   dropped where the Menu lays its items out).
+- **BYE in LIZA was lost after opening the chat: the welcome menu never came back.** The full-screen chat runs on a
+  second machine of its own while the BASIC session keeps running beside it, but the chat's own start of its
+  firmware ended the BASIC session's menu watch (and its Reset program), and the watch treated the chat machine on
+  screen as the watched machine being replaced. Opening and closing the chat now leaves the BASIC session and its
+  program as they were: BYE in LIZA still brings the menu, a key while the colour demo draws still asks for it, and
+  Reset still restarts what ran there. While the chat is on screen the watch waits, since the menu is a start on the
+  machine in use, and starts when the BASIC session is back on screen.
+
 - **A long line typed on the chat screen goes whole, up to 1024 characters.** The chat firmware's line held 255
   characters (its lengths were single bytes) and the keys after the 255th were not sent: a 269-character prompt
   arrived as its first 255, and the screen only flashed. The line now holds 1024 (16-bit lengths, the buffer at
@@ -511,6 +544,9 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
 - **A steadier disk-mount browser check.** "The program ran on through the mount" required the test program's
   16-bit idle count to be higher after the mount than before, but the count wraps every 1.9 s, so a slow mount read
   as a stopped program. The check now requires that the count moved.
+- The release workflow's publish job had no checkout, so `gh release create` failed with "not a git repository": its step
+  now sets `GH_REPO`, and `tests/workflows-release.test.js` checks that every job that runs `gh` checks out or names the
+  repository.
 
 ### 0.1.9-pre
 

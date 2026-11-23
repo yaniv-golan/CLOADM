@@ -363,5 +363,48 @@ const workflowLevelPerms = (text) => {
   }
 }
 
+// ---- `gh` needs to know the repository ----
+// A job with no checkout has no git repository, so `gh release create` (and every other gh command) fails with "not a
+// git repository" unless GH_REPO is in the step's env or the command says --repo. The publish job went to a tag without
+// it: a dry run skips publish (its `if` wants a tag), so nothing ran that gh invocation. This reads the workflow files
+// instead, and runs inside `gates` (tests.yml runs every suite), which a dry run does run.
+// -> the [job, step] pairs whose run block calls `gh` in a job with no checkout and no GH_REPO / --repo
+function ghWithoutRepo(text) {
+  const bad = [];
+  for (const [name, j] of Object.entries(jobs(text))) {
+    if (/uses\s*:\s*actions\/checkout@/.test(j.text)) continue;
+    // steps: split at the "- " that starts each one (the first key may be on that line)
+    const steps = j.text.split(/^(?=\s*-\s)/m);
+    for (const st of steps) {
+      const run = /^\s*(?:-\s+)?run\s*:\s*([\s\S]*)$/m.exec(st) || /^\s+run\s*:\s*([\s\S]*)$/m.exec(st);
+      if (!run || !/(^|[\s;&|(`$])gh\s+[a-z]/.test(run[1])) continue;
+      if (/^\s*GH_REPO\s*:\s*\S/m.test(st) || /--repo[\s=]|\s-R\s/.test(run[1])) continue;
+      bad.push(name);
+    }
+  }
+  return bad;
+}
+{
+  const files = fs.readdirSync(WF).filter((f) => /\.ya?ml$/.test(f));
+  const ghFiles = files.filter((f) => /(^|[\s;&|(`$])gh\s+[a-z]/.test(code(f)));
+  check('(set-up) release.yml calls gh, so the check below has something to look at', ghFiles.includes('release.yml'), ghFiles.join(' '));
+  for (const f of files) {
+    const bad = ghWithoutRepo(code(f));
+    check(`${f}: every job that runs gh checks out, or sets GH_REPO, or says --repo`, bad.length === 0, bad.join(', '));
+  }
+  // the check bites: synthetic workflows (a job's text is all it reads)
+  const wf = (steps, checkout = false) => `name: x\non: push\njobs:\n  publish:\n    runs-on: ubuntu-24.04\n    steps:\n${checkout ? '      - uses: actions/checkout@abc\n' : ''}${steps}`;
+  const noRepo = `      - name: Publish\n        env:\n          GH_TOKEN: x\n        run: |\n          gh release create "$T" a.zip\n`;
+  const withEnv = `      - name: Publish\n        env:\n          GH_TOKEN: x\n          GH_REPO: \${{ github.repository }}\n        run: |\n          gh release create "$T" a.zip\n`;
+  const withFlag = `      - name: Publish\n        run: |\n          gh release create "$T" a.zip \\\n            --repo "$R"\n`;
+  const noGh = `      - name: Build\n        run: |\n          echo "ghost story" > x\n`;
+  check('a job with no checkout and a bare gh is caught', ghWithoutRepo(wf(noRepo)).length === 1, JSON.stringify(ghWithoutRepo(wf(noRepo))));
+  check('... it is fine with a checkout', ghWithoutRepo(wf(noRepo, true)).length === 0);
+  check('... fine with GH_REPO in the step\'s env', ghWithoutRepo(wf(withEnv)).length === 0);
+  check('... fine with --repo on the command', ghWithoutRepo(wf(withFlag)).length === 0);
+  check('... a step with no gh command (a word that merely starts with gh) is not flagged', ghWithoutRepo(wf(noGh)).length === 0);
+  check('... GH_REPO in ANOTHER step does not cover this one', ghWithoutRepo(wf(withEnv.replace('gh release', 'echo') + noRepo)).length === 1);
+}
+
 console.log(fail ? `${fail} FAILED` : 'all release-workflow checks passed');
 process.exitCode = fail ? 1 : 0;
