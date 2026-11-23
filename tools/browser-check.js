@@ -4918,8 +4918,11 @@ async function phoneChecks(browser, base, check) {
     await p.click('#btnPause');
     const works = await p.textContent('#btnPause');
     await p.click('#btnPause');
-    check('desktop: .slots and the drawer where they were before the phone layout (1440 x 900); after the touch keys on (the controls moved into the sheets) and off, back in place and in their order, and a moved button still works',
-      JSON.stringify(before.rects) === JSON.stringify(baseline) && movedIn && JSON.stringify(after) === JSON.stringify(before) && works === 'Resume',
+    // (the baseline was measured on the page before the phone layout, on another machine: its fonts can round a box by a
+    // pixel, so it is matched within 1 px; before and after here are the same page and must be exactly equal)
+    const near = before.rects.every((r, i) => r.every((v, j) => Math.abs(v - baseline[i][j]) <= 1));
+    check('desktop: .slots and the drawer where they were before the phone layout (1440 x 900, within 1 px of the measure taken then); after the touch keys on (the controls moved into the sheets) and off, back in place exactly and in their order, and a moved button still works',
+      near && movedIn && JSON.stringify(after) === JSON.stringify(before) && works === 'Resume',
       JSON.stringify({ baseline, before, movedIn, after, works }));
     const dup = await p.evaluate(() => { const seen = new Set(), d = []; for (const e of document.querySelectorAll('[id]')) { if (seen.has(e.id)) d.push(e.id); seen.add(e.id); } return d; });
     check('desktop: no duplicate ids anywhere', dup.length === 0, dup.join());
