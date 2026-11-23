@@ -709,15 +709,23 @@ function decideWithHostileDom(I) {
     // `probe` (which the compare stringifies) and from the object `settle()` records. Dropping it from only one leaves
     // the two keys permanently unequal, which fails everything and proves nothing about that field.
     //
-    // Measured with that both-keys drop, over readInputs()'s nine fields:
+    // Measured with that both-keys drop, over readInputs()'s eleven fields:
     //   CAUGHT BY NAME (5): area, active, screen, box, classes. (classes decides nothing itself -- decide() does not read
     //     it -- but it is in the key, so a class change that should re-place a toast does; dropping it loses that.)
     //   CAUGHT BY NAME PLUS ITS NEIGHBOURS (1): controls, whose change also moves what the other cases measure.
     //   SURVIVE THE DROP (3), and correctly: phone, tube and canvas -- each one an input decide() really reads, whose
     //     value the key also carries elsewhere (phone is area's own width test; tube and canvas are rects inside screen),
     //     so dropping it alone changes nothing the placement can see.
-    // The test does not claim the three: they are carried in the key by construction (one object, one stringify) but
-    // their loss is invisible to the placement because another field already carries the same value.
+    //   SURVIVE THE DROP HERE (2), and are caught by the browser check instead: sideKeys and barBottom. Unlike the three
+    //     above, each is an input the placement really reads whose value NO other field carries (sideKeys is a body class
+    //     and a media query: with it a sideways touch phone's toast takes the band under the picture, without it the
+    //     toast falls to the fixed top slot; barBottom is the app bar's bottom edge: without it the top slot stops
+    //     standing under the bar), so their loss does change what the page does. This suite has no case that sets either:
+    //     its sandbox has no touch-keys body class with a landscape window and no app bar, so it cannot see the drop.
+    // The test does not claim the five: the three are carried in the key by construction (one object, one stringify) but
+    // their loss is invisible to the placement because another field already carries the same value; the two are claimed
+    // where the page has what they read: `feedbackModel`'s sideways-phone check (sideKeys: the toast under the picture,
+    // not in the top slot) and `mobile`'s "lies under the app bar" check (barBottom), each measured red against the drop.
     // (readInputs also carried winW, winH and view. Nothing read any of them -- not decide(), not the band writer, not the
     // pinned slot, not anything else -- so their only effect was a re-decide whose answer was identical, and they are
     // gone. How each was covered, precisely -- not the same way for the three:
@@ -726,8 +734,9 @@ function decideWithHostileDom(I) {
     //   view        not by `area` at all: it was constant while a toast is placed, because place() returns before
     //               deciding when the page is not the emulator, so it never varied.
     // And the window's width is still read directly elsewhere: `phone` is `innerWidth <= 700` on the line below.)
-    // NOTE: none of these nine mutants is caught by `--only feedback`, measured by running that group against one of
-    // them (it passed 46/46); only this suite drives the placement model the key belongs to.
+    // NOTE: none of the first nine of these mutants is caught by `--only feedback`, measured by running that group against
+    // one of them (it passed 46/46); only this suite drives the placement model the key belongs to. The last two, sideKeys
+    // and barBottom, are not caught by this suite either, but by the `feedbackModel` and `mobile` browser groups above.
     const cases = [
       ['area.top (the safe-area inset)', ({ w }) => { w.sandbox.__safeTop = 30; }],
       ['active (the screen\'s visible text)', ({ w }) => { w.screen.dataset.active = '0,0.4,1,0.9'; }],

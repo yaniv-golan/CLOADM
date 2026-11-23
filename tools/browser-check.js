@@ -4185,6 +4185,26 @@ async function feedbackModelChecks(browser, base, check) {
     await frames(page);
     const k = await state(page);
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `feedback-keys-${label}.png`) });
+    if (label === 'sideways') {
+      // A phone held sideways with the touch keys (readInputs().sideKeys): the screen column has the window's height
+      // and the picture sits in the middle of its tube, so there is no free spot beside the picture (the stylesheet's
+      // place and the top edge both cross the screen) and the toast takes the band under the picture's text, which
+      // reaches the tube's FOOT, the black glass under the picture. Without sideKeys the band is cut at the picture's
+      // own bottom, leaves no room (the text ends at the picture's foot), and the toast falls to the fixed slot at the
+      // top of the viewport, across the picture. So it must sit below the screen's text and the picture, inside the
+      // tube, and not in that slot. (Mutant: drop sideKeys from decide() in js/ui/feedback.js: the toast is in the top
+      // slot, above the picture's bottom, and this fails.)
+      const p = await page.evaluate(() => {
+        const rect = (e) => { const o = e.getBoundingClientRect(); return { left: o.left, top: o.top, right: o.right, bottom: o.bottom }; };
+        const cv = document.getElementById('screen'), c = rect(cv), t = rect(document.querySelector('#monitor .tube')), b = rect(document.getElementById('toast'));
+        const f = (cv.dataset.active || '0,0,1,1').split(',').map(Number), textBottom = c.top + f[3] * (c.bottom - c.top);
+        return { sideKeys: document.body.classList.contains('touch-keys') && matchMedia('(orientation: landscape) and (max-height: 500px)').matches,
+          pinned: document.getElementById('toastRegion').classList.contains('top'), box: [b.left, b.top, b.right, b.bottom].map(Math.round),
+          canvasBottom: Math.round(c.bottom), textBottom: Math.round(textBottom), tube: [t.left, t.top, t.right, t.bottom].map(Math.round) };
+      });
+      check('feedback model (sideways phone, keys showing): with no free spot the toast sits in the band under the picture: below the screen\'s text and the picture, inside the tube\'s foot, not in the fixed top slot',
+        k.up && k.seen && p.sideKeys && !p.pinned && p.box[1] >= p.textBottom && p.box[3] > p.canvasBottom && p.box[3] <= p.tube[3] && p.box[0] >= p.tube[0] && p.box[2] <= p.tube[2], JSON.stringify({ k, p }));
+    }
     // shown where it covers no key and none of the screen's text, or, with no such place, kept (past its 4 s) and
     // shown once the keys hide and there is room (a toast is never dropped and never covers the screen's text)
     let after = null;
