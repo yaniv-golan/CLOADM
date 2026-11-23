@@ -17,9 +17,12 @@
 //    a toast does not bring any other forward: there is nothing behind it to advance to.
 //  * The user's next action (pointerdown outside the toast) clears a toast that has been seen (next(), line 217);
 //    leaving its page clears it (viewChanged()), and pagehide ends it ('closed').
-// Not asserted here: the timer of a toast that REPLACES a focused one while the focus is still inside the box. The
-// replacement is armed without a new focusin, so its 4 s run although the focus sits in the box: whether that meets
-// R24 (kept while focused) is a question for the maintainers, not something this file settles by asserting it.
+//  * UX R45: a new toast replaces a focused or hovered one, without hiding the box; it starts paused while the focus
+//    is inside the box (or the pointer over it), and its full time runs from the focusout or pointerleave. The focus
+//    stays on the action button only for the same action object, else it moves to the box (tabindex -1).
+//  * UX R45: a toast with no free place takes the top slot at once, provisionally: while a control is still in an
+//    animation of its own (300 ms at most) it moves to a free place as soon as one opens; then it is pinned for good.
+//    A hovered or focused provisional toast is not moved.
 const path = require('path');
 
 let fail = 0;
@@ -60,7 +63,9 @@ class El {
   matches() { return false; }
   contains(n) { return n === this || this.kids.includes(n); }
   setAttribute() {} removeAttribute() {}
+  focus() { document.activeElement = this; focusCalls.push(this.id); }
 }
+const focusCalls = [];
 const els = {};
 const get = (id) => (els[id] = els[id] || new El(id));
 const box = get('toast'); box.kids = []; box.matches = (sel) => sel === ':hover' && state.hover;
@@ -68,10 +73,13 @@ const region = new El('toastRegion'); box.parentNode = region;
 const inside = new El('toastButton'); box.kids.push(inside);   // something inside the toast that can hold the focus
 const outside = new El('somewhere else');
 const state = { hover: false };
+// the page's controls, for the placement tests: [{ rect, animations }] (none by default)
+let controls = [];
+const control = (rect, running = false) => ({ getBoundingClientRect: () => rect.r, getAnimations: () => (rect.running ? [{ playState: 'running', pending: false, effect: { getComputedTiming: () => ({ endTime: 200 }) } }] : []), rect });
 const docListeners = {};
 globalThis.document = {
   getElementById: get,
-  querySelectorAll: () => [], querySelector: () => null,
+  querySelectorAll: (sel) => (sel.includes('.controls') ? controls : []), querySelector: () => null,
   body: { classList: new ClassList() },
   documentElement: {},
   activeElement: null,
@@ -210,6 +218,113 @@ globalThis.matchMedia = () => ({ matches: false });
     fb.toast('newer');
     check('focus: a newer toast is not held back by a focused one: it replaces it at once (the old is ended "replaced")', fb.current.text === 'newer' && log.join() === 'replaced', log.join());
     document.activeElement = null;
+  }
+
+  // ---- R45: a new toast replaces a focused or hovered one, and where the focus goes ----
+  const LONG_ACTION = (label) => ({ label, run() {} });
+  {
+    // focus on A's button, B with another action: B up and paused, focus on the box, the box never hidden
+    const fb = fresh(), a = LONG_ACTION('Undo'), b = LONG_ACTION('Undo');
+    fb.toast('A', { action: a });
+    // every write of box.hidden = true is recorded (a hide and show within one task would leave no trace otherwise)
+    let hides = 0, hiddenNow = box.hidden; const watch = () => {};
+    Object.defineProperty(box, 'hidden', { configurable: true, get: () => hiddenNow, set: (v) => { if (v && !hiddenNow) hides++; hiddenNow = v; } });
+    document.activeElement = get('toastAction'); box.kids.push(get('toastAction')); box.fire('focusin');
+    focusCalls.length = 0;
+    const log = [];
+    fb.toast('B', { action: b, onEnd: (r) => log.push(r) }); watch(); frame(); watch();
+    check('R45 focus: the focus moves to the box when B has another action (equal label, other object)', document.activeElement === box && focusCalls.join() === 'toast', focusCalls.join());
+    check('R45 focus: the box is never hidden by the replacement', hides === 0 && box.hidden === false, `${hides} hides`);
+    delete box.hidden; box.hidden = hiddenNow;
+    advance(10000);
+    check('R45 focus: B, focused, is still up 10 s later (it started paused)', fb.current && fb.current.text === 'B' && log.length === 0);
+    document.activeElement = outside; box.fire('focusout'); advance(0);
+    advance(LONG - 1);
+    check('R45 focus: after the focus leaves, B has its full 8 s (up 1 ms before)', fb.current !== null);
+    advance(1);
+    check('R45 focus: ... and goes at 8 s', fb.current === null && log.join() === 'timeout', log.join());
+  }
+  {
+    // the same action object: the focus stays on the button
+    const fb = fresh(), a = LONG_ACTION('Undo');
+    fb.toast('A', { action: a });
+    document.activeElement = get('toastAction'); box.fire('focusin');
+    focusCalls.length = 0;
+    fb.toast('B', { action: a }); frame();
+    check('R45 focus: with the same action object the focus stays on the button', document.activeElement === get('toastAction') && focusCalls.length === 0, focusCalls.join());
+    advance(20000);
+    check('R45 focus: ... and B stays (paused while focused)', fb.current && fb.current.text === 'B');
+    // no action: to the box
+    fb.toast('C'); frame();
+    check('R45 focus: a new toast with no action takes the focus to the box', document.activeElement === box);
+    advance(20000);
+    check('R45 focus: ... and stays while the box holds the focus', fb.current && fb.current.text === 'C');
+    document.activeElement = null; box.fire('focusout'); advance(0); advance(SHORT);
+    check('R45 focus: ... its 4 s run from the focusout', fb.current === null);
+  }
+  {
+    // the focus outside the box: nothing is focused, the new toast runs at once
+    const fb = fresh();
+    fb.toast('A'); document.activeElement = outside; focusCalls.length = 0;
+    fb.toast('B'); advance(SHORT);
+    check('R45 focus: with the focus elsewhere a replacement takes no focus and runs its 4 s', fb.current === null && focusCalls.length === 0 && document.activeElement === outside);
+  }
+  {
+    // hover: B, replacing a hovered A, stays until the pointer leaves, then its full time
+    const fb = fresh();
+    fb.toast('A'); state.hover = true; box.fire('pointerenter');
+    fb.toast('B', { action: LONG_ACTION('Show') });
+    advance(10000);
+    check('R45 hover: B, replacing a hovered toast, stays while hovered', fb.current && fb.current.text === 'B');
+    state.hover = false; box.fire('pointerleave');
+    advance(LONG - 1);
+    check('R45 hover: ... and has its full 8 s after the pointer leaves', fb.current !== null);
+    advance(1);
+    check('R45 hover: ... then goes', fb.current === null);
+  }
+
+  // ---- R45: a provisional pin ----
+  {
+    const all = { r: { left: 0, top: 0, right: 1280, bottom: 720, width: 1280, height: 720 }, running: true };
+    const shrink = () => { all.r = { left: 0, top: 0, right: 1280, bottom: 100, width: 1280, height: 100 }; };
+    const reset = (running) => { all.r = { left: 0, top: 0, right: 1280, bottom: 720, width: 1280, height: 720 }; all.running = running; controls = [control(all)]; };
+    const top = () => region.classList.contains('top');
+    // a control still moving: pinned in frame 1, moved to the free place when it opens
+    reset(true);
+    let fb = fresh();
+    fb.toast('During a sheet');
+    check('R45 pin: with no free place the toast is in the top slot at once, seen', top() && fb.pending[0].seen);
+    advance(100); frame();
+    check('R45 pin: ... still there while the control moves and nothing is free', top());
+    shrink(); all.running = false; frame();
+    check('R45 pin: ... and in the free place once the control has stopped (provisional pin)', !top() && fb.current !== null);
+    fb.clear();
+    // nothing moving: pinned for good at once
+    reset(false); fb = fresh();
+    fb.toast('Pinned');
+    shrink(); frame(); frame();
+    check('R45 pin: with no control in an animation the pin is final at once (kept when a place opens)', top());
+    fb.clear();
+    // still moving after 300 ms: pinned for good then
+    reset(true); fb = fresh();
+    fb.toast('Long sheet');
+    advance(299); frame();
+    check('R45 pin: provisional up to 300 ms', top() && fb.current.text === 'Long sheet');
+    advance(1); frame();
+    shrink(); frame(); frame();
+    check('R45 pin: pinned for good at 300 ms although the control still moves', top());
+    fb.clear();
+    // hovered or focused: not moved
+    for (const how of ['hovered', 'focused']) {
+      reset(true); fb = fresh();
+      fb.toast('Held');
+      if (how === 'hovered') state.hover = true; else document.activeElement = inside;
+      shrink(); all.running = false; frame(); frame();
+      check(`R45 pin: a ${how} provisional toast is not moved`, top());
+      state.hover = false; document.activeElement = null;
+      fb.clear();
+    }
+    controls = [];
   }
 
   // ---- dismissal ----

@@ -896,6 +896,16 @@ browser check's group `uiModel` drives them with real events at 1280x720 and at 
   its time runs. An error toast (a disk image CLOADM can't read) is red. With that disk in and no tape, the drives
   card is above the cassette deck on the phone and under the keyboard panel, and after it on the desktop. (`feedbackModel` checks the fixed top slot where nothing else is
   free, and that it goes after its 4 s.)
+* R45 (`feedbackModel`, 1440x900): a toast replacing a focused one leaves the box up (a `MutationObserver` records no
+  `hidden` write) and the focus never on the body (in the same task and a frame later); with another action (an equal
+  label, another object) the focus is on the box, the new toast is up 10 s later and Enter fires nothing, and after
+  Shift+Tab it goes 8 s later; with the same action object the focus stays on the button and Enter runs it; with no
+  action the focus is on the box. A toast replacing a hovered one stays 10 s, then has its full 4 s after the pointer
+  leaves. One announcement per toast (the live region's text changes once for each). The provisional pin: a toast
+  raised as a sheet (a `.controls` element shrinking in 150 ms) opens is in view in its first frame in the top slot,
+  in the free place once the transition ends, with no animation, and its rect is the same in every 50 ms sample from
+  350 ms on; a focused provisional toast keeps the slot. `tests/feedback-toasts.test.js` checks the same rules in Node,
+  with the 300 ms limit and a hovered provisional toast.
 * R25: the switch confirmation's text for a tape and a cartridge (both in the Library), a tape and a disk, a RAM
   change (and Cancel putting the select back), a snapshot's own disk with **Save to Library** (stored and linked),
   DriveWire (not listed, still mounted after the switch); the toasts after the switch. `tests/switch-losses.test.js`

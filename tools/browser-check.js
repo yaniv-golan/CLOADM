@@ -4105,6 +4105,148 @@ async function feedbackModelChecks(browser, base, check) {
       order.join('|') === 'Second, newer' && !await page.evaluate(() => document.getElementById('toastRegion').classList.contains('top')), JSON.stringify(order));
     await ctx.close();
   }
+  await toastReplaceChecks(browser, base, check, state, frames);
+  await provisionalPinChecks(browser, base, check, state, frames);
+}
+
+// UX R45: a new toast replaces a focused or hovered one without hiding the box. With the focus inside the box the new
+// one starts paused (its full time runs from the focusout), and the focus stays on the action button only for the
+// same action object, else it goes to the box, so an Enter meant for the old action fires nothing; with the pointer
+// over it, it is paused until the pointer leaves. One announcement per toast (the live region's text changes once).
+async function toastReplaceChecks(browser, base, check, state, frames) {
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, serviceWorkers: 'block' });
+  const page = await ctx.newPage();
+  await page.goto(`${base}?machine=dragon64`);
+  await started(page);
+  // the announcements: each change of the live region's text to a new non-empty one
+  await page.evaluate(() => {
+    window.__ann = []; window.__runs = [];
+    const txt = document.getElementById('toastText');
+    new MutationObserver(() => { const t = txt.textContent; if (t && t !== window.__ann[window.__ann.length - 1]) window.__ann.push(t); })
+      .observe(document.getElementById('toastRegion'), { subtree: true, childList: true, characterData: true });
+    window.__act = (name) => ({ label: 'Undo', run() { window.__runs.push(name); } });
+    scrollTo(0, 0); window.emu.feedback.clear();
+  });
+  // raise one while the focus is where the test put it: the focus in the same task and one frame later, and every
+  // write of the box's hidden attribute
+  const replace = (text, action) => page.evaluate(([text, action]) => new Promise((res) => {
+    const box = document.getElementById('toast'), toggles = [];
+    const mo = new MutationObserver((ms) => { for (const m of ms) toggles.push(m.oldValue); });
+    mo.observe(box, { attributes: true, attributeFilter: ['hidden'], attributeOldValue: true });
+    const at = (e) => (e === document.body || !e ? 'body' : e.id || e.tagName);
+    window.emu.feedback.toast(text, { action: action === 'same' ? window.__a : action ? window.__act(action) : null });
+    const sameTask = at(document.activeElement);
+    requestAnimationFrame(() => { toggles.push(...mo.takeRecords().map((m) => m.oldValue)); mo.disconnect();
+      res({ sameTask, afterFrame: at(document.activeElement), toggles: toggles.length }); });
+  }), [text, action]);
+  const focusUndo = async (text) => {
+    await page.evaluate((text) => { window.__a = window.__act('A'); window.emu.feedback.toast(text, { action: window.__a }); }, text);
+    await frames(page);
+    await page.focus('#toastAction');
+  };
+
+  // another action (equal label, other object): the focus to the box, B kept while focused, Enter fires nothing
+  await focusUndo('Deleted a.bin');
+  const r1 = await replace('Deleted b.bin', 'B');
+  await page.waitForTimeout(10000);
+  const s1 = await state(page);
+  const active1 = await page.evaluate(() => document.activeElement.id);
+  await page.keyboard.press('Enter');
+  const afterEnter = await page.evaluate(() => ({ runs: window.__runs.slice(), up: !document.getElementById('toast').hidden }));
+  check('feedback R45: a toast replacing a focused one with another action: the box never hides, the focus is on the box (never the body, in the same task and a frame later)',
+    r1.toggles === 0 && r1.sameTask === 'toast' && r1.afterFrame === 'toast', JSON.stringify(r1));
+  check('feedback R45: ... it is still up 10 s later, the focus still on the box, and Enter fires no action',
+    s1.up && s1.seen && s1.text === 'Deleted b.bin' && active1 === 'toast' && afterEnter.runs.length === 0 && afterEnter.up, JSON.stringify({ s1, active1, afterEnter }));
+  await page.keyboard.press('Shift+Tab');
+  const left = await page.evaluate(() => !document.getElementById('toast').contains(document.activeElement));
+  const t0 = Date.now();
+  await page.waitForTimeout(6500);
+  const stillUp = !await page.isHidden('#toast');
+  const gone = await waitFor(page, () => document.getElementById('toast').hidden, null, 6000);
+  check('feedback R45: ... after the focus leaves (Shift+Tab) it has its full 8 s: up 6.5 s later, gone by about 8 s', left && stillUp && gone && Date.now() - t0 >= 7000,
+    `${Date.now() - t0} ms, left ${left}, up at 6.5 s ${stillUp}`);
+
+  // the same action object: the focus stays on the button and Enter runs it
+  await focusUndo('Deleted c.bin');
+  const r2 = await replace('Deleted c.bin and d.bin', 'same');
+  await page.keyboard.press('Enter');
+  const runs2 = await page.evaluate(() => window.__runs.slice());
+  check('feedback R45: a toast with the same action object keeps the focus on its button, and Enter runs it',
+    r2.toggles === 0 && r2.sameTask === 'toastAction' && r2.afterFrame === 'toastAction' && runs2.join() === 'A', JSON.stringify({ r2, runs2 }));
+
+  // no action: the focus to the box
+  await focusUndo('Deleted e.bin');
+  const r3 = await replace('Saved.', null);
+  check('feedback R45: a toast with no action replacing a focused one takes the focus to the box', r3.toggles === 0 && r3.sameTask === 'toast' && r3.afterFrame === 'toast', JSON.stringify(r3));
+  await page.evaluate(() => { document.activeElement.blur(); window.emu.feedback.clear(); });
+
+  // hover: the replacement stays while the pointer is over it, then its full 4 s
+  await page.evaluate(() => window.emu.feedback.toast('Hovered toast A'));
+  await frames(page);
+  await page.hover('#toast');
+  await page.evaluate(() => window.emu.feedback.toast('Hovered toast B'));
+  await page.waitForTimeout(10000);
+  const h = await state(page);
+  await page.mouse.move(700, 450);
+  const h0 = Date.now();
+  await page.waitForTimeout(3000);
+  const hUp = !await page.isHidden('#toast');
+  const hGone = await waitFor(page, () => document.getElementById('toast').hidden, null, 6000);
+  check('feedback R45: a toast replacing a hovered one stays while hovered (10 s), and has its full 4 s after the pointer leaves',
+    h.up && h.text === 'Hovered toast B' && hUp && hGone && Date.now() - h0 >= 3500, JSON.stringify({ h, hUp, ms: Date.now() - h0 }));
+
+  const ann = await page.evaluate(() => window.__ann);
+  check('feedback R45: one announcement per toast (the live region\'s text changes once for each)',
+    ann.join('|') === 'Deleted a.bin|Deleted b.bin|Deleted c.bin|Deleted c.bin and d.bin|Deleted e.bin|Saved.|Hovered toast A|Hovered toast B', JSON.stringify(ann));
+  await ctx.close();
+}
+
+// UX R45: the top slot is a provisional pin. A toast raised while a sheet (a control) is still opening, with no place
+// free yet, is in the top slot in the frame it appears in; once the sheet's own transition ends (300 ms at most) it
+// moves to the free place, with no animation, and stays there. A focused provisional toast is not moved.
+async function provisionalPinChecks(browser, base, check, state, frames) {
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, serviceWorkers: 'block' });
+  const page = await ctx.newPage();
+  await page.goto(`${base}?machine=dragon64`);
+  await started(page);
+  // a sheet over the whole window shrinking to a band at the top in 150 ms; the toast is raised as it starts
+  const raise = (text, focus) => page.evaluate(([text, focus]) => new Promise((res) => {
+    scrollTo(0, 0); window.emu.feedback.clear();
+    document.getElementById('fbSheet')?.remove();
+    const sh = document.createElement('div');
+    sh.className = 'controls'; sh.id = 'fbSheet';
+    sh.style.cssText = 'position:fixed;left:0;right:0;top:0;height:100vh;z-index:1;background:#222;transition:height 150ms linear';
+    document.body.append(sh); sh.getBoundingClientRect();
+    sh.style.height = '80px';
+    const ann = [], txt = document.getElementById('toastText'), reg = document.getElementById('toastRegion'), box = document.getElementById('toast');
+    new MutationObserver(() => { if (txt.textContent && txt.textContent !== ann[ann.length - 1]) ann.push(txt.textContent); })
+      .observe(reg, { subtree: true, childList: true, characterData: true });
+    const t0 = performance.now();
+    window.emu.feedback.toast(text);
+    if (focus) box.focus();
+    const samples = [];
+    const look = () => { const b = box.getBoundingClientRect();
+      return { ms: Math.round(performance.now() - t0), top: reg.classList.contains('top'), up: !box.hidden, rect: [b.left, b.top, b.right, b.bottom].map(Math.round).join(','),
+        inView: b.top >= 0 && b.bottom <= innerHeight, anims: reg.getAnimations({ subtree: true }).length }; };
+    requestAnimationFrame(() => {
+      const first = look();
+      const iv = setInterval(() => { samples.push(look()); if (performance.now() - t0 >= 700) { clearInterval(iv); res({ first, samples, ann }); } }, 50);
+    });
+  }), [text, focus]);
+
+  const p = await raise('Raised as a sheet opens', false);
+  const late = p.samples.filter((x) => x.ms >= 350);
+  check('feedback R45: a toast raised as a sheet opens is in view in its first frame, in the top slot',
+    p.first.up && p.first.top && p.first.inView, JSON.stringify(p.first));
+  check('feedback R45: ... once the sheet\'s transition ends it is in the free place, and from 350 ms on its place never changes (sampled every 50 ms)',
+    late.length >= 5 && late.every((x) => x.up && !x.top && x.inView && x.rect === late[0].rect), JSON.stringify(p.samples));
+  check('feedback R45: ... moved with no animation, and announced once', p.samples.every((x) => x.anims === 0) && p.ann.join('|') === 'Raised as a sheet opens', JSON.stringify(p.ann));
+
+  const f = await raise('Focused as a sheet opens', true);
+  check('feedback R45: a focused provisional toast is not moved (it keeps the top slot)',
+    f.first.top && f.samples.every((x) => x.up && x.top && x.rect === f.samples[0].rect), JSON.stringify(f.samples.slice(-2)));
+  await page.evaluate(() => { document.activeElement.blur(); window.emu.feedback.clear(); document.getElementById('fbSheet').remove(); });
+  await ctx.close();
 }
 
 async function feedbackChecks(browser, base, check) {

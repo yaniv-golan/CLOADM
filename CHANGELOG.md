@@ -170,6 +170,15 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Changed
 
+- **A new toast replaces a focused or hovered one without a flash (UX R45).** The box stays up (no frame without it,
+  no focus dropped, one announcement). With the focus inside it the new toast starts paused, its full 4 s (8 s with
+  an action) running from the moment the focus leaves; the focus stays on the action button only when the new toast
+  carries the same action, otherwise it moves to the toast itself, so an Enter meant for the old action fires nothing.
+  Under the pointer the new toast is paused until the pointer leaves.
+- **A toast in the top slot is pinned provisionally (UX R45).** It still shows there in its first frame when no place
+  is free, but while a control that decides its place is still in its own animation (a sheet opening), for 300 ms at
+  most, it moves to a free place as soon as one opens (its position only, with no animation); after that it never
+  moves. A hovered or focused toast is not moved.
 - **The page's screen text reads every screen Claude's screen_text reads.** `Session.screenText`, which the embed
   API's `screenText`, the Ask panel, the tape panel and the boot watchdog read, decoded only the VDG's 32x16 page at a
   fixed address: on the Dragon 64 Plus's 80-column screen it returned the VDG page behind it, on a CoCo 3 GIME text

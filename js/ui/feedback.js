@@ -6,7 +6,8 @@
  *                     ROM rows, the assembler's errors) and is the panels' own business, not this module's
  *   2 toast           an event the user caused whose result has no visible home: toast(text, opts). 4 s, or 8 s
  *                     with an action (Undo, Show, Load, Details); paused while hovered or focused; one at a time,
- *                     a new one replaces it. Light on dark, bottom centre (full width above the bottom edge on a
+ *                     a new one replaces it, a focused or hovered one too (R45: the box stays up and keeps the focus).
+ *                     Light on dark, bottom centre (full width above the bottom edge on a
  *                     phone), role="status"
  *   3 attention       something blocking the user should act on: attention(text, opts), until resolved or
  *                     dismissed, orange, at most one per page, role="alert" once when it first appears
@@ -40,16 +41,21 @@ export function createFeedback() {
   let cur = null;                     // { text, error, action, details, view, ends, onEnd, timer, left, paused }
   const waiting = new Map();          // view -> toast raised while the user was elsewhere
   let att = null;
+  box.tabIndex = -1;                  // the focus's place when a toast replaces a focused one with another action (R45)
 
+  // (a toast replaced by a newer one leaves the box up and its text to the newer one: no frame without a toast, no
+  // focus dropped, one announcement, UX R45)
   function end(reason) {
     if (!cur) return;
     const t = cur;
     cur = null;
     clearTimeout(t.timer);
-    box.hidden = true;
+    if (reason !== 'replaced') {
+      box.hidden = true;
+      box.classList.remove('error');
+      textEl.textContent = ''; detEl.textContent = ''; actEl.textContent = '';
+    }
     unplace();
-    box.classList.remove('error');
-    textEl.textContent = ''; detEl.textContent = ''; actEl.textContent = '';
     if (t.onEnd) t.onEnd(reason);
   }
   function arm() {
@@ -59,10 +65,17 @@ export function createFeedback() {
     cur.timer = setTimeout(() => { if (cur === t) end('timeout'); }, cur.left);
   }
   function show(t) {
-    // (a toast is in view from the frame it appears in: a newer one replaces it)
+    // (a toast is in view from the frame it appears in: a newer one replaces it). UX R45: a new toast replaces a
+    // focused or hovered one too; "kept while focused" is about the box. What the user is doing with the box is read
+    // before the old toast goes: with the focus inside it, the new one starts paused (its full time runs from the
+    // focusout), and the focus stays on the action button only if the new toast carries the same action (the same
+    // object); otherwise it moves to the box itself, so an Enter meant for the old action fires nothing
+    const focused = !box.hidden && cur ? document.activeElement : null, hadFocus = !!focused && box.contains(focused);
+    const sameAction = hadFocus && focused !== box && !!t.action && t.action === cur.action;
     end('replaced');
     cur = t;
     t.seen = false;
+    t.paused = false;     // (paused at once below, in seen(), while the focus or the pointer is in the box)
     t.left = t.action || t.details ? LONG : SHORT;
     // an action named in the sentence itself ("… your BASIC ROM: [Add ROMs]. Or …"): its button stands where the
     // text says {action}, so the sentence reads on through it; otherwise it follows the text
@@ -78,10 +91,23 @@ export function createFeedback() {
     detEl.hidden = true;
     moreEl.textContent = t.details || '';
     box.hidden = false;
+    if (hadFocus) {
+      const inline = textEl.querySelector ? textEl.querySelector('button') : null;
+      const to = sameAction ? (at >= 0 ? inline : actEl) : box;
+      if (to && document.activeElement !== to) to.focus({ preventScroll: true });
+      // (should the browser still have dropped it as the old toast's text went)
+      if (!box.contains(document.activeElement)) box.focus({ preventScroll: true });
+    }
     follow(t);      // its timer starts when it is first in view (seen)
   }
   // in view for the first time: from now its time runs
-  function seen() { if (cur && !cur.seen) { cur.seen = true; if (!cur.paused) arm(); } }
+  // (under the pointer already, as a toast that replaced a hovered one: paused until the pointer leaves, R45)
+  function seen() {
+    if (!cur || cur.seen) return;
+    cur.seen = true;
+    if (box.matches(':hover') || box.contains(document.activeElement)) cur.paused = true;
+    if (!cur.paused) arm();
+  }
   // Where a toast sits on the emulator page. Two rules, in this order: a toast is never invisible (R24), and it
   // covers no control (the header, the machine controls, the slots and the cartridge card, the drawer, an attention
   // card, the on-screen keys, the chat's bar) where it can help it. The stylesheet's place first (bottom centre; full
@@ -92,7 +118,12 @@ export function createFeedback() {
   // or grows under it (the drawer filling in after the toast appeared) never ends up covered. When none of those
   // places is free, "never invisible" wins over "never covers a control": the toast takes a fixed slot at the top of
   // the viewport (#toastRegion.top: above everything but the dialogs), keeps that slot until it goes (it is not
-  // placed again, so it does not jump about under the user's eyes), and its time starts there. A toast's time starts
+  // placed again, so it does not jump about under the user's eyes), and its time starts there. That pin is
+  // provisional at first (UX R45): it is placed in the slot in the frame it appears in, but while a control that
+  // decides where it may go is still in its own animation (a sheet opening), and for 300 ms at most, it is placed
+  // again each frame and moves to a free place as soon as one opens (its position only: no DOM move, no text change,
+  // no animation). It is pinned for good once those animations have finished or 300 ms have passed, and not while it
+  // is hovered or focused (a provisional toast under the pointer or the focus is not moved either). A toast's time starts
   // when it is first in view, which is now always the frame it appears in. Elsewhere (the Library, Your ROMs, Share)
   // the stylesheet's place holds.
   const region = box.parentNode;
@@ -106,8 +137,16 @@ export function createFeedback() {
     region.style.transform = ''; region.style.width = '';
     region.classList.remove('top');
   }
+  const PROVISIONAL = 300;
+  // a control or the screen still in an animation of its own that ends (an endless one, such as the screen's pulse
+  // while Claude acts, decides nothing)
+  const moving = () => [...document.querySelectorAll(CONTROLS), ...document.querySelectorAll('#monitor, #monitor .tube, #screen')]
+    .some((e) => e.getAnimations && e.getAnimations().some((a) => (a.playState === 'running' || a.pending)
+      && Number.isFinite(a.effect && a.effect.getComputedTiming ? a.effect.getComputedTiming().endTime : 0)));
+  const held = () => box.matches(':hover') || box.contains(document.activeElement);
   function place() {
-    if (cur && cur.pinned && !box.hidden) return;   // in the top slot: kept there until it goes
+    if (cur && cur.pinned === true && !box.hidden) return;   // in the top slot: kept there until it goes
+    if (cur && cur.pinned === 'provisional' && !box.hidden && held()) return;   // not moved under the pointer or the focus
     unplace();
     if (box.hidden) return;
     if (currentView() !== 'emulator') { seen(); return; }
@@ -150,6 +189,7 @@ export function createFeedback() {
     const at = tries.find(([x, y, avoidScreen]) => free(rect(x, y), avoidScreen ? controls.concat(screen) : controls));
     if (at) {
       if (at[0] !== r.left || at[1] !== r.top) put(at[0], at[1], phone ? w : null);
+      if (cur) cur.pinned = false;
       seen();
       return;
     }
@@ -161,7 +201,7 @@ export function createFeedback() {
         put(0, 0, bw);
         const bb = box.getBoundingClientRect(), x = (band.left + band.right - bb.width) / 2, y = band.bottom - bb.height;
         const spot = { left: x, top: y, right: x + bb.width, bottom: y + bb.height };
-        if (y >= band.top && free(spot, offText)) { put(x, y, bw); seen(); return; }
+        if (y >= band.top && free(spot, offText)) { put(x, y, bw); if (cur) cur.pinned = false; seen(); return; }
       }
       box.classList.remove('compact');
     }
@@ -173,7 +213,10 @@ export function createFeedback() {
     const under = br.height && br.bottom > 0 && getComputedStyle(bar).display !== 'none' ? br.bottom + 8 : 0;
     region.style.top = `${Math.round(Math.max(phone ? 8 : 16, under))}px`; region.style.bottom = 'auto';
     region.classList.add('top');
-    if (cur) cur.pinned = true;
+    if (cur) {
+      if (!cur.pinned) { cur.pinned = 'provisional'; cur.pinnedAt = Date.now(); }
+      if (Date.now() - cur.pinnedAt >= PROVISIONAL || !moving()) { if (!held()) cur.pinned = true; }
+    }
     seen();
   }
   // followed every frame while it is up: a control can move under it without the window scrolling or resizing
