@@ -14,7 +14,10 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   beside **Rewind** (`Session.ejectTape`, which emits `'tape'` and clears the tape watch as a rewind does): the deck
   goes with the tape, the focus goes to the slot's deck button, and the page says "Tape ejected."; a program waiting
   on the tape (BASIC's CLOAD) keeps waiting, as on a real machine. Ctrl+K has **Insert a tape…** (the tape picker:
-  .cas and .wav), and while a tape is in, **Rewind the tape** and **Eject the tape**. On a tape of more than one file
+  .cas and .wav), **Rewind the tape** and **Eject the tape**. Every command is always listed: one that doesn't apply
+  now (Rewind, Eject or Save the tape as .WAV with no tape in) is a muted row whose second line says why not ("No tape
+  in"), aria-disabled but still selectable, listed after the rows that apply; choosing it keeps the box open, runs
+  nothing, and its row and the box's live region say why, once ("No tape in the deck."). On a tape of more than one file
   the deck says which is loading: "LOADING · FILE 2 OF 3 · BLOCK 4 OF 31". **Stop and save .CAS** no longer
   downloads "recording.cas": the recording goes into the Library named after the first file in its header, trimmed,
   with the characters a file name can't take as "_" (`CSAVE "HELLO"` saves HELLO.CAS, "A/B" saves A_B.CAS), or

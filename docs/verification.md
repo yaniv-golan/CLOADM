@@ -763,11 +763,13 @@ every other forbidden character "_"), two runs in one recording one file named a
 `MediaLibrary.uniqueName` gives "HELLO (2).CAS" and "(3)" once the names are taken. A 2-file tape reports file 2 of 2
 past its second namefile block. `Session.ejectTape` empties the deck, emits `'tape'`, clears the tape watch, and
 with the motor on resets nothing: the machine runs on and the motor stays on. Browser check, group `tapePanel`
-(1440x900 and 390x844): Ctrl+K without a tape lists **Insert a tape…** (which opens the tape picker, .cas and .wav)
-and no Rewind or Eject; with a tape, "rewind" and "eject" find them; a 3-file tape reads "LOADING · FILE 2 OF 3 ·
+(1440x900 and 390x844): Ctrl+K without a tape lists **Insert a tape…** (which opens the tape picker, .cas and .wav),
+then Rewind, Eject and Save the tape as .WAV muted ("No tape in", aria-disabled, no disabled attribute, after every row
+that applies); choosing each of them keeps the box open, changes nothing, puts its reason on its row and says it once
+in the live region; with a tape, "rewind" and "eject" find them, not muted; a 3-file tape reads "LOADING · FILE 2 OF 3 ·
 BLOCK 4 OF 9"; **Rewind the tape** rewinds; **Eject the tape**, with the motor on, hides the deck, says "Tape
-ejected." and leaves the focus on the slot's deck button with the motor still on; the commands then leave the
-palette; the slot's **Eject** sits beside **Rewind**, is disabled with no tape, and ejects the same way. Group `tape`:
+ejected." and leaves the focus on the slot's deck button with the motor still on; the commands are then muted
+again; the slot's **Eject** sits beside **Rewind**, is disabled with no tape, and ejects the same way. Group `tape`:
 the writer firmware's recording is saved to the Library as CLOADM.CAS, byte for byte, and the toast's **Download**
 saves the same bytes under that name; the recording kept at a machine switch is offered as CLOADM.CAS and saved as
 "CLOADM (2).CAS"; both are on the Library's shelf after a reload.
