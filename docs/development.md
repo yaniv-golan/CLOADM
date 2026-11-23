@@ -43,10 +43,10 @@ names contain one of the parts, and `node tools/browser-check.js --only <group>[
 | `cli/` (the command line and the MCP server) | `cli,mcp,game-guide,starter-game` | none |
 | `connector/` (the side-panel connector) | `connector,mcp,skill` | `connector` |
 | `examples/` (a program or game) | `pwa,starter-game,game-guide,welcome` and the example's own suite | `pwa` (and the group that offers it) |
-| `js/ui/`, `play/`, `css/`, `index.html` | `session,readme,screen-alternative` | the panel's groups and `semantics`, then the whole check |
+| `js/ui/`, `play/`, `css/`, `index.html` | `session,readme,screen-alternative` | the panel's groups and `semantics` (CI attempt 1 runs every group) |
 | Docs (`README.md`, `docs/`) | `readme,romdocs,game-guide,dev-docs-headless,disk-read-example` | none |
 | `CHANGELOG.md` | `changelog` | none |
-| The test runner (`tests/all.js`, `suite-verdict.js`, `no-exit.js`) | `allsummary,allsignal,exitguard,exitcode` | none |
+| The test runner (`tests/all.js`, `suite-verdict.js`, `no-exit.js`) | `allsummary,allsignal,allsched,suite-shards,exitguard,exitcode` | none |
 | `tools/browser-check*.js`, `.github/` | `browser-check` | the groups it touches |
 
 A subset run says `SUBSET RUN (--only ...), not the full gate` on its summary line: it is never the proof. The full
@@ -64,6 +64,15 @@ gates are still required:
 
 When a full run fails, its last line names the failing suites (`FAILED: a.test.js, b.test.js`); rerun just those with
 `--only` while you fix them, then the full gate again.
+
+### Before you push
+
+`node tools/affected.js [<base>]` prints the two `--only` commands for the files changed since `<base>` (default
+`origin/main`): this table, as data. A page file no row knows (`js/ui/`, `css/`, `play/`) adds a fixed smoke set of
+groups (`models,semantics,pwa,uiQa,layout`). `node tools/prepush.js [--base <ref>]` is the author's checklist in one
+go: those suites and groups, then the full `node tests/all.js`; `sw.js`'s file list in step; `CHANGELOG.md` changed
+only under `[Unreleased]`; the two skill copies identical; a noreply `user.email`; the release tags present (fetched if
+not); and a report skeleton with the levels the change doesn't need marked not applicable. Neither is the gate.
 
 ## Tests and tools
 
@@ -87,8 +96,8 @@ how many). Without arguments the script fails if a group is in no shard, in two,
 shard file is not the plan (stale or edited by hand); it reads the groups from `node tools/browser-check.js
 --list-groups`, the `GROUPS` table itself. After adding a group: `node tools/browser-check.js --only <group> --timings
 t.json`, then `node .github/scripts/browser-check-shards.js --merge t.json`. Every CI run publishes its own times as
-the `browser-check-timings` artifact (merge it to rebalance), and `node tests/all.js --timings FILE` writes the suite
-times `tests/suite-times.json` holds. A green run's `gates` summary (commit SHA, tree hash, each job's counts) is the
+the `browser-check-timings` artifact (merge it to rebalance), and `node tests/all.js --record-times` rewrites
+`tests/suite-times.json` from a passing whole run (`--timings FILE` writes one run's or one part's times elsewhere). A green run's `gates` summary (commit SHA, tree hash, each job's counts) is the
 definition of done; see AGENTS.md section 4.
 Every action in the workflows is pinned to a commit SHA with its release tag beside it, and `pull_request_target` is
 never used; `node tests/workflows.test.js` holds both, and `.github/dependabot.yml` proposes the bumps weekly.
@@ -128,7 +137,7 @@ write scope is used.
 Don't run anything else on the machine while the browser check runs: it is timing-sensitive under load.
 
 ```
-node tests/all.js            # every suite below in a worker pool (--jobs N to cap it), one line each, the regression gate included (exit 0 = all passed, and every suite must also have printed its summary line: one that exits 0 half done is a failure); a failing run ends with FAILED: <the suites>; --only <part>[,...] runs a subset, marked as not the gate
+node tests/all.js            # every suite below in a worker pool (--jobs N to cap it; each regress shard is a slot; started longest first from tests/suite-times.json, which --record-times rewrites after a passing full run), one line each, the regression gate included (exit 0 = all passed, and every suite must also have printed its summary line: one that exits 0 half done is a failure); a failing run ends with FAILED: <the suites>; --only <part>[,...] runs a subset, marked as not the gate
 node tools/browser-check.js  # the real pages in Chromium: the landing page (desktop and phone) and /play/: every model, LIZA end to end, the file:// notice, Share and opening snapshots, the favicon and no missing file requested by any page; the feedback model (toasts on the page the user is on, cleared by the next action, Undo, Details, desktop and phone). Every "← Emulator", Esc and Back return to the emulator, from `/play/` and `?app=claude`, after a reload and from a page loaded on a view (`--only emulatorBack`). `--only feedback,library` runs just those groups (an unknown group is an error); see "What the gates' results mean" below
 node tools/capture-images.js # recapture img/*.png (site and README pictures) from the emulator, with no ROMs
 node tools/capture-gif.js    # recapture img/readme-demo.gif (the README's looping picture), with no ROMs; tools/gif.js is its encoder

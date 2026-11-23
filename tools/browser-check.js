@@ -12938,9 +12938,13 @@ async function uiQaChecks(browser, base, check) {
   // (with a line typed, BREAK has something to do: the firmware drops the line; the empty, idle prompt is leave-the-chat, in escChatChecks)
   await page.focus('#screen'); await emuFrames(page, 3); await page.keyboard.type('x');
   const typed = await waitFor(page, () => window.emu.session.readByte(0x6013, window.emu.session.chatMachines.chat) === 1);
-  await page.keyboard.press('Escape'); await emuFrames(page, 3);
-  check('in the full-screen chat, Esc on the screen with a line typed is BREAK (the line is dropped) and keeps the chat open', typed
-    && await page.evaluate(() => window.emu.session.claudeView === 'full' && window.emu.session.readByte(0x6013, window.emu.session.chatMachines.chat) === 0));
+  // wait for the firmware to drop the line rather than reading it after a fixed few frames: under load those frames
+  // can pass before the chat machine has run its BREAK handling, which flaked this check. An Esc that does nothing
+  // never clears the byte, so waitFor times out and the check still fails.
+  await page.keyboard.press('Escape');
+  const dropped = await waitFor(page, () => window.emu.session.readByte(0x6013, window.emu.session.chatMachines.chat) === 0);
+  check('in the full-screen chat, Esc on the screen with a line typed is BREAK (the line is dropped) and keeps the chat open', typed && dropped
+    && await page.evaluate(() => window.emu.session.claudeView === 'full'));
   await page.focus('#btnFullSide'); await page.keyboard.press('Escape');
   check('in the full-screen chat, Esc off the screen closes it', await waitFor(page, () => window.emu.session.claudeView !== 'full' && document.getElementById('claude').hidden));
   // and takes the chat's history step back, as "← Emulator" and the browser's Back do (phone-chat's leave()): the

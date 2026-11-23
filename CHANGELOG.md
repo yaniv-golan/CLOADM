@@ -10,6 +10,11 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Added
 
+- Two tools for contributors: `node tools/affected.js [<base>]` prints the `--only` suites and browser-check groups
+  for a diff (docs/development.md's fast-loop table, as data; `tests/affected.test.js` holds every file under `js/` to
+  at least one of them), and `node tools/prepush.js` runs the author's checklist before a push (the affected suites
+  and groups, the full gate, `sw.js`'s file list, CHANGELOG edits only under `[Unreleased]`, the skill copies, a
+  noreply email, the release tags, and a report skeleton).
 - **Minesweeper plays with a joystick.** Either joystick moves the cursor: one step as the stick leaves the centre,
   then again after 300 ms and every 120 ms while it is held (counted in fields, at the machine's own 50 or 60 Hz;
   centring the stick and pushing the same way again is a new press). Either fire button opens the square under the
@@ -181,6 +186,11 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   (`browser-daily.yml`, not a gate) runs the whole browser check in one process on `claude/v0.2-stage` and `main`.
   AGENTS.md 4.7: the local gate is `tests/all.js` plus the browser-check groups a change touches; CI attempt 1 is the
   full browser gate and is never re-run.
+- `node tests/all.js` starts the suites longest first, from the times in `tests/suite-times.json` (the file
+  `--shard` plans its parts from, rewritten by `--record-times` after a passing whole run), and counts each regress shard as a slot of the pool; it still prints in
+  file order. `tests/move-inflight.test.js`'s "refused move" case now mounts a stored disk and checks the move's own
+  refusal: it never had a disk in a drive, so it passed on the move's 30 s wait running out; it also has a 50 ms bound
+  of its own, so a refusal that goes missing fails at once.
 - **The page's screen text reads every screen Claude's screen_text reads.** `Session.screenText`, which the embed
   API's `screenText`, the Ask panel, the tape panel and the boot watchdog read, decoded only the VDG's 32x16 page at a
   fixed address: on the Dragon 64 Plus's 80-column screen it returned the VDG page behind it, on a CoCo 3 GIME text
@@ -464,6 +474,10 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   started 4 cycles after power-on. On the CoCo 1/2, CoCo 2B, CoCo 3 and Dragon 64 every AY write now lands at
   MAME's time and every steady level matches MAME's recording exactly. The CoCo 3 `$0405` difference in the
   interrupt comparison remains (the sound-activity bit, which is still a stub), and speech is still not implemented.
+- Two flaky checks: `tests/allsignal.test.js` looked for surviving processes once, the instant the runner exited, and
+  could still see a just-killed one; it now asks again for up to 5 s (a real survivor still fails it). The browser
+  check's "Esc on the screen with a line typed is BREAK" read the chat after a fixed three frames; it now waits for the
+  line to be dropped.
 - **The Dragon 64 Plus had the 6551 but no RS-232 port.** Like the Dragon 64 (MAME's `d64plus()` starts from `dragon64()`), it now has the port: PIA1 PB0 reads its RXD, idle high.
 - **Two debuggers could end up on one machine.** A `Debugger` made directly on a machine that already had one left both attached, so a watched write counted twice and the snapshot carried a different debugger from the one the Session drove. A machine now has one debugger: a new one takes the old one's place, `session.debug` returns the one the machine already carries, and adopting the machine already shown keeps its debugger.
 - **Run after a long debugger Over or Out no longer leaves the machine frozen for seconds.** Over, Out, Run to and
