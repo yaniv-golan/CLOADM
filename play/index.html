@@ -257,6 +257,8 @@
   /* a touch screen: the toast's buttons (Undo, Switch off and on…) are full-size tap targets */
   body:is(.touch-keys, .touch-hidden) #toastAction, body:is(.touch-keys, .touch-hidden) #toastText button.inline { min-height: 44px; }
   body:is(.touch-keys, .touch-hidden) #toastText button.inline { display: inline-flex; align-items: center; vertical-align: middle; }
+  /* on a phone the button standing in the sentence is a tap target: 44 px high */
+  @media (pointer: coarse), (max-width: 600px) { #toastText button.inline { min-height: 44px; padding: 0 14px; } }
   #toastDetails { flex-basis: 100%; font-size: 14px; color: #2A302C; overflow-wrap: anywhere; }
   #toastAlso { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; overflow-wrap: anywhere; }
   #toastAlso[hidden] { display: none; }
@@ -1845,8 +1847,8 @@ npx serve -l 8000 .</pre>
         <div class="bar"><button id="btnRealSpeed" class="pill" aria-pressed="false">Real speed: off</button>
           <button id="btnSkipTape" class="pill">Skip the tape (load instantly)</button>
           <button id="btnTapeRetry" class="pill warn" hidden>Rewind and try again</button></div>
-        <p class="muted">The screen shows BASIC's own S and F in its top-left corner while it searches and finds, and the line on
-          the screen's border says where the tape is. Tape sound (its switch there, or the Media tab) plays the tape as a recorder's
+        <p class="muted"><span id="tapeBasicNote">The screen shows BASIC's own S and F in its top-left corner while it searches and finds, and the line on
+          the screen's border says where the tape is.</span> Tape sound (its switch there, or the Media tab) plays the tape as a recorder's
           speaker would. Turn on real speed to load at the original pace. A read error marks the block and offers a rewind, as it once taught us to adjust the volume.</p>
       </div>
     </section>

@@ -312,7 +312,7 @@ fs.writeFileSync(tmp('media', 'plain.bas'), '10 PRINT "HI"\n');
   check('load a binary from the media root: it runs', /prog\.bin/.test(lp.data.message) && /^\$3100: 5A( |$)/.test(p1.data.machine_output.hex[0]), J([lp.data, p1.data]));
   const tape = await s.call('insert_tape', Object.assign({ path: 'prog.cas' }, M));
   const notTape = await s.call('insert_tape', Object.assign({ path: 'junk.xyz' }, M));
-  check('insert_tape: a .cas goes in the deck; a file that is no tape: bad-media', /Tape prog\.cas inserted/.test(tape.data.message) && notTape.error.code === 'bad-media', J([tape.data, notTape.error]));
+  check('insert_tape: a .cas goes in the deck; a file that is no tape: bad-media', /^prog\.cas is in the deck\. There's no BASIC to type CLOAD into\.$/.test(tape.data.message) && notTape.error.code === 'bad-media', J([tape.data, notTape.error]));
   const unknown = await s.call('load', Object.assign({ path: 'junk.xyz' }, M));
   const disk = await s.call('insert_disk', Object.assign({ path: 'prog.bin' }, M));
   check('load of an unknown format and insert_disk of a non-disk: rejected, the machine says why', unknown.error.code === 'rejected' && /unknown format/.test(unknown.error.detail) && disk.error.code === 'rejected' && /not a disk image/.test(disk.error.detail), J([unknown.error, disk.error]));

@@ -41,7 +41,7 @@ s.switchMachine('mc10');
 check('cartridge refused on the MC-10 (no port)', throws(() => s.load('c.ccc', new Uint8Array(0x2000).fill(0x39)), Emu.SessionError));
 s.switchMachine('dragon64');
 check('cartridge autostarts on the stub at $C000', /\$C000/.test(s.load('game.ccc', new Uint8Array(0x2000).fill(0x12))));
-check('tape insert', /inserted/.test(s.insertTape('t.cas', new Uint8Array(64).fill(0x55))) && s.rewindTape());
+check('tape insert', /is in the deck/.test(s.insertTape('t.cas', new Uint8Array(64).fill(0x55))) && s.rewindTape());
 // inserting a tape must announce itself: the drawer used to refresh on a 500 ms poll, and now refreshes on
 // this event, so without it a freshly inserted tape would not appear until something else fired
 {

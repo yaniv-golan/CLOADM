@@ -75,7 +75,7 @@ export function setupMediaPanel(page, { snapshots, disks, nitros9, keep }) {
     const f = e.target.files[0]; e.target.value = '';
     if (!f) return;
     const bytes = await page.readFile(f);
-    if (page.attempt(() => session.insertTape(f.name, bytes))) keep(f.name, bytes);
+    if (page.insertTape(f.name, bytes)) keep(f.name, bytes);
     page.focus();
   };
   // the deck shows the position: no message (and Rewind is disabled while the deck is empty)

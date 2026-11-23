@@ -216,6 +216,10 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
   1 disk", "Paused"), and wears a dot while media is in ("Menu (media inserted)"). Turning the phone with a sheet open
   keeps it open on the same tab. Upright the keys' strip has no Menu of its own any more (the app bar's is the one
   Menu): Hide keys is in the Power sheet.
+- **A tape put in with no BASIC running says so.** With no ROMs in use, or before BASIC has printed OK, the toast reads
+  "<name> is in the deck. There's no BASIC to type CLOAD into: Load it now", and Load it now loads the tape's program and
+  starts it (the same as Skip the tape). With BASIC running the toast is as before, and the deck's line about BASIC's
+  own S and F shows only then.
 - **Booting NitrOS-9 releases a Debugger stop**, as the other launches do: an accepted boot releases it once and
   the machine runs; a refused boot (a Multi-Pak in the port, say) keeps it. The boot's own held mount of its disk
   launches nothing by itself.

@@ -3045,7 +3045,20 @@ export class Session {
     if (d.kind === 'wav') throw new SessionError(d.error ? `${name}: ${d.error}` : `${name}: no tape blocks found in this recording`);
     m.deck.insert(new Tape(d.kind === 'cas' ? d.bytes : bytes, m.tickHz, name, m.profile.tape));
     this.emit('tape');
-    return `Tape ${name} inserted${d.wav ? ` (decoded from the recording: ${d.wav.blocks} blocks)` : ''}. Type CLOAD or CLOADM.`;
+    // with no BASIC running (the stub, or BASIC has not printed OK yet) there is nothing to type CLOAD into: the tape
+    // says so, and Skip the tape (skipTape) is the way to load it
+    const decoded = d.wav ? ` (decoded from the recording: ${d.wav.blocks} blocks)` : '';
+    if (!this.basicRunning) return `${name} is in the deck${decoded}. There's no BASIC to type CLOAD into.`;
+    return `Tape ${name} inserted${decoded}. Type CLOAD or CLOADM.`;
+  }
+  // Is BASIC running on the person's machine: ROMs in use and its OK seen since the last power-on (bootStatus 'ok'), or
+  // a moment opened from a snapshot (Machine.restored, cleared by every reset): not a power-on, so no OK to wait for,
+  // and it has BASIC's ROMs. Only the stub (no ROMs in use), a power-on still short of OK and NitrOS-9's loader are
+  // "no BASIC".
+  get basicRunning() {
+    const m = this.personMachine;
+    if (!m.hasRom || this.nitros9On(m)) return false;
+    return m.restored || this._bootStatusOf(m).state === 'ok';
   }
   // the tape in the deck as a WAV file (its signal: one sine cycle per bit) -> { name, bytes }
   tapeWav() {
