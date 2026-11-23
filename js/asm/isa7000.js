@@ -344,6 +344,11 @@ const pnum = (s) => +/^P(\d+)$/i.exec(s)[1];
 // (Section 6.2.5 and Table 6-1: offset = ta - pcn, pcn being the next instruction's address). The
 // operand is an address, as the manual's programs write it ("JMP THERE"), not a raw offset.
 const relOf = (s, ctx, bytes) => {
+  // A jump has one addressing mode, the offset, and no operand prefix: "@" belongs to the address operands (CALL
+  // @LABEL, BR @LABEL, LDA @LABEL) and means nothing here. It is not an expression, so it would evaluate to nothing
+  // and encode as offset 0 (a jump to the next instruction) without a word.
+  const t = (s || '').trim();
+  if (t.startsWith('@')) throw new AsmError(`a jump's target is written as a plain label or address ("${t.slice(1).trim()}"), not with @: @ marks an address operand, as in CALL @LABEL, and a relative jump takes none`);
   const r = evalAt(s, ctx);
   if (!r || r.unresolved) return 0;   // pass 1: the instruction's length is what it would be either way
   return (r.value - (ctx.pc + bytes)) & 0xFF;
