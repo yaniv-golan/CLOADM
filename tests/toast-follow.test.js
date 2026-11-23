@@ -81,7 +81,7 @@ function world({ width = 1440, height = 900, controlBox = null } = {}) {
       // gives 0). So add()/remove() ALWAYS count a mutation -- that is what a real page pays -- while toggle() counts one
       // only when the set actually changes. That is the difference the code must respect: a no-op remove()/add() per
       // frame is real churn in a browser, and a fake that dropped it would hide exactly that.
-      // The owner is bound as `el`, NOT taken from `this`: inside these methods `this` is the classList object, so
+      // The element is bound as `el`, NOT taken from `this`: inside these methods `this` is the classList object, so
       // `this === box` was never true and every record was labelled '?' -- a filter on 'toastRegion' matched nothing and
       // the class-churn checks passed vacuously.
       classList: (() => { const own = () => (el === box ? 'toast' : (el === region ? 'toastRegion' : '?')); return { _s: new Set(),
@@ -577,7 +577,7 @@ function decideWithHostileDom(I) {
   // ---- a toast with nowhere free takes the fixed top slot, and STAYS there for nothing ----
   // On a phone with the whole viewport covered by a control, no place is free, so place() takes the fixed top slot and
   // PINS the toast: `place` returns at its first line every later frame, so the slot is kept by the pin, not by re-placing
-  // each frame. This is the path the browser check exercises on a phone (R24: never invisible beats no control covered).
+  // each frame. This is the path the browser check exercises on a phone (never invisible beats no control covered).
   // It is checked explicitly because it is otherwise UNREACHED: a mutant that drops the pinned early-return leaves every
   // other check green, and on main a pinned toast re-placed (and rewrote the region) every frame.
   {

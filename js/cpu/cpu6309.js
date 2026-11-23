@@ -747,7 +747,7 @@ class CPU6309 extends CPU6809 {
   // the two single-pointer forms 3A advances the SOURCE (destination fixed) and 3B advances the DESTINATION
   // (source fixed). The reference guide's prose on its Page 6 garbles these two by saying 3B increments R0,
   // contradicting its own "R1 stays the same" two lines earlier. (The assembler's encoder had the same
-  // 3A/3B confusion; it is fixed on cloadm-10-6309-disasm.)
+  // 3A/3B confusion; it is fixed in the disassembler work.)
   tfm(op) {
     const pb = this.fetch8();
     const srcCode = pb >> 4, dstCode = pb & 0x0F;

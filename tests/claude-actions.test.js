@@ -1,15 +1,15 @@
 // Run: node tests/claude-actions.test.js
 //
-// What the page shows of Claude's actions and restore points (UX rulings R12 and R13), browser-free: the action
+// What the page shows of Claude's actions and restore points, browser-free: the action
 // record each acting call leaves on its turn (js/claude/actions.js, ChatSession.noteAction), the line a person reads
 // for it, the folding of a busy turn, and the restore points' turns. No ROMs, no network: a Dragon 64 without ROMs
 // (the stub takes typed keys, reads no BREAK) and a mocked API. AGENTS.md 4.6: no MAME oracle for page copy; the
-// expected lines are the ruling's own words, written out here, not produced by the code under test.
+// expected lines are the specified copy, written out here, not produced by the code under test.
 //
 // What is proved:
 //  * each outcome from a real call through the real backend: done, partial (bytes not taken), declined, stopped
 //    before and while (the ToolError's delivered count), keys not read (not-consumed), error (failureText);
-//  * the copy of every line the ruling gives;
+//  * the copy of every line, as specified;
 //  * reads are counted, never lines; a turn of more than 3 acting calls folds only its plain ✓ lines, the summary
 //    counts them and the reads and never starts with ✓; partial, – and ✗ lines never fold;
 //  * the records stay with their turn across later turns; each restore point knows its turn; a restore marks the
@@ -70,7 +70,7 @@ process.exitCode = 1;
       '✓ started $3000',
       `✗ couldn't run RUN: ${Emu.TOOL_ERRORS[Emu.TOOL_CODES.NO_BASIC]}`,
     ];
-    check('one line per acting call, in order, in the ruling\'s words: done, partial, keys not read, error', JSON.stringify(got) === JSON.stringify(want), JSON.stringify(got, null, 1));
+    check('one line per acting call, in order, in the specified words: done, partial, keys not read, error', JSON.stringify(got) === JSON.stringify(want), JSON.stringify(got, null, 1));
     const t = Emu.chatTurns(chat.messages)[0];
     check('reads are counted, never lines', JSON.stringify(t.reads) === '{"screen_text":2,"peek":1}' && t.actions.every((r) => !['screen_text', 'peek'].includes(r.tool)), JSON.stringify(t.reads));
     check('each record has its tool, a small summary of the input, the outcome and the time', t.actions.every((r) => typeof r.tool === 'string' && r.what && typeof r.outcome === 'string' && typeof r.time === 'number')

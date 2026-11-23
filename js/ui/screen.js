@@ -134,7 +134,7 @@ export function setupScreen(page, { loadPrograms, roms }) {
       const t = session.screenAlternative();
       if (t !== alt) { $('screenAlt').textContent = t; alt = t; }
     }
-    // R44 (b1, b3): held by the page's Pause or stopped in the Debugger, one state: the Pause button reads Resume and
+    // Held by the page's Pause or stopped in the Debugger, one state: the Pause button reads Resume and
     // the status line says which, in place of a speed no frame measures. The speed is measured afresh after a hold
     // (fps null: a short first window), so nothing from before it is shown as current.
     const held = paused || session.paused;
@@ -156,7 +156,7 @@ export function setupScreen(page, { loadPrograms, roms }) {
   // (page.toMachine says which events go to the machine; js/ui/ask.js pauses Claude for the same ones, first)
   window.addEventListener('keydown', (e) => {
     if (!page.toMachine(e)) return;
-    // R44 (b5): stopped in the Debugger, a key is refused (the Session says so once per stop), not held or queued
+    // Stopped in the Debugger, a key is refused (the Session says so once per stop), not held or queued
     // (a modifier alone types nothing: it is let through, so no Shift is left out of step with the host's)
     if (!MODIFIER_KEYS.has(e.key) && session.refuseTyping()) { e.preventDefault(); return; }
     audio.start();
@@ -256,7 +256,7 @@ export function setupScreen(page, { loadPrograms, roms }) {
   // the screen shows a reset: no message
   $('btnReset').onclick = () => { session.reset(); page.focus(); };
   $('btnHardReset').onclick = () => { session.powerCycle({ reason: 'you power cycled the machine' }); page.focus(); };
-  // The page's Pause (paused) and a Debugger stop (session.paused) are one state on the page (R44 b1): the button
+  // The page's Pause (paused) and a Debugger stop (session.paused) are one state on the page: the button
   // reads Resume (active) for either, and Resume ends both. A launch (Session 'launch': Run again, a load, Reset, a
   // power cycle, a switch) ends the page's Pause as the Session releases a stop, so what is launched runs.
   let shownHeld = false;

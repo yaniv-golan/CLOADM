@@ -4,7 +4,7 @@
  *
  * Keys: in landscape on a phone it is the design's split thumb keyboard, the screen between its halves with
  * BREAK, CLEAR, the switch and Menu under it; in portrait (or on a larger touch screen) a ten-column keyboard
- * under the screen. Upright, the screen takes what the panel leaves (UX R30). Keys go to the machine through HostInput.touch (the KeyQueue holds each press long enough
+ * under the screen. Upright, the screen takes what the panel leaves. Keys go to the machine through HostInput.touch (the KeyQueue holds each press long enough
  * for the machine to see it; the no-ROM stub gets the character). SHIFT is sticky: it shifts the next key.
  *
  * Joystick: one stick drives the right joystick (joystick 0, the same one the first gamepad drives): analogue
@@ -70,7 +70,7 @@ export function setupTouchKeys(page, { input }) {
       // a chord: SHIFT held down, then a key tapped before SHIFT's own HOLD_MS -- the key is shifted, as it always was
       for (const c of [...shiftArmed]) c();
       const { names, code } = keyPress(t, shift);
-      // (R44 b5: stopped in the Debugger, an on-screen key is refused as a keyboard key is; the release still goes)
+      // (stopped in the Debugger, an on-screen key is refused as a keyboard key is; the release still goes)
       if (session.refuseTyping()) return;
       // (the person's key: Claude acting on this machine pauses first, as for a key on the keyboard)
       session.personInput();
@@ -257,10 +257,10 @@ export function setupTouchKeys(page, { input }) {
   // still driving joy[0]/fire[0] every frame
   const padCount = () => { try { return (navigator.getGamepads ? [...navigator.getGamepads()] : []).filter((p) => p && p.connected !== false).length; } catch (e) { return 0; } };
   let padHere = padCount() > 0, visitMode = null;
-  // The mode a program opens in comes from what it is played with (Session.programControls, UX R30): the arrows ->
+  // The mode a program opens in comes from what it is played with (Session.programControls): the arrows ->
   // Pad, a joystick -> Stick, the keyboard (LIZA, BASIC, anything else) -> Keys. The switch's choice is remembered per
-  // program and machine (touchMode.<machine>.<program>), and per machine for no program in particular (R4's
-  // touchMode.<machine>: BASIC, the welcome menu, a file).
+  // program and machine (touchMode.<machine>.<program>), and per machine for no program in particular (the
+  // per-machine touchMode.<machine>: BASIC, the welcome menu, a file).
   const program = () => session.programControls;
   const modeKey = () => { const p = program(); return `touchMode.${session.shownMachine.id}${p ? `.${p.id}` : ''}`; };
   const modeFor = () => programMode(program());
@@ -296,7 +296,7 @@ export function setupTouchKeys(page, { input }) {
   const sheet = $('tkMenuSheet');
   // a phone held sideways: the app bar gives way to the panel (play/index.html), so the panel's button is "Menu",
   // with the machine picker, Commands… and Hide keys; elsewhere the app bar has its own Menu and the panel's button
-  // is ⌄, Hide keys (never two controls named Menu, UX R30)
+  // is ⌄, Hide keys (never two controls named Menu)
   const sideways = matchMedia('(orientation: landscape) and (max-height: 500px)');
   // standing aside: the page has a text field the person types in with the phone's own keyboard (the chat's API
   // key form), so the machine keyboard steps out of its way until the field is gone
@@ -349,7 +349,7 @@ export function setupTouchKeys(page, { input }) {
     if (stickWas && !stick) { releaseStick(); input.touchFire(false); }
     stickWas = stick;
   }
-  // A phone held upright (UX R30): the panel decides and the screen takes the rest -- the largest 4:3 screen for which
+  // A phone held upright: the panel decides and the screen takes the rest -- the largest 4:3 screen for which
   // the app bar, the screen, the strip and the panel fit in the visible height, at most the page's width (play/index.html,
   // "a phone held upright"). What lies above the monitor and from its foot to the panel's is measured here, as CSS
   // cannot; both are lengths of the page's own content, not of the window, so the stylesheet's 100svh does the rest.
@@ -376,7 +376,7 @@ export function setupTouchKeys(page, { input }) {
   noHover.addEventListener('change', apply);
   $('selTouchKeys').onchange = (e) => { session.store.set('touchKeys', e.target.value); hidden = false; apply(); };
   $('btnShowKeys').onclick = () => { hidden = false; apply(); };
-  // The panel's menu button (UX R30). Where the app bar shows (upright, a tablet) it is ⌄, Hide keys: the app bar's Menu
+  // The panel's menu button. Where the app bar shows (upright, a tablet) it is ⌄, Hide keys: the app bar's Menu
   // is the only Menu. Held sideways the app bar gives way to the panel, so it is "Menu": Machine… (the machine picker),
   // Commands…, Install CLOADM… (the app bar's link, out of sight there) and Hide keys. In a phone's chat (body.chat-phone, js/ui/claude.js) the app bar gives way to the chat bar, so
   // it is "← Emulator" and leaves the chat in one tap, as it always has: the way out must not need a second tap.

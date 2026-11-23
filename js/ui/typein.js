@@ -61,7 +61,7 @@ export function setupTypein(page, { openRoms, isVisible }) {
     const l = lines();
     if (!l.length) { page.status('Paste a listing first', true); return; }
     const text = `NEW\n${l.join('\n')}\n`;
-    // refused (R44 b5: the machine is stopped in the Debugger, and the Session's toast says so): no job, no
+    // refused (the machine is stopped in the Debugger, and the Session's toast says so): no job, no
     // "Typed in" afterwards
     if (!session.typeText(text)) return;
     job = { text, total: text.length, lines: l, turbo, wasTurbo: session.turbo };

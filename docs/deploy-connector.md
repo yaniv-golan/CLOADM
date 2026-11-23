@@ -2,7 +2,7 @@
 
 [CLOADM](../README.md) › [MCP server](mcp.md) › Deploying the connector
 
-For the owner of cloadm.dev. The connector that puts CLOADM in Claude's side panel ([Claude on the web: side
+For the maintainers who run cloadm.dev. The connector that puts CLOADM in Claude's side panel ([Claude on the web: side
 panel](mcp.md#claude-on-the-web-side-panel)) is a Cloudflare Worker, `connector/worker/`, served at
 `https://mcp.cloadm.dev/mcp`. It is stateless, needs no sign-in, holds no secret and stores and logs nothing: it
 answers Claude's MCP requests with two tools and two views, and the emulator then runs in each person's browser.

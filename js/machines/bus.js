@@ -74,7 +74,7 @@ const SLOT_LINES = ['cart', 'nmi', 'halt'];
 const VALUES = ['clear', 'assert', 'q'];
 
 class CartSlot {
-  // clock: the owner's AttoClock; emit(line, level) passes a line on (every set_line, changed or not)
+  // clock: the owning machine's AttoClock; emit(line, level) passes a line on (every set_line, changed or not)
   constructor(clock, emit) {
     this.clock = clock;
     this.emit = emit;

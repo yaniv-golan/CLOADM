@@ -652,7 +652,7 @@ const nb = (i) => { const out = []; const x = i & 7, y = i >> 3; for (let dy = -
   check('Session.gameRunning: false on the welcome menu', s.gameRunning === false);
   s.runGame('minesweeper', bin('minesweeper'));
   check('Session.runGame emits program, with gameRunning already true for the listeners (the touch panel\'s pad)', runningAtGame === true && s.gameRunning === true, events.join());
-  check('Session.programControls: Minesweeper is played with the arrows, F and a joystick (UX R30, R32)', JSON.stringify(controlsAtGame) === '{"id":"minesweeper","input":"arrows","extra":["F"],"joystick":true}', JSON.stringify(controlsAtGame));
+  check('Session.programControls: Minesweeper is played with the arrows, F and a joystick', JSON.stringify(controlsAtGame) === '{"id":"minesweeper","input":"arrows","extra":["F"],"joystick":true}', JSON.stringify(controlsAtGame));
   check('Session.runGame remembers the game as the last run', JSON.stringify(s.lastRun) === '{"kind":"game","name":"Minesweeper"}' && s.carryOn && s.carryOn.name === 'Minesweeper');
   s.runFrames(5); s.shownMachine.stubKeys.push(32); s.runFrames(20); s.shownMachine.stubKeys.push(3); s.runFrames(20);
   check('BREAK in a game: the Session emits menu', events.includes('menu'), events.filter((e) => !/^(frame|status)/.test(e)).join());

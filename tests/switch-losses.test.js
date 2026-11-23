@@ -1,4 +1,4 @@
-// What a machine switch or a RAM change takes out of the machine in use (UX ruling R25): Session.takenOut lists the
+// What a machine switch or a RAM change takes out of the machine in use: Session.takenOut lists the
 // tape, the cartridge (with its file when it came from one) and the disks in the drives, from the old machine; it
 // leaves out DriveWire disks (the Session's: they stay mounted) and a Speech/Sound Pak the new machine's `ssc` option
 // puts back. Session.keepSnapshotDisk stores the disk that came with a snapshot in the Library and links the drive
@@ -59,7 +59,7 @@ const cart = new Uint8Array(8192).fill(0x12); cart[0] = 0x20; cart[1] = 0xFE;   
     check('... and the Library\'s disk is left as it was', same(await media.read('disks/WORK.VDK'), other));
   }
 
-  // ---- Save to Library while the Library moves (review finding 1): a move that starts while keepSnapshotDisk looks in
+  // ---- Save to Library while the Library moves: a move that starts while keepSnapshotDisk looks in
   // the store waits for it, so the save lands in the old store and is copied; a different WORK.VDK already in the new
   // store is never overwritten, and the drive is not linked mid-move
   {

@@ -92,7 +92,7 @@ repository variable that does not exist yet, so every run skips and legacy Pages
 Merging it therefore changes nothing, and merge order does not matter. (The `github-pages` environment allows `main`,
 so once a deploy does run, a `main` push's deploy is accepted.)
 
-**Publishing the site: the owner's procedure, in this order.**
+**Publishing the site: the procedure, in this order.**
 1. **Settings -> Pages -> Source = "GitHub Actions"**. The legacy build stops publishing `main` from this point.
 2. **Settings -> Secrets and variables -> Actions -> Variables -> New variable**: `PAGES_VIA_ACTIONS` = `true`. From
    here a successful `main` push deploys.
@@ -220,7 +220,7 @@ node tests/cpu6309-offer.test.js   # the welcome menu is offered on every 6309 m
 node tests/cpu6309-session.test.js # the HD6309 runs the 6809 builds: welcome menu, LIZA, the demo and the chat firmware on every 6309 model, each ending in the same state as on the 6809
 node tests/returning.test.js # returning visits: greetings, carry-on (option 6; 5 on the 6803 build), what ran last, back to the menu from LIZA (BYE or BREAK) and the demo
 node tests/welcome-on-screen.test.js # "on screen now" (Session.welcomeOnScreen: the menu loaded on the machine shown, not stopped by the Debugger, and drawn) and 'lastrun', which "Last time" follows; the page side is the browser check's returning group (onScreenChecks)
-node tests/debugger-stop.test.js # UX ruling R44 in the Session: Reset, a power cycle, a load and a switch release a Debugger stop (breakpoints kept, 'launch' and 'released' emitted), typing while stopped is refused once per stop, the status line says Stopped or Paused; the page side is the browser check's debugger group (debuggerStopChecks)
+node tests/debugger-stop.test.js # a Debugger stop in the Session: Reset, a power cycle, a load and a switch release a Debugger stop (breakpoints kept, 'launch' and 'released' emitted), typing while stopped is refused once per stop, the status line says Stopped or Paused; the page side is the browser check's debugger group (debuggerStopChecks)
 node tests/power-on.test.js  # without ROMs: Reset restarts what runs; power-on, a machine switch and a snapshot of the stub's prompt bring the welcome menu (6809 and 6803)
 node tests/welcome6803.test.js # the 6803 welcome on mc10 and alice: raw screen cells, per-machine subtitle, keys, the two builds differ only at the HALT
 node tests/regress.test.js                # the trace and frame hashes of the diagnostic firmware, against their recorded values (no MAME needed; about a minute of work on one core, and tests/all.js runs it in parallel shards; --count prints the number of cases, --only <name or /regex/> runs some of them, e.g. --only dragon64 while changing one thing)
@@ -229,7 +229,9 @@ node tools/measure-regress-cost.js        # re-measure the regress shard constan
 node tests/allsummary.test.js             # the gate itself: the FAILED: line and --only subset runs; a suite that exits 0 without printing its summary (a pending promise, or one printed only from an exit handler) fails; a suite that prints a "FAIL " line and exits 0 fails; normal suites pass; summaries printed from every writer and quote style are read; fixtures stay out
 node tests/fastloop.test.js               # the fast-loop table above: every suite pattern selects a suite, every group exists; AGENTS.md's Start-here scripts exist
 node tests/allsignal.test.js              # a signal to the gate stops every suite and exits 128+n; nothing survives
-node tests/changelog.test.js              # a released CHANGELOG section equals the same section in its git tag (named corrections aside), and every release uses Keep a Changelog headings (Added/Changed/Fixed); needs the tags (CI fetches them, `git fetch --tags` locally: without them it prints a SKIP line per tag)
+node tests/changelog.test.js              # a released CHANGELOG section equals the same section in its git tag (named corrections aside, internal labels removed from both sides), and every release uses Keep a Changelog headings (Added/Changed/Fixed); needs the tags (CI fetches them, `git fetch --tags` locally: without them it prints a SKIP line per tag)
+node tests/internal-labels.test.js        # no tracked file carries the maintainers' internal process labels (review and ruling IDs, old branch names); each pattern on cases of its own
+node tests/private-paths.test.js          # no tracked file names a Claude session, the private repo, a local path, worktree or work folder, the local instructions file, a worker, a planning or inbox item, a personal email address, or a branch outside the CI globs; its patterns are built from parts, so it scans itself
 node tests/workflows-release.test.js      # release.yml packs in a read-only job, checks the notes before attesting, checks the artifact hand-off on every run, and its dry run cannot publish; pages.yml publishes main only after the gates, on a main push, once PAGES_VIA_ACTIONS is set
 node tests/exitcode.test.js               # no suite or tool forces process.exit() (the Node 25 deadlock), by static scan
 node tests/exitguard.test.js              # the same rule at run time, against every spelling a static scan cannot see

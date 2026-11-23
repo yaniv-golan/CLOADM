@@ -56,7 +56,7 @@ const { synthNitrOs9Floppy } = require('./fixtures/nitros9-synth.js');
 const NITROS9 = synthNitrOs9Floppy();
 
 // Real bytes for the rows that need them, so every row REACHES the code whose routing it is there to check (a row
-// that throws before that point proves nothing - the round-2 reviewer's finding). The games and LIZA are the
+// that throws before that point proves nothing). The games and LIZA are the
 // project's own example programs; the DOS ROM is our own firmware (tools/mame-diff/fdc/dragon-write.asm), assembled
 // here as an 8K $C000 image in place of the DragonDOS cartridge's ROM - no real ROM is used, as AGENTS requires.
 const { assembleFile, romImage } = require('../tools/mame-diff/lib/firmware');
@@ -112,7 +112,7 @@ const ROWS = [
   // the load path
   ['load a binary (a program dropped on the screen)', () => {}, (s) => s.load('prog.bin', BIN)],
   ['load a .cas tape', () => {}, (s) => s.load('tape.cas', casTape())],
-  ['load a .cas tape with stored ROMs on the stub (the fix-D path)', withRoms, (s) => { s.runWithoutRoms({ menu: false }); s.fastCas = false; return s.load('t.cas', casTape()); }],
+  ['load a .cas tape with stored ROMs on the stub (the stored-ROMs tape path)', withRoms, (s) => { s.runWithoutRoms({ menu: false }); s.fastCas = false; return s.load('t.cas', casTape()); }],
   ['load a raw file with askAddresses', () => {}, (s) => s.load('raw.bin', new Uint8Array(16), { askAddresses: () => ({ load: 0x2000, exec: 0x2000 }) })],
   ['load a BASIC listing (basictext)', withRoms, (s) => s.load('prog.bas', new TextEncoder().encode('10 PRINT 1\n20 GOTO 10\n'))],
   ['load a cartridge', () => {}, (s) => s.load('prog.rom', new Uint8Array(0x2000).fill(0x39))],
@@ -422,7 +422,7 @@ async function observed(setup, act, id = 'dragon64', panel = false) {
 //       tools, because reading the shown machine through one is what about seventy call sites there do and telling
 //       `m.frameCount` from `m.z = 1` textually is not reliable in every expression form. What IS caught is the
 //       accessor used outside an exempt tool, and the accessor ceasing to be named.
-// And the other side of the same coin, MEASURED (round-3 review, item 5): a name learned as an alias or a constant
+// And the other side of the same coin, MEASURED: a name learned as an alias or a constant
 // string is that for the whole file/class, so a shadowing rebinding in another function is reported although it is
 // not a reach. This is the FAIL-SAFE direction - it flags, it never lets a reach through - so it is listed here
 // rather than closed:
@@ -576,7 +576,7 @@ function sessionMachineUses(root = ROOT) {
   // comments gone FIRST, and only the real ones (stripComments): a `//` inside a string is not a comment. Then the
   // SAME whole-file binding rules the pages use, because the Session has the same shapes - `const self =\n this;`,
   // `let self; self = this;`, `const self = this;` then a destructure on later lines. A per-line pass missed all three,
-  // which is what the round-3 review found still open on this side.
+  // which is the gap this side had left open.
   const stripped = stripComments(raw);
   const src = stripped.split('\n');
   const cls = src.findIndex((l) => /^export class Session\b/.test(l));
@@ -648,13 +648,13 @@ function pageMachineUses(root = ROOT) {
   for (const f of pageModules(root)) {
     if (f === SESSION_BODY) continue;
     // block comments removed (line numbers kept): a shape named in a comment is not a use. The strip is
-    // stripComments, not a regex: the round-3 review showed a `//` INSIDE a string hid the rest of its line
+    // stripComments, not a regex: a `//` INSIDE a string hid the rest of its line
     // (`if (location.href !== 'http://a') page.session.machine.z = 1;`), in the reach rules and in this one strip.
     const raw = fs.readFileSync(path.join(root, f), 'utf8');
     const src = stripComments(raw).split('\n');
     // EVERY RULE THAT BINDS A NAME READS THE WHOLE FILE, not one line at a time. A declaration may be spread over
     // lines - `const sess =\n  page.session`, `const {\n machine\n} = session`, `const {\n session: ss\n} = window.emu`
-    // - and a per-line pass silently missed all three (the round-3 review's evasions 3a, 3b, 3d). The reach rules
+    // - and a per-line pass silently missed all three. The reach rules
     // below stay per line (a `.machine` is always on one line). `stripped` is the file with comments blanked (so a
     // name in a comment is not learned) and its LENGTH is unchanged, which is what lets `lineOf` report the line a
     // match in the whole-file text came from. The blanking is `stripComments`, which leaves a `//` inside a string
@@ -937,7 +937,7 @@ const REQUIRED = require.main !== module;
     'stopRealCoco', 'toSidePanel', 'showChat', 'watchForMenu',
     // chatNote writes a line of the page's own onto the chat channel (the chat screen), never onto the person's machine
     'chatNote',
-    // refuseTyping (R44) reads whether the Debugger stopped the machine on screen and emits the page's toast; it
+    // refuseTyping reads whether the Debugger stopped the machine on screen and emits the page's toast; it
     // queues and changes nothing on either machine
     'refuseTyping']);
   // page concerns, not machine actions

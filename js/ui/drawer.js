@@ -76,7 +76,7 @@ export function setupDrawer(page, { showRoms }) {
     }
   }
 
-  // Machine settings: the ROM summary, first in the panel (R28b), its button "Add ROMs →" without BASIC and "See or
+  // Machine settings: the ROM summary, first in the panel, its button "Add ROMs →" without BASIC and "See or
   // add ROMs →" with it; the header pill when the machine in use has no BASIC
   function roms() {
     const r = session.machineRoms(), m = session.personMachine;   // the person's machine (the BASIC session while the chat is on screen)

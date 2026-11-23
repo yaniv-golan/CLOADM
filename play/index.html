@@ -11,7 +11,7 @@
 <meta name="theme-color" content="#0B0D0C">
 <link rel="stylesheet" href="css/tokens.css">
 <script>
-  // (UX R30) the touch layout's class on the body before the first paint, where the on-screen panel will be up (the
+  // the touch layout's class on the body before the first paint, where the on-screen panel will be up (the
   // Input tab's setting, cloadm.touchKeys, and the same touch-screen test as js/ui/touch-keys.js), so the page does
   // not reflow when the panel's module arrives; that module owns the class from then on. Not for an embed.
   (function () {
@@ -96,7 +96,7 @@
   #machineMenu button[aria-current="true"] { background: var(--line); }
   #machineMenu .tag { font-size: 14px; color: var(--muted); white-space: nowrap; }
   #machineMenu .tag.ready { color: var(--phosphor); }
-  /* the footer (R28): a separator, then "Add or see ROMs…" and "RAM, CPU and speed…", menu items like the machines */
+  /* the footer: a separator, then "Add or see ROMs…" and "RAM, CPU and speed…", menu items like the machines */
   #machineMenu .sep { grid-column: 1 / -1; border-top: 1px solid var(--line); }
   #machineMenu .footer { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 16px; }
   #machineMenu .footer button { width: auto; flex: 1 1 200px; color: var(--text-2); }
@@ -234,7 +234,7 @@
   /* on the screen's border under its text (js/ui/feedback.js), where room is short */
   #toast.compact { font-size: 12px; line-height: 1.25; padding: 2px 8px; gap: 2px 6px; border-radius: 8px; box-shadow: none; }
   #toast.compact #toastAction { padding: 1px 6px; font-size: 12px; }
-  /* an error is red (R24 ruling): the bar and the edge in --error, 4.76:1 on the toast's paper (css/tokens.css) */
+  /* an error is red: the bar and the edge in --error, 4.76:1 on the toast's paper (css/tokens.css) */
   #toast.error { box-shadow: inset 4px 0 0 var(--error), inset 0 0 0 1px var(--error), 0 8px 24px rgba(0, 0, 0, .45); padding-left: 18px; }
   #toastText { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
   #toastAction { background: #0B0D0C; color: #E8EDE6; border: 0; border-radius: 8px; padding: 6px 10px; font-weight: 700; min-height: 0; }
@@ -255,7 +255,7 @@
   body:has(#keyHint:not([hidden])) .layout .hint { display: none; }
   #lizaOffer { display: flex; flex-direction: column; gap: 6px; background: var(--panel); border: 1px solid var(--phosphor); border-radius: var(--r-14); padding: 12px 16px; font-size: 15px; }
   #lizaOffer[hidden] { display: none; }
-  /* R44: a Debugger stop, directly above the monitor (js/ui/debugger-stop.js); between the header and the screen on a phone */
+  /* a Debugger stop, directly above the monitor (js/ui/debugger-stop.js); between the header and the screen on a phone */
   #dbgStrip { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; background: var(--panel); border: 1px solid var(--orange); border-radius: var(--r-14); padding: 8px 12px 8px 16px; font-size: 15px; }
   #dbgStrip[hidden] { display: none; }
   #dbgStripText { flex: 1 1 16em; min-width: 0; }
@@ -600,7 +600,7 @@
     user-select: none; -webkit-user-select: none; touch-action: manipulation; }
   #touchKeys > #touchFull { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 5px; }
   /* Pad mode (js/ui/touch-keys.js): the D-pad left, SPACE (two keys wide), ENTER, the program's own keys and ABC right, in the
-     full keyboard's place; keys 48 px and more (UX R30). A drag there never scrolls the page: a held arrow is a game's
+     full keyboard's place; keys 48 px and more. A drag there never scrolls the page: a held arrow is a game's
      whole input */
   #touchKeys > #touchPad { grid-column: 1 / -1; grid-row: 2; display: none; gap: 8px; touch-action: none; }
   #touchKeys.pad > #touchFull { display: none; }
@@ -608,7 +608,7 @@
   #touchKeys.keysonce.pad > #touchFull { display: flex; }
   #touchKeys.keysonce.pad > #touchPad { display: none; }
   /* two rows of 48 px, so an upright phone keeps the room for a full-width screen: the D-pad's, and SPACE, ENTER, the
-     program's keys and ABC three to a row, SPACE two wide (BREAK is the strip's: UX R35) */
+     program's keys and ABC three to a row, SPACE two wide (BREAK is the strip's) */
   #touchKeys #touchPad .padarrows { flex: none; display: grid; grid-template-columns: repeat(3, 48px); grid-auto-rows: 48px; gap: 4px; }
   #touchKeys #touchPad .padkeys { flex: 1; min-width: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: 48px; gap: 4px; }
   #touchKeys #touchPad .padkeys .tk { font-size: 13px; }
@@ -725,7 +725,7 @@
     /* the halves' rows share the height above the control row: 56 px each where there is room, never under 40 */
     body.touch-keys #touchKeys > .tkhalf .tkrow { flex: 0 1 56px; min-height: 40px; }
     body.touch-keys #touchKeys > .tkhalf .tk { height: auto; }
-    /* the control strip in one row under the screen, in the brief's order: BREAK, CLEAR, Keys|Joystick, Menu
+    /* the control strip in one row under the screen, in this order: BREAK, CLEAR, Keys|Joystick, Menu
        (hide keys is in Menu). The buttons box is unpacked so the four can order themselves. The row is centred
        under the screen and at least as wide as it, and wider where the labels need it: the halves stop above
        this row, so it may run under them, and no label is ever cut short. */
@@ -741,7 +741,7 @@
     body.touch-keys #touchKeys > .tkcenter #tkClear { order: 2; flex: 1 0 auto; padding: 0 12px; }
     body.touch-keys #touchKeys > .tkcenter #tkMenu { order: 4; flex: 1 0 auto; padding: 0 12px; }
     /* joystick mode, sideways: the screen keeps the column the tube is given; the stick's zone is the left of it
-       and the strip and FIRE the right, each as wide as the other (the brief: the left half the stick, the right
+       and the strip and FIRE the right, each as wide as the other (the left half the stick, the right
        half FIRE and the key strip); the control row is the keys mode's, under all three */
     body.touch-stick #touchKeys, body.touch-pad #touchKeys { grid-template-columns: minmax(0, 1fr) minmax(0, min(360px, 44vw)) minmax(0, 1fr); }
     body.touch-stick #touchKeys > #touchStick { grid-column: 1; grid-row: 1 / span 3; height: auto; align-self: stretch; }
@@ -1167,7 +1167,7 @@
   #askConsent p { margin: 0; font-size: 14px; line-height: 1.5; color: var(--text-2); }
   .askcard .muted { font-size: 13px; }
   .pointnote { font-size: 12px; margin-top: 4px; }
-  /* R12/R13: the small muted lines under a turn (js/ui/claude-lines.js) */
+  /* the restore and action lines: the small muted lines under a turn (js/ui/claude-lines.js) */
   .actions { display: flex; flex-direction: column; gap: 2px; margin: -6px 0 0 12px; font-size: var(--text-min); line-height: 1.5; color: var(--muted); }
   .actions[hidden], .restoreline[hidden], .rl-list[hidden], .rl-wait[hidden], .rl-more[hidden], .restoreline .rl-go .glyph:empty { display: none; }
   .actions .act, .actions .act-reads { overflow-wrap: anywhere; }
@@ -1279,7 +1279,7 @@
   #claudeViewRow[hidden] { display: none; }
   #claudeViewRow { align-items: center; justify-content: center; }
   /* the chat on screen (its firmware needs no ROM, and BASIC's keys mean nothing to it): no key hint, no
-     "No BASIC" pill and no "Running with no ROMs" card (M2) */
+     "No BASIC" pill and no "Running with no ROMs" card */
   body.chat-screen #keyHint, body.chat-screen #romPill, body.chat-screen #welcome { display: none !important; }
   #claude .card.row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
   #claude .card.row[hidden], #claudeKeyCard[hidden], #claudeConsentAsk[hidden], #claudeRestore[hidden] { display: none; }
@@ -1337,7 +1337,7 @@
   }
 
   /* ---- phone ---- */
-  /* ---- the phone's app bar (UX R30): one row, 48 px, from the first paint ----
+  /* ---- the phone's app bar: one row, 48 px, from the first paint ----
      The machine, Open…, Ask Claude and Menu. The machine's name is the one item that gives way (an ellipsis); under
      360 px Ask Claude is its icon (the name stays in the button's text, visually hidden). Add ROMs is Menu's first item
      while the machine has no BASIC, and Menu wears a dot then (js/ui/main.js). Menu opens its one list (Add ROMs,
@@ -1385,7 +1385,7 @@
   }
   /* Tab means nothing on a touch screen: the screen's focus pill says only where typing goes */
   body:is(.touch-keys, .touch-hidden) #focusHint .fh-tab { display: none; }
-  /* ---- a phone held upright with the on-screen panel (UX R30): the panel decides, the screen takes the rest ----
+  /* ---- a phone held upright with the on-screen panel: the panel decides, the screen takes the rest ----
      The screen is the largest 4:3 one for which the app bar, the screen, the strip and the panel fit in the visible
      height with the browser's toolbars up (100svh, the small viewport, which is what shows at load; 100vh where it isn't
      known), at most the page's width: the height less the page above the monitor (--tk-above) and from its foot to the
@@ -1571,7 +1571,7 @@ npx serve -l 8000 .</pre>
     <div id="mediaOffer" hidden><span id="mediaOfferText"></span>
       <div class="bar"><button id="btnMediaSwitch" class="primary"></button><button id="btnMediaAnyway">Load anyway</button></div></div>
 
-    <!-- R44: the machine stopped in the Debugger (js/ui/debugger-stop.js): why and where, Resume and Open Debugger -->
+    <!-- the machine stopped in the Debugger (js/ui/debugger-stop.js): why and where, Resume and Open Debugger -->
     <div id="dbgStrip" role="status" hidden><span id="dbgStripText"></span>
       <button id="btnStripResume" type="button" class="primary">Resume</button><button id="btnStripDebugger" type="button">Open Debugger</button></div>
     <div class="monitor crt" id="monitor" data-family="dragon">
@@ -1905,7 +1905,7 @@ npx serve -l 8000 .</pre>
     </div>
     <div role="tabpanel" id="panel-machine" aria-labelledby="tab-machine" hidden>
       <h2 id="machineHeading" class="panelhead" tabindex="-1">Machine settings</h2>
-      <!-- ROMs first (R28b): the row's button reads "Add ROMs →" without BASIC, "See or add ROMs →" with it (drawer.js) -->
+      <!-- ROMs first: the row's button reads "Add ROMs →" without BASIC, "See or add ROMs →" with it (drawer.js) -->
       <div class="row" id="romRow"><span>ROMs</span><span id="romState" class="kind"></span></div>
       <button class="link" id="btnManageRoms" style="align-self:flex-start">Add ROMs →</button>
       <label class="row" id="ramField"><span>RAM</span><select id="ramSel"></select><span class="fixed" id="ramFixed"></span></label>
@@ -2093,7 +2093,7 @@ npx serve -l 8000 .</pre>
         <p id="libNone" class="muted" hidden>Nothing here for this machine and kind.</p>
         <div id="libTapesBox"><div class="eyebrow">Tapes</div><div class="spines" id="libTapes"></div></div>
         <div id="libTilesBox"><div class="eyebrow">Disks, cartridges and programs</div><div class="tiles" id="libTiles"></div></div>
-        <!-- the ROMs chip (R19 A+): one card, not tiles; the ROMs themselves are managed in Your ROMs -->
+        <!-- the ROMs chip: one card, not tiles; the ROMs themselves are managed in Your ROMs -->
         <div id="libRomsBox" hidden><p id="libRomsCard"><span id="libRomsText"></span> <a href="play/#add-roms" id="libRomsLink"></a></p></div>
       </div>
       <p class="muted" style="margin:0" id="libFooter">Click a spine or a tile, or drag it onto the machine's screen, to load it. Drop files or a folder here to add them.</p>

@@ -9,7 +9,7 @@
 //   [DBU] Disk BASIC Unravelled II p.B3   [SEBU] Super Extended BASIC Unravelled II p.B9
 //   [ITD] Inside the Dragon (Smeed, Sommerville) App.7, App.8, p.226, p.230, p.231
 //   [YC]  Your Computer, October 1983, "Tandy MC-10 review", Table 1   [MCX] MCX BASIC Memory Map
-// Whether a real BASIC then LISTs and RUNs what load_basic wrote was checked by hand by the owner (docs/claude.md).
+// Whether a real BASIC then LISTs and RUNs what load_basic wrote was checked by hand (docs/claude.md).
 //
 // What is proved:
 //  * crunch: hand-built bytes for each family, every rule ('?' is PRINT, ' and ELSE get a ':', DATA, REM and

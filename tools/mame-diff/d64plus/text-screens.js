@@ -82,7 +82,7 @@ const VDG_EXPECT = [VDG_TEXT];
 
 const PHASE = 0x3F00;          // standard RAM, outside the video RAM window: the screen number shown (1..N, N+1 VDG)
 const FIELDS = 10;             // field syncs each screen is held for
-// R0-R15 before the first screen: plus.asm's geometry with the cursor off (R10 = $20: blink mode 01, no cursor)
+// CRTC R0-R15 before the first screen: plus.asm's geometry with the cursor off (R10 = $20: blink mode 01, no cursor)
 const BASE_REGS = [0x71, 0x50, 0x60, 0x0F, 0x19, 0x04, 0x16, 0x18, 0x00, 0x0B, 0x20, 0x0B, 0x00, 0x00, 0x3F, 0xFF];
 
 const hx = (v, n = 2) => '$' + v.toString(16).toUpperCase().padStart(n, '0');

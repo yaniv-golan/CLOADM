@@ -1,5 +1,5 @@
 /*
- * A Debugger stop, seen from the emulator (UX ruling R44). Leaving the Debugger keeps the machine stopped (the
+ * A Debugger stop, seen from the emulator. Leaving the Debugger keeps the machine stopped (the
  * Session's debugger stays stopped until something resumes it), and the page says so in one place each:
  *   - the strip directly above the monitor (#dbgStrip, outside the canvas; between the header and the screen on a
  *     phone): why it stopped and where ("Stopped at breakpoint $C0F3."), with Resume and Open Debugger. role=status,

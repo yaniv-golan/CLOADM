@@ -319,7 +319,7 @@ its segment means follow the levels. Per segment: the pitch within 1% (all are e
 within 0.5% of the first segment's RMS. The DAC's half swing and upper half match to 0.01% (RMS) and 0.08% (mean), the
 single-bit sound to 0.06% and 0.24%, on all three machines. The single-bit sound adds 32 DAC steps
 (`js/machines/cocopia.js`), the weight of the DAC's top bit: the Tandy service manual's parts list gives the DAC's
-resistors R10-R15 as 10K to 324K and the single-bit sound's R22 as 10K (as MAME 0.264's `coco12.cpp` cites it; the
+resistors R10-R15 as 10K to 324K and the single-bit sound's resistor R22 as 10K (as MAME 0.264's `coco12.cpp` cites it; the
 manual itself was not available to this check), and MAME's level matches (it was 31.5 steps, which this comparison finds
 1.50% off and fails; `tests/cli-wav.test.js` pins it at 10240 alone and 30400 with DAC 63). A mutation
 that moves the DAC's upper half up one step fails the mean check alone (0.71% to 1.04%).
@@ -531,7 +531,7 @@ tests cover from the data sheet and MAME's `crtc_update_row()`. The real 80-colu
 `d64plus/plustext.asm` (written by `d64plus/text-screens.js`), which puts up six screens: 80 columns from `$0000`,
 40 columns from `$0100`, a start scrolled three rows, a start at `$07C0` that wraps round the 2K video RAM, a 14-bit
 start `$2850` that mirrors `$0050`, and 64 columns of 20 rows of 13 lines; each clears the video RAM, writes its
-text (some of it where the start skips it), sets R1, R6, R9 and R12/R13 and holds for ten fields; then text goes
+text (some of it where the start skips it), sets CRTC R1, R6, R9 and R12/R13 and holds for ten fields; then text goes
 on the MC6847 page. Against 0.264 under `mameCompat`: 334,449 instructions to HALT, registers and cycle counts
 identical (`trace d64plus plustext.asm` in the regression gate). `run.js d64plus --plustext --video` compares each
 screen's picture with MAME's, every pixel (MAME sizes its screen to R1 x 8 by R6 x (R9 + 1); ours must be dark
@@ -758,7 +758,7 @@ cancelling it; a mocked gamepad's toast, once; 2048's toast gone at the first ar
 ### Install as an app (the PWA offer)
 
 The **Install CLOADM…** item and the one-time offer card (`js/ui/install.js`) have no MAME oracle (AGENTS.md
-4.6): they are page behaviour. The oracle is the brief's own rules, checked two ways. In Node,
+4.6): they are page behaviour. The oracle is the offer's rules as written here, checked two ways. In Node,
 `tests/install.test.js` pins the pure rules: what each stored answer means, the first **Not now** waiting 14 days
 and a second ending the offers, a dismissed browser dialog waiting without spending that budget, every condition of
 the card one at a time, the program clock, and which steps each browser's user agent gets. In Chromium, the browser
@@ -782,8 +782,8 @@ Menu item is gone).
 
 ### Phones and the app bar (the browser check's `mobile` group)
 
-The v0.1.8 UI/UX review's phone and header findings, as UX R30 (owner-approved) rules them, with real touch
-(`hasTouch`, `isMobile`) at the visible sizes R30 names: 320x460, 375x548 and 393x659 upright, 734x343 sideways. Every
+The phone and app bar layout, with real touch
+(`hasTouch`, `isMobile`) at the visible sizes it is designed for: 320x460, 375x548 and 393x659 upright, 734x343 sideways. Every
 check failed on v0.1.8 except the guards named here. Upright, at each size: with the full keyboard the screen is at
 least as wide as v0.1.8 made it (229 px at 375x548; guard at 393x659); the strip is Keys, Pad, Stick, BREAK, CLEAR and
 ⌄ (Hide keys) in one row, none overlapping (the switch clear of BREAK), none under 44x44 px, all on the page; the app
@@ -812,7 +812,7 @@ only at 1200 px in a wide fallback font may it be left out (the layout group), n
 
 The page's menus and boxes (the machine menu, the phone's Menu links, a drive's menu, the Ctrl+K box, the touch
 keys' Menu sheet) and the polite live regions (Ctrl+K's match count, the Library's "N selected") have no MAME
-oracle (AGENTS.md 4.6): the oracle is the UX rulings R15-R18. The browser check's group `menuFocus` drives them with
+oracle (AGENTS.md 4.6): the oracle is the focus and announcement behaviour written down here. The browser check's group `menuFocus` drives them with
 real mouse, touch and keyboard events at 1280x720 and at 390x844 with touch, and after every step reads
 `document.activeElement` and whether the surface shows: Tab out of the machine menu closes it; Esc with the focus
 on the screen closes the machine menu (or Menu's links) and gives the focus to its button with no BREAK reaching
@@ -874,26 +874,26 @@ caller's timeout. One bounded helper for every group's close is the follow-up wo
 
 ### The machine and its ROMs: toasts, switches, the disk ROM, the menu, the Library, the copy
 
-UX rulings R24-R28 and R19 A+ have no MAME oracle (AGENTS.md 4.6): the oracle is the rulings themselves, and the
+These have no MAME oracle (AGENTS.md 4.6): the oracle is the behaviour listed below, and the
 browser check's group `uiModel` drives them with real events at 1280x720 and at 390x844 with touch:
 
-* R24: a disk dropped without a disk ROM: the toast (the disk is in drive 0 on the disk controller alone, with **Add
+* Every toast is visible: a disk dropped without a disk ROM: the toast (the disk is in drive 0 on the disk controller alone, with **Add
   disk ROM…**) has its box inside the viewport and `elementFromPoint` at its centre is the toast; it keeps its slot and
   its time runs. An error toast (a disk image CLOADM can't read) is red. With that disk in and no tape, the drives
   card is above the cassette deck on the phone and under the keyboard panel, and after it on the desktop. (`feedbackModel` checks the fixed top slot where nothing else is
   free, and that it goes after its 4 s.)
-* R25: the switch confirmation's text for a tape and a cartridge (both in the Library), a tape and a disk, a RAM
+* A switch names what comes out: the switch confirmation's text for a tape and a cartridge (both in the Library), a tape and a disk, a RAM
   change (and Cancel putting the select back), a snapshot's own disk with **Save to Library** (stored and linked),
   DriveWire (not listed, still mounted after the switch); the toasts after the switch. `tests/switch-losses.test.js`
   checks `Session.takenOut` and `Session.keepSnapshotDisk` in Node, the Speech/Sound Pak case included.
-* R26: the disk ROM card's title per machine (none on the Alpha and the MC-10), its `data-disk` mark with the socket
+* The disk ROM card: its title per machine (none on the Alpha and the MC-10), its `data-disk` mark with the socket
   counts unchanged, and a drive's **Add disk ROM…** landing on it (in view, focused, on top at its centre).
-* R28, R28b: Ctrl K "roms" Enter (Your ROMs, focus on its heading, nothing scrolled), the palette's top result for
+* The machine menu's footer and Your ROMs: Ctrl K "roms" Enter (Your ROMs, focus on its heading, nothing scrolled), the palette's top result for
   each of its words, the ROMs row first and its label with and without a stored test ROM, the "needs ROMs" toast and
   its action, ↓ from the last machine to both footer items, Esc, and each footer item's focus.
-* R19 A+: the ROMs chip's card with and without ROMs (the count and the machines worked out from `session.roms`),
+* ROMs in the Library: the ROMs chip's card with and without ROMs (the count and the machines worked out from `session.roms`),
   the drop's **Open Your ROMs**, and the card's link. `tests/stored-roms.test.js` checks `Session.storedRoms`.
-* R27: every text node and title, label and placeholder of the page (emulator, machine menu, Your ROMs, Share,
+* The copy: every text node and title, label and placeholder of the page (emulator, machine menu, Your ROMs, Share,
   Library) holds no "stub" and no "Machine tab", and "disk ROM" is the one term; the ROMs row's states, the .dgn
   warning and the snapshot sentence word for word.
 

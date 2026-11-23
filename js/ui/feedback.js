@@ -1,5 +1,5 @@
 /*
- * The feedback model (UX finding FB-1): no single status line. Every message
+ * The feedback model: no single status line. Every message
  * is one of four kinds, chosen by one question: does it describe a state that is still true, or an event that just
  * happened?
  *   1 inline status   a state true now, about one control: it lives on the control (the drives, the tape deck, the
@@ -132,7 +132,7 @@ export function createFeedback() {
   }
   // in view for the first time: from now its time runs
   function seen() { if (cur && !cur.seen) { cur.seen = true; if (!cur.paused) arm(); } }
-  // Where a toast sits on the emulator page. Two rules, in this order: a toast is never invisible (R24), and it
+  // Where a toast sits on the emulator page. Two rules, in this order: a toast is never invisible, and it
   // covers no control (the header, the machine controls, the slots and the cartridge card, the drawer, an attention
   // card, the on-screen keys, the chat's bar) where it can help it. The stylesheet's place first (bottom centre; full
   // width at the bottom on a phone) if it covers neither a control nor the screen; then, on a desktop, along the bottom

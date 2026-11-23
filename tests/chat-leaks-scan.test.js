@@ -104,7 +104,7 @@ const CASES = [
     insert: '    const {\n      _shown\n    } = this; if (_shown) globalThis.__z = 1;\n' },
   { id: "const k = '_shown'; this[k] (a computed key in the Session)", file: 'js/session.js', find: '  welcomeSound() {\n',
     insert: "    const k = '_shown'; if (this[k]) globalThis.__z = 1;\n" },
-  // ---- round-3 review: the shapes a file-wide, per-line or last-one-wins rule let through ----
+  // ---- the shapes a file-wide, per-line or last-one-wins rule let through ----
   // (3a) a destructure of the MACHINE spread over lines, in a page module (the multi-line rule used to live only in
   // sessionMachineUses, so only js/session.js was covered)
   { id: 'a three-line const { machine } = session in a page module', file: 'js/ui/claude.js',
@@ -132,12 +132,12 @@ const CASES = [
   { id: "const k='x' then later const k='_shown'; page[k] (two bindings, reach second)", file: 'js/ui/claude.js',
     find: '  }, { every: true, beforeView: true });\n',
     insert: "  const k = 'x'; if (k) globalThis.__z = 2;\n  { const k = '_shown'; } if (page[k]) globalThis.__z = 1;\n", use: 'if (page[k])' },
-  // ---- round 3, the final commit: what a per-line or parenthesis-blind rule still missed ----
-  // (item 1) a `//` inside a STRING is not a comment: a naive per-line strip hid the rest of this line, reach and all
+  // ---- what a per-line or parenthesis-blind rule still missed ----
+  // a `//` inside a STRING is not a comment: a naive per-line strip hid the rest of this line, reach and all
   { id: "a // inside a string does not hide the reach on its line", file: 'js/ui/claude.js',
     find: '  }, { every: true, beforeView: true });\n',
     insert: "  if (location.href !== 'http://a') page.session.machine.z = 1;\n" },
-  // (item 2) the Session side, whole-file: an alias of `this` split after the `=`, assigned after a bare `let`, and a
+  // the Session side, whole-file: an alias of `this` split after the `=`, assigned after a bare `let`, and a
   // destructure of the machine out of an alias declared on an earlier line
   { id: 'const self =\\n this; self._shown (the Session alias split after =)', file: 'js/session.js',
     find: '  welcomeSound() {\n',
@@ -148,7 +148,7 @@ const CASES = [
   { id: 'const self = this;\\n const {\\n _shown\\n} = self (a multi-line destructure of an alias)', file: 'js/session.js',
     find: '  welcomeSound() {\n',
     insert: '    const self = this;\n    const {\n      _shown\n    } = self; if (_shown) globalThis.__z = 1;\n', use: 'const {\n      _shown' },
-  // (item 3) a holder assigned after a bare `let` to window.emu, then the Session reached through it - in BOTH tools
+  // a holder assigned after a bare `let` to window.emu, then the Session reached through it - in BOTH tools
   { id: 'let e9; e9 = window.emu; s9.machine (browser-check-lib)', file: 'tools/browser-check-lib.js',
     find: 'const at = () => page.evaluate(() => window.emu.machine.frameCount);\n',
     insert: 'let e9; e9 = window.emu; const s9 = e9.session;\nconst at9 = () => page.evaluate(() => s9.machine.frameCount);\n', use: 's9.machine' },

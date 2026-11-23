@@ -2,7 +2,7 @@
  * Adding ROMs, at /play/#add-roms instead of the emulator. It opens from
  * "No BASIC · Add ROMs", the Machine tab's "Add ROMs →", the Welcome menu's key 3, the boot help's "Add
  * ROMs", and anything else that needs ROMs. It shows:
- *  - the disk ROM's card where the machine takes a disk cartridge (R26: a drive's Add ROMs… lands on it);
+ *  - the disk ROM's card where the machine takes a disk cartridge (a drive's Add ROMs… lands on it);
  *  - the machine's sockets, each with what it takes (size, usual file names), whether it is required, and what
  *    it holds or what is missing and why it matters (a required socket: no BASIC without it; an optional one:
  *    what you lose);
@@ -54,7 +54,7 @@ export function setupRomSockets(page, romInput, { confirmSwitch }) {
     if (s.status === 'missing-required') return 'Waiting for a file. Without it there is no BASIC: the machine runs without ROMs, machine-code programs only.';
     return OPTIONAL_WHY[s.id] || 'Optional.';
   }
-  // The disk ROM (R26): one card for a machine whose cartridge port takes a disk cartridge, from
+  // The disk ROM: one card for a machine whose cartridge port takes a disk cartridge, from
   // Session.diskDosChoices() ("Disk drives (optional): DragonDOS or Delta DOS"); none for a machine with its own disk
   // interface (the Dragon Alpha) or with no cartridge port (the MC-10). Like the Pak's, it carries its own attribute
   // (data-disk), not data-status: it is not one of the machine's sockets, and the socket counts read [data-status].

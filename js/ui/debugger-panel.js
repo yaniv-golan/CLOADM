@@ -83,7 +83,7 @@ export function setupDebuggerPanel(page) {
           : lastAction === 'step' ? `● Stepped to ${at} · cycle ${cyc}` : `● Paused at ${at} · cycle ${cyc}`;
   }
   function runButton() {
-    // R44 (b1): F5 mirrors the page's one Pause/Resume state: Run while stopped here or held by the page's Pause
+    // The F5 key mirrors the page's one Pause/Resume state: Run while stopped here or held by the page's Pause
     const b = $('btnDbgRun'), stopped = session.debug.stopped || page.paused;
     b.replaceChildren(stopped ? 'Run ' : 'Pause ', el('kbd', 'F5'));
     b.classList.toggle('primary', stopped);

@@ -36,7 +36,7 @@ export function safeArea() {
 const UNDRAWN = '.layout, #appbar, #appbar > nav, body > footer, #switchConfirm, .layout > .drawer, .slots';
 // the on-screen panel is up (js/ui/touch-keys.js): the page's words say "tap", and BREAK is its button, not Esc
 export const touchPanel = () => document.body.classList.contains('touch-keys');
-// Claude's turn paused by the person's key, on a touch screen (UX R30): there is no Esc to name there, so it says what
+// Claude's turn paused by the person's key, on a touch screen: there is no Esc to name there, so it says what
 // Stop does; one text, short enough for every place that shows it. The Session's own text stays as it is (it is
 // browser-free and names Esc): the page chooses.
 export const TOUCH_PAUSED_TEXT = 'Paused: you tapped a key · Stop ends Claude\'s turn';
@@ -97,7 +97,7 @@ export function createPage(session, audio) {
     // an event's message (a toast; an error: a toast with Details), on the page shown now
     status(msg, isError = false) { feedback.toast(page.withReleased(msg), { error: isError }); },
     toast: (text, opts) => feedback.toast(page.withReleased(text), opts),
-    // R44: "The Debugger's stop at $C0F3 was released.", set by js/ui/debugger-stop.js when a launch released a stop,
+    // "The Debugger's stop at $C0F3 was released.", set by js/ui/debugger-stop.js when a launch released a stop,
     // goes on the launch's own toast (the next one raised in the same turn)
     releasedNote: null,
     withReleased(text) {
@@ -154,7 +154,7 @@ export function createPage(session, audio) {
     frameWork: [],
     // the Pause button holds the frame loop (js/ui/screen.js owns it): nothing runs, whatever is loaded
     paused: false,
-    // R44 (b1): Resume, wherever it is pressed (the Pause button, the stop strip, the Debugger's F5), ends both holds:
+    // Resume, wherever it is pressed (the Pause button, the stop strip, the Debugger's F5), ends both holds:
     // the page's Pause and a Debugger stop (js/ui/screen.js sets it)
     resumeAll: () => {},
     // run the frame callbacks; called once per animation frame by the screen loop, even when the machine ran
