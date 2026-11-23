@@ -23,7 +23,7 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   says "No disk in any drive."), and **Switch to** the model you are using is muted ("Running now"; choosing it says
   "You're using the Dragon 64 now."), after the rows that apply. (`rankCommands`, `listCommands`, `switchCommands`.)
 - **Tape: Eject, the tape commands in Ctrl+K, and recordings kept in the Library.** The cassette slot has **Eject**
-  beside **Rewind** (`Session.ejectTape`, which emits `'tape'` and clears the tape watch as a rewind does): the deck
+  beside **Rewind** (on touch, the slot's buttons are at least 44 px tall) (`Session.ejectTape`, which emits `'tape'` and clears the tape watch as a rewind does): the deck
   goes with the tape, the focus goes to the slot's deck button, and the page says "Tape ejected."; a program waiting
   on the tape (BASIC's CLOAD) keeps waiting, as on a real machine. Ctrl+K has **Insert a tape…** (the tape picker:
   .cas and .wav), **Rewind the tape** and **Eject the tape**. Every command is always listed: one that doesn't apply
