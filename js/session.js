@@ -2963,12 +2963,17 @@ export class Session {
     this.emit('chat');
     if (reason) this.emit('claude-stopped', reason);
   }
+  // Every restart of a machine and every program started on it comes here (Reset, a power cycle, a load or
+  // restartForLoad, inject and runAssembled, and any other reset through the machine's onReset).
   // A restart of the machine Claude acts on while Claude acts on it (or is paused) stops Claude first: what it held
   // back or still had to type must never go into the machine that starts over, and the action it was on is
   // refused. Reset and power cycle say so in their own words; every other restart reaches here through the
   // machine's onReset (install). A restart of the chat machine (the full-screen chat's own screen) leaves Claude
   // alone. (A machine switch or a snapshot load replaces the machine and closes the conversation: adopt -> dropChat.)
   stopClaudeFor(reason, m = this.shownMachine) {
+    // a restart or a new program on a machine a write stop froze (pendingStop) releases it: the stop was about the
+    // program that is gone, so the machine runs again and no stale stop comes back with it
+    if (this.pendingStop && this.pendingStop.machine === m) this.pendingStop = null;
     // (what the program on the machine asks for itself, asMachine: when the keys that asked were Claude's, Claude
     // goes on; when they may have been the person's, it stops)
     if (this.machineTicketHolds(this.machineDriven)) return;
