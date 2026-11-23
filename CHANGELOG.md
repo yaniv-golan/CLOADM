@@ -176,6 +176,18 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Changed
 
+- **Claude and the MCP tools refuse what a Debugger stop would swallow.** While the Debugger has the machine stopped,
+  the tools that must run it or press its keys (`type_text`, `press_break`, `run`, and the MCP server's `press_keys`
+  and `run_frames`) fail with a new code, `machine-stopped`. Its detail says where it stopped, and its remedy says how
+  to go on: the person presses Resume, or Run in the Debugger. A stop made while one of those calls runs ends it
+  the same way: the keys not typed yet are dropped (the detail says how many went in), held keys are let go, and
+  `run_frames` with `until.pc` resumes only a stop its own breakpoint made. Before, the chat's keys waited behind the
+  stop and went in after Resume, `run_frames` ended as if done having run nothing, and an MCP `type_text` timed out. The person's own typing was already refused the same way. Reads
+  (`screen_text`, `peek`, `disassemble`, `registers`, `screenshot`, `machine_info`, `find_bytes`) and the tools that
+  only write memory (`poke`, `assemble_and_load`, `load_basic`) work on the stopped machine and leave it stopped, and
+  so does `step`, which before resumed it. Launches (`load`, `insert_disk`, `reset`, `power_cycle`) still release
+  the stop. The skill (and the side panel's instructions, which the connector's Worker serves once it is deployed
+  again) says what to do with `machine-stopped`, and a new eval covers it.
 - **The welcome menu's tune plays only when you asked for the menu.** It plays once the sound is unlocked for the visit's own menu and for the Welcome menu chosen from Programs; it is silent after a machine switch (a RAM or CPU change, the machine question, an opened snapshot), Reset, a power cycle, and when the menu comes back from LIZA, a game or the demo. The Session decides, so Claude's and MCP's switches are silent too.
 - **Faster CI gates, and shards that cannot go stale.** `node tests/all.js` runs in CI as three parts on three runners
   (`--shard i/n`, planned from `tests/suite-times.json`), and the `gates` job checks from their logs that together

@@ -745,6 +745,8 @@ export class Session {
     if (!m.debugger) new Debugger(m, { symbols: () => this.labels });
     // (one a restored snapshot made, or one made on the machine directly, shows the Session's symbols too, unless it has its own)
     if (m.debugger._symbols === null) m.debugger.setSymbols(() => this.labels);
+    // (its stops are reported as the Session's: a debugger made on the machine directly gets that here)
+    if (!m.debugger.onStop) this.watchStops(m.debugger);
     return m.debugger;
   }
   // The debugger of the machine in use, or null. A machine has one debugger (js/debugger.js: a new one takes the
@@ -787,13 +789,25 @@ export class Session {
     this.emit('released', pc);
     return pc;
   }
+  // Every stop the Debugger makes (its Pause, a step, a breakpoint or watchpoint, a run limit, MCP's step) is a
+  // ('debugger-stopped', machine) event: what is in flight on that machine when it stops - Claude's keys - ends then
+  // (ChatSession.keys, through the chat target's onStopped) rather than waiting behind the stop.
+  watchStops(d) { d.onStop = () => this.emit('debugger-stopped', d.machine); }
+  // Is machine m stopped by the Debugger (the stop that keeps it stopped)? -> { pc, kind } (where, and Debugger.stopReason's kind), or
+  // null. The one test both sides use: the person's typing (refuseTyping) and Claude's and the MCP tools that need the
+  // machine to run or read keys (the chat target's stopped(): ChatSession.callTool, and js/mcp/tools.js).
+  stoppedOn(m = this.shownMachine) {
+    const d = this.debugger;
+    if (!d || !d.stopped || d.machine !== m) return null;
+    return { pc: d.pc, kind: (d.stopReason && d.stopReason.kind) || 'halt' };
+  }
   // The person's typing while the Debugger has the machine stopped is refused, not queued (keys, a tap on
   // the welcome menu, its carry-on line, a paste, typed text): the machine reads nothing while stopped, so typing
   // would only pile up behind the stop. -> true when refused; emits 'typing-refused' once per stop (the stop's reason
   // object is new for every stop) for the page's one toast.
   refuseTyping(m = this.shownMachine) {
     const d = this.debugger;
-    if (!d || !d.stopped || d.machine !== m) return false;
+    if (!this.stoppedOn(m)) return false;
     if (this.typingRefusedFor !== d.stopReason) { this.typingRefusedFor = d.stopReason; this.emit('typing-refused'); }
     return true;
   }
@@ -871,7 +885,7 @@ export class Session {
     const stoppedAt = left && left.stopped ? left.pc : null;
     if (left) left.detach();
     if (stoppedAt != null) this.emit('released', stoppedAt);
-    if (m.debugger) m.debugger.setSymbols(() => this.labels);
+    if (m.debugger) { m.debugger.setSymbols(() => this.labels); this.watchStops(m.debugger); }
     // the machines left behind keep no state in the Session: their ROM-failure sets go (a switch back is a fresh
     // try) and their stub-restart records with them (the record of a Machine that is gone cannot come back)
     for (const [mm] of this.bootFailed) if (mm !== this.shownMachine && mm !== m) this.bootFailed.delete(mm);
@@ -2815,6 +2829,10 @@ export class Session {
       writeSegments: (res) => this.injectAssembled(res, basic()),
       checkRun: (t) => this.checkRunTarget(t, basic()),
       run: (t) => this.runAt(t, basic()),
+      // stopped by the Debugger -> { pc, kind }, else null (Session.stoppedOn): the tools that must run it refuse
+      stopped: () => this.stoppedOn(basic()),
+      // fn() at every Debugger stop of this machine -> a function that stops listening
+      onStopped: (fn) => this.on((ev, m) => { if (ev === 'debugger-stopped' && m === basic()) fn(); }),
       // a restore point: when it was taken and the drives linked to the media store at that moment (their links)
       snapshot: () => { const snap = basic().snapshot(); this.claudePointInfo.set(snap, { at: Date.now(), disks: this.drives.stored(basic()) }); return snap; },
       // the same guarded path as restoreClaude -> restorePoint's notices

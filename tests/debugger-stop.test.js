@@ -113,6 +113,21 @@ for (const [what, name, bytes] of [
     JSON.stringify({ paused: s.paused, events: events.map(([ev]) => ev), pc }));
 }
 
+// Session.stoppedOn, the one test the person's typing and Claude's and the MCP tools share: the machine the Debugger
+// stopped, and no other
+{
+  const { s, pc } = stopped();
+  const other = s.shownMachine;
+  const at = s.stoppedOn(other);
+  check('stoppedOn: the stopped machine -> where and why', at && at.pc === pc && at.kind === 'halt', JSON.stringify(at));
+  s.switchMachine('coco', null, { menu: false });
+  s.debug.halt();
+  check('stoppedOn: another machine is not stopped by this Debugger, and its typing is not refused', s.stoppedOn(other) === null && !s.refuseTyping(other)
+    && !!s.stoppedOn(s.shownMachine), JSON.stringify(s.stoppedOn(other)));
+  s.resume();
+  check('stoppedOn: resumed -> null', s.stoppedOn() === null);
+}
+
 (async () => {
   // b4 (the reviewer's F4): a disk the person puts in - from the Library or a drive's menu (mountDisk), or a drop or
   // Open (importDisk, which mounts) - is a launch, once it is in; a refused mount leaves the stop

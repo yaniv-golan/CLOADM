@@ -125,6 +125,7 @@ export class Debugger {
     this.steps = 0;                // instructions executed by step()/run()/stepOver()/runToReturn()
     this.stopped = false;
     this.stopReason = null;
+    this.onStop = null;            // called with this debugger at every stop (the Session: 'debugger-stopped')
     this.skipBp = null;            // an address whose breakpoint is not to fire again (set by a stop)
     this.untilPc = null;           // a one-shot arrival address (step over, run to, run to return)
     this.untilS = null;            // ...reached only with the stack pointer at or above this (not in a deeper call)
@@ -246,6 +247,7 @@ export class Debugger {
     this.stopped = true;
     this.skipBp = this.machine.cpu.pc;   // continuing from here must not stop on the same breakpoint again
     this.stopReason = Object.assign({ kind }, info);
+    if (this.onStop) this.onStop(this);
   }
   // One CPU step through the machine's own timing, with the trace entry the step produced -> its cycles, or null
   // when no instruction ran: a halted cycle, or an instruction HALT suspended (it runs again, from its start, in a
