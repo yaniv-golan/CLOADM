@@ -532,6 +532,17 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Fixed
 
+- **A real CoCo's and the chat's DriveWire writes wait for a Library move.** A guest's named-object create over
+  Web Serial (Serve a real CoCo) or the full-screen chat's DriveWire wrote the store outside the Library's guard:
+  a move started meanwhile did not wait for it, and the new object was left in the place the move had left; a create
+  or a mount asked while the move copied went ahead. Every DriveWire server now has the Becker port's guard: a create
+  is a Library operation the move waits for, and both are answered "no such object" while the move copies.
+- **Adding a NitrOS-9 floppy image and Save to Library store their disk as a creation, like an import.** A rename
+  onto the name while the save was under way is refused, and a save asked behind a rename of that name refuses
+  instead of writing over the renamed image.
+- **Clearer rename refusals.** A blank new name (or "disks/" alone) and a ".." name say "<name> was not renamed:"
+  and why, rather than a bare folder or a path; a case-only rename on a store that does not tell cases apart names
+  the new name without the folder typed; Save to Library of a disk with no file name says so and what to do.
 - **The TMS7000 assembler encoded `DJNZ Rn,@LABEL` (and every jump written with an `@`) as offset 0.** A relative jump takes a plain label or address; `@` marks an address operand (`CALL @LABEL`), so a jump written with it is now an error that says so, for all 38 relative forms (the jumps, DJNZ, BTJO/BTJZ and BTJOP/BTJZP). An undefined jump target is an error too (it encoded offset 0), and so is a target further than -128..127 from the next instruction (the offset wrapped to a different place); the message gives the distance.
 - **A printout on a CoCo no longer starts with a NUL.** The no-ROM stub made PIA1's PA1 (the RS-232 out) an output
   while its output register held 0, so the line dropped to space at every start and the 600-baud serial printer

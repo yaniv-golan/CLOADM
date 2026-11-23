@@ -38,7 +38,7 @@ names contain one of the parts, and `node tools/browser-check.js --only <group>[
 | Keyboard and input | `input,keyqueue,keyboard-symbols,touch-joystick,press-break` | `input,inputScreen,touchJoystick,keyboardSymbols,typing` |
 | `js/session.js`, snapshots | `session,snapshot,state,restore-points,writewatch` | `snapshot,state` |
 | `js/drives.js` (the floppy drives) | `session-drives,disks,disks-newdisk,disk-bare,disks-mount-case,disks-mount-race,restore-points` | `disk,driveWire` |
-| `js/library.js` (the media library) | `session-library,storage-move,move-inflight,library-case,recent,store-error-names` | `library` |
+| `js/library.js` (the media library) | `session-library,storage-move,move-inflight,library-case,recent,store-error-names,store-races` | `library` |
 | The Claude chat and Ask Claude | `claude,chat-firmware` | `claude,ask,commands,chatScreen` |
 | `cli/` (the command line and the MCP server) | `cli,mcp,game-guide,starter-game` | none |
 | `connector/` (the side-panel connector) | `connector,mcp,skill` | `connector` |

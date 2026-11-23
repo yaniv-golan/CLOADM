@@ -588,10 +588,16 @@ export class DiskDrives {
     this.checkDrive(drive);
     const fdc = this.controller, d = fdc && fdc.drives[drive];
     if (!d || !d.loaded) throw new SessionError(`Drive ${drive} is empty.`);
-    const full = this.storeName(d.media.name), base = full.slice(DISK_PREFIX.length);
+    // a disk with no file's name (a snapshot an earlier build made of 'disks/ ') has nothing to be stored under: say
+    // so, and what to do, rather than the bare "needs a name" of a name the person was asked for
+    let full;
+    try { full = this.storeName(d.media.name); } catch (e) { throw new SessionError(`The disk in drive ${drive} has no file name to save it under: download it, then add it to your Library under a name.`); }
+    const base = full.slice(DISK_PREFIX.length);
     if (d.media.onWrite) throw new SessionError(`${base} is already in your Library.`);
     const media = d.media;
-    // A Library operation (libraryOp): a move that starts meanwhile waits for it, so it looks in and writes to the one
+    // One creation of the name (library.createDisk), as an import is: the name claimed (a rename onto it is refused),
+    // its turn among the creations (an import of the name asked meanwhile is a second creation and refuses), and a
+    // Library operation (libraryOp): a move that starts meanwhile waits for it, so it looks in and writes to the one
     // store, which the move then copies. The look and the write are one queued disk change (storeChange): when it
     // runs, the image is copied and the drive linked in one synchronous step, so a write the machine makes after it
     // goes to the store behind this one, never into the gap between them. It is queued under no name: no mount of this
@@ -599,7 +605,7 @@ export class DiskDrives {
     // refused; one that read before finds no file), so a per-name count would change nothing.
     // (storeChange counts it in queued all the same, so writesSettled waits for it.)
     try {
-      await this.session.library.libraryOp(() => this.storeChange(async () => {
+      await this.session.library.createDisk(full, () => this.storeChange(async () => {
         if (await this.session.media.stat(full)) throw new SessionError(`Your Library already has a disk named ${base}; download this one instead.`);
         if (fdc.drives[drive].media !== media || media.onWrite) throw new SessionError(`Drive ${drive} no longer holds that disk.`);
         d.flush();
@@ -608,7 +614,6 @@ export class DiskDrives {
         try { await this.session.media.write(full, bytes); } catch (e) { if (media.onWrite) { media.onWrite = null; media.name = oldName; } throw e; }
       }));
     } catch (e) { throw this.session.library.mediaError(e, base, full); }
-    await this.session.library.refreshCase();
     this.session.emit('disks');
     return `Saved ${base} to your Library`;
   }
