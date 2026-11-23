@@ -190,12 +190,19 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
   Display, Input, POKEs, Machine) are in a "Settings" sheet that reaches from the screen's foot to the window's (at
   least half the window, so the screen shows what a Display setting does), opening on the tab last used with the focus
   on it; Expand makes it the whole height and Collapse gives that back; each tab is 44 px tall and the tab bar scrolls
-  sideways. The "Running with no ROMs" card is at the top of the Media tab, and the credits are behind Menu → Help. The
-  palette's settings commands, the machine menu's "RAM, CPU and speed…" and Ask's rail open the sheet (openSettings).
-  The page no longer scrolls: the header, the screen, the panel and the chips fit the window. Menu's order on a phone:
-  Add ROMs, Settings…, Share…, Install…, Library, Debugger, Commands…, then Help and GitHub under a rule.
+  sideways. The credits are behind Menu → Help. The palette's settings commands, the machine menu's "RAM, CPU and
+  speed…" and Ask's rail open the sheet (openSettings). The page no longer scrolls: the header, the screen, the panel
+  and the chips fit the window. Menu's order on a phone: Programs…, Add ROMs, Settings…, Share…, Install…, Library,
+  Debugger, Commands…, then Help and GitHub under a rule.
+- **A phone's programs are a sheet, Menu's first item: Programs….** The Media tab's programs move into a "Programs"
+  sheet: the "Running with no ROMs" card, Last time, "Runs without ROMs" (the Welcome menu, LIZA, the Colour demo,
+  2048, Minesweeper, Chat with Claude, the one running marked "on screen now"), "Recent on this machine", the
+  snapshots and "Open your library →"; the Media tab keeps the tape options. Starting a program closes the sheet, so
+  Menu → Programs… → 2048 runs it in two taps. Sideways the keys' Menu has Programs… first too, and the palette has a
+  "Programs" command (also found by games, demos, liza and run), which on a desktop brings the Media tab's programs into
+  view.
 - **Held sideways, and on a short phone upright, the ports are one tabbed sheet.** Sideways the keys' Menu lists
-  Machine…, Settings…, "Tape, disks and cartridge…", Power…, Commands…, Install and Hide keys; "Tape, disks and
+  Programs…, Machine…, Settings…, "Tape, disks and cartridge…", Power…, Commands…, Install and Hide keys; "Tape, disks and
   cartridge…" opens one side sheet of that name (360 px wide, the whole height), its tabs Tape, Disks and Cartridge
   switching in place, opening on the tab that holds media (else the one last used). Every sheet comes from the right
   side there. On a phone upright under 600 px tall there is no chip row (the screen keeps its size); Menu has "Tape,
@@ -352,6 +359,12 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Fixed
 
+- **The file pickers on a phone offer Files, not photos.** The pickers for programs, tapes, disks, cartridges, the
+  Library and NitrOS-9 images name the extensions they take and application/octet-stream, so a phone still offers a
+  file whose type it does not know (a .cas, a .vdk), and none asks for images: Open… no longer offers the Photo Library
+  and the camera on an iPhone.
+- **Menu's "Install…" label on a phone keeps its space**: it read "InstallCLOADM…" (the space before "CLOADM…" was
+  dropped where the Menu lays its items out).
 - **A long line typed on the chat screen goes whole, up to 1024 characters.** The chat firmware's line held 255
   characters (its lengths were single bytes) and the keys after the 255th were not sent: a 269-character prompt
   arrived as its first 255, and the screen only flashed. The line now holds 1024 (16-bit lengths, the buffer at

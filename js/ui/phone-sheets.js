@@ -17,8 +17,11 @@ const SHEETS = [
   { id: 'sheetDisks', chip: 'chipDisks', nodes: ['#driveSlot', '#nitros9Slot'] },
   { id: 'sheetCart', chip: 'chipCart', nodes: ['#cartSlot'] },
   { id: 'sheetPower', chip: 'chipPower', nodes: ['#btnReset', '#btnHardReset', '#btnPause', '#btnTurbo', '#btnFull'] },
-  // Settings (Menu → Settings…, and openSettings(tab) from anywhere): the drawer's tabs and their panels, the "Running
-  // with no ROMs" card at the top of the Media tab
+  // Programs (Menu → Programs…, first, and the palette's "Programs"): the Media tab's programs, the "Running with no
+  // ROMs" card, Last time, the no-ROM shelf ("on screen now" on the one running), Recent on this machine, the
+  // snapshots and the way to the Library; the Media tab keeps its tape options
+  { id: 'sheetPrograms', chip: null, nodes: ['#welcome', '#lastTime', '#shelfHead', '#shelf', '#recentHead', '#recentList', '#quickSave', '#linkLibrary'] },
+  // Settings (Menu → Settings…, and openSettings(tab) from anywhere): the drawer's tabs and their panels
   { id: 'sheetSettings', chip: null, nodes: ['.drawer > [role="tablist"]', '#panel-media', '#panel-display', '#panel-input', '#panel-pokes', '#panel-machine'] },
 ];
 // what may open over a sheet, and so is shown in it while it is open (outside the dialog it would be inert, under it)
@@ -55,8 +58,6 @@ export function setupPhoneSheets(page, { touchKeys, ask = null }) {
         }
         if (first && first.classList && first.classList.contains('sheetnote')) body.prepend(first);
       }
-      const welcome = $('welcome'), mark = document.createComment('phone sheet: #welcome');
-      welcome.before(mark); $('panel-media').prepend(welcome); moved.push([mark, welcome]);
       markUndrawn();   // (the drawer, left with nothing to show, is not drawn: page.js)
     } else if (!on && moved) {
       close();
@@ -176,6 +177,22 @@ export function setupPhoneSheets(page, { touchKeys, ask = null }) {
     return true;
   }
   page.openSettings = openSettings;
+  // openPrograms: on a phone the Programs sheet; elsewhere the drawer's Media tab, where the same programs are, brought
+  // into view with the focus on the first of them
+  function openPrograms(from = null) {
+    if (moved) { open('sheetPrograms', from); return; }
+    $('tab-media').click();
+    $('shelf').scrollIntoView({ block: 'nearest' });
+    const first = $('shelf').querySelector('a, button');
+    if (first) first.focus({ preventScroll: true });
+  }
+  page.openPrograms = openPrograms;
+  // a program started from the sheet: the sheet closes so the screen shows it (before the program's own click runs,
+  // so what that opens, the offer of LIZA's RAM, the chat, lands on the page and takes the focus)
+  $('sheetPrograms').addEventListener('click', (e) => {
+    if (e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    if (e.target.closest('#shelf a, #shelf button, #recentList button:not(:disabled), #btnRunAgain')) close(false);
+  }, true);
 
   // ---- held sideways there are no chips: the keys' Menu opens the three ports as one side sheet, "Tape, disks and
   // cartridge", a tab each (switching in place). The port sheets' bodies are lent to its panels while it is open. It
@@ -235,6 +252,8 @@ export function setupPhoneSheets(page, { touchKeys, ask = null }) {
   const fromMenu = (fn) => () => { $('appbar').classList.remove('menu-open'); $('btnMenu').setAttribute('aria-expanded', 'false'); fn(); };
   $('navPorts').onclick = fromMenu(() => openPorts(null, $('btnMenu')));
   $('navPower').onclick = fromMenu(() => open('sheetPower', $('btnMenu')));
+  // (Programs…: on a narrow page without the touch keys, the drawer's Media tab, far down the page there)
+  $('navPrograms').onclick = fromMenu(() => openPrograms(moved ? $('btnMenu') : null));
 
   for (const s of [...SHEETS, { id: 'sheetPorts', chip: null }]) {
     const d = $(s.id);
@@ -252,5 +271,5 @@ export function setupPhoneSheets(page, { touchKeys, ask = null }) {
   // the full-screen chat takes the page: a sheet closes
   new MutationObserver(() => { if (document.body.classList.contains('claude-open')) close(false); }).observe(document.body, { attributes: true, attributeFilter: ['class'] });
   place();
-  return { open, close, openSettings, openPorts, get openSheet() { return openSheet; } };
+  return { open, close, openSettings, openPrograms, openPorts, get openSheet() { return openSheet; } };
 }

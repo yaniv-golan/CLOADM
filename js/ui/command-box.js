@@ -36,6 +36,7 @@ export const COMMANDS = [
     (page) => (hasTape(page) || (page.tape && page.tape.recorded()) ? null : { state: 'No tape in', why: 'No tape in and nothing recorded yet.' })],
   ['Record to tape', 'CSAVE becomes a .CAS file', 'record tape cas csave save', 'btnRecord', 'Files'],
   ['Share', 'a share link, a clip, a screenshot', 'share link clip screenshot capture embed', 'btnShare', 'Files'],
+  ['Programs', 'the welcome menu, LIZA, the games; what ran here before', 'programs games demos liza run', (page) => page.openPrograms(), 'Views'],
   ['Open the Library', 'your tapes, disks and programs', 'library tapes disks programs files', 'navLibrary', 'Views'],
   ['Open the Debugger', 'assembler and disassembly', 'debugger assembler disassemble debug', 'navDebugger', 'Views'],
   ['Your ROMs', 'see, add or remove ROMs', 'basic firmware add delete remove forget', 'btnManageRoms', 'Settings'],

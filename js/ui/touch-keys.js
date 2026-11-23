@@ -385,7 +385,8 @@ export function setupTouchKeys(page, { input }) {
   // Power… (the machine's controls), Install CLOADM… (the app bar's link, out of sight there) and Hide keys. In a phone's chat (body.chat-phone,
   // js/ui/claude.js) the app bar gives way to the chat bar, so it is "← Emulator" and leaves the chat in one tap, as it
   // always has: the way out must not need a second tap.
-  sheet.innerHTML = '<button type="button" data-item="machine">Machine…</button><button type="button" data-item="settings">Settings…</button>'
+  sheet.innerHTML = '<button type="button" data-item="programs">Programs…</button>'
+    + '<button type="button" data-item="machine">Machine…</button><button type="button" data-item="settings">Settings…</button>'
     + '<button type="button" data-item="ports">Tape, disks and cartridge…</button><button type="button" data-item="power">Power…</button>'
     + '<button type="button" data-item="commands">Commands…</button>'
     + '<button type="button" data-item="install">Install CLOADM…</button><button type="button" data-item="hide">Hide keys</button>';
@@ -404,6 +405,7 @@ export function setupTouchKeys(page, { input }) {
     if (!b) return;
     closeSheet();
     if (b.dataset.item === 'machine') openMachines();
+    else if (b.dataset.item === 'programs') page.openPrograms($('tkMenu'));
     else if (b.dataset.item === 'settings') page.openSettings(null, $('tkMenu'));
     else if (b.dataset.item === 'ports') page.sheets.openPorts(null, $('tkMenu'));
     else if (b.dataset.item === 'power') page.sheets.open('sheetPower', $('tkMenu'));
