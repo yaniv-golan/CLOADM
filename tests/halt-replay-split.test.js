@@ -30,9 +30,10 @@ for (const k of Object.keys(expected)) {
   const a = JSON.stringify(got[k]), b = JSON.stringify(expected[k]);
   check(`${k}: the snapshots, traces, frames and restored continuations are the parent commit's`, a === b, a === b ? '' : `got ${a.slice(0, 400)} want ${b.slice(0, 400)}`);
 }
-check('the cases hold what they are for: held for good, a queued write, a held TFM, held and released through the run',
+check('the cases hold what they are for: held for good, a queued write, a held TFM, held and released through the run, HALT found at a step\'s end',
   got.empty.held && got.empty.log > 0 && got.queued.owed === 1 && got.queued.palette0 === 5 && got.tfm.held === 3 && got.tfm.after.instructions > 0
-  && got.halted.snaps.some((s) => s.held) && got.halted.snaps.some((s) => !s.held));
+  && got.halted.snaps.some((s) => s.held) && got.halted.snaps.some((s) => !s.held) && got.irqEntry.found > 0 && got.irqEntry.rows === 128,
+  `irqEntry found ${got.irqEntry.found}`);
 
 // ---- the machine holds one HaltReplay, and none of the moved names ----
 {

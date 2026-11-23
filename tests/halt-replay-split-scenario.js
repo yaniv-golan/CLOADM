@@ -108,6 +108,42 @@ function scenario(h) {
     m.cpu.trace = null;
     out.halted = { snaps, trace: h0.toString(16), instructions: count, cycles: m.cpu.totalCycles };
   }
+  // ---- irqEntry: HALT inside an IRQ's entry, S in the I/O page ----
+  {
+    const rows = [];
+    let found = 0;
+    for (const fast of [false, true]) {
+      for (let off = 0; off < 64; off++) {
+        const m = Emu.createMachine('coco3', {});
+        m.insertCartridge(new Emu.devices.cocofdc({ rom: new Uint8Array(0x2000) }));
+        m.reset(true);
+        for (let i = 0; i < 2; i++) m.runFrame();
+        if (fast) m.write(0xFFD9, 0);
+        [0x12, 0x20, 0xFD].forEach((b, i) => m.poke(0x3000 + i, b));          // NOP ; BRA *-1
+        m.cpu.pc = 0x3000; m.cpu.s = 0xFF60; m.cpu.cc = 0x00;                  // IRQ enabled; the entry pushes to $FF54-$FF5F
+        m.runCycles(m.cycle + 200);
+        // whether the step's end found the HALT (the after-step haltArrived set the stop point), told apart from the
+        // call fireEvent makes between instructions
+        const H = h(m), orig = H.haltArrived.bind(H), fe = m.fireEvent.bind(m);
+        let inFire = false, atEnd = false;
+        m.fireEvent = (e) => { inFire = true; try { fe(e); } finally { inFire = false; } };
+        H.haltArrived = function () { const b = this.haltS; orig(); if (!inFire && this.haltS >= 0 && b < 0) atEnd = true; };
+        m.on('t-irq', () => m.setLine('test-irq', 'irq', true));
+        m.on('t-halt', (on) => m.setLine('test', 'halt', on));
+        const t0 = m.cycle + 40;
+        m.schedule(t0, 't-irq');
+        m.schedule(t0 + off, 't-halt', true);
+        m.schedule(t0 + off + 300, 't-halt', false);
+        let x = 0x811C9DC5;
+        m.cpu.trace = (c) => { for (const r of REGS) x = fnv(x, c[r]); x = fnv(x, c.totalCycles); };
+        m.runCycles(t0 + 1200);
+        m.cpu.trace = null;
+        if (atEnd) found++;
+        rows.push(`${fast ? 'f' : 's'}${off}:${x.toString(16)}:${m.cpu.totalCycles}:${atEnd ? 1 : 0}`);
+      }
+    }
+    out.irqEntry = { found, traces: sha(rows.join(' ')), rows: rows.length };
+  }
   return out;
 }
 

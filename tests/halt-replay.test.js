@@ -266,5 +266,35 @@ for (const [where, addr, dropped] of [['a byte it read late ($FEF0)', 0xFEF0, tr
     !!d && d.speedChange >= 0 && a === want && b === want, `held ${!!d} ${a} / ${b} vs ${want}`);
 }
 
+// ---- a replayed write is not made again ----
+// A held TFM X+,Y+ whose destination is the GIME's palette ($FFB0-$FFBF): its source runs into PIA0 ($FF00), so the read
+// of $FF00, the 17th, is the held access, after 16 palette writes. Run again once HALT is released, the instruction
+// replays those 16 writes from its log (HaltReplay.replayWrite) and does not make them again: each palette register
+// reaches the GIME once, as on the hardware (one bus cycle each), and the palette ends as the run without HALT leaves it.
+{
+  const once = (select) => {
+    const { m } = machine();
+    for (let a = 0xFEF0; a < 0xFF00; a++) m.poke(a, (a * 7) & 0x3F);
+    const code = [0xC6, 0x01, 0xF7, 0xFF, 0x4A, 0xC6, 0x80, 0xF7, 0xFF, 0x48, 0xC6, select, 0xF7, 0xFF, 0x40, 0x11, 0x38, 0x12, 0x20, 0xFE];
+    code.forEach((b, i) => m.poke(0x3000 + i, b));
+    const BRA = 0x3000 + code.length - 2;
+    const orig = m.gime.writeReg.bind(m.gime);
+    let writes = 0;
+    m.gime.writeReg = (a, v, t) => { if (a >= 0xFFB0 && a <= 0xFFBF) writes++; return orig(a, v, t); };
+    m.cpu.x = 0xFEF0; m.cpu.y = 0xFFB0; m.cpu.w = 17; m.cpu.pc = 0x3000; m.cpu.cc |= 0x50;
+    let held = 0;
+    for (let i = 0; i < 3; i++) { m.runFrame(); if (m.halt.haltDefer) held++; }
+    FORCE_INTERRUPT(m);
+    for (let i = 0; i < 3 && m.cpu.pc !== BRA; i++) m.runFrame();
+    m.gime.writeReg = orig;
+    return { held, writes, done: m.cpu.pc === BRA, palette: Array.from(m.gime.palette.slice(0, 16)) };
+  };
+  const free = once(HALT_OFF), held = once(HALT_ON);
+  check('a held TFM onto the palette: held, then completes', held.held >= 2 && held.done && free.done, `held ${held.held} done ${held.done}/${free.done}`);
+  check('a held TFM onto the palette: each palette register is written once (the replayed writes are not made again)',
+    held.writes === 16 && free.writes === 16, `held ${held.writes}, free ${free.writes} palette writes`);
+  check('a held TFM onto the palette: the palette ends as the run without HALT leaves it', held.palette.join() === free.palette.join(), `${held.palette} vs ${free.palette}`);
+}
+
 console.log(fail ? `${fail} failed` : 'all passed');
 process.exitCode = fail ? 1 : 0;

@@ -123,5 +123,10 @@
   "trace": "fb1398b2",
   "instructions": 71105,
   "cycles": 1354771
+ },
+ "irqEntry": {
+  "found": 84,
+  "traces": "e253fff7e9e2fd11",
+  "rows": 128
  }
 }

@@ -234,6 +234,25 @@ const queueAndStall = (m, a, v) => {
     `palette1 ${hex(m2.gime.palette[1])}, queued ${m2.halt.outsideWrites.length}`);
 }
 
+// ---- 5b. the flush itself refuses the held window ----
+// flushOutsideWrites makes nothing while the window is open (heldIo): asked from an event the held run fires, with a
+// write just queued there, the queue keeps it and the device has not seen it; the run's own flush makes it once the
+// window has closed. (No shipped path asks for a flush inside the window; the guard is what keeps one that did from
+// making a write at the held access's time.)
+{
+  const m = held();
+  let inside = null;
+  inWindow(m, (mm) => {
+    mm.write(0xFFB0, 0x06);
+    mm.halt.flushOutsideWrites();
+    inside = { queued: mm.halt.outsideWrites.length, palette0: mm.gime.palette[0] };
+  });
+  m.runFrame();
+  check('held window: a flush asked inside the window makes nothing; the run makes the write once the window closes',
+    inside !== null && inside.queued === 1 && inside.palette0 !== 0x06 && m.gime.palette[0] === 0x06 && m.halt.outsideWrites.length === 0,
+    JSON.stringify({ inside, after: m.gime.palette[0], left: m.halt.outsideWrites.length }));
+}
+
 // ---- 6. a reset drops a queued write ----
 // A reset drops every access made while an instruction was held, and the same write made while parked is wiped by
 // one too (the reset clears the memory and the GIME). So a queued write must not survive it: made after the reset it
