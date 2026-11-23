@@ -101,12 +101,14 @@ const firstDiff = (a, b) => { let i = 0; while (i < a.length && a[i] === b[i]) i
     const s = new Emu.Session({ media: new MemoryMediaStore() });
     const writeError = () => {};
     s.index.writeError = writeError;
-    const other = new MemoryMediaStore({ caseInsensitive: false });
-    const oldIndex = s.index;
+    // the first store tells cases apart, the new one does not: the rule must change with the store
+    const other = new MemoryMediaStore({ caseInsensitive: true });
+    const oldIndex = s.index, before = s.library.caseInsensitive;
     s.library.useMediaStore(other);
     check('useMediaStore: the Session\'s store handle, a new index on it (its write-error listener kept) and the ROM library\'s index',
       s.media === other && s.index !== oldIndex && s.index.store === other && s.index.writeError === writeError && s.roms.index === s.index);
-    check('useMediaStore: the library takes the new store\'s case rule', s.library.caseInsensitive === false);
+    check('useMediaStore: the library takes the new store\'s case rule (case-sensitive before, case-insensitive after)',
+      before === false && s.library.caseInsensitive === true, `before=${before} after=${s.library.caseInsensitive}`);
     // a move: every DriveWire server the Session built reads and writes the new store
     const there = new MemoryMediaStore();
     await s.library.importMedia('HELLO.BIN', new Uint8Array([1, 2, 3]));

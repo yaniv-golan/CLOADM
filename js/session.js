@@ -19,7 +19,7 @@ import { devices } from './machines/bus.js';
 import { DiskController, FDC_BOARDS } from './machines/fdc.js';
 import { DRIVE_TYPES } from './chips/floppy.js';
 import { detectDiskFormat, diskGeometry, blankDisk, DiskFormatError } from './media/disk.js';
-import { MediaStoreError, flipCase } from './host/media-store.js';
+import { MediaStoreError } from './host/media-store.js';
 import { KeyQueue } from './machines/keyqueue.js';
 import { charToKeys } from './machines/keyboards.js';
 import { cartridgeRoms, createMachine, profiles, resolveConfig, restoreSnapshot } from './machines/profiles.js';
