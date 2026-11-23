@@ -19460,7 +19460,7 @@ async function shortLinkChecks(browser, base, site, check) {
   const { MemoryBucket, memoryLimiter } = await import(pathToFileURL(path.join(__dirname, '../shortlink/memory-bucket.js')).href);
   const local = site.replace(/\/$/, '');
   const env = { BUCKET: new MemoryBucket(), RATE_IP: memoryLimiter(100), RATE_ALL: memoryLimiter(1000), DAILY_CAP: '100',
-    ALLOWED_ORIGINS: `${local},https://cloadm.dev`, REPORT_EMAIL: 'abuse@cloadm.dev' };
+    ALLOWED_ORIGINS: `${local},https://cloadm.dev`, REPORT_EMAIL: 'abuse@example.com' };
   const serve = async (ctx) => {
     await ctx.route('https://s.cloadm.dev/**', async (route) => {
       const r = route.request(), u = new URL(r.url()), origin = r.headers().origin;

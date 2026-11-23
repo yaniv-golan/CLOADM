@@ -1,4 +1,4 @@
-# Deploying the short-link server (for the owner)
+# Deploying the short-link server (for whoever runs cloadm.dev)
 
 Short links (`https://s.cloadm.dev/<id>#<key>`) are stored by a small Cloudflare Worker and an R2 bucket. The code is
 `shortlink/worker.js`; this page is how to put it online. **Nothing in the repository deploys it, and no test reaches

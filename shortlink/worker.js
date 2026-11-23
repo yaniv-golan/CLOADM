@@ -1,6 +1,6 @@
 /*
  * The short-link Worker (https://s.cloadm.dev/api/...): it stores short links and counts, and does nothing else. The
- * owner deploys it (docs/shortlink-deploy.md); nothing in the repository deploys it.
+ * site's maintainer deploys it (docs/shortlink-deploy.md); nothing in the repository deploys it.
  *
  * A short link is https://s.cloadm.dev/<id>#<key>. The page (js/host/link-store.js) seals the moment with AES-GCM in
  * the browser (js/media/link-crypto.js) and sends only the sealed bytes: the key stays in the link's fragment, which

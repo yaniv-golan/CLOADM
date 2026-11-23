@@ -1,5 +1,5 @@
 // The short-link Worker (shortlink/worker.js), run in Node against an in-memory R2 bucket and stand-in rate limiters
-// (the bindings the owner configures: docs/shortlink-deploy.md). Nothing here reaches Cloudflare.
+// (the bindings a deployment configures: docs/shortlink-deploy.md). Nothing here reaches Cloudflare.
 //  * making a link: the three objects, the sealed bytes as sent, the arrival page from its fixed template (its script
 //    allowed by the hash in its CSP, worked out here; only the id and the machine's name in it; Report this link)
 //  * every refusal: origin, kill switch (existing links stay), per-address, global and daily limits, sizes, malformed
@@ -16,7 +16,7 @@ let fail = 0;
 const check = (name, cond, detail = '') => { if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log(`ok   ${name} ${detail}`); };
 
 const { MemoryBucket: Bucket, memoryLimiter: limiter } = require('../shortlink/memory-bucket.js');
-const envOf = (over = {}) => Object.assign({ BUCKET: new Bucket(), RATE_IP: limiter(100), RATE_ALL: limiter(1000), DAILY_CAP: '100', ALLOWED_ORIGINS: 'https://cloadm.dev', REPORT_EMAIL: 'abuse@cloadm.dev' }, over);
+const envOf = (over = {}) => Object.assign({ BUCKET: new Bucket(), RATE_IP: limiter(100), RATE_ALL: limiter(1000), DAILY_CAP: '100', ALLOWED_ORIGINS: 'https://cloadm.dev', REPORT_EMAIL: 'abuse@example.com' }, over);
 const ORIGIN = 'https://cloadm.dev', IP = '203.0.113.77';
 const req = (path, { method = 'POST', body = null, origin = ORIGIN, ip = IP, type = 'application/octet-stream' } = {}) => new Request(`https://s.cloadm.dev${path}`, {
   method, body, headers: Object.assign({ 'CF-Connecting-IP': ip, 'Content-Type': type }, origin ? { Origin: origin } : {}) });
@@ -61,7 +61,7 @@ const sealed = (n = 3000, seed = 1) => Uint8Array.from({ length: n }, (_, i) => 
     check('the arrival page: its one script and style allowed by their hashes, and nothing else (default-src none)', csp.includes(`script-src 'sha256-${h(script)}'`) && csp.includes(`style-src 'sha256-${h(style)}'`)
       && /default-src 'none'/.test(csp) && (html.match(/<script/g) || []).length === 1, csp);
     check('the arrival page: the script counts the open and goes to cloadm.dev/play/#l=<id>.<key>, the same for every link', script === W.ARRIVAL_SCRIPT && script.includes("location.replace('https://cloadm.dev/play/#l='+id+'.'+k)") && !script.includes(out.id));
-    check('the arrival page: "Report this link" mails the id only', html.includes(`<a href="mailto:abuse@cloadm.dev?subject=Report%20CLOADM%20link%20${out.id}">Report this link</a>`));
+    check('the arrival page: "Report this link" mails the id only', html.includes(`<a href="mailto:abuse@example.com?subject=Report%20CLOADM%20link%20${out.id}">Report this link</a>`));
     // nothing from the request but the machine's id (mapped to our own name) is in the page
     const text = html.replace(/<[^>]*>/g, ' ');
     check('the arrival page: no bytes of the moment, no address, no token', !html.includes(out.deleteToken) && !html.includes(IP) && !html.includes('dragon64'), text.replace(/\s+/g, ' ').slice(0, 80));

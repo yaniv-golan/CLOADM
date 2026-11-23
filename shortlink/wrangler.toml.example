@@ -36,4 +36,4 @@ DAILY_CAP = "5000"
 # who may make and delete links (comma-separated origins)
 ALLOWED_ORIGINS = "https://cloadm.dev"
 # where "Report this link" on a link's arrival page writes to (leave empty for no Report link)
-REPORT_EMAIL = "<ABUSE_ADDRESS, e.g. abuse@cloadm.dev>"
+REPORT_EMAIL = "<ABUSE_ADDRESS: where reports go>"
