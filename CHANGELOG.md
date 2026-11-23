@@ -237,6 +237,9 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Changed
 
+- The disk ROM card in Your ROMs says "add your own copy" where it said "add your own dump"; the files you add are ROMs,
+  and "dump" is kept as the verb for reading a machine's ROMs out.
+
 - **The welcome menu's tune plays only when you asked for the menu.** It plays once the sound is unlocked for the visit's own menu and for the Welcome menu chosen from Programs; it is silent after a machine switch (a RAM or CPU change, the machine question, an opened snapshot), Reset, a power cycle, and when the menu comes back from LIZA, a game or the demo. The Session decides, so Claude's and MCP's switches are silent too.
 - **Faster CI gates, and shards that cannot go stale.** `node tests/all.js` runs in CI as three parts on three runners
   (`--shard i/n`, planned from `tests/suite-times.json`), and the `gates` job checks from their logs that together
