@@ -218,9 +218,9 @@ async function say(s, calls, line, want) {
     frames(s, 10);
     check('chatPromptEmpty: a fresh prompt is empty and idle', s.chatPromptEmpty === true);
     key('a'.charCodeAt(0)); key('b'.charCodeAt(0));
-    check('chatPromptEmpty: with two characters typed it is not (BLEN = 2)', s.chatPromptEmpty === false && s.readByte(Emu.CHAT_STATE.blen, s.shownMachine) === 2);
+    check('chatPromptEmpty: with two characters typed it is not (BLEN = 2)', s.chatPromptEmpty === false && s.readByte(Emu.CHAT_STATE.blen, s.shownMachine) === 0 && s.readByte(Emu.CHAT_STATE.blen + 1, s.shownMachine) === 2);
     key(0x03);
-    check('chatPromptEmpty: BREAK drops the typed line, and the prompt is empty again', s.chatPromptEmpty === true && s.readByte(Emu.CHAT_STATE.blen, s.shownMachine) === 0);
+    check('chatPromptEmpty: BREAK drops the typed line, and the prompt is empty again', s.chatPromptEmpty === true && s.readByte(Emu.CHAT_STATE.blen, s.shownMachine) === 0 && s.readByte(Emu.CHAT_STATE.blen + 1, s.shownMachine) === 0);
     s.typeText('hi\n');
     for (let i = 0; i < 40 && !chat.busy && calls.length < 1; i++) { frames(s, 1); await settle(); }
     check('chatPromptEmpty: with the line sent and its reply on the way it is not (WAIT set, or the reply streaming)', s.chatPromptEmpty === false, `wait ${s.readByte(Emu.CHAT_STATE.wait, s.shownMachine)} busy ${chat.busy}`);
@@ -232,8 +232,9 @@ async function say(s, calls, line, want) {
     check('chatPromptEmpty: not without a chat', s.chatPromptEmpty === false);
   }
   // A wrapped error, a line typed while it was still arriving, then a new prompt: checked on the rendered frame
-  // (what the person sees), not only in memory. The early line must not be taken (the firmware waits for the
-  // end-of-reply byte), the wrapped error keeps both its lines whole, and the next prompt starts its own line.
+  // (what the person sees), not only in memory. The early line is kept (the firmware's type-ahead ring) and typed at
+  // the prompt only once the error has ended (its end-of-reply byte), so it goes whole as a turn of its own (refused
+  // again here: still no key); the wrapped errors keep both their lines whole, and each prompt starts its own line.
   {
     const s = new Emu.Session({ store: Emu.memoryStore() });
     s.switchMachine('dragon64');
@@ -255,13 +256,14 @@ async function say(s, calls, line, want) {
     await say(s, calls, 'second', 1);
     for (let i = 0; i < 400 && channel.queued; i++) frames(s, 1);
     frames(s, 30);
-    const want = ['> first', 'Thinking...', '[No API key: add your Anthropic API key to', 'chat.]', '> second', 'Thinking...', 'Second answer.', '>'];
+    const noKey = ['Thinking...', '[No API key: add your Anthropic API key to', 'chat.]'];
+    const want = ['> first', ...noKey, '> Poke it, then run it.', ...noKey, '> second', 'Thinking...', 'Second answer.', '>'];
     const ram = chatScreen(s.shownMachine).filter(Boolean);
     const shown = frameScreen(s.shownMachine).filter(Boolean);
     check('frame: a wrapped error, a line typed during it and a new prompt each stay whole, line by line', midway > 10
       && JSON.stringify(shown) === JSON.stringify(want), `${midway} bytes were still to come; ${JSON.stringify(shown)}`);
-    check('the line typed while the error was arriving was not taken (no request, nothing on screen)', calls.length === 1
-      && calls[0].body.messages.slice(-1)[0].content === 'second' && !shown.some((l) => /Poke/.test(l)) && JSON.stringify(ram) === JSON.stringify(want));
+    check('the line typed while the error was arriving was kept and went whole once the error had ended (refused: no key, so no request), not mixed into the error',
+      calls.length === 1 && calls[0].body.messages.slice(-1)[0].content === 'second' && shown.filter((l) => /Poke/.test(l)).length === 1 && JSON.stringify(ram) === JSON.stringify(want));
   }
 
   // ---- the same chat on a CoCo 3, whose RAM sits behind its MMU (the mailbox at CPU $7000) ----

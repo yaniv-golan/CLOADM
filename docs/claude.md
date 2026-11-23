@@ -304,18 +304,24 @@ emulator.
   (`examples/chat.asm`) on a second machine of the same model, on the built-in stub (no ROM needed), which goes on
   screen and gets the keyboard. Both machines run, the one off screen in the picture-in-picture, so Claude's typing
   goes in while you watch the chat. The chat needs a 6809-family CPU (the 6309 runs the firmware unchanged) and
-  32K or more: the firmware uses $0400-$7FFF. On a machine with less the chat opens and the screen stays the stub's,
-  so pick a 32K model (the Dragon 64, a 32K CoCo); the chat opens on a Dragon 64 from an MC-10 or Alice.
+  32K or more: the firmware uses $0400-$7FFF. On a machine with less (a CoCo with 4K or 16K) the chat is
+  refused, saying so ("The chat needs 32K of memory or more"): give it 32K or more, or use a Dragon 32 or 64; the chat opens on a Dragon 64 from an MC-10 or Alice.
   A file dropped while the chat is full screen (a program, a tape, a cartridge, a disk or a ROM) goes to your BASIC
   session, never the chat machine: the chat machine runs the chat firmware, and a load there would overwrite it and
   take the chat screen away. The message says where it went, and the drives card shows the BASIC session's drives. A
   ROM is stored for its model either way, so a ROM dropped here sets up the same model's BASIC session; the chat
   machine keeps running its firmware and takes the stored ROMs when you go back to BASIC. The POKE book, Remove ROMs,
   Save snapshot, Skip on the cassette and the welcome menu are the BASIC session's too.
-* **Typing.** A line can be up to 255 characters. It wraps as you type the way replies wrap: a word that doesn't fit
+* **Typing.** A line can be up to 1024 characters. It wraps as you type the way replies wrap: a word that doesn't fit
   moves to the next line, a word with no space in it breaks at the character, and a space that falls at the end of a
-  full line ends it without being drawn. BACKSPACE goes back across the wraps. A key past the 255th is refused visibly: the screen flashes (the VDG's colour
-  set switches from green to buff for about a tenth of a second) instead of the key being dropped without notice.
+  full line ends it without being drawn. A line longer than the screen scrolls it as you type; BACKSPACE goes back
+  across the wraps, and a row that has scrolled off the top comes back as you reach it. A key past the 1024th is
+  refused visibly, never dropped without notice: the row under the line says "[Full: 1024 characters. ENTER sends
+  it.]" (BACKSPACE, ENTER or BREAK takes it away) and the screen flashes (the VDG's colour set switches from green to
+  buff for about a tenth of a second).
+  You can type ahead: keys typed while a reply is still coming (or while Claude uses its tools, or a card waits) are
+  kept and typed at the prompt once the reply has ended, so a line typed then is sent whole. BREAK (Esc) while a reply
+  comes only stops the reply; it is not kept for the next line.
 * **The screen.** 256×192 two-colour graphics (VDG GM7, SAM mode 6 at `$0400`, the SAM's memory size set to 64K as
   BASIC sets it), 42 columns by 24 rows with this project's own 6×8 font. Typed lower case reaches the firmware as
   typed (the stub hands every other program upper case, as BASIC's keyboard does).

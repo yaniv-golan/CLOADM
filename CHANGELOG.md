@@ -325,6 +325,30 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Fixed
 
+- **A long line typed on the chat screen goes whole, up to 1024 characters.** The chat firmware's line held 255
+  characters (its lengths were single bytes) and the keys after the 255th were not sent: a 269-character prompt
+  arrived as its first 255, and the screen only flashed. The line now holds 1024 (16-bit lengths, the buffer at
+  `$7300`); a line longer than the screen scrolls it as it is typed, and BACKSPACE brings back the rows that have
+  scrolled off. A key past the 1024th is refused with a notice on the row under the line, "[Full: 1024 characters.
+  ENTER sends it.]", and the flash. `tests/chat-long-lines.test.js` sends lines of 256, 269, 1000 and 1025 characters
+  through the Session on the Dragon 64, the CoCo and the CoCo 3, over the mailbox and DriveWire.
+- **The chat on a CoCo with 4K or 16K is refused, saying why.** Its firmware uses $0400-$7FFF, so on less memory it
+  loaded into memory that was not there and the chat screen stayed dead. `startChat` now refuses below 32K: "The chat
+  needs 32K of memory or more; this CoCo 1/2 has 16K. Give it 32K or more in its settings, or use a Dragon 32 or
+  64." The page shows it in its status line.
+- **The chat screen scrolls in fewer frames.** It copies two bytes a move (about 40% fewer cycles), so the frames
+  drawn while a scroll is part way, which show the row at the copy's edge twice, last less long.
+- **A line typed on the chat screen while a reply is still coming is kept whole.** The chat firmware used to ignore
+  every key from ENTER until the reply had ended, so a line typed ahead (by a person or a script, while Claude
+  answered, used its tools or waited at a consent card) lost its start and only its tail was sent. The keys now wait
+  in the firmware's type-ahead ring (2047 keys; a key past it flashes the screen) and are typed at the prompt once the reply has ended, in the order typed. BREAK while a reply comes
+  still only stops the reply. `tests/chat-firmware.test.js`, `tests/claude-chat-drivewire.test.js` and the
+  `chatScreen` browser check type 200-character lines and check the bytes the backend receives.
+- **A call stopped by the MCP server's 25 s time limit says so.** A long `type_text` on a host too slow to finish it
+  was stopped part way and reported `stopped`, "the person stopped Claude", which nobody had. It now fails
+  `time-limit`, with how many of the keys went in ("40 of 150 keys typed before the time limit; the rest was not
+  typed", or "...; the call did not finish" when even stopping it does not end the call), and nothing more goes in
+  afterwards (docs/mcp.md, the skill).
 - **A real CoCo's and the chat's DriveWire writes wait for a Library move.** A guest's named-object create over
   Web Serial (Serve a real CoCo) or the full-screen chat's DriveWire wrote the store outside the Library's guard:
   a move started meanwhile did not wait for it, and the new object was left in the place the move had left; a create
