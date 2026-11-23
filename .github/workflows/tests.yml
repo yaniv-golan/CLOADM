@@ -162,6 +162,13 @@ jobs:
       - name: Install the browser and its OS packages
         run: |
           npx playwright install chromium
+          # The OS packages chromium needs are Playwright's own list. `install-deps --dry-run` simulates installing
+          # exactly that list (apt-get install -s) and exits 1 naming what is missing; when nothing is, the runner
+          # image already has every package and the install (apt-get update, then apt-get install of the same list)
+          # would change nothing, so it is skipped. Anything missing, or a simulation that fails, installs as before.
+          if npx playwright install-deps --dry-run chromium; then
+            echo "OS packages: all present, nothing to install"; exit 0
+          fi
           # apt on a fresh runner sometimes cannot find a package (a mirror mid-update): refresh and try again.
           for try in 1 2 3; do
             sudo apt-get update && npx playwright install-deps chromium && exit 0

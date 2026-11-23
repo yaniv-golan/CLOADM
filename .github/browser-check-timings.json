@@ -1,6 +1,7 @@
 {
-  "//": "Seconds per browser-check group (node tools/browser-check.js --timings FILE), the input the CI shards are planned from; \"shards\" is how many. CI group times of run 45145925128 (ae787ea, 2026-11-23; ubuntu-24.04, one group per shard process). Update with node .github/scripts/browser-check-shards.js --merge FILE, never by hand.",
+  "//": "Seconds per browser-check group (node tools/browser-check.js --timings FILE), the input the CI shards are planned from; \"shards\" is how many. CI group times of run 45145925128 (ae787ea, 2026-11-23; ubuntu-24.04, one group per shard process). Update with node .github/scripts/browser-check-shards.js --merge FILE (a smoothed average: \"smoothing\" is the weight of each new run), never by hand.",
   "shards": 8,
+  "smoothing": 0.3,
   "groups": {
     "models": 17.1,
     "reset": 16.1,

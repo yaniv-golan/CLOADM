@@ -96,7 +96,7 @@ how many). Without arguments the script fails if a group is in no shard, in two,
 shard file is not the plan (stale or edited by hand); it reads the groups from `node tools/browser-check.js
 --list-groups`, the `GROUPS` table itself. After adding a group: `node tools/browser-check.js --only <group> --timings
 t.json`, then `node .github/scripts/browser-check-shards.js --merge t.json`. Every CI run publishes its own times as
-the `browser-check-timings` artifact (merge it to rebalance), and `node tests/all.js --record-times` rewrites
+the `browser-check-timings` artifact (merge it to rebalance: `--merge` keeps a smoothed average per group, weighted by the timings file's `"smoothing"`, so one noisy run cannot swing the plan), and `node tests/all.js --record-times` rewrites
 `tests/suite-times.json` from a passing whole run (`--timings FILE` writes one run's or one part's times elsewhere). A green run's `gates` summary (commit SHA, tree hash, each job's counts) is the
 definition of done; see AGENTS.md section 4.
 Every action in the workflows is pinned to a commit SHA with its release tag beside it, and `pull_request_target` is
