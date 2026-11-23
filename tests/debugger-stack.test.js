@@ -71,6 +71,30 @@ const bps = (d) => [...d.bps].join();
   check('... then session.debug makes a fresh one on it (the breakpoints do not follow a machine)', again !== d && again.attached && again.bps.size === 0);
 }
 
+// ---- install() between the chat and BASIC machines (showChat calls install, never adopt) ----
+{
+  // (the chat's two machines are set up directly: opening a real chat needs a backend, the firmware and a channel,
+  // none of which this is about; showChat is the Session's own call that puts the other one on screen)
+  const s = mk(); const basic = s.shownMachine;
+  const chat = Emu.createMachine('dragon64'); chat.reset(true);
+  s.chatMachines = { chat, basic }; s.chatView = 'basic';
+  const d = s.debug; d.addWatchpoint(0x4000, 1); d.addBreakpoint(0x3000);
+  s.showChat('chat');
+  check('showChat(chat) with a watchpoint on the BASIC machine: no orphan holds taps there (0r/0w), its debugger is detached and no longer the machine\'s',
+    !d.attached && taps(basic) === '0r/0w' && basic.debugger === null && s.debugger === null, `${taps(basic)} attached=${d.attached}`);
+  basic.write(0x4000, 1);
+  check('... a write to the byte it watched is seen by nobody (the detached debugger has no tap left)', d.hit === null && s.shownMachine === chat);
+  const dc = s.debug; dc.addWatchpoint(0x4000, 1);
+  chat.write(0x4000, 2);
+  check('... a watchpoint on the chat machine sees its write once, and it is the only debugger holding a tap', !!dc.hit && dc.hit.value === 2 && taps(chat) === '1r/1w' && taps(basic) === '0r/0w', `${taps(chat)} ${taps(basic)}`);
+  s.showChat('basic');
+  check('showChat(basic) back: the chat machine\'s debugger is detached too (0r/0w there), nothing is attached on either',
+    !dc.attached && taps(chat) === '0r/0w' && chat.debugger === null && s.debugger === null && taps(basic) === '0r/0w', `${taps(chat)} ${taps(basic)}`);
+  const db = s.debug; db.addWatchpoint(0x4000, 1);
+  basic.write(0x4000, 3);
+  check('... and a watchpoint on BASIC again sees its write once (the earlier ones do not)', !!db.hit && db.hit.value === 3 && d.hit === null && dc.hit.value === 2 && taps(basic) === '1r/1w', `${taps(basic)}`);
+}
+
 // ---- a debugger made directly on a machine that has one replaces it ----
 {
   const s = mk(); const d1 = s.debug; d1.addWatchpoint(0x4000, 1); d1.addBreakpoint(0x3000);
