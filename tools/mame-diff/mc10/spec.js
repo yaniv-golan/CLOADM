@@ -66,17 +66,19 @@ end`).join('\n'),
     };
   },
   // printer firmware (lib/printer.js): the serial printer on port 2 bit 0
-  printer(profileId, { config = {}, work = `/tmp/mame-diff/${profileId}-printer` } = {}) {
+  // stubInit: printer-stubinit.asm, the ports set up in the no-ROM stub's order, then the same print
+  // glitch: printer-glitch.asm, port 2 set up DDR first, then a glitch on P20 once it is driven (one $FF before the print)
+  printer(profileId, { config = {}, work = `/tmp/mame-diff/${profileId}-printer`, stubInit = false, glitch = false } = {}) {
     const Emu = loadEmu(), profile = Emu.profiles[profileId];
     const resolved = Emu.resolveConfig(profileId, Object.assign({ mameCompat: true }, config));
-    const asm = assembleFile(path.join(__dirname, 'printer.asm'), '6803');
+    const asm = assembleFile(path.join(__dirname, glitch ? 'printer-glitch.asm' : stubInit ? 'printer-stubinit.asm' : 'printer.asm'), '6803');
     const rom = romImage(asm, 0xE000, 0x2000, 0x01);
     return {
       label: profileId, system: profile.mame, work, seconds: 12, args: mameConfigArgs(resolved),
       regs: REGS, waitOps: [], haltPc: asm.symbols.get('HALT'),
       install: () => writeRoms(work, profile.mame, { [profile.roms[0].files[0]]: rom }),
       machine: () => machine(profileId, rom, [], config),
-      instructions: 3000000, doneAddr: 0x4F01, text: 'CLOADM PRINTER TEST, MC-10 SERIAL PORT, 600 BAUD\r\n',
+      instructions: 3000000, doneAddr: 0x4F01, text: 'CLOADM PRINTER TEST, MC-10 SERIAL PORT, 600 BAUD\r\n', glitched: glitch ? [0xFF] : [],
     };
   },
   // the serial port in loopback (serial-loopback.asm; MAME -rs232 loopback): lockstep, then every byte read back

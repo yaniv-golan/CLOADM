@@ -1320,6 +1320,27 @@ names it.
   * The serial printers sample each bit at its middle, 1.5 to 9.5 bit times after the start edge, as MAME's
     `diserial.cpp` does (`js/machines/serial.js`). Making the line an output while it holds 0 is a start bit:
     the firmware sets the output register before the DDR.
+  * `run.js coco --printer --stub-init` runs `sam/printer-stubinit.asm`, which sets PIA1 up exactly as CLOADM's
+    no-ROM stub does (`js/machines/sam.js` and `coco3.js` stubInit) before the same print. Before 0.2 the stub made
+    PA1 an output with 0 in its output register, then wrote $80: MAME 0.264 and ours both printed one NUL before the
+    first byte (306 bytes identical, the extra one a $00), so every program started on the stub had a printout
+    beginning with $00. The stub now puts mark in the output register first: **305 bytes identical**, nothing
+    before the first byte sent, trace identical to HALT (3,211,861 instructions). `tests/stub-printer.test.js`
+    checks the printed bytes of every CoCo-lineage stub, and that the Dragons' stub prints only the reset's byte.
+  * `run.js mc10 --printer --stub-init` (and `alice`) runs `mc10/printer-stubinit.asm`, ports set up as the MC-10 and
+    Alice stub sets them up (`js/machines/mc10.js` stubInit, port 2's data register before its DDR): **306 bytes
+    identical**, nothing before the first byte, trace identical to HALT (3,584,013 instructions compared).
+  * `run.js <coco|mc10|alice> --printer --glitch` runs `sam/` or `mc10/printer-glitch.asm`: the printer line dropped
+    for a few cycles once it idles at mark, then the print. MAME 0.264's receiver (`diserial.cpp`) has no false-start
+    check: any drop is a start bit, and it prints $FF for it; so does CLOADM's (`js/machines/serial.js`), **307 bytes
+    identical** on the MC-10 and Alice, 306 on the CoCo (one text byte shorter). The MC-10 firmware first sets port 2
+    up DDR first, the order the stub had before 0.2. MAME's m6801 drives port 2 only once its data register has been
+    written (`m6801.cpp` `write_port2`: `if (!m_port2_written) return;`, cleared at reset, set by `p2_data_w` and the
+    output compare), so that order prints nothing there. CLOADM's 6803 drove the data register's 0 and printed a
+    stray byte (its first byte came out $7F instead of $00) until it did the same (`js/cpu/cpu6803.js`, `p2Written`, a
+    field in the 6803's state; a 6809 snapshot is unchanged, so `SNAPSHOT_VERSION` does not move). The MC6803's data
+    registers are not set by reset, so the hardware's level there is
+    undefined; MAME's choice is kept. `tests/stub-printer.test.js` checks CLOADM's bytes against MAME's record.
 
 * `node tools/mame-diff/run.js <profile> --serial` runs `sam/serial-loopback.asm` (`mc10/serial-loopback.asm`) with
   a loopback plug on the bit-banger, in lockstep with MAME's `-rs232 loopback`: the firmware sends 13 bytes as

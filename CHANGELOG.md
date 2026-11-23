@@ -524,6 +524,18 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 ### Fixed
 
 - **The TMS7000 assembler encoded `DJNZ Rn,@LABEL` (and every jump written with an `@`) as offset 0.** A relative jump takes a plain label or address; `@` marks an address operand (`CALL @LABEL`), so a jump written with it is now an error that says so, for all 38 relative forms (the jumps, DJNZ, BTJO/BTJZ and BTJOP/BTJZP). An undefined jump target is an error too (it encoded offset 0), and so is a target further than -128..127 from the next instruction (the offset wrapped to a different place); the message gives the distance.
+- **A printout on a CoCo no longer starts with a NUL.** The no-ROM stub made PIA1's PA1 (the RS-232 out) an output
+  while its output register held 0, so the line dropped to space at every start and the 600-baud serial printer
+  printed a $00 before anything a program sent (MAME 0.264 prints the same from that order). The stub now puts mark
+  there first, as a printer routine leaves the line, on every CoCo-lineage model and the CoCo 3; the Dragons, whose
+  port A is the parallel printer's, are unchanged. `run.js coco --printer --stub-init` compares the stub's start with
+  MAME byte for byte; `tests/stub-printer.test.js` checks the printed bytes.
+- **A printout on an MC-10 or Alice no longer starts with a stray byte.** Their no-ROM stub wrote port 2's DDR before
+  its data register, so P20 (the serial printer's line) dropped to space for a moment and the printer printed a $FF
+  at power-on, or garbled a program's first byte. The stub now writes the data register first; and the 6803 itself
+  now drives port 2 only once its data register has been written, as MAME's m6801 does, so a program that sets the DDR
+  first prints no stray byte either (the flag lives in the 6803's state; a file saved before it restores as driven).
+  `run.js mc10 --printer --stub-init` and `--glitch` (and `alice`, `coco`) give the bytes MAME 0.264 prints, identical.
 - **A disk in a drive counts toward the install offer.** The page's "program in use" test (the one the
   offer to install CLOADM as an app waits a minute of) asked the machine for a disk controller it never has, so a disk
   waiting in a drive at the bare prompt never counted; it now asks the drives (`session.drives.controllerOf`). The

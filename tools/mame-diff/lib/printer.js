@@ -12,7 +12,8 @@ const { lockstep } = require('./lockstep');
 const { runMame } = require('./mame');
 
 // t: { label, system, work, args, regs, waitOps, haltPc, install(), machine(), doneAddr, text, seconds,
-//      atReset: bytes the printer receives when the machine is reset, before the firmware runs }
+//      atReset: bytes the printer receives when the machine is reset, before the firmware runs,
+//      glitched: bytes a glitch firmware's glitch prints before its own (printer-glitch.asm: [$FF]) }
 async function runPrinter(t, { trace = true } = {}) {
   let ok = true;
   t.install();
@@ -43,7 +44,7 @@ end)
     else if (after > 0) after--;
   }
   const ours = m.printed.slice();
-  const expected = [...(t.atReset || []), ...Array(256).keys(), ...Buffer.from(t.text, 'latin1')];
+  const expected = [...(t.atReset || []), ...(t.glitched || []), ...Array(256).keys(), ...Buffer.from(t.text, 'latin1')];
   const same = (a, b) => a && b && a.length === b.length && a.every((v, i) => v === b[i]);
   const firstDiff = (a, b) => { for (let i = 0; i < Math.max(a.length, b.length); i++) if (a[i] !== b[i]) return i; return -1; };
   if (!mame) { console.log(`[${t.label}] MAME wrote no printer file`); ok = false; }
@@ -55,7 +56,7 @@ end)
     const i = firstDiff(expected, ours);
     console.log(`[${t.label}] both printed the same ${ours.length} bytes, but not what the firmware sent: first difference at byte ${i}`);
     ok = false;
-  } else console.log(`[${t.label}] printer output identical: ${ours.length} bytes (${t.atReset && t.atReset.length ? `${t.atReset.length} at reset, ` : ''}every value 0-255 and the text), MAME and ours`);
+  } else console.log(`[${t.label}] printer output identical: ${ours.length} bytes (${t.atReset && t.atReset.length ? `${t.atReset.length} at reset, ` : ''}${t.glitched && t.glitched.length ? `${t.glitched.length} from the glitch, ` : ''}every value 0-255 and the text), MAME and ours`);
   if (ok) fs.rmSync(t.work, { recursive: true, force: true });
   return ok ? 0 : 1;
 }
