@@ -109,7 +109,8 @@ function mameRecord({ profileId = 'coco', seconds = SECONDS } = {}) {
 local m = manager.machine
 local pic = m.devices[":ext:ssc:pic7040"].spaces["program"]
 local rows = {}
-pic:install_write_tap(0x0108, 0x0108, "aywrites", function(off, data, mask)
+-- the tap is kept in a global: MAME removes a tap whose handle is collected
+TAP = pic:install_write_tap(0x0108, 0x0108, "aywrites", function(off, data, mask)
   if (data & 0x49) == 0x08 then rows[#rows + 1] = string.format("AYW %.15f", m.time:as_double()) end
 end)
 emu.register_stop(function() for _, r in ipairs(rows) do print(r) end end)`;

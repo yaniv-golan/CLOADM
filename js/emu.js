@@ -10,7 +10,7 @@ export { CPU6309 } from './cpu/cpu6309.js';
 export { CPU6803 } from './cpu/cpu6803.js';
 export { CPU7000 } from './cpu/cpu7000.js';
 export { MC6821 } from './chips/mc6821.js';
-export { SP0256, OPCODE_UNMAPPED } from './chips/sp0256.js';
+export { SP0256 } from './chips/sp0256.js';
 export { MC6847 } from './chips/mc6847.js';
 export { MC6845 } from './chips/mc6845.js';
 export { SAM6883 } from './chips/sam6883.js';

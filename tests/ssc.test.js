@@ -166,9 +166,11 @@ function host() {
   outputs(d);
   d.picPort(0x010A, 0x05);   // port D: allophone 5
   d.picPort(0x0108, 0x20);   // port C: ALD high
-  check('ALD high alone does not load an address', d.sp0256.ibf === false);
+  check('ALD high alone does not load an address', d.sp0256.lrq === true && d.sp0256.ald === 0);
   d.picPort(0x0108, 0x00);   // ALD falls
-  check('the ALD falling edge loads the allophone (ssc_port_c_w)', d.sp0256.ibf === true && d.sp0256.ib === 0x05, `${d.sp0256.ibf} ${hex(d.sp0256.ib)}`);
+  // the chip takes entry 5 (a bit offset of 5 x 16 from $1000) and drops LRQ until its sequencer takes it
+  check('the ALD falling edge loads the allophone (ssc_port_c_w)', d.sp0256.lrq === false && d.sp0256.ald === 0x05 << 4,
+    `lrq ${d.sp0256.lrq} ald ${hex(d.sp0256.ald, 3)}`);
   // a port D value of 64 or more is not an allophone
   const d2 = pak();
   d2.attach(host());
@@ -176,15 +178,23 @@ function host() {
   d2.picPort(0x010A, 0x40);
   d2.picPort(0x0108, 0x20);
   d2.picPort(0x0108, 0x00);
-  check('a port D value of 64 or more does not load an allophone', d2.sp0256.ibf === false, hex(d2.sp0256.ib));
+  check('a port D value of 64 or more does not load an allophone', d2.sp0256.lrq === true && d2.sp0256.ald === 0, hex(d2.sp0256.ald, 3));
 }
-// The status read reflects the SP0256's SBY on bit 6 (ff7d_read case 1: "if (m_spo->sby_r()) data |= 0x40").
+// The status read reflects the SP0256's SBY on bit 6 (ff7d_read case 1: "if (m_spo->sby_r()) data |= 0x40"):
+// high while the chip is idle, low from an address load until the allophone has played. Entry 2 of our image
+// (gen-roms.js) is a LOAD_E of repeat 1 at pitch 30: two pitch periods of 31 samples, under 10 ms at 10 kHz.
 {
+  const h = host();
   const d = pak();
-  d.attach(host());
+  d.attach(h);
   outputs(d);
-  d.sp0256.waiting = true;
-  check('$FF7E bit 6 follows the SP0256 SBY line (ff7d_read case 1)', (d.readIO(0xFF7E) & 0x40) !== 0, hex(d.readIO(0xFF7E)));
+  check('$FF7E bit 6 is high while the SP0256 is idle', (d.readIO(0xFF7E) & 0x40) !== 0, hex(d.readIO(0xFF7E)));
+  d.picPort(0x010A, 0x02);
+  d.picPort(0x0108, 0x20);
+  d.picPort(0x0108, 0x00);
+  check('... low once an allophone is loaded (ff7d_read case 1)', (d.readIO(0xFF7E) & 0x40) === 0, hex(d.readIO(0xFF7E)));
+  h.advance(20000);
+  check('... and high again when it has played', (d.readIO(0xFF7E) & 0x40) !== 0, hex(d.readIO(0xFF7E)));
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -271,6 +281,9 @@ function host() {
   const h = host();
   const d = pak();
   d.attach(h);
+  const loads = [];
+  const load = d.sp0256.loadAddress;
+  d.sp0256.loadAddress = function (v) { loads.push(v); return load.call(this, v); };
   h.advance(2000);
   check('the firmware reaches its wait loop with interrupts enabled, without any card access',
     d.tms7040.intEnable && d.tms7040.pc >= 0xF000, `${hex(d.tms7040.pc, 4)} st ${hex(d.tms7040.st)}`);
@@ -282,8 +295,8 @@ function host() {
   check('with INT3 masked the card takes no interrupt and the busy flag stays set',
     (d.readIO(0xFF7E) & 0x80) === 0, hex(d.readIO(0xFF7E)));
   check('and the PIC is still in its WAIT loop', d.tms7040.pc === 0xF01C, hex(d.tms7040.pc, 4));
-  check('the command did not reach the SP0256 or the AY', d.sp0256.ib === 0 && d.ay.latch === 0,
-    `${hex(d.sp0256.ib)} ${hex(d.ay.latch)}`);
+  check('the command did not reach the SP0256 or the AY', loads.length === 0 && d.ay.latch === 0,
+    `${loads.length} address loads, AY latch ${hex(d.ay.latch)}`);
 }
 
 // 7b. with INT3 enabled per the manual, the same command is serviced end to end
@@ -298,14 +311,16 @@ function host() {
   d.attach(h);
   h.advance(2000);
   d.tms7040.writeIocnt0(0x30);   // INT3 enable (bit 4) + INT3 flag clear (bit 5): Figure 3-16
+  const loads = [];
+  const load = d.sp0256.loadAddress;
+  d.sp0256.loadAddress = function (v) { loads.push(v); return load.call(this, v); };
   check('IOCNT0 $30 enables INT3', (d.tms7040.iocnt0 & 0x10) !== 0, hex(d.tms7040.iocnt0));
 
   d.writeIO(0xFF7E, 0x33);   // allophone 51, and a low nibble of 3 for the AY
   h.advance(2000);           // give the card the time to service it
   check('the firmware releases the busy line when it is done', (d.readIO(0xFF7E) & 0x80) !== 0, hex(d.readIO(0xFF7E)));
-  // the allophone reached the chip: IB holds it. (ibf, the "address waiting" flag, has already been consumed
-  // by the sequencer running on, which is itself the proof the chip is executing.)
-  check('the SP0256 was given the allophone number', d.sp0256.ib === 0x33, hex(d.sp0256.ib));
+  // the allophone reached the chip, through its address load
+  check('the SP0256 was given the allophone number', loads.length === 1 && loads[0] === 0x33, loads.map((v) => hex(v)).join(','));
   check('the AY latched a register from the command', d.ay.latch === 0x3, hex(d.ay.latch));
   check('and was written a data byte', d.ay.regs[3] === 0x3, hex(d.ay.regs[3]));
 }

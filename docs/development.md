@@ -133,7 +133,7 @@ node tests/held-writeio.test.js # a write from outside during a held access: que
 node tests/coco3.test.js     # CoCo 3: MMU, GIME interrupts, timer, speed, video
 node tests/gime-vsc.test.js  # CoCo 3: the GIME's vertical fine scroll ($FF9C), line by line against rows worked out from the sources
 node tests/mc10.test.js      # MC-10: 6803 core, assembler plugin, machine
-node tests/sp0256.test.js    # SP0256 speech chip: sequencer, paging, branches, handshake, RCU, timing (GI design spec)
+node tests/sp0256.test.js    # SP0256 speech chip: bit order, every instruction, handshake, timing, our assembler
 node tests/liza6803.test.js  # LIZA for the 6803: same conversation as the 6809 build on mc10 and alice; BREAK, CLEAR, backspace
 node tests/state.test.js     # snapshots: save mid-run and part-way along a swept line, restore, identical frames
 node tests/state-fdc.test.js # the same for floppy controllers mid-transfer, one machine per controller (the slow part of the old state suite)
